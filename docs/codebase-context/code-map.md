@@ -677,12 +677,18 @@ apps/frontend/
                                froze); v2.6: bonusOn (Ruling 7 (plan): active, builder_bonus !==
                                false, not a campaign; SQL twin `g.status = 'active' AND
                                g.builder_bonus AND g.campaign IS NULL`), boardSlug /
-                               roundKeyFromSlug / resolveRoundParam (Ruling 12 (plan))
+                               roundKeyFromSlug / resolveRoundParam (Ruling 12 (plan)); v2.8.1 §D:
+                               rollsOver (the program ended: window passed or closed), rolloverRounds
+                               (earliest end first), rolloverPrograms (the repo's submitted, complete
+                               entries by the deposit time), bonusEntryProgram (where the repo token's
+                               fees book now, for the Also qualifies note)
     bonus-ledger.ts(+test,     v2.5 builder bonus ledger: BASE_BONUS (FeeLocker, lockers, WETH, Safe),
       +anvil.test)             STORE_TOKENS/CLAIMED_REWARDS, bonusDeposits (attribution: next
                                ClaimedRewards of the sending locker), bonusRpc, scanForward (adaptive
                                getLogs), indexDeposits (cursor), bookDeposit (an open round follows
-                               the program window), collectNearEnd (isRevert: only a revert skips a
+                               the program window; v2.8.1 §D: once the coin's program is over, the
+                               repo's next open entry via rolloverRound, else the Safe; a booked
+                               deposit is never moved), lockRound, collectNearEnd (isRevert: only a revert skips a
                                locker), claimFees (M10: also when the sweep waits on it),
                                sweepToSafe (payWinner + sweepStore), worthIt (10x gas),
                                indexedThrough, roundsCovered, sendCall (run nonce floor, I5),
@@ -777,7 +783,9 @@ apps/frontend/
                                GitHubBudget, CLANKER_ADDRESSES, scorableContracts, ownContracts,
                                eligibleSql (v2.6 Ruling 6 (plan): excludes an owner test
                                installation, EARNKIT_TEST_INSTALLATIONS, for both the entry and the
-                               earlier entry it would otherwise be blocked by), review_flags (single_commit_streak),
+                               earlier entry it would otherwise be blocked by; v2.8.1 §D coinSql:
+                               the repo's token carried from an ended program counts for a
+                               coinless entry; scoredCoinSql scores it), review_flags (single_commit_streak),
                                resolveBonusWallet, scoreRound (daily cache in bonus_scores, batched),
                                scoreOpenRounds (needsOwner: an ended round's scoring failure, once),
                                canFreeze/readyToFreeze (+24 h escape, flagged; no final read also

@@ -20,6 +20,7 @@ import {
   resolveBonusWallet,
   scoreOpenRounds,
   scoreRound,
+  scoredCoinSql,
   signalsFor,
   type Signals,
   type TractionDeps,
@@ -859,5 +860,56 @@ test('v2.8 Rulings 2-3 (plan): eligibleSql needs a launched token, a complete en
   } finally {
     await sql()`DELETE FROM projects WHERE program_id = ${PID4}`;
     await sql()`DELETE FROM programs WHERE id = ${PID4}`;
+  }
+});
+
+test('v2.8.1 §D: the entry a token rolls over to is eligible on the carried token, only once the token\'s program is over; scored on it', db, async () => {
+  const stamp = `${process.pid}-${Date.now()}`;
+  const HOME = `t5-home-${stamp}`;
+  const NEXT = `t5-next-${stamp}`;
+  const KEY = `github.com/t5-carry/${stamp}`;
+  const COIN = '0x' + 'c5'.repeat(20);
+  const program = (id: string, starts: string, ends: string, o: { bonus?: boolean } = {}) => sql()`
+    INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary,
+      status, existing_work, starts_at, ends_at, builder_bonus)
+    VALUES (${id}, 'X', ${id}, 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed',
+      ${starts}, ${ends}, ${o.bonus ?? true})`;
+  const entry = async (name: string, o: { complete?: Date | null; skip?: boolean; at?: Date } = {}) => {
+    const at = o.at ?? d('2026-10-12T00:00:00Z');
+    const [row] = await sql()<{ id: number }[]>`
+      INSERT INTO projects (program_id, name, submission_proof_ok_at, submitted_at, bonus_repo_key, complete_at, confirm_choice)
+      VALUES (${NEXT}, ${name}, ${at}, ${at}, ${KEY}, ${o.complete === undefined ? at : o.complete}, ${o.skip ? 'skip' : 'go'})
+      RETURNING id`;
+    return row.id;
+  };
+  const ends = d('2026-10-31T00:00:00Z');
+  const eligible = async (e = ends) =>
+    new Set((await sql()<{ id: number }[]>`SELECT p.id FROM projects p WHERE p.program_id = ${NEXT} AND ${eligibleSql(e)}`).map((r) => r.id));
+  try {
+    await program(HOME, '2026-10-01T00:00:00Z', '2026-10-10T00:00:00Z');
+    await program(NEXT, '2026-10-05T00:00:00Z', '2026-10-31T00:00:00Z');
+    await sql()`
+      INSERT INTO projects (program_id, name, coin_address, coin_launched_at, token_url, token_repo_key, bonus_repo_key,
+        submission_proof_ok_at, complete_at, confirm_choice)
+      VALUES (${HOME}, 't5 home', ${COIN}, '2026-10-02T00:00:00Z', 'https://tokens.fun/coin/x', ${KEY}, ${KEY},
+        '2026-10-02T00:00:00Z', '2026-10-02T00:00:00Z', 'go')`;
+    const next = await entry('next');
+    await entry('incomplete', { complete: null });
+    await entry('skipped', { skip: true });
+    // One per repo: a later entry of the same repo in the same program never counts.
+    await entry('later', { at: d('2026-10-13T00:00:00Z') });
+    assert.deepEqual(await eligible(), new Set([next]));
+    // The home program still runs at this round's end: the token is not carried (no double entry).
+    assert.deepEqual(await eligible(d('2026-10-09T00:00:00Z')), new Set());
+    // A home program that opted out never carries its token.
+    await sql()`UPDATE programs SET builder_bonus = false WHERE id = ${HOME}`;
+    assert.deepEqual(await eligible(), new Set());
+    await sql()`UPDATE programs SET builder_bonus = true WHERE id = ${HOME}`;
+    // Scoring reads the carried token's signals (scoreRound selects scoredCoinSql as coin_address).
+    const [row] = await sql()<{ coin: string }[]>`SELECT ${scoredCoinSql()} AS coin FROM projects p WHERE p.id = ${next}`;
+    assert.equal(row.coin, COIN);
+  } finally {
+    await sql()`DELETE FROM projects WHERE program_id IN (${HOME}, ${NEXT})`;
+    await sql()`DELETE FROM programs WHERE id IN (${HOME}, ${NEXT})`;
   }
 });

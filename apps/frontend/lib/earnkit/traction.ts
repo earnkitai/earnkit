@@ -553,6 +553,37 @@ export async function signalsFor(
 }
 
 /**
+ * v2.8.1 §D (option B): the entry `e` has a token for a round ending `endsAt`: its own, launched
+ * before the end; or, with none of its own, its repo's one EarnKit token (`token_repo_key` =
+ * its `bonus_repo_key`), launched before the end and entered in another program with the builder
+ * bonus whose round is over before this one ends (its window ended, or it closed). That token's
+ * later fees roll over to the repo's next open entry (bonus-ledger.ts rolloverRound), so that entry
+ * competes for them. SQL twin of bonus-rounds.ts rollsOver for eligibility.
+ */
+export const coinSql = (e: 'p' | 'q', endsAt: Date | postgres.Fragment) => {
+  const x = sql()(e);
+  return sql()`(
+    (${x}.coin_address IS NOT NULL AND ${x}.coin_launched_at < ${endsAt})
+    OR (${x}.coin_address IS NULL AND ${x}.bonus_repo_key IS NOT NULL AND EXISTS (
+      SELECT 1 FROM projects tk JOIN programs hg ON hg.id = tk.program_id
+      WHERE tk.token_repo_key = ${x}.bonus_repo_key AND tk.token_url IS NOT NULL
+        AND tk.coin_address IS NOT NULL AND tk.coin_launched_at < ${endsAt}
+        AND tk.program_id <> ${x}.program_id
+        AND hg.builder_bonus AND hg.campaign IS NULL
+        AND (hg.status <> 'active' OR hg.ends_at < ${endsAt}))))`;
+};
+
+/**
+ * v2.8.1 §D: the token an entry is scored on: its own coin, else its repo's EarnKit token from
+ * another program (coinSql says when that one counts). For `projects p`.
+ */
+export const scoredCoinSql = () => sql()`COALESCE(p.coin_address, (
+  SELECT tk.coin_address FROM projects tk
+  WHERE tk.token_repo_key = p.bonus_repo_key AND tk.token_url IS NOT NULL AND tk.coin_address IS NOT NULL
+    AND tk.program_id <> p.program_id
+  ORDER BY tk.id LIMIT 1))`;
+
+/**
  * The builder bonus eligibility rule in SQL, for `projects p` in a round ending `endsAt`
  * (projects.ts bonusEligible is its pure twin): a coin launched and a submission that counts
  * (`submission_proof_ok_at`, on any v2.6 basis: page, unverified_page or confirmed; a v2.5 row
@@ -566,13 +597,15 @@ export async function signalsFor(
  * and a confirmation never skipped (`confirm_choice` 'skip' is final, even if a token launches
  * later; NULL is an older agent's entry that never saw the step). Both for `p` and for the earlier
  * same-repo entry `q`.
+ * v2.8.1 §D (option B): the token may also be the repo's one token carried from another program
+ * whose round is over (coinSql), so the entry its fees roll over to can win them.
  * Task 7 picks winners with this (finalRanking), never from a stored rank. `endsAt` may be a SQL
  * fragment (a joined round's `r.ends_at`, alerts.ts).
  */
 export const eligibleSql = (endsAt: Date | postgres.Fragment) => {
   const testIds = testInstallationIds();
   return sql()`
-  p.coin_address IS NOT NULL AND p.coin_launched_at < ${endsAt}
+  ${coinSql('p', endsAt)}
   AND p.complete_at IS NOT NULL AND p.complete_at < ${endsAt}
   AND p.confirm_choice IS DISTINCT FROM 'skip'
   AND p.submission_proof_ok_at IS NOT NULL AND p.submission_proof_ok_at < ${endsAt}
@@ -581,7 +614,7 @@ export const eligibleSql = (endsAt: Date | postgres.Fragment) => {
   AND NOT EXISTS (
     SELECT 1 FROM projects q
     WHERE q.program_id = p.program_id AND q.bonus_repo_key IS NOT NULL AND q.bonus_repo_key = p.bonus_repo_key
-      AND q.coin_address IS NOT NULL AND q.coin_launched_at < ${endsAt}
+      AND ${coinSql('q', endsAt)}
       AND q.complete_at IS NOT NULL AND q.complete_at < ${endsAt}
       AND q.confirm_choice IS DISTINCT FROM 'skip'
       AND q.submission_proof_ok_at IS NOT NULL AND q.submission_proof_ok_at < ${endsAt}
@@ -632,7 +665,7 @@ export async function scoreRound(roundKey: string, deps: TractionDeps = {}) {
   const round: TractionRound = { key: roundKey, starts: r.starts_at, ends: r.ends_at };
   const ended = now >= round.ends;
   const entries = await sql()<TractionEntry[]>`
-    SELECT p.id, p.contracts, p.repo_url, p.live_url, p.coin_address, p.creator_wallet, p.payout_wallet, p.deployers,
+    SELECT p.id, p.contracts, p.repo_url, p.live_url, ${scoredCoinSql()} AS coin_address, p.creator_wallet, p.payout_wallet, p.deployers,
       p.submitted_at, i.github_user AS builder_login
     FROM projects p LEFT JOIN installations i ON i.id = p.installation_id
     WHERE p.program_id = ${r.program_id} AND ${eligibleSql(round.ends)}

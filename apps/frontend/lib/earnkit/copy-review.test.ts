@@ -15,6 +15,7 @@ import {
   noCoinYet,
   notReadyTokenNote,
   walletLine,
+  BONUS_MOVES,
 } from './entry-text';
 import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { bonusClose, presentFirstMessage, type Card, type FirstMessage } from './present';
@@ -608,6 +609,7 @@ const confirmTexts: [string, string][] = [
   ['NEEDS_REPO', NEEDS_REPO],
   ['NO_TOKEN_HERE', NO_TOKEN_HERE],
   ['bonusRidesOn', bonusRidesOn('Arc Microgrants')],
+  ['BONUS_MOVES', BONUS_MOVES],
   ['walletQuestion', walletQuestion(OFFER_WALLET, true)],
   ['walletQuestion: no bonus', walletQuestion(OFFER_WALLET, false)],
   ['TOKEN_ERROR_CONFIRM', TOKEN_ERROR_CONFIRM],

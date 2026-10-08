@@ -237,7 +237,7 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
     assert.equal(recorded.project_id, confirmed.project_id);
     assert.ok(recorded.also_qualifies?.some((r) => r.title === 'Base Builder Grant Program'), JSON.stringify(recorded.also_qualifies));
     // v2.8.1 §C13: the bonus note, once, positively, in the Also qualifies block.
-    assert.ok(recorded.show_to_builder.endsWith('Your builder bonus rides on your Arc Microgrants entry.'), recorded.show_to_builder);
+    assert.ok(recorded.show_to_builder.endsWith('Your builder bonus rides on your Arc Microgrants entry. Your builder bonus moves to your next entry when a program ends.'), recorded.show_to_builder);
 
     // 7. "Enter it here too" for Base: one round, pinned. (The brief's "at most 1" holds only once
     //    the bank answers something the coach would ask: Task 9's `first` rule, accepted in its

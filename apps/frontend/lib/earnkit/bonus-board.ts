@@ -3,7 +3,7 @@ import { placesFor, roundRows, type BonusPayoutRow, type BonusTerms } from './bo
 import { bonusOn, roundFor } from './bonus-rounds';
 import { roundEndLabel } from './entry-text';
 import { testInstallationIds } from './installations';
-import { eligibleSql } from './traction';
+import { coinSql, eligibleSql } from './traction';
 import { shownUrl } from './untrusted-text';
 
 /**
@@ -207,7 +207,7 @@ export async function bonusBoard(roundKey: string, now = new Date()): Promise<Bo
     const testIds = testInstallationIds();
     const entries = await sql()<OpenEntry[]>`
       SELECT p.id, p.name, p.repo_url, p.live_url, p.submitted_at,
-        (p.coin_address IS NOT NULL) AS coin, (p.submission_proof_ok_at IS NOT NULL) AS proof,
+        (p.coin_address IS NOT NULL OR ${coinSql('p', r.ends_at)}) AS coin, (p.submission_proof_ok_at IS NOT NULL) AS proof,
         (g.submission_proof IS NOT NULL) AS pattern,
         (p.complete_at IS NOT NULL AND p.complete_at < ${r.ends_at}) AS complete,
         (p.confirm_choice IS NOT DISTINCT FROM 'skip') AS skipped,

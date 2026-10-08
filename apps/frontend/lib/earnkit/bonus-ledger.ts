@@ -16,9 +16,10 @@ import {
   toEventSelector,
   type Hex,
 } from 'viem';
+import type postgres from 'postgres';
 import type { LocalAccount } from 'viem/accounts';
 import { base } from 'viem/chains';
-import { bookingFor } from './bonus-rounds';
+import { bookingFor, rollsOver, rolloverPrograms, rolloverRounds, type Round } from './bonus-rounds';
 import { blockscout } from './campaigns';
 import { sql } from './db';
 import { LOG_CHUNK, LOG_CHUNK_MIN, RATE_BACKOFF_MS, logError } from './escrow';
@@ -249,40 +250,80 @@ export async function indexedThrough(): Promise<{ block: bigint; time: Date | nu
   return r?.block != null ? { block: BigInt(r.block), time: r.block_time } : null;
 }
 
+type BonusProgram = { id: string; starts_at: Date | null; ends_at: Date | null; status: string; builder_bonus: boolean | null; campaign: unknown };
+
+/**
+ * Takes `round` of `programId` for a booking: creates its row 'open' on its first deposit, moves
+ * an open row's window to the program file's (Ruling 21: an extended end keeps the round; a
+ * frozen one never changes), and locks it (a freeze never races a deposit). Its state.
+ */
+async function lockRound(tx: postgres.TransactionSql, programId: string, round: Round) {
+  await tx`
+    INSERT INTO bonus_rounds (round_key, program_id, starts_at, ends_at)
+    VALUES (${round.key}, ${programId}, ${round.starts}, ${round.ends})
+    ON CONFLICT (round_key) DO UPDATE SET starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at
+    WHERE bonus_rounds.state = 'open'
+      AND (bonus_rounds.starts_at, bonus_rounds.ends_at) IS DISTINCT FROM (EXCLUDED.starts_at, EXCLUDED.ends_at)`;
+  const [r] = await tx<{ state: string }[]>`SELECT state FROM bonus_rounds WHERE round_key = ${round.key} FOR UPDATE`;
+  return r.state;
+}
+
+/**
+ * v2.8.1 §D (option B): the round a deposit at `at` rolls over to once its coin's program round is
+ * over: the earliest still-open round (rolloverRounds) of another program in which the same repo
+ * (the coin's `token_repo_key`) has a submitted, complete entry (rolloverPrograms). A round
+ * already frozen or paid is passed over, never touched. Null: the Safe, as before.
+ */
+export async function rolloverRound(
+  tx: postgres.TransactionSql,
+  coin: { project: number; program: string; repoKey: string | null },
+  at: Date,
+): Promise<string | null> {
+  const programs = await rolloverPrograms(tx, coin, at);
+  for (const c of rolloverRounds(programs, at)) if ((await lockRound(tx, c.programId, c.round)) === 'open') return c.round.key;
+  return null;
+}
+
 /**
  * Books one deposit, idempotently on (tx_hash, log_index): to the open round of the program its coin
- * was entered in, at the block's time; else to the Safe (no coin, not an EarnKit coin, no open
- * round, the program opted out or is a campaign, or the round is no longer 'open'), logged. The round row is
- * created 'open' on its first deposit and locked while booking, so a freeze never races a deposit.
+ * was entered in, at the block's time; once that round is over (v2.8.1 §D: the window ended, the
+ * program closed, or the round froze), to the repo's next open entry (rolloverRound); else to the
+ * Safe (no coin, not an EarnKit coin, no open round, the program opted out or is a campaign),
+ * logged. The round row is created 'open' on its first deposit and locked while booking, so a
+ * freeze never races a deposit. A deposit already booked is never moved.
  */
 export async function bookDeposit(
   dep: { txHash: string; logIndex: number; amount: bigint; coin: string | null; blockNumber: bigint; blockTime: Date },
   log: (line: string) => void = console.log,
 ): Promise<{ destination: 'round' | 'safe'; roundKey: string | null; inserted: boolean }> {
   return sql().begin(async (tx) => {
+    // A deposit already booked is never moved (and never re-read for a rollover).
+    const [booked] = await tx<{ round_key: string | null; destination: 'round' | 'safe' }[]>`
+      SELECT round_key, destination FROM bonus_ledger WHERE tx_hash = ${lower(dep.txHash)} AND log_index = ${dep.logIndex}`;
+    if (booked) return { destination: booked.destination, roundKey: booked.round_key, inserted: false };
     let roundKey: string | null = null;
     let reason = 'no ClaimedRewards from its locker after it in the transaction';
     if (dep.coin) {
-      const [p] = await tx<{ id: string; starts_at: Date | null; ends_at: Date | null; status: string; builder_bonus: boolean | null; campaign: unknown }[]>`
-        SELECT g.id, g.starts_at, g.ends_at, g.status, g.builder_bonus, g.campaign
+      const [p] = await tx<(BonusProgram & { project: number; repo_key: string | null })[]>`
+        SELECT g.id, g.starts_at, g.ends_at, g.status, g.builder_bonus, g.campaign, p.id AS project, p.token_repo_key AS repo_key
         FROM projects p JOIN programs g ON g.id = p.program_id
         WHERE p.coin_address = ${dep.coin}`;
       if (!p) reason = `${dep.coin} is not an EarnKit coin`;
       else {
         const b = bookingFor(p, dep.blockTime);
+        let over = rollsOver(p, dep.blockTime);
         if (b.destination === 'safe') reason = `${p.id}: ${b.reason}`;
         else {
-          // Ruling 21: an open round's window follows the program file (an extended end keeps
-          // the round); a frozen one never changes.
-          await tx`
-            INSERT INTO bonus_rounds (round_key, program_id, starts_at, ends_at)
-            VALUES (${b.round.key}, ${p.id}, ${b.round.starts}, ${b.round.ends})
-            ON CONFLICT (round_key) DO UPDATE SET starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at
-            WHERE bonus_rounds.state = 'open'
-              AND (bonus_rounds.starts_at, bonus_rounds.ends_at) IS DISTINCT FROM (EXCLUDED.starts_at, EXCLUDED.ends_at)`;
-          const [r] = await tx<{ state: string }[]>`SELECT state FROM bonus_rounds WHERE round_key = ${b.round.key} FOR UPDATE`;
-          if (r.state === 'open') roundKey = b.round.key;
-          else reason = `round ${b.round.key} is ${r.state}`;
+          const state = await lockRound(tx, p.id, b.round);
+          if (state === 'open') roundKey = b.round.key;
+          else {
+            reason = `round ${b.round.key} is ${state}`;
+            over = true;
+          }
+        }
+        if (!roundKey && over) {
+          roundKey = await rolloverRound(tx, { project: p.project, program: p.id, repoKey: p.repo_key }, dep.blockTime);
+          if (!roundKey) reason += '; no open entry of its repo to roll over to';
         }
       }
     }

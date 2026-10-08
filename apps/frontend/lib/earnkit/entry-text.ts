@@ -170,6 +170,12 @@ export const REPO_HELD = 'Another entry of this repo already holds its token and
  */
 export const bonusRidesOn = (program: string) => `Your builder bonus rides on your ${program} entry.`;
 
+/**
+ * v2.8.1 §D (option B): the token's later fees roll over to the repo's next open entry once its
+ * program's round is over. Said once, next to bonusRidesOn, in the Also qualifies block only.
+ */
+export const BONUS_MOVES = 'Your builder bonus moves to your next entry when a program ends.';
+
 export type EnteredText = {
   programTitle: string;
   coin:

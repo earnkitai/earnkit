@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { boardSlug, bonusOn, bookingFor, resolveRoundParam, roundFor, roundKeyFromSlug, roundPoolsWei, windowKey } from './bonus-rounds';
+import { boardSlug, bonusOn, bookingFor, resolveRoundParam, rollsOver, rolloverRounds, roundFor, roundKeyFromSlug, roundPoolsWei, windowKey } from './bonus-rounds';
 import { sql } from './db';
 import { getProgram } from './programs';
 import { holdBonusDbLock } from './fixtures/bonus-db-lock';
@@ -9,6 +9,50 @@ import { committedProgram } from './fixtures/program-file';
 const d = (s: string) => new Date(s);
 const windowed = { id: 'arc', starts_at: d('2026-09-16T10:00:00Z'), ends_at: d('2026-10-15T04:00:00Z') };
 const rolling = { id: 'base-grants', starts_at: null, ends_at: null };
+
+test('v2.8.1 §D rollsOver: only a builder-bonus program that has ended (window passed or closed), never before its start', () => {
+  const at = (x: string) => new Date(x);
+  const p = { id: 'arc', starts_at: at('2026-10-01T00:00:00Z'), ends_at: at('2026-10-08T00:00:00Z'), status: 'active', builder_bonus: true, campaign: null };
+  assert.equal(rollsOver(p, at('2026-10-07T23:59:59Z')), false, 'still open');
+  assert.equal(rollsOver(p, at('2026-10-08T00:00:00Z')), true, 'ends_at is exclusive');
+  assert.equal(rollsOver(p, at('2026-09-30T00:00:00Z')), false, 'before its start');
+  assert.equal(rollsOver({ ...p, status: 'closed' }, at('2026-10-03T00:00:00Z')), true, 'closed early');
+  assert.equal(rollsOver({ ...p, builder_bonus: false }, at('2026-10-09T00:00:00Z')), false, 'opted out');
+  assert.equal(rollsOver({ ...p, campaign: { kind: 'sponsor' } }, at('2026-10-09T00:00:00Z')), false, 'a campaign');
+  const rolling = { ...p, ends_at: null };
+  assert.equal(rollsOver(rolling, at('2027-03-01T00:00:00Z')), false, 'a rolling program never ends by date');
+  assert.equal(rollsOver({ ...rolling, status: 'closed' }, at('2027-03-01T00:00:00Z')), true);
+  // A windowed program with no start (no round, M4) still ends at its ends_at.
+  assert.equal(rollsOver({ ...p, starts_at: null }, at('2026-10-07T00:00:00Z')), false);
+  assert.equal(rollsOver({ ...p, starts_at: null }, at('2026-10-09T00:00:00Z')), true);
+});
+
+test('v2.8.1 §D rolloverRounds: the open round of each builder-bonus program, earliest end first', () => {
+  const at = new Date('2026-10-10T00:00:00Z');
+  const w = (id: string, starts: string, ends: string | null, o: { status?: string; builder_bonus?: boolean; campaign?: unknown } = {}) => ({
+    id,
+    starts_at: new Date(starts),
+    ends_at: ends ? new Date(ends) : null,
+    status: o.status ?? 'active',
+    builder_bonus: o.builder_bonus ?? true,
+    campaign: o.campaign ?? null,
+  });
+  const got = rolloverRounds(
+    [
+      w('late', '2026-10-01T00:00:00Z', '2026-10-30T00:00:00Z'),
+      w('rolling', '2026-01-01T00:00:00Z', null), // October's round ends Nov 1
+      w('soon', '2026-10-05T00:00:00Z', '2026-10-20T00:00:00Z'),
+      w('ended', '2026-10-01T00:00:00Z', '2026-10-09T00:00:00Z'),
+      w('future', '2026-10-15T00:00:00Z', '2026-10-25T00:00:00Z'),
+      w('optout', '2026-10-01T00:00:00Z', '2026-10-12T00:00:00Z', { builder_bonus: false }),
+      w('closed', '2026-10-01T00:00:00Z', '2026-10-12T00:00:00Z', { status: 'closed' }),
+      w('campaign', '2026-10-01T00:00:00Z', '2026-10-12T00:00:00Z', { campaign: { kind: 'sponsor' } }),
+    ],
+    at,
+  );
+  assert.deepEqual(got.map((r) => r.round.key), ['soon:2026-10-05', 'late:2026-10-01', 'rolling:2026-10']);
+  assert.deepEqual(rolloverRounds([], at), []);
+});
 
 test('roundFor: a windowed program is one round keyed by its start day, open inside its window only', () => {
   assert.deepEqual(roundFor(windowed, d('2026-10-01T00:00:00Z')), {
