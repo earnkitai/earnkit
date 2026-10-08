@@ -788,10 +788,14 @@ ALTER TABLE github_verifications ADD COLUMN IF NOT EXISTS wallet text;
 ALTER TABLE github_verifications ADD COLUMN IF NOT EXISTS symbol text;
 
 -- v2.9 B10: the builder said skip to a token offer for this repo; at 2 it is never offered again.
+-- Ruling G12: `login` is the builder ('' off shared clients, the verified login on one); `offers`
+-- holds the offers already counted, so a retried skip counts once.
 CREATE TABLE IF NOT EXISTS token_declines (
   installation_id integer NOT NULL REFERENCES installations(id) ON DELETE CASCADE,
+  login           text NOT NULL DEFAULT '',
   repo_key        text NOT NULL,
   count           integer NOT NULL DEFAULT 1,
+  offers          text[] NOT NULL DEFAULT '{}',
   last_at         timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (installation_id, repo_key)
+  PRIMARY KEY (installation_id, login, repo_key)
 );
