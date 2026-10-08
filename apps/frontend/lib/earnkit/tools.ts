@@ -84,7 +84,9 @@ import {
   askableKeys,
   preSubmitCheck,
   questionsFor,
+  type Fix,
 } from './coach';
+import { LIVE_FAILED_LINE, addressesFrom, contractMissingLine, entryVerified, type CheckDeps, type Verified } from './verify';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
 import { answerPickup, offerPickup, type PickupDeps } from './identity';
 import type { FieldKind } from './program-file';
@@ -124,7 +126,50 @@ export type ToolContext = {
   bonusEntry?: (repoKey: string) => Promise<{ program_id: string; title: string } | null | undefined>;
   /** Test and e2e injection only; never set by the MCP route. */
   matchProjects?: typeof matchProjects;
+  /** v2.9 A5: test injection only: the link probe, getCode and cache for the entry checks. */
+  verifyDeps?: CheckDeps;
 };
+
+/**
+ * v2.9 A5: one entry step's link and contract checks (one ENTRY_BUDGET), or undefined for an
+ * EarnKit campaign (checked at entry its own way) or when there is no live link to check and no
+ * required item filled from live_url. The live link is the answer to that item, else the
+ * project's. Never throws.
+ */
+async function entryChecks(
+  program: ProgramRow,
+  project: { live_url?: string; contracts?: string[] } | undefined,
+  answers: Record<string, string>,
+  ctx: ToolContext,
+): Promise<Verified | undefined> {
+  if (program.campaign) return undefined;
+  const liveUrl = entryLiveUrl(program, project, answers);
+  // A live link given to a program that doesn't ask for one is still checked (live_verified).
+  if (!liveUrl && !program.submission_requirements.some((r) => r.required && r.project_field === 'live_url')) return undefined;
+  const needsContract = program.needs_contract ?? null;
+  const addresses = needsContract ? addressesFrom({ answers, liveUrl, chain: needsContract, stored: project?.contracts }) : [];
+  try {
+    return await entryVerified({ liveUrl, needsContract, addresses }, ctx.verifyDeps);
+  } catch (err) {
+    console.error('[verify] entry', err instanceof Error ? err.name : 'error');
+    return { live: false, contract: null, needsContract };
+  }
+}
+
+/** v2.9 A5: the live link an entry gives: the answer to the item filled from live_url, else the project's. Pure. */
+function entryLiveUrl(program: ProgramRow, project: { live_url?: string } | undefined, answers: Record<string, string>): string | null {
+  const req = program.submission_requirements.find((r) => r.required && r.project_field === 'live_url');
+  return (req && answers[req.key]?.trim()) || project?.live_url?.trim() || null;
+}
+
+/** v2.9 A5: the one fix line a failed check adds (never blocking), or null. Pure. */
+function checkFix(v: Verified | undefined, liveGiven: boolean): Fix | null {
+  if (!v || !liveGiven) return null;
+  if (!v.live) return { key: 'live_url', rule: 'unverified', for: 'builder', text: LIVE_FAILED_LINE };
+  if (v.needsContract && v.contract !== true)
+    return { key: 'live_url', rule: 'unverified', for: 'builder', text: contractMissingLine(v.needsContract) };
+  return null;
+}
 
 /**
  * v2.8.1 §E17 (T6 carry): this installation's remembered wallet, never on a hosted agent
@@ -313,6 +358,8 @@ async function bonusNoteTitle(repoKey: string, home: string, ctx: ToolContext): 
 async function alsoQualifiesBlock(
   parsed: z.infer<typeof RecordSubmissionInput>,
   ctx: ToolContext,
+  /** v2.9 A5: the entry's live link loaded in this step's check (live_verified). */
+  liveVerified: boolean,
 ): Promise<{ rows: AlsoRow[]; text: string | null }> {
   const repoUrl = parsed.project.repo_url ?? null;
   const name = parsed.project.name;
@@ -337,7 +384,8 @@ async function alsoQualifiesBlock(
     // Final review I1: fields the project info fills (repo, live link, name) are not "left".
     project: parsed.project,
     // Review fix round 1, item 3: the live-product gate reads the project's own live link.
-    hasLiveProduct: Boolean(parsed.project.live_url),
+    // v2.9 A5: only a live link that loaded from here (live_verified) counts as a live product.
+    hasLiveProduct: liveVerified,
     now: new Date(),
   });
   // v2.8.1 §D (the T4 carry): name the round the token's fees book to, after rollover.
@@ -806,6 +854,11 @@ export const tools = {
     // v2.7 §3, Ruling 15 (plan): readiness first. While required items are missing, the screen
     // leads with them and there is no token offer, wallet or ticker check yet.
     const prep = prepareSubmission(program.submission_requirements, known);
+    // v2.9 A5: once the draft is ready, this step's link and contract checks. A failed check never
+    // blocks the screen or the offer: it is one fix line, and the entry reads not ready (missing).
+    const verified = open && prep.ready ? await entryChecks(program, known.project, known.answers ?? {}, ctx) : undefined;
+    const checkedPrep = verified ? prepareSubmission(program.submission_requirements, { ...known, verified }) : prep;
+    const failedCheck = checkFix(verified, entryLiveUrl(program, known.project, known.answers ?? {}) !== null);
     // C5: as short to-dos (the program's `todo`, else the label normalized); an item given but
     // invalid says "(check it)", its problem is in missing[].problem for the agent.
     const reqs = new Map(program.submission_requirements.map((r) => [r.key, r]));
@@ -928,7 +981,7 @@ export const tools = {
         questions,
         coach,
         ready: false,
-        missing: prep.missing,
+        missing: checkedPrep.missing,
         agent_note: askWallet ? `${QUESTIONS_NOTE} ${WALLET_ANSWER_NOTE}` : QUESTIONS_NOTE,
       });
 
@@ -980,7 +1033,7 @@ export const tools = {
           knownLinks: [repoUrl ?? '', known.project?.live_url ?? ''],
         })
       : [];
-    const fixes = checked.filter((f) => f.for === 'builder');
+    const fixes = [...(failedCheck ? [failedCheck] : []), ...checked.filter((f) => f.for === 'builder')];
     const agent_fixes = checked.filter((f) => f.for === 'agent');
     const show_to_builder = prep.ready
       ? [
@@ -1008,8 +1061,9 @@ export const tools = {
           }
         : { coach }),
       // Review Minor 7: the final values are the kit's job (confirm_entry); this is the draft check.
-      ...prep,
-      complete: prep.complete.map((c) => ({ key: c.key, label: c.label, filled_from: c.filled_from })),
+      // v2.9 A5: readiness and missing items include this step's checks.
+      ...checkedPrep,
+      complete: checkedPrep.complete.map((c) => ({ key: c.key, label: c.label, filled_from: c.filled_from })),
       ...(token && {
         token: {
           proposed: shownPair ? { ...token.proposed, ...shownPair } : token.proposed,
@@ -1051,13 +1105,20 @@ export const tools = {
       answers,
     });
     const values = Object.fromEntries(filled.complete.map((c) => [c.key, c.value]));
+    // v2.9 A5: this step's link and contract checks: stored on the entry, read for completeness,
+    // and a failed one is one fix line (never blocking).
+    const verified = await entryChecks(program, i.project, answers, ctx);
+    const failedCheck = checkFix(verified, entryLiveUrl(program, i.project, answers) !== null);
     // Part D.4: the check before submitting, run before the decision; never blocking.
-    const fixes = preSubmitCheck({
-      reqs: program.submission_requirements,
-      answers: values,
-      judging: program.judging ?? null,
-      knownLinks: [repoUrl ?? '', i.project.live_url ?? ''],
-    });
+    const fixes = [
+      ...(failedCheck ? [failedCheck] : []),
+      ...preSubmitCheck({
+        reqs: program.submission_requirements,
+        answers: values,
+        judging: program.judging ?? null,
+        knownLinks: [repoUrl ?? '', i.project.live_url ?? ''],
+      }),
+    ];
     const canPush = i.agent?.can_push !== false;
     const facts = await offerFacts(program, repoUrl, ctx);
     const decision = confirmDecision({
@@ -1107,6 +1168,7 @@ export const tools = {
       answers,
       choice: decision.kind === 'skip' ? 'skip' : 'go',
       now: new Date(),
+      verified,
       // A new entry counts against the 20 a day (Ruling 1 (plan)); an update never does.
       charge: () => enforce('recordSubmission', ctx.installationId, 'This agent has recorded 20 submissions today, the daily limit.'),
     });
@@ -1269,7 +1331,10 @@ export const tools = {
       ctx.installationId,
       'This agent has checked 60 entries in the last hour.',
     );
+    // v2.9 A5: this step's link and contract checks, stored on the entry and read for completeness.
+    const verified = await entryChecks(await getProgramRow(parsed.program_id), parsed.project, answersOf(parsed.submission_data), ctx);
     const result = await recordSubmission(parsed, ctx.installationId, {
+      verified,
       ...ctx.entryDeps,
       charge: () =>
         enforce(
@@ -1377,7 +1442,7 @@ export const tools = {
           join: 'bonus_join' in result ? result.bonus_join : null,
         };
     }
-    const also = await alsoQualifiesBlock(parsed, ctx).catch((err: unknown) => {
+    const also = await alsoQualifiesBlock(parsed, ctx, verified?.live === true).catch((err: unknown) => {
       console.error('[also_qualifies]', err instanceof Error ? err.name : 'error');
       return null;
     });
