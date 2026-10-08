@@ -18,6 +18,8 @@ import {
   programUpdates,
   table,
   TOKEN_LINE,
+  tokenOffer,
+  tokenOfferFit,
   youCould,
   type Card,
   type CampaignRow,
@@ -891,4 +893,65 @@ test('4.7 a Base row missing real users reads Hard and sorts after an Easy Arc r
   // "Also open" keeps the program level.
   const also = presentFirstMessage(msg({ cards: [baseCard, arcCard], repos: fit('tipjar', 'arc-microgrants') }));
   assert.match(also, /\| Base Builder Grant Program \| [^|]+ \| Medium \(estimate\) \|/);
+});
+
+// ---- v2.9 B10 (T6): the token offer closes the first reply
+
+const OFFER_FACTS = { project: 'TipJar', program: 'Arc Microgrants', prize_usd: 500, proposal: { name: 'TipJar', symbol: 'TIP' }, hasBonus: true, walletKnown: true };
+
+test('6.1 tokenOffer: the spec line, word for word', () => {
+  assert.equal(
+    tokenOffer(OFFER_FACTS),
+    'TipJar fits Arc Microgrants: $500. Launch $TIP (TipJar) on Base now? You earn 40% of its trading fees, plus a shot at the builder bonus. yes / skip',
+  );
+});
+
+test('6.2 tokenOffer: no wallet known asks for it in the same line; no bonus drops the bonus words', () => {
+  assert.ok(
+    tokenOffer({ ...OFFER_FACTS, walletKnown: false }).endsWith(' builder bonus. Say yes with your wallet address, or skip.'),
+  );
+  assert.equal(
+    tokenOffer({ ...OFFER_FACTS, hasBonus: false }),
+    'TipJar fits Arc Microgrants: $500. Launch $TIP (TipJar) on Base now? You earn 40% of its trading fees. yes / skip',
+  );
+  assert.ok(tokenOffer({ ...OFFER_FACTS, prize_usd: 5000 }).startsWith('TipJar fits Arc Microgrants: $5,000. '));
+});
+
+test('6.3 presentFirstMessage: with tokenOffer the reply ends with it, no other offer and no token line; without it, v2.8.1 close', () => {
+  const m = msg({ cards: [base, arc], repos: fit('tipjar', 'arc-microgrants', 'https://github.com/alice/tipjar') });
+  const line = tokenOffer(OFFER_FACTS);
+  const withOffer = presentFirstMessage({ ...m, tokenOffer: line });
+  assert.ok(withOffer.endsWith(`\n\n${line}`), withOffer);
+  assert.doesNotMatch(withOffer, /Want me to/);
+  assert.ok(!withOffer.includes(TOKEN_LINE));
+  assert.ok(!withOffer.includes('Every entry gets a token that pays you'));
+  assert.equal(withOffer.split('40%').length, 2);
+  const without = presentFirstMessage(m);
+  assert.ok(without.endsWith(`Want me to start on Arc Microgrants with tipjar? ${TOKEN_LINE}`), without);
+  assert.doesNotMatch(without, /40%|skip/);
+});
+
+test('6.4 (pure) tokenOfferFit: an owned, product-tier, quick fit in table order; never project tier, slow, entered, off or a repo with a token', () => {
+  const url = 'https://github.com/alice/tipjar';
+  const product = (tier: 'product' | 'project', missing: ('owned' | 'readme')[] = []) => ({ score: tier === 'product' ? 6 : 4, tier, missing });
+  const one = (o: { tier?: 'product' | 'project'; missing?: ('owned' | 'readme')[]; status?: Verdict['status']; effort?: Verdict['effort']; card?: Partial<Card>; repo_url?: string | null }) =>
+    msg({
+      cards: [{ ...arc, ...o.card }],
+      repos: { checked: 1, fits: [{ repo: 'tipjar', repo_url: o.repo_url === undefined ? url : o.repo_url, verdicts: [v('arc-microgrants', o.status ?? 'likely', '', o.effort ?? 'hours')], product: product(o.tier ?? 'product', o.missing) }] },
+    });
+  const pick = tokenOfferFit(one({}));
+  assert.equal(pick?.card.id, 'arc-microgrants');
+  assert.equal(pick?.repo_url, url);
+  assert.equal(tokenOfferFit(one({ status: 'after_step' }))?.card.id, 'arc-microgrants');
+  assert.equal(tokenOfferFit(one({ tier: 'project' })), undefined);
+  assert.equal(tokenOfferFit(one({ missing: ['owned'] })), undefined);
+  assert.equal(tokenOfferFit(one({ effort: 'days' })), undefined);
+  assert.equal(tokenOfferFit(one({ repo_url: null })), undefined);
+  assert.equal(tokenOfferFit(one({ card: { token_policy: 'off' } })), undefined);
+  assert.equal(tokenOfferFit(one({ card: { investment: true } })), undefined);
+  assert.equal(tokenOfferFit(one({ card: { max_award_usd: null } })), undefined);
+  assert.equal(tokenOfferFit({ ...one({}), entries: [{ program_id: 'arc-microgrants', title: 'Arc', name: 'tipjar', submitted: false }] }), undefined);
+  assert.equal(tokenOfferFit({ ...one({}), hidden: { notInterested: new Set(['arc-microgrants']), applied: new Set() } }), undefined);
+  assert.equal(tokenOfferFit({ ...one({}), repoCoins: new Map([['github.com/alice/tipjar', { program_id: 'other', title: 'Other' }]]) }), undefined);
+  assert.equal(tokenOfferFit(one({}), new Set(['github.com/alice/tipjar'])), undefined);
 });

@@ -140,6 +140,11 @@ export type FirstMessage = {
    * entries" as "applied outside EarnKit".
    */
   hidden?: { notInterested: Set<string>; applied: Set<string> };
+  /**
+   * v2.9 B10 (tokenOffer): the token offer for the best owned, product-tier fit. When set it closes
+   * the reply alone: no other offer and no token line (the offer says "40%" for this entry flow).
+   */
+  tokenOffer?: string;
 };
 
 /** v2.9 A3: a program the builder applied to outside EarnKit, in "Your entries". */
@@ -396,7 +401,7 @@ const noMatch = (r: YourRepos | null) => noRepo(r) || (r !== null && 'error' in 
 /** v2.9 A4: a matched row's difficulty (guide.ts rowDifficulty), or null when the program has none. */
 type RowLevel = { level: Level; estimate: boolean } | null;
 /** `key`, `product_score`: the repo's key and score (match-loop.ts recordShown), when matching gave them. */
-type Fit = { card: Card; repo: string; repo_url: string | null; v: Verdict; row: RowLevel; key: string | null; product_score: number | null };
+export type Fit = { card: Card; repo: string; repo_url: string | null; v: Verdict; row: RowLevel; key: string | null; product_score: number | null };
 
 /**
  * v2.9 A4: a matched row's difficulty, from its program level (difficultyOf) and the
@@ -613,6 +618,11 @@ export function presentFirstMessage(given: FirstMessage): string {
   // first instead, so the campaign offer stays the last line.
   // Final review M4: an offer whose row says "no builder bonus" (Ruling 25: the repo's token is
   // entered elsewhere) takes the campaign form too, and that program's pool isn't counted as "other".
+  // v2.9 B10: the token offer, when there is one, is the reply's one closing offer.
+  if (m.tokenOffer) {
+    sections.push(m.tokenOffer);
+    return sections.join('\n\n');
+  }
   const close = offer(m, byId, rows, ideas.length > 0, entered);
   const apart = close.campaign || !!close.noBonusId;
   const bonus = bonusClose([...rows.map((r) => r.card), ...shown].filter((c) => c.id !== close.noBonusId), apart);
@@ -620,6 +630,59 @@ export function presentFirstMessage(given: FirstMessage): string {
   else if (apart) sections.push(bonus, close.text);
   else sections.push(`${close.text} ${bonus}`);
   return sections.join('\n\n');
+}
+
+/** v2.9 B10: what the first reply's token offer names. */
+export type TokenOfferFacts = { project: string; program: string; prize_usd: number; proposal: { name: string; symbol: string }; hasBonus: boolean; walletKnown: boolean };
+
+/**
+ * v2.9 B10: the first reply's closing offer when an owned, product-tier fit exists: "TipJar fits Arc
+ * Microgrants: $500. Launch $TIP (TipJar) on Base now? You earn 40% of its trading fees, plus a shot
+ * at the builder bonus. yes / skip". The wallet is asked in the same line only when none is known. Pure.
+ */
+export function tokenOffer(t: TokenOfferFacts): string {
+  const head = `${t.project} fits ${t.program}: $${t.prize_usd.toLocaleString('en-US')}.`;
+  const ask = `Launch $${t.proposal.symbol} (${t.proposal.name}) on Base now?`;
+  const why = `You earn 40% of its trading fees${t.hasBonus ? ', plus a shot at the builder bonus' : ''}.`;
+  const answer = t.walletKnown ? 'yes / skip' : 'Say yes with your wallet address, or skip.';
+  return `${head} ${ask} ${why} ${answer}`;
+}
+
+/** v2.9 B10 (Ruling 12): efforts quick enough for the token offer (hours or less). */
+const QUICK_EFFORTS = new Set<Effort>(['none', 'minutes', 'hours']);
+
+/**
+ * v2.9 B10 (Ruling 12): the matched row the first reply's token offer is for, in table order: its
+ * repo is a public repo the builder owns, at product tier; the verdict is likely or after one step,
+ * with effort of hours or less; the program is offerable (curated, not an investment, no entry yet,
+ * not hidden), gives tokens, has a known prize; the repo has no token yet and is not in `blocked`
+ * (normalized repo keys declined twice). Launch availability is the caller's. Pure.
+ */
+export function tokenOfferFit(given: FirstMessage, blocked: Set<string> = new Set()): Fit | undefined {
+  const hidden = new Set([...(given.hidden?.notInterested ?? []), ...(given.hidden?.applied ?? [])]);
+  const m = hidden.size ? { ...given, cards: given.cards.filter((c) => !hidden.has(c.id)) } : given;
+  const anyEntry = new Set((m.entries ?? []).map((e) => e.program_id));
+  const fits = m.repos && 'fits' in m.repos ? m.repos.fits : [];
+  const product = (url: string) => fits.find((f) => f.repo_url === url)?.product;
+  return layout(m).rows.find((r) => {
+    if (!r.repo_url) return false;
+    const p = product(r.repo_url);
+    const key = normalizeRepoUrl(r.repo_url);
+    return (
+      p?.tier === 'product' &&
+      !p.missing.includes('owned') &&
+      r.v.status !== 'no' &&
+      QUICK_EFFORTS.has(r.v.effort) &&
+      !r.card.sponsored &&
+      !r.card.investment &&
+      !r.card.earnkit_campaign &&
+      r.card.token_policy !== 'off' &&
+      (r.card.max_award_usd ?? 0) > 0 &&
+      !anyEntry.has(r.card.id) &&
+      !m.repoCoins?.has(key) &&
+      !blocked.has(key)
+    );
+  });
 }
 
 const isEasy = (c: Card) => c.difficulty?.level === 'Easy';
