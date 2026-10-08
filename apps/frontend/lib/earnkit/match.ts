@@ -337,7 +337,26 @@ export function applyBuilderFacts(f: RepoFacts, said: SaidRepo | undefined): (Re
     claims.add('live');
   }
   if (said.has_users) claims.add('users');
+  // A mainnet claim the builder took back (testnet only) is no claim.
+  if (claimedMainnets(chains).length === 0) claims.delete('mainnet');
   return { ...f, chains, homepage, claims: [...claims] };
+}
+
+/** v2.9 A3: the chains whose mainnet only a claim backs. Pure. */
+export const claimedMainnets = (d: Detection): Chain[] =>
+  (Object.entries(d) as [Chain, Detection[Chain]][]).filter(([, v]) => v?.mainnet && v.evidence === CLAIMED_MAINNET).map(([c]) => c);
+
+/**
+ * v2.9 A3 (item 5 verifies a claim): a contract with code on a claimed chain's mainnet makes that
+ * chain's mainnet a fact; the mainnet claim stays only while another claimed chain is unverified. Pure.
+ */
+export function confirmMainnets<F extends RepoFacts>(f: F, withCode: Chain[]): F {
+  const hit = claimedMainnets(f.chains).filter((c) => withCode.includes(c));
+  if (hit.length === 0) return f;
+  const chains: Detection = { ...f.chains };
+  for (const c of hit) chains[c] = { ...chains[c]!, evidence: `a contract with code on ${CHAIN_NAMES[c]} mainnet` };
+  const claims = claimedMainnets(chains).length > 0 ? f.claims : f.claims?.filter((x) => x !== 'mainnet');
+  return { ...f, chains, claims };
 }
 
 export type ProgramFacts = {
