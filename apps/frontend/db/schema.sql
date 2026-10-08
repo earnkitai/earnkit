@@ -644,3 +644,18 @@ CREATE TABLE IF NOT EXISTS token_offers (
   offered_at      timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (installation_id, program_id, entry_key)
 );
+
+-- v2.8.1 §E17: the installation came from a hosted agent client (Grok Bot, Muse, a known hosted
+-- redirect host; oauth.ts isSharedClient), where one registration may serve many users: saved
+-- answers are reused only after a yes/no that names them, the remembered wallet is never suggested,
+-- and the per-agent launch floor is higher. Additive; FALSE for installations made before v2.8.1.
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS shared_client boolean NOT NULL DEFAULT false;
+-- v2.8.1 §E18: linked to this earlier installation (its group's root) after the builder's yes and
+-- the proof line (identity.ts); the MCP route acts as the root. NULL: not linked (its own root).
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS builder_id integer REFERENCES installations(id);
+CREATE INDEX IF NOT EXISTS installations_builder_id ON installations (builder_id) WHERE builder_id IS NOT NULL;
+-- v2.8.1 §E18: the pickup offer shown to this installation ({"offered": [root ids], "repo", "entries"})
+-- and the groups the builder said no to ({"declined": [root ids]}). Never shown publicly.
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS pickup jsonb;
+-- v2.8.1 §E18: matching a stated GitHub user or wallet against earlier installations.
+CREATE INDEX IF NOT EXISTS installations_github_user ON installations (lower(github_user)) WHERE github_user IS NOT NULL;

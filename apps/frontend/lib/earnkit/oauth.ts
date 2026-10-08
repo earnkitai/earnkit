@@ -84,8 +84,71 @@ export function isAllowedRedirectUri(uri: string) {
   return !BLOCKED_SCHEMES.includes(url.protocol);
 }
 
-/** `n`: the registration nonce (v2.4+; client ids issued before v2.4 have none). */
-type ClientPayload = { r: string[]; n?: string };
+/**
+ * `n`: the registration nonce (v2.4+; client ids issued before v2.4 have none). `s`: 1 when the
+ * client registered as a hosted agent (v2.8.1 §E17, isSharedClient), so its client name, which the id
+ * doesn't carry, still counts at the token exchange.
+ */
+type ClientPayload = { r: string[]; n?: string; s?: 1 };
+
+/**
+ * v2.8.1 §E17: hosted agents, whose servers register and exchange tokens for many users, so one
+ * registration may serve many of them. Matched on the registered client name (whole words, any case)
+ * or a redirect URI's host (the host itself or a subdomain). Keep both lists short and explicit.
+ */
+export const HOSTED_CLIENT_NAMES = ['grok', 'muse', 'meta ai', 'xai'] as const;
+export const HOSTED_REDIRECT_HOSTS = [
+  'grok.com', // Grok Bot
+  'x.ai', // Grok Bot (xAI)
+  'x.com', // Grok on X
+  'meta.ai', // Muse (Meta)
+  'claude.ai', // Claude's hosted connectors
+  'chatgpt.com', // ChatGPT connectors
+  'openai.com', // ChatGPT connectors (older host)
+] as const;
+
+/** The https redirect hosts of a client (lowercase, no trailing dot); loopback and app schemes have none. Pure. */
+export function redirectHosts(uris: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const u of uris) {
+    try {
+      const url = new URL(u);
+      if (url.protocol === 'https:') out.push(url.hostname.toLowerCase().replace(/\.$/, ''));
+    } catch {
+      // not a URL: no host
+    }
+  }
+  return [...new Set(out)];
+}
+
+/** Whether a host is one of HOSTED_REDIRECT_HOSTS or a subdomain of one. Pure; exported for tests. */
+export const isHostedHost = (host: string) =>
+  HOSTED_REDIRECT_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
+
+/**
+ * v2.8.1 §E17: a hosted (shared) client, from its registered name or its redirect URIs. Pure;
+ * exported for tests.
+ */
+export function isSharedClient(metadata: { client_name?: unknown; redirect_uris?: unknown }): boolean {
+  const name = typeof metadata.client_name === 'string' ? metadata.client_name.toLowerCase() : '';
+  const words = ` ${name.replace(/[^a-z0-9]+/g, ' ').trim()} `;
+  if (name && HOSTED_CLIENT_NAMES.some((n) => words.includes(` ${n} `))) return true;
+  const uris = Array.isArray(metadata.redirect_uris) ? metadata.redirect_uris.filter((u): u is string => typeof u === 'string') : [];
+  return redirectHosts(uris).some(isHostedHost);
+}
+
+/**
+ * v2.8.1 §E17: who a registration or a new installation counts against, besides its IP: the agent
+ * app, by its first https redirect host (a hosted agent's users all share it). A client with no https
+ * redirect (loopback or an app scheme: a desktop or CLI agent) runs on the builder's own machine and
+ * counts per registration (`clientId`), else (at registration) not at all: the IP floor covers it.
+ * Pure; exported for tests.
+ */
+export function clientLimitKey(uris: readonly string[], clientId?: string): string | null {
+  const host = redirectHosts(uris)[0];
+  if (host) return `host:${host}`;
+  return clientId ? `client:${clientKeyOf(clientId)}` : null;
+}
 /**
  * The installation key of an OAuth client (v2.4 §5): the first 32 hex of sha256(client_id).
  * Re-authorizing the same client maps to the same installation. Never display or log client ids;
@@ -125,6 +188,7 @@ export function registerClient(metadata: {
     client_id: sign('client', {
       r: uris,
       n: randomBytes(16).toString('base64url'),
+      ...(isSharedClient(metadata) && { s: 1 as const }),
     } satisfies ClientPayload),
     client_id_issued_at: Math.floor(Date.now() / 1000),
     redirect_uris: uris,
@@ -198,6 +262,10 @@ export function authorize(params: URLSearchParams) {
 export function exchangeCode(form: URLSearchParams): {
   token: string;
   clientKey: string | undefined;
+  /** v2.8.1 §E17: a hosted agent client (isSharedClient), flagged on the installation. */
+  shared: boolean;
+  /** v2.8.1 §E17: what a new installation counts against besides its IP (clientLimitKey). */
+  limitKey: string;
 } {
   if (form.get('grant_type') !== 'authorization_code') {
     throw new OAuthError(
@@ -227,7 +295,13 @@ export function exchangeCode(form: URLSearchParams): {
     typeof client?.n === 'string' && client.n.length > 0
       ? clientKeyOf(payload.c)
       : undefined;
-  return { token: `ek_${mac('token', code)}`, clientKey };
+  const uris = client?.r ?? [payload.r];
+  return {
+    token: `ek_${mac('token', code)}`,
+    clientKey,
+    shared: client?.s === 1 || isSharedClient({ redirect_uris: uris }),
+    limitKey: clientLimitKey(uris, payload.c)!,
+  };
 }
 
 export function authorizationServerMetadata(origin: string) {

@@ -856,7 +856,10 @@ during the build); plan: `v2.4-money-first-plan.md`.
   installation to a token they hold. Low probability, accepted.
 - **Hosted clients reusing one registration merge users.** A hosted agent service that registers
   once and shares that client id across its users gives them all one installation (shared
-  memory, entries, limits and alerts).
+  memory, entries, limits and alerts). v2.8.1 §E17 narrows what leaks: such installs are flagged
+  `shared_client` (see "Hosted agents and identity" below), so saved answers and contact details
+  are only shown as a named yes/no, and the remembered wallet is never suggested. Entries and
+  alerts are still shared on a truly shared registration.
 - **Naming a wallet shows its public entries** (Ruling 15). `list_programs { wallet }` adds the
   wallet to the installation, and wins and standings of entries paid to it show in that agent's
   alerts. These are public facts (the campaign page shows them), but anyone can name any wallet.
@@ -2135,16 +2138,53 @@ throwaway database, real program files, fakes for tokens.fun and GitHub, no netw
   md, 16px apart), the uppercase eyebrow, Funnel Display headings, Funnel Sans light body text,
   and the v2.4 campaign table style.
 
+## Hosted agents and identity (v2.8.1 §E)
+
+- **`shared_client` (§E17).** `oauth.ts isSharedClient` flags a hosted agent client by its
+  registered name (`HOSTED_CLIENT_NAMES`: Grok, Muse, Meta AI, xAI; whole words) or a redirect
+  host (`HOSTED_REDIRECT_HOSTS`: grok.com, x.ai, x.com, meta.ai, claude.ai, chatgpt.com,
+  openai.com, and their subdomains). The flag rides in the signed client id (`s: 1`; the name is
+  only known at registration), is re-derived from the redirect host for older ids, and is stored
+  on `installations.shared_client` at the token exchange (never cleared by a re-authorization;
+  installations from before v2.8.1 stay `false` until they re-authorize). The MCP route passes it
+  as `ToolContext.sharedClient`. For flagged installs: `coach.ts bankFill(..., { confirmAll })`
+  fills nothing silently (every banked answer the coach asks about comes back as `suggested`,
+  asked as `Use "<saved answer>" again?`; banked answers for fields the agent drafts are left
+  out); `tools.ts walletMemory` returns no remembered wallet (the wallet is asked in the coach
+  round, never suggested); `token-launch.ts launchLimit` uses `tokenLaunchShared` (500/day per
+  agent) instead of 10, with the per-wallet 10/day still the real limit.
+- **Identity follows the builder (§E18, `identity.ts`).** `installations.builder_id` links an
+  installation to its group's root; `installations.ts connectInstallation` returns the root as the
+  id the tools act as (plus the token's own id and its flag), so every per-installation read
+  (entries, answer bank, memory, wallets, alerts, limits) is the group's with no query changes.
+  `list_programs` calls `offerPickup` with what this call states (the GitHub user, the owners of
+  repos and local_repos reported now, the wallet), never remembered state; matching earlier
+  installations (by github_user, installation wallets, or entries' repo owner or wallets) outside
+  the caller's group, with at least one entry in a GitHub repo, prepend "Pick up your N earlier
+  entries?" to `show_to_builder` and add `pick_up`. Asked once per set; a no is stored in
+  `installations.pickup.declined` and never asked again. The answer goes to the `pick_up_entries`
+  tool. A yes alone never links (a GitHub user or wallet is public): this agent's proof line
+  (`token: <tokenCode(own installation, repo)>`, the token launch's line) must be in the newest
+  earlier entry's repo, on the default branch or the latest pushed branch; until then the reply
+  tells the agent what to push. `linkInstallations` then merges in one transaction: the smallest
+  root stays, other roots' projects, sponsor drafts, answer bank (newer answer wins), wallets and
+  token offers move to it, its memory fills gaps from theirs, and every member points to it.
+  Proof codes after a link are the root's (an unlaunched entry made by the new install before the
+  link needs its line pushed again).
+
 ## Abuse limits and response headers (v2.2 §5)
 
 - **Rate limits** live in one place, `lib/earnkit/rate-limit.ts` (`LIMITS`, `enforce`), backed by
   Postgres `rate_windows` so they hold across instances: sponsor create 5/day (charged only for a
   valid create), sponsor draft replacements 10/day and
   record_submission 20/day per installation; at most 3 entries per installation per campaign
-  (counted in `recordSubmission` under the campaign's advisory lock); OAuth client registration
-  20/hour, authorize 60/hour and new installations 10/hour and 30/day per IP (the token endpoint
-  counts only codes that create an installation; a replayed code is free), since installations
-  are the identity every per-installation limit keys on; GitHub matching 30/hour per installation (when refused, list_programs still
+  (counted in `recordSubmission` under the campaign's advisory lock); authorize 60/hour per IP;
+  OAuth client registration and new installations (v2.8.1 §E17) 500/day per agent client
+  (`oauth.ts clientLimitKey`: the first https redirect host, so a hosted agent's users don't share
+  its servers' IP bucket; a loopback or app-scheme client counts per registration) and 50/hour per
+  IP as the abuse floor (the token endpoint counts only codes that create an installation; a
+  replayed code is free; a refusal logs `[oauth] <route> refused by <limit> (<redirect host>)`),
+  since installations are the identity every per-installation limit keys on; GitHub matching 30/hour per installation (when refused, list_programs still
   answers, with the readable reason in place of "your repos"); chain checks 60/min. MCP tools turn
   `RateLimitError` into a readable error; HTTP routes answer 429 with `Retry-After`. The client IP
   is `X-Real-IP` (set by Railway's edge, which serves earnkit.com directly), else the rightmost

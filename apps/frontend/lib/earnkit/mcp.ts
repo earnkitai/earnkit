@@ -103,6 +103,13 @@ const LIST_PROGRAMS_DESCRIPTION =
  * v2.8 Ruling C21: report_outcome is its own tool, so list_programs stays read-only (no approval
  * prompt on "What can I earn?").
  */
+/** v2.8.1 §E18: pick_up_entries' description. */
+const PICK_UP_ENTRIES_DESCRIPTION =
+  "Answers list_programs' pick_up question (\"Pick up your 2 earlier entries?\"): the builder's earlier entries from another " +
+  'agent or install, found by the GitHub user or wallet they gave now. Call it only with what the builder said. ' +
+  'On yes, their entries, saved answers and alerts move here once your proof line is in one of those repos; the reply says ' +
+  'what to push if it is missing. On no, nothing changes and it is not asked again.';
+
 const REPORT_OUTCOME_DESCRIPTION =
   "Stores the builder's answer to list_programs' ask_outcome question (did their entry win?) for their own entry. " +
   'Call it only with what the builder said; pass nothing when they do not know yet. It is kept as their own report: ' +
@@ -242,6 +249,7 @@ export function toolDescriptions(campaignOpen: boolean) {
     confirm_entry: CONFIRM_ENTRY_DESCRIPTION,
     launch_token: LAUNCH_TOKEN_DESCRIPTION,
     report_outcome: REPORT_OUTCOME_DESCRIPTION,
+    pick_up_entries: PICK_UP_ENTRIES_DESCRIPTION,
     sponsor_campaign: SPONSOR_CAMPAIGN_DESCRIPTION,
   };
 }
@@ -585,8 +593,22 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
     (input) => run(ctx, 'report_outcome', input),
   );
 
+  // v2.8.1 §E18: the builder's yes or no to picking up earlier entries. Lenient input: the tool reads
+  // yes and no in any form an agent passes them.
+  server.registerTool(
+    'pick_up_entries',
+    {
+      description: descriptions.pick_up_entries,
+      inputSchema: z.object({
+        answer: z.unknown().describe('The builder\'s answer: "yes" or "no"'),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    (input) => run(ctx, 'pick_up_entries', input),
+  );
+
   // Sponsor campaigns are offered only once EarnKit's escrow is configured on this deployment
-  // (ESCROW_FACTORY_ADDRESS set, ESCROW_CHAIN valid). Until then the server has the 7 builder
+  // (ESCROW_FACTORY_ADDRESS set, ESCROW_CHAIN valid). Until then the server has the 8 builder
   // tools, so no agent is ever offered a tool that can only fail.
   const escrowProblem = escrowConfigProblem();
   if (escrowProblem && process.env.ESCROW_FACTORY_ADDRESS)

@@ -16,15 +16,21 @@ export const LIMITS = {
   recordSubmission: { limit: 20, windowSeconds: 86_400 },
   /** record_submission checks (each reads GitHub, Base and the explorer), per installation (v2.4 §2). */
   entryChecks: { limit: 60, windowSeconds: 3_600 },
-  /** POST /oauth/register, per client IP. */
-  oauthRegister: { limit: 20, windowSeconds: 3_600 },
+  /** POST /oauth/register, per client IP: the abuse floor (v2.8.1 §E17). */
+  oauthRegister: { limit: 50, windowSeconds: 3_600 },
+  /** POST /oauth/register, per agent client (oauth.ts clientLimitKey: its https redirect host), v2.8.1 §E17. */
+  oauthRegisterClient: { limit: 500, windowSeconds: 86_400 },
   /** list_programs with GitHub matching (a user or repos), per installation. */
   githubMatching: { limit: 30, windowSeconds: 3_600 },
   /** Chain reads: POST /api/sponsor/[ref]/check per IP, sponsor_campaign status per installation. */
   chainChecks: { limit: 60, windowSeconds: 60 },
-  /** New installations (POST /oauth/token that creates one), per client IP: hourly and daily. */
-  installHour: { limit: 10, windowSeconds: 3_600 },
-  installDay: { limit: 30, windowSeconds: 86_400 },
+  /**
+   * v2.8.1 §E17: new installations (POST /oauth/token that creates one), per agent client
+   * (oauth.ts clientLimitKey), so a hosted agent's users don't share one IP's bucket; and per client
+   * IP as the abuse floor.
+   */
+  installClient: { limit: 500, windowSeconds: 86_400 },
+  installHour: { limit: 50, windowSeconds: 3_600 },
   /**
    * v2.8.1 §A4: token launches sent to tokens.fun, per creator wallet per UTC day (the EarnKit limit;
    * tokens.fun allows the same 10 for EarnKit-key launches). One token per repo still applies.
@@ -32,6 +38,11 @@ export const LIMITS = {
   tokenLaunchWallet: { limit: 10, windowSeconds: 86_400 },
   /** Token launches sent to tokens.fun, per installation per UTC day: an abuse floor, as high as the wallet limit. */
   tokenLaunch: { limit: 10, windowSeconds: 86_400 },
+  /**
+   * v2.8.1 §E17 (T2 carry): the same floor for a hosted agent (shared_client), where one registration
+   * may serve many builders; the per-wallet limit (10) stays the real one.
+   */
+  tokenLaunchShared: { limit: 500, windowSeconds: 86_400 },
   /** GET /oauth/authorize, per client IP. */
   oauthAuthorize: { limit: 60, windowSeconds: 3_600 },
   /** POST /api/cron, per client IP (v2.4 §8). */

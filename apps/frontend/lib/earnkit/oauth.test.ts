@@ -4,9 +4,13 @@ import { createHash, createHmac } from 'node:crypto';
 import {
   OAuthError,
   authorize,
+  HOSTED_REDIRECT_HOSTS,
   clientKeyOf,
+  clientLimitKey,
   exchangeCode,
   isAllowedRedirectUri,
+  isHostedHost,
+  isSharedClient,
   originFor,
   registerClient,
 } from './oauth';
@@ -228,4 +232,72 @@ test('v2.4: a client id issued before v2.4 (no nonce) still authorizes, keyed by
   assert.notEqual(first.token, second.token);
   assert.equal(first.clientKey, undefined);
   assert.equal(second.clientKey, undefined);
+});
+
+// ---- v2.8.1 §E17: hosted agent clients and the client limit key.
+
+test('v2.8.1 §E17: hosted clients are flagged by registered name or redirect host', () => {
+  // Grok Bot and Muse by name, whatever their redirect.
+  for (const client_name of ['Grok', 'Grok Bot', 'grok-connector', 'xAI Grok', 'Muse', 'Meta AI', 'Muse by Meta'])
+    assert.equal(isSharedClient({ client_name, redirect_uris: ['https://agent.example/cb'] }), true, client_name);
+  // Known hosted redirect hosts and their subdomains.
+  for (const uri of [
+    'https://grok.com/connectors/callback',
+    'https://auth.x.ai/cb',
+    'https://www.meta.ai/oauth/cb',
+    'https://claude.ai/api/mcp/auth_callback',
+    'https://chatgpt.com/connector_platform_oauth_redirect',
+    'https://GROK.COM./cb',
+  ])
+    assert.equal(isSharedClient({ redirect_uris: [uri] }), true, uri);
+  // Desktop and CLI agents, look-alike hosts and names inside other words are not.
+  for (const m of [
+    { client_name: 'Claude Code', redirect_uris: ['http://localhost:3334/callback'] },
+    { client_name: 'Cursor', redirect_uris: ['cursor://anysphere.cursor-retrieval/oauth/callback'] },
+    { client_name: 'Codex', redirect_uris: ['http://127.0.0.1:1455/auth/callback'] },
+    { client_name: 'Amused', redirect_uris: ['https://notgrok.com/cb'] },
+    { client_name: 'Groky', redirect_uris: ['https://grok.com.evil.example/cb'] },
+    { redirect_uris: ['https://evil-claude.ai/cb'] },
+  ])
+    assert.equal(isSharedClient(m), false, JSON.stringify(m));
+  assert.equal(isHostedHost('x.ai'), true);
+  assert.equal(isHostedHost('max.ai'), false);
+  assert.ok(HOSTED_REDIRECT_HOSTS.includes('grok.com'));
+});
+
+test('v2.8.1 §E17: the flag travels in the client id; the code exchange returns it and the client limit key', () => {
+  const hosted = registerClient({ redirect_uris: [redirect], client_name: 'Grok' });
+  const r = exchangeCode(tokenForm(hosted.client_id, codeOf(hosted.client_id)));
+  assert.equal(r.shared, true);
+  assert.equal(r.limitKey, 'host:grok.com');
+  // Named Muse with a plain redirect: the name is only known at registration, so the id carries it.
+  const muse = registerClient({ redirect_uris: ['https://agent.example/cb'], client_name: 'Muse' });
+  const code = new URL(
+    authorize(
+      new URLSearchParams({
+        response_type: 'code',
+        client_id: muse.client_id,
+        redirect_uri: 'https://agent.example/cb',
+        code_challenge: challenge,
+        code_challenge_method: 'S256',
+      }),
+    ),
+  ).searchParams.get('code')!;
+  const m = exchangeCode(
+    new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: 'https://agent.example/cb', code_verifier: verifier }),
+  );
+  assert.equal(m.shared, true);
+  assert.equal(m.limitKey, 'host:agent.example');
+  // A pre-v2.8.1 Grok client id (no flag) is still flagged by its redirect host.
+  const body = Buffer.from(JSON.stringify({ r: [redirect], n: 'abc' })).toString('base64url');
+  const sig = createHmac('sha256', 'test-secret').update(`client:${body}`).digest('base64url');
+  const old = `${body}.${sig}`;
+  assert.equal(exchangeCode(tokenForm(old, codeOf(old))).shared, true);
+});
+
+test('v2.8.1 §E17: clientLimitKey: the https redirect host, else the registration (desktop agents), else none', () => {
+  assert.equal(clientLimitKey(['https://Grok.com/cb', 'https://x.ai/cb']), 'host:grok.com');
+  assert.equal(clientLimitKey(['http://localhost:3334/cb', 'https://agent.example/cb']), 'host:agent.example');
+  assert.equal(clientLimitKey(['http://127.0.0.1:1455/auth/callback']), null);
+  assert.equal(clientLimitKey(['cursor://anysphere.cursor-retrieval/oauth/callback'], 'cid'), `client:${clientKeyOf('cid')}`);
 });

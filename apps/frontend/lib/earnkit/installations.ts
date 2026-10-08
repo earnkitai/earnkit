@@ -56,15 +56,18 @@ export async function installationExists(token: string, clientKey?: string) {
  * installation per OAuth client: a new token for a known client replaces its token (the old one
  * stops working), so entries, wins and memory carry over. Idempotent for replayed codes.
  */
-export async function saveInstallation(token: string, clientKey?: string) {
+export async function saveInstallation(token: string, clientKey?: string, shared = false) {
+  // v2.8.1 §E17: `shared` (a hosted agent client) is kept once set: a re-authorization never clears it.
   if (!clientKey) {
-    await sql()`INSERT INTO installations (token_hash) VALUES (${hash(token)}) ON CONFLICT (token_hash) DO NOTHING`;
+    await sql()`
+      INSERT INTO installations (token_hash, shared_client) VALUES (${hash(token)}, ${shared})
+      ON CONFLICT (token_hash) DO UPDATE SET shared_client = installations.shared_client OR EXCLUDED.shared_client`;
     return;
   }
   await sql()`
-    INSERT INTO installations (token_hash, client_key) VALUES (${hash(token)}, ${clientKey})
+    INSERT INTO installations (token_hash, client_key, shared_client) VALUES (${hash(token)}, ${clientKey}, ${shared})
     ON CONFLICT (client_key) WHERE client_key IS NOT NULL
-    DO UPDATE SET token_hash = EXCLUDED.token_hash`;
+    DO UPDATE SET token_hash = EXCLUDED.token_hash, shared_client = installations.shared_client OR EXCLUDED.shared_client`;
 }
 
 /**
@@ -156,12 +159,42 @@ export async function setWorkingOn(
     WHERE id = ${installationId}`;
 }
 
-/** The installation's id for this token (and marks it as seen), or null if unknown. */
-export async function touchInstallation(token: string) {
-  const [row] = await sql()<{ id: number }[]>`
+/** Who is calling: the installation the MCP tools act as, and the one the token belongs to. */
+export type Caller = {
+  /** v2.8.1 §E18: the group's root (the token's own installation when it isn't linked). */
+  id: number;
+  /** The token's own installation. */
+  own: number;
+  /** v2.8.1 §E17: the token's installation came from a hosted agent client. */
+  shared: boolean;
+};
+
+/**
+ * The caller for this token (and marks its installation as seen), or null if unknown. v2.8.1 §E18:
+ * a linked installation acts as its group's root, so entries, the answer bank, memory and alerts are
+ * the group's.
+ */
+export async function connectInstallation(token: string): Promise<Caller | null> {
+  const [row] = await sql()<{ id: number; own: number; shared: boolean }[]>`
     UPDATE installations SET last_seen_at = now()
-    WHERE token_hash = ${hash(token)} RETURNING id`;
-  return row?.id ?? null;
+    WHERE token_hash = ${hash(token)} RETURNING COALESCE(builder_id, id) AS id, id AS own, shared_client AS shared`;
+  return row ?? null;
+}
+
+/** The installation id the tools act as for this token (connectInstallation's `id`), or null if unknown. */
+export async function touchInstallation(token: string) {
+  return (await connectInstallation(token))?.id ?? null;
+}
+
+/**
+ * v2.8.1 §E17: whether any installation in this one's group came from a hosted agent client (the
+ * per-agent launch floor is then tokenLaunchShared).
+ */
+export async function sharedGroup(installationId: number) {
+  const [row] = await sql()<{ shared: boolean | null }[]>`
+    SELECT bool_or(shared_client) AS shared FROM installations
+    WHERE id = ${installationId} OR builder_id = ${installationId}`;
+  return row?.shared ?? false;
 }
 
 /**

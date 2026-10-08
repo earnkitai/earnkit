@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { isWalletAddress, normalizeLiveUrl, normalizeRepoUrl } from './campaigns';
 import { sql } from './db';
-import { rememberWallet } from './installations';
+import { rememberWallet, sharedGroup } from './installations';
 import { OWNERSHIP_FILE } from './ownership';
 import { bonusOn } from './bonus-rounds';
 import type { SubmissionRequirement, TokenPolicy } from './program-file';
@@ -473,18 +473,25 @@ const dbStore: FlowStore = {
  */
 export const WALLET_LIMITED = "Your token didn't launch: this wallet reached today's launch limit of 10.";
 export const AGENT_LIMITED = "Your token didn't launch: this agent reached today's launch limit of 10.";
+/** v2.8.1 §E17: the same refusal for a hosted agent (shared_client), whose floor is LIMITS.tokenLaunchShared. */
+export const SHARED_AGENT_LIMITED = `Your token didn't launch: this agent reached today's launch limit of ${LIMITS.tokenLaunchShared.limit}.`;
 export const launchLimit = async (installationId: number, wallet: string) => {
+  // v2.8.1 §E17 (T2 carry): a hosted agent's one registration may serve many builders, so its
+  // per-agent floor is higher; the wallet's 10 stays the real limit. A failed read keeps the low floor.
+  const shared = await sharedGroup(installationId).catch(() => false);
+  const agent = shared ? 'tokenLaunchShared' : 'tokenLaunch';
+  const agentLimited = shared ? SHARED_AGENT_LIMITED : AGENT_LIMITED;
   try {
     // The agent's first, so a refusal there never uses one of the wallet's 10.
-    await enforce('tokenLaunch', installationId, AGENT_LIMITED);
+    await enforce(agent, installationId, agentLimited);
     await enforce('tokenLaunchWallet', wallet.toLowerCase(), WALLET_LIMITED);
   } catch (err) {
     if (!(err instanceof RateLimitError)) throw err;
     const wallet = err.message.startsWith(WALLET_LIMITED);
     // The fixed window's end, exactly (the error's whole seconds would round a minute past it).
-    const windowMs = LIMITS[wallet ? 'tokenLaunchWallet' : 'tokenLaunch'].windowSeconds * 1000;
+    const windowMs = LIMITS[wallet ? 'tokenLaunchWallet' : agent].windowSeconds * 1000;
     const end = new Date(windowStart(new Date(), windowMs).getTime() + windowMs);
-    throw new LaunchError(`${wallet ? WALLET_LIMITED : AGENT_LIMITED} ${tryAgainAfter(end)}`);
+    throw new LaunchError(`${wallet ? WALLET_LIMITED : agentLimited} ${tryAgainAfter(end)}`);
   }
 };
 
