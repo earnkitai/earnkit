@@ -969,3 +969,7 @@ test('G13 (I1): a remembered wallet is named short with "yes / skip"; the reoffe
     'Launch $TJ (TipJar) on Base now? Say yes with your wallet address, or skip.',
   );
 });
+
+test('fix round 3 (G14): tokenOffer again leaves out the earnings sentence', () => {
+  assert.equal(tokenOffer({ ...OFFER_FACTS, again: true }), 'TipJar fits Arc Microgrants: $500. Launch $TIP (TipJar) on Base now? yes / skip');
+});

@@ -644,6 +644,8 @@ export type TokenOfferFacts = {
   wallet?: string | null;
   /** The wallet came from memory (default), not with this answer: "(used last time)". */
   remembered?: boolean;
+  /** Ruling G14: the first reply showed this offer already: no earnings sentence ("40%" said once). */
+  again?: boolean;
 };
 
 /** Ruling G13 (I1): the answer part of a token offer: the wallet shown with "yes / skip", else asked for. Pure. */
@@ -669,7 +671,7 @@ export function tokenOffer(t: TokenOfferFacts): string {
   const head = `${t.project} fits ${t.program}: $${t.prize_usd.toLocaleString('en-US')}.`;
   const ask = `Launch $${t.proposal.symbol} (${t.proposal.name}) on Base now?`;
   const why = `You earn 40% of its trading fees${t.hasBonus ? ', plus a shot at the builder bonus' : ''}.`;
-  return `${head} ${ask} ${why} ${offerAnswer(t)}`;
+  return t.again ? `${head} ${ask} ${offerAnswer(t)}` : `${head} ${ask} ${why} ${offerAnswer(t)}`;
 }
 
 /** v2.9 B10 (Ruling 12): efforts quick enough for the token offer (hours or less). */

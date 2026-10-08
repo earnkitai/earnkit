@@ -2633,7 +2633,8 @@ A GitHub OAuth App with no scopes; its callback URL is `<EARNKIT_URL>/github/ver
   Ruling G14 (M1): `token_offers.first_reply_at` marks an offer shown by the first reply. It stays
   when a later offer replaces the pair. When set (`firstReplyShown`, `offerFacts.firstShown`), the
   `prepare_submission` and `confirm_entry` offers use the repeat Yes line, so an unanswered first
-  offer keeps "40%" at once per flow.
+  offer keeps "40%" at once per flow. A second `list_programs` call before the builder answers
+  repeats the first-reply offer without the earnings sentence (`TokenOfferFacts.again`).
 
   `offerFacts` reads the count:
   - **One or more (P21):** the next Yes line is `again` (no "40%"), in `prepare_submission`, the
