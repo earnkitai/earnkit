@@ -39,6 +39,8 @@ export const VERIFY_PAGE = {
   notYours: "This GitHub account can't push to that repo. Sign in with the account that owns it.",
   failed: "Sign-in didn't finish. Ask your agent for a new link.",
   busy: 'Too many sign-ins from here. Try again in an hour.',
+  /** Spec B9: GitHub shows no permissions (an org repo a scopeless sign-in can't see): the proof line is the way. */
+  orgRepo: "GitHub doesn't show whether this account can push to that repo. Ask your agent to prove it with a short line in the repo instead.",
 } as const;
 
 export function githubVerifyEnabled(env: Record<string, string | undefined> = process.env): boolean {
@@ -61,7 +63,15 @@ export function normalizeCode(input: string | null | undefined): string | null {
 export const codeLine = (code: string) => `Done. Paste this code to your agent: ${formatCode(code)}`;
 
 export type VerifyPurpose = 'entry' | 'pickup' | 'host';
-export type NonceRow = { installation_id: number; project_id: number | null; repo_key: string; purpose: VerifyPurpose };
+export type NonceRow = {
+  installation_id: number;
+  project_id: number | null;
+  repo_key: string;
+  purpose: VerifyPurpose;
+  /** Ruling G11: the fee wallet and ticker the link was made for (entry links). */
+  wallet: string | null;
+  symbol: string | null;
+};
 
 /** The callback URL GitHub sends the builder back to (P47: from siteUrl, never the request). */
 export const callbackUrl = () => `${siteUrl()}/github/verify/callback`;
@@ -71,14 +81,23 @@ export const callbackUrl = () => `${siteUrl()}/github/verify/callback`;
  * installation, the entry (null for pickup) and the purpose: `<site>/github/verify?n=<nonce>`.
  */
 export async function createVerifyLink(
-  a: { installationId: number; projectId: number | null; repoKey: string; purpose: VerifyPurpose },
+  a: {
+    installationId: number;
+    projectId: number | null;
+    repoKey: string;
+    purpose: VerifyPurpose;
+    /** Ruling G11: an `entry` link needs the fee wallet the launch will use (shown, then bound). */
+    wallet?: string | null;
+    symbol?: string | null;
+  },
   now = new Date(),
 ): Promise<string> {
+  if (a.purpose === 'entry' && !a.wallet) throw new Error('An entry sign-in link needs the fee wallet first.');
   const nonce = randomBytes(32).toString('base64url');
   await sql()`
-    INSERT INTO github_verify_nonces (nonce_hash, installation_id, project_id, repo_key, purpose, created_at, expires_at)
+    INSERT INTO github_verify_nonces (nonce_hash, installation_id, project_id, repo_key, purpose, created_at, expires_at, wallet, symbol)
     VALUES (${sha256(nonce)}, ${a.installationId}, ${a.projectId}, ${a.repoKey.toLowerCase()}, ${a.purpose}, ${now},
-      ${new Date(now.getTime() + VERIFY_TTL_MS)})`;
+      ${new Date(now.getTime() + VERIFY_TTL_MS)}, ${a.wallet?.toLowerCase() ?? null}, ${a.symbol?.toUpperCase() ?? null})`;
   return `${siteUrl()}/github/verify?n=${nonce}`;
 }
 
@@ -97,28 +116,25 @@ export async function takeNonce(nonce: string, now = new Date()): Promise<NonceR
   const [row] = await sql()<NonceRow[]>`
     UPDATE github_verify_nonces SET used_at = ${now}
     WHERE nonce_hash = ${sha256(nonce)} AND used_at IS NULL AND expires_at > ${now}
-    RETURNING installation_id, project_id, repo_key, purpose`;
+    RETURNING installation_id, project_id, repo_key, purpose, wallet, symbol`;
   return row ?? null;
 }
 
 /**
- * launch_token: a sign-in link for this installation's entry, bound to it and its GitHub repo, and
- * the entry's name; null when the entry has no GitHub repo (or isn't this installation's).
+ * launch_token: a sign-in link for this installation's entry, bound to it, its GitHub repo, its fee
+ * wallet and ticker (Ruling G11), and the entry's name; null when the entry has no GitHub repo or
+ * no wallet yet (the wallet is asked first), or isn't this installation's.
  */
 export async function entryVerifyLink(installationId: number, projectId: number): Promise<{ link: string; name: string } | null> {
-  const [p] = await sql()<{ name: string; repo_url: string | null }[]>`
-    SELECT name, repo_url FROM projects WHERE id = ${projectId} AND installation_id = ${installationId}`;
+  const [p] = await sql()<{ name: string; repo_url: string | null; wallet: string | null; symbol: string | null }[]>`
+    SELECT name, repo_url, COALESCE(creator_wallet, payout_wallet) AS wallet, token_symbol AS symbol
+    FROM projects WHERE id = ${projectId} AND installation_id = ${installationId}`;
   const gh = p?.repo_url ? githubRepo(p.repo_url) : null;
-  if (!p || !gh) return null;
-  const link = await createVerifyLink({ installationId, projectId, repoKey: `${gh.owner}/${gh.repo}`, purpose: 'entry' });
+  if (!p || !gh || !p.wallet) return null;
+  const link = await createVerifyLink({
+    installationId, projectId, repoKey: `${gh.owner}/${gh.repo}`, purpose: 'entry', wallet: p.wallet, symbol: p.symbol,
+  });
   return { link, name: p.name };
-}
-
-/** Whether an entry link was already shown for this entry (a later "go" is then the second). */
-export async function entryLinkShown(projectId: number): Promise<boolean> {
-  const [row] = await sql()<{ ok: number }[]>`
-    SELECT 1 AS ok FROM github_verify_nonces WHERE project_id = ${projectId} AND purpose = 'entry' LIMIT 1`;
-  return Boolean(row);
 }
 
 /** v2.9 B9: the signed-in login owns the repo, or GitHub says it can push to it. Pure. */
@@ -202,16 +218,17 @@ export async function completeVerify(
     const user = await deps.user(token);
     // Only when the login isn't the owner: the repo read (with the user's scopeless token).
     const perms = user.login.toLowerCase() === owner.toLowerCase() ? null : await deps.repoPerms(token, owner, repo);
-    if (!ownershipPasses(user.login, { owner, repo }, perms)) return { ok: false, reason: VERIFY_PAGE.notYours };
+    if (!ownershipPasses(user.login, { owner, repo }, perms))
+      return { ok: false, reason: perms === null ? VERIFY_PAGE.orgRepo : VERIFY_PAGE.notYours };
     // Ruling G9: on a shared (hosted) client the builder gets a one-time code to paste to the agent;
     // only its sha256 is kept. It is how later calls there know who they are from.
     const paste = (await sharedGroup(row.installation_id)) ? newCode() : null;
     await sql()`
       INSERT INTO github_verifications (repo_key, login, installation_id, project_id, account_created_at, public_repos, verified_at, purpose,
-        code_hash, code_expires_at)
+        code_hash, code_expires_at, wallet, symbol)
       VALUES (${row.repo_key}, ${user.login.toLowerCase()}, ${row.installation_id}, ${row.project_id},
         ${new Date(user.created_at)}, ${user.public_repos}, ${now}, ${row.purpose},
-        ${paste && sha256(paste)}, ${paste && new Date(now.getTime() + CODE_TTL_MS)})`;
+        ${paste && sha256(paste)}, ${paste && new Date(now.getTime() + CODE_TTL_MS)}, ${row.wallet}, ${row.symbol})`;
     return { ok: true, repoKey: row.repo_key, ...(paste && { code: paste }) };
   } catch (err) {
     console.error('[github-verify] callback', err instanceof Error ? err.name : 'error');
@@ -219,7 +236,13 @@ export async function completeVerify(
   }
 }
 
-export type Verification = { login: string; account_created_at: Date; public_repos: number };
+export type Verification = {
+  login: string;
+  account_created_at: Date;
+  public_repos: number;
+  /** Ruling G11: the fee wallet the owner saw on the confirm page (lowercase; null on non-entry sign-ins). */
+  wallet: string | null;
+};
 
 /**
  * The newest passing verification of `repoKey` for this entry (`projectId`) or this installation,
@@ -239,7 +262,7 @@ export async function verifiedFor(a: {
   if (a.projectId === undefined && a.installationId === undefined) return null;
   const db = sql();
   const [row] = await db<Verification[]>`
-    SELECT login, account_created_at, public_repos FROM github_verifications
+    SELECT login, account_created_at, public_repos, wallet FROM github_verifications
     WHERE repo_key = ${a.repoKey.toLowerCase()} AND used_at IS NULL
       ${a.projectId !== undefined ? db`AND project_id = ${a.projectId}` : db``}
       ${a.installationId !== undefined ? db`AND installation_id = ${a.installationId}` : db``}
@@ -268,7 +291,7 @@ export async function takeHostVerification(
         AND used_at IS NULL AND verified_at > ${new Date(now.getTime() - VERIFY_TTL_MS)}
       ORDER BY verified_at DESC, id DESC LIMIT 1
       FOR UPDATE SKIP LOCKED)
-    RETURNING login, account_created_at, public_repos`;
+    RETURNING login, account_created_at, public_repos, wallet`;
   return row ?? null;
 }
 
@@ -308,7 +331,7 @@ export async function nonceDetails(
 ): Promise<{ repo_key: string; purpose: VerifyPurpose; name: string | null; symbol: string | null; wallet: string | null } | null> {
   if (!nonce) return null;
   const [row] = await sql()<{ repo_key: string; purpose: VerifyPurpose; name: string | null; symbol: string | null; wallet: string | null }[]>`
-    SELECT n.repo_key, n.purpose, p.name, p.token_symbol AS symbol, COALESCE(p.creator_wallet, p.payout_wallet) AS wallet
+    SELECT n.repo_key, n.purpose, p.name, n.symbol, n.wallet
     FROM github_verify_nonces n LEFT JOIN projects p ON p.id = n.project_id
     WHERE n.nonce_hash = ${sha256(nonce)} AND n.used_at IS NULL AND n.expires_at > ${now}`;
   return row ?? null;
@@ -362,7 +385,8 @@ export function confirmPage(
   const rows = [
     `<li>Repo: github.com/${escapeHtml(d.repo_key)}</li>`,
     d.purpose === 'entry' && d.symbol ? `<li>Token: $${escapeHtml(d.symbol)}</li>` : '',
-    d.purpose === 'entry' ? `<li>Wallet for fees: ${d.wallet ? escapeHtml(d.wallet) : 'none yet'}</li>` : '',
+    // Ruling G11: an entry link always has its wallet (createVerifyLink refuses one without).
+    d.purpose === 'entry' && d.wallet ? `<li>Wallet for fees: ${escapeHtml(d.wallet)}</li>` : '',
   ].join('');
   return html(
     `<p>Sign in with GitHub to prove this repo is yours.</p><ul>${rows}</ul><p>${escapeHtml(CONFIRM_WARNING)}</p>` +
@@ -400,9 +424,11 @@ export async function verifyStart(request: Request, deps: RouteDeps = {}): Promi
   const d = await nonceDetails(nonce);
   if (!d) return verifyPage(VERIFY_PAGE.expired, 410);
   const csrf = randomBytes(32).toString('base64url');
+  // Review Minor 1: same-origin, never no-referrer, so the button's POST carries a real Origin
+  // (under no-referrer a browser sends `Origin: null`, which verifyConfirm refuses).
   return new Response(confirmPage(d, nonce, csrf), {
     status: 200,
-    headers: { ...PAGE_HEADERS, 'Set-Cookie': setCsrf(nonce, csrf) },
+    headers: { ...PAGE_HEADERS, 'Referrer-Policy': 'same-origin', 'Set-Cookie': setCsrf(nonce, csrf) },
   });
 }
 
