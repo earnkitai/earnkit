@@ -43,6 +43,8 @@ import { poolLine, poolStated, statedPool } from './pool';
 export class NotFoundError extends Error {}
 
 const KITS = 'https://github.com/earnkitai/chain-kits/tree/main';
+/** v2.9 A1: EarnKit's own GitHub orgs, never a builder's repo (import-free, so match.ts can read it). */
+export { EARNKIT_ORGS } from './earnkit-orgs';
 const AGENT_SERVICE_STARTER = {
   use: 'Starting point for a service other agents pay per call in USDC (x402) on Arc or Base',
   url: 'https://github.com/earnkitai/starter-agent-service',

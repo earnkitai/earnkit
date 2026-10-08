@@ -2,8 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { CHAIN_NAMES, detectChains, pickFiles } from './match';
 import {
+  DEFAULT_README,
+  INVESTMENT_NOTE,
+  TUTORIAL,
   matchRepo,
+  ownerOk,
+  productScore,
   reportedFacts,
+  type ProductFacts,
   type ProgramFacts,
   type RepoFacts,
 } from './match';
@@ -53,6 +59,8 @@ const programs: ProgramFacts[] = [
     existing_work: 'allowed',
     tag: null,
     any_chain: false,
+    investment: false,
+    min_product_score: 0,
     starts_at: null,
   },
   {
@@ -62,6 +70,8 @@ const programs: ProgramFacts[] = [
     existing_work: 'allowed',
     tag: 'needs a live product',
     any_chain: false,
+    investment: false,
+    min_product_score: 0,
     starts_at: null,
   },
   {
@@ -71,6 +81,8 @@ const programs: ProgramFacts[] = [
     existing_work: 'new_work_only',
     tag: 'long shot',
     any_chain: false,
+    investment: false,
+    min_product_score: 0,
     starts_at: new Date('2026-09-01T00:00:00Z'),
   },
 ];
@@ -222,6 +234,8 @@ const speedrun: ProgramFacts = {
   any_chain: true,
   existing_work: 'allowed',
   tag: 'long shot',
+  investment: false,
+  min_product_score: 0,
   starts_at: null,
 };
 
@@ -339,4 +353,87 @@ test('v2.8.1 §B6: local_repos never fails list_programs: an unreadable repo is 
   // What it outputs parses again unchanged (list_programs remembers it and re-reads it later).
   const once = LocalReposInput.parse([{ name: 'a', chains: ['Base', 'avax'], live_url: 'a.xyz', last_commit_at: '2026-10-01' }]);
   assert.deepEqual(LocalReposInput.parse(once), once);
+});
+
+// ---- v2.9 A1, A2: owned repos and the real-product score ----
+
+test('2.1 ownerOk: EarnKit orgs never; the builder; others only with 5+ commits that are 30%+ of the last 100', () => {
+  assert.equal(ownerOk('earnkitai', 'earnkitai'), false);
+  assert.equal(ownerOk('EarnKitAI', null), false);
+  assert.equal(ownerOk('Alice', 'alice'), true);
+  assert.equal(ownerOk('acme', 'alice', { userCommits: 4, recentCommits: 10 }), false);
+  assert.equal(ownerOk('acme', 'alice', { userCommits: 5, recentCommits: 20 }), false);
+  assert.equal(ownerOk('acme', 'alice', { userCommits: 6, recentCommits: 20 }), true);
+  assert.equal(ownerOk('acme', 'alice'), false);
+});
+
+const allFacts: ProductFacts = { active: true, young: true, original: true, readme: true, deployed: true, owned: true };
+
+test('2.2 productScore: tiers', () => {
+  assert.deepEqual(productScore(allFacts), { score: 6, tier: 'product', missing: [] });
+  const noDeploy = productScore({ ...allFacts, deployed: false });
+  assert.equal(noDeploy.score, 5);
+  assert.equal(noDeploy.tier, 'project');
+  assert.deepEqual(noDeploy.missing, ['deployed']);
+  const three = productScore({ active: true, owned: true, deployed: true, young: false, original: false, readme: false });
+  assert.equal(three.tier, 'project');
+  const two = productScore({ active: true, owned: true, deployed: false, young: false, original: false, readme: false });
+  assert.equal(two.tier, 'noise');
+});
+
+test('2.3 TUTORIAL: tutorial names match, product names do not', () => {
+  for (const n of ['covid-19-tracker', 'todo-app', 'antivirus-tutorial', 'nextjs-starter', 'udemy-course']) assert.match(n, TUTORIAL, n);
+  for (const n of ['tipjar', 'arcpay']) assert.doesNotMatch(n, TUTORIAL, n);
+  assert.match('Getting Started with Create React App', DEFAULT_README);
+});
+
+const product = (f: Partial<ProductFacts> = {}) => productScore({ ...allFacts, ...f });
+const arcMain = { arc: { mainnet: true, testnet: false, evidence: 'x' } };
+
+test('2.4 a noise repo matches nothing', () => {
+  const noise = product({ active: false, young: false, original: false, readme: false });
+  assert.equal(noise.tier, 'noise');
+  assert.deepEqual(matchRepo(repo({ homepage: 'https://app.x', chains: arcMain, product: noise }), programs), []);
+  assert.deepEqual(matchRepo(repo({ homepage: 'https://app.x', product: noise }), [{ ...speedrun, investment: true, min_product_score: 5 }]), []);
+});
+
+test('2.5 a project-tier repo is never likely: after_step with its most actionable missing signal', () => {
+  const p = product({ deployed: false, readme: false, young: false });
+  assert.equal(p.tier, 'project');
+  const v = matchRepo(repo({ homepage: 'https://app.x', chains: arcMain, product: p }), programs).find((x) => x.program_id === 'arc-micro')!;
+  assert.equal(v.status, 'after_step');
+  assert.equal(v.note, 'no live site or contract found');
+  // The same repo as product tier is likely.
+  const full = matchRepo(repo({ homepage: 'https://app.x', chains: arcMain, product: product(), live_verified: true }), programs);
+  assert.equal(full.find((x) => x.program_id === 'arc-micro')!.status, 'likely');
+});
+
+test('2.6 a16z (any_chain, investment, min 5): products only, after_step with the investment note', () => {
+  const a16z: ProgramFacts = { ...speedrun, investment: true, min_product_score: 5 };
+  const project = product({ deployed: false });
+  assert.deepEqual(matchRepo(repo({ homepage: 'https://app.x', product: project }), [a16z]), []);
+  const [v] = matchRepo(repo({ homepage: 'https://app.x', product: product() }), [a16z]);
+  assert.equal(v.status, 'after_step');
+  assert.equal(v.note, INVESTMENT_NOTE);
+  assert.deepEqual(v.missing, []);
+  assert.equal(v.effort, 'weeks');
+});
+
+test('2.3b a docs repo is not original, so it never makes an a16z row', () => {
+  for (const n of ['docs', 'project-docs', 'documentation-site']) assert.match(n, TUTORIAL, n);
+  const docs = product({ original: false, readme: false });
+  assert.equal(docs.tier, 'project');
+  assert.deepEqual(matchRepo(repo({ name: 'docs', homepage: 'https://docs.x', product: docs }), [{ ...speedrun, investment: true, min_product_score: 5 }]), []);
+});
+
+test('2.7 needs a live product: never likely; a verified link leaves only real users', () => {
+  const base: ProgramFacts = { ...programs[1], id: 'base', title: 'Base Builder Grants', chains: ['base'] };
+  const baseMain = { base: { mainnet: true, testnet: false, evidence: 'x' } };
+  const [unverified] = matchRepo(repo({ homepage: 'https://app.x', chains: baseMain, product: product(), live_verified: false }), [base]);
+  assert.equal(unverified.status, 'after_step');
+  assert.deepEqual(unverified.missing, ['live_url', 'real_users']);
+  const [verified] = matchRepo(repo({ homepage: 'https://app.x', chains: baseMain, product: product(), live_verified: true }), [base]);
+  assert.equal(verified.status, 'after_step');
+  assert.deepEqual(verified.missing, ['real_users']);
+  assert.equal(verified.effort, 'weeks');
 });
