@@ -33,6 +33,7 @@ import {
   reportedGithubUser,
   reportedRepos,
   cachedRepoChains,
+  cachedRepoAddresses,
   checkEligibility,
   matchProjects,
 } from './match-projects';
@@ -44,6 +45,7 @@ import {
   enterableWithoutRepo,
   presentFirstMessage,
   programUpdates,
+  type RepoFit,
   type YourRepos,
 } from './present';
 import { SPONSOR_NOT_OPEN, escrowEnabled } from './escrow';
@@ -149,9 +151,12 @@ async function entryChecks(
   if (!liveUrl && !program.submission_requirements.some((r) => r.required && r.project_field === 'live_url')) return undefined;
   const needsContract = program.needs_contract ?? null;
   try {
-    // Stored contracts: the project info's, then the ones local_repos reported for this repo.
-    const reported = needsContract ? await localRepoContracts(ctx.installationId, project?.repo_url ?? answers.repo_url) : [];
-    const stored = [...(project?.contracts ?? []), ...reported];
+    // Stored contracts: the project info's, the ones local_repos reported for this repo, then the
+    // candidates matching found in the repo's files (Pre-flight P4, cache only).
+    const repoUrl = project?.repo_url ?? answers.repo_url;
+    const reported = needsContract ? await localRepoContracts(ctx.installationId, repoUrl) : [];
+    const inFiles = needsContract ? await cachedRepoAddresses(repoUrl) : [];
+    const stored = [...(project?.contracts ?? []), ...reported, ...inFiles];
     const addresses = needsContract ? addressesFrom({ answers, liveUrl, chain: needsContract, stored }) : [];
     return await entryVerified({ liveUrl, needsContract, addresses }, ctx.verifyDeps);
   } catch (err) {
@@ -218,6 +223,38 @@ async function repoCoinsOf(
     console.error('[list_programs] repo coins:', err);
     return new Map<string, { program_id: string; title: string }>();
   }
+}
+
+/** v2.9 A2: repos shown per program in `matches`; an any_chain program (a16z) shows one. */
+const MATCHES_PER_PROGRAM = 3;
+
+/**
+ * v2.9 A2: list_programs' `matches`, per repo and program, at most 3 repos per program (1 for an
+ * any_chain program), the highest product score first. Programs keep the order the fits give. Pure.
+ */
+export function matchRows(fits: RepoFit[], oneRepo: Set<string>) {
+  const byProgram = new Map<string, { row: ReturnType<typeof row>; score: number }[]>();
+  const row = (f: RepoFit, v: RepoFit['verdicts'][number]) => ({
+    repo: f.repo,
+    repo_url: f.repo_url,
+    program_id: v.program_id,
+    status: v.status,
+    missing: v.missing,
+    effort: v.effort,
+    product_score: f.product?.score ?? null,
+  });
+  for (const f of fits)
+    for (const v of f.verdicts) {
+      const list = byProgram.get(v.program_id) ?? [];
+      list.push({ row: row(f, v), score: f.product?.score ?? -1 });
+      byProgram.set(v.program_id, list);
+    }
+  return [...byProgram].flatMap(([id, list]) =>
+    list
+      .sort((a, b) => b.score - a.score)
+      .slice(0, oneRepo.has(id) ? 1 : MATCHES_PER_PROGRAM)
+      .map((x) => x.row),
+  );
 }
 
 const ProgramId = z.object({ program_id: z.string() }).strict();
@@ -767,7 +804,7 @@ export const tools = {
           ? 'EarnKit remembers their GitHub username or repos for next time. '
           : local?.length
             ? 'EarnKit remembers the repos you reported for next time. '
-            : "Next time, pass local_repos: read the builder's local git remotes (git remote -v in their project folders) and report each repo. Never ask for a GitHub username first. ") +
+            : "Next time, pass local_repos: read the builder's local git remotes and report each repo the builder wrote; skip clones of other people's code and EarnKit's kits. Never ask for a GitHub username first. ") +
         'Program facts were checked against their sources on verified_at; within 7 days, no need to re-read them.',
       ...(walletNote && { wallet_note: walletNote }),
       ...(alerts.scheduleNote && { schedule_daily_check: alerts.scheduleNote }),
@@ -781,16 +818,7 @@ export const tools = {
       // For planning: what each repo still needs, per program. Details: get_program.
       matches:
         yourRepos && 'fits' in yourRepos
-          ? yourRepos.fits.flatMap((f) =>
-              f.verdicts.map((v) => ({
-                repo: f.repo,
-                repo_url: f.repo_url,
-                program_id: v.program_id,
-                status: v.status,
-                missing: v.missing,
-                effort: v.effort,
-              })),
-            )
+          ? matchRows(yourRepos.fits, new Set(programs.filter((p) => p.any_chain).map((p) => p.id)))
           : [],
       working_on: memory.working_on,
       programs: programs.map((p) => ({

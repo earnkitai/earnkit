@@ -6,6 +6,7 @@ import {
   GitHubError,
   MatchProjectsInput,
   SCORE_LIMIT,
+  cachedRepoAddresses,
   cachedRepoChains,
   matchProjects,
   repoCodeFacts,
@@ -333,4 +334,29 @@ test('2.11 one repo from GitHub and the local report: one fit, keyed owner/repo;
   assert.equal(noHome.fits[0].live_verified, true);
   assert.equal(repoKey({ url: 'https://github.com/Alice/TipJar.git', name: 'x' }), 'alice/tipjar');
   assert.equal(repoKey({ url: null, name: ' TipJar ' }), 'name:tipjar');
+});
+
+test('v2.9 P6, P4: the repo\'s own signals are cached per version; owned, active and deployed are read every call; file contracts feed entries', dbTest, async () => {
+  const name = `cache${process.pid}${Date.now()}`;
+  const pushed = daysAgo(3);
+  await sql()`DELETE FROM github_repo_facts WHERE full_name = ${`alice/${name}`}`;
+  const own = [ghRepo('alice', name, { homepage: 'https://tipjar.xyz', pushed_at: pushed })];
+  const run = () => {
+    const { deps } = checkDeps({ probeOk: true });
+    delete deps.cache; // the real github_repo_facts cache
+    return withFetch(
+      (u) => (u.pathname === '/users/alice/repos' ? body(own) : u.pathname === '/search/commits' ? body({ items: [] }) : repoFiles(u)),
+      async (calls) => ({ r: await matchProjects(MatchProjectsInput.parse({ github_user: 'alice' }), deps), calls }),
+    );
+  };
+  const first = await run();
+  assert.equal(first.r.fits[0].product.tier, 'product');
+  assert.equal(first.calls.filter((c) => c.includes('/git/trees/')).length, 1);
+  const second = await run();
+  assert.deepEqual(second.r.fits[0].product, first.r.fits[0].product);
+  assert.equal(second.calls.filter((c) => c.includes('/git/trees/') || c.startsWith('raw.')).length, 0);
+  assert.equal(second.calls.filter((c) => c.includes('/commits?author=')).length, 1);
+  assert.deepEqual(await cachedRepoAddresses(`https://github.com/Alice/${name}`), [ADDR]);
+  assert.deepEqual(await cachedRepoAddresses('https://gitlab.com/a/b'), []);
+  await sql()`DELETE FROM github_repo_facts WHERE full_name = ${`alice/${name}`}`;
 });

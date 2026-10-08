@@ -449,8 +449,8 @@ const [unscored] = await db<{ product: unknown }[]>`SELECT product FROM github_r
 ok(unscored && unscored.product === null, 'existing repo facts get product = NULL');
 await db`UPDATE github_repo_facts SET product = '{"young":true}' WHERE full_name = 'v29/check'`;
 await db.unsafe(now);
-const [kept] = await db<{ product: { young?: boolean } | null }[]>`SELECT product FROM github_repo_facts WHERE full_name = 'v29/check'`;
-ok(kept?.product?.young === true, 'github_repo_facts.product survives the schema running again');
+const [keptProduct] = await db<{ product: { young?: boolean } | null }[]>`SELECT product FROM github_repo_facts WHERE full_name = 'v29/check'`;
+ok(keptProduct?.product?.young === true, 'github_repo_facts.product survives the schema running again');
 
 await db.end();
 console.log(`db check: ${checks} checks passed`);

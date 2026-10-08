@@ -333,6 +333,20 @@ export async function cachedRepoChains(repoFullName: string): Promise<Chain[] | 
     .map(([k]) => k as Chain);
 }
 
+/**
+ * v2.9 A5 (Pre-flight P4): the contract candidates found in a public repo's files by the last
+ * scored read (github_repo_facts.product), read from the cache only (no GitHub call), at most
+ * GETCODE_PER_REPO, lowercase. Empty when the repo isn't a GitHub link or nothing is cached.
+ */
+export async function cachedRepoAddresses(repoUrl: string | null | undefined): Promise<string[]> {
+  const gh = repoUrl ? githubRepo(repoUrl) : null;
+  if (!gh) return [];
+  const [row] = await sql()<{ product: CachedProduct | null }[]>`
+    SELECT product FROM github_repo_facts WHERE full_name = ${`${gh.owner}/${gh.repo}`.toLowerCase()} AND product IS NOT NULL
+    ORDER BY fetched_at DESC LIMIT 1`;
+  return (row?.product?.addresses ?? []).map((a) => a.toLowerCase()).slice(0, GETCODE_PER_REPO);
+}
+
 /** Whether the repo has a commit at or after `since`; null when GitHub couldn't say. */
 async function commitsSince(repo: Repo, since: Date) {
   return gh<unknown[]>(
