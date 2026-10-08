@@ -2,7 +2,7 @@ import { normalizeRepoUrl, usd } from './campaigns';
 import { NO_CELL } from './no-cell';
 import { endsOf, prizeOf, repoCoinNote } from './entry-text';
 import { shortDate } from './dates';
-import { EFFORT_ORDER, type Chain, type Effort, type Verdict } from './match';
+import { EFFORT_ORDER, type Chain, type Effort, type Product, type RepoFacts, type Verdict } from './match';
 import { difficultyLabel, type Difficulty } from './guide';
 import { openFigure } from './pool';
 
@@ -255,12 +255,26 @@ const soon = (days: number) =>
   days === 0 ? 'closes today' : `closes in ${days} day${days === 1 ? '' : 's'}`;
 
 /** The builder's repos checked against open programs (only verdicts that can earn), or why not. */
+export type RepoFit = {
+  repo: string;
+  /** null for private/local repos the agent reported. */
+  repo_url: string | null;
+  /** v2.8 Ruling 10 (plan): the repo's mainnet chains; absent in older fixtures. */
+  chains?: Chain[];
+  verdicts: Verdict[];
+  /** v2.9 A1, A2 (match-projects.ts matchProjects): the repo key, its score, the checked link, its facts. */
+  key?: string;
+  product?: Product;
+  live_verified?: boolean;
+  facts?: RepoFacts;
+};
 export type YourRepos =
   | {
+      /** Every repo found, dropped ones included (Pre-flight P12). */
       checked: number;
-      /** repo_url is null for private/local repos the agent reported. */
-      /** `chains` (v2.8 Ruling 10 (plan)): the repo's detected chains; absent in older fixtures. */
-      fits: { repo: string; repo_url: string | null; chains?: Chain[]; verdicts: Verdict[] }[];
+      /** v2.9 A1: the repos scored (at most SCORE_LIMIT). */
+      scored?: number;
+      fits: RepoFit[];
     }
   | { error: string };
 

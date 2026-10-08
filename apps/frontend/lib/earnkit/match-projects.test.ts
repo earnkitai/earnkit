@@ -1,7 +1,19 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
-import { ForkCheckError, GitHubError, cachedRepoChains, repoCodeFacts } from './match-projects';
+import {
+  ForkCheckError,
+  GitHubError,
+  MatchProjectsInput,
+  SCORE_LIMIT,
+  cachedRepoChains,
+  matchProjects,
+  repoCodeFacts,
+  repoKey,
+  type MatchDeps,
+} from './match-projects';
+import type { ProgramFacts } from './match';
+import { presentFirstMessage } from './present';
 
 /** Stubs global fetch with GitHub answers by path (query kept); records every path asked. */
 async function withGitHub<T>(answers: Record<string, () => Response>, run: (calls: string[]) => Promise<T>) {
@@ -113,4 +125,212 @@ test('v2.9 A5: reportedUrl drops placeholders; local_repos carry up to 2 contrac
   assert.equal(reportedContracts('none'), undefined);
   assert.equal(reportedContracts(42), undefined);
   assert.deepEqual(ReportedRepoInput.parse({ name: 'tipjar', chains: [], contracts: [b] }).contracts, [b]);
+});
+
+// ---- v2.9 A1, A2: owned repos only, the real-product score, at most 8 scored ----
+
+const T_NOW = new Date('2026-10-08T12:00:00Z');
+const daysAgo = (n: number) => new Date(T_NOW.getTime() - n * 86_400_000).toISOString();
+const ghRepo = (owner: string, name: string, extra: Record<string, unknown> = {}) => ({
+  name, full_name: `${owner}/${name}`, html_url: `https://github.com/${owner}/${name}`, homepage: null,
+  default_branch: 'main', created_at: daysAgo(100), pushed_at: daysAgo(5), fork: false, archived: false,
+  owner: { login: owner }, description: null, topics: [], ...extra,
+});
+const baseProgram: ProgramFacts = {
+  id: 'base-x', title: 'Base X', chains: ['base'], any_chain: false, existing_work: 'allowed', tag: null,
+  starts_at: null, investment: false, min_product_score: 0,
+};
+const ADDR = '0x1111111111111111111111111111111111111111';
+const README = `# Tipjar\n\n${'Tips for creators on Base, paid in USDC. '.repeat(60)}`;
+
+/** Stubs global fetch (GitHub API and raw files) by host + path + query; records every call. */
+async function withFetch<T>(answer: (u: URL) => Response | undefined, run: (calls: string[]) => Promise<T>) {
+  const original = globalThis.fetch;
+  const calls: string[] = [];
+  globalThis.fetch = (async (url: string | URL | Request) => {
+    const u = new URL(String(url));
+    calls.push(u.host + u.pathname + u.search);
+    return answer(u) ?? new Response('{"message":"Not Found"}', { status: 404 });
+  }) as typeof fetch;
+  try {
+    return await run(calls);
+  } finally {
+    globalThis.fetch = original;
+  }
+}
+const body = (b: unknown) => new Response(typeof b === 'string' ? b : JSON.stringify(b), { status: 200 });
+
+/** A repo's files: a README over 1.5 KB and a Base mainnet config naming one contract. */
+function repoFiles(u: URL): Response | undefined {
+  if (u.host === 'api.github.com' && /\/git\/trees\//.test(u.pathname))
+    return body({ tree: [{ path: 'README.md', type: 'blob', size: README.length }, { path: 'hardhat.config.ts', type: 'blob', size: 100 }] });
+  if (u.host === 'raw.githubusercontent.com' && u.pathname.endsWith('/README.md')) return body(README);
+  if (u.host === 'raw.githubusercontent.com' && u.pathname.endsWith('/hardhat.config.ts')) return body(`chainId: 8453 // token ${ADDR}`);
+  if (u.host === 'api.github.com' && /\/commits$/.test(u.pathname) && u.searchParams.has('author')) return body([{ sha: 'a' }]);
+  return undefined;
+}
+
+/** In-memory caches and counted link and contract checks (Pre-flight P26). */
+function checkDeps(o: { probeOk?: boolean } = {}) {
+  const n = { probes: 0, getCodes: 0 };
+  const store = new Map<string, { ok: boolean; checked_at: Date }>();
+  const deps: MatchDeps = {
+    now: T_NOW,
+    cache: { load: async () => null, save: async () => {} },
+    checks: {
+      probe: async () => {
+        n.probes++;
+        if (!o.probeOk) throw new Error('down');
+      },
+      getCode: async () => {
+        n.getCodes++;
+        return '0x';
+      },
+      cache: { get: async (k) => store.get(k) ?? null, set: async (k, ok, now) => void store.set(k, { ok, checked_at: now }) },
+    },
+    programs: [baseProgram],
+  };
+  return { n, deps };
+}
+
+test('2.8 twenty qualifying repos: 8 scored, probes at most 5, getCode at most 6; a failed probe is deployed: false', async (t) => {
+  const own = Array.from({ length: 20 }, (_, i) => ghRepo('alice', `app${i}`, { homepage: `https://app${i}.xyz`, pushed_at: daysAgo(i + 1) }));
+  const { n, deps } = checkDeps();
+  // The failed probes log one expected "[verify] live Error" line each; kept out of the output.
+  const log = console.error;
+  console.error = () => {};
+  t.after(() => {
+    console.error = log;
+  });
+  await withFetch(
+    (u) =>
+      u.pathname === '/users/alice/repos' ? body(own) : u.pathname === '/search/commits' ? body({ items: [] }) : repoFiles(u),
+    async (calls) => {
+      const r = await matchProjects(MatchProjectsInput.parse({ github_user: 'alice' }), deps);
+      assert.equal(r.scored, SCORE_LIMIT);
+      assert.equal(r.checked, 20);
+      assert.equal(calls.filter((c) => c.includes('/git/trees/')).length, 8);
+      assert.equal(calls.filter((c) => c.includes('/commits?author=')).length, 8);
+      assert.equal(n.probes, 5);
+      assert.equal(n.getCodes, 6);
+      for (const f of r.fits) {
+        assert.equal(f.live_verified, false);
+        assert.ok(f.product.missing.includes('deployed'), f.key);
+        assert.notEqual(f.verdicts[0].status, 'likely');
+      }
+      // The 8 most recently pushed.
+      assert.deepEqual(r.fits.map((f) => f.key).sort(), own.slice(0, 8).map((x) => `alice/${x.name}`).sort());
+    },
+  );
+});
+
+test('2.9 (Review Focus 1) EarnKit kits, a one-commit contribution, a fork, a template, an archived repo and a tutorial: nothing fits, nothing read', async () => {
+  const own = [
+    ghRepo('alice', 'forked', { fork: true }),
+    ghRepo('alice', 'tmpl', { is_template: true }),
+    ghRepo('alice', 'old', { archived: true }),
+    ghRepo('alice', 'todo-app'),
+  ];
+  const items = [
+    ...Array.from({ length: 12 }, () => ({ repository: { full_name: 'earnkitai/chain-kits' } })),
+    { repository: { full_name: 'acme/lib' } },
+  ];
+  const { deps } = checkDeps();
+  await withFetch(
+    (u) => (u.pathname === '/users/alice/repos' ? body(own) : u.pathname === '/search/commits' ? body({ items }) : repoFiles(u)),
+    async (calls) => {
+      const r = await matchProjects(
+        MatchProjectsInput.parse({
+          github_user: 'alice',
+          local_repos: [{ name: 'starter', url: 'https://github.com/earnkitai/starter-agent-service', chains: ['base'] }],
+        }),
+        deps,
+      );
+      assert.deepEqual(r.fits, []);
+      assert.equal(r.scored, 0);
+      assert.equal(r.checked, 7);
+      assert.deepEqual(calls.map((c) => c.split('?')[0]), ['api.github.com/users/alice/repos', 'api.github.com/search/commits']);
+      const card = { id: 'base-x', title: 'Base X', summary: 'up to $5,000', tag: null, each_time: [], ends_at: null, builder_fields: 0 };
+      const text = presentFirstMessage({
+        alerts: [], campaigns: [], cards: [card], repos: r, githubGiven: true, workingOn: [], agentCanBuild: true, sponsorEntries: null, now: T_NOW,
+      });
+      assert.match(text, /None of your 7 repos fits an open program yet\./);
+      assert.doesNotMatch(text, /launch/i);
+    },
+  );
+});
+
+test('2.10 a repo owned by someone else counts only with 30% of its last 100 commits; at most 3 candidates are read', async () => {
+  const run = async (mine: number) => {
+    const items = Array.from({ length: 6 }, () => ({ repository: { full_name: 'acme/app' } }));
+    const recent = Array.from({ length: 100 }, (_, i) => ({ sha: `${i}`, author: { login: i < mine ? 'Alice' : 'bob' } }));
+    const { deps } = checkDeps({ probeOk: true });
+    return withFetch(
+      (u) =>
+        u.pathname === '/users/alice/repos'
+          ? body([])
+          : u.pathname === '/search/commits'
+            ? body({ items })
+            : u.pathname === '/repos/acme/app'
+              ? body(ghRepo('acme', 'app', { homepage: 'https://acme-app.xyz' }))
+              : u.pathname === '/repos/acme/app/commits' && u.searchParams.get('per_page') === '100'
+                ? body(recent)
+                : repoFiles(u),
+      async () => matchProjects(MatchProjectsInput.parse({ github_user: 'alice' }), deps),
+    );
+  };
+  assert.deepEqual((await run(6)).fits, []);
+  const kept = await run(40);
+  assert.equal(kept.fits.length, 1);
+  assert.equal(kept.fits[0].key, 'acme/app');
+  assert.ok(!kept.fits[0].product.missing.includes('owned'));
+  assert.equal(kept.fits[0].product.tier, 'product');
+
+  // Five candidates with 5+ hits each: only 3 get the 100-commit read.
+  const items = ['a', 'b', 'c', 'd', 'e'].flatMap((x) => Array.from({ length: 5 }, () => ({ repository: { full_name: `acme/${x}` } })));
+  const { deps } = checkDeps();
+  await withFetch(
+    (u) =>
+      u.pathname === '/users/alice/repos'
+        ? body([])
+        : u.pathname === '/search/commits'
+          ? body({ items })
+          : /^\/repos\/acme\/[a-e]$/.test(u.pathname)
+            ? body(ghRepo('acme', u.pathname.split('/')[3]))
+            : u.searchParams.get('per_page') === '100'
+              ? body([])
+              : undefined,
+    async (calls) => {
+      await matchProjects(MatchProjectsInput.parse({ github_user: 'alice' }), deps);
+      assert.equal(calls.filter((c) => /^api\.github\.com\/repos\/[^/]+\/[^/]+\/commits\?per_page=100$/.test(c)).length, 3);
+    },
+  );
+});
+
+test('2.11 one repo from GitHub and the local report: one fit, keyed owner/repo; the GitHub homepage wins', async () => {
+  const local = [{ name: 'tipjar', url: 'https://github.com/Alice/TipJar.git', live_url: 'https://tipjar.xyz', chains: ['base'], last_commit_at: daysAgo(2) }];
+  const run = (homepage: string | null) => {
+    const { deps } = checkDeps({ probeOk: true });
+    return withFetch(
+      (u) =>
+        u.pathname === '/users/alice/repos'
+          ? body([ghRepo('alice', 'tipjar', { homepage })])
+          : u.pathname === '/search/commits'
+            ? body({ items: [] })
+            : repoFiles(u),
+      async () => matchProjects(MatchProjectsInput.parse({ github_user: 'alice', local_repos: local }), deps),
+    );
+  };
+  const withHome = await run('https://tipjar.app');
+  assert.equal(withHome.fits.length, 1);
+  assert.equal(withHome.fits[0].key, 'alice/tipjar');
+  assert.equal(withHome.fits[0].facts.homepage, 'https://tipjar.app');
+  assert.equal(withHome.checked, 2);
+  assert.equal(withHome.scored, 1);
+  const noHome = await run(null);
+  assert.equal(noHome.fits.length, 1);
+  assert.equal(noHome.fits[0].facts.homepage, 'https://tipjar.xyz');
+  assert.equal(noHome.fits[0].live_verified, true);
+  assert.equal(repoKey({ url: 'https://github.com/Alice/TipJar.git', name: 'x' }), 'alice/tipjar');
+  assert.equal(repoKey({ url: null, name: ' TipJar ' }), 'name:tipjar');
 });
