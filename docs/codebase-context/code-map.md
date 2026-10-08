@@ -29,7 +29,8 @@ programs/                      program files (+ README: how Claude Code adds pro
 apps/frontend/
   public/programs/             v2.7 Ruling 23: program logos (<id>.svg|png, ≤200 KB, checked by
                                programs:check), served under a scoped image CSP (next.config.ts IMAGE_CSP); rendered
-                               only via <img> (ProgramLogo, GuideView)
+                               only via <img> (ProgramLogo, GuideView). v2.8.1: a16z-speedrun.png (the
+                               "sr" mark from speedrun.a16z.com's apple-touch-icon)
   public/llms.txt              agent-readable summary: install, "What can I earn?", program guides
                                (earnkit.com/programs/<id>), the tools, live numbers (C9)
   app/page.tsx                 home (v2.7 §1): revalidate 600; getLanding() then HomeView
@@ -55,7 +56,10 @@ apps/frontend/
   app/components/sections/AddToAgent.tsx   "Add to your agent" install panel (hero, the Open programs
                                "Ask your agent", the guide's AskAgent with "What can I earn on <program>?"); START_PROMPT;
                                v2.8 Task 5: AGENTS (Grok Bot, Claude Code, Cursor, Codex, Muse) with
-                               local icons in public/images/agents/ (sources in the comment),
+                               local icons in public/images/agents/ (sources in the comment;
+                               v2.8.1: grok-bot.png is Grok Bot's own app icon, shown in color, not
+                               Grok's logomark; muse.svg is Muse's logo from muse.ai; SVG marks
+                               take the tab's one color),
                                `after` approve lines, <BonusPill size="sm" /> under the steps
   app/components/sections/{ProgramCards,ProgramLogo,HowItWorks}.tsx  v2.7 §1 landing sections;
                                ProgramLogo: local <img> (path re-checked) or the Ruling 1 monogram;
@@ -75,7 +79,8 @@ apps/frontend/
                                the X link (now an icon button to x.com/jenilt, v2.8 Ruling 22) is in the
                                Footer only
   app/components/common/Footer.tsx  v2.8 Ruling 22: one rounded card (wordmark, FOOTER_TAGLINE, a
-                               grid of FOOTER_COLUMNS), the faded "EARNKIT" wordmark, the copyright
+                               grid of FOOTER_COLUMNS), the faded wordmark (v2.8.1: the navbar's
+                               ui/Logo.tsx Wordmark SVG, mark and letters, full width at 10%, decorative), the copyright
                                line; renders from lib/earnkit/footer-links.ts; real links only
   app/campaigns/[slug]/page.tsx  campaign leaderboard (404 unless the program has a campaign; 404 for
                                a taken-down sponsor campaign or a closed EarnKit campaign with no
@@ -369,7 +374,8 @@ apps/frontend/
     human-text.ts(+test)       v2.8 Ruling 16: humanStrings (string/template/JSX text of a source file, via the TypeScript AST) and humanTextFiles; the test bans the em dash in all human text;
                                final review M1: notHumanText skips .test.ts/.test.tsx/.test.mts, and walkDir never enters a fixtures directory
     no-cell.ts                 NO_CELL (''), the empty table cell or chip; import-free so the client ProgramCard shares it (final review M1); present.ts re-exports it
-    present.ts(+test)          presentFirstMessage (v2.7 §3): alerts, v2.8.1 §B: "Your entries"
+    present.ts(+test)          v2.8.1 T7: enterableWithoutRepo (the no-repo offer's pick, for tools.ts).
+                               presentFirstMessage (v2.7 §3): alerts, v2.8.1 §B: "Your entries"
                                (entriesLine, right after any news), "(entered)" / "(needs a repo)" in the
                                Program cell, $X leaves out investment and new-work rows (qualifies), the offer
                                is the best repo fit (bestFit: Easy first, then top prize, Ruling F5; never an investment
@@ -418,6 +424,11 @@ apps/frontend/
     http.ts(+test)             CORS + small response helpers; secretMatches, bearerMatches
                                (timing-safe; v2.4 cron and veto)
     tools.ts                   tool name -> handler + input validation (+ caller's installation);
+                               v2.8.1 T7: prepare_submission leads the coach's questions with
+                               needsRepoLine when the program needs a repo and none is known ("<X> needs a
+                               public repo … No repo yet? <Y> doesn't need one", Y = present.ts
+                               enterableWithoutRepo); tokenProposalBlock gets ctx.tokenDeps' check and
+                               availability (the same ticker check as the rest of the flow)
                                v2.8 Task 12: list_programs writes fit_chains (setFitChains) after
                                matching and returns ask_outcome (outcomeToAsk, read last,
                                ASK_OUTCOME_NOTE) at most once per entry; Ruling C21: report_outcome
@@ -566,7 +577,9 @@ apps/frontend/
                                yesLine ("Yes: launches $TIP (TipJar) on Base. You earn 40% …",
                                OfferInput.proposal; v2.8.1 §F19: the entry flow's only "40%"),
                                proofLineWaiting (a second proof-line miss); v2.8.1 §C13: token
-                               elsewhere is "Ready to submit?" alone (record_only note '')
+                               elsewhere is "Ready to submit?" alone (record_only note ''); T7:
+                               OfferInput.again (a taken ticker or an unseen pair offered again)
+                               names the token without the 40% figure
     submit-kit.ts(+test)       v2.8 Tasks 8, 10: submitKit (the submit kit, returned only by
                                confirm_entry, in four modes), submitModeFor, hostOf, proofFor
                                (Ruling 28), googlePrefill/airtablePrefill/tallyPrefill
@@ -653,6 +666,15 @@ apps/frontend/
                                notes), landing, guide and campaign-page text; never "Clanker" (Ruling 18);
                                v2.7.1: v271Texts (header, install modal, /programs figure, pills, steps,
                                statsLine, poolLine, bonusClose forms)
+    v281-journey.test.ts       v2.8.1 Task 7: the friction audit's 10 builder journeys plus the agent switch
+                               (Grok Bot, then Claude Code with pick_up_entries) through the real tools, in
+                               its own throwaway database; mocked tokens.fun (check-ticker, the deploy API
+                               behind the real deployToken, a slow-deploy variant) and GitHub (repo facts,
+                               earnkit.txt); any other fetch gets a 503. Asserts "40%" once per entry flow,
+                               the bonus note at most once per reply, every reply under 50 s ("launching"
+                               on the slow deploy, then the check-back), a repo is never led with speedrun,
+                               no Arc dead end without a repo, the returning recap with no re-offer, and
+                               no "open this in Claude Code or Cursor" for an agent that can push
     v28-journey.test.ts        v2.8 Task 12 DB-gated journey in its own throwaway database: no repo,
                                Arc's coach question, the draft and offer, confirm_entry "go" (fake
                                deploy) and the copy-paste kit, record_submission with Also qualifies

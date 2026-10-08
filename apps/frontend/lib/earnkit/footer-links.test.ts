@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import Footer from '../../app/components/common/Footer';
+import { Wordmark } from '../../app/components/ui/Logo';
 import { EXTERNAL_ALLOW, FOOTER_COLUMNS, FOOTER_TAGLINE, appRoutes, footerLinkProblems, type FooterColumn } from './footer-links';
 
 // The test runner compiles JSX with the classic runtime (no tsconfig at the repo root; see
@@ -40,7 +41,14 @@ test('Footer: renders exactly the FOOTER_COLUMNS hrefs plus the logo link, the t
   const expected = new Set(['/', ...FOOTER_COLUMNS.flatMap((c) => c.links.map((l) => l.href))]);
   assert.deepEqual(hrefs, expected);
   assert.ok(h.includes(FOOTER_TAGLINE));
-  assert.match(h, /<p aria-hidden="true"[^>]*>EARNKIT<\/p>/);
+  // v2.8.1 (owner): the faded wordmark is the navbar's logo (the same SVG: mark and "EarnKit"), not text.
+  const faded = /<div aria-hidden="true" data-footer-wordmark=""[^>]*>(<svg[\s\S]*?<\/svg>)<\/div>/.exec(h);
+  assert.ok(faded, 'the faded wordmark is an SVG');
+  const navbar = renderToStaticMarkup(React.createElement(Wordmark));
+  assert.equal(/ d="([^"]+)"/.exec(faded[1])?.[1], / d="([^"]+)"/.exec(navbar)?.[1], 'the same logo path as the navbar');
+  assert.match(faded[1], /viewBox="0 0 124 23"/);
+  assert.doesNotMatch(faded[1], /role="img"/);
+  assert.doesNotMatch(h, />EARNKIT</);
   assert.match(h, new RegExp(`© ${new Date().getFullYear()} Tokenfi Inc\\. All rights reserved\\.`));
   assert.match(h, /aria-label="@jenilt on X"[^>]*>[\s\S]{0,200}?<svg/);
   // No emojis, no em dash, no placeholder links.

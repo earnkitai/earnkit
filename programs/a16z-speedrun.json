@@ -50,5 +50,9 @@
     "level": "Hard",
     "basis": "speedrun says its acceptance rate is lower than 0.4%",
     "source_url": "https://speedrun.a16z.com/faq"
+  },
+  "logo": {
+    "path": "programs/a16z-speedrun.png",
+    "source_url": "https://speedrun.a16z.com/favicons/apple-touch-icon.png"
   }
 }

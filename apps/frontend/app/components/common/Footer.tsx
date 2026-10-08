@@ -62,12 +62,14 @@ export default function Footer() {
         </div>
       </div>
 
-      <p
+      {/* The navbar's logo (mark and wordmark), large and faded. */}
+      <div
         aria-hidden="true"
-        className="mt-4 select-none text-center font-funnel-display text-[18vw] font-bold leading-none tracking-[-0.03em] text-ek-blue-light/10"
+        data-footer-wordmark=""
+        className="mt-6 flex select-none justify-center px-2 text-ek-blue-light/10 md:px-6"
       >
-        EARNKIT
-      </p>
+        <Wordmark decorative className="h-auto w-full" />
+      </div>
 
       <p className="mt-4 text-center font-funnel-sans text-sm text-ek-blue-soft">
         &copy; {new Date().getFullYear()} Tokenfi Inc. All rights reserved.

@@ -241,7 +241,8 @@ test('v2.7 §1: the full home view', () => {
   for (const href of [...FOOTER_COLUMNS.flatMap((c) => c.links.map((l) => l.href)), '/'])
     assert.match(h, new RegExp(`href="${href.replace(/[.+]/g, '\\$&')}"`), href);
   assert.ok(t.includes(FOOTER_TAGLINE));
-  assert.ok(t.includes('EARNKIT'));
+  // v2.8.1 (owner): the faded wordmark is the navbar's logo SVG, not text.
+  assert.match(h, /<div aria-hidden="true" data-footer-wordmark=""[^>]*><svg[^>]*viewBox="0 0 124 23"/);
   // The design system: Funnel type, navy panels, the panel radius; no emojis, never "coin".
   assert.match(h, /rounded-\[40px\][^"]*md:rounded-\[56px\]/);
   assert.match(h, /<h2[^>]*font-funnel-display[^>]*>Open programs<\/h2>/);

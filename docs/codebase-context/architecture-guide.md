@@ -469,6 +469,10 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   investment program: a fit for the builder's repo first (Easy first, then the top prize; Ruling
   F5), and "build something new" for the Easy program with the most money only when no repo fits;
   with no repo, the best program known not to need one.
+  A no-repo builder who picks a program that needs a repo anyway (Arc, from the table) hears it
+  with the coach's questions, before answering: "Arc Microgrants needs a public repo with your
+  project's code. No repo yet? Avalanche Team1 Mini Grants doesn't need one: say the word and I'll
+  start there." (`tools.ts needsRepoLine`, `present.ts enterableWithoutRepo`; v2.8.1 T7).
   "$X in prizes you qualify for" leaves out investments and rows that still need new work.
 - **Applying, v2.8.1 §C and §F.** The coach's one round also asks for the wallet (`questionsFor`'s
   `wallet`, key `payout_wallet`) when the entry would get a token and no wallet is known (given,
@@ -1612,8 +1616,11 @@ controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.
 - **v2.8 Part A install modal and agent text (Task 5, Rulings 18, 23, 24, 25, C1):**
   `AddToAgent.tsx AGENTS` is Grok Bot (default), Claude Code, Cursor, Codex, Muse (C1 keeps Muse
   last). Each tab has a 20px local `<img>` icon from `public/images/agents/` (sources in the comment
-  above `AGENTS`, each checked by `logoFileProblem` in `install.test.ts`), drawn one color per state
-  with CSS filters. The editor tab and "Other agents" are gone (the link box above the tabs serves
+  above `AGENTS`, each checked by `logoFileProblem` in `install.test.ts`), SVG marks drawn one color
+  per state with CSS filters. v2.8.1 (owner): Grok Bot (SpaceXAI's macOS agent app) shows its own
+  app icon, `grok-bot.png` (64px, in color, rounded; from the app bundle), never Grok's logomark;
+  Muse (Meta) shows its logo from muse.ai, `muse.svg` (gradient flattened to one blue, since the
+  logo checks refuse `url()`), not a placeholder. The editor tab and "Other agents" are gone (the link box above the tabs serves
   any other client). Claude Code: `claude mcp add --transport http --scope user earnkit
   https://earnkit.com/mcp`, then "Then type /mcp, pick earnkit, approve."; Codex: `codex mcp add
   earnkit --url https://earnkit.com/mcp`, then `codex mcp login earnkit`. The pill under the steps
@@ -1638,9 +1645,10 @@ controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.
   of columns from `lib/earnkit/footer-links.ts FOOTER_COLUMNS`: Product (Programs), Resources
   (Docs, For sponsors), Legal (Policy), Contact (`j@earnkit.com` mailto, an X icon button to
   `https://x.com/jenilt` with `aria-label="@jenilt on X"`, `app/components/ui/Icons.tsx XIcon`).
-  Below the card: the faded `<p aria-hidden="true">EARNKIT</p>` wordmark
-  (`font-funnel-display text-[18vw] font-bold tracking-[-0.03em] text-ek-blue-light/10`, fix round
-  1: weight and tracking to match the branded `Wordmark` logo), then the copyright line (unchanged,
+  Below the card: the faded wordmark. v2.8.1 (owner): it is the navbar's logo itself,
+  `ui/Logo.tsx Wordmark` (the mark and the "EarnKit" letters in one SVG path) with `decorative`
+  (aria-hidden, no role), full width in an `aria-hidden` `div[data-footer-wordmark]` at
+  `text-ek-blue-light/10`; never text. Then the copyright line (unchanged,
   "© \<year\> Tokenfi Inc. All rights reserved."). Every link is real; no placeholders. `DOCS`,
   `FOR_SPONSORS`, `JENIL_X`, `CONTACT_EMAIL` are defined in `lib/earnkit/footer-links.ts` (not
   `app/lib/links.ts`) because `EXTERNAL_ALLOW`/`FOOTER_COLUMNS` need them and `lib/earnkit` never
@@ -2178,6 +2186,71 @@ throwaway database, real program files, fakes for tokens.fun and GitHub, no netw
   token offers move to it, its memory fills gaps from theirs, and every member points to it.
   Proof codes after a link are the root's (an unlaunched entry made by the new install before the
   link needs its line pushed again).
+
+## v2.8.1 friction fixes: shipping, runbooks and the journey test
+
+Spec: `docs/design-docs-and-implementation-plans/v2.8.1-friction-fixes.md` (implemented). The
+pieces are documented where they live: launch claims, retries, limits and the reply time under
+"Launch claims, retries and timeouts (v2.8.1 §A)"; the first message (§B) and applying (§C, §F)
+under the v2.8 Part C/D sections; rollover (§D) under the builder bonus ledger; hosted agents and
+identity (§E) above. What changed for the builder, in one list:
+
+- §A: a launch is never stuck ("didn't launch yet; say go" on a known pre-mint refusal, "launching"
+  within 50 s, an owner alert after 10 minutes); the Yes line names `$TICKER (Name)`; the proof
+  line is read from the default branch, then the latest pushed branch, and a coding agent is never
+  told to open Claude Code; 10 launches per wallet per UTC day with "Try again after HH:MM UTC".
+- §B: "What can I earn?" never fails on agent input; investments never lead; no-repo rows say
+  "(needs a repo)"; returning builders see "Your entries" and entered programs are never offered.
+- §C, §F: the wallet, Loom demo and Builder Code are asked in the one coach round; the bonus note is
+  said once, positively; "40%" appears once per entry (the Yes line; a repeat offer in the same
+  entry omits it).
+- §D: after a program ends, a token's fees book to the repo's next open entry.
+- §E: limits per agent client; hosted installs never reuse answers or wallets silently; earlier
+  entries are picked up with a yes plus the proof line.
+
+**Ship order.**
+1. tokens.fun first (its worktree `tokensfun-earnkit-limit`, commits `cc46fa2` and `f02e616`): the
+   EarnKit-key wallet limit, the 429 `retry_after`, and `minted: false` on refusals.
+2. EarnKit: `pnpm db:migrate` (additive: `projects.token_claimed_at` (backfilled to the migration
+   time on pending rows) and `token_released_at`, the `token_offers` table,
+   `installations.shared_client`, `builder_id`, `pickup`, `programs.needs_repo`),
+   then `pnpm programs:sync` (needs_repo on every program, the speedrun logo, Monad's links).
+3. **Settle pre-v2.8.1 pending launches (ship step).** Before EarnKit v2.8.1 runs its first cron,
+   list `SELECT id, name, repo_url, token_name, token_symbol, token_note, payout_wallet,
+   installation_id FROM projects WHERE token_url = 'pending';`. The migration backfills `token_claimed_at` on these rows, so the
+   first hourly cron 10+ minutes after the deploy names each one in `needs_owner`
+   (`token-pending:<id>`), answers 503 and GitHub emails the owner. Settle every row first with
+   "Runbook: a token stuck in `pending`" (look the ticker and creator wallet up on tokens.fun; if
+   it minted, record its link with step 3; only after confirming no token exists, release the
+   claim with step 4 so the builder's next "go" launches). An empty result means nothing to do.
+   Pre-v2.8.1 claims are never retried automatically: the old code may have sent a deploy that
+   minted.
+4. Deploy, then run "Runbook: Test the journey (v2.8)" with a throwaway repo.
+
+**tokens.fun answers EarnKit reads (v2.8.1, Rulings F3, F4).**
+- **429 with `retry_after`.** tokens.fun's EarnKit-key wallet limit (10 per wallet per day) answers
+  429 with `retry_after: { at: <ISO time>, seconds: <n> }` and a `Retry-After` header. EarnKit
+  releases the claim (nothing minted) and says "Your token didn't launch: this wallet reached
+  today's launch limit. Try again after HH:MM UTC." (the time rounded up to the minute; the older
+  flat `retry_after` ISO or seconds, `retry_after_seconds`, `retryAfter` and the header are read
+  too; with none, "in a few hours"). It is never retried at once.
+- **`minted: false`.** tokens.fun adds it to every refusal before broadcast. Any answer with
+  `minted: false` and no `txHash` or `tokenAddress` releases the claim, retried once for a 5xx;
+  the builder hears "Your token didn't launch yet; say go to try again." Anything else that may
+  have minted (no answer, 502 "Deployment status unknown", the catch-all 500, an unparsed body, a
+  tx hash) keeps the claim pending for the runbook. Against a tokens.fun that predates
+  `minted: false`, only its exact known pre-mint 503 texts release.
+
+**The journey test (`v281-journey.test.ts`).** The friction audit ran 10 builder journeys through
+the real tools against a throwaway database; the same journeys, plus the agent switch (Grok Bot
+with a repo, then Claude Code: "Pick up your earlier entry?", `pick_up_entries` yes, the same Arc
+entry, one token), run as a DB-gated test in their own database with mocked tokens.fun (ticker
+check and the deploy API behind the real `deployToken`, plus a slow deploy) and GitHub (repo
+facts, `earnkit.txt`); any other fetch gets a 503. It asserts "40%" exactly once per entry flow,
+the bonus note at most once per reply, every reply under 50 s (the slow deploy answers
+"launching" and the check-back returns the token and kit), a builder with a repo never led with
+speedrun, no dead end for a no-repo builder on Arc, the returning recap with no re-offer, and no
+"open this in Claude Code or Cursor" for an agent that can push.
 
 ## Abuse limits and response headers (v2.2 §5)
 

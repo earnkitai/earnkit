@@ -40,6 +40,7 @@ import {
   bonusCell,
   bonusProgramIds,
   closesInDays,
+  enterableWithoutRepo,
   presentFirstMessage,
   programUpdates,
   type YourRepos,
@@ -557,6 +558,16 @@ const GITHUB_LIMITED =
   'Too many GitHub repo checks from this agent (30 an hour), so none were run this time.';
 
 /** The agent tools. The MCP server forwards each call here. */
+/**
+ * v2.8.1 T7 (audit J1): the line before the coach's questions when the program needs a repo and the
+ * builder has none: what is needed, and the best program they can enter without one.
+ */
+async function needsRepoLine(program: { id: string; title: string }): Promise<string> {
+  const alt = enterableWithoutRepo(await listPrograms().catch(() => []), program.id);
+  const head = `${program.title} needs a public repo with your project's code.`;
+  return alt ? `${head} No repo yet? ${alt.title} doesn't need one: say the word and I'll start there.` : head;
+}
+
 export const tools = {
   // One answer to "what can I earn?": the builder's projects first, then what's worth building,
   // opening with what changed since their last check.
@@ -811,7 +822,10 @@ export const tools = {
           // The earnkit.txt token line is bound to this agent and the repo; shown only in this reply.
           installationId: ctx.installationId,
           repoUrl,
-        })
+        },
+        // T7 (journey test): the same ticker check and availability as the rest of the flow
+        // (injected in tests; the defaults otherwise, as before).
+        { check: ctx.tokenDeps?.check, available: ctx.tokenDeps?.available })
       : null;
     const payoutWallet = given;
     const sign_to_enter = signToEnter(
@@ -896,10 +910,13 @@ export const tools = {
     const askWallet = questions.length > 0 ? await walletToAsk(program, repoUrl, agent?.can_push !== false, given, remembered, known.project?.name, ctx) : null;
     if (askWallet) questions = coachQuestions(askWallet);
     const intro = coachIntro(program.title, questions);
+    // v2.8.1 T7 (audit J1): a builder with no repo who picks a program that needs one hears it with
+    // the questions, never only after answering them, and gets a program they can enter as they are.
+    const repoFirst = intro && program.needs_repo && !repoUrl ? await needsRepoLine(program) : null;
     if (intro)
       return withAlerts(ctx.installationId, {
         program_id,
-        show_to_builder: intro,
+        show_to_builder: repoFirst ? `${repoFirst}\n\n${intro}` : intro,
         questions,
         coach,
         ready: false,
@@ -1062,7 +1079,7 @@ export const tools = {
       return {
         show_to_builder:
           (proposal?.taken ? `$${proposal.taken} is taken.\n` : '') +
-          confirmOffer({ hasBonus: facts.hasBonus, coinIn: facts.coinIn, canPush, wallet, remembered: !given && !answered && wallet !== null, tokensOff, proposal: pair }),
+          confirmOffer({ hasBonus: facts.hasBonus, coinIn: facts.coinIn, canPush, wallet, remembered: !given && !answered && wallet !== null, tokensOff, proposal: pair, again: Boolean(proposal?.taken) }),
         ...(offersToken && wallet && { shown_wallet: wallet }),
         ...(pair && { token: { proposed: pair } }),
         agent_note:
@@ -1108,7 +1125,7 @@ export const tools = {
         answered ??
         (await ownEntryWallet({ programId: program.id, installationId: ctx.installationId, repoUrl, name: i.project.name })) ??
         (await walletMemory(ctx));
-      const offer = confirmOffer({ hasBonus: facts.hasBonus, coinIn: null, canPush, wallet, remembered: !given && !answered && wallet !== null, proposal });
+      const offer = confirmOffer({ hasBonus: facts.hasBonus, coinIn: null, canPush, wallet, remembered: !given && !answered && wallet !== null, proposal, again: true });
       return {
         project_id: projectId,
         token: { status: 'skipped' as const, fixable: true, proposed: proposal },

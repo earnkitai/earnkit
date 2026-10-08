@@ -580,6 +580,14 @@ const bestCard = (cards: Card[]): Card | undefined =>
   [...cards].sort((a, b) => Number(isEasy(b)) - Number(isEasy(a)) || (isEasy(a) ? 0 : Number(needsForms(a)) - Number(needsForms(b))) || byPrize(a, b))[0];
 
 /**
+ * v2.8.1 T7 (journey test, audit J1): the program a builder with no repo can enter as they are (known
+ * not to need a repo; never a sponsor campaign, an EarnKit campaign or an investment), as the
+ * no-repo offer picks it. Used when such a builder picks a program that needs a repo anyway.
+ */
+export const enterableWithoutRepo = (cards: (Card & { earnkit_campaign?: unknown })[], exceptId?: string): Card | undefined =>
+  bestCard(cards.filter((c) => c.id !== exceptId && !c.sponsored && !c.earnkit_campaign && !c.investment && c.needs_repo === false));
+
+/**
  * One closing offer (offer's text), and whether it's an EarnKit campaign entry (Ruling 10 (plan)).
  * `noBonusId` (final review M4): the offered program, when its row carries Ruling 25's "no builder
  * bonus" note, so the entry offered can't earn the bonus.

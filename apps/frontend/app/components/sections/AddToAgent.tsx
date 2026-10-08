@@ -9,7 +9,10 @@ export type AgentName = 'Grok Bot' | 'Claude Code' | 'Cursor' | 'Codex' | 'Muse'
 
 export type Agent = {
   name: AgentName;
-  /** The tab's icon: a local SVG under public/ ("/images/agents/<file>.svg"), never fetched from elsewhere. */
+  /**
+   * The tab's icon, a local file under public/ ("/images/agents/<file>.svg|png"), never fetched from
+   * elsewhere. An SVG mark is drawn in one color (the tab's); a PNG is the app's own icon, in color.
+   */
   icon: string;
   /** One-click install deep link, when the agent supports one. */
   install?: string;
@@ -25,9 +28,10 @@ export type Agent = {
  * v2.8 Ruling 18 (plan), Ruling C1: the install tabs, Grok Bot first. The editor tab and "Other agents"
  * are gone; the EarnKit link box above the tabs serves any other agent.
  *
- * Icon sources (each the maker's official brand or press kit, stored locally, single color):
- * - grok.svg: xAI brand guidelines, https://x.ai/legal/brand-guidelines
- *   (SpaceXAI_Grok_Assets.zip, Grok_Logomark_Dark.svg), unchanged.
+ * Icon sources (each the maker's own, stored locally; SVG marks drawn in one color):
+ * - grok-bot.png: Grok Bot's own app icon (the macOS app by SpaceXAI, "Copyright © 2026 SpaceXAI"),
+ *   dist/renderer/assets/app-icon-*.png inside Grok Bot.app's app.asar (the same art as its
+ *   icon.icns), scaled from 256px to 64px. Grok Bot is not Grok: Grok's logomark is not used.
  * - claude-code.svg: Anthropic press kit, https://www.anthropic.com/press-kit
  *   (Claude logos/3 Claude Spark/SVG/Claude Spark - Clay.svg), unchanged.
  * - cursor.svg: Cursor brand page, https://cursor.com/brand
@@ -36,8 +40,10 @@ export type Agent = {
  * - codex.svg: OpenAI brand guidelines, https://openai.com/brand/
  *   (openai-logos.zip, OAI_OpenAI-Blossom_Black.svg), the same path with the viewBox cropped to
  *   the mark (the clear space is the tab's own padding at 20px).
- * - muse.svg: an EarnKit "M" monogram. Meta's brand center has no Muse mark, and its company logo
- *   needs Meta's approval, so no Meta mark is used.
+ * - muse.svg: Muse's logo from its official site, https://muse.ai/images/landing/brand/muse-logo.svg
+ *   (muse.ai is the site Meta's announcement names: https://about.fb.com/news/2026/09/introducing-muse-personal-ai-agent/),
+ *   the same path; its blue gradient fill is flattened to its middle stop (#0064E0), since the
+ *   logo checks refuse url() and the tab draws the mark in one color anyway.
  *
  * Commands: Claude Code per https://code.claude.com/docs/en/mcp (--transport http, --scope user,
  * then /mcp to sign in); Codex per https://developers.openai.com/codex/mcp
@@ -46,7 +52,7 @@ export type Agent = {
 export const AGENTS: Agent[] = [
   {
     name: 'Grok Bot',
-    icon: '/images/agents/grok.svg',
+    icon: '/images/agents/grok-bot.png',
     steps: [
       'Add an MCP connector in Grok Bot.',
       'Paste the EarnKit link and save.',
@@ -199,14 +205,16 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
                   : 'bg-ek-navy text-ek-blue-light hover:bg-ek-blue-strong'
               }`}
             >
-              {/* One color per state: the mark is drawn dark on the light tab, light on the navy one. */}
+              {/* One color per state: an SVG mark is drawn dark on the light tab, light on the navy one; an app icon (PNG) keeps its colors. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={a.icon}
                 alt=""
                 width="20"
                 height="20"
-                className={`h-5 w-5 object-contain ${i === active ? 'brightness-0' : 'brightness-0 invert'}`}
+                className={`h-5 w-5 object-contain ${
+                  a.icon.endsWith('.png') ? 'rounded-[5px]' : i === active ? 'brightness-0' : 'brightness-0 invert'
+                }`}
               />
               {a.name}
             </button>
