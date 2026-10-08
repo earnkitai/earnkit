@@ -43,8 +43,8 @@ async function handle(request: Request) {
     console.error('[mcp] campaign check failed');
     return false;
   });
-  // v2.8.1 §E17/E18: the tools act as the group's root; the pickup offer and the hosted-agent rules
-  // read the token's own installation.
+  // v2.8.1 §E17/E18: the tools act as the group's root; the pickup offer reads the token's own
+  // installation, and the hosted-agent rules (sharedClient) the whole group's.
   await createMcpServer(
     { installationId: caller.id, ownInstallationId: caller.own, sharedClient: caller.shared },
     { campaignOpen },

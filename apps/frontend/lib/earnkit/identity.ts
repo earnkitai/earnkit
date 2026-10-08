@@ -1,5 +1,6 @@
-import { githubRepo } from './campaigns';
+import { githubRepo, normalizeRepoUrl } from './campaigns';
 import { sql } from './db';
+import { sharedGroup } from './installations';
 import {
   fetchOwnershipFile,
   fetchOwnershipLatestBranch,
@@ -27,6 +28,11 @@ import { timingSafeEqual } from 'node:crypto';
  *   agent's proof line in the repo of one of the earlier entries: the same line a token launch needs,
  *   which only someone who can push to that repo can add (token-gate.ts tokenCode, bound to this
  *   installation). Without it, the answer bank, contact details and launch rights stay put.
+ * - The proof covers one repo, so only the groups with an entry in that repo are offered and linked
+ *   (final fix wave, C1): a group that only shares a public GitHub user or wallet is never linked by
+ *   another group's proof, and the question counts only the covered groups' entries.
+ * - A hosted agent (shared_client) serves many builders: no group holding one is ever offered or
+ *   linked, and a hosted caller is never offered a pickup (final fix wave, C2).
  * - Nothing is linked without the builder's yes; a no is remembered and never asked again for the
  *   same earlier installations.
  */
@@ -81,9 +87,14 @@ export async function findEarlier(root: number, stated: Stated): Promise<Earlier
   // GitHub users are [a-z0-9-] only (GITHUB_USER), so they are safe inside the pattern.
   const pattern = users.length > 0 ? `github\\.com[/:](${users.join('|')})/` : null;
   const db = sql();
+  // C2: a group holding a hosted (shared_client) installation is never matched.
   const rows = await db<{ root: number }[]>`
     SELECT DISTINCT COALESCE(i.builder_id, i.id) AS root FROM installations i
-    WHERE COALESCE(i.builder_id, i.id) <> ${root} AND (
+    WHERE COALESCE(i.builder_id, i.id) <> ${root}
+      AND NOT EXISTS (
+        SELECT 1 FROM installations s
+        WHERE COALESCE(s.builder_id, s.id) = COALESCE(i.builder_id, i.id) AND s.shared_client)
+      AND (
       (${users.length > 0} AND lower(i.github_user) = ANY(${users}::text[]))
       OR (${wallet}::text IS NOT NULL AND EXISTS (
         SELECT 1 FROM installation_wallets iw WHERE iw.installation_id = i.id AND iw.wallet = ${wallet}))
@@ -94,14 +105,30 @@ export async function findEarlier(root: number, stated: Stated): Promise<Earlier
     ORDER BY root`;
   const roots = rows.map((r) => r.root);
   if (roots.length === 0) return null;
-  const entries = await db<{ repo_url: string | null }[]>`
-    SELECT p.repo_url FROM projects p JOIN installations i ON i.id = p.installation_id
-    WHERE COALESCE(i.builder_id, i.id) IN ${db(roots)}
-    ORDER BY p.submitted_at DESC, p.id DESC`;
+  const entries = await groupEntries(roots);
   if (entries.length === 0) return null;
   const repos = entries.map((e) => e.repo_url).filter((u): u is string => !!u && githubRepo(u) !== null);
   const own = repos.find((u) => users.includes(githubRepo(u)!.owner.toLowerCase()));
-  return { roots, entries: entries.length, repo: own ?? repos[0] ?? null };
+  const repo = own ?? repos[0] ?? null;
+  if (!repo) return { roots, entries: entries.length, repo: null };
+  // C1: the proof covers this repo only: just the groups with an entry in it, and just their entries.
+  const covered = coveredRoots(entries, repo);
+  return { roots: covered, entries: entries.filter((e) => covered.includes(e.root)).length, repo };
+}
+
+/** The entries of the groups rooted at `roots`, newest first. */
+async function groupEntries(roots: number[]) {
+  const db = sql();
+  return db<{ root: number; repo_url: string | null }[]>`
+    SELECT COALESCE(i.builder_id, i.id) AS root, p.repo_url FROM projects p JOIN installations i ON i.id = p.installation_id
+    WHERE COALESCE(i.builder_id, i.id) IN ${db(roots)}
+    ORDER BY p.submitted_at DESC, p.id DESC`;
+}
+
+/** The roots (ascending) with an entry whose normalized repo is `repo`'s. Pure; exported for tests. */
+export function coveredRoots(entries: { root: number; repo_url: string | null }[], repo: string): number[] {
+  const key = normalizeRepoUrl(repo);
+  return [...new Set(entries.filter((e) => e.repo_url && normalizeRepoUrl(e.repo_url) === key).map((e) => e.root))].sort((a, b) => a - b);
 }
 
 /** The yes/no the builder sees. Pure; exported for tests. */
@@ -119,6 +146,8 @@ export async function offerPickup(
   stated: Stated,
 ): Promise<{ question: string; entries: number } | null> {
   const root = await rootOf(own);
+  // C2: a hosted agent's group is never offered a pickup (one registration serves many builders).
+  if (await sharedGroup(root)) return null;
   const found = await findEarlier(root, stated);
   if (!found || !found.repo) return null;
   const [row] = await sql()<{ pickup: PickupState | null }[]>`SELECT pickup FROM installations WHERE id = ${own}`;
@@ -169,6 +198,8 @@ export async function answerPickup(own: number, yes: boolean, deps: PickupDeps =
   const state = row?.pickup ?? {};
   const offered = state.offered ?? [];
   if (offered.length === 0 || !state.repo) return { status: 'none' };
+  // C2: a hosted agent's group never links (it can't have been offered; checked again here).
+  if (await sharedGroup(await rootOf(own))) return { status: 'none' };
   if (!yes) {
     const declined = [...new Set([...(state.declined ?? []), ...offered])];
     await sql()`UPDATE installations SET pickup = ${sql().json({ declined })} WHERE id = ${own}`;
@@ -182,14 +213,23 @@ export async function answerPickup(own: number, yes: boolean, deps: PickupDeps =
   const proven = has(onDefault, code) || has((await d.latest(gh).catch(() => null))?.file, code);
   if (!proven)
     return { status: 'needs_proof', repo: `github.com/${gh.owner}/${gh.repo}`, line: `token: ${code}`, unreadable: onDefault.status === 'error' };
-  const entries = await linkInstallations(own, offered);
+  // C1, C2: link only the offered groups the proof covers now (an entry in the proven repo) and that
+  // hold no hosted installation; read again, so a group that changed since the offer is left out.
+  const mine = await rootOf(own);
+  const current = [...new Set(offered.map(Number).filter(Number.isInteger))];
+  const roots = current.length === 0 ? [] : coveredRoots(await groupEntries(current), state.repo);
+  const safe: number[] = [];
+  for (const r of roots) if (r !== mine && (await rootOf(r)) === r && !(await sharedGroup(r))) safe.push(r);
   await sql()`UPDATE installations SET pickup = ${sql().json({ declined: state.declined ?? [] })} WHERE id = ${own}`;
+  if (safe.length === 0) return { status: 'none' };
+  const entries = await linkInstallations(own, safe);
   return { status: 'linked', entries };
 }
 
 /**
  * Links `own`'s group and the groups rooted at `roots` into one: the smallest root stays, every other
- * installation points to it (builder_id), and the other roots' rows move to it (entries, answer bank,
+ * installation points to it (builder_id), and the other roots' rows move to it (entries, keeping the
+ * earlier-submitted one when both hold the same program and repo, answer bank,
  * wallets, token offers, sponsor drafts; on a clash the root's newer answer wins and the root's offer
  * stays). The root's memory keeps its own values, filling gaps from the others. One transaction.
  * Returns the group's entry count. Exported for tests.
@@ -201,7 +241,22 @@ export async function linkInstallations(own: number, roots: number[]): Promise<n
     const all = [...new Set([mine.root, ...roots])].sort((a, b) => a - b);
     const [root, ...others] = all;
     for (const other of others) {
-      await tx`UPDATE projects SET installation_id = ${root} WHERE installation_id = ${other}`;
+      // M3: one entry per (program, repo) in the group (per program and name without a repo, as
+      // ownEntry matches): the earlier-submitted row moves to (or stays on) the root; a later
+      // duplicate stays on, or moves to, the member installation, out of the group's entries.
+      const rows = await tx<{ id: number; program_id: string; repo_url: string | null; name: string }[]>`
+        SELECT id, program_id, repo_url, name FROM projects
+        WHERE installation_id IN (${root}, ${other}) ORDER BY submitted_at, id`;
+      const seen = new Set<string>();
+      const later: number[] = [];
+      for (const p of rows) {
+        const k = `${p.program_id}\u0000${p.repo_url ? normalizeRepoUrl(p.repo_url) : `name:${p.name.trim().toLowerCase()}`}`;
+        if (seen.has(k)) later.push(p.id);
+        else seen.add(k);
+      }
+      await tx`
+        UPDATE projects SET installation_id = CASE WHEN id = ANY(${later}::int[]) THEN ${other}::int ELSE ${root}::int END
+        WHERE installation_id IN (${root}, ${other})`;
       await tx`UPDATE sponsor_campaigns SET installation_id = ${root} WHERE installation_id = ${other}`;
       await tx`
         INSERT INTO answer_bank (installation_id, project_key, kind, answer, program_id, updated_at)

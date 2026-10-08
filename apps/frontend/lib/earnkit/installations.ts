@@ -165,7 +165,7 @@ export type Caller = {
   id: number;
   /** The token's own installation. */
   own: number;
-  /** v2.8.1 §E17: the token's installation came from a hosted agent client. */
+  /** v2.8.1 §E17: an installation in the token's group came from a hosted agent client. */
   shared: boolean;
 };
 
@@ -175,9 +175,15 @@ export type Caller = {
  * the group's.
  */
 export async function connectInstallation(token: string): Promise<Caller | null> {
+  // Final fix wave (C2): `shared` is the group's: true when any installation linked with this one
+  // came from a hosted agent client, not only the token's own (as sharedGroup, which launchLimit reads).
   const [row] = await sql()<{ id: number; own: number; shared: boolean }[]>`
-    UPDATE installations SET last_seen_at = now()
-    WHERE token_hash = ${hash(token)} RETURNING COALESCE(builder_id, id) AS id, id AS own, shared_client AS shared`;
+    WITH t AS (
+      UPDATE installations SET last_seen_at = now()
+      WHERE token_hash = ${hash(token)} RETURNING COALESCE(builder_id, id) AS id, id AS own, shared_client)
+    SELECT t.id, t.own, (t.shared_client OR EXISTS (
+      SELECT 1 FROM installations s WHERE (s.id = t.id OR s.builder_id = t.id) AND s.shared_client)) AS shared
+    FROM t`;
   return row ?? null;
 }
 
