@@ -2162,11 +2162,13 @@ throwaway database, real program files, fakes for tokens.fun and GitHub, no netw
   only known at registration), is re-derived from the redirect host for older ids, and is stored
   on `installations.shared_client` at the token exchange (never cleared by a re-authorization;
   installations from before v2.8.1 stay `false` until they re-authorize). The MCP route passes it
-  as `ToolContext.sharedClient`. For flagged installs: `coach.ts bankFill(..., { confirmAll })`
+  as `ToolContext.sharedClient`; since the final fix wave it is the group's flag (any linked
+  installation flagged, as `sharedGroup`), not only the token's own. For flagged installs: `coach.ts bankFill(..., { confirmAll })`
   fills nothing silently (every banked answer the coach asks about comes back as `suggested`,
-  asked as `Use "<saved answer>" again?`; banked answers for fields the agent drafts are left
-  out); `tools.ts walletMemory` returns no remembered wallet (the wallet is asked in the coach
-  round, never suggested); `token-launch.ts launchLimit` uses `tokenLaunchShared` (500/day per
+  asked as `Use "<saved answer>" again?`, and saved contact details by kind only, "Use your saved
+  email?"; banked answers for fields the agent drafts are left out); `tools.ts walletMemory` and
+  `entryWallet` return no remembered or entry wallet (the wallet is asked in the coach round,
+  never suggested); `token-launch.ts launchLimit` uses `tokenLaunchShared` (500/day per
   agent) instead of 10, with the per-wallet 10/day still the real limit.
 - **Identity follows the builder (§E18, `identity.ts`).** `installations.builder_id` links an
   installation to its group's root; `installations.ts connectInstallation` returns the root as the
@@ -2176,14 +2178,19 @@ throwaway database, real program files, fakes for tokens.fun and GitHub, no netw
   repos and local_repos reported now, the wallet), never remembered state; matching earlier
   installations (by github_user, installation wallets, or entries' repo owner or wallets) outside
   the caller's group, with at least one entry in a GitHub repo, prepend "Pick up your N earlier
-  entries?" to `show_to_builder` and add `pick_up`. Asked once per set; a no is stored in
+  entries?" to `show_to_builder` and add `pick_up`. Final fix wave: only the groups with an entry
+  in the repo the proof goes in are offered, counted and linked (C1; a stranger naming the same
+  public GitHub user or wallet stays out), and a group holding a hosted (`shared_client`)
+  installation is never matched, and a hosted caller never offered (C2). Asked once per set; a no is stored in
   `installations.pickup.declined` and never asked again. The answer goes to the `pick_up_entries`
   tool. A yes alone never links (a GitHub user or wallet is public): this agent's proof line
   (`token: <tokenCode(own installation, repo)>`, the token launch's line) must be in the newest
   earlier entry's repo, on the default branch or the latest pushed branch; until then the reply
   tells the agent what to push. `linkInstallations` then merges in one transaction: the smallest
   root stays, other roots' projects, sponsor drafts, answer bank (newer answer wins), wallets and
-  token offers move to it, its memory fills gaps from theirs, and every member points to it.
+  token offers move to it, its memory fills gaps from theirs, and every member points to it. Two
+  entries of the same program and repo (or no-repo name) keep the earlier-submitted one in the
+  group; the later stays on the member installation (M3).
   Proof codes after a link are the root's (an unlaunched entry made by the new install before the
   link needs its line pushed again).
 
@@ -2242,9 +2249,10 @@ identity (§E) above. What changed for the builder, in one list:
   `minted: false`, only its exact known pre-mint 503 texts release.
 
 **The journey test (`v281-journey.test.ts`).** The friction audit ran 10 builder journeys through
-the real tools against a throwaway database; the same journeys, plus the agent switch (Grok Bot
-with a repo, then Claude Code: "Pick up your earlier entry?", `pick_up_entries` yes, the same Arc
-entry, one token), run as a DB-gated test in their own database with mocked tokens.fun (ticker
+the real tools against a throwaway database; the same journeys, plus the agent switch (Grok Bot,
+a hosted `shared_client` install, with a repo, then Claude Code: no pickup is offered, and Claude
+Code enters on its own with the repo's one token), a reinstall that picks up only the group its
+proof covers (J1d), a slow repo check ("still checking"), run as a DB-gated test in their own database with mocked tokens.fun (ticker
 check and the deploy API behind the real `deployToken`, plus a slow deploy) and GitHub (repo
 facts, `earnkit.txt`); any other fetch gets a 503. It asserts "40%" exactly once per entry flow,
 the bonus note at most once per reply, every reply under 50 s (the slow deploy answers
@@ -2259,10 +2267,11 @@ speedrun, no dead end for a no-repo builder on Arc, the returning recap with no 
   valid create), sponsor draft replacements 10/day and
   record_submission 20/day per installation; at most 3 entries per installation per campaign
   (counted in `recordSubmission` under the campaign's advisory lock); authorize 60/hour per IP;
-  OAuth client registration and new installations (v2.8.1 §E17) 500/day per agent client
-  (`oauth.ts clientLimitKey`: the first https redirect host, so a hosted agent's users don't share
-  its servers' IP bucket; a loopback or app-scheme client counts per registration) and 50/hour per
-  IP as the abuse floor (the token endpoint counts only codes that create an installation; a
+  new installations (v2.8.1 §E17, Ruling F11) 500/day per registration (`oauth.ts
+  registrationLimitKey`: the client id, so one agent app's users never share a bucket anyone could
+  fill), OAuth client registration a 10,000/day ceiling per agent app (`clientLimitKey`: the first
+  https redirect host; a warning is logged at 8,000, before it refuses; a loopback or app-scheme
+  client has only the IP floor), and 50/hour per IP as the abuse floor (the token endpoint counts only codes that create an installation; a
   replayed code is free; a refusal logs `[oauth] <route> refused by <limit> (<redirect host>)`),
   since installations are the identity every per-installation limit keys on; GitHub matching 30/hour per installation (when refused, list_programs still
   answers, with the readable reason in place of "your repos"); chain checks 60/min. MCP tools turn
