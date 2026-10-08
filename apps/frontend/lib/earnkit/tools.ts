@@ -642,7 +642,8 @@ export const SIGN_IN_NOTE =
   "Show the line. When the builder says they signed in, call confirm_entry again with decision 'go'.";
 /** v2.9 B9 (Ruling G9): on a shared client the sign-in page gives the builder a code for the agent. */
 export const SIGN_IN_CODE_NOTE =
-  'The page gives the builder a code: pass it as signed_in on this and later calls (list_programs, tell_earnkit, launch_token).';
+  'The page gives the builder a code: pass it as signed_in on this and later calls (list_programs, tell_earnkit, launch_token). ' +
+  'It acts as the builder for 24 hours: never repeat it in your replies.';
 /** v2.9 B9: the proof-line miss's way out for an agent that can't push, with sign-in on. */
 export const CANT_PUSH_SIGN_IN_NOTE =
   "If you can't push to this repo, call confirm_entry again with agent: { can_push: false }: the builder gets a one-click GitHub sign-in instead.";

@@ -780,3 +780,9 @@ ALTER TABLE github_verifications ADD COLUMN IF NOT EXISTS used_at timestamptz;
 ALTER TABLE github_verifications ADD COLUMN IF NOT EXISTS code_hash text;
 ALTER TABLE github_verifications ADD COLUMN IF NOT EXISTS code_expires_at timestamptz;
 CREATE INDEX IF NOT EXISTS github_verifications_code ON github_verifications (code_hash) WHERE code_hash IS NOT NULL;
+-- v2.9 B9 (Ruling G11): the fee wallet and ticker the confirm page showed; an entry sign-in proves a
+-- launch to exactly that wallet.
+ALTER TABLE github_verify_nonces ADD COLUMN IF NOT EXISTS wallet text;
+ALTER TABLE github_verify_nonces ADD COLUMN IF NOT EXISTS symbol text;
+ALTER TABLE github_verifications ADD COLUMN IF NOT EXISTS wallet text;
+ALTER TABLE github_verifications ADD COLUMN IF NOT EXISTS symbol text;
