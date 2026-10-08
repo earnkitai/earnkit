@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { SponsorCampaignInput, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools } from './tools';
 import { reportedGithubUser, reportedRepos } from './match-projects';
 import { sql } from './db';
-import { EntryError } from './campaigns';
+import { EntryError, normalizeRepoUrl } from './campaigns';
 import { earnkitTexts } from './campaign-text';
 import { ProgramFile, type SubmissionRequirement } from './program-file';
 import { coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, type Application } from './coach';
@@ -2909,3 +2909,183 @@ test("G10 (fix round 2): on Grok Bot, user B's record_submission never launches 
       assert.deepEqual(t.calls.wallets, [W8]);
     }),
   ));
+
+// ---- v2.9 B10, B11 (T6): the token offer right after the match; only the token is skippable
+
+type TokenOfferReply = { show_to_builder: string; token_offer?: { program_id: string; repo_url: string; project_name: string; proposed: { name: string; symbol: string } } };
+type OfferLaunch = { status: string; note?: string; fixable?: boolean; project_id?: number; sign_in?: string; sign_in_line?: string; tokens_fun?: string };
+
+/** confirmSetup plus list_programs matching the entry's repo as an owned, product-tier, quick Arc fit. */
+async function offerSetup(tag: string, o: { tier?: 'product' | 'project' } = {}) {
+  const t = await confirmSetup(tag, { noOffer: true });
+  const fit: RepoFit = {
+    repo: 'tipjar',
+    repo_url: t.repo,
+    verdicts: [{ program_id: t.p.id, program: t.p.id, status: 'likely', missing: [], effort: 'hours', note: '' }],
+    key: t.repo.replace('https://github.com/', ''),
+    product: { score: o.tier === 'project' ? 4 : 6, tier: o.tier ?? 'product', missing: [] },
+    live_verified: true,
+  };
+  const ctx = { ...t.ctx, matchProjects: async () => ({ checked: 1, scored: 1, fits: [fit] }) };
+  const list = async (c: typeof ctx = ctx) =>
+    (await tools.list_programs({ local_repos: [{ name: 'tipjar', chains: ['arc'] }] }, c)) as TokenOfferReply;
+  const offerOf = (r: TokenOfferReply) => {
+    const { program_id, repo_url, project_name } = r.token_offer!;
+    return { program_id, repo_url, project_name };
+  };
+  return { ...t, ctx, list, offerOf };
+}
+
+test('6.4 list_programs: an owned, product-tier Arc fit ends the reply with the token offer and returns token_offer; never otherwise', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await offerSetup('t6o');
+    const r = await t.list();
+    assert.ok(r.token_offer, r.show_to_builder);
+    assert.deepEqual(
+      { program_id: r.token_offer.program_id, repo_url: r.token_offer.repo_url },
+      { program_id: t.p.id, repo_url: t.repo },
+    );
+    const { proposed, project_name } = r.token_offer;
+    // The line closes the reply (no wallet remembered: asked in the same line); the pair is stored.
+    assert.ok(
+      r.show_to_builder.endsWith(
+        `${project_name} fits ${t.p.title}: $${t.p.max_award_usd!.toLocaleString('en-US')}. Launch $${proposed.symbol} (${proposed.name}) on Base now? ` +
+          'You earn 40% of its trading fees, plus a shot at the builder bonus. Say yes with your wallet address, or skip.',
+      ),
+      r.show_to_builder,
+    );
+    assert.deepEqual(await readOffer(t.inst, t.p.id, offerKey(t.repo, project_name)), proposed);
+    // A remembered wallet (non-shared): "yes / skip".
+    await sql()`UPDATE installations SET payout_wallet = ${W8} WHERE id = ${t.inst}`;
+    assert.ok((await t.list()).show_to_builder.endsWith('yes / skip'));
+    // ...never suggested on a shared client.
+    assert.ok((await t.list({ ...t.ctx, sharedClient: true } as typeof t.ctx)).show_to_builder.endsWith('Say yes with your wallet address, or skip.'));
+
+    // Project tier: no offer, the v2.8.1 close.
+    const project = await offerSetup('t6proj', { tier: 'project' });
+    const pr = await project.list();
+    assert.ok(!pr.token_offer);
+    assert.doesNotMatch(pr.show_to_builder, /40%|skip/);
+    // The repo already has a token.
+    assert.ok(!(await t.list({ ...t.ctx, repoCoins: async () => new Map([[normalizeRepoUrl(t.repo), { program_id: 'other', title: 'Other' }]]) })).token_offer);
+    // Two declines.
+    await sql()`INSERT INTO token_declines (installation_id, repo_key, count) VALUES (${t.inst}, ${t.repo.replace('https://github.com/', '')}, 2)`;
+    assert.ok(!(await t.list()).token_offer);
+    await sql()`DELETE FROM token_declines WHERE installation_id = ${t.inst}`;
+    assert.ok((await t.list()).token_offer);
+    // No deploy key (launches unavailable).
+    assert.ok(!(await t.list({ ...t.ctx, tokenDeps: { ...t.ctx.tokenDeps, available: () => false } as TokenFlowDeps })).token_offer);
+    // Arc applied (tell_earnkit).
+    await tools.tell_earnkit({ program_status: [{ program_id: t.p.id, status: 'applied' }] }, t.ctx);
+    assert.ok(!(await t.list()).token_offer);
+    await sql()`DELETE FROM builder_program_status WHERE installation_id = ${t.inst}`;
+    // token_policy: 'off'.
+    await sql()`UPDATE programs SET token_policy = 'off' WHERE id = ${t.p.id}`;
+    assert.ok(!(await t.list()).token_offer);
+  }));
+
+test('6.5 launch_token with the offer and "go": one draft entry (go) and one launch; a retry reuses it and never launches twice', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await offerSetup('t6go');
+    const offer = t.offerOf(await t.list());
+    const call = () => tools.launch_token({ offer, decision: 'go', builder_confirmed: true, creator_wallet: W8 }, t.ctx) as Promise<OfferLaunch>;
+    const first = await call();
+    assert.equal(first.status, 'launched', JSON.stringify(first));
+    assert.equal(t.calls.deploy, 1);
+    const rows = await t.rows();
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].confirm_choice, 'go');
+    assert.equal(first.project_id, rows[0].id);
+    const again = await call();
+    assert.equal(again.status, 'launched');
+    assert.equal(again.project_id, rows[0].id);
+    assert.equal(t.calls.deploy, 1);
+    assert.equal((await t.rows()).length, 1);
+    // The launch used the pair the offer showed.
+    const [{ token_symbol }] = await sql()<{ token_symbol: string }[]>`SELECT token_symbol FROM projects WHERE id = ${rows[0].id}`;
+    assert.equal(token_symbol, (await readOffer(t.inst, t.p.id, offerKey(t.repo, offer.project_name)))!.symbol);
+  }));
+
+test('6.6 "skip": one decline, no entry; the confirmation offer then has no "40%"; a skip there makes two and the offer is gone', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await offerSetup('t6skip');
+    const offer = t.offerOf(await t.list());
+    const skipped = (await tools.launch_token({ offer, decision: 'skip' }, t.ctx)) as OfferLaunch;
+    assert.deepEqual([skipped.status, skipped.note], ['skipped', 'No token for now.']);
+    assert.equal((await t.rows()).length, 0);
+    const count = async () =>
+      (await sql()<{ count: number }[]>`SELECT count FROM token_declines WHERE installation_id = ${t.inst}`)[0]?.count ?? 0;
+    assert.equal(await count(), 1);
+    // The confirmation offer names the token again, without the earnings figure.
+    const confirm = (await tools.confirm_entry({ ...t.input, wallet: W8 }, t.ctx)) as Confirmed;
+    assert.match(confirm.show_to_builder, /\nYes: launches \$\w+ \(.+\) on Base\.\n/);
+    assert.doesNotMatch(confirm.show_to_builder, /40%/);
+    const prep = (await tools.prepare_submission(t.input, t.ctx)) as { show_to_builder: string };
+    assert.doesNotMatch(prep.show_to_builder, /40%/);
+    // A skip at the confirmation: two, and never offered again (P23: the confirmation too).
+    const skip2 = (await tools.confirm_entry({ ...t.input, builder_confirmed: true, decision: 'skip' }, t.ctx)) as Confirmed;
+    assert.ok(skip2.kit);
+    assert.equal(await count(), 2);
+    assert.ok(!(await t.list()).token_offer);
+    const after = (await tools.confirm_entry({ ...t.input, wallet: W8 }, t.ctx)) as Confirmed;
+    assert.equal(after.show_to_builder, 'Ready to submit?');
+    const goAfter = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as Confirmed;
+    assert.ok(goAfter.kit);
+    assert.equal(t.calls.deploy, 0);
+  }));
+
+test("6.7 launch_token with the offer from an agent that can't push: the sign-in line and the draft entry; signed in, it launches", dbTest, () =>
+  withTokenEnv(() =>
+    withSignIn(async () => {
+      const t = await offerSetup('t6sign');
+      const ctx = { ...noProofLine(t), matchProjects: t.ctx.matchProjects };
+      const offer = t.offerOf(await t.list(ctx));
+      const input = { offer, decision: 'go', builder_confirmed: true, creator_wallet: W8, agent: { can_push: false } };
+      const first = (await tools.launch_token(input, ctx)) as OfferLaunch;
+      assert.equal(first.fixable, true);
+      assert.match(first.sign_in_line ?? '', /^One click to prove .+ is yours, then \$\w+ launches: https:\/\/earnkit\.com\/github\/verify\?n=/);
+      assert.ok(first.project_id);
+      assert.equal((await t.rows()).length, 1);
+      assert.equal(t.calls.deploy, 0);
+      await signInAs(t.inst, first.project_id!, t.repo, 'alice');
+      const second = (await tools.launch_token(input, ctx)) as OfferLaunch;
+      assert.equal(second.status, 'launched', JSON.stringify(second));
+      assert.equal(t.calls.deploy, 1);
+      assert.equal((await t.rows()).length, 1);
+    }),
+  ));
+
+test('6.8 "40%" once per entry flow: the first reply offer, launch, prepare, confirm and record', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await offerSetup('t6forty');
+    // The real repo token lookup, so the steps after the launch see the token; the deploy keys the
+    // token by its repo as the real claim does (tokens.ts deployToken).
+    const { repoCoins: _rc, ...rest } = t.ctx;
+    const deploy = (t.ctx.tokenDeps as unknown as { deploy: (d: { projectId: number }) => Promise<unknown> }).deploy;
+    const ctx = {
+      ...rest,
+      tokenDeps: {
+        ...t.ctx.tokenDeps,
+        deploy: async (d: { projectId: number }) => {
+          const out = await deploy(d);
+          await sql()`UPDATE projects SET token_repo_key = ${normalizeRepoUrl(t.repo)} WHERE id = ${d.projectId}`;
+          return out;
+        },
+      } as unknown as TokenFlowDeps,
+    };
+    const texts: string[] = [];
+    const keep = (r: unknown) => {
+      const o = r as { show_to_builder?: string; note?: string; sign_in_line?: string; token?: { note?: string } };
+      texts.push(...[o.show_to_builder, o.note, o.sign_in_line, o.token?.note].filter((x): x is string => typeof x === 'string'));
+      return r;
+    };
+    const listed = keep(await t.list(ctx as typeof t.ctx)) as TokenOfferReply;
+    const launched = keep(await tools.launch_token({ offer: t.offerOf(listed), decision: 'go', builder_confirmed: true, creator_wallet: W8 }, ctx)) as OfferLaunch;
+    assert.equal(launched.status, 'launched');
+    keep(await tools.prepare_submission(t.input, ctx));
+    const confirmed = keep(await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, ctx)) as Confirmed;
+    assert.ok(confirmed.kit);
+    keep(await tools.record_submission({ program_id: t.p.id, project: t.project, submission_data: t.answers, builder_submitted: true }, ctx));
+    assert.equal(t.calls.deploy, 1);
+    assert.equal(texts.join('\n').split('40%').length - 1, 1, texts.filter((x) => x.includes('40%')).join('\n---\n'));
+  }));
