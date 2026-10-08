@@ -2750,27 +2750,76 @@ test('v2.9 B9: with the OAuth variables absent, nothing changes (CANT_PUSH, no l
     assert.doesNotMatch(JSON.stringify(r), /github\/verify/);
   }));
 
-test("G8/G9: on a shared client, A's sign-in launches only with A's code; B (or no code) can't launch on it", dbTest, () =>
+test("G8 to G10: on Grok Bot (shared), B can't launch on A's sign-in or on the proof line A pushed; A's code launches", dbTest, () =>
   withTokenEnv(() =>
     withSignIn(async () => {
-      const t = await confirmSetup('g9gate');
+      const t = await confirmSetup('g10gate');
       await sql()`UPDATE installations SET shared_client = true WHERE id = ${t.inst}`;
-      const ctx = { ...noProofLine(t), sharedClient: true };
+      // The repo's earnkit.txt carries the agent's own line (A pushed it): confirmSetup's default reader.
+      const ctx = { ...t.ctx, sharedClient: true };
       const agent = { can_push: false };
-      const first = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8, agent }, ctx)) as Confirmed;
+      // B, with no code, on the line A pushed: the sign-in line, nothing launched.
+      const first = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8, agent }, ctx)) as Confirmed & { token: { sign_in?: string } };
+      assert.notEqual(first.token?.status, 'launched');
+      assert.match(first.show_to_builder, /^One click to prove Tip Jar is yours, then \$\w+ launches: https:\/\/earnkit\.com\/github\/verify\?n=/);
       assert.match(first.agent_note ?? '', /pass it as signed_in/);
+      assert.equal(t.calls.deploy, 0);
+      // A signs in through that link; B (no code, B's own code, or a typed name) still can't launch on it.
       const codeA = await signInAs(t.inst, first.project_id!, t.repo, 'alice');
       assert.match(codeA ?? '', /^[A-Z2-7]{4}-[A-Z2-7]{4}-[A-Z2-7]{2}$/);
-      // Builder B on the same agent (no code, or B's own code): A's sign-in proves nothing for them.
-      const other = `https://github.com/bob/b9-${Date.now()}`;
-      const codeB = await signInAs(t.inst, null, other, 'bob');
+      const codeB = await signInAs(t.inst, null, `https://github.com/bob/b9-${Date.now()}`, 'bob');
       for (const signed_in of [undefined, codeB!, 'alice']) {
         const r = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8, agent, ...(signed_in && { signed_in }) }, ctx)) as Confirmed;
         assert.notEqual(r.token?.status, 'launched', String(signed_in));
       }
+      // Even an agent that says it can push: on a shared client the pushed line proves nothing.
+      const pusher = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, ctx)) as Confirmed;
+      assert.notEqual(pusher.token?.status, 'launched');
       assert.equal(t.calls.deploy, 0);
       const mine = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8, agent, signed_in: codeA!.toLowerCase() }, ctx)) as Confirmed;
       assert.equal(mine.token?.status, 'launched');
+    }),
+  ));
+
+test('G10: with the OAuth variables absent, a shared client launches on the proof line as before', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('g10off');
+    await sql()`UPDATE installations SET shared_client = true WHERE id = ${t.inst}`;
+    const r = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, { ...t.ctx, sharedClient: true })) as Confirmed;
+    assert.equal(r.token?.status, 'launched');
+  }));
+
+test('G11: phished then swapped: a sign-in made for one wallet never launches to another', dbTest, () =>
+  withTokenEnv(() =>
+    withSignIn(async () => {
+      const t = await confirmSetup('g11');
+      const ctx = noProofLine(t);
+      const agent = { can_push: false };
+      const W2 = '0x2222222222222222222222222222222222222222';
+      // The link is made for the wallet of this "go"; the confirm page shows it.
+      const first = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8, agent }, ctx)) as Confirmed & { token: { sign_in?: string } };
+      const nonce = new URL(first.token.sign_in!).searchParams.get('n')!;
+      const [snap] = await sql()<{ wallet: string; symbol: string }[]>`
+        SELECT wallet, symbol FROM github_verify_nonces WHERE project_id = ${first.project_id!} ORDER BY created_at DESC LIMIT 1`;
+      assert.deepEqual({ ...snap }, { wallet: W8.toLowerCase(), symbol: t.offered.symbol });
+      // The owner signs in on that link (the real callback, GitHub faked).
+      const done = await completeVerify('code', nonce, {
+        exchange: async () => 'gho_x',
+        user: async () => ({ login: 'alice', created_at: '2020-01-01T00:00:00Z', public_repos: 3 }),
+        repoPerms: async () => null,
+      });
+      assert.ok(done.ok);
+      const [ver] = await sql()<{ wallet: string; symbol: string }[]>`SELECT wallet, symbol FROM github_verifications WHERE project_id = ${first.project_id!}`;
+      assert.deepEqual({ ...ver }, { wallet: W8.toLowerCase(), symbol: t.offered.symbol });
+      // The swap: another wallet is refused, with a fresh link for that wallet.
+      const swapped = (await tools.confirm_entry({ ...t.input, ...go, wallet: W2, agent }, ctx)) as Confirmed;
+      assert.notEqual(swapped.token?.status, 'launched');
+      assert.match(swapped.show_to_builder, /^Your wallet changed since you signed in\. Sign in again: https:\/\/earnkit\.com\/github\/verify\?n=[A-Za-z0-9_-]{43}/);
+      assert.equal(t.calls.deploy, 0);
+      // The wallet the owner saw launches.
+      const ok = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8, agent }, ctx)) as Confirmed;
+      assert.equal(ok.token?.status, 'launched');
+      assert.deepEqual(t.calls.wallets, [W8]);
     }),
   ));
 

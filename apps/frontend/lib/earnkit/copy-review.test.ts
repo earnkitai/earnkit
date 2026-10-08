@@ -25,7 +25,7 @@ import { outcomeQuestion } from './outcomes';
 import { DEFAULT_GUIDANCE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, walletAsk } from './coach';
 import { alsoText } from './also-qualifies';
 import type { SubmissionRequirement } from './program-file';
-import { ownerProblem, tokenGate, tokenLineFor, type GateDeps, type GateInput } from './token-gate';
+import { SIGN_IN_FIRST, WALLET_CHANGED, ownerProblem, tokenGate, tokenLineFor, type GateDeps, type GateInput } from './token-gate';
 import {
   CANT_PUSH,
   NEEDS_REPO,
@@ -875,6 +875,8 @@ const signInTexts: [string, string][] = [
   ['codeLine', codeLine('ABCDEFGHJK')],
   ['confirmPage', confirmPage({ repo_key: 'alice/tipjar', purpose: 'entry', symbol: 'TIP', wallet: null }, 'n', 'c').replace(/<[^>]+>/g, ' ')],
   ['PICKUP_TEXT.signIn', PICKUP_TEXT.signIn],
+  ['SIGN_IN_FIRST', SIGN_IN_FIRST],
+  ['WALLET_CHANGED + link', `${WALLET_CHANGED} Sign in again: https://earnkit.com/github/verify?n=x`],
 ];
 
 const builderFacing: [string, string][] = [
