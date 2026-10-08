@@ -20,7 +20,7 @@ import {
 } from './entry-text';
 import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TELL_EARNKIT_DESCRIPTION, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { bonusClose, presentFirstMessage, type Card, type FirstMessage } from './present';
-import { ASK_OUTCOME_NOTE, COACH_NOTES, OUTCOME_SAVED_NOTE, TELL_SAVED_NOTE, tools } from './tools';
+import { ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, tools } from './tools';
 import { outcomeQuestion } from './outcomes';
 import { DEFAULT_GUIDANCE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, walletAsk } from './coach';
 import { alsoText } from './also-qualifies';
@@ -848,6 +848,7 @@ const appliedOutsideText = presentFirstMessage({
 
 const builderFacing: [string, string][] = [
   ['applied outside EarnKit', appliedOutsideText],
+  ['NOTED_FOR_NOW', NOTED_FOR_NOW],
   ...coachTexts,
   ...outcomeTexts,
   ...alsoQualifiesTexts,
@@ -913,6 +914,7 @@ const agentFacing: [string, string][] = [
   ['ASK_OUTCOME_NOTE', ASK_OUTCOME_NOTE],
   ['OUTCOME_SAVED_NOTE', OUTCOME_SAVED_NOTE],
   ['TELL_SAVED_NOTE', TELL_SAVED_NOTE],
+  ['TELL_SHARED_NOTE', TELL_SHARED_NOTE],
   ['TELL_EARNKIT_DESCRIPTION', TELL_EARNKIT_DESCRIPTION],
   // v2.7 fix round 1 (Minor 6): llms.txt is what agents read about EarnKit.
   ['llms.txt', readFileSync(join(import.meta.dirname, '../../public/llms.txt'), 'utf8')],

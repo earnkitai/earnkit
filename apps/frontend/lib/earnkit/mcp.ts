@@ -124,6 +124,13 @@ const PICK_UP_ENTRIES_DESCRIPTION =
  * v2.9 A3: tell_earnkit's description (it replaced report_outcome, so list_programs stays read-only:
  * no approval prompt on "What can I earn?"). Exported for the copy review.
  */
+/** Review minor 5: a chain as local_repos takes it ("base", 8453, { chain, mainnet }); unknown ones are dropped by the tool. */
+const TELL_CHAIN = z.union([
+  z.string(),
+  z.number(),
+  z.object({ chain: z.union([z.string(), z.number()]), mainnet: z.union([z.boolean(), z.string()]).optional() }),
+]);
+
 export const TELL_EARNKIT_DESCRIPTION =
   'Remembers what the builder told you, so list_programs fits them better. program_status: a program they applied to ' +
   'outside EarnKit (applied), one they are not interested in (not_interested), or their own result (won, placed, lost; ' +
@@ -619,8 +626,8 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
               z
                 .object({
                   repo: z.string().max(300).describe('owner/repo, a github.com link, or the repo name'),
-                  mainnet_chains: z.array(z.string()).max(20).optional().describe('Chains it is deployed on, e.g. ["base"]'),
-                  testnet_chains: z.array(z.string()).max(20).optional().describe('Chains it is only on testnet'),
+                  mainnet_chains: z.array(TELL_CHAIN).max(20).optional().describe('Chains it is deployed on, e.g. ["base"]'),
+                  testnet_chains: z.array(TELL_CHAIN).max(20).optional().describe('Chains it is only on testnet'),
                   live_url: z.string().max(300).optional(),
                   has_users: z.boolean().optional(),
                   not_mine: z.boolean().optional().describe('true when the builder says it is not their repo'),

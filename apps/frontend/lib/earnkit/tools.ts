@@ -25,7 +25,7 @@ import {
   setWorkingOn,
 } from './installations';
 import { outcomeQuestion, outcomeToAsk } from './outcomes';
-import { TellInput, emptyMemory, hiddenIds, hiddenPrograms, readMemory, tell, type BuilderMemory } from './builder-memory';
+import { emptyMemory, hiddenIds, hiddenPrograms, memoryKey, readMemory, tell, type BuilderMemory } from './builder-memory';
 import { sinceLine, sinceYouLastChecked } from './alerts';
 import {
   GitHubError,
@@ -415,7 +415,7 @@ async function alsoQualifiesBlock(
     readBank(ctx.installationId, key),
     (ctx.repoCoins ?? repoCoinPrograms)(repoKey ? [repoKey] : []),
     full ? cachedRepoChains(`${full.owner}/${full.repo}`) : Promise.resolve(null),
-    memoryOf(ctx.installationId, 'also_qualifies'),
+    memoryOf(memoryKey(ctx), 'also_qualifies'),
   ]);
   const rows = alsoQualifies({
     enteredProgramId: parsed.program_id,
@@ -622,13 +622,24 @@ export const ASK_OUTCOME_NOTE =
 export const OUTCOME_SAVED_NOTE = "Saved as the builder's own report. It never shows publicly or counts; only published results do.";
 /** v2.9 A3: tell_earnkit's note to the agent. */
 export const TELL_SAVED_NOTE = 'Saved. The next list_programs uses it; nothing to show the builder.';
+/** Ruling G6: what the builder sees when a shared (hosted) agent keeps nothing. */
+export const NOTED_FOR_NOW = 'Noted for now.';
+/** Ruling G6: tell_earnkit's note on a shared client. */
+export const TELL_SHARED_NOTE =
+  'Show show_to_builder. This agent serves many builders, so EarnKit keeps no program or repo statements here; ' +
+  'pass them again when they matter.';
 
-/** v2.9 A3: the builder's memory; a failed read is an empty memory, never a failed tool. */
-const memoryOf = (installationId: number, where: string): Promise<BuilderMemory> =>
-  readMemory(installationId).catch((err: unknown) => {
-    console.error(`[${where}] builder memory`, err instanceof Error ? err.name : 'error');
-    return emptyMemory();
-  });
+/**
+ * v2.9 A3: the builder's memory (Ruling G6: none on a shared client, memoryKey null); a failed read
+ * is an empty memory, never a failed tool.
+ */
+const memoryOf = (key: number | null, where: string): Promise<BuilderMemory> =>
+  key === null
+    ? Promise.resolve(emptyMemory())
+    : readMemory(key).catch((err: unknown) => {
+        console.error(`[${where}] builder memory`, err instanceof Error ? err.name : 'error');
+        return emptyMemory();
+      });
 
 const Ref = z.string().regex(/^0x[0-9a-f]{64}$/, 'the ref from create');
 export const SponsorCampaignInput = z.discriminatedUnion('action', [
@@ -709,7 +720,7 @@ export const tools = {
       listPrograms(),
       earnkitCampaignRows(ctx.installationId),
       // v2.9 A3: what the builder told EarnKit, read once per call.
-      memoryOf(ctx.installationId, 'list_programs'),
+      memoryOf(memoryKey(ctx), 'list_programs'),
     ]);
     const hidden = hiddenPrograms(told, programs);
     const hide = hiddenIds(hidden);
@@ -1548,11 +1559,16 @@ export const tools = {
 
   // v2.9 A3: what the builder told EarnKit (programs: applied, not interested, their own outcomes;
   // repos: chains, live link, users, not theirs). It replaced report_outcome; list_programs stays read-only.
+  // Ruling G6: on a shared client nothing about programs or repos is kept (memoryKey null).
   tell_earnkit: async (input: unknown, ctx: ToolContext) => {
-    const parsed = TellInput.parse(input);
-    const { saved } = await tell(ctx.installationId, parsed);
-    const outcome = (parsed.program_status ?? []).some((s) => s.status === 'won' || s.status === 'placed' || s.status === 'lost');
-    return { saved, agent_note: outcome ? `${TELL_SAVED_NOTE} ${OUTCOME_SAVED_NOTE}` : TELL_SAVED_NOTE };
+    const key = memoryKey(ctx);
+    const { saved, outcomes } = await tell(ctx.installationId, input as Parameters<typeof tell>[1], undefined, key);
+    const note = key === null ? TELL_SHARED_NOTE : TELL_SAVED_NOTE;
+    return {
+      ...(key === null && { show_to_builder: NOTED_FOR_NOW }),
+      saved,
+      agent_note: outcomes > 0 ? `${note} ${OUTCOME_SAVED_NOTE}` : note,
+    };
   },
 
   launch_token: async (input: unknown, ctx: ToolContext) =>
