@@ -133,6 +133,13 @@ export type ToolContext = {
 const walletMemory = (ctx: ToolContext) => (ctx.sharedClient ? Promise.resolve(null) : rememberedWallet(ctx.installationId));
 
 /**
+ * The wallet this entry already holds, never on a hosted agent (shared_client): a name-keyed entry
+ * there may be another user's, so its wallet is neither shown nor suggested.
+ */
+const entryWallet = (ctx: ToolContext, k: Parameters<typeof ownEntryWallet>[0]) =>
+  ctx.sharedClient ? Promise.resolve(null) : ownEntryWallet(k);
+
+/**
  * The open rounds' builder bonus pools so far, by program id, in one grouped read (Ruling 3; the
  * bonus ledger). A program with no pool yet shows "new pool" (v2.6 §1).
  */
@@ -427,7 +434,7 @@ async function walletToAsk(
   try {
     const facts = await offerFacts(program, repoUrl, ctx);
     if (facts.coinIn || facts.policyOff || !facts.available) return null;
-    const stored = await ownEntryWallet({
+    const stored = await entryWallet(ctx, {
       programId: program.id,
       installationId: ctx.installationId,
       repoUrl,
@@ -902,6 +909,7 @@ export const tools = {
         project: banked?.name,
         suggested: banked?.suggested,
         wallet,
+        shared: ctx.sharedClient,
       });
     let questions = open && !coach_asked ? coachQuestions(null) : [];
     // v2.8.1 §C11: with a round to ask anyway, the wallet is asked in it, so the confirmation is a
@@ -933,7 +941,7 @@ export const tools = {
     // wallet launches to it, so it is the one shown.
     const stored = given || !facts
       ? null
-      : await ownEntryWallet({
+      : await entryWallet(ctx, {
           programId: program.id,
           installationId: ctx.installationId,
           repoUrl: repoUrl ?? null,
@@ -1068,7 +1076,7 @@ export const tools = {
       // the remembered one; whichever is shown comes back as shown_wallet.
       const stored = given ?? answered
         ? null
-        : await ownEntryWallet({ programId: program.id, installationId: ctx.installationId, repoUrl, name: i.project.name });
+        : await entryWallet(ctx, { programId: program.id, installationId: ctx.installationId, repoUrl, name: i.project.name });
       const wallet = given ?? answered ?? stored ?? (await walletMemory(ctx));
       // v2.8.1 §A2: the Yes line names the token that launches: the builder's own edit, else EarnKit's proposal.
       const key = offerKey(repoUrl, i.project.name);
@@ -1118,14 +1126,15 @@ export const tools = {
       }
 
     // Fix round 1 (§A2): the Yes line (again), for a "go" that would launch a pair the builder didn't
-    // see; `taken`: the ticker shown before, now taken. No kit, nothing launched.
-    const reoffer = async (projectId: number, proposal: Offered, taken: string | null) => {
+    // see; `taken`: the ticker shown before, now taken. No kit, nothing launched. Final fix wave (M8):
+    // `again` only when a Yes line was shown before; a first offer (the draft had none) names the 40%.
+    const reoffer = async (projectId: number, proposal: Offered, taken: string | null, again = true) => {
       const wallet =
         given ??
         answered ??
-        (await ownEntryWallet({ programId: program.id, installationId: ctx.installationId, repoUrl, name: i.project.name })) ??
+        (await entryWallet(ctx, { programId: program.id, installationId: ctx.installationId, repoUrl, name: i.project.name })) ??
         (await walletMemory(ctx));
-      const offer = confirmOffer({ hasBonus: facts.hasBonus, coinIn: null, canPush, wallet, remembered: !given && !answered && wallet !== null, proposal, again: true });
+      const offer = confirmOffer({ hasBonus: facts.hasBonus, coinIn: null, canPush, wallet, remembered: !given && !answered && wallet !== null, proposal, again });
       return {
         project_id: projectId,
         token: { status: 'skipped' as const, fixable: true, proposed: proposal },
@@ -1156,7 +1165,7 @@ export const tools = {
         if (proposal) {
           const pair = { name: proposal.name, symbol: proposal.symbol };
           await rememberOffer(ctx, program.id, key, pair);
-          return reoffer(entry.id, pair, proposal.taken ?? null);
+          return reoffer(entry.id, pair, proposal.taken ?? null, shown != null);
         }
       }
       token = await confirmToken(
@@ -1192,7 +1201,7 @@ export const tools = {
         // else the remembered one, is suggested as a question, never used unseen.
         const remembered = token.no_wallet
           ? (answered ??
-            (await ownEntryWallet({ programId: program.id, installationId: ctx.installationId, repoUrl, name: i.project.name })) ??
+            (await entryWallet(ctx, { programId: program.id, installationId: ctx.installationId, repoUrl, name: i.project.name })) ??
             (await walletMemory(ctx)))
           : null;
         const agentNote = remembered ? 'Pass shown_wallet as wallet once the builder confirms it.' : token.agent_note;

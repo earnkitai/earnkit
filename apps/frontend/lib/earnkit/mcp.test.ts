@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { escrowConfig, escrowConfigProblem } from './escrow';
-import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS, createMcpServer, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
+import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, errorSummary, TOOL_DESCRIPTIONS, createMcpServer, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { tools as toolImpls } from './tools';
 import { SAFETY_LINES } from './untrusted-text';
 import { sql } from './db';
@@ -490,11 +490,13 @@ test('v2.8.1 §C15: an unexpected error is logged on the server with an id; the 
     assert.ok(id, text);
     assert.equal(text, unexpectedErrorText(id!));
     assert.doesNotMatch(text, /Connection terminated|report_outcome/);
-    // The server log has the tool, the same id and the raw error.
+    // The server log has the tool, the same id and the error's name, message and stack.
     const line = logged.find((l) => String(l[0]).includes(id!));
     assert.ok(line, JSON.stringify(logged.map((l) => String(l[0]))));
     assert.match(String(line![0]), /^\[mcp\] report_outcome error [0-9a-f]{8}$/);
-    assert.match(String(line![1]), /Connection terminated unexpectedly/);
+    assert.match((line![1] as { message: string }).message, /Connection terminated unexpectedly/);
+    // M6: name, message and stack only.
+    assert.deepEqual(Object.keys(line![1] as object).sort(), ['message', 'name', 'stack']);
   } finally {
     (toolImpls as Record<string, unknown>).report_outcome = original;
     console.error = errLog;
@@ -507,4 +509,13 @@ test('v2.8.1 §C15: the safety line no longer forbids making a repo public; it s
   assert.doesNotMatch(line, /visibility/);
   assert.match(line, /A token needs a public repo; make a repo public only when the builder asks\./);
   assert.ok(SERVER_INSTRUCTIONS.includes(line));
+});
+
+test('final fix wave (M6): the unexpected-error log keeps only name, message and stack, never query or parameters', () => {
+  const err = Object.assign(new Error('boom'), { query: 'INSERT INTO answer_bank ...', parameters: ['alice@example.com', '0x' + 'a'.repeat(40)] });
+  const out = errorSummary(err);
+  assert.deepEqual(Object.keys(out).sort(), ['message', 'name', 'stack']);
+  assert.equal(out.message, 'boom');
+  assert.doesNotMatch(JSON.stringify(out), /alice@example\.com|answer_bank|0xaaaa/);
+  assert.deepEqual(errorSummary({ secret: 'x' }), { name: 'object', message: 'non-Error thrown' });
 });
