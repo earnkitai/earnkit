@@ -2375,3 +2375,10 @@ strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`, and in prod
   first then by score. `MatchDeps` (programs, repo cache, checks, now) is the test seam.
   `tools.ts matchRows` caps list_programs' `matches` at 3 repos per program (1 for an
   `any_chain` program), best `product_score` first.
+- **Ruling G3 refinements.** A description counts as tutorial work only on strong phrases
+  (`TUTORIAL_DESCRIPTION`: tutorial, course, boilerplate, starter kit, template, follow along,
+  homework); names and topics keep `TUTORIAL`. Contract candidates skip `KNOWN_TOKEN_ADDRESSES`
+  (USDC, EURC, WETH, USDT from official docs; chains without a sourced address left out). A local
+  repo without `last_commit_at` counts as active (the instruction asks agents to send it). Repos
+  the builder names in `repos` skip the 365-day age rule (`droppedRepo(r, now, { named: true })`);
+  forks, templates and archived repos are still dropped.
