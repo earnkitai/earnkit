@@ -5,7 +5,7 @@ import { boardLink, prizeOf, shortWallet } from './entry-text';
 import { cachedFeesUsd, feeAlert } from './fees';
 import { campaignCandidates } from './leaderboard';
 import { difficultyOf, rowDifficulty, type Difficulty } from './guide';
-import { applyBuilderFacts, EFFORT_ORDER, matchRepo, type Chain, type Detection, type Product, type ProgramFacts, type RepoFacts } from './match';
+import { applyBuilderFacts, EFFORT_ORDER, fitsWideProgram, matchRepo, type Chain, type Detection, type Product, type ProgramFacts, type RepoFacts } from './match';
 import { hiddenIds, hiddenPrograms, type BuilderMemory, type SaidRepo } from './builder-memory';
 import type { PastRound } from './program-file';
 import { winLine } from './outcomes';
@@ -216,7 +216,7 @@ const repoFacts = (r: FitRepo): RepoFacts => ({
 
 /**
  * v2.9 A7: the remembered owned repo that could really win this new program, or null. For one repo:
- * the tier fits (product for any_chain or investment, project or better otherwise); the verdict is
+ * the tier fits (original product for any_chain or investment, project or better otherwise); the verdict is
  * likely, or after_step with effort of hours or less and no real_users or new_work missing; the row
  * is not Hard, unless $10,000+ per winner and product tier. Never a program entered, applied to or
  * not wanted, nor one with under 3 days left. Pure (Pre-flight P14: the weekly email names the repo).
@@ -228,7 +228,7 @@ export function alertFit(p: NewProgram, repos: FitRepo[], skip: AlertSkip, now: 
   return (
     repos.find((r) => {
       if (!r.product || r.product.tier === 'noise') return false;
-      if ((p.any_chain || p.investment) && r.product.tier !== 'product') return false;
+      if ((p.any_chain || p.investment) && !fitsWideProgram(r.product)) return false;
       const f = applyBuilderFacts(repoFacts(r), r.said ?? undefined);
       if (!f) return false;
       const [v] = matchRepo(f, [facts]);

@@ -123,23 +123,27 @@ const DAY_MS = 86_400_000;
 /** A repo's owner login (the full name's first part when GitHub left `owner` out). */
 const ownerOf = (r: Pick<Repo, 'full_name'> & { owner?: { login: string } }) => r.owner?.login ?? r.full_name.split('/')[0];
 
+/** v2.9 A1: a fork or a template (a copy of someone else's code): dropped before scoring. Pure. */
+const copiedRepo = (r: Pick<Repo, 'fork' | 'is_template' | 'template_repository'>) =>
+  r.fork || r.is_template === true || Boolean(r.template_repository);
+
 /**
- * v2.9 A2: a fork, a template, or a tutorial, course, starter or docs repo by name or topic; a
- * description counts only on strong phrases (Ruling G3: TUTORIAL_DESCRIPTION). Pure.
+ * v2.9 A2: not original: a fork, a template, or a tutorial, course, starter or docs repo by name or
+ * topic; a description counts only on strong phrases (Ruling G3: TUTORIAL_DESCRIPTION). Ruling
+ * G15: a tutorial-like repo only loses the `original` point; it is never dropped for it. Pure.
  */
 export const unoriginal = (r: Pick<Repo, 'name' | 'fork' | 'is_template' | 'template_repository' | 'description' | 'topics'>) =>
-  r.fork ||
-  r.is_template === true ||
-  Boolean(r.template_repository) ||
+  copiedRepo(r) ||
   [r.name, ...(r.topics ?? [])].some((t) => TUTORIAL.test(t)) ||
   TUTORIAL_DESCRIPTION.test(r.description ?? '');
 
 /**
- * v2.9 A1: dropped before any per-repo call: forks, templates, archived repos, tutorials, EarnKit's
- * own repos, and repos neither created nor pushed in the last 365 days. Pure.
+ * v2.9 A1 (Ruling G15): dropped before any per-repo call: forks, templates, archived repos, EarnKit's
+ * own repos, and repos neither created nor pushed in the last 365 days. A tutorial-like name or
+ * topic is scored (it costs `original`), never dropped. Pure.
  */
 export function droppedRepo(r: Repo, now: Date, o: { named?: boolean } = {}): boolean {
-  if (r.archived || unoriginal(r) || earnkitOwner(ownerOf(r))) return true;
+  if (notProduct(r)) return true;
   // Ruling G3: a repo the builder names is never dropped for age.
   if (o.named) return false;
   const year = now.getTime() - 365 * DAY_MS;
@@ -172,8 +176,10 @@ export async function userRepos(
   return { repos, found: own.length + contributed.found, dropped, contribReads: contributed.reads };
 }
 
-/** Ruling G4 (I1): dropped as a fork, template, archived repo or tutorial (never by age). Pure. */
-const notProduct = (r: Repo) => r.archived || unoriginal(r);
+/** Rulings G4 (I1), G15: dropped as a fork, template, archived or EarnKit repo (never by age or name). Pure. */
+function notProduct(r: Repo) {
+  return r.archived || copiedRepo(r) || earnkitOwner(ownerOf(r));
+}
 const keyOf = (r: Repo) => repoKey({ url: r.html_url, name: r.name });
 
 /** The builder's share of a repo's last 100 commits, for ownerOk. Null when GitHub couldn't say. */
@@ -862,9 +868,10 @@ function checkLocal(r: ReportedRepo, programs: ProgramFacts[], ctx: Pick<ScoreCt
     pairs: contractPairs(r.contracts ?? [], mainnetChains(facts.chains), claimed),
     claimed,
     finish: ({ live, deployed, unchecked, withCode }) => {
+      // Review M9: EarnKit never reads a local repo's README, so it is never named as missing.
       const product = productScore(
         { active, young: active, original: !TUTORIAL.test(r.name), readme: false, deployed, owned: ctx.owned },
-        unchecked ? ['deployed'] : [],
+        unchecked ? ['deployed', 'readme'] : ['readme'],
       );
       const scored: RepoFacts = { ...confirmMainnets(facts, withCode), product, live_verified: live };
       return { repo: scored, verdicts: matchRepo(scored, programs) };
@@ -881,10 +888,10 @@ const recency = (c: Candidate) => Date.parse(c.github?.pushed_at ?? c.local?.las
 
 /**
  * Checks a builder's repos (public on GitHub, or reported by the agent) against open programs.
- * v2.9 A1, A2: only the builder's own repos (never EarnKit's, a fork, a template, an archived repo
- * or a tutorial), one per repo key, the SCORE_LIMIT most recent scored, under one LIST_BUDGET of
- * link and contract checks. `checked` counts every repo found (dropped ones too); `scored` the ones
- * scored.
+ * v2.9 A1, A2: only the builder's own repos (never EarnKit's, a fork, a template or an archived
+ * repo; a tutorial-like one is scored without `original`, Ruling G15), one per repo key, the
+ * SCORE_LIMIT most recent scored, under one LIST_BUDGET of link and contract checks. `checked`
+ * counts every repo found (dropped ones too); `scored` the ones scored.
  */
 export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, deps: MatchDeps = {}) {
   const now = deps.now ?? new Date();
@@ -892,7 +899,7 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
   const builder = input.github_user ?? null;
   let found = 0;
   const github: { repo: Repo; owned: boolean }[] = [];
-  // Ruling G4: keys dropped as a fork, template, archived repo or tutorial stay dropped when the
+  // Ruling G4: keys dropped as a fork, template or archived repo stay dropped when the
   // same repo comes back through local_repos; the 100-commit reads share one cap of 3.
   let dropped = new Set<string>();
   let contribReads = 0;

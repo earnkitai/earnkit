@@ -278,6 +278,12 @@ export const SIGNAL_WORDS: Record<keyof ProductFacts, string> = {
 /** Pre-flight P29: the note names the most actionable missing signal first. */
 const NOTE_ORDER: (keyof ProductFacts)[] = ['deployed', 'active', 'readme', 'original', 'young', 'owned'];
 
+/**
+ * Ruling G15 (spec A2, P27): an any_chain or investment program takes only a product-tier repo that
+ * is original, so a docs repo or a tutorial never reaches a16z, while it still matches elsewhere. Pure.
+ */
+export const fitsWideProgram = (p: Product) => p.tier === 'product' && !(p.missing ?? []).includes('original');
+
 /** The note for a project-tier row: its most actionable missing signal, or null when none is missing. Pure. */
 export const missingSignalNote = (p: Product): string | null => {
   const first = NOTE_ORDER.find((s) => p.missing.includes(s));
@@ -464,7 +470,8 @@ export function reportedFacts(
 
 /**
  * Verdicts for one repo. v2.9 A2, when the repo is scored (`product`): noise gets no row; an
- * any_chain or investment program takes product tier only (at least its `min_product_score`); a
+ * any_chain or investment program takes an original product-tier repo only (at least its
+ * `min_product_score`; Ruling G15); a
  * program tagged "needs a live product" is never likely; only product tier is likely (a project row
  * that would be becomes after_step, naming its most actionable missing signal). Pure.
  */
@@ -480,7 +487,7 @@ export function matchRepo(
     const chain = p.chains.find((c) => repo.chains[c]);
     if (!chain && !p.any_chain) continue;
     if (product && product.score < (p.min_product_score ?? 0)) continue;
-    if (product && (p.any_chain || p.investment) && product.tier !== 'product') continue;
+    if (product && (p.any_chain || p.investment) && !fitsWideProgram(product)) continue;
     // v2.9 A3: the builder's claims this program's verdict relies on that no check backs yet.
     const open: Claim[] = [];
     if (chain && !p.any_chain && repo.chains[chain]?.mainnet && repo.chains[chain]?.evidence === CLAIMED_MAINNET) open.push('mainnet');

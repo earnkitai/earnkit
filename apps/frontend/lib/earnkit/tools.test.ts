@@ -2378,6 +2378,43 @@ test('v2.9 A5 fix round 1: Arc (needs_contract) through startEntry and recordSub
     await tools.record_submission({ program_id: down.t.p.id, project: down.input.project, submission_data: down.t.answers, token: 'skip' }, down.ctx);
     const [downRow] = await cols(down.t.inst);
     assert.deepEqual([downRow.complete_at, downRow.live_verified_at], [null, null]);
+
+    // Ruling G15 (I1): an RPC error (a 429) is "couldn't check": no "No contract found" line, the
+    // entry stays incomplete, and nothing is cached, so the next step checks again and completes it.
+    const log = console.error;
+    console.error = () => {};
+    try {
+      let rpcDown = true;
+      const limited = await arcCase('a5rpc', { probeOk: true, code: '0x6080' });
+      limited.ctx.verifyDeps.getCode = async () => {
+        if (rpcDown) throw new Error('HTTP request failed. Status: 429');
+        return '0x6080';
+      };
+      const limitedPrep = (await tools.prepare_submission(limited.input, limited.ctx)) as Prep;
+      assert.equal(limitedPrep.ready, false);
+      assert.doesNotMatch(limitedPrep.show_to_builder, /No contract found/);
+      assert.equal(limitedPrep.fixes?.some((f) => f.text === NO_CONTRACT) ?? false, false);
+      await tools.confirm_entry({ ...limited.input, ...go, decision: 'skip' }, limited.ctx);
+      const [limitedRow] = await cols(limited.t.inst);
+      assert.deepEqual([limitedRow.complete_at, limitedRow.contract_verified_at], [null, null]);
+      rpcDown = false;
+      const again = (await tools.prepare_submission(limited.input, limited.ctx)) as Prep;
+      assert.equal(again.ready, true, again.show_to_builder);
+    } finally {
+      console.error = log;
+    }
+
+    // Review M4: a contract another user reported in local_repos never backs an entry on a shared
+    // client; on a non-shared install it does.
+    const rep = await arcCase('a5rep', { probeOk: true, code: '0x6080' });
+    const reportedAddr = rep.input.project.contracts[0];
+    await sql()`UPDATE installations SET local_repos = ${sql().json([{ name: 'tipjar', url: rep.t.repo, chains: ['arc'], contracts: [reportedAddr] }])} WHERE id = ${rep.t.inst}`;
+    const repCtx = { ...rep.ctx, verifyDeps: { ...rep.ctx.verifyDeps, getCode: async (_rpc: string, addr: string) => (addr === reportedAddr ? '0x6080' : '0x') } };
+    const repInput = { ...rep.input, project: { ...rep.input.project, contracts: [] } };
+    const sharedPrep = (await tools.prepare_submission(repInput, { ...repCtx, sharedClient: true })) as Prep;
+    assert.equal(sharedPrep.ready, false, sharedPrep.show_to_builder);
+    const ownPrep = (await tools.prepare_submission(repInput, repCtx)) as Prep;
+    assert.equal(ownPrep.ready, true, ownPrep.show_to_builder);
   }));
 
 // ---- v2.9 A2: at most 3 repos per program in matches ----
@@ -2916,12 +2953,12 @@ type TokenOfferReply = { show_to_builder: string; token_offer?: { program_id: st
 type OfferLaunch = { status: string; note?: string; fixable?: boolean; project_id?: number; sign_in?: string; sign_in_line?: string; tokens_fun?: string };
 
 /** confirmSetup plus list_programs matching the entry's repo as an owned, product-tier, quick Arc fit. */
-async function offerSetup(tag: string, o: { tier?: 'product' | 'project' } = {}) {
+async function offerSetup(tag: string, o: { tier?: 'product' | 'project'; status?: 'likely' | 'after_step' } = {}) {
   const t = await confirmSetup(tag, { noOffer: true });
   const fit: RepoFit = {
     repo: 'tipjar',
     repo_url: t.repo,
-    verdicts: [{ program_id: t.p.id, program: t.p.id, status: 'likely', missing: [], effort: 'hours', note: '' }],
+    verdicts: [{ program_id: t.p.id, program: t.p.id, status: o.status ?? 'likely', missing: [], effort: 'hours', note: '' }],
     key: t.repo.replace('https://github.com/', ''),
     product: { score: o.tier === 'project' ? 4 : 6, tier: o.tier ?? 'product', missing: [] },
     live_verified: true,
@@ -2958,8 +2995,10 @@ test('6.4 list_programs: an owned, product-tier Arc fit ends the reply with the 
     // A remembered wallet (non-shared): "yes / skip".
     await sql()`UPDATE installations SET payout_wallet = ${W8} WHERE id = ${t.inst}`;
     assert.ok((await t.list()).show_to_builder.endsWith('yes / skip'));
-    // ...never suggested on a shared client.
-    assert.ok((await t.list({ ...t.ctx, sharedClient: true } as typeof t.ctx)).show_to_builder.endsWith('Say yes with your wallet address, or skip.'));
+    // ...never suggested on a shared client (sign-in on: G15 I3 offers nothing there while it is off).
+    await withSignIn(async () =>
+      assert.ok((await t.list({ ...t.ctx, sharedClient: true } as typeof t.ctx)).show_to_builder.endsWith('Say yes with your wallet address, or skip.')),
+    );
 
     // Project tier: no offer, the v2.8.1 close.
     const project = await offerSetup('t6proj', { tier: 'project' });
@@ -3120,6 +3159,46 @@ test('6.8 "40%" once per entry flow: the first reply offer, launch, prepare, con
     keep(await tools.record_submission({ program_id: t.p.id, project: t.project, submission_data: t.answers, builder_submitted: true }, ctx));
     assert.equal(t.calls.deploy, 1);
     assert.equal(texts.join('\n').split('40%').length - 1, 1, texts.filter((x) => x.includes('40%')).join('\n---\n'));
+  }));
+
+/** Runs fn with the GitHub OAuth env unset (sign-in off), whatever the shell has. */
+async function withSignInOff<T>(fn: () => Promise<T>): Promise<T> {
+  const old = [process.env.GITHUB_OAUTH_CLIENT_ID, process.env.GITHUB_OAUTH_CLIENT_SECRET];
+  delete process.env.GITHUB_OAUTH_CLIENT_ID;
+  delete process.env.GITHUB_OAUTH_CLIENT_SECRET;
+  try {
+    return await fn();
+  } finally {
+    if (old[0] !== undefined) process.env.GITHUB_OAUTH_CLIENT_ID = old[0];
+    if (old[1] !== undefined) process.env.GITHUB_OAUTH_CLIENT_SECRET = old[1];
+  }
+}
+
+test('G15 I3: on a shared client, no first-reply token offer while sign-in is off (the usual close instead); with sign-in on, the offer', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await offerSetup('g15i3');
+    await sql()`UPDATE installations SET shared_client = true WHERE id = ${t.inst}`;
+    const ctx = { ...t.ctx, sharedClient: true } as typeof t.ctx;
+    const off = await withSignInOff(() => t.list(ctx));
+    assert.ok(!off.token_offer, off.show_to_builder);
+    assert.doesNotMatch(off.show_to_builder, /40%|Launch \$/);
+    // A non-shared install still gets the offer with sign-in off.
+    assert.ok((await withSignInOff(() => t.list())).token_offer);
+    const on = await withSignIn(() => t.list(ctx));
+    assert.ok(on.token_offer, on.show_to_builder);
+    assert.match(on.show_to_builder, /Launch \$/);
+  }));
+
+test('G15 M2: the offer says "fits" only for a likely row; a row one step away says "is one step from"', dbTest, () =>
+  withTokenEnv(async () => {
+    const step = await offerSetup('g15m2s', { status: 'after_step' });
+    const r = await step.list();
+    assert.ok(r.token_offer, r.show_to_builder);
+    assert.match(r.show_to_builder, new RegExp(`${r.token_offer.project_name} is one step from ${step.p.title}: \\$`));
+    assert.doesNotMatch(r.show_to_builder, / fits /);
+    const likely = await offerSetup('g15m2l');
+    const l = await likely.list();
+    assert.match(l.show_to_builder, new RegExp(`${l.token_offer!.project_name} fits ${likely.p.title}: \\$`));
   }));
 
 test("G12 (b): on one Grok install, user A's skip never stops user B's offer; without a code nothing is recorded", dbTest, () =>

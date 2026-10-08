@@ -5,6 +5,7 @@ import {
   BELOW_FLOOR_NOTE,
   DEFAULT_README,
   INVESTMENT_NOTE,
+  fitsWideProgram,
   TUTORIAL,
   CLAIMED_MAINNET,
   applyBuilderFacts,
@@ -428,6 +429,17 @@ test('2.3b a docs repo is not original, so it never makes an a16z row', () => {
   const docs = product({ original: false, readme: false });
   assert.equal(docs.tier, 'project');
   assert.deepEqual(matchRepo(repo({ name: 'docs', homepage: 'https://docs.x', product: docs }), [{ ...speedrun, investment: true, min_product_score: 5 }]), []);
+});
+
+test('G15 I2: a tutorial-like product (original missing) still matches a chain program, never any_chain or investment', () => {
+  const covid = product({ original: false });
+  assert.equal(covid.tier, 'product');
+  const covidRepo = repo({ name: 'covid-19-tracker', homepage: 'https://covid.x', chains: arcMain, product: covid, live_verified: true });
+  assert.deepEqual(matchRepo(covidRepo, [{ ...speedrun, investment: true, min_product_score: 5 }]), []);
+  assert.deepEqual(matchRepo(covidRepo, [speedrun]), []);
+  assert.ok(matchRepo(covidRepo, programs).some((v) => v.program_id === 'arc-micro'));
+  assert.equal(fitsWideProgram(covid), false);
+  assert.equal(fitsWideProgram(product()), true);
 });
 
 test('2.7 needs a live product: never likely; a verified link leaves only real users', () => {

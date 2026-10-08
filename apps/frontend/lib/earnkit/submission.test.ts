@@ -279,7 +279,10 @@ test('1.10 verified: an unverified live link or a missing contract is missing (v
   const noContract = prepareSubmission(r, { ...known, verified: { live: true, contract: false, needsContract: 'arc' } });
   assert.equal(noContract.ready, false);
   assert.equal(noContract.missing[0].problem, 'No contract found on Arc mainnet yet.');
-  assert.equal(prepareSubmission(r, { ...known, verified: { live: true, contract: null, needsContract: 'arc' } }).ready, false);
+  const unchecked = prepareSubmission(r, { ...known, verified: { live: true, contract: null, needsContract: 'arc' } });
+  assert.equal(unchecked.ready, false);
+  // Ruling G15 (I1): a check that couldn't run is never "No contract found".
+  assert.equal(unchecked.missing[0].problem, "Couldn't check your Arc mainnet contract yet. It's checked again next step.");
   assert.equal(prepareSubmission(r, { ...known, verified: { live: true, contract: true, needsContract: 'arc' } }).ready, true);
   assert.equal(prepareSubmission(r, { ...known, verified: { live: true, contract: null, needsContract: null } }).ready, true);
 });

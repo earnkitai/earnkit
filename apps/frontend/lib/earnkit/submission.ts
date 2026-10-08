@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { ProjectField, SubmissionRequirement } from './program-file';
 import type { Chain } from './chains';
-import { LIVE_FAILED_LINE, PLACEHOLDER_LINE, contractMissingLine } from './placeholder';
+import { LIVE_FAILED_LINE, PLACEHOLDER_LINE, contractMissingLine, contractUncheckedLine } from './placeholder';
 import { BuilderUrl, RAW_CAP, builderUrlProblem } from './untrusted-text';
 
 export const ProjectInfo = z
@@ -38,7 +38,9 @@ export type KnownInfo = {
 function unverifiedProblem(req: SubmissionRequirement, verified: KnownInfo['verified']): string | null {
   if (!verified || !req.required || req.project_field !== 'live_url') return null;
   if (!verified.live) return LIVE_FAILED_LINE;
-  if (verified.needsContract && verified.contract !== true) return contractMissingLine(verified.needsContract);
+  // Ruling G15: "not found" only on a real answer; a check that couldn't run keeps the item open.
+  if (verified.needsContract && verified.contract === false) return contractMissingLine(verified.needsContract);
+  if (verified.needsContract && verified.contract === null) return contractUncheckedLine(verified.needsContract);
   return null;
 }
 

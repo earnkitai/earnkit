@@ -137,6 +137,32 @@ test('entryVerified (no DB): one probe and up to 2 getCodes; no address means no
   assert.deepEqual(ENTRY_BUDGET, { probes: 1, getCodes: 2 });
 });
 
+test('G15 I1 (no DB): a getCode that throws (RPC error, timeout, 429) is null, never cached; a real 0x is false and cached', async () => {
+  const { rows, cache } = memCache();
+  const addr = `0x${'c'.repeat(40)}`;
+  for (const err of [new Error('HTTP request failed. Status: 429'), Object.assign(new Error('timed out'), { name: 'TimeoutError' })]) {
+    const thrown = await contractDeployed('arc', addr, { getCode: async () => Promise.reject(err), cache });
+    assert.equal(thrown, null);
+    assert.equal(rows.size, 0, 'an RPC failure writes no url_checks row');
+  }
+  // A budget slot is still spent by a failed call (it was a real call).
+  const budget = new CheckBudget({ probes: 0, getCodes: 1 });
+  assert.equal(await contractDeployed('arc', addr, { getCode: async () => Promise.reject(new Error('down')), cache, budget }), null);
+  assert.equal(budget.takeGetCode(), false);
+  // The next call checks again, and a real answer is cached.
+  assert.equal(await contractDeployed('arc', addr, { getCode: async () => '0x6080', cache }), true);
+  assert.equal(rows.get(`getcode:arc:${addr}`)?.ok, true);
+  const empty = `0x${'d'.repeat(40)}`;
+  assert.equal(await contractDeployed('arc', empty, { getCode: async () => '0x', cache }), false);
+  assert.equal(rows.get(`getcode:arc:${empty}`)?.ok, false);
+  // An entry whose only contract couldn't be checked is "unchecked" (null), never "no contract".
+  const v = await entryVerified(
+    { liveUrl: 'https://tipjar.xyz', needsContract: 'arc', addresses: [`0x${'e'.repeat(40)}`] },
+    { probe: async () => {}, getCode: async () => Promise.reject(new Error('429')), cache },
+  );
+  assert.deepEqual(v, { live: true, contract: null, needsContract: 'arc' });
+});
+
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {
   if (process.env.DATABASE_URL) await sql().end();
