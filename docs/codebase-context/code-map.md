@@ -317,9 +317,10 @@ apps/frontend/
                                (replacements 10/day), record_submission 20/day, token launches
                                (v2.8.1: tokenLaunchWallet 10/day per creator wallet, tokenLaunch
                                10/day per installation; v2.8.1 §E17: tokenLaunchShared 500/day for a
-                               hosted agent), authorize 60/hour per IP, OAuth register and new
-                               installations 500/day per agent client (oauthRegisterClient,
-                               installClient) + 50/hour per IP (oauthRegister, installHour)
+                               hosted agent), authorize 60/hour per IP, new installations
+                               500/day per registration (installClient), OAuth register a
+                               10,000/day ceiling per agent host (oauthRegisterHost, warned at
+                               8,000) + 50/hour per IP (oauthRegister, installHour)
                                (oauth-routes.ts; replayed codes free), GitHub matching (list_programs with a user/repos,
                                get_program's repo check) 30/hour per installation, chain checks
                                60/min (/check per IP, sponsor status per installation).
@@ -349,7 +350,7 @@ apps/frontend/
                                logLimited
     oauth.ts(+.test.ts)        stateless OAuth: register (v2.4: a random nonce in every client id;
                                v2.8.1: s=1 for hosted clients), isSharedClient, HOSTED_CLIENT_NAMES,
-                               HOSTED_REDIRECT_HOSTS, clientLimitKey,
+                               HOSTED_REDIRECT_HOSTS, clientLimitKey, registrationLimitKey,
                                authorize, code -> token (+ shared, limitKey), metadata, clientKeyOf;
                                publicOrigin = EARNKIT_URL (production throws without it; no Host
                                fallback)
