@@ -20,6 +20,7 @@ import {
   checkPrograms,
   rememberWallets,
   rememberedWallet,
+  localRepoContracts,
   setFitChains,
   setWorkingOn,
 } from './installations';
@@ -138,7 +139,7 @@ export type ToolContext = {
  */
 async function entryChecks(
   program: ProgramRow,
-  project: { live_url?: string; contracts?: string[] } | undefined,
+  project: { live_url?: string; repo_url?: string; contracts?: string[] } | undefined,
   answers: Record<string, string>,
   ctx: ToolContext,
 ): Promise<Verified | undefined> {
@@ -147,8 +148,11 @@ async function entryChecks(
   // A live link given to a program that doesn't ask for one is still checked (live_verified).
   if (!liveUrl && !program.submission_requirements.some((r) => r.required && r.project_field === 'live_url')) return undefined;
   const needsContract = program.needs_contract ?? null;
-  const addresses = needsContract ? addressesFrom({ answers, liveUrl, chain: needsContract, stored: project?.contracts }) : [];
   try {
+    // Stored contracts: the project info's, then the ones local_repos reported for this repo.
+    const reported = needsContract ? await localRepoContracts(ctx.installationId, project?.repo_url ?? answers.repo_url) : [];
+    const stored = [...(project?.contracts ?? []), ...reported];
+    const addresses = needsContract ? addressesFrom({ answers, liveUrl, chain: needsContract, stored }) : [];
     return await entryVerified({ liveUrl, needsContract, addresses }, ctx.verifyDeps);
   } catch (err) {
     console.error('[verify] entry', err instanceof Error ? err.name : 'error');

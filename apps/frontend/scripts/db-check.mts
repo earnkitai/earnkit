@@ -432,8 +432,9 @@ ok(linked.shared_client === true && linked.builder_id === rootInst, 'a link and 
 const [v29] = await db<{ live_verified_at: Date | null; contract_verified_at: Date | null }[]>`
   SELECT live_verified_at, contract_verified_at FROM projects ORDER BY id LIMIT 1`;
 ok(v29 && v29.live_verified_at === null && v29.contract_verified_at === null, 'existing entries get live_verified_at and contract_verified_at = NULL');
-const [needs] = await db<{ needs_contract: string | null }[]>`SELECT needs_contract FROM programs WHERE id = 'old-active'`;
-ok(needs.needs_contract === null, 'existing programs get needs_contract = NULL');
+const [needs] = await db<{ n: number; set: number }[]>`
+  SELECT count(*)::int AS n, count(needs_contract)::int AS set FROM programs`;
+ok(needs.n > 0 && needs.set === 0, 'existing programs get needs_contract = NULL');
 await db`INSERT INTO url_checks (key, ok) VALUES ('url:https://tipjar.xyz', true)`;
 await db.unsafe(now);
 const [check] = await db<{ ok: boolean; checked_at: Date }[]>`SELECT ok, checked_at FROM url_checks WHERE key = 'url:https://tipjar.xyz'`;

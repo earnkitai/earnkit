@@ -99,3 +99,18 @@ test(
     await sql()`DELETE FROM github_repo_facts WHERE full_name = ${full}`;
   },
 );
+
+test('v2.9 A5: reportedUrl drops placeholders; local_repos carry up to 2 contracts', async () => {
+  const { reportedUrl, reportedContracts, ReportedRepoInput } = await import('./match-projects');
+  assert.equal(reportedUrl('example.com'), undefined);
+  assert.equal(reportedUrl('https://127.0.0.1:3000'), undefined);
+  assert.equal(reportedUrl('https://earnkit.com'), undefined);
+  assert.equal(reportedUrl('tipjar.xyz'), 'https://tipjar.xyz');
+  const a = `0x${'A'.repeat(40)}`;
+  const b = `0x${'b'.repeat(40)}`;
+  assert.deepEqual(reportedContracts([a, b, `0x${'c'.repeat(40)}`]), [a.toLowerCase(), b]);
+  assert.deepEqual(reportedContracts(`deployed at ${b}`), [b]);
+  assert.equal(reportedContracts('none'), undefined);
+  assert.equal(reportedContracts(42), undefined);
+  assert.deepEqual(ReportedRepoInput.parse({ name: 'tipjar', chains: [], contracts: [b] }).contracts, [b]);
+});

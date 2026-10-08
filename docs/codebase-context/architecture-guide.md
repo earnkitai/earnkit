@@ -2262,6 +2262,42 @@ the bonus note at most once per reply, every reply under 50 s (the slow deploy a
 speedrun, no dead end for a no-repo builder on Arc, the returning recap with no re-offer, and no
 "open this in Claude Code or Cursor" for an agent that can push.
 
+## Link and contract checks (v2.9 A5, Task 1)
+
+- **Placeholders are refused where a link is given.** `placeholder.ts` (pure, import-light so
+  `untrusted-text.ts` and `submission.ts` stay pure, Pre-flight P48): `placeholderHost` (RFC
+  2606/6761 names, `yourdomain.com`-style short list, IP literals, `earnkit.com`) and
+  `placeholderLink` (plus `github.com/earnkitai/...`). `canonicalBuilderUrl` returns
+  `PLACEHOLDER_LINE` ("Use your real site, not a placeholder."); `shownUrl` still displays stored
+  and program links as they are. `reportedUrl` (local_repos) drops placeholders, and a placeholder
+  GitHub homepage is no homepage (`checkRepo`).
+- **Checks.** `verify.ts`: `liveVerified(url)` probes with `safeProbe` (a 2xx, public address,
+  5 s), `contractDeployed(chain, address)` runs `eth_getCode` through `rpcFor(chain)` (the
+  `<CHAIN>_RPC_URL` variable, else the public default from each chain's docs; no RPC = null,
+  never a pass). `hasCode`: `0x`, empty and an EIP-7702 delegation are not deployed. Results are
+  cached in `url_checks` (`url:<canonical url>`, `getcode:<chain>:<address>`): a pass 24 h, a
+  failure 1 h (`cacheFresh`). Every check takes from a `CheckBudget({ probes, getCodes })`
+  (`ENTRY_BUDGET` 1 + 2 per entry step, `LIST_BUDGET` 5 + 6 for list_programs, T2); no budget
+  left reads false/null and writes nothing. Errors are failures, logged `[verify] <kind> <class>`.
+  `CheckDeps.cache` (P26) and `checkDefaults` let tests run without the network or the table
+  (`fixtures/no-network-checks.ts`, imported by the suites that run the entry tools).
+- **Where they run.** `prepare_submission` (once the draft is ready), `confirm_entry` and
+  `record_submission` each run `tools.ts entryChecks` (non-campaign programs with a live link or a
+  required `live_url` item): the live link, then, when the program file sets `needs_contract`
+  (Arc Microgrants: `arc`), up to 2 addresses from `addressesFrom` (the `contracts` /
+  `contract_address` answers, an explorer `/address/0x...` live link on that chain's mainnet
+  explorer (`match.ts mainnetExplorerHosts`), then `project.contracts` and the contracts
+  local_repos reported for the repo, P4). The result is `KnownInfo.verified`: a required item
+  filled from `live_url` is missing with `LIVE_FAILED_LINE` or `contractMissingLine(chain)`
+  unless it passed. A failed check never blocks the screen or the offer: it is one builder fix
+  line and `ready: false`; the entry is not complete. `startEntry` / `recordSubmission` store
+  `projects.live_verified_at` / `contract_verified_at` (now on a pass, NULL otherwise).
+- **Stored entries (P5).** The token flow's loader and `completeAtWindow` fill
+  `FlowProject.verified` from those columns (`withStoredChecks`, only for programs whose
+  requirements use `live_url`), so `launch_token` never completes an unverified entry.
+  `launch_token`'s new live link clears `live_verified_at`. "Also qualifies" counts a live
+  product only when the link loaded (`live_verified`).
+
 ## Abuse limits and response headers (v2.2 §5)
 
 - **Rate limits** live in one place, `lib/earnkit/rate-limit.ts` (`LIMITS`, `enforce`), backed by
