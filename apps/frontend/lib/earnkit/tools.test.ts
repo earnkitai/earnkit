@@ -1118,7 +1118,7 @@ test('8.6: "skip": the kit, no token, never bonus-eligible even with a token, pr
       await sql()`UPDATE projects SET coin_address = COALESCE(coin_address, ${'0x' + randomBytes(20).toString('hex')}), coin_launched_at = now() - interval '1 hour',
         submission_proof_ok_at = now() - interval '1 hour', complete_at = now() - interval '1 hour', submitted_at = now() - interval '1 hour' WHERE id = ${id}`;
     const ends = new Date('2099-01-01T00:00:00Z');
-    const eligible = new Set((await sql()<{ id: number }[]>`SELECT p.id FROM projects p WHERE p.id IN ${sql()([row.id, c.project_id!])} AND ${eligibleSql(ends)}`).map((x) => x.id));
+    const eligible = new Set((await sql()<{ id: number }[]>`SELECT p.id FROM projects p WHERE p.id IN ${sql()([row.id, c.project_id!])} AND ${eligibleSql(ends, null)}`).map((x) => x.id));
     assert.ok(!eligible.has(row.id), 'skip is final for the bonus');
     assert.ok(eligible.has(c.project_id!), 'the go control is eligible');
     // launch_token on the skipped entry is refused (Ruling 3).
@@ -1186,6 +1186,43 @@ test('v2.8.1 §D (T4 carry): Also qualifies names the round the token fees book 
       assert.doesNotMatch(none.show_to_builder, /rides on|moves to your next entry/);
       assert.equal((none as { token?: { note?: string } }).token?.note, 'This repo already has a token.');
     } else assert.doesNotMatch(rec.show_to_builder, /moves to your next entry/);
+  }));
+
+test('v2.8.1 §D, T5 fix round 1: no mocks: home ended, first entry elsewhere: bonus_note, builder text and token note all name the new entry', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('rollreal');
+    // The entry's submission is proven at record time (its DoraHacks page links the repo).
+    const ctx = { ...t.ctx, repoCoins: undefined, entryDeps: { fetchProof: async () => `See the repo: ${t.repo}` } };
+    const key = t.repo.replace('https://', '');
+    const home = `${t.p.id}-home`;
+    // The repo's token is in a program whose window has ended (its fees roll over).
+    await sql()`
+      INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary,
+        status, existing_work, starts_at, ends_at)
+      VALUES (${home}, 'X', 'Ended Grants', 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed',
+        '2026-01-01T00:00:00Z', '2026-02-01T00:00:00Z')`;
+    await sql()`
+      INSERT INTO projects (program_id, name, repo_url, bonus_repo_key, token_repo_key, token_url, token_status, coin_address, coin_launched_at)
+      VALUES (${home}, 'Home', ${t.repo}, ${key}, ${key}, ${`https://tokens.fun/coin/0x${randomBytes(20).toString('hex')}`}, 'launched',
+        ${'0x' + randomBytes(20).toString('hex')}, '2026-01-05T00:00:00Z')`;
+    try {
+      const confirm = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, ctx)) as Confirmed;
+      assert.equal(t.calls.deploy, 0, 'one token per repo');
+      assert.ok(confirm.kit);
+      const rec = (await tools.record_submission(
+        { program_id: t.p.id, project: t.project, submission_data: t.answers, builder_submitted: true, external_submission_url: 'https://dorahacks.io/buidl/582' },
+        ctx,
+      )) as { show_to_builder: string; bonus_note?: string; token: { note?: string } };
+      const rides = `Your builder bonus rides on your ${t.p.title} entry.`;
+      assert.ok(rec.bonus_note?.includes(rides), rec.bonus_note);
+      assert.doesNotMatch(rec.bonus_note ?? '', /Ended Grants/);
+      assert.equal(rec.token.note, rides);
+      assert.equal(rec.show_to_builder.split(rides).length, 2, rec.show_to_builder);
+      assert.doesNotMatch(rec.show_to_builder, /Ended Grants/);
+    } finally {
+      await sql()`DELETE FROM projects WHERE program_id = ${home}`;
+      await sql()`DELETE FROM programs WHERE id = ${home}`;
+    }
   }));
 
 test('8.10 C6, v2.8.1 fix round 1: "go" launches exactly the pair shown; another ticker is shown first; a shown ticker taken since gets a new Yes line; nothing deploys unseen', dbTest, () =>

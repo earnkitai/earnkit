@@ -133,8 +133,9 @@ export type BonusProgram = Window & { status: string; builder_bonus: boolean | n
  * v2.8.1 §D: the programs a deposit at `at` of the repo's token (entered by project `coin.project`
  * in `coin.program`) may roll over to: other programs where the same repo (`bonus_repo_key`) has
  * an entry submitted (`submission_proof_ok_at`) and complete (`complete_at`) by `at`, never
- * skipped, not an owner test installation. Both stamps are judged at `at`, so re-indexing books
- * the same way. rolloverRounds orders their rounds.
+ * skipped, not an owner test installation (nor the token's own entry). Both stamps are judged at
+ * `at`, so re-indexing books the same way. rolloverRounds orders their rounds. F7: a rolling
+ * (monthly) home program never ends by date, so its token keeps funding its own next month.
  */
 export async function rolloverPrograms(
   db: postgres.Sql | postgres.TransactionSql,
@@ -148,7 +149,10 @@ export async function rolloverPrograms(
     WHERE e.bonus_repo_key = ${coin.repoKey} AND e.id <> ${coin.project} AND e.program_id <> ${coin.program}
       AND e.submission_proof_ok_at <= ${at} AND e.complete_at <= ${at}
       AND e.confirm_choice IS DISTINCT FROM 'skip'
-      AND NOT COALESCE(e.installation_id = ANY(${testInstallationIds()}::int[]), false)`;
+      AND NOT COALESCE(e.installation_id = ANY(${testInstallationIds()}::int[]), false)
+      -- T5 fix round 1 (Minor 8): an owner test installation's token never rolls into a real round.
+      AND NOT EXISTS (SELECT 1 FROM projects tk WHERE tk.id = ${coin.project}
+        AND COALESCE(tk.installation_id = ANY(${testInstallationIds()}::int[]), false))`;
 }
 
 /**

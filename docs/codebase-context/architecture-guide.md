@@ -911,22 +911,29 @@ during the build); plan: `v2.4-money-first-plan.md`.
   over and never touched; none left means the Safe, logged ("no open entry of its repo to roll
   over to"). A deposit already in `bonus_ledger` is returned as booked, never moved, so
   re-indexing is idempotent. That entry has no coin of its own (one token per repo), so
-  `eligibleSql` counts the carried token (`coinSql`: the repo's token, launched before the round
-  end, from a builder-bonus program that ended or closed before it) and scoring reads its signals
-  (`scoredCoinSql`). The Also qualifies note names the program the fees book to now
+  `eligibleSql(endsAt, roundKey)` counts the carried token (`coinSql`: the repo's token, launched
+  before the round end, not an owner test installation's) only in a round that actually received
+  a rolled deposit of that coin in `bonus_ledger` (T5 fix round 1: one token competes in one round
+  at a time, Ruling F6, whatever its home program does later); a null round key counts own tokens
+  only. Scoring reads the carried token's signals (`scoredCoinSql`). **F7:** a rolling (monthly)
+  home program never ends by date, so its token keeps funding its own next month; rollover only
+  when the home program's window ends or it closes. The Also qualifies note names the program the fees book to now
   (`bonusEntryProgram`; null, the Safe, drops the note) and adds "Your builder bonus moves to your
   next entry when a program ends." (`BONUS_MOVES`) once, right after it. Ruling F6: every
   builder-facing bonus note names that program the same way (`currentBonusRound`, the booking
   rule): the "rides on" note after "Entered in…" and the token note (`tools.ts bonusNoteTitle`;
   fees bound for the Safe read "This repo already has a token."), and the entry-time note
-  (`recordSubmission`). The entry-time "earlier entry holds this repo" and contract checks count
-  the carried token too (`coinSql`). The near-end collect (`collectNearEnd`) runs for the round a
-  coin's fees book to now, including a round it rolled into.
+  (`recordSubmission`, read after the entry commits so the three agree; no "rides on" line when
+  another entry already holds the repo in that program). The entry-time "earlier entry holds this
+  repo" and contract checks count the carried token too (`coinSql` with the round open now). The
+  near-end collect (`collectNearEnd`) runs for the round a coin's fees book to now
+  (`currentBonusRound`, also when the home round froze), including a round it rolled into; coins
+  are prefiltered in SQL to those whose own program's round, or a program where the repo has a
+  submitted, complete entry, ends within 24 h, newest first (index `projects_bonus_repo_key_any`).
 - **Rollover edge cases (Ruling F6, accepted).** (a) Booking needs the target entry proven and
-  complete at the deposit's block time; eligibility only needs the token's program to have ended
-  (or closed) before the round's end. (b) A home round that froze inside its window (the file
-  extended it after the freeze) rolls deposits over, but `coinSql` doesn't count that case for the
-  next entry. (c) "Submitted" is `submission_proof_ok_at` (`submitted_at` is always set): a
+  complete at the deposit's block time; eligibility then needs that round to hold a rolled deposit
+  of the coin (before any deposit, the next entry is not yet eligible). (b) A home round that froze
+  inside its window (the file extended it after the freeze) rolls deposits over too. (c) "Submitted" is `submission_proof_ok_at` (`submitted_at` is always set): a
   deposit that lands before the next entry's proof check goes to the Safe for good.
 - **Hourly cron step** (`bonus-ledger.ts` `runBonusLedger`, after the campaigns, under the
   `bonus-ledger` lease). `CAMPAIGN_PAYOUT_PRIVATE_KEY` is 64 hex characters with or without `0x`

@@ -207,11 +207,11 @@ export async function bonusBoard(roundKey: string, now = new Date()): Promise<Bo
     const testIds = testInstallationIds();
     const entries = await sql()<OpenEntry[]>`
       SELECT p.id, p.name, p.repo_url, p.live_url, p.submitted_at,
-        (p.coin_address IS NOT NULL OR ${coinSql('p', r.ends_at)}) AS coin, (p.submission_proof_ok_at IS NOT NULL) AS proof,
+        (p.coin_address IS NOT NULL OR ${coinSql('p', r.ends_at, r.round_key)}) AS coin, (p.submission_proof_ok_at IS NOT NULL) AS proof,
         (g.submission_proof IS NOT NULL) AS pattern,
         (p.complete_at IS NOT NULL AND p.complete_at < ${r.ends_at}) AS complete,
         (p.confirm_choice IS NOT DISTINCT FROM 'skip') AS skipped,
-        (${eligibleSql(r.ends_at)}) AS eligible,
+        (${eligibleSql(r.ends_at, r.round_key)}) AS eligible,
         COALESCE(p.installation_id = ANY(${testIds}::int[]), false) AS test, s.rank, s.score
       FROM projects p
       JOIN programs g ON g.id = p.program_id
