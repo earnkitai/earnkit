@@ -363,7 +363,9 @@ apps/frontend/
                                authorize, code -> token (+ shared, limitKey), metadata, clientKeyOf;
                                publicOrigin = EARNKIT_URL (production throws without it; no Host
                                fallback)
-    mcp.ts(+test)              v2.8.1 §C15: run() logs an unexpected error as "[mcp] <tool> error <id>"
+    mcp.ts(+test)              v2.9 A3: tell_earnkit registered (TELL_EARNKIT_DESCRIPTION, not read-only);
+                               report_outcome removed (8 builder tools).
+                               v2.8.1 §C15: run() logs an unexpected error as "[mcp] <tool> error <id>"
                                and returns unexpectedErrorText(id), never the raw error.
                                v2.8 Task 5: createMcpServer(ctx, { campaignOpen }) and
                                toolDescriptions(campaignOpen) (campaign sentences only while one is open).
@@ -385,6 +387,8 @@ apps/frontend/
                                final review M1: notHumanText skips .test.ts/.test.tsx/.test.mts, and walkDir never enters a fixtures directory
     no-cell.ts                 NO_CELL (''), the empty table cell or chip; import-free so the client ProgramCard shares it (final review M1); present.ts re-exports it
     present.ts(+test)          v2.8.1 T7: enterableWithoutRepo (the no-repo offer's pick, for tools.ts).
+                               v2.9 A3: FirstMessage.hidden drops programs from tables and the offer;
+                               entriesLine lists "<title>: applied outside EarnKit" (APPLIED_OUTSIDE).
                                presentFirstMessage (v2.7 §3): alerts, v2.8.1 §B: "Your entries"
                                (entriesLine, right after any news), "(entered)" / "(needs a repo)" in the
                                Program cell, $X leaves out investment and new-work rows (qualifies), the offer
@@ -415,10 +419,13 @@ apps/frontend/
     match.ts(+test)            pure: chain detection (IDs + RPC hosts), repo x program verdicts;
                                v2.9 A1, A2: ownerOk, productScore (tiers), TUTORIAL, DEFAULT_README,
                                SIGNAL_WORDS, INVESTMENT_NOTE; matchRepo applies the tiers when scored;
+                               v2.9 A3: applyBuilderFacts (lowering wins; claims), Claim, CLAIMED_MAINNET;
+                               matchRepo: an unverified claim keeps a row at after_step "confirm: ...";
                                reportedFacts(ReportedRepo) turns an agent's local_repos report into
                                RepoFacts, keeping url only when campaigns.ts githubRepo parses it
                                (Ruling 13), else ''
-    match-projects.ts          repo matching for list_programs + get_program's eligibility check; v2.9 A1, A2:
+    match-projects.ts          v2.9 A3: MatchProjectsInput.said applied before the checks (P15); not_mine skipped.
+                               repo matching for list_programs + get_program's eligibility check; v2.9 A1, A2:
                                droppedRepo pre-filter, contributed repos by ownerOk share, repoKey merge,
                                SCORE_LIMIT 8 scored under one LIST_BUDGET, MatchDeps seam,
                                cachedRepoAddresses (file contracts for entry checks); v2.8.1 §B6:
@@ -447,9 +454,12 @@ apps/frontend/
                                availability (the same ticker check as the rest of the flow)
                                v2.8 Task 12: list_programs writes fit_chains (setFitChains) after
                                matching and returns ask_outcome (outcomeToAsk, read last,
-                               ASK_OUTCOME_NOTE) at most once per entry; Ruling C21: report_outcome
-                               is its own tool (saveSelfReport; MCP readOnlyHint false) so
-                               list_programs stays read-only;
+                               ASK_OUTCOME_NOTE) at most once per entry; v2.9 A3: tell_earnkit (it
+                               replaced report_outcome; builder-memory.ts tell; MCP readOnlyHint false)
+                               so list_programs stays read-only; list_programs reads the builder
+                               memory once (memoryOf), passes `said` to matchProjects and `hidden` to
+                               presentFirstMessage, drops hidden programs from matches; Also
+                               qualifies reads it too (TELL_SAVED_NOTE);
                                v2.8.1 §E: ToolContext.ownInstallationId / sharedClient / pickupDeps;
                                walletMemory (no remembered wallet on a hosted agent); list_programs'
                                pick_up offer (PICKUP_NOTE); pick_up_entries (yesNo, PICKUP_TEXT);
@@ -665,6 +675,11 @@ apps/frontend/
                                (Ruling 10: open curated programs that fit fit_chains or are Easy,
                                MAX_NEW_PROGRAM_LINES = 3, newest first, AlertState.newPrograms),
                                newProgramOf (C23: "up to $1M investment")
+    builder-memory.ts(+test)   v2.9 A3: TellInput (strict; program_status, repo_facts), BuilderMemory,
+                               SaidRepo, readMemory (builder_program_status, builder_repo_facts),
+                               tell (all checks first, then one transaction; outcomes via
+                               saveSelfReport, lost = not_selected), roundLabel, hiddenPrograms,
+                               hiddenIds, saidKey, mergeSaid
     outcomes.ts(+test)         v2.8 Task 12, Part G, Ruling 30: OutcomeFile (complete, Ruling C22;
                                entries_from and entries_until both required when complete: the round window, final review I4, re-review I-A),
                                matchOutcomeAll/matchOutcome (repo, then live link, then a unique
