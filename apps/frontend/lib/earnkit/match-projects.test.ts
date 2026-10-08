@@ -535,3 +535,50 @@ test('G4 I3: a local repo in another owner\'s org gets the 5-commit, 30% check w
   assert.ok(fail.r.fits[0].product.missing.includes('owned'));
   assert.notEqual(fail.r.fits[0].product.tier, 'product');
 });
+
+// ---- Ruling G5 (fix round 2) ----
+
+test('G5 I2: the checks run in parallel: 5 links with a 50 ms probe finish well under 250 ms', async () => {
+  const own = Array.from({ length: 5 }, (_, i) => ghRepo('alice', `p${i}`, { homepage: `https://p${i}.xyz`, pushed_at: daysAgo(i + 1) }));
+  const { n, deps } = checkDeps({ probeOk: true });
+  deps.checks!.probe = async () => {
+    n.probes++;
+    await new Promise((r) => setTimeout(r, 50));
+  };
+  await withFetch(
+    (u) => (u.pathname === '/users/alice/repos' ? body(own) : u.pathname === '/search/commits' ? body({ items: [] }) : repoFiles(u)),
+    async () => {
+      const t0 = Date.now();
+      const r = await matchProjects(MatchProjectsInput.parse({ github_user: 'alice' }), deps);
+      const ms = Date.now() - t0;
+      assert.equal(n.probes, 5);
+      assert.ok(r.fits.every((f) => f.live_verified));
+      assert.ok(ms < 200, `took ${ms} ms`);
+    },
+  );
+});
+
+test('G5 I3: a local repo in an org GitHub can\'t read (private or missing) is not owned with github_user given', async () => {
+  const { deps } = checkDeps({ probeOk: true });
+  const log = console.error;
+  console.error = () => {}; // the failed read logs "[match] contribution read failed: GitHubError"
+  try {
+    await withFetch(
+      (u) => (u.pathname === '/users/alice/repos' ? body([]) : u.pathname === '/search/commits' ? body({ items: [] }) : undefined),
+      async (calls) => {
+        const r = await matchProjects(
+          MatchProjectsInput.parse({
+            github_user: 'alice',
+            local_repos: [{ name: 'app', url: 'https://github.com/ghost-org/app', live_url: 'https://ghost-app.xyz', chains: ['base'] }],
+          }),
+          deps,
+        );
+        assert.equal(calls.filter((c) => c.includes('/repos/ghost-org/app/commits?per_page=100')).length, 1);
+        assert.ok(r.fits[0].product.missing.includes('owned'));
+        assert.notEqual(r.fits[0].product.tier, 'product');
+      },
+    );
+  } finally {
+    console.error = log;
+  }
+});
