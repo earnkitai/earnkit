@@ -19,8 +19,8 @@ import {
   BONUS_MOVES,
 } from './entry-text';
 import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TELL_EARNKIT_DESCRIPTION, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
-import { bonusClose, presentFirstMessage, type Card, type FirstMessage } from './present';
-import { ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, tools } from './tools';
+import { bonusClose, presentFirstMessage, tokenOffer, type Card, type FirstMessage } from './present';
+import { ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, TOKEN_OFFER_NOTE, tools } from './tools';
 import { outcomeQuestion } from './outcomes';
 import { DEFAULT_GUIDANCE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, walletAsk } from './coach';
 import { alsoText } from './also-qualifies';
@@ -881,8 +881,16 @@ const signInTexts: [string, string][] = [
   ['WALLET_CHANGED + link', `${WALLET_CHANGED} Sign in again: https://earnkit.com/github/verify?n=x`],
 ];
 
+// v2.9 B10: the first reply's token offer (each wallet and bonus form) and launch_token's skip line.
+const offerFacts = { project: 'TipJar', program: 'Arc Microgrants', prize_usd: 500, proposal: { name: 'TipJar', symbol: 'TIP' } };
+const tokenOfferTexts: [string, string][] = [true, false].flatMap((hasBonus) =>
+  [true, false].map((walletKnown): [string, string] => [`tokenOffer(${hasBonus}, ${walletKnown})`, tokenOffer({ ...offerFacts, hasBonus, walletKnown })]),
+);
+
 const builderFacing: [string, string][] = [
   ['applied outside EarnKit', appliedOutsideText],
+  ...tokenOfferTexts,
+  ['NO_TOKEN_FOR_NOW', NO_TOKEN_FOR_NOW],
   ...signInTexts,
   ['NOTED_FOR_NOW', NOTED_FOR_NOW],
   ...coachTexts,
@@ -955,6 +963,7 @@ const agentFacing: [string, string][] = [
   ['SIGN_IN_OR_NOTE', SIGN_IN_OR_NOTE],
   ['SIGN_IN_CODE_NOTE', SIGN_IN_CODE_NOTE],
   ['CANT_PUSH_SIGN_IN_NOTE', CANT_PUSH_SIGN_IN_NOTE],
+  ['TOKEN_OFFER_NOTE', TOKEN_OFFER_NOTE],
   ['TELL_EARNKIT_DESCRIPTION', TELL_EARNKIT_DESCRIPTION],
   // v2.7 fix round 1 (Minor 6): llms.txt is what agents read about EarnKit.
   ['llms.txt', readFileSync(join(import.meta.dirname, '../../public/llms.txt'), 'utf8')],
@@ -1254,5 +1263,18 @@ test('v2.9 B9: the sign-in copy: money first, short, no em dashes, the spec line
   for (const [label, text] of signInTexts) {
     assert.doesNotMatch(text, /—/, label);
     assert.doesNotMatch(text, toolNameRe, label);
+  }
+});
+
+test('6.9 v2.9 B11: "skip" appears in builder text only in a token offer', () => {
+  // Pre-flight P33: tokenRow (entry-text.ts "say skip for no token") is a token offer too.
+  const offers = /^(tokenOffer|SKIP_LINE|confirmOffer|coinRow|tokenRow)/;
+  const withSkip = builderFacing.filter(([, text]) => /\bskip\b/i.test(text));
+  assert.ok(withSkip.some(([label]) => label.startsWith('tokenOffer')), 'the scan sees the token offer');
+  for (const [label, text] of withSkip) {
+    if (offers.test(label)) continue;
+    // A table that carries tokenRow (its "| Token |" row): the skip is only there.
+    for (const line of text.split('\n').filter((l) => /\bskip\b/i.test(l)))
+      assert.match(line, /^\| Token \| A token on Base\b/, `${label}: ${line}`);
   }
 });

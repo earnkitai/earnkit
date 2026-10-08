@@ -550,3 +550,16 @@ test('v2.8.1 §E17: on a hosted agent nothing is filled silently; each saved ans
   const lq = questionsFor({ reqs: [req('traction', 'traction')], answers: {}, first: false, suggested: long.suggested });
   assert.match(lq[0].text, /^Use "(word ){7,}word\.\.\." again\?$/);
 });
+
+test('6.10 v2.9 B11: questionsFor never asks an optional field, even empty and builder-only (expected PASS before T6, P34)', () => {
+  const optional = [
+    req('traction', 'traction', { required: false, from: 'builder' }),
+    req('x', 'contact', { required: false, from: 'builder', label: 'X handle' }),
+    req('why', 'why_you', { required: false }),
+  ];
+  for (const first of [true, false])
+    assert.deepEqual(questionsFor({ reqs: optional, answers: {}, first, wallet: null }), [], `first: ${first}`);
+  // Required ones next to them: only the required field is asked.
+  const asked = questionsFor({ reqs: [...optional, req('use', 'use_of_funds', { from: 'builder' })], answers: {}, first: true });
+  assert.deepEqual(asked.flatMap((q) => q.keys), ['use']);
+});

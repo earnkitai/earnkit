@@ -168,10 +168,10 @@ const recordSubmissionDescription = (campaignOpen: boolean) =>
 
 /** v2.9 B10: under 800 characters with OWNERSHIP_FOR_TOKEN (the brief's limit); the offer sentence verbatim. */
 export const LAUNCH_TOKEN_DESCRIPTION =
-  "Launch (or retry) an entry's token (project_id), e.g. after you pushed earnkit.txt or got creator_wallet. " +
+  "Launch (or retry) an entry's token (project_id), e.g. after you pushed earnkit.txt or the builder gave a wallet (creator_wallet). " +
   "After the first reply's token offer, pass offer (program_id, repo_url, project_name from token_offer) and decision: 'go' on yes, 'skip' on skip. " +
   'Only after the builder said yes; launches are public and permanent. Never a wallet from another entry. ' +
-  'Returns { status, note, agent_note? }: pass note on as written. ' +
+  'Pass note on as written; agent_note is for you. ' +
   OWNERSHIP_FOR_TOKEN;
 
 const GET_PROGRAM_DESCRIPTION =
