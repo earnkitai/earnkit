@@ -3240,3 +3240,14 @@ test('G14 (M2): after one skip the first reply never offers that repo again; the
     assert.match(confirm.show_to_builder, /\nYes: launches \$\w+ \(.+\) on Base\.\n/);
     assert.doesNotMatch(confirm.show_to_builder, /40%/);
   }));
+
+test('fix round 3 (G14): two list_programs calls before the builder answers say "40%" once', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await offerSetup('g14r3');
+    const first = await t.list();
+    const second = await t.list();
+    assert.ok(first.token_offer && second.token_offer);
+    assert.deepEqual(second.token_offer.proposed, first.token_offer.proposed);
+    assert.equal(`${first.show_to_builder}\n${second.show_to_builder}`.split('40%').length - 1, 1);
+    assert.ok(second.show_to_builder.endsWith(`Launch $${first.token_offer.proposed.symbol} (${first.token_offer.proposed.name}) on Base now? Say yes with your wallet address, or skip.`), second.show_to_builder);
+  }));

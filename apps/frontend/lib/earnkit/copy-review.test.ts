@@ -888,6 +888,7 @@ const tokenOfferTexts: [string, string][] = [
     [true, false].map((walletKnown): [string, string] => [`tokenOffer(${hasBonus}, ${walletKnown})`, tokenOffer({ ...offerFacts, hasBonus, walletKnown })]),
   ),
   ['tokenOffer (wallet)', tokenOffer({ ...offerFacts, hasBonus: true, walletKnown: true, wallet: '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3' })],
+  ['tokenOffer (again)', tokenOffer({ ...offerFacts, hasBonus: true, walletKnown: true, again: true })],
   ['tokenOfferAgain', tokenOfferAgain({ proposal: offerFacts.proposal, walletKnown: false }, 'TIPJ')],
   ['OFFER_NOT_SHOWN', OFFER_NOT_SHOWN],
 ];

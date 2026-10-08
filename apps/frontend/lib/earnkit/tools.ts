@@ -812,6 +812,9 @@ async function firstTokenOffer(m: FirstMessage, ctx: ToolContext, login: string 
       (await readOffer(ctx.installationId, fit.card.id, key)) ??
       (await proposeToken(project, ctx.tokenDeps?.check ?? tokensFunTickerCheck, fit.repo_url));
     const proposed = { name: proposal.name, symbol: proposal.symbol };
+    // Fix round 3 (G14): a first-reply offer already shown for this repo and program (the builder
+    // hasn't answered yet) is said again without the earnings sentence ("40%" once per flow).
+    const again = await firstReplyShown(ctx.installationId, fit.card.id, key);
     await saveOffer(ctx.installationId, fit.card.id, key, proposed, true);
     // Ruling G13 (I1): the remembered wallet (never on a shared client, G7) is named in the line and
     // carried as shown_wallet, so "yes" launches to the wallet the builder saw.
@@ -826,6 +829,7 @@ async function firstTokenOffer(m: FirstMessage, ctx: ToolContext, login: string 
         hasBonus: bonusCell(fit.card) !== NO_CELL,
         walletKnown: wallet !== null,
         wallet,
+        again,
       }),
       offer: {
         program_id: fit.card.id,
