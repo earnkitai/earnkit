@@ -98,10 +98,11 @@ export const OWNERSHIP_FOR_TOKEN =
   'yourself; never ask the builder to edit files. It is bound to you and the repo; never reuse a line from ' +
   'someone else. One token per repo.';
 
-const LIST_PROGRAMS_DESCRIPTION =
+/** Exported for tests. */
+export const LIST_PROGRAMS_DESCRIPTION =
   'What can I earn? Use for any question about earning, programs, rewards, or what to build. ' +
   "First read the builder's local git remotes and pass the repos the builder wrote as local_repos " +
-  "(chains, mainnet, live link, last commit); skip clones of other people's code and EarnKit's kits. " +
+  "(chains, mainnet, live link, and last_commit_at: the date of the last commit, always sent); skip clones of other people's code and EarnKit's kits. " +
   'Never ask for a GitHub username first (github_user is optional). EarnKit remembers them for later calls. ' +
   'Returns show_to_builder: show it exactly as written, with no extra summary or advice. ' +
   'It leads with "EarnKit matches you to $X in prizes you qualify for" when their repos fit, ' +

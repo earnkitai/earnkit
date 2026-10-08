@@ -209,6 +209,35 @@ export type Product = { score: number; tier: Tier; missing: (keyof ProductFacts)
 /** Names, descriptions or topics of tutorials, course work, starters and docs (Pre-flight P27): not original. */
 export const TUTORIAL =
   /\b(tutorial|course|bootcamp|exercise|homework|lesson|example|demo|clone|starter|boilerplate|template|learn|practice|udemy|freecodecamp|covid[- ]?19?[- ]?tracker|todo[- ]?app|antivirus|docs?|documentation)\b/i;
+/**
+ * Ruling G3: a description counts as tutorial work only on these strong phrases (never "demo" or
+ * "example", which real products use too). Names and topics keep the full TUTORIAL pattern.
+ */
+export const TUTORIAL_DESCRIPTION = /\b(tutorial|course|boilerplate|starter[- ]kit|template|follow[- ]along|homework)\b/i;
+
+/**
+ * Ruling G3: well-known token contracts (USDC, EURC, WETH, USDT) that config files name but that are
+ * never the builder's own deployment, lowercase. Only addresses from official docs (checked
+ * 2026-10-08); a chain without a sourced address is left out.
+ */
+export const KNOWN_TOKEN_ADDRESSES: ReadonlySet<string> = new Set(
+  [
+    // https://developers.circle.com/stablecoins/usdc-contract-addresses (Base, Avalanche, Arc, Monad)
+    '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+    '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E',
+    '0x3600000000000000000000000000000000000000',
+    '0x754704Bc059F8C67012fEd69BC8A327a5aafb603',
+    // https://developers.circle.com/stablecoins/eurc-contract-addresses (Base, Avalanche, Arc)
+    '0x60a3E35Cc302bFA44Cb288Bc5a4F316Fdb1adb42',
+    '0xC891EB4cbdEFf6e073e859e987815Ed1505c2ACD',
+    '0xbEf5f6d51CB62b58e6A8f77868681825C6fe21c1',
+    // https://docs.base.org/base-chain/network-information/base-contracts (WETH9 on Base)
+    '0x4200000000000000000000000000000000000006',
+    // https://tether.to/en/supported-protocols/ (USDT on Avalanche C-Chain)
+    '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7',
+  ].map((a) => a.toLowerCase()),
+);
+
 /** The README a framework generates: not the builder's own words. */
 export const DEFAULT_README =
   /Getting Started with Create React App|This is a \[?Next\.js\]? project bootstrapped|Sample Hardhat Project|This project demonstrates a basic Hardhat use case/i;
