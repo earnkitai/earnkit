@@ -14,7 +14,7 @@ import { EntryError, githubRepo, givenWallet, isWalletAddress, normalizeRepoUrl,
 import { signToEnter } from './entry-proof';
 import { boardLink, confirmTable, enteredText, noCoinYet, todoOf, type EnteredText } from './entry-text';
 import { proposeToken, repoNameOf, titleCase, tokensFunTickerCheck } from './token-proposal';
-import { DECLINES_MAX, declines, offerKey, readOffer, recordDecline, saveOffer, type Offered } from './token-offers';
+import { DECLINES_MAX, declines, offerIdentity, offerKey, readOffer, recordDecline, saveOffer, type Offered } from './token-offers';
 import { earnkitCampaignRows, yourCampaignEntries } from './leaderboard';
 import {
   checkPrograms,
@@ -319,7 +319,13 @@ const ConfirmEntryInput = z
  * (Ruling 5 (plan)): the other program this repo's one token is entered in; a failed read never
  * fails the tool (no offer change).
  */
-async function offerFacts(program: ProgramRow, repoUrl: string | null | undefined, ctx: ToolContext) {
+async function offerFacts(
+  program: ProgramRow,
+  repoUrl: string | null | undefined,
+  ctx: ToolContext,
+  /** Ruling G12: whose declines count (declineLogin); null (a shared client without a login): none. */
+  login: string | null = declineLogin(ctx),
+) {
   const key = repoUrl ? normalizeRepoUrl(repoUrl) : null;
   let coinIn: string | null = null;
   // v2.9 B10: the repo's token is already this program's (launched from the first reply's offer).
@@ -334,7 +340,7 @@ async function offerFacts(program: ProgramRow, repoUrl: string | null | undefine
     tokenHere = coin?.program_id === program.id;
   }
   // v2.9 B10: how often the builder said skip to this repo's token offer. A failed read counts none.
-  const declined = repoUrl ? await declineCount(ctx.installationId, repoUrl) : 0;
+  const declined = repoUrl && login !== null ? await declineCount(ctx.installationId, repoUrl, login) : 0;
   return {
     hasBonus: hasBuilderBonus(program),
     coinIn,
@@ -348,11 +354,29 @@ async function offerFacts(program: ProgramRow, repoUrl: string | null | undefine
   };
 }
 
+/**
+ * Ruling G12: the builder a token decline belongs to: '' off shared clients; on a shared client the
+ * verified login of the pasted code (memoryKey), else null: nothing is recorded or read, so one
+ * user's skips never stop another's offer.
+ */
+const declineLogin = (ctx: ToolContext, verifiedLogin?: string | null): string | null =>
+  memoryKey({ ...ctx, verifiedLogin: verifiedLogin ?? ctx.verifiedLogin })?.login ?? null;
+
+/**
+ * Ruling G12: records a skip once per offer shown (offerIdentity), for this builder (declineLogin);
+ * nothing on a shared client without a verified login. Returns the count, or null when not recorded.
+ */
+async function declineOffer(ctx: ToolContext, login: string | null, programId: string, repoUrl: string, name: string): Promise<number | null> {
+  if (login === null) return null;
+  const offer = await offerIdentity(ctx.installationId, programId, offerKey(repoUrl, name));
+  return recordDecline(ctx.installationId, repoKey({ url: repoUrl, name }), new Date(), { login, offer });
+}
+
 /** v2.9 B10: the decline count for a repo (token_declines, keyed by repoKey); a failed read is 0. */
-async function declineCount(installationId: number, repoUrl: string): Promise<number> {
+async function declineCount(installationId: number, repoUrl: string, login: string): Promise<number> {
   const key = repoKey({ url: repoUrl, name: '' });
   try {
-    return (await declines(installationId, [key])).get(key) ?? 0;
+    return (await declines(installationId, [key], login)).get(key) ?? 0;
   } catch (err) {
     console.error('[token] declines', err instanceof Error ? err.name : 'error');
     return 0;
@@ -761,13 +785,14 @@ export const TOKEN_OFFER_NOTE =
  * else EarnKit's proposal, stored (token_offers) so a later offer names the same token. The wallet
  * is "known" only when remembered on a non-shared client. Never fails the reply (null on any error).
  */
-async function firstTokenOffer(m: FirstMessage, ctx: ToolContext) {
+async function firstTokenOffer(m: FirstMessage, ctx: ToolContext, login: string | null) {
   if (!(ctx.tokenDeps?.available ?? tokenLaunchesAvailable)()) return null;
   try {
     const urls = m.repos && 'fits' in m.repos ? m.repos.fits.flatMap((f) => (f.repo_url ? [f.repo_url] : [])) : [];
     if (urls.length === 0) return null;
     const keyOf = (url: string) => repoKey({ url, name: '' });
-    const counts = await declines(ctx.installationId, [...new Set(urls.map(keyOf))]);
+    // Ruling G12: this builder's declines only (none read on a shared client without a login).
+    const counts = login === null ? new Map<string, number>() : await declines(ctx.installationId, [...new Set(urls.map(keyOf))], login);
     const blocked = new Set(urls.filter((u) => (counts.get(keyOf(u)) ?? 0) >= DECLINES_MAX).map((u) => normalizeRepoUrl(u)));
     const fit = tokenOfferFit(m, blocked);
     if (!fit?.repo_url) return null;
@@ -816,13 +841,15 @@ async function launchFromOffer(
   if (!isOpen(program)) throw new EntryError('This program is closed or past its deadline.');
   const project = ProjectInfo.parse({ name: offer.project_name, repo_url: offer.repo_url }) as { name: string; repo_url: string };
   const repo = repoKey({ url: project.repo_url, name: project.name });
+  const verifiedLogin = ctx.sharedClient ? await sharedLogin(ctx, parsed.signed_in, 'launch_token') : undefined;
   if (parsed.decision === 'skip') {
-    const count = await recordDecline(ctx.installationId, repo);
+    // Ruling G12: once per offer shown, for this builder; nothing on a shared client without a login.
+    const count = await declineOffer(ctx, declineLogin(ctx, verifiedLogin), program.id, project.repo_url, project.name);
     return {
       status: 'skipped' as const,
       note: NO_TOKEN_FOR_NOW,
       agent_note:
-        count >= DECLINES_MAX
+        (count ?? 0) >= DECLINES_MAX
           ? 'Nothing launched. This repo is not offered a token again.'
           : 'Nothing launched. The token is offered once more when the builder confirms an entry for this repo.',
     };
@@ -848,7 +875,6 @@ async function launchFromOffer(
       : { status: 'launched' as const, tokens_fun: entry.token_url, note: 'This entry already has its token.', project_id: entry.id };
   // The pair the offer showed (the agent's edits win, as on any launch).
   const shown = await readOffer(ctx.installationId, program.id, offerKey(project.repo_url, project.name)).catch(() => null);
-  const verifiedLogin = ctx.sharedClient ? await sharedLogin(ctx, parsed.signed_in, 'launch_token') : undefined;
   const out = await launchToken(
     { ...parsed, offer: undefined, project_id: entry.id, name: parsed.name ?? shown?.name, symbol: parsed.symbol ?? shown?.symbol },
     ctx.installationId,
@@ -1052,7 +1078,7 @@ export const tools = {
       hidden,
     };
     // v2.9 B10 (Ruling 12): the token offer for the best owned, product-tier fit closes the reply.
-    const tokenPick = await firstTokenOffer(first, ctx);
+    const tokenPick = await firstTokenOffer(first, ctx, declineLogin(ctx, login));
     const show_to_builder = presentFirstMessage(tokenPick ? { ...first, tokenOffer: tokenPick.text } : first);
     // v2.9 A8: what matching showed (the matched rows on screen, one per program), for the outcome
     // loop. Never fails the tool. Ruling G7: not on a shared client (its repo keys and scores may be
@@ -1447,7 +1473,9 @@ export const tools = {
     const canPush = i.agent?.can_push !== false;
     // v2.9 B9: with GitHub sign-in on, an agent that can't push still offers and launches the token.
     const signIn = githubVerifyEnabled();
-    const facts = await offerFacts(program, repoUrl, ctx);
+    // Ruling G12: whose token declines count (a shared client: the pasted code's login, else none).
+    const declinedBy = declineLogin(ctx, ctx.sharedClient ? await sharedLogin(ctx, i.signed_in, 'confirm_entry') : undefined);
+    const facts = await offerFacts(program, repoUrl, ctx, declinedBy);
     const decision = confirmDecision({
       confirmed: i.builder_confirmed === true,
       decision: i.decision,
@@ -1504,7 +1532,7 @@ export const tools = {
     });
     // v2.9 B10: a skip to the token offer counts toward the repo's two (then never offered again).
     if (decision.kind === 'skip' && offersToken && repoUrl && !entry.token_url)
-      await recordDecline(ctx.installationId, repoKey({ url: repoUrl, name: i.project.name })).catch((err: unknown) =>
+      await declineOffer(ctx, declinedBy, program.id, repoUrl, i.project.name).catch((err: unknown) =>
         console.error('[confirm_entry] decline', err instanceof Error ? err.name : 'error'),
       );
     // v2.9 A8: the entry's product score as matching showed it, for the program's match floor. Never

@@ -3012,6 +3012,8 @@ test('6.6 "skip": one decline, no entry; the confirmation offer then has no "40%
     const offer = t.offerOf(await t.list());
     const skipped = (await tools.launch_token({ offer, decision: 'skip' }, t.ctx)) as OfferLaunch;
     assert.deepEqual([skipped.status, skipped.note], ['skipped', 'No token for now.']);
+    // Ruling G12 (a): the same skip sent again (a retry) still counts once.
+    await tools.launch_token({ offer, decision: 'skip' }, t.ctx);
     assert.equal((await t.rows()).length, 0);
     const count = async () =>
       (await sql()<{ count: number }[]>`SELECT count FROM token_declines WHERE installation_id = ${t.inst}`)[0]?.count ?? 0;
@@ -3025,6 +3027,9 @@ test('6.6 "skip": one decline, no entry; the confirmation offer then has no "40%
     // A skip at the confirmation: two, and never offered again (P23: the confirmation too).
     const skip2 = (await tools.confirm_entry({ ...t.input, builder_confirmed: true, decision: 'skip' }, t.ctx)) as Confirmed;
     assert.ok(skip2.kit);
+    assert.equal(await count(), 2);
+    // G12 (a): a retried confirmation skip (no new offer shown) changes nothing.
+    await tools.confirm_entry({ ...t.input, builder_confirmed: true, decision: 'skip' }, t.ctx);
     assert.equal(await count(), 2);
     assert.ok(!(await t.list()).token_offer);
     const after = (await tools.confirm_entry({ ...t.input, wallet: W8 }, t.ctx)) as Confirmed;
@@ -3089,3 +3094,33 @@ test('6.8 "40%" once per entry flow: the first reply offer, launch, prepare, con
     assert.equal(t.calls.deploy, 1);
     assert.equal(texts.join('\n').split('40%').length - 1, 1, texts.filter((x) => x.includes('40%')).join('\n---\n'));
   }));
+
+test("G12 (b): on one Grok install, user A's two skips never stop user B's offer; without a code nothing is recorded", dbTest, () =>
+  withTokenEnv(() =>
+    withSignIn(async () => {
+      const t = await offerSetup('g12');
+      await sql()`UPDATE installations SET shared_client = true WHERE id = ${t.inst}`;
+      const ctx = { ...t.ctx, sharedClient: true };
+      const codeA = await signInAs(t.inst, null, t.repo, 'alice');
+      assert.ok(codeA);
+      const list = async (signed_in?: string) =>
+        (await tools.list_programs({ local_repos: [{ name: 'tipjar', chains: ['arc'] }], ...(signed_in && { signed_in }) }, ctx)) as TokenOfferReply;
+      const skip = async (signed_in?: string) => {
+        const r = await list(signed_in);
+        assert.ok(r.token_offer, 'offered');
+        await tools.launch_token({ offer: t.offerOf(r), decision: 'skip', ...(signed_in && { signed_in }) }, ctx);
+      };
+      // B (no code) skips twice: nothing is recorded, the offer stays.
+      await skip();
+      await skip();
+      const [{ n }] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM token_declines WHERE installation_id = ${t.inst}`;
+      assert.equal(n, 0);
+      // A skips two offers: A's offer is gone, B's stays.
+      await skip(codeA);
+      await skip(codeA);
+      const rows = await sql()<{ login: string; count: number }[]>`SELECT login, count FROM token_declines WHERE installation_id = ${t.inst}`;
+      assert.deepEqual(rows.map((r) => [r.login, r.count]), [['alice', 2]]);
+      assert.ok(!(await list(codeA)).token_offer);
+      assert.ok((await list()).token_offer);
+    }),
+  ));

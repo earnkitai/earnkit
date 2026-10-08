@@ -29,22 +29,47 @@ export async function readOffer(installationId: number, programId: string, key: 
 }
 
 /**
- * v2.9 B10: the builder said skip to a token offer for this repo (`repoKey`, answer-bank.ts:
- * owner/repo). Returns the decline count; at 2 the repo's token is never offered again.
+ * v2.9 B10: the token offer's identity for a decline (Ruling G12): the program and when its pair was
+ * last shown (token_offers.offered_at), else the program alone. A new offer shown is a new identity.
  */
-export async function recordDecline(installationId: number, repoKey: string, now: Date = new Date()): Promise<number> {
+export async function offerIdentity(installationId: number, programId: string, key: string): Promise<string> {
+  const [row] = await sql()<{ offered_at: Date }[]>`
+    SELECT offered_at FROM token_offers
+    WHERE installation_id = ${installationId} AND program_id = ${programId} AND entry_key = ${key}`;
+  return row ? `${programId}@${row.offered_at.toISOString()}` : programId;
+}
+
+/**
+ * v2.9 B10: the builder said skip to a token offer for this repo (`repoKey`, answer-bank.ts:
+ * owner/repo). Returns the decline count; at 2 the repo's token is never offered again. Ruling G12:
+ * counted once per offer (`offer`, offerIdentity), so a retried skip changes nothing; `login` is the
+ * builder (memoryKey: '' off shared clients, the verified login on one).
+ */
+export async function recordDecline(
+  installationId: number,
+  repoKey: string,
+  now: Date = new Date(),
+  o: { login?: string; offer?: string } = {},
+): Promise<number> {
+  const login = o.login ?? '';
+  const offer = o.offer ?? `at:${now.toISOString()}`;
   const [row] = await sql()<{ count: number }[]>`
-    INSERT INTO token_declines (installation_id, repo_key, last_at) VALUES (${installationId}, ${repoKey}, ${now})
-    ON CONFLICT (installation_id, repo_key) DO UPDATE SET count = token_declines.count + 1, last_at = EXCLUDED.last_at
+    INSERT INTO token_declines (installation_id, login, repo_key, last_at, offers)
+    VALUES (${installationId}, ${login}, ${repoKey}, ${now}, ARRAY[${offer}]::text[])
+    ON CONFLICT (installation_id, login, repo_key) DO UPDATE SET
+      count = token_declines.count + CASE WHEN ${offer} = ANY(token_declines.offers) THEN 0 ELSE 1 END,
+      offers = CASE WHEN ${offer} = ANY(token_declines.offers) THEN token_declines.offers ELSE token_declines.offers || ${offer}::text END,
+      last_at = EXCLUDED.last_at
     RETURNING count`;
   return row.count;
 }
 
-/** v2.9 B10: the decline count per repo key (owner/repo); a repo never declined is absent. */
-export async function declines(installationId: number, repoKeys: string[]): Promise<Map<string, number>> {
+/** v2.9 B10: the decline count per repo key (owner/repo) for one builder (`login`); a repo never declined is absent. */
+export async function declines(installationId: number, repoKeys: string[], login = ''): Promise<Map<string, number>> {
   if (repoKeys.length === 0) return new Map();
   const rows = await sql()<{ repo_key: string; count: number }[]>`
-    SELECT repo_key, count FROM token_declines WHERE installation_id = ${installationId} AND repo_key IN ${sql()(repoKeys)}`;
+    SELECT repo_key, count FROM token_declines
+    WHERE installation_id = ${installationId} AND login = ${login} AND repo_key IN ${sql()(repoKeys)}`;
   return new Map(rows.map((r) => [r.repo_key, r.count]));
 }
 
