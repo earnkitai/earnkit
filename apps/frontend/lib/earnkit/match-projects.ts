@@ -2,7 +2,9 @@ import { z } from 'zod';
 import {
   CHAINS,
   DEFAULT_README,
+  KNOWN_TOKEN_ADDRESSES,
   TUTORIAL,
+  TUTORIAL_DESCRIPTION,
   chainOfId,
   detectChains,
   earnkitOwner,
@@ -104,19 +106,25 @@ const DAY_MS = 86_400_000;
 /** A repo's owner login (the full name's first part when GitHub left `owner` out). */
 const ownerOf = (r: Pick<Repo, 'full_name'> & { owner?: { login: string } }) => r.owner?.login ?? r.full_name.split('/')[0];
 
-/** v2.9 A2: a fork, a template, or a tutorial, course, starter or docs repo by name, description or topic. Pure. */
+/**
+ * v2.9 A2: a fork, a template, or a tutorial, course, starter or docs repo by name or topic; a
+ * description counts only on strong phrases (Ruling G3: TUTORIAL_DESCRIPTION). Pure.
+ */
 export const unoriginal = (r: Pick<Repo, 'name' | 'fork' | 'is_template' | 'template_repository' | 'description' | 'topics'>) =>
   r.fork ||
   r.is_template === true ||
   Boolean(r.template_repository) ||
-  [r.name, r.description ?? '', ...(r.topics ?? [])].some((t) => TUTORIAL.test(t));
+  [r.name, ...(r.topics ?? [])].some((t) => TUTORIAL.test(t)) ||
+  TUTORIAL_DESCRIPTION.test(r.description ?? '');
 
 /**
  * v2.9 A1: dropped before any per-repo call: forks, templates, archived repos, tutorials, EarnKit's
  * own repos, and repos neither created nor pushed in the last 365 days. Pure.
  */
-export function droppedRepo(r: Repo, now: Date): boolean {
+export function droppedRepo(r: Repo, now: Date, o: { named?: boolean } = {}): boolean {
   if (r.archived || unoriginal(r) || earnkitOwner(ownerOf(r))) return true;
+  // Ruling G3: a repo the builder names is never dropped for age.
+  if (o.named) return false;
   const year = now.getTime() - 365 * DAY_MS;
   return Date.parse(r.created_at) < year && Date.parse(r.pushed_at) < year;
 }
@@ -292,7 +300,8 @@ async function readRepoChains(repo: Repo) {
   const addresses = [
     ...new Set(files.flatMap((f) => f.text.match(ADDRESS) ?? []).map((a) => a.toLowerCase())),
   ]
-    .filter((a) => a !== ZERO_ADDRESS)
+    // Ruling G3: a known token (USDC, EURC, WETH, USDT) in a config file is not the builder's deployment.
+    .filter((a) => a !== ZERO_ADDRESS && !KNOWN_TOKEN_ADDRESSES.has(a))
     .slice(0, GETCODE_PER_REPO);
   return {
     chains: detectChains(files),
@@ -735,11 +744,13 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx) {
 
 /**
  * v2.9 A2 (plan Ruling 1): a local repo's score. EarnKit never reads its code, so `readme` is false;
- * active is a last commit within 90 days (young follows it); original reads the name only.
+ * active is a last commit within 90 days, or no date given (Ruling G3; young follows it); original
+ * reads the name only.
  */
 async function checkLocal(r: ReportedRepo, programs: ProgramFacts[], ctx: ScoreCtx) {
   const facts = reportedFacts(r, programs);
-  const active = within(r.last_commit_at, 90, ctx.now);
+  // Ruling G3: an unknown last commit counts as active (the agent is asked to send it).
+  const active = r.last_commit_at === undefined || within(r.last_commit_at, 90, ctx.now);
   const { live, deployed } = await deployedCheck(facts.homepage, r.contracts ?? [], mainnetChains(facts.chains), ctx.checks);
   const product = productScore({ active, young: active, original: !TUTORIAL.test(r.name), readme: false, deployed, owned: ctx.owned });
   const scored: RepoFacts = { ...facts, product, live_verified: live };
@@ -770,7 +781,7 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
     const names = input.repos.map(fullName);
     found += names.length;
     const read = await Promise.all(names.filter((n) => !earnkitOwner(n.split('/')[0])).map((n) => repoByName(n)));
-    const kept = read.filter((r) => !droppedRepo(r, now)).sort(byPushed).slice(0, SCORE_LIMIT);
+    const kept = read.filter((r) => !droppedRepo(r, now, { named: true })).sort(byPushed).slice(0, SCORE_LIMIT);
     // Pre-flight P28: without a builder, a named repo counts like a local one (owned unless EarnKit's).
     let contribReads = 0;
     for (const r of kept) {

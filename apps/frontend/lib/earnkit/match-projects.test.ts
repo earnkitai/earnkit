@@ -8,12 +8,15 @@ import {
   SCORE_LIMIT,
   cachedRepoAddresses,
   cachedRepoChains,
+  droppedRepo,
   matchProjects,
+  unoriginal,
   repoCodeFacts,
   repoKey,
   type MatchDeps,
 } from './match-projects';
-import type { ProgramFacts } from './match';
+import { KNOWN_TOKEN_ADDRESSES, type ProgramFacts } from './match';
+import { LIST_PROGRAMS_DESCRIPTION } from './mcp';
 import { presentFirstMessage } from './present';
 
 /** Stubs global fetch with GitHub answers by path (query kept); records every path asked. */
@@ -359,4 +362,76 @@ test('v2.9 P6, P4: the repo\'s own signals are cached per version; owned, active
   assert.deepEqual(await cachedRepoAddresses(`https://github.com/Alice/${name}`), [ADDR]);
   assert.deepEqual(await cachedRepoAddresses('https://gitlab.com/a/b'), []);
   await sql()`DELETE FROM github_repo_facts WHERE full_name = ${`alice/${name}`}`;
+});
+
+// ---- Ruling G3 ----
+
+test('G3.1 a description flags only strong tutorial phrases; names keep the full pattern', () => {
+  const r = (name: string, description: string | null) => ({ name, description, fork: false, topics: [] });
+  assert.equal(unoriginal(r('tipjar', 'A tipjar demo on Base')), false);
+  assert.equal(unoriginal(r('tipjar', 'An example of tips, with docs')), false);
+  assert.equal(unoriginal(r('tipjar', 'Follow along with the course')), true);
+  assert.equal(unoriginal(r('tipjar', 'Next.js starter kit')), true);
+  assert.equal(unoriginal(r('tipjar-demo', null)), true);
+});
+
+const USDC_BASE = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
+
+test('G3.2 a repo whose only address is Base USDC is not deployed (no getCode spent on it)', async () => {
+  const { n, deps } = checkDeps({ probeOk: true });
+  await withFetch(
+    (u) => {
+      if (u.pathname === '/users/alice/repos') return body([ghRepo('alice', 'tipjar')]);
+      if (u.pathname === '/search/commits') return body({ items: [] });
+      if (u.host === 'raw.githubusercontent.com' && u.pathname.endsWith('/hardhat.config.ts'))
+        return body(`chainId: 8453 // usdc 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`);
+      return repoFiles(u);
+    },
+    async () => {
+      const r = await matchProjects(MatchProjectsInput.parse({ github_user: 'alice' }), deps);
+      assert.ok(r.fits[0].product.missing.includes('deployed'));
+      assert.equal(n.getCodes, 0);
+      assert.ok(!r.fits[0].facts.homepage);
+    },
+  );
+  assert.equal(KNOWN_TOKEN_ADDRESSES.has(USDC_BASE), true);
+});
+
+test('G3.3 a local repo without last_commit_at counts as active; the instruction asks for it', async () => {
+  const { deps } = checkDeps({ probeOk: true });
+  const r = await matchProjects(
+    MatchProjectsInput.parse({ local_repos: [{ name: 'tipjar', chains: ['base'], live_url: 'https://tipjar.xyz' }] }),
+    deps,
+  );
+  assert.equal(r.fits.length, 1);
+  assert.ok(!r.fits[0].product.missing.includes('active'));
+  assert.ok(!r.fits[0].product.missing.includes('young'));
+  assert.equal(r.fits[0].product.tier, 'product');
+  const old = await matchProjects(
+    MatchProjectsInput.parse({ local_repos: [{ name: 'tipjar', chains: ['base'], live_url: 'https://tipjar.xyz', last_commit_at: daysAgo(400) }] }),
+    checkDeps({ probeOk: true }).deps,
+  );
+  assert.ok(old.fits[0].product.missing.includes('active'));
+  assert.match(LIST_PROGRAMS_DESCRIPTION, /last_commit_at/);
+});
+
+test('G3.4 a repo the builder names skips the 365-day rule; a named fork or template is still dropped', async () => {
+  const stale = { created_at: daysAgo(900), pushed_at: daysAgo(500) };
+  const repos: Record<string, unknown> = {
+    '/repos/alice/old': ghRepo('alice', 'old', stale),
+    '/repos/alice/forked': ghRepo('alice', 'forked', { fork: true }),
+    '/repos/alice/tmpl': ghRepo('alice', 'tmpl', { is_template: true }),
+  };
+  const { deps } = checkDeps({ probeOk: true });
+  await withFetch(
+    (u) => (repos[u.pathname] ? body(repos[u.pathname]) : repoFiles(u)),
+    async () => {
+      const r = await matchProjects(MatchProjectsInput.parse({ repos: ['alice/old', 'alice/forked', 'alice/tmpl'] }), deps);
+      assert.equal(r.checked, 3);
+      assert.equal(r.scored, 1);
+      assert.deepEqual(r.fits.map((f) => f.key), ['alice/old']);
+    },
+  );
+  assert.equal(droppedRepo(ghRepo('alice', 'old', stale) as never, T_NOW), true);
+  assert.equal(droppedRepo(ghRepo('alice', 'old', stale) as never, T_NOW, { named: true }), false);
 });
