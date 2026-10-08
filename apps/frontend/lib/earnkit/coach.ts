@@ -502,7 +502,8 @@ export function coachIntro(title: string, questions: Question[]): string | null 
  */
 export type Fix = {
   key: string;
-  rule: 'empty' | 'no_number' | 'no_date' | 'no_proof_link' | 'criterion' | 'over_limit';
+  /** 'unverified' (v2.9 A5): the live link didn't load, or no contract was found (tools.ts checkFix). */
+  rule: 'empty' | 'no_number' | 'no_date' | 'no_proof_link' | 'criterion' | 'over_limit' | 'unverified';
   for: 'builder' | 'agent';
   text: string;
 };

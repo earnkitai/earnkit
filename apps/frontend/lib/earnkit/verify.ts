@@ -109,6 +109,13 @@ export type CheckDeps = {
   cache?: CheckCache;
 };
 
+/**
+ * Process-wide defaults under each call's own deps. Empty in production (safeProbe, viem getCode,
+ * url_checks); the test suites set them once (fixtures/no-network-checks.ts) so no test reaches
+ * the network.
+ */
+export const checkDefaults: Omit<CheckDeps, 'budget' | 'now'> = {};
+
 const dbCache: CheckCache = {
   get: async (key) => {
     const [row] = await sql()<{ ok: boolean; checked_at: Date }[]>`
@@ -141,7 +148,7 @@ async function cachedCheck<T>(a: {
   spent: T;
   run: () => Promise<boolean>;
 }): Promise<boolean | T> {
-  const cache = a.deps.cache ?? dbCache;
+  const cache = a.deps.cache ?? checkDefaults.cache ?? dbCache;
   const now = a.deps.now ?? new Date();
   const row = await cache.get(a.key).catch((err: unknown) => {
     console.error(`[verify] ${a.kind} cache read ${errorClass(err)}`);
@@ -167,7 +174,7 @@ async function cachedCheck<T>(a: {
 export async function liveVerified(url: string, deps: CheckDeps = {}): Promise<boolean> {
   const canonical = canonicalBuilderUrl(url).url;
   if (!canonical || placeholderLink(canonical)) return false;
-  const probe = deps.probe ?? ((u: string) => safeProbe(u));
+  const probe = deps.probe ?? checkDefaults.probe ?? ((u: string) => safeProbe(u));
   return cachedCheck({
     kind: 'live',
     key: `url:${canonical}`,
@@ -190,7 +197,7 @@ export async function contractDeployed(chain: Chain, address: string, deps: Chec
   if (!rpc) return null;
   if (!isAddress(address, { strict: false })) return false;
   const addr = address.toLowerCase();
-  const getCode = deps.getCode ?? viemGetCode;
+  const getCode = deps.getCode ?? checkDefaults.getCode ?? viemGetCode;
   return cachedCheck({
     kind: 'getcode',
     key: `getcode:${chain}:${addr}`,
