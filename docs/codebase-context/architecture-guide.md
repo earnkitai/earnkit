@@ -2382,3 +2382,11 @@ strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`, and in prod
   repo without `last_commit_at` counts as active (the instruction asks agents to send it). Repos
   the builder names in `repos` skip the 365-day age rule (`droppedRepo(r, now, { named: true })`);
   forks, templates and archived repos are still dropped.
+- **Ruling G4 (fix round 1).** Keys dropped as a fork, template, archived repo or tutorial stay
+  dropped when the same repo comes back through local_repos. Link and contract checks run in
+  recency order (`turns`/`inTurn`), so the budget goes to the newest repos; a check with no
+  budget left (`verify.ts liveChecked` null, `contractDeployed` null) is `Product.unchecked`,
+  never `missing`: the row reads "live link not checked yet" (`UNCHECKED_NOTE`), the tier counts
+  it as not deployed, and the next call checks it (passes are cached). A local repo whose GitHub
+  link names another owner gets the 5-commit, 30% read when `github_user` is given (shared cap of
+  3 with the contributed and named repos); a repo GitHub won't show counts as owned (as P28).

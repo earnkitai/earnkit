@@ -15,7 +15,7 @@ import {
   repoKey,
   type MatchDeps,
 } from './match-projects';
-import { KNOWN_TOKEN_ADDRESSES, type ProgramFacts } from './match';
+import { KNOWN_TOKEN_ADDRESSES, SIGNAL_WORDS, UNCHECKED_NOTE, type ProgramFacts } from './match';
 import { LIST_PROGRAMS_DESCRIPTION } from './mcp';
 import { presentFirstMessage } from './present';
 
@@ -206,9 +206,18 @@ test('2.8 twenty qualifying repos: 8 scored, probes at most 5, getCode at most 6
   t.after(() => {
     console.error = log;
   });
+  // Each repo names its own contract, so no getCode answer is shared through the check cache.
+  const ownConfig = (u: URL) => {
+    const m = u.host === 'raw.githubusercontent.com' && u.pathname.match(/^\/alice\/app(\d+)\/main\/hardhat\.config\.ts$/);
+    return m ? body(`chainId: 8453 // ${`0x${m[1].padStart(40, 'a')}`}`) : undefined;
+  };
   await withFetch(
     (u) =>
-      u.pathname === '/users/alice/repos' ? body(own) : u.pathname === '/search/commits' ? body({ items: [] }) : repoFiles(u),
+      u.pathname === '/users/alice/repos'
+        ? body(own)
+        : u.pathname === '/search/commits'
+          ? body({ items: [] })
+          : (ownConfig(u) ?? repoFiles(u)),
     async (calls) => {
       const r = await matchProjects(MatchProjectsInput.parse({ github_user: 'alice' }), deps);
       assert.equal(r.scored, SCORE_LIMIT);
@@ -219,7 +228,10 @@ test('2.8 twenty qualifying repos: 8 scored, probes at most 5, getCode at most 6
       assert.equal(n.getCodes, 6);
       for (const f of r.fits) {
         assert.equal(f.live_verified, false);
-        assert.ok(f.product.missing.includes('deployed'), f.key);
+        // Ruling G4: the 5 newest were probed and failed; the older ones were not checked (never "missing").
+        const probed = ['app0', 'app1', 'app2', 'app3', 'app4'].includes(f.repo);
+        assert.equal(f.product.missing.includes('deployed'), probed, f.key);
+        assert.equal(f.product.unchecked?.includes('deployed') ?? false, !probed, f.key);
         assert.notEqual(f.verdicts[0].status, 'likely');
       }
       // The 8 most recently pushed.
@@ -434,4 +446,92 @@ test('G3.4 a repo the builder names skips the 365-day rule; a named fork or temp
   );
   assert.equal(droppedRepo(ghRepo('alice', 'old', stale) as never, T_NOW), true);
   assert.equal(droppedRepo(ghRepo('alice', 'old', stale) as never, T_NOW, { named: true }), false);
+});
+
+// ---- Ruling G4 (fix round 1) ----
+
+test('G4 I1: a fork dropped from the GitHub list stays dropped when the same repo comes as a local report', async () => {
+  const { deps } = checkDeps({ probeOk: true });
+  await withFetch(
+    (u) =>
+      u.pathname === '/users/alice/repos'
+        ? body([ghRepo('alice', 'forked', { fork: true })])
+        : u.pathname === '/search/commits'
+          ? body({ items: [] })
+          : repoFiles(u),
+    async () => {
+      const r = await matchProjects(
+        MatchProjectsInput.parse({
+          github_user: 'alice',
+          local_repos: [{ name: 'forked', url: 'https://github.com/alice/forked', live_url: 'https://forked.xyz', chains: ['base'] }],
+        }),
+        deps,
+      );
+      assert.deepEqual(r.fits, []);
+      assert.equal(r.checked, 2);
+    },
+  );
+});
+
+test('G4 I2: the probes go to the 5 newest repos; the older 3 are "not checked yet", never missing; the next call checks them', async () => {
+  const own = Array.from({ length: 8 }, (_, i) => ghRepo('alice', `app${i}`, { homepage: `https://app${i}.xyz`, pushed_at: daysAgo(i + 1) }));
+  const { n, deps } = checkDeps({ probeOk: true });
+  const run = () =>
+    withFetch(
+      (u) =>
+        u.pathname === '/users/alice/repos' ? body(own) : u.pathname === '/search/commits' ? body({ items: [] }) : repoFiles(u),
+      async () => matchProjects(MatchProjectsInput.parse({ github_user: 'alice' }), deps),
+    );
+  const first = await run();
+  const byRepo = new Map(first.fits.map((f) => [f.repo, f]));
+  for (let i = 0; i < 8; i++) {
+    const f = byRepo.get(`app${i}`)!;
+    assert.equal(f.live_verified, i < 5, f.repo);
+    assert.ok(!f.product.missing.includes('deployed'), f.repo);
+    for (const v of f.verdicts) assert.notEqual(v.note, SIGNAL_WORDS.deployed, f.repo);
+    if (i >= 5) {
+      assert.deepEqual(f.product.unchecked, ['deployed']);
+      assert.equal(f.product.tier, 'project');
+      assert.equal(f.verdicts[0].note, UNCHECKED_NOTE);
+    }
+  }
+  assert.equal(n.probes, 5);
+  // The next call: the 5 passes are cached, so the older 3 get the probes.
+  const second = await run();
+  assert.equal(n.probes, 8);
+  assert.ok(second.fits.every((f) => f.live_verified && f.product.tier === 'product'));
+});
+
+test('G4 I3: a local repo in another owner\'s org gets the 5-commit, 30% check with github_user given', async () => {
+  const run = (mine: number) => {
+    const recent = Array.from({ length: 100 }, (_, i) => ({ sha: `${i}`, author: { login: i < mine ? 'alice' : 'bob' } }));
+    const { deps } = checkDeps({ probeOk: true });
+    return withFetch(
+      (u) =>
+        u.pathname === '/users/alice/repos'
+          ? body([])
+          : u.pathname === '/search/commits'
+            ? body({ items: [] })
+            : u.pathname === '/repos/acme-labs/app/commits' && u.searchParams.get('per_page') === '100'
+              ? body(recent)
+              : undefined,
+      async (calls) => ({
+        r: await matchProjects(
+          MatchProjectsInput.parse({
+            github_user: 'alice',
+            local_repos: [{ name: 'app', url: 'https://github.com/acme-labs/app', live_url: 'https://acme-app.xyz', chains: ['base'] }],
+          }),
+          deps,
+        ),
+        calls,
+      }),
+    );
+  };
+  const pass = await run(40);
+  assert.equal(pass.r.fits[0].product.tier, 'product');
+  assert.ok(!pass.r.fits[0].product.missing.includes('owned'));
+  assert.equal(pass.calls.filter((c) => c.includes('/repos/acme-labs/app/commits?per_page=100')).length, 1);
+  const fail = await run(6);
+  assert.ok(fail.r.fits[0].product.missing.includes('owned'));
+  assert.notEqual(fail.r.fits[0].product.tier, 'product');
 });

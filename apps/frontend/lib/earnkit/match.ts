@@ -204,7 +204,13 @@ export type ProductFacts = {
   owned: boolean;
 };
 export type Tier = 'product' | 'project' | 'noise';
-export type Product = { score: number; tier: Tier; missing: (keyof ProductFacts)[] };
+export type Product = {
+  score: number;
+  tier: Tier;
+  missing: (keyof ProductFacts)[];
+  /** Ruling G4: signals not checked this call (no budget left): not counted, never named as missing. */
+  unchecked?: (keyof ProductFacts)[];
+};
 
 /** Names, descriptions or topics of tutorials, course work, starters and docs (Pre-flight P27): not original. */
 export const TUTORIAL =
@@ -247,10 +253,16 @@ export const INVESTMENT_NOTE = 'apply as a company: needs a full-time team';
 const PRODUCT_SIGNALS: (keyof ProductFacts)[] = ['active', 'young', 'original', 'readme', 'deployed', 'owned'];
 
 /** v2.9 A2: the real-product score and tier. Product: 5+ with active, owned and deployed; project: 3+; else noise. Pure. */
-export function productScore(f: ProductFacts): Product {
+export function productScore(f: ProductFacts, unchecked: (keyof ProductFacts)[] = []): Product {
   const score = PRODUCT_SIGNALS.filter((s) => f[s]).length;
   const tier: Tier = score >= 5 && f.active && f.owned && f.deployed ? 'product' : score >= 3 ? 'project' : 'noise';
-  return { score, tier, missing: PRODUCT_SIGNALS.filter((s) => !f[s]) };
+  const open = unchecked.filter((s) => !f[s]);
+  return {
+    score,
+    tier,
+    missing: PRODUCT_SIGNALS.filter((s) => !f[s] && !open.includes(s)),
+    ...(open.length > 0 && { unchecked: open }),
+  };
 }
 
 /** A missing signal in builder words, for a project-tier row's note. */
@@ -268,8 +280,11 @@ const NOTE_ORDER: (keyof ProductFacts)[] = ['deployed', 'active', 'readme', 'ori
 /** The note for a project-tier row: its most actionable missing signal, or null when none is missing. Pure. */
 export const missingSignalNote = (p: Product): string | null => {
   const first = NOTE_ORDER.find((s) => p.missing.includes(s));
-  return first ? SIGNAL_WORDS[first] : null;
+  if (first) return SIGNAL_WORDS[first];
+  // Ruling G4: a link not checked yet is never "not found"; the next call checks it.
+  return p.unchecked?.includes('deployed') ? UNCHECKED_NOTE : null;
 };
+export const UNCHECKED_NOTE = 'live link not checked yet';
 
 // ---- Matching repos to programs ----
 
