@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { githubRepo } from './campaigns';
 import { sql } from './db';
 import { siteUrl } from './entry-text';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
@@ -77,6 +78,19 @@ export async function takeNonce(nonce: string, now = new Date()): Promise<NonceR
     WHERE nonce_hash = ${sha256(nonce)} AND used_at IS NULL AND expires_at > ${now}
     RETURNING installation_id, project_id, repo_key, purpose`;
   return row ?? null;
+}
+
+/**
+ * launch_token: a sign-in link for this installation's entry, bound to it and its GitHub repo, and
+ * the entry's name; null when the entry has no GitHub repo (or isn't this installation's).
+ */
+export async function entryVerifyLink(installationId: number, projectId: number): Promise<{ link: string; name: string } | null> {
+  const [p] = await sql()<{ name: string; repo_url: string | null }[]>`
+    SELECT name, repo_url FROM projects WHERE id = ${projectId} AND installation_id = ${installationId}`;
+  const gh = p?.repo_url ? githubRepo(p.repo_url) : null;
+  if (!p || !gh) return null;
+  const link = await createVerifyLink({ installationId, projectId, repoKey: `${gh.owner}/${gh.repo}`, purpose: 'entry' });
+  return { link, name: p.name };
 }
 
 /** Whether an entry link was already shown for this entry (a later "go" is then the second). */
@@ -191,6 +205,8 @@ export async function verifiedFor(a: {
   installationId?: number;
   repoKey: string;
   since?: Date;
+  /** Only this purpose's verifications (identity linking reads `pickup`, Pre-flight P8). */
+  purpose?: VerifyPurpose;
 }): Promise<Verification | null> {
   if (a.projectId === undefined && a.installationId === undefined) return null;
   const db = sql();
@@ -200,6 +216,7 @@ export async function verifiedFor(a: {
       ${a.projectId !== undefined ? db`AND project_id = ${a.projectId}` : db``}
       ${a.installationId !== undefined ? db`AND installation_id = ${a.installationId}` : db``}
       ${a.since ? db`AND verified_at >= ${a.since}` : db``}
+      ${a.purpose ? db`AND purpose = ${a.purpose}` : db``}
     ORDER BY verified_at DESC, id DESC LIMIT 1`;
   return row ?? null;
 }

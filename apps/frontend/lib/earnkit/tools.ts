@@ -78,7 +78,9 @@ import {
 } from './token-launch';
 import { RAW_CAP, cleanProject, quoted } from './untrusted-text';
 import { tokenLineFor } from './token-gate';
-import { READY_TO_SUBMIT, bonusRidesOn, confirmDecision, confirmOffer, proofLineWaiting, walletQuestion, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
+import { READY_TO_SUBMIT, bonusRidesOn, confirmDecision, confirmOffer, proofLineWaiting, signInLine, walletQuestion, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
+import { callerLogin, createVerifyLink, entryVerifyLink, githubVerifyEnabled, verifiedEntryIds } from './github-verify';
+import { PROOF_LINE_PREFIX } from './token-gate';
 import { kitAgentNote, submitKit, type SubmitKit } from './submit-kit';
 import {
   WALLET_KEY,
@@ -603,6 +605,8 @@ export const PICKUP_TEXT = {
   proof: 'One step first: I need to add a short proof line to your repo, then your earlier entries come over.',
   unreadable: "EarnKit couldn't read your repo on GitHub right now. Try again in a minute.",
   unclear: 'Pick up your earlier entries? Yes or no.',
+  /** v2.9 B9: followed by the one-time sign-in link. */
+  signIn: 'Or one click to prove the repo is yours, then your earlier entries come over:',
 } as const;
 
 /** v2.8.1 §E18: a yes or a no as an agent passes it; null when it is neither. Pure; exported for tests. */
@@ -623,6 +627,12 @@ export const ASK_OUTCOME_NOTE =
 
 /** v2.8 Ruling C21: the note when the builder's own outcome was saved. */
 export const OUTCOME_SAVED_NOTE = "Saved as the builder's own report. It never shows publicly or counts; only published results do.";
+/** v2.9 B9: confirm_entry's note with the sign-in line (spec wording). */
+export const SIGN_IN_NOTE =
+  "Show the line. When the builder says they signed in, call confirm_entry again with decision 'go'.";
+/** v2.9 B9: after a proof-line miss, the sign-in is the other way. */
+export const SIGN_IN_OR_NOTE =
+  "Or show the sign-in line; when the builder says they signed in, call confirm_entry again with decision 'go'.";
 /** v2.9 A3: tell_earnkit's note to the agent. */
 export const TELL_SAVED_NOTE = 'Saved. The next list_programs uses it; nothing to show the builder.';
 /** Ruling G6: what the builder sees when a shared (hosted) agent keeps nothing. */
@@ -1073,7 +1083,7 @@ export const tools = {
     // v2.8.1 §C11: with a round to ask anyway, the wallet is asked in it, so the confirmation is a
     // single yes; only when this entry would get a token and no wallet is known (given, this entry's
     // own, or remembered). The answer comes back as answers.payout_wallet (the wallet given).
-    const askWallet = questions.length > 0 ? await walletToAsk(program, repoUrl, agent?.can_push !== false, given, remembered, known.project?.name, ctx) : null;
+    const askWallet = questions.length > 0 ? await walletToAsk(program, repoUrl, agent?.can_push !== false || githubVerifyEnabled(), given, remembered, known.project?.name, ctx) : null;
     if (askWallet) questions = coachQuestions(askWallet);
     const intro = coachIntro(program.title, questions);
     // v2.8.1 T7 (audit J1): a builder with no repo who picks a program that needs one hears it with
@@ -1112,20 +1122,23 @@ export const tools = {
       facts && token
         ? ((await readOffer(ctx.installationId, program.id, shownKey).catch(() => null)) ?? { name: token.proposed.name, symbol: token.proposed.symbol })
         : null;
-    if (shownPair && facts && !facts.coinIn && canPush && !facts.policyOff && facts.available)
+    // v2.9 B9: with GitHub sign-in on, an agent that can't push still offers the token.
+    const signIn = githubVerifyEnabled();
+    if (shownPair && facts && !facts.coinIn && (canPush || signIn) && !facts.policyOff && facts.available)
       await rememberOffer(ctx, program.id, shownKey, shownPair);
     const offer = facts
       ? confirmOffer({
           hasBonus: facts.hasBonus,
           coinIn: facts.coinIn,
           canPush,
+          signIn,
           wallet: offerWallet,
           remembered: !given && offerWallet !== null,
           tokensOff: facts.policyOff || !facts.available,
           proposal: shownPair,
         })
       : null;
-    const offersToken = facts !== null && !facts.coinIn && canPush && !facts.policyOff && facts.available;
+    const offersToken = facts !== null && !facts.coinIn && (canPush || signIn) && !facts.policyOff && facts.available;
     // Ruling 25 (plan) / Part C: the token line, once the repo is known, for the agent to push with
     // its work before the builder confirms (an agent that can't push gets none).
     const line = repoUrl && canPush && program.token_policy !== 'off' ? tokenLineFor(ctx.installationId, repoUrl) : null;
@@ -1225,6 +1238,8 @@ export const tools = {
       }),
     ];
     const canPush = i.agent?.can_push !== false;
+    // v2.9 B9: with GitHub sign-in on, an agent that can't push still offers and launches the token.
+    const signIn = githubVerifyEnabled();
     const facts = await offerFacts(program, repoUrl, ctx);
     const decision = confirmDecision({
       confirmed: i.builder_confirmed === true,
@@ -1234,9 +1249,10 @@ export const tools = {
       hasRepo: Boolean(repoUrl),
       policyOff: facts.policyOff,
       available: facts.available,
+      signIn,
     });
     const tokensOff = facts.policyOff || !facts.available;
-    const offersToken = !facts.coinIn && canPush && !tokensOff;
+    const offersToken = !facts.coinIn && (canPush || signIn) && !tokensOff;
     if (decision.kind === 'offer') {
       // Fix round 1 (item 1): the entry's own wallet first (a "go" without a wallet uses it), then
       // the remembered one; whichever is shown comes back as shown_wallet.
@@ -1253,7 +1269,7 @@ export const tools = {
       return {
         show_to_builder:
           (proposal?.taken ? `$${proposal.taken} is taken.\n` : '') +
-          confirmOffer({ hasBonus: facts.hasBonus, coinIn: facts.coinIn, canPush, wallet, remembered: !given && !answered && wallet !== null, tokensOff, proposal: pair, again: Boolean(proposal?.taken) }),
+          confirmOffer({ hasBonus: facts.hasBonus, coinIn: facts.coinIn, canPush, signIn, wallet, remembered: !given && !answered && wallet !== null, tokensOff, proposal: pair, again: Boolean(proposal?.taken) }),
         ...(offersToken && wallet && { shown_wallet: wallet }),
         ...(pair && { token: { proposed: pair } }),
         agent_note:
@@ -1307,7 +1323,7 @@ export const tools = {
         answered ??
         (await entryWallet(ctx, { programId: program.id, installationId: ctx.installationId, repoUrl, name: i.project.name })) ??
         (await walletMemory(ctx));
-      const offer = confirmOffer({ hasBonus: facts.hasBonus, coinIn: null, canPush, wallet, remembered: !given && !answered && wallet !== null, proposal, again });
+      const offer = confirmOffer({ hasBonus: facts.hasBonus, coinIn: null, canPush, signIn, wallet, remembered: !given && !answered && wallet !== null, proposal, again });
       return {
         project_id: projectId,
         token: { status: 'skipped' as const, fixable: true, proposed: proposal },
@@ -1325,7 +1341,7 @@ export const tools = {
       token = entry.token_url === 'pending'
         ? pendingOutcome(entry.token_claimed_at, entry.token_settled)
         : { status: 'launched', tokens_fun: entry.token_url, note: 'This entry already has its token.' };
-    else if (decision.kind === 'launch' && entry.confirm_choice === 'go') {
+    else if ((decision.kind === 'launch' || decision.kind === 'sign_in') && entry.confirm_choice === 'go') {
       // Fix round 1 (§A2): "go" launches exactly the pair the Yes line showed. With no pair stored, or
       // an agent asking for another name or ticker, the Yes line is shown (again) first: nothing
       // launches that the builder didn't see. A check-back is a read and skips this.
@@ -1358,16 +1374,45 @@ export const tools = {
         await rememberOffer(ctx, program.id, key, next);
         return reoffer(entry.id, next, token.ticker_taken);
       }
+      // v2.9 B9: the GitHub sign-in link, for an agent that can't push, or after a proof-line miss
+      // (Pre-flight P10). Bound to this entry and its repo.
+      const link =
+        token.fixable && token.proof_line && signIn && repoUrl && (decision.kind === 'sign_in' || entry.proof_line_missed)
+          ? await createVerifyLink({
+              installationId: ctx.installationId,
+              projectId: entry.id,
+              repoKey: repoKey({ url: repoUrl, name: i.project.name }),
+              purpose: 'entry',
+            })
+          : null;
+      const signLine = link && signInLine(i.project.name, token.symbol ?? shown?.symbol ?? null, link);
+      // The first "go" of an agent that can't push: the sign-in line, no kit yet.
+      if (signLine && !entry.proof_line_missed)
+        return {
+          project_id: entry.id,
+          token: { ...token, fixable: true, sign_in: link, agent_note: SIGN_IN_NOTE },
+          show_to_builder: signLine,
+          agent_note: SIGN_IN_NOTE,
+        };
       // Ruling C24, v2.8.1 §A3: never a dead end. The proof line still isn't on the repo after an
       // earlier "go" stopped on it: the entry records without a token, the kit comes back, and the
       // builder reads exactly what the token waits on (never "open this in another agent": this
-      // agent can push). The launch stays open: "go" again launches it.
-      if (token.fixable && token.proof_line && entry.proof_line_missed)
+      // agent can push). The launch stays open: "go" again launches it. v2.9 B9 (P10): with sign-in
+      // on, the link comes too (alone for an agent that can't push).
+      if (token.fixable && token.proof_line && entry.proof_line_missed) {
+        const pushNote = token.agent_note?.replace(CANT_PUSH_RETRY_NOTE, '').trim();
+        const agentNote = signLine ? (canPush ? `${pushNote ? `${pushNote} ` : ''}${SIGN_IN_OR_NOTE}` : SIGN_IN_NOTE) : pushNote;
         token = {
           status: 'skipped',
-          note: proofLineWaiting(token.proof_branch),
-          ...(token.agent_note && { agent_note: token.agent_note.replace(CANT_PUSH_RETRY_NOTE, '').trim() }),
+          note: signLine
+            ? canPush
+              ? `${proofLineWaiting(token.proof_branch)}\n${signLine}`
+              : signLine
+            : proofLineWaiting(token.proof_branch),
+          ...(link && { sign_in: link }),
+          ...(agentNote && { agent_note: agentNote }),
         };
+      }
       // Fixable (no wallet, a ticker, the proof line, a transient read): no kit; fix it and confirm again.
       else if (token.fixable) {
         // Fix round 2: no wallet passed with this "go": nothing launched. The entry's stored wallet,
@@ -1590,11 +1635,14 @@ export const tools = {
     if (r.unreadable)
       return { show_to_builder: PICKUP_TEXT.unreadable, agent_note: 'Call pick_up_entries with answer "yes" again in a minute.' };
     return {
-      show_to_builder: PICKUP_TEXT.proof,
+      show_to_builder: r.sign_in ? `${PICKUP_TEXT.proof}\n${PICKUP_TEXT.signIn} ${r.sign_in}` : PICKUP_TEXT.proof,
+      ...(r.sign_in && { sign_in: r.sign_in }),
       agent_note:
         `Write the line "${r.line}" to earnkit.txt at the root of ${r.repo} (keep any lines already there) and push it ` +
         'yourself, to any branch; never ask the builder to edit files. Then call pick_up_entries with answer "yes" again. ' +
-        "If you can't push, give the builder the line and where it goes.",
+        (r.sign_in
+          ? 'If you can\'t push, the builder signs in with the link instead; when they say they signed in, call pick_up_entries with answer "yes" again.'
+          : "If you can't push, give the builder the line and where it goes."),
     };
   },
 
@@ -1612,17 +1660,34 @@ export const tools = {
     };
   },
 
-  launch_token: async (input: unknown, ctx: ToolContext) =>
-    withAlerts(
+  launch_token: async (input: unknown, ctx: ToolContext) => {
+    const parsed = LaunchTokenInput.parse(input);
+    const out = await launchToken(
+      parsed,
+      ctx.installationId,
+      ctx.tokenDeps,
+      // v2.8.1 §A5: the reply comes within 50 s; a deploy still running then answers "launching".
+      Date.now() + launchReplyMs(),
+    );
+    // v2.9 B9: the proof line isn't there: with sign-in on, the one-time link proves the repo instead.
+    const signIn =
+      out.status === 'gate_failed' && out.note?.startsWith(PROOF_LINE_PREFIX) && githubVerifyEnabled()
+        ? await entryVerifyLink(ctx.installationId, parsed.project_id)
+        : null;
+    return withAlerts(
       ctx,
-      await launchToken(
-        LaunchTokenInput.parse(input),
-        ctx.installationId,
-        ctx.tokenDeps,
-        // v2.8.1 §A5: the reply comes within 50 s; a deploy still running then answers "launching".
-        Date.now() + launchReplyMs(),
-      ),
-    ),
+      signIn
+        ? {
+            ...out,
+            sign_in: signIn.link,
+            sign_in_line: signInLine(signIn.name, out.symbol ?? null, signIn.link),
+            agent_note:
+              `${out.agent_note ? `${out.agent_note} ` : ''}If you can't push, show sign_in_line instead; ` +
+              "when the builder says they signed in, call launch_token again.",
+          }
+        : out,
+    );
+  },
 
   // Sponsors: create a campaign (returns a funding link and raw txs), check it (status reads the
   // chain for the bound wallet's deposit or award), award it.

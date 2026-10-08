@@ -177,6 +177,8 @@ export type TokenOutcome = {
    * returns the result.
    */
   launching?: true;
+  /** v2.9 B9: the one-time GitHub sign-in link that proves the repo instead of the proof line. */
+  sign_in?: string;
 };
 
 /** What the builder is told about fee splits once a token is live. */

@@ -20,6 +20,7 @@ const REPO = 'https://github.com/acme/kit';
 // The line EarnKit gives installation 1 for acme/kit, any ticker.
 const LINE = tokenLineFor(1, REPO)!;
 const ok: Required<GateDeps> = {
+  verified: async () => false,
   repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
   owner: async () => ({ status: 'ok', text: LINE }),
   latest: async () => null,
@@ -94,6 +95,7 @@ test('each failure has its own reason, checked in order', async () => {
 test('order: repo, then earnkit.txt, then the screen; stops at the first failure', async () => {
   const seen: string[] = [];
   const trace: Required<GateDeps> = {
+    verified: async () => false,
     repo: async () => { seen.push('repo'); return { fork: false, hasCommits: true, aheadOfParent: null }; },
     owner: async () => { seen.push('owner'); return { status: 'ok', text: LINE.toUpperCase().replace('TOKEN', 'token') }; },
     latest: async () => { seen.push('latest'); return null; },

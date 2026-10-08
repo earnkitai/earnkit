@@ -370,6 +370,7 @@ async function gatherGateReasons(): Promise<[string, string][]> {
   const REPO = 'https://github.com/acme/kit';
   const input: GateInput = { policy: 'encouraged', repoUrl: REPO, wallet: '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3', symbol: 'KIT', installationId: 1 };
   const okDeps: Required<GateDeps> = {
+    verified: async () => false,
     repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
     owner: async () => ({ status: 'ok', text: 'token: 0000000000000000' }),
     latest: async () => null,
@@ -413,6 +414,7 @@ async function gatherGateAgentNotes(): Promise<[string, string][]> {
   const REPO = 'https://github.com/acme/kit';
   const input: GateInput = { policy: 'encouraged', repoUrl: REPO, wallet: '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3', symbol: 'KIT', installationId: 1 };
   const okDeps: Required<GateDeps> = {
+    verified: async () => false,
     repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
     owner: async () => ({ status: 'ok', text: 'token: 0000000000000000' }),
     latest: async () => null,
