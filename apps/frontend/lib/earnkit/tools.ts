@@ -843,8 +843,9 @@ export const tools = {
       hidden,
     });
     // v2.9 A8: what matching showed (the matched rows on screen, one per program), for the outcome
-    // loop. Never fails the tool.
-    const onScreen = layout({ cards: withPools.filter((c) => !hide.has(c.id)), repos: yourRepos, entries: myEntries }).rows;
+    // loop. Never fails the tool. Ruling G7: not on a shared client (its repo keys and scores may be
+    // another builder's) until memoryKey names a verified builder.
+    const onScreen = !own ? [] : layout({ cards: withPools.filter((c) => !hide.has(c.id)), repos: yourRepos, entries: myEntries }).rows;
     await recordShown(
       ctx.installationId,
       onScreen.flatMap((r) =>
@@ -1276,8 +1277,10 @@ export const tools = {
       // A new entry counts against the 20 a day (Ruling 1 (plan)); an update never does.
       charge: () => enforce('recordSubmission', ctx.installationId, 'This agent has recorded 20 submissions today, the daily limit.'),
     });
-    // v2.9 A8: the entry's product score as matching showed it, for the program's match floor. Never fails the confirmation.
-    await saveEntryScore(entry.id, ctx.installationId, repoKey({ url: repoUrl, name: i.project.name })).catch((err: unknown) =>
+    // v2.9 A8: the entry's product score as matching showed it, for the program's match floor. Never
+    // fails the confirmation. Ruling G7: not on a shared client (nothing is recorded there).
+    if (remembers(ctx))
+      await saveEntryScore(entry.id, ctx.installationId, repoKey({ url: repoUrl, name: i.project.name })).catch((err: unknown) =>
       console.error('[confirm_entry] product score', entry.id, err instanceof Error ? err.name : 'error'),
     );
 

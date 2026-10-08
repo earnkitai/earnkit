@@ -502,15 +502,7 @@ export function matchRepo(
         program: p.title,
         status: project || unconfirmed || below ? 'after_step' : status,
         missing,
-        effort:
-          effort ??
-          missing.reduce<Effort>(
-            (max, m) =>
-              EFFORT_ORDER.indexOf(EFFORT[m]) > EFFORT_ORDER.indexOf(max)
-                ? EFFORT[m]
-                : max,
-            'none',
-          ),
+        effort: effort ?? effortOf(missing),
         note: below
           ? BELOW_FLOOR_NOTE
           : project

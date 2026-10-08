@@ -2600,7 +2600,7 @@ test("Ruling G7 (3): on a shared client, builder B never sees A's entries, stand
   }
 });
 
-test('4.A7/A8 list_programs remembers the best owned fit repos and records the rows shown; not on a shared client', dbTest, async () => {
+test('4.A7/A8 list_programs remembers the best owned fit repos and records the rows shown; neither on a shared client', dbTest, async () => {
   const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const arc = committedProgram('arc-microgrants');
   const pid = `t4-arc-${stamp}`;
@@ -2634,10 +2634,12 @@ test('4.A7/A8 list_programs remembers the best owned fit repos and records the r
     assert.equal(shown.length, 1);
     assert.equal(shown[0].program_id, pid);
     assert.equal(shown[0].product_score, 6);
-    // Ruling G7: a shared client keeps no fit repos (its alerts are off), but what was shown is recorded.
+    // Ruling G7: a shared client keeps no fit repos (its alerts are off) and records nothing shown.
     await tools.list_programs({ local_repos: [{ name: 'tipjar', chains: ['arc'] }] }, ctxOf(shared, true));
     const [s] = await sql()<{ fit_repos: unknown[] }[]>`SELECT fit_repos FROM installations WHERE id = ${shared}`;
     assert.deepEqual(s.fit_repos, []);
+    const [{ n }] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM match_shown WHERE installation_id = ${shared}`;
+    assert.equal(n, 0);
   } finally {
     await sql()`DELETE FROM installations WHERE id IN (${id}, ${shared})`;
     await sql()`UPDATE programs SET status = 'closed' WHERE id = ${pid}`;
