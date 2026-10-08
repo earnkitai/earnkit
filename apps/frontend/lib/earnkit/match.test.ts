@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { CHAIN_NAMES, detectChains, pickFiles } from './match';
 import {
+  BELOW_FLOOR_NOTE,
   DEFAULT_README,
   INVESTMENT_NOTE,
   TUTORIAL,
@@ -522,4 +523,21 @@ test('3.F2 a mainnet claim taken back is no claim; code on the claimed chain cle
   assert.deepEqual(arcOnly.claims, ['mainnet'], 'Monad is still a claim');
   assert.equal(matchRepo(arcOnly, programs).find((x) => x.program_id === 'arc-micro')!.status, 'likely');
   assert.deepEqual(confirmMainnets(f, ['arc', 'monad']).claims, []);
+});
+
+test('4.12 a repo below the program match floor is at most after_step, with the floor note', () => {
+  const arcProgram = programs.find((p) => p.id === 'arc-micro')!;
+  const four = product({ readme: false, young: false });
+  assert.equal(four.score, 4);
+  const [below] = matchRepo(repo({ homepage: 'https://app.x', chains: arcMain, product: four, live_verified: true }), [{ ...arcProgram, match_floor: 5 }]);
+  assert.equal(below.status, 'after_step');
+  assert.equal(below.note, BELOW_FLOOR_NOTE);
+  // At or over the floor, a product stays likely; no floor (null) changes nothing.
+  const six = repo({ homepage: 'https://app.x', chains: arcMain, product: product(), live_verified: true });
+  assert.equal(matchRepo(six, [{ ...arcProgram, match_floor: 6 }])[0].status, 'likely');
+  assert.equal(matchRepo(six, [{ ...arcProgram, match_floor: null }])[0].status, 'likely');
+  // A row that is already a step away keeps its own note.
+  const noLink = matchRepo(repo({ chains: arcMain, product: four }), [{ ...arcProgram, match_floor: 5 }])[0];
+  assert.equal(noLink.status, 'after_step');
+  assert.notEqual(noLink.note, BELOW_FLOOR_NOTE);
 });

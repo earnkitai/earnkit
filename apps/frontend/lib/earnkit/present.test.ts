@@ -680,7 +680,9 @@ test('v2.8 Ruling C4: with the committed curated programs, Easy ones sort first 
   const ids = shown.map((c) => c.id);
   assert.ok(ids.includes('arc-microgrants'), ids.join(', '));
   const easy = cards.filter((c) => c.difficulty?.level === 'Easy').map((c) => c.id);
-  assert.ok(easy.length >= 3);
+  // v2.9 A6: Base is no longer Easy (Arc and Avalanche are).
+  assert.ok(easy.length >= 2);
+  assert.ok(!easy.includes('base-builder-grants'));
   // Every Easy program comes before every other one, then by prize.
   assert.deepEqual(ids.slice(0, easy.length).sort(), [...easy].sort());
   const easyShown = shown.slice(0, easy.length).map((c) => c.max_award_usd ?? 0);
@@ -863,4 +865,30 @@ test('3.7 not interested: in no table, never the offer, not in Also open; applie
   assert.match(only, /^Your entries: Base Builder Grant Program: applied outside EarnKit\./);
   noEmoji(applied);
   assert.doesNotMatch(applied, /—|coin|Clanker|vault/);
+});
+
+test('4.7 a Base row missing real users reads Hard and sorts after an Easy Arc row; the offer picks Arc', () => {
+  const baseCard: Card = { ...base, difficulty: { level: 'Medium', estimate: true, rated: false, basis: 'winners not published' } };
+  const arcCard: Card = { ...arc, difficulty: easy };
+  const baseRow: Verdict = { ...v('base-builder-grants', 'after_step', 'needs a live product with real users', 'weeks'), missing: ['live_url', 'real_users'] };
+  const text = presentFirstMessage(msg({
+    cards: [baseCard, arcCard],
+    repos: { checked: 1, fits: [{ repo: 'tipjar', repo_url: null, verdicts: [baseRow, v('arc-microgrants', 'likely', '')], live_verified: false }] },
+  }));
+  const lines = text.split('\n');
+  const baseLine = lines.find((l) => l.startsWith('| Base Builder Grant Program'))!;
+  const arcLine = lines.find((l) => l.startsWith('| Arc Microgrants'))!;
+  assert.match(baseLine, /\| Hard \|/);
+  assert.match(arcLine, /\| Easy \|/);
+  assert.ok(lines.indexOf(arcLine) < lines.indexOf(baseLine), text);
+  assert.match(text, /Want me to start on Arc Microgrants with tipjar\?/);
+  // With a verified link (or a users claim) the Base row reads Medium; the program estimate shows only when it decides.
+  const verified = presentFirstMessage(msg({
+    cards: [baseCard],
+    repos: { checked: 1, fits: [{ repo: 'tipjar', repo_url: null, verdicts: [{ ...baseRow, missing: ['real_users'] }], live_verified: true }] },
+  }));
+  assert.match(verified, /\| Base Builder Grant Program \| [^|]+ \| Medium \(estimate\) \|/);
+  // "Also open" keeps the program level.
+  const also = presentFirstMessage(msg({ cards: [baseCard, arcCard], repos: fit('tipjar', 'arc-microgrants') }));
+  assert.match(also, /\| Base Builder Grant Program \| [^|]+ \| Medium \(estimate\) \|/);
 });

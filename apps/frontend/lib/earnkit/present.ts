@@ -3,7 +3,7 @@ import { NO_CELL } from './no-cell';
 import { endsOf, prizeOf, repoCoinNote } from './entry-text';
 import { shortDate } from './dates';
 import { EFFORT_ORDER, type Chain, type Effort, type Product, type RepoFacts, type Verdict } from './match';
-import { difficultyLabel, type Difficulty } from './guide';
+import { difficultyLabel, levelRank, rowDifficulty, type Difficulty, type Level } from './guide';
 import { openFigure } from './pool';
 
 /** v2.7: moved to entry-text.ts (shared with guide.ts); re-exported for existing callers. */
@@ -69,6 +69,8 @@ export type Card = {
   bonus_closed?: boolean;
   /** v2.7 §2 (guide.ts difficultyOf): the program's difficulty; null for any campaign. */
   difficulty?: Difficulty | null;
+  /** v2.9 A8 (match-loop.ts): wins or places per entry from `likely` rows; null until 30 labelled entries. */
+  match_precision?: number | null;
   /** An EarnKit campaign (programs.ts programCard): its own table, never a program card. */
   earnkit_campaign?: boolean;
   /** v2.7 Ruling 23 (plan): the logo file's path under public/ ("programs/<id>.svg"), or null. */
@@ -393,7 +395,28 @@ const noRepo = (r: YourRepos | null) => r === null || ('checked' in r && r.check
  */
 const noMatch = (r: YourRepos | null) => noRepo(r) || (r !== null && 'error' in r);
 
-type Fit = { card: Card; repo: string; repo_url: string | null; v: Verdict };
+/** v2.9 A4: a matched row's difficulty (guide.ts rowDifficulty), or null when the program has none. */
+type RowLevel = { level: Level; estimate: boolean } | null;
+type Fit = { card: Card; repo: string; repo_url: string | null; v: Verdict; row: RowLevel };
+
+/**
+ * v2.9 A4: a matched row's difficulty, from its program (difficulty and match precision) and the
+ * repo's fit (the verdict, the checked link, a users claim). Null when the card has no difficulty. Pure.
+ */
+export function rowLevel(card: Pick<Card, 'difficulty' | 'match_precision'>, fit: Pick<RepoFit, 'live_verified' | 'facts'>, v: Verdict): RowLevel {
+  if (!card.difficulty) return null;
+  return rowDifficulty({ difficulty: card.difficulty, match_precision: card.match_precision ?? null }, v, {
+    liveVerified: fit.live_verified === true,
+    hasUsersClaim: fit.facts?.claims?.includes('users') ?? false,
+  });
+}
+
+/** v2.9 A4: a matched row's Difficulty cell: the row's level, else NO_CELL. Pure. */
+const rowCell = (card: Card, row: RowLevel) =>
+  row && card.difficulty ? difficultyLabel({ ...card.difficulty, level: row.level, estimate: row.estimate }) : NO_CELL;
+
+/** v2.9 A4: Easy rows first; a row without a level sorts with Medium. Pure. */
+const byRowLevel = (a: Pick<Fit, 'row'>, b: Pick<Fit, 'row'>) => levelRank(a.row?.level ?? 'Medium') - levelRank(b.row?.level ?? 'Medium');
 
 /**
  * v2.8.1 §B9: the programs the builder already entered (submitted). One confirmed but not submitted
@@ -454,9 +477,9 @@ export function layout(m: Pick<FirstMessage, 'cards' | 'repos' | 'entries'>, don
   for (const f of fits)
     for (const v of [...f.verdicts].sort((a, b) => quickness(a) - quickness(b)))
       if (v.status !== 'no' && curated(v.program_id) && !matched.has(v.program_id))
-        matched.set(v.program_id, { card: byId.get(v.program_id)!, repo: f.repo, repo_url: f.repo_url, v });
-  // v2.8 Ruling C4: Easy programs first, then by prize.
-  const rows = [...matched.values()].sort((a, b) => enteredLast(a.card, b.card) || byEaseThenPrize(a.card, b.card));
+        matched.set(v.program_id, { card: byId.get(v.program_id)!, repo: f.repo, repo_url: f.repo_url, v, row: rowLevel(byId.get(v.program_id)!, f, v) });
+  // v2.9 A4: by the row's difficulty (Easy first), then prize, then the quicker fit.
+  const rows = [...matched.values()].sort((a, b) => enteredLast(a.card, b.card) || byRowLevel(a, b) || byPrize(a.card, b.card) || quickness(a.v) - quickness(b.v));
   const rest = m.cards
     .filter((c) => !c.sponsored && !matched.has(c.id))
     .sort((a, b) => enteredLast(a, b) || byEaseThenPrize(a, b));
@@ -515,12 +538,12 @@ export function presentFirstMessage(given: FirstMessage): string {
       `${fig ? `EarnKit matches you to ${fig} in prizes you qualify for.` : 'Your repos fit these open programs:'}\n\n` +
         table(
           ['Program', 'Prize', 'Difficulty', 'Ends', 'Your repo'],
-          rows.map(({ card, repo, repo_url, v }) => {
+          rows.map(({ card, repo, v, row }) => {
             // v2.8.1 §C13: no "(no builder bonus: …)" per row; the bonus note is said once, in Also qualifies.
             return [
               programCell(card, entered, false),
               prizeOf(card),
-              difficultyCell(card),
+              rowCell(card, row),
               endsOf(card),
               v.status === 'likely' || !v.note ? repo : `${repo}, ${v.note}`,
             ];
@@ -600,9 +623,9 @@ const buildNew = (c: Card): Offer => ({
   campaign: false,
 });
 
-/** v2.8.1 §B7, Ruling F5: the fit to offer: Easy first, then the top prize, then the quicker fit. Pure. */
+/** v2.8.1 §B7, Ruling F5; v2.9 A4: the fit to offer: the easiest row first, then the top prize, then the quicker fit. Pure. */
 const bestFit = (rows: Fit[]): Fit | undefined =>
-  [...rows].sort((a, b) => byEaseThenPrize(a.card, b.card) || quickness(a.v) - quickness(b.v))[0];
+  [...rows].sort((a, b) => byRowLevel(a, b) || byPrize(a.card, b.card) || quickness(a.v) - quickness(b.v))[0];
 
 /** v2.8.1 §B7: the program to offer without a fit: the Easy one with the most money, else programs needing forms last. Pure. */
 const bestCard = (cards: Card[]): Card | undefined =>
