@@ -31,6 +31,10 @@ import { timingSafeEqual } from 'node:crypto';
  * - The proof covers one repo, so only the groups with an entry in that repo are offered and linked
  *   (final fix wave, C1): a group that only shares a public GitHub user or wallet is never linked by
  *   another group's proof, and the question counts only the covered groups' entries.
+ * - Ruling F13: an entry naming the repo proves nothing (anyone can name any repo). A covered group
+ *   counts only once it has itself proven the repo: its token on the repo launched, or one of its
+ *   installations' own proof line is in the repo's earnkit.txt. Unproven groups are never counted
+ *   in the question and never linked.
  * - A hosted agent (shared_client) serves many builders: no group holding one is ever offered or
  *   linked, and a hosted caller is never offered a pickup (final fix wave, C2).
  * - Nothing is linked without the builder's yes; a no is remembered and never asked again for the
@@ -48,6 +52,8 @@ export type Earlier = {
   entries: number;
   /** A GitHub repo of one of those entries (the newest, the stated user's first): where the proof goes. */
   repo: string | null;
+  /** Entries per matched root. */
+  counts: Record<number, number>;
 };
 
 /** What an installation holds for the pickup offer (installations.pickup). */
@@ -110,10 +116,55 @@ export async function findEarlier(root: number, stated: Stated): Promise<Earlier
   const repos = entries.map((e) => e.repo_url).filter((u): u is string => !!u && githubRepo(u) !== null);
   const own = repos.find((u) => users.includes(githubRepo(u)!.owner.toLowerCase()));
   const repo = own ?? repos[0] ?? null;
-  if (!repo) return { roots, entries: entries.length, repo: null };
+  if (!repo) return { roots, entries: entries.length, repo: null, counts: countBy(entries) };
   // C1: the proof covers this repo only: just the groups with an entry in it, and just their entries.
   const covered = coveredRoots(entries, repo);
-  return { roots: covered, entries: entries.filter((e) => covered.includes(e.root)).length, repo };
+  const kept = entries.filter((e) => covered.includes(e.root));
+  return { roots: covered, entries: kept.length, repo, counts: countBy(kept) };
+}
+
+const countBy = (entries: { root: number }[]) => {
+  const out: Record<number, number> = {};
+  for (const e of entries) out[e.root] = (out[e.root] ?? 0) + 1;
+  return out;
+};
+
+/**
+ * Ruling F13: of the covered groups `roots`, those that have themselves proven `repo`: an EarnKit
+ * token launched on it by one of the group's entries, or one of the group's installations' own proof
+ * line (tokenCode(installation, repo)) among `codes` (the repo's earnkit.txt now). Ascending.
+ */
+export async function provenRoots(roots: number[], repo: string, codes: readonly string[]): Promise<number[]> {
+  if (roots.length === 0) return [];
+  const db = sql();
+  const key = normalizeRepoUrl(repo);
+  const launched = await db<{ root: number }[]>`
+    SELECT DISTINCT COALESCE(i.builder_id, i.id) AS root FROM projects p JOIN installations i ON i.id = p.installation_id
+    WHERE COALESCE(i.builder_id, i.id) IN ${db(roots)} AND p.token_repo_key = ${key}
+      AND p.token_status = 'launched' AND p.token_url IS NOT NULL AND p.token_url <> 'pending'`;
+  const proven = new Set(launched.map((r) => r.root));
+  if (codes.length > 0) {
+    const members = await db<{ id: number; root: number }[]>`
+      SELECT id, COALESCE(builder_id, id) AS root FROM installations WHERE COALESCE(builder_id, id) IN ${db(roots)}`;
+    for (const m of members) {
+      const code = tokenCode(m.id, repo);
+      if (code && codes.some((c) => same(c, code))) proven.add(m.root);
+    }
+  }
+  return roots.filter((r) => proven.has(r));
+}
+
+const same = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
+
+/** The proof codes in the repo's earnkit.txt now (default branch and the latest pushed branch). */
+async function repoCodes(repo: string, deps: PickupDeps): Promise<{ codes: string[]; unreadable: boolean }> {
+  const gh = githubRepo(repo);
+  if (!gh) return { codes: [], unreadable: true };
+  const d = { ...defaults, ...deps };
+  const onDefault = await d.owner(gh).catch((): FetchResult => ({ status: 'error', message: 'unreadable' }));
+  const latest = (await d.latest(gh).catch(() => null))?.file;
+  const codes = [onDefault, latest].flatMap((f) => (f?.status === 'ok' ? parseOwnershipFile(f.text).codes : []));
+  return { codes, unreadable: onDefault.status === 'error' };
 }
 
 /** The entries of the groups rooted at `roots`, newest first. */
@@ -144,6 +195,7 @@ export const pickupQuestion = (entries: number) =>
 export async function offerPickup(
   own: number,
   stated: Stated,
+  deps: PickupDeps = {},
 ): Promise<{ question: string; entries: number } | null> {
   const root = await rootOf(own);
   // C2: a hosted agent's group is never offered a pickup (one registration serves many builders).
@@ -152,14 +204,19 @@ export async function offerPickup(
   if (!found || !found.repo) return null;
   const [row] = await sql()<{ pickup: PickupState | null }[]>`SELECT pickup FROM installations WHERE id = ${own}`;
   const declined = new Set(row?.pickup?.declined ?? []);
-  const roots = found.roots.filter((r) => !declined.has(r));
+  const open = found.roots.filter((r) => !declined.has(r));
+  if (open.length === 0) return null;
+  // Ruling F13: only groups that proved the repo themselves are offered and counted (one read of
+  // the repo's earnkit.txt; unreadable: only launched tokens count).
+  const roots = await provenRoots(open, found.repo, (await repoCodes(found.repo, deps)).codes);
   if (roots.length === 0) return null;
+  const entries = roots.reduce((n, r) => n + (found.counts[r] ?? 0), 0);
   // Asked once: the same earlier installations already offered wait for the answer (it still works later).
   const asked = new Set(row?.pickup?.offered ?? []);
   if (roots.every((r) => asked.has(r))) return null;
-  const state: PickupState = { ...row?.pickup, offered: roots, repo: found.repo, entries: found.entries };
+  const state: PickupState = { ...row?.pickup, offered: roots, repo: found.repo, entries };
   await sql()`UPDATE installations SET pickup = ${sql().json(state)} WHERE id = ${own}`;
-  return { question: pickupQuestion(found.entries), entries: found.entries };
+  return { question: pickupQuestion(entries), entries };
 }
 
 export type PickupDeps = {
@@ -177,10 +234,6 @@ const defaults: Required<PickupDeps> = {
   latest: (r) =>
     process.env.EARNKIT_OWNERSHIP_BASE_URL ? Promise.resolve(null) : fetchOwnershipLatestBranch(r, undefined),
 };
-
-const has = (got: FetchResult | undefined, code: string) =>
-  got?.status === 'ok' &&
-  parseOwnershipFile(got.text).codes.some((c) => c.length === code.length && timingSafeEqual(Buffer.from(c), Buffer.from(code)));
 
 export type PickupResult =
   | { status: 'linked'; entries: number }
@@ -208,16 +261,16 @@ export async function answerPickup(own: number, yes: boolean, deps: PickupDeps =
   const gh = githubRepo(state.repo);
   const code = tokenCode(own, state.repo);
   if (!gh || !code) return { status: 'none' };
-  const d = { ...defaults, ...deps };
-  const onDefault = await d.owner(gh).catch((): FetchResult => ({ status: 'error', message: 'unreadable' }));
-  const proven = has(onDefault, code) || has((await d.latest(gh).catch(() => null))?.file, code);
-  if (!proven)
-    return { status: 'needs_proof', repo: `github.com/${gh.owner}/${gh.repo}`, line: `token: ${code}`, unreadable: onDefault.status === 'error' };
+  const file = await repoCodes(state.repo, deps);
+  if (!file.codes.some((c) => same(c, code)))
+    return { status: 'needs_proof', repo: `github.com/${gh.owner}/${gh.repo}`, line: `token: ${code}`, unreadable: file.unreadable };
   // C1, C2: link only the offered groups the proof covers now (an entry in the proven repo) and that
   // hold no hosted installation; read again, so a group that changed since the offer is left out.
   const mine = await rootOf(own);
   const current = [...new Set(offered.map(Number).filter(Number.isInteger))];
-  const roots = current.length === 0 ? [] : coveredRoots(await groupEntries(current), state.repo);
+  const covered = current.length === 0 ? [] : coveredRoots(await groupEntries(current), state.repo);
+  // Ruling F13: and that proved the repo themselves (a launched token, or their own line now).
+  const roots = await provenRoots(covered, state.repo, file.codes);
   const safe: number[] = [];
   for (const r of roots) if (r !== mine && (await rootOf(r)) === r && !(await sharedGroup(r))) safe.push(r);
   await sql()`UPDATE installations SET pickup = ${sql().json({ declined: state.declined ?? [] })} WHERE id = ${own}`;
