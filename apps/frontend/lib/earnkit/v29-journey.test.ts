@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import postgres from 'postgres';
-import { keccak256, type Hex } from 'viem';
+import { decodeFunctionData, keccak256, parseTransaction, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { sql } from './db';
 import { ProgramFile } from './program-file';
@@ -17,7 +17,8 @@ import { CANT_PUSH } from './confirm';
 import { checkDefaults } from './verify';
 import { LIVE_FAILED_LINE, PLACEHOLDER_LINE } from './placeholder';
 import { verifyCallback, verifyConfirm, verifyStart } from './github-verify';
-import { BASE_BONUS, type BonusRpc } from './bonus-ledger';
+import { BASE_BONUS, FEE_LOCKER_ABI, type BonusRpc } from './bonus-ledger';
+import { readStats } from './stats';
 import { runCron } from './cron';
 import { MINI_FEE_RECIPIENT } from './policy';
 import type { FetchResult } from './ownership';
@@ -327,6 +328,13 @@ async function browserSignIn(link: string, login: string): Promise<string> {
   return text.split('\n').filter(Boolean).pop()!;
 }
 
+/** The expected log lines (a failed probe, the alerts' soft WETH price read) are kept out of the output. */
+const logError = console.error;
+console.error = (...a: unknown[]) => {
+  if (typeof a[0] === 'string' && /^\[(verify|fees)\]/.test(a[0])) return;
+  logError(...a);
+};
+
 // ---- The recorder ------------------------------------------------------------------------------
 
 type Reply = Record<string, unknown> & { show_to_builder?: string };
@@ -622,4 +630,178 @@ test('12.4 statements: applied Base, not interested in a16z, testnet only on Arc
   }
   // The offer was shown once with "40%"; the repeats leave it out (G14).
   assert.equal(forty(J), 1, dump(J));
+});
+
+test('12.5 placeholders and unverified links: a placeholder is refused in plain words; a link that does not load keeps the entry open', dbTest, async () => {
+  const J = '12.5';
+  const ctx = ctxFor(await newInstallation());
+  const program = 'arc-microgrants';
+  // A placeholder reported with a local repo is dropped (never probed, never an error)...
+  const local_repos = [{ name: 'ledgerly', url: 'https://github.com/omar/ledgerly', chains: [{ chain: 'arc', mainnet: true }], live_url: 'https://example.com', last_commit_at: daysAgo(2) }];
+  const list = await call(J, 'list', 'list_programs', { local_repos }, ctx);
+  assert.ok(!probed.some((u) => new URL(u).hostname === 'example.com'), 'a placeholder is never probed');
+  assert.ok(!list.token_offer, 'no live product, no first-reply offer');
+  // ...and so is one the builder tells EarnKit.
+  await call(J, 'tell', 'tell_earnkit', { repo_facts: [{ repo: 'omar/ledgerly', live_url: 'https://localhost:3000', has_users: true }] }, ctx);
+  // Given as the project's live link, it is refused in plain words.
+  const project = { name: 'Ledgerly', repo_url: 'https://github.com/omar/ledgerly', live_url: 'https://example.com', contracts: ['0x6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c'] };
+  await assert.rejects(
+    call(J, 'placeholder', 'prepare_submission', { program_id: program, project, agent: CC }, ctx),
+    (e: unknown) => e instanceof Error && JSON.parse(e.message)[0].message === PLACEHOLDER_LINE && PLACEHOLDER_LINE === 'Use your real site, not a placeholder.',
+  );
+  // A real link that doesn't load from here: one fix line, the entry stays open (not complete).
+  DOWN.add('ledgerly.xyz');
+  const real = { ...project, live_url: 'https://ledgerly.xyz' };
+  const answers = { ...answersFor(program, { builder_profile: 'https://github.com/omar' }), payout_wallet: W };
+  const d = await call(J, 'draft (link down)', 'prepare_submission', { program_id: program, project: real, agent: CC, answers, coach_asked: true }, ctx);
+  assert.equal(d.ready, false);
+  assert.match(d.show_to_builder!, /\n1\. Live link didn't load from here\. Check it's public\.\n/);
+  assert.equal(LIVE_FAILED_LINE, "Live link didn't load from here. Check it's public.");
+  assert.match(d.show_to_builder!, /\nYes: launches \$LEDGER \(Ledgerly\) on Base\. You earn 40%/, 'the offer is never blocked by a check');
+  PUSHED.add('omar/ledgerly');
+  const c = await call(J, 'go (link down)', 'confirm_entry', { program_id: program, project: real, answers, builder_confirmed: true, decision: 'go', wallet: W, agent: CC }, ctx);
+  assert.equal((c.token as { status: string }).status, 'launched', JSON.stringify(c.token));
+  await call(J, 'record (link down)', 'record_submission', { program_id: program, project: real, submission_data: answers, builder_submitted: true, external_submission_url: 'https://dorahacks.io/buidl/4242', payout_wallet: W }, ctx);
+  const [row] = await sql()<{ complete_at: Date | null; live_verified_at: Date | null; contract_verified_at: Date | null }[]>`
+    SELECT complete_at, live_verified_at, contract_verified_at FROM projects WHERE id = ${c.project_id as number}`;
+  assert.deepEqual([row.complete_at, row.live_verified_at], [null, null], 'not complete while the link fails');
+  assert.ok(row.contract_verified_at, 'the contract check still ran');
+  assert.equal(forty(J), 1, dump(J));
+});
+
+test('12.6 the token offer in the first reply, then skip, then the confirmation: "40%" once; "skip" only in token offers', dbTest, async () => {
+  const J = '12.6';
+  const ctx = ctxFor(await newInstallation());
+  const local_repos = [{ name: 'quill', url: 'https://github.com/pia/quill', chains: [{ chain: 'arc', mainnet: true }], live_url: 'https://quill.xyz', contracts: ['0x7171717171717171717171717171717171717171'], last_commit_at: daysAgo(1) }];
+  const list = await call(J, 'list', 'list_programs', { local_repos }, ctx);
+  const offer = list.token_offer as { program_id: string; repo_url: string; project_name: string };
+  assert.match(list.show_to_builder!, /Launch \$QUILL \(Quill\) on Base now\? You earn 40% of its trading fees, plus a shot at the builder bonus\. Say yes with your wallet address, or skip\.$/);
+  const skipped = await call(J, 'skip', 'launch_token', { offer: { program_id: offer.program_id, repo_url: offer.repo_url, project_name: offer.project_name }, decision: 'skip' }, ctx);
+  assert.deepEqual([skipped.status, skipped.note], ['skipped', 'No token for now.']);
+  // The next first reply never offers that repo's token again (one skip, G14).
+  const again = await call(J, 'list again', 'list_programs', { local_repos }, ctx);
+  assert.ok(!again.token_offer);
+  assert.doesNotMatch(again.show_to_builder!, /\bskip\b|40%/);
+  // The entry: the confirmation offers the token once more, without the earnings line; skip there too.
+  const program = 'arc-microgrants';
+  const project = { name: 'Quill', repo_url: 'https://github.com/pia/quill', live_url: 'https://quill.xyz', contracts: ['0x7171717171717171717171717171717171717171'] };
+  const answers = { ...answersFor(program, { builder_profile: 'https://github.com/pia' }), payout_wallet: W };
+  await call(J, 'coach', 'prepare_submission', { program_id: program, project, agent: CC }, ctx);
+  const d = await call(J, 'draft', 'prepare_submission', { program_id: program, project, agent: CC, answers, coach_asked: true }, ctx);
+  assert.match(d.show_to_builder!, /\nYes: launches \$QUILL \(Quill\) on Base\.\n/);
+  const c = await call(J, 'skip at confirm', 'confirm_entry', { program_id: program, project, answers, builder_confirmed: true, decision: 'skip', agent: CC }, ctx);
+  assert.match(c.show_to_builder!, /^No token, no builder bonus\.\n/);
+  assert.ok(c.kit);
+  const rec = await call(J, 'record', 'record_submission', { program_id: program, project, submission_data: answers, builder_submitted: true, external_submission_url: 'https://dorahacks.io/buidl/5151' }, ctx);
+  assert.match(rec.show_to_builder!, /^Entered in Arc Microgrants\.(\n|$)/);
+  assert.doesNotMatch(rec.show_to_builder!, /token/i);
+  assert.ok(!deployed.some((x) => x.symbol === 'QUILL'), 'nothing launched');
+  assert.equal(forty(J), 1, dump(J));
+  assert.deepEqual(said.filter((s) => s.journey === J && /40%/.test(s.text)).map((s) => s.label), ['list']);
+});
+
+/** The chain under the cron's claims: every EarnKit token's split names its creator and MINI; fees wait for each. */
+function claimsChain(creators: Map<string, string>, available: Map<string, bigint>) {
+  const C = BASE_BONUS;
+  const sent: Hex[] = [];
+  const mined = new Set<Hex>();
+  const bonus = account.address.toLowerCase();
+  const rpc: BonusRpc = {
+    getChainId: async () => 8453,
+    nonce: async () => sent.length,
+    finalizedNonce: async () => sent.length,
+    fees: async () => ({ maxFeePerGas: 1_000_000n, maxPriorityFeePerGas: 1n }),
+    estimateGas: async () => 50_000n,
+    receipt: async (h) => (mined.has(h) ? { status: 'success' as const } : null),
+    transaction: async (h) => sent.some((r) => keccak256(r) === h),
+    finalReceipt: async () => true,
+    broadcast: async (raw) => {
+      if (sent.includes(raw)) return 'known';
+      sent.push(raw);
+      mined.add(keccak256(raw));
+      return 'sent';
+    },
+    waitFor: async (h) => (mined.has(h) ? { status: 'success' as const } : null),
+    balanceOf: async () => 0n,
+    blockNumber: async () => 10_000n,
+    storeLogs: async () => [],
+    receiptLogs: async () => ({ blockNumber: 0n, logs: [] }),
+    blockTime: async () => new Date(),
+    availableFees: async (owner) => available.get(owner.toLowerCase()) ?? 0n,
+    canCollect: async () => false,
+    rewardRecipients: async () => [bonus],
+    rewardInfo: async (locker, coin) =>
+      locker.toLowerCase() === C.lockers[0].toLowerCase() && creators.has(coin.toLowerCase())
+        ? { recipients: [C.safe, creators.get(coin.toLowerCase())!, MINI_FEE_RECIPIENT.toLowerCase(), bonus], bps: [3000, 4000, 1000, 2000] }
+        : { recipients: [], bps: [] },
+    ethBalance: async () => 10n ** 18n,
+  };
+  return { rpc, sent };
+}
+const account = privateKeyToAccount(`0x${'5'.repeat(64)}`);
+
+test('12.7 automatic claims in a cron run: each launched token\'s creator and MINI are claimed to themselves, logged, never as revenue', dbTest, async () => {
+  // The tokens these journeys launched, each with its creator (the wallet the builder gave).
+  const coins = await sql()<{ coin_address: string }[]>`SELECT coin_address FROM projects WHERE coin_address IS NOT NULL`;
+  assert.ok(coins.length >= 3, `${coins.length} launched tokens`);
+  const creators = new Map(deployed.map((d) => [d.address.toLowerCase(), d.wallet.toLowerCase()]));
+  const fees = 10n ** 15n; // far above 10x gas (50,000 gas at 0.001 gwei)
+  const mini = MINI_FEE_RECIPIENT.toLowerCase();
+  const available = new Map([...new Set(creators.values())].map((w) => [w, fees] as [string, bigint]));
+  available.set(mini, fees);
+  const chain = claimsChain(creators, available);
+  const stats = async () => JSON.stringify(await readStats(), (_k, v) => (typeof v === 'bigint' ? v.toString() : v));
+  const statsBefore = await stats();
+  const out = await runCron({ only: ['v29-none'], deps: { bonus: { account, rpc: chain.rpc, chain: BASE_BONUS, startBlock: 9_000n, log: () => {} } } });
+  const bonus = out.bonus as { claim_others?: { owner: string; role: string; result: string }[]; gas?: { low: boolean } };
+  assert.ok(Array.isArray(bonus.claim_others), JSON.stringify(out.bonus, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)));
+  const claimed = bonus.claim_others!.filter((c) => c.result.startsWith('claim success'));
+  // MINI once, each creator once (two tokens of one wallet: one claim).
+  assert.deepEqual(
+    claimed.map((c) => [c.role, c.owner]).sort(),
+    [['mini', mini], ...[...new Set(creators.values())].map((w) => ['creator', w])].sort(),
+  );
+  // claim(owner, WETH) on the FeeLocker: the fees go to their owner, never the payout wallet.
+  const owners = chain.sent.map((raw) => {
+    const tx = parseTransaction(raw);
+    assert.equal(tx.to?.toLowerCase(), BASE_BONUS.feeLocker);
+    const call = decodeFunctionData({ abi: FEE_LOCKER_ABI, data: tx.data! });
+    assert.equal(call.functionName, 'claim');
+    return String(call.args![0]).toLowerCase();
+  });
+  assert.deepEqual(owners.sort(), claimed.map((c) => c.owner).sort());
+  // Logged in fee_claims (an ops log): no public stat moves.
+  const logged = await sql()<{ owner: string; role: string }[]>`SELECT owner, role FROM fee_claims ORDER BY role, owner`;
+  assert.deepEqual(logged.map((r) => [r.role, r.owner]).sort(), claimed.map((c) => [c.role, c.owner]).sort());
+  assert.equal(await stats(), statsBefore, 'claims are never revenue');
+  assert.equal(bonus.gas?.low, false);
+  assert.ok(!(out.needs_owner as string[]).includes('bonus-ledger'), JSON.stringify(out.needs_owner));
+});
+
+test('every journey reply: under 50 s; no emoji, em dash, "coin", "vault", "Clanker" or tool name; "skip" only in token offers; nothing else on the network', dbTest, () => {
+  assert.ok(said.length > 30, `${said.length} replies`);
+  const coinWords = (text: string) =>
+    text
+      .replace(/https?:\/\/\S+/g, ' ')
+      .replace(/\b[\w-]+(?:\.[\w-]+)+\/\S*/g, ' ')
+      .match(/\bcoins?\b/gi) ?? [];
+  const toolName = new RegExp(`\\b(${Object.keys(tools).join('|')})\\b`);
+  // The token offers' own skip lines (the first reply's, the repeat, the confirmation's).
+  const offerSkip = /(Say yes with your wallet address, or skip\.|yes \/ skip)$|^Skip: no token, no builder bonus\.$/;
+  for (const s of said) {
+    const where = `${s.journey} ${s.label}`;
+    assert.ok(s.ms < MAX_REPLY_MS, where);
+    assert.doesNotMatch(s.text, /\p{Extended_Pictographic}/u, where);
+    assert.doesNotMatch(s.agentText, /—/, where);
+    assert.doesNotMatch(s.agentText, /clanker/i, where);
+    assert.doesNotMatch(s.text, /\bvaults?\b/i, where);
+    assert.deepEqual(coinWords(s.text), [], where);
+    assert.doesNotMatch(s.text, toolName, `${where}: ${s.text}`);
+    assert.doesNotMatch(s.reply.show_to_builder ?? '', TECHNICAL_TERMS, where);
+    for (const line of s.text.split('\n').filter((l) => /\bskip\b/i.test(l))) assert.match(line, offerSkip, `${where}: ${line}`);
+    // "Open this in Claude Code or Cursor" only where it belongs: sign-in off and an agent that can't push.
+    if (s.journey !== '12.2b') assert.ok(!s.text.includes(CANT_PUSH), where);
+  }
+  // Nothing tried the network but the alerts' soft WETH price read (cached, fails soft).
+  assert.deepEqual(blocked.filter((u) => !u.startsWith('https://coins.llama.fi/')), []);
 });
