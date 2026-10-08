@@ -1,7 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { difficultyLabel, difficultyOf, guideSourceList, guideSources, guideText, programGuide, wonHeading, type GuideFacts } from './guide';
-import type { PastRound } from './program-file';
+import { difficultyLabel, difficultyOf, harder, rowDifficulty, guideSourceList, guideSources, guideText, programGuide, wonHeading, type GuideFacts } from './guide';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { matchRepo, type ProgramFacts, type RepoFacts, type Verdict } from './match';
+import { ProgramFile, type PastRound } from './program-file';
 
 const base: GuideFacts = {
   past_rounds: [], focus: null, best_bet: null, difficulty_override: null,
@@ -289,4 +292,74 @@ test('v2.8 Ruling 11: an estimate override shows "Hard (estimate)" and its basis
   assert.equal(difficultyLabel(d), 'Hard (estimate)');
   const text = guideText(programGuide({ ...arc, past_rounds: [], focus: null, best_bet: null, difficulty_override: o }, null, NOW));
   assert.match(text, /^Difficulty: Hard \(estimate\)\. A16z publishes no acceptance figures\.$/m);
+});
+
+// ---- v2.9 A4, A6, A8: row difficulty ----
+
+const easyProgram = { difficulty: { level: 'Easy' as const, estimate: false, rated: true, basis: '' } };
+const verdict = (effort: Verdict['effort'], missing: Verdict['missing'] = []) => ({ effort, missing });
+const plain = { liveVerified: false, hasUsersClaim: false };
+
+test('4.1 a row is max(program level, distance): none/minutes Easy, hours/days Medium, weeks Hard', () => {
+  const row = (e: Verdict['effort']) => rowDifficulty(easyProgram, verdict(e), plain).level;
+  assert.equal(row('none'), 'Easy');
+  assert.equal(row('minutes'), 'Easy');
+  assert.equal(row('hours'), 'Medium');
+  assert.equal(row('days'), 'Medium');
+  assert.equal(row('weeks'), 'Hard');
+  // The program level is a floor: a Medium program never reads Easy.
+  const medium = { difficulty: { level: 'Medium' as const, estimate: true, rated: false, basis: 'x' } };
+  assert.deepEqual(rowDifficulty(medium, verdict('none'), plain), { level: 'Medium', estimate: true });
+  assert.deepEqual(rowDifficulty(medium, verdict('weeks'), plain), { level: 'Hard', estimate: false });
+  assert.equal(harder('Easy'), 'Medium');
+  assert.equal(harder('Hard'), 'Hard');
+});
+
+test('4.2 real_users missing is never Easy: Hard unverified, Medium with a verified link or a users claim (P2: matchRepo output)', () => {
+  const program: ProgramFacts = {
+    id: 'base', title: 'Base', chains: ['base'], any_chain: false, existing_work: 'allowed', tag: 'needs a live product',
+    starts_at: null, investment: false, min_product_score: 0,
+  };
+  const product = { score: 6, tier: 'product' as const, missing: [] };
+  const repo: RepoFacts = {
+    name: 'tipjar', url: 'https://github.com/a/tipjar', homepage: 'https://tipjar.xyz', created_at: '2026-01-01',
+    chains: { base: { mainnet: true, testnet: false, evidence: 'x' } }, commits_in_window: {}, product,
+  };
+  const card = { difficulty: difficultyOf({ ...base, tag: 'needs a live product', chains: ['base'] }) };
+  const [unverified] = matchRepo({ ...repo, live_verified: false }, [program]);
+  assert.ok(unverified.missing.includes('real_users'));
+  assert.equal(rowDifficulty(card, unverified, plain).level, 'Hard');
+  const [verified] = matchRepo({ ...repo, live_verified: true }, [program]);
+  assert.deepEqual(verified.missing, ['real_users']);
+  assert.equal(verified.effort, 'weeks');
+  assert.equal(rowDifficulty(card, verified, { liveVerified: true, hasUsersClaim: false }).level, 'Medium');
+  assert.equal(rowDifficulty(card, unverified, { liveVerified: false, hasUsersClaim: true }).level, 'Medium');
+  // Never Easy, even on an Easy program.
+  for (const o of [plain, { liveVerified: true, hasUsersClaim: true }])
+    assert.notEqual(rowDifficulty(easyProgram, verdict('weeks', ['real_users']), o).level, 'Easy');
+});
+
+test('4.3 program level: the live-product floor beats an EarnKit Easy rating; investment and under 1% odds are Hard', () => {
+  const rating = { level: 'Easy' as const, rated_by: 'earnkit' as const, source_url: 'https://e/x' };
+  assert.equal(difficultyOf({ ...base, difficulty_override: rating }).level, 'Easy');
+  assert.equal(difficultyOf({ ...base, tag: 'needs a live product', difficulty_override: rating }).level, 'Medium');
+  assert.equal(difficultyOf({ ...base, tag: 'needs a live product', past_rounds: [round(100, 40)] }).level, 'Medium');
+  assert.equal(difficultyOf({ ...base, investment: true, difficulty_override: rating }).level, 'Hard');
+  assert.equal(difficultyOf({ ...base, investment: true, past_rounds: [round(100, 40)] }).level, 'Hard');
+  assert.equal(difficultyOf({ ...base, past_rounds: [round(400, 3)] }).level, 'Hard');
+});
+
+test('4.4 match precision under 5% makes a row one step harder; 5% leaves it', () => {
+  const at = (match_precision: number | null) => rowDifficulty({ ...easyProgram, match_precision }, verdict('hours'), plain).level;
+  assert.equal(at(null), 'Medium');
+  assert.equal(at(0.04), 'Hard');
+  assert.equal(at(0.05), 'Medium');
+});
+
+test('4.5 Base after the file edit is Medium (estimate), not Easy', () => {
+  const file = JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/base-builder-grants.json'), 'utf8'));
+  const d = difficultyOf(ProgramFile.parse(file));
+  assert.equal(d.level, 'Medium');
+  assert.equal(d.estimate, true);
+  assert.equal(difficultyLabel(d), 'Medium (estimate)');
 });
