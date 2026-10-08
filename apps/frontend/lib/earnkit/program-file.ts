@@ -418,6 +418,11 @@ export const ProgramFile = z
      * Microgrants: arc). One of the file's chains, unless any_chain.
      */
     needs_contract: z.enum(CHAINS).optional(),
+    /**
+     * v2.9 A2: the lowest real-product score (0 to 6, match.ts productScore) a repo needs for a
+     * matched row. An any_chain program needs 5 or more (a16z: 5). 0: no floor.
+     */
+    min_product_score: z.number().int().min(0).max(6).default(0),
     /** One short line the builder sees: reward + deadline as the organizer states it. */
     summary: z.string().min(1).max(90),
     /**
@@ -542,6 +547,8 @@ export const ProgramFile = z
     if (p.any_chain && p.chains.length > 0) issue('any_chain programs list no chains');
     if (!p.any_chain && p.chains.length === 0) issue('chains needs at least one chain (or any_chain: true)');
     if (p.needs_contract && !p.any_chain && !p.chains.includes(p.needs_contract)) issue('needs_contract must be one of the chains');
+    // v2.9 A2 (Pre-flight P24): a program open to any chain matches products only.
+    if (p.any_chain && p.min_product_score < 5) issue('any_chain programs need min_product_score of 5 or more');
 
     // v2.8 Ruling 15 (plan): Optimism is not listed (owner, 2026-10-07).
     if (isOptimismUrl(p.source_url) || isOptimismUrl(p.submission_url)) issue('Optimism programs are not listed');

@@ -180,6 +180,8 @@ export type ProgramRow = {
   needs_repo: boolean | null;
   /** v2.9 A5: the chain whose mainnet must hold a deployed contract for the live link to count; null: none. */
   needs_contract: Chain | null;
+  /** v2.9 A2: the lowest product score a repo needs for a matched row (a16z: 5); 0: none. */
+  min_product_score: number;
   campaign: CampaignConfig | null;
   created_at: Date;
   /** When the program last became active (v2.4 §4); null while it never was. */
@@ -414,13 +416,17 @@ export async function openProgramFacts() {
       | 'chains'
       | 'any_chain'
       | 'source'
+      | 'investment'
+      | 'min_product_score'
     >[]
   >`
-    SELECT id, title, existing_work, tag, starts_at, chains, any_chain, source FROM programs
+    SELECT id, title, existing_work, tag, starts_at, chains, any_chain, source, investment, min_product_score FROM programs
     WHERE status = 'active' AND (ends_at IS NULL OR ends_at > now())
     ORDER BY ends_at NULLS LAST`;
   return rows.map(({ source, ...p }) => ({
     ...p,
+    investment: p.investment === true,
+    min_product_score: p.min_product_score ?? 0,
     title: shownTitle({ ...p, source }),
   }));
 }
@@ -718,6 +724,7 @@ export async function upsertProgram(
       investment: p.investment ?? false,
       needs_repo: p.needs_repo ?? null,
       needs_contract: p.needs_contract ?? null,
+      min_product_score: p.min_product_score ?? 0,
       campaign: p.campaign ? tx.json(p.campaign) : null,
       starts_at: p.starts_at,
       ends_at: p.ends_at,
