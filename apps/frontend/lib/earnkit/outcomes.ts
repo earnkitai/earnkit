@@ -221,12 +221,15 @@ export async function saveSelfReport(installationId: number, r: ReportOutcome, d
  * At most one entry to ask about per call (Ruling 30): this installation's submitted entry whose
  * program's `results.expected` day has passed, with no outcome of any basis and never asked.
  * Marks it asked in the same statement, so the question is asked once. Null when there is none.
+ * `onlyIds` (v2.9 B9, Ruling G7): only these entries (a verified login's, on a shared client).
  */
-export async function outcomeToAsk(installationId: number, now = new Date()) {
-  const [row] = await sql()<{ project_id: number; program_id: string; name: string; program_title: string }[]>`
+export async function outcomeToAsk(installationId: number, now = new Date(), onlyIds?: number[]) {
+  const db = sql();
+  const [row] = await db<{ project_id: number; program_id: string; name: string; program_title: string }[]>`
     WITH pick AS (
       SELECT p.id FROM projects p JOIN programs pr ON pr.id = p.program_id
       WHERE p.installation_id = ${installationId}
+        ${onlyIds ? db`AND p.id = ANY(${onlyIds}::int[])` : db``}
         AND p.outcome_asked_at IS NULL
         AND pr.results IS NOT NULL
         AND (pr.results->>'expected')::date < ${now}::date

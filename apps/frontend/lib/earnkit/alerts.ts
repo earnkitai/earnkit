@@ -496,10 +496,10 @@ export async function alertFacts(installationId: number, db: Db = sql()): Promis
     // v2.9 A3, A7: applied outside EarnKit or not interested (builder memory), and what the builder
     // said about their repos now (a later "not mine" or "testnet only" wins over the remembered one).
     db<{ program_id: string; status: 'applied' | 'not_interested'; round_label: string | null; at: Date }[]>`
-      SELECT program_id, status, round_label, at FROM builder_program_status WHERE installation_id = ${installationId}`,
+      SELECT program_id, status, round_label, at FROM builder_program_status WHERE installation_id = ${installationId} AND login = ''`,
     db<{ repo_key: string; mainnet_chains: Chain[]; testnet_chains: Chain[]; live_url: string | null; has_users: boolean | null; not_mine: boolean }[]>`
       SELECT repo_key, mainnet_chains, testnet_chains, live_url, has_users, not_mine
-      FROM builder_repo_facts WHERE installation_id = ${installationId}`,
+      FROM builder_repo_facts WHERE installation_id = ${installationId} AND login = ''`,
   ]);
   const memory: BuilderMemory = {
     programs: new Map(told.map((t) => [t.program_id, { status: t.status, round_label: t.round_label, at: t.at }])),

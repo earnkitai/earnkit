@@ -73,13 +73,24 @@ export type BuilderMemory = {
 export const emptyMemory = (): BuilderMemory => ({ programs: new Map(), repos: new Map() });
 
 /**
- * Ruling G6: whose memory a call reads and writes. An installation's own; none on a shared (hosted)
- * client, where one installation serves many builders, so nothing one builder says reaches another.
- * The GitHub sign-in (T5) gives a verified builder there a key of their own.
+ * Whose memory: the installation, and the login within it ('' for the installation's own memory; a
+ * GitHub-verified login on a shared client).
  */
-export function memoryKey(ctx: { installationId: number; sharedClient?: boolean }): number | null {
-  return ctx.sharedClient ? null : ctx.installationId;
+export type MemoryKey = { installationId: number; login: string };
+
+/**
+ * Ruling G6: whose memory a call reads and writes. An installation's own; on a shared (hosted)
+ * client, where one installation serves many builders, only the GitHub-verified login the call is
+ * from (v2.9 B9: ctx.verifiedLogin, github-verify.ts callerLogin), else none, so nothing one builder
+ * says reaches another.
+ */
+export function memoryKey(ctx: { installationId: number; sharedClient?: boolean; verifiedLogin?: string | null }): MemoryKey | null {
+  if (!ctx.sharedClient) return { installationId: ctx.installationId, login: '' };
+  return ctx.verifiedLogin ? { installationId: ctx.installationId, login: ctx.verifiedLogin.toLowerCase() } : null;
 }
+
+/** An installation id is its own memory (login ''). Pure. */
+const keyOf = (k: number | MemoryKey): MemoryKey => (typeof k === 'number' ? { installationId: k, login: '' } : k);
 
 /** Ruling G6: a shared client's outcome must name its entry (the newest entry may be another builder's). */
 export const OUTCOME_NEEDS_ENTRY = "Pass the entry's project_id (from ask_outcome) with won, placed or lost.";
@@ -121,15 +132,16 @@ export function saidKey(repo: string): string {
 
 const known = (chains: string[]): Chain[] => chains.filter((c): c is Chain => (CHAINS as readonly string[]).includes(c));
 
-/** This installation's memory: two reads on the tables' primary keys. */
-export async function readMemory(installationId: number): Promise<BuilderMemory> {
+/** This installation's (or, on a shared client, this verified login's) memory: two reads on the tables' primary keys. */
+export async function readMemory(key: number | MemoryKey): Promise<BuilderMemory> {
+  const { installationId, login } = keyOf(key);
   const db = sql();
   const [programs, repos] = await Promise.all([
     db<{ program_id: string; status: 'applied' | 'not_interested'; round_label: string | null; at: Date }[]>`
-      SELECT program_id, status, round_label, at FROM builder_program_status WHERE installation_id = ${installationId}`,
+      SELECT program_id, status, round_label, at FROM builder_program_status WHERE installation_id = ${installationId} AND login = ${login}`,
     db<{ repo_key: string; mainnet_chains: string[]; testnet_chains: string[]; live_url: string | null; has_users: boolean | null; not_mine: boolean }[]>`
       SELECT repo_key, mainnet_chains, testnet_chains, live_url, has_users, not_mine
-      FROM builder_repo_facts WHERE installation_id = ${installationId}`,
+      FROM builder_repo_facts WHERE installation_id = ${installationId} AND login = ${login}`,
   ]);
   return {
     programs: new Map(programs.map((p) => [p.program_id, { status: p.status, round_label: p.round_label, at: p.at }])),
@@ -192,14 +204,16 @@ const RESULT = { won: 'won', placed: 'placed', lost: 'not_selected' } as const;
  * program, or an entry that isn't this installation's, is a NotFoundError and nothing is stored.
  * Outcomes are self-reports (`lost` is `not_selected`): never public, never counted. `memory`
  * (memoryKey) null, Ruling G6: program and repo statements are not stored, and an outcome needs its
- * project_id. `outcomes`: how many outcomes were stored.
+ * project_id. v2.9 B9: a verified login's key on a shared client stores them under that login (an
+ * outcome still needs its project_id). `outcomes`: how many outcomes were stored.
  */
 export async function tell(
   installationId: number,
   input: TellInput,
   now = new Date(),
-  memory: number | null = installationId,
+  memoryArg: number | MemoryKey | null = installationId,
 ): Promise<{ saved: string[]; outcomes: number }> {
+  const memory = memoryArg === null ? null : keyOf(memoryArg);
   const parsed = TellInput.parse(input);
   const statuses = parsed.program_status ?? [];
   const db = sql();
@@ -213,7 +227,8 @@ export async function tell(
   for (const s of statuses) {
     if (!byId.has(s.program_id)) throw new NotFoundError(`No program with id "${s.program_id}". Call list_programs for current ids.`);
     if (s.status === 'applied' || s.status === 'not_interested') continue;
-    if (memory === null && !s.project_id) throw new NotFoundError(OUTCOME_NEEDS_ENTRY);
+    // A shared client (no key, or a verified login's key) names the entry: the newest may be another builder's.
+    if ((memory === null || memory.login !== '') && !s.project_id) throw new NotFoundError(OUTCOME_NEEDS_ENTRY);
     const [entry] = s.project_id
       ? await db<{ id: number }[]>`
           SELECT id FROM projects WHERE id = ${s.project_id} AND installation_id = ${installationId} AND program_id = ${s.program_id}`
@@ -233,9 +248,9 @@ export async function tell(
       if (s.status !== 'applied' && s.status !== 'not_interested') continue;
       const label = s.status === 'applied' ? roundLabel(byId.get(s.program_id)!) : null;
       await tx`
-        INSERT INTO builder_program_status (installation_id, program_id, status, round_label, at)
-        VALUES (${memory}, ${s.program_id}, ${s.status}, ${label}, ${now})
-        ON CONFLICT (installation_id, program_id) DO UPDATE SET
+        INSERT INTO builder_program_status (installation_id, login, program_id, status, round_label, at)
+        VALUES (${memory!.installationId}, ${memory!.login}, ${s.program_id}, ${s.status}, ${label}, ${now})
+        ON CONFLICT (installation_id, login, program_id) DO UPDATE SET
           status = EXCLUDED.status, round_label = EXCLUDED.round_label, at = EXCLUDED.at`;
       saved.push(`${s.program_id}: ${s.status === 'applied' ? 'applied outside EarnKit' : 'not interested'}`);
     }
@@ -247,7 +262,7 @@ export async function tell(
       const key = saidKey(f.repo);
       const [old] = await tx<{ mainnet_chains: string[]; testnet_chains: string[]; live_url: string | null; has_users: boolean | null; not_mine: boolean }[]>`
         SELECT mainnet_chains, testnet_chains, live_url, has_users, not_mine FROM builder_repo_facts
-        WHERE installation_id = ${memory} AND repo_key = ${key} FOR UPDATE`;
+        WHERE installation_id = ${memory!.installationId} AND login = ${memory!.login} AND repo_key = ${key} FOR UPDATE`;
       const said = mergeSaid(
         old
           ? { mainnet: known(old.mainnet_chains), testnet: known(old.testnet_chains), live_url: old.live_url, has_users: old.has_users, not_mine: old.not_mine }
@@ -255,9 +270,9 @@ export async function tell(
         f,
       );
       await tx`
-        INSERT INTO builder_repo_facts (installation_id, repo_key, mainnet_chains, testnet_chains, live_url, has_users, not_mine, at)
-        VALUES (${memory}, ${key}, ${said.mainnet}, ${said.testnet}, ${said.live_url}, ${said.has_users}, ${said.not_mine}, ${now})
-        ON CONFLICT (installation_id, repo_key) DO UPDATE SET
+        INSERT INTO builder_repo_facts (installation_id, login, repo_key, mainnet_chains, testnet_chains, live_url, has_users, not_mine, at)
+        VALUES (${memory!.installationId}, ${memory!.login}, ${key}, ${said.mainnet}, ${said.testnet}, ${said.live_url}, ${said.has_users}, ${said.not_mine}, ${now})
+        ON CONFLICT (installation_id, login, repo_key) DO UPDATE SET
           mainnet_chains = EXCLUDED.mainnet_chains, testnet_chains = EXCLUDED.testnet_chains, live_url = EXCLUDED.live_url,
           has_users = EXCLUDED.has_users, not_mine = EXCLUDED.not_mine, at = EXCLUDED.at`;
       saved.push(repoWords(key, f));

@@ -250,14 +250,16 @@ export async function getProjectPage(id: number) {
 
 /**
  * The caller's campaign entries, for list_programs' "Your campaign entries": rank while running,
- * the sponsor campaign's state (null for EarnKit campaigns), the prize once paid.
+ * the sponsor campaign's state (null for EarnKit campaigns), the prize once paid. `onlyIds` (v2.9 B9,
+ * Ruling G7): only these entries (a verified login's, on a shared client).
  */
-export async function yourCampaignEntries(installationId: number) {
-  return sql()<YourEntry[]>`
+export async function yourCampaignEntries(installationId: number, onlyIds?: number[]) {
+  const db = sql();
+  return db<YourEntry[]>`
     SELECT e.name, e.campaign_title, e.campaign, e.ends_at, e.sponsor_state, e.score, e.rank,
       e.entries, e.prize_tx, e.prize_paid_at, e.prize_amount
     FROM (
-      SELECT p.name, p.installation_id, p.score, p.prize_tx, p.prize_paid_at, p.prize_amount,
+      SELECT p.id, p.name, p.installation_id, p.score, p.prize_tx, p.prize_paid_at, p.prize_amount,
         pr.title AS campaign_title, pr.campaign, pr.ends_at, sc.state AS sponsor_state,
         row_number() OVER (PARTITION BY p.program_id ORDER BY p.score DESC NULLS LAST, p.submitted_at)::int AS rank,
         count(*) OVER (PARTITION BY p.program_id)::int AS entries
@@ -265,7 +267,8 @@ export async function yourCampaignEntries(installationId: number) {
       LEFT JOIN sponsor_campaigns sc ON sc.program_id = pr.id
       WHERE pr.campaign IS NOT NULL AND p.payout_wallet IS NOT NULL
     ) e
-    WHERE e.installation_id = ${installationId}`;
+    WHERE e.installation_id = ${installationId}
+      ${onlyIds ? db`AND e.id = ANY(${onlyIds}::int[])` : db``}`;
 }
 
 /** Project names by entry id (the award page names each winner). */

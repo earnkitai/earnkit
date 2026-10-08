@@ -27,7 +27,7 @@ import {
 import { recordShown, saveEntryScore } from './match-loop';
 import { repoKey } from './answer-bank';
 import { outcomeQuestion, outcomeToAsk } from './outcomes';
-import { emptyMemory, hiddenIds, hiddenPrograms, memoryKey, readMemory, tell, type BuilderMemory } from './builder-memory';
+import { TellInput, emptyMemory, hiddenIds, hiddenPrograms, memoryKey, readMemory, saidKey, tell, type BuilderMemory, type MemoryKey } from './builder-memory';
 import { fitRepoOf, sinceLine, sinceYouLastChecked, type FitRepo } from './alerts';
 import {
   GitHubError,
@@ -115,6 +115,11 @@ export type ToolContext = {
    * only after a yes/no that names them, and the remembered wallet is never suggested.
    */
   sharedClient?: boolean;
+  /**
+   * v2.9 B9, Rulings G6/G7: on a shared client, the GitHub-verified login this call is from
+   * (github-verify.ts callerLogin), set by the tool that reads it; never set by the MCP route.
+   */
+  verifiedLogin?: string | null;
   /** Test injection only: the pickup's proof line reads. */
   pickupDeps?: PickupDeps;
   /** Test and e2e injection only; never set by the MCP route. */
@@ -646,7 +651,7 @@ export const TELL_SHARED_NOTE =
  * v2.9 A3: the builder's memory (Ruling G6: none on a shared client, memoryKey null); a failed read
  * is an empty memory, never a failed tool.
  */
-const memoryOf = (key: number | null, where: string): Promise<BuilderMemory> =>
+const memoryOf = (key: MemoryKey | null, where: string): Promise<BuilderMemory> =>
   key === null
     ? Promise.resolve(emptyMemory())
     : readMemory(key).catch((err: unknown) => {
@@ -682,10 +687,23 @@ async function alertsFor(
 
 /**
  * Ruling G7: whether this call may show what the installation remembers (entries, standings,
- * alerts, the outcome question, remembered repos). Not on a shared client until memoryKey names a
- * verified builder: one hosted installation serves many builders. Entries are still recorded.
+ * alerts, the outcome question, remembered repos). Never on a shared client, where one hosted
+ * installation serves many builders (a GitHub-verified login there sees only its own entries, see
+ * sharedLogin). Entries are still recorded.
  */
-const remembers = (ctx: Pick<ToolContext, 'installationId' | 'sharedClient'>) => memoryKey(ctx) !== null;
+const remembers = (ctx: Pick<ToolContext, 'sharedClient'>) => !ctx.sharedClient;
+
+/**
+ * v2.9 B9, Rulings G6/G7: on a shared client with GitHub sign-in on, the verified login this call
+ * names (callerLogin), else null. Never fails the tool.
+ */
+async function sharedLogin(ctx: ToolContext, names: Parameters<typeof callerLogin>[1], where: string): Promise<string | null> {
+  if (!ctx.sharedClient || !githubVerifyEnabled()) return null;
+  return callerLogin(ctx.installationId, names).catch((err: unknown) => {
+    console.error(`[${where}] verified login`, err instanceof Error ? err.name : 'error');
+    return null;
+  });
+}
 
 /** v2.4 §4: a builder tool's reply opens with "Since you last checked" when there's news (Ruling G7: not on a shared client). */
 async function withAlerts<T extends object>(ctx: Pick<ToolContext, 'installationId' | 'sharedClient'>, result: T) {
@@ -736,23 +754,31 @@ export const tools = {
           })
         : null;
     if (wallet) await rememberWallets(ctx.installationId, [wallet]);
+    // v2.9 B9, Rulings G6/G7: on a shared client, the GitHub-verified login this call names.
+    const login = await sharedLogin(
+      ctx,
+      { github_user, repo_keys: (repos ?? []).map((r) => saidKey(r)) },
+      'list_programs',
+    );
     const [memory, programs, campaigns, told] = await Promise.all([
       checkPrograms(ctx.installationId, { github_user, repos, local_repos }),
       listPrograms(),
       earnkitCampaignRows(ctx.installationId),
-      // v2.9 A3: what the builder told EarnKit, read once per call.
-      memoryOf(memoryKey(ctx), 'list_programs'),
+      // v2.9 A3: what the builder told EarnKit, read once per call (G6: a shared client's verified login's).
+      memoryOf(memoryKey({ ...ctx, verifiedLogin: login }), 'list_programs'),
     ]);
     const hidden = hiddenPrograms(told, programs);
     const hide = hiddenIds(hidden);
     const { lastCheck } = memory;
     // Ruling G7: a shared client shows nothing the installation remembers (another builder's).
     const own = remembers(ctx);
+    // v2.9 B9 (G7): a verified login there sees only the entries it signed in for.
+    const loginEntries = !own && login ? await verifiedEntryIds(ctx.installationId, login).catch(() => []) : null;
     const workingOn = own ? memory.working_on : [];
-    // Remembered from an earlier call when not given now.
+    // Remembered from an earlier call when not given now (G7: a verified login is its own GitHub user).
     const user =
       github_user ??
-      (repos?.length || !own ? undefined : (memory.github_user ?? undefined));
+      (repos?.length ? undefined : own ? (memory.github_user ?? undefined) : (login ?? undefined));
     const repoList = repos?.length
       ? repos
       : github_user || !own
@@ -808,7 +834,11 @@ export const tools = {
     }
 
     // The builder's campaign entries: rank (or the sponsor campaign's state), prize once paid.
-    const yourEntries = own ? await yourCampaignEntries(ctx.installationId) : [];
+    const yourEntries = own
+      ? await yourCampaignEntries(ctx.installationId)
+      : loginEntries?.length
+        ? await yourCampaignEntries(ctx.installationId, loginEntries)
+        : [];
     // EarnKit campaign standings are in the campaigns table; only sponsor entries get a section.
     const entries = presentYourEntries(
       yourEntries.filter((e) => e.campaign.kind === 'sponsor'),
@@ -832,7 +862,7 @@ export const tools = {
     }));
     const repoCoins = await repoCoinsOf(ctx.repoCoins ?? repoCoinPrograms, yourRepos);
     // v2.8.1 §B9: "Your entries" and the "entered" marks; never fails the tool (none on an error).
-    const myEntries = !own ? [] : await openEntries(ctx.installationId).catch((err: unknown) => {
+    const myEntries = !own && !loginEntries?.length ? [] : await openEntries(ctx.installationId, loginEntries ?? undefined).catch((err: unknown) => {
       console.error('[list_programs] entries', err instanceof Error ? err.name : 'error');
       return [];
     });
@@ -868,7 +898,7 @@ export const tools = {
     // v2.8 Ruling 30 (plan): at most one entry per call whose results were due; asked once. Read
     // last (review minor 11), so nothing after marking it asked can lose the question. Never fails
     // the tool (the entry is then asked on a later call).
-    const ask = !own ? null : await outcomeToAsk(ctx.installationId).catch((err: unknown) => {
+    const ask = !own && !loginEntries?.length ? null : await outcomeToAsk(ctx.installationId, undefined, loginEntries ?? undefined).catch((err: unknown) => {
       console.error('[list_programs] outcome ask', err instanceof Error ? err.name : 'error');
       return null;
     });
@@ -1650,7 +1680,20 @@ export const tools = {
   // repos: chains, live link, users, not theirs). It replaced report_outcome; list_programs stays read-only.
   // Ruling G6: on a shared client nothing about programs or repos is kept (memoryKey null).
   tell_earnkit: async (input: unknown, ctx: ToolContext) => {
-    const key = memoryKey(ctx);
+    // v2.9 B9 (G6): on a shared client, statements are kept only under the verified login this
+    // call names (an entry or a repo it signed in for).
+    const told = TellInput.safeParse(input);
+    const login = told.success
+      ? await sharedLogin(
+          ctx,
+          {
+            project_ids: (told.data.program_status ?? []).flatMap((p) => (p.project_id ? [p.project_id] : [])),
+            repo_keys: (told.data.repo_facts ?? []).map((f) => saidKey(f.repo)),
+          },
+          'tell_earnkit',
+        )
+      : null;
+    const key = memoryKey({ ...ctx, verifiedLogin: login });
     const { saved, outcomes } = await tell(ctx.installationId, input as Parameters<typeof tell>[1], undefined, key);
     const note = key === null ? TELL_SHARED_NOTE : TELL_SAVED_NOTE;
     return {
