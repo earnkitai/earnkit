@@ -669,23 +669,28 @@ export const RECIPIENT_READS_PER_RUN = 20;
 
 /**
  * v2.9 D16: a token's creator (slot 1) and MINI (slot 2) fee recipients, from the first locker that
- * knows it (a locker that doesn't returns an empty split), cached on `projects.fee_recipients`. A
- * failed read (an RPC error, or no locker knows the coin): the creator unknown, MINI the
- * policy.ts fallback (Ruling 17), nothing cached, so the next run reads again.
+ * knows it, cached on `projects.fee_recipients`. A failed read (an RPC error, or no locker knows
+ * the coin): the creator unknown, MINI the policy.ts fallback (Ruling 17), nothing cached, so the
+ * next run reads again; the coin is added to `d.unread` (claimFees logs them once per run).
  */
-export async function feeRecipients(coin: Hex, d: { rpc: BonusRpc; chain: BonusChain }): Promise<FeeRecipients> {
+export async function feeRecipients(coin: Hex, d: { rpc: BonusRpc; chain: BonusChain; unread?: Hex[] }): Promise<FeeRecipients> {
   try {
     for (const locker of d.chain.lockers) {
-      const { recipients } = await d.rpc.rewardInfo(locker, coin);
+      // A locker that doesn't know the coin returns an empty split (Base's lockers) or reverts; a
+      // transport error throws, so the read fails and is retried next run.
+      const { recipients } = await d.rpc.rewardInfo(locker, coin).catch((err: unknown) => {
+        if (isRevert(err)) return { recipients: [] as string[] };
+        throw err;
+      });
       if (recipients.length === 0) continue;
       const r: FeeRecipients = { creator: (recipients[1] as Hex | undefined) ?? null, mini: (recipients[2] as Hex | undefined) ?? null };
       await sql()`UPDATE projects SET fee_recipients = ${sql().json(r)} WHERE coin_address = ${lower(coin)}`;
       return r;
     }
-    console.error('[bonus] no locker knows', coin, '(fee recipients unread; MINI falls back to policy.ts)');
   } catch (err) {
     console.error('[bonus] fee recipients of', coin, err);
   }
+  d.unread?.push(coin);
   return { creator: null, mini: lower(MINI_FEE_RECIPIENT) as Hex };
 }
 
@@ -699,23 +704,30 @@ export async function feeRecipients(coin: Hex, d: { rpc: BonusRpc; chain: BonusC
  * estimate times maxFeePerGas, an upper bound on what the claim cost.
  */
 export async function claimFees(account: LocalAccount, d: BonusDeps & { rpc: BonusRpc; chain: BonusChain }) {
+  // Newest first, so a new token's recipients are read before older uncached ones.
   const tokens = await sql()<{ coin: Hex; fee_recipients: FeeRecipients | null }[]>`
     SELECT coin_address AS coin, fee_recipients FROM projects
-    WHERE coin_address IS NOT NULL AND token_status = 'launched' ORDER BY id`;
+    WHERE coin_address IS NOT NULL AND token_status = 'launched' ORDER BY id DESC`;
   const known: FeeRecipients[] = [];
+  const unread: Hex[] = [];
   let reads = 0;
   for (const t of tokens) {
     if (t.fee_recipients) known.push(t.fee_recipients);
     else if (reads < RECIPIENT_READS_PER_RUN && Date.now() < toDeadline(d)) {
       reads++;
-      known.push(await feeRecipients(t.coin, d));
+      known.push(await feeRecipients(t.coin, { ...d, unread }));
     }
   }
+  if (unread.length > 0)
+    (d.log ?? console.error)(`[bonus] fee recipients unread for ${unread.length} token(s) (${unread.join(', ')}); no creator claim for them, MINI falls back to policy.ts`);
+  // A read MINI recipient wins over the policy.ts fallback a failed read gives.
+  const fallback = lower(MINI_FEE_RECIPIENT);
+  const mini = known.find((r) => r.mini && r.mini !== fallback)?.mini ?? known.find((r) => r.mini)?.mini ?? null;
   const owners = claimOwners({
     bonus: lower(account.address) as Hex,
     safe: d.chain.safe,
     creators: known.map((r) => r.creator),
-    mini: known.find((r) => r.mini)?.mini ?? null,
+    mini,
   });
   const out: { owner: string; role: ClaimRole; result: string }[] = [];
   for (const { owner, role } of owners) {

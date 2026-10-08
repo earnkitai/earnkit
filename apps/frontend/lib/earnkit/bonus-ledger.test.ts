@@ -177,8 +177,12 @@ function fakeChain(o: { head?: bigint; available?: Record<string, bigint>; balan
     recipients: [BONUS] as string[],
     collectable: new Set<string>([`${NEW_LOCKER}:${COIN_A}`]),
     // v2.9 D16: tokenRewards by `${locker}:${coin}` (a locker that doesn't know the coin: empty, as on Base).
-    rewards: {} as Record<string, { recipients: string[]; bps: number[] }>,
+    rewards: Object.fromEntries(
+      [COIN_A, COIN_B].map((coin) => [`${NEW_LOCKER}:${coin}`, { recipients: [C.safe, CREATOR, MINI, BONUS], bps: [3000, 4000, 1000, 2000] }]),
+    ) as Record<string, { recipients: string[]; bps: number[] }>,
     rewardReads: 0,
+    /** The coins whose recipients were read (other test files' launched rows may be read too). */
+    rewardReadCoins: [] as string[],
     rewardFails: false,
     eth: 10n ** 18n,
     ethFails: false,
@@ -226,6 +230,7 @@ function fakeChain(o: { head?: bigint; available?: Record<string, bigint>; balan
     rewardRecipients: async () => state.recipients,
     rewardInfo: async (locker, coin) => {
       state.rewardReads++;
+      state.rewardReadCoins.push(coin.toLowerCase());
       if (state.rewardFails) throw new Error('rpc down');
       return state.rewards[`${locker.toLowerCase()}:${coin.toLowerCase()}`] ?? { recipients: [], bps: [] };
     },
@@ -361,14 +366,14 @@ test('claims: nothing below 10x gas; above it, claim(owner, WETH) for the bonus 
     await cleanup();
     const cost = 50_000n * 1_000_000n;
     const f = fakeChain({ available: { [BONUS]: 10n * cost - 1n, [C.safe]: 0n } });
-    const below = await claimFees(ACCOUNT, { rpc: f.rpc, chain: C });
+    const below = await claimFees(ACCOUNT, { rpc: f.rpc, chain: C, log: quiet });
     assert.equal(f.state.sent.length, 0, 'no transaction');
     assert.match(below[0].result, /under 10x gas/);
     assert.equal(below[1].result, 'nothing to claim');
 
     f.state.available[BONUS] = 10n * cost;
     f.state.available[C.safe] = 10n ** 18n;
-    const out = await claimFees(ACCOUNT, { rpc: f.rpc, chain: C });
+    const out = await claimFees(ACCOUNT, { rpc: f.rpc, chain: C, log: quiet });
     assert.equal(f.state.sent.length, 2);
     const calls = f.state.sent.map((raw) => {
       const tx = parseTransaction(raw);
@@ -825,7 +830,7 @@ test('I5: a pending claim, then the sweep in the same run, signs the next nonce 
     f.state.autoMine = false; // the claim stays pending
     const rpc = { ...f.rpc, nonce: async () => 0 }; // a lagging node: pending count never moves
     const nonces = { next: 0 };
-    const claims = await claimFees(ACCOUNT, { rpc, chain: C, nonces, deadline: Date.now() + 10_000 });
+    const claims = await claimFees(ACCOUNT, { rpc, chain: C, nonces, deadline: Date.now() + 10_000, log: quiet });
     assert.match(claims[0].result, /^claim pending/);
     const sweep = await sweepToSafe(ACCOUNT, { rpc, chain: C, nonces, deadline: Date.now() + 10_000 });
     assert.equal(sweep.status, 'pending');
@@ -842,15 +847,15 @@ test('M10: a claim under 10x gas is still sent when the sweep to the Safe waits 
     const cost = 50_000n * 1_000_000n;
     const f = fakeChain({ balance: 0n, available: { [BONUS]: cost } }); // dust: 1x gas
     // No Safe booking to sweep: the dust waits.
-    assert.match((await claimFees(ACCOUNT, { rpc: f.rpc, chain: C }))[0].result, /under 10x gas/);
+    assert.match((await claimFees(ACCOUNT, { rpc: f.rpc, chain: C, log: quiet }))[0].result, /under 10x gas/);
     assert.equal(f.state.sent.length, 0);
     // A Safe booking worth 10x gas sits behind it (not yet in the wallet): the claim goes.
     await bookDeposit({ txHash: '0xt4dust', logIndex: 0, amount: 20n * cost, coin: null, blockNumber: 1n, blockTime: new Date('2026-10-02T00:00:00Z') }, quiet);
-    assert.match((await claimFees(ACCOUNT, { rpc: f.rpc, chain: C }))[0].result, /^claim success/);
+    assert.match((await claimFees(ACCOUNT, { rpc: f.rpc, chain: C, log: quiet }))[0].result, /^claim success/);
     assert.equal(f.state.sent.length, 1);
     // Already in the wallet (nothing blocks the sweep): no claim for the dust.
     f.state.balance = 20n * cost;
-    assert.match((await claimFees(ACCOUNT, { rpc: f.rpc, chain: C }))[0].result, /under 10x gas/);
+    assert.match((await claimFees(ACCOUNT, { rpc: f.rpc, chain: C, log: quiet }))[0].result, /under 10x gas/);
     assert.equal(f.state.sent.length, 1);
   } finally {
     await cleanup();
@@ -1152,7 +1157,7 @@ test('9.2 / 9.6 claimFees: creator and MINI claimed only at 10x gas, each paying
     await launched(COIN_B, { creator: CREATOR_2, mini: MINI });
     const cost = 50_000n * 1_000_000n;
     const f = fakeChain({ available: { [CREATOR]: 9n * cost, [CREATOR_2]: 10n * cost, [MINI]: 10n * cost } });
-    const out = await claimFees(ACCOUNT, { rpc: f.rpc, chain: C });
+    const out = await claimFees(ACCOUNT, { rpc: f.rpc, chain: C, log: quiet });
     const by = Object.fromEntries(out.map((o) => [o.owner, o]));
     assert.match(by[CREATOR].result, /under 10x gas/, 'the creator at 9x gas is skipped');
     assert.match(by[CREATOR_2].result, /^claim success/);
@@ -1175,7 +1180,7 @@ test('9.2 / 9.6 claimFees: creator and MINI claimed only at 10x gas, each paying
       [[CREATOR_2, 'creator', String(10n * cost), String(cost)], [MINI, 'mini', String(10n * cost), String(cost)]],
     );
     assert.deepEqual(new Set(logged.map((r) => r.tx_hash)), new Set(f.state.sent.map((r) => keccak256(r))));
-    assert.equal(f.state.rewardReads, 0, 'cached recipients: no locker read');
+    assert.ok(!f.state.rewardReadCoins.some((c) => c === COIN_A || c === COIN_B), 'cached recipients: no locker read');
   } finally {
     await t9cleanup();
   }
@@ -1189,12 +1194,18 @@ test('9.3 feeRecipients: read once per token and cached; a failed read falls bac
     // The old locker doesn't know the coin (an empty struct, as on Base); the current one does.
     f.state.rewards[`${NEW_LOCKER}:${COIN_A}`] = split(CREATOR);
     assert.deepEqual(await feeRecipients(COIN_A as Hex, { rpc: f.rpc, chain: { ...C, lockers: [OLD_LOCKER, NEW_LOCKER] } }), { creator: CREATOR, mini: MINI });
+    // A locker that reverts for an unknown coin (the anvil mocks) is passed over the same way.
+    const reverting = { ...f.rpc, rewardInfo: async (locker: Hex, coin: Hex) => {
+      if (locker.toLowerCase() === OLD_LOCKER) throw new CallExecutionError(new ExecutionRevertedError({ message: 'execution reverted: TokenNotFound()' }), { account: undefined } as never);
+      return f.rpc.rewardInfo(locker, coin);
+    } };
+    assert.deepEqual(await feeRecipients(COIN_A as Hex, { rpc: reverting, chain: { ...C, lockers: [OLD_LOCKER, NEW_LOCKER] } }), { creator: CREATOR, mini: MINI });
     const [row] = await sql()<{ fee_recipients: unknown }[]>`SELECT fee_recipients FROM projects WHERE coin_address = ${COIN_A}`;
     assert.deepEqual(row.fee_recipients, { creator: CREATOR, mini: MINI });
     // The claim run reads the cache: no locker read, and both are claimed.
-    f.state.rewardReads = 0;
-    const out = await claimFees(ACCOUNT, { rpc: f.rpc, chain: C });
-    assert.equal(f.state.rewardReads, 0);
+    f.state.rewardReadCoins = [];
+    const out = await claimFees(ACCOUNT, { rpc: f.rpc, chain: C, log: quiet });
+    assert.ok(!f.state.rewardReadCoins.includes(COIN_A));
     assert.deepEqual(out.filter((o) => o.role === 'creator' || o.role === 'mini').map((o) => o.owner), [CREATOR, MINI]);
 
     // A token whose read fails: MINI falls back to the constant, no creator, nothing cached.
@@ -1205,7 +1216,10 @@ test('9.3 feeRecipients: read once per token and cached; a failed read falls bac
     try {
       assert.deepEqual(await feeRecipients(COIN_A as Hex, { rpc: f.rpc, chain: C }), { creator: null, mini: MINI_FEE_RECIPIENT.toLowerCase() });
       const sentBefore = f.state.sent.length;
-      const failed = await claimFees(ACCOUNT, { rpc: f.rpc, chain: C });
+      const lines: string[] = [];
+      const failed = await claimFees(ACCOUNT, { rpc: f.rpc, chain: C, log: (l) => void lines.push(l) });
+      assert.equal(lines.length, 1, 'one line per run');
+      assert.ok(lines[0].includes(COIN_A));
       assert.ok(!failed.some((o) => o.role === 'creator'), 'no creator claim');
       assert.deepEqual(failed.filter((o) => o.role === 'mini').map((o) => o.owner), [MINI_FEE_RECIPIENT.toLowerCase()]);
       assert.equal(f.state.sent.length, sentBefore, 'nothing available for the fallback here, so nothing sent');
@@ -1214,6 +1228,15 @@ test('9.3 feeRecipients: read once per token and cached; a failed read falls bac
     }
     const [after] = await sql()<{ fee_recipients: unknown }[]>`SELECT fee_recipients FROM projects WHERE coin_address = ${COIN_A}`;
     assert.equal(after.fee_recipients, null, 'a failed read is never cached');
+    // One token's read fails while another's recipients are cached: the read MINI wins over the fallback.
+    await launched(COIN_B, { creator: CREATOR, mini: MINI });
+    console.error = () => {};
+    try {
+      const mixed = await claimFees(ACCOUNT, { rpc: f.rpc, chain: C, log: quiet });
+      assert.deepEqual(mixed.filter((o) => o.role === 'mini').map((o) => o.owner), [MINI]);
+    } finally {
+      console.error = err;
+    }
   } finally {
     await t9cleanup();
   }
