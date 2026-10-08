@@ -1,6 +1,6 @@
 import { normalizeRepoUrl, usd } from './campaigns';
 import { NO_CELL } from './no-cell';
-import { endsOf, prizeOf, repoCoinNote } from './entry-text';
+import { endsOf, prizeOf, repoCoinNote, shortWallet } from './entry-text';
 import { shortDate } from './dates';
 import { EFFORT_ORDER, type Chain, type Effort, type Product, type RepoFacts, type Verdict } from './match';
 import { difficultyLabel, levelRank, rowDifficulty, type Difficulty, type Level } from './guide';
@@ -633,7 +633,30 @@ export function presentFirstMessage(given: FirstMessage): string {
 }
 
 /** v2.9 B10: what the first reply's token offer names. */
-export type TokenOfferFacts = { project: string; program: string; prize_usd: number; proposal: { name: string; symbol: string }; hasBonus: boolean; walletKnown: boolean };
+export type TokenOfferFacts = {
+  project: string;
+  program: string;
+  prize_usd: number;
+  proposal: { name: string; symbol: string };
+  hasBonus: boolean;
+  walletKnown: boolean;
+  /** Ruling G13 (I1): the remembered wallet (non-shared clients only), named short so "yes" launches to the wallet shown. */
+  wallet?: string | null;
+};
+
+/** Ruling G13 (I1): the answer part of a token offer: the wallet shown with "yes / skip", else asked for. Pure. */
+const offerAnswer = (t: Pick<TokenOfferFacts, 'walletKnown' | 'wallet'>) =>
+  t.walletKnown
+    ? `${t.wallet ? `Wallet: ${shortWallet(t.wallet.toLowerCase())} (used last time). ` : ''}yes / skip`
+    : 'Say yes with your wallet address, or skip.';
+
+/**
+ * Ruling G13 (I2): the offer again when the agent asked for another name or ticker: names the token
+ * that launches on "yes", without the earnings figure (said once already). Pure.
+ */
+export function tokenOfferAgain(t: Pick<TokenOfferFacts, 'proposal' | 'walletKnown' | 'wallet'>, taken: string | null = null): string {
+  return `${taken ? `$${taken} is taken. ` : ''}Launch $${t.proposal.symbol} (${t.proposal.name}) on Base now? ${offerAnswer(t)}`;
+}
 
 /**
  * v2.9 B10: the first reply's closing offer when an owned, product-tier fit exists: "TipJar fits Arc
@@ -644,8 +667,7 @@ export function tokenOffer(t: TokenOfferFacts): string {
   const head = `${t.project} fits ${t.program}: $${t.prize_usd.toLocaleString('en-US')}.`;
   const ask = `Launch $${t.proposal.symbol} (${t.proposal.name}) on Base now?`;
   const why = `You earn 40% of its trading fees${t.hasBonus ? ', plus a shot at the builder bonus' : ''}.`;
-  const answer = t.walletKnown ? 'yes / skip' : 'Say yes with your wallet address, or skip.';
-  return `${head} ${ask} ${why} ${answer}`;
+  return `${head} ${ask} ${why} ${offerAnswer(t)}`;
 }
 
 /** v2.9 B10 (Ruling 12): efforts quick enough for the token offer (hours or less). */
