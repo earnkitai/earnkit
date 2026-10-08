@@ -299,7 +299,8 @@ test('5.6 a shared installation, two builders on two repos: entry A\'s sign-in n
   assert.equal(await verifiedFor({ projectId: b.project, repoKey: b.repoKey }), null);
   assert.equal(await verifiedFor({ projectId: b.project, repoKey: a.repoKey }), null);
   assert.equal(await verifiedFor({ repoKey: a.repoKey }), null, 'never unscoped');
-  // B's token gate still asks for the proof line (the default verified reads the table).
+  // B's token gate still asks for proof (the default verified reads the table; on this shared
+  // install, G10: only a sign-in, with the caller's own code).
   await withEnv(ON, async () => {
     const deps: GateDeps = {
       repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
@@ -307,13 +308,13 @@ test('5.6 a shared installation, two builders on two repos: entry A\'s sign-in n
       screen: async () => {},
     };
     const gateB = await tokenGate(
-      { policy: 'encouraged', repoUrl: `https://github.com/${b.repoKey}`, wallet: `0x${'1'.repeat(40)}`, symbol: 'TIP', installationId: b.inst, projectId: b.project },
+      { policy: 'encouraged', repoUrl: `https://github.com/${b.repoKey}`, wallet: `0x${'1'.repeat(40)}`, symbol: 'TIP', installationId: b.inst, projectId: b.project, verifiedLogin: 'alice' },
       deps,
     );
     assert.equal(gateB.ok, false);
-    assert.match((gateB as { reason: string }).reason, /proof line/);
+    assert.equal((gateB as { reason: string }).reason, SIGN_IN_FIRST);
     const gateA = await tokenGate(
-      { policy: 'encouraged', repoUrl: `https://github.com/${a.repoKey}`, wallet: `0x${'1'.repeat(40)}`, symbol: 'TIP', installationId: a.inst, projectId: a.project },
+      { policy: 'encouraged', repoUrl: `https://github.com/${a.repoKey}`, wallet: `0x${'1'.repeat(40)}`, symbol: 'TIP', installationId: a.inst, projectId: a.project, verifiedLogin: 'alice' },
       deps,
     );
     assert.deepEqual(gateA, { ok: true });
@@ -454,9 +455,16 @@ test('G8 to G11: on a shared client only the caller\'s own sign-in proves a laun
     assert.equal(lineReads, 0, 'the proof line is never read on a shared client');
     // G11: A's own code, but another fee wallet than the one the confirm page showed.
     assert.deepEqual(await gate('alice', `0x${'2'.repeat(40)}`), { ok: false, reason: WALLET_CHANGED, fixable: true, sign_in: 'wallet_changed' });
+    // Fix round 2: a caller that passes no login on this shared install is still a shared caller
+    // (the gate reads it): no proof line, no sign-in without a code.
+    assert.deepEqual(await gate(undefined), needed);
+    assert.equal(lineReads, 0);
     // Not a shared client: the entry's sign-in, or the proof line, as before.
-    assert.deepEqual(await gate(undefined), { ok: true });
-    assert.deepEqual(await gate(undefined, `0x${'2'.repeat(40)}`), { ok: true }, 'the proof line still proves there');
+    const own = { ...deps, shared: async () => false };
+    const plain = (wallet = WF) =>
+      tokenGate({ policy: 'encouraged', repoUrl: `https://github.com/${a.repoKey}`, wallet, symbol: 'TIP', installationId: a.inst, projectId: a.project }, own);
+    assert.deepEqual(await plain(), { ok: true });
+    assert.deepEqual(await plain(`0x${'2'.repeat(40)}`), { ok: true }, 'the proof line still proves there');
   });
   // With the OAuth variables absent, nothing changes: the shared proof line proves the launch.
   await withEnv({ GITHUB_OAUTH_CLIENT_ID: undefined, GITHUB_OAUTH_CLIENT_SECRET: undefined }, async () => {
