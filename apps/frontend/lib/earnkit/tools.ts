@@ -29,6 +29,8 @@ import {
   GitHubError,
   MatchProjectsInput,
   LocalReposInput,
+  reportedGithubUser,
+  reportedRepos,
   cachedRepoChains,
   checkEligibility,
   matchProjects,
@@ -399,14 +401,27 @@ async function walletToAsk(
 
 const ListProgramsInput = z
   .object({
-    agent_can_build: z.boolean().default(true),
-    github_user: z.string().optional(),
-    repos: z.array(z.string()).optional(),
+    // v2.8.1 §B6 (fix round 2): never refused; read by canBuild, reportedGithubUser, reportedRepos.
+    agent_can_build: z.unknown().optional(),
+    github_user: z.unknown().optional(),
+    repos: z.unknown().optional(),
     local_repos: LocalReposInput.optional(),
     // v2.8.1 §B6: anything else than a 0x address is ignored with WALLET_IGNORED, never an error.
     wallet: z.unknown().optional(),
   })
   .strict();
+
+/**
+ * v2.8.1 §B6 (fix round 2): agent_can_build as an agent gives it: a boolean, "true"/"false",
+ * "yes"/"no" or 1/0; anything else is ignored (the default, true). Pure; exported for tests.
+ */
+export function canBuild(v: unknown): boolean {
+  if (typeof v === 'boolean') return v;
+  if (v === 0 || v === 1) return v === 1;
+  const t = typeof v === 'string' ? v.trim().toLowerCase() : null;
+  if (t === 'false' || t === 'no' || t === '0') return false;
+  return true;
+}
 
 /** v2.8.1 §B6: list_programs' note when the wallet given isn't a 0x address. */
 export const WALLET_IGNORED =
@@ -417,10 +432,16 @@ export const WALLET_IGNORED =
  * (match-projects.ts ReportedRepoInput) or a wallet that isn't 0x (dropped, with a note). Exported for tests.
  */
 export function listProgramsInput(input: unknown) {
-  const { wallet, ...rest } = ListProgramsInput.parse(input ?? {});
+  const { wallet, agent_can_build, github_user, repos, ...rest } = ListProgramsInput.parse(input ?? {});
+  const repoList = reportedRepos(repos);
   const given = typeof wallet === 'string' && wallet.trim() !== '' ? wallet.trim() : null;
   const valid = given && /^0x[0-9a-fA-F]{40}$/.test(given) ? given : null;
-  return { ...rest, wallet: valid ?? undefined, walletNote: wallet != null && wallet !== '' && !valid ? WALLET_IGNORED : null };
+  return {
+    ...rest,
+    agent_can_build: canBuild(agent_can_build),
+    github_user: reportedGithubUser(github_user),
+    repos: repoList.length ? repoList : undefined,
+    wallet: valid ?? undefined, walletNote: wallet != null && wallet !== '' && !valid ? WALLET_IGNORED : null };
 }
 
 /** v2.8 Ruling 30 (plan): what the agent does with ask_outcome. */
