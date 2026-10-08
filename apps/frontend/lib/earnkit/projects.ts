@@ -79,6 +79,8 @@ export const RecordSubmissionInput = z
      * Only `true` counts; stored as `submission_confirmed_at`. Never derived from builder_confirmed.
      */
     builder_submitted: z.unknown().optional(),
+    /** v2.8.1 fix round 1: checking back after "launching": the token part is a read, never a launch. */
+    check_back: z.boolean().optional(),
   })
   .strict();
 

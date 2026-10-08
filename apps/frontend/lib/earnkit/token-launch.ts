@@ -51,6 +51,7 @@ import {
   LAUNCHING,
   LAUNCHING_AGENT,
   LAUNCH_STUCK,
+  NOT_LAUNCHED_YET,
   launchStuck,
   launchStuckAgent,
   tokenLaunchesAvailable,
@@ -187,14 +188,8 @@ export function decideToken(a: {
     return { action: 'skip', note: "Not launched: this program doesn't allow tokens for entries." };
   if (a.choice === 'skip')
     return { action: 'skip', note: 'Not launched: the builder said no token.', agent_note: 'Call launch_token later if they change their mind.' };
-  if (a.existingTokenUrl)
-    return {
-      action: 'refuse',
-      note:
-        a.existingTokenUrl === 'pending'
-          ? 'A launch for this project is in progress or unconfirmed. Check tokens.fun before trying again.'
-          : `This project already has a token: ${a.existingTokenUrl}`,
-    };
+  // A pending claim never gets here (runTokenFlow answers it first, pendingOutcome).
+  if (a.existingTokenUrl) return { action: 'refuse', note: `This project already has a token: ${a.existingTokenUrl}` };
   if (!a.confirmed)
     return {
       action: 'skip',
@@ -329,6 +324,10 @@ export type FlowProject = {
   token_claimed_at?: Date | null;
   /** The stored token note: on a pending claim, set once the deploy answered without a clear result. */
   token_note?: string | null;
+  /** The stored token status (a check-back reads it). */
+  token_status?: TokenStatus | null;
+  /** v2.8.1 fix round 1: a release the builder hasn't seen yet (after a "launching" reply). */
+  token_released_at?: Date | null;
   installation_id: number | null;
   token_policy: TokenPolicy;
   /** The program has a builder bonus (hasBuilderBonus), for launch_token's non-Base note. */
@@ -397,6 +396,8 @@ type FlowStore = {
   saveCreatorWallet: (projectId: number, installationId: number, wallet: string) => Promise<void>;
   /** v2.8 Ruling 2 (plan), Ruling C8: sets complete_at once (never moved). */
   markComplete: (projectId: number) => Promise<void>;
+  /** v2.8.1 fix round 1: the builder has now been told about a background release. */
+  markReleaseSeen?: (projectId: number) => Promise<void>;
 };
 
 export type TokenFlowDeps = {
@@ -414,7 +415,7 @@ const dbStore: FlowStore = {
   load: async (projectId) => {
     const [row] = await sql()<FlowProject[]>`
       SELECT p.id, p.name, p.repo_url, p.live_url, p.payout_wallet, p.creator_wallet, p.token_url, p.token_name,
-        p.token_symbol, p.token_claimed_at, p.token_note, p.installation_id, pr.token_policy, p.confirm_choice,
+        p.token_symbol, p.token_claimed_at, p.token_note, p.token_status, p.token_released_at, p.installation_id, pr.token_policy, p.confirm_choice,
         (pr.status = 'active' AND pr.builder_bonus AND pr.campaign IS NULL) AS has_bonus,
         pr.submission_requirements AS requirements, (pr.campaign IS NOT NULL) AS campaign,
         p.description, p.demo_url,
@@ -461,6 +462,9 @@ const dbStore: FlowStore = {
   markComplete: async (projectId) => {
     await sql()`UPDATE projects SET complete_at = COALESCE(complete_at, now()) WHERE id = ${projectId}`;
   },
+  markReleaseSeen: async (projectId) => {
+    await sql()`UPDATE projects SET token_released_at = NULL WHERE id = ${projectId}`;
+  },
 };
 
 /**
@@ -471,8 +475,9 @@ export const WALLET_LIMITED = "Your token didn't launch: this wallet reached tod
 export const AGENT_LIMITED = "Your token didn't launch: this agent reached today's launch limit of 10.";
 export const launchLimit = async (installationId: number, wallet: string) => {
   try {
-    await enforce('tokenLaunchWallet', wallet.toLowerCase(), WALLET_LIMITED);
+    // The agent's first, so a refusal there never uses one of the wallet's 10.
     await enforce('tokenLaunch', installationId, AGENT_LIMITED);
+    await enforce('tokenLaunchWallet', wallet.toLowerCase(), WALLET_LIMITED);
   } catch (err) {
     if (!(err instanceof RateLimitError)) throw err;
     const wallet = err.message.startsWith(WALLET_LIMITED);
@@ -508,7 +513,11 @@ const notLaunched = (err: unknown): TokenOutcome | null => {
 };
 
 /** Where a flow got to: once `deploying`, a launch claim may be pending. */
-type Progress = { deploying: boolean };
+type Progress = {
+  deploying: boolean;
+  /** v2.8.1 fix round 1: the tool already replied (withinReply's stand-in); the flow runs on. */
+  replied?: boolean;
+};
 
 /**
  * The one token flow behind record_submission ('submission'), launch_token ('launch') and, v2.8,
@@ -527,6 +536,8 @@ async function runTokenFlow(
     chain: 'base' | 'robinhood' | 'arbitrum';
     /** Ruling 22: the wallet given with this entry (validated), before the entry's own (never a remembered one, Ruling 30). */
     givenWallet?: string | null;
+    /** v2.8.1 fix round 1: the agent checking back after "launching": a read, never a launch. */
+    checkBack?: boolean;
   },
   deps: TokenFlowDeps,
   progress: Progress = { deploying: false },
@@ -549,6 +560,20 @@ async function runTokenFlow(
   // v2.8.1 §A1, §A5: this entry's own launch is in progress: "launching" (the next call has the
   // result), or, past 10 minutes, said plainly (the cron has alerted the owner). Nothing is written.
   if (project.token_url === 'pending') return pendingOutcome(project.token_claimed_at, Boolean(project.token_note));
+  // v2.8.1 fix round 1: a check-back is a read; so is any call within 2 minutes of a release the
+  // builder hasn't seen (it happened after the "launching" reply). Only a new "go" relaunches.
+  const unseen =
+    !project.token_url &&
+    project.token_released_at != null &&
+    Date.now() - new Date(project.token_released_at).getTime() < RELEASE_READ_MS;
+  if (!project.token_url && (a.checkBack || unseen)) {
+    if (project.token_released_at != null) await store.markReleaseSeen?.(project.id);
+    if (!project.token_status || project.token_status === 'launched')
+      return a.mode === 'confirm'
+        ? { status: 'skipped', note: STILL_CHECKING, agent_note: LAUNCHING_AGENT, fixable: true }
+        : { status: 'skipped', note: STILL_CHECKING_LAUNCH, agent_note: LAUNCHING_AGENT };
+    return { status: project.token_status, note: project.token_note ?? NOT_LAUNCHED_YET };
+  }
 
   // A confirm-mode problem the agent fixes and retries (v2.8 Ruling 4 (plan)).
   const fix = (o: TokenOutcome): TokenOutcome => (a.mode === 'confirm' ? { ...o, fixable: true } : o);
@@ -634,8 +659,8 @@ async function runTokenFlow(
       async (s) => (s === symbol ? false : check(s)),
       project.repo_url ?? undefined,
     );
-    return fix(
-      await record(
+    return fix({
+      ...(await record(
         repoNotNow,
         tickerTakenNote(next.symbol),
         name,
@@ -644,8 +669,9 @@ async function runTokenFlow(
           (a.mode === 'confirm'
             ? `If the builder says go, call confirm_entry again (it uses the stored ${next.symbol}); for their own ticker, pass token.symbol.`
             : `If the builder says go, call launch_token (it uses the stored ${next.symbol}); for their own ticker, pass symbol.`),
-      ),
-    );
+      )),
+      ticker_taken: symbol,
+    });
   }
 
   const gate = await tokenGate(
@@ -694,6 +720,7 @@ async function runTokenFlow(
       // The repo the gate just checked (and the live link, a traction signal): the claim is bound to them.
       repoUrl: project.repo_url,
       liveUrl: project.live_url,
+      background: () => progress.replied === true,
     });
     // Another entry of the repo claimed a token at the same moment: at submission, skipped.
     if (out.status === 'failed' && out.note?.startsWith(REPO_HAS_TOKEN)) return { ...out, status: repoNotNow };
@@ -733,6 +760,8 @@ export async function tokenAfterSubmission(
     confirmed: boolean;
     /** Ruling 22: the entry's validated wallet (record_submission's payout_wallet, not campaigns). */
     givenWallet?: string | null;
+    /** v2.8.1 fix round 1: a check-back reads, never launches. */
+    checkBack?: boolean;
   },
   deps: TokenFlowDeps = {},
   progress?: Progress,
@@ -764,6 +793,7 @@ export async function tokenAfterSubmission(
       confirmed: a.confirmed,
       chain: 'base',
       givenWallet: a.givenWallet,
+      checkBack: a.checkBack,
     },
     deps,
     progress,
@@ -790,6 +820,9 @@ export const STILL_CHECKING = "EarnKit is still checking your repo for the token
 /** STILL_CHECKING for launch_token, whose retry words are "launch the token". */
 export const STILL_CHECKING_LAUNCH = "EarnKit is still checking your repo for the token; say 'launch the token' again in a minute.";
 export { LAUNCH_STUCK };
+
+/** v2.8.1 fix round 1: a release after the reply is read, not relaunched, for this long. */
+export const RELEASE_READ_MS = 2 * 60_000;
 
 /**
  * v2.8.1 §A1, §A5: an entry whose launch claim is pending: "launching" while its deploy runs, else
@@ -825,6 +858,7 @@ async function withinReply(
   });
   const out = await Promise.race([flow, late]).finally(() => clearTimeout(timer));
   if (out) return out;
+  progress.replied = true;
   flow.catch((err: unknown) => console.error('[token] background', err instanceof Error ? err.name : 'error'));
   if (progress.deploying) return { status: 'pending', note: LAUNCHING, agent_note: LAUNCHING_AGENT, launching: true };
   // Nothing sent yet: confirm_entry's "go" (fixable: no kit yet), else "launch the token".
@@ -867,6 +901,8 @@ export async function confirmToken(
     wallet: string | null;
     /** v2.8.1 §A5: past this time (ms since epoch) the reply is "launching" and the flow runs on. */
     deadline?: number;
+    /** v2.8.1 fix round 1: a check-back reads, never launches. */
+    checkBack?: boolean;
   },
   deps: TokenFlowDeps = {},
 ): Promise<TokenOutcome> {
@@ -893,7 +929,7 @@ export async function confirmToken(
       }
       return await runTokenFlow(
         project,
-        { mode: 'confirm', installationId: a.installationId, choice: parsed.data, confirmed: true, chain: 'base' },
+        { mode: 'confirm', installationId: a.installationId, choice: parsed.data, confirmed: true, chain: 'base', checkBack: a.checkBack },
         deps,
         progress,
       );
@@ -965,6 +1001,8 @@ export const LaunchTokenInput = TokenChoice.extend({
   live_url: z.string().optional(),
   /** A repo link for an entry recorded without one; a recorded repo never changes (record a new entry). */
   repo_url: z.string().optional(),
+  /** v2.8.1 fix round 1: checking back after "launching": a read, never a launch. */
+  check_back: z.boolean().optional(),
 }).strict();
 
 /**
@@ -979,7 +1017,7 @@ export async function launchToken(
   /** v2.8.1 §A5: past this time (ms since epoch) the reply is "launching" and the flow runs on. */
   deadline?: number,
 ): Promise<TokenOutcome> {
-  const { project_id, builder_confirmed: _c, chain, live_url, repo_url, ...choice } = input;
+  const { project_id, builder_confirmed: _c, chain, live_url, repo_url, check_back, ...choice } = input;
   const store = deps.store ?? dbStore;
   const project = await ownProject(store, project_id, installationId);
   // v2.8 Ruling 3 (plan): refused before anything is checked, changed or launched.
@@ -1020,7 +1058,7 @@ export async function launchToken(
   if (entryMissing(project).length === 0) await store.markComplete(project.id);
   const progress: Progress = { deploying: false };
   const out = await withinReply(
-    runTokenFlow(project, { mode: 'launch', installationId, choice, confirmed: true, chain }, deps, progress),
+    runTokenFlow(project, { mode: 'launch', installationId, choice, confirmed: true, chain, checkBack: check_back === true }, deps, progress),
     progress,
     deadline,
   );

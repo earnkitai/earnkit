@@ -72,8 +72,8 @@ type DeployResponse = {
   minted?: boolean;
   /** Seconds until tokens.fun accepts another launch (on a 429), the older field. */
   retryAfter?: number;
-  /** v2.8.1 (tokens.fun T1): when the next launch is accepted, as an ISO time or seconds. */
-  retry_after?: string | number;
+  /** v2.8.1 (tokens.fun T1): when the next launch is accepted: `{ at, seconds }`, or an ISO time or seconds. */
+  retry_after?: string | number | { at?: unknown; seconds?: unknown };
   retry_after_seconds?: number;
 };
 
@@ -95,8 +95,10 @@ export function retryAtOf(
     const t = Date.parse(v);
     return Number.isFinite(t) && t > now.getTime() ? new Date(t) : null;
   };
+  const ra = data?.retry_after;
   return (
-    (typeof data?.retry_after === 'number' ? inSeconds(data.retry_after) : at(data?.retry_after)) ??
+    (ra && typeof ra === 'object' ? (at(ra.at) ?? inSeconds(ra.seconds)) : null) ??
+    (typeof ra === 'number' ? inSeconds(ra) : at(ra)) ??
     inSeconds(data?.retry_after_seconds) ??
     inSeconds(data?.retryAfter) ??
     at(header)
@@ -115,7 +117,7 @@ export function tryAgainAfter(at: Date | null): string {
 export const LAUNCHING = 'Your token is launching. Ask me again in a minute for its link.';
 /** v2.8.1 §A5: the agent's side of LAUNCHING (it names no tool, but it is the agent's instruction). */
 export const LAUNCHING_AGENT =
-  'The deploy is still running. Call the same tool again with the same arguments in about 30 seconds: it returns the result.';
+  'The deploy is still running. In about 30 seconds call the same tool again with the same arguments plus check_back: true: it returns the result and never starts another launch.';
 
 /**
  * v2.8.1 §A1: the launch's outcome is unknown (no answer, or a 5xx that may have minted) or it has
@@ -166,6 +168,8 @@ export type TokenOutcome = {
   fixable?: boolean;
   /** Ruling C24: confirm mode, the repo's proof line isn't there (yet). */
   proof_line?: true;
+  /** v2.8.1 fix round 1: C6 found this ticker (the one shown) taken; `symbol` is the next suggestion. */
+  ticker_taken?: string;
   /** v2.8.1 §A3: the repo's default branch, where the proof line goes (when the gate read it). */
   proof_branch?: string;
   /**
@@ -179,6 +183,27 @@ export type TokenOutcome = {
 export const EARNINGS_LINE = (wallet: string) =>
   `You earn 40% of trading fees, paid in WETH to ${wallet}. tokens.fun pays the gas.`;
 
+/** tokens.fun's "Pending transactions detected" 503: its one gas wallet is busy (nothing sent). */
+const PENDING_TX = 'Pending transactions detected';
+/**
+ * v2.8.1 fix round 1: tokens.fun's deploy route's own 503 texts, every one returned before the deploy
+ * transaction (tf:app/api/v1/deploy/route.ts at cc46fa2), matched exactly (the two with a variable
+ * part by their fixed start). Until tokens.fun sends `minted: false` on them (Ruling F3), only these
+ * release a claim on a 503. Pure.
+ */
+export function knownPreMint503(error: unknown): boolean {
+  if (typeof error !== 'string') return false;
+  return (
+    [
+      'Pending transactions detected. Try again in a few minutes.',
+      'Server configuration error',
+      "EarnKit fee split isn't configured",
+      'Server wallet configuration incomplete (ADMIN_WALLET)',
+      'Server wallet configuration incomplete (BUYBACK_WALLET)',
+    ].includes(error) || /^Cannot price [A-Za-z0-9]+ right now, so the launch tick cannot be set\. Try again shortly\.$/.test(error)
+  );
+}
+
 /**
  * Maps a tokens.fun deploy response to a TokenOutcome, plus whether the launch claim
  * (`token_url = 'pending'`) should be released and (v2.8.1 §A1) whether a release may be retried
@@ -189,10 +214,9 @@ export const EARNINGS_LINE = (wallet: string) =>
  * Otherwise the claim is released ONLY when tokens.fun said, in a parsed JSON body, that it stopped
  * before minting:
  *   - any 4xx: validation (400), auth (401/403), the daily limit (429);
- *   - v2.8.1 §A1, `retry: true`: a 503 (every 503 of its deploy route comes before the deploy
- *     transaction: "Pending transactions detected" on its gas wallet, the fee split or a wallet not
- *     configured, a price read), a 500 whose words say the deploy reverted (a reverted transaction
- *     mints nothing), or an explicit `minted: false`.
+ *   - v2.8.1 §A1, `retry: true`: an explicit `minted: false` (Ruling F3), or a 503 whose `error` is
+ *     one of tokens.fun's own pre-mint texts, matched exactly (knownPreMint503). A revert without
+ *     `minted: false` is kept.
  * Everything else keeps the claim pending, since tokens.fun may have minted anyway and a release
  * could let a second, permanent token through: its 502 "Deployment status unknown" (a deploy-tx
  * timeout), its catch-all 500 "Internal server error" (thrown anywhere, even after a broadcast),
@@ -204,7 +228,7 @@ export function outcomeOf(
   data: DeployResponse | null,
   chain: 'base' | 'robinhood' | 'arbitrum',
   retryAt: Date | null = null,
-): TokenOutcome & { release: boolean; retry?: true } {
+): TokenOutcome & { release: boolean; retry?: true; busy?: true } {
   if (!res) {
     return {
       status: 'pending',
@@ -233,15 +257,16 @@ export function outcomeOf(
       data?.message ?? data?.error ?? `tokens.fun returned ${res.status}`;
     return { status: 'failed', note: `Token not launched: ${said}`, release: true };
   }
-  const words = `${data?.error ?? ''} ${data?.message ?? ''}`;
   const preMint =
-    data !== null &&
-    !onChain &&
-    (data.minted === false ||
-      // Only tokens.fun's own JSON error (an edge proxy's 503 page never parses to one).
-      (res.status === 503 && typeof data.error === 'string') ||
-      (res.status === 500 && /revert/i.test(words)));
-  if (preMint) return { status: 'failed', note: NOT_LAUNCHED_YET, release: true, retry: true };
+    data !== null && !onChain && (data.minted === false || (res.status === 503 && knownPreMint503(data.error)));
+  if (preMint)
+    return {
+      status: 'failed',
+      note: NOT_LAUNCHED_YET,
+      release: true,
+      retry: true,
+      ...(typeof data?.error === 'string' && data.error.startsWith(PENDING_TX) && { busy: true as const }),
+    };
   // Any other 5xx, an unparsed body, or a 2xx that didn't confirm success: tokens.fun didn't
   // clearly say the launch failed, so keep the claim and let the builder check before retrying.
   return {
@@ -280,35 +305,45 @@ export const STUCK_LAUNCH_MS = 10 * 60_000;
 
 /**
  * v2.8.1 §A1: the projects whose launch claim (`token_url = 'pending'`) is older than 10 minutes
- * (a claim from before v2.8.1 has no time and counts as old), oldest first. The owner checks each
+ * (claims from before v2.8.1 got the migration's time, schema.sql), oldest first. The owner checks each
  * with the "token stuck in pending" runbook; EarnKit never releases one on a guess.
  */
 export async function stuckLaunches(now: Date): Promise<number[]> {
   const rows = await sql()<{ id: number }[]>`
     SELECT id FROM projects
     WHERE token_url = 'pending'
-      AND (token_claimed_at IS NULL OR token_claimed_at < ${new Date(now.getTime() - STUCK_LAUNCH_MS)})
-    ORDER BY token_claimed_at NULLS FIRST, id`;
+      AND token_claimed_at < ${new Date(now.getTime() - STUCK_LAUNCH_MS)}
+    ORDER BY token_claimed_at, id`;
   return rows.map((r) => r.id);
 }
 
 /**
- * v2.8.1 §A1: when this project's launch claim was taken (null: none, or from before v2.8.1), and
- * whether its deploy already answered without a clear result (a pending note is written then; a
- * deploy still running has none).
+ * v2.8.1 §A1: the project's token state now (read again, so a launch that settled since an earlier
+ * read is reported as it is): its link or 'pending', when the claim was taken, whether a pending
+ * deploy already answered without a clear result (a note is written then; a running one has none),
+ * and its note.
  */
-export async function launchClaimedAt(projectId: number): Promise<{ claimedAt: Date | null; settled: boolean }> {
-  const [row] = await sql()<{ token_claimed_at: Date | null; token_note: string | null }[]>`
-    SELECT token_claimed_at, token_note FROM projects WHERE id = ${projectId} AND token_url = 'pending'`;
-  return { claimedAt: row?.token_claimed_at ?? null, settled: Boolean(row?.token_note) };
+export async function launchClaimedAt(
+  projectId: number,
+): Promise<{ token_url: string | null; claimedAt: Date | null; settled: boolean; note: string | null }> {
+  const [row] = await sql()<{ token_url: string | null; token_claimed_at: Date | null; token_note: string | null }[]>`
+    SELECT token_url, token_claimed_at, token_note FROM projects WHERE id = ${projectId}`;
+  return {
+    token_url: row?.token_url ?? null,
+    claimedAt: row?.token_claimed_at ?? null,
+    settled: row?.token_url === 'pending' && Boolean(row?.token_note),
+    note: row?.token_note ?? null,
+  };
 }
 
-/** Whether a launch claimed at `claimedAt` (null: before v2.8.1) is past STUCK_LAUNCH_MS. Pure. */
+/** Whether a launch claimed at `claimedAt` is past STUCK_LAUNCH_MS (no time: not counted). Pure. */
 export const launchStuck = (claimedAt: Date | string | null | undefined, now = new Date()) =>
-  !claimedAt || now.getTime() - new Date(claimedAt).getTime() > STUCK_LAUNCH_MS;
+  Boolean(claimedAt) && now.getTime() - new Date(claimedAt!).getTime() > STUCK_LAUNCH_MS;
 
 /** v2.8.1 §A1: the pause before the one automatic retry of a launch tokens.fun refused before minting. */
 export const RETRY_PAUSE_MS = 3_000;
+/** Longer when its gas wallet was busy: it had already waited up to 30 s for that to clear. */
+export const BUSY_RETRY_PAUSE_MS = 10_000;
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /** Whether token launches are configured on this deployment (the tokens.fun deploy key is set). */
@@ -394,6 +429,11 @@ export async function deployToken(
      */
     repoUrl: string | null;
     liveUrl: string | null;
+    /**
+     * v2.8.1 fix round 1: true once the tool already replied "launching" (the flow runs on). A release
+     * then is stamped token_released_at, so the agent's check-back reads it instead of relaunching.
+     */
+    background?: () => boolean;
   },
   deps: { fetch?: typeof fetch; sleep?: (ms: number) => Promise<void> } = {},
 ): Promise<TokenOutcome> {
@@ -436,7 +476,7 @@ export async function deployToken(
         live_url: string | null;
       }[]
     >`
-    UPDATE projects SET token_url = 'pending', token_status = 'pending', token_note = NULL, token_claimed_at = now(),
+    UPDATE projects SET token_url = 'pending', token_status = 'pending', token_note = NULL, token_claimed_at = now(), token_released_at = NULL,
       token_name = ${a.name}, token_symbol = ${a.symbol}, token_repo_key = ${repoKey},
       token_image = ${a.image?.bytes ?? null}, token_image_type = ${a.image?.type ?? null}
     WHERE id = ${a.projectId} AND installation_id = ${a.installationId} AND token_url IS NULL
@@ -552,16 +592,19 @@ export async function deployToken(
   // short pause. Never for an outcome that may have minted (those keep the claim, see outcomeOf).
   let result = await post();
   if (result.retry) {
-    await (deps.sleep ?? sleep)(RETRY_PAUSE_MS);
+    await (deps.sleep ?? sleep)(result.busy ? BUSY_RETRY_PAUSE_MS : RETRY_PAUSE_MS);
     result = await post();
   }
-  const { release, retry: _retry, ...outcome } = result;
+  const { release, retry: _retry, busy: _busy, ...outcome } = result;
 
   if (release) {
     await sql()`
-      UPDATE projects SET token_url = NULL, token_status = 'failed', token_note = ${outcome.note ?? null}
+      UPDATE projects SET token_url = NULL, token_status = 'failed', token_note = ${outcome.note ?? null},
+        token_released_at = ${a.background?.() ? new Date() : null}
       WHERE id = ${a.projectId} AND token_url = 'pending'`;
   } else if (outcome.status === 'launched') {
+    // Logged first: if the write below fails, the owner still has the token to record by hand.
+    console.log(`[launch] project ${a.projectId}: launched ${outcome.token_address ?? '?'} (tx ${outcome.tx_hash ?? '?'})`);
     // v2.5: the coin's address, which the builder bonus ledger attributes fee deposits by, written
     // with the launch (M9: one statement). Base only (Ruling 24: tokens.fun gives other chains the
     // pre-v2.5 split, with no builder bonus slot). coin_launched_at: an entry counts in a round

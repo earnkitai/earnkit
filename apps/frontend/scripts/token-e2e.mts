@@ -146,7 +146,8 @@ const server = createServer(async (req, res) => {
     // v2.8.1 §A4: the EarnKit-key wallet limit, with tokens.fun's retry_after.
     if (body.symbol === 'LIMW') {
       res.writeHead(429, { 'content-type': 'application/json', 'retry-after': '7200' });
-      return res.end(JSON.stringify({ error: 'Daily token limit reached', retry_after: LIMIT_AT.toISOString(), retry_after_seconds: 7200 }));
+      // tokens.fun T1 (cc46fa2): retry_after { at, seconds }, minted:false, and the header.
+      return res.end(JSON.stringify({ error: 'Daily token limit reached', retry_after: { at: LIMIT_AT.toISOString(), seconds: 7200 }, minted: false }));
     }
     // v2.8.1 §A5: a deploy slower than the reply time.
     if (body.symbol === 'SLOW') await new Promise((r) => setTimeout(r, 1_500));
@@ -562,16 +563,18 @@ let retryRepo = '';
   check(dup === 'projects_token_repo_key', '(o) the unique index refuses a second token on the repo', dup);
 }
 
-// (p) v2.8.1 §A4: the per-wallet limit: 10 launches a UTC day, the real counter (a fresh wallet).
+// (p) v2.8.1 §A4: the per-wallet limit: 10 launches a UTC day across agents, the real counter (a
+// fresh wallet; two fresh agents, so the per-agent 10 isn't what stops it).
 {
-  const fresh = await newInstallation();
-  OWNERS.add(fresh.id);
-  const c: Ctx = { installationId: fresh.id, tokenDeps: { gate: passGate } };
+  const agents = [await newInstallation(), await newInstallation()];
+  for (const a of agents) OWNERS.add(a.id);
+  const ctxOf = (i: number): Ctx => ({ installationId: agents[i].id, tokenDeps: { gate: passGate } });
   const wallet = '0x' + [...Array(40)].map(() => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('');
   const before = deploys.length;
   const results: TokenOutcome[] = [];
-  for (const sym of ['LIMA', 'LIMB', 'LIMC', 'LIMD', 'LIME', 'LIMF', 'LIMG', 'LIMH', 'LIMI', 'LIMJ', 'LIMK'])
-    results.push((await submit({ project: project(`Limit ${sym}`), token: { name: `Limit ${sym}`, symbol: sym }, confirmed: true, wallet }, undefined, c)).token);
+  const syms = ['LIMA', 'LIMB', 'LIMC', 'LIMD', 'LIME', 'LIMF', 'LIMG', 'LIMH', 'LIMI', 'LIMJ', 'LIMK'];
+  for (const [n, sym] of syms.entries())
+    results.push((await submit({ project: project(`Limit ${sym}`), token: { name: `Limit ${sym}`, symbol: sym }, confirmed: true, wallet }, undefined, ctxOf(n < 6 ? 0 : 1))).token);
   check(results.slice(0, 10).every((t) => t.status === 'launched'), '(p) ten launches go through', results);
   check(
     results[10].status === 'failed' &&
@@ -762,15 +765,24 @@ let retryRepo = '';
   const nw = await confirm({ project: project('Confirm No Wallet'), ...yes });
   check(nw.token?.fixable === true && !nw.kit && nw.shown_wallet === WALLET && deploys.length === before + 1, '(w) no wallet passed: fixable, no kit, no deploy', nw);
 
-  // A taken ticker (CKB): fixable, no kit; yes again launches the stored suggestion.
+  // v2.8.1 fix round 1: the agent asks for a taken ticker (CKB): never launched or shown; a new Yes
+  // line with the next suggestion, no kit; yes to that launches exactly it.
   const tk = project('Confirm Taken');
-  const taken = await confirm({ project: tk, ...yes, wallet: WALLET, token: { symbol: 'CKB' } });
-  check(taken.token?.fixable === true && !taken.kit && /^That ticker is taken\. Pick another, or say go for \$[A-Z0-9]+\.$/.test(taken.show_to_builder) && deploys.length === before + 1, '(w) taken ticker: fixable, no kit, no deploy', taken);
-  const takenAgain = await confirm({ project: tk, ...yes, wallet: WALLET });
-  check(takenAgain.token?.status === 'launched' && takenAgain.token.symbol === taken.token?.symbol && takenAgain.kit !== undefined, '(w) yes again launches the suggestion', takenAgain);
+  const taken = (await confirm({ project: tk, ...yes, wallet: WALLET, token: { symbol: 'CKB' } })) as Confirmed & { token?: { proposed?: { name: string; symbol: string } } };
+  const next = taken.token?.proposed;
+  check(
+    taken.token?.fixable === true && !taken.kit && next !== undefined && next.symbol !== 'CKB' &&
+      taken.show_to_builder.startsWith(`$CKB is taken.\nWant the builder bonus?`) &&
+      taken.show_to_builder.includes(`\nYes: launches $${next.symbol} (Confirm Taken) on Base.`) && deploys.length === before + 1,
+    '(w) taken ticker: a new Yes line, no kit, no deploy',
+    taken,
+  );
+  const takenAgain = await confirm({ project: tk, ...yes, wallet: WALLET, token: next });
+  check(takenAgain.token?.status === 'launched' && takenAgain.token.symbol === next?.symbol && takenAgain.kit !== undefined, '(w) yes to it launches exactly that', takenAgain);
 
   // The proof line not pushed yet: fixable (say go); pushed, yes again launches.
   const late = project('Confirm Late', {}, 'late-');
+  await confirm({ project: late }); // the offer the builder said yes to
   const nl = await confirm({ project: late, ...yes, wallet: WALLET });
   check(nl.token?.fixable === true && !nl.kit && nl.show_to_builder === 'I need to add a short proof line to your repo first, then say go.', '(w) proof line missing: fixable, no kit', nl);
   pushed.add(late.repo_url.split('/').pop()!);
@@ -793,6 +805,11 @@ let retryRepo = '';
   const confirm = (a: Record<string, unknown>) =>
     tools.confirm_entry({ program_id: ON, answers: { notes: 'e2e' }, ...a }, c) as Promise<Confirmed>;
   const yes = { builder_confirmed: true, decision: 'go', wallet: WALLET };
+  // The offer (with the builder's own token, stored as shown), then their yes to it.
+  const offerThenGo = async (p: Record<string, string>, token: { name: string; symbol: string }) => {
+    await confirm({ project: p, token });
+    return confirm({ project: p, ...yes, token });
+  };
 
   // §A2: the offer names the token that launches.
   const offer = await confirm({ project: project('Busy Alpha') });
@@ -800,12 +817,12 @@ let retryRepo = '';
 
   // §A1: one 503 "Pending transactions", then it deploys: one automatic retry.
   const before = deploys.length;
-  const a = await confirm({ project: project('Busy Alpha'), ...yes, token: { name: 'Busy Alpha', symbol: 'BUSYA' } });
+  const a = await offerThenGo(project('Busy Alpha'), { name: 'Busy Alpha', symbol: 'BUSYA' });
   check(a.token?.status === 'launched' && deploys.length === before + 2 && a.kit !== undefined, '(x) a 503 before minting is retried once and launches', a);
 
   // §A1: nothing minted twice: released, "say go", the kit; go again launches.
   const bp = project('Busy Beta');
-  const b = await confirm({ project: bp, ...yes, token: { name: 'Busy Beta', symbol: 'BUSYB' } });
+  const b = await offerThenGo(bp, { name: 'Busy Beta', symbol: 'BUSYB' });
   check(
     b.token?.status === 'failed' && b.show_to_builder.startsWith("Your token didn't launch yet; say go to try again.\n\n") && b.kit !== undefined && deploys.length === before + 4,
     '(x) released after the retry: the builder says go',
@@ -817,7 +834,7 @@ let retryRepo = '';
   check(b2.token?.status === 'launched' && deploys.length === before + 5, '(x) go again launches', b2);
 
   // §A4: tokens.fun's wallet limit: when to retry, from its retry_after.
-  const l = await confirm({ project: project('Limit Wallet'), ...yes, token: { name: 'Limit Wallet', symbol: 'LIMW' } });
+  const l = await offerThenGo(project('Limit Wallet'), { name: 'Limit Wallet', symbol: 'LIMW' });
   check(
     l.show_to_builder.startsWith(`Your token didn't launch: this wallet reached today's launch limit. Try again after ${LIMIT_AT.toISOString().slice(11, 16)} UTC.\n\n`) && l.kit !== undefined,
     '(x) the wallet limit says "Try again after HH:MM UTC"',
@@ -828,12 +845,13 @@ let retryRepo = '';
   process.env.EARNKIT_LAUNCH_REPLY_MS = '500';
   const sp = project('Slow Gamma');
   const t0 = Date.now();
+  await confirm({ project: sp, token: { name: 'Slow Gamma', symbol: 'SLOW' } });
   const s1 = await confirm({ project: sp, ...yes, token: { name: 'Slow Gamma', symbol: 'SLOW' } });
   const took = Date.now() - t0;
   delete process.env.EARNKIT_LAUNCH_REPLY_MS;
   check(s1.show_to_builder === 'Your token is launching. Ask me again in a minute for its link.' && s1.kit === undefined && took < 1_400, `(x) slow deploy: "launching" in ${took} ms, no kit`, s1);
   await new Promise((r) => setTimeout(r, 1_800));
-  const s2 = await confirm({ project: sp, ...yes, token: { name: 'Slow Gamma', symbol: 'SLOW' } });
+  const s2 = await confirm({ project: sp, ...yes, token: { name: 'Slow Gamma', symbol: 'SLOW' }, check_back: true });
   check(s2.token?.status === 'launched' && s2.kit !== undefined && deploys.filter((d) => d.symbol === 'SLOW').length === 1, '(x) the next call returns the token and the kit, one deploy', s2);
 }
 

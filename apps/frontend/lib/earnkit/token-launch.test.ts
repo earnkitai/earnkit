@@ -54,8 +54,8 @@ test('decideToken: edits are uppercased and cleaned; every ticker must pass tick
   assert.equal(decideToken({ ...base, proposal: { name: 'Chain Kits', symbol: 'TOOLONGTICKER' } }).action, 'refuse');
   assert.equal(decideToken({ ...base, choice: { symbol: 'K-1' } }).action, 'refuse');
   assert.equal(decideToken({ ...base, proposal: null, choice: { name: 'Kit One' } }).action, 'refuse');
-  // A pending launch reads as in progress, not as a token.
-  assert.match((decideToken({ ...base, existingTokenUrl: 'pending' }) as { note: string }).note, /in progress/);
+  // An existing token is refused (a pending claim is answered before decideToken, pendingOutcome).
+  assert.equal(decideToken({ ...base, existingTokenUrl: 'https://tokens.fun/coin/0x1' }).action, 'refuse');
 });
 
 test('decideToken: checks run in order', () => {
@@ -338,7 +338,7 @@ test('tokenAfterSubmission: the confirmed name and ticker launch on Base with th
   assert.equal(h.deploys.length, 1);
   assert.deepEqual(
     { ...h.deploys[0], image: undefined },
-    { projectId: 7, installationId: 1, name: 'Chain Kits', symbol: 'CHAIN', creatorWallet: WALLET, image: undefined, imageUrl: undefined, builderX: undefined, chain: 'base', repoUrl: 'https://github.com/acme/kit', liveUrl: 'https://kit.acme.dev' },
+    { projectId: 7, installationId: 1, name: 'Chain Kits', symbol: 'CHAIN', creatorWallet: WALLET, image: undefined, imageUrl: undefined, builderX: undefined, chain: 'base', repoUrl: 'https://github.com/acme/kit', liveUrl: 'https://kit.acme.dev', background: h.deploys[0].background },
   );
   assert.equal(h.deploys[0].image, null);
 });
@@ -655,8 +655,8 @@ test('v2.8.1 §A1, §A5: a launch in progress says "launching"; settled or past 
     // The deploy answered without a clear result (its note is set): no polling.
     [{ token_claimed_at: new Date(now - 60_000), token_note: LAUNCH_STUCK }, false],
     [{ token_claimed_at: new Date(now - 11 * 60_000) }, false],
-    // A claim from before v2.8.1 has no time: old.
-    [{ token_claimed_at: null }, false],
+    // A claim with no time (none after the v2.8.1 backfill) is never counted as stuck by itself.
+    [{ token_claimed_at: null }, true],
   ] as const) {
     const h = harness({ token_url: 'pending', ...p });
     const out = await launchToken(launchInput(), 1, h.deps);

@@ -16,6 +16,8 @@ import { tokenLineFor } from './token-gate';
 import { REPO_HELD } from './entry-text';
 import { TOKEN_LINE, endsOf } from './present';
 import { LAUNCHING, LAUNCH_STUCK, SKIPPED_ENTRY, launchLimit, tickerTakenNote, type TokenFlowDeps } from './token-launch';
+import { offerKey, readOffer, saveOffer } from './token-offers';
+import { proposeToken } from './token-proposal';
 import { LaunchError, NOT_LAUNCHED_YET, STUCK_LAUNCH_MS, deployToken, stuckLaunches } from './tokens';
 import { runCron } from './cron';
 import { CANT_PUSH, NO_WALLET_HINT, confirmOffer, proofLineWaiting } from './confirm';
@@ -852,7 +854,7 @@ test('v2.8 Ruling 23 (plan): how_to_submit and sign_to_enter only for an open ca
 
 // ---- v2.8 Task 8: the confirmation step (Part C, Rulings 1, 3, 4, 5, 7 (plan)). The kit comes only
 // from confirm_entry, after the builder's yes or skip; the token launches on yes.
-async function confirmSetup(tag: string, o: { remembered?: string; check?: (s: string) => boolean; extra?: SubmissionRequirement[] } = {}) {
+async function confirmSetup(tag: string, o: { remembered?: string; check?: (s: string) => boolean; extra?: SubmissionRequirement[]; noOffer?: boolean } = {}) {
   const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const arc = committedProgram('arc-microgrants');
   const p = { ...arc, id: `t8-${tag}-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z', submission_requirements: [...arc.submission_requirements, ...(o.extra ?? [])] };
@@ -882,12 +884,16 @@ async function confirmSetup(tag: string, o: { remembered?: string; check?: (s: s
   } as unknown as TokenFlowDeps;
   const ctx = { installationId: inst, roundPoolsWei: async () => new Map(), repoCoins: async () => new Map(), tokenDeps };
   const project = { name: 'Tip Jar', repo_url: repo, live_url: 'https://tipjar.example' };
+  // v2.8.1 fix round 1: the Yes line the builder saw (prepare_submission or the offer stores it);
+  // "go" launches exactly this pair.
+  const offered = await proposeToken('Tip Jar', tokenDeps.check, repo);
+  if (!o.noOffer) await saveOffer(inst, p.id, offerKey(repo, 'Tip Jar'), { name: offered.name, symbol: offered.symbol });
   const answers = { description: 'Tips for creators on Arc', builder_profile: 'https://github.com/alice' };
   const input = { program_id: p.id, project, answers };
   const rows = async () =>
     sql()<{ id: number; confirm_choice: string | null; confirmed_at: Date | null; complete_at: Date | null; submission_confirmed_at: Date | null; token_url: string | null }[]>`
       SELECT id, confirm_choice, confirmed_at, complete_at, submission_confirmed_at, token_url FROM projects WHERE installation_id = ${inst} ORDER BY id`;
-  return { p, inst, repo, calls, ctx, input, project, answers, rows };
+  return { p, inst, repo, calls, ctx, input, project, answers, rows, offered };
 }
 
 /** Every key of a reply, at any depth. */
@@ -1092,21 +1098,40 @@ test('8.9 Ruling 5: a repo whose token is entered in Arc: no offer, "go" records
     assert.ok(r.show_to_builder.startsWith('Builder bonus counts in Arc Microgrants.\n\nReady for '), r.show_to_builder);
   }));
 
-test('8.10 C6: a taken ticker: no kit, fixable, the builder hears the suggestion; "go" again launches the stored one', dbTest, () =>
+test('8.10 C6, v2.8.1 fix round 1: "go" launches exactly the pair shown; another ticker is shown first; a shown ticker taken since gets a new Yes line; nothing deploys unseen', dbTest, () =>
   withTokenEnv(async () => {
-    const t = await confirmSetup('taken', { check: (s) => s !== 'TAKEN' });
-    const r = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8, token: { symbol: 'TAKEN' } }, t.ctx)) as Confirmed;
+    let taken = new Set<string>();
+    const t = await confirmSetup('taken', { check: (s) => !taken.has(s) });
+    // The agent asks for a ticker the builder never saw: the Yes line with it, nothing launched.
+    const r = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8, token: { symbol: 'OWN' } }, t.ctx)) as Confirmed & { token?: { proposed?: { name: string; symbol: string } } };
     assert.ok(!('kit' in r));
-    assert.equal(r.token?.fixable, true);
     assert.equal(t.calls.deploy, 0);
-    const next = r.token!.symbol!;
-    assert.notEqual(next, 'TAKEN');
-    assert.equal(r.show_to_builder, tickerTakenNote(next));
-    assert.match(r.agent_note ?? '', /call confirm_entry again \(it uses the stored /);
-    const again = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as Confirmed;
-    assert.equal(again.token?.status, 'launched');
-    assert.equal(again.token?.symbol, next);
-    assert.ok(again.kit);
+    assert.deepEqual(r.token?.proposed, { name: t.offered.name, symbol: 'OWN' });
+    assert.match(r.show_to_builder, new RegExp(`\\nYes: launches \\$OWN \\(${t.offered.name}\\) on Base\\.`));
+    assert.deepEqual(await readOffer(t.inst, t.p.id, offerKey(t.repo, 'Tip Jar')), { name: t.offered.name, symbol: 'OWN' });
+    // OWN is taken before the builder's "go" (no echo): never another ticker silently; a new Yes line.
+    taken = new Set(['OWN']);
+    const again = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as Confirmed & { token?: { proposed?: { name: string; symbol: string } } };
+    assert.equal(t.calls.deploy, 0);
+    assert.ok(!('kit' in again));
+    const next = again.token!.proposed!.symbol;
+    assert.notEqual(next, 'OWN');
+    assert.ok(again.show_to_builder.startsWith(`$OWN is taken.\nWant the builder bonus?`), again.show_to_builder);
+    assert.match(again.show_to_builder, new RegExp(`\\nYes: launches \\$${next} \\(`));
+    // The builder says yes to the new line: exactly that launches.
+    const ok = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8, token: again.token!.proposed }, t.ctx)) as Confirmed;
+    assert.equal(ok.token?.status, 'launched');
+    assert.equal(ok.token?.symbol, next);
+    assert.equal(t.calls.deploy, 1);
+    assert.ok(ok.kit);
+    // No pair stored at all (an agent that skipped the offer): the Yes line first, nothing launched.
+    const u = await confirmSetup('nooffer', { noOffer: true });
+    const first = (await tools.confirm_entry({ ...u.input, ...go, wallet: W8 }, u.ctx)) as Confirmed;
+    assert.equal(u.calls.deploy, 0);
+    assert.ok(!('kit' in first));
+    assert.match(first.show_to_builder, /\nYes: launches \$[A-Z0-9]+ \(Tip Jar\) on Base\./);
+    assert.equal(((await tools.confirm_entry({ ...u.input, ...go, wallet: W8 }, u.ctx)) as Confirmed).token?.status, 'launched');
+    assert.equal(u.calls.deploy, 1);
   }));
 
 test('8.10b: the proof line not pushed yet is fixable (no kit, "say go"); a private repo is lasting (the kit, no token)', dbTest, () =>
@@ -1703,6 +1728,7 @@ async function launchSetup(tag: string, answers: Answer[]) {
     deploy: (a) => deployToken(a, { fetch: fakeFetch, sleep: async () => {} }),
   };
   const ctx = { installationId: inst, roundPoolsWei: async () => new Map(), repoCoins: async () => new Map(), tokenDeps };
+  await saveOffer(inst, p.id, offerKey(repo, 'Tip Jar'), { name: 'Tip Jar', symbol: 'TIPJAR' });
   const input = {
     program_id: p.id,
     project: { name: 'Tip Jar', repo_url: repo, live_url: 'https://tipjar.example' },
@@ -1763,7 +1789,7 @@ test('v2.8.1 §A1: nothing minted twice (503, then a revert): the claim is relea
   withLaunchEnv(async () => {
     const t = await launchSetup('release', [
       PENDING_TX,
-      { status: 500, body: { error: 'Deployment failed', message: 'Contract execution reverted. Please try again or contact support.' } },
+      { status: 500, body: { error: 'Deployment failed', message: 'Contract execution reverted. Please try again or contact support.', minted: false } },
       OK(),
     ]);
     try {
@@ -1829,7 +1855,7 @@ test('v2.8.1 §A5: a slow deploy replies "launching" before the reply time (no k
         assert.equal(r.show_to_builder, LAUNCHING);
         assert.equal(r.token?.launching, true);
         assert.ok(!r.kit, 'the kit comes with the result');
-        assert.match(r.agent_note ?? '', /Call the same tool again with the same arguments/);
+        assert.match(r.agent_note ?? '', /call the same tool again with the same arguments plus check_back: true/);
         // Asked again while it still runs: launching again, nothing new deployed.
         const mid = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as LaunchReply;
         assert.equal(mid.show_to_builder, LAUNCHING);
@@ -1876,3 +1902,53 @@ test('v2.8.1 §A4: EarnKit allows 10 launches per wallet per UTC day; the 11th s
   });
   await sql()`DELETE FROM rate_windows WHERE key LIKE ${`%${wallet}`} OR key LIKE 'tokenLaunch:9001%' OR key LIKE 'tokenLaunch:9000%'`;
 });
+
+test('v2.8.1 fix round 1: a release after the "launching" reply is read by the check-back, never relaunched; a new "go" relaunches', dbTest, () =>
+  withLaunchEnv(
+    async () => {
+      const busy = { ...PENDING_TX, delayMs: 250 };
+      const t = await launchSetup('bg-release', [busy, busy, OK()]);
+      try {
+        const r = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as LaunchReply;
+        assert.equal(r.show_to_builder, LAUNCHING);
+        // Both 503s and the release happen in the background.
+        await new Promise((res) => setTimeout(res, 900));
+        const row = await t.row();
+        assert.equal(row.token_url, null);
+        assert.equal(t.posts.length, 2);
+        // The agent checks back with the same arguments plus check_back: the stored note, no launch.
+        const back = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8, check_back: true }, t.ctx)) as LaunchReply;
+        assert.ok(back.show_to_builder.startsWith("Your token didn't launch yet; say go to try again.\n\n"), back.show_to_builder);
+        assert.equal(t.posts.length, 2, 'the check-back launched nothing');
+        // The builder says go: it launches.
+        const goAgain = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as LaunchReply;
+        assert.equal(goAgain.token?.status, 'launched');
+        assert.equal(t.posts.length, 3);
+      } finally {
+        await t.done();
+      }
+    },
+    { EARNKIT_LAUNCH_REPLY_MS: '150' },
+  ));
+
+test('v2.8.1 fix round 1: without check_back, a same-arguments call within 2 minutes of an unseen release is a read too', dbTest, () =>
+  withLaunchEnv(
+    async () => {
+      const busy = { ...PENDING_TX, delayMs: 250 };
+      const t = await launchSetup('bg-unseen', [busy, busy, OK()]);
+      try {
+        await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx);
+        await new Promise((res) => setTimeout(res, 900));
+        const same = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as LaunchReply;
+        assert.ok(same.show_to_builder.startsWith("Your token didn't launch yet; say go to try again.\n\n"), same.show_to_builder);
+        assert.equal(t.posts.length, 2, 'deploy called exactly twice');
+        // Seen now: the next "go" launches.
+        const next = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as LaunchReply;
+        assert.equal(next.token?.status, 'launched');
+        assert.equal(t.posts.length, 3);
+      } finally {
+        await t.done();
+      }
+    },
+    { EARNKIT_LAUNCH_REPLY_MS: '150' },
+  ));

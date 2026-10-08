@@ -157,6 +157,8 @@ export type EnteredText = {
         status: 'other';
         /** C7: what the entry still needs before its token launches (todoList), when that's why. */
         needs?: string;
+        /** v2.8.1: a plain line that says why instead (the token is still being checked). */
+        note?: string;
       };
   /**
    * The open round (`ends` is its end as the first message shows it, roundEndLabel). Null when the
@@ -205,7 +207,9 @@ export function enteredText(a: EnteredText) {
           ? " Your token didn't launch yet; EarnKit is checking what happened."
           : ' Your token is launching.'
         : a.coin.status === 'other'
-          ? a.coin.needs
+          ? a.coin.note
+            ? ` ${a.coin.note}`
+            : a.coin.needs
             ? ` Your token isn't launched yet: the entry still needs ${a.coin.needs}.`
             : " Your token isn't launched yet."
           : '';

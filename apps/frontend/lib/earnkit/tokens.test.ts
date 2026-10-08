@@ -159,7 +159,11 @@ test('v2.8.1 §A1: tokens.fun said nothing was minted: released, retried once, a
   for (const [status, body] of [
     [503, { error: 'Pending transactions detected. Try again in a few minutes.' }],
     [503, { error: "EarnKit fee split isn't configured" }],
-    [500, { error: 'Deployment failed', message: 'Contract execution reverted. Please try again or contact support.' }],
+    [503, { error: 'Server configuration error' }],
+    [503, { error: 'Server wallet configuration incomplete (ADMIN_WALLET)' }],
+    [503, { error: 'Cannot price USDC right now, so the launch tick cannot be set. Try again shortly.' }],
+    // Ruling F3: tokens.fun's revert 500 with minted:false (tf route.ts, uncommitted F3 work).
+    [500, { error: 'Deployment failed', message: 'Contract execution reverted. Please try again or contact support.', minted: false }],
     [502, { error: 'x', minted: false }],
   ] as const) {
     const o = outcomeOf({ ok: false, status }, body, 'base');
@@ -169,6 +173,19 @@ test('v2.8.1 §A1: tokens.fun said nothing was minted: released, retried once, a
     assert.equal(o.note, NOT_LAUNCHED_YET);
   }
   assert.equal(NOT_LAUNCHED_YET, "Your token didn't launch yet; say 'launch the token' to try again.");
+  // Fix round 1: only tokens.fun's exact pre-mint 503 texts, or minted:false. Any other 503, and a
+  // revert without minted:false, are kept.
+  for (const [status, body] of [
+    [503, { error: 'Service Unavailable' }],
+    [503, { error: 'Pending transactions detected' }],
+    [503, { error: 'Pending transactions detected. Try again in a few minutes. (after broadcast)' }],
+    [500, { error: 'Deployment failed', message: 'Contract execution reverted. Please try again or contact support.' }],
+    [500, { error: 'x', minted: true }],
+  ] as const) {
+    const o = outcomeOf({ ok: false, status }, body, 'base');
+    assert.equal(o.release, false, JSON.stringify(body));
+    assert.equal(o.status, 'pending');
+  }
   // A 4xx is the builder's or the limit's: released, never retried at once.
   assert.equal(outcomeOf({ ok: false, status: 400 }, { error: 'bad' }, 'base').retry, undefined);
 });
@@ -177,6 +194,9 @@ test('v2.8.1 §A4: retryAtOf reads retry_after (ISO or seconds), retry_after_sec
   const now = new Date('2026-10-08T10:00:00Z');
   const iso = '2026-10-08T14:20:00.000Z';
   assert.equal(retryAtOf({ retry_after: iso }, null, now)?.toISOString(), iso);
+  // tokens.fun's T1 429 body (cc46fa2): retry_after { at, seconds }, at first.
+  assert.equal(retryAtOf({ retry_after: { at: iso, seconds: 5 } }, '0', now)?.toISOString(), iso);
+  assert.equal(retryAtOf({ retry_after: { seconds: 600 } }, null, now)?.toISOString(), '2026-10-08T10:10:00.000Z');
   assert.equal(retryAtOf({ retry_after: 600 }, null, now)?.toISOString(), '2026-10-08T10:10:00.000Z');
   assert.equal(retryAtOf({ retry_after: '600' }, null, now)?.toISOString(), '2026-10-08T10:10:00.000Z');
   assert.equal(retryAtOf({ retry_after_seconds: 60 }, null, now)?.toISOString(), '2026-10-08T10:01:00.000Z');
