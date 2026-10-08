@@ -690,7 +690,7 @@ apps/frontend/
                                (github_verify_nonces, sha256 only, 15 min), peekNonce/takeNonce (atomic, single use),
                                nonceDetails, ownershipPasses, githubOAuth (exchange, user, repoPerms), completeVerify,
                                verifiedFor, takeHostVerification (P11), callerLogin (G9 sign-in code), verifiedEntryIds,
-                               entryVerifyLink, entryLinkShown, VERIFY_PAGE, CONFIRM_WARNING, codeLine; route handlers
+                               entryVerifyLink (G11: needs the entry's wallet), VERIFY_PAGE (+ orgRepo), CONFIRM_WARNING, codeLine; route handlers
                                verifyStart (confirm page + __Host- cookie), verifyConfirm (POST, 303 to GitHub),
                                verifyCallback (code + state + cookie only)
     builder-memory.ts(+test)   v2.9 A3: TellInput (strict; program_status, repo_facts, signed_in), BuilderMemory, MemoryKey
