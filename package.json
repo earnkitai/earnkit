@@ -21,7 +21,7 @@
     "preinstall": "node preinstall.js",
     "db:migrate": "tsx apps/frontend/scripts/db-migrate.mts",
     "db:check": "tsx apps/frontend/scripts/db-check.mts",
-    "test": "tsx --test \"apps/frontend/lib/**/*.test.ts\" \"infra/host-worker/src/**/*.test.ts\"",
+    "test": "pnpm -s host:typecheck && tsx --test \"apps/frontend/lib/**/*.test.ts\" \"infra/host-worker/src/**/*.test.ts\"",
     "host:typecheck": "tsc -p infra/host-worker --noEmit && tsc -p infra/host-worker/tsconfig.test.json --noEmit",
     "programs:sync": "tsx apps/frontend/scripts/programs-sync.mts",
     "predeploy": "pnpm db:migrate && pnpm programs:sync",
