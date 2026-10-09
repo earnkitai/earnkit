@@ -589,7 +589,6 @@ apps/frontend/
                                as its new tool and arguments; Pre-flight P15 rules), rewriteAliases (a JSON-RPC
                                message or batch). Pure.
     tools.ts                   v2.10 item 4: `tools` = find, prepare, confirm, tell, sponsor_campaign, thin dispatchers
-                               v2.10 item 13: PrepareInput.deploy (DeployField, P9 owner_wallet), deployStep (the deployed line, reply.deploy), deployWalletLine.
                                over `handlers` (the v2.9 functions: list_programs ... launch_token); FindInput,
                                PrepareInput, ConfirmInput (R15), TellToolInput (R16), markSubmitted (tell.submitted),
                                eligibilityLine; launchFromOffer deleted (launch_token with offer throws).
@@ -637,6 +636,7 @@ apps/frontend/
                                prepare_submission returns shown_wallet (Ruling 30: the wallet line's
                                wallet, for the agent to echo as record_submission's payout_wallet;
                                record_submission never reads the remembered wallet)
+                               v2.10 item 13: PrepareInput.deploy (DeployField, P9 owner_wallet), deployStep (the deployed line, reply.deploy), deployWalletLine.
     tokens.ts(+test)           tokensFunUrl() (v2.9 T12: TOKENSFUN_API_URL read per call, never at import);
                                v2.10 item 11: tokenDescription (plain description, else the entry's
                                one-liner, else "<Name> on Base"; at most 280 characters), deployToken's description;
