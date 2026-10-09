@@ -14,9 +14,15 @@ import {
   ownerOk,
   productScore,
   reportedFacts,
+  GOOD_ODDS_TRACTION,
+  SIGNAL_WORDS,
+  productOdds,
+  rowOdds,
+  traction,
   type ProductFacts,
   type ProgramFacts,
   type RepoFacts,
+  type Verdict,
 } from './match';
 import { LocalReposInput, ReportedRepoInput, reportedChain, reportedDate, reportedUrl } from './match-projects';
 
@@ -699,4 +705,52 @@ test('Task 1 review: on a multi-chain program a credited chain wins over a menti
   const chains = { base: detectChains(wagmi).base!, arc: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' as const } };
   const [v] = matchRepo(repo({ chains, homepage: 'https://app.x', product: product(), live_verified: true }), [multi]);
   assert.equal(v.status, 'likely');
+});
+
+// ---- v2.10 item 6: traction and odds ----
+
+test('3.1 traction: 3·band(tx) + 2·live + band(commits), 0 to 10 (R1); unknown counts score 0', () => {
+  assert.equal(traction({ tx_count: 0, live_ok: false, commits_90d: 0 }), 0);
+  assert.equal(traction({ tx_count: 1, live_ok: true, commits_90d: 1 }), 6);
+  assert.equal(traction({ tx_count: 50, live_ok: true, commits_90d: 10 }), 10);
+  assert.equal(traction({ tx_count: null, live_ok: true, commits_90d: 10 }), 4);
+  assert.equal(traction({ tx_count: 49, live_ok: false, commits_90d: 9 }), 4);
+  assert.equal(traction({ tx_count: null, live_ok: false, commits_90d: null }), 0);
+});
+
+test('3.2 productOdds: product tier and traction 4+ is good; else low with the first reason (R2)', () => {
+  const product = { tier: 'product' as const, missing: [] };
+  assert.deepEqual(productOdds(product, { tx_count: null, live_ok: true, commits_90d: 10 }, 4), { odds: 'good', low_reason: null });
+  // Traction 3: tx 1-49 without a live link, tx 0 with one, unknown tx with one.
+  assert.deepEqual(productOdds(product, { tx_count: 5, live_ok: false, commits_90d: 0 }, 3), { odds: 'low', low_reason: 'live link not loading' });
+  assert.deepEqual(productOdds(product, { tx_count: 0, live_ok: true, commits_90d: 1 }, 3), { odds: 'low', low_reason: 'no users yet' });
+  assert.deepEqual(productOdds(product, { tx_count: null, live_ok: true, commits_90d: 1 }, 3), { odds: 'low', low_reason: 'little recent activity' });
+  // A project-tier repo: its missingSignalNote, even with high traction.
+  const project = { tier: 'project' as const, missing: ['readme' as const] };
+  assert.deepEqual(productOdds(project, { tx_count: 60, live_ok: true, commits_90d: 20 }, 10), { odds: 'low', low_reason: SIGNAL_WORDS.readme });
+  assert.deepEqual(productOdds({ tier: 'project', missing: [] }, { tx_count: 0, live_ok: false, commits_90d: 0 }, 0), {
+    odds: 'low',
+    low_reason: 'not enough signs of a real product yet',
+  });
+});
+
+test('3.3 rowOdds: a good-odds product whose row waits on a chain it only mentions is low, "not deployed yet"', () => {
+  const good = { score: 6, tier: 'product' as const, missing: [], traction: 8, odds: 'good' as const, low_reason: null };
+  const verdict = (missing: Verdict['missing']): Verdict => ({ program_id: 'base-x', program: 'Base X', status: 'after_step', missing, effort: 'hours', note: null });
+  const mention = { base: { mainnet: true, testnet: false, evidence: 'imports base', basis: 'mention' as const } };
+  assert.deepEqual(rowOdds(good, verdict(['mainnet_deploy']), mention), { odds: 'low', low_reason: 'not deployed yet' });
+  // A v2.9 row without basis reads as a mention (R6); a claim is not a mention.
+  assert.deepEqual(rowOdds(good, verdict(['mainnet_deploy']), { base: { mainnet: true, testnet: false, evidence: 'x' } }).odds, 'low');
+  assert.deepEqual(rowOdds(good, verdict(['mainnet_deploy']), { base: { mainnet: true, testnet: false, evidence: CLAIMED_MAINNET, basis: 'mention' } }), { odds: 'good', low_reason: null });
+  assert.deepEqual(rowOdds(good, verdict([]), mention), { odds: 'good', low_reason: null });
+  // The repo's own odds: low with its reason; unscored or older (no odds) reads as low.
+  assert.deepEqual(rowOdds({ ...good, odds: 'low', low_reason: 'no users yet' }, verdict([]), {}), { odds: 'low', low_reason: 'no users yet' });
+  assert.equal(rowOdds({ score: 6, tier: 'product', missing: [] }, verdict([]), {}).odds, 'low');
+  assert.deepEqual(rowOdds(undefined, verdict([]), {}), { odds: 'low', low_reason: 'not enough signs of a real product yet' });
+  // A project-tier repo's reason comes before the mention (R2 order).
+  assert.deepEqual(rowOdds({ score: 4, tier: 'project', missing: ['readme'], odds: 'low', low_reason: SIGNAL_WORDS.readme }, verdict(['mainnet_deploy']), mention), {
+    odds: 'low',
+    low_reason: SIGNAL_WORDS.readme,
+  });
+  assert.equal(GOOD_ODDS_TRACTION, 4);
 });

@@ -2,7 +2,7 @@ import { normalizeRepoUrl, usd } from './campaigns';
 import { NO_CELL } from './no-cell';
 import { endsOf, prizeOf, repoCoinNote, shortWallet } from './entry-text';
 import { shortDate } from './dates';
-import { EFFORT_ORDER, type Chain, type Effort, type Product, type RepoFacts, type Verdict } from './match';
+import { EFFORT_ORDER, NOT_REAL_YET, rowOdds, type Chain, type Effort, type Odds, type Product, type RepoFacts, type Verdict } from './match';
 import { NEEDS_LIVE_PRODUCT, difficultyLabel, levelRank, rowDifficulty, type Difficulty, type Level } from './guide';
 import { moneyText, openMoneyUsd, wonLine } from './pool';
 
@@ -399,6 +399,9 @@ const needsText = (c: Card) =>
 
 const TELL_WHEN_OPENS = 'Want me to tell you when something opens?';
 
+/** v2.10 item 6 (Pre-flight P14): the matched table's heading when every row has low odds (never "fit"). */
+export const LOW_ODDS_HEADING = 'Programs your repos could reach:';
+
 const CHAT_ONLY =
   "I can't build or deploy from here, but I can plan it and write every answer for you to submit. To have it done for you, add EarnKit to a coding agent (Claude Code, Cursor, Codex).";
 
@@ -413,8 +416,31 @@ const noMatch = (r: YourRepos | null) => noRepo(r) || (r !== null && 'error' in 
 
 /** v2.9 A4: a matched row's difficulty (guide.ts rowDifficulty), or null when the program has none. */
 type RowLevel = { level: Level; estimate: boolean } | null;
-/** `key`, `product_score`: the repo's key and score (match-loop.ts recordShown), when matching gave them. */
-export type Fit = { card: Card; repo: string; repo_url: string | null; v: Verdict; row: RowLevel; key: string | null; product_score: number | null };
+/**
+ * `key`, `product_score`: the repo's key and score (match-loop.ts recordShown), when matching gave them.
+ * v2.10 item 6: `odds` and `low_reason` (match.ts rowOdds), and the repo's `traction` (0 when unscored).
+ */
+export type Fit = {
+  card: Card;
+  repo: string;
+  repo_url: string | null;
+  v: Verdict;
+  row: RowLevel;
+  key: string | null;
+  product_score: number | null;
+  odds: Odds;
+  traction: number;
+  low_reason: string | null;
+};
+
+/** v2.10 item 6: a low-odds row's label in its "Your repo" cell. Pure. */
+export const lowOddsCell = (reason: string) => `low odds: ${reason}`;
+
+/** v2.10 item 6: good odds first. Pure. */
+const byOdds = (a: Pick<Fit, 'odds'>, b: Pick<Fit, 'odds'>) => Number(a.odds !== 'good') - Number(b.odds !== 'good');
+/** v2.10 item 6 (Pre-flight P12): whether `a` is the better row for a program: good odds, then traction. Pure. */
+const betterFit = (a: Pick<Fit, 'odds' | 'traction'>, b: Pick<Fit, 'odds' | 'traction'>) =>
+  (byOdds(a, b) || b.traction - a.traction) < 0;
 
 /**
  * v2.9 A4: a matched row's difficulty, from its program level (difficultyOf) and the
@@ -476,7 +502,7 @@ const programCell = (c: Card, entered: Set<string>, noRepoYet: boolean) =>
  * investment, and never a program that counts only new work when the repo is existing work (its
  * verdict still needs new work). Pure.
  */
-const qualifies = (r: Fit) => !r.card.investment && !r.v.missing.includes('new_work');
+const qualifies = (r: Fit) => r.odds === 'good' && !r.card.investment && !r.v.missing.includes('new_work');
 
 /**
  * What the first message shows: the programs the builder's repos fit (each curated program once,
@@ -492,19 +518,36 @@ export function layout(m: Pick<FirstMessage, 'cards' | 'repos' | 'entries'>, don
   const fits = m.repos && 'fits' in m.repos ? m.repos.fits : [];
   const matched = new Map<string, Fit>();
   for (const f of fits)
-    for (const v of [...f.verdicts].sort((a, b) => quickness(a) - quickness(b)))
-      if (v.status !== 'no' && curated(v.program_id) && !matched.has(v.program_id))
-        matched.set(v.program_id, {
-          card: byId.get(v.program_id)!,
-          repo: f.repo,
-          repo_url: f.repo_url,
-          v,
-          row: rowLevel(byId.get(v.program_id)!, f, v),
-          key: f.key ?? null,
-          product_score: f.product?.score ?? null,
-        });
-  // v2.9 A4: by the row's difficulty (Easy first), then prize, then the quicker fit.
-  const rows = [...matched.values()].sort((a, b) => enteredLast(a.card, b.card) || byRowLevel(a, b) || byPrize(a.card, b.card) || quickness(a.v) - quickness(b.v));
+    for (const v of [...f.verdicts].sort((a, b) => quickness(a) - quickness(b))) {
+      if (v.status === 'no' || !curated(v.program_id)) continue;
+      const odds = rowOdds(f.product, v, f.facts?.chains ?? {});
+      const fit: Fit = {
+        card: byId.get(v.program_id)!,
+        repo: f.repo,
+        repo_url: f.repo_url,
+        v,
+        row: rowLevel(byId.get(v.program_id)!, f, v),
+        key: f.key ?? null,
+        product_score: f.product?.score ?? null,
+        odds: odds.odds,
+        traction: f.product?.traction ?? 0,
+        low_reason: odds.low_reason,
+      };
+      // v2.10 item 6 (Pre-flight P12): per program, the repo with good odds, then more traction; else the first.
+      const kept = matched.get(v.program_id);
+      if (!kept || betterFit(fit, kept)) matched.set(v.program_id, fit);
+    }
+  // v2.10 item 6: good odds first, then traction (high first); then v2.9 A4: by the row's difficulty
+  // (Easy first), then prize, then the quicker fit.
+  const rows = [...matched.values()].sort(
+    (a, b) =>
+      enteredLast(a.card, b.card) ||
+      byOdds(a, b) ||
+      b.traction - a.traction ||
+      byRowLevel(a, b) ||
+      byPrize(a.card, b.card) ||
+      quickness(a.v) - quickness(b.v),
+  );
   const rest = m.cards
     .filter((c) => !c.sponsored && !matched.has(c.id))
     .sort((a, b) => enteredLast(a, b) || byEaseThenPrize(a, b));
@@ -558,19 +601,21 @@ export function presentFirstMessage(given: FirstMessage): string {
   else if (rows.length > 0) {
     // v2.9 F21: the same function as the site's figure, over the rows the builder qualifies for
     // now (v2.8.1 §B10).
+    // v2.10 item 6: a low-odds row is never counted, and never called a fit (Pre-flight P14).
     const fig = moneyText(openMoneyUsd(rows.filter(qualifies).map((r) => r.card), m.now));
+    const anyGood = rows.some((r) => r.odds === 'good');
     sections.push(
-      `${fig ? `EarnKit matches you to ${fig} in prizes you qualify for.` : 'Your repos fit these open programs:'}\n\n` +
+      `${fig ? `EarnKit matches you to ${fig} in prizes you qualify for.` : anyGood ? 'Your repos fit these open programs:' : LOW_ODDS_HEADING}\n\n` +
         table(
           ['Program', 'Prize', 'Difficulty', 'Ends', 'Your repo'],
-          rows.map(({ card, repo, v, row }) => {
+          rows.map(({ card, repo, v, row, odds, low_reason }) => {
             // v2.8.1 §C13: no "(no builder bonus: …)" per row; the bonus note is said once, in Also qualifies.
             return [
               programCell(card, entered, false),
               prizeOf(card),
               rowCell(card, row),
               endsOf(card),
-              v.status === 'likely' || !v.note ? repo : `${repo}, ${v.note}`,
+              odds === 'low' ? `${repo}, ${lowOddsCell(low_reason ?? NOT_REAL_YET)}` : v.status === 'likely' || !v.note ? repo : `${repo}, ${v.note}`,
             ];
           }),
         ),
@@ -711,6 +756,7 @@ export function tokenOfferFit(given: FirstMessage, blocked: Set<string> = new Se
     const p = product(r.repo_url);
     const key = normalizeRepoUrl(r.repo_url);
     return (
+      r.odds === 'good' &&
       p?.tier === 'product' &&
       !p.missing.includes('owned') &&
       r.v.status !== 'no' &&
@@ -738,9 +784,9 @@ const buildNew = (c: Card): Offer => ({
   campaign: false,
 });
 
-/** v2.8.1 §B7, Ruling F5; v2.9 A4: the fit to offer: the easiest row first, then the top prize, then the quicker fit. Pure. */
+/** v2.8.1 §B7, Ruling F5; v2.9 A4: the fit to offer: good odds first (v2.10 item 6), then the easiest row, then the top prize, then the quicker fit. Pure. */
 const bestFit = (rows: Fit[]): Fit | undefined =>
-  [...rows].sort((a, b) => byRowLevel(a, b) || byPrize(a.card, b.card) || quickness(a.v) - quickness(b.v))[0];
+  [...rows].sort((a, b) => byOdds(a, b) || byRowLevel(a, b) || byPrize(a.card, b.card) || quickness(a.v) - quickness(b.v))[0];
 
 /** v2.8.1 §B7: the program to offer without a fit: the Easy one with the most money, else programs needing forms last. Pure. */
 const bestCard = (cards: Card[]): Card | undefined =>

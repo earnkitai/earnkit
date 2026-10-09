@@ -17,6 +17,7 @@ import {
   placeholderHost,
   placeholderLink,
   rpcFor,
+  txCount,
   type CheckCache,
 } from './verify';
 
@@ -174,7 +175,7 @@ test('entryVerified (no DB): one probe and up to 2 getCodes; no address means no
     contract: null,
     needsContract: null,
   });
-  assert.deepEqual(ENTRY_BUDGET, { probes: 1, getCodes: 2 });
+  assert.deepEqual(ENTRY_BUDGET, { probes: 1, getCodes: 2, txCounts: 1 });
 });
 
 test('G15 I1 (no DB): a getCode that throws (RPC error, timeout, 429) is null, never cached; a real 0x is false and cached', async () => {
@@ -278,4 +279,50 @@ test('Part 1 re-review N2 (no DB): one address with no code and one whose check 
   };
   const r = await entryVerified({ liveUrl: null, needsContract: 'arc', addresses: [wallet, contract] }, { getCode, cache });
   assert.equal(r.contract, null);
+});
+
+// ---- v2.10 item 6 (R4): Blockscout transaction counts ----
+
+test('3.4 txCount: Base only, cached 24 h with n under txcount:base:<addr>; a failed read or no budget is null and caches nothing', async (t) => {
+  const log = console.error;
+  console.error = () => {};
+  t.after(() => {
+    console.error = log;
+  });
+  const rows = new Map<string, { ok: boolean; checked_at: Date; note?: string | null; n?: number | null }>();
+  const cache: CheckCache = {
+    get: async (k) => rows.get(k) ?? null,
+    set: async (k, ok, now, extra) => void rows.set(k, { ok, checked_at: now, ...extra }),
+  };
+  const a = '0xAbCdEf0123456789abcdef0123456789ABCDEF01';
+  const urls: string[] = [];
+  const blockscout = async (url: string) => (urls.push(url), { transactions_count: '57' });
+  assert.equal(await txCount('base', a, { blockscout, cache }), 57);
+  assert.deepEqual(urls, [`https://base.blockscout.com/api/v2/addresses/${a.toLowerCase()}/counters`]);
+  const row = rows.get(`txcount:base:${a.toLowerCase()}`);
+  assert.equal(row?.ok, true);
+  assert.equal(row?.n, 57);
+  // The second call reads the cache (no fetch), even with no budget left.
+  assert.equal(await txCount('base', a, { blockscout, cache, budget: new CheckBudget({ probes: 0, getCodes: 0, txCounts: 0 }) }), 57);
+  assert.equal(urls.length, 1);
+  // Older than 24 h: read again.
+  assert.equal(await txCount('base', a, { blockscout, cache, now: new Date(Date.now() + 25 * 3_600_000) }), 57);
+  assert.equal(urls.length, 2);
+  // Not Base: null, no read.
+  assert.equal(await txCount('arc', a, { blockscout, cache }), null);
+  assert.equal(urls.length, 2);
+  // A throwing read: null, nothing cached.
+  const b = '0x1111111111111111111111111111111111111112';
+  assert.equal(await txCount('base', b, { blockscout: async () => { throw new Error('429'); }, cache }), null);
+  assert.equal(await txCount('base', b, { blockscout: async () => ({}), cache }), null, 'no count in the answer');
+  assert.equal(rows.has(`txcount:base:${b}`), false);
+  // No budget left: null, no read.
+  assert.equal(await txCount('base', b, { blockscout, cache, budget: new CheckBudget({ probes: 0, getCodes: 0, txCounts: 0 }) }), null);
+  assert.equal(urls.length, 2);
+  // One slot: one read.
+  const one = new CheckBudget({ probes: 0, getCodes: 0, txCounts: 1 });
+  assert.equal(await txCount('base', b, { blockscout, cache, budget: one }), 57);
+  assert.equal(await txCount('base', '0x1111111111111111111111111111111111111113', { blockscout, cache, budget: one }), null);
+  assert.deepEqual(LIST_BUDGET.txCounts, 2);
+  assert.deepEqual(ENTRY_BUDGET.txCounts, 1);
 });

@@ -15,8 +15,10 @@ import {
   matchRepo,
   ownerOk,
   missingSignalNote,
+  productOdds,
   productScore,
   reportedFacts,
+  traction,
   pickFiles,
   type Chain,
   type Claim,
@@ -25,6 +27,7 @@ import {
   type ProgramFacts,
   type RepoFacts,
   type ReportedRepo,
+  type TractionFacts,
   type Verdict,
 } from './match';
 import { openProgramFacts } from './programs';
@@ -34,8 +37,10 @@ import { placeholderLink } from './placeholder';
 import { githubRepo } from './campaigns';
 import { repoKey } from './answer-bank';
 import type { SaidRepo } from './builder-memory';
+import { EARNKIT_STARTER_NAMES } from './earnkit-orgs';
 import {
   CheckBudget,
+  ENTRY_BUDGET,
   GETCODE_PER_REPO,
   LIST_BUDGET,
   contractDeployed,
@@ -43,6 +48,7 @@ import {
   peekContract,
   peekLive,
   rpcFor,
+  txCount,
   type CheckDeps,
 } from './verify';
 
@@ -337,6 +343,15 @@ async function readRepoChains(repo: Repo) {
     }),
   );
   const readme = blobs.find((t) => /^readme(\.(md|markdown|txt|rst))?$/i.test(t.path)) ?? null;
+  // v2.10 item 6 (R7): the root package.json's name, from the files already read (for starters).
+  const pkg = files.find((f) => f.path === 'package.json');
+  let packageName: string | null = null;
+  try {
+    const name = pkg?.text ? (JSON.parse(pkg.text) as { name?: unknown }).name : null;
+    packageName = typeof name === 'string' ? name.slice(0, 200) : null;
+  } catch {
+    packageName = null;
+  }
   const addresses = [
     ...new Set(files.flatMap((f) => f.text.match(ADDRESS) ?? []).map((a) => a.toLowerCase())),
   ]
@@ -349,17 +364,40 @@ async function readRepoChains(repo: Repo) {
     complete,
     readme: readme ? { path: readme.path, size: readme.size ?? 0 } : null,
     addresses,
+    packageName,
   };
 }
 
 /**
- * v2.9 A2: a root README of 1.5 KB or more whose first 2 KB (one raw read) is not a framework's
- * default text. Null when it couldn't be read.
+ * v2.9 A2: `counts`: a root README of 1.5 KB or more whose first 2 KB (one raw read) is not a
+ * framework's default text; null when it couldn't be read. v2.10 item 6 (Pre-flight P27): the same
+ * read, also under 1.5 KB, gives the README's first `#` heading (for starters).
  */
-async function readmeCounts(repo: Repo, readme: { path: string; size: number } | null): Promise<boolean | null> {
-  if (!readme || readme.size < README_MIN_BYTES) return false;
+async function readmeCounts(
+  repo: Repo,
+  readme: { path: string; size: number } | null,
+): Promise<{ counts: boolean | null; heading: string | null }> {
+  if (!readme) return { counts: false, heading: null };
   const text = await rawFile(repo, readme.path, { headers: { Range: 'bytes=0-2047' } });
-  return text === null ? null : !DEFAULT_README.test(text.slice(0, 2048));
+  const head = text?.slice(0, 2048) ?? '';
+  const heading = head.match(/^#[ \t]+(.+?)[ \t#]*$/m)?.[1] ?? null;
+  if (readme.size < README_MIN_BYTES) return { counts: false, heading };
+  return { counts: text === null ? null : !DEFAULT_README.test(head), heading };
+}
+
+/** v2.10 item 6: a name folded for comparison: lowercase, no spaces, dashes or punctuation. Pure. */
+const foldName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '');
+
+/**
+ * v2.10 item 6 (R7): a repo whose root package.json name or README first heading is one of EarnKit's
+ * chain-kit examples (`names`, default EARNKIT_STARTER_NAMES), with case, spaces and dashes folded. Pure.
+ */
+export function starterRepo(
+  r: { packageName: string | null; heading: string | null },
+  names: readonly string[] = EARNKIT_STARTER_NAMES,
+): boolean {
+  const known = new Set(names.map(foldName).filter(Boolean));
+  return [r.packageName, r.heading].some((n) => n != null && known.has(foldName(n)));
 }
 
 export const repoChains = async (repo: Repo): Promise<Detection> =>
@@ -640,6 +678,8 @@ export type MatchDeps = {
   /** Link probe, getCode and url_checks cache; one LIST_BUDGET is added per call. */
   checks?: CheckDeps;
   now?: Date;
+  /** v2.10 item 6 (Pre-flight P27): EarnKit's starter names (default EARNKIT_STARTER_NAMES). */
+  starters?: readonly string[];
 };
 
 /** What scoring one repo needs: who the builder is, whether the repo counts as theirs, one shared budget. */
@@ -653,6 +693,8 @@ type ScoreCtx = {
   local?: ReportedRepo;
   /** v2.9 A3: what the builder said about this repo, applied before the link and contract checks (Pre-flight P15). */
   said?: SaidRepo;
+  /** v2.10 item 6: EarnKit's starter names (MatchDeps.starters). */
+  starters?: readonly string[];
 };
 
 const within = (iso: string | undefined | null, days: number, now: Date) =>
@@ -677,7 +719,14 @@ const creditedMainnets = (d: Detection) =>
   (Object.entries(d) as [Chain, Detection[Chain]][]).filter(([, v]) => creditsMainnet(v)).map(([c]) => c);
 
 /** `withCode` (v2.9 A3): the mainnets where a contract candidate has code (it verifies a mainnet claim; v2.10: or a mention). */
-type Deployed = { live: boolean; deployed: boolean; unchecked: boolean; withCode: Chain[] };
+type Deployed = {
+  live: boolean;
+  deployed: boolean;
+  unchecked: boolean;
+  withCode: Chain[];
+  /** v2.10 item 6: the largest Blockscout transaction count read for the repo's contracts with code; null when none was read. */
+  tx_count: number | null;
+};
 
 /** One repo ready for its link and contract checks, and how to finish its facts with their answers. */
 type Prepared = {
@@ -689,7 +738,8 @@ type Prepared = {
    * checked even when the live link loads, since code there is what credits them.
    */
   claimed: Chain[];
-  finish: (d: Deployed) => { repo: RepoFacts; verdicts: Verdict[] };
+  /** Async: a GitHub repo's cache row is written here, with the traction and odds of this scoring. */
+  finish: (d: Deployed) => Promise<{ repo: RepoFacts; verdicts: Verdict[] }>;
 };
 
 const contractPairs = (addresses: string[], chains: Chain[], claimed: Chain[] = []) =>
@@ -699,19 +749,31 @@ const contractPairs = (addresses: string[], chains: Chain[], claimed: Chain[] = 
     .sort(([a], [b]) => Number(claimed.includes(b)) - Number(claimed.includes(a)))
     .slice(0, GETCODE_PER_REPO);
 
+/** v2.10 item 6: the chains with a free Blockscout (txCount): their contracts are checked for code even once the link loads. */
+const countedChain = (c: Chain) => c === 'base';
+
 /**
  * v2.9 A2, Ruling G5: deployed means the live link loads from here, or one of the repo's contract
  * candidates has code on a detected mainnet. `list` is in recency order. The probe slots, then the
  * getCode slots, go to the newest repos first, deterministically (cached answers take none); then
  * the checks run in parallel, each repo on its own slots. A check with no slot is `unchecked`,
- * never a failure. Never throws.
+ * never a failure. v2.10 item 6 (R4): then, newest repos first, Blockscout counters for the
+ * contracts with code on Base, within `budget.txCounts` (cached counts take no slot); a repo's
+ * `tx_count` is the largest count read. `budget`: LIST_BUDGET, or ENTRY_BUDGET for one repo
+ * (Pre-flight P27). Never throws.
  */
-async function runChecks(list: Prepared[], checks: CheckDeps): Promise<Deployed[]> {
-  // v2.9 A3: once the live link loads, only a claimed chain's contracts are still worth a check.
-  const pairsOf = (p: Prepared, live: boolean | null) => (live === true ? p.pairs.filter(([c]) => p.claimed.includes(c)) : p.pairs);
+async function runChecks(
+  list: Prepared[],
+  checks: CheckDeps,
+  budget: { probes: number; getCodes: number; txCounts: number } = LIST_BUDGET,
+): Promise<Deployed[]> {
+  // v2.9 A3: once the live link loads, only a claimed chain's contracts are still worth a check;
+  // v2.10 item 6: and Base's, whose code is what a transaction count needs.
+  const pairsOf = (p: Prepared, live: boolean | null) =>
+    live === true ? p.pairs.filter(([c]) => p.claimed.includes(c) || countedChain(c)) : p.pairs;
   const items = list.map((p, i) => ({ p, i }));
   const livePeek = await mapLimit(items, 6, ({ p }) => (p.homepage ? peekLive(p.homepage, checks) : Promise.resolve(false)));
-  let probes = LIST_BUDGET.probes;
+  let probes = budget.probes;
   const probeSlots = items.map(({ p, i }) => (p.homepage && livePeek[i] === null && probes > 0 ? (probes--, 1) : 0));
   const live = await mapLimit(items, 6, ({ p, i }) =>
     p.homepage
@@ -719,26 +781,40 @@ async function runChecks(list: Prepared[], checks: CheckDeps): Promise<Deployed[
       : Promise.resolve(false as boolean | null),
   );
   const codePeek = await mapLimit(items, 6, ({ p, i }) => Promise.all(pairsOf(p, live[i]).map(([c, a]) => peekContract(c, a, checks))));
-  let getCodes = LIST_BUDGET.getCodes;
+  let getCodes = budget.getCodes;
   const codeSlots = codePeek.map((peeks) =>
     peeks.reduce((n, v) => (v === null && getCodes > 0 ? (getCodes--, n + 1) : n), 0),
   );
-  return mapLimit(items, 6, async ({ p, i }): Promise<Deployed> => {
-    const budget = new CheckBudget({ probes: 0, getCodes: codeSlots[i] });
+  const done = await mapLimit(items, 6, async ({ p, i }) => {
+    const slots = new CheckBudget({ probes: 0, getCodes: codeSlots[i] });
     const withCode: Chain[] = [];
+    const counted: string[] = [];
     let deployed = live[i] === true;
     let unchecked = live[i] === null;
     for (const [chain, address] of pairsOf(p, live[i])) {
-      // Deployed already: only an unverified claimed chain is still worth a check.
-      if (deployed && (!p.claimed.includes(chain) || withCode.includes(chain))) continue;
-      const r = await contractDeployed(chain, address, { ...checks, budget });
+      // Deployed already: only an unverified claimed chain, or a Base contract (its count), is still worth a check.
+      if (deployed && !countedChain(chain) && (!p.claimed.includes(chain) || withCode.includes(chain))) continue;
+      const r = await contractDeployed(chain, address, { ...checks, budget: slots });
       if (r === true) {
         deployed = true;
-        withCode.push(chain);
+        if (!withCode.includes(chain)) withCode.push(chain);
+        if (countedChain(chain)) counted.push(address);
       } else if (r === null) unchecked = true;
     }
-    return { live: live[i] === true, deployed, unchecked: !deployed && unchecked, withCode };
+    return { live: live[i] === true, deployed, unchecked: !deployed && unchecked, withCode, counted };
   });
+  // v2.10 item 6 (R4): one shared budget, newest repos first (sequential, so the order is deterministic).
+  const txSlots = new CheckBudget({ probes: 0, getCodes: 0, txCounts: budget.txCounts });
+  const out: Deployed[] = [];
+  for (const { counted, ...d } of done) {
+    let tx: number | null = null;
+    for (const address of counted) {
+      const n = await txCount('base', address, { ...checks, budget: txSlots });
+      if (n !== null) tx = Math.max(tx ?? 0, n);
+    }
+    out.push({ ...d, tx_count: tx });
+  }
+  return out;
 }
 
 /**
@@ -799,27 +875,34 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): P
   let cacheable = true;
   let chains = cached?.chains;
   let own: CachedProduct | null | undefined = cached?.product;
-  if (!chains || !own) {
+  // v2.10 item 6: a row cached before starters were read is read again.
+  const reread = !chains || !own || own.starter === undefined;
+  if (reread) {
     const read = await readRepoChains(repo);
     chains = read.chains;
     cacheable = read.complete;
     const readme = await readmeCounts(repo, read.readme);
-    if (readme === null) cacheable = false;
+    if (readme.counts === null) cacheable = false;
+    // v2.10 item 6 (R7): an EarnKit chain-kit example loses `original`.
+    const starter = starterRepo({ packageName: read.packageName, heading: readme.heading }, ctx.starters);
     own = {
       young: within(repo.created_at, 365, ctx.now),
-      original: !unoriginal(repo),
-      readme: readme === true,
+      original: !unoriginal(repo) && !starter,
+      readme: readme.counts === true,
       addresses: read.addresses,
+      starter,
     };
     changed = true;
   }
+  const files: CachedProduct = own!;
+  const readChains: Detection = chains!;
   const commitsSinceKnown = { ...cached?.commits_since };
   const commits_in_window: Record<string, boolean> = {};
   for (const p of programs) {
     if (
       p.existing_work === 'new_work_only' &&
       p.starts_at &&
-      (p.any_chain || p.chains.some((c) => chains[c]))
+      (p.any_chain || p.chains.some((c) => readChains[c]))
     ) {
       const key = p.starts_at.toISOString();
       if (!(key in commitsSinceKnown)) {
@@ -833,18 +916,21 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): P
       commits_in_window[p.id] = commitsSinceKnown[key] ?? false;
     }
   }
-  if (changed && cacheable)
-    await ctx.cache.save(
-      repo.full_name,
-      repo.pushed_at,
-      { chains, commits_since: commitsSinceKnown, product: own },
-      cached?.product ? cached.fetched_at : undefined,
-    );
+  // Written in finish, with this scoring's traction and odds (one write, only when something changed).
+  const save = (scored: Pick<CachedProduct, 'traction' | 'odds'>) =>
+    cacheable && (changed || files.traction !== scored.traction || files.odds !== scored.odds)
+      ? ctx.cache.save(
+          repo.full_name,
+          repo.pushed_at,
+          { chains: readChains, commits_since: commitsSinceKnown, product: { ...files, ...scored } },
+          reread || !cached ? undefined : cached.fetched_at,
+        )
+      : Promise.resolve();
 
   // v2.9 A5: a placeholder homepage is no homepage. Plan Ruling 2: GitHub's wins, else the local
   // link, which is a claim (like a mainnet only the local report names).
   const ownHomepage = repo.homepage && !placeholderLink(repo.homepage) ? repo.homepage : null;
-  const reported = withReportedChains(chains, ctx.local);
+  const reported = withReportedChains(readChains, ctx.local);
   const claims: Claim[] = [
     ...(!ownHomepage && ctx.local?.live_url ? (['live'] as const) : []),
     ...(Object.values(reported).some((c) => c?.mainnet && c.evidence === CLAIMED_MAINNET) ? (['mainnet'] as const) : []),
@@ -870,17 +956,24 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): P
   const author = ctx.builder && ownerOf(repo).toLowerCase() !== ctx.builder.toLowerCase() ? ctx.builder : null;
   const commits_90d = await commitsRead(repo, ctx.now, author);
   const active = (commits_90d ?? 0) > 0 || (!author && within(repo.pushed_at, 90, ctx.now));
-  const signals = { active, young: own.young || active, original: own.original, readme: own.readme, owned: ctx.owned };
+  const signals = { active, young: files.young || active, original: files.original, readme: files.readme, owned: ctx.owned };
   return {
     homepage,
-    pairs: contractPairs([...new Set([...own.addresses, ...(ctx.local?.contracts ?? [])])], mainnetChains(allChains), claimed),
+    pairs: contractPairs([...new Set([...files.addresses, ...(ctx.local?.contracts ?? [])])], mainnetChains(allChains), claimed),
     claimed,
-    finish: ({ live, deployed, unchecked, withCode }) => {
-      const product = productScore({ ...signals, deployed }, unchecked ? ['deployed'] : []);
+    finish: async ({ live, deployed, unchecked, withCode, tx_count }) => {
+      const product = scored(productScore({ ...signals, deployed }, unchecked ? ['deployed'] : []), { tx_count, live_ok: live, commits_90d });
+      await save({ traction: product.traction, odds: product.odds });
       const facts: RepoFacts = { ...confirmMainnets(base, withCode), product, live_verified: live, commits_90d };
       return { repo: facts, verdicts: matchRepo(facts, programs) };
     },
   };
+}
+
+/** v2.10 item 6: a product score with its traction and odds (productOdds). Pure. */
+function scored(p: Product, t: TractionFacts): Product {
+  const score = traction(t);
+  return { ...p, traction: score, ...productOdds(p, t, score) };
 }
 
 /**
@@ -897,14 +990,19 @@ function checkLocal(r: ReportedRepo, programs: ProgramFacts[], ctx: Pick<ScoreCt
     homepage: facts.homepage,
     pairs: contractPairs(r.contracts ?? [], mainnetChains(facts.chains), claimed),
     claimed,
-    finish: ({ live, deployed, unchecked, withCode }) => {
+    finish: async ({ live, deployed, unchecked, withCode, tx_count }) => {
       // Review M9: EarnKit never reads a local repo's README, so it is never named as missing.
-      const product = productScore(
-        { active, young: active, original: !TUTORIAL.test(r.name), readme: false, deployed, owned: ctx.owned },
-        unchecked ? ['deployed', 'readme'] : ['readme'],
+      // v2.10 R3: EarnKit never reads its commits either: a last commit within 90 days is band 1.
+      const commits_90d = r.last_commit_at !== undefined && within(r.last_commit_at, 90, ctx.now) ? 1 : 0;
+      const product = scored(
+        productScore(
+          { active, young: active, original: !TUTORIAL.test(r.name), readme: false, deployed, owned: ctx.owned },
+          unchecked ? ['deployed', 'readme'] : ['readme'],
+        ),
+        { tx_count, live_ok: live, commits_90d },
       );
-      const scored: RepoFacts = { ...confirmMainnets(facts, withCode), product, live_verified: live };
-      return { repo: scored, verdicts: matchRepo(scored, programs) };
+      const repo: RepoFacts = { ...confirmMainnets(facts, withCode), product, live_verified: live, commits_90d };
+      return { repo, verdicts: matchRepo(repo, programs) };
     },
   };
 }
@@ -998,11 +1096,11 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
   const cache = deps.cache ?? { load: loadRepoFacts, save: saveRepoFacts };
   // The reads run in parallel; then one LIST_BUDGET of checks, newest repos first (Ruling G5).
   const prepared = await mapLimit(toScore, 6, async (c) => {
-    const ctx: ScoreCtx = { builder, owned: c.owned, checks, now, cache, local: c.local, said: saidOf(c) };
+    const ctx: ScoreCtx = { builder, owned: c.owned, checks, now, cache, local: c.local, said: saidOf(c), starters: deps.starters };
     return c.github ? checkRepo(c.github, programs, ctx) : checkLocal(c.local, programs, ctx);
   });
   const deployed = await runChecks(prepared, checks);
-  const results = prepared.map((p, i) => ({ key: toScore[i].key, ...p.finish(deployed[i]) }));
+  const results = await Promise.all(prepared.map(async (p, i) => ({ key: toScore[i].key, ...(await p.finish(deployed[i])) })));
   // Builders want what can earn: "no" verdicts and repos with only those are left out.
   const fits = results
     .map((r) => ({
@@ -1020,8 +1118,11 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
       facts: r.repo,
     }))
     .filter((r) => r.verdicts.length > 0)
+    // v2.10 item 6 (Pre-flight P12): good odds first, then traction, then likely first, then the score.
     .sort(
       (a, b) =>
+        Number(a.product.odds !== 'good') - Number(b.product.odds !== 'good') ||
+        (b.product.traction ?? 0) - (a.product.traction ?? 0) ||
         Number(!a.verdicts.some((v) => v.status === 'likely')) -
           Number(!b.verdicts.some((v) => v.status === 'likely')) || b.product.score - a.product.score,
     );
@@ -1041,8 +1142,10 @@ export async function checkEligibility(ref: string, programId: string, deps: Mat
     checks,
     now,
     cache: deps.cache ?? { load: loadRepoFacts, save: saveRepoFacts },
+    starters: deps.starters,
   });
-  const { repo: facts, verdicts } = prepared.finish((await runChecks([prepared], checks))[0]);
+  // v2.10 R4 (Pre-flight P27): one repo, one ENTRY_BUDGET (1 Blockscout read).
+  const { repo: facts, verdicts } = await prepared.finish((await runChecks([prepared], checks, ENTRY_BUDGET))[0]);
   const [v] = verdicts;
   if (!v)
     return {

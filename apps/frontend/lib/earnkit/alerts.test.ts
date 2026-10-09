@@ -10,6 +10,7 @@ import {
   SCHEDULE_NOTE,
   NO_SKIP,
   alertable,
+  repoCanWin,
   newProgramLines,
   newProgramOf,
   type FitRepo,
@@ -764,4 +765,16 @@ test('Ruling C23: a new investment program alert reads "up to $1M investment", n
   assert.equal(p.investment, true);
   assert.equal(alertable(p, [tipjar()], NO_SKIP, NOW_ALERT), false);
   assert.equal(newProgramOf({ ...f, investment: false, opened_at: t(5) } as unknown as Parameters<typeof newProgramOf>[0]).prize, 'up to $1M');
+});
+
+// ---- v2.10 item 6, Pre-flight P13: low odds are never alerted ----
+
+test('3.10 repoCanWin is false for a low-odds repo, even on a likely verdict; and for a row on a chain only mentioned', () => {
+  const p = prog('base-new', 1);
+  const good = { score: 6, tier: 'product' as const, missing: [], traction: 8, odds: 'good' as const, low_reason: null };
+  assert.equal(repoCanWin(p, tipjar({ product: good })), true, 'likely and good odds');
+  assert.equal(repoCanWin(p, tipjar({ product: { ...good, traction: 0, odds: 'low', low_reason: 'no users yet' } })), false);
+  const mentioned = tipjar({ product: good, chains: { base: { mainnet: true, testnet: false, evidence: 'imports base', basis: 'mention' } } });
+  assert.equal(repoCanWin(p, mentioned), false, 'a mention-only chain row (deploy to Base first) is low odds');
+  assert.equal(alertable(p, [mentioned], NO_SKIP, NOW_ALERT), false);
 });

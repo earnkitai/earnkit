@@ -72,13 +72,18 @@ export function rpcFor(chain: Chain, env: Record<string, string | undefined> = p
   return set || RPC_DEFAULTS[chain] || null;
 }
 
-/** How many live link probes and getCode calls one tool call may make (Pre-flight P25). */
+/**
+ * How many live link probes, getCode calls and (v2.10 item 6) Blockscout counter reads one tool
+ * call may make (Pre-flight P25). `txCounts` defaults to 0 (Pre-flight P27).
+ */
 export class CheckBudget {
   private probes: number;
   private getCodes: number;
-  constructor(limits: { probes: number; getCodes: number }) {
+  private txCounts: number;
+  constructor(limits: { probes: number; getCodes: number; txCounts?: number }) {
     this.probes = limits.probes;
     this.getCodes = limits.getCodes;
+    this.txCounts = limits.txCounts ?? 0;
   }
   takeProbe(): boolean {
     if (this.probes <= 0) return false;
@@ -90,12 +95,17 @@ export class CheckBudget {
     this.getCodes--;
     return true;
   }
+  takeTxCount(): boolean {
+    if (this.txCounts <= 0) return false;
+    this.txCounts--;
+    return true;
+  }
 }
 
-/** list_programs: at most 5 probes and 6 getCode calls per call. */
-export const LIST_BUDGET = { probes: 5, getCodes: 6 };
-/** One entry step (prepare_submission, confirm_entry, record_submission). */
-export const ENTRY_BUDGET = { probes: 1, getCodes: 2 };
+/** list_programs: at most 5 probes, 6 getCode calls and 2 Blockscout counter reads per call (R4). */
+export const LIST_BUDGET = { probes: 5, getCodes: 6, txCounts: 2 };
+/** One entry step (prepare_submission, confirm_entry, record_submission); get_program's eligibility check reads 1 counter (R4). */
+export const ENTRY_BUDGET = { probes: 1, getCodes: 2, txCounts: 1 };
 /** At most 2 contracts are checked per repo. */
 export const GETCODE_PER_REPO = 2;
 
@@ -109,6 +119,8 @@ export type CheckCache = {
 export type CheckDeps = {
   probe?: (url: string) => Promise<void>;
   getCode?: (rpc: string, address: string) => Promise<string>;
+  /** v2.10 item 6: a Blockscout counters read (GET <url>); throws on any failure. */
+  blockscout?: (url: string) => Promise<{ transactions_count?: string }>;
   now?: Date;
   budget?: CheckBudget;
   cache?: CheckCache;
@@ -269,6 +281,51 @@ export async function contractDeployed(chain: Chain, address: string, deps: Chec
     run: async () => ({ ok: hasCode(await getCode(rpc, addr)) }),
     errorIsUnchecked: true,
   }).then((r) => r.ok);
+}
+
+/**
+ * v2.10 item 6: Blockscout's free API, per chain. Only Base has a known free instance
+ * (https://base.blockscout.com, checked 2026-10-09); elsewhere the count is unknown.
+ */
+const BLOCKSCOUT: Partial<Record<Chain, string>> = { base: 'https://base.blockscout.com' };
+
+const blockscoutFetch = async (url: string): Promise<{ transactions_count?: string }> => {
+  const res = await fetch(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(5_000) });
+  if (!res.ok) throw new Error(`blockscout ${res.status}`);
+  return (await res.json()) as { transactions_count?: string };
+};
+
+/**
+ * v2.10 item 6 (R4): how many transactions an address has on `chain` (Blockscout's
+ * `/api/v2/addresses/<addr>/counters`). Base only. A read is cached 24 h in url_checks (key
+ * `txcount:<chain>:<lowercase addr>`, the count in `n`); a failed read is not cached. Null on
+ * another chain, on any error, or with no budget left. Never throws.
+ */
+export async function txCount(chain: Chain, address: string, deps: CheckDeps = {}): Promise<number | null> {
+  const host = BLOCKSCOUT[chain];
+  if (!host || !isAddress(address, { strict: false })) return null;
+  const addr = address.toLowerCase();
+  const key = `txcount:${chain}:${addr}`;
+  const cache = deps.cache ?? checkDefaults.cache ?? dbCache;
+  const now = deps.now ?? new Date();
+  const row = await cache.get(key).catch((err: unknown) => {
+    console.error(`[verify] txcount cache read ${errorClass(err)}`);
+    return null;
+  });
+  if (row?.ok && typeof row.n === 'number' && cacheFresh(row, now)) return row.n;
+  if (deps.budget && !deps.budget.takeTxCount()) return null;
+  const read = deps.blockscout ?? checkDefaults.blockscout ?? blockscoutFetch;
+  let n: number;
+  try {
+    const counters = await read(`${host}/api/v2/addresses/${addr}/counters`);
+    n = Number(counters?.transactions_count);
+    if (!Number.isSafeInteger(n) || n < 0) throw new Error('no count');
+  } catch (err) {
+    console.error(`[verify] txcount ${errorClass(err)}`);
+    return null;
+  }
+  await cache.set(key, true, now, { n }).catch((err: unknown) => console.error(`[verify] txcount cache write ${errorClass(err)}`));
+  return n;
 }
 
 const ADDRESS = /0x[0-9a-fA-F]{40}(?![0-9a-fA-F])/g;

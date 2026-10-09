@@ -41,7 +41,7 @@ test('4.11 recordShown keeps one row per day; updateMatchFloors writes only at 3
       VALUES (${id}, 'o', ${id}, 'd', 'https://x', 'https://x', 'r', 's', 'active', 'allowed', '{base}')`;
   try {
     // recordShown: twice on one day is one row (the latest status wins); another day is another row.
-    const shown = { program_id: big, repo_key: 'alice/r0', status: 'after_step', product_score: 6, row_level: 'Medium' as const };
+    const shown = { program_id: big, repo_key: 'alice/r0', status: 'after_step', product_score: 6, row_level: 'Medium' as const, traction: 5 };
     await recordShown(inst, [shown], '2026-10-01');
     await recordShown(inst, [{ ...shown, status: 'likely', row_level: 'Easy' }], '2026-10-01');
     const [{ n, status }] = await sql()<{ n: number; status: string }[]>`
@@ -88,5 +88,23 @@ test('4.11 recordShown keeps one row per day; updateMatchFloors writes only at 3
     await sql()`DELETE FROM projects WHERE program_id IN (${big}, ${small})`;
     await sql()`DELETE FROM installations WHERE id = ${inst}`;
     await sql()`DELETE FROM programs WHERE id IN (${big}, ${small})`;
+  }
+});
+
+test('3.12 (v2.10 item 6) recordShown writes traction; a second call the same day keeps the latest', dbTest, async () => {
+  const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const [{ id: inst }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`ml3-${stamp}`}) RETURNING id`;
+  try {
+    const row = { program_id: `p-${stamp}`, repo_key: 'alice/tipjar', status: 'likely', product_score: 6, row_level: 'Easy' as const, traction: 3 };
+    await recordShown(inst, [row], '2026-10-09');
+    await recordShown(inst, [{ ...row, traction: 9 }, { ...row, repo_key: 'alice/other', traction: null }], '2026-10-09');
+    const got = await sql()<{ repo_key: string; traction: number | null }[]>`
+      SELECT repo_key, traction FROM match_shown WHERE installation_id = ${inst} ORDER BY repo_key`;
+    assert.deepEqual(got.map((r) => ({ ...r })), [
+      { repo_key: 'alice/other', traction: null },
+      { repo_key: 'alice/tipjar', traction: 9 },
+    ]);
+  } finally {
+    await sql()`DELETE FROM installations WHERE id = ${inst}`;
   }
 });

@@ -180,6 +180,8 @@ const base: Card = {
   max_award_usd: 5000,
   builder_fields: 10,
 };
+/** v2.10 item 6: a scored product with good odds (fits without a product read as low odds). */
+const GOOD_ODDS = { score: 6, tier: 'product' as const, missing: [], traction: 8, odds: 'good' as const, low_reason: null };
 const v = (program_id: string, status: Verdict['status'], note: string, effort: Verdict['effort'] = 'none'): Verdict => ({
   program_id,
   program: program_id,
@@ -258,7 +260,7 @@ const noRepoNoGithub = presentFirstMessage(msg({ cards: [arc] }));
 const githubZeroRepos = presentFirstMessage(msg({ cards: [arc], repos: { checked: 0, fits: [] }, githubGiven: true }));
 const withRepos = presentFirstMessage(
   // v2.8 Ruling 24 (plan): the hook uses the matched programs' pools.
-  msg({ cards: [{ ...base, pool_usd: 10000 }], repos: { checked: 1, fits: [{ repo: 'tipjar', repo_url: null, verdicts: [v('base-builder-grants', 'likely', 'looks eligible')] }] } }),
+  msg({ cards: [{ ...base, pool_usd: 10000 }], repos: { checked: 1, fits: [{ repo: 'tipjar', repo_url: null, verdicts: [v('base-builder-grants', 'likely', 'looks eligible')], product: GOOD_ODDS }] } }),
 );
 const withAlerts = presentFirstMessage(msg({ alerts: alertLinesMoved, cards: [arc] }));
 const noneOfYourReposFit = presentFirstMessage(
@@ -840,7 +842,8 @@ const outcomeAlertFacts: AlertFacts = {
   fitRepos: [
     {
       key: 'alice/tipjar', name: 'tipjar', url: 'https://github.com/alice/tipjar', homepage: 'https://tipjar.xyz', created_at: '2026-01-01T00:00:00Z',
-      chains: { avalanche: { mainnet: true, testnet: false, evidence: 'x' }, arc: { mainnet: true, testnet: false, evidence: 'x' } },
+      // v2.10 Pre-flight P13: deployed chains (a chain only mentioned never alerts).
+      chains: { avalanche: { mainnet: true, testnet: false, evidence: 'x', basis: 'deployed' }, arc: { mainnet: true, testnet: false, evidence: 'x', basis: 'deployed' } },
       product: { score: 6, tier: 'product', missing: [] }, live_verified: true, said: null,
     },
   ],
@@ -931,7 +934,7 @@ const v29Notes = [...new Set(v29Verdicts.map((x) => x.note).filter((n): n is str
 const v29FirstReply = presentFirstMessage(
   msg({
     cards: [arc, base],
-    repos: { checked: 4, fits: [{ repo: 'tipjar', repo_url: 'https://github.com/alice/tipjar', verdicts: v29Verdicts.filter((x) => ['arc-microgrants', 'base-builder-grants'].includes(x.program_id)).slice(0, 2) }] },
+    repos: { checked: 4, fits: [{ repo: 'tipjar', repo_url: 'https://github.com/alice/tipjar', verdicts: v29Verdicts.filter((x) => ['arc-microgrants', 'base-builder-grants'].includes(x.program_id)).slice(0, 2), product: GOOD_ODDS }] },
     tokenOffer: tokenOffer({ ...{ project: 'TipJar', program: 'Arc Microgrants', prize_usd: 500, proposal: { name: 'TipJar', symbol: 'TIP' } }, hasBonus: true, walletKnown: false }),
   }),
 );

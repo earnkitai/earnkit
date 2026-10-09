@@ -735,6 +735,8 @@ CREATE TABLE IF NOT EXISTS match_shown (
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS match_floor integer;
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS match_precision numeric;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS product_score integer;
+-- v2.10 item 6: the repo's traction score (0 to 10) as matching showed it; null on older rows.
+ALTER TABLE match_shown ADD COLUMN IF NOT EXISTS traction smallint;
 
 -- v2.9 B9 (Ruling G6): builder memory is keyed by login too (a database made before the column).
 ALTER TABLE builder_program_status ADD COLUMN IF NOT EXISTS login text NOT NULL DEFAULT '';

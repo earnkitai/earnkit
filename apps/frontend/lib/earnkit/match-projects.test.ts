@@ -13,6 +13,7 @@ import {
   unoriginal,
   repoCodeFacts,
   repoKey,
+  starterRepo,
   type MatchDeps,
 } from './match-projects';
 import { KNOWN_TOKEN_ADDRESSES, SIGNAL_WORDS, UNCHECKED_NOTE, type ProgramFacts } from './match';
@@ -887,4 +888,137 @@ test('Task 1 review: a wagmi-only repo is "deploy to Base first" until its contr
   assert.equal(deployed.fit.facts.chains.base!.basis, 'deployed');
   assert.equal(deployed.fit.verdicts[0].status, 'likely');
   assert.deepEqual(deployed.fit.chains, ['base']);
+});
+
+// ---- v2.10 item 6: traction, Blockscout budget, starters ----
+
+test('3.5 five Base repos with code: at most 2 Blockscout reads (LIST_BUDGET.txCounts), newest first; a contract with no code gets none', async (t) => {
+  const log = console.error;
+  console.error = () => {};
+  t.after(() => {
+    console.error = log;
+  });
+  const own = Array.from({ length: 6 }, (_, i) => ghRepo('alice', `app${i}`, { pushed_at: daysAgo(i + 1) }));
+  const addr = (i: number) => `0x${String(i).padStart(40, 'a')}`;
+  const ownConfig = (u: URL) => {
+    const m = u.host === 'raw.githubusercontent.com' && u.pathname.match(/^\/alice\/app(\d+)\/main\/hardhat\.config\.ts$/);
+    return m ? body(`networks: { base: { chainId: 8453 } } // ${addr(Number(m[1]))}`) : undefined;
+  };
+  const { deps } = checkDeps();
+  // app5 (the oldest) has no code; the others do.
+  deps.checks!.getCode = async (_rpc, a) => (a === addr(5) ? '0x' : '0x6080');
+  const read: string[] = [];
+  deps.checks!.blockscout = async (url) => (read.push(url), { transactions_count: '75' });
+  const r = await withFetch(
+    (u) => (u.pathname === '/users/alice/repos' ? body(own) : u.pathname === '/search/commits' ? body({ items: [] }) : (ownConfig(u) ?? repoFiles(u))),
+    async () => matchProjects(MatchProjectsInput.parse({ github_user: 'alice' }), deps),
+  );
+  assert.equal(read.length, 2);
+  assert.deepEqual(read, [0, 1].map((i) => `https://base.blockscout.com/api/v2/addresses/${addr(i)}/counters`));
+  const fit = (k: string) => r.fits.find((f) => f.key === `alice/${k}`)!;
+  assert.equal(fit('app0').product.traction, 3 * 2 + 1, 'tx 75 (band 2) and commits 1 (band 1), no live link');
+  assert.equal(fit('app2').product.traction, 1, 'no slot left: tx unknown, scored 0');
+  assert.ok(!read.some((u) => u.includes(addr(5))), 'no read for a contract with no code');
+});
+
+test('3.5b a live Base product: its contract is checked for code though the link loads, and its count lifts it to good odds', async () => {
+  const { n, deps } = checkDeps({ probeOk: true });
+  deps.checks!.getCode = async () => (n.getCodes++, '0x6080');
+  deps.checks!.blockscout = async () => ({ transactions_count: '120' });
+  const r = await withFetch(
+    (u) =>
+      u.pathname === '/users/bob/repos'
+        ? body([ghRepo('bob', 'tipjar', { homepage: 'https://tipjar.xyz', pushed_at: daysAgo(1) })])
+        : u.pathname === '/search/commits'
+          ? body({ items: [] })
+          : repoFiles(u),
+    async () => matchProjects(MatchProjectsInput.parse({ github_user: 'bob' }), deps),
+  );
+  assert.equal(n.getCodes, 1);
+  const p = r.fits[0].product;
+  assert.equal(p.traction, 6 + 2 + 1);
+  assert.equal(p.odds, 'good');
+  assert.equal(p.low_reason, null);
+  assert.equal(r.fits[0].facts.commits_90d, 1);
+});
+
+test('3.6 starters (R7): a package.json name or a first README heading matching an EarnKit example loses original', async () => {
+  const starterFiles = (pkgName: string | null, readme: string) => (u: URL): Response | undefined => {
+    if (u.host === 'api.github.com' && /\/git\/trees\//.test(u.pathname))
+      return body({
+        tree: [
+          { path: 'README.md', type: 'blob', size: readme.length },
+          { path: 'hardhat.config.ts', type: 'blob', size: 100 },
+          ...(pkgName ? [{ path: 'package.json', type: 'blob', size: 50 }] : []),
+        ],
+      });
+    if (u.host === 'raw.githubusercontent.com' && u.pathname.endsWith('/package.json')) return body(JSON.stringify({ name: pkgName }));
+    if (u.host === 'raw.githubusercontent.com' && u.pathname.endsWith('/README.md')) return body(readme);
+    return repoFiles(u);
+  };
+  const run = async (pkgName: string | null, readme: string) => {
+    const { deps } = checkDeps({ probeOk: true });
+    deps.starters = ['tip-jar-starter'];
+    const r = await withFetch(
+      (u) =>
+        u.pathname === '/users/bob/repos'
+          ? body([ghRepo('bob', 'tipjar', { homepage: 'https://tipjar.xyz' })])
+          : u.pathname === '/search/commits'
+            ? body({ items: [] })
+            : starterFiles(pkgName, readme)(u),
+      async () => matchProjects(MatchProjectsInput.parse({ github_user: 'bob' }), deps),
+    );
+    return r.fits[0].product.missing;
+  };
+  assert.ok((await run('tip-jar-starter', README)).includes('original'), 'by package.json name');
+  // A short README (under 1.5 KB) still gives its heading (Pre-flight P27); case and dashes are folded.
+  assert.ok((await run(null, '# Tip Jar Starter\n\nTips.')).includes('original'), 'by README heading');
+  assert.ok((await run('TIP_JAR starter', README)).includes('original'));
+  assert.ok(!(await run('tipjar-app', README)).includes('original'), 'another name stays original');
+  assert.ok(!(await run(null, '# My Tip Jar\n\nTip Jar Starter inside the text.')).includes('original'));
+  assert.equal(starterRepo({ packageName: 'earnkit-base-campaign-starter', heading: null }), true, 'the default list has the chain-kit examples');
+  assert.equal(starterRepo({ packageName: null, heading: 'Base Campaign Starter (EarnKit)' }), true);
+  assert.equal(starterRepo({ packageName: 'tipjar', heading: 'TipJar' }), false);
+});
+
+test('3.6b a cached product without `starter` (a row from before v2.10) is read again; the row keeps traction and odds', async () => {
+  const { deps } = checkDeps({ probeOk: true });
+  const saved: unknown[] = [];
+  deps.cache = {
+    load: async () => ({
+      chains: { base: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' } },
+      commits_since: {},
+      product: { young: true, original: true, readme: true, addresses: [] },
+      fetched_at: T_NOW,
+    }),
+    save: async (_n, _p, facts) => void saved.push(facts.product),
+  };
+  const r = await withFetch(
+    (u) =>
+      u.pathname === '/users/bob/repos'
+        ? body([ghRepo('bob', 'tipjar', { homepage: 'https://tipjar.xyz' })])
+        : u.pathname === '/search/commits'
+          ? body({ items: [] })
+          : repoFiles(u),
+    async (calls) => ({ r: await matchProjects(MatchProjectsInput.parse({ github_user: 'bob' }), deps), calls }),
+  );
+  assert.equal(r.calls.filter((c) => c.includes('/git/trees/')).length, 1, 'the files are read again');
+  assert.equal(saved.length, 1);
+  const p = saved[0] as { starter?: boolean; traction?: number; odds?: string };
+  assert.equal(p.starter, false);
+  assert.equal(p.traction, r.r.fits[0].product.traction);
+  assert.equal(p.odds, r.r.fits[0].product.odds);
+});
+
+test('3.7 checkLocal (R3): a last commit 10 days ago is commits band 1; without one, 0', async () => {
+  const { deps } = checkDeps();
+  const run = async (last_commit_at?: string) =>
+    (await matchProjects(MatchProjectsInput.parse({ local_repos: [{ name: 'tipjar', chains: ['base'], ...(last_commit_at && { last_commit_at }) }] }), deps)).fits[0];
+  const recent = await run(daysAgo(10));
+  assert.equal(recent.facts.commits_90d, 1);
+  assert.equal(recent.product.traction, 1);
+  const unknown = await run();
+  assert.equal(unknown.facts.commits_90d, 0);
+  assert.equal(unknown.product.traction, 0);
+  assert.equal(unknown.product.odds, 'low');
 });

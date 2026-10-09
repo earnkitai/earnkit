@@ -1,5 +1,5 @@
 import { sql } from './db';
-import type { Detection } from './match';
+import type { Detection, Odds } from './match';
 
 /**
  * GitHub repo facts for matching, cached in Postgres for an hour (v2.2 §5), keyed by the repo and
@@ -12,7 +12,18 @@ export const REPO_FACTS_TTL_MS = 3_600_000;
  * v2.9 A2 (Pre-flight P6): the repo's own product signals for this version. The builder-dependent
  * ones (owned, active, deployed) are never cached. `addresses`: contract candidates in its files.
  */
-export type CachedProduct = { young: boolean; original: boolean; readme: boolean; addresses: string[] };
+export type CachedProduct = {
+  young: boolean;
+  /** v2.10 item 6: false for a starter too. */
+  original: boolean;
+  readme: boolean;
+  addresses: string[];
+  /** v2.10 item 6 (R7): an EarnKit chain-kit example by package name or README heading. A row without it is read again. */
+  starter?: boolean;
+  /** v2.10 item 6: the traction and odds of the last scoring (for reads without GitHub). */
+  traction?: number;
+  odds?: Odds;
+};
 
 export type CachedFacts = {
   chains: Detection;
