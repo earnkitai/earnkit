@@ -228,7 +228,8 @@ apps/frontend/
                                investment (card "up to $1M investment", pool.ts eachLine, Ruling C5);
                                present.ts byEase/byEaseThenPrize sort Easy first in the agent's tables (C4)
     submission.ts(+.test.ts)   prepareSubmission, rememberedWalletQuestion (pure)
-    projects.ts(+test)         v2.8.1 §B9 openEntries (this installation's entries in open,
+    projects.ts(+test)         v2.10 item 3 (P23): hasProgramEntry (any row for the program; the guide never re-shows)
+                               v2.8.1 §B9 openEntries (this installation's entries in open,
                                non-campaign programs, with submitted); v2.8 Task 8: startEntry (the entry at confirmation: ownEntry or insert,
                                confirmed_at/complete_at set once, "skip" never on a row with a token;
                                proof_line_missed, Ruling C24: the last "go" stopped at the proof line);
@@ -394,6 +395,7 @@ apps/frontend/
                                loadRepoFacts({ viaApp }) (App rows only through the App), Ruling H6 repo_public_reads:
                                markRepoPublic, publicRepoKeys, publicRepoUrl, PUBLIC_READ_DAYS (7), sweepPublicReads
     installations.ts(+test)    save / touch installation by token hash or (v2.4) OAuth client key
+                               v2.10 item 3: setWorkingOn returns true only when it added the program
                                (client_key); memory (GitHub, working_on, last payout wallet);
                                rememberWallets, installationWallets (installation_wallets);
                                v2.9 A7: setFitRepos/readFitRepos (installations.fit_repos);
@@ -422,7 +424,8 @@ apps/frontend/
                                authorize, code -> token (+ shared, limitKey), metadata, clientKeyOf;
                                publicOrigin = EARNKIT_URL (production throws without it; no Host
                                fallback)
-    mcp.ts(+test)              v2.9 F25: CONFIRM_ENTRY_DESCRIPTION and SPONSOR_CAMPAIGN_DESCRIPTION under 800 characters (mcp.test 11.8).
+    mcp.ts(+test)              v2.10 item 2: list_programs takes more; its description says one line first
+                               v2.9 F25: CONFIRM_ENTRY_DESCRIPTION and SPONSOR_CAMPAIGN_DESCRIPTION under 800 characters (mcp.test 11.8).
                                v2.9 A3: tell_earnkit registered (TELL_EARNKIT_DESCRIPTION, not read-only);
                                report_outcome removed (8 builder tools).
                                v2.8.1 §C15: run() logs an unexpected error as "[mcp] <tool> error <id>"
@@ -437,7 +440,8 @@ apps/frontend/
                                names a tool; v2.7: SERVER_INSTRUCTIONS exported (scanned by
                                copy-review), list_programs' description leads with "What can I earn?", all say "token", never name Clanker
                                (Ruling 18), get_program describes the guide
-    guide.ts(+test)            v2.9 A4: rowDifficulty (row = max(program level, distance), real_users rule),
+    guide.ts(+test)            v2.10 item 3: Guide.rules_wants (first 2 rules, no focus/past rounds) prints "What it wants" in guideText only
+                               v2.9 A4: rowDifficulty (row = max(program level, distance), real_users rule),
                                harder, levelRank; difficultyFrom floors (investment Hard, "needs a live
                                product" at least Medium, then match_precision under 5% one step harder)
                                v2.7 §2 (pure): difficultyOf/difficultyFrom (Rulings 2–5: odds from the
@@ -449,7 +453,9 @@ apps/frontend/
     human-text.ts(+test)       v2.8 Ruling 16: humanStrings (string/template/JSX text of a source file, via the TypeScript AST) and humanTextFiles; the test bans the em dash in all human text;
                                final review M1: notHumanText skips .test.ts/.test.tsx/.test.mts, and walkDir never enters a fixtures directory
     no-cell.ts                 NO_CELL (''), the empty table cell or chip; import-free so the client ProgramCard shares it (final review M1); present.ts re-exports it
-    present.ts(+test)          v2.10 item 7: YourRepos.unseen (with the App link) and fromLocal; privateRepoLines
+    present.ts(+test)          v2.10 item 2: FirstMessage.more ("show more": the v2.9 body), leadRow, leadLine, MORE_QUESTION;
+                               without more, the short first reply (news, entries, deadline, private lines, one lead)
+                               v2.10 item 7: YourRepos.unseen (with the App link) and fromLocal; privateRepoLines
                                v2.10 items 1, 5, 15: bonusLine (the one bonus line; H8: the offered program's pool), Card.bonus_tokens, FirstMessage.deadline;
                                no first-reply token offer (tokenOffer, tokenOfferFit, bonusClose, TOKEN_LINE removed).
                                (one line per local match, one can't-see line) before the matched table.
@@ -562,6 +568,7 @@ apps/frontend/
     http.ts(+test)             CORS + small response helpers; secretMatches, bearerMatches
                                (timing-safe; v2.4 cron and veto)
     tools.ts                   tool name -> handler + input validation (+ caller's installation);
+                               v2.10 items 2, 3: list_programs more (pools only then); prepare_submission prepends the guide on the first call
                                v2.10: withAlerts(ctx, result, signedIn?) puts the deadline line first; ToolContext.roundPools;
                                no firstTokenOffer/token_offer; prepare_submission takes signed_in; launchFromOffer re-asks with confirmLine.
                                v2.8.1 T7: prepare_submission leads the coach's questions with
@@ -773,7 +780,8 @@ apps/frontend/
                                match-projects.ts cachedRepoChains; v2.9 T12 (G15 M1): canWin (tools.ts
                                alsoCanWin: alerts.ts repoCanWin over installations.ts readFitRepos, else
                                users said for "needs a live product"), testnet-only chains dropped
-    entry-text.ts(+test)       confirmTable, enteredTable, keyTable, tokenRow (hasBonus: v2.5 §3,
+    entry-text.ts(+test)       v2.10 item 2 (P1): closeDayOf (the program's own close day for "by")
+                               confirmTable, enteredTable, keyTable, tokenRow (hasBonus: v2.5 §3,
                                v2.10: enteredText's bonus is { line } (bonusLine, no board); tokenRow uses the confirm line's words;
                                COIN_FOOTNOTE, tokenFootnote, coinRow, walletLine, BONUS_MOVES removed; SKIP_TOKEN lives here.
                                Task 8, "· skip: no builder bonus"; coinIn: Ruling 25),
