@@ -1474,6 +1474,7 @@ export const tools = {
           // The earnkit.txt token line is bound to this agent and the repo; shown only in this reply.
           installationId: ctx.installationId,
           repoUrl,
+          liveUrl: known.project?.live_url ?? known.answers?.live_url,
         },
         // T7 (journey test): the same ticker check and availability as the rest of the flow
         // (injected in tests; the defaults otherwise, as before).

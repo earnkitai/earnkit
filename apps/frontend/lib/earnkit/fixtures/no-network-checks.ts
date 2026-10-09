@@ -1,6 +1,7 @@
 import { checkDefaults } from '../verify';
 import { wonSource } from '../stats';
 import { setFeeSource } from '../fees';
+import { logoDefaults } from '../token-logo';
 
 /**
  * v2.9 A5: test suites that run the entry tools import this once, so link and contract checks
@@ -24,3 +25,7 @@ wonSource.read = async () => 0;
 // Part 2 final review I3: the first reply's fee alerts read token fees in the background; here they
 // read none (never Base RPC or DefiLlama). A test about fees sets its own source (fees.test.ts).
 setFeeSource({ availableWeth: async () => 0n, wethUsd: async () => 0 });
+
+// v2.10 item 12: a launch's logo never reads a live site or GitHub; it falls to the mark. A test
+// about the logo passes its own (TokenFlowDeps.logo, or token-logo.test.ts's fakes).
+logoDefaults.launch = async () => null;

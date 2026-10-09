@@ -64,6 +64,16 @@ export function decodeImage(dataUrl: string) {
   return { bytes, type: m[1] };
 }
 
+/**
+ * v2.10 item 12: the type of a fetched logo by its bytes (the checks decodeImage uses): PNG, JPEG
+ * or WebP, else null (GIF, SVG, HTML and anything else). Pure.
+ */
+export function imageTypeOf(bytes: Buffer): 'image/png' | 'image/jpeg' | 'image/webp' | null {
+  for (const type of ['image/png', 'image/jpeg', 'image/webp'] as const)
+    if (IMAGE_TYPES[type](bytes)) return type;
+  return null;
+}
+
 type DeployResponse = {
   success?: boolean;
   tokenAddress?: string;
@@ -589,8 +599,9 @@ export async function deployToken(
   const imageUrl = a.image
     ? `${origin}/api/projects/${a.projectId}/image`
     : (a.imageUrl ??
-      // The ticker is in the link, so the year-long cache never serves another ticker's logo.
-      `${origin}/api/projects/${a.projectId}/token-image?s=${encodeURIComponent(a.symbol)}`);
+      // v2.10 item 12: the generated mark (shape and gradient from the id, no letters); never the
+      // text tile. Stable: the same id always draws the same mark, so the onchain link never changes.
+      `${origin}/api/projects/${a.projectId}/mark`);
   // v2.10 R10: a private repo's URL never goes to tokens.fun; the live link only.
   const website = a.liveUrl ?? (project.repo_private ? undefined : a.repoUrl) ?? undefined;
   const doFetch = deps.fetch ?? fetch;

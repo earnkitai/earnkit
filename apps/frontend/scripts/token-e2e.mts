@@ -332,7 +332,8 @@ let aRepo = '';
   const body = lastDeploy();
   check(deploys.length === before + 1, '(a) one deploy sent');
   check(body.creatorWallet === WALLET, '(a) mock saw the creator wallet', body);
-  check(typeof body.imageUrl === 'string' && body.imageUrl.endsWith(`/api/projects/${r.project_id}/token-image?s=CHAIN`), '(a) image is the monogram route, with the ticker', body.imageUrl);
+  // v2.10 item 12: no upload and no site logo (no-network-checks): the generated mark, never the text tile.
+  check(typeof body.imageUrl === 'string' && body.imageUrl.endsWith(`/api/projects/${r.project_id}/mark`), '(a) image is the generated mark route', body.imageUrl);
   check(ownershipReads.includes(p.repo_url.split('/').pop()!), '(a) earnkit.txt was read');
   check(!('twitter' in body), '(a) no twitter field');
   check(body.chainId === 8453 && body.source === 'earnkit', '(a) Base chain, source earnkit');
@@ -464,6 +465,18 @@ let retryRepo = '';
     type: res.headers.get('content-type'),
   });
   check(bytes.length > 0 && bytes.subarray(1, 4).toString('latin1') === 'PNG', '(i) monogram body is a PNG');
+}
+
+// (i2) v2.10 item 12: the generated mark route, called directly: a PNG, cached for a year; 404 for a bad id.
+{
+  const { GET } = await import('../app/api/projects/[id]/mark/route');
+  const get = (id: string) => GET(new Request(`http://localhost/api/projects/${id}/mark`), { params: Promise.resolve({ id }) });
+  const res = await get(String(aProjectId));
+  const bytes = Buffer.from(await res.arrayBuffer());
+  check(res.status === 200 && res.headers.get('content-type') === 'image/png', '(i2) the mark is image/png', { status: res.status, type: res.headers.get('content-type') });
+  check(bytes.subarray(1, 4).toString('latin1') === 'PNG', '(i2) the mark body is a PNG');
+  check(/immutable/.test(res.headers.get('cache-control') ?? ''), '(i2) the mark is cached as immutable');
+  check((await get('abc')).status === 404 && (await get('1.5')).status === 404, '(i2) a non-integer id → 404');
 }
 
 // (j) no answer from tokens.fun: pending, the claim kept.
@@ -613,7 +626,7 @@ let retryRepo = '';
   const text = (r: unknown) => (r as { content: { text: string }[] }).content[0].text;
   const p = project('Echo Proposal');
   const prep = JSON.parse(text(await client.callTool({ name: 'prepare_submission', arguments: { program_id: ON, project: { name: p.name } } })));
-  check(prep.token?.proposed?.image === 'monogram', '(r) token.proposed has image', prep.token);
+  check(prep.token?.proposed?.image === 'mark', '(r) token.proposed has image (v2.10: the generated mark, with no live link)', prep.token);
   const res = await client.callTool({
     name: 'record_submission',
     // Ruling 30: the agent echoes the proposal and the shown wallet.
