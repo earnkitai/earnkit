@@ -747,10 +747,11 @@ test('12.6b Also qualifies (Ruling G15 M1): never a program whose row needs real
   const list = await call(J, 'list', 'list_programs', { local_repos }, ctx);
   assert.match(rowOf(list.show_to_builder!, 'Arc Microgrants') ?? '', /\| Easy \|/, list.show_to_builder);
   assert.match(rowOf(list.show_to_builder!, 'Circle Developer Grants') ?? '', /needs real users/, list.show_to_builder);
-  // GitHub's evidence (the repo-facts cache Also qualifies reads) has relay on Arc and Avalanche mainnet.
+  // GitHub's evidence (the repo-facts cache Also qualifies reads) has relay on Arc and Avalanche mainnet
+  // (v2.10 item 9: in a deploy config).
   await sql()`
     INSERT INTO github_repo_facts (full_name, pushed_at, chains, commits_since) VALUES ('rio/relay', now(),
-      ${sql().json({ arc: { mainnet: true, testnet: false, evidence: 'x' }, avalanche: { mainnet: true, testnet: false, evidence: 'x' } })}, '{}')`;
+      ${sql().json({ arc: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' }, avalanche: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' } })}, '{}')`;
   // Enter Avalanche (no token), then record it.
   const program = 'avalanche-team1-mini-grants';
   const project = { name: 'Relay', repo_url, live_url: 'https://relay.xyz' };

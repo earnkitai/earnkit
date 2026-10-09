@@ -765,3 +765,31 @@ test('4.6 programs:check refuses an EarnKit Easy rating on a "needs a live produ
   // The committed Base file no longer carries the rating.
   assert.equal(ProgramFile.parse(programJson('base-builder-grants')).difficulty_override, null);
 });
+
+// ---- v2.10 item 10: an EarnKit Easy rating needs a small award or sourced odds ----
+
+test('1.10 an EarnKit Easy rating over $1,000 per winner without a counted past round is refused', () => {
+  const rated = { level: 'Easy', rated_by: 'earnkit', source_url: 'https://example.org/grants' };
+  const refused = ProgramFile.safeParse({ ...baseProgram(), max_award_usd: 10000, difficulty_override: rated });
+  assert.equal(refused.success, false);
+  assert.match(JSON.stringify(refused.error?.issues), /an EarnKit Easy rating needs at most \$1,000 per winner or sourced odds/);
+  assert.equal(ProgramFile.safeParse({ ...baseProgram(), max_award_usd: 1000, difficulty_override: rated }).success, true);
+  // Sourced odds: a past round with both counts.
+  const counted = { label: 'Round 1', source_url: 'https://example.org/r1', own: true, submissions: 120, winners: 30 };
+  const withOdds = ProgramFile.safeParse({ ...baseProgram(), max_award_usd: 10000, difficulty_override: rated, past_rounds: [counted] });
+  assert.equal(withOdds.success, true, JSON.stringify(withOdds.error?.issues));
+  // A round without both counts is no odds.
+  const noCounts = { ...counted, submissions: undefined };
+  assert.equal(ProgramFile.safeParse({ ...baseProgram(), max_award_usd: 10000, difficulty_override: rated, past_rounds: [noCounts] }).success, false);
+});
+
+test('1.10b every committed program passes the new rule; Avalanche Team1 Mini Grants has no Easy rating', () => {
+  const dir = join(import.meta.dirname, '../../../../programs');
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.json'))) {
+    const p = JSON.parse(readFileSync(join(dir, f), 'utf8'));
+    const r = ProgramFile.safeParse(p);
+    assert.ok(!JSON.stringify(r.error?.issues ?? []).includes('EarnKit Easy rating'), f);
+  }
+  const avalanche = JSON.parse(readFileSync(join(dir, 'avalanche-team1-mini-grants.json'), 'utf8'));
+  assert.equal(avalanche.difficulty_override, undefined);
+});

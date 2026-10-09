@@ -91,7 +91,7 @@ after(async () => {
 });
 
 test(
-  'cachedRepoChains: mainnet evidence only (review fix round 1, item 2) — a testnet-only chain never counts as a fit; no row is null',
+  'cachedRepoChains: credited mainnets only (review fix round 1, item 2; v2.10 item 9) — a testnet-only or mention-only chain never counts as a fit; no row is null',
   dbTest,
   async () => {
     const full = `test/cached-chains-${process.pid}-${Date.now()}`;
@@ -100,8 +100,11 @@ test(
       INSERT INTO github_repo_facts (full_name, pushed_at, chains, commits_since) VALUES (
         ${full}, now(),
         ${sql().json({
-          base: { mainnet: true, testnet: false, evidence: 'x' },
-          avalanche: { mainnet: false, testnet: true, evidence: 'fuji only' },
+          base: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' },
+          avalanche: { mainnet: false, testnet: true, evidence: 'fuji only', basis: 'mention' },
+          // v2.10 R6: a v2.9 row without basis reads as a mention.
+          monad: { mainnet: true, testnet: false, evidence: 'imports monad' },
+          tempo: { mainnet: true, testnet: false, evidence: 'rpc host', basis: 'mention' },
         })},
         '{}')`;
     assert.deepEqual(await cachedRepoChains(full), ['base'], 'the Avalanche Fuji-only evidence never counts as a fit');
@@ -109,7 +112,7 @@ test(
     await sql()`
       INSERT INTO github_repo_facts (full_name, pushed_at, chains, commits_since) VALUES (
         ${full}, now() + interval '1 second',
-        ${sql().json({ arc: { mainnet: true, testnet: false, evidence: 'y' } })},
+        ${sql().json({ arc: { mainnet: true, testnet: false, evidence: 'y', basis: 'deployed' } })},
         '{}')`;
     assert.deepEqual(await cachedRepoChains(full), ['arc']);
     await sql()`DELETE FROM github_repo_facts WHERE full_name = ${full}`;
@@ -170,7 +173,8 @@ function repoFiles(u: URL): Response | undefined {
     return body({ tree: [{ path: 'README.md', type: 'blob', size: README.length }, { path: 'hardhat.config.ts', type: 'blob', size: 100 }] });
   if (u.host === 'raw.githubusercontent.com' && u.pathname.endsWith('/README.md')) return body(README);
   if (u.host === 'raw.githubusercontent.com' && u.pathname.endsWith('/hardhat.config.ts')) return body(`chainId: 8453 // token ${ADDR}`);
-  if (u.host === 'api.github.com' && /\/commits$/.test(u.pathname) && u.searchParams.has('author')) return body([{ sha: 'a' }]);
+  // v2.10 item 8: the 90-day commits read (any author on an owned repo).
+  if (u.host === 'api.github.com' && /\/commits$/.test(u.pathname) && u.searchParams.has('since')) return body([{ sha: 'a' }]);
   return undefined;
 }
 
@@ -223,7 +227,9 @@ test('2.8 twenty qualifying repos: 8 scored, probes at most 5, getCode at most 6
       assert.equal(r.scored, SCORE_LIMIT);
       assert.equal(r.checked, 20);
       assert.equal(calls.filter((c) => c.includes('/git/trees/')).length, 8);
-      assert.equal(calls.filter((c) => c.includes('/commits?author=')).length, 8);
+      // v2.10 item 8: one 90-day commits read per scored repo, by any author (owned repos).
+      assert.equal(calls.filter((c) => c.includes('/commits?since=')).length, 8);
+      assert.equal(calls.filter((c) => c.includes('author=')).length, 0);
       assert.equal(n.probes, 5);
       assert.equal(n.getCodes, 6);
       for (const f of r.fits) {
@@ -370,7 +376,7 @@ test('v2.9 P6, P4: the repo\'s own signals are cached per version; owned, active
   const second = await run();
   assert.deepEqual(second.r.fits[0].product, first.r.fits[0].product);
   assert.equal(second.calls.filter((c) => c.includes('/git/trees/') || c.startsWith('raw.')).length, 0);
-  assert.equal(second.calls.filter((c) => c.includes('/commits?author=')).length, 1);
+  assert.equal(second.calls.filter((c) => c.includes('/commits?since=')).length, 1);
   assert.deepEqual(await cachedRepoAddresses(`https://github.com/Alice/${name}`), [ADDR]);
   assert.deepEqual(await cachedRepoAddresses('https://gitlab.com/a/b'), []);
   await sql()`DELETE FROM github_repo_facts WHERE full_name = ${`alice/${name}`}`;
@@ -593,7 +599,9 @@ test('3.P15 a live link the builder told EarnKit is probed like a homepage; a pa
   assert.equal(n.probes, 1, 'the claimed link was probed');
   assert.equal(r.fits[0].live_verified, true);
   assert.equal(r.fits[0].product.tier, 'product');
-  assert.equal(r.fits[0].verdicts[0].status, 'likely');
+  // v2.10 Pre-flight P8: the agent-reported Base mainnet is a claim, so the row waits on it alone.
+  assert.equal(r.fits[0].verdicts[0].status, 'after_step');
+  assert.equal(r.fits[0].verdicts[0].note, 'confirm: mainnet');
   // A link that doesn't load stays a claim: "confirm: live link", never likely.
   const failing = checkDeps();
   const log = console.error;
@@ -737,4 +745,78 @@ test('G15 I2: a tutorial-like repo named explicitly or reported locally is score
   // Review M9: a local repo's README is never read, so it is never the row's note.
   assert.ok(!local.fits[0].product.missing.includes('readme'));
   assert.equal(local.fits[0].verdicts[0].note, SIGNAL_WORDS.original);
+});
+
+// ---- v2.10 item 8: commits by any author count toward activity ----
+
+const DAY_IN_MS = 86_400_000;
+const SINCE_90 = new Date(T_NOW.getTime() - 90 * DAY_IN_MS).toISOString();
+/** One owned repo of bob's, pushed `pushedDaysAgo`, whose 90-day commits read answers `commits` (null: a 404). */
+async function ownedRun(commits: unknown[] | null, pushedDaysAgo = 0) {
+  const { deps } = checkDeps({ probeOk: true });
+  return withFetch(
+    (u) =>
+      u.pathname === '/users/bob/repos'
+        ? body([ghRepo('bob', 'kit', { homepage: 'https://kit.xyz', pushed_at: daysAgo(pushedDaysAgo) })])
+        : u.pathname === '/search/commits'
+          ? body({ items: [] })
+          : u.pathname === '/repos/bob/kit/commits' && u.searchParams.get('since') === SINCE_90
+            ? (commits ? body(commits) : new Response('{"message":"Not Found"}', { status: 404 }))
+            : repoFiles(u),
+    async (calls) => ({ r: await matchProjects(MatchProjectsInput.parse({ github_user: 'bob' }), deps), calls }),
+  );
+}
+const unlinked = (n: number) => Array.from({ length: n }, (_, i) => ({ sha: `${i}`, author: null, commit: { author: { email: 'me@laptop.local' } } }));
+const commitReads = (calls: string[], repo: string) => calls.filter((c) => c.startsWith(`api.github.com/repos/${repo}/commits?since=`));
+
+test('1.6 an owned repo with 3 commits by an unlinked email is active: one commits read, no author= (and 1.9: commits_90d is 3)', async () => {
+  const { r, calls } = await ownedRun(unlinked(3));
+  const fit = r.fits.find((f) => f.key === 'bob/kit')!;
+  assert.ok(!fit.product.missing.includes('active'));
+  const reads = commitReads(calls, 'bob/kit');
+  assert.equal(reads.length, 1);
+  assert.equal(reads[0], `api.github.com/repos/bob/kit/commits?since=${SINCE_90}&per_page=100`);
+  assert.ok(!reads[0].includes('author='));
+  assert.equal(fit.facts.commits_90d, 3);
+});
+
+test('1.7 an empty commits read with a push today is active (the fallback runs on an empty read, not only on an error)', async () => {
+  const { r } = await ownedRun([], 0);
+  const fit = r.fits.find((f) => f.key === 'bob/kit')!;
+  assert.ok(!fit.product.missing.includes('active'));
+  assert.equal(fit.facts.commits_90d, 0);
+  // An empty read with an old push is not active; a failed read is null, never 0, and falls back to the push.
+  const stale = await ownedRun([], 200);
+  assert.ok(stale.r.fits.find((f) => f.key === 'bob/kit')!.product.missing.includes('active'));
+  const failed = (await ownedRun(null, 0)).r.fits.find((f) => f.key === 'bob/kit')!;
+  assert.equal(failed.facts.commits_90d, null);
+  assert.ok(!failed.product.missing.includes('active'));
+});
+
+test('1.8 a repo someone else owns, kept by the contribution rule, reads only the builder\'s commits: author=alice, one read', async () => {
+  const items = Array.from({ length: 6 }, () => ({ repository: { full_name: 'acme/app' } }));
+  const recent = Array.from({ length: 100 }, (_, i) => ({ sha: `${i}`, author: { login: i < 40 ? 'alice' : 'bob' } }));
+  const { deps } = checkDeps({ probeOk: true });
+  const { r, calls } = await withFetch(
+    (u) =>
+      u.pathname === '/users/alice/repos'
+        ? body([])
+        : u.pathname === '/search/commits'
+          ? body({ items })
+          : u.pathname === '/repos/acme/app'
+            ? body(ghRepo('acme', 'app', { homepage: 'https://acme-app.xyz' }))
+            : u.pathname === '/repos/acme/app/commits' && u.searchParams.get('per_page') === '100'
+              ? body(u.searchParams.has('since') ? recent.slice(0, 7) : recent)
+              : repoFiles(u),
+    async (calls) => ({ r: await matchProjects(MatchProjectsInput.parse({ github_user: 'alice' }), deps), calls }),
+  );
+  assert.equal(r.fits[0].key, 'acme/app');
+  const reads = commitReads(calls, 'acme/app');
+  assert.deepEqual(reads, [`api.github.com/repos/acme/app/commits?since=${SINCE_90}&per_page=100&author=alice`]);
+  assert.equal(r.fits[0].facts.commits_90d, 7);
+});
+
+test('1.9 commits_90d is the count read, capped at 100', async () => {
+  const { r } = await ownedRun(unlinked(120));
+  assert.equal(r.fits.find((f) => f.key === 'bob/kit')!.facts.commits_90d, 100);
 });

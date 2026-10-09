@@ -105,19 +105,25 @@ const VIEM_NAMES: Record<string, [Chain, 'mainnet' | 'testnet']> = {
   avalancheFuji: ['avalanche', 'testnet'],
 };
 
+/**
+ * v2.10 item 9: what backs a chain. Only `deployed` (a contract with code there, v2.9 A5) and
+ * `deploy_config` (a deploy config or deploy output names it) credit a mainnet; a `mention` (an
+ * import, a host or an id anywhere else) does not. Absent (a v2.9 cached row) reads as `mention` (R6).
+ */
+export type Basis = 'deployed' | 'deploy_config' | 'mention';
 export type Detection = Partial<
-  Record<Chain, { mainnet: boolean; testnet: boolean; evidence: string }>
+  Record<Chain, { mainnet: boolean; testnet: boolean; evidence: string; basis?: Basis }>
 >;
 
-export function detectChains(
-  files: { path: string; text: string }[],
-): Detection {
+/** v2.10 item 9: the chains a repo's files mention (imports, hosts, chain ids), each `basis: 'mention'`. Pure. */
+function detectMentions(files: { path: string; text: string }[]): Detection {
   const found: Detection = {};
   const mark = (chain: Chain, net: 'mainnet' | 'testnet', evidence: string) => {
     const entry = (found[chain] ??= {
       mainnet: false,
       testnet: false,
       evidence,
+      basis: 'mention',
     });
     entry[net] = true;
   };
@@ -156,6 +162,70 @@ export function detectChains(
   }
   return found;
 }
+
+const DEPLOY_DIRS: { re: RegExp; chainOf: (m: RegExpMatchArray) => Chain | null }[] = [
+  // Foundry: broadcast/<script>/<chainId>/
+  { re: /^broadcast\/[^/]+\/(\d{1,8})\//, chainOf: (m) => mainnetOf(Number(m[1])) },
+  // Hardhat Ignition: ignition/deployments/chain-<id>/
+  { re: /^ignition\/deployments\/chain-(\d{1,8})\//, chainOf: (m) => mainnetOf(Number(m[1])) },
+  // hardhat-deploy: deployments/<network>/ (R6)
+  { re: /^deployments\/([^/]+)\//, chainOf: (m) => networkChain(m[1]) },
+];
+const mainnetOf = (id: number): Chain | null => {
+  const c = chainOfId(id);
+  return c?.mainnet ? c.chain : null;
+};
+const networkChain = (name: string): Chain | null => {
+  const n = name.toLowerCase();
+  return CHAINS.find((c) => n === c || n === `${c}mainnet` || n === `${c}-mainnet`) ?? null;
+};
+/** The `[rpc_endpoints]` table of a foundry.toml, else ''. Pure. */
+const rpcEndpoints = (toml: string) => toml.match(/^\[rpc_endpoints\]\s*$([\s\S]*?)(?=^\[|$(?![\s\S]))/m)?.[1] ?? '';
+
+/**
+ * v2.10 item 9: the mainnets a repo's deploy config or deploy output names: a network in a
+ * hardhat.config.* (its chain id or a mainnet host), an [rpc_endpoints] entry in foundry.toml, or a
+ * deploy folder in the tree. Chain to evidence. Pure.
+ */
+export function deployConfigChains(files: { path: string; text: string }[], paths: string[]): Partial<Record<Chain, string>> {
+  const out: Partial<Record<Chain, string>> = {};
+  for (const p of paths)
+    for (const d of DEPLOY_DIRS) {
+      const m = p.match(d.re);
+      const chain = m && d.chainOf(m);
+      if (chain) out[chain] ??= p;
+    }
+  for (const f of files) {
+    const base = f.path.split('/').at(-1) ?? '';
+    const scope = /^hardhat\.config\.[cm]?[jt]s$/.test(base) ? f.text : base === 'foundry.toml' ? rpcEndpoints(f.text) : '';
+    if (!scope) continue;
+    for (const [chain, net] of Object.entries(detectMentions([{ path: f.path, text: scope }])) as [Chain, Detection[Chain]][])
+      if (net?.mainnet) out[chain] ??= `${f.path}: deploy config`;
+  }
+  return out;
+}
+
+/**
+ * The chains a repo targets. v2.10 item 9: every import, host or id is a `mention`; a chain its
+ * deploy config or deploy output names (`paths`: every blob path of the tree, for folder hits) is a
+ * mainnet with `basis: 'deploy_config'`. Pure.
+ */
+export function detectChains(files: { path: string; text: string }[], paths: string[] = []): Detection {
+  const found = detectMentions(files);
+  for (const [chain, evidence] of Object.entries(deployConfigChains(files, paths)) as [Chain, string][])
+    found[chain] = { testnet: false, ...found[chain], mainnet: true, basis: 'deploy_config', evidence };
+  return found;
+}
+
+/**
+ * v2.10 item 9: whether a chain's entry credits a mainnet: deployed or in a deploy config, or a
+ * claim (v2.9 A3: the builder's word, credited until a check says otherwise). A mention never does. Pure.
+ */
+export const creditsMainnet = (d: Detection[Chain]) =>
+  Boolean(d?.mainnet && ((d.basis ?? 'mention') !== 'mention' || d.evidence === CLAIMED_MAINNET));
+
+/** v2.10 item 9: the note on a row whose chain is only mentioned. */
+export const DEPLOY_FIRST = (chain: Chain) => `deploy to ${CHAIN_NAMES[chain]} first`;
 
 /** The files worth reading for chain signals: configs, env examples, package manifests, chain constants. */
 export function pickFiles(paths: { path: string; size: number }[], limit = 12) {
@@ -313,6 +383,8 @@ export type RepoFacts = {
   live_verified?: boolean;
   /** v2.9 A3: what the builder said that raises eligibility; unverified until a check backs it. */
   claims?: Claim[];
+  /** v2.10 item 8: commits in 90 days from one read (at most 100); null when GitHub couldn't say. */
+  commits_90d?: number | null;
 };
 
 /** v2.9 A3: a statement that raises eligibility: a mainnet deploy, a live link, real users. */
@@ -331,10 +403,12 @@ export function applyBuilderFacts(f: RepoFacts, said: SaidRepo | undefined): (Re
   if (said.not_mine) return null;
   const chains: Detection = structuredClone(f.chains);
   const claims = new Set<Claim>(f.claims ?? []);
-  for (const c of said.testnet) chains[c] = { mainnet: false, testnet: true, evidence: chains[c]?.evidence ?? 'the builder said testnet only' };
+  for (const c of said.testnet)
+    chains[c] = { mainnet: false, testnet: true, evidence: chains[c]?.evidence ?? 'the builder said testnet only', basis: 'mention' };
   for (const c of said.mainnet) {
-    if (said.testnet.includes(c) || chains[c]?.mainnet) continue;
-    chains[c] = { mainnet: true, testnet: chains[c]?.testnet ?? false, evidence: CLAIMED_MAINNET };
+    // v2.10 Pre-flight P8: a mention doesn't credit a mainnet, so the builder's word becomes a claim over it.
+    if (said.testnet.includes(c) || creditsMainnet(chains[c])) continue;
+    chains[c] = { mainnet: true, testnet: chains[c]?.testnet ?? false, evidence: CLAIMED_MAINNET, basis: 'mention' };
     claims.add('mainnet');
   }
   let homepage = f.homepage;
@@ -353,14 +427,15 @@ export const claimedMainnets = (d: Detection): Chain[] =>
   (Object.entries(d) as [Chain, Detection[Chain]][]).filter(([, v]) => v?.mainnet && v.evidence === CLAIMED_MAINNET).map(([c]) => c);
 
 /**
- * v2.9 A3 (item 5 verifies a claim): a contract with code on a claimed chain's mainnet makes that
- * chain's mainnet a fact; the mainnet claim stays only while another claimed chain is unverified. Pure.
+ * v2.9 A3 (item 5 verifies a claim): a contract with code on a mainnet makes that chain's mainnet a
+ * fact (v2.10 item 9: `basis: 'deployed'`, also over a mention or a deploy config); the mainnet claim
+ * stays only while another claimed chain is unverified. Pure.
  */
 export function confirmMainnets<F extends RepoFacts>(f: F, withCode: Chain[]): F {
-  const hit = claimedMainnets(f.chains).filter((c) => withCode.includes(c));
+  const hit = withCode.filter((c) => f.chains[c]?.mainnet && f.chains[c]?.basis !== 'deployed');
   if (hit.length === 0) return f;
   const chains: Detection = { ...f.chains };
-  for (const c of hit) chains[c] = { ...chains[c]!, evidence: `a contract with code on ${CHAIN_NAMES[c]} mainnet` };
+  for (const c of hit) chains[c] = { ...chains[c]!, evidence: `a contract with code on ${CHAIN_NAMES[c]} mainnet`, basis: 'deployed' };
   const claims = claimedMainnets(chains).length > 0 ? f.claims : f.claims?.filter((x) => x !== 'mainnet');
   return { ...f, chains, claims };
 }
@@ -445,12 +520,14 @@ export function reportedFacts(
   r: ReportedRepo,
   programs: ProgramFacts[],
 ): RepoFacts {
+  // v2.10 Pre-flight P8: an agent-reported mainnet is a claim (v2.9 A3), never a fact.
   const chains: Detection = {};
   for (const c of r.chains)
     chains[c.chain] = {
       mainnet: c.mainnet,
       testnet: !c.mainnet,
-      evidence: 'reported by the agent',
+      evidence: c.mainnet ? CLAIMED_MAINNET : 'reported by the agent',
+      basis: 'mention',
     };
   const last = r.last_commit_at ? new Date(r.last_commit_at) : null;
   // Ruling 13 (plan): kept only when it parses as a GitHub repo link; anything else is dropped.
@@ -465,6 +542,7 @@ export function reportedFacts(
     commits_in_window: Object.fromEntries(
       programs.map((p) => [p.id, !last || !p.starts_at || last >= p.starts_at]),
     ),
+    ...(claimedMainnets(chains).length > 0 && { claims: ['mainnet'] as Claim[] }),
   };
 }
 
@@ -535,6 +613,13 @@ export function matchRepo(
       continue;
     }
 
+    // v2.10 item 9: a mainnet only mentioned (an import, a host, an id) gives no fit: the row is one
+    // deploy away (hours), whatever else the program asks.
+    if (chain && !p.any_chain && repo.chains[chain]?.mainnet && !creditsMainnet(repo.chains[chain])) {
+      v('after_step', DEPLOY_FIRST(chain), ['mainnet_deploy', ...(repo.homepage ? [] : (['live_url'] as const))], 'hours');
+      continue;
+    }
+
     if (p.tag === 'needs a live product') {
       // v2.9 A3: a users claim clears real_users; the row then waits on "confirm: users".
       if (claims.includes('users')) {
@@ -557,7 +642,7 @@ export function matchRepo(
     // Existing work allowed and the project must be live on the chain. v2.8 Ruling 13 (plan): an
     // any_chain program skips the mainnet check; the live link still applies.
     const missing: Missing[] = [];
-    if (chain && !p.any_chain && !repo.chains[chain]!.mainnet) missing.push('mainnet_deploy');
+    if (chain && !p.any_chain && !creditsMainnet(repo.chains[chain])) missing.push('mainnet_deploy');
     if (!repo.homepage) missing.push('live_url');
     const words = {
       mainnet_deploy: chain ? `a deploy on ${CHAIN_NAMES[chain]} mainnet` : '',

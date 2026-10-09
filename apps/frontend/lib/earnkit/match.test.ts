@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CHAIN_NAMES, detectChains, pickFiles } from './match';
+import { CHAIN_NAMES, DEPLOY_FIRST, creditsMainnet, deployConfigChains, detectChains, pickFiles } from './match';
 import {
   BELOW_FLOOR_NOTE,
   DEFAULT_README,
@@ -125,7 +125,8 @@ test('arc mainnet repo with a homepage likely qualifies, with a check', () => {
   const v = matchRepo(
     repo({
       homepage: 'https://app.x',
-      chains: { arc: { mainnet: true, testnet: false, evidence: 'x' } },
+      // v2.10 item 9: in a deploy config (a mention alone gives no fit).
+      chains: { arc: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' } },
     }),
     programs,
   );
@@ -164,10 +165,12 @@ test('agent-reported repos match like public ones, without reading any code', ()
     programs,
   );
   assert.equal(live.homepage, 'https://tipjar.app');
-  assert.equal(
-    matchRepo(live, programs).find((x) => x.program_id === 'arc-micro')!.status,
-    'likely',
-  );
+  // v2.10 Pre-flight P8: an agent-reported mainnet is a claim (v2.9 A3) until a contract check backs it.
+  assert.deepEqual(live.claims, ['mainnet']);
+  const arc = matchRepo(live, programs).find((x) => x.program_id === 'arc-micro')!;
+  assert.equal(arc.status, 'after_step');
+  assert.equal(arc.note, 'confirm: mainnet');
+  assert.equal(matchRepo(confirmMainnets(live, ['arc']), programs).find((x) => x.program_id === 'arc-micro')!.status, 'likely');
 
   const testnetOnly = reportedFacts(
     { name: 'wip', chains: [{ chain: 'arc', mainnet: false }] },
@@ -261,11 +264,12 @@ test('v2.8 Ruling 13: an any_chain program fits a repo with no detected chains; 
 });
 
 test('v2.8 Ruling 14: chain ids 43114 and 43113 are Avalanche mainnet and Fuji testnet', () => {
+  // v2.10 item 9: a mainnet id in hardhat.config.* is a deploy config; a testnet id stays a mention.
   assert.deepEqual(detectChains([{ path: 'hardhat.config.ts', text: 'chainId: 43114' }]).avalanche, {
-    mainnet: true, testnet: false, evidence: 'hardhat.config.ts: chain id 43114',
+    mainnet: true, testnet: false, evidence: 'hardhat.config.ts: deploy config', basis: 'deploy_config',
   });
   assert.deepEqual(detectChains([{ path: 'hardhat.config.ts', text: 'chainId: 43113' }]).avalanche, {
-    mainnet: false, testnet: true, evidence: 'hardhat.config.ts: chain id 43113',
+    mainnet: false, testnet: true, evidence: 'hardhat.config.ts: chain id 43113', basis: 'mention',
   });
   const hosts = detectChains([{ path: '.env.example', text: 'RPC=https://api.avax-test.network/ext/bc/C/rpc' }]);
   assert.equal(hosts.avalanche?.testnet, true);
@@ -393,7 +397,8 @@ test('2.3 TUTORIAL: tutorial names match, product names do not', () => {
 });
 
 const product = (f: Partial<ProductFacts> = {}) => productScore({ ...allFacts, ...f });
-const arcMain = { arc: { mainnet: true, testnet: false, evidence: 'x' } };
+// v2.10 item 9: a credited mainnet needs a deploy config (or a deployment); a mention gives no fit.
+const arcMain = { arc: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' as const } };
 
 test('2.4 a noise repo matches nothing', () => {
   const noise = product({ active: false, young: false, original: false, readme: false });
@@ -444,7 +449,7 @@ test('G15 I2: a tutorial-like product (original missing) still matches a chain p
 
 test('2.7 needs a live product: never likely; a verified link leaves only real users', () => {
   const base: ProgramFacts = { ...programs[1], id: 'base', title: 'Base Builder Grants', chains: ['base'] };
-  const baseMain = { base: { mainnet: true, testnet: false, evidence: 'x' } };
+  const baseMain = { base: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' as const } };
   const [unverified] = matchRepo(repo({ homepage: 'https://app.x', chains: baseMain, product: product(), live_verified: false }), [base]);
   assert.equal(unverified.status, 'after_step');
   assert.deepEqual(unverified.missing, ['live_url', 'real_users']);
@@ -511,7 +516,7 @@ test('3.3b a claimed live link waits on "confirm: live link" until it loads from
 
 test('3.4 users on a "needs a live product" program: real_users leaves missing, the row waits on "confirm: users"', () => {
   const base: ProgramFacts = { ...programs[1], id: 'base', title: 'Base Builder Grants', chains: ['base'] };
-  const baseMain = { base: { mainnet: true, testnet: false, evidence: 'x' } };
+  const baseMain = { base: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' as const } };
   const f = applyBuilderFacts(repo({ homepage: 'https://app.x', chains: baseMain, product: product(), live_verified: true }), said({ has_users: true }))!;
   assert.deepEqual(f.claims, ['users']);
   const [v] = matchRepo(f, [base]);
@@ -552,4 +557,81 @@ test('4.12 a repo below the program match floor is at most after_step, with the 
   const noLink = matchRepo(repo({ chains: arcMain, product: four }), [{ ...arcProgram, match_floor: 5 }])[0];
   assert.equal(noLink.status, 'after_step');
   assert.notEqual(noLink.note, BELOW_FLOOR_NOTE);
+});
+
+// ---- v2.10 item 9: a chain counts only when something is deployed there ----
+
+const baseGrants: ProgramFacts = { ...programs[1], id: 'base-builder-grants', title: 'Base Builder Grants', chains: ['base'] };
+const baseOpen: ProgramFacts = { ...programs[0], id: 'base-open', title: 'Base Open', chains: ['base'] };
+const wagmi = [{ path: 'src/wagmi.ts', text: "import { base } from 'wagmi/chains'" }];
+
+test('1.1 a wagmi import of base is a mention: Base Builder Grants is "deploy to Base first", hours, never likely', () => {
+  const d = detectChains(wagmi);
+  assert.equal(d.base!.mainnet, true);
+  assert.equal(d.base!.basis, 'mention');
+  assert.equal(creditsMainnet(d.base), false);
+  assert.equal(DEPLOY_FIRST('base'), 'deploy to Base first');
+  for (const over of [{}, { homepage: 'https://app.x', product: product(), live_verified: true }, { homepage: 'https://app.x', claims: ['users' as const] }])
+    for (const prog of [baseGrants, baseOpen]) {
+      const [v] = matchRepo(repo({ chains: d, ...over }), [prog]);
+      assert.equal(v.status, 'after_step', prog.id);
+      assert.equal(v.note, 'deploy to Base first');
+      assert.equal(v.effort, 'hours');
+      assert.ok(v.missing.includes('mainnet_deploy'));
+    }
+});
+
+test('1.2 a deploy folder makes the chain a deploy config; the Base row can be likely (R6 folder names)', () => {
+  const d = detectChains(wagmi, ['broadcast/Deploy.s.sol/8453/run-latest.json']);
+  assert.equal(d.base!.basis, 'deploy_config');
+  assert.equal(d.base!.evidence, 'broadcast/Deploy.s.sol/8453/run-latest.json');
+  assert.equal(creditsMainnet(d.base), true);
+  const [v] = matchRepo(repo({ chains: d, homepage: 'https://app.x', product: product(), live_verified: true }), [baseOpen]);
+  assert.equal(v.status, 'likely');
+  for (const p of ['ignition/deployments/chain-8453/deployed_addresses.json', 'deployments/base/TipJar.json', 'deployments/base-mainnet/x.json', 'deployments/BaseMainnet/x.json'])
+    assert.deepEqual(Object.keys(deployConfigChains([], [p])), ['base'], p);
+  for (const p of ['deployments/basesepolia/x.json', 'deployments/mainnet/x.json', 'broadcast/Deploy.s.sol/84532/run-latest.json', 'src/deployments/base/x.json'])
+    assert.deepEqual(deployConfigChains([], [p]), {}, p);
+  assert.equal(detectChains(wagmi, ['deployments/basesepolia/x.json']).base!.basis, 'mention');
+});
+
+test('1.3 a mainnet in hardhat.config or foundry [rpc_endpoints] is a deploy config; the same host elsewhere is a mention', () => {
+  const hh = detectChains([{ path: 'hardhat.config.ts', text: "networks: { base: { url: 'https://mainnet.base.org', chainId: 8453 } }" }]);
+  assert.equal(hh.base!.basis, 'deploy_config');
+  assert.equal(detectChains([{ path: 'src/constants.ts', text: "export const RPC = 'https://mainnet.base.org'" }]).base!.basis, 'mention');
+  const rpc = detectChains([{ path: 'foundry.toml', text: '[profile.default]\nsrc = "src"\n\n[rpc_endpoints]\nbase = "https://mainnet.base.org"\n' }]);
+  assert.equal(rpc.base!.basis, 'deploy_config');
+  const profile = detectChains([{ path: 'foundry.toml', text: '[profile.default]\nbase = "https://mainnet.base.org"\n\n[fmt]\nline_length = 100\n' }]);
+  assert.equal(profile.base!.basis, 'mention');
+  // A testnet in a deploy config credits no mainnet.
+  assert.deepEqual(deployConfigChains([{ path: 'hardhat.config.ts', text: 'chainId: 84532' }], []), {});
+});
+
+test('1.4 confirmMainnets: code on a chain makes it deployed; a claim not backed stays a claim', () => {
+  const mention = detectChains(wagmi).base!;
+  const f = repo({ chains: { base: mention, monad: { mainnet: true, testnet: false, evidence: CLAIMED_MAINNET, basis: 'mention' } }, claims: ['mainnet'] });
+  const c = confirmMainnets(f, ['base']);
+  assert.equal(c.chains.base!.basis, 'deployed');
+  assert.equal(c.chains.base!.evidence, 'a contract with code on Base mainnet');
+  assert.equal(creditsMainnet(c.chains.base), true);
+  // Monad stays a claim: credited as v2.9 A3 (the row waits on "confirm"), claims keep 'mainnet'.
+  assert.equal(c.chains.monad!.evidence, CLAIMED_MAINNET);
+  assert.equal(creditsMainnet(c.chains.monad), true);
+  assert.deepEqual(c.claims, ['mainnet']);
+  const both = confirmMainnets(f, ['base', 'monad']);
+  assert.equal(both.chains.monad!.basis, 'deployed');
+  assert.deepEqual(both.claims, []);
+});
+
+test('1.5 a cached chains entry without basis (a v2.9 row) reads as a mention (R6)', () => {
+  const old = { base: { mainnet: true, testnet: false, evidence: 'src/wagmi.ts: imports base from viem/wagmi' } };
+  assert.equal(creditsMainnet(old.base), false);
+  const [v] = matchRepo(repo({ chains: old, homepage: 'https://app.x', product: product(), live_verified: true }), [baseOpen]);
+  assert.equal(v.note, 'deploy to Base first');
+  // A v2.9 claim (no basis, CLAIMED_MAINNET) is still credited as a claim.
+  assert.equal(creditsMainnet({ mainnet: true, testnet: false, evidence: CLAIMED_MAINNET }), true);
+  // The builder's word over a mention becomes a claim (Pre-flight P8).
+  const f = applyBuilderFacts(repo({ chains: old }), said({ mainnet: ['base'] }))!;
+  assert.equal(f.chains.base!.evidence, CLAIMED_MAINNET);
+  assert.deepEqual(f.claims, ['mainnet']);
 });

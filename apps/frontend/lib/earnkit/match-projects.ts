@@ -6,6 +6,7 @@ import {
   applyBuilderFacts,
   claimedMainnets,
   confirmMainnets,
+  creditsMainnet,
   KNOWN_TOKEN_ADDRESSES,
   TUTORIAL,
   TUTORIAL_DESCRIPTION,
@@ -344,7 +345,8 @@ async function readRepoChains(repo: Repo) {
     .filter((a) => a !== ZERO_ADDRESS && !KNOWN_TOKEN_ADDRESSES.has(a))
     .slice(0, GETCODE_PER_REPO);
   return {
-    chains: detectChains(files),
+    // v2.10 item 9: every blob path, for deploy folders (broadcast/, ignition/, deployments/).
+    chains: detectChains(files, blobs.map((t) => t.path)),
     complete,
     readme: readme ? { path: readme.path, size: readme.size ?? 0 } : null,
     addresses,
@@ -368,18 +370,16 @@ export const repoChains = async (repo: Repo): Promise<Detection> =>
  * v2.8 Ruling 29 (plan): a repo's cached chains, read from github_repo_facts only (no GitHub
  * call), for "Also qualifies" right after an entry. The latest cached row for this full name
  * (any version: a GitHub call to find the current pushed_at is exactly what this avoids), or null
- * when nothing is cached yet. Review fix round 1, item 2: mainnet evidence only, the same
- * convention matchRepo uses (match.ts: `repo.chains[chain]!.mainnet`) — a chain seen only via a
- * testnet host or id never counts as a fit.
+ * when nothing is cached yet. Review fix round 1, item 2: credited mainnets only, the same
+ * convention matchRepo uses (v2.10 item 9: `creditsMainnet`) — a chain seen only via a testnet host
+ * or id, or only mentioned (a v2.9 row without `basis` reads as a mention, R6), never counts as a fit.
  */
 export async function cachedRepoChains(repoFullName: string): Promise<Chain[] | null> {
   const [row] = await sql()<{ chains: Detection }[]>`
     SELECT chains FROM github_repo_facts WHERE full_name = ${repoFullName.toLowerCase()}
     ORDER BY fetched_at DESC LIMIT 1`;
   if (!row) return null;
-  return Object.entries(row.chains)
-    .filter(([, v]) => v?.mainnet)
-    .map(([k]) => k as Chain);
+  return creditedMainnets(row.chains);
 }
 
 /**
@@ -659,13 +659,19 @@ type ScoreCtx = {
 const within = (iso: string | undefined | null, days: number, now: Date) =>
   Boolean(iso) && now.getTime() - Date.parse(iso!) <= days * DAY_MS;
 
-/** The chains with mainnet evidence. */
+/**
+ * The chains with any mainnet evidence, for contract candidates: a getCode pass turns a mention into
+ * `deployed` (v2.10 item 9). A fit uses `creditsMainnet` chains instead.
+ */
 const mainnetChains = (d: Detection) =>
   Object.entries(d)
     .filter(([, v]) => v?.mainnet)
     .map(([c]) => c as Chain);
+/** v2.10 item 9: the mainnets a fit counts (deployed, in a deploy config, or claimed). */
+const creditedMainnets = (d: Detection) =>
+  (Object.entries(d) as [Chain, Detection[Chain]][]).filter(([, v]) => creditsMainnet(v)).map(([c]) => c);
 
-/** `withCode` (v2.9 A3): the mainnets where a contract candidate has code (it verifies a mainnet claim). */
+/** `withCode` (v2.9 A3): the mainnets where a contract candidate has code (it verifies a mainnet claim; v2.10: or a mention). */
 type Deployed = { live: boolean; deployed: boolean; unchecked: boolean; withCode: Chain[] };
 
 /** One repo ready for its link and contract checks, and how to finish its facts with their answers. */
@@ -727,26 +733,39 @@ async function runChecks(list: Prepared[], checks: CheckDeps): Promise<Deployed[
   });
 }
 
-/** Whether the builder committed to the repo in the last 90 days (one read); null when GitHub couldn't say. */
-async function builderActive(repo: Repo, builder: string, now: Date) {
+/**
+ * v2.10 item 8: the repo's commits in the last 90 days (one read, at most 100), by any author; by
+ * `author` only for a repo someone else owns (v2.9 A1 contribution rule). Null when GitHub couldn't say.
+ */
+async function commitsRead(repo: Repo, now: Date, author: string | null): Promise<number | null> {
   const since = new Date(now.getTime() - 90 * DAY_MS).toISOString();
   return gh<unknown[]>(
-    `/repos/${repo.full_name}/commits?author=${encodeURIComponent(builder)}&since=${since}&per_page=1`,
+    `/repos/${repo.full_name}/commits?since=${since}&per_page=100${author ? `&author=${encodeURIComponent(author)}` : ''}`,
   ).then(
-    (c) => c.length > 0,
+    (c) => Math.min(c.length, 100),
     () => null,
   );
 }
 
 /**
  * Adds the chains a local report names that GitHub's files don't show. Plan Ruling 2: a mainnet
- * GitHub's files don't show is a claim (CLAIMED_MAINNET), like the builder's own word.
+ * GitHub's files don't show is a claim (CLAIMED_MAINNET), like the builder's own word. v2.10
+ * Pre-flight P8: also over a chain the files only mention.
  */
 function withReportedChains(chains: Detection, local?: ReportedRepo): Detection {
   if (!local) return chains;
   const out: Detection = { ...chains };
-  for (const c of local.chains)
-    out[c.chain] ??= { mainnet: c.mainnet, testnet: !c.mainnet, evidence: c.mainnet ? CLAIMED_MAINNET : 'reported by the agent' };
+  for (const c of local.chains) {
+    if (c.mainnet && out[c.chain] && !creditsMainnet(out[c.chain]))
+      out[c.chain] = { ...out[c.chain]!, mainnet: true, evidence: CLAIMED_MAINNET, basis: 'mention' };
+    else
+      out[c.chain] ??= {
+        mainnet: c.mainnet,
+        testnet: !c.mainnet,
+        evidence: c.mainnet ? CLAIMED_MAINNET : 'reported by the agent',
+        basis: 'mention',
+      };
+  }
   return out;
 }
 
@@ -836,10 +855,12 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): P
   );
   const { homepage, chains: allChains } = base;
   const claimed = claimedMainnets(allChains);
-  // Plan Ruling 1: a commit by the builder in 90 days; without a known builder, a push in 90 days.
-  const active = ctx.builder
-    ? ((await builderActive(repo, ctx.builder, ctx.now)) ?? within(repo.pushed_at, 90, ctx.now))
-    : within(repo.pushed_at, 90, ctx.now);
+  // v2.10 item 8: a commit by any author in 90 days, or a push in 90 days (also when the read is
+  // empty: commits with an unlinked email or old dates). Only a repo someone else owns counts the
+  // builder's own commits (v2.9 A1). Pre-flight P28: the read also runs without a known builder.
+  const author = ctx.builder && ownerOf(repo).toLowerCase() !== ctx.builder.toLowerCase() ? ctx.builder : null;
+  const commits_90d = await commitsRead(repo, ctx.now, author);
+  const active = (commits_90d ?? 0) > 0 || within(repo.pushed_at, 90, ctx.now);
   const signals = { active, young: own.young || active, original: own.original, readme: own.readme, owned: ctx.owned };
   return {
     homepage,
@@ -847,7 +868,7 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): P
     claimed,
     finish: ({ live, deployed, unchecked, withCode }) => {
       const product = productScore({ ...signals, deployed }, unchecked ? ['deployed'] : []);
-      const facts: RepoFacts = { ...confirmMainnets(base, withCode), product, live_verified: live };
+      const facts: RepoFacts = { ...confirmMainnets(base, withCode), product, live_verified: live, commits_90d };
       return { repo: facts, verdicts: matchRepo(facts, programs) };
     },
   };
@@ -981,7 +1002,8 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
       repo_url: r.repo.url || null,
       // v2.8 Ruling 10 (plan): the repo's mainnet chains, for new program alerts (fit_chains);
       // testnet-only never counts as a fit (review minor 6, as cachedRepoChains).
-      chains: mainnetChains(r.repo.chains),
+      // v2.10 Pre-flight P8: credited mainnets only (a mention gives no fit).
+      chains: creditedMainnets(r.repo.chains),
       verdicts: r.verdicts.filter((v) => v.status !== 'no'),
       product: r.repo.product as Product,
       live_verified: r.repo.live_verified === true,

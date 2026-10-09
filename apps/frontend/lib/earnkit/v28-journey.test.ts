@@ -167,7 +167,7 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
     await sql()`
       INSERT INTO github_repo_facts (full_name, pushed_at, chains, commits_since) VALUES (
         ${repo.replace('https://github.com/', '').toLowerCase()}, now(),
-        ${sql().json({ arc: { mainnet: true, testnet: false, evidence: 'x' }, base: { mainnet: true, testnet: false, evidence: 'x' } })},
+        ${sql().json({ arc: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' }, base: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' } })},
         '{}')`;
 
     // 2. "What can I earn?" with no repo: the open money first, the token line last.

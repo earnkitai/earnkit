@@ -687,9 +687,10 @@ test('v2.8 Ruling C4: with the committed curated programs, Easy ones sort first 
   const ids = shown.map((c) => c.id);
   assert.ok(ids.includes('arc-microgrants'), ids.join(', '));
   const easy = cards.filter((c) => c.difficulty?.level === 'Easy').map((c) => c.id);
-  // v2.9 A6: Base is no longer Easy (Arc and Avalanche are).
-  assert.ok(easy.length >= 2);
+  // v2.9 A6: Base is no longer Easy. v2.10 item 10: nor is Avalanche Team1 Mini Grants (Arc is).
+  assert.ok(easy.length >= 1);
   assert.ok(!easy.includes('base-builder-grants'));
+  assert.ok(!easy.includes('avalanche-team1-mini-grants'));
   // Every Easy program comes before every other one, then by prize.
   assert.deepEqual(ids.slice(0, easy.length).sort(), [...easy].sort());
   const easyShown = shown.slice(0, easy.length).map((c) => c.max_award_usd ?? 0);
@@ -826,7 +827,8 @@ test('v2.8.1 §B: with the committed programs, the four first messages', async (
   const cards = await committedCards();
   const noRepo = presentFirstMessage(msg({ cards }));
   assert.match(noRepo, /Arc Microgrants \(needs a repo\)/);
-  assert.match(noRepo, /Want me to start on Avalanche Team1 Mini Grants\?/);
+  // v2.10 item 10: Avalanche Team1 Mini Grants is no longer Easy, so the offer goes elsewhere.
+  assert.match(noRepo, /Want me to start on Circle Developer Grants\?/);
   const oneRepo = presentFirstMessage(msg({
     cards,
     repos: repos(v('base-builder-grants', 'likely', ''), v('a16z-speedrun', 'likely', ''), withNew('colosseum-worlds-fair')),
@@ -835,7 +837,9 @@ test('v2.8.1 §B: with the committed programs, the four first messages', async (
   const ethOnly = presentFirstMessage(msg({ cards, repos: repos(v('a16z-speedrun', 'after_step', 'needs a live link', 'minutes')) }));
   assert.match(ethOnly, /\| a16z speedrun SR008 \|/);
   assert.doesNotMatch(ethOnly, /(start on|new for) a16z/);
-  assert.match(ethOnly, /Want me to build something new for Avalanche Team1 Mini Grants/);
+  // v2.10 item 10: Avalanche is Medium now, so the easiest program to build for is Arc.
+  assert.match(ethOnly, /Want me to build something new for Arc Microgrants/);
+  assert.match(ethOnly, /\| Avalanche Team1 Mini Grants \| up to \$10,000 \| Medium \(estimate\) \|/);
   for (const t of [noRepo, oneRepo, ethOnly]) {
     noEmoji(t);
     assert.doesNotMatch(t, /—|Clanker|\bcoin\b/);
