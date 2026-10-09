@@ -106,7 +106,7 @@ test('tokenProposalBlock: the proposal and the agent note; v2.10 item 5: no buil
   for (const k of ['earnings', 'terms', 'paired_with', 'say_to_builder']) assert.ok(!(k in b), k);
   assert.doesNotMatch(JSON.stringify(b), /WETH|token-creator-agreement|risk-disclosure|40%/);
   // Ruling 22: the agent is told to pass the confirmed wallet on record_submission.
-  assert.match(b.note, /Pass the wallet the builder confirmed \(the wallet line\) as record_submission's payout_wallet\./);
+  assert.match(b.note, /Pass the wallet the builder confirmed \(the wallet on the confirm line\) as record_submission's payout_wallet\./);
   // v2.5 Task 8 / v2.6 Ruling 7: this program fixture has no status ('active' required), so no builder bonus.
   assert.equal(b.has_bonus, false);
   // Without a repo there is no token line yet; v2.6: never a wallet line for a coin.

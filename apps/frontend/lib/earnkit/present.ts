@@ -217,14 +217,18 @@ export function difficultyCell(c: Pick<Card, 'difficulty'>): string {
 export const BONUS_TOP = 10;
 
 /**
- * v2.10 item 1, Ruling H8: the one builder bonus line, at most once per reply. The pool holds any
- * value (rolled-over ETH included): "Builder bonus: 0.18 ETH so far" ("under 0.01 ETH so far" below
- * 0.01). An empty pool: "Builder bonus: no tokens yet, so yours would be first". Null when the round
- * froze (I2). Pure.
+ * v2.10 item 1, Rulings H8 and H9: the one builder bonus line, at most once per reply. The pool holds
+ * any value (rolled-over ETH included): "Builder bonus: 0.18 ETH so far" ("under 0.01 ETH so far"
+ * below 0.01). An empty pool with tokens in the round: "Builder bonus: 3 tokens in, fees coming"
+ * ("1 token in"). No token at all: "Builder bonus: no tokens yet, so yours would be first". Null
+ * when the round froze (I2). Pure.
  */
 export function bonusLine(pool: RoundPool | null | undefined): string | null {
   if (pool === null) return null;
-  if (!pool || pool.wei <= 0n) return 'Builder bonus: no tokens yet, so yours would be first';
+  if (!pool || pool.wei <= 0n)
+    return pool && pool.tokens > 0
+      ? `Builder bonus: ${pool.tokens} token${pool.tokens === 1 ? '' : 's'} in, fees coming`
+      : 'Builder bonus: no tokens yet, so yours would be first';
   return `Builder bonus: ${pool.wei < 10n ** 16n ? 'under 0.01' : eth(pool.wei)} ETH so far`;
 }
 

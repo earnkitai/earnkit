@@ -1012,8 +1012,9 @@ test('8.2/8.3: confirm_entry without the yes (or without a decision) is the offe
     const t = await confirmSetup('offer', { remembered: W8 });
     // v2.8.1 §A2: the Yes line names the token that launches.
     const proposal = { name: 'Tip Jar', symbol: 'TIP' };
-    const expected = confirmOffer({ hasBonus: true, coinIn: null, canPush: true, wallet: W8, proposal });
-    assert.equal(expected, 'Yes submits your entry and launches $TIP (Tip Jar): 40% of its fees to you, plus the builder bonus. Wallet: 0x1581…b9a3. yes / skip the token');
+    // v2.10 fix round 1 (I2): the stored pair was shown already, so the offer has no "40%".
+    const expected = confirmOffer({ hasBonus: true, coinIn: null, canPush: true, wallet: W8, proposal, again: true });
+    assert.equal(expected, 'Yes submits your entry and launches $TIP (Tip Jar). Wallet: 0x1581…b9a3. yes / skip the token');
     for (const extra of [{}, { builder_confirmed: true }, { decision: 'go' }]) {
       const r = (await tools.confirm_entry({ ...t.input, ...extra }, t.ctx)) as Confirmed & { token?: { proposed?: unknown } };
       assert.equal(r.show_to_builder, expected, JSON.stringify(extra));
@@ -1523,7 +1524,8 @@ test('9 coach: all answers: the draft, the fixes, then Ready and the offer; stil
       [
         draftTable(p.submission_requirements, values),
         fixesLine(fixes),
-        `Ready. ${confirmOffer({ hasBonus: true, coinIn: null, canPush: true, wallet: W8, proposal: { name: 'Tip Jar', symbol: 'TIP' } })}`,
+        // v2.10 fix round 1 (I2): confirmSetup stores the pair (shown before), so no "40%" again.
+        `Ready. ${confirmOffer({ hasBonus: true, coinIn: null, canPush: true, wallet: W8, proposal: { name: 'Tip Jar', symbol: 'TIP' }, again: true })}`,
       ].join('\n\n'),
     );
     assert.match(r.show_to_builder, /\n1\. Traction: add how many people used it \(e\.g\. 120 users, 900 payments\)\./);
@@ -3019,7 +3021,7 @@ async function extraProgram(t: Awaited<ReturnType<typeof confirmSetup>>, suffix:
   return p;
 }
 
-test('7.10 v2.10 item 5: no first-reply offer; the token block has no fine print; the confirm offer is one line; the reply after "go" has no WETH, gas or terms', dbTest, () =>
+test('7.10 v2.10 item 5: no first-reply offer; no fine print; the confirm line once with "40%" across the flow (I2: a re-ask repeats it without); no WETH, gas or terms', dbTest, () =>
   withTokenEnv(async () => {
     const t = await offerSetup('t7once');
     const texts: string[] = [];
@@ -3033,21 +3035,40 @@ test('7.10 v2.10 item 5: no first-reply offer; the token block has no fine print
     const sym = (prep.token.proposed as { symbol: string }).symbol;
     assert.ok(prep.show_to_builder.endsWith(`Ready. Yes submits your entry and launches $${sym} (Tip Jar): 40% of its fees to you, plus the builder bonus. Say yes with your wallet address / skip the token`), prep.show_to_builder);
     texts.push(builderText(prep));
+    // The agent calls again (an edited answer): the same line, said once already, without "40%".
+    const prep2 = (await tools.prepare_submission({ ...t.input, coach_asked: true }, t.ctx)) as { show_to_builder: string };
+    assert.ok(prep2.show_to_builder.endsWith(`Ready. Yes submits your entry and launches $${sym} (Tip Jar). Say yes with your wallet address / skip the token`), prep2.show_to_builder);
+    texts.push(builderText(prep2));
+    // confirm_entry without a yes: the offer again, also without "40%".
     const offer = (await tools.confirm_entry({ ...t.input, wallet: W8 }, t.ctx)) as Confirmed;
     assert.equal(
       offer.show_to_builder,
-      confirmOffer({ hasBonus: true, coinIn: null, canPush: true, wallet: W8, proposal: { name: 'Tip Jar', symbol: sym } }),
+      confirmOffer({ hasBonus: true, coinIn: null, canPush: true, wallet: W8, proposal: { name: 'Tip Jar', symbol: sym }, again: true }),
     );
     assert.ok(!offer.show_to_builder.includes('\n'));
+    texts.push(builderText(offer));
     const confirmed = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as Confirmed;
     assert.equal(confirmed.token?.status, 'launched', JSON.stringify(confirmed));
     texts.push(builderText(confirmed));
     texts.push(builderText(await tools.record_submission({ program_id: t.p.id, project: t.project, submission_data: t.answers, builder_submitted: true }, t.ctx)));
     const all = texts.join('\n---\n');
     assert.doesNotMatch(all, /\bWETH\b|\bgas\b|token-creator-agreement|risk-disclosure/, all);
-    // "40%" once in the flow (the confirm offer the agent re-asked is the same line, not counted here).
     assert.equal(all.split('40%').length - 1, 1, all);
     for (const r of texts) assert.ok((r.match(/Builder bonus:/g)?.length ?? 0) <= 1, r);
+  }));
+
+test('7.1 / Ruling H9: record_submission right after the launch: "1 token in, fees coming", never "no tokens yet"', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('t7h9');
+    // The real pool and token read (no seam): the round has this token and no fees yet.
+    const ctx = { ...t.ctx, roundPools: undefined };
+    const c = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, ctx)) as Confirmed;
+    assert.equal(c.token?.status, 'launched', JSON.stringify(c));
+    const rec = (await tools.record_submission({ program_id: t.p.id, project: t.project, submission_data: t.answers, builder_submitted: true }, ctx)) as { show_to_builder: string };
+    assert.match(rec.show_to_builder, /^Entered in .+\. Your token: tokens\.fun\/coin\/0x[0-9a-f]+\./, rec.show_to_builder);
+    assert.match(rec.show_to_builder, /\nBuilder bonus: 1 token in, fees coming(\n\n|$)/, rec.show_to_builder);
+    assert.equal(rec.show_to_builder.split('Builder bonus:').length, 2, rec.show_to_builder);
+    assert.doesNotMatch(rec.show_to_builder, /no tokens yet/);
   }));
 
 test('7.11 v2.10 item 5: skip the token twice, never offered again; the third offer is "Ready to submit?" and records nothing', dbTest, () =>
@@ -3074,6 +3095,29 @@ test('7.11 v2.10 item 5: skip the token twice, never offered again; the third of
     assert.equal(await offers(), before);
     assert.equal(t.calls.deploy, 0);
   }));
+
+test('G12 (restored for v2.10): on a shared client a skip without a code records no decline; with alice\'s code, only hers', dbTest, () =>
+  withTokenEnv(() =>
+    withSignIn(async () => {
+      const t = await confirmSetup('t7g12');
+      const second = await extraProgram(t, 'b', 'Second Grants');
+      await sql()`UPDATE installations SET shared_client = true WHERE id = ${t.inst}`;
+      const shared = { ...t.ctx, sharedClient: true };
+      const skip = { builder_confirmed: true, decision: 'skip' } as const;
+      const declines = async () =>
+        sql()<{ login: string; count: number }[]>`SELECT login, count FROM token_declines WHERE installation_id = ${t.inst} ORDER BY login`;
+      const a = (await tools.confirm_entry({ ...t.input, ...skip }, shared)) as Confirmed;
+      assert.ok(a.kit, JSON.stringify(a));
+      assert.equal((await declines()).length, 0, 'no code: nothing recorded for anyone');
+      const code = await signInAs(t.inst, a.project_id!, t.repo, 'alice');
+      assert.ok(code);
+      await tools.confirm_entry({ ...t.input, program_id: second.id, ...skip, signed_in: code }, shared);
+      assert.deepEqual((await declines()).map((r) => [r.login, r.count]), [['alice', 1]]);
+      // Another builder on the same installation (no code) is never blocked by alice's skip.
+      const ask = (await tools.confirm_entry({ ...t.input, program_id: second.id, wallet: W8 }, shared)) as Confirmed;
+      assert.match(ask.show_to_builder, /^Yes submits your entry and launches \$/);
+    }),
+  ));
 
 test('Pre-flight P5: the offer path (until T9) refuses an unseen token and re-asks with the confirm line, without "40%"', dbTest, () =>
   withTokenEnv(async () => {
