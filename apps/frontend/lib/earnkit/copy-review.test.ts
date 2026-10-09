@@ -81,7 +81,7 @@ import {
 } from './tokens';
 import { RateLimitError } from './rate-limit';
 import { openRows, type OpenEntry } from './bonus-board';
-import { STATS_LABELS, wonLine } from './stats';
+import { STATS_LABELS, moneyText, openMoneyUsd, statsFrom, wonLine } from './stats';
 import {
   CAPPED_READ_SUFFIX,
   ENTRIES_HEADING,
@@ -120,7 +120,7 @@ import Header from '../../app/components/common/Header';
 import AddToAgent from '../../app/components/sections/AddToAgent';
 import { HERO_EYEBROW, HERO_SUBTITLE, HERO_TITLE } from '../../app/components/sections/Hero';
 import { HOW_TITLE, STEPS } from '../../app/components/sections/HowItWorks';
-import { statsLine } from './landing';
+import { landingFrom, statsLine } from './landing';
 import { bonusPillLabel } from '../../app/components/ui/BonusPill';
 import { eachLine, poolLine, poolTotalText } from './pool';
 
@@ -1385,4 +1385,30 @@ test('6.9 v2.9 B11: "skip" appears in builder text only in a token offer', () =>
       // v2.9 T12: or the first reply's closing token offer line.
       assert.match(line, /^\| Token \| A token on Base\b|^.+ fits .+: \$[\d,]+\. Launch \$\w+ \(.+\) on Base now\? .*(or skip\.|yes \/ skip)$/, `${label}: ${line}`);
   }
+});
+
+test('11.3 (F21): one money figure on the landing, /programs, the no-repo first reply and /api/stats; no hard-coded total', () => {
+  const now = new Date('2026-10-04T12:00:00Z');
+  const sponsored: Card = { ...base, id: 'sponsor-x', title: 'Sponsor X', sponsored: true, max_award_usd: 90000 };
+  const campaign: Card = { ...base, id: 'earnkit-campaign-1-base', title: 'EarnKit Campaign #1', earnkit_campaign: true, max_award_usd: 100 };
+  const cards: Card[] = [{ ...arc, pool_usd: 10000 }, { ...base, pool_usd: 2_000_000 }, sponsored, campaign];
+  const fig = moneyText(openMoneyUsd(cards, now));
+  assert.equal(fig, '$5.5K');
+  const zero = { open_money_usd: 0, open_money_text: null, open_pools_usd: 0, open_pools_plus: false, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, fees_to_safe_eth: 0, bonus_paid_eth: 0, bonus_pools_eth: 0, installs: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: 0 };
+  const landing = landingFrom(cards, new Map(), zero, now);
+  assert.equal(landing.open_text, fig);
+  assert.ok(pageText(React.createElement(ProgramCards, { tiles: landing.tiles, heading: 'h1', figure: landing.open_text })).includes(`${fig} open right now`));
+  assert.ok(presentFirstMessage(msg({ cards, now })).startsWith(`${fig} in prizes open right now.`));
+  const rows = cards.map((c) => ({
+    max_award_usd: c.max_award_usd ?? null, status: 'active', campaign: c.earnkit_campaign ? {} : null,
+    source: c.sponsored ? 'sponsor' : 'file', starts_at: null, ends_at: c.ends_at?.toISOString() ?? null,
+  }));
+  const stats = statsFrom({
+    open_rows: rows, pool_rows: null, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, bonus_deposits_wei: null,
+    bonus_to_safe_wei: null, bonus_paid_wei: null, bonus_pools_wei: null, installs: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: null,
+  }, now);
+  assert.equal(stats.open_money_text, fig);
+  // Never a hard-coded total in builder text.
+  for (const [name, text] of builderFacing)
+    for (const b of ['$1.3M', '1,170,500', '1170500']) assert.ok(!text.includes(b), `${name}: ${b}`);
 });

@@ -7,6 +7,8 @@ import { escrowConfig, escrowConfigProblem } from './escrow';
 import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, errorSummary, TOOL_DESCRIPTIONS, createMcpServer, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { tools as toolImpls } from './tools';
 import { SAFETY_LINES } from './untrusted-text';
+import { kitReplyNote, submitKit, type KitProgram } from './submit-kit';
+import { awardReply, createReply } from './sponsor-rules';
 import { sql } from './db';
 
 // Tool replies read alerts from the database when DATABASE_URL is set: close the pool.
@@ -532,4 +534,31 @@ test('final fix wave (M6): the unexpected-error log keeps only name, message and
   assert.equal(out.message, 'boom');
   assert.doesNotMatch(JSON.stringify(out), /alice@example\.com|answer_bank|0xaaaa/);
   assert.deepEqual(errorSummary({ secret: 'x' }), { name: 'object', message: 'non-Error thrown' });
+});
+
+test('11.8 (F25): confirm_entry and sponsor_campaign descriptions under 800 characters; their rules are in the replies', () => {
+  assert.ok(TOOL_DESCRIPTIONS.confirm_entry.length < 800, `confirm_entry: ${TOOL_DESCRIPTIONS.confirm_entry.length}`);
+  assert.ok(TOOL_DESCRIPTIONS.sponsor_campaign.length < 800, `sponsor_campaign: ${TOOL_DESCRIPTIONS.sponsor_campaign.length}`);
+  // confirm_entry keeps when to call it, its inputs and "show show_to_builder as written".
+  for (const k of ["decision: 'go'", "decision: 'skip'", 'wallet', 'token: { name, symbol }', 'agent: { browser, can_push }', 'show_to_builder exactly as written'])
+    assert.ok(TOOL_DESCRIPTIONS.confirm_entry.includes(k), k);
+  // sponsor_campaign keeps its three actions and their inputs.
+  for (const k of ['action=create', 'action=status', 'action=award', 'sponsor_name', 'sponsor_wallet', 'replaces=', 'winners'])
+    assert.ok(TOOL_DESCRIPTIONS.sponsor_campaign.includes(k), k);
+  // The kit rules: the kit reply's agent_note (DoraHacks: copy and paste; the builder clicks submit).
+  const dora: KitProgram = { title: 'Arc Microgrants', submission_url: 'https://dorahacks.io/hackathon/arc', submission_requirements: [] };
+  const note = kitReplyNote(submitKit(dora, {}, { browser: true }), dora);
+  assert.match(note, /terms ban automated use/);
+  assert.match(note, /The builder always clicks submit/);
+  assert.match(note, /The kit is only in this reply; never show a kit any other way\./);
+  // The sponsor rules: create's next_step (defaults, verification, brand names, confirm first).
+  const create = createReply({
+    ref: '0x' + 'a'.repeat(64), title: 'Build on Acme', poolUnits: 100_000_000n, token: { symbol: 'USDC', decimals: 6 }, winners: 3,
+    endsAt: '2026-10-20T00:00:00Z', fundUrl: 'https://earnkit.com/fund/0xabc', sponsorWallet: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
+    identity: { verified: false, host: 'acme.dev' },
+  });
+  assert.match(create.next_step, /Confirm amounts and wording with the sponsor/);
+  assert.match(create.next_step, /\.well-known\/earnkit\.txt/);
+  assert.match(create.next_step, /brand/);
+  assert.match(awardReply({ winners: [], token: { symbol: 'USDC', decimals: 6 }, feeUnits: 0n, awardUrl: 'https://earnkit.com/award/0xabc' }).next_step, /never send an award transaction the sponsor has not approved/i);
 });

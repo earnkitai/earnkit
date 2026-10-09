@@ -17,11 +17,18 @@ test('footerLinkProblems: FOOTER_COLUMNS has no problems against the app\'s real
   assert.deepEqual(footerLinkProblems(FOOTER_COLUMNS, appRoutes(APP_DIR)), []);
 });
 
+test('11.6 (F22): the Legal column is one Terms link to /terms, a real route', () => {
+  assert.deepEqual(FOOTER_COLUMNS.find((c) => c.title === 'Legal')?.links, [{ label: 'Terms', href: '/terms' }]);
+  assert.ok(appRoutes(APP_DIR).includes('/terms'));
+  for (const old of ['/policy', '/risk-disclosure', '/sponsor-terms']) assert.ok(!appRoutes(APP_DIR).includes(old), old);
+  assert.ok(renderToStaticMarkup(React.createElement(Footer)).includes('EarnKit is a product of Tokenfi Inc.'));
+});
+
 test('footerLinkProblems: reports a missing internal page, a disallowed external link, and an empty label', () => {
   const columns: FooterColumn[] = [
     { title: 'Product', links: [{ label: 'Nope', href: '/nope' }] },
     { title: 'Resources', links: [{ label: 'Evil', href: 'https://evil.example' }] },
-    { title: 'Legal', links: [{ label: '', href: '/policy' }] },
+    { title: 'Legal', links: [{ label: '', href: '/terms' }] },
   ];
   const problems = footerLinkProblems(columns, appRoutes(APP_DIR));
   assert.ok(problems.includes('internal link /nope has no page'), problems.join('; '));
@@ -32,7 +39,7 @@ test('footerLinkProblems: reports a missing internal page, a disallowed external
 
 test('appRoutes: includes the top-level routes and a dynamic segment', () => {
   const routes = appRoutes(APP_DIR);
-  for (const r of ['/', '/programs', '/policy', '/programs/[id]']) assert.ok(routes.includes(r), r);
+  for (const r of ['/', '/programs', '/terms', '/programs/[id]']) assert.ok(routes.includes(r), r);
 });
 
 test('Footer: renders exactly the FOOTER_COLUMNS hrefs plus the logo link, the tagline, the faded wordmark, and the copyright', () => {

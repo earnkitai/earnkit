@@ -1,10 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import PolicyPage from '../../app/policy/page';
+import PolicySection from '../../app/terms/sections/PolicySection';
+import TermsPage, { metadata as termsMetadata } from '../../app/terms/page';
+import nextConfig from '../../next.config';
+import { FEE_SPLIT_BPS, MINI_LINE } from './policy';
 import BoardView from '../../app/bonus/[round]/BoardView';
 import Footer from '../../app/components/common/Footer';
 import type { Board } from './bonus-board';
@@ -35,8 +38,8 @@ const html = (el: React.ReactElement) => renderToStaticMarkup(el);
 const view = (b: Board) => html(React.createElement(BoardView, { board: b }));
 const text = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/&#x27;|&#39;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ');
 
-test('/policy: every section, the fee split and payout tables, the weights, plain words', () => {
-  const h = html(React.createElement(PolicyPage));
+test('/terms#policy: every section, the fee split and payout tables, the weights, plain words', () => {
+  const h = html(React.createElement(PolicySection));
   const t = text(h);
   for (const heading of [
     'How matching works',
@@ -89,13 +92,14 @@ test('/policy: every section, the fee split and payout tables, the weights, plai
   assert.doesNotMatch(t, /vault/i);
   assert.doesNotMatch(t, /\p{Emoji_Presentation}/u);
   // The homepage's design system: Funnel type, ek tokens, the panel radius.
-  assert.match(h, /<h1 class="[^"]*font-funnel-display/);
-  assert.match(h, /rounded-\[40px\][^"]*md:rounded-\[56px\]/);
-  assert.match(h, /bg-ek-navy-deep/);
+  const page = html(React.createElement(TermsPage));
+  assert.match(page, /<h1 class="[^"]*font-funnel-display/);
+  assert.match(page, /rounded-\[40px\][^"]*md:rounded-\[56px\]/);
+  assert.match(page, /bg-ek-navy-deep/);
 });
 
-test('footer: links the policy page', () => {
-  assert.match(html(React.createElement(Footer)), /href="\/policy"/);
+test('footer: links the terms page', () => {
+  assert.match(html(React.createElement(Footer)), /href="\/terms"/);
 });
 
 const board = (o: Partial<Board> = {}): Board => ({
@@ -127,7 +131,7 @@ test('/bonus/<round> open: name, disclaimer, pool so far, days left, the rank/pr
   assert.match(t, /# Project Score Eligible/);
   assert.match(t, /1 Tipjar .*81\.5 Yes/);
   assert.match(t, /– Splitly .*– .*No: no token/);
-  assert.match(h, /href="\/policy"/);
+  assert.match(h, /href="\/terms#policy"/);
   assert.match(h, /href="https:\/\/tipjar\.app\/"/);
   assert.doesNotMatch(t, /vault/i);
 });
@@ -322,8 +326,8 @@ test('v2.8: a failed read keeps the hero and How you earn, without Open programs
   assert.ok(!t.includes('Open programs'));
 });
 
-test('v2.8: /policy shows the builder bonus pill in its builder bonus section', () => {
-  const h = html(React.createElement(PolicyPage));
+test('v2.8: /terms#policy shows the builder bonus pill in its builder bonus section', () => {
+  const h = html(React.createElement(PolicySection));
   const sec = h.slice(h.indexOf('id="the-builder-bonus"'));
   const head = sec.slice(0, sec.indexOf('<h3'));
   assert.match(head, /<h2[^>]*>The builder bonus<\/h2>/);
@@ -759,4 +763,52 @@ test('10.11 the home page: "Builders using EarnKit won $12,500" under the stats 
     assert.doesNotMatch(text(h), /Builders using EarnKit/);
     assert.doesNotMatch(text(h), /won \$0/);
   }
+});
+
+// ---- v2.9 Task 11 (F22 to F24): one legal page, quieter navigation, the MINI line.
+
+test('11.4 /terms: the policy, risk disclosure and sponsor terms sections; the fee split then the MINI line', () => {
+  const h = html(React.createElement(TermsPage));
+  const ids = [...h.matchAll(/<h2[^>]*\bid="([^"]+)"/g)].map((m) => m[1]);
+  for (const id of ['policy', 'risk-disclosure', 'sponsor-terms']) assert.ok(ids.includes(id), id);
+  assert.ok(ids.indexOf('policy') < ids.indexOf('risk-disclosure') && ids.indexOf('risk-disclosure') < ids.indexOf('sponsor-terms'), ids.join());
+  assert.equal(MINI_LINE, "10% buys MINI, EarnKit's token");
+  const t = text(h);
+  // The split is unchanged (FEE_SPLIT_BPS), and the MINI line follows its table.
+  assert.deepEqual([FEE_SPLIT_BPS.project, FEE_SPLIT_BPS.earnkit, FEE_SPLIT_BPS.bonus, FEE_SPLIT_BPS.buyback], [4000, 3000, 2000, 1000]);
+  const table = h.indexOf('</table>');
+  assert.ok(table > 0 && h.indexOf("10% buys MINI, EarnKit&#x27;s token") > table, 'the MINI line after the split table');
+  assert.ok(t.includes(`${'MINI buyback'} 10% Builder bonus 20% EarnKit 30%`), t.slice(0, 400));
+  assert.match(t, /Every entry is offered a token, named after the project\. Turn it down and there's no token\. No token means no builder bonus, nothing else\./);
+  assert.equal(termsMetadata.title, 'Terms');
+  assert.equal(termsMetadata.alternates?.canonical, 'https://earnkit.com/terms');
+  for (const old of ['policy', 'risk-disclosure', 'sponsor-terms'])
+    assert.ok(!existsSync(join(import.meta.dirname, '../../app', old, 'page.tsx')), `app/${old}/page.tsx is gone`);
+});
+
+test('11.5 next.config redirects: the old legal paths 301 to their /terms anchor', async () => {
+  const rules = await nextConfig.redirects!();
+  assert.deepEqual(
+    rules.map((r) => ({ source: r.source, destination: r.destination, statusCode: (r as { statusCode?: number }).statusCode })),
+    [
+      { source: '/policy', destination: '/terms#policy', statusCode: 301 },
+      { source: '/risk-disclosure', destination: '/terms#risk-disclosure', statusCode: 301 },
+      { source: '/sponsor-terms', destination: '/terms#sponsor-terms', statusCode: 301 },
+    ],
+  );
+  for (const r of rules) assert.ok(!('permanent' in r), `${r.source}: permanent sends 308`);
+});
+
+test('11.6 footer: Tokenfi line and the Terms link', () => {
+  const h = html(React.createElement(Footer));
+  assert.ok(text(h).includes('EarnKit is a product of Tokenfi Inc.'));
+  assert.match(h, /href="\/terms"[^>]*>[\s\S]{0,80}?Terms/);
+  assert.doesNotMatch(h, /href="\/(policy|risk-disclosure|sponsor-terms)"/);
+});
+
+test('11.7 (F23): builder navigation never links the dormant sponsor pages; the routes stay', () => {
+  const navs = [html(React.createElement(Header)), html(React.createElement(Footer)), html(React.createElement(HomeView, { landing: homeFixture })), html(React.createElement(GuideView, { page: fullGuide }))];
+  for (const h of navs) assert.doesNotMatch(h, /href="[^"]*\/(fund|award)\b/);
+  assert.doesNotMatch(readFileSync(join(import.meta.dirname, '../../public/llms.txt'), 'utf8'), /earnkit\.com\/(fund|award)\b/);
+  for (const r of ['fund/[ref]', 'award/[ref]']) assert.ok(existsSync(join(import.meta.dirname, '../../app', r, 'page.tsx')), r);
 });
