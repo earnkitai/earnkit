@@ -548,7 +548,9 @@ await db`INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes
   VALUES ('tipjar-alice', 'alice', 'alice/tipjar', ${memInst}, 100, 1, 'live')`;
 const badSiteStatus = await db`INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status)
   VALUES ('x-alice', 'alice', 'alice/x', ${memInst}, 1, 1, 'gone')`.then(() => false, () => true);
-ok(badSiteStatus, "hosted_sites only takes 'live', 'review', 'killed' or 'ended'");
+ok(badSiteStatus, "hosted_sites only takes 'live', 'review', 'killed', 'ended', 'deploying' or 'failed'");
+const badDeployStatus = await db`INSERT INTO host_deploys (login, slug, status) VALUES ('alice', 'x', 'done')`.then(() => false, () => true);
+ok(badDeployStatus, "host_deploys only takes 'deploying', 'live', 'review', 'failed' or 'cleaned'");
 const twoPerRepo = await db`INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status)
   VALUES ('tipjar2-alice', 'alice', 'alice/tipjar', ${memInst}, 1, 1, 'live')`.then(() => false, () => true);
 ok(twoPerRepo, 'hosted_sites holds one site per repo');

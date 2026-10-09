@@ -93,7 +93,7 @@ test('8.2 zipProblems: every refusal is a plain line; case-insensitive extension
   assert.equal(zipProblems(site(...total)), HOST_LINES.tooBig, '25 MB + 1');
   assert.equal(zipProblems([file('app.js')]), HOST_LINES.noIndex);
   assert.equal(zipProblems([file('INDEX.HTML'), file('Logo.PNG'), file('assets/', 0, { isDir: true })]), null);
-  assert.equal(STATIC_EXT.size, 23);
+  assert.equal(STATIC_EXT.size, 22);
   for (const ext of STATIC_EXT) assert.notEqual(contentTypeFor(`a.${ext}`), 'application/octet-stream', `the Worker serves .${ext}`);
   assert.equal(stripTopFolder(['dist/index.html', 'dist/a.js']), 'dist/');
   assert.equal(stripTopFolder(['dist/index.html', 'build/a.js']), null);
@@ -368,16 +368,17 @@ test('8.9 a clean zip goes live; a flagged one goes to review and waits on the o
   const flagged = await deploySite(again.token, site({ 'img/help.svg': strToU8('<svg><text>Type your seed phrase to restore</text></svg>') }), { r2: g.r2 });
   assert.equal(flagged.status, 200);
   assert.deepEqual(flagged.body, { show_to_builder: HOST_REVIEW, review: true });
-  assert.equal(g.calls[0], 'put state/tipjar-alice.json', 'the review state goes first');
-  assert.deepEqual(g.state('tipjar-alice'), { status: 'review', login: 'alice' });
-  const [r] = await sql()<{ status: string; flags: string[] }[]>`SELECT status, flags FROM hosted_sites WHERE slug = 'tipjar-alice'`;
-  assert.deepEqual(r, { status: 'review', flags: ['seed-phrase'] });
+  assert.ok(g.calls.every((c) => !c.includes(' sites/') && !c.includes(' state/')), 'nothing served is written (I1)');
+  const [r] = await sql()<{ status: string }[]>`SELECT status FROM hosted_sites WHERE slug = 'tipjar-alice'`;
+  assert.equal(r.status, 'live', 'the approved site keeps serving');
+  const [d] = await sql()<{ status: string; flags: string[] }[]>`
+    SELECT status, flags FROM host_deploys WHERE slug = 'tipjar-alice' ORDER BY id DESC LIMIT 1`;
+  assert.deepEqual(d, { status: 'review', flags: ['seed-phrase'] });
   assert.ok((await sitesInReview()).includes('tipjar-alice'));
-  const [gone] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM url_checks WHERE key = 'url:https://tipjar-alice.earnkit.com/'`;
-  assert.equal(gone.n, 0, 'a site in review is not verified');
   const cron = await withEnv(R2_ENV, () => runCron({ only: ['hz-none'], deps: { hosting: { r2: fakeR2().r2 } } }));
   assert.ok(cron.needs_owner.includes('host-review:tipjar-alice'));
   await sql()`UPDATE hosted_sites SET status = 'ended' WHERE slug = 'tipjar-alice'`;
+  await sql()`UPDATE host_deploys SET status = 'cleaned' WHERE slug = 'tipjar-alice' AND status = 'review'`;
 });
 
 test('8.10 expireSites ends a site past its expiry and sets a rolling site whose programs ended once', db, async () => {
@@ -503,6 +504,7 @@ test('8.13 an R2 failure logs the error class only, never the secret key or the 
       },
       list: async () => [],
       del: async () => {},
+      copy: async () => {},
     };
     const out = await deploySite(u.token, site(), { r2: boom });
     assert.equal(out.status, 502);
@@ -776,6 +778,6 @@ test('Minor: no .xml; the scan sees through tags, entities and new phrases; UTF-
   assert.equal(out.status, 400);
   assert.equal(out.body.show_to_builder, HOST_LINES.notUtf8);
   // Refused attempts don't use the link, but a link takes at most 5 attempts.
-  for (let i = 0; i < 3; i++) assert.equal((await deploySite(u.token, zipOf({ 'a.exe': strToU8('x') }), { r2: fakeR2().r2 })).status, 400);
+  for (let i = 0; i < 4; i++) assert.equal((await deploySite(u.token, zipOf({ 'a.exe': strToU8('x') }), { r2: fakeR2().r2 })).status, 400);
   assert.equal((await deploySite(u.token, site(), { r2: fakeR2().r2 })).status, 410, 'the 6th attempt');
 });

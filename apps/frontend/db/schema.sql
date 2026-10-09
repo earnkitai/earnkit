@@ -760,6 +760,8 @@ CREATE TABLE IF NOT EXISTS github_verify_nonces (
   expires_at      timestamptz NOT NULL,
   used_at         timestamptz
 );
+-- Fix round 1 (review M2): a link takes at most 5 upload attempts.
+ALTER TABLE host_upload_tokens ADD COLUMN IF NOT EXISTS attempts integer NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS github_verify_nonces_project ON github_verify_nonces (project_id) WHERE project_id IS NOT NULL;
 -- v2.9 B9: a passed GitHub ownership check (Ruling 6). The GitHub token is never stored.
 CREATE TABLE IF NOT EXISTS github_verifications (
@@ -824,11 +826,17 @@ CREATE TABLE IF NOT EXISTS hosted_sites (
   installation_id integer NOT NULL REFERENCES installations(id) ON DELETE CASCADE,
   bytes           bigint NOT NULL,
   files           integer NOT NULL,
-  status          text NOT NULL CHECK (status IN ('live', 'review', 'killed', 'ended')),
+  status          text NOT NULL,
   flags           text[] NOT NULL DEFAULT '{}',
   deployed_at     timestamptz NOT NULL DEFAULT now(),
   expires_at      timestamptz
 );
+-- Fix round 1: `deploying` (reserved under the lock before any R2 write) and `failed` (never published).
+ALTER TABLE hosted_sites DROP CONSTRAINT IF EXISTS hosted_sites_status_check;
+ALTER TABLE hosted_sites ADD CONSTRAINT hosted_sites_status_check
+  CHECK (status IN ('live', 'review', 'killed', 'ended', 'deploying', 'failed'));
+-- I4: when the hourly cron last looked at a rolling site's programs (it rotates through all of them).
+ALTER TABLE hosted_sites ADD COLUMN IF NOT EXISTS expiry_checked_at timestamptz;
 CREATE INDEX IF NOT EXISTS hosted_sites_login ON hosted_sites (lower(login));
 CREATE TABLE IF NOT EXISTS host_deploys (
   id         serial PRIMARY KEY,
@@ -837,6 +845,17 @@ CREATE TABLE IF NOT EXISTS host_deploys (
   at         timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS host_deploys_login_at ON host_deploys (lower(login), at);
+-- Fix round 1 (I2, I3): every deploy is a row before its first R2 write: its keys as they are written
+-- (`written`), its bytes (counted toward 8 GB until published or cleaned), and where it is.
+ALTER TABLE host_deploys ADD COLUMN IF NOT EXISTS repo_key text;
+ALTER TABLE host_deploys ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'live'
+  CHECK (status IN ('deploying', 'live', 'review', 'failed', 'cleaned'));
+ALTER TABLE host_deploys ADD COLUMN IF NOT EXISTS bytes bigint NOT NULL DEFAULT 0;
+ALTER TABLE host_deploys ADD COLUMN IF NOT EXISTS files integer NOT NULL DEFAULT 0;
+ALTER TABLE host_deploys ADD COLUMN IF NOT EXISTS flags text[] NOT NULL DEFAULT '{}';
+ALTER TABLE host_deploys ADD COLUMN IF NOT EXISTS written text[] NOT NULL DEFAULT '{}';
+ALTER TABLE host_deploys ADD COLUMN IF NOT EXISTS done_at timestamptz;
+CREATE INDEX IF NOT EXISTS host_deploys_open ON host_deploys (slug, status) WHERE status IN ('deploying', 'review', 'failed');
 -- One-time upload URLs (only the sha256 of the token is stored).
 CREATE TABLE IF NOT EXISTS host_upload_tokens (
   token_hash      text PRIMARY KEY,
