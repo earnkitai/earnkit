@@ -8,9 +8,12 @@ import { quoted } from './untrusted-text';
  * pays; the builder's wallet is the creator and gets 40% of trading fees.
  * The deploy key (TOKENSFUN_DEPLOY_API_KEY) never leaves this server.
  */
-const TOKENSFUN_URL = (
-  process.env.TOKENSFUN_API_URL ?? 'https://tokens.fun'
-).replace(/\/$/, '');
+/**
+ * tokens.fun's API host (TOKENSFUN_API_URL overrides it for tests and the e2e mocks). Read per call,
+ * never at import (v2.9 T12): a module that loads tokens.ts early must not freeze the host before a
+ * test or the e2e sets its mock, or a test's deploy reaches the real tokens.fun.
+ */
+export const tokensFunUrl = () => (process.env.TOKENSFUN_API_URL ?? 'https://tokens.fun').replace(/\/$/, '');
 
 export const TOKEN_TERMS = {
   agreement: 'https://tokens.fun/token-creator-agreement',
@@ -575,7 +578,7 @@ export async function deployToken(
   });
   const post = async () => {
     try {
-      const res = await doFetch(`${TOKENSFUN_URL}/api/v1/deploy`, {
+      const res = await doFetch(`${tokensFunUrl()}/api/v1/deploy`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${key}`,
