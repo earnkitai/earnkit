@@ -907,8 +907,9 @@ apps/frontend/
                                (list_programs' seam; fixtures/no-network-checks pins it to 0)
     digest.ts(+test)           v2.9 E19 (Task 10): the weekly email. digestEnabled (RESEND_API_KEY),
                                DIGEST_FROM_DEFAULT/DIGEST_FROM, EMAIL_QUESTION/emailQuestionFor/EMAIL_NOTE,
-                               weekStart (Monday 14:00 UTC), digestDue (P17), digestBody, unsubToken/
-                               unsubInstallation (HMAC, timing-safe), unsubHeaders, Mailer/MailError/
+                               weekStart (Monday 14:00 UTC), digestDue (P17), digestBody, SubKey (G21:
+                               installation + login), unsubToken/unsubTarget (HMAC, timing-safe),
+                               unsubHeaders, idempotencyKey, MAX_SEND_FAILURES, Mailer/MailError/
                                resendMailer, entryEmail/cleanEmail, askWeeklyEmail (Ruling 13, P16),
                                saveWeeklyEmail, unsubscribe, digestFacts, sendDigests (row lock,
                                free-tier caps), digestUnsubscribeGet/Post

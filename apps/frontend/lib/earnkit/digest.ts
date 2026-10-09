@@ -15,13 +15,17 @@ import { testInstallationIds } from './installations';
  * RESEND_API_KEY unset the whole feature is off: no question, no send.
  * Content (in this order): new programs one of the builder's remembered repos could really win
  * (alerts.ts alertFit, the alert rule), wins by EarnKit builders (announced only), and the builder's
- * own deadlines and decision dates in the coming week. On a hosted agent (shared_client) one
- * installation serves many builders: no repo-based lines, and only the deadlines of entries whose
- * answers carry the subscription's own email.
+ * own deadlines and decision dates in the coming week. Ruling G21: on a hosted agent (shared_client)
+ * one installation serves many builders, so each subscription belongs to a GitHub-verified login (the
+ * signed_in code, G9): the question is asked once per login, never without a code, and an answer
+ * changes only the caller's own subscription. Such an email has no repo-based lines, and its deadlines
+ * are only the entries that login signed in for. Elsewhere one subscription per installation (login '').
  */
 
 export const DIGEST_FROM_DEFAULT = 'EarnKit <digest@earnkit.com>';
-export const digestEnabled = (env: Record<string, string | undefined> = process.env): boolean => Boolean(env.RESEND_API_KEY?.trim());
+/** On only with RESEND_API_KEY and EARNKIT_AUTH_SECRET (every email's unsubscribe link is signed with it). */
+export const digestEnabled = (env: Record<string, string | undefined> = process.env): boolean =>
+  Boolean(env.RESEND_API_KEY?.trim() && env.EARNKIT_AUTH_SECRET);
 const digestFrom = () => process.env.DIGEST_FROM?.trim() || DIGEST_FROM_DEFAULT;
 
 export const EMAIL_QUESTION = 'Get new programs and wins by email, once a week? yes / no';
@@ -33,10 +37,16 @@ export const WHICH_EMAIL = 'Which email should I use?';
 export const EMAIL_ON = 'Done. One email a week, on Mondays.';
 export const EMAIL_OFF = 'No weekly email.';
 export const EMAIL_UNAVAILABLE = 'The weekly email is not available yet.';
-/** A hosted agent holds one subscription; another builder's live one is never replaced. */
-export const EMAIL_TAKEN = 'This agent already sends the weekly email to someone else.';
-/** Shared clients: a plain yes counts only this soon after the question (another builder may call later). */
-export const SHARED_YES_MS = 60 * 60_000;
+/** Ruling G21: on a hosted agent the weekly email needs the builder's GitHub sign-in code. */
+export const EMAIL_SIGN_IN = 'The weekly email needs your GitHub sign-in on this agent.';
+/** Ruling G21: what the agent passes on a hosted agent. */
+export const EMAIL_SHARED_NOTE = 'Pass signed_in too: the code the sign-in page gave them.';
+/** Send failures in a row that stop a run (a Resend outage never burns the day's slots). */
+export const MAX_SEND_FAILURES = 3;
+
+/** Whose subscription: the installation, and on a shared client the verified login ('' elsewhere). */
+export type SubKey = { installationId: number; login: string };
+const keyOf = (k: number | SubKey): SubKey => (typeof k === 'number' ? { installationId: k, login: '' } : { ...k, login: k.login.toLowerCase() });
 
 const DAY = 86_400_000;
 /** Most lines per section, so one email stays short. */
@@ -93,40 +103,59 @@ export function digestBody(f: DigestFacts): { subject: string; text: string } | 
   return { subject, text: `${lines.join('\n')}\n\nAsk your agent "What can I earn?" to start.` };
 }
 
-const mac = (installationId: number, secret: string) =>
-  createHmac('sha256', secret).update(`digest-unsub:v1:${installationId}`).digest('base64url');
+const mac = (k: SubKey, secret: string) =>
+  createHmac('sha256', secret)
+    .update(`digest-unsub:v1:${k.installationId}${k.login ? `:${k.login}` : ''}`)
+    .digest('base64url');
 
 /**
  * The one-click unsubscribe token: `<installation id>.<HMAC-SHA256(EARNKIT_AUTH_SECRET,
- * "digest-unsub:v1:<id>"), base64url>`. Throws without the secret (nothing is sent then). Pure.
+ * "digest-unsub:v1:<id>"), base64url>`; a shared client's login subscription (G21) is
+ * `<id>.<login>.<HMAC of "digest-unsub:v1:<id>:<login>">`. Throws without the secret. Pure.
  */
-export function unsubToken(installationId: number, secret: string | undefined = process.env.EARNKIT_AUTH_SECRET): string {
+export function unsubToken(target: number | SubKey, secret: string | undefined = process.env.EARNKIT_AUTH_SECRET): string {
   if (!secret) throw new Error('EARNKIT_AUTH_SECRET is not set');
-  return `${installationId}.${mac(installationId, secret)}`;
+  const k = keyOf(target);
+  return `${k.installationId}.${k.login ? `${k.login}.` : ''}${mac(k, secret)}`;
 }
 
-/** The installation a token names, or null (malformed, another id, a changed character, no secret). Timing-safe. */
-export function unsubInstallation(token: string, secret: string | undefined = process.env.EARNKIT_AUTH_SECRET): number | null {
+/** The subscription a token names, or null (malformed, another id or login, a changed character, no secret). Timing-safe. */
+export function unsubTarget(token: string, secret: string | undefined = process.env.EARNKIT_AUTH_SECRET): SubKey | null {
   if (!secret || typeof token !== 'string' || token.length > 200) return null;
-  const m = token.match(/^([1-9][0-9]{0,9})\.([A-Za-z0-9_-]{43})$/);
+  const m = token.match(/^([1-9][0-9]{0,9})\.(?:([a-z0-9-]{1,39})\.)?([A-Za-z0-9_-]{43})$/);
   if (!m) return null;
   const id = Number(m[1]);
   if (!Number.isSafeInteger(id) || id > 2_147_483_647) return null;
-  const want = Buffer.from(mac(id, secret));
-  const got = Buffer.from(m[2]);
-  return want.length === got.length && timingSafeEqual(want, got) ? id : null;
+  const k = { installationId: id, login: m[2] ?? '' };
+  const want = Buffer.from(mac(k, secret));
+  const got = Buffer.from(m[3]);
+  return want.length === got.length && timingSafeEqual(want, got) ? k : null;
 }
 
-export const unsubUrl = (installationId: number) =>
-  `${siteUrl()}/api/digest/unsubscribe?t=${encodeURIComponent(unsubToken(installationId))}`;
+export const unsubUrl = (target: number | SubKey) =>
+  `${siteUrl()}/api/digest/unsubscribe?t=${encodeURIComponent(unsubToken(target))}`;
 
 /** RFC 2369 and RFC 8058: every email's unsubscribe headers. */
-export const unsubHeaders = (installationId: number): Record<string, string> => ({
-  'List-Unsubscribe': `<${unsubUrl(installationId)}>`,
+export const unsubHeaders = (target: number | SubKey): Record<string, string> => ({
+  'List-Unsubscribe': `<${unsubUrl(target)}>`,
   'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
 });
 
-export type Mailer = (m: { to: string; from: string; subject: string; text: string; headers: Record<string, string> }) => Promise<void>;
+/**
+ * Review I2: Resend's Idempotency-Key for one subscription's email of one week, so a retry of a send
+ * whose outcome was unknown (a timeout, a 5xx after acceptance, a failed commit) never mails twice.
+ */
+export const idempotencyKey = (target: SubKey, start: Date) =>
+  `digest-${target.installationId}${target.login ? `-${target.login}` : ''}-${start.toISOString()}`;
+
+export type Mailer = (m: {
+  to: string;
+  from: string;
+  subject: string;
+  text: string;
+  headers: Record<string, string>;
+  idempotencyKey: string;
+}) => Promise<void>;
 
 /** A failed send: `status` is the HTTP status (0: no answer, a timeout or a network error). */
 export class MailError extends Error {
@@ -144,7 +173,7 @@ export const resendMailer =
     try {
       res = await fetch(RESEND_URL, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'Idempotency-Key': m.idempotencyKey },
         body: JSON.stringify({ from: m.from, to: [m.to], subject: m.subject, text: m.text, headers: m.headers }),
         signal: AbortSignal.timeout(RESEND_TIMEOUT_MS),
         redirect: 'error',
@@ -177,29 +206,40 @@ export function entryEmail(reqs: { key: string; label: string; kind?: string; ty
 }
 
 /**
- * Ruling 13: the question, once per installation (digest_asked_at), only while the email is on.
- * `email`: the address the question may use (P16: on a shared client, only the one this builder
- * typed in this entry; never one remembered). It is kept, not opted in, until a yes. Returns what the
- * reply adds, or null (off, or asked before). Never fails the tool.
+ * Ruling 13: the question, once per subscription key, only while the email is on: an installation
+ * (installations.digest_asked_at), or on a shared client (Ruling G21) a verified login (its row's
+ * asked_at); a shared client without a login is never asked. `email`: the address the question may
+ * use (P16: on a shared client, only the one this builder typed in this entry; never one remembered).
+ * It is kept, not opted in, until a yes. Returns what the reply adds, or null (off, no login, or asked
+ * before). Never fails the tool.
  */
 export async function askWeeklyEmail(
   installationId: number,
-  opts: { shared: boolean; email: string | null },
+  opts: { shared: boolean; email: string | null; login?: string | null },
 ): Promise<{ question: string; agent_note: string } | null> {
   if (!digestEnabled()) return null;
+  const login = opts.shared ? opts.login?.toLowerCase() : '';
+  if (!login && opts.shared) return null;
   try {
     return await sql().begin(async (tx) => {
-      const [asked] = await tx<{ id: number }[]>`
-        UPDATE installations SET digest_asked_at = now() WHERE id = ${installationId} AND digest_asked_at IS NULL RETURNING id`;
-      if (!asked) return null;
-      if (opts.email)
+      if (opts.shared) {
+        const [asked] = await tx<{ id: number }[]>`
+          INSERT INTO digest_subscriptions (installation_id, login, email, asked_at) VALUES (${installationId}, ${login!}, ${opts.email}, now())
+          ON CONFLICT (installation_id, login) DO NOTHING RETURNING installation_id AS id`;
+        if (!asked) return null;
+      } else {
+        const [asked] = await tx<{ id: number }[]>`
+          UPDATE installations SET digest_asked_at = now() WHERE id = ${installationId} AND digest_asked_at IS NULL RETURNING id`;
+        if (!asked) return null;
         await tx`
-          INSERT INTO digest_subscriptions (installation_id, email) VALUES (${installationId}, ${opts.email})
-          ON CONFLICT (installation_id) DO UPDATE SET email = EXCLUDED.email WHERE digest_subscriptions.opted_in_at IS NULL`;
+          INSERT INTO digest_subscriptions (installation_id, login, email, asked_at) VALUES (${installationId}, '', ${opts.email}, now())
+          ON CONFLICT (installation_id, login) DO UPDATE SET email = COALESCE(EXCLUDED.email, digest_subscriptions.email), asked_at = now()
+          WHERE digest_subscriptions.opted_in_at IS NULL`;
+      }
       return {
         // Non-shared clients: the entry's email is reused only after the yes, so the question names none.
         question: opts.shared && opts.email ? emailQuestionFor(opts.email) : EMAIL_QUESTION,
-        agent_note: EMAIL_NOTE,
+        agent_note: opts.shared ? `${EMAIL_NOTE} ${EMAIL_SHARED_NOTE}` : EMAIL_NOTE,
       };
     });
   } catch (err) {
@@ -212,52 +252,58 @@ export async function askWeeklyEmail(
 export type WeeklyEmail = { answer: 'yes' | 'no'; email?: string };
 
 /**
- * Stores the builder's answer. No: the subscription and its address are deleted. Yes with an address:
- * that one. A plain yes: the address kept with the question (the entry's email on a non-shared
- * client; on a shared one only the address the question named, and only within SHARED_YES_MS of it).
- * Returns what to show.
+ * Stores the builder's answer, on the caller's own subscription only (Ruling G21: on a shared client
+ * the verified login's; with no login nothing changes, EMAIL_SIGN_IN). No: the address and the opt-in
+ * are cleared (the row stays, so the question is not asked again). Yes with an address: that one. A
+ * plain yes: the address kept with the question (this entry's email), else WHICH_EMAIL. Returns what
+ * to show.
  */
-export async function saveWeeklyEmail(installationId: number, w: WeeklyEmail, opts: { shared: boolean }, now = new Date()) {
+export async function saveWeeklyEmail(
+  installationId: number,
+  w: WeeklyEmail,
+  opts: { shared: boolean; login?: string | null },
+  now = new Date(),
+) {
   if (!digestEnabled()) return { show_to_builder: EMAIL_UNAVAILABLE, saved: false };
+  const login = opts.shared ? (opts.login?.toLowerCase() ?? '') : '';
+  if (opts.shared && !login) return { show_to_builder: EMAIL_SIGN_IN, saved: false };
   const db = sql();
   if (w.answer === 'no') {
-    await db`DELETE FROM digest_subscriptions WHERE installation_id = ${installationId}`;
+    await db`
+      INSERT INTO digest_subscriptions (installation_id, login, asked_at) VALUES (${installationId}, ${login}, ${now})
+      ON CONFLICT (installation_id, login) DO UPDATE SET email = NULL, opted_in_at = NULL, unsubscribed_at = NULL`;
     return { show_to_builder: EMAIL_OFF, saved: true };
   }
   const given = w.email === undefined ? null : cleanEmail(w.email);
   if (w.email !== undefined && !given) return { show_to_builder: WHICH_EMAIL, saved: false };
   if (given) {
-    // A hosted agent holds one subscription: never replace another builder's live one.
-    const [row] = await db<{ id: number }[]>`
-      INSERT INTO digest_subscriptions (installation_id, email, opted_in_at) VALUES (${installationId}, ${given}, ${now})
-      ON CONFLICT (installation_id) DO UPDATE SET
+    await db`
+      INSERT INTO digest_subscriptions (installation_id, login, email, asked_at, opted_in_at)
+      VALUES (${installationId}, ${login}, ${given}, ${now}, ${now})
+      ON CONFLICT (installation_id, login) DO UPDATE SET
         email = EXCLUDED.email,
         opted_in_at = CASE WHEN digest_subscriptions.opted_in_at IS NULL OR digest_subscriptions.unsubscribed_at IS NOT NULL
           THEN EXCLUDED.opted_in_at ELSE digest_subscriptions.opted_in_at END,
-        unsubscribed_at = NULL
-      WHERE ${!opts.shared} OR digest_subscriptions.opted_in_at IS NULL OR digest_subscriptions.unsubscribed_at IS NOT NULL
-        OR digest_subscriptions.email = EXCLUDED.email
-      RETURNING installation_id AS id`;
-    return row ? { show_to_builder: EMAIL_ON, saved: true } : { show_to_builder: EMAIL_TAKEN, saved: false };
+        unsubscribed_at = NULL`;
+    return { show_to_builder: EMAIL_ON, saved: true };
   }
   const [row] = await db<{ id: number }[]>`
-    UPDATE digest_subscriptions d SET opted_in_at = COALESCE(d.opted_in_at, ${now}), unsubscribed_at = NULL
-    FROM installations i
-    WHERE d.installation_id = ${installationId} AND i.id = d.installation_id
-      AND (${!opts.shared} OR (d.opted_in_at IS NULL AND i.digest_asked_at > ${new Date(now.getTime() - SHARED_YES_MS)}))
-    RETURNING d.installation_id AS id`;
+    UPDATE digest_subscriptions SET opted_in_at = COALESCE(opted_in_at, ${now}), unsubscribed_at = NULL
+    WHERE installation_id = ${installationId} AND login = ${login} AND email IS NOT NULL
+    RETURNING installation_id AS id`;
   return row ? { show_to_builder: EMAIL_ON, saved: true } : { show_to_builder: WHICH_EMAIL, saved: false };
 }
 
-/** One-click unsubscribe: idempotent (the first time stands). True when the installation has a subscription. */
-export async function unsubscribe(installationId: number, now = new Date()): Promise<boolean> {
+/** One-click unsubscribe of exactly one subscription: idempotent (the first time stands). True when it exists. */
+export async function unsubscribe(target: number | SubKey, now = new Date()): Promise<boolean> {
+  const k = keyOf(target);
   const rows = await sql()`
     UPDATE digest_subscriptions SET unsubscribed_at = COALESCE(unsubscribed_at, ${now})
-    WHERE installation_id = ${installationId} RETURNING installation_id`;
+    WHERE installation_id = ${k.installationId} AND login = ${k.login} RETURNING installation_id`;
   return rows.length > 0;
 }
 
-type SubRow = DigestState & { installation_id: number; email: string; shared: boolean };
+type SubRow = DigestState & { installation_id: number; login: string; email: string; shared: boolean };
 
 /**
  * One subscription's facts, read on `db`. New programs: opened since the last send (else the opt-in),
@@ -271,12 +317,13 @@ export async function digestFacts(s: SubRow, now: Date, db: Db = sql()): Promise
   const week = new Date(now.getTime() + 7 * DAY);
   const ids = testInstallationIds();
   const id = s.installation_id;
-  // Shared clients: only entries whose answers carry this subscription's own address.
+  // Ruling G21 (G7, G9): on a shared client, only the entries this subscription's login signed in for.
   const own = s.shared
-    ? db`AND EXISTS (SELECT 1 FROM jsonb_each_text(COALESCE(p.application->'answers', '{}'::jsonb)) a WHERE lower(trim(a.value)) = ${s.email})`
+    ? db`AND p.id IN (SELECT project_id FROM github_verifications
+        WHERE installation_id = ${id} AND login = ${s.login.toLowerCase()} AND project_id IS NOT NULL)`
     : db``;
   const [curated, fit, entered, told, said, wins, closing, decisions] = await Promise.all([
-    s.shared
+    s.shared || s.login
       ? Promise.resolve([] as (NewProgramRow & { opened_at: Date })[])
       : db<(NewProgramRow & { opened_at: Date })[]>`
           SELECT id, title, summary, chains, any_chain, opened_at, past_rounds, focus, best_bet, difficulty_override,
@@ -351,22 +398,25 @@ export async function digestFacts(s: SubRow, now: Date, db: Db = sql()): Promise
  * last_considered_at; else one slot of the day's and the month's cap (taken before the send and kept
  * whatever happens), the send, and last_sent_at in that same transaction. A refused cap stops the run
  * (`capped`); the rest wait for a later run. A send that fails for good (a 4xx other than 429) skips
- * the subscription this week; a 429 stops the run; anything else is retried on the next run.
- * `deps.only` limits the run to these installations (tests). With no mailer (RESEND_API_KEY unset and
- * none given) nothing runs.
+ * the subscription this week; a 429 stops the run; anything else is retried on the next run, safely:
+ * each send carries an Idempotency-Key for that subscription and week (review I2). MAX_SEND_FAILURES
+ * failed sends (or rows that failed to read) in a row stop the run (`stopped`), so an outage never
+ * burns the day's slots. Rows are keyed by (installation, login) (Ruling G21). `deps.only` limits the
+ * run to these installations (tests). With no mailer (RESEND_API_KEY unset and none given) nothing runs.
  */
 export async function sendDigests(
   now: Date,
   deps: { mail?: Mailer; budgetMs?: number; only?: number[] } = {},
-): Promise<{ sent: number; skipped: number; capped: boolean }> {
-  const out = { sent: 0, skipped: 0, capped: false };
+): Promise<{ sent: number; skipped: number; capped: boolean; stopped?: true }> {
+  const out: { sent: number; skipped: number; capped: boolean; stopped?: true } = { sent: 0, skipped: 0, capped: false };
   const key = process.env.RESEND_API_KEY?.trim();
   const mail = deps.mail ?? (key ? resendMailer(key) : null);
   if (!mail || !process.env.EARNKIT_AUTH_SECRET) return out;
   const deadline = Date.now() + (deps.budgetMs ?? SEND_BUDGET_MS);
   const start = weekStart(now);
-  const tried: number[] = [];
+  const tried: string[] = [];
   const from = digestFrom();
+  let failures = 0;
   while (Date.now() < deadline) {
     // Nothing is taken unless both counters have room (a refused take would leak a slot).
     if (!(await freeTierRoom('resendDay', 1, now)) || !(await freeTierRoom('resendMonth', 1, now))) {
@@ -376,22 +426,24 @@ export async function sendDigests(
     if (tried.length >= RUN_MAX) break;
     const step = await sql().begin(async (tx) => {
       const [s] = await tx<SubRow[]>`
-        SELECT d.installation_id, d.email, d.opted_in_at, d.unsubscribed_at, d.last_sent_at, d.last_considered_at,
+        SELECT d.installation_id, d.login, d.email, d.opted_in_at, d.unsubscribed_at, d.last_sent_at, d.last_considered_at,
           i.shared_client AS shared
         FROM digest_subscriptions d JOIN installations i ON i.id = d.installation_id
         WHERE d.opted_in_at IS NOT NULL AND d.opted_in_at < ${start} AND d.unsubscribed_at IS NULL
           AND (d.last_sent_at IS NULL OR d.last_sent_at < ${start})
           AND (d.last_considered_at IS NULL OR d.last_considered_at < ${start})
-          AND NOT (d.installation_id = ANY(${tried}::int[]))
+          AND NOT ((d.installation_id::text || ':' || d.login) = ANY(${tried}::text[]))
           ${deps.only ? tx`AND d.installation_id = ANY(${deps.only}::int[])` : tx``}
-        ORDER BY d.last_sent_at NULLS FIRST, d.installation_id
+        ORDER BY d.last_sent_at NULLS FIRST, d.installation_id, d.login
         LIMIT 1
         FOR UPDATE OF d SKIP LOCKED`;
       if (!s) return 'done' as const;
-      tried.push(s.installation_id);
+      tried.push(`${s.installation_id}:${s.login}`);
       if (!digestDue(s, now)) return 'skip' as const;
+      const target = { installationId: s.installation_id, login: s.login };
       const body = digestBody(await digestFacts(s, now, tx));
-      const consider = () => tx`UPDATE digest_subscriptions SET last_considered_at = ${now} WHERE installation_id = ${s.installation_id}`;
+      const consider = () => tx`
+        UPDATE digest_subscriptions SET last_considered_at = ${now} WHERE installation_id = ${s.installation_id} AND login = ${s.login}`;
       if (!body) {
         await consider();
         return 'skip' as const;
@@ -399,14 +451,15 @@ export async function sendDigests(
       // Day first: a refused month take then costs only a slot of a day that is over anyway.
       if (!(await takeFreeTier('resendDay', 1, now))) return 'capped' as const;
       if (!(await takeFreeTier('resendMonth', 1, now))) return 'capped' as const;
-      const url = unsubUrl(s.installation_id);
+      const url = unsubUrl(target);
       try {
         await mail({
           to: s.email,
           from,
           subject: body.subject,
           text: `${body.text}\n\nOne email a week. Unsubscribe: ${url}`,
-          headers: unsubHeaders(s.installation_id),
+          headers: unsubHeaders(target),
+          idempotencyKey: idempotencyKey(target, start),
         });
       } catch (err) {
         const status = err instanceof MailError ? err.status : 0;
@@ -414,12 +467,16 @@ export async function sendDigests(
         if (status === 429) return 'capped' as const;
         if (status >= 400 && status < 500) {
           await consider();
-          return 'skip' as const;
+          return 'rejected' as const;
         }
-        return 'retry' as const;
+        return 'failed' as const;
       }
-      await tx`UPDATE digest_subscriptions SET last_sent_at = ${now} WHERE installation_id = ${s.installation_id}`;
+      await tx`UPDATE digest_subscriptions SET last_sent_at = ${now} WHERE installation_id = ${s.installation_id} AND login = ${s.login}`;
       return 'sent' as const;
+    }).catch((err: unknown) => {
+      // A row that fails to read (a database blip) never stops the others behind it.
+      console.error('[digest] row', err instanceof Error ? err.name : 'error');
+      return 'failed' as const;
     });
     if (step === 'done') break;
     if (step === 'capped') {
@@ -428,6 +485,11 @@ export async function sendDigests(
     }
     if (step === 'sent') out.sent++;
     else out.skipped++;
+    failures = step === 'failed' || step === 'rejected' ? failures + 1 : step === 'sent' ? 0 : failures;
+    if (failures >= MAX_SEND_FAILURES) {
+      out.stopped = true;
+      break;
+    }
   }
   return out;
 }
@@ -457,7 +519,7 @@ const tokenOf = (request: Request) => new URL(request.url).searchParams.get('t')
 /** GET: a confirm page whose button POSTs (link scanners never unsubscribe anyone). No script. */
 export function digestUnsubscribeGet(request: Request): Response {
   const t = tokenOf(request);
-  if (unsubInstallation(t) === null) return page(`<p>${escapeHtml(UNSUB_BAD)}</p>`, 400);
+  if (unsubTarget(t) === null) return page(`<p>${escapeHtml(UNSUB_BAD)}</p>`, 400);
   return page(
     `<p>${escapeHtml(UNSUB_CONFIRM)}</p>` +
       `<form method="post" action="${escapeHtml(`${siteUrl()}/api/digest/unsubscribe?t=${encodeURIComponent(t)}`)}">` +
@@ -470,8 +532,8 @@ export function digestUnsubscribeGet(request: Request): Response {
  * A bad token changes nothing.
  */
 export async function digestUnsubscribePost(request: Request): Promise<Response> {
-  const id = unsubInstallation(tokenOf(request));
-  if (id === null) return page(`<p>${escapeHtml(UNSUB_BAD)}</p>`, 400);
-  await unsubscribe(id);
+  const target = unsubTarget(tokenOf(request));
+  if (target === null) return page(`<p>${escapeHtml(UNSUB_BAD)}</p>`, 400);
+  await unsubscribe(target);
   return page(`<p>${escapeHtml(UNSUB_DONE)}</p>`);
 }

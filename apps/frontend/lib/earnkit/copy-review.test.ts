@@ -1,6 +1,6 @@
 import './fixtures/no-network-checks';
 import {
-  EMAIL_NOTE, EMAIL_OFF, EMAIL_ON, EMAIL_QUESTION, EMAIL_TAKEN, EMAIL_UNAVAILABLE, UNSUB_BAD, UNSUB_CONFIRM, UNSUB_DONE, WHICH_EMAIL,
+  EMAIL_NOTE, EMAIL_OFF, EMAIL_ON, EMAIL_QUESTION, EMAIL_SHARED_NOTE, EMAIL_SIGN_IN, EMAIL_UNAVAILABLE, UNSUB_BAD, UNSUB_CONFIRM, UNSUB_DONE, WHICH_EMAIL,
   digestBody, emailQuestionFor,
 } from './digest';
 import { HOST_FULL, HOST_LINES, HOST_REVIEW, STORAGE_NOTE, UPLOAD_NOTE, hostSignInLine, liveLine, withBadge } from './hosting';
@@ -1016,7 +1016,7 @@ const builderFacing: [string, string][] = [
   ['EMAIL_ON', EMAIL_ON],
   ['EMAIL_OFF', EMAIL_OFF],
   ['EMAIL_UNAVAILABLE', EMAIL_UNAVAILABLE],
-  ['EMAIL_TAKEN', EMAIL_TAKEN],
+  ['EMAIL_SIGN_IN', EMAIL_SIGN_IN],
   ['UNSUB_CONFIRM', UNSUB_CONFIRM],
   ['UNSUB_DONE', UNSUB_DONE],
   ['UNSUB_BAD', UNSUB_BAD],
@@ -1067,6 +1067,7 @@ const agentFacing: [string, string][] = [
   ['UPLOAD_NOTE', UPLOAD_NOTE],
   ['HOST_SIGN_IN_NOTE', HOST_SIGN_IN_NOTE],
   ['EMAIL_NOTE', EMAIL_NOTE],
+  ['EMAIL_SHARED_NOTE', EMAIL_SHARED_NOTE],
   // v2.7 fix round 1 (Minor 6): llms.txt is what agents read about EarnKit.
   ['llms.txt', readFileSync(join(import.meta.dirname, '../../public/llms.txt'), 'utf8')],
 ];

@@ -28,7 +28,7 @@ import { recordShown, saveEntryScore } from './match-loop';
 import { repoKey } from './answer-bank';
 import { outcomeQuestion, outcomeToAsk } from './outcomes';
 import { wonSource } from './stats';
-import { WHICH_EMAIL, askWeeklyEmail, cleanEmail, entryEmail, saveWeeklyEmail } from './digest';
+import { EMAIL_SHARED_NOTE, EMAIL_SIGN_IN, WHICH_EMAIL, askWeeklyEmail, cleanEmail, entryEmail, saveWeeklyEmail } from './digest';
 import { TellInput, emptyMemory, hiddenIds, hiddenPrograms, memoryKey, readMemory, tell, type BuilderMemory, type MemoryKey } from './builder-memory';
 import { fitRepoOf, sinceLine, sinceYouLastChecked, type FitRepo } from './alerts';
 import {
@@ -763,18 +763,21 @@ export const TELL_SHARED_NOTE =
  */
 /**
  * v2.9 E19, Ruling 13 (Pre-flight P16): the weekly email question, added to the reply of a call that
- * recorded an entry, once per installation and only while the email is on. `email`: the entry's email
- * answer; on a shared client only one this builder typed in this entry (never a saved one the coach
- * offered back, `reused`), so the question names it. Never fails the tool.
+ * recorded an entry, once per installation and only while the email is on. Ruling G21: on a shared
+ * client once per verified login (the pasted `signed_in` code), and never without one. `email`: the
+ * entry's email answer; on a shared client only one this builder typed in this entry (never a saved
+ * one the coach offered back, `reused`), so the question names it. Never fails the tool.
  */
 async function withEmailQuestion<T extends { show_to_builder: string; agent_note?: string }>(
   ctx: ToolContext,
   reply: T,
   email: string | null,
   reused: boolean,
+  signedIn: string | undefined,
 ): Promise<T> {
   const shared = Boolean(ctx.sharedClient);
-  const q = await askWeeklyEmail(ctx.installationId, { shared, email: shared && reused ? null : email });
+  const login = shared ? await sharedLogin(ctx, signedIn, 'weekly email') : null;
+  const q = await askWeeklyEmail(ctx.installationId, { shared, email: shared && reused ? null : email, login });
   if (!q) return reply;
   return {
     ...reply,
@@ -1898,6 +1901,7 @@ export const tools = {
       },
       email,
       Object.values(banked.suggested).some((v) => cleanEmail(v) === email),
+      i.signed_in,
     );
   },
 
@@ -1992,7 +1996,7 @@ export const tools = {
       const reused =
         Boolean(ctx.sharedClient && email) &&
         (await bankedEmail(ctx.installationId, projectKey({ repo_url: parsed.project.repo_url ?? submitted.repo_url, name: parsed.project.name }))) === email;
-      return withEmailQuestion(ctx, reply, email, reused);
+      return withEmailQuestion(ctx, reply, email, reused, parsed.signed_in);
     };
     // Campaign entries carry their own table (enteredTable).
     if ('show_to_builder' in result && result.show_to_builder)
@@ -2101,17 +2105,20 @@ export const tools = {
     const weekly = told.success ? told.data.weekly_email : undefined;
     // v2.9 E19 (Ruling 13): the weekly email answer alone stores no program or repo statement.
     const onlyEmail = weekly !== undefined && !told.data?.program_status?.length && !told.data?.repo_facts?.length;
-    const login = told.success && !onlyEmail ? await sharedLogin(ctx, told.data.signed_in, 'tell_earnkit') : null;
+    const login = told.success ? await sharedLogin(ctx, told.data.signed_in, 'tell_earnkit') : null;
     const key = memoryKey({ ...ctx, verifiedLogin: login });
     const { saved, outcomes } = onlyEmail
       ? { saved: [] as string[], outcomes: 0 }
       : await tell(ctx.installationId, input as Parameters<typeof tell>[1], undefined, key);
-    const mail = weekly ? await saveWeeklyEmail(ctx.installationId, weekly, { shared: Boolean(ctx.sharedClient) }) : null;
+    // Ruling G21: only the caller's own subscription (a shared client's verified login; none without a code).
+    const mail = weekly ? await saveWeeklyEmail(ctx.installationId, weekly, { shared: Boolean(ctx.sharedClient), login }) : null;
     if (mail?.saved) saved.push(`weekly email: ${weekly!.answer === 'yes' ? 'on' : 'off'}`);
     const mailNote =
       mail?.show_to_builder === WHICH_EMAIL
         ? "Ask the builder which email to use, then call tell_earnkit again with weekly_email: { answer: 'yes', email }."
-        : null;
+        : mail?.show_to_builder === EMAIL_SIGN_IN
+          ? EMAIL_SHARED_NOTE
+          : null;
     const show = [!onlyEmail && key === null ? NOTED_FOR_NOW : null, mail?.show_to_builder ?? null].filter(Boolean).join(' ');
     const note = onlyEmail ? 'Show show_to_builder.' : key === null ? TELL_SHARED_NOTE : TELL_SAVED_NOTE;
     return {
