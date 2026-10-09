@@ -173,6 +173,8 @@ apps/frontend/
   app/oauth/{register,authorize,token}/   anonymous OAuth for MCP clients
   app/github/verify/(route, callback/route)  v2.9 B9: the sign-in link (GET confirm page, POST to GitHub) and
                                              GitHub's callback; re-export github-verify.ts handlers
+  app/github/verify/app/route.ts  v2.10 item 7b: the read-only GitHub App's setup URL (github-app.ts appSetup);
+                               404 unless the App is configured
   app/.well-known/             OAuth discovery metadata
   lib/earnkit/
     db.ts                      postgres.js pool (DATABASE_URL)
@@ -376,7 +378,7 @@ apps/frontend/
     repo-cache.ts(+test)       GitHub repo facts for matching (chains, commits since each window
                                start, v2.9 A2 product: the repo's own signals and contract
                                candidates; v2.10 item 6: starter, traction, odds) in github_repo_facts,
-                               1 h per (repo, pushed_at)
+                               1 h per (repo, pushed_at); v2.10 R10: via_app (read through the App; once set, kept)
     installations.ts(+test)    save / touch installation by token hash or (v2.4) OAuth client key
                                (client_key); memory (GitHub, working_on, last payout wallet);
                                rememberWallets, installationWallets (installation_wallets);
@@ -433,7 +435,9 @@ apps/frontend/
     human-text.ts(+test)       v2.8 Ruling 16: humanStrings (string/template/JSX text of a source file, via the TypeScript AST) and humanTextFiles; the test bans the em dash in all human text;
                                final review M1: notHumanText skips .test.ts/.test.tsx/.test.mts, and walkDir never enters a fixtures directory
     no-cell.ts                 NO_CELL (''), the empty table cell or chip; import-free so the client ProgramCard shares it (final review M1); present.ts re-exports it
-    present.ts(+test)          v2.10 item 6: Fit.odds/traction/low_reason (rowOdds), lowOddsCell, LOW_ODDS_HEADING;
+    present.ts(+test)          v2.10 item 7: YourRepos.unseen (with the App link) and fromLocal; privateRepoLines
+                               (one line per local match, one can't-see line) before the matched table.
+                               v2.10 item 6: Fit.odds/traction/low_reason (rowOdds), lowOddsCell, LOW_ODDS_HEADING;
                                layout picks per program and ranks by good odds then traction; qualifies,
                                tokenOfferFit and bestFit need good odds.
                                v2.8.1 T7: enterableWithoutRepo (the no-repo offer's pick, for tools.ts); v2.10
@@ -504,7 +508,13 @@ apps/frontend/
                                reportedFacts(ReportedRepo) turns an agent's local_repos report into
                                RepoFacts, keeping url only when campaigns.ts githubRepo parses it
                                (Ruling 13), else ''
-    match-projects.ts          v2.10 item 6: runChecks reads Blockscout counts (budget passed in, P27),
+    match-projects.ts          v2.10 item 7: named repos read one by one (mapLimit); a 404 goes through
+                               MatchDeps.appToken (7b), else the local report (fromLocal), else unseen; other errors
+                               skip that repo and its local view; all non-404 throws the first. PRIVATE_LOCAL_LINE,
+                               CANT_SEE_LINE. gh/repoByName/repoCodeFacts take a token (an App token reads a private
+                               repo, never refused); with a token, files come from the contents API (P10) and the
+                               cache row is via_app.
+                               v2.10 item 6: runChecks reads Blockscout counts (budget passed in, P27),
                                checkRepo/checkLocal score traction and odds (R3 for local), starterRepo
                                (MatchDeps.starters), fits sorted by good odds then traction.
                                v2.9 A3: MatchProjectsInput.said applied before the checks (P15); not_mine skipped.
@@ -609,7 +619,10 @@ apps/frontend/
                                v2.9 B10: recordDecline, declines (token_declines, per login and
                                owner/repo; once per offerIdentity, G12), DECLINES_MAX = 2;
                                saveOffer(firstReply) and firstReplyShown (first_reply_at, G14)
-    token-gate.ts(+test)       tokenGate (v2.6 §3): policy, a public repo with code (codeProblem over
+    token-gate.ts(+test)       v2.10 item 7b: on "not found", GateDeps.appToken (default appTokenFor) reads the repo and
+                               earnkit.txt through the App token (ok: { private: true }); else, with the App on,
+                               GateDeps.appLink's "Allow read access" reason (P17). The launch proof is unchanged.
+                               tokenGate (v2.6 §3): policy, a public repo with code (codeProblem over
                                match-projects.ts repoCodeFacts: commits, a fork only when ahead of
                                its parent, Ruling 3), ownership (ownerProblem: earnkit.txt, read via
                                the contents API (ownership.ts fetchOwnershipViaApi) or the dev/test
@@ -783,7 +796,19 @@ apps/frontend/
                                verifiedFor, takeHostVerification (P11), callerLogin (G9 sign-in code), verifiedEntryIds,
                                entryVerifyLink (G11: needs the entry's wallet), VERIFY_PAGE (+ orgRepo), CONFIRM_WARNING, codeLine; route handlers
                                verifyStart (confirm page + __Host- cookie), verifyConfirm (POST, 303 to GitHub),
-                               verifyCallback (code + state + cookie only)
+                               verifyCallback (code + state + cookie only).
+                               v2.10 item 7b: purpose 'app' (createVerifyLink refuses it while the App is off, no
+                               wallet); completeVerify branches for an app nonce before takeNonce (appSignIn: stores
+                               login, account_created_at, public_repos on the nonce; 303 to the install page, cookie
+                               kept, P3); takeNonce({ purpose: 'app' }) returns those columns; saveVerification (shared
+                               insert, G9 code, via/github_installation_id); verifiedFor excludes 'app' rows unless
+                               asked (P11); APP_CONFIRM_LEAD; limited/cookieValue/clearCsrf exported for the App
+    github-app.ts(+test)       v2.10 item 7b: the optional read-only GitHub App. githubAppEnabled (GITHUB_APP_ID,
+                               GITHUB_APP_SLUG, a PEM GITHUB_APP_PRIVATE_KEY, and the v2.9 sign-in on, P17), appJwt
+                               (RS256, iat now-60 s, 10 min), installationToken (POST access_tokens: one repo, contents
+                               and metadata read; never stored or logged), appProof (R8: listed, and own account or
+                               admin), appTokenFor (a via='app' proof scoped like verifiedFor, then a fresh token;
+                               null when off), installUrl, APP_PAGE, appSetup (the setup URL handler)
     builder-memory.ts(+test)   v2.9 A3: TellInput (strict; program_status, repo_facts, signed_in; v2.9 E19 weekly_email
                                { answer yes/no, email? }, which alone is enough), BuilderMemory, MemoryKey
                                (memoryKey: own installation login '', a shared client's verified login, else null),

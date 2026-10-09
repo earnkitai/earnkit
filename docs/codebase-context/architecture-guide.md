@@ -2657,6 +2657,54 @@ A GitHub OAuth App with no scopes; its callback URL is `<EARNKIT_URL>/github/ver
 - **Cookies (Ruling 7).** The sign-in cookie is the only one EarnKit sets, and it is `__Host-`
   (a source scan in `security-headers.test.ts`); HSTS keeps no `includeSubDomains`.
 
+## Private repos and the read-only GitHub App (v2.10 items 7, 7b; R8 to R10)
+
+- **Per-repo reads (item 7).** `matchProjects` reads named repos one by one (`mapLimit`, 6 at a
+  time), each caught on its own. A 404: `MatchDeps.appToken(fullName)` (the App, below); without a
+  token, a `local_repos` report with the same repo key is scored from the local view (`checkLocal`)
+  and its name goes in `fromLocal`; with neither, the repo goes in `unseen` (`{ name, full_name }`).
+  Any other error (a 403 rate limit, a 5xx) skips only that repo and its local view (Review Focus 1);
+  when every named repo failed that way, the first error is thrown (`list_programs` keeps its
+  "Couldn't read your repos" line). `present.ts privateRepoLines` puts one `PRIVATE_LOCAL_LINE` per
+  `fromLocal` name and one `CANT_SEE_LINE` for the first unseen repo before the matched table; the
+  link appears only while the App is on. The `local_repos` instruction (mcp.ts) asks for name,
+  chains, contracts, live link and last commit for private repos. A local-only Arc repo still can't
+  reach good odds (P30); the App is the fix.
+- **The App (item 7b).** Off unless `GITHUB_APP_ID`, `GITHUB_APP_SLUG` and `GITHUB_APP_PRIVATE_KEY`
+  (a PEM; `\n` escapes allowed) are set and the v2.9 sign-in is on (`githubAppEnabled`, P17). A
+  GitHub App with Contents: read and Metadata: read only. Its setup URL is
+  `<EARNKIT_URL>/github/verify/app` (setup on install; turn on "Redirect on update" so a builder who
+  already installed it can add a repo). The private key is never stored in the database, logged or
+  returned; `appJwt` signs a 10-minute RS256 JWT per call, and `installationToken` mints a 1-hour
+  token for one repo (contents and metadata read) per call. Errors carry the HTTP status only.
+- **The proof flow (R8, Pre-flight P3).** `list_programs` (first unseen repo) and the gate (a repo
+  GitHub won't show) make an `app` nonce (`createVerifyLink`, no wallet: no launch rides on it). The
+  v2.9 confirm page and OAuth run as before. In the callback, `completeVerify` sees the `app`
+  purpose before `takeNonce`: `appSignIn` exchanges the code, reads `GET /user`, stores `login`,
+  `account_created_at` and `public_repos` on the nonce (once: `login IS NULL`), and 303s to
+  `installUrl(slug, nonce)` without clearing the `__Host-` cookie. GitHub then sends the builder to
+  the setup URL (`appSetup`): no cookie, or an installation id that isn't a number, is refused
+  before the nonce is used; `takeNonce({ purpose: 'app' })` takes only an `app` nonce with a stored
+  login; `appProof` passes when the installation lists the repo and its account is the login, or
+  the login's collaborator permission is `admin`. A pass writes `github_verifications` with
+  `purpose = 'app'`, `via = 'app'` and `github_installation_id` (`saveVerification`; on a shared
+  client the page shows the one-time code, G9).
+- **What it grants (R9, P11).** Reads only. `appTokenFor({ installationId, login, repoKey })`
+  finds the newest `via = 'app'` proof for this installation and repo (on a shared client only the
+  caller's login; `null` login: none) and mints a token; `list_programs` passes it as
+  `MatchDeps.appToken`, and the gate as `GateDeps.appToken`. Through it, `repoCodeFacts(fullName,
+  { token })` reads a private repo instead of refusing it, and the tree, README, config files
+  (contents API, raw media type, P10) and commit reads all go through the token, so a private repo
+  gets full scoring. `verifiedFor` never returns an App row unless `purpose: 'app'` is asked for, so
+  the launch still needs the v2.9 proof line or a wallet-bound sign-in (G10, G11 unchanged).
+- **Public pages and tokens.fun (R10, Pre-flight P4, P33).** A repo is private on evidence only: a
+  `github_repo_facts` row with `via_app = true` (`startEntry` sets `projects.repo_private`; once
+  true it stays), or the gate reading it through the App (`GateResult.private`, set with the launch
+  claim in `deployToken`). No facts row means public. The `/p/<id>` query, the campaign board and
+  the bonus board return no repo URL for a private entry (the project name only). `deployToken`
+  sends `website` = the live link, never the repo URL, for a private repo. `SAFETY_LINES` now says
+  "A token needs a repo you prove is yours".
+
 ## Row difficulty, alert precision and the outcome loop (v2.9 A4, A6, A7, A8, Task 4)
 
 - **Program level (`guide.ts difficultyOf`, Pre-flight P30).** Still odds, override or estimate,
