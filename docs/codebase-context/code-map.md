@@ -9,6 +9,7 @@ contracts/                     Foundry project (v2.1 sponsor escrow; not part of
   test/mocks/E2EMocks.sol      v2.4 campaign e2e only: MockToken18 (mock MINI), Ping (an app),
                                MockSmartAccount (execute, fanOut), MockEntryPoint (getNonce +
                                UserOperationEvent; its code is set at the real v0.7 address)
+  test/mocks/DeployMocks.sol   v2.10 item 13 deploy anvil test only: OwnedTipJar (deployer is first owner)
   test/mocks/BonusMocks.sol    v2.5 bonus ledger anvil test only: MockWETH, MockFeeLocker (StoreTokens,
                                availableFees, claim), MockLpLocker (collectRewards / collectMany:
                                StoreTokens per slot then ClaimedRewards; tokenRewards)
@@ -328,6 +329,7 @@ apps/frontend/
                                link loads an error page), contractMissingLine,
                                contractUncheckedLine (G15: a contract check that couldn't run)
     verify.ts(+test)           v2.9 A5: liveVerified (safeProbe) and contractDeployed (getCode via
+                               v2.10 item 13: markDeployed (a fresh getcode:<chain>:<addr> pass for a deploy EarnKit made).
                                rpcFor), cached in url_checks (pass 24 h, failure 1 h; v2.10:
                                liveCheckDetail keeps an error page's phrase in url_checks.note,
                                Verified.liveError; url_checks.n holds a count; a getCode
@@ -373,6 +375,7 @@ apps/frontend/
                                sponsorIdentity (funded campaigns only; pages, campaign sync),
                                cachedIdentities (cache only; list_programs, get_program), trackRecord
     rate-limit.ts(+test)       Postgres fixed-window counter (rate_windows; atomic upsert) + clientIp
+                               v2.10 item 13: LIMITS.deployDay (1 per <login or repo key>:<chain> a day; the 30-day cap is in deploy.ts, P16).
                                (X-Real-IP from Railway's edge, else rightmost x-forwarded-for;
                                IPv6 keyed on its /64). LIMITS (v2.2 §5): sponsor create 5/day
                                (replacements 10/day), record_submission 20/day, token launches
@@ -428,6 +431,7 @@ apps/frontend/
                                publicOrigin = EARNKIT_URL (production throws without it; no Host
                                fallback)
     mcp.ts(+test)              v2.10 item 4: registers find, prepare, confirm, tell (+ sponsor_campaign with escrow);
+                               v2.10 item 13: prepare's deploy schema (chain, bytecode, abi, constructor_args, owner_wallet); readOnlyHint false.
                                FIND_DESCRIPTION, TELL_DESCRIPTION, toolDescriptions, serverInstructions, OWNERSHIP_FOR_TOKEN all
                                under 800 characters (mcp.test 9.1, 9.2; 9.7 the route alias end to end).
                                v2.10 item 2: find takes more; its description says one line first
@@ -518,8 +522,16 @@ apps/frontend/
                                hostTakedownPost
     r2.ts                      v2.9 C12: r2Enabled (4 env vars), r2Client (aws4fetch S3: put, list,
                                del, copy; Class A taken from free-tier first, FreeTierFull), R2Error
-    free-tier.ts(+test)        v2.9 C13: FREE_CAPS (r2Writes 900k/month, resend 100/day, 3,000/month),
-                               periodKey, takeFreeTier (atomic hard cap), freeTierRoom, FreeTierFull
+    free-tier.ts(+test)        v2.9 C13: FREE_CAPS (r2Writes 900k/month, resend 100/day, 3,000/month;
+                               v2.10 item 13: deploysDay 20, deployGasMonth 10,000,000 micro-USD),
+                               periodKey, takeFreeTier (atomic hard cap), freeTierRoom, FreeTierFull,
+                               giveBackFreeTier (never below 0)
+    deploy.ts(+test, +anvil)   v2.10 item 13: EarnKit deploys the builder's contract on Arc or Base
+                               (DEPLOYER_PRIVATE_KEY, read only here). DEPLOY_CAPS, ERC20_SELECTORS,
+                               DEPLOY_LINES, DEPLOY_PENDING, deployedLine, initcode, deployRefusal,
+                               deployerAccount, keySeparate, deployEnabled, DeployChain (viemDeployChain:
+                               queued sends), nativeUsd (DefiLlama ETH; Arc USDC $1), weiToMicroUsd,
+                               deployForBuilder (caps, reservation row, receipt, owner step, markDeployed)
     match.ts(+test)            pure: chain detection (IDs + RPC hosts), repo x program verdicts;
                                v2.10 item 9: Detection.basis (Basis: deployed | deploy_config | mention;
                                absent = mention, R6), detectChains(files, paths) over detectMentions +
@@ -663,7 +675,9 @@ apps/frontend/
                                v2.9 B10: recordDecline, declines (token_declines, per login and
                                owner/repo; once per offerIdentity, G12), DECLINES_MAX = 2;
                                saveOffer(firstReply) and firstReplyShown (first_reply_at, G14)
-    token-gate.ts(+test)       v2.10 item 7b: on "not found", GateDeps.appToken (default appTokenFor) reads the repo and
+    token-gate.ts(+test)       v2.10 item 13 (R19): repoOwnershipPasses (OwnershipDeps.repoVerified: sign-in or
+                               App rows; else the proof line; shared clients: the caller's login only).
+                               v2.10 item 7b: on "not found", GateDeps.appToken (default appTokenFor) reads the repo and
                                earnkit.txt through the App token (ok: { private: true }); else, with the App on,
                                GateDeps.appLink's "Allow read access" reason (P17). The launch proof is unchanged.
                                tokenGate (v2.6 §3): policy, a public repo with code (codeProblem over
@@ -936,6 +950,7 @@ apps/frontend/
                                termsOf/fromTerms/sameTerms, MANUAL_CHECK, TOP_UP, NO_PAYOUT_KEY, NOT_MAINNET,
                                needsOwner (the 503 notes); the page balance is funds.ts
     cron.ts(+test)             nextStep (the state machine), scoreMaxAge, runCron (one step per
+                               v2.10 item 13: deployerGas (deployer-gas:<chain> TOP_UP, deploy-owner:<id>, deploy-unknown:<id>); CronDeps.deployer.
                                campaign under its lease, then builder bonus scoring (scoreOpenRounds),
                                the ledger with its rounds step (bonus-payout advanceRounds), then the fee
                                refresh, then v2.9 Task 8 expireSites (R2 on; `hosting` in the result),
@@ -1140,6 +1155,7 @@ apps/frontend/
                                sponsor wallet, token, factory), sponsorStatus (survives scoring and
                                RPC failures), prepareAward (guarded UPDATE)
   db/schema.sql                the whole schema, idempotent (sponsor_campaigns, projects.prize_*,
+                               v2.10 item 13: contract_deploys (reservation row, tx_hash, status, owner_ok, cost_micro_usd).
                                projects.repo_key + its partial unique index, projects.token_* and
                                token_repo_key + projects_token_repo_key (one token per repo),
                                sponsor_verifications,
