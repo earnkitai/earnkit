@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { matchRepo, type ProgramFacts, type RepoFacts, type Verdict } from './match';
 import { ProgramFile, type PastRound } from './program-file';
+import { committedProgram } from './fixtures/program-file';
 
 const base: GuideFacts = {
   past_rounds: [], focus: null, best_bet: null, difficulty_override: null,
@@ -323,7 +324,8 @@ test('4.2 real_users missing is never Easy: Hard unverified, Medium with a verif
   const product = { score: 6, tier: 'product' as const, missing: [] };
   const repo: RepoFacts = {
     name: 'tipjar', url: 'https://github.com/a/tipjar', homepage: 'https://tipjar.xyz', created_at: '2026-01-01',
-    chains: { base: { mainnet: true, testnet: false, evidence: 'x' } }, commits_in_window: {}, product,
+    // v2.10 item 9: a deploy config credits the mainnet (a mention would be "deploy to Base first").
+    chains: { base: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' } }, commits_in_window: {}, product,
   };
   const card = { difficulty: difficultyOf({ ...base, tag: 'needs a live product', chains: ['base'] }) };
   const [unverified] = matchRepo({ ...repo, live_verified: false }, [program]);
@@ -371,4 +373,15 @@ test('4.5 Base after the file edit is Medium (estimate), not Easy', () => {
   assert.equal(d.level, 'Medium');
   assert.equal(d.estimate, true);
   assert.equal(difficultyLabel(d), 'Medium (estimate)');
+});
+
+// ---- v2.10 item 10: Avalanche Team1 Mini Grants re-rated ----
+
+test('1.11 Avalanche Team1 Mini Grants is Medium (estimate), never Easy; a row missing real users without a live link is Hard', () => {
+  const avalanche = ProgramFile.parse(committedProgram('avalanche-team1-mini-grants'));
+  const d = difficultyOf(avalanche as never);
+  assert.equal(d.level, 'Medium');
+  assert.equal(d.estimate, true);
+  const row = rowDifficulty({ difficulty: d }, { missing: ['live_url', 'real_users'], effort: 'weeks' }, { liveVerified: false, hasUsersClaim: false });
+  assert.equal(row.level, 'Hard');
 });

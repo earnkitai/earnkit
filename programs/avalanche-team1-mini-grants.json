@@ -231,10 +231,5 @@
   "logo": {
     "path": "programs/avalanche-team1-mini-grants.svg",
     "source_url": "https://www.avalanche.com/about/press"
-  },
-  "difficulty_override": {
-    "level": "Easy",
-    "rated_by": "earnkit",
-    "source_url": "https://www.team1.network/grants"
   }
 }

@@ -390,6 +390,8 @@ test('v2.5 §1: list_programs reads the builder bonus pools once, only where ent
   const run = `${process.pid}-${Date.now()}`;
   const proof = Object.assign(file('arc-microgrants'), {
     id: `v25-proof-${run}`, title: `Proof ${run}`, status: 'active', ends_at: '2099-01-01T00:00:00Z', max_award_usd: 9_999_999,
+    // v2.10 item 10: an EarnKit Easy rating over $1,000 per winner needs sourced odds.
+    past_rounds: [{ label: 'Round 1', source_url: 'https://www.arc.network/', own: true, submissions: 100, winners: 30 }],
   });
   const noProof = Object.assign(file('base-builder-grants'), {
     // v2.6 Ruling 8: ends_at with no starts_at needs builder_bonus: false (this fixture has
@@ -401,6 +403,8 @@ test('v2.5 §1: list_programs reads the builder bonus pools once, only where ent
     // leave Easy programs open in the shared DB.
     tag: undefined,
     difficulty_override: { level: 'Easy', rated_by: 'earnkit', source_url: 'https://docs.base.org/get-started/builders' },
+    // v2.10 item 10: an EarnKit Easy rating over $1,000 per winner needs sourced odds.
+    past_rounds: [{ label: 'Round 1', source_url: 'https://docs.base.org/get-started/builders', own: true, submissions: 100, winners: 30 }],
   });
   assert.ok(proof.submission_proof && noProof.submission_proof === null);
   // Other dbTests leave stray active EarnKit campaigns behind (never closed); an open one changes
@@ -1778,12 +1782,13 @@ test('11 Also qualifies: after confirm_entry "go" and record_submission on Arc, 
       const mainText = r1.show_to_builder;
       assert.ok(!r1.also_qualifies);
 
-      // Cache the repo's chains as covering Base too: it now shows, via the cache (Ruling 29).
+      // Cache the repo's chains as covering Base too: it now shows, via the cache (Ruling 29). v2.10
+      // item 9: credited mainnets (a deploy config); a v2.9 row without basis reads as a mention.
       const full = t.repo.replace('https://github.com/', '');
       await sql()`
         INSERT INTO github_repo_facts (full_name, pushed_at, chains, commits_since) VALUES (
           ${full}, now(),
-          ${sql().json({ arc: { mainnet: true, testnet: false, evidence: 'x' }, base: { mainnet: true, testnet: false, evidence: 'x' } })},
+          ${sql().json({ arc: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' }, base: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' } })},
           '{}')`;
       // v2.9 T12 (G15 M1): Base needs a live product with real users; until the builder says the
       // repo has users, its row still needs them, so it is not offered.
@@ -1936,7 +1941,7 @@ test('12 list_programs: a new fitting program shows exactly once (the alert), ne
   const p = { ...base, id: `t12-new-${stamp}`, title: `Fresh Base ${stamp}`, status: 'active', form: undefined, tag: undefined };
   const repo = {
     key: 'alice/tipjar', name: 'tipjar', url: 'https://github.com/alice/tipjar', homepage: 'https://tipjar.xyz', created_at: '2026-01-01T00:00:00Z',
-    chains: { base: { mainnet: true, testnet: false, evidence: 'x' } }, product: { score: 6, tier: 'product', missing: [] }, live_verified: true, said: null,
+    chains: { base: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' } }, product: { score: 6, tier: 'product', missing: [] }, live_verified: true, said: null,
   };
   try {
     await tools.list_programs({}, ctx); // the first check: quiet, marks every open program seen
@@ -2652,7 +2657,7 @@ test('4.A7/A8 list_programs remembers the best owned fit repos and records the r
   await upsertProgram(ProgramFile.parse({ ...arc, id: pid, title: `Arc T4 ${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' }));
   const facts = (name: string) => ({
     name, url: `https://github.com/alice/${name}`, homepage: 'https://tipjar.xyz', created_at: '2026-01-01T00:00:00Z',
-    chains: { arc: { mainnet: true, testnet: false, evidence: 'x' } }, commits_in_window: {}, live_verified: true,
+    chains: { arc: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' as const } }, commits_in_window: {}, live_verified: true,
   });
   const fit = (name: string, score: number, missing: ('owned' | 'readme')[] = []): RepoFit => ({
     ...scoredFit(name, score, pid),

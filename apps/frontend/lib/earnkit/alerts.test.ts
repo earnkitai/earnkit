@@ -584,10 +584,13 @@ const prog = (id: string, h: number, over: Partial<NewProgram> = {}): NewProgram
   investment: false, min_product_score: 0, tag: null, existing_work: 'allowed', starts_at: null, difficulty: EASY, past_rounds: [],
   match_floor: null, match_precision: null, ...over,
 });
-/** v2.9 A7: an owned product-tier repo, live on Base mainnet with a link that loaded. */
+/**
+ * v2.9 A7: an owned product-tier repo, live on Base mainnet with a link that loaded. v2.10 item 9:
+ * the mainnet is credited by a deploy config (a mention gives no fit).
+ */
 const tipjar = (over: Partial<FitRepo> = {}): FitRepo => ({
   key: 'alice/tipjar', name: 'tipjar', url: 'https://github.com/alice/tipjar', homepage: 'https://tipjar.xyz',
-  created_at: '2026-01-01T00:00:00Z', chains: { base: { mainnet: true, testnet: false, evidence: 'x' } },
+  created_at: '2026-01-01T00:00:00Z', chains: { base: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' } },
   product: { score: 6, tier: 'product', missing: [] }, live_verified: true, said: null, ...over,
 });
 const PROJECT_TIER = { score: 4, tier: 'project' as const, missing: ['readme' as const, 'young' as const] };
@@ -619,7 +622,7 @@ test('4.9 an Easy program no repo fits is never alerted; any_chain fits a produc
   // A program that didn't fit when it was new is marked seen: a later repo never makes it "new".
   const r = lines(memory, [easy]);
   assert.ok(r.seen.includes('easy'));
-  const monadRepo = tipjar({ chains: { monad: { mainnet: true, testnet: false, evidence: 'x' } } });
+  const monadRepo = tipjar({ chains: { monad: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' } } });
   assert.deepEqual(lines({ checkedAt: t(8), state: { top: {}, newPrograms: r.seen }, feeAlertedUsd: null }, [easy], [monadRepo]).lines, []);
 });
 
@@ -636,7 +639,7 @@ test('newProgramLines: the first-ever check is quiet and marks every open progra
 });
 
 test('4.8 alertable: only when the builder could really win it', () => {
-  const avaxRepo = tipjar({ chains: { avalanche: { mainnet: true, testnet: false, evidence: 'x' } } });
+  const avaxRepo = tipjar({ chains: { avalanche: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' } } });
   const avax = prog('avalanche', 5, { chains: ['avalanche'], max_award_usd: 10_000 });
   const ok = (p: NewProgram, r: FitRepo, skip = NO_SKIP, now = NOW_ALERT) => alertable(p, [r], skip, now);
   assert.equal(ok(avax, avaxRepo), true);

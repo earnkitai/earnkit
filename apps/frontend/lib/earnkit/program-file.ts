@@ -552,6 +552,14 @@ export const ProgramFile = z
     // v2.9 A4, A6 (Pre-flight P24): a program that needs a live product is never Easy.
     if (p.tag === 'needs a live product' && p.difficulty_override?.level === 'Easy')
       issue('a "needs a live product" program is never Easy: remove the Easy difficulty_override');
+    // v2.10 item 10: an EarnKit Easy rating needs a small award (at most $1,000 per winner) or sourced odds.
+    if (
+      p.difficulty_override &&
+      'rated_by' in p.difficulty_override &&
+      (p.max_award_usd ?? Infinity) > 1000 &&
+      !p.past_rounds.some((r) => r.submissions && r.winners)
+    )
+      issue('an EarnKit Easy rating needs at most $1,000 per winner or sourced odds');
 
     // v2.8 Ruling 15 (plan): Optimism is not listed (owner, 2026-10-07).
     if (isOptimismUrl(p.source_url) || isOptimismUrl(p.submission_url)) issue('Optimism programs are not listed');
