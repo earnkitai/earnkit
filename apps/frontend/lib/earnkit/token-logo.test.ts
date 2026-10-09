@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { RedirectError, SafeFetchError, safeFetchBytes, type Transport } from './safe-fetch';
+import { RedirectError, SafeFetchError, safeFetchBytes, type Transport, type TransportResponse } from './safe-fetch';
 import { iconCandidates, launchLogo, markFor, pickIconHref, resolveLogo } from './token-logo';
 import { imageTypeOf } from './tokens';
 
@@ -180,6 +180,10 @@ test('6.2 githubPreview: only a custom image of a repo GitHub says is public', a
 
 test('6.3 markFor: the same for the same id, different across ids, no text', () => {
   assert.deepEqual(markFor(7), markFor(7));
+  // Golden values: launched tokens carry the mark's link onchain (immutable), so a change here
+  // redraws every launched logo. Never update these to make a change pass.
+  assert.deepEqual(markFor(1), { shape: 'diamond', from: '#e19647', to: '#58a51d', angle: 45 });
+  assert.deepEqual(markFor(12345), { shape: 'circle', from: '#b547e1', to: '#a51d2f', angle: 135 });
   const marks = Array.from({ length: 40 }, (_, i) => JSON.stringify(markFor(i + 1)));
   assert.ok(new Set(marks).size >= 38, 'ids draw different marks');
   assert.ok(new Set(Array.from({ length: 40 }, (_, i) => markFor(i + 1).shape)).size === 4, 'every shape is used');
@@ -210,4 +214,74 @@ test('safeFetchBytes: the SSRF rules of safeFetchText, a 1 MB default, no redire
     /doesn't point to a public address/,
   );
   await assert.rejects(safeFetchBytes('http://tipjar.xyz/i.png', { resolve, transport: ok }), /https only/);
+});
+
+test('P24: the default reads follow one same-site page redirect and one image redirect, never more', async () => {
+  const resolve = async () => [{ address: '93.184.216.34', family: 4 as const }];
+  async function* body(b: Buffer | string) {
+    yield Buffer.from(b);
+  }
+  const routes: Record<string, () => TransportResponse> = {};
+  const seen: string[] = [];
+  const transport: Transport = async ({ url }) => {
+    seen.push(url.href);
+    const r = routes[url.href];
+    return r ? r() : { status: 404, body: body('') };
+  };
+  const at = (status: number, location: string) => () => ({ status, location, body: body('') });
+  const ok = (b: Buffer | string) => () => ({ status: 200, body: body(b) });
+  const net = { resolve, transport };
+  const page = '<link rel="apple-touch-icon" href="/t.png">';
+
+  // apex -> www (same site): followed; the icon 302s to a CDN once: followed.
+  routes['https://tipjar.xyz/'] = at(301, 'https://www.tipjar.xyz/');
+  routes['https://www.tipjar.xyz/'] = ok(page);
+  routes['https://tipjar.xyz/t.png'] = at(302, 'https://cdn.example.net/t.png');
+  routes['https://cdn.example.net/t.png'] = ok(PNG);
+  assert.deepEqual(await resolveLogo({ liveUrl: 'https://tipjar.xyz/', repoKey: null }, { net }), { bytes: PNG, type: 'image/png', from: 'site' });
+
+  // A second image hop is refused: no logo.
+  routes['https://cdn.example.net/t.png'] = at(302, 'https://cdn2.example.net/t.png');
+  routes['https://cdn2.example.net/t.png'] = ok(PNG);
+  seen.length = 0;
+  assert.equal(await resolveLogo({ liveUrl: 'https://tipjar.xyz/', repoKey: null }, { net }), null);
+  assert.ok(!seen.includes('https://cdn2.example.net/t.png'), 'never a second hop');
+
+  // A page redirect to another site is refused: no image is read.
+  routes['https://tipjar.xyz/'] = at(301, 'https://elsewhere.example/');
+  routes['https://elsewhere.example/'] = ok(page);
+  seen.length = 0;
+  assert.equal(await resolveLogo({ liveUrl: 'https://tipjar.xyz/', repoKey: null }, { net }), null);
+  assert.deepEqual(seen, ['https://tipjar.xyz/']);
+});
+
+test('the logo budget: a hanging read gives null when the budget runs out', async () => {
+  const started = Date.now();
+  const out = await resolveLogo(
+    { liveUrl: 'https://tipjar.xyz', repoKey: null },
+    { page: async () => '<link rel="apple-touch-icon" href="/t.png">', image: () => new Promise<Buffer>(() => {}), budgetMs: 50 },
+  );
+  assert.equal(out, null);
+  assert.ok(Date.now() - started < 2_000, 'returns at the budget, not at the hang');
+});
+
+test('Ruling H7: an image_url that may carry a secret is refused', async () => {
+  const { unsafeImageUrl } = await import('./tokens');
+  for (const u of [
+    'https://user:pass@tipjar.xyz/logo.png',
+    'https://user@tipjar.xyz/logo.png',
+    'https://tipjar.xyz/logo.png?token=abc',
+    'https://tipjar.xyz/logo.png?X-Sig=1&SIG=2',
+    'https://tipjar.xyz/logo.png?Key=abc',
+    'https://raw.githubusercontent.com/alice/tipjar/main/logo.png?raw=true',
+    'not a url',
+  ])
+    assert.equal(unsafeImageUrl(u), true, u);
+  for (const u of [
+    'https://tipjar.xyz/logo.png',
+    'https://tipjar.xyz/logo.png?v=2&w=256',
+    'https://raw.githubusercontent.com/alice/tipjar/main/logo.png',
+    'https://tipjar.xyz/monkey.png?keys=1',
+  ])
+    assert.equal(unsafeImageUrl(u), false, u);
 });

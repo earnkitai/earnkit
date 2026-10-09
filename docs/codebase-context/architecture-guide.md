@@ -1984,6 +1984,9 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
   (`markFor`, no letters), drawn per request, never stored, 404 without a `token_symbol`, cached
   immutable, with the sandbox image CSP (`next.config.ts`). `token-image` stays only for old
   links. `prepare_submission`'s `token.proposed.image` is `site` with a live link, else `mark`.
+  Ruling H7: `deployToken` refuses an agent `image_url` with userinfo, a `token`, `sig` or `key`
+  query parameter, or a raw.githubusercontent.com link with any query (`tokens.ts unsafeImageUrl`)
+  and sends the mark instead. The mark is pinned by golden values (test 6.3): it must never change.
 - **The answer bank** (`answer-bank.ts`, table `answer_bank`, Ruling 6): `confirm_entry` (go or
   skip) banks the final answers per installation, project (`projectKey`: normalized repo, else
   `name:<name>`) and kind; `other` is never banked; a kind with two fields banks the first. Contact
