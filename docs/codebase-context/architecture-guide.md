@@ -1481,7 +1481,7 @@ Ruling C1: after the final review, the controller pushes and merges both repos w
 and permanent. The DB-backed version is `apps/frontend/lib/earnkit/v27-journey.test.ts` (its own
 throwaway database, real program files, no network).
 
-1. Open `/` at phone width (390): "$1.3M+ open right now" under "Open programs", the cards swipe
+1. Open `/` at phone width (390): "$1.1M+ open right now" (v2.9 F21) under "Open programs", the cards swipe
    (arrows at desktop width), and a guide (`/programs/<id>`) opens from a card.
 2. Ask "What can I earn?": the tables have a Difficulty column, and the message closes on the
    builder bonus ("Plus the builder bonus: the top 10 on each program also get paid in ETH. …").
@@ -1598,7 +1598,7 @@ controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.
   no new service. The cached value is plain JSON (`Landing`: no bigint, no Date).
 - Curated programs only (no EarnKit or sponsor campaign): programs with a pool first, highest
   pool first, then the rest by per-winner amount (`landing.ts` `byPool`; the first message keeps
-  `byPrize`). **v2.7.1:** the hero's "$1.3M+ open right now" is the sum of the cards'
+  `byPrize`). **v2.9 F21 replaces this:** the hero's figure is `moneyText(openMoneyUsd)` (see "Simplify" at the end). **v2.7.1 (superseded):** the hero's "$X open right now" was the sum of the cards'
   source-stated pools (`pool.ts` `poolTotalText`, compact and rounded down, "+" when any card has
   no pool or its reward says "+"); `/programs` shows the same figure under its h1. The first
   message keeps the per-winner sum, now called "top prizes". Each card's big line is the pool
@@ -1631,7 +1631,7 @@ controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.
   (`#how-it-works`) and three step cards `#how-you-earn-1..3`. /programs has no "By pool" eyebrow.
   /policy's "The builder bonus" heading carries a `BonusPill` (md) beside it (Section's `aside`).
 - **v2.8 Part A Open programs (Task 3, Rulings 20, 21):** `ProgramCards` (client) is the h2 "Open
-  programs", "$1.3M+ open right now" (`landing.open_text`), one "Ask your agent" (the install modal
+  programs", "$1.1M+ open right now" (`landing.open_text`), one "Ask your agent" (the install modal
   with `START_PROMPT`), then every open curated program (no cap; `HOME_CARDS`, "See all" and "See
   all programs" are gone). Home (`layout="carousel"`): one `<ul>` row with native CSS scroll snap
   (`snap-x snap-mandatory overflow-x-auto`, `tabIndex 0`, `aria-label="Open programs"`; cards
@@ -1662,8 +1662,8 @@ controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.
   record_submission and prepare_submission, and `deployer_signature` keeps only its
   external-contracts sentence. `prepare_submission` returns `how_to_submit`/`sign_to_enter` only for
   an open campaign. `SERVER_INSTRUCTIONS`' first line no longer claims EarnKit runs campaigns. One
-  money figure: `pool.ts openFigure` (the pools sum with "+") feeds `landing.open_text`, the no-repo
-  first message ("$1.3M+ in prizes open right now.") and the with-repo hook ("EarnKit matches you to
+  money figure (since v2.9 F21 `moneyText(openMoneyUsd)`, which replaced `pool.ts openFigure`) feeds `landing.open_text`, the no-repo
+  first message ("$1.1M+ in prizes open right now.") and the with-repo hook ("EarnKit matches you to
   $X in prizes you qualify for.", the matched programs' pools; "Your repos fit these open programs:"
   without one). `openMoneyUsd` is left only for `/api/stats` `open_money_usd`. `bonusClose`'s head is
   `TOKEN_LINE` ("Every entry gets a token: you earn 40% of its trading fees, and its fees fund the
@@ -1994,7 +1994,7 @@ sections above have the details per task; this is how they fit together.
 
 | Step | Tool | Rule |
 |---|---|---|
-| What can I earn | `list_programs` | `openFigure` money line, Easy first (C4), `TOKEN_LINE` close |
+| What can I earn | `list_programs` | `moneyText(openMoneyUsd)` money line (v2.9 F21), Easy first (C4), `TOKEN_LINE` close |
 | Coach | `prepare_submission` | at most 3 questions, 1 round per program (Ruling 26, C15, C17); draft table, at most 3 fixes (C13, C14) |
 | Confirmation | `prepare_submission` then `confirm_entry` | the offer closes the draft; "yes, go" launches the token; "skip" is final for the bonus (Rulings 3, 31) |
 | Kit | `confirm_entry` only | by host (Ruling 27): prefilled link, agent fills, copy paste (DoraHacks, Questbook), api; proof (Ruling 28) |
@@ -2084,7 +2084,7 @@ sections above have the details per task; this is how they fit together.
 and permanent. The DB-backed version is `apps/frontend/lib/earnkit/v28-journey.test.ts` (its own
 throwaway database, real program files, fakes for tokens.fun and GitHub, no network).
 
-1. With no repo, ask "What can I earn?": it opens with "$1.3M+ in prizes open right now." and
+1. With no repo, ask "What can I earn?": it opens with "$1.1M+ in prizes open right now." (v2.9 F21) and
    closes with "Every entry gets a token: …".
 2. Pick Arc with a throwaway repo deployed on Arc: the coach asks its questions (Arc: the public
    profile), then the draft table, at most 3 fixes, and "Ready. Want the builder bonus? It comes
@@ -2115,7 +2115,7 @@ throwaway database, real program files, fakes for tokens.fun and GitHub, no netw
   Resources: Docs, For sponsors; Legal: Policy; Contact: email and X), from
   `lib/earnkit/footer-links.ts`; `footer-links.test.ts` checks each link (network only with
   `LINK_CHECK=1`). See "v2.8 Part A footer" above.
-- **/policy** states matching, the fee split, and the builder bonus rules. Its numbers come from
+- **/terms#policy** (v2.9 F22; was /policy, which 301s there) states matching, the fee split (then "10% buys MINI, EarnKit's token", F24), and the builder bonus rules. Its numbers come from
   `lib/earnkit/policy.ts`, which reads the constants the code applies (traction `WEIGHTS`,
   `BONUS_SPLIT_BPS`), so the page can't drift. It is linked from the footer and the guide page
   (v2.7 §3, Ruling 14 (plan): the first message's `BONUS_NOTE` affiliation line is gone; the
@@ -2957,3 +2957,41 @@ The v2.8.1 journeys (`v281-journey.test.ts`) still pass unchanged on Part 1.
   `RESEND_API_KEY` (and `DIGEST_FROM` if the sender differs) on Railway.
 - **Known limits.** On a hosted agent a builder is asked only after signing in with GitHub (the code).
   A failing address costs one cap slot per run until it succeeds or a 4xx skips it for the week.
+
+## Simplify: one money figure, one legal page, MINI line, shorter descriptions (v2.9 F21 to F25, Task 11)
+
+- **One money figure (F21).** `openMoneyUsd(programs, now)` sums the top prize (`max_award_usd`) of
+  every open curated program: active, started, not ended, never an EarnKit campaign (`campaign` on a
+  DB row, `earnkit_campaign` on a card, P19) or a sponsor's (`sponsored`, `source = 'sponsor'`).
+  `moneyText(usd)` renders it rounded down ("$1.1M+", "+" when rounding dropped value, null at 0).
+  Both live in `pool.ts` (P18; present.ts can't import stats.ts) and `stats.ts` re-exports them. The
+  landing (`landing.open_text`), /programs (the same `open_text`), the first reply (no repo: over every
+  card; with repos: over the rows the builder qualifies for) and `/api/stats` (`open_money_usd`,
+  `open_money_text`) all call it. `readStats` reads the active rows as json (`open_rows`) and
+  `statsFrom(r, now)` applies `openMoneyUsd`; the SQL sum is gone. The old pool-based figure
+  (`openFigure`) is removed. Ruling G23: `open_pools_usd`/`open_pools_plus` are still served,
+  labelled deprecated, so docs.earnkit.com never breaks; no page shows them. With the catalogue on
+  2026-10-08 the figure is $1,170,500, shown "$1.1M+". Tests: stats 11.1/11.2, human-text and
+  copy-review 11.3 (no "$1.3M", "1,170,500" or "1170500" in human or builder text; `openFigure` and
+  `poolTotalText` imported only in pool.ts and its test; one fixture catalogue gives one figure on
+  every surface).
+- **One legal page (F22).** `app/terms/page.tsx` renders `PolicySection` (h2 `#policy`),
+  `RiskSection` (`#risk-disclosure`, Tokenfi Inc.'s text unchanged, restyled onto the site's panels)
+  and `SponsorTermsSection` (`#sponsor-terms`). `next.config.ts` `LEGAL_REDIRECTS` sends the old
+  paths there with `statusCode: 301` (never `permanent: true`, which is 308). The footer's Legal
+  column is "Terms" (`/terms`), and the footer adds "EarnKit is a product of Tokenfi Inc." above the
+  copyright. BoardView's "How it works" and the fund page's sponsor terms link the anchors; the
+  sitemap lists /terms.
+- **Sponsor surfaces (F23).** Builder navigation (Header, Footer, HomeView, the guide page,
+  llms.txt) links no `/fund` or `/award` page; the routes stay (public-pages 11.7, a regression
+  guard that already passed, P34). docs.earnkit.com's sponsor page stays.
+- **MINI line (F24).** `policy.ts MINI_LINE` ("10% buys MINI, EarnKit's token") follows the fee split
+  table, the only place the split is shown; the split (`FEE_SPLIT_BPS`) is unchanged. llms.txt states
+  only the builder's 40%, not the split, so it has no MINI line.
+- **Shorter descriptions (F25).** `confirm_entry` (776 characters) keeps when to call it, its inputs,
+  "the kit is only in this reply" and "show show_to_builder exactly as written"; the kit rules (modes,
+  DoraHacks and Questbook terms, the builder always clicks submit, missing answers) are in the kit
+  reply's `agent_note` (`submit-kit.ts kitReplyNote`). `sponsor_campaign` (781, safety lines
+  included) keeps the three actions and their inputs; the confirm-first, plain-text, verification,
+  brand and label rules (`sponsor-rules.ts SPONSOR_RULES`) end create's `next_step`, and award's
+  `next_step` ends with "never send an award transaction the sponsor has not approved". mcp.test 11.8.
