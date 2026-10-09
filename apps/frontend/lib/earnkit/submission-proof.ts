@@ -26,8 +26,13 @@ const RETRY_NOTE = "couldn't check yet; we retry daily.";
 /** host, lowercased, with one leading "www." dropped (same leniency as safe-fetch's sameSite). */
 const bareHost = (host: string) => host.toLowerCase().replace(/^www\./, '');
 
-const defaultFetch = (url: string) =>
-  safeFetchText(url, { maxBytes: LARGE_PAGE_MAX_BYTES });
+/**
+ * The page read when no `deps.fetchText` is passed. Final fix I3: mutable so the test preload
+ * (fixtures/no-network-checks.ts) stubs it, and no test reads a real submission site.
+ */
+export const proofDefaults: { fetchText: (url: string) => Promise<string> } = {
+  fetchText: (url) => safeFetchText(url, { maxBytes: LARGE_PAGE_MAX_BYTES }),
+};
 
 /**
  * What a submission proof check found (v2.6 §3, Ruling 15 (plan)): `ok` (the page links the
@@ -81,7 +86,7 @@ export async function proofCheck(
   if (!repoUrl && !liveUrl)
     return refused('this entry has no repo_url or live_url to match against the submission page.');
 
-  const fetchText = deps.fetchText ?? defaultFetch;
+  const fetchText = deps.fetchText ?? proofDefaults.fetchText;
   let body: string;
   try {
     body = await fetchText(url);
