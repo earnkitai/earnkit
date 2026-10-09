@@ -260,6 +260,22 @@ test('7.3 v2.10 item 1: roundPools counts the tokens launched in the open round,
   }
 });
 
+test('Task 11 fix: a live roundPools read counts a token whose launch time is a moment after the app\'s clock (milliseconds against microseconds, or clock skew)', db, async () => {
+  const id = P(`live-${process.pid}-${Date.now()}`);
+  try {
+    await program(id, null, null);
+    // The database stamps the launch 50 ms ahead of the app's clock.
+    await sql()`INSERT INTO projects (program_id, name, coin_address, coin_launched_at)
+      VALUES (${id}, 'p', ${`0xt4live${process.pid}`}, now() + interval '50 milliseconds')`;
+    assert.deepEqual(Object.fromEntries(await roundPools([id])), { [id]: { wei: 0n, tokens: 1 } });
+    // An "as of" read keeps its upper bound.
+    assert.deepEqual(Object.fromEntries(await roundPools([id], { now: new Date(Date.now() - 60_000) })), {});
+  } finally {
+    await sql()`DELETE FROM projects WHERE program_id = ${id}`;
+    await sql()`DELETE FROM programs WHERE id = ${id}`;
+  }
+});
+
 test('roundPoolsWei agrees with roundFor on the open round key at a month boundary', db, async () => {
   try {
     await program(P('edge'), null, null);
