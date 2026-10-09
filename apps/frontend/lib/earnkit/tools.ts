@@ -12,13 +12,14 @@ import {
   ownEntryWallet,
   startEntry,
   submittedEntry,
+  launchEntry,
   type EntryDeps,
 } from './projects';
 import { EntryError, githubRepo, givenWallet, isWalletAddress, normalizeRepoUrl, presentYourEntries } from './campaigns';
 import { signToEnter } from './entry-proof';
 import { confirmTable, enteredText, noCoinYet, todoOf, type EnteredText } from './entry-text';
 import { proposeToken, repoNameOf, titleCase, tokensFunTickerCheck } from './token-proposal';
-import { DECLINES_MAX, declines, firstReplyShown, offerIdentity, offerKey, readOffer, recordDecline, saveOffer, type Offered } from './token-offers';
+import { DECLINES_MAX, declines, firstReplyShown, offerIdentity, offerKey, readOffer, readShownOffer, recordDecline, saveOffer, type Offered } from './token-offers';
 import { earnkitCampaignRows, yourCampaignEntries } from './leaderboard';
 import {
   checkPrograms,
@@ -439,9 +440,10 @@ async function offerProposal(
 }
 
 /** Fix round 1: stores the pair a Yes line shows; a failed write only means "go" shows it again. */
-async function rememberOffer(ctx: ToolContext, programId: string, key: string, o: Offered) {
+async function rememberOffer(ctx: ToolContext, programId: string, key: string, o: Offered, wallet: string | null = null) {
   try {
-    await saveOffer(ctx.installationId, programId, key, o);
+    // Fix round 2 (I-a): the wallet on the same confirm line, so a launch by project_id uses only it.
+    await saveOffer(ctx.installationId, programId, key, o, false, wallet);
   } catch (err) {
     console.error('[confirm] offer save', err instanceof Error ? err.name : 'error');
   }
@@ -1445,7 +1447,7 @@ export const handlers = {
     // v2.9 B10: no token offer once the repo's token is this program's, or after two skips (P23).
     const prepTokensOff = facts !== null && (facts.policyOff || !facts.available || facts.declinedOut || facts.tokenHere);
     if (shownPair && facts && !facts.coinIn && (canPush || signIn) && !prepTokensOff)
-      await rememberOffer(ctx, program.id, shownKey, shownPair);
+      await rememberOffer(ctx, program.id, shownKey, shownPair, offerWallet ?? null);
     const offer = facts
       ? confirmOffer({
           hasBonus: facts.hasBonus,
@@ -1591,7 +1593,7 @@ export const handlers = {
       const shown = offersToken ? await readOffer(ctx.installationId, program.id, key).catch(() => null) : null;
       const proposal = offersToken ? await offerProposal(i.project.name, repoUrl, i.token, shown, ctx) : null;
       const pair = proposal && { name: proposal.name, symbol: proposal.symbol };
-      if (pair) await rememberOffer(ctx, program.id, key, pair);
+      if (pair) await rememberOffer(ctx, program.id, key, pair, offersToken ? (wallet ?? null) : null);
       return {
         show_to_builder:
           (proposal?.taken ? `$${proposal.taken} is taken. ` : '') +
@@ -1659,6 +1661,7 @@ export const handlers = {
         answered ??
         (await entryWallet(ctx, { programId: program.id, installationId: ctx.installationId, repoUrl, name: i.project.name })) ??
         (await walletMemory(ctx));
+      await rememberOffer(ctx, program.id, offerKey(repoUrl, i.project.name), proposal, wallet ?? null);
       const offer = confirmOffer({ hasBonus: facts.hasBonus, coinIn: null, canPush, signIn, wallet, proposal, again: again || facts.declinedOnce || facts.firstShown });
       return {
         project_id: projectId,
@@ -1689,7 +1692,6 @@ export const handlers = {
         const proposal = await offerProposal(i.project.name, repoUrl, i.token, shown, ctx);
         if (proposal) {
           const pair = { name: proposal.name, symbol: proposal.symbol };
-          await rememberOffer(ctx, program.id, key, pair);
           return reoffer(entry.id, pair, proposal.taken ?? null, shown != null);
         }
       }
@@ -1709,7 +1711,6 @@ export const handlers = {
       // Fix round 1: the shown ticker was taken since: the next suggestion, as a new Yes line.
       if (token.ticker_taken && token.symbol) {
         const next = { name: token.name ?? shown?.name ?? i.project.name, symbol: token.symbol };
-        await rememberOffer(ctx, program.id, key, next);
         return reoffer(entry.id, next, token.ticker_taken);
       }
       // v2.9 B9: the GitHub sign-in link, for an agent that can't push, after a proof-line miss
@@ -2264,6 +2265,92 @@ function joinReplies(replies: Reply[]): Reply {
   };
 }
 
+/** Fix round 2 (Minor): confirm with submitted that recorded nothing yet. */
+export const SUBMITTED_AGAIN_NOTE =
+  'The builder already submitted on the program site, and that is not saved yet: send submitted again on your next confirm call for this entry.';
+
+/** record_submission's entered line without its token sentence ("Your token: …", "Your token is launching."). Pure; exported for tests. */
+export function withoutTokenLine(text: unknown): unknown {
+  if (typeof text !== 'string') return text;
+  return text.replace(/ Your token(:| is| isn't| didn't)[^\n]*?\.(?=\n|$|;)/, '').replace(/; it joins the builder bonus once it is\./, '.');
+}
+
+type ConfirmArgs = z.infer<typeof ConfirmInput>;
+
+/** Fix round 2 (I-b): a shared client's confirm by project_id without the entry's verified login. */
+export const CONFIRM_SHARED_NOTE =
+  "Nothing done: this agent serves many builders, so pass signed_in (the code from the builder's GitHub sign-in) with this entry's project_id.";
+
+/** Fix round 2 (I-a): the agent's note when a launch by project_id was not what the confirm line showed. */
+export const PROJECT_REOFFER_NOTE =
+  'Nothing launched: this token or wallet is not what the confirm line showed the builder. Show show_to_builder as written; ' +
+  'when the builder says yes, call confirm again with this project_id, yes: true, wallet: shown_wallet (or the wallet they name) and token: token.proposed.';
+
+/**
+ * v2.10 item 4, fix round 2: `confirm` with `project_id` (v2.9 launch_token).
+ * - I-b (Rulings G7, G9): on a shared client only an entry the pasted code's verified login signed in
+ *   for; anything else is noted, and nothing of the entry is changed (links, completeness) or read
+ *   (its token status).
+ * - I-a (Ruling G13, §A2): a launch takes exactly the name, ticker and wallet the entry's confirm line
+ *   showed (token_offers); another pair or wallet, or none shown, is the confirm line again and
+ *   nothing launches. A check, an entry with its token (or pending), a skipped entry (refused by
+ *   launch_token) and a dormant EarnKit campaign entry (v2.9 one step) go straight to launch_token.
+ */
+async function confirmByProjectId(c: ConfirmArgs & { project_id: number }, ctx: ToolContext) {
+  if (ctx.sharedClient) {
+    const login = await sharedLogin(ctx, c.signed_in, 'confirm');
+    const ids = login ? await verifiedEntryIds(ctx.installationId, login).catch(() => [] as number[]) : [];
+    if (!ids.includes(c.project_id)) return { show_to_builder: NOTED_FOR_NOW, agent_note: CONFIRM_SHARED_NOTE };
+  }
+  if (c.skip_token) return { status: 'skipped', note: NO_TOKEN_FOR_NOW, show_to_builder: NO_TOKEN_FOR_NOW };
+  const image = defined({ image_data: c.image_data, image_url: c.image_url, builder_x: c.builder_x });
+  const launch = (pair: { name?: string; symbol?: string }) =>
+    handlers.launch_token(
+      defined({
+        project_id: c.project_id,
+        builder_confirmed: c.yes || c.check ? true : undefined,
+        check_back: c.check || undefined,
+        creator_wallet: c.wallet,
+        ...pair,
+        ...image,
+        live_url: c.project?.live_url,
+        repo_url: c.project?.repo_url,
+        agent: c.agent,
+        signed_in: c.signed_in,
+      }),
+      ctx,
+    );
+  const entry = c.yes && !c.check ? await launchEntry(ctx.installationId, c.project_id) : null;
+  // Not this installation's (launch_token says so), a read, a token already there, or a skipped entry.
+  if (!entry || entry.token_url || entry.confirm_choice === 'skip') return launch(c.token ?? {});
+  const program = await getProgramRow(entry.program_id);
+  if (program.campaign) return launch(c.token ?? {});
+  const shown = await readShownOffer(ctx.installationId, program.id, offerKey(entry.repo_url, entry.name)).catch(() => null);
+  const asked = editsOf(c.token ?? {});
+  const samePair = shown !== null && (asked.name === undefined || asked.name === shown.name) && (asked.symbol === undefined || asked.symbol === shown.symbol);
+  // The wallet that would launch: the one named with this yes, else the entry's own (launchToken's order).
+  const wallet = (c.wallet ?? entry.wallet)?.toLowerCase() ?? null;
+  const sameWallet = shown?.wallet ? wallet === shown.wallet : Boolean(c.wallet);
+  if (samePair && sameWallet) return launch({ name: shown.name, symbol: shown.symbol });
+  if (!isOpen(program))
+    return { status: 'skipped' as const, note: 'Nothing launched: this token was not offered yet.', agent_note: 'The program is closed, so this token is not offered again.' };
+  // The confirm line again (confirm_entry's offer: no builder_confirmed, so nothing is recorded); it stores what it shows.
+  const saved = await submittedEntry(ctx.installationId, program.id, entry.id);
+  const offer = (await handlers.confirm_entry(
+    defined({
+      program_id: program.id,
+      project: saved?.project ?? { name: entry.name, ...(entry.repo_url && { repo_url: entry.repo_url }) },
+      answers: answersOf(saved?.answers ?? {}),
+      token: c.token,
+      wallet: c.wallet,
+      agent: c.agent,
+      signed_in: c.signed_in,
+    }),
+    ctx,
+  )) as Reply;
+  return { ...offer, project_id: entry.id, token: { status: 'skipped', fixable: true, ...(offer.token as object | undefined) }, agent_note: PROJECT_REOFFER_NOTE };
+}
+
 /** The agent tools (v2.10 item 4): the MCP server forwards each call here; each dispatches to `handlers`. */
 export const tools = {
   // What can I earn (list_programs), or one program and its guide (get_program).
@@ -2285,24 +2372,7 @@ export const tools = {
     const c = ConfirmInput.parse(input);
     const tokenEdits = c.token ?? {};
     const image = defined({ image_data: c.image_data, image_url: c.image_url, builder_x: c.builder_x });
-    if (c.program_id === undefined) {
-      if (c.skip_token) return { status: 'skipped', note: NO_TOKEN_FOR_NOW, show_to_builder: NO_TOKEN_FOR_NOW };
-      return handlers.launch_token(
-        defined({
-          project_id: c.project_id,
-          builder_confirmed: c.yes || c.check ? true : undefined,
-          check_back: c.check || undefined,
-          creator_wallet: c.wallet,
-          ...tokenEdits,
-          ...image,
-          live_url: c.project?.live_url,
-          repo_url: c.project?.repo_url,
-          agent: c.agent,
-          signed_in: c.signed_in,
-        }),
-        ctx,
-      );
-    }
+    if (c.program_id === undefined) return confirmByProjectId(c as ConfirmArgs & { project_id: number }, ctx);
     const program = await getProgramRow(c.program_id);
     // An EarnKit campaign is entered in one step (record_submission).
     if (program.campaign)
@@ -2340,10 +2410,15 @@ export const tools = {
     // Pre-flight P15b (fix round 1, C1): "already submitted" follows the confirmation, never replaces
     // it. Only once confirm_entry recorded the entry and returned its kit (the builder's yes or skip
     // to the confirm line they saw, the plain-words check passed) is it marked submitted.
-    if (!c.submitted || !('kit' in confirmed) || typeof confirmed.project_id !== 'number') return confirmed;
+    if (!c.submitted) return confirmed;
+    // Fix round 2 (Minor): launching, a fixable stop or the confirm line again: not marked yet, so say
+    // to send it again.
+    if (!('kit' in confirmed) || typeof confirmed.project_id !== 'number')
+      return { ...confirmed, agent_note: [confirmed.agent_note, SUBMITTED_AGAIN_NOTE].filter(Boolean).join(' ') };
     const marked = (await markSubmitted({ program_id: c.program_id, project_id: confirmed.project_id, external_submission_url: c.submitted.external_submission_url }, c.signed_in, ctx)) as Reply;
-    // The confirmation's reply (its kit and token) wins; the submitted mark adds its lines.
-    const joined = joinReplies([confirmed, marked]);
+    // The confirmation's reply (its kit and token) wins; the submitted mark adds its lines, without a
+    // second token line (the confirmation's said it).
+    const joined = joinReplies([confirmed, { ...marked, show_to_builder: withoutTokenLine(marked.show_to_builder) }]);
     return { ...joined, ...confirmed, show_to_builder: joined.show_to_builder, agent_note: joined.agent_note };
   },
 

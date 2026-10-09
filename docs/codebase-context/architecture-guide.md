@@ -3462,6 +3462,20 @@ the v2.9 handler a behaviour lives in; this table maps them.
   yes covers the exact pair and wallet the confirm line showed and the plain-words check runs; the
   entry is marked submitted (`markSubmitted` by its `project_id`) only when that reply carries the kit.
   Without `yes`/`skip_token` nothing is recorded.
+- **`confirm` with `project_id` (fix round 2).** `confirmByProjectId`:
+  - I-b (G7, G9): on a shared client it needs `signed_in` and a `project_id` among
+    `verifiedEntryIds` for that login; anything else is "Noted for now." (`CONFIRM_SHARED_NOTE`) and
+    launch_token never runs, so no `updateLinks`, `markComplete` or token status for another builder.
+  - I-a (G13, §A2): a yes launches only the name, ticker and wallet the entry's confirm line showed.
+    `token_offers.offered_wallet` (new nullable column) stores the wallet on that line (null when it
+    asked for one; then the wallet must be named with the yes). Another pair or wallet, or no line
+    shown, gets confirm_entry's offer (no row written; it stores what it shows) with
+    `PROJECT_REOFFER_NOTE`; a closed program answers "Nothing launched: this token was not offered
+    yet." A check, an entry with its token or pending, a skipped entry and a dormant campaign entry go
+    straight to launch_token.
+  - With `submitted`, a reply without the kit (launching, a fixable stop, a re-offer) adds
+    `SUBMITTED_AGAIN_NOTE`; the joined reply drops record_submission's token sentence
+    (`withoutTokenLine`), so the token is said once.
 - **The gates are the handlers'.** G10, G11, the sanctions screen, one token per repo, the wallet
   limits, G7 privacy, G12 decline counting, T7's "40%" once and T8's guide and lead all run inside
   the handlers, so every path through the new tools gets them (tests 9.3, including G10 through both

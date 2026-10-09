@@ -927,3 +927,6 @@ CREATE TABLE IF NOT EXISTS digest_subscriptions (
   CHECK (opted_in_at IS NULL OR email IS NOT NULL)
 );
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS digest_asked_at timestamptz;
+-- v2.10 item 4 (Task 9 fix round 2, I-a): the wallet the confirm line showed with the pair (null when
+-- it asked for one). confirm with project_id launches only the pair and wallet shown (Ruling G13).
+ALTER TABLE token_offers ADD COLUMN IF NOT EXISTS offered_wallet text;

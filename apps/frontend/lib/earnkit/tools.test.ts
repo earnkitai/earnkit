@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { SafeFetchError } from './safe-fetch';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { LEAD_NOTE, NOTED_FOR_NOW, eligibilityLine, SponsorCampaignInput, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
+import { CONFIRM_SHARED_NOTE, LEAD_NOTE, NOTED_FOR_NOW, eligibilityLine, withoutTokenLine, SponsorCampaignInput, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
 import { aliasCall } from './aliases';
 import { reportedGithubUser, reportedRepos } from './match-projects';
 import { sql } from './db';
@@ -3806,3 +3806,87 @@ test('9.3 G10 through confirm: on a shared client neither confirm path launches 
       assert.equal(t.calls.deploy, 1);
     }),
   ));
+
+test('fix round 2 (I-a, G13): confirm by project_id launches only the pair and wallet the confirm line showed; anything else is the confirm line again', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('t9ia', { noOffer: true });
+    const W2 = '0x2222222222222222222222222222222222222222';
+    // An entry with no token and no confirm line shown (recorded before its confirmation).
+    const rec = (await handlers.record_submission({ program_id: t.p.id, project: t.project, submission_data: t.answers }, t.ctx)) as { project_id: number };
+    const pid = rec.project_id;
+    const byId = (o: object) => tools.confirm({ project_id: pid, yes: true, ...o }, t.ctx) as Promise<Confirmed & { token?: { proposed?: { name: string; symbol: string } } }>;
+    // An agent-given ticker and wallet, never shown: the confirm line, nothing launched.
+    const first = await byId({ token: { name: 'Tip Jar', symbol: 'GRAB' }, wallet: W8 });
+    assert.equal(t.calls.deploy, 0);
+    assert.equal(first.token?.status, 'skipped');
+    assert.match(first.show_to_builder, /^Yes submits your entry and launches \$GRAB \(Tip Jar\)/);
+    assert.match(first.agent_note ?? '', /^Nothing launched: this token or wallet is not what the confirm line showed/);
+    assert.equal(first.project_id, pid);
+    const shown = (await readOffer(t.inst, t.p.id, offerKey(t.repo, 'Tip Jar')))!;
+    // The pair shown, but another wallet than the line's: the confirm line again (now with that wallet).
+    const otherWallet = await byId({ token: shown, wallet: W2 });
+    assert.ok(!otherWallet.kit);
+    assert.equal(t.calls.deploy, 0);
+    assert.match(otherWallet.show_to_builder, /Wallet: 0x2222…2222\./);
+    // Another ticker than the one shown: the confirm line again.
+    const otherTicker = await byId({ token: { symbol: 'SNAG' }, wallet: W2 });
+    assert.equal(otherTicker.token?.status, 'skipped');
+    assert.equal(t.calls.deploy, 0);
+    // Exactly what the last line showed: it launches, to that wallet.
+    const last = (await readOffer(t.inst, t.p.id, offerKey(t.repo, 'Tip Jar')))!;
+    const ok = (await byId({ token: last, wallet: W2 })) as unknown as { status: string; symbol?: string };
+    assert.equal(ok.status, 'launched', JSON.stringify(ok));
+    assert.equal(ok.symbol, last.symbol);
+    assert.deepEqual(t.calls.wallets, [W2]);
+    // A read (check) never needs a shown line and never launches: the entry's token, as launch_token says it.
+    const check = (await tools.confirm({ project_id: pid, check: true }, t.ctx)) as { status: string };
+    assert.match((check as { note?: string }).note ?? '', /already has a token: https:\/\/tokens\.fun\/coin\//, JSON.stringify(check));
+    assert.equal(t.calls.deploy, 1);
+  }));
+
+test('fix round 2 (I-b, G7, G9): on a shared client, confirm by project_id acts only for the pasted code\'s own entry; B can\'t change A\'s links or read its token', dbTest, () =>
+  withTokenEnv(() =>
+    withSignIn(async () => {
+      const t = await confirmSetup('t9ib');
+      const a = (await tools.confirm({ ...t.input, yes: true, wallet: W8 }, t.ctx)) as Confirmed;
+      assert.equal(a.token?.status, 'launched');
+      await sql()`UPDATE installations SET shared_client = true WHERE id = ${t.inst}`;
+      const shared = { ...t.ctx, sharedClient: true };
+      const codeA = await signInAs(t.inst, a.project_id!, t.repo, 'alice');
+      const codeB = await signInAs(t.inst, null, `https://github.com/bob/t9ib-${Date.now()}`, 'bob');
+      const liveOf = async () => (await sql()<{ live_url: string | null }[]>`SELECT live_url FROM projects WHERE id = ${a.project_id!}`)[0].live_url;
+      const before = await liveOf();
+      for (const extra of [{}, { signed_in: codeB! }, { signed_in: 'alice' }])
+        for (const ask of [{ check: true }, { yes: true }]) {
+          const r = (await tools.confirm({ project_id: a.project_id, project: { live_url: 'https://evil.example' }, ...ask, ...extra }, shared)) as Record<string, unknown>;
+          assert.deepEqual(r, { show_to_builder: NOTED_FOR_NOW, agent_note: CONFIRM_SHARED_NOTE }, JSON.stringify({ ask, extra }));
+        }
+      assert.equal(await liveOf(), before);
+      // Alice's own code: her entry's token status.
+      const mine = (await tools.confirm({ project_id: a.project_id, check: true, signed_in: codeA! }, shared)) as { status: string };
+      assert.match((mine as { note?: string }).note ?? '', /already has a token/, JSON.stringify(mine));
+      assert.equal(t.calls.deploy, 1);
+    }),
+  ));
+
+test('fix round 2 (Minor): confirm with submitted that records nothing yet says to send it again; the joined reply says the token once', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('t9min', { noOffer: true });
+    const submitted = {};
+    const unseen = (await tools.confirm({ ...t.input, yes: true, wallet: W8, token: { symbol: 'GRAB' }, submitted }, t.ctx)) as Confirmed;
+    assert.ok(!unseen.kit);
+    assert.match(unseen.agent_note ?? '', /send submitted again on your next confirm call/);
+    const pair = (await readOffer(t.inst, t.p.id, offerKey(t.repo, 'Tip Jar')))!;
+    const done = (await tools.confirm({ ...t.input, yes: true, wallet: W8, token: pair, submitted }, t.ctx)) as Confirmed;
+    assert.ok(done.kit);
+    assert.equal(done.show_to_builder.match(/tokens\.fun\/coin\//g)?.length, 1, done.show_to_builder);
+    assert.match(done.show_to_builder, /\nEntered in [^\n]*\./);
+    assert.doesNotMatch(done.agent_note ?? '', /send submitted again/);
+  }));
+
+test('fix round 2 (Minor): withoutTokenLine drops the entered line\'s token sentence only', () => {
+  assert.equal(withoutTokenLine('Entered in Arc. Your token: tokens.fun/coin/0xabc.\nBuilder bonus: 0.2 ETH so far'), 'Entered in Arc.\nBuilder bonus: 0.2 ETH so far');
+  assert.equal(withoutTokenLine("Entered in Arc. Your token isn't launched yet; it joins the builder bonus once it is.\nBuilder bonus: x"), 'Entered in Arc.\nBuilder bonus: x');
+  assert.equal(withoutTokenLine('Entered in Arc. Your token is launching.'), 'Entered in Arc.');
+  assert.equal(withoutTokenLine('Entered in Arc.'), 'Entered in Arc.');
+});
