@@ -672,6 +672,10 @@ CREATE TABLE IF NOT EXISTS url_checks (
   ok         boolean NOT NULL,
   checked_at timestamptz NOT NULL DEFAULT now()
 );
+-- v2.10 item 14 (R5): why a check failed (`note`: the error phrase a live link's page shows) and a
+-- count (`n`: a cached transaction count, item 7). Both NULL on existing rows.
+ALTER TABLE url_checks ADD COLUMN IF NOT EXISTS n integer;
+ALTER TABLE url_checks ADD COLUMN IF NOT EXISTS note text;
 -- v2.9 A5: when an entry step last found the live link loading / a contract with code on the
 -- program's needs_contract chain (NULL: not verified). entryMissing reads them (token-launch.ts).
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS live_verified_at timestamptz;

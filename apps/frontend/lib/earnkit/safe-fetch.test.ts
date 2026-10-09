@@ -1,7 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  ErrorPageError,
+  PROBE_MAX_BYTES,
   SafeFetchError,
+  errorPageText,
   isPublicAddress,
   pinnedLookup,
   resolveBoth,
@@ -329,10 +332,10 @@ test('resolveBoth: a safe A answer is used without waiting for AAAA; else both a
   );
 });
 
-test('safeProbe: any 2xx passes without reading a large body', async () => {
+test('safeProbe: any 2xx passes, an empty 204 too', async () => {
   await safeProbe('https://example.com/app', {
     resolve: publicResolver,
-    transport: async () => ({ status: 204, body: (async function* () { throw new Error('body read'); })() }),
+    transport: async () => ({ status: 204, body: (async function* () {})() }),
   });
 });
 
@@ -390,4 +393,100 @@ test('safeProbe: 404 and private addresses fail with the reason', async () => {
 
 test('safeFetchText is unchanged: still refuses redirects and non-200', async () => {
   await assert.rejects(safeFetchText('https://example.com/', { resolve: publicResolver, transport: async () => ({ status: 301, location: '/x', body: (async function* () {})() }) }), /redirects aren't followed \(301\)/);
+});
+
+// v2.10 item 14: a live link that loads an error page fails the check.
+
+test('2.1 errorPageText: the title first, else the matching text; null for a normal short page', () => {
+  assert.equal(errorPageText('<html><head><title>404: NOT_FOUND</title></head><body><h1>404</h1></body></html>'), '404: NOT_FOUND');
+  for (const phrase of [
+    'This page could not be found',
+    "There isn't a GitHub Pages site here",
+    'Application failed to respond',
+    'DEPLOYMENT_NOT_FOUND',
+    'Cannot GET /',
+    'Site not found',
+    'Bad Gateway',
+    'Internal Server Error',
+  ]) {
+    const hit = errorPageText(`<html><head><title>App</title></head><body><div><p>${phrase}</p></div></body></html>`);
+    assert.ok(hit?.includes(phrase), `${phrase}: ${hit}`);
+  }
+  assert.equal(errorPageText('<html><head><title>Tipjar</title></head><body><h1>Send a tip in USDC.</h1></body></html>'), null);
+  assert.equal(errorPageText(''), null);
+});
+
+test('2.2 errorPageText: a long real page that says 404 passes; a 404 only in script or style passes', () => {
+  const long = `<title>Docs</title><body><p>If the API answers 404, the item is not found.</p><p>${'Tips arrive in USDC on Base. '.repeat(220)}</p></body>`;
+  assert.ok(long.length > 6_000);
+  assert.equal(errorPageText(long), null);
+  const hidden = '<title>Tipjar</title><style>.e404{color:red}/* 404 not found */</style><script>if (s === 404) show("not found")</script><p>Send a tip.</p>';
+  assert.equal(errorPageText(hidden), null);
+});
+
+/** A 200 whose body is `size` bytes of empty markup after `head`; counts the bytes the probe takes. */
+function bigPage(head: string, size: number, tail = '') {
+  const taken = { bytes: 0 };
+  const transport: Transport = async () => ({
+    status: 200,
+    body: (async function* () {
+      const parts = [head];
+      for (let n = head.length; n < size; n += 4_096) parts.push('<div></div>'.repeat(372).padEnd(4_096, ' '));
+      parts.push(tail);
+      for (const p of parts) {
+        const b = Buffer.from(p);
+        taken.bytes += b.byteLength;
+        yield b;
+      }
+    })(),
+  });
+  return { taken, transport };
+}
+
+test('2.2 safeProbe: a 300 KB 200 is read only to 64 KB and judged on that', async () => {
+  assert.equal(PROBE_MAX_BYTES, 65_536);
+  const err = bigPage('<html><head><title>404: NOT_FOUND</title></head><body>', 300_000);
+  await assert.rejects(safeProbe('https://example.com/', { resolve: publicResolver, transport: err.transport }), ErrorPageError);
+  assert.ok(err.taken.bytes <= PROBE_MAX_BYTES + 4_096, `took ${err.taken.bytes}`);
+  // The error past 64 KB is never read, so the page passes.
+  const late = bigPage('<html><head><title>Tipjar</title></head><body>', 300_000, '<p>Internal Server Error</p>');
+  await safeProbe('https://example.com/', { resolve: publicResolver, transport: late.transport });
+  assert.ok(late.taken.bytes <= PROBE_MAX_BYTES + 4_096, `took ${late.taken.bytes}`);
+});
+
+test('2.3 safeProbe: a body dripping a byte every 2 s is cut at 5 s; a JSON 200 passes', async () => {
+  const started = Date.now();
+  await refuses(
+    safeProbe('https://example.com/', {
+      resolve: publicResolver,
+      transport: async () => ({
+        status: 200,
+        body: (async function* () {
+          for (;;) {
+            await new Promise((r) => setTimeout(r, 2_000));
+            yield Buffer.from('a');
+          }
+        })(),
+      }),
+    }),
+    /no answer within 5 s/,
+  );
+  assert.ok(Date.now() - started < 6_000);
+  await safeProbe('https://example.com/api', { resolve: publicResolver, transport: transport(200, ['{"ok":true}']) });
+});
+
+test('2.4 safeProbe: a 200 titled 404: NOT_FOUND throws ErrorPageError, also after a same-site redirect', async () => {
+  const page = '<html><head><title>404: NOT_FOUND</title></head><body>Code: NOT_FOUND</body></html>';
+  const isPhrase = (e: unknown) => e instanceof ErrorPageError && e instanceof SafeFetchError && e.phrase === '404: NOT_FOUND';
+  await assert.rejects(safeProbe('https://example.com/', { resolve: publicResolver, transport: transport(200, [page]) }), isPhrase);
+  await assert.rejects(
+    safeProbe('https://example.com/', {
+      resolve: publicResolver,
+      transport: async ({ url }) =>
+        url.hostname === 'example.com'
+          ? { status: 301, location: 'https://www.example.com/', body: chunks() }
+          : { status: 200, body: chunks(page) },
+    }),
+    isPhrase,
+  );
 });

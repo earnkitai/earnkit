@@ -59,6 +59,52 @@ export const FETCH_MAX_BYTES = 4_096;
  * default stays `FETCH_MAX_BYTES` for every existing caller.
  */
 export const LARGE_PAGE_MAX_BYTES = 512_000;
+/** v2.10 item 14: how much of a live link's page a probe reads (the rest is never read). */
+export const PROBE_MAX_BYTES = 65_536;
+/** v2.10 item 14: a page is judged for an error only when its visible text is shorter than this. */
+export const ERROR_TEXT_MAX = 5_000;
+const ERROR_PHRASES: RegExp[] = [
+  /\b404\b/, /not found/i, /NOT_FOUND/, /DEPLOYMENT_NOT_FOUND/,
+  /There isn't a GitHub Pages site here/i, /Application failed to respond/i,
+  /Internal Server Error/i, /Bad Gateway/i, /Cannot GET \//, /Site not found/i, /This page could not be found/i,
+];
+
+/** A live link that loads but shows an error page; `phrase` is the error text it shows. */
+export class ErrorPageError extends SafeFetchError {
+  constructor(readonly phrase: string) {
+    super(`shows an error page (${phrase})`);
+    this.name = 'ErrorPageError';
+  }
+}
+
+/** The page's <title> and its visible text (scripts, styles and tags removed, whitespace folded). Pure. */
+export function visibleText(html: string): { title: string; text: string } {
+  const title = (html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? '').replace(/\s+/g, ' ').trim();
+  const text = html
+    .replace(/<(script|style|noscript|template)\b[\s\S]*?<\/\1\s*>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return { title, text };
+}
+
+/**
+ * v2.10 item 14: the error phrase a short page shows (its title first, else the first matching
+ * sentence of its visible text, at most 80 characters), or null. Only pages whose visible text is
+ * under 5 KB are judged, so a real page that mentions "404" passes. No JS runs, so an error drawn
+ * by client JS isn't seen. Pure.
+ */
+export function errorPageText(html: string): string | null {
+  const { title, text } = visibleText(html);
+  if (text.length >= ERROR_TEXT_MAX) return null;
+  if (ERROR_PHRASES.some((re) => re.test(title))) return title.slice(0, 80);
+  const hit = ERROR_PHRASES.map((re) => text.match(re)).find(Boolean);
+  if (!hit) return null;
+  const at = hit.index ?? 0;
+  const start = Math.max(0, text.lastIndexOf('.', at) + 1);
+  return text.slice(start, start + 80).trim();
+}
 
 // IANA special-purpose IPv4 (RFC 6890 and successors): never a sponsor's website.
 const BLOCKED_V4: [string, number][] = [
@@ -246,7 +292,7 @@ export async function safeFetchText(
     transport?: Transport;
     timeoutMs?: number;
     maxBytes?: number;
-    /** Accept any 2xx and don't read the body (safeProbe). */
+    /** Accept any 2xx and read at most PROBE_MAX_BYTES of the body, never failing on size (safeProbe). */
     probe?: boolean;
     userAgent?: string;
   } = {},
@@ -296,7 +342,18 @@ export async function safeFetchText(
     if (probe) {
       if (res.status < 200 || res.status >= 300)
         throw new SafeFetchError(`answered ${res.status}, not 2xx`);
-      return '';
+      // v2.10 item 14: the start of the page, to tell a real page from an error page. Reading
+      // stops at PROBE_MAX_BYTES (or the deadline); a larger page is judged on what was read.
+      const chunks: Uint8Array[] = [];
+      let size = 0;
+      for await (const chunk of res.body) {
+        if (controller.signal.aborted) break;
+        const part = chunk.subarray(0, PROBE_MAX_BYTES - size);
+        chunks.push(part);
+        size += part.byteLength;
+        if (size >= PROBE_MAX_BYTES) break;
+      }
+      return Buffer.concat(chunks).toString('utf8');
     }
     if (res.status !== 200)
       throw new SafeFetchError(`answered ${res.status}, not 200`);
@@ -334,21 +391,25 @@ export const sameSite = (a: string, b: string) =>
 export const LINKCHECK_UA = 'EarnKit-linkcheck/1';
 
 /**
- * Whether a builder's live link loads: any 2xx, the body never read. Follows one redirect within
- * the same site (apex↔www, a path change); refuses a redirect elsewhere or a second redirect.
+ * Whether a builder's live link loads: any 2xx whose first 64 KB isn't an error page (v2.10 item
+ * 14: `ErrorPageError` with the phrase it shows). Follows one redirect within the same site
+ * (apex↔www, a path change); refuses a redirect elsewhere or a second redirect.
  */
 export async function safeProbe(
   url: string,
   deps: { resolve?: Resolver; transport?: Transport; timeoutMs?: number } = {},
 ): Promise<void> {
   const opts = { ...deps, probe: true, userAgent: LINKCHECK_UA };
+  let page: string;
   try {
-    await safeFetchText(url, opts);
+    page = await safeFetchText(url, opts);
   } catch (err) {
     if (!(err instanceof RedirectError) || !err.location) throw err;
     const next = new URL(err.location, url);
     if (!sameSite(next.hostname, new URL(url).hostname))
       throw new SafeFetchError(`redirects to another site (${next.hostname})`);
-    await safeFetchText(next.href, opts);
+    page = await safeFetchText(next.href, opts);
   }
+  const phrase = errorPageText(page);
+  if (phrase) throw new ErrorPageError(phrase);
 }

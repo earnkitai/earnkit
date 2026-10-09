@@ -34,6 +34,8 @@ export function placeholderLink(url: string): boolean {
 
 export const PLACEHOLDER_LINE = 'Use your real site, not a placeholder.';
 export const LIVE_FAILED_LINE = "Live link didn't load from here. Check it's public.";
+/** v2.10 item 14: the live link loads, but shows an error page (`phrase` is what it shows). */
+export const liveErrorLine = (phrase: string) => `Your live link loads but shows an error ("${phrase}"). Fix it and tell me.`;
 export const contractMissingLine = (chain: Chain) => `No contract found on ${CHAIN_NAMES[chain]} mainnet yet.`;
 /** Ruling G15: the contract check couldn't run (an RPC error or no check left): never "not found". */
 export const contractUncheckedLine = (chain: Chain) => `Couldn't check your ${CHAIN_NAMES[chain]} mainnet contract yet. It's checked again next step.`;

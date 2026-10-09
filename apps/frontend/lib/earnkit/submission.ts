@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { ProjectField, SubmissionRequirement } from './program-file';
 import type { Chain } from './chains';
-import { LIVE_FAILED_LINE, PLACEHOLDER_LINE, contractMissingLine, contractUncheckedLine } from './placeholder';
+import { LIVE_FAILED_LINE, PLACEHOLDER_LINE, contractMissingLine, contractUncheckedLine, liveErrorLine } from './placeholder';
 import { BuilderUrl, RAW_CAP, builderUrlProblem } from './untrusted-text';
 
 export const ProjectInfo = z
@@ -31,13 +31,13 @@ export type KnownInfo = {
    * item filled from live_url is missing unless the live link loaded, and, when the program needs a
    * contract on a chain, unless one has code there. Absent: v2.8.1's rules.
    */
-  verified?: { live: boolean; contract: boolean | null; needsContract: Chain | null };
+  verified?: { live: boolean; liveError?: string | null; contract: boolean | null; needsContract: Chain | null };
 };
 
 /** v2.9 A5: why a required live link doesn't count yet (`verified`), or null. Pure. */
 function unverifiedProblem(req: SubmissionRequirement, verified: KnownInfo['verified']): string | null {
   if (!verified || !req.required || req.project_field !== 'live_url') return null;
-  if (!verified.live) return LIVE_FAILED_LINE;
+  if (!verified.live) return verified.liveError ? liveErrorLine(verified.liveError) : LIVE_FAILED_LINE;
   // Ruling G15: "not found" only on a real answer; a check that couldn't run keeps the item open.
   if (verified.needsContract && verified.contract === false) return contractMissingLine(verified.needsContract);
   if (verified.needsContract && verified.contract === null) return contractUncheckedLine(verified.needsContract);
