@@ -2817,3 +2817,57 @@ The v2.8.1 journeys (`v281-journey.test.ts`) still pass unchanged on Part 1.
   form-action 'self'`), `X-Frame-Options: DENY`, `nosniff` and `no-referrer`, the 301 included.
   Only GET and HEAD are served (405 with `Allow`). Errors are logged by name only. The Content-Type comes from the key's extension (`contentTypeFor`),
   not from R2 metadata.
+
+## Hosting on the server (v2.9 C12 to C15, Task 8)
+
+- **Where.** `lib/earnkit/hosting.ts` (pure rules, the zip reader, the flows and the two route
+  handlers), `r2.ts` (an aws4fetch S3 client: put, list, delete; `r2Enabled`), `free-tier.ts`
+  (hard caps), and `app/api/host/upload` and `app/api/host/takedown`. Everything is off while any of
+  `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` or `R2_BUCKET` is missing (routes 503,
+  `host: { unavailable }`, the cron step skipped), and the upload URL also needs GitHub sign-in on.
+- **Getting an upload URL (Ruling 8).** `prepare_submission` with `host: true` returns `host`:
+  `{ sign_in_url, show_to_builder, agent_note }` when the repo has no host sign-in (purpose `host`);
+  `{ upload_url, expires_at, agent_note }` (one use, 15 minutes, only the sha256 in
+  `host_upload_tokens`) once the gate and the limits pass; else `{ unavailable: <plain line> }`. The
+  upload URL is never in builder text. P11: on a shared client the host sign-in is consumed by one
+  upload URL and must be under 15 minutes old (`takeHostVerification`); elsewhere the installation
+  plus repo binding holds. Gate: account 30 days or older, at least 1 public repo.
+- **Slug.** `slugFor(project, login)` (P40): `<project>-<login>`, lowercase, runs to `-`, 63 at most,
+  never `HOST_RESERVED`, the `EARNKIT_RESERVED_SUBDOMAINS` list (P41) or punycode (G19). A redeploy
+  keeps the repo's slug while the same login owns it; a repo has one site (a deploy for a new slug
+  ends the old one); a killed site or repo can't come back; another repo's live slug is refused.
+- **The upload (untrusted).** The route checks the token before it reads the body, and stops reading
+  past 25 MB (413). `readZip` trusts only the central directory (names, sizes, folders, Unix
+  symlink bits), refuses ZIP64, encryption and methods other than stored or deflate, runs
+  `zipProblems` (500 files, 10 MB a file, 25 MB total, static extensions only, no archives or
+  executables, no `..`, `.`, `//`, leading `/`, `\` or control bytes, no duplicates in any case, an
+  `index.html` at the root after `stripTopFolder`), then inflates each file with fflate's streaming
+  `Inflate` in 1 KB pushes, stopping as soon as a file passes its declared size or 10 MB, or the
+  site passes 25 MB: a zip bomb is never inflated in memory.
+- **Checks and writes.** The gate again (the login's newest sign-in), then `abuseFlags` on HTML, JS
+  and SVG and `withBadge` on HTML (Ruling 11). Under one advisory lock: the slug, 3 sites per login,
+  10 deploys in 24 h, stored bytes under 8 GB, room in the R2 counter, then the token's one use and a
+  `host_deploys` row. A refusal before that point never uses the token. R2: a flagged site's
+  `review` state first, the files (content type from `host-names.ts contentTypeFor`, shared with
+  the Worker), stale files deleted, a live site's `live` state last. Then `hosted_sites` (expiry
+  from `siteExpiry`) and, for a live site, a passing `url_checks` row for
+  `url:https://<slug>.earnkit.com/` (G19, P39), so the hosted link counts as verified at once.
+  Replies: `liveLine` (plus `STORAGE_NOTE` for the agent when the code uses browser storage),
+  `HOST_REVIEW`, `HOST_FULL` (507), or a plain refusal. Errors log the class only.
+- **Free tier (`free_tier_usage`).** `takeFreeTier(name, n)` moves a counter only while it stays at or
+  under its cap, in one statement: `r2Writes` 900k a month (every put and list page takes 1 first;
+  deletes are free on R2), `resendDay` 100, `resendMonth` 3,000. A refused take throws
+  `FreeTierFull`, which the builder sees as `HOST_FULL`.
+- **Expiry (Ruling 10).** `siteExpiry`: the latest end among the programs the repo entered plus 7
+  days, null while an entered rolling program is active, else upload plus 7 days, and never before
+  upload plus 7 days. Recomputed on deploy and when `confirm_entry` or `record_submission` records an
+  entry (`refreshSiteExpiry`). The hourly cron (`expireSites`, after the fee refresh, R2 on) sets
+  `now + 7 days` once on rolling sites whose programs all ended (50 a run), then ends up to 20 due
+  sites a run: `ended` state first, files deleted, row `ended`, the url_checks row removed.
+- **Owner.** A flagged site adds `host-review:<slug>` to the cron's `needs_owner` (503 hourly until
+  reviewed, P46). `POST /api/host/takedown` (Bearer `ADMIN_VETO_SECRET`, JSON `{ slug, action }`):
+  `kill` (default) writes `killed` before deleting the files; `approve` sets a `review` site live.
+- **Known limits.** A flagged redeploy of a live site can be served for up to 60 s from the Worker's
+  cached `live` state. Two concurrent deploys for different repos of one login can pass the 3-site
+  check together (the lock covers the checks, not the R2 writes). A free-tier refusal in the middle
+  of the writes leaves a partial site until the next deploy.
