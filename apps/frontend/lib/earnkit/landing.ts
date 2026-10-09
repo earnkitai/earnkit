@@ -2,15 +2,15 @@ import { prizeOf } from './entry-text';
 import { guideSourceList, programGuide, type Guide, type GuideSource } from './guide';
 import { CHAIN_NAMES } from './match';
 import { bonusCell, daysLeftText, NO_CELL, type Card } from './present';
-import { eachLine, openFigure } from './pool';
+import { eachLine } from './pool';
 import { getProgramRow, guideBonus, isOpen, listPrograms, NotFoundError } from './programs';
 import { boardSlug, roundFor, roundPoolsWei } from './bonus-rounds';
-import { readStats, wonLine, type PublicStats } from './stats';
+import { moneyText, openMoneyUsd, readStats, wonLine, type PublicStats } from './stats';
 import { sql } from './db';
 
 /**
  * The landing page's live data (v2.7 §1, v2.7.1): the open curated programs as cards, the hero's
- * "$X open right now" (the sum of their source-stated pools), the builder bonus pools so far and
+ * "$X open right now" (v2.9 F21: the one money figure, openMoneyUsd), the builder bonus pools so far and
  * one short stats line. `landingFrom` is pure; `readLanding` is the one DB read behind it
  * (app/lib/landing-cache.ts caches it for 10 minutes).
  */
@@ -48,7 +48,7 @@ export type Tile = {
 };
 /** Plain JSON only (Ruling 21 (plan), Review Focus 2): unstable_cache serializes it. */
 export type Landing = {
-  /** v2.7.1: "$1.3M+" (pool.ts poolTotalText of the tiles), or null when no tile has a pool. */
+  /** v2.9 F21: the one money figure ("$1.1M+", moneyText(openMoneyUsd) of the tiles' programs), or null at 0. */
   open_text: string | null;
   tiles: Tile[];
   /** v2.7.1: "312 agents earning · 0.42 ETH builder bonus paid", or null below both thresholds. */
@@ -99,8 +99,8 @@ export const byPool = (a: Pick<Card, 'pool_usd' | 'max_award_usd' | 'ends_at'>, 
 
 /**
  * The landing data from open program cards, by pool (`byPool`), every one of them (v2.8 Ruling 20: no cap) (Ruling 21 (plan): curated programs only, never an
- * EarnKit or sponsor campaign), their open rounds' pools and the public stats. v2.7.1: the hero
- * figure is the sum of the cards' source-stated pools (the /programs page shows the same). Pure.
+ * EarnKit or sponsor campaign), their open rounds' pools and the public stats. v2.9 F21: the hero
+ * figure is moneyText(openMoneyUsd) of the same cards (/programs, the first reply and /api/stats show the same). Pure.
  */
 export function landingFrom(cards: Card[], pools: Map<string, bigint | null>, stats: PublicStats, now: Date): Landing {
   const kept = cards.filter((c) => !c.sponsored && !c.earnkit_campaign).sort(byPool);
@@ -128,7 +128,7 @@ export function landingFrom(cards: Card[], pools: Map<string, bigint | null>, st
     };
   });
   return {
-    open_text: openFigure(kept),
+    open_text: moneyText(openMoneyUsd(kept, now)),
     tiles,
     stats_line: statsLine(stats),
     won_line: wonLine(stats.builders_won_usd),

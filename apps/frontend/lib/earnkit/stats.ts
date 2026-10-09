@@ -1,7 +1,7 @@
 import { sql, type Db } from './db';
 import { testInstallationIds } from './installations';
 import { FEE_SPLIT_BPS } from './policy';
-import { poolTotal, statedPool } from './pool';
+import { moneyText, openMoneyUsd, poolTotal, statedPool } from './pool';
 
 /**
  * Public stats (v2.5 §4) for jenil.ai: /api/stats, cached 10 min. Database aggregates only: no
@@ -11,6 +11,7 @@ import { poolTotal, statedPool } from './pool';
  */
 export const STATS_KEYS = [
   'open_money_usd',
+  'open_money_text',
   'open_pools_usd',
   'open_pools_plus',
   'programs_open',
@@ -32,24 +33,28 @@ export const STATS_KEYS = [
  */
 export const WIN_RATE_MIN_LABELLED = 30;
 
-/** Every stat but `open_pools_plus` is a number. */
-export type StatsNumberKey = Exclude<(typeof STATS_KEYS)[number], 'open_pools_plus'>;
+/** Every stat but `open_pools_plus` and `open_money_text` is a number. */
+export type StatsNumberKey = Exclude<(typeof STATS_KEYS)[number], 'open_pools_plus' | 'open_money_text'>;
 /**
- * v2.7.1: `open_pools_usd` is the pool total behind the landing page's "$1.3M+ open right now"
- * (the open curated programs' source-stated pools, pool.ts poolTotal) and `open_pools_plus` its "+"
- * (some open program has no pool, or its source says "+"). `open_money_usd` is unchanged (the
- * per-winner sum jenil.ai reads).
+ * v2.9 F21: `open_money_usd` is the one money figure (openMoneyUsd: the top prize of every open
+ * curated program, summed) and `open_money_text` the text every page shows for it ("$1.1M+", null
+ * at 0). Ruling G23: `open_pools_usd` and `open_pools_plus` (the v2.7.1 source-stated pool total
+ * and its "+") are deprecated but still served, so docs.earnkit.com never breaks; nothing shows them.
  */
-export type PublicStats = Record<StatsNumberKey, number> & { open_pools_plus: boolean };
+export type PublicStats = Record<StatsNumberKey, number> & { open_money_text: string | null; open_pools_plus: boolean };
+
+/** v2.9 F21: the one money figure; implemented in pool.ts (present.ts can't import this file). */
+export { moneyText, openMoneyUsd, type OpenMoneyRow } from './pool';
 
 /**
  * How jenil.ai should label each stat (T9 note): `fees_to_safe_eth` counts only coins launched
  * with the v2.5 split, from the start of the bonus index, so it is never "all Safe revenue".
  */
 export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
-  open_money_usd: 'open money matched (USD)',
-  open_pools_usd: 'open prize pools (USD)',
-  open_pools_plus: 'some open programs publish no pool',
+  open_money_usd: 'open money: top prize per open program (USD)',
+  open_money_text: 'open money, as shown',
+  open_pools_usd: 'open prize pools (USD, deprecated)',
+  open_pools_plus: 'some open programs publish no pool (deprecated)',
   programs_open: 'programs open',
   bonus_programs_open: 'programs with a builder bonus',
   coins_launched: 'tokens launched',
@@ -68,8 +73,18 @@ export { wonLine } from './pool';
 /** Wei to ETH as a number, 6 decimals, rounded down. Pure. */
 export const weiToEth = (wei: bigint) => Number(wei / 10n ** 12n) / 1e6;
 
+/** v2.9 F21: an active program as readStats reads it (json, so dates are strings). */
+type OpenRow = {
+  max_award_usd: string | number | null;
+  status: string;
+  campaign: unknown;
+  source: string;
+  starts_at: string | null;
+  ends_at: string | null;
+};
+
 type Row = {
-  open_money_usd: string | null;
+  open_rows: OpenRow[] | null;
   /** v2.7.1: each open curated program's pool_usd and reward (json, so pool_usd is a number). */
   pool_rows: { pool_usd: string | number | null; reward: string }[] | null;
   programs_open: number;
@@ -96,12 +111,20 @@ type Row = {
  * submissions, empty rounds, a paid round's unclaimed places). It is not all-time Safe revenue.
  * Pure.
  */
-export function statsFrom(r: Row): PublicStats {
+export function statsFrom(r: Row, now = new Date()): PublicStats {
   const big = (v: string | null) => BigInt(v ?? '0');
   const safeWei = (big(r.bonus_deposits_wei) * BigInt(FEE_SPLIT_BPS.earnkit)) / BigInt(FEE_SPLIT_BPS.bonus) + big(r.bonus_to_safe_wei);
   const pools = poolTotal((r.pool_rows ?? []).map((p) => statedPool(p.pool_usd, p.reward)));
+  const date = (v: string | null) => (v ? new Date(v) : null);
+  const openUsd = Math.round(
+    openMoneyUsd(
+      (r.open_rows ?? []).map((p) => ({ ...p, max_award_usd: p.max_award_usd == null ? null : Number(p.max_award_usd), starts_at: date(p.starts_at), ends_at: date(p.ends_at) })),
+      now,
+    ),
+  );
   return {
-    open_money_usd: Math.round(Number(r.open_money_usd ?? 0)),
+    open_money_usd: openUsd,
+    open_money_text: moneyText(openUsd),
     open_pools_usd: Math.round(pools.usd),
     open_pools_plus: pools.plus,
     programs_open: Number(r.programs_open),
@@ -118,8 +141,8 @@ export function statsFrom(r: Row): PublicStats {
 }
 
 /**
- * One read of every aggregate. Open money: the per-winner prize (`max_award_usd`) of each open
- * program, never whole pools, the same $X rule as list_programs. Open: active, started, not ended.
+ * One read of every aggregate. Open money (v2.9 F21): openMoneyUsd over the active programs (the
+ * top prize of each open curated program, never whole pools). Open: active, started, not ended.
  * `bonus_programs_open` (Ruling 16 (plan)): of those, the ones with the builder bonus on
  * (bonusOn's SQL twin: `builder_bonus AND campaign IS NULL`, status already 'active' here).
  * Coins: launches tokens.fun confirmed. Bonus paid: mined builder bonus payouts. Bonus pools (v2.7
@@ -139,7 +162,9 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
       WHERE status = 'active' AND (starts_at IS NULL OR starts_at <= ${now}) AND (ends_at IS NULL OR ${now} < ends_at)
     )
     SELECT
-      (SELECT sum(max_award_usd) FROM open)::text AS open_money_usd,
+      -- v2.9 F21: every active program; openMoneyUsd (statsFrom) keeps the open curated ones.
+      (SELECT json_agg(json_build_object('max_award_usd', max_award_usd, 'status', status, 'campaign', campaign,
+        'source', source, 'starts_at', starts_at, 'ends_at', ends_at)) FROM programs WHERE status = 'active') AS open_rows,
       -- v2.7.1: the landing page's programs (listPrograms' open rule, curated only: no campaign).
       (SELECT json_agg(json_build_object('pool_usd', pool_usd, 'reward', reward)) FROM programs
         WHERE status = 'active' AND campaign IS NULL AND (ends_at IS NULL OR ${now} < ends_at)) AS pool_rows,
@@ -180,7 +205,7 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
       -- v2.9 E20: the prizes of announced won or placed outcomes with a known prize (one per entry
       -- and round); never a self-report, never a test installation's entry.
       (${wonUsdSql(db, ids)})::text AS builders_won_usd`;
-  return statsFrom(r);
+  return statsFrom(r, now);
 }
 
 /** v2.9 E20: the sum behind builders_won_usd (one SQL fragment for readStats and readWonUsd). */

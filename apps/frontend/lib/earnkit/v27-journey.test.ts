@@ -113,8 +113,8 @@ test('v2.7 journey: what can I earn, the guide, then the token step', dbTest, as
   )) as { show_to_builder: string };
   const first = list.show_to_builder;
   assert.match(first, /\| Difficulty \|/, first);
-  // v2.8 Ruling 24 (plan): the site's pool figure (the shared test DB may hold other open programs,
-  // so only its form is checked here; landing.test.ts pins it to openFigure).
+  // v2.9 F21: the one money figure (the shared test DB may hold other open programs, so only its
+  // form is checked here; landing.test.ts pins it to moneyText(openMoneyUsd)).
   assert.match(first, /^\$[\d.]+[KM]?\+? in prizes open right now\.\n\n/, first);
   assert.ok(
     first.trimEnd().endsWith(

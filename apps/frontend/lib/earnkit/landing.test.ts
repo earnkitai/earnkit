@@ -7,12 +7,12 @@ import { sql } from './db';
 import { NO_CELL, type Card } from './present';
 import type { PublicStats } from './stats';
 import { committedProgram } from './fixtures/program-file';
-import { openFigure } from './pool';
 import { presentFirstMessage } from './present';
-import { wonLine } from './stats';
+import { moneyText, openMoneyUsd, wonLine } from './stats';
 
 const stats = (o: Partial<PublicStats> = {}): PublicStats => ({
   open_money_usd: 0,
+  open_money_text: null,
   open_pools_usd: 0,
   open_pools_plus: false,
   programs_open: 5,
@@ -108,7 +108,7 @@ test('v2.7.1: each tile field; no pool means the per-winner amount is the big li
   assert.equal(a.bonus_amount, null); // never "0 ETH"
   assert.equal(a.logo, '/programs/arc-microgrants.svg');
   assert.equal(b.prize, 'up to $5,000 per grant'); // review #1: a grant program
-  assert.equal(l.open_text, null); // no tile states a pool
+  assert.equal(l.open_text, '$30.5K'); // v2.9 F21: the top prizes (Monad, Arc, Base), never the sponsor's or the campaign's
 });
 
 test('v2.8 Ruling 20, 21 (plan): every open curated program is a tile (no cap); the difficulty is the level word only', () => {
@@ -134,19 +134,19 @@ test('v2.7.1: a pool is the big line, "up to $X per winner" under it; unknown am
   assert.deepEqual([t('arc-microgrants').prize, t('arc-microgrants').prize_note], ['10,000 USDC pool', 'up to $500 per grant']);
   assert.deepEqual([t('base-builder-grants').prize, t('base-builder-grants').prize_note], ['up to $5,000 per grant', null]);
   assert.deepEqual([t('circle-developer-grants').prize, t('circle-developer-grants').prize_note], ['milestone-based USDC grants', null]);
-  // The sponsor and EarnKit campaigns never count; "+" for Monad's "+" and for the programs without a pool.
-  assert.equal(l.open_text, '$260K+');
-  assert.equal(landingFrom([pooled(arc, 10000, '10,000 USDC pool')], new Map(), stats(), now).open_text, '$10K');
+  // v2.9 F21: the top prizes, never the pools; the sponsor and EarnKit campaigns never count.
+  assert.equal(l.open_text, '$30.5K');
+  assert.equal(landingFrom([pooled(arc, 10000, '10,000 USDC pool')], new Map(), stats(), now).open_text, '$500');
 });
 
-test('v2.7.1: the real program files add up to "$1.3M+ open right now"', () => {
+test('v2.9 F21: the real program files: the top prizes add up to "$160.5K open right now"', () => {
   const ids = ['colosseum-worlds-fair', 'monad-metropolis', 'arc-microgrants', 'circle-developer-grants', 'base-builder-grants'];
   const cards = ids.map((id): Card => {
     const f = ProgramFile.parse(committedProgram(id));
     return { ...arc, id, title: f.title, reward: f.reward, max_award_usd: f.max_award_usd ?? null, min_award_usd: f.min_award_usd ?? null, ends_at: null, ...poolFacts({ ...f, pool_usd: f.pool_usd == null ? null : String(f.pool_usd), campaign: null }) };
   });
   const l = landingFrom(cards, new Map(), stats(), now);
-  assert.equal(l.open_text, '$1.3M+');
+  assert.equal(l.open_text, '$160.5K');
   const t = (id: string) => l.tiles.find((x) => x.id === id)!;
   assert.equal(t('colosseum-worlds-fair').prize, '$840K in prizes');
   assert.equal(t('colosseum-worlds-fair').prize_note, 'up to $30,000 per winner');
@@ -319,13 +319,13 @@ after(async () => {
   if (process.env.DATABASE_URL) await sql().end();
 });
 
-test('v2.8 Ruling 24 (plan): the landing figure is openFigure of the same tiles, and the no-repo first message says it', () => {
+test('v2.9 F21: the landing figure is moneyText(openMoneyUsd) of the same cards, and the no-repo first message says it', () => {
   const pooledMonad = { ...monad, pool_usd: 840000, pool_plus: true };
   const pooledArc = { ...arc, pool_usd: 10000 };
   const cards = [pooledMonad, pooledArc, sponsored, campaign, base];
   const l = landingFrom(cards, new Map(), stats(), now);
-  assert.equal(l.open_text, openFigure([pooledMonad, pooledArc, base]));
-  assert.equal(l.open_text, '$850K+');
+  assert.equal(l.open_text, moneyText(openMoneyUsd(cards, now)));
+  assert.equal(l.open_text, '$30.5K');
   const first = presentFirstMessage({
     alerts: [], campaigns: [], cards, repos: null, workingOn: [], agentCanBuild: true, sponsorEntries: null, now,
   });

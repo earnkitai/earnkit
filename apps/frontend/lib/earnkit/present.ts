@@ -4,7 +4,7 @@ import { endsOf, prizeOf, repoCoinNote, shortWallet } from './entry-text';
 import { shortDate } from './dates';
 import { EFFORT_ORDER, type Chain, type Effort, type Product, type RepoFacts, type Verdict } from './match';
 import { difficultyLabel, levelRank, rowDifficulty, type Difficulty, type Level } from './guide';
-import { openFigure, wonLine } from './pool';
+import { moneyText, openMoneyUsd, wonLine } from './pool';
 
 /** v2.7: moved to entry-text.ts (shared with guide.ts); re-exported for existing callers. */
 export { endsOf } from './entry-text';
@@ -178,16 +178,6 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_OTHERS = 5;
 /** Ideas under "Ideas I can build"/"Ideas for these programs" in all (v2.6 §1). */
 const MAX_IDEAS = 6;
-
-/**
- * The per-winner sum: each program's top per-winner prize, once per program; programs without a
- * stated per-winner amount count 0. v2.8 Ruling 24 (plan): only /api/stats' open_money_usd uses it
- * now; the first message uses openFigure. Pure.
- */
-export function openMoneyUsd(matched: Pick<Card, 'id' | 'max_award_usd'>[]): number {
-  const seen = new Map(matched.map((c) => [c.id, c.max_award_usd ?? 0]));
-  return [...seen.values()].reduce((a, b) => a + b, 0);
-}
 
 /** "0.42" from wei, two decimals, rounded down. Exported for alerts.ts (the bonus win amount). */
 export const eth = (wei: bigint) => {
@@ -529,8 +519,8 @@ export const bonusProgramIds = (m: Pick<FirstMessage, 'cards' | 'repos'>) => {
 };
 
 /**
- * v2.8 Ruling 24 (plan): the no-repo headline, "$1.3M+ in prizes open right now." with the site's
- * figure (openFigure over every open curated program), else "These programs are open right now.".
+ * v2.9 F21: the no-repo headline, "$1.1M+ in prizes open right now." with the site's figure
+ * (moneyText(openMoneyUsd) over every open curated program), else "These programs are open right now.".
  * Pure.
  */
 const openHeadline = (fig: string | null) =>
@@ -566,9 +556,9 @@ export function presentFirstMessage(given: FirstMessage): string {
       `None of your ${m.repos.checked} repo${m.repos.checked === 1 ? '' : 's'} fits an open program yet.`,
     );
   else if (rows.length > 0) {
-    // v2.8 Ruling 24 (plan): the matched programs' pools, the same figure the site uses.
-    // v2.8.1 §B10: only rows the builder qualifies for now count toward $X.
-    const fig = openFigure(rows.filter(qualifies).map((r) => r.card));
+    // v2.9 F21: the same function as the site's figure, over the rows the builder qualifies for
+    // now (v2.8.1 §B10).
+    const fig = moneyText(openMoneyUsd(rows.filter(qualifies).map((r) => r.card), m.now));
     sections.push(
       `${fig ? `EarnKit matches you to ${fig} in prizes you qualify for.` : 'Your repos fit these open programs:'}\n\n` +
         table(
@@ -609,7 +599,7 @@ export function presentFirstMessage(given: FirstMessage): string {
     sections.push(
       `${
         zeroState
-          ? openHeadline(openFigure(m.cards.filter((c) => !c.sponsored && !c.earnkit_campaign)))
+          ? openHeadline(moneyText(openMoneyUsd(m.cards, m.now)))
           : above
             ? 'Also open:'
             : 'Open money right now:'

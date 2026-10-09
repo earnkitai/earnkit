@@ -19,7 +19,7 @@ function Chevron({ dir }: { dir: 1 | -1 }) {
 }
 
 /**
- * v2.8 Rulings 20, 21 (plan): "Open programs", the pool figure ("$1.3M+ open right now"), one "Ask
+ * v2.8 Rulings 20, 21 (plan): "Open programs", the money figure ("$1.1M+ open right now", v2.9 F21), one "Ask
  * your agent" (the install modal with the starting phrase), then every open curated program as a
  * slim card (ProgramCard), sorted by pool (landing.ts byPool). Home: one row with native CSS scroll
  * snap (swipe on mobile; from md, two arrows that move one card and turn off at the ends).
@@ -32,7 +32,7 @@ export default function ProgramCards({
   layout = 'carousel',
 }: {
   tiles: Tile[];
-  /** The pool total ("$1.3M+", landing.open_text), shown under the title; null hides the line. */
+  /** The one money figure ("$1.1M+", landing.open_text), shown under the title; null hides the line. */
   figure?: string | null;
   /** v2.7 /programs: the cards are the page, so their heading is its h1. */
   heading?: 'h1' | 'h2';

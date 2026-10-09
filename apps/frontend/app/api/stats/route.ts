@@ -10,8 +10,9 @@ import { readStats } from '@/lib/earnkit/stats';
  * `fees_to_safe_eth`: the Safe's fees from v2.5-split coins only, accrued (stats.ts statsFrom).
  * `bonus_programs_open`: open programs with the builder bonus on (v2.6 Ruling 16 (plan)). Owner
  * test installations (EARNKIT_TEST_INSTALLATIONS) never show in `installs` or `coins_launched`.
- * v2.7.1: `open_pools_usd`/`open_pools_plus` are the landing page's "$1.3M+" (pool total and its
- * "+"); `open_money_usd` stays the per-winner sum. v2.8 Part G: `labelled_entries` (entries with
+ * v2.9 F21: `open_money_usd` is the one money figure (stats.ts openMoneyUsd) and `open_money_text`
+ * the text every page shows ("$1.1M+"). Ruling G23: `open_pools_usd`/`open_pools_plus` stay,
+ * deprecated, so docs.earnkit.com never breaks. v2.8 Part G: `labelled_entries` (entries with
  * a published result) and `entries_won` (won or placed), announcement-sourced only, never a
  * self-report or a test installation's entry. No win-rate claim until 30 labelled entries.
  * v2.9 E20: `builders_won_usd`, the prizes of announced won or placed outcomes (same exclusions).
