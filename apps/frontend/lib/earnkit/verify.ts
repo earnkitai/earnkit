@@ -284,6 +284,14 @@ export async function contractDeployed(chain: Chain, address: string, deps: Chec
 }
 
 /**
+ * v2.10 item 13: a contract EarnKit just deployed for a builder (its code checked): the A5 cache
+ * holds a fresh pass under contractDeployed's key, so the entry counts it as deployed with no RPC.
+ */
+export async function markDeployed(chain: Chain, address: string, now = new Date()): Promise<void> {
+  await dbCache.set(`getcode:${chain}:${address.toLowerCase()}`, true, now);
+}
+
+/**
  * v2.10 item 6: Blockscout's free API, per chain. Only Base has a known free instance
  * (https://base.blockscout.com, checked 2026-10-09); elsewhere the count is unknown.
  */

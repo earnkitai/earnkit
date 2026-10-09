@@ -55,6 +55,11 @@ export const LIMITS = {
    * may serve many builders; the per-wallet limit (10) stays the real one.
    */
   tokenLaunchShared: { limit: 500, windowSeconds: 86_400 },
+  /**
+   * v2.10 item 13: contract deploys per builder per chain per UTC day (key `<login or repo key>:<chain>`).
+   * Pre-flight P16: the 30-day cap (3) is a count over contract_deploys, not a window here.
+   */
+  deployDay: { limit: 1, windowSeconds: 86_400 },
   /** v2.9 B9: GET /github/verify and its callback, per client IP. */
   githubVerify: { limit: 30, windowSeconds: 3_600 },
   /** v2.9 final review I2: POST /api/host/upload, per client IP (each read can be 25 MB). */

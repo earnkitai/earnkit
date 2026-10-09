@@ -6,11 +6,15 @@ import { sql, type Db } from './db';
  * in one atomic statement, so concurrent takes can never pass it.
  * - r2Writes: R2 Class A operations (put, list) a month. R2's free tier is 1M; 900k leaves room.
  * - resendDay / resendMonth: emails a day and a month (Resend free: 100 and 3,000).
+ * - deploysDay: v2.10 item 13, contract deploys a day across all builders.
+ * - deployGasMonth: v2.10 item 13 (R18), deploy gas a month in micro-USD ($10).
  */
 export const FREE_CAPS = {
   r2Writes: { cap: 900_000, period: 'month' },
   resendDay: { cap: 100, period: 'day' },
   resendMonth: { cap: 3_000, period: 'month' },
+  deploysDay: { cap: 20, period: 'day' },
+  deployGasMonth: { cap: 10_000_000, period: 'month' },
 } as const;
 
 export type FreeTierName = keyof typeof FREE_CAPS;
@@ -48,4 +52,15 @@ export async function freeTierRoom(name: FreeTierName, n: number, now = new Date
   const [row] = await db<{ used: number }[]>`
     SELECT used FROM free_tier_usage WHERE name = ${name} AND period = ${periodKey(period, now)}`;
   return (row?.used ?? 0) + n <= cap;
+}
+
+/**
+ * v2.10 item 13 (R18): gives `n` back to the counter (a deploy's unused gas reserve, or a refused
+ * deploy's day slot); never below 0.
+ */
+export async function giveBackFreeTier(name: FreeTierName, n: number, now = new Date()): Promise<void> {
+  if (!(n > 0)) return;
+  await sql()`
+    UPDATE free_tier_usage SET used = GREATEST(0, used - ${Math.ceil(n)})
+    WHERE name = ${name} AND period = ${periodKey(FREE_CAPS[name].period, now)}`;
 }

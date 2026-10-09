@@ -78,6 +78,12 @@ export type GateDeps = {
    * read here so no caller can forget it; false while sign-in is off (nothing changes then).
    */
   shared?: (installationId: number) => Promise<boolean>;
+  /**
+   * v2.10 item 13 (R19): a GitHub sign-in or read-only App proof of this repo on this installation
+   * (scoped as verifiedFor: `login` undefined, any; a login, only its). Defaults to the
+   * github_verifications rows, each kind only while its feature is on.
+   */
+  repoVerified?: (a: { installationId: number; repoKey: string; login?: string }) => Promise<boolean>;
 };
 /**
  * `reason`: plain builder words. `agent_note` (M7): the technical detail, for the agent only.
@@ -103,6 +109,9 @@ export type GateResult =
     };
 
 const defaults: Omit<Required<GateDeps>, 'appToken' | 'appLink'> = {
+  repoVerified: async (a) =>
+    (githubVerifyEnabled() && (await verifiedFor(a)) !== null) ||
+    (githubAppEnabled() && (await verifiedFor({ ...a, purpose: 'app' })) !== null),
   repo: async (o, r, token) => {
     const facts = await repoCodeFacts(`${o}/${r}`, { token });
     // v2.10 Ruling H6: GitHub said the repo is public (no App token): public pages may show its URL.
@@ -359,3 +368,37 @@ const defaultAppLink = (input: GateInput) => async (repoKey: string) =>
   githubAppEnabled()
     ? createVerifyLink({ installationId: input.installationId, projectId: input.projectId ?? null, repoKey, purpose: 'app' })
     : null;
+
+/**
+ * v2.10 item 13 (R19): whether this installation proved `repoUrl` is the builder's, the way a launch
+ * does minus the wallet binding: a GitHub sign-in or read-only App proof of the repo (Pre-flight
+ * P11: only here and appTokenFor read App rows), else this agent's `token: <code>` proof line in the
+ * repo's earnkit.txt (default branch, then the most recently pushed one). Rulings G7, G10: on a
+ * shared client (`verifiedLogin` given, or the group is shared while sign-in is on) only the
+ * caller's own verified login counts, and the proof line never does. Fails closed; never throws.
+ */
+export async function repoOwnershipPasses(
+  a: { installationId: number; repoUrl: string; verifiedLogin?: string | null },
+  deps: GateDeps = {},
+): Promise<boolean> {
+  const d = { ...defaults, ...(deps.owner && { latest: async () => null }), ...deps };
+  const gh = githubRepo(a.repoUrl);
+  if (!gh) return false;
+  const repoKey = `${gh.owner}/${gh.repo}`.toLowerCase();
+  try {
+    const shared = a.verifiedLogin !== undefined || (await d.shared(a.installationId).catch(() => true));
+    const login = shared ? (a.verifiedLogin ?? null) : undefined;
+    if (login !== null && (await d.repoVerified({ installationId: a.installationId, repoKey, ...(login !== undefined && { login }) })))
+      return true;
+    if (shared && githubVerifyEnabled()) return false;
+    const code = tokenCode(a.installationId, a.repoUrl);
+    if (!code) return false;
+    const onDefault = await d.owner(gh);
+    if (proves(onDefault, code, null)) return true;
+    const latest = await d.latest(gh, undefined).catch(() => null);
+    return latest !== null && proves(latest.file, code, null);
+  } catch (err) {
+    console.error('[token-gate] repo ownership', err instanceof Error ? err.name : 'error');
+    return false;
+  }
+}
