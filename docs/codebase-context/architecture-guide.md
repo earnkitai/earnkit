@@ -2890,3 +2890,55 @@ The v2.8.1 journeys (`v281-journey.test.ts`) still pass unchanged on Part 1.
 - **Known limits.** A clean redeploy of a live site that fails mid-copy can leave the site a mix of
   old and new clean files until the next deploy (the Worker has no versioned prefix). A takedown of a
   slug with objects but no row writes `killed` in R2 only (no row can hold it).
+
+## The weekly email and "Builders using EarnKit won $X" (v2.9 E19, E20, Task 10)
+
+- **Where.** `lib/earnkit/digest.ts` (all of it), `app/api/digest/unsubscribe`, the cron step in
+  `cron.ts`, the question in `tools.ts` (`withEmailQuestion`), the answer in `tell_earnkit`
+  (`weekly_email`), and `digest_subscriptions` plus `installations.digest_asked_at` in the schema.
+  Everything is off while `RESEND_API_KEY` is unset: no question, `tell_earnkit` saves nothing ("The
+  weekly email is not available yet."), and the cron skips the step. `DIGEST_FROM` overrides
+  `EarnKit <digest@earnkit.com>`. Sending also needs `EARNKIT_AUTH_SECRET` (the unsubscribe token).
+- **The question (Ruling 13, P16).** Asked once per installation (`digest_asked_at`, set with
+  `UPDATE ... WHERE digest_asked_at IS NULL RETURNING`), as the last line of the reply that brings the
+  submit kit (`confirm_entry`) or records the entry (`record_submission`), plus the agent note "Pass
+  the builder's answer to tell_earnkit as weekly_email." The entry's email answer (a field of type
+  email, or a contact field labelled email) is kept unopted with the question. Non-shared clients:
+  the question names no address, and a plain yes uses the kept one. Shared clients: the question names
+  only an address typed in this entry (never one the answer bank offered back); a plain yes counts
+  only within an hour of the question; otherwise "Which email should I use?". A hosted agent holds one
+  subscription, and another builder never replaces a live one. "no" deletes the row and its address.
+- **Who is due (P17).** Opted in before this week's start (`weekStart`: Monday 14:00 UTC), not
+  unsubscribed, nothing sent and nothing considered since that start. So emails start on Mondays, a
+  spillover past the daily cap goes out on later runs that week, and a new opt-in waits for Monday.
+- **Sending (hourly cron, after hosting).** `sendDigests` loops with the time left: both counters
+  must have room (`freeTierRoom`), then one due row is locked (`FOR UPDATE SKIP LOCKED`, oldest
+  `last_sent_at` first, 100 per run at most) in its own transaction. Empty facts set
+  `last_considered_at` (never an empty email). Otherwise it takes one `resendDay` then one
+  `resendMonth` slot (kept whatever happens), sends through Resend (`POST /emails`, 10 s), and sets
+  `last_sent_at` in the same transaction. A refused cap stops the run (`capped: true`); a 429 stops
+  it too; another 4xx skips the row this week; a 5xx or network error is retried next run.
+- **Content (in order).** New programs opened since the last send that one of the installation's
+  remembered repos could really win (`alertFit`, the A7 alert rule; none on a shared client); wins by
+  EarnKit builders in the last 7 days (announced only, test installations excluded); the
+  installation's entered programs closing, or with `results.expected`, in the next 7 days (on a shared
+  client only entries whose stored answers carry the subscription's address). At most 5 lines each.
+  The text ends with "Ask your agent..." and the unsubscribe link.
+- **Unsubscribe.** Every email carries `List-Unsubscribe: <https://earnkit.com/api/digest/unsubscribe?t=...>`
+  and `List-Unsubscribe-Post: List-Unsubscribe=One-Click`. The token is `<installation id>.<HMAC-SHA256
+  (EARNKIT_AUTH_SECRET, "digest-unsub:v1:<id>"), base64url>`, checked timing-safe. GET shows a confirm
+  page with a POST button (a link scanner unsubscribes nobody); POST sets `unsubscribed_at` once
+  (idempotent). A bad token is a 400 and changes nothing.
+- **The won line (E20).** `stats.ts builders_won_usd`: the sum of `prize_usd` of announced won or
+  placed outcomes with a prize, never a self-report or a test installation's entry (also in
+  `/api/stats`). `wonLine` (in `pool.ts`, re-exported by `stats.ts`) is "Builders using EarnKit won
+  $12,500", or null at 0, so the line is absent, never "$0". The landing page shows `won_line` under
+  the stats line (Hero); the first reply joins it to the money headline ("$1.1M+ in prizes open right
+  now. Builders using EarnKit won $12,500."), or puts it first in the body when the reply opens with a
+  heading. `list_programs` reads it through `wonSource` (`readWonUsd`, cached 10 minutes). Cache keys
+  moved to `landing-v29` and `public-stats-v29`.
+- **Owner steps.** Create the Resend account, add its DNS records for earnkit.com on Cloudflare, set
+  `RESEND_API_KEY` (and `DIGEST_FROM` if the sender differs) on Railway.
+- **Known limits.** One subscription per installation: on a hosted agent only the first builder to
+  record an entry is ever asked. A failing address costs one cap slot per run until it succeeds or a
+  4xx skips it for the week.

@@ -126,6 +126,7 @@ apps/frontend/
                                payout, fee refresh)
   app/api/host/upload/route.ts  v2.9 C12: POST -> hostUploadPost (?t= one-time token, one zip, 503 when R2 off)
   app/api/host/takedown/route.ts  v2.9 C14: POST -> hostTakedownPost (Bearer ADMIN_VETO_SECRET; kill or approve)
+  app/api/digest/unsubscribe/route.ts  v2.9 E19: GET confirm page (POST button), POST one-click (RFC 8058) -> digest.ts
   app/api/admin/veto/route.ts  v2.4: POST only -> vetoPost (form: slug, key, entry, reason; v2.5: round
                                instead of slug for a builder bonus round)
   app/admin/bonus/[round]/page.tsx  v2.5 Task 7: the owner's builder bonus round review (noindex,
@@ -406,6 +407,8 @@ apps/frontend/
                                final review M1: notHumanText skips .test.ts/.test.tsx/.test.mts, and walkDir never enters a fixtures directory
     no-cell.ts                 NO_CELL (''), the empty table cell or chip; import-free so the client ProgramCard shares it (final review M1); present.ts re-exports it
     present.ts(+test)          v2.8.1 T7: enterableWithoutRepo (the no-repo offer's pick, for tools.ts).
+                               v2.9 E20: FirstMessage.wonUsd; withWonLine joins "Builders using EarnKit won $X."
+                               to the money headline, else puts it first in the body (once; absent at 0).
                                v2.9 A3: FirstMessage.hidden drops programs from tables and the offer;
                                entriesLine lists "<title>: applied outside EarnKit" (APPLIED_OUTSIDE).
                                presentFirstMessage (v2.7 §3): alerts, v2.8.1 §B: "Your entries"
@@ -728,7 +731,8 @@ apps/frontend/
                                entryVerifyLink (G11: needs the entry's wallet), VERIFY_PAGE (+ orgRepo), CONFIRM_WARNING, codeLine; route handlers
                                verifyStart (confirm page + __Host- cookie), verifyConfirm (POST, 303 to GitHub),
                                verifyCallback (code + state + cookie only)
-    builder-memory.ts(+test)   v2.9 A3: TellInput (strict; program_status, repo_facts, signed_in), BuilderMemory, MemoryKey
+    builder-memory.ts(+test)   v2.9 A3: TellInput (strict; program_status, repo_facts, signed_in; v2.9 E19 weekly_email
+                               { answer yes/no, email? }, which alone is enough), BuilderMemory, MemoryKey
                                (memoryKey: own installation login '', a shared client's verified login, else null),
                                SaidRepo, readMemory (builder_program_status, builder_repo_facts),
                                tell (all checks first, then one transaction; outcomes via
@@ -794,7 +798,8 @@ apps/frontend/
     cron.ts(+test)             nextStep (the state machine), scoreMaxAge, runCron (one step per
                                campaign under its lease, then builder bonus scoring (scoreOpenRounds),
                                the ledger with its rounds step (bonus-payout advanceRounds), then the fee
-                               refresh, then v2.9 Task 8 expireSites (R2 on; `hosting` in the result);
+                               refresh, then v2.9 Task 8 expireSites (R2 on; `hosting` in the result),
+                               then v2.9 Task 10 sendDigests (RESEND_API_KEY set; `digest` in the result);
                                needs_owner incl. host-review:<slug> (P46), PAY_FAILED_RUNS failed pay steps in a row
                                and bonusWaitsOnOwner (a MANUAL_CHECK or TOP_UP bonus sweep, failed
                                index runs, v2.9 D17 gas low or a claim/collect out of gas); BONUS_WALLET_UNSET when the ledger is
@@ -861,7 +866,8 @@ apps/frontend/
     landing.ts(+test)          v2.7 §1, v2.7.1: landingFrom (pure: curated cards by prize → Tile JSON:
                                prize = pool_line, else "up to $X per winner", else the curated text;
                                prize_note "up to $X per winner" when different; v2.8: has_bonus and bonus_amount = bonusAmount ("0.42 ETH", "<0.01 ETH", else null);
-                               open_text = pool.ts openFigure ("$1.3M+", v2.8 Ruling 24); stats_line = statsLine
+                               open_text = pool.ts openFigure ("$1.3M+", v2.8 Ruling 24); v2.9 E20 won_line = wonLine
+                               (Hero shows it under the stats line); stats_line = statsLine
                                (installs ≥100, bonus paid >0); v2.8: no bonus_pools / bonus_every /
                                bonusPoolsText (Win twice removed); cards sorted by byPool: pools first by size, then the rest by
                                max_award_usd, then deadline); readGuidePage adds the "prize pool" source
@@ -872,6 +878,7 @@ apps/frontend/
     pool.ts(+test)             v2.8 Ruling 24: openFigure, the one money figure (site and first message).
                                v2.7.1 (pure): usdCompact ("$1.3M", "$840K", rounded down), poolStated (the
                                pool in a program's reward: "$840,000"/"$840K"/"10,000 USDC", its "+"),
+                               v2.9 E20: wonLine ("Builders using EarnKit won $X", null at 0).
                                poolLine (a card's big line), poolTotal/poolTotalText (the hero figure,
                                shared with stats.ts open_pools_usd/_plus; "+" when rounding drops value),
                                statedPool (a row's pool), amountStated, isGrant, eachLine ("per grant" /
@@ -893,7 +900,18 @@ apps/frontend/
                                = "tokens launched" (key kept); docs.earnkit.com's LiveNumbers reads /api/stats;
                                v2.8 Ruling 30: labelled_entries (never 'unknown', C22) and entries_won
                                (announcement rows of entry_outcomes only, test installations excluded), WIN_RATE_MIN_LABELLED = 30
-                               (documentation only, no win-rate claim)
+                               (documentation only, no win-rate claim); v2.9 E20 (Task 10):
+                               builders_won_usd (announced won/placed prizes > 0, test installations
+                               excluded; wonUsdSql shared with readWonUsd), wonLine (re-exported from
+                               pool.ts), readWonUsd (10-minute in-process cache, 0 on error), wonSource
+                               (list_programs' seam; fixtures/no-network-checks pins it to 0)
+    digest.ts(+test)           v2.9 E19 (Task 10): the weekly email. digestEnabled (RESEND_API_KEY),
+                               DIGEST_FROM_DEFAULT/DIGEST_FROM, EMAIL_QUESTION/emailQuestionFor/EMAIL_NOTE,
+                               weekStart (Monday 14:00 UTC), digestDue (P17), digestBody, unsubToken/
+                               unsubInstallation (HMAC, timing-safe), unsubHeaders, Mailer/MailError/
+                               resendMailer, entryEmail/cleanEmail, askWeeklyEmail (Ruling 13, P16),
+                               saveWeeklyEmail, unsubscribe, digestFacts, sendDigests (row lock,
+                               free-tier caps), digestUnsubscribeGet/Post
     bonus-board.ts(+test)      v2.5 Task 9: bonusBoard (open/frozen: live ranking from bonus_scores
                                with eligibility in words; review/paying/paid: frozen bonus_payouts
                                minus vetoes, renumbered, top 10 + place holders, amounts, mined tx);
