@@ -26,6 +26,7 @@ import { r2Enabled, type R2 } from './r2';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
 import { stuckLaunches } from './tokens';
 import { sweepVerifyNonces } from './github-verify';
+import { DEPLOY_CAPS, deployEnabled, deployerAddress, nativeUsd, viemDeployChain, weiToMicroUsd, type DeployDeps } from './deploy';
 import { sweepPublicReads } from './repo-cache';
 import { withScoringLock } from './sponsor';
 import { recheckSubmissionProofs } from './submission-proof';
@@ -95,6 +96,8 @@ export type CronDeps = {
    * their 7 days), at most `limit` rows each a run; with `only`, the step runs only when given.
    */
   cleanup?: { limit?: number };
+  /** v2.10 item 13: the deployer's chains and price (tests); with `only`, the step runs only when given. */
+  deployer?: Pick<DeployDeps, 'chain' | 'usdPerNative'>;
 };
 
 /** Opens the 48 h review (once: only from 'running') and freezes the payout terms with it. */
@@ -357,6 +360,15 @@ export async function runCron(
       cleanup = { step: 'error', note: STEP_FAILED };
     }
   }
+  // v2.10 item 13: the deployer's gas per chain, and deploys waiting on the owner.
+  let deployer: Awaited<ReturnType<typeof deployerGas>> | undefined;
+  if (!opts.only || deps.deployer) {
+    try {
+      deployer = await deployerGas(now, deps.deployer);
+    } catch (err) {
+      console.error('[cron] deployer', err instanceof Error ? err.name : 'error');
+    }
+  }
   // Campaigns whose payout waits on the owner (manual check, changed terms, a wallet short of the
   // prize or of gas, or PAY_FAILED_RUNS failed pay steps in a row): the endpoint answers 503.
   const needs_owner = campaigns
@@ -406,6 +418,7 @@ export async function runCron(
     });
     for (const slug of review) needs_owner.push(`host-review:${slug}`);
   }
+  for (const key of deployer?.needs_owner ?? []) needs_owner.push(key);
   return {
     now: now.toISOString(),
     campaigns,
@@ -417,8 +430,45 @@ export async function runCron(
     ...(hosting && { hosting }),
     ...(digest && { digest }),
     ...(cleanup && { cleanup }),
+    ...(deployer && Object.keys(deployer.deployer_gas).length > 0 && { deployer_gas: deployer.deployer_gas }),
     needs_owner,
   };
+}
+
+/**
+ * v2.10 item 13 (R18): while deploys are on, the deployer's balance on Arc and Base (one read each),
+ * priced like a deploy; under one capped deploy's worth ($0.25, or no price) adds
+ * `deployer-gas:<chain>` (note TOP_UP: the owner tops it up by hand). Always: the last 7 days'
+ * deploys whose owner isn't the builder (`deploy-owner:<id>`) or whose outcome is unknown
+ * (`deploy-unknown:<id>`, including a reservation left 'sent' over 10 minutes).
+ */
+export async function deployerGas(now: Date, deps: Pick<DeployDeps, 'chain' | 'usdPerNative'> = {}) {
+  const needs_owner: string[] = [];
+  const deployer_gas: Record<string, { usd?: number; note?: string }> = {};
+  const address = deployEnabled() ? deployerAddress() : null;
+  if (address)
+    for (const c of ['arc', 'base'] as const) {
+      const chain = (deps.chain ?? viemDeployChain)(c);
+      if (!chain) continue;
+      try {
+        const wei = await chain.balance(address);
+        const micro = weiToMicroUsd(wei, await (deps.usdPerNative ?? nativeUsd)(c));
+        const low = micro < BigInt(Math.round(DEPLOY_CAPS.perDeployUsd * 1_000_000));
+        deployer_gas[c] = { usd: Number(micro) / 1_000_000, ...(low && { note: 'TOP_UP' }) };
+        if (low) needs_owner.push(`deployer-gas:${c}`);
+      } catch (err) {
+        console.error('[cron] deployer gas', c, err instanceof Error ? err.name : 'error');
+        deployer_gas[c] = { note: 'TOP_UP' };
+        needs_owner.push(`deployer-gas:${c}`);
+      }
+    }
+  const rows = await sql()<{ id: number; unknown: boolean }[]>`
+    SELECT id, (status = 'unknown' OR status = 'sent') AS unknown FROM contract_deploys
+    WHERE created_at > ${new Date(now.getTime() - 7 * 86_400_000)}
+      AND (owner_ok = false OR status = 'unknown' OR (status = 'sent' AND created_at < ${new Date(now.getTime() - 10 * 60_000)}))
+    ORDER BY id`;
+  for (const r of rows) needs_owner.push(r.unknown ? `deploy-unknown:${r.id}` : `deploy-owner:${r.id}`);
+  return { deployer_gas, needs_owner };
 }
 
 /**
