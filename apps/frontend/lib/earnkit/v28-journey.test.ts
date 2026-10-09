@@ -8,7 +8,7 @@ import postgres from 'postgres';
 import { sql } from './db';
 import { ProgramFile } from './program-file';
 import { listPrograms, upsertProgram } from './programs';
-import { openFigure } from './pool';
+import { moneyText, openMoneyUsd } from './stats';
 import { TOKEN_LINE } from './present';
 import { tools } from './tools';
 import { tokenLineFor } from './token-gate';
@@ -172,8 +172,9 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
 
     // 2. "What can I earn?" with no repo: the open money first, the token line last.
     const list = keep('list_programs', (await tools.list_programs({ agent_can_build: true }, ctx)) as Reply);
-    const cards = (await listPrograms()).filter((c) => !c.sponsored && !c.earnkit_campaign);
-    assert.ok(list.show_to_builder.startsWith(`${openFigure(cards)} in prizes open right now.`), list.show_to_builder);
+    // v2.9 F21: the one money figure over the same open programs.
+    const cards = await listPrograms();
+    assert.ok(list.show_to_builder.startsWith(`${moneyText(openMoneyUsd(cards))} in prizes open right now.`), list.show_to_builder);
     assert.ok(list.show_to_builder.trimEnd().endsWith(TOKEN_LINE), list.show_to_builder);
 
     // 3. Arc, with the project only: the coach's questions are the whole screen.

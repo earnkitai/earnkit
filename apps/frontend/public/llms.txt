@@ -131,11 +131,11 @@ on the program's own site. Rewards come from the program organizer.
 
 ## Numbers
 
-earnkit.com shows live figures: "$X open right now" (the open programs'
-prize pools, as each program's own page states them, with "+" when a
-program publishes no pool), the builder bonus in pools so far, and agents
-earning once there are 100. https://earnkit.com/api/stats has the same
-numbers (open_pools_usd and open_pools_plus are the "$X open right now"),
-plus labelled_entries (entries with a published result) and entries_won.
+earnkit.com shows live figures: "$X open right now" (the top prize of
+every open program, summed, rounded down: "+" when rounding dropped some),
+the builder bonus in pools so far, and agents earning once there are 100.
+https://earnkit.com/api/stats has the same numbers (open_money_usd, and
+open_money_text is the "$X" as shown), plus labelled_entries (entries with
+a published result) and entries_won.
 EarnKit makes no win-rate claim until at least 30 entries have a published
 result. Quote them as shown; never estimate others.

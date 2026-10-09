@@ -122,7 +122,7 @@ import { HERO_EYEBROW, HERO_SUBTITLE, HERO_TITLE } from '../../app/components/se
 import { HOW_TITLE, STEPS } from '../../app/components/sections/HowItWorks';
 import { landingFrom, statsLine } from './landing';
 import { bonusPillLabel } from '../../app/components/ui/BonusPill';
-import { eachLine, poolLine, poolTotalText } from './pool';
+import { eachLine, poolLine } from './pool';
 
 /**
  * v2.7 §4, Ruling 19 (plan): "coin" as a word in human-facing text, ignoring identifiers and URLs.
@@ -557,14 +557,14 @@ const v271Texts: [string, string][] = [
   ['eachLine USDC', eachLine({ title: 'Arc Microgrants', reward: '500 USDC per microgrant', max_award_usd: 500, min_award_usd: null })!],
   ['eachLine grant', eachLine({ title: 'Base Builder Grant Program', reward: 'Up to $5,000 in grants', max_award_usd: 5000, min_award_usd: null })!],
   ['eachLine winner', eachLine({ title: 'Hackathon', reward: '$30,000 grand prize', max_award_usd: 30000, min_award_usd: null })!],
-  ['statsLine', statsLine({ open_money_usd: 0, open_pools_usd: 0, open_pools_plus: false, programs_open: 5, bonus_programs_open: 4, coins_launched: 3, fees_to_safe_eth: 0, bonus_paid_eth: 0.42, bonus_pools_eth: 1, installs: 312, labelled_entries: 0, entries_won: 0, builders_won_usd: 0 })!],
+  ['statsLine', statsLine({ open_money_usd: 0, open_money_text: null, open_pools_usd: 0, open_pools_plus: false, programs_open: 5, bonus_programs_open: 4, coins_launched: 3, fees_to_safe_eth: 0, bonus_paid_eth: 0.42, bonus_pools_eth: 1, installs: 312, labelled_entries: 0, entries_won: 0, builders_won_usd: 0 })!],
   ['bonusPillLabel', bonusPillLabel()],
   ['bonusPillLabel amount', bonusPillLabel('0.42 ETH')],
   ['bonusPillLabel tiny', bonusPillLabel('<0.01 ETH')],
   ['poolLine prizes', poolLine(250000, { plus: true, usdc: false }, 'Monad Metropolis Hackathon')],
   ['poolLine grants', poolLine(200000, { plus: false, usdc: false }, 'Circle Developer Grants')],
   ['poolLine USDC', poolLine(10000, { plus: false, usdc: true }, 'Arc Microgrants')],
-  ['poolTotalText', `${poolTotalText([{ pool_usd: 1_300_000, plus: true }])} open right now`],
+  ['moneyText', `${moneyText(1_170_500)} open right now`],
   ['bonusClose (pooled)', bonusClose([bonusCard(6n * 10n ** 17n)])!],
   ['bonusClose (empty)', bonusClose([bonusCard(null)])!],
   ['bonusClose (others)', bonusClose([bonusCard(6n * 10n ** 17n)], true)!],

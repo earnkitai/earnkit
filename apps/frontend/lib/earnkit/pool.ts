@@ -103,7 +103,7 @@ export function poolTotal(pools: { pool_usd: number | null; plus: boolean }[]): 
   };
 }
 
-/** The hero's figure ("$1.3M+"), or null when no program states a pool. Pure. */
+/** A compact total ("$840K+"), or null at 0; moneyText's formatter. Pure. */
 export function poolTotalText(pools: { pool_usd: number | null; plus: boolean }[]): string | null {
   const t = poolTotal(pools);
   if (t.usd <= 0) return null;
@@ -122,13 +122,33 @@ export function statedPool(pool_usd: string | number | null, reward: string): { 
   return s ? { pool_usd: n, plus: s.plus } : { pool_usd: null, plus: false };
 }
 
+/** v2.9 F21: one program as the money figure reads it: a DB row (`campaign`, `source`) or a card (`earnkit_campaign`, `sponsored`). */
+export type OpenMoneyRow = {
+  max_award_usd?: number | null;
+  status?: string;
+  campaign?: unknown;
+  earnkit_campaign?: unknown;
+  sponsored?: boolean;
+  source?: string;
+  starts_at?: Date | null;
+  ends_at?: Date | null;
+};
+
 /**
- * v2.8 Ruling 24 (plan): the one money figure. The site, /programs and the first message all call
- * this, so "$1.3M+" is the same everywhere. Pure.
+ * v2.9 F21: the one money figure: the top prize of every open curated program, summed. Never an
+ * EarnKit campaign (P19: `campaign` on a row, `earnkit_campaign` on a card) or a sponsor's. Open:
+ * active, started, not ended. The landing page, /programs, the first reply and /api/stats all
+ * call it (stats.ts re-exports it; it lives here because present.ts can't import stats.ts). Pure.
  */
-export function openFigure(cards: { pool_usd?: number | null; pool_plus?: boolean }[]): string | null {
-  return poolTotalText(cards.map((c) => ({ pool_usd: c.pool_usd ?? null, plus: c.pool_plus ?? false })));
+export function openMoneyUsd(programs: OpenMoneyRow[], now = new Date()): number {
+  return programs
+    .filter((p) => (p.status ?? 'active') === 'active' && !p.campaign && !p.earnkit_campaign && !p.sponsored && p.source !== 'sponsor')
+    .filter((p) => (!p.starts_at || p.starts_at <= now) && (!p.ends_at || now < p.ends_at))
+    .reduce((sum, p) => sum + Number(p.max_award_usd ?? 0), 0);
 }
+
+/** v2.9 F21 (P18): the figure as text, "$1.1M+": rounded down, "+" when rounding dropped value; null at 0. Pure. */
+export const moneyText = (usd: number): string | null => poolTotalText([{ pool_usd: usd, plus: false }]);
 
 /**
  * v2.9 E20: "Builders using EarnKit won $X" (landing page, first reply), only once an announced
