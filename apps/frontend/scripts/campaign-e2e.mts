@@ -290,7 +290,7 @@ const entryDeps = {
 const ctx = (installationId: number) => ({ installationId, entryDeps });
 const entry = (name: string, repo: string, contracts: string[], payout: string) => {
   const repo_url = `https://github.com/${repo}`;
-  const live_url = `https://${repo.split('/')[1]}.example`;
+  const live_url = `https://${repo.split('/')[1]}.xyz`; // v2.9 A5: a .example link is a placeholder, refused
   return {
     program_id: SLUG,
     project: { name, description: `${name}, for the e2e`, repo_url, live_url },
@@ -304,11 +304,15 @@ const EMOJI = /\p{Extended_Pictographic}/u;
 
 // ---- 1. list_programs ----
 setClock(h(0.25));
-const first = (await handlers.list_programs({}, { installationId: A })) as { show_to_builder: string };
-show('list_programs (first message)', first.show_to_builder);
+// v2.10 item 2: the first reply is one lead line; the tables are behind "show more" (more: true).
+const lead = (await handlers.list_programs({}, { installationId: A })) as { show_to_builder: string };
+show('list_programs (first message)', lead.show_to_builder);
+ok(!lead.show_to_builder.includes('\n') && lead.show_to_builder.endsWith('?'), 'list_programs: the first reply is one lead line with its question');
+const first = (await handlers.list_programs({ more: true }, { installationId: A })) as { show_to_builder: string };
+show('list_programs (show more)', first.show_to_builder);
 ok(first.show_to_builder.startsWith('| Win | Prize | Ends | You |\n|---|---|---|---|\n| E2E Campaign | $100 each to top 2 (in MINI) | '), 'list_programs: the EarnKit campaign comes first, prize in USD');
-ok(!EMOJI.test(first.show_to_builder), 'list_programs: no emojis');
-ok(!/token/i.test(first.show_to_builder), 'list_programs: no token advertising');
+ok(!EMOJI.test(first.show_to_builder) && !EMOJI.test(lead.show_to_builder), 'list_programs: no emojis');
+ok(!/token/i.test(first.show_to_builder) && !/token/i.test(lead.show_to_builder), 'list_programs: no token advertising');
 
 // ---- 2. entry by deployer signature ----
 setClock(h(0.5));
@@ -328,7 +332,8 @@ const prep = (await handlers.prepare_submission(
 show('prepare_submission show_to_builder', prep.show_to_builder);
 const MESSAGE = `EarnKit entry: ${SLUG} github.com/alice/tipjar ${lc(PAYOUT_A)} ${[CA, CA2].sort().join(',')}`;
 ok(prep.sign_to_enter === MESSAGE, `sign_to_enter is "EarnKit entry: <program> <repo key> <payout wallet> <sorted contracts>": ${prep.sign_to_enter}`);
-ok(String(prep.show_to_builder).startsWith('| Entry | Tip Jar for E2E Campaign |\n|---|---|\n| Prize | $100 in MINI if top 2'), 'prepare_submission: one confirmation, prize first');
+// v2.7 C5: what is still missing comes first ("Before you submit: …"), then the one confirmation, prize first.
+ok(/^(Before you submit: [^\n]+\n\n)?\| Entry \| Tip Jar for E2E Campaign \|\n\|---\|---\|\n\| Prize \| \$100 in MINI if top 2/.test(String(prep.show_to_builder)), 'prepare_submission: one confirmation, prize first');
 ok(!EMOJI.test(prep.show_to_builder) && !prep.token, 'the confirmation has no emojis, and no token block without a deploy key');
 files.set('alice/tipjar', `payout_wallet: ${lc(PAYOUT_A)}\n`);
 const tip = { ...entry('Tip Jar', 'alice/tipjar', contractsA, lc(PAYOUT_A)) };

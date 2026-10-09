@@ -233,6 +233,7 @@ apps/frontend/
                                present.ts byEase/byEaseThenPrize sort Easy first in the agent's tables (C4)
     submission.ts(+.test.ts)   prepareSubmission, rememberedWalletQuestion (pure)
     projects.ts(+test)         v2.10 item 3 (P23): hasProgramEntry (any row for the program; the guide never re-shows)
+                               T11 fix: entry UPDATEs never clear contract_verified_at (COALESCE with the new check)
                                v2.10 item 4 (R16): submittedEntry (tell.submitted's entry: by id, else the newest in the program; its saved answers)
                                v2.8.1 §B9 openEntries (this installation's entries in open,
                                non-campaign programs, with submitted); v2.8 Task 8: startEntry (the entry at confirmation: ownEntry or insert,
@@ -599,6 +600,8 @@ apps/frontend/
                                over `handlers` (the v2.9 functions: list_programs ... launch_token); FindInput,
                                PrepareInput, ConfirmInput (R15), TellToolInput (R16), markSubmitted (tell.submitted),
                                eligibilityLine; launchFromOffer deleted (launch_token with offer throws).
+                               T11 fix: `prepare` with `deploy` deploys first and adds the address to
+                               project.contracts before the draft (its contract check sees it).
                                Fix round 2: confirmByProjectId (I-a shown pair and wallet via token-offers.ts
                                readShownOffer/offered_wallet; I-b shared clients by verifiedEntryIds), projects.ts launchEntry.
                                tool name -> handler + input validation (+ caller's installation);
@@ -926,6 +929,15 @@ apps/frontend/
                                on the slow deploy, then the check-back), a repo is never led with speedrun,
                                no Arc dead end without a repo, the returning recap with no re-offer, and
                                no "open this in Claude Code or Cursor" for an agent that can push
+    v210-journey.test.ts       v2.10 Task 11 DB-gated journeys through the 4 tools, in their own throwaway
+                               database: 11.0 the owner's run (private tokens.fun and EarnKit repos from the
+                               local view, a public tipjar, one lead line, the guide on the pick, the Arc
+                               deploy on a fake DeployChain, one confirm line with "40%" once, a refused
+                               description, the site's apple-touch-icon, the deadline line, "I submitted");
+                               11.1 a private repo through the read-only App (generated RSA key, fake App API,
+                               the sign-in hop, install and setup URL); 11.2 Grok Bot to a launched token
+                               (G10, G11, a second builder sees nothing); 11.3 an old confirm_entry through
+                               the MCP route (alias logged once, 4 tools listed); 11.4 the cross-reply sweep
     v29-journey.test.ts        v2.9 Task 12 (Part 1) DB-gated journeys in their own throwaway database: owned
                                repos and noise, Arc Easy and the first-reply token offer, Grok Bot with
                                GitHub sign-in on (the real verify routes, GitHub OAuth mocked) and off,
@@ -1185,7 +1197,12 @@ apps/frontend/
                                complete_at (one backfill, DO block), own_token_url, application,
                                outcome_asked_at; installations.fit_chains; answer_bank; entry_outcomes
                                (UNIQUE project_id, round_label, basis; basis announcement | self_reported);
-                               v2.9 Task 9: projects.fee_recipients (jsonb), fee_claims (ops log, never revenue))
+                               v2.9 Task 9: projects.fee_recipients (jsonb), fee_claims (ops log, never revenue);
+                               v2.10, additive: url_checks.n and note, match_shown.traction,
+                               github_repo_facts.via_app, installations.deadline_shown, projects.repo_private,
+                               github_verify_nonces.login/account_created_at/public_repos/seed,
+                               github_verifications.via ('oauth' | 'app') and github_installation_id,
+                               repo_public_reads (H6), token_offers.offered_wallet, contract_deploys)
   scripts/                     db-migrate.mts, programs-sync.mts (load .env.local); v2.7: programs-sync
                                writes the guide columns; --check (pnpm programs:check) also checks each logo file
                                (logo-check.ts) and the required items' todo; v2.8 Task 12: also validates
