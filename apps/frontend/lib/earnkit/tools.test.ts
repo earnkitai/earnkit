@@ -3490,7 +3490,9 @@ test('10.11 list_programs: "Builders using EarnKit won $X" once, right after the
     wonSource.read = async () => 12_500;
     const r = (await tools.list_programs({}, { installationId: id, roundPoolsWei: async () => new Map() })) as { show_to_builder: string };
     const paras = r.show_to_builder.split('\n\n');
-    assert.match(paras[0], /in prizes open right now\. Builders using EarnKit won \$12,500\.$/);
+    // Joined to the money headline, or the first paragraph when the reply opens with a heading
+    // (other test files' programs share this database); present.test pins each form exactly.
+    assert.match(paras[0], /(^|in prizes (open right now|you qualify for)\. )Builders using EarnKit won \$12,500\.$/);
     assert.equal(r.show_to_builder.split('Builders using EarnKit won').length, 2, 'once');
     wonSource.read = async () => 0;
     const none = (await tools.list_programs({}, { installationId: id, roundPoolsWei: async () => new Map() })) as { show_to_builder: string };

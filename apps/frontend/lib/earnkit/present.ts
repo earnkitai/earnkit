@@ -4,8 +4,7 @@ import { endsOf, prizeOf, repoCoinNote, shortWallet } from './entry-text';
 import { shortDate } from './dates';
 import { EFFORT_ORDER, type Chain, type Effort, type Product, type RepoFacts, type Verdict } from './match';
 import { difficultyLabel, levelRank, rowDifficulty, type Difficulty, type Level } from './guide';
-import { openFigure } from './pool';
-import { wonLine } from './stats';
+import { openFigure, wonLine } from './pool';
 
 /** v2.7: moved to entry-text.ts (shared with guide.ts); re-exported for existing callers. */
 export { endsOf } from './entry-text';

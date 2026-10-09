@@ -62,11 +62,8 @@ export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
   builders_won_usd: 'won by EarnKit builders (announced, USD)',
 };
 
-/**
- * v2.9 E20: "Builders using EarnKit won $X" (landing page, first reply), only once an announced
- * win with a known prize exists; absent (null), never "$0", before that. Pure.
- */
-export const wonLine = (usd: number) => (usd > 0 ? `Builders using EarnKit won $${usd.toLocaleString('en-US')}` : null);
+/** v2.9 E20: the won line lives in pool.ts (no imports, so present.ts can use it without a cycle). */
+export { wonLine } from './pool';
 
 /** Wei to ETH as a number, 6 decimals, rounded down. Pure. */
 export const weiToEth = (wei: bigint) => Number(wei / 10n ** 12n) / 1e6;
