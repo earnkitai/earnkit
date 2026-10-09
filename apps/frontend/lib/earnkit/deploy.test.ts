@@ -1,4 +1,4 @@
-import { after, test } from 'node:test';
+import { after, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Abi, Address, Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -214,8 +214,17 @@ async function setup(o: { proof?: boolean; shared?: boolean; login?: string } = 
   if (o.proof !== false) await proofRow(id, repoKey, o.login);
   return { installationId: id, repoKey, shared: o.shared ?? false };
 }
-// A day and month far from real time and from each other test's, so the global counters start at zero.
-const farDay = () => new Date(Date.UTC(2100 + (seq % 50), Number(process.pid % 12), 1 + (seq++ % 27), 12));
+// A month of its own (far from real time) per call, so the global counters start at zero: years 2100
+// to 2149 belong to this file, and each test clears them first (other files use other years).
+let months = 0;
+const farDay = () => {
+  const n = months++;
+  return new Date(Date.UTC(2100 + Math.floor(n / 12), n % 12, 15, 12));
+};
+beforeEach(async () => {
+  if (process.env.DATABASE_URL)
+    await sql()`DELETE FROM free_tier_usage WHERE name IN ('deploysDay', 'deployGasMonth') AND period >= '2100' AND period < '2150'`;
+});
 const noProofLine = { owner: async () => ({ status: 'missing' as const }), latest: async () => null };
 
 async function withDeployer<T>(fn: () => Promise<T>, extra: Record<string, string> = {}): Promise<T> {

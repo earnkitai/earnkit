@@ -3903,7 +3903,7 @@ test('10.11 prepare with deploy: off without DEPLOYER_PRIVATE_KEY (no chain read
   const repoKey = `alice${process.pid}x${Date.now()}/tipjar`;
   await sql()`
     INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose)
-    VALUES (${repoKey}, 'alice', ${id}, now(), 3, 'entry')`;
+    VALUES (${repoKey}, ${`alice${process.pid}x${Date.now()}`}, ${id}, now(), 3, 'entry')`; // the day limit is keyed by this login (I6)
   const ADDR = '0x00000000000000000000000000000000000a11ce';
   const OWNER = '0x2222222222222222222222222222222222222222';
   let reads = 0;
