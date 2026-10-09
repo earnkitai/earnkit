@@ -437,7 +437,8 @@ export type DeployReply = {
   body: { show_to_builder?: string; url?: string; review?: true; agent_note?: string; error?: string };
 };
 const refused = (status: number, line: string): DeployReply => ({ status, body: { error: line, show_to_builder: line } });
-const TEXT_FILE = /\.(html?|js|mjs)$/i;
+/** Scanned for abuse (SVG can carry a form or script too); only HTML gets the badge. */
+const TEXT_FILE = /\.(html?|js|mjs|svg)$/i;
 const HTML_FILE = /\.html?$/i;
 
 /** Writes a site's state first, then deletes its files (an end or a takedown), then its row. */
