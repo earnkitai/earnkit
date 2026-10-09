@@ -259,7 +259,9 @@ test('v2.6 §3 fix round 1 (I3): the instructions cover the entry-link ask, wall
 test('v2.6 §1: list_programs says it leads with the qualify hook with repos, or "$X is open right now" without', async () => {
   const { tools } = await listed({});
   const d = tools.find((t) => t.name === 'list_programs')!.description!;
-  assert.match(d, /leads with "EarnKit matches you to \$X in prizes you qualify for"/);
+  // v2.10 item 2: one lead line first; the v2.9 headlines behind more.
+  assert.match(d, /It is one line: what their best repo can win and one question/);
+  assert.match(d, /call again with more: true: it leads with "EarnKit matches you to \$X in prizes you qualify for"/);
   assert.match(d, /or "\$X in prizes open right now" with ideas you can build when there is no repo/);
   assert.match(d, /Every program shows its difficulty; one builder bonus line comes before the closing offer\./);
   assert.doesNotMatch(d, /token_offer/);

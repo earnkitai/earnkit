@@ -19,7 +19,9 @@ import {
   table,
   youCould,
   LOW_ODDS_HEADING,
+  MORE_QUESTION,
   layout,
+  leadLine,
   lowOddsCell,
   type Card,
   type CampaignRow,
@@ -91,9 +93,11 @@ const fit = (repo: string, program_id: string, repo_url: string | null = null) =
   checked: 1,
   fits: [{ repo, repo_url, verdicts: [v(program_id, 'likely', '')], product: GOOD }],
 });
+/** v2.10 item 2: the v2.9 tables are behind "show more", so these fixtures pass `more: true`; `short` doesn't. */
 const msg = (m: Partial<FirstMessage>): FirstMessage => ({
-  alerts: [], campaigns: [], cards: [], repos: null, workingOn: [], agentCanBuild: true, sponsorEntries: null, now: NOW, ...m,
+  alerts: [], campaigns: [], cards: [], repos: null, workingOn: [], agentCanBuild: true, sponsorEntries: null, now: NOW, more: true, ...m,
 });
+const short = (m: Partial<FirstMessage>): FirstMessage => msg({ ...m, more: false });
 const noEmoji = (s: string) => assert.doesNotMatch(s, /\p{Extended_Pictographic}/u);
 /** Sets a card's open-round bonus pool, in ETH. */
 const pool = (c: Card, eth: number) => ({ ...c, bonus_pool_wei: BigInt(Math.round(eth * 100)) * 10n ** 16n, bonus_tokens: 1 });
@@ -1088,4 +1092,112 @@ test('v2.10 item 15 (R12, Pre-flight P19): the deadline line comes right after n
   assert.equal(parts[2], line);
   assert.equal(t.split(line).length, 2);
   assert.doesNotMatch(presentFirstMessage(msg({ cards: [arc], deadline: null })), /closes in/);
+});
+
+// ---- v2.10 item 2: one lead line per first reply; the tables behind "show more" ----
+
+const arcOnArc: Card = { ...arc, chains: ['arc'] };
+
+test('8.1 v2.10 item 2: a good-odds Arc row is the whole reply, one line and one question; "by" is the program\'s own close day (P1)', () => {
+  const t = presentFirstMessage(short({ cards: [arcOnArc, base], repos: fit('TipJar', arc.id) }));
+  // ends_at is Oct 15 03:59 UTC; the program closes Oct 14, 11:59 PM ET (Pre-flight P1).
+  assert.equal(t, 'Your TipJar can win 500 USDC on Arc by Oct 14. Want me to finish it?');
+  assert.equal(t.split('?').length, 2, 'one question mark');
+  assert.ok(!t.includes('|') && !t.includes('\n'), 'no table, one line');
+  // Any chain: no "on"; rolling: no "by"; the per-winner amount only (P7).
+  const any = presentFirstMessage(short({ cards: [{ ...arcOnArc, any_chain: true }], repos: fit('TipJar', arc.id) }));
+  assert.equal(any, 'Your TipJar can win 500 USDC by Oct 14. Want me to finish it?');
+  const baseOnBase: Card = { ...base, chains: ['base'], tag: null, each_time: [], builder_fields: 0 };
+  assert.equal(
+    presentFirstMessage(short({ cards: [baseOnBase], repos: fit('payapp', base.id) })),
+    'Your payapp can win up to $5,000 on Base. Want me to finish it?',
+  );
+  // Without a close in the summary, ends_at's day.
+  assert.equal(
+    leadLine({ ...layout(msg({ cards: [{ ...arcOnArc, summary: '500 USDC' }], repos: fit('TipJar', arc.id) })).rows[0] }, { cards: [arcOnArc], repos: null, now: NOW }),
+    'Your TipJar can win 500 USDC on Arc by Oct 15. Want me to finish it?',
+  );
+  noEmoji(t);
+});
+
+test('8.2 v2.10 item 2 (R12): a returning builder: news, entries, the deadline line, the private lines, then the lead, one line each', () => {
+  const line = "Base Builder Grant Program closes in 2 days; your entry isn't submitted.";
+  const t = presentFirstMessage(short({
+    alerts: ['you won $100'],
+    cards: [arcOnArc, base],
+    entries: [{ program_id: base.id, title: base.title, name: 'payapp', submitted: false }],
+    deadline: line,
+    repos: { ...fit('TipJar', arc.id), checked: 2, fromLocal: ['TipJar'] },
+  }));
+  assert.deepEqual(t.split('\n'), [
+    'Since you last checked: you won $100.',
+    'Your entries: Base Builder Grant Program (payapp, not submitted yet).',
+    line,
+    'TipJar is private, so I matched it from your local copy.',
+    'Your TipJar can win 500 USDC on Arc by Oct 14. Want me to finish it?',
+  ]);
+  // A submitted entry's program never leads again.
+  const done = presentFirstMessage(short({
+    cards: [arcOnArc],
+    entries: [{ program_id: arc.id, title: arc.title, name: 'TipJar', submitted: true }],
+    repos: fit('TipJar', arc.id),
+  }));
+  assert.ok(done.endsWith(`No repo fits yet. ${moneyText(openMoneyUsd([arcOnArc], NOW))} is open; want the 3 easiest?`), done);
+});
+
+test('8.3 v2.10 item 2: no good-odds row, no repo, an investment row and a low-odds row: never a lead', () => {
+  const cards = [arcOnArc, base, monad];
+  const fig = moneyText(openMoneyUsd(cards, NOW))!;
+  // Repos, none fits.
+  assert.equal(
+    presentFirstMessage(short({ cards, repos: { checked: 2, fits: [] } })),
+    `No repo fits yet. ${fig} is open; want the 3 easiest?`,
+  );
+  // No repo reported.
+  assert.equal(presentFirstMessage(short({ cards })), `${fig} is open. ${MORE_QUESTION}`);
+  assert.equal(MORE_QUESTION, 'Want the 3 easiest?');
+  // A low-odds row only.
+  const low = { checked: 1, fits: [{ repo: 'tipjar', repo_url: null, verdicts: [v(arc.id, 'likely', '')], product: STARTER }] };
+  assert.equal(presentFirstMessage(short({ cards, repos: low })), `No repo fits yet. ${fig} is open; want the 3 easiest?`);
+  // An investment row only, even with good odds.
+  const speedrun: Card = { ...arcOnArc, id: 'a16z', title: 'a16z speedrun', summary: 'up to $1M · rolling', investment: true, max_award_usd: 1_000_000 };
+  const inv = presentFirstMessage(short({ cards: [speedrun, base], repos: fit('payapp', 'a16z') }));
+  assert.ok(inv.startsWith('No repo fits yet.'), inv);
+  // A low-odds row above never displaces the good-odds one.
+  const mixed = {
+    checked: 2,
+    fits: [
+      { repo: 'starter', repo_url: null, verdicts: [v(medium500.id, 'likely', '')], product: STARTER },
+      { repo: 'TipJar', repo_url: null, verdicts: [v(arc.id, 'likely', '')], product: GOOD },
+    ],
+  };
+  assert.match(presentFirstMessage(short({ cards: [arcOnArc, medium500], repos: mixed })), /^Your TipJar can win/);
+  // A matching error: its line, then the no-repo lead.
+  assert.equal(
+    presentFirstMessage(short({ cards, repos: { error: 'GitHub is busy' } })),
+    `Couldn't read your repos: GitHub is busy\n${fig} is open. ${MORE_QUESTION}`,
+  );
+  // Pre-flight P20: nothing open keeps today's line.
+  assert.match(presentFirstMessage(short({ cards: [] })), /^Nothing is open right now\./);
+});
+
+test('8.4 v2.10 item 2: "show more" renders the v2.9 tables, low-odds rows labelled, the close and the bonus line once', () => {
+  const m = {
+    cards: [pool(arcOnArc, 0.18), medium500],
+    repos: {
+      checked: 2,
+      fits: [
+        { repo: 'starter', repo_url: null, verdicts: [v(medium500.id, 'likely', '')], product: STARTER },
+        { repo: 'TipJar', repo_url: null, verdicts: [v(arc.id, 'likely', '')], product: GOOD },
+      ],
+    },
+  };
+  const more = presentFirstMessage(msg(m));
+  assert.ok(more.includes('| Program | Prize | Difficulty | Ends | Your repo |'), more);
+  assert.ok(more.includes(`| starter, ${lowOddsCell('no users yet')} |`), more);
+  assert.equal(more.split('Builder bonus:').length, 2, 'the bonus line once');
+  assert.match(more, /Want me to start on Arc Microgrants with TipJar\?$/);
+  // The short reply has none of it; more is the default off.
+  const brief = presentFirstMessage({ ...msg(m), more: undefined });
+  assert.ok(!brief.includes('|') && !brief.includes('Builder bonus'), brief);
 });

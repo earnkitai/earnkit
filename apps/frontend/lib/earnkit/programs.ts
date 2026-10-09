@@ -572,20 +572,18 @@ export async function guideBonus(program: ProgramRow, now = new Date()): Promise
   }
 }
 
-/** v2.7 Ruling 8 (plan): how the agent shows the guide and tailors the best bet. */
-export const GUIDE_NOTE =
-  "Show guide.text as written when the builder asks about this program. If the builder's repo fits (see eligibility), you may add one line in your own words on how their repo fits this best bet; never present it as EarnKit's.";
-
-/** get_program's guide block for a curated program (never a campaign). Pure. */
+/**
+ * get_program's guide block for a curated program (never a campaign). v2.10 item 3: no note; the
+ * server shows the guide itself, on the first prepare for the program. Pure.
+ */
 function guideBlock(
   program: ProgramRow,
   bonus: GuideBonus | null,
-): { guide: { text: string; difficulty: Difficulty; best_bet: string | null; sources: string[] }; guide_note: string } | null {
+): { guide: { text: string; difficulty: Difficulty; best_bet: string | null; sources: string[] } } | null {
   if (program.source !== 'file' || program.campaign) return null;
   const g = programGuide(program, bonus);
   return {
     guide: { text: guideText(g), difficulty: g.difficulty, best_bet: g.best_bet, sources: guideSources(program) },
-    guide_note: GUIDE_NOTE,
   };
 }
 

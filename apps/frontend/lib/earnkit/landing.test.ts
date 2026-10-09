@@ -327,6 +327,7 @@ test('v2.9 F21: the landing figure is moneyText(openMoneyUsd) of the same cards,
   assert.equal(l.open_text, moneyText(openMoneyUsd(cards, now)));
   assert.equal(l.open_text, '$30.5K');
   const first = presentFirstMessage({
+    more: true, // v2.10 item 2: the v2.9 headline is behind "show more"
     alerts: [], campaigns: [], cards, repos: null, workingOn: [], agentCanBuild: true, sponsorEntries: null, now,
   });
   assert.ok(first.startsWith(`${l.open_text} in prizes open right now.`), first);

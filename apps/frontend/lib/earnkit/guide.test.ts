@@ -394,3 +394,31 @@ test('7.6 v2.10 item 1: guideText ends with the one bonus line, never the board 
   assert.ok(first.endsWith('\n\nBuilder bonus: no tokens yet, so yours would be first'), first);
   assert.ok(!guideText(programGuide(arc, null, NOW)).includes('Builder bonus'));
 });
+
+// ---- v2.10 item 3: "What it wants" from the rules ----
+
+test('8.7 v2.10 item 3: without past rounds or focus, guideText shows "What it wants" with the first 2 rules; wants stays null (Pre-flight P2)', () => {
+  const rules = ['Open application for early-stage builders.', 'For new and established projects.', 'A third rule.'];
+  const g = programGuide({ ...base, rules, title: 'Avalanche', summary: 'up to $10,000 · rolling', ends_at: null, status: 'active' }, null, NOW);
+  // The public /programs page reads `wants`: unchanged (never "What null wants now").
+  assert.equal(g.wants, null);
+  assert.deepEqual(g.rules_wants, rules.slice(0, 2));
+  const text = guideText(g);
+  assert.ok(text.includes('\n\nWhat it wants\n- Open application for early-stage builders.\n- For new and established projects.'), text);
+  assert.ok(!text.includes('A third rule'));
+  assert.doesNotMatch(text, /What won/);
+  // A focus or a past round is sourced: no rules fallback.
+  assert.equal(programGuide({ ...arc, rules }, null, NOW).rules_wants, null);
+  assert.equal(programGuide({ ...arc, focus: null, rules }, null, NOW).rules_wants, null);
+  assert.doesNotMatch(guideText(programGuide({ ...arc, rules }, null, NOW)), /What it wants/);
+  // No rules: no section.
+  assert.equal(programGuide({ ...base, title: 'A', summary: 'x · rolling', ends_at: null, status: 'active' }, null, NOW).rules_wants, null);
+});
+
+test('8.7 v2.10 item 3: the committed Avalanche file (no focus, no past rounds) shows its first 2 rules', async () => {
+  const p = ProgramFile.parse(JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/avalanche-team1-mini-grants.json'), 'utf8')));
+  const g = programGuide({ focus: null, best_bet: null, ...p, ends_at: p.ends_at ? new Date(p.ends_at) : null } as never, null, NOW);
+  assert.equal(g.wants, null);
+  const text = guideText(g);
+  assert.ok(text.includes(`What it wants\n- ${p.rules[0]}\n- ${p.rules[1]}`), text);
+});

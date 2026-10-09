@@ -193,6 +193,8 @@ const msg = (m: Partial<FirstMessage>): FirstMessage => ({
   agentCanBuild: true,
   sponsorEntries: null,
   now: new Date('2026-10-04T12:00:00Z'),
+  // v2.10 item 2: the v2.9 tables are behind "show more"; the short replies are swept below too.
+  more: true,
   ...m,
 });
 
@@ -261,6 +263,12 @@ const withAlerts = presentFirstMessage(msg({ alerts: alertLinesMoved, cards: [ar
 const noneOfYourReposFit = presentFirstMessage(
   msg({ cards: [base], repos: { checked: 1, fits: [{ repo: 'tipjar', repo_url: null, verdicts: [v('base-builder-grants', 'no', 'not on Base')] }] } }),
 );
+/** v2.10 item 2: the short first replies (one lead line): a fit, no fit, no repo. */
+const shortReplies: [string, string][] = [
+  ['presentFirstMessage short: a fit', presentFirstMessage(msg({ more: false, cards: [{ ...base, chains: ['base'] }], repos: { checked: 1, fits: [{ repo: 'tipjar', repo_url: null, verdicts: [v('base-builder-grants', 'likely', '')], product: GOOD_ODDS }] } }))],
+  ['presentFirstMessage short: no fit', presentFirstMessage(msg({ more: false, cards: [base], repos: { checked: 1, fits: [] } }))],
+  ['presentFirstMessage short: no repo', presentFirstMessage(msg({ more: false, cards: [arc] }))],
+];
 
 // ---- tokenRow, enteredText, noCoinYet: every branch.
 const tokenRows = [tokenRow('TIPJAR', true), tokenRow('TIPJAR', false, null, 'Tip Jar'), tokenRow('TIPJAR', true, 'Arc Microgrants')];
@@ -858,6 +866,7 @@ test('v2.8 Task 12: the outcome and new program alert lines render as expected',
 
 /** v2.9 A3: "Your entries" with a program the builder applied to outside EarnKit. */
 const appliedOutsideText = presentFirstMessage({
+  more: true, // v2.10 item 2: the v2.9 tables are behind "show more"
   alerts: [], campaigns: [], repos: null, workingOn: [], agentCanBuild: true, sponsorEntries: null, now: new Date('2026-10-08T12:00:00Z'),
   cards: [{ id: 'base-builder-grants', title: 'Base Builder Grant Program', summary: 'up to $5,000', tag: null, each_time: [], ends_at: null }],
   hidden: { notInterested: new Set(), applied: new Set(['base-builder-grants']) },
@@ -955,6 +964,7 @@ const builderFacing: [string, string][] = [
   ['presentFirstMessage: with repos', withRepos],
   ['presentFirstMessage: with alerts', withAlerts],
   ['presentFirstMessage: none of your repos fit', noneOfYourReposFit],
+  ...shortReplies,
   ['sinceLine(alertLinesMoved)', sinceLine(alertLinesMoved)!],
   ['sinceLine(alertLinesDropped)', sinceLine(alertLinesDropped)!],
   ...alertLinesMoved.map((s, i): [string, string] => [`alertLines moved[${i}]`, s]),

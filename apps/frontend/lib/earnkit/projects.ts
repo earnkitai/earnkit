@@ -529,6 +529,16 @@ export async function enteredProgramIds(installationId: number, k: { repoUrl: st
 }
 
 /**
+ * v2.10 item 3 (Pre-flight P23): whether this installation has any entry (a row, confirmed or not)
+ * for the program; the guide is not shown again after one.
+ */
+export async function hasProgramEntry(installationId: number, programId: string): Promise<boolean> {
+  const [row] = await sql()<{ n: number }[]>`
+    SELECT 1 AS n FROM projects WHERE installation_id = ${installationId} AND program_id = ${programId} LIMIT 1`;
+  return row !== undefined;
+}
+
+/**
  * v2.8.1 §B9: this installation's entries in open programs that aren't campaigns, newest first, for
  * list_programs' "Your entries" line and its "entered" marks. Submitted: the builder confirmed it, the
  * entry page was checked, or the row came from record_submission without a confirmation step (before v2.8).

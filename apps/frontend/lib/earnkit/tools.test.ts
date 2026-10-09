@@ -11,8 +11,10 @@ import { earnkitTexts } from './campaign-text';
 import { ProgramFile, type SubmissionRequirement } from './program-file';
 import { PLAIN_FIX, PLAIN_NOTE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, type Application } from './coach';
 import { projectKey, readBank } from './answer-bank';
-import { alsoProgramFacts, upsertProgram } from './programs';
-import { enteredProgramIds } from './projects';
+import { alsoProgramFacts, getProgramRow, upsertProgram } from './programs';
+import { guideText, programGuide } from './guide';
+import { setWorkingOn } from './installations';
+import { enteredProgramIds, hasProgramEntry } from './projects';
 import { setSanctionsOracle } from './sanctions';
 import { tokenLineFor } from './token-gate';
 import { REPO_HELD } from './entry-text';
@@ -153,6 +155,8 @@ test('v2.8.1 §B6: list_programs input with any chain, dates without a timezone 
 
 // Against the local database when configured.
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
+// v2.10 item 2: the list_programs tests below read the v2.9 tables, which are behind "show more"
+// (more: true); the short first reply is tested in 8.8.
 
 /**
  * v2.8 Task 11: other dbTests leave stray active, curated, non-campaign programs behind (never
@@ -356,6 +360,8 @@ test('v2.7 §3, Ruling 15 (plan): prepare_submission leads with what is missing;
     // Arc without the live mainnet link: not ready, the screen says so first; no token, no wallet.
     const notReady = await prep({ name: 'TipJar', repo_url: `https://github.com/alice/tipjar-${stamp}` }, answers);
     assert.equal(notReady.ready, false);
+    // v2.10 item 3: the first prepare for the program shows its guide first.
+    notReady.show_to_builder = await afterGuide(arc.id, notReady.show_to_builder);
     assert.ok(notReady.show_to_builder.startsWith('Before you submit: a live link on Arc mainnet.\n\n'), notReady.show_to_builder);
     assert.ok(!('token' in notReady));
     assert.ok(!('shown_wallet' in notReady));
@@ -421,7 +427,7 @@ test('v2.5 §1: list_programs reads the builder bonus pools once, only where ent
     const [{ id }] = await sql()<{ id: number }[]>`
       INSERT INTO installations (token_hash) VALUES (${`v25-pool-${run}`}) RETURNING id`;
     const calls: string[][] = [];
-    const r = (await tools.list_programs({}, {
+    const r = (await tools.list_programs({ more: true }, {
       installationId: id,
       roundPools: async (ids) => {
         calls.push(ids);
@@ -443,14 +449,14 @@ test('v2.5 §1: list_programs reads the builder bonus pools once, only where ent
     assert.ok(text.includes(`\n- Proof ${run}: ${proof.ideas[0]}\n- Proof ${run}: ${proof.ideas[1]}\n`), text);
     assert.ok(text.includes(`\n- No proof ${run}: ${noProof.ideas[0]}\n- No proof ${run}: ${noProof.ideas[1]}\n`), text);
     // Without injection: no pools yet, so the provable program's bonus sentence is the empty-pool one.
-    const plain = (await tools.list_programs({}, { installationId: id })) as { show_to_builder: string };
+    const plain = (await tools.list_programs({ more: true }, { installationId: id })) as { show_to_builder: string };
     assert.doesNotMatch(plain.show_to_builder, /Every entry gets a token/);
     // I2: a program whose round froze (the pool read maps it to null) shows no bonus to win: the
     // 0.42 ETH this test injected for proof.id never surfaces once its round is frozen. (Other test
     // files share this DB and may run concurrently, so a blanket "no bonus sentence at all" isn't
     // reliable here; present.test.ts's bonusCell/bonusClose unit tests cover the frozen rule
     // directly. Fix round 1, Minor 2.)
-    const frozen = (await tools.list_programs({}, { installationId: id, roundPools: async () => new Map([[proof.id, null]]) })) as { show_to_builder: string };
+    const frozen = (await tools.list_programs({ more: true }, { installationId: id, roundPools: async () => new Map([[proof.id, null]]) })) as { show_to_builder: string };
     assert.doesNotMatch(frozen.show_to_builder, /0\.42 ETH/);
   } finally {
     await sql()`UPDATE programs SET status = 'closed' WHERE id IN ${sql()([proof.id, noProof.id])}`;
@@ -484,7 +490,7 @@ test('Ruling 11 (plan) fix round 1: a remembered GitHub user whose matching fail
     // githubGiven alone decides "You could" — unlike the old GitHubError stub, where
     // youCould({ error }, anything) was already false and zeroState was already false (finding 2),
     // so the test could never have failed no matter how githubGiven was wired.
-    const r = (await tools.list_programs({}, {
+    const r = (await tools.list_programs({ more: true }, {
       installationId: withUser,
       matchProjects: async () => {
         throw new Error('boom');
@@ -494,7 +500,7 @@ test('Ruling 11 (plan) fix round 1: a remembered GitHub user whose matching fail
     assert.doesNotMatch(r.show_to_builder, /You could/);
     // Control: no remembered github_user or repos, so matching is never attempted (yourRepos stays
     // null the ordinary way) and githubGiven is false: the same program gets "You could win".
-    const c = (await tools.list_programs({}, { installationId: control })) as { show_to_builder: string };
+    const c = (await tools.list_programs({ more: true }, { installationId: control })) as { show_to_builder: string };
     assert.match(c.show_to_builder, /\| Program \| You could win \| Difficulty \| Ends \|/);
   } finally {
     console.error = errLog;
@@ -923,6 +929,20 @@ test('v2.8 Ruling 23 (plan): how_to_submit and sign_to_enter only for an open ca
 
 // ---- v2.8 Task 8: the confirmation step (Part C, Rulings 1, 3, 4, 5, 7 (plan)). The kit comes only
 // from confirm_entry, after the builder's yes or skip; the token launches on yes.
+/**
+ * v2.10 item 3: the program's guide (what won, what it wants, best bet; no bonus line), as the first
+ * prepare_submission for it shows it before the rest. Exported-shaped for the tests below.
+ */
+async function guideFor(programId: string) {
+  return guideText(programGuide(await getProgramRow(programId), null));
+}
+/** v2.10 item 3: `text` starts with the program's guide; returns what follows it (the v2.9 screen). */
+async function afterGuide(programId: string, text: string) {
+  const g = await guideFor(programId);
+  assert.ok(text.startsWith(`${g}\n\n`), text);
+  return text.slice(g.length + 2);
+}
+
 async function confirmSetup(tag: string, o: { remembered?: string; check?: (s: string) => boolean; extra?: SubmissionRequirement[]; noOffer?: boolean; keepContract?: boolean } = {}) {
   const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const arc = committedProgram('arc-microgrants', { keepContract: o.keepContract });
@@ -1340,7 +1360,7 @@ test('8.12, v2.10 item 1: list_programs has one bonus line before the close, no 
   try {
     const [{ id }] = await sql()<{ id: number }[]>`
       INSERT INTO installations (token_hash) VALUES (${`t8-list-${process.pid}-${Date.now()}`}) RETURNING id`;
-    const r = (await tools.list_programs({}, { installationId: id, roundPools: async () => new Map() })) as { show_to_builder: string };
+    const r = (await tools.list_programs({ more: true }, { installationId: id, roundPools: async () => new Map() })) as { show_to_builder: string };
     // Ruling H8: at most one bonus line, the offered program's, right before the close.
     assert.ok((r.show_to_builder.match(/Builder bonus:/g)?.length ?? 0) <= 1, r.show_to_builder);
     if (r.show_to_builder.includes('Builder bonus:')) assert.match(r.show_to_builder, /\n\nBuilder bonus: [^\n]+\n\n[^\n]+$/);
@@ -1494,8 +1514,10 @@ test('9 coach: no builder answers on Arc: the three questions are the whole scre
     const r = (await tools.prepare_submission({ ...t.input, answers: { description: COACH_ANSWERS.description, builder_profile: COACH_ANSWERS.builder_profile } }, t.ctx)) as Coached;
     const reqs = ProgramFile.parse(t.p).submission_requirements;
     const q = questionsFor({ reqs, answers: { description: 'x', builder_profile: 'x' }, first: true, project: 'Tip Jar' });
-    assert.equal(r.show_to_builder, coachIntro(t.p.title, q));
-    assert.equal(r.show_to_builder.split('\n')[1], '1. Who has used Tip Jar so far?');
+    // v2.10 item 3: the first prepare for the program: its guide, then the questions.
+    const screen = await afterGuide(t.p.id, r.show_to_builder);
+    assert.equal(screen, coachIntro(t.p.title, q));
+    assert.equal(screen.split('\n')[1], '1. Who has used Tip Jar so far?');
     assert.equal(r.questions?.length, 3);
     assert.deepEqual(r.questions?.map((x) => x.kind), ['traction', 'why_you', 'use_of_funds']);
     assert.equal(r.coach?.fields.length, reqs.length);
@@ -1520,7 +1542,8 @@ test('9 coach: all answers: the draft, the fixes, then Ready and the offer; stil
     );
     assert.ok(fixes.length > 0, 'a traction answer with no number');
     assert.equal(
-      r.show_to_builder,
+      // v2.10 item 3: the first prepare for the program shows its guide first.
+      await afterGuide(t.p.id, r.show_to_builder),
       [
         draftTable(p.submission_requirements, values),
         fixesLine(fixes),
@@ -1574,7 +1597,8 @@ test('9 coach: confirm_entry "go" stores the application and banks the answers; 
     // C15/C17: one round of short bullets for what only the builder knows; C16: the saved profile is a yes/no.
     assert.equal(r2.questions?.length, 3);
     assert.equal(
-      r2.show_to_builder,
+      // v2.10 item 3: the first prepare for this program shows its guide first.
+      await afterGuide(second.id, r2.show_to_builder),
       [
         "Second Grants: a few things only you know, then I'll write it.",
         '- What will you ship in the next 3 months?',
@@ -1621,6 +1645,8 @@ test('C15/C17, v2.8.1 §C12: Base Builder Grants, first program: 3 questions and
       track: 'Trading',
     };
     const r = (await tools.prepare_submission({ program_id: base.id, project: t.project, answers: draft }, t.ctx)) as Coached;
+    // v2.10 item 3: the first prepare for the program shows its guide first; the screen follows it.
+    r.show_to_builder = await afterGuide(base.id, r.show_to_builder);
     // 3 numbered questions and the leftovers as one short bullet (C17).
     assert.equal(r.questions?.length, 4);
     // v2.8.1 §C12: the Loom demo and the Base Builder Code are in this first round, never a surprise second one.
@@ -1651,7 +1677,8 @@ test('v2.8.1 §C11: the wallet is asked once, in the coach round; confirming is 
     const q = asked.questions![0];
     assert.deepEqual(q.keys, ['builder_profile', 'payout_wallet']);
     assert.equal(
-      asked.show_to_builder,
+      // v2.10 item 3: the first prepare for the program shows its guide first.
+      await afterGuide(t.p.id, asked.show_to_builder),
       "Arc Microgrants: 1 quick question, then I'll write your application.\n" +
         "1. Your public builder profile? And the wallet for your token's fees and any bonus (0x…)? No wallet yet? Make one at keys.coinbase.com.",
     );
@@ -1842,7 +1869,7 @@ test('12 list_programs: ask_outcome once after results are due; tell_earnkit (v2
   const ctx = { installationId: mine, roundPools: async () => new Map(), repoCoins: async () => new Map() };
   type Listed = { ask_outcome?: { project_id: number; program_id: string; question: string; agent_note: string } };
   try {
-    const first = (await tools.list_programs({}, ctx)) as Listed;
+    const first = (await tools.list_programs({ more: true }, ctx)) as Listed;
     assert.deepEqual(first.ask_outcome && { ...first.ask_outcome, agent_note: undefined }, {
       project_id: tipjar,
       program_id: due.id,
@@ -1852,10 +1879,10 @@ test('12 list_programs: ask_outcome once after results are due; tell_earnkit (v2
     assert.match(first.ask_outcome!.agent_note, /tell_earnkit/);
     assert.doesNotMatch(first.ask_outcome!.agent_note, /report_outcome/);
     // Asked once: not on the next call.
-    const second = (await tools.list_programs({}, ctx)) as Listed;
+    const second = (await tools.list_programs({ more: true }, ctx)) as Listed;
     assert.ok(!('ask_outcome' in second));
     // Ruling C21: list_programs takes no answer (it stays read-only); tell_earnkit stores it.
-    await assert.rejects(tools.list_programs({ report_outcome: { project_id: tipjar, result: 'won' } }, ctx));
+    await assert.rejects(tools.list_programs({ more: true, report_outcome: { project_id: tipjar, result: 'won' } }, ctx));
     assert.ok(!('report_outcome' in tools));
     const saved = (await tools.tell_earnkit(
       { program_status: [{ program_id: due.id, status: 'won', project_id: tipjar, prize_usd: 500 }] },
@@ -1873,7 +1900,7 @@ test('12 list_programs: ask_outcome once after results are due; tell_earnkit (v2
     );
     assert.equal((await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM entry_outcomes WHERE project_id = ${theirs}`)[0].n, 0);
     // A self-report never alerts: the wins in the next reply come from announcements only.
-    const next = (await tools.list_programs({}, ctx)) as { show_to_builder: string };
+    const next = (await tools.list_programs({ more: true }, ctx)) as { show_to_builder: string };
     assert.doesNotMatch(next.show_to_builder, /you won \$500/);
   } finally {
     await sql()`DELETE FROM projects WHERE program_id IN (${due.id}, ${later.id})`;
@@ -1895,6 +1922,7 @@ test('v2.8.1 §B: list_programs takes any chain, a bare date and a non-0x wallet
     await withOnlyPrograms([p.id], async () => {
     const first = (await tools.list_programs(
       {
+        more: true,
         wallet: 'builder.eth',
         local_repos: [
           { name: 'ethapp', chains: [{ chain: 'ethereum', mainnet: true }], last_commit_at: '2026-10-01', live_url: 'ethapp.xyz' },
@@ -1907,7 +1935,7 @@ test('v2.8.1 §B: list_programs takes any chain, a bare date and a non-0x wallet
     assert.doesNotMatch(first.show_to_builder, /Your entries/);
     // A submitted entry (made by record_submission, no confirmation step): "Your entries" first, "entered".
     await sql()`INSERT INTO projects (program_id, name, installation_id) VALUES (${p.id}, 'TipJar', ${inst})`;
-    const back = (await tools.list_programs({}, ctx)) as Listed;
+    const back = (await tools.list_programs({ more: true }, ctx)) as Listed;
     assert.ok(back.show_to_builder.startsWith(`Your entries: ${p.title} (TipJar, submitted).\n\n`), back.show_to_builder);
     assert.match(back.show_to_builder, new RegExp(`\\| ${p.title} \\(entered\\) \\|`));
     assert.doesNotMatch(back.show_to_builder, new RegExp(`(start on|keep going on|new for) ${p.title}`));
@@ -1933,10 +1961,10 @@ test('12 list_programs: a new fitting program shows exactly once (the alert), ne
     chains: { base: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' } }, product: { score: 6, tier: 'product', missing: [] }, live_verified: true, said: null,
   };
   try {
-    await tools.list_programs({}, ctx); // the first check: quiet, marks every open program seen
+    await tools.list_programs({ more: true }, ctx); // the first check: quiet, marks every open program seen
     await sql()`UPDATE installations SET fit_repos = ${sql().json([repo] as never)} WHERE id = ${inst}`;
     await upsertProgram(ProgramFile.parse(p));
-    const r = (await tools.list_programs({}, ctx)) as { show_to_builder: string };
+    const r = (await tools.list_programs({ more: true }, ctx)) as { show_to_builder: string };
     const count = r.show_to_builder.split(`new: ${p.title}`).length - 1;
     assert.equal(count, 1, r.show_to_builder);
     assert.match(r.show_to_builder, new RegExp(`^Since you last checked: .*new: ${p.title} \\(up to \\$5,000\\)`));
@@ -2503,7 +2531,7 @@ test('3.10 list_programs reads the builder memory once: not interested leaves th
   };
   type Listed = { show_to_builder: string; matches: { program_id: string }[] };
   try {
-    const before = (await tools.list_programs({ local_repos: [{ name: 'tipjar', chains: ['arc'] }] }, ctx)) as Listed;
+    const before = (await tools.list_programs({ more: true, local_repos: [{ name: 'tipjar', chains: ['arc'] }] }, ctx)) as Listed;
     assert.match(before.show_to_builder, new RegExp(`Arc T3 ${stamp}`));
     assert.ok(before.matches.some((m) => m.program_id === id1));
     assert.equal(given?.said, undefined);
@@ -2512,7 +2540,7 @@ test('3.10 list_programs reads the builder memory once: not interested leaves th
       ctx,
     )) as { saved: string[]; agent_note: string };
     assert.equal(told.saved.length, 2);
-    const after = (await tools.list_programs({ local_repos: [{ name: 'tipjar', chains: ['arc'] }] }, ctx)) as Listed;
+    const after = (await tools.list_programs({ more: true, local_repos: [{ name: 'tipjar', chains: ['arc'] }] }, ctx)) as Listed;
     assert.doesNotMatch(after.show_to_builder, new RegExp(`Arc T3 ${stamp}`));
     assert.ok(!after.matches.some((m) => m.program_id === id1));
     assert.deepEqual(given?.said, { 'name:tipjar': { mainnet: [], testnet: ['arc'], live_url: null, has_users: null, not_mine: false } });
@@ -2566,7 +2594,7 @@ test('Ruling G6: on a shared client, one builder\'s statements never reach anoth
         + (SELECT count(*) FROM builder_repo_facts WHERE installation_id = ${id})::int AS n`;
     assert.equal(rows[0].n, 0, 'nothing stored for the installation');
     // Builder B, on the same agent: none of A's statements apply.
-    const b = (await tools.list_programs({ local_repos: [{ name: 'tipjar', chains: ['arc'] }] }, ctx)) as Listed;
+    const b = (await tools.list_programs({ more: true, local_repos: [{ name: 'tipjar', chains: ['arc'] }] }, ctx)) as Listed;
     assert.match(b.show_to_builder, new RegExp(`Arc G6 ${stamp}`));
     assert.doesNotMatch(b.show_to_builder, /applied outside EarnKit/);
     assert.ok(b.matches.some((m) => m.program_id === arcId));
@@ -2624,14 +2652,14 @@ type G7Listed = { show_to_builder: string; note: string; ask_outcome?: unknown; 
 test("Ruling G7 (1): on a shared client, builder A's reported repos are never matched for builder B", dbTest, async () => {
   const s = await sharedInstall('repos');
   try {
-    await tools.list_programs({ local_repos: [{ name: 'secret-a-app', chains: ['arc'] }] }, s.ctx());
+    await tools.list_programs({ more: true, local_repos: [{ name: 'secret-a-app', chains: ['arc'] }] }, s.ctx());
     assert.equal(s.calls.length, 1);
-    const b = (await tools.list_programs({}, s.ctx())) as G7Listed;
+    const b = (await tools.list_programs({ more: true }, s.ctx())) as G7Listed;
     assert.equal(s.calls.length, 1, "B's call matched nothing (A's repos aren't B's)");
     assert.doesNotMatch(JSON.stringify(b), /secret-a-app/);
     assert.doesNotMatch(b.show_to_builder, /remember|shared|many builders/i);
     // Control: the same installation, not shared, does remember them.
-    await tools.list_programs({}, s.ctx(false));
+    await tools.list_programs({ more: true }, s.ctx(false));
     assert.equal(s.calls.length, 2);
   } finally {
     await s.cleanup();
@@ -2643,13 +2671,13 @@ test("Ruling G7 (2): on a shared client, builder B is never asked about builder 
   const [{ id: entry }] = await sql()<{ id: number }[]>`
     INSERT INTO projects (program_id, name, installation_id) VALUES (${s.programId}, 'SecretA', ${s.id}) RETURNING id`;
   try {
-    const b = (await tools.list_programs({}, s.ctx())) as G7Listed;
+    const b = (await tools.list_programs({ more: true }, s.ctx())) as G7Listed;
     assert.ok(!('ask_outcome' in b));
     assert.doesNotMatch(JSON.stringify(b), /SecretA/);
     const [row] = await sql()<{ outcome_asked_at: Date | null }[]>`SELECT outcome_asked_at FROM projects WHERE id = ${entry}`;
     assert.equal(row.outcome_asked_at, null, 'not marked asked');
     // Control: not shared, the question is asked.
-    const own = (await tools.list_programs({}, s.ctx(false))) as G7Listed;
+    const own = (await tools.list_programs({ more: true }, s.ctx(false))) as G7Listed;
     assert.ok(own.ask_outcome);
   } finally {
     await s.cleanup();
@@ -2664,12 +2692,12 @@ test("Ruling G7 (3): on a shared client, builder B never sees A's entries, stand
     INSERT INTO entry_outcomes (project_id, program_id, round_label, result, prize_usd, source_url, captured_at, basis)
     VALUES (${entry}, ${s.programId}, 'r1', 'won', 500, 'https://example.org/winners', now(), 'announcement')`;
   try {
-    const b = (await tools.list_programs({}, s.ctx())) as G7Listed;
+    const b = (await tools.list_programs({ more: true }, s.ctx())) as G7Listed;
     assert.doesNotMatch(b.show_to_builder, /Your entries|Since you last checked|SecretA|you won/);
     const program = (await tools.get_program({ program_id: s.programId }, s.ctx())) as { since_you_last_checked?: string };
     assert.ok(!('since_you_last_checked' in program));
     // Control: not shared, A's entry and win show.
-    const own = (await tools.list_programs({}, s.ctx(false))) as G7Listed;
+    const own = (await tools.list_programs({ more: true }, s.ctx(false))) as G7Listed;
     assert.match(own.show_to_builder, /Your entries: .*SecretA/);
     assert.match(own.show_to_builder, /you won/);
   } finally {
@@ -2702,7 +2730,7 @@ test('4.A7/A8 list_programs remembers the best owned fit repos and records the r
   const [{ id: shared }] = await sql()<{ id: number }[]>`
     INSERT INTO installations (token_hash, shared_client) VALUES (${`t4-shared-${stamp}`}, true) RETURNING id`;
   try {
-    await tools.list_programs({ local_repos: [{ name: 'tipjar', chains: ['arc'] }] }, ctxOf(id));
+    await tools.list_programs({ more: true, local_repos: [{ name: 'tipjar', chains: ['arc'] }] }, ctxOf(id));
     const [row] = await sql()<{ fit_repos: { key: string }[] }[]>`SELECT fit_repos FROM installations WHERE id = ${id}`;
     // Owned only, the highest score first.
     assert.deepEqual(row.fit_repos.map((r) => r.key), ['alice/tipjar', 'alice/side']);
@@ -2712,7 +2740,7 @@ test('4.A7/A8 list_programs remembers the best owned fit repos and records the r
     assert.equal(shown[0].program_id, pid);
     assert.equal(shown[0].product_score, 6);
     // Ruling G7: a shared client keeps no fit repos (its alerts are off) and records nothing shown.
-    await tools.list_programs({ local_repos: [{ name: 'tipjar', chains: ['arc'] }] }, ctxOf(shared, true));
+    await tools.list_programs({ more: true, local_repos: [{ name: 'tipjar', chains: ['arc'] }] }, ctxOf(shared, true));
     const [s] = await sql()<{ fit_repos: unknown[] }[]>`SELECT fit_repos FROM installations WHERE id = ${shared}`;
     assert.deepEqual(s.fit_repos, []);
     const [{ n }] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM match_shown WHERE installation_id = ${shared}`;
@@ -2924,17 +2952,17 @@ test("G6/G7/G9: on a shared client, memory and entries follow the pasted code; a
       const said = () => (s.calls.at(-1) as { said?: Record<string, unknown> }).said;
       const local = { local_repos: [{ name: 'tipjar', chains: ['arc'] }] };
       // Claiming alice's GitHub user without the code: nothing of hers.
-      const claim = (await tools.list_programs({ ...local, github_user: 'alice' }, s.ctx())) as G7Listed;
+      const claim = (await tools.list_programs({ more: true, ...local, github_user: 'alice' }, s.ctx())) as G7Listed;
       assert.equal(said(), undefined, 'her statements are not applied');
       assert.doesNotMatch(claim.show_to_builder, /Your entries|AliceApp/);
       assert.ok(!('ask_outcome' in claim));
       // B's code: B's (empty) memory, never A's.
-      const b = (await tools.list_programs({ ...local, signed_in: codeB }, s.ctx())) as G7Listed;
+      const b = (await tools.list_programs({ more: true, ...local, signed_in: codeB }, s.ctx())) as G7Listed;
       assert.equal(said(), undefined);
       assert.doesNotMatch(b.show_to_builder, /AliceApp|SecretB/);
       assert.ok(!('ask_outcome' in b));
       // A's code: her memory, her entry only, her outcome question.
-      const a = (await tools.list_programs({ ...local, signed_in: codeA }, s.ctx())) as G7Listed & { ask_outcome?: { project_id: number } };
+      const a = (await tools.list_programs({ more: true, ...local, signed_in: codeA }, s.ctx())) as G7Listed & { ask_outcome?: { project_id: number } };
       assert.deepEqual(said(), { 'name:tipjar': { mainnet: [], testnet: [], live_url: null, has_users: null, not_mine: true } });
       assert.match(a.show_to_builder, /Your entries: .*AliceApp/);
       assert.doesNotMatch(a.show_to_builder, /SecretB/);
@@ -3004,7 +3032,7 @@ async function offerSetup(tag: string) {
   };
   const ctx = { ...t.ctx, matchProjects: async () => ({ checked: 1, scored: 1, fits: [fit] }) };
   const list = async (c: typeof ctx = ctx) =>
-    (await tools.list_programs({ local_repos: [{ name: 'tipjar', chains: ['arc'] }] }, c)) as ListReply;
+    (await tools.list_programs({ more: true, local_repos: [{ name: 'tipjar', chains: ['arc'] }] }, c)) as ListReply;
   return { ...t, ctx, list };
 }
 
@@ -3365,14 +3393,14 @@ test('10.11 list_programs: "Builders using EarnKit won $X" once, right after the
   const read = wonSource.read;
   try {
     wonSource.read = async () => 12_500;
-    const r = (await tools.list_programs({}, { installationId: id, roundPools: async () => new Map() })) as { show_to_builder: string };
+    const r = (await tools.list_programs({ more: true }, { installationId: id, roundPools: async () => new Map() })) as { show_to_builder: string };
     const paras = r.show_to_builder.split('\n\n');
     // Joined to the money headline, or the first paragraph when the reply opens with a heading
     // (other test files' programs share this database); present.test pins each form exactly.
     assert.match(paras[0], /(^|in prizes (open right now|you qualify for)\. )Builders using EarnKit won \$12,500\.$/);
     assert.equal(r.show_to_builder.split('Builders using EarnKit won').length, 2, 'once');
     wonSource.read = async () => 0;
-    const none = (await tools.list_programs({}, { installationId: id, roundPools: async () => new Map() })) as { show_to_builder: string };
+    const none = (await tools.list_programs({ more: true }, { installationId: id, roundPools: async () => new Map() })) as { show_to_builder: string };
     assert.doesNotMatch(none.show_to_builder, /Builders using EarnKit|won \$0/);
   } finally {
     wonSource.read = read;
@@ -3447,3 +3475,91 @@ test('5.3 (P32) record_submission on an EarnKit campaign refuses an unplain desc
   const rows = await sql()`SELECT 1 FROM projects WHERE installation_id = ${id}`;
   assert.equal(rows.length, 0);
 });
+
+// ---- v2.10 items 2 and 3: one lead line per first reply; the guide on the first prepare ----
+
+test('8.6 v2.10 item 3 (Review Focus 5): the first prepare for a program starts with its guide, then the questions; never again, nor after an entry; a shared client shows it while the coach has not asked (R13)', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('guide1');
+    const input = { ...t.input, answers: { description: t.answers.description } };
+    const first = (await tools.prepare_submission(input, t.ctx)) as Coached;
+    const guide = await guideFor(t.p.id);
+    // The guide: header, difficulty, what won (Arc has past rounds), what it wants, the best bet; no bonus line.
+    assert.match(guide, /^Arc Microgrants · 500 USDC × 20 grants · ends Oct 14, 11:59 PM ET\nDifficulty: /);
+    assert.match(guide, /\n\nWhat won (last time|before)\n/);
+    assert.match(guide, /\n\nWhat Arc wants now\n- /);
+    assert.match(guide, /\n\nYour best bet\n- /);
+    assert.doesNotMatch(guide, /Builder bonus/);
+    assert.ok(first.show_to_builder.startsWith(`${guide}\n\nArc Microgrants: 1 quick question`), first.show_to_builder);
+    assert.equal(first.show_to_builder.split(guide).length, 2, 'once');
+    // The second call for Arc: no guide.
+    const second = (await tools.prepare_submission(input, t.ctx)) as Coached;
+    assert.ok(second.show_to_builder.startsWith('Arc Microgrants: 1 quick question'), second.show_to_builder);
+    // Pre-flight P23: an entry, then the program leaves working_on (as recording does): still no guide.
+    const yes = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as Confirmed;
+    assert.ok(yes.project_id);
+    assert.equal(await hasProgramEntry(t.inst, t.p.id), true);
+    await setWorkingOn(t.inst, t.p.id, false);
+    const after = (await tools.prepare_submission(input, t.ctx)) as Coached;
+    assert.ok(!after.show_to_builder.includes(guide), after.show_to_builder);
+    // A shared client: working_on is installation-wide, so the guide shows whenever coach_asked isn't set.
+    const shared = { ...t.ctx, sharedClient: true };
+    for (const n of [1, 2]) {
+      const s = (await tools.prepare_submission(input, shared)) as Coached;
+      assert.ok(s.show_to_builder.startsWith(`${guide}\n\n`), `shared call ${n}: ${s.show_to_builder}`);
+    }
+    const asked = (await tools.prepare_submission({ ...t.input, coach_asked: true }, shared)) as Coached;
+    assert.ok(!asked.show_to_builder.includes(guide), asked.show_to_builder);
+    // A closed program: no guide (and nothing added).
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${t.p.id}`;
+    const fresh = await confirmSetup('guide1-closed');
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${fresh.p.id}`;
+    const closed = (await tools.prepare_submission({ ...fresh.input }, fresh.ctx)) as Coached;
+    assert.ok(!closed.show_to_builder.includes('Difficulty:'), closed.show_to_builder);
+  }));
+
+test('8.7 v2.10 item 3: a program without past rounds or focus shows "What it wants" with its first 2 rules, no "What won"; get_program has no guide_note', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('guide2');
+    const ava = { ...committedProgram('avalanche-team1-mini-grants'), id: `${t.p.id}-ava`, status: 'active' };
+    await upsertProgram(ProgramFile.parse(ava));
+    const rules = ProgramFile.parse(ava).rules;
+    const r = (await tools.prepare_submission({ program_id: ava.id, project: t.project, answers: {} }, t.ctx)) as Coached;
+    assert.ok(r.show_to_builder.includes(`\n\nWhat it wants\n- ${rules[0]}\n- ${rules[1]}\n\n`), r.show_to_builder);
+    assert.doesNotMatch(r.show_to_builder, /What won|wants now/);
+    if (rules[2]) assert.ok(!r.show_to_builder.includes(rules[2]));
+    const details = (await tools.get_program({ program_id: ava.id }, t.ctx)) as { guide?: { text: string } };
+    assert.ok(details.guide?.text.includes('What it wants'));
+    assert.ok(!('guide_note' in details));
+    assert.doesNotMatch(JSON.stringify(details), /show it when the builder asks|guide_note/);
+  }));
+
+test('8.8 v2.10 item 2: list_programs without more is the short reply (no pools read); with more, the tables; matches and programs in both', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('lead');
+    const GOOD = { score: 6, tier: 'product' as const, missing: [], traction: 8, odds: 'good' as const, low_reason: null };
+    const fits = [{ repo: 'TipJar', repo_url: 'https://github.com/alice/tipjar', verdicts: [{ program_id: t.p.id, program: t.p.id, status: 'likely' as const, missing: [], effort: 'none' as const, note: null }], product: GOOD }];
+    let poolReads = 0;
+    const ctx = {
+      ...t.ctx,
+      matchProjects: async () => ({ checked: 1, scored: 1, fits }),
+      roundPools: async () => { poolReads++; return new Map(); },
+    };
+    type Listed = { show_to_builder: string; matches: { program_id: string }[]; programs: { id: string }[]; note: string };
+    const input = { local_repos: [{ name: 'TipJar', chains: ['arc'] }] };
+    const brief = (await tools.list_programs(input, ctx)) as Listed;
+    assert.equal(brief.show_to_builder, 'Your TipJar can win 500 USDC on Arc by Oct 14. Want me to finish it?');
+    assert.equal(poolReads, 0, 'no pools without more');
+    assert.match(brief.note, /more: true/);
+    const full = (await tools.list_programs({ ...input, more: true }, ctx)) as Listed;
+    assert.match(full.show_to_builder, /\| Program \| Prize \| Difficulty \| Ends \| Your repo \|/);
+    assert.match(full.show_to_builder, /\| Arc Microgrants \| 500 USDC × 20 grants \|/);
+    assert.equal(poolReads, 1);
+    for (const r of [brief, full]) {
+      assert.ok(r.matches.some((m) => m.program_id === t.p.id), 'matches stay');
+      assert.ok(r.programs.some((p) => p.id === t.p.id), 'programs stay');
+    }
+    // No repo: "$X is open. Want the 3 easiest?".
+    const none = (await tools.list_programs({}, { installationId: (await confirmSetup('lead-none')).inst })) as Listed;
+    assert.match(none.show_to_builder, /^(\$[\d.,]+[KM]?\+?|Money) is open\. Want the 3 easiest\?$/);
+  }));

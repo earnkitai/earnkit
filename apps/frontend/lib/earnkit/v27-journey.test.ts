@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import postgres from 'postgres';
 import { sql } from './db';
 import { ProgramFile } from './program-file';
-import { upsertProgram } from './programs';
+import { getProgramRow, upsertProgram } from './programs';
+import { guideText, programGuide } from './guide';
 import { tools } from './tools';
 
 /**
@@ -84,6 +85,14 @@ after(async () => {
   }
 });
 
+
+/** v2.10 item 3: the first prepare for a program starts with its guide; returns what follows it. */
+async function afterGuide(programId: string, text: string) {
+  const g = guideText(programGuide(await getProgramRow(programId), null));
+  assert.ok(text.startsWith(`${g}\n\n`), text);
+  return text.slice(g.length + 2);
+}
+
 test('v2.7 journey: what can I earn, the guide, then the token step', dbTest, async () => {
   // 1. Every real program file, as programs:sync would load it. Curated programs (no campaign) are
   //    made active with a 2099 deadline, so the journey never depends on real dates or closures
@@ -104,7 +113,8 @@ test('v2.7 journey: what can I earn, the guide, then the token step', dbTest, as
 
   // 3. "What can I earn?": the Difficulty column; the message closes on the builder bonus.
   const list = (await tools.list_programs(
-    { agent_can_build: true },
+    // v2.10 item 2: the tables are behind "show more".
+    { agent_can_build: true, more: true },
     {
       installationId: id,
       // v2.8 Ruling C4: Easy programs sort first, so Arc (Easy) is always in the first table.
@@ -153,6 +163,8 @@ test('v2.7 journey: what can I earn, the guide, then the token step', dbTest, as
     // 5. Before going live: what's missing comes first, and there is no token yet.
     const notReady = await prep({ name: 'TipJar', repo_url });
     assert.equal(notReady.ready, false);
+    // v2.10 item 3: the first prepare for Arc shows its guide first.
+    notReady.show_to_builder = await afterGuide('arc-microgrants', notReady.show_to_builder);
     assert.ok(notReady.show_to_builder.startsWith('Before you submit:'), notReady.show_to_builder);
     assert.ok(!('token' in notReady));
     assert.doesNotMatch(notReady.show_to_builder, /\| Token \|/);

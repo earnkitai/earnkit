@@ -202,6 +202,11 @@ export type Guide = {
    */
   won: { own: boolean; event: string | null; lines: string[]; source_url: string } | null;
   wants: { ecosystem: string; areas: string[]; source_url: string } | null;
+  /**
+   * v2.10 item 3 (Pre-flight P2): without past rounds or a focus, the program's first 2 rules, shown
+   * only in replies (guideText) as "What it wants". The public guide page keeps reading `wants`.
+   */
+  rules_wants: string[] | null;
   best_bet: string | null;
   bonus: GuideBonus | null;
 };
@@ -258,6 +263,7 @@ export function programGuide(
           source_url: p.focus.source_url,
         }
       : null,
+    rules_wants: !p.focus && p.past_rounds.length === 0 && p.rules.length > 0 ? p.rules.slice(0, 2) : null,
     best_bet: p.best_bet ?? null,
     bonus,
   };
@@ -309,7 +315,8 @@ export function guideSourceList(p: GuideFacts & { source_url?: string }, first: 
 }
 
 /**
- * The guide as builder text: short sections, no paragraphs, empty sections left out. v2.10 item 1:
+ * The guide as builder text: short sections, no paragraphs, empty sections left out (v2.10 item 3:
+ * only sourced parts; the first prepare for a program shows it, tools.ts prepare_submission). v2.10 item 1:
  * the bonus section is the one bonus line (bonusLine), no board link (the page and site keep it). Pure.
  */
 export function guideText(g: Guide): string {
@@ -317,6 +324,8 @@ export function guideText(g: Guide): string {
     `${g.header}\nDifficulty: ${difficultyText(g.difficulty)}`,
     g.won && [wonHeading(g.won), ...(g.won.event ? [g.won.event] : []), ...g.won.lines.map((l) => `- ${l}`)].join('\n'),
     g.wants && `What ${g.wants.ecosystem} wants now\n- ${g.wants.areas.join(' · ')}`,
+    // v2.10 item 3: only sourced parts; the rules fallback, one per line.
+    !g.wants && g.rules_wants && ['What it wants', ...g.rules_wants.map((r) => `- ${r}`)].join('\n'),
     g.best_bet && `Your best bet\n- ${g.best_bet}`,
     g.bonus && bonusLine(g.bonus.pool),
   ];
