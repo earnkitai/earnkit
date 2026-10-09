@@ -42,6 +42,7 @@ import {
   cachedRepoAddresses,
   checkEligibility,
   matchProjects,
+  type MatchDeps,
 } from './match-projects';
 import { alsoQualifies, alsoText, type AlsoRow } from './also-qualifies';
 import {
@@ -90,6 +91,7 @@ import { CANT_PUSH, NO_TOKEN_HERE, READY_TO_SUBMIT, bonusRidesOn, confirmDecisio
 import { HOST_LINES, UPLOAD_NOTE, hostSignInLine, issueUpload, refreshSiteExpiry } from './hosting';
 import { r2Enabled } from './r2';
 import { callerLogin, claimOfferVerification, createVerifyLink, entryVerifyLink, githubVerifyEnabled, offerVerification, verifiedEntryIds } from './github-verify';
+import { appTokenFor, githubAppEnabled } from './github-app';
 import { PROOF_LINE_PREFIX, SIGN_IN_FIRST, WALLET_CHANGED, tokenGate } from './token-gate';
 import { kitReplyNote, submitKit, type SubmitKit } from './submit-kit';
 import {
@@ -149,7 +151,10 @@ export type ToolContext = {
    */
   bonusEntry?: (repoKey: string) => Promise<{ program_id: string; title: string } | null | undefined>;
   /** Test and e2e injection only; never set by the MCP route. */
-  matchProjects?: (input: z.infer<typeof MatchProjectsInput>) => Promise<Exclude<YourRepos, { error: string }>>;
+  matchProjects?: (
+    input: z.infer<typeof MatchProjectsInput>,
+    deps?: Pick<MatchDeps, 'appToken'>,
+  ) => Promise<Exclude<YourRepos, { error: string }>>;
   /** v2.9 A5: test injection only: the link probe, getCode and cache for the entry checks. */
   verifyDeps?: CheckDeps;
 };
@@ -1199,7 +1204,14 @@ export const tools = {
         // their links and contracts are still checked under LIST_BUDGET (review M3: no per-install limit yet).
         if (user || repoList?.length)
           await enforce('githubMatching', ctx.installationId, GITHUB_LIMITED);
-        yourRepos = await (ctx.matchProjects ?? matchProjects)(
+        // v2.10 item 7b (R9): a named repo GitHub won't show is read through the read-only App when
+        // this builder proved it there (G7, G10: on a shared client only the caller's own proof).
+        const appOn = githubAppEnabled();
+        const appLogin = ctx.sharedClient ? login : undefined;
+        const matchDeps: Pick<MatchDeps, 'appToken'> = appOn
+          ? { appToken: (n) => appTokenFor({ installationId: ctx.installationId, login: appLogin, repoKey: n.toLowerCase() }) }
+          : {};
+        const matched = await (ctx.matchProjects ?? matchProjects)(
           MatchProjectsInput.parse({
             github_user: user,
             repos: repoList,
@@ -1207,7 +1219,21 @@ export const tools = {
             // v2.9 A3: applied before the checks, so a claimed live link is checked (Pre-flight P15).
             ...(told.repos.size > 0 && { said: Object.fromEntries(told.repos) }),
           }),
+          matchDeps,
         );
+        // v2.10 item 7b: with the App on, the first repo EarnKit can't see gets its "allow read
+        // access" link (an `app` nonce, R8); the reply shows only that one.
+        const [first, ...restUnseen] = matched.unseen ?? [];
+        const link =
+          appOn && first
+            ? await createVerifyLink({ installationId: ctx.installationId, projectId: null, repoKey: first.full_name, purpose: 'app' }).catch(
+                (err: unknown) => {
+                  console.error('[list_programs] app link', err instanceof Error ? err.name : 'error');
+                  return null;
+                },
+              )
+            : null;
+        yourRepos = first ? { ...matched, unseen: [{ ...first, link }, ...restUnseen] } : matched;
       } catch (err) {
         if (err instanceof GitHubError || err instanceof RateLimitError)
           yourRepos = { error: err.message };

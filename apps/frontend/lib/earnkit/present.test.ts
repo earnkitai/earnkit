@@ -1132,3 +1132,28 @@ test('3.9 low-odds rows never count in "$X you qualify for", never make a "fit" 
   assert.equal(tokenOfferFit(lowOnly), undefined);
   assert.equal(tokenOfferFit({ ...lowOnly, repos: { checked: 1, fits: [{ ...(lowOnly.repos as { fits: RepoFit[] }).fits[0], product: LIVE }] } })?.repo, 'tipjar');
 });
+
+test('4.5 a private repo matched from the local copy gets one line; a repo EarnKit can\'t see gets the describe line, with the App\'s link only when on', () => {
+  const repos = (link?: string | null) => ({
+    ...fit('TipJar', arc.id),
+    checked: 3,
+    fromLocal: ['TipJar'],
+    unseen: [
+      { name: 'tipjar2', full_name: 'alice/tipjar2', ...(link !== undefined && { link }) },
+      { name: 'other', full_name: 'alice/other' },
+    ],
+  });
+  const off = presentFirstMessage(msg({ cards: [arc, base], repos: repos() }));
+  const local = 'TipJar is private, so I matched it from your local copy.';
+  assert.equal(off.split(local).length - 1, 1, 'once');
+  assert.ok(off.includes("I can't see tipjar2 (private?). Describe it."));
+  assert.doesNotMatch(off, /alice\/other|can't see other/, 'one can\'t-see line, the first');
+  // Before the matched table (v2.9 layout; T8 moves them before the lead).
+  assert.ok(off.indexOf(local) < off.indexOf('| Program'), off);
+  noEmoji(off);
+  assert.doesNotMatch(off, /\u2014/, 'no em dash');
+  const on = presentFirstMessage(msg({ cards: [arc, base], repos: repos('https://earnkit.com/github/verify?n=abc') }));
+  assert.ok(on.includes("I can't see tipjar2 (private?). Describe it, or allow read access: https://earnkit.com/github/verify?n=abc"));
+  // Nothing private: no such lines.
+  assert.doesNotMatch(presentFirstMessage(msg({ cards: [arc], repos: fit('TipJar', arc.id) })), /private|can't see/);
+});

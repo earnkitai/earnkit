@@ -2,7 +2,7 @@
  * v2.9 Part 2 final review I3: preloaded (`--import`) by `pnpm test` and the local e2e scripts, so
  * no test reaches a real outside service whatever the shell exports.
  * - The keys that turn on a real vendor are cleared: tokens.fun launches, Resend mail, R2 writes and
- *   GitHub sign-in. A test that needs one on sets its own (fake) value.
+ *   GitHub sign-in and the read-only GitHub App. A test that needs one on sets its own (fake) value.
  * - `fetch` reaches only this machine (localhost, 127.0.0.1, ::1) and the anvil in BONUS_ANVIL_URL;
  *   anything else throws, so a test that needs another host injects its own fetch or fake.
  * The one opt-in network test (`LINK_CHECK=1`, footer-links.test.ts) keeps the real fetch.
@@ -16,6 +16,10 @@ const CLEARED = [
   'R2_BUCKET',
   'GITHUB_OAUTH_CLIENT_ID',
   'GITHUB_OAUTH_CLIENT_SECRET',
+  // v2.10 item 7b: the read-only GitHub App (a test that needs it on sets a generated key).
+  'GITHUB_APP_ID',
+  'GITHUB_APP_SLUG',
+  'GITHUB_APP_PRIVATE_KEY',
 ];
 for (const name of CLEARED) delete process.env[name];
 

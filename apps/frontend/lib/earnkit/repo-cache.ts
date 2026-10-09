@@ -31,6 +31,8 @@ export type CachedFacts = {
   commits_since: Record<string, boolean>;
   /** v2.9 A2: null on a row read before v2.9 (then the files are read again). */
   product?: CachedProduct | null;
+  /** v2.10 R10: read through the read-only GitHub App (a private repo): never public evidence. */
+  via_app?: boolean;
   fetched_at: Date;
 };
 
@@ -66,11 +68,13 @@ export async function saveRepoFacts(
   if (!pushedAt) return; // an empty repo has no pushed_at: nothing to key on, so no cache
   try {
     await sql()`
-      INSERT INTO github_repo_facts (full_name, pushed_at, chains, commits_since, product, fetched_at)
+      INSERT INTO github_repo_facts (full_name, pushed_at, chains, commits_since, product, fetched_at, via_app)
       VALUES (${key}, ${pushedAt}, ${sql().json(facts.chains as never)},
-        ${sql().json(facts.commits_since)}, ${facts.product ? sql().json(facts.product) : null}, ${fetchedAt})
+        ${sql().json(facts.commits_since)}, ${facts.product ? sql().json(facts.product) : null}, ${fetchedAt}, ${facts.via_app === true})
       ON CONFLICT (full_name, pushed_at) DO UPDATE SET chains = EXCLUDED.chains,
-        commits_since = EXCLUDED.commits_since, product = EXCLUDED.product, fetched_at = EXCLUDED.fetched_at`;
+        commits_since = EXCLUDED.commits_since, product = EXCLUDED.product, fetched_at = EXCLUDED.fetched_at,
+        -- v2.10 R10: once read through the App, the row stays private (fail closed).
+        via_app = github_repo_facts.via_app OR EXCLUDED.via_app`;
     // Older versions of this repo, and anything past its hour, are of no further use.
     await sql()`
       DELETE FROM github_repo_facts

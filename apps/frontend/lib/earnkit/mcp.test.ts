@@ -523,7 +523,8 @@ test('v2.8.1 §C15: an unexpected error is logged on the server with an id; the 
 test('v2.8.1 §C15: the safety line no longer forbids making a repo public; it says a token needs one', () => {
   const line = SAFETY_LINES.find((l) => l.startsWith('Entering a program never needs'))!;
   assert.doesNotMatch(line, /visibility/);
-  assert.match(line, /A token needs a public repo; make a repo public only when the builder asks\./);
+  // v2.10 Pre-flight P17: a private repo can launch through the read-only App (item 7b).
+  assert.match(line, /A token needs a repo you prove is yours; make a repo public only when the builder asks\./);
   assert.ok(SERVER_INSTRUCTIONS.includes(line));
 });
 

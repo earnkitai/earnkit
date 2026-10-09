@@ -767,6 +767,8 @@ async function runTokenFlow(
       // The repo the gate just checked (and the live link, a traction signal): the claim is bound to them.
       repoUrl: project.repo_url,
       liveUrl: project.live_url,
+      // v2.10 R10 (Pre-flight P4): the gate read the repo through the App, so it isn't public.
+      ...(gate.private && { repoPrivate: true }),
       background: () => progress.replied === true,
     });
     // Another entry of the repo claimed a token at the same moment: at submission, skipped.

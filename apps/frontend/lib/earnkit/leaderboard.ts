@@ -133,7 +133,8 @@ export async function getCampaignBoard(slug: string) {
   >`SELECT state, award_onchain, sponsor_url, sponsor_wallet FROM sponsor_campaigns WHERE program_id = ${slug}`;
   if (sponsorRow?.state === 'taken_down') return null;
   const rows = await sql()<(BoardRow & Candidate & { rank: number })[]>`
-    SELECT id, name, repo_url, live_url, score, token_url, prize_tx, payout_wallet, prize_amount,
+    -- v2.10 R10 (Pre-flight P33): a private repo's URL never reaches a public page.
+    SELECT id, name, CASE WHEN repo_private THEN NULL ELSE repo_url END AS repo_url, live_url, score, token_url, prize_tx, payout_wallet, prize_amount,
       prize_reason, submitted_at, installation_id, vetoed_at, payout_status, row_number() OVER (ORDER BY score DESC NULLS LAST, submitted_at)::int AS rank
     FROM projects WHERE program_id = ${slug} AND payout_wallet IS NOT NULL
     ORDER BY score DESC NULLS LAST, submitted_at`;
@@ -214,7 +215,8 @@ export async function getProjectPage(id: number) {
     }[]
   >`
     SELECT * FROM (
-      SELECT p.id, p.name, p.description, p.repo_url, p.live_url, p.token_url, p.contracts, p.score,
+      -- v2.10 R10: a private repo's URL never reaches the public entry page (the project name only).
+      SELECT p.id, p.name, p.description, CASE WHEN p.repo_private THEN NULL ELSE p.repo_url END AS repo_url, p.live_url, p.token_url, p.contracts, p.score,
         p.scored_at, p.prize_tx, p.prize_amount, p.prize_reason, p.submitted_at, p.program_id,
         pr.title AS program_title, pr.campaign, sc.state AS sponsor_state,
         row_number() OVER (PARTITION BY p.program_id ORDER BY p.score DESC NULLS LAST, p.submitted_at)::int AS rank,

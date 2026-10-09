@@ -73,13 +73,14 @@ export class GitHubError extends Error {
 /**
  * GET from the GitHub API with EarnKit's token; `accept` for media types like star+json;
  * `onResponse` sees every response first (traction.ts reads x-ratelimit-remaining from it).
+ * v2.10 item 7b: an explicit `token` (a read-only App installation token) wins over GITHUB_TOKEN.
  */
 export async function gh<T>(
   path: string,
   accept = 'application/vnd.github+json',
   onResponse?: (res: Response) => void,
+  token: string | undefined = process.env.GITHUB_TOKEN,
 ): Promise<T> {
-  const token = process.env.GITHUB_TOKEN;
   const res = await fetch(`${API}${path}`, {
     headers: {
       Accept: accept,
@@ -190,9 +191,14 @@ function notProduct(r: Repo) {
 const keyOf = (r: Repo) => repoKey({ url: r.html_url, name: r.name });
 
 /** The builder's share of a repo's last 100 commits, for ownerOk. Null when GitHub couldn't say. */
-async function contribution(fullName: string, user: string) {
+async function contribution(fullName: string, user: string, token?: string) {
   try {
-    const recent = await gh<{ author?: { login?: string } | null }[]>(`/repos/${fullName}/commits?per_page=100`);
+    const recent = await gh<{ author?: { login?: string } | null }[]>(
+      `/repos/${fullName}/commits?per_page=100`,
+      undefined,
+      undefined,
+      token ?? process.env.GITHUB_TOKEN,
+    );
     const me = user.toLowerCase();
     return { userCommits: recent.filter((c) => c.author?.login?.toLowerCase() === me).length, recentCommits: recent.length };
   } catch (err) {
@@ -246,12 +252,14 @@ async function contributedRepos(
   return { repos: repos.filter((r) => r !== null), found: hits.size, dropped, reads };
 }
 
-export const repoByName = (fullName: string) => gh<Repo>(`/repos/${fullName}`);
+/** v2.10 item 7b: `token`, an App installation token, reads a private repo the builder allowed. */
+export const repoByName = (fullName: string, token?: string) =>
+  gh<Repo>(`/repos/${fullName}`, undefined, undefined, token ?? process.env.GITHUB_TOKEN);
 
-/** Whether a public repo has at least one commit (GitHub answers 409 for an empty repo). */
-export async function repoHasCommits(fullName: string) {
+/** Whether a repo has at least one commit (GitHub answers 409 for an empty repo). */
+export async function repoHasCommits(fullName: string, token?: string) {
   try {
-    return (await gh<unknown[]>(`/repos/${fullName}/commits?per_page=1`)).length > 0;
+    return (await gh<unknown[]>(`/repos/${fullName}/commits?per_page=1`, undefined, undefined, token ?? process.env.GITHUB_TOKEN)).length > 0;
   } catch (err) {
     if (err instanceof GitHubError && /\(409\)/.test(err.message)) return false;
     throw err;
@@ -275,13 +283,16 @@ export class ForkCheckError extends GitHubError {}
  * ahead of its parent's. The repo and commits reads run together, plus the compare for a fork with
  * commits. Throws GitHub's error; a private repo (which EarnKit's token may still see) throws the
  * same "not found (or private)" error as a missing one. A failed compare throws ForkCheckError.
+ * v2.10 item 7b (R9): with `token` (the builder's read-only App installation token) every read goes
+ * through it and a private repo is read, never refused.
  */
-export async function repoCodeFacts(fullName: string): Promise<RepoCode> {
+export async function repoCodeFacts(fullName: string, opts: { token?: string } = {}): Promise<RepoCode> {
+  const token = opts.token ?? process.env.GITHUB_TOKEN;
   const [r, hasCommits] = await Promise.all([
-    gh<Repo & { parent?: { full_name: string; default_branch: string } }>(`/repos/${fullName}`),
-    repoHasCommits(fullName),
+    gh<Repo & { parent?: { full_name: string; default_branch: string } }>(`/repos/${fullName}`, undefined, undefined, token),
+    repoHasCommits(fullName, token),
   ]);
-  if (r.private || (r.visibility !== undefined && r.visibility !== 'public'))
+  if (!opts.token && (r.private || (r.visibility !== undefined && r.visibility !== 'public')))
     throw new GitHubError(`GitHub: /repos/${fullName} not found (or private)`, 404);
   const defaultBranch = r.default_branch;
   if (!r.fork || !r.parent || !hasCommits)
@@ -291,6 +302,9 @@ export async function repoCodeFacts(fullName: string): Promise<RepoCode> {
     // per_page=1: only ahead_by is needed, not the commit list or the file diffs.
     const c = await gh<{ ahead_by: number }>(
       `/repos/${r.parent.full_name}/compare/${encodeURIComponent(r.parent.default_branch)}...${encodeURIComponent(owner)}:${encodeURIComponent(r.default_branch)}?per_page=1`,
+      undefined,
+      undefined,
+      token,
     );
     return { fork: true, hasCommits, aheadOfParent: c.ahead_by, defaultBranch };
   } catch (err) {
@@ -306,8 +320,21 @@ const README_MIN_BYTES = 1536;
 const ADDRESS = /0x[0-9a-fA-F]{40}(?![0-9a-fA-F])/g;
 const ZERO_ADDRESS = `0x${'0'.repeat(40)}`;
 
-/** A raw file from the repo's default branch (raw.githubusercontent.com: no API rate limit), or null. */
-async function rawFile(repo: Repo, path: string, init: RequestInit = {}) {
+/**
+ * A file from the repo's default branch, or null: raw.githubusercontent.com (no API rate limit), or
+ * with `token` (v2.10 Pre-flight P10: a private repo through the App) the contents API's raw media
+ * type, the only authenticated path.
+ */
+async function rawFile(repo: Repo, path: string, init: RequestInit = {}, token?: string) {
+  const encoded = path.split('/').map(encodeURIComponent).join('/');
+  if (token) {
+    const res = await fetch(`${API}/repos/${repo.full_name}/contents/${encoded}?ref=${encodeURIComponent(repo.default_branch)}`, {
+      ...init,
+      headers: { ...(init.headers as Record<string, string> | undefined), Accept: 'application/vnd.github.raw', 'User-Agent': 'earnkit', Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(10_000),
+    }).catch(() => null);
+    return res?.ok ? await res.text().catch(() => null) : null;
+  }
   const res = await fetch(
     `https://raw.githubusercontent.com/${repo.full_name}/${encodeURIComponent(repo.default_branch)}/${path
       .split('/')
@@ -324,12 +351,15 @@ async function rawFile(repo: Repo, path: string, init: RequestInit = {}) {
  * Ruling 1): also the root README's size and path (free, from the tree) and up to 2 contract
  * candidates: addresses in the files read.
  */
-async function readRepoChains(repo: Repo) {
+async function readRepoChains(repo: Repo, token?: string) {
   let complete = true;
   const tree = await gh<{
     tree: { path: string; type: string; size?: number }[];
   }>(
     `/repos/${repo.full_name}/git/trees/${encodeURIComponent(repo.default_branch)}?recursive=1`,
+    undefined,
+    undefined,
+    token ?? process.env.GITHUB_TOKEN,
   ).catch(() => {
     complete = false;
     return { tree: [] };
@@ -338,7 +368,7 @@ async function readRepoChains(repo: Repo) {
   const paths = pickFiles(blobs.map((t) => ({ path: t.path, size: t.size ?? 0 })));
   const files = await Promise.all(
     paths.map(async (path) => {
-      const text = await rawFile(repo, path);
+      const text = await rawFile(repo, path, {}, token);
       if (text === null) complete = false;
       return { path, text: text ?? '' };
     }),
@@ -377,9 +407,10 @@ async function readRepoChains(repo: Repo) {
 async function readmeCounts(
   repo: Repo,
   readme: { path: string; size: number } | null,
+  token?: string,
 ): Promise<{ counts: boolean | null; heading: string | null }> {
   if (!readme) return { counts: false, heading: null };
-  const text = await rawFile(repo, readme.path, { headers: { Range: 'bytes=0-2047' } });
+  const text = await rawFile(repo, readme.path, { headers: { Range: 'bytes=0-2047' } }, token);
   const head = text?.slice(0, 2048) ?? '';
   const heading = head.match(/^#[ \t]+(.+?)[ \t#]*$/m)?.[1] ?? null;
   if (readme.size < README_MIN_BYTES) return { counts: false, heading };
@@ -435,9 +466,12 @@ export async function cachedRepoAddresses(repoUrl: string | null | undefined): P
 }
 
 /** Whether the repo has a commit at or after `since`; null when GitHub couldn't say. */
-async function commitsSince(repo: Repo, since: Date) {
+async function commitsSince(repo: Repo, since: Date, token?: string) {
   return gh<unknown[]>(
     `/repos/${repo.full_name}/commits?per_page=1&since=${since.toISOString()}`,
+    undefined,
+    undefined,
+    token ?? process.env.GITHUB_TOKEN,
   ).then(
     (commits) => commits.length > 0,
     () => null,
@@ -681,7 +715,18 @@ export type MatchDeps = {
   now?: Date;
   /** v2.10 item 6 (Pre-flight P27): EarnKit's starter names (default EARNKIT_STARTER_NAMES). */
   starters?: readonly string[];
+  /**
+   * v2.10 item 7b (R9): an installation token for a named repo GitHub won't show (404) that the
+   * caller proved with the read-only App (github-app.ts appTokenFor), else null. Absent: no App reads.
+   */
+  appToken?: (fullName: string) => Promise<string | null>;
 };
+
+/** v2.10 item 7: a private repo matched from the agent's local report. */
+export const PRIVATE_LOCAL_LINE = (name: string) => `${name} is private, so I matched it from your local copy.`;
+/** v2.10 item 7: a named repo GitHub won't show and nobody described; `link` only with the App on (7b). */
+export const CANT_SEE_LINE = (name: string, link: string | null) =>
+  `I can't see ${name} (private?). Describe it${link ? `, or allow read access: ${link}` : '.'}`;
 
 /** What scoring one repo needs: who the builder is, whether the repo counts as theirs, one shared budget. */
 type ScoreCtx = {
@@ -696,6 +741,8 @@ type ScoreCtx = {
   said?: SaidRepo;
   /** v2.10 item 6: EarnKit's starter names (MatchDeps.starters). */
   starters?: readonly string[];
+  /** v2.10 item 7b: the App installation token this repo is read through (a private repo), else absent. */
+  token?: string;
 };
 
 const within = (iso: string | undefined | null, days: number, now: Date) =>
@@ -844,10 +891,13 @@ async function runChecks(
  * v2.10 item 8: the repo's commits in the last 90 days (one read, at most 100), by any author; by
  * `author` only for a repo someone else owns (v2.9 A1 contribution rule). Null when GitHub couldn't say.
  */
-async function commitsRead(repo: Repo, now: Date, author: string | null): Promise<number | null> {
+async function commitsRead(repo: Repo, now: Date, author: string | null, token?: string): Promise<number | null> {
   const since = new Date(now.getTime() - 90 * DAY_MS).toISOString();
   return gh<unknown[]>(
     `/repos/${repo.full_name}/commits?since=${since}&per_page=100${author ? `&author=${encodeURIComponent(author)}` : ''}`,
+    undefined,
+    undefined,
+    token ?? process.env.GITHUB_TOKEN,
   ).then(
     (c) => Math.min(c.length, 100),
     () => null,
@@ -901,10 +951,10 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): P
   // v2.10 item 6: a row cached before starters were read is read again.
   const reread = !chains || !own || own.starter === undefined;
   if (reread) {
-    const read = await readRepoChains(repo);
+    const read = await readRepoChains(repo, ctx.token);
     chains = read.chains;
     cacheable = read.complete;
-    const readme = await readmeCounts(repo, read.readme);
+    const readme = await readmeCounts(repo, read.readme, ctx.token);
     if (readme.counts === null) cacheable = false;
     // v2.10 item 6 (R7): an EarnKit chain-kit example loses `original`.
     const starter = starterRepo({ packageName: read.packageName, heading: readme.heading }, ctx.starters);
@@ -929,7 +979,7 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): P
     ) {
       const key = p.starts_at.toISOString();
       if (!(key in commitsSinceKnown)) {
-        const has = await commitsSince(repo, p.starts_at);
+        const has = await commitsSince(repo, p.starts_at, ctx.token);
         if (has === null) cacheable = false;
         else {
           commitsSinceKnown[key] = has;
@@ -945,7 +995,8 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): P
       ? ctx.cache.save(
           repo.full_name,
           repo.pushed_at,
-          { chains: readChains, commits_since: commitsSinceKnown, product: { ...files, ...scored } },
+          // v2.10 R10: a row read through the App is private (never shown on public pages).
+          { chains: readChains, commits_since: commitsSinceKnown, product: { ...files, ...scored }, via_app: ctx.token !== undefined },
           reread || !cached ? undefined : cached.fetched_at,
         )
       : Promise.resolve();
@@ -977,7 +1028,7 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): P
   // also runs without a known builder. Ruling H1 (c3): on a repo someone else owns, only the
   // builder's own commits count (v2.9 A1), with no pushed_at fallback.
   const author = ctx.builder && ownerOf(repo).toLowerCase() !== ctx.builder.toLowerCase() ? ctx.builder : null;
-  const commits_90d = await commitsRead(repo, ctx.now, author);
+  const commits_90d = await commitsRead(repo, ctx.now, author, ctx.token);
   const active = (commits_90d ?? 0) > 0 || (!author && within(repo.pushed_at, 90, ctx.now));
   const signals = { active, young: files.young || active, original: files.original, readme: files.readme, owned: ctx.owned };
   return {
@@ -1032,8 +1083,8 @@ function checkLocal(r: ReportedRepo, programs: ProgramFacts[], ctx: Pick<ScoreCt
 
 /** A repo to score: from GitHub (with any local report of the same repo), or local only. */
 type Candidate =
-  | { key: string; github: Repo; owned: boolean; local?: ReportedRepo }
-  | { key: string; github?: undefined; owned: boolean; local: ReportedRepo };
+  | { key: string; github: Repo; owned: boolean; local?: ReportedRepo; token?: string }
+  | { key: string; github?: undefined; owned: boolean; local: ReportedRepo; token?: undefined };
 
 const recency = (c: Candidate) => Date.parse(c.github?.pushed_at ?? c.local?.last_commit_at ?? '') || 0;
 
@@ -1049,26 +1100,60 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
   const programs = deps.programs ?? (await openProgramFacts());
   const builder = input.github_user ?? null;
   let found = 0;
-  const github: { repo: Repo; owned: boolean }[] = [];
+  const github: { repo: Repo; owned: boolean; token?: string }[] = [];
   // Ruling G4: keys dropped as a fork, template or archived repo stay dropped when the
   // same repo comes back through local_repos; the 100-commit reads share one cap of 3.
   let dropped = new Set<string>();
   let contribReads = 0;
+  // v2.10 item 7: named repos GitHub won't show (404): read through the App, else matched from a
+  // local report (`fromLocal`), else `unseen`. `skipLocal`: keys whose read failed another way.
+  const notFound: string[] = [];
+  const skipLocal = new Set<string>();
+  const tokens = new Map<string, string>();
   if (input.repos?.length) {
     const names = input.repos.map(fullName);
     found += names.length;
-    const read = await Promise.all(names.filter((n) => !earnkitOwner(n.split('/')[0])).map((n) => repoByName(n)));
+    // v2.10 item 7: each repo read is caught on its own, so one private repo never fails the rest.
+    const settled = await mapLimit(
+      names.filter((n) => !earnkitOwner(n.split('/')[0])),
+      6,
+      (n) => repoByName(n).then((r) => ({ n, r }), (err: unknown) => ({ n, err })),
+    );
+    const read: Repo[] = [];
+    for (const s of settled) {
+      if ('r' in s) {
+        read.push(s.r);
+        continue;
+      }
+      if (!(s.err instanceof GitHubError && s.err.status === 404)) {
+        // Review Focus 1: a rate limit or outage is not "private": skipped, and its local view too.
+        skipLocal.add(namedKey(s.n));
+        continue;
+      }
+      const token = (await deps.appToken?.(s.n).catch(() => null)) ?? null;
+      const viaApp = token ? await repoByName(s.n, token).catch(() => null) : null;
+      if (token && viaApp) {
+        read.push(viaApp);
+        tokens.set(viaApp.full_name.toLowerCase(), token);
+      } else notFound.push(s.n);
+    }
+    // Every named repo failed, and none was a 404: GitHub itself failed (today's "Couldn't read" line).
+    const firstErr = settled.find((s): s is { n: string; err: unknown } => 'err' in s)?.err;
+    if (settled.length > 0 && settled.every((s) => 'err' in s && !(s.err instanceof GitHubError && s.err.status === 404)))
+      throw firstErr;
     dropped = new Set(read.filter(notProduct).map(keyOf));
     const kept = read.filter((r) => !droppedRepo(r, now, { named: true })).sort(byPushed).slice(0, SCORE_LIMIT);
     // Pre-flight P28: without a builder, a named repo counts like a local one (owned unless EarnKit's).
     for (const r of kept) {
       const owner = ownerOf(r);
       let owned = !builder || ownerOk(owner, builder);
+      const token = tokens.get(r.full_name.toLowerCase());
       if (builder && !owned && contribReads++ < CONTRIB_CANDIDATES) {
-        const c = await contribution(r.full_name, builder);
+        // v2.10 item 7b: a private repo read through the App is read through it here too.
+        const c = await contribution(r.full_name, builder, token);
         owned = c !== null && ownerOk(owner, builder, c);
       }
-      github.push({ repo: r, owned });
+      github.push({ repo: r, owned, token });
     }
   } else if (builder) {
     const mine = await userRepos(builder, now);
@@ -1081,14 +1166,14 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
   const candidates = new Map<string, Candidate>();
   for (const g of github) {
     const key = repoKey({ url: g.repo.html_url, name: g.repo.name });
-    if (!candidates.has(key)) candidates.set(key, { key, github: g.repo, owned: g.owned });
+    if (!candidates.has(key)) candidates.set(key, { key, github: g.repo, owned: g.owned, token: g.token });
   }
   for (const r of input.local_repos ?? []) {
     found++;
     const gh = r.url ? githubRepo(r.url) : null;
     if (gh && earnkitOwner(gh.owner)) continue;
     const key = repoKey({ url: r.url, name: r.name });
-    if (dropped.has(key)) continue;
+    if (dropped.has(key) || skipLocal.has(key)) continue;
     const known = candidates.get(key);
     if (known) {
       known.local ??= r;
@@ -1119,7 +1204,7 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
   const cache = deps.cache ?? { load: loadRepoFacts, save: saveRepoFacts };
   // The reads run in parallel; then one LIST_BUDGET of checks, newest repos first (Ruling G5).
   const prepared = await mapLimit(toScore, 6, async (c) => {
-    const ctx: ScoreCtx = { builder, owned: c.owned, checks, now, cache, local: c.local, said: saidOf(c), starters: deps.starters };
+    const ctx: ScoreCtx = { builder, owned: c.owned, checks, now, cache, local: c.local, said: saidOf(c), starters: deps.starters, token: c.token };
     return c.github ? checkRepo(c.github, programs, ctx) : checkLocal(c.local, programs, ctx);
   });
   const deployed = await runChecks(prepared, checks);
@@ -1149,8 +1234,21 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
         Number(!a.verdicts.some((v) => v.status === 'likely')) -
           Number(!b.verdicts.some((v) => v.status === 'likely')) || b.product.score - a.product.score,
     );
-  return { checked: found, scored: results.length, fits };
+  // v2.10 item 7: a 404'd named repo the agent reported locally was scored from that report (one
+  // line each); one with no report is never dropped silently (`unseen`).
+  const fromLocal: string[] = [];
+  const unseen: { name: string; full_name: string }[] = [];
+  for (const n of notFound) {
+    const c = candidates.get(namedKey(n));
+    if (c && !c.github && c.local) {
+      if (!saidOf(c)?.not_mine && toScore.includes(c)) fromLocal.push(c.local.name);
+    } else if (!c) unseen.push({ name: n.split('/')[1], full_name: n });
+  }
+  return { checked: found, scored: results.length, fits, unseen, fromLocal };
 }
+
+/** A named repo's key (answer-bank.ts repoKey), as a local report of the same repo gets it. */
+const namedKey = (n: string) => repoKey({ url: `https://github.com/${n}`, name: n.split('/')[1] });
 
 /** get_program's eligibility check: one repo against one open program (scored, owned unless EarnKit's). */
 export async function checkEligibility(ref: string, programId: string, deps: MatchDeps = {}) {

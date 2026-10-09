@@ -206,7 +206,8 @@ export async function bonusBoard(roundKey: string, now = new Date()): Promise<Bo
       SELECT COALESCE(sum(amount_wei), 0)::text AS wei FROM bonus_ledger WHERE round_key = ${r.round_key} AND destination = 'round'`;
     const testIds = testInstallationIds();
     const entries = await sql()<OpenEntry[]>`
-      SELECT p.id, p.name, p.repo_url, p.live_url, p.submitted_at,
+      -- v2.10 R10: a private repo's URL never reaches the public board (the project name only).
+      SELECT p.id, p.name, CASE WHEN p.repo_private THEN NULL ELSE p.repo_url END AS repo_url, p.live_url, p.submitted_at,
         (p.coin_address IS NOT NULL OR ${coinSql('p', r.ends_at, r.round_key)}) AS coin, (p.submission_proof_ok_at IS NOT NULL) AS proof,
         (g.submission_proof IS NOT NULL) AS pattern,
         (p.complete_at IS NOT NULL AND p.complete_at < ${r.ends_at}) AS complete,
@@ -232,7 +233,7 @@ export async function bonusBoard(roundKey: string, now = new Date()): Promise<Bo
   const names: Names = new Map(
     (ids.length
       ? await sql()<{ id: number; name: string; repo_url: string | null; live_url: string | null }[]>`
-          SELECT id, name, repo_url, live_url FROM projects WHERE id IN ${sql()(ids)}`
+          SELECT id, name, CASE WHEN repo_private THEN NULL ELSE repo_url END AS repo_url, live_url FROM projects WHERE id IN ${sql()(ids)}`
       : []
     ).map((p) => [p.id, p]),
   );

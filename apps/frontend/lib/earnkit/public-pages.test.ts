@@ -813,3 +813,67 @@ test('11.7 (F23): builder navigation never links the dormant sponsor pages; the 
   assert.doesNotMatch(readFileSync(join(import.meta.dirname, '../../public/llms.txt'), 'utf8'), /earnkit\.com\/(fund|award)\b/);
   for (const r of ['fund/[ref]', 'award/[ref]']) assert.ok(existsSync(join(import.meta.dirname, '../../app', r, 'page.tsx')), r);
 });
+
+// ---- v2.10 R10: a private repo's name and URL never reach a public page (against the database).
+
+const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
+
+test('4.13 (R10) /p/<id>, the campaign board and the bonus board show a private entry by project name only; a public one keeps Code: <repo_url>', dbTest, async (t) => {
+  const { sql } = await import('./db');
+  const { bonusBoard } = await import('./bonus-board');
+  const { getCampaignBoard } = await import('./leaderboard');
+  // The /p page (app/p/[id]/page.tsx) renders exactly what getProjectPage returns: "Code:" only with a repo_url.
+  const { getProjectPage } = await import('./leaderboard');
+  t.after(async () => {
+    await sql().end();
+  });
+  const tag = `t413-${process.pid}-${Date.now()}`;
+  const camp = `${tag}-camp`;
+  const bonus = `${tag}-bonus`;
+  const campaign = {
+    kind: 'earnkit',
+    prize: { token: '0x' + 'a'.repeat(40), symbol: 'MINI', decimals: 18, chain: 'base' },
+    winners: 5, amount_each: '1', prize_usd_total: 500, metric: 'unique_wallets', min_score: 10,
+  };
+  await sql()`
+    INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work, campaign, ends_at)
+    VALUES (${camp}, 'o', 'Camp', 'd', 'https://x', 'https://x', 'r', 's', 'active', 'unknown', ${sql().json(campaign as never)}, ${new Date(Date.now() + 86_400_000)})`;
+  await sql()`
+    INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work, builder_bonus)
+    VALUES (${bonus}, 'Org', 'Rolling', 'd', 'https://x', 'https://x', 'r', 's', 'active', 'unknown', true)`;
+  const secret = `secretrepo-${tag}`;
+  const add = async (program: string, name: string, repo: string, repoPrivate: boolean) => {
+    const [p] = await sql()<{ id: number }[]>`
+      INSERT INTO projects (program_id, name, repo_url, repo_private, payout_wallet, submitted_at)
+      VALUES (${program}, ${name}, ${`https://github.com/alice/${repo}`}, ${repoPrivate}, ${`0x${'5'.repeat(40)}`}, now() - interval '1 hour')
+      RETURNING id`;
+    return p.id;
+  };
+  try {
+    const priv = await add(camp, 'Hidden Jar', secret, true);
+    const pub = await add(camp, 'Open Jar', `open-${tag}`, false);
+    await add(bonus, 'Hidden Jar', secret, true);
+    await add(bonus, 'Open Jar', `open-${tag}`, false);
+    const hidden = await getProjectPage(priv);
+    assert.equal(hidden?.name, 'Hidden Jar');
+    assert.equal(hidden?.repo_url, null, 'no Code: line on /p');
+    assert.ok(!JSON.stringify(hidden).includes(secret), 'no repo name or URL on /p');
+    assert.equal((await getProjectPage(pub))?.repo_url, `https://github.com/alice/open-${tag}`);
+    const pageSource = readFileSync(join(import.meta.dirname, '../../app/p/[id]/page.tsx'), 'utf8');
+    assert.match(pageSource, /\{p\.repo_url \? \(/, 'the page shows Code: only with a repo_url');
+    // P33: the campaign board.
+    const board = await getCampaignBoard(camp);
+    assert.ok(board && !JSON.stringify(board).includes(secret), 'no repo on the campaign board');
+    // The bonus board.
+    const month = new Date().toISOString().slice(0, 7);
+    const b = await bonusBoard(`${bonus}:${month}`);
+    assert.ok(b);
+    const shown = view(b);
+    assert.ok(shown.includes('Hidden Jar') && shown.includes('Open Jar'));
+    assert.ok(!shown.includes(secret), 'no repo name or URL on /bonus');
+    assert.ok(shown.includes(`open-${tag}`), 'a public repo is still linked');
+  } finally {
+    await sql()`DELETE FROM projects WHERE program_id IN (${camp}, ${bonus})`;
+    await sql()`DELETE FROM programs WHERE id IN (${camp}, ${bonus})`;
+  }
+});

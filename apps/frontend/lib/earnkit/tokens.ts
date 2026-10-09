@@ -442,6 +442,11 @@ export async function deployToken(
     repoUrl: string | null;
     liveUrl: string | null;
     /**
+     * v2.10 R10 (Pre-flight P4): the gate read the repo through the read-only App (it isn't public):
+     * the entry is marked repo_private with the claim, and tokens.fun never gets the repo URL.
+     */
+    repoPrivate?: boolean;
+    /**
      * v2.8.1 fix round 1: true once the tool already replied "launching" (the flow runs on). A release
      * then is stamped token_released_at, so the agent's check-back reads it instead of relaunching.
      */
@@ -486,11 +491,13 @@ export async function deployToken(
         description: string | null;
         repo_url: string | null;
         live_url: string | null;
+        repo_private: boolean;
       }[]
     >`
     UPDATE projects SET token_url = 'pending', token_status = 'pending', token_note = NULL, token_claimed_at = now(), token_released_at = NULL,
       token_name = ${a.name}, token_symbol = ${a.symbol}, token_repo_key = ${repoKey},
-      token_image = ${a.image?.bytes ?? null}, token_image_type = ${a.image?.type ?? null}
+      token_image = ${a.image?.bytes ?? null}, token_image_type = ${a.image?.type ?? null},
+      repo_private = repo_private OR ${a.repoPrivate === true}
     WHERE id = ${a.projectId} AND installation_id = ${a.installationId} AND token_url IS NULL
       AND confirm_choice IS DISTINCT FROM 'skip'
       AND repo_url IS NOT DISTINCT FROM ${a.repoUrl}::text
@@ -498,7 +505,7 @@ export async function deployToken(
       AND (${repoKey}::text IS NULL OR NOT EXISTS (
         SELECT 1 FROM projects o
         WHERE o.token_repo_key = ${repoKey} AND o.token_url IS NOT NULL AND o.id <> ${a.projectId}))
-    RETURNING name, description, repo_url, live_url`;
+    RETURNING name, description, repo_url, live_url, repo_private`;
   } catch (err) {
     // Two claims on one repo at once: the unique index lets only one through.
     if (
@@ -552,7 +559,8 @@ export async function deployToken(
     : (a.imageUrl ??
       // The ticker is in the link, so the year-long cache never serves another ticker's logo.
       `${origin}/api/projects/${a.projectId}/token-image?s=${encodeURIComponent(a.symbol)}`);
-  const website = a.liveUrl ?? a.repoUrl ?? undefined;
+  // v2.10 R10: a private repo's URL never goes to tokens.fun; the live link only.
+  const website = a.liveUrl ?? (project.repo_private ? undefined : a.repoUrl) ?? undefined;
   const doFetch = deps.fetch ?? fetch;
 
   // EARNKIT_TOKENSFUN_TIMEOUT_MS bounds the deploy fetch (default 120s); a later e2e lowers it

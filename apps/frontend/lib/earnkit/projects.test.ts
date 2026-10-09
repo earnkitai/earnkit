@@ -1122,3 +1122,39 @@ test('v2.8.1 §D: at entry time, an earlier entry holding the repo on the carrie
     await sql()`DELETE FROM programs WHERE id = ${HOME}`;
   }
 });
+
+test('4.14 (R10, Pre-flight P4) startEntry marks repo_private only when the repo was read through the App; no facts row means public', dbTest, async () => {
+  const { startEntry } = await import('./projects');
+  const { getProgramRow } = await import('./programs');
+  const program = proofProgramFile(`t414-${process.pid}-${Date.now()}`);
+  await upsertProgram(program);
+  const row = (await getProgramRow(program.id))!;
+  const installationId = await freshInstallation();
+  const tag = `${process.pid}-${Date.now()}`;
+  const enter = (repo: string | undefined, name: string) =>
+    startEntry({ program: row, installationId, project: { name, description: 'A tiny app', ...(repo && { repo_url: repo }) }, answers: {}, choice: 'go', now: new Date() });
+  const privateOf = async (id: number) => (await sql()<{ repo_private: boolean }[]>`SELECT repo_private FROM projects WHERE id = ${id}`)[0].repo_private;
+  const fact = (full: string, viaApp: boolean) => sql()`
+    INSERT INTO github_repo_facts (full_name, pushed_at, chains, commits_since, via_app)
+    VALUES (${full.toLowerCase()}, now(), '{}', '{}', ${viaApp})`;
+  try {
+    // No cached facts row: public (P4 replaces "fail closed on no row", which hid nearly every public repo).
+    assert.equal(await privateOf((await enter(`https://github.com/alice/none-${tag}`, 'None')).id), false);
+    // A row read with EarnKit's own token: public.
+    await fact(`alice/public-${tag}`, false);
+    assert.equal(await privateOf((await enter(`https://github.com/alice/public-${tag}`, 'Public')).id), false);
+    // A row read through the App: private, matched case-insensitively.
+    await fact(`alice/secret-${tag}`, true);
+    const secret = await enter(`https://github.com/Alice/Secret-${tag}`, 'Secret');
+    assert.equal(await privateOf(secret.id), true);
+    // Once private, the same entry stays private (fail closed) even after the facts row is gone.
+    await sql()`DELETE FROM github_repo_facts WHERE full_name = ${`alice/secret-${tag}`}`;
+    const again = await enter(`https://github.com/Alice/Secret-${tag}`, 'Secret');
+    assert.equal(again.id, secret.id);
+    assert.equal(await privateOf(again.id), true);
+    // No repo link: nothing to hide.
+    assert.equal(await privateOf((await enter(undefined, 'No repo')).id), false);
+  } finally {
+    await sql()`DELETE FROM github_repo_facts WHERE full_name LIKE ${`alice/%-${tag}`}`;
+  }
+});

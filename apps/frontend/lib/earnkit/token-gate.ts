@@ -15,7 +15,8 @@ import { normalizeRepoUrl } from './campaigns';
 import { ForkCheckError, repoCodeFacts, type RepoCode } from './match-projects';
 import type { TokenPolicy } from './program-file';
 import { BASE_MAINNET, screenWallet } from './sanctions';
-import { githubVerifyEnabled, verifiedFor } from './github-verify';
+import { createVerifyLink, githubVerifyEnabled, verifiedFor } from './github-verify';
+import { appTokenFor, githubAppEnabled } from './github-app';
 import { sharedGroup } from './installations';
 
 export type GateInput = {
@@ -36,15 +37,34 @@ export type GateInput = {
   verifiedLogin?: string | null;
 };
 export type GateDeps = {
-  /** The repo's code facts (Ruling 3 (plan)); throws GitHub's error for a missing/private repo. */
-  repo?: (owner: string, repo: string) => Promise<RepoCode>;
-  /** Reads the repo's earnkit.txt (GitHub contents API, or the dev/test override). */
-  owner?: (r: { owner: string; repo: string }) => Promise<FetchResult>;
+  /**
+   * The repo's code facts (Ruling 3 (plan)); throws GitHub's error for a missing/private repo.
+   * v2.10 item 7b: with `token` (a read-only App installation token) a private repo is read.
+   */
+  repo?: (owner: string, repo: string, token?: string) => Promise<RepoCode>;
+  /** Reads the repo's earnkit.txt (GitHub contents API, or the dev/test override); through `token` for a private repo. */
+  owner?: (r: { owner: string; repo: string }, token?: string) => Promise<FetchResult>;
   /**
    * v2.8.1 §A3: earnkit.txt on the most recently pushed branch other than the default one, read only
    * when the default branch doesn't prove the launch; null when there is none.
    */
-  latest?: (r: { owner: string; repo: string }, defaultBranch: string | undefined) => Promise<{ branch: string; file: FetchResult } | null>;
+  latest?: (
+    r: { owner: string; repo: string },
+    defaultBranch: string | undefined,
+    token?: string,
+  ) => Promise<{ branch: string; file: FetchResult } | null>;
+  /**
+   * v2.10 item 7b (R9): an installation token for the repo (lowercase owner/repo) when GitHub won't
+   * show it publicly and this builder proved it with the read-only App, else null. Defaults to
+   * github-app.ts appTokenFor for the gate's installation and login (null while the App is off).
+   * Read access only: the launch proof below is unchanged (G10, G11).
+   */
+  appToken?: (repoKey: string) => Promise<string | null>;
+  /**
+   * v2.10 Pre-flight P17: the "allow read access" link for a repo GitHub won't show, while the App is
+   * on (an `app` nonce for this entry, R8), else null.
+   */
+  appLink?: (repoKey: string) => Promise<string | null>;
   screen?: (wallet: string) => Promise<void>;
   /**
    * v2.9 B9: the GitHub sign-in that proved this entry's repo (owner/repo), with the fee wallet it
@@ -65,7 +85,8 @@ export type GateDeps = {
  * lasting problem (no public repo, no real code, launches not configured, tokens off).
  */
 export type GateResult =
-  | { ok: true }
+  /** v2.10 R10 (Pre-flight P4): `private`: the repo was read through the App (it isn't public). */
+  | { ok: true; private?: true }
   | {
       ok: false;
       reason: string;
@@ -80,17 +101,17 @@ export type GateResult =
       sign_in?: 'needed' | 'wallet_changed';
     };
 
-const defaults: Required<GateDeps> = {
-  repo: (o, r) => repoCodeFacts(`${o}/${r}`),
+const defaults: Omit<Required<GateDeps>, 'appToken' | 'appLink'> = {
+  repo: (o, r, token) => repoCodeFacts(`${o}/${r}`, { token }),
   // Ruling 14 (plan): the dev/test override (token-e2e's mock) is read as before; otherwise the
-  // contents API, raw only when rate-limited.
-  owner: (r) =>
+  // contents API, raw only when rate-limited. v2.10 item 7b: through the App's token for a private repo.
+  owner: (r, token) =>
     process.env.EARNKIT_OWNERSHIP_BASE_URL
       ? fetchOwnershipFile(ownershipFileUrl(r, ownershipBaseUrl()))
-      : fetchOwnershipViaApi(r),
+      : fetchOwnershipViaApi(r, { token }),
   // The dev/test override serves the default branch only.
-  latest: (r, defaultBranch) =>
-    process.env.EARNKIT_OWNERSHIP_BASE_URL ? Promise.resolve(null) : fetchOwnershipLatestBranch(r, defaultBranch),
+  latest: (r, defaultBranch, token) =>
+    process.env.EARNKIT_OWNERSHIP_BASE_URL ? Promise.resolve(null) : fetchOwnershipLatestBranch(r, defaultBranch, { token }),
   screen: (wallet) => screenWallet(wallet, BASE_MAINNET, "This wallet can't receive token fees on EarnKit."),
   verified: async (projectId, repoKey, login) =>
     githubVerifyEnabled() ? verifiedFor({ projectId, repoKey, login }) : null,
@@ -246,15 +267,45 @@ export async function tokenGate(input: GateInput, deps: GateDeps = {}): Promise<
   const gh = input.repoUrl ? githubRepo(input.repoUrl) : null;
   if (!gh || !input.repoUrl)
     return { ok: false, reason: `A token needs the project's public GitHub repo. Share its link, then ${SAY}.` };
+  // v2.10 item 7b: who this launch is from, as the sign-in and App reads scope it (Ruling G10 below).
+  let who: { shared: boolean; login: string | null | undefined } | null = null;
+  const whoIs = async () => {
+    if (who) return who;
+    // Ruling G10 (fix round 2): a shared client is known here too (a caller that passed no login
+    // gets none: only a sign-in with the caller's own code counts there). A failed read fails closed.
+    const shared = input.verifiedLogin !== undefined || (await d.shared(input.installationId).catch(() => true));
+    who = { shared, login: shared ? (input.verifiedLogin ?? null) : undefined };
+    return who;
+  };
+  const repoKey = `${gh.owner}/${gh.repo}`.toLowerCase();
   let facts: RepoCode;
+  // v2.10 item 7b (R9): set when the repo is read through the builder's read-only App installation.
+  let token: string | undefined;
   try {
     facts = await d.repo(gh.owner, gh.repo);
   } catch (err) {
     if (err instanceof ForkCheckError)
       return { ok: false, reason: `EarnKit couldn't check the fork's commits on GitHub right now. ${AGAIN}`, fixable: true };
-    return /not found/.test(msg(err))
-      ? { ok: false, reason: `The repo ${gh.owner}/${gh.repo} isn't public on GitHub. Make it public, then ${SAY}.` }
-      : { ok: false, reason: `EarnKit couldn't check the repo on GitHub right now. ${AGAIN}`, fixable: true };
+    if (!/not found/.test(msg(err))) return { ok: false, reason: `EarnKit couldn't check the repo on GitHub right now. ${AGAIN}`, fixable: true };
+    const { login } = await whoIs();
+    token =
+      (await (d.appToken ?? ((k: string) => appTokenFor({ installationId: input.installationId, login, repoKey: k })))(repoKey).catch(
+        () => null,
+      )) ?? undefined;
+    try {
+      if (!token) throw err;
+      facts = await d.repo(gh.owner, gh.repo, token);
+    } catch (err2) {
+      if (err2 instanceof ForkCheckError)
+        return { ok: false, reason: `EarnKit couldn't check the fork's commits on GitHub right now. ${AGAIN}`, fixable: true };
+      if (token && !/not found/.test(msg(err2)))
+        return { ok: false, reason: `EarnKit couldn't check the repo on GitHub right now. ${AGAIN}`, fixable: true };
+      // Pre-flight P17: with the App on, the builder can allow read access instead of going public.
+      const link = await (d.appLink ?? defaultAppLink(input))(repoKey).catch(() => null);
+      return link
+        ? { ok: false, reason: `EarnKit can't see ${gh.owner}/${gh.repo} on GitHub. Allow read access: ${link} Then ${SAY}.`, fixable: true }
+        : { ok: false, reason: `The repo ${gh.owner}/${gh.repo} isn't public on GitHub. Make it public, then ${SAY}.` };
+    }
   }
   const noCode = codeProblem(facts);
   if (noCode) return { ok: false, reason: noCode };
@@ -263,13 +314,10 @@ export async function tokenGate(input: GateInput, deps: GateDeps = {}): Promise<
   // v2.9 B9: a GitHub sign-in that proved this entry's repo stands in for the proof line (the
   // repo's code above and the wallet screen below still run). A failed read is no verification.
   // Ruling G11: only for the fee wallet the owner saw when signing in.
-  // Ruling G10 (fix round 2): a shared client is known here too (a caller that passed no login
-  // gets none: only a sign-in with the caller's own code counts there). A failed read fails closed.
-  const shared = input.verifiedLogin !== undefined || (await d.shared(input.installationId).catch(() => true));
-  const login = shared ? (input.verifiedLogin ?? null) : undefined;
+  const { shared, login } = await whoIs();
   const signIn =
     input.projectId !== undefined && login !== null
-      ? await d.verified(input.projectId, `${gh.owner}/${gh.repo}`.toLowerCase(), login).catch(() => null)
+      ? await d.verified(input.projectId, repoKey, login).catch(() => null)
       : null;
   const signedIn = signIn !== null && signIn.wallet !== null && signIn.wallet === input.wallet.toLowerCase();
   const walletChanged = { ok: false as const, reason: WALLET_CHANGED, fixable: true as const, sign_in: 'wallet_changed' as const };
@@ -280,12 +328,12 @@ export async function tokenGate(input: GateInput, deps: GateDeps = {}): Promise<
       return signIn ? walletChanged : { ok: false, reason: SIGN_IN_FIRST, fixable: true, sign_in: 'needed' };
     const legacyCode = legacyTokenLineCode(input.installationId, input.repoUrl, input.symbol);
     const legacy = legacyCode ? { symbol: input.symbol.toUpperCase(), code: legacyCode } : null;
-    const onDefault = await d.owner(gh);
+    const onDefault = await d.owner(gh, token);
     // v2.8.1 §A3: the default branch first; only when it doesn't prove the launch, the most recently
     // pushed other branch (one more GitHub call).
     const latest = proves(onDefault, code, legacy)
       ? null
-      : await d.latest(gh, facts.defaultBranch).catch(() => null);
+      : await d.latest(gh, facts.defaultBranch, token).catch(() => null);
     const problem = ownerProblem(`github.com/${gh.owner}/${gh.repo}`, onDefault, code, legacy, {
       defaultBranch: facts.defaultBranch,
       latest,
@@ -297,5 +345,11 @@ export async function tokenGate(input: GateInput, deps: GateDeps = {}): Promise<
   } catch (err) {
     return { ok: false, reason: `creator wallet: ${msg(err)}`, fixable: true };
   }
-  return { ok: true };
+  return token ? { ok: true, private: true } : { ok: true };
 }
+
+/** Pre-flight P17: the App's "allow read access" link for this entry's repo, or null while the App is off. */
+const defaultAppLink = (input: GateInput) => async (repoKey: string) =>
+  githubAppEnabled()
+    ? createVerifyLink({ installationId: input.installationId, projectId: input.projectId ?? null, repoKey, purpose: 'app' })
+    : null;
