@@ -1575,9 +1575,8 @@ controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.
   → `Guide` (header "<title> · <prize> · <ends>", Ruling 9; difficulty; "What won last time" for an
   own round, else "What won before" naming the event, C3/C12; what the ecosystem wants now; best
   bet; builder bonus line), `guideText` (the agent's plain text), `guideSourceList`.
-- **Where it shows:** `get_program` returns `guide { text, difficulty, best_bet, sources }` and a
-  `guide_note` for the agent (it may add one line on how the builder's repo fits the best bet,
-  never as EarnKit's); the first message's Difficulty column (`present.ts` `difficultyCell`,
+- **Where it shows:** `get_program` returns `guide { text, difficulty, best_bet, sources }`
+  (v2.10 item 3: no `guide_note`; the first `prepare_submission` for a program shows the guide); the first message's Difficulty column (`present.ts` `difficultyCell`,
   label only, Ruling 12; campaign and sponsored tables have none); the landing cards; and
   `/programs/<id>`. All read the same `programGuide`, so the agent and the web never disagree.
 
@@ -2040,6 +2039,34 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
     (`verifiedEntryIds` + `openEntries`, Ruling G7), and none without a code (`prepare_submission`
     takes `signed_in` for this). `list_programs` passes it as `FirstMessage.deadline`, after news and
     "Your entries" (P19; T8 reuses it). The weekly email is unchanged.
+  - *One thing per reply (v2.10 item 2, R12, R14).* `presentFirstMessage` without `more` is the
+    short first reply, one line each: news, "Your entries", the deadline line, the private and
+    can't-see lines (T4), any "Couldn't read your repos", then `leadLine`. The lead row is
+    `leadRow`: the top `layout` row the builder qualifies for (good odds, never an investment or a
+    low-odds row, not new-work-only) and hasn't entered. "Your TipJar can win 500 USDC on Arc by Oct
+    14. Want me to finish it?": the prize is `prizeOf` cut at " × " (P7), "on <chain>" is the
+    program's first chain (dropped for any_chain), "by" is the program's own close day
+    (`entry-text.ts closeDayOf`, the summary's "closes Oct 14", else ends_at's UTC day; dropped when
+    rolling; P1). Without a lead: "No repo fits yet. $X is open; want the 3 easiest?" with repos,
+    "$X is open. Want the 3 easiest?" (`MORE_QUESTION`) without (or on a matching error). Nothing
+    open keeps "Nothing is open right now" (P20). No won line, no bonus line, no tables.
+    `list_programs { more: true }` ("show more") renders the v2.9 body unchanged and is the only
+    path that reads the bonus pools; `matches` and `programs` are returned either way, and the
+    short reply's `note` tells the agent to call again with `more: true` on a yes. `recordShown`
+    records only the lead row for the short reply (what was on screen).
+  - *The guide after the pick (v2.10 item 3, R13).* `prepare_submission`'s first call for a curated
+    program (`source = 'file'`, no campaign, open) prepends `guideText(programGuide(program, null))`
+    to whichever `show_to_builder` it returns (the coach questions, the not-ready table or the
+    draft), before `withAlerts` adds the deadline line. First = `setWorkingOn` (now
+    `Promise<boolean>`, true only when it added the program) said added and the installation has no
+    entry for the program (`projects.ts hasProgramEntry`, P23, so recording's `setWorkingOn(false)`
+    never re-shows it); on a shared client `working_on` is installation-wide, so first = no
+    `coach_asked`. The prepare guide has no bonus line (the confirm line names the bonus when the
+    entry can earn it). Without `focus` or `past_rounds`, `Guide.rules_wants` (the first 2 `rules`)
+    prints as "What it wants" in `guideText` only; `Guide.wants` is unchanged, so the public
+    `/programs/<id>` page is unchanged (P2). `GUIDE_NOTE` and `get_program`'s `guide_note` are gone.
+    Base's focus area reads "DeFi 2.0: lending, borrowing, yield" (the banned word "vaults" dropped,
+    since the guide is now builder text).
 - **The answer bank** (`answer-bank.ts`, table `answer_bank`, Ruling 6): `confirm_entry` (go or
   skip) banks the final answers per installation, project (`projectKey`: normalized repo, else
   `name:<name>`) and kind; `other` is never banked; a kind with two fields banks the first. Contact
