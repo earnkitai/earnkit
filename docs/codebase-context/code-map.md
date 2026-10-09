@@ -102,7 +102,16 @@ apps/frontend/
                                evidence, removed entries and reasons), the payout wallet and its
                                live balance, the public pause note
   app/p/[id]/page.tsx          campaign entry page (rank only when ranked; status via entryStatus)
-  app/policy/page.tsx          v2.5 Task 9: the public policy (matching, fee split table, builder bonus
+  app/terms/page.tsx           v2.9 F22 (Task 11): the one legal page, metadata title "Terms", canonical
+                               https://earnkit.com/terms; a section nav, then PolicySection (#policy),
+                               RiskSection (#risk-disclosure), SponsorTermsSection (#sponsor-terms), Footer.
+                               /policy, /risk-disclosure, /sponsor-terms 301 here (next.config.ts
+                               LEGAL_REDIRECTS, statusCode 301, never permanent: true = 308)
+  app/terms/sections/RiskSection.tsx  Tokenfi Inc.'s risk disclosure (was app/risk-disclosure/page.tsx),
+                               text unchanged, restyled onto the site's panel and ek tokens
+  app/terms/sections/SponsorTermsSection.tsx  sponsor terms (was app/sponsor-terms/page.tsx; the fund
+                               page's checkbox links /terms#sponsor-terms)
+  app/terms/sections/PolicySection.tsx  (was app/policy/page.tsx) v2.5 Task 9: the public policy (matching, fee split table then MINI_LINE (v2.9 F24), builder bonus
                                funding/eligibility/ranking/review/payout, coin optional, no
                                affiliation, contact); numbers from lib/earnkit/policy.ts; v2.6: the
                                bonus on every program unless opted out, page / confirmation /
@@ -120,7 +129,7 @@ apps/frontend/
                                on a failed read
   app/components/common/Panel.tsx  Panel (the rounded navy section) and Eyebrow
   app/components/ui/BonusPill.tsx  v2.8 Ruling 19: the builder bonus brand pill (BONUS_PILL_TEXT, bonusPillLabel, BONUS_PILL_COLORS; sm/md/lg, optional amount and href); cards and the guide page so far
-  app/sitemap.ts               force-dynamic: home, /policy, every non-empty bonus round (v2.6: by
+  app/sitemap.ts               force-dynamic: home, /terms (v2.9), every non-empty bonus round (v2.6: by
                                boardSlug)
   app/api/cron/route.ts        v2.4: POST -> cronPost (Bearer CRON_SECRET; scoring, freeze, review,
                                payout, fee refresh)
@@ -156,7 +165,6 @@ apps/frontend/
                                order), pollCheck (every 3 s, up to 2 min)
   app/components/WalletGate.tsx  shows a page's action only for the bound wallet, else "Connect
                                0xABCD…1234 to continue"
-  app/sponsor-terms/page.tsx   sponsor terms (linked from the fund page)
   app/api/projects/[id]/image/ serves a token image the agent uploaded (token image_data)
   app/api/projects/[id]/token-image/  the default token logo: a 512x512 next/og PNG monogram of the
                                stored ticker (validated A-Z0-9 only) on a colour from the project id;
@@ -380,7 +388,8 @@ apps/frontend/
                                authorize, code -> token (+ shared, limitKey), metadata, clientKeyOf;
                                publicOrigin = EARNKIT_URL (production throws without it; no Host
                                fallback)
-    mcp.ts(+test)              v2.9 A3: tell_earnkit registered (TELL_EARNKIT_DESCRIPTION, not read-only);
+    mcp.ts(+test)              v2.9 F25: CONFIRM_ENTRY_DESCRIPTION and SPONSOR_CAMPAIGN_DESCRIPTION under 800 characters (mcp.test 11.8).
+                               v2.9 A3: tell_earnkit registered (TELL_EARNKIT_DESCRIPTION, not read-only);
                                report_outcome removed (8 builder tools).
                                v2.8.1 §C15: run() logs an unexpected error as "[mcp] <tool> error <id>"
                                and returns unexpectedErrorText(id), never the raw error.
@@ -416,7 +425,7 @@ apps/frontend/
                                Program cell, $X leaves out investment and new-work rows (qualifies), the offer
                                is the best repo fit (bestFit: Easy first, then top prize, Ruling F5; never an investment
                                or an entered program); buildNew only when no repo fits; no repo: needs_repo false only), "EarnKit matches you to $X in
-                               top prizes you qualify for" (openMoneyUsd: per-winner prizes of
+                               top prizes you qualify for" (v2.9 F21: moneyText(openMoneyUsd) of the qualifying rows; per-winner prizes of
                                fitted programs; $0 keeps "Your repos fit these open programs:") with
                                repos, else "$X in top prizes is open right now" (youCould/githubGiven, Ruling 11;
                                that table's "Prize" column becomes "You could win") with a Difficulty
@@ -652,7 +661,7 @@ apps/frontend/
     submit-kit.ts(+test)       v2.8 Tasks 8, 10: submitKit (the submit kit, returned only by
                                confirm_entry, in four modes), submitModeFor, hostOf, proofFor
                                (Ruling 28), googlePrefill/airtablePrefill/tallyPrefill
-                               (MAX_PREFILL_URL), AGENT_FILL_STEPS, kitAgentNote; v2.8.1 §C14:
+                               (MAX_PREFILL_URL), AGENT_FILL_STEPS, kitAgentNote, v2.9 F25 kitReplyNote (confirm_entry's whole kit agent_note: the kit only here, the mode rules, the builder clicks submit, missing answers, then record_submission); v2.8.1 §C14:
                                continuesLine (an investment program's kit: "After the email step,
                                the application continues on a16z's site."). Pure
     submit-hosts.ts            v2.8 Task 10: HOST_MODES and ENTRY_LINK_HOSTS (Rulings 27, 28),
@@ -866,7 +875,7 @@ apps/frontend/
     landing.ts(+test)          v2.7 §1, v2.7.1: landingFrom (pure: curated cards by prize → Tile JSON:
                                prize = pool_line, else "up to $X per winner", else the curated text;
                                prize_note "up to $X per winner" when different; v2.8: has_bonus and bonus_amount = bonusAmount ("0.42 ETH", "<0.01 ETH", else null);
-                               open_text = pool.ts openFigure ("$1.3M+", v2.8 Ruling 24); v2.9 E20 won_line = wonLine
+                               open_text = moneyText(openMoneyUsd(kept)) (v2.9 F21, "$1.1M+"); v2.9 E20 won_line = wonLine
                                (Hero shows it under the stats line); stats_line = statsLine
                                (installs ≥100, bonus paid >0); v2.8: no bonus_pools / bonus_every /
                                bonusPoolsText (Win twice removed); cards sorted by byPool: pools first by size, then the rest by
@@ -875,16 +884,22 @@ apps/frontend/
                                the DB is unreachable); GuidePage.has_bonus / bonus_amount;
                                v2.7 §2: readGuidePage(id) → GuidePage (curated only, else null; rejects
                                on a DB failure, never null)
-    pool.ts(+test)             v2.8 Ruling 24: openFigure, the one money figure (site and first message).
+    pool.ts(+test)             v2.9 F21 (P18): openMoneyUsd (the top prize of every open curated program,
+                               summed; never an EarnKit campaign (campaign / earnkit_campaign), a sponsor's
+                               (sponsored / source 'sponsor'), closed, not started or ended) and moneyText
+                               ("$1.1M+", null at 0), the one money figure; stats.ts re-exports both
+                               (present.ts can't import stats.ts). openFigure is gone; poolTotalText is
+                               imported nowhere else (human-text.test.ts 11.3).
                                v2.7.1 (pure): usdCompact ("$1.3M", "$840K", rounded down), poolStated (the
                                pool in a program's reward: "$840,000"/"$840K"/"10,000 USDC", its "+"),
                                v2.9 E20: wonLine ("Builders using EarnKit won $X", null at 0).
-                               poolLine (a card's big line), poolTotal/poolTotalText (the hero figure,
-                               shared with stats.ts open_pools_usd/_plus; "+" when rounding drops value),
+                               poolLine (a card's big line), poolTotal/poolTotalText (moneyText's formatter;
+                               poolTotal feeds the deprecated open_pools_usd/_plus; "+" when rounding drops value),
                                statedPool (a row's pool), amountStated, isGrant, eachLine ("per grant" /
                                "per winner", "$5K–$100K per grant", "500 USDC per grant")
     stats.ts(+test)            v2.5 Task 9: readStats (one aggregate query) / statsFrom (pure):
-                               open_money_usd (max_award_usd of open programs), v2.7.1 open_pools_usd + open_pools_plus (the landing's pool total), programs_open,
+                               open_money_usd (v2.9 F21: openMoneyUsd over the active rows, open_rows) +
+                               open_money_text (moneyText), v2.7.1 open_pools_usd + open_pools_plus (deprecated, still served, Ruling G23), programs_open,
                                bonus_programs_open (v2.6 Ruling 16 (plan): open programs with
                                builder_bonus AND campaign IS NULL, bonusOn's SQL twin),
                                coins_launched (token_status launched), fees_to_safe_eth (v2.5-split coins
@@ -924,7 +939,7 @@ apps/frontend/
                                submission not confirmed yet"; a not-yet-booked round shows only for
                                a bonusOn program; Board.ends_label (Ruling 29: entry-text.ts
                                roundEndLabel, shown by BoardView)
-    public-pages.test.ts       markup tests of /policy, BoardView and the footer link
+    public-pages.test.ts       markup tests of /terms (11.4: section ids, MINI line; 11.5 redirects 301; 11.6 Tokenfi line; 11.7 no /fund or /award in builder navigation), BoardView and the footer link
     install.test.ts            v2.8 Task 5: the install tabs and order, the Claude Code and Codex
                                commands, local icons (logoFileProblem), no editor tab in the modal,
                                llms.txt, README, app/ or lib/, and llms.txt's token/bonus text
@@ -969,7 +984,8 @@ apps/frontend/
     escrow-abi.ts               generated by contracts/script/export-abi.sh; campaignsAbi/campaignAbi
     wallet-batch.ts(+test)     pure: atomicBatching (EIP-5792 "supported" only, chain or 0x0),
                                batchUnsupported (57xx -> send in order), batchStatusProblem
-    sponsor-rules.ts(+test)    pure rules: create's five answers and defaults (DraftInput,
+    sponsor-rules.ts(+test)    v2.9 F25: SPONSOR_RULES (confirm first, plain text, verification, brand names, label once funded) end create's next_step; award's next_step ends with the approval rule.
+                               pure rules: create's five answers and defaults (DraftInput,
                                withDefaults: what_to_build, theme alias, defaults listed),
                                ranked awards (AwardPicks, splitPrize: exact, remainder to first
                                place; resolvePicks: default reason "Picked by <sponsor>"),
