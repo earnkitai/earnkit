@@ -3913,6 +3913,7 @@ test('10.11 prepare with deploy: off without DEPLOYER_PRIVATE_KEY (no chain read
     send: async () => `0x${'ab'.repeat(32)}` as const,
     receipt: async () => ({ status: 'success' as const, contractAddress: ADDR as `0x${string}`, gasUsed: 50_000n, effectiveGasPrice: 100_000_000_000n }),
     simulate: async () => `0x${'60'.repeat(50)}` as const,
+    nonce: async () => 1,
     code: async () => `0x${'60'.repeat(50)}` as const,
     read: async (a: { fn: string }) => (a.fn === 'owner' ? OWNER : null),
     write: async () => `0x${'cd'.repeat(32)}` as const,
@@ -3964,6 +3965,35 @@ test('10.11 prepare with deploy and no wallet known: the reply asks for the owne
     assert.deepEqual(r.deploy, { needs_wallet: 'Send me the wallet that should own TipJar.' });
     assert.ok(r.show_to_builder.endsWith('Send me the wallet that should own TipJar.'));
   } finally {
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${f.id}`;
+  }
+});
+
+test('fix round 2 (N6): prepare with deploy refuses when the installation login read fails (never a fresh key)', dbTest, async () => {
+  const { DEPLOY_LINES } = await import('./deploy');
+  const f = committedProgram('arc-microgrants');
+  const stamp = `${process.pid}-${Date.now()}`;
+  Object.assign(f, { id: `t10-n6-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' });
+  await upsertProgram(ProgramFile.parse(f));
+  const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t10n6-${stamp}`}) RETURNING id`;
+  let chainCalls = 0;
+  const old = process.env.DEPLOYER_PRIVATE_KEY;
+  process.env.DEPLOYER_PRIVATE_KEY = '5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a';
+  try {
+    const r = (await tools.prepare(
+      {
+        program_id: f.id,
+        project: { name: 'TipJar', repo_url: 'https://github.com/alice/tipjar' },
+        deploy: { chain: 'base', bytecode: '0x6060', abi: [], owner_wallet: '0x2222222222222222222222222222222222222222' },
+      },
+      { installationId: id, deployDeps: { chain: () => ((chainCalls++), null), installationLogin: async () => { throw new Error('db down'); } } },
+    )) as { deploy: unknown; show_to_builder: string };
+    assert.deepEqual(r.deploy, { unavailable: DEPLOY_LINES.lowBalance });
+    assert.ok(r.show_to_builder.endsWith(DEPLOY_LINES.lowBalance));
+    assert.equal(chainCalls, 0, 'nothing reached the deploy');
+  } finally {
+    if (old === undefined) delete process.env.DEPLOYER_PRIVATE_KEY;
+    else process.env.DEPLOYER_PRIVATE_KEY = old;
     await sql()`UPDATE programs SET status = 'closed' WHERE id = ${f.id}`;
   }
 });

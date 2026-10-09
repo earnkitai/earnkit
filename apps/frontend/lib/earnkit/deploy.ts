@@ -71,6 +71,7 @@ export const DEPLOY_LINES = {
   dayFull: 'Deploys are paused until tomorrow.',
   lowBalance: 'Deploys are paused right now.',
   factory: "I can't deploy a contract that creates other contracts.",
+  blocked: "I can't deploy for you any more.",
 } as const;
 
 /** The deploy was sent but its receipt didn't come within the call (10.9). */
@@ -222,8 +223,13 @@ export type DeployChain = {
    * transferOwnership; fix round 1 I2). Throws when the constructor reverts or the RPC is another chain.
    */
   estimate(a: { data: Hex; from: Address }): Promise<{ gas: bigint; maxFeePerGas: bigint; l1Fee?: bigint }>;
-  /** Fix round 1 (I4): an eth_call of the creation (no `to`): the runtime the chain would store. */
-  simulate(a: { data: Hex; from: Address }): Promise<Hex>;
+  /**
+   * Fix round 1 (I4): an eth_call of the creation (no `to`): the runtime the chain would store. Fix
+   * round 2 (N3): with the estimate's gas and fee cap, as the send will have them.
+   */
+  simulate(a: { data: Hex; from: Address; gas: bigint; maxFeePerGas: bigint }): Promise<Hex>;
+  /** Fix round 2 (N2): an address's nonce (a contract's: 1 + the contracts it created, EIP-161). */
+  nonce(a: Address): Promise<number>;
   balance(a: Address): Promise<bigint>;
   send(a: { data: Hex; gas: bigint; maxFeePerGas: bigint }): Promise<Hex>;
   receipt(
@@ -244,6 +250,8 @@ export type DeployDeps = {
   gate?: OwnershipDeps;
   /** Test seam: how long to wait for a receipt (default 30 s). */
   receiptMs?: number;
+  /** Test seam for tools.ts deployStep: the installation's verified login (github-verify.ts installationLogin). */
+  installationLogin?: (installationId: number) => Promise<string | null>;
 };
 
 export type DeployOutcome =
@@ -319,7 +327,9 @@ export function viemDeployChain(c: DeployChainName): DeployChain | null {
       // 20% over the estimate as the gas limit, so a small state change can't make it run out.
       return { gas: (gas * 12n) / 10n, maxFeePerGas: fees.maxFeePerGas ?? (await pub.getGasPrice()), l1Fee };
     },
-    simulate: async ({ data, from }) => (await pub.call({ account: from, data })).data ?? '0x',
+    simulate: async ({ data, from, gas, maxFeePerGas }) =>
+      (await pub.call({ account: from, data, gas, maxFeePerGas, maxPriorityFeePerGas: capTip(maxFeePerGas) })).data ?? '0x',
+    nonce: (a) => pub.getTransactionCount({ address: a }),
     balance: (a) => pub.getBalance({ address: a }),
     // No `to` and no `value`: a contract creation that moves no money.
     send: ({ data, gas, maxFeePerGas }) =>
@@ -349,9 +359,18 @@ export function viemDeployChain(c: DeployChainName): DeployChain | null {
   };
 }
 
-/** USD per whole native token: ETH on Base from DefiLlama (throws when it can't say), USDC on Arc at $1. */
-export async function nativeUsd(c: DeployChainName): Promise<number> {
-  return c === 'arc' ? 1 : (await llamaPrice('coingecko:ethereum')).price;
+/** Fix round 2 (N5): the ETH/USD prices a deploy trusts; anything outside is a bad read (refused, R18). */
+export const ETH_USD_BAND = { min: 500, max: 20_000 } as const;
+
+/**
+ * USD per whole native token: ETH on Base from DefiLlama (throws when it can't say, or when the price
+ * is outside ETH_USD_BAND), USDC on Arc at $1.
+ */
+export async function nativeUsd(c: DeployChainName, ethPrice: () => Promise<number> = async () => (await llamaPrice('coingecko:ethereum')).price): Promise<number> {
+  if (c === 'arc') return 1;
+  const price = await ethPrice();
+  if (!(price >= ETH_USD_BAND.min && price <= ETH_USD_BAND.max)) throw new Error('ETH price outside the trusted band');
+  return price;
 }
 
 /** `wei` of the native token in micro-USD, rounded up. Pure. */
@@ -418,7 +437,7 @@ export async function deployForBuilder(
     return paused();
   }
   // Pre-flight P16: the 30-day count and the reservation in one transaction, under a lock per builder.
-  let rowId: number | null;
+  let rowId: number | 'blocked' | null;
   try {
     rowId = await sql().begin(async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtext(${`contract-deploy:${who}`}))`;
@@ -426,6 +445,9 @@ export async function deployForBuilder(
         SELECT count(*)::int AS n FROM contract_deploys
         WHERE builder_key = ${who} AND created_at > now() - interval '30 days'`;
       if (n >= DEPLOY_CAPS.perBuilder30d) return null;
+      // Fix round 2 (N2): a builder whose contract created contracts at deploy deploys no more.
+      const [blocked] = await tx`SELECT 1 FROM contract_deploys WHERE builder_key = ${who} AND blocked LIMIT 1`;
+      if (blocked) return 'blocked' as const;
       const [row] = await tx<{ id: number }[]>`
         INSERT INTO contract_deploys (installation_id, login, builder_key, repo_key, chain, tx_hash, status, cost_micro_usd)
         VALUES (${a.installationId}, ${a.login?.toLowerCase() ?? null}, ${who}, ${a.repoKey.toLowerCase()}, ${c}, '', 'sent', 0)
@@ -437,6 +459,7 @@ export async function deployForBuilder(
     return paused();
   }
   if (rowId === null) return refused(DEPLOY_LINES.limit);
+  if (rowId === 'blocked') return refused(DEPLOY_LINES.blocked);
   const id = rowId;
   let dayTaken = false;
   let reserved = 0;
@@ -468,8 +491,9 @@ export async function deployForBuilder(
     let runtime: Hex;
     let est: { gas: bigint; maxFeePerGas: bigint; l1Fee?: bigint };
     try {
-      runtime = await chain.simulate({ data, from: deployer });
       est = await chain.estimate({ data, from: deployer });
+      // Fix round 2 (N3): simulated with the gas and fee cap the send will carry.
+      runtime = await chain.simulate({ data, from: deployer, gas: est.gas, maxFeePerGas: est.maxFeePerGas });
     } catch (err) {
       console.error('[deploy] estimate', errName(err));
       return stop({ status: 'failed', show_to_builder: DEPLOY_LINES.failed, agent_note: 'Estimating the deploy failed: the constructor reverts with these arguments, or the chain is unreachable. Check the arguments and try tomorrow.' });
@@ -573,7 +597,16 @@ export async function deployForBuilder(
       console.error('[deploy] owner probe', errName(err));
       ownerOk = false;
     }
-    if (code !== null) await markDeployed(c, address).catch((err: unknown) => console.error('[deploy] cache', errName(err)));
+    // Fix round 2 (N2): a nonce above 1 means the constructor created contracts (EIP-161): flagged,
+    // never cached, and this builder deploys no more. A failed read can't confirm it: flagged.
+    const nonce = await chain.nonce(address).catch((err: unknown) => {
+      console.error('[deploy] nonce', errName(err));
+      return null;
+    });
+    const children = nonce !== null && nonce > 1;
+    if (children || nonce === null) ownerOk = false;
+    if (code !== null && !children) await markDeployed(c, address).catch((err: unknown) => console.error('[deploy] cache', errName(err)));
+    if (children) await sql()`UPDATE contract_deploys SET blocked = true WHERE id = ${id}`;
     await settle('deployed', { address: address.toLowerCase(), owner_ok: ownerOk });
     return { status: 'deployed', address, owner_ok: ownerOk, show_to_builder: deployedLine(a.projectName, c, address, ownerOk === true) };
   } catch (err) {
