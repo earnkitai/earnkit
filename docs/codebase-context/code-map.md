@@ -124,6 +124,8 @@ apps/frontend/
                                boardSlug)
   app/api/cron/route.ts        v2.4: POST -> cronPost (Bearer CRON_SECRET; scoring, freeze, review,
                                payout, fee refresh)
+  app/api/host/upload/route.ts  v2.9 C12: POST -> hostUploadPost (?t= one-time token, one zip, 503 when R2 off)
+  app/api/host/takedown/route.ts  v2.9 C14: POST -> hostTakedownPost (Bearer ADMIN_VETO_SECRET; kill or approve)
   app/api/admin/veto/route.ts  v2.4: POST only -> vetoPost (form: slug, key, entry, reason; v2.5: round
                                instead of slug for a builder bonus round)
   app/admin/bonus/[round]/page.tsx  v2.5 Task 7: the owner's builder bonus round review (noindex,
@@ -436,6 +438,17 @@ apps/frontend/
     host-names.ts              v2.9 C12 (Task 7), import-free: HOST_RESERVED, HOST_CSP, HOST_HEADERS,
                                SITE_PREFIX 'sites/', STATE_PREFIX 'state/'; imported by the host Worker
                                (relative path) and the hosting code
+                               (Task 8: contentTypeFor moved here from the Worker, shared by both)
+    hosting.ts(+test)          v2.9 C12-C15 (Task 8): HOST_LIMITS, STATIC_EXT, slugFor (P40/P41/G19),
+                               zipProblems, stripTopFolder, readZip (central directory + streaming
+                               Inflate with byte caps), abuseFlags, usesStorage, withBadge, siteExpiry,
+                               builder lines (liveLine, HOST_FULL, HOST_REVIEW, HOST_LINES); issueUpload
+                               (Ruling 8, P11), deploySite, expireSites, takedown, approveSite,
+                               sitesInReview, refreshSiteExpiry; hostUploadPost, hostTakedownPost
+    r2.ts                      v2.9 C12: r2Enabled (4 env vars), r2Client (aws4fetch S3: put, list,
+                               del; Class A taken from free-tier first, FreeTierFull), R2Error
+    free-tier.ts(+test)        v2.9 C13: FREE_CAPS (r2Writes 900k/month, resend 100/day, 3,000/month),
+                               periodKey, takeFreeTier (atomic hard cap), freeTierRoom, FreeTierFull
     match.ts(+test)            pure: chain detection (IDs + RPC hosts), repo x program verdicts;
                                v2.9 A1, A2: ownerOk, productScore (tiers), TUTORIAL, DEFAULT_README,
                                SIGNAL_WORDS, INVESTMENT_NOTE; matchRepo applies the tiers when scored;
@@ -779,7 +792,8 @@ apps/frontend/
     cron.ts(+test)             nextStep (the state machine), scoreMaxAge, runCron (one step per
                                campaign under its lease, then builder bonus scoring (scoreOpenRounds),
                                the ledger with its rounds step (bonus-payout advanceRounds), then the fee
-                               refresh; needs_owner incl. PAY_FAILED_RUNS failed pay steps in a row
+                               refresh, then v2.9 Task 8 expireSites (R2 on; `hosting` in the result);
+                               needs_owner incl. host-review:<slug> (P46), PAY_FAILED_RUNS failed pay steps in a row
                                and bonusWaitsOnOwner (a MANUAL_CHECK or TOP_UP bonus sweep, failed
                                index runs, v2.9 D17 gas low or a claim/collect out of gas); BONUS_WALLET_UNSET when the ledger is
                                skipped (key missing or malformed, off mainnet) while bonusLive,
