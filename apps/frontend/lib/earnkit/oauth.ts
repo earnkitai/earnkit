@@ -126,6 +126,13 @@ export const isHostedHost = (host: string) =>
   HOSTED_REDIRECT_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
 
 /**
+ * v2.9 T12 (G0): the first redirect host that is a known hosted service (HOSTED_REDIRECT_HOSTS), or
+ * null. Only this, never the client name (anyone can name a client "Grok"), exempts a registration
+ * from the per-IP floor. Pure; exported for tests.
+ */
+export const hostedRedirectHost = (uris: readonly string[]): string | null => redirectHosts(uris).find(isHostedHost) ?? null;
+
+/**
  * v2.8.1 §E17: a hosted (shared) client, from its registered name or its redirect URIs. Pure;
  * exported for tests.
  */
@@ -275,6 +282,8 @@ export function exchangeCode(form: URLSearchParams): {
   shared: boolean;
   /** v2.8.1 §E17, Ruling F11: what a new installation counts against besides its IP (registrationLimitKey). */
   limitKey: string;
+  /** v2.9 T12 (G0): the client's redirect host when it is a known hosted service (hostedRedirectHost). */
+  hostedHost: string | null;
 } {
   if (form.get('grant_type') !== 'authorization_code') {
     throw new OAuthError(
@@ -310,6 +319,7 @@ export function exchangeCode(form: URLSearchParams): {
     clientKey,
     shared: client?.s === 1 || isSharedClient({ redirect_uris: uris }),
     limitKey: registrationLimitKey(payload.c),
+    hostedHost: hostedRedirectHost(uris),
   };
 }
 

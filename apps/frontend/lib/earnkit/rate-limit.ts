@@ -16,7 +16,10 @@ export const LIMITS = {
   recordSubmission: { limit: 20, windowSeconds: 86_400 },
   /** record_submission checks (each reads GitHub, Base and the explorer), per installation (v2.4 §2). */
   entryChecks: { limit: 60, windowSeconds: 3_600 },
-  /** POST /oauth/register, per client IP: the abuse floor (v2.8.1 §E17). */
+  /**
+   * POST /oauth/register, per client IP: the abuse floor (v2.8.1 §E17). v2.9 T12 (G0): a client whose
+   * redirect host is a known hosted service is counted, never refused (oauth-routes.ts ipFloor).
+   */
   oauthRegister: { limit: 50, windowSeconds: 3_600 },
   /**
    * POST /oauth/register, per agent app (oauth.ts clientLimitKey: its https redirect host). Ruling F11:
@@ -31,7 +34,8 @@ export const LIMITS = {
   /**
    * v2.8.1 §E17, Ruling F11: new installations (POST /oauth/token that creates one), per registration
    * (oauth.ts registrationLimitKey: the client id), so a hosted agent's users share neither one IP's
-   * bucket nor one host's; and per client IP as the abuse floor.
+   * bucket nor one host's; and per client IP as the abuse floor (v2.9 T12, G0: counted, not refused,
+   * for a known hosted service's redirect host, whose registrations the host ceiling caps).
    */
   installClient: { limit: 500, windowSeconds: 86_400 },
   installHour: { limit: 50, windowSeconds: 3_600 },
@@ -141,13 +145,8 @@ export function clientIp(headers: Headers, remoteAddress?: string): string {
   return ip ? ipKey(ip) : 'unknown';
 }
 
-/** Counts one request for `key` in the current `windowSeconds` window. */
-export async function hit(
-  key: string,
-  limit: number,
-  windowSeconds: number,
-  now = new Date(),
-): Promise<Hit> {
+/** Counts one request for `key` in the current `windowSeconds` window; the window's count so far. */
+export async function countHit(key: string, windowSeconds: number, now = new Date()): Promise<number> {
   const start = windowStart(now, windowSeconds * 1000);
   const [row] = await sql()<{ count: number }[]>`
     INSERT INTO rate_windows (key, window_start, count) VALUES (${key}, ${start}, 1)
@@ -159,7 +158,17 @@ export async function hit(
     if (Math.random() < 0.01)
       await sql()`DELETE FROM rate_windows WHERE window_start < now() - interval '2 days'`;
   }
-  return hitResult(row.count, limit, windowSeconds, now);
+  return row.count;
+}
+
+/** Counts one request for `key` in the current `windowSeconds` window. */
+export async function hit(
+  key: string,
+  limit: number,
+  windowSeconds: number,
+  now = new Date(),
+): Promise<Hit> {
+  return hitResult(await countHit(key, windowSeconds, now), limit, windowSeconds, now);
 }
 
 /** A refused call: the message says what was limited and when to try again. */
