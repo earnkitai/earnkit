@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { boardSlug, bonusOn, bookingFor, resolveRoundParam, rollsOver, rolloverRounds, roundFor, roundKeyFromSlug, roundPoolsWei, windowKey } from './bonus-rounds';
+import { boardSlug, bonusOn, bookingFor, resolveRoundParam, rollsOver, rolloverRounds, roundFor, roundKeyFromSlug, roundPools, roundPoolsWei, windowKey } from './bonus-rounds';
 import { sql } from './db';
 import { getProgram } from './programs';
 import { holdBonusDbLock } from './fixtures/bonus-db-lock';
@@ -214,6 +214,52 @@ test('roundPoolsWei: one grouped read; only rounds open now, never a future star
   }
 });
 
+test('7.3 v2.10 item 1: roundPools counts the tokens launched in the open round, in the same single read', db, async () => {
+  const now = d('2026-10-10T12:00:00Z');
+  const prevTest = process.env.EARNKIT_TEST_INSTALLATIONS;
+  const insts: number[] = [];
+  try {
+    await program(P('cnt'), d('2026-10-01T00:00:00Z'), d('2026-10-20T00:00:00Z'));
+    await program(P('cnt-roll'), null, null);
+    await program(P('cnt-none'), d('2026-10-01T00:00:00Z'), d('2026-10-20T00:00:00Z'));
+    for (const t of ['a', 'b']) {
+      const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t4-pools-${t}-${process.pid}-${Date.now()}`}) RETURNING id`;
+      insts.push(id);
+    }
+    const [mine, owner] = insts;
+    process.env.EARNKIT_TEST_INSTALLATIONS = String(owner);
+    let k = 0;
+    const token = (programId: string, inst: number, at: string | null, coin = true) =>
+      sql()`INSERT INTO projects (program_id, name, installation_id, coin_address, coin_launched_at)
+            VALUES (${programId}, ${`p${k}`}, ${inst}, ${coin ? `0xt4c${process.pid}${k++}` : null}, ${at ? d(at) : null})`;
+    await token(P('cnt'), mine, '2026-10-02T00:00:00Z');
+    await token(P('cnt'), mine, '2026-10-09T00:00:00Z');
+    await token(P('cnt'), mine, '2026-09-20T00:00:00Z'); // before the round
+    await token(P('cnt'), mine, null, false); // no token
+    await token(P('cnt'), owner, '2026-10-03T00:00:00Z'); // an owner test installation
+    await token(P('cnt-roll'), mine, '2026-10-05T00:00:00Z');
+    await token(P('cnt-roll'), mine, '2026-09-30T23:59:59Z'); // last month's round
+    await ledger(`${P('cnt')}:2026-10-01`, '180000000000000000');
+    let queries = 0;
+    const pools = await roundPools([P('cnt'), P('cnt-roll'), P('cnt-none')], { now, onQuery: () => queries++ });
+    assert.equal(queries, 1, 'one query');
+    assert.deepEqual(Object.fromEntries(pools), {
+      [P('cnt')]: { wei: 180000000000000000n, tokens: 2 },
+      [P('cnt-roll')]: { wei: 0n, tokens: 1 },
+    });
+    // roundPoolsWei keeps its semantics: only booked pools (wei > 0).
+    assert.deepEqual(Object.fromEntries(await roundPoolsWei([P('cnt'), P('cnt-roll'), P('cnt-none')], { now })), { [P('cnt')]: 180000000000000000n });
+  } finally {
+    if (prevTest === undefined) delete process.env.EARNKIT_TEST_INSTALLATIONS;
+    else process.env.EARNKIT_TEST_INSTALLATIONS = prevTest;
+    await sql()`DELETE FROM projects WHERE program_id LIKE 't4-pools-%'`;
+    await sql()`DELETE FROM installations WHERE id = ANY(${insts}::int[])`;
+    await sql()`DELETE FROM bonus_ledger WHERE tx_hash LIKE '0xt4pool%'`;
+    await sql()`DELETE FROM bonus_rounds WHERE program_id LIKE 't4-pools-%'`;
+    await sql()`DELETE FROM programs WHERE id LIKE 't4-pools-%'`;
+  }
+});
+
 test('roundPoolsWei agrees with roundFor on the open round key at a month boundary', db, async () => {
   try {
     await program(P('edge'), null, null);
@@ -285,11 +331,17 @@ test('v2.7 §2: get_program\'s guide shows the open round\'s pool and board; non
     await ledger(key('guide'), '180000000000000000');
     await ledger(key('guide-frozen'), '9');
     await sql()`UPDATE bonus_rounds SET state = 'frozen' WHERE round_key = ${key('guide-frozen')}`;
+    // v2.10 item 1: a token launched in the round, so the line names the pool.
+    await sql()`INSERT INTO projects (program_id, name, coin_address, coin_launched_at)
+                VALUES (${P('guide')}, 'g', ${`0xt4g${process.pid}`}, ${new Date(starts.getTime() + 3_600_000)})`;
     const text = async (id: string) => (await getProgram(P(id))).guide!.text;
-    assert.match(await text('guide'), new RegExp(`\\nBuilder bonus: 0\\.18 ETH so far · [^ ]+/bonus/${P('guide')}-${starts.toISOString().slice(0, 10)}$`));
-    assert.match(await text('guide-empty'), /\nBuilder bonus: new pool · /);
+    // v2.10 item 1: the one bonus line, no board link (the guide page keeps it).
+    assert.match(await text('guide'), /\nBuilder bonus: 0\.18 ETH so far$/);
+    assert.match(await text('guide-empty'), /\nBuilder bonus: no tokens yet, so yours would be first$/);
+    assert.doesNotMatch(await text('guide'), /\/bonus\//);
     assert.doesNotMatch(await text('guide-frozen'), /Builder bonus/);
   } finally {
+    await sql()`DELETE FROM projects WHERE program_id LIKE 't4-pools-guide%'`;
     await sql()`DELETE FROM bonus_ledger WHERE round_key LIKE 't4-pools-guide%'`;
     await sql()`DELETE FROM bonus_rounds WHERE program_id LIKE 't4-pools-guide%'`;
     await sql()`DELETE FROM programs WHERE id LIKE 't4-pools-guide%'`;

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { SponsorCampaignInput, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools } from './tools';
 import { reportedGithubUser, reportedRepos } from './match-projects';
 import { sql } from './db';
-import { EntryError, normalizeRepoUrl } from './campaigns';
+import { EntryError } from './campaigns';
 import { earnkitTexts } from './campaign-text';
 import { ProgramFile, type SubmissionRequirement } from './program-file';
 import { PLAIN_FIX, PLAIN_NOTE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, type Application } from './coach';
@@ -16,7 +16,7 @@ import { enteredProgramIds } from './projects';
 import { setSanctionsOracle } from './sanctions';
 import { tokenLineFor } from './token-gate';
 import { REPO_HELD } from './entry-text';
-import { TOKEN_LINE, endsOf, type RepoFit } from './present';
+import { endsOf, type RepoFit } from './present';
 import { LAUNCHING, LAUNCH_STUCK, SKIPPED_ENTRY, launchLimit, tickerTakenNote, type TokenFlowDeps } from './token-launch';
 import { offerKey, readOffer, saveOffer } from './token-offers';
 import { proposeToken } from './token-proposal';
@@ -364,8 +364,8 @@ test('v2.7 §3, Ruling 15 (plan): prepare_submission leads with what is missing;
     // Every required answer: v2.8 Part C, the confirmation offer (the builder bonus comes with a token).
     const ready = await prep({ name: 'TipJar', repo_url: `https://github.com/alice/tipjar-${stamp}`, live_url: 'https://tipjar.xyz' }, answers);
     assert.equal(ready.ready, true);
-    assert.match(ready.show_to_builder, /\n\nReady\. Want the builder bonus\? It comes with a token\.\n/);
-    assert.match(ready.show_to_builder, /\nWallet for fees and any bonus: 0x1581…b9a3 \(used last time\), or tell me another\.\n/);
+    assert.match(ready.show_to_builder, /\n\nReady\. Yes submits your entry and launches \$/);
+    assert.match(ready.show_to_builder, / Wallet: 0x1581…b9a3\. yes \/ skip the token$/);
     assert.equal(ready.shown_wallet, W);
     assert.ok(tickerChecks > 0);
     // No project name, but a GitHub repo: the repo name is the name.
@@ -373,7 +373,7 @@ test('v2.7 §3, Ruling 15 (plan): prepare_submission leads with what is missing;
     assert.equal(noName.token?.proposed.symbol, 'TIPJAR');
     // v2.8 Part D: once ready, the draft table leads (the Entry table stays for what is missing).
     assert.match(noName.show_to_builder, /^\| Field \| Answer \|\n\|---\|---\|\n\| Live deployment on Arc mainnet \| https:\/\/tipjar\.xyz/);
-    assert.match(noName.show_to_builder, /Want the builder bonus\? It comes with a token\./);
+    assert.match(noName.show_to_builder, /Yes submits your entry and launches \$/);
     // C5: an item given but invalid says "(check it)"; at most 3 items, then "and N more".
     const bad = await prep({ name: 'TipJar' }, { live_deployment_url: 'not a link', builder_profile: 'not a link either' });
     assert.ok(bad.show_to_builder.startsWith('Before you submit: a live link on Arc mainnet (check it); a public repo link; a short description; and 1 more.\n\n'), bad.show_to_builder);
@@ -423,9 +423,9 @@ test('v2.5 §1: list_programs reads the builder bonus pools once, only where ent
     const calls: string[][] = [];
     const r = (await tools.list_programs({}, {
       installationId: id,
-      roundPoolsWei: async (ids) => {
+      roundPools: async (ids) => {
         calls.push(ids);
-        return new Map([[proof.id, 42n * 10n ** 16n]]);
+        return new Map([[proof.id, { wei: 42n * 10n ** 16n, tokens: 2 }]]);
       },
     })) as { show_to_builder: string };
     const text = r.show_to_builder;
@@ -436,19 +436,21 @@ test('v2.5 §1: list_programs reads the builder bonus pools once, only where ent
     // v2.8.1 §B8: no repo, and entering needs one: the row says so.
     assert.match(text, new RegExp(`\\| Proof ${run} \\(needs a repo\\) \\|`));
     assert.match(text, new RegExp(`\\| No proof ${run} \\(needs a repo\\) \\|`));
-    assert.match(text, /Every entry gets a token that pays you, and its fees fund the builder bonus\. 0\.42 ETH so far\.$/);
+    // v2.10 item 1: one plain bonus line right before the closing offer.
+    assert.match(text, /\n\nBuilder bonus: 0\.42 ETH so far\n\n[^\n]+$/);
+    assert.doesNotMatch(text, /Every entry gets a token/);
     assert.match(text, /\n\nIdeas I can build:\n- /);
     assert.ok(text.includes(`\n- Proof ${run}: ${proof.ideas[0]}\n- Proof ${run}: ${proof.ideas[1]}\n`), text);
     assert.ok(text.includes(`\n- No proof ${run}: ${noProof.ideas[0]}\n- No proof ${run}: ${noProof.ideas[1]}\n`), text);
     // Without injection: no pools yet, so the provable program's bonus sentence is the empty-pool one.
     const plain = (await tools.list_programs({}, { installationId: id })) as { show_to_builder: string };
-    assert.match(plain.show_to_builder, /Every entry gets a token that pays you, and its fees fund the builder bonus\.$/);
+    assert.match(plain.show_to_builder, /\n\nBuilder bonus: no tokens yet, so yours would be first\n\n[^\n]+$/);
     // I2: a program whose round froze (the pool read maps it to null) shows no bonus to win: the
     // 0.42 ETH this test injected for proof.id never surfaces once its round is frozen. (Other test
     // files share this DB and may run concurrently, so a blanket "no bonus sentence at all" isn't
     // reliable here; present.test.ts's bonusCell/bonusClose unit tests cover the frozen rule
     // directly. Fix round 1, Minor 2.)
-    const frozen = (await tools.list_programs({}, { installationId: id, roundPoolsWei: async () => new Map([[proof.id, null]]) })) as { show_to_builder: string };
+    const frozen = (await tools.list_programs({}, { installationId: id, roundPools: async () => new Map([[proof.id, null]]) })) as { show_to_builder: string };
     assert.doesNotMatch(frozen.show_to_builder, /0\.42 ETH/);
   } finally {
     await sql()`UPDATE programs SET status = 'closed' WHERE id IN ${sql()([proof.id, noProof.id])}`;
@@ -529,7 +531,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
   process.env.EARNKIT_AUTH_SECRET ||= 'tools-test-secret'; // token lines are HMACs under it
   // The ticker check and any other read are unreachable: nothing reaches the network or tokens.fun.
   globalThis.fetch = (async () => new Response('', { status: 503 })) as typeof fetch;
-  const pools = async (ids: string[]) => new Map(ids.map((id) => [id, 180000000000000000n] as [string, bigint]));
+  const pools = async (ids: string[]) => new Map(ids.map((id) => [id, { wei: 180000000000000000n, tokens: 3 }] as [string, { wei: bigint; tokens: number }]));
   // v2.7 Ruling 15 (plan): every required answer, so the token step shows.
   const ready = (name = 'Tip Jar', repo_url = `https://github.com/alice/t4-${stamp}-ready`) => ({
     project: { name, repo_url, live_url: 'https://tipjar.xyz' },
@@ -547,7 +549,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
   async function run() {
     // 1. An entry naming a wallet (the builder skipped the coin): remembered for the installation.
     const id = await inst('one');
-    const skipped = (await tools.record_submission(entry(a.id, 1, { payout_wallet: W, token: 'skip' }), { installationId: id, roundPoolsWei: pools })) as {
+    const skipped = (await tools.record_submission(entry(a.id, 1, { payout_wallet: W, token: 'skip' }), { installationId: id, roundPools: pools })) as {
       recorded: boolean;
       show_to_builder: string;
     };
@@ -563,15 +565,15 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     };
     assert.equal(prep.token.creator_wallet, W);
     // v2.8 Part C: the offer's wallet line shows it short (Ruling 17's form); shown_wallet carries it in full.
-    assert.match(prep.show_to_builder, /Want the builder bonus\? It comes with a token\./);
-    assert.ok(prep.show_to_builder.includes('Wallet for fees and any bonus: 0xeeee…eee3 (used last time), or tell me another.'), prep.show_to_builder);
+    assert.match(prep.show_to_builder, /Yes submits your entry and launches \$/);
+    assert.ok(prep.show_to_builder.includes('Wallet: 0xeeee…eee3. yes / skip the token'), prep.show_to_builder);
     assert.equal((prep as { shown_wallet?: string }).shown_wallet, W);
     // A wallet given in this call is not "from last time".
     const OTHER = '0x' + 'f'.repeat(39) + '4';
     const given = (await tools.prepare_submission({ program_id: b.id, ...ready(), answers: { ...ready().answers, payout_wallet: OTHER } }, { installationId: id })) as {
       show_to_builder: string;
     };
-    assert.ok(given.show_to_builder.includes('Wallet for fees and any bonus: 0xffff…fff4, or tell me another.'), given.show_to_builder);
+    assert.ok(given.show_to_builder.includes('Wallet: 0xffff…fff4. yes / skip the token'), given.show_to_builder);
     // Ruling 22: a typo'd wallet (bad EIP-55 checksum) is refused with a clear error, never shown or dropped.
     const TYPO = '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a4';
     await assert.rejects(
@@ -596,7 +598,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     const none = await inst('none');
     const r = (await tools.record_submission(entry(a.id, 2, { token: { name: 'TipJar', symbol: 'TIPJAR' }, builder_confirmed: true }), {
       installationId: none,
-      roundPoolsWei: pools,
+      roundPools: pools,
     })) as {
       recorded: boolean;
       bonus_round: { key: string; ends_at: string; ends_label: string } | null;
@@ -617,7 +619,8 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     // anchored on the "\n\n" join (review fix round 1, item 4).
     assertEntered(
       r.show_to_builder,
-      `Entered in ${a.title}. Reply with a wallet to get your token and join the builder bonus (0.18 ETH so far · ends Oct 14, 11:59 PM ET · earnkit.com/bonus/${a.id}-2026-09-16).`,
+      // v2.10 item 1: the one bonus line, no board link or date.
+      `Entered in ${a.title}. Reply with a wallet to get your token and join the builder bonus.\nBuilder bonus: 0.18 ETH so far`,
     );
     assert.doesNotMatch(r.show_to_builder, /launch_token|vault|\p{Extended_Pictographic}/u);
 
@@ -643,7 +646,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
         return { status: 'launched' as const, name: d.name, symbol: d.symbol, tokens_fun: 'https://tokens.fun/coin/0xT' };
       },
     } as unknown as TokenFlowDeps;
-    const ctxTwo = { installationId: two, roundPoolsWei: pools, tokenDeps };
+    const ctxTwo = { installationId: two, roundPools: pools, tokenDeps };
     const coinEntry = (n: number, wallet: string) =>
       entry(a.id, n, { payout_wallet: wallet, token: { name: 'TipJar', symbol: 'TIPJAR' }, builder_confirmed: true });
     const count = async () => (await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM projects WHERE installation_id = ${two}`)[0].n;
@@ -659,7 +662,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     // Ruling 24: a public entry page and no entry link yet: the builder is asked for the link.
     assert.match(
       ok.show_to_builder,
-      /^Entered in .*\. Your token: tokens\.fun\/coin\/0xT\.\nSend me your dorahacks\.io entry link to join the builder bonus \(0\.18 ETH so far · ends Oct 14, 11:59 PM ET · earnkit\.com\/bonus\/.+\)\.(\n\n|$)/,
+      /^Entered in .*\. Your token: tokens\.fun\/coin\/0xT\.\nSend me your dorahacks\.io entry link to join the builder bonus\.\nBuilder bonus: 0\.18 ETH so far(\n\n|$)/,
     );
     assert.doesNotMatch(ok.show_to_builder, /builder_submitted|record_submission|launch_token/);
     // I1: the builder says yes (the site blocks EarnKit): the same entry is updated, its coin kept,
@@ -673,7 +676,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     assert.equal(late.updated, true);
     assert.equal(late.token.status, 'launched');
     assert.equal(deploys.length, 1, 'no second launch');
-    assert.match(late.show_to_builder, /^Entered in .*\. Your token: tokens\.fun\/coin\/0xT\.\nBuilder bonus: 0\.18 ETH so far · ends Oct 14, 11:59 PM ET · /);
+    assert.match(late.show_to_builder, /^Entered in .*\. Your token: tokens\.fun\/coin\/0xT\.\nBuilder bonus: 0\.18 ETH so far(\n\n|$)/);
     assert.equal(await count(), 1, 'one entry, not two');
     const [basis] = await sql()<{ submission_basis: string | null }[]>`SELECT submission_basis FROM projects WHERE id = ${ok.project_id}`;
     assert.equal(basis.submission_basis, 'unverified_page');
@@ -684,7 +687,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     type Held = { repo_held?: boolean; bonus_round: unknown; show_to_builder: string; token: { note?: string } };
     const sameRepo = (n: number) =>
       entry(a.id, 4, { project: { name: `Tip Jar ${n}`, description: 'Tips', repo_url: repoUrl(4), live_url: 'https://t4-4.xyz' }, token: { name: 'TipJar', symbol: 'TIPJAR' }, builder_confirmed: true });
-    const held = (await tools.record_submission(sameRepo(5), { installationId: await inst('three'), roundPoolsWei: pools })) as Held;
+    const held = (await tools.record_submission(sameRepo(5), { installationId: await inst('three'), roundPools: pools })) as Held;
     assert.equal(held.repo_held, true);
     assert.equal(held.bonus_round, null);
     assertEntered(held.show_to_builder, `Entered in ${a.title}. ${REPO_HELD}`);
@@ -692,7 +695,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     assert.match((held as { bonus_note?: string }).bonus_note ?? '', new RegExp(`entry #${ok.project_id} already holds this repo`));
     // The repo's coin is on an entry here that isn't eligible yet (no counting submission): still held.
     await sql()`UPDATE projects SET submission_proof_ok_at = NULL, token_repo_key = ${`github.com/alice/t4-${stamp}-4`} WHERE id = ${ok.project_id}`;
-    const coinHeld = (await tools.record_submission(sameRepo(6), { installationId: await inst('four'), roundPoolsWei: pools })) as Held;
+    const coinHeld = (await tools.record_submission(sameRepo(6), { installationId: await inst('four'), roundPools: pools })) as Held;
     assert.equal(coinHeld.repo_held, true);
     assert.equal(coinHeld.bonus_round, null);
     assertEntered(coinHeld.show_to_builder, `Entered in ${a.title}. ${REPO_HELD}`);
@@ -714,7 +717,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
       shown_wallet?: string;
     };
     assert.equal(shownPrep.shown_wallet, SHOWN);
-    assert.ok(shownPrep.show_to_builder.includes('0xcccc…ccc1 (used last time)'));
+    assert.ok(shownPrep.show_to_builder.includes('Wallet: 0xcccc…ccc1.'), shownPrep.show_to_builder);
     await sql()`UPDATE installations SET payout_wallet = ${LATER} WHERE id = ${five}`;
     const fiveDeploys: { creatorWallet: string }[] = [];
     const fiveDeps = {
@@ -728,7 +731,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     const fiveEntry = (n: number, extra: Record<string, unknown> = {}) =>
       entry(b.id, n, { token: { name: 'TipJar', symbol: 'TIPJAR' }, builder_confirmed: true, builder_submitted: true, ...extra });
     // The agent omits the wallet: recorded with no coin, the plain no-wallet line, never the remembered wallet.
-    const omitted = (await tools.record_submission(fiveEntry(7), { installationId: five, roundPoolsWei: pools, tokenDeps: fiveDeps })) as {
+    const omitted = (await tools.record_submission(fiveEntry(7), { installationId: five, roundPools: pools, tokenDeps: fiveDeps })) as {
       recorded: boolean;
       token: { status: string; no_wallet?: boolean };
       show_to_builder: string;
@@ -736,9 +739,9 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     assert.equal(omitted.recorded, true);
     assert.equal(omitted.token.no_wallet, true);
     assert.equal(fiveDeploys.length, 0, 'neither the shown nor the changed remembered wallet is used');
-    assert.match(omitted.show_to_builder, /^Entered in Other Grants\. Reply with a wallet to get your token and join the builder bonus \(/);
+    assert.match(omitted.show_to_builder, /^Entered in Other Grants\. Reply with a wallet to get your token and join the builder bonus\.\nBuilder bonus: /);
     // The agent echoes shown_wallet: the coin pays the wallet the builder saw, not the changed one.
-    const echoed = (await tools.record_submission(fiveEntry(8, { payout_wallet: shownPrep.shown_wallet }), { installationId: five, roundPoolsWei: pools, tokenDeps: fiveDeps })) as {
+    const echoed = (await tools.record_submission(fiveEntry(8, { payout_wallet: shownPrep.shown_wallet }), { installationId: five, roundPools: pools, tokenDeps: fiveDeps })) as {
       token: { status: string };
     };
     assert.equal(echoed.token.status, 'launched');
@@ -774,7 +777,7 @@ test('v2.8 Ruling 2 (plan): record_submission launches the token on an incomplet
       return { status: 'launched' as const, name: d.name, symbol: d.symbol, tokens_fun: 'https://tokens.fun/coin/0xC7' };
     },
   } as unknown as TokenFlowDeps;
-  const ctx = { installationId: inst, roundPoolsWei: async () => new Map(), tokenDeps };
+  const ctx = { installationId: inst, roundPools: async () => new Map(), tokenDeps };
   try {
     // v2.8 Ruling 2 (plan): no live link and no builder profile: entered, and the token launches
     // (no C7 gate on the launch), but the entry is not complete, so not bonus-eligible yet.
@@ -849,7 +852,7 @@ test('v2.8 Rulings 2-3 (plan), C8: launch_token on real rows: a skipped entry is
       return { status: 'launched' as const, name: d.name, symbol: d.symbol, tokens_fun: 'https://tokens.fun/coin/0xT7' };
     },
   } as unknown as TokenFlowDeps;
-  const ctx = { installationId: inst, roundPoolsWei: async () => new Map(), tokenDeps };
+  const ctx = { installationId: inst, roundPools: async () => new Map(), tokenDeps };
   const W = '0x' + 'd'.repeat(39) + '7';
   const entry = async (n: number, o: { choice?: 'go' | 'skip'; complete_at?: Date }) => {
     const repo = `https://github.com/alice/t7lt-${stamp}-${n}`;
@@ -948,7 +951,7 @@ async function confirmSetup(tag: string, o: { remembered?: string; check?: (s: s
       return { status: 'launched' as const, name: d.name, symbol: d.symbol, tokens_fun: url };
     },
   } as unknown as TokenFlowDeps;
-  const ctx = { installationId: inst, roundPoolsWei: async () => new Map(), repoCoins: async () => new Map(), tokenDeps };
+  const ctx = { installationId: inst, roundPools: async () => new Map(), repoCoins: async () => new Map(), tokenDeps };
   const project = { name: 'Tip Jar', repo_url: repo, live_url: 'https://tipjar.xyz' };
   // v2.8.1 fix round 1: the Yes line the builder saw (prepare_submission or the offer stores it);
   // "go" launches exactly this pair.
@@ -990,7 +993,7 @@ test('8.1 Ruling 4 (plan): prepare_submission ready ends with the offer; no kit,
     const t = await confirmSetup('prep', { remembered: W8 });
     const r = (await tools.prepare_submission(t.input, t.ctx)) as Record<string, unknown>;
     assert.equal(r.ready, true);
-    assert.match(String(r.show_to_builder), /\n\nReady\. Want the builder bonus\? It comes with a token\.\n/);
+    assert.match(String(r.show_to_builder), /\n\nReady\. Yes submits your entry and launches \$/);
     for (const k of ['kit', 'submission_url', 'prefilled_url', 'paste', 'agent_steps', 'api'])
       assert.ok(!keysOf(r).includes(k), k);
     assert.doesNotMatch(JSON.stringify(r), /"(kit|submission_url|prefilled_url|paste)":/);
@@ -1009,8 +1012,8 @@ test('8.2/8.3: confirm_entry without the yes (or without a decision) is the offe
     const t = await confirmSetup('offer', { remembered: W8 });
     // v2.8.1 §A2: the Yes line names the token that launches.
     const proposal = { name: 'Tip Jar', symbol: 'TIP' };
-    const expected = confirmOffer({ hasBonus: true, coinIn: null, canPush: true, wallet: W8, remembered: true, proposal });
-    assert.match(expected, /\nYes: launches \$TIP \(Tip Jar\) on Base\. You earn 40% of its trading fees, plus a shot at the builder bonus\.\n/);
+    const expected = confirmOffer({ hasBonus: true, coinIn: null, canPush: true, wallet: W8, proposal });
+    assert.equal(expected, 'Yes submits your entry and launches $TIP (Tip Jar): 40% of its fees to you, plus the builder bonus. Wallet: 0x1581…b9a3. yes / skip the token');
     for (const extra of [{}, { builder_confirmed: true }, { decision: 'go' }]) {
       const r = (await tools.confirm_entry({ ...t.input, ...extra }, t.ctx)) as Confirmed & { token?: { proposed?: unknown } };
       assert.equal(r.show_to_builder, expected, JSON.stringify(extra));
@@ -1166,39 +1169,20 @@ test('8.9 Ruling 5: a repo whose token is entered in Arc: no offer, "go" records
     assert.ok(r.show_to_builder.startsWith('Ready for '), r.show_to_builder);
   }));
 
-test('v2.8.1 §D (T4 carry): Also qualifies names the round the token fees book to after rollover, with the rollover line once', dbTest, () =>
+test('v2.10 item 1: a repo whose token rides on another entry: no "rides on" or "moves to" sentence in the reply; the token note is plain', dbTest, () =>
   withTokenEnv(async () => {
     const t = await confirmSetup('rollnote');
-    const asked: string[] = [];
     const ctx = {
       ...t.ctx,
       repoCoins: async (keys: string[]) => new Map(keys.map((k) => [k, { program_id: 'arc-microgrants', title: 'Arc Microgrants' }] as const)),
-      bonusEntry: async (key: string) => {
-        asked.push(key);
-        return { program_id: 'base-builder-grants', title: 'Base Builder Grant Program' };
-      },
     };
     await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, ctx);
     const rec = (await tools.record_submission(
       { program_id: t.p.id, project: t.project, submission_data: t.answers, builder_submitted: true },
       ctx,
-    )) as { show_to_builder: string };
-    const also = rec.show_to_builder.split('\n\nYou also qualify for:')[1];
-    if (also) {
-      assert.match(also, /Your builder bonus rides on your Base Builder Grant Program entry\. Your builder bonus moves to your next entry when a program ends\.$/);
-      assert.equal(rec.show_to_builder.split('moves to your next entry').length, 2, rec.show_to_builder);
-      assert.doesNotMatch(rec.show_to_builder, /Arc Microgrants entry/);
-      assert.ok(asked.length >= 1 && asked.every((k) => k === t.repo.replace('https://', '')), JSON.stringify(asked));
-      // The token note names the same round (Also qualifies carries the "rides on" line here).
-      assert.equal((rec as { token?: { note?: string } }).token?.note, 'Your builder bonus rides on your Base Builder Grant Program entry.');
-      // Fees bound for the Safe (no open entry): no bonus note at all.
-      const none = (await tools.record_submission(
-        { program_id: t.p.id, project: t.project, submission_data: t.answers, builder_submitted: true },
-        { ...ctx, bonusEntry: async () => null },
-      )) as { show_to_builder: string };
-      assert.doesNotMatch(none.show_to_builder, /rides on|moves to your next entry/);
-      assert.equal((none as { token?: { note?: string } }).token?.note, 'This repo already has a token.');
-    } else assert.doesNotMatch(rec.show_to_builder, /moves to your next entry/);
+    )) as { show_to_builder: string; token?: { note?: string } };
+    assert.doesNotMatch(rec.show_to_builder, /rides on|moves to your next entry/);
+    assert.equal(rec.token?.note, 'This repo already has a token.');
   }));
 
 test('v2.8.1 §D, T5 fix round 1: no mocks: home ended, first entry elsewhere: bonus_note, builder text and token note all name the new entry', dbTest, () =>
@@ -1226,12 +1210,12 @@ test('v2.8.1 §D, T5 fix round 1: no mocks: home ended, first entry elsewhere: b
         { program_id: t.p.id, project: t.project, submission_data: t.answers, builder_submitted: true, external_submission_url: 'https://dorahacks.io/buidl/582' },
         ctx,
       )) as { show_to_builder: string; bonus_note?: string; token: { note?: string } };
+      // The agent's bonus_note still names the new entry; v2.10 item 1: never the builder text.
       const rides = `Your builder bonus rides on your ${t.p.title} entry.`;
       assert.ok(rec.bonus_note?.includes(rides), rec.bonus_note);
       assert.doesNotMatch(rec.bonus_note ?? '', /Ended Grants/);
-      assert.equal(rec.token.note, rides);
-      assert.equal(rec.show_to_builder.split(rides).length, 2, rec.show_to_builder);
-      assert.doesNotMatch(rec.show_to_builder, /Ended Grants/);
+      assert.equal(rec.token.note, 'This repo already has a token.');
+      assert.doesNotMatch(rec.show_to_builder, /rides on|Ended Grants/);
     } finally {
       await sql()`DELETE FROM projects WHERE program_id = ${home}`;
       await sql()`DELETE FROM programs WHERE id = ${home}`;
@@ -1247,7 +1231,7 @@ test('8.10 C6, v2.8.1 fix round 1: "go" launches exactly the pair shown; another
     assert.ok(!('kit' in r));
     assert.equal(t.calls.deploy, 0);
     assert.deepEqual(r.token?.proposed, { name: t.offered.name, symbol: 'OWN' });
-    assert.match(r.show_to_builder, new RegExp(`\\nYes: launches \\$OWN \\(${t.offered.name}\\) on Base\\.`));
+    assert.match(r.show_to_builder, new RegExp(`^Yes submits your entry and launches \\$OWN \\(${t.offered.name}\\)`));
     assert.deepEqual(await readOffer(t.inst, t.p.id, offerKey(t.repo, 'Tip Jar')), { name: t.offered.name, symbol: 'OWN' });
     // OWN is taken before the builder's "go" (no echo): never another ticker silently; a new Yes line.
     taken = new Set(['OWN']);
@@ -1256,8 +1240,8 @@ test('8.10 C6, v2.8.1 fix round 1: "go" launches exactly the pair shown; another
     assert.ok(!('kit' in again));
     const next = again.token!.proposed!.symbol;
     assert.notEqual(next, 'OWN');
-    assert.ok(again.show_to_builder.startsWith(`$OWN is taken.\nWant the builder bonus?`), again.show_to_builder);
-    assert.match(again.show_to_builder, new RegExp(`\\nYes: launches \\$${next} \\(`));
+    assert.ok(again.show_to_builder.startsWith(`$OWN is taken. Yes submits your entry and launches $${next} (`), again.show_to_builder);
+    assert.ok(!again.show_to_builder.includes('\n'), again.show_to_builder);
     // The builder says yes to the new line: exactly that launches.
     const ok = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8, token: again.token!.proposed }, t.ctx)) as Confirmed;
     assert.equal(ok.token?.status, 'launched');
@@ -1269,7 +1253,7 @@ test('8.10 C6, v2.8.1 fix round 1: "go" launches exactly the pair shown; another
     const first = (await tools.confirm_entry({ ...u.input, ...go, wallet: W8 }, u.ctx)) as Confirmed;
     assert.equal(u.calls.deploy, 0);
     assert.ok(!('kit' in first));
-    assert.match(first.show_to_builder, /\nYes: launches \$[A-Z0-9]+ \(Tip Jar\) on Base\./);
+    assert.match(first.show_to_builder, /^Yes submits your entry and launches \$[A-Z0-9]+ \(Tip Jar\)/);
     assert.equal(((await tools.confirm_entry({ ...u.input, ...go, wallet: W8 }, u.ctx)) as Confirmed).token?.status, 'launched');
     assert.equal(u.calls.deploy, 1);
   }));
@@ -1338,25 +1322,26 @@ test('I3, v2.8.1 §C13: recording Base after Arc (the repo\'s token is in Arc): 
       { program_id: baseId, project: t.project, submission_data: t.answers, builder_submitted: true },
       ctx,
     )) as { show_to_builder: string; token: { status: string; note?: string } };
-    // Once: in Also qualifies when it shows, else right after "Entered in…".
+    // v2.10 item 1: no "rides on" sentence in the builder text.
     assert.ok(rec.show_to_builder.startsWith(`Entered in ${baseFile.title}.`), rec.show_to_builder);
-    assert.equal(rec.show_to_builder.split(`Your builder bonus rides on your ${t.p.title} entry.`).length, 2, rec.show_to_builder);
+    assert.doesNotMatch(rec.show_to_builder, /rides on/);
     assert.doesNotMatch(rec.show_to_builder, /no builder bonus|don't add|counts in/i);
     assert.doesNotMatch(rec.show_to_builder, /isn't launched/);
     assert.equal(rec.token.status, 'skipped');
-    assert.equal(rec.token.note, `Your builder bonus rides on your ${t.p.title} entry.`);
+    assert.equal(rec.token.note, 'This repo already has a token.');
     assert.equal(t.calls.deploy, 1);
   }));
 
-test('8.12: list_programs closes with the token line and never says "optional"', dbTest, async () => {
+test('8.12, v2.10 item 1: list_programs has one bonus line before the close, no token line, and never says "optional"', dbTest, async () => {
   const stray = await sql()<{ id: string }[]>`
     SELECT id FROM programs WHERE status = 'active' AND campaign->>'kind' = 'earnkit'`;
   if (stray.length) await sql()`UPDATE programs SET status = 'closed' WHERE id IN ${sql()(stray.map((s) => s.id))}`;
   try {
     const [{ id }] = await sql()<{ id: number }[]>`
       INSERT INTO installations (token_hash) VALUES (${`t8-list-${process.pid}-${Date.now()}`}) RETURNING id`;
-    const r = (await tools.list_programs({}, { installationId: id, roundPoolsWei: async () => new Map() })) as { show_to_builder: string };
-    assert.ok(r.show_to_builder.endsWith(TOKEN_LINE), r.show_to_builder.slice(-200));
+    const r = (await tools.list_programs({}, { installationId: id, roundPools: async () => new Map() })) as { show_to_builder: string };
+    assert.match(r.show_to_builder, /\n\nBuilder bonus: no tokens yet, so yours would be first\n\n[^\n]+$/, r.show_to_builder.slice(-200));
+    assert.doesNotMatch(r.show_to_builder, /Every entry gets a token/);
     assert.doesNotMatch(JSON.stringify(r), /optional/i);
   } finally {
     if (stray.length) await sql()`UPDATE programs SET status = 'active' WHERE id IN ${sql()(stray.map((s) => s.id))}`;
@@ -1373,7 +1358,7 @@ test('fix 1: the entry\'s own wallet is the one shown and the one used; the reme
       VALUES (${t.p.id}, 'Tip Jar', ${t.repo}, 'https://tipjar.xyz', ${t.inst}, ${t.repo.replace('https://', '')}, ${A})`;
     const prep = (await tools.prepare_submission(t.input, t.ctx)) as { show_to_builder: string; shown_wallet?: string };
     assert.equal(prep.shown_wallet, A);
-    assert.ok(prep.show_to_builder.includes('Wallet for fees and any bonus: 0xaaaa…aaa9 (used last time), or tell me another.'), prep.show_to_builder);
+    assert.ok(prep.show_to_builder.includes('Wallet: 0xaaaa…aaa9. yes / skip the token'), prep.show_to_builder);
     const offer = (await tools.confirm_entry(t.input, t.ctx)) as Confirmed;
     assert.equal(offer.shown_wallet, A);
     assert.match(offer.show_to_builder, /0xaaaa…aaa9/);
@@ -1536,7 +1521,7 @@ test('9 coach: all answers: the draft, the fixes, then Ready and the offer; stil
       [
         draftTable(p.submission_requirements, values),
         fixesLine(fixes),
-        `Ready. ${confirmOffer({ hasBonus: true, coinIn: null, canPush: true, wallet: W8, remembered: true, proposal: { name: 'Tip Jar', symbol: 'TIP' } })}`,
+        `Ready. ${confirmOffer({ hasBonus: true, coinIn: null, canPush: true, wallet: W8, proposal: { name: 'Tip Jar', symbol: 'TIP' } })}`,
       ].join('\n\n'),
     );
     assert.match(r.show_to_builder, /\n1\. Traction: add how many people used it \(e\.g\. 120 users, 900 payments\)\./);
@@ -1556,7 +1541,7 @@ test('9 coach: confirm_entry "go" stores the application and banks the answers; 
     const t = await confirmSetup('bank', { extra: COACH_EXTRA });
     // The offer renders with fixes open (never blocking) and writes nothing.
     const offer = (await tools.confirm_entry({ ...t.input, answers: { ...COACH_ANSWERS, traction: 'Loved.' } }, t.ctx)) as Confirmed;
-    assert.match(offer.show_to_builder, /^Want the builder bonus\?/);
+    assert.match(offer.show_to_builder, /^Yes submits your entry and launches \$/);
     const r = (await tools.confirm_entry({ ...t.input, answers: COACH_ANSWERS, ...go, wallet: W8 }, t.ctx)) as Confirmed;
     assert.ok(r.kit);
     const [row] = await sql()<{ application: Application }[]>`SELECT application FROM projects WHERE id = ${r.project_id!}`;
@@ -1649,7 +1634,7 @@ test('C15/C17, v2.8.1 §C12: Base Builder Grants, first program: 3 questions and
     const answers = { ...draft, ...Object.fromEntries(builderOnly.map((k) => [k, k === 'email' ? 'alice@example.com' : k === 'demo_loom' ? 'https://loom.com/share/abc' : `${k} 120 by March`])) };
     const done = (await tools.prepare_submission({ program_id: base.id, project: t.project, answers, coach_asked: true }, t.ctx)) as Coached;
     assert.equal(done.ready, true);
-    assert.match(done.show_to_builder, /Ready\. Want the builder bonus\?/);
+    assert.match(done.show_to_builder, /Ready\. Yes submits your entry and launches \$/);
     assert.doesNotMatch(done.show_to_builder, /^Before you submit: /);
   }));
 
@@ -1671,7 +1656,7 @@ test('v2.8.1 §C11: the wallet is asked once, in the coach round; confirming is 
     const answers = { ...t.answers, payout_wallet: W8 };
     const ready = (await tools.prepare_submission({ ...t.input, answers, coach_asked: true }, t.ctx)) as Coached & { shown_wallet?: string };
     assert.equal(ready.ready, true);
-    assert.match(ready.show_to_builder, /\nWallet for fees and any bonus: 0x1581…b9a3, or tell me another\./);
+    assert.match(ready.show_to_builder, / Wallet: 0x1581…b9a3\. yes \/ skip the token$/);
     assert.doesNotMatch(ready.show_to_builder, /used last time|keys\.coinbase\.com/);
     assert.equal(ready.shown_wallet, W8);
     // Money safety (Ruling C12): a "go" without the wallet launches nothing; the coach's wallet is only asked about.
@@ -1811,7 +1796,7 @@ test('11 Also qualifies: after confirm_entry "go" and record_submission on Arc, 
       // repo as held elsewhere): the same stub makes coinIn null here, not the entered program.
       // Review fix round 1, item 4: the full joined string (mainText + "\n\n" + the block), not
       // just the tail, so a regression that glues the sections together would be caught.
-      assert.equal(r2.show_to_builder, `${mainText}\n\n${alsoText(expectedRows, null)}`);
+      assert.equal(r2.show_to_builder, `${mainText}\n\n${alsoText(expectedRows)}`);
 
       // Reusing the bank cuts how much is left (usage_numbers, kind traction, is filled from Arc's).
       const unbanked = alsoQualifies({ ...args, enteredIds, bank: new Map() }).find((x) => x.id === other.id)!;
@@ -1850,7 +1835,7 @@ test('12 list_programs: ask_outcome once after results are due; tell_earnkit (v2
   await entry(due.id, mine, 'Unsent', true); // confirmed, never submitted: never asked
   await entry(later.id, mine, 'TooEarly'); // results not due yet
   const theirs = await entry(due.id, other, 'Theirs');
-  const ctx = { installationId: mine, roundPoolsWei: async () => new Map(), repoCoins: async () => new Map() };
+  const ctx = { installationId: mine, roundPools: async () => new Map(), repoCoins: async () => new Map() };
   type Listed = { ask_outcome?: { project_id: number; program_id: string; question: string; agent_note: string } };
   try {
     const first = (await tools.list_programs({}, ctx)) as Listed;
@@ -1900,7 +1885,7 @@ test('v2.8.1 §B: list_programs takes any chain, a bare date and a non-0x wallet
   const p = { ...arc, id: `t3b-${stamp}`, title: `Arc Entered ${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' };
   await upsertProgram(ProgramFile.parse(p));
   const [{ id: inst }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t3b-${stamp}`}) RETURNING id`;
-  const ctx = { installationId: inst, roundPoolsWei: async () => new Map(), repoCoins: async () => new Map() };
+  const ctx = { installationId: inst, roundPools: async () => new Map(), repoCoins: async () => new Map() };
   type Listed = { show_to_builder: string; wallet_note?: string };
   try {
     await withOnlyPrograms([p.id], async () => {
@@ -1935,7 +1920,7 @@ test('v2.8.1 §B: list_programs takes any chain, a bare date and a non-0x wallet
 test('12 list_programs: a new fitting program shows exactly once (the alert), never again in Updates', dbTest, async () => {
   const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const [{ id: inst }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t12-new-${stamp}`}) RETURNING id`;
-  const ctx = { installationId: inst, roundPoolsWei: async () => new Map(), repoCoins: async () => new Map() };
+  const ctx = { installationId: inst, roundPools: async () => new Map(), repoCoins: async () => new Map() };
   const base = committedProgram('base-builder-grants');
   // v2.9 A7: without the live-product tag, so a live, verified product repo could win it.
   const p = { ...base, id: `t12-new-${stamp}`, title: `Fresh Base ${stamp}`, status: 'active', form: undefined, tag: undefined };
@@ -1998,7 +1983,7 @@ async function launchSetup(tag: string, answers: Answer[]) {
     },
     deploy: (a) => deployToken(a, { fetch: fakeFetch, sleep: async () => {} }),
   };
-  const ctx = { installationId: inst, roundPoolsWei: async () => new Map(), repoCoins: async () => new Map(), tokenDeps };
+  const ctx = { installationId: inst, roundPools: async () => new Map(), repoCoins: async () => new Map(), tokenDeps };
   await saveOffer(inst, p.id, offerKey(repo, 'Tip Jar'), { name: 'Tip Jar', symbol: 'TIPJAR' });
   const input = {
     program_id: p.id,
@@ -2412,7 +2397,7 @@ test('v2.9 A5 fix round 1: Arc (needs_contract) through startEntry and recordSub
     const emptyPrep = (await tools.prepare_submission(empty.input, empty.ctx)) as Prep;
     assert.equal(emptyPrep.ready, false);
     assert.deepEqual(emptyPrep.fixes?.filter((f) => f.text === NO_CONTRACT).length, 1);
-    assert.match(emptyPrep.show_to_builder, /Want the builder bonus\?/);
+    assert.match(emptyPrep.show_to_builder, /Yes submits your entry and launches \$/);
     await tools.confirm_entry({ ...empty.input, ...go, decision: 'skip' }, empty.ctx);
     const [emptyRow] = await cols(empty.t.inst);
     assert.equal(emptyRow.complete_at, null);
@@ -2424,7 +2409,7 @@ test('v2.9 A5 fix round 1: Arc (needs_contract) through startEntry and recordSub
     const downPrep = (await tools.prepare_submission(down.input, down.ctx)) as Prep;
     assert.equal(downPrep.ready, false);
     assert.deepEqual(downPrep.fixes?.filter((f) => f.text === LIVE_FAILED_LINE).length, 1);
-    assert.match(downPrep.show_to_builder, /Want the builder bonus\?/);
+    assert.match(downPrep.show_to_builder, /Yes submits your entry and launches \$/);
     await tools.record_submission({ program_id: down.t.p.id, project: down.input.project, submission_data: down.t.answers, token: 'skip' }, down.ctx);
     const [downRow] = await cols(down.t.inst);
     assert.deepEqual([downRow.complete_at, downRow.live_verified_at], [null, null]);
@@ -2505,7 +2490,7 @@ test('3.10 list_programs reads the builder memory once: not interested leaves th
   let given: { said?: Record<string, unknown> } | undefined;
   const ctx = {
     installationId: id,
-    roundPoolsWei: async () => new Map(),
+    roundPools: async () => new Map(),
     repoCoins: async () => new Map(),
     matchProjects: async (input: { said?: Record<string, unknown> }) => {
       given = input;
@@ -2548,7 +2533,7 @@ test('Ruling G6: on a shared client, one builder\'s statements never reach anoth
   const ctx = {
     installationId: id,
     sharedClient: true,
-    roundPoolsWei: async () => new Map(),
+    roundPools: async () => new Map(),
     repoCoins: async () => new Map(),
     matchProjects: async (input: { said?: Record<string, unknown> }) => {
       given = input;
@@ -2616,7 +2601,7 @@ async function sharedInstall(tag: string) {
   const ctx = (shared = true) => ({
     installationId: id,
     sharedClient: shared,
-    roundPoolsWei: async () => new Map(),
+    roundPools: async () => new Map(),
     repoCoins: async () => new Map(),
     matchProjects: async (input: unknown) => {
       calls.push(input);
@@ -2706,7 +2691,7 @@ test('4.A7/A8 list_programs remembers the best owned fit repos and records the r
   });
   const fits = [fit('tipjar', 6), fit('other', 6, ['owned']), fit('side', 4)];
   const ctxOf = (id: number, sharedClient = false) => ({
-    installationId: id, sharedClient, roundPoolsWei: async () => new Map(), repoCoins: async () => new Map(),
+    installationId: id, sharedClient, roundPools: async () => new Map(), repoCoins: async () => new Map(),
     matchProjects: async () => ({ checked: 3, scored: 3, fits }),
   });
   const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t4-fit-${stamp}`}) RETURNING id`;
@@ -2773,7 +2758,7 @@ test("5.10 v2.9 B9: an agent that can't push gets the token offer, then the sign
       // P9: the normal offer, never "open this in Claude Code or Cursor".
       const offer = (await tools.confirm_entry({ ...t.input, agent }, ctx)) as Confirmed;
       assert.doesNotMatch(offer.show_to_builder, /Claude Code|Cursor/);
-      assert.match(offer.show_to_builder, /^Want the builder bonus\? It comes with a token\./);
+      assert.match(offer.show_to_builder, /^Yes submits your entry and launches \$/);
       // The first go: the sign-in line only.
       const first = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8, agent }, ctx)) as Confirmed & { token: { sign_in?: string } };
       assert.match(
@@ -2997,339 +2982,27 @@ test("G10 (fix round 2): on Grok Bot, user B's record_submission never launches 
     }),
   ));
 
-// ---- v2.9 B10, B11 (T6): the token offer right after the match; only the token is skippable
+// ---- v2.10 items 5 and 15: the token pitched once, at confirm; the deadline line in replies
 
-type TokenOfferReply = { show_to_builder: string; token_offer?: { program_id: string; repo_url: string; project_name: string; proposed: { name: string; symbol: string } } };
-type OfferLaunch = { status: string; note?: string; fixable?: boolean; project_id?: number; sign_in?: string; sign_in_line?: string; tokens_fun?: string };
+type ListReply = { show_to_builder: string; token_offer?: unknown };
+type OfferLaunch = { status: string; note?: string; fixable?: boolean; project_id?: number; show_to_builder?: string };
 
 /** confirmSetup plus list_programs matching the entry's repo as an owned, product-tier, quick Arc fit. */
-async function offerSetup(tag: string, o: { tier?: 'product' | 'project'; status?: 'likely' | 'after_step' } = {}) {
+async function offerSetup(tag: string) {
   const t = await confirmSetup(tag, { noOffer: true });
   const fit: RepoFit = {
     repo: 'tipjar',
     repo_url: t.repo,
-    verdicts: [{ program_id: t.p.id, program: t.p.id, status: o.status ?? 'likely', missing: [], effort: 'hours', note: '' }],
+    verdicts: [{ program_id: t.p.id, program: t.p.id, status: 'likely', missing: [], effort: 'hours', note: '' }],
     key: t.repo.replace('https://github.com/', ''),
-    // v2.10 item 6: a product with users (good odds); a project tier is low odds.
-    product: { score: o.tier === 'project' ? 4 : 6, tier: o.tier ?? 'product', missing: [], traction: 8, odds: o.tier === 'project' ? 'low' : 'good' },
+    product: { score: 6, tier: 'product', missing: [], traction: 8, odds: 'good' },
     live_verified: true,
   };
   const ctx = { ...t.ctx, matchProjects: async () => ({ checked: 1, scored: 1, fits: [fit] }) };
   const list = async (c: typeof ctx = ctx) =>
-    (await tools.list_programs({ local_repos: [{ name: 'tipjar', chains: ['arc'] }] }, c)) as TokenOfferReply;
-  const offerOf = (r: TokenOfferReply) => {
-    const { program_id, repo_url, project_name } = r.token_offer!;
-    return { program_id, repo_url, project_name };
-  };
-  return { ...t, ctx, list, offerOf };
+    (await tools.list_programs({ local_repos: [{ name: 'tipjar', chains: ['arc'] }] }, c)) as ListReply;
+  return { ...t, ctx, list };
 }
-
-test('6.4 list_programs: an owned, product-tier Arc fit ends the reply with the token offer and returns token_offer; never otherwise', dbTest, () =>
-  withTokenEnv(async () => {
-    const t = await offerSetup('t6o');
-    const r = await t.list();
-    assert.ok(r.token_offer, r.show_to_builder);
-    assert.deepEqual(
-      { program_id: r.token_offer.program_id, repo_url: r.token_offer.repo_url },
-      { program_id: t.p.id, repo_url: t.repo },
-    );
-    const { proposed, project_name } = r.token_offer;
-    // The line closes the reply (no wallet remembered: asked in the same line); the pair is stored.
-    assert.ok(
-      r.show_to_builder.endsWith(
-        `${project_name} fits ${t.p.title}: $${t.p.max_award_usd!.toLocaleString('en-US')}. Launch $${proposed.symbol} (${proposed.name}) on Base now? ` +
-          'You earn 40% of its trading fees, plus a shot at the builder bonus. Say yes with your wallet address, or skip.',
-      ),
-      r.show_to_builder,
-    );
-    assert.deepEqual(await readOffer(t.inst, t.p.id, offerKey(t.repo, project_name)), proposed);
-    // A remembered wallet (non-shared): "yes / skip".
-    await sql()`UPDATE installations SET payout_wallet = ${W8} WHERE id = ${t.inst}`;
-    assert.ok((await t.list()).show_to_builder.endsWith('yes / skip'));
-    // ...never suggested on a shared client (sign-in on: G15 I3 offers nothing there while it is off).
-    await withSignIn(async () =>
-      assert.ok((await t.list({ ...t.ctx, sharedClient: true } as typeof t.ctx)).show_to_builder.endsWith('Say yes with your wallet address, or skip.')),
-    );
-
-    // Project tier: no offer, the v2.8.1 close.
-    const project = await offerSetup('t6proj', { tier: 'project' });
-    const pr = await project.list();
-    assert.ok(!pr.token_offer);
-    assert.doesNotMatch(pr.show_to_builder, /40%|skip/);
-    // The repo already has a token.
-    assert.ok(!(await t.list({ ...t.ctx, repoCoins: async () => new Map([[normalizeRepoUrl(t.repo), { program_id: 'other', title: 'Other' }]]) })).token_offer);
-    // Two declines.
-    await sql()`INSERT INTO token_declines (installation_id, repo_key, count) VALUES (${t.inst}, ${t.repo.replace('https://github.com/', '')}, 2)`;
-    assert.ok(!(await t.list()).token_offer);
-    await sql()`DELETE FROM token_declines WHERE installation_id = ${t.inst}`;
-    assert.ok((await t.list()).token_offer);
-    // No deploy key (launches unavailable).
-    assert.ok(!(await t.list({ ...t.ctx, tokenDeps: { ...t.ctx.tokenDeps, available: () => false } as TokenFlowDeps })).token_offer);
-    // Arc applied (tell_earnkit).
-    await tools.tell_earnkit({ program_status: [{ program_id: t.p.id, status: 'applied' }] }, t.ctx);
-    assert.ok(!(await t.list()).token_offer);
-    await sql()`DELETE FROM builder_program_status WHERE installation_id = ${t.inst}`;
-    // token_policy: 'off'.
-    await sql()`UPDATE programs SET token_policy = 'off' WHERE id = ${t.p.id}`;
-    assert.ok(!(await t.list()).token_offer);
-  }));
-
-test('6.5 launch_token with the offer and "go": one draft entry (go) and one launch; a retry reuses it and never launches twice', dbTest, () =>
-  withTokenEnv(async () => {
-    const t = await offerSetup('t6go');
-    // Ruling G13 (I1): a remembered wallet is named in the line and carried as shown_wallet.
-    await sql()`UPDATE installations SET payout_wallet = ${W8} WHERE id = ${t.inst}`;
-    const listed = await t.list();
-    const offer = t.offerOf(listed);
-    const shownWallet = (listed.token_offer as { shown_wallet?: string }).shown_wallet;
-    assert.equal(shownWallet, W8);
-    assert.ok(listed.show_to_builder.endsWith(`Wallet: ${W8.slice(0, 6).toLowerCase()}…${W8.slice(-4).toLowerCase()} (used last time). yes / skip`), listed.show_to_builder);
-    // A yes with no creator_wallet passed: the wallet is asked for; no entry, nothing launched.
-    const bare = (await tools.launch_token({ offer, decision: 'go', builder_confirmed: true }, t.ctx)) as OfferLaunch & { no_wallet?: boolean };
-    assert.deepEqual([bare.status, bare.no_wallet, bare.fixable], ['skipped', true, true]);
-    assert.equal((await t.rows()).length, 0);
-    assert.equal(t.calls.deploy, 0);
-    // The agent passes the wallet shown with the yes: it launches to that wallet.
-    const call = () => tools.launch_token({ offer, decision: 'go', builder_confirmed: true, creator_wallet: shownWallet }, t.ctx) as Promise<OfferLaunch>;
-    const first = await call();
-    assert.equal(first.status, 'launched', JSON.stringify(first));
-    assert.equal(t.calls.deploy, 1);
-    const rows = await t.rows();
-    assert.equal(rows.length, 1);
-    assert.equal(rows[0].confirm_choice, 'go');
-    assert.equal(first.project_id, rows[0].id);
-    const again = await call();
-    assert.equal(again.status, 'launched');
-    assert.equal(again.project_id, rows[0].id);
-    assert.equal(t.calls.deploy, 1);
-    assert.equal((await t.rows()).length, 1);
-    // The launch used the pair the offer showed.
-    const [{ token_symbol }] = await sql()<{ token_symbol: string }[]>`SELECT token_symbol FROM projects WHERE id = ${rows[0].id}`;
-    assert.equal(token_symbol, (await readOffer(t.inst, t.p.id, offerKey(t.repo, offer.project_name)))!.symbol);
-    assert.deepEqual(t.calls.wallets, [W8]);
-  }));
-
-test('6.6 "skip": one decline, no entry; the confirmation offer then has no "40%"; a skip there makes two and the offer is gone', dbTest, () =>
-  withTokenEnv(async () => {
-    const t = await offerSetup('t6skip');
-    const offer = t.offerOf(await t.list());
-    const skipped = (await tools.launch_token({ offer, decision: 'skip' }, t.ctx)) as OfferLaunch;
-    assert.deepEqual([skipped.status, skipped.note], ['skipped', 'No token for now.']);
-    // Ruling G12 (a): the same skip sent again (a retry) still counts once.
-    await tools.launch_token({ offer, decision: 'skip' }, t.ctx);
-    assert.equal((await t.rows()).length, 0);
-    const count = async () =>
-      (await sql()<{ count: number }[]>`SELECT count FROM token_declines WHERE installation_id = ${t.inst}`)[0]?.count ?? 0;
-    assert.equal(await count(), 1);
-    // The confirmation offer names the token again, without the earnings figure.
-    const confirm = (await tools.confirm_entry({ ...t.input, wallet: W8 }, t.ctx)) as Confirmed;
-    assert.match(confirm.show_to_builder, /\nYes: launches \$\w+ \(.+\) on Base\.\n/);
-    assert.doesNotMatch(confirm.show_to_builder, /40%/);
-    const prep = (await tools.prepare_submission(t.input, t.ctx)) as { show_to_builder: string };
-    assert.doesNotMatch(prep.show_to_builder, /40%/);
-    // A skip at the confirmation: two, and never offered again (P23: the confirmation too).
-    const skip2 = (await tools.confirm_entry({ ...t.input, builder_confirmed: true, decision: 'skip' }, t.ctx)) as Confirmed;
-    assert.ok(skip2.kit);
-    assert.equal(await count(), 2);
-    // G12 (a): a retried confirmation skip (no new offer shown) changes nothing.
-    await tools.confirm_entry({ ...t.input, builder_confirmed: true, decision: 'skip' }, t.ctx);
-    assert.equal(await count(), 2);
-    assert.ok(!(await t.list()).token_offer);
-    const after = (await tools.confirm_entry({ ...t.input, wallet: W8 }, t.ctx)) as Confirmed;
-    assert.equal(after.show_to_builder, 'Ready to submit?');
-    const goAfter = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as Confirmed;
-    assert.ok(goAfter.kit);
-    assert.equal(t.calls.deploy, 0);
-  }));
-
-test("6.7 launch_token with the offer from an agent that can't push: the sign-in line and no entry (G13); signed in, the entry is made and it launches", dbTest, () =>
-  withTokenEnv(() =>
-    withSignIn(async () => {
-      const t = await offerSetup('t6sign');
-      const ctx = { ...noProofLine(t), matchProjects: t.ctx.matchProjects };
-      const offer = t.offerOf(await t.list(ctx));
-      const input = { offer, decision: 'go', builder_confirmed: true, creator_wallet: W8, agent: { can_push: false } };
-      const first = (await tools.launch_token(input, ctx)) as OfferLaunch;
-      assert.equal(first.fixable, true);
-      assert.match(first.sign_in_line ?? '', /^One click to prove .+ is yours, then \$\w+ launches: https:\/\/earnkit\.com\/github\/verify\?n=/);
-      // Ruling G13 (I2): a failed gate leaves no entry.
-      assert.ok(!first.project_id);
-      assert.equal((await t.rows()).length, 0);
-      assert.equal(t.calls.deploy, 0);
-      // The builder signs in from that link (GitHub faked): the sign-in is bound to the repo and W8.
-      const done = await completeVerify('code', new URL(first.sign_in!).searchParams.get('n')!, {
-        exchange: async () => 'gho_x',
-        user: async () => ({ login: 'alice', created_at: '2020-01-01T00:00:00Z', public_repos: 3 }),
-        repoPerms: async () => ({ push: true }),
-      });
-      assert.ok(done.ok);
-      // Another wallet is not proven by it: still no entry.
-      const other = (await tools.launch_token({ ...input, creator_wallet: `0x${'9'.repeat(40)}` }, ctx)) as OfferLaunch;
-      assert.equal(other.status, 'gate_failed');
-      assert.equal((await t.rows()).length, 0);
-      const second = (await tools.launch_token(input, ctx)) as OfferLaunch;
-      assert.equal(second.status, 'launched', JSON.stringify(second));
-      assert.equal(t.calls.deploy, 1);
-      const rows = await t.rows();
-      assert.equal(rows.length, 1);
-      const [v] = await sql()<{ project_id: number | null }[]>`SELECT project_id FROM github_verifications WHERE installation_id = ${t.inst}`;
-      assert.equal(v.project_id, rows[0].id);
-    }),
-  ));
-
-test('6.8 "40%" once per entry flow: the first reply offer, launch, prepare, confirm and record', dbTest, () =>
-  withTokenEnv(async () => {
-    const t = await offerSetup('t6forty');
-    // The real repo token lookup, so the steps after the launch see the token; the deploy keys the
-    // token by its repo as the real claim does (tokens.ts deployToken).
-    const { repoCoins: _rc, ...rest } = t.ctx;
-    const deploy = (t.ctx.tokenDeps as unknown as { deploy: (d: { projectId: number }) => Promise<unknown> }).deploy;
-    const ctx = {
-      ...rest,
-      tokenDeps: {
-        ...t.ctx.tokenDeps,
-        deploy: async (d: { projectId: number }) => {
-          const out = await deploy(d);
-          await sql()`UPDATE projects SET token_repo_key = ${normalizeRepoUrl(t.repo)} WHERE id = ${d.projectId}`;
-          return out;
-        },
-      } as unknown as TokenFlowDeps,
-    };
-    const texts: string[] = [];
-    const keep = (r: unknown) => {
-      const o = r as { show_to_builder?: string; note?: string; sign_in_line?: string; token?: { note?: string } };
-      texts.push(...[o.show_to_builder, o.note, o.sign_in_line, o.token?.note].filter((x): x is string => typeof x === 'string'));
-      return r;
-    };
-    const listed = keep(await t.list(ctx as typeof t.ctx)) as TokenOfferReply;
-    const launched = keep(await tools.launch_token({ offer: t.offerOf(listed), decision: 'go', builder_confirmed: true, creator_wallet: W8 }, ctx)) as OfferLaunch;
-    assert.equal(launched.status, 'launched');
-    keep(await tools.prepare_submission(t.input, ctx));
-    const confirmed = keep(await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, ctx)) as Confirmed;
-    assert.ok(confirmed.kit);
-    keep(await tools.record_submission({ program_id: t.p.id, project: t.project, submission_data: t.answers, builder_submitted: true }, ctx));
-    assert.equal(t.calls.deploy, 1);
-    assert.equal(texts.join('\n').split('40%').length - 1, 1, texts.filter((x) => x.includes('40%')).join('\n---\n'));
-  }));
-
-/** Runs fn with the GitHub OAuth env unset (sign-in off), whatever the shell has. */
-async function withSignInOff<T>(fn: () => Promise<T>): Promise<T> {
-  const old = [process.env.GITHUB_OAUTH_CLIENT_ID, process.env.GITHUB_OAUTH_CLIENT_SECRET];
-  delete process.env.GITHUB_OAUTH_CLIENT_ID;
-  delete process.env.GITHUB_OAUTH_CLIENT_SECRET;
-  try {
-    return await fn();
-  } finally {
-    if (old[0] !== undefined) process.env.GITHUB_OAUTH_CLIENT_ID = old[0];
-    if (old[1] !== undefined) process.env.GITHUB_OAUTH_CLIENT_SECRET = old[1];
-  }
-}
-
-test('G15 I3: on a shared client, no first-reply token offer while sign-in is off (the usual close instead); with sign-in on, the offer', dbTest, () =>
-  withTokenEnv(async () => {
-    const t = await offerSetup('g15i3');
-    await sql()`UPDATE installations SET shared_client = true WHERE id = ${t.inst}`;
-    const ctx = { ...t.ctx, sharedClient: true } as typeof t.ctx;
-    const off = await withSignInOff(() => t.list(ctx));
-    assert.ok(!off.token_offer, off.show_to_builder);
-    assert.doesNotMatch(off.show_to_builder, /40%|Launch \$/);
-    // A non-shared install still gets the offer with sign-in off.
-    assert.ok((await withSignInOff(() => t.list())).token_offer);
-    const on = await withSignIn(() => t.list(ctx));
-    assert.ok(on.token_offer, on.show_to_builder);
-    assert.match(on.show_to_builder, /Launch \$/);
-  }));
-
-test('G15 M2: the offer says "fits" only for a likely row; a row one step away says "is one step from"', dbTest, () =>
-  withTokenEnv(async () => {
-    const step = await offerSetup('g15m2s', { status: 'after_step' });
-    const r = await step.list();
-    assert.ok(r.token_offer, r.show_to_builder);
-    assert.match(r.show_to_builder, new RegExp(`${r.token_offer.project_name} is one step from ${step.p.title}: \\$`));
-    assert.doesNotMatch(r.show_to_builder, / fits /);
-    const likely = await offerSetup('g15m2l');
-    const l = await likely.list();
-    assert.match(l.show_to_builder, new RegExp(`${l.token_offer!.project_name} fits ${likely.p.title}: \\$`));
-  }));
-
-test("G12 (b): on one Grok install, user A's skip never stops user B's offer; without a code nothing is recorded", dbTest, () =>
-  withTokenEnv(() =>
-    withSignIn(async () => {
-      const t = await offerSetup('g12');
-      await sql()`UPDATE installations SET shared_client = true WHERE id = ${t.inst}`;
-      const ctx = { ...t.ctx, sharedClient: true };
-      const codeA = await signInAs(t.inst, null, t.repo, 'alice');
-      assert.ok(codeA);
-      const list = async (signed_in?: string) =>
-        (await tools.list_programs({ local_repos: [{ name: 'tipjar', chains: ['arc'] }], ...(signed_in && { signed_in }) }, ctx)) as TokenOfferReply;
-      const skip = async (signed_in?: string) => {
-        const r = await list(signed_in);
-        assert.ok(r.token_offer, 'offered');
-        await tools.launch_token({ offer: t.offerOf(r), decision: 'skip', ...(signed_in && { signed_in }) }, ctx);
-      };
-      // B (no code) skips twice: nothing is recorded, the offer stays.
-      await skip();
-      await skip();
-      const [{ n }] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM token_declines WHERE installation_id = ${t.inst}`;
-      assert.equal(n, 0);
-      // A skips: A's first-reply offer is gone (G14), B's stays.
-      await skip(codeA);
-      const rows = await sql()<{ login: string; count: number }[]>`SELECT login, count FROM token_declines WHERE installation_id = ${t.inst}`;
-      assert.deepEqual(rows.map((r) => [r.login, r.count]), [['alice', 1]]);
-      assert.ok(!(await list(codeA)).token_offer);
-      assert.ok((await list()).token_offer);
-    }),
-  ));
-
-test('G13 (I2): the offer path launches only an offer shown, re-checks the program, and leaves no entry on a failed gate', dbTest, () =>
-  withTokenEnv(async () => {
-    const t = await offerSetup('g13');
-    const go = (o: object, ctx: typeof t.ctx = t.ctx) =>
-      tools.launch_token({ decision: 'go', builder_confirmed: true, creator_wallet: W8, ...o }, ctx) as Promise<OfferLaunch & { show_to_builder?: string; proposed?: { symbol: string } }>;
-    const noEntry = async () => {
-      assert.equal((await t.rows()).length, 0);
-      assert.equal(t.calls.deploy, 0);
-    };
-    // Never offered (no token_offers row): refused.
-    const project_name = 'Tipjar';
-    const unseen = await go({ offer: { program_id: t.p.id, repo_url: t.repo, project_name } });
-    assert.deepEqual([unseen.status, unseen.note], ['failed', 'Nothing launched: this token was not offered yet.']);
-    await noEntry();
-    const offer = t.offerOf(await t.list());
-    // An edited ticker: offered again (no "40%"), never launched.
-    const edited = await go({ offer, symbol: 'MYTIP' });
-    assert.equal(edited.status, 'skipped');
-    const pair = (await readOffer(t.inst, t.p.id, offerKey(t.repo, offer.project_name)))!;
-    assert.equal(pair.symbol, 'MYTIP');
-    assert.equal(edited.show_to_builder, `Launch $MYTIP (${pair.name}) on Base now? Wallet: ${W8.slice(0, 6).toLowerCase()}…${W8.slice(-4).toLowerCase()}. yes / skip`);
-    assert.doesNotMatch(edited.show_to_builder ?? '', /40%/);
-    await noEntry();
-    // A failed gate (no proof line, sign-in off): its words, no entry.
-    const failed = await go({ offer }, noProofLine(t) as typeof t.ctx);
-    assert.equal(failed.status, 'gate_failed');
-    assert.ok(!failed.project_id);
-    await noEntry();
-    // The program filters again: an investment, a sponsor's or one without a prize gets no token.
-    const changes = [
-      () => sql()`UPDATE programs SET investment = true WHERE id = ${t.p.id}`,
-      () => sql()`UPDATE programs SET source = 'sponsor' WHERE id = ${t.p.id}`,
-      () => sql()`UPDATE programs SET max_award_usd = NULL WHERE id = ${t.p.id}`,
-    ];
-    for (const change of changes) {
-      const [old] = await sql()<{ investment: boolean; source: string; max_award_usd: string | null }[]>`
-        SELECT investment, source, max_award_usd FROM programs WHERE id = ${t.p.id}`;
-      await change();
-      const out = await go({ offer });
-      assert.deepEqual([out.status, out.note], ['skipped', 'No token for this entry.']);
-      await noEntry();
-      await sql()`UPDATE programs SET investment = ${old.investment}, source = ${old.source}, max_award_usd = ${old.max_award_usd} WHERE id = ${t.p.id}`;
-    }
-    // Then a yes on the edited pair (shown above) launches exactly it.
-    const launched = await go({ offer });
-    assert.equal(launched.status, 'launched', JSON.stringify(launched));
-    const [{ token_symbol }] = await sql()<{ token_symbol: string }[]>`SELECT token_symbol FROM projects WHERE installation_id = ${t.inst}`;
-    assert.equal(token_symbol, 'MYTIP');
-  }));
 
 /** Every builder-facing text of a reply (show_to_builder, notes, the sign-in line). */
 const builderText = (r: unknown) => {
@@ -3337,50 +3010,122 @@ const builderText = (r: unknown) => {
   return [o.show_to_builder, o.note, o.sign_in_line, o.token?.note].filter((x): x is string => typeof x === 'string').join('\n');
 };
 
-test('G14 (M1): an unanswered first-reply offer starts the flow: the confirmation uses the repeat wording, "40%" once', dbTest, () =>
+/** Another copy of the setup's program (same installation and repo), titled `title`. */
+async function extraProgram(t: Awaited<ReturnType<typeof confirmSetup>>, suffix: string, title: string) {
+  const p = { ...t.p, id: `${t.p.id}-${suffix}`, title };
+  await upsertProgram(ProgramFile.parse(p));
+  return p;
+}
+
+test('7.10 v2.10 item 5: no first-reply offer; the token block has no fine print; the confirm offer is one line; the reply after "go" has no WETH, gas or terms', dbTest, () =>
   withTokenEnv(async () => {
-    const t = await offerSetup('g14m1');
+    const t = await offerSetup('t7once');
     const texts: string[] = [];
     const listed = await t.list();
-    assert.ok(listed.token_offer);
+    assert.ok(!('token_offer' in listed), Object.keys(listed).join());
+    assert.doesNotMatch(listed.show_to_builder, /40%|launches \$|\bskip\b|Launch \$/);
     texts.push(builderText(listed));
-    // The builder doesn't answer it and starts the entry instead.
-    const prep = await tools.prepare_submission(t.input, t.ctx);
-    assert.match(builderText(prep), /\nYes: launches \$\w+ \(.+\) on Base\.\n/);
+    const prep = (await tools.prepare_submission({ ...t.input, coach_asked: true }, t.ctx)) as { show_to_builder: string; token?: Record<string, unknown> };
+    assert.ok(prep.token, JSON.stringify(prep));
+    for (const k of ['earnings', 'terms', 'paired_with', 'say_to_builder']) assert.ok(!(k in prep.token), k);
+    const sym = (prep.token.proposed as { symbol: string }).symbol;
+    assert.ok(prep.show_to_builder.endsWith(`Ready. Yes submits your entry and launches $${sym} (Tip Jar): 40% of its fees to you, plus the builder bonus. Say yes with your wallet address / skip the token`), prep.show_to_builder);
     texts.push(builderText(prep));
-    const offer = await tools.confirm_entry({ ...t.input, wallet: W8 }, t.ctx);
-    assert.match(builderText(offer), /\nYes: launches \$\w+ \(.+\) on Base\.\n/);
-    texts.push(builderText(offer));
+    const offer = (await tools.confirm_entry({ ...t.input, wallet: W8 }, t.ctx)) as Confirmed;
+    assert.equal(
+      offer.show_to_builder,
+      confirmOffer({ hasBonus: true, coinIn: null, canPush: true, wallet: W8, proposal: { name: 'Tip Jar', symbol: sym } }),
+    );
+    assert.ok(!offer.show_to_builder.includes('\n'));
     const confirmed = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as Confirmed;
-    assert.equal(confirmed.token?.status, 'launched');
+    assert.equal(confirmed.token?.status, 'launched', JSON.stringify(confirmed));
     texts.push(builderText(confirmed));
     texts.push(builderText(await tools.record_submission({ program_id: t.p.id, project: t.project, submission_data: t.answers, builder_submitted: true }, t.ctx)));
-    assert.equal(texts.join('\n').split('40%').length - 1, 1, texts.join('\n---\n'));
+    const all = texts.join('\n---\n');
+    assert.doesNotMatch(all, /\bWETH\b|\bgas\b|token-creator-agreement|risk-disclosure/, all);
+    // "40%" once in the flow (the confirm offer the agent re-asked is the same line, not counted here).
+    assert.equal(all.split('40%').length - 1, 1, all);
+    for (const r of texts) assert.ok((r.match(/Builder bonus:/g)?.length ?? 0) <= 1, r);
   }));
 
-test('G14 (M2): after one skip the first reply never offers that repo again; the confirmation offers it once more', dbTest, () =>
+test('7.11 v2.10 item 5: skip the token twice, never offered again; the third offer is "Ready to submit?" and records nothing', dbTest, () =>
   withTokenEnv(async () => {
-    const t = await offerSetup('g14m2');
-    const offer = t.offerOf(await t.list());
-    await tools.launch_token({ offer, decision: 'skip' }, t.ctx);
-    const again = await t.list();
-    assert.ok(!again.token_offer);
-    assert.doesNotMatch(again.show_to_builder, /40%|\bskip\b/);
-    const confirm = (await tools.confirm_entry({ ...t.input, wallet: W8 }, t.ctx)) as Confirmed;
-    assert.match(confirm.show_to_builder, /\nYes: launches \$\w+ \(.+\) on Base\.\n/);
-    assert.doesNotMatch(confirm.show_to_builder, /40%/);
+    const t = await confirmSetup('t7skip2');
+    const second = await extraProgram(t, 'b', 'Second Grants');
+    const third = await extraProgram(t, 'c', 'Third Grants');
+    const skip = { builder_confirmed: true, decision: 'skip' } as const;
+    const count = async () =>
+      (await sql()<{ count: number }[]>`SELECT count FROM token_declines WHERE installation_id = ${t.inst}`)[0]?.count ?? 0;
+    const offers = async () =>
+      (await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM token_offers WHERE installation_id = ${t.inst}`)[0].n;
+    for (const p of [t.p, second]) {
+      const r = (await tools.confirm_entry({ ...t.input, program_id: p.id, ...skip }, t.ctx)) as Confirmed;
+      assert.ok(r.kit, JSON.stringify(r));
+    }
+    assert.equal(await count(), 2);
+    const before = await offers();
+    const ask = (await tools.confirm_entry({ ...t.input, program_id: third.id, wallet: W8 }, t.ctx)) as Confirmed;
+    assert.equal(ask.show_to_builder, 'Ready to submit?');
+    const prep = (await tools.prepare_submission({ ...t.input, program_id: third.id, coach_asked: true }, t.ctx)) as { show_to_builder: string };
+    assert.doesNotMatch(prep.show_to_builder, /40%|skip the token/);
+    assert.equal(await count(), 2);
+    assert.equal(await offers(), before);
+    assert.equal(t.calls.deploy, 0);
   }));
 
-test('fix round 3 (G14): two list_programs calls before the builder answers say "40%" once', dbTest, () =>
+test('Pre-flight P5: the offer path (until T9) refuses an unseen token and re-asks with the confirm line, without "40%"', dbTest, () =>
   withTokenEnv(async () => {
-    const t = await offerSetup('g14r3');
-    const first = await t.list();
-    const second = await t.list();
-    assert.ok(first.token_offer && second.token_offer);
-    assert.deepEqual(second.token_offer.proposed, first.token_offer.proposed);
-    assert.equal(`${first.show_to_builder}\n${second.show_to_builder}`.split('40%').length - 1, 1);
-    assert.ok(second.show_to_builder.endsWith(`Launch $${first.token_offer.proposed.symbol} (${first.token_offer.proposed.name}) on Base now? Say yes with your wallet address, or skip.`), second.show_to_builder);
+    const t = await confirmSetup('t7p5', { noOffer: true });
+    const launch = (o: object) =>
+      tools.launch_token({ decision: 'go', builder_confirmed: true, creator_wallet: W8, ...o }, t.ctx) as Promise<OfferLaunch>;
+    const unseen = await launch({ offer: { program_id: t.p.id, repo_url: t.repo, project_name: 'Tip Jar' } });
+    assert.deepEqual([unseen.status, unseen.note], ['failed', 'Nothing launched: this token was not offered yet.']);
+    // A pair shown by the confirm line (prepare_submission stores it).
+    await saveOffer(t.inst, t.p.id, offerKey(t.repo, 'Tip Jar'), { name: t.offered.name, symbol: t.offered.symbol });
+    const edited = await launch({ offer: { program_id: t.p.id, repo_url: t.repo, project_name: 'Tip Jar' }, symbol: 'MYTIP' });
+    assert.equal(edited.status, 'skipped');
+    const pair = (await readOffer(t.inst, t.p.id, offerKey(t.repo, 'Tip Jar')))!;
+    assert.equal(
+      edited.show_to_builder,
+      `Yes submits your entry and launches $MYTIP (${pair.name}). Wallet: ${W8.slice(0, 6).toLowerCase()}…${W8.slice(-4).toLowerCase()}. yes / skip the token`,
+    );
+    assert.equal((await t.rows()).length, 0);
+    assert.equal(t.calls.deploy, 0);
   }));
+
+test('7.9 v2.10 item 15 (Review Focus 5): the deadline line starts prepare_submission\'s reply; never on a shared client without a code; with one, only that login\'s entries', dbTest, () =>
+  withTokenEnv(() =>
+    withSignIn(async () => {
+      const t = await confirmSetup('t7dead');
+      const soon = await extraProgram(t, 'soon', 'Soon Grants');
+      const skip = { builder_confirmed: true, decision: 'skip' } as const;
+      // Two unsubmitted entries (confirmed, never submitted): Arc's and Soon Grants'.
+      const a = (await tools.confirm_entry({ ...t.input, ...skip }, t.ctx)) as Confirmed;
+      await tools.confirm_entry({ ...t.input, program_id: soon.id, ...skip }, t.ctx);
+      await sql()`UPDATE programs SET ends_at = now() + interval '50 hours' WHERE id = ${t.p.id}`;
+      await sql()`UPDATE programs SET ends_at = now() + interval '26 hours' WHERE id = ${soon.id}`;
+      const prep = async (ctx: object, extra: object = {}) =>
+        ((await tools.prepare_submission({ ...t.input, ...extra }, ctx as typeof t.ctx)) as { show_to_builder: string }).show_to_builder;
+      const reset = () => sql()`UPDATE installations SET deadline_shown = NULL WHERE id = ${t.inst}`;
+      // Non-shared: the soonest first, once a day.
+      const first = await prep(t.ctx);
+      assert.ok(first.startsWith("Soon Grants closes tomorrow; your entry isn't submitted.\n\n"), first);
+      const again = await prep(t.ctx);
+      assert.ok(again.startsWith("Arc Microgrants closes in 2 days; your entry isn't submitted.\n\n"), again);
+      assert.doesNotMatch(await prep(t.ctx), /closes (today|tomorrow|in \d days)/);
+      // Shared, no code: nothing (G7).
+      await reset();
+      const shared = { ...t.ctx, sharedClient: true };
+      assert.doesNotMatch(await prep(shared), /closes (today|tomorrow|in \d days)/);
+      // Shared, alice's code for the Arc entry only: Arc's line, never Soon Grants'.
+      await sql()`UPDATE installations SET shared_client = true WHERE id = ${t.inst}`;
+      const code = await signInAs(t.inst, a.project_id!, t.repo, 'alice');
+      assert.ok(code);
+      const signed = await prep(shared, { signed_in: code });
+      assert.ok(signed.startsWith("Arc Microgrants closes in 2 days; your entry isn't submitted.\n\n"), signed);
+      assert.doesNotMatch(signed, /Soon Grants closes/);
+    }),
+  ));
 
 test('8.15 prepare_submission host: true: the sign-in link, then a 15-minute upload URL; never in builder text; off without R2', dbTest, async () => {
   const env = {
@@ -3574,14 +3319,14 @@ test('10.11 list_programs: "Builders using EarnKit won $X" once, right after the
   const read = wonSource.read;
   try {
     wonSource.read = async () => 12_500;
-    const r = (await tools.list_programs({}, { installationId: id, roundPoolsWei: async () => new Map() })) as { show_to_builder: string };
+    const r = (await tools.list_programs({}, { installationId: id, roundPools: async () => new Map() })) as { show_to_builder: string };
     const paras = r.show_to_builder.split('\n\n');
     // Joined to the money headline, or the first paragraph when the reply opens with a heading
     // (other test files' programs share this database); present.test pins each form exactly.
     assert.match(paras[0], /(^|in prizes (open right now|you qualify for)\. )Builders using EarnKit won \$12,500\.$/);
     assert.equal(r.show_to_builder.split('Builders using EarnKit won').length, 2, 'once');
     wonSource.read = async () => 0;
-    const none = (await tools.list_programs({}, { installationId: id, roundPoolsWei: async () => new Map() })) as { show_to_builder: string };
+    const none = (await tools.list_programs({}, { installationId: id, roundPools: async () => new Map() })) as { show_to_builder: string };
     assert.doesNotMatch(none.show_to_builder, /Builders using EarnKit|won \$0/);
   } finally {
     wonSource.read = read;

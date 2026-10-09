@@ -165,7 +165,7 @@ test('final fix wave (C2): a hosted install is never offered a pickup, from memo
   // A shared registration that remembers another user's GitHub name from an earlier call.
   const shared = await install({ shared: true, github_user: user });
   const tools_ = tools as unknown as { list_programs: (i: unknown, c: unknown) => Promise<{ pick_up?: unknown; show_to_builder: string }> };
-  const ctx = { installationId: shared.id, ownInstallationId: shared.id, sharedClient: true, matchProjects: async () => ({ fits: [] }), roundPoolsWei: async () => new Map(), repoCoins: async () => new Map() };
+  const ctx = { installationId: shared.id, ownInstallationId: shared.id, sharedClient: true, matchProjects: async () => ({ fits: [] }), roundPools: async () => new Map(), repoCoins: async () => new Map() };
   const r = await tools_.list_programs({}, ctx);
   assert.ok(!('pick_up' in r), 'no offer from remembered state');
   assert.doesNotMatch(r.show_to_builder, /Pick up/);

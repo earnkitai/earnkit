@@ -108,7 +108,7 @@ test('v2.7 journey: what can I earn, the guide, then the token step', dbTest, as
     {
       installationId: id,
       // v2.8 Ruling C4: Easy programs sort first, so Arc (Easy) is always in the first table.
-      roundPoolsWei: async () => new Map([['arc-microgrants', 6n * 10n ** 17n]]),
+      roundPools: async () => new Map([['arc-microgrants', { wei: 6n * 10n ** 17n, tokens: 2 }]]),
     },
   )) as { show_to_builder: string };
   const first = list.show_to_builder;
@@ -116,12 +116,8 @@ test('v2.7 journey: what can I earn, the guide, then the token step', dbTest, as
   // v2.9 F21: the one money figure (the shared test DB may hold other open programs, so only its
   // form is checked here; landing.test.ts pins it to moneyText(openMoneyUsd)).
   assert.match(first, /^\$[\d.]+[KM]?\+? in prizes open right now\.\n\n/, first);
-  assert.ok(
-    first.trimEnd().endsWith(
-      'Every entry gets a token that pays you, and its fees fund the builder bonus. 0.60 ETH so far.',
-    ),
-    first,
-  );
+  // v2.10 item 1: one plain bonus line, right before the closing offer.
+  assert.match(first, /\n\nBuilder bonus: 0\.60 ETH so far\n\n[^\n]+$/, first);
   assert.doesNotMatch(first, /affiliated/i);
   assert.deepEqual(coinWords(first), []);
 
@@ -164,7 +160,8 @@ test('v2.7 journey: what can I earn, the guide, then the token step', dbTest, as
     // and no Clanker anywhere in the reply.
     const ready = await prep({ name: 'TipJar', repo_url, live_url: 'https://tipjar.xyz' });
     assert.equal(ready.ready, true);
-    assert.match(ready.show_to_builder, /\nYes: launches \$TIPJAR \(TipJar\) on Base\. You earn 40% of its trading fees, plus a shot at the builder bonus\.\n/);
+    // v2.10 item 5: the one confirm line.
+    assert.match(ready.show_to_builder, /\n\nReady\. Yes submits your entry and launches \$TIPJAR \(TipJar\): 40% of its fees to you, plus the builder bonus\. Wallet: 0x1581…b9a3\. yes \/ skip the token$/);
     assert.doesNotMatch(JSON.stringify(ready), /clanker/i);
     assert.deepEqual(coinWords(ready.show_to_builder), []);
   } finally {

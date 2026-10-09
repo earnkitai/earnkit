@@ -818,6 +818,20 @@ test('11.7 (F23): builder navigation never links the dormant sponsor pages; the 
 
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 
+test('7.12 v2.10 item 5: /p/<id> has one footer line with both token terms links (they left every reply)', () => {
+  // The page imports through the "@/" alias, which the test runner doesn't resolve, so its source is
+  // read (as 4.13 does) and the footer element rendered on its own.
+  const src = readFileSync(join(import.meta.dirname, '../../app/p/[id]/page.tsx'), 'utf8');
+  assert.match(src, /import \{ TOKEN_TERMS \} from '@\/lib\/earnkit\/tokens';/);
+  const lines = src.split('\n').filter((l) => l.includes('Token terms:'));
+  assert.equal(lines.length, 1, lines.join('\n'));
+  assert.equal(lines[0].trim(), 'Token terms: <A href={TOKEN_TERMS.agreement}>agreement</A> · <A href={TOKEN_TERMS.risks}>risks</A>');
+  // Outside any condition: it is between the list and the scored line, unconditionally.
+  const footer = src.slice(src.indexOf('</ul>'), src.indexOf('{p.scored_at ?'));
+  assert.ok(footer.includes('Token terms:'), footer);
+  assert.doesNotMatch(footer, /\? \(|&&/);
+});
+
 test('4.13 (H6) a private repo matched only from the local copy (App off) shows no URL on /p, /campaigns or /bonus; a public one read within 7 days does', dbTest, async (t) => {
   const { sql } = await import('./db');
   const { bonusBoard } = await import('./bonus-board');

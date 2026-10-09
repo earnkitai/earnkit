@@ -172,7 +172,7 @@ test('alsoQualifies: a "needs a live product" program shows when the live link i
     programs: [prog('base-mini', { title: 'Base Builder Grant Program', tag: 'needs a live product', requirements: [liveField, otherField] })],
   });
   assert.deepEqual(rows, [{ id: 'base-mini', title: 'Base Builder Grant Program', prize: 'up to $5,000', ends: 'rolling', left: 1, needsLive: true }]);
-  assert.match(alsoText(rows, null)!, /\| Base Builder Grant Program \| up to \$5,000 \| rolling \| a live link \|/);
+  assert.match(alsoText(rows)!, /\| Base Builder Grant Program \| up to \$5,000 \| rolling \| a live link \|/);
 });
 
 test('alsoQualifies: a "needs a live product" program shows normally once the project has a live product', () => {
@@ -185,28 +185,14 @@ test('alsoQualifies: a "needs a live product" program shows normally once the pr
   assert.equal(rows[0].needsLive, undefined);
 });
 
-test('alsoText: the table, "Still needed", and the builder bonus sentence with coinIn; without coinIn the sentence is dropped; no rows is null', () => {
+test('7.6 alsoText: the table and "Still needed", with no bonus sentence (v2.10 item 1); no rows is null', () => {
   const rows: AlsoRow[] = [
     { id: 'base-builder-grants', title: 'Base Builder Grant Program', prize: 'up to $5,000', ends: 'rolling', left: 1 },
     { id: 'avalanche-team1-mini-grants', title: 'Avalanche Team1 Mini Grants', prize: 'up to $10,000', ends: 'rolling', left: 0 },
   ];
+  const text = alsoText(rows)!;
   assert.equal(
-    alsoText(rows, 'Arc Microgrants'),
-    [
-      'You also qualify for:',
-      '| Program | Prize | Ends | Still needed |',
-      '|---|---|---|---|',
-      '| Base Builder Grant Program | up to $5,000 | rolling | 1 answer |',
-      '| Avalanche Team1 Mini Grants | up to $10,000 | rolling | nothing |',
-      'Say "enter it here too" for any of them. Your builder bonus rides on your Arc Microgrants entry. Your builder bonus moves to your next entry when a program ends.',
-    ].join('\n'),
-  );
-  // v2.8.1 §D: the rollover line once, next to the positive note; never an em dash or "coin".
-  const text = alsoText(rows, 'Arc Microgrants')!;
-  assert.equal(text.split('moves to your next entry').length, 2);
-  assert.doesNotMatch(text, /\u2014|\bcoin/i);
-  assert.equal(
-    alsoText(rows, null),
+    text,
     [
       'You also qualify for:',
       '| Program | Prize | Ends | Still needed |',
@@ -216,12 +202,13 @@ test('alsoText: the table, "Still needed", and the builder bonus sentence with c
       'Say "enter it here too" for any of them.',
     ].join('\n'),
   );
-  assert.equal(alsoText([], 'Arc Microgrants'), null);
+  assert.doesNotMatch(text, /rides on|moves to|builder bonus|\u2014|\bcoin/i);
+  assert.equal(alsoText([]), null);
 });
 
 test('alsoText: "N answers" plural for left > 1', () => {
   const rows: AlsoRow[] = [{ id: 'p', title: 'P', prize: 'up to $1,000', ends: 'rolling', left: 3 }];
-  assert.match(alsoText(rows, null)!, /\| 3 answers \|/);
+  assert.match(alsoText(rows)!, /\| 3 answers \|/);
 });
 
 // Final review I1: "Still needed" counts a field the project info fills (repo, live link, name) as

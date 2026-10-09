@@ -1,11 +1,12 @@
-import { COIN_FOOTNOTE, bonusRidesOn, shortWallet } from './entry-text';
+import { SKIP_TOKEN, shortWallet } from './entry-text';
 
-export { bonusRidesOn };
+export { SKIP_TOKEN };
 
 /**
- * v2.8 Part C, Rulings 4, 5, 7 and 31 (plan): the confirmation step. One combined offer (the builder
- * bonus comes with a token) replaces the separate token row; "yes" launches the token, "skip" means
- * no token and no builder bonus. Pure: the offer text and the decision only.
+ * v2.8 Part C, Rulings 4, 5, 7 and 31 (plan): the confirmation step. v2.10 item 5: the token is
+ * pitched once, here, as one line inside the single yes ("Yes submits your entry and launches
+ * $TIP (Tip Jar): 40% of its fees to you, plus the builder bonus. yes / skip the token"); "skip the
+ * token" submits without one. Pure: the offer text and the decision only.
  */
 
 export type OfferInput = {
@@ -18,15 +19,15 @@ export type OfferInput = {
    * offer (the builder signs in after "yes"). Off: the CANT_PUSH line, as before.
    */
   signIn?: boolean;
+  /** The wallet shown (given, the entry's own, or remembered on a non-shared client), or null: asked. */
   wallet: string | null;
-  remembered: boolean;
   /** No token on this entry at all (the program's token policy is off, or launches are unavailable). */
   tokensOff?: boolean;
   /** v2.8.1 §A2: the token that launches on "yes", named in the Yes line. */
   proposal?: { name: string; symbol: string } | null;
   /**
    * v2.8.1 §F19 (T7 journey test): the offer again in the same entry (a taken ticker, or a pair the
-   * builder hasn't seen): the Yes line names the token without the earnings figure, said once already.
+   * builder hasn't seen): the line names the token without the earnings figure, said once already.
    */
   again?: boolean;
 };
@@ -40,20 +41,11 @@ export const CANT_PUSH = 'To launch your token, open this in Claude Code or Curs
  */
 export const proofLineWaiting = (branch?: string | null) =>
   `Your entry is saved. Your token is waiting on a short proof line on your repo's ${branch ? `${branch} branch` : 'default branch'}; say go once I've pushed it.`;
-export const SKIP_LINE = 'Skip: no token, no builder bonus.';
 export const READY_TO_SUBMIT = 'Ready to submit?';
 /** Ruling 4 (plan): a `go` on an entry with no repo to prove. */
 export const NEEDS_REPO = 'Your token needs a public repo.';
 /** Ruling 4 (plan): a `go` on a program without tokens, or while launches are unavailable. */
 export const NO_TOKEN_HERE = 'No token for this entry.';
-
-/** The wallet line of the offer (Ruling 17's form): short, lowercase, or the no-wallet hint. Pure. */
-export function offerWalletLine(a: { wallet: string | null; remembered: boolean; hasBonus: boolean }) {
-  const what = a.hasBonus ? 'fees and any bonus' : 'fees';
-  return a.wallet
-    ? `Wallet for ${what}: ${shortWallet(a.wallet.toLowerCase())}${a.remembered ? ' (used last time)' : ''}, or tell me another.`
-    : `Wallet for ${what}: none yet. ${NO_WALLET_HINT}`;
-}
 
 /**
  * Review Minor 5: after a "yes" that came without the wallet it showed, the question about the
@@ -66,30 +58,37 @@ export const walletQuestion = (wallet: string, hasBonus: boolean) =>
 export const TOKEN_ERROR_CONFIRM = 'EarnKit hit an error launching the token; say go to try again.';
 
 /**
- * v2.8.1 §A2, §F19: the Yes line names the token that launches, and is the one place an entry's flow
- * says "40%": "Yes: launches $TIP (TipJar) on Base. You earn 40% of its trading fees, plus a shot at
- * the builder bonus." Pure; exported for tests.
+ * v2.10 item 5: the one pitch, inside the single yes, once per entry flow: "Yes submits your entry
+ * and launches $TIP (Tip Jar): 40% of its fees to you, plus the builder bonus. Wallet: 0x12ab…9f3e.
+ * yes / skip the token". Without a bonus, no ", plus the builder bonus"; `again` (said once
+ * already) drops the earnings part. The wallet is shown short when known (on a shared client only
+ * one given in this flow, G13), else asked in the same line. Pure.
  */
-export function yesLine(proposal: { name: string; symbol: string } | null, hasBonus: boolean, again = false) {
-  const what = proposal ? `launches $${proposal.symbol} (${proposal.name}) on Base` : 'your entry gets a token on Base';
-  if (again) return `Yes: ${what}.`;
-  return `Yes: ${what}. You earn 40% of its trading fees${hasBonus ? ', plus a shot at the builder bonus' : ''}.`;
+export function confirmLine(a: {
+  proposal: { name: string; symbol: string } | null;
+  hasBonus: boolean;
+  wallet: string | null;
+  walletKnown: boolean;
+  again?: boolean;
+}): string {
+  const what = a.proposal ? `$${a.proposal.symbol} (${a.proposal.name})` : 'your token';
+  const why = a.again ? '' : `: 40% of its fees to you${a.hasBonus ? ', plus the builder bonus' : ''}`;
+  const answer = a.walletKnown
+    ? `${a.wallet ? `Wallet: ${shortWallet(a.wallet.toLowerCase())}. ` : ''}yes / ${SKIP_TOKEN}`
+    : `Say yes with your wallet address / ${SKIP_TOKEN}`;
+  return `Yes submits your entry and launches ${what}${why}. ${answer}`;
 }
 
 /**
- * The confirmation offer the builder answers with one word. v2.8.1 §C13: a repo whose token is in
- * another program gets "Ready to submit?" alone (the bonus note is said once, in Also qualifies).
+ * The confirmation offer the builder answers with one word: the confirm line. v2.8.1 §C13: a repo
+ * whose token is in another program, or an entry without a token, gets "Ready to submit?" alone.
  * Pure.
  */
 export function confirmOffer(a: OfferInput): string {
   if (a.coinIn) return READY_TO_SUBMIT;
   if (a.tokensOff) return READY_TO_SUBMIT;
   if (!a.canPush && !a.signIn) return `${CANT_PUSH}\n${READY_TO_SUBMIT}`;
-  const wallet = offerWalletLine(a);
-  const lines = a.hasBonus
-    ? ['Want the builder bonus? It comes with a token.', yesLine(a.proposal ?? null, true, a.again), SKIP_LINE, wallet]
-    : ['Want a token for your entry?', yesLine(a.proposal ?? null, false, a.again), 'Skip: no token.', wallet];
-  return `${lines.join('\n')}\n\n${COIN_FOOTNOTE}`;
+  return confirmLine({ proposal: a.proposal ?? null, hasBonus: a.hasBonus, wallet: a.wallet, walletKnown: a.wallet !== null, again: a.again });
 }
 
 export type ConfirmDecision =

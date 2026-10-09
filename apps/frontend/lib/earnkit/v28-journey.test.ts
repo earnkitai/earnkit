@@ -9,7 +9,6 @@ import { sql } from './db';
 import { ProgramFile } from './program-file';
 import { listPrograms, upsertProgram } from './programs';
 import { moneyText, openMoneyUsd } from './stats';
-import { TOKEN_LINE } from './present';
 import { tools } from './tools';
 import { tokenLineFor } from './token-gate';
 import { TECHNICAL_TERMS, type TokenFlowDeps } from './token-launch';
@@ -160,7 +159,7 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
     } as unknown as TokenFlowDeps;
     const ctx = {
       installationId: inst,
-      roundPoolsWei: async () => new Map<string, bigint | null>(),
+      roundPools: async () => new Map(),
       tokenDeps,
       entryDeps: { fetchProof: async () => `<html><a href="${repo}">TipJar</a></html>` },
     };
@@ -175,7 +174,8 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
     // v2.9 F21: the one money figure over the same open programs.
     const cards = await listPrograms();
     assert.ok(list.show_to_builder.startsWith(`${moneyText(openMoneyUsd(cards))} in prizes open right now.`), list.show_to_builder);
-    assert.ok(list.show_to_builder.trimEnd().endsWith(TOKEN_LINE), list.show_to_builder);
+    // v2.10 item 1: one plain bonus line right before the closing offer; no token line.
+    assert.match(list.show_to_builder, /\n\nBuilder bonus: no tokens yet, so yours would be first\n\n[^\n]+$/, list.show_to_builder);
 
     // 3. Arc, with the project only: the coach's questions are the whole screen.
     const W = '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3';
@@ -207,9 +207,9 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
     assert.equal(draft.ready, true);
     assert.ok(draft.show_to_builder.startsWith('|'), draft.show_to_builder);
     assert.ok(draft.fixes.length <= 3);
-    assert.match(draft.show_to_builder, /\n\nReady\. Want the builder bonus\? It comes with a token\.\n/);
+    assert.match(draft.show_to_builder, /\n\nReady\. Yes submits your entry and launches \$/);
     // v2.8.1 §C11: the wallet from the coach round is on the offer; the confirmation is a single yes.
-    assert.match(draft.show_to_builder, /\nWallet for fees and any bonus: 0x1581…b9a3, or tell me another\./);
+    assert.match(draft.show_to_builder, / Wallet: 0x1581…b9a3\. yes \/ skip the token$/);
     assert.equal(draft.shown_wallet, W);
     assert.ok(!('kit' in draft));
 
@@ -240,8 +240,10 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
     )) as Reply & { project_id: number; also_qualifies?: { id: string; title: string }[] });
     assert.equal(recorded.project_id, confirmed.project_id);
     assert.ok(recorded.also_qualifies?.some((r) => r.title === 'Base Builder Grant Program'), JSON.stringify(recorded.also_qualifies));
-    // v2.8.1 §C13: the bonus note, once, positively, in the Also qualifies block.
-    assert.ok(recorded.show_to_builder.endsWith('Your builder bonus rides on your Arc Microgrants entry. Your builder bonus moves to your next entry when a program ends.'), recorded.show_to_builder);
+    // v2.10 item 1: Also qualifies has no bonus sentences; the reply has at most one bonus line.
+    assert.ok(recorded.show_to_builder.endsWith('Say "enter it here too" for any of them.'), recorded.show_to_builder);
+    assert.doesNotMatch(recorded.show_to_builder, /rides on|moves to your next entry/);
+    assert.ok((recorded.show_to_builder.match(/Builder bonus:/g)?.length ?? 0) <= 1, recorded.show_to_builder);
 
     // 7. "Enter it here too" for Base: one round, pinned. (The brief's "at most 1" holds only once
     //    the bank answers something the coach would ask: Task 9's `first` rule, accepted in its
@@ -313,7 +315,7 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
       replies.filter(([l]) => labels.includes(l)).reduce((n, [, r]) => n + (builderText(r).match(/40%/g)?.length ?? 0), 0);
     assert.equal(forty(['list_programs', 'prepare_submission (questions)', 'prepare_submission (draft)', 'confirm_entry (go)', 'record_submission']), 1);
     assert.equal(replies.filter(([, r]) => /40%/.test(builderText(r))).map(([l]) => l).join(), 'prepare_submission (draft)');
-    assert.match(draft.show_to_builder, /\nYes: launches \$[A-Z0-9]+ \(TipJar\) on Base\. You earn 40% of its trading fees, plus a shot at the builder bonus\.\n/);
+    assert.match(draft.show_to_builder, /Yes submits your entry and launches \$[A-Z0-9]+ \(TipJar\): 40% of its fees to you, plus the builder bonus\./);
     for (const [label, r] of replies) {
       assert.ok((builderText(r).match(/builder bonus (rides|counts|is in)/gi)?.length ?? 0) <= 1, label);
       assert.doesNotMatch(builderText(r), /no builder bonus:|don't add to it/, label);

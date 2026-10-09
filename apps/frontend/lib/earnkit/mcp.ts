@@ -109,8 +109,7 @@ export const LIST_PROGRAMS_DESCRIPTION =
   'Returns show_to_builder: show it exactly as written, with no extra summary or advice. ' +
   'It leads with "EarnKit matches you to $X in prizes you qualify for" when their repos fit, ' +
   'or "$X in prizes open right now" with ideas you can build when there is no repo. Every program shows ' +
-  'its difficulty; the token and builder bonus line closes the message. ' +
-  'With token_offer, the message ends with a token offer instead: pass the answer to launch_token. ' +
+  'its difficulty; one builder bonus line comes before the closing offer. ' +
   'matches lists, per repo and program, what is missing (live_url, mainnet_deploy, new_work, ' +
   'real_users) and the effort (minutes to weeks), for your own plan. ' +
   'When the reply has ask_outcome, ask the builder its question once and pass their answer to tell_earnkit. ' +
@@ -160,8 +159,8 @@ const recordSubmissionDescription = (campaignOpen: boolean) =>
   `${TO_LAUNCH} ${OWNERSHIP_FOR_TOKEN} ` +
   'Returns project_id and token: { status: launched | skipped | gate_failed | pending | failed, note, agent_note? }. ' +
   (campaignOpen
-    ? 'Also returns show_to_builder (other programs: the token and the builder bonus with its leaderboard link; campaign entries: rank, leaderboard, payout date): '
-    : 'Also returns show_to_builder (the token and the builder bonus with its leaderboard link): ') +
+    ? 'Also returns show_to_builder (other programs: the token and the builder bonus line; campaign entries: rank, leaderboard, payout date): '
+    : 'Also returns show_to_builder (the token and the builder bonus line): ') +
   'show show_to_builder exactly as written; token.note and token.agent_note are for you, to act on (never read tool, field or file names to the builder). ' +
   (campaignOpen
     ? `Campaign entries: name up to ${TEXT_LIMITS.project_name.max} characters on one line, description up to ` +
@@ -172,7 +171,6 @@ const recordSubmissionDescription = (campaignOpen: boolean) =>
 /** v2.9 B10: under 800 characters with OWNERSHIP_FOR_TOKEN (the brief's limit); the offer sentence verbatim. */
 export const LAUNCH_TOKEN_DESCRIPTION =
   "Launch (or retry) an entry's token (project_id), e.g. after you pushed earnkit.txt or the builder gave a wallet (creator_wallet). " +
-  "After the first reply's token offer, pass offer (program_id, repo_url, project_name from token_offer) and decision: 'go' on yes, 'skip' on skip. " +
   'Only after the builder said yes; launches are public and permanent. Never a wallet from another entry. ' +
   'Pass note on as written; agent_note is for you. ' +
   OWNERSHIP_FOR_TOKEN;
@@ -201,7 +199,7 @@ const prepareSubmissionDescription = (campaignOpen: boolean) =>
   "coach.fields gives each field's judges, pattern and limit; coach.from_bank holds this project's answers from earlier programs, re-angle them to this program's judges. " +
   'Once ready, show_to_builder is the draft table, then at most 3 fixes (never blocking), then the offer; make agent_fixes yourself first. ' +
   'Show show_to_builder to the builder exactly as written. When ready is false, show_to_builder leads with what\'s missing and has no token or wallet: finish those first and call again. ' +
-  'When ready, it ends with the confirmation offer: the builder bonus comes with a token, and a wallet line. The builder says yes or skip in one word; then call confirm_entry, ' +
+  'When ready, it ends with the one confirm line (the token and the wallet). The builder says yes, or skip the token; then call confirm_entry, ' +
   'which launches the token on yes and returns the submit kit (the form link and every answer). shown_wallet is the wallet on that line; ' +
   "once the builder says yes, pass it back as confirm_entry's wallet (EarnKit never assumes it). " +
   'token_line: commit it with your work before the builder confirms. ' +
@@ -231,7 +229,7 @@ const CHECK_BACK =
  */
 const CONFIRM_ENTRY_DESCRIPTION =
   'The confirmation step, once prepare_submission says ready (not for EarnKit campaigns). Pass the same program_id, project and answers, ' +
-  "with builder_confirmed: true and decision: 'go' once the builder says yes (the token launches now), or decision: 'skip' only when the builder says skip (no token, no builder bonus). " +
+  "with builder_confirmed: true and decision: 'go' once the builder says yes (the token launches now), or decision: 'skip' only when the builder says skip the token (the entry is submitted without one). " +
   "Also pass wallet (the shown_wallet they confirmed, or one they named; never one they didn't see), token: { name, symbol } only if they changed it, and agent: { browser, can_push }. " +
   'Without builder_confirmed and a decision it returns the offer. token.fixable: true: fix it and call again. ' +
   'Otherwise the reply has kit, the submit kit. The kit is only in this reply; never show a kit any other way. ' +
@@ -294,7 +292,7 @@ export function serverInstructions(campaignOpen: boolean) {
     campaignOpen
       ? "Other programs: before record_submission, ask the builder 'Did you submit on <program site>?' and, when the site gives each entry a public page, ask for that entry link and pass it as external_submission_url. EarnKit campaigns: record_submission is the entry; there is no other site."
       : "Before record_submission, ask the builder 'Did you submit on <program site>?' and, when the site gives each entry a public page, ask for that entry link and pass it as external_submission_url.",
-    'Every entry gets a token by default. The builder confirms once: "yes" launches the token and returns the submit kit; "skip" means no token and no builder bonus. Push the token line from prepare_submission with your work, before the builder confirms.',
+    'The builder confirms once: yes submits the entry and launches the token; skip the token submits without one. Push the token line from prepare_submission with your work, before the builder confirms.',
     "EarnKit remembers the wallet and shows it next time: confirm it, never ask again from scratch. Pass the wallet shown (shown_wallet) back as confirm_entry's wallet. Write and push earnkit.txt yourself; never ask the builder to edit files.",
     'Never name EarnKit tools, fields or files to the builder; say what happens in plain words.',
     'Never invent personal details.',
@@ -419,6 +417,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           .boolean()
           .optional()
           .describe('true when the builder has no live link and the project builds to static files: EarnKit hosts it (see host in the reply)'),
+        signed_in: SIGNED_IN,
       },
       annotations: { readOnlyHint: true },
     },
@@ -544,7 +543,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
             .object({ program_id: z.string(), repo_url: z.string(), project_name: z.string() })
             .strict()
             .optional()
-            .describe("list_programs' token_offer (program_id, repo_url, project_name), in place of project_id"),
+            .describe('Deprecated (v2.9 first-reply offer, no longer made): program_id, repo_url, project_name, in place of project_id'),
           decision: z
             .enum(['go', 'skip'])
             .optional()

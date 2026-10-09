@@ -13,19 +13,16 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { NO_SKIP, alertLines, sinceLine, type AlertFacts, type NewProgram } from './alerts';
 import { WALLET_INVALID, type CampaignConfig } from './campaigns';
 import {
-  COIN_FOOTNOTE,
   confirmTable,
-  coinRow,
   enteredTable,
   enteredText,
   noCoinYet,
   notReadyTokenNote,
-  walletLine,
-  BONUS_MOVES,
+  tokenRow,
 } from './entry-text';
 import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TELL_EARNKIT_DESCRIPTION, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
-import { bonusClose, presentFirstMessage, tokenOffer, tokenOfferAgain, type Card, type FirstMessage } from './present';
-import { ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, OFFER_NOT_SHOWN, TOKEN_OFFER_NOTE, tools } from './tools';
+import { bonusLine, presentFirstMessage, type Card, type FirstMessage } from './present';
+import { ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, OFFER_NOT_SHOWN, tools } from './tools';
 import { outcomeQuestion } from './outcomes';
 import { DEFAULT_GUIDANCE, PLAIN_FIX, PLAIN_LENGTH_FIX, PLAIN_NOTE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, walletAsk } from './coach';
 import { alsoText } from './also-qualifies';
@@ -37,15 +34,12 @@ import {
   NO_TOKEN_HERE,
   NO_WALLET_HINT,
   READY_TO_SUBMIT,
-  SKIP_LINE,
   TOKEN_ERROR_CONFIRM,
-  bonusRidesOn,
   walletQuestion,
+  confirmLine,
   confirmOffer,
-  offerWalletLine,
   proofLineWaiting,
   signInLine,
-  yesLine,
 } from './confirm';
 import { CONFIRM_WARNING, VERIFY_PAGE, codeLine, confirmPage } from './github-verify';
 import { AGENT_FILL_STEPS, continuesLine, kitReplyNote, submitKit, type KitProgram } from './submit-kit';
@@ -241,6 +235,7 @@ const alertFacts: AlertFacts = {
   fitRepos: [],
   skip: NO_SKIP,
   outcomeWins: [],
+  entries: [],
 };
 const movedPrev = { checkedAt: new Date('2026-10-01T00:00:00Z'), state: { top: {}, bonusTop: { '7': false } }, feeAlertedUsd: 0 };
 const droppedPrev = { checkedAt: new Date('2026-10-01T00:00:00Z'), state: { top: {}, bonusTop: { '7': true } }, feeAlertedUsd: 0 };
@@ -267,21 +262,9 @@ const noneOfYourReposFit = presentFirstMessage(
   msg({ cards: [base], repos: { checked: 1, fits: [{ repo: 'tipjar', repo_url: null, verdicts: [v('base-builder-grants', 'no', 'not on Base')] }] } }),
 );
 
-// ---- coinRow, walletLine, enteredText, noCoinYet: every branch.
-const coinRows = [
-  coinRow({ symbol: 'TIPJAR', hasBonus: true }),
-  coinRow({ symbol: 'GOX', hasBonus: true }),
-  coinRow({ symbol: 'TIPJAR', hasBonus: false }),
-  coinRow({ symbol: 'ENTRY', hasBonus: false }),
-  coinRow({ symbol: 'TIPJAR', hasBonus: true, coinIn: 'Arc Microgrants' }),
-];
-const walletLines = [
-  walletLine({ wallet: BONUS_WALLET, remembered: true, hasBonus: true }),
-  walletLine({ wallet: BONUS_WALLET, remembered: false, hasBonus: false }),
-  walletLine({ wallet: null, remembered: false, hasBonus: true }),
-  walletLine({ wallet: null, remembered: false, hasBonus: false }),
-];
-const round = { cell: '0.18 ETH so far', ends: 'Oct 14', board: 'earnkit.com/bonus/arc-microgrants-2026-10-01' };
+// ---- tokenRow, enteredText, noCoinYet: every branch.
+const tokenRows = [tokenRow('TIPJAR', true), tokenRow('TIPJAR', false, null, 'Tip Jar'), tokenRow('TIPJAR', true, 'Arc Microgrants')];
+const round = { line: bonusLine({ wei: 18n * 10n ** 16n, tokens: 3 })! };
 const enteredTexts = [
   enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'launched', url: 'https://tokens.fun/coin/0xabc' }, bonus: round }),
   enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'no_wallet' }, bonus: round }),
@@ -314,7 +297,7 @@ const enteredTexts = [
 const noCoinYets = [noCoinYet('Oct 14'), noCoinYet(null)];
 
 // ---- The prepare_submission confirm screen (I2): confirmTable, where the coin row and wallet
-// line actually appear, plus COIN_FOOTNOTE on its own; and the campaign enteredTable.
+// line actually appear; and the campaign enteredTable.
 const campaign: CampaignConfig = {
   kind: 'earnkit',
   prize: { token: '0x534b7aAD1Cdb6F02eC48CAbe428f0D9131E40B07', symbol: 'MINI', decimals: 18, chain: 'base' },
@@ -576,10 +559,10 @@ const v271Texts: [string, string][] = [
   ['poolLine grants', poolLine(200000, { plus: false, usdc: false }, 'Circle Developer Grants')],
   ['poolLine USDC', poolLine(10000, { plus: false, usdc: true }, 'Arc Microgrants')],
   ['moneyText', `${moneyText(1_170_500)} open right now`],
-  ['bonusClose (pooled)', bonusClose([bonusCard(6n * 10n ** 17n)])!],
-  ['bonusClose (empty)', bonusClose([bonusCard(null)])!],
-  ['bonusClose (others)', bonusClose([bonusCard(6n * 10n ** 17n)], true)!],
-  ['bonusClose (no bonus)', bonusClose([{ ...bonusCard(null), builder_bonus: false }])!],
+  ['bonusLine (pooled)', bonusLine({ wei: 6n * 10n ** 17n, tokens: 2 })!],
+  ['bonusLine (first)', bonusLine({ wei: 0n, tokens: 0 })!],
+  ['bonusLine (tiny)', bonusLine({ wei: 10n ** 15n, tokens: 1 })!],
+  ['presentFirstMessage (pooled)', presentFirstMessage(msg({ cards: [{ ...bonusCard(6n * 10n ** 17n), bonus_tokens: 2 }] }))],
 ];
 
 // ---- v2.7 §4 fix round 1 (Important #2): app/campaigns/[slug]/page.tsx's own human-facing text,
@@ -617,31 +600,27 @@ const campaignPageTexts: [string, string][] = [
 
 // v2.8 Task 8: every confirmation offer variant, and the kit's builder text.
 const OFFER_WALLET = '0xAb12000000000000000000000000000000000123';
-const offerBase = { hasBonus: true, coinIn: null, canPush: true, wallet: OFFER_WALLET, remembered: true };
+const offerBase = { hasBonus: true, coinIn: null, canPush: true, wallet: OFFER_WALLET };
 const confirmTexts: [string, string][] = [
-  ['confirmOffer: remembered wallet', confirmOffer(offerBase)],
-  ['confirmOffer: given wallet', confirmOffer({ ...offerBase, remembered: false })],
-  ['confirmOffer: no wallet', confirmOffer({ ...offerBase, wallet: null, remembered: false })],
+  ['confirmOffer: a wallet', confirmOffer(offerBase)],
+  ['confirmOffer: no wallet', confirmOffer({ ...offerBase, wallet: null })],
   ['confirmOffer: no bonus', confirmOffer({ ...offerBase, hasBonus: false })],
-  ['confirmOffer: no bonus, no wallet', confirmOffer({ ...offerBase, hasBonus: false, wallet: null, remembered: false })],
+  ['confirmOffer: no bonus, no wallet', confirmOffer({ ...offerBase, hasBonus: false, wallet: null })],
+  ['confirmOffer: again', confirmOffer({ ...offerBase, proposal: { name: 'TipJar', symbol: 'TIP' }, again: true })],
   ['confirmOffer: token elsewhere', confirmOffer({ ...offerBase, coinIn: 'Arc Microgrants' })],
   ["confirmOffer: can't push", confirmOffer({ ...offerBase, canPush: false })],
   ['confirmOffer: tokens off', confirmOffer({ ...offerBase, tokensOff: true })],
-  ['offerWalletLine: remembered', offerWalletLine({ wallet: OFFER_WALLET, remembered: true, hasBonus: true })],
   ['NO_WALLET_HINT', NO_WALLET_HINT],
   ['CANT_PUSH', CANT_PUSH],
-  ['SKIP_LINE', SKIP_LINE],
   ['READY_TO_SUBMIT', READY_TO_SUBMIT],
   ['NEEDS_REPO', NEEDS_REPO],
   ['NO_TOKEN_HERE', NO_TOKEN_HERE],
-  ['bonusRidesOn', bonusRidesOn('Arc Microgrants')],
-  ['BONUS_MOVES', BONUS_MOVES],
   ['walletQuestion', walletQuestion(OFFER_WALLET, true)],
   ['walletQuestion: no bonus', walletQuestion(OFFER_WALLET, false)],
   ['TOKEN_ERROR_CONFIRM', TOKEN_ERROR_CONFIRM],
   // v2.8.1 §A: the launch's builder lines.
   ['confirmOffer: with the proposal', confirmOffer({ ...offerBase, proposal: { name: 'TipJar', symbol: 'TIP' } })],
-  ['yesLine: no bonus', yesLine({ name: 'TipJar', symbol: 'TIP' }, false)],
+  ['confirmLine: no bonus', confirmLine({ proposal: { name: 'TipJar', symbol: 'TIP' }, hasBonus: false, wallet: null, walletKnown: false })],
   ['proofLineWaiting', proofLineWaiting('main')],
   ['proofLineWaiting: no branch', proofLineWaiting(null)],
   ['NOT_LAUNCHED_YET', NOT_LAUNCHED_YET],
@@ -817,18 +796,15 @@ const coachTexts: [string, string][] = [
 // v2.8 Task 11: "Also qualifies", after record_submission.
 const alsoQualifiesTexts: [string, string][] = [
   [
-    'alsoText: with coinIn',
-    alsoText(
-      [
-        { id: 'base-builder-grants', title: 'Base Builder Grant Program', prize: 'up to $5,000', ends: 'rolling', left: 1 },
-        { id: 'avalanche-team1-mini-grants', title: 'Avalanche Team1 Mini Grants', prize: 'up to $10,000', ends: 'rolling', left: 0 },
-      ],
-      'Arc Microgrants',
-    )!,
+    'alsoText: two rows',
+    alsoText([
+      { id: 'base-builder-grants', title: 'Base Builder Grant Program', prize: 'up to $5,000', ends: 'rolling', left: 1 },
+      { id: 'avalanche-team1-mini-grants', title: 'Avalanche Team1 Mini Grants', prize: 'up to $10,000', ends: 'rolling', left: 0 },
+    ])!,
   ],
   [
-    'alsoText: no coinIn',
-    alsoText([{ id: 'base-builder-grants', title: 'Base Builder Grant Program', prize: 'up to $5,000', ends: 'rolling', left: 1 }], null)!,
+    'alsoText: one row',
+    alsoText([{ id: 'base-builder-grants', title: 'Base Builder Grant Program', prize: 'up to $5,000', ends: 'rolling', left: 1 }])!,
   ],
 ];
 
@@ -840,7 +816,7 @@ const newAlertProgram = (id: string, title: string, prize: string, chains: NewPr
   difficulty: { level: 'Easy', estimate: false, rated: true, basis: '' }, past_rounds: [], match_floor: null, match_precision: null,
 });
 const outcomeAlertFacts: AlertFacts = {
-  newCampaigns: [], standings: [], prizes: [], fees: null, bonusWins: [], bonusStandings: [],
+  newCampaigns: [], standings: [], prizes: [], fees: null, bonusWins: [], bonusStandings: [], entries: [],
   newPrograms: [
     newAlertProgram('a', 'Avalanche Team1 Mini Grants', 'up to $10,000', ['avalanche'], '2026-10-09T00:00:00Z'),
     newAlertProgram('b', 'Arc Microgrants', '500 USDC × 20 grants', ['arc'], '2026-10-09T01:00:00Z'),
@@ -900,17 +876,8 @@ const signInTexts: [string, string][] = [
   ['WALLET_CHANGED + link', `${WALLET_CHANGED} Sign in again: https://earnkit.com/github/verify?n=x`],
 ];
 
-// v2.9 B10: the first reply's token offer (each wallet and bonus form) and launch_token's skip line.
-const offerFacts = { project: 'TipJar', program: 'Arc Microgrants', prize_usd: 500, proposal: { name: 'TipJar', symbol: 'TIP' } };
-const tokenOfferTexts: [string, string][] = [
-  ...[true, false].flatMap((hasBonus) =>
-    [true, false].map((walletKnown): [string, string] => [`tokenOffer(${hasBonus}, ${walletKnown})`, tokenOffer({ ...offerFacts, hasBonus, walletKnown })]),
-  ),
-  ['tokenOffer (wallet)', tokenOffer({ ...offerFacts, hasBonus: true, walletKnown: true, wallet: '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3' })],
-  ['tokenOffer (again)', tokenOffer({ ...offerFacts, hasBonus: true, walletKnown: true, again: true })],
-  ['tokenOfferAgain', tokenOfferAgain({ proposal: offerFacts.proposal, walletKnown: false }, 'TIPJ')],
-  ['OFFER_NOT_SHOWN', OFFER_NOT_SHOWN],
-];
+// v2.9 B10: launch_token's offer-path line (v2.10 item 5: the first-reply offer is gone).
+const tokenOfferTexts: [string, string][] = [['OFFER_NOT_SHOWN', OFFER_NOT_SHOWN]];
 
 // v2.9 Task 12 (Part 1 copy sweep): every new builder string Part 1 ships. The link and contract
 // check lines (T1); the matched row notes as matchRepo writes them (T2 product signals, T3 claims,
@@ -941,7 +908,6 @@ const v29FirstReply = presentFirstMessage(
   msg({
     cards: [arc, base],
     repos: { checked: 4, fits: [{ repo: 'tipjar', repo_url: 'https://github.com/alice/tipjar', verdicts: v29Verdicts.filter((x) => ['arc-microgrants', 'base-builder-grants'].includes(x.program_id)).slice(0, 2), product: GOOD_ODDS }] },
-    tokenOffer: tokenOffer({ ...{ project: 'TipJar', program: 'Arc Microgrants', prize_usd: 500, proposal: { name: 'TipJar', symbol: 'TIP' } }, hasBonus: true, walletKnown: false }),
   }),
 );
 const v29Part1Texts: [string, string][] = [
@@ -954,18 +920,15 @@ const v29Part1Texts: [string, string][] = [
   ['INVESTMENT_NOTE', INVESTMENT_NOTE],
   ['BELOW_FLOOR_NOTE', BELOW_FLOOR_NOTE],
   ...v29Notes.map((n, i): [string, string] => [`matchRepo note[${i}]`, n]),
-  ['presentFirstMessage: v2.9 rows and the token offer', v29FirstReply],
-  [
-    'tokenOffer: one step away (G15 M2)',
-    tokenOffer({ project: 'TipJar', program: 'Arc Microgrants', prize_usd: 500, oneStep: true, proposal: { name: 'TipJar', symbol: 'TIP' }, hasBonus: true, walletKnown: false }),
-  ],
+  ['presentFirstMessage: v2.9 rows', v29FirstReply],
 ];
 
-test('v2.9 Task 12: the Part 1 copy sweep sees the claim, floor, investment and check notes and the offer', () => {
+test('v2.9 Task 12: the Part 1 copy sweep sees the claim, floor, investment and check notes', () => {
   for (const n of ['confirm: mainnet and live link', 'confirm: mainnet and users', INVESTMENT_NOTE, BELOW_FLOOR_NOTE, UNCHECKED_NOTE, SIGNAL_WORDS.deployed])
     assert.ok(v29Notes.includes(n), `${n} in ${JSON.stringify(v29Notes)}`);
   assert.match(v29FirstReply, /\| tipjar, confirm: mainnet and live link \|/);
-  assert.ok(v29FirstReply.endsWith('Say yes with your wallet address, or skip.'), v29FirstReply);
+  // v2.10 item 5: no token offer in the first reply.
+  assert.doesNotMatch(v29FirstReply, /launches \$|40%|\bskip\b/);
 });
 
 const builderFacing: [string, string][] = [
@@ -981,12 +944,10 @@ const builderFacing: [string, string][] = [
   ...campaignPageTexts,
   ...confirmTexts,
   ...kitTexts,
-  ...coinRows.map((s, i): [string, string] => [`coinRow[${i}]`, s]),
-  ...walletLines.map((s, i): [string, string] => [`walletLine[${i}]`, s]),
+  ...tokenRows.map((s, i): [string, string] => [`tokenRow[${i}]`, s]),
   ...enteredTexts.map((s, i): [string, string] => [`enteredText[${i}]`, s]),
   ...confirmTables.map((s, i): [string, string] => [`confirmTable[${i}]`, s]),
   ...enteredTables.map((s, i): [string, string] => [`enteredTable[${i}]`, s]),
-  ['COIN_FOOTNOTE', COIN_FOOTNOTE],
   ['C7 notReadyTokenNote', notReadyTokenNote(['a live link on Arc mainnet', 'a short description'])],
   ['v2.8 Ruling 3 SKIPPED_ENTRY', SKIPPED_ENTRY],
   ['presentFirstMessage: no repo, no GitHub', noRepoNoGithub],
@@ -1084,7 +1045,6 @@ const agentFacing: [string, string][] = [
   ['SIGN_IN_OR_NOTE', SIGN_IN_OR_NOTE],
   ['SIGN_IN_CODE_NOTE', SIGN_IN_CODE_NOTE],
   ['CANT_PUSH_SIGN_IN_NOTE', CANT_PUSH_SIGN_IN_NOTE],
-  ['TOKEN_OFFER_NOTE', TOKEN_OFFER_NOTE],
   ['TELL_EARNKIT_DESCRIPTION', TELL_EARNKIT_DESCRIPTION],
   ['STORAGE_NOTE', STORAGE_NOTE],
   ['UPLOAD_NOTE', UPLOAD_NOTE],
@@ -1396,17 +1356,48 @@ test('v2.9 B9: the sign-in copy: money first, short, no em dashes, the spec line
   }
 });
 
-test('6.9 v2.9 B11: "skip" appears in builder text only in a token offer', () => {
-  // Pre-flight P33: tokenRow (entry-text.ts "say skip for no token") is a token offer too.
-  const offers = /^(tokenOffer|SKIP_LINE|confirmOffer|coinRow|tokenRow)/;
+test('6.9 v2.9 B11, 7.13 v2.10 item 5: "skip" appears in builder text only as "skip the token"', () => {
   const withSkip = builderFacing.filter(([, text]) => /\bskip\b/i.test(text));
-  assert.ok(withSkip.some(([label]) => label.startsWith('tokenOffer')), 'the scan sees the token offer');
-  for (const [label, text] of withSkip) {
-    if (offers.test(label)) continue;
-    // A table that carries tokenRow (its "| Token |" row): the skip is only there.
-    for (const line of text.split('\n').filter((l) => /\bskip\b/i.test(l)))
-      // v2.9 T12: or the first reply's closing token offer line.
-      assert.match(line, /^\| Token \| A token on Base\b|^.+ fits .+: \$[\d,]+\. Launch \$\w+ \(.+\) on Base now\? .*(or skip\.|yes \/ skip)$/, `${label}: ${line}`);
+  assert.ok(withSkip.some(([label]) => label.startsWith('confirmOffer')), 'the scan sees the confirm line');
+  for (const [label, text] of withSkip)
+    for (const m of text.matchAll(/\bskip\b.{0,10}/gi)) assert.match(m[0], /^skip the token/i, `${label}: ${text}`);
+});
+
+test('7.13 v2.10 items 1, 5: no WETH, gas or terms link in builder strings; the token pitched with "40%" only in the confirm line', () => {
+  // Agent replies (the public pages keep their WETH and terms wording).
+  const replies: [string, string][] = [
+    ...confirmTexts,
+    ...kitTexts,
+    ...coachTexts,
+    ...outcomeTexts,
+    ...signInTexts,
+    ...alsoQualifiesTexts,
+    ...tokenOfferTexts,
+    ...v29Part1Texts,
+    ...tokenRows.map((t, i): [string, string] => [`tokenRow[${i}]`, t]),
+    ...enteredTexts.map((t, i): [string, string] => [`enteredText[${i}]`, t]),
+    ...confirmTables.map((t, i): [string, string] => [`confirmTable[${i}]`, t]),
+    ...[noRepoNoGithub, githubZeroRepos, withRepos, withAlerts, noneOfYourReposFit].map((t, i): [string, string] => [`presentFirstMessage[${i}]`, t]),
+    ...alertLinesMoved.map((t, i): [string, string] => [`alert[${i}]`, t]),
+  ];
+  assert.ok(replies.length > 40, `${replies.length} replies`);
+  for (const [label, text] of replies) {
+    assert.doesNotMatch(text, /\bWETH\b|\bgas\b|token-creator-agreement|risk-disclosure/, `${label}: ${text}`);
+    assert.ok((text.match(/Builder bonus:/g)?.length ?? 0) <= 1, `${label}: ${text}`);
+    if (/40%/.test(text)) assert.match(label, /^(confirmOffer|confirmLine|tokenRow|confirmTable)/, `${label}: ${text}`);
+  }
+  // The modules' own string literals (present, confirm, entry-text, also-qualifies, guide).
+  for (const f of ['present.ts', 'confirm.ts', 'entry-text.ts', 'also-qualifies.ts', 'guide.ts']) {
+    const src = readFileSync(join(import.meta.dirname, f), 'utf8')
+      .split('\n')
+      .filter((l) => !/^\s*(\/\/|\*|\/\*\*)/.test(l))
+      .join('\n');
+    const literals = src.match(/'[^'\n]*'|`[^`]*`|"[^"\n]*"/g) ?? [];
+    for (const lit of literals) {
+      assert.doesNotMatch(lit, /\bWETH\b|\bgas\b|token-creator-agreement|risk-disclosure/, `${f}: ${lit}`);
+      // Prose only (a one-word literal like 'skip' is the decision value, not builder text).
+      if (/\bskip\b/i.test(lit) && /\s/.test(lit)) assert.match(lit, /skip the token/, `${f}: ${lit}`);
+    }
   }
 });
 

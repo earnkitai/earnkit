@@ -69,7 +69,7 @@ import { FOOTER_COLUMNS } from './footer-links';
  * (12.10, Resend recorded), the won line (12.8), the one money figure (12.9), /terms (12.11) and Also
  * qualifies' precision (12.6b, Ruling G15 M1).
  *
- * Asserted across every reply: "40%" exactly once per entry flow; "skip" only in token offers; no
+ * Asserted across every reply: "40%" exactly once per entry flow; "skip" only as "skip the token" (v2.10); no
  * emoji, em dash, "coin", "vault", "Clanker" or tool name in builder text; every reply under 50 s.
  */
 
@@ -307,7 +307,7 @@ function ctxFor(id: number, o: { shared?: boolean } = {}) {
     installationId: id,
     ownInstallationId: id,
     ...(o.shared && { sharedClient: true }),
-    roundPoolsWei: async () => new Map<string, bigint | null>(),
+    roundPools: async () => new Map(),
     tokenDeps,
     pickupDeps: { owner: earnkitTxt, latest: async () => null },
     entryDeps: { fetchProof: async (u: string) => `<html><a href="https://github.com/alice/TipJar">${u}</a></html>` },
@@ -441,7 +441,7 @@ function answersFor(programId: string, over: Record<string, string> = {}) {
 
 // ---- The journeys ------------------------------------------------------------------------------
 
-test('12.1 Claude Code, a real product on Arc: owned repos only, Arc Easy, the token offer closes the first reply; one launch, "40%" once', dbTest, async () => {
+test('12.1 (v2.10 item 5) Claude Code, a real product on Arc: owned repos only, Arc Easy, no token in the first reply; one yes at confirm, one launch, "40%" once', dbTest, async () => {
   const J = '12.1';
   const id = await newInstallation();
   const ctx = ctxFor(id);
@@ -471,47 +471,42 @@ test('12.1 Claude Code, a real product on Arc: owned repos only, Arc Easy, the t
   assert.deepEqual([...new Set((list.matches as { repo: string }[]).map((m) => m.repo))], ['TipJar']);
   // The Arc row: Easy (verified live link, a contract with code on Arc mainnet, an owned product).
   assert.match(rowOf(text, 'Arc Microgrants') ?? '', /^\| Arc Microgrants \| 500 USDC × 20 grants \| Easy \| .+ \| TipJar \|$/, text);
-  // The reply closes on the token offer (no wallet remembered: asked in the same line).
-  assert.ok(
-    text.endsWith('\n\nTipJar fits Arc Microgrants: $500. Launch $TIP (TipJar) on Base now? You earn 40% of its trading fees, plus a shot at the builder bonus. Say yes with your wallet address, or skip.'),
-    text,
-  );
-  const offer = list.token_offer as { program_id: string; repo_url: string; project_name: string; proposed: { symbol: string; name: string } };
-  assert.deepEqual([offer.program_id, offer.repo_url, offer.proposed.symbol], ['arc-microgrants', 'https://github.com/alice/TipJar', 'TIP']);
+  // v2.10 item 5: the first reply never pitches the token; it closes on the usual offer.
+  assert.ok(!('token_offer' in list), Object.keys(list).join());
+  assert.doesNotMatch(text, /40%|launches \$|\bskip\b/, text);
+  assert.match(text, /\n\nWant me to start on Arc Microgrants with TipJar\?$/, text);
 
-  // The yes, with the wallet: one draft entry, one launch, to that wallet.
+  // The coach, the draft (the one confirm line), then one yes: one entry, one launch, to that wallet.
   const before = deployed.length;
-  const yes = { offer: { program_id: offer.program_id, repo_url: offer.repo_url, project_name: offer.project_name }, decision: 'go', builder_confirmed: true, creator_wallet: W, agent: CC };
-  const launched = await call(J, 'launch go', 'launch_token', yes, ctx);
-  assert.equal(launched.status, 'launched', JSON.stringify(launched));
-  assert.deepEqual(deployed.slice(before).map((d) => [d.symbol, d.wallet]), [['TIP', W]]);
-  const again = await call(J, 'launch go (retry)', 'launch_token', yes, ctx);
-  assert.equal(again.project_id, launched.project_id, 'a retry reuses the entry');
-  assert.equal(deployed.length, before + 1, 'and never launches twice');
-
-  // The coach, the draft, the confirmation and the record: no second "40%", no second launch.
   const program = 'arc-microgrants';
   const project = { name: 'TipJar', repo_url: 'https://github.com/alice/TipJar', live_url: 'https://tipjar.xyz', contracts: [ARC_CONTRACT] };
   await call(J, 'coach', 'prepare_submission', { program_id: program, project, agent: CC }, ctx);
   const answers = { ...answersFor(program), payout_wallet: W };
   const d = await call(J, 'draft', 'prepare_submission', { program_id: program, project, agent: CC, answers, coach_asked: true }, ctx);
   assert.equal(d.ready, true, d.show_to_builder);
-  assert.ok(d.show_to_builder!.endsWith('Ready to submit?'), d.show_to_builder);
-  const c = await call(J, 'go', 'confirm_entry', { program_id: program, project, answers, builder_confirmed: true, decision: 'go', wallet: W, agent: CC }, ctx);
+  assert.ok(
+    d.show_to_builder!.endsWith('\n\nReady. Yes submits your entry and launches $TIP (TipJar): 40% of its fees to you, plus the builder bonus. Wallet: 0x1581…b9a3. yes / skip the token'),
+    d.show_to_builder,
+  );
+  const yes = { program_id: program, project, answers, builder_confirmed: true, decision: 'go', wallet: W, agent: CC };
+  const c = await call(J, 'go', 'confirm_entry', yes, ctx);
   assert.ok(c.kit, 'the kit');
-  assert.equal(c.project_id, launched.project_id, 'the same entry');
-  assert.match(c.show_to_builder!, /^Your token is live: tokens\.fun\/coin\/0x/);
+  assert.match(c.show_to_builder!, /^Your token \$TIP is live: tokens\.fun\/coin\/0x/);
+  assert.deepEqual(deployed.slice(before).map((x) => [x.symbol, x.wallet]), [['TIP', W]]);
+  const again = await call(J, 'go (retry)', 'confirm_entry', yes, ctx);
+  assert.equal(again.project_id, c.project_id, 'a retry reuses the entry');
+  assert.equal(deployed.length, before + 1, 'and never launches twice');
   const rec = await call(J, 'record', 'record_submission', { program_id: program, project, submission_data: answers, builder_submitted: true, external_submission_url: 'https://dorahacks.io/buidl/31337', payout_wallet: W }, ctx);
   assert.match(rec.show_to_builder!, /^Entered in Arc Microgrants\. Your token: tokens\.fun\/coin\/0x/);
   assert.equal(deployed.length, before + 1);
   // The entry is complete: the live link loaded and the Arc contract has code (T1).
   const [row] = await sql()<{ complete_at: Date | null; live_verified_at: Date | null; contract_verified_at: Date | null; confirm_choice: string }[]>`
-    SELECT complete_at, live_verified_at, contract_verified_at, confirm_choice FROM projects WHERE id = ${launched.project_id as number}`;
+    SELECT complete_at, live_verified_at, contract_verified_at, confirm_choice FROM projects WHERE id = ${c.project_id as number}`;
   assert.ok(row.complete_at && row.live_verified_at && row.contract_verified_at, JSON.stringify(row));
   assert.equal(row.confirm_choice, 'go');
-  // "40%" once in the whole flow: the first reply's offer.
+  // "40%" once in the whole flow: the draft's confirm line.
   assert.equal(forty(J), 1, dump(J));
-  assert.deepEqual(said.filter((s) => s.journey === J && /40%/.test(s.text)).map((s) => s.label), ['list']);
+  assert.deepEqual(said.filter((x) => x.journey === J && /40%/.test(x.text)).map((x) => x.label), ['draft']);
 });
 
 test('12.1b noise only: a fork, a template, a tutorial and an EarnKit kit: no row, no token offer, never "40%"', dbTest, async () => {
@@ -527,7 +522,7 @@ test('12.1b noise only: a fork, a template, a tutorial and an EarnKit kit: no ro
     local_repos: [{ name: 'chain-kits', url: 'https://github.com/earnkitai/chain-kits', chains: [{ chain: 'base', mainnet: true }], live_url: 'https://kits.xyz' }],
   }, ctx);
   assert.match(list.show_to_builder!, /None of your 4 repos fits an open program yet\./, list.show_to_builder);
-  assert.ok(!list.token_offer);
+  assert.ok(!('token_offer' in list));
   assert.deepEqual(list.matches, []);
   assert.equal(forty(J), 0, dump(J));
   assert.ok(!probed.some((u) => /viemfork|kits\.xyz/.test(u)), 'noise is never probed');
@@ -544,52 +539,46 @@ function publicTipJar(owner: string) {
   GITHUB.configs.set(`${owner}/tipjar`, `networks: { arc: { url: 'https://rpc.mainnet.arc.io', chainId: 5042 } } // TipJar at ${contract}`);
 }
 
-test('12.2 Grok Bot (shared client), GitHub sign-in on: the offer asks the wallet, yes gives the sign-in line, the code launches $TIP', dbTest, () =>
+test('12.2 (v2.10 item 5) Grok Bot (shared client), GitHub sign-in on: no first-reply offer; the confirm line names the wallet given; yes gives the sign-in line, the code launches $TIP', dbTest, () =>
   withSignIn(async () => {
     const J = '12.2';
     publicTipJar('kim');
     const ctx = ctxFor(await newInstallation({ shared: true }), { shared: true });
     const list = await call(J, 'list', 'list_programs', { agent_can_build: false, repos: ['kim/TipJar'] }, ctx);
-    // No wallet is remembered on a shared client: the offer asks for it in the same line.
-    assert.ok(
-      list.show_to_builder!.endsWith('TipJar fits Arc Microgrants: $500. Launch $TIP (TipJar) on Base now? You earn 40% of its trading fees, plus a shot at the builder bonus. Say yes with your wallet address, or skip.'),
-      list.show_to_builder,
-    );
+    assert.ok(!('token_offer' in list), Object.keys(list).join());
+    assert.doesNotMatch(list.show_to_builder!, /40%|launches \$|\bskip\b/);
     assert.match(rowOf(list.show_to_builder!, 'Arc Microgrants') ?? '', /\| Easy \|/);
-    const offer = list.token_offer as { program_id: string; repo_url: string; project_name: string; shown_wallet?: string };
-    assert.equal(offer.shown_wallet, undefined, 'no wallet suggested on a shared client');
-    // Yes, with the wallet: Grok Bot can't push, so the sign-in line; no entry, nothing launched.
-    const yes = { offer: { program_id: offer.program_id, repo_url: offer.repo_url, project_name: offer.project_name }, decision: 'go', builder_confirmed: true, creator_wallet: W2, agent: { can_push: false } };
-    const before = deployed.length;
-    const first = await call(J, 'yes', 'launch_token', yes, ctx);
-    assert.equal(first.fixable, true);
-    assert.match(first.sign_in_line as string, /^One click to prove TipJar is yours, then \$TIP launches: https:\/\/earnkit\.com\/github\/verify\?n=[\w-]{43}$/);
-    assert.ok(!first.project_id, 'no entry before the sign-in');
-    assert.equal(deployed.length, before);
-    // The builder opens the link, confirms, and GitHub sends them back: the page shows the code.
-    const page = await browserSignIn(first.sign_in as string, 'kim');
-    const code = page.match(/^Done\. Paste this code to your agent: ([A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{2})$/)?.[1];
-    assert.ok(code, page);
-    // Without the code (another Grok Bot user, or the agent forgot it): still nothing launches (G10).
-    const noCode = await call(J, 'yes again, no code', 'launch_token', yes, ctx);
-    assert.notEqual(noCode.status, 'launched');
-    assert.equal(deployed.length, before);
-    // With the code: the entry is made and $TIP launches to the wallet the sign-in named (G11).
-    const launched = await call(J, 'yes again, signed in', 'launch_token', { ...yes, signed_in: code }, ctx);
-    assert.equal(launched.status, 'launched', JSON.stringify(launched));
-    assert.deepEqual(deployed.slice(before).map((d) => [d.symbol, d.wallet]), [['TIP', W2]]);
-    // The confirmation: the kit, the token, and never "open this in Claude Code or Cursor".
     const program = 'arc-microgrants';
     const project = { name: 'TipJar', repo_url: 'https://github.com/kim/TipJar', live_url: 'https://tipjar-kim.xyz' };
     const answers = { ...answersFor(program, { builder_profile: 'https://github.com/kim' }), payout_wallet: W2 };
     await call(J, 'coach', 'prepare_submission', { program_id: program, project, agent: GROK }, ctx);
-    await call(J, 'draft', 'prepare_submission', { program_id: program, project, agent: GROK, answers, coach_asked: true }, ctx);
-    const c = await call(J, 'go', 'confirm_entry', { program_id: program, project, answers, builder_confirmed: true, decision: 'go', wallet: W2, agent: GROK, signed_in: code }, ctx);
+    const d = await call(J, 'draft', 'prepare_submission', { program_id: program, project, agent: GROK, answers, coach_asked: true }, ctx);
+    // No remembered wallet on a shared client (G13): only the one given in this flow is named.
+    assert.ok(
+      d.show_to_builder!.endsWith('Ready. Yes submits your entry and launches $TIP (TipJar): 40% of its fees to you, plus the builder bonus. Wallet: 0x2222…2abc. yes / skip the token'),
+      d.show_to_builder,
+    );
+    // Yes: Grok Bot can't push, so the sign-in line; nothing launched.
+    const yes = { program_id: program, project, answers, builder_confirmed: true, decision: 'go', wallet: W2, agent: GROK };
+    const before = deployed.length;
+    const first = await call(J, 'yes', 'confirm_entry', yes, ctx);
+    assert.match(first.show_to_builder!, /^One click to prove TipJar is yours, then \$TIP launches: https:\/\/earnkit\.com\/github\/verify\?n=[\w-]{43}$/);
+    assert.equal(deployed.length, before);
+    const link = (first.token as { sign_in: string }).sign_in;
+    // The builder opens the link, confirms, and GitHub sends them back: the page shows the code.
+    const page = await browserSignIn(link, 'kim');
+    const code = page.match(/^Done\. Paste this code to your agent: ([A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{2})$/)?.[1];
+    assert.ok(code, page);
+    // Without the code (another Grok Bot user, or the agent forgot it): nothing launches (G10).
+    const noCode = await call(J, 'yes again, no code', 'confirm_entry', yes, ctx);
+    assert.notEqual((noCode.token as { status?: string } | undefined)?.status, 'launched');
+    assert.equal(deployed.length, before);
+    // With the code: $TIP launches to the wallet the sign-in named (G11), with the kit.
+    const c = await call(J, 'yes again, signed in', 'confirm_entry', { ...yes, signed_in: code }, ctx);
+    assert.equal((c.token as { status: string }).status, 'launched', JSON.stringify(c));
     assert.ok(c.kit, c.show_to_builder);
-    assert.equal(c.project_id, launched.project_id);
-    assert.equal((c.token as { status: string }).status, 'launched');
-    assert.equal(deployed.length, before + 1, 'one launch');
-    for (const s of said.filter((x) => x.journey === J)) assert.ok(!s.text.includes(CANT_PUSH), `${s.label}: ${s.text}`);
+    assert.deepEqual(deployed.slice(before).map((x) => [x.symbol, x.wallet]), [['TIP', W2]]);
+    for (const x of said.filter((y) => y.journey === J)) assert.ok(!x.text.includes(CANT_PUSH), `${x.label}: ${x.text}`);
     const [row] = await sql()<{ complete_at: Date | null; contract_verified_at: Date | null }[]>`SELECT complete_at, contract_verified_at FROM projects WHERE id = ${c.project_id as number}`;
     assert.ok(row.complete_at && row.contract_verified_at, 'complete: the Arc contract matching found has code');
     assert.equal(forty(J), 1, dump(J));
@@ -602,8 +591,8 @@ test('12.2b Grok Bot (shared client), GitHub sign-in off: no first-reply token o
   const ctx = ctxFor(await newInstallation({ shared: true }), { shared: true });
   const list = await call(J, 'list', 'list_programs', { agent_can_build: false, repos: ['lee/TipJar'] }, ctx);
   // A hosted agent can't push the proof line, so with sign-in off a "yes" could never launch.
-  assert.ok(!list.token_offer, list.show_to_builder);
-  assert.doesNotMatch(list.show_to_builder!, /Launch \$|40%/);
+  assert.ok(!('token_offer' in list), list.show_to_builder);
+  assert.doesNotMatch(list.show_to_builder!, /Launch \$|launches \$|40%/);
   assert.match(list.show_to_builder!, /Want me to start on .+\?/, list.show_to_builder);
   // An offer the builder never saw launches nothing and makes no entry.
   const before = deployed.length;
@@ -675,8 +664,8 @@ test('12.4 statements: applied Base, not interested in a16z, testnet only on Arc
   } finally {
     await sql()`UPDATE programs SET opened_at = ${opened_at} WHERE id = 'base-builder-grants'`;
   }
-  // The offer was shown once with "40%"; the repeats leave it out (G14).
-  assert.equal(forty(J), 1, dump(J));
+  // v2.10 item 5: no first-reply offer, so no "40%" in these lists at all.
+  assert.equal(forty(J), 0, dump(J));
 });
 
 test('12.5 placeholders and unverified links: a placeholder is refused in plain words; a link that does not load keeps the entry open', dbTest, async () => {
@@ -687,7 +676,7 @@ test('12.5 placeholders and unverified links: a placeholder is refused in plain 
   const local_repos = [{ name: 'ledgerly', url: 'https://github.com/omar/ledgerly', chains: [{ chain: 'arc', mainnet: true }], live_url: 'https://example.com', last_commit_at: daysAgo(2) }];
   const list = await call(J, 'list', 'list_programs', { local_repos }, ctx);
   assert.ok(!probed.some((u) => new URL(u).hostname === 'example.com'), 'a placeholder is never probed');
-  assert.ok(!list.token_offer, 'no live product, no first-reply offer');
+  assert.ok(!('token_offer' in list), 'no first-reply offer (v2.10 item 5)');
   // ...and so is one the builder tells EarnKit.
   await call(J, 'tell', 'tell_earnkit', { repo_facts: [{ repo: 'omar/ledgerly', live_url: 'https://localhost:3000', has_users: true }] }, ctx);
   // Given as the project's live link, it is refused in plain words.
@@ -704,7 +693,7 @@ test('12.5 placeholders and unverified links: a placeholder is refused in plain 
   assert.equal(d.ready, false);
   assert.match(d.show_to_builder!, /\n1\. Live link didn't load from here\. Check it's public\.\n/);
   assert.equal(LIVE_FAILED_LINE, "Live link didn't load from here. Check it's public.");
-  assert.match(d.show_to_builder!, /\nYes: launches \$LEDGER \(Ledgerly\) on Base\. You earn 40%/, 'the offer is never blocked by a check');
+  assert.match(d.show_to_builder!, /Yes submits your entry and launches \$LEDGER \(Ledgerly\): 40%/, 'the offer is never blocked by a check');
   PUSHED.add('omar/ledgerly');
   const c = await call(J, 'go (link down)', 'confirm_entry', { program_id: program, project: real, answers, builder_confirmed: true, decision: 'go', wallet: W, agent: CC }, ctx);
   assert.equal((c.token as { status: string }).status, 'launched', JSON.stringify(c.token));
@@ -716,26 +705,19 @@ test('12.5 placeholders and unverified links: a placeholder is refused in plain 
   assert.equal(forty(J), 1, dump(J));
 });
 
-test('12.6 the token offer in the first reply, then skip, then the confirmation: "40%" once; "skip" only in token offers', dbTest, async () => {
+test('12.6 (v2.10 item 5) no first-reply offer; the confirm line once with "40%"; skip the token there: no token, the entry recorded', dbTest, async () => {
   const J = '12.6';
   const ctx = ctxFor(await newInstallation());
   const local_repos = [{ name: 'quill', url: 'https://github.com/pia/quill', chains: [{ chain: 'arc', mainnet: true }], live_url: 'https://quill.xyz', contracts: ['0x7171717171717171717171717171717171717171'], last_commit_at: daysAgo(1) }];
   const list = await call(J, 'list', 'list_programs', { local_repos }, ctx);
-  const offer = list.token_offer as { program_id: string; repo_url: string; project_name: string };
-  assert.match(list.show_to_builder!, /Launch \$QUILL \(Quill\) on Base now\? You earn 40% of its trading fees, plus a shot at the builder bonus\. Say yes with your wallet address, or skip\.$/);
-  const skipped = await call(J, 'skip', 'launch_token', { offer: { program_id: offer.program_id, repo_url: offer.repo_url, project_name: offer.project_name }, decision: 'skip' }, ctx);
-  assert.deepEqual([skipped.status, skipped.note], ['skipped', 'No token for now.']);
-  // The next first reply never offers that repo's token again (one skip, G14).
-  const again = await call(J, 'list again', 'list_programs', { local_repos }, ctx);
-  assert.ok(!again.token_offer);
-  assert.doesNotMatch(again.show_to_builder!, /\bskip\b|40%/);
-  // The entry: the confirmation offers the token once more, without the earnings line; skip there too.
+  assert.ok(!('token_offer' in list));
+  assert.doesNotMatch(list.show_to_builder!, /\bskip\b|40%|launches \$/);
   const program = 'arc-microgrants';
   const project = { name: 'Quill', repo_url: 'https://github.com/pia/quill', live_url: 'https://quill.xyz', contracts: ['0x7171717171717171717171717171717171717171'] };
   const answers = { ...answersFor(program, { builder_profile: 'https://github.com/pia' }), payout_wallet: W };
   await call(J, 'coach', 'prepare_submission', { program_id: program, project, agent: CC }, ctx);
   const d = await call(J, 'draft', 'prepare_submission', { program_id: program, project, agent: CC, answers, coach_asked: true }, ctx);
-  assert.match(d.show_to_builder!, /\nYes: launches \$QUILL \(Quill\) on Base\.\n/);
+  assert.ok(d.show_to_builder!.endsWith('Ready. Yes submits your entry and launches $QUILL (Quill): 40% of its fees to you, plus the builder bonus. Wallet: 0x1581…b9a3. yes / skip the token'), d.show_to_builder);
   const c = await call(J, 'skip at confirm', 'confirm_entry', { program_id: program, project, answers, builder_confirmed: true, decision: 'skip', agent: CC }, ctx);
   assert.match(c.show_to_builder!, /^No token, no builder bonus\.\n/);
   assert.ok(c.kit);
@@ -747,7 +729,7 @@ test('12.6 the token offer in the first reply, then skip, then the confirmation:
   assert.ok(!(rec.also_qualifies as { id: string }[] | undefined)?.some((r) => r.id === 'circle-developer-grants'), JSON.stringify(rec.also_qualifies));
   assert.ok(!deployed.some((x) => x.symbol === 'QUILL'), 'nothing launched');
   assert.equal(forty(J), 1, dump(J));
-  assert.deepEqual(said.filter((s) => s.journey === J && /40%/.test(s.text)).map((s) => s.label), ['list']);
+  assert.deepEqual(said.filter((x) => x.journey === J && /40%/.test(x.text)).map((x) => x.label), ['draft']);
 });
 
 test('12.6b Also qualifies (Ruling G15 M1): never a program whose row needs real users, nor a chain the builder said is testnet only', dbTest, async () => {
@@ -783,7 +765,8 @@ test('12.6b Also qualifies (Ruling G15 M1): never a program whose row needs real
   const again = await record('record again');
   assert.ok(!also(again).includes('arc-microgrants'), JSON.stringify(again.also_qualifies));
   assert.ok(!also(again).includes('circle-developer-grants'));
-  assert.equal(forty(J), 1, dump(J));
+  // v2.10 item 5: no first-reply offer; the draft is not ready, so no confirm line either.
+  assert.equal(forty(J), 0, dump(J));
 });
 
 
@@ -1191,7 +1174,7 @@ test('12.7 automatic claims in a cron run: each launched token\'s creator and MI
   assert.ok(!(out.needs_owner as string[]).includes('bonus-ledger'), JSON.stringify(out.needs_owner));
 });
 
-test('every journey reply: under 50 s; no emoji, em dash, "coin", "vault", "Clanker" or tool name; "skip" only in token offers; nothing else on the network', dbTest, () => {
+test('every journey reply: under 50 s; no emoji, em dash, "coin", "vault", "Clanker" or tool name; "skip" only as "skip the token"; no WETH, gas or terms link; nothing else on the network', dbTest, () => {
   assert.ok(said.length > 30, `${said.length} replies`);
   const coinWords = (text: string) =>
     text
@@ -1199,8 +1182,8 @@ test('every journey reply: under 50 s; no emoji, em dash, "coin", "vault", "Clan
       .replace(/\b[\w-]+(?:\.[\w-]+)+\/\S*/g, ' ')
       .match(/\bcoins?\b/gi) ?? [];
   const toolName = new RegExp(`\\b(${Object.keys(tools).join('|')})\\b`);
-  // The token offers' own skip lines (the first reply's, the repeat, the confirmation's).
-  const offerSkip = /(Say yes with your wallet address, or skip\.|yes \/ skip)$|^Skip: no token, no builder bonus\.$/;
+  // v2.10 item 5: the confirm line is the only place "skip" is said, as "skip the token".
+  const offerSkip = /\/ skip the token$/;
   for (const s of said) {
     const where = `${s.journey} ${s.label}`;
     assert.ok(s.ms < MAX_REPLY_MS, where);
@@ -1212,6 +1195,8 @@ test('every journey reply: under 50 s; no emoji, em dash, "coin", "vault", "Clan
     assert.doesNotMatch(s.text, toolName, `${where}: ${s.text}`);
     assert.doesNotMatch(s.reply.show_to_builder ?? '', TECHNICAL_TERMS, where);
     for (const line of s.text.split('\n').filter((l) => /\bskip\b/i.test(l))) assert.match(line, offerSkip, `${where}: ${line}`);
+    assert.doesNotMatch(s.text, /\bWETH\b|\bgas\b|token-creator-agreement|risk-disclosure/, `${where}: ${s.text}`);
+    assert.ok((s.text.match(/Builder bonus:/g)?.length ?? 0) <= 1, where);
     // Ruling G15 (I3): no journey reaches "Open this in Claude Code or Cursor" any more.
     assert.ok(!s.text.includes(CANT_PUSH), where);
   }

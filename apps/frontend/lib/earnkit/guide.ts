@@ -2,6 +2,8 @@ import { endsOf, prizeOf } from './entry-text';
 import { CHAIN_NAMES, effortOf, type Verdict } from './match';
 import type { PastRound } from './program-file';
 import type { ProgramRow } from './programs';
+import type { RoundPool } from './bonus-rounds';
+import { bonusLine } from './present';
 
 /**
  * v2.7 §2: a program's guide (difficulty, what won before, what the ecosystem wants, the best bet,
@@ -201,9 +203,15 @@ export type Guide = {
   won: { own: boolean; event: string | null; lines: string[]; source_url: string } | null;
   wants: { ecosystem: string; areas: string[]; source_url: string } | null;
   best_bet: string | null;
-  /** board: "earnkit.com/bonus/<slug>". */
-  bonus: { cell: string; board: string } | null;
+  bonus: GuideBonus | null;
 };
+
+/**
+ * The guide's builder bonus (programs.ts guideBonus): `cell` and `board` ("earnkit.com/bonus/<slug>")
+ * for the public guide page's pill and link; `pool` (v2.10 item 1, Pre-flight P18) for the reply's
+ * one bonus line (present.ts bonusLine).
+ */
+export type GuideBonus = { cell: string; board: string; pool?: RoundPool };
 
 /** The round "What won" uses: the newest with themes or examples. */
 const wonRound = (p: Pick<GuideFacts, 'past_rounds'>) =>
@@ -230,7 +238,7 @@ function wonLines(r: PastRound): string[] {
 /** v2.7 §2: the guide for one curated program. Pure. */
 export function programGuide(
   p: GuideFacts & Pick<ProgramRow, 'title' | 'summary' | 'ends_at' | 'status'>,
-  bonus: { cell: string; board: string } | null,
+  bonus: GuideBonus | null,
   now = new Date(),
 ): Guide {
   const closed = p.status !== 'active' || (p.ends_at !== null && p.ends_at <= now);
@@ -300,14 +308,17 @@ export function guideSourceList(p: GuideFacts & { source_url?: string }, first: 
   });
 }
 
-/** The guide as builder text: short sections, no paragraphs, empty sections left out. Pure. */
+/**
+ * The guide as builder text: short sections, no paragraphs, empty sections left out. v2.10 item 1:
+ * the bonus section is the one bonus line (bonusLine), no board link (the page and site keep it). Pure.
+ */
 export function guideText(g: Guide): string {
   const sections = [
     `${g.header}\nDifficulty: ${difficultyText(g.difficulty)}`,
     g.won && [wonHeading(g.won), ...(g.won.event ? [g.won.event] : []), ...g.won.lines.map((l) => `- ${l}`)].join('\n'),
     g.wants && `What ${g.wants.ecosystem} wants now\n- ${g.wants.areas.join(' · ')}`,
     g.best_bet && `Your best bet\n- ${g.best_bet}`,
-    g.bonus && `Builder bonus: ${g.bonus.cell} · ${g.bonus.board}`,
+    g.bonus && bonusLine(g.bonus.pool),
   ];
   return sections.filter(Boolean).join('\n\n');
 }

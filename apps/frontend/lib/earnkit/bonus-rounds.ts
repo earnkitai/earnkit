@@ -205,40 +205,70 @@ export async function bonusEntryProgram(
   return r && { program_id: r.program_id, title: r.title };
 }
 
+/** v2.10 item 1: an open round's builder bonus pool so far, in wei, and the tokens launched in it. */
+export type RoundPool = { wei: bigint; tokens: number };
+
 /**
- * The builder bonus pool so far of each program's round open now, by program id, in wei, in ONE
- * grouped read (Ruling 3). Only active programs whose round is open now (never a future
- * `starts_at` or an ended window), only this month's round of a rolling program, and only rounds
- * with booked deposits: a program missing from the map has no pool yet. A program whose current
- * round exists but is no longer 'open' (it froze, then the file moved its end or re-ran the same
- * start day) maps to null: its bonus is not available (I2). The round key is computed in SQL
- * exactly as `roundFor` does (UTC start day; UTC month).
+ * The builder bonus pool so far of each program's round open now, by program id, with the count of
+ * tokens launched in that round, in ONE grouped read (Ruling 3; v2.10 item 1 adds the count). Only
+ * active programs whose round is open now (never a future `starts_at` or an ended window), only
+ * this month's round of a rolling program. A program missing from the map has no pool and no token
+ * yet. A program whose current round exists but is no longer 'open' (it froze, then the file moved
+ * its end or re-ran the same start day) maps to null: its bonus is not available (I2). The round
+ * key is computed in SQL exactly as `roundFor` does (UTC start day; UTC month). A token counts when
+ * its entry is in the program, it launched (coin_address) at or after the round's start (the
+ * program's starts_at; a rolling program's UTC month start), and it isn't an owner test
+ * installation's.
  */
-export async function roundPoolsWei(
+export async function roundPools(
   programIds: string[],
   opts: { now?: Date; onQuery?: () => void } = {},
-): Promise<Map<string, bigint | null>> {
+): Promise<Map<string, RoundPool | null>> {
   if (programIds.length === 0) return new Map();
   const now = opts.now ?? new Date();
+  const testIds = testInstallationIds();
   opts.onQuery?.();
-  const rows = await sql()<{ id: string; state: string | null; wei: string | null }[]>`
+  const rows = await sql()<{ id: string; state: string | null; wei: string | null; tokens: number }[]>`
     WITH open AS (
       SELECT p.id,
         CASE WHEN p.ends_at IS NULL
           THEN p.id || ':' || to_char(${now}::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM')
-          ELSE p.id || ':' || to_char(p.starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') END AS round_key
+          ELSE p.id || ':' || to_char(p.starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') END AS round_key,
+        CASE WHEN p.ends_at IS NULL
+          THEN date_trunc('month', ${now}::timestamptz AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+          ELSE p.starts_at END AS round_start
       FROM programs p
       WHERE p.id IN ${sql()(programIds)} AND p.status = 'active'
         AND (p.starts_at IS NULL OR p.starts_at <= ${now})
         AND (p.ends_at IS NULL OR (p.starts_at IS NOT NULL AND ${now} < p.ends_at))
     )
     SELECT o.id, r.state,
-      (SELECT sum(l.amount_wei) FROM bonus_ledger l WHERE l.round_key = o.round_key AND l.destination = 'round')::text AS wei
+      (SELECT sum(l.amount_wei) FROM bonus_ledger l WHERE l.round_key = o.round_key AND l.destination = 'round')::text AS wei,
+      (SELECT count(*) FROM projects t
+        WHERE t.program_id = o.id AND t.coin_address IS NOT NULL AND t.coin_launched_at >= o.round_start
+          AND t.coin_launched_at <= ${now}
+          AND NOT COALESCE(t.installation_id = ANY(${testIds}::int[]), false))::int AS tokens
     FROM open o LEFT JOIN bonus_rounds r ON r.round_key = o.round_key`;
-  const out = new Map<string, bigint | null>();
+  const out = new Map<string, RoundPool | null>();
   for (const r of rows) {
     if (r.state !== null && r.state !== 'open') out.set(r.id, null);
-    else if (r.wei !== null) out.set(r.id, BigInt(r.wei));
+    else if (r.wei !== null || r.tokens > 0) out.set(r.id, { wei: r.wei === null ? 0n : BigInt(r.wei), tokens: r.tokens });
+  }
+  return out;
+}
+
+/**
+ * roundPools' pools in wei, for programs with booked deposits (wei > 0) or a frozen round (null),
+ * as before v2.10: the public pages' "0.42 ETH so far" and the guide pill.
+ */
+export async function roundPoolsWei(
+  programIds: string[],
+  opts: { now?: Date; onQuery?: () => void } = {},
+): Promise<Map<string, bigint | null>> {
+  const out = new Map<string, bigint | null>();
+  for (const [id, pool] of await roundPools(programIds, opts)) {
+    if (pool === null) out.set(id, null);
+    else if (pool.wei > 0n) out.set(id, pool.wei);
   }
   return out;
 }

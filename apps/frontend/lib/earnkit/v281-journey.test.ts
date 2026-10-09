@@ -167,7 +167,7 @@ function ctxFor(id: number, o: { repo?: (owner: string, repo: string) => Promise
   };
   return {
     installationId: id,
-    roundPoolsWei: async () => new Map<string, bigint | null>(),
+    roundPools: async () => new Map(),
     tokenDeps,
     pickupDeps: { owner: earnkitTxt, latest: async () => null },
     // The entry proof page links the repo (the builder's submitted page).
@@ -355,7 +355,8 @@ test('J2, J3, J7: a repo in Claude Code, Base then Avalanche then Arc, and the n
   assert.match(base.q.show_to_builder, /Loom product demo/);
   assert.match(base.q.show_to_builder, /Base Builder Code/);
   assert.equal(base.d.ready, true, base.d.show_to_builder);
-  assert.match(base.d.show_to_builder, /\nYes: launches \$TIP \(TipJar\) on Base\. You earn 40% of its trading fees, plus a shot at the builder bonus\.\n/);
+  // v2.10 item 5: the one confirm line.
+  assert.match(base.d.show_to_builder, /Yes submits your entry and launches \$TIP \(TipJar\): 40% of its fees to you, plus the builder bonus\./);
   assert.equal((base.c!.token as { status: string }).status, 'launched');
   assert.ok(base.rec, 'recorded');
   assert.match(base.rec!.show_to_builder, /^Entered in Base Builder Grant Program\./);
@@ -412,8 +413,7 @@ test('J5: an edited ticker that is taken: named, and the second offer does not r
   const ctx = ctxFor(await newInstallation());
   const project = { name: 'Tip Jar', repo_url: 'https://github.com/carol/tip-jar', live_url: 'https://tj.xyz' };
   const e = await entry({ journey: J, ctx, program: 'base-builder-grants', project, agent: CC, token: { name: 'Tip Jar', symbol: 'TIPJAR' }, record: false });
-  assert.match(e.c!.show_to_builder, /^\$TIPJAR is taken\.\n/);
-  assert.match(e.c!.show_to_builder, /\nYes: launches \$TIP \(Tip Jar\) on Base\.\n/);
+  assert.match(e.c!.show_to_builder, /^\$TIPJAR is taken\. Yes submits your entry and launches \$TIP \(Tip Jar\)\. /);
   const go = await call(
     J,
     'go',
@@ -466,7 +466,7 @@ test('J9: an incomplete entry: the missing items first; confirming anyway shows 
   await call(J, 'confirm anyway', 'confirm_entry', { program_id: 'base-builder-grants', project, answers, builder_confirmed: true, decision: 'go', wallet: W, agent: CC }, ctx);
   // The offer shows, exactly once (final fix wave, M8: `<= 1` passed with no offer at all).
   assert.equal(forty(J), 1, dump(J));
-  assert.equal(said.filter((s) => s.journey === J && /\nYes: launches \$\w+ \(Half Done\) on Base\./.test(s.text)).length, 1, dump(J));
+  assert.equal(said.filter((s) => s.journey === J && /Yes submits your entry and launches \$\w+ \(Half Done\)/.test(s.text)).length, 1, dump(J));
 });
 
 test('J10: repo problems at the token gate: plain words, the kit, and never "open this in Claude Code"', dbTest, async () => {

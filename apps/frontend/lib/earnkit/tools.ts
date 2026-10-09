@@ -12,7 +12,7 @@ import {
 } from './projects';
 import { EntryError, githubRepo, givenWallet, isWalletAddress, normalizeRepoUrl, presentYourEntries } from './campaigns';
 import { signToEnter } from './entry-proof';
-import { boardLink, confirmTable, enteredText, noCoinYet, todoOf, type EnteredText } from './entry-text';
+import { confirmTable, enteredText, noCoinYet, todoOf, type EnteredText } from './entry-text';
 import { proposeToken, repoNameOf, titleCase, tokensFunTickerCheck } from './token-proposal';
 import { DECLINES_MAX, declines, firstReplyShown, offerIdentity, offerKey, readOffer, recordDecline, saveOffer, type Offered } from './token-offers';
 import { earnkitCampaignRows, yourCampaignEntries } from './leaderboard';
@@ -31,7 +31,7 @@ import { outcomeQuestion, outcomeToAsk } from './outcomes';
 import { wonSource } from './stats';
 import { EMAIL_SHARED_NOTE, EMAIL_SIGN_IN, WHICH_EMAIL, askWeeklyEmail, cleanEmail, entryEmail, saveWeeklyEmail } from './digest';
 import { TellInput, emptyMemory, hiddenIds, hiddenPrograms, memoryKey, readMemory, tell, type BuilderMemory, type MemoryKey, type SaidRepo } from './builder-memory';
-import { fitRepoOf, newProgramOf, openCuratedRows, repoCanWin, sinceLine, sinceYouLastChecked, type FitRepo } from './alerts';
+import { fitRepoOf, newProgramOf, openCuratedRows, repoCanWin, sinceLine, sinceYouLastChecked, takeDeadlineLine, type DeadlineEntry, type FitRepo } from './alerts';
 import {
   GitHubError,
   MatchProjectsInput,
@@ -46,17 +46,13 @@ import {
 } from './match-projects';
 import { alsoQualifies, alsoText, type AlsoRow } from './also-qualifies';
 import {
-  NO_CELL,
-  bonusCell,
+  bonusLine,
   bonusProgramIds,
   closesInDays,
   enterableWithoutRepo,
   layout,
   presentFirstMessage,
   programUpdates,
-  tokenOffer,
-  tokenOfferAgain,
-  tokenOfferFit,
   type FirstMessage,
   type RepoFit,
   type YourRepos,
@@ -87,7 +83,7 @@ import {
 } from './token-launch';
 import { RAW_CAP, cleanProject, quoted } from './untrusted-text';
 import { tokenLineFor } from './token-gate';
-import { CANT_PUSH, NO_TOKEN_HERE, READY_TO_SUBMIT, bonusRidesOn, confirmDecision, confirmOffer, proofLineWaiting, signInLine, walletQuestion, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
+import { CANT_PUSH, NO_TOKEN_HERE, READY_TO_SUBMIT, confirmDecision, confirmLine, confirmOffer, proofLineWaiting, signInLine, walletQuestion, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
 import { HOST_LINES, UPLOAD_NOTE, hostSignInLine, issueUpload, refreshSiteExpiry } from './hosting';
 import { r2Enabled } from './r2';
 import { callerLogin, claimOfferVerification, createVerifyLink, entryVerifyLink, githubVerifyEnabled, offerVerification, verifiedEntryIds } from './github-verify';
@@ -114,7 +110,7 @@ import { answerPickup, offerPickup, type PickupDeps } from './identity';
 import type { FieldKind } from './program-file';
 import type { ProgramRow } from './programs';
 import { RateLimitError, enforce } from './rate-limit';
-import { bonusEntryProgram, roundPoolsWei as readRoundPools } from './bonus-rounds';
+import { roundPools as readRoundPools, type RoundPool } from './bonus-rounds';
 import { LAUNCHING, NOT_LAUNCHED_YET, REPO_HAS_TOKEN, launchClaimedAt, repoCoinPrograms, tokenLaunchesAvailable, type TokenOutcome } from './tokens';
 
 /** Who is calling: the installation behind the MCP connection. */
@@ -140,17 +136,12 @@ export type ToolContext = {
   /** Test and e2e injection only; never set by the MCP route. */
   entryDeps?: EntryDeps;
   /**
-   * The open rounds' builder bonus pools in wei, by program id (null: the program's round froze);
-   * defaults to roundPoolsWei.
+   * Test seam: the open rounds' builder bonus pools and token counts, by program id (null: the
+   * program's round froze); defaults to bonus-rounds.ts roundPools.
    */
-  roundPoolsWei?: (programIds: string[]) => Promise<Map<string, bigint | null>>;
+  roundPools?: (programIds: string[]) => Promise<Map<string, RoundPool | null>>;
   /** Ruling 25: the program each normalized repo's coin is entered in; defaults to repoCoinPrograms. */
   repoCoins?: (repoKeys: string[]) => Promise<Map<string, { program_id: string; title: string }>>;
-  /**
-   * v2.8.1 §D: the program whose round a repo's token fees book to now (after rollover); defaults to
-   * bonus-rounds.ts bonusEntryProgram (undefined: no token found there; null: the Safe).
-   */
-  bonusEntry?: (repoKey: string) => Promise<{ program_id: string; title: string } | null | undefined>;
   /** Test and e2e injection only; never set by the MCP route. */
   matchProjects?: (
     input: z.infer<typeof MatchProjectsInput>,
@@ -225,19 +216,19 @@ const entryWallet = (ctx: ToolContext, k: Parameters<typeof ownEntryWallet>[0]) 
   ctx.sharedClient ? Promise.resolve(null) : ownEntryWallet(k);
 
 /**
- * The open rounds' builder bonus pools so far, by program id, in one grouped read (Ruling 3; the
- * bonus ledger). A program with no pool yet shows "new pool" (v2.6 §1).
+ * The open rounds' builder bonus pools so far and their token counts, by program id, in one grouped
+ * read (Ruling 3; the bonus ledger; v2.10 item 1).
  */
-export const roundPoolsWei = (programIds: string[]): Promise<Map<string, bigint | null>> => readRoundPools(programIds);
+export const roundPools = (programIds: string[]): Promise<Map<string, RoundPool | null>> => readRoundPools(programIds);
 
-/** One batched pool read per list_programs; it never fails the tool: on any error, no pools. */
-async function poolsOf(read: (ids: string[]) => Promise<Map<string, bigint | null>>, ids: string[]) {
-  if (ids.length === 0) return new Map<string, bigint | null>();
+/** One batched pool read per reply; it never fails the tool: on any error, no pools. */
+async function poolsOf(read: (ids: string[]) => Promise<Map<string, RoundPool | null>>, ids: string[]) {
+  if (ids.length === 0) return new Map<string, RoundPool | null>();
   try {
     return await read(ids);
   } catch (err) {
     console.error('[list_programs] builder bonus pools:', err);
-    return new Map<string, bigint | null>();
+    return new Map<string, RoundPool | null>();
   }
 }
 
@@ -316,6 +307,8 @@ const PrepareSubmissionInput = ProgramId.extend({
    * reply's `host` carries the sign-in link, an upload URL, or why not.
    */
   host: z.boolean().optional(),
+  /** v2.10 item 15 (Ruling G9): the code a shared client's builder pasted, so their deadline line shows. */
+  signed_in: z.string().max(40).optional(),
 }).strict();
 
 /** v2.8 Ruling 1 (plan): the confirmation step's input. */
@@ -466,20 +459,6 @@ async function tokenElsewhere(parsed: z.infer<typeof RecordSubmissionInput>, ctx
 }
 
 /**
- * v2.8.1 §D: the program every builder-facing bonus note names for a repo whose token is `home`'s:
- * where its fees book now, by the booking rule (bonus-rounds.ts bonusEntryProgram, after
- * rollover); null when they go to the Safe (no "rides on" note). A failed read, or no token
- * found there, keeps `home`.
- */
-async function bonusNoteTitle(repoKey: string, home: string, ctx: ToolContext): Promise<string | null> {
-  const booked = await (ctx.bonusEntry ?? bonusEntryProgram)(repoKey).catch((err: unknown) => {
-    console.error('[bonus_note] bonus round lookup', err instanceof Error ? err.name : 'error');
-    return undefined;
-  });
-  return booked === undefined ? home : (booked?.title ?? null);
-}
-
-/**
  * v2.8 Ruling 29 (plan): "Also qualifies", right after record_submission records the entry.
  * Chains come from the repo-facts cache for this repo when present, else the entered program's
  * own chains (the repo was just entered there). Never fails the reply: on error the caller logs
@@ -494,14 +473,12 @@ async function alsoQualifiesBlock(
   const repoUrl = parsed.project.repo_url ?? null;
   const name = parsed.project.name;
   const key = projectKey({ repo_url: repoUrl, name });
-  const repoKey = repoUrl ? normalizeRepoUrl(repoUrl) : null;
   const full = repoUrl ? githubRepo(repoUrl) : null;
-  const [program, programs, enteredIds, bank, coins, cached, told] = await Promise.all([
+  const [program, programs, enteredIds, bank, cached, told] = await Promise.all([
     getProgramRow(parsed.program_id),
     alsoProgramFacts(),
     enteredProgramIds(ctx.installationId, { repoUrl, name }),
     readBank(ctx.installationId, key),
-    (ctx.repoCoins ?? repoCoinPrograms)(repoKey ? [repoKey] : []),
     full ? cachedRepoChains(`${full.owner}/${full.repo}`, appViewer(ctx)) : Promise.resolve(null),
     memoryOf(memoryKey(ctx), 'also_qualifies'),
   ]);
@@ -529,10 +506,8 @@ async function alsoQualifiesBlock(
       programs.map((p) => ({ id: p.id, starts_at: p.starts_at ?? null, ends_at: p.ends_at, opened_at: p.opened_at ?? null })),
     ),
   });
-  // v2.8.1 §D (the T4 carry): name the round the token's fees book to, after rollover.
-  const home = (repoKey && coins.get(repoKey)) || null;
-  const coinIn = home && repoKey && rows.length > 0 ? await bonusNoteTitle(repoKey, home.title, ctx) : (home?.title ?? null);
-  return { rows, text: alsoText(rows, coinIn) };
+  // v2.10 item 1: no bonus sentences here (the reply's one bonus line is enteredText's).
+  return { rows, text: alsoText(rows) };
 }
 
 /**
@@ -764,7 +739,7 @@ export const SIGN_IN_NOTE =
   "Show the line. When the builder says they signed in, call confirm_entry again with decision 'go'.";
 /** v2.9 B9 (Ruling G9): on a shared client the sign-in page gives the builder a code for the agent. */
 export const SIGN_IN_CODE_NOTE =
-  'The page gives the builder a code: pass it as signed_in on this and later calls (list_programs, tell_earnkit, launch_token). ' +
+  'The page gives the builder a code: pass it as signed_in on this and later calls (list_programs, prepare_submission, tell_earnkit, launch_token). ' +
   'It acts as the builder for 24 hours: never repeat it in your replies.';
 /** v2.9 B9: the proof-line miss's way out for an agent that can't push, with sign-in on. */
 export const CANT_PUSH_SIGN_IN_NOTE =
@@ -882,7 +857,7 @@ async function alertsFor(
     return await sinceYouLastChecked(installationId, opts);
   } catch (err) {
     console.error('[alerts]', err);
-    return { lines: opts.otherWins ?? [], scheduleNote: null };
+    return { lines: opts.otherWins ?? [], scheduleNote: null, entries: [] as DeadlineEntry[] };
   }
 }
 
@@ -907,7 +882,7 @@ const appViewer = (ctx: Pick<ToolContext, 'installationId' | 'sharedClient' | 'v
  * v2.9 B9, Rulings G6, G7, G9: on a shared client with GitHub sign-in on, the verified login of the
  * code the builder pasted (`signed_in`, callerLogin), else null. Never fails the tool.
  */
-async function sharedLogin(ctx: ToolContext, signedIn: string | undefined, where: string): Promise<string | null> {
+async function sharedLogin(ctx: Pick<ToolContext, 'installationId' | 'sharedClient'>, signedIn: string | undefined, where: string): Promise<string | null> {
   if (!ctx.sharedClient || !githubVerifyEnabled() || !signedIn) return null;
   return callerLogin(ctx.installationId, signedIn).catch((err: unknown) => {
     console.error(`[${where}] verified login`, err instanceof Error ? err.name : 'error');
@@ -915,83 +890,47 @@ async function sharedLogin(ctx: ToolContext, signedIn: string | undefined, where
   });
 }
 
-/** v2.4 §4: a builder tool's reply opens with "Since you last checked" when there's news (Ruling G7: not on a shared client). */
-async function withAlerts<T extends object>(ctx: Pick<ToolContext, 'installationId' | 'sharedClient'>, result: T) {
-  if (!remembers(ctx)) return result;
-  const a = await alertsFor(ctx.installationId);
-  const line = sinceLine(a.lines);
-  return { ...(line && { since_you_last_checked: line }), ...result };
+/**
+ * v2.10 item 15 (Ruling G7, Review Focus 5): a shared client's entries for the deadline line: only
+ * the ones the verified login signed in for; none without a login. Never fails the tool.
+ */
+async function loginDeadlineEntries(installationId: number, login: string | null): Promise<DeadlineEntry[]> {
+  if (!login) return [];
+  try {
+    const ids = await verifiedEntryIds(installationId, login);
+    if (ids.length === 0) return [];
+    return (await openEntries(installationId, ids)).map((e) => ({ id: e.id, title: e.title, ends_at: e.ends_at, submitted: e.submitted }));
+  } catch (err) {
+    console.error('[deadline] login entries', err instanceof Error ? err.name : 'error');
+    return [];
+  }
 }
 
-/** v2.9 B10: what the agent does with list_programs' token_offer. */
-export const TOKEN_OFFER_NOTE =
-  "The reply ends with a token offer. On yes, call launch_token with offer (program_id, repo_url, project_name), " +
-  "decision 'go', builder_confirmed: true and creator_wallet: token_offer.shown_wallet, or the wallet the builder gives with the yes; " +
-  "on skip, call launch_token with offer and decision 'skip'.";
+/**
+ * v2.10 item 15 (R12): the deadline line, first in show_to_builder (once per entry per UTC day).
+ * A reply with no show_to_builder is left as it is (nothing is marked shown).
+ */
+async function withDeadline<T extends object>(installationId: number, result: T, entries: DeadlineEntry[]): Promise<T> {
+  const shown = (result as { show_to_builder?: unknown }).show_to_builder;
+  if (typeof shown !== 'string' || entries.length === 0) return result;
+  const line = await takeDeadlineLine(installationId, entries);
+  return line ? { ...result, show_to_builder: shown ? `${line}\n\n${shown}` : line } : result;
+}
 
 /**
- * v2.9 B10, Ruling 12: the first reply's token offer, or null: the fit (present.ts tokenOfferFit),
- * launches configured, never on a shared client while sign-in is off (Ruling G15), the repo not
- * declined; the pair shown before for this repo and program,
- * else EarnKit's proposal, stored (token_offers) so a later offer names the same token. The wallet
- * is "known" only when remembered on a non-shared client. Never fails the reply (null on any error).
+ * v2.4 §4: a builder tool's reply opens with "Since you last checked" when there's news (Ruling G7:
+ * not on a shared client). v2.10 item 15: show_to_builder starts with the deadline line, from the
+ * entries the alerts already read; on a shared client only for the entries of the login the pasted
+ * code (`signedIn`) verified, and none without one.
  */
-async function firstTokenOffer(m: FirstMessage, ctx: ToolContext, login: string | null) {
-  if (!(ctx.tokenDeps?.available ?? tokenLaunchesAvailable)()) return null;
-  // Ruling G15 (I3): a hosted agent can't add the proof line, so with sign-in off a "yes" could
-  // never launch; the reply keeps its usual closing offer instead.
-  if (ctx.sharedClient && !githubVerifyEnabled()) return null;
-  try {
-    const urls = m.repos && 'fits' in m.repos ? m.repos.fits.flatMap((f) => (f.repo_url ? [f.repo_url] : [])) : [];
-    if (urls.length === 0) return null;
-    const keyOf = (url: string) => repoKey({ url, name: '' });
-    // Ruling G12: this builder's declines only (none read on a shared client without a login).
-    const counts = login === null ? new Map<string, number>() : await declines(ctx.installationId, [...new Set(urls.map(keyOf))], login);
-    // Ruling G14 (M2): after one skip the first reply never offers that repo's token again; only the
-    // confirmation offers it once more (B10).
-    const blocked = new Set(urls.filter((u) => (counts.get(keyOf(u)) ?? 0) >= 1).map((u) => normalizeRepoUrl(u)));
-    const fit = tokenOfferFit(m, blocked);
-    if (!fit?.repo_url) return null;
-    const project = titleCase(repoNameOf(fit.repo_url) ?? fit.repo);
-    const key = offerKey(fit.repo_url, project);
-    const proposal =
-      (await readOffer(ctx.installationId, fit.card.id, key)) ??
-      (await proposeToken(project, ctx.tokenDeps?.check ?? tokensFunTickerCheck, fit.repo_url));
-    const proposed = { name: proposal.name, symbol: proposal.symbol };
-    // Fix round 3 (G14): a first-reply offer already shown for this repo and program (the builder
-    // hasn't answered yet) is said again without the earnings sentence ("40%" once per flow).
-    const again = await firstReplyShown(ctx.installationId, fit.card.id, key);
-    await saveOffer(ctx.installationId, fit.card.id, key, proposed, true);
-    // Ruling G13 (I1): the remembered wallet (never on a shared client, G7) is named in the line and
-    // carried as shown_wallet, so "yes" launches to the wallet the builder saw.
-    const wallet = await walletMemory(ctx);
-    return {
-      text: tokenOffer({
-        project,
-        program: fit.card.title,
-        prize_usd: fit.card.max_award_usd ?? 0,
-        // Ruling G15 (M2): "fits" only for a likely row, else "is one step from".
-        oneStep: fit.v.status !== 'likely',
-        proposal: proposed,
-        // Review Minor 5: an opted-out program or a frozen round has no bonus to win.
-        hasBonus: bonusCell(fit.card) !== NO_CELL,
-        walletKnown: wallet !== null,
-        wallet,
-        again,
-      }),
-      offer: {
-        program_id: fit.card.id,
-        repo_url: fit.repo_url,
-        project_name: project,
-        proposed,
-        ...(wallet && { shown_wallet: wallet }),
-        agent_note: TOKEN_OFFER_NOTE,
-      },
-    };
-  } catch (err) {
-    console.error('[list_programs] token offer', err instanceof Error ? err.name : 'error');
-    return null;
+async function withAlerts<T extends object>(ctx: Pick<ToolContext, 'installationId' | 'sharedClient'>, result: T, signedIn?: string) {
+  if (!remembers(ctx)) {
+    const login = await sharedLogin(ctx, signedIn, 'deadline');
+    return withDeadline(ctx.installationId, result, await loginDeadlineEntries(ctx.installationId, login));
   }
+  const a = await alertsFor(ctx.installationId);
+  const line = sinceLine(a.lines);
+  return withDeadline(ctx.installationId, { ...(line && { since_you_last_checked: line }), ...result }, a.entries);
 }
 
 /** v2.9 B10: launch_token's builder line when the builder said skip to the token offer. */
@@ -999,7 +938,7 @@ export const NO_TOKEN_FOR_NOW = 'No token for now.';
 
 /** Ruling G13 (I2): launch_token with an offer the builder was never shown (no token_offers row). */
 export const OFFER_NOT_SHOWN = 'Nothing launched: this token was not offered yet.';
-const OFFER_NOT_SHOWN_AGENT = "Call list_programs, show its reply (it ends with the token offer), and pass that reply's token_offer.";
+const OFFER_NOT_SHOWN_AGENT = 'The token is offered once, at confirmation: call prepare_submission, then confirm_entry when the builder says yes.';
 
 /**
  * v2.9 B10, Ruling G13 (I2): launch_token with the first reply's offer. Nothing launches that the
@@ -1037,8 +976,8 @@ async function launchFromOffer(
           : 'Nothing launched. The token is offered once more when the builder confirms an entry for this repo.',
     };
   }
-  // The program filters the offer applied (tokenOfferFit), checked again: an agent can't aim the
-  // offer path at a program the builder was never offered.
+  // The program filters the v2.9 first-reply offer applied, checked again: an agent can't aim the
+  // offer path at a program the builder was never offered (v2.10 item 5: the path stays until T9).
   const offerable =
     program.source !== 'sponsor' && !program.investment && Number(program.max_award_usd ?? 0) > 0 && program.token_policy !== 'off';
   if (!offerable || !(ctx.tokenDeps?.available ?? tokenLaunchesAvailable)())
@@ -1059,7 +998,8 @@ async function launchFromOffer(
       status: 'skipped' as const,
       fixable: true,
       proposed: pair,
-      show_to_builder: tokenOfferAgain({ proposal: pair, walletKnown: wallet !== null, wallet, remembered: !parsed.creator_wallet }, proposal?.taken ?? null),
+      // Pre-flight P5: the confirm line again (said once already: no earnings part).
+      show_to_builder: `${proposal?.taken ? `$${proposal.taken} is taken. ` : ''}${confirmLine({ proposal: pair, hasBonus: hasBuilderBonus(program), wallet, walletKnown: wallet !== null, again: true })}`,
       ...(wallet && { shown_wallet: wallet }),
       agent_note:
         'Nothing launched: the builder has not seen this token yet. Show show_to_builder as written; on yes, call launch_token again ' +
@@ -1292,12 +1232,13 @@ export const tools = {
 
     // The builder bonus pools: one read, only for provable programs the message shows.
     const pools = await poolsOf(
-      ctx.roundPoolsWei ?? roundPoolsWei,
+      ctx.roundPools ?? roundPools,
       bonusProgramIds({ cards, repos: yourRepos }),
     );
     const withPools = cards.map((c) => ({
       ...c,
-      bonus_pool_wei: pools.get(c.id) ?? null,
+      bonus_pool_wei: pools.get(c.id)?.wei ?? null,
+      bonus_tokens: pools.get(c.id)?.tokens ?? 0,
       bonus_closed: pools.has(c.id) && pools.get(c.id) === null,
     }));
     const repoCoins = await repoCoinsOf(ctx.repoCoins ?? repoCoinPrograms, yourRepos);
@@ -1323,10 +1264,12 @@ export const tools = {
       hidden,
       // v2.9 E20: "Builders using EarnKit won $X" (announced prizes only), absent at 0.
       wonUsd: await wonSource.read(),
+      // v2.10 item 15 (R12, Pre-flight P19): after "Your entries"; the same entries (a shared
+      // client's only for its verified login, none without one).
+      deadline: await takeDeadlineLine(ctx.installationId, myEntries),
     };
-    // v2.9 B10 (Ruling 12): the token offer for the best owned, product-tier fit closes the reply.
-    const tokenPick = await firstTokenOffer(first, ctx, declineLogin(ctx, login));
-    const show_to_builder = presentFirstMessage(tokenPick ? { ...first, tokenOffer: tokenPick.text } : first);
+    // v2.10 item 5: no token offer here; the token is pitched once, at confirmation.
+    const show_to_builder = presentFirstMessage(first);
     // v2.9 A8: what matching showed (the matched rows on screen, one per program), for the outcome
     // loop. Never fails the tool. Ruling G7: not on a shared client (its repo keys and scores may be
     // another builder's) until memoryKey names a verified builder.
@@ -1378,7 +1321,6 @@ export const tools = {
               (r) => !hide.has(r.program_id),
             )
           : [],
-      ...(tokenPick && { token_offer: tokenPick.offer }),
       working_on: workingOn,
       programs: programs.map((p) => ({
         id: p.id,
@@ -1413,7 +1355,7 @@ export const tools = {
   },
 
   prepare_submission: async (input: unknown, ctx: ToolContext) => {
-    const { program_id, agent, coach_asked, host, ...known } = PrepareSubmissionInput.parse(input);
+    const { program_id, agent, coach_asked, host, signed_in, ...known } = PrepareSubmissionInput.parse(input);
     const program = await getProgramRow(program_id);
     const hosting = host ? await hostBlock(ctx, known.project?.repo_url ?? known.answers?.repo_url, known.project?.name) : null;
     // Campaign entries reach the sponsor: check the name and description now, as record_submission will.
@@ -1470,7 +1412,6 @@ export const tools = {
           // is asked about, not assumed); without one the block asks the builder for the fee
           // wallet. Other programs (v2.6 §3): the wallet given now, else the remembered one.
           creatorWallet: program.campaign ? given : (given ?? remembered),
-          remembered: !program.campaign && !given && remembered !== null,
           // The earnkit.txt token line is bound to this agent and the repo; shown only in this reply.
           installationId: ctx.installationId,
           repoUrl,
@@ -1528,7 +1469,7 @@ export const tools = {
         }),
         ...(token && { token }),
         ...(hosting && { host: hosting }),
-      });
+      }, signed_in);
 
     // v2.8 Part D, Ruling 26 (plan): the coach. Every answer so far (the agent's draft, the bank and
     // the project info); then at most 3 questions (1 once the project has banked answers) for what
@@ -1578,7 +1519,7 @@ export const tools = {
         missing: checkedPrep.missing,
         agent_note: askWallet ? `${QUESTIONS_NOTE} ${WALLET_ANSWER_NOTE}` : QUESTIONS_NOTE,
         ...(hosting && { host: hosting }),
-      });
+      }, signed_in);
 
     // v2.8 Part C, Ruling 4 (plan): other programs. Once ready, the draft, the check's fixes and the
     // confirmation offer (the builder bonus comes with a token) close the screen; the kit comes only
@@ -1615,7 +1556,6 @@ export const tools = {
           canPush,
           signIn,
           wallet: offerWallet,
-          remembered: !given && offerWallet !== null,
           tokensOff: prepTokensOff,
           proposal: shownPair,
           // v2.9 B10 (P21): the first reply's offer was skipped: no "40%" a second time.
@@ -1681,7 +1621,7 @@ export const tools = {
       ...(line && { token_line: line }),
       ...(notes.length > 0 && { agent_note: notes.join(' ') }),
       ...(hosting && { host: hosting }),
-    });
+    }, signed_in);
   },
 
   // v2.8 Part C, Rulings 1, 4, 5 and 7 (plan): the confirmation step. Without the builder's yes it
@@ -1757,8 +1697,8 @@ export const tools = {
       if (pair) await rememberOffer(ctx, program.id, key, pair);
       return {
         show_to_builder:
-          (proposal?.taken ? `$${proposal.taken} is taken.\n` : '') +
-          confirmOffer({ hasBonus: facts.hasBonus, coinIn: facts.coinIn, canPush, signIn, wallet, remembered: !given && !answered && wallet !== null, tokensOff, proposal: pair, again: Boolean(proposal?.taken) || facts.declinedOnce || facts.firstShown }),
+          (proposal?.taken ? `$${proposal.taken} is taken. ` : '') +
+          confirmOffer({ hasBonus: facts.hasBonus, coinIn: facts.coinIn, canPush, signIn, wallet, tokensOff, proposal: pair, again: Boolean(proposal?.taken) || facts.declinedOnce || facts.firstShown }),
         ...(offersToken && wallet && { shown_wallet: wallet }),
         ...(pair && { token: { proposed: pair } }),
         agent_note:
@@ -1822,11 +1762,11 @@ export const tools = {
         answered ??
         (await entryWallet(ctx, { programId: program.id, installationId: ctx.installationId, repoUrl, name: i.project.name })) ??
         (await walletMemory(ctx));
-      const offer = confirmOffer({ hasBonus: facts.hasBonus, coinIn: null, canPush, signIn, wallet, remembered: !given && !answered && wallet !== null, proposal, again: again || facts.declinedOnce || facts.firstShown });
+      const offer = confirmOffer({ hasBonus: facts.hasBonus, coinIn: null, canPush, signIn, wallet, proposal, again: again || facts.declinedOnce || facts.firstShown });
       return {
         project_id: projectId,
         token: { status: 'skipped' as const, fixable: true, proposed: proposal },
-        show_to_builder: taken ? `$${taken} is taken.\n${offer}` : offer,
+        show_to_builder: taken ? `$${taken} is taken. ${offer}` : offer,
         ...(wallet && { shown_wallet: wallet }),
         agent_note:
           'Nothing launched: the builder has not seen this token yet. Show show_to_builder as written; when the builder says yes, ' +
@@ -2041,9 +1981,6 @@ export const tools = {
     // Final review I3: a confirmed "go" with no token, whose repo's one token is entered in another
     // program (Ruling 5 (plan)): no token here by design, said as the confirmation said it.
     const countsIn = confirmed === 'go' && !hasCoin ? await tokenElsewhere(parsed, ctx) : null;
-    // v2.8.1 §D: the bonus note names the round the token's fees book to now (null: the Safe).
-    const repoForNote = parsed.project.repo_url ?? answersOf(parsed.submission_data).repo_url ?? null;
-    const ridesOnTitle = countsIn && repoForNote ? await bonusNoteTitle(normalizeRepoUrl(repoForNote), countsIn, ctx) : null;
     const token: TokenOutcome = 'coin_url' in result && result.coin_url
       ? result.coin_url === 'pending'
         ? // v2.8.1 §A1: launching, or stuck past 10 minutes (the cron has alerted the owner).
@@ -2062,9 +1999,8 @@ export const tools = {
               confirmed === 'skip'
                 ? SKIPPED_ENTRY
                 : countsIn
-                  ? ridesOnTitle
-                    ? bonusRidesOn(ridesOnTitle)
-                    : `${REPO_HAS_TOKEN}.`
+                  ? // v2.10 item 1: no second bonus form ("rides on") in the reply.
+                    `${REPO_HAS_TOKEN}.`
                   : "This entry's token isn't launched.",
           }
         : await submissionToken(
@@ -2097,7 +2033,7 @@ export const tools = {
     };
     // Campaign entries carry their own table (enteredTable).
     if ('show_to_builder' in result && result.show_to_builder)
-      return withAlerts(ctx, await askEmail({ ...result, show_to_builder: result.show_to_builder, token }));
+      return withAlerts(ctx, await askEmail({ ...result, show_to_builder: result.show_to_builder, token }), parsed.signed_in);
     // v2.6 §3: outside campaigns, the reply the builder sees: the coin, then the bonus round.
     // Ruling 29: the round's end as the first message shows it.
     const endsLabel = result.bonus_round?.ends_label ?? null;
@@ -2133,24 +2069,17 @@ export const tools = {
                 };
     let bonus: EnteredText['bonus'] = null;
     if (result.bonus_round && coin.status !== 'skipped') {
-      const pool = (await poolsOf(ctx.roundPoolsWei ?? roundPoolsWei, [parsed.program_id])).get(parsed.program_id);
-      // null: the round froze (I2), so no bonus line.
-      if (pool !== null)
-        bonus = {
-          cell: bonusCell({ builder_bonus: true, bonus_pool_wei: pool ?? null }),
-          ends: endsLabel!,
-          board: boardLink(result.bonus_round.key),
-          join: 'bonus_join' in result ? result.bonus_join : null,
-        };
+      const pool = (await poolsOf(ctx.roundPools ?? roundPools, [parsed.program_id])).get(parsed.program_id);
+      // v2.10 item 1: the one bonus line (no board link); null: the round froze (I2), so none.
+      const line = bonusLine(pool);
+      if (line) bonus = { line, join: 'bonus_join' in result ? result.bonus_join : null };
     }
     const also = await alsoQualifiesBlock(parsed, ctx, verified?.live === true).catch((err: unknown) => {
       console.error('[also_qualifies]', err instanceof Error ? err.name : 'error');
       return null;
     });
-    // v2.8.1 §C13: the bonus note once: in Also qualifies, else after "Entered in…".
-    const ridesOn = ridesOnTitle && !also?.text ? ` ${bonusRidesOn(ridesOnTitle)}` : '';
     const show_to_builder =
-      enteredText({ programTitle: result.program_title, coin, bonus, repoHeld, countsIn }) + ridesOn + (also?.text ? `\n\n${also.text}` : '');
+      enteredText({ programTitle: result.program_title, coin, bonus, repoHeld, countsIn }) + (also?.text ? `\n\n${also.text}` : '');
     return withAlerts(
       ctx,
       await askEmail({
@@ -2159,6 +2088,7 @@ export const tools = {
         show_to_builder,
         ...(also?.rows.length && { also_qualifies: also.rows }),
       }),
+      parsed.signed_in,
     );
   },
 
@@ -2228,7 +2158,7 @@ export const tools = {
   launch_token: async (input: unknown, ctx: ToolContext) => {
     const parsed = LaunchTokenInput.parse(input);
     // v2.9 B10: the answer to the first reply's token offer: a draft entry, then the launch.
-    if (parsed.offer) return withAlerts(ctx, await launchFromOffer(parsed, parsed.offer, ctx));
+    if (parsed.offer) return withAlerts(ctx, await launchFromOffer(parsed, parsed.offer, ctx), parsed.signed_in);
     const out = await launchToken(
       parsed,
       ctx.installationId,
@@ -2260,6 +2190,7 @@ export const tools = {
               (ctx.sharedClient ? ' with signed_in: the code the sign-in page gave them.' : '.'),
           }
         : out,
+      parsed.signed_in,
     );
   },
 

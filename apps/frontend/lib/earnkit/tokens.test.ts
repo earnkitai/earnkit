@@ -1,7 +1,6 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  EARNINGS_LINE,
   LAUNCH_STUCK,
   LaunchError,
   NOT_LAUNCHED_YET,
@@ -213,10 +212,6 @@ test('v2.8.1 §A4: retryAtOf reads retry_after (ISO or seconds), retry_after_sec
   assert.equal(tryAgainAfter(new Date('2026-10-08T14:19:01Z')), 'Try again after 14:20 UTC.');
   assert.equal(tryAgainAfter(new Date('2026-10-09T00:00:00Z')), 'Try again after 00:00 UTC.');
   assert.equal(tryAgainAfter(null), 'Try again in a few hours.');
-});
-
-test('earnings line is the spec text (v2.7 Ruling 18: no launch protocol named)', () => {
-  assert.equal(EARNINGS_LINE('0xW'), 'You earn 40% of trading fees, paid in WETH to 0xW. tokens.fun pays the gas.');
 });
 
 test('v2.9 T12: the tokens.fun host is read per call, so a mock set after the modules load is the one used', async () => {

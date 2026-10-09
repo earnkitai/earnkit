@@ -92,7 +92,70 @@ export type AlertFacts = {
   skip: AlertSkip;
   /** v2.8 Part G: announced wins (won or placed) of this installation's entries; never a self-report. */
   outcomeWins: OutcomeWin[];
+  /** v2.10 item 15: this installation's entries, for the deadline line (the read that builds skip.entered). */
+  entries: DeadlineEntry[];
 };
+
+/**
+ * v2.10 item 15: an entry as the deadline line reads it. `ends_at` is its program's deadline (null:
+ * rolling, a campaign, or the program isn't active); `submitted` as projects.ts openEntries says it.
+ */
+export type DeadlineEntry = { id: number; title: string; ends_at: Date | null; submitted: boolean };
+
+/** v2.10 item 15: the deadline line covers entries closing within this many days. */
+export const DEADLINE_DAYS = 3;
+const DAY_MS = 86_400_000;
+
+/**
+ * v2.10 item 15: the soonest unsubmitted entry closing within DEADLINE_DAYS that wasn't shown today
+ * (`shown`: entry id to the UTC day it was last shown): "Arc Microgrants closes in 2 days; your entry
+ * isn't submitted." ("closes tomorrow", "closes today" under 24 h). The days are whole days left
+ * before the program's own deadline instant (rounded down), so the line never reads later than the
+ * program's own close, whatever its time zone (Pre-flight P1). Null when none. Pure.
+ */
+export function deadlineLine(entries: DeadlineEntry[], shown: Record<string, string>, now: Date): { line: string; id: number } | null {
+  const day = now.toISOString().slice(0, 10);
+  const e = entries
+    .filter(
+      (x) =>
+        !x.submitted &&
+        x.ends_at !== null &&
+        x.ends_at > now &&
+        x.ends_at.getTime() - now.getTime() <= DEADLINE_DAYS * DAY_MS &&
+        shown[String(x.id)] !== day,
+    )
+    .sort((a, b) => a.ends_at!.getTime() - b.ends_at!.getTime())[0];
+  if (!e) return null;
+  const days = Math.floor((e.ends_at!.getTime() - now.getTime()) / DAY_MS);
+  const when = days === 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`;
+  return { id: e.id, line: `${e.title} closes ${when}; your entry isn't submitted.` };
+}
+
+/**
+ * v2.10 item 15: the deadline line for this reply, once per entry per UTC day
+ * (`installations.deadline_shown`). The mark is one conditional UPDATE, so two replies at once show
+ * it once. Never throws: on an error, no line.
+ */
+export async function takeDeadlineLine(installationId: number, entries: DeadlineEntry[], now = new Date()): Promise<string | null> {
+  if (entries.length === 0) return null;
+  try {
+    const [row] = await sql()<{ deadline_shown: Record<string, string> | null }[]>`
+      SELECT deadline_shown FROM installations WHERE id = ${installationId}`;
+    const pick = deadlineLine(entries, row?.deadline_shown ?? {}, now);
+    if (!pick) return null;
+    const day = now.toISOString().slice(0, 10);
+    const id = String(pick.id);
+    const taken = await sql()<{ id: number }[]>`
+      UPDATE installations
+      SET deadline_shown = COALESCE(deadline_shown, '{}'::jsonb) || jsonb_build_object(${id}::text, ${day}::text)
+      WHERE id = ${installationId} AND COALESCE(deadline_shown->>${id}::text, '') <> ${day}
+      RETURNING id`;
+    return taken.length > 0 ? pick.line : null;
+  } catch (err) {
+    console.error('[deadline]', err instanceof Error ? err.name : 'error');
+    return null;
+  }
+}
 
 /**
  * v2.8 Ruling 10 (plan); v2.9 A7: an open curated program, as new program alerts read it: the facts
@@ -328,7 +391,7 @@ export function alertLines(prev: AlertMemory, f: AlertFacts, otherWins: string[]
   // first, naming the program and (M1) the transaction, same pattern as the EarnKit prize line above.
   for (const w of shownBonus)
     lines.push(
-      `you were paid a ${eth(w.amount_wei)} ETH builder bonus (as WETH) for ${w.program_title}` +
+      `you were paid a ${eth(w.amount_wei)} ETH builder bonus for ${w.program_title}` +
         `${w.wallet ? `, sent to ${shortWallet(checksummed(w.wallet))}` : ''} (basescan.org/tx/${w.tx_hash}) · ${boardLink(w.round_key)}`,
     );
   lines.push(...otherWins);
@@ -498,7 +561,13 @@ export async function alertFacts(installationId: number, db: Db = sql()): Promis
       JOIN programs pr ON pr.id = eo.program_id
       WHERE eo.basis = 'announcement' AND eo.result IN ('won', 'placed') AND p.installation_id = ${installationId}`,
     // v2.9 A7: programs this installation has an entry in (confirmed or not) are never alerted.
-    db<{ program_id: string }[]>`SELECT DISTINCT program_id FROM projects WHERE installation_id = ${installationId}`,
+    // v2.10 item 15: the same read gives the deadline line its entries (openEntries' "submitted").
+    db<{ id: number; program_id: string; title: string; ends_at: Date | null; open: boolean; submitted: boolean }[]>`
+      SELECT p.id, p.program_id, pr.title, pr.ends_at,
+        (pr.status = 'active' AND pr.campaign IS NULL) AS open,
+        (p.confirmed_at IS NULL OR p.submission_confirmed_at IS NOT NULL OR p.submission_proof_ok_at IS NOT NULL) AS submitted
+      FROM projects p JOIN programs pr ON pr.id = p.program_id
+      WHERE p.installation_id = ${installationId}`,
     // v2.9 A3, A7: applied outside EarnKit or not interested (builder memory), and what the builder
     // said about their repos now (a later "not mine" or "testnet only" wins over the remembered one).
     db<{ program_id: string; status: 'applied' | 'not_interested'; round_label: string | null; at: Date }[]>`
@@ -548,6 +617,7 @@ export async function alertFacts(installationId: number, db: Db = sql()): Promis
     newPrograms: curated.map(newProgramOf),
     fitRepos: (fit[0]?.fit_repos ?? []).map((r) => ({ ...r, said: saidNow.get(r.key) ?? r.said ?? null })),
     skip: { entered: new Set(entered.map((e) => e.program_id)), hidden: hiddenIds(hiddenPrograms(memory, curated)) },
+    entries: entered.map((e) => ({ id: e.id, title: e.title, ends_at: e.open ? e.ends_at : null, submitted: e.submitted })),
     outcomeWins: outcomeWins.map((o) => ({ ...o, prize_usd: o.prize_usd === null ? null : Number(o.prize_usd) })),
     bonusStandings: bonusRank.map((r) => ({
       project_id: r.project_id,
@@ -622,6 +692,8 @@ export async function sinceYouLastChecked(
   const otherWins = opts.otherWins ?? [];
   const budget = Math.max(1, Math.floor(opts.budgetMs ?? FACTS_BUDGET_MS));
   let lines: string[];
+  // v2.10 item 15: the entries the facts read, for the deadline line (none when skipped).
+  let entries: DeadlineEntry[] = [];
   try {
     lines = await sql().begin(async (tx) => {
       await tx`SET LOCAL lock_timeout = '500ms'`;
@@ -630,6 +702,7 @@ export async function sinceYouLastChecked(
       if (!row) return otherWins;
       await tx.unsafe(`SET LOCAL statement_timeout = '${budget}ms'`);
       const facts = await alertFacts(installationId, tx);
+      entries = facts.entries;
       const out = alertLines(
         {
           checkedAt: row.alerts_checked_at,
@@ -648,10 +721,11 @@ export async function sinceYouLastChecked(
   } catch (err) {
     if (!SKIP_CODES.has((err as { code?: string }).code ?? '')) throw err;
     lines = otherWins;
+    entries = [];
   }
-  if (!opts.offer) return { lines, scheduleNote: null };
+  if (!opts.offer) return { lines, scheduleNote: null, entries };
   const [offered] = await sql()<{ id: number }[]>`
     UPDATE installations SET schedule_offered_at = now()
     WHERE id = ${installationId} AND schedule_offered_at IS NULL RETURNING id`;
-  return { lines, scheduleNote: offered ? SCHEDULE_NOTE : null };
+  return { lines, scheduleNote: offered ? SCHEDULE_NOTE : null, entries };
 }

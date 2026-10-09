@@ -1,11 +1,12 @@
 import { normalizeRepoUrl, usd } from './campaigns';
 import { NO_CELL } from './no-cell';
-import { endsOf, prizeOf, repoCoinNote, shortWallet } from './entry-text';
+import { endsOf, prizeOf, repoCoinNote } from './entry-text';
 import { shortDate } from './dates';
 import { EFFORT_ORDER, NOT_REAL_YET, rowOdds, type Chain, type Effort, type Odds, type Product, type RepoFacts, type Verdict } from './match';
 import { NEEDS_LIVE_PRODUCT, difficultyLabel, levelRank, rowDifficulty, type Difficulty, type Level } from './guide';
 import { moneyText, openMoneyUsd, wonLine } from './pool';
 import { CANT_SEE_LINE, PRIVATE_LOCAL_LINE } from './match-projects';
+import type { RoundPool } from './bonus-rounds';
 
 /** v2.7: moved to entry-text.ts (shared with guide.ts); re-exported for existing callers. */
 export { endsOf } from './entry-text';
@@ -16,8 +17,8 @@ export { endsOf } from './entry-text';
  * ready-made result gets shown as written. Order, always: "Since you last checked", "EarnKit
  * matches you to $X in prizes" with what the builder's repos fit, open EarnKit campaigns (none
  * while Campaign #1 is closed), other open programs (at most 5), ideas when the builder has no
- * repo, sponsor campaigns (never first), program updates, then one offer closed by the builder
- * bonus (v2.7 §3).
+ * repo, sponsor campaigns (never first), program updates, then the one builder bonus line
+ * (v2.10 item 1) and one offer.
  */
 export type Card = {
   id: string;
@@ -64,8 +65,10 @@ export type Card = {
   submission_proof?: object | null;
   /** Ruling 7 (plan): false only when the program file opts out (`builder_bonus: false`); every other active, non-campaign program has a bonus. */
   builder_bonus?: boolean;
-  /** The open round's builder bonus pool so far (bonus-rounds.ts roundPoolsWei), or null when none. */
+  /** The open round's builder bonus pool so far (bonus-rounds.ts roundPools), or null when none. */
   bonus_pool_wei?: bigint | null;
+  /** v2.10 item 1: the tokens launched in the open round so far (bonus-rounds.ts roundPools). */
+  bonus_tokens?: number;
   /** The program's current round exists but isn't open any more (it froze): no bonus to win (I2). */
   bonus_closed?: boolean;
   /** v2.7 §2 (guide.ts difficultyOf): the program's difficulty; null for any campaign. */
@@ -142,10 +145,10 @@ export type FirstMessage = {
    */
   hidden?: { notInterested: Set<string>; applied: Set<string> };
   /**
-   * v2.9 B10 (tokenOffer): the token offer for the best owned, product-tier fit. When set it closes
-   * the reply alone: no other offer and no token line (the offer says "40%" for this entry flow).
+   * v2.10 item 15 (alerts.ts takeDeadlineLine): "Arc Microgrants closes in 2 days; your entry isn't
+   * submitted.", right after "Your entries" (R12), or null. Pre-flight P19: T8 reuses it.
    */
-  tokenOffer?: string;
+  deadline?: string | null;
   /**
    * v2.9 E20 (stats.ts builders_won_usd): the announced prizes EarnKit builders won. Above 0, "Builders
    * using EarnKit won $X." follows the headline once; 0 or unset, no line (never "$0").
@@ -214,32 +217,27 @@ export function difficultyCell(c: Pick<Card, 'difficulty'>): string {
 export const BONUS_TOP = 10;
 
 /**
- * v2.8 Ruling 25 (plan): the first message's token line, before the bonus total. v2.8.1 §F19: no
- * "40%" here; the figure is said once per entry, in the confirmation's Yes line (confirm.ts yesLine).
+ * v2.10 item 1: the one builder bonus line, at most once per reply: "Builder bonus: no tokens yet,
+ * so yours would be first" while the open round has no token, else "Builder bonus: 0.18 ETH so far"
+ * ("under 0.01 ETH so far" below 0.01). Null when the round froze (I2). Pure.
  */
-export const TOKEN_LINE = 'Every entry gets a token that pays you, and its fees fund the builder bonus.';
-/** The token line when no program on screen has a builder bonus. */
-export const TOKEN_LINE_NO_BONUS = 'Every entry gets a token that pays you.';
+export function bonusLine(pool: RoundPool | null | undefined): string | null {
+  if (pool === null) return null;
+  if (!pool || pool.tokens === 0) return 'Builder bonus: no tokens yet, so yours would be first';
+  return `Builder bonus: ${pool.wei < 10n ** 16n ? 'under 0.01' : eth(pool.wei)} ETH so far`;
+}
 
 /**
- * v2.7 §3, Ruling 11 (plan); v2.8 Ruling 25 (plan): the token and builder bonus sentence that
- * closes the message: TOKEN_LINE, plus " 0.60 ETH so far." from the pools already read for the
- * programs on screen (dropped while every pool is empty); TOKEN_LINE_NO_BONUS when no program on
- * screen has a bonus, or null when no program on screen gives its entries a token
- * (`token_policy: 'off'`, or nothing on screen). `others` is the paragraph form before a campaign
- * offer (or an offer that can't earn the bonus), which keeps its v2.7 wording ("on the other open
- * programs"), or null without a bonus. Pure.
+ * v2.10 item 1: the first message's bonus line, over the programs on screen that have a bonus (their
+ * pools and token counts summed), or null when none has one. Pure.
  */
-export function bonusClose(onScreen: Card[], others = false): string | null {
+function screenBonusLine(onScreen: Card[]): string | null {
   const live = onScreen.filter((c) => bonusCell(c) !== NO_CELL);
-  if (live.length === 0)
-    return others || !onScreen.some((c) => c.token_policy !== 'off') ? null : TOKEN_LINE_NO_BONUS;
-  const wei = live.reduce((a, c) => a + (c.bonus_pool_wei ?? 0n), 0n);
-  const head = others
-    ? `Plus the builder bonus on the other open programs: the top ${BONUS_TOP} on each also get paid in ETH.`
-    : TOKEN_LINE;
-  if (wei <= 0n) return head;
-  return `${head} ${wei < 10n ** 16n ? 'Under 0.01' : eth(wei)} ETH so far.`;
+  if (live.length === 0) return null;
+  return bonusLine({
+    wei: live.reduce((a, c) => a + (c.bonus_pool_wei ?? 0n), 0n),
+    tokens: live.reduce((a, c) => a + (c.bonus_tokens ?? 0), 0),
+  });
 }
 
 /**
@@ -597,6 +595,8 @@ export function presentFirstMessage(given: FirstMessage): string {
   // messages the builder only when the reply starts with news).
   const recap = entriesLine(given);
   if (recap) sections.push(recap);
+  // v2.10 item 15 (R12, Pre-flight P19): the deadline line right after "Your entries".
+  if (given.deadline) sections.push(given.deadline);
   const bodyStart = sections.length;
   const done = () => withWonLine(sections, bodyStart, given.wonUsd).join('\n\n');
   // v2.9 A3: a program the builder is not interested in, or applied to outside EarnKit, leaves
@@ -694,109 +694,14 @@ export function presentFirstMessage(given: FirstMessage): string {
   // After the tables, so the reply never starts with it: news, not an alert (I7).
   if (m.updates?.length) sections.push(`Updates: ${m.updates.join('; ')}.`);
 
-  // v2.7 §3, Ruling 10 (plan): the builder bonus closes the message, joined to the offer; a
-  // campaign offer (which never earns the bonus itself) gets the sentence as its own paragraph
-  // first instead, so the campaign offer stays the last line.
-  // Final review M4: an offer whose row says "no builder bonus" (Ruling 25: the repo's token is
-  // entered elsewhere) takes the campaign form too, and that program's pool isn't counted as "other".
-  // v2.9 B10: the token offer, when there is one, is the reply's one closing offer.
-  if (m.tokenOffer) {
-    sections.push(m.tokenOffer);
-    return done();
-  }
+  // v2.10 item 1: one plain builder bonus line, then the one closing offer. An offer whose repo's
+  // token is entered elsewhere (Ruling 25, final review M4) can't earn that program's bonus, so its
+  // pool isn't counted.
   const close = offer(m, byId, rows, ideas.length > 0, entered);
-  const apart = close.campaign || !!close.noBonusId;
-  const bonus = bonusClose([...rows.map((r) => r.card), ...shown].filter((c) => c.id !== close.noBonusId), apart);
-  if (!bonus) sections.push(close.text);
-  else if (apart) sections.push(bonus, close.text);
-  else sections.push(`${close.text} ${bonus}`);
+  const bonus = screenBonusLine([...rows.map((r) => r.card), ...shown].filter((c) => c.id !== close.noBonusId));
+  if (bonus) sections.push(bonus);
+  sections.push(close.text);
   return done();
-}
-
-/** v2.9 B10: what the first reply's token offer names. */
-export type TokenOfferFacts = {
-  project: string;
-  program: string;
-  prize_usd: number;
-  /** Ruling G15 (M2): the row is one step away (after_step), not likely: "is one step from", never "fits". */
-  oneStep?: boolean;
-  proposal: { name: string; symbol: string };
-  hasBonus: boolean;
-  walletKnown: boolean;
-  /** Ruling G13 (I1): the remembered wallet (non-shared clients only), named short so "yes" launches to the wallet shown. */
-  wallet?: string | null;
-  /** The wallet came from memory (default), not with this answer: "(used last time)". */
-  remembered?: boolean;
-  /** Ruling G14: the first reply showed this offer already: no earnings sentence ("40%" said once). */
-  again?: boolean;
-};
-
-/** Ruling G13 (I1): the answer part of a token offer: the wallet shown with "yes / skip", else asked for. Pure. */
-const offerAnswer = (t: Pick<TokenOfferFacts, 'walletKnown' | 'wallet' | 'remembered'>) =>
-  t.walletKnown
-    ? `${t.wallet ? `Wallet: ${shortWallet(t.wallet.toLowerCase())}${t.remembered === false ? '' : ' (used last time)'}. ` : ''}yes / skip`
-    : 'Say yes with your wallet address, or skip.';
-
-/**
- * Ruling G13 (I2): the offer again when the agent asked for another name or ticker: names the token
- * that launches on "yes", without the earnings figure (said once already). Pure.
- */
-export function tokenOfferAgain(t: Pick<TokenOfferFacts, 'proposal' | 'walletKnown' | 'wallet' | 'remembered'>, taken: string | null = null): string {
-  return `${taken ? `$${taken} is taken. ` : ''}Launch $${t.proposal.symbol} (${t.proposal.name}) on Base now? ${offerAnswer(t)}`;
-}
-
-/**
- * v2.9 B10: the first reply's closing offer when an owned, product-tier fit exists: "TipJar fits Arc
- * Microgrants: $500. Launch $TIP (TipJar) on Base now? You earn 40% of its trading fees, plus a shot
- * at the builder bonus. yes / skip". The wallet is asked in the same line only when none is known. Pure.
- */
-export function tokenOffer(t: TokenOfferFacts): string {
-  const head = `${t.project} ${t.oneStep ? 'is one step from' : 'fits'} ${t.program}: $${t.prize_usd.toLocaleString('en-US')}.`;
-  const ask = `Launch $${t.proposal.symbol} (${t.proposal.name}) on Base now?`;
-  const why = `You earn 40% of its trading fees${t.hasBonus ? ', plus a shot at the builder bonus' : ''}.`;
-  return t.again ? `${head} ${ask} ${offerAnswer(t)}` : `${head} ${ask} ${why} ${offerAnswer(t)}`;
-}
-
-/** v2.9 B10 (Ruling 12): efforts quick enough for the token offer (hours or less). */
-const QUICK_EFFORTS = new Set<Effort>(['none', 'minutes', 'hours']);
-
-/**
- * v2.9 B10 (Ruling 12): the matched row the first reply's token offer is for, a likely row first,
- * then table order: its
- * repo is a public repo the builder owns, at product tier; the verdict is likely or after one step,
- * with effort of hours or less; the program is offerable (curated, not an investment, no entry yet,
- * not hidden), gives tokens, has a known prize; the repo has no token yet and is not in `blocked`
- * (normalized repo keys declined twice). Launch availability is the caller's. Pure.
- */
-export function tokenOfferFit(given: FirstMessage, blocked: Set<string> = new Set()): Fit | undefined {
-  const hidden = new Set([...(given.hidden?.notInterested ?? []), ...(given.hidden?.applied ?? [])]);
-  const m = hidden.size ? { ...given, cards: given.cards.filter((c) => !hidden.has(c.id)) } : given;
-  const anyEntry = new Set((m.entries ?? []).map((e) => e.program_id));
-  const fits = m.repos && 'fits' in m.repos ? m.repos.fits : [];
-  const product = (url: string) => fits.find((f) => f.repo_url === url)?.product;
-  const ok = (r: Fit) => {
-    if (!r.repo_url) return false;
-    const p = product(r.repo_url);
-    const key = normalizeRepoUrl(r.repo_url);
-    return (
-      r.odds === 'good' &&
-      p?.tier === 'product' &&
-      !p.missing.includes('owned') &&
-      r.v.status !== 'no' &&
-      QUICK_EFFORTS.has(r.v.effort) &&
-      !r.card.sponsored &&
-      !r.card.investment &&
-      !r.card.earnkit_campaign &&
-      r.card.token_policy !== 'off' &&
-      (r.card.max_award_usd ?? 0) > 0 &&
-      !anyEntry.has(r.card.id) &&
-      !m.repoCoins?.has(key) &&
-      !blocked.has(key)
-    );
-  };
-  // Review M2: a likely row is offered before one a step away; table order otherwise.
-  const rows = layout(m).rows.filter(ok);
-  return rows.find((r) => r.v.status === 'likely') ?? rows[0];
 }
 
 const isEasy = (c: Card) => c.difficulty?.level === 'Easy';
