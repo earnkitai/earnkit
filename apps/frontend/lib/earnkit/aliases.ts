@@ -32,10 +32,23 @@ const answersOf = (d: unknown) =>
 
 const pick = (a: Args, keys: string[]): Args => Object.fromEntries(keys.filter((k) => a[k] !== undefined).map((k) => [k, a[k]]));
 
-/** pick_up_entries read yes and no in any form; tell takes "yes" or "no" (anything else passes as given). */
-const yesNo = (v: unknown) => {
-  const t = typeof v === 'string' ? v.trim().toLowerCase() : v;
-  return t === true || t === 'yes' || t === 'y' ? 'yes' : t === false || t === 'no' || t === 'n' ? 'no' : v;
+/**
+ * v2.8.1 §E18: a yes or no in any form an agent passes it (a boolean, 1/0, "yes", "sure", "nope",
+ * "not now"); null when unclear. Pure; tools.ts re-exports it.
+ */
+export function yesNo(v: unknown): boolean | null {
+  if (typeof v === 'boolean') return v;
+  if (v === 1 || v === 0) return v === 1;
+  const t = typeof v === 'string' ? v.trim().toLowerCase().replace(/[.!]+$/, '') : '';
+  if (['yes', 'y', 'true', 'yeah', 'yep', 'sure', 'ok', 'okay'].includes(t)) return true;
+  if (['no', 'n', 'false', 'nope', 'not now'].includes(t)) return false;
+  return null;
+}
+
+/** pick_up_entries' answer as tell's "yes" or "no"; an unclear one passes as given (tell refuses it). */
+const pickupOf = (v: unknown) => {
+  const a = yesNo(v);
+  return a === null ? v : a ? 'yes' : 'no';
 };
 
 /**
@@ -92,7 +105,8 @@ export function aliasCall(name: string, a: Args, now = new Date()): AliasedCall 
           },
         };
       const t = a.token && typeof a.token === 'object' ? (a.token as Args) : null;
-      const wallet = a.payout_wallet ?? t?.creator_wallet;
+      // v2.9 runTokenFlow launched to the token's own creator_wallet before the payout wallet.
+      const wallet = t?.creator_wallet ?? a.payout_wallet;
       return {
         name: 'confirm',
         args: {
@@ -102,7 +116,8 @@ export function aliasCall(name: string, a: Args, now = new Date()): AliasedCall 
           ...(t && pick(t, ['image_url', 'image_data', 'builder_x'])),
           ...(wallet !== undefined && { wallet }),
           ...(yes && a.token !== 'skip' && { yes: true }),
-          ...(a.token === 'skip' && { skip_token: true }),
+          // P15a: a skip, like a yes, needs builder_confirmed (v2.9 record_submission never confirmed one).
+          ...(yes && a.token === 'skip' && { skip_token: true }),
           ...check,
           ...(a.builder_submitted === true && { submitted: pick(a, ['external_submission_url']) }),
         },
@@ -111,7 +126,7 @@ export function aliasCall(name: string, a: Args, now = new Date()): AliasedCall 
     case 'tell_earnkit':
       return { name: 'tell', args: a };
     case 'pick_up_entries':
-      return { name: 'tell', args: { pickup: yesNo(a.answer) } };
+      return { name: 'tell', args: { pickup: pickupOf(a.answer) } };
     default:
       return null;
   }

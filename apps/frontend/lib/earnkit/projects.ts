@@ -529,18 +529,17 @@ export async function enteredProgramIds(installationId: number, k: { repoUrl: st
 }
 
 /**
- * v2.10 item 3 (Pre-flight P23): whether this installation has any entry (a row, confirmed or not)
- * for the program; the guide is not shown again after one.
- */
-/**
  * v2.10 R16: the entry an "I submitted" names (`projectId`), else this installation's newest in the
  * program (as v2.9 outcomes find it), with its project fields and its saved answers (the confirmed
- * application's, else the latest recorded submission's). Null when there is none.
+ * application's, else the latest recorded submission's). `onlyIds`: only among these (G7). Null when
+ * there is none.
  */
 export async function submittedEntry(
   installationId: number,
   programId: string,
   projectId?: number,
+  /** Ruling G7: on a shared client, only the entries the caller's verified login signed in for. */
+  onlyIds?: number[],
 ): Promise<{ id: number; project: Record<string, string>; answers: Record<string, unknown> } | null> {
   const [row] = await sql()<
     { id: number; name: string; description: string | null; repo_url: string | null; live_url: string | null; demo_url: string | null; answers: Record<string, unknown> | null }[]
@@ -551,6 +550,7 @@ export async function submittedEntry(
     FROM projects p
     WHERE p.installation_id = ${installationId} AND p.program_id = ${programId}
       AND (${projectId ?? null}::int IS NULL OR p.id = ${projectId ?? null})
+      AND (${onlyIds === undefined} OR p.id = ANY(${onlyIds ?? []}::int[]))
     ORDER BY p.submitted_at DESC, p.id DESC LIMIT 1`;
   if (!row) return null;
   const { id, answers, ...fields } = row;
@@ -558,6 +558,10 @@ export async function submittedEntry(
   return { id, project, answers: answers ?? {} };
 }
 
+/**
+ * v2.10 item 3 (Pre-flight P23): whether this installation has any entry (a row, confirmed or not)
+ * for the program; the guide is not shown again after one.
+ */
 export async function hasProgramEntry(installationId: number, programId: string): Promise<boolean> {
   const [row] = await sql()<{ n: number }[]>`
     SELECT 1 AS n FROM projects WHERE installation_id = ${installationId} AND program_id = ${programId} LIMIT 1`;

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { yesNo } from './aliases';
 import { NotFoundError, alsoProgramFacts, getProgram, getProgramRow, isOpen, listPrograms } from './programs';
 import { guideText, programGuide } from './guide';
 import {
@@ -732,14 +733,7 @@ export const PICKUP_TEXT = {
 } as const;
 
 /** v2.8.1 §E18: a yes or a no as an agent passes it; null when it is neither. Pure; exported for tests. */
-export function yesNo(v: unknown): boolean | null {
-  if (typeof v === 'boolean') return v;
-  if (v === 1 || v === 0) return v === 1;
-  const t = typeof v === 'string' ? v.trim().toLowerCase().replace(/[.!]+$/, '') : '';
-  if (['yes', 'y', 'true', 'yeah', 'yep', 'sure', 'ok', 'okay'].includes(t)) return true;
-  if (['no', 'n', 'false', 'nope', 'not now'].includes(t)) return false;
-  return null;
-}
+export { yesNo };
 
 /** v2.8 Ruling 30 (plan): what the agent does with ask_outcome. v2.9 A3: the answer goes to tell_earnkit. */
 export const ASK_OUTCOME_NOTE =
@@ -2231,16 +2225,25 @@ export function eligibilityLine(repo: string, e: unknown): string | null {
 
 /** R16: a shared client's "I submitted" without the entry's project_id: nothing is written. */
 export const SUBMITTED_SHARED_NOTE =
-  "Nothing saved: this agent serves many builders, so pass the entry's project_id (from confirm's reply) with submitted.";
+  "Nothing saved: this agent serves many builders, so pass signed_in (the code from the builder's GitHub sign-in) and the entry's project_id (from confirm's reply) with submitted.";
 
 /** tell's `submitted` (R16): the entry and its saved answers, then record_submission with builder_submitted. */
 async function markSubmitted(s: NonNullable<z.infer<typeof TellToolInput>['submitted']>, signedIn: string | undefined, ctx: ToolContext) {
   const done = defined({ external_submission_url: s.external_submission_url, builder_submitted: true, signed_in: signedIn });
+  const noted = { show_to_builder: NOTED_FOR_NOW, agent_note: SUBMITTED_SHARED_NOTE };
+  // Rulings G7, G9 (fix round 1, I2): on a shared client only an entry the pasted code's verified
+  // login signed in for, named by its project_id; anything else is noted and nothing is written or read.
+  if (ctx.sharedClient) {
+    const login = s.project_id === undefined ? null : await sharedLogin(ctx, signedIn, 'tell');
+    const ids = login ? await verifiedEntryIds(ctx.installationId, login).catch(() => [] as number[]) : [];
+    if (!ids.includes(s.project_id!)) return noted;
+    const entry = await submittedEntry(ctx.installationId, s.program_id, s.project_id, ids);
+    if (!entry) return noted;
+    return handlers.record_submission({ program_id: s.program_id, project: entry.project, submission_data: entry.answers, ...done }, ctx);
+  }
   // Pre-flight P15: an old call's own project and answers (record_submission finds or makes its entry).
   if (s.project_id === undefined && s.project)
     return handlers.record_submission({ program_id: s.program_id, project: s.project, submission_data: s.submission_data ?? {}, ...done }, ctx);
-  // Ruling G7: the newest entry on a shared client may be another builder's.
-  if (ctx.sharedClient && s.project_id === undefined) return { show_to_builder: NOTED_FOR_NOW, agent_note: SUBMITTED_SHARED_NOTE };
   const entry = await submittedEntry(ctx.installationId, s.program_id, s.project_id);
   if (!entry)
     throw new NotFoundError(
@@ -2301,9 +2304,8 @@ export const tools = {
       );
     }
     const program = await getProgramRow(c.program_id);
-    // An EarnKit campaign is entered in one step (record_submission); so is an entry the builder
-    // already submitted (Pre-flight P15, v2.9 record_submission with both flags).
-    if (program.campaign || c.submitted)
+    // An EarnKit campaign is entered in one step (record_submission).
+    if (program.campaign)
       return handlers.record_submission(
         defined({
           program_id: c.program_id,
@@ -2320,7 +2322,7 @@ export const tools = {
         }),
         ctx,
       );
-    return handlers.confirm_entry(
+    const confirmed = (await handlers.confirm_entry(
       defined({
         program_id: c.program_id,
         project: c.project,
@@ -2334,7 +2336,15 @@ export const tools = {
         check_back: c.check || undefined,
       }),
       ctx,
-    );
+    )) as Reply;
+    // Pre-flight P15b (fix round 1, C1): "already submitted" follows the confirmation, never replaces
+    // it. Only once confirm_entry recorded the entry and returned its kit (the builder's yes or skip
+    // to the confirm line they saw, the plain-words check passed) is it marked submitted.
+    if (!c.submitted || !('kit' in confirmed) || typeof confirmed.project_id !== 'number') return confirmed;
+    const marked = (await markSubmitted({ program_id: c.program_id, project_id: confirmed.project_id, external_submission_url: c.submitted.external_submission_url }, c.signed_in, ctx)) as Reply;
+    // The confirmation's reply (its kit and token) wins; the submitted mark adds its lines.
+    const joined = joinReplies([confirmed, marked]);
+    return { ...joined, ...confirmed, show_to_builder: joined.show_to_builder, agent_note: joined.agent_note };
   },
 
   // R16: what the builder said: pickup, then "I submitted", then statements; replies joined.

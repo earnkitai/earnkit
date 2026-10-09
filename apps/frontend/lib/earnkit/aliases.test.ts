@@ -41,13 +41,23 @@ test('9.4 record_submission: builder_submitted is tell.submitted; builder_confir
       args: { program_id, project, contracts: ['0xab'], signed_in: 'CODE', answers: { ...answers, chains: 'base, arc' }, wallet: W, yes: true },
     },
   );
-  // token 'skip': no token; the builder's confirmed name and ticker are carried as confirm's token.
+  // token 'skip' (fix round 1, I3; P15a): without builder_confirmed it is only the confirm line, never a
+  // recorded skip; with it, skip_token. The builder's confirmed name and ticker are carried as confirm's token.
   assert.deepEqual(aliasCall('record_submission', { program_id, project, submission_data: {}, token: 'skip' }, NOW)?.args, {
+    program_id,
+    project,
+    answers: {},
+  });
+  assert.deepEqual(aliasCall('record_submission', { program_id, project, submission_data: {}, token: 'skip', builder_confirmed: true }, NOW)?.args, {
     program_id,
     project,
     answers: {},
     skip_token: true,
   });
+  // Fix round 1 (I4): the token's own creator_wallet is the token's wallet (v2.9 runTokenFlow), never the payout wallet.
+  const P = '0x2222222222222222222222222222222222222222';
+  assert.equal(aliasCall('record_submission', { program_id, project, submission_data: {}, builder_confirmed: true, payout_wallet: P, token: { symbol: 'TIP', creator_wallet: W } }, NOW)?.args.wallet, W);
+  assert.equal(aliasCall('record_submission', { program_id, project, submission_data: {}, builder_confirmed: true, payout_wallet: P, token: { symbol: 'TIP' } }, NOW)?.args.wallet, P);
   assert.deepEqual(
     aliasCall('record_submission', { program_id, project, submission_data: {}, builder_confirmed: true, token: { name: 'Tip Jar', symbol: 'TIP', image_url: 'https://x.dev/a.png', image: 'mark' } }, NOW)?.args,
     { program_id, project, answers: {}, token: { name: 'Tip Jar', symbol: 'TIP' }, image_url: 'https://x.dev/a.png', yes: true },
@@ -85,6 +95,10 @@ test('9.4 the rest: list_programs, get_program, prepare_submission, tell_earnkit
   assert.deepEqual(aliasCall('tell_earnkit', told, NOW), { name: 'tell', args: told });
   assert.deepEqual(aliasCall('pick_up_entries', { answer: 'yes' }, NOW), { name: 'tell', args: { pickup: 'yes' } });
   assert.deepEqual(aliasCall('pick_up_entries', { answer: ' No ' }, NOW), { name: 'tell', args: { pickup: 'no' } });
+  // Minor 2: every v2.9 form of yes and no (pick_up_entries' yesNo); an unclear one passes as given.
+  for (const yes of ['sure', 'Yeah!', 'ok', true, 1]) assert.deepEqual(aliasCall('pick_up_entries', { answer: yes }, NOW)?.args, { pickup: 'yes' }, String(yes));
+  for (const no of ['nope', 'not now', false, 0]) assert.deepEqual(aliasCall('pick_up_entries', { answer: no }, NOW)?.args, { pickup: 'no' }, String(no));
+  assert.deepEqual(aliasCall('pick_up_entries', { answer: 'maybe' }, NOW)?.args, { pickup: 'maybe' });
   for (const n of ['find', 'prepare', 'confirm', 'tell', 'sponsor_campaign', 'report_outcome', 'nope'])
     assert.equal(aliasCall(n, { program_id }, NOW), null, n);
 });
