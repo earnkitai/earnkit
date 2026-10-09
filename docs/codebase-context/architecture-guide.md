@@ -3114,6 +3114,12 @@ once an hour otherwise. N3: linking keeps the duplicate holding the token. The O
 exempts known hosted services' servers (counted and logged, host ceiling kept). See "Hosted agents
 and identity" and the rate limits.
 
+**A test-only bug the full runs found (fixed).** Since T10 the shared `fixtures/no-network-checks`
+imports `stats.ts`, which loads `tokens.ts` before the anvil e2e sets its mock tokens.fun. The
+tokens.fun host was read at import, so it froze to `https://tokens.fun` and that test's deploy went
+to the real service (refused 401; nothing launched). `tokens.ts tokensFunUrl()` now reads
+`TOKENSFUN_API_URL` per call (deploy and check-ticker). Production behaviour is unchanged.
+
 **The Worker typecheck.** `pnpm test` runs `pnpm -s host:typecheck` first, so a type error in
 `infra/host-worker` fails the suite (P42). There is no CI test workflow; the owner runs `pnpm test`
 before a merge.

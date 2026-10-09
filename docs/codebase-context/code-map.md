@@ -539,7 +539,8 @@ apps/frontend/
                                prepare_submission returns shown_wallet (Ruling 30: the wallet line's
                                wallet, for the agent to echo as record_submission's payout_wallet;
                                record_submission never reads the remembered wallet)
-    tokens.ts(+test)           deployToken via tokens.fun /api/v1/deploy (TOKENSFUN_DEPLOY_API_KEY;
+    tokens.ts(+test)           tokensFunUrl() (v2.9 T12: TOKENSFUN_API_URL read per call, never at import);
+                               deployToken via tokens.fun /api/v1/deploy (TOKENSFUN_DEPLOY_API_KEY;
                                EARNKIT_TOKENSFUN_TIMEOUT_MS, default 120000): atomic claim
                                (token_url='pending', token_repo_key; refused when another project on
                                the repo has a token: repoTokenUrl/repoHasTokenNote; v2.8.1
