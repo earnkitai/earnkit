@@ -108,7 +108,8 @@ import type { FetchResult } from './ownership';
 import { BELOW_FLOOR_NOTE, INVESTMENT_NOTE, SIGNAL_WORDS, UNCHECKED_NOTE, matchRepo, productScore, type ProgramFacts, type RepoFacts, type Verdict } from './match';
 import { CHAINS } from './chains';
 import { LIVE_FAILED_LINE, PLACEHOLDER_LINE, contractMissingLine, contractUncheckedLine } from './placeholder';
-import PolicyPage from '../../app/policy/page';
+import PolicySection from '../../app/terms/sections/PolicySection';
+import SponsorTermsSection from '../../app/terms/sections/SponsorTermsSection';
 import BoardView from '../../app/bonus/[round]/BoardView';
 import type { Board } from './bonus-board';
 import HomeView from '../../app/HomeView';
@@ -359,12 +360,11 @@ const enteredTables = [
   }),
 ];
 
-// ---- The policy page (I2): rendered to text the same way public-pages.test.ts verifies it.
-// Cut at the shared Footer (its own copyright boilerplate, unrelated to and unchanged by v2.6):
-// this scan is for the policy copy, not every page's site-wide footer.
-const policyHtml = renderToStaticMarkup(React.createElement(PolicyPage));
+// ---- The policy (I2), /terms#policy since v2.9 F22, and the sponsor terms: rendered to text the
+// same way public-pages.test.ts verifies it. The risk disclosure (Tokenfi Inc.'s legal text for
+// tokens.fun and Minidev) is not EarnKit builder copy and is not scanned.
+const policyHtml = renderToStaticMarkup(React.createElement(PolicySection)) + renderToStaticMarkup(React.createElement(SponsorTermsSection));
 const policyText = policyHtml
-  .split('<footer')[0]
   .replace(/<[^>]+>/g, ' ')
   .replace(/&#x27;|&#39;/g, "'")
   .replace(/&amp;/g, '&')

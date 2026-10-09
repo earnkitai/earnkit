@@ -210,11 +210,11 @@ const home = (landing: Landing | null) => html(React.createElement(HomeView, { l
 test('v2.7 §1: the full home view', () => {
   const h = home(homeFixture);
   const t = text(h);
-  for (const s of [HERO_EYEBROW, HERO_TITLE, HERO_SUBTITLE, '$1.3M+ open right now', 'Builder bonus', 'Add to your agent', 'Watch the demo', '120 agents earning'])
+  for (const s of [HERO_EYEBROW, HERO_TITLE, HERO_SUBTITLE, `${homeFixture.open_text} open right now`, 'Builder bonus', 'Add to your agent', 'Watch the demo', '120 agents earning'])
     assert.ok(t.includes(s), s);
   // v2.8: the hero is the title, the subtitle, the bonus pill and the buttons; the pool figure
   // heads the Open programs section.
-  const order = [HERO_TITLE, HERO_SUBTITLE, 'Builder bonus', 'Add to your agent', 'Watch the demo', '120 agents earning', 'Open programs', '$1.3M+ open right now'].map((s) => t.indexOf(s));
+  const order = [HERO_TITLE, HERO_SUBTITLE, 'Builder bonus', 'Add to your agent', 'Watch the demo', '120 agents earning', 'Open programs', `${homeFixture.open_text} open right now`].map((s) => t.indexOf(s));
   assert.deepEqual([...order].sort((a, b) => a - b), order);
   assert.ok(!t.includes('Then ask:'));
   // v2.8 Ruling 20 (plan): every open program in one carousel row; no "See all".
@@ -222,7 +222,7 @@ test('v2.7 §1: the full home view', () => {
   assert.equal(cards.length, homeFixture.tiles.length);
   assert.doesNotMatch(t, /See all/);
   // 44px tap targets: the footer links (Ruling 22, plan).
-  for (const name of ['Programs', 'Docs', 'For sponsors', 'Policy', 'j@earnkit.com'])
+  for (const name of ['Programs', 'Docs', 'For sponsors', 'Terms', 'j@earnkit.com'])
     assert.match(h, new RegExp(`class="[^"]*min-h-11[^"]*"[^>]*>${name}</a>`), name);
   assert.match(h, /aria-label="@jenilt on X"[^>]*class="[^"]*min-h-11[^"]*min-w-11[^"]*"/);
   // v2.7.1: the pool is the big line, "up to $X per winner" under it; no pool, the per-winner amount.
@@ -233,7 +233,7 @@ test('v2.7 §1: the full home view', () => {
   assert.doesNotMatch(t, /per winner rolling|grants? up to \$[\d,]+ per winner/); // review #1: grants never say "per winner"
   assert.ok(!t.includes('Prize ') && !t.includes('Ends ') && !t.includes('Difficulty '));
   // The section: no "Open now" eyebrow; review #5: no bonus line under the title (the pills say it).
-  assert.match(t, /Open programs \$1\.3M\+ open right now Ask your agent CW Crypto World/);
+  assert.ok(t.includes(`Open programs ${homeFixture.open_text} open right now Ask your agent CW Crypto World`), t);
   assert.doesNotMatch(t, /Every entry also competes|\(estimate\)/);
   assert.doesNotMatch(t, /Open now/i);
   // No stats strip, no duplicate open-money figure.
@@ -387,9 +387,10 @@ test('v2.7: the site description and llms.txt use the starting phrase and name t
   // Ruling C9: the homepage publishes live figures, so llms.txt no longer forbids stating them.
   assert.doesNotMatch(llms, /Do not state any/);
   assert.match(llms, /earnkit\.com\/api\/stats/);
-  // v2.7.1: the figure is the open programs' pools.
-  assert.match(llms, /prize pools/);
-  assert.doesNotMatch(llms, /open money/);
+  // v2.9 F21: the figure is the top prize of every open program (never pools), open_money_text.
+  assert.match(llms, /the top prize of\nevery open program, summed/);
+  assert.match(llms, /open_money_text/);
+  assert.doesNotMatch(llms, /prize pools|open_pools/);
 });
 
 // ---- v2.7 §2, Ruling 22 (plan): the program guide page (GuideView is the pure render;
@@ -522,7 +523,7 @@ test('/programs: every open program as cards under an h1, or the unavailable lin
   assert.doesNotMatch(h, /See all/);
   // v2.7.1: the same pool total as the landing page, under the h1 (app/programs/page.tsx passes landing.open_text).
   const fig = text(html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1', layout: 'grid', figure: homeFixture.open_text })));
-  assert.ok(fig.includes(' Open programs $1.3M+ open right now Ask your agent CW Crypto World') && !fig.includes('By pool'), fig);
+  assert.ok(fig.includes(` Open programs ${homeFixture.open_text} open right now Ask your agent CW Crypto World`) && !fig.includes('By pool'), fig);
   const page = readFileSync(join(import.meta.dirname, '../../app/programs/page.tsx'), 'utf8');
   assert.match(page, /figure=\{landing\.open_text\}/);
   assert.match(page, /layout="grid"/);
@@ -550,7 +551,7 @@ test('3.1 v2.8: the section is the h2, the figure, one "Ask your agent", then a 
   const sec = programsSection(h);
   const t = text(sec);
   assert.match(sec, /<h2[^>]*>Open programs<\/h2>/);
-  const order = ['>Open programs</h2>', '$1.3M+ open right now', '>Ask your agent</button>', '<ul'].map((s) => sec.indexOf(s));
+  const order = ['>Open programs</h2>', `${homeFixture.open_text} open right now`, '>Ask your agent</button>', '<ul'].map((s) => sec.indexOf(s));
   assert.ok(order.every((n) => n >= 0), String(order));
   assert.deepEqual([...order].sort((a, b) => a - b), order);
   assert.equal(t.split('Ask your agent').length, 2, 'exactly one');

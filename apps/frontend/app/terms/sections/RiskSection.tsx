@@ -1,52 +1,53 @@
-import Footer from '../components/common/Footer';
-import { Metadata } from 'next';
+import { Eyebrow, Panel } from '../../components/common/Panel';
 
-export const metadata: Metadata = {
-  title: 'Risk Disclosure | Earnkit',
-};
-
-export default function RiskDisclosurePage() {
+/**
+ * Tokenfi Inc.'s risk disclosure for tokens.fun, Minidev and related services (/terms#risk-disclosure
+ * since v2.9 F22; was /risk-disclosure). The legal text is unchanged; only its styling moved to
+ * the site's panels.
+ */
+export default function RiskSection() {
   return (
-    <div className="min-h-screen bg-white text-foreground">
-      <main className="max-w-4xl mx-auto px-4 py-16 md:py-24">
+    <Panel className="mt-4 py-12 md:py-16" label="Risk disclosure">
+      <div className="max-w-4xl font-funnel-sans text-base font-light">
         {/* Header */}
         <div className="mb-12">
-          <h1 className="text-4xl md:text-5xl font-bold mb-3 font-funnel-display whitespace-nowrap">
-            RISK DISCLOSURE
-          </h1>
-          <p className="text-subtle-foreground text-md">
+          <Eyebrow>Risk</Eyebrow>
+          <h2 id="risk-disclosure" className="mt-4 mb-3 scroll-mt-32 font-funnel-display text-3xl font-medium text-ek-white md:text-5xl">
+            Risk disclosure
+          </h2>
+          <p className="text-ek-blue-soft text-md">
             Last updated: January 29, 2026
           </p>
         </div>
 
         {/* Intro */}
-        <div className="mb-12 pb-8 border-b border-border">
-          <p className="text-muted-foreground leading-relaxed mb-4">
+        <div className="mb-12 pb-8 border-b border-ek-navy">
+          <p className="text-ek-blue-light leading-relaxed mb-4">
             This Risk Disclosure is provided by{' '}
-            <span className="font-semibold text-foreground">TokenFi Inc.</span>{' '}
+            <span className="font-semibold text-ek-white">TokenFi Inc.</span>{' '}
             ("we," "our," or "us") to inform users of the material risks
             associated with using tokens.fun, Minidev, and related services (the
             "Platforms"). By accessing or using the Platforms, you acknowledge
             that you have read, understood, and accepted the risks described
             below.
           </p>
-          <p className="text-muted-foreground leading-relaxed mb-4">
+          <p className="text-ek-blue-light leading-relaxed mb-4">
             This disclosure does{' '}
-            <span className="font-semibold text-foreground">not</span> describe
+            <span className="font-semibold text-ek-white">not</span> describe
             all possible risks. You should not use the Platforms unless you
             fully understand and are willing to accept the possibility of{' '}
-            <span className="font-semibold text-foreground">total loss</span>.
+            <span className="font-semibold text-ek-white">total loss</span>.
           </p>
         </div>
 
         {/* Section 1 */}
         <section className="mb-10">
-          <h2 className="text-2xl font-bold mb-6 text-position">
+          <h3 className="text-2xl font-medium mb-6 text-ek-white font-funnel-display">
             1. GENERAL NATURE OF THE PLATFORMS
-          </h2>
-          <p className="text-muted-foreground leading-relaxed mb-6">
+          </h3>
+          <p className="text-ek-blue-light leading-relaxed mb-6">
             tokens.fun is a{' '}
-            <span className="font-semibold text-foreground">
+            <span className="font-semibold text-ek-white">
               non-custodial software interface
             </span>{' '}
             that enables users to interact with third-party smart contracts and
@@ -54,12 +55,12 @@ export default function RiskDisclosurePage() {
             ("Tokens").
           </p>
 
-          <p className="text-muted-foreground leading-relaxed mb-6">
+          <p className="text-ek-blue-light leading-relaxed mb-6">
             Minidev is an AI-powered platform for creating web applications and
             deploying AI agents.
           </p>
 
-          <p className="text-muted-foreground mb-4 font-medium">
+          <p className="text-ek-blue-light mb-4 font-medium">
             The Platforms:
           </p>
           <ul className="space-y-3 mb-6">
@@ -72,17 +73,17 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
 
-          <p className="text-muted-foreground">
+          <p className="text-ek-blue-light">
             All actions occur{' '}
-            <span className="font-semibold text-foreground">
+            <span className="font-semibold text-ek-white">
               at your own risk
             </span>
             .
@@ -91,16 +92,16 @@ export default function RiskDisclosurePage() {
 
         {/* Section 2 */}
         <section className="mb-10">
-          <h2 className="text-2xl font-bold mb-6 text-position">
+          <h3 className="text-2xl font-medium mb-6 text-ek-white font-funnel-display">
             2. RISK OF TOTAL LOSS
-          </h2>
-          <p className="text-muted-foreground leading-relaxed mb-6">
+          </h3>
+          <p className="text-ek-blue-light leading-relaxed mb-6">
             Digital assets are highly speculative. You may lose{' '}
-            <span className="font-semibold text-foreground">some or all</span>{' '}
+            <span className="font-semibold text-ek-white">some or all</span>{' '}
             of the value of tokens you create, acquire, or trade.
           </p>
 
-          <p className="text-muted-foreground mb-4 font-medium">
+          <p className="text-ek-blue-light mb-4 font-medium">
             Losses may occur due to:
           </p>
           <ul className="space-y-3 mb-6">
@@ -116,25 +117,25 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
 
-          <p className="text-muted-foreground">
+          <p className="text-ek-blue-light">
             You should never use funds you cannot afford to lose.
           </p>
         </section>
 
         {/* Section 3 */}
         <section className="mb-10">
-          <h2 className="text-2xl font-bold mb-6 text-position">
+          <h3 className="text-2xl font-medium mb-6 text-ek-white font-funnel-display">
             3. SMART CONTRACT RISK
-          </h2>
-          <p className="text-muted-foreground mb-4 font-medium">
+          </h3>
+          <p className="text-ek-blue-light mb-4 font-medium">
             Smart contracts are experimental technology and may contain:
           </p>
           <ul className="space-y-3 mb-4">
@@ -146,15 +147,15 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
 
-          <p className="text-muted-foreground mb-4 font-medium">
+          <p className="text-ek-blue-light mb-4 font-medium">
             These issues may result in:
           </p>
           <ul className="space-y-3 mb-6">
@@ -166,17 +167,17 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
 
-          <p className="text-subtle-foreground">
+          <p className="text-ek-blue-soft">
             The Platforms do{' '}
-            <span className="font-semibold text-foreground">not</span> audit or
+            <span className="font-semibold text-ek-white">not</span> audit or
             guarantee the security of smart contracts you interact with,
             including those generated by AI tools.
           </p>
@@ -184,20 +185,20 @@ export default function RiskDisclosurePage() {
 
         {/* Section 4 */}
         <section className="mb-10">
-          <h2 className="text-2xl font-bold mb-6 text-position">
+          <h3 className="text-2xl font-medium mb-6 text-ek-white font-funnel-display">
             4. THIRD-PARTY PROTOCOL RISK
-          </h2>
-          <p className="text-muted-foreground leading-relaxed mb-6">
+          </h3>
+          <p className="text-ek-blue-light leading-relaxed mb-6">
             Trading and liquidity for Tokens occurs through{' '}
-            <span className="font-semibold text-foreground">
+            <span className="font-semibold text-ek-white">
               third-party decentralized protocols
             </span>
             , including but not limited to Uniswap and Doppler.
           </p>
 
-          <p className="text-muted-foreground mb-4 font-medium">
+          <p className="text-ek-blue-light mb-4 font-medium">
             The Platforms do{' '}
-            <span className="font-semibold text-foreground">not</span>:
+            <span className="font-semibold text-ek-white">not</span>:
           </p>
           <ul className="space-y-3 mb-6">
             {[
@@ -208,14 +209,14 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
-          <p className="text-subtle-foreground">
+          <p className="text-ek-blue-soft">
             Failures, exploits, upgrades, forks, or shutdowns of these protocols
             may result in loss.
           </p>
@@ -223,16 +224,16 @@ export default function RiskDisclosurePage() {
 
         {/* Section 5 */}
         <section className="mb-10">
-          <h2 className="text-2xl font-bold mb-6 text-position">
+          <h3 className="text-2xl font-medium mb-6 text-ek-white font-funnel-display">
             5. IRREVERSIBLE TRANSACTIONS
-          </h2>
-          <p className="text-muted-foreground leading-relaxed mb-6">
+          </h3>
+          <p className="text-ek-blue-light leading-relaxed mb-6">
             Blockchain transactions are{' '}
-            <span className="font-semibold text-foreground">irreversible</span>{' '}
+            <span className="font-semibold text-ek-white">irreversible</span>{' '}
             once confirmed.
           </p>
 
-          <p className="text-muted-foreground mb-4 font-medium">
+          <p className="text-ek-blue-light mb-4 font-medium">
             The Platforms cannot:
           </p>
           <ul className="space-y-3 mb-6">
@@ -244,14 +245,14 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
-          <p className="text-muted-foreground">
+          <p className="text-ek-blue-light">
             Sending assets to the wrong address or interacting with the wrong
             contract may result in permanent loss.
           </p>
@@ -259,10 +260,10 @@ export default function RiskDisclosurePage() {
 
         {/* Section 6 */}
         <section className="mb-10">
-          <h2 className="text-2xl font-bold mb-6 text-position">
+          <h3 className="text-2xl font-medium mb-6 text-ek-white font-funnel-display">
             6. MARKET MANIPULATION & MEV
-          </h2>
-          <p className="text-muted-foreground mb-4 font-medium">
+          </h3>
+          <p className="text-ek-blue-light mb-4 font-medium">
             Token markets may be subject to:
           </p>
           <ul className="space-y-3 mb-6">
@@ -277,19 +278,19 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
-          <p className="text-muted-foreground leading-relaxed mb-4">
+          <p className="text-ek-blue-light leading-relaxed mb-4">
             These activities may cause significant losses and unfavorable
             execution prices.
           </p>
-          <p className="text-muted-foreground">
-            <span className="font-semibold text-foreground">
+          <p className="text-ek-blue-light">
+            <span className="font-semibold text-ek-white">
               The Platforms do not provide MEV protection.
             </span>{' '}
             Transactions submitted through the Platforms may be visible in the
@@ -299,10 +300,10 @@ export default function RiskDisclosurePage() {
 
         {/* Section 7 */}
         <section className="mb-10">
-          <h2 className="text-2xl font-bold mb-6 text-position">
+          <h3 className="text-2xl font-medium mb-6 text-ek-white font-funnel-display">
             7. LIQUIDITY & PRICING RISK
-          </h2>
-          <p className="text-muted-foreground mb-4 font-medium">Tokens may:</p>
+          </h3>
+          <p className="text-ek-blue-light mb-4 font-medium">Tokens may:</p>
           <ul className="space-y-3 mb-6">
             {[
               'have little or no liquidity',
@@ -312,14 +313,14 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
-          <p className="text-muted-foreground">
+          <p className="text-ek-blue-light">
             Liquidity may be removed or never added. The Platforms do not
             guarantee liquidity.
           </p>
@@ -327,19 +328,19 @@ export default function RiskDisclosurePage() {
 
         {/* Section 8 */}
         <section className="mb-10">
-          <h2 className="text-2xl font-bold mb-6 text-position">
+          <h3 className="text-2xl font-medium mb-6 text-ek-white font-funnel-display">
             8. TOKEN CREATOR RISK
-          </h2>
-          <p className="text-muted-foreground leading-relaxed mb-4">
+          </h3>
+          <p className="text-ek-blue-light leading-relaxed mb-4">
             Tokens created on the Platforms are{' '}
-            <span className="font-semibold text-foreground">
+            <span className="font-semibold text-ek-white">
               user-generated
             </span>
             .
           </p>
-          <p className="text-muted-foreground mb-4 font-medium">
+          <p className="text-ek-blue-light mb-4 font-medium">
             The Platforms do{' '}
-            <span className="font-semibold text-foreground">not</span>:
+            <span className="font-semibold text-ek-white">not</span>:
           </p>
           <ul className="space-y-3 mb-4">
             {[
@@ -350,14 +351,14 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
-          <p className="text-muted-foreground mb-4 font-medium">
+          <p className="text-ek-blue-light mb-4 font-medium">
             Creators may:
           </p>
           <ul className="space-y-3 mb-6">
@@ -369,27 +370,27 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
-          <p className="text-muted-foreground">
+          <p className="text-ek-blue-light">
             You are responsible for your own evaluation.
           </p>
         </section>
 
         {/* Section 9 */}
         <section className="mb-10">
-          <h2 className="text-2xl font-bold mb-6 text-position">
+          <h3 className="text-2xl font-medium mb-6 text-ek-white font-funnel-display">
             9. REGULATORY & LEGAL RISK
-          </h2>
-          <p className="text-muted-foreground leading-relaxed mb-4">
+          </h3>
+          <p className="text-ek-blue-light leading-relaxed mb-4">
             Digital asset laws are uncertain and evolving.
           </p>
-          <p className="text-muted-foreground mb-4 font-medium">
+          <p className="text-ek-blue-light mb-4 font-medium">
             Risks include:
           </p>
           <ul className="space-y-3 mb-6">
@@ -402,17 +403,17 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
-          <p className="text-muted-foreground">
+          <p className="text-ek-blue-light">
             The Platforms do not guarantee compliance with any jurisdiction's
             laws.{' '}
-            <span className="font-semibold text-foreground">
+            <span className="font-semibold text-ek-white">
               You are solely responsible for determining whether your use of the
               Platforms is lawful.
             </span>
@@ -421,12 +422,12 @@ export default function RiskDisclosurePage() {
 
         {/* Section 10 */}
         <section className="mb-10">
-          <h2 className="text-2xl font-bold mb-6 text-position">
+          <h3 className="text-2xl font-medium mb-6 text-ek-white font-funnel-display">
             10. NO INVESTMENT ADVICE
-          </h2>
-          <p className="text-muted-foreground mb-4 font-medium">
+          </h3>
+          <p className="text-ek-blue-light mb-4 font-medium">
             The Platforms do{' '}
-            <span className="font-semibold text-foreground">not</span> provide:
+            <span className="font-semibold text-ek-white">not</span> provide:
           </p>
           <ul className="space-y-3 mb-6">
             {[
@@ -436,16 +437,16 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
-          <p className="text-muted-foreground">
+          <p className="text-ek-blue-light">
             Any information displayed is for{' '}
-            <span className="font-semibold text-foreground">
+            <span className="font-semibold text-ek-white">
               informational purposes only
             </span>{' '}
             and should not be relied upon.
@@ -454,10 +455,10 @@ export default function RiskDisclosurePage() {
 
         {/* Section 11 */}
         <section className="mb-10">
-          <h2 className="text-2xl font-bold mb-6 text-position">
+          <h3 className="text-2xl font-medium mb-6 text-ek-white font-funnel-display">
             11. TECHNOLOGY & NETWORK RISK
-          </h2>
-          <p className="text-muted-foreground mb-4 font-medium">
+          </h3>
+          <p className="text-ek-blue-light mb-4 font-medium">
             Risks include:
           </p>
           <ul className="space-y-3 mb-6">
@@ -472,31 +473,31 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
-          <p className="text-muted-foreground">
+          <p className="text-ek-blue-light">
             These issues may delay or prevent transactions.
           </p>
         </section>
 
         {/* Section 12 - NEW */}
         <section className="mb-10">
-          <h2 className="text-2xl font-bold mb-6 text-position">
+          <h3 className="text-2xl font-medium mb-6 text-ek-white font-funnel-display">
             12. AI-GENERATED APPLICATION RISKS
-          </h2>
-          <p className="text-muted-foreground leading-relaxed mb-6">
+          </h3>
+          <p className="text-ek-blue-light leading-relaxed mb-6">
             If you use Minidev to generate applications:
           </p>
 
-          <h3 className="text-xl font-semibold mb-4 text-foreground">
+          <h4 className="text-xl font-medium mb-4 text-ek-white font-funnel-display">
             12.1 Code Quality
-          </h3>
-          <p className="text-muted-foreground mb-4 font-medium">
+          </h4>
+          <p className="text-ek-blue-light mb-4 font-medium">
             AI-generated code may:
           </p>
           <ul className="space-y-3 mb-6">
@@ -509,24 +510,24 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
-          <p className="text-muted-foreground leading-relaxed mb-6">
-            <span className="font-semibold text-foreground">
+          <p className="text-ek-blue-light leading-relaxed mb-6">
+            <span className="font-semibold text-ek-white">
               You are responsible for reviewing all AI-generated code before
               deployment.
             </span>
           </p>
 
-          <h3 className="text-xl font-semibold mb-4 text-foreground">
+          <h4 className="text-xl font-medium mb-4 text-ek-white font-funnel-display">
             12.2 No Guarantee of Correctness
-          </h3>
-          <p className="text-muted-foreground mb-4 font-medium">
+          </h4>
+          <p className="text-ek-blue-light mb-4 font-medium">
             AI tools may:
           </p>
           <ul className="space-y-3 mb-6">
@@ -538,22 +539,22 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
-          <p className="text-muted-foreground leading-relaxed mb-6">
+          <p className="text-ek-blue-light leading-relaxed mb-6">
             The Platforms do not guarantee that AI-generated code is correct,
             secure, or fit for any purpose.
           </p>
 
-          <h3 className="text-xl font-semibold mb-4 text-foreground">
+          <h4 className="text-xl font-medium mb-4 text-ek-white font-funnel-display">
             12.3 Intellectual Property
-          </h3>
-          <p className="text-muted-foreground mb-4 font-medium">
+          </h4>
+          <p className="text-ek-blue-light mb-4 font-medium">
             AI-generated code may:
           </p>
           <ul className="space-y-3 mb-6">
@@ -564,14 +565,14 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
-          <p className="text-muted-foreground">
+          <p className="text-ek-blue-light">
             The Platforms make no warranties regarding intellectual property
             rights in AI-generated code.
           </p>
@@ -579,17 +580,17 @@ export default function RiskDisclosurePage() {
 
         {/* Section 13 - NEW */}
         <section className="mb-10">
-          <h2 className="text-2xl font-bold mb-6 text-position">
+          <h3 className="text-2xl font-medium mb-6 text-ek-white font-funnel-display">
             13. AI AGENT RISKS
-          </h2>
-          <p className="text-muted-foreground leading-relaxed mb-6">
+          </h3>
+          <p className="text-ek-blue-light leading-relaxed mb-6">
             If you deploy AI agents using the Agent Template:
           </p>
 
-          <h3 className="text-xl font-semibold mb-4 text-foreground">
+          <h4 className="text-xl font-medium mb-4 text-ek-white font-funnel-display">
             13.1 Agent Behavior
-          </h3>
-          <p className="text-muted-foreground mb-4 font-medium">
+          </h4>
+          <p className="text-ek-blue-light mb-4 font-medium">
             AI agents may:
           </p>
           <ul className="space-y-3 mb-6">
@@ -604,18 +605,18 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
 
-          <h3 className="text-xl font-semibold mb-4 text-foreground">
+          <h4 className="text-xl font-medium mb-4 text-ek-white font-funnel-display">
             13.2 Agent Autonomy
-          </h3>
-          <p className="text-muted-foreground leading-relaxed mb-4">
+          </h4>
+          <p className="text-ek-blue-light leading-relaxed mb-4">
             Agents operate autonomously within configured parameters. You are
             responsible for:
           </p>
@@ -628,18 +629,18 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
 
-          <h3 className="text-xl font-semibold mb-4 text-foreground">
+          <h4 className="text-xl font-medium mb-4 text-ek-white font-funnel-display">
             13.3 Agent Transactions
-          </h3>
-          <p className="text-muted-foreground leading-relaxed mb-4">
+          </h4>
+          <p className="text-ek-blue-light leading-relaxed mb-4">
             Agents may execute blockchain transactions on your behalf,
             including:
           </p>
@@ -653,29 +654,29 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
-          <p className="text-muted-foreground leading-relaxed mb-6">
-            <span className="font-semibold text-foreground">
+          <p className="text-ek-blue-light leading-relaxed mb-6">
+            <span className="font-semibold text-ek-white">
               These transactions are irreversible. You bear full responsibility
               for all agent-initiated transactions.
             </span>
           </p>
 
-          <h3 className="text-xl font-semibold mb-4 text-foreground">
+          <h4 className="text-xl font-medium mb-4 text-ek-white font-funnel-display">
             13.4 Agent-Generated Content
-          </h3>
-          <p className="text-muted-foreground leading-relaxed mb-4">
+          </h4>
+          <p className="text-ek-blue-light leading-relaxed mb-4">
             Content created by AI agents (including marketing, communications,
             social posts, or token metadata) is your responsibility. The
             Platforms do not review or endorse agent outputs.
           </p>
-          <p className="text-muted-foreground mb-4 font-medium">
+          <p className="text-ek-blue-light mb-4 font-medium">
             Agents may generate content that:
           </p>
           <ul className="space-y-3 mb-6">
@@ -687,18 +688,18 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
 
-          <h3 className="text-xl font-semibold mb-4 text-foreground">
+          <h4 className="text-xl font-medium mb-4 text-ek-white font-funnel-display">
             13.5 Third-Party API Risks
-          </h3>
-          <p className="text-muted-foreground leading-relaxed mb-4">
+          </h4>
+          <p className="text-ek-blue-light leading-relaxed mb-4">
             Agents rely on third-party APIs (e.g., Anthropic, OpenAI,
             X/Twitter). Risks include:
           </p>
@@ -713,22 +714,22 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
-          <p className="text-muted-foreground">
+          <p className="text-ek-blue-light">
             The Platforms are not responsible for third-party API failures or
             policy enforcement.
           </p>
 
-          <h3 className="text-xl font-semibold mb-4 text-foreground">
+          <h4 className="text-xl font-medium mb-4 text-ek-white font-funnel-display">
             13.6 API Key Risks
-          </h3>
-          <p className="text-muted-foreground leading-relaxed mb-4">
+          </h4>
+          <p className="text-ek-blue-light leading-relaxed mb-4">
             You provide your own API keys for Agent Template. Risks include:
           </p>
           <ul className="space-y-3 mb-4">
@@ -740,14 +741,14 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
-          <p className="text-muted-foreground mb-4 font-medium">
+          <p className="text-ek-blue-light mb-4 font-medium">
             You are responsible for:
           </p>
           <ul className="space-y-3 mb-6">
@@ -758,18 +759,18 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
 
-          <h3 className="text-xl font-semibold mb-4 text-foreground">
+          <h4 className="text-xl font-medium mb-4 text-ek-white font-funnel-display">
             13.7 Agent Wallet Risks
-          </h3>
-          <p className="text-muted-foreground leading-relaxed mb-4">
+          </h4>
+          <p className="text-ek-blue-light leading-relaxed mb-4">
             If your agent has wallet access:
           </p>
           <ul className="space-y-3 mb-6">
@@ -780,9 +781,9 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -791,10 +792,10 @@ export default function RiskDisclosurePage() {
 
         {/* Section 14 - NEW */}
         <section className="mb-10">
-          <h2 className="text-2xl font-bold mb-6 text-position">
+          <h3 className="text-2xl font-medium mb-6 text-ek-white font-funnel-display">
             14. TOKEN BURN RISKS
-          </h2>
-          <p className="text-muted-foreground leading-relaxed mb-4">
+          </h3>
+          <p className="text-ek-blue-light leading-relaxed mb-4">
             Certain agent or platform mechanics may result in automatic token
             burns:
           </p>
@@ -806,16 +807,16 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
-          <p className="text-muted-foreground">
+          <p className="text-ek-blue-light">
             Burns are{' '}
-            <span className="font-semibold text-foreground">
+            <span className="font-semibold text-ek-white">
               irreversible and permanent
             </span>
             . Burned tokens cannot be recovered.
@@ -824,13 +825,13 @@ export default function RiskDisclosurePage() {
 
         {/* Section 15 - NEW */}
         <section className="mb-10">
-          <h2 className="text-2xl font-bold mb-6 text-position">
+          <h3 className="text-2xl font-medium mb-6 text-ek-white font-funnel-display">
             15. HOSTING & AVAILABILITY RISKS
-          </h2>
-          <p className="text-muted-foreground leading-relaxed mb-4">
+          </h3>
+          <p className="text-ek-blue-light leading-relaxed mb-4">
             The Platforms provide hosting for applications and agents.
           </p>
-          <p className="text-muted-foreground mb-4 font-medium">
+          <p className="text-ek-blue-light mb-4 font-medium">
             Risks include:
           </p>
           <ul className="space-y-3 mb-6">
@@ -843,24 +844,24 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
-          <p className="text-muted-foreground">
+          <p className="text-ek-blue-light">
             The Platforms do not guarantee uptime or data preservation.
           </p>
         </section>
 
         {/* Section 16 - NEW */}
         <section className="mb-10">
-          <h2 className="text-2xl font-bold mb-6 text-position">
+          <h3 className="text-2xl font-medium mb-6 text-ek-white font-funnel-display">
             16. CREDIT & PAYMENT RISKS
-          </h2>
-          <p className="text-muted-foreground leading-relaxed mb-4">
+          </h3>
+          <p className="text-ek-blue-light leading-relaxed mb-4">
             Credits purchased for the Platforms:
           </p>
           <ul className="space-y-3 mb-6">
@@ -872,14 +873,14 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
-          <p className="text-muted-foreground">
+          <p className="text-ek-blue-light">
             Payment transactions are subject to blockchain risks described
             above.
           </p>
@@ -887,12 +888,12 @@ export default function RiskDisclosurePage() {
 
         {/* Section 17 */}
         <section className="mb-10">
-          <h2 className="text-2xl font-bold mb-6 text-position">
+          <h3 className="text-2xl font-medium mb-6 text-ek-white font-funnel-display">
             17. NO GUARANTEES
-          </h2>
-          <p className="text-muted-foreground mb-4 font-medium">
+          </h3>
+          <p className="text-ek-blue-light mb-4 font-medium">
             The Platforms make{' '}
-            <span className="font-semibold text-foreground">no guarantees</span>{' '}
+            <span className="font-semibold text-ek-white">no guarantees</span>{' '}
             regarding:
           </p>
           <ul className="space-y-3 mb-6">
@@ -908,24 +909,24 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
-          <p className="text-muted-foreground">
+          <p className="text-ek-blue-light">
             Past performance is not indicative of future results.
           </p>
         </section>
 
         {/* Section 18 */}
         <section className="mb-10">
-          <h2 className="text-2xl font-bold mb-6 text-position">
+          <h3 className="text-2xl font-medium mb-6 text-ek-white font-funnel-display">
             18. ASSUMPTION OF RISK
-          </h2>
-          <p className="text-muted-foreground leading-relaxed mb-4">
+          </h3>
+          <p className="text-ek-blue-light leading-relaxed mb-4">
             By using the Platforms, you expressly acknowledge and agree that:
           </p>
           <ul className="space-y-3 mb-6">
@@ -938,16 +939,16 @@ export default function RiskDisclosurePage() {
             ].map((item, index) => (
               <li
                 key={index}
-                className="flex items-start text-muted-foreground"
+                className="flex items-start text-ek-blue-light"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
           </ul>
-          <p className="text-muted-foreground">
+          <p className="text-ek-blue-light">
             If you do not understand or accept these risks,{' '}
-            <span className="font-semibold text-foreground">
+            <span className="font-semibold text-ek-white">
               do not use the Platforms
             </span>
             .
@@ -956,43 +957,41 @@ export default function RiskDisclosurePage() {
 
         {/* Final Notice */}
         <section className="mt-10 mb-20">
-          <h2 className="text-2xl md:text-3xl font-bold mb-6 text-foreground font-funnel-display">
+          <h3 className="text-2xl md:text-3xl font-medium mb-6 text-ek-white font-funnel-display">
             FINAL NOTICE
-          </h2>
-          <p className="text-muted-foreground leading-relaxed mb-4">
+          </h3>
+          <p className="text-ek-blue-light leading-relaxed mb-4">
             Digital assets and AI tools are{' '}
-            <span className="font-semibold text-foreground">high-risk</span> and{' '}
-            <span className="font-semibold text-foreground">experimental</span>.
+            <span className="font-semibold text-ek-white">high-risk</span> and{' '}
+            <span className="font-semibold text-ek-white">experimental</span>.
           </p>
-          <p className="text-muted-foreground leading-relaxed mb-4">
+          <p className="text-ek-blue-light leading-relaxed mb-4">
             Only experienced users who understand decentralized systems and AI
             limitations should use the Platforms.
           </p>
-          <p className="text-muted-foreground">
-            <span className="font-semibold text-foreground">
+          <p className="text-ek-blue-light">
+            <span className="font-semibold text-ek-white">
               NEVER INVEST MORE THAN YOU CAN AFFORD TO LOSE.
             </span>
           </p>
         </section>
 
         {/* Company Info */}
-        <section className="mb-10 pb-8 border-t border-border italic pt-8">
-          <p className="text-muted-foreground">TokenFi Inc. - Delaware, USA</p>
-          <p className="text-muted-foreground">
+        <section className="mb-10 pb-8 border-t border-ek-navy italic pt-8">
+          <p className="text-ek-blue-light">TokenFi Inc. - Delaware, USA</p>
+          <p className="text-ek-blue-light">
             Contact:{' '}
             <a
               href="mailto:j@earnkit.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="underline hover:text-primary"
+              className="underline hover:text-ek-blue-soft"
             >
               j@earnkit.com
             </a>
           </p>
         </section>
-      </main>
-
-      <Footer />
-    </div>
+      </div>
+    </Panel>
   );
 }

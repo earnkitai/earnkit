@@ -25,7 +25,20 @@ export const securityHeaders = (production: boolean) => [
 /** Uploaded token images: nothing loads or runs, even if one is opened directly. */
 export const IMAGE_CSP = "default-src 'none'; sandbox; frame-ancestors 'none'";
 
+/**
+ * v2.9 F22 (Ruling 16): the three old legal pages are one page, /terms; each old path 301s to its
+ * anchor. `statusCode: 301`, never `permanent: true` (Next sends 308 for that).
+ */
+export const LEGAL_REDIRECTS = [
+  { source: '/policy', destination: '/terms#policy', statusCode: 301 as const },
+  { source: '/risk-disclosure', destination: '/terms#risk-disclosure', statusCode: 301 as const },
+  { source: '/sponsor-terms', destination: '/terms#sponsor-terms', statusCode: 301 as const },
+];
+
 const nextConfig: NextConfig = {
+  async redirects() {
+    return LEGAL_REDIRECTS;
+  },
   images: {
     remotePatterns: [
       {

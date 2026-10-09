@@ -1,4 +1,4 @@
-export const metadata = { title: 'Sponsor terms · EarnKit' };
+import { Eyebrow, Panel } from '../../components/common/Panel';
 
 const TERMS = [
   'Your deposit goes into its own escrow contract on Base. EarnKit cannot take it; the contract only pays it out as below.',
@@ -10,19 +10,19 @@ const TERMS = [
   'Smart contracts carry risk. The contracts are tested and audited, but use only funds you can afford to have at risk. Pools are capped per campaign.',
 ];
 
-export default function SponsorTerms() {
+/** The terms a sponsor agrees to on the fund page (/terms#sponsor-terms since v2.9 F22). */
+export default function SponsorTermsSection() {
   return (
-    <div className="w-full pt-4">
-      <section className="rounded-[40px] bg-ek-navy-deep px-6 py-12 md:rounded-[56px] md:px-16 md:py-16">
-        <h1 className="font-funnel-display text-3xl font-medium text-ek-white md:text-5xl">
-          Sponsor terms
-        </h1>
-        <ol className="mt-8 list-decimal space-y-3 pl-5 font-funnel-sans text-base font-light text-ek-blue-light">
-          {TERMS.map((t) => (
-            <li key={t}>{t}</li>
-          ))}
-        </ol>
-      </section>
-    </div>
+    <Panel className="mt-4 py-12 md:py-16" label="Sponsor terms">
+      <Eyebrow>Sponsors</Eyebrow>
+      <h2 id="sponsor-terms" className="mt-4 scroll-mt-32 font-funnel-display text-3xl font-medium text-ek-white md:text-5xl">
+        Sponsor terms
+      </h2>
+      <ol className="mt-8 max-w-2xl list-decimal space-y-3 pl-5 font-funnel-sans text-base font-light text-ek-blue-light md:text-lg">
+        {TERMS.map((t) => (
+          <li key={t}>{t}</li>
+        ))}
+      </ol>
+    </Panel>
   );
 }

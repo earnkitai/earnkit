@@ -86,7 +86,7 @@ export default function BoardView({ board: b }: { board: Board }) {
         <p className="mt-8 max-w-2xl font-funnel-sans text-sm font-light text-ek-blue-soft">
           Ranked by real traction; trading volume never counts. When the round ends, the top 10 are public for a
           48-hour review, then the pool is paid automatically in WETH on Base.{' '}
-          <Link href="/policy" className="text-ek-white underline underline-offset-4 hover:text-ek-blue-soft">
+          <Link href="/terms#policy" className="text-ek-white underline underline-offset-4 hover:text-ek-blue-soft">
             How it works
           </Link>
         </p>

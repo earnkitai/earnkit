@@ -2,7 +2,7 @@ import { BONUS_SPLIT_BPS } from './bonus-payout';
 import { WEIGHTS } from './traction';
 
 /**
- * The facts the public policy page (/policy, v2.5 §4) states. The ranking weights and payout split
+ * The facts the public policy (/terms#policy, v2.5 §4, v2.9 F22) states. The ranking weights and payout split
  * are imported from the code that applies them (traction.ts WEIGHTS, bonus-payout.ts
  * BONUS_SPLIT_BPS). The fee split is NOT: tokens.fun applies it (its EarnKit reward recipients,
  * branch earnkit-fee-split), so FEE_SPLIT_BPS here is a copy that must be changed with it.
@@ -34,6 +34,12 @@ export const FEE_ROWS: [string, string][] = [
   ['Builder bonus', pct(FEE_SPLIT_BPS.bonus)],
   ['EarnKit', pct(FEE_SPLIT_BPS.earnkit)],
 ];
+
+/**
+ * v2.9 F24: the one plain MINI line, right after the fee split wherever it is shown (FEE_SPLIT_BPS.buyback
+ * is the 10%; the split itself is unchanged).
+ */
+export const MINI_LINE = "10% buys MINI, EarnKit's token";
 
 /** The traction signals and their weights (traction.ts WEIGHTS). Trading volume is never one. */
 export const SIGNAL_ROWS: [string, number][] = [
