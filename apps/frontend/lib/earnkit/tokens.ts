@@ -1,4 +1,5 @@
 import { normalizeRepoUrl } from './campaigns';
+import { CHAIN_NAMES, type Chain } from './chains';
 import { type Application, plainProblem } from './coach';
 import { sql } from './db';
 import { quoted } from './untrusted-text';
@@ -450,15 +451,25 @@ const cutAtWord = (s: string, max: number) => {
 
 /**
  * v2.10 item 11: the description sent to tokens.fun, in plain words and at most 280 characters: the
- * project's description, else its one-liner, else "<Name> on Base". A text with an address, hash,
- * stat list or link (`plainProblem`) is never sent. Pure.
+ * project's description, else its one-liner, else "<Name> on <Chain>" (final fix I1, ledger c2: the
+ * chain is the entry's program's, when the program names exactly one known chain; an any-chain or
+ * multi-chain program gets "<Name>" alone, so a project is never said to be on a chain it isn't on).
+ * A text with an address, hash, stat list or link (`plainProblem`) is never sent. Pure.
  */
-export function tokenDescription(p: { name: string; description: string | null; one_liner?: string | null }): string {
+export function tokenDescription(p: {
+  name: string;
+  description: string | null;
+  one_liner?: string | null;
+  /** The entry's program's chains (`programs.chains`). */
+  chains?: readonly string[] | null;
+}): string {
   for (const text of [p.description, p.one_liner]) {
     const t = text?.replace(/\s+/g, ' ').trim();
     if (t && !plainProblem(t, 'one_liner')) return cutAtWord(t, TOKEN_DESCRIPTION_MAX);
   }
-  return cutAtWord(`${p.name} on Base`, TOKEN_DESCRIPTION_MAX);
+  const only = p.chains?.length === 1 ? p.chains[0] : null;
+  const chain = only && Object.hasOwn(CHAIN_NAMES, only) ? CHAIN_NAMES[only as Chain] : null;
+  return cutAtWord(chain ? `${p.name} on ${chain}` : p.name, TOKEN_DESCRIPTION_MAX);
 }
 
 /** The entry's one-liner answer (the stored application's `one_liner` field), or null. Pure. */
@@ -547,6 +558,7 @@ export async function deployToken(
         repo_url: string | null;
         live_url: string | null;
         repo_private: boolean;
+        program_chains: string[] | null;
       }[]
     >`
     UPDATE projects SET token_url = 'pending', token_status = 'pending', token_note = NULL, token_claimed_at = now(), token_released_at = NULL,
@@ -560,7 +572,8 @@ export async function deployToken(
       AND (${repoKey}::text IS NULL OR NOT EXISTS (
         SELECT 1 FROM projects o
         WHERE o.token_repo_key = ${repoKey} AND o.token_url IS NOT NULL AND o.id <> ${a.projectId}))
-    RETURNING name, description, application, repo_url, live_url, repo_private`;
+    RETURNING name, description, application, repo_url, live_url, repo_private,
+      (SELECT g.chains FROM programs g WHERE g.id = projects.program_id) AS program_chains`;
   } catch (err) {
     // Two claims on one repo at once: the unique index lets only one through.
     if (
@@ -636,7 +649,7 @@ export async function deployToken(
     creatorWallet: a.creatorWallet,
     tokenURI: imageUrl,
     imageUrl,
-    description: tokenDescription({ name: project.name, description: project.description, one_liner: oneLinerOf(project.application) }),
+    description: tokenDescription({ name: project.name, description: project.description, one_liner: oneLinerOf(project.application), chains: project.program_chains }),
     ...(website && { website, appUrl: a.liveUrl ?? undefined }),
     ...(twitter && { twitter }),
     chainId: CHAIN_IDS[chain],
