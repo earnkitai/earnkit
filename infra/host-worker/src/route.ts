@@ -20,7 +20,7 @@ const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 export function siteSlug(host: string, zone: string, reserved: readonly string[]): string | null {
   const h = host.toLowerCase().replace(/:\d+$/, '').replace(/\.$/, '');
   const z = zone.toLowerCase();
-  if (!h.endsWith(`.${z}`)) return null;
+  if (!z || !h.endsWith(`.${z}`)) return null;
   const label = h.slice(0, -(z.length + 1));
   if (!LABEL.test(label) || reserved.includes(label)) return null;
   return label;
@@ -158,7 +158,7 @@ async function route(req: Request, env: Env, cache: EdgeCache, waitUntil: (p: Pr
   }
 
   const res = fileResponse(found, contentTypeFor(foundKey), 200, CACHE_CONTROL, head);
-  if (!head) waitUntil(cache.put(cacheKey, res.clone()));
+  if (!head) waitUntil(cache.put(cacheKey, res.clone()).catch(() => {}));
   return res;
 }
 
