@@ -353,12 +353,14 @@ apps/frontend/
                                hosted agent), authorize 60/hour per IP, new installations
                                500/day per registration (installClient), OAuth register a
                                10,000/day ceiling per agent host (oauthRegisterHost, warned at
-                               8,000) + 50/hour per IP (oauthRegister, installHour)
+                               8,000) + 50/hour per IP (oauthRegister, installHour; Ruling G25:
+                               500/hour per IP for a known hosted redirect host, oauthRegisterHosted,
+                               installHourHosted, which refuses), hostUpload 10/hour per IP
                                (oauth-routes.ts; replayed codes free), GitHub matching (list_programs with a user/repos,
                                get_program's repo check) 30/hour per installation, chain checks
                                60/min (/check per IP, sponsor status per installation).
                                enforce() throws RateLimitError ("… Try again in 18 minutes.");
-                               countHit (v2.9 T12) counts without a verdict (hit wraps it);
+                               countHit counts without a verdict (hit wraps it);
                                routes answer 429 + Retry-After. ENTRIES_PER_CAMPAIGN = 3
                                (recordSubmission counts under the campaign's entry lock)
     repo-cache.ts(+test)       GitHub repo facts for matching (chains, commits since each window
@@ -385,8 +387,8 @@ apps/frontend/
                                provedRepos picks the proof repo a group proved (N1), pickup.read caps
                                earnkit.txt reads at one an hour (N2), the duplicate with the token stays (N3)
     oauth-routes.ts(+limits test) register + token + authorize handlers (app/oauth/* re-export them);
-                               logLimited; v2.9 T12 (G0) ipFloor: a known hosted service's redirect
-                               host is counted, never refused, at the per-IP floor (logged once)
+                               logLimited; ipFloor (Ruling G25): a known hosted service's redirect
+                               host gets the 500/hour per-IP floor (refuses), everyone else 50/hour
     oauth.ts(+.test.ts)        stateless OAuth: register (v2.4: a random nonce in every client id;
                                v2.8.1: s=1 for hosted clients), isSharedClient, HOSTED_CLIENT_NAMES,
                                HOSTED_REDIRECT_HOSTS, hostedRedirectHost (v2.9 T12), clientLimitKey, registrationLimitKey,
@@ -462,7 +464,8 @@ apps/frontend/
                                builder lines (liveLine, HOST_FULL, HOST_REVIEW, HOST_LINES); issueUpload
                                (Ruling 8, P11), deploySite (staged review, reserved rows, tracked
                                writes), expireSites, cleanDeploys, takedown, approveSite,
-                               sitesInReview, refreshSiteExpiry, STAGING_PREFIX; hostUploadPost,
+                               sitesInReview, refreshSiteExpiry, STAGING_PREFIX; hostUploadPost
+                               (10/hour per IP, the token attempt taken before the body read),
                                hostTakedownPost
     r2.ts                      v2.9 C12: r2Enabled (4 env vars), r2Client (aws4fetch S3: put, list,
                                del, copy; Class A taken from free-tier first, FreeTierFull), R2Error
@@ -980,7 +983,9 @@ apps/frontend/
                                re-ranked; unread entries last, score 0, NO_FINAL_READ_FLAG; v2.6
                                UNVERIFIED_PAGE_FLAG in review_flags for an unverified_page entry,
                                never `flagged`, so never needs_owner or a 503)
-    fixtures/                  clanker-base-launch.json (a real Base receipt, from tokens.fun),
+    test-guard.test.ts         Part 2 final review I3: the preloaded guard clears vendor keys, fetch is local only
+    fixtures/                  test-guard.ts (the `--import` preload above; no network, no vendor keys),
+                               clanker-base-launch.json (a real Base receipt, from tokens.fun),
                                bonus-db-lock.ts (test-only advisory lock for the bonus test files),
                                program-file.ts (committedProgram: a programs/*.json without its
                                id-bound logo, for tests that clone files under test ids)
@@ -1100,7 +1105,10 @@ apps/frontend/
 ```
 
 Root commands: `pnpm programs:check` (validate program files, logo files, and a `todo` on every
-required submission item), `pnpm test` (v2.9 T12: runs `pnpm host:typecheck` first, P42),
+required submission item), `pnpm test` (v2.9 T12: runs `pnpm host:typecheck` first, P42; Part 2 final review I3: it and
+`token:e2e`, `campaign:e2e` and `sponsor:e2e` preload `lib/earnkit/fixtures/test-guard.ts`, which
+clears the tokens.fun, Resend, R2 and GitHub OAuth keys and makes `fetch` throw for any host but
+localhost, 127.0.0.1, ::1 and `BONUS_ANVIL_URL`; `LINK_CHECK=1` keeps the real fetch),
 `pnpm campaign --help`, `pnpm campaign golive|rank|payout|veto-link <slug>` (EarnKit's own
 campaigns; payout is a dry run only, the cron pays), `pnpm campaign fallback propose|execute|veto <ref>`, `refund <ref>` (sponsor
 campaigns; dry run without `--execute`; `OPERATOR_PRIVATE_KEY`, the veto `GUARDIAN_PRIVATE_KEY`;
