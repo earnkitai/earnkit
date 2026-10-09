@@ -200,7 +200,7 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   **Key:** `TOKENSFUN_DEPLOY_API_KEY` stays server-side (EarnKit's own key on tokens.fun, which
   skips tokens.fun's per-IP limits — hence the ownership proof, one token per repo, and the
   per-installation cap; the 2-a-day per creator wallet cap stays). The image is the agent's upload
-  (`/api/projects/:id/image`) or the monogram (`/api/projects/:id/token-image?s=SYMBOL`: drawn only
+  (`/api/projects/:id/image`) or (before v2.10; see "Token logo (v2.10 item 12)") the monogram (`/api/projects/:id/token-image?s=SYMBOL`: drawn only
   from the stored, validated ticker, and 404 unless `s` matches it, so the immutable cache can't
   serve a stale logo). Fees are unchanged (WETH pair; Clanker 20%, then platform 50% / creator
   40% / MINI buyback 10%). **Treasury lock:** `contracts/script/Deploy.s.sol` reverts on chain 8453
@@ -1964,6 +1964,26 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
   The tokens.fun description is `tokens.ts tokenDescription`: the project's description when it is
   plain, else the entry's one-liner answer (`projects.application`, kind `one_liner`), else
   "<Name> on Base". It is cut to 280 characters at a word boundary.
+- **Token logo (v2.10 item 12).** tokens.fun writes the image link onchain at launch, so EarnKit
+  always sends a link it controls and never the text tile. Order: the agent's `image_data` (stored,
+  `/api/projects/:id/image`) or `image_url` (sent as given); else `token-launch.ts` calls
+  `TokenFlowDeps.logo` (default `token-logo.ts launchLogo`, via `logoDefaults.launch`, stubbed to
+  null in `fixtures/no-network-checks.ts`): the live site's `apple-touch-icon`, its largest
+  PNG/JPEG/WebP `rel=icon` of 128 px or more, then `og:image` (`iconCandidates`, tried in turn,
+  at most 3, Pre-flight P24; never SVG, ICO or http), then the repo's custom social preview. The
+  page is read with `safeFetchText` (512 KB, one same-site redirect); each image with
+  `safe-fetch.ts safeFetchBytes` (same SSRF rules, 1 MB, Accept PNG/JPEG/WebP, one redirect with
+  every hop re-vetted) and kept only when `tokens.ts imageTypeOf` reads PNG, JPEG or WebP bytes.
+  The preview (`githubPreview`) is one GraphQL read with EarnKit's `GITHUB_TOKEN`, never an App
+  token, only for a repo that is not `repo_private`, was not read through the App by the gate, and
+  has an anonymous public read within 7 days (Ruling H6, fail closed), and only when GitHub says
+  `isPrivate: false` and `usesCustomOpenGraphImage`. The whole resolve has an 8 s budget and never
+  fails the launch. Found bytes are stored with the claim (`projects.token_image`) and sent as
+  `/api/projects/:id/image`; nothing found sends `/api/projects/:id/mark`: a 512x512 next/og PNG
+  of one shape (circle, square, diamond, hexagon) on a two-colour gradient, all from the project id
+  (`markFor`, no letters), drawn per request, never stored, 404 without a `token_symbol`, cached
+  immutable, with the sandbox image CSP (`next.config.ts`). `token-image` stays only for old
+  links. `prepare_submission`'s `token.proposed.image` is `site` with a live link, else `mark`.
 - **The answer bank** (`answer-bank.ts`, table `answer_bank`, Ruling 6): `confirm_entry` (go or
   skip) banks the final answers per installation, project (`projectKey`: normalized repo, else
   `name:<name>`) and kind; `other` is never banked; a kind with two fields banks the first. Contact

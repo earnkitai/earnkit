@@ -165,8 +165,12 @@ apps/frontend/
                                order), pollCheck (every 3 s, up to 2 min)
   app/components/WalletGate.tsx  shows a page's action only for the bound wallet, else "Connect
                                0xABCD…1234 to continue"
-  app/api/projects/[id]/image/ serves a token image the agent uploaded (token image_data)
-  app/api/projects/[id]/token-image/  the default token logo: a 512x512 next/og PNG monogram of the
+  app/api/projects/[id]/image/ serves a token image the agent uploaded (token image_data), or
+                               (v2.10 item 12) the site or repo logo resolved at launch
+  app/api/projects/[id]/mark/  v2.10 item 12: the default token logo sent to tokens.fun: a 512x512
+                               next/og PNG, one shape on a gradient from token-logo.ts markFor(id),
+                               no letters; 404 without token_symbol; immutable; sandbox CSP
+  app/api/projects/[id]/token-image/  (old links only since v2.10) a 512x512 next/og PNG monogram of the
                                stored ticker (validated A-Z0-9 only) on a colour from the project id;
                                the link carries ?s=SYMBOL and 404s unless it matches the stored ticker
   app/mcp/route.ts             hosted MCP server (Streamable HTTP, stateless, Bearer token)
@@ -328,7 +332,14 @@ apps/frontend/
                                CheckDeps.blockscout; peekTxCount, H5); addressesFrom, entryVerified,
                                checkDefaults (tests: fixtures/no-network-checks.ts)
     chains.ts                  CHAINS, Chain, CHAIN_NAMES (import-free; match.ts re-exports them)
-    safe-fetch.ts(+test)       SSRF-safe GET (safeFetchText): https on 443, domain names only, DNS
+    token-logo.ts(+test)       v2.10 item 12: iconCandidates/pickIconHref (touch icon, raster icon
+                               >=128 px, og:image; no SVG/ICO/http), resolveLogo (site, then the
+                               preview; 8 s budget; bytes via imageTypeOf), githubPreview (one GraphQL
+                               read, GITHUB_TOKEN only, public custom images), launchLogo (H6: preview
+                               only for a non-private repo with a fresh public read), logoDefaults,
+                               markFor (shape + gradient from the id)
+    safe-fetch.ts(+test)       SSRF-safe GET (safeFetchText; v2.10 safeFetchBytes for images, 1 MB,
+                               same rules; the request path keeps the query): https on 443, domain names only, DNS
                                resolved once via a cancellable c-ares Resolver (not dns.lookup) and every address public (isPublicAddress: IPv4
                                special-purpose ranges; IPv6 only 2000::/3 minus special ranges, so
                                mapped/NAT64/6to4 are refused), connects to the vetted IP with SNI,
@@ -589,6 +600,8 @@ apps/frontend/
     tokens.ts(+test)           tokensFunUrl() (v2.9 T12: TOKENSFUN_API_URL read per call, never at import);
                                v2.10 item 11: tokenDescription (plain description, else the entry's
                                one-liner, else "<Name> on Base"; at most 280 characters), deployToken's description;
+                               v2.10 item 12: imageTypeOf (PNG/JPEG/WebP bytes, else null); no upload or
+                               logo sends /api/projects/<id>/mark, never token-image;
                                deployToken via tokens.fun /api/v1/deploy (TOKENSFUN_DEPLOY_API_KEY;
                                EARNKIT_TOKENSFUN_TIMEOUT_MS, default 120000): atomic claim
                                (token_url='pending', token_repo_key; refused when another project on
