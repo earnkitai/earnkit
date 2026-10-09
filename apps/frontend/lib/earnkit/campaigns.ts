@@ -134,7 +134,7 @@ export class EntryError extends Error {
     return new EntryError(
       problems.length === 1
         ? problems[0]
-        : `Fix these, then call record_submission again:\n${problems.map((p) => `- ${p}`).join('\n')}`,
+        : `Fix these, then call confirm again:\n${problems.map((p) => `- ${p}`).join('\n')}`,
       problems,
     );
   }

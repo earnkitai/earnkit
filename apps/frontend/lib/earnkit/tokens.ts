@@ -148,7 +148,7 @@ export function tryAgainAfter(at: Date | null): string {
 export const LAUNCHING = 'Your token is launching. Ask me again in a minute for its link.';
 /** v2.8.1 §A5: the agent's side of LAUNCHING (it names no tool, but it is the agent's instruction). */
 export const LAUNCHING_AGENT =
-  'The deploy is still running. In about 30 seconds call the same tool again with the same arguments plus check_back: true: it returns the result and never starts another launch.';
+  'The deploy is still running. In about 30 seconds call confirm again with the same arguments plus check: true: it returns the result and never starts another launch.';
 
 /**
  * v2.8.1 §A1: the launch's outcome is unknown (no answer, or a 5xx that may have minted) or it has
@@ -525,7 +525,7 @@ export async function deployToken(
     SELECT installation_id FROM projects WHERE id = ${a.projectId}`;
   if (!mine || mine.installation_id !== a.installationId)
     throw new LaunchError(
-      `No project ${a.projectId} recorded by you. Call record_submission first.`,
+      `No project ${a.projectId} recorded by you. Call confirm first.`,
     );
   const repoKey = a.repoUrl ? normalizeRepoUrl(a.repoUrl) : null;
   if (repoKey) {
@@ -585,7 +585,7 @@ export async function deployToken(
       SELECT token_url, installation_id, repo_url, live_url FROM projects WHERE id = ${a.projectId}`;
     if (!existing || existing.installation_id !== a.installationId) {
       throw new LaunchError(
-        `No project ${a.projectId} recorded by you. Call record_submission first.`,
+        `No project ${a.projectId} recorded by you. Call confirm first.`,
       );
     }
     if (!existing.token_url && repoKey) {

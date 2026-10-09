@@ -20,9 +20,9 @@ import {
   notReadyTokenNote,
   tokenRow,
 } from './entry-text';
-import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TELL_EARNKIT_DESCRIPTION, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
+import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TELL_DESCRIPTION, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { bonusLine, presentFirstMessage, type Card, type FirstMessage } from './present';
-import { ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, OFFER_NOT_SHOWN, tools } from './tools';
+import { ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, handlers } from './tools';
 import { outcomeQuestion } from './outcomes';
 import { DEFAULT_GUIDANCE, PLAIN_FIX, PLAIN_LENGTH_FIX, PLAIN_NOTE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, walletAsk } from './coach';
 import { alsoText } from './also-qualifies';
@@ -885,8 +885,8 @@ const signInTexts: [string, string][] = [
   ['WALLET_CHANGED + link', `${WALLET_CHANGED} Sign in again: https://earnkit.com/github/verify?n=x`],
 ];
 
-// v2.9 B10: launch_token's offer-path line (v2.10 item 5: the first-reply offer is gone).
-const tokenOfferTexts: [string, string][] = [['OFFER_NOT_SHOWN', OFFER_NOT_SHOWN]];
+// v2.10 item 4: confirm's line for a skip of an entry's token (the v2.9 offer path is gone).
+const tokenOfferTexts: [string, string][] = [['NO_TOKEN_FOR_NOW', NO_TOKEN_FOR_NOW]];
 
 // v2.9 Task 12 (Part 1 copy sweep): every new builder string Part 1 ships. The link and contract
 // check lines (T1); the matched row notes as matchRepo writes them (T2 product signals, T3 claims,
@@ -1055,7 +1055,7 @@ const agentFacing: [string, string][] = [
   ['SIGN_IN_OR_NOTE', SIGN_IN_OR_NOTE],
   ['SIGN_IN_CODE_NOTE', SIGN_IN_CODE_NOTE],
   ['CANT_PUSH_SIGN_IN_NOTE', CANT_PUSH_SIGN_IN_NOTE],
-  ['TELL_EARNKIT_DESCRIPTION', TELL_EARNKIT_DESCRIPTION],
+  ['TELL_DESCRIPTION', TELL_DESCRIPTION],
   ['STORAGE_NOTE', STORAGE_NOTE],
   ['UPLOAD_NOTE', UPLOAD_NOTE],
   ['HOST_SIGN_IN_NOTE', HOST_SIGN_IN_NOTE],
@@ -1065,9 +1065,16 @@ const agentFacing: [string, string][] = [
   ['llms.txt', readFileSync(join(import.meta.dirname, '../../public/llms.txt'), 'utf8')],
 ];
 
-// Tool names, derived from the registered tools themselves (I2), not a hard-coded list.
-const TOOL_NAMES = Object.keys(tools);
-const toolNameRe = new RegExp(`\\b(${TOOL_NAMES.join('|')})\\b`);
+// Tool names, derived from the handlers themselves (I2), not a hard-coded list. v2.10 item 4: the
+// v2.9 names (now aliases) and sponsor_campaign anywhere; the 4 new names are plain words ("find",
+// "confirm"), so only in a call shape ("call confirm", "find with", "prepare(", "the tell tool").
+const TOOL_NAMES = [...Object.keys(handlers), 'sponsor_campaign'];
+const NEW_NAMES = '(find|prepare|confirm|tell)';
+const oldToolRe = new RegExp(`\\b(${TOOL_NAMES.join('|')})\\b`);
+const toolNameRe = new RegExp(
+  `${oldToolRe.source}|\\bcall(s|ing)? ${NEW_NAMES}\\b|\\b${NEW_NAMES}( with\\b|\\()|\\bthe ${NEW_NAMES} tool\\b`,
+  'i',
+);
 const editFileRe = /\b(add|edit|create) (a |the )?file\b|\bpush it\b/i;
 
 test('v2.6 §3 copy review: no emojis anywhere', async () => {
@@ -1120,9 +1127,21 @@ test('v2.7 §3: never "affiliated" in the first message', () => {
     assert.doesNotMatch(text, /affiliat/i, label);
 });
 
-test('v2.6 §3 copy review: builder-facing text never names a tool (derived from the registered tools)', async () => {
+test('9.8 v2.6 §3 copy review: builder-facing text never names a tool: an old name or sponsor_campaign anywhere, a new one in a call shape', async () => {
   const gateReasons = await gatherGateReasons();
   for (const [label, text] of [...builderFacing, ...gateReasons]) assert.doesNotMatch(text, toolNameRe, label);
+  // The call shapes the check catches, and plain words it lets through.
+  for (const bad of ['call confirm again', 'find with more: true', 'prepare(', 'the tell tool', 'record_submission', 'sponsor_campaign'])
+    assert.match(bad, toolNameRe, bad);
+  for (const fine of ['Confirm your wallet.', 'Tell me when you submitted.', "I'll find the 3 easiest.", 'Want me to prepare it?'])
+    assert.doesNotMatch(fine, toolNameRe, fine);
+});
+
+test('9.8 v2.10 item 4: no agent note or description names an old tool (they are aliases until ALIASES_UNTIL)', async () => {
+  const notes = [...agentFacing, ...(await gatherGateAgentNotes())];
+  assert.ok(notes.length > 40, `${notes.length} agent texts`);
+  const oldOnly = new RegExp(`\\b(${Object.keys(handlers).join('|')})\\b`);
+  for (const [label, text] of notes) assert.doesNotMatch(text, oldOnly, label);
 });
 
 test('v2.6 §3 copy review (I2): the builder-facing gate reasons never ask the builder to add/edit/push a file themselves', async () => {
@@ -1242,7 +1261,7 @@ test('Ruling 31: every launch_token note is plain builder text; technical detail
   }
   // The instructions are not lost: the no-wallet and proof-line cases carry them for the agent.
   const byLabel = new Map(notes);
-  assert.match(byLabel.get('launch note: no wallet')!.agent_note ?? '', /launch_token with creator_wallet/);
+  assert.match(byLabel.get('launch note: no wallet')!.agent_note ?? '', /call confirm with project_id, yes: true and that wallet\./);
   assert.match(byLabel.get('launch note: gate: proof line missing')!.agent_note ?? '', /earnkit\.txt/);
   assert.match(byLabel.get('launch note: recorded repo change')!.agent_note ?? '', /^repo_url:/);
 });
@@ -1331,7 +1350,7 @@ test('v2.8 Task 8: confirm notes are plain builder words; fixable ones say "go" 
   for (const l of ['launched', 'gate: private repo', 'gate: no commits', 'repo has a token', 'daily limit', 'deploy refused'])
     assert.ok(!fixable(l), l);
   assert.equal(byLabel.get('confirm note: gate: proof line missing')!.note, 'I need to add a short proof line to your repo first, then say go.');
-  assert.match(byLabel.get('confirm note: gate: proof line missing')!.agent_note ?? '', /earnkit\.txt.*Then call confirm_entry again\./);
+  assert.match(byLabel.get('confirm note: gate: proof line missing')!.agent_note ?? '', /earnkit\.txt.*Then call confirm again with yes: true\./);
 });
 
 test('v2.8 Task 9: the coach screens are short: at most 3 numbered questions and one bullet, 25 words each, at most 3 fixes', () => {

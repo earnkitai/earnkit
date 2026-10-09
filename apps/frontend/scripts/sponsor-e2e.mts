@@ -169,7 +169,7 @@ const {
   loadCampaign,
   DEADLINE_PASSED,
 } = await import('../lib/earnkit/sponsor');
-const { tools } = await import('../lib/earnkit/tools');
+const { handlers, tools } = await import('../lib/earnkit/tools');
 const { recordSubmission } = await import('../lib/earnkit/projects');
 const { presentYourEntries, entryStatus } = await import(
   '../lib/earnkit/campaigns'
@@ -764,7 +764,7 @@ check(
   `the sponsor's installation can't enter its own campaign: ${selfErr}`,
 );
 // The last entry's payout wallet is remembered and asked about in full, never prefilled (I8).
-const prepared = (await tools.prepare_submission(
+const prepared = (await handlers.prepare_submission(
   { program_id: programA },
   { installationId: builder },
 )) as { payout_wallet_note?: string; missing?: { key: string }[] };

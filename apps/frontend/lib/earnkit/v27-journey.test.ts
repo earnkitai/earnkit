@@ -8,7 +8,7 @@ import { sql } from './db';
 import { ProgramFile } from './program-file';
 import { getProgramRow, upsertProgram } from './programs';
 import { guideText, programGuide } from './guide';
-import { tools } from './tools';
+import { handlers } from './tools';
 
 /**
  * v2.7 end to end (Task 9): the builder's journey over the real program files, against a real
@@ -112,7 +112,7 @@ test('v2.7 journey: what can I earn, the guide, then the token step', dbTest, as
     INSERT INTO installations (token_hash, payout_wallet) VALUES (${`v27-journey-${stamp}`}, ${W}) RETURNING id`;
 
   // 3. "What can I earn?": the Difficulty column; the message closes on the builder bonus.
-  const list = (await tools.list_programs(
+  const list = (await handlers.list_programs(
     // v2.10 item 2: the tables are behind "show more".
     { agent_can_build: true, more: true },
     {
@@ -133,7 +133,7 @@ test('v2.7 journey: what can I earn, the guide, then the token step', dbTest, as
   assert.deepEqual(coinWords(first), []);
 
   // 4. The guide: the header and the difficulty line.
-  const program = (await tools.get_program({ program_id: 'arc-microgrants' }, { installationId: id })) as {
+  const program = (await handlers.get_program({ program_id: 'arc-microgrants' }, { installationId: id })) as {
     guide: { text: string };
   };
   assert.ok(program.guide.text.startsWith('Arc Microgrants · '), program.guide.text);
@@ -149,7 +149,7 @@ test('v2.7 journey: what can I earn, the guide, then the token step', dbTest, as
       : new Response('', { status: 503 })) as typeof fetch;
   type Reply = { ready: boolean; show_to_builder: string; token?: unknown };
   const prep = async (project: Record<string, string>) =>
-    (await tools.prepare_submission(
+    (await handlers.prepare_submission(
       {
         program_id: 'arc-microgrants',
         // v2.9 A5: Arc needs a deployed contract (getCode is faked: fixtures/no-network-checks).

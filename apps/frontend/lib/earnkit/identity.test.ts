@@ -6,7 +6,7 @@ import { answerPickup, coveredRoots, findEarlier, linkInstallations, offerPickup
 import { connectInstallation, saveInstallation, sharedGroup } from './installations';
 import { readBank } from './answer-bank';
 import { tokenLineFor } from './token-gate';
-import { PICKUP_TEXT, tools, yesNo } from './tools';
+import { PICKUP_TEXT, yesNo, handlers } from './tools';
 import { TECHNICAL_TERMS } from './token-launch';
 
 process.env.EARNKIT_AUTH_SECRET ??= 'identity-test-secret';
@@ -164,7 +164,7 @@ test('final fix wave (C2): a hosted install is never offered a pickup, from memo
   await entry(old.id, `https://github.com/${user}/app`);
   // A shared registration that remembers another user's GitHub name from an earlier call.
   const shared = await install({ shared: true, github_user: user });
-  const tools_ = tools as unknown as { list_programs: (i: unknown, c: unknown) => Promise<{ pick_up?: unknown; show_to_builder: string }> };
+  const tools_ = handlers as unknown as { list_programs: (i: unknown, c: unknown) => Promise<{ pick_up?: unknown; show_to_builder: string }> };
   const ctx = { installationId: shared.id, ownInstallationId: shared.id, sharedClient: true, matchProjects: async () => ({ fits: [] }), roundPools: async () => new Map(), repoCoins: async () => new Map() };
   const r = await tools_.list_programs({}, ctx);
   assert.ok(!('pick_up' in r), 'no offer from remembered state');
@@ -299,7 +299,7 @@ test('v2.8.1 §E18: the pick_up_entries tool: what to push, then picked up; buil
   await entry(old.id, `https://github.com/${user}/app`);
   const fresh = await install();
   type Reply = { show_to_builder: string; agent_note?: string; entries?: number };
-  const pick = tools.pick_up_entries as (i: unknown, c: unknown) => Promise<Reply>;
+  const pick = handlers.pick_up_entries as (i: unknown, c: unknown) => Promise<Reply>;
   const ctx = (deps: unknown) => ({ installationId: fresh.id, ownInstallationId: fresh.id, pickupDeps: deps });
   assert.equal((await pick({ answer: 'yes' }, ctx(missing))).show_to_builder, PICKUP_TEXT.none, 'nothing offered yet');
   await offerPickup(fresh.id, { github_users: [user] }, linesOf(`https://github.com/${user}/app`, old.id));
@@ -528,7 +528,7 @@ test('Ruling H10 (I3): one question per reply: with a pickup, the reply asks onl
   const GOOD = { score: 6, tier: 'product' as const, missing: [], traction: 8, odds: 'good' as const, low_reason: null };
   const fits = [{ repo: 'TipJar', repo_url: repo, verdicts: [{ program_id: arc.id, program: arc.id, status: 'likely' as const, missing: [], effort: 'none' as const, note: null }], product: GOOD }];
   type Listed = { show_to_builder: string; pick_up?: { question: string }; lead?: { program_id: string; repo: string }; ask_outcome?: unknown };
-  const list = tools.list_programs as (i: unknown, c: unknown) => Promise<Listed>;
+  const list = handlers.list_programs as (i: unknown, c: unknown) => Promise<Listed>;
   const ctx = {
     installationId: fresh.id, ownInstallationId: fresh.id, pickupDeps: linesOf(repo, old.id),
     matchProjects: async () => ({ checked: 1, scored: 1, fits }), roundPools: async () => new Map(), repoCoins: async () => new Map(),

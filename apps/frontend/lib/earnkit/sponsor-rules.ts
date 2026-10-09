@@ -332,7 +332,7 @@ export const sponsorRules = (a: {
   a.existingWork === 'new_work_only'
     ? 'Only work done during the campaign counts.'
     : 'Existing projects (and contracts deployed before the campaign) can enter; only activity during the campaign is scored.',
-  'Enter through EarnKit (record_submission). No external site.',
+  'Enter through EarnKit. No external site.',
 ];
 
 /** The program builders see once the campaign is funded. */

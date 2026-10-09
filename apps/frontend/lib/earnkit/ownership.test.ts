@@ -255,7 +255,7 @@ test('ownershipProblem: wallet match and mismatch', () => {
   assert.equal(
     ownershipProblem(where, file, { payoutWallet: OTHER, contracts: [] }),
     `payout_wallet: earnkit.txt in github.com/acme/app says payout_wallet: ${W}, not ${OTHER}. ` +
-      `Enter with the wallet in the file, or (if the builder owns the repo) change that line to "payout_wallet: ${OTHER}", push it, then call record_submission again.`,
+      `Enter with the wallet in the file, or (if the builder owns the repo) change that line to "payout_wallet: ${OTHER}", push it, then call confirm again.`,
   );
   assert.match(
     ownershipProblem(

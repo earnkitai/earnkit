@@ -162,8 +162,8 @@ test('v2.6 §3, Ruling 22: the after-submission reply never names a tool', () =>
       /launch_token|record_submission|creator_wallet|payout_wallet/,
     );
   // The agent's note (never shown to the builder) names the tool and the date.
-  assert.equal(noCoinYet('Oct 14'), 'No token yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet by Oct 14.');
-  assert.equal(noCoinYet(null), 'No token yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet.');
+  assert.equal(noCoinYet('Oct 14'), 'No token yet: no wallet was given. When the builder replies with a wallet, call confirm with project_id, yes: true and the wallet by Oct 14.');
+  assert.equal(noCoinYet(null), 'No token yet: no wallet was given. When the builder replies with a wallet, call confirm with project_id, yes: true and the wallet.');
 });
 test('C7: a token waiting on missing items says what the entry still needs, in plain words', () => {
   const bonus = { line: 'Builder bonus: 0.18 ETH so far' };

@@ -370,7 +370,7 @@ export function ownershipProblems(
   deployers: Record<string, string | null | undefined> = {},
 ): string[] {
   const add = `Add a file named ${OWNERSHIP_FILE} at the root of ${where.repo} on its default branch with the line `;
-  const again = ', push it, then call record_submission again';
+  const again = ', push it, then call confirm again';
   if (!file)
     return [
       `repo_url: EarnKit needs proof you own ${where.repo}: no ${OWNERSHIP_FILE} found at ${where.fileUrl} ` +

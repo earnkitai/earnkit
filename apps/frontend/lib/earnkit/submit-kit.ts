@@ -352,7 +352,7 @@ export function kitReplyNote(kit: SubmitKit, program: Pick<KitProgram, 'submissi
     'Show show_to_builder as written. The kit is only in this reply; never show a kit any other way. ' +
     `${kitAgentNote(kit, program)} ` +
     'The builder always clicks submit. If the kit lists answers still missing, fill them in with the builder before they submit. ' +
-    'Once the builder has submitted, call record_submission with the final answers and builder_submitted: true' +
-    (kit.proof.kind === 'entry_link' ? ', and their entry link as external_submission_url.' : '.')
+    'Once the builder has submitted, call tell with submitted: { program_id, project_id }' +
+    (kit.proof.kind === 'entry_link' ? ' and their entry link as external_submission_url.' : '.')
   );
 }

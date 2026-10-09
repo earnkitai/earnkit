@@ -17,20 +17,23 @@ instantly.
 
 Then ask: "What can I earn?"
 
-Tools: `list_programs` ("what can I earn?": the builder's matching projects + open programs),
-`get_program`, `prepare_submission`, `record_submission`, `launch_token`, and `sponsor_campaign`
-(below).
+Tools: `find` ("what can I earn?": the builder's matching projects + open programs, or one program
+and its guide), `prepare` (the coach and the draft), `confirm` (the builder's yes: the entry, its token
+and the submit kit) and `tell` (what the builder said: submitted, pickup, statements), plus
+`sponsor_campaign` (below). The v2.9 names (`list_programs`, `get_program`, `prepare_submission`,
+`confirm_entry`, `record_submission`, `launch_token`, `tell_earnkit`, `pick_up_entries`) are hidden
+aliases until 2026-11-09 (`lib/earnkit/aliases.ts`; `/mcp` rewrites them and logs each use).
 
-Entering (v2.4): `prepare_submission` returns `show_to_builder`, the one block the builder confirms,
-prize first. For EarnKit's own campaigns `record_submission` is the entry: contracts deployed from
+Entering (v2.4): `prepare` returns `show_to_builder`, the one block the builder confirms,
+prize first. For EarnKit's own campaigns `confirm` is the entry: contracts deployed from
 the payout wallet, or from the agent's own wallet with `deployer_signature` (an EIP-191 signature of
 "EarnKit entry: github.com/<owner>/<repo> <payout wallet>"); every problem comes back at once.
 Scoring, the 48-hour public review and the payout run on their own (`POST /api/cron`, called hourly
-by GitHub Actions). A token on tokens.fun is an optional default at submission (one row the builder
-can turn off); `launch_token` retries one later. The rules an agent needs are in the tool descriptions.
+by GitHub Actions). A token on tokens.fun launches with the builder's yes at confirmation;
+`confirm` with `project_id` retries one later. The rules an agent needs are in the tool descriptions.
 `sponsor_campaign`
 (sponsors fund a builder campaign into an escrow on Base; offered only once the escrow is
-configured with `ESCROW_FACTORY_ADDRESS`, so until then the server lists the first five).
+configured with `ESCROW_FACTORY_ADDRESS`, so until then the server lists the four builder tools).
 
 ## Layout
 

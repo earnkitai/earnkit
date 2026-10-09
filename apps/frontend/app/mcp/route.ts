@@ -1,9 +1,32 @@
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
-import { CORS, json, preflight } from '@/lib/earnkit/http';
-import { connectInstallation, type Caller } from '@/lib/earnkit/installations';
-import { earnkitCampaignOpen } from '@/lib/earnkit/leaderboard';
-import { createMcpServer } from '@/lib/earnkit/mcp';
-import { publicOrigin } from '@/lib/earnkit/oauth';
+import { rewriteAliases } from '../../lib/earnkit/aliases';
+import { CORS, json, preflight } from '../../lib/earnkit/http';
+import { connectInstallation, type Caller } from '../../lib/earnkit/installations';
+import { earnkitCampaignOpen } from '../../lib/earnkit/leaderboard';
+import { createMcpServer } from '../../lib/earnkit/mcp';
+import { publicOrigin } from '../../lib/earnkit/oauth';
+
+/**
+ * v2.10 item 4 (R17): a POSTed JSON body with an old tool name in a `tools/call` is rewritten to the
+ * new tool and its arguments before the transport sees it, and each use is logged by name only (never
+ * an argument). A body that isn't JSON passes through untouched.
+ */
+async function withAliases(request: Request): Promise<Request> {
+  if (request.method !== 'POST' || !/application\/json/i.test(request.headers.get('content-type') ?? '')) return request;
+  const raw = await request.text();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return new Request(request.url, { method: request.method, headers: request.headers, body: raw });
+  }
+  const { body, changed } = await rewriteAliases(parsed, new Date(), (old, next) => console.log(`[mcp] alias ${old} -> ${next}`));
+  if (!changed) return new Request(request.url, { method: request.method, headers: request.headers, body: raw });
+  // The rewritten body has its own length.
+  const headers = new Headers(request.headers);
+  headers.delete('content-length');
+  return new Request(request.url, { method: request.method, headers, body: JSON.stringify(body) });
+}
 
 /** Hosted EarnKit MCP server (Streamable HTTP, stateless). Requires an installation token. */
 async function handle(request: Request) {
@@ -49,7 +72,7 @@ async function handle(request: Request) {
     { installationId: caller.id, ownInstallationId: caller.own, sharedClient: caller.shared },
     { campaignOpen },
   ).connect(transport);
-  const response = await transport.handleRequest(request);
+  const response = await transport.handleRequest(await withAliases(request));
 
   const headers = new Headers(response.headers);
   for (const [k, v] of Object.entries(CORS)) headers.set(k, v);
