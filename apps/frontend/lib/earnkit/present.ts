@@ -3,7 +3,7 @@ import { NO_CELL } from './no-cell';
 import { endsOf, prizeOf, repoCoinNote, shortWallet } from './entry-text';
 import { shortDate } from './dates';
 import { EFFORT_ORDER, type Chain, type Effort, type Product, type RepoFacts, type Verdict } from './match';
-import { difficultyLabel, levelRank, rowDifficulty, type Difficulty, type Level } from './guide';
+import { NEEDS_LIVE_PRODUCT, difficultyLabel, levelRank, rowDifficulty, type Difficulty, type Level } from './guide';
 import { moneyText, openMoneyUsd, wonLine } from './pool';
 
 /** v2.7: moved to entry-text.ts (shared with guide.ts); re-exported for existing callers. */
@@ -747,12 +747,22 @@ const bestCard = (cards: Card[]): Card | undefined =>
   [...cards].sort((a, b) => Number(isEasy(b)) - Number(isEasy(a)) || (isEasy(a) ? 0 : Number(needsForms(a)) - Number(needsForms(b))) || byPrize(a, b))[0];
 
 /**
- * v2.8.1 T7 (journey test, audit J1): the program a builder with no repo can enter as they are (known
- * not to need a repo; never a sponsor campaign, an EarnKit campaign or an investment), as the
- * no-repo offer picks it. Used when such a builder picks a program that needs a repo anyway.
+ * v2.10 Ruling H1 (c1): the program a builder with no repo can enter as they are: known not to need a
+ * repo and never "needs a live product" (a builder without a repo has no product with users yet);
+ * the lowest difficulty first (unknown reads Medium), then the top prize. None: undefined. Pure.
+ */
+const noRepoPick = (cards: Card[]): Card | undefined =>
+  [...cards.filter((c) => c.needs_repo === false && c.tag !== NEEDS_LIVE_PRODUCT)].sort(
+    (a, b) => levelRank(a.difficulty?.level ?? 'Medium') - levelRank(b.difficulty?.level ?? 'Medium') || byPrize(a, b),
+  )[0];
+
+/**
+ * v2.8.1 T7 (journey test, audit J1): the program a builder with no repo can enter as they are
+ * (never a sponsor campaign, an EarnKit campaign or an investment), as the no-repo offer picks it
+ * (`noRepoPick`). Used when such a builder picks a program that needs a repo anyway.
  */
 export const enterableWithoutRepo = (cards: (Card & { earnkit_campaign?: unknown })[], exceptId?: string): Card | undefined =>
-  bestCard(cards.filter((c) => c.id !== exceptId && !c.sponsored && !c.earnkit_campaign && !c.investment && c.needs_repo === false));
+  noRepoPick(cards.filter((c) => c.id !== exceptId && !c.sponsored && !c.earnkit_campaign && !c.investment));
 
 /**
  * One closing offer (offer's text), and whether it's an EarnKit campaign entry (Ruling 10 (plan)).
@@ -786,7 +796,8 @@ function offer(
   // top prize); building something new is offered only when no repo fits.
   const pick = bestFit(rows.filter((r) => offerable(r.card)));
   // v2.8.1 §B8: with no repo, the program the builder can enter as they are (known not to need one).
-  const asTheyAre = noMatch(m.repos) ? bestCard(m.cards.filter((c) => offerable(c) && c.needs_repo === false)) : undefined;
+  // v2.10 Ruling H1 (c1): the same pick as the "No repo yet?" line (noRepoPick).
+  const asTheyAre = noMatch(m.repos) ? noRepoPick(m.cards.filter(offerable)) : undefined;
   if (!m.agentCanBuild) {
     const named = pick ? `${pick.card.title} with ${pick.repo}` : asTheyAre?.title;
     return { text: named ? `Want me to start on ${named}? ${CHAT_ONLY}` : CHAT_ONLY, campaign: false, ...noBonus(pick) };

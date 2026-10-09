@@ -9,6 +9,7 @@ import {
   bonusClose,
   bonusProgramIds,
   closesInDays,
+  enterableWithoutRepo,
   difficultyCell,
   endsOf,
   entriesLine,
@@ -827,8 +828,9 @@ test('v2.8.1 §B: with the committed programs, the four first messages', async (
   const cards = await committedCards();
   const noRepo = presentFirstMessage(msg({ cards }));
   assert.match(noRepo, /Arc Microgrants \(needs a repo\)/);
-  // v2.10 item 10: Avalanche Team1 Mini Grants is no longer Easy, so the offer goes elsewhere.
-  assert.match(noRepo, /Want me to start on Circle Developer Grants\?/);
+  // v2.10 Ruling H1 (c1): the no-repo pick is the lowest difficulty without "needs a live product".
+  assert.match(noRepo, /Want me to start on Avalanche Team1 Mini Grants\?/);
+  assert.doesNotMatch(noRepo, /start on Circle/);
   const oneRepo = presentFirstMessage(msg({
     cards,
     repos: repos(v('base-builder-grants', 'likely', ''), v('a16z-speedrun', 'likely', ''), withNew('colosseum-worlds-fair')),
@@ -1031,4 +1033,28 @@ test('10.11 the first reply: the won line once, right after its headline; absent
       assert.doesNotMatch(t, /Builders using EarnKit/);
       assert.doesNotMatch(t, /won \$0/);
     }
+});
+
+// ---- v2.10 Ruling H1 (c1): the no-repo pick ----
+
+test('H1 c1: the no-repo pick is the lowest difficulty, never "needs a live product", then the top prize; none fits: no line', () => {
+  const medium = { level: 'Medium', estimate: true, rated: false, basis: 'x' } as const;
+  const circle: Card = {
+    id: 'circle-developer-grants', title: 'Circle Developer Grants', summary: 'up to $100,000', tag: 'needs a live product',
+    each_time: [], ends_at: null, max_award_usd: 100_000, builder_fields: 1, difficulty: easy, needs_repo: false,
+  };
+  const avaMedium: Card = { ...avax, difficulty: medium };
+  const bigHard: Card = { ...avax, id: 'big-hard', title: 'Big Hard', max_award_usd: 50_000, difficulty: hard };
+  const smallMedium: Card = { ...avax, id: 'small-medium', title: 'Small Medium', max_award_usd: 2_000, difficulty: medium };
+  // Circle (needs a live product, even rated Easy here) is never named; Medium beats a bigger Hard prize.
+  assert.equal(enterableWithoutRepo([circle, bigHard, avaMedium, smallMedium])?.id, 'avalanche-team1-mini-grants');
+  // Same level: the top prize.
+  assert.equal(enterableWithoutRepo([circle, smallMedium, avaMedium], 'avalanche-team1-mini-grants')?.id, 'small-medium');
+  // Nothing fits (only a live-product program, an investment, or programs needing a repo): no pick.
+  assert.equal(enterableWithoutRepo([circle, speedrunCard, easyArc]), undefined);
+  // The no-repo first reply never offers Circle, and with nothing to pick it never names a program.
+  const noRepo = presentFirstMessage(msg({ cards: [circle, bigHard, avaMedium] }));
+  assert.match(noRepo, /Want me to start on Avalanche Team1 Mini Grants\?/);
+  assert.doesNotMatch(noRepo, /start on Circle/);
+  assert.doesNotMatch(presentFirstMessage(msg({ cards: [circle, easyArc] })), /Want me to start on/);
 });

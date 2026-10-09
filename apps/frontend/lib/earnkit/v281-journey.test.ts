@@ -315,10 +315,10 @@ test('J1: no repo, Grok Bot, Arc: never offered, and picking it anyway says so f
   // program this builder can enter as they are.
   assert.match(arc.show_to_builder, /^Arc Microgrants needs a public repo with your project's code\. No repo yet\? (.+) doesn't need one: say the word and I'll start there\.\n\n/);
   const alt = /No repo yet\? (.+) doesn't need one/.exec(arc.show_to_builder)![1];
-  // v2.10 item 10: Avalanche Team1 Mini Grants is no longer Easy, so the no-repo pick goes by prize.
-  assert.equal(alt, 'Circle Developer Grants');
+  // v2.10 Ruling H1 (c1): the lowest difficulty without "needs a live product"; Circle is never named.
+  assert.equal(alt, 'Avalanche Team1 Mini Grants');
   // The way forward works: the program named asks its questions (no repo needed).
-  const ava = await call(J, 'circle questions', 'prepare_submission', { program_id: 'circle-developer-grants', project, agent: GROK }, ctx);
+  const ava = await call(J, 'avalanche questions', 'prepare_submission', { program_id: 'avalanche-team1-mini-grants', project, agent: GROK }, ctx);
   assert.doesNotMatch(ava.show_to_builder, /needs a public repo/);
   assert.ok(Array.isArray(ava.questions) && (ava.questions as unknown[]).length > 0, ava.show_to_builder);
   assert.equal(forty(J), 0, dump(J));

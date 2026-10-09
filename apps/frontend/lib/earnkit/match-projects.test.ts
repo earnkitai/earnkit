@@ -820,3 +820,36 @@ test('1.9 commits_90d is the count read, capped at 100', async () => {
   const { r } = await ownedRun(unlinked(120));
   assert.equal(r.fits.find((f) => f.key === 'bob/kit')!.facts.commits_90d, 100);
 });
+
+// ---- v2.10 Ruling H1 (c3): on a repo someone else owns, only the builder's own commits ----
+
+test('H1 c3: a contribution repo with no builder commits in 90 days is not active, even pushed today; with one it is', async () => {
+  const run = async (own: unknown[] | null) => {
+    const items = Array.from({ length: 6 }, () => ({ repository: { full_name: 'acme/app' } }));
+    const recent = Array.from({ length: 100 }, (_, i) => ({ sha: `${i}`, author: { login: i < 40 ? 'alice' : 'bob' } }));
+    const { deps } = checkDeps({ probeOk: true });
+    return withFetch(
+      (u) =>
+        u.pathname === '/users/alice/repos'
+          ? body([])
+          : u.pathname === '/search/commits'
+            ? body({ items })
+            : u.pathname === '/repos/acme/app'
+              ? body(ghRepo('acme', 'app', { homepage: 'https://acme-app.xyz', pushed_at: daysAgo(0) }))
+              : u.pathname === '/repos/acme/app/commits' && u.searchParams.has('since')
+                ? own
+                  ? body(own)
+                  : new Response('{"message":"Server Error"}', { status: 500 })
+                : u.pathname === '/repos/acme/app/commits' && u.searchParams.get('per_page') === '100'
+                  ? body(recent)
+                  : repoFiles(u),
+      async () => (await matchProjects(MatchProjectsInput.parse({ github_user: 'alice' }), deps)).fits.find((f) => f.key === 'acme/app'),
+    );
+  };
+  for (const own of [[], null]) {
+    const fit = await run(own);
+    assert.ok(fit, JSON.stringify(own));
+    assert.ok(fit.product.missing.includes('active'), `no pushed_at fallback (${JSON.stringify(own)})`);
+  }
+  assert.ok(!(await run([{ sha: 'a', author: { login: 'alice' } }]))!.product.missing.includes('active'));
+});
