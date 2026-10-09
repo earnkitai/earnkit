@@ -10,6 +10,7 @@ import {
   MAX_FIXES,
   MAX_QUESTION_WORDS,
   PLAIN_FIX,
+  PLAIN_LENGTH_FIX,
   QUESTION_ORDER,
   bankEntries,
   bankFill,
@@ -450,6 +451,25 @@ test('5.2 preSubmitCheck: an unplain description field is an agent fix, never a 
   // Over the form's limit: one not_plain fix, no over_limit beside it.
   const long = preSubmitCheck({ reqs, answers: { ...answers, one: 'Tip Jar lets fans tip creators in USDC on Base, with recurring tips soon.' + ' More.'.repeat(5) }, judging: null });
   assert.deepEqual(long.filter((f) => f.key === 'one').map((f) => f.rule), ['not_plain']);
+  // Fix round 1: length alone names the limit.
+  assert.deepEqual(long.filter((f) => f.key === 'one').map((f) => f.text), ['One-sentence description: keep it under 80 characters, in plain words.']);
+  assert.equal(PLAIN_LENGTH_FIX('Pitch', 20, 'words'), 'Pitch: keep it under 20 words, in plain words.');
+  const words = preSubmitCheck({ reqs: [req('one', 'one_liner', { label: 'Pitch', guidance: { limit_words: 3, source_url: SRC } })], answers: { one: 'Tips for creators in USDC.' }, judging: null });
+  assert.deepEqual(words.map((f) => f.text), ['Pitch: keep it under 3 words, in plain words.']);
+  // Length plus an address: the plain-words fix.
+  const both = preSubmitCheck({ reqs, answers: { ...answers, one: `${'Tips for creators. '.repeat(6)}${addr}` }, judging: null });
+  assert.deepEqual(both.filter((f) => f.key === 'one').map((f) => f.text), [PLAIN_FIX('One-sentence description')]);
+});
+
+test('5.2 fix round 1: a field a criterion asks to link may hold an explorer link with an address; a bare address still fails', () => {
+  const addr = `0x${'ab12'.repeat(10)}`;
+  const reqs = [req('sol', 'solution', { label: 'Short description' })];
+  const judging = { criteria: [{ text: 'Technical credibility', fix: { kind: 'solution' as const, needs: 'link' as const, add: 'link the contract on the Arc explorer' } }], source_url: SRC };
+  const check = (sol: string) => preSubmitCheck({ reqs, answers: { sol }, judging }).filter((f) => f.rule === 'not_plain');
+  assert.deepEqual(check(`Tips for creators, contract at https://basescan.org/address/${addr}`), []);
+  assert.deepEqual(check(`Tips for creators, contract ${addr}`), [{ key: 'sol', rule: 'not_plain', for: 'agent', text: PLAIN_FIX('Short description') }]);
+  // Without the criterion, the same link is flagged (no link in a solution field).
+  assert.equal(preSubmitCheck({ reqs, answers: { sol: `Tips, https://basescan.org/address/${addr}` }, judging: null }).filter((f) => f.rule === 'not_plain').length, 1);
 });
 
 test('C14: every fix any rule can produce reads "<Field>: <thing to add>." with a key', () => {

@@ -27,7 +27,7 @@ import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TELL_EARNKIT_DESCRIPTION, TOO
 import { bonusClose, presentFirstMessage, tokenOffer, tokenOfferAgain, type Card, type FirstMessage } from './present';
 import { ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, OFFER_NOT_SHOWN, TOKEN_OFFER_NOTE, tools } from './tools';
 import { outcomeQuestion } from './outcomes';
-import { DEFAULT_GUIDANCE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, walletAsk } from './coach';
+import { DEFAULT_GUIDANCE, PLAIN_FIX, PLAIN_LENGTH_FIX, PLAIN_NOTE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, walletAsk } from './coach';
 import { alsoText } from './also-qualifies';
 import type { SubmissionRequirement } from './program-file';
 import { SIGN_IN_FIRST, WALLET_CHANGED, ownerProblem, tokenGate, tokenLineFor, type GateDeps, type GateInput } from './token-gate';
@@ -1070,6 +1070,10 @@ const agentFacing: [string, string][] = [
   // v2.8 Task 9: the coach's guidance and notes are the agent's.
   ...Object.entries(DEFAULT_GUIDANCE).flatMap(([k, g]): [string, string][] => [[`DEFAULT_GUIDANCE.${k}.judges`, g.judges], [`DEFAULT_GUIDANCE.${k}.pattern`, g.pattern]]),
   ...Object.entries(COACH_NOTES).map(([k, v]): [string, string] => [`COACH_NOTES.${k}`, v]),
+  // v2.10 item 11: the plain-words fixes and note are the agent's only.
+  ['PLAIN_NOTE', PLAIN_NOTE],
+  ['PLAIN_FIX', PLAIN_FIX('One-sentence description')],
+  ['PLAIN_LENGTH_FIX', PLAIN_LENGTH_FIX('One-sentence description', 80, 'characters')],
   ...gatherDecideTokenAgentNotes(),
   ...kitAgentTexts,
   ['ASK_OUTCOME_NOTE', ASK_OUTCOME_NOTE],
