@@ -99,6 +99,7 @@ test('7.1 siteSlug: one label under the zone, not reserved, lowercased, port and
   assert.equal(siteSlug('a'.repeat(63) + '.earnkit.com', ZONE, HOST_RESERVED), 'a'.repeat(63));
   assert.equal(siteSlug('a'.repeat(64) + '.earnkit.com', ZONE, HOST_RESERVED), null);
   assert.equal(siteSlug('shop.earnkit.com', ZONE, [...HOST_RESERVED, 'shop']), null);
+  assert.equal(siteSlug('shop.', '', HOST_RESERVED), null);
 });
 
 test('7.2 objectKey: index files, and traversal or odd paths are null', () => {
