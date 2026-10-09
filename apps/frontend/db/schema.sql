@@ -815,3 +815,43 @@ CREATE TABLE IF NOT EXISTS fee_claims (
   gas_wei numeric NOT NULL,
   at      timestamptz NOT NULL DEFAULT now()
 );
+
+-- v2.9 C12-C14: hosted static sites on <slug>.earnkit.com (one per repo, 3 per GitHub account).
+CREATE TABLE IF NOT EXISTS hosted_sites (
+  slug            text PRIMARY KEY,
+  login           text NOT NULL,
+  repo_key        text NOT NULL UNIQUE,
+  installation_id integer NOT NULL REFERENCES installations(id) ON DELETE CASCADE,
+  bytes           bigint NOT NULL,
+  files           integer NOT NULL,
+  status          text NOT NULL CHECK (status IN ('live', 'review', 'killed', 'ended')),
+  flags           text[] NOT NULL DEFAULT '{}',
+  deployed_at     timestamptz NOT NULL DEFAULT now(),
+  expires_at      timestamptz
+);
+CREATE INDEX IF NOT EXISTS hosted_sites_login ON hosted_sites (lower(login));
+CREATE TABLE IF NOT EXISTS host_deploys (
+  id         serial PRIMARY KEY,
+  login      text NOT NULL,
+  slug       text NOT NULL,
+  at         timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS host_deploys_login_at ON host_deploys (lower(login), at);
+-- One-time upload URLs (only the sha256 of the token is stored).
+CREATE TABLE IF NOT EXISTS host_upload_tokens (
+  token_hash      text PRIMARY KEY,
+  installation_id integer NOT NULL REFERENCES installations(id) ON DELETE CASCADE,
+  login           text NOT NULL,
+  repo_key        text NOT NULL,
+  slug            text NOT NULL,
+  project         text NOT NULL,
+  expires_at      timestamptz NOT NULL,
+  used_at         timestamptz
+);
+-- v2.9: free-tier counters with hard caps (free-tier.ts): r2Writes per month, resend per day and month.
+CREATE TABLE IF NOT EXISTS free_tier_usage (
+  name   text NOT NULL,
+  period text NOT NULL,
+  used   integer NOT NULL DEFAULT 0,
+  PRIMARY KEY (name, period)
+);
