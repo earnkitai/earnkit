@@ -16,6 +16,8 @@ import {
   expireSites,
   hostTakedownPost,
   hostUploadPost,
+  issueUpload,
+  refreshSiteExpiry,
   liveLine,
   readZip,
   siteExpiry,
@@ -512,4 +514,52 @@ test('8.13 an R2 failure logs the error class only, never the secret key or the 
     console.error = orig;
     globalThis.fetch = origFetch;
   }
+});
+
+test('P11: on a shared client the host sign-in is used by one upload URL; elsewhere the install and repo binding holds', db, async () => {
+  const on = { ...R2_ENV, GITHUB_OAUTH_CLIENT_ID: 'id', GITHUB_OAUTH_CLIENT_SECRET: 'secret' };
+  await withEnv(on, async () => {
+    for (const shared of [true, false]) {
+      const login = `hz${stamp()}`;
+      const [{ id }] = await sql()<{ id: number }[]>`
+        INSERT INTO installations (token_hash, shared_client) VALUES (${`hz-p11-${stamp()}`}, ${shared}) RETURNING id`;
+      const repoKey = `${login}/tipjar`;
+      await sql()`
+        INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose)
+        VALUES (${repoKey}, ${login}, ${id}, '2020-01-01', 3, 'host')`;
+      const first = await issueUpload({ installationId: id, repoKey, project: 'TipJar' });
+      assert.ok('upload_url' in first, `${shared}: first`);
+      const second = await issueUpload({ installationId: id, repoKey, project: 'TipJar' });
+      assert.equal('sign_in_url' in second, shared, `${shared}: a second URL needs a new sign-in only on a shared client`);
+      const [t] = await sql()<{ slug: string; login: string }[]>`SELECT slug, login FROM host_upload_tokens WHERE installation_id = ${id} LIMIT 1`;
+      assert.deepEqual(t, { slug: `tipjar-${login}`, login });
+    }
+    // An account under 30 days: a plain reason, no URL.
+    const young = `hz${stamp()}`;
+    const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`hz-young-${stamp()}`}) RETURNING id`;
+    await sql()`
+      INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose)
+      VALUES (${`${young}/app`}, ${young}, ${id}, ${new Date(Date.now() - 29 * 86_400_000)}, 3, 'host')`;
+    assert.deepEqual(await issueUpload({ installationId: id, repoKey: `${young}/app`, project: 'App' }), { unavailable: HOST_LINES.gate });
+  });
+});
+
+test('Ruling 10: an entry recorded for the repo moves its site expiry to the program end + 7 days', db, async () => {
+  const s = stamp();
+  const [{ id: inst }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`hz-ent-${s}`}) RETURNING id`;
+  const programId = `hz-ent-${s}`;
+  const ends = new Date('2099-03-01T12:00:00Z');
+  await sql()`
+    INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work, ends_at)
+    VALUES (${programId}, 'X', 'P', 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed', ${ends})`;
+  const slug = `hzent${s}`;
+  await sql()`
+    INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status, expires_at)
+    VALUES (${slug}, ${`hz${s}`}, ${`hz${s}/app`}, ${inst}, 10, 1, 'live', now())`;
+  await sql()`INSERT INTO projects (program_id, name, installation_id, repo_url) VALUES (${programId}, 'App', ${inst}, ${`https://github.com/HZ${s}/App/`})`;
+  await refreshSiteExpiry(`https://github.com/hz${s}/app`);
+  const [row] = await sql()<{ expires_at: Date }[]>`SELECT expires_at FROM hosted_sites WHERE slug = ${slug}`;
+  assert.deepEqual(row.expires_at, new Date(ends.getTime() + 7 * 86_400_000));
+  await sql()`DELETE FROM projects WHERE program_id = ${programId}`;
+  await sql()`DELETE FROM programs WHERE id = ${programId}`;
 });

@@ -3330,3 +3330,60 @@ test('fix round 3 (G14): two list_programs calls before the builder answers say 
     assert.equal(`${first.show_to_builder}\n${second.show_to_builder}`.split('40%').length - 1, 1);
     assert.ok(second.show_to_builder.endsWith(`Launch $${first.token_offer.proposed.symbol} (${first.token_offer.proposed.name}) on Base now? Say yes with your wallet address, or skip.`), second.show_to_builder);
   }));
+
+test('8.15 prepare_submission host: true: the sign-in link, then a 15-minute upload URL; never in builder text; off without R2', dbTest, async () => {
+  const env = {
+    R2_ACCOUNT_ID: 'acct', R2_ACCESS_KEY_ID: 'AKID', R2_SECRET_ACCESS_KEY: 's'.repeat(40), R2_BUCKET: 'sites',
+    GITHUB_OAUTH_CLIENT_ID: 'id', GITHUB_OAUTH_CLIENT_SECRET: 'secret',
+  };
+  const old = Object.fromEntries(Object.keys(env).map((k) => [k, process.env[k]]));
+  const restore = () => {
+    for (const [k, v] of Object.entries(old)) if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  };
+  const s = `${process.pid}${Date.now().toString(36)}`;
+  const f = committedProgram('arc-microgrants');
+  Object.assign(f, { id: `t8-host-${s}`, status: 'closed' });
+  await upsertProgram(ProgramFile.parse(f));
+  const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t8-host-${s}`}) RETURNING id`;
+  const login = `hzt${s}`;
+  const repo = `https://github.com/${login}/tipjar`;
+  const call = () =>
+    tools.prepare_submission({ program_id: f.id, project: { name: 'TipJar', repo_url: repo }, host: true }, { installationId: id }) as Promise<
+      Record<string, unknown> & { host: Record<string, string>; show_to_builder: string }
+    >;
+  const toolNames = /\b(list_programs|get_program|prepare_submission|confirm_entry|record_submission|launch_token|tell_earnkit|upload_url)\b/;
+  try {
+    Object.assign(process.env, env);
+    const first = await call();
+    assert.match(first.host.sign_in_url, /\/github\/verify\?n=/);
+    assert.match(first.host.show_to_builder, /^One click to prove TipJar is yours, then it goes live: https:\/\/\S+\/github\/verify\?n=/);
+    assert.doesNotMatch(first.host.show_to_builder, toolNames);
+    const [nonce] = await sql()<{ purpose: string }[]>`
+      SELECT purpose FROM github_verify_nonces WHERE installation_id = ${id} AND repo_key = ${`${login}/tipjar`}`;
+    assert.equal(nonce.purpose, 'host');
+
+    await sql()`
+      INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose)
+      VALUES (${`${login}/tipjar`}, ${login}, ${id}, '2020-01-01', 3, 'host')`;
+    const before = Date.now();
+    const second = await call();
+    assert.match(second.host.upload_url, /\/api\/host\/upload\?t=[A-Za-z0-9_-]{43}$/);
+    const expires = new Date(second.host.expires_at).getTime();
+    assert.ok(Math.abs(expires - (before + 15 * 60_000)) < 10_000, '15 minutes on');
+    assert.match(second.host.agent_note, /POST the built site as one zip/);
+    assert.ok(!JSON.stringify(second.show_to_builder).includes(second.host.upload_url));
+    assert.doesNotMatch(second.show_to_builder, toolNames);
+    assert.equal('show_to_builder' in second.host, false, 'nothing for the builder with an upload URL');
+    restore();
+    for (const k of ['R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET']) delete process.env[k];
+    process.env.GITHUB_OAUTH_CLIENT_ID = 'id';
+    process.env.GITHUB_OAUTH_CLIENT_SECRET = 'secret';
+    const off = await call();
+    assert.deepEqual(off.host, { unavailable: 'Hosting is not available right now.' });
+    const none = (await tools.prepare_submission({ program_id: f.id, project: { name: 'TipJar', repo_url: repo } }, { installationId: id })) as Record<string, unknown>;
+    assert.equal('host' in none, false, 'no host block unless asked');
+  } finally {
+    restore();
+  }
+});

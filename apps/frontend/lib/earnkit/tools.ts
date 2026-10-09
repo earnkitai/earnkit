@@ -84,6 +84,8 @@ import {
 import { RAW_CAP, cleanProject, quoted } from './untrusted-text';
 import { tokenLineFor } from './token-gate';
 import { CANT_PUSH, NO_TOKEN_HERE, READY_TO_SUBMIT, bonusRidesOn, confirmDecision, confirmOffer, proofLineWaiting, signInLine, walletQuestion, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
+import { HOST_LINES, UPLOAD_NOTE, hostSignInLine, issueUpload, refreshSiteExpiry } from './hosting';
+import { r2Enabled } from './r2';
 import { callerLogin, claimOfferVerification, createVerifyLink, entryVerifyLink, githubVerifyEnabled, offerVerification, verifiedEntryIds } from './github-verify';
 import { PROOF_LINE_PREFIX, SIGN_IN_FIRST, WALLET_CHANGED, tokenGate } from './token-gate';
 import { kitAgentNote, submitKit, type SubmitKit } from './submit-kit';
@@ -298,6 +300,11 @@ const PrepareSubmissionInput = ProgramId.extend({
    * once per program (at most 3 questions for the first, 1 after) and never a second round.
    */
   coach_asked: z.boolean().optional(),
+  /**
+   * v2.9 C12, Ruling 8: the builder has no live link and the project builds to static files: the
+   * reply's `host` carries the sign-in link, an upload URL, or why not.
+   */
+  host: z.boolean().optional(),
 }).strict();
 
 /** v2.8 Ruling 1 (plan): the confirmation step's input. */
@@ -708,6 +715,37 @@ export const CANT_PUSH_SIGN_IN_NOTE =
 /** v2.9 B9: after a proof-line miss, the sign-in is the other way. */
 export const SIGN_IN_OR_NOTE =
   "Or show the sign-in line; when the builder says they signed in, call confirm_entry again with decision 'go'.";
+/** v2.9 C12: the agent's note with the hosting sign-in line. */
+export const HOST_SIGN_IN_NOTE =
+  'Show host.show_to_builder. When the builder says they signed in, call prepare_submission again with host: true for the upload URL.';
+
+/**
+ * v2.9 C12, Ruling 8: prepare_submission's `host` block: the builder's sign-in line, the one-time
+ * upload URL (for the agent only; never in builder text), or a plain reason. Never fails the tool.
+ */
+async function hostBlock(ctx: ToolContext, repoUrl: string | undefined, name: string | undefined): Promise<Record<string, string>> {
+  if (!r2Enabled() || !githubVerifyEnabled()) return { unavailable: HOST_LINES.unavailable };
+  const gh = repoUrl ? githubRepo(repoUrl) : null;
+  if (!gh) return { unavailable: HOST_LINES.noRepo };
+  const project = name?.trim() || titleCase(gh.repo);
+  try {
+    const offer = await issueUpload({ installationId: ctx.installationId, repoKey: `${gh.owner}/${gh.repo}`, project });
+    if ('sign_in_url' in offer)
+      return { ...offer, show_to_builder: hostSignInLine(project, offer.sign_in_url), agent_note: HOST_SIGN_IN_NOTE };
+    if ('upload_url' in offer) return { ...offer, agent_note: UPLOAD_NOTE };
+    return offer;
+  } catch (err) {
+    console.error('[prepare_submission] host', err instanceof Error ? err.name : 'error');
+    return { unavailable: HOST_LINES.unavailable };
+  }
+}
+
+/** Ruling 10: an entry was recorded for this repo: its hosted site's expiry moves. Never fails the tool. */
+const siteExpiryAfterEntry = (repoUrl: string | null | undefined, where: string) =>
+  repoUrl
+    ? refreshSiteExpiry(repoUrl).catch((err: unknown) => console.error(`[${where}] site expiry`, err instanceof Error ? err.name : 'error'))
+    : Promise.resolve();
+
 /** v2.9 A3: tell_earnkit's note to the agent. */
 export const TELL_SAVED_NOTE = 'Saved. The next list_programs uses it; nothing to show the builder.';
 /** Ruling G6: what the builder sees when a shared (hosted) agent keeps nothing. */
@@ -1250,8 +1288,9 @@ export const tools = {
   },
 
   prepare_submission: async (input: unknown, ctx: ToolContext) => {
-    const { program_id, agent, coach_asked, ...known } = PrepareSubmissionInput.parse(input);
+    const { program_id, agent, coach_asked, host, ...known } = PrepareSubmissionInput.parse(input);
     const program = await getProgramRow(program_id);
+    const hosting = host ? await hostBlock(ctx, known.project?.repo_url ?? known.answers?.repo_url, known.project?.name) : null;
     // Campaign entries reach the sponsor: check the name and description now, as record_submission will.
     if (program.campaign && known.project)
       known.project = cleanProject(known.project);
@@ -1362,6 +1401,7 @@ export const tools = {
           ...(sign_to_enter && { sign_to_enter }),
         }),
         ...(token && { token }),
+        ...(hosting && { host: hosting }),
       });
 
     // v2.8 Part D, Ruling 26 (plan): the coach. Every answer so far (the agent's draft, the bank and
@@ -1411,6 +1451,7 @@ export const tools = {
         ready: false,
         missing: checkedPrep.missing,
         agent_note: askWallet ? `${QUESTIONS_NOTE} ${WALLET_ANSWER_NOTE}` : QUESTIONS_NOTE,
+        ...(hosting && { host: hosting }),
       });
 
     // v2.8 Part C, Ruling 4 (plan): other programs. Once ready, the draft, the check's fixes and the
@@ -1513,6 +1554,7 @@ export const tools = {
       ...(offersToken && offerWallet && { shown_wallet: offerWallet }),
       ...(line && { token_line: line }),
       ...(notes.length > 0 && { agent_note: notes.join(' ') }),
+      ...(hosting && { host: hosting }),
     });
   },
 
@@ -1614,6 +1656,7 @@ export const tools = {
       // A new entry counts against the 20 a day (Ruling 1 (plan)); an update never does.
       charge: () => enforce('recordSubmission', ctx.installationId, 'This agent has recorded 20 submissions today, the daily limit.'),
     });
+    await siteExpiryAfterEntry(repoUrl, 'confirm_entry');
     // v2.9 B10: a skip to the token offer counts toward the repo's two (then never offered again).
     if (decision.kind === 'skip' && offersToken && repoUrl && !entry.token_url)
       await declineOffer(ctx, declinedBy, program.id, repoUrl, i.project.name).catch((err: unknown) =>
@@ -1843,6 +1886,7 @@ export const tools = {
         ),
     });
     await setWorkingOn(ctx.installationId, parsed.program_id, false);
+    await siteExpiryAfterEntry(parsed.project.repo_url ?? answersOf(parsed.submission_data).repo_url, 'record_submission');
     // The token never fails the submission: it is recorded either way. Fix round 1 (I1): an
     // updated entry that already has its coin keeps it (no second launch, no refusal shown).
     // v2.8 Ruling 1 (plan): an entry that passed the confirmation step had its token decided there;
