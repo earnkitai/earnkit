@@ -589,6 +589,7 @@ apps/frontend/
                                as its new tool and arguments; Pre-flight P15 rules), rewriteAliases (a JSON-RPC
                                message or batch). Pure.
     tools.ts                   v2.10 item 4: `tools` = find, prepare, confirm, tell, sponsor_campaign, thin dispatchers
+                               v2.10 item 13: PrepareInput.deploy (DeployField, P9 owner_wallet), deployStep (the deployed line, reply.deploy), deployWalletLine.
                                over `handlers` (the v2.9 functions: list_programs ... launch_token); FindInput,
                                PrepareInput, ConfirmInput (R15), TellToolInput (R16), markSubmitted (tell.submitted),
                                eligibilityLine; launchFromOffer deleted (launch_token with offer throws).
