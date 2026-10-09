@@ -69,7 +69,15 @@ type PickupState = {
   declined?: number[];
   /** v2.9 B9 (P8): when the offer was made (ISO); a sign-in counts only if made after it. */
   at?: string;
+  /**
+   * v2.9 T12 (G0 N2): the last earnkit.txt read for the offer: its repo, the groups it was read for
+   * and when (ISO). The same groups are not read for again within READ_TTL_MS.
+   */
+  read?: { repo: string; roots: number[]; at: string };
 };
+
+/** v2.9 T12 (G0 N2): how long one earnkit.txt read stands for the same repo and groups. */
+const READ_TTL_MS = 3_600_000;
 
 /** This installation's group root (itself when it isn't linked). */
 export async function rootOf(installationId: number): Promise<number> {
@@ -126,13 +134,39 @@ export async function findEarlier(root: number, stated: Stated): Promise<Earlier
   const entries = await groupEntries(roots);
   if (entries.length === 0) return null;
   const repos = entries.map((e) => e.repo_url).filter((u): u is string => !!u && githubRepo(u) !== null);
-  const own = repos.find((u) => users.includes(githubRepo(u)!.owner.toLowerCase()));
-  const repo = own ?? repos[0] ?? null;
+  // The stated user's repos first, newest first, then the others.
+  const ordered = [
+    ...repos.filter((u) => users.includes(githubRepo(u)!.owner.toLowerCase())),
+    ...repos.filter((u) => !users.includes(githubRepo(u)!.owner.toLowerCase())),
+  ];
+  // v2.9 T12 (G0 N1): the proof goes in a repo a matched group already proved (its token launched,
+  // or a GitHub sign-in for it), so a newer entry anyone can record on another of the builder's
+  // repos never takes the proof repo away from an honest pickup. Else the newest, as before.
+  const proved = await provedRepos(roots);
+  const repo = ordered.find((u) => proved.has(normalizeRepoUrl(u))) ?? ordered[0] ?? null;
   if (!repo) return { roots, entries: entries.length, repo: null, counts: countBy(entries) };
   // C1: the proof covers this repo only: just the groups with an entry in it, and just their entries.
   const covered = coveredRoots(entries, repo);
   const kept = entries.filter((e) => covered.includes(e.root));
   return { roots: covered, entries: kept.length, repo, counts: countBy(kept) };
+}
+
+/**
+ * v2.9 T12 (G0 N1): the repos (normalizeRepoUrl form) the groups rooted at `roots` proved without a
+ * file read: a launched EarnKit token on the repo, or (while sign-in is on) a GitHub sign-in for it.
+ */
+async function provedRepos(roots: number[]): Promise<Set<string>> {
+  const db = sql();
+  const [launched, signedIn] = await Promise.all([
+    db<{ key: string }[]>`
+      SELECT DISTINCT p.token_repo_key AS key FROM projects p JOIN installations i ON i.id = p.installation_id
+      WHERE COALESCE(i.builder_id, i.id) IN ${db(roots)} AND p.token_repo_key IS NOT NULL
+        AND p.token_status = 'launched' AND p.token_url IS NOT NULL AND p.token_url <> 'pending'`,
+    !githubVerifyEnabled() ? Promise.resolve([]) : db<{ key: string }[]>`
+      SELECT DISTINCT 'github.com/' || v.repo_key AS key FROM github_verifications v JOIN installations i ON i.id = v.installation_id
+      WHERE COALESCE(i.builder_id, i.id) IN ${db(roots)} AND v.used_at IS NULL`,
+  ]);
+  return new Set([...launched, ...signedIn].map((r) => r.key.toLowerCase()));
 }
 
 const countBy = (entries: { root: number }[]) => {
@@ -226,15 +260,29 @@ export async function offerPickup(
   const declined = new Set(row?.pickup?.declined ?? []);
   const open = found.roots.filter((r) => !declined.has(r));
   if (open.length === 0) return null;
-  // Ruling F13: only groups that proved the repo themselves are offered and counted (one read of
-  // the repo's earnkit.txt; unreadable: only launched tokens count).
-  const roots = await provenRoots(open, found.repo, (await repoCodes(found.repo, deps)).codes);
+  // Asked once: the same earlier installations already offered wait for the answer (it still works
+  // later). v2.9 T12 (G0 N2): checked before any read, so an open offer costs no GitHub call.
+  const asked = new Set(row?.pickup?.offered ?? []);
+  if (open.every((r) => asked.has(r))) return null;
+  // Ruling F13: only groups that proved the repo themselves are offered and counted. G0 N2: the
+  // repo's earnkit.txt is read only when a launched token or a sign-in doesn't already prove every
+  // group, and at most once per READ_TTL_MS for the same repo and groups (unreadable: only launched
+  // tokens and sign-ins count).
+  let roots = await provenRoots(open, found.repo, []);
+  const now = new Date();
+  const last = row?.pickup?.read;
+  const fresh =
+    last?.repo === found.repo && open.every((r) => last.roots.includes(r)) && now.getTime() - Date.parse(last.at) < READ_TTL_MS;
+  let read: PickupState['read'] = last;
+  if (roots.length < open.length && !fresh) {
+    roots = await provenRoots(open, found.repo, (await repoCodes(found.repo, deps)).codes);
+    read = { repo: found.repo, roots: open, at: now.toISOString() };
+    await sql()`UPDATE installations SET pickup = ${sql().json({ ...row?.pickup, read })} WHERE id = ${own}`;
+  }
   if (roots.length === 0) return null;
   const entries = roots.reduce((n, r) => n + (found.counts[r] ?? 0), 0);
-  // Asked once: the same earlier installations already offered wait for the answer (it still works later).
-  const asked = new Set(row?.pickup?.offered ?? []);
   if (roots.every((r) => asked.has(r))) return null;
-  const state: PickupState = { ...row?.pickup, offered: roots, repo: found.repo, entries, at: new Date().toISOString() };
+  const state: PickupState = { ...row?.pickup, read, offered: roots, repo: found.repo, entries, at: now.toISOString() };
   await sql()`UPDATE installations SET pickup = ${sql().json(state)} WHERE id = ${own}`;
   return { question: pickupQuestion(entries), entries };
 }
@@ -319,7 +367,7 @@ export async function answerPickup(own: number, yes: boolean, deps: PickupDeps =
 /**
  * Links `own`'s group and the groups rooted at `roots` into one: the smallest root stays, every other
  * installation points to it (builder_id), and the other roots' rows move to it (entries, keeping the
- * earlier-submitted one when both hold the same program and repo, answer bank,
+ * one holding the token, else the earlier-submitted one, when both hold the same program and repo, answer bank,
  * wallets, token offers, sponsor drafts; on a clash the root's newer answer wins and the root's offer
  * stays). The root's memory keeps its own values, filling gaps from the others. One transaction.
  * Returns the group's entry count. Exported for tests.
@@ -332,11 +380,13 @@ export async function linkInstallations(own: number, roots: number[]): Promise<n
     const [root, ...others] = all;
     for (const other of others) {
       // M3: one entry per (program, repo) in the group (per program and name without a repo, as
-      // ownEntry matches): the earlier-submitted row moves to (or stays on) the root; a later
-      // duplicate stays on, or moves to, the member installation, out of the group's entries.
+      // ownEntry matches): the row with the token, else the earlier-submitted one, moves to (or stays
+      // on) the root; the other duplicate stays on, or moves to, the member installation, out of the
+      // group's entries.
+      // v2.9 T12 (G0 N3): a row holding the repo's token is kept first, so the group's entry keeps it.
       const rows = await tx<{ id: number; program_id: string; repo_url: string | null; name: string }[]>`
         SELECT id, program_id, repo_url, name FROM projects
-        WHERE installation_id IN (${root}, ${other}) ORDER BY submitted_at, id`;
+        WHERE installation_id IN (${root}, ${other}) ORDER BY (token_url IS NOT NULL) DESC, submitted_at, id`;
       const seen = new Set<string>();
       const later: number[] = [];
       for (const p of rows) {
