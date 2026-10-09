@@ -1,4 +1,4 @@
-import { sql } from './db';
+import { sql, type Db } from './db';
 
 /**
  * v2.9 C13: hard caps on the vendors' free tiers, kept in code so EarnKit never gets a bill. A
@@ -43,9 +43,9 @@ export async function takeFreeTier(name: FreeTierName, n: number, now = new Date
 }
 
 /** Whether `n` more would still fit this period (a read; nothing is taken). */
-export async function freeTierRoom(name: FreeTierName, n: number, now = new Date()): Promise<boolean> {
+export async function freeTierRoom(name: FreeTierName, n: number, now = new Date(), db: Db = sql()): Promise<boolean> {
   const { cap, period } = FREE_CAPS[name];
-  const [row] = await sql()<{ used: number }[]>`
+  const [row] = await db<{ used: number }[]>`
     SELECT used FROM free_tier_usage WHERE name = ${name} AND period = ${periodKey(period, now)}`;
   return (row?.used ?? 0) + n <= cap;
 }

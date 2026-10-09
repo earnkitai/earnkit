@@ -17,10 +17,13 @@ export const LIMITS = {
   /** record_submission checks (each reads GitHub, Base and the explorer), per installation (v2.4 §2). */
   entryChecks: { limit: 60, windowSeconds: 3_600 },
   /**
-   * POST /oauth/register, per client IP: the abuse floor (v2.8.1 §E17). v2.9 T12 (G0): a client whose
-   * redirect host is a known hosted service is counted, never refused (oauth-routes.ts ipFloor).
+   * POST /oauth/register, per client IP: the abuse floor (v2.8.1 §E17). Ruling G25: a client whose
+   * redirect host is a known hosted service has its own, higher floor (oauthRegisterHosted), which
+   * still refuses (oauth-routes.ts ipFloor).
    */
   oauthRegister: { limit: 50, windowSeconds: 3_600 },
+  /** Ruling G25: the per-IP register floor for a known hosted service's redirect host (many builders share its IPs). */
+  oauthRegisterHosted: { limit: 500, windowSeconds: 3_600 },
   /**
    * POST /oauth/register, per agent app (oauth.ts clientLimitKey: its https redirect host). Ruling F11:
    * a high ceiling, never the working limit (anyone can register with any host); a warning is logged
@@ -34,11 +37,12 @@ export const LIMITS = {
   /**
    * v2.8.1 §E17, Ruling F11: new installations (POST /oauth/token that creates one), per registration
    * (oauth.ts registrationLimitKey: the client id), so a hosted agent's users share neither one IP's
-   * bucket nor one host's; and per client IP as the abuse floor (v2.9 T12, G0: counted, not refused,
-   * for a known hosted service's redirect host, whose registrations the host ceiling caps).
+   * bucket nor one host's; and per client IP as the abuse floor (Ruling G25: a known hosted service's
+   * redirect host has the higher installHourHosted floor, which still refuses).
    */
   installClient: { limit: 500, windowSeconds: 86_400 },
   installHour: { limit: 50, windowSeconds: 3_600 },
+  installHourHosted: { limit: 500, windowSeconds: 3_600 },
   /**
    * v2.8.1 §A4: token launches sent to tokens.fun, per creator wallet per UTC day (the EarnKit limit;
    * tokens.fun allows the same 10 for EarnKit-key launches). One token per repo still applies.
@@ -53,6 +57,8 @@ export const LIMITS = {
   tokenLaunchShared: { limit: 500, windowSeconds: 86_400 },
   /** v2.9 B9: GET /github/verify and its callback, per client IP. */
   githubVerify: { limit: 30, windowSeconds: 3_600 },
+  /** v2.9 final review I2: POST /api/host/upload, per client IP (each read can be 25 MB). */
+  hostUpload: { limit: 10, windowSeconds: 3_600 },
   /** GET /oauth/authorize, per client IP. */
   oauthAuthorize: { limit: 60, windowSeconds: 3_600 },
   /** POST /api/cron, per client IP (v2.4 §8). */

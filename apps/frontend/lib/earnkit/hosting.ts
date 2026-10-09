@@ -9,6 +9,7 @@ import { HOST_RESERVED, SITE_PREFIX, STATE_PREFIX, contentTypeFor } from './host
 import { bearerMatches, json } from './http';
 import { sharedGroup } from './installations';
 import { r2Client, r2Enabled, type R2 } from './r2';
+import { RateLimitError, clientIp, enforce } from './rate-limit';
 
 /**
  * v2.9 C12-C14 (server side): static hosting on `<slug>.earnkit.com`. The agent gets a one-time
@@ -407,7 +408,9 @@ async function limitProblem(
   if (r.deploys >= HOST_LIMITS.deploysPerDay) return { line: HOST_LINES.deploys, status: 429 };
   const stored = Number(r.stored) + a.bytes;
   if (a.bytes > 0 ? stored > HOST_LIMITS.totalBytes : stored >= HOST_LIMITS.totalBytes) return { line: HOST_FULL, status: 507 };
-  if (!(await freeTierRoom('r2Writes', a.writes, a.now))) return { line: HOST_FULL, status: 507 };
+  // On the caller's transaction: the deploy holds the hosting lock, and a second pooled connection
+  // could wait forever behind the deploys queued on that lock (part 2 fix wave).
+  if (!(await freeTierRoom('r2Writes', a.writes, a.now, db))) return { line: HOST_FULL, status: 507 };
   return null;
 }
 
@@ -469,17 +472,11 @@ export async function issueUpload(a: { installationId: number; repoKey: string; 
 
 type TokenRow = { installation_id: number; login: string; repo_key: string; slug: string; project: string };
 
-/** The upload token's row while it is usable (unused, unexpired, under 5 attempts); nothing changes. */
-export async function uploadToken(token: string, now = new Date()): Promise<TokenRow | null> {
-  if (!token) return null;
-  const [row] = await sql()<TokenRow[]>`
-    SELECT installation_id, login, repo_key, slug, project FROM host_upload_tokens
-    WHERE token_hash = ${sha256(token)} AND used_at IS NULL AND expires_at > ${now} AND attempts < ${MAX_ATTEMPTS}`;
-  return row ?? null;
-}
-
-/** One upload attempt on the token (review M2): its row, or null when it is not usable. */
-async function attemptUpload(token: string, now: Date): Promise<TokenRow | null> {
+/**
+ * One upload attempt on the token (review M2): its row while it is usable (unused, unexpired, under
+ * 5 attempts), or null. The upload route takes it before reading the body (final review I2).
+ */
+async function attemptUpload(token: string, now = new Date()): Promise<TokenRow | null> {
   if (!token) return null;
   const [row] = await sql()<TokenRow[]>`
     UPDATE host_upload_tokens SET attempts = attempts + 1
@@ -548,12 +545,16 @@ class KilledMidDeploy extends Error {
  * A failure marks the deploy `failed` (the cron removes its keys). A live site's link counts as
  * verified at once (Ruling G19, P39). Errors log the class only.
  */
-export async function deploySite(token: string, zip: Uint8Array, deps: { r2?: R2; now?: Date } = {}): Promise<DeployReply> {
+export async function deploySite(
+  token: string,
+  zip: Uint8Array,
+  deps: { r2?: R2; now?: Date; /** The attempt the upload route already took (final review I2). */ claimed?: TokenRow } = {},
+): Promise<DeployReply> {
   const now = deps.now ?? new Date();
   const r2 = deps.r2 ?? (r2Enabled() ? r2Client() : null);
   if (!r2) return refused(503, HOST_LINES.unavailable);
   if (zip.length > HOST_LIMITS.siteBytes) return refused(413, HOST_LINES.tooBig);
-  const t = await attemptUpload(token, now);
+  const t = deps.claimed ?? (await attemptUpload(token, now));
   if (!t) return refused(410, HOST_LINES.expired);
   const read = readZip(zip);
   if ('problem' in read) return refused(read.status, read.problem);
@@ -667,9 +668,15 @@ export async function deploySite(token: string, zip: Uint8Array, deps: { r2?: R2
     return true;
   });
   if (!published) {
-    // Taken down while this deploy wrote: take it down again.
-    await closeSite(r2, t.slug, t.login, 'killed').catch((e: unknown) => console.error('[hosting] deploy kill', errorClass(e)));
-    return refused(409, HOST_LINES.takenDown);
+    if (await isKilled(t.slug)) {
+      // Taken down while this deploy wrote: take it down again.
+      await closeSite(r2, t.slug, t.login, 'killed').catch((e: unknown) => console.error('[hosting] deploy kill', errorClass(e)));
+      return refused(409, HOST_LINES.takenDown);
+    }
+    // Final review M2: the cron failed this deploy as stale while it still wrote. It stays failed
+    // (the cron removes its keys) and the repo can deploy again; it is never a takedown.
+    await sql()`UPDATE host_deploys SET status = 'failed', done_at = NULL WHERE id = ${id}`;
+    return refused(502, HOST_LINES.failed);
   }
   if (flagged) return { status: 200, body: { show_to_builder: HOST_REVIEW, review: true } };
   return {
@@ -725,8 +732,11 @@ export async function cleanDeploys(now: Date, deps: { r2?: R2 } = {}): Promise<{
     UPDATE host_deploys SET status = 'failed'
     WHERE status = 'deploying' AND at <= ${new Date(now.getTime() - STALE_DEPLOY_MS)} RETURNING slug`;
   for (const s of stale) await sql()`UPDATE hosted_sites SET status = 'failed' WHERE slug = ${s.slug} AND status = 'deploying'`;
+  // Final review M3: a slug with a deploy still writing waits, so its fresh files (same names) stay.
   const failed = await sql()<{ id: number; slug: string; written: string[] }[]>`
-    SELECT id, slug, written FROM host_deploys WHERE status = 'failed' ORDER BY id LIMIT ${CLEAN_BATCH}`;
+    SELECT id, slug, written FROM host_deploys f WHERE status = 'failed'
+      AND NOT EXISTS (SELECT 1 FROM host_deploys d WHERE d.slug = f.slug AND d.status = 'deploying')
+    ORDER BY id LIMIT ${CLEAN_BATCH}`;
   let cleaned = 0;
   for (const d of failed)
     try {
@@ -766,7 +776,8 @@ export async function takedown(slug: string, deps: { r2?: R2 } = {}): Promise<bo
 
 /**
  * The owner's review passed (I1): the newest upload in review is copied from staging into
- * `sites/<slug>/` and the site goes live. False: nothing in review (or the site was taken down).
+ * `sites/<slug>/` and the site goes live. False: nothing in review, the site was taken down, or a
+ * deploy of the slug is in flight (approve again once it ends).
  */
 export async function approveSite(slug: string, deps: { r2?: R2; now?: Date } = {}): Promise<boolean> {
   const s = slug.toLowerCase();
@@ -775,6 +786,9 @@ export async function approveSite(slug: string, deps: { r2?: R2; now?: Date } = 
     SELECT id, login, repo_key, bytes::text, files, flags, written FROM host_deploys
     WHERE slug = ${s} AND status = 'review' ORDER BY id DESC LIMIT 1`;
   if (!d || (await isKilled(s))) return false;
+  // Final review M6: never promote older reviewed files over a deploy of the same slug in flight.
+  const [busy] = await sql()`SELECT 1 FROM host_deploys WHERE slug = ${s} AND status = 'deploying' LIMIT 1`;
+  if (busy) return false;
   const r2 = deps.r2 ?? r2Client();
   const staging = stagingOf(s, d.id);
   const names = d.written.filter((k) => k.startsWith(staging)).map((k) => k.slice(staging.length));
@@ -833,17 +847,27 @@ async function readCapped(request: Request, max: number): Promise<Uint8Array | n
 }
 
 /**
- * POST /api/host/upload?t=<token>: 503 while hosting is off; the token is checked before the body
- * is read (an unknown one never costs a 25 MB read); a body over 25 MB is a 413 before any unzip.
+ * POST /api/host/upload?t=<token>: 503 while hosting is off; 10 an hour per IP (LIMITS.hostUpload);
+ * a declared body over 25 MB is a 413 before anything else. Final review I2: the upload attempt is
+ * taken (one of the token's 5) before the body is read, so parallel posts on one token read at most
+ * 5 bodies, and an unknown or spent token never costs a read. The read stops at 25 MB (a 413).
  */
 export async function hostUploadPost(request: Request, deps: { r2?: R2 } = {}): Promise<Response> {
   if (!deps.r2 && !r2Enabled()) return json(refused(503, HOST_LINES.unavailable).body, 503);
+  try {
+    await enforce('hostUpload', clientIp(request.headers), 'Too many uploads from this address.');
+  } catch (err) {
+    if (!(err instanceof RateLimitError)) throw err;
+    return json({ error: err.message, show_to_builder: err.message }, 429, { 'Retry-After': String(err.retryAfter) });
+  }
+  if (Number(request.headers.get('content-length') ?? '0') > HOST_LIMITS.siteBytes) return json(refused(413, HOST_LINES.tooBig).body, 413);
   const token = new URL(request.url).searchParams.get('t') ?? '';
-  if (!(await uploadToken(token))) return json(refused(410, HOST_LINES.expired).body, 410);
+  const claimed = await attemptUpload(token);
+  if (!claimed) return json(refused(410, HOST_LINES.expired).body, 410);
   const zip = await readCapped(request, HOST_LIMITS.siteBytes);
   if (!zip) return json(refused(413, HOST_LINES.tooBig).body, 413);
   try {
-    const out = await deploySite(token, zip, deps);
+    const out = await deploySite(token, zip, { ...deps, claimed });
     return json(out.body, out.status);
   } catch (err) {
     console.error('[hosting] upload', errorClass(err));
@@ -863,5 +887,6 @@ export async function hostTakedownPost(request: Request, deps: { r2?: R2 } = {})
   const action = body?.action ?? 'kill';
   if (!/^[a-z0-9-]{1,63}$/.test(slug) || (action !== 'kill' && action !== 'approve')) return json({ error: 'slug and action kill or approve' }, 400);
   const done = action === 'approve' ? await approveSite(slug, deps) : await takedown(slug, deps);
-  return done ? json({ slug, status: action === 'approve' ? 'live' : 'killed' }) : json({ error: 'no such site' }, 404);
+  if (done) return json({ slug, status: action === 'approve' ? 'live' : 'killed' });
+  return json({ error: action === 'approve' ? 'nothing to approve now (no upload in review, or a deploy in flight)' : 'no such site' }, 404);
 }

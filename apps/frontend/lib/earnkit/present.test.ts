@@ -874,6 +874,16 @@ test('3.7 not interested: in no table, never the offer, not in Also open; applie
   assert.doesNotMatch(applied, /—|coin|Clanker|vault/);
 });
 
+test('final review M1: the no-repo headline is the site figure over every open program, whatever the builder hid', () => {
+  const cards = [base, arc, tiny];
+  const all = presentFirstMessage(msg({ cards }));
+  const hid = presentFirstMessage(msg({ cards, hidden: { notInterested: new Set(['base-builder-grants', 'arc-microgrants']), applied: new Set() } }));
+  const headline = (t: string) => t.split('\n\n').find((l) => l.endsWith('in prizes open right now.'));
+  assert.equal(headline(hid), headline(all));
+  assert.equal(headline(hid), `${moneyText(openMoneyUsd(cards))} in prizes open right now.`);
+  assert.doesNotMatch(hid, /Base Builder Grant Program|Arc Microgrants/);
+});
+
 test('4.7 a Base row missing real users reads Hard and sorts after an Easy Arc row; the offer picks Arc', () => {
   const baseCard: Card = { ...base, difficulty: { level: 'Medium', estimate: true, rated: false, basis: 'winners not published' } };
   const arcCard: Card = { ...arc, difficulty: easy };

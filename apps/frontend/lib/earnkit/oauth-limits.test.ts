@@ -197,7 +197,8 @@ test('v2.8.1 §E17, Ruling F11: registration: 50 an hour per IP; a 10,000 a day 
         body: JSON.stringify({ redirect_uris: uris, ...(client_name && { client_name }) }),
       }),
     );
-  for (let i = 0; i < 50; i++) assert.equal((await register(ip, [`https://${host}/cb`], 'Muse')).status, 201, `registration ${i + 1}`);
+  // Ruling G25: a hosted host (meta.ai) has its own 500 floor, so the 50 floor is shown with an agent that isn't one.
+  for (let i = 0; i < 50; i++) assert.equal((await register(ip, [`https://agent-${process.pid}.example/cb`])).status, 201, `registration ${i + 1}`);
   const floor = await register(ip, ['http://127.0.0.1:3334/callback']);
   assert.equal(floor.status, 429, 'the 51st from one address in an hour');
   assert.match((await floor.json()).error_description, /Too many client registrations from this address/);
@@ -228,15 +229,15 @@ test('v2.8.1 §E17, Ruling F11: registration: 50 an hour per IP; a 10,000 a day 
   await sql()`DELETE FROM rate_windows WHERE key LIKE ${'oauthRegister%' + host + '%'} OR key LIKE ${'oauthRegister:' + ip.replace(/\.\d+\.\d+$/, '') + '%'}`;
 });
 
-test('v2.9 T12 (G0): a known hosted agent\'s servers pass the per-IP floor (counted, logged once); the host ceiling and everyone else\'s floor stay', db, async () => {
+test('Ruling G25: a known hosted agent\'s servers get a 500 an hour per-IP floor that refuses; the host ceiling and everyone else\'s 50 floor stay', db, async () => {
   const ip = `198.29.${process.pid % 250}.${Date.now() % 250}`;
   const host = `c${process.pid}${Date.now()}.claude.ai`;
   const uri = `https://${host}/api/mcp/auth_callback`;
-  const register = (uris: string[], client_name?: string) =>
+  const register = (uris: string[], client_name?: string, from = ip) =>
     registerRoute(
       new Request('http://localhost/oauth/register', {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-real-ip': ip },
+        headers: { 'content-type': 'application/json', 'x-real-ip': from },
         body: JSON.stringify({ redirect_uris: uris, ...(client_name && { client_name }) }),
       }),
     );
@@ -244,31 +245,47 @@ test('v2.9 T12 (G0): a known hosted agent\'s servers pass the per-IP floor (coun
   const warn = console.warn;
   console.warn = (...a: unknown[]) => void warned.push(a.map(String).join(' '));
   try {
-    // 60 users of a hosted agent register and connect from one server IP within the hour.
+    // 60 users of a hosted agent register and connect from one server IP within the hour: past the
+    // 50 floor everyone else has.
+    const clients: string[] = [];
     for (let i = 0; i < 60; i++) {
       const reg = await register([uri]);
       assert.equal(reg.status, 201, `registration ${i + 1}`);
       const { client_id } = (await reg.json()) as { client_id: string };
+      clients.push(client_id);
       const tok = await exchange(ip, freshCode(client_id, uri));
       assert.equal(tok.status, 200, `install ${i + 1}`);
     }
-    // Logged once per route when the floor is passed, naming the host only.
-    assert.equal(warned.filter((w) => w.includes('register passed the IP floor') && w.includes(host)).length, 1, warned.join(' | '));
-    assert.equal(warned.filter((w) => w.includes('token passed the IP floor') && w.includes(host)).length, 1, warned.join(' | '));
-    // The same address is still refused for anything else: a desktop agent, an unknown https host,
-    // or a hosted client name with a redirect host that isn't a hosted service.
+    // The same address is still refused at 50 for anything else: a desktop agent, an unknown https
+    // host, or a hosted client name with a redirect host that isn't a hosted service.
+    for (let i = 0; i < 50; i++) assert.equal((await register(['http://127.0.0.1:3334/callback'])).status, 201, `desktop ${i + 1}`);
     assert.equal((await register(['http://127.0.0.1:3334/callback'])).status, 429);
     assert.equal((await register(['https://agent.example/cb'])).status, 429);
     assert.equal((await register(['https://agent.example/cb'], 'Grok')).status, 429);
     const other = registerClient({ redirect_uris: [redirect], client_name: 'Grok' });
+    for (let i = 0; i < 50; i++) assert.equal((await exchange(ip, freshCode(registerClient({ redirect_uris: [redirect] }).client_id))).status, 200, `desktop install ${i + 1}`);
     assert.equal((await exchange(ip, freshCode(other.client_id))).status, 429);
-    // The host's daily ceiling still refuses.
+    // G25: the hosted host's floor refuses too. 500 hosted registrations from one IP in the hour,
+    // then the 501st is refused (and logged with the hosted floor's name).
+    for (let i = 60; i < 500; i++) assert.equal((await register([uri])).status, 201, `registration ${i + 1}`);
+    const refused = await register([uri]);
+    assert.equal(refused.status, 429);
+    assert.match((await refused.json()).error_description, /Too many client registrations from this address/);
+    assert.ok(warned.some((w) => w.includes('register refused by oauthRegisterHosted')), warned.join(' | '));
+    // Another IP of the same hosted agent is not affected.
+    assert.equal((await register([uri], undefined, ip.replace(/^198\.29\./, '198.30.'))).status, 201);
+    // The install floor for the hosted host: 500 an hour per IP, then refused.
+    await preload('installHourHosted', ip, LIMITS.installHourHosted.limit, 3_600);
+    const reg = registerClient({ redirect_uris: [uri] });
+    const tok = await exchange(ip, freshCode(reg.client_id, uri));
+    assert.equal(tok.status, 429);
+    // The host's daily ceiling still refuses, from a fresh IP.
     await preload('oauthRegisterHost', `host:${host}`, LIMITS.oauthRegisterHost.limit, 86_400);
-    const day = await register([uri]);
+    const day = await register([uri], undefined, ip.replace(/^198\.29\./, '198.31.'));
     assert.equal(day.status, 429);
     assert.match((await day.json()).error_description, /Too many client registrations from this agent today/);
   } finally {
     console.warn = warn;
   }
-  await sql()`DELETE FROM rate_windows WHERE key LIKE ${'%' + ip} OR key LIKE ${'%' + host + '%'}`;
+  await sql()`DELETE FROM rate_windows WHERE key LIKE ${'%' + ip} OR key LIKE ${'%' + ip.replace(/^198\.29\./, '198.30.')} OR key LIKE ${'%' + ip.replace(/^198\.29\./, '198.31.')} OR key LIKE ${'%' + host + '%'}`;
 });

@@ -20,7 +20,7 @@ The Cloudflare Worker (free plan) that serves builder sites at `<project>-<user>
 
 1. Create the R2 bucket `earnkit-sites` (free plan).
 2. Set `RESERVED` in `wrangler.toml` to every existing DNS name in the zone beyond `HOST_RESERVED`, comma separated. Set `EARNKIT_RESERVED_SUBDOMAINS` on Railway to the same list.
-3. From this folder on your own machine: `npx wrangler deploy`.
+3. From this folder on your own machine: `npx wrangler deploy`. The Cloudflare account must stay on the Workers Free plan: never upgrade it to Workers Paid or turn on any usage-based billing. On the free plan the Worker stops at 100k requests a day; on a paid plan the same traffic bills instead.
 4. DNS: a proxied wildcard record `*.earnkit.com` (AAAA `100::`). Explicit records for reserved names keep their current targets.
 5. Routes: `*.earnkit.com/*` to this Worker, and one exclusion route (Worker: none) per reserved name (`www`, `docs`, `api`, `mcp`, `app`, `mail`, `admin`, `status`, `abuse`, `host`, and every existing record). Set the route's request-limit failure mode to "Fail closed (block)".
 6. Check each reserved name in a browser after adding the routes: it must reach its own service, not this Worker's "Not found.".

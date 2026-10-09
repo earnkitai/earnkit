@@ -617,6 +617,7 @@ test('the cron scores open rounds each run and runs the rounds step inside the b
       now: at(26),
       only: ['t7-none'],
       deps: {
+        refreshFees: async () => 0,
         bonus: { account: ACCOUNT, rpc, chain: C, log: quiet, active: async () => false },
         rounds: { only: [PID] },
         traction: { only: ['t7-none'], users: async () => { calls.push('users'); return { score: 0, timedOut: false }; } },
@@ -793,12 +794,12 @@ test('(d) an ended round while the ledger is skipped (no payout key) waits on th
   await cleanup();
   try {
     await setup({ n: 1, pool: E18 });
-    const out = await runCron({ now: at(2), only: ['t7-none'], deps: { bonus: { account: null } } });
+    const out = await runCron({ now: at(2), only: ['t7-none'], deps: { refreshFees: async () => 0, bonus: { account: null } } });
     assert.ok(out.needs_owner.includes(BONUS_WALLET_UNSET), JSON.stringify(out.needs_owner));
     assert.equal(BONUS_WALLET_UNSET.includes('payout wallet not configured'), true);
     // Ruling 20: before any round ends, the skip waits on the owner too: EarnKit coins exist and
     // the program has a builder bonus, so fees would go unbooked.
-    const before = await runCron({ now: new Date('2026-10-15T00:00:00Z'), only: ['t7-none'], deps: { bonus: { account: null } } });
+    const before = await runCron({ now: new Date('2026-10-15T00:00:00Z'), only: ['t7-none'], deps: { refreshFees: async () => 0, bonus: { account: null } } });
     assert.ok(before.needs_owner.includes(BONUS_WALLET_UNSET), JSON.stringify(before.needs_owner));
   } finally {
     await cleanup();
@@ -932,7 +933,7 @@ test('Ruling 23: an ended round whose final scoring throws waits on the owner on
       assert.deepEqual(second, []);
       // Through the cron: the round shows in needs_owner (503) on that first failing run.
       await sql()`UPDATE bonus_rounds SET score_error_notified_at = NULL WHERE round_key = ${PID}`;
-      const cron = await runCron({ now: at(4), only: ['t7-none'], deps: { traction: { only: [PID], score: failing } } });
+      const cron = await runCron({ now: at(4), only: ['t7-none'], deps: { refreshFees: async () => 0, traction: { only: [PID], score: failing } } });
       assert.ok(cron.needs_owner.includes(`bonus:${PID}`), JSON.stringify(cron.needs_owner));
     } finally {
       console.error = err;

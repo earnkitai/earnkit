@@ -375,7 +375,7 @@ test('8.9 a clean zip goes live; a flagged one goes to review and waits on the o
     SELECT status, flags FROM host_deploys WHERE slug = 'tipjar-alice' ORDER BY id DESC LIMIT 1`;
   assert.deepEqual(d, { status: 'review', flags: ['seed-phrase'] });
   assert.ok((await sitesInReview()).includes('tipjar-alice'));
-  const cron = await withEnv(R2_ENV, () => runCron({ only: ['hz-none'], deps: { hosting: { r2: fakeR2().r2 } } }));
+  const cron = await withEnv(R2_ENV, () => runCron({ only: ['hz-none'], deps: { refreshFees: async () => 0, hosting: { r2: fakeR2().r2 } } }));
   assert.ok(cron.needs_owner.includes('host-review:tipjar-alice'));
   await sql()`UPDATE hosted_sites SET status = 'ended' WHERE slug = 'tipjar-alice'`;
   await sql()`UPDATE host_deploys SET status = 'cleaned' WHERE slug = 'tipjar-alice' AND status = 'review'`;
@@ -457,16 +457,21 @@ test('8.12 with the R2 variables absent the upload route answers 503 and the cro
     const res = await hostUploadPost(new Request('https://earnkit.com/api/host/upload?t=x', { method: 'POST', body: site() }));
     assert.equal(res.status, 503);
     const f = fakeR2();
-    const out = await runCron({ only: ['hz-none'], deps: { hosting: { r2: f.r2 } } });
+    const out = await runCron({ only: ['hz-none'], deps: { refreshFees: async () => 0, hosting: { r2: f.r2 } } });
     assert.equal('hosting' in out, false);
     assert.deepEqual(f.calls, []);
     assert.equal(out.needs_owner.some((n) => n.startsWith('host-review:')), false);
   });
   await withEnv(R2_ENV, async () => {
-    const out = await runCron({ only: ['hz-none'], deps: { hosting: { r2: fakeR2().r2 } } });
+    const out = await runCron({ only: ['hz-none'], deps: { refreshFees: async () => 0, hosting: { r2: fakeR2().r2 } } });
     assert.ok('hosting' in out, 'on with R2');
   });
 });
+
+/** A fresh client IP per call, so the per-IP upload limit (10 an hour) never spans tests or runs. */
+const uploadIp = () => `10.${[...randomBytes(3)].join('.')}`;
+const post = (t: string, body: BodyInit, ip = uploadIp(), headers: Record<string, string> = {}) =>
+  new Request(`https://earnkit.com/api/host/upload?t=${t}`, { method: 'POST', body, duplex: 'half', headers: { 'x-real-ip': ip, ...headers } } as RequestInit);
 
 test('the upload route checks the token before reading the body, and caps the body', db, async () => {
   await withEnv(R2_ENV, async () => {
@@ -478,16 +483,75 @@ test('the upload route checks the token before reading the body, and caps the bo
         c.enqueue(new Uint8Array(1024 * 1024));
       },
     });
-    const bad = await hostUploadPost(new Request('https://earnkit.com/api/host/upload?t=unknown', { method: 'POST', body, duplex: 'half' } as RequestInit), { r2 });
+    const bad = await hostUploadPost(post('unknown', body), { r2 });
     assert.equal(bad.status, 410);
     assert.ok(pulled <= 1, 'the body was not read');
     const u = await upload();
     const endless = new ReadableStream<Uint8Array>({ pull: (c) => c.enqueue(new Uint8Array(1024 * 1024)) });
-    const big = await hostUploadPost(new Request(`https://earnkit.com/api/host/upload?t=${u.token}`, { method: 'POST', body: endless, duplex: 'half' } as RequestInit), { r2 });
+    const big = await hostUploadPost(post(u.token, endless), { r2 });
     assert.equal(big.status, 413);
-    const ok = await hostUploadPost(new Request(`https://earnkit.com/api/host/upload?t=${u.token}`, { method: 'POST', body: site() }), { r2 });
+    const ok = await hostUploadPost(post(u.token, site()), { r2 });
     assert.equal(ok.status, 200);
     assert.equal(((await ok.json()) as { show_to_builder: string }).show_to_builder, `TipJar is live: ${u.slug}.earnkit.com`);
+  });
+});
+
+test('final review I2: parallel uploads on one token past the 5-attempt cap are refused without their bodies being read', db, async () => {
+  await withEnv(R2_ENV, async () => {
+    const r2 = fakeR2().r2;
+    const u = await upload();
+    const zip = site();
+    const pulls: number[] = [];
+    // Each body hands out the zip in three pieces; a body nobody reads is pulled at most once (the stream's prefetch).
+    const body = (i: number) => {
+      pulls[i] = 0;
+      return new ReadableStream<Uint8Array>({
+        pull(c) {
+          const k = pulls[i]++;
+          if (k < 3) c.enqueue(zip.subarray(Math.floor((k * zip.length) / 3), Math.floor(((k + 1) * zip.length) / 3)));
+          else c.close();
+        },
+      });
+    };
+    const outs = await Promise.all(Array.from({ length: 8 }, (_, i) => hostUploadPost(post(u.token, body(i)), { r2 })));
+    const read = pulls.filter((n) => n > 1).length;
+    assert.ok(read <= 5, `${read} bodies read: ${pulls.join(',')}`);
+    const unread = outs.filter((_, i) => pulls[i] <= 1);
+    assert.ok(unread.length >= 3, `${unread.length} unread`);
+    for (const r of unread) assert.equal(r.status, 410);
+    assert.equal(outs.filter((r) => r.status === 200).length, 1, outs.map((r) => r.status).join(','));
+    const [{ attempts }] = await sql()<{ attempts: number }[]>`SELECT attempts FROM host_upload_tokens WHERE token_hash = ${sha(u.token)}`;
+    // Once one wins, the token is used, so later posts may stop before the fifth attempt.
+    assert.ok(attempts <= 5, `${attempts} attempts`);
+  });
+});
+
+test('final review I2: a declared body over 25 MB is a 413 before any read or attempt; 10 uploads an hour per IP', db, async () => {
+  await withEnv(R2_ENV, async () => {
+    const r2 = fakeR2().r2;
+    const u = await upload();
+    let pulled = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(c) {
+        pulled++;
+        c.enqueue(new Uint8Array(1024));
+      },
+    });
+    const big = await hostUploadPost(post(u.token, body, uploadIp(), { 'content-length': String(HOST_LIMITS.siteBytes + 1) }), { r2 });
+    assert.equal(big.status, 413);
+    assert.ok(pulled <= 1, 'the body was not read');
+    const [{ attempts }] = await sql()<{ attempts: number }[]>`SELECT attempts FROM host_upload_tokens WHERE token_hash = ${sha(u.token)}`;
+    assert.equal(attempts, 0, 'no attempt taken');
+    // One IP: 10 uploads an hour (here with spent tokens), then a 429 before the token is even looked at.
+    const ip = uploadIp();
+    for (let i = 0; i < 10; i++) assert.equal((await hostUploadPost(post('spent', site(), ip), { r2 })).status, 410, `upload ${i + 1}`);
+    const limited = await hostUploadPost(post(u.token, site(), ip), { r2 });
+    assert.equal(limited.status, 429);
+    assert.ok(Number(limited.headers.get('retry-after')) > 0);
+    assert.match(((await limited.json()) as { show_to_builder: string }).show_to_builder, /Too many uploads from this address/);
+    // Another address with the same token is fine.
+    assert.equal((await hostUploadPost(post(u.token, site()), { r2 })).status, 200);
+    await sql()`DELETE FROM rate_windows WHERE key = ${'hostUpload:' + ip}`;
   });
 });
 
@@ -664,6 +728,17 @@ test('I2: concurrent deploys by one login never pass 3 sites', db, async () => {
   assert.equal(m, 3);
 });
 
+test('fix wave: more deploys at once than pool connections never deadlock on the hosting lock', db, async () => {
+  // Warm all 5 pooled connections, so each waiting deploy holds one while the lock holder works.
+  await Promise.all(Array.from({ length: 5 }, () => sql()`SELECT pg_sleep(0.05)`));
+  const ups = [];
+  for (let i = 0; i < 7; i++) ups.push(await upload());
+  const f = slowR2();
+  const all = Promise.all(ups.map((u) => deploySite(u.token, site(), { r2: f.r2 })));
+  const out = await Promise.race([all, new Promise<'stuck'>((r) => setTimeout(() => r('stuck'), 8_000).unref())]);
+  assert.notEqual(out, 'stuck', 'the deploys deadlocked');
+});
+
 test('I2: a flagged and a clean zip racing on one repo never publish the flagged one', db, async () => {
   for (const order of [0, 1]) {
     const u = await upload();
@@ -780,4 +855,79 @@ test('Minor: no .xml; the scan sees through tags, entities and new phrases; UTF-
   // Refused attempts don't use the link, but a link takes at most 5 attempts.
   for (let i = 0; i < 4; i++) assert.equal((await deploySite(u.token, zipOf({ 'a.exe': strToU8('x') }), { r2: fakeR2().r2 })).status, 400);
   assert.equal((await deploySite(u.token, site(), { r2: fakeR2().r2 })).status, 410, 'the 6th attempt');
+});
+
+test('final review M2: a slow fresh deploy the cron fails as stale stays failed, never a takedown; the repo can deploy again', db, async () => {
+  const u = await upload();
+  const f = fakeR2();
+  let fired = false;
+  const r2: R2 = {
+    ...f.r2,
+    put: async (key, body, type) => {
+      if (!fired && key.startsWith('sites/')) {
+        fired = true;
+        // The cron runs while this deploy writes, 11 minutes on.
+        await cleanDeploys(new Date(Date.now() + 11 * 60_000), { r2: f.r2 });
+      }
+      await f.r2.put(key, body, type);
+    },
+  };
+  const out = await deploySite(u.token, site(), { r2 });
+  assert.ok(fired);
+  assert.equal(out.status, 502);
+  assert.equal(out.body.show_to_builder, HOST_LINES.failed);
+  assert.notEqual(f.state(u.slug)?.status, 'killed');
+  const [row] = await sql()<{ status: string }[]>`SELECT status FROM hosted_sites WHERE slug = ${u.slug}`;
+  assert.equal(row.status, 'failed');
+  const [dep] = await sql()<{ status: string }[]>`SELECT status FROM host_deploys WHERE slug = ${u.slug} ORDER BY id DESC LIMIT 1`;
+  assert.equal(dep.status, 'failed', 'left for the cron to clean');
+  const again = randomBytes(32).toString('base64url');
+  await sql()`
+    INSERT INTO host_upload_tokens (token_hash, installation_id, login, repo_key, slug, project, expires_at)
+    VALUES (${sha(again)}, ${u.installationId}, ${u.login}, ${u.repoKey}, ${u.slug}, 'TipJar', ${new Date(Date.now() + 900_000)})`;
+  assert.equal((await deploySite(again, site(), { r2: fakeR2().r2 })).status, 200);
+});
+
+test('final review M3: the cron never deletes a failed deploy\'s keys while a deploy of the same slug is writing', db, async () => {
+  const login = `hz${stamp()}`;
+  const slug = `m3-${login}`;
+  const key = `sites/${slug}/index.html`;
+  await sql()`
+    INSERT INTO host_deploys (login, slug, repo_key, at, status, bytes, written)
+    VALUES (${login}, ${slug}, ${`${login}/m3`}, ${new Date(Date.now() - 20 * 60_000)}, 'failed', 5, ${[key]}),
+           (${login}, ${slug}, ${`${login}/m3`}, ${new Date()}, 'deploying', 5, ${[key]})`;
+  const f = fakeR2([key]);
+  await cleanDeploys(new Date(), { r2: f.r2 });
+  assert.ok(f.objects.has(key), 'the writing deploy keeps its file');
+  const rows = await sql()<{ status: string }[]>`SELECT status FROM host_deploys WHERE slug = ${slug} ORDER BY id`;
+  assert.deepEqual(rows.map((r) => r.status), ['failed', 'deploying']);
+  await sql()`UPDATE host_deploys SET status = 'cleaned' WHERE slug = ${slug}`;
+});
+
+test('final review M6: an approval waits while a deploy of the same slug is in flight', db, async () => {
+  const secret = 'm'.repeat(40);
+  await withEnv({ ADMIN_VETO_SECRET: secret, ...R2_ENV }, async () => {
+    const u = await upload();
+    const f = fakeR2();
+    assert.equal((await deploySite(u.token, site(PHISH), { r2: f.r2 })).body.review, true);
+    await sql()`
+      INSERT INTO host_deploys (login, slug, repo_key, at, status, bytes, written)
+      VALUES (${u.login}, ${u.slug}, ${u.repoKey}, ${new Date()}, 'deploying', 5, ${[]})`;
+    const approve = () =>
+      hostTakedownPost(
+        new Request('https://earnkit.com/api/host/takedown', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${secret}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ slug: u.slug, action: 'approve' }),
+        }),
+        { r2: f.r2 },
+      );
+    const busy = await approve();
+    assert.equal(busy.status, 404);
+    assert.match(((await busy.json()) as { error: string }).error, /deploy in flight/);
+    assert.equal(f.state(u.slug), null, 'nothing promoted');
+    await sql()`UPDATE host_deploys SET status = 'failed' WHERE slug = ${u.slug} AND status = 'deploying'`;
+    assert.equal((await approve()).status, 200);
+    assert.equal(f.state(u.slug)?.status, 'live');
+  });
 });
