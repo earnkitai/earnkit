@@ -535,7 +535,10 @@ apps/frontend/
                                DeployChain (viemDeployChain: queued sends, simulate, Base L1 fee, capped
                                writes), OWNER_ABI/HAS_ROLE_ABI/TRANSFER_ABI (raw probes), nativeUsd,
                                weiToMicroUsd, deployForBuilder (builder_key, caps with the transfer and L1
-                               fee reserved, sendAttempted, owner probes, markDeployed)
+                               fee reserved, sendAttempted, owner probes, markDeployed). Fix round 2 (H12):
+                               ETH_USD_BAND ($500-$20,000, nativeUsd), simulate after the estimate with its
+                               gas and fee, DeployChain.nonce (above 1: flagged, contract_deploys.blocked,
+                               DEPLOY_LINES.blocked), DeployDeps.installationLogin (tools seam; fails closed)
     match.ts(+test)            pure: chain detection (IDs + RPC hosts), repo x program verdicts;
                                v2.10 item 9: Detection.basis (Basis: deployed | deploy_config | mention;
                                absent = mention, R6), detectChains(files, paths) over detectMentions +
@@ -1161,7 +1164,7 @@ apps/frontend/
                                sponsor wallet, token, factory), sponsorStatus (survives scoring and
                                RPC failures), prepareAward (guarded UPDATE)
   db/schema.sql                the whole schema, idempotent (sponsor_campaigns, projects.prize_*,
-                               v2.10 item 13: contract_deploys (reservation row, builder_key, tx_hash, status, owner_ok, cost_micro_usd).
+                               v2.10 item 13: contract_deploys (reservation row, builder_key, tx_hash, status, owner_ok, blocked, cost_micro_usd).
                                projects.repo_key + its partial unique index, projects.token_* and
                                token_repo_key + projects_token_repo_key (one token per repo),
                                sponsor_verifications,

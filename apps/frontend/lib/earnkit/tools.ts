@@ -2195,9 +2195,16 @@ async function deployStep(
   }
   // Fix round 1 (I6): a shared client's caller login; else the installation's verified login (limits only).
   const shared = ctx.sharedClient === true;
-  const login = shared
-    ? await sharedLogin(ctx, prep.signed_in, 'prepare')
-    : await installationLogin(ctx.installationId).catch(() => null);
+  let login: string | null;
+  try {
+    login = shared
+      ? await sharedLogin(ctx, prep.signed_in, 'prepare')
+      : await (ctx.deployDeps?.installationLogin ?? installationLogin)(ctx.installationId);
+  } catch (err) {
+    // Fix round 2 (N6): no login read, no deploy (never a fresh per-installation key).
+    console.error('[prepare] deploy login', err instanceof Error ? err.name : 'error');
+    return { line: DEPLOY_LINES.lowBalance, deploy: { unavailable: DEPLOY_LINES.lowBalance }, agent_note: "EarnKit couldn't check the builder's sign-in right now. Try later." };
+  }
   const input: DeployInput = {
     chain: d.chain,
     bytecode: d.bytecode as `0x${string}`,

@@ -21,6 +21,8 @@ import {
   type DeployInput,
 } from './deploy';
 import { QUIET_OWNER, cronPost, deployerGas } from './cron';
+import { createServer } from 'node:http';
+import { ETH_USD_BAND, nativeUsd, viemDeployChain } from './deploy';
 import { forceFreeTier, periodKey, takeFreeTier } from './free-tier';
 import { contractDeployed } from './verify';
 
@@ -121,11 +123,21 @@ test('fix round 1 (I4) runtimeRefusal: over 24 KB, ERC-20 selectors, CREATE or C
   assert.equal(runtimeRefusal('0x6000fea1f5f0f50004' as Hex), null, 'f0/f5 inside the metadata');
 });
 
+test('KNOWN LIMIT (Ruling H12, N1), not desired behaviour: a reachable CREATE hidden in a CBOR-looking tail passes the runtime check', () => {
+  // PUSH1 4; JUMP; a1; JUMPDEST; CREATE(0,0,0); STOP; tail length 0x000a. The tail is skipped as
+  // metadata, so this factory is not refused. Accepted residual risk: it is the builder's own contract
+  // and EarnKit only paid capped gas (the runbook records it). The post-deploy nonce check (N2) still
+  // flags a constructor that created contracts. If this assertion ever fails, the limit was closed.
+  assert.equal(runtimeRefusal('0x600456a15b600060006000f000000a' as Hex), null);
+});
+
 // ---- The chain fake and the DB setup
 
 type Calls = {
   estimate: number;
   simulate: number;
+  simulateArgs: { gas: bigint; maxFeePerGas: bigint }[];
+  order: string[];
   send: { data: Hex; gas: bigint; maxFeePerGas: bigint; [k: string]: unknown }[];
   writes: { fn: string; args: unknown[]; gas: bigint; maxFeePerGas: bigint; abi: Abi }[];
   reads: { fn: string; args?: unknown[] }[];
@@ -148,18 +160,22 @@ function fakeChain(o: {
   afterTransfer?: Address;
   sendDelayMs?: number;
   hash?: Hex;
+  nonce?: number | 'throws';
 } = {}) {
-  const calls: Calls = { estimate: 0, simulate: 0, send: [], writes: [], reads: [], balance: 0 };
+  const calls: Calls = { estimate: 0, simulate: 0, simulateArgs: [], order: [], send: [], writes: [], reads: [], balance: 0 };
   let owner = o.owner ?? (() => BUILDER);
   const fee = o.feeWei ?? 100_000_000_000n;
   const chain: DeployChain = {
     estimate: async () => {
       calls.estimate++;
+      calls.order.push('estimate');
       // $0.01 for the deploy and $0.01 for the transfer cap at $1 a coin.
       return { gas: 100_000n, maxFeePerGas: fee, ...(o.l1Fee !== undefined && { l1Fee: o.l1Fee }) };
     },
-    simulate: async () => {
+    simulate: async (a) => {
       calls.simulate++;
+      calls.order.push('simulate');
+      calls.simulateArgs.push({ gas: a.gas, maxFeePerGas: a.maxFeePerGas });
       return o.runtime ?? (`0x${'60'.repeat(100)}` as Hex);
     },
     balance: async () => {
@@ -184,6 +200,10 @@ function fakeChain(o: {
       };
     },
     code: async () => o.code ?? (`0x${'60'.repeat(100)}` as Hex),
+    nonce: async () => {
+      if (o.nonce === 'throws') throw new Error('rpc down');
+      return o.nonce ?? 1;
+    },
     read: async (a) => {
       calls.reads.push({ fn: a.fn, args: a.args });
       if (o.probeThrows) throw new Error('rpc down');
@@ -749,3 +769,96 @@ test('deployForBuilder is off without the key: nothing read', async () => {
     if (old !== undefined) process.env.DEPLOYER_PRIVATE_KEY = old;
   }
 });
+
+// ---- Fix round 2 (Ruling H12)
+
+test('fix round 2 (N2): a contract whose nonce is above 1 (its constructor created contracts) is flagged, never cached, and blocks that builder', dbTest, () =>
+  withDeployer(async () => {
+    const s = await setup();
+    const addr = '0x00000000000000000000000000000000000c41d2' as Address; // its own: other tests cache DEPLOYED
+    const base = fakeChain({ nonce: 2 }).chain;
+    const chain: DeployChain = { ...base, receipt: async (h, t) => { const r = await base.receipt(h, t); return r && r.contractAddress ? { ...r, contractAddress: addr } : r; } };
+    await sql()`DELETE FROM url_checks WHERE key = ${`getcode:base:${addr}`}`;
+    const out = await deployForBuilder(call(s), deps(chain));
+    assert.equal(out.status === 'deployed' && out.owner_ok, false);
+    assert.doesNotMatch(out.show_to_builder, /owner/);
+    const [row] = await sql()<{ id: number; blocked: boolean; owner_ok: boolean }[]>`SELECT id, blocked, owner_ok FROM contract_deploys WHERE repo_key = ${s.repoKey}`;
+    assert.equal(row.blocked, true);
+    assert.ok((await flagged()).includes(`deploy-owner:${row.id}`));
+    const [cached] = await sql()`SELECT 1 FROM url_checks WHERE key = ${`getcode:base:${addr}`}`;
+    assert.equal(cached, undefined, 'no getCode pass');
+    // The same builder on the other chain (its own day window): blocked, nothing simulated or sent.
+    const next = fakeChain();
+    assert.deepEqual(await deployForBuilder(call(s, input({ chain: 'arc' })), deps(next.chain)), { status: 'refused', show_to_builder: DEPLOY_LINES.blocked });
+    assert.equal(next.calls.estimate + next.calls.send.length, 0);
+    // A nonce read that fails can't confirm it: flagged, not blocked.
+    const s2 = await setup();
+    const out2 = await deployForBuilder(call(s2), deps(fakeChain({ nonce: 'throws' }).chain));
+    assert.equal(out2.status === 'deployed' && out2.owner_ok, false);
+    assert.equal((await sql()<{ blocked: boolean }[]>`SELECT blocked FROM contract_deploys WHERE repo_key = ${s2.repoKey}`)[0].blocked, false);
+  }),
+);
+
+test('fix round 2 (N3): the creation is simulated after the estimate, with its gas and fee cap', dbTest, () =>
+  withDeployer(async () => {
+    const s = await setup();
+    const { chain, calls } = fakeChain({ feeWei: 123_000_000_000n });
+    assert.equal((await deployForBuilder(call(s), deps(chain))).status, 'deployed');
+    assert.deepEqual(calls.order.slice(0, 2), ['estimate', 'simulate']);
+    assert.deepEqual(calls.simulateArgs, [{ gas: 100_000n, maxFeePerGas: 123_000_000_000n }]);
+    assert.deepEqual([calls.send[0].gas, calls.send[0].maxFeePerGas], [100_000n, 123_000_000_000n], 'the send carries the same values');
+  }),
+);
+
+test('fix round 2 (N4): the default chain refuses an RPC whose chain id is not the one priced, before any other read', async () => {
+  const seen: string[] = [];
+  const server = createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      const msg = JSON.parse(body) as { id: number; method: string } | { id: number; method: string }[];
+      const one = (m: { id: number; method: string }) => {
+        seen.push(m.method);
+        return { jsonrpc: '2.0', id: m.id, result: m.method === 'eth_chainId' ? '0x1' : '0x0' };
+      };
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify(Array.isArray(msg) ? msg.map(one) : one(msg)));
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+  const port = (server.address() as { port: number }).port;
+  const names = ['DEPLOYER_PRIVATE_KEY', 'BASE_RPC_URL'];
+  const old = names.map((n) => process.env[n]);
+  process.env.DEPLOYER_PRIVATE_KEY = DEPLOYER_KEY;
+  process.env.BASE_RPC_URL = `http://127.0.0.1:${port}`;
+  try {
+    const chain = viemDeployChain('base')!;
+    await assert.rejects(chain.estimate({ data: '0x6000', from: DEPLOYER }), /RPC chain id 1, expected 8453/);
+    assert.deepEqual(seen, ['eth_chainId'], 'nothing else was read');
+  } finally {
+    names.forEach((n, i) => (old[i] === undefined ? delete process.env[n] : (process.env[n] = old[i])));
+    await new Promise((r) => server.close(r));
+  }
+});
+
+test('fix round 2 (N5): an ETH price outside $500 to $20,000 is refused; Arc is $1', async () => {
+  assert.deepEqual(ETH_USD_BAND, { min: 500, max: 20_000 });
+  assert.equal(await nativeUsd('base', async () => 3_000), 3_000);
+  assert.equal(await nativeUsd('base', async () => 500), 500);
+  assert.equal(await nativeUsd('base', async () => 20_000), 20_000);
+  for (const bad of [499.99, 20_000.01, 300, 0, NaN, Infinity])
+    await assert.rejects(nativeUsd('base', async () => bad), /outside the trusted band/, String(bad));
+  assert.equal(await nativeUsd('arc', async () => { throw new Error('never read'); }), 1);
+});
+
+test('fix round 2 (N5): a deploy priced with an ETH price outside the band is refused before sending', dbTest, () =>
+  withDeployer(async () => {
+    const s = await setup();
+    const { chain, calls } = fakeChain();
+    const out = await deployForBuilder(call(s), deps(chain, { usdPerNative: (c) => nativeUsd(c, async () => 300) }));
+    assert.equal(out.status, 'unavailable');
+    assert.equal(out.show_to_builder, DEPLOY_LINES.lowBalance);
+    assert.equal(calls.send.length, 0);
+    assert.equal((await rowsOf(s.repoKey)).length, 0);
+  }),
+);

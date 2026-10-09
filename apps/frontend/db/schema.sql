@@ -947,6 +947,8 @@ CREATE TABLE IF NOT EXISTS contract_deploys (
   address         text,
   status          text NOT NULL CHECK (status IN ('sent', 'deployed', 'reverted', 'unknown')),
   owner_ok        boolean,
+  -- fix round 2 (N2): the constructor created contracts; this builder_key deploys no more.
+  blocked         boolean NOT NULL DEFAULT false,
   cost_micro_usd  bigint NOT NULL,
   created_at      timestamptz NOT NULL DEFAULT now()
 );

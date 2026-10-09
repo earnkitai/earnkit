@@ -3511,7 +3511,7 @@ the v2.9 handler a behaviour lives in; this table maps them.
   (no `@/` paths) can load it; test 9.7 posts to `POST` with a real installation token.
 
 
-## EarnKit deploys the builder's contract (v2.10 item 13, Task 10; R18, R19, P9, P16, H11)
+## EarnKit deploys the builder's contract (v2.10 item 13, Task 10; R18, R19, P9, P16, H11, H12)
 
 `prepare` with `deploy: { chain: 'arc' | 'base', bytecode, abi, constructor_args?, owner_wallet? }`
 deploys the builder's own compiled artifact from EarnKit's deployer, paying the gas (cents), with the
@@ -3525,7 +3525,8 @@ builder as the owner. The agent compiles; EarnKit never builds code or verifies 
   `reply.deploy` is `{ address, chain, owner_ok }` for the agent (who puts the address in
   `contracts`), or `{ <status>: line }`. The address appears in builder text only in the deployed
   line ("TipJar is deployed on Arc: 0x12ab…9f3e. You're the owner.").
-- **Who the builder is (fix round 1, I6).** `contract_deploys.builder_key` and the day window's key:
+- **Who the builder is (fix round 1, I6; fix round 2, N6).** A failed read of the installation's
+  login refuses the deploy ("Deploys are paused right now."), never a fresh `installation:<id>` key. `contract_deploys.builder_key` and the day window's key:
   the verified login (a shared client's caller from `signed_in`; off a shared client the
   installation's last verified login, `github-verify.ts installationLogin`), else
   `installation:<id>`, and only a shared client with no login falls back to the repo key (it is
@@ -3538,17 +3539,20 @@ builder as the owner. The agent compiles; EarnKit never builds code or verifies 
   4. `enforce('deployDay', '<builder_key>:<chain>')` (1 a day per chain, atomic, before any chain
      read, so a race sends once);
   5. under `pg_advisory_xact_lock` per builder, the 30-day count over `contract_deploys` (3; P16:
-     never a rate window) and a reserved row (`status 'sent'`, `tx_hash ''`);
+     never a rate window), a builder with a `blocked` row refused ("I can't deploy for you any more.",
+     fix round 2 N2), and a reserved row (`status 'sent'`, `tx_hash ''`);
   6. `takeFreeTier('deploysDay', 1)` (20 a day in total);
-  7. **the simulated runtime (fix round 1, I4):** an `eth_call` of the creation returns the code the
-     chain would store; `runtimeRefusal` refuses over 24,576 bytes (EIP-170), the three ERC-20
+  7. **the simulated runtime (fix round 1, I4):** after the estimate (step 8), an `eth_call` of the
+     creation with the estimate's gas and fee cap (fix round 2, N3: as the send will carry them)
+     returns the code the chain would store; `runtimeRefusal` refuses over 24,576 bytes (EIP-170), the three ERC-20
      selectors, and any CREATE or CREATE2 opcode (factories; PUSH data and Solidity's CBOR metadata
      are skipped). Proxies (DELEGATECALL) stay allowed: a contract upgraded to a token later is a risk
      the owner accepts;
   8. `estimate` (gas limit = estimate x 1.2; the RPC's chain id must match; on Base the L1 data fee
      from the GasPriceOracle predeploy, `viem/op-stack estimateL1Fee`, for the creation plus one
      transfer, fix round 1 I2) and the price (Base: DefiLlama `coingecko:ethereum`; Arc: USDC at $1;
-     both 18 native decimals; a failed price read refuses, R18; M6: a deploy over 100,000 gas priced
+     both 18 native decimals; a failed price read, or an ETH price outside $500 to $20,000
+     (`ETH_USD_BAND`, fix round 2 N5), refuses, R18; M6: a deploy over 100,000 gas priced
      under 100 micro-USD refuses, as the decimals must be wrong);
   9. **the upper bound (fix round 1, C1):** `gas x maxFeePerGas + TRANSFER_GAS (100,000) x
      maxFeePerGas + 2 x L1 fee`. Over $0.25 refuses ("high"); the deployer's balance under it refuses
@@ -3574,6 +3578,9 @@ builder as the owner. The agent compiles; EarnKit never builds code or verifies 
   - `owner_ok` is false when the deployer is still owner or admin, when another address owns it, or
     when a probe failed (an RPC error, not a revert). It is true when `owner()` is the builder, and
     null when neither function exists.
+  - **The nonce (fix round 2, N2).** The new contract's nonce is read. Above 1 means its constructor
+    created contracts (EIP-161): `owner_ok` false, the row `blocked` (that `builder_key` deploys no
+    more), and no cache pass. A failed nonce read can't confirm it: `owner_ok` false, not blocked.
   - Then `verify.ts markDeployed` writes a fresh `getcode:<chain>:<addr>` pass, so the entry's A5
     check counts the contract as deployed (never as users).
   - The row becomes `deployed`, with `cost_micro_usd` = the deploy's and the transfer's gas plus
@@ -3627,11 +3634,23 @@ builder as the owner. The agent compiles; EarnKit never builds code or verifies 
 4. Before the first Arc deploy, confirm on docs.arc.io that the chain id is 5042, that the native
    balance uses 18 decimals (the pricing assumes it; M6 refuses an absurdly cheap price) and that Arc
    supports EIP-1559 fees (otherwise every Arc estimate fails and nothing is sent).
-5. Accepted risk: a proxy (DELEGATECALL) passes the runtime check, so a builder could later upgrade it
-   to a token whose creator is EarnKit's deployer. Factories (CREATE/CREATE2) are refused.
+5. Accepted risks (Ruling H12), each only the builder's own contract on capped gas EarnKit paid:
+   - a proxy (DELEGATECALL) passes the runtime check, so a builder could later upgrade it to a token
+     whose creator is EarnKit's deployer;
+   - **N1:** a CREATE/CREATE2 reachable inside bytes shaped like Solidity's CBOR metadata tail is
+     skipped by the runtime check, so a hidden-jump factory passes (test "KNOWN LIMIT (Ruling H12,
+     N1)" pins it as a limit, not a goal); a constructor that created contracts is still caught by
+     the nonce check and blocks the builder;
+   - the ERC-20 check looks for literal PUSH4 selectors (a computed selector passes), a contract can
+     CALL an existing factory, and custom admin schemes (an immutable deployer, `admin()`, other
+     roles) read as no owner concept.
+   Plain factories (CREATE/CREATE2 in the runtime) are refused.
+   - **N7 (accepted):** a row left `unknown` keeps its reserve, not its receipt cost; when settling
+     it from the explorer, also correct `cost_micro_usd` if Base's L1 fee ran over the reserve.
 6. `deploy-owner:<id>`: read the contract's `owner()` and `hasRole(0x00…, deployer)`; if the deployer
    still holds a right, renounce it by hand from the deployer key (the code never does). Then
-   `UPDATE contract_deploys SET owner_ok = NULL WHERE id = <id>` to clear the flag (it goes quiet by
+   `UPDATE contract_deploys SET owner_ok = NULL WHERE id = <id>` to clear the flag (a `blocked` row
+   also stops that builder; `SET blocked = false` only after checking what its constructor created) (it goes quiet by
    itself after 24 hours, H11). `deploy-unknown:<id>`: look up `tx_hash` (empty: the send never got a
    hash; check the deployer's nonce on the explorer) and set the row's `status`, `address` and
    `cost_micro_usd` to what happened.
