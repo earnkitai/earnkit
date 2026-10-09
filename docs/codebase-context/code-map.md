@@ -587,6 +587,8 @@ apps/frontend/
                                wallet, for the agent to echo as record_submission's payout_wallet;
                                record_submission never reads the remembered wallet)
     tokens.ts(+test)           tokensFunUrl() (v2.9 T12: TOKENSFUN_API_URL read per call, never at import);
+                               v2.10 item 11: tokenDescription (plain description, else the entry's
+                               one-liner, else "<Name> on Base"; at most 280 characters), deployToken's description;
                                deployToken via tokens.fun /api/v1/deploy (TOKENSFUN_DEPLOY_API_KEY;
                                EARNKIT_TOKENSFUN_TIMEOUT_MS, default 120000): atomic claim
                                (token_url='pending', token_repo_key; refused when another project on
@@ -731,6 +733,10 @@ apps/frontend/
                                v2.8.1 §C11: questionsFor's `wallet` (WALLET_KEY payout_wallet,
                                walletAsk: joined to contact, else its own item, else the last);
                                §C15: the proof-link fix only on a proof field (links, demo, how it works)
+                               v2.10 item 11: PlainKind, plainProblem (addresses, hashes, hex runs,
+                               key: value lists, number dumps, links, length), PLAIN_FIX, PLAIN_NOTE;
+                               preSubmitCheck's not_plain agent fix (tools.ts plainRefusal refuses
+                               confirm_entry, and a campaign's record_submission, while one stands)
     answer-bank.ts(+test)      v2.8 Task 9: projectKey, v2.9 repoKey (owner/repo), readBank, saveBank (table answer_bank,
                                Ruling 6: per installation, never public), saveApplication
                                (projects.application); final review M6: bankKeepsContact, contact

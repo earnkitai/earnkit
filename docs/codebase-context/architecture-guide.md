@@ -1947,6 +1947,20 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
   and the grant's use: one milestone and a date; a claim: the number next to "users"; the proof link
   names its field; a curated criterion), at most 3, never blocking. Agent fixes (`agent_fixes`, never
   shown): a length over a limit the program states, and a proof link the agent already knows.
+- **Plain description fields (v2.10 item 11).** `coach.ts plainProblem(text, kind, limit)` checks
+  the `name`, `one_liner`, `problem`, `solution` and `how_it_works` fields. It flags a raw address
+  (`0x` + 40 hex), a hash (`0x` + 64 hex), a hex run of 16 or more, a `key: value` list, 4 or more
+  numbers in one sentence, and a link. `how_it_works` may hold one link, and so may a field a
+  program's own criterion asks to link. It also flags a text over the form's `max_chars`, else its
+  `limit_words`. A hit is a `not_plain` agent fix with the text `PLAIN_FIX(label)`, and it replaces
+  that field's `over_limit` fix. `prepare_submission` lists it in `agent_fixes` only.
+  `confirm_entry` refuses a go or a skip while any `not_plain` fix stands. It returns only
+  `{ ready: false, agent_fixes, agent_note: PLAIN_NOTE }`, before the rate limit, the entry row and
+  the token flow, and with no builder text (`tools.ts plainRefusal`). Pre-flight P32: an EarnKit
+  campaign is confirmed in `record_submission`, so that tool runs the same check for campaigns.
+  The tokens.fun description is `tokens.ts tokenDescription`: the project's description when it is
+  plain, else the entry's one-liner answer (`projects.application`, kind `one_liner`), else
+  "<Name> on Base". It is cut to 280 characters at a word boundary.
 - **The answer bank** (`answer-bank.ts`, table `answer_bank`, Ruling 6): `confirm_entry` (go or
   skip) banks the final answers per installation, project (`projectKey`: normalized repo, else
   `name:<name>`) and kind; `other` is never banked; a kind with two fields banks the first. Contact
