@@ -4,6 +4,7 @@ import { sql } from './db';
 import { FINAL_GRACE_MS, REVIEW_MS, type CampaignConfig, type EarnKitCampaign } from './campaigns';
 import { scoreCampaignEntries, type ScoreDeps, type ScoreRow } from './campaign-score';
 import { FEE_TTL_MS, launchedCreatorWallets, refreshFees } from './fees';
+import { digestEnabled, sendDigests, type Mailer } from './digest';
 import { cleanDeploys, expireSites, sitesInReview } from './hosting';
 import { bearerMatches, json } from './http';
 import {
@@ -85,6 +86,8 @@ export type CronDeps = {
   stuckLaunches?: (now: Date) => Promise<number[]>;
   /** v2.9 C13: the hosted sites' R2 (default: r2.ts r2Client); with `only`, the step runs only when given. */
   hosting?: { r2?: R2 };
+  /** v2.9 E19: the weekly email's mailer and installations (tests); with `only`, the step runs only when given. */
+  digest?: { mail?: Mailer; only?: number[] };
 };
 
 /** Opens the 48 h review (once: only from 'running') and freezes the payout terms with it. */
@@ -325,6 +328,17 @@ export async function runCron(
       hosting = { step: 'error', note: STEP_FAILED };
     }
   }
+  // v2.9 E19: the weekly email, Mondays from 14:00 UTC (sendDigests decides who is due), within
+  // Resend's free caps, with what is left of the budget. Off without RESEND_API_KEY.
+  let digest: Awaited<ReturnType<typeof sendDigests>> | { step: 'error'; note: string } | undefined;
+  if (digestEnabled() && (!opts.only || deps.digest !== undefined)) {
+    try {
+      digest = await sendDigests(now, { ...deps.digest, budgetMs: Math.max(0, deadline - Date.now()) });
+    } catch (err) {
+      console.error('[cron] digest', err instanceof Error ? err.name : 'error');
+      digest = { step: 'error', note: STEP_FAILED };
+    }
+  }
   // Campaigns whose payout waits on the owner (manual check, changed terms, a wallet short of the
   // prize or of gas, or PAY_FAILED_RUNS failed pay steps in a row): the endpoint answers 503.
   const needs_owner = campaigns
@@ -383,6 +397,7 @@ export async function runCron(
     ...(proofRecheck && { proof_recheck: proofRecheck }),
     fee_wallets: fees,
     ...(hosting && { hosting }),
+    ...(digest && { digest }),
     needs_owner,
   };
 }
