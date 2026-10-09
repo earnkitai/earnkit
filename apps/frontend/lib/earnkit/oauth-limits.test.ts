@@ -227,3 +227,48 @@ test('v2.8.1 §E17, Ruling F11: registration: 50 an hour per IP; a 10,000 a day 
   assert.equal((await register(ip.replace(/^198\.24\./, '198.26.'), ['http://127.0.0.1:3334/callback'])).status, 201);
   await sql()`DELETE FROM rate_windows WHERE key LIKE ${'oauthRegister%' + host + '%'} OR key LIKE ${'oauthRegister:' + ip.replace(/\.\d+\.\d+$/, '') + '%'}`;
 });
+
+test('v2.9 T12 (G0): a known hosted agent\'s servers pass the per-IP floor (counted, logged once); the host ceiling and everyone else\'s floor stay', db, async () => {
+  const ip = `198.29.${process.pid % 250}.${Date.now() % 250}`;
+  const host = `c${process.pid}${Date.now()}.claude.ai`;
+  const uri = `https://${host}/api/mcp/auth_callback`;
+  const register = (uris: string[], client_name?: string) =>
+    registerRoute(
+      new Request('http://localhost/oauth/register', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-real-ip': ip },
+        body: JSON.stringify({ redirect_uris: uris, ...(client_name && { client_name }) }),
+      }),
+    );
+  const warned: string[] = [];
+  const warn = console.warn;
+  console.warn = (...a: unknown[]) => void warned.push(a.map(String).join(' '));
+  try {
+    // 60 users of a hosted agent register and connect from one server IP within the hour.
+    for (let i = 0; i < 60; i++) {
+      const reg = await register([uri]);
+      assert.equal(reg.status, 201, `registration ${i + 1}`);
+      const { client_id } = (await reg.json()) as { client_id: string };
+      const tok = await exchange(ip, freshCode(client_id, uri));
+      assert.equal(tok.status, 200, `install ${i + 1}`);
+    }
+    // Logged once per route when the floor is passed, naming the host only.
+    assert.equal(warned.filter((w) => w.includes('register passed the IP floor') && w.includes(host)).length, 1, warned.join(' | '));
+    assert.equal(warned.filter((w) => w.includes('token passed the IP floor') && w.includes(host)).length, 1, warned.join(' | '));
+    // The same address is still refused for anything else: a desktop agent, an unknown https host,
+    // or a hosted client name with a redirect host that isn't a hosted service.
+    assert.equal((await register(['http://127.0.0.1:3334/callback'])).status, 429);
+    assert.equal((await register(['https://agent.example/cb'])).status, 429);
+    assert.equal((await register(['https://agent.example/cb'], 'Grok')).status, 429);
+    const other = registerClient({ redirect_uris: [redirect], client_name: 'Grok' });
+    assert.equal((await exchange(ip, freshCode(other.client_id))).status, 429);
+    // The host's daily ceiling still refuses.
+    await preload('oauthRegisterHost', `host:${host}`, LIMITS.oauthRegisterHost.limit, 86_400);
+    const day = await register([uri]);
+    assert.equal(day.status, 429);
+    assert.match((await day.json()).error_description, /Too many client registrations from this agent today/);
+  } finally {
+    console.warn = warn;
+  }
+  await sql()`DELETE FROM rate_windows WHERE key LIKE ${'%' + ip} OR key LIKE ${'%' + host + '%'}`;
+});

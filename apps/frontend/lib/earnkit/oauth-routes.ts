@@ -1,7 +1,7 @@
 import { json, readParams } from './http';
 import { installationExists, saveInstallation } from './installations';
-import { OAuthError, authorize, clientLimitKey, exchangeCode, registerClient } from './oauth';
-import { LIMITS, REGISTER_HOST_WARN, RateLimitError, clientIp, enforce } from './rate-limit';
+import { OAuthError, authorize, clientLimitKey, exchangeCode, hostedRedirectHost, registerClient } from './oauth';
+import { LIMITS, REGISTER_HOST_WARN, RateLimitError, clientIp, countHit, enforce } from './rate-limit';
 
 // The OAuth register, token and authorize endpoints; app/oauth/{register,token,authorize}/route.ts re-export them.
 const TOO_MANY = 'Too many new EarnKit connections from this address.';
@@ -24,16 +24,30 @@ export function logNearCeiling(key: string) {
   console.warn(`[oauth] register near the daily ceiling of ${LIMITS_HOST} (${host})`);
 }
 
+/**
+ * The per-IP abuse floor (`installHour` or `oauthRegister`). v2.9 T12 (G0): a client whose redirect
+ * host is a known hosted service (`hostedHost`) runs on that service's servers, so many builders
+ * share a few IPs: its hit is counted but never refused, and passing the floor is logged once per
+ * window with the host only. Its host-level ceiling (oauthRegisterHost) still applies; every other
+ * client is refused at the floor, as before.
+ */
+async function ipFloor(name: 'installHour' | 'oauthRegister', ip: string, what: string, hostedHost: string | null, route: string) {
+  if (!hostedHost) return void (await enforce(name, ip, what));
+  const { limit, windowSeconds } = LIMITS[name];
+  if ((await countHit(`${name}:${ip}`, windowSeconds)) === limit + 1) console.warn(`[oauth] ${route} passed the IP floor for a hosted agent (${hostedHost}); not refused`);
+}
+
 export async function tokenPost(request: Request) {
   try {
-    const { token, clientKey, shared, limitKey } = exchangeCode(await readParams(request));
+    const { token, clientKey, shared, limitKey, hostedHost } = exchangeCode(await readParams(request));
     // Only a client's first token counts (v2.2 §5): a replayed code, or re-authorizing a known
     // client (v2.4 §5), is free. v2.8.1 §E17, Ruling F11: 500 a day per registration (client id; a
-    // hosted agent's users each register their own), and 50 an hour per IP as the abuse floor.
+    // hosted agent's users each register their own), and 50 an hour per IP as the abuse floor
+    // (v2.9 T12, G0: counted, not refused, for a known hosted service's redirect host).
     if (!(await installationExists(token, clientKey))) {
       const ip = clientIp(request.headers);
       try {
-        await enforce('installHour', ip, TOO_MANY);
+        await ipFloor('installHour', ip, TOO_MANY, hostedHost, 'token');
       } catch (err) {
         if (err instanceof RateLimitError) logLimited('token', 'installHour', limitKey);
         throw err;
@@ -96,7 +110,9 @@ export async function registerPost(request: Request) {
     // v2.8.1 §E17, Ruling F11: 50 an hour per IP (the abuse floor: client ids are free, but each is
     // a signed record), and a 10,000 a day ceiling per agent app (its https redirect host), logged at
     // 8,000 so the owner sees it before it refuses. A desktop agent (loopback redirect) has only the IP floor.
-    await enforce('oauthRegister', clientIp(request.headers), 'Too many client registrations from this address.');
+    // v2.9 T12 (G0): a known hosted service's redirect host passes the IP floor (counted, logged).
+    const uriList = Array.isArray(uris) ? uris.filter((u): u is string => typeof u === 'string') : [];
+    await ipFloor('oauthRegister', clientIp(request.headers), 'Too many client registrations from this address.', hostedRedirectHost(uriList), 'register');
     if (key) {
       limit = 'oauthRegisterHost';
       const r = await enforce('oauthRegisterHost', key, 'Too many client registrations from this agent today.');
