@@ -874,3 +874,14 @@ CREATE TABLE IF NOT EXISTS free_tier_usage (
   used   integer NOT NULL DEFAULT 0,
   PRIMARY KEY (name, period)
 );
+
+-- v2.9 E19: the weekly email, opt-in only (digest.ts). Never shown publicly.
+CREATE TABLE IF NOT EXISTS digest_subscriptions (
+  installation_id    integer PRIMARY KEY REFERENCES installations(id) ON DELETE CASCADE,
+  email              text NOT NULL CHECK (length(email) <= 254),
+  opted_in_at        timestamptz,
+  unsubscribed_at    timestamptz,
+  last_sent_at       timestamptz,
+  last_considered_at timestamptz
+);
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS digest_asked_at timestamptz;
