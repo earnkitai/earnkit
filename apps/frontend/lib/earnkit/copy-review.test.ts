@@ -48,7 +48,7 @@ import {
   yesLine,
 } from './confirm';
 import { CONFIRM_WARNING, VERIFY_PAGE, codeLine, confirmPage } from './github-verify';
-import { AGENT_FILL_STEPS, continuesLine, kitAgentNote, submitKit, type KitProgram } from './submit-kit';
+import { AGENT_FILL_STEPS, continuesLine, kitReplyNote, submitKit, type KitProgram } from './submit-kit';
 import {
   confirmToken,
   decideToken,
@@ -718,7 +718,7 @@ const kitTexts: [string, string][] = kitPrograms.flatMap(([mode, p, browser]): [
 ]);
 const kitAgentTexts: [string, string][] = [
   ...AGENT_FILL_STEPS.map((s, i): [string, string] => [`AGENT_FILL_STEPS[${i}]`, s]),
-  ...kitPrograms.map(([mode, p, browser]): [string, string] => [`kitAgentNote ${mode}`, kitAgentNote(submitKit(p, kitAnswers, { browser }), p)]),
+  ...kitPrograms.map(([mode, p, browser]): [string, string] => [`kitReplyNote ${mode}`, kitReplyNote(submitKit(p, kitAnswers, { browser }), p)]),
 ];
 
 test('Task 10: every kit mode has its own builder text, ending with the proof ask', () => {
