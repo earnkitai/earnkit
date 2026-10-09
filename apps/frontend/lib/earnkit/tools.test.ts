@@ -22,6 +22,7 @@ import { offerKey, readOffer, saveOffer } from './token-offers';
 import { proposeToken } from './token-proposal';
 import { LaunchError, NOT_LAUNCHED_YET, STUCK_LAUNCH_MS, deployToken, stuckLaunches } from './tokens';
 import { runCron } from './cron';
+import { wonSource } from './stats';
 import { EMAIL_NOTE, EMAIL_ON, EMAIL_QUESTION, WHICH_EMAIL, emailQuestionFor } from './digest';
 import { CANT_PUSH, NO_WALLET_HINT, confirmOffer, proofLineWaiting } from './confirm';
 import { completeVerify, createVerifyLink, formatCode } from './github-verify';
@@ -3481,3 +3482,21 @@ test('10.8 without RESEND_API_KEY the question is never asked and a yes saves no
       assert.equal(await subscription(t.inst), null);
     }, false),
   ));
+
+test('10.11 list_programs: "Builders using EarnKit won $X" once, right after the headline; absent at 0', dbTest, async () => {
+  const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`won-${process.pid}-${Date.now()}`}) RETURNING id`;
+  const read = wonSource.read;
+  try {
+    wonSource.read = async () => 12_500;
+    const r = (await tools.list_programs({}, { installationId: id, roundPoolsWei: async () => new Map() })) as { show_to_builder: string };
+    const paras = r.show_to_builder.split('\n\n');
+    assert.match(paras[0], /in prizes open right now\. Builders using EarnKit won \$12,500\.$/);
+    assert.equal(r.show_to_builder.split('Builders using EarnKit won').length, 2, 'once');
+    wonSource.read = async () => 0;
+    const none = (await tools.list_programs({}, { installationId: id, roundPoolsWei: async () => new Map() })) as { show_to_builder: string };
+    assert.doesNotMatch(none.show_to_builder, /Builders using EarnKit|won \$0/);
+  } finally {
+    wonSource.read = read;
+    await sql()`DELETE FROM installations WHERE id = ${id}`;
+  }
+});

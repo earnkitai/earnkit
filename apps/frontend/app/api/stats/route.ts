@@ -14,10 +14,11 @@ import { readStats } from '@/lib/earnkit/stats';
  * "+"); `open_money_usd` stays the per-winner sum. v2.8 Part G: `labelled_entries` (entries with
  * a published result) and `entries_won` (won or placed), announcement-sourced only, never a
  * self-report or a test installation's entry. No win-rate claim until 30 labelled entries.
+ * v2.9 E20: `builders_won_usd`, the prizes of announced won or placed outcomes (same exclusions).
  */
 export const revalidate = 600;
 
-const cachedStats = unstable_cache(() => readStats(), ['public-stats-v28'], { revalidate: 600 });
+const cachedStats = unstable_cache(() => readStats(), ['public-stats-v29'], { revalidate: 600 });
 
 export async function GET() {
   try {

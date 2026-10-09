@@ -5,7 +5,7 @@ import { bonusCell, daysLeftText, NO_CELL, type Card } from './present';
 import { eachLine, openFigure } from './pool';
 import { getProgramRow, guideBonus, isOpen, listPrograms, NotFoundError } from './programs';
 import { boardSlug, roundFor, roundPoolsWei } from './bonus-rounds';
-import { readStats, type PublicStats } from './stats';
+import { readStats, wonLine, type PublicStats } from './stats';
 import { sql } from './db';
 
 /**
@@ -53,6 +53,8 @@ export type Landing = {
   tiles: Tile[];
   /** v2.7.1: "312 agents earning · 0.42 ETH builder bonus paid", or null below both thresholds. */
   stats_line: string | null;
+  /** v2.9 E20: "Builders using EarnKit won $12,500" under the stats line, or null (no announced win with a prize). */
+  won_line: string | null;
 };
 
 /**
@@ -129,6 +131,7 @@ export function landingFrom(cards: Card[], pools: Map<string, bigint | null>, st
     open_text: openFigure(kept),
     tiles,
     stats_line: statsLine(stats),
+    won_line: wonLine(stats.builders_won_usd),
   };
 }
 

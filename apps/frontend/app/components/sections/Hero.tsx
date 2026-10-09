@@ -12,10 +12,11 @@ export const HERO_SUBTITLE = 'Find live programs. EarnKit matches your projects 
 
 /**
  * v2.8 Part A: the "Agents only" pill (Ruling C3), the title, the subtitle, the builder bonus pill (to How you earn, step 3), the
- * install and demo buttons, and one short stats line once there is something to show. Nothing
+ * install and demo buttons, one short stats line once there is something to show, and (v2.9 E20) the
+ * "Builders using EarnKit won $X" line under it once an announced win exists. Nothing
  * else: the pool figure heads the Open programs section, next to the cards it adds up.
  */
-export default function Hero({ statsLine = null }: { statsLine?: string | null }) {
+export default function Hero({ statsLine = null, wonLine = null }: { statsLine?: string | null; wonLine?: string | null }) {
   const [open, setOpen] = useState(false);
   const [installOpen, setInstallOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
@@ -82,6 +83,10 @@ export default function Hero({ statsLine = null }: { statsLine?: string | null }
 
         {statsLine && (
           <p className="mt-8 font-funnel-sans text-sm text-ek-blue-soft md:text-base">{statsLine}</p>
+        )}
+        {/* v2.9 E20: only once an announced win with a prize exists (never "$0"). */}
+        {wonLine && (
+          <p className={`${statsLine ? 'mt-2' : 'mt-8'} font-funnel-sans text-sm text-ek-blue-soft md:text-base`}>{wonLine}</p>
         )}
       </motion.div>
 
