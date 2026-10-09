@@ -578,6 +578,9 @@ export async function deploySite(
   const flagged = flags.length > 0;
 
   const reserved = await sql().begin(async (tx) => {
+    // Bounded: a stuck holder or a slow statement fails this deploy instead of hanging every route.
+    await tx`SET LOCAL lock_timeout = '10s'`;
+    await tx`SET LOCAL statement_timeout = '15s'`;
     await tx`SELECT pg_advisory_xact_lock(hashtext('earnkit-hosting'))`;
     const taken = await slugProblem(tx, t.slug, t.repo_key);
     if (taken) return { line: taken, status: 409 };
