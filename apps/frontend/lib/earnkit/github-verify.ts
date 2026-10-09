@@ -444,6 +444,17 @@ export async function callerLogin(installationId: number, signedIn: string | nul
   return row?.login ?? null;
 }
 
+/**
+ * v2.10 fix round 1 (I6): the GitHub login this (non-shared) installation last verified with, or null:
+ * a deploy's per-builder limits count by it.
+ */
+export async function installationLogin(installationId: number): Promise<string | null> {
+  const [row] = await sql()<{ login: string }[]>`
+    SELECT login FROM github_verifications WHERE installation_id = ${installationId}
+    ORDER BY verified_at DESC, id DESC LIMIT 1`;
+  return row?.login ?? null;
+}
+
 /** Ruling G7: the entries of this installation a login verified (a shared client shows only these). */
 export async function verifiedEntryIds(installationId: number, login: string): Promise<number[]> {
   const rows = await sql()<{ project_id: number }[]>`

@@ -93,7 +93,7 @@ import { tokenLineFor } from './token-gate';
 import { READY_TO_SUBMIT, confirmDecision, confirmOffer, proofLineWaiting, signInLine, walletQuestion, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
 import { HOST_LINES, UPLOAD_NOTE, hostSignInLine, issueUpload, refreshSiteExpiry } from './hosting';
 import { r2Enabled } from './r2';
-import { callerLogin, createVerifyLink, entryVerifyLink, githubVerifyEnabled, verifiedEntryIds } from './github-verify';
+import { callerLogin, createVerifyLink, entryVerifyLink, githubVerifyEnabled, installationLogin, verifiedEntryIds } from './github-verify';
 import { appTokenFor, githubAppEnabled } from './github-app';
 import { PROOF_LINE_PREFIX, SIGN_IN_FIRST, WALLET_CHANGED } from './token-gate';
 import { kitReplyNote, submitKit, type SubmitKit } from './submit-kit';
@@ -2193,7 +2193,11 @@ async function deployStep(
     const line = deployWalletLine(name);
     return { line, deploy: { needs_wallet: line }, agent_note: 'Pass deploy.owner_wallet with the wallet the builder sends.' };
   }
-  const login = ctx.sharedClient ? await sharedLogin(ctx, prep.signed_in, 'prepare') : null;
+  // Fix round 1 (I6): a shared client's caller login; else the installation's verified login (limits only).
+  const shared = ctx.sharedClient === true;
+  const login = shared
+    ? await sharedLogin(ctx, prep.signed_in, 'prepare')
+    : await installationLogin(ctx.installationId).catch(() => null);
   const input: DeployInput = {
     chain: d.chain,
     bytecode: d.bytecode as `0x${string}`,
@@ -2201,7 +2205,7 @@ async function deployStep(
     ...(d.constructor_args && { constructor_args: d.constructor_args }),
   };
   const out = await deployForBuilder(
-    { installationId: ctx.installationId, login, repoKey: `${gh.owner}/${gh.repo}`, projectName: name, builderWallet: wallet as `0x${string}`, input },
+    { installationId: ctx.installationId, login, shared, repoKey: `${gh.owner}/${gh.repo}`, projectName: name, builderWallet: wallet as `0x${string}`, input },
     ctx.deployDeps,
   );
   if (out.status === 'deployed')

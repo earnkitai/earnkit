@@ -436,11 +436,19 @@ export async function runCron(
 }
 
 /**
+ * Ruling H11: a needs_owner line with this suffix is listed without the 503 (no hourly alert).
+ * cronPost answers 503 only for lines without it.
+ */
+export const QUIET_OWNER = ':quiet';
+
+/**
  * v2.10 item 13 (R18): while deploys are on, the deployer's balance on Arc and Base (one read each),
- * priced like a deploy; under one capped deploy's worth ($0.25, or no price) adds
- * `deployer-gas:<chain>` (note TOP_UP: the owner tops it up by hand). Always: the last 7 days'
- * deploys whose owner isn't the builder (`deploy-owner:<id>`) or whose outcome is unknown
- * (`deploy-unknown:<id>`, including a reservation left 'sent' over 10 minutes).
+ * priced like a deploy; under one capped deploy's worth ($0.25) adds `deployer-gas:<chain>` (note
+ * TOP_UP: the owner tops it up by hand); a failed price or balance read adds `deployer-price:<chain>`
+ * (note PRICE_UNKNOWN, fix round 1 M3). Always: the last 7 days' deploys whose owner isn't the builder
+ * (`deploy-owner:<id>`) or whose outcome is unknown (`deploy-unknown:<id>`, including a reservation
+ * left 'sent' over 10 minutes). Ruling H11: a deploy flag alerts (503) for its first 24 hours, then
+ * stays listed with QUIET_OWNER.
  */
 export async function deployerGas(now: Date, deps: Pick<DeployDeps, 'chain' | 'usdPerNative'> = {}) {
   const needs_owner: string[] = [];
@@ -458,16 +466,17 @@ export async function deployerGas(now: Date, deps: Pick<DeployDeps, 'chain' | 'u
         if (low) needs_owner.push(`deployer-gas:${c}`);
       } catch (err) {
         console.error('[cron] deployer gas', c, err instanceof Error ? err.name : 'error');
-        deployer_gas[c] = { note: 'TOP_UP' };
-        needs_owner.push(`deployer-gas:${c}`);
+        deployer_gas[c] = { note: 'PRICE_UNKNOWN' };
+        needs_owner.push(`deployer-price:${c}`);
       }
     }
-  const rows = await sql()<{ id: number; unknown: boolean }[]>`
-    SELECT id, (status = 'unknown' OR status = 'sent') AS unknown FROM contract_deploys
+  const rows = await sql()<{ id: number; unknown: boolean; fresh: boolean }[]>`
+    SELECT id, (status = 'unknown' OR status = 'sent') AS unknown, created_at > ${new Date(now.getTime() - 86_400_000)} AS fresh
+    FROM contract_deploys
     WHERE created_at > ${new Date(now.getTime() - 7 * 86_400_000)}
       AND (owner_ok = false OR status = 'unknown' OR (status = 'sent' AND created_at < ${new Date(now.getTime() - 10 * 60_000)}))
     ORDER BY id`;
-  for (const r of rows) needs_owner.push(r.unknown ? `deploy-unknown:${r.id}` : `deploy-owner:${r.id}`);
+  for (const r of rows) needs_owner.push(`${r.unknown ? 'deploy-unknown' : 'deploy-owner'}:${r.id}${r.fresh ? '' : QUIET_OWNER}`);
   return { deployer_gas, needs_owner };
 }
 
@@ -493,7 +502,8 @@ export function bonusWaitsOnOwner(bonus: Record<string, unknown> | undefined) {
 /**
  * POST /api/cron (app/api/cron/route.ts calls it): rate limited per IP, then Bearer CRON_SECRET
  * compared in constant time, then the jobs. 200 normally; 503 (same body) when a campaign's payout
- * waits on the owner (`needs_owner`), so the GitHub Actions run fails and GitHub emails the owner.
+ * waits on the owner (`needs_owner`, except QUIET_OWNER lines, Ruling H11), so the GitHub Actions run
+ * fails and GitHub emails the owner.
  * `deps` for tests.
  */
 export async function cronPost(
@@ -514,9 +524,11 @@ export async function cronPost(
   try {
     const out = await (deps.run ?? (() => runCron()))();
     const stuck = (out as { needs_owner?: unknown } | null)?.needs_owner;
+    // Ruling H11: a quiet line is listed, never a 503.
+    const alerting = Array.isArray(stuck) && stuck.some((k) => !String(k).endsWith(QUIET_OWNER));
     // The ledger reports block numbers as bigints; Response.json can't serialize them.
     const plain: unknown = JSON.parse(JSON.stringify(out, (_k, v: unknown) => (typeof v === 'bigint' ? v.toString() : v)));
-    return json(plain, Array.isArray(stuck) && stuck.length > 0 ? 503 : 200);
+    return json(plain, alerting ? 503 : 200);
   } catch (err) {
     console.error('[cron]', err);
     return json({ error: 'The cron run failed; see the server log.' }, 500);

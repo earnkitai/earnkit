@@ -3511,7 +3511,7 @@ the v2.9 handler a behaviour lives in; this table maps them.
   (no `@/` paths) can load it; test 9.7 posts to `POST` with a real installation token.
 
 
-## EarnKit deploys the builder's contract (v2.10 item 13, Task 10; R18, R19, P9, P16)
+## EarnKit deploys the builder's contract (v2.10 item 13, Task 10; R18, R19, P9, P16, H11)
 
 `prepare` with `deploy: { chain: 'arc' | 'base', bytecode, abi, constructor_args?, owner_wallet? }`
 deploys the builder's own compiled artifact from EarnKit's deployer, paying the gas (cents), with the
@@ -3525,49 +3525,93 @@ builder as the owner. The agent compiles; EarnKit never builds code or verifies 
   `reply.deploy` is `{ address, chain, owner_ok }` for the agent (who puts the address in
   `contracts`), or `{ <status>: line }`. The address appears in builder text only in the deployed
   line ("TipJar is deployed on Arc: 0x12ab…9f3e. You're the owner.").
-- **Order and caps (Review Focus 3).** on (`deployEnabled`) -> `deployRefusal` (payable constructor;
-  bytecode PUSH4-ing all of `transfer`, `approve`, `totalSupply`; initcode over 49,152 bytes after the
-  constructor args; bad hex or args) -> `token-gate.ts repoOwnershipPasses` (R19) ->
-  `enforce('deployDay', '<login or repo key>:<chain>')` (1 a day per chain, atomic, before any chain
-  read, so a race sends once) -> under `pg_advisory_xact_lock` per builder, the 30-day count over
-  `contract_deploys` (3; P16: never a rate window) and a reserved row (`status 'sent'`, `tx_hash ''`)
-  -> `takeFreeTier('deploysDay', 1)` (20 a day in total) -> `estimate` (gas limit = estimate x 1.2)
-  and the price (Base: DefiLlama `coingecko:ethereum`; Arc: USDC at $1; both 18 native decimals; a
-  failed price read refuses, R18) -> upper bound `gas x maxFeePerGas` over $0.25 refuses -> the
-  deployer's balance under the upper bound refuses ("Deploys are paused right now.", the cron raises
-  TOP_UP) -> `takeFreeTier('deployGasMonth', upperMicroUsd)` ($10 a month) -> `send` (no `to`, no
-  `value`). Any refusal before the send deletes the reservation and gives back the day slot and the
-  reserve (the per-builder day window stays taken).
-- **After the send.** The row gets the hash. The receipt is awaited within 30 s of the call's start.
-  None (or a send that threw): `status 'unknown'`, the whole reserve stays counted, the builder reads
-  "The deploy is still going. It can take a few minutes." and the agent gets the hash; the per-day
-  limit stops a retry from sending again. Reverted: `failed`, the gas used is counted, no other call.
-  Success: the runtime code over 24,576 bytes is "too big" (`owner_ok false`, no cache pass);
-  otherwise the owner step (an ABI with `owner()`: if it returns the deployer and the ABI has
-  `transferOwnership(address)`, one call to it, then read again; `owner_ok` is whether it is the
-  builder; no `owner()`: null), then `verify.ts markDeployed` (a fresh `getcode:<chain>:<addr>` pass,
-  so the entry's A5 check counts it as deployed, never as users), and the row `deployed` with
-  `cost_micro_usd` = gas used (deploy plus transfer) in micro-USD; the reserve's rest is given back.
-- **The key.** `deployerAccount` (64 hex, with or without 0x; errors name the shape only). It refuses
-  to start (`deployEnabled` false, one log line) when its address equals `CAMPAIGN_PAYOUT_PRIVATE_KEY`,
-  `PAYOUT_PRIVATE_KEY`, `OPERATOR_PRIVATE_KEY` or `GUARDIAN_PRIVATE_KEY`'s. Only deploy.ts reads it; it
-  signs only creations and `transferOwnership`. Sends are queued in-process so two deploys never
-  share a nonce.
-- **Ownership (R19, `repoOwnershipPasses`).** A launch's proof minus the wallet binding: a
-  `github_verifications` row for this installation and repo (sign-in rows while sign-in is on, App
-  rows while the App is on; P11: only here and `appTokenFor` read App rows), else this agent's
-  `token: <code>` line in earnkit.txt (default branch, then the most recently pushed one). On a shared
-  client only the caller's own `signed_in` login counts and the proof line never does (G7, G10).
-- **Cron (`cron.ts deployerGas`, inside the hourly run).** While deploys are on: each chain's
-  balance, read once, priced as above; under $0.25 (or no price) adds `deployer-gas:<chain>` to
-  `needs_owner` (`deployer_gas.<chain>.note = 'TOP_UP'`). Always: rows of the last 7 days with
-  `owner_ok = false` (`deploy-owner:<id>`) or `status 'unknown'`, or a reservation still `sent` after
-  10 minutes (`deploy-unknown:<id>`).
-- **Tests.** `deploy.test.ts` (10.1 to 10.10, a fake `DeployChain`, DB-gated); `tools.test.ts` 10.11;
-  `cron.test.ts` 10.12; `free-tier.test.ts`; `deploy.anvil.test.ts` runs the real viem chain on a
-  fresh anvil (`anvil --port 8573 --chain-id 8453`, `DEPLOY_ANVIL_URL=http://127.0.0.1:8573`) with
-  `contracts/test/mocks/DeployMocks.sol OwnedTipJar`: one creation and one transfer, both value 0,
-  the balance falls by their gas only.
+- **Who the builder is (fix round 1, I6).** `contract_deploys.builder_key` and the day window's key:
+  the verified login (a shared client's caller from `signed_in`; off a shared client the
+  installation's last verified login, `github-verify.ts installationLogin`), else
+  `installation:<id>`, and only a shared client with no login falls back to the repo key (it is
+  refused by the ownership check anyway). One builder with many repos gets the same limits.
+- **Order and caps (Review Focus 3).**
+  1. on (`deployEnabled`);
+  2. `deployRefusal` on the initcode (payable constructor; all of `transfer`/`approve`/`totalSupply`
+     PUSH4ed; over 49,152 bytes after the constructor args; bad hex or args);
+  3. `token-gate.ts repoOwnershipPasses` (R19);
+  4. `enforce('deployDay', '<builder_key>:<chain>')` (1 a day per chain, atomic, before any chain
+     read, so a race sends once);
+  5. under `pg_advisory_xact_lock` per builder, the 30-day count over `contract_deploys` (3; P16:
+     never a rate window) and a reserved row (`status 'sent'`, `tx_hash ''`);
+  6. `takeFreeTier('deploysDay', 1)` (20 a day in total);
+  7. **the simulated runtime (fix round 1, I4):** an `eth_call` of the creation returns the code the
+     chain would store; `runtimeRefusal` refuses over 24,576 bytes (EIP-170), the three ERC-20
+     selectors, and any CREATE or CREATE2 opcode (factories; PUSH data and Solidity's CBOR metadata
+     are skipped). Proxies (DELEGATECALL) stay allowed: a contract upgraded to a token later is a risk
+     the owner accepts;
+  8. `estimate` (gas limit = estimate x 1.2; the RPC's chain id must match; on Base the L1 data fee
+     from the GasPriceOracle predeploy, `viem/op-stack estimateL1Fee`, for the creation plus one
+     transfer, fix round 1 I2) and the price (Base: DefiLlama `coingecko:ethereum`; Arc: USDC at $1;
+     both 18 native decimals; a failed price read refuses, R18; M6: a deploy over 100,000 gas priced
+     under 100 micro-USD refuses, as the decimals must be wrong);
+  9. **the upper bound (fix round 1, C1):** `gas x maxFeePerGas + TRANSFER_GAS (100,000) x
+     maxFeePerGas + 2 x L1 fee`. Over $0.25 refuses ("high"); the deployer's balance under it refuses
+     ("Deploys are paused right now.", the cron raises TOP_UP);
+  10. `takeFreeTier('deployGasMonth', upper)` ($10 a month);
+  11. `send` (no `to`, no `value`).
+  Any refusal before the send deletes the reservation and gives back the day total and the reserve
+  (the per-builder day window stays taken: "try tomorrow").
+- **After the send (fix round 1, I3).** A local `sendAttempted` is set just before `send`. From then
+  on nothing is deleted or given back, whatever fails, even a DB write. The row gets the hash. The
+  receipt is awaited within 30 s of the call's start.
+  - No receipt, or a DB error after the send: `status 'unknown'`, the whole reserve stays counted,
+    "The deploy is still going. It can take a few minutes.", and the agent gets the hash.
+  - A send that throws: `unknown` and "I couldn't confirm the deploy. EarnKit is checking it." (M1).
+  - In both cases the day limit stops a retry from sending again.
+  - Reverted: `failed`, and the gas used (plus the receipt's `l1Fee`) is counted.
+  - Success: the stored code is checked again with `runtimeRefusal`. A mismatch is flagged
+    (`owner_ok false`, no cache pass). Then the owner step runs.
+- **The owner step (fix round 1, I5).** Raw probes with EarnKit's own ABIs, never the builder's:
+  - It reads `owner()`. When that returns the deployer, it sends one `transferOwnership(builder)`,
+    capped at `TRANSFER_GAS` gas and the deploy's fee cap, then reads `owner()` again.
+  - Then it reads `hasRole(DEFAULT_ADMIN_ROLE, deployer)`.
+  - `owner_ok` is false when the deployer is still owner or admin, when another address owns it, or
+    when a probe failed (an RPC error, not a revert). It is true when `owner()` is the builder, and
+    null when neither function exists.
+  - Then `verify.ts markDeployed` writes a fresh `getcode:<chain>:<addr>` pass, so the entry's A5
+    check counts the contract as deployed (never as users).
+  - The row becomes `deployed`, with `cost_micro_usd` = the deploy's and the transfer's gas plus
+    their L1 fees.
+  - The rest of the reserve is given back. An overage is always added (`free-tier.ts
+    forceFreeTier`), even past the ceiling, so the next deploy stops.
+- **The key.**
+  - `deployerAccount` takes 64 hex, with or without 0x; errors name the shape only.
+  - It refuses to start (`deployEnabled` false, one log line) when its address equals that of
+    `CAMPAIGN_PAYOUT_PRIVATE_KEY`, `PAYOUT_PRIVATE_KEY`, `OPERATOR_PRIVATE_KEY` or
+    `GUARDIAN_PRIVATE_KEY`.
+  - Only deploy.ts reads it. It signs only creations and the capped `transferOwnership`.
+  - Sends are queued in-process, so two deploys never share a nonce. Run the app on one replica (M5).
+- **Ownership (R19, `repoOwnershipPasses`).** A launch's proof minus the wallet binding:
+  - a `github_verifications` row for this installation and repo (sign-in rows while sign-in is on,
+    App rows while the App is on; P11: only here and `appTokenFor` read App rows);
+  - else this agent's `token: <code>` line in earnkit.txt (default branch, then the most recently
+    pushed one).
+  - On a shared client only the caller's own `signed_in` login counts, and the proof line never
+    does (G7, G10).
+- **Cron (`cron.ts deployerGas`, inside the hourly run).**
+  - While deploys are on, each chain's balance is read once and priced as above. Under $0.25 adds
+    `deployer-gas:<chain>` (`note: 'TOP_UP'`). A failed price or balance read adds
+    `deployer-price:<chain>` (`PRICE_UNKNOWN`, M3).
+  - Always: rows of the last 7 days with `owner_ok = false` give `deploy-owner:<id>`. Rows with
+    `status 'unknown'`, or a reservation still `sent` after 10 minutes, give `deploy-unknown:<id>`.
+  - **Ruling H11:** a deploy flag alerts (503) only while its row is under 24 hours old. After that
+    it stays in `needs_owner` with the `:quiet` suffix (`QUIET_OWNER`), and `cronPost` answers 503
+    only when some line lacks that suffix.
+- **Tests.**
+  - `deploy.test.ts`: 10.1 to 10.10 plus the fix-round tests C1, I1 to I6, M1, M3 and M6, with a
+    fake `DeployChain`, DB-gated.
+  - `tools.test.ts` 10.11, `cron.test.ts` 10.12 and `free-tier.test.ts`.
+  - `deploy.anvil.test.ts` runs the real viem chain on a fresh anvil (`anvil --port 8574 --chain-id
+    8453`, `DEPLOY_ANVIL_URL=http://127.0.0.1:8574`), with `contracts/test/mocks/DeployMocks.sol`.
+    `OwnedTipJar`'s deployer is its first owner, and `MockGasPriceOracle` is set at
+    `0x420...0F`. The test checks one creation and one capped transfer, both with value 0; that the
+    balance falls by their gas only; and that the builder owns the contract.
 
 ### Owner go-live and runbook (deploys)
 
@@ -3575,14 +3619,19 @@ builder as the owner. The agent compiles; EarnKit never builds code or verifies 
    The server can check only `CAMPAIGN_PAYOUT_PRIVATE_KEY` (and the others if set there); the
    operator and guardian keys live only in the local shell, so keep them apart by hand (P16).
 2. Fund it with about $5 per chain: ETH on Base, USDC on Arc (Arc's gas token). Top up by hand when
-   the cron lists `deployer-gas:<chain>`.
+   the cron lists `deployer-gas:<chain>`. `deployer-price:<chain>` means the price or balance
+   couldn't be read: check DefiLlama and the RPC, not the wallet.
 3. Set `DEPLOYER_PRIVATE_KEY` on Railway (and `ARC_RPC_URL`/`BASE_RPC_URL` if the public RPCs
-   aren't wanted). Unset it to turn deploys off.
-4. Before the first Arc deploy, confirm on docs.arc.io that the native balance uses 18 decimals (the
-   pricing assumes it) and that Arc supports EIP-1559 fees (otherwise every Arc estimate fails and
-   nothing is sent).
-5. `deploy-owner:<id>`: read the contract's `owner()`; if the builder can't own it, tell them the
-   address holds no rights for EarnKit either. Then `UPDATE contract_deploys SET owner_ok = NULL WHERE
-   id = <id>` to clear the flag. `deploy-unknown:<id>`: look up `tx_hash` (empty: the send never got a
+   aren't wanted). Unset it to turn deploys off. Keep the app on one replica while it is set: the
+   nonce queue is per process (M5); a second replica's colliding send fails closed (`unknown`).
+4. Before the first Arc deploy, confirm on docs.arc.io that the chain id is 5042, that the native
+   balance uses 18 decimals (the pricing assumes it; M6 refuses an absurdly cheap price) and that Arc
+   supports EIP-1559 fees (otherwise every Arc estimate fails and nothing is sent).
+5. Accepted risk: a proxy (DELEGATECALL) passes the runtime check, so a builder could later upgrade it
+   to a token whose creator is EarnKit's deployer. Factories (CREATE/CREATE2) are refused.
+6. `deploy-owner:<id>`: read the contract's `owner()` and `hasRole(0x00…, deployer)`; if the deployer
+   still holds a right, renounce it by hand from the deployer key (the code never does). Then
+   `UPDATE contract_deploys SET owner_ok = NULL WHERE id = <id>` to clear the flag (it goes quiet by
+   itself after 24 hours, H11). `deploy-unknown:<id>`: look up `tx_hash` (empty: the send never got a
    hash; check the deployer's nonce on the explorer) and set the row's `status`, `address` and
    `cost_micro_usd` to what happened.
