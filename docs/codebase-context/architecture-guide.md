@@ -2358,10 +2358,10 @@ speedrun, no dead end for a no-repo builder on Arc, the returning recap with no 
   https redirect host; a warning is logged at 8,000, before it refuses; a loopback or app-scheme
   client has only the IP floor), and 50/hour per IP as the abuse floor (the token endpoint counts only codes that create an installation; a
   replayed code is free; a refusal logs `[oauth] <route> refused by <limit> (<redirect host>)`;
-  v2.9 T12, Ruling G0: a client whose redirect host is a known hosted service,
-  `oauth.ts hostedRedirectHost`, never its name, is counted but never refused at the IP floor, since
-  many builders share its servers' few IPs; passing it logs `[oauth] <route> passed the IP floor for a
-  hosted agent (<host>); not refused` once per window; the host ceiling still applies),
+  Ruling G25, replacing the v2.9 T12 G0 exemption: a client whose redirect host is a known hosted
+  service, `oauth.ts hostedRedirectHost`, never its name, has its own higher floor, 500/hour per IP
+  (`oauthRegisterHosted`, `installHourHosted`), since many builders share its servers' few IPs; it
+  refuses like any other, so one IP can't drain the host ceiling, which still applies),
   since installations are the identity every per-installation limit keys on; GitHub matching 30/hour per installation (when refused, list_programs still
   answers, with the readable reason in place of "your repos"); chain checks 60/min. MCP tools turn
   `RateLimitError` into a readable error; HTTP routes answer 429 with `Retry-After`. The client IP
@@ -2852,21 +2852,24 @@ The v2.8.1 journeys (`v281-journey.test.ts`) still pass unchanged on Part 1.
   never `HOST_RESERVED`, the `EARNKIT_RESERVED_SUBDOMAINS` list (P41) or punycode (G19). A redeploy
   keeps the repo's slug while the same login owns it; a repo has one site (a deploy for a new slug
   ends the old one); a killed site or repo can't come back; another repo's live slug is refused.
-- **The upload (untrusted).** The route checks the token before it reads the body, and stops reading
-  past 25 MB (413). `readZip` trusts only the central directory (names, sizes, folders, Unix
+- **The upload (untrusted).** The route allows 10 uploads an hour per IP (`LIMITS.hostUpload`, 429),
+  refuses a declared `Content-Length` over 25 MB (413), then takes the token's attempt (one of 5)
+  before it reads the body (Part 2 final review I2: parallel posts on one token read at most 5
+  bodies; an unknown or spent token costs no read), and stops reading past 25 MB (413). `readZip` trusts only the central directory (names, sizes, folders, Unix
   symlink bits), refuses ZIP64, encryption and methods other than stored or deflate, runs
   `zipProblems` (500 files, 10 MB a file, 25 MB total, static extensions only, no archives or
   executables, no `..`, `.`, `//`, leading `/`, `\` or control bytes, no duplicates in any case, an
   `index.html` at the root after `stripTopFolder`), then inflates each file with fflate's streaming
   `Inflate` in 1 KB pushes, stopping as soon as a file passes its declared size or 10 MB, or the
   site passes 25 MB: a zip bomb is never inflated in memory.
-- **Checks and writes (fix round 1).** One attempt on the token (5 at most per link), the gate again
+- **Checks and writes (fix round 1).** The attempt the route took (5 at most per link), the gate again
   (the login's newest sign-in), UTF-16/32 pages refused, then `abuseFlags` on HTML, JS and SVG (text
   as a reader sees it: tags gone, entities and spaces collapsed) and `withBadge` on HTML (Ruling 11).
   `.xml` is not hostable. Under one advisory lock, before any R2 write: the slug (killed, another
   repo's, or the repo's other live site), one deploy at a time per slug and per login (`deploying`
   under 10 minutes), 3 sites per login (live, review and `deploying` rows), stored bytes under 8 GB
-  (published sites plus every `deploying`, `review` or `failed` deploy's bytes), R2 counter room, the
+  (published sites plus every `deploying`, `review` or `failed` deploy's bytes), R2 counter room (read
+  on the locked transaction, so deploys queued on the lock can't starve it of a pool connection), the
   token's one use, then the `host_deploys` row (`deploying`) and, for a site with nothing live, its
   `hosted_sites` row (`deploying`). A refusal before the token's use never spends it. Each batch of
   keys is recorded on the deploy row (`written`) before it is put.
@@ -2878,8 +2881,11 @@ The v2.8.1 journeys (`v281-journey.test.ts`) still pass unchanged on Part 1.
     live site untouched) until the owner approves (`approveSite` copies it into place) or kills it.
   - A failure marks the deploy (and a never-published site) `failed`; its bytes count until the
     cron's `cleanDeploys` deletes its recorded keys (never a live site's served files) and marks it
-    `cleaned`. A deploy `deploying` for over 10 minutes counts as failed. A takedown that lands
-    mid-deploy wins: the publish step sees `killed` and takes the site down again.
+    `cleaned`, but never while another deploy of the slug is `deploying` (final review M3). A deploy
+    `deploying` for over 10 minutes counts as failed; if it was only slow, its publish finds it failed
+    and leaves it so (502, cleaned by the cron; the repo can deploy again, M2). A takedown that lands
+    mid-deploy wins: the publish step sees `killed` and takes the site down again. `approveSite`
+    refuses while a deploy of the slug is in flight (M6).
   - Then `hosted_sites` goes `live` (expiry from `siteExpiry`) with a passing `url_checks` row for
     `url:https://<slug>.earnkit.com/` (G19, P39). Replies: `liveLine` (plus `STORAGE_NOTE` for the
     agent), `HOST_REVIEW`, `HOST_FULL` (507), or a plain refusal. Errors log the class only.
@@ -3076,9 +3082,9 @@ but your own terminal.
   - A complaint: the email's one-click link unsubscribes that one subscription. To do it by hand,
     `UPDATE digest_subscriptions SET unsubscribed_at = now() WHERE email = '<address>';`
 - **Abuse of the OAuth floor by a fake "hosted" client.** A registration whose redirect host is a
-  known hosted service passes the per-IP floor (Ruling G0); the log line `[oauth] register passed the
-  IP floor for a hosted agent (<host>); not refused` marks it. The 10,000 a day ceiling per host still
-  holds. If a host's ceiling is being filled by fakes, remove that host from `HOSTED_REDIRECT_HOSTS`
+  known hosted service has a 500 an hour per-IP floor (Ruling G25, replacing G0's exemption); a
+  refusal logs `[oauth] register refused by oauthRegisterHosted (<host>)` (or `token refused by
+  installHourHosted`). The 10,000 a day ceiling per host still holds. If a host's ceiling is being filled by fakes, remove that host from `HOSTED_REDIRECT_HOSTS`
   in `oauth.ts` and deploy.
 
 **Owner go-live (after merge; each step is optional until you want that feature).**
@@ -3091,7 +3097,9 @@ but your own terminal.
    (Worker: none) for each reserved name (`www`, `docs`, `api`, `mcp`, `app`, `mail`, `admin`,
    `status`, `abuse`, `host`, and every existing record). Set `EARNKIT_RESERVED_SUBDOMAINS` on
    Railway to the same extra names. Route `abuse@earnkit.com` to your inbox (Cloudflare Email
-   Routing, free). Set `ADMIN_VETO_SECRET` if it isn't set.
+   Routing, free). Set `ADMIN_VETO_SECRET` if it isn't set. Keep the Cloudflare account on the
+   Workers Free plan: never Workers Paid, never usage-based billing (the free plan stops at 100k
+   requests a day; a paid plan bills for them instead).
 2. **GitHub OAuth App.** Callback `https://earnkit.com/github/verify/callback`, no scopes; set
    `GITHUB_OAUTH_CLIENT_ID` and `GITHUB_OAUTH_CLIENT_SECRET` on Railway. Hosting needs it too.
 3. **Resend (free) and DNS.** Create the account, add its DNS records for earnkit.com on Cloudflare,
