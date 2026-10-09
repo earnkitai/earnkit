@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EM_DASH, humanStrings, humanTextFiles, notHumanText } from './human-text';
@@ -88,4 +88,28 @@ test('final review M1: the client card shares NO_CELL with the agent tables (one
   assert.match(card, /import \{ NO_CELL \} from '..\/..\/..\/lib\/earnkit\/no-cell';/);
   assert.match(card, /t\.difficulty !== NO_CELL/);
   assert.doesNotMatch(card, /!== ''/);
+});
+
+test('11.3 (F21): no hard-coded money total in human text; openFigure and poolTotalText stay inside pool.ts', () => {
+  const hits: string[] = [];
+  const banned = ['$1.3M', '1,170,500', '1170500'];
+  for (const path of humanTextFiles(ROOT)) {
+    const source = readFileSync(join(ROOT, path), 'utf8');
+    const texts = /\.(ts|tsx|mts)$/.test(path) ? humanStrings(path, source).map((s) => ({ text: s.text, line: s.line })) : source.split('\n').map((text, i) => ({ text, line: i + 1 }));
+    for (const t of texts) for (const b of banned) if (t.text.includes(b)) hits.push(`${path}:${t.line} ${b}`);
+  }
+  assert.deepEqual(hits, []);
+  // Source scan: every .ts/.tsx under app/ and lib/ (tests included) but pool.ts and its test.
+  const importers: string[] = [];
+  const walk = (dir: string) => {
+    for (const name of readdirSync(join(ROOT, dir))) {
+      const rel = `${dir}/${name}`;
+      if (name === 'node_modules' || name === '.next') continue;
+      if (statSync(join(ROOT, rel)).isDirectory()) walk(rel);
+      else if (/\.(ts|tsx|mts)$/.test(name) && !/\/pool(\.test)?\.ts$/.test(rel) && /import\s*\{[^}]*\b(openFigure|poolTotalText)\b[^}]*\}\s*from/.test(readFileSync(join(ROOT, rel), 'utf8')))
+        importers.push(rel);
+    }
+  };
+  ['apps/frontend/app', 'apps/frontend/lib', 'apps/frontend/scripts'].forEach(walk);
+  assert.deepEqual(importers, []);
 });

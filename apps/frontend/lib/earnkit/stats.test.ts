@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { STATS_KEYS, STATS_LABELS, WIN_RATE_MIN_LABELLED, readStats, statsFrom, weiToEth, type StatsNumberKey } from './stats';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { STATS_KEYS, STATS_LABELS, WIN_RATE_MIN_LABELLED, moneyText, openMoneyUsd, readStats, statsFrom, weiToEth, type StatsNumberKey } from './stats';
 import { sql } from './db';
 import { holdBonusDbLock } from './fixtures/bonus-db-lock';
 
@@ -9,7 +11,7 @@ holdBonusDbLock();
 const E18 = 10n ** 18n;
 
 const emptyRow = {
-  open_money_usd: null, pool_rows: null, programs_open: 0, bonus_programs_open: 0, coins_launched: 0,
+  open_rows: null, pool_rows: null, programs_open: 0, bonus_programs_open: 0, coins_launched: 0,
   bonus_deposits_wei: null, bonus_to_safe_wei: null, bonus_paid_wei: null, bonus_pools_wei: null, installs: 0,
   labelled_entries: 0, entries_won: 0, builders_won_usd: null,
 };
@@ -23,7 +25,10 @@ test('weiToEth: ETH as a number, 6 decimals, rounded down', () => {
 
 test('statsFrom: exactly the public keys, numbers only, no per-user data', () => {
   const s = statsFrom({
-    open_money_usd: '15500.00',
+    open_rows: [
+      { max_award_usd: '15000.00', status: 'active', campaign: null, source: 'file', starts_at: null, ends_at: null },
+      { max_award_usd: 500, status: 'active', campaign: null, source: 'file', starts_at: null, ends_at: null },
+    ],
     pool_rows: [
       { pool_usd: 840000, reward: '$840,000 in prizes' },
       { pool_usd: 250000, reward: '$250,000+ prize pool' },
@@ -45,6 +50,7 @@ test('statsFrom: exactly the public keys, numbers only, no per-user data', () =>
   assert.deepEqual(Object.keys(s), [...STATS_KEYS]);
   assert.deepEqual(s, {
     open_money_usd: 15500,
+    open_money_text: '$15.5K',
     // v2.7.1: the landing's pool total ("$1.09M+"): Monad's "+" and the programs without a pool.
     open_pools_usd: 1090000,
     open_pools_plus: true,
@@ -62,7 +68,7 @@ test('statsFrom: exactly the public keys, numbers only, no per-user data', () =>
     entries_won: 2,
     builders_won_usd: 12500,
   });
-  for (const [k, v] of Object.entries(s)) assert.equal(typeof v, k === 'open_pools_plus' ? 'boolean' : 'number', k);
+  for (const [k, v] of Object.entries(s)) assert.equal(typeof v, k === 'open_pools_plus' ? 'boolean' : k === 'open_money_text' ? 'string' : 'number', k);
   const exact = statsFrom({ ...emptyRow, pool_rows: [{ pool_usd: '10000', reward: '10,000 USDC pool' }] });
   assert.deepEqual([exact.open_pools_usd, exact.open_pools_plus], [10000, false]);
 });
@@ -70,7 +76,7 @@ test('statsFrom: exactly the public keys, numbers only, no per-user data', () =>
 
 test('statsFrom: an empty database reads as zeros', () => {
   const s = statsFrom(emptyRow);
-  assert.deepEqual(Object.values(s), [0, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(Object.values(s), [0, null, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 });
 
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
@@ -344,4 +350,57 @@ test('10.10 builders_won_usd: announced won or placed prizes only; a self-report
     if (prevEnv === undefined) delete process.env.EARNKIT_TEST_INSTALLATIONS;
     else process.env.EARNKIT_TEST_INSTALLATIONS = prevEnv;
   }
+});
+
+// ---- v2.9 Task 11 (F21): the one money figure.
+
+/** Every committed program file, read as the row openMoneyUsd takes (the catalogue as synced). */
+const catalogueRows = () =>
+  readdirSync(join(import.meta.dirname, '../../../../programs'))
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs', f), 'utf8')))
+    .map((p) => ({
+      max_award_usd: p.max_award_usd ?? null,
+      status: p.status,
+      campaign: p.campaign ?? null,
+      source: 'file',
+      starts_at: p.starts_at ? new Date(p.starts_at) : null,
+      ends_at: p.ends_at ? new Date(p.ends_at) : null,
+    }));
+
+test('11.1 openMoneyUsd: the top prize of every open curated program, summed; moneyText rounds down', () => {
+  // P20: a fixed now, so the test never breaks when a program closes.
+  const now = new Date('2026-10-08T00:00:00Z');
+  const rows = catalogueRows();
+  assert.equal(openMoneyUsd(rows, now), 1170500); // Campaign #1 is closed
+  assert.equal(moneyText(1170500), '$1.1M+');
+  assert.equal(moneyText(1_000_000), '$1M');
+  assert.equal(moneyText(0), null);
+  const open = { max_award_usd: 1000, status: 'active', ends_at: null, starts_at: null };
+  assert.equal(openMoneyUsd([open], now), 1000);
+  // A sponsor-sourced program, an ended one, a closed one and one not started count 0.
+  assert.equal(openMoneyUsd([{ ...open, source: 'sponsor' }], now), 0);
+  assert.equal(openMoneyUsd([{ ...open, sponsored: true }], now), 0);
+  assert.equal(openMoneyUsd([{ ...open, ends_at: new Date('2026-10-01T00:00:00Z') }], now), 0);
+  assert.equal(openMoneyUsd([{ ...open, status: 'closed' }], now), 0);
+  assert.equal(openMoneyUsd([{ ...open, starts_at: new Date('2026-11-01T00:00:00Z') }], now), 0);
+  // P19: an open EarnKit campaign never counts, as a DB row (campaign) or a card (earnkit_campaign).
+  assert.equal(openMoneyUsd([{ ...open, campaign: { prize_usd: 100 } }], now), 0);
+  assert.equal(openMoneyUsd([{ ...open, earnkit_campaign: { slug: 'c1' } }], now), 0);
+  assert.equal(openMoneyUsd([...rows, { ...open, earnkit_campaign: { slug: 'c1' } }], now), 1170500);
+  // A program without a stated top prize counts 0.
+  assert.equal(openMoneyUsd([{ ...open, max_award_usd: null }], now), 0);
+});
+
+test('11.2 /api/stats: open_money_usd and open_money_text; open_pools_* stay, deprecated (Ruling G23); labels match the keys', () => {
+  for (const k of ['open_money_usd', 'open_money_text', 'open_pools_usd', 'open_pools_plus'] as const) assert.ok(STATS_KEYS.includes(k), k);
+  assert.deepEqual(Object.keys(STATS_LABELS), [...STATS_KEYS]);
+  assert.match(STATS_LABELS.open_pools_usd, /deprecated/);
+  assert.match(STATS_LABELS.open_pools_plus, /deprecated/);
+  const now = new Date('2026-10-08T00:00:00Z');
+  const s = statsFrom({ ...emptyRow, open_rows: catalogueRows().map((r) => ({ ...r, starts_at: r.starts_at?.toISOString() ?? null, ends_at: r.ends_at?.toISOString() ?? null })) }, now);
+  assert.deepEqual(Object.keys(s), [...STATS_KEYS]);
+  assert.equal(s.open_money_usd, 1170500);
+  assert.equal(s.open_money_text, '$1.1M+');
+  assert.equal(statsFrom(emptyRow, now).open_money_text, null);
 });
