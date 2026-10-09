@@ -358,6 +358,7 @@ apps/frontend/
                                get_program's repo check) 30/hour per installation, chain checks
                                60/min (/check per IP, sponsor status per installation).
                                enforce() throws RateLimitError ("… Try again in 18 minutes.");
+                               countHit (v2.9 T12) counts without a verdict (hit wraps it);
                                routes answer 429 + Retry-After. ENTRIES_PER_CAMPAIGN = 3
                                (recordSubmission counts under the campaign's entry lock)
     repo-cache.ts(+test)       GitHub repo facts for matching (chains, commits since each window
@@ -366,6 +367,7 @@ apps/frontend/
     installations.ts(+test)    save / touch installation by token hash or (v2.4) OAuth client key
                                (client_key); memory (GitHub, working_on, last payout wallet);
                                rememberWallets, installationWallets (installation_wallets);
+                               v2.9 A7: setFitRepos/readFitRepos (installations.fit_repos);
                                v2.8 Ruling 10: setFitChains (installations.fit_chains, the matched repos'
                                chains, written by list_programs, read by new program alerts);
                                v2.6 Ruling 10 (plan): rememberWallet/rememberedWallet (the
@@ -379,12 +381,15 @@ apps/frontend/
     identity.ts(+test)         v2.8.1 §E18: findEarlier / offerPickup ("Pick up your N earlier
                                entries?" from what this call states), answerPickup (yes needs this
                                agent's proof line in an earlier entry's repo), linkInstallations
-                               (installations.builder_id, rows move to the oldest root)
+                               (installations.builder_id, rows move to the oldest root); v2.9 T12 (G0):
+                               provedRepos picks the proof repo a group proved (N1), pickup.read caps
+                               earnkit.txt reads at one an hour (N2), the duplicate with the token stays (N3)
     oauth-routes.ts(+limits test) register + token + authorize handlers (app/oauth/* re-export them);
-                               logLimited
+                               logLimited; v2.9 T12 (G0) ipFloor: a known hosted service's redirect
+                               host is counted, never refused, at the per-IP floor (logged once)
     oauth.ts(+.test.ts)        stateless OAuth: register (v2.4: a random nonce in every client id;
                                v2.8.1: s=1 for hosted clients), isSharedClient, HOSTED_CLIENT_NAMES,
-                               HOSTED_REDIRECT_HOSTS, clientLimitKey, registrationLimitKey,
+                               HOSTED_REDIRECT_HOSTS, hostedRedirectHost (v2.9 T12), clientLimitKey, registrationLimitKey,
                                authorize, code -> token (+ shared, limitKey), metadata, clientKeyOf;
                                publicOrigin = EARNKIT_URL (production throws without it; no Host
                                fallback)
@@ -686,7 +691,9 @@ apps/frontend/
                                "Your builder bonus rides on your <program> entry." with coinIn: the bonus note's one place). Pure. Wired into tools.ts
                                record_submission (non-campaign only) with programs.ts
                                alsoProgramFacts, projects.ts enteredProgramIds, and
-                               match-projects.ts cachedRepoChains
+                               match-projects.ts cachedRepoChains; v2.9 T12 (G15 M1): canWin (tools.ts
+                               alsoCanWin: alerts.ts repoCanWin over installations.ts readFitRepos, else
+                               users said for "needs a live product"), testnet-only chains dropped
     entry-text.ts(+test)       confirmTable, enteredTable, keyTable, tokenRow (hasBonus: v2.5 §3,
                                Task 8, "· skip: no builder bonus"; coinIn: Ruling 25),
                                repoCoinNote, TOKEN_FOOTNOTE, siteUrl; v2.6 §3: coinRow and
@@ -712,7 +719,8 @@ apps/frontend/
     funds.ts(+test)            prizeFunds: the payout wallet's balance for the pages (60 s memo, 15 s
                                after a failure, 3 s timeout, no retries)
     alerts.ts(+test)           v2.9 A7: FitRepo, fitRepoOf, alertFit/alertable (new programs only when a
-                               remembered repo could win), NewProgram (matching facts, difficulty,
+                               remembered repo could win; v2.9 T12: its per-repo rule is repoCanWin,
+                               also used by Also qualifies; openCuratedRows), NewProgram (matching facts, difficulty,
                                match floor/precision); installations.ts setFitRepos/bestFitRepos (fit_repos)
                                alertLines (pure, money first; v2.5 §3 Task 8 adds builder bonus
                                wins and its own top-10 tracking), alertFacts, sinceYouLastChecked
@@ -780,6 +788,9 @@ apps/frontend/
                                GitHub sign-in on (the real verify routes, GitHub OAuth mocked) and off,
                                tell_earnkit lowering and raising, placeholders and links that don't load,
                                offer then skip then confirm ("40%" once), cron claims for creator and MINI;
+                               Part 2: hosting (12.3: R2 in memory, the Worker's handle over it), Also
+                               qualifies precision (12.6b), the won line (12.8), one money figure
+                               (12.9), the weekly email (12.10, Resend recorded), /terms (12.11);
                                the cross-reply copy scan
     v28-journey.test.ts        v2.8 Task 12 DB-gated journey in its own throwaway database: no repo,
                                Arc's coach question, the draft and offer, confirm_entry "go" (fake
@@ -1088,7 +1099,7 @@ apps/frontend/
 ```
 
 Root commands: `pnpm programs:check` (validate program files, logo files, and a `todo` on every
-required submission item), `pnpm test`,
+required submission item), `pnpm test` (v2.9 T12: runs `pnpm host:typecheck` first, P42),
 `pnpm campaign --help`, `pnpm campaign golive|rank|payout|veto-link <slug>` (EarnKit's own
 campaigns; payout is a dry run only, the cron pays), `pnpm campaign fallback propose|execute|veto <ref>`, `refund <ref>` (sponsor
 campaigns; dry run without `--execute`; `OPERATOR_PRIVATE_KEY`, the veto `GUARDIAN_PRIVATE_KEY`;
