@@ -1989,15 +1989,19 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
   and sends the mark instead. The mark is pinned by golden values (test 6.3): it must never change.
 - **One bonus line, the token at confirm, the deadline line (v2.10 items 1, 5, 15).**
   - *Bonus line.* `present.ts bonusLine(pool)` is the only bonus form in replies, at most once per
-    reply: "Builder bonus: no tokens yet, so yours would be first" while the open round has no
-    token, else "Builder bonus: 0.18 ETH so far" ("under 0.01 ETH so far"); null for a frozen round.
+    reply. Ruling H8: "Builder bonus: 0.18 ETH so far" ("under 0.01 ETH so far") whenever the pool
+    holds any value, rolled-over ETH included; "Builder bonus: no tokens yet, so yours would be
+    first" only for an empty pool; null for a frozen round.
     `bonus-rounds.ts roundPools` is the one grouped read (Ruling 3) with a token count beside the
     pool: a token counts when its entry is in the program, it launched (`coin_address`) at or after
     the round start (`starts_at`, or the UTC month start of a rolling program), and its installation
     isn't an owner test one. `roundPoolsWei` is it mapped to `wei > 0` (the public pages).
-    `ToolContext.roundPools` is the test seam. The first reply sums the pools and counts of the bonus
-    programs on screen (leaving out an offered program whose repo's token is elsewhere) and puts the
-    line right before the closing offer. `enteredText` takes `bonus.line`; the guide's bonus
+    `ToolContext.roundPools` is the test seam. Ruling H8: the first reply's line is the pool of the
+    program the closing offer names (`Offer.programId`), never a sum, right before the offer; no
+    line when the offer names no program ("Pick one"), an EarnKit campaign, a program without a
+    bonus, or one whose repo's token is elsewhere (M4). `bonusProgramIds` reads the on-screen bonus
+    programs and then every other curated one (the offer can name a program off screen), still one
+    grouped read. `enteredText` takes `bonus.line`; the guide's bonus
     section is the line (`GuideBonus.pool`), with no board link: the board stays on the guide page,
     whose pill keeps `cell`/`board` (Pre-flight P18; `readGuidePage` drops the bigint pool so
     `unstable_cache` can serialize the guide). Also qualifies and record_submission's token note say

@@ -450,7 +450,7 @@ apps/frontend/
                                final review M1: notHumanText skips .test.ts/.test.tsx/.test.mts, and walkDir never enters a fixtures directory
     no-cell.ts                 NO_CELL (''), the empty table cell or chip; import-free so the client ProgramCard shares it (final review M1); present.ts re-exports it
     present.ts(+test)          v2.10 item 7: YourRepos.unseen (with the App link) and fromLocal; privateRepoLines
-                               v2.10 items 1, 5, 15: bonusLine (the one bonus line), Card.bonus_tokens, FirstMessage.deadline;
+                               v2.10 items 1, 5, 15: bonusLine (the one bonus line; H8: the offered program's pool), Card.bonus_tokens, FirstMessage.deadline;
                                no first-reply token offer (tokenOffer, tokenOfferFit, bonusClose, TOKEN_LINE removed).
                                (one line per local match, one can't-see line) before the matched table.
                                v2.10 item 6: Fit.odds/traction/low_reason (rowOdds), lowOddsCell, LOW_ODDS_HEADING;

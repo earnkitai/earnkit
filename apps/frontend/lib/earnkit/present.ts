@@ -217,27 +217,26 @@ export function difficultyCell(c: Pick<Card, 'difficulty'>): string {
 export const BONUS_TOP = 10;
 
 /**
- * v2.10 item 1: the one builder bonus line, at most once per reply: "Builder bonus: no tokens yet,
- * so yours would be first" while the open round has no token, else "Builder bonus: 0.18 ETH so far"
- * ("under 0.01 ETH so far" below 0.01). Null when the round froze (I2). Pure.
+ * v2.10 item 1, Ruling H8: the one builder bonus line, at most once per reply. The pool holds any
+ * value (rolled-over ETH included): "Builder bonus: 0.18 ETH so far" ("under 0.01 ETH so far" below
+ * 0.01). An empty pool: "Builder bonus: no tokens yet, so yours would be first". Null when the round
+ * froze (I2). Pure.
  */
 export function bonusLine(pool: RoundPool | null | undefined): string | null {
   if (pool === null) return null;
-  if (!pool || pool.tokens === 0) return 'Builder bonus: no tokens yet, so yours would be first';
+  if (!pool || pool.wei <= 0n) return 'Builder bonus: no tokens yet, so yours would be first';
   return `Builder bonus: ${pool.wei < 10n ** 16n ? 'under 0.01' : eth(pool.wei)} ETH so far`;
 }
 
 /**
- * v2.10 item 1: the first message's bonus line, over the programs on screen that have a bonus (their
- * pools and token counts summed), or null when none has one. Pure.
+ * Ruling H8: the first message's bonus line is the pool of the program the closing offer names, or
+ * null when the offer names none, or that program has no bonus (opted out, a frozen round, an EarnKit
+ * campaign or sponsor, or the offered repo's token is entered elsewhere, final review M4). Pure.
  */
-function screenBonusLine(onScreen: Card[]): string | null {
-  const live = onScreen.filter((c) => bonusCell(c) !== NO_CELL);
-  if (live.length === 0) return null;
-  return bonusLine({
-    wei: live.reduce((a, c) => a + (c.bonus_pool_wei ?? 0n), 0n),
-    tokens: live.reduce((a, c) => a + (c.bonus_tokens ?? 0), 0),
-  });
+function offeredBonusLine(byId: Map<string, Card>, close: Offer): string | null {
+  const card = close.programId && close.programId !== close.noBonusId ? byId.get(close.programId) : undefined;
+  if (!card || card.sponsored || bonusCell(card) === NO_CELL) return null;
+  return bonusLine({ wei: card.bonus_pool_wei ?? 0n, tokens: card.bonus_tokens ?? 0 });
 }
 
 /**
@@ -573,10 +572,17 @@ export function layout(m: Pick<FirstMessage, 'cards' | 'repos' | 'entries'>, don
   return { byId, rows, shown, more: rest.length - shown.length };
 }
 
-/** Programs on screen whose entries can earn the builder bonus: the ones whose pool is read. Pure. */
+/**
+ * The programs whose pool is read (one grouped read): those on screen with a builder bonus, then
+ * (Ruling H8) every other curated one with a bonus, since the closing offer can name a program off
+ * screen (the no-repo pick, "keep going", build something new) and its line is that program's pool.
+ * Pure.
+ */
 export const bonusProgramIds = (m: Pick<FirstMessage, 'cards' | 'repos'>) => {
   const { rows, shown } = layout(m);
-  return [...rows.map((r) => r.card), ...shown].filter((c) => c.builder_bonus !== false).map((c) => c.id);
+  const onScreen = [...rows.map((r) => r.card), ...shown].filter((c) => c.builder_bonus !== false).map((c) => c.id);
+  const rest = m.cards.filter((c) => !c.sponsored && c.builder_bonus !== false && !onScreen.includes(c.id)).map((c) => c.id);
+  return [...onScreen, ...rest];
 };
 
 /**
@@ -694,11 +700,10 @@ export function presentFirstMessage(given: FirstMessage): string {
   // After the tables, so the reply never starts with it: news, not an alert (I7).
   if (m.updates?.length) sections.push(`Updates: ${m.updates.join('; ')}.`);
 
-  // v2.10 item 1: one plain builder bonus line, then the one closing offer. An offer whose repo's
-  // token is entered elsewhere (Ruling 25, final review M4) can't earn that program's bonus, so its
-  // pool isn't counted.
+  // v2.10 item 1, Ruling H8: one plain builder bonus line (the offered program's pool), then the one
+  // closing offer.
   const close = offer(m, byId, rows, ideas.length > 0, entered);
-  const bonus = screenBonusLine([...rows.map((r) => r.card), ...shown].filter((c) => c.id !== close.noBonusId));
+  const bonus = offeredBonusLine(byId, close);
   if (bonus) sections.push(bonus);
   sections.push(close.text);
   return done();
@@ -710,6 +715,7 @@ const isEasy = (c: Card) => c.difficulty?.level === 'Easy';
 const buildNew = (c: Card): Offer => ({
   text: `Want me to build something new for ${c.title} (${prizeOf(c)})?${needsForms(c) ? needsText(c) : ''}`,
   campaign: false,
+  programId: c.id,
 });
 
 /** v2.8.1 §B7, Ruling F5; v2.9 A4: the fit to offer: good odds first (v2.10 item 6), then the easiest row, then the top prize, then the quicker fit. Pure. */
@@ -743,7 +749,13 @@ export const enterableWithoutRepo = (cards: (Card & { earnkit_campaign?: unknown
  * `noBonusId` (final review M4): the offered program, when its row carries Ruling 25's "no builder
  * bonus" note, so the entry offered can't earn the bonus.
  */
-type Offer = { text: string; campaign: boolean; noBonusId?: string };
+type Offer = {
+  text: string;
+  campaign: boolean;
+  noBonusId?: string;
+  /** Ruling H8: the curated program the offer names (its pool is the reply's bonus line). */
+  programId?: string;
+};
 
 /**
  * One closing offer, never a menu and never a sponsor campaign (fix round 1, I3). In order: keep
@@ -774,11 +786,17 @@ function offer(
   const asTheyAre = noMatch(m.repos) ? noRepoPick(m.cards.filter(offerable)) : undefined;
   if (!m.agentCanBuild) {
     const named = pick ? `${pick.card.title} with ${pick.repo}` : asTheyAre?.title;
-    return { text: named ? `Want me to start on ${named}? ${CHAT_ONLY}` : CHAT_ONLY, campaign: false, ...noBonus(pick) };
+    const namedId = pick ? pick.card.id : asTheyAre?.id;
+    return {
+      text: named ? `Want me to start on ${named}? ${CHAT_ONLY}` : CHAT_ONLY,
+      campaign: false,
+      ...(namedId && { programId: namedId }),
+      ...noBonus(pick),
+    };
   }
   const titleOf = (id: string): Offer | undefined => {
     const c = byId.get(id);
-    if (c) return c.sponsored ? undefined : { text: c.title, campaign: false };
+    if (c) return c.sponsored ? undefined : { text: c.title, campaign: false, programId: c.id };
     const camp = m.campaigns.find((r) => r.id === id && r.open);
     return camp ? { text: camp.title, campaign: true } : undefined;
   };
@@ -788,6 +806,7 @@ function offer(
     return {
       text: `Want me to keep going on ${resume.text}?`,
       campaign: resume.campaign,
+      ...(resume.programId && { programId: resume.programId }),
       ...noBonus(rows.find((r) => r.card.id === resumeId)),
     };
   const campaign = [...m.campaigns].sort(byCampaignPrize).find((r) => r.open && r.you === null);
@@ -796,10 +815,11 @@ function offer(
     return {
       text: `Want me to start on ${pick.card.title} with ${pick.repo}?${needsForms(pick.card) ? needsText(pick.card) : ''}`,
       campaign: false,
+      programId: pick.card.id,
       ...noBonus(pick),
     };
   if (asTheyAre)
-    return { text: `Want me to start on ${asTheyAre.title}?${needsForms(asTheyAre) ? needsText(asTheyAre) : ''}`, campaign: false };
+    return { text: `Want me to start on ${asTheyAre.title}?${needsForms(asTheyAre) ? needsText(asTheyAre) : ''}`, campaign: false, programId: asTheyAre.id };
   if (ideasShown) return { text: "Pick one and I'll start.", campaign: false };
   const curated = m.cards.filter((c) => !c.sponsored);
   const fresh = curated.filter(offerable);

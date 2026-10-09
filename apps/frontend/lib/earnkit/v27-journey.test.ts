@@ -108,7 +108,8 @@ test('v2.7 journey: what can I earn, the guide, then the token step', dbTest, as
     {
       installationId: id,
       // v2.8 Ruling C4: Easy programs sort first, so Arc (Easy) is always in the first table.
-      roundPools: async () => new Map([['arc-microgrants', { wei: 6n * 10n ** 17n, tokens: 2 }]]),
+      // Ruling H8: the line is the offered program's pool (the no-repo offer here may be Arc or Avalanche).
+      roundPools: async (ids) => new Map(ids.map((p) => [p, { wei: 6n * 10n ** 17n, tokens: 2 }] as const)),
     },
   )) as { show_to_builder: string };
   const first = list.show_to_builder;

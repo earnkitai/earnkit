@@ -436,15 +436,15 @@ test('v2.5 §1: list_programs reads the builder bonus pools once, only where ent
     // v2.8.1 §B8: no repo, and entering needs one: the row says so.
     assert.match(text, new RegExp(`\\| Proof ${run} \\(needs a repo\\) \\|`));
     assert.match(text, new RegExp(`\\| No proof ${run} \\(needs a repo\\) \\|`));
-    // v2.10 item 1: one plain bonus line right before the closing offer.
-    assert.match(text, /\n\nBuilder bonus: 0\.42 ETH so far\n\n[^\n]+$/);
-    assert.doesNotMatch(text, /Every entry gets a token/);
+    // Ruling H8: the close is "Pick one" (both need a repo), which names no program: no bonus line.
+    assert.match(text, /\n\nPick one and I'll start\.$/);
+    assert.doesNotMatch(text, /Builder bonus|Every entry gets a token/);
     assert.match(text, /\n\nIdeas I can build:\n- /);
     assert.ok(text.includes(`\n- Proof ${run}: ${proof.ideas[0]}\n- Proof ${run}: ${proof.ideas[1]}\n`), text);
     assert.ok(text.includes(`\n- No proof ${run}: ${noProof.ideas[0]}\n- No proof ${run}: ${noProof.ideas[1]}\n`), text);
     // Without injection: no pools yet, so the provable program's bonus sentence is the empty-pool one.
     const plain = (await tools.list_programs({}, { installationId: id })) as { show_to_builder: string };
-    assert.match(plain.show_to_builder, /\n\nBuilder bonus: no tokens yet, so yours would be first\n\n[^\n]+$/);
+    assert.doesNotMatch(plain.show_to_builder, /Every entry gets a token/);
     // I2: a program whose round froze (the pool read maps it to null) shows no bonus to win: the
     // 0.42 ETH this test injected for proof.id never surfaces once its round is frozen. (Other test
     // files share this DB and may run concurrently, so a blanket "no bonus sentence at all" isn't
@@ -1340,7 +1340,9 @@ test('8.12, v2.10 item 1: list_programs has one bonus line before the close, no 
     const [{ id }] = await sql()<{ id: number }[]>`
       INSERT INTO installations (token_hash) VALUES (${`t8-list-${process.pid}-${Date.now()}`}) RETURNING id`;
     const r = (await tools.list_programs({}, { installationId: id, roundPools: async () => new Map() })) as { show_to_builder: string };
-    assert.match(r.show_to_builder, /\n\nBuilder bonus: no tokens yet, so yours would be first\n\n[^\n]+$/, r.show_to_builder.slice(-200));
+    // Ruling H8: at most one bonus line, the offered program's, right before the close.
+    assert.ok((r.show_to_builder.match(/Builder bonus:/g)?.length ?? 0) <= 1, r.show_to_builder);
+    if (r.show_to_builder.includes('Builder bonus:')) assert.match(r.show_to_builder, /\n\nBuilder bonus: [^\n]+\n\n[^\n]+$/);
     assert.doesNotMatch(r.show_to_builder, /Every entry gets a token/);
     assert.doesNotMatch(JSON.stringify(r), /optional/i);
   } finally {

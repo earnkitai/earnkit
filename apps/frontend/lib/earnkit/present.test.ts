@@ -154,8 +154,9 @@ test('v2.5 §1 golden (a): repos fit 2 programs: $X in open money, the Difficult
     'Since you last checked: your token $TIP has $138 in fees to claim (tokens.fun/coin/0xabc).',
     'EarnKit matches you to $5.5K in prizes you qualify for.',
     '| Program | Prize | Difficulty | Ends | Your repo |\n|---|---|---|---|---|\n| Base Builder Grant Program | up to $5,000 |  | rolling | tipjar |\n| Arc Microgrants | 500 USDC × 20 grants |  | Oct 14, 11:59 PM ET | tipjar |',
-    // v2.10 item 1: one plain bonus line, then the offer. Ruling F5: the top prize among the fits.
-    'Builder bonus: 0.42 ETH so far',
+    // Ruling H8: the offered program's (Base's) empty pool, then the offer. Ruling F5: the top prize
+    // among the fits; Arc's 0.42 ETH is not summed in.
+    'Builder bonus: no tokens yet, so yours would be first',
     'Want me to start on Base Builder Grant Program with tipjar? It needs a short Loom from you.',
   ].join('\n\n'));
   noEmoji(text);
@@ -175,13 +176,13 @@ test('v2.5 §1 golden (b): no repos: open money ranked by prize, ideas grouped b
     '$5.5K+ in prizes open right now.',
     '| Program | You could win | Difficulty | Ends |\n|---|---|---|---|\n| Base Builder Grant Program | up to $5,000 |  | rolling |\n| Arc Microgrants | 500 USDC × 20 grants |  | Oct 14, 11:59 PM ET |\n| Tiny Bounty | 50 USDC |  | Oct 9 |\n| Monad Metropolis Hackathon | $250K+ prize pool |  | Oct 13, 11:59 PM ET |',
     "Ideas I can build:\n- Base Builder Grant Program: Base idea one\n- Base Builder Grant Program: Base idea two\n- Arc Microgrants: Arc idea one\n- Arc Microgrants: Arc idea two\n- Tiny Bounty: Tiny idea one\n- Tiny Bounty: Tiny idea two",
-    `${NO_POOL_YET}\n\nPick one and I'll start.`,
+    `Pick one and I'll start.`,
   ].join('\n\n'));
   noEmoji(text);
   // A GitHub user with no repos counts as no repo.
   const none = presentFirstMessage(msg({ cards: [{ ...arc, ideas: ['Arc idea'] }], repos: { checked: 0, fits: [] } }));
   assert.match(none, /^\$500 in prizes open right now\.\n\n/);
-  assert.match(none, new RegExp(`\\n\\nIdeas I can build:\\n- Arc Microgrants: Arc idea\\n\\n${NO_POOL_RE}\n\nPick one and I'll start\\.$`));
+  assert.match(none, new RegExp(`\\n\\nIdeas I can build:\\n- Arc Microgrants: Arc idea\\n\\nPick one and I'll start\\.$`));
   assert.doesNotMatch(none, /None of your/);
   // Honest offer rules still win: keep going, and chat-only agents.
   assert.match(
@@ -244,8 +245,9 @@ test('v2.6 §1: no repo and no GitHub user: "$X is open right now", "You could w
   assert.match(text, /\| Arc Microgrants \| 500 USDC × 20 grants \|  \| Oct 14, 11:59 PM ET \|/);
   assert.match(text, /\| Base Builder Grant Program \| up to \$5,000 \|  \| rolling \|/);
   assert.match(text, /\nIdeas I can build:\n- Base Builder Grant Program: Base idea one\n- Base Builder Grant Program: Base idea two\n- Arc Microgrants: Arc idea\n/);
-  // v2.10 item 1: one bonus line before the offer instead of a per-row column or a note.
-  assert.ok(text.endsWith("Builder bonus: 0.18 ETH so far\n\nPick one and I'll start."), text);
+  // Ruling H8: "Pick one" names no program, so no bonus line.
+  assert.ok(text.endsWith("\n\nPick one and I'll start."), text);
+  assert.doesNotMatch(text, /Builder bonus/);
   assert.doesNotMatch(text, /qualify/);
   noEmoji(text);
 });
@@ -276,7 +278,7 @@ test('fix round 1, finding 1: "You could" with no ideas still closes with "Pick 
   assert.match(text, /^\$500 in prizes open right now\.\n\n/);
   // No ideas on this card (arc carries none here), so the old code fell through to "Want me to
   // check which of your repos already qualify?" — there's nothing to check with repos === null.
-  assert.ok(text.endsWith("Builder bonus: 0.42 ETH so far\n\nPick one and I'll start."), text);
+  assert.ok(text.endsWith("\n\nPick one and I'll start."), text);
   assert.doesNotMatch(text, /qualify/);
 });
 
@@ -287,7 +289,7 @@ test('fix round 1, finding 2: a GitHub matching error is treated like 0 repos fo
   }));
   assert.match(text, /^Couldn't read your repos: GitHub said no\n\n\$500 in prizes open right now\.\n\n\| Program \| Prize \| Difficulty \| Ends \|/);
   assert.match(text, /\nIdeas I can build:\n- Arc Microgrants: Arc idea\n/);
-  assert.ok(text.endsWith(`${NO_POOL_YET}\n\nPick one and I'll start.`));
+  assert.ok(text.endsWith(`Pick one and I'll start.`));
   assert.doesNotMatch(text, /You could/);
 });
 
@@ -307,21 +309,23 @@ test('v2.6 §1: chat-only agents get the $X headline with no "I can build" sente
   assert.match(text, /^\$5.5K\+ in prizes open right now\.\n\n/);
   assert.doesNotMatch(text, /I can build an entry for you/);
   assert.match(text, /can't build or deploy from here/);
-  // v2.10 item 1: the bonus line comes before the chat-only text, which closes the reply.
-  assert.match(text, /Builder bonus: no tokens yet, so yours would be first\n\n[^\n]*can't build or deploy from here, but I can plan it and write every answer for you to submit\. To have it done for you, add EarnKit to a coding agent \(Claude Code, Cursor, Codex\)\.$/);
+  // Ruling H8: the chat-only text names no program here, so no bonus line; it closes the reply.
+  assert.doesNotMatch(text, /Builder bonus/);
+  assert.match(text, /\n\n[^\n]*can't build or deploy from here, but I can plan it and write every answer for you to submit\. To have it done for you, add EarnKit to a coding agent \(Claude Code, Cursor, Codex\)\.$/);
 });
 
 test('fix round 1: ideas cap at 6 in all, 2 per program', () => {
   const many = Array.from({ length: 5 }, (_, i) => ({ ...tiny, id: `p${i}`, title: `P${i}`, ideas: ['a', 'b', 'c'] }));
   const text = presentFirstMessage(msg({ cards: many }));
-  assert.match(text, new RegExp(`Ideas I can build:\\n- P0: a\\n- P0: b\\n- P1: a\\n- P1: b\\n- P2: a\\n- P2: b\\n\\n${NO_POOL_RE}\n\nPick one and I'll start\\.$`));
+  assert.match(text, new RegExp(`Ideas I can build:\\n- P0: a\\n- P0: b\\n- P1: a\\n- P1: b\\n- P2: a\\n- P2: b\\n\\nPick one and I'll start\\.$`));
 });
 
-test('bonusProgramIds lists every shown program with a builder bonus, opted-out ones excluded', () => {
+test('bonusProgramIds lists every shown program with a builder bonus first, then (Ruling H8) the other curated ones; opted-out and sponsored ones excluded', () => {
   const extra = Array.from({ length: 6 }, (_, i) => ({ ...arc, id: `x${i}`, max_award_usd: 10_000 + i, submission_proof: null }));
-  // Six programs plus Arc and Base (lowest prize): only the top 5 are shown, so only they are read.
+  // Six programs plus Arc and Base (lowest prize): the top 5 shown come first; the offer can name
+  // one off screen, so the rest are read too (one grouped read). Sponsored programs never.
   // submission_proof: null on the extras shows the read no longer depends on it (Ruling 7 (plan)).
-  assert.deepEqual(bonusProgramIds({ cards: [arc, base, ...extra], repos: null }), ['x5', 'x4', 'x3', 'x2', 'x1']);
+  assert.deepEqual(bonusProgramIds({ cards: [arc, base, ...extra, sponsored], repos: null }), ['x5', 'x4', 'x3', 'x2', 'x1', 'arc-microgrants', 'base-builder-grants', 'x0']);
   // An opted-out program on screen is excluded even though it would otherwise be shown.
   assert.deepEqual(
     bonusProgramIds({ cards: [arc, { ...base, builder_bonus: false }], repos: null }),
@@ -342,7 +346,9 @@ test('v2.5: no open EarnKit campaign, no campaign table (Campaign #1 is closed)'
   // earning the bonus) stays the last line even though a bonus program (Arc) is on screen.
   const open = presentFirstMessage(msg({ campaigns: [campaign], cards: [arc], repos: repos(v('arc-microgrants', 'likely', 'ok')) }));
   assert.match(open, /^EarnKit matches you to \$500 in prizes you qualify for\.[\s\S]*\| Win \| Prize \| Ends \| You \|/);
-  assert.match(open, /Builder bonus: no tokens yet, so yours would be first\n\nWant me to build your entry for the \$100\?$/);
+  // Ruling H8: an EarnKit campaign has no builder bonus, so no bonus line.
+  assert.match(open, /\n\nWant me to build your entry for the \$100\?$/);
+  assert.doesNotMatch(open, /Builder bonus/);
 });
 
 test('golden: an entered builder, a fit that needs a step, other programs (at most 5), sponsored last, the fastest offer', () => {
@@ -469,11 +475,12 @@ test('I3 offers: no repos known closes on the build offer; repos known with no f
   // Final review M9: no repo and no GitHub, with an open campaign already entered: the no-repo
   // close ("Pick one"), never "qualify".
   const noRepos = presentFirstMessage(msg({ campaigns: [{ ...campaign, you: '#3, in the top 5' }], cards: [base, arc, tiny] }));
-  assert.ok(noRepos.endsWith(`${NO_POOL_YET}\n\nPick one and I'll start.`), noRepos);
+  assert.ok(noRepos.endsWith(`Pick one and I'll start.`), noRepos);
   assert.doesNotMatch(noRepos, /qualify/);
   // A GitHub user with no repos found yet (not the no-repo state) is still asked to check them.
   const githubOnly = presentFirstMessage(msg({ campaigns: [{ ...campaign, you: '#3, in the top 5' }], cards: [base, arc, tiny], githubGiven: true }));
-  assert.match(githubOnly, new RegExp(`\\n\\n${NO_POOL_RE}\n\nWant me to check which of your repos already qualify\\?$`));
+  assert.match(githubOnly, /\n\nWant me to check which of your repos already qualify\?$/);
+  assert.doesNotMatch(githubOnly, /Builder bonus/);
   const noFit = presentFirstMessage(msg({ cards: [base, arc, tiny], repos: repos(v('arc-microgrants', 'no', 'not on Arc')) }));
   // Base pays more but needs a Loom and 10 personal answers: Arc is the top program without forms.
   // Ruling 28: the repo was ruled out, so the offer is to build something new, never "start on".
@@ -481,7 +488,7 @@ test('I3 offers: no repos known closes on the build offer; repos known with no f
   assert.doesNotMatch(noFit, /start on/);
   // Ruling 19: a repo error is the no-repo state, so even with no ideas it closes on the build offer.
   const errNoIdeas = presentFirstMessage(msg({ cards: [arc], repos: { error: 'GitHub said no' }, githubGiven: true }));
-  assert.ok(errNoIdeas.endsWith(`${NO_POOL_YET}\n\nPick one and I'll start.`), errNoIdeas);
+  assert.ok(errNoIdeas.endsWith(`Pick one and I'll start.`), errNoIdeas);
   assert.doesNotMatch(errNoIdeas, /qualify/);
   // An open campaign without an entry stays the top choice (the campaign offer stays last).
   assert.match(presentFirstMessage(msg({ campaigns: [campaign], cards: [arc] })), /build your entry for the \$100\?$/);
@@ -517,7 +524,7 @@ test('I7: closing-soon and new non-campaign programs stay in the body; they neve
   // fix round 1: with no repo and no ideas on these cards, the offer is now "Pick one and I'll
   // start." (finding 1) rather than "Want me to check…"; this test only cares that Updates sits
   // above whatever the offer is.
-  assert.match(quiet, new RegExp(`\\n\\nUpdates: 1 new sponsored campaign; Tiny Bounty closes in 1 day\\.\\n\\n${NO_POOL_RE}\n\nPick one and I'll start\\.$`));
+  assert.match(quiet, new RegExp(`\\n\\nUpdates: 1 new sponsored campaign; Tiny Bounty closes in 1 day\\.\\n\\nPick one and I'll start\\.$`));
   // Real news (a win) still leads; the updates stay below.
   const news = presentFirstMessage(msg({ alerts: ['you won $100 in MINI with Tip Jar (basescan.org/tx/0x1)'], cards, updates }));
   assert.match(news, /^Since you last checked: you won \$100 in MINI with Tip Jar \(basescan\.org\/tx\/0x1\)\.\n\n/);
@@ -571,14 +578,15 @@ test('v2.8.1 §C13: a repo whose token is entered elsewhere: no "(no builder bon
   assert.doesNotMatch(t, /no builder bonus|40%/);
 });
 
-test('final review M4: an offer whose row has no builder bonus: that pool is not counted in the bonus line', () => {
+test('final review M4, Ruling H8: an offer whose row has no builder bonus gets no bonus line (never another program\'s pool)', () => {
   const t = presentFirstMessage(msg({
     cards: [pool(arc, 0.42), pool(base, 0.18)],
     repos: fit('tipjar', 'arc-microgrants', 'https://github.com/a/tipjar'),
     repoCoins: new Map([['github.com/a/tipjar', { program_id: 'base-builder-grants', title: 'Base Builder Grant Program' }]]),
   }));
-  // The offered program's pool (0.42) can't be earned with this repo.
-  assert.ok(t.endsWith('Builder bonus: 0.18 ETH so far\n\nWant me to start on Arc Microgrants with tipjar?'), t);
+  // The offered program's pool (0.42) can't be earned with this repo; Base's 0.18 is not offered.
+  assert.ok(t.endsWith('\n\nWant me to start on Arc Microgrants with tipjar?'), t);
+  assert.doesNotMatch(t, /Builder bonus/);
   // Nothing else with a bonus on screen: no bonus line at all.
   const only = presentFirstMessage(msg({
     cards: [pool(arc, 0.42)],
@@ -598,37 +606,47 @@ test('Ruling 11 (plan): "top 10" is the payout split length', () => {
   assert.equal(BONUS_TOP, BONUS_SPLIT_BPS.length);
 });
 
-test('7.1 v2.10 item 1: bonusLine: first, ETH so far, under 0.01, frozen', () => {
+test('7.1 v2.10 item 1, Ruling H8: bonusLine: ETH whenever the pool holds value (rolled over too); first only when empty; frozen null', () => {
   const FIRST = 'Builder bonus: no tokens yet, so yours would be first';
   assert.equal(bonusLine({ wei: 0n, tokens: 0 }), FIRST);
   assert.equal(bonusLine(undefined), FIRST);
   assert.equal(bonusLine({ wei: 18n * 10n ** 16n, tokens: 3 }), 'Builder bonus: 0.18 ETH so far');
   assert.equal(bonusLine({ wei: 10n ** 15n, tokens: 1 }), 'Builder bonus: under 0.01 ETH so far');
+  // H8: rolled-over ETH with no token launched in this round still shows the amount.
+  assert.equal(bonusLine({ wei: 18n * 10n ** 16n, tokens: 0 }), 'Builder bonus: 0.18 ETH so far');
+  assert.equal(bonusLine({ wei: 10n ** 15n, tokens: 0 }), 'Builder bonus: under 0.01 ETH so far');
   assert.equal(bonusLine(null), null);
 });
 
-test('v2.10 item 1: the bonus line sums the pools on screen and sits right before the offer', () => {
-  const withRepo = presentFirstMessage(msg({ cards: [pool(base, 0.6)], repos: fit('tipjar', 'base-builder-grants') }));
-  assert.ok(withRepo.endsWith('Builder bonus: 0.60 ETH so far\n\nWant me to start on Base Builder Grant Program with tipjar? It needs a short Loom from you.'), withRepo);
-  const noRepo = presentFirstMessage(msg({ cards: [pool(arc, 0.42), pool(base, 0.18)] }));
-  assert.ok(noRepo.endsWith("Builder bonus: 0.60 ETH so far\n\nPick one and I'll start."), noRepo);
-  const empty = presentFirstMessage(msg({ cards: [arc] }));
-  assert.ok(empty.endsWith("Builder bonus: no tokens yet, so yours would be first\n\nPick one and I'll start."), empty);
-  const tiny = presentFirstMessage(msg({ cards: [{ ...arc, bonus_pool_wei: 10n ** 15n, bonus_tokens: 1 }] }));
-  assert.ok(tiny.endsWith("Builder bonus: under 0.01 ETH so far\n\nPick one and I'll start."), tiny);
+test('Ruling H8: the first reply\'s bonus line is the offered program\'s pool, never a sum across programs', () => {
+  // Base is offered (the top prize among the fits): its 0.60 ETH, not 0.60 + Arc's 0.42.
+  const both = presentFirstMessage(msg({ cards: [pool(base, 0.6), pool(arc, 0.42)], repos: repos(v('base-builder-grants', 'likely', ''), v('arc-microgrants', 'likely', '')) }));
+  assert.ok(both.endsWith('Builder bonus: 0.60 ETH so far\n\nWant me to start on Base Builder Grant Program with tipjar? It needs a short Loom from you.'), both);
+  assert.doesNotMatch(both, /1\.02|0\.42/);
+  // Arc offered (Base not matched): Arc's pool, rolled-over ETH with no token in the round included.
+  const arcOnly = presentFirstMessage(msg({ cards: [{ ...arc, bonus_pool_wei: WEI('0.18'), bonus_tokens: 0 }, pool(base, 0.6)], repos: fit('tipjar', 'arc-microgrants') }));
+  assert.ok(arcOnly.endsWith('Builder bonus: 0.18 ETH so far\n\nWant me to start on Arc Microgrants with tipjar?'), arcOnly);
+  // An empty pool: "first".
+  const empty = presentFirstMessage(msg({ cards: [arc, pool(base, 0.6)], repos: fit('tipjar', 'arc-microgrants') }));
+  assert.ok(empty.endsWith('Builder bonus: no tokens yet, so yours would be first\n\nWant me to start on Arc Microgrants with tipjar?'), empty);
+  const tiny = presentFirstMessage(msg({ cards: [{ ...arc, bonus_pool_wei: 10n ** 15n, bonus_tokens: 1 }], repos: fit('tipjar', 'arc-microgrants') }));
+  assert.ok(tiny.endsWith('Builder bonus: under 0.01 ETH so far\n\nWant me to start on Arc Microgrants with tipjar?'), tiny);
+  // The no-repo offer and "keep going" name a program too; "Pick one" names none.
+  assert.ok(presentFirstMessage(msg({ cards: [{ ...arc, needs_repo: false, bonus_pool_wei: WEI('0.3') }] })).endsWith('Builder bonus: 0.30 ETH so far\n\nWant me to start on Arc Microgrants?'));
+  assert.ok(presentFirstMessage(msg({ cards: [pool(arc, 0.3)], workingOn: ['arc-microgrants'] })).endsWith('Builder bonus: 0.30 ETH so far\n\nWant me to keep going on Arc Microgrants?'));
+  assert.doesNotMatch(presentFirstMessage(msg({ cards: [pool(arc, 0.42), pool(base, 0.18)] })), /Builder bonus/);
 });
 
-test('v2.10 item 1: no bonus on screen, no bonus line; a campaign offer stays last', () => {
-  const off = presentFirstMessage(msg({ cards: [{ ...arc, builder_bonus: false }, { ...base, bonus_closed: true }] }));
+test('v2.10 item 1: no bonus for the offered program, no bonus line; a campaign offer stays last', () => {
+  const off = presentFirstMessage(msg({ cards: [{ ...arc, builder_bonus: false }, { ...base, bonus_closed: true }], repos: fit('tipjar', 'arc-microgrants') }));
   assert.doesNotMatch(off, /builder bonus|token/i);
-  assert.ok(off.endsWith("Pick one and I'll start."), off);
+  assert.ok(off.endsWith('Want me to start on Arc Microgrants with tipjar?'), off);
   const camp = presentFirstMessage(msg({ cards: [pool(arc, 0.6)], campaigns: [openCampaign] }));
-  assert.deepEqual(camp.split('\n\n').slice(-2), ['Builder bonus: 0.60 ETH so far', 'Want me to build your entry for the $100?']);
+  assert.equal(camp.split('\n\n').at(-1), 'Want me to build your entry for the $100?');
+  assert.doesNotMatch(camp, /Builder bonus/);
   const keep = presentFirstMessage(msg({ campaigns: [openCampaign], cards: [pool(arc, 0.6)], workingOn: [openCampaign.id] }));
-  assert.deepEqual(keep.split('\n\n').slice(-2), [
-    'Builder bonus: 0.60 ETH so far',
-    'Want me to keep going on EarnKit Campaign #1: Base apps with real users?',
-  ]);
+  assert.equal(keep.split('\n\n').at(-1), 'Want me to keep going on EarnKit Campaign #1: Base apps with real users?');
+  assert.doesNotMatch(keep, /Builder bonus/);
 });
 
 // ---- v2.8 Ruling 24 (plan): one money figure; Ruling 25 (plan): the token line.
@@ -669,7 +687,8 @@ test('7.2 v2.10 items 1, 5: the first reply never pitches the token; at most one
     assert.ok((t.match(/Builder bonus:/g)?.length ?? 0) <= 1, t);
     if (t.includes('Builder bonus:')) assert.match(t, BONUS);
   }
-  assert.ok(replies[0].endsWith("Builder bonus: 0.60 ETH so far\n\nPick one and I'll start."), replies[0]);
+  assert.ok(replies[0].endsWith("\n\nPick one and I'll start."), replies[0]);
+  assert.ok(replies[2].endsWith('Builder bonus: no tokens yet, so yours would be first\n\nWant me to start on Arc Microgrants with tipjar?'), replies[2]);
   assert.ok(replies[4].endsWith("Pick one and I'll start."), replies[4]);
   assert.doesNotMatch(replies[4], /token/);
 });
