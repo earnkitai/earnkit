@@ -528,3 +528,32 @@ test('v2.9 D17 bonusWaitsOnOwner: a low gas balance, or a claim or collect out o
   assert.equal(bonusWaitsOnOwner({ ...ok, sweep: { result: `${gasOut}. ${TOP_UP}` } }), true);
   assert.equal(bonusWaitsOnOwner({ ...ok, index_failures: 6 }), true);
 });
+
+// ---- v2.10 item 13: the deployer's gas
+
+test('10.12 deployerGas: with the deployer on, each balance is read once a run and a chain under $0.25 is TOP_UP; off, no read', db, async () => {
+  const reads: string[] = [];
+  const chainOf = (c: 'arc' | 'base') => ({
+    balance: async () => {
+      reads.push(c);
+      return c === 'base' ? 2n * 10n ** 17n : 5n * 10n ** 18n; // $0.20 and $5 at $1 a coin
+    },
+  }) as unknown as import('./deploy').DeployChain;
+  const deps = { refreshFees: async () => 0, deployer: { chain: chainOf, usdPerNative: async () => 1 } };
+  const tag = `t10-gas-${process.pid}`;
+  const old = process.env.DEPLOYER_PRIVATE_KEY;
+  try {
+    const off = await runCron({ deps, only: [tag] });
+    assert.deepEqual(reads, []);
+    assert.ok(!off.needs_owner.some((k) => k.startsWith('deployer-gas:')));
+    process.env.DEPLOYER_PRIVATE_KEY = '5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a';
+    const on = await runCron({ deps, only: [tag] });
+    assert.deepEqual(reads.sort(), ['arc', 'base']);
+    assert.ok(on.needs_owner.includes('deployer-gas:base'));
+    assert.ok(!on.needs_owner.includes('deployer-gas:arc'));
+    assert.deepEqual((on as { deployer_gas?: unknown }).deployer_gas, { arc: { usd: 5 }, base: { usd: 0.2, note: 'TOP_UP' } });
+  } finally {
+    if (old === undefined) delete process.env.DEPLOYER_PRIVATE_KEY;
+    else process.env.DEPLOYER_PRIVATE_KEY = old;
+  }
+});

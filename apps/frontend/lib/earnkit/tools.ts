@@ -72,6 +72,7 @@ import {
   prepareSubmission,
 } from './submission';
 import { OWNERSHIP_FILE } from './ownership';
+import { DEPLOY_LINES, deployForBuilder, type DeployDeps, type DeployInput } from './deploy';
 import {
   CANT_PUSH_RETRY_NOTE,
   STILL_CHECKING_LAUNCH,
@@ -155,6 +156,8 @@ export type ToolContext = {
   ) => Promise<Exclude<YourRepos, { error: string }>>;
   /** v2.9 A5: test injection only: the link probe, getCode and cache for the entry checks. */
   verifyDeps?: CheckDeps;
+  /** v2.10 item 13: test injection only: the deployer's chain, price and proof reads. */
+  deployDeps?: DeployDeps;
 };
 
 /**
@@ -2149,8 +2152,66 @@ export const FindInput = ListProgramsInput.extend({
   repo: z.string().optional(),
 }).strict();
 
-/** T10 adds `deploy`. */
-export const PrepareInput = PrepareSubmissionInput;
+/**
+ * v2.10 item 13: the builder's compiled artifact for EarnKit to deploy (the agent compiles; EarnKit
+ * never builds code). Pre-flight P9: `owner_wallet` is the wallet that should own it (else the
+ * remembered one on a non-shared client, else the reply asks).
+ */
+export const DeployField = z
+  .object({
+    chain: z.enum(['arc', 'base']),
+    bytecode: z.string().regex(/^0x[0-9a-fA-F]+$/).max(2 + 2 * 49_152),
+    abi: z.array(z.object({ type: z.string() }).passthrough()).max(500),
+    constructor_args: z.array(z.unknown()).max(50).optional(),
+    owner_wallet: z.string().max(100).optional(),
+  })
+  .strict();
+
+/** prepare: prepare_submission's input plus `deploy` (Pre-flight P9: stripped before the strict handler). */
+export const PrepareInput = PrepareSubmissionInput.extend({ deploy: DeployField.optional() }).strict();
+
+/** v2.10 item 13: asked when no owner wallet is known. */
+export const deployWalletLine = (name: string) => `Send me the wallet that should own ${name}.`;
+
+/**
+ * v2.10 item 13: prepare's deploy step. The builder's line (the deployed line, or why not) goes at the
+ * end of show_to_builder; the reply's `deploy` carries the address for the agent's `contracts`, so
+ * it never appears in a description field. Never throws.
+ */
+async function deployStep(
+  d: z.infer<typeof DeployField>,
+  prep: { project?: { name?: string; repo_url?: string }; answers?: Record<string, string>; signed_in?: string },
+  ctx: ToolContext,
+): Promise<{ line: string; deploy: Reply; agent_note?: string }> {
+  const repoUrl = prep.project?.repo_url ?? prep.answers?.repo_url;
+  const gh = repoUrl ? githubRepo(repoUrl) : null;
+  const name = prep.project?.name?.trim() || gh?.repo || 'your contract';
+  if (!gh) return { line: DEPLOY_LINES.notYours, deploy: { refused: DEPLOY_LINES.notYours }, agent_note: 'Pass the project repo_url (its GitHub repo) to deploy.' };
+  const given = d.owner_wallet?.trim();
+  const wallet = given && isWalletAddress(given) ? given : given ? null : await walletMemory(ctx).catch(() => null);
+  if (!wallet) {
+    const line = deployWalletLine(name);
+    return { line, deploy: { needs_wallet: line }, agent_note: 'Pass deploy.owner_wallet with the wallet the builder sends.' };
+  }
+  const login = ctx.sharedClient ? await sharedLogin(ctx, prep.signed_in, 'prepare') : null;
+  const input: DeployInput = {
+    chain: d.chain,
+    bytecode: d.bytecode as `0x${string}`,
+    abi: d.abi as unknown as DeployInput['abi'],
+    ...(d.constructor_args && { constructor_args: d.constructor_args }),
+  };
+  const out = await deployForBuilder(
+    { installationId: ctx.installationId, login, repoKey: `${gh.owner}/${gh.repo}`, projectName: name, builderWallet: wallet as `0x${string}`, input },
+    ctx.deployDeps,
+  );
+  if (out.status === 'deployed')
+    return {
+      line: out.show_to_builder,
+      deploy: { address: out.address, chain: d.chain, owner_ok: out.owner_ok },
+      agent_note: 'Add deploy.address to contracts; never put it in a description.',
+    };
+  return { line: out.show_to_builder, deploy: { [out.status]: out.show_to_builder }, ...(out.agent_note && { agent_note: out.agent_note }) };
+}
 
 const Loose = z.record(z.string(), z.unknown());
 
@@ -2365,7 +2426,16 @@ export const tools = {
     return { ...r, show_to_builder: line ? `${guide}\n\n${line}` : guide };
   },
 
-  prepare: async (input: unknown, ctx: ToolContext) => handlers.prepare_submission(PrepareInput.parse(input), ctx),
+  // v2.10 item 13: with `deploy`, EarnKit deploys the builder's contract after the prepare step.
+  prepare: async (input: unknown, ctx: ToolContext) => {
+    const { deploy, ...prep } = PrepareInput.parse(input);
+    const r = (await handlers.prepare_submission(prep, ctx)) as Reply;
+    if (!deploy) return r;
+    const step = await deployStep(deploy, prep, ctx);
+    const shown = typeof r.show_to_builder === 'string' && r.show_to_builder ? `${r.show_to_builder}\n\n${step.line}` : step.line;
+    const note = [r.agent_note, step.agent_note].filter((n) => typeof n === 'string' && n).join(' ');
+    return { ...r, show_to_builder: shown, deploy: step.deploy, ...(note && { agent_note: note }) };
+  },
 
   // R15: the builder's yes (or skip the token) to the confirm line; or an entry's token (project_id).
   confirm: async (input: unknown, ctx: ToolContext) => {

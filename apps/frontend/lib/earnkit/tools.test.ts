@@ -3890,3 +3890,79 @@ test('fix round 2 (Minor): withoutTokenLine drops the entered line\'s token sent
   assert.equal(withoutTokenLine('Entered in Arc. Your token is launching.'), 'Entered in Arc.');
   assert.equal(withoutTokenLine('Entered in Arc.'), 'Entered in Arc.');
 });
+
+// ---- v2.10 item 13: prepare with deploy
+
+test('10.11 prepare with deploy: off without DEPLOYER_PRIVATE_KEY (no chain read); on, the deployed line ends show_to_builder and the address is nowhere else', dbTest, async () => {
+  const { DEPLOY_LINES, deployedLine } = await import('./deploy');
+  const f = committedProgram('arc-microgrants');
+  const stamp = `${process.pid}-${Date.now()}`;
+  Object.assign(f, { id: `t10-deploy-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' });
+  await upsertProgram(ProgramFile.parse(f));
+  const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t10-${stamp}`}) RETURNING id`;
+  const repoKey = `alice${process.pid}x${Date.now()}/tipjar`;
+  await sql()`
+    INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose)
+    VALUES (${repoKey}, 'alice', ${id}, now(), 3, 'entry')`;
+  const ADDR = '0x00000000000000000000000000000000000a11ce';
+  const OWNER = '0x2222222222222222222222222222222222222222';
+  let reads = 0;
+  const chain = {
+    estimate: async () => ((reads++), { gas: 100_000n, maxFeePerGas: 100_000_000_000n }),
+    balance: async () => ((reads++), 10n ** 18n),
+    send: async () => `0x${'ab'.repeat(32)}` as const,
+    receipt: async () => ({ status: 'success' as const, contractAddress: ADDR as `0x${string}`, gasUsed: 50_000n, effectiveGasPrice: 100_000_000_000n }),
+    code: async () => `0x${'60'.repeat(50)}` as const,
+    read: async () => OWNER,
+    write: async () => `0x${'cd'.repeat(32)}` as const,
+  };
+  const abi = [{ type: 'function', name: 'owner', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' }];
+  const call = {
+    program_id: f.id,
+    project: { name: 'TipJar', repo_url: `https://github.com/${repoKey}`, description: 'A tip jar for streamers.' },
+    deploy: { chain: 'base', bytecode: `0x${'60'.repeat(40)}`, abi, owner_wallet: OWNER },
+  };
+  const ctx = {
+    installationId: id,
+    deployDeps: { chain: () => chain, usdPerNative: async () => 1, now: new Date(Date.UTC(2160, Number(process.pid % 12), 3)), gate: { owner: async () => ({ status: 'missing' as const }), latest: async () => null } },
+  };
+  const off = (await tools.prepare(call, ctx)) as { deploy: unknown; show_to_builder: string };
+  assert.deepEqual(off.deploy, { unavailable: DEPLOY_LINES.off });
+  assert.equal(reads, 0);
+  const keys = ['DEPLOYER_PRIVATE_KEY', 'GITHUB_OAUTH_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_SECRET'];
+  const old = keys.map((k) => process.env[k]);
+  process.env.DEPLOYER_PRIVATE_KEY = '5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a';
+  process.env.GITHUB_OAUTH_CLIENT_ID = 'test-client';
+  process.env.GITHUB_OAUTH_CLIENT_SECRET = 'test-secret';
+  try {
+    const on = (await tools.prepare(call, ctx)) as Record<string, unknown> & { show_to_builder: string };
+    const line = deployedLine('TipJar', 'base', ADDR, true);
+    assert.ok(on.show_to_builder.endsWith(`\n\n${line}`), on.show_to_builder);
+    assert.deepEqual(on.deploy, { address: ADDR, chain: 'base', owner_ok: true });
+    // The short address shows once (the deployed line); the full address in no builder text.
+    assert.equal(on.show_to_builder.split('0x0000…11ce').length - 1, 1);
+    const builderText = JSON.stringify({ ...on, deploy: undefined, agent_note: undefined });
+    assert.ok(!builderText.toLowerCase().includes(ADDR.slice(2)), 'the address only in deploy');
+  } finally {
+    keys.forEach((k, i) => (old[i] === undefined ? delete process.env[k] : (process.env[k] = old[i])));
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${f.id}`;
+  }
+});
+
+test('10.11 prepare with deploy and no wallet known: the reply asks for the owner wallet in one line', dbTest, async () => {
+  const f = committedProgram('arc-microgrants');
+  const stamp = `${process.pid}-${Date.now()}`;
+  Object.assign(f, { id: `t10-wallet-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' });
+  await upsertProgram(ProgramFile.parse(f));
+  const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t10w-${stamp}`}) RETURNING id`;
+  try {
+    const r = (await tools.prepare(
+      { program_id: f.id, project: { name: 'TipJar', repo_url: 'https://github.com/alice/tipjar' }, deploy: { chain: 'arc', bytecode: '0x6060', abi: [] } },
+      { installationId: id },
+    )) as { deploy: unknown; show_to_builder: string };
+    assert.deepEqual(r.deploy, { needs_wallet: 'Send me the wallet that should own TipJar.' });
+    assert.ok(r.show_to_builder.endsWith('Send me the wallet that should own TipJar.'));
+  } finally {
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${f.id}`;
+  }
+});

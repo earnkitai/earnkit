@@ -290,7 +290,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
     (input) => run(ctx, 'find', input),
   );
 
-  // v2.10 item 4: prepare_submission (T10 adds deploy).
+  // v2.10 item 4: prepare_submission; item 13: plus deploy.
   server.registerTool(
     'prepare',
     {
@@ -312,8 +312,24 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           .optional()
           .describe('true when the builder has no live link and the project builds to static files: EarnKit hosts it (see host in the reply)'),
         signed_in: SIGNED_IN,
+        // v2.10 item 13: EarnKit deploys the builder's contract (Arc or Base), the builder as owner.
+        deploy: z
+          .object({
+            chain: z.enum(['arc', 'base']),
+            bytecode: z.string().describe('The compiled creation bytecode (0x...), from the repo you built'),
+            abi: z.array(z.object({ type: z.string() }).passthrough()).describe("The contract's ABI"),
+            constructor_args: z.array(z.unknown()).optional().describe('Constructor arguments in ABI order (integers as decimal strings)'),
+            owner_wallet: z.string().optional().describe('The wallet that should own the contract, as the builder gave it'),
+          })
+          .strict()
+          .optional()
+          .describe(
+            'Only when the builder asks EarnKit to deploy their contract and you compiled it. EarnKit pays the gas and makes the builder the owner; ' +
+              'once a day per chain. Put deploy.address from the reply in contracts, never in a description.',
+          ),
       },
-      annotations: { readOnlyHint: true },
+      // v2.10 item 13: with deploy, prepare sends a transaction.
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
     (input) => run(ctx, 'prepare', input),
   );

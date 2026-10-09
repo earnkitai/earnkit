@@ -78,13 +78,20 @@ export type GateDeps = {
    * read here so no caller can forget it; false while sign-in is off (nothing changes then).
    */
   shared?: (installationId: number) => Promise<boolean>;
-  /**
-   * v2.10 item 13 (R19): a GitHub sign-in or read-only App proof of this repo on this installation
-   * (scoped as verifiedFor: `login` undefined, any; a login, only its). Defaults to the
-   * github_verifications rows, each kind only while its feature is on.
-   */
+};
+
+/**
+ * v2.10 item 13 (R19): repoOwnershipPasses' reads: the gate's, plus `repoVerified`, a GitHub sign-in
+ * or read-only App proof of this repo on this installation (scoped as verifiedFor: `login`
+ * undefined, any; a login, only its). Defaults to the github_verifications rows, each kind only
+ * while its feature is on.
+ */
+export type OwnershipDeps = GateDeps & {
   repoVerified?: (a: { installationId: number; repoKey: string; login?: string }) => Promise<boolean>;
 };
+const repoVerified = async (a: { installationId: number; repoKey: string; login?: string }) =>
+  (githubVerifyEnabled() && (await verifiedFor(a)) !== null) ||
+  (githubAppEnabled() && (await verifiedFor({ ...a, purpose: 'app' })) !== null);
 /**
  * `reason`: plain builder words. `agent_note` (M7): the technical detail, for the agent only.
  * `fixable` (v2.8 Ruling 4 (plan)): the agent can fix it now and try again (the proof line not
@@ -109,9 +116,6 @@ export type GateResult =
     };
 
 const defaults: Omit<Required<GateDeps>, 'appToken' | 'appLink'> = {
-  repoVerified: async (a) =>
-    (githubVerifyEnabled() && (await verifiedFor(a)) !== null) ||
-    (githubAppEnabled() && (await verifiedFor({ ...a, purpose: 'app' })) !== null),
   repo: async (o, r, token) => {
     const facts = await repoCodeFacts(`${o}/${r}`, { token });
     // v2.10 Ruling H6: GitHub said the repo is public (no App token): public pages may show its URL.
@@ -379,9 +383,9 @@ const defaultAppLink = (input: GateInput) => async (repoKey: string) =>
  */
 export async function repoOwnershipPasses(
   a: { installationId: number; repoUrl: string; verifiedLogin?: string | null },
-  deps: GateDeps = {},
+  deps: OwnershipDeps = {},
 ): Promise<boolean> {
-  const d = { ...defaults, ...(deps.owner && { latest: async () => null }), ...deps };
+  const d = { ...defaults, repoVerified, ...(deps.owner && { latest: async () => null }), ...deps };
   const gh = githubRepo(a.repoUrl);
   if (!gh) return false;
   const repoKey = `${gh.owner}/${gh.repo}`.toLowerCase();

@@ -21,7 +21,7 @@ import { shortWallet } from './entry-text';
 import { FREE_CAPS, giveBackFreeTier, takeFreeTier } from './free-tier';
 import { llamaPrice } from './prices';
 import { RateLimitError, enforce } from './rate-limit';
-import { repoOwnershipPasses, type GateDeps } from './token-gate';
+import { repoOwnershipPasses, type OwnershipDeps } from './token-gate';
 import { markDeployed, rpcFor } from './verify';
 
 /**
@@ -80,6 +80,18 @@ const RECEIPT_MS = 30_000;
  */
 const NATIVE_DECIMALS = 18n;
 
+/**
+ * The initcode: the bytecode plus the ABI-encoded constructor args. JSON has no bigints, so an
+ * integer argument given as a decimal string is read as one. Throws when the args don't fit. Pure.
+ */
+export function initcode(i: DeployInput): Hex {
+  const ctor = i.abi.find((x) => x.type === 'constructor') as { inputs?: readonly { type: string }[] } | undefined;
+  const args = (i.constructor_args ?? []).map((v, n) =>
+    typeof v === 'string' && /^u?int\d*$/.test(ctor?.inputs?.[n]?.type ?? '') && /^-?\d+$/.test(v) ? BigInt(v) : v,
+  );
+  return encodeDeployData({ abi: i.abi, bytecode: i.bytecode, args } as Parameters<typeof encodeDeployData>[0]);
+}
+
 /** Why EarnKit won't deploy this artifact (builder text), or null. Pure. */
 export function deployRefusal(i: DeployInput): string | null {
   const ctor = i.abi.find((x) => x.type === 'constructor') as { stateMutability?: string } | undefined;
@@ -89,7 +101,7 @@ export function deployRefusal(i: DeployInput): string | null {
   if (ERC20_SELECTORS.every((s) => code.includes(`63${s}`))) return DEPLOY_LINES.token;
   let data: Hex;
   try {
-    data = encodeDeployData({ abi: i.abi, bytecode: i.bytecode, args: i.constructor_args ?? [] } as Parameters<typeof encodeDeployData>[0]);
+    data = initcode(i);
   } catch {
     return DEPLOY_LINES.failed;
   }
@@ -171,7 +183,7 @@ export type DeployDeps = {
   usdPerNative?: (c: DeployChainName) => Promise<number>;
   now?: Date;
   /** Test seam: the ownership proof's reads (token-gate.ts GateDeps). */
-  gate?: GateDeps;
+  gate?: OwnershipDeps;
   /** Test seam: how long to wait for a receipt (default 30 s). */
   receiptMs?: number;
 };
@@ -334,9 +346,7 @@ export async function deployForBuilder(
   try {
     if (!(await takeFreeTier('deploysDay', 1, now))) return stop(refused(DEPLOY_LINES.dayFull));
     dayTaken = true;
-    const data = encodeDeployData({ abi: a.input.abi, bytecode: a.input.bytecode, args: a.input.constructor_args ?? [] } as Parameters<
-      typeof encodeDeployData
-    >[0]);
+    const data = initcode(a.input);
     let est: { gas: bigint; maxFeePerGas: bigint };
     try {
       est = await chain.estimate({ data, from: deployer });
