@@ -2799,8 +2799,10 @@ A GitHub OAuth App with no scopes; its callback URL is `<EARNKIT_URL>/github/ver
   "Couldn't read your repos" line). `present.ts privateRepoLines` puts one `PRIVATE_LOCAL_LINE` per
   `fromLocal` name and one `CANT_SEE_LINE` for the first unseen repo before the matched table; the
   link appears only while the App is on. The `local_repos` instruction (mcp.ts) asks for name,
-  chains, contracts, live link and last commit for private repos. A local-only Arc repo still can't
-  reach good odds (P30); the App is the fix.
+  chains, contracts, live link and last commit for private repos. Ruling H5 replaced P30's cap: a
+  live, active local-only repo on a chain with no known count is good odds and can lead (journey
+  11.1). With a local view (now or remembered) `find` shows the private line, never the App link;
+  the link comes with the can't-see line (no local view) and the launch gate's refusal.
 - **The App (item 7b).** Off unless `GITHUB_APP_ID`, `GITHUB_APP_SLUG` and `GITHUB_APP_PRIVATE_KEY`
   (a PEM; `\n` escapes allowed) are set and the v2.9 sign-in is on (`githubAppEnabled`, P17). A
   GitHub App with Contents: read and Metadata: read only. Its setup URL is
@@ -3436,6 +3438,125 @@ memory, and the Worker's real `handle` serves from it; Resend is a recording mai
 - 12.6 now also asserts Circle is not in Also qualifies. Across every Part 2 reply (upload replies
   included) the Part 1 scan holds, and "40%" shows once per entry flow.
 
+## v2.10 One thing per reply (Task 11: the whole release, env vars, go-live, journeys)
+
+The owner's v2.9 test run found repeated pitching, private-repo blindness, weak matches ranked as
+fits, and sloppy descriptions and logos. v2.10 answers each with the smallest fix. This section is
+the map; the detail lives in the sections it names.
+
+- **4 tools (item 4).** `find`, `prepare`, `confirm`, `tell` (`tools.ts tools`) dispatch to the v2.9
+  `handlers`; the table and the alias map are in "The 4 builder tools and the 30-day aliases". Old
+  names are rewritten in `app/mcp/route.ts` until `ALIASES_UNTIL` (2026-11-09T00:00Z) and logged as
+  `[mcp] alias <old> -> <new>`; `tools/list` shows only the 4 (plus `sponsor_campaign` with the
+  escrow).
+- **The first reply and `more` (item 2).** One line each for news, "Your entries", the deadline
+  line and the private/can't-see lines, then one lead line with its question ("Your TipJar can win
+  500 USDC on Arc by Oct 14. Want me to finish it?"). `find { more: true }` renders the v2.9 tables.
+  See "One thing per reply" under the v2.8 win engine section.
+- **The guide on the first `prepare` (item 3)**, before the coach's questions; never again for that
+  program once an entry exists.
+- **One bonus line (item 1):** `present.ts bonusLine`, at most once per reply.
+- **The confirm line (item 5):** the token is pitched once, inside the one yes: "Yes submits your
+  entry and launches $TIP (Tip Jar): 40% of its fees to you, plus the builder bonus. Wallet: …. yes /
+  skip the token". Later showings in the same flow drop the "40%" part. No WETH, gas or terms line in
+  any reply; the terms are a footer on `/p/[id]`.
+- **The deadline line (item 15):** "Arc Microgrants closes in 2 days; your entry isn't submitted.",
+  once per entry per UTC day, never on a shared client without the builder's code.
+- **Traction and odds (item 6):** `traction = 3·band(tx) + 2·live + band(commits_90d)`; good odds per
+  Ruling H5; rank = good odds, traction, difficulty, prize. Blockscout counters (Base only) at most 2
+  per `find` and 1 per entry step, cached 24 h in `url_checks.n`. See "Owned repos and the
+  real-product score".
+- **Chain basis (item 9):** only `deployed` or `deploy_config` credit a chain; a mention is at most
+  "deploy to <chain> first" and low odds.
+- **Private repos and the App (items 7, 7b; R8 to R10):** per-repo reads, the local view, the
+  can't-see line, and the read-only App. See "Private repos and the read-only GitHub App".
+- **Error pages (item 14):** the probe reads 64 KB of HTML and fails a page showing an error. There
+  is no JS execution, so an error drawn by client-side JavaScript is not caught.
+- **Plain fields (item 11):** `coach.ts plainProblem`; `confirm` refuses `yes` with `agent_fixes`
+  only; tokens.fun's description is the project's description, else the form's one-liner, else
+  "<Name> on Base" (a form with no one-liner, like Arc's, falls to that when the agent sends no
+  `project.description`).
+- **Logo order and the mark (item 12):** the agent's upload; the live site's apple-touch-icon, else a
+  raster icon of 128 px or more, else og:image; the public repo's custom social preview; the
+  generated mark (`/api/projects/<id>/mark`, never the text tile). A fetched image is stored in
+  `projects.token_image` and served from `/api/projects/<id>/image`.
+- **Deploys (item 13):** caps (1 a day per chain per builder, 3 per 30 days, 20 a day in total,
+  $0.25 a deploy, $10 a month), key separation, `TOP_UP`, and the runbooks for `deployer-gas:<chain>`,
+  `deploy-owner:<id>` and `deploy-unknown:<id>` are in "EarnKit deploys the builder's contract".
+- **A verified contract stays verified (Task 11 fix, journey 11.0).** `projects.ts` entry UPDATEs
+  write `contract_verified_at = COALESCE(<this check>, contract_verified_at)`: tell's "I submitted"
+  re-records from the stored fields, which carry no contracts, and used to clear the pass a deploy or
+  confirm had set. Contract code doesn't go away, so a later step never clears it; the live check
+  still can.
+- **A live pool read counts a fresh token (Task 11 fix).** `bonus-rounds.ts roundPools` without
+  `opts.now` has no upper bound on `coin_launched_at` (the app's millisecond clock against the
+  database's microseconds, or clock skew, could hide a token launched a moment before, so a reply
+  said "Your token: …" and "no tokens yet" together). An "as of" read keeps the bound.
+- **Programs list in one order (Task 11).** `programs.ts` lists open programs by `ends_at`, then `id`.
+
+### Env vars (each feature is off when its vars are absent)
+
+| Var | Turns on | Notes |
+|---|---|---|
+| `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY` | The read-only GitHub App (item 7b) | All three, a valid PEM (newlines as `\n` allowed), and the v2.9 OAuth app (`GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`) |
+| `DEPLOYER_PRIVATE_KEY` | Contract deploys (item 13) | 64 hex. Refuses to start when it equals any other key it can see |
+| `BASE_RPC_URL`, `ARC_RPC_URL` | The deployer's chains | Public RPCs are used when unset |
+
+### Owner go-live (after merge)
+
+1. Merge and deploy `v2.10`. `predeploy` runs the additive migration and `programs:sync`
+   (Avalanche Team1 loses its Easy rating).
+2. **GitHub App (optional, free).** Create it on GitHub: Repository permissions Contents: Read-only
+   and Metadata: Read-only, nothing else; no webhooks (uncheck Active); Setup URL
+   `https://earnkit.com/github/verify/app`; "Redirect on update" on; installable by any account.
+   Generate a private key and set `GITHUB_APP_ID`, `GITHUB_APP_SLUG` and `GITHUB_APP_PRIVATE_KEY`
+   on Railway. The v2.9 OAuth app must be set too (the App link starts with that sign-in).
+3. **Deployer wallet.** Make a new wallet (never the payout wallet, an operator or a guardian key).
+   Before sending anything to Arc, confirm on docs.arc.io that Arc mainnet's chain id is 5042 and
+   that its native USDC balance and gas use 18 decimals (the pricing assumes both; if Arc says 6,
+   don't fund Arc and leave the Arc RPC unset until the code is changed). Then send about $5 of ETH
+   on Base and about $5 of USDC on Arc. Top up by hand when the cron lists `deployer-gas:<chain>`.
+4. **Deployer key.** Set `DEPLOYER_PRIVATE_KEY` and make sure `BASE_RPC_URL` and `ARC_RPC_URL` are
+   set. Run the app on one replica (the nonce queue is per process).
+5. **Deploy flags.** `deploy-owner:<id>` and `deploy-unknown:<id>` make the cron answer 503 for 24
+   hours, then stay listed with `:quiet` for the rest of 7 days (Ruling H11). For `deploy-owner`,
+   read the contract's `owner()` and `hasRole(0x00…, deployer)`, renounce any right the deployer still
+   holds by hand, then `UPDATE contract_deploys SET owner_ok = NULL WHERE id = <id>`. For
+   `deploy-unknown`, look up `tx_hash` (or the deployer's nonce when it is empty) and set `status`,
+   `address` and `cost_micro_usd` to what happened.
+6. **Before 2026-11-09:** read the `[mcp] alias` log lines; if an agent still uses old names, move
+   `ALIASES_UNTIL` or tell its owner.
+7. **Test with throwaway repos:** one private repo through the App, one Arc deploy, one Grok Bot
+   launch. Tokens and contracts are real and permanent.
+
+### The journeys (`v210-journey.test.ts`)
+
+Its own throwaway database (`schema.sql`, dropped after), every real program file, and fakes for
+GitHub (REST, raw, OAuth and the App's API with a key generated in the test), the probe, getCode,
+Blockscout, the live site's page and icon, tokens.fun (check-ticker and the deploy API behind the
+real `deployToken`) and the deployer's chain (`DeployChain`). Nothing else may touch the network.
+
+- **11.0 the owner's run:** private tokens.fun and EarnKit repos (local view) and a public
+  arc-usdc-tipjar; the first reply is the two private lines and one lead line; "show more"; the
+  guide on picking Arc; the Arc deploy (creation, then `transferOwnership(builder)`); one confirm
+  line with "40%" once; a description with an address refused for the agent only; the launch with
+  the live link, the site's apple-touch-icon and the plain description; the deadline line once a
+  day; "I submitted".
+- **11.1 a private repo and the App:** the can't-see line with the App link, the sign-in hop, the
+  install and the setup URL, one `via = 'app'` row; scored through the App's token; the guide, the
+  deploy, the launch through the App; `/p` and `/bonus` never show the repo.
+- **11.2 Grok Bot:** a shared client to a launched token with the sign-in code (G10, G11); the
+  deadline line only with the code; a second builder sees nothing.
+- **11.3 an old agent:** `confirm_entry` through the MCP route reaches `confirm`, logs the alias
+  once, and `tools/list` has the 4 tools.
+- **11.4 the sweep** over every reply (copy rules, one bonus line, the first-reply shape, "40%"
+  only on the confirm line, no address in a description field, no other network).
+
+`campaign-e2e` (anvil with chain id 8453) and `sponsor-e2e` (anvil 31337 with `MockERC20` and
+`script/Deploy.s.sol`, `ALLOW_SHORT_TIMELOCK=1`, after `programs:sync`) pass on v2.10.
+`campaign-e2e` had been failing since v2.7/v2.9 copy changes (the "Before you submit" line and the
+`.example` placeholder); its checks now read the one-line first reply and a real live link.
+
 ## The 4 builder tools and the 30-day aliases (v2.10 item 4, R15 to R17, Task 9)
 
 The server lists 4 builder tools, plus `sponsor_campaign` once the escrow is configured. Each is a
@@ -3518,8 +3639,12 @@ deploys the builder's own compiled artifact from EarnKit's deployer, paying the 
 builder as the owner. The agent compiles; EarnKit never builds code or verifies source. Off until
 `DEPLOYER_PRIVATE_KEY` is set. No money ever goes to the builder's wallet; wallet top-ups stay banned.
 
-- **Flow (`tools.ts deployStep` -> `deploy.ts deployForBuilder`).** prepare_submission runs first;
-  the deploy needs the repo (`project.repo_url` or `answers.repo_url`) and an owner wallet:
+- **Flow (`tools.ts deployStep` -> `deploy.ts deployForBuilder`).** Task 11 fix (journey 11.0): the
+  program is read first (an unknown one spends nothing), then the deploy runs, and a deployed
+  address joins `project.contracts` (first, at most 2) before prepare_submission, so this draft's A5
+  check sees it and the reply never says "No contract found" next to the deployed line. A draft that
+  throws after a deploy still returns the deploy (`agent_note`: call prepare again without
+  `deploy`). The deploy needs the repo (`project.repo_url` or `answers.repo_url`) and an owner wallet:
   `deploy.owner_wallet` (P9), else the remembered wallet on a non-shared client, else the reply asks
   "Send me the wallet that should own <Name>." The builder's line is appended to `show_to_builder`;
   `reply.deploy` is `{ address, chain, owner_ok }` for the agent (who puts the address in

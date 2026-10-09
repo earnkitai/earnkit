@@ -515,9 +515,10 @@ async function scenario(mock: Mock) {
   // ---- 7. The winner alert: Beta's agent sees the win once; Alpha's sees none ----
   const beta = await sinceYouLastChecked(inst.beta);
   // Ruling 25 (v2.6): one natural clause, the tx link (Ruling 26) and the leaderboard slug (Ruling 12).
+  // v2.10 item 5 (T7): no "(as WETH)" in the alert.
   assert.ok(
     beta.lines.some((l) =>
-      new RegExp(`^you were paid a 0\\.58 ETH builder bonus \\(as WETH\\) for Arc Microgrants, sent to 0xb2b2…b2b2 \\(basescan\\.org/tx/0x[0-9a-f]{64}\\) · earnkit\\.com/bonus/${PROG}-\\d{4}-\\d{2}-\\d{2}$`).test(l),
+      new RegExp(`^you were paid a 0\\.58 ETH builder bonus for Arc Microgrants, sent to 0xb2b2…b2b2 \\(basescan\\.org/tx/0x[0-9a-f]{64}\\) · earnkit\\.com/bonus/${PROG}-\\d{4}-\\d{2}-\\d{2}$`).test(l),
     ),
     JSON.stringify(beta.lines),
   );
@@ -601,16 +602,16 @@ async function scenario(mock: Mock) {
     // Final review M7: each row is exactly four cells, "Still needed" one of its three forms; and
     // this repo's token is in this program, so the closing sentence names it.
     '(?:\\n\\| [^|\\n]+ \\| [^|\\n]+ \\| [^|\\n]+ \\| (?:nothing|a live link|\\d+ answers?) \\|){1,3}' +
-    '\\nSay "enter it here too" for any of them\\.' +
-    ' Your builder bonus rides on your E2E Confirm Grants entry\\. Your builder bonus moves to your next entry when a program ends\\.';
-  // The after-submission reply: the coin, then the builder bonus with its leaderboard link. v2.8
+    // v2.10 item 1: Also qualifies says no bonus sentence.
+    '\\nSay "enter it here too" for any of them\\.';
+  // The after-submission reply: the coin, then the one bonus line (v2.10 item 1: no board link). v2.8
   // Ruling 29 (plan): "Also qualifies" may follow after a blank line (the shared test database
   // holds other open programs this repo fits), anchored on that join.
-  assert.match(delta.show_to_builder, new RegExp(`^Entered in E2E Confirm Grants\\. Your token: tokens\\.fun/coin/${BUILDERS2.delta.coin}\\.\\nBuilder bonus: .+ · ends .+ · earnkit\\.com/bonus/${PROG2}-\\d{4}-\\d{2}(?:${ALSO_TAIL})?$`), delta.show_to_builder);
+  assert.match(delta.show_to_builder, new RegExp(`^Entered in E2E Confirm Grants\\. Your token: tokens\\.fun/coin/${BUILDERS2.delta.coin}\\.\\nBuilder bonus: 1 token in, fees coming(?:${ALSO_TAIL})?$`), delta.show_to_builder);
   // Echo's reply says the one step that joins the bonus; the note tells the agent the field.
   assert.equal(echo.bonus_join?.kind, 'confirm');
-  assert.match(echo.show_to_builder, /\nTell me once you've submitted on forms\.gle to join the builder bonus \(/, echo.show_to_builder);
-  assert.match(echo.bonus_note ?? '', /builder_submitted: true/);
+  assert.match(echo.show_to_builder, /\nTell me once you've submitted on forms\.gle to join the builder bonus\.\n/, echo.show_to_builder);
+  assert.match(echo.bonus_note ?? '', /Call tell with submitted once the builder confirms/);
   let p2 = await rows(PROG2);
   assert.equal(p2.get(ids2.delta)!.submission_basis, 'confirmed');
   assert.ok(p2.get(ids2.delta)!.submission_proof_ok_at, 'counts on the confirmation');
@@ -724,7 +725,7 @@ async function scenario(mock: Mock) {
 
   // ---- v2.6 7. Delta's next list_programs opens with the bonus paid and its leaderboard ----
   const listed = (await handlers.list_programs({}, { installationId: inst2.delta })) as { show_to_builder: string };
-  assert.ok(listed.show_to_builder.startsWith('Since you last checked: you were paid a 0.20 ETH builder bonus (as WETH) for E2E Confirm Grants'), listed.show_to_builder);
+  assert.ok(listed.show_to_builder.startsWith('Since you last checked: you were paid a 0.20 ETH builder bonus for E2E Confirm Grants'), listed.show_to_builder);
   assert.ok(listed.show_to_builder.includes(`earnkit.com/bonus/${PROG2}-`), listed.show_to_builder);
 
   // ---- v2.6 8. A re-run signs nothing ----

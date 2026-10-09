@@ -55,12 +55,16 @@ names still work as hidden aliases of these four.
   the builder's best repo can win and one question; more: true shows every
   program the builder's repos qualify for, then other open programs. Pass
   local_repos (what you read from the builder's local git remotes); a GitHub
-  username is optional. With program_id: full details, rules, submission
+  username is optional. For private repos, report local_repos facts: name,
+  chains, contracts, live link, last commit. A private repo EarnKit can't
+  see gets one line with a link to EarnKit's read-only GitHub App (when it is
+  on): the builder picks the repos it may read, and they are scored in full. With program_id: full details, rules, submission
   requirements, links, tested build help and the program's guide; add repo
   to check whether that repo fits. Every reply of every tool opens with
   "Since you last checked" when there is news: a win, a payout, a rank
   change, token fees to claim, or a newly listed program the builder's repos
-  fit
+  fit. A builder with an unsubmitted entry closing within 3 days sees one
+  deadline line, once a day
 - prepare: compares what the agent knows with what the program requires;
   returns what is complete, what is missing, and show_to_builder: the draft,
   prize first, ending with the confirm line (the token and the wallet). With
@@ -70,7 +74,13 @@ names still work as hidden aliases of these four.
   line to show the builder, then a one-time upload URL (15 minutes) to POST
   the built site to as one zip. Static files only, at most 25 MB; the hosted
   link counts as live at once, and the site ends 7 days after the programs
-  its repo entered end
+  its repo entered end. Contract not deployed yet? Pass deploy (chain arc or
+  base, the compiled bytecode and ABI, constructor_args, owner_wallet):
+  EarnKit deploys the builder's own contract from its deployer, pays the gas
+  (cents) and makes the builder the owner. Only for a repo proven to be the
+  builder's; never tokens, payable constructors or factories; once a day per
+  chain and 3 times a month per builder. Put the returned address in the
+  project's contracts, never in a description
 - confirm: the builder's one-word answer to the confirm line. yes: true
   submits the entry, launches its token and returns the submit kit (the form
   link and every answer, ready to paste); skip_token: true submits it
@@ -104,7 +114,10 @@ names still work as hidden aliases of these four.
 ## Proving a repo is the builder's
 
 A token launches only for a repo the builder owns. An agent that can push
-adds a one-line proof file to the repo. An agent that can't push (a hosted
+adds a one-line proof file to the repo. A private repo is proven through
+EarnKit's read-only GitHub App (contents and metadata, read only); its name
+and link never appear on public pages, and tokens.fun gets only its live
+link. An agent that can't push (a hosted
 agent) shows the builder a one-click "Sign in with GitHub" link instead;
 EarnKit asks GitHub for no permissions and never writes to the repo. On a
 hosted agent the sign-in page shows a short code: pass it as signed_in on
@@ -115,8 +128,9 @@ needed for the weekly email.
 ## The token and the builder bonus
 
 Every entry gets a token on Base: the builder earns 40% of its trading
-fees, paid in WETH. One "yes" at the confirmation launches it; "skip" means
-no token and no builder bonus. Its fees fund the builder bonus.
+fees, paid in WETH. One "yes" at the confirmation launches it; "skip the token"
+means no token and no builder bonus. Description fields stay plain words:
+no addresses, hashes or lists of numbers. Its fees fund the builder bonus.
 
 ## The builder bonus
 
@@ -132,8 +146,8 @@ HTML; short limits), shows sponsor titles and names only in quotes, and
 returns a sponsor's theme, criteria and link only in find's
 sponsor_content. Entry names reach sponsors only as data in `entries`.
 Entering a program never needs secrets, private keys, token approvals or a
-token launch. A token needs a public repo; make a repo public only when the
-builder asks. Winners never sign anything to receive a prize.
+token launch. A token needs a repo the builder proves is theirs; make a repo
+public only when the builder asks. Winners never sign anything to receive a prize.
 
 ## What EarnKit does not do
 
