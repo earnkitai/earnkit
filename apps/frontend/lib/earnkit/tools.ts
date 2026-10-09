@@ -27,6 +27,7 @@ import {
 import { recordShown, saveEntryScore } from './match-loop';
 import { repoKey } from './answer-bank';
 import { outcomeQuestion, outcomeToAsk } from './outcomes';
+import { WHICH_EMAIL, askWeeklyEmail, cleanEmail, entryEmail, saveWeeklyEmail } from './digest';
 import { TellInput, emptyMemory, hiddenIds, hiddenPrograms, memoryKey, readMemory, tell, type BuilderMemory, type MemoryKey } from './builder-memory';
 import { fitRepoOf, sinceLine, sinceYouLastChecked, type FitRepo } from './alerts';
 import {
@@ -759,6 +760,39 @@ export const TELL_SHARED_NOTE =
  * v2.9 A3: the builder's memory (Ruling G6: none on a shared client, memoryKey null); a failed read
  * is an empty memory, never a failed tool.
  */
+/**
+ * v2.9 E19, Ruling 13 (Pre-flight P16): the weekly email question, added to the reply of a call that
+ * recorded an entry, once per installation and only while the email is on. `email`: the entry's email
+ * answer; on a shared client only one this builder typed in this entry (never a saved one the coach
+ * offered back, `reused`), so the question names it. Never fails the tool.
+ */
+async function withEmailQuestion<T extends { show_to_builder: string; agent_note?: string }>(
+  ctx: ToolContext,
+  reply: T,
+  email: string | null,
+  reused: boolean,
+): Promise<T> {
+  const shared = Boolean(ctx.sharedClient);
+  const q = await askWeeklyEmail(ctx.installationId, { shared, email: shared && reused ? null : email });
+  if (!q) return reply;
+  return {
+    ...reply,
+    show_to_builder: `${reply.show_to_builder}\n\n${q.question}`,
+    agent_note: reply.agent_note ? `${reply.agent_note} ${q.agent_note}` : q.agent_note,
+  };
+}
+
+/** Pre-flight P16: the email saved in this project's answer bank (a shared client's may be another builder's). */
+async function bankedEmail(installationId: number, key: string): Promise<string | null> {
+  try {
+    const contact = (await readBank(installationId, key)).get('contact');
+    const slots: unknown = contact ? JSON.parse(contact) : null;
+    return slots && typeof slots === 'object' ? cleanEmail((slots as Record<string, unknown>).email) : null;
+  } catch {
+    return null;
+  }
+}
+
 const memoryOf = (key: MemoryKey | null, where: string): Promise<BuilderMemory> =>
   key === null
     ? Promise.resolve(emptyMemory())
@@ -1843,18 +1877,25 @@ export const tools = {
       { browser: i.agent?.browser === true },
       { problems: filled.missing.filter((m) => m.problem).map((m) => m.key) },
     );
-    return {
-      project_id: entry.id,
-      ...(token && { token }),
-      kit,
-      // v2.8.1 §C13: a repo whose token is in another program: the kit alone (no bonus note here).
-      show_to_builder: first ? `${first}\n\n${kit.show_to_builder}` : kit.show_to_builder,
-      // Part E, Rulings 7, 27, 28 (plan): how this kit is used (the agent's, never the builder's).
-      agent_note:
-        `Show show_to_builder as written. ${kitAgentNote(kit, program)} ` +
-        'Once the builder has submitted, call record_submission with the final answers and builder_submitted: true' +
-        (kit.proof.kind === 'entry_link' ? ', and their entry link as external_submission_url.' : '.'),
-    };
+    // v2.9 E19 (Ruling 13): the weekly email question, last, once per installation.
+    const email = entryEmail(program.submission_requirements, values);
+    return withEmailQuestion(
+      ctx,
+      {
+        project_id: entry.id,
+        ...(token && { token }),
+        kit,
+        // v2.8.1 §C13: a repo whose token is in another program: the kit alone (no bonus note here).
+        show_to_builder: first ? `${first}\n\n${kit.show_to_builder}` : kit.show_to_builder,
+        // Part E, Rulings 7, 27, 28 (plan): how this kit is used (the agent's, never the builder's).
+        agent_note:
+          `Show show_to_builder as written. ${kitAgentNote(kit, program)} ` +
+          'Once the builder has submitted, call record_submission with the final answers and builder_submitted: true' +
+          (kit.proof.kind === 'entry_link' ? ', and their entry link as external_submission_url.' : '.'),
+      },
+      email,
+      Object.values(banked.suggested).some((v) => cleanEmail(v) === email),
+    );
   },
 
   record_submission: async (input: unknown, ctx: ToolContext) => {
@@ -1939,9 +1980,20 @@ export const tools = {
       ctx.tokenDeps,
       deadline,
     );
+    // v2.9 E19 (Ruling 13): the weekly email question, last, once per installation. P16: on a shared
+    // client an address the answer bank holds for this project is never named (it may be another builder's).
+    const askEmail = async <T extends { show_to_builder: string; agent_note?: string }>(reply: T) => {
+      if (!('project_id' in result)) return reply;
+      const submitted = answersOf(parsed.submission_data);
+      const email = entryEmail(program.submission_requirements, submitted);
+      const reused =
+        Boolean(ctx.sharedClient && email) &&
+        (await bankedEmail(ctx.installationId, projectKey({ repo_url: parsed.project.repo_url ?? submitted.repo_url, name: parsed.project.name }))) === email;
+      return withEmailQuestion(ctx, reply, email, reused);
+    };
     // Campaign entries carry their own table (enteredTable).
     if ('show_to_builder' in result && result.show_to_builder)
-      return withAlerts(ctx, { ...result, token });
+      return withAlerts(ctx, await askEmail({ ...result, show_to_builder: result.show_to_builder, token }));
     // v2.6 §3: outside campaigns, the reply the builder sees: the coin, then the bonus round.
     // Ruling 29: the round's end as the first message shows it.
     const endsLabel = result.bonus_round?.ends_label ?? null;
@@ -1995,12 +2047,15 @@ export const tools = {
     const ridesOn = ridesOnTitle && !also?.text ? ` ${bonusRidesOn(ridesOnTitle)}` : '';
     const show_to_builder =
       enteredText({ programTitle: result.program_title, coin, bonus, repoHeld, countsIn }) + ridesOn + (also?.text ? `\n\n${also.text}` : '');
-    return withAlerts(ctx, {
-      ...result,
-      token: tokenOut,
-      show_to_builder,
-      ...(also?.rows.length && { also_qualifies: also.rows }),
-    });
+    return withAlerts(
+      ctx,
+      await askEmail({
+        ...result,
+        token: tokenOut,
+        show_to_builder,
+        ...(also?.rows.length && { also_qualifies: also.rows }),
+      }),
+    );
   },
 
   // v2.8 Ruling C21: the builder's own answer to ask_outcome's question, for their own entry only
@@ -2040,14 +2095,26 @@ export const tools = {
     // v2.9 B9 (G6, G9): on a shared client, statements are kept only under the verified login of
     // the code the builder pasted.
     const told = TellInput.safeParse(input);
-    const login = told.success ? await sharedLogin(ctx, told.data.signed_in, 'tell_earnkit') : null;
+    const weekly = told.success ? told.data.weekly_email : undefined;
+    // v2.9 E19 (Ruling 13): the weekly email answer alone stores no program or repo statement.
+    const onlyEmail = weekly !== undefined && !told.data?.program_status?.length && !told.data?.repo_facts?.length;
+    const login = told.success && !onlyEmail ? await sharedLogin(ctx, told.data.signed_in, 'tell_earnkit') : null;
     const key = memoryKey({ ...ctx, verifiedLogin: login });
-    const { saved, outcomes } = await tell(ctx.installationId, input as Parameters<typeof tell>[1], undefined, key);
-    const note = key === null ? TELL_SHARED_NOTE : TELL_SAVED_NOTE;
+    const { saved, outcomes } = onlyEmail
+      ? { saved: [] as string[], outcomes: 0 }
+      : await tell(ctx.installationId, input as Parameters<typeof tell>[1], undefined, key);
+    const mail = weekly ? await saveWeeklyEmail(ctx.installationId, weekly, { shared: Boolean(ctx.sharedClient) }) : null;
+    if (mail?.saved) saved.push(`weekly email: ${weekly!.answer === 'yes' ? 'on' : 'off'}`);
+    const mailNote =
+      mail?.show_to_builder === WHICH_EMAIL
+        ? "Ask the builder which email to use, then call tell_earnkit again with weekly_email: { answer: 'yes', email }."
+        : null;
+    const show = [!onlyEmail && key === null ? NOTED_FOR_NOW : null, mail?.show_to_builder ?? null].filter(Boolean).join(' ');
+    const note = onlyEmail ? 'Show show_to_builder.' : key === null ? TELL_SHARED_NOTE : TELL_SAVED_NOTE;
     return {
-      ...(key === null && { show_to_builder: NOTED_FOR_NOW }),
+      ...(show && { show_to_builder: show }),
       saved,
-      agent_note: outcomes > 0 ? `${note} ${OUTCOME_SAVED_NOTE}` : note,
+      agent_note: [note, outcomes > 0 ? OUTCOME_SAVED_NOTE : null, mailNote].filter(Boolean).join(' '),
     };
   },
 

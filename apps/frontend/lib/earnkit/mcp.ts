@@ -138,7 +138,8 @@ export const TELL_EARNKIT_DESCRIPTION =
   "the project_id from ask_outcome, prize_usd if they won money). repo_facts, per repo: the chains it is live on " +
   '(mainnet_chains), testnet only (testnet_chains), its live link, whether it has real users, or not_mine. ' +
   'Call it only with what the builder said. What lowers a match counts at once; what raises one waits until EarnKit ' +
-  'can check it. Results they report stay their own: never public, never counted.';
+  'can check it. Results they report stay their own: never public, never counted. weekly_email: their answer to the ' +
+  'weekly email question (answer yes or no, and the email if they gave one).';
 
 /**
  * v2.8 Ruling 23 (plan): record_submission's description. Its campaign sentences show only while an
@@ -663,6 +664,13 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
                 .strict(),
             )
             .max(20)
+            .optional(),
+          weekly_email: z
+            .object({
+              answer: z.string().describe('yes or no, as the builder answered the weekly email question'),
+              email: z.string().max(320).optional().describe('The email they gave, if any'),
+            })
+            .strict()
             .optional(),
           signed_in: SIGNED_IN,
         })
