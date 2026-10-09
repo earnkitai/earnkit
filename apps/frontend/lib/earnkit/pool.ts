@@ -129,3 +129,9 @@ export function statedPool(pool_usd: string | number | null, reward: string): { 
 export function openFigure(cards: { pool_usd?: number | null; pool_plus?: boolean }[]): string | null {
   return poolTotalText(cards.map((c) => ({ pool_usd: c.pool_usd ?? null, plus: c.pool_plus ?? false })));
 }
+
+/**
+ * v2.9 E20: "Builders using EarnKit won $X" (landing page, first reply), only once an announced
+ * win with a known prize exists (stats.ts builders_won_usd); absent (null), never "$0", before that. Pure.
+ */
+export const wonLine = (usd: number) => (usd > 0 ? `Builders using EarnKit won $${usd.toLocaleString('en-US')}` : null);
