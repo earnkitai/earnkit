@@ -1,10 +1,12 @@
 import { z } from 'zod';
 import { alsoProgramFacts, getProgram, getProgramRow, isOpen, listPrograms } from './programs';
+import { guideText, programGuide } from './guide';
 import {
   RecordSubmissionInput,
   recordSubmission,
   answersOf,
   enteredProgramIds,
+  hasProgramEntry,
   openEntries,
   ownEntryWallet,
   startEntry,
@@ -51,6 +53,7 @@ import {
   closesInDays,
   enterableWithoutRepo,
   layout,
+  leadRow,
   presentFirstMessage,
   programUpdates,
   type FirstMessage,
@@ -663,6 +666,8 @@ const ListProgramsInput = z
     wallet: z.unknown().optional(),
     // v2.9 B9 (Ruling G9): the code a shared client's builder pasted after signing in; never refused.
     signed_in: z.unknown().optional(),
+    // v2.10 item 2: "show more": today's tables instead of the one lead line.
+    more: z.boolean().optional(),
   })
   .strict();
 
@@ -1097,7 +1102,7 @@ export const tools = {
   // One answer to "what can I earn?": the builder's projects first, then what's worth building,
   // opening with what changed since their last check.
   list_programs: async (input: unknown, ctx: ToolContext) => {
-    const { agent_can_build, github_user, repos, local_repos, wallet, walletNote, signed_in } = listProgramsInput(input);
+    const { agent_can_build, github_user, repos, local_repos, wallet, walletNote, signed_in, more } = listProgramsInput(input);
     // v2.8.1 §E18: earlier installations of the builder this call names (its GitHub user, the owners
     // of the repos it reports, its wallet), never what this installation remembers; read before this
     // call's details are saved. Never fails the tool.
@@ -1230,11 +1235,11 @@ export const tools = {
       ? await alertsFor(ctx.installationId, { offer: true, otherWins: entries.wins })
       : { lines: [] as string[], scheduleNote: null };
 
-    // The builder bonus pools: one read, only for provable programs the message shows.
-    const pools = await poolsOf(
-      ctx.roundPools ?? roundPools,
-      bonusProgramIds({ cards, repos: yourRepos }),
-    );
+    // The builder bonus pools: one read, only for provable programs the message shows. v2.10 item 2:
+    // only with "show more" (the short reply has no bonus line).
+    const pools = more
+      ? await poolsOf(ctx.roundPools ?? roundPools, bonusProgramIds({ cards, repos: yourRepos }))
+      : new Map<string, RoundPool | null>();
     const withPools = cards.map((c) => ({
       ...c,
       bonus_pool_wei: pools.get(c.id)?.wei ?? null,
@@ -1267,13 +1272,16 @@ export const tools = {
       // v2.10 item 15 (R12, Pre-flight P19): after "Your entries"; the same entries (a shared
       // client's only for its verified login, none without one).
       deadline: await takeDeadlineLine(ctx.installationId, myEntries),
+      more: more === true,
     };
     // v2.10 item 5: no token offer here; the token is pitched once, at confirmation.
     const show_to_builder = presentFirstMessage(first);
     // v2.9 A8: what matching showed (the matched rows on screen, one per program), for the outcome
     // loop. Never fails the tool. Ruling G7: not on a shared client (its repo keys and scores may be
     // another builder's) until memoryKey names a verified builder.
-    const onScreen = !own ? [] : layout({ cards: withPools.filter((c) => !hide.has(c.id)), repos: yourRepos, entries: myEntries }).rows;
+    // v2.10 item 2: the short reply shows only its lead row (leadRow), "show more" every matched row.
+    const shownLayout = { cards: withPools.filter((c) => !hide.has(c.id)), repos: yourRepos, entries: myEntries };
+    const onScreen = !own ? [] : more ? layout(shownLayout).rows : [leadRow(shownLayout)].filter((r) => r !== undefined);
     await recordShown(
       ctx.installationId,
       onScreen.flatMap((r) =>
@@ -1303,7 +1311,8 @@ export const tools = {
           : local?.length
             ? 'EarnKit remembers the repos you reported for next time. '
             : "Next time, pass local_repos: read the builder's local git remotes and report each repo the builder wrote; skip clones of other people's code and EarnKit's kits. Never ask for a GitHub username first. ") +
-        'Program facts were checked against their sources on verified_at; within 7 days, no need to re-read them.',
+        'Program facts were checked against their sources on verified_at; within 7 days, no need to re-read them.' +
+        (more ? '' : ' When the builder says yes to "Want the 3 easiest?" or asks to see more, call list_programs again with more: true.'),
       ...(walletNote && { wallet_note: walletNote }),
       ...(alerts.scheduleNote && { schedule_daily_check: alerts.scheduleNote }),
       ...(ask && {
@@ -1362,8 +1371,19 @@ export const tools = {
     if (program.campaign && known.project)
       known.project = cleanProject(known.project);
     const open = isOpen(program);
-    // Remember it, so list_programs leads with "You're working on".
-    if (open) await setWorkingOn(ctx.installationId, program_id, true);
+    // Remember it, so list_programs leads with "You're working on". v2.10 item 3: the first prepare
+    // for a curated program shows its guide before the coach questions: on a non-shared client when
+    // this call added the program and there is no entry for it yet (Pre-flight P23); on a shared
+    // client (R13: working_on is installation-wide) while the coach hasn't asked.
+    const added = open ? await setWorkingOn(ctx.installationId, program_id, true) : false;
+    const curated = program.source === 'file' && !program.campaign;
+    const firstPrepare =
+      open && curated && (ctx.sharedClient ? !coach_asked : added && !(await hasProgramEntry(ctx.installationId, program_id)));
+    // The guide's parts: what won, what it wants, best bet. No bonus line here: the confirm line says
+    // the bonus when this entry can earn it (a repo's token entered elsewhere can't).
+    const guide = firstPrepare ? guideText(programGuide(program, null)) : null;
+    const withGuide = <T extends { show_to_builder: string }>(r: T): T =>
+      guide ? { ...r, show_to_builder: `${guide}\n\n${r.show_to_builder}` } : r;
     // This installation's last wallet (Ruling 10 (plan)). Campaign entries: asked about in full and
     // never prefilled (I8: a hosted client sharing one registration shares this memory). Other
     // programs: shown short on the confirmation offer's wallet line.
@@ -1510,7 +1530,7 @@ export const tools = {
     // the questions, never only after answering them, and gets a program they can enter as they are.
     const repoFirst = intro && program.needs_repo && !repoUrl ? await needsRepoLine(program) : null;
     if (intro)
-      return withAlerts(ctx, {
+      return withAlerts(ctx, withGuide({
         program_id,
         show_to_builder: repoFirst ? `${repoFirst}\n\n${intro}` : intro,
         questions,
@@ -1519,7 +1539,7 @@ export const tools = {
         missing: checkedPrep.missing,
         agent_note: askWallet ? `${QUESTIONS_NOTE} ${WALLET_ANSWER_NOTE}` : QUESTIONS_NOTE,
         ...(hosting && { host: hosting }),
-      }, signed_in);
+      }), signed_in);
 
     // v2.8 Part C, Ruling 4 (plan): other programs. Once ready, the draft, the check's fixes and the
     // confirmation offer (the builder bonus comes with a token) close the screen; the kit comes only
@@ -1590,7 +1610,7 @@ export const tools = {
       line && TOKEN_LINE_NOTE,
       ...(prep.ready ? [agent_fixes.length > 0 && AGENT_FIXES_NOTE, DRAFT_NOTE, fixes.length > 0 && FIXES_NOTE] : [COACH_NOTE]),
     ].filter(Boolean);
-    return withAlerts(ctx, {
+    return withAlerts(ctx, withGuide({
       program_id,
       ...(!open && { warning: 'This program is closed or past its deadline.' }),
       show_to_builder,
@@ -1621,7 +1641,7 @@ export const tools = {
       ...(line && { token_line: line }),
       ...(notes.length > 0 && { agent_note: notes.join(' ') }),
       ...(hosting && { host: hosting }),
-    }, signed_in);
+    }), signed_in);
   },
 
   // v2.8 Part C, Rulings 1, 4, 5 and 7 (plan): the confirmation step. Without the builder's yes it

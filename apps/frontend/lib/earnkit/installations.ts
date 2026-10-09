@@ -164,17 +164,23 @@ export async function checkPrograms(
   };
 }
 
-/** Marks a program as being prepared by this installation (true) or done with (false). */
+/**
+ * Marks a program as being prepared by this installation (true) or done with (false). v2.10 item 3:
+ * resolves true only when `on` added a program that wasn't there (the first prepare for it).
+ */
 export async function setWorkingOn(
   installationId: number,
   programId: string,
   on: boolean,
-) {
-  await sql()`
-    UPDATE installations SET working_on = CASE WHEN ${on}
-      THEN array_append(array_remove(working_on, ${programId}), ${programId})
-      ELSE array_remove(working_on, ${programId}) END
-    WHERE id = ${installationId}`;
+): Promise<boolean> {
+  const [row] = await sql()<{ added: boolean }[]>`
+    UPDATE installations i SET working_on = CASE WHEN ${on}
+      THEN array_append(array_remove(i.working_on, ${programId}), ${programId})
+      ELSE array_remove(i.working_on, ${programId}) END
+    FROM (SELECT working_on AS before FROM installations WHERE id = ${installationId}) b
+    WHERE i.id = ${installationId}
+    RETURNING ${on} AND NOT (${programId} = ANY(coalesce(b.before, '{}'::text[]))) AS added`;
+  return row?.added === true;
 }
 
 /** Who is calling: the installation the MCP tools act as, and the one the token belongs to. */

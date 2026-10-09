@@ -277,6 +277,7 @@ test('2.9 (Review Focus 1) EarnKit kits, a one-commit contribution, a fork, a te
       assert.deepEqual(calls.map((c) => c.split('?')[0]), ['api.github.com/users/alice/repos', 'api.github.com/search/commits']);
       const card = { id: 'base-x', title: 'Base X', summary: 'up to $5,000', tag: null, each_time: [], ends_at: null, builder_fields: 0 };
       const text = presentFirstMessage({
+        more: true, // v2.10 item 2: the v2.9 tables are behind "show more"
         alerts: [], campaigns: [], cards: [card], repos: r, githubGiven: true, workingOn: [], agentCanBuild: true, sponsorEntries: null, now: T_NOW,
       });
       assert.match(text, /None of your 6 repos fits an open program yet\./);
@@ -1045,7 +1046,7 @@ test('H5 I1: a live, active local Arc product (count unknown) is good odds and c
   const baseCard = { ...arcCard, id: 'base-x', title: 'Base X' };
   const msg = (fits: unknown[]) => ({
     alerts: [], campaigns: [], cards: [arcCard, baseCard], repos: { checked: fits.length, fits }, workingOn: [], agentCanBuild: true,
-    sponsorEntries: null, now: T_NOW,
+    sponsorEntries: null, now: T_NOW, more: true, // v2.10 item 2: the v2.9 tables are behind "show more"
   }) as Parameters<typeof presentFirstMessage>[0];
   const alone = presentFirstMessage(msg([live]));
   assert.match(alone, /EarnKit matches you to \$500 in prizes you qualify for\./, alone);

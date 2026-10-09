@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import postgres from 'postgres';
 import { sql } from './db';
 import { ProgramFile } from './program-file';
-import { upsertProgram } from './programs';
+import { getProgramRow, upsertProgram } from './programs';
+import { guideText, programGuide } from './guide';
 import { tools } from './tools';
 import { tokenLineFor } from './token-gate';
 import { deployToken, LAUNCHING } from './tokens';
@@ -188,7 +189,9 @@ const MAX_REPLY_MS = 50_000;
 /** One tool call, as the agent makes it; timed, and its builder-facing text kept. */
 async function call(journey: string, label: string, tool: keyof typeof tools, input: unknown, ctx: Ctx): Promise<Reply> {
   const started = Date.now();
-  const reply = (await (tools[tool] as (i: unknown, c: unknown) => Promise<unknown>)(input, ctx)) as Reply;
+  // v2.10 item 2: these journeys read the first reply's tables, which are behind "show more".
+  const given = tool === 'list_programs' && input && typeof input === 'object' && !('more' in input) ? { ...input, more: true } : input;
+  const reply = (await (tools[tool] as (i: unknown, c: unknown) => Promise<unknown>)(given, ctx)) as Reply;
   const ms = Date.now() - started;
   const text = [reply.show_to_builder ?? '', reply.kit?.show_to_builder && reply.kit.show_to_builder !== reply.show_to_builder ? reply.kit.show_to_builder : '']
     .filter(Boolean)
@@ -302,6 +305,14 @@ const speedrunOffer = /Want me to (start on|build something new for) a16z speedr
 
 // ---- The journeys ------------------------------------------------------------------------------
 
+
+/** v2.10 item 3: the first prepare for a program starts with its guide; returns what follows it. */
+async function afterGuide(programId: string, text: string) {
+  const g = guideText(programGuide(await getProgramRow(programId), null));
+  assert.ok(text.startsWith(`${g}\n\n`), text);
+  return text.slice(g.length + 2);
+}
+
 test('J1: no repo, Grok Bot, Arc: never offered, and picking it anyway says so first with a way forward', dbTest, async () => {
   const J = 'J1';
   const ctx = ctxFor(await newInstallation());
@@ -313,6 +324,8 @@ test('J1: no repo, Grok Bot, Arc: never offered, and picking it anyway says so f
   const arc = await call(J, 'arc questions', 'prepare_submission', { program_id: 'arc-microgrants', project, agent: GROK }, ctx);
   // The blocker comes with the questions, never only after the builder answered them, and names a
   // program this builder can enter as they are.
+  // v2.10 item 3: the first prepare for Arc shows its guide first.
+  arc.show_to_builder = await afterGuide('arc-microgrants', arc.show_to_builder);
   assert.match(arc.show_to_builder, /^Arc Microgrants needs a public repo with your project's code\. No repo yet\? (.+) doesn't need one: say the word and I'll start there\.\n\n/);
   const alt = /No repo yet\? (.+) doesn't need one/.exec(arc.show_to_builder)![1];
   // v2.10 Ruling H1 (c1): the lowest difficulty without "needs a live product"; Circle is never named.

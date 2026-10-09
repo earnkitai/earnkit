@@ -60,6 +60,18 @@ export function summaryCloses(summary: string): string | null {
 const closesDay = (closes: string) => /^\w{3} \d{1,2}/.exec(closes)![0];
 
 /**
+ * v2.10 item 2 (Pre-flight P1): the program's own close day ("Oct 14" from "closes Oct 14, 11:59 PM
+ * ET"), never a UTC day that can read a day late; else ends_at's UTC day; null for a rolling program.
+ * Pure.
+ */
+export function closeDayOf(c: { summary: string; ends_at?: Date | null }): string | null {
+  const closes = summaryCloses(c.summary);
+  if (closes) return closesDay(closes);
+  if (c.summary.split(' · ').slice(1).includes('rolling')) return null;
+  return c.ends_at ? shortDate(c.ends_at) : null;
+}
+
+/**
  * The prize part of a program's summary ("500 USDC × 20 grants"). Ruling C23: an investment
  * program (a16z speedrun) reads "up to $1M investment" everywhere, never as a prize. Pure.
  */

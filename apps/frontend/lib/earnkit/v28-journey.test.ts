@@ -7,7 +7,8 @@ import { join } from 'node:path';
 import postgres from 'postgres';
 import { sql } from './db';
 import { ProgramFile } from './program-file';
-import { listPrograms, upsertProgram } from './programs';
+import { getProgramRow, listPrograms, upsertProgram } from './programs';
+import { guideText, programGuide } from './guide';
 import { moneyText, openMoneyUsd } from './stats';
 import { tools } from './tools';
 import { tokenLineFor } from './token-gate';
@@ -113,6 +114,14 @@ const BASE_QUESTIONS = [
   '- A Loom product demo, how it makes money today, your Base Builder Code, your main challenge right now and the credits you want?',
 ].join('\n');
 
+
+/** v2.10 item 3: the first prepare for a program starts with its guide; returns what follows it. */
+async function afterGuide(programId: string, text: string) {
+  const g = guideText(programGuide(await getProgramRow(programId), null));
+  assert.ok(text.startsWith(`${g}\n\n`), text);
+  return text.slice(g.length + 2);
+}
+
 test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the confirmation, the kit and Also qualifies', dbTest, () =>
   withEnv({ TOKENSFUN_DEPLOY_API_KEY: 'test-key', EARNKIT_AUTH_SECRET: process.env.EARNKIT_AUTH_SECRET || 'v28-journey-secret' }, async () => {
     const replies: [string, unknown][] = [];
@@ -170,7 +179,7 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
         '{}')`;
 
     // 2. "What can I earn?" with no repo: the open money first, the token line last.
-    const list = keep('list_programs', (await tools.list_programs({ agent_can_build: true }, ctx)) as Reply);
+    const list = keep('list_programs', (await tools.list_programs({ agent_can_build: true, more: true /* v2.10 item 2 */ }, ctx)) as Reply);
     // v2.9 F21: the one money figure over the same open programs.
     const cards = await listPrograms();
     assert.ok(list.show_to_builder.startsWith(`${moneyText(openMoneyUsd(cards))} in prizes open right now.`), list.show_to_builder);
@@ -187,7 +196,8 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
     // one such field (the public profile; the agent drafts the description), so it asks one.
     // v2.8.1 §C11: the wallet is asked with it, in this same round (no wallet is known yet).
     assert.equal(
-      asked.show_to_builder,
+      // v2.10 item 3: the first prepare for Arc shows its guide first.
+      await afterGuide('arc-microgrants', asked.show_to_builder),
       "Arc Microgrants: 1 quick question, then I'll write your application.\n" +
         "1. Your public builder profile? And the wallet for your token's fees and any bonus (0x…)? No wallet yet? Make one at keys.coinbase.com.",
     );
@@ -253,7 +263,8 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
     const baseAsked = keep('prepare_submission (Base)', (await tools.prepare_submission({ program_id: 'base-builder-grants', project }, ctx)) as Reply & {
       questions?: { keys: string[]; bullet?: boolean }[];
     });
-    assert.equal(baseAsked.show_to_builder, BASE_QUESTIONS);
+    // v2.10 item 3: the first prepare for Base shows its guide first.
+    assert.equal(await afterGuide('base-builder-grants', baseAsked.show_to_builder), BASE_QUESTIONS);
     assert.equal(baseAsked.questions?.filter((q) => !q.bullet).length, 3);
     assert.equal(baseAsked.questions?.filter((q) => q.bullet).length, 1);
     assert.ok(!('kit' in baseAsked));
@@ -300,7 +311,7 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
       ],
     });
     assert.deepEqual(synced, { matched: 1, unmatched: 1, others: 0 });
-    const later = keep('list_programs (later)', (await tools.list_programs({ agent_can_build: true }, ctx)) as Reply & {
+    const later = keep('list_programs (later)', (await tools.list_programs({ agent_can_build: true, more: true /* v2.10 item 2 */ }, ctx)) as Reply & {
       since_you_last_checked?: string;
     });
     const since = later.since_you_last_checked ?? later.show_to_builder;

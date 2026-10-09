@@ -107,7 +107,9 @@ export const LIST_PROGRAMS_DESCRIPTION =
   'For private repos, report local_repos facts: name, chains, contracts, live link, last commit. ' +
   'Never ask for a GitHub username first (github_user is optional). EarnKit remembers them for later calls. ' +
   'Returns show_to_builder: show it exactly as written, with no extra summary or advice. ' +
-  'It leads with "EarnKit matches you to $X in prizes you qualify for" when their repos fit, ' +
+  // v2.10 item 2: one lead line first; the tables behind more.
+  'It is one line: what their best repo can win and one question, or how much is open and "Want the 3 easiest?". ' +
+  'When the builder says yes or asks for more, call again with more: true: it leads with "EarnKit matches you to $X in prizes you qualify for" when their repos fit, ' +
   'or "$X in prizes open right now" with ideas you can build when there is no repo. Every program shows ' +
   'its difficulty; one builder bonus line comes before the closing offer. ' +
   'matches lists, per repo and program, what is missing (live_url, mainnet_deploy, new_work, ' +
@@ -373,6 +375,8 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
             'false if you cannot write code, deploy, and use a web browser in this session (default true)',
           ),
         signed_in: SIGNED_IN,
+        // v2.10 item 2: "show more".
+        more: z.boolean().optional().describe('true for the full tables, after the builder says yes to "Want the 3 easiest?" or asks for more'),
       },
       annotations: { readOnlyHint: true },
     },

@@ -396,7 +396,9 @@ function builderText(r: Reply): string {
 /** One tool call, as the agent makes it; timed, and its builder-facing text kept. */
 async function call(journey: string, label: string, tool: keyof typeof tools, input: unknown, ctx: Ctx): Promise<Reply> {
   const started = Date.now();
-  const reply = (await (tools[tool] as (i: unknown, c: unknown) => Promise<unknown>)(input, ctx)) as Reply;
+  // v2.10 item 2: these journeys read the first reply's tables, which are behind "show more".
+  const given = tool === 'list_programs' && input && typeof input === 'object' && !('more' in input) ? { ...input, more: true } : input;
+  const reply = (await (tools[tool] as (i: unknown, c: unknown) => Promise<unknown>)(given, ctx)) as Reply;
   const ms = Date.now() - started;
   const text = builderText(reply);
   said.push({ journey, label, text, ms, reply, agentText: JSON.stringify(reply) });

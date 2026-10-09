@@ -1,8 +1,8 @@
 import { normalizeRepoUrl, usd } from './campaigns';
 import { NO_CELL } from './no-cell';
-import { endsOf, prizeOf, repoCoinNote } from './entry-text';
+import { closeDayOf, endsOf, prizeOf, repoCoinNote } from './entry-text';
 import { shortDate } from './dates';
-import { EFFORT_ORDER, NOT_REAL_YET, rowOdds, type Chain, type Effort, type Odds, type Product, type RepoFacts, type Verdict } from './match';
+import { CHAIN_NAMES, EFFORT_ORDER, NOT_REAL_YET, rowOdds, type Chain, type Effort, type Odds, type Product, type RepoFacts, type Verdict } from './match';
 import { NEEDS_LIVE_PRODUCT, difficultyLabel, levelRank, rowDifficulty, type Difficulty, type Level } from './guide';
 import { moneyText, openMoneyUsd, wonLine } from './pool';
 import { CANT_SEE_LINE, PRIVATE_LOCAL_LINE } from './match-projects';
@@ -18,7 +18,8 @@ export { endsOf } from './entry-text';
  * matches you to $X in prizes" with what the builder's repos fit, open EarnKit campaigns (none
  * while Campaign #1 is closed), other open programs (at most 5), ideas when the builder has no
  * repo, sponsor campaigns (never first), program updates, then the one builder bonus line
- * (v2.10 item 1) and one offer.
+ * (v2.10 item 1) and one offer. v2.10 item 2: that body is "show more" (FirstMessage.more); the
+ * default first reply is news, "Your entries", the deadline line, then one lead line (leadLine).
  */
 export type Card = {
   id: string;
@@ -149,6 +150,11 @@ export type FirstMessage = {
    * submitted.", right after "Your entries" (R12), or null. Pre-flight P19: T8 reuses it.
    */
   deadline?: string | null;
+  /**
+   * v2.10 item 2: "show more". False (the default): the short first reply, news, entries and the
+   * deadline line, then one lead line (leadLine). True: today's tables (the v2.9 body).
+   */
+  more?: boolean;
   /**
    * v2.9 E20 (stats.ts builders_won_usd): the announced prizes EarnKit builders won. Above 0, "Builders
    * using EarnKit won $X." follows the headline once; 0 or unset, no line (never "$0").
@@ -577,6 +583,13 @@ export function layout(m: Pick<FirstMessage, 'cards' | 'repos' | 'entries'>, don
 }
 
 /**
+ * v2.10 item 2 (R14): the short first reply's lead row: the top row by the item 6 rank that the
+ * builder qualifies for (good odds, never an investment or a low-odds row) and hasn't entered. Pure.
+ */
+export const leadRow = (m: Pick<FirstMessage, 'cards' | 'repos' | 'entries'>, entered = enteredIds(m)): Fit | undefined =>
+  layout(m, entered).rows.find((r) => qualifies(r) && !r.card.sponsored && !entered.has(r.card.id));
+
+/**
  * The programs whose pool is read (one grouped read): those on screen with a builder bonus, then
  * (Ruling H8) every other curated one with a bonus, since the closing offer can name a program off
  * screen (the no-repo pick, "keep going", build something new) and its line is that program's pool.
@@ -596,6 +609,24 @@ export const bonusProgramIds = (m: Pick<FirstMessage, 'cards' | 'repos'>) => {
  */
 const openHeadline = (fig: string | null) =>
   fig ? `${fig} in prizes open right now.` : 'These programs are open right now.';
+
+/** v2.10 item 2: the short first reply's question when no repo leads; a yes is "show more". */
+export const MORE_QUESTION = 'Want the 3 easiest?';
+
+/**
+ * v2.10 item 2, R14: the short first reply's lead. With a row (the top good-odds row by the item 6
+ * rank): "Your TipJar can win 500 USDC on Arc by Oct 14. Want me to finish it?", the prize per
+ * winner (Pre-flight P7: prizeOf cut at " × "), "on <chain>" dropped for an any-chain program, "by"
+ * the program's own close day (P1), dropped for a rolling one. Without one: "No repo fits yet. $X is
+ * open; want the 3 easiest?" when repos were matched, else "$X is open. Want the 3 easiest?". Pure.
+ */
+export function leadLine(r: Fit | undefined, m: Pick<FirstMessage, 'cards' | 'repos' | 'now'>): string {
+  const fig = moneyText(openMoneyUsd(m.cards, m.now)) ?? 'Money';
+  if (!r) return noMatch(m.repos) ? `${fig} is open. ${MORE_QUESTION}` : `No repo fits yet. ${fig} is open; want the 3 easiest?`;
+  const chain = r.card.any_chain || !r.card.chains?.length ? '' : ` on ${CHAIN_NAMES[r.card.chains[0]]}`;
+  const day = closeDayOf(r.card);
+  return `Your ${r.repo} can win ${prizeOf(r.card).split(' × ')[0]}${chain}${day ? ` by ${day}` : ''}. Want me to finish it?`;
+}
 
 /** The first message: see the type and the module comment for the order. Pure; exported for tests. */
 export function presentFirstMessage(given: FirstMessage): string {
@@ -623,8 +654,21 @@ export function presentFirstMessage(given: FirstMessage): string {
 
   const entered = enteredIds(m);
   const { byId, rows, shown, more } = layout(m, entered);
-  // v2.10 item 7: the private and can't-see lines, before the matched table.
+  // v2.10 item 7: the private and can't-see lines, before the matched table (or the lead).
   const privateLines = privateRepoLines(m.repos);
+  // v2.10 item 2 (R12, R14): news, entries and the deadline line, one line each, then the private
+  // lines and the one lead. Everything else is behind "show more". No won line (no headline).
+  if (!given.more) {
+    const lead = leadRow(m, entered);
+    return [
+      ...sections,
+      privateLines,
+      m.repos && 'error' in m.repos ? `Couldn't read your repos: ${m.repos.error}` : null,
+      leadLine(lead, { cards: given.cards, repos: m.repos, now: m.now }),
+    ]
+      .filter((x): x is string => Boolean(x))
+      .join('\n');
+  }
   if (privateLines) sections.push(privateLines);
   if (m.repos && 'error' in m.repos) sections.push(`Couldn't read your repos: ${m.repos.error}`);
   else if (m.repos && !noRepo(m.repos) && rows.length === 0)

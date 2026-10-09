@@ -280,6 +280,7 @@ test('list_programs: a sponsor campaign shows only its quoted title and sponsor 
   for (const legacy of [false, true]) {
     const card = programCard(sponsorRow(legacy), []);
     const text = presentFirstMessage({
+      more: true, // v2.10 item 2: the v2.9 tables are behind "show more"
       alerts: [], campaigns: [], cards: [card], repos: null, workingOn: [], agentCanBuild: true,
       sponsorEntries: null, now: new Date('2026-10-04T00:00:00Z'),
     });
@@ -360,7 +361,8 @@ test('v2.7 §2: get_program carries the guide for curated programs only', () => 
   assert.equal(d.guide.difficulty.level, 'Medium');
   assert.equal(d.guide.best_bet, null);
   assert.deepEqual(d.guide.sources, []);
-  assert.match(d.guide_note!, /never present it as EarnKit's/);
+  // v2.10 item 3 (test 8.7): no guide_note; the server shows the guide on the first prepare.
+  assert.ok(!('guide_note' in d), 'no guide_note');
   assert.ok(!programDetails(curated, [], []).guide!.text.includes('Builder bonus'), 'no bonus line without a bonus');
   assert.ok(!('guide' in programDetails(sponsorRow(), [], [])), 'sponsor campaign');
   assert.ok(!('guide_note' in programDetails(sponsorRow(), [], [])), 'sponsor campaign note');
