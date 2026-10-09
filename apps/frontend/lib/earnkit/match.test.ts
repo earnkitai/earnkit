@@ -264,9 +264,13 @@ test('v2.8 Ruling 13: an any_chain program fits a repo with no detected chains; 
 });
 
 test('v2.8 Ruling 14: chain ids 43114 and 43113 are Avalanche mainnet and Fuji testnet', () => {
-  // v2.10 item 9: a mainnet id in hardhat.config.* is a deploy config; a testnet id stays a mention.
-  assert.deepEqual(detectChains([{ path: 'hardhat.config.ts', text: 'chainId: 43114' }]).avalanche, {
+  // v2.10 item 9, Ruling H2: a mainnet id in a hardhat network entry is a deploy config; outside one
+  // (or a testnet id) it stays a mention.
+  assert.deepEqual(detectChains([{ path: 'hardhat.config.ts', text: 'networks: { avalanche: { chainId: 43114 } }' }]).avalanche, {
     mainnet: true, testnet: false, evidence: 'hardhat.config.ts: deploy config', basis: 'deploy_config',
+  });
+  assert.deepEqual(detectChains([{ path: 'hardhat.config.ts', text: 'chainId: 43114' }]).avalanche, {
+    mainnet: true, testnet: false, evidence: 'hardhat.config.ts: chain id 43114', basis: 'mention',
   });
   assert.deepEqual(detectChains([{ path: 'hardhat.config.ts', text: 'chainId: 43113' }]).avalanche, {
     mainnet: false, testnet: true, evidence: 'hardhat.config.ts: chain id 43113', basis: 'mention',
@@ -590,7 +594,12 @@ test('1.2 a deploy folder makes the chain a deploy config; the Base row can be l
   assert.equal(v.status, 'likely');
   for (const p of ['ignition/deployments/chain-8453/deployed_addresses.json', 'deployments/base/TipJar.json', 'deployments/base-mainnet/x.json', 'deployments/BaseMainnet/x.json'])
     assert.deepEqual(Object.keys(deployConfigChains([], [p])), ['base'], p);
-  for (const p of ['deployments/basesepolia/x.json', 'deployments/mainnet/x.json', 'broadcast/Deploy.s.sol/84532/run-latest.json', 'src/deployments/base/x.json'])
+  for (const p of ['deployments/basesepolia/x.json', 'deployments/mainnet/x.json', 'broadcast/Deploy.s.sol/84532/run-latest.json'])
+    assert.deepEqual(deployConfigChains([], [p]), {}, p);
+  // Ruling H2 (I2): at any depth (monorepos), never inside a dependency folder.
+  for (const p of ['src/deployments/base/x.json', 'contracts/broadcast/Deploy.s.sol/8453/run-latest.json', 'packages/hardhat/deployments/base/TipJar.json', 'packages/foundry/ignition/deployments/chain-8453/deployed_addresses.json'])
+    assert.deepEqual(Object.keys(deployConfigChains([], [p])), ['base'], p);
+  for (const p of ['node_modules/@acme/kit/deployments/base/x.json', 'lib/openzeppelin/broadcast/D.s.sol/8453/run.json', 'packages/foundry/lib/x/broadcast/D.s.sol/8453/run.json', 'vendor/x/deployments/base/x.json'])
     assert.deepEqual(deployConfigChains([], [p]), {}, p);
   assert.equal(detectChains(wagmi, ['deployments/basesepolia/x.json']).base!.basis, 'mention');
 });
@@ -634,4 +643,60 @@ test('1.5 a cached chains entry without basis (a v2.9 row) reads as a mention (R
   const f = applyBuilderFacts(repo({ chains: old }), said({ mainnet: ['base'] }))!;
   assert.equal(f.chains.base!.evidence, CLAIMED_MAINNET);
   assert.deepEqual(f.claims, ['mainnet']);
+});
+
+// ---- v2.10 Ruling H2: deploy configs are network entries, never imports, comments or templates ----
+
+test('H2 I1: a hardhat config credits only its network entries: never an import, a comment or etherscan customChains', () => {
+  const credited = (text: string) => Object.keys(deployConfigChains([{ path: 'hardhat.config.ts', text }], []));
+  const importOnly = "import { base, avalanche } from 'viem/chains';\nexport default { networks: { hardhat: {} } };";
+  assert.deepEqual(credited(importOnly), []);
+  assert.equal(detectChains([{ path: 'hardhat.config.ts', text: importOnly }]).base!.basis, 'mention');
+  assert.deepEqual(credited("networks: {\n  hardhat: {},\n  // base: { url: 'https://mainnet.base.org' },\n  /* avalanche: { chainId: 43114 } */\n}"), []);
+  assert.deepEqual(
+    credited("networks: { hardhat: {} },\netherscan: { customChains: [{ network: 'base', chainId: 8453, urls: { apiURL: 'https://api.basescan.org/api' } }] }"),
+    [],
+  );
+  // A real entry still counts, with the URL's // kept (strings are not comments).
+  assert.deepEqual(credited("networks: { base: { url: 'https://mainnet.base.org', accounts: [pk] }, baseSepolia: { url: 'https://sepolia.base.org' } }"), ['base']);
+  assert.deepEqual(credited('networks: { "base-mainnet": { url: `https://base-mainnet.g.alchemy.com/v2/${key}` } }'), ['base']);
+});
+
+test('H2: a config naming more than 2 mainnet networks is a template (Scaffold-ETH style): no credit; 1 or 2 count', () => {
+  const scaffold = `const config = {
+  defaultNetwork: 'localhost',
+  networks: {
+    hardhat: { forking: { url: \`https://eth-mainnet.alchemyapi.io/v2/\${key}\`, enabled: false } },
+    mainnet: { url: \`https://eth-mainnet.alchemyapi.io/v2/\${key}\`, accounts: [pk] },
+    sepolia: { url: \`https://eth-sepolia.g.alchemy.com/v2/\${key}\`, accounts: [pk] },
+    arbitrum: { url: \`https://arb-mainnet.g.alchemy.com/v2/\${key}\`, accounts: [pk] },
+    optimism: { url: \`https://opt-mainnet.g.alchemy.com/v2/\${key}\`, accounts: [pk] },
+    polygon: { url: \`https://polygon-mainnet.g.alchemy.com/v2/\${key}\`, accounts: [pk] },
+    base: { url: 'https://mainnet.base.org', accounts: [pk] },
+    baseSepolia: { url: 'https://sepolia.base.org', accounts: [pk] },
+  },
+};`;
+  assert.deepEqual(deployConfigChains([{ path: 'packages/hardhat/hardhat.config.ts', text: scaffold }], []), {});
+  assert.equal(detectChains([{ path: 'packages/hardhat/hardhat.config.ts', text: scaffold }]).base!.basis, 'mention');
+  const two = "networks: { hardhat: {}, avalanche: { url: 'https://api.avax.network/ext/bc/C/rpc' }, base: { chainId: 8453 }, baseSepolia: { chainId: 84532 } }";
+  assert.deepEqual(Object.keys(deployConfigChains([{ path: 'hardhat.config.ts', text: two }], [])).sort(), ['avalanche', 'base']);
+  // The same template rule in foundry.toml.
+  const many = '[rpc_endpoints]\nmainnet = "${ETH_RPC}"\narbitrum = "${ARB_RPC}"\noptimism = "${OP_RPC}"\nbase = "https://mainnet.base.org"\n';
+  assert.deepEqual(deployConfigChains([{ path: 'foundry.toml', text: many }], []), {});
+});
+
+test('H2: foundry [rpc_endpoints] by name (env URLs), comments out; a dry run and an avax folder', () => {
+  const credited = (text: string) => Object.keys(deployConfigChains([{ path: 'foundry.toml', text }], []));
+  assert.deepEqual(credited('[rpc_endpoints]\nbase = "${BASE_RPC_URL}"\nbase_sepolia = "${BASE_SEPOLIA_RPC_URL}"\n'), ['base']);
+  assert.deepEqual(credited('[rpc_endpoints]\n# base = "https://mainnet.base.org"\nlocal = "http://127.0.0.1:8545"\n'), []);
+  assert.deepEqual(credited('[rpc_endpoints]\nbase = "https://mainnet.base.org" # prod\n\n[etherscan]\navalanche = { key = "${KEY}", chain = 43114 }\n'), ['base']);
+  assert.deepEqual(deployConfigChains([], ['broadcast/Deploy.s.sol/8453/dry-run/run-latest.json']), {});
+  assert.deepEqual(Object.keys(deployConfigChains([], ['deployments/avax/TipJar.json'])), ['avalanche']);
+});
+
+test('Task 1 review: on a multi-chain program a credited chain wins over a mention listed first', () => {
+  const multi: ProgramFacts = { ...programs[0], id: 'multi', title: 'Multi', chains: ['base', 'arc'] };
+  const chains = { base: detectChains(wagmi).base!, arc: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' as const } };
+  const [v] = matchRepo(repo({ chains, homepage: 'https://app.x', product: product(), live_verified: true }), [multi]);
+  assert.equal(v.status, 'likely');
 });
