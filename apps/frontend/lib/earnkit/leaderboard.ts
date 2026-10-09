@@ -13,6 +13,7 @@ import type { CampaignRow } from './present';
 import type { TokenPolicy } from './program-file';
 import { sponsorIdentity, trackRecord } from './sponsor-verify';
 import { shownUrl } from './untrusted-text';
+import { publicRepoKeys, publicRepoUrl } from './repo-cache';
 import { pickWinners, rankEntries, standingText, type Candidate, type RunState } from './winners';
 
 export type BoardRow = {
@@ -153,6 +154,10 @@ export async function getCampaignBoard(slug: string) {
   const state: RunState = run?.state ?? 'running';
   const ended = program.ends_at <= new Date();
   const paying = earnkit ? payingCampaign(earnkit, run?.terms) : null;
+  // v2.10 Ruling H6: a repo URL only with an anonymous public read in the last 7 days (fail closed).
+  const review = earnkit && state !== 'running' ? await reviewRows(slug, earnkit) : null;
+  const shown = await publicRepoKeys([...rows.map((r) => r.repo_url), ...(review?.ranked.map((r) => r.repo_url) ?? [])]);
+  const hide = <T extends { repo_url: string | null }>(r: T): T => ({ ...r, repo_url: publicRepoUrl(r.repo_url, shown) });
   return {
     program: { ...program, campaign: program.campaign },
     // Builder links are data: a stored value that isn't a plain https link is not shown.
@@ -166,13 +171,13 @@ export async function getCampaignBoard(slug: string) {
       prize_amount: r.prize_amount,
       prize_reason: r.prize_reason,
       live_url: shownUrl(r.live_url),
-      repo_url: shownUrl(r.repo_url),
+      repo_url: shownUrl(publicRepoUrl(r.repo_url, shown)),
       ...(paying
         ? { rank: r.score === null ? null : r.rank, standing: standingText(r, rows, paying, { state, ended }) }
         : { rank: r.rank }),
     })),
     run: run ? { state: run.state, review_until: run.review_until, note: publicNote(run) } : null,
-    review: earnkit && state !== 'running' ? await reviewRows(slug, earnkit) : null,
+    review: review && { ...review, ranked: review.ranked.map(hide), picks: review.picks.map(hide) },
     // Memoized (60 s): anonymous views share one balance read.
     funds: paying ? await prizeFunds(paying) : null,
     sponsorState: sponsorRow?.state ?? null,
@@ -242,11 +247,13 @@ export async function getProjectPage(id: number) {
         ended: p.ends_at <= new Date(),
       });
   }
+  // v2.10 Ruling H6: a repo URL only with an anonymous public read in the last 7 days (fail closed).
+  const shown = await publicRepoKeys([row.repo_url]);
   return {
     ...row,
     standing,
     live_url: shownUrl(row.live_url),
-    repo_url: shownUrl(row.repo_url),
+    repo_url: shownUrl(publicRepoUrl(row.repo_url, shown)),
   };
 }
 

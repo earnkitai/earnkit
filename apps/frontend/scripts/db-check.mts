@@ -562,6 +562,13 @@ const [appRow] = await db<{ gid: string; login: string }[]>`
   SELECT v.github_installation_id::text AS gid, n.login FROM github_verifications v, github_verify_nonces n
   WHERE v.installation_id = ${memInst} AND v.via = 'app' AND n.nonce_hash = 'h3' AND n.purpose = 'app'`;
 ok(appRow?.gid === '9007199254740' && appRow.login === 'alice', 'App nonces and via=app verifications (a bigint installation id) survive the schema running again');
+// v2.10 fix round 1: the nonce seed (NULL on old links) and H6's public reads survive the schema again.
+const [seedRow] = await db<{ seed: string | null }[]>`SELECT seed FROM github_verify_nonces WHERE nonce_hash = 'h1'`;
+ok(seedRow !== undefined && seedRow.seed === null, 'existing sign-in links get seed = NULL (never reused)');
+await db`INSERT INTO repo_public_reads (repo_key, read_at) VALUES ('github.com/alice/tipjar', now())`;
+await db.unsafe(now);
+const [readRow] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM repo_public_reads WHERE repo_key = 'github.com/alice/tipjar'`;
+ok(readRow.n === 1, 'repo_public_reads rows survive the schema running again');
 
 // v2.9 B10: token declines count per (installation, repo) and survive the schema running again.
 await db`INSERT INTO token_declines (installation_id, repo_key) VALUES (${memInst}, 'alice/tipjar')`;

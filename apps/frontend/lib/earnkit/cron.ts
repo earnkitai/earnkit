@@ -25,6 +25,8 @@ import {
 import { r2Enabled, type R2 } from './r2';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
 import { stuckLaunches } from './tokens';
+import { sweepVerifyNonces } from './github-verify';
+import { sweepPublicReads } from './repo-cache';
 import { withScoringLock } from './sponsor';
 import { recheckSubmissionProofs } from './submission-proof';
 import { scoreOpenRounds, type TractionDeps } from './traction';
@@ -88,6 +90,11 @@ export type CronDeps = {
   hosting?: { r2?: R2 };
   /** v2.9 E19: the weekly email's mailer and installations (tests); with `only`, the step runs only when given. */
   digest?: { mail?: Mailer; only?: number[] };
+  /**
+   * v2.10 fix round 1: the cleanup step (expired sign-in links over a day old, public repo reads past
+   * their 7 days), at most `limit` rows each a run; with `only`, the step runs only when given.
+   */
+  cleanup?: { limit?: number };
 };
 
 /** Opens the 48 h review (once: only from 'running') and freezes the payout terms with it. */
@@ -339,6 +346,17 @@ export async function runCron(
       digest = { step: 'error', note: STEP_FAILED };
     }
   }
+  // v2.10 fix round 1: bounded cleanup of expired sign-in links and stale public repo reads.
+  let cleanup: { nonces: number; public_reads: number } | { step: 'error'; note: string } | undefined;
+  if (!opts.only || deps.cleanup) {
+    try {
+      const limit = deps.cleanup?.limit;
+      cleanup = { nonces: await sweepVerifyNonces(now, limit), public_reads: await sweepPublicReads(now, limit) };
+    } catch (err) {
+      console.error('[cron] cleanup', err instanceof Error ? err.name : 'error');
+      cleanup = { step: 'error', note: STEP_FAILED };
+    }
+  }
   // Campaigns whose payout waits on the owner (manual check, changed terms, a wallet short of the
   // prize or of gas, or PAY_FAILED_RUNS failed pay steps in a row): the endpoint answers 503.
   const needs_owner = campaigns
@@ -398,6 +416,7 @@ export async function runCron(
     fee_wallets: fees,
     ...(hosting && { hosting }),
     ...(digest && { digest }),
+    ...(cleanup && { cleanup }),
     needs_owner,
   };
 }

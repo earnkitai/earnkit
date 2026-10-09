@@ -182,7 +182,8 @@ async function entryChecks(
     const repoUrl = project?.repo_url ?? answers.repo_url;
     // Review M4 (G7): on a shared client local_repos is whoever reported last, so it is never read.
     const reported = needsContract && !ctx.sharedClient ? await localRepoContracts(ctx.installationId, repoUrl) : [];
-    const inFiles = needsContract ? await cachedRepoAddresses(repoUrl) : [];
+    // v2.10 fix round 1 (I2): an App-read private repo's addresses only for the installation that proved it.
+    const inFiles = needsContract ? await cachedRepoAddresses(repoUrl, appViewer(ctx)) : [];
     const stored = [...(project?.contracts ?? []), ...reported, ...inFiles];
     const addresses = needsContract ? addressesFrom({ answers, liveUrl, chain: needsContract, stored }) : [];
     return await entryVerified({ liveUrl, needsContract, addresses }, ctx.verifyDeps);
@@ -500,7 +501,7 @@ async function alsoQualifiesBlock(
     enteredProgramIds(ctx.installationId, { repoUrl, name }),
     readBank(ctx.installationId, key),
     (ctx.repoCoins ?? repoCoinPrograms)(repoKey ? [repoKey] : []),
-    full ? cachedRepoChains(`${full.owner}/${full.repo}`) : Promise.resolve(null),
+    full ? cachedRepoChains(`${full.owner}/${full.repo}`, appViewer(ctx)) : Promise.resolve(null),
     memoryOf(memoryKey(ctx), 'also_qualifies'),
   ]);
   // v2.9 T12 (G15 M1): what the builder said about this repo; a chain they said is testnet only
@@ -881,6 +882,15 @@ async function alertsFor(
  * sharedLogin). Entries are still recorded.
  */
 const remembers = (ctx: Pick<ToolContext, 'sharedClient'>) => !ctx.sharedClient;
+
+/**
+ * v2.10 fix round 1 (I2): who reads a cached App-read repo row: this installation, and on a shared
+ * client only the caller's verified login (none without one).
+ */
+const appViewer = (ctx: Pick<ToolContext, 'installationId' | 'sharedClient' | 'verifiedLogin'>) => ({
+  installationId: ctx.installationId,
+  login: ctx.sharedClient ? (ctx.verifiedLogin ?? null) : undefined,
+});
 
 /**
  * v2.9 B9, Rulings G6, G7, G9: on a shared client with GitHub sign-in on, the verified login of the

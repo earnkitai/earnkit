@@ -46,14 +46,14 @@ const fork = repo({ fork: true, parent: { full_name: 'acme/kit', default_branch:
 
 test('repoCodeFacts: a public non-fork is two reads, no compare', async () => {
   await withGitHub({ '/repos/bob/kit': repo(), [COMMITS]: json([{ sha: 'a' }]) }, async (calls) => {
-    assert.deepEqual(await repoCodeFacts('bob/kit'), { fork: false, hasCommits: true, aheadOfParent: null, defaultBranch: 'main' });
+    assert.deepEqual(await repoCodeFacts('bob/kit'), { fork: false, hasCommits: true, aheadOfParent: null, defaultBranch: 'main', public: true });
     assert.deepEqual(calls.sort(), ['/repos/bob/kit', COMMITS].sort());
   });
 });
 
 test('repoCodeFacts: a fork with commits is compared with its parent (per_page=1)', async () => {
   await withGitHub({ '/repos/bob/kit': fork, [COMMITS]: json([{ sha: 'a' }]), [COMPARE]: json({ ahead_by: 3 }) }, async (calls) => {
-    assert.deepEqual(await repoCodeFacts('bob/kit'), { fork: true, hasCommits: true, aheadOfParent: 3, defaultBranch: 'main' });
+    assert.deepEqual(await repoCodeFacts('bob/kit'), { fork: true, hasCommits: true, aheadOfParent: 3, defaultBranch: 'main', public: true });
     assert.equal(calls.length, 3);
     assert.equal(calls.at(-1), COMPARE);
   });
@@ -62,7 +62,7 @@ test('repoCodeFacts: a fork with commits is compared with its parent (per_page=1
 test('repoCodeFacts: an empty repo (409) is no commits, and an empty fork is never compared', async () => {
   const empty = json({ message: 'Git Repository is empty.' }, 409);
   await withGitHub({ '/repos/bob/kit': fork, [COMMITS]: empty }, async (calls) => {
-    assert.deepEqual(await repoCodeFacts('bob/kit'), { fork: true, hasCommits: false, aheadOfParent: null, defaultBranch: 'main' });
+    assert.deepEqual(await repoCodeFacts('bob/kit'), { fork: true, hasCommits: false, aheadOfParent: null, defaultBranch: 'main', public: true });
     assert.equal(calls.length, 2);
   });
 });
@@ -1239,4 +1239,52 @@ test('4.4 with the App\'s token a private repo is read through it, fully scored,
   } finally {
     globalThis.fetch = original;
   }
+});
+
+test('I2 (fix round 1) an App-read private repo\'s cached addresses, chains and proof reach only the installation (and login) that proved it', dbTest, async () => {
+  const { loadRepoFacts, saveRepoFacts } = await import('./repo-cache');
+  const { verifiedFor } = await import('./github-verify');
+  const tag = `i2-${process.pid}-${Date.now()}`;
+  const full = `alice/${tag}`;
+  const pushed = new Date().toISOString();
+  const [a] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`${tag}-a`}) RETURNING id`;
+  const [b] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`${tag}-b`}) RETURNING id`;
+  try {
+    await saveRepoFacts(full, pushed, {
+      chains: { base: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' } },
+      commits_since: {},
+      product: { young: true, original: true, readme: true, addresses: [ADDR], starter: false },
+      via_app: true,
+    });
+    await sql()`
+      INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose, via, github_installation_id)
+      VALUES (${full}, 'alice', ${a.id}, now(), 1, 'app', 'app', 77)`;
+    const url = `https://github.com/${full}`;
+    // Another installation naming the repo, or a read with no viewer: nothing.
+    assert.equal(await cachedRepoChains(full), null);
+    assert.equal(await cachedRepoChains(full, { installationId: b.id }), null);
+    assert.deepEqual(await cachedRepoAddresses(url, { installationId: b.id }), []);
+    assert.deepEqual(await cachedRepoAddresses(url), []);
+    assert.equal(await loadRepoFacts(full, pushed), null, 'the hour cache gives it only to a read through the App');
+    assert.equal(await verifiedFor({ installationId: b.id, repoKey: full, purpose: 'app' }), null);
+    // The proving installation (and on a shared client only the proving login).
+    assert.deepEqual(await cachedRepoChains(full, { installationId: a.id }), ['base']);
+    assert.deepEqual(await cachedRepoAddresses(url, { installationId: a.id }), [ADDR]);
+    assert.deepEqual(await cachedRepoAddresses(url, { installationId: a.id, login: 'Alice' }), [ADDR]);
+    assert.deepEqual(await cachedRepoAddresses(url, { installationId: a.id, login: 'bob' }), []);
+    assert.deepEqual(await cachedRepoAddresses(url, { installationId: a.id, login: null }), []);
+    assert.ok(await loadRepoFacts(full, pushed, { viaApp: true }));
+  } finally {
+    await sql()`DELETE FROM github_repo_facts WHERE full_name = ${full}`;
+    await sql()`DELETE FROM installations WHERE id IN (${a.id}, ${b.id})`;
+  }
+});
+
+test('H6: repoCodeFacts gives public evidence only for a read without an App token that says private: false', async () => {
+  await withGitHub({ '/repos/bob/kit': repo({ private: true, visibility: 'private' }), [COMMITS]: json([{ sha: 'a' }]) }, async () => {
+    assert.equal((await repoCodeFacts('bob/kit', { token: 'ghs_x' })).public, undefined);
+  });
+  await withGitHub({ '/repos/bob/kit': repo({ private: undefined, visibility: undefined }), [COMMITS]: json([{ sha: 'a' }]) }, async () => {
+    assert.equal((await repoCodeFacts('bob/kit')).public, undefined, 'no private field: no evidence');
+  });
 });
