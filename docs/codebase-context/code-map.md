@@ -321,7 +321,9 @@ apps/frontend/
                                liveCheckDetail keeps an error page's phrase in url_checks.note,
                                Verified.liveError; url_checks.n holds a count; a getCode
                                error is null and never cached, G15), bounded by
-                               CheckBudget (ENTRY_BUDGET, LIST_BUDGET); addressesFrom, entryVerified,
+                               CheckBudget (ENTRY_BUDGET, LIST_BUDGET; v2.10 item 6: txCounts 1 / 2);
+                               v2.10 item 6: txCount (Blockscout counters, Base only, txcount:base:<a>,
+                               CheckDeps.blockscout); addressesFrom, entryVerified,
                                checkDefaults (tests: fixtures/no-network-checks.ts)
     chains.ts                  CHAINS, Chain, CHAIN_NAMES (import-free; match.ts re-exports them)
     safe-fetch.ts(+test)       SSRF-safe GET (safeFetchText): https on 443, domain names only, DNS
@@ -373,7 +375,8 @@ apps/frontend/
                                (recordSubmission counts under the campaign's entry lock)
     repo-cache.ts(+test)       GitHub repo facts for matching (chains, commits since each window
                                start, v2.9 A2 product: the repo's own signals and contract
-                               candidates) in github_repo_facts, 1 h per (repo, pushed_at)
+                               candidates; v2.10 item 6: starter, traction, odds) in github_repo_facts,
+                               1 h per (repo, pushed_at)
     installations.ts(+test)    save / touch installation by token hash or (v2.4) OAuth client key
                                (client_key); memory (GitHub, working_on, last payout wallet);
                                rememberWallets, installationWallets (installation_wallets);
@@ -430,7 +433,10 @@ apps/frontend/
     human-text.ts(+test)       v2.8 Ruling 16: humanStrings (string/template/JSX text of a source file, via the TypeScript AST) and humanTextFiles; the test bans the em dash in all human text;
                                final review M1: notHumanText skips .test.ts/.test.tsx/.test.mts, and walkDir never enters a fixtures directory
     no-cell.ts                 NO_CELL (''), the empty table cell or chip; import-free so the client ProgramCard shares it (final review M1); present.ts re-exports it
-    present.ts(+test)          v2.8.1 T7: enterableWithoutRepo (the no-repo offer's pick, for tools.ts); v2.10
+    present.ts(+test)          v2.10 item 6: Fit.odds/traction/low_reason (rowOdds), lowOddsCell, LOW_ODDS_HEADING;
+                               layout picks per program and ranks by good odds then traction; qualifies,
+                               tokenOfferFit and bestFit need good odds.
+                               v2.8.1 T7: enterableWithoutRepo (the no-repo offer's pick, for tools.ts); v2.10
                                Ruling H1: noRepoPick (no repo needed, never "needs a live product", lowest
                                difficulty, then prize; none: no line).
                                v2.9 E20: FirstMessage.wonUsd; withWonLine joins "Builders using EarnKit won $X."
@@ -463,7 +469,8 @@ apps/frontend/
                                sponsor campaigns never offered; no per-row bonus column or
                                affiliation note any more (BONUS_NOTE removed, Ruling 14 (plan); the
                                policy page keeps that text, linked from the footer and the guide page)
-    earnkit-orgs.ts            v2.9 A1: EARNKIT_ORGS (import-free; programs.ts re-exports it)
+    earnkit-orgs.ts            v2.9 A1: EARNKIT_ORGS (import-free; programs.ts re-exports it); v2.10 R7:
+                               EARNKIT_STARTER_NAMES (earnkitai/chain-kits examples)
     host-names.ts              v2.9 C12 (Task 7), import-free: HOST_RESERVED, HOST_CSP, HOST_HEADERS,
                                SITE_PREFIX 'sites/', STATE_PREFIX 'state/'; imported by the host Worker
                                (relative path) and the hosting code
@@ -487,7 +494,8 @@ apps/frontend/
                                deployConfigChains (Ruling H2: hardhat `networks` entries, foundry [rpc_endpoints],
                                comments stripped, >2 mainnets = template; deploy folders at any depth),
                                creditsMainnet, DEPLOY_FIRST; confirmMainnets sets basis deployed;
-                               RepoFacts.commits_90d (v2.10 item 8);
+                               RepoFacts.commits_90d (v2.10 item 8); v2.10 item 6: traction, productOdds,
+                               rowOdds, onlyMentioned, GOOD_ODDS_TRACTION, Odds, TractionFacts;
                                v2.9 A1, A2: ownerOk, productScore (tiers), TUTORIAL, DEFAULT_README,
                                SIGNAL_WORDS, INVESTMENT_NOTE; matchRepo applies the tiers when scored;
                                fitsWideProgram (G15: any_chain/investment need an original product);
@@ -496,7 +504,10 @@ apps/frontend/
                                reportedFacts(ReportedRepo) turns an agent's local_repos report into
                                RepoFacts, keeping url only when campaigns.ts githubRepo parses it
                                (Ruling 13), else ''
-    match-projects.ts          v2.9 A3: MatchProjectsInput.said applied before the checks (P15); not_mine skipped.
+    match-projects.ts          v2.10 item 6: runChecks reads Blockscout counts (budget passed in, P27),
+                               checkRepo/checkLocal score traction and odds (R3 for local), starterRepo
+                               (MatchDeps.starters), fits sorted by good odds then traction.
+                               v2.9 A3: MatchProjectsInput.said applied before the checks (P15); not_mine skipped.
                                v2.10 item 8: commitsRead (one 90-day read, any author; author= only on another
                                owner's repo, which counts only those commits, Ruling H1; on an owned repo an
                                empty or failed read falls back to pushed_at; commits_90d);
@@ -763,7 +774,7 @@ apps/frontend/
                                (Ruling 10: open curated programs that fit fit_chains or are Easy,
                                MAX_NEW_PROGRAM_LINES = 3, newest first, AlertState.newPrograms),
                                newProgramOf (C23: "up to $1M investment")
-    match-loop.ts(+test)       v2.9 A8: recordShown (match_shown, one row per day), saveEntryScore
+    match-loop.ts(+test)       v2.9 A8: recordShown (match_shown, one row per day; v2.10 item 6: traction), saveEntryScore
                                (projects.product_score at confirmation), matchStats (pure, 30 labelled
                                minimum), updateMatchFloors (programs:sync: match_floor, match_precision)
     github-verify.ts(+test)    v2.9 B9: Sign in with GitHub. githubVerifyEnabled (both OAuth vars), createVerifyLink
