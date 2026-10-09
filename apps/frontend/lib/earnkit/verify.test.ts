@@ -2,7 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Chain } from './chains';
 import { sql } from './db';
-import { safeProbe } from './safe-fetch';
+import { ErrorPageError, safeProbe } from './safe-fetch';
 import {
   CheckBudget,
   ENTRY_BUDGET,
@@ -12,6 +12,7 @@ import {
   contractDeployed,
   entryVerified,
   hasCode,
+  liveCheckDetail,
   liveVerified,
   placeholderHost,
   placeholderLink,
@@ -88,10 +89,10 @@ test('1.5 addressesFrom: answers first, an explorer link on that chain only, at 
 
 /** An in-memory url_checks (Pre-flight P26), so the budget is tested without a database. */
 function memCache() {
-  const rows = new Map<string, { ok: boolean; checked_at: Date }>();
+  const rows = new Map<string, { ok: boolean; checked_at: Date; note?: string | null; n?: number | null }>();
   const cache: CheckCache = {
     get: async (k) => rows.get(k) ?? null,
-    set: async (k, ok, now) => void rows.set(k, { ok, checked_at: now }),
+    set: async (k, ok, now, extra) => void rows.set(k, { ok, checked_at: now, ...extra }),
   };
   return { rows, cache };
 }
@@ -110,6 +111,45 @@ test('budget (no DB): 8 uncached links probe 5 times; 7 getCodes make 6 calls', 
   const getCode = async () => (calls++, '0x6080');
   for (let i = 0; i < 7; i++) await contractDeployed('base', `0x${String(i).repeat(40)}`, { getCode, budget, cache });
   assert.equal(calls, 6);
+});
+
+test('2.5 liveCheckDetail (no DB): an error page is a failure cached with its phrase; the cache answers within the hour', async () => {
+  const { rows, cache } = memCache();
+  let probes = 0;
+  const probe = async () => {
+    probes++;
+    throw new ErrorPageError('This page could not be found');
+  };
+  const now = new Date('2026-10-09T10:00:00Z');
+  const url = 'https://tipjar-err.tipjar.xyz';
+  assert.deepEqual(await liveCheckDetail(url, { probe, cache, now }), { ok: false, error: 'This page could not be found' });
+  assert.equal(rows.size, 1);
+  const [[key, row]] = [...rows];
+  assert.ok(key.startsWith(`url:${url}`), key);
+  assert.deepEqual([row.ok, row.note], [false, 'This page could not be found']);
+  const later = new Date(now.getTime() + 30 * 60_000);
+  assert.deepEqual(await liveCheckDetail(url, { probe, cache, now: later }), { ok: false, error: 'This page could not be found' });
+  assert.equal(probes, 1);
+  // A plain failure has no phrase; a pass has none either.
+  const plain = async () => {
+    throw new Error('no answer');
+  };
+  const log = console.error;
+  console.error = () => {};
+  try {
+    assert.deepEqual(await liveCheckDetail('https://down.tipjar.xyz', { probe: plain, cache, now }), { ok: false, error: null });
+  } finally {
+    console.error = log;
+  }
+  assert.deepEqual(await liveCheckDetail('https://up.tipjar.xyz', { probe: async () => {}, cache, now }), { ok: true, error: null });
+  // The phrase is the page's own text: kept to one plain line, double quotes made single.
+  const quotedProbe = async () => {
+    throw new ErrorPageError('Oops "404"\nnot here');
+  };
+  assert.deepEqual(await liveCheckDetail('https://quoted.tipjar.xyz', { probe: quotedProbe, cache, now }), { ok: false, error: "Oops '404' not here" });
+  // entryVerified carries the phrase.
+  const v = await entryVerified({ liveUrl: url, needsContract: null, addresses: [] }, { probe, cache, now: later });
+  assert.deepEqual(v, { live: false, liveError: 'This page could not be found', contract: null, needsContract: null });
 });
 
 test('entryVerified (no DB): one probe and up to 2 getCodes; no address means no contract', async () => {

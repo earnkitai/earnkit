@@ -105,7 +105,7 @@ import {
   questionsFor,
   type Fix,
 } from './coach';
-import { LIVE_FAILED_LINE, addressesFrom, contractMissingLine, entryVerified, type CheckDeps, type Verified } from './verify';
+import { LIVE_FAILED_LINE, addressesFrom, contractMissingLine, entryVerified, liveErrorLine, type CheckDeps, type Verified } from './verify';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
 import { answerPickup, offerPickup, type PickupDeps } from './identity';
 import type { FieldKind } from './program-file';
@@ -196,7 +196,8 @@ function entryLiveUrl(program: ProgramRow, project: { live_url?: string } | unde
 /** v2.9 A5: the one fix line a failed check adds (never blocking), or null. Pure. */
 function checkFix(v: Verified | undefined, liveGiven: boolean): Fix | null {
   if (!v || !liveGiven) return null;
-  if (!v.live) return { key: 'live_url', rule: 'unverified', for: 'builder', text: LIVE_FAILED_LINE };
+  // v2.10 item 14: a link that loads an error page says what it shows.
+  if (!v.live) return { key: 'live_url', rule: 'unverified', for: 'builder', text: v.liveError ? liveErrorLine(v.liveError) : LIVE_FAILED_LINE };
   // Ruling G15: only a real "no code" answer says not found; a check that couldn't run says nothing.
   if (v.needsContract && v.contract === false)
     return { key: 'live_url', rule: 'unverified', for: 'builder', text: contractMissingLine(v.needsContract) };

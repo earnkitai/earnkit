@@ -2330,6 +2330,44 @@ test('1.11 v2.9 A5: a placeholder link is refused; a failed probe is one fix lin
     assert.equal(v.live_verified_at, null);
   }));
 
+test('2.6 v2.10 item 14: a live link that loads an error page is one fix line with the phrase; a plain failure keeps LIVE_FAILED_LINE', dbTest, () =>
+  withTokenEnv(async () => {
+    const { LIVE_FAILED_LINE } = await import('./verify');
+    const { liveErrorLine } = await import('./placeholder');
+    const { ErrorPageError } = await import('./safe-fetch');
+    const LINE = 'Your live link loads but shows an error ("This page could not be found"). Fix it and tell me.';
+    assert.equal(liveErrorLine('This page could not be found'), LINE);
+    type Prep = { ready: boolean; show_to_builder: string; fixes: { text: string }[]; missing: { key: string; problem?: string }[] };
+    const t = await confirmSetup('t2err');
+    const ctx = {
+      ...t.ctx,
+      verifyDeps: {
+        probe: async () => {
+          throw new ErrorPageError('This page could not be found');
+        },
+      },
+    };
+    const input = { ...t.input, project: { ...t.project, live_url: `https://t2err-${t.inst}.tipjar.xyz` } };
+    const r = (await tools.prepare_submission(input, ctx)) as Prep;
+    assert.equal(r.ready, false);
+    assert.deepEqual(r.fixes.filter((f) => f.text === LINE).length, 1);
+    assert.equal(r.fixes.some((f) => f.text === LIVE_FAILED_LINE), false);
+    assert.equal(r.show_to_builder.split(LINE).length - 1, 1, r.show_to_builder);
+    assert.doesNotMatch(r.show_to_builder, /Live link didn't load/);
+
+    const log = console.error;
+    console.error = () => {};
+    try {
+      const d = await confirmSetup('t2down');
+      const downCtx = { ...d.ctx, verifyDeps: { probe: async () => { throw new Error('no answer'); } } };
+      const down = (await tools.prepare_submission({ ...d.input, project: { ...d.project, live_url: `https://t2down-${d.inst}.tipjar.xyz` } }, downCtx)) as Prep;
+      assert.equal(down.ready, false);
+      assert.deepEqual(down.fixes.filter((f) => f.text === LIVE_FAILED_LINE).length, 1);
+    } finally {
+      console.error = log;
+    }
+  }));
+
 test('v2.9 A5 fix round 1: Arc (needs_contract) through startEntry and recordSubmission: complete only with a loading link and a contract with code', dbTest, () =>
   withTokenEnv(async () => {
     const { LIVE_FAILED_LINE } = await import('./verify');

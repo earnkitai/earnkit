@@ -257,7 +257,7 @@ export type TractionDeps = {
   users?: (contracts: string[], from: Date, to: Date, exclude: string[], deadline?: number) => Promise<{ score: number; timedOut: boolean }>;
   /** The live ratio (default: today's probe stored in live_checks, then the ratio from it). */
   live?: (entry: TractionEntry, from: Date, now: Date, probeToday: boolean) => Promise<number>;
-  /** Whether a live link loads (default safeProbe). */
+  /** Whether a live link loads (default safeProbe; v2.10 item 14, Pre-flight P31: an error page counts as down). */
   probe?: (url: string) => Promise<boolean>;
   /** A GitHub API GET (default: the authenticated `gh`, noting x-ratelimit-remaining in `budget`). */
   github?: (path: string, accept: string | undefined, budget: GitHubBudget) => Promise<unknown>;

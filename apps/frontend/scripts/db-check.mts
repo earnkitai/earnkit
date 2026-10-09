@@ -439,6 +439,16 @@ await db`INSERT INTO url_checks (key, ok) VALUES ('url:https://tipjar.xyz', true
 await db.unsafe(now);
 const [check] = await db<{ ok: boolean; checked_at: Date }[]>`SELECT ok, checked_at FROM url_checks WHERE key = 'url:https://tipjar.xyz'`;
 ok(check?.ok === true && check.checked_at instanceof Date, 'url_checks rows survive the schema running again, checked_at defaults to now()');
+// v2.10 item 14 (R5): the note and count columns, added to a pre-v2.10 table; existing rows read
+// as NULL, a note round-trips.
+await db.unsafe('ALTER TABLE url_checks DROP COLUMN note; ALTER TABLE url_checks DROP COLUMN n;');
+await db.unsafe(now);
+const [noted] = await db<{ note: string | null; n: number | null }[]>`SELECT note, n FROM url_checks WHERE key = 'url:https://tipjar.xyz'`;
+ok(noted && noted.note === null && noted.n === null, 'existing url_checks rows get note = NULL and n = NULL');
+await db`INSERT INTO url_checks (key, ok, note, n) VALUES ('url:https://err.tipjar.xyz', false, 'This page could not be found', 3)`;
+await db.unsafe(now);
+const [noteKept] = await db<{ note: string | null; n: number | null }[]>`SELECT note, n FROM url_checks WHERE key = 'url:https://err.tipjar.xyz'`;
+ok(noteKept?.note === 'This page could not be found' && noteKept.n === 3, 'url_checks note and n survive the schema running again');
 
 // v2.9 A2: the product column and the program floor; existing rows read as unscored and no floor.
 const [floor] = await db<{ n: number; set: number }[]>`
