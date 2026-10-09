@@ -3659,32 +3659,81 @@ test('9.3 confirm: skip_token is confirm_entry\'s skip; no yes is the confirm li
     assert.equal(b.calls.deploy, 0);
   }));
 
-test('9.3 R16 tell: submitted marks the newest entry submitted; on a shared client it needs project_id and writes nothing without it', dbTest, () =>
+test('9.3 R16 tell: submitted marks the newest entry submitted; fix round 1 (I2): on a shared client only the pasted code\'s own entry, by project_id', dbTest, () =>
+  withTokenEnv(() =>
+    withSignIn(async () => {
+      const t = await confirmSetup('t9tell');
+      const first = (await tools.confirm({ ...t.input, yes: true, wallet: W8 }, t.ctx)) as Confirmed;
+      assert.ok(first.kit, JSON.stringify(first));
+      await sql()`UPDATE installations SET shared_client = true WHERE id = ${t.inst}`;
+      const unmarked = async () => assert.equal((await t.rows())[0].submission_confirmed_at, null);
+      await unmarked();
+      const shared = { ...t.ctx, sharedClient: true };
+      const isNoted = (r: unknown) => {
+        const n = r as { show_to_builder: string; agent_note: string; project_id?: number; token?: unknown };
+        assert.equal(n.show_to_builder, NOTED_FOR_NOW);
+        assert.match(n.agent_note, /pass signed_in .* and the entry's project_id/);
+        // Nothing of the entry is read back either (name, token, bonus line).
+        assert.deepEqual(Object.keys(n).sort(), ['agent_note', 'show_to_builder']);
+      };
+      // Shared: no project_id; a project_id without a code; another builder's code; a typed login. Nothing written or read.
+      isNoted(await tools.tell({ submitted: { program_id: t.p.id } }, shared));
+      isNoted(await tools.tell({ submitted: { program_id: t.p.id, project_id: first.project_id } }, shared));
+      const codeB = await signInAs(t.inst, null, `https://github.com/bob/t9-${Date.now()}`, 'bob');
+      for (const signed_in of [codeB!, 'alice'])
+        isNoted(await tools.tell({ submitted: { program_id: t.p.id, project_id: first.project_id } as never, signed_in }, shared));
+      // An old call's own project (P15c) on a shared client: noted too, never written by repo key.
+      isNoted(await tools.tell({ submitted: { program_id: t.p.id, project: t.project, submission_data: t.answers }, signed_in: codeB! }, shared));
+      await unmarked();
+      // Alice's own code and her entry's project_id: that entry.
+      const codeA = await signInAs(t.inst, first.project_id!, t.repo, 'alice');
+      const mine = (await tools.tell({ submitted: { program_id: t.p.id, project_id: first.project_id }, signed_in: codeA! }, shared)) as { project_id: number };
+      assert.equal(mine.project_id, first.project_id);
+      assert.ok((await t.rows())[0].submission_confirmed_at, 'submission_confirmed_at set');
+      // Not shared: the newest entry in that program, its saved answers; never a second row.
+      const told = (await tools.tell({ submitted: { program_id: t.p.id } }, t.ctx)) as { show_to_builder: string; project_id: number };
+      assert.equal(told.project_id, first.project_id);
+      assert.equal((await t.rows()).length, 1, 'the same entry, never a second one');
+      // Another installation's entry is not found.
+      const other = await confirmSetup('t9tell2');
+      await assert.rejects(tools.tell({ submitted: { program_id: t.p.id, project_id: first.project_id } }, other.ctx), /No entry/);
+      // No entry yet in that program: confirm first.
+      await assert.rejects(tools.tell({ submitted: { program_id: other.p.id } }, other.ctx), /call confirm first/);
+    }),
+  ));
+
+test('fix round 1 (C1, P15b): confirm with submitted runs the confirmation first: no yes records nothing; an unshown token launches nothing; then it is marked submitted', dbTest, () =>
   withTokenEnv(async () => {
-    const t = await confirmSetup('t9tell');
-    const first = (await tools.confirm({ ...t.input, yes: true, wallet: W8 }, t.ctx)) as Confirmed;
-    assert.ok(first.kit);
+    const t = await confirmSetup('t9c1', { noOffer: true });
+    const submitted = { external_submission_url: 'https://dorahacks.io/buidl/1' };
+    // Without yes: the confirm line only; nothing recorded.
+    const line = (await tools.confirm({ ...t.input, wallet: W8, submitted }, t.ctx)) as Confirmed;
+    assert.match(line.show_to_builder, /^Yes submits your entry and launches \$/);
+    assert.equal((await t.rows()).length, 0);
+    // yes with a ticker the builder never saw (no stored pair): the confirm line again, no launch, no kit, not submitted.
+    const unseen = (await tools.confirm({ ...t.input, yes: true, wallet: W8, token: { name: 'Tip Jar', symbol: 'GRAB' }, submitted }, t.ctx)) as Confirmed;
+    assert.equal(unseen.token?.status, 'skipped');
+    assert.ok(!unseen.kit);
+    assert.equal(t.calls.deploy, 0);
     assert.equal((await t.rows())[0].submission_confirmed_at, null);
-    // Shared, no project_id: plain words, nothing written.
-    const shared = { ...t.ctx, sharedClient: true };
-    const noted = (await tools.tell({ submitted: { program_id: t.p.id } }, shared)) as { show_to_builder: string; agent_note: string };
-    assert.equal(noted.show_to_builder, NOTED_FOR_NOW);
-    assert.match(noted.agent_note, /pass the entry's project_id/);
+    assert.equal((await t.rows())[0].token_url, null);
+    // The old v2.9 shape (record_submission with both flags) through the alias, with another ticker than the one
+    // just shown: the same stop (v2.9 record_submission launched it directly).
+    const old = aliasCall('record_submission', { program_id: t.p.id, project: t.project, submission_data: t.answers, builder_confirmed: true, builder_submitted: true, payout_wallet: W8, token: { name: 'Tip Jar', symbol: 'SNAG' } })!;
+    const viaOld = (await tools.confirm(old.args, t.ctx)) as Confirmed;
+    assert.ok(!viaOld.kit);
+    assert.equal(t.calls.deploy, 0);
     assert.equal((await t.rows())[0].submission_confirmed_at, null);
-    // Not shared: the newest entry in that program, its saved answers.
-    const told = (await tools.tell({ submitted: { program_id: t.p.id } }, t.ctx)) as { show_to_builder: string; project_id: number };
-    assert.equal(told.project_id, first.project_id);
-    const [row] = await t.rows();
-    assert.ok(row.submission_confirmed_at, 'submission_confirmed_at set');
-    assert.equal((await t.rows()).length, 1, 'the same entry, never a second one');
-    // Shared with the entry's project_id: that entry.
-    const again = (await tools.tell({ submitted: { program_id: t.p.id, project_id: first.project_id } }, shared)) as { project_id: number };
-    assert.equal(again.project_id, first.project_id);
-    // Another installation's entry is not found.
-    const other = await confirmSetup('t9tell2');
-    await assert.rejects(tools.tell({ submitted: { program_id: t.p.id, project_id: first.project_id } }, other.ctx), /No entry/);
-    // No entry yet in that program: confirm first.
-    await assert.rejects(tools.tell({ submitted: { program_id: other.p.id } }, other.ctx), /call confirm first/);
+    // yes to the pair the confirm line showed: launched, the kit, and marked submitted on the same entry.
+    const pair = (await readOffer(t.inst, t.p.id, offerKey(t.repo, 'Tip Jar')))!;
+    const done = (await tools.confirm({ ...t.input, yes: true, wallet: W8, token: pair, submitted }, t.ctx)) as Confirmed;
+    assert.equal(done.token?.status, 'launched', JSON.stringify(done));
+    assert.ok(done.kit);
+    assert.match(done.show_to_builder, /Entered in /);
+    const rows = await t.rows();
+    assert.equal(rows.length, 1);
+    assert.ok(rows[0].submission_confirmed_at);
+    assert.equal(t.calls.deploy, 1);
   }));
 
 test('9.3 R16 tell: an old "I submitted" (record_submission with builder_submitted) aliased to tell gives record_submission\'s reply', dbTest, () =>

@@ -3447,17 +3447,21 @@ the v2.9 handler a behaviour lives in; this table maps them.
 |---|---|---|
 | `find` | `handlers.list_programs` (no `program_id`), else `handlers.get_program` | `FindInput` = list_programs' lenient input plus `program_id`, `repo`. With `program_id` on a curated program, `show_to_builder` is `guide.text`, plus one plain fit line when `repo` is given (`eligibilityLine`). `repo` without `program_id` is read as `repos: [repo]`. Read-only. |
 | `prepare` | `handlers.prepare_submission` | `PrepareInput` is the strict `PrepareSubmissionInput` (T10 adds `deploy`). |
-| `confirm` | `project_id` without `program_id`: `handlers.launch_token`; an EarnKit (or sponsor) campaign, or `submitted`: `handlers.record_submission`; else `handlers.confirm_entry` | `ConfirmInput` (R15): `yes` (go), `skip_token` (go without a token), `check` (check_back), `wallet`, `token`, `project`, `answers`, `agent`, `signed_in`, `image_*`, `builder_x`, `contracts`, `deployer_signature`, and `submitted` (Pre-flight P15b). `yes` or `check` is `builder_confirmed` on the launch path (a check is a read); `skip_token` with `project_id` answers "No token for now." and calls nothing. The confirm_entry path drops `image_*`/`builder_x` (its input is strict). |
+| `confirm` | `project_id` without `program_id`: `handlers.launch_token`; an EarnKit (or sponsor) campaign: `handlers.record_submission`; else `handlers.confirm_entry`, then with `submitted` (P15b) the submitted mark once that reply recorded the entry (it has the kit) | `ConfirmInput` (R15): `yes` (go), `skip_token` (go without a token), `check` (check_back), `wallet`, `token`, `project`, `answers`, `agent`, `signed_in`, `image_*`, `builder_x`, `contracts`, `deployer_signature`, and `submitted` (Pre-flight P15b). `yes` or `check` is `builder_confirmed` on the launch path (a check is a read); `skip_token` with `project_id` answers "No token for now." and calls nothing. The confirm_entry path drops `image_*`/`builder_x` (its input is strict). |
 | `tell` | `pickup`: `handlers.pick_up_entries`; `submitted`: `handlers.record_submission` with `builder_submitted: true`; the rest: `handlers.tell_earnkit` | `TellToolInput` (R16). Several parts run in that order and their replies join (`show_to_builder` lines with `\n`, agent notes with a space). |
 
 - **"I submitted" (R16).** `markSubmitted` loads the entry by `submitted.project_id`, else this
   installation's newest entry in the program (`projects.ts submittedEntry`, the same lookup as v2.9
   outcomes), with its stored project fields and its confirmed `application.answers` (else the latest
-  `submissions` row), and calls record_submission with them. On a shared client without
-  `project_id` it answers "Noted for now." and writes nothing (G7: the newest entry may be another
-  builder's). An old record_submission call carries its own `project`/`submission_data`; those are
-  used as given (record_submission finds the entry by repo key, or makes it), which keeps the v2.9
-  meaning for old agents, shared ones included (Pre-flight P15c).
+  `submissions` row), and calls record_submission with them. On a shared client (G7, G9; fix round
+  1 I2) it needs `signed_in` and a `project_id` among `verifiedEntryIds` for that login; anything else
+  answers "Noted for now." and neither writes nor reads the entry. Off a shared client, an old
+  record_submission call's own `project`/`submission_data` are used as given (record_submission finds
+  the entry by repo key, or makes it), the v2.9 meaning (Pre-flight P15c).
+- **`confirm` with `submitted` (P15b, fix round 1 C1).** confirm_entry runs first, so the builder's
+  yes covers the exact pair and wallet the confirm line showed and the plain-words check runs; the
+  entry is marked submitted (`markSubmitted` by its `project_id`) only when that reply carries the kit.
+  Without `yes`/`skip_token` nothing is recorded.
 - **The gates are the handlers'.** G10, G11, the sanctions screen, one token per repo, the wallet
   limits, G7 privacy, G12 decline counting, T7's "40%" once and T8's guide and lead all run inside
   the handlers, so every path through the new tools gets them (tests 9.3, including G10 through both
@@ -3468,9 +3472,11 @@ the v2.9 handler a behaviour lives in; this table maps them.
   is the confirm line again, never a recorded decline (P15a).
 - **Aliases (`aliases.ts`, R17).** `aliasCall(name, args, now)` maps each v2.9 call shape to its new
   tool and arguments until `ALIASES_UNTIL` (2026-11-09T00:00Z), then returns null (the SDK answers an
-  unknown tool). P15: a skip needs `builder_confirmed`, like a go; record_submission with both flags
-  is `confirm` with `submitted`; record_submission's token object gives `token: { name, symbol }`
-  and its image fields; `pick_up_entries`' answer is read as "yes"/"no". `rewriteAliases` rewrites
+  unknown tool). P15: a skip (confirm_entry's `decision`, launch_token's, record_submission's
+  `token: 'skip'`) needs `builder_confirmed`, like a go; record_submission with both flags is
+  `confirm` with `submitted`; record_submission's token object gives `token: { name, symbol }`, its
+  image fields, and its own `creator_wallet` as the wallet (before `payout_wallet`, as v2.9
+  runTokenFlow did); `pick_up_entries`' answer is read with v2.9's `yesNo` (now in aliases.ts). `rewriteAliases` rewrites
   each old `tools/call` in a JSON-RPC message or batch and leaves everything else as the same object.
   `app/mcp/route.ts withAliases` applies it to authenticated JSON POSTs before the transport (a body
   that isn't JSON passes untouched; a rewritten body drops `content-length`) and logs
