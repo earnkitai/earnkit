@@ -194,7 +194,9 @@ apps/frontend/
                                (DifficultyOverride, Ruling 5), winners_per_round (Ruling 6); requirements' `todo` (C5) and
                                requiredWithoutTodo (programs:check refuses a required item without one);
                                v2.8 Task 6: DifficultyOverride is a stated level (optional estimate: true) or
-                               the EarnKit rating { level: Easy, rated_by: earnkit, source_url } (Ruling 12);
+                               the EarnKit rating { level: Easy, rated_by: earnkit, source_url } (Ruling 12;
+                               v2.10 item 10: refused over $1,000 per winner without a past round with
+                               submissions and winners);
                                any_chain (default false; chains [] only then, Ruling 13); isOptimismUrl
                                refuses optimism.io hosts (Ruling 15); v2.8 Task 12: results { url (https),
                                expected (date) } (optional; programs.results; Arc 2026-10-21)
@@ -472,6 +474,11 @@ apps/frontend/
     free-tier.ts(+test)        v2.9 C13: FREE_CAPS (r2Writes 900k/month, resend 100/day, 3,000/month),
                                periodKey, takeFreeTier (atomic hard cap), freeTierRoom, FreeTierFull
     match.ts(+test)            pure: chain detection (IDs + RPC hosts), repo x program verdicts;
+                               v2.10 item 9: Detection.basis (Basis: deployed | deploy_config | mention;
+                               absent = mention, R6), detectChains(files, paths) over detectMentions +
+                               deployConfigChains (hardhat.config, foundry [rpc_endpoints], deploy folders),
+                               creditsMainnet, DEPLOY_FIRST; confirmMainnets sets basis deployed;
+                               RepoFacts.commits_90d (v2.10 item 8);
                                v2.9 A1, A2: ownerOk, productScore (tiers), TUTORIAL, DEFAULT_README,
                                SIGNAL_WORDS, INVESTMENT_NOTE; matchRepo applies the tiers when scored;
                                fitsWideProgram (G15: any_chain/investment need an original product);
@@ -481,6 +488,10 @@ apps/frontend/
                                RepoFacts, keeping url only when campaigns.ts githubRepo parses it
                                (Ruling 13), else ''
     match-projects.ts          v2.9 A3: MatchProjectsInput.said applied before the checks (P15); not_mine skipped.
+                               v2.10 item 8: commitsRead (one 90-day read, any author; author= only on another
+                               owner's repo; empty or failed read falls back to pushed_at; commits_90d);
+                               item 9: readRepoChains passes the tree paths; creditedMainnets for fits and
+                               cachedRepoChains; withReportedChains marks reported mainnets as claims (P8).
                                repo matching for list_programs + get_program's eligibility check; v2.9 A1, A2:
                                droppedRepo pre-filter (forks, templates, archived, EarnKit; a tutorial name only
                                costs original, G15), contributed repos by ownerOk share, repoKey merge,

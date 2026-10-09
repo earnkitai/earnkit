@@ -1983,8 +1983,9 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
   (Ruling 5), "Your builder bonus is in \<program\>; these entries don't add to it."; null with no
   rows.
 - **Wiring (`tools.ts record_submission`, non-campaign only)**: chains come from the repo-facts
-  cache (`match-projects.ts cachedRepoChains`, `github_repo_facts` only, no GitHub call, mainnet
-  evidence only — the same convention `matchRepo` uses, review fix round 1, item 2) when present,
+  cache (`match-projects.ts cachedRepoChains`, `github_repo_facts` only, no GitHub call, credited
+  mainnets only (`creditsMainnet`, v2.10 item 9; a v2.9 row without `basis` is a mention) — the same
+  convention `matchRepo` uses, review fix round 1, item 2) when present,
   else the entered program's own chains. Candidate programs, with `difficulty` and `max_award_usd`
   for the sort: `programs.ts alsoProgramFacts`. Already-entered programs for this project:
   `projects.ts enteredProgramIds` (same repo/name match as `ownEntry`, across every program).
@@ -2400,14 +2401,31 @@ strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`, and in prod
   report only adds a live link (when GitHub has no homepage), chains GitHub lacks, and contracts.
 - **The score.** `productScore(ProductFacts)` (pure): six signals; product = 5+ with active,
   owned and deployed; project = 3 to 4; noise = 2 or less. Inputs (plan Ruling 1): `active` = a
-  builder commit in 90 days (one `commits?author=&since=&per_page=1` read; no known builder: a
-  push in 90 days; local: `last_commit_at`), `young` = created in 365 days or active,
+  commit in 90 days or a push in 90 days (v2.10 item 8: `match-projects.ts commitsRead`, one
+  `commits?since=<90d>&per_page=100` read by any author, so commits with an unlinked email count;
+  `&author=<builder>` only on a repo someone else owns, the v2.9 A1 contribution rule; an empty read
+  or a failed one (null) falls back to `pushed_at`; the count, at most 100, is `RepoFacts.commits_90d`;
+  Pre-flight P28: the read also runs when the builder is unknown; local: `last_commit_at`), `young` = created in 365 days or active,
   `original` = not a fork or template and no `TUTORIAL` match (docs repos included, P27),
   `readme` = a root README of 1,536+ bytes (tree size) whose first 2 KB (one raw read) isn't
   `DEFAULT_README` (local repos: false), `deployed` = the live link loads (`liveVerified`) or one
   of up to 2 contract candidates from the files already read has code on a detected mainnet,
   `owned` as above. At most `SCORE_LIMIT` = 8 repos (most recent first) are scored per call,
   under one `CheckBudget(LIST_BUDGET)` (5 probes, 6 getCode).
+- **Chain basis (v2.10 item 9).** `match.ts Detection` entries carry `basis`: `deployed` (a
+  contract with code there: `confirmMainnets` sets it for every chain in `withCode`), `deploy_config`
+  (`deployConfigChains`: a mainnet id or host in `hardhat.config.*`, an `[rpc_endpoints]` entry in
+  `foundry.toml`, or a tree path `broadcast/<script>/<chainId>/`, `ignition/deployments/chain-<id>/`,
+  `deployments/<network>/` with `<network>` = `<chain>`, `<chain>mainnet` or `<chain>-mainnet`, R6;
+  `readRepoChains` passes every blob path, so folder hits are free) or `mention` (any other import,
+  host or id: `detectMentions`). Absent reads as `mention` (v2.9 cached rows, R6).
+  `creditsMainnet(entry)` = mainnet and not a mention, or a claim (`CLAIMED_MAINNET`, v2.9 A3).
+  `matchRepo`: a program chain whose mainnet is only mentioned gets `after_step`, note
+  `DEPLOY_FIRST(chain)` ("deploy to Base first"), missing `mainnet_deploy` (plus `live_url`
+  without a homepage), effort `hours`, before the live-product rules (never likely). Fit chains
+  (`fits[].chains`, fit_chains alerts) and `cachedRepoChains` count credited mainnets only;
+  contract candidates still use every mainnet (`mainnetChains`), so a getCode pass can turn a
+  mention into `deployed`.
 - **Cache (P6).** `github_repo_facts.product` (jsonb) holds only the repo's own signals for that
   version: `{ young, original, readme, addresses }`. owned, active and deployed are worked out on
   every call. A pre-v2.9 row (product NULL) re-reads the files. `cachedRepoAddresses(repoUrl)`
@@ -2478,6 +2496,9 @@ strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`, and in prod
   `checked`); testnet clears that chain's mainnet; a mainnet the code doesn't show (evidence
   `CLAIMED_MAINNET`), a live link when there is none, and users are claims (`RepoFacts.claims`).
   Plan Ruling 2: a local report's live link or mainnet that GitHub lacks is a claim the same way.
+  v2.10 Pre-flight P8: an agent-reported mainnet (`reportedFacts`, `withReportedChains`) and a
+  said mainnet over a chain the files only mention are claims too (`basis: 'mention'`,
+  `CLAIMED_MAINNET`).
   `matchRepo` turns a would-be `likely` row whose claim is unverified (a claimed mainnet on the
   program's chain, a claimed link with `live_verified !== true`, users on a "needs a live product"
   program) into `after_step` with `confirm: mainnet | live link | users`. `users` clears
@@ -2592,6 +2613,10 @@ A GitHub OAuth App with no scopes; its callback URL is `<EARNKIT_URL>/github/ver
   guides, "Also open" and Also qualifies show this level. `programs:check` refuses an Easy
   `difficulty_override` (rated or stated) on a `needs a live product` program
   (`program-file.ts` superRefine). Base lost its EarnKit Easy rating (A6): Medium (estimate).
+  v2.10 item 10: so did Avalanche Team1 Mini Grants (Medium (estimate); a row missing real users
+  without a live link is Hard), and `programs:check` refuses an EarnKit rating (`rated_by:
+  'earnkit'`) on a program paying over $1,000 per winner (`max_award_usd`) unless a past round has
+  both `submissions` and `winners` (sourced odds). Arc Microgrants ($500) keeps its rating.
 - **Row level (`rowDifficulty`, pure).** A matched row = max(program level, distance). Distance
   from the verdict's effort: none/minutes Easy, hours/days Medium, weeks Hard; with `real_users`
   missing, distance comes from the other missing items (`match.ts effortOf`, Pre-flight P2), then
