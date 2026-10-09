@@ -4,7 +4,6 @@ import {
   CLAIMED_MAINNET,
   DEFAULT_README,
   applyBuilderFacts,
-  claimedMainnets,
   confirmMainnets,
   creditsMainnet,
   KNOWN_TOKEN_ADDRESSES,
@@ -667,6 +666,12 @@ const mainnetChains = (d: Detection) =>
   Object.entries(d)
     .filter(([, v]) => v?.mainnet)
     .map(([c]) => c as Chain);
+/**
+ * v2.10 item 9: the mainnets only a claim or a mention backs (v2.9 rows without basis included): a
+ * contract with code there is what credits them, so their getCode pairs go first. Pure.
+ */
+const unverifiedMainnets = (d: Detection) =>
+  (Object.entries(d) as [Chain, Detection[Chain]][]).filter(([, v]) => v?.mainnet && (v.basis ?? 'mention') === 'mention').map(([c]) => c);
 /** v2.10 item 9: the mainnets a fit counts (deployed, in a deploy config, or claimed). */
 const creditedMainnets = (d: Detection) =>
   (Object.entries(d) as [Chain, Detection[Chain]][]).filter(([, v]) => creditsMainnet(v)).map(([c]) => c);
@@ -677,9 +682,12 @@ type Deployed = { live: boolean; deployed: boolean; unchecked: boolean; withCode
 /** One repo ready for its link and contract checks, and how to finish its facts with their answers. */
 type Prepared = {
   homepage: string | null;
-  /** Up to GETCODE_PER_REPO (chain, address) pairs, on mainnets with an RPC; claimed chains first. */
+  /** Up to GETCODE_PER_REPO (chain, address) pairs, on mainnets with an RPC; unverified chains first. */
   pairs: (readonly [Chain, string])[];
-  /** v2.9 A3: mainnets only a claim backs; their contracts are checked even when the live link loads. */
+  /**
+   * v2.9 A3: mainnets only a claim backs (v2.10 item 9: or only a mention); their contracts are
+   * checked even when the live link loads, since code there is what credits them.
+   */
   claimed: Chain[];
   finish: (d: Deployed) => { repo: RepoFacts; verdicts: Verdict[] };
 };
@@ -854,7 +862,7 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): P
     ctx.said,
   );
   const { homepage, chains: allChains } = base;
-  const claimed = claimedMainnets(allChains);
+  const claimed = unverifiedMainnets(allChains);
   // v2.10 item 8: on an owned repo, a commit by any author in 90 days, or a push in 90 days (also
   // when the read is empty: commits with an unlinked email or old dates). Pre-flight P28: the read
   // also runs without a known builder. Ruling H1 (c3): on a repo someone else owns, only the
@@ -882,7 +890,7 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): P
  */
 function checkLocal(r: ReportedRepo, programs: ProgramFacts[], ctx: Pick<ScoreCtx, 'owned' | 'now' | 'said'>): Prepared {
   const facts = said(reportedFacts(r, programs), ctx.said);
-  const claimed = claimedMainnets(facts.chains);
+  const claimed = unverifiedMainnets(facts.chains);
   // Ruling G3: an unknown last commit counts as active (the agent is asked to send it).
   const active = r.last_commit_at === undefined || within(r.last_commit_at, 90, ctx.now);
   return {

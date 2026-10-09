@@ -167,12 +167,12 @@ async function withFetch<T>(answer: (u: URL) => Response | undefined, run: (call
 }
 const body = (b: unknown) => new Response(typeof b === 'string' ? b : JSON.stringify(b), { status: 200 });
 
-/** A repo's files: a README over 1.5 KB and a Base mainnet config naming one contract. */
+/** A repo's files: a README over 1.5 KB and a Base mainnet network entry (v2.10 Ruling H2) naming one contract. */
 function repoFiles(u: URL): Response | undefined {
   if (u.host === 'api.github.com' && /\/git\/trees\//.test(u.pathname))
     return body({ tree: [{ path: 'README.md', type: 'blob', size: README.length }, { path: 'hardhat.config.ts', type: 'blob', size: 100 }] });
   if (u.host === 'raw.githubusercontent.com' && u.pathname.endsWith('/README.md')) return body(README);
-  if (u.host === 'raw.githubusercontent.com' && u.pathname.endsWith('/hardhat.config.ts')) return body(`chainId: 8453 // token ${ADDR}`);
+  if (u.host === 'raw.githubusercontent.com' && u.pathname.endsWith('/hardhat.config.ts')) return body(`networks: { base: { url: 'https://mainnet.base.org', chainId: 8453 } } // token ${ADDR}`);
   // v2.10 item 8: the 90-day commits read (any author on an owned repo).
   if (u.host === 'api.github.com' && /\/commits$/.test(u.pathname) && u.searchParams.has('since')) return body([{ sha: 'a' }]);
   return undefined;
@@ -213,7 +213,7 @@ test('2.8 twenty qualifying repos: 8 scored, probes at most 5, getCode at most 6
   // Each repo names its own contract, so no getCode answer is shared through the check cache.
   const ownConfig = (u: URL) => {
     const m = u.host === 'raw.githubusercontent.com' && u.pathname.match(/^\/alice\/app(\d+)\/main\/hardhat\.config\.ts$/);
-    return m ? body(`chainId: 8453 // ${`0x${m[1].padStart(40, 'a')}`}`) : undefined;
+    return m ? body(`networks: { base: { chainId: 8453 } } // ${`0x${m[1].padStart(40, 'a')}`}`) : undefined;
   };
   await withFetch(
     (u) =>
@@ -402,7 +402,7 @@ test('G3.2 a repo whose only address is Base USDC is not deployed (no getCode sp
       if (u.pathname === '/users/alice/repos') return body([ghRepo('alice', 'tipjar')]);
       if (u.pathname === '/search/commits') return body({ items: [] });
       if (u.host === 'raw.githubusercontent.com' && u.pathname.endsWith('/hardhat.config.ts'))
-        return body(`chainId: 8453 // usdc 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`);
+        return body(`networks: { base: { chainId: 8453 } } // usdc 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`);
       return repoFiles(u);
     },
     async () => {
@@ -852,4 +852,39 @@ test('H1 c3: a contribution repo with no builder commits in 90 days is not activ
     assert.ok(fit.product.missing.includes('active'), `no pushed_at fallback (${JSON.stringify(own)})`);
   }
   assert.ok(!(await run([{ sha: 'a', author: { login: 'alice' } }]))!.product.missing.includes('active'));
+});
+
+// ---- v2.10 item 9 (Task 1 review): a mention becomes deployed through getCode ----
+
+test('Task 1 review: a wagmi-only repo is "deploy to Base first" until its contract has code on Base; then deployed and likely', async () => {
+  const run = async (code: string) => {
+    const { n, deps } = checkDeps({ probeOk: true });
+    deps.checks!.getCode = async () => {
+      n.getCodes++;
+      return code;
+    };
+    const r = await withFetch(
+      (u) =>
+        u.pathname === '/users/bob/repos'
+          ? body([ghRepo('bob', 'tipjar', { homepage: 'https://tipjar.xyz', pushed_at: daysAgo(1) })])
+          : u.pathname === '/search/commits'
+            ? body({ items: [] })
+            : u.host === 'api.github.com' && /\/git\/trees\//.test(u.pathname)
+              ? body({ tree: [{ path: 'README.md', type: 'blob', size: README.length }, { path: 'src/wagmi.ts', type: 'blob', size: 100 }] })
+              : u.host === 'raw.githubusercontent.com' && u.pathname.endsWith('/src/wagmi.ts')
+                ? body(`import { base } from 'wagmi/chains'\nexport const TIPJAR = '${ADDR}'`)
+                : repoFiles(u),
+      async () => matchProjects(MatchProjectsInput.parse({ github_user: 'bob' }), deps),
+    );
+    return { fit: r.fits.find((f) => f.key === 'bob/tipjar')!, n };
+  };
+  const empty = await run('0x');
+  assert.equal(empty.n.getCodes, 1, 'the mention chain is checked though the live link loaded');
+  assert.equal(empty.fit.facts.chains.base!.basis, 'mention');
+  assert.equal(empty.fit.verdicts[0].note, 'deploy to Base first');
+  assert.deepEqual(empty.fit.chains, []);
+  const deployed = await run('0x6080');
+  assert.equal(deployed.fit.facts.chains.base!.basis, 'deployed');
+  assert.equal(deployed.fit.verdicts[0].status, 'likely');
+  assert.deepEqual(deployed.fit.chains, ['base']);
 });

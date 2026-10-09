@@ -115,8 +115,11 @@ export type Detection = Partial<
   Record<Chain, { mainnet: boolean; testnet: boolean; evidence: string; basis?: Basis }>
 >;
 
-/** v2.10 item 9: the chains a repo's files mention (imports, hosts, chain ids), each `basis: 'mention'`. Pure. */
-function detectMentions(files: { path: string; text: string }[]): Detection {
+/**
+ * v2.10 item 9: the chains a repo's files mention (imports, hosts, chain ids), each `basis: 'mention'`.
+ * `imports: false` (Ruling H2): hosts and chain ids only. Pure.
+ */
+function detectMentions(files: { path: string; text: string }[], o: { imports?: boolean } = {}): Detection {
   const found: Detection = {};
   const mark = (chain: Chain, net: 'mainnet' | 'testnet', evidence: string) => {
     const entry = (found[chain] ??= {
@@ -150,7 +153,7 @@ function detectMentions(files: { path: string; text: string }[]): Detection {
         }
       }
     }
-    for (const m of text.matchAll(VIEM_IMPORT)) {
+    if (o.imports !== false) for (const m of text.matchAll(VIEM_IMPORT)) {
       for (const name of m[1]
         .split(',')
         .map((s) => s.trim().split(/\s+as\s+/)[0])) {
@@ -163,44 +166,116 @@ function detectMentions(files: { path: string; text: string }[]): Detection {
   return found;
 }
 
+/** Ruling H2 (I2): dependency folders, whose deploy output is never the builder's. */
+const DEP_DIR = /(^|\/)(node_modules|lib|vendor)\//;
 const DEPLOY_DIRS: { re: RegExp; chainOf: (m: RegExpMatchArray) => Chain | null }[] = [
-  // Foundry: broadcast/<script>/<chainId>/
-  { re: /^broadcast\/[^/]+\/(\d{1,8})\//, chainOf: (m) => mainnetOf(Number(m[1])) },
+  // Foundry: broadcast/<script>/<chainId>/, at any depth (Ruling H2 I2); a dry run is no deployment.
+  { re: /(?:^|\/)broadcast\/[^/]+\/(\d{1,8})\/(?!dry-run\/)/, chainOf: (m) => mainnetOf(Number(m[1])) },
   // Hardhat Ignition: ignition/deployments/chain-<id>/
-  { re: /^ignition\/deployments\/chain-(\d{1,8})\//, chainOf: (m) => mainnetOf(Number(m[1])) },
+  { re: /(?:^|\/)ignition\/deployments\/chain-(\d{1,8})\//, chainOf: (m) => mainnetOf(Number(m[1])) },
   // hardhat-deploy: deployments/<network>/ (R6)
-  { re: /^deployments\/([^/]+)\//, chainOf: (m) => networkChain(m[1]) },
+  { re: /(?:^|\/)deployments\/([^/]+)\//, chainOf: (m) => networkChain(m[1]) },
 ];
 const mainnetOf = (id: number): Chain | null => {
   const c = chainOfId(id);
   return c?.mainnet ? c.chain : null;
 };
+/** Common network names that aren't `<chain>` (hardhat-deploy, foundry): Avalanche's C-Chain. */
+const NETWORK_ALIASES: Record<string, Chain> = { avax: 'avalanche', 'avalanche-c': 'avalanche', avalanchec: 'avalanche' };
+/** A network name that names a chain's mainnet (`<chain>`, `<chain>mainnet`, `<chain>-mainnet`, R6), else null. Pure. */
 const networkChain = (name: string): Chain | null => {
   const n = name.toLowerCase();
-  return CHAINS.find((c) => n === c || n === `${c}mainnet` || n === `${c}-mainnet`) ?? null;
+  return CHAINS.find((c) => n === c || n === `${c}mainnet` || n === `${c}-mainnet` || n === `${c}_mainnet`) ?? NETWORK_ALIASES[n] ?? null;
 };
-/** The `[rpc_endpoints]` table of a foundry.toml, else ''. Pure. */
-const rpcEndpoints = (toml: string) => toml.match(/^\[rpc_endpoints\]\s*$([\s\S]*?)(?=^\[|$(?![\s\S]))/m)?.[1] ?? '';
+
+/** Testnet and local network names (a config's own entries); everything else is counted as a mainnet. */
+const NON_MAINNET_NAME = /sepolia|goerli|holesky|hoodi|test|fuji|amoy|mumbai|cardona|chiado|alfajores|moderato|devnet|local|hardhat|anvil|ganache|fork|dev\b/i;
+/** Ruling H2: a config alone naming more mainnet networks than this is a template, never a deploy config. */
+const MAX_CONFIG_MAINNETS = 2;
+
+/** `//` and block comments removed, strings kept (so `https://` stays). Pure. */
+const stripJsComments = (code: string) =>
+  code.replace(/("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`)|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (_, str) => str ?? '');
+/** `#` comments removed, strings kept. Pure. */
+const stripTomlComments = (toml: string) =>
+  toml.replace(/("(?:\\.|[^"\\\n])*"|'[^'\n]*')|#[^\n]*/g, (_, str) => str ?? '');
+
+/** The text inside the braces opening at `open` (balanced; strings already harmless), else ''. Pure. */
+function braced(code: string, open: number): string {
+  let depth = 0;
+  for (let i = open; i < code.length; i++) {
+    if (code[i] === '{') depth++;
+    else if (code[i] === '}' && --depth === 0) return code.slice(open + 1, i);
+  }
+  return '';
+}
+
+/** A hardhat config's `networks: { name: { ... } }` entries, comments removed, else []. Pure. */
+function hardhatNetworks(config: string): { name: string; body: string }[] {
+  const code = stripJsComments(config);
+  const m = /\bnetworks\s*:\s*\{/.exec(code);
+  if (!m) return [];
+  const block = braced(code, m.index + m[0].length - 1);
+  const out: { name: string; body: string }[] = [];
+  let depth = 0;
+  for (let i = 0; i < block.length; i++) {
+    const ch = block[i];
+    if (ch === '{') depth++;
+    else if (ch === '}') depth--;
+    else if (depth === 0) {
+      const key = /^\s*(?:["']([^"']+)["']|([A-Za-z_$][\w$-]*))\s*:\s*\{/.exec(block.slice(i));
+      if (key && (i === 0 || /[\s,{]/.test(block[i - 1]))) {
+        const open = i + key[0].length - 1;
+        const body = braced(block, open);
+        out.push({ name: key[1] ?? key[2], body });
+        i = open + body.length + 1;
+      }
+    }
+  }
+  return out;
+}
+
+/** A foundry.toml's `[rpc_endpoints]` entries (`name = "url"`), comments removed, else []. Pure. */
+function foundryEndpoints(toml: string): { name: string; body: string }[] {
+  const table = stripTomlComments(toml).match(/^\[rpc_endpoints\]\s*$([\s\S]*?)(?=^\[|$(?![\s\S]))/m)?.[1] ?? '';
+  return [...table.matchAll(/^\s*["']?([\w.-]+)["']?\s*=\s*(.+)$/gm)].map((m) => ({ name: m[1], body: m[2] }));
+}
 
 /**
- * v2.10 item 9: the mainnets a repo's deploy config or deploy output names: a network in a
- * hardhat.config.* (its chain id or a mainnet host), an [rpc_endpoints] entry in foundry.toml, or a
- * deploy folder in the tree. Chain to evidence. Pure.
+ * v2.10 item 9, Ruling H2: the mainnets a repo's deploy config or deploy output names.
+ * - A network entry in `hardhat.config.*` (`networks`) or `[rpc_endpoints]` in `foundry.toml`, by its
+ *   RPC host or chain id (foundry: also by its name, e.g. `base = "${BASE_RPC_URL}"`). Comments,
+ *   imports and other blocks (etherscan `customChains`) never count. A config naming more than
+ *   MAX_CONFIG_MAINNETS mainnet networks is a template and gives nothing.
+ * - A deploy folder at any depth outside dependency folders: `broadcast/<script>/<chainId>/` (not a
+ *   dry run), `ignition/deployments/chain-<id>/`, `deployments/<network>/` (R6).
+ * Chain to evidence. Pure.
  */
 export function deployConfigChains(files: { path: string; text: string }[], paths: string[]): Partial<Record<Chain, string>> {
   const out: Partial<Record<Chain, string>> = {};
-  for (const p of paths)
+  for (const p of paths) {
+    if (DEP_DIR.test(p)) continue;
     for (const d of DEPLOY_DIRS) {
       const m = p.match(d.re);
       const chain = m && d.chainOf(m);
       if (chain) out[chain] ??= p;
     }
+  }
   for (const f of files) {
+    if (DEP_DIR.test(f.path)) continue;
     const base = f.path.split('/').at(-1) ?? '';
-    const scope = /^hardhat\.config\.[cm]?[jt]s$/.test(base) ? f.text : base === 'foundry.toml' ? rpcEndpoints(f.text) : '';
-    if (!scope) continue;
-    for (const [chain, net] of Object.entries(detectMentions([{ path: f.path, text: scope }])) as [Chain, Detection[Chain]][])
-      if (net?.mainnet) out[chain] ??= `${f.path}: deploy config`;
+    const foundry = base === 'foundry.toml';
+    if (!foundry && !/^hardhat\.config\.[cm]?[jt]s$/.test(base)) continue;
+    const entries = (foundry ? foundryEndpoints(f.text) : hardhatNetworks(f.text)).map((e) => {
+      const hits = detectMentions([{ path: f.path, text: e.body }], { imports: false });
+      const mainnets = (Object.entries(hits) as [Chain, Detection[Chain]][]).filter(([, v]) => v?.mainnet).map(([c]) => c);
+      const named = foundry ? networkChain(e.name) : null;
+      const testnet = NON_MAINNET_NAME.test(e.name) || (Object.values(hits).some((v) => v?.testnet) && mainnets.length === 0);
+      return { mainnets: named && !mainnets.includes(named) ? [...mainnets, named] : mainnets, testnet };
+    });
+    // Ruling H2: a template lists many mainnets (Scaffold-ETH: mainnet, arbitrum, optimism, base...).
+    if (entries.filter((e) => !e.testnet).length > MAX_CONFIG_MAINNETS) continue;
+    for (const e of entries) for (const chain of e.mainnets) out[chain] ??= `${f.path}: deploy config`;
   }
   return out;
 }
@@ -383,7 +458,10 @@ export type RepoFacts = {
   live_verified?: boolean;
   /** v2.9 A3: what the builder said that raises eligibility; unverified until a check backs it. */
   claims?: Claim[];
-  /** v2.10 item 8: commits in 90 days from one read (at most 100); null when GitHub couldn't say. */
+  /**
+   * v2.10 item 8: commits in 90 days from one read (at most 100); null when GitHub couldn't say. On a
+   * repo someone else owns, the builder's own commits only (not the repo's total).
+   */
   commits_90d?: number | null;
 };
 
@@ -562,7 +640,8 @@ export function matchRepo(
   const claims = repo.claims ?? [];
   if (product?.tier === 'noise') return verdicts;
   for (const p of programs) {
-    const chain = p.chains.find((c) => repo.chains[c]);
+    // v2.10 (Task 1 review): a credited chain first, so a mention listed earlier never hides it.
+    const chain = p.chains.find((c) => creditsMainnet(repo.chains[c])) ?? p.chains.find((c) => repo.chains[c]);
     if (!chain && !p.any_chain) continue;
     if (product && product.score < (p.min_product_score ?? 0)) continue;
     if (product && (p.any_chain || p.investment) && !fitsWideProgram(product)) continue;
