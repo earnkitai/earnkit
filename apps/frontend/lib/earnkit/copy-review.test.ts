@@ -1,4 +1,5 @@
 import './fixtures/no-network-checks';
+import { HOST_FULL, HOST_LINES, HOST_REVIEW, STORAGE_NOTE, UPLOAD_NOTE, hostSignInLine, liveLine, withBadge } from './hosting';
 import { test } from 'node:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -20,7 +21,7 @@ import {
 } from './entry-text';
 import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TELL_EARNKIT_DESCRIPTION, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { bonusClose, presentFirstMessage, tokenOffer, tokenOfferAgain, type Card, type FirstMessage } from './present';
-import { ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, OFFER_NOT_SHOWN, TOKEN_OFFER_NOTE, tools } from './tools';
+import { ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, OFFER_NOT_SHOWN, TOKEN_OFFER_NOTE, tools } from './tools';
 import { outcomeQuestion } from './outcomes';
 import { DEFAULT_GUIDANCE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, walletAsk } from './coach';
 import { alsoText } from './also-qualifies';
@@ -997,6 +998,13 @@ const builderFacing: [string, string][] = [
   ['HOW_TITLE', HOW_TITLE],
   ...STEPS.flatMap((s, i): [string, string][] => [[`STEPS[${i}].title`, s.title], [`STEPS[${i}].body`, s.body]]),
   ...Object.entries(STATS_LABELS).map(([k, v]): [string, string] => [`STATS_LABELS.${k}`, v]),
+  // v2.9 Task 8: hosting.
+  ['liveLine', liveLine('TipJar', 'tipjar-alice')],
+  ['HOST_FULL', HOST_FULL],
+  ['HOST_REVIEW', HOST_REVIEW],
+  ...Object.entries(HOST_LINES).map(([k, v]): [string, string] => [`HOST_LINES.${k}`, v]),
+  ['hostSignInLine', hostSignInLine('TipJar', 'https://earnkit.com/github/verify?n=x')],
+  ['withBadge', withBadge('', 'alice', 'tipjar-alice').replace(/<[^>]+>/g, '')],
 ];
 
 // noCoinYet is the AGENT's note (never shown to the builder as written; see entry-text.ts), so it
@@ -1030,6 +1038,9 @@ const agentFacing: [string, string][] = [
   ['CANT_PUSH_SIGN_IN_NOTE', CANT_PUSH_SIGN_IN_NOTE],
   ['TOKEN_OFFER_NOTE', TOKEN_OFFER_NOTE],
   ['TELL_EARNKIT_DESCRIPTION', TELL_EARNKIT_DESCRIPTION],
+  ['STORAGE_NOTE', STORAGE_NOTE],
+  ['UPLOAD_NOTE', UPLOAD_NOTE],
+  ['HOST_SIGN_IN_NOTE', HOST_SIGN_IN_NOTE],
   // v2.7 fix round 1 (Minor 6): llms.txt is what agents read about EarnKit.
   ['llms.txt', readFileSync(join(import.meta.dirname, '../../public/llms.txt'), 'utf8')],
 ];

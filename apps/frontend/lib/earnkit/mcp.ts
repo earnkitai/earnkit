@@ -202,6 +202,9 @@ const prepareSubmissionDescription = (campaignOpen: boolean) =>
   'which launches the token on yes and returns the submit kit (the form link and every answer). shown_wallet is the wallet on that line; ' +
   "once the builder says yes, pass it back as confirm_entry's wallet (EarnKit never assumes it). " +
   'token_line: commit it with your work before the builder confirms. ' +
+  "host: true when the builder has no live link and the project builds to static files: host.show_to_builder is a GitHub sign-in line to show; " +
+  'host.upload_url (one use, 15 minutes) takes the built site as one zip POSTed with Content-Type application/zip, and its reply has show_to_builder (the live link) to show; ' +
+  'never show upload_url; host.unavailable is a plain reason to show. ' +
   (campaignOpen
     ? 'EarnKit campaigns are entered in one step: one Token row (a token on Base) instead of the offer, then record_submission is the entry. '
     : '') +
@@ -430,6 +433,10 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           .boolean()
           .optional()
           .describe("true only after you showed this program's questions and the builder answered (the coach asks once per program)"),
+        host: z
+          .boolean()
+          .optional()
+          .describe('true when the builder has no live link and the project builds to static files: EarnKit hosts it (see host in the reply)'),
       },
       annotations: { readOnlyHint: true },
     },
