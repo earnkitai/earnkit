@@ -3,7 +3,7 @@
  * keys `sites/<slug>/<path>`; `state/<slug>.json` is the kill switch and the end page (plan Ruling 9).
  * Every response carries HOST_HEADERS (the sandbox CSP), errors included.
  */
-import { HOST_HEADERS, HOST_RESERVED, SITE_PREFIX, STATE_PREFIX } from '../../../apps/frontend/lib/earnkit/host-names';
+import { HOST_HEADERS, HOST_RESERVED, SITE_PREFIX, STATE_PREFIX, contentTypeFor } from '../../../apps/frontend/lib/earnkit/host-names';
 
 export type Bucket = {
   get(key: string): Promise<{ body: ReadableStream; size: number; httpMetadata?: { contentType?: string } } | null>;
@@ -40,39 +40,7 @@ export function objectKey(slug: string, pathname: string): string | null {
   return `${SITE_PREFIX}${slug}${p}`;
 }
 
-const TYPES: Record<string, string> = {
-  html: 'text/html; charset=utf-8',
-  htm: 'text/html; charset=utf-8',
-  css: 'text/css; charset=utf-8',
-  js: 'text/javascript',
-  mjs: 'text/javascript',
-  json: 'application/json',
-  map: 'application/json',
-  txt: 'text/plain; charset=utf-8',
-  xml: 'application/xml',
-  webmanifest: 'application/manifest+json',
-  wasm: 'application/wasm',
-  png: 'image/png',
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  gif: 'image/gif',
-  webp: 'image/webp',
-  avif: 'image/avif',
-  svg: 'image/svg+xml',
-  ico: 'image/x-icon',
-  woff: 'font/woff',
-  woff2: 'font/woff2',
-  ttf: 'font/ttf',
-  otf: 'font/otf',
-};
-
-/** The Content-Type for a key, from the extension of its last segment. */
-export function contentTypeFor(path: string): string {
-  const name = path.slice(path.lastIndexOf('/') + 1);
-  const dot = name.lastIndexOf('.');
-  if (dot < 0) return 'application/octet-stream';
-  return TYPES[name.slice(dot + 1).toLowerCase()] ?? 'application/octet-stream';
-}
+export { contentTypeFor };
 
 const page = (text: string) =>
   `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${text}</title></head>` +
