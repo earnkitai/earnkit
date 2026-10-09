@@ -262,6 +262,11 @@ test('v2.6 §1: list_programs says it leads with the qualify hook with repos, or
   // v2.10 item 2: one lead line first; the v2.9 headlines behind more.
   assert.match(d, /It is one line: what their best repo can win and one question/);
   assert.match(d, /call again with more: true: it leads with "EarnKit matches you to \$X in prizes you qualify for"/);
+  // Ruling H10 (I1): a yes to the lead prepares that program; more only when the builder asks for more.
+  assert.match(d, /A yes to "Want me to finish it\?" starts preparing lead\.program_id with lead\.repo\./);
+  assert.match(d, /Only when the builder asks to see more, or says yes to "Want the 3 easiest\?", call again with more: true/);
+  const more = (tools.find((t) => t.name === 'list_programs')!.inputSchema.properties as Record<string, { description?: string }>).more;
+  assert.match(more.description ?? '', /never for a yes to the lead/);
   assert.match(d, /or "\$X in prizes open right now" with ideas you can build when there is no repo/);
   assert.match(d, /Every program shows its difficulty; one builder bonus line comes before the closing offer\./);
   assert.doesNotMatch(d, /token_offer/);

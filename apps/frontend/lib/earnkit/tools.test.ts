@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { SafeFetchError } from './safe-fetch';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SponsorCampaignInput, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools } from './tools';
+import { LEAD_NOTE, SponsorCampaignInput, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools } from './tools';
 import { reportedGithubUser, reportedRepos } from './match-projects';
 import { sql } from './db';
 import { EntryError } from './campaigns';
@@ -3523,6 +3523,8 @@ test('8.7 v2.10 item 3: a program without past rounds or focus shows "What it wa
     const t = await confirmSetup('guide2');
     const ava = { ...committedProgram('avalanche-team1-mini-grants'), id: `${t.p.id}-ava`, status: 'active' };
     await upsertProgram(ProgramFile.parse(ava));
+    // Closed at the end: an open Avalanche copy (needs no repo) would become other tests' no-repo offer.
+    try {
     const rules = ProgramFile.parse(ava).rules;
     const r = (await tools.prepare_submission({ program_id: ava.id, project: t.project, answers: {} }, t.ctx)) as Coached;
     assert.ok(r.show_to_builder.includes(`\n\nWhat it wants\n- ${rules[0]}\n- ${rules[1]}\n\n`), r.show_to_builder);
@@ -3532,6 +3534,9 @@ test('8.7 v2.10 item 3: a program without past rounds or focus shows "What it wa
     assert.ok(details.guide?.text.includes('What it wants'));
     assert.ok(!('guide_note' in details));
     assert.doesNotMatch(JSON.stringify(details), /show it when the builder asks|guide_note/);
+    } finally {
+      await sql()`UPDATE programs SET status = 'closed' WHERE id = ${ava.id}`;
+    }
   }));
 
 test('8.8 v2.10 item 2: list_programs without more is the short reply (no pools read); with more, the tables; matches and programs in both', dbTest, () =>
@@ -3551,7 +3556,13 @@ test('8.8 v2.10 item 2: list_programs without more is the short reply (no pools 
     assert.equal(brief.show_to_builder, 'Your TipJar can win 500 USDC on Arc by Oct 14. Want me to finish it?');
     assert.equal(poolReads, 0, 'no pools without more');
     assert.match(brief.note, /more: true/);
+    // Ruling H10 (I1): the lead's program for the agent's yes; more only when the builder asks for more.
+    assert.deepEqual((brief as Listed & { lead?: unknown }).lead, { program_id: t.p.id, repo: 'TipJar' });
+    assert.ok(brief.note.includes(LEAD_NOTE));
+    assert.match(LEAD_NOTE, /A yes to "Want me to finish it\?" means start preparing lead\.program_id with lead\.repo/);
+    assert.match(LEAD_NOTE, /more: true only when the builder asks to see more programs, or says yes to "Want the 3 easiest\?"/);
     const full = (await tools.list_programs({ ...input, more: true }, ctx)) as Listed;
+    assert.ok(!('lead' in full) && !full.note.includes(LEAD_NOTE));
     assert.match(full.show_to_builder, /\| Program \| Prize \| Difficulty \| Ends \| Your repo \|/);
     assert.match(full.show_to_builder, /\| Arc Microgrants \| 500 USDC × 20 grants \|/);
     assert.equal(poolReads, 1);

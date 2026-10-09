@@ -1,4 +1,5 @@
 import './fixtures/no-network-checks';
+import { withoutQuotedFacts } from './fixtures/quoted-facts';
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -1192,7 +1193,8 @@ test('every journey reply: under 50 s; no emoji, em dash, "coin", "vault", "Clan
     assert.doesNotMatch(s.text, /\p{Extended_Pictographic}/u, where);
     assert.doesNotMatch(s.agentText, /—/, where);
     assert.doesNotMatch(s.agentText, /clanker/i, where);
-    assert.doesNotMatch(s.text, /\bvaults?\b/i, where);
+    // Ruling H10 (I2): the ban is EarnKit's wording; a program's quoted focus areas may say vaults.
+    assert.doesNotMatch(withoutQuotedFacts(s.text), /\bvaults?\b/i, where);
     assert.deepEqual(coinWords(s.text), [], where);
     assert.doesNotMatch(s.text, toolName, `${where}: ${s.text}`);
     assert.doesNotMatch(s.reply.show_to_builder ?? '', TECHNICAL_TERMS, where);

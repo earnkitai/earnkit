@@ -513,3 +513,43 @@ test('G0 N3: linking keeps the duplicate that holds the repo\'s token in the gro
   assert.equal(await owner(laterWithToken), a.id, 'the entry with the token stays in the group\'s entries');
   assert.equal(await owner(earlier), b.id);
 });
+
+test('Ruling H10 (I3): one question per reply: with a pickup, the reply asks only it; no lead question, no outcome ask; the lead comes on the next reply', db, async () => {
+  const { upsertProgram } = await import('./programs');
+  const { ProgramFile } = await import('./program-file');
+  const { committedProgram } = await import('./fixtures/program-file');
+  const user = `ghq${randomBytes(4).toString('hex')}`;
+  const repo = `https://github.com/${user}/app`;
+  const old = await install();
+  await entry(old.id, repo);
+  const fresh = await install();
+  const arc = { ...committedProgram('arc-microgrants'), id: `idt-lead-${stamp()}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' };
+  await upsertProgram(ProgramFile.parse(arc));
+  const GOOD = { score: 6, tier: 'product' as const, missing: [], traction: 8, odds: 'good' as const, low_reason: null };
+  const fits = [{ repo: 'TipJar', repo_url: repo, verdicts: [{ program_id: arc.id, program: arc.id, status: 'likely' as const, missing: [], effort: 'none' as const, note: null }], product: GOOD }];
+  type Listed = { show_to_builder: string; pick_up?: { question: string }; lead?: { program_id: string; repo: string }; ask_outcome?: unknown };
+  const list = tools.list_programs as (i: unknown, c: unknown) => Promise<Listed>;
+  const ctx = {
+    installationId: fresh.id, ownInstallationId: fresh.id, pickupDeps: linesOf(repo, old.id),
+    matchProjects: async () => ({ checked: 1, scored: 1, fits }), roundPools: async () => new Map(), repoCoins: async () => new Map(),
+  };
+  try {
+    const first = await list({ github_user: user }, ctx);
+    assert.ok(first.pick_up, 'the pickup is offered');
+    assert.ok(first.show_to_builder.startsWith(first.pick_up!.question), first.show_to_builder);
+    assert.equal(first.show_to_builder.split('?').length - 1, 1, `exactly one question: ${first.show_to_builder}`);
+    assert.doesNotMatch(first.show_to_builder, /Want me to finish it|Want the 3 easiest/);
+    assert.ok(!('lead' in first) && !('ask_outcome' in first));
+    // The pickup was asked; the next reply asks the lead's question, with lead.program_id.
+    const next = await list({ github_user: user }, ctx);
+    assert.ok(!next.pick_up);
+    assert.match(next.show_to_builder, /Your TipJar can win 500 USDC on Arc by Oct 14\. Want me to finish it\?$/);
+    assert.equal(next.show_to_builder.split('?').length - 1, 1);
+    assert.deepEqual(next.lead, { program_id: arc.id, repo: 'TipJar' });
+    // "show more": the tables carry no lead field (their close is the offer).
+    const more = await list({ github_user: user, more: true }, ctx);
+    assert.ok(!('lead' in more));
+  } finally {
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${arc.id}`;
+  }
+});

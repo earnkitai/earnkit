@@ -156,6 +156,12 @@ export type FirstMessage = {
    */
   more?: boolean;
   /**
+   * v2.10 Ruling H10 (I3): one question per reply. A higher question (the pickup, then the outcome
+   * question) is asked in this reply, so this message asks none: no lead line (short) and no
+   * closing offer (more). The lead waits for a later reply.
+   */
+  holdQuestion?: boolean;
+  /**
    * v2.9 E20 (stats.ts builders_won_usd): the announced prizes EarnKit builders won. Above 0, "Builders
    * using EarnKit won $X." follows the headline once; 0 or unset, no line (never "$0").
    */
@@ -664,7 +670,7 @@ export function presentFirstMessage(given: FirstMessage): string {
       ...sections,
       privateLines,
       m.repos && 'error' in m.repos ? `Couldn't read your repos: ${m.repos.error}` : null,
-      leadLine(lead, { cards: given.cards, repos: m.repos, now: m.now }),
+      given.holdQuestion ? null : leadLine(lead, { cards: given.cards, repos: m.repos, now: m.now }),
     ]
       .filter((x): x is string => Boolean(x))
       .join('\n');
@@ -753,7 +759,7 @@ export function presentFirstMessage(given: FirstMessage): string {
   const close = offer(m, byId, rows, ideas.length > 0, entered);
   const bonus = offeredBonusLine(byId, close);
   if (bonus) sections.push(bonus);
-  sections.push(close.text);
+  if (!given.holdQuestion) sections.push(close.text);
   return done();
 }
 

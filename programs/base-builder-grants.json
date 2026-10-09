@@ -242,7 +242,7 @@
     "areas": [
       "Prediction markets",
       "Agents: commerce, x402, autonomous trading",
-      "DeFi 2.0: lending, borrowing, yield"
+      "DeFi 2.0: lending, borrowing, yield, vaults"
     ],
     "source_url": "https://docs.base.org/get-started/builders",
     "ecosystem": "Base"
