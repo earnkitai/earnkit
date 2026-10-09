@@ -615,6 +615,9 @@ test('7.1 v2.10 item 1, Ruling H8: bonusLine: ETH whenever the pool holds value 
   // H8: rolled-over ETH with no token launched in this round still shows the amount.
   assert.equal(bonusLine({ wei: 18n * 10n ** 16n, tokens: 0 }), 'Builder bonus: 0.18 ETH so far');
   assert.equal(bonusLine({ wei: 10n ** 15n, tokens: 0 }), 'Builder bonus: under 0.01 ETH so far');
+  // H9: an empty pool with tokens in the round: never "no tokens yet".
+  assert.equal(bonusLine({ wei: 0n, tokens: 3 }), 'Builder bonus: 3 tokens in, fees coming');
+  assert.equal(bonusLine({ wei: 0n, tokens: 1 }), 'Builder bonus: 1 token in, fees coming');
   assert.equal(bonusLine(null), null);
 });
 
@@ -626,7 +629,9 @@ test('Ruling H8: the first reply\'s bonus line is the offered program\'s pool, n
   // Arc offered (Base not matched): Arc's pool, rolled-over ETH with no token in the round included.
   const arcOnly = presentFirstMessage(msg({ cards: [{ ...arc, bonus_pool_wei: WEI('0.18'), bonus_tokens: 0 }, pool(base, 0.6)], repos: fit('tipjar', 'arc-microgrants') }));
   assert.ok(arcOnly.endsWith('Builder bonus: 0.18 ETH so far\n\nWant me to start on Arc Microgrants with tipjar?'), arcOnly);
-  // An empty pool: "first".
+  // An empty pool with a token in the round (H9), then one with none ("first").
+  const fresh = presentFirstMessage(msg({ cards: [{ ...arc, bonus_pool_wei: null, bonus_tokens: 2 }], repos: fit('tipjar', 'arc-microgrants') }));
+  assert.ok(fresh.endsWith('Builder bonus: 2 tokens in, fees coming\n\nWant me to start on Arc Microgrants with tipjar?'), fresh);
   const empty = presentFirstMessage(msg({ cards: [arc, pool(base, 0.6)], repos: fit('tipjar', 'arc-microgrants') }));
   assert.ok(empty.endsWith('Builder bonus: no tokens yet, so yours would be first\n\nWant me to start on Arc Microgrants with tipjar?'), empty);
   const tiny = presentFirstMessage(msg({ cards: [{ ...arc, bonus_pool_wei: 10n ** 15n, bonus_tokens: 1 }], repos: fit('tipjar', 'arc-microgrants') }));
@@ -674,7 +679,7 @@ test('v2.9 F21: with repos: the matched programs\' top prizes, or the fit line w
 });
 
 test('7.2 v2.10 items 1, 5: the first reply never pitches the token; at most one bonus line', () => {
-  const BONUS = /^Builder bonus: (no tokens yet, so yours would be first|(under 0\.01|\d+\.\d\d) ETH so far)$/m;
+  const BONUS = /^Builder bonus: (no tokens yet, so yours would be first|\d+ tokens? in, fees coming|(under 0\.01|\d+\.\d\d) ETH so far)$/m;
   const replies = [
     presentFirstMessage(msg({ cards: [{ ...big, bonus_pool_wei: WEI('0.4'), bonus_tokens: 2 }, { ...small, bonus_pool_wei: WEI('0.2'), bonus_tokens: 1 }] })),
     presentFirstMessage(msg({ cards: [big, small] })),

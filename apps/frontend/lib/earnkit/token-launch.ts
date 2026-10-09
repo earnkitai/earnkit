@@ -251,7 +251,7 @@ export async function tokenProposalBlock(
   if (!a.creatorWallet) notes.push('Ask the builder for the wallet that receives creator fees.');
   // Ruling 22: outside campaigns the wallet goes to record_submission explicitly.
   if (!program.campaign)
-    notes.push("Pass the wallet the builder confirmed (the wallet line) as record_submission's payout_wallet");
+    notes.push("Pass the wallet the builder confirmed (the wallet on the confirm line) as record_submission's payout_wallet");
   // Shown only to this agent (prepare_submission's reply): its code is useless to anyone else.
   const tokenLine = a.repoUrl ? tokenLineFor(a.installationId, a.repoUrl) : null;
   const hasBonus = hasBuilderBonus(program);

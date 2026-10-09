@@ -1539,10 +1539,10 @@ export const tools = {
     const offerWallet = given ?? stored ?? remembered;
     // Fix round 1 (§A2): the pair the Yes line shows is stored; the one shown before wins (stable).
     const shownKey = offerKey(repoUrl ?? null, known.project?.name?.trim() || titleCase(repoNameOf(repoUrl) ?? ''));
-    const shownPair: Offered | null =
-      facts && token
-        ? ((await readOffer(ctx.installationId, program.id, shownKey).catch(() => null)) ?? { name: token.proposed.name, symbol: token.proposed.symbol })
-        : null;
+    // v2.10 fix round 1 (I2): a stored pair means the confirm line was shown already in this flow,
+    // so it is said again without the earnings part ("40%" once).
+    const shownBefore = facts && token ? await readOffer(ctx.installationId, program.id, shownKey).catch(() => null) : null;
+    const shownPair: Offered | null = facts && token ? (shownBefore ?? { name: token.proposed.name, symbol: token.proposed.symbol }) : null;
     // v2.9 B9: with GitHub sign-in on, an agent that can't push still offers the token.
     const signIn = githubVerifyEnabled();
     // v2.9 B10: no token offer once the repo's token is this program's, or after two skips (P23).
@@ -1559,7 +1559,7 @@ export const tools = {
           tokensOff: prepTokensOff,
           proposal: shownPair,
           // v2.9 B10 (P21): the first reply's offer was skipped: no "40%" a second time.
-          again: facts.declinedOnce || facts.firstShown,
+          again: shownBefore !== null || facts.declinedOnce || facts.firstShown,
         })
       : null;
     const offersToken = facts !== null && !facts.coinIn && (canPush || signIn) && !prepTokensOff;
@@ -1698,7 +1698,7 @@ export const tools = {
       return {
         show_to_builder:
           (proposal?.taken ? `$${proposal.taken} is taken. ` : '') +
-          confirmOffer({ hasBonus: facts.hasBonus, coinIn: facts.coinIn, canPush, signIn, wallet, tokensOff, proposal: pair, again: Boolean(proposal?.taken) || facts.declinedOnce || facts.firstShown }),
+          confirmOffer({ hasBonus: facts.hasBonus, coinIn: facts.coinIn, canPush, signIn, wallet, tokensOff, proposal: pair, again: Boolean(proposal?.taken) || shown !== null || facts.declinedOnce || facts.firstShown }),
         ...(offersToken && wallet && { shown_wallet: wallet }),
         ...(pair && { token: { proposed: pair } }),
         agent_note:

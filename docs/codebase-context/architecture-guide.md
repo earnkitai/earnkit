@@ -1991,7 +1991,8 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
   - *Bonus line.* `present.ts bonusLine(pool)` is the only bonus form in replies, at most once per
     reply. Ruling H8: "Builder bonus: 0.18 ETH so far" ("under 0.01 ETH so far") whenever the pool
     holds any value, rolled-over ETH included; "Builder bonus: no tokens yet, so yours would be
-    first" only for an empty pool; null for a frozen round.
+    first" only for an empty pool with no token in the round; an empty pool with tokens reads
+    "Builder bonus: 3 tokens in, fees coming" ("1 token in", Ruling H9); null for a frozen round.
     `bonus-rounds.ts roundPools` is the one grouped read (Ruling 3) with a token count beside the
     pool: a token counts when its entry is in the program, it launched (`coin_address`) at or after
     the round start (`starts_at`, or the UTC month start of a rolling program), and its installation
@@ -2014,7 +2015,9 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
     the one pitch: "Yes submits your entry and launches $TIP (Tip Jar): 40% of its fees to you, plus
     the builder bonus. Wallet: 0x12ab…9f3e. yes / skip the token" (no bonus: no ", plus the builder
     bonus"; `again`: no earnings part; no wallet known: "Say yes with your wallet address / skip the
-    token"). A remembered wallet is shown only off shared clients (G13), since the wallet passed in
+    token"). Fix round 1 (I2): a `token_offers` row for this program and repo means the line was
+    shown already in this flow, so a second `prepare_submission` and a `confirm_entry` without a yes
+    use `again` ("40%" once per flow). A remembered wallet is shown only off shared clients (G13), since the wallet passed in
     comes from `walletMemory`/`entryWallet`. `confirmOffer` is that line, or "Ready to submit?"
     (token elsewhere, tokens off, skipped twice), or `CANT_PUSH` + "Ready to submit?". "skip the
     token" (`SKIP_TOKEN`) is the only skip word. The prepare token block has no `earnings`,
