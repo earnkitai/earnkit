@@ -313,10 +313,13 @@ apps/frontend/
                                10-minute deadline margin (used by sponsor.ts and FundClient)
     placeholder.ts             v2.9 A5, pure: placeholderHost / placeholderLink (reserved names,
                                short list, IPs, earnkit.com, github.com/earnkitai) and the builder
-                               lines PLACEHOLDER_LINE, LIVE_FAILED_LINE, contractMissingLine,
+                               lines PLACEHOLDER_LINE, LIVE_FAILED_LINE, liveErrorLine (v2.10: the
+                               link loads an error page), contractMissingLine,
                                contractUncheckedLine (G15: a contract check that couldn't run)
     verify.ts(+test)           v2.9 A5: liveVerified (safeProbe) and contractDeployed (getCode via
-                               rpcFor), cached in url_checks (pass 24 h, failure 1 h; a getCode
+                               rpcFor), cached in url_checks (pass 24 h, failure 1 h; v2.10:
+                               liveCheckDetail keeps an error page's phrase in url_checks.note,
+                               Verified.liveError; url_checks.n holds a count; a getCode
                                error is null and never cached, G15), bounded by
                                CheckBudget (ENTRY_BUDGET, LIST_BUDGET); addressesFrom, entryVerified,
                                checkDefaults (tests: fixtures/no-network-checks.ts)
@@ -329,8 +332,10 @@ apps/frontend/
                                4 KB (LARGE_PAGE_MAX_BYTES, 512 KB, for a whole HTML page like a
                                submission proof: passed explicitly, the 4 KB default is unchanged
                                for every other caller); resolver and transport injectable. safeProbe: traction's daily
-                               live-link check (v2.6: no longer a coin gate) (any 2xx, body unread, one same-site redirect,
-                               User-Agent EarnKit-linkcheck/1)
+                               live-link check (v2.6: no longer a coin gate) and the entry live check (any 2xx, one same-site redirect,
+                               User-Agent EarnKit-linkcheck/1; v2.10: reads the first 64 KB,
+                               PROBE_MAX_BYTES, and a short page showing an error phrase throws
+                               ErrorPageError: errorPageText, visibleText; no JS runs)
     sponsor-identity.ts(+test) pure: sponsorLabel ("Sponsored · unverified" / "Sponsored · verified
                                <host>"), earnkitTxtNames (earnkit.txt parsing), reserved brand
                                names (reservedBrands/reservedNameProblem: confusable skeleton,
