@@ -10,7 +10,8 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { sql } from './db';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
-import { tools } from './tools';
+import { handlers, tools } from './tools';
+import { OLD_TOOL_NAMES, aliasCall } from './aliases';
 import { tokenLineFor } from './token-gate';
 import { deployToken } from './tokens';
 import { TECHNICAL_TERMS, type TokenFlowDeps } from './token-launch';
@@ -395,11 +396,13 @@ function builderText(r: Reply): string {
 }
 
 /** One tool call, as the agent makes it; timed, and its builder-facing text kept. */
-async function call(journey: string, label: string, tool: keyof typeof tools, input: unknown, ctx: Ctx): Promise<Reply> {
+async function call(journey: string, label: string, tool: keyof typeof handlers | keyof typeof tools, input: unknown, ctx: Ctx): Promise<Reply> {
   const started = Date.now();
   // v2.10 item 2: these journeys read the first reply's tables, which are behind "show more".
   const given = tool === 'list_programs' && input && typeof input === 'object' && !('more' in input) ? { ...input, more: true } : input;
-  const reply = (await (tools[tool] as (i: unknown, c: unknown) => Promise<unknown>)(given, ctx)) as Reply;
+  // v2.10 item 4: the v2.9 handlers by their old names, the 4 tools by theirs.
+  const fn = (Object.hasOwn(handlers, tool) ? handlers[tool as keyof typeof handlers] : tools[tool as keyof typeof tools]) as (i: unknown, c: unknown) => Promise<unknown>;
+  const reply = (await fn(given, ctx)) as Reply;
   const ms = Date.now() - started;
   const text = builderText(reply);
   said.push({ journey, label, text, ms, reply, agentText: JSON.stringify(reply) });
@@ -597,18 +600,22 @@ test('12.2b Grok Bot (shared client), GitHub sign-in off: no first-reply token o
   assert.ok(!('token_offer' in list), list.show_to_builder);
   assert.doesNotMatch(list.show_to_builder!, /Launch \$|launches \$|40%/);
   assert.match(list.show_to_builder!, /Want me to start on .+\?/, list.show_to_builder);
-  // An offer the builder never saw launches nothing and makes no entry.
+  // An old agent's v2.9 offer "yes" for a token the builder never saw launches nothing. v2.10 item 4:
+  // it reaches confirm through its alias, which shows the confirm line first (the v2.9 offer path,
+  // which refused without a draft entry, is gone).
   const before = deployed.length;
-  const guessed = await call(J, 'yes (never offered)', 'launch_token', {
+  const old = aliasCall('launch_token', {
     offer: { program_id: 'arc-microgrants', repo_url: 'https://github.com/lee/TipJar', project_name: 'TipJar' },
     decision: 'go',
     builder_confirmed: true,
     creator_wallet: W2,
-  }, ctx);
-  assert.ok(!guessed.project_id, JSON.stringify(guessed));
-  assert.notEqual(guessed.status, 'launched');
+  })!;
+  const guessed = await call(J, 'yes (never offered)', old.name, old.args, ctx);
+  assert.notEqual((guessed.token as { status?: string } | undefined)?.status, 'launched', JSON.stringify(guessed));
+  assert.ok(!guessed.kit, 'no kit before the builder saw the token');
   assert.equal(deployed.length, before);
-  assert.equal(forty(J), 0, dump(J));
+  // The first reply never pitched the token; the confirm line says "40%" once (v2.10 item 5).
+  assert.equal(forty(J), 1, dump(J));
 });
 
 test('12.4 statements: applied Base, not interested in a16z, testnet only on Arc lower the reply; a mainnet claim raises it back once checked', dbTest, async (t) => {
@@ -1184,7 +1191,10 @@ test('every journey reply: under 50 s; no emoji, em dash, "coin", "vault", "Clan
       .replace(/https?:\/\/\S+/g, ' ')
       .replace(/\b[\w-]+(?:\.[\w-]+)+\/\S*/g, ' ')
       .match(/\bcoins?\b/gi) ?? [];
-  const toolName = new RegExp(`\\b(${Object.keys(tools).join('|')})\\b`);
+  // v2.10 item 4: the old names (and sponsor_campaign) anywhere; the new ones in a call shape.
+  const toolName = new RegExp(
+    `\\b(${[...OLD_TOOL_NAMES, 'sponsor_campaign'].join('|')})\\b|\\bcall(s|ing)? (find|prepare|confirm|tell)\\b|\\b(find|prepare|confirm|tell)( with\\b|\\()|\\bthe (find|prepare|confirm|tell) tool\\b`,
+  );
   // v2.10 item 5: the confirm line is the only place "skip" is said, as "skip the token".
   const offerSkip = /\/ skip the token$/;
   for (const s of said) {

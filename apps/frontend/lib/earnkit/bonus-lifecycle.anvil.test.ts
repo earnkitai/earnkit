@@ -239,7 +239,7 @@ async function startMocks(): Promise<Mock> {
 
 async function scenario(mock: Mock) {
   // App modules load only now, after the mock's URLs are in the environment.
-  const { tools } = await import('./tools');
+  const { handlers } = await import('./tools');
   const { upsertProgram } = await import('./programs');
   const { ProgramFile } = await import('./program-file');
   const { tokenLineFor } = await import('./token-gate');
@@ -324,7 +324,7 @@ async function scenario(mock: Mock) {
       INSERT INTO installations (token_hash, payout_wallet) VALUES (${`t10-e2e-${n}-${Date.now()}`}, ${b.wallet}) RETURNING id`;
     inst[n] = row.id;
     if (b.symbol) mock.files.set(b.login, `payout_wallet: ${b.wallet}\n${tokenLineFor(row.id, repoOf(n))}\n`);
-    const r = (await tools.record_submission(
+    const r = (await handlers.record_submission(
       {
         program_id: PROG,
         project: { name: `${n} app`, description: 'A tiny app on Arc', repo_url: repoOf(n), live_url: `https://${n}-app.xyz` },
@@ -561,7 +561,7 @@ async function scenario(mock: Mock) {
   process.env.EARNKIT_TEST_INSTALLATIONS = ` ${inst2.foxtrot}, `;
   type Entered = Recorded & { show_to_builder: string; updated?: true; bonus_join: { kind: string } | null };
   const submit2 = async (n: Name2, confirmed: boolean) =>
-    (await tools.record_submission(
+    (await handlers.record_submission(
       {
         program_id: PROG2,
         project: { name: `${n} app`, description: 'A tiny app on Base', repo_url: repo2(n), live_url: `https://${n}-app.xyz` },
@@ -723,7 +723,7 @@ async function scenario(mock: Mock) {
   );
 
   // ---- v2.6 7. Delta's next list_programs opens with the bonus paid and its leaderboard ----
-  const listed = (await tools.list_programs({}, { installationId: inst2.delta })) as { show_to_builder: string };
+  const listed = (await handlers.list_programs({}, { installationId: inst2.delta })) as { show_to_builder: string };
   assert.ok(listed.show_to_builder.startsWith('Since you last checked: you were paid a 0.20 ETH builder bonus (as WETH) for E2E Confirm Grants'), listed.show_to_builder);
   assert.ok(listed.show_to_builder.includes(`earnkit.com/bonus/${PROG2}-`), listed.show_to_builder);
 

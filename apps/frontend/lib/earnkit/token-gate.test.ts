@@ -129,7 +129,7 @@ test('ownerProblem: only the token line counts; wallet lines and their problems 
   for (const p of [mismatch, missing]) {
     assert.equal(p.reason, "I need to add a short proof line to your repo first, then say 'launch the token'.");
     assert.doesNotMatch(p.reason, /\b(add|edit|create) (a |the )?file\b|\bpush it\b|earnkit\.txt|token:/i);
-    assert.ok(p.agent_note!.endsWith(`Write the line "${LINE}" to earnkit.txt at the root of ${repo} on the default branch and push it yourself; never ask the builder to edit files. Then call launch_token.`), p.agent_note);
+    assert.ok(p.agent_note!.endsWith(`Write the line "${LINE}" to earnkit.txt at the root of ${repo} on the default branch and push it yourself; never ask the builder to edit files. Then call confirm with project_id and yes: true.`), p.agent_note);
   }
   // v2.8.1 §A3: exactly what was found.
   assert.match(missing.agent_note!, /^earnkit\.txt isn't on the default branch\. /);
@@ -221,7 +221,7 @@ test('v2.8.1 §A3: the default branch first; else the most recently pushed branc
   assert.equal(
     no.agent_note,
     "earnkit.txt isn't on the default branch (main); earnkit.txt on the most recently pushed branch (feat/x) has a token line, but not this agent's code for this repo (another agent's, or an old one). " +
-      `Write the line "${LINE}" to earnkit.txt at the root of github.com/acme/kit on the default branch (main) and push it yourself; never ask the builder to edit files. Then call launch_token.`,
+      `Write the line "${LINE}" to earnkit.txt at the root of github.com/acme/kit on the default branch (main) and push it yourself; never ask the builder to edit files. Then call confirm with project_id and yes: true.`,
   );
   // A default-branch read error with no other branch stays the "try again" error.
   const err = (await tokenGate(input, deps({ status: 'error', message: "GitHub didn't answer" }, null))) as { ok: false; reason: string };

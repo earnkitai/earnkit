@@ -1,6 +1,6 @@
 import { sql } from '@/lib/earnkit/db';
 
-/** Token images uploaded through launch_token (EarnKit hosts them for tokens.fun). */
+/** Token images uploaded through confirm (image_data; EarnKit hosts them for tokens.fun). */
 export async function GET(
   _: Request,
   { params }: { params: Promise<{ id: string }> },

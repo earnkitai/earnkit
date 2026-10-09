@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { alsoProgramFacts, getProgram, getProgramRow, isOpen, listPrograms } from './programs';
+import { NotFoundError, alsoProgramFacts, getProgram, getProgramRow, isOpen, listPrograms } from './programs';
 import { guideText, programGuide } from './guide';
 import {
   RecordSubmissionInput,
@@ -10,6 +10,7 @@ import {
   openEntries,
   ownEntryWallet,
   startEntry,
+  submittedEntry,
   type EntryDeps,
 } from './projects';
 import { EntryError, githubRepo, givenWallet, isWalletAddress, normalizeRepoUrl, presentYourEntries } from './campaigns';
@@ -86,12 +87,12 @@ import {
 } from './token-launch';
 import { RAW_CAP, cleanProject, quoted } from './untrusted-text';
 import { tokenLineFor } from './token-gate';
-import { CANT_PUSH, NO_TOKEN_HERE, READY_TO_SUBMIT, confirmDecision, confirmLine, confirmOffer, proofLineWaiting, signInLine, walletQuestion, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
+import { READY_TO_SUBMIT, confirmDecision, confirmOffer, proofLineWaiting, signInLine, walletQuestion, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
 import { HOST_LINES, UPLOAD_NOTE, hostSignInLine, issueUpload, refreshSiteExpiry } from './hosting';
 import { r2Enabled } from './r2';
-import { callerLogin, claimOfferVerification, createVerifyLink, entryVerifyLink, githubVerifyEnabled, offerVerification, verifiedEntryIds } from './github-verify';
+import { callerLogin, createVerifyLink, entryVerifyLink, githubVerifyEnabled, verifiedEntryIds } from './github-verify';
 import { appTokenFor, githubAppEnabled } from './github-app';
-import { PROOF_LINE_PREFIX, SIGN_IN_FIRST, WALLET_CHANGED, tokenGate } from './token-gate';
+import { PROOF_LINE_PREFIX, SIGN_IN_FIRST, WALLET_CHANGED } from './token-gate';
 import { kitReplyNote, submitKit, type SubmitKit } from './submit-kit';
 import {
   WALLET_KEY,
@@ -711,12 +712,12 @@ export function listProgramsInput(input: unknown) {
  * builder asks to see more, "Want the 3 easiest?" included.
  */
 export const LEAD_NOTE =
-  'A yes to "Want me to finish it?" means start preparing lead.program_id with lead.repo (call prepare_submission). ' +
-  'Call list_programs again with more: true only when the builder asks to see more programs, or says yes to "Want the 3 easiest?".';
+  'A yes to "Want me to finish it?" means start preparing lead.program_id with lead.repo (call prepare). ' +
+  'Call find again with more: true only when the builder asks to see more programs, or says yes to "Want the 3 easiest?".';
 
 /** v2.8.1 §E18: what the agent does with list_programs' pick_up offer. */
 export const PICKUP_NOTE =
-  'Ask the builder pick_up.question once, as written, before anything else. On yes, call pick_up_entries with answer "yes"; ' +
+  'Ask the builder pick_up.question once, as written, before anything else. On yes, call tell with pickup: "yes"; ' +
   'on no, with answer "no". Never answer it for them.';
 /** v2.8.1 §E18: the builder's lines for the pickup answer. */
 export const PICKUP_TEXT = {
@@ -743,27 +744,27 @@ export function yesNo(v: unknown): boolean | null {
 /** v2.8 Ruling 30 (plan): what the agent does with ask_outcome. v2.9 A3: the answer goes to tell_earnkit. */
 export const ASK_OUTCOME_NOTE =
   'Results for this entry were due. After showing show_to_builder, ask the builder this question once, as written. ' +
-  'Then call tell_earnkit with program_status: this program_id and project_id, their result (won, placed or lost), ' +
+  'Then call tell with program_status: this program_id and project_id, their result (won, placed or lost), ' +
   "and prize_usd if they won money. If they don't know yet, call nothing.";
 
 /** v2.8 Ruling C21: the note when the builder's own outcome was saved. */
 export const OUTCOME_SAVED_NOTE = "Saved as the builder's own report. It never shows publicly or counts; only published results do.";
 /** v2.9 B9: confirm_entry's note with the sign-in line (spec wording). */
 export const SIGN_IN_NOTE =
-  "Show the line. When the builder says they signed in, call confirm_entry again with decision 'go'.";
+  'Show the line. When the builder says they signed in, call confirm again with yes: true.';
 /** v2.9 B9 (Ruling G9): on a shared client the sign-in page gives the builder a code for the agent. */
 export const SIGN_IN_CODE_NOTE =
-  'The page gives the builder a code: pass it as signed_in on this and later calls (list_programs, prepare_submission, tell_earnkit, launch_token). ' +
+  'The page gives the builder a code: pass it as signed_in on this and later calls (find, prepare, confirm, tell). ' +
   'It acts as the builder for 24 hours: never repeat it in your replies.';
 /** v2.9 B9: the proof-line miss's way out for an agent that can't push, with sign-in on. */
 export const CANT_PUSH_SIGN_IN_NOTE =
-  "If you can't push to this repo, call confirm_entry again with agent: { can_push: false }: the builder gets a one-click GitHub sign-in instead.";
+  "If you can't push to this repo, call confirm again with agent: { can_push: false }: the builder gets a one-click GitHub sign-in instead.";
 /** v2.9 B9: after a proof-line miss, the sign-in is the other way. */
 export const SIGN_IN_OR_NOTE =
-  "Or show the sign-in line; when the builder says they signed in, call confirm_entry again with decision 'go'.";
+  'Or show the sign-in line; when the builder says they signed in, call confirm again with yes: true.';
 /** v2.9 C12: the agent's note with the hosting sign-in line. */
 export const HOST_SIGN_IN_NOTE =
-  'Show host.show_to_builder. When the builder says they signed in, call prepare_submission again with host: true for the upload URL.';
+  'Show host.show_to_builder. When the builder says they signed in, call prepare again with host: true for the upload URL.';
 
 /**
  * v2.9 C12, Ruling 8: prepare_submission's `host` block: the builder's sign-in line, the one-time
@@ -793,7 +794,7 @@ const siteExpiryAfterEntry = (repoUrl: string | null | undefined, where: string)
     : Promise.resolve();
 
 /** v2.9 A3: tell_earnkit's note to the agent. */
-export const TELL_SAVED_NOTE = 'Saved. The next list_programs uses it; nothing to show the builder.';
+export const TELL_SAVED_NOTE = 'Saved. The next find uses it; nothing to show the builder.';
 /** Ruling G6: what the builder sees when a shared (hosted) agent keeps nothing. */
 export const NOTED_FOR_NOW = 'Noted for now.';
 /** Ruling G6: tell_earnkit's note on a shared client. */
@@ -947,147 +948,11 @@ async function withAlerts<T extends object>(ctx: Pick<ToolContext, 'installation
   return withDeadline(ctx.installationId, { ...(line && { since_you_last_checked: line }), ...result }, a.entries);
 }
 
-/** v2.9 B10: launch_token's builder line when the builder said skip to the token offer. */
+/** v2.9 B10: the builder line when the builder said skip to a token launch (confirm with project_id and skip_token). */
 export const NO_TOKEN_FOR_NOW = 'No token for now.';
 
-/** Ruling G13 (I2): launch_token with an offer the builder was never shown (no token_offers row). */
-export const OFFER_NOT_SHOWN = 'Nothing launched: this token was not offered yet.';
-const OFFER_NOT_SHOWN_AGENT = 'The token is offered once, at confirmation: call prepare_submission, then confirm_entry when the builder says yes.';
-
-/**
- * v2.9 B10, Ruling G13 (I2): launch_token with the first reply's offer. Nothing launches that the
- * builder wasn't shown, and no entry is made before the gate passes:
- * - the program must still be offerable (open, curated, not an investment, a known prize, tokens on);
- * - 'skip' records a decline (once per offer, this builder's, G12) and makes no entry;
- * - 'go' needs the stored offer (token_offers); a name or ticker other than the one shown is offered
- *   again instead of launched; a wallet is needed (the one shown, or the one given with the yes);
- * - the gate runs before any entry: a failure returns its words (and, sign-in on, a sign-in link
- *   bound to the repo and this wallet, not to an entry yet) and leaves no row behind;
- * - once it passes (or the builder signed in from such a link), the draft entry is made (startEntry,
- *   choice 'go'; the 20 a day only for a new row), the sign-in is bound to it, and the usual launch
- *   runs (the same gate again, one token per repo, the limits). A retry never launches twice.
- */
-async function launchFromOffer(
-  parsed: z.infer<typeof LaunchTokenInput>,
-  offer: NonNullable<z.infer<typeof LaunchTokenInput>['offer']>,
-  ctx: ToolContext,
-) {
-  const program = await getProgramRow(offer.program_id);
-  if (program.campaign) throw new EntryError('EarnKit campaigns are entered in one step.');
-  if (!isOpen(program)) throw new EntryError('This program is closed or past its deadline.');
-  const project = ProjectInfo.parse({ name: offer.project_name, repo_url: offer.repo_url }) as { name: string; repo_url: string };
-  const repo = repoKey({ url: project.repo_url, name: project.name });
-  const verifiedLogin = ctx.sharedClient ? await sharedLogin(ctx, parsed.signed_in, 'launch_token') : undefined;
-  if (parsed.decision === 'skip') {
-    // Ruling G12: once per offer shown, for this builder; nothing on a shared client without a login.
-    const count = await declineOffer(ctx, declineLogin(ctx, verifiedLogin), program.id, project.repo_url, project.name);
-    return {
-      status: 'skipped' as const,
-      note: NO_TOKEN_FOR_NOW,
-      agent_note:
-        (count ?? 0) >= DECLINES_MAX
-          ? 'Nothing launched. This repo is not offered a token again.'
-          : 'Nothing launched. The token is offered once more when the builder confirms an entry for this repo.',
-    };
-  }
-  // The program filters the v2.9 first-reply offer applied, checked again: an agent can't aim the
-  // offer path at a program the builder was never offered (v2.10 item 5: the path stays until T9).
-  const offerable =
-    program.source !== 'sponsor' && !program.investment && Number(program.max_award_usd ?? 0) > 0 && program.token_policy !== 'off';
-  if (!offerable || !(ctx.tokenDeps?.available ?? tokenLaunchesAvailable)())
-    return { status: 'skipped' as const, note: NO_TOKEN_HERE };
-  const signIn = githubVerifyEnabled();
-  if (parsed.agent?.can_push === false && !signIn) return { status: 'skipped' as const, note: CANT_PUSH };
-  // The pair the offer showed: required; another name or ticker is shown first (§A2, as confirm_entry).
-  const key = offerKey(project.repo_url, project.name);
-  const shown = await readOffer(ctx.installationId, program.id, key);
-  if (!shown) return { status: 'failed' as const, note: OFFER_NOT_SHOWN, agent_note: OFFER_NOT_SHOWN_AGENT };
-  const asked = editsOf({ name: parsed.name, symbol: parsed.symbol });
-  if ((asked.name !== undefined && asked.name !== shown.name) || (asked.symbol !== undefined && asked.symbol !== shown.symbol)) {
-    const proposal = await offerProposal(project.name, project.repo_url, asked, shown, ctx);
-    const pair = proposal ? { name: proposal.name, symbol: proposal.symbol } : shown;
-    await rememberOffer(ctx, program.id, key, pair);
-    const wallet = parsed.creator_wallet ?? (await walletMemory(ctx));
-    return {
-      status: 'skipped' as const,
-      fixable: true,
-      proposed: pair,
-      // Pre-flight P5: the confirm line again (said once already: no earnings part).
-      show_to_builder: `${proposal?.taken ? `$${proposal.taken} is taken. ` : ''}${confirmLine({ proposal: pair, hasBonus: hasBuilderBonus(program), wallet, walletKnown: wallet !== null, again: true })}`,
-      ...(wallet && { shown_wallet: wallet }),
-      agent_note:
-        'Nothing launched: the builder has not seen this token yet. Show show_to_builder as written; on yes, call launch_token again ' +
-        "with offer, decision 'go' and creator_wallet (shown_wallet, or the wallet they give), without name or symbol.",
-    };
-  }
-  // Review Minor 7: the wallet comes first (the sign-in link is bound to it, G11). Nothing is made.
-  const wallet = parsed.creator_wallet;
-  if (!wallet)
-    return {
-      status: 'skipped' as const,
-      fixable: true,
-      no_wallet: true,
-      note: NO_WALLET_HINT,
-      agent_note: "Ask the builder for their wallet and call launch_token again with it as creator_wallet (offer and decision 'go').",
-    };
-  // A sign-in made from an earlier offer link (no entry yet) proves the repo for this wallet.
-  const signedIn = signIn
-    ? await offerVerification({ installationId: ctx.installationId, repoKey: repo, wallet, login: verifiedLogin }).catch(() => null)
-    : null;
-  if (signedIn === null) {
-    const gate = await tokenGate(
-      { policy: program.token_policy, repoUrl: project.repo_url, wallet, symbol: shown.symbol, installationId: ctx.installationId, verifiedLogin },
-      ctx.tokenDeps?.gate,
-    );
-    if (!gate.ok) {
-      const stop = gate.sign_in !== undefined || gate.reason.startsWith(PROOF_LINE_PREFIX);
-      const link =
-        stop && signIn && gate.fixable
-          ? await createVerifyLink({ installationId: ctx.installationId, projectId: null, repoKey: repo, purpose: 'entry', wallet, symbol: shown.symbol })
-          : null;
-      const base = {
-        status: 'gate_failed' as const,
-        note: gate.reason,
-        ...(gate.fixable && { fixable: true as const }),
-        ...(gate.agent_note && { agent_note: gate.agent_note }),
-      };
-      if (!link) return base;
-      return {
-        ...base,
-        sign_in: link,
-        sign_in_line: gate.reason.startsWith(WALLET_CHANGED) ? `${WALLET_CHANGED} Sign in again: ${link}` : signInLine(project.name, shown.symbol, link),
-        agent_note:
-          `${gate.agent_note ? `${gate.agent_note} ` : ''}If you can't push, show sign_in_line instead; when the builder says they signed in, ` +
-          "call launch_token again with offer and decision 'go'" +
-          (ctx.sharedClient ? ' and signed_in: the code the sign-in page gave them.' : '.'),
-      };
-    }
-  }
-  const entry = await startEntry({
-    program,
-    installationId: ctx.installationId,
-    project,
-    answers: {},
-    choice: 'go',
-    now: new Date(),
-    // A new entry counts against the 20 a day (Ruling 1 (plan)); a retry finds the same entry.
-    charge: () => enforce('recordSubmission', ctx.installationId, 'This agent has recorded 20 submissions today, the daily limit.'),
-  });
-  if (signedIn !== null) await claimOfferVerification(signedIn, entry.id);
-  // A retry after the launch: never a second token.
-  if (entry.token_url)
-    return entry.token_url === 'pending'
-      ? { ...pendingOutcome(entry.token_claimed_at, entry.token_settled), project_id: entry.id }
-      : { status: 'launched' as const, tokens_fun: entry.token_url, note: 'This entry already has its token.', project_id: entry.id };
-  const out = await launchToken(
-    { ...parsed, offer: undefined, project_id: entry.id, name: shown.name, symbol: shown.symbol },
-    ctx.installationId,
-    ctx.tokenDeps,
-    Date.now() + launchReplyMs(),
-    verifiedLogin,
-  );
-  return { ...out, project_id: entry.id };
-}
+/** v2.10 item 4: launch_token's offer, called directly (the alias routes it to confirm). */
+const OFFER_GONE = 'Pass project_id: the token is offered once, at confirmation (call confirm with program_id, project and answers).';
 
 /** Campaigns (v2.4): a valid wallet answer or null (still missing); the one rule, isWalletAddress. */
 const validWallet = (w: string | undefined) =>
@@ -1096,7 +961,6 @@ const validWallet = (w: string | undefined) =>
 const GITHUB_LIMITED =
   'Too many GitHub repo checks from this agent (30 an hour), so none were run this time.';
 
-/** The agent tools. The MCP server forwards each call here. */
 /**
  * v2.8.1 T7 (audit J1): the line before the coach's questions when the program needs a repo and the
  * builder has none: what is needed, and the best program they can enter without one.
@@ -1107,7 +971,11 @@ async function needsRepoLine(program: { id: string; title: string }): Promise<st
   return alt ? `${head} No repo yet? ${alt.title} doesn't need one: say the word and I'll start there.` : head;
 }
 
-export const tools = {
+/**
+ * v2.10 item 4: the v2.9 tool handlers, unchanged except their agent notes. The 4 builder tools
+ * (`tools` below) dispatch to them; tests call them directly.
+ */
+export const handlers = {
   // One answer to "what can I earn?": the builder's projects first, then what's worth building,
   // opening with what changed since their last check.
   list_programs: async (input: unknown, ctx: ToolContext) => {
@@ -1497,7 +1365,7 @@ export const tools = {
         // v2.8 Ruling 23 (plan): how_to_submit and sign_to_enter only while the campaign is open.
         ...(open && {
           how_to_submit:
-            'This is an EarnKit campaign: record_submission is the entry; there is no other site. ' +
+            'This is an EarnKit campaign: confirm is the entry; there is no other site. ' +
             `Commit ${OWNERSHIP_FILE} at the repo root (default branch) with the line "payout_wallet: <the payout wallet>" ` +
             "in one commit, together with the token line if the builder keeps the token. Contracts count when they were deployed from the payout wallet, or from your own wallet if you pass deployer_signature: that wallet's EIP-191 signature (personal_sign) of sign_to_enter, which names this program, the repo, the payout wallet and the contracts (it appears once all are known; a changed contract list needs a new signature).",
           ...(sign_to_enter && { sign_to_enter }),
@@ -1737,10 +1605,10 @@ export const tools = {
         ...(offersToken && wallet && { shown_wallet: wallet }),
         ...(pair && { token: { proposed: pair } }),
         agent_note:
-          "Show show_to_builder as written. When the builder says yes, call confirm_entry again with builder_confirmed: true, decision: 'go'" +
+          'Show show_to_builder as written. When the builder says yes, call confirm again with yes: true' +
           (offersToken ? ' and wallet: shown_wallet (or the wallet they name instead)' : '') +
           (proposal ? ', and token: token.proposed (the name and ticker the builder saw)' : '') +
-          "; when they say skip, decision: 'skip'.",
+          '; when they say skip the token, skip_token: true.',
       };
     }
 
@@ -1805,7 +1673,7 @@ export const tools = {
         ...(wallet && { shown_wallet: wallet }),
         agent_note:
           'Nothing launched: the builder has not seen this token yet. Show show_to_builder as written; when the builder says yes, ' +
-          "call confirm_entry again with decision 'go', wallet: shown_wallet (or the wallet they name), and token: token.proposed.",
+          'call confirm again with yes: true, wallet: shown_wallet (or the wallet they name), and token: token.proposed.',
       };
     };
 
@@ -1919,7 +1787,7 @@ export const tools = {
               : NO_WALLET_HINT
             : token.note || TOKEN_ERROR_CONFIRM,
           ...(token.no_wallet && remembered && { shown_wallet: remembered }),
-          agent_note: `${agentNote ? `${agentNote} ` : ''}The submit kit comes only in confirm_entry's reply, once this is fixed.`,
+          agent_note: `${agentNote ? `${agentNote} ` : ''}The submit kit comes only in confirm's reply, once this is fixed.`,
         };
       }
     } else if (decision.kind === 'launch' && entry.confirm_choice === 'skip')
@@ -2139,20 +2007,20 @@ export const tools = {
       return {
         show_to_builder: PICKUP_TEXT.linked,
         entries: r.entries,
-        agent_note: 'Call list_programs again to show their entries.',
+        agent_note: 'Call find again to show their entries.',
       };
     if (r.status === 'declined') return { show_to_builder: PICKUP_TEXT.declined };
     if (r.status === 'none') return { show_to_builder: PICKUP_TEXT.none };
     if (r.unreadable)
-      return { show_to_builder: PICKUP_TEXT.unreadable, agent_note: 'Call pick_up_entries with answer "yes" again in a minute.' };
+      return { show_to_builder: PICKUP_TEXT.unreadable, agent_note: 'Call tell with pickup: "yes" again in a minute.' };
     return {
       show_to_builder: r.sign_in ? `${PICKUP_TEXT.proof}\n${PICKUP_TEXT.signIn} ${r.sign_in}` : PICKUP_TEXT.proof,
       ...(r.sign_in && { sign_in: r.sign_in }),
       agent_note:
         `Write the line "${r.line}" to earnkit.txt at the root of ${r.repo} (keep any lines already there) and push it ` +
-        'yourself, to any branch; never ask the builder to edit files. Then call pick_up_entries with answer "yes" again. ' +
+        'yourself, to any branch; never ask the builder to edit files. Then call tell with pickup: "yes" again. ' +
         (r.sign_in
-          ? 'If you can\'t push, the builder signs in with the link instead; when they say they signed in, call pick_up_entries with answer "yes" again.'
+          ? 'If you can\'t push, the builder signs in with the link instead; when they say they signed in, call tell with pickup: "yes" again.'
           : "If you can't push, give the builder the line and where it goes."),
     };
   },
@@ -2177,7 +2045,7 @@ export const tools = {
     if (mail?.saved) saved.push(`weekly email: ${weekly!.answer === 'yes' ? 'on' : 'off'}`);
     const mailNote =
       mail?.show_to_builder === WHICH_EMAIL
-        ? "Ask the builder which email to use, then call tell_earnkit again with weekly_email: { answer: 'yes', email }."
+        ? "Ask the builder which email to use, then call tell again with weekly_email: { answer: 'yes', email }."
         : mail?.show_to_builder === EMAIL_SIGN_IN
           ? EMAIL_SHARED_NOTE
           : null;
@@ -2192,8 +2060,9 @@ export const tools = {
 
   launch_token: async (input: unknown, ctx: ToolContext) => {
     const parsed = LaunchTokenInput.parse(input);
-    // v2.9 B10: the answer to the first reply's token offer: a draft entry, then the launch.
-    if (parsed.offer) return withAlerts(ctx, await launchFromOffer(parsed, parsed.offer, ctx), parsed.signed_in);
+    // v2.10 item 4: the v2.9 first reply's offer path is gone (no reply makes that offer since item 5);
+    // an old launch_token call with an offer reaches confirm through its alias (aliases.ts).
+    if (parsed.offer) throw new EntryError(OFFER_GONE);
     const out = await launchToken(
       parsed,
       ctx.installationId,
@@ -2221,59 +2090,267 @@ export const tools = {
               : signInLine(signIn.name, out.symbol ?? null, signIn.link),
             agent_note:
               `${out.agent_note ? `${out.agent_note} ` : ''}If you can't push, show sign_in_line instead; ` +
-              'when the builder says they signed in, call launch_token again' +
+              'when the builder says they signed in, call confirm again with project_id and yes: true' +
               (ctx.sharedClient ? ' with signed_in: the code the sign-in page gave them.' : '.'),
           }
         : out,
       parsed.signed_in,
     );
   },
-
-  // Sponsors: create a campaign (returns a funding link and raw txs), check it (status reads the
-  // chain for the bound wallet's deposit or award), award it.
-  sponsor_campaign: async (input: unknown, ctx: ToolContext) => {
-    // Normally unreachable (the tool isn't registered until the escrow is configured).
-    if (!escrowEnabled()) throw new SponsorError(SPONSOR_NOT_OPEN);
-    const i = SponsorCampaignInput.parse(
-      Object.fromEntries(
-        Object.entries(input as object).filter(([, v]) => v !== undefined),
-      ),
-    );
-    if (i.action === 'create') {
-      const { action: _a, ...draft } = i;
-      // Charged only once the draft (and any replaces) is valid; a replacement has its own cap.
-      return createSponsorDraft(draft, ctx.installationId, (replacing) =>
-        replacing
-          ? enforce(
-              'sponsorReplace',
-              ctx.installationId,
-              'This agent has replaced 10 sponsor drafts today, the daily limit.',
-            )
-          : enforce(
-              'sponsorCreate',
-              ctx.installationId,
-              'This agent has created 5 sponsor campaigns today, the daily limit.',
-            ),
-      );
-    }
-    if (i.action === 'award')
-      return prepareAward(i.ref, ctx.installationId, {
-        winners: i.winners,
-        split: i.split,
-      });
-    // status reads the chain (and may rescore entries).
-    await enforce(
-      'chainChecks',
-      ctx.installationId,
-      'Too many status checks from this agent.',
-    );
-    return sponsorStatus(i.ref, ctx.installationId);
-  },
 } satisfies Record<
   string,
   (input: unknown, ctx: ToolContext) => Promise<unknown>
 >;
 
+// Sponsors: create a campaign (returns a funding link and raw txs), check it (status reads the
+// chain for the bound wallet's deposit or award), award it.
+async function sponsorCampaign(input: unknown, ctx: ToolContext) {
+  // Normally unreachable (the tool isn't registered until the escrow is configured).
+  if (!escrowEnabled()) throw new SponsorError(SPONSOR_NOT_OPEN);
+  const i = SponsorCampaignInput.parse(
+    Object.fromEntries(
+      Object.entries(input as object).filter(([, v]) => v !== undefined),
+    ),
+  );
+  if (i.action === 'create') {
+    const { action: _a, ...draft } = i;
+    // Charged only once the draft (and any replaces) is valid; a replacement has its own cap.
+    return createSponsorDraft(draft, ctx.installationId, (replacing) =>
+      replacing
+        ? enforce(
+            'sponsorReplace',
+            ctx.installationId,
+            'This agent has replaced 10 sponsor drafts today, the daily limit.',
+          )
+        : enforce(
+            'sponsorCreate',
+            ctx.installationId,
+            'This agent has created 5 sponsor campaigns today, the daily limit.',
+          ),
+    );
+  }
+  if (i.action === 'award')
+    return prepareAward(i.ref, ctx.installationId, {
+      winners: i.winners,
+      split: i.split,
+    });
+  // status reads the chain (and may rescore entries).
+  await enforce(
+    'chainChecks',
+    ctx.installationId,
+    'Too many status checks from this agent.',
+  );
+  return sponsorStatus(i.ref, ctx.installationId);
+}
+
+/**
+ * v2.10 item 4 (R15, R16): the 4 builder tools' inputs. Strict at the top; the nested project and
+ * answers are checked by the handler each call reaches, so an old call and its new form fail alike.
+ */
+export const FindInput = ListProgramsInput.extend({
+  /** One program: its details and, for a curated program, its guide in show_to_builder. */
+  program_id: z.string().optional(),
+  /** "owner/repo" or a github.com link: with program_id, the eligibility check for that repo. */
+  repo: z.string().optional(),
+}).strict();
+
+/** T10 adds `deploy`. */
+export const PrepareInput = PrepareSubmissionInput;
+
+const Loose = z.record(z.string(), z.unknown());
+
+export const ConfirmInput = z
+  .object({
+    program_id: z.string().optional(),
+    /** An existing entry's token (as launch_token): launch it, or check a pending launch. */
+    project_id: z.number().int().positive().optional(),
+    project: Loose.optional(),
+    answers: Loose.optional(),
+    /** The builder said yes: the entry is submitted and the token launches. */
+    yes: z.literal(true).optional(),
+    /** The builder said skip the token: the entry is submitted without one. */
+    skip_token: z.literal(true).optional(),
+    /** Checking back after "launching": a read, never a launch. */
+    check: z.boolean().optional(),
+    token: z.object({ name: z.string().max(200).optional(), symbol: z.string().max(20).optional() }).strict().optional(),
+    wallet: z.string().optional(),
+    agent: AgentInput.optional(),
+    signed_in: z.string().max(40).optional(),
+    image_data: z.string().optional(),
+    image_url: z.string().optional(),
+    builder_x: z.string().optional(),
+    /** EarnKit campaigns (and the builder bonus's contract check). */
+    contracts: z.array(z.string()).max(5).optional(),
+    deployer_signature: z.string().optional(),
+    /** Pre-flight P15: the builder already submitted on the program's site (v2.9 record_submission with both flags). */
+    submitted: z.object({ external_submission_url: z.string().optional() }).strict().optional(),
+  })
+  .strict()
+  .refine((c) => c.program_id !== undefined || c.project_id !== undefined, {
+    message: 'Pass program_id (with project and answers), or project_id for an entry already made.',
+  });
+
+export const TellToolInput = z
+  .object({
+    submitted: z
+      .object({
+        program_id: z.string(),
+        external_submission_url: z.string().optional(),
+        /** Required on a shared client (R16): the entry, as confirm returned it. */
+        project_id: z.number().int().positive().optional(),
+        /** Pre-flight P15: an old "I submitted" call's own project and answers, for an entry not made yet. */
+        project: Loose.optional(),
+        submission_data: Loose.optional(),
+      })
+      .strict()
+      .optional(),
+    pickup: z.enum(['yes', 'no']).optional(),
+    // Read by tell_earnkit (builder-memory.ts TellInput).
+    program_status: z.unknown().optional(),
+    repo_facts: z.unknown().optional(),
+    weekly_email: z.unknown().optional(),
+    signed_in: z.string().max(40).optional(),
+  })
+  .strict();
+
+type Reply = Record<string, unknown>;
+const defined = (o: Reply): Reply => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
+
+/** find with program_id and repo: the eligibility check as one plain line, or null. Pure; exported for tests. */
+export function eligibilityLine(repo: string, e: unknown): string | null {
+  if (!e || typeof e !== 'object') return null;
+  const name = repo.replace(/^https?:\/\/(www\.)?github\.com\//i, '').replace(/(\.git)?\/?$/, '');
+  if ('error' in e) return typeof e.error === 'string' ? e.error : null;
+  const { status, note } = e as { status?: string; note?: string | null };
+  const said = note ? note.replace(/\.$/, '') : null;
+  if (status === 'likely') return said ? `${name} fits: ${said}.` : `${name} fits.`;
+  if (status === 'after_step') return `${name} fits after one step${said ? `: ${said}` : ''}.`;
+  if (status === 'no') return `${name} doesn't fit yet${said ? `: ${said}` : ''}.`;
+  return null;
+}
+
+/** R16: a shared client's "I submitted" without the entry's project_id: nothing is written. */
+export const SUBMITTED_SHARED_NOTE =
+  "Nothing saved: this agent serves many builders, so pass the entry's project_id (from confirm's reply) with submitted.";
+
+/** tell's `submitted` (R16): the entry and its saved answers, then record_submission with builder_submitted. */
+async function markSubmitted(s: NonNullable<z.infer<typeof TellToolInput>['submitted']>, signedIn: string | undefined, ctx: ToolContext) {
+  const done = defined({ external_submission_url: s.external_submission_url, builder_submitted: true, signed_in: signedIn });
+  // Pre-flight P15: an old call's own project and answers (record_submission finds or makes its entry).
+  if (s.project_id === undefined && s.project)
+    return handlers.record_submission({ program_id: s.program_id, project: s.project, submission_data: s.submission_data ?? {}, ...done }, ctx);
+  // Ruling G7: the newest entry on a shared client may be another builder's.
+  if (ctx.sharedClient && s.project_id === undefined) return { show_to_builder: NOTED_FOR_NOW, agent_note: SUBMITTED_SHARED_NOTE };
+  const entry = await submittedEntry(ctx.installationId, s.program_id, s.project_id);
+  if (!entry)
+    throw new NotFoundError(
+      s.project_id ? `No entry ${s.project_id} in ${s.program_id} for this agent.` : `No entry in ${s.program_id} for this agent yet: call confirm first.`,
+    );
+  return handlers.record_submission({ program_id: s.program_id, project: entry.project, submission_data: entry.answers, ...done }, ctx);
+}
+
+/** Several tell parts at once: their replies in order, show_to_builder lines joined. */
+function joinReplies(replies: Reply[]): Reply {
+  if (replies.length === 1) return replies[0];
+  const shown = replies.map((r) => r.show_to_builder).filter((v): v is string => typeof v === 'string' && v !== '');
+  const notes = replies.map((r) => r.agent_note).filter((v): v is string => typeof v === 'string' && v !== '');
+  return {
+    ...Object.assign({}, ...replies),
+    ...(shown.length > 0 && { show_to_builder: shown.join('\n') }),
+    ...(notes.length > 0 && { agent_note: notes.join(' ') }),
+  };
+}
+
+/** The agent tools (v2.10 item 4): the MCP server forwards each call here; each dispatches to `handlers`. */
+export const tools = {
+  // What can I earn (list_programs), or one program and its guide (get_program).
+  find: async (input: unknown, ctx: ToolContext) => {
+    const { program_id, repo, ...rest } = FindInput.parse(input ?? {});
+    if (program_id === undefined)
+      return handlers.list_programs(repo !== undefined && rest.repos === undefined ? { ...rest, repos: [repo] } : rest, ctx);
+    const r = (await handlers.get_program(defined({ program_id, repo }), ctx)) as Reply & { guide?: { text?: string }; eligibility?: unknown };
+    const guide = r.guide?.text;
+    if (!guide) return r;
+    const line = repo ? eligibilityLine(repo, r.eligibility) : null;
+    return { ...r, show_to_builder: line ? `${guide}\n\n${line}` : guide };
+  },
+
+  prepare: async (input: unknown, ctx: ToolContext) => handlers.prepare_submission(PrepareInput.parse(input), ctx),
+
+  // R15: the builder's yes (or skip the token) to the confirm line; or an entry's token (project_id).
+  confirm: async (input: unknown, ctx: ToolContext) => {
+    const c = ConfirmInput.parse(input);
+    const tokenEdits = c.token ?? {};
+    const image = defined({ image_data: c.image_data, image_url: c.image_url, builder_x: c.builder_x });
+    if (c.program_id === undefined) {
+      if (c.skip_token) return { status: 'skipped', note: NO_TOKEN_FOR_NOW, show_to_builder: NO_TOKEN_FOR_NOW };
+      return handlers.launch_token(
+        defined({
+          project_id: c.project_id,
+          builder_confirmed: c.yes || c.check ? true : undefined,
+          check_back: c.check || undefined,
+          creator_wallet: c.wallet,
+          ...tokenEdits,
+          ...image,
+          live_url: c.project?.live_url,
+          repo_url: c.project?.repo_url,
+          agent: c.agent,
+          signed_in: c.signed_in,
+        }),
+        ctx,
+      );
+    }
+    const program = await getProgramRow(c.program_id);
+    // An EarnKit campaign is entered in one step (record_submission); so is an entry the builder
+    // already submitted (Pre-flight P15, v2.9 record_submission with both flags).
+    if (program.campaign || c.submitted)
+      return handlers.record_submission(
+        defined({
+          program_id: c.program_id,
+          project: c.project,
+          submission_data: c.answers ?? {},
+          token: c.skip_token ? 'skip' : c.token || Object.keys(image).length > 0 ? { ...tokenEdits, ...image } : undefined,
+          builder_confirmed: c.yes,
+          payout_wallet: c.wallet,
+          contracts: c.contracts,
+          deployer_signature: c.deployer_signature,
+          check_back: c.check || undefined,
+          signed_in: c.signed_in,
+          ...(c.submitted && { builder_submitted: true, external_submission_url: c.submitted.external_submission_url }),
+        }),
+        ctx,
+      );
+    return handlers.confirm_entry(
+      defined({
+        program_id: c.program_id,
+        project: c.project,
+        answers: c.answers,
+        token: c.token,
+        wallet: c.wallet,
+        agent: c.agent,
+        signed_in: c.signed_in,
+        builder_confirmed: c.yes || c.skip_token ? true : undefined,
+        decision: c.skip_token ? 'skip' : c.yes ? 'go' : undefined,
+        check_back: c.check || undefined,
+      }),
+      ctx,
+    );
+  },
+
+  // R16: what the builder said: pickup, then "I submitted", then statements; replies joined.
+  tell: async (input: unknown, ctx: ToolContext) => {
+    const { pickup, submitted, signed_in, ...rest } = TellToolInput.parse(input ?? {});
+    const statements = defined(rest);
+    const replies: Reply[] = [];
+    if (pickup !== undefined) replies.push((await handlers.pick_up_entries({ answer: pickup }, ctx)) as Reply);
+    if (submitted) replies.push((await markSubmitted(submitted, signed_in, ctx)) as Reply);
+    if (Object.keys(statements).length > 0 || replies.length === 0)
+      replies.push((await handlers.tell_earnkit(defined({ ...statements, signed_in }), ctx)) as Reply);
+    return joinReplies(replies);
+  },
+
+  sponsor_campaign: sponsorCampaign,
+} satisfies Record<string, (input: unknown, ctx: ToolContext) => Promise<unknown>>;
+
 export type ToolName = keyof typeof tools;
-export const isToolName = (name: string): name is ToolName =>
-  Object.hasOwn(tools, name);
+export const isToolName = (name: string): name is ToolName => Object.hasOwn(tools, name);

@@ -33,10 +33,10 @@ test('decideToken', () => {
   assert.deepEqual(decideToken(base), { action: 'launch', name: 'Chain Kits', symbol: 'CKIT' });
   assert.equal(decideToken({ ...base, choice: 'skip' }).action, 'skip');
   assert.match((decideToken({ ...base, policy: 'off' }) as { note: string }).note, /doesn't allow tokens/);
-  assert.match((decideToken({ ...base, confirmed: false }) as { agent_note: string }).agent_note, /builder_confirmed/);
+  assert.match((decideToken({ ...base, confirmed: false }) as { agent_note: string }).agent_note, /Pass yes: true once the builder has seen the token row/);
   assert.match((decideToken({ ...base, existingTokenUrl: 'https://tokens.fun/coin/0x1' }) as { note: string }).note, /already has a token/);
   assert.match((decideToken({ ...base, wallet: null }) as { note: string }).note, /no wallet for the token's fees/);
-  assert.match((decideToken({ ...base, wallet: null }) as { agent_note: string }).agent_note, /creator_wallet/);
+  assert.match((decideToken({ ...base, wallet: null }) as { agent_note: string }).agent_note, /call confirm with project_id, yes: true and that wallet/);
   assert.equal((decideToken({ ...base, wallet: null }) as { code?: string }).code, 'no_wallet');
   // Builder edits replace the proposal and go through the same rules.
   assert.deepEqual(decideToken({ ...base, choice: { symbol: 'KITS' } }), { action: 'launch', name: 'Chain Kits', symbol: 'KITS' });
@@ -65,7 +65,7 @@ test('decideToken: checks run in order', () => {
   assert.equal(decideToken({ ...base, choice: 'skip', existingTokenUrl: 'https://x' }).action, 'skip');
   assert.match((decideToken({ ...base, confirmed: false, existingTokenUrl: 'https://x' }) as { note: string }).note, /already has a token/);
   // confirmation before edits; edits before the wallet.
-  assert.match((decideToken({ ...base, confirmed: false, choice: { symbol: 'USDC' } }) as { agent_note: string }).agent_note, /builder_confirmed/);
+  assert.match((decideToken({ ...base, confirmed: false, choice: { symbol: 'USDC' } }) as { agent_note: string }).agent_note, /Pass yes: true once the builder has seen the token row/);
   assert.match((decideToken({ ...base, wallet: null, choice: { symbol: 'USDC' } }) as { note: string }).note, /^Ticker: USDC/);
   // An edit's problem is named even when there is no proposal to fall back on.
   assert.match((decideToken({ ...base, proposal: null, choice: { symbol: 'USDC' } }) as { agent_note: string }).agent_note, /symbol: USDC/);
@@ -80,7 +80,7 @@ test('decideToken: at submission only an explicit ticker launches', () => {
   }
   assert.deepEqual(decideToken({ ...base, choice: { symbol: 'ckit' } }), { action: 'launch', name: 'Chain Kits', symbol: 'CKIT' });
   // Unconfirmed reads as unconfirmed, and an existing token as a token, before the ticker rule.
-  assert.match((decideToken({ ...base, confirmed: false }) as { agent_note: string }).agent_note, /builder_confirmed/);
+  assert.match((decideToken({ ...base, confirmed: false }) as { agent_note: string }).agent_note, /Pass yes: true once the builder has seen the token row/);
 });
 
 const program = (policy: 'encouraged' | 'allowed' | 'off') =>
@@ -106,7 +106,7 @@ test('tokenProposalBlock: the proposal and the agent note; v2.10 item 5: no buil
   for (const k of ['earnings', 'terms', 'paired_with', 'say_to_builder']) assert.ok(!(k in b), k);
   assert.doesNotMatch(JSON.stringify(b), /WETH|token-creator-agreement|risk-disclosure|40%/);
   // Ruling 22: the agent is told to pass the confirmed wallet on record_submission.
-  assert.match(b.note, /Pass the wallet the builder confirmed \(the wallet on the confirm line\) as record_submission's payout_wallet\./);
+  assert.match(b.note, /Pass the wallet the builder confirmed \(the wallet on the confirm line\) as confirm's wallet\./);
   // v2.5 Task 8 / v2.6 Ruling 7: this program fixture has no status ('active' required), so no builder bonus.
   assert.equal(b.has_bonus, false);
   // Without a repo there is no token line yet; v2.6: never a wallet line for a coin.
@@ -326,8 +326,8 @@ test('tokenAfterSubmission: the confirmed name and ticker launch on Base with th
 
 test('tokenAfterSubmission: skip, unconfirmed and no explicit ticker store the proposal as skipped', async () => {
   for (const [choice, confirmed, re] of [
-    ['skip', true, /Call launch_token later/],
-    [CONFIRMED, false, /builder_confirmed/],
+    ['skip', true, /Call confirm with project_id and yes: true later/],
+    [CONFIRMED, false, /Pass yes: true once the builder has seen the token row/],
     [undefined, true, /exactly as shown to the builder/],
     [{ name: 'Chain Kits' }, true, /exactly as shown to the builder/],
   ] as const) {
@@ -861,7 +861,7 @@ test('Rulings 28 and 30: no remembered wallet anywhere; a launch with no wallet 
   assert.equal(out.status, 'failed');
   // Ruling 31: the note is plain; the instruction with the tool and field is for the agent.
   assert.equal(out.note, "Not launched: no wallet for the token's fees yet.");
-  assert.match(out.agent_note ?? '', /call launch_token with creator_wallet/);
+  assert.match(out.agent_note ?? '', /call confirm with project_id, yes: true and that wallet/);
   assert.equal(out.no_wallet, undefined, 'the submission marker is for record_submission only');
   assert.deepEqual(h.saved, [], 'nothing saved as the creator wallet');
   assert.equal(h.deploys.length, 0);
@@ -893,7 +893,7 @@ test('C6: a final ticker found taken is never deployed; the builder gets the nex
   assert.equal(out.note, tickerTakenNote('KIT'));
   assert.equal(out.note, 'That ticker is taken. Pick another, or say go for $KIT.');
   assert.doesNotMatch(out.note ?? '', TECHNICAL_TERMS);
-  assert.match(out.agent_note ?? '', /CHAIN is already used on tokens\.fun.*call launch_token \(it uses the stored KIT\)/);
+  assert.match(out.agent_note ?? '', /CHAIN is already used on tokens\.fun.*call confirm with project_id and yes: true \(it uses the stored KIT\)/);
   // The suggestion is stored, so "go" (launch_token with no changes) launches it.
   assert.deepEqual(h.writes.at(-1), { id: 7, status: 'skipped', note: out.note, name: 'Chain Kits', symbol: 'KIT' });
   // On launch_token, the same check fails the launch.

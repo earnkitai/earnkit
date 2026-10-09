@@ -287,8 +287,8 @@ async function sponsorCommand() {
         const chain = after.escrow_address
           ? (await readEscrow(after.escrow_address)).state
           : 'no deposit from the sponsor wallet';
-        // Refreshes the domain-verification cache that list_programs and get_program read (they
-        // never fetch). Only funded campaigns have an identity.
+        // Refreshes the domain-verification cache that find reads (it
+        // never fetches). Only funded campaigns have an identity.
         const identity = await sponsorIdentity(after);
         console.log(
           `${ref} · ${quoted(after.draft.title)} · database ${before.state}` +

@@ -31,7 +31,7 @@ const digestFrom = () => process.env.DIGEST_FROM?.trim() || DIGEST_FROM_DEFAULT;
 export const EMAIL_QUESTION = 'Get new programs and wins by email, once a week? yes / no';
 export const emailQuestionFor = (email: string) => `Get new programs and wins by email at ${email}, once a week? yes / no`;
 /** What the agent does with the question (Ruling 13). */
-export const EMAIL_NOTE = "Pass the builder's answer to tell_earnkit as weekly_email.";
+export const EMAIL_NOTE = "Pass the builder's answer to tell as weekly_email.";
 /** A yes with no address EarnKit may use. */
 export const WHICH_EMAIL = 'Which email should I use?';
 export const EMAIL_ON = 'Done. One email a week, on Mondays.';

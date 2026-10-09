@@ -104,7 +104,7 @@ test('missingAnswersProblem: a sponsor campaign entry must answer every required
       { payout_wallet: W },
     ),
     'Missing required answers: description (What it does and who uses it), live_url (Live link: Not a valid link: must be a full https:// link.). ' +
-      'Call prepare_submission to see what each needs, then record_submission again.',
+      'Call prepare to see what each needs, then confirm again.',
   );
   assert.match(
     missingAnswersProblem(reqs, project, {})!,
@@ -163,7 +163,7 @@ test('v2.4 §2: every problem at once, not the first one', async () => {
       campaignEntryProblems(campaignProgram(), input({ description: '', contracts: `${C1},nope`, payout_wallet: '0xAbCdEf0123456789abcdef0123456789ABCDEF00' }) as never, 1, null, entryDeps({})),
       (err: unknown) => {
         assert.ok(err instanceof EntryError);
-        assert.match(err.message, /^Fix these, then call record_submission again:\n- /);
+        assert.match(err.message, /^Fix these, then call confirm again:\n- /);
         assert.equal(err.problems.length, 3);
         assert.match(err.problems[0], /Missing required answers: description/);
         assert.match(err.problems[1], /contracts: "nope" isn't an address/);
@@ -459,7 +459,7 @@ test('record_submission (v2.6 §3): a program without a pattern never fetches; w
     { fetchProof: async () => ((fetchCalled = true), 'x') },
   );
   assert.equal(result.recorded, true);
-  assert.match((result as { bonus_note?: string }).bonus_note ?? '', /builder_submitted: true/);
+  assert.match((result as { bonus_note?: string }).bonus_note ?? '', /Call tell with submitted once the builder confirms/);
   assert.equal(fetchCalled, false);
   const [row] = await sql()<{ submission_proof_url: string | null; submission_proof_ok_at: Date | null; submission_basis: string | null; submission_confirmed_at: Date | null }[]>`
     SELECT submission_proof_url, submission_proof_ok_at, submission_basis, submission_confirmed_at FROM projects WHERE id = ${result.project_id}`;
@@ -532,7 +532,7 @@ test('record_submission (v2.6 Ruling 4): a blocked entry page counts on the buil
     installationId,
     { fetchProof: blocked },
   );
-  assert.match((unconfirmed as { bonus_note?: string }).bonus_note ?? '', /builder_submitted: true/);
+  assert.match((unconfirmed as { bonus_note?: string }).bonus_note ?? '', /Call tell with submitted once the builder confirms/);
   const [u] = await sql()<{ submission_basis: string | null; submission_proof_ok_at: Date | null }[]>`
     SELECT submission_basis, submission_proof_ok_at FROM projects WHERE id = ${unconfirmed.project_id}`;
   assert.deepEqual([u.submission_basis, u.submission_proof_ok_at], [null, null]);
@@ -1010,7 +1010,7 @@ test('fix round 1 (I1): a late confirmation updates the entry with the coin (sam
   let charged = 0;
   const charge = async () => { charged++; };
   const first = await recordSubmission({ program_id: program.id, project, submission_data: data } as never, installationId, { charge });
-  assert.match((first as { bonus_note?: string }).bonus_note ?? '', /builder_submitted: true/);
+  assert.match((first as { bonus_note?: string }).bonus_note ?? '', /Call tell with submitted once the builder confirms/);
   assert.deepEqual((first as { bonus_join?: unknown }).bonus_join, { kind: 'confirm', site: new URL(program.submission_url).hostname.replace(/^www\./, '') });
   // The first call launched the coin on this row.
   await sql()`UPDATE projects SET coin_address = ${randomAddress()}, coin_launched_at = now(), token_url = 'https://tokens.fun/coin/0x1' WHERE id = ${first.project_id}`;

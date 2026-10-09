@@ -112,7 +112,7 @@ export function missingAnswersProblem(
   const items = missing
     .filter((m) => m.required)
     .map((m) => `${m.key} (${m.label}${m.problem ? `: ${m.problem}` : ''})`);
-  return `Missing required answers: ${items.join(', ')}. Call prepare_submission to see what each needs, then record_submission again.`;
+  return `Missing required answers: ${items.join(', ')}. Call prepare to see what each needs, then confirm again.`;
 }
 
 /**
@@ -461,7 +461,7 @@ export function submissionBasis(a: {
   outcome: ProofOutcome | null;
   confirmed: boolean;
 }): { basis: 'page' | 'unverified_page' | 'confirmed' | null; note: string | null } {
-  const confirm = 'Pass builder_submitted: true once the builder confirms the entry is submitted on the program site.';
+  const confirm = 'Call tell with submitted once the builder confirms the entry is submitted on the program site.';
   if (!a.hasPattern)
     return a.confirmed ? { basis: 'confirmed', note: null } : { basis: null, note: `Builder bonus not available yet: ${confirm}` };
   if (!a.outcome)
@@ -532,6 +532,32 @@ export async function enteredProgramIds(installationId: number, k: { repoUrl: st
  * v2.10 item 3 (Pre-flight P23): whether this installation has any entry (a row, confirmed or not)
  * for the program; the guide is not shown again after one.
  */
+/**
+ * v2.10 R16: the entry an "I submitted" names (`projectId`), else this installation's newest in the
+ * program (as v2.9 outcomes find it), with its project fields and its saved answers (the confirmed
+ * application's, else the latest recorded submission's). Null when there is none.
+ */
+export async function submittedEntry(
+  installationId: number,
+  programId: string,
+  projectId?: number,
+): Promise<{ id: number; project: Record<string, string>; answers: Record<string, unknown> } | null> {
+  const [row] = await sql()<
+    { id: number; name: string; description: string | null; repo_url: string | null; live_url: string | null; demo_url: string | null; answers: Record<string, unknown> | null }[]
+  >`
+    SELECT p.id, p.name, p.description, p.repo_url, p.live_url, p.demo_url,
+      COALESCE(p.application -> 'answers',
+        (SELECT s.submission_data FROM submissions s WHERE s.project_id = p.id ORDER BY s.id DESC LIMIT 1)) AS answers
+    FROM projects p
+    WHERE p.installation_id = ${installationId} AND p.program_id = ${programId}
+      AND (${projectId ?? null}::int IS NULL OR p.id = ${projectId ?? null})
+    ORDER BY p.submitted_at DESC, p.id DESC LIMIT 1`;
+  if (!row) return null;
+  const { id, answers, ...fields } = row;
+  const project = Object.fromEntries(Object.entries(fields).filter((e): e is [string, string] => typeof e[1] === 'string' && e[1] !== ''));
+  return { id, project, answers: answers ?? {} };
+}
+
 export async function hasProgramEntry(installationId: number, programId: string): Promise<boolean> {
   const [row] = await sql()<{ n: number }[]>`
     SELECT 1 AS n FROM projects WHERE installation_id = ${installationId} AND program_id = ${programId} LIMIT 1`;

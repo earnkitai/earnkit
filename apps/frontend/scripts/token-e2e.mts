@@ -172,7 +172,8 @@ await import('../lib/earnkit/fixtures/no-network-checks');
 const { sql } = await import('../lib/earnkit/db');
 const { upsertProgram } = await import('../lib/earnkit/programs');
 const { ProgramFile } = await import('../lib/earnkit/program-file');
-const { tools } = await import('../lib/earnkit/tools');
+const { handlers, tools } = await import('../lib/earnkit/tools');
+const { aliasCall } = await import('../lib/earnkit/aliases');
 const { createMcpServer } = await import('../lib/earnkit/mcp');
 const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
 const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
@@ -262,7 +263,7 @@ const submit = async (
   gate?: GateDeps,
   c: Ctx = ctx(gate),
 ) =>
-  (await tools.record_submission(
+  (await handlers.record_submission(
     {
       program_id: a.program ?? ON,
       project: a.project,
@@ -274,7 +275,7 @@ const submit = async (
     c,
   )) as Recorded;
 const launch = (input: Record<string, unknown>, gate?: GateDeps) =>
-  tools.launch_token({ builder_confirmed: true, ...input }, ctx(gate)) as Promise<TokenOutcome>;
+  handlers.launch_token({ builder_confirmed: true, ...input }, ctx(gate)) as Promise<TokenOutcome>;
 const row = async (id: number) =>
   (
     await db<
@@ -295,7 +296,7 @@ let aProjectId = 0;
 let aRepo = '';
 {
   const p = project('Chain Kit Builder');
-  const prep = (await tools.prepare_submission({ program_id: ON, project: { name: p.name } }, ctx())) as {
+  const prep = (await handlers.prepare_submission({ program_id: ON, project: { name: p.name } }, ctx())) as {
     token?: { proposed: { name: string; symbol: string } | null; creator_wallet: string | null };
     shown_wallet?: string;
     show_to_builder: string;
@@ -314,15 +315,16 @@ let aRepo = '';
     );
   }
   check(prep.token?.proposed?.symbol === 'CHAIN', '(a) proposed ticker is CHAIN (CKB is taken)', prep.token);
-  // v2.8 Part C: an active non-campaign program has the builder bonus: the offer bundles it with the token.
+  // v2.10 item 5 (T7): the one confirm line, the builder bonus with the token; skip the token is the way out.
   check(
-    prep.show_to_builder.includes('\n\nReady. Want the builder bonus? It comes with a token.\n') &&
-      prep.show_to_builder.includes('\nSkip: no token, no builder bonus.\n'),
+    prep.show_to_builder.includes('\n\nReady. Yes submits your entry and launches $CHAIN (') &&
+      prep.show_to_builder.includes('plus the builder bonus.') &&
+      prep.show_to_builder.endsWith('yes / skip the token'),
     '(a) the confirmation offer: the builder bonus comes with a token; skip costs both',
     prep.show_to_builder,
   );
   // The remembered wallet is on the offer's wallet line, short (one yes confirms both).
-  check(prep.show_to_builder.includes('Wallet for fees and any bonus: 0x1212…1212 (used last time), or tell me another.'), '(a) the offer prefills the remembered wallet', prep.show_to_builder);
+  check(prep.show_to_builder.includes('Wallet: 0x1212…1212. yes / skip the token'), '(a) the offer prefills the remembered wallet', prep.show_to_builder);
   check(prep.token?.creator_wallet === WALLET, '(a) creator wallet is the remembered wallet');
   const before = deploys.length;
   const r = await submit({ project: p, token: { name: prep.token!.proposed!.name, symbol: 'CHAIN' }, confirmed: true });
@@ -340,13 +342,12 @@ let aRepo = '';
   const saved = await row(r.project_id);
   check(saved.token_url === `https://tokens.fun/coin/${TOKEN_ADDRESS}` && saved.token_status === 'launched', '(a) project row has the token', saved);
   check(saved.token_repo_key === p.repo_url.replace('https://', ''), '(a) token_repo_key is the normalized repo', saved);
-  // The fee line and both terms links close the offer; the kit is not in this reply (ordering rule).
+  // v2.10 item 5 (T7): no WETH, gas or terms link in the offer; the kit is not in this reply (ordering rule).
   check(
-    prep.show_to_builder.includes('Fees in WETH; tokens.fun pays gas.') &&
+    !/WETH|gas|risk-disclosure/.test(prep.show_to_builder) &&
       !/clanker/i.test(prep.show_to_builder) &&
-      prep.show_to_builder.includes('risk-disclosure') &&
       !/"(kit|submission_url)":/.test(JSON.stringify(prep)),
-    '(a) the offer carries the fee line and terms; no kit or submission link before the confirmation',
+    '(a) the offer has no fee line or terms link; no kit or submission link before the confirmation',
     prep,
   );
   aProjectId = r.project_id;
@@ -415,7 +416,7 @@ let retryRepo = '';
 
 // (e) a program that doesn't allow tokens.
 {
-  const prep = (await tools.prepare_submission({ program_id: OFF, project: { name: 'Off Program App' } }, ctx())) as Record<string, unknown>;
+  const prep = (await handlers.prepare_submission({ program_id: OFF, project: { name: 'Off Program App' } }, ctx())) as Record<string, unknown>;
   check(!('token' in prep), '(e) off program: prepare_submission has no token block');
   const r = await submit({ program: OFF, project: project('Off Program App'), token: { name: 'Off Program App', symbol: 'OFFP' }, confirmed: true });
   check(r.token.status === 'skipped' && /doesn't allow tokens/.test(r.token.note ?? ''), '(e) off program → skipped', r.token);
@@ -445,7 +446,7 @@ let retryRepo = '';
 {
   const before = deploys.length;
   const r = await submit({ project: project('Unconfirmed App'), token: { name: 'Unconfirmed App', symbol: 'UNCF' } });
-  check(r.token.status === 'skipped' && /builder_confirmed/.test(r.token.agent_note ?? ''), '(h) unconfirmed → skipped', r.token);
+  check(r.token.status === 'skipped' && /Pass yes: true once the builder has seen the token row/.test(r.token.agent_note ?? ''), '(h) unconfirmed → skipped', r.token);
   check(deploys.length === before, '(h) no deploy sent');
 }
 
@@ -505,7 +506,7 @@ let retryRepo = '';
   // Ruling 28 (final I1): the entry has no wallet of its own, and launch_token never falls back to
   // the installation's remembered one: it asks for creator_wallet, and nothing deploys.
   const noWallet = await launch({ project_id: r.project_id });
-  check(noWallet.status === 'failed' && /no wallet for the token's fees/.test(noWallet.note ?? '') && /creator_wallet/.test(noWallet.agent_note ?? '') && deploys.length === before, '(k) launch_token without a wallet → failed, never the remembered wallet', noWallet);
+  check(noWallet.status === 'failed' && /no wallet for the token's fees/.test(noWallet.note ?? '') && /call confirm with project_id, yes: true and that wallet/.test(noWallet.agent_note ?? '') && deploys.length === before, '(k) launch_token without a wallet → failed, never the remembered wallet', noWallet);
   const l = await launch({ project_id: r.project_id, creator_wallet: WALLET });
   check(l.status === 'launched' && l.symbol === 'KAPPA', '(k) launch_token with the builder\'s wallet launches the stored proposal', l);
 }
@@ -570,7 +571,7 @@ let retryRepo = '';
   const otherCtx: Ctx = { installationId: other.id, tokenDeps: { gate: passGate, limit: async () => {} } };
   const r = await submit({ project: project('Chain Kit Builder', { repo_url: aRepo }), token: { name: 'Chain Kit Again', symbol: 'CHAN2' }, confirmed: true }, undefined, otherCtx);
   check(r.recorded === true && r.project_id !== aProjectId && r.token.status === 'skipped' && r.token.note === `This repo already has a token: https://tokens.fun/coin/${TOKEN_ADDRESS}`, '(o) second entry of the repo → skipped', r.token);
-  const l = (await tools.launch_token({ builder_confirmed: true, project_id: r.project_id }, otherCtx)) as TokenOutcome;
+  const l = (await handlers.launch_token({ builder_confirmed: true, project_id: r.project_id }, otherCtx)) as TokenOutcome;
   check(l.status === 'failed' && /This repo already has a token/.test(l.note ?? ''), '(o) launch_token on it → failed', l);
   check(deploys.length === before, '(o) no deploy sent');
   // The database refuses a second claim on the repo even past the app check.
@@ -607,7 +608,7 @@ let retryRepo = '';
   const before = deploys.length;
   const reads = ownershipReads.length;
   try {
-    const prep = (await tools.prepare_submission({ program_id: ON, project: { name: 'Keyless App' } }, ctx())) as Record<string, unknown>;
+    const prep = (await handlers.prepare_submission({ program_id: ON, project: { name: 'Keyless App' } }, ctx())) as Record<string, unknown>;
     check(!('token' in prep), '(q) no key: prepare_submission has no token block');
     const r = await submit({ project: project('Keyless App'), token: { name: 'Keyless App', symbol: 'KEYL' }, confirmed: true });
     check(r.recorded === true && r.token.status === 'skipped' && r.token.note === "Token launches aren't available right now.", '(q) no key → skipped', r.token);
@@ -625,13 +626,13 @@ let retryRepo = '';
   await Promise.all([server.connect(a), client.connect(b)]);
   const text = (r: unknown) => (r as { content: { text: string }[] }).content[0].text;
   const p = project('Echo Proposal');
-  const prep = JSON.parse(text(await client.callTool({ name: 'prepare_submission', arguments: { program_id: ON, project: { name: p.name } } })));
-  check(prep.token?.proposed?.image === 'mark', '(r) token.proposed has image (v2.10: the generated mark, with no live link)', prep.token);
-  const res = await client.callTool({
-    name: 'record_submission',
-    // Ruling 30: the agent echoes the proposal and the shown wallet.
-    arguments: { program_id: ON, project: p, submission_data: { notes: 'e2e' }, token: prep.token.proposed, payout_wallet: prep.shown_wallet, builder_confirmed: true },
-  });
+  // v2.10 item 4: the confirm step launches only the pair its confirm line showed for this project.
+  const prep = JSON.parse(text(await client.callTool({ name: 'prepare', arguments: { program_id: ON, project: p } })));
+  check(['mark', 'site'].includes(prep.token?.proposed?.image), '(r) token.proposed has image (v2.10: the site logo with a live link, else the generated mark)', prep.token);
+  // v2.10 item 4: an old agent's record_submission, echoing the proposal and the shown wallet
+  // (Ruling 30), reaches the server under its new name through the alias the route applies.
+  const old = aliasCall('record_submission', { program_id: ON, project: p, submission_data: { notes: 'e2e' }, token: prep.token.proposed, payout_wallet: prep.shown_wallet, builder_confirmed: true })!;
+  const res = await client.callTool({ name: old.name, arguments: old.args });
   const out = JSON.parse(text(res)) as Recorded;
   check(!res.isError && out.token.status === 'launched' && out.token.symbol === prep.token.proposed.symbol, '(r) echoed proposal launches through MCP', text(res));
   await client.close();
@@ -646,7 +647,7 @@ let retryRepo = '';
     r.token.status === 'gate_failed' &&
       r.token.note === "I need to add a short proof line to your repo first, then say 'launch the token'." &&
       // v2.8.1 §A3: exactly what was found, then the line and where it goes.
-      r.token.agent_note === `earnkit.txt on the default branch has no token line. Write the line "${lineFor(inst.id, p.repo_url)}" to earnkit.txt at the root of ${p.repo_url.replace(/^https:\/\//, '')} on the default branch and push it yourself; never ask the builder to edit files. Then call launch_token.`,
+      r.token.agent_note === `earnkit.txt on the default branch has no token line. Write the line "${lineFor(inst.id, p.repo_url)}" to earnkit.txt at the root of ${p.repo_url.replace(/^https:\/\//, '')} on the default branch and push it yourself; never ask the builder to edit files. Then call confirm with project_id and yes: true.`,
     '(s) no token line → gate_failed with the line to add',
     r.token,
   );
@@ -717,7 +718,7 @@ let retryRepo = '';
   check(!stolen.token.note?.includes(ownerLine), "(v) the refusal never shows the owner's line");
   check(deploys.length === before, '(v) no deploy for the third party');
   // prepare_submission shows the owner's agent its own line for this repo (any ticker).
-  const prep = (await tools.prepare_submission(
+  const prep = (await handlers.prepare_submission(
     { program_id: ON, project: { name: 'Owner Repo', repo_url: shared.repo_url } },
     ownerCtx,
   )) as { token_line?: string };
@@ -737,15 +738,16 @@ let retryRepo = '';
   OWNERS.add(agent.id);
   const c: Ctx = { installationId: agent.id, tokenDeps: { gate: passGate, limit: async () => {} } };
   type Confirmed = { show_to_builder: string; project_id?: number; token?: TokenOutcome; kit?: { mode: string; show_to_builder: string }; shown_wallet?: string };
+  // v2.10 item 4: through the new confirm tool (yes, skip_token, check).
   const confirm = (a: Record<string, unknown>, cc: Ctx = c) =>
-    tools.confirm_entry({ program_id: ON, answers: { notes: 'e2e' }, ...a }, cc) as Promise<Confirmed>;
-  const yes = { builder_confirmed: true, decision: 'go' };
+    tools.confirm({ program_id: ON, answers: { notes: 'e2e' }, ...a }, cc) as Promise<Confirmed>;
+  const yes = { yes: true };
 
   // The offer: no entry, no kit; the remembered wallet is shown, and comes back as shown_wallet.
   const p = project('Confirm Kit');
   const before = deploys.length;
   const offer = await confirm({ project: p });
-  check(offer.show_to_builder.startsWith('Want the builder bonus? It comes with a token.\n') && !('kit' in offer) && offer.shown_wallet === WALLET, '(w) offer only before the yes', offer);
+  check(offer.show_to_builder.startsWith('Yes submits your entry and launches $') && !('kit' in offer) && offer.shown_wallet === WALLET, '(w) offer only before the yes', offer);
   // Yes, echoing the shown wallet: launched through the mock, the kit returned.
   const r = await confirm({ project: p, ...yes, wallet: offer.shown_wallet });
   check(r.token?.status === 'launched' && deploys.length === before + 1 && lastDeploy().creatorWallet === WALLET, '(w) yes launches the token to the shown wallet', r);
@@ -764,16 +766,13 @@ let retryRepo = '';
   // Yes again: same entry, no second deploy, the kit again.
   const again = await confirm({ project: p, ...yes, wallet: WALLET });
   check(again.project_id === r.project_id && deploys.length === before + 1 && again.kit !== undefined, '(w) a second yes launches nothing', again);
-  // The builder submitted: record_submission updates that entry, no token flow.
-  const rec = (await tools.record_submission(
-    { program_id: ON, project: p, submission_data: { notes: 'e2e' }, payout_wallet: WALLET, builder_submitted: true },
-    c,
-  )) as Recorded;
-  check(rec.project_id === r.project_id && rec.token.status === 'launched' && deploys.length === before + 1, '(w) record_submission updates the confirmed entry', rec);
+  // The builder submitted: tell (submitted) updates that entry, no token flow.
+  const rec = (await tools.tell({ submitted: { program_id: ON, project_id: r.project_id } }, c)) as Recorded;
+  check(rec.project_id === r.project_id && rec.token.status === 'launched' && deploys.length === before + 1, '(w) tell submitted updates the confirmed entry', rec);
 
   // Skip: the kit, no token, nothing checked or sent.
   const reads = ownershipReads.length;
-  const sk = await confirm({ project: project('Confirm Skip'), builder_confirmed: true, decision: 'skip' });
+  const sk = await confirm({ project: project('Confirm Skip'), skip_token: true });
   check(sk.kit !== undefined && !sk.token && sk.show_to_builder.startsWith('No token, no builder bonus.\n\n') && deploys.length === before + 1 && ownershipReads.length === reads, '(w) skip: the kit, no token', sk);
 
   // No wallet passed back: no deploy, no kit (the remembered wallet is never used unseen).
@@ -787,8 +786,7 @@ let retryRepo = '';
   const next = taken.token?.proposed;
   check(
     taken.token?.fixable === true && !taken.kit && next !== undefined && next.symbol !== 'CKB' &&
-      taken.show_to_builder.startsWith(`$CKB is taken.\nWant the builder bonus?`) &&
-      taken.show_to_builder.includes(`\nYes: launches $${next.symbol} (Confirm Taken) on Base.`) && deploys.length === before + 1,
+      taken.show_to_builder.startsWith(`$CKB is taken. Yes submits your entry and launches $${next.symbol} (Confirm Taken)`) && deploys.length === before + 1,
     '(w) taken ticker: a new Yes line, no kit, no deploy',
     taken,
   );
@@ -818,8 +816,8 @@ let retryRepo = '';
   const c: Ctx = { installationId: agent.id, tokenDeps: { gate: passGate, limit: async () => {} } };
   type Confirmed = { show_to_builder: string; token?: TokenOutcome; kit?: unknown; agent_note?: string };
   const confirm = (a: Record<string, unknown>) =>
-    tools.confirm_entry({ program_id: ON, answers: { notes: 'e2e' }, ...a }, c) as Promise<Confirmed>;
-  const yes = { builder_confirmed: true, decision: 'go', wallet: WALLET };
+    tools.confirm({ program_id: ON, answers: { notes: 'e2e' }, ...a }, c) as Promise<Confirmed>;
+  const yes = { yes: true, wallet: WALLET };
   // The offer (with the builder's own token, stored as shown), then their yes to it.
   const offerThenGo = async (p: Record<string, string>, token: { name: string; symbol: string }) => {
     await confirm({ project: p, token });
@@ -828,7 +826,7 @@ let retryRepo = '';
 
   // §A2: the offer names the token that launches.
   const offer = await confirm({ project: project('Busy Alpha') });
-  check(/\nYes: launches \$BUSY \(Busy Alpha\) on Base\. You earn 40% of its trading fees, plus a shot at the builder bonus\.\n/.test(offer.show_to_builder), '(x) the Yes line names $TICKER (Name)', offer);
+  check(/^Yes submits your entry and launches \$BUSY \(Busy Alpha\): 40% of its fees to you, plus the builder bonus\./.test(offer.show_to_builder), '(x) the Yes line names $TICKER (Name)', offer);
 
   // §A1: one 503 "Pending transactions", then it deploys: one automatic retry.
   const before = deploys.length;
@@ -866,7 +864,7 @@ let retryRepo = '';
   delete process.env.EARNKIT_LAUNCH_REPLY_MS;
   check(s1.show_to_builder === 'Your token is launching. Ask me again in a minute for its link.' && s1.kit === undefined && took < 1_400, `(x) slow deploy: "launching" in ${took} ms, no kit`, s1);
   await new Promise((r) => setTimeout(r, 1_800));
-  const s2 = await confirm({ project: sp, ...yes, token: { name: 'Slow Gamma', symbol: 'SLOW' }, check_back: true });
+  const s2 = await confirm({ project: sp, ...yes, token: { name: 'Slow Gamma', symbol: 'SLOW' }, check: true });
   check(s2.token?.status === 'launched' && s2.kit !== undefined && deploys.filter((d) => d.symbol === 'SLOW').length === 1, '(x) the next call returns the token and the kit, one deploy', s2);
 }
 

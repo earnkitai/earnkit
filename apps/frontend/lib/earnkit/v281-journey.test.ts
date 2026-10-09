@@ -9,7 +9,7 @@ import { sql } from './db';
 import { ProgramFile } from './program-file';
 import { getProgramRow, upsertProgram } from './programs';
 import { guideText, programGuide } from './guide';
-import { tools } from './tools';
+import { handlers } from './tools';
 import { tokenLineFor } from './token-gate';
 import { deployToken, LAUNCHING } from './tokens';
 import { STILL_CHECKING, TECHNICAL_TERMS, launchReplyMs, type TokenFlowDeps } from './token-launch';
@@ -188,11 +188,11 @@ const said: Said[] = [];
 const MAX_REPLY_MS = 50_000;
 
 /** One tool call, as the agent makes it; timed, and its builder-facing text kept. */
-async function call(journey: string, label: string, tool: keyof typeof tools, input: unknown, ctx: Ctx): Promise<Reply> {
+async function call(journey: string, label: string, tool: keyof typeof handlers, input: unknown, ctx: Ctx): Promise<Reply> {
   const started = Date.now();
   // v2.10 item 2: these journeys read the first reply's tables, which are behind "show more".
   const given = tool === 'list_programs' && input && typeof input === 'object' && !('more' in input) ? { ...input, more: true } : input;
-  const reply = (await (tools[tool] as (i: unknown, c: unknown) => Promise<unknown>)(given, ctx)) as Reply;
+  const reply = (await (handlers[tool] as (i: unknown, c: unknown) => Promise<unknown>)(given, ctx)) as Reply;
   const ms = Date.now() - started;
   const text = [reply.show_to_builder ?? '', reply.kit?.show_to_builder && reply.kit.show_to_builder !== reply.show_to_builder ? reply.kit.show_to_builder : '']
     .filter(Boolean)

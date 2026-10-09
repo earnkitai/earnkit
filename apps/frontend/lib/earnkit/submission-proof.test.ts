@@ -411,13 +411,13 @@ test('v2.6 §3: how a submission counts', () => {
   assert.deepEqual(submissionBasis({ hasPattern: true, outcome: { kind: 'ok' }, confirmed: true }), { basis: 'page', note: null });
   assert.deepEqual(submissionBasis({ hasPattern: true, outcome: un, confirmed: true }), { basis: 'unverified_page', note: null });
   assert.equal(submissionBasis({ hasPattern: true, outcome: un, confirmed: false }).basis, null);
-  assert.match(submissionBasis({ hasPattern: true, outcome: un, confirmed: false }).note!, /builder_submitted: true/);
+  assert.match(submissionBasis({ hasPattern: true, outcome: un, confirmed: false }).note!, /Call tell with submitted once the builder confirms/);
   assert.equal(submissionBasis({ hasPattern: true, outcome: no, confirmed: true }).basis, null, 'a mismatch is never rescued by confirmation');
   assert.doesNotMatch(submissionBasis({ hasPattern: true, outcome: no, confirmed: false }).note!, /builder_submitted/);
   assert.equal(submissionBasis({ hasPattern: true, outcome: null, confirmed: true }).basis, null, 'a pattern program still needs its link');
   assert.deepEqual(submissionBasis({ hasPattern: false, outcome: null, confirmed: true }), { basis: 'confirmed', note: null });
   assert.equal(submissionBasis({ hasPattern: false, outcome: null, confirmed: false }).basis, null);
-  assert.match(submissionBasis({ hasPattern: false, outcome: null, confirmed: false }).note!, /builder_submitted: true/);
+  assert.match(submissionBasis({ hasPattern: false, outcome: null, confirmed: false }).note!, /Call tell with submitted once the builder confirms/);
 });
 
 test('Ruling 4 (plan): re-check transitions; a loaded page without the link clears the confirmation (I2)', () => {

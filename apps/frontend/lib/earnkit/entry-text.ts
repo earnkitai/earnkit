@@ -140,7 +140,7 @@ export function deadlineLabel(ends: Date) {
  * (roundEndLabel; null: no open round or no bonus, so no date). Pure.
  */
 export const noCoinYet = (endsLabel: string | null) =>
-  `No token yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet${endsLabel ? ` by ${endsLabel}` : ''}.`;
+  `No token yet: no wallet was given. When the builder replies with a wallet, call confirm with project_id, yes: true and the wallet${endsLabel ? ` by ${endsLabel}` : ''}.`;
 
 /** Final review M1: the one line for an entry whose repo another entry already holds here. */
 export const REPO_HELD = 'Another entry of this repo already holds its token and builder bonus here.';

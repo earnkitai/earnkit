@@ -506,7 +506,7 @@ export async function getProgramRow(programId: string) {
     SELECT * FROM programs WHERE id = ${programId}`;
   if (!program)
     throw new NotFoundError(
-      `No program with id "${programId}". Call list_programs for current ids.`,
+      `No program with id "${programId}". Call find for current ids.`,
     );
   return program;
 }
@@ -647,7 +647,7 @@ export function programDetails(
                 'unique users of your contracts during the campaign (with history before it); the top entries are public for 48 hours, then paid automatically',
               min_score: program.campaign.min_score,
               how_to_submit:
-                'Submit to EarnKit: call record_submission with the answers. There is no external site.',
+                'Submit to EarnKit: call confirm with the answers and the builder\'s yes. There is no external site.',
             }
           : {
               by: quoted(program.campaign.sponsor.name),
@@ -672,7 +672,7 @@ export function programDetails(
               judged_by:
                 "the sponsor, using EarnKit's score as a guide; picks and reasons are public",
               how_to_submit:
-                'Submit to EarnKit: call record_submission with the answers (contracts optional). There is no external site.',
+                'Submit to EarnKit: call confirm with the answers and the builder\'s yes (contracts optional). There is no external site.',
             },
     }),
     ...(sponsor && {

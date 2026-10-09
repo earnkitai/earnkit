@@ -178,7 +178,7 @@ const { upsertProgram } = await import('../lib/earnkit/programs');
 const { ProgramFile } = await import('../lib/earnkit/program-file');
 const { earnkitTexts } = await import('../lib/earnkit/campaign-text');
 const { saveInstallation, touchInstallation } = await import('../lib/earnkit/installations');
-const { tools } = await import('../lib/earnkit/tools');
+const { handlers } = await import('../lib/earnkit/tools');
 const { vetoKey } = await import('../lib/earnkit/veto');
 const { setSanctionsOracle } = await import('../lib/earnkit/sanctions');
 const { getCampaignBoard } = await import('../lib/earnkit/leaderboard');
@@ -304,7 +304,7 @@ const EMOJI = /\p{Extended_Pictographic}/u;
 
 // ---- 1. list_programs ----
 setClock(h(0.25));
-const first = (await tools.list_programs({}, { installationId: A })) as { show_to_builder: string };
+const first = (await handlers.list_programs({}, { installationId: A })) as { show_to_builder: string };
 show('list_programs (first message)', first.show_to_builder);
 ok(first.show_to_builder.startsWith('| Win | Prize | Ends | You |\n|---|---|---|---|\n| E2E Campaign | $100 each to top 2 (in MINI) | '), 'list_programs: the EarnKit campaign comes first, prize in USD');
 ok(!EMOJI.test(first.show_to_builder), 'list_programs: no emojis');
@@ -317,7 +317,7 @@ const CA2 = await deploy(DEPLOYER_A, 'Ping');
 const CB = await deploy(PAYOUT_B, 'Ping');
 const CC = await deploy(PAYOUT_C, 'Ping');
 const contractsA = [CA2.toUpperCase().replace('0X', '0x'), CA]; // as an agent might type them
-const prep = (await tools.prepare_submission(
+const prep = (await handlers.prepare_submission(
   {
     program_id: SLUG,
     project: { name: 'Tip Jar', repo_url: 'https://github.com/alice/tipjar' },
@@ -333,14 +333,14 @@ ok(!EMOJI.test(prep.show_to_builder) && !prep.token, 'the confirmation has no em
 files.set('alice/tipjar', `payout_wallet: ${lc(PAYOUT_A)}\n`);
 const tip = { ...entry('Tip Jar', 'alice/tipjar', contractsA, lc(PAYOUT_A)) };
 const wrong = await STRANGER.signMessage({ message: MESSAGE });
-const failed = await tools
+const failed = await handlers
   .record_submission({ ...tip, project: { ...tip.project, description: '' }, submission_data: { ...tip.submission_data, description: '' }, deployer_signature: wrong }, ctx(A))
   .then(() => null, (e: unknown) => e as Error);
 show('record_submission with a wrong signer', failed?.message);
-ok(failed?.message.startsWith('Fix these, then call record_submission again:'), 'a wrong signer: every problem at once');
+ok(failed?.message.startsWith('Fix these, then call confirm again:'), 'a wrong signer: every problem at once');
 ok(/description/.test(failed!.message) && failed!.message.includes(`sign exactly "${MESSAGE}"`), 'the missing answer and the exact text to sign, together');
 ok((await used(A)) === 0, "a failed attempt doesn't use the daily limit");
-const recA = (await tools.record_submission({ ...tip, deployer_signature: await DEPLOYER_A.signMessage({ message: MESSAGE }) }, ctx(A))) as Record<string, any>;
+const recA = (await handlers.record_submission({ ...tip, deployer_signature: await DEPLOYER_A.signMessage({ message: MESSAGE }) }, ctx(A))) as Record<string, any>;
 show('record_submission (signed) show_to_builder', recA.show_to_builder);
 ok(recA.recorded === true && (await used(A)) === 1, "entered by the deploying wallet's signature; one entry of the daily limit used");
 const idA: number = recA.project_id;
@@ -349,9 +349,9 @@ ok(rowA.deployers.join() === lc(DEPLOYER_A) && [...rowA.contracts].sort().join()
 files.set('bob/board', `payout_wallet: ${lc(PAYOUT_B)}\n`);
 files.set('carol/one', `payout_wallet: ${lc(PAYOUT_C)}\n`);
 setClock(h(0.6));
-const idB = ((await tools.record_submission(entry('Bounty Board', 'bob/board', [CB], lc(PAYOUT_B)), ctx(B))) as Record<string, any>).project_id as number;
+const idB = ((await handlers.record_submission(entry('Bounty Board', 'bob/board', [CB], lc(PAYOUT_B)), ctx(B))) as Record<string, any>).project_id as number;
 setClock(h(0.7));
-const idC = ((await tools.record_submission(entry('Carol One', 'carol/one', [CC], lc(PAYOUT_C)), ctx(C))) as Record<string, any>).project_id as number;
+const idC = ((await handlers.record_submission(entry('Carol One', 'carol/one', [CC], lc(PAYOUT_C)), ctx(C))) as Record<string, any>).project_id as number;
 ok(idA < idB && idB < idC, 'three entries recorded (B and C deployed from their payout wallets: no signature)');
 
 // ---- 3. activity on the chain, indexed by the mock explorer, and two days of cron ----
@@ -485,13 +485,13 @@ ok((await db<{ state: string }[]>`SELECT state FROM campaign_runs WHERE program_
 
 // ---- 8. the winner hears it ----
 setClock(new RealDate(payAt.getTime() + 2 * 3_600_000));
-const listA = (await tools.list_programs({}, { installationId: A })) as { show_to_builder: string };
+const listA = (await handlers.list_programs({}, { installationId: A })) as { show_to_builder: string };
 show('list_programs (winner)', listA.show_to_builder.split('\n')[0]);
 const txA = paid.find((p) => p.id === idA)!.prize_tx!;
 ok(listA.show_to_builder.startsWith(`Since you last checked: you won $100 in MINI with Tip Jar (basescan.org/tx/${txA})`), 'the winner hears it first on the next list_programs');
-const listA2 = (await tools.list_programs({}, { installationId: A })) as { show_to_builder: string };
+const listA2 = (await handlers.list_programs({}, { installationId: A })) as { show_to_builder: string };
 ok(!listA2.show_to_builder.includes('you won'), '...once');
-const listB = (await tools.list_programs({}, { installationId: B })) as { show_to_builder: string };
+const listB = (await handlers.list_programs({}, { installationId: B })) as { show_to_builder: string };
 ok(!listB.show_to_builder.includes('you won'), 'the vetoed entry hears no win');
 
 // ---- 9. nothing twice ----

@@ -30,7 +30,7 @@ import {
 import { sql } from './db';
 import { boardLink, shortWallet } from './entry-text';
 import { rememberWallets } from './installations';
-import { tools } from './tools';
+import { handlers } from './tools';
 
 const empty: AlertFacts = {
   newCampaigns: [], standings: [], prizes: [], fees: null, bonusWins: [], bonusStandings: [], newPrograms: [], fitRepos: [], skip: NO_SKIP, outcomeWins: [], entries: [],
@@ -547,14 +547,14 @@ test('sinceYouLastChecked: one connection per check, so more concurrent checks t
 
 test('list_programs: EarnKit wins, then sponsor wins, then other news (Ruling 26); wallet input is remembered', db, async () => {
   await seeded(async ({ tag, me, wallet, addCampaign }) => {
-    await tools.list_programs({}, { installationId: me }); // the quiet first check
+    await handlers.list_programs({}, { installationId: me }); // the quiet first check
     await sql()`
       INSERT INTO projects (program_id, name, installation_id, payout_wallet, score, prize_tx, prize_paid_at) VALUES
         (${tag + '-ek'}, 'EK win', ${me}, ${wallet}, 40, '0xek', now()),
         (${tag + '-sp'}, 'SP win', ${me}, ${wallet}, 40, '0xsp', now())`;
     await addCampaign(`${tag}-new`);
     const other = '0x' + 'b'.repeat(40);
-    const r = (await tools.list_programs({ wallet: other.toUpperCase().replace('0X', '0x') }, { installationId: me })) as {
+    const r = (await handlers.list_programs({ wallet: other.toUpperCase().replace('0X', '0x') }, { installationId: me })) as {
       show_to_builder: string;
     };
     const head = r.show_to_builder.split('\n')[0];

@@ -413,7 +413,7 @@ test('the question: once per installation, keeps the address unopted; shared cli
   try {
     assert.deepEqual(await askWeeklyEmail(a.id, { shared: false, email: 'a@b.co' }), {
       question: EMAIL_QUESTION,
-      agent_note: "Pass the builder's answer to tell_earnkit as weekly_email.",
+      agent_note: "Pass the builder's answer to tell as weekly_email.",
     });
     assert.equal(await askWeeklyEmail(a.id, { shared: false, email: 'a@b.co' }), null, 'once');
     const [row] = await sql()<{ email: string; opted_in_at: Date | null }[]>`SELECT email, opted_in_at FROM digest_subscriptions WHERE installation_id = ${a.id}`;

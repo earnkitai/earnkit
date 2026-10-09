@@ -235,7 +235,7 @@ export async function tell(
   const byId = new Map(programs.map((p) => [p.id, p]));
   const outcomes: { program_id: string; project_id: number; status: keyof typeof RESULT; prize_usd?: number }[] = [];
   for (const s of statuses) {
-    if (!byId.has(s.program_id)) throw new NotFoundError(`No program with id "${s.program_id}". Call list_programs for current ids.`);
+    if (!byId.has(s.program_id)) throw new NotFoundError(`No program with id "${s.program_id}". Call find for current ids.`);
     if (s.status === 'applied' || s.status === 'not_interested') continue;
     // A shared client (no key, or a verified login's key) names the entry: the newest may be another builder's.
     if ((memory === null || memory.login !== '') && !s.project_id) throw new NotFoundError(OUTCOME_NEEDS_ENTRY);

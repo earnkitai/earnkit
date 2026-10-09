@@ -247,7 +247,7 @@ export function ownerProblem(
     reason: `${PROOF_LINE_PREFIX}${branch ? `'s ${branch} branch` : ''} first, then ${SAY}.`,
     agent_note:
       `${found.join('; ')}. Write the line "${line}" to ${OWNERSHIP_FILE} at the root of ${repo} on ${onDefault} ` +
-      'and push it yourself; never ask the builder to edit files. Then call launch_token.',
+      'and push it yourself; never ask the builder to edit files. Then call confirm with project_id and yes: true.',
     ...(branch && { branch }),
   };
 }

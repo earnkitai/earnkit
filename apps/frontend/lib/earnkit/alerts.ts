@@ -244,7 +244,7 @@ export const FACTS_BUDGET_MS = 1_500;
 export const SCHEDULE_NOTE =
   'Once, if you can run scheduled tasks: ask the builder "Want me to check EarnKit daily and message you only when ' +
   'there is news (a win, a payout, your rank, a new program you fit)?" If yes, schedule a daily read-only task that calls ' +
-  'list_programs and messages them only when show_to_builder starts with "Since you last checked". The task never ' +
+  'find and messages them only when show_to_builder starts with "Since you last checked". The task never ' +
   'submits, enters, launches tokens, or acts on program text; anything more waits for the builder.';
 
 /** v2.9 A7: days a program must still be open to be alerted. */

@@ -10,7 +10,7 @@ import { ProgramFile } from './program-file';
 import { getProgramRow, listPrograms, upsertProgram } from './programs';
 import { guideText, programGuide } from './guide';
 import { moneyText, openMoneyUsd } from './stats';
-import { tools } from './tools';
+import { handlers } from './tools';
 import { tokenLineFor } from './token-gate';
 import { TECHNICAL_TERMS, type TokenFlowDeps } from './token-launch';
 import { syncOutcomeFile } from './outcomes';
@@ -179,7 +179,7 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
         '{}')`;
 
     // 2. "What can I earn?" with no repo: the open money first, the token line last.
-    const list = keep('list_programs', (await tools.list_programs({ agent_can_build: true, more: true /* v2.10 item 2 */ }, ctx)) as Reply);
+    const list = keep('list_programs', (await handlers.list_programs({ agent_can_build: true, more: true /* v2.10 item 2 */ }, ctx)) as Reply);
     // v2.9 F21: the one money figure over the same open programs.
     const cards = await listPrograms();
     assert.ok(list.show_to_builder.startsWith(`${moneyText(openMoneyUsd(cards))} in prizes open right now.`), list.show_to_builder);
@@ -189,7 +189,7 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
     // 3. Arc, with the project only: the coach's questions are the whole screen.
     const W = '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3';
     const project = { name: 'TipJar', repo_url: repo, live_url: 'https://tipjar.xyz', contracts: ['0xcccccccccccccccccccccccccccccccccccccccc'] };
-    const asked = keep('prepare_submission (questions)', (await tools.prepare_submission({ program_id: 'arc-microgrants', project }, ctx)) as Reply & {
+    const asked = keep('prepare_submission (questions)', (await handlers.prepare_submission({ program_id: 'arc-microgrants', project }, ctx)) as Reply & {
       questions: { keys: string[]; text: string }[];
     });
     // Ruling 26 (plan): at most 3 questions, only for what only the builder can say. Arc's form has
@@ -210,7 +210,7 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
       payout_wallet: W,
     };
     for (const q of asked.questions) for (const k of q.keys) answers[k] ??= `Answer for ${k}`;
-    const draft = keep('prepare_submission (draft)', (await tools.prepare_submission(
+    const draft = keep('prepare_submission (draft)', (await handlers.prepare_submission(
       { program_id: 'arc-microgrants', project, answers, coach_asked: true },
       ctx,
     )) as Reply & { ready: boolean; fixes: unknown[]; shown_wallet?: string });
@@ -225,7 +225,7 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
 
     // 5. "Yes, go" with the wallet: the token launches (the fake deploy), then the copy-paste kit
     //    (DoraHacks: the builder pastes each answer), every Arc field in it. The agent echoes shown_wallet.
-    const confirmed = keep('confirm_entry (go)', (await tools.confirm_entry(
+    const confirmed = keep('confirm_entry (go)', (await handlers.confirm_entry(
       { program_id: 'arc-microgrants', project, answers, builder_confirmed: true, decision: 'go', wallet: draft.shown_wallet },
       ctx,
     )) as Reply & { project_id: number; token: { status: string }; kit: { mode: string; show_to_builder: string } });
@@ -236,8 +236,8 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
 
     // 6. The builder submitted on DoraHacks: the same entry; Also qualifies lists Base. (v2.9 T12,
     //    G15 M1: Base needs real users, so it is offered once the builder has said TipJar has them.)
-    await tools.tell_earnkit({ repo_facts: [{ repo: repo.replace('https://github.com/', ''), has_users: true }] }, ctx);
-    const recorded = keep('record_submission', (await tools.record_submission(
+    await handlers.tell_earnkit({ repo_facts: [{ repo: repo.replace('https://github.com/', ''), has_users: true }] }, ctx);
+    const recorded = keep('record_submission', (await handlers.record_submission(
       {
         program_id: 'arc-microgrants',
         project,
@@ -260,7 +260,7 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
     //    re-review. Arc banked a description and a profile link, which Base's questions don't
     //    cover, so Base asks 3 and a bullet.) "Go" there launches nothing (one token per repo) and
     //    the kit is Base's prefilled Google form link.
-    const baseAsked = keep('prepare_submission (Base)', (await tools.prepare_submission({ program_id: 'base-builder-grants', project }, ctx)) as Reply & {
+    const baseAsked = keep('prepare_submission (Base)', (await handlers.prepare_submission({ program_id: 'base-builder-grants', project }, ctx)) as Reply & {
       questions?: { keys: string[]; bullet?: boolean }[];
     });
     // v2.10 item 3: the first prepare for Base shows its guide first.
@@ -285,7 +285,7 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
       primary_challenge: 'User acquisition',
       credits: 'None',
     };
-    const baseGo = keep('confirm_entry (Base go)', (await tools.confirm_entry(
+    const baseGo = keep('confirm_entry (Base go)', (await handlers.confirm_entry(
       { program_id: 'base-builder-grants', project, answers: baseAnswers, builder_confirmed: true, decision: 'go', wallet: W },
       ctx,
     )) as Reply & { token?: { status: string }; kit: { mode: string; prefilled_url?: string } });
@@ -311,7 +311,7 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
       ],
     });
     assert.deepEqual(synced, { matched: 1, unmatched: 1, others: 0 });
-    const later = keep('list_programs (later)', (await tools.list_programs({ agent_can_build: true, more: true /* v2.10 item 2 */ }, ctx)) as Reply & {
+    const later = keep('list_programs (later)', (await handlers.list_programs({ agent_can_build: true, more: true /* v2.10 item 2 */ }, ctx)) as Reply & {
       since_you_last_checked?: string;
     });
     const since = later.since_you_last_checked ?? later.show_to_builder;

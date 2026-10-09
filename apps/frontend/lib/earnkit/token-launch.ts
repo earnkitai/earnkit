@@ -19,7 +19,7 @@ import { logoDefaults, type Logo } from './token-logo';
  * the tool and the field.
  */
 export const CANT_PUSH_RETRY_NOTE =
-  "If you can't push to this repo, call confirm_entry again with agent: { can_push: false }: the entry records without a token and the kit comes back.";
+  "If you can't push to this repo, call confirm again with agent: { can_push: false }: the entry records without a token and the kit comes back.";
 import { TOKEN_ERROR_CONFIRM } from './confirm';
 import { todoOf } from './entry-text';
 import {
@@ -119,11 +119,11 @@ export type Decision =
 export const NO_WALLET = "Not launched: no wallet for the token's fees yet.";
 /** v2.7 §4 fix round 1: exported so copy-review.test.ts can scan it. */
 export const NO_WALLET_AGENT =
-  'Ask the builder for the wallet that receives creator fees and call launch_token with creator_wallet.';
+  'Ask the builder for the wallet that receives creator fees and call confirm with project_id, yes: true and that wallet.';
 const NEEDS_SYMBOL = "Not launched: the token's name and ticker weren't confirmed yet.";
 /** v2.7 §4 fix round 1: exported so copy-review.test.ts can scan it. */
 export const NEEDS_SYMBOL_AGENT =
-  "Pass token: { name, symbol } exactly as shown to the builder (from prepare_submission's token.proposed), or call launch_token.";
+  "Pass token: { name, symbol } exactly as shown to the builder (from prepare's token.proposed), or call confirm with project_id and yes: true.";
 
 /** C6: the builder's note when the final ticker is already used on tokens.fun. Pure. */
 export const tickerTakenNote = (next: string) => `That ticker is taken. Pick another, or say go for $${next}.`;
@@ -177,14 +177,14 @@ export function decideToken(a: {
   if (a.policy === 'off')
     return { action: 'skip', note: "Not launched: this program doesn't allow tokens for entries." };
   if (a.choice === 'skip')
-    return { action: 'skip', note: 'Not launched: the builder said no token.', agent_note: 'Call launch_token later if they change their mind.' };
+    return { action: 'skip', note: 'Not launched: the builder said no token.', agent_note: 'Call confirm with project_id and yes: true later if they change their mind.' };
   // A pending claim never gets here (runTokenFlow answers it first, pendingOutcome).
   if (a.existingTokenUrl) return { action: 'refuse', note: `This project already has a token: ${a.existingTokenUrl}` };
   if (!a.confirmed)
     return {
       action: 'skip',
       note: "Not launched: the token wasn't confirmed yet.",
-      agent_note: 'Pass builder_confirmed: true once the builder has seen the token row, or call launch_token later.',
+      agent_note: 'Pass yes: true once the builder has seen the token row, or call confirm with project_id and yes: true later.',
     };
   const choice = a.choice ?? {};
   if (a.needsSymbol && !choice.symbol?.trim()) return { action: 'skip', note: NEEDS_SYMBOL, agent_note: NEEDS_SYMBOL_AGENT };
@@ -210,7 +210,7 @@ export function decideToken(a: {
 const ownershipLine = (tokenLine: string | null) =>
   tokenLine
     ? `Write the line "${tokenLine}" to ${OWNERSHIP_FILE} at the repo root (default branch) and push it yourself ` +
-      'before record_submission; never ask the builder to edit files. It is for this agent and this repo only; ' +
+      'before confirm; never ask the builder to edit files. It is for this agent and this repo only; ' +
       'a new ticker needs no new line.'
     : "Pass the project's repo_url to get its earnkit.txt token line.";
 
@@ -251,7 +251,7 @@ export async function tokenProposalBlock(
   if (!a.creatorWallet) notes.push('Ask the builder for the wallet that receives creator fees.');
   // Ruling 22: outside campaigns the wallet goes to record_submission explicitly.
   if (!program.campaign)
-    notes.push("Pass the wallet the builder confirmed (the wallet on the confirm line) as record_submission's payout_wallet");
+    notes.push("Pass the wallet the builder confirmed (the wallet on the confirm line) as confirm's wallet");
   // Shown only to this agent (prepare_submission's reply): its code is useless to anyone else.
   const tokenLine = a.repoUrl ? tokenLineFor(a.installationId, a.repoUrl) : null;
   const hasBonus = hasBuilderBonus(program);
@@ -362,8 +362,8 @@ export function entryMissing(project: FlowProject, known?: KnownInfo): { key: st
 /** C7: the agent's side of a not-ready skip: which keys, and how the token launches afterwards. Exported for the copy review. */
 export const notReadyAgentNote = (keys: string[]) =>
   `Required items are missing (${keys.join(', ')}), so no token was launched. Once the builder has them, ` +
-  'call record_submission again with every answer (it updates this entry and launches the token), or ' +
-  'launch_token with live_url or repo_url when only a link was missing.';
+  'call confirm again with every answer and yes: true (it updates this entry and launches the token), or ' +
+  'confirm with project_id, yes: true and project: { live_url } or { repo_url } when only a link was missing.';
 
 /** v2.9 A5: an entry's stored checks and its program's contract chain. */
 type StoredChecks = { live_verified_at: Date | null; contract_verified_at: Date | null; needs_contract: Chain | null };
@@ -509,9 +509,10 @@ function storedProposal(p: FlowProject) {
   return 'name' in name ? { name: name.name, symbol: p.token_symbol } : null;
 }
 
-/** Ruling 31: tool, field or file names a builder-facing note must never carry. */
+/** Ruling 31: tool, field or file names a builder-facing note must never carry. v2.10 item 4: the old
+ * names, and the new ones in a call shape ("call confirm"; as plain words they are English). */
 export const TECHNICAL_TERMS =
-  /\b(launch_token|record_submission|prepare_submission|confirm_entry|tell_earnkit|pick_up_entries|list_programs|get_program|creator_wallet|payout_wallet|repo_url|live_url|image_data|image_url|builder_x|builder_confirmed|builder_submitted|project_id|external_submission_url|token_line)\b|earnkit\.txt/;
+  /\b(launch_token|record_submission|prepare_submission|confirm_entry|tell_earnkit|pick_up_entries|list_programs|get_program|creator_wallet|payout_wallet|repo_url|live_url|image_data|image_url|builder_x|builder_confirmed|builder_submitted|project_id|external_submission_url|token_line|skip_token)\b|earnkit\.txt|\b[Cc]all(s|ing)? (find|prepare|confirm|tell)\b|\b(find|prepare|confirm|tell)( with\b|\()|\bthe (find|prepare|confirm|tell) tool\b/;
 
 /**
  * A LaunchError or RateLimitError as an outcome. Ruling 31: a message naming a field (an image or
@@ -657,7 +658,7 @@ async function runTokenFlow(
     // Ruling 18 (plan): at submission, no wallet means the entry has no coin yet.
     if (decision.action === 'refuse' && decision.code === 'no_wallet' && a.mode !== 'launch')
       return a.mode === 'confirm'
-        ? fix({ ...out, no_wallet: true, agent_note: 'Ask the builder for their wallet and call confirm_entry again with it as wallet.' })
+        ? fix({ ...out, no_wallet: true, agent_note: 'Ask the builder for their wallet and call confirm again with it as wallet.' })
         : { ...out, no_wallet: true };
     // v2.8 Ruling 4 (plan): a name or ticker the builder can change now; a token in progress is not.
     return decision.action === 'refuse' && !project.token_url ? fix(out) : out;
@@ -689,8 +690,8 @@ async function runTokenFlow(
         next.symbol,
         `${symbol} is already used on tokens.fun (check-ticker), so nothing was deployed. ` +
           (a.mode === 'confirm'
-            ? `If the builder says go, call confirm_entry again (it uses the stored ${next.symbol}); for their own ticker, pass token.symbol.`
-            : `If the builder says go, call launch_token (it uses the stored ${next.symbol}); for their own ticker, pass symbol.`),
+            ? `If the builder says go, call confirm again with yes: true (it uses the stored ${next.symbol}); for their own ticker, pass token.symbol.`
+            : `If the builder says go, call confirm with project_id and yes: true (it uses the stored ${next.symbol}); for their own ticker, pass token.symbol.`),
       )),
       ticker_taken: symbol,
     });
@@ -779,7 +780,7 @@ async function runTokenFlow(
 async function ownProject(store: FlowStore, projectId: number, installationId: number) {
   const project = await store.load(projectId);
   if (!project || project.installation_id !== installationId)
-    throw new LaunchError(`No project ${projectId} recorded by you. Call record_submission first.`);
+    throw new LaunchError(`No project ${projectId} recorded by you. Call confirm first.`);
   return project;
 }
 
@@ -998,7 +999,7 @@ function toConfirmWords(out: TokenOutcome): TokenOutcome {
   const note = out.note?.replace(/say 'launch the token'/g, 'say go');
   if (!out.fixable) return { ...out, ...(note && { note }) };
   const proofLine = out.note?.startsWith(PROOF_LINE_PREFIX) === true;
-  const agentNote = out.agent_note?.replace(/call launch_token/g, 'call confirm_entry again');
+  const agentNote = out.agent_note?.replace(/call confirm with project_id and yes: true/g, 'call confirm again with yes: true');
   return {
     ...out,
     ...(note && { note }),
@@ -1097,7 +1098,7 @@ export async function launchToken(
 ): Promise<TokenOutcome> {
   const { project_id, builder_confirmed: _c, chain, live_url, repo_url, check_back, signed_in: _s, offer: _o, decision: _d, agent: _a, ...choice } = input;
   // v2.9 B10: an offer is made into an entry by the launch_token tool first (tools.ts launchFromOffer).
-  if (project_id === undefined) throw new LaunchError('launch_token needs project_id here');
+  if (project_id === undefined) throw new LaunchError('Pass project_id.');
   const store = deps.store ?? dbStore;
   const project = await ownProject(store, project_id, installationId);
   // v2.8 Ruling 3 (plan): refused before anything is checked, changed or launched.
