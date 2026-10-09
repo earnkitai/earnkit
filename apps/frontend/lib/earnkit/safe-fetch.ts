@@ -253,28 +253,36 @@ export function pinnedLookup(address: string, family: 4 | 6) {
   };
 }
 
-const nodeTransport: Transport = ({ url, address, family, signal, userAgent, accept }) =>
+/**
+ * The https.request options for one vetted fetch (nodeTransport). Pure; exported so the request
+ * line (v2.10 item 12: the path keeps the query) is pinned by a test.
+ */
+export function requestOptions({ url, address, family, signal, userAgent, accept }: Parameters<Transport>[0]): https.RequestOptions {
+  return {
+    protocol: 'https:',
+    hostname: url.hostname,
+    port: 443,
+    // v2.10 item 12: the query too (image links such as /_next/image?url=... need it).
+    path: url.pathname + url.search,
+    method: 'GET',
+    // TLS to the hostname (SNI + certificate verified against it); the socket goes to the
+    // vetted address only.
+    servername: url.hostname,
+    lookup: pinnedLookup(address, family) as never,
+    // A fresh connection: never a pooled socket to some other address.
+    agent: false,
+    signal,
+    headers: {
+      accept: accept ?? 'text/plain',
+      'user-agent': userAgent ?? 'EarnKit-verifier/1',
+    },
+  };
+}
+
+const nodeTransport: Transport = (req0) =>
   new Promise((resolve, reject) => {
     const req = https.request(
-      {
-        protocol: 'https:',
-        hostname: url.hostname,
-        port: 443,
-        // v2.10 item 12: the query too (image links such as /_next/image?url=... need it).
-        path: url.pathname + url.search,
-        method: 'GET',
-        // TLS to the hostname (SNI + certificate verified against it); the socket goes to the
-        // vetted address only.
-        servername: url.hostname,
-        lookup: pinnedLookup(address, family) as never,
-        // A fresh connection: never a pooled socket to some other address.
-        agent: false,
-        signal,
-        headers: {
-          accept: accept ?? 'text/plain',
-          'user-agent': userAgent ?? 'EarnKit-verifier/1',
-        },
-      },
+      requestOptions(req0),
       (res) => {
         const length = Number(res.headers['content-length']);
         const type = res.headers['content-type'];

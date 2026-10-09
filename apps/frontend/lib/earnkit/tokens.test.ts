@@ -388,13 +388,13 @@ test('6.4 deployToken: no upload and no logo sends the generated mark, never the
   await sql()`
     INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work)
     VALUES (${tag}, 'X', 'P', 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed')`;
-  const launch = async (n: number, image: { bytes: Buffer; type: string } | null) => {
+  const launch = async (n: number, image: { bytes: Buffer; type: string } | null, imageUrl?: string) => {
     const repo = `https://github.com/alice/${tag}-${n}`;
     const [p] = await sql()<{ id: number }[]>`
       INSERT INTO projects (program_id, name, installation_id, repo_url) VALUES (${tag}, 'TipJar', ${inst.id}, ${repo}) RETURNING id`;
     let sent = '';
     const out = await deployToken(
-      { projectId: p.id, installationId: inst.id, name: 'Tip Jar', symbol: 'TIPJ', creatorWallet: `0x${'1'.repeat(40)}`, image, repoUrl: repo, liveUrl: null },
+      { projectId: p.id, installationId: inst.id, name: 'Tip Jar', symbol: 'TIPJ', creatorWallet: `0x${'1'.repeat(40)}`, image, imageUrl, repoUrl: repo, liveUrl: null },
       { fetch: (async (_u: unknown, init?: RequestInit) => ((sent = String(init?.body)), Response.json({ success: true, tokenAddress: `0x${(await import('node:crypto')).randomBytes(20).toString('hex')}`, txHash: '0x1' }))) as typeof fetch },
     );
     assert.equal(out.status, 'launched');
@@ -410,6 +410,18 @@ test('6.4 deployToken: no upload and no logo sends the generated mark, never the
     const [row] = await sql()<{ token_image: Buffer; token_image_type: string }[]>`SELECT token_image, token_image_type FROM projects WHERE id = ${logo.id}`;
     assert.deepEqual(Buffer.from(row.token_image), PNG);
     assert.equal(row.token_image_type, 'image/png');
+    // Ruling H7: a safe agent link is sent as given; one that may carry a secret falls to the mark.
+    const given = await launch(3, null, 'https://tipjar.xyz/logo.png');
+    assert.equal(given.body.imageUrl, 'https://tipjar.xyz/logo.png');
+    const err = console.error;
+    console.error = () => {};
+    try {
+      const raw = await launch(4, null, 'https://raw.githubusercontent.com/alice/tipjar/main/logo.png?token=GHSAT0');
+      assert.equal(raw.body.imageUrl, `https://earnkit.test/api/projects/${raw.id}/mark`);
+      assert.ok(!raw.raw.includes('GHSAT0'));
+    } finally {
+      console.error = err;
+    }
   } finally {
     console.log = log;
     if (key === undefined) delete process.env.TOKENSFUN_DEPLOY_API_KEY;

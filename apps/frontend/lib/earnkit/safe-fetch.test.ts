@@ -8,6 +8,7 @@ import {
   errorPageText,
   isPublicAddress,
   pinnedLookup,
+  requestOptions,
   resolveBoth,
   safeFetchText,
   safeProbe,
@@ -533,4 +534,20 @@ test('H4 safeProbe asks for HTML; text fetches still ask for text/plain', async 
   await safeFetchText('https://example.com/f.txt', { resolve: publicResolver, transport: typed('ok', 'text/plain', accepts) });
   assert.deepEqual(accepts, [PROBE_ACCEPT, undefined]);
   assert.equal(PROBE_ACCEPT, 'text/html,*/*;q=0.8');
+});
+
+test('v2.10 item 12: the real transport requests the path with its query', () => {
+  const o = requestOptions({
+    url: new URL('https://tipjar.xyz/_next/image?url=%2Flogo.png&w=256'),
+    address: '93.184.216.34',
+    family: 4,
+    signal: new AbortController().signal,
+    accept: 'image/png',
+  });
+  assert.equal(o.path, '/_next/image?url=%2Flogo.png&w=256');
+  assert.equal(o.hostname, 'tipjar.xyz');
+  assert.equal(o.servername, 'tipjar.xyz');
+  assert.equal(o.port, 443);
+  assert.equal(o.agent, false);
+  assert.deepEqual(o.headers, { accept: 'image/png', 'user-agent': 'EarnKit-verifier/1' });
 });

@@ -74,6 +74,23 @@ export function imageTypeOf(bytes: Buffer): 'image/png' | 'image/jpeg' | 'image/
   return null;
 }
 
+/**
+ * v2.10 Ruling H7: an agent's image_url that may carry a secret is never sent onchain: one with
+ * userinfo, a `token`, `sig` or `key` query parameter, or a raw.githubusercontent.com link with any
+ * query (a private-repo raw link carries its token there). Pure.
+ */
+export function unsafeImageUrl(url: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return true;
+  }
+  if (u.username || u.password) return true;
+  if ([...u.searchParams.keys()].some((k) => /^(token|sig|key)$/i.test(k))) return true;
+  return u.hostname.toLowerCase() === 'raw.githubusercontent.com' && u.search !== '';
+}
+
 type DeployResponse = {
   success?: boolean;
   tokenAddress?: string;
@@ -596,9 +613,12 @@ export async function deployToken(
       : { status: 'failed', note: `This project already has a token: ${existing.token_url}` };
   }
 
+  // Ruling H7: a refused agent link falls back to the generated mark.
+  const agentUrl = a.imageUrl && !unsafeImageUrl(a.imageUrl) ? a.imageUrl : undefined;
+  if (a.imageUrl && !agentUrl) console.error(`[launch] project ${a.projectId}: image_url refused (may carry a secret); sending the mark`);
   const imageUrl = a.image
     ? `${origin}/api/projects/${a.projectId}/image`
-    : (a.imageUrl ??
+    : (agentUrl ??
       // v2.10 item 12: the generated mark (shape and gradient from the id, no letters); never the
       // text tile. Stable: the same id always draws the same mark, so the onchain link never changes.
       `${origin}/api/projects/${a.projectId}/mark`);

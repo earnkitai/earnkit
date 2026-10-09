@@ -5,7 +5,9 @@ import {
   IMAGE_MAX_BYTES,
   LARGE_PAGE_MAX_BYTES,
   RedirectError,
+  type Resolver,
   SafeFetchError,
+  type Transport,
   safeFetchBytes,
   safeFetchText,
   sameSite,
@@ -33,6 +35,10 @@ export type LogoDeps = {
   image?: (url: string) => Promise<Buffer>;
   /** The repo's custom social preview link, or null (default: one GitHub GraphQL read). */
   preview?: (repoKey: string) => Promise<string | null>;
+  /** The resolver and transport under the default page and image reads (tests: no network). */
+  net?: { resolve?: Resolver; transport?: Transport };
+  /** The overall budget (default LOGO_BUDGET_MS; tests shorten it). */
+  budgetMs?: number;
 };
 
 export const LOGO_BUDGET_MS = 8_000;
@@ -114,7 +120,12 @@ export async function githubPreview(repoKey: string, doFetch: typeof fetch = fet
     }),
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    // A revoked or rate-limited GITHUB_TOKEN would quietly send every launch to the mark: say so
+    // (the status only; never the token or the repo).
+    console.error('[logo] github preview read failed', res.status);
+    return null;
+  }
   const repo = ((await res.json()) as {
     data?: { repository?: { isPrivate?: boolean; usesCustomOpenGraphImage?: boolean; openGraphImageUrl?: string } | null };
   }).data?.repository;
@@ -131,13 +142,14 @@ export async function resolveLogo(
   a: { liveUrl: string | null; repoKey: string | null },
   deps: LogoDeps = {},
 ): Promise<Logo | null> {
-  const deadline = Date.now() + LOGO_BUDGET_MS;
+  const budgetMs = deps.budgetMs ?? LOGO_BUDGET_MS;
+  const deadline = Date.now() + budgetMs;
   const timeoutMs = () => Math.max(1, Math.min(FETCH_TIMEOUT_MS, deadline - Date.now()));
   const page =
     deps.page ??
-    ((u: string) => oneRedirect(u, (x) => safeFetchText(x, { maxBytes: LARGE_PAGE_MAX_BYTES, timeoutMs: timeoutMs(), accept: 'text/html' }), true));
+    ((u: string) => oneRedirect(u, (x) => safeFetchText(x, { ...deps.net, maxBytes: LARGE_PAGE_MAX_BYTES, timeoutMs: timeoutMs(), accept: 'text/html' }), true));
   const image =
-    deps.image ?? ((u: string) => oneRedirect(u, (x) => safeFetchBytes(x, { maxBytes: IMAGE_MAX_BYTES, timeoutMs: timeoutMs() }), false));
+    deps.image ?? ((u: string) => oneRedirect(u, (x) => safeFetchBytes(x, { ...deps.net, maxBytes: IMAGE_MAX_BYTES, timeoutMs: timeoutMs() }), false));
   const preview = deps.preview ?? ((k: string) => githubPreview(k));
 
   const fetchImage = async (href: string) => {
@@ -167,7 +179,7 @@ export async function resolveLogo(
   };
   let timer: ReturnType<typeof setTimeout> | undefined;
   const budget = new Promise<null>((resolve) => {
-    timer = setTimeout(() => resolve(null), LOGO_BUDGET_MS);
+    timer = setTimeout(() => resolve(null), budgetMs);
   });
   try {
     return await Promise.race([run().catch(() => null), budget]);
@@ -178,7 +190,8 @@ export async function resolveLogo(
 
 /**
  * The launch's logo: the repo's preview is read only when the repo isn't private and has an
- * anonymous public read within 7 days (Ruling H6, fail closed).
+ * anonymous public read within 7 days (Ruling H6, fail closed). That one indexed DB read runs
+ * before resolveLogo's 8 s budget starts (it is fast, and a failure reads as not public).
  */
 export async function launchLogo(
   a: { liveUrl: string | null; repoUrl: string | null; repoPrivate: boolean },
@@ -224,6 +237,10 @@ function hex(h: number, s: number, l: number) {
 /**
  * v2.10 item 12: the generated mark for a project: one shape on a two-colour gradient, all from
  * the id. Deterministic; no letters. Pure.
+ *
+ * MUST STAY STABLE: launched tokens carry /api/projects/<id>/mark onchain and it is cached as
+ * immutable, so any change to hashOf, hex, SHAPES or the route's drawing silently redraws every
+ * launched token's logo. token-logo.test.ts pins reference values (test 6.3).
  */
 export function markFor(projectId: number): Mark {
   const h = hashOf(projectId);
