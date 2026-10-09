@@ -1,7 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
-import { FREE_CAPS, freeTierRoom, periodKey, takeFreeTier } from './free-tier';
+import { FREE_CAPS, freeTierRoom, giveBackFreeTier, periodKey, takeFreeTier } from './free-tier';
 
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {
@@ -53,5 +53,25 @@ test('8.14 r2Writes refuses a batch that would cross 900,000 and leaves the coun
     assert.equal(await takeFreeTier('r2Writes', 900_001, new Date(Date.UTC(2094, 0, 1))), false, 'over the cap alone');
   } finally {
     await clear('r2Writes', [key]);
+  }
+});
+
+test('v2.10 item 13: the deploy caps; giveBackFreeTier returns a reserve and never goes below 0', db, async () => {
+  assert.deepEqual(FREE_CAPS.deploysDay, { cap: 20, period: 'day' });
+  assert.deepEqual(FREE_CAPS.deployGasMonth, { cap: 10_000_000, period: 'month' });
+  const m = new Date(Date.UTC(2097, Number(process.pid % 12), 9));
+  const key = periodKey('month', m);
+  await clear('deployGasMonth', [key]);
+  try {
+    assert.equal(await takeFreeTier('deployGasMonth', 10_000, m), true);
+    await giveBackFreeTier('deployGasMonth', 4_000, m);
+    assert.equal(await freeTierRoom('deployGasMonth', 10_000_000 - 6_000, m), true);
+    assert.equal(await freeTierRoom('deployGasMonth', 10_000_000 - 5_999, m), false);
+    await giveBackFreeTier('deployGasMonth', 1_000_000, m);
+    const [{ used }] = await sql()<{ used: number }[]>`SELECT used FROM free_tier_usage WHERE name = 'deployGasMonth' AND period = ${key}`;
+    assert.equal(used, 0);
+    await giveBackFreeTier('deployGasMonth', 5, new Date(Date.UTC(2098, 0, 1))); // no row: nothing happens
+  } finally {
+    await clear('deployGasMonth', [key]);
   }
 });

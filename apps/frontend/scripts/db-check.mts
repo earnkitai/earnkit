@@ -648,5 +648,20 @@ const [digestRow] = await db<{ email: string; opted: boolean; sent: boolean; ask
 ok(digestRow?.email === 'a@b.co' && digestRow.opted && digestRow.sent && digestRow.asked,
   'digest subscriptions and digest_asked_at survive the schema running again');
 
+// v2.10 item 13: a contract deploy row survives the schema running again; a chain outside Arc and
+// Base and an unknown status are refused.
+await db`INSERT INTO contract_deploys (installation_id, repo_key, chain, tx_hash, status, cost_micro_usd)
+  VALUES (${memInst}, 'alice/tipjar', 'base', '0xab', 'deployed', 5000)`;
+const badChain = await db`INSERT INTO contract_deploys (installation_id, repo_key, chain, tx_hash, status, cost_micro_usd)
+  VALUES (${memInst}, 'alice/tipjar', 'monad', '0xab', 'sent', 0)`.then(() => false, () => true);
+ok(badChain, 'contract_deploys refuses a chain other than arc and base');
+const badContractStatus = await db`INSERT INTO contract_deploys (installation_id, repo_key, chain, tx_hash, status, cost_micro_usd)
+  VALUES (${memInst}, 'alice/tipjar', 'arc', '0xab', 'pending', 0)`.then(() => false, () => true);
+ok(badContractStatus, 'contract_deploys refuses an unknown status');
+await db.unsafe(now);
+const [deployRow] = await db<{ n: number; cost: string }[]>`
+  SELECT count(*)::int AS n, max(cost_micro_usd)::text AS cost FROM contract_deploys`;
+ok(deployRow.n === 1 && deployRow.cost === '5000', 'contract deploy rows survive the schema running again');
+
 await db.end();
 console.log(`db check: ${checks} checks passed`);
