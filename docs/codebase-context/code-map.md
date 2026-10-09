@@ -649,7 +649,7 @@ apps/frontend/
                                v2.10 item 13: PrepareInput.deploy (DeployField, P9 owner_wallet), deployStep (the deployed line, reply.deploy), deployWalletLine.
     tokens.ts(+test)           tokensFunUrl() (v2.9 T12: TOKENSFUN_API_URL read per call, never at import);
                                v2.10 item 11: tokenDescription (plain description, else the entry's
-                               one-liner, else "<Name> on Base"; at most 280 characters), deployToken's description;
+                               one-liner, else "<Name> on <Chain>" for a one-chain program, else "<Name>"; at most 280 characters), deployToken's description;
                                v2.10 item 12: imageTypeOf (PNG/JPEG/WebP bytes, else null); no upload or
                                logo sends /api/projects/<id>/mark, never token-image;
                                deployToken via tokens.fun /api/v1/deploy (TOKENSFUN_DEPLOY_API_KEY;

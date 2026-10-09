@@ -306,7 +306,7 @@ test('4.12 (R10) a private repo\'s entry sends tokens.fun the live link as websi
   }
 });
 
-test('5.5 tokenDescription: plain words up to 280 characters, else the one-liner, else "<Name> on Base"', () => {
+test('5.5 tokenDescription: plain words up to 280 characters, else the one-liner, else "<Name> on <its program\'s chain>"', () => {
   const addr = `0x${'ab12'.repeat(10)}`;
   assert.equal(tokenDescription({ name: 'TipJar', description: 'Tips for creators in USDC.' }), 'Tips for creators in USDC.');
   // A long clean description is kept, cut at a word boundary.
@@ -320,10 +320,21 @@ test('5.5 tokenDescription: plain words up to 280 characters, else the one-liner
     tokenDescription({ name: 'TipJar', description: `Contract ${addr} TVL: 1, tx: 2`, one_liner: '  Tips for creators in USDC.  ' }),
     'Tips for creators in USDC.',
   );
-  // Both unplain (or missing): the name on Base.
-  assert.equal(tokenDescription({ name: 'TipJar', description: `Contract ${addr} TVL: 1, tx: 2`, one_liner: `See ${addr}` }), 'TipJar on Base');
-  assert.equal(tokenDescription({ name: 'TipJar', description: null }), 'TipJar on Base');
-  assert.equal(tokenDescription({ name: 'TipJar', description: '  ', one_liner: null }), 'TipJar on Base');
+  // Both unplain (or missing): the name on the program's own chain.
+  const base = ['base'];
+  assert.equal(tokenDescription({ name: 'TipJar', description: `Contract ${addr} TVL: 1, tx: 2`, one_liner: `See ${addr}`, chains: base }), 'TipJar on Base');
+  assert.equal(tokenDescription({ name: 'TipJar', description: null, chains: base }), 'TipJar on Base');
+  assert.equal(tokenDescription({ name: 'TipJar', description: '  ', one_liner: null, chains: base }), 'TipJar on Base');
+});
+
+test('5.5b final fix I1 (c2): the fallback names the program\'s own chain, and never says "on Base" unless the project is on Base', () => {
+  assert.equal(tokenDescription({ name: 'TipJar', description: null, chains: ['arc'] }), 'TipJar on Arc');
+  assert.equal(tokenDescription({ name: 'TipJar', description: null, chains: ['robinhood'] }), 'TipJar on Robinhood Chain');
+  // An any-chain program (no chains), a program on several chains, an unknown chain, or no program: the name alone.
+  assert.equal(tokenDescription({ name: 'TipJar', description: null, chains: [] }), 'TipJar');
+  assert.equal(tokenDescription({ name: 'TipJar', description: null, chains: ['base', 'tempo', 'robinhood'] }), 'TipJar');
+  assert.equal(tokenDescription({ name: 'TipJar', description: null, chains: ['solana'] }), 'TipJar');
+  assert.equal(tokenDescription({ name: 'TipJar', description: null }), 'TipJar');
 });
 
 test('5.6 deployToken sends tokens.fun the plain description', dbTest, async () => {
@@ -339,11 +350,17 @@ test('5.6 deployToken sends tokens.fun the plain description', dbTest, async () 
   await sql()`
     INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work)
     VALUES (${tag}, 'X', 'P', 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed')`;
-  const launch = async (n: number, description: string | null, application: unknown) => {
+  // Final fix I1 (c2): an Arc program and an any-chain program beside the Base one.
+  await sql()`UPDATE programs SET chains = '{base}' WHERE id = ${tag}`;
+  await sql()`
+    INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work, chains, any_chain)
+    VALUES (${`${tag}-arc`}, 'X', 'P', 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed', '{arc}', false),
+           (${`${tag}-any`}, 'X', 'P', 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed', '{}', true)`;
+  const launch = async (n: number, description: string | null, application: unknown, program = tag) => {
     const repo = `https://github.com/alice/${tag}-${n}`;
     const [p] = await sql()<{ id: number }[]>`
       INSERT INTO projects (program_id, name, installation_id, repo_url, description, application)
-      VALUES (${tag}, 'TipJar', ${inst.id}, ${repo}, ${description}, ${application === null ? null : sql().json(application as never)}) RETURNING id`;
+      VALUES (${program}, 'TipJar', ${inst.id}, ${repo}, ${description}, ${application === null ? null : sql().json(application as never)}) RETURNING id`;
     let sent = '';
     const out = await deployToken(
       { projectId: p.id, installationId: inst.id, name: 'Tip Jar', symbol: 'TIPJ', creatorWallet: `0x${'1'.repeat(40)}`, image: null, repoUrl: repo, liveUrl: null },
@@ -358,12 +375,14 @@ test('5.6 deployToken sends tokens.fun the plain description', dbTest, async () 
     assert.equal(await launch(2, `Contract ${addr} TVL: 1, tx: 2`, app('Fans tip creators in USDC.')), 'Fans tip creators in USDC.');
     assert.equal(await launch(3, `Contract ${addr} TVL: 1, tx: 2`, null), 'TipJar on Base');
     assert.equal(await launch(4, null, null), 'TipJar on Base');
+    assert.equal(await launch(5, null, null, `${tag}-arc`), 'TipJar on Arc');
+    assert.equal(await launch(6, null, null, `${tag}-any`), 'TipJar');
   } finally {
     console.log = log;
     if (key === undefined) delete process.env.TOKENSFUN_DEPLOY_API_KEY;
     else process.env.TOKENSFUN_DEPLOY_API_KEY = key;
-    await sql()`DELETE FROM projects WHERE program_id = ${tag}`;
-    await sql()`DELETE FROM programs WHERE id = ${tag}`;
+    await sql()`DELETE FROM projects WHERE program_id IN (${tag}, ${`${tag}-arc`}, ${`${tag}-any`})`;
+    await sql()`DELETE FROM programs WHERE id IN (${tag}, ${`${tag}-arc`}, ${`${tag}-any`})`;
     await sql()`DELETE FROM installations WHERE id = ${inst.id}`;
   }
 });
