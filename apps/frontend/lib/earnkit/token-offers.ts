@@ -6,6 +6,8 @@ import { sql } from './db';
  * agent, program and project), so "go" launches what the builder saw and nothing else.
  */
 export type Offered = { name: string; symbol: string };
+/** v2.10 (Task 9 fix round 2, I-a): the pair and the wallet its confirm line showed (null: none shown). */
+export type ShownOffer = Offered & { wallet: string | null };
 
 /** The entry's key: the normalized repo, else "name:<lowercased name>" (ownEntry's own match). Pure. */
 export const offerKey = (repoUrl: string | null | undefined, name: string) =>
@@ -15,14 +17,23 @@ export const offerKey = (repoUrl: string | null | undefined, name: string) =>
  * Stores (or replaces) the pair shown. v2.9 Ruling G14: `firstReply` marks the first reply's token
  * offer (list_programs); the mark stays when a later offer replaces the pair.
  */
-export async function saveOffer(installationId: number, programId: string, key: string, o: Offered, firstReply = false): Promise<void> {
+export async function saveOffer(
+  installationId: number,
+  programId: string,
+  key: string,
+  o: Offered,
+  firstReply = false,
+  /** v2.10 (fix round 2, I-a): the wallet on the same confirm line, or null when it asked for one. */
+  wallet: string | null = null,
+): Promise<void> {
   const mark = firstReply ? new Date() : null;
   await sql()`
-    INSERT INTO token_offers (installation_id, program_id, entry_key, offered_name, offered_ticker, first_reply_at)
-    VALUES (${installationId}, ${programId}, ${key}, ${o.name}, ${o.symbol}, ${mark})
+    INSERT INTO token_offers (installation_id, program_id, entry_key, offered_name, offered_ticker, first_reply_at, offered_wallet)
+    VALUES (${installationId}, ${programId}, ${key}, ${o.name}, ${o.symbol}, ${mark}, ${wallet?.toLowerCase() ?? null})
     ON CONFLICT (installation_id, program_id, entry_key) DO UPDATE SET
       offered_name = EXCLUDED.offered_name, offered_ticker = EXCLUDED.offered_ticker, offered_at = now(),
-      first_reply_at = COALESCE(token_offers.first_reply_at, EXCLUDED.first_reply_at)`;
+      first_reply_at = COALESCE(token_offers.first_reply_at, EXCLUDED.first_reply_at),
+      offered_wallet = EXCLUDED.offered_wallet`;
 }
 
 /**
@@ -34,6 +45,14 @@ export async function firstReplyShown(installationId: number, programId: string,
     SELECT 1 AS ok FROM token_offers
     WHERE installation_id = ${installationId} AND program_id = ${programId} AND entry_key = ${key} AND first_reply_at IS NOT NULL`;
   return Boolean(row);
+}
+
+/** v2.10 (fix round 2, I-a): the pair and wallet last shown for this entry, or null. */
+export async function readShownOffer(installationId: number, programId: string, key: string): Promise<ShownOffer | null> {
+  const [row] = await sql()<{ offered_name: string; offered_ticker: string; offered_wallet: string | null }[]>`
+    SELECT offered_name, offered_ticker, offered_wallet FROM token_offers
+    WHERE installation_id = ${installationId} AND program_id = ${programId} AND entry_key = ${key}`;
+  return row ? { name: row.offered_name, symbol: row.offered_ticker, wallet: row.offered_wallet } : null;
 }
 
 /** The pair last shown for this entry, or null. */

@@ -22,7 +22,7 @@ import {
 } from './entry-text';
 import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TELL_DESCRIPTION, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { bonusLine, presentFirstMessage, type Card, type FirstMessage } from './present';
-import { ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, handlers } from './tools';
+import { ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, CONFIRM_SHARED_NOTE, PROJECT_REOFFER_NOTE, SUBMITTED_AGAIN_NOTE, SUBMITTED_SHARED_NOTE, handlers } from './tools';
 import { outcomeQuestion } from './outcomes';
 import { DEFAULT_GUIDANCE, PLAIN_FIX, PLAIN_LENGTH_FIX, PLAIN_NOTE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, walletAsk } from './coach';
 import { alsoText } from './also-qualifies';
@@ -1051,6 +1051,11 @@ const agentFacing: [string, string][] = [
   ['OUTCOME_SAVED_NOTE', OUTCOME_SAVED_NOTE],
   ['TELL_SAVED_NOTE', TELL_SAVED_NOTE],
   ['TELL_SHARED_NOTE', TELL_SHARED_NOTE],
+  // v2.10 item 4 (Task 9 fix rounds): the confirm and tell notes for shared clients, re-offers and a dropped submitted mark.
+  ['CONFIRM_SHARED_NOTE', CONFIRM_SHARED_NOTE],
+  ['PROJECT_REOFFER_NOTE', PROJECT_REOFFER_NOTE],
+  ['SUBMITTED_AGAIN_NOTE', SUBMITTED_AGAIN_NOTE],
+  ['SUBMITTED_SHARED_NOTE', SUBMITTED_SHARED_NOTE],
   ['SIGN_IN_NOTE', SIGN_IN_NOTE],
   ['SIGN_IN_OR_NOTE', SIGN_IN_OR_NOTE],
   ['SIGN_IN_CODE_NOTE', SIGN_IN_CODE_NOTE],

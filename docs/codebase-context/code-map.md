@@ -580,6 +580,8 @@ apps/frontend/
                                over `handlers` (the v2.9 functions: list_programs ... launch_token); FindInput,
                                PrepareInput, ConfirmInput (R15), TellToolInput (R16), markSubmitted (tell.submitted),
                                eligibilityLine; launchFromOffer deleted (launch_token with offer throws).
+                               Fix round 2: confirmByProjectId (I-a shown pair and wallet via token-offers.ts
+                               readShownOffer/offered_wallet; I-b shared clients by verifiedEntryIds), projects.ts launchEntry.
                                tool name -> handler + input validation (+ caller's installation);
                                v2.10 items 2, 3: list_programs more (pools only then), lead + LEAD_NOTE, one question (H10); prepare_submission prepends the guide on the first call
                                v2.10: withAlerts(ctx, result, signedIn?) puts the deadline line first; ToolContext.roundPools;

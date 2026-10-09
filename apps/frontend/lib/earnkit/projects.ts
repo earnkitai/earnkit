@@ -529,6 +529,29 @@ export async function enteredProgramIds(installationId: number, k: { repoUrl: st
 }
 
 /**
+ * v2.10 (Task 9 fix round 2, I-a, I-b): the entry `confirm` with `project_id` acts on, if this
+ * installation's: its program, key fields, token state and wallets. Null otherwise.
+ */
+export type LaunchEntry = {
+  id: number;
+  program_id: string;
+  name: string;
+  repo_url: string | null;
+  token_url: string | null;
+  confirm_choice: string | null;
+  wallet: string | null;
+};
+export async function launchEntry(
+  installationId: number,
+  projectId: number,
+): Promise<LaunchEntry | null> {
+  const [row] = await sql()<LaunchEntry[]>`
+    SELECT id, program_id, name, repo_url, token_url, confirm_choice, COALESCE(creator_wallet, payout_wallet) AS wallet
+    FROM projects WHERE id = ${projectId} AND installation_id = ${installationId}`;
+  return row ?? null;
+}
+
+/**
  * v2.10 R16: the entry an "I submitted" names (`projectId`), else this installation's newest in the
  * program (as v2.9 outcomes find it), with its project fields and its saved answers (the confirmed
  * application's, else the latest recorded submission's). `onlyIds`: only among these (G7). Null when
