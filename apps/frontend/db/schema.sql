@@ -875,13 +875,19 @@ CREATE TABLE IF NOT EXISTS free_tier_usage (
   PRIMARY KEY (name, period)
 );
 
--- v2.9 E19: the weekly email, opt-in only (digest.ts). Never shown publicly.
+-- v2.9 E19: the weekly email, opt-in only (digest.ts). Never shown publicly. Ruling G21: one
+-- subscription per installation (login ''), and on a shared client one per GitHub-verified login.
+-- A row with no email is a question asked (or answered no); opted in always has an email.
 CREATE TABLE IF NOT EXISTS digest_subscriptions (
-  installation_id    integer PRIMARY KEY REFERENCES installations(id) ON DELETE CASCADE,
-  email              text NOT NULL CHECK (length(email) <= 254),
+  installation_id    integer NOT NULL REFERENCES installations(id) ON DELETE CASCADE,
+  login              text NOT NULL DEFAULT '',
+  email              text CHECK (length(email) <= 254),
+  asked_at           timestamptz,
   opted_in_at        timestamptz,
   unsubscribed_at    timestamptz,
   last_sent_at       timestamptz,
-  last_considered_at timestamptz
+  last_considered_at timestamptz,
+  PRIMARY KEY (installation_id, login),
+  CHECK (opted_in_at IS NULL OR email IS NOT NULL)
 );
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS digest_asked_at timestamptz;

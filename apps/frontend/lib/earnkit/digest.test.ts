@@ -17,7 +17,11 @@ import {
   entryEmail,
   MailError,
   sendDigests,
-  unsubInstallation,
+  unsubTarget,
+  idempotencyKey,
+  saveWeeklyEmail,
+  unsubscribe,
+  EMAIL_SIGN_IN,
   unsubToken,
   weekStart,
   type DigestFacts,
@@ -98,25 +102,40 @@ test('10.3 digestBody: nothing is null; new programs, wins, then your deadlines;
   }
 });
 
-test('10.4 unsubToken round-trips; another id or a changed character is null', () => {
+test('10.4 unsubToken round-trips; another id, another login or a changed character is null', () => {
   const secret = 's3cret';
   const t = unsubToken(42, secret);
-  assert.equal(unsubInstallation(t, secret), 42);
-  assert.equal(unsubInstallation(t, 'other'), null, 'another secret');
+  assert.deepEqual(unsubTarget(t, secret), { installationId: 42, login: '' });
+  assert.equal(unsubTarget(t, 'other'), null, 'another secret');
   const other = unsubToken(43, secret);
-  assert.equal(unsubInstallation(`42.${other.split('.')[1]}`, secret), null, "another id's mac");
+  assert.equal(unsubTarget(`42.${other.split('.')[1]}`, secret), null, "another id's mac");
   const i = t.length - 3;
   const flipped = t.slice(0, i) + (t[i] === 'A' ? 'B' : 'A') + t.slice(i + 1);
-  assert.equal(unsubInstallation(flipped, secret), null, 'a changed character');
-  for (const bad of ['', '42', '42.', 'x.y', `0.${t.split('.')[1]}`, `${t}a`]) assert.equal(unsubInstallation(bad, secret), null, bad);
-  assert.equal(unsubInstallation(t, undefined), null, 'no secret');
+  assert.equal(unsubTarget(flipped, secret), null, 'a changed character');
+  for (const bad of ['', '42', '42.', 'x.y', `0.${t.split('.')[1]}`, `${t}a`]) assert.equal(unsubTarget(bad, secret), null, bad);
+  assert.equal(unsubTarget(t, undefined), null, 'no secret');
   assert.throws(() => unsubToken(1, ''));
+  // Ruling G21: a shared client's login subscription has its own token; another login's mac never passes.
+  const alice = unsubToken({ installationId: 42, login: 'Alice' }, secret);
+  assert.match(alice, /^42\.alice\.[A-Za-z0-9_-]{43}$/);
+  assert.deepEqual(unsubTarget(alice, secret), { installationId: 42, login: 'alice' });
+  const bob = unsubToken({ installationId: 42, login: 'bob' }, secret);
+  assert.equal(unsubTarget(`42.alice.${bob.split('.')[2]}`, secret), null, "bob's mac for alice");
+  assert.equal(unsubTarget(`42.${alice.split('.')[2]}`, secret), null, "alice's mac for the installation");
+});
+
+test('review I2: the Idempotency-Key names the subscription and the week', () => {
+  const start = weekStart(at('2026-10-13T10:00:00Z'));
+  assert.equal(idempotencyKey({ installationId: 7, login: '' }, start), 'digest-7-2026-10-12T14:00:00.000Z');
+  assert.equal(idempotencyKey({ installationId: 7, login: 'alice' }, start), 'digest-7-alice-2026-10-12T14:00:00.000Z');
 });
 
 test('digestEnabled: only with RESEND_API_KEY; the default sender', () => {
   assert.equal(digestEnabled({}), false);
-  assert.equal(digestEnabled({ RESEND_API_KEY: ' ' }), false);
-  assert.equal(digestEnabled({ RESEND_API_KEY: 're_x' }), true);
+  assert.equal(digestEnabled({ RESEND_API_KEY: ' ', EARNKIT_AUTH_SECRET: 's' }), false);
+  // Review minor: without the secret no unsubscribe link can be signed, so the feature stays off.
+  assert.equal(digestEnabled({ RESEND_API_KEY: 're_x' }), false);
+  assert.equal(digestEnabled({ RESEND_API_KEY: 're_x', EARNKIT_AUTH_SECRET: 's' }), true);
   assert.equal(DIGEST_FROM_DEFAULT, 'EarnKit <digest@earnkit.com>');
   assert.equal(EMAIL_QUESTION, 'Get new programs and wins by email, once a week? yes / no');
   assert.equal(emailQuestionFor('a@b.co'), 'Get new programs and wins by email at a@b.co, once a week? yes / no');
@@ -223,6 +242,9 @@ test('10.5 two runs at once send each due subscription once; a 429 or 500 keeps 
     const ok = await sendDigests(new Date(next.getTime() + 7_200_000), { mail, only: ids });
     assert.equal(ok.sent, 1);
     assert.equal(sent.at(-1)!.to, who);
+    // Review I2: the retry carries the same Idempotency-Key as the failed tries (Resend dedupes it).
+    assert.equal(sent.at(-1)!.idempotencyKey, `digest-${ids[0]}-${weekStart(next).toISOString()}`);
+    assert.ok(sent.every((m) => m.idempotencyKey.startsWith(`digest-${ids.find((i) => m.to === `b${i}@example.com`)}-`)));
   } finally {
     await teardown(tag, ids);
     await clearCounters(now, [new Date(now.getTime() + 7 * DAY)]);
@@ -366,7 +388,11 @@ test('the question: once per installation, keeps the address unopted; shared cli
     assert.equal(await askWeeklyEmail(a.id, { shared: false, email: 'a@b.co' }), null, 'once');
     const [row] = await sql()<{ email: string; opted_in_at: Date | null }[]>`SELECT email, opted_in_at FROM digest_subscriptions WHERE installation_id = ${a.id}`;
     assert.deepEqual(row, { email: 'a@b.co', opted_in_at: null });
-    assert.equal((await askWeeklyEmail(s.id, { shared: true, email: 'c@d.co' }))?.question, emailQuestionFor('c@d.co'));
+    // Ruling G21: a shared client is asked only with a verified login, once per login.
+    assert.equal(await askWeeklyEmail(s.id, { shared: true, email: 'c@d.co' }), null, 'no code, no question');
+    assert.equal((await askWeeklyEmail(s.id, { shared: true, email: 'c@d.co', login: 'carol' }))?.question, emailQuestionFor('c@d.co'));
+    assert.equal(await askWeeklyEmail(s.id, { shared: true, email: 'c@d.co', login: 'carol' }), null, 'once per login');
+    assert.equal((await askWeeklyEmail(s.id, { shared: true, email: null, login: 'dan' }))?.question, EMAIL_QUESTION);
   } finally {
     if (prevKey === undefined) delete process.env.RESEND_API_KEY;
     else process.env.RESEND_API_KEY = prevKey;
@@ -397,22 +423,113 @@ test('digestFacts: new programs a remembered repo could win (the alert rule); yo
     const decision = new Date(now.getTime() + 4 * DAY).toISOString().slice(0, 10);
     await program(ids[3], 'Entered Grant', new Date(now.getTime() - DAY), new Date(now.getTime() + 3 * DAY), { url: 'https://x', expected: decision });
     await sql()`INSERT INTO projects (program_id, name, installation_id) VALUES (${ids[3]}, 'TipJar', ${own.id})`;
-    await sql()`INSERT INTO projects (program_id, name, installation_id, application) VALUES
-      (${ids[3]}, 'Mine', ${shared.id}, ${sql().json({ answers: { email: 'Me@Example.com' } } as never)})`;
+    const [mineEntry] = await sql()<{ id: number }[]>`
+      INSERT INTO projects (program_id, name, installation_id) VALUES (${ids[3]}, 'Mine', ${shared.id}) RETURNING id`;
+    await sql()`INSERT INTO github_verifications (repo_key, login, installation_id, project_id, account_created_at, public_repos)
+      VALUES ('me/mine', 'me', ${shared.id}, ${mineEntry.id}, '2020-01-01', 3)`;
     const sub = { opted_in_at: new Date(now.getTime() - 7 * DAY), unsubscribed_at: null, last_sent_at: new Date(now.getTime() - 7 * DAY), last_considered_at: null };
-    const f = await digestFacts({ ...sub, installation_id: own.id, email: 'a@b.co', shared: false }, now);
+    const f = await digestFacts({ ...sub, installation_id: own.id, login: '', email: 'a@b.co', shared: false }, now);
     assert.deepEqual(f.newPrograms.map((p) => [p.title, p.repo, p.prize_usd]), [['Fresh Grant', 'TipJar', 10000]]);
     assert.deepEqual(f.deadlines.map((d) => [d.program, d.what]), [['Entered Grant', 'closes'], ['Entered Grant', 'decision']]);
     assert.equal(f.deadlines[1].at.toISOString().slice(0, 10), decision);
-    // A hosted agent: no repo lines; only the entries whose answers carry this subscription's address.
-    const mine = await digestFacts({ ...sub, installation_id: shared.id, email: 'me@example.com', shared: true }, now);
+    // A hosted agent (G21): no repo lines; only the entries this subscription's login signed in for.
+    const mine = await digestFacts({ ...sub, installation_id: shared.id, login: 'me', email: 'me@example.com', shared: true }, now);
     assert.deepEqual(mine.newPrograms, []);
     assert.equal(mine.deadlines.length, 2);
-    const other = await digestFacts({ ...sub, installation_id: shared.id, email: 'someone@else.com', shared: true }, now);
+    const other = await digestFacts({ ...sub, installation_id: shared.id, login: 'someone', email: 'me@example.com', shared: true }, now);
     assert.deepEqual(other.deadlines, []);
   } finally {
     await sql()`DELETE FROM projects WHERE program_id = ANY(${ids})`;
     await sql()`DELETE FROM programs WHERE id = ANY(${ids})`;
     await sql()`DELETE FROM installations WHERE id IN (${own.id}, ${shared.id})`;
+  }
+});
+
+test('review I2: three failed sends in a row stop the run, so an outage never burns the day', db, async () => {
+  const now = monday(5);
+  const tag = `digest-fail-${process.pid}-${Date.now()}`;
+  await clearCounters(now);
+  const ids = await setup(tag, 6, now);
+  try {
+    let calls = 0;
+    const down: Mailer = async () => {
+      calls++;
+      throw new MailError(calls === 2 ? 0 : 503);
+    };
+    assert.deepEqual(await sendDigests(now, { mail: down, only: ids }), { sent: 0, skipped: 3, capped: false, stopped: true });
+    assert.equal(calls, 3);
+    assert.equal(await used('resendDay', periodKey('day', now)), 3, 'only 3 slots spent');
+    assert.ok((await subs(ids)).every((s) => s.last_sent_at === null));
+    // A success resets the count: fail, send, fail, fail, send... never three in a row.
+    let n = 0;
+    const flaky: Mailer = async () => {
+      n++;
+      if (n % 3 !== 2) throw new MailError(500);
+    };
+    const r = await sendDigests(new Date(now.getTime() + 3_600_000), { mail: flaky, only: ids });
+    assert.equal(r.stopped, undefined);
+    assert.equal(r.sent, 2);
+  } finally {
+    await teardown(tag, ids);
+    await clearCounters(now);
+  }
+});
+
+test('Ruling G21: on a shared install each login has its own subscription; one never changes another\'s; no login changes nothing', db, async () => {
+  const prevKey = process.env.RESEND_API_KEY;
+  process.env.RESEND_API_KEY = 're_test_never_used';
+  const now = monday(6);
+  const tag = `digest-g21-${process.pid}-${Date.now()}`;
+  const [s] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, shared_client) VALUES (${tag}, true) RETURNING id`;
+  const rows = async () =>
+    (await sql()<{ login: string; email: string | null; opted: boolean; unsub: boolean }[]>`
+      SELECT login, email, opted_in_at IS NOT NULL AS opted, unsubscribed_at IS NOT NULL AS unsub
+      FROM digest_subscriptions WHERE installation_id = ${s.id} ORDER BY login`).map((r) => ({ ...r }));
+  try {
+    const shared = { shared: true };
+    const week = new Date(now.getTime() - 7 * DAY);
+    assert.equal((await saveWeeklyEmail(s.id, { answer: 'yes', email: 'a@x.co' }, { ...shared, login: 'alice' }, week)).show_to_builder, 'Done. One email a week, on Mondays.');
+    assert.equal((await saveWeeklyEmail(s.id, { answer: 'yes', email: 'b@x.co' }, { ...shared, login: 'Bob' }, week)).saved, true);
+    assert.deepEqual(await rows(), [
+      { login: 'alice', email: 'a@x.co', opted: true, unsub: false },
+      { login: 'bob', email: 'b@x.co', opted: true, unsub: false },
+    ]);
+    // No code: nothing changes, whatever the answer.
+    for (const w of [{ answer: 'no' as const }, { answer: 'yes' as const }, { answer: 'yes' as const, email: 'c@x.co' }])
+      assert.deepEqual(await saveWeeklyEmail(s.id, w, { ...shared, login: null }), { show_to_builder: EMAIL_SIGN_IN, saved: false });
+    // Bob's "no" ends Bob's only.
+    await saveWeeklyEmail(s.id, { answer: 'no' }, { ...shared, login: 'bob' });
+    assert.deepEqual(await rows(), [
+      { login: 'alice', email: 'a@x.co', opted: true, unsub: false },
+      { login: 'bob', email: null, opted: false, unsub: false },
+    ]);
+    // A plain yes from a login that never gave an address opts in nothing.
+    assert.equal((await saveWeeklyEmail(s.id, { answer: 'yes' }, { ...shared, login: 'mallory' })).saved, false);
+    assert.equal((await saveWeeklyEmail(s.id, { answer: 'yes' }, { ...shared, login: 'bob' })).saved, false, "bob's yes never reuses alice's address");
+    // Each login's own email and unsubscribe link; one link never touches the other.
+    await saveWeeklyEmail(s.id, { answer: 'yes', email: 'b@x.co' }, { ...shared, login: 'bob' }, week);
+    await clearCounters(now);
+    await sql()`INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work)
+      VALUES (${tag}, 'o', 'Win Program', 'd', 'https://x', 'https://x', 'r', 's', 'active', 'unknown')`;
+    const [p] = await sql()<{ id: number }[]>`INSERT INTO projects (program_id, name, installation_id) VALUES (${tag}, 'PayLink', ${s.id}) RETURNING id`;
+    await sql()`INSERT INTO entry_outcomes (project_id, program_id, round_label, result, prize_usd, basis, captured_at)
+      VALUES (${p.id}, ${tag}, 'R1', 'won', 500, 'announcement', ${new Date(now.getTime() - DAY)})`;
+    const { sent, mail } = recorder();
+    assert.equal((await sendDigests(now, { mail, only: [s.id] })).sent, 2);
+    const toAlice = sent.find((m) => m.to === 'a@x.co')!;
+    const toBob = sent.find((m) => m.to === 'b@x.co')!;
+    assert.notEqual(toAlice.headers['List-Unsubscribe'], toBob.headers['List-Unsubscribe']);
+    assert.equal(toBob.idempotencyKey, `digest-${s.id}-bob-${weekStart(now).toISOString()}`);
+    const bobUrl = toBob.headers['List-Unsubscribe'].slice(1, -1);
+    assert.equal((await digestUnsubscribePost(new Request(bobUrl, { method: 'POST' }))).status, 200);
+    assert.deepEqual((await rows()).map((r) => [r.login, r.unsub]), [['alice', false], ['bob', true]]);
+    assert.equal(await unsubscribe({ installationId: s.id, login: 'alice' }), true);
+  } finally {
+    if (prevKey === undefined) delete process.env.RESEND_API_KEY;
+    else process.env.RESEND_API_KEY = prevKey;
+    await sql()`DELETE FROM projects WHERE program_id = ${tag}`;
+    await sql()`DELETE FROM programs WHERE id = ${tag}`;
+    await sql()`DELETE FROM installations WHERE id = ${s.id}`;
+    await clearCounters(now);
   }
 });

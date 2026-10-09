@@ -23,7 +23,7 @@ import { proposeToken } from './token-proposal';
 import { LaunchError, NOT_LAUNCHED_YET, STUCK_LAUNCH_MS, deployToken, stuckLaunches } from './tokens';
 import { runCron } from './cron';
 import { wonSource } from './stats';
-import { EMAIL_NOTE, EMAIL_ON, EMAIL_QUESTION, WHICH_EMAIL, emailQuestionFor } from './digest';
+import { EMAIL_NOTE, EMAIL_ON, EMAIL_QUESTION, EMAIL_SHARED_NOTE, EMAIL_SIGN_IN, WHICH_EMAIL, emailQuestionFor } from './digest';
 import { CANT_PUSH, NO_WALLET_HINT, confirmOffer, proofLineWaiting } from './confirm';
 import { completeVerify, createVerifyLink, formatCode } from './github-verify';
 import { eligibleSql } from './traction';
@@ -3410,7 +3410,7 @@ const subscription = async (inst: number) =>
     SELECT email, opted_in_at IS NOT NULL AS opted FROM digest_subscriptions WHERE installation_id = ${inst}`)[0] ?? null;
 const skip = { builder_confirmed: true, decision: 'skip' } as const;
 
-test('10.9 the first recorded entry asks once; a plain yes uses that entry\'s email (not on a shared client unless typed here)', dbTest, () =>
+test('10.9 the first recorded entry asks once; a plain yes uses that entry\'s email', dbTest, () =>
   withTokenEnv(() =>
     withResend(async () => {
       const t = await confirmSetup('email', { extra: [EMAIL_FIELD] });
@@ -3434,38 +3434,75 @@ test('10.9 the first recorded entry asks once; a plain yes uses that entry\'s em
       assert.deepEqual(await subscription(t.inst), { email: 'alice@example.com', opted: true });
       const no = (await tools.tell_earnkit({ weekly_email: { answer: 'no' } }, t.ctx)) as { show_to_builder: string };
       assert.equal(no.show_to_builder, 'No weekly email.');
-      assert.equal(await subscription(t.inst), null);
+      // The address goes; the row stays, so the question is never asked again.
+      assert.deepEqual(await subscription(t.inst), { email: null, opted: false });
 
-      // A hosted agent: the address this builder typed in this entry is named; a plain yes uses it.
-      const s = await confirmSetup('email-shared', { extra: [EMAIL_FIELD] });
-      await sql()`UPDATE installations SET shared_client = true WHERE id = ${s.inst}`;
-      const sctx = { ...s.ctx, sharedClient: true };
-      const shared = (await tools.confirm_entry({ ...s.input, answers: { ...s.answers, email: 'bob@example.com' }, ...skip }, sctx)) as Confirmed;
-      assert.ok(shared.show_to_builder.endsWith(`\n\n${emailQuestionFor('bob@example.com')}`), shared.show_to_builder);
-      const sYes = (await tools.tell_earnkit({ weekly_email: { answer: 'yes' } }, sctx)) as { show_to_builder: string };
-      assert.equal(sYes.show_to_builder, EMAIL_ON);
-      assert.deepEqual(await subscription(s.inst), { email: 'bob@example.com', opted: true });
-
-      // A hosted agent with no address typed: the question names none, and a plain yes is refused.
-      const n = await confirmSetup('email-none', { extra: [EMAIL_FIELD] });
-      await sql()`UPDATE installations SET shared_client = true WHERE id = ${n.inst}`;
-      const nctx = { ...n.ctx, sharedClient: true };
-      const none = (await tools.confirm_entry({ ...n.input, ...skip }, nctx)) as Confirmed;
-      assert.ok(none.show_to_builder.endsWith(`\n\n${EMAIL_QUESTION}`));
-      const refused = (await tools.tell_earnkit({ weekly_email: { answer: 'yes' } }, nctx)) as { show_to_builder: string; saved: string[]; agent_note: string };
-      assert.equal(refused.show_to_builder, WHICH_EMAIL);
-      assert.equal(refused.show_to_builder, 'Which email should I use?');
-      assert.deepEqual(refused.saved, []);
-      assert.match(refused.agent_note, /weekly_email/);
-      assert.equal(await subscription(n.inst), null);
-      const typed = (await tools.tell_earnkit({ weekly_email: { answer: 'yes', email: 'carol@example.com' } }, nctx)) as { show_to_builder: string };
-      assert.equal(typed.show_to_builder, EMAIL_ON);
-      assert.deepEqual(await subscription(n.inst), { email: 'carol@example.com', opted: true });
-      // Another builder on the same hosted agent never replaces that live subscription.
-      const other = (await tools.tell_earnkit({ weekly_email: { answer: 'yes', email: 'dave@example.com' } }, nctx)) as { show_to_builder: string };
-      assert.notEqual(other.show_to_builder, EMAIL_ON);
-      assert.deepEqual(await subscription(n.inst), { email: 'carol@example.com', opted: true });
     }),
+  ));
+
+test('10.9, Ruling G21: a hosted agent asks once per signed-in login, never without a code; each login changes only its own subscription', dbTest, () =>
+  withTokenEnv(() =>
+    withSignIn(() =>
+      withResend(async () => {
+        const s = await confirmSetup('email-shared', { extra: [EMAIL_FIELD] });
+        await sql()`UPDATE installations SET shared_client = true WHERE id = ${s.inst}`;
+        const sctx = { ...s.ctx, sharedClient: true };
+        // No code: no question, and a weekly_email answer changes nothing.
+        const none = (await tools.confirm_entry({ ...s.input, answers: { ...s.answers, email: 'bob@example.com' }, ...skip }, sctx)) as Confirmed;
+        assert.ok(none.kit);
+        assert.ok(!none.show_to_builder.includes('by email'));
+        for (const w of [{ answer: 'yes', email: 'bob@example.com' }, { answer: 'no' }]) {
+          const r = (await tools.tell_earnkit({ weekly_email: w }, sctx)) as { show_to_builder: string; saved: string[]; agent_note: string };
+          assert.equal(r.show_to_builder, EMAIL_SIGN_IN);
+          assert.deepEqual(r.saved, []);
+          assert.match(r.agent_note, /signed_in/);
+        }
+        assert.equal(await subscription(s.inst), null);
+        const subs = async () =>
+          (await sql()<{ login: string; email: string | null; opted: boolean }[]>`
+            SELECT login, email, opted_in_at IS NOT NULL AS opted FROM digest_subscriptions WHERE installation_id = ${s.inst} ORDER BY login`).map((r) => ({ ...r }));
+
+        // Alice signs in: her entry's typed address is named; her plain yes uses it.
+        const codeA = (await signInAs(s.inst, null, s.repo, 'alice'))!;
+        const projA = { ...s.project, name: 'Tip Jar A', repo_url: `${s.repo}-a` };
+        const a = (await tools.confirm_entry({ ...s.input, project: projA, answers: { ...s.answers, email: 'alice@example.com' }, signed_in: codeA, ...skip }, sctx)) as Confirmed;
+        assert.ok(a.show_to_builder.endsWith(`\n\n${emailQuestionFor('alice@example.com')}`), a.show_to_builder);
+        assert.ok(a.agent_note!.endsWith(`${EMAIL_NOTE} ${EMAIL_SHARED_NOTE}`));
+        const again = (await tools.confirm_entry({ ...s.input, project: { ...projA, name: 'Tip Jar A2', repo_url: `${s.repo}-a2` }, answers: { ...s.answers, email: 'alice@example.com' }, signed_in: codeA, ...skip }, sctx)) as Confirmed;
+        assert.ok(!again.show_to_builder.includes('by email'), 'once per login');
+        assert.equal(((await tools.tell_earnkit({ weekly_email: { answer: 'yes' }, signed_in: codeA }, sctx)) as { show_to_builder: string }).show_to_builder, EMAIL_ON);
+
+        // Bob signs in on the same agent: asked too (his own login), his own subscription.
+        const codeB = (await signInAs(s.inst, null, s.repo, 'bob'))!;
+        const b = (await tools.confirm_entry({ ...s.input, project: { ...s.project, name: 'Tip Jar B', repo_url: `${s.repo}-b` }, answers: { ...s.answers, email: 'bob@example.com' }, signed_in: codeB, ...skip }, sctx)) as Confirmed;
+        assert.ok(b.show_to_builder.endsWith(`\n\n${emailQuestionFor('bob@example.com')}`));
+        await tools.tell_earnkit({ weekly_email: { answer: 'yes' }, signed_in: codeB }, sctx);
+        assert.deepEqual(await subs(), [
+          { login: 'alice', email: 'alice@example.com', opted: true },
+          { login: 'bob', email: 'bob@example.com', opted: true },
+        ]);
+        // Bob's "no" (and a yes with another address) never touches Alice's.
+        await tools.tell_earnkit({ weekly_email: { answer: 'no' }, signed_in: codeB }, sctx);
+        await tools.tell_earnkit({ weekly_email: { answer: 'yes', email: 'mallory@example.com' }, signed_in: codeB }, sctx);
+        assert.deepEqual(await subs(), [
+          { login: 'alice', email: 'alice@example.com', opted: true },
+          { login: 'bob', email: 'mallory@example.com', opted: true },
+        ]);
+
+        // record_submission (P16): an address the answer bank already holds for this project is
+        // never named on a hosted agent (it may be another builder's).
+        const codeC = (await signInAs(s.inst, null, s.repo, 'carol'))!;
+        const projC = { name: 'Tip Jar C', repo_url: `${s.repo}-c`, live_url: 'https://tipjar.xyz' };
+        await sql()`INSERT INTO answer_bank (installation_id, project_key, kind, answer, program_id)
+          VALUES (${s.inst}, ${projectKey(projC)}, 'contact', ${JSON.stringify({ email: 'dave@example.com' })}, ${s.p.id})`;
+        const rec = (await tools.record_submission(
+          { program_id: s.p.id, project: projC, submission_data: { ...s.answers, email: 'dave@example.com' }, token: 'skip', signed_in: codeC },
+          sctx,
+        )) as { show_to_builder: string; agent_note?: string };
+        assert.ok(rec.show_to_builder.endsWith(`\n\n${EMAIL_QUESTION}`), rec.show_to_builder);
+        assert.ok(!rec.show_to_builder.includes('dave@example.com'));
+      }),
+    ),
   ));
 
 test('10.8 without RESEND_API_KEY the question is never asked and a yes saves nothing', dbTest, () =>

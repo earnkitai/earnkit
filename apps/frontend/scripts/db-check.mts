@@ -574,10 +574,15 @@ await db`INSERT INTO digest_subscriptions (installation_id, email, opted_in_at, 
 const longEmail = await db`UPDATE digest_subscriptions SET email = ${'a'.repeat(250) + '@b.co'} WHERE installation_id = ${memInst}`
   .then(() => false, () => true);
 ok(longEmail, 'digest_subscriptions refuses an email over 254 characters');
+// Ruling G21: one row per (installation, login); an opt-in always has an address.
+await db`INSERT INTO digest_subscriptions (installation_id, login, asked_at) VALUES (${memInst}, 'alice', now())`;
+const optedNoEmail = await db`UPDATE digest_subscriptions SET opted_in_at = now() WHERE installation_id = ${memInst} AND login = 'alice'`
+  .then(() => false, () => true);
+ok(optedNoEmail, 'digest_subscriptions refuses an opt-in without an email');
 await db.unsafe(now);
 const [digestRow] = await db<{ email: string; opted: boolean; sent: boolean; asked: boolean }[]>`
   SELECT d.email, d.opted_in_at IS NOT NULL AS opted, d.last_sent_at IS NOT NULL AS sent, i.digest_asked_at IS NOT NULL AS asked
-  FROM digest_subscriptions d JOIN installations i ON i.id = d.installation_id WHERE d.installation_id = ${memInst}`;
+  FROM digest_subscriptions d JOIN installations i ON i.id = d.installation_id WHERE d.installation_id = ${memInst} AND d.login = ''`;
 ok(digestRow?.email === 'a@b.co' && digestRow.opted && digestRow.sent && digestRow.asked,
   'digest subscriptions and digest_asked_at survive the schema running again');
 
