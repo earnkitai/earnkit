@@ -25,9 +25,9 @@ export default function RiskSection() {
           <p className="text-ek-blue-light leading-relaxed mb-4">
             This Risk Disclosure is provided by{' '}
             <span className="font-semibold text-ek-white">TokenFi Inc.</span>{' '}
-            ("we," "our," or "us") to inform users of the material risks
+            (&quot;we,&quot; &quot;our,&quot; or &quot;us&quot;) to inform users of the material risks
             associated with using tokens.fun, Minidev, and related services (the
-            "Platforms"). By accessing or using the Platforms, you acknowledge
+            &quot;Platforms&quot;). By accessing or using the Platforms, you acknowledge
             that you have read, understood, and accepted the risks described
             below.
           </p>
@@ -52,7 +52,7 @@ export default function RiskSection() {
             </span>{' '}
             that enables users to interact with third-party smart contracts and
             decentralized protocols to create and trade ERC-20 tokens
-            ("Tokens").
+            (&quot;Tokens&quot;).
           </p>
 
           <p className="text-ek-blue-light leading-relaxed mb-6">
@@ -411,7 +411,7 @@ export default function RiskSection() {
             ))}
           </ul>
           <p className="text-ek-blue-light">
-            The Platforms do not guarantee compliance with any jurisdiction's
+            The Platforms do not guarantee compliance with any jurisdiction&apos;s
             laws.{' '}
             <span className="font-semibold text-ek-white">
               You are solely responsible for determining whether your use of the

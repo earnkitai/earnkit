@@ -26,10 +26,7 @@ export default function TermsPage() {
       <Panel className="py-12 md:py-16" label="Terms">
         <Eyebrow>Terms</Eyebrow>
         <h1 className="mt-4 font-funnel-display text-3xl font-medium text-ek-white md:text-5xl">Terms</h1>
-        <p className="mt-4 max-w-2xl font-funnel-sans text-base font-light text-ek-blue-light md:text-lg">
-          Plain answers on matching, token fees and the builder bonus, then the risks and the sponsor terms.
-        </p>
-        <nav aria-label="Sections" className="mt-6 flex flex-wrap gap-x-6 gap-y-1 font-funnel-sans text-base">
+        <nav aria-label="Sections" className="mt-4 flex flex-wrap gap-x-6 gap-y-1 font-funnel-sans text-base">
           {SECTIONS.map((s) => (
             <a
               key={s.href}
