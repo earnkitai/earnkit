@@ -1987,6 +1987,52 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
   Ruling H7: `deployToken` refuses an agent `image_url` with userinfo, a `token`, `sig` or `key`
   query parameter, or a raw.githubusercontent.com link with any query (`tokens.ts unsafeImageUrl`)
   and sends the mark instead. The mark is pinned by golden values (test 6.3): it must never change.
+- **One bonus line, the token at confirm, the deadline line (v2.10 items 1, 5, 15).**
+  - *Bonus line.* `present.ts bonusLine(pool)` is the only bonus form in replies, at most once per
+    reply: "Builder bonus: no tokens yet, so yours would be first" while the open round has no
+    token, else "Builder bonus: 0.18 ETH so far" ("under 0.01 ETH so far"); null for a frozen round.
+    `bonus-rounds.ts roundPools` is the one grouped read (Ruling 3) with a token count beside the
+    pool: a token counts when its entry is in the program, it launched (`coin_address`) at or after
+    the round start (`starts_at`, or the UTC month start of a rolling program), and its installation
+    isn't an owner test one. `roundPoolsWei` is it mapped to `wei > 0` (the public pages).
+    `ToolContext.roundPools` is the test seam. The first reply sums the pools and counts of the bonus
+    programs on screen (leaving out an offered program whose repo's token is elsewhere) and puts the
+    line right before the closing offer. `enteredText` takes `bonus.line`; the guide's bonus
+    section is the line (`GuideBonus.pool`), with no board link: the board stays on the guide page,
+    whose pill keeps `cell`/`board` (Pre-flight P18; `readGuidePage` drops the bigint pool so
+    `unstable_cache` can serialize the guide). Also qualifies and record_submission's token note say
+    no "rides on" or "moves to" sentence (P6); `bonusRidesOn` is left only in the agent's
+    `bonus_note`. The bonus win alert no longer says "(as WETH)".
+  - *Token at confirm.* No first-reply offer (v2.9 B10 is reversed): `firstTokenOffer`,
+    `tokenOffer`, `tokenOfferAgain`, `tokenOfferFit`, `TOKEN_OFFER_NOTE`, `token_offer`,
+    `TOKEN_LINE`, `COIN_FOOTNOTE`, `tokenFootnote`, `BONUS_MOVES`, `EARNINGS_LINE`, `SKIP_LINE`,
+    `yesLine`, `offerWalletLine`, `coinRow` and `walletLine` are gone. `confirm.ts confirmLine` is
+    the one pitch: "Yes submits your entry and launches $TIP (Tip Jar): 40% of its fees to you, plus
+    the builder bonus. Wallet: 0x12ab…9f3e. yes / skip the token" (no bonus: no ", plus the builder
+    bonus"; `again`: no earnings part; no wallet known: "Say yes with your wallet address / skip the
+    token"). A remembered wallet is shown only off shared clients (G13), since the wallet passed in
+    comes from `walletMemory`/`entryWallet`. `confirmOffer` is that line, or "Ready to submit?"
+    (token elsewhere, tokens off, skipped twice), or `CANT_PUSH` + "Ready to submit?". "skip the
+    token" (`SKIP_TOKEN`) is the only skip word. The prepare token block has no `earnings`,
+    `terms`, `paired_with` or `say_to_builder`; a campaign's Token row (`tokenRow`) uses the confirm
+    line's words and has no footnote. The terms are one footer line on `/p/[id]` ("Token terms:
+    agreement · risks", `TOKEN_TERMS`) and on tokens.fun. `launch_token`'s `offer` path stays until
+    T9; its re-ask is `confirmLine({ again: true })` (Pre-flight P5). `serverInstructions` says "The
+    builder confirms once: yes submits the entry and launches the token; skip the token submits
+    without one."
+  - *Deadline line.* `alerts.ts deadlineLine(entries, shown, now)` picks the soonest unsubmitted
+    entry closing within `DEADLINE_DAYS` (3) not shown this UTC day: "Arc Microgrants closes in 2
+    days; your entry isn't submitted." ("closes tomorrow", "closes today" under 24 h). Days are whole
+    days left before the program's own deadline instant, so the line never reads later than the
+    program's own close (Pre-flight P1); no date is printed. `takeDeadlineLine` marks it in
+    `installations.deadline_shown` (`{ "<project id>": "YYYY-MM-DD" }`) with one conditional UPDATE,
+    so two replies at once show it once. The entries come from the read alerts already make
+    (`AlertFacts.entries`, the query that builds `skip.entered`; `sinceYouLastChecked` returns them).
+    `tools.ts withAlerts(ctx, result, signedIn?)` puts the line first in `show_to_builder` (R12); on
+    a shared client only the entries the pasted code's login verified count
+    (`verifiedEntryIds` + `openEntries`, Ruling G7), and none without a code (`prepare_submission`
+    takes `signed_in` for this). `list_programs` passes it as `FirstMessage.deadline`, after news and
+    "Your entries" (P19; T8 reuses it). The weekly email is unchanged.
 - **The answer bank** (`answer-bank.ts`, table `answer_bank`, Ruling 6): `confirm_entry` (go or
   skip) banks the final answers per installation, project (`projectKey`: normalized repo, else
   `name:<name>`) and kind; `other` is never banked; a kind with two fields banks the first. Contact
@@ -2816,6 +2862,8 @@ A GitHub OAuth App with no scopes; its callback URL is `<EARNKIT_URL>/github/ver
 
 
 ## The token offer right after the match; only the token is skippable (v2.9 B10, B11, Task 6)
+
+_Superseded by v2.10 item 5: there is no first-reply offer; the token is pitched once, in the confirm line (see "One bonus line, the token at confirm, the deadline line"). The text below is kept as history._
 
 - **The offer (`present.ts tokenOffer`, pure).** The first reply ends with "TipJar fits Arc
   Microgrants: $500. (Ruling G15 M2: "fits" only for a likely row; a row one step away reads

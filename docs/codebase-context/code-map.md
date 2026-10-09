@@ -102,6 +102,7 @@ apps/frontend/
                                evidence, removed entries and reasons), the payout wallet and its
                                live balance, the public pause note
   app/p/[id]/page.tsx          campaign entry page (rank only when ranked; status via entryStatus)
+                               v2.10 item 5: one footer line with the token terms links (TOKEN_TERMS).
   app/terms/page.tsx           v2.9 F22 (Task 11): the one legal page, metadata title "Terms", canonical
                                https://earnkit.com/terms; a section nav, then PolicySection (#policy),
                                RiskSection (#risk-disclosure), SponsorTermsSection (#sponsor-terms), Footer.
@@ -449,6 +450,8 @@ apps/frontend/
                                final review M1: notHumanText skips .test.ts/.test.tsx/.test.mts, and walkDir never enters a fixtures directory
     no-cell.ts                 NO_CELL (''), the empty table cell or chip; import-free so the client ProgramCard shares it (final review M1); present.ts re-exports it
     present.ts(+test)          v2.10 item 7: YourRepos.unseen (with the App link) and fromLocal; privateRepoLines
+                               v2.10 items 1, 5, 15: bonusLine (the one bonus line), Card.bonus_tokens, FirstMessage.deadline;
+                               no first-reply token offer (tokenOffer, tokenOfferFit, bonusClose, TOKEN_LINE removed).
                                (one line per local match, one can't-see line) before the matched table.
                                v2.10 item 6: Fit.odds/traction/low_reason (rowOdds), lowOddsCell, LOW_ODDS_HEADING;
                                layout picks per program and ranks by good odds then traction; qualifies,
@@ -559,6 +562,8 @@ apps/frontend/
     http.ts(+test)             CORS + small response helpers; secretMatches, bearerMatches
                                (timing-safe; v2.4 cron and veto)
     tools.ts                   tool name -> handler + input validation (+ caller's installation);
+                               v2.10: withAlerts(ctx, result, signedIn?) puts the deadline line first; ToolContext.roundPools;
+                               no firstTokenOffer/token_offer; prepare_submission takes signed_in; launchFromOffer re-asks with confirmLine.
                                v2.8.1 T7: prepare_submission leads the coach's questions with
                                needsRepoLine when the program needs a repo and none is known ("<X> needs a
                                public repo … No repo yet? <Y> doesn't need one", Y = present.ts
@@ -659,6 +664,7 @@ apps/frontend/
                                says what was found where, the reason names the default branch
                                (GateResult.branch → TokenOutcome.proof_branch)
     token-launch.ts(+test)     v2.8.1 §A: launchReplyMs (EARNKIT_LAUNCH_REPLY_MS, 40 s), withinReply
+                               v2.10 item 5: TokenBlock has no earnings, terms, paired_with or say_to_builder.
                                (past it: LAUNCHING once deploying, else STILL_CHECKING /
                                STILL_CHECKING_LAUNCH; the flow runs on), pendingOutcome (an own
                                pending claim: launching, or LAUNCH_STUCK when settled or > 10 min),
@@ -720,6 +726,8 @@ apps/frontend/
     winners.ts(+test)          rankEntries, pickWinners (one prize per wallet and installation,
                                vetoes, refusals), standingText, RunState
     confirm.ts(+test)          v2.8 Task 8: the confirmation offer (confirmOffer: the builder bonus
+                               v2.10 item 5: confirmLine (the one pitch, inside the single yes), SKIP_TOKEN; confirmOffer is that
+                               line or Ready to submit?; yesLine, offerWalletLine, SKIP_LINE removed.
                                comes with a token; no-bonus, no-wallet (NO_WALLET_HINT), token
                                elsewhere (Ruling 5) and can't-push (CANT_PUSH) variants) and
                                confirmDecision (offer | skip | record_only | launch). Pure. v2.8.1:
@@ -755,6 +763,7 @@ apps/frontend/
                                (projects.application); final review M6: bankKeepsContact, contact
                                never banked or read under a name: key
     also-qualifies.ts(+test)  v2.8 Task 11, Ruling 29: alsoQualifies (at most MAX_ALSO=3 other
+                               v2.10 item 1: alsoText(rows) has no bonus sentences.
                                open, curated, non-campaign, non-investment (C23) programs the project qualifies for;
                                reuses coach.ts bankFill, then counts with prepareSubmission and the entry's project, so
                                project-known fields are filled, final review I1), alsoText (the table + v2.8.1 §C13
@@ -765,6 +774,8 @@ apps/frontend/
                                alsoCanWin: alerts.ts repoCanWin over installations.ts readFitRepos, else
                                users said for "needs a live product"), testnet-only chains dropped
     entry-text.ts(+test)       confirmTable, enteredTable, keyTable, tokenRow (hasBonus: v2.5 §3,
+                               v2.10: enteredText's bonus is { line } (bonusLine, no board); tokenRow uses the confirm line's words;
+                               COIN_FOOTNOTE, tokenFootnote, coinRow, walletLine, BONUS_MOVES removed; SKIP_TOKEN lives here.
                                Task 8, "· skip: no builder bonus"; coinIn: Ruling 25),
                                repoCoinNote, TOKEN_FOOTNOTE, siteUrl; v2.6 §3: coinRow and
                                walletLine (one yes for coin and wallet; "(used last time)", M8),
@@ -789,6 +800,8 @@ apps/frontend/
     funds.ts(+test)            prizeFunds: the payout wallet's balance for the pages (60 s memo, 15 s
                                after a failure, 3 s timeout, no retries)
     alerts.ts(+test)           v2.9 A7: FitRepo, fitRepoOf, alertFit/alertable (new programs only when a
+                               v2.10 item 15: AlertFacts.entries, DeadlineEntry, deadlineLine, DEADLINE_DAYS, takeDeadlineLine
+                               (installations.deadline_shown, once per entry per UTC day); no "(as WETH)" in the bonus win alert.
                                remembered repo could win; v2.9 T12: its per-repo rule is repoCanWin,
                                also used by Also qualifies; openCuratedRows), NewProgram (matching facts, difficulty,
                                match floor/precision); installations.ts setFitRepos/bestFitRepos (fit_repos)
@@ -911,6 +924,7 @@ apps/frontend/
                                Rulings 19-20; an ended round's scoring failure once, Ruling 23; v2.8.1
                                token-pending:<id> for a launch claim pending > 10 min, CronDeps.stuckLaunches), cronPost
     bonus-rounds.ts(+test)     roundFor (windowed rounds keyed by start day, windowKey, Ruling 21;
+                               v2.10 item 1: roundPools (pool and token count in one grouped read); roundPoolsWei maps it (wei > 0).
                                UTC-month rounds), bookingFor (round or Safe, with the reason; v2.6:
                                the Safe only when !bonusOn, no open round or not active),
                                roundPoolsWei (one grouped read, open rounds only; null = the round
