@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createVerify, generateKeyPairSync, randomBytes } from 'node:crypto';
 import { sql } from './db';
 import { GitHubError } from './match-projects';
-import { APP_PAGE, appJwt, appProof, appSetup, appTokenFor, githubAppEnabled, installUrl, installationToken } from './github-app';
+import { APP_PAGE, appJwt, appProof, appSetup, appTokenFor, githubAppEnabled, hasAppProof, installUrl, installationToken } from './github-app';
 import { VERIFY_PAGE, completeVerify, createVerifyLink, csrfCookieName, peekNonce, verifiedFor, type GitHubOAuthDeps } from './github-verify';
 
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
@@ -176,6 +176,13 @@ test('4.9 appSetup: the browser cookie first, then the nonce once; a passing pro
     const again = await appSetup(setupAt(q, cookie), { ...limit, fetch });
     assert.equal(again.status, 410);
     assert.equal((await sql()`SELECT 1 FROM github_verifications WHERE installation_id = ${f.inst}`).length, 1);
+    // Final fix I2: hasAppProof sees this proof (any login off a shared client, the proving login on
+    // one), never another login's, and a shared client with no verified caller has none.
+    assert.equal(await hasAppProof({ installationId: f.inst, repoKey: f.repoKey }), true);
+    assert.equal(await hasAppProof({ installationId: f.inst, login: 'alice', repoKey: f.repoKey.toUpperCase() }), true);
+    assert.equal(await hasAppProof({ installationId: f.inst, login: 'mallory', repoKey: f.repoKey }), false);
+    assert.equal(await hasAppProof({ installationId: f.inst, login: null, repoKey: f.repoKey }), false);
+    assert.equal(await hasAppProof({ installationId: f.inst, repoKey: 'alice/other' }), false);
   });
 });
 

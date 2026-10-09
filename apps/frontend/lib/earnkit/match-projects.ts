@@ -752,8 +752,13 @@ export type MatchDeps = {
   appToken?: (fullName: string) => Promise<string | null>;
 };
 
-/** v2.10 item 7: a private repo matched from the agent's local report. */
-export const PRIVATE_LOCAL_LINE = (name: string) => `${name} is private, so I matched it from your local copy.`;
+/**
+ * v2.10 item 7: a private repo matched from the agent's local report. Final fix I2 (ledger c1): with
+ * the App on and no App proof for it yet, the line carries the App's link once (still one line, no
+ * question).
+ */
+export const PRIVATE_LOCAL_LINE = (name: string, link: string | null = null) =>
+  `${name} is private, so I matched it from your local copy.${link ? ` For a fuller match, allow read access: ${link}` : ''}`;
 /** v2.10 item 7: a named repo GitHub won't show and nobody described; `link` only with the App on (7b). */
 export const CANT_SEE_LINE = (name: string, link: string | null) =>
   `I can't see ${name} (private?). Describe it${link ? `, or allow read access: ${link}` : '.'}`;
@@ -1273,12 +1278,12 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
     );
   // v2.10 item 7: a 404'd named repo the agent reported locally was scored from that report (one
   // line each); one with no report is never dropped silently (`unseen`).
-  const fromLocal: string[] = [];
+  const fromLocal: { name: string; full_name: string }[] = [];
   const unseen: { name: string; full_name: string }[] = [];
   for (const n of notFound) {
     const c = candidates.get(namedKey(n));
     if (c && !c.github && c.local) {
-      if (!saidOf(c)?.not_mine && toScore.includes(c)) fromLocal.push(c.local.name);
+      if (!saidOf(c)?.not_mine && toScore.includes(c)) fromLocal.push({ name: c.local.name, full_name: n });
     } else if (!c) unseen.push({ name: n.split('/')[1], full_name: n });
   }
   return { checked: found, scored: results.length, fits, unseen, fromLocal };

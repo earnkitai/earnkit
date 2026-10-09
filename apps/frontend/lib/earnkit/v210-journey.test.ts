@@ -625,7 +625,9 @@ test('11.1 Claude Code, a private repo and the App: the private line and one lea
     // shows the tables.
     const local = await call(J, 'find (local view)', 'find', { repos: ['alice/tipjar'], local_repos }, ctx);
     const [priv, ...leadLines] = local.show_to_builder!.split('\n');
-    assert.equal(priv, 'tipjar is private, so I matched it from your local copy.');
+    // Final fix I2 (ledger c1): the App is on and tipjar has no App proof yet, so the private line
+    // offers the App link once, on the same line (no extra question).
+    assert.match(priv, /^tipjar is private, so I matched it from your local copy\. For a fuller match, allow read access: https:\/\/earnkit\.com\/github\/verify\?n=[\w-]+$/, local.show_to_builder);
     assert.equal(leadLines.length, 1);
     assert.match(leadLines[0], /^Your tipjar can win 500 USDC on Arc by [A-Z][a-z]{2} \d{1,2}\. Want me to finish it\?$/);
     const more = await call(J, 'show more', 'find', { repos: ['alice/tipjar'], local_repos, more: true }, ctx);

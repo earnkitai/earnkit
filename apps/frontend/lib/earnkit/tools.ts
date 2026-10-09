@@ -94,7 +94,7 @@ import { READY_TO_SUBMIT, confirmDecision, confirmOffer, proofLineWaiting, signI
 import { HOST_LINES, UPLOAD_NOTE, hostSignInLine, issueUpload, refreshSiteExpiry } from './hosting';
 import { r2Enabled } from './r2';
 import { callerLogin, createVerifyLink, entryVerifyLink, githubVerifyEnabled, installationLogin, verifiedEntryIds } from './github-verify';
-import { appTokenFor, githubAppEnabled } from './github-app';
+import { appTokenFor, githubAppEnabled, hasAppProof } from './github-app';
 import { PROOF_LINE_PREFIX, SIGN_IN_FIRST, WALLET_CHANGED } from './token-gate';
 import { kitReplyNote, submitKit, type SubmitKit } from './submit-kit';
 import {
@@ -1076,6 +1076,27 @@ export const handlers = {
               )
             : null;
         yourRepos = first ? { ...matched, unseen: [{ ...first, link }, ...restUnseen] } : matched;
+        // Final fix I2 (ledger c1): with the App on and no can't-see link in the reply (one link, one
+        // ask), the first private repo matched from the local view with no App proof yet gets the link
+        // on its own line, once.
+        if (appOn && !first && matched.fromLocal?.length) {
+          let localLink: { full_name: string; link: string } | null = null;
+          for (const l of matched.fromLocal) {
+            if (await hasAppProof({ installationId: ctx.installationId, login: appLogin, repoKey: l.full_name })) continue;
+            const made = await createVerifyLink({ installationId: ctx.installationId, projectId: null, repoKey: l.full_name, purpose: 'app' }).catch(
+              (err: unknown) => {
+                console.error('[list_programs] app link', err instanceof Error ? err.name : 'error');
+                return null;
+              },
+            );
+            if (made) localLink = { full_name: l.full_name, link: made };
+            break;
+          }
+          if (localLink) {
+            const at = localLink;
+            yourRepos = { ...matched, fromLocal: matched.fromLocal.map((l) => (l.full_name === at.full_name ? { ...l, link: at.link } : l)) };
+          }
+        }
       } catch (err) {
         if (err instanceof GitHubError || err instanceof RateLimitError)
           yourRepos = { error: err.message };
