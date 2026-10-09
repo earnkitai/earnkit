@@ -760,8 +760,6 @@ CREATE TABLE IF NOT EXISTS github_verify_nonces (
   expires_at      timestamptz NOT NULL,
   used_at         timestamptz
 );
--- Fix round 1 (review M2): a link takes at most 5 upload attempts.
-ALTER TABLE host_upload_tokens ADD COLUMN IF NOT EXISTS attempts integer NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS github_verify_nonces_project ON github_verify_nonces (project_id) WHERE project_id IS NOT NULL;
 -- v2.9 B9: a passed GitHub ownership check (Ruling 6). The GitHub token is never stored.
 CREATE TABLE IF NOT EXISTS github_verifications (
@@ -867,6 +865,8 @@ CREATE TABLE IF NOT EXISTS host_upload_tokens (
   expires_at      timestamptz NOT NULL,
   used_at         timestamptz
 );
+-- Fix round 1 (review M2): a link takes at most 5 upload attempts.
+ALTER TABLE host_upload_tokens ADD COLUMN IF NOT EXISTS attempts integer NOT NULL DEFAULT 0;
 -- v2.9: free-tier counters with hard caps (free-tier.ts): r2Writes per month, resend per day and month.
 CREATE TABLE IF NOT EXISTS free_tier_usage (
   name   text NOT NULL,
