@@ -2780,3 +2780,33 @@ claims. Every other fetch gets a 503.
   every reply under 50 s, and no other network use.
 
 The v2.8.1 journeys (`v281-journey.test.ts`) still pass unchanged on Part 1.
+
+## The host Worker (v2.9 C12, C14 on the Worker side, Task 7)
+
+- **Where.** `infra/host-worker/` is a Cloudflare Worker (free plan) outside the Next build. The
+  owner deploys it by hand with `wrangler deploy`; nothing in CI deploys it. Routing lives in the
+  pure `src/route.ts` (tested in Node by `pnpm test`, typechecked by `pnpm host:typecheck`, P42);
+  `src/index.ts` only passes `caches.default` and `ctx.waitUntil`.
+- **Shared names.** `apps/frontend/lib/earnkit/host-names.ts` (import-free) holds `HOST_RESERVED`,
+  `HOST_CSP`, `HOST_HEADERS`, `SITE_PREFIX` and `STATE_PREFIX`. The Worker imports it by relative
+  path (wrangler bundles it); the hosting code (Task 8) imports it too, so the two never drift.
+- **Host to slug.** The `Host` header must be exactly one label under `ZONE` (lowercased; a port
+  and a trailing dot are dropped) and not in `HOST_RESERVED` plus the `RESERVED` var (comma list:
+  every existing DNS name, the same list as `EARNKIT_RESERVED_SUBDOMAINS`, P41). Anything else is a
+  404 before any R2 read or cache lookup. Reserved names also get exclusion routes, so they never
+  reach the Worker.
+- **Path to key.** `sites/<slug>/<decoded path>`; `/` and a trailing `/` add `index.html`. A path
+  with a `.` or `..` segment (also `%2e%2e`), `//`, `\`, a control byte or bad percent-encoding is a
+  400 with no read. A missing extensionless path tries `<path>/index.html`, then the site's
+  `404.html` (404), then a plain 404.
+- **State (Ruling 9).** On a cache miss the Worker reads `state/<slug>.json`: `live` serves files;
+  `review` and `killed` serve `TAKEN_DOWN_PAGE` and `ended` serves `ENDED_PAGE`, both 410 and never
+  cached; no state, bad JSON or any other status is a 404 (fail closed).
+- **Cache.** Only 200 GET responses are cached (`Cache-Control: public, max-age=300`), keyed by
+  `https://<slug>.<zone><path>` so the query string and Host spelling can't split or bypass it. A
+  hit reads nothing from R2, so a takedown shows within 5 minutes per edge location.
+- **Headers.** Every response (files, 400, 404, 405, 410, 500 and cache hits) gets `HOST_HEADERS`
+  set last: the sandbox CSP (`sandbox allow-scripts allow-forms allow-popups allow-modals;
+  form-action 'self'`), `X-Frame-Options: DENY`, `nosniff` and `no-referrer`. Only GET and HEAD are
+  served (405 with `Allow`). The Content-Type comes from the key's extension (`contentTypeFor`),
+  not from R2 metadata.

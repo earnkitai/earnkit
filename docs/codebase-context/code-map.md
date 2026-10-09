@@ -20,6 +20,14 @@ contracts/                     Foundry project (v2.1 sponsor escrow; not part of
   script/Deploy.s.sol          timelock + factory deploy (owner's wallet signs)
   script/export-abi.sh         writes apps/frontend/lib/earnkit/escrow-abi.ts
   README.md                    how to test, analyze (Slither/Halmos/Aderyn), deploy
+infra/host-worker/              v2.9 C12/C14 (Task 7): Cloudflare Worker for <slug>.earnkit.com (free plan;
+                               the owner deploys by hand, never CI). wrangler.toml (earnkit-host, R2
+                               BUCKET earnkit-sites, ZONE, RESERVED; routes commented), tsconfig.json
+                               (pnpm host:typecheck, P42), README (owner setup)
+  src/route.ts(+test)          pure: siteSlug (one label, not reserved), objectKey (sites/<slug>/...,
+                               traversal null), contentTypeFor, handle (state/<slug>.json kill switch
+                               and end page, 410; Cache API 300 s; HOST_HEADERS on every response)
+  src/index.ts                 fetch wrapper: handle(req, env, caches.default, ctx.waitUntil)
 programs/                      program files (+ README: how Claude Code adds programs/starters)
   programs/outcomes/           v2.8 Part G, Ruling 30: announced results, <program-id>.json (OutcomeFile;
                                README has the format); written by the weekly routine, validated by
@@ -423,6 +431,9 @@ apps/frontend/
                                affiliation note any more (BONUS_NOTE removed, Ruling 14 (plan); the
                                policy page keeps that text, linked from the footer and the guide page)
     earnkit-orgs.ts            v2.9 A1: EARNKIT_ORGS (import-free; programs.ts re-exports it)
+    host-names.ts              v2.9 C12 (Task 7), import-free: HOST_RESERVED, HOST_CSP, HOST_HEADERS,
+                               SITE_PREFIX 'sites/', STATE_PREFIX 'state/'; imported by the host Worker
+                               (relative path) and the hosting code
     match.ts(+test)            pure: chain detection (IDs + RPC hosts), repo x program verdicts;
                                v2.9 A1, A2: ownerOk, productScore (tiers), TUTORIAL, DEFAULT_README,
                                SIGNAL_WORDS, INVESTMENT_NOTE; matchRepo applies the tiers when scored;
