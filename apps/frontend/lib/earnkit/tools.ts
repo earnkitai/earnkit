@@ -90,7 +90,7 @@ import { HOST_LINES, UPLOAD_NOTE, hostSignInLine, issueUpload, refreshSiteExpiry
 import { r2Enabled } from './r2';
 import { callerLogin, claimOfferVerification, createVerifyLink, entryVerifyLink, githubVerifyEnabled, offerVerification, verifiedEntryIds } from './github-verify';
 import { PROOF_LINE_PREFIX, SIGN_IN_FIRST, WALLET_CHANGED, tokenGate } from './token-gate';
-import { kitAgentNote, submitKit, type SubmitKit } from './submit-kit';
+import { kitReplyNote, submitKit, type SubmitKit } from './submit-kit';
 import {
   WALLET_KEY,
   applicationOf,
@@ -1894,10 +1894,8 @@ export const tools = {
         // v2.8.1 §C13: a repo whose token is in another program: the kit alone (no bonus note here).
         show_to_builder: first ? `${first}\n\n${kit.show_to_builder}` : kit.show_to_builder,
         // Part E, Rulings 7, 27, 28 (plan): how this kit is used (the agent's, never the builder's).
-        agent_note:
-          `Show show_to_builder as written. ${kitAgentNote(kit, program)} ` +
-          'Once the builder has submitted, call record_submission with the final answers and builder_submitted: true' +
-          (kit.proof.kind === 'entry_link' ? ', and their entry link as external_submission_url.' : '.'),
+        // v2.9 F25: the kit rules that left confirm_entry's description are here.
+        agent_note: kitReplyNote(kit, program),
       },
       email,
       Object.values(banked.suggested).some((v) => cleanEmail(v) === email),

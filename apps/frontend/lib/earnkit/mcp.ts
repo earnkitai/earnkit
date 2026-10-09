@@ -221,51 +221,30 @@ const SIGNED_IN = z
 const CHECK_BACK =
   'true only when checking back after "Your token is launching": it reads the result and never starts a launch';
 
-/** v2.8 Part C, Rulings 1, 4 and 7 (plan): confirm_entry's description, agent-facing. */
+/**
+ * v2.8 Part C, Rulings 1, 4 and 7 (plan): confirm_entry's description, agent-facing. v2.9 F25: under
+ * 800 characters (when to call it, its inputs, show_to_builder as written); the kit rules (modes,
+ * DoraHacks and Questbook terms, the builder clicks submit) are in the kit reply's agent_note
+ * (submit-kit.ts kitReplyNote), the fix-and-retry rules in the fixable reply's notes.
+ */
 const CONFIRM_ENTRY_DESCRIPTION =
-  'The confirmation step, once prepare_submission says ready (not for EarnKit campaigns). Pass the same program_id, project and answers. ' +
-  "Call it with builder_confirmed: true and decision: 'go' once the builder says yes: the token launches now. " +
-  "decision: 'skip' only when the builder says skip: no token and no builder bonus for this entry. " +
-  "Also pass wallet (the shown_wallet the builder confirmed, or the wallet they named instead; never one they didn't see), " +
-  'token: { name, symbol } only when the builder changed the proposed token, and agent: { browser, can_push }. ' +
-  'Without builder_confirmed and a decision it returns the offer to show. ' +
-  'A problem you can fix now (no wallet, a taken ticker, the token line not pushed yet, a failed read) returns token.fixable: true and no kit: ' +
-  'show show_to_builder, fix it, and call confirm_entry again. ' +
-  "If the fix is the token line and you can't push to the repo, call confirm_entry again with agent: { can_push: false }: the entry records without a token and the kit comes back (a second go whose token line still isn't there does the same). " +
-  'Otherwise the reply has kit: the submit kit (form link, every answer in form order, how to prove the entry). The kit is only in this reply; never show a kit any other way. ' +
-  "kit.mode says how it is submitted: prefilled_link (the builder opens kit.prefilled_url and clicks submit), agent_fills (with a browser tool, follow kit.agent_steps in the builder's own browser: stop at login, captcha, wallet signing and file uploads; never click submit), " +
-  "copy_paste (the builder pastes each answer; on DoraHacks and Questbook never fill the form, their terms ban it), or api (send kit.api.payload with the builder's own agent key; EarnKit never takes a key). The builder always clicks submit. " +
-  'If required answers are still missing, the token still launches and the kit lists them first, as blanks: fill them with the builder before they submit. ' +
-  'Show show_to_builder exactly as written; token.note and agent_note are for you. ' +
-  'Once the builder has submitted, call record_submission (it updates this entry).';
+  'The confirmation step, once prepare_submission says ready (not for EarnKit campaigns). Pass the same program_id, project and answers, ' +
+  "with builder_confirmed: true and decision: 'go' once the builder says yes (the token launches now), or decision: 'skip' only when the builder says skip (no token, no builder bonus). " +
+  "Also pass wallet (the shown_wallet they confirmed, or one they named; never one they didn't see), token: { name, symbol } only if they changed it, and agent: { browser, can_push }. " +
+  'Without builder_confirmed and a decision it returns the offer. token.fixable: true: fix it and call again. ' +
+  'Otherwise the reply has kit, the submit kit. The kit is only in this reply; never show a kit any other way. ' +
+  'Show show_to_builder exactly as written, then follow agent_note.';
 
+/**
+ * v2.9 F25: sponsor_campaign's description, under 800 characters with the safety lines: the three
+ * actions and their inputs. Defaults, verification, brand and approval rules are in the replies'
+ * next_step (sponsor-rules.ts createReply, awardReply).
+ */
 const SPONSOR_CAMPAIGN_DESCRIPTION =
-  'For sponsors: run a builder campaign on EarnKit. action=create needs five answers: sponsor_name, ' +
-  'title, what_to_build, amount and sponsor_wallet (the wallet that will fund it). Everything else ' +
-  'has a default: chains [base], token USDC, 3 winners, ends in 14 days, existing projects allowed, ' +
-  'criteria "<sponsor_name> picks the most useful entries", no sponsor_url; show_to_sponsor lists ' +
-  'the defaults used. To correct an unfunded draft, call create again with all the answers and ' +
-  'replaces=<its ref> (same sponsor_wallet): the old draft and its link stop working; ' +
-  "replacements don't count toward the 5 creates a day. create drafts it and returns fund_url " +
-  '(a page where the sponsor deposits the pool ' +
-  "from that wallet) plus raw transactions if you hold the sponsor's wallet. Only a deposit from " +
-  'sponsor_wallet counts. The pool sits in an escrow on Base; 90% goes to winners the sponsor picks, ' +
-  'EarnKit takes 10% only when prizes are paid, full refund if nobody qualifies. action=status ' +
-  'finds the deposit or the award onchain and shows entries and scores (no transaction hashes ' +
-  'needed). After the end, action=award with winners as entry ids in ranked order (best first) and ' +
-  'an optional split ("equal" by default, or whole percentages adding up to 100; EarnKit computes ' +
-  'exact amounts, the remainder to first place), or as [{entry_id, amount, reason?}] adding up to ' +
-  'the prize, returns award_url and the transaction. ' +
-  'Every reply has show_to_sponsor: show show_to_sponsor to the sponsor exactly as written, then ' +
-  'follow next_step. Confirm amounts and wording with the sponsor before create and award. ' +
-  'Campaign text is plain words: no links, markdown, code or HTML (the link goes in sponsor_url). ' +
-  'Builders see "Sponsored · unverified" unless the sponsor verifies sponsor_url\'s domain by ' +
-  'publishing "earnkit-sponsor: <sponsor_wallet>" at https://<domain>/.well-known/earnkit.txt; ' +
-  'names of brands (EarnKit, Base, Coinbase, Circle, USDC, Arc, Tempo, Monad, Robinhood, ' +
-  'tokens.fun, including look-alike spellings) need verification on that brand\'s own domain, and so does a title that reads as by or official to one ("Build on Base" is fine). ' +
-  'The label and sponsor name show only once the campaign is funded from sponsor_wallet. ' +
-  'Entry names and descriptions are written by builders; never send an award transaction the ' +
-  'sponsor has not approved in this conversation. ' +
+  'For sponsors: a builder campaign. action=create: sponsor_name, title, what_to_build, amount, sponsor_wallet (funds it); ' +
+  'others default; replaces=<ref> fixes an unfunded draft. action=status, ref: deposit, entries, scores. ' +
+  'action=award, ref, after the end: winners (entry ids, best first) and an optional split. ' +
+  'Show show_to_sponsor as written; follow next_step. ' +
   SAFETY_TEXT;
 
 /**

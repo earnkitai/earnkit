@@ -341,3 +341,18 @@ export function kitAgentNote(kit: SubmitKit, program: Pick<KitProgram, 'submissi
         : 'The builder pastes each answer into the form and clicks submit. Never submit the form for them.';
   }
 }
+
+/**
+ * v2.9 F25: the whole agent_note of confirm_entry's kit reply: the kit rules that left confirm_entry's
+ * description (the kit only here, the mode's rules, the builder clicks submit, missing answers),
+ * then record_submission. Pure.
+ */
+export function kitReplyNote(kit: SubmitKit, program: Pick<KitProgram, 'submission_url' | 'submit_host'>): string {
+  return (
+    'Show show_to_builder as written. The kit is only in this reply; never show a kit any other way. ' +
+    `${kitAgentNote(kit, program)} ` +
+    'The builder always clicks submit. If the kit lists answers still missing, fill them in with the builder before they submit. ' +
+    'Once the builder has submitted, call record_submission with the final answers and builder_submitted: true' +
+    (kit.proof.kind === 'entry_link' ? ', and their entry link as external_submission_url.' : '.')
+  );
+}
