@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   EARNINGS_LINE,
@@ -244,5 +244,68 @@ test('v2.9 T12: the tokens.fun host is read per call, so a mock set after the mo
     for (const [k, v] of [['TOKENSFUN_API_URL', saved.url], ['TOKENSFUN_DEPLOY_API_KEY', saved.key]] as const)
       if (v === undefined) delete process.env[k];
       else process.env[k] = v;
+  }
+});
+
+const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
+after(async () => {
+  if (process.env.DATABASE_URL) await (await import('./db')).sql().end();
+});
+
+test('4.12 (R10) a private repo\'s entry sends tokens.fun the live link as website and never the repo URL', dbTest, async () => {
+  const { sql } = await import('./db');
+  const { deployToken } = await import('./tokens');
+  const key = process.env.TOKENSFUN_DEPLOY_API_KEY;
+  process.env.TOKENSFUN_DEPLOY_API_KEY = 'test-key';
+  const tag = `t412-${process.pid}-${Date.now()}`;
+  // deployToken logs each launch ("[launch] project N: launched ..."); kept out of the output.
+  const log = console.log;
+  console.log = () => {};
+  const [inst] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${tag}) RETURNING id`;
+  await sql()`
+    INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work)
+    VALUES (${tag}, 'X', 'P', 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed')`;
+  const entry = async (n: number, o: { live: string | null; repoPrivate: boolean }) => {
+    const repo = `https://github.com/alice/${tag}-${n}`;
+    const [p] = await sql()<{ id: number }[]>`
+      INSERT INTO projects (program_id, name, installation_id, repo_url, live_url, repo_private)
+      VALUES (${tag}, ${`Tip Jar ${n}`}, ${inst.id}, ${repo}, ${o.live}, ${o.repoPrivate}) RETURNING id`;
+    return { id: p.id, repo };
+  };
+  const launch = async (e: { id: number; repo: string }, live: string | null, repoPrivate?: boolean) => {
+    let sent = '';
+    const out = await deployToken(
+      { projectId: e.id, installationId: inst.id, name: 'Tip Jar', symbol: 'TIPJ', creatorWallet: `0x${'1'.repeat(40)}`, image: null, repoUrl: e.repo, liveUrl: live, repoPrivate },
+      { fetch: (async (_u: unknown, init?: RequestInit) => ((sent = String(init?.body)), Response.json({ success: true, tokenAddress: `0x${(await import('node:crypto')).randomBytes(20).toString('hex')}`, txHash: '0x1' }))) as typeof fetch },
+    );
+    assert.equal(out.status, 'launched');
+    return { body: JSON.parse(sent) as Record<string, unknown>, raw: sent };
+  };
+  try {
+    const priv = await entry(1, { live: 'https://tipjar.xyz', repoPrivate: true });
+    const a = await launch(priv, 'https://tipjar.xyz');
+    assert.equal(a.body.website, 'https://tipjar.xyz');
+    assert.ok(!a.raw.includes(`${tag}-1`), 'no repo URL anywhere in the body');
+    // No live link: no website at all.
+    const bare = await entry(2, { live: null, repoPrivate: true });
+    const b = await launch(bare, null);
+    assert.equal('website' in b.body, false);
+    assert.ok(!b.raw.includes(`${tag}-2`));
+    // The gate read the repo through the App (Pre-flight P4): the claim marks the entry private too.
+    const viaGate = await entry(3, { live: null, repoPrivate: false });
+    const c = await launch(viaGate, null, true);
+    assert.equal('website' in c.body, false);
+    const [row] = await sql()<{ repo_private: boolean }[]>`SELECT repo_private FROM projects WHERE id = ${viaGate.id}`;
+    assert.equal(row.repo_private, true);
+    // A public repo keeps the v2.9 website (the repo URL when there is no live link).
+    const pub = await entry(4, { live: null, repoPrivate: false });
+    assert.equal((await launch(pub, null)).body.website, pub.repo);
+  } finally {
+    console.log = log;
+    if (key === undefined) delete process.env.TOKENSFUN_DEPLOY_API_KEY;
+    else process.env.TOKENSFUN_DEPLOY_API_KEY = key;
+    await sql()`DELETE FROM projects WHERE program_id = ${tag}`;
+    await sql()`DELETE FROM programs WHERE id = ${tag}`;
+    await sql()`DELETE FROM installations WHERE id = ${inst.id}`;
   }
 });

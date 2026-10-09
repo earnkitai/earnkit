@@ -386,6 +386,9 @@ async function gatherGateReasons(): Promise<[string, string][]> {
   const okDeps: Required<GateDeps> = {
     verified: async () => null,
   shared: async () => false,
+    // v2.10 item 7b: no App reads.
+    appToken: async () => null,
+    appLink: async () => null,
     repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
     owner: async () => ({ status: 'ok', text: 'token: 0000000000000000' }),
     latest: async () => null,
@@ -431,6 +434,9 @@ async function gatherGateAgentNotes(): Promise<[string, string][]> {
   const okDeps: Required<GateDeps> = {
     verified: async () => null,
   shared: async () => false,
+    // v2.10 item 7b: no App reads.
+    appToken: async () => null,
+    appLink: async () => null,
     repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
     owner: async () => ({ status: 'ok', text: 'token: 0000000000000000' }),
     latest: async () => null,

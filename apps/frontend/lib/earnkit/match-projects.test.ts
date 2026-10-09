@@ -1124,3 +1124,119 @@ test('H5 I4: one Base pair stays inside the 2-pair cap, with Base listed third',
   assert.ok(asked.includes('https://rpc.mainnet.arc.io'), 'the first claimed pair is kept');
   assert.ok(asked.length <= 2);
 });
+
+// ---- v2.10 item 7: private repos
+
+const TIPJAR_LOCAL = { name: 'TipJar', url: 'https://github.com/alice/tipjar', chains: ['base'], live_url: 'https://tipjar.xyz' };
+const keysOf = (r: { fits: { key: string }[] }) => r.fits.map((f) => f.key).sort();
+
+test('4.1 a named private repo (404) the agent reported locally is scored from the local copy; the other repo still reads', async (t) => {
+  const { deps } = checkDeps();
+  // The live link's failed probe logs one expected "[verify] live Error" line; kept out of the output.
+  const log = console.error;
+  console.error = () => {};
+  t.after(() => {
+    console.error = log;
+  });
+  await withFetch(
+    (u) => (u.pathname === '/repos/alice/site' ? body(ghRepo('alice', 'site')) : u.pathname === '/repos/alice/tipjar' ? undefined : repoFiles(u)),
+    async () => {
+      const r = await matchProjects(
+        MatchProjectsInput.parse({ repos: ['alice/tipjar', 'alice/site'], local_repos: [TIPJAR_LOCAL] }),
+        deps,
+      );
+      assert.equal('error' in r, false);
+      assert.equal(r.scored, 2);
+      assert.deepEqual(keysOf(r), ['alice/site', 'alice/tipjar']);
+      assert.deepEqual(r.fromLocal, ['TipJar']);
+      assert.deepEqual(r.unseen, []);
+    },
+  );
+});
+
+test('4.2 a named private repo (404) with no local view is never dropped silently: unseen; the other repo is scored', async () => {
+  const { deps } = checkDeps();
+  await withFetch(
+    (u) => (u.pathname === '/repos/alice/site' ? body(ghRepo('alice', 'site')) : u.pathname === '/repos/alice/tipjar' ? undefined : repoFiles(u)),
+    async () => {
+      const r = await matchProjects(MatchProjectsInput.parse({ repos: ['alice/tipjar', 'alice/site'] }), deps);
+      assert.deepEqual(r.unseen, [{ name: 'tipjar', full_name: 'alice/tipjar' }]);
+      assert.deepEqual(r.fromLocal, []);
+      assert.deepEqual(keysOf(r), ['alice/site']);
+    },
+  );
+});
+
+test('4.3 (Review Focus 1) a rate limit (403) is not "private": skipped with its local view; all named repos failing that way throws', async () => {
+  const { deps } = checkDeps();
+  const limited = () => new Response('{"message":"API rate limit exceeded"}', { status: 403 });
+  await withFetch(
+    (u) => (u.pathname === '/repos/alice/site' ? body(ghRepo('alice', 'site')) : u.pathname === '/repos/alice/tipjar' ? limited() : repoFiles(u)),
+    async () => {
+      const r = await matchProjects(
+        MatchProjectsInput.parse({ repos: ['alice/tipjar', 'alice/site'], local_repos: [TIPJAR_LOCAL] }),
+        deps,
+      );
+      assert.deepEqual(r.unseen, []);
+      assert.deepEqual(r.fromLocal, []);
+      assert.deepEqual(keysOf(r), ['alice/site'], 'the local view of the 403 repo is not used either');
+    },
+  );
+  await withFetch(
+    (u) => (u.pathname === '/repos/alice/site' || u.pathname === '/repos/alice/tipjar' ? limited() : repoFiles(u)),
+    async () => {
+      await assert.rejects(
+        matchProjects(MatchProjectsInput.parse({ repos: ['alice/tipjar', 'alice/site'] }), deps),
+        (err: unknown) => err instanceof GitHubError && err.status === 403 && /GitHub request failed \(403\)/.test(err.message),
+      );
+    },
+  );
+});
+
+test('4.4 with the App\'s token a private repo is read through it, fully scored, and cached as via_app', async () => {
+  const saved: { full: string; via_app?: boolean }[] = [];
+  const { deps } = checkDeps();
+  const asked: string[] = [];
+  deps.cache = { load: async () => null, save: async (full, _p, facts) => void saved.push({ full, via_app: facts.via_app }) };
+  deps.appToken = async (n) => (asked.push(n), n === 'alice/tipjar' ? 'tok' : null);
+  const original = globalThis.fetch;
+  const calls: { url: string; auth: string | null }[] = [];
+  const priv = ghRepo('alice', 'tipjar', { private: true, visibility: 'private' });
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    const u = new URL(String(url));
+    const auth = new Headers(init?.headers).get('authorization');
+    calls.push({ url: u.host + u.pathname + u.search, auth });
+    const notFound = () => new Response('{"message":"Not Found"}', { status: 404 });
+    if (!u.pathname.startsWith('/repos/alice/tipjar')) return notFound();
+    // Without the token GitHub answers 404 for everything in a private repo.
+    if (auth !== 'Bearer tok') return notFound();
+    if (u.pathname === '/repos/alice/tipjar') return body(priv);
+    if (/\/git\/trees\//.test(u.pathname))
+      return body({ tree: [{ path: 'README.md', type: 'blob', size: README.length }, { path: 'hardhat.config.ts', type: 'blob', size: 100 }] });
+    if (u.pathname === '/repos/alice/tipjar/contents/README.md' && u.searchParams.get('ref') === 'main') return body(README);
+    if (u.pathname === '/repos/alice/tipjar/contents/hardhat.config.ts')
+      return body(`networks: { base: { url: 'https://mainnet.base.org', chainId: 8453 } } // token ${ADDR}`);
+    if (/\/commits$/.test(u.pathname) && u.searchParams.has('since')) return body([{ sha: 'a' }, { sha: 'b' }]);
+    return notFound();
+  }) as typeof fetch;
+  try {
+    const r = await matchProjects(MatchProjectsInput.parse({ repos: ['alice/tipjar'] }), deps);
+    assert.deepEqual(asked, ['alice/tipjar']);
+    assert.deepEqual(r.unseen, []);
+    assert.deepEqual(keysOf(r), ['alice/tipjar']);
+    const [fit] = r.fits;
+    // README, original, active, young and owned all counted (read through the token); only a deployment is missing.
+    assert.deepEqual(fit.product.missing, ['deployed'], JSON.stringify(fit.product));
+    assert.equal(fit.facts.chains.base?.basis, 'deploy_config');
+    assert.equal(fit.facts.commits_90d, 2);
+    // Every read after the first 404 went through the token; nothing went to raw.githubusercontent.com.
+    const after404 = calls.slice(1);
+    assert.ok(after404.length >= 5, JSON.stringify(calls));
+    assert.ok(after404.every((c) => c.auth === 'Bearer tok' && c.url.startsWith('api.github.com/repos/alice/tipjar')), JSON.stringify(calls));
+    for (const part of ['/git/trees/', '/contents/README.md', '/contents/hardhat.config.ts', '/commits?since='])
+      assert.ok(after404.some((c) => c.url.includes(part)), part);
+    assert.deepEqual(saved, [{ full: 'alice/tipjar', via_app: true }]);
+  } finally {
+    globalThis.fetch = original;
+  }
+});

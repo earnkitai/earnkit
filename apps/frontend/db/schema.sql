@@ -688,6 +688,8 @@ ALTER TABLE programs ADD COLUMN IF NOT EXISTS needs_contract text;
 -- candidates from its files), cached with its chains (repo-cache.ts). The builder-dependent ones
 -- (owned, active, deployed) are never cached (Pre-flight P6). NULL: read before v2.9.
 ALTER TABLE github_repo_facts ADD COLUMN IF NOT EXISTS product jsonb;
+-- v2.10 R10: a repo fact row read through the App (private), never shown on public pages.
+ALTER TABLE github_repo_facts ADD COLUMN IF NOT EXISTS via_app boolean NOT NULL DEFAULT false;
 -- v2.9 A2: the lowest product score a repo needs for a matched row (program file
 -- min_product_score; a16z: 5). 0: no floor.
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS min_product_score int NOT NULL DEFAULT 0;
@@ -735,6 +737,9 @@ CREATE TABLE IF NOT EXISTS match_shown (
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS match_floor integer;
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS match_precision numeric;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS product_score integer;
+-- v2.10 R10 (Pre-flight P4): the entry's repo is known private (read through the App): public pages
+-- show the project name only, and tokens.fun never gets the repo URL.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS repo_private boolean NOT NULL DEFAULT false;
 -- v2.10 item 6: the repo's traction score (0 to 10) as matching showed it; null on older rows.
 ALTER TABLE match_shown ADD COLUMN IF NOT EXISTS traction smallint;
 
@@ -792,6 +797,17 @@ ALTER TABLE github_verify_nonces ADD COLUMN IF NOT EXISTS wallet text;
 ALTER TABLE github_verify_nonces ADD COLUMN IF NOT EXISTS symbol text;
 ALTER TABLE github_verifications ADD COLUMN IF NOT EXISTS wallet text;
 ALTER TABLE github_verifications ADD COLUMN IF NOT EXISTS symbol text;
+-- v2.10 item 7b (R8): the App's nonce purpose; the login the OAuth hop proved, read by the setup URL.
+ALTER TABLE github_verify_nonces DROP CONSTRAINT IF EXISTS github_verify_nonces_purpose_check;
+ALTER TABLE github_verify_nonces ADD CONSTRAINT github_verify_nonces_purpose_check CHECK (purpose IN ('entry', 'pickup', 'host', 'app'));
+ALTER TABLE github_verify_nonces ADD COLUMN IF NOT EXISTS login text;
+-- v2.10 Pre-flight P3: the account facts of that sign-in, for the setup URL's verification row (its
+-- NOT NULL columns). NULL until an `app` nonce's OAuth hop passes.
+ALTER TABLE github_verify_nonces ADD COLUMN IF NOT EXISTS account_created_at timestamptz;
+ALTER TABLE github_verify_nonces ADD COLUMN IF NOT EXISTS public_repos integer;
+-- v2.10 item 7b: how a verification was made ('oauth' sign-in or the read-only 'app'), and the App installation.
+ALTER TABLE github_verifications ADD COLUMN IF NOT EXISTS via text NOT NULL DEFAULT 'oauth';
+ALTER TABLE github_verifications ADD COLUMN IF NOT EXISTS github_installation_id bigint;
 
 -- v2.9 B10: the builder said skip to a token offer for this repo; at 2 it is never offered again.
 -- Ruling G12: `login` is the builder ('' off shared clients, the verified login on one); `offers`

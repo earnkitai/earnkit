@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { ForkCheckError } from './match-projects';
 import {
   PROOF_LINE_PREFIX,
+  WALLET_CHANGED,
   codeProblem,
   legacyTokenLineCode,
   ownerProblem,
@@ -22,6 +23,9 @@ const LINE = tokenLineFor(1, REPO)!;
 const ok: Required<GateDeps> = {
   verified: async () => null,
   shared: async () => false,
+  // v2.10 item 7b: no App reads.
+  appToken: async () => null,
+  appLink: async () => null,
   repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
   owner: async () => ({ status: 'ok', text: LINE }),
   latest: async () => null,
@@ -98,6 +102,9 @@ test('order: repo, then earnkit.txt, then the screen; stops at the first failure
   const trace: Required<GateDeps> = {
     verified: async () => null,
   shared: async () => false,
+    // v2.10 item 7b: no App reads.
+    appToken: async () => null,
+    appLink: async () => null,
     repo: async () => { seen.push('repo'); return { fork: false, hasCommits: true, aheadOfParent: null }; },
     owner: async () => { seen.push('owner'); return { status: 'ok', text: LINE.toUpperCase().replace('TOKEN', 'token') }; },
     latest: async () => { seen.push('latest'); return null; },
@@ -250,4 +257,45 @@ test('5.8 v2.9 B9: a passing GitHub sign-in for the entry stands in for the proo
   // A failed read is no verification.
   const broken = await tokenGate({ ...input, projectId: 7 }, { ...missing, verified: async () => { throw new Error('db'); } });
   assert.equal(broken.ok, false);
+});
+
+test('4.11 with the App\'s token a private repo passes the code check and earnkit.txt is read through it; the launch proof is unchanged', async () => {
+  const notPublic = () => {
+    throw new Error('GitHub: /repos/acme/kit not found (or private)');
+  };
+  const seen: string[] = [];
+  const viaApp: Partial<GateDeps> = {
+    appToken: async (key) => (seen.push(`token ${key}`), 'ghs_tok'),
+    repo: async (_o, _r, token) => (token === 'ghs_tok' ? { fork: false, hasCommits: true, aheadOfParent: null, defaultBranch: 'main' } : notPublic()),
+    owner: async (_r, token) => (seen.push(`owner ${token}`), { status: 'ok', text: LINE }),
+  };
+  assert.deepEqual(await tokenGate(input, { ...ok, ...viaApp }), { ok: true, private: true });
+  assert.deepEqual(seen, ['token acme/kit', 'owner ghs_tok']);
+  // A public repo is never read through the App.
+  seen.length = 0;
+  assert.deepEqual(await tokenGate(input, { ...ok, appToken: viaApp.appToken }), { ok: true });
+  assert.deepEqual(seen, []);
+  // No App proof: the v2.9 "make it public" line, or with the App on its read-access link (Pre-flight P17).
+  const none = { ...ok, ...viaApp, appToken: async () => null };
+  assert.match((await tokenGate(input, none) as { reason: string }).reason, /isn't public on GitHub\. Make it public/);
+  const linked = await tokenGate(input, { ...none, appLink: async () => 'https://earnkit.com/github/verify?n=abc' });
+  assert.deepEqual(linked, {
+    ok: false,
+    reason: "EarnKit can't see acme/kit on GitHub. Allow read access: https://earnkit.com/github/verify?n=abc Then say 'launch the token'.",
+    fixable: true,
+  });
+  // R9: the App grants reads only. Without the proof line, the launch still needs it.
+  const noLine = await tokenGate(input, { ...ok, ...viaApp, owner: async () => ({ status: 'missing' }) });
+  assert.equal(noLine.ok, false);
+  assert.ok((noLine as { reason: string }).reason.startsWith(PROOF_LINE_PREFIX));
+  // G11 unchanged: a sign-in made for another fee wallet still gets WALLET_CHANGED.
+  const changed = await tokenGate(
+    { ...input, projectId: 7 },
+    { ...ok, ...viaApp, owner: async () => ({ status: 'missing' }), verified: async () => ({ wallet: `0x${'2'.repeat(40)}` }) },
+  );
+  assert.equal(changed.ok, false);
+  assert.equal((changed as { reason: string }).reason, WALLET_CHANGED);
+  // G10 unchanged: on a shared client only the caller's own sign-in proves it, App or not.
+  const shared = await tokenGate({ ...input, projectId: 7, verifiedLogin: 'alice' }, { ...ok, ...viaApp });
+  assert.equal(shared.ok, true, 'sign-in is off here, so the proof line still counts (v2.9 behaviour)');
 });

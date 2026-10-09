@@ -88,8 +88,12 @@ test('5.12 Ruling 7: every cookie EarnKit sets is __Host- (source scan of app/ a
   const setting = [...sources(join(root, 'app')), ...sources(join(root, 'lib'))].filter((p) =>
     /Set-Cookie|cookies\(\)\.set|\.cookies\.set/i.test(readFileSync(p, 'utf8')),
   );
-  assert.deepEqual(setting.map((p) => p.slice(root.length + 1)), ['lib/earnkit/github-verify.ts']);
-  const src = readFileSync(setting[0], 'utf8');
+  // v2.10 item 7b: the App's setup URL only clears the sign-in's cookie, through github-verify's clearCsrf.
+  assert.deepEqual(setting.map((p) => p.slice(root.length + 1)), ['lib/earnkit/github-app.ts', 'lib/earnkit/github-verify.ts']);
+  const app = readFileSync(setting[0], 'utf8');
+  assert.deepEqual([...app.matchAll(/'Set-Cookie': ([^}]+)/g)].map((m) => m[1].trim()), ['clearCsrf(nonce)']);
+  assert.doesNotMatch(app, /__Host-|Max-Age|cookies\(\)\.set/);
+  const src = readFileSync(setting[1], 'utf8');
   // Each Set-Cookie value is built from csrfCookieName, which is __Host- with Path=/ and Secure.
   for (const m of src.matchAll(/=>\s*`\$\{csrfCookieName\(nonce\)\}=([^`]*)`/g)) {
     assert.match(m[1], /Path=\/;/);

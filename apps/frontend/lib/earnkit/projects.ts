@@ -6,6 +6,7 @@ import {
   EntryError,
   entryFieldProblems,
   givenWallet,
+  githubRepo,
   isWalletAddress,
   normalizeLiveUrl,
   normalizeRepoUrl,
@@ -1048,6 +1049,13 @@ export async function startEntry(a: {
   return sql().begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtext(${`own-entry:${program.id}:${installationId}`}))`;
     const own = await ownEntry(tx, key);
+    // v2.10 R10 (Pre-flight P4): the repo is private when it was read through the read-only App (a
+    // `via_app` facts row); no row means public. Once private, an entry stays private (fail closed).
+    const gh = repoUrl ? githubRepo(repoUrl) : null;
+    const [{ repo_private }] = gh
+      ? await tx<{ repo_private: boolean }[]>`
+          SELECT EXISTS (SELECT 1 FROM github_repo_facts WHERE full_name = ${`${gh.owner}/${gh.repo}`.toLowerCase()} AND via_app) AS repo_private`
+      : [{ repo_private: false }];
     // An EarnKit token or claim on the row (N1), never a token link the builder typed; and whether
     // the entry is submitted or proven (the choice is then locked). Fresh fragments per use.
     const earnkit = () => tx`(coin_address IS NOT NULL OR COALESCE(token_status IN ('launched', 'pending'), false))`;
@@ -1072,6 +1080,7 @@ export async function startEntry(a: {
               AND NOT (confirm_choice IS NOT DISTINCT FROM 'skip' AND ${locked()}) THEN NULL
             ELSE token_url END,
           complete_at = COALESCE(complete_at, ${completeNow}),
+          repo_private = repo_private OR ${repo_private},
           live_verified_at = CASE WHEN ${checked !== null} THEN ${checked?.live_verified_at ?? null}::timestamptz ELSE live_verified_at END,
           contract_verified_at = CASE WHEN ${checked !== null} THEN ${checked?.contract_verified_at ?? null}::timestamptz ELSE contract_verified_at END
         WHERE id = ${own.id}
@@ -1095,6 +1104,7 @@ export async function startEntry(a: {
           confirmed_at: now,
           confirm_choice: choice,
           complete_at: completeNow,
+          repo_private,
           ...checked,
         })} RETURNING id, NULL::text AS token_url, confirm_choice, false AS proof_line_missed, NULL::timestamptz AS token_claimed_at, false AS token_settled`;
     }

@@ -5,6 +5,7 @@ import { shortDate } from './dates';
 import { EFFORT_ORDER, NOT_REAL_YET, rowOdds, type Chain, type Effort, type Odds, type Product, type RepoFacts, type Verdict } from './match';
 import { NEEDS_LIVE_PRODUCT, difficultyLabel, levelRank, rowDifficulty, type Difficulty, type Level } from './guide';
 import { moneyText, openMoneyUsd, wonLine } from './pool';
+import { CANT_SEE_LINE, PRIVATE_LOCAL_LINE } from './match-projects';
 
 /** v2.7: moved to entry-text.ts (shared with guide.ts); re-exported for existing callers. */
 export { endsOf } from './entry-text';
@@ -302,6 +303,13 @@ export type YourRepos =
       /** v2.9 A1: the repos scored (at most SCORE_LIMIT). */
       scored?: number;
       fits: RepoFit[];
+      /**
+       * v2.10 item 7: named repos GitHub won't show that nobody described; `link` is the read-only
+       * App's link (item 7b), set by list_programs only while the App is on.
+       */
+      unseen?: { name: string; full_name: string; link?: string | null }[];
+      /** v2.10 item 7: private repos matched from the agent's local report, by name. */
+      fromLocal?: string[];
     }
   | { error: string };
 
@@ -404,6 +412,18 @@ export const LOW_ODDS_HEADING = 'Programs your repos could reach:';
 
 const CHAT_ONLY =
   "I can't build or deploy from here, but I can plan it and write every answer for you to submit. To have it done for you, add EarnKit to a coding agent (Claude Code, Cursor, Codex).";
+
+/**
+ * v2.10 item 7: one line per private repo matched from its local report, and one for the first
+ * named repo EarnKit can't see (with the App's link when it is on); null when there are none. Pure.
+ */
+export function privateRepoLines(r: YourRepos | null): string | null {
+  if (!r || 'error' in r) return null;
+  const first = r.unseen?.[0];
+  const lines = [...new Set(r.fromLocal ?? [])].map(PRIVATE_LOCAL_LINE);
+  if (first) lines.push(CANT_SEE_LINE(first.name, first.link ?? null));
+  return lines.length ? lines.join('\n') : null;
+}
 
 /** No repo to match: none reported, or none found under the builder's GitHub user. */
 const noRepo = (r: YourRepos | null) => r === null || ('checked' in r && r.checked === 0);
@@ -593,6 +613,9 @@ export function presentFirstMessage(given: FirstMessage): string {
 
   const entered = enteredIds(m);
   const { byId, rows, shown, more } = layout(m, entered);
+  // v2.10 item 7: the private and can't-see lines, before the matched table.
+  const privateLines = privateRepoLines(m.repos);
+  if (privateLines) sections.push(privateLines);
   if (m.repos && 'error' in m.repos) sections.push(`Couldn't read your repos: ${m.repos.error}`);
   else if (m.repos && !noRepo(m.repos) && rows.length === 0)
     sections.push(

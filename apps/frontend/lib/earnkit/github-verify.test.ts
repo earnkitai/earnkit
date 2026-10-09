@@ -251,7 +251,11 @@ test('5.3 a nonce is single-use, also under two concurrent callbacks', db, async
   const f = await fixture('once');
   const nonce = await linkNonce(f);
   const first = await takeNonce(nonce);
-  assert.deepEqual(first, { installation_id: f.inst, project_id: f.project, repo_key: f.repoKey, purpose: 'entry', wallet: WF, symbol: 'TIP' });
+  // v2.10 Pre-flight P3: the App's login and account columns are null on every other nonce.
+  assert.deepEqual(first, {
+    installation_id: f.inst, project_id: f.project, repo_key: f.repoKey, purpose: 'entry', wallet: WF, symbol: 'TIP',
+    login: null, account_created_at: null, public_repos: null,
+  });
   assert.equal(await takeNonce(nonce), null);
   const race = await linkNonce(f);
   const both = await Promise.all([takeNonce(race), takeNonce(race)]);
@@ -470,5 +474,42 @@ test('G8 to G11: on a shared client only the caller\'s own sign-in proves a laun
   await withEnv({ GITHUB_OAUTH_CLIENT_ID: undefined, GITHUB_OAUTH_CLIENT_SECRET: undefined }, async () => {
     assert.deepEqual(await gate(null), { ok: true });
     assert.deepEqual(await gate('bob'), { ok: true });
+  });
+});
+
+test('4.10 an App nonce\'s callback stores the login on the nonce, writes no verification, keeps the cookie and 303s to the install page', db, async () => {
+  const { generateKeyPairSync } = await import('node:crypto');
+  const { installUrl } = await import('./github-app');
+  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048, privateKeyEncoding: { type: 'pkcs8', format: 'pem' }, publicKeyEncoding: { type: 'spki', format: 'pem' } });
+  const APP = { ...ON, GITHUB_APP_ID: '1', GITHUB_APP_SLUG: 'earnkit-read', GITHUB_APP_PRIVATE_KEY: privateKey };
+  const f = await fixture('app');
+  // With the App off, no App nonce can be made.
+  await withEnv({ ...ON, GITHUB_APP_ID: undefined }, async () => {
+    await assert.rejects(createVerifyLink({ installationId: f.inst, projectId: f.project, repoKey: f.repoKey, purpose: 'app' }), /App is off/);
+  });
+  await withEnv(APP, async () => {
+    // No wallet: no launch rides on an App link (R9).
+    const link = await createVerifyLink({ installationId: f.inst, projectId: f.project, repoKey: f.repoKey, purpose: 'app' });
+    const nonce = new URL(link).searchParams.get('n')!;
+    const page = await verifyStart(new Request(link), { limit: async () => {} });
+    assert.match(await page.text(), /let EarnKit read this repo/);
+    const back = await verifyCallback(
+      new Request(`https://earnkit.com/github/verify/callback?code=C&state=${nonce}.K1`, { headers: { cookie: `${csrfCookieName(nonce)}=K1` } }),
+      (code, n) => completeVerify(code, n, github('Alice')),
+      { limit: async () => {} },
+    );
+    assert.equal(back.status, 303);
+    assert.equal(back.headers.get('location'), installUrl('earnkit-read', nonce));
+    assert.equal(back.headers.get('set-cookie'), null, 'the cookie stays for the setup URL');
+    assert.equal(await peekNonce(nonce), true, 'not consumed');
+    const [row] = await sql()<{ login: string; public_repos: number; created: boolean }[]>`
+      SELECT n.login, n.public_repos, n.account_created_at IS NOT NULL AS created FROM github_verify_nonces n
+      WHERE n.project_id = ${f.project} AND n.purpose = 'app'`;
+    assert.deepEqual({ ...row }, { login: 'alice', public_repos: 3, created: true });
+    assert.equal((await sql()`SELECT 1 FROM github_verifications WHERE installation_id = ${f.inst}`).length, 0);
+    // A second OAuth hop on the same nonce can't replace the login.
+    assert.deepEqual(await completeVerify('code', nonce, github('mallory')), { ok: false, reason: VERIFY_PAGE.expired });
+    const [kept] = await sql()<{ login: string }[]>`SELECT login FROM github_verify_nonces WHERE project_id = ${f.project} AND purpose = 'app'`;
+    assert.equal(kept.login, 'alice');
   });
 });

@@ -62,7 +62,8 @@ export function normalizeCode(input: string | null | undefined): string | null {
 /** Ruling G9: the success page on a shared client. Pure. */
 export const codeLine = (code: string) => `Done. Paste this code to your agent: ${formatCode(code)}`;
 
-export type VerifyPurpose = 'entry' | 'pickup' | 'host';
+/** v2.10 item 7b (R8): `app` is the read-only GitHub App's link (github-app.ts): no launch rides on it (R9). */
+export type VerifyPurpose = 'entry' | 'pickup' | 'host' | 'app';
 export type NonceRow = {
   installation_id: number;
   project_id: number | null;
@@ -71,6 +72,13 @@ export type NonceRow = {
   /** Ruling G11: the fee wallet and ticker the link was made for (entry links). */
   wallet: string | null;
   symbol: string | null;
+  /**
+   * v2.10 Pre-flight P3: on an `app` nonce, the login its OAuth hop proved and that account's facts,
+   * for the setup URL's verification row; null on every other nonce.
+   */
+  login: string | null;
+  account_created_at: Date | null;
+  public_repos: number | null;
 };
 
 /** The callback URL GitHub sends the builder back to (P47: from siteUrl, never the request). */
@@ -93,6 +101,9 @@ export async function createVerifyLink(
   now = new Date(),
 ): Promise<string> {
   if (a.purpose === 'entry' && !a.wallet) throw new Error('An entry sign-in link needs the fee wallet first.');
+  // v2.10 item 7b: no App link while the App is off (github-app.ts; imported here to keep the modules acyclic).
+  if (a.purpose === 'app' && !(await import('./github-app')).githubAppEnabled())
+    throw new Error('The read-only GitHub App is off.');
   const nonce = randomBytes(32).toString('base64url');
   await sql()`
     INSERT INTO github_verify_nonces (nonce_hash, installation_id, project_id, repo_key, purpose, created_at, expires_at, wallet, symbol)
@@ -110,13 +121,19 @@ export async function peekNonce(nonce: string, now = new Date()): Promise<boolea
   return Boolean(row);
 }
 
-/** Consumes the nonce: its row once, then null (also when expired or unknown). One atomic update. */
-export async function takeNonce(nonce: string, now = new Date()): Promise<NonceRow | null> {
+/**
+ * Consumes the nonce: its row once, then null (also when expired or unknown). One atomic update.
+ * v2.10 Pre-flight P3: `purpose: 'app'` (the App's setup URL) takes only an `app` nonce whose OAuth
+ * hop stored a login; any other nonce is left unused.
+ */
+export async function takeNonce(nonce: string, now = new Date(), o: { purpose?: 'app' } = {}): Promise<NonceRow | null> {
   if (!nonce) return null;
-  const [row] = await sql()<NonceRow[]>`
+  const db = sql();
+  const [row] = await db<NonceRow[]>`
     UPDATE github_verify_nonces SET used_at = ${now}
     WHERE nonce_hash = ${sha256(nonce)} AND used_at IS NULL AND expires_at > ${now}
-    RETURNING installation_id, project_id, repo_key, purpose, wallet, symbol`;
+      ${o.purpose === 'app' ? db`AND purpose = 'app' AND login IS NOT NULL` : db``}
+    RETURNING installation_id, project_id, repo_key, purpose, wallet, symbol, login, account_created_at, public_repos`;
   return row ?? null;
 }
 
@@ -199,16 +216,78 @@ export const githubOAuth: GitHubOAuthDeps = {
 };
 
 /**
+ * A passed check's github_verifications row, for the nonce's own repo and entry. Ruling G9: on a
+ * shared (hosted) client the builder gets a one-time code to paste to the agent (returned; only its
+ * sha256 is kept), which is how later calls there know who they are from. v2.10 item 7b: `app` is a
+ * read-only GitHub App proof (`via = 'app'`, its installation id); it never carries a wallet (R9).
+ */
+export async function saveVerification(
+  row: Pick<NonceRow, 'installation_id' | 'project_id' | 'repo_key' | 'purpose' | 'wallet' | 'symbol'>,
+  user: { login: string; created_at: Date; public_repos: number },
+  now: Date,
+  app?: { githubInstallationId: number },
+): Promise<string | null> {
+  const paste = (await sharedGroup(row.installation_id)) ? newCode() : null;
+  await sql()`
+    INSERT INTO github_verifications (repo_key, login, installation_id, project_id, account_created_at, public_repos, verified_at, purpose,
+      code_hash, code_expires_at, wallet, symbol, via, github_installation_id)
+    VALUES (${row.repo_key}, ${user.login.toLowerCase()}, ${row.installation_id}, ${row.project_id},
+      ${user.created_at}, ${user.public_repos}, ${now}, ${row.purpose},
+      ${paste && sha256(paste)}, ${paste && new Date(now.getTime() + CODE_TTL_MS)},
+      ${app ? null : row.wallet}, ${app ? null : row.symbol}, ${app ? 'app' : 'oauth'}, ${app?.githubInstallationId ?? null})`;
+  return paste;
+}
+
+/**
+ * v2.10 item 7b (Pre-flight P3): an `app` nonce's OAuth hop. The nonce is not consumed: the code is
+ * exchanged, the login and its account facts are stored on it once (an unused, unexpired `app`
+ * nonce with no login yet), and the builder goes on to install the App (`install`), keeping this
+ * link's cookie for the setup URL. No verification is written here; the setup URL proves the repo.
+ */
+async function appSignIn(
+  code: string,
+  nonce: string,
+  deps: GitHubOAuthDeps,
+  now: Date,
+): Promise<{ ok: true; repoKey: string; install: string } | { ok: false; reason: string }> {
+  const app = await import('./github-app');
+  if (!app.githubAppEnabled() || !code) return { ok: false, reason: VERIFY_PAGE.failed };
+  try {
+    const user = await deps.user(await deps.exchange(code));
+    const [row] = await sql()<{ repo_key: string }[]>`
+      UPDATE github_verify_nonces SET login = ${user.login.toLowerCase()}, account_created_at = ${new Date(user.created_at)},
+        public_repos = ${user.public_repos}
+      WHERE nonce_hash = ${sha256(nonce)} AND purpose = 'app' AND used_at IS NULL AND login IS NULL AND expires_at > ${now}
+      RETURNING repo_key`;
+    if (!row) return { ok: false, reason: VERIFY_PAGE.expired };
+    return { ok: true, repoKey: row.repo_key, install: app.installUrl(process.env.GITHUB_APP_SLUG!.trim(), nonce) };
+  } catch (err) {
+    console.error('[github-verify] app sign-in', err instanceof Error ? err.name : 'error');
+    return { ok: false, reason: VERIFY_PAGE.failed };
+  }
+}
+
+/** The purpose of a usable (unused, unexpired) nonce, or null; nothing changes. */
+async function noncePurpose(nonce: string, now: Date): Promise<VerifyPurpose | null> {
+  if (!nonce) return null;
+  const [row] = await sql()<{ purpose: VerifyPurpose }[]>`
+    SELECT purpose FROM github_verify_nonces WHERE nonce_hash = ${sha256(nonce)} AND used_at IS NULL AND expires_at > ${now}`;
+  return row?.purpose ?? null;
+}
+
+/**
  * The callback's work: the nonce first (consumed whatever happens next), then GitHub. Writes a
  * verification for the nonce's own repo and entry only when ownership passes. Never logs the
- * code, the token, the nonce or the secret.
+ * code, the token, the nonce or the secret. v2.10 Pre-flight P3: an `app` nonce branches before
+ * the nonce is consumed (appSignIn), and answers with the App's install link.
  */
 export async function completeVerify(
   code: string,
   nonce: string,
   deps: GitHubOAuthDeps = githubOAuth,
   now = new Date(),
-): Promise<{ ok: true; repoKey: string; code?: string } | { ok: false; reason: string }> {
+): Promise<{ ok: true; repoKey: string; code?: string; install?: string } | { ok: false; reason: string }> {
+  if ((await noncePurpose(nonce, now)) === 'app') return appSignIn(code, nonce, deps, now);
   const row = await takeNonce(nonce, now);
   if (!row) return { ok: false, reason: VERIFY_PAGE.expired };
   const [owner, repo] = row.repo_key.split('/');
@@ -220,15 +299,7 @@ export async function completeVerify(
     const perms = user.login.toLowerCase() === owner.toLowerCase() ? null : await deps.repoPerms(token, owner, repo);
     if (!ownershipPasses(user.login, { owner, repo }, perms))
       return { ok: false, reason: perms === null ? VERIFY_PAGE.orgRepo : VERIFY_PAGE.notYours };
-    // Ruling G9: on a shared (hosted) client the builder gets a one-time code to paste to the agent;
-    // only its sha256 is kept. It is how later calls there know who they are from.
-    const paste = (await sharedGroup(row.installation_id)) ? newCode() : null;
-    await sql()`
-      INSERT INTO github_verifications (repo_key, login, installation_id, project_id, account_created_at, public_repos, verified_at, purpose,
-        code_hash, code_expires_at, wallet, symbol)
-      VALUES (${row.repo_key}, ${user.login.toLowerCase()}, ${row.installation_id}, ${row.project_id},
-        ${new Date(user.created_at)}, ${user.public_repos}, ${now}, ${row.purpose},
-        ${paste && sha256(paste)}, ${paste && new Date(now.getTime() + CODE_TTL_MS)}, ${row.wallet}, ${row.symbol})`;
+    const paste = await saveVerification(row, { ...user, created_at: new Date(user.created_at) }, now);
     return { ok: true, repoKey: row.repo_key, ...(paste && { code: paste }) };
   } catch (err) {
     console.error('[github-verify] callback', err instanceof Error ? err.name : 'error');
@@ -247,7 +318,8 @@ export type Verification = {
 /**
  * The newest passing verification of `repoKey` for this entry (`projectId`) or this installation,
  * made at or after `since`, or null. Never unscoped: with neither id it is null. A single-use one
- * already used (P11) never counts.
+ * already used (P11) never counts. v2.10 Pre-flight P11: a read-only App proof (`purpose = 'app'`)
+ * counts only when `purpose: 'app'` is asked for, so it never stands in for a sign-in (R9).
  */
 export async function verifiedFor(a: {
   projectId?: number;
@@ -267,7 +339,7 @@ export async function verifiedFor(a: {
       ${a.projectId !== undefined ? db`AND project_id = ${a.projectId}` : db``}
       ${a.installationId !== undefined ? db`AND installation_id = ${a.installationId}` : db``}
       ${a.since ? db`AND verified_at >= ${a.since}` : db``}
-      ${a.purpose ? db`AND purpose = ${a.purpose}` : db``}
+      ${a.purpose ? db`AND purpose = ${a.purpose}` : db`AND purpose <> 'app'`}
       ${a.login !== undefined ? db`AND login = ${a.login.toLowerCase()}` : db``}
     ORDER BY verified_at DESC, id DESC LIMIT 1`;
   return row ?? null;
@@ -359,6 +431,9 @@ export async function nonceDetails(
   return row ?? null;
 }
 
+/** v2.10 item 7b: the confirm page's first line on an App link. */
+export const APP_CONFIRM_LEAD = 'Sign in with GitHub, then let EarnKit read this repo. Read only: EarnKit never changes your code.';
+
 /** Ruling G8: the confirm page's warning, above the button. */
 export const CONFIRM_WARNING = 'This links your GitHub to this EarnKit entry. Only continue if you started this from your own agent.';
 
@@ -384,8 +459,8 @@ export function verifyPage(line: string, status = 200, headers: Record<string, s
 export const csrfCookieName = (nonce: string) => `__Host-ekv-${sha256(nonce).slice(0, 16)}`;
 const setCsrf = (nonce: string, csrf: string) =>
   `${csrfCookieName(nonce)}=${csrf}; Path=/; Max-Age=${VERIFY_TTL_MS / 1000}; HttpOnly; Secure; SameSite=Lax`;
-const clearCsrf = (nonce: string) => `${csrfCookieName(nonce)}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`;
-function cookieValue(request: Request, name: string): string | null {
+export const clearCsrf = (nonce: string) => `${csrfCookieName(nonce)}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`;
+export function cookieValue(request: Request, name: string): string | null {
   for (const part of (request.headers.get('cookie') ?? '').split(';')) {
     const [k, ...v] = part.trim().split('=');
     if (k === name) return v.join('=');
@@ -410,8 +485,10 @@ export function confirmPage(
     // Ruling G11: an entry link always has its wallet (createVerifyLink refuses one without).
     d.purpose === 'entry' && d.wallet ? `<li>Wallet for fees: ${escapeHtml(d.wallet)}</li>` : '',
   ].join('');
+  // v2.10 item 7b: an App link signs in, then installs the read-only App on the repo.
+  const lead = d.purpose === 'app' ? APP_CONFIRM_LEAD : 'Sign in with GitHub to prove this repo is yours.';
   return html(
-    `<p>Sign in with GitHub to prove this repo is yours.</p><ul>${rows}</ul><p>${escapeHtml(CONFIRM_WARNING)}</p>` +
+    `<p>${escapeHtml(lead)}</p><ul>${rows}</ul><p>${escapeHtml(CONFIRM_WARNING)}</p>` +
       `<form method="post" action="${escapeHtml(siteUrl())}/github/verify">` +
       `<input type="hidden" name="n" value="${escapeHtml(nonce)}"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}">` +
       '<button type="submit">Continue with GitHub</button></form>',
@@ -422,7 +499,8 @@ export function confirmPage(
 export type RouteDeps = { limit?: (request: Request) => Promise<unknown> };
 const ipLimit = (request: Request) => enforce('githubVerify', clientIp(request.headers), VERIFY_PAGE.busy);
 
-async function limited(request: Request, deps: RouteDeps): Promise<Response | null> {
+/** The per-IP limit's answer: a 429 page, or null to go on (the App's setup URL shares it). */
+export async function limited(request: Request, deps: RouteDeps): Promise<Response | null> {
   try {
     await (deps.limit ?? ipLimit)(request);
     return null;
@@ -504,6 +582,12 @@ export async function verifyCallback(
   if (!cookie || !sameSecret(cookie, csrf)) return verifyPage(VERIFY_PAGE.failed, 403);
   const clear = { 'Set-Cookie': clearCsrf(nonce) };
   const out = await complete(code, nonce);
+  // v2.10 Pre-flight P3: an App link goes on to GitHub's install page; the cookie stays for the setup URL.
+  if (out.ok && out.install)
+    return new Response(null, {
+      status: 303,
+      headers: { Location: out.install, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' },
+    });
   if (out.ok) return verifyPage(out.code ? codeLine(out.code) : VERIFY_PAGE.done, 200, clear);
   return verifyPage(out.reason, out.reason === VERIFY_PAGE.expired ? 410 : 403, clear);
 }

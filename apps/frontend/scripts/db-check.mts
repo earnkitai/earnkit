@@ -449,6 +449,10 @@ await db`INSERT INTO url_checks (key, ok, note, n) VALUES ('url:https://err.tipj
 await db.unsafe(now);
 const [noteKept] = await db<{ note: string | null; n: number | null }[]>`SELECT note, n FROM url_checks WHERE key = 'url:https://err.tipjar.xyz'`;
 ok(noteKept?.note === 'This page could not be found' && noteKept.n === 3, 'url_checks note and n survive the schema running again');
+// v2.10 R10: projects.repo_private defaults to false on existing entries.
+const [privs] = await db<{ n: number; priv: number }[]>`
+  SELECT count(*)::int AS n, count(*) FILTER (WHERE repo_private)::int AS priv FROM projects`;
+ok(privs.n > 0 && privs.priv === 0, 'existing entries get repo_private = false');
 
 // v2.9 A2: the product column and the program floor; existing rows read as unscored and no floor.
 const [floor] = await db<{ n: number; set: number }[]>`
@@ -461,6 +465,15 @@ await db`UPDATE github_repo_facts SET product = '{"young":true}' WHERE full_name
 await db.unsafe(now);
 const [keptProduct] = await db<{ product: { young?: boolean } | null }[]>`SELECT product FROM github_repo_facts WHERE full_name = 'v29/check'`;
 ok(keptProduct?.product?.young === true, 'github_repo_facts.product survives the schema running again');
+// v2.10 R10: github_repo_facts.via_app, added to a table made before it: false on old rows, and kept.
+await db.unsafe('ALTER TABLE github_repo_facts DROP COLUMN via_app;');
+await db.unsafe(now);
+const [oldFacts] = await db<{ via_app: boolean }[]>`SELECT via_app FROM github_repo_facts WHERE full_name = 'v29/check'`;
+ok(oldFacts?.via_app === false, 'existing repo facts get via_app = false');
+await db`UPDATE github_repo_facts SET via_app = true WHERE full_name = 'v29/check'`;
+await db.unsafe(now);
+const [keptVia] = await db<{ via_app: boolean }[]>`SELECT via_app FROM github_repo_facts WHERE full_name = 'v29/check'`;
+ok(keptVia?.via_app === true, 'github_repo_facts.via_app survives the schema running again');
 
 // v2.9 A3: builder memory; rows survive the schema running again, defaults hold, statuses are checked.
 const [{ id: memInst }] = await db<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES ('v29-memory') RETURNING id`;
@@ -524,7 +537,7 @@ await db`INSERT INTO github_verify_nonces (nonce_hash, installation_id, repo_key
   VALUES ('h1', ${memInst}, 'alice/tipjar', 'pickup', now() + interval '15 minutes')`;
 const badPurpose = await db`INSERT INTO github_verify_nonces (nonce_hash, installation_id, repo_key, purpose, expires_at)
   VALUES ('h2', ${memInst}, 'alice/tipjar', 'login', now())`.then(() => false, () => true);
-ok(badPurpose, "github_verify_nonces only takes 'entry', 'pickup' or 'host'");
+ok(badPurpose, "github_verify_nonces only takes 'entry', 'pickup', 'host' or 'app'");
 await db`INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos)
   VALUES ('alice/tipjar', 'alice', ${memInst}, now(), 1)`;
 await db.unsafe(now);
@@ -533,6 +546,22 @@ const [ver] = await db<{ purpose: string; used_at: Date | null; code_hash: strin
   FROM github_verifications WHERE installation_id = ${memInst}`;
 ok(ver && ver.purpose === 'entry' && ver.used_at === null && ver.code_hash === null && ver.n === 1,
   "sign-in rows survive the schema running again; verifications default to purpose 'entry', unused, no code");
+// v2.10 item 7b (R8, Pre-flight P3): the App's nonce purpose and the login columns; how a verification
+// was made. Existing rows read as 'oauth' with no installation; an App row survives the schema again.
+const [oldVia] = await db<{ via: string; gid: string | null; login: string | null; created: Date | null; repos: number | null }[]>`
+  SELECT v.via, v.github_installation_id::text AS gid, n.login, n.account_created_at AS created, n.public_repos AS repos
+  FROM github_verifications v, github_verify_nonces n WHERE v.installation_id = ${memInst} AND n.nonce_hash = 'h1'`;
+ok(oldVia && oldVia.via === 'oauth' && oldVia.gid === null && oldVia.login === null && oldVia.created === null && oldVia.repos === null,
+  "existing verifications get via = 'oauth' and no App installation; existing nonces have no stored login");
+await db`INSERT INTO github_verify_nonces (nonce_hash, installation_id, repo_key, purpose, expires_at, login, account_created_at, public_repos)
+  VALUES ('h3', ${memInst}, 'alice/secret', 'app', now() + interval '15 minutes', 'alice', now(), 2)`;
+await db`INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose, via, github_installation_id)
+  VALUES ('alice/secret', 'alice', ${memInst}, now(), 2, 'app', 'app', 9007199254740)`;
+await db.unsafe(now);
+const [appRow] = await db<{ gid: string; login: string }[]>`
+  SELECT v.github_installation_id::text AS gid, n.login FROM github_verifications v, github_verify_nonces n
+  WHERE v.installation_id = ${memInst} AND v.via = 'app' AND n.nonce_hash = 'h3' AND n.purpose = 'app'`;
+ok(appRow?.gid === '9007199254740' && appRow.login === 'alice', 'App nonces and via=app verifications (a bigint installation id) survive the schema running again');
 
 // v2.9 B10: token declines count per (installation, repo) and survive the schema running again.
 await db`INSERT INTO token_declines (installation_id, repo_key) VALUES (${memInst}, 'alice/tipjar')`;
