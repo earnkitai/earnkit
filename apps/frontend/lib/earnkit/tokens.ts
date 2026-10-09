@@ -1,4 +1,5 @@
 import { normalizeRepoUrl } from './campaigns';
+import { type Application, plainProblem } from './coach';
 import { sql } from './db';
 import { quoted } from './untrusted-text';
 
@@ -413,6 +414,36 @@ export async function repoCoinPrograms(repoKeys: string[]): Promise<Map<string, 
   return new Map(rows.map((r) => [r.key, { program_id: r.program_id, title: r.kind === 'sponsor' ? quoted(r.title) : r.title }]));
 }
 
+/** tokens.fun's description cap (v2.10 item 11). */
+const TOKEN_DESCRIPTION_MAX = 280;
+
+/** Cut to `max` characters at a word boundary. Pure. */
+const cutAtWord = (s: string, max: number) => {
+  if (s.length <= max) return s;
+  const head = s.slice(0, max + 1);
+  const space = head.search(/\s\S*$/);
+  return (space > 0 ? head.slice(0, space) : s.slice(0, max)).trimEnd();
+};
+
+/**
+ * v2.10 item 11: the description sent to tokens.fun, in plain words and at most 280 characters: the
+ * project's description, else its one-liner, else "<Name> on Base". A text with an address, hash,
+ * stat list or link (`plainProblem`) is never sent. Pure.
+ */
+export function tokenDescription(p: { name: string; description: string | null; one_liner?: string | null }): string {
+  for (const text of [p.description, p.one_liner]) {
+    const t = text?.replace(/\s+/g, ' ').trim();
+    if (t && !plainProblem(t, 'one_liner')) return cutAtWord(t, TOKEN_DESCRIPTION_MAX);
+  }
+  return cutAtWord(`${p.name} on Base`, TOKEN_DESCRIPTION_MAX);
+}
+
+/** The entry's one-liner answer (the stored application's `one_liner` field), or null. Pure. */
+const oneLinerOf = (app: Application | null): string | null => {
+  const key = app && Object.keys(app.kinds ?? {}).find((k) => app.kinds[k] === 'one_liner');
+  return key && typeof app.answers?.[key] === 'string' ? app.answers[key] : null;
+};
+
 /**
  * Launches a token for a submitted project on tokens.fun: claims the project (and, v2.8.1, stamps
  * token_claimed_at for the cron's stuck-launch alert), resolves the image, POSTs the deploy, and
@@ -489,6 +520,7 @@ export async function deployToken(
       {
         name: string;
         description: string | null;
+        application: Application | null;
         repo_url: string | null;
         live_url: string | null;
         repo_private: boolean;
@@ -505,7 +537,7 @@ export async function deployToken(
       AND (${repoKey}::text IS NULL OR NOT EXISTS (
         SELECT 1 FROM projects o
         WHERE o.token_repo_key = ${repoKey} AND o.token_url IS NOT NULL AND o.id <> ${a.projectId}))
-    RETURNING name, description, repo_url, live_url, repo_private`;
+    RETURNING name, description, application, repo_url, live_url, repo_private`;
   } catch (err) {
     // Two claims on one repo at once: the unique index lets only one through.
     if (
@@ -577,7 +609,7 @@ export async function deployToken(
     creatorWallet: a.creatorWallet,
     tokenURI: imageUrl,
     imageUrl,
-    description: project.description ?? `${project.name}, built with EarnKit.`,
+    description: tokenDescription({ name: project.name, description: project.description, one_liner: oneLinerOf(project.application) }),
     ...(website && { website, appUrl: a.liveUrl ?? undefined }),
     ...(twitter && { twitter }),
     chainId: CHAIN_IDS[chain],

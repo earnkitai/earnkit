@@ -9,6 +9,7 @@ import {
   MAX_FIRST_QUESTIONS,
   MAX_FIXES,
   MAX_QUESTION_WORDS,
+  PLAIN_FIX,
   QUESTION_ORDER,
   bankEntries,
   bankFill,
@@ -16,6 +17,7 @@ import {
   draftTable,
   fixesLine,
   guidanceFor,
+  plainProblem,
   preSubmitCheck,
   questionsFor,
   WALLET_KEY,
@@ -386,7 +388,68 @@ test('9.8 C14 check rules: each fix names its field and the exact thing to add; 
   );
   assert.deepEqual(five.filter((f) => f.for === 'builder').map((f) => f.rule), ['empty', 'no_number', 'no_date']);
   assert.equal(five.filter((f) => f.for === 'builder').length, MAX_FIXES);
-  assert.deepEqual(five.filter((f) => f.for === 'agent').map((f) => f.rule), ['over_limit']);
+  // v2.10 item 11: a description field over its limit is a not_plain fix (it replaces over_limit).
+  assert.deepEqual(five.filter((f) => f.for === 'agent').map((f) => f.rule), ['not_plain']);
+});
+
+test('5.1 plainProblem flags addresses, hashes, hex runs, key: value lists, number dumps, links and length', () => {
+  const addr = `0x${'ab12'.repeat(10)}`;
+  const hash = `0x${'cd34'.repeat(16)}`;
+  assert.ok(plainProblem(`Tip Jar, contract ${addr}.`, 'one_liner'));
+  assert.ok(plainProblem(`Deployed in tx ${hash}.`, 'solution'));
+  assert.ok(plainProblem('Token id deadbeefdeadbeef on Base.', 'problem'));
+  assert.ok(plainProblem('TVL: 1, tx: 2, users: 3', 'one_liner'));
+  assert.ok(plainProblem('We have 120 users, 900 payments, 14 countries and 3 chains.', 'solution'));
+  assert.ok(plainProblem('Tip Jar, see https://tipjar.xyz for more.', 'one_liner'));
+  assert.equal(plainProblem('Tip Jar lets fans tip creators in USDC on Base.', 'one_liner'), null);
+  assert.equal(plainProblem('Tip Jar lets fans tip creators in USDC on Base.', 'name'), null);
+  // how_it_works keeps one proof link, never a raw address in it.
+  assert.ok(plainProblem(`Fans tip through the contract https://basescan.org/address/${addr}.`, 'how_it_works'));
+  assert.equal(plainProblem('Fans tip through the contract, see https://tipjar.xyz/how for the flow.', 'how_it_works'), null);
+  assert.ok(plainProblem('See https://tipjar.xyz/how and https://tipjar.xyz/faq.', 'how_it_works'));
+  // Length: the form's max_chars, else its limit_words.
+  const line = 'Tip Jar lets fans tip creators in USDC on Base.';
+  assert.ok(plainProblem(line, 'one_liner', { max_chars: 20 }));
+  assert.equal(plainProblem(line, 'one_liner', { max_chars: 200, limit_words: 3 }), null);
+  assert.ok(plainProblem(line, 'one_liner', { limit_words: 5 }));
+  assert.equal(plainProblem(line, 'one_liner', { limit_words: 20 }), null);
+  assert.equal(plainProblem('   ', 'one_liner'), null);
+});
+
+test('5.2 preSubmitCheck: an unplain description field is an agent fix, never a builder one', () => {
+  const addr = `0x${'ab12'.repeat(10)}`;
+  const reqs = [
+    req('live', 'links', { type: 'url', label: 'Live app' }),
+    req('name', 'name', { label: 'Project name' }),
+    req('one', 'one_liner', { label: 'One-sentence description', max_chars: 80 }),
+    req('prob', 'problem', { label: 'Problem' }),
+    req('sol', 'solution', { label: 'Solution' }),
+    req('how', 'how_it_works', { label: 'How it works' }),
+    req('bio', 'other', { label: 'Bio' }),
+  ];
+  const answers = {
+    live: 'https://tipjar.xyz',
+    name: 'Tip Jar',
+    one: `Tip Jar, contract ${addr}, TVL: 1, tx: 2`,
+    prob: 'Creators have no easy way to take tips in USDC.',
+    sol: 'We have 120 users, 900 payments, 14 countries and 3 chains.',
+    how: `Fans tip through https://basescan.org/address/${addr}.`,
+    bio: `Built ${addr}`,
+  };
+  const fixes = preSubmitCheck({ reqs, answers, judging: null });
+  const plain = fixes.filter((f) => f.rule === 'not_plain');
+  assert.deepEqual(plain, [
+    { key: 'one', rule: 'not_plain', for: 'agent', text: PLAIN_FIX('One-sentence description') },
+    { key: 'sol', rule: 'not_plain', for: 'agent', text: PLAIN_FIX('Solution') },
+    { key: 'how', rule: 'not_plain', for: 'agent', text: PLAIN_FIX('How it works') },
+  ]);
+  assert.equal(PLAIN_FIX('One-sentence description'), 'One-sentence description: rewrite in plain words, no addresses or numbers lists.');
+  assert.ok(!fixes.some((f) => f.for === 'builder' && /plain words/.test(f.text)));
+  // A field outside the description kinds (bio) is never checked.
+  assert.ok(!fixes.some((f) => f.key === 'bio'));
+  // Over the form's limit: one not_plain fix, no over_limit beside it.
+  const long = preSubmitCheck({ reqs, answers: { ...answers, one: 'Tip Jar lets fans tip creators in USDC on Base, with recurring tips soon.' + ' More.'.repeat(5) }, judging: null });
+  assert.deepEqual(long.filter((f) => f.key === 'one').map((f) => f.rule), ['not_plain']);
 });
 
 test('C14: every fix any rule can produce reads "<Field>: <thing to add>." with a key', () => {

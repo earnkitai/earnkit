@@ -9,7 +9,7 @@ import { sql } from './db';
 import { EntryError, normalizeRepoUrl } from './campaigns';
 import { earnkitTexts } from './campaign-text';
 import { ProgramFile, type SubmissionRequirement } from './program-file';
-import { coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, type Application } from './coach';
+import { PLAIN_FIX, PLAIN_NOTE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, type Application } from './coach';
 import { projectKey, readBank } from './answer-bank';
 import { alsoProgramFacts, upsertProgram } from './programs';
 import { enteredProgramIds } from './projects';
@@ -3587,4 +3587,72 @@ test('10.11 list_programs: "Builders using EarnKit won $X" once, right after the
     wonSource.read = read;
     await sql()`DELETE FROM installations WHERE id = ${id}`;
   }
+});
+
+// ---- v2.10 Task 5 (item 11): description fields in plain words.
+const PITCH: SubmissionRequirement = { key: 'pitch', label: 'One-sentence description', type: 'text', required: true, from: 'builder', kind: 'one_liner' };
+const UNPLAIN = `Tip Jar, contract 0x${'ab12'.repeat(10)}, TVL: 1, tx: 2`;
+
+test('5.3 confirm_entry refuses a go while a description field is not plain words; nothing recorded, nothing launched; a plain rewrite records and launches', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('plain', { extra: [PITCH] });
+    const r = (await tools.confirm_entry({ ...t.input, answers: { ...t.answers, pitch: UNPLAIN }, ...go, wallet: W8 }, t.ctx)) as Record<string, unknown> & {
+      agent_fixes?: { key: string; rule: string; for: string; text: string }[];
+    };
+    assert.ok(!('show_to_builder' in r), 'the builder never sees it');
+    assert.equal(r.ready, false);
+    assert.equal(r.agent_note, PLAIN_NOTE);
+    assert.deepEqual(
+      r.agent_fixes?.filter((f) => f.rule === 'not_plain'),
+      [{ key: 'pitch', rule: 'not_plain', for: 'agent', text: PLAIN_FIX('One-sentence description') }],
+    );
+    assert.equal((await t.rows()).length, 0, 'no entry row');
+    assert.equal(t.calls.deploy, 0, 'no token flow');
+    // The agent rewrites it in plain words: the same call records and launches.
+    const ok = (await tools.confirm_entry({ ...t.input, answers: { ...t.answers, pitch: 'Tip Jar lets fans tip creators in USDC.' }, ...go, wallet: W8 }, t.ctx)) as Confirmed;
+    assert.ok(ok.kit);
+    assert.equal((await t.rows()).length, 1);
+    assert.equal(t.calls.deploy, 1);
+    assert.equal(ok.token?.status, 'launched');
+  }));
+
+test('5.4 prepare_submission: the plain-words fix is the agent\'s only; the builder sees the draft', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('plainprep', { remembered: W8, extra: [PITCH] });
+    const r = (await tools.prepare_submission({ ...t.input, answers: { ...t.answers, pitch: UNPLAIN } }, t.ctx)) as Record<string, unknown> & {
+      show_to_builder: string;
+      agent_fixes?: { rule: string; text: string }[];
+      fixes?: { text: string }[];
+    };
+    assert.equal(r.ready, true);
+    assert.ok(r.agent_fixes?.some((f) => f.rule === 'not_plain' && f.text === PLAIN_FIX('One-sentence description')));
+    assert.ok(!r.show_to_builder.includes(PLAIN_FIX('One-sentence description')));
+    assert.doesNotMatch(r.show_to_builder, /plain words/);
+    assert.ok(!(r.fixes ?? []).some((f) => /plain words/.test(f.text)));
+    assert.match(r.show_to_builder, /One-sentence description/, 'the draft shows');
+  }));
+
+test('5.3 (P32) record_submission on an EarnKit campaign refuses an unplain description; nothing recorded', dbTest, async () => {
+  const PAY = '0x' + 'a'.repeat(40);
+  const f = committedProgram('earnkit-campaign-1-base');
+  Object.assign(f, { id: `t5-camp-${process.pid}-${Date.now()}`, status: 'active', starts_at: '2026-09-01T00:00:00Z', ends_at: '2099-01-01T00:00:00Z' });
+  Object.assign(f, earnkitTexts(f));
+  await upsertProgram(ProgramFile.parse(f));
+  const [{ id }] = await sql()<{ id: number }[]>`
+    INSERT INTO installations (token_hash) VALUES (${`t5-camp-${process.pid}-${Date.now()}`}) RETURNING id`;
+  const project = { name: 'Tip Jar', description: UNPLAIN, repo_url: 'https://github.com/alice/tipjar-t5', live_url: 'https://tipjar.xyz' };
+  const r = (await tools.record_submission(
+    {
+      program_id: f.id,
+      project,
+      submission_data: { project_name: 'Tip Jar', description: UNPLAIN, repo_url: project.repo_url, live_url: project.live_url, contracts: '0x' + '1'.repeat(40), payout_wallet: PAY },
+      token: 'skip',
+    },
+    { installationId: id },
+  )) as Record<string, unknown> & { agent_fixes?: { key: string; rule: string }[] };
+  assert.ok(!('show_to_builder' in r));
+  assert.equal(r.agent_note, PLAIN_NOTE);
+  assert.deepEqual(r.agent_fixes?.map((x) => [x.key, x.rule]), [['description', 'not_plain']]);
+  const rows = await sql()`SELECT 1 FROM projects WHERE installation_id = ${id}`;
+  assert.equal(rows.length, 0);
 });
