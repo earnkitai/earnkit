@@ -1,60 +1,56 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CANT_PUSH, NO_WALLET_HINT, SKIP_LINE, confirmDecision, confirmOffer, proofLineWaiting, signInLine, yesLine } from './confirm';
-import { COIN_FOOTNOTE } from './entry-text';
+import { CANT_PUSH, SKIP_TOKEN, confirmDecision, confirmLine, confirmOffer, proofLineWaiting, signInLine } from './confirm';
 
-const W = '0xAb12' + '0'.repeat(32) + '0123';
-const base = { hasBonus: true, coinIn: null, canPush: true, wallet: W, remembered: true };
+const W = '0x12Ab' + '0'.repeat(32) + '9F3E';
+const TIP = { name: 'Tip Jar', symbol: 'TIP' };
+const base = { hasBonus: true, coinIn: null, canPush: true, wallet: W, proposal: TIP };
 
-test('v2.8 Part C: the offer is the spec four lines, the wallet short, then the consent footnote', () => {
+test('7.4 v2.10 item 5: the offer is the one confirm line, the wallet short', () => {
   assert.equal(
     confirmOffer(base),
-    [
-      'Want the builder bonus? It comes with a token.',
-      'Yes: your entry gets a token on Base. You earn 40% of its trading fees, plus a shot at the builder bonus.',
-      'Skip: no token, no builder bonus.',
-      'Wallet for fees and any bonus: 0xab12…0123 (used last time), or tell me another.',
-      '',
-      COIN_FOOTNOTE,
-    ].join('\n'),
+    'Yes submits your entry and launches $TIP (Tip Jar): 40% of its fees to you, plus the builder bonus. Wallet: 0x12ab…9f3e. yes / skip the token',
   );
-  // A wallet given in this exchange is not "from last time".
-  assert.match(confirmOffer({ ...base, remembered: false }), /\nWallet for fees and any bonus: 0xab12…0123, or tell me another\.\n/);
+  assert.equal(
+    confirmOffer({ ...base, hasBonus: false }),
+    'Yes submits your entry and launches $TIP (Tip Jar): 40% of its fees to you. Wallet: 0x12ab…9f3e. yes / skip the token',
+  );
+  assert.equal(
+    confirmOffer({ ...base, wallet: null }),
+    'Yes submits your entry and launches $TIP (Tip Jar): 40% of its fees to you, plus the builder bonus. Say yes with your wallet address / skip the token',
+  );
+  assert.equal(
+    confirmOffer({ ...base, wallet: null, proposal: { name: 'Tip Jar', symbol: 'NEW' }, again: true }),
+    'Yes submits your entry and launches $NEW (Tip Jar). Say yes with your wallet address / skip the token',
+  );
+  assert.equal(
+    confirmLine({ proposal: { name: 'Tip Jar', symbol: 'NEW' }, hasBonus: true, wallet: null, walletKnown: true, again: true }),
+    'Yes submits your entry and launches $NEW (Tip Jar). yes / skip the token',
+  );
+  assert.equal(SKIP_TOKEN, 'skip the token');
+  // No proposal yet: "your token".
+  assert.match(confirmOffer({ ...base, proposal: null }), /^Yes submits your entry and launches your token: 40%/);
 });
 
-test('v2.8 Part C: no wallet known: the wallet line carries the no-wallet hint', () => {
-  const lines = confirmOffer({ ...base, wallet: null, remembered: false }).split('\n\n')[0].split('\n');
-  assert.equal(lines.at(-1), `Wallet for fees and any bonus: none yet. ${NO_WALLET_HINT}`);
-  assert.equal(lines.at(-1), 'Wallet for fees and any bonus: none yet. No wallet? Make one at keys.coinbase.com, then send me the address.');
-});
-
-test('Ruling 5 (plan): a repo whose token is entered elsewhere: no offer, just where the bonus counts', () => {
-  // v2.8.1 §C13: no bonus note in the offer; it is said once, in Also qualifies.
+test('7.5 v2.10 item 5: one line, no fine print; a token elsewhere or tokens off: Ready to submit?', () => {
+  for (const o of [base, { ...base, hasBonus: false }, { ...base, wallet: null }, { ...base, again: true }, { ...base, signIn: true, canPush: false }]) {
+    const t = confirmOffer(o);
+    assert.ok(!t.includes('\n'), t);
+    assert.doesNotMatch(t, /WETH|gas|tokens\.fun|Terms|Risks/, t);
+    assert.ok((t.match(/40%/g)?.length ?? 0) <= 1, t);
+    // "skip" only as "skip the token".
+    assert.equal(t.match(/skip/g)?.length, 1, t);
+    assert.ok(t.endsWith('/ skip the token'), t);
+  }
   assert.equal(confirmOffer({ ...base, coinIn: 'Arc Microgrants' }), 'Ready to submit?');
+  assert.equal(confirmOffer({ ...base, tokensOff: true }), 'Ready to submit?');
 });
 
-test("Ruling 7 (plan): an agent that can't push: one line, then Ready to submit?; no skip line", () => {
+test("Ruling 7 (plan): an agent that can't push: one line, then Ready to submit?; no skip", () => {
   const t = confirmOffer({ ...base, canPush: false });
   assert.equal(t, `${CANT_PUSH}\nReady to submit?`);
   assert.equal(CANT_PUSH, 'To launch your token, open this in Claude Code or Cursor.');
-  assert.doesNotMatch(t, /Skip:/);
-});
-
-test('Ruling 31 (plan): the no-bonus variant', () => {
-  const t = confirmOffer({ ...base, hasBonus: false, remembered: false });
-  assert.equal(
-    t,
-    [
-      'Want a token for your entry?',
-      'Yes: your entry gets a token on Base. You earn 40% of its trading fees.',
-      'Skip: no token.',
-      'Wallet for fees: 0xab12…0123, or tell me another.',
-      '',
-      COIN_FOOTNOTE,
-    ].join('\n'),
-  );
-  assert.ok(!t.includes(SKIP_LINE));
-  assert.equal(confirmOffer({ ...base, tokensOff: true }), 'Ready to submit?');
+  assert.doesNotMatch(t, /skip/);
 });
 
 test('Ruling 4 (plan): confirmDecision', () => {
@@ -72,17 +68,6 @@ test('Ruling 4 (plan): confirmDecision', () => {
   assert.deepEqual(confirmDecision(ok), { kind: 'launch' });
 });
 
-test('v2.8.1 §A2: the Yes line names the ticker and the name, and is the only "40%" in the offer', () => {
-  const tip = { name: 'TipJar', symbol: 'TIP' };
-  assert.equal(yesLine(tip, true), 'Yes: launches $TIP (TipJar) on Base. You earn 40% of its trading fees, plus a shot at the builder bonus.');
-  assert.equal(yesLine(tip, false), 'Yes: launches $TIP (TipJar) on Base. You earn 40% of its trading fees.');
-  for (const hasBonus of [true, false]) {
-    const t = confirmOffer({ ...base, hasBonus, proposal: tip });
-    assert.ok(t.split('\n').includes(yesLine(tip, hasBonus)), t);
-    assert.equal(t.match(/40%/g)?.length, 1, t);
-  }
-});
-
 test('v2.8.1 §A3: a second proof-line miss names the branch, keeps the launch open, never another agent', () => {
   assert.equal(
     proofLineWaiting('main'),
@@ -90,13 +75,6 @@ test('v2.8.1 §A3: a second proof-line miss names the branch, keeps the launch o
   );
   assert.match(proofLineWaiting(null), /your repo's default branch;/);
   assert.doesNotMatch(proofLineWaiting('main'), /Claude Code|Cursor|Codex|—/);
-});
-
-test('v2.8.1 §F19 (T7): the offer again in the same entry names the token without the 40% figure', () => {
-  assert.equal(yesLine({ name: 'Tip Jar', symbol: 'TIP' }, true, true), 'Yes: launches $TIP (Tip Jar) on Base.');
-  const again = confirmOffer({ hasBonus: true, coinIn: null, canPush: true, wallet: null, remembered: false, proposal: { name: 'Tip Jar', symbol: 'TIP' }, again: true });
-  assert.doesNotMatch(again, /40%/);
-  assert.match(confirmOffer({ hasBonus: true, coinIn: null, canPush: true, wallet: null, remembered: false, proposal: { name: 'Tip Jar', symbol: 'TIP' } }), /You earn 40%/);
 });
 
 test('5.9 v2.9 B9: with sign-in on, an agent that can\'t push gets sign_in (never record_only) and the normal offer (P9)', () => {
@@ -113,9 +91,9 @@ test('5.9 v2.9 B9: with sign-in on, an agent that can\'t push gets sign_in (neve
     signInLine('TipJar', 'TIP', 'https://earnkit.com/github/verify?n=x'),
     'One click to prove TipJar is yours, then $TIP launches: https://earnkit.com/github/verify?n=x',
   );
-  const offer = { hasBonus: true, coinIn: null, canPush: false, wallet: null, remembered: false, proposal: { name: 'TipJar', symbol: 'TIP' } };
+  const offer = { hasBonus: true, coinIn: null, canPush: false, wallet: null, proposal: { name: 'TipJar', symbol: 'TIP' } };
   assert.equal(confirmOffer(offer), `${CANT_PUSH}\nReady to submit?`, 'off: as before');
   const on = confirmOffer({ ...offer, signIn: true });
   assert.doesNotMatch(on, /Claude Code|Cursor/);
-  assert.match(on, /^Want the builder bonus\? It comes with a token\.\nYes: launches \$TIP \(TipJar\) on Base\./);
+  assert.match(on, /^Yes submits your entry and launches \$TIP \(TipJar\): 40% of its fees to you, plus the builder bonus\./);
 });

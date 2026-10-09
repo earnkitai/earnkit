@@ -4,10 +4,9 @@ process.env.EARNKIT_AUTH_SECRET = 'launch-test-secret';
 import assert from 'node:assert/strict';
 import type { ProgramRow } from './programs';
 import { RateLimitError } from './rate-limit';
-import { EARNINGS_LINE, LaunchError, TOKEN_TERMS, type TokenOutcome } from './tokens';
+import { LaunchError, type TokenOutcome } from './tokens';
 import { RecordSubmissionInput } from './projects';
 import { legacyTokenLineCode, tokenLineFor } from './token-gate';
-import { COIN_FOOTNOTE, coinRow, tokenFootnote, tokenRow, walletLine } from './entry-text';
 import {
   LAUNCHING,
   LAUNCH_STUCK,
@@ -94,7 +93,7 @@ test('tokenProposalBlock: null when tokens are off or there is no project name',
   assert.equal(await tokenProposalBlock({ program: program('encouraged'), installationId: 1, projectName: '  ', creatorWallet: '0xW' }, free), null);
 });
 
-test('tokenProposalBlock: the proposal, earnings, terms and the line to show', async () => {
+test('tokenProposalBlock: the proposal and the agent note; v2.10 item 5: no builder text, earnings, terms or WETH', async () => {
   const b = await tokenProposalBlock({ program: program('encouraged'), installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW' }, free);
   assert.ok(b);
   // v2.10 item 12: no live link, the generated mark; with one, the site's logo is tried first.
@@ -102,18 +101,10 @@ test('tokenProposalBlock: the proposal, earnings, terms and the line to show', a
   const site = await tokenProposalBlock({ program: program('encouraged'), installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW', liveUrl: 'https://kit.acme.dev' }, free);
   assert.equal(site?.proposed.image, 'site');
   assert.equal(b.chain, 'base');
-  assert.equal(b.paired_with, 'WETH');
   assert.equal(b.creator_wallet, '0xW');
-  assert.equal(b.earnings, EARNINGS_LINE('0xW'));
   assert.equal(b.policy, 'encouraged');
-  assert.match(b.terms.agreement, /^https:\/\/tokens\.fun\//);
-  // v2.6 §3: the coin row and the wallet line (one yes), with the terms under them; nothing more.
-  // Ruling 14: the footnote names the fee wallet when it is known.
-  assert.equal(
-    b.say_to_builder,
-    `${coinRow({ symbol: 'CHAIN', name: 'Chain Kits', hasBonus: false })}\n\n${walletLine({ wallet: '0xW', remembered: false, hasBonus: false })}\n\n${COIN_FOOTNOTE}`,
-  );
-  assert.ok(COIN_FOOTNOTE.includes(TOKEN_TERMS.agreement) && COIN_FOOTNOTE.includes(TOKEN_TERMS.risks));
+  for (const k of ['earnings', 'terms', 'paired_with', 'say_to_builder']) assert.ok(!(k in b), k);
+  assert.doesNotMatch(JSON.stringify(b), /WETH|token-creator-agreement|risk-disclosure|40%/);
   // Ruling 22: the agent is told to pass the confirmed wallet on record_submission.
   assert.match(b.note, /Pass the wallet the builder confirmed \(the wallet line\) as record_submission's payout_wallet\./);
   // v2.5 Task 8 / v2.6 Ruling 7: this program fixture has no status ('active' required), so no builder bonus.
@@ -135,18 +126,11 @@ test('tokenProposalBlock: v2.5 Task 8, a program with a builder bonus marks the 
   const b = await tokenProposalBlock({ program: bonusProgram, installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW' }, free);
   assert.ok(b);
   assert.equal(b.has_bonus, true);
-  assert.equal(
-    b.say_to_builder,
-    `${coinRow({ symbol: 'CHAIN', name: 'Chain Kits', hasBonus: true })}\n\n${walletLine({ wallet: '0xW', remembered: false, hasBonus: true })}\n\n${COIN_FOOTNOTE}`,
-  );
-  assert.match(b.say_to_builder, /say skip for no token \(and no builder bonus\)/);
-  // Ruling 10: a remembered wallet says so on the wallet line.
-  const r = await tokenProposalBlock({ program: bonusProgram, installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW', remembered: true }, free);
-  assert.match(r!.say_to_builder, /\(used last time\), or tell me another\./);
-  // Campaigns keep v2.4's token row.
+  // Campaigns: the block carries the facts; the Token row is confirmTable's (entry-text.ts tokenRow).
   const camp = { ...bonusProgram, campaign: { kind: 'earnkit' } } as unknown as ProgramRow;
   const c = await tokenProposalBlock({ program: camp, installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW' }, free);
-  assert.equal(c!.say_to_builder, `${tokenRow('CHAIN', false, null, 'Chain Kits')}\n\n${tokenFootnote('0xW')}`);
+  assert.equal(c!.has_bonus, false);
+  assert.deepEqual(c!.proposed, { name: 'Chain Kits', symbol: 'CHAIN', image: 'mark' });
 });
 
 test('Ruling 25 (I8): on a program with a builder bonus, a repo whose coin is entered elsewhere gets the no-bonus row', async () => {
@@ -160,7 +144,6 @@ test('Ruling 25 (I8): on a program with a builder bonus, a repo whose coin is en
   assert.ok(b);
   assert.deepEqual(asked, ['github.com/acme/kit'], 'looked up by the normalized repo');
   assert.equal(b.repo_coin_program, 'Arc Microgrants');
-  assert.equal(b.say_to_builder, "no builder bonus: this repo's token is entered in Arc Microgrants");
   assert.match(b.note, /don't pass token/);
   // A repo without a coin keeps the default row; a failed lookup never fails the block.
   const fresh = await tokenProposalBlock(
@@ -168,7 +151,6 @@ test('Ruling 25 (I8): on a program with a builder bonus, a repo whose coin is en
     { ...free, repoCoin },
   );
   assert.equal(fresh?.repo_coin_program, null);
-  assert.match(fresh!.say_to_builder, /say skip for no token \(and no builder bonus\)/);
   const err = console.error;
   console.error = () => {};
   try {
@@ -188,7 +170,6 @@ test("tokenProposalBlock: with the repo known, this agent's own token line", asy
   assert.ok(b);
   const line = tokenLineFor(1, repoUrl)!;
   assert.match(line, /^token: [0-9a-f]{16}$/);
-  assert.ok(!b.say_to_builder.includes(line));
   // v2.6 §3: the agent writes and pushes the one ticker-free line itself.
   assert.ok(b.note.includes(`Write the line "${line}" to earnkit.txt at the repo root (default branch) and push it yourself`), b.note);
   assert.ok(b.note.includes('never ask the builder to edit files'));
@@ -220,20 +201,14 @@ test('tokenProposalBlock: no wallet yet asks for one', async () => {
   const b = await tokenProposalBlock({ program: program('allowed'), installationId: 1, projectName: 'Chain Kits', creatorWallet: null }, free);
   assert.ok(b);
   assert.equal(b.creator_wallet, null);
-  assert.equal(b.earnings, EARNINGS_LINE('<your wallet>'));
   assert.match(b.note, /^Ask the builder for the wallet that receives creator fees\. /);
   assert.doesNotMatch(b.note, /payout_wallet:/);
-  assert.equal(b.say_to_builder, `${coinRow({ symbol: 'CHAIN', name: 'Chain Kits', hasBonus: false })}\n\nWhich wallet should get your token's fees?\n\n${COIN_FOOTNOTE}`);
 });
 
 test('v2.7 Ruling 16 (plan), C6: every ticker taken still proposes one never checked, with a note', async () => {
   const b = await tokenProposalBlock({ program: program('encouraged'), installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW' }, { check: async () => false, available: () => true });
   assert.ok(b);
   assert.ok(b.proposed.symbol);
-  assert.equal(
-    b.say_to_builder,
-    `${coinRow({ symbol: b.proposed.symbol, name: b.proposed.name, hasBonus: false })}\n\n${walletLine({ wallet: '0xW', remembered: false, hasBonus: false })}\n\n${COIN_FOOTNOTE}`,
-  );
   assert.match(b.note, /ticker not checked for duplicates/);
 });
 
@@ -838,7 +813,8 @@ test('residual m4: a repo whose coin is entered in this SAME program gets no Rul
     { ...free, repoCoin: async () => ({ program_id: 'arc-microgrants', title: 'Arc Microgrants' }) },
   );
   assert.equal(b?.repo_coin_program, null);
-  assert.doesNotMatch(b!.say_to_builder, /this repo's token is entered in/);
+  assert.match(b!.note, /earnkit\.txt/);
+  assert.doesNotMatch(b!.note, /entered in/);
 });
 
 test('residual m6: a non-Base coin on a program with a builder bonus never implies the bonus', async () => {

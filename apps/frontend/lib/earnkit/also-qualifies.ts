@@ -2,7 +2,7 @@ import type { Chain } from './match';
 import type { FieldKind, SubmissionRequirement } from './program-file';
 import { bankFill } from './coach';
 import { prepareSubmission, type ProjectInfo } from './submission';
-import { BONUS_MOVES, bonusRidesOn, endsOf, prizeOf } from './entry-text';
+import { endsOf, prizeOf } from './entry-text';
 import { table } from './present';
 import type { Difficulty } from './guide';
 
@@ -135,15 +135,11 @@ export function alsoQualifies(a: {
 const needs = (r: AlsoRow) => (r.needsLive ? 'a live link' : r.left === 0 ? 'nothing' : `${r.left} answer${r.left === 1 ? '' : 's'}`);
 
 /**
- * The builder's "Also qualifies" message, or null with no rows. `coinIn` (Ruling 5 (plan)): the
- * program whose round this repo's one token's fees book to (v2.8.1 §D: after its own program
- * ends, the entry they roll over to; bonus-rounds.ts bonusEntryProgram). v2.8.1 §C13: the bonus
- * note is said here, once, and positively ("Your builder bonus rides on your Arc Microgrants
- * entry."), followed by §D's BONUS_MOVES. Pure.
+ * The builder's "Also qualifies" message, or null with no rows. v2.10 item 1: no bonus sentences
+ * (the reply's one bonus line is enteredText's). Pure.
  */
-export function alsoText(rows: AlsoRow[], coinIn: string | null): string | null {
+export function alsoText(rows: AlsoRow[]): string | null {
   if (rows.length === 0) return null;
   const body = rows.map((r) => [r.title, r.prize, r.ends, needs(r)]);
-  const tail = `Say "enter it here too" for any of them.${coinIn ? ` ${bonusRidesOn(coinIn)} ${BONUS_MOVES}` : ''}`;
-  return `You also qualify for:\n${table(['Program', 'Prize', 'Ends', 'Still needed'], body)}\n${tail}`;
+  return `You also qualify for:\n${table(['Program', 'Prize', 'Ends', 'Still needed'], body)}\nSay "enter it here too" for any of them.`;
 }

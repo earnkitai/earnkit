@@ -214,10 +214,6 @@ export type TokenOutcome = {
   sign_in_needed?: 'needed' | 'wallet_changed';
 };
 
-/** What the builder is told about fee splits once a token is live. */
-export const EARNINGS_LINE = (wallet: string) =>
-  `You earn 40% of trading fees, paid in WETH to ${wallet}. tokens.fun pays the gas.`;
-
 /** tokens.fun's "Pending transactions detected" 503: its one gas wallet is busy (nothing sent). */
 const PENDING_TX = 'Pending transactions detected';
 /**

@@ -21,6 +21,9 @@ import {
   paidBonusWins,
   sinceLine,
   sinceYouLastChecked,
+  DEADLINE_DAYS,
+  deadlineLine,
+  takeDeadlineLine,
   type AlertFacts,
   type BonusWin,
 } from './alerts';
@@ -30,7 +33,7 @@ import { rememberWallets } from './installations';
 import { tools } from './tools';
 
 const empty: AlertFacts = {
-  newCampaigns: [], standings: [], prizes: [], fees: null, bonusWins: [], bonusStandings: [], newPrograms: [], fitRepos: [], skip: NO_SKIP, outcomeWins: [],
+  newCampaigns: [], standings: [], prizes: [], fees: null, bonusWins: [], bonusStandings: [], newPrograms: [], fitRepos: [], skip: NO_SKIP, outcomeWins: [], entries: [],
 };
 const t = (h: number) => new Date(Date.UTC(2026, 9, 10, h));
 
@@ -84,7 +87,7 @@ test('v2.5 Task 8: a builder bonus win shows once, names the program, before oth
     round_key: 'arc-microgrants:2026-09-16',
   });
   const line = (id: number) =>
-    `you were paid a 0.12 ETH builder bonus (as WETH) for Arc Microgrants, sent to ${BONUS_WALLET_SHORT} ` +
+    `you were paid a 0.12 ETH builder bonus for Arc Microgrants, sent to ${BONUS_WALLET_SHORT} ` +
     `(basescan.org/tx/0x${id}) · earnkit.com/bonus/arc-microgrants-2026-09-16`;
   const f: AlertFacts = { ...empty, bonusWins: [win(1, 5)] };
   const r = alertLines({ checkedAt: t(4), state: null, feeAlertedUsd: null }, f);
@@ -143,16 +146,17 @@ test('v2.6 §3 fix round 1 (Ruling 25 supersedes P1): alert wording, money first
     fitRepos: [],
     skip: NO_SKIP,
     outcomeWins: [],
+    entries: [],
   });
   assert.deepEqual(lines, [
-    `you were paid a 0.12 ETH builder bonus (as WETH) for Arc Microgrants, sent to ${BONUS_WALLET_SHORT} (basescan.org/tx/${txHash}) · earnkit.com/bonus/arc-microgrants-2026-09-16`,
+    `you were paid a 0.12 ETH builder bonus for Arc Microgrants, sent to ${BONUS_WALLET_SHORT} (basescan.org/tx/${txHash}) · earnkit.com/bonus/arc-microgrants-2026-09-16`,
     'you have $138 in token fees to claim on tokens.fun',
     'your entry moved into the top 10 for the builder bonus (Arc Microgrants) · earnkit.com/bonus/arc-microgrants-2026-09-16',
   ]);
   const joined = sinceLine(lines)!;
   assert.equal(
     joined,
-    `Since you last checked: you were paid a 0.12 ETH builder bonus (as WETH) for Arc Microgrants, sent to ${BONUS_WALLET_SHORT} (basescan.org/tx/${txHash}) · earnkit.com/bonus/arc-microgrants-2026-09-16; ` +
+    `Since you last checked: you were paid a 0.12 ETH builder bonus for Arc Microgrants, sent to ${BONUS_WALLET_SHORT} (basescan.org/tx/${txHash}) · earnkit.com/bonus/arc-microgrants-2026-09-16; ` +
       'you have $138 in token fees to claim on tokens.fun; ' +
       'your entry moved into the top 10 for the builder bonus (Arc Microgrants) · earnkit.com/bonus/arc-microgrants-2026-09-16.',
   );
@@ -173,7 +177,7 @@ test('M2: a second round win of the same entry is news too (seen by payout id, n
     round_key: 'base-grants:2026-10',
   });
   const noWalletLine = (payout: number) =>
-    `you were paid a 0.05 ETH builder bonus (as WETH) for Base Grants (basescan.org/tx/0x${payout}) · earnkit.com/bonus/base-grants-2026-10`;
+    `you were paid a 0.05 ETH builder bonus for Base Grants (basescan.org/tx/0x${payout}) · earnkit.com/bonus/base-grants-2026-10`;
   const first = alertLines({ checkedAt: t(1), state: { top: {} }, feeAlertedUsd: null }, { ...empty, bonusWins: [win(1, 2, 'Base Grants')] });
   assert.deepEqual(first.lines, [noWalletLine(1)]);
   // Next month the same entry wins its program's next round: a new payout id, so a new line.
@@ -367,7 +371,7 @@ test('v2.5 Task 7: paidBonusWins reads the real bonus_payouts rows (paid only); 
       const r = await sinceYouLastChecked(me);
       assert.ok(
         r.lines.includes(
-          `you were paid a 0.12 ETH builder bonus (as WETH) for ${tag}-ek, sent to ${shortWallet(getAddress(wallet.toLowerCase()))} ` +
+          `you were paid a 0.12 ETH builder bonus for ${tag}-ek, sent to ${shortWallet(getAddress(wallet.toLowerCase()))} ` +
             `(basescan.org/tx/0xpaid) · ${boardLink(roundKey)}`,
         ),
         r.lines.join('; '),
@@ -497,7 +501,7 @@ test('sinceYouLastChecked: over budget or row locked, no alerts and nothing mark
       await isLocked;
       const started = Date.now();
       try {
-        assert.deepEqual(await sinceYouLastChecked(me, { budgetMs: 100, otherWins: ['w'] }), { lines: ['w'], scheduleNote: null });
+        assert.deepEqual(await sinceYouLastChecked(me, { budgetMs: 100, otherWins: ['w'] }), { lines: ['w'], scheduleNote: null, entries: [] });
       } finally {
         release();
         await holder;
@@ -742,6 +746,8 @@ test('alertFacts: announced wins only; a self-reported win never alerts; new pro
     // v2.9 A7: the remembered repos, with what the builder says now; entered and hidden programs.
     assert.deepEqual(f.fitRepos.map((r) => [r.key, r.said?.not_mine]), [['alice/tipjar', true]]);
     assert.ok(f.skip.entered.has(tag));
+    // v2.10 item 15: the same read gives the deadline line its entries (id, title, end, submitted).
+    assert.ok(f.entries.some((e) => e.id === a && e.title === 'Outcome Program' && typeof e.submitted === 'boolean'), JSON.stringify(f.entries));
     assert.ok(f.skip.hidden.has(tag));
     const mine = f.newPrograms.find((p) => p.id === tag);
     assert.ok(mine);
@@ -777,4 +783,56 @@ test('3.10 repoCanWin is false for a low-odds repo, even on a likely verdict; an
   const mentioned = tipjar({ product: good, chains: { base: { mainnet: true, testnet: false, evidence: 'imports base', basis: 'mention' } } });
   assert.equal(repoCanWin(p, mentioned), false, 'a mention-only chain row (deploy to Base first) is low odds');
   assert.equal(alertable(p, [mentioned], NO_SKIP, NOW_ALERT), false);
+});
+
+// ---- v2.10 item 15: the deadline line ----
+const NOW15 = new Date('2026-10-12T15:00:00Z');
+const H = 3_600_000;
+const entry = (id: number, hours: number, o: { submitted?: boolean; title?: string } = {}) => ({
+  id,
+  title: o.title ?? 'Arc Microgrants',
+  ends_at: new Date(NOW15.getTime() + hours * H),
+  submitted: o.submitted ?? false,
+});
+
+test('7.7 deadlineLine: the soonest unsubmitted entry within 3 days, once a day; "today", "tomorrow", "in N days"', () => {
+  assert.equal(DEADLINE_DAYS, 3);
+  assert.deepEqual(deadlineLine([entry(1, 60)], {}, NOW15), { id: 1, line: "Arc Microgrants closes in 2 days; your entry isn't submitted." });
+  assert.equal(deadlineLine([entry(1, 30)], {}, NOW15)?.line, "Arc Microgrants closes tomorrow; your entry isn't submitted.");
+  assert.equal(deadlineLine([entry(1, 23)], {}, NOW15)?.line, "Arc Microgrants closes today; your entry isn't submitted.");
+  assert.equal(deadlineLine([entry(1, 60, { submitted: true })], {}, NOW15), null);
+  assert.equal(deadlineLine([entry(1, 96)], {}, NOW15), null);
+  assert.equal(deadlineLine([entry(1, -1)], {}, NOW15), null);
+  assert.equal(deadlineLine([{ ...entry(1, 10), ends_at: null }], {}, NOW15), null);
+  assert.equal(deadlineLine([entry(1, 60)], { '1': '2026-10-12' }, NOW15), null);
+  assert.ok(deadlineLine([entry(1, 60)], { '1': '2026-10-11' }, NOW15));
+  // Of two, the soonest wins; one shown today gives way to the next.
+  const two = [entry(1, 60), entry(2, 30, { title: 'Monad Metropolis Hackathon' })];
+  assert.equal(deadlineLine(two, {}, NOW15)?.id, 2);
+  assert.equal(deadlineLine(two, { '2': '2026-10-12' }, NOW15)?.id, 1);
+  // Pre-flight P1: Arc closes Oct 14, 11:59 PM ET (2026-10-15T03:59Z). On Oct 14 ET evening (UTC
+  // already Oct 15) it reads "today", never later than the program's own day.
+  const arc = { id: 3, title: 'Arc Microgrants', ends_at: new Date('2026-10-15T03:59:00Z'), submitted: false };
+  assert.equal(deadlineLine([arc], {}, new Date('2026-10-15T01:00:00Z'))?.line, "Arc Microgrants closes today; your entry isn't submitted.");
+  assert.equal(deadlineLine([arc], {}, new Date('2026-10-14T01:00:00Z'))?.line, "Arc Microgrants closes tomorrow; your entry isn't submitted.");
+});
+
+test('7.8 takeDeadlineLine: once per entry per UTC day, again the next day; two at once show it once', db, async () => {
+  const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`test-deadline-${process.pid}-${Date.now()}`}) RETURNING id`;
+  try {
+    const e = [entry(41, 60)];
+    const line = "Arc Microgrants closes in 2 days; your entry isn't submitted.";
+    assert.equal(await takeDeadlineLine(id, e, NOW15), line);
+    assert.equal(await takeDeadlineLine(id, e, new Date(NOW15.getTime() + H)), null);
+    const next = new Date(NOW15.getTime() + 25 * H);
+    assert.equal(await takeDeadlineLine(id, e, next), "Arc Microgrants closes tomorrow; your entry isn't submitted.");
+    const [{ shown }] = await sql()<{ shown: Record<string, string> }[]>`SELECT deadline_shown AS shown FROM installations WHERE id = ${id}`;
+    assert.deepEqual(shown, { '41': '2026-10-13' });
+    const day3 = new Date(NOW15.getTime() + 49 * H);
+    const both = await Promise.all([takeDeadlineLine(id, e, day3), takeDeadlineLine(id, e, day3)]);
+    assert.equal(both.filter(Boolean).length, 1, JSON.stringify(both));
+    assert.equal(await takeDeadlineLine(id, [], NOW15), null);
+  } finally {
+    await sql()`DELETE FROM installations WHERE id = ${id}`;
+  }
 });

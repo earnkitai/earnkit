@@ -97,7 +97,7 @@ const arc = {
   focus: { areas: ['Stablecoin payments', 'FX', 'Agentic commerce'], source_url: 'https://e/f' },
   best_bet: 'A USDC payout tool with a live mainnet demo',
 };
-const BONUS = { cell: '0.18 ETH so far', board: 'earnkit.com/bonus/arc-microgrants-2026-09-16' };
+const BONUS = { cell: '0.18 ETH so far', board: 'earnkit.com/bonus/arc-microgrants-2026-09-16', pool: { wei: 18n * 10n ** 16n, tokens: 3 } };
 
 test('v2.7 §2: the full guide, exactly', () => {
   assert.equal(guideText(programGuide(arc, BONUS, NOW)), [
@@ -115,7 +115,7 @@ test('v2.7 §2: the full guide, exactly', () => {
     'Your best bet',
     '- A USDC payout tool with a live mainnet demo',
     '',
-    'Builder bonus: 0.18 ETH so far · earnkit.com/bonus/arc-microgrants-2026-09-16',
+    'Builder bonus: 0.18 ETH so far',
   ].join('\n'));
   assert.deepEqual(guideSources(arc), ['https://e/r', 'https://e/x', 'https://e/f']);
 });
@@ -384,4 +384,13 @@ test('1.11 Avalanche Team1 Mini Grants is Medium (estimate), never Easy; a row m
   assert.equal(d.estimate, true);
   const row = rowDifficulty({ difficulty: d }, { missing: ['live_url', 'real_users'], effort: 'weeks' }, { liveVerified: false, hasUsersClaim: false });
   assert.equal(row.level, 'Hard');
+});
+
+test('7.6 v2.10 item 1: guideText ends with the one bonus line, never the board link', () => {
+  const t = guideText(programGuide(arc, BONUS, NOW));
+  assert.ok(t.endsWith('\n\nBuilder bonus: 0.18 ETH so far'), t);
+  assert.doesNotMatch(t, /earnkit\.com\/bonus/);
+  const first = guideText(programGuide(arc, { ...BONUS, pool: { wei: 0n, tokens: 0 } }, NOW));
+  assert.ok(first.endsWith('\n\nBuilder bonus: no tokens yet, so yours would be first'), first);
+  assert.ok(!guideText(programGuide(arc, null, NOW)).includes('Builder bonus'));
 });

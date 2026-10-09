@@ -21,14 +21,7 @@ import { logoDefaults, type Logo } from './token-logo';
 export const CANT_PUSH_RETRY_NOTE =
   "If you can't push to this repo, call confirm_entry again with agent: { can_push: false }: the entry records without a token and the kit comes back.";
 import { TOKEN_ERROR_CONFIRM } from './confirm';
-import {
-  COIN_FOOTNOTE,
-  coinRow,
-  todoOf,
-  tokenFootnote,
-  tokenRow,
-  walletLine,
-} from './entry-text';
+import { todoOf } from './entry-text';
 import {
   cleanTokenName,
   proposeToken,
@@ -39,11 +32,9 @@ import {
   type TickerCheck,
 } from './token-proposal';
 import {
-  EARNINGS_LINE,
   LaunchError,
   REPO_HAS_TOKEN,
   TOKENS_UNAVAILABLE,
-  TOKEN_TERMS,
   decodeImage,
   deployToken,
   repoCoinPrograms,
@@ -96,12 +87,8 @@ export type TokenBlock = {
   /** v2.10 item 12: 'site' (the live site's or repo's logo is tried first), else the generated 'mark'. */
   proposed: { name: string; symbol: string; image: 'agent' | 'site' | 'mark' };
   chain: 'base';
-  paired_with: 'WETH';
   creator_wallet: string | null;
-  earnings: string;
-  terms: { agreement: string; risks: string };
   policy: 'encouraged' | 'allowed';
-  say_to_builder: string;
   note: string;
   /** v2.6 Ruling 7: bonusOn, active, not opted out, not a campaign (hasBuilderBonus). */
   has_bonus: boolean;
@@ -229,17 +216,16 @@ const ownershipLine = (tokenLine: string | null) =>
 
 /**
  * The `token` block of prepare_submission, or null when the program has no tokens, launches aren't
- * configured, or no name is known yet. `say_to_builder` is the consent text (v2.4): the one token
- * row (the ticker, a default the builder can turn off) and the footnote with the earnings, the fee
- * wallet when known, and both terms links. What the repo needs is in `note`, for the agent.
+ * configured, or no name is known yet. v2.10 item 5: no builder text here (no earnings, terms or
+ * WETH line): the token is pitched once, in the confirm line (confirm.ts confirmLine), or in an
+ * EarnKit campaign's Token row (entry-text.ts tokenRow); the terms are on the entry page and
+ * tokens.fun. What the repo needs is in `note`, for the agent.
  */
 export async function tokenProposalBlock(
   a: {
     program: ProgramRow;
     projectName?: string;
     creatorWallet: string | null;
-    /** v2.6 Ruling 10: `creatorWallet` is the installation's remembered one (the wallet line says so). */
-    remembered?: boolean;
     /** The asking agent and the project's repo: the earnkit.txt token line is bound to both. */
     installationId: number;
     repoUrl?: string;
@@ -260,7 +246,6 @@ export async function tokenProposalBlock(
   const projectName = a.projectName?.trim() || titleCase(repoNameOf(a.repoUrl) ?? '');
   if (!projectName) return null;
   const proposal = await proposeToken(projectName, deps.check, a.repoUrl);
-  const earnings = EARNINGS_LINE(a.creatorWallet ?? '<your wallet>');
   const notes: string[] = [];
   if (proposal.note) notes.push(proposal.note);
   if (!a.creatorWallet) notes.push('Ask the builder for the wallet that receives creator fees.');
@@ -287,24 +272,10 @@ export async function tokenProposalBlock(
   return {
     proposed: { name: proposal.name, symbol: proposal.symbol, image: a.liveUrl ? 'site' : 'mark' },
     chain: 'base',
-    paired_with: 'WETH',
     creator_wallet: a.creatorWallet,
-    earnings,
-    terms: TOKEN_TERMS,
     policy: program.token_policy,
     has_bonus: hasBonus,
     repo_coin_program: coinIn,
-    // v2.4: one row in the confirmation (prepare_submission's show_to_builder carries it), with
-    // the earnings and terms under the table, naming the fee wallet when known (Ruling 14). What
-    // the repo needs is the agent's job (note). v2.5: on a program with a builder bonus, skipping
-    // the coin costs the bonus (tokenRow's hasBonus), never advertised past this one row.
-    // v2.6 §3: outside campaigns, the coin row and the wallet line (one yes confirms both).
-    say_to_builder: coinIn
-      ? tokenRow(proposal.symbol, hasBonus, coinIn)
-      : program.campaign
-        ? `${tokenRow(proposal.symbol, hasBonus, null, proposal.name)}\n\n${tokenFootnote(a.creatorWallet)}`
-        : `${coinRow({ symbol: proposal.symbol, name: proposal.name, hasBonus })}\n\n` +
-          `${walletLine({ wallet: a.creatorWallet, remembered: a.remembered === true, hasBonus })}\n\n${COIN_FOOTNOTE}`,
     note: notes.map((n) => (/[.!?]$/.test(n.trim()) ? n.trim() : `${n.trim()}.`)).join(' '),
   };
 }

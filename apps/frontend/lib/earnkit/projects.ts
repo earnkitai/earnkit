@@ -533,14 +533,15 @@ export async function enteredProgramIds(installationId: number, k: { repoUrl: st
  * list_programs' "Your entries" line and its "entered" marks. Submitted: the builder confirmed it, the
  * entry page was checked, or the row came from record_submission without a confirmation step (before v2.8).
  * `onlyIds` (v2.9 B9, Ruling G7): only these entries (a verified login's, on a shared client).
+ * v2.10 item 15: `id` and the program's `ends_at`, for the deadline line (alerts.ts deadlineLine).
  */
-export type OpenEntry = { program_id: string; title: string; name: string; submitted: boolean };
+export type OpenEntry = { id: number; program_id: string; title: string; name: string; submitted: boolean; ends_at: Date | null };
 
 export async function openEntries(installationId: number, onlyIds?: number[]): Promise<OpenEntry[]> {
   const db = sql();
   return [
     ...(await db<OpenEntry[]>`
-      SELECT p.program_id, pr.title, p.name,
+      SELECT p.id, p.program_id, pr.title, p.name, pr.ends_at,
         (p.confirmed_at IS NULL OR p.submission_confirmed_at IS NOT NULL OR p.submission_proof_ok_at IS NOT NULL) AS submitted
       FROM projects p JOIN programs pr ON pr.id = p.program_id
       WHERE p.installation_id = ${installationId} AND pr.campaign IS NULL AND pr.status = 'active'

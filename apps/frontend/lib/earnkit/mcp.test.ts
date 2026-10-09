@@ -233,13 +233,14 @@ test('v2.4: the instructions say record_submission is the campaign entry (while 
   assert.doesNotMatch(instructions, /Call\s+record_submission only after it was really submitted/);
 });
 
-test('v2.8 Part C: the instructions say every entry gets a token by default; one yes launches it and returns the kit; skip costs the bonus', async () => {
+test('v2.10 item 5: the instructions: one yes submits the entry and launches the token; skip the token submits without one', async () => {
   const { instructions } = await listed({});
   assert.ok(
     instructions.includes(
-      'Every entry gets a token by default. The builder confirms once: "yes" launches the token and returns the submit kit; "skip" means no token and no builder bonus. Push the token line from prepare_submission with your work, before the builder confirms.',
+      'The builder confirms once: yes submits the entry and launches the token; skip the token submits without one. Push the token line from prepare_submission with your work, before the builder confirms.',
     ),
   );
+  assert.doesNotMatch(instructions, /token_offer|no token and no builder bonus/);
   assert.match(instructions, /Pass the wallet shown \(shown_wallet\) back as confirm_entry's wallet\./);
   assert.match(instructions, /Write and push earnkit\.txt yourself; never ask the builder to edit files\./);
   assert.doesNotMatch(instructions, /A token is optional: entering never needs one\./);
@@ -260,7 +261,8 @@ test('v2.6 §1: list_programs says it leads with the qualify hook with repos, or
   const d = tools.find((t) => t.name === 'list_programs')!.description!;
   assert.match(d, /leads with "EarnKit matches you to \$X in prizes you qualify for"/);
   assert.match(d, /or "\$X in prizes open right now" with ideas you can build when there is no repo/);
-  assert.match(d, /Every program shows its difficulty; the token and builder bonus line closes the message\./);
+  assert.match(d, /Every program shows its difficulty; one builder bonus line comes before the closing offer\./);
+  assert.doesNotMatch(d, /token_offer/);
   assert.doesNotMatch(d, /top prizes/);
 });
 
@@ -315,7 +317,7 @@ test('v2.8.1 §B6 (fix round 1): every odd list_programs input passes the MCP sc
   // GitHub is never read here: matching is stubbed.
   const server = createMcpServer({
     installationId,
-    roundPoolsWei: async () => new Map(),
+    roundPools: async () => new Map(),
     repoCoins: async () => new Map(),
     matchProjects: async () => ({ checked: 0, fits: [] }),
   });
@@ -365,7 +367,7 @@ test('v2.7 §3, Ruling 15/18 (plan): prepare_submission says what not ready mean
   assert.match(TOOL_DESCRIPTIONS.prepare_submission, /When ready is false/);
   // v2.8 Part C: the offer replaces the row outside campaigns; campaigns keep it (while one is open).
   assert.match(TOOL_DESCRIPTIONS.prepare_submission, /one Token row \(a token on Base\)/);
-  assert.match(toolDescriptions(false).prepare_submission, /it ends with the confirmation offer/);
+  assert.match(toolDescriptions(false).prepare_submission, /it ends with the one confirm line/);
   assert.doesNotMatch(toolDescriptions(false).prepare_submission, /Token row|submission link/);
   for (const [name, d] of Object.entries(TOOL_DESCRIPTIONS)) assert.doesNotMatch(d, /clanker|protocol cut/i, name);
 });
@@ -445,11 +447,13 @@ test('v2.8 Part C: confirm_entry is registered, strict, and says the kit is only
   const ce = tools.find((t) => t.name === 'confirm_entry')!;
   assert.equal(ce.description, TOOL_DESCRIPTIONS.confirm_entry);
   assert.match(ce.description!, /builder_confirmed: true and decision: 'go' once the builder says yes/);
-  assert.match(ce.description!, /decision: 'skip' only when the builder says skip/);
+  assert.match(ce.description!, /decision: 'skip' only when the builder says skip the token/);
   assert.match(ce.description!, /The kit is only in this reply; never show a kit any other way\./);
   const props = ce.inputSchema.properties as Record<string, unknown>;
   for (const k of ['program_id', 'project', 'answers', 'decision', 'builder_confirmed', 'token', 'wallet', 'agent']) assert.ok(k in props, k);
   assert.ok('agent' in ((tools.find((t) => t.name === 'prepare_submission')!.inputSchema.properties) as Record<string, unknown>));
+  // v2.10 item 15: a shared client's builder passes the sign-in code so their deadline line shows.
+  assert.ok('signed_in' in ((tools.find((t) => t.name === 'prepare_submission')!.inputSchema.properties) as Record<string, unknown>));
   const server = createMcpServer({ installationId: 1 });
   const [a, b] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'test', version: '0' });
@@ -478,7 +482,8 @@ test('3.9 tell_earnkit replaces report_outcome: 8 tools, it writes, list_program
   for (const k of ['offer', 'decision', 'agent', 'project_id']) assert.ok(k in props.properties, k);
   assert.ok(!(props.required ?? []).includes('project_id'));
   assert.ok(launch.description!.length < 800, `${launch.description!.length} characters`);
-  assert.match(launch.description!, /After the first reply's token offer, pass offer \(program_id, repo_url, project_name from token_offer\) and decision: 'go' on yes, 'skip' on skip\./);
+  // v2.10 item 5: the first-reply offer is gone (the offer input stays until T9).
+  assert.doesNotMatch(launch.description!, /token_offer|first reply's token offer/);
   assert.match(list.description!, /pass their answer to tell_earnkit/);
   assert.ok(tell.description!.length < 800, `${tell.description!.length} characters`);
   assert.match(tell.description!, /Call it only with what the builder said/);

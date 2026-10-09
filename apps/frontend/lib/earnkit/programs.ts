@@ -4,9 +4,9 @@ import type { AlsoProgram } from './also-qualifies';
 import { escrowLink } from './escrow';
 import type { Chain } from './match';
 import { sql } from './db';
-import { bonusOn, roundFor, roundPoolsWei, windowKey } from './bonus-rounds';
+import { bonusOn, roundFor, roundPools, windowKey } from './bonus-rounds';
 import { boardLink } from './entry-text';
-import { difficultyOf, guideSources, guideText, programGuide, type Difficulty } from './guide';
+import { difficultyOf, guideSources, guideText, programGuide, type Difficulty, type GuideBonus } from './guide';
 import { bonusCell } from './present';
 import {
   type DifficultyOverride,
@@ -548,21 +548,23 @@ export async function getProgram(programId: string) {
 }
 
 /**
- * v2.7 §2: the guide's builder bonus line for a curated program: its open round's pool so far and
- * its board. Null for a campaign, a program without a bonus or an open round, or a frozen round. A
- * failed pool read is logged and gives null; it never fails get_program.
+ * v2.7 §2: the guide's builder bonus for a curated program: its open round's pool so far and its
+ * board (the public guide page's pill and link), and (v2.10 item 1, Pre-flight P18) the pool with
+ * its token count for the reply's bonus line. Null for a campaign, a program without a bonus or an
+ * open round, or a frozen round. A failed pool read is logged and gives null; it never fails get_program.
  */
-export async function guideBonus(program: ProgramRow, now = new Date()) {
+export async function guideBonus(program: ProgramRow, now = new Date()): Promise<GuideBonus | null> {
   if (program.source !== 'file' || program.campaign || !bonusOn(program)) return null;
   const round = roundFor(program, now);
   if (!round) return null;
   try {
-    const pools = await roundPoolsWei([program.id], { now });
-    const bonus_closed = pools.has(program.id) && pools.get(program.id) === null;
-    if (bonus_closed) return null;
+    const pools = await roundPools([program.id], { now });
+    const pool = pools.get(program.id);
+    if (pool === null) return null;
     return {
-      cell: bonusCell({ builder_bonus: true, bonus_pool_wei: pools.get(program.id) ?? null, bonus_closed }),
+      cell: bonusCell({ builder_bonus: true, bonus_pool_wei: pool?.wei ?? null, bonus_closed: false }),
       board: boardLink(round.key),
+      pool: pool ?? { wei: 0n, tokens: 0 },
     };
   } catch (err) {
     console.error('[get_program] pool', err instanceof Error ? err.message : err);
@@ -577,7 +579,7 @@ export const GUIDE_NOTE =
 /** get_program's guide block for a curated program (never a campaign). Pure. */
 function guideBlock(
   program: ProgramRow,
-  bonus: { cell: string; board: string } | null,
+  bonus: GuideBonus | null,
 ): { guide: { text: string; difficulty: Difficulty; best_bet: string | null; sources: string[] }; guide_note: string } | null {
   if (program.source !== 'file' || program.campaign) return null;
   const g = programGuide(program, bonus);
@@ -595,7 +597,7 @@ export function programDetails(
   /** A sponsor campaign's identity and its wallet's track record. */
   who?: { identity: SponsorIdentity; track_record: TrackRecord },
   /** v2.7 §2: the builder bonus line of a curated program's guide (getProgram's guideBonus). */
-  bonus: { cell: string; board: string } | null = null,
+  bonus: GuideBonus | null = null,
 ) {
   const identity = who?.identity ?? UNVERIFIED;
   const trackName = (id: string | null) =>

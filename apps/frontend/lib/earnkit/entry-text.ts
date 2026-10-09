@@ -1,7 +1,6 @@
 import { payoutBy, prizeUsdEach, usd, type CampaignConfig } from './campaigns';
 import { boardSlug } from './bonus-rounds';
 import { shortDate } from './dates';
-import { TOKEN_TERMS } from './tokens';
 
 /** EarnKit's public origin for links in builder text. */
 export const siteUrl = () => (process.env.EARNKIT_URL ?? 'https://earnkit.com').replace(/\/$/, '');
@@ -28,48 +27,19 @@ export function keyTable(rows: [string, string][]) {
 const tokenLabel = (symbol: string, name?: string | null) =>
   name && name.replace(/\s+/g, '').toUpperCase() !== symbol ? `${name} ($${symbol})` : `$${symbol}`;
 
-/** Fix round 1 (Minor 4): the skip, as the words to say and what it costs. Pure. */
-const skipText = (hasBonus: boolean) => (hasBonus ? 'say skip for no token (and no builder bonus)' : 'say skip for no token');
+/** v2.10 item 5: the only skip word (only the token is skippable); confirm.ts re-exports it. */
+export const SKIP_TOKEN = 'skip the token';
 
 /**
- * The one token row in EarnKit campaigns (v2.4: a default at submission only, never advertised).
- * v2.7 §3: the token's chain is explicit (tokens.fun launches on Base). `hasBonus` (v2.5 §3)
- * adds what skipping costs here: the builder bonus. Pure.
+ * The one token row in EarnKit campaigns (v2.4: a default at submission only, entered in one step,
+ * so this row is the campaign's confirm line). v2.10 item 5: the confirm line's words, and no
+ * footnote (no WETH, gas or terms in replies). Ruling 25: one token per repo; a repo whose token is
+ * entered in another program gets that note instead. Pure.
  */
 export const tokenRow = (symbol: string, hasBonus = false, coinIn: string | null = null, name?: string | null) => {
-  // Ruling 25: one token per repo; this repo's token is already entered in another program.
   if (hasBonus && coinIn) return repoCoinNote(coinIn);
-  return `A token on Base, ${tokenLabel(symbol, name)}: you earn 40% of its trading fees · ${skipText(hasBonus)}`;
+  return `Launches ${tokenLabel(symbol, name)}: 40% of its fees to you${hasBonus ? ', plus the builder bonus' : ''} · or ${SKIP_TOKEN}`;
 };
-
-/**
- * v2.6 §3 + v2.7 Ruling 17 (plan): the Token row outside campaigns (one yes confirms the token and
- * the wallet under it); the chain is explicit. `hasBonus`: bonusOn; skipping then costs the
- * builder bonus. `coinIn`: Ruling 25. `name`: the proposed name, shown unless it is the ticker. Pure.
- */
-export function coinRow(a: { symbol: string; name?: string | null; hasBonus: boolean; coinIn?: string | null }) {
-  if (a.hasBonus && a.coinIn) return repoCoinNote(a.coinIn);
-  const token = `Your entry gets a token on Base, ${tokenLabel(a.symbol, a.name)}: you earn 40% of its trading fees`;
-  return a.hasBonus ? `${token}, and it joins the builder bonus · ${skipText(true)}` : `${token} · ${skipText(false)}`;
-}
-
-/**
- * The wallet line under the coin row (v2.6 §3). Ruling 22: the wallet is named once, in full,
- * here (the footnote no longer repeats it). Without one, the line is the ask. Pure.
- */
-export function walletLine(a: { wallet: string | null; remembered: boolean; hasBonus: boolean }) {
-  const what = a.hasBonus ? 'fees and any bonus' : 'fees';
-  if (!a.wallet) return `Which wallet should get your token's ${what}?`;
-  // Final review M8: "used last time", never "yours": on a shared registration it may not be.
-  return `Wallet for ${what}: ${a.wallet}${a.remembered ? ' (used last time)' : ''}, or tell me another.`;
-}
-
-/**
- * Ruling 22 + v2.7 §3: the consent line under the token row outside campaigns: the fee detail the
- * row leaves out (WETH, gas) and both terms links (v2.3 consent), once. It never names the launch
- * protocol or its cut (Ruling 18 (plan)). Campaigns keep tokenFootnote.
- */
-export const COIN_FOOTNOTE = `Fees in WETH; tokens.fun pays gas. Terms: ${TOKEN_TERMS.agreement} · Risks: ${TOKEN_TERMS.risks}`;
 
 const DAY_MS = 86_400_000;
 
@@ -165,16 +135,10 @@ export const REPO_HELD = 'Another entry of this repo already holds its token and
 
 /**
  * Ruling 5 (plan), v2.8.1 §C13: the repo's one token is entered in this program, so its builder
- * bonus rides on that entry. Said once, positively, in the Also qualifies block (or after "Entered
- * in…" when there is no such block); never in the offer or the confirmation. Pure.
+ * bonus rides on that entry. v2.10 item 1: never in builder text (one bonus line per reply); only
+ * record_submission's bonus_note, for the agent. Pure.
  */
 export const bonusRidesOn = (program: string) => `Your builder bonus rides on your ${program} entry.`;
-
-/**
- * v2.8.1 §D (option B): the token's later fees roll over to the repo's next open entry once its
- * program's round is over. Said once, next to bonusRidesOn, in the Also qualifies block only.
- */
-export const BONUS_MOVES = 'Your builder bonus moves to your next entry when a program ends.';
 
 export type EnteredText = {
   programTitle: string;
@@ -191,13 +155,12 @@ export type EnteredText = {
         note?: string;
       };
   /**
-   * The open round (`ends` is its end as the first message shows it, roundEndLabel). Null when the
-   * program has no bonus, the coin was skipped, the repo is held (M1), or Ruling 25 applies.
+   * The open round: `line` is its one builder bonus line (present.ts bonusLine; v2.10 item 1, no
+   * board link). Null when the program has no bonus, the round froze, the coin was skipped, the repo
+   * is held (M1), or Ruling 25 applies.
    */
   bonus: {
-    cell: string;
-    ends: string;
-    board: string;
+    line: string;
     /**
      * Fix round 1 (I3): set when the entry doesn't count for the builder bonus yet, with what joins
      * it: the builder's word that it's submitted on `site` ('confirm'), the entry page on `site`
@@ -225,10 +188,10 @@ export function enteredText(a: EnteredText) {
   // M1: no coin and no bonus to offer here; one plain line, never a wallet ask or a bonus line.
   if (a.repoHeld) return `${entered} ${REPO_HELD}`;
   if (a.countsIn) return entered;
-  const round = a.bonus && `${a.bonus.cell} · ends ${a.bonus.ends} · ${a.bonus.board}`;
+  const round = a.bonus?.line ?? null;
   if (a.coin.status === 'no_wallet')
     return round
-      ? `${entered} Reply with a wallet to get your token and join the builder bonus (${round}).`
+      ? `${entered} Reply with a wallet to get your token and join the builder bonus.\n${round}`
       : `${entered} Reply with a wallet to get your token.`;
   const coin =
     a.coin.status === 'launched'
@@ -250,8 +213,8 @@ export function enteredText(a: EnteredText) {
   // M4: the bonus needs the coin, so a coin not launched yet joins it once it is.
   if (!join)
     return a.coin.status === 'other'
-      ? `${entered}${coin.replace(/\.$/, '')}; it joins the builder bonus once it is (${round}).`
-      : `${entered}${coin}\nBuilder bonus: ${round}`;
+      ? `${entered}${coin.replace(/\.$/, '')}; it joins the builder bonus once it is.\n${round}`
+      : `${entered}${coin}\n${round}`;
   const line =
     join.kind === 'page'
       ? `Add your ${join.missing ?? 'repo'} link to your ${join.site} entry page`
@@ -260,8 +223,8 @@ export function enteredText(a: EnteredText) {
         : `Tell me once you've submitted on ${join.site}`;
   // Re-review Minor 2: with the coin still to launch, the step and the coin are two plain sentences.
   return a.coin.status === 'other'
-    ? `${entered}${coin}\n${line}. With your token launched, that joins the builder bonus (${round}).`
-    : `${entered}${coin}\n${line} to join the builder bonus (${round}).`;
+    ? `${entered}${coin}\n${line}. With your token launched, that joins the builder bonus.\n${round}`
+    : `${entered}${coin}\n${line} to join the builder bonus.\n${round}`;
 }
 
 /** A round's public leaderboard, as builder text (Ruling 12 (plan)): "earnkit.com/bonus/<slug>". */
@@ -269,17 +232,6 @@ export const boardLink = (roundKey: string) => `${siteUrl().replace(/^https?:\/\
 
 /** The no-bonus line for an entry whose repo's coin is entered in another program (Ruling 25). Pure. */
 export const repoCoinNote = (programTitle: string) => `no builder bonus: this repo's token is entered in ${programTitle}`;
-
-/**
- * The line under the table: the earnings detail and both terms links (the v2.3 consent text),
- * naming the wallet that receives the fees when it is known (Ruling 14). It names the fee split
- * for the builder only (never the other slots the v2.5 split adds). Pure.
- */
-export const tokenFootnote = (wallet: string | null | undefined) =>
-  `Token: you earn 40% of trading fees, paid in WETH${wallet ? ` to ${wallet}` : ''}; tokens.fun pays gas. Terms: ${TOKEN_TERMS.agreement} · Risks: ${TOKEN_TERMS.risks}`;
-
-/** The footnote when the fee wallet isn't known yet. */
-export const TOKEN_FOOTNOTE = tokenFootnote(null);
 
 /**
  * v2.7 §3, Ruling 15 (plan) + C5: the lead line while the entry can't be submitted yet, from the
@@ -337,7 +289,7 @@ export function todoOf(req: { label: string; todo?: string }, problem = false): 
  * prepare_submission's show_to_builder (v2.4 §2): the one block the builder confirms. The prize
  * row is always first after the entry, naming the payout wallet in full; in EarnKit campaigns the
  * token row is one line (elsewhere the confirmation offer follows the table, v2.8 Part C);
- * a remembered wallet is asked about under the table; terms go under it.
+ * a remembered wallet is asked about under the table (v2.10 item 5: no terms footnote in replies).
  * `prize` is the program's own prize text (programs that aren't EarnKit campaigns). Pure.
  */
 export function confirmTable(a: {
@@ -350,15 +302,14 @@ export function confirmTable(a: {
   /**
    * v2.7 Ruling 15 (plan) + C5: the required items still missing, as short to-dos (todoOf). When any
    * are, the screen leads with them and shows only Entry and Prize (plus the campaign wallet ask):
-   * no token row, wallet line or footnote.
+   * no token row or wallet line.
    */
   missing?: string[];
   /** A remembered payout wallet to confirm (I8): asked under the table, in full. */
   askWallet?: string | null;
   /**
-   * The token row; `wallet` is the fee wallet, named in the footnote when known. `hasBonus`: v2.5
-   * §3. `coinIn`: the program this repo's coin is already entered in (Ruling 25; no new coin, so
-   * no footnote).
+   * The token row; `wallet` is the fee wallet (unused in the text since v2.10). `hasBonus`: v2.5
+   * §3. `coinIn`: the program this repo's coin is already entered in (Ruling 25; no new coin).
    */
   token: {
     symbol: string;
@@ -389,8 +340,8 @@ export function confirmTable(a: {
   if (!c || !a.token) return keyTable(rows) + ask;
   const coinIn = a.token.hasBonus ? (a.token.coinIn ?? null) : null;
   rows.push(['Token', tokenRow(a.token.symbol, a.token.hasBonus, coinIn, a.token.name)]);
-  const foot = coinIn ? '' : `\n\n${tokenFootnote(a.token.wallet)}`;
-  return keyTable(rows) + ask + foot;
+  // v2.10 item 5: no footnote (no WETH, gas or terms in replies; the terms are on the entry page).
+  return keyTable(rows) + ask;
 }
 
 /** record_submission's show_to_builder for a campaign entry (v2.4 §2): rank, leaderboard, payout date. Pure. */

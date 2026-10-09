@@ -351,9 +351,11 @@ test('v2.7 §2: programCard.difficulty for a curated program; null for any campa
 
 test('v2.7 §2: get_program carries the guide for curated programs only', () => {
   const curated: ProgramRow = { ...fileRow(null), title: 'Base Builder Grant Program', summary: 'up to $5,000 · rolling' };
-  const d = programDetails(curated, [], [], undefined, { cell: '0.18 ETH so far', board: 'earnkit.com/bonus/x-2026-09-16' });
+  const d = programDetails(curated, [], [], undefined, { cell: '0.18 ETH so far', board: 'earnkit.com/bonus/x-2026-09-16', pool: { wei: 18n * 10n ** 16n, tokens: 2 } });
   assert.ok(d.guide);
-  assert.ok(d.guide.text.includes('Builder bonus: 0.18 ETH so far · earnkit.com/bonus/x-2026-09-16'));
+  // v2.10 item 1: the reply's one bonus line, no board link.
+  assert.ok(d.guide.text.endsWith('Builder bonus: 0.18 ETH so far'), d.guide.text);
+  assert.ok(!d.guide.text.includes('earnkit.com/bonus'));
   assert.ok(d.guide.text.startsWith('Base Builder Grant Program · up to $5,000 · rolling\nDifficulty: Medium (estimate)'));
   assert.equal(d.guide.difficulty.level, 'Medium');
   assert.equal(d.guide.best_bet, null);

@@ -194,7 +194,9 @@ export async function readGuidePage(id: string, now = new Date()): Promise<Guide
   // As get_program: the open round's pool so far; null without a bonus, a round or with a frozen one.
   const bonus = await guideBonus(row, now);
   const round = bonus ? roundFor(row, now) : null;
-  const guide = programGuide(row, bonus, now);
+  // v2.10 Pre-flight P18: the page keeps its pill and board link; the pool (bigint wei, for the
+  // reply's bonus line) is left out, so the guide stays plain JSON for unstable_cache.
+  const guide = programGuide(row, bonus && { cell: bonus.cell, board: bonus.board }, now);
   return {
     guide,
     title: row.title,

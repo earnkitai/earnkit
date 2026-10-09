@@ -517,6 +517,13 @@ await db`UPDATE match_shown SET traction = 8 WHERE installation_id = ${memInst}`
 await db.unsafe(now);
 const [keptTraction] = await db<{ traction: number | null }[]>`SELECT traction FROM match_shown WHERE installation_id = ${memInst}`;
 ok(keptTraction?.traction === 8, 'match_shown traction survives the schema running again');
+// v2.10 item 15: installations.deadline_shown starts NULL on existing rows and survives the schema running again.
+const [noDeadline] = await db<{ shown: unknown }[]>`SELECT deadline_shown AS shown FROM installations WHERE id = ${memInst}`;
+ok(noDeadline !== undefined && noDeadline.shown === null, 'existing installations get deadline_shown = NULL');
+await db`UPDATE installations SET deadline_shown = '{"7": "2026-10-09"}'::jsonb WHERE id = ${memInst}`;
+await db.unsafe(now);
+const [keptDeadline] = await db<{ shown: Record<string, string> | null }[]>`SELECT deadline_shown AS shown FROM installations WHERE id = ${memInst}`;
+ok(keptDeadline?.shown?.['7'] === '2026-10-09', 'deadline_shown survives the schema running again');
 
 // v2.9 B9: builder memory keyed by login ('' = the installation's own); a database made before the
 // column gets it and the wider primary key; sign-in nonces and verifications survive the schema again.
