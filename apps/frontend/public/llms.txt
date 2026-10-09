@@ -60,8 +60,8 @@ All open programs: https://earnkit.com/programs
   requires; returns what is complete, what is missing, and show_to_builder:
   the one confirmation, prize first, ending with the offer (the builder bonus
   comes with a token). With a repo it gives the token line to push. No live
-  link yet? Pass host: true and EarnKit hosts the built static site free at
-  <project>-<login>.earnkit.com: the reply's host block first has a sign-in
+  link yet? When hosting is on, pass host: true and EarnKit hosts the built
+  static site free at <project>-<login>.earnkit.com: the reply's host block first has a sign-in
   line to show the builder, then a one-time upload URL (15 minutes) to POST
   the built site to as one zip. Static files only, at most 25 MB; the hosted
   link counts as live at once, and the site ends 7 days after the programs
@@ -88,7 +88,7 @@ All open programs: https://earnkit.com/programs
   at once; what raises one waits until EarnKit can check it. Results they
   report are never public, never counted, never alerted. Also the builder's
   yes or no to the weekly email question (weekly_email), asked once after
-  their first entry: one email a week with new programs they fit, wins and
+  their first entry when the weekly email is on: one email a week with new programs they fit, wins and
   deadlines, with a one-click unsubscribe
 - pick_up_entries: the builder's yes or no when list_programs asks to pick
   up entries from an earlier install

@@ -88,7 +88,10 @@ test(
   db,
   async () => {
     const key = `test:${process.pid}:${Date.now()}`;
-    const t0 = new Date('2026-10-03T10:00:05.000Z');
+    // Windows near now: a fixed past date can be swept mid-test by any file's stale-window sweep
+    // (over 2 days old), which made this test flaky (Part 2 fix wave).
+    const minute = Math.floor(Date.now() / 60_000) * 60_000;
+    const t0 = new Date(minute + 5_000);
     const results = await Promise.all(
       Array.from({ length: 8 }, () => hit(key, 5, 60, t0)),
     );
@@ -98,7 +101,7 @@ test(
       [0, 0, 0, 0, 1, 2, 3, 4],
     );
     // The next minute is a fresh window, and its first hit clears the old one.
-    const next = await hit(key, 5, 60, new Date('2026-10-03T10:01:00.000Z'));
+    const next = await hit(key, 5, 60, new Date(minute + 60_000));
     assert.deepEqual(next, { allowed: true, remaining: 4, retryAfter: 60 });
     const rows =
       await sql()`SELECT window_start FROM rate_windows WHERE key = ${key}`;

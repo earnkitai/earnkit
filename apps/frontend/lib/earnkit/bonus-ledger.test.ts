@@ -553,11 +553,11 @@ test('runCron runs the bonus ledger step (with its deps under `only`) and report
     const out = await runCron({
       now: new Date('2026-10-02T00:00:00Z'),
       only: ['t4-ledger-none'],
-      deps: { bonus: { account: ACCOUNT, rpc: f.rpc, chain: C, startBlock: 1_000n, log: quiet } },
+      deps: { refreshFees: async () => 0, bonus: { account: ACCOUNT, rpc: f.rpc, chain: C, startBlock: 1_000n, log: quiet } },
     });
     assert.equal((out.bonus as { index: { round: number } }).index.round, 1);
     assert.deepEqual(out.needs_owner, []);
-    const without = await runCron({ now: new Date('2026-10-02T00:00:00Z'), only: ['t4-ledger-none'] });
+    const without = await runCron({ now: new Date('2026-10-02T00:00:00Z'), only: ['t4-ledger-none'], deps: { refreshFees: async () => 0 } });
     assert.equal(without.bonus, undefined, 'tests without bonus deps never reach a chain');
   } finally {
     await cleanup();
@@ -680,7 +680,7 @@ test('(d) an index step failing 6 runs in a row makes the cron wait on the owner
         const r = (await runBonusLedger(deps)) as Record<string, unknown>;
         assert.equal(r.index_failures, i);
       }
-      const out = await runCron({ now: new Date('2026-10-02T00:00:00Z'), only: ['t4-ledger-none'], deps: { bonus: deps } });
+      const out = await runCron({ now: new Date('2026-10-02T00:00:00Z'), only: ['t4-ledger-none'], deps: { refreshFees: async () => 0, bonus: deps } });
       assert.equal((out.bonus as { index_failures: number }).index_failures, 6);
       assert.deepEqual(out.needs_owner, ['bonus-ledger']);
       const ok = (await runBonusLedger({ ...deps, rpc: f.rpc, startBlock: 0n })) as Record<string, unknown>;
@@ -751,7 +751,7 @@ test('Rulings 19, 20: a missing or malformed payout key waits on the owner (503)
     const run = (bonus: BonusDeps) =>
       cronPost(new Request('http://x/api/cron', { method: 'POST', headers: { authorization: `Bearer ${SECRET}` } }), {
         limit: async () => {},
-        run: () => runCron({ now: new Date('2026-10-02T00:00:00Z'), only: ['t4-ledger-none'], deps: { bonus } }),
+        run: () => runCron({ now: new Date('2026-10-02T00:00:00Z'), only: ['t4-ledger-none'], deps: { refreshFees: async () => 0, bonus } }),
       });
     const SECRET = 'fix-wave-cron-secret-0123456789abcdef0123';
     const secret = process.env.CRON_SECRET;
@@ -1262,7 +1262,7 @@ test('9.4 a payout wallet under gasMinWei is low on gas: GAS_LOW with TOP_UP, bo
     assert.deepEqual(r.gas, { balance_wei: String(GAS_WALLET_MIN_WEI_DEFAULT - 1n), low: true, note: GAS_LOW(ACCOUNT.address) });
     assert.ok(r.gas.note!.includes(TOP_UP) && r.gas.note!.includes(ACCOUNT.address));
     const run = () =>
-      runCron({ now: new Date('2026-10-02T00:00:00Z'), only: ['t4-ledger-none'], deps: { bonus: { account: ACCOUNT, rpc: f.rpc, chain: C, startBlock: 1_000n, log: quiet } } });
+      runCron({ now: new Date('2026-10-02T00:00:00Z'), only: ['t4-ledger-none'], deps: { refreshFees: async () => 0, bonus: { account: ACCOUNT, rpc: f.rpc, chain: C, startBlock: 1_000n, log: quiet } } });
     assert.deepEqual((await run()).needs_owner, ['bonus-ledger']);
     const res = await cronPost(new Request('http://x/api/cron', { method: 'POST', headers: { authorization: 'Bearer t9-cron-secret-0123456789abcdef0123456789' } }), {
       limit: async () => {},
@@ -1305,7 +1305,7 @@ test('9.5 a claim the wallet cannot pay gas for waits on the owner; the sweep ou
       const out = await runCron({
         now: new Date('2026-10-02T00:00:00Z'),
         only: ['t4-ledger-none'],
-        deps: { bonus: { account: ACCOUNT, rpc: f.rpc, chain: C, startBlock: 1_000n, log: quiet } },
+        deps: { refreshFees: async () => 0, bonus: { account: ACCOUNT, rpc: f.rpc, chain: C, startBlock: 1_000n, log: quiet } },
       });
       const claim = (out.bonus as { claim: { owner: string; result: string }[] }).claim;
       assert.equal(claim.find((c) => c.owner === BONUS)?.result, 'the payout wallet needs ETH for gas');

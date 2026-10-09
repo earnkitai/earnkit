@@ -599,7 +599,7 @@ export function presentFirstMessage(given: FirstMessage): string {
     sections.push(
       `${
         zeroState
-          ? openHeadline(moneyText(openMoneyUsd(m.cards, m.now)))
+          ? openHeadline(moneyText(openMoneyUsd(given.cards, m.now)))
           : above
             ? 'Also open:'
             : 'Open money right now:'

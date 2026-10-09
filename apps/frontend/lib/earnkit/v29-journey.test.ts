@@ -906,7 +906,7 @@ test('12.3 lazy builder, no live link: sign-in, upload, the limits; the hosted l
     assert.ok([...SITES.objects.keys()].some((k) => k.startsWith('staging/tipjar-hana/')));
     assert.doesNotMatch((await visit('https://tipjar-hana.earnkit.com/')).text, /seed phrase/, 'flagged files are never served');
     assert.deepEqual(await sitesInReview(), ['tipjar-hana']);
-    const cron = await runCron({ only: ['v29-none'], deps: { hosting: { r2: SITES.r2 } } });
+    const cron = await runCron({ only: ['v29-none'], deps: { refreshFees: async () => 0, hosting: { r2: SITES.r2 } } });
     assert.ok((cron.needs_owner as string[]).includes('host-review:tipjar-hana'), JSON.stringify(cron.needs_owner));
     // The owner's approve call (runbook): the staged files go live, staging is emptied.
     const admin = (body: unknown, secret = ADMIN) =>
@@ -1150,7 +1150,7 @@ test('12.7 automatic claims in a cron run: each launched token\'s creator and MI
   const chain = claimsChain(creators, available);
   const stats = async () => JSON.stringify(await readStats(), (_k, v) => (typeof v === 'bigint' ? v.toString() : v));
   const statsBefore = await stats();
-  const out = await runCron({ only: ['v29-none'], deps: { bonus: { account, rpc: chain.rpc, chain: BASE_BONUS, startBlock: 9_000n, log: () => {} } } });
+  const out = await runCron({ only: ['v29-none'], deps: { refreshFees: async () => 0, bonus: { account, rpc: chain.rpc, chain: BASE_BONUS, startBlock: 9_000n, log: () => {} } } });
   const bonus = out.bonus as { claim_others?: { owner: string; role: string; result: string }[]; gas?: { low: boolean } };
   assert.ok(Array.isArray(bonus.claim_others), JSON.stringify(out.bonus, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)));
   const claimed = bonus.claim_others!.filter((c) => c.result.startsWith('claim success'));
