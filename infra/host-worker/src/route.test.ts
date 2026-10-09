@@ -216,6 +216,12 @@ test('7.6 a miss reads state then file and caches 300 s; a hit reads nothing', a
   assert.equal(await hit.res.text(), '<p>tip</p>');
   assert.deepEqual(hit.reads, []);
   assert.equal(c.puts.length, 1);
+
+  const headHit = await run('https://tipjar-alice.earnkit.com/', files, { cache: c, method: 'HEAD' });
+  assert.equal(headHit.res.status, 200);
+  assert.equal(headHit.res.body, null);
+  assert.deepEqual(headHit.reads, []);
+  assertHostHeaders(headHit.res);
 });
 
 test('7.6 HEAD is served without a body and is not cached', async () => {
