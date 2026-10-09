@@ -2418,18 +2418,23 @@ strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`, and in prod
   under one `CheckBudget(LIST_BUDGET)` (5 probes, 6 getCode).
 - **Chain basis (v2.10 item 9).** `match.ts Detection` entries carry `basis`: `deployed` (a
   contract with code there: `confirmMainnets` sets it for every chain in `withCode`), `deploy_config`
-  (`deployConfigChains`: a mainnet id or host in `hardhat.config.*`, an `[rpc_endpoints]` entry in
-  `foundry.toml`, or a tree path `broadcast/<script>/<chainId>/`, `ignition/deployments/chain-<id>/`,
-  `deployments/<network>/` with `<network>` = `<chain>`, `<chain>mainnet` or `<chain>-mainnet`, R6;
-  `readRepoChains` passes every blob path, so folder hits are free) or `mention` (any other import,
-  host or id: `detectMentions`). Absent reads as `mention` (v2.9 cached rows, R6).
+  (`deployConfigChains`, Ruling H2: an entry of `networks` in `hardhat.config.*` by its RPC host or
+  chain id, or an `[rpc_endpoints]` entry in `foundry.toml` by host, id or name; comments stripped,
+  imports and etherscan `customChains` never read; a config naming more than 2 mainnet networks
+  (`MAX_CONFIG_MAINNETS`, testnet and local names excluded) is a template and gives nothing; or a tree
+  path at any depth outside `node_modules`/`lib`/`vendor`: `broadcast/<script>/<chainId>/` (not
+  `dry-run/`), `ignition/deployments/chain-<id>/`, `deployments/<network>/` with `<network>` =
+  `<chain>`, `<chain>mainnet`, `<chain>-mainnet` (R6) or `avax`; `readRepoChains` passes every blob
+  path, so folder hits are free) or `mention` (any other import, host or id: `detectMentions`). Absent reads as `mention` (v2.9 cached rows, R6).
   `creditsMainnet(entry)` = mainnet and not a mention, or a claim (`CLAIMED_MAINNET`, v2.9 A3).
   `matchRepo`: a program chain whose mainnet is only mentioned gets `after_step`, note
   `DEPLOY_FIRST(chain)` ("deploy to Base first"), missing `mainnet_deploy` (plus `live_url`
   without a homepage), effort `hours`, before the live-product rules (never likely). Fit chains
   (`fits[].chains`, fit_chains alerts) and `cachedRepoChains` count credited mainnets only;
   contract candidates still use every mainnet (`mainnetChains`), so a getCode pass can turn a
-  mention into `deployed`.
+  mention into `deployed`: mention and claimed chains (`unverifiedMainnets`) get their pairs first
+  and are checked even when the live link loads. On a multi-chain program `matchRepo` takes a
+  credited chain before a mentioned one.
 - **Cache (P6).** `github_repo_facts.product` (jsonb) holds only the repo's own signals for that
   version: `{ young, original, readme, addresses }`. owned, active and deployed are worked out on
   every call. A pre-v2.9 row (product NULL) re-reads the files. `cachedRepoAddresses(repoUrl)`

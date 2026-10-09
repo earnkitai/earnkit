@@ -478,7 +478,8 @@ apps/frontend/
     match.ts(+test)            pure: chain detection (IDs + RPC hosts), repo x program verdicts;
                                v2.10 item 9: Detection.basis (Basis: deployed | deploy_config | mention;
                                absent = mention, R6), detectChains(files, paths) over detectMentions +
-                               deployConfigChains (hardhat.config, foundry [rpc_endpoints], deploy folders),
+                               deployConfigChains (Ruling H2: hardhat `networks` entries, foundry [rpc_endpoints],
+                               comments stripped, >2 mainnets = template; deploy folders at any depth),
                                creditsMainnet, DEPLOY_FIRST; confirmMainnets sets basis deployed;
                                RepoFacts.commits_90d (v2.10 item 8);
                                v2.9 A1, A2: ownerOk, productScore (tiers), TUTORIAL, DEFAULT_README,
