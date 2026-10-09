@@ -59,7 +59,13 @@ All open programs: https://earnkit.com/programs
 - prepare_submission: compares what the agent knows with what the program
   requires; returns what is complete, what is missing, and show_to_builder:
   the one confirmation, prize first, ending with the offer (the builder bonus
-  comes with a token). With a repo it gives the token line to push
+  comes with a token). With a repo it gives the token line to push. No live
+  link yet? Pass host: true and EarnKit hosts the built static site free at
+  <project>-<login>.earnkit.com: the reply's host block first has a sign-in
+  line to show the builder, then a one-time upload URL (15 minutes) to POST
+  the built site to as one zip. Static files only, at most 25 MB; the hosted
+  link counts as live at once, and the site ends 7 days after the programs
+  its repo entered end
 - confirm_entry: the builder's one-word answer to that offer. "Yes" launches
   the entry's token and returns the submit kit (the form link and every
   answer, ready to paste); "skip" means no token and no builder bonus. The
@@ -80,7 +86,10 @@ All open programs: https://earnkit.com/programs
   list_programs' ask_outcome), and per repo the chains it is live on, testnet
   only, its live link, real users, or not theirs. What lowers a match counts
   at once; what raises one waits until EarnKit can check it. Results they
-  report are never public, never counted, never alerted
+  report are never public, never counted, never alerted. Also the builder's
+  yes or no to the weekly email question (weekly_email), asked once after
+  their first entry: one email a week with new programs they fit, wins and
+  deadlines, with a one-click unsubscribe
 - pick_up_entries: the builder's yes or no when list_programs asks to pick
   up entries from an earlier install
 - sponsor_campaign (opens once EarnKit's escrow is live; until then the
@@ -98,7 +107,9 @@ adds a one-line proof file to the repo. An agent that can't push (a hosted
 agent) shows the builder a one-click "Sign in with GitHub" link instead;
 EarnKit asks GitHub for no permissions and never writes to the repo. On a
 hosted agent the sign-in page shows a short code: pass it as signed_in on
-the next call, so EarnKit knows which builder is asking.
+the next call, so EarnKit knows which builder is asking. The same sign-in
+proves a repo before EarnKit hosts its site, and on a hosted agent it is
+needed for the weekly email.
 
 ## The token and the builder bonus
 

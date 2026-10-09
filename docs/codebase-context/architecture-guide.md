@@ -1972,7 +1972,13 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
   (`max_award_usd`), then fewest required fields the answer bank can't fill (`coach.ts bankFill`,
   reused so a later program shows how little is left). A field the project info fills (repo, live
   link, name, description, demo) counts as filled: the count runs `prepareSubmission` with the
-  entry's `project`, as the coach does (final review I1). `alsoText` renders the table (`Program`,
+  entry's `project`, as the coach does (final review I1). v2.9 T12 (Ruling G15 M1): a program
+  must also pass `canWin`. With the entry's repo remembered in `installations.fit_repos` (never on
+  a shared client) that is the alert precision rule, `alerts.ts repoCanWin` (the per-repo half of
+  `alertFit`), over what the builder says now and this step's live check: never a row that still
+  needs real users or new work, or a small Hard one. Without it, a `needs a live product` program
+  shows only once the builder said the repo has users. A chain the builder said is testnet only
+  (and never mainnet) is dropped from the chains first. `alsoText` renders the table (`Program`,
   `Prize`, `Ends`, `Still needed`) plus "Say \"enter it here too\"..." and, with `coinIn`
   (Ruling 5), "Your builder bonus is in \<program\>; these entries don't add to it."; null with no
   rows.
@@ -2219,11 +2225,17 @@ throwaway database, real program files, fakes for tokens.fun and GitHub, no netw
   tool. A yes alone never links (a GitHub user or wallet is public): this agent's proof line
   (`token: <tokenCode(own installation, repo)>`, the token launch's line) must be in the newest
   earlier entry's repo, on the default branch or the latest pushed branch; until then the reply
-  tells the agent what to push. `linkInstallations` then merges in one transaction: the smallest
+  tells the agent what to push. v2.9 T12 (Ruling G0): the proof repo is one a matched group
+  already proved (its launched token, or a sign-in for it) when there is one, so a newer entry
+  anyone records on another of the builder's repos never blocks an honest pickup (N1); the offer
+  reads earnkit.txt only when it can change the answer: never once asked, never when tokens and
+  sign-ins prove every group, otherwise at most once an hour for the same repo and groups
+  (`pickup.read`, N2). `linkInstallations` then merges in one transaction: the smallest
   root stays, other roots' projects, sponsor drafts, answer bank (newer answer wins), wallets and
   token offers move to it, its memory fills gaps from theirs, and every member points to it. Two
-  entries of the same program and repo (or no-repo name) keep the earlier-submitted one in the
-  group; the later stays on the member installation (M3).
+  entries of the same program and repo (or no-repo name) keep the one holding the repo's token,
+  else the earlier-submitted one, in the group; the other stays on the member installation (M3;
+  v2.9 T12, G0 N3).
   Proof codes after a link are the root's (an unlaunched entry made by the new install before the
   link needs its line pushed again).
 
@@ -2345,7 +2357,11 @@ speedrun, no dead end for a no-repo builder on Arc, the returning recap with no 
   fill), OAuth client registration a 10,000/day ceiling per agent app (`clientLimitKey`: the first
   https redirect host; a warning is logged at 8,000, before it refuses; a loopback or app-scheme
   client has only the IP floor), and 50/hour per IP as the abuse floor (the token endpoint counts only codes that create an installation; a
-  replayed code is free; a refusal logs `[oauth] <route> refused by <limit> (<redirect host>)`),
+  replayed code is free; a refusal logs `[oauth] <route> refused by <limit> (<redirect host>)`;
+  v2.9 T12, Ruling G0: a client whose redirect host is a known hosted service,
+  `oauth.ts hostedRedirectHost`, never its name, is counted but never refused at the IP floor, since
+  many builders share its servers' few IPs; passing it logs `[oauth] <route> passed the IP floor for a
+  hosted agent (<host>); not refused` once per window; the host ceiling still applies),
   since installations are the identity every per-installation limit keys on; GitHub matching 30/hour per installation (when refused, list_programs still
   answers, with the readable reason in place of "your repos"); chain checks 60/min. MCP tools turn
   `RateLimitError` into a readable error; HTTP routes answer 429 with `Retry-After`. The client IP
@@ -2696,8 +2712,8 @@ A GitHub OAuth App with no scopes; its callback URL is `<EARNKIT_URL>/github/ver
 
 Spec: `docs/design-docs-and-implementation-plans/v2.9-needed.md`. Ruling G1 ships it in two parts.
 Part 1 (this section) is T1 to T6, T9 and the Part 1 slice of T12. Part 2 (hosting, the weekly
-email, one money figure, `/terms`, the G0 minors) is not built yet. Each piece is documented in its
-own section above; this is the map.
+email, one money figure, `/terms`, the G0 minors) is in "v2.9 Needed, Part 2" below. Each piece is
+documented in its own section; this is the map.
 
 **Matching (what "What can I earn?" shows).**
 - Ownership and the score: only the builder's own repos are scored (never EarnKit's kits, forks,
@@ -2995,3 +3011,134 @@ The v2.8.1 journeys (`v281-journey.test.ts`) still pass unchanged on Part 1.
   included) keeps the three actions and their inputs; the confirm-first, plain-text, verification,
   brand and label rules (`sponsor-rules.ts SPONSOR_RULES`) end create's `next_step`, and award's
   `next_step` ends with "never send an award transaction the sponsor has not approved". mcp.test 11.8.
+
+## v2.9 Needed, Part 2: settings, runbooks, owner go-live and the journeys (Task 12)
+
+Part 2 is T7 (the host Worker), T8 (hosting), T10 (the weekly email and the won line), T11 (one
+money figure, `/terms`, the MINI line, shorter descriptions) and the rest of T12: the Part 2
+journeys, the Also qualifies precision (Ruling G15 M1), the v2.8.1 minors (Ruling G0), the Worker
+typecheck in `pnpm test`, the copy sweep and these runbooks. Each feature has its own section above.
+
+**Settings. Each feature is off while its variables are absent; deploying without them changes
+nothing a builder sees.**
+
+| Variable | Feature | When absent |
+|---|---|---|
+| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | Hosting (all four) | `host: { unavailable }`, `/api/host/*` 503, the cron's hosting step skipped |
+| `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | Sign-in (also needed for an upload URL) | See Part 1; hosting stays unavailable |
+| `EARNKIT_RESERVED_SUBDOMAINS` | Extra names no site may take (every existing DNS name) | Only `HOST_RESERVED` |
+| `ADMIN_VETO_SECRET` (32+ characters) | The approve and kill calls | `/api/host/takedown` answers 401 |
+| `RESEND_API_KEY` and `EARNKIT_AUTH_SECRET` | The weekly email (the secret signs the unsubscribe link) | No question, nothing saved, the cron step skipped |
+| `DIGEST_FROM` | The email's sender | `EarnKit <digest@earnkit.com>` |
+| `GAS_WALLET_MIN_WEI` | The gas alert's floor (Part 1) | 0.002 ETH |
+
+**The free-tier caps (`free_tier_usage`, `free-tier.ts FREE_CAPS`).** Hard caps, never billing:
+`r2Writes` 900,000 Class A operations a month (each put, list page and copy takes 1 first; deletes
+are free), `resendDay` 100 and `resendMonth` 3,000 emails. A refused take is `FreeTierFull`: an
+upload answers `HOST_FULL` ("Hosting is full right now; try again tomorrow.", 507) and the email run
+stops with `capped: true`. Read the counters:
+`SELECT name, period, used FROM free_tier_usage ORDER BY period DESC, name;`
+
+**Runbooks (Part 2).** The admin calls use Bearer `ADMIN_VETO_SECRET`; never paste it anywhere
+but your own terminal.
+- **A 503 from `/api/cron` with `host-review:<slug>` in `needs_owner` (P46).** An upload was
+  flagged (a password form next to a wallet or bank brand, a seed or recovery phrase, a hard-coded
+  token approval) and waits in `staging/<slug>/<deploy id>/`, never served. The cron answers 503
+  hourly until you decide. Look at the files in R2 (Cloudflare dashboard, bucket `earnkit-sites`,
+  prefix `staging/<slug>/`) and the flags: `SELECT id, login, repo_key, flags, at FROM host_deploys
+  WHERE slug = '<slug>' AND status = 'review';`
+  - Fine: `curl -X POST https://earnkit.com/api/host/takedown -H "Authorization: Bearer $ADMIN_VETO_SECRET" -H 'content-type: application/json' -d '{"slug":"<slug>","action":"approve"}'`
+    answers `{"slug":"<slug>","status":"live"}`; the staged files go live and the alert clears.
+  - Not fine: the same call with `"action":"kill"` (see the takedown below).
+- **A takedown (abuse report to abuse@earnkit.com, or your own call).** `curl -X POST
+  https://earnkit.com/api/host/takedown -H "Authorization: Bearer $ADMIN_VETO_SECRET" -H
+  'content-type: application/json' -d '{"slug":"<slug>"}'` (kill is the default). It writes the
+  `killed` state first, then deletes the served and staged files; visitors get "This site was taken
+  down." within 5 minutes (edge cache). A killed slug or repo can never be deployed again. It also
+  works for a slug with files but no row. `404 {"error":"no such site"}`: nothing to take down.
+- **Expiry.** Nothing to do. A site lives while a program its repo entered is open, then 7 days
+  more (at least 7 days after its upload); the hourly cron ends up to 20 due sites a run (`ended`
+  state, then its files go; visitors get "This site has ended."). A builder who enters a new program
+  with the repo moves the date. Check one: `SELECT slug, status, expires_at, expiry_checked_at FROM
+  hosted_sites WHERE slug = '<slug>';` While the R2 counter is full, ends wait for next month.
+- **`HOST_FULL` for everyone.** Either the R2 writes counter is at 900,000 this month, or stored
+  sites are near 8 GB. Read `free_tier_usage` and `SELECT sum(bytes) FROM hosted_sites WHERE status
+  IN ('live','review','deploying');`. It clears on the 1st (UTC) or as sites end.
+- **The weekly email.** It runs hourly and sends from Monday 14:00 UTC; each subscription gets one
+  email a week. The cron result's `digest` shows `{ sent, skipped, capped, stopped? }`.
+  - `capped: true`: the day's 100 or the month's 3,000 is used; the rest go out on the next runs
+    that week (day cap) or next month (month cap). Nothing to do; never raise the caps (they are
+    Resend's free tier).
+  - `stopped: true`: three sends failed in a row (Resend down, or the key revoked). Check the key and
+    Resend's status; the next run retries, and the Idempotency-Key keeps it to one mail each.
+  - Who gets it: `SELECT count(*) FROM digest_subscriptions WHERE opted_in_at IS NOT NULL AND
+    unsubscribed_at IS NULL;` Addresses are never logged.
+  - A complaint: the email's one-click link unsubscribes that one subscription. To do it by hand,
+    `UPDATE digest_subscriptions SET unsubscribed_at = now() WHERE email = '<address>';`
+- **Abuse of the OAuth floor by a fake "hosted" client.** A registration whose redirect host is a
+  known hosted service passes the per-IP floor (Ruling G0); the log line `[oauth] register passed the
+  IP floor for a hosted agent (<host>); not refused` marks it. The 10,000 a day ceiling per host still
+  holds. If a host's ceiling is being filled by fakes, remove that host from `HOSTED_REDIRECT_HOSTS`
+  in `oauth.ts` and deploy.
+
+**Owner go-live (after merge; each step is optional until you want that feature).**
+1. **R2 and the Worker (Cloudflare free plan, earnkit.com zone).** Create the R2 bucket
+   `earnkit-sites` and an R2 API token scoped to it (Object Read and Write); set `R2_ACCOUNT_ID`,
+   `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and `R2_BUCKET=earnkit-sites` on Railway. From your
+   machine, in `infra/host-worker`: set `RESERVED` in `wrangler.toml` to every existing DNS name in
+   the zone, uncomment the routes, then `wrangler deploy` (never from CI). Add a proxied wildcard
+   record `*.earnkit.com` (AAAA `100::`), the Worker route `*.earnkit.com/*`, and an exclusion route
+   (Worker: none) for each reserved name (`www`, `docs`, `api`, `mcp`, `app`, `mail`, `admin`,
+   `status`, `abuse`, `host`, and every existing record). Set `EARNKIT_RESERVED_SUBDOMAINS` on
+   Railway to the same extra names. Route `abuse@earnkit.com` to your inbox (Cloudflare Email
+   Routing, free). Set `ADMIN_VETO_SECRET` if it isn't set.
+2. **GitHub OAuth App.** Callback `https://earnkit.com/github/verify/callback`, no scopes; set
+   `GITHUB_OAUTH_CLIENT_ID` and `GITHUB_OAUTH_CLIENT_SECRET` on Railway. Hosting needs it too.
+3. **Resend (free) and DNS.** Create the account, add its DNS records for earnkit.com on Cloudflare,
+   verify the domain, set `RESEND_API_KEY` (and `DIGEST_FROM` if the sender is not
+   `digest@earnkit.com`) on Railway.
+4. **`EARNKIT_AUTH_SECRET`.** Already set in production for OAuth; the email's unsubscribe links are
+   signed with it. Never rotate it casually: a new value breaks every sent unsubscribe link and the
+   signed OAuth client registrations agents hold.
+5. **`GAS_WALLET_MIN_WEI`.** Set at the Part 1 ship (Ruling G16, 0.0001 ETH). Raise it back toward
+   the 0.002 ETH default once the payout wallet is topped up.
+6. **The docs money switch (optional, Ruling G23).** docs.earnkit.com may switch its live number
+   from `open_pools_usd`/`open_pools_plus` to `open_money_text`. The old fields are still served
+   (labelled deprecated), so nothing breaks if it waits.
+7. **Test with throwaway repos:** one hosted site end to end (sign-in, upload, the badge, a takedown),
+   and one weekly email to yourself (opt in, wait for Monday's run, unsubscribe from the email).
+
+**The G0 minors (from the v2.8.1 re-review).** N1: the pickup proof repo is one a matched group
+proved. N2: list_programs reads earnkit.txt for a pickup only when it can change the answer, at most
+once an hour otherwise. N3: linking keeps the duplicate holding the token. The OAuth IP floor
+exempts known hosted services' servers (counted and logged, host ceiling kept). See "Hosted agents
+and identity" and the rate limits.
+
+**The Worker typecheck.** `pnpm test` runs `pnpm -s host:typecheck` first, so a type error in
+`infra/host-worker` fails the suite (P42). There is no CI test workflow; the owner runs `pnpm test`
+before a merge.
+
+**The Part 2 journeys (`v29-journey.test.ts`).** In the same throwaway database as Part 1. R2 is in
+memory, and the Worker's real `handle` serves from it; Resend is a recording mailer.
+- 12.3 hosting: the sign-in (purpose `host`), then the upload URL (agent only); a `.exe` and a body
+  over 25 MB are refused without spending the link; the zip goes live (`TipJar is live:
+  tipjar-hana.earnkit.com`), the link is single-use, and the Worker serves it with the badge and the
+  sandbox headers. The hosted link counts as live at once: with the edge still showing a cached 404,
+  the entry is never probed and completes (G19). A flagged redeploy is staged, never served, puts
+  `host-review:tipjar-hana` in `needs_owner`; the approve call (a wrong secret is 401) publishes it.
+  Expiry ends it and the Worker shows the end page. An account under 30 days old gets the gate line.
+- 12.6b Also qualifies (G15 M1): Circle (needs real users) is never offered; Arc is, until the
+  builder says the repo is testnet only on Arc.
+- 12.8 the won line: an announced $500 win counts; a builder's own "$10,000" does not; the landing,
+  `/api/stats` and the first reply all say "Builders using EarnKit won $500", once.
+- 12.9 one money figure: the landing, `/api/stats` and the no-repo first reply say the same figure.
+- 12.10 the weekly email: the question closes the first entry's kit reply once; yes; Monday's run
+  sends one mail with the one-click headers and an idempotency key; a second run that Monday sends
+  nothing; a full day cap sends nothing (`capped`); the email's own link unsubscribes. On a shared
+  client: no sign-in, no subscription; two logins are asked once each and get their own mail and
+  unsubscribe link.
+- 12.11 /terms: each old path 301s to an anchor the page renders; the footer's legal link is `/terms`;
+  no reply links an old path.
+- 12.6 now also asserts Circle is not in Also qualifies. Across every Part 2 reply (upload replies
+  included) the Part 1 scan holds, and "40%" shows once per entry flow.
+
