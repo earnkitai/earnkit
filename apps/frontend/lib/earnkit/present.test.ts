@@ -22,6 +22,10 @@ import {
   tokenOfferAgain,
   tokenOfferFit,
   youCould,
+  LOW_ODDS_HEADING,
+  layout,
+  lowOddsCell,
+  type RepoFit,
   type Card,
   type CampaignRow,
   type FirstMessage,
@@ -81,14 +85,16 @@ const sponsored: Card = {
 const v = (program_id: string, status: Verdict['status'], note: string, effort: Verdict['effort'] = 'none'): Verdict => ({
   program_id, program: program_id, status, missing: [], effort, note,
 });
+/** v2.10 item 6: a scored product with good odds (fits without a product read as low odds). */
+const GOOD = { score: 6, tier: 'product' as const, missing: [], traction: 8, odds: 'good' as const, low_reason: null };
 const repos = (...verdicts: Verdict[]) => ({
   checked: 1,
-  fits: [{ repo: 'tipjar', repo_url: null, verdicts }],
+  fits: [{ repo: 'tipjar', repo_url: null, verdicts, product: GOOD }],
 });
 /** A single repo that fits one program with a "likely" verdict (brief helper). */
 const fit = (repo: string, program_id: string, repo_url: string | null = null) => ({
   checked: 1,
-  fits: [{ repo, repo_url, verdicts: [v(program_id, 'likely', '')] }],
+  fits: [{ repo, repo_url, verdicts: [v(program_id, 'likely', '')], product: GOOD }],
 });
 const msg = (m: Partial<FirstMessage>): FirstMessage => ({
   alerts: [], campaigns: [], cards: [], repos: null, workingOn: [], agentCanBuild: true, sponsorEntries: null, now: NOW, ...m,
@@ -542,6 +548,7 @@ test('Ruling 25: a repo whose coin is entered in another program keeps its own p
       repo: 'tipjar',
       repo_url: 'https://github.com/alice/tipjar',
       verdicts: [v('arc-microgrants', 'likely', 'looks eligible'), v('colosseum-worlds-fair', 'likely', 'looks eligible')],
+      product: GOOD,
     }],
   };
   const text = presentFirstMessage(msg({
@@ -954,7 +961,7 @@ test('6.3 presentFirstMessage: with tokenOffer the reply ends with it, no other 
 
 test('6.4 (pure) tokenOfferFit: an owned, product-tier, quick fit in table order; never project tier, slow, entered, off or a repo with a token', () => {
   const url = 'https://github.com/alice/tipjar';
-  const product = (tier: 'product' | 'project', missing: ('owned' | 'readme')[] = []) => ({ score: tier === 'product' ? 6 : 4, tier, missing });
+  const product = (tier: 'product' | 'project', missing: ('owned' | 'readme')[] = []) => ({ score: tier === 'product' ? 6 : 4, tier, missing, traction: 8, odds: tier === 'product' ? ('good' as const) : ('low' as const) });
   const one = (o: { tier?: 'product' | 'project'; missing?: ('owned' | 'readme')[]; status?: Verdict['status']; effort?: Verdict['effort']; card?: Partial<Card>; repo_url?: string | null }) =>
     msg({
       cards: [{ ...arc, ...o.card }],
@@ -984,7 +991,7 @@ test('G15 M2 (pure): a likely row is offered before one a step away; a step-away
       cards: [arc, base],
       repos: {
         checked: 1,
-        fits: [{ repo: 'tipjar', repo_url: url, verdicts: [v('arc-microgrants', arcStatus, '', 'hours'), v('base-builder-grants', baseStatus, '', 'hours')], product: { score: 6, tier: 'product', missing: [] } }],
+        fits: [{ repo: 'tipjar', repo_url: url, verdicts: [v('arc-microgrants', arcStatus, '', 'hours'), v('base-builder-grants', baseStatus, '', 'hours')], product: GOOD }],
       },
     });
   assert.equal(tokenOfferFit(two('likely', 'after_step'))?.card.id, 'arc-microgrants');
@@ -1057,4 +1064,71 @@ test('H1 c1: the no-repo pick is the lowest difficulty, never "needs a live prod
   assert.match(noRepo, /Want me to start on Avalanche Team1 Mini Grants\?/);
   assert.doesNotMatch(noRepo, /start on Circle/);
   assert.doesNotMatch(presentFirstMessage(msg({ cards: [circle, easyArc] })), /Want me to start on/);
+});
+
+// ---- v2.10 item 6: odds rank the rows; low odds never count, never "fit", never get the token offer ----
+
+const easy500: Card = { ...arc, difficulty: { level: 'Easy', estimate: false, rated: true, basis: 'x' } };
+const medium500: Card = {
+  ...arc, id: 'base-500', title: 'Base 500', summary: '$500 each', tag: null,
+  difficulty: { level: 'Medium', estimate: false, rated: true, basis: 'x' }, max_award_usd: 500,
+};
+const STARTER = { score: 6, tier: 'product' as const, missing: [], traction: 0, odds: 'low' as const, low_reason: 'no users yet' };
+const LIVE = { score: 6, tier: 'product' as const, missing: [], traction: 8, odds: 'good' as const, low_reason: null };
+
+test('3.8 a starter tip jar (Easy row, traction 0) never outranks a live product with users (Medium row, traction 8)', () => {
+  const m = msg({
+    cards: [easy500, medium500],
+    repos: {
+      checked: 2,
+      fits: [
+        { repo: 'tipjar', repo_url: 'https://github.com/alice/tipjar', verdicts: [v('arc-microgrants', 'likely', '')], product: STARTER },
+        { repo: 'payapp', repo_url: 'https://github.com/alice/payapp', verdicts: [v('base-500', 'likely', '')], product: LIVE },
+      ],
+    },
+  });
+  const rows = layout(m).rows;
+  assert.deepEqual(rows.map((r) => [r.repo, r.odds, r.traction]), [['payapp', 'good', 8], ['tipjar', 'low', 0]]);
+  const text = presentFirstMessage(m);
+  assert.ok(text.indexOf('| Base 500 |') < text.indexOf('| Arc Microgrants |'), text);
+  assert.ok(text.includes(`| tipjar, ${lowOddsCell('no users yet')} |`), text);
+  assert.ok(text.includes('| tipjar, low odds: no users yet |'));
+  // Pre-flight P12: when both repos fit one program, the program's row is the live product's.
+  const one = msg({
+    cards: [easy500],
+    repos: {
+      checked: 2,
+      fits: [
+        { repo: 'tipjar', repo_url: null, verdicts: [v('arc-microgrants', 'likely', '')], product: STARTER },
+        { repo: 'payapp', repo_url: null, verdicts: [v('arc-microgrants', 'after_step', 'needs a live link', 'minutes')], product: LIVE },
+      ],
+    },
+  });
+  assert.equal(layout(one).rows[0].repo, 'payapp');
+});
+
+test('3.9 low-odds rows never count in "$X you qualify for", never make a "fit" headline, and never get the token offer', () => {
+  const url = 'https://github.com/alice/tipjar';
+  const both = msg({
+    cards: [easy500, medium500],
+    repos: {
+      checked: 2,
+      fits: [
+        { repo: 'tipjar', repo_url: url, verdicts: [v('arc-microgrants', 'likely', '', 'hours')], product: STARTER },
+        { repo: 'payapp', repo_url: null, verdicts: [v('base-500', 'likely', '')], product: LIVE },
+      ],
+    },
+  });
+  // Only the live product's $500 counts, not the starter's $500.
+  assert.ok(presentFirstMessage(both).includes(`EarnKit matches you to ${moneyText(500)} in prizes you qualify for.`), presentFirstMessage(both));
+  const lowOnly = msg({
+    cards: [easy500],
+    repos: { checked: 1, fits: [{ repo: 'tipjar', repo_url: url, verdicts: [v('arc-microgrants', 'likely', '', 'hours')], product: STARTER }] },
+  });
+  const text = presentFirstMessage(lowOnly);
+  // Pre-flight P14: the spec's "never called a fit" wins over the plan's headline.
+  assert.ok(text.includes(`${LOW_ODDS_HEADING}\n\n`), text);
+  assert.doesNotMatch(text, /qualify for|fit these/);
+  assert.equal(tokenOfferFit(lowOnly), undefined);
+  assert.equal(tokenOfferFit({ ...lowOnly, repos: { checked: 1, fits: [{ ...(lowOnly.repos as { fits: RepoFit[] }).fits[0], product: LIVE }] } })?.repo, 'tipjar');
 });

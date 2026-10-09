@@ -619,8 +619,22 @@ test('12.2b Grok Bot (shared client), GitHub sign-in off: no first-reply token o
   assert.equal(forty(J), 0, dump(J));
 });
 
-test('12.4 statements: applied Base, not interested in a16z, testnet only on Arc lower the reply; a mainnet claim raises it back once checked', dbTest, async () => {
+/**
+ * v2.10 item 6: the journey's repo is a live product with users: its Base contract has 120
+ * transactions (Blockscout, in memory). A local repo with no Base contract is always low odds
+ * (Pre-flight P30).
+ */
+function withUsers(t: { after: (fn: () => void) => void }) {
+  const was = checkDefaults.blockscout;
+  checkDefaults.blockscout = async () => ({ transactions_count: '120' });
+  t.after(() => {
+    checkDefaults.blockscout = was;
+  });
+}
+
+test('12.4 statements: applied Base, not interested in a16z, testnet only on Arc lower the reply; a mainnet claim raises it back once checked', dbTest, async (t) => {
   const J = '12.4';
+  withUsers(t);
   const ctx = ctxFor(await newInstallation());
   const local_repos = [
     { name: 'paylink', url: 'https://github.com/maya/paylink', chains: [{ chain: 'base', mainnet: true }, { chain: 'arc', mainnet: true }], live_url: 'https://paylink.xyz', contracts: ['0x5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a'], last_commit_at: daysAgo(1) },
@@ -703,10 +717,12 @@ test('12.5 placeholders and unverified links: a placeholder is refused in plain 
   assert.equal(forty(J), 1, dump(J));
 });
 
-test('12.6 the token offer in the first reply, then skip, then the confirmation: "40%" once; "skip" only in token offers', dbTest, async () => {
+test('12.6 the token offer in the first reply, then skip, then the confirmation: "40%" once; "skip" only in token offers', dbTest, async (t) => {
   const J = '12.6';
+  withUsers(t);
   const ctx = ctxFor(await newInstallation());
-  const local_repos = [{ name: 'quill', url: 'https://github.com/pia/quill', chains: [{ chain: 'arc', mainnet: true }], live_url: 'https://quill.xyz', contracts: ['0x7171717171717171717171717171717171717171'], last_commit_at: daysAgo(1) }];
+  // v2.10 item 6: also on Base, where its contract's transactions show users (good odds).
+  const local_repos = [{ name: 'quill', url: 'https://github.com/pia/quill', chains: [{ chain: 'arc', mainnet: true }, { chain: 'base', mainnet: true }], live_url: 'https://quill.xyz', contracts: ['0x7171717171717171717171717171717171717171'], last_commit_at: daysAgo(1) }];
   const list = await call(J, 'list', 'list_programs', { local_repos }, ctx);
   const offer = list.token_offer as { program_id: string; repo_url: string; project_name: string };
   assert.match(list.show_to_builder!, /Launch \$QUILL \(Quill\) on Base now\? You earn 40% of its trading fees, plus a shot at the builder bonus\. Say yes with your wallet address, or skip\.$/);
@@ -737,12 +753,14 @@ test('12.6 the token offer in the first reply, then skip, then the confirmation:
   assert.deepEqual(said.filter((s) => s.journey === J && /40%/.test(s.text)).map((s) => s.label), ['list']);
 });
 
-test('12.6b Also qualifies (Ruling G15 M1): never a program whose row needs real users, nor a chain the builder said is testnet only', dbTest, async () => {
+test('12.6b Also qualifies (Ruling G15 M1): never a program whose row needs real users, nor a chain the builder said is testnet only', dbTest, async (t) => {
   const J = '12.6b';
+  withUsers(t);
   const ctx = ctxFor(await newInstallation());
   const repo_url = 'https://github.com/rio/relay';
+  // v2.10 item 6: also on Base, where its contract's transactions show users (good odds).
   const local_repos = [
-    { name: 'relay', url: repo_url, chains: [{ chain: 'arc', mainnet: true }, { chain: 'avalanche', mainnet: true }], live_url: 'https://relay.xyz', contracts: ['0x8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a'], last_commit_at: daysAgo(1) },
+    { name: 'relay', url: repo_url, chains: [{ chain: 'base', mainnet: true }, { chain: 'arc', mainnet: true }, { chain: 'avalanche', mainnet: true }], live_url: 'https://relay.xyz', contracts: ['0x8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a'], last_commit_at: daysAgo(1) },
   ];
   const list = await call(J, 'list', 'list_programs', { local_repos }, ctx);
   assert.match(rowOf(list.show_to_builder!, 'Arc Microgrants') ?? '', /\| Easy \|/, list.show_to_builder);
@@ -848,7 +866,8 @@ test('12.3 lazy builder, no live link: sign-in, upload, the limits; the hosted l
     const contracts = ['0x9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a'];
     const project = { name: 'TipJar', repo_url, contracts };
     const list = await call(J, 'list', 'list_programs', { local_repos: [{ name: 'TipJar', url: repo_url, chains: [{ chain: 'arc', mainnet: true }], contracts, last_commit_at: daysAgo(1) }] }, ctx);
-    assert.match(rowOf(list.show_to_builder!, 'Arc Microgrants') ?? '', /needs a live link/, list.show_to_builder);
+    // v2.10 item 6: a contract with code but no live link and no Base users: low odds, said as such.
+    assert.match(rowOf(list.show_to_builder!, 'Arc Microgrants') ?? '', /TipJar, low odds: live link not loading \|$/, list.show_to_builder);
 
     // "Host it for me": first the one-click sign-in (purpose host), never the upload URL.
     const first = await call(J, 'host (sign in)', 'prepare_submission', { program_id: program, project, agent: CC, host: true }, ctx);

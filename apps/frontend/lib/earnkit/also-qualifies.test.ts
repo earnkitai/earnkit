@@ -6,6 +6,7 @@ import { ProgramFile, type FieldKind, type SubmissionRequirement } from './progr
 import type { Chain } from './match';
 import type { Difficulty } from './guide';
 import { MAX_ALSO, alsoQualifies, alsoText, type AlsoProgram, type AlsoRow } from './also-qualifies';
+import { repoCanWin, type FitRepo, type NewProgram } from './alerts';
 
 const req = (key: string, kind: FieldKind, o: Partial<SubmissionRequirement> = {}): SubmissionRequirement => ({
   key,
@@ -275,4 +276,22 @@ test('v2.9 T12 (G15 M1): canWin drops a program the repo could not really win; a
   assert.deepEqual(all, ['base-a', 'base-b']);
   const kept = alsoQualifies({ ...base, programs, canWin: (p) => p.id !== 'base-b' }).map((r) => r.id);
   assert.deepEqual(kept, ['base-a']);
+});
+
+test('3.11 (v2.10 item 6) a low-odds remembered repo adds no Also qualifies row (repoCanWin, as tools.ts alsoCanWin)', () => {
+  const programs = [prog('base-a', { chains: ['base'], max_award_usd: 5000 })];
+  const asNew = (a: AlsoProgram): NewProgram => ({
+    id: a.id, title: a.title, prize: a.summary, chains: a.chains, any_chain: a.any_chain, opened_at: NOW, ends_at: a.ends_at,
+    max_award_usd: a.max_award_usd, investment: a.investment, min_product_score: 0, tag: a.tag, existing_work: a.existing_work,
+    starts_at: null, difficulty: { level: 'Easy', estimate: false, rated: true, basis: '' }, past_rounds: [], match_floor: null, match_precision: null,
+  });
+  const repo = (odds: 'good' | 'low'): FitRepo => ({
+    key: 'alice/tipjar', name: 'tipjar', url: 'https://github.com/alice/tipjar', homepage: 'https://tipjar.xyz', created_at: '2026-01-01T00:00:00Z',
+    chains: { base: { mainnet: true, testnet: false, evidence: 'x', basis: 'deployed' } },
+    product: { score: 6, tier: 'product', missing: [], traction: odds === 'good' ? 8 : 0, odds, low_reason: odds === 'good' ? null : 'no users yet' },
+    live_verified: true, said: null,
+  });
+  const rows = (odds: 'good' | 'low') => alsoQualifies({ ...base, programs, canWin: (p) => repoCanWin(asNew(p), repo(odds)) }).map((r) => r.id);
+  assert.deepEqual(rows('good'), ['base-a']);
+  assert.deepEqual(rows('low'), []);
 });

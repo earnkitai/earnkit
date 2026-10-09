@@ -356,7 +356,60 @@ export type Product = {
   missing: (keyof ProductFacts)[];
   /** Ruling G4: signals not checked this call (no budget left): not counted, never named as missing. */
   unchecked?: (keyof ProductFacts)[];
+  /**
+   * v2.10 item 6: the traction score (0 to 10, R1) and the odds it gives (productOdds). Absent on a
+   * product scored before v2.10 (older fixtures, remembered fit repos): read as traction 0, low odds
+   * (Pre-flight P26).
+   */
+  traction?: number;
+  odds?: Odds;
+  low_reason?: string | null;
 };
+
+/** v2.10 item 6: a row's odds of winning. Only good odds lead, count as a fit, or alert. */
+export type Odds = 'good' | 'low';
+/** v2.10 item 6: what traction measures. A null count is unknown and scores 0 (never named). */
+export type TractionFacts = { tx_count: number | null; live_ok: boolean; commits_90d: number | null };
+/** v2.10 item 6: good odds need product tier and at least this much traction. */
+export const GOOD_ODDS_TRACTION = 4;
+/** 0 for none or unknown, 1 from `mid`, 2 from `high`. Pure. */
+const band = (n: number | null, mid: number, high: number) => (n === null || n <= 0 ? 0 : n < high ? (n >= mid ? 1 : 0) : 2);
+/** v2.10 item 6 (R1): 3·band(tx: 0, 1-49, 50+) + 2·live_ok + 1·band(commits: 0, 1-9, 10+), 0 to 10. Unknown counts score 0. Pure. */
+export function traction(f: TractionFacts): number {
+  return 3 * band(f.tx_count, 1, 50) + 2 * Number(f.live_ok) + band(f.commits_90d, 1, 10);
+}
+/** v2.10 item 6's fallback reason, when nothing more specific applies. */
+export const NOT_REAL_YET = 'not enough signs of a real product yet';
+/**
+ * v2.10 item 6, R2: good odds are product tier and traction 4+; else low, with the first reason that
+ * applies (a chain only mentioned is the row's, rowOdds). An unknown tx count is never named. Pure.
+ */
+export function productOdds(p: Pick<Product, 'tier' | 'missing' | 'unchecked'>, t: TractionFacts, score: number): { odds: Odds; low_reason: string | null } {
+  if (p.tier === 'product' && score >= GOOD_ODDS_TRACTION) return { odds: 'good', low_reason: null };
+  if (p.tier !== 'product') return { odds: 'low', low_reason: missingSignalNote(p) ?? NOT_REAL_YET };
+  if (t.tx_count === 0) return { odds: 'low', low_reason: 'no users yet' };
+  if (!t.live_ok) return { odds: 'low', low_reason: 'live link not loading' };
+  return { odds: 'low', low_reason: 'little recent activity' };
+}
+/**
+ * v2.10 items 6, 9 (Pre-flight P13): a verdict that waits on a deploy to a mainnet the repo only
+ * mentions (an import, a host or an id; never a claim). Pure.
+ */
+export const onlyMentioned = (v: Pick<Verdict, 'missing'>, chains: Detection): boolean =>
+  v.missing.includes('mainnet_deploy') &&
+  (Object.values(chains) as Detection[Chain][]).some((c) => c?.mainnet && (c.basis ?? 'mention') === 'mention' && c.evidence !== CLAIMED_MAINNET);
+/**
+ * v2.10 items 6, 9: a row's odds. Low when its repo isn't product tier (that reason first, R2), when
+ * its chain is only mentioned ("not deployed yet"), or when the repo's traction is low (or unscored).
+ * Pure.
+ */
+export function rowOdds(p: Product | undefined, v: Verdict, chains: Detection): { odds: Odds; low_reason: string | null } {
+  if (!p) return { odds: 'low', low_reason: NOT_REAL_YET };
+  if (p.tier !== 'product') return { odds: 'low', low_reason: p.low_reason ?? missingSignalNote(p) ?? NOT_REAL_YET };
+  if (onlyMentioned(v, chains)) return { odds: 'low', low_reason: 'not deployed yet' };
+  if (p.odds !== 'good') return { odds: 'low', low_reason: p.low_reason ?? NOT_REAL_YET };
+  return { odds: 'good', low_reason: null };
+}
 
 /** Names, descriptions or topics of tutorials, course work, starters and docs (Pre-flight P27): not original. */
 export const TUTORIAL =
@@ -430,7 +483,7 @@ const NOTE_ORDER: (keyof ProductFacts)[] = ['deployed', 'active', 'readme', 'ori
 export const fitsWideProgram = (p: Product) => p.tier === 'product' && !(p.missing ?? []).includes('original');
 
 /** The note for a project-tier row: its most actionable missing signal, or null when none is missing. Pure. */
-export const missingSignalNote = (p: Product): string | null => {
+export const missingSignalNote = (p: Pick<Product, 'missing' | 'unchecked'>): string | null => {
   const first = NOTE_ORDER.find((s) => p.missing.includes(s));
   if (first) return SIGNAL_WORDS[first];
   // Ruling G4: a link not checked yet is never "not found"; the next call checks it.

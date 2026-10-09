@@ -12,14 +12,15 @@ import { WIN_RATE_MIN_LABELLED } from './stats';
  * Pre-flight P31). Dormant until then: both stay null.
  */
 
-export type ShownRow = { program_id: string; repo_key: string; status: string; product_score: number | null; row_level: Level };
+/** v2.10 item 6: `traction`, the repo's traction score shown (null when unscored). */
+export type ShownRow = { program_id: string; repo_key: string; status: string; product_score: number | null; row_level: Level; traction: number | null };
 
 /** Today's UTC date, "2026-10-08". */
 const today = () => new Date().toISOString().slice(0, 10);
 
 /**
  * What matching showed this installation, one row per (program, repo) per UTC day; a second call the
- * same day keeps the latest status, score and level.
+ * same day keeps the latest status, score, level and traction.
  */
 export async function recordShown(installationId: number, rows: ShownRow[], day: string = today()): Promise<void> {
   if (rows.length === 0) return;
@@ -30,13 +31,15 @@ export async function recordShown(installationId: number, rows: ShownRow[], day:
     status: r.status,
     product_score: r.product_score,
     row_level: r.row_level,
+    traction: r.traction,
     day,
   }));
   const db = sql();
   await db`
-    INSERT INTO match_shown ${db(values, 'installation_id', 'program_id', 'repo_key', 'status', 'product_score', 'row_level', 'day')}
+    INSERT INTO match_shown ${db(values, 'installation_id', 'program_id', 'repo_key', 'status', 'product_score', 'row_level', 'traction', 'day')}
     ON CONFLICT (installation_id, program_id, repo_key, day) DO UPDATE SET
-      status = EXCLUDED.status, product_score = EXCLUDED.product_score, row_level = EXCLUDED.row_level`;
+      status = EXCLUDED.status, product_score = EXCLUDED.product_score, row_level = EXCLUDED.row_level,
+      traction = EXCLUDED.traction`;
 }
 
 /**

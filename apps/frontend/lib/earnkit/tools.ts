@@ -1288,7 +1288,7 @@ export const tools = {
       ctx.installationId,
       onScreen.flatMap((r) =>
         r.key && r.row
-          ? [{ program_id: r.card.id, repo_key: r.key, status: r.v.status, product_score: r.product_score, row_level: r.row.level }]
+          ? [{ program_id: r.card.id, repo_key: r.key, status: r.v.status, product_score: r.product_score, row_level: r.row.level, traction: r.product_score === null ? null : r.traction }]
           : [],
       ),
     ).catch((err: unknown) => console.error('[list_programs] match shown', err instanceof Error ? err.name : 'error'));

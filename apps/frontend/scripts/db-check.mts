@@ -495,6 +495,15 @@ const [floors] = await db<{ set: number }[]>`
 ok(floors.set === 0, 'existing programs get match_floor and match_precision = NULL');
 const [scoreCol] = await db<{ n: number }[]>`SELECT count(product_score)::int AS n FROM projects`;
 ok(scoreCol.n === 0, 'existing entries get product_score = NULL');
+// v2.10 item 6: match_shown.traction is added to a database made before it, NULL on old rows, and kept.
+await db.unsafe('ALTER TABLE match_shown DROP COLUMN traction;');
+await db.unsafe(now);
+const [oldTraction] = await db<{ traction: number | null }[]>`SELECT traction FROM match_shown WHERE installation_id = ${memInst}`;
+ok(oldTraction !== undefined && oldTraction.traction === null, 'existing match_shown rows get traction = NULL');
+await db`UPDATE match_shown SET traction = 8 WHERE installation_id = ${memInst}`;
+await db.unsafe(now);
+const [keptTraction] = await db<{ traction: number | null }[]>`SELECT traction FROM match_shown WHERE installation_id = ${memInst}`;
+ok(keptTraction?.traction === 8, 'match_shown traction survives the schema running again');
 
 // v2.9 B9: builder memory keyed by login ('' = the installation's own); a database made before the
 // column gets it and the wider primary key; sign-in nonces and verifications survive the schema again.

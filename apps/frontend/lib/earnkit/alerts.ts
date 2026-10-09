@@ -5,7 +5,7 @@ import { boardLink, prizeOf, shortWallet } from './entry-text';
 import { cachedFeesUsd, feeAlert } from './fees';
 import { campaignCandidates } from './leaderboard';
 import { difficultyOf, rowDifficulty, type Difficulty } from './guide';
-import { applyBuilderFacts, EFFORT_ORDER, fitsWideProgram, matchRepo, type Chain, type Detection, type Product, type ProgramFacts, type RepoFacts } from './match';
+import { applyBuilderFacts, EFFORT_ORDER, fitsWideProgram, matchRepo, onlyMentioned, type Chain, type Detection, type Product, type ProgramFacts, type RepoFacts } from './match';
 import { hiddenIds, hiddenPrograms, type BuilderMemory, type SaidRepo } from './builder-memory';
 import type { PastRound } from './program-file';
 import { winLine } from './outcomes';
@@ -232,15 +232,20 @@ export function alertFit(p: NewProgram, repos: FitRepo[], skip: AlertSkip, now: 
  * test; v2.9 T12, G15 M1: Also qualifies uses it too). The tier fits (an original product for
  * any_chain or investment, project or better otherwise); with what the builder said applied, the
  * verdict is likely, or after_step with effort of hours or less and no real_users or new_work
- * missing; the row is not Hard, unless $10,000+ per winner and product tier. Pure.
+ * missing; the row is not Hard, unless $10,000+ per winner and product tier. v2.10 item 6: never a
+ * low-odds repo, nor a row on a chain only mentioned. Pure.
  */
 export function repoCanWin(p: NewProgram, r: FitRepo): boolean {
   if (!r.product || r.product.tier === 'noise') return false;
+  // v2.10 item 6: a low-odds repo is never alerted (nor offered in Also qualifies).
+  if (r.product.odds === 'low') return false;
   if ((p.any_chain || p.investment) && !fitsWideProgram(r.product)) return false;
   const f = applyBuilderFacts(repoFacts(r), r.said ?? undefined);
   if (!f) return false;
   const [v] = matchRepo(f, [programFacts(p)]);
   if (!v || v.status === 'no') return false;
+  // v2.10 item 9 (Pre-flight P13): nor a row whose chain the repo only mentions (low odds: not deployed yet).
+  if (onlyMentioned(v, f.chains)) return false;
   const close =
     v.status === 'likely' ||
     (EFFORT_ORDER.indexOf(v.effort) <= EFFORT_ORDER.indexOf('hours') && !v.missing.some((m) => m === 'real_users' || m === 'new_work'));

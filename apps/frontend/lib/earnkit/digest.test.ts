@@ -435,7 +435,7 @@ test('digestFacts: new programs a remembered repo could win (the alert rule); yo
   const tag = `digest-facts-${process.pid}-${Date.now()}`;
   const tipjar = {
     key: 'alice/tipjar', name: 'TipJar', url: 'https://github.com/alice/tipjar', homepage: 'https://tipjar.xyz',
-    created_at: '2026-01-01T00:00:00Z', chains: { base: { mainnet: true, testnet: false, evidence: 'x' } },
+    created_at: '2026-01-01T00:00:00Z', chains: { base: { mainnet: true, testnet: false, evidence: 'x', basis: 'deployed' } },
     product: { score: 6, tier: 'product', missing: [] }, live_verified: true, said: null,
   };
   const [own] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, fit_repos) VALUES (${`${tag}-o`}, ${sql().json([tipjar] as never)}) RETURNING id`;

@@ -4,15 +4,17 @@ import { setFeeSource } from '../fees';
 
 /**
  * v2.9 A5: test suites that run the entry tools import this once, so link and contract checks
- * never reach the network or url_checks: every live link loads and every address has code, cached
- * in memory. A test about a failed check passes its own probe or getCode (ToolContext.verifyDeps).
+ * never reach the network or url_checks: every live link loads and every address has code (with 0
+ * transactions on Base), cached in memory. A test about a failed check passes its own probe or getCode (ToolContext.verifyDeps).
  */
-const rows = new Map<string, { ok: boolean; checked_at: Date }>();
+const rows = new Map<string, { ok: boolean; checked_at: Date; note?: string | null; n?: number | null }>();
 checkDefaults.probe = async () => {};
 checkDefaults.getCode = async () => '0x6080';
+// v2.10 item 6: no Blockscout read leaves the process; every contract has 0 transactions.
+checkDefaults.blockscout = async () => ({ transactions_count: '0' });
 checkDefaults.cache = {
   get: async (key) => rows.get(key) ?? null,
-  set: async (key, ok, now) => void rows.set(key, { ok, checked_at: now }),
+  set: async (key, ok, now, extra) => void rows.set(key, { ok, checked_at: now, ...extra }),
 };
 
 // v2.9 E20: the first reply's "Builders using EarnKit won $X" never depends on another test file's

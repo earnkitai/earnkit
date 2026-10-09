@@ -3010,7 +3010,8 @@ async function offerSetup(tag: string, o: { tier?: 'product' | 'project'; status
     repo_url: t.repo,
     verdicts: [{ program_id: t.p.id, program: t.p.id, status: o.status ?? 'likely', missing: [], effort: 'hours', note: '' }],
     key: t.repo.replace('https://github.com/', ''),
-    product: { score: o.tier === 'project' ? 4 : 6, tier: o.tier ?? 'product', missing: [] },
+    // v2.10 item 6: a product with users (good odds); a project tier is low odds.
+    product: { score: o.tier === 'project' ? 4 : 6, tier: o.tier ?? 'product', missing: [], traction: 8, odds: o.tier === 'project' ? 'low' : 'good' },
     live_verified: true,
   };
   const ctx = { ...t.ctx, matchProjects: async () => ({ checked: 1, scored: 1, fits: [fit] }) };
