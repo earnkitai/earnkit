@@ -514,6 +514,9 @@ const PLAIN_KINDS: readonly FieldKind[] = ['name', 'one_liner', 'problem', 'solu
 const isPlainKind = (k: FieldKind): k is PlainKind => PLAIN_KINDS.includes(k);
 /** The agent fix for a field that isn't plain words (spec wording). */
 export const PLAIN_FIX = (label: string) => `${label}: rewrite in plain words, no addresses or numbers lists.`;
+/** The agent fix for a plain field over the form's limit, and only that (review fix round 1). */
+export const PLAIN_LENGTH_FIX = (label: string, limit: number, unit: 'characters' | 'words') =>
+  `${label}: keep it under ${limit} ${unit}, in plain words.`;
 /** confirm_entry's note while a not_plain fix stands; the builder never sees it. */
 export const PLAIN_NOTE = "Rewrite the agent_fixes answers in plain words, then call again with the new answers. Don't show this to the builder.";
 
@@ -528,14 +531,23 @@ const NUMBER_RE = /\d[\d,.]*/g;
  * v2.10 item 11: why a description field isn't plain words (the reason, for the agent), or null.
  * Flags a raw address, hash or long hex run; a `key: value` list; 4 or more numbers in one
  * sentence; a link (how_it_works keeps one); and a text over the form's max_chars, else its
- * limit_words. Pure.
+ * limit_words. With `linkAddresses`, an address inside a link is allowed. Returns 'too long' when
+ * length is the only problem. Pure.
  */
-export function plainProblem(text: string, kind: PlainKind, limit: { max_chars?: number; limit_words?: number } = {}): string | null {
+export function plainProblem(
+  text: string,
+  kind: PlainKind,
+  limit: { max_chars?: number; limit_words?: number } = {},
+  o: { linkAddresses?: boolean } = {},
+): string | null {
   const t = text.trim();
   if (!t) return null;
-  if (HASH_RE.test(t) || ADDRESS_RE.test(t) || HEX_RUN_RE.test(t)) return 'raw address or hash';
+  // A field a program's criterion asks to link (`linkAddresses`) may hold an explorer link: the
+  // address in that URL is fine; one outside a URL still fails.
+  const bare = o.linkAddresses ? t.replace(URL_RE, ' ') : t;
+  if (HASH_RE.test(bare) || ADDRESS_RE.test(bare) || HEX_RUN_RE.test(bare)) return 'raw address or hash';
   if (KEY_VALUE_RE.test(t)) return 'key: value list';
-  if (t.split(/(?<=[.!?])\s+/).some((s) => (s.match(NUMBER_RE) ?? []).length >= 4)) return 'too many numbers in one sentence';
+  if (bare.split(/(?<=[.!?])\s+/).some((s) => (s.match(NUMBER_RE) ?? []).length >= 4)) return 'too many numbers in one sentence';
   const links = (t.match(URL_RE) ?? []).length;
   if (kind !== 'how_it_works' && links > 0) return 'link in a text field';
   if (kind === 'how_it_works' && links > 1) return 'more than one link';
@@ -604,8 +616,16 @@ export function preSubmitCheck(a: {
     // the program's own criterion asks to link keeps one link, as how_it_works does.
     const k = kindOf(r);
     const asksLink = a.judging?.criteria.some((c) => c.fix?.needs === 'link' && c.fix.kind === k) ?? false;
-    if (isPlainKind(k) && plainProblem(v, asksLink ? 'how_it_works' : k, { max_chars: r.max_chars, limit_words: r.guidance?.limit_words })) {
-      agent.push({ key: r.key, rule: 'not_plain', for: 'agent', text: PLAIN_FIX(label(r)) });
+    const lim = { max_chars: r.max_chars, limit_words: r.guidance?.limit_words };
+    const problem = isPlainKind(k) ? plainProblem(v, asksLink ? 'how_it_works' : k, lim, { linkAddresses: asksLink }) : null;
+    if (problem) {
+      const text =
+        problem !== 'too long'
+          ? PLAIN_FIX(label(r))
+          : lim.max_chars
+            ? PLAIN_LENGTH_FIX(label(r), lim.max_chars, 'characters')
+            : PLAIN_LENGTH_FIX(label(r), lim.limit_words!, 'words');
+      agent.push({ key: r.key, rule: 'not_plain', for: 'agent', text });
       continue;
     }
     const limit = r.guidance?.limit_words;

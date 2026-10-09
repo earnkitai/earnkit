@@ -1951,9 +1951,12 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
   the `name`, `one_liner`, `problem`, `solution` and `how_it_works` fields. It flags a raw address
   (`0x` + 40 hex), a hash (`0x` + 64 hex), a hex run of 16 or more, a `key: value` list, 4 or more
   numbers in one sentence, and a link. `how_it_works` may hold one link, and so may a field a
-  program's own criterion asks to link. It also flags a text over the form's `max_chars`, else its
-  `limit_words`. A hit is a `not_plain` agent fix with the text `PLAIN_FIX(label)`, and it replaces
-  that field's `over_limit` fix. `prepare_submission` lists it in `agent_fixes` only.
+  program's own criterion asks to link. In that second kind of field, an address inside the link
+  (an explorer `/address/0x...` page) is allowed, and an address outside a link still fails. The
+  check also flags a text over the form's `max_chars`, else its `limit_words`. A hit is a
+  `not_plain` agent fix with the text `PLAIN_FIX(label)`. When length is the only problem, the text
+  is `PLAIN_LENGTH_FIX` instead ("<Field>: keep it under N characters, in plain words."). The fix
+  replaces that field's `over_limit` fix. `prepare_submission` lists it in `agent_fixes` only.
   `confirm_entry` refuses a go or a skip while any `not_plain` fix stands. It returns only
   `{ ready: false, agent_fixes, agent_note: PLAIN_NOTE }`, before the rate limit, the entry row and
   the token flow, and with no builder text (`tools.ts plainRefusal`). Pre-flight P32: an EarnKit
