@@ -55,6 +55,12 @@ export async function setFitRepos(installationId: number, repos: FitRepo[]): Pro
   await sql()`UPDATE installations SET fit_repos = ${sql().json(best as never)} WHERE id = ${installationId}`;
 }
 
+/** v2.9 T12 (G15 M1): the builder's best owned repos as they last matched (setFitRepos). */
+export async function readFitRepos(installationId: number): Promise<FitRepo[]> {
+  const [row] = await sql()<{ fit_repos: FitRepo[] | null }[]>`SELECT fit_repos FROM installations WHERE id = ${installationId}`;
+  return row?.fit_repos ?? [];
+}
+
 /** True when this token, or (v2.4) this OAuth client, already has an installation. */
 export async function installationExists(token: string, clientKey?: string) {
   const [row] = await sql()`

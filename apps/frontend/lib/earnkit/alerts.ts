@@ -224,23 +224,29 @@ const repoFacts = (r: FitRepo): RepoFacts => ({
 export function alertFit(p: NewProgram, repos: FitRepo[], skip: AlertSkip, now: Date): FitRepo | null {
   if (skip.entered.has(p.id) || skip.hidden.has(p.id)) return null;
   if (p.ends_at && p.ends_at.getTime() - now.getTime() < ALERT_MIN_DAYS * 86_400_000) return null;
-  const facts = programFacts(p);
-  return (
-    repos.find((r) => {
-      if (!r.product || r.product.tier === 'noise') return false;
-      if ((p.any_chain || p.investment) && !fitsWideProgram(r.product)) return false;
-      const f = applyBuilderFacts(repoFacts(r), r.said ?? undefined);
-      if (!f) return false;
-      const [v] = matchRepo(f, [facts]);
-      if (!v || v.status === 'no') return false;
-      const close =
-        v.status === 'likely' ||
-        (EFFORT_ORDER.indexOf(v.effort) <= EFFORT_ORDER.indexOf('hours') && !v.missing.some((m) => m === 'real_users' || m === 'new_work'));
-      if (!close) return false;
-      const row = rowDifficulty(p, v, { liveVerified: r.live_verified, hasUsersClaim: Boolean(r.said?.has_users) });
-      return row.level !== 'Hard' || ((p.max_award_usd ?? 0) >= HARD_ALERT_USD && r.product.tier === 'product');
-    }) ?? null
-  );
+  return repos.find((r) => repoCanWin(p, r)) ?? null;
+}
+
+/**
+ * v2.9 A7: the alert precision rule for one remembered repo and one program (alertFit's per-repo
+ * test; v2.9 T12, G15 M1: Also qualifies uses it too). The tier fits (an original product for
+ * any_chain or investment, project or better otherwise); with what the builder said applied, the
+ * verdict is likely, or after_step with effort of hours or less and no real_users or new_work
+ * missing; the row is not Hard, unless $10,000+ per winner and product tier. Pure.
+ */
+export function repoCanWin(p: NewProgram, r: FitRepo): boolean {
+  if (!r.product || r.product.tier === 'noise') return false;
+  if ((p.any_chain || p.investment) && !fitsWideProgram(r.product)) return false;
+  const f = applyBuilderFacts(repoFacts(r), r.said ?? undefined);
+  if (!f) return false;
+  const [v] = matchRepo(f, [programFacts(p)]);
+  if (!v || v.status === 'no') return false;
+  const close =
+    v.status === 'likely' ||
+    (EFFORT_ORDER.indexOf(v.effort) <= EFFORT_ORDER.indexOf('hours') && !v.missing.some((m) => m === 'real_users' || m === 'new_work'));
+  if (!close) return false;
+  const row = rowDifficulty(p, v, { liveVerified: r.live_verified, hasUsersClaim: Boolean(r.said?.has_users) });
+  return row.level !== 'Hard' || ((p.max_award_usd ?? 0) >= HARD_ALERT_USD && r.product.tier === 'product');
 }
 
 /** v2.9 A7: whether a new program is alerted (alertFit found a repo). Pure. */
@@ -476,12 +482,7 @@ export async function alertFacts(installationId: number, db: Db = sql()): Promis
     paidBonusWins(installationId, db),
     // v2.8 Ruling 10 (plan): every open curated program (a handful); newProgramLines picks the new
     // ones the builder could win (v2.9 A7: alertFit, with the guide's program level, difficultyOf).
-    db<(NewProgramRow & { opened_at: Date })[]>`
-      SELECT id, title, summary, chains, any_chain, opened_at, past_rounds, focus, best_bet, difficulty_override,
-        winners_per_round, tag, each_time, submission_requirements, rules, investment, ends_at, starts_at, campaign,
-        max_award_usd, existing_work, min_product_score, match_floor, match_precision
-      FROM programs
-      WHERE status = 'active' AND campaign IS NULL AND opened_at IS NOT NULL AND (ends_at IS NULL OR ends_at > now())`,
+    openCuratedRows(db),
     // v2.9 A7: the builder's best owned repos when they last matched.
     db<{ fit_repos: FitRepo[] | null }[]>`SELECT fit_repos FROM installations WHERE id = ${installationId}`,
     // v2.8 Part G: announced wins only; a self-reported row is never read here.
@@ -559,6 +560,17 @@ export type NewProgramRow = Parameters<typeof difficultyOf>[0] &
     | 'id' | 'title' | 'summary' | 'chains' | 'any_chain' | 'investment' | 'ends_at' | 'starts_at' | 'campaign'
     | 'max_award_usd' | 'existing_work' | 'min_product_score' | 'match_floor' | 'match_precision'
   >;
+
+/**
+ * Every open curated program as alerts read it (a handful): active, not a campaign, opened, not
+ * ended. v2.9 T12 (G15 M1): Also qualifies reads the same rows for repoCanWin.
+ */
+export const openCuratedRows = (db: Db = sql()) => db<(NewProgramRow & { opened_at: Date })[]>`
+  SELECT id, title, summary, chains, any_chain, opened_at, past_rounds, focus, best_bet, difficulty_override,
+    winners_per_round, tag, each_time, submission_requirements, rules, investment, ends_at, starts_at, campaign,
+    max_award_usd, existing_work, min_product_score, match_floor, match_precision
+  FROM programs
+  WHERE status = 'active' AND campaign IS NULL AND opened_at IS NOT NULL AND (ends_at IS NULL OR ends_at > now())`;
 
 /**
  * One open curated program as a new program alert candidate. Ruling C23: an investment program's

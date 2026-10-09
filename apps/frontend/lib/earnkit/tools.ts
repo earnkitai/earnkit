@@ -21,16 +21,17 @@ import {
   rememberWallets,
   rememberedWallet,
   localRepoContracts,
+  readFitRepos,
   setFitRepos,
   setWorkingOn,
 } from './installations';
 import { recordShown, saveEntryScore } from './match-loop';
-import { repoKey } from './answer-bank';
+import { repoKey, repoKey as saidKeyOf } from './answer-bank';
 import { outcomeQuestion, outcomeToAsk } from './outcomes';
 import { wonSource } from './stats';
 import { EMAIL_SHARED_NOTE, EMAIL_SIGN_IN, WHICH_EMAIL, askWeeklyEmail, cleanEmail, entryEmail, saveWeeklyEmail } from './digest';
-import { TellInput, emptyMemory, hiddenIds, hiddenPrograms, memoryKey, readMemory, tell, type BuilderMemory, type MemoryKey } from './builder-memory';
-import { fitRepoOf, sinceLine, sinceYouLastChecked, type FitRepo } from './alerts';
+import { TellInput, emptyMemory, hiddenIds, hiddenPrograms, memoryKey, readMemory, tell, type BuilderMemory, type MemoryKey, type SaidRepo } from './builder-memory';
+import { fitRepoOf, newProgramOf, openCuratedRows, repoCanWin, sinceLine, sinceYouLastChecked, type FitRepo } from './alerts';
 import {
   GitHubError,
   MatchProjectsInput,
@@ -496,9 +497,14 @@ async function alsoQualifiesBlock(
     full ? cachedRepoChains(`${full.owner}/${full.repo}`) : Promise.resolve(null),
     memoryOf(memoryKey(ctx), 'also_qualifies'),
   ]);
+  // v2.9 T12 (G15 M1): what the builder said about this repo; a chain they said is testnet only
+  // (and never said is on mainnet) fits nothing here.
+  const said = told.repos.get(saidKeyOf({ url: repoUrl, name })) ?? null;
+  const testnetOnly = (c: SaidRepo['testnet'][number]) => Boolean(said?.testnet.includes(c) && !said.mainnet.includes(c));
   const rows = alsoQualifies({
     enteredProgramId: parsed.program_id,
-    chains: cached ?? program.chains,
+    chains: (cached ?? program.chains).filter((c) => !testnetOnly(c)),
+    canWin: await alsoCanWin(ctx, saidKeyOf({ url: repoUrl, name }), said, liveVerified),
     programs,
     enteredIds,
     bank,
@@ -519,6 +525,37 @@ async function alsoQualifiesBlock(
   const home = (repoKey && coins.get(repoKey)) || null;
   const coinIn = home && repoKey && rows.length > 0 ? await bonusNoteTitle(repoKey, home.title, ctx) : (home?.title ?? null);
   return { rows, text: alsoText(rows, coinIn) };
+}
+
+/**
+ * v2.9 T12 (G15 M1): Also qualifies keeps only programs the entered repo could really win. With the
+ * repo remembered from list_programs (installations.fit_repos, never on a shared client): the alert
+ * precision rule (alerts.ts repoCanWin) over what the builder says now, with this step's live check.
+ * Without it: a "needs a live product" program only when the builder said the repo has users (its
+ * row otherwise still needs real users). A failed read keeps that fallback.
+ */
+async function alsoCanWin(
+  ctx: ToolContext,
+  key: string,
+  said: SaidRepo | null,
+  liveVerified: boolean,
+): Promise<(p: { id: string; tag: string | null }) => boolean> {
+  const fallback = (p: { tag: string | null }) => p.tag !== 'needs a live product' || said?.has_users === true;
+  if (!remembers(ctx)) return fallback;
+  try {
+    const [fits, rows] = await Promise.all([readFitRepos(ctx.installationId), openCuratedRows()]);
+    const fit = fits.find((r) => r.key.toLowerCase() === key);
+    if (!fit) return fallback;
+    const repo: FitRepo = { ...fit, said: said ?? fit.said, live_verified: fit.live_verified || liveVerified };
+    const programs = new Map(rows.map((r) => [r.id, newProgramOf(r)]));
+    return (p) => {
+      const np = programs.get(p.id);
+      return np !== undefined && repoCanWin(np, repo);
+    };
+  } catch (err) {
+    console.error('[also_qualifies] fit', err instanceof Error ? err.name : 'error');
+    return fallback;
+  }
 }
 
 /** The agent's note with the token line: commit it with the next push, before the builder confirms. */

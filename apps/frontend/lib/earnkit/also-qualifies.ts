@@ -81,9 +81,16 @@ export function alsoQualifies(a: {
   now: Date;
   /** v2.9 A3 (builder-memory.ts hiddenPrograms): not interested, or applied outside EarnKit this round. */
   hidden?: { notInterested: Set<string>; applied: Set<string> };
+  /**
+   * v2.9 T12 (G15 M1): whether the entered repo could really win this program (the alert precision
+   * rule, alerts.ts repoCanWin, over what the builder said): never a program whose row still needs
+   * real users or new work, or is Hard and small. Absent: every program passes.
+   */
+  canWin?: (p: AlsoProgram) => boolean;
 }): AlsoRow[] {
   const rows = a.programs
     .filter((p) => p.id !== a.enteredProgramId && !a.enteredIds.has(p.id))
+    .filter((p) => a.canWin?.(p) ?? true)
     .filter((p) => !a.hidden?.notInterested.has(p.id) && !a.hidden?.applied.has(p.id))
     .filter((p) => p.status === 'active' && p.source === 'file' && !p.campaign && !p.investment && p.existing_work !== 'new_work_only')
     .filter((p) => p.ends_at === null || p.ends_at.getTime() - a.now.getTime() >= 2 * DAY)

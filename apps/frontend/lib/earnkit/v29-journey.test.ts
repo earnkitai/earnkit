@@ -693,9 +693,46 @@ test('12.6 the token offer in the first reply, then skip, then the confirmation:
   const rec = await call(J, 'record', 'record_submission', { program_id: program, project, submission_data: answers, builder_submitted: true, external_submission_url: 'https://dorahacks.io/buidl/5151' }, ctx);
   assert.match(rec.show_to_builder!, /^Entered in Arc Microgrants\.(\n|$)/);
   assert.doesNotMatch(rec.show_to_builder!, /token/i);
+  // Ruling G15 M1: Circle's row still needs real users, so Also qualifies never offers it.
+  assert.match(rowOf(list.show_to_builder!, 'Circle Developer Grants') ?? '', /needs real users/, list.show_to_builder);
+  assert.ok(!(rec.also_qualifies as { id: string }[] | undefined)?.some((r) => r.id === 'circle-developer-grants'), JSON.stringify(rec.also_qualifies));
   assert.ok(!deployed.some((x) => x.symbol === 'QUILL'), 'nothing launched');
   assert.equal(forty(J), 1, dump(J));
   assert.deepEqual(said.filter((s) => s.journey === J && /40%/.test(s.text)).map((s) => s.label), ['list']);
+});
+
+test('12.6b Also qualifies (Ruling G15 M1): never a program whose row needs real users, nor a chain the builder said is testnet only', dbTest, async () => {
+  const J = '12.6b';
+  const ctx = ctxFor(await newInstallation());
+  const repo_url = 'https://github.com/rio/relay';
+  const local_repos = [
+    { name: 'relay', url: repo_url, chains: [{ chain: 'arc', mainnet: true }, { chain: 'avalanche', mainnet: true }], live_url: 'https://relay.xyz', contracts: ['0x8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a'], last_commit_at: daysAgo(1) },
+  ];
+  const list = await call(J, 'list', 'list_programs', { local_repos }, ctx);
+  assert.match(rowOf(list.show_to_builder!, 'Arc Microgrants') ?? '', /\| Easy \|/, list.show_to_builder);
+  assert.match(rowOf(list.show_to_builder!, 'Circle Developer Grants') ?? '', /needs real users/, list.show_to_builder);
+  // GitHub's evidence (the repo-facts cache Also qualifies reads) has relay on Arc and Avalanche mainnet.
+  await sql()`
+    INSERT INTO github_repo_facts (full_name, pushed_at, chains, commits_since) VALUES ('rio/relay', now(),
+      ${sql().json({ arc: { mainnet: true, testnet: false, evidence: 'x' }, avalanche: { mainnet: true, testnet: false, evidence: 'x' } })}, '{}')`;
+  // Enter Avalanche (no token), then record it.
+  const program = 'avalanche-team1-mini-grants';
+  const project = { name: 'Relay', repo_url, live_url: 'https://relay.xyz' };
+  const answers = { ...answersFor(program, { builder_profile: 'https://github.com/rio' }), payout_wallet: W };
+  await call(J, 'draft', 'prepare_submission', { program_id: program, project, agent: CC, answers, coach_asked: true }, ctx);
+  await call(J, 'skip at confirm', 'confirm_entry', { program_id: program, project, answers, builder_confirmed: true, decision: 'skip', agent: CC }, ctx);
+  const record = (label: string) =>
+    call(J, label, 'record_submission', { program_id: program, project, submission_data: answers, builder_submitted: true, external_submission_url: 'https://dorahacks.io/buidl/6161' }, ctx);
+  const also = (r: Reply) => ((r.also_qualifies as { id: string }[] | undefined) ?? []).map((x) => x.id);
+  const first = await record('record');
+  // Arc (Easy for relay) is offered; Circle (its row needs real users) is not.
+  assert.ok(also(first).includes('arc-microgrants'), JSON.stringify(first.also_qualifies));
+  assert.ok(!also(first).includes('circle-developer-grants'), JSON.stringify(first.also_qualifies));
+  // The builder says relay is only on Arc testnet: Arc is no longer offered.
+  await call(J, 'tell', 'tell_earnkit', { repo_facts: [{ repo: 'rio/relay', testnet_chains: ['arc'] }] }, ctx);
+  const again = await record('record again');
+  assert.ok(!also(again).includes('arc-microgrants'), JSON.stringify(again.also_qualifies));
+  assert.ok(!also(again).includes('circle-developer-grants'));
 });
 
 /** The chain under the cron's claims: every EarnKit token's split names its creator and MINI; fees wait for each. */

@@ -268,3 +268,11 @@ test('3.8 a program the builder applied to outside EarnKit, or is not interested
   });
   assert.deepEqual(rows.map((r) => r.id), ['avax']);
 });
+
+test('v2.9 T12 (G15 M1): canWin drops a program the repo could not really win; absent, nothing is dropped', () => {
+  const programs = [prog('base-a', { chains: ['base'] }), prog('base-b', { chains: ['base'] })];
+  const all = alsoQualifies({ ...base, programs }).map((r) => r.id).sort();
+  assert.deepEqual(all, ['base-a', 'base-b']);
+  const kept = alsoQualifies({ ...base, programs, canWin: (p) => p.id !== 'base-b' }).map((r) => r.id);
+  assert.deepEqual(kept, ['base-a']);
+});

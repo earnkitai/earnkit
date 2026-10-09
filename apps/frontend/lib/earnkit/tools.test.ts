@@ -1785,6 +1785,11 @@ test('11 Also qualifies: after confirm_entry "go" and record_submission on Arc, 
           ${full}, now(),
           ${sql().json({ arc: { mainnet: true, testnet: false, evidence: 'x' }, base: { mainnet: true, testnet: false, evidence: 'x' } })},
           '{}')`;
+      // v2.9 T12 (G15 M1): Base needs a live product with real users; until the builder says the
+      // repo has users, its row still needs them, so it is not offered.
+      const unsaid = await submit();
+      assert.ok(!unsaid.also_qualifies?.some((x) => x.id === other.id), JSON.stringify(unsaid.also_qualifies));
+      await tools.tell_earnkit({ repo_facts: [{ repo: full, has_users: true }] }, t.ctx);
       const r2 = await submit();
       assert.ok(!r2.also_qualifies?.some((x) => x.id === t.p.id), 'never the entered program itself');
       const row = r2.also_qualifies?.find((x) => x.id === other.id);
