@@ -16,6 +16,8 @@ import {
   expireSites,
   hostTakedownPost,
   hostUploadPost,
+  approveSite,
+  cleanDeploys,
   issueUpload,
   refreshSiteExpiry,
   liveLine,
@@ -235,6 +237,12 @@ function fakeR2(seed: string[] = []) {
     del: async (keys) => {
       calls.push(`del ${keys.join(',')}`);
       for (const k of keys) objects.delete(k);
+    },
+    copy: async (from, to) => {
+      calls.push(`copy ${from} ${to}`);
+      const o = objects.get(from);
+      if (!o) throw new Error('no such key');
+      objects.set(to, o);
     },
   };
   const state = (slug: string) => {
@@ -562,4 +570,212 @@ test('Ruling 10: an entry recorded for the repo moves its site expiry to the pro
   assert.deepEqual(row.expires_at, new Date(ends.getTime() + 7 * 86_400_000));
   await sql()`DELETE FROM projects WHERE program_id = ${programId}`;
   await sql()`DELETE FROM programs WHERE id = ${programId}`;
+});
+
+// ---- Fix round 1 (task-8-review.md I1 to I4)
+
+const text = (o: { body: Uint8Array } | undefined) => (o ? new TextDecoder().decode(o.body) : '');
+const servedKeys = (f: ReturnType<typeof fakeR2>, slug: string) =>
+  [...f.objects.keys()].filter((k) => k.startsWith(`sites/${slug}/`) || k === `state/${slug}.json`).sort();
+const snapshot = (f: ReturnType<typeof fakeR2>, slug: string) => servedKeys(f, slug).map((k) => `${k}=${text(f.objects.get(k))}`);
+/** A live site for `u` in the DB and the fake R2. */
+async function liveSite(u: Awaited<ReturnType<typeof upload>>, f: ReturnType<typeof fakeR2>) {
+  const first = await deploySite(u.token, site(), { r2: f.r2 });
+  assert.equal(first.status, 200);
+  const again = randomBytes(32).toString('base64url');
+  await sql()`
+    INSERT INTO host_upload_tokens (token_hash, installation_id, login, repo_key, slug, project, expires_at)
+    VALUES (${sha(again)}, ${u.installationId}, ${u.login}, ${u.repoKey}, ${u.slug}, 'TipJar', ${new Date(Date.now() + 900_000)})`;
+  return again;
+}
+const PHISH = { 'login.html': strToU8(html('<input type="password"> Connect MetaMask')) };
+
+test('I1: a flagged redeploy never touches the served files; flagged content reaches sites/ only on approval', db, async () => {
+  const u = await upload();
+  const f = fakeR2();
+  const token = await liveSite(u, f);
+  const before = snapshot(f, u.slug);
+  const flagged = await deploySite(token, site(PHISH), { r2: f.r2 });
+  assert.deepEqual(flagged.body, { show_to_builder: HOST_REVIEW, review: true });
+  assert.deepEqual(snapshot(f, u.slug), before, 'the live site is untouched, its state still live');
+  assert.equal(f.state(u.slug)?.status, 'live');
+  assert.ok([...f.objects.keys()].some((k) => k.startsWith(`staging/${u.slug}/`) && k.endsWith('/login.html')), 'staged');
+  assert.ok(!servedKeys(f, u.slug).some((k) => k.endsWith('login.html')));
+  const [row] = await sql()<{ status: string }[]>`SELECT status FROM hosted_sites WHERE slug = ${u.slug}`;
+  assert.equal(row.status, 'live', 'the old approved site keeps serving');
+  assert.ok((await sitesInReview()).includes(u.slug), 'the owner sees it');
+  // Approval copies it into place, then the staging copy goes.
+  assert.equal(await approveSite(u.slug, { r2: f.r2 }), true);
+  assert.match(text(f.objects.get(`sites/${u.slug}/login.html`)), /MetaMask/);
+  assert.equal(f.state(u.slug)?.status, 'live');
+  assert.ok(![...f.objects.keys()].some((k) => k.startsWith(`staging/${u.slug}/`)), 'staging cleaned');
+  assert.ok(!(await sitesInReview()).includes(u.slug));
+  const [after] = await sql()<{ status: string; flags: string[] }[]>`SELECT status, flags FROM hosted_sites WHERE slug = ${u.slug}`;
+  assert.deepEqual(after, { status: 'live', flags: ['password-brand'] });
+});
+
+test('I1: a new flagged site writes nothing the Worker serves, not even a state', db, async () => {
+  const u = await upload();
+  const f = fakeR2();
+  const out = await deploySite(u.token, site(PHISH), { r2: f.r2 });
+  assert.equal(out.body.review, true);
+  assert.deepEqual(servedKeys(f, u.slug), []);
+  const [row] = await sql()<{ status: string; bytes: string }[]>`SELECT status, bytes::text FROM hosted_sites WHERE slug = ${u.slug}`;
+  assert.equal(row.status, 'review');
+  assert.equal(await takedown(u.slug, { r2: f.r2 }), true);
+  assert.ok(![...f.objects.keys()].some((k) => k.startsWith(`staging/${u.slug}/`)), 'a kill removes the staged copy');
+  assert.equal(f.state(u.slug)?.status, 'killed');
+});
+
+/** A fake R2 whose writes wait a tick, so concurrent deploys interleave. */
+function slowR2() {
+  const f = fakeR2();
+  const wait = () => new Promise((r) => setTimeout(r, 5));
+  const r2: R2 = {
+    put: async (k, b, t) => (await wait(), f.r2.put(k, b, t)),
+    list: async (p) => (await wait(), f.r2.list(p)),
+    del: async (k) => (await wait(), f.r2.del(k)),
+    copy: async (a, b) => (await wait(), f.r2.copy(a, b)),
+  };
+  return { ...f, r2 };
+}
+
+test('I2: concurrent deploys by one login never pass 3 sites', db, async () => {
+  const login = `hz${stamp()}`;
+  const ups = [];
+  for (let i = 0; i < 5; i++) ups.push(await upload({ login, slug: `s${i}-${login}` }));
+  const f = slowR2();
+  const out = await Promise.all(ups.map((u) => deploySite(u.token, site(), { r2: f.r2 })));
+  assert.ok(out.some((o) => o.status !== 200), 'some are refused');
+  const [{ n }] = await sql()<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM hosted_sites WHERE login = ${login} AND status IN ('live', 'review', 'deploying')`;
+  assert.ok(n <= 3, `${n} sites`);
+  // One after another: exactly 3.
+  for (const u of ups) {
+    const t = randomBytes(32).toString('base64url');
+    await sql()`
+      INSERT INTO host_upload_tokens (token_hash, installation_id, login, repo_key, slug, project, expires_at)
+      VALUES (${sha(t)}, ${u.installationId}, ${login}, ${u.repoKey}, ${u.slug}, 'TipJar', ${new Date(Date.now() + 900_000)})`;
+    await deploySite(t, site(), { r2: f.r2 });
+  }
+  const [{ m }] = await sql()<{ m: number }[]>`SELECT count(*)::int AS m FROM hosted_sites WHERE login = ${login} AND status = 'live'`;
+  assert.equal(m, 3);
+});
+
+test('I2: a flagged and a clean zip racing on one repo never publish the flagged one', db, async () => {
+  for (const order of [0, 1]) {
+    const u = await upload();
+    const second = randomBytes(32).toString('base64url');
+    await sql()`
+      INSERT INTO host_upload_tokens (token_hash, installation_id, login, repo_key, slug, project, expires_at)
+      VALUES (${sha(second)}, ${u.installationId}, ${u.login}, ${u.repoKey}, ${u.slug}, 'TipJar', ${new Date(Date.now() + 900_000)})`;
+    const f = slowR2();
+    const runs = [() => deploySite(u.token, site(PHISH), { r2: f.r2 }), () => deploySite(second, site(), { r2: f.r2 })];
+    const out = await Promise.all(order ? runs.reverse().map((r) => r()) : runs.map((r) => r()));
+    assert.ok(out.some((o) => o.status === 409), 'the second waits its turn');
+    assert.ok(!servedKeys(f, u.slug).some((k) => k.endsWith('login.html')), 'flagged never served');
+  }
+});
+
+test('I2: a new upload link revokes the unused ones for the repo', db, async () => {
+  await withEnv({ ...R2_ENV, GITHUB_OAUTH_CLIENT_ID: 'id', GITHUB_OAUTH_CLIENT_SECRET: 'secret' }, async () => {
+    const login = `hz${stamp()}`;
+    const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`hz-rev-${stamp()}`}) RETURNING id`;
+    await sql()`
+      INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose)
+      VALUES (${`${login}/app`}, ${login}, ${id}, '2020-01-01', 3, 'host')`;
+    const a = await issueUpload({ installationId: id, repoKey: `${login}/app`, project: 'App' });
+    const b = await issueUpload({ installationId: id, repoKey: `${login}/app`, project: 'App' });
+    assert.ok('upload_url' in a && 'upload_url' in b);
+    const ta = new URL(a.upload_url).searchParams.get('t')!;
+    const tb = new URL(b.upload_url).searchParams.get('t')!;
+    const r = await deploySite(ta, site(), { r2: fakeR2().r2 });
+    assert.equal(r.status, 410, 'the older link is revoked');
+    assert.equal((await deploySite(tb, site(), { r2: fakeR2().r2 })).status, 200);
+  });
+});
+
+test('I3: a write that fails mid-way marks the deploy failed, counts its bytes, and the cron removes its keys', db, async () => {
+  const u = await upload();
+  const f = fakeR2();
+  let puts = 0;
+  const flaky: R2 = { ...f.r2, put: async (k, b, t) => (++puts > 2 ? Promise.reject(new Error('R2 500')) : f.r2.put(k, b, t)) };
+  const out = await deploySite(u.token, site({ 'a.js': strToU8('1'), 'b.js': strToU8('2'), 'c.js': strToU8('3') }), { r2: flaky });
+  assert.equal(out.status, 502);
+  assert.equal(f.state(u.slug), null, 'never live');
+  const [d] = await sql()<{ status: string; written: string[]; bytes: string }[]>`
+    SELECT status, written, bytes::text FROM host_deploys WHERE slug = ${u.slug} ORDER BY id DESC LIMIT 1`;
+  assert.equal(d.status, 'failed');
+  assert.ok(d.written.length >= 2 && Number(d.bytes) > 0, 'its keys and bytes are tracked');
+  const [site0] = await sql()<{ status: string }[]>`SELECT status FROM hosted_sites WHERE slug = ${u.slug}`;
+  assert.equal(site0.status, 'failed');
+  assert.ok([...f.objects.keys()].some((k) => k.includes(u.slug)), 'objects left');
+  await cleanDeploys(new Date(), { r2: f.r2 });
+  assert.ok(![...f.objects.keys()].some((k) => k.includes(u.slug)), 'cleaned');
+  const [c] = await sql()<{ status: string }[]>`SELECT status FROM host_deploys WHERE slug = ${u.slug} ORDER BY id DESC LIMIT 1`;
+  assert.equal(c.status, 'cleaned');
+});
+
+test('I3: a deploy stuck in deploying for 10 minutes is failed and cleaned; takedown finds a slug with objects and no row', db, async () => {
+  const s = `hzghost${stamp()}`;
+  const f = fakeR2([`sites/${s}/index.html`, `staging/${s}/9/index.html`]);
+  await f.r2.put(`state/${s}.json`, new TextEncoder().encode('{"status":"live","login":"x"}'), 'application/json');
+  assert.equal(await takedown(s, { r2: f.r2 }), true);
+  assert.equal(f.state(s)?.status, 'killed');
+  assert.deepEqual([...f.objects.keys()].filter((k) => k.includes(s)), [`state/${s}.json`]);
+  assert.equal(await takedown(`hznothing${stamp()}`, { r2: fakeR2().r2 }), false);
+
+  const login = `hz${stamp()}`;
+  await sql()`
+    INSERT INTO host_deploys (login, slug, repo_key, at, status, bytes, written)
+    VALUES (${login}, ${`st-${login}`}, ${`${login}/st`}, ${new Date(Date.now() - 11 * 60_000)}, 'deploying', 5, ${[`sites/st-${login}/index.html`]})`;
+  const g = fakeR2([`sites/st-${login}/index.html`]);
+  await cleanDeploys(new Date(), { r2: g.r2 });
+  assert.equal(g.objects.size, 0);
+});
+
+test('I4: more than 50 rolling sites never starve a site whose programs ended', db, async () => {
+  const s = stamp();
+  const [{ id: inst }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`hz-i4-${s}`}) RETURNING id`;
+  const open = `hz-i4-open-${s}`;
+  const closed = `hz-i4-closed-${s}`;
+  for (const [id, status] of [[open, 'active'], [closed, 'closed']])
+    await sql()`
+      INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work, ends_at)
+      VALUES (${id}, 'X', 'P', 'd', 'https://x.example', 'https://x.example', 'r', 's', ${status}, 'allowed', NULL)`;
+  const login = `hz${s}`;
+  for (let i = 0; i < 60; i++) {
+    await sql()`INSERT INTO projects (program_id, name, installation_id, repo_url) VALUES (${open}, 'R', ${inst}, ${`https://github.com/${login}/r${i}`})`;
+    await sql()`
+      INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status, deployed_at)
+      VALUES (${`r${i}-${login}`}, ${login}, ${`${login}/r${i}`}, ${inst}, 1, 1, 'live', ${new Date(Date.UTC(2020, 0, 1, 0, i))})`;
+  }
+  await sql()`INSERT INTO projects (program_id, name, installation_id, repo_url) VALUES (${closed}, 'T', ${inst}, ${`https://github.com/${login}/target`})`;
+  await sql()`
+    INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status, deployed_at)
+    VALUES (${`target-${login}`}, ${login}, ${`${login}/target`}, ${inst}, 1, 1, 'live', '2026-10-01')`;
+  const now = new Date();
+  for (let run = 0; run < 3; run++) await expireSites(now, { r2: fakeR2().r2 });
+  const [t] = await sql()<{ expires_at: Date | null }[]>`SELECT expires_at FROM hosted_sites WHERE slug = ${`target-${login}`}`;
+  assert.ok(t.expires_at, 'the ended site got its expiry');
+  await sql()`DELETE FROM projects WHERE program_id IN (${open}, ${closed})`;
+  await sql()`DELETE FROM programs WHERE id IN (${open}, ${closed})`;
+});
+
+test('Minor: no .xml; the scan sees through tags, entities and new phrases; UTF-16 pages are refused; 5 attempts per link', db, async () => {
+  assert.equal(STATIC_EXT.has('xml'), false);
+  assert.equal(zipProblems([file('index.html'), file('sitemap.xml')]), HOST_LINES.notWebsite);
+  const page = (t: string) => abuseFlags([{ path: 'index.html', text: t }]);
+  assert.deepEqual(page('Enter your seed&nbsp;phrase'), ['seed-phrase']);
+  assert.deepEqual(page('Enter your seed<b></b> phrase'), ['seed-phrase']);
+  assert.deepEqual(page('Type the 12-word mnemonic'), ['seed-phrase']);
+  assert.deepEqual(page('Paste your secret phrase'), ['seed-phrase']);
+  const u = await upload();
+  const bom = new Uint8Array([0xff, 0xfe, ...strToU8('<\0h\0t\0m\0l\0')]);
+  const out = await deploySite(u.token, zipOf({ 'index.html': bom }), { r2: fakeR2().r2 });
+  assert.equal(out.status, 400);
+  assert.equal(out.body.show_to_builder, HOST_LINES.notUtf8);
+  // Refused attempts don't use the link, but a link takes at most 5 attempts.
+  for (let i = 0; i < 3; i++) assert.equal((await deploySite(u.token, zipOf({ 'a.exe': strToU8('x') }), { r2: fakeR2().r2 })).status, 400);
+  assert.equal((await deploySite(u.token, site(), { r2: fakeR2().r2 })).status, 410, 'the 6th attempt');
 });
