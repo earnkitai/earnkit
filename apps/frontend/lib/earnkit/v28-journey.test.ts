@@ -224,7 +224,9 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
     for (const r of arc.submission_requirements) assert.ok(confirmed.kit.show_to_builder.includes(r.label), r.label);
     assert.deepEqual(deploys, [W]);
 
-    // 6. The builder submitted on DoraHacks: the same entry; Also qualifies lists Base.
+    // 6. The builder submitted on DoraHacks: the same entry; Also qualifies lists Base. (v2.9 T12,
+    //    G15 M1: Base needs real users, so it is offered once the builder has said TipJar has them.)
+    await tools.tell_earnkit({ repo_facts: [{ repo: repo.replace('https://github.com/', ''), has_users: true }] }, ctx);
     const recorded = keep('record_submission', (await tools.record_submission(
       {
         program_id: 'arc-microgrants',
