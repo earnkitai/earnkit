@@ -35,6 +35,8 @@ export type TransportResponse = {
   status: number;
   /** content-length, when the server sent one. */
   contentLength?: number;
+  /** content-type, when the server sent one (v2.10: a probe scans only HTML). */
+  contentType?: string;
   location?: string;
   body: AsyncIterable<Uint8Array>;
   /** Releases the connection (called once the body is read or refused). */
@@ -48,6 +50,8 @@ export type Transport = (req: {
   signal: AbortSignal;
   /** Default EarnKit-verifier/1. */
   userAgent?: string;
+  /** The Accept header; default text/plain (a probe asks for HTML, PROBE_ACCEPT). */
+  accept?: string;
 }) => Promise<TransportResponse>;
 
 export const FETCH_TIMEOUT_MS = 5_000;
@@ -63,11 +67,24 @@ export const LARGE_PAGE_MAX_BYTES = 512_000;
 export const PROBE_MAX_BYTES = 65_536;
 /** v2.10 item 14: a page is judged for an error only when its visible text is shorter than this. */
 export const ERROR_TEXT_MAX = 5_000;
+/** v2.10 item 14 (Ruling H4): specific error phrases only, never a bare "404" or "not found". */
 const ERROR_PHRASES: RegExp[] = [
-  /\b404\b/, /not found/i, /NOT_FOUND/, /DEPLOYMENT_NOT_FOUND/,
-  /There isn't a GitHub Pages site here/i, /Application failed to respond/i,
-  /Internal Server Error/i, /Bad Gateway/i, /Cannot GET \//, /Site not found/i, /This page could not be found/i,
+  /\b404\b[\s:|-]*not found/i, /page not found/i, /NOT_FOUND/, /DEPLOYMENT_NOT_FOUND/,
+  /There isn't a GitHub Pages site here/i, /Application failed to respond/i, /application error/i,
+  /failed to fetch/i, /Internal Server Error/i, /Bad Gateway/i, /Cannot GET \//, /Site not found/i,
+  /This page could not be found/i,
 ];
+/** The Accept header of live-link probes (Ruling H4): HTML first, anything else accepted. */
+export const PROBE_ACCEPT = 'text/html,*/*;q=0.8';
+
+/**
+ * Ruling H4: a probe scans only an HTML response: content-type text/html, or a body whose first
+ * non-space text is `<!doctype` or `<html`. JSON and other API bodies pass on any 2xx. Pure.
+ */
+export function isHtmlResponse(contentType: string | undefined, body: string): boolean {
+  if (contentType && /^\s*text\/html\b/i.test(contentType)) return true;
+  return /^\s*<(!doctype|html)\b/i.test(body.replace(/^\uFEFF/, ''));
+}
 
 /** A live link that loads but shows an error page; `phrase` is the error text it shows. */
 export class ErrorPageError extends SafeFetchError {
@@ -236,7 +253,7 @@ export function pinnedLookup(address: string, family: 4 | 6) {
   };
 }
 
-const nodeTransport: Transport = ({ url, address, family, signal, userAgent }) =>
+const nodeTransport: Transport = ({ url, address, family, signal, userAgent, accept }) =>
   new Promise((resolve, reject) => {
     const req = https.request(
       {
@@ -253,15 +270,17 @@ const nodeTransport: Transport = ({ url, address, family, signal, userAgent }) =
         agent: false,
         signal,
         headers: {
-          accept: 'text/plain',
+          accept: accept ?? 'text/plain',
           'user-agent': userAgent ?? 'EarnKit-verifier/1',
         },
       },
       (res) => {
         const length = Number(res.headers['content-length']);
+        const type = res.headers['content-type'];
         resolve({
           status: res.statusCode ?? 0,
           ...(Number.isFinite(length) && { contentLength: length }),
+          ...(typeof type === 'string' && { contentType: type }),
           ...(typeof res.headers.location === 'string' && {
             location: res.headers.location,
           }),
@@ -292,7 +311,10 @@ export async function safeFetchText(
     transport?: Transport;
     timeoutMs?: number;
     maxBytes?: number;
-    /** Accept any 2xx and read at most PROBE_MAX_BYTES of the body, never failing on size (safeProbe). */
+    /**
+     * Accept any 2xx, ask for HTML and read at most PROBE_MAX_BYTES of the body, never failing on
+     * size (safeProbe). Returns that HTML, or '' when the response isn't HTML (Ruling H4).
+     */
     probe?: boolean;
     userAgent?: string;
   } = {},
@@ -335,6 +357,7 @@ export async function safeFetchText(
       family: first.family,
       signal: controller.signal,
       userAgent,
+      ...(probe && { accept: PROBE_ACCEPT }),
     });
     close = res.close;
     if (res.status >= 300 && res.status < 400)
@@ -353,7 +376,8 @@ export async function safeFetchText(
         size += part.byteLength;
         if (size >= PROBE_MAX_BYTES) break;
       }
-      return Buffer.concat(chunks).toString('utf8');
+      const page = Buffer.concat(chunks).toString('utf8');
+      return isHtmlResponse(res.contentType, page) ? page : '';
     }
     if (res.status !== 200)
       throw new SafeFetchError(`answered ${res.status}, not 200`);
@@ -392,7 +416,7 @@ export const LINKCHECK_UA = 'EarnKit-linkcheck/1';
 
 /**
  * Whether a builder's live link loads: any 2xx whose first 64 KB isn't an error page (v2.10 item
- * 14: `ErrorPageError` with the phrase it shows). Follows one redirect within the same site
+ * 14: `ErrorPageError` with the phrase it shows; only an HTML response is scanned, Ruling H4). Follows one redirect within the same site
  * (apex↔www, a path change); refuses a redirect elsewhere or a second redirect.
  */
 export async function safeProbe(

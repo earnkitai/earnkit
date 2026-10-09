@@ -2320,9 +2320,12 @@ speedrun, no dead end for a no-repo builder on Arc, the returning recap with no 
   and program links as they are. `reportedUrl` (local_repos) drops placeholders, and a placeholder
   GitHub homepage is no homepage (`checkRepo`).
 - **Checks.** `verify.ts`: `liveVerified(url)` probes with `safeProbe` (a 2xx, public address,
-  5 s; v2.10 item 14: the first 64 KB is read and a page whose visible text is under 5 KB and
-  whose title or text shows an error phrase such as "404", "This page could not be found" or
-  "Bad Gateway" fails with `ErrorPageError`; `liveCheckDetail` caches that phrase as the
+  5 s; v2.10 item 14: the probe asks for HTML (`accept: text/html,*/*;q=0.8`), reads the first
+  64 KB and, only for an HTML response (content-type text/html, or a body starting `<!doctype` or
+  `<html`; JSON and other API bodies pass on any 2xx, Ruling H4), fails a page whose visible text
+  is under 5 KB and whose title or text shows a specific error phrase such as "404 Not Found",
+  "Page not found", "This page could not be found", "Application error" or "Bad Gateway" (never
+  a bare "404" or "not found") with `ErrorPageError`; `liveCheckDetail` caches that phrase as the
   `url_checks.note` and the entry's fix line is `liveErrorLine`: "Your live link loads but shows
   an error (...)". There's no JS execution, so an error drawn by client JS isn't caught. The
   builder bonus live signal (traction.ts) uses the same probe, so an error page counts as a down

@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   ErrorPageError,
+  PROBE_ACCEPT,
   PROBE_MAX_BYTES,
   SafeFetchError,
   errorPageText,
@@ -489,4 +490,47 @@ test('2.4 safeProbe: a 200 titled 404: NOT_FOUND throws ErrorPageError, also aft
     }),
     isPhrase,
   );
+});
+
+// Ruling H4 (T2 fix round 1): only HTML is scanned, specific phrases only, and probes ask for HTML.
+
+/** A 200 with `body` and, when given, a content-type; records the Accept header each request sent. */
+const typed =
+  (body: string, contentType?: string, accepts: (string | undefined)[] = []): Transport =>
+  async ({ accept }) => {
+    accepts.push(accept);
+    return { status: 200, contentType, body: chunks(body) };
+  };
+
+test('H4 safeProbe: a JSON 200 that says "not found" passes, with or without a content-type', async () => {
+  await safeProbe('https://example.com/api', { resolve: publicResolver, transport: typed('{"error":"Page not found"}', 'application/json') });
+  await safeProbe('https://example.com/api', { resolve: publicResolver, transport: typed('{"status":"404 Not Found"}') });
+  await safeProbe('https://example.com/api', { resolve: publicResolver, transport: typed('Internal Server Error', 'text/plain') });
+});
+
+test('H4 safeProbe: an HTML page with a phone number containing 404 passes; a bare "not found" in copy passes', async () => {
+  const page = '<!doctype html><html><head><title>Tipjar</title></head><body><p>Call us at (404) 555-0100.</p><p>If your tip is not found, write to us.</p></body></html>';
+  assert.equal(errorPageText(page), null);
+  await safeProbe('https://example.com/', { resolve: publicResolver, transport: typed(page, 'text/html; charset=utf-8') });
+});
+
+test('H4 safeProbe: a "Page not found" HTML page fails, by content-type or by its doctype', async () => {
+  const page = '<html><head><title>Tipjar</title></head><body><h1>Page not found</h1></body></html>';
+  await assert.rejects(safeProbe('https://example.com/', { resolve: publicResolver, transport: typed(page, 'text/html') }), (e) =>
+    e instanceof ErrorPageError && /Page not found/.test(e.phrase),
+  );
+  await assert.rejects(safeProbe('https://example.com/', { resolve: publicResolver, transport: typed(`  <!DOCTYPE html>${page}`) }), (e) =>
+    e instanceof ErrorPageError && /Page not found/.test(e.phrase),
+  );
+  // The new specific phrases.
+  for (const phrase of ['404 Not Found', 'Application error: a client-side exception has occurred', 'TypeError: Failed to fetch'])
+    assert.ok(errorPageText(`<html><title>App</title><p>${phrase}</p></html>`), phrase);
+});
+
+test('H4 safeProbe asks for HTML; text fetches still ask for text/plain', async () => {
+  const accepts: (string | undefined)[] = [];
+  await safeProbe('https://example.com/', { resolve: publicResolver, transport: typed('<html><title>Tipjar</title></html>', 'text/html', accepts) });
+  await safeFetchText('https://example.com/f.txt', { resolve: publicResolver, transport: typed('ok', 'text/plain', accepts) });
+  assert.deepEqual(accepts, [PROBE_ACCEPT, undefined]);
+  assert.equal(PROBE_ACCEPT, 'text/html,*/*;q=0.8');
 });
