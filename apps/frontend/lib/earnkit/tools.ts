@@ -705,6 +705,15 @@ export function listProgramsInput(input: unknown) {
     signed_in: typeof signed_in === 'string' ? signed_in : undefined };
 }
 
+/**
+ * v2.10 Ruling H10 (I1): what the agent does with the short first reply. A yes to the lead's "Want me
+ * to finish it?" prepares lead.program_id with lead.repo; the tables (more: true) only when the
+ * builder asks to see more, "Want the 3 easiest?" included.
+ */
+export const LEAD_NOTE =
+  'A yes to "Want me to finish it?" means start preparing lead.program_id with lead.repo (call prepare_submission). ' +
+  'Call list_programs again with more: true only when the builder asks to see more programs, or says yes to "Want the 3 easiest?".';
+
 /** v2.8.1 §E18: what the agent does with list_programs' pick_up offer. */
 export const PICKUP_NOTE =
   'Ask the builder pick_up.question once, as written, before anything else. On yes, call pick_up_entries with answer "yes"; ' +
@@ -1274,6 +1283,16 @@ export const tools = {
       deadline: await takeDeadlineLine(ctx.installationId, myEntries),
       more: more === true,
     };
+    // v2.8 Ruling 30 (plan): at most one entry per call whose results were due; asked once. Read
+    // after every other read (review minor 11), so nothing after marking it asked can lose the
+    // question. Never fails the tool (the entry is then asked on a later call). v2.10 Ruling H10
+    // (I3): one question per reply, pickup first, then this one, then the lead's: with a pickup it
+    // waits (not read, so not marked asked).
+    const ask = pickup || (!own && !loginEntries?.length) ? null : await outcomeToAsk(ctx.installationId, undefined, loginEntries ?? undefined).catch((err: unknown) => {
+      console.error('[list_programs] outcome ask', err instanceof Error ? err.name : 'error');
+      return null;
+    });
+    first.holdQuestion = Boolean(pickup || ask);
     // v2.10 item 5: no token offer here; the token is pitched once, at confirmation.
     const show_to_builder = presentFirstMessage(first);
     // v2.9 A8: what matching showed (the matched rows on screen, one per program), for the outcome
@@ -1281,7 +1300,9 @@ export const tools = {
     // another builder's) until memoryKey names a verified builder.
     // v2.10 item 2: the short reply shows only its lead row (leadRow), "show more" every matched row.
     const shownLayout = { cards: withPools.filter((c) => !hide.has(c.id)), repos: yourRepos, entries: myEntries };
-    const onScreen = !own ? [] : more ? layout(shownLayout).rows : [leadRow(shownLayout)].filter((r) => r !== undefined);
+    // Ruling H10 (I1): the lead the short reply asks about, for the agent's yes.
+    const lead = more || first.holdQuestion ? undefined : leadRow(shownLayout);
+    const onScreen = !own ? [] : more ? layout(shownLayout).rows : [lead].filter((r) => r !== undefined);
     await recordShown(
       ctx.installationId,
       onScreen.flatMap((r) =>
@@ -1291,16 +1312,8 @@ export const tools = {
       ),
     ).catch((err: unknown) => console.error('[list_programs] match shown', err instanceof Error ? err.name : 'error'));
 
-    // v2.8 Ruling 30 (plan): at most one entry per call whose results were due; asked once. Read
-    // last (review minor 11), so nothing after marking it asked can lose the question. Never fails
-    // the tool (the entry is then asked on a later call).
-    const ask = !own && !loginEntries?.length ? null : await outcomeToAsk(ctx.installationId, undefined, loginEntries ?? undefined).catch((err: unknown) => {
-      console.error('[list_programs] outcome ask', err instanceof Error ? err.name : 'error');
-      return null;
-    });
-
     return {
-      show_to_builder: pickup ? `${pickup.question}\n\n${show_to_builder}` : show_to_builder,
+      show_to_builder: pickup ? [pickup.question, show_to_builder].filter(Boolean).join('\n\n') : show_to_builder,
       ...(pickup && { pick_up: { question: pickup.question, agent_note: PICKUP_NOTE } }),
       note:
         'Show show_to_builder to the builder exactly as written. ' +
@@ -1312,7 +1325,9 @@ export const tools = {
             ? 'EarnKit remembers the repos you reported for next time. '
             : "Next time, pass local_repos: read the builder's local git remotes and report each repo the builder wrote; skip clones of other people's code and EarnKit's kits. Never ask for a GitHub username first. ") +
         'Program facts were checked against their sources on verified_at; within 7 days, no need to re-read them.' +
-        (more ? '' : ' When the builder says yes to "Want the 3 easiest?" or asks to see more, call list_programs again with more: true.'),
+        (more ? '' : ` ${LEAD_NOTE}`),
+      // Ruling H10 (I1): what the lead line offers; a yes to it starts that program's preparation.
+      ...(lead && { lead: { program_id: lead.card.id, repo: lead.repo } }),
       ...(walletNote && { wallet_note: walletNote }),
       ...(alerts.scheduleNote && { schedule_daily_check: alerts.scheduleNote }),
       ...(ask && {

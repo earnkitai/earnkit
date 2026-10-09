@@ -109,7 +109,8 @@ export const LIST_PROGRAMS_DESCRIPTION =
   'Returns show_to_builder: show it exactly as written, with no extra summary or advice. ' +
   // v2.10 item 2: one lead line first; the tables behind more.
   'It is one line: what their best repo can win and one question, or how much is open and "Want the 3 easiest?". ' +
-  'When the builder says yes or asks for more, call again with more: true: it leads with "EarnKit matches you to $X in prizes you qualify for" when their repos fit, ' +
+  'A yes to "Want me to finish it?" starts preparing lead.program_id with lead.repo. ' +
+  'Only when the builder asks to see more, or says yes to "Want the 3 easiest?", call again with more: true: it leads with "EarnKit matches you to $X in prizes you qualify for" when their repos fit, ' +
   'or "$X in prizes open right now" with ideas you can build when there is no repo. Every program shows ' +
   'its difficulty; one builder bonus line comes before the closing offer. ' +
   'matches lists, per repo and program, what is missing (live_url, mainnet_deploy, new_work, ' +
@@ -376,7 +377,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           ),
         signed_in: SIGNED_IN,
         // v2.10 item 2: "show more".
-        more: z.boolean().optional().describe('true for the full tables, after the builder says yes to "Want the 3 easiest?" or asks for more'),
+        more: z.boolean().optional().describe('true for the full tables, only when the builder asks to see more or says yes to "Want the 3 easiest?" (never for a yes to the lead)'),
       },
       annotations: { readOnlyHint: true },
     },

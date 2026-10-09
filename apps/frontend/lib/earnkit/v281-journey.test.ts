@@ -1,4 +1,5 @@
 import './fixtures/no-network-checks';
+import { withoutQuotedFacts } from './fixtures/quoted-facts';
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -676,7 +677,8 @@ test('every journey reply: under 50 s, the bonus note at most once, no em dash, 
     assert.doesNotMatch(s.text, NO_BONUS_NOTE, where);
     assert.doesNotMatch(JSON.stringify(s.reply), /—/, where);
     assert.doesNotMatch(JSON.stringify(s.reply), /clanker/i, where);
-    assert.doesNotMatch(s.text, /\bvaults?\b/i, where);
+    // Ruling H10 (I2): the ban is EarnKit's wording; a program's quoted focus areas may say vaults.
+    assert.doesNotMatch(withoutQuotedFacts(s.text), /\bvaults?\b/i, where);
     assert.deepEqual(coinWords(s.text), [], where);
     assert.doesNotMatch(s.reply.show_to_builder ?? '', TECHNICAL_TERMS, where);
     // An agent that can push never hears the line meant for one that can't.

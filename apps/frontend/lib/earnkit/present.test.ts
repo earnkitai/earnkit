@@ -1201,3 +1201,14 @@ test('8.4 v2.10 item 2: "show more" renders the v2.9 tables, low-odds rows label
   const brief = presentFirstMessage({ ...msg(m), more: undefined });
   assert.ok(!brief.includes('|') && !brief.includes('Builder bonus'), brief);
 });
+
+test('Ruling H10 (I3): holdQuestion: the short reply drops the lead line, "show more" drops the closing offer; nothing else changes', () => {
+  const m = { cards: [arcOnArc, base], repos: fit('TipJar', arc.id), alerts: ['you won $100'] };
+  assert.equal(presentFirstMessage(short({ ...m, holdQuestion: true })), 'Since you last checked: you won $100.');
+  assert.equal(presentFirstMessage(short({ cards: [arcOnArc], holdQuestion: true })), '');
+  const full = presentFirstMessage(msg(m));
+  const held = presentFirstMessage(msg({ ...m, holdQuestion: true }));
+  assert.match(full, /\n\nWant me to start on Arc Microgrants with TipJar\?$/);
+  assert.equal(held, full.replace(/\n\nWant me to start on Arc Microgrants with TipJar\?$/, ''));
+  assert.doesNotMatch(held, /\?/);
+});

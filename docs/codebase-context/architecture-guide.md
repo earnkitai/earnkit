@@ -2065,8 +2065,18 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
     entry can earn it). Without `focus` or `past_rounds`, `Guide.rules_wants` (the first 2 `rules`)
     prints as "What it wants" in `guideText` only; `Guide.wants` is unchanged, so the public
     `/programs/<id>` page is unchanged (P2). `GUIDE_NOTE` and `get_program`'s `guide_note` are gone.
-    Base's focus area reads "DeFi 2.0: lending, borrowing, yield" (the banned word "vaults" dropped,
-    since the guide is now builder text).
+    Ruling H10 (I2): program files keep their sourced wording ("vaults" in Base's focus areas); the
+    copy scans' "vault" ban is EarnKit's wording, so the journeys exempt only the guide's quoted
+    program facts (`fixtures/quoted-facts.ts withoutQuotedFacts`: the bullets under "What won ...",
+    "What <X> wants now" and "What it wants"). On a shared client the guide repeats on each prepare
+    without `coach_asked` (R13).
+  - *One question per reply (Ruling H10).* Priority: the pickup question, then `ask_outcome`, then
+    the lead's question. With a pickup, `outcomeToAsk` isn't read (so the entry isn't marked asked)
+    and `FirstMessage.holdQuestion` drops the lead line (short) or the closing offer (more); with
+    an outcome to ask, the lead line is dropped. The short reply returns `lead: { program_id, repo }`
+    when its lead line is shown; `LEAD_NOTE` (and the list_programs description) say a yes to "Want
+    me to finish it?" prepares that program, and `more: true` is only for a builder asking to see
+    more or saying yes to "Want the 3 easiest?".
 - **The answer bank** (`answer-bank.ts`, table `answer_bank`, Ruling 6): `confirm_entry` (go or
   skip) banks the final answers per installation, project (`projectKey`: normalized repo, else
   `name:<name>`) and kind; `other` is never banked; a kind with two fields banks the first. Contact

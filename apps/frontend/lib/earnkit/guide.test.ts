@@ -422,3 +422,17 @@ test('8.7 v2.10 item 3: the committed Avalanche file (no focus, no past rounds) 
   const text = guideText(g);
   assert.ok(text.includes(`What it wants\n- ${p.rules[0]}\n- ${p.rules[1]}`), text);
 });
+
+test('Ruling H10 (I2): the copy check exempts only the guide\'s quoted program facts from the "vault" ban', async () => {
+  const { withoutQuotedFacts } = await import('./fixtures/quoted-facts');
+  const p = ProgramFile.parse(JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/base-builder-grants.json'), 'utf8')));
+  // The Base file keeps its sourced wording; the public guide (wants) says it.
+  assert.ok(p.focus?.areas.some((a) => /vaults/.test(a)));
+  const text = guideText(programGuide({ ...p, ends_at: p.ends_at ? new Date(p.ends_at) : null } as never, null, NOW));
+  assert.match(text, /vaults/);
+  assert.doesNotMatch(withoutQuotedFacts(text), /vault/i);
+  // The header, difficulty and best bet are still scanned; EarnKit's own words are never exempt.
+  assert.ok(withoutQuotedFacts(text).includes('Your best bet\n- '));
+  assert.match(withoutQuotedFacts(`${text}\n\nYour token vault`), /vault/);
+  assert.match(withoutQuotedFacts('What Base wants now\n- vaults\n\nPut it in a vault?'), /a vault\?/);
+});

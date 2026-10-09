@@ -453,7 +453,7 @@ apps/frontend/
     human-text.ts(+test)       v2.8 Ruling 16: humanStrings (string/template/JSX text of a source file, via the TypeScript AST) and humanTextFiles; the test bans the em dash in all human text;
                                final review M1: notHumanText skips .test.ts/.test.tsx/.test.mts, and walkDir never enters a fixtures directory
     no-cell.ts                 NO_CELL (''), the empty table cell or chip; import-free so the client ProgramCard shares it (final review M1); present.ts re-exports it
-    present.ts(+test)          v2.10 item 2: FirstMessage.more ("show more": the v2.9 body), leadRow, leadLine, MORE_QUESTION;
+    present.ts(+test)          v2.10 item 2: FirstMessage.more ("show more": the v2.9 body), holdQuestion (H10), leadRow, leadLine, MORE_QUESTION;
                                without more, the short first reply (news, entries, deadline, private lines, one lead)
                                v2.10 item 7: YourRepos.unseen (with the App link) and fromLocal; privateRepoLines
                                v2.10 items 1, 5, 15: bonusLine (the one bonus line; H8: the offered program's pool), Card.bonus_tokens, FirstMessage.deadline;
@@ -568,7 +568,7 @@ apps/frontend/
     http.ts(+test)             CORS + small response helpers; secretMatches, bearerMatches
                                (timing-safe; v2.4 cron and veto)
     tools.ts                   tool name -> handler + input validation (+ caller's installation);
-                               v2.10 items 2, 3: list_programs more (pools only then); prepare_submission prepends the guide on the first call
+                               v2.10 items 2, 3: list_programs more (pools only then), lead + LEAD_NOTE, one question (H10); prepare_submission prepends the guide on the first call
                                v2.10: withAlerts(ctx, result, signedIn?) puts the deadline line first; ToolContext.roundPools;
                                no firstTokenOffer/token_offer; prepare_submission takes signed_in; launchFromOffer re-asks with confirmLine.
                                v2.8.1 T7: prepare_submission leads the coach's questions with
