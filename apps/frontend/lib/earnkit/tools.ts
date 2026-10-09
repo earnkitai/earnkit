@@ -103,6 +103,7 @@ import {
   draftTable,
   fixesLine,
   askableKeys,
+  PLAIN_NOTE,
   preSubmitCheck,
   questionsFor,
   type Fix,
@@ -624,6 +625,16 @@ const DRAFT_NOTE = 'The table is the draft; when the builder says "show all", sh
 const AGENT_FIXES_NOTE =
   'Before showing show_to_builder, make every agent_fixes change yourself (trim to the limit, add the link you know) and call again.';
 const FIXES_NOTE = 'If the builder gives what a fix asks for, add it to that answer and call again.';
+
+/**
+ * v2.10 item 11: while a description field isn't plain words (a not_plain fix), the confirmation is
+ * refused with the agent's fixes and note only: nothing is recorded or launched, and the builder
+ * sees nothing. Null when every description field is plain. Pure.
+ */
+export function plainRefusal(fixes: Fix[]): { ready: false; agent_fixes: Fix[]; agent_note: string } | null {
+  if (!fixes.some((f) => f.rule === 'not_plain')) return null;
+  return { ready: false, agent_fixes: fixes.filter((f) => f.for === 'agent'), agent_note: PLAIN_NOTE };
+}
 
 /** v2.8.1 §C11: what the agent does with the wallet answer from the coach's round. */
 const WALLET_ANSWER_NOTE =
@@ -1757,6 +1768,10 @@ export const tools = {
       };
     }
 
+    // v2.10 item 11: a "go" or "skip" waits until every description field is plain words.
+    const unplain = plainRefusal(fixes);
+    if (unplain) return unplain;
+
     // Each confirmation may read GitHub and tokens.fun: bounded per hour, like record_submission.
     await enforce('entryChecks', ctx.installationId, 'This agent has checked 60 entries in the last hour.');
     const entry = await startEntry({
@@ -1981,6 +1996,16 @@ export const tools = {
     // v2.8.1 §A5: the reply comes within 50 s; a deploy still running then answers "launching".
     const deadline = Date.now() + launchReplyMs();
     const parsed = RecordSubmissionInput.parse(input);
+    const program = await getProgramRow(parsed.program_id);
+    // v2.10 item 11, Pre-flight P32: an EarnKit campaign is confirmed here (one step), so its
+    // description fields get confirm_entry's plain-words check before anything is read or recorded.
+    if (program.campaign) {
+      const filled = prepareSubmission(program.submission_requirements, { project: parsed.project, answers: answersOf(parsed.submission_data) });
+      const values = Object.fromEntries(filled.complete.map((c) => [c.key, c.value]));
+      const plain = preSubmitCheck({ reqs: program.submission_requirements, answers: values, judging: null }).filter((f) => f.rule === 'not_plain');
+      const unplain = plainRefusal(plain);
+      if (unplain) return unplain;
+    }
     // Every attempt reads GitHub, Base and the explorer, and (v2.5 §3, external programs) the
     // submission proof page: bounded per hour. Only a recorded entry uses one of the 20 a day
     // (v2.4 §2).
@@ -1990,7 +2015,6 @@ export const tools = {
       'This agent has checked 60 entries in the last hour.',
     );
     // v2.9 A5: this step's link and contract checks, stored on the entry and read for completeness.
-    const program = await getProgramRow(parsed.program_id);
     const verified = await entryChecks(program, parsed.project, answersOf(parsed.submission_data), ctx);
     const result = await recordSubmission(parsed, ctx.installationId, {
       program,

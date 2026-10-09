@@ -503,10 +503,45 @@ export function coachIntro(title: string, questions: Question[]): string | null 
 export type Fix = {
   key: string;
   /** 'unverified' (v2.9 A5): the live link didn't load, or no contract was found (tools.ts checkFix). */
-  rule: 'empty' | 'no_number' | 'no_date' | 'no_proof_link' | 'criterion' | 'over_limit' | 'unverified';
+  rule: 'empty' | 'no_number' | 'no_date' | 'no_proof_link' | 'criterion' | 'over_limit' | 'unverified' | 'not_plain';
   for: 'builder' | 'agent';
   text: string;
 };
+
+/** v2.10 item 11: the description fields that must read as plain words. */
+export type PlainKind = 'name' | 'one_liner' | 'problem' | 'solution' | 'how_it_works';
+const PLAIN_KINDS: readonly FieldKind[] = ['name', 'one_liner', 'problem', 'solution', 'how_it_works'] satisfies PlainKind[];
+const isPlainKind = (k: FieldKind): k is PlainKind => PLAIN_KINDS.includes(k);
+/** The agent fix for a field that isn't plain words (spec wording). */
+export const PLAIN_FIX = (label: string) => `${label}: rewrite in plain words, no addresses or numbers lists.`;
+/** confirm_entry's note while a not_plain fix stands; the builder never sees it. */
+export const PLAIN_NOTE = "Rewrite the agent_fixes answers in plain words, then call again with the new answers. Don't show this to the builder.";
+
+const ADDRESS_RE = /\b0x[0-9a-fA-F]{40}\b/;
+const HASH_RE = /\b0x[0-9a-fA-F]{64}\b/;
+const HEX_RUN_RE = /\b[0-9a-fA-F]{16,}\b/;
+const KEY_VALUE_RE = /(?:^|[,;\n])\s*[A-Za-z][\w ]{0,20}:\s*[\w$.%-]+\s*(?:[,;\n]\s*[A-Za-z][\w ]{0,20}:\s*[\w$.%-]+)+/;
+const URL_RE = /\bhttps?:\/\/\S+/gi;
+const NUMBER_RE = /\d[\d,.]*/g;
+
+/**
+ * v2.10 item 11: why a description field isn't plain words (the reason, for the agent), or null.
+ * Flags a raw address, hash or long hex run; a `key: value` list; 4 or more numbers in one
+ * sentence; a link (how_it_works keeps one); and a text over the form's max_chars, else its
+ * limit_words. Pure.
+ */
+export function plainProblem(text: string, kind: PlainKind, limit: { max_chars?: number; limit_words?: number } = {}): string | null {
+  const t = text.trim();
+  if (!t) return null;
+  if (HASH_RE.test(t) || ADDRESS_RE.test(t) || HEX_RUN_RE.test(t)) return 'raw address or hash';
+  if (KEY_VALUE_RE.test(t)) return 'key: value list';
+  if (t.split(/(?<=[.!?])\s+/).some((s) => (s.match(NUMBER_RE) ?? []).length >= 4)) return 'too many numbers in one sentence';
+  const links = (t.match(URL_RE) ?? []).length;
+  if (kind !== 'how_it_works' && links > 0) return 'link in a text field';
+  if (kind === 'how_it_works' && links > 1) return 'more than one link';
+  if (limit.max_chars ? t.length > limit.max_chars : limit.limit_words ? words(t) > limit.limit_words : false) return 'too long';
+  return null;
+}
 
 const NEEDS: Record<'link' | 'number' | 'date', (v: string) => boolean> = {
   link: (v) => LINK.test(v),
@@ -519,8 +554,9 @@ const NEEDS: Record<'link' | 'number' | 'date', (v: string) => boolean> = {
  * Builder fixes, in this order, at most MAX_FIXES: empty (only the stored snapshot sees it, as
  * prepare_submission checks once ready), no_number, no_date, no_proof_link, criterion (only a
  * program's hand-written fix, C13). Agent fixes after them: over_limit (only a limit the program
- * states: max_chars or its own guidance.limit_words), and the proof link when the agent knows one
- * (`knownLinks`).
+ * states: max_chars or its own guidance.limit_words), not_plain (v2.10 item 11: a description
+ * field that isn't plain words, `plainProblem`; it replaces that field's over_limit), and the
+ * proof link when the agent knows one (`knownLinks`).
  */
 export function preSubmitCheck(a: {
   reqs: SubmissionRequirement[];
@@ -564,6 +600,14 @@ export function preSubmitCheck(a: {
   for (const r of a.reqs) {
     const v = val(r);
     if (!v) continue;
+    // v2.10 item 11: a description field that isn't plain words; replaces its over_limit fix. A field
+    // the program's own criterion asks to link keeps one link, as how_it_works does.
+    const k = kindOf(r);
+    const asksLink = a.judging?.criteria.some((c) => c.fix?.needs === 'link' && c.fix.kind === k) ?? false;
+    if (isPlainKind(k) && plainProblem(v, asksLink ? 'how_it_works' : k, { max_chars: r.max_chars, limit_words: r.guidance?.limit_words })) {
+      agent.push({ key: r.key, rule: 'not_plain', for: 'agent', text: PLAIN_FIX(label(r)) });
+      continue;
+    }
     const limit = r.guidance?.limit_words;
     if (limit && words(v) > limit)
       agent.push({ key: r.key, rule: 'over_limit', for: 'agent', text: `${label(r)}: trim it to ${limit} words (now ${words(v)}).` });

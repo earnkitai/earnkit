@@ -8,6 +8,7 @@ import {
   decodeImage,
   outcomeOf,
   retryAtOf,
+  tokenDescription,
   tryAgainAfter,
   xProfileUrl,
 } from './tokens';
@@ -300,6 +301,68 @@ test('4.12 (R10) a private repo\'s entry sends tokens.fun the live link as websi
     // A public repo keeps the v2.9 website (the repo URL when there is no live link).
     const pub = await entry(4, { live: null, repoPrivate: false });
     assert.equal((await launch(pub, null)).body.website, pub.repo);
+  } finally {
+    console.log = log;
+    if (key === undefined) delete process.env.TOKENSFUN_DEPLOY_API_KEY;
+    else process.env.TOKENSFUN_DEPLOY_API_KEY = key;
+    await sql()`DELETE FROM projects WHERE program_id = ${tag}`;
+    await sql()`DELETE FROM programs WHERE id = ${tag}`;
+    await sql()`DELETE FROM installations WHERE id = ${inst.id}`;
+  }
+});
+
+test('5.5 tokenDescription: plain words up to 280 characters, else the one-liner, else "<Name> on Base"', () => {
+  const addr = `0x${'ab12'.repeat(10)}`;
+  assert.equal(tokenDescription({ name: 'TipJar', description: 'Tips for creators in USDC.' }), 'Tips for creators in USDC.');
+  // A long clean description is kept, cut at a word boundary.
+  const long = 'Tip Jar lets fans tip creators in USDC on Base with one tap and no sign up. '.repeat(6).trim();
+  const cut = tokenDescription({ name: 'TipJar', description: long });
+  assert.ok(cut.length <= 280, String(cut.length));
+  assert.ok(long.startsWith(cut));
+  assert.match(long.slice(cut.length), /^\s/, 'cut at a word boundary');
+  // Unplain description: the one-liner.
+  assert.equal(
+    tokenDescription({ name: 'TipJar', description: `Contract ${addr} TVL: 1, tx: 2`, one_liner: '  Tips for creators in USDC.  ' }),
+    'Tips for creators in USDC.',
+  );
+  // Both unplain (or missing): the name on Base.
+  assert.equal(tokenDescription({ name: 'TipJar', description: `Contract ${addr} TVL: 1, tx: 2`, one_liner: `See ${addr}` }), 'TipJar on Base');
+  assert.equal(tokenDescription({ name: 'TipJar', description: null }), 'TipJar on Base');
+  assert.equal(tokenDescription({ name: 'TipJar', description: '  ', one_liner: null }), 'TipJar on Base');
+});
+
+test('5.6 deployToken sends tokens.fun the plain description', dbTest, async () => {
+  const { sql } = await import('./db');
+  const { deployToken } = await import('./tokens');
+  const key = process.env.TOKENSFUN_DEPLOY_API_KEY;
+  process.env.TOKENSFUN_DEPLOY_API_KEY = 'test-key';
+  const tag = `t56-${process.pid}-${Date.now()}`;
+  const log = console.log;
+  console.log = () => {};
+  const addr = `0x${'ab12'.repeat(10)}`;
+  const [inst] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${tag}) RETURNING id`;
+  await sql()`
+    INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work)
+    VALUES (${tag}, 'X', 'P', 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed')`;
+  const launch = async (n: number, description: string | null, application: unknown) => {
+    const repo = `https://github.com/alice/${tag}-${n}`;
+    const [p] = await sql()<{ id: number }[]>`
+      INSERT INTO projects (program_id, name, installation_id, repo_url, description, application)
+      VALUES (${tag}, 'TipJar', ${inst.id}, ${repo}, ${description}, ${application === null ? null : sql().json(application as never)}) RETURNING id`;
+    let sent = '';
+    const out = await deployToken(
+      { projectId: p.id, installationId: inst.id, name: 'Tip Jar', symbol: 'TIPJ', creatorWallet: `0x${'1'.repeat(40)}`, image: null, repoUrl: repo, liveUrl: null },
+      { fetch: (async (_u: unknown, init?: RequestInit) => ((sent = String(init?.body)), Response.json({ success: true, tokenAddress: `0x${(await import('node:crypto')).randomBytes(20).toString('hex')}`, txHash: '0x1' }))) as typeof fetch },
+    );
+    assert.equal(out.status, 'launched');
+    return (JSON.parse(sent) as { description: string }).description;
+  };
+  const app = (oneLiner: string) => ({ answers: { pitch: oneLiner, sol: 'x' }, kinds: { pitch: 'one_liner', sol: 'solution' }, fixes: [], at: new Date().toISOString() });
+  try {
+    assert.equal(await launch(1, 'Tips for creators in USDC.', null), 'Tips for creators in USDC.');
+    assert.equal(await launch(2, `Contract ${addr} TVL: 1, tx: 2`, app('Fans tip creators in USDC.')), 'Fans tip creators in USDC.');
+    assert.equal(await launch(3, `Contract ${addr} TVL: 1, tx: 2`, null), 'TipJar on Base');
+    assert.equal(await launch(4, null, null), 'TipJar on Base');
   } finally {
     console.log = log;
     if (key === undefined) delete process.env.TOKENSFUN_DEPLOY_API_KEY;
