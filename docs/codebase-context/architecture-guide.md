@@ -2934,6 +2934,9 @@ The v2.8.1 journeys (`v281-journey.test.ts`) still pass unchanged on Part 1.
   EarnKit builders in the last 7 days (announced only, test installations excluded); the
   installation's entered programs closing, or with `results.expected`, in the next 7 days (on a shared
   client only the entries the subscription's login signed in for, `github_verifications`). At most 5 lines each.
+  Every builder-supplied name in the email (a winning project, a repo; lines and subject) goes
+  through `cleanName`: URLs, bare domains, emails and @handles removed, at most 40 characters (cut at
+  a word), else a neutral fallback ("An EarnKit builder", "your repo").
   The text ends with "Ask your agent..." and the unsubscribe link.
 - **Unsubscribe.** Every email carries `List-Unsubscribe: <https://earnkit.com/api/digest/unsubscribe?t=...>`
   and `List-Unsubscribe-Post: List-Unsubscribe=One-Click`. The token is `<installation id>.<HMAC-SHA256

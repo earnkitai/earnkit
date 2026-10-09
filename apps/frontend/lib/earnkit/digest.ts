@@ -91,15 +91,47 @@ export type DigestFacts = {
 const money = (usd: number | null) => (usd ? `$${usd.toLocaleString('en-US')}` : null);
 const day = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 
-/** The email: new programs, then wins, then the builder's deadlines; null when all three are empty. Pure. */
+/** The most characters of a builder-supplied name an email shows. */
+export const NAME_MAX = 40;
+const URL_RE = /\b(?:https?:\/\/|www\.)[^\s()<>[\]]+/gi;
+const EMAIL_RE = /\S+@\S+\.\S+/g;
+const HANDLE_RE = /(^|[^\w])@[\w.-]+/g;
+const DOMAIN_RE = /\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|net|org|io|xyz|app|dev|co|ai|fun|gg|me|so|link|site|money|finance|info|biz|ly|to|sh)\b(?:\/[^\s()<>[\]]*)?/gi;
+
+/**
+ * A builder-supplied project name as the email shows it to other people: URLs, bare domains, emails
+ * and @handles removed, spaces collapsed, at most NAME_MAX characters (cut at a word when it can be),
+ * else `fallback` when nothing is left. Pure.
+ */
+export function cleanName(name: string, fallback: string): string {
+  const plain = name
+    .replace(URL_RE, ' ')
+    .replace(EMAIL_RE, ' ')
+    .replace(DOMAIN_RE, ' ')
+    .replace(HANDLE_RE, '$1 ')
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\(\s*\)|\[\s*\]|<\s*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^[\s\-:,.|/]+|[\s\-:,.|/]+$/g, '');
+  if (!plain) return fallback;
+  if (plain.length <= NAME_MAX) return plain;
+  const cut = plain.slice(0, NAME_MAX);
+  const space = cut.lastIndexOf(' ');
+  return (space >= NAME_MAX / 2 ? cut.slice(0, space) : cut).replace(/[\s\-:,.|/]+$/, '');
+}
+
+/**
+ * The email: new programs, then wins, then the builder's deadlines; null when all three are empty.
+ * Every builder-supplied name (a repo, a winning project) goes through cleanName. Pure.
+ */
 export function digestBody(f: DigestFacts): { subject: string; text: string } | null {
   const lines = [
-    ...f.newPrograms.map((p) => `New: ${p.title} fits ${p.repo}${money(p.prize_usd) ? `, ${money(p.prize_usd)}` : ''}${p.ends_at ? `, closes ${day(p.ends_at)}` : ''}.`),
-    ...f.wins.map((w) => `Won: ${w.name} in ${w.program}${money(w.prize_usd) ? `, ${money(w.prize_usd)}` : ''}.`),
+    ...f.newPrograms.map((p) => `New: ${p.title} fits ${cleanName(p.repo, 'your repo')}${money(p.prize_usd) ? `, ${money(p.prize_usd)}` : ''}${p.ends_at ? `, closes ${day(p.ends_at)}` : ''}.`),
+    ...f.wins.map((w) => `Won: ${cleanName(w.name, 'An EarnKit builder')} in ${w.program}${money(w.prize_usd) ? `, ${money(w.prize_usd)}` : ''}.`),
     ...f.deadlines.map((d) => `Your ${d.program}: ${d.what === 'closes' ? 'closes' : 'results due'} ${day(d.at)}.`),
   ];
   if (lines.length === 0) return null;
-  const subject = f.newPrograms[0] ? `New: ${f.newPrograms[0].title} fits ${f.newPrograms[0].repo}` : 'Your EarnKit week';
+  const subject = f.newPrograms[0] ? `New: ${f.newPrograms[0].title} fits ${cleanName(f.newPrograms[0].repo, 'your repo')}` : 'Your EarnKit week';
   return { subject, text: `${lines.join('\n')}\n\nAsk your agent "What can I earn?" to start.` };
 }
 
