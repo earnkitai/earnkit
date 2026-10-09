@@ -72,6 +72,8 @@ export default function Footer() {
       </div>
 
       <p className="mt-4 text-center font-funnel-sans text-sm text-ek-blue-soft">
+        EarnKit is a product of Tokenfi Inc.
+        <br />
         &copy; {new Date().getFullYear()} Tokenfi Inc. All rights reserved.
       </p>
     </footer>

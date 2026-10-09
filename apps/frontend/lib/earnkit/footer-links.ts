@@ -39,7 +39,7 @@ export const FOOTER_COLUMNS: FooterColumn[] = [
       { label: 'For sponsors', href: FOR_SPONSORS },
     ],
   },
-  { title: 'Legal', links: [{ label: 'Policy', href: '/policy' }] },
+  { title: 'Legal', links: [{ label: 'Terms', href: '/terms' }] },
   {
     title: 'Contact',
     links: [

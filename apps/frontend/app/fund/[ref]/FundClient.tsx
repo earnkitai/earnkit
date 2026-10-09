@@ -99,7 +99,7 @@ export default function FundClient({
                 <span>
                   I agree to the{' '}
                   <a
-                    href="/sponsor-terms"
+                    href="/terms#sponsor-terms"
                     target="_blank"
                     className="underline"
                   >

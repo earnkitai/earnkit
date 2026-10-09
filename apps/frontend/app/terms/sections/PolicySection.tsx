@@ -1,23 +1,16 @@
 import type { ReactNode } from 'react';
-import Footer from '../components/common/Footer';
-import { Eyebrow, Panel } from '../components/common/Panel';
-import BonusPill from '../components/ui/BonusPill';
-import { X } from '../lib/links';
+import { Eyebrow, Panel } from '../../components/common/Panel';
+import BonusPill from '../../components/ui/BonusPill';
+import { X } from '../../lib/links';
 import {
   CLANKER_CUT_PCT,
   CONTACT_EMAIL,
   FEE_ROWS,
+  MINI_LINE,
   PLACE_ROWS,
   SAFE_ADDRESS,
   SIGNAL_ROWS,
-} from '../../lib/earnkit/policy';
-
-export const metadata = {
-  title: 'Policy · EarnKit',
-  description:
-    'How EarnKit matches builders to programs, where token fees go, and how the builder bonus is funded, ranked and paid.',
-  alternates: { canonical: 'https://earnkit.com/policy' },
-};
+} from '../../../lib/earnkit/policy';
 
 const link = 'text-ek-white underline underline-offset-4 transition-colors hover:text-ek-blue-soft';
 
@@ -77,18 +70,19 @@ function Table({ head, rows }: { head: [string, string]; rows: [string, string |
 }
 
 /**
- * The public policy (v2.5 §4): matching, the fee split, the builder bonus (funding, eligibility,
- * ranking, review, payout), the optional coin, no affiliation, contact. Every number comes from
- * lib/earnkit/policy.ts, which reads the constants the code applies.
+ * The public policy (v2.5 §4), /terms#policy since v2.9 F22: matching, the fee split (then the
+ * MINI line, F24), the builder bonus (funding, eligibility, ranking, review, payout), the optional
+ * token, no affiliation, contact. Every number comes from lib/earnkit/policy.ts, which reads the
+ * constants the code applies.
  */
-export default function PolicyPage() {
+export default function PolicySection() {
   return (
-    <div className="w-full pt-4">
-      <Panel className="py-12 md:py-16" label="Policy">
+    <>
+      <Panel className="mt-4 py-12 md:py-16" label="Policy">
         <Eyebrow>Policy</Eyebrow>
-        <h1 className="mt-4 font-funnel-display text-3xl font-medium text-ek-white md:text-5xl">
+        <h2 id="policy" className="mt-4 scroll-mt-32 font-funnel-display text-3xl font-medium text-ek-white md:text-5xl">
           How EarnKit works
-        </h1>
+        </h2>
         <p className="mt-4 max-w-2xl font-funnel-sans text-base font-light text-ek-blue-light md:text-lg">
           Plain answers on matching, token fees and the builder bonus.
         </p>
@@ -114,6 +108,7 @@ export default function PolicyPage() {
             The rest is split, paid in WETH on Base:
           </p>
           <Table head={['Recipient', 'Share']} rows={FEE_ROWS} />
+          <p>{MINI_LINE}.</p>
           <p>
             EarnKit&apos;s share goes to its Safe on Base:{' '}
             <a
@@ -212,8 +207,6 @@ export default function PolicyPage() {
           </p>
         </Section>
       </Panel>
-
-      <Footer />
-    </div>
+    </>
   );
 }
