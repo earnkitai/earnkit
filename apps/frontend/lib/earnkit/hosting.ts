@@ -4,7 +4,7 @@ import { githubRepo, normalizeRepoUrl } from './campaigns';
 import { sql, type Db } from './db';
 import { siteUrl } from './entry-text';
 import { FreeTierFull, freeTierRoom } from './free-tier';
-import { createVerifyLink, githubVerifyEnabled, takeHostVerification } from './github-verify';
+import { VERIFY_TTL_MS, createVerifyLink, githubVerifyEnabled, takeHostVerification, verifiedFor } from './github-verify';
 import { HOST_RESERVED, SITE_PREFIX, STATE_PREFIX, contentTypeFor } from './host-names';
 import { bearerMatches, json } from './http';
 import { sharedGroup } from './installations';
@@ -45,8 +45,12 @@ export const HOST_LIMITS = {
 /** The zone the sites live under. */
 export const HOST_ZONE = 'earnkit.com';
 
+/**
+ * Fix round 1 (review M1): no `.xml`. Served as application/xml, an XHTML document renders forms
+ * and scripts the page scan and the badge never see.
+ */
 export const STATIC_EXT: ReadonlySet<string> = new Set(
-  'html htm css js mjs json map png jpg jpeg gif webp avif svg ico woff woff2 ttf otf wasm txt xml webmanifest'.split(' '),
+  'html htm css js mjs json map png jpg jpeg gif webp avif svg ico woff woff2 ttf otf wasm txt webmanifest'.split(' '),
 );
 
 // ---- Builder lines (plain, money-free: hosting is a means to the entry)
@@ -73,6 +77,9 @@ export const HOST_LINES = {
   takenDown: 'This site was taken down.',
   expired: 'This upload link has expired or was used.',
   failed: "The site couldn't be saved; try again.",
+  notUtf8: "Save the site's pages as UTF-8.",
+  busy: 'Another upload for this site is still going; try again in a minute.',
+  repoHasSite: 'This repo already has a site.',
 } as const;
 /** Agent text: an upload that uses browser storage still deploys; the agent hears this once. */
 export const STORAGE_NOTE = 'This app uses browser storage, which hosted sites block: keep that state in memory.';
@@ -142,12 +149,16 @@ export function stripTopFolder(names: string[]): string | null {
 
 const BRANDS = /\b(metamask|coinbase|phantom|rabby|trust\s?wallet|ledger|binance|kraken|chase|wells\s?fargo|bank of america|paypal|revolut)\b/i;
 
+const SEED = /\b(seed|recovery|secret|mnemonic) (phrase|words?)\b|\bmnemonic\b|\b(12|24)[- ]words?\b|\b(enter|paste|type|import) (your )?private key\b/i;
+
 /** Spec C14's upload scan (regex). Any flag sends the site to owner review. Pure. */
 export function abuseFlags(files: { path: string; text: string }[]): string[] {
   const out = new Set<string>();
   for (const f of files) {
     if (/<input[^>]+type\s*=\s*["']?password/i.test(f.text) && BRANDS.test(f.text)) out.add('password-brand');
-    if (/\b(seed|recovery)\s+phrase\b/i.test(f.text)) out.add('seed-phrase');
+    // Fix round 1 (review M1): the words as a reader sees them (tags gone, entities and spaces collapsed).
+    const plain = f.text.replace(/<[^>]*>/g, '').replace(/&nbsp;|&#160;|&#xa0;/gi, ' ').replace(/\s+/g, ' ');
+    if (SEED.test(plain)) out.add('seed-phrase');
     if (/\b(approve|setApprovalForAll|increaseAllowance|permit)\s*\(\s*["']?0x[0-9a-fA-F]{40}/.test(f.text)) out.add('hardcoded-approval');
   }
   return [...out];
@@ -325,8 +336,20 @@ const siteLink = (slug: string) => `https://${slug}.${HOST_ZONE}`;
 /** verify.ts's url_checks key for the hosted link (canonicalBuilderUrl adds the `/`). */
 const checkKey = (slug: string) => `url:${siteLink(slug)}/`;
 const stateKey = (slug: string) => `${STATE_PREFIX}${slug}.json`;
-const stateBody = (status: 'live' | 'review' | 'killed' | 'ended', login: string) =>
-  new TextEncoder().encode(JSON.stringify({ status, login }));
+const stateBody = (status: 'live' | 'killed' | 'ended', login: string) => new TextEncoder().encode(JSON.stringify({ status, login }));
+/**
+ * Fix round 1 (I1): where a flagged upload, or any redeploy of a live site, is written first. The
+ * Worker serves only `sites/` and `state/`, so nothing here is ever public.
+ */
+export const STAGING_PREFIX = 'staging/';
+const stagingOf = (slug: string, deployId: number) => `${STAGING_PREFIX}${slug}/${deployId}/`;
+
+/** A link takes at most this many upload attempts (review M2). */
+const MAX_ATTEMPTS = 5;
+/** A deploy still `deploying` after this is treated as failed (a crash or restart mid-write). */
+const STALE_DEPLOY_MS = 10 * 60_000;
+/** Keys recorded on the deploy row before each batch of puts (I3). */
+const WRITE_BATCH = 25;
 
 export type HostOffer = { upload_url: string; expires_at: string } | { sign_in_url: string } | { unavailable: string };
 
@@ -356,13 +379,19 @@ export async function refreshSiteExpiry(repoUrl: string, now = new Date()): Prom
     SELECT slug, deployed_at FROM hosted_sites WHERE repo_key = ${repoKey} AND status IN ('live', 'review')`;
   if (!site) return;
   const expires = siteExpiry({ deployedAt: site.deployed_at, entered: await enteredPrograms(repoKey), now });
-  await sql()`UPDATE hosted_sites SET expires_at = ${expires} WHERE slug = ${site.slug}`;
+  await sql()`UPDATE hosted_sites SET expires_at = ${expires}, expiry_checked_at = ${now} WHERE slug = ${site.slug}`;
 }
+
+/** Statuses whose site counts toward an account's 3 (reserved, in review or live). */
+const HELD = ['live', 'review', 'deploying'];
+/** Deploy rows whose bytes sit in R2 outside a published site (counted toward 8 GB, I3). */
+const UNPUBLISHED = ['deploying', 'review', 'failed'];
 
 /**
  * The limits a new deploy of `slug` (for `repoKey`, adding `bytes`) must pass, or the refusal and
- * its status: 3 sites per login (this repo's own excluded), 10 deploys in 24 h, total storage
- * under 8 GB, and room in the R2 free tier for its writes.
+ * its status: 3 sites per login (this repo's own excluded, reserved ones included), 10 deploys in
+ * 24 h, total storage under 8 GB (published sites plus every unpublished or uncleaned deploy), and
+ * room in the R2 free tier for its writes.
  */
 async function limitProblem(
   db: Db,
@@ -370,9 +399,10 @@ async function limitProblem(
 ): Promise<{ line: string; status: number } | null> {
   const [r] = await db<{ sites: number; deploys: number; stored: string }[]>`
     SELECT
-      (SELECT count(*)::int FROM hosted_sites WHERE lower(login) = ${a.login} AND status IN ('live', 'review') AND repo_key <> ${a.repoKey}) AS sites,
+      (SELECT count(*)::int FROM hosted_sites WHERE lower(login) = ${a.login} AND status IN ${db(HELD)} AND repo_key <> ${a.repoKey}) AS sites,
       (SELECT count(*)::int FROM host_deploys WHERE lower(login) = ${a.login} AND at > ${new Date(a.now.getTime() - DAY_MS)}) AS deploys,
-      (SELECT coalesce(sum(bytes), 0)::text FROM hosted_sites WHERE status IN ('live', 'review') AND slug <> ${a.slug}) AS stored`;
+      ((SELECT coalesce(sum(bytes), 0) FROM hosted_sites WHERE status IN ${db(HELD)} AND slug <> ${a.slug})
+        + (SELECT coalesce(sum(bytes), 0) FROM host_deploys WHERE status IN ${db(UNPUBLISHED)}))::text AS stored`;
   if (r.sites >= HOST_LIMITS.sitesPerAccount) return { line: HOST_LINES.sites, status: 409 };
   if (r.deploys >= HOST_LIMITS.deploysPerDay) return { line: HOST_LINES.deploys, status: 429 };
   const stored = Number(r.stored) + a.bytes;
@@ -381,19 +411,22 @@ async function limitProblem(
   return null;
 }
 
-/** Why `slug` can't be this repo's site (taken down, or another repo's), or null. */
+/** Why `slug` can't be this repo's site (taken down, another repo's, or the repo has another), or null. */
 async function slugProblem(db: Db, slug: string, repoKey: string): Promise<string | null> {
   const rows = await db<{ slug: string; repo_key: string; status: string }[]>`
     SELECT slug, repo_key, status FROM hosted_sites WHERE slug = ${slug} OR repo_key = ${repoKey}`;
+  const gone = (s: string) => s === 'ended' || s === 'failed';
   if (rows.some((r) => r.status === 'killed')) return HOST_LINES.takenDown;
-  if (rows.some((r) => r.slug === slug && r.repo_key !== repoKey && r.status !== 'ended')) return HOST_LINES.nameTaken;
+  if (rows.some((r) => r.slug === slug && r.repo_key !== repoKey && !gone(r.status))) return HOST_LINES.nameTaken;
+  if (rows.some((r) => r.slug !== slug && r.repo_key === repoKey && !gone(r.status))) return HOST_LINES.repoHasSite;
   return null;
 }
 
 /**
  * Ruling 8: prepare_submission's `host: true`. A one-time upload URL (15 minutes) once the repo has
  * a GitHub sign-in that passes the gate and the limits; the sign-in link when it has none (on a
- * shared client: none unused from the last 15 minutes, P11); else a plain reason.
+ * shared client: none unused from the last 15 minutes, P11, used only when a URL is issued, review
+ * M3); else a plain reason. A new URL revokes the repo's unused ones (I2).
  */
 export async function issueUpload(a: { installationId: number; repoKey: string; project: string }, now = new Date()): Promise<HostOffer> {
   if (!r2Enabled() || !githubVerifyEnabled()) return { unavailable: HOST_LINES.unavailable };
@@ -401,34 +434,57 @@ export async function issueUpload(a: { installationId: number; repoKey: string; 
   if (!gh) return { unavailable: HOST_LINES.noRepo };
   const repoKey = `${gh.owner}/${gh.repo}`.toLowerCase();
   const shared = await sharedGroup(a.installationId);
-  const v = await takeHostVerification({ installationId: a.installationId, repoKey, shared }, now);
-  if (!v) return { sign_in_url: await createVerifyLink({ installationId: a.installationId, projectId: null, repoKey, purpose: 'host' }, now) };
+  const signIn = async (): Promise<HostOffer> => ({
+    sign_in_url: await createVerifyLink({ installationId: a.installationId, projectId: null, repoKey, purpose: 'host' }, now),
+  });
+  const v = shared
+    ? await verifiedFor({ installationId: a.installationId, repoKey, purpose: 'host', since: new Date(now.getTime() - VERIFY_TTL_MS) })
+    : await takeHostVerification({ installationId: a.installationId, repoKey, shared }, now);
+  if (!v) return signIn();
   if (!hostGatePasses(v, now)) return { unavailable: HOST_LINES.gate };
   const login = v.login.toLowerCase();
-  // One site per repo: a redeploy keeps the repo's address while the same account owns it.
-  const [own] = await sql()<{ slug: string; login: string }[]>`SELECT slug, login FROM hosted_sites WHERE repo_key = ${repoKey}`;
-  const slug = own && own.login.toLowerCase() === login ? own.slug : slugFor(a.project, login);
+  // One site per repo: a redeploy keeps the repo's address.
+  const [own] = await sql()<{ slug: string }[]>`SELECT slug FROM hosted_sites WHERE repo_key = ${repoKey}`;
+  const slug = own ? own.slug : slugFor(a.project, login);
   if (!slug) return { unavailable: HOST_LINES.badName };
   const taken = await slugProblem(sql(), slug, repoKey);
   if (taken) return { unavailable: taken };
-  const limit = await limitProblem(sql(), { login, repoKey, slug, bytes: 0, writes: HOST_LIMITS.files + 3, now });
+  const limit = await limitProblem(sql(), { login, repoKey, slug, bytes: 0, writes: 2 * HOST_LIMITS.files + 4, now });
   if (limit) return { unavailable: limit.line };
+  // P11: the shared sign-in is used now, once, by this URL (a lost race asks for a new sign-in).
+  if (shared) {
+    const used = await takeHostVerification({ installationId: a.installationId, repoKey, shared }, now);
+    if (!used || used.login.toLowerCase() !== login) return signIn();
+  }
   const token = randomBytes(32).toString('base64url');
   const expires = new Date(now.getTime() + HOST_LIMITS.uploadTtlMs);
-  await sql()`
-    INSERT INTO host_upload_tokens (token_hash, installation_id, login, repo_key, slug, project, expires_at)
-    VALUES (${sha256(token)}, ${a.installationId}, ${login}, ${repoKey}, ${slug}, ${a.project}, ${expires})`;
+  await sql().begin(async (tx) => {
+    await tx`UPDATE host_upload_tokens SET used_at = ${now} WHERE repo_key = ${repoKey} AND used_at IS NULL`;
+    await tx`
+      INSERT INTO host_upload_tokens (token_hash, installation_id, login, repo_key, slug, project, expires_at)
+      VALUES (${sha256(token)}, ${a.installationId}, ${login}, ${repoKey}, ${slug}, ${a.project}, ${expires})`;
+  });
   return { upload_url: `${siteUrl()}/api/host/upload?t=${token}`, expires_at: expires.toISOString() };
 }
 
 type TokenRow = { installation_id: number; login: string; repo_key: string; slug: string; project: string };
 
-/** The upload token's row while it is unused and unexpired (nothing changes), or null. */
+/** The upload token's row while it is usable (unused, unexpired, under 5 attempts); nothing changes. */
 export async function uploadToken(token: string, now = new Date()): Promise<TokenRow | null> {
   if (!token) return null;
   const [row] = await sql()<TokenRow[]>`
     SELECT installation_id, login, repo_key, slug, project FROM host_upload_tokens
-    WHERE token_hash = ${sha256(token)} AND used_at IS NULL AND expires_at > ${now}`;
+    WHERE token_hash = ${sha256(token)} AND used_at IS NULL AND expires_at > ${now} AND attempts < ${MAX_ATTEMPTS}`;
+  return row ?? null;
+}
+
+/** One upload attempt on the token (review M2): its row, or null when it is not usable. */
+async function attemptUpload(token: string, now: Date): Promise<TokenRow | null> {
+  if (!token) return null;
+  const [row] = await sql()<TokenRow[]>`
+    UPDATE host_upload_tokens SET attempts = attempts + 1
+    WHERE token_hash = ${sha256(token)} AND used_at IS NULL AND expires_at > ${now} AND attempts < ${MAX_ATTEMPTS}
+    RETURNING installation_id, login, repo_key, slug, project`;
   return row ?? null;
 }
 
@@ -440,27 +496,64 @@ const refused = (status: number, line: string): DeployReply => ({ status, body: 
 /** Scanned for abuse (SVG can carry a form or script too); only HTML gets the badge. */
 const TEXT_FILE = /\.(html?|js|mjs|svg)$/i;
 const HTML_FILE = /\.html?$/i;
+/** A UTF-16 or UTF-32 byte order mark: the browser would decode what the scan can't read. */
+const wideBom = (d: Uint8Array) => (d[0] === 0xff && d[1] === 0xfe) || (d[0] === 0xfe && d[1] === 0xff) || (d[0] === 0 && d[1] === 0 && d[2] === 0xfe && d[3] === 0xff);
 
-/** Writes a site's state first, then deletes its files (an end or a takedown), then its row. */
-async function closeSite(r2: R2, slug: string, login: string, status: 'killed' | 'ended') {
-  await r2.put(stateKey(slug), stateBody(status, login), 'application/json');
-  await r2.del(await r2.list(`${SITE_PREFIX}${slug}/`));
-  await sql()`UPDATE hosted_sites SET status = ${status} WHERE slug = ${slug}`;
-  await sql()`DELETE FROM url_checks WHERE key = ${checkKey(slug)}`;
+/** Copies a staged deploy into `sites/<slug>/`, removes files it no longer has, then the staged copy. */
+async function promote(r2: R2, slug: string, staging: string, names: string[]) {
+  const prefix = `${SITE_PREFIX}${slug}/`;
+  const old = await r2.list(prefix);
+  for (const n of names) await r2.copy(staging + n, prefix + n);
+  const keep = new Set(names.map((n) => prefix + n));
+  await r2.del(old.filter((k) => !keep.has(k)));
+  await r2.del(names.map((n) => staging + n));
 }
 
 /**
- * POST /api/host/upload: the upload URL's token (one use), then the zip: read with hard limits,
- * checked, scanned and badged; the gate and the limits again under one lock; then R2 (the files,
- * old files removed, then the state; a flagged site's `review` state goes first) and the row. A
- * live site's link counts as verified at once (Ruling G19, P39). Errors log the class only.
+ * Ends a site (an expiry or the kill switch): its state first, then everything it has in R2
+ * (served and staged), then the rows. Works on a slug with no row (I3).
+ */
+async function closeSite(r2: R2, slug: string, login: string, status: 'killed' | 'ended') {
+  await r2.put(stateKey(slug), stateBody(status, login), 'application/json');
+  await r2.del([...(await r2.list(`${SITE_PREFIX}${slug}/`)), ...(await r2.list(`${STAGING_PREFIX}${slug}/`))]);
+  await sql()`UPDATE hosted_sites SET status = ${status} WHERE slug = ${slug}`;
+  await sql()`UPDATE host_deploys SET status = 'cleaned', done_at = now() WHERE slug = ${slug} AND status IN ('review', 'failed')`;
+  await sql()`DELETE FROM url_checks WHERE key = ${checkKey(slug)}`;
+}
+
+/** A deploy that threw: the deploy and a never-published site are `failed`; the cron cleans its keys. */
+async function failDeploy(id: number, slug: string) {
+  await sql()`UPDATE host_deploys SET status = 'failed' WHERE id = ${id} AND status = 'deploying'`;
+  await sql()`UPDATE hosted_sites SET status = 'failed' WHERE slug = ${slug} AND status = 'deploying'`;
+}
+
+const isKilled = async (slug: string) =>
+  (await sql()<{ status: string }[]>`SELECT status FROM hosted_sites WHERE slug = ${slug}`)[0]?.status === 'killed';
+class KilledMidDeploy extends Error {
+  constructor() {
+    super('killed while deploying');
+    this.name = 'KilledMidDeploy';
+  }
+}
+
+/**
+ * POST /api/host/upload: one attempt on the token (5 at most), then the zip: read with hard limits,
+ * checked, scanned and badged. Under one lock (I2): the slug, one deploy at a time per slug and per
+ * login, the limits (reserved sites and unpublished bytes count), the token's one use, then the
+ * deploy row and, for a site with nothing live, its `deploying` row, all before any R2 write. Then
+ * R2, recording each batch of keys on the deploy row before it is written (I3):
+ * - a site with nothing live and a clean zip: straight into `sites/<slug>/`, then the `live` state;
+ * - a flagged zip, or any redeploy of a live site: `staging/<slug>/<deploy>/` (never served, I1);
+ *   a clean one is then copied into place, a flagged one waits for the owner (approveSite).
+ * A failure marks the deploy `failed` (the cron removes its keys). A live site's link counts as
+ * verified at once (Ruling G19, P39). Errors log the class only.
  */
 export async function deploySite(token: string, zip: Uint8Array, deps: { r2?: R2; now?: Date } = {}): Promise<DeployReply> {
   const now = deps.now ?? new Date();
   const r2 = deps.r2 ?? (r2Enabled() ? r2Client() : null);
   if (!r2) return refused(503, HOST_LINES.unavailable);
   if (zip.length > HOST_LIMITS.siteBytes) return refused(413, HOST_LINES.tooBig);
-  const t = await uploadToken(token, now);
+  const t = await attemptUpload(token, now);
   if (!t) return refused(410, HOST_LINES.expired);
   const read = readZip(zip);
   if ('problem' in read) return refused(read.status, read.problem);
@@ -469,8 +562,10 @@ export async function deploySite(token: string, zip: Uint8Array, deps: { r2?: R2
     SELECT account_created_at, public_repos FROM github_verifications WHERE login = ${t.login} ORDER BY verified_at DESC, id DESC LIMIT 1`;
   if (!v || !hostGatePasses(v, now)) return refused(403, HOST_LINES.gate);
 
+  const pages = read.files.filter((f) => TEXT_FILE.test(f.name));
+  if (pages.some((f) => wideBom(f.data))) return refused(400, HOST_LINES.notUtf8);
   const utf8 = new TextDecoder();
-  const texts = read.files.filter((f) => TEXT_FILE.test(f.name)).map((f) => ({ path: f.name, text: utf8.decode(f.data) }));
+  const texts = pages.map((f) => ({ path: f.name, text: utf8.decode(f.data) }));
   const flags = abuseFlags(texts);
   const storage = usesStorage(texts);
   const html = new Map(texts.filter((f) => HTML_FILE.test(f.path)).map((f) => [f.path, f.text]));
@@ -479,82 +574,131 @@ export async function deploySite(token: string, zip: Uint8Array, deps: { r2?: R2
     return { name: f.name, data: page === undefined ? f.data : new TextEncoder().encode(withBadge(page, t.login, t.slug)) };
   });
   const bytes = files.reduce((n, f) => n + f.data.length, 0);
-  const status = flags.length > 0 ? 'review' : 'live';
+  const flagged = flags.length > 0;
 
-  // The limits and the token's one use, serialized across deploys.
-  const blocked = await sql().begin(async (tx) => {
+  const reserved = await sql().begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtext('earnkit-hosting'))`;
     const taken = await slugProblem(tx, t.slug, t.repo_key);
     if (taken) return { line: taken, status: 409 };
-    const limit = await limitProblem(tx, { login: t.login, repoKey: t.repo_key, slug: t.slug, bytes, writes: files.length + 3, now });
+    const [busy] = await tx`
+      SELECT 1 FROM host_deploys WHERE status = 'deploying' AND at > ${new Date(now.getTime() - STALE_DEPLOY_MS)}
+        AND (slug = ${t.slug} OR lower(login) = ${t.login}) LIMIT 1`;
+    if (busy) return { line: HOST_LINES.busy, status: 409 };
+    const limit = await limitProblem(tx, { login: t.login, repoKey: t.repo_key, slug: t.slug, bytes, writes: 2 * files.length + 4, now });
     if (limit) return limit;
     const used = await tx`
       UPDATE host_upload_tokens SET used_at = ${now}
       WHERE token_hash = ${sha256(token)} AND used_at IS NULL AND expires_at > ${now} RETURNING 1`;
     if (used.length === 0) return { line: HOST_LINES.expired, status: 410 };
-    await tx`INSERT INTO host_deploys (login, slug, at) VALUES (${t.login}, ${t.slug}, ${now})`;
-    return null;
+    // The repo's ended or failed row under another address frees the repo for this one.
+    await tx`DELETE FROM hosted_sites WHERE repo_key = ${t.repo_key} AND slug <> ${t.slug}`;
+    const [site] = await tx<{ status: string }[]>`SELECT status FROM hosted_sites WHERE slug = ${t.slug}`;
+    const live = site?.status === 'live';
+    if (!live)
+      await tx`
+        INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status, deployed_at)
+        VALUES (${t.slug}, ${t.login}, ${t.repo_key}, ${t.installation_id}, 0, 0, 'deploying', ${now})
+        ON CONFLICT (slug) DO UPDATE SET login = EXCLUDED.login, repo_key = EXCLUDED.repo_key,
+          installation_id = EXCLUDED.installation_id, bytes = 0, files = 0, status = 'deploying', flags = '{}',
+          deployed_at = EXCLUDED.deployed_at, expires_at = NULL`;
+    // An earlier upload still in review is replaced by this one; the cron removes its staged copy.
+    await tx`UPDATE host_deploys SET status = 'failed' WHERE slug = ${t.slug} AND status = 'review'`;
+    const [d] = await tx<{ id: number }[]>`
+      INSERT INTO host_deploys (login, slug, repo_key, at, status, bytes, files, flags)
+      VALUES (${t.login}, ${t.slug}, ${t.repo_key}, ${now}, 'deploying', ${bytes}, ${files.length}, ${flags}) RETURNING id`;
+    return { id: d.id, live };
   });
-  if (blocked) return refused(blocked.status, blocked.line);
+  if ('line' in reserved) return refused(reserved.status, reserved.line);
 
-  const prefix = `${SITE_PREFIX}${t.slug}/`;
-  const [prev] = await sql()<{ slug: string; login: string }[]>`
-    SELECT slug, login FROM hosted_sites WHERE repo_key = ${t.repo_key} AND slug <> ${t.slug}`;
+  const { id, live } = reserved;
+  const staged = flagged || live;
+  const prefix = staged ? stagingOf(t.slug, id) : `${SITE_PREFIX}${t.slug}/`;
+  const track = (keys: string[]) => sql()`UPDATE host_deploys SET written = written || ${keys}::text[] WHERE id = ${id}`;
   try {
-    if (status === 'review') await r2.put(stateKey(t.slug), stateBody('review', t.login), 'application/json');
-    const old = await r2.list(prefix);
-    for (const f of files) await r2.put(prefix + f.name, f.data, contentTypeFor(f.name));
-    const keep = new Set(files.map((f) => prefix + f.name));
-    await r2.del(old.filter((k) => !keep.has(k)));
-    if (status === 'live') await r2.put(stateKey(t.slug), stateBody('live', t.login), 'application/json');
-    // The repo's old address (a renamed project, or another account's): ended, its files removed.
-    if (prev) await closeSite(r2, prev.slug, prev.login, 'ended');
+    const old = staged ? [] : await r2.list(prefix);
+    for (let i = 0; i < files.length; i += WRITE_BATCH) {
+      const batch = files.slice(i, i + WRITE_BATCH);
+      await track(batch.map((f) => prefix + f.name));
+      for (const f of batch) await r2.put(prefix + f.name, f.data, contentTypeFor(f.name));
+    }
+    if (!flagged) {
+      if (await isKilled(t.slug)) throw new KilledMidDeploy();
+      if (staged)
+        await promote(
+          r2,
+          t.slug,
+          prefix,
+          files.map((f) => f.name),
+        );
+      else {
+        const keep = new Set(files.map((f) => prefix + f.name));
+        await r2.del(old.filter((k) => !keep.has(k)));
+        await track([stateKey(t.slug)]);
+        await r2.put(stateKey(t.slug), stateBody('live', t.login), 'application/json');
+      }
+    }
   } catch (err) {
     console.error('[hosting] deploy', errorClass(err));
+    await failDeploy(id, t.slug).catch((e: unknown) => console.error('[hosting] deploy mark', errorClass(e)));
+    if (err instanceof KilledMidDeploy) return refused(409, HOST_LINES.takenDown);
     return err instanceof FreeTierFull ? refused(507, HOST_FULL) : refused(502, HOST_LINES.failed);
   }
 
   const expires = siteExpiry({ deployedAt: now, entered: await enteredPrograms(t.repo_key), now });
-  await sql().begin(async (tx) => {
-    if (prev) await tx`DELETE FROM hosted_sites WHERE slug = ${prev.slug}`;
-    await tx`
-      INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status, flags, deployed_at, expires_at)
-      VALUES (${t.slug}, ${t.login}, ${t.repo_key}, ${t.installation_id}, ${bytes}, ${files.length}, ${status}, ${flags}, ${now}, ${expires})
-      ON CONFLICT (slug) DO UPDATE SET login = EXCLUDED.login, repo_key = EXCLUDED.repo_key,
-        installation_id = EXCLUDED.installation_id, bytes = EXCLUDED.bytes, files = EXCLUDED.files, status = EXCLUDED.status,
-        flags = EXCLUDED.flags, deployed_at = EXCLUDED.deployed_at, expires_at = EXCLUDED.expires_at`;
-    // Ruling G19, P39: a live deploy's link is verified now (no stale failure, no cached 404);
-    // a site in review is not.
-    if (status === 'live')
+  const published = await sql().begin(async (tx) => {
+    await tx`UPDATE host_deploys SET status = ${flagged ? 'review' : 'live'}, done_at = ${flagged ? null : now} WHERE id = ${id}`;
+    if (flagged) {
+      // A new site waits in review with nothing served; a live one keeps serving its approved files.
       await tx`
-        INSERT INTO url_checks (key, ok, checked_at) VALUES (${checkKey(t.slug)}, true, ${now})
-        ON CONFLICT (key) DO UPDATE SET ok = true, checked_at = EXCLUDED.checked_at`;
-    else await tx`DELETE FROM url_checks WHERE key = ${checkKey(t.slug)}`;
+        UPDATE hosted_sites SET status = 'review', flags = ${flags}, expires_at = ${expires}, expiry_checked_at = ${now}
+        WHERE slug = ${t.slug} AND status = 'deploying'`;
+      if (!live) await tx`DELETE FROM url_checks WHERE key = ${checkKey(t.slug)}`;
+      return true;
+    }
+    const done = await tx`
+      UPDATE hosted_sites SET login = ${t.login}, installation_id = ${t.installation_id}, bytes = ${bytes}, files = ${files.length},
+        status = 'live', flags = ${flags}, deployed_at = ${now}, expires_at = ${expires}, expiry_checked_at = ${now}
+      WHERE slug = ${t.slug} AND repo_key = ${t.repo_key} AND status IN ('deploying', 'live') RETURNING 1`;
+    if (done.length === 0) return false;
+    // Ruling G19, P39: a live deploy's link is verified now (no stale failure, no cached 404).
+    await tx`
+      INSERT INTO url_checks (key, ok, checked_at) VALUES (${checkKey(t.slug)}, true, ${now})
+      ON CONFLICT (key) DO UPDATE SET ok = true, checked_at = EXCLUDED.checked_at`;
+    return true;
   });
-  if (status === 'review') return { status: 200, body: { show_to_builder: HOST_REVIEW, review: true } };
+  if (!published) {
+    // Taken down while this deploy wrote: take it down again.
+    await closeSite(r2, t.slug, t.login, 'killed').catch((e: unknown) => console.error('[hosting] deploy kill', errorClass(e)));
+    return refused(409, HOST_LINES.takenDown);
+  }
+  if (flagged) return { status: 200, body: { show_to_builder: HOST_REVIEW, review: true } };
   return {
     status: 200,
     body: { show_to_builder: liveLine(t.project, t.slug), url: siteLink(t.slug), ...(storage && { agent_note: STORAGE_NOTE }) },
   };
 }
 
-/** Sites ended per cron run, and rolling expiries set per run. */
+/** Sites ended per cron run, rolling expiries checked per run, failed deploys cleaned per run. */
 const EXPIRE_BATCH = 20;
 const ROLLING_BATCH = 50;
+const CLEAN_BATCH = 10;
 
 /**
- * The hourly cron (Ruling 10): sets `now + 7 days` once on sites whose rolling programs have all
- * ended, then ends up to EXPIRE_BATCH sites past their expiry: `ended` state first (the Worker
- * serves the end page), files deleted, row ended. One site's failure never stops the others.
+ * The hourly cron (Ruling 10): checks up to ROLLING_BATCH sites with no expiry, the least recently
+ * checked first (I4: every one comes round), setting `now + 7 days` once their programs all ended;
+ * then ends up to EXPIRE_BATCH sites past their expiry: `ended` state first (the Worker serves the
+ * end page), files deleted, row ended. One site's failure never stops the others.
  */
 export async function expireSites(now: Date, deps: { r2?: R2 } = {}): Promise<{ ended: number }> {
   const r2 = deps.r2 ?? r2Client();
   const open = await sql()<{ slug: string; repo_key: string; deployed_at: Date }[]>`
     SELECT slug, repo_key, deployed_at FROM hosted_sites
-    WHERE status IN ('live', 'review') AND expires_at IS NULL ORDER BY deployed_at LIMIT ${ROLLING_BATCH}`;
+    WHERE status IN ('live', 'review') AND expires_at IS NULL
+    ORDER BY expiry_checked_at NULLS FIRST, deployed_at LIMIT ${ROLLING_BATCH}`;
   for (const s of open) {
     const expires = siteExpiry({ deployedAt: s.deployed_at, entered: await enteredPrograms(s.repo_key), now });
-    if (expires) await sql()`UPDATE hosted_sites SET expires_at = ${expires} WHERE slug = ${s.slug} AND expires_at IS NULL`;
+    await sql()`
+      UPDATE hosted_sites SET expires_at = COALESCE(expires_at, ${expires}), expiry_checked_at = ${now} WHERE slug = ${s.slug}`;
   }
   const due = await sql()<{ slug: string; login: string }[]>`
     SELECT slug, login FROM hosted_sites
@@ -570,27 +714,89 @@ export async function expireSites(now: Date, deps: { r2?: R2 } = {}): Promise<{ 
   return { ended };
 }
 
-/** The owner's kill switch (spec C14): `killed` state first, then the files go. False: no such site. */
+/**
+ * The hourly cron (I3): a deploy `deploying` for over 10 minutes is failed; up to CLEAN_BATCH failed
+ * deploys get their recorded keys deleted (never a live site's served files) and are `cleaned`, so
+ * their bytes stop counting. Then old tokens and finished deploy rows are pruned (review M5).
+ */
+export async function cleanDeploys(now: Date, deps: { r2?: R2 } = {}): Promise<{ cleaned: number }> {
+  const r2 = deps.r2 ?? r2Client();
+  const stale = await sql()<{ slug: string }[]>`
+    UPDATE host_deploys SET status = 'failed'
+    WHERE status = 'deploying' AND at <= ${new Date(now.getTime() - STALE_DEPLOY_MS)} RETURNING slug`;
+  for (const s of stale) await sql()`UPDATE hosted_sites SET status = 'failed' WHERE slug = ${s.slug} AND status = 'deploying'`;
+  const failed = await sql()<{ id: number; slug: string; written: string[] }[]>`
+    SELECT id, slug, written FROM host_deploys WHERE status = 'failed' ORDER BY id LIMIT ${CLEAN_BATCH}`;
+  let cleaned = 0;
+  for (const d of failed)
+    try {
+      const [site] = await sql()<{ status: string }[]>`SELECT status FROM hosted_sites WHERE slug = ${d.slug}`;
+      // A site now live serves files with the same names: only this deploy's staged copy goes.
+      const keys = site?.status === 'live' ? d.written.filter((k) => k.startsWith(STAGING_PREFIX)) : d.written;
+      await r2.del(keys);
+      await sql()`UPDATE host_deploys SET status = 'cleaned', done_at = ${now} WHERE id = ${d.id} AND status = 'failed'`;
+      cleaned++;
+    } catch (err) {
+      console.error('[hosting] clean', errorClass(err));
+    }
+  await sql()`DELETE FROM host_upload_tokens WHERE expires_at < ${new Date(now.getTime() - DAY_MS)}`;
+  await sql()`DELETE FROM host_deploys WHERE status IN ('live', 'cleaned') AND at < ${new Date(now.getTime() - 30 * DAY_MS)}`;
+  return { cleaned };
+}
+
+/**
+ * The owner's kill switch (spec C14): `killed` state first, then every served and staged file. It
+ * also works on a slug that has R2 objects but no row (I3). False: nothing to take down.
+ */
 export async function takedown(slug: string, deps: { r2?: R2 } = {}): Promise<boolean> {
-  const [site] = await sql()<{ login: string }[]>`SELECT login FROM hosted_sites WHERE slug = ${slug.toLowerCase()}`;
-  if (!site) return false;
-  await closeSite(deps.r2 ?? r2Client(), slug.toLowerCase(), site.login, 'killed');
+  const s = slug.toLowerCase();
+  const r2 = deps.r2 ?? r2Client();
+  const [site] = await sql()<{ login: string }[]>`SELECT login FROM hosted_sites WHERE slug = ${s}`;
+  if (!site) {
+    const found = [
+      ...(await r2.list(`${SITE_PREFIX}${s}/`)),
+      ...(await r2.list(`${STAGING_PREFIX}${s}/`)),
+      ...(await r2.list(stateKey(s))),
+    ];
+    if (found.length === 0) return false;
+  }
+  await closeSite(r2, s, site?.login ?? '', 'killed');
   return true;
 }
 
-/** The owner's review passed: a `review` site goes live. False: no such site in review. */
-export async function approveSite(slug: string, deps: { r2?: R2 } = {}): Promise<boolean> {
-  const [site] = await sql()<{ login: string }[]>`
-    SELECT login FROM hosted_sites WHERE slug = ${slug.toLowerCase()} AND status = 'review'`;
-  if (!site) return false;
-  await (deps.r2 ?? r2Client()).put(stateKey(slug.toLowerCase()), stateBody('live', site.login), 'application/json');
-  await sql()`UPDATE hosted_sites SET status = 'live' WHERE slug = ${slug.toLowerCase()} AND status = 'review'`;
+/**
+ * The owner's review passed (I1): the newest upload in review is copied from staging into
+ * `sites/<slug>/` and the site goes live. False: nothing in review (or the site was taken down).
+ */
+export async function approveSite(slug: string, deps: { r2?: R2; now?: Date } = {}): Promise<boolean> {
+  const s = slug.toLowerCase();
+  const now = deps.now ?? new Date();
+  const [d] = await sql()<{ id: number; login: string; repo_key: string; bytes: string; files: number; flags: string[]; written: string[] }[]>`
+    SELECT id, login, repo_key, bytes::text, files, flags, written FROM host_deploys
+    WHERE slug = ${s} AND status = 'review' ORDER BY id DESC LIMIT 1`;
+  if (!d || (await isKilled(s))) return false;
+  const r2 = deps.r2 ?? r2Client();
+  const staging = stagingOf(s, d.id);
+  const names = d.written.filter((k) => k.startsWith(staging)).map((k) => k.slice(staging.length));
+  await promote(r2, s, staging, names);
+  await r2.put(stateKey(s), stateBody('live', d.login), 'application/json');
+  const expires = siteExpiry({ deployedAt: now, entered: await enteredPrograms(d.repo_key), now });
+  await sql().begin(async (tx) => {
+    await tx`UPDATE host_deploys SET status = 'live', done_at = ${now} WHERE id = ${d.id}`;
+    await tx`
+      UPDATE hosted_sites SET status = 'live', login = ${d.login}, bytes = ${d.bytes}, files = ${d.files}, flags = ${d.flags},
+        deployed_at = ${now}, expires_at = ${expires}, expiry_checked_at = ${now}
+      WHERE slug = ${s}`;
+    await tx`
+      INSERT INTO url_checks (key, ok, checked_at) VALUES (${checkKey(s)}, true, ${now})
+      ON CONFLICT (key) DO UPDATE SET ok = true, checked_at = EXCLUDED.checked_at`;
+  });
   return true;
 }
 
-/** The sites waiting on the owner's review (the cron's needs_owner `host-review:<slug>`, P46). */
+/** The sites with an upload waiting on the owner's review (the cron's needs_owner `host-review:<slug>`, P46). */
 export async function sitesInReview(): Promise<string[]> {
-  const rows = await sql()<{ slug: string }[]>`SELECT slug FROM hosted_sites WHERE status = 'review' ORDER BY deployed_at`;
+  const rows = await sql()<{ slug: string }[]>`SELECT DISTINCT slug FROM host_deploys WHERE status = 'review' ORDER BY slug`;
   return rows.map((r) => r.slug);
 }
 

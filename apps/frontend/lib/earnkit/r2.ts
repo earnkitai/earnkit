@@ -5,7 +5,7 @@ import { FreeTierFull, takeFreeTier } from './free-tier';
  * v2.9 C12: the R2 bucket the host Worker serves, written only by the server (EarnKit's key never
  * reaches an agent). An S3 client signed with aws4fetch. Off unless all four variables are set.
  *
- * Every Class A call (put, one list page) is taken from the free-tier counter first
+ * Every Class A call (put, copy, one list page) is taken from the free-tier counter first
  * (`takeFreeTier('r2Writes', 1)`) and throws FreeTierFull when refused, so R2 never bills. Deletes
  * are free on R2 (DeleteObject), so they take nothing.
  *
@@ -24,6 +24,8 @@ export type R2 = {
   /** Every key under the prefix. */
   list(prefix: string): Promise<string[]>;
   del(keys: string[]): Promise<void>;
+  /** Server-side copy (CopyObject, Class A): approval moves a staged site into place. */
+  copy(from: string, to: string): Promise<void>;
 };
 
 /** A failed R2 call: the operation and status, nothing else. */
@@ -55,7 +57,8 @@ export function r2Client(env: Env = process.env): R2 {
     service: 's3',
     region: 'auto',
   });
-  const base = `https://${env.R2_ACCOUNT_ID!.trim()}.r2.cloudflarestorage.com/${encodeURIComponent(env.R2_BUCKET!.trim())}`;
+  const bucket = encodeURIComponent(env.R2_BUCKET!.trim());
+  const base = `https://${env.R2_ACCOUNT_ID!.trim()}.r2.cloudflarestorage.com/${bucket}`;
   const call = async (op: string, url: string, init: RequestInit) => {
     let res: Response;
     try {
@@ -93,6 +96,16 @@ export function r2Client(env: Env = process.env): R2 {
         token = xmlText(token);
       }
       throw new R2Error('list', 'too many keys');
+    },
+    async copy(from, to) {
+      await take();
+      const res = await call('copy', `${base}/${encodeKey(to)}`, {
+        method: 'PUT',
+        headers: { 'x-amz-copy-source': `/${bucket}/${encodeKey(from)}` },
+      });
+      // S3 can answer a failed copy with a 200 and an <Error> body.
+      const body = await res.text();
+      if (/<Error>/.test(body)) throw new R2Error('copy', 'error');
     },
     async del(keys) {
       for (let i = 0; i < keys.length; i += DELETE_CONCURRENCY)

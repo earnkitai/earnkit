@@ -4,7 +4,7 @@ import { sql } from './db';
 import { FINAL_GRACE_MS, REVIEW_MS, type CampaignConfig, type EarnKitCampaign } from './campaigns';
 import { scoreCampaignEntries, type ScoreDeps, type ScoreRow } from './campaign-score';
 import { FEE_TTL_MS, launchedCreatorWallets, refreshFees } from './fees';
-import { expireSites, sitesInReview } from './hosting';
+import { cleanDeploys, expireSites, sitesInReview } from './hosting';
 import { bearerMatches, json } from './http';
 import {
   NOT_MAINNET,
@@ -319,7 +319,7 @@ export async function runCron(
   let hosting: Record<string, unknown> | undefined;
   if (hostingOn) {
     try {
-      hosting = await expireSites(now, deps.hosting);
+      hosting = { ...(await expireSites(now, deps.hosting)), ...(await cleanDeploys(now, deps.hosting)) };
     } catch (err) {
       console.error('[cron] hosting', err instanceof Error ? err.name : 'error');
       hosting = { step: 'error', note: STEP_FAILED };
