@@ -19,16 +19,18 @@ test('every response gets the anti-framing and referrer headers', async () => {
   );
 });
 
-test("the token image keeps its sandbox CSP (config headers replace a route's own)", async () => {
+test("the token image and the generated mark keep their sandbox CSP (config headers replace a route's own)", async () => {
   const rules = await nextConfig.headers!();
-  const i = rules.findIndex((r) => r.source === '/api/projects/:id/image');
-  assert.ok(
-    i > rules.findIndex((r) => r.source === '/:path*'),
-    'after the global rule',
-  );
-  assert.deepEqual(rules[i].headers, [
-    { key: 'Content-Security-Policy', value: IMAGE_CSP },
-  ]);
+  for (const source of ['/api/projects/:id/image', '/api/projects/:id/mark']) {
+    const i = rules.findIndex((r) => r.source === source);
+    assert.ok(
+      i > rules.findIndex((r) => r.source === '/:path*'),
+      `${source} after the global rule`,
+    );
+    assert.deepEqual(rules[i].headers, [
+      { key: 'Content-Security-Policy', value: IMAGE_CSP },
+    ]);
+  }
   assert.match(IMAGE_CSP, /default-src 'none'; sandbox/);
   assert.match(IMAGE_CSP, /frame-ancestors 'none'/);
 });

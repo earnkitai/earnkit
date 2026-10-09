@@ -97,7 +97,10 @@ test('tokenProposalBlock: null when tokens are off or there is no project name',
 test('tokenProposalBlock: the proposal, earnings, terms and the line to show', async () => {
   const b = await tokenProposalBlock({ program: program('encouraged'), installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW' }, free);
   assert.ok(b);
-  assert.deepEqual(b.proposed, { name: 'Chain Kits', symbol: 'CHAIN', image: 'monogram' });
+  // v2.10 item 12: no live link, the generated mark; with one, the site's logo is tried first.
+  assert.deepEqual(b.proposed, { name: 'Chain Kits', symbol: 'CHAIN', image: 'mark' });
+  const site = await tokenProposalBlock({ program: program('encouraged'), installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW', liveUrl: 'https://kit.acme.dev' }, free);
+  assert.equal(site?.proposed.image, 'site');
   assert.equal(b.chain, 'base');
   assert.equal(b.paired_with, 'WETH');
   assert.equal(b.creator_wallet, '0xW');
@@ -239,7 +242,7 @@ test('v2.7 Ruling 16 (plan): no project name: the repo name is the name; with ne
     { program: program('encouraged'), installationId: 1, creatorWallet: '0xW', repoUrl: 'https://github.com/a/tip-jar' },
     free,
   );
-  assert.deepEqual(b?.proposed, { name: 'Tip Jar', symbol: 'TIP', image: 'monogram' });
+  assert.deepEqual(b?.proposed, { name: 'Tip Jar', symbol: 'TIP', image: 'mark' });
   assert.equal(await tokenProposalBlock({ program: program('encouraged'), installationId: 1, creatorWallet: '0xW' }, free), null);
 });
 
@@ -282,6 +285,8 @@ function harness(p: Partial<FlowProject> = {}, extra: Partial<TokenFlowDeps> = {
       },
       screen: async () => {},
     },
+    // v2.10 item 12: no site or GitHub read; a test about the logo passes its own.
+    logo: async () => null,
     deploy: async (a) => {
       deploys.push(a);
       return { status: 'launched', name: a.name, symbol: a.symbol, tokens_fun: 'https://tokens.fun/coin/0xT' } as TokenOutcome;
@@ -457,6 +462,40 @@ test('tokenAfterSubmission: bad image data or a launch error is a failed outcome
   assert.match(out2.note ?? '', /not available/);
 });
 
+test('6.5 the logo is resolved only without the agent\'s image; the upload wins; a throwing logo launches with the mark', async () => {
+  const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(8)]);
+  const asked: unknown[] = [];
+  const logo: TokenFlowDeps['logo'] = async (a) => (asked.push(a), { bytes: PNG, type: 'image/png', from: 'site' });
+  // No image from the agent: the resolved logo's bytes go to the deploy, from the entry's links.
+  let h = harness({ repo_private: true }, { logo });
+  assert.equal((await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true }, h.deps)).status, 'launched');
+  assert.deepEqual(asked, [{ liveUrl: 'https://kit.acme.dev', repoUrl: 'https://github.com/acme/kit', repoPrivate: true }]);
+  assert.deepEqual(h.deploys[0].image, { bytes: PNG, type: 'image/png' });
+  assert.equal(h.deploys[0].imageUrl, undefined);
+  // The agent's upload or link always wins: no logo read.
+  asked.length = 0;
+  const upload = `data:image/jpeg;base64,${Buffer.from([0xff, 0xd8, 0xff, 0]).toString('base64')}`;
+  h = harness({}, { logo });
+  await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: { ...CONFIRMED, image_data: upload }, confirmed: true }, h.deps);
+  assert.equal(h.deploys[0].image?.type, 'image/jpeg');
+  h = harness({}, { logo });
+  await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: { ...CONFIRMED, image_url: 'https://kit.acme.dev/logo.png' }, confirmed: true }, h.deps);
+  assert.equal(h.deploys[0].image, null);
+  assert.equal(h.deploys[0].imageUrl, 'https://kit.acme.dev/logo.png');
+  assert.deepEqual(asked, [], 'never asked when the agent sent an image');
+  // A logo that throws: the launch goes on with no image (deployToken sends the mark).
+  h = harness({}, { logo: async () => { throw new Error('boom'); } });
+  const err = console.error;
+  console.error = () => {};
+  try {
+    assert.equal((await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true }, h.deps)).status, 'launched');
+  } finally {
+    console.error = err;
+  }
+  assert.equal(h.deploys[0].image, null);
+  assert.equal(h.deploys[0].imageUrl, undefined);
+});
+
 test('tokenAfterSubmission: the choice wallet beats the project wallet beats the remembered one', async () => {
   const other = '0x' + 'a'.repeat(40);
   // A campaign entry's payout wallet was proven at entry; earnkit.txt is still read for the token line.
@@ -546,7 +585,7 @@ test('launches not configured: skipped before the gate, no checks', async () => 
 
 test('echoing token.proposed (with image) and a token: null are accepted', async () => {
   const h = harness();
-  const out = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: { ...CONFIRMED, image: 'monogram' }, confirmed: true }, h.deps);
+  const out = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: { ...CONFIRMED, image: 'mark' }, confirmed: true }, h.deps);
   assert.equal(out.status, 'launched');
   const h2 = harness();
   const none = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: null, confirmed: true }, h2.deps);

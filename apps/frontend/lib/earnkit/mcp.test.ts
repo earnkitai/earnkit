@@ -184,7 +184,7 @@ test('record_submission accepts token.proposed echoed verbatim, null, and any bu
     const base = { program_id: 'p', project: { name: 'Kit' }, submission_data: {} };
     for (const extra of [
       // token.proposed from prepare_submission, as is (with `image`).
-      { token: { name: 'Chain Kits', symbol: 'CHAIN', image: 'monogram' }, builder_confirmed: true },
+      { token: { name: 'Chain Kits', symbol: 'CHAIN', image: 'mark' }, builder_confirmed: true },
       { token: null, builder_confirmed: 'yes' },
       { token: 'skip' },
       // Neither "skip" nor an object: EarnKit skips the token with a note, never fails the entry.

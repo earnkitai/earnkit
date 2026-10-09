@@ -372,3 +372,52 @@ test('5.6 deployToken sends tokens.fun the plain description', dbTest, async () 
     await sql()`DELETE FROM installations WHERE id = ${inst.id}`;
   }
 });
+
+test('6.4 deployToken: no upload and no logo sends the generated mark, never the text tile; resolved bytes are stored and served by EarnKit', dbTest, async () => {
+  const { sql } = await import('./db');
+  const { deployToken } = await import('./tokens');
+  const key = process.env.TOKENSFUN_DEPLOY_API_KEY;
+  const origin = process.env.EARNKIT_URL;
+  process.env.TOKENSFUN_DEPLOY_API_KEY = 'test-key';
+  process.env.EARNKIT_URL = 'https://earnkit.test';
+  const tag = `t64-${process.pid}-${Date.now()}`;
+  const log = console.log;
+  console.log = () => {};
+  const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(16, 7)]);
+  const [inst] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${tag}) RETURNING id`;
+  await sql()`
+    INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work)
+    VALUES (${tag}, 'X', 'P', 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed')`;
+  const launch = async (n: number, image: { bytes: Buffer; type: string } | null) => {
+    const repo = `https://github.com/alice/${tag}-${n}`;
+    const [p] = await sql()<{ id: number }[]>`
+      INSERT INTO projects (program_id, name, installation_id, repo_url) VALUES (${tag}, 'TipJar', ${inst.id}, ${repo}) RETURNING id`;
+    let sent = '';
+    const out = await deployToken(
+      { projectId: p.id, installationId: inst.id, name: 'Tip Jar', symbol: 'TIPJ', creatorWallet: `0x${'1'.repeat(40)}`, image, repoUrl: repo, liveUrl: null },
+      { fetch: (async (_u: unknown, init?: RequestInit) => ((sent = String(init?.body)), Response.json({ success: true, tokenAddress: `0x${(await import('node:crypto')).randomBytes(20).toString('hex')}`, txHash: '0x1' }))) as typeof fetch },
+    );
+    assert.equal(out.status, 'launched');
+    return { id: p.id, body: JSON.parse(sent) as { imageUrl: string; tokenURI: string }, raw: sent };
+  };
+  try {
+    const mark = await launch(1, null);
+    assert.equal(mark.body.imageUrl, `https://earnkit.test/api/projects/${mark.id}/mark`);
+    assert.equal(mark.body.tokenURI, mark.body.imageUrl);
+    assert.ok(!mark.raw.includes('token-image'), 'never the text tile');
+    const logo = await launch(2, { bytes: PNG, type: 'image/png' });
+    assert.equal(logo.body.imageUrl, `https://earnkit.test/api/projects/${logo.id}/image`);
+    const [row] = await sql()<{ token_image: Buffer; token_image_type: string }[]>`SELECT token_image, token_image_type FROM projects WHERE id = ${logo.id}`;
+    assert.deepEqual(Buffer.from(row.token_image), PNG);
+    assert.equal(row.token_image_type, 'image/png');
+  } finally {
+    console.log = log;
+    if (key === undefined) delete process.env.TOKENSFUN_DEPLOY_API_KEY;
+    else process.env.TOKENSFUN_DEPLOY_API_KEY = key;
+    if (origin === undefined) delete process.env.EARNKIT_URL;
+    else process.env.EARNKIT_URL = origin;
+    await sql()`DELETE FROM projects WHERE program_id = ${tag}`;
+    await sql()`DELETE FROM programs WHERE id = ${tag}`;
+    await sql()`DELETE FROM installations WHERE id = ${inst.id}`;
+  }
+});

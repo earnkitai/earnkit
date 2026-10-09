@@ -260,7 +260,8 @@ const nodeTransport: Transport = ({ url, address, family, signal, userAgent, acc
         protocol: 'https:',
         hostname: url.hostname,
         port: 443,
-        path: url.pathname,
+        // v2.10 item 12: the query too (image links such as /_next/image?url=... need it).
+        path: url.pathname + url.search,
         method: 'GET',
         // TLS to the hostname (SNI + certificate verified against it); the socket goes to the
         // vetted address only.
@@ -293,11 +294,50 @@ const nodeTransport: Transport = ({ url, address, family, signal, userAgent, acc
     req.end();
   });
 
+type FetchOpts = {
+  resolve?: Resolver;
+  transport?: Transport;
+  timeoutMs?: number;
+  maxBytes?: number;
+  /**
+   * Accept any 2xx, ask for HTML and read at most PROBE_MAX_BYTES of the body, never failing on
+   * size (safeProbe). Returns that HTML, or '' when the response isn't HTML (Ruling H4).
+   */
+  probe?: boolean;
+  userAgent?: string;
+  /** The Accept header (default text/plain; a probe always asks for HTML). */
+  accept?: string;
+};
+
 /**
  * Fetches `url` and returns its body as text, or throws `SafeFetchError` saying why not. Never
  * follows a redirect and never connects to a non-public address.
  */
-export async function safeFetchText(
+export async function safeFetchText(url: string, opts: FetchOpts = {}): Promise<string> {
+  const { body, contentType } = await safeFetch(url, opts);
+  const text = body.toString('utf8');
+  if (opts.probe) return isHtmlResponse(contentType, text) ? text : '';
+  return text;
+}
+
+/** v2.10 item 12: the Accept header of an image read (only these types are ever kept). */
+export const IMAGE_ACCEPT = 'image/png,image/jpeg,image/webp';
+export const IMAGE_MAX_BYTES = 1_000_000;
+
+/**
+ * v2.10 item 12: one image as bytes, under the same SSRF rules as `safeFetchText` (https on 443, a
+ * domain name, every resolved address public, no redirects, 200 only, the deadline); 1 MB by
+ * default. The caller checks the bytes (tokens.ts imageTypeOf); the declared type isn't trusted.
+ */
+export async function safeFetchBytes(
+  url: string,
+  opts: { maxBytes?: number; resolve?: Resolver; transport?: Transport; timeoutMs?: number } = {},
+): Promise<Buffer> {
+  return (await safeFetch(url, { maxBytes: IMAGE_MAX_BYTES, ...opts, accept: IMAGE_ACCEPT })).body;
+}
+
+/** The shared guarded GET behind safeFetchText and safeFetchBytes. */
+async function safeFetch(
   url: string,
   {
     resolve = defaultResolver,
@@ -306,19 +346,9 @@ export async function safeFetchText(
     maxBytes = FETCH_MAX_BYTES,
     probe = false,
     userAgent,
-  }: {
-    resolve?: Resolver;
-    transport?: Transport;
-    timeoutMs?: number;
-    maxBytes?: number;
-    /**
-     * Accept any 2xx, ask for HTML and read at most PROBE_MAX_BYTES of the body, never failing on
-     * size (safeProbe). Returns that HTML, or '' when the response isn't HTML (Ruling H4).
-     */
-    probe?: boolean;
-    userAgent?: string;
-  } = {},
-): Promise<string> {
+    accept,
+  }: FetchOpts,
+): Promise<{ body: Buffer; contentType?: string }> {
   if (!URL.canParse(url)) throw new SafeFetchError('not a valid link');
   const u = new URL(url);
   if (u.protocol !== 'https:') throw new SafeFetchError('https only');
@@ -357,7 +387,7 @@ export async function safeFetchText(
       family: first.family,
       signal: controller.signal,
       userAgent,
-      ...(probe && { accept: PROBE_ACCEPT }),
+      ...(probe ? { accept: PROBE_ACCEPT } : accept && { accept }),
     });
     close = res.close;
     if (res.status >= 300 && res.status < 400)
@@ -376,8 +406,7 @@ export async function safeFetchText(
         size += part.byteLength;
         if (size >= PROBE_MAX_BYTES) break;
       }
-      const page = Buffer.concat(chunks).toString('utf8');
-      return isHtmlResponse(res.contentType, page) ? page : '';
+      return { body: Buffer.concat(chunks), contentType: res.contentType };
     }
     if (res.status !== 200)
       throw new SafeFetchError(`answered ${res.status}, not 200`);
@@ -391,7 +420,7 @@ export async function safeFetchText(
         throw new SafeFetchError(`larger than ${maxBytes} bytes`);
       chunks.push(chunk);
     }
-    return Buffer.concat(chunks).toString('utf8');
+    return { body: Buffer.concat(chunks), contentType: res.contentType };
   };
   try {
     return await Promise.race([run(), timeout]);

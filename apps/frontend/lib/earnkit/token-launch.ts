@@ -12,6 +12,7 @@ import type { ProgramRow } from './programs';
 import { canonicalBuilderUrl } from './untrusted-text';
 import { LIMITS, RateLimitError, enforce, windowStart } from './rate-limit';
 import { PROOF_LINE_PREFIX, tokenGate, tokenLineFor, type GateDeps } from './token-gate';
+import { logoDefaults, type Logo } from './token-logo';
 
 /**
  * Ruling C24: the agent's way out of the proof-line loop (confirm mode). Agent text, so it names
@@ -92,7 +93,8 @@ type Choice = z.infer<typeof TokenChoice>;
 
 export type TokenBlock = {
   /** v2.7 Ruling 16 (plan): always proposed when a block is returned. */
-  proposed: { name: string; symbol: string; image: 'agent' | 'monogram' };
+  /** v2.10 item 12: 'site' (the live site's or repo's logo is tried first), else the generated 'mark'. */
+  proposed: { name: string; symbol: string; image: 'agent' | 'site' | 'mark' };
   chain: 'base';
   paired_with: 'WETH';
   creator_wallet: string | null;
@@ -241,6 +243,8 @@ export async function tokenProposalBlock(
     /** The asking agent and the project's repo: the earnkit.txt token line is bound to both. */
     installationId: number;
     repoUrl?: string;
+    /** v2.10 item 12: the entry's live link (its logo is tried first at launch). */
+    liveUrl?: string | null;
   },
   deps: {
     check?: TickerCheck;
@@ -281,7 +285,7 @@ export async function tokenProposalBlock(
     notes.push(`This repo already has its token, entered in ${coinIn}: don't pass token; this entry gets no new token and no builder bonus`);
   else notes.push(ownershipLine(tokenLine));
   return {
-    proposed: { name: proposal.name, symbol: proposal.symbol, image: 'monogram' },
+    proposed: { name: proposal.name, symbol: proposal.symbol, image: a.liveUrl ? 'site' : 'mark' },
     chain: 'base',
     paired_with: 'WETH',
     creator_wallet: a.creatorWallet,
@@ -314,6 +318,8 @@ export type FlowProject = {
   name: string;
   repo_url: string | null;
   live_url: string | null;
+  /** v2.10 R10: the repo is private (its social preview is never read for the logo). */
+  repo_private?: boolean;
   /** Set for campaign entries only: proven by the repo's earnkit.txt at entry. */
   payout_wallet: string | null;
   /** The creator wallet given before (record_submission or a launch); launch_token reuses it. */
@@ -432,12 +438,14 @@ export type TokenFlowDeps = {
   limit?: (installationId: number, wallet: string) => Promise<unknown>;
   /** Whether launches are configured (default: the tokens.fun deploy key is set). */
   available?: () => boolean;
+  /** v2.10 item 12: the logo when the agent sent no image (default token-logo.ts launchLogo); null sends the mark. */
+  logo?: (a: { liveUrl: string | null; repoUrl: string | null; repoPrivate: boolean }) => Promise<Logo | null>;
 };
 
 const dbStore: FlowStore = {
   load: async (projectId) => {
     const [row] = await sql()<(FlowProject & StoredChecks)[]>`
-      SELECT p.id, p.name, p.repo_url, p.live_url, p.payout_wallet, p.creator_wallet, p.token_url, p.token_name,
+      SELECT p.id, p.name, p.repo_url, p.live_url, p.repo_private, p.payout_wallet, p.creator_wallet, p.token_url, p.token_name,
         p.token_symbol, p.token_claimed_at, p.token_note, p.token_status, p.token_released_at, p.installation_id, pr.token_policy, p.confirm_choice,
         (pr.status = 'active' AND pr.builder_bonus AND pr.campaign IS NULL) AS has_bonus,
         pr.submission_requirements AS requirements, (pr.campaign IS NOT NULL) AS campaign,
@@ -741,7 +749,7 @@ async function runTokenFlow(
   }
   if (sharedCaller) await saveWallet();
 
-  let image: ReturnType<typeof decodeImage> | null;
+  let image: { bytes: Buffer; type: string } | null;
   try {
     image = choice?.image_data ? decodeImage(choice.image_data) : null;
     if (choice?.builder_x) xProfileUrl(choice.builder_x);
@@ -751,6 +759,19 @@ async function runTokenFlow(
     const out = notLaunched(err);
     if (!out) throw err;
     return record('failed', out.note!, name, symbol, out.agent_note);
+  }
+  // v2.10 item 12: no image from the agent: the site's or the public repo's logo, else (null) the
+  // generated mark. Never fails the launch.
+  if (!image && !choice?.image_url) {
+    const logo = await (deps.logo ?? logoDefaults.launch)({
+      liveUrl: project.live_url,
+      repoUrl: project.repo_url,
+      repoPrivate: gate.private === true || project.repo_private === true,
+    }).catch((err: unknown) => {
+      console.error('[token] logo', err instanceof Error ? err.name : 'error');
+      return null;
+    });
+    image = logo && { bytes: logo.bytes, type: logo.type };
   }
   try {
     progress.deploying = true;
