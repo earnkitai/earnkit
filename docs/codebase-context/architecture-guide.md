@@ -107,7 +107,8 @@ agent (Grok Bot, Muse, Claude, Cursor…) ──HTTPS──> /mcp
     -> /.well-known/oauth-authorization-server -> POST /oauth/register
     -> GET /oauth/authorize (approves instantly, no account) -> POST /oauth/token
     -> token = installation row; the client stores the token
-  then: Bearer token -> /mcp -> lib/earnkit/mcp.ts -> lib/earnkit/tools.ts -> Postgres
+  then: Bearer token -> /mcp (old tool names rewritten: aliases.ts) -> lib/earnkit/mcp.ts
+        -> lib/earnkit/tools.ts (find, prepare, confirm, tell -> handlers) -> Postgres
 stdio-only clients: npx mcp-remote https://earnkit.com/mcp
 Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm programs:sync ──> Postgres
 ```
@@ -3434,4 +3435,58 @@ memory, and the Worker's real `handle` serves from it; Resend is a recording mai
   no reply links an old path.
 - 12.6 now also asserts Circle is not in Also qualifies. Across every Part 2 reply (upload replies
   included) the Part 1 scan holds, and "40%" shows once per entry flow.
+
+## The 4 builder tools and the 30-day aliases (v2.10 item 4, R15 to R17, Task 9)
+
+The server lists 4 builder tools, plus `sponsor_campaign` once the escrow is configured. Each is a
+thin dispatcher in `tools.ts tools` over the v2.9 functions, which live on unchanged in
+`tools.ts handlers` (only their agent notes now name the new tools). Most of this guide still names
+the v2.9 handler a behaviour lives in; this table maps them.
+
+| Tool | Dispatches to | Notes |
+|---|---|---|
+| `find` | `handlers.list_programs` (no `program_id`), else `handlers.get_program` | `FindInput` = list_programs' lenient input plus `program_id`, `repo`. With `program_id` on a curated program, `show_to_builder` is `guide.text`, plus one plain fit line when `repo` is given (`eligibilityLine`). `repo` without `program_id` is read as `repos: [repo]`. Read-only. |
+| `prepare` | `handlers.prepare_submission` | `PrepareInput` is the strict `PrepareSubmissionInput` (T10 adds `deploy`). |
+| `confirm` | `project_id` without `program_id`: `handlers.launch_token`; an EarnKit (or sponsor) campaign, or `submitted`: `handlers.record_submission`; else `handlers.confirm_entry` | `ConfirmInput` (R15): `yes` (go), `skip_token` (go without a token), `check` (check_back), `wallet`, `token`, `project`, `answers`, `agent`, `signed_in`, `image_*`, `builder_x`, `contracts`, `deployer_signature`, and `submitted` (Pre-flight P15b). `yes` or `check` is `builder_confirmed` on the launch path (a check is a read); `skip_token` with `project_id` answers "No token for now." and calls nothing. The confirm_entry path drops `image_*`/`builder_x` (its input is strict). |
+| `tell` | `pickup`: `handlers.pick_up_entries`; `submitted`: `handlers.record_submission` with `builder_submitted: true`; the rest: `handlers.tell_earnkit` | `TellToolInput` (R16). Several parts run in that order and their replies join (`show_to_builder` lines with `\n`, agent notes with a space). |
+
+- **"I submitted" (R16).** `markSubmitted` loads the entry by `submitted.project_id`, else this
+  installation's newest entry in the program (`projects.ts submittedEntry`, the same lookup as v2.9
+  outcomes), with its stored project fields and its confirmed `application.answers` (else the latest
+  `submissions` row), and calls record_submission with them. On a shared client without
+  `project_id` it answers "Noted for now." and writes nothing (G7: the newest entry may be another
+  builder's). An old record_submission call carries its own `project`/`submission_data`; those are
+  used as given (record_submission finds the entry by repo key, or makes it), which keeps the v2.9
+  meaning for old agents, shared ones included (Pre-flight P15c).
+- **The gates are the handlers'.** G10, G11, the sanctions screen, one token per repo, the wallet
+  limits, G7 privacy, G12 decline counting, T7's "40%" once and T8's guide and lead all run inside
+  the handlers, so every path through the new tools gets them (tests 9.3, including G10 through both
+  confirm paths).
+- **`launchFromOffer` is gone.** `handlers.launch_token` with `offer` throws an `EntryError`; an old
+  agent's offer call reaches `confirm` through its alias, so an unseen token shows the confirm line
+  first (an entry row is drafted, nothing launches). A v2.9 offer "skip" without `builder_confirmed`
+  is the confirm line again, never a recorded decline (P15a).
+- **Aliases (`aliases.ts`, R17).** `aliasCall(name, args, now)` maps each v2.9 call shape to its new
+  tool and arguments until `ALIASES_UNTIL` (2026-11-09T00:00Z), then returns null (the SDK answers an
+  unknown tool). P15: a skip needs `builder_confirmed`, like a go; record_submission with both flags
+  is `confirm` with `submitted`; record_submission's token object gives `token: { name, symbol }`
+  and its image fields; `pick_up_entries`' answer is read as "yes"/"no". `rewriteAliases` rewrites
+  each old `tools/call` in a JSON-RPC message or batch and leaves everything else as the same object.
+  `app/mcp/route.ts withAliases` applies it to authenticated JSON POSTs before the transport (a body
+  that isn't JSON passes untouched; a rewritten body drops `content-length`) and logs
+  `[mcp] alias <old> -> <new>` per use, never an argument. Old names never appear in `tools/list`.
+  `launch_token`'s `chain` has no new form and is dropped (Base).
+- **Descriptions and instructions (`mcp.ts`).** Each is under 800 characters (test 9.2):
+  `serverInstructions` is the tool order, show_to_builder as written, T7's token sentence, the
+  campaign sentence while one is open, the never-name-tools rule and the safety lines. `find`
+  carries T4's local_repos sentence (P21) and the safety text; `prepare` carries
+  `OWNERSHIP_FOR_TOKEN`; `tell` carries the "Did you submit on <program site>?" ask. `confirm` has no
+  safety text (it would pass 800); the instructions carry the safety lines for every tool.
+- **Copy rules.** The old names stay banned outright in builder text, and in agent notes now too
+  (copy-review 9.8). The new names are English words, so builder text bans them only in a call shape
+  ("call confirm", "find with", "prepare(", "the tell tool"): `copy-review.test.ts toolNameRe` and
+  `token-launch.ts TECHNICAL_TERMS`, which also decides when a LaunchError message goes to the agent
+  rather than the builder.
+- **Route tests.** `app/mcp/route.ts` imports `lib/earnkit` by relative path so the node test runner
+  (no `@/` paths) can load it; test 9.7 posts to `POST` with a real installation token.
 
