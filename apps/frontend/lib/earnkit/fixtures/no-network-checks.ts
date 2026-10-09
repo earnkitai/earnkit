@@ -1,4 +1,5 @@
 import { checkDefaults } from '../verify';
+import { wonSource } from '../stats';
 
 /**
  * v2.9 A5: test suites that run the entry tools import this once, so link and contract checks
@@ -12,3 +13,7 @@ checkDefaults.cache = {
   get: async (key) => rows.get(key) ?? null,
   set: async (key, ok, now) => void rows.set(key, { ok, checked_at: now }),
 };
+
+// v2.9 E20: the first reply's "Builders using EarnKit won $X" never depends on another test file's
+// announced wins in the shared database (a test about the line sets its own source).
+wonSource.read = async () => 0;

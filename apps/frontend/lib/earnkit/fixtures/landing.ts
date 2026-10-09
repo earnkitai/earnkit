@@ -34,4 +34,5 @@ export const homeFixture: Landing = {
     tile('p7', 'Program Seven', 0),
   ],
   stats_line: '120 agents earning',
+  won_line: null,
 };

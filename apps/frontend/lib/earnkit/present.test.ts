@@ -990,3 +990,27 @@ test('G13 (I1): a remembered wallet is named short with "yes / skip"; the reoffe
 test('fix round 3 (G14): tokenOffer again leaves out the earnings sentence', () => {
   assert.equal(tokenOffer({ ...OFFER_FACTS, again: true }), 'TipJar fits Arc Microgrants: $500. Launch $TIP (TipJar) on Base now? yes / skip');
 });
+
+// ---- v2.9 E20: "Builders using EarnKit won $X", once, right after the headline; absent at 0.
+test('10.11 the first reply: the won line once, right after its headline; absent (never "$0") without announced wins', () => {
+  const WON = 'Builders using EarnKit won $12,500';
+  const matched = msg({ cards: [base, arc], repos: repos(v('base-builder-grants', 'likely', ''), v('arc-microgrants', 'likely', '')) });
+  const withWon = presentFirstMessage({ ...matched, wonUsd: 12_500 });
+  assert.equal(withWon.split('\n\n')[0], `EarnKit matches you to $10K+ in prizes you qualify for. ${WON}.`);
+  assert.equal(withWon.split(WON).length, 2, 'once');
+  const noRepo = presentFirstMessage(msg({ cards: [{ ...arc, ideas: ['x'] }], wonUsd: 12_500 }));
+  assert.equal(noRepo.split('\n\n')[0], `$10K in prizes open right now. ${WON}.`);
+  // A headline that is a heading (no money sentence): the line comes first, alone.
+  const heading = presentFirstMessage(msg({ cards: [circle], repos: repos(v('circle-developer-grants', 'likely', '')), wonUsd: 12_500 }));
+  assert.deepEqual(heading.split('\n\n').slice(0, 2), [`${WON}.`, 'Your repos fit these open programs:']);
+  // After news, never before it (the daily check reads the start).
+  const news = presentFirstMessage({ ...matched, alerts: ['you won $500'], wonUsd: 12_500 });
+  assert.ok(news.startsWith('Since you last checked: you won $500.\n\nEarnKit matches you to'));
+  assert.equal(news.split(WON).length, 2);
+  for (const zero of [0, undefined])
+    for (const m of [matched, msg({ cards: [{ ...arc, ideas: ['x'] }] })]) {
+      const t = presentFirstMessage({ ...m, wonUsd: zero });
+      assert.doesNotMatch(t, /Builders using EarnKit/);
+      assert.doesNotMatch(t, /won \$0/);
+    }
+});

@@ -5,6 +5,7 @@ import { shortDate } from './dates';
 import { EFFORT_ORDER, type Chain, type Effort, type Product, type RepoFacts, type Verdict } from './match';
 import { difficultyLabel, levelRank, rowDifficulty, type Difficulty, type Level } from './guide';
 import { openFigure } from './pool';
+import { wonLine } from './stats';
 
 /** v2.7: moved to entry-text.ts (shared with guide.ts); re-exported for existing callers. */
 export { endsOf } from './entry-text';
@@ -145,7 +146,30 @@ export type FirstMessage = {
    * the reply alone: no other offer and no token line (the offer says "40%" for this entry flow).
    */
   tokenOffer?: string;
+  /**
+   * v2.9 E20 (stats.ts builders_won_usd): the announced prizes EarnKit builders won. Above 0, "Builders
+   * using EarnKit won $X." follows the headline once; 0 or unset, no line (never "$0").
+   */
+  wonUsd?: number;
 };
+
+/** v2.9 E20: a money headline the won line joins as its next sentence. */
+const MONEY_HEADLINE = /in prizes (you qualify for|open right now)\.$/;
+
+/**
+ * v2.9 E20: the won line, once, right after the reply's headline: joined to the money headline
+ * ("$1.1M+ in prizes open right now. Builders using EarnKit won $12,500."), else its own paragraph
+ * where the body starts (after any news and "Your entries"). Pure.
+ */
+function withWonLine(sections: string[], bodyStart: number, wonUsd: number | undefined): string[] {
+  const won = wonLine(wonUsd ?? 0);
+  if (!won) return sections;
+  const out = [...sections];
+  const [head, ...rest] = (out[bodyStart] ?? '').split('\n\n');
+  if (MONEY_HEADLINE.test(head)) out[bodyStart] = [`${head} ${won}.`, ...rest].join('\n\n');
+  else out.splice(bodyStart, 0, `${won}.`);
+  return out;
+}
 
 /** v2.9 A3: a program the builder applied to outside EarnKit, in "Your entries". */
 export const APPLIED_OUTSIDE = 'applied outside EarnKit';
@@ -521,6 +545,8 @@ export function presentFirstMessage(given: FirstMessage): string {
   // messages the builder only when the reply starts with news).
   const recap = entriesLine(given);
   if (recap) sections.push(recap);
+  const bodyStart = sections.length;
+  const done = () => withWonLine(sections, bodyStart, given.wonUsd).join('\n\n');
   // v2.9 A3: a program the builder is not interested in, or applied to outside EarnKit, leaves
   // every table and the offer.
   const hidden = new Set([...(given.hidden?.notInterested ?? []), ...(given.hidden?.applied ?? [])]);
@@ -529,10 +555,8 @@ export function presentFirstMessage(given: FirstMessage): string {
   const campaigns = m.campaigns.filter((r) => r.open).sort(byCampaignPrize);
   if (campaigns.length === 0 && m.cards.length === 0) {
     const results = m.campaigns.some((r) => r.you === 'in review');
-    return [
-      ...sections,
-      `Nothing is open right now. ${results ? 'Want me to tell you when the results are in?' : TELL_WHEN_OPENS}`,
-    ].join('\n\n');
+    sections.push(`Nothing is open right now. ${results ? 'Want me to tell you when the results are in?' : TELL_WHEN_OPENS}`);
+    return done();
   }
 
   const entered = enteredIds(m);
@@ -621,7 +645,7 @@ export function presentFirstMessage(given: FirstMessage): string {
   // v2.9 B10: the token offer, when there is one, is the reply's one closing offer.
   if (m.tokenOffer) {
     sections.push(m.tokenOffer);
-    return sections.join('\n\n');
+    return done();
   }
   const close = offer(m, byId, rows, ideas.length > 0, entered);
   const apart = close.campaign || !!close.noBonusId;
@@ -629,7 +653,7 @@ export function presentFirstMessage(given: FirstMessage): string {
   if (!bonus) sections.push(close.text);
   else if (apart) sections.push(bonus, close.text);
   else sections.push(`${close.text} ${bonus}`);
-  return sections.join('\n\n');
+  return done();
 }
 
 /** v2.9 B10: what the first reply's token offer names. */

@@ -65,7 +65,7 @@ export default function HomeView({ landing }: { landing: Landing | null }) {
         </div>
 
         <div className="relative flex min-h-[88vh] w-full flex-col items-center justify-center px-6 py-16 md:min-h-[calc(var(--vh,1vh)*100-12vh)] md:px-12">
-          <Hero statsLine={landing?.stats_line ?? null} />
+          <Hero statsLine={landing?.stats_line ?? null} wonLine={landing?.won_line ?? null} />
         </div>
       </section>
 

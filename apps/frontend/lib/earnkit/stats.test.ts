@@ -11,7 +11,7 @@ const E18 = 10n ** 18n;
 const emptyRow = {
   open_money_usd: null, pool_rows: null, programs_open: 0, bonus_programs_open: 0, coins_launched: 0,
   bonus_deposits_wei: null, bonus_to_safe_wei: null, bonus_paid_wei: null, bonus_pools_wei: null, installs: 0,
-  labelled_entries: 0, entries_won: 0,
+  labelled_entries: 0, entries_won: 0, builders_won_usd: null,
 };
 
 test('weiToEth: ETH as a number, 6 decimals, rounded down', () => {
@@ -40,6 +40,7 @@ test('statsFrom: exactly the public keys, numbers only, no per-user data', () =>
     installs: 12,
     labelled_entries: 5,
     entries_won: 2,
+    builders_won_usd: '12500.00',
   });
   assert.deepEqual(Object.keys(s), [...STATS_KEYS]);
   assert.deepEqual(s, {
@@ -59,6 +60,7 @@ test('statsFrom: exactly the public keys, numbers only, no per-user data', () =>
     installs: 12,
     labelled_entries: 5,
     entries_won: 2,
+    builders_won_usd: 12500,
   });
   for (const [k, v] of Object.entries(s)) assert.equal(typeof v, k === 'open_pools_plus' ? 'boolean' : 'number', k);
   const exact = statsFrom({ ...emptyRow, pool_rows: [{ pool_usd: '10000', reward: '10,000 USDC pool' }] });
@@ -68,7 +70,7 @@ test('statsFrom: exactly the public keys, numbers only, no per-user data', () =>
 
 test('statsFrom: an empty database reads as zeros', () => {
   const s = statsFrom(emptyRow);
-  assert.deepEqual(Object.values(s), [0, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(Object.values(s), [0, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 });
 
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
@@ -232,7 +234,7 @@ test('v2.6 Ruling 16 (plan): bonus_programs_open key and label', () => {
 
 // ---- v2.8 Task 12, Part G, Ruling 30 (plan): outcomes in public stats.
 test('v2.8 Ruling 30 (plan): labelled_entries and entries_won keys and labels; the win-rate floor is documented', () => {
-  assert.deepEqual(STATS_KEYS.slice(-2), ['labelled_entries', 'entries_won']);
+  assert.deepEqual(STATS_KEYS.slice(-3, -1), ['labelled_entries', 'entries_won']);
   assert.equal(STATS_LABELS.labelled_entries, 'entries with a published result');
   assert.equal(STATS_LABELS.entries_won, 'entries that won');
   assert.equal(WIN_RATE_MIN_LABELLED, 30);
@@ -303,5 +305,43 @@ test('v2.9 D18: fee_claims rows (an ops log, never revenue) never change fees_to
     assert.deepEqual(afterRows, before, 'no public stat moves (statsFrom reads only the aggregate row, which never reads fee_claims)');
   } finally {
     await sql()`DELETE FROM fee_claims WHERE tx_hash LIKE ${`${tag.slice(0, -1)}%`}`;
+  }
+});
+
+test('10.10 builders_won_usd: announced won or placed prizes only; a self-report or a test installation\'s win adds nothing', db, async () => {
+  const tag = `stats-won-${process.pid}-${Date.now()}`;
+  const prevEnv = process.env.EARNKIT_TEST_INSTALLATIONS;
+  const Rollback = new Error('rollback');
+  assert.equal(STATS_KEYS.at(-1), 'builders_won_usd');
+  assert.equal(STATS_LABELS.builders_won_usd, 'won by EarnKit builders (announced, USD)');
+  try {
+    await sql().begin('isolation level repeatable read', async (tx) => {
+      const [inst] = await tx<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${tag}) RETURNING id`;
+      const [testInst] = await tx<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`${tag}-t`}) RETURNING id`;
+      process.env.EARNKIT_TEST_INSTALLATIONS = String(testInst.id);
+      const before = await readStats(new Date(), tx);
+      await tx`
+        INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work)
+        VALUES (${tag}, 'o', ${tag}, 'd', 'https://x', 'https://x', 'r', 's', 'active', 'unknown')`;
+      const entry = async (installation: number) =>
+        (await tx<{ id: number }[]>`INSERT INTO projects (program_id, name, installation_id) VALUES (${tag}, 'p', ${installation}) RETURNING id`)[0].id;
+      const outcome = async (installation: number, result: string, basis: string, prize: number | null, round = 'R1') => tx`
+        INSERT INTO entry_outcomes (project_id, program_id, round_label, result, prize_usd, basis)
+        VALUES (${await entry(installation)}, ${tag}, ${round}, ${result}, ${prize}, ${basis})`;
+      await outcome(inst.id, 'won', 'announcement', 10_000);
+      await outcome(inst.id, 'placed', 'announcement', 2_500);
+      await outcome(inst.id, 'won', 'announcement', null);
+      await outcome(inst.id, 'finalist', 'announcement', 700);
+      await outcome(inst.id, 'won', 'self_reported', 5_000);
+      await outcome(testInst.id, 'won', 'announcement', 9_000);
+      const after = await readStats(new Date(), tx);
+      assert.equal(after.builders_won_usd - before.builders_won_usd, 12_500);
+      throw Rollback;
+    });
+  } catch (err) {
+    if (err !== Rollback) throw err;
+  } finally {
+    if (prevEnv === undefined) delete process.env.EARNKIT_TEST_INSTALLATIONS;
+    else process.env.EARNKIT_TEST_INSTALLATIONS = prevEnv;
   }
 });

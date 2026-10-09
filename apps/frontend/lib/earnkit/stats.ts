@@ -22,6 +22,7 @@ export const STATS_KEYS = [
   'installs',
   'labelled_entries',
   'entries_won',
+  'builders_won_usd',
 ] as const;
 
 /**
@@ -58,7 +59,14 @@ export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
   installs: 'installs',
   labelled_entries: 'entries with a published result',
   entries_won: 'entries that won',
+  builders_won_usd: 'won by EarnKit builders (announced, USD)',
 };
+
+/**
+ * v2.9 E20: "Builders using EarnKit won $X" (landing page, first reply), only once an announced
+ * win with a known prize exists; absent (null), never "$0", before that. Pure.
+ */
+export const wonLine = (usd: number) => (usd > 0 ? `Builders using EarnKit won $${usd.toLocaleString('en-US')}` : null);
 
 /** Wei to ETH as a number, 6 decimals, rounded down. Pure. */
 export const weiToEth = (wei: bigint) => Number(wei / 10n ** 12n) / 1e6;
@@ -77,6 +85,7 @@ type Row = {
   installs: number;
   labelled_entries: number;
   entries_won: number;
+  builders_won_usd: string | null;
 };
 
 /**
@@ -107,6 +116,7 @@ export function statsFrom(r: Row): PublicStats {
     installs: Number(r.installs),
     labelled_entries: Number(r.labelled_entries),
     entries_won: Number(r.entries_won),
+    builders_won_usd: Math.round(Number(r.builders_won_usd ?? 0)),
   };
 }
 
@@ -169,6 +179,44 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
           AND NOT COALESCE(p.installation_id = ANY(${ids}::int[]), false))::int AS labelled_entries,
       (SELECT count(DISTINCT eo.project_id) FROM entry_outcomes eo JOIN projects p ON p.id = eo.project_id
         WHERE eo.basis = 'announcement' AND eo.result IN ('won', 'placed')
-          AND NOT COALESCE(p.installation_id = ANY(${ids}::int[]), false))::int AS entries_won`;
+          AND NOT COALESCE(p.installation_id = ANY(${ids}::int[]), false))::int AS entries_won,
+      -- v2.9 E20: the prizes of announced won or placed outcomes with a known prize (one per entry
+      -- and round); never a self-report, never a test installation's entry.
+      (${wonUsdSql(db, ids)})::text AS builders_won_usd`;
   return statsFrom(r);
 }
+
+/** v2.9 E20: the sum behind builders_won_usd (one SQL fragment for readStats and readWonUsd). */
+const wonUsdSql = (db: Db, ids: number[]) => db`
+  SELECT sum(eo.prize_usd) FROM entry_outcomes eo JOIN projects p ON p.id = eo.project_id
+  WHERE eo.basis = 'announcement' AND eo.result IN ('won', 'placed') AND eo.prize_usd > 0
+    AND NOT COALESCE(p.installation_id = ANY(${ids}::int[]), false)`;
+
+/** v2.9 E20: how long the first reply's won figure is reused (one small read per 10 minutes). */
+const WON_TTL_MS = 600_000;
+let wonCache: { usd: number; at: number } | null = null;
+
+/**
+ * v2.9 E20: `builders_won_usd` alone, for the first reply, cached 10 minutes in this process. A
+ * failed read is 0 (no line), never an error, and is not cached.
+ */
+export async function readWonUsd(now = Date.now()): Promise<number> {
+  if (wonCache && now - wonCache.at < WON_TTL_MS) return wonCache.usd;
+  try {
+    const ids = testInstallationIds();
+    const db = sql();
+    const [r] = await db<{ usd: string | null }[]>`SELECT (${wonUsdSql(db, ids)})::text AS usd`;
+    wonCache = { usd: Math.round(Number(r?.usd ?? 0)), at: now };
+    return wonCache.usd;
+  } catch (err) {
+    console.error('[stats] won', err instanceof Error ? err.name : 'error');
+    return 0;
+  }
+}
+
+/**
+ * v2.9 E20: where list_programs reads the won figure. Test suites that share one database
+ * (fixtures/no-network-checks.ts) set `read` to a constant, so another file's announced win never
+ * changes their first reply.
+ */
+export const wonSource: { read: () => Promise<number> } = { read: () => readWonUsd() };

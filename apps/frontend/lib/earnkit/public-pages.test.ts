@@ -746,3 +746,17 @@ test('v2.8 Ruling 19 (plan): the pill has accessible contrast (each orange stop 
   assert.ok(lum(BONUS_PILL_COLORS.fill) < 0.02, 'a navy fill');
   for (const stop of [BONUS_PILL_COLORS.from, BONUS_PILL_COLORS.to]) assert.ok(contrast(stop, BONUS_PILL_COLORS.fill) >= 4.5, stop);
 });
+
+test('10.11 the home page: "Builders using EarnKit won $12,500" under the stats line; absent (never "$0") without one', () => {
+  const won = 'Builders using EarnKit won $12,500';
+  const heroBits = (h: string) => {
+    const afterH1 = h.slice(h.indexOf('</h1>'));
+    return [...afterH1.slice(0, afterH1.indexOf('</section>')).matchAll(/>([^<]+)</g)].map((m) => text(m[1]).trim()).filter(Boolean);
+  };
+  assert.deepEqual(heroBits(home({ ...homeFixture, won_line: won })).slice(-2), [homeFixture.stats_line, won]);
+  assert.deepEqual(heroBits(home({ ...homeFixture, stats_line: null, won_line: won })).slice(-1), [won]);
+  for (const h of [home(homeFixture), home({ ...homeFixture, stats_line: null })]) {
+    assert.doesNotMatch(text(h), /Builders using EarnKit/);
+    assert.doesNotMatch(text(h), /won \$0/);
+  }
+});

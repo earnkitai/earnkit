@@ -1,4 +1,8 @@
 import './fixtures/no-network-checks';
+import {
+  EMAIL_NOTE, EMAIL_OFF, EMAIL_ON, EMAIL_QUESTION, EMAIL_TAKEN, EMAIL_UNAVAILABLE, UNSUB_BAD, UNSUB_CONFIRM, UNSUB_DONE, WHICH_EMAIL,
+  digestBody, emailQuestionFor,
+} from './digest';
 import { HOST_FULL, HOST_LINES, HOST_REVIEW, STORAGE_NOTE, UPLOAD_NOTE, hostSignInLine, liveLine, withBadge } from './hosting';
 import { test } from 'node:test';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -77,7 +81,7 @@ import {
 } from './tokens';
 import { RateLimitError } from './rate-limit';
 import { openRows, type OpenEntry } from './bonus-board';
-import { STATS_LABELS } from './stats';
+import { STATS_LABELS, wonLine } from './stats';
 import {
   CAPPED_READ_SUFFIX,
   ENTRIES_HEADING,
@@ -553,7 +557,7 @@ const v271Texts: [string, string][] = [
   ['eachLine USDC', eachLine({ title: 'Arc Microgrants', reward: '500 USDC per microgrant', max_award_usd: 500, min_award_usd: null })!],
   ['eachLine grant', eachLine({ title: 'Base Builder Grant Program', reward: 'Up to $5,000 in grants', max_award_usd: 5000, min_award_usd: null })!],
   ['eachLine winner', eachLine({ title: 'Hackathon', reward: '$30,000 grand prize', max_award_usd: 30000, min_award_usd: null })!],
-  ['statsLine', statsLine({ open_money_usd: 0, open_pools_usd: 0, open_pools_plus: false, programs_open: 5, bonus_programs_open: 4, coins_launched: 3, fees_to_safe_eth: 0, bonus_paid_eth: 0.42, bonus_pools_eth: 1, installs: 312, labelled_entries: 0, entries_won: 0 })!],
+  ['statsLine', statsLine({ open_money_usd: 0, open_pools_usd: 0, open_pools_plus: false, programs_open: 5, bonus_programs_open: 4, coins_launched: 3, fees_to_safe_eth: 0, bonus_paid_eth: 0.42, bonus_pools_eth: 1, installs: 312, labelled_entries: 0, entries_won: 0, builders_won_usd: 0 })!],
   ['bonusPillLabel', bonusPillLabel()],
   ['bonusPillLabel amount', bonusPillLabel('0.42 ETH')],
   ['bonusPillLabel tiny', bonusPillLabel('<0.01 ETH')],
@@ -1005,6 +1009,27 @@ const builderFacing: [string, string][] = [
   ...Object.entries(HOST_LINES).map(([k, v]): [string, string] => [`HOST_LINES.${k}`, v]),
   ['hostSignInLine', hostSignInLine('TipJar', 'https://earnkit.com/github/verify?n=x')],
   ['withBadge', withBadge('', 'alice', 'tipjar-alice').replace(/<[^>]+>/g, '')],
+  // v2.9 Task 10: the weekly email and the won line.
+  ['EMAIL_QUESTION', EMAIL_QUESTION],
+  ['emailQuestionFor', emailQuestionFor('a@b.co')],
+  ['WHICH_EMAIL', WHICH_EMAIL],
+  ['EMAIL_ON', EMAIL_ON],
+  ['EMAIL_OFF', EMAIL_OFF],
+  ['EMAIL_UNAVAILABLE', EMAIL_UNAVAILABLE],
+  ['EMAIL_TAKEN', EMAIL_TAKEN],
+  ['UNSUB_CONFIRM', UNSUB_CONFIRM],
+  ['UNSUB_DONE', UNSUB_DONE],
+  ['UNSUB_BAD', UNSUB_BAD],
+  ['wonLine', wonLine(12_500)!],
+  ['home page (won line)', homeText({ ...homeFixture, won_line: wonLine(12_500) })],
+  ...(() => {
+    const b = digestBody({
+      newPrograms: [{ title: 'Avalanche Mini Grant', repo: 'TipJar', prize_usd: 10_000, ends_at: new Date('2026-11-02T00:00:00Z') }],
+      wins: [{ name: 'PayLink', program: 'Arc Microgrants', prize_usd: 500 }],
+      deadlines: [{ program: 'Arc Microgrants', what: 'decision', at: new Date('2026-10-20T00:00:00Z') }],
+    })!;
+    return [['digest subject', b.subject], ['digest text', b.text]] as [string, string][];
+  })(),
 ];
 
 // noCoinYet is the AGENT's note (never shown to the builder as written; see entry-text.ts), so it
@@ -1041,6 +1066,7 @@ const agentFacing: [string, string][] = [
   ['STORAGE_NOTE', STORAGE_NOTE],
   ['UPLOAD_NOTE', UPLOAD_NOTE],
   ['HOST_SIGN_IN_NOTE', HOST_SIGN_IN_NOTE],
+  ['EMAIL_NOTE', EMAIL_NOTE],
   // v2.7 fix round 1 (Minor 6): llms.txt is what agents read about EarnKit.
   ['llms.txt', readFileSync(join(import.meta.dirname, '../../public/llms.txt'), 'utf8')],
 ];

@@ -9,6 +9,7 @@ import type { PublicStats } from './stats';
 import { committedProgram } from './fixtures/program-file';
 import { openFigure } from './pool';
 import { presentFirstMessage } from './present';
+import { wonLine } from './stats';
 
 const stats = (o: Partial<PublicStats> = {}): PublicStats => ({
   open_money_usd: 0,
@@ -23,6 +24,7 @@ const stats = (o: Partial<PublicStats> = {}): PublicStats => ({
   installs: 12,
   labelled_entries: 0,
   entries_won: 0,
+  builders_won_usd: 0,
   ...o,
 });
 const now = new Date('2026-10-06T12:00:00Z');
@@ -354,4 +356,11 @@ test('v2.8 Ruling C5: an investment program reads "up to $1M investment", never 
   // Without the flag, the same card is a prize.
   const [prize] = landingFrom([{ ...speedrun, investment: false }], new Map(), stats(), now).tiles;
   assert.equal(prize.prize, 'up to $1,000,000 per winner');
+});
+
+test('10.11 the won line: absent at 0 (never "$0"); "Builders using EarnKit won $12,500" from announced wins', () => {
+  assert.equal(landingFrom([arc], new Map(), stats(), now).won_line, null);
+  assert.equal(landingFrom([arc], new Map(), stats({ builders_won_usd: 12_500 }), now).won_line, 'Builders using EarnKit won $12,500');
+  assert.equal(wonLine(0), null);
+  assert.equal(wonLine(1_234_567), 'Builders using EarnKit won $1,234,567');
 });

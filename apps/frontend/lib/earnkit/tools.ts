@@ -27,6 +27,7 @@ import {
 import { recordShown, saveEntryScore } from './match-loop';
 import { repoKey } from './answer-bank';
 import { outcomeQuestion, outcomeToAsk } from './outcomes';
+import { wonSource } from './stats';
 import { WHICH_EMAIL, askWeeklyEmail, cleanEmail, entryEmail, saveWeeklyEmail } from './digest';
 import { TellInput, emptyMemory, hiddenIds, hiddenPrograms, memoryKey, readMemory, tell, type BuilderMemory, type MemoryKey } from './builder-memory';
 import { fitRepoOf, sinceLine, sinceYouLastChecked, type FitRepo } from './alerts';
@@ -1232,6 +1233,8 @@ export const tools = {
       repoCoins,
       entries: myEntries,
       hidden,
+      // v2.9 E20: "Builders using EarnKit won $X" (announced prizes only), absent at 0.
+      wonUsd: await wonSource.read(),
     };
     // v2.9 B10 (Ruling 12): the token offer for the best owned, product-tier fit closes the reply.
     const tokenPick = await firstTokenOffer(first, ctx, declineLogin(ctx, login));
