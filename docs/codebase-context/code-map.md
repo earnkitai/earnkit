@@ -334,7 +334,8 @@ apps/frontend/
                                for every other caller); resolver and transport injectable. safeProbe: traction's daily
                                live-link check (v2.6: no longer a coin gate) and the entry live check (any 2xx, one same-site redirect,
                                User-Agent EarnKit-linkcheck/1; v2.10: reads the first 64 KB,
-                               PROBE_MAX_BYTES, and a short page showing an error phrase throws
+                               PROBE_MAX_BYTES, accept PROBE_ACCEPT, and a short HTML page
+                               (isHtmlResponse, Ruling H4) showing an error phrase throws
                                ErrorPageError: errorPageText, visibleText; no JS runs)
     sponsor-identity.ts(+test) pure: sponsorLabel ("Sponsored · unverified" / "Sponsored · verified
                                <host>"), earnkitTxtNames (earnkit.txt parsing), reserved brand
