@@ -566,5 +566,20 @@ const [hostRows] = await db<{ s: number; d: number; t: number; f: number; flags:
 ok(hostRows.s === 1 && hostRows.d === 1 && hostRows.t === 1 && hostRows.f === 5 && hostRows.flags.length === 0,
   'hosting rows and free-tier counters survive the schema running again; flags default to none');
 
+// v2.9 E19: a digest subscription keeps its opt-in and send times when the schema runs again; an
+// email over 254 characters is refused; the question's time sits on the installation.
+await db`UPDATE installations SET digest_asked_at = now() WHERE id = ${memInst}`;
+await db`INSERT INTO digest_subscriptions (installation_id, email, opted_in_at, last_sent_at)
+  VALUES (${memInst}, 'a@b.co', now(), now())`;
+const longEmail = await db`UPDATE digest_subscriptions SET email = ${'a'.repeat(250) + '@b.co'} WHERE installation_id = ${memInst}`
+  .then(() => false, () => true);
+ok(longEmail, 'digest_subscriptions refuses an email over 254 characters');
+await db.unsafe(now);
+const [digestRow] = await db<{ email: string; opted: boolean; sent: boolean; asked: boolean }[]>`
+  SELECT d.email, d.opted_in_at IS NOT NULL AS opted, d.last_sent_at IS NOT NULL AS sent, i.digest_asked_at IS NOT NULL AS asked
+  FROM digest_subscriptions d JOIN installations i ON i.id = d.installation_id WHERE d.installation_id = ${memInst}`;
+ok(digestRow?.email === 'a@b.co' && digestRow.opted && digestRow.sent && digestRow.asked,
+  'digest subscriptions and digest_asked_at survive the schema running again');
+
 await db.end();
 console.log(`db check: ${checks} checks passed`);
