@@ -2,6 +2,8 @@ import { checkDefaults } from '../verify';
 import { wonSource } from '../stats';
 import { setFeeSource } from '../fees';
 import { logoDefaults } from '../token-logo';
+import { proofDefaults } from '../submission-proof';
+import { SafeFetchError } from '../safe-fetch';
 
 /**
  * v2.9 A5: test suites that run the entry tools import this once, so link and contract checks
@@ -29,3 +31,10 @@ setFeeSource({ availableWeth: async () => 0n, wethUsd: async () => 0 });
 // v2.10 item 12: a launch's logo never reads a live site or GitHub; it falls to the mark. A test
 // about the logo passes its own (TokenFlowDeps.logo, or token-logo.test.ts's fakes).
 logoDefaults.launch = async () => null;
+
+// v2.10 final fix I3: a submission link's page (e.g. a DoraHacks BUIDL) is never read from the real
+// site: it is unreachable, so the builder's confirmation counts, flagged. A test about the proof
+// passes its own (ToolContext.entryDeps.fetchProof, or proofCheck's deps.fetchText).
+proofDefaults.fetchText = async () => {
+  throw new SafeFetchError('no network in tests');
+};
