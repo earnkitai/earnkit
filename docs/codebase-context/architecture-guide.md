@@ -472,7 +472,10 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   A no-repo builder who picks a program that needs a repo anyway (Arc, from the table) hears it
   with the coach's questions, before answering: "Arc Microgrants needs a public repo with your
   project's code. No repo yet? Avalanche Team1 Mini Grants doesn't need one: say the word and I'll
-  start there." (`tools.ts needsRepoLine`, `present.ts enterableWithoutRepo`; v2.8.1 T7).
+  start there." (`tools.ts needsRepoLine`, `present.ts enterableWithoutRepo`; v2.8.1 T7). v2.10
+  Ruling H1: the pick (`present.ts noRepoPick`, also the no-repo first-reply offer) needs no repo,
+  is never tagged "needs a live product", and goes lowest difficulty first, then top prize; when
+  nothing fits the line is left out.
   "$X in prizes you qualify for" leaves out investments and rows that still need new work.
 - **Applying, v2.8.1 §C and §F.** The coach's one round also asks for the wallet (`questionsFor`'s
   `wallet`, key `payout_wallet`) when the entry would get a token and no wallet is known (given,
@@ -2404,7 +2407,8 @@ strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`, and in prod
   commit in 90 days or a push in 90 days (v2.10 item 8: `match-projects.ts commitsRead`, one
   `commits?since=<90d>&per_page=100` read by any author, so commits with an unlinked email count;
   `&author=<builder>` only on a repo someone else owns, the v2.9 A1 contribution rule; an empty read
-  or a failed one (null) falls back to `pushed_at`; the count, at most 100, is `RepoFacts.commits_90d`;
+  or a failed one (null) falls back to `pushed_at`, except on a repo someone else owns, where only
+  the builder's own commits count (Ruling H1); the count, at most 100, is `RepoFacts.commits_90d`;
   Pre-flight P28: the read also runs when the builder is unknown; local: `last_commit_at`), `young` = created in 365 days or active,
   `original` = not a fork or template and no `TUTORIAL` match (docs repos included, P27),
   `readme` = a root README of 1,536+ bytes (tree size) whose first 2 KB (one raw read) isn't

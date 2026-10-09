@@ -424,7 +424,9 @@ apps/frontend/
     human-text.ts(+test)       v2.8 Ruling 16: humanStrings (string/template/JSX text of a source file, via the TypeScript AST) and humanTextFiles; the test bans the em dash in all human text;
                                final review M1: notHumanText skips .test.ts/.test.tsx/.test.mts, and walkDir never enters a fixtures directory
     no-cell.ts                 NO_CELL (''), the empty table cell or chip; import-free so the client ProgramCard shares it (final review M1); present.ts re-exports it
-    present.ts(+test)          v2.8.1 T7: enterableWithoutRepo (the no-repo offer's pick, for tools.ts).
+    present.ts(+test)          v2.8.1 T7: enterableWithoutRepo (the no-repo offer's pick, for tools.ts); v2.10
+                               Ruling H1: noRepoPick (no repo needed, never "needs a live product", lowest
+                               difficulty, then prize; none: no line).
                                v2.9 E20: FirstMessage.wonUsd; withWonLine joins "Builders using EarnKit won $X."
                                to the money headline, else puts it first in the body (once; absent at 0).
                                v2.9 A3: FirstMessage.hidden drops programs from tables and the offer;
@@ -489,7 +491,8 @@ apps/frontend/
                                (Ruling 13), else ''
     match-projects.ts          v2.9 A3: MatchProjectsInput.said applied before the checks (P15); not_mine skipped.
                                v2.10 item 8: commitsRead (one 90-day read, any author; author= only on another
-                               owner's repo; empty or failed read falls back to pushed_at; commits_90d);
+                               owner's repo, which counts only those commits, Ruling H1; on an owned repo an
+                               empty or failed read falls back to pushed_at; commits_90d);
                                item 9: readRepoChains passes the tree paths; creditedMainnets for fits and
                                cachedRepoChains; withReportedChains marks reported mainnets as claims (P8).
                                repo matching for list_programs + get_program's eligibility check; v2.9 A1, A2:
