@@ -2438,11 +2438,25 @@ export const tools = {
   },
 
   // v2.10 item 13: with `deploy`, EarnKit deploys the builder's contract after the prepare step.
+  // Task 11 fix (journey 11.0): the deploy runs first and its address joins this draft's contracts,
+  // so the reply's contract check sees it (item 13: "goes straight into the A5 check") and never says
+  // "No contract found" next to the deployed line. The program is read first, so an unknown one
+  // spends nothing; a draft that fails after a deploy still returns the deploy.
   prepare: async (input: unknown, ctx: ToolContext) => {
     const { deploy, ...prep } = PrepareInput.parse(input);
-    const r = (await handlers.prepare_submission(prep, ctx)) as Reply;
-    if (!deploy) return r;
+    if (!deploy) return handlers.prepare_submission(prep, ctx);
+    await getProgramRow(prep.program_id);
     const step = await deployStep(deploy, prep, ctx);
+    const address = (step.deploy as { address?: string }).address;
+    const drafted = address ? { ...prep, project: { ...prep.project, contracts: [address, ...(prep.project?.contracts ?? []).filter((c) => c.toLowerCase() !== address.toLowerCase())].slice(0, 2) } } : prep;
+    let r: Reply;
+    try {
+      r = (await handlers.prepare_submission(drafted, ctx)) as Reply;
+    } catch (err) {
+      if (!address) throw err;
+      const why = err instanceof Error ? err.message : 'error';
+      return { program_id: prep.program_id, show_to_builder: step.line, deploy: step.deploy, agent_note: `${step.agent_note ?? ''} The draft failed: ${why} Call prepare again without deploy.`.trim() };
+    }
     const shown = typeof r.show_to_builder === 'string' && r.show_to_builder ? `${r.show_to_builder}\n\n${step.line}` : step.line;
     const note = [r.agent_note, step.agent_note].filter((n) => typeof n === 'string' && n).join(' ');
     return { ...r, show_to_builder: shown, deploy: step.deploy, ...(note && { agent_note: note }) };

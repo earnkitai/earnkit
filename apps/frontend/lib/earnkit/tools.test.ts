@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { SafeFetchError } from './safe-fetch';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { isDeepStrictEqual } from 'node:util';
 import { CONFIRM_SHARED_NOTE, LEAD_NOTE, NOTED_FOR_NOW, eligibilityLine, withoutTokenLine, SponsorCampaignInput, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
 import { aliasCall } from './aliases';
 import { reportedGithubUser, reportedRepos } from './match-projects';
@@ -3604,8 +3605,18 @@ test('9.3 find: no program_id is list_programs; program_id shows the curated gui
     const ctx = { ...t.ctx, matchProjects: async () => ({ checked: 0, fits: [] }) };
     // Lines said once (news, the deadline line) are taken by the first call; then the two agree.
     await handlers.list_programs({}, ctx);
-    assert.deepEqual(await tools.find({}, ctx), await handlers.list_programs({}, ctx));
-    assert.deepEqual(await tools.find({ more: true }, ctx), await handlers.list_programs({ more: true }, ctx));
+    // Task 11: other test files add programs to the shared database while this runs, so a pair of
+    // reads may straddle one; a pair that differs is read again (at most 3 times).
+    const agree = async (input: object) => {
+      let pair: unknown[] = [];
+      for (let i = 0; i < 3; i++) {
+        pair = [await tools.find(input, ctx), await handlers.list_programs(input, ctx)];
+        if (isDeepStrictEqual(pair[0], pair[1])) break;
+      }
+      assert.deepEqual(pair[0], pair[1]);
+    };
+    await agree({});
+    await agree({ more: true });
     const one = (await tools.find({ program_id: t.p.id }, ctx)) as { show_to_builder: string; guide: { text: string } };
     assert.equal(one.show_to_builder, one.guide.text);
     assert.match(one.show_to_builder, /^Arc Microgrants/);
@@ -3994,6 +4005,80 @@ test('fix round 2 (N6): prepare with deploy refuses when the installation login 
   } finally {
     if (old === undefined) delete process.env.DEPLOYER_PRIVATE_KEY;
     else process.env.DEPLOYER_PRIVATE_KEY = old;
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${f.id}`;
+  }
+});
+
+test('T11 fix (journey 11.0): prepare with deploy checks this draft with the deployed contract: no "No contract found" next to the deployed line', dbTest, async () => {
+  const { deployedLine } = await import('./deploy');
+  const f = committedProgram('arc-microgrants', { keepContract: true });
+  const stamp = `${process.pid}-${Date.now()}`;
+  Object.assign(f, { id: `t11-deploy-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' });
+  await upsertProgram(ProgramFile.parse(f));
+  const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t11d-${stamp}`}) RETURNING id`;
+  const repoKey = `t11x${process.pid}x${Date.now()}/tipjar`;
+  await sql()`
+    INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose)
+    VALUES (${repoKey}, ${`t11${process.pid}x${Date.now()}`}, ${id}, now(), 3, 'entry')`;
+  const ADDR = '0x12ab00000000000000000000000000000000' + '9f3e';
+  const OWNER = '0x2222222222222222222222222222222222222222';
+  const chain = {
+    estimate: async () => ({ gas: 100_000n, maxFeePerGas: 1_000_000_000n }),
+    balance: async () => 10n ** 18n,
+    send: async () => `0x${'ab'.repeat(32)}` as const,
+    receipt: async () => ({ status: 'success' as const, contractAddress: ADDR as `0x${string}`, gasUsed: 50_000n, effectiveGasPrice: 1_000_000_000n }),
+    simulate: async () => `0x${'60'.repeat(50)}` as const,
+    nonce: async () => 1,
+    code: async () => `0x${'60'.repeat(50)}` as const,
+    read: async (a: { fn: string }) => (a.fn === 'owner' ? OWNER : null),
+    write: async () => `0x${'cd'.repeat(32)}` as const,
+  };
+  const abi = [{ type: 'function', name: 'owner', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' }];
+  const project = { name: 'TipJar', repo_url: `https://github.com/${repoKey}`, live_url: 'https://tipjar-t11.xyz' };
+  const answers = { description: 'Fans tip creators in USDC on Arc.', builder_profile: 'https://github.com/alice', payout_wallet: OWNER };
+  const ctx = {
+    installationId: id,
+    deployDeps: { chain: () => chain, usdPerNative: async () => 1, now: new Date(Date.UTC(2161, Number(process.pid % 12), 3)), gate: { owner: async () => ({ status: 'missing' as const }), latest: async () => null } },
+  };
+  const keys = ['DEPLOYER_PRIVATE_KEY', 'GITHUB_OAUTH_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_SECRET'];
+  const old = keys.map((k) => process.env[k]);
+  process.env.DEPLOYER_PRIVATE_KEY = '5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a';
+  process.env.GITHUB_OAUTH_CLIENT_ID = 'test-client';
+  process.env.GITHUB_OAUTH_CLIENT_SECRET = 'test-secret';
+  try {
+    const r = (await tools.prepare({ program_id: f.id, project, answers, coach_asked: true, deploy: { chain: 'arc', bytecode: `0x${'60'.repeat(40)}`, abi, owner_wallet: OWNER } }, ctx)) as Record<string, unknown> & { show_to_builder: string };
+    assert.deepEqual(r.deploy, { address: ADDR, chain: 'arc', owner_ok: true });
+    assert.ok(r.show_to_builder.endsWith(`\n\n${deployedLine('TipJar', 'arc', ADDR, true)}`), r.show_to_builder);
+    assert.doesNotMatch(r.show_to_builder, /No contract found/, 'the draft was checked with the deployed contract');
+    assert.equal(r.ready, true, r.show_to_builder);
+    // Without a deploy (and no contract given) the same draft says so: the check is real.
+    const plain = (await tools.prepare({ program_id: f.id, project, answers, coach_asked: true }, { installationId: id })) as { show_to_builder: string };
+    assert.match(plain.show_to_builder, /No contract found on Arc mainnet yet\./);
+  } finally {
+    keys.forEach((k, i) => (old[i] === undefined ? delete process.env[k] : (process.env[k] = old[i])));
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${f.id}`;
+  }
+});
+
+test('T11 fix (journey 11.0): tell\'s "I submitted" keeps the entry\'s verified contract (the stored fields carry no contracts)', dbTest, async () => {
+  const f = committedProgram('arc-microgrants', { keepContract: true });
+  const stamp = `${process.pid}-${Date.now()}`;
+  Object.assign(f, { id: `t11-keep-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' });
+  await upsertProgram(ProgramFile.parse(f));
+  const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t11k-${stamp}`}) RETURNING id`;
+  const ctx = { installationId: id, entryDeps: { fetchProof: async () => `<a href="https://github.com/t11/keep-${stamp}">code</a>` } };
+  const project = { name: 'Keep', repo_url: `https://github.com/t11/keep-${stamp}`, live_url: 'https://keep-t11.xyz', contracts: ['0x7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a'] };
+  const answers = { description: 'Fans tip creators in USDC on Arc.', builder_profile: 'https://github.com/t11' };
+  try {
+    const c = (await tools.confirm({ program_id: f.id, project, answers, skip_token: true }, ctx)) as { project_id: number; kit?: unknown };
+    assert.ok(c.kit, JSON.stringify(c));
+    const verified = async () => (await sql()<{ v: Date | null; s: Date | null }[]>`SELECT contract_verified_at AS v, submission_confirmed_at AS s FROM projects WHERE id = ${c.project_id}`)[0];
+    assert.ok((await verified()).v, 'verified at confirm');
+    await tools.tell({ submitted: { program_id: f.id, external_submission_url: 'https://dorahacks.io/buidl/9191' } }, ctx);
+    const after = await verified();
+    assert.ok(after.s, 'submitted');
+    assert.ok(after.v, 'still verified after "I submitted"');
+  } finally {
     await sql()`UPDATE programs SET status = 'closed' WHERE id = ${f.id}`;
   }
 });

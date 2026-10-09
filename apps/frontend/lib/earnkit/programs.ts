@@ -283,7 +283,7 @@ export async function listPrograms() {
       p.match_precision, sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
     FROM programs p LEFT JOIN sponsor_campaigns sc ON sc.program_id = p.id
     WHERE p.status = 'active' AND (p.ends_at IS NULL OR p.ends_at > now())
-    ORDER BY p.ends_at NULLS LAST`;
+    ORDER BY p.ends_at NULLS LAST, p.id`; // Task 11: a tie-breaker, so equal deadlines list in one order (the 9.3 find test compared two reads)
   const tracks = await db<{ id: string; program_id: string; name: string }[]>`
     SELECT id, program_id, name FROM tracks
     WHERE program_id IN ${db(programs.map((p) => p.id).concat(''))}
@@ -431,7 +431,7 @@ export async function openProgramFacts() {
   >`
     SELECT id, title, existing_work, tag, starts_at, chains, any_chain, source, investment, min_product_score, match_floor FROM programs
     WHERE status = 'active' AND (ends_at IS NULL OR ends_at > now())
-    ORDER BY ends_at NULLS LAST`;
+    ORDER BY ends_at NULLS LAST, id`;
   return rows.map(({ source, ...p }) => ({
     ...p,
     investment: p.investment === true,

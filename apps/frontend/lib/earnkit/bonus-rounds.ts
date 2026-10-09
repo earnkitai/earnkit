@@ -226,6 +226,11 @@ export async function roundPools(
 ): Promise<Map<string, RoundPool | null>> {
   if (programIds.length === 0) return new Map();
   const now = opts.now ?? new Date();
+  // Task 11 fix (DB+anvil run): a live read (no opts.now) counts every launched token. The upper
+  // bound is only for an "as of" read: the app's clock is in milliseconds and the database's
+  // coin_launched_at in microseconds (and on another machine), so a token launched a moment before
+  // the read could fall after `now` and the reply would say "no tokens yet" under its own token.
+  const live = opts.now === undefined;
   const testIds = testInstallationIds();
   opts.onQuery?.();
   const rows = await sql()<{ id: string; state: string | null; wei: string | null; tokens: number }[]>`
@@ -246,7 +251,7 @@ export async function roundPools(
       (SELECT sum(l.amount_wei) FROM bonus_ledger l WHERE l.round_key = o.round_key AND l.destination = 'round')::text AS wei,
       (SELECT count(*) FROM projects t
         WHERE t.program_id = o.id AND t.coin_address IS NOT NULL AND t.coin_launched_at >= o.round_start
-          AND t.coin_launched_at <= ${now}
+          AND (${live} OR t.coin_launched_at <= ${now})
           AND NOT COALESCE(t.installation_id = ANY(${testIds}::int[]), false))::int AS tokens
     FROM open o LEFT JOIN bonus_rounds r ON r.round_key = o.round_key`;
   const out = new Map<string, RoundPool | null>();

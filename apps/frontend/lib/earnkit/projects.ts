@@ -349,6 +349,9 @@ export function bonusEligible(project: {
 /**
  * v2.9 A5: the verified columns an entry step writes from its checks (`verified`): now where a
  * check passed, NULL where it didn't; null (write nothing) when no checks ran. Pure.
+ * Task 11 fix (journey 11.0): a contract that had code keeps counting. The UPDATEs below never clear
+ * contract_verified_at, since a later step (tell's "I submitted" re-records from the stored fields,
+ * which carry no contracts) can't see the address the earlier check passed with.
  */
 export function verifiedAt(
   verified: KnownInfo['verified'],
@@ -928,7 +931,7 @@ export async function recordSubmission(
             creator_wallet = CASE WHEN token_url IS NULL AND ${bonusWallet}::text IS NOT NULL THEN ${bonusWallet} ELSE creator_wallet END,
             complete_at = COALESCE(complete_at, ${completeNow}),
             live_verified_at = CASE WHEN ${checked !== null} THEN ${checked?.live_verified_at ?? null}::timestamptz ELSE live_verified_at END,
-            contract_verified_at = CASE WHEN ${checked !== null} THEN ${checked?.contract_verified_at ?? null}::timestamptz ELSE contract_verified_at END
+            contract_verified_at = COALESCE(${checked?.contract_verified_at ?? null}::timestamptz, contract_verified_at)
           WHERE id = ${own.id} RETURNING id, submitted_at`
         : await tx<{ id: number; submitted_at: Date }[]>`
       INSERT INTO projects ${tx({
@@ -1146,7 +1149,7 @@ export async function startEntry(a: {
           complete_at = COALESCE(complete_at, ${completeNow}),
           repo_private = repo_private OR ${repo_private},
           live_verified_at = CASE WHEN ${checked !== null} THEN ${checked?.live_verified_at ?? null}::timestamptz ELSE live_verified_at END,
-          contract_verified_at = CASE WHEN ${checked !== null} THEN ${checked?.contract_verified_at ?? null}::timestamptz ELSE contract_verified_at END
+          contract_verified_at = COALESCE(${checked?.contract_verified_at ?? null}::timestamptz, contract_verified_at)
         WHERE id = ${own.id}
         RETURNING id, CASE WHEN ${earnkit()} THEN token_url END AS token_url, confirm_choice,
           -- v2.9 B9: a stop on the GitHub sign-in (G10, G11) counts the same way (P10).
