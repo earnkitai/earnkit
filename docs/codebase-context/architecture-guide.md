@@ -1187,7 +1187,8 @@ during the build); plan: `v2.4-money-first-plan.md`.
     An entry's recorded `repo_url` never changes (`launch_token` and `updateLinks` refuse: "record
     a new entry for a different repo"; only a missing repo may be filled in, with its
     `bonus_repo_key`), so a repo key can't be squatted and then swapped.
-  - *live*: one `safeProbe` per entry per UTC day into `live_checks`; a failed day is re-probed on
+  - *live*: one `safeProbe` per entry per UTC day into `live_checks` (v2.10: an error page is a
+    failed day); a failed day is re-probed on
     later runs (`ok = ok OR new`); ratio = ok days / max(7, days since the entry joined).
   - *github* (the authenticated `gh`; 404/409/451 = no activity): each read records commit SHAs
     first seen into `bonus_commits` under that read's day (the round's last day after the end), so
@@ -2319,7 +2320,13 @@ speedrun, no dead end for a no-repo builder on Arc, the returning recap with no 
   and program links as they are. `reportedUrl` (local_repos) drops placeholders, and a placeholder
   GitHub homepage is no homepage (`checkRepo`).
 - **Checks.** `verify.ts`: `liveVerified(url)` probes with `safeProbe` (a 2xx, public address,
-  5 s), `contractDeployed(chain, address)` runs `eth_getCode` through `rpcFor(chain)` (the
+  5 s; v2.10 item 14: the first 64 KB is read and a page whose visible text is under 5 KB and
+  whose title or text shows an error phrase such as "404", "This page could not be found" or
+  "Bad Gateway" fails with `ErrorPageError`; `liveCheckDetail` caches that phrase as the
+  `url_checks.note` and the entry's fix line is `liveErrorLine`: "Your live link loads but shows
+  an error (...)". There's no JS execution, so an error drawn by client JS isn't caught. The
+  builder bonus live signal (traction.ts) uses the same probe, so an error page counts as a down
+  day there too, P31), `contractDeployed(chain, address)` runs `eth_getCode` through `rpcFor(chain)` (the
   `<CHAIN>_RPC_URL` variable, else the public default from each chain's docs; no RPC = null,
   never a pass). `hasCode`: `0x`, empty and an EIP-7702 delegation are not deployed. Results are
   cached in `url_checks` (`url:<canonical url>`, `getcode:<chain>:<address>`): a pass 24 h, a
