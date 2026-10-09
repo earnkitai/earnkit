@@ -4,6 +4,7 @@ import { sql } from './db';
 import { FINAL_GRACE_MS, REVIEW_MS, type CampaignConfig, type EarnKitCampaign } from './campaigns';
 import { scoreCampaignEntries, type ScoreDeps, type ScoreRow } from './campaign-score';
 import { FEE_TTL_MS, launchedCreatorWallets, refreshFees } from './fees';
+import { expireSites, sitesInReview } from './hosting';
 import { bearerMatches, json } from './http';
 import {
   NOT_MAINNET,
@@ -20,6 +21,7 @@ import {
   type FrozenTerms,
   type PayDeps,
 } from './payout';
+import { r2Enabled, type R2 } from './r2';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
 import { stuckLaunches } from './tokens';
 import { withScoringLock } from './sponsor';
@@ -81,6 +83,8 @@ export type CronDeps = {
   rounds?: { listed?: (wallet: string) => Promise<boolean>; only?: string[] };
   /** v2.8.1 §A1: the projects whose launch claim is older than 10 minutes (default tokens.ts stuckLaunches). */
   stuckLaunches?: (now: Date) => Promise<number[]>;
+  /** v2.9 C13: the hosted sites' R2 (default: r2.ts r2Client); with `only`, the step runs only when given. */
+  hosting?: { r2?: R2 };
 };
 
 /** Opens the 48 h review (once: only from 'running') and freezes the payout terms with it. */
@@ -309,6 +313,18 @@ export async function runCron(
   } catch (err) {
     console.error('[cron] fees', err);
   }
+  // v2.9 C13, Ruling 10: hosted sites past their expiry end (bounded per run), only while hosting
+  // is on (the R2 variables are set). Same `only`/deps gating as the bonus steps.
+  const hostingOn = r2Enabled() && (!opts.only || deps.hosting !== undefined);
+  let hosting: Record<string, unknown> | undefined;
+  if (hostingOn) {
+    try {
+      hosting = await expireSites(now, deps.hosting);
+    } catch (err) {
+      console.error('[cron] hosting', err instanceof Error ? err.name : 'error');
+      hosting = { step: 'error', note: STEP_FAILED };
+    }
+  }
   // Campaigns whose payout waits on the owner (manual check, changed terms, a wallet short of the
   // prize or of gas, or PAY_FAILED_RUNS failed pay steps in a row): the endpoint answers 503.
   const needs_owner = campaigns
@@ -350,6 +366,14 @@ export async function runCron(
     }
   }
   for (const id of stuck) needs_owner.push(`token-pending:${id}`);
+  // v2.9 C14, P46: a flagged upload waits on the owner's review (the takedown route kills or approves it).
+  if (hostingOn) {
+    const review = await sitesInReview().catch((err: unknown) => {
+      console.error('[cron] host review', err instanceof Error ? err.name : 'error');
+      return [] as string[];
+    });
+    for (const slug of review) needs_owner.push(`host-review:${slug}`);
+  }
   return {
     now: now.toISOString(),
     campaigns,
@@ -358,6 +382,7 @@ export async function runCron(
     ...(bonus && { bonus }),
     ...(proofRecheck && { proof_recheck: proofRecheck }),
     fee_wallets: fees,
+    ...(hosting && { hosting }),
     needs_owner,
   };
 }
