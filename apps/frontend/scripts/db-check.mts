@@ -542,5 +542,27 @@ await db.unsafe(now);
 const [claimRows] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM fee_claims`;
 ok(claimRows.n === 1, 'fee_claims rows survive the schema running again');
 
+// v2.9 C12-C14: hosted sites take only the four statuses, one per repo; the hosting rows and the
+// free-tier counters survive the schema running again.
+await db`INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status)
+  VALUES ('tipjar-alice', 'alice', 'alice/tipjar', ${memInst}, 100, 1, 'live')`;
+const badSiteStatus = await db`INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status)
+  VALUES ('x-alice', 'alice', 'alice/x', ${memInst}, 1, 1, 'gone')`.then(() => false, () => true);
+ok(badSiteStatus, "hosted_sites only takes 'live', 'review', 'killed' or 'ended'");
+const twoPerRepo = await db`INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status)
+  VALUES ('tipjar2-alice', 'alice', 'alice/tipjar', ${memInst}, 1, 1, 'live')`.then(() => false, () => true);
+ok(twoPerRepo, 'hosted_sites holds one site per repo');
+await db`INSERT INTO host_deploys (login, slug) VALUES ('alice', 'tipjar-alice')`;
+await db`INSERT INTO host_upload_tokens (token_hash, installation_id, login, repo_key, slug, project, expires_at)
+  VALUES ('h', ${memInst}, 'alice', 'alice/tipjar', 'tipjar-alice', 'TipJar', now())`;
+await db`INSERT INTO free_tier_usage (name, period, used) VALUES ('r2Writes', '2026-10', 5)`;
+await db.unsafe(now);
+const [hostRows] = await db<{ s: number; d: number; t: number; f: number; flags: string[] }[]>`
+  SELECT (SELECT count(*)::int FROM hosted_sites) AS s, (SELECT count(*)::int FROM host_deploys) AS d,
+    (SELECT count(*)::int FROM host_upload_tokens) AS t, (SELECT used FROM free_tier_usage WHERE name = 'r2Writes') AS f,
+    (SELECT flags FROM hosted_sites WHERE slug = 'tipjar-alice') AS flags`;
+ok(hostRows.s === 1 && hostRows.d === 1 && hostRows.t === 1 && hostRows.f === 5 && hostRows.flags.length === 0,
+  'hosting rows and free-tier counters survive the schema running again; flags default to none');
+
 await db.end();
 console.log(`db check: ${checks} checks passed`);
