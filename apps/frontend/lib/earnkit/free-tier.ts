@@ -64,3 +64,15 @@ export async function giveBackFreeTier(name: FreeTierName, n: number, now = new 
     UPDATE free_tier_usage SET used = GREATEST(0, used - ${Math.ceil(n)})
     WHERE name = ${name} AND period = ${periodKey(FREE_CAPS[name].period, now)}`;
 }
+
+/**
+ * v2.10 fix round 1 (C1): adds `n` with no cap check (gas already spent, such as a deploy's cost over
+ * its reserve), so a full counter stops the next take.
+ */
+export async function forceFreeTier(name: FreeTierName, n: number, now = new Date()): Promise<void> {
+  if (!(n > 0)) return;
+  const add = Math.ceil(n);
+  await sql()`
+    INSERT INTO free_tier_usage (name, period, used) VALUES (${name}, ${periodKey(FREE_CAPS[name].period, now)}, ${add})
+    ON CONFLICT (name, period) DO UPDATE SET used = free_tier_usage.used + ${add}`;
+}

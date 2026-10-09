@@ -3912,8 +3912,9 @@ test('10.11 prepare with deploy: off without DEPLOYER_PRIVATE_KEY (no chain read
     balance: async () => ((reads++), 10n ** 18n),
     send: async () => `0x${'ab'.repeat(32)}` as const,
     receipt: async () => ({ status: 'success' as const, contractAddress: ADDR as `0x${string}`, gasUsed: 50_000n, effectiveGasPrice: 100_000_000_000n }),
+    simulate: async () => `0x${'60'.repeat(50)}` as const,
     code: async () => `0x${'60'.repeat(50)}` as const,
-    read: async () => OWNER,
+    read: async (a: { fn: string }) => (a.fn === 'owner' ? OWNER : null),
     write: async () => `0x${'cd'.repeat(32)}` as const,
   };
   const abi = [{ type: 'function', name: 'owner', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' }];

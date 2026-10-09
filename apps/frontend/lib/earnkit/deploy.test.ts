@@ -7,18 +7,21 @@ import {
   DEPLOY_CAPS,
   DEPLOY_LINES,
   DEPLOY_PENDING,
+  DEPLOY_UNCONFIRMED,
+  TRANSFER_GAS,
   deployEnabled,
   deployForBuilder,
   deployRefusal,
   deployedLine,
   deployerAccount,
   keySeparate,
+  runtimeRefusal,
   type DeployChain,
   type DeployDeps,
   type DeployInput,
 } from './deploy';
-import { deployerGas } from './cron';
-import { periodKey, takeFreeTier } from './free-tier';
+import { QUIET_OWNER, cronPost, deployerGas } from './cron';
+import { forceFreeTier, periodKey, takeFreeTier } from './free-tier';
 import { contractDeployed } from './verify';
 
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
@@ -105,24 +108,59 @@ test('10.2 keySeparate and deployEnabled: the deployer key equal to the payout, 
   assert.equal(deployEnabled({ DEPLOYER_PRIVATE_KEY: 'x'.repeat(64) }), false, 'a malformed key is off, never a throw');
 });
 
+// ---- Fix round 1 (I4): the simulated runtime
+
+test('fix round 1 (I4) runtimeRefusal: over 24 KB, ERC-20 selectors, CREATE or CREATE2 opcodes; push data and metadata do not count', () => {
+  assert.equal(runtimeRefusal(`0x${'60'.repeat(100)}` as Hex), null);
+  assert.equal(runtimeRefusal(`0x${'5b'.repeat(24_577)}` as Hex), DEPLOY_LINES.tooBig);
+  assert.equal(runtimeRefusal(`0x63a9059cbb63095ea7b36318160ddd00` as Hex), DEPLOY_LINES.token);
+  assert.equal(runtimeRefusal('0x600060006000f500' as Hex), DEPLOY_LINES.factory, 'CREATE2');
+  assert.equal(runtimeRefusal('0x600060006000f000' as Hex), DEPLOY_LINES.factory, 'CREATE');
+  assert.equal(runtimeRefusal('0x61f5f000' as Hex), null, 'f5 and f0 inside PUSH2 data');
+  // Solidity metadata: a CBOR map (0xa1..) at the end, its length in the last 2 bytes.
+  assert.equal(runtimeRefusal('0x6000fea1f5f0f50004' as Hex), null, 'f0/f5 inside the metadata');
+});
+
 // ---- The chain fake and the DB setup
 
-type Calls = { estimate: number; send: { data: Hex; gas: bigint; maxFeePerGas: bigint; [k: string]: unknown }[]; writes: { fn: string; args: unknown[] }[]; reads: number; balance: number };
+type Calls = {
+  estimate: number;
+  simulate: number;
+  send: { data: Hex; gas: bigint; maxFeePerGas: bigint; [k: string]: unknown }[];
+  writes: { fn: string; args: unknown[]; gas: bigint; maxFeePerGas: bigint; abi: Abi }[];
+  reads: { fn: string; args?: unknown[] }[];
+  balance: number;
+};
+const HASH = `0x${'ab'.repeat(32)}` as Hex;
+const TX2 = `0x${'cd'.repeat(32)}` as Hex;
 function fakeChain(o: {
   feeWei?: bigint;
   balance?: bigint;
+  l1Fee?: bigint;
   receipt?: 'success' | 'reverted' | null;
+  receiptGas?: bigint;
+  receiptL1?: bigint;
+  runtime?: Hex;
   code?: Hex;
-  owner?: () => Address;
+  owner?: () => Address | null;
+  admin?: boolean | null;
+  probeThrows?: boolean;
   afterTransfer?: Address;
   sendDelayMs?: number;
+  hash?: Hex;
 } = {}) {
-  const calls: Calls = { estimate: 0, send: [], writes: [], reads: 0, balance: 0 };
+  const calls: Calls = { estimate: 0, simulate: 0, send: [], writes: [], reads: [], balance: 0 };
   let owner = o.owner ?? (() => BUILDER);
+  const fee = o.feeWei ?? 100_000_000_000n;
   const chain: DeployChain = {
     estimate: async () => {
       calls.estimate++;
-      return { gas: 100_000n, maxFeePerGas: o.feeWei ?? 100_000_000_000n }; // $0.01 at $1 a coin
+      // $0.01 for the deploy and $0.01 for the transfer cap at $1 a coin.
+      return { gas: 100_000n, maxFeePerGas: fee, ...(o.l1Fee !== undefined && { l1Fee: o.l1Fee }) };
+    },
+    simulate: async () => {
+      calls.simulate++;
+      return o.runtime ?? (`0x${'60'.repeat(100)}` as Hex);
     },
     balance: async () => {
       calls.balance++;
@@ -131,42 +169,50 @@ function fakeChain(o: {
     send: async (a) => {
       calls.send.push(a as Calls['send'][number]);
       if (o.sendDelayMs) await new Promise((r) => setTimeout(r, o.sendDelayMs));
-      return `0x${'ab'.repeat(32)}` as Hex;
+      return o.hash ?? HASH;
     },
     receipt: async (hash) => {
-      if (hash !== `0x${'ab'.repeat(32)}` && hash !== `0x${'cd'.repeat(32)}`) throw new Error('unknown hash');
-      if (hash === `0x${'cd'.repeat(32)}`) return { status: 'success', contractAddress: null, gasUsed: 30_000n, effectiveGasPrice: 100_000_000_000n };
+      if (hash === TX2) return { status: 'success', contractAddress: null, gasUsed: 30_000n, effectiveGasPrice: fee };
       const r = o.receipt === undefined ? 'success' : o.receipt;
       if (r === null) return null;
-      return { status: r, contractAddress: r === 'success' ? DEPLOYED : null, gasUsed: 50_000n, effectiveGasPrice: 100_000_000_000n };
+      return {
+        status: r,
+        contractAddress: r === 'success' ? DEPLOYED : null,
+        gasUsed: o.receiptGas ?? 50_000n,
+        effectiveGasPrice: 100_000_000_000n,
+        l1Fee: o.receiptL1 ?? null,
+      };
     },
     code: async () => o.code ?? (`0x${'60'.repeat(100)}` as Hex),
-    read: async () => {
-      calls.reads++;
-      return owner();
+    read: async (a) => {
+      calls.reads.push({ fn: a.fn, args: a.args });
+      if (o.probeThrows) throw new Error('rpc down');
+      if (a.fn === 'owner') return owner();
+      if (a.fn === 'hasRole') return o.admin ?? null;
+      throw new Error(`unexpected read ${a.fn}`);
     },
     write: async (a) => {
-      calls.writes.push({ fn: a.fn, args: a.args });
+      calls.writes.push({ fn: a.fn, args: a.args, gas: a.gas, maxFeePerGas: a.maxFeePerGas, abi: a.abi });
       const next = o.afterTransfer;
       if (next) owner = () => next;
-      return `0x${'cd'.repeat(32)}` as Hex;
+      return TX2;
     },
   };
   return { chain, calls };
 }
 
 let seq = 0;
+const proofRow = (installationId: number, repoKey: string, login = 'alice') => sql()`
+  INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose)
+  VALUES (${repoKey}, ${login}, ${installationId}, now(), 3, 'entry')`;
 /** A fresh installation, a repo it proved (a sign-in row unless `proof: false`), unique per test. */
 async function setup(o: { proof?: boolean; shared?: boolean; login?: string } = {}) {
   const stamp = `${process.pid}-${Date.now()}-${seq++}`;
   const [{ id }] = await sql()<{ id: number }[]>`
     INSERT INTO installations (token_hash, shared_client) VALUES (${`deploy-${stamp}`}, ${o.shared ?? false}) RETURNING id`;
   const repoKey = `alice${stamp}/tipjar`;
-  if (o.proof !== false)
-    await sql()`
-      INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose)
-      VALUES (${repoKey}, ${o.login ?? 'alice'}, ${id}, now(), 3, 'entry')`;
-  return { installationId: id, repoKey };
+  if (o.proof !== false) await proofRow(id, repoKey, o.login);
+  return { installationId: id, repoKey, shared: o.shared ?? false };
 }
 // A day and month far from real time and from each other test's, so the global counters start at zero.
 const farDay = () => new Date(Date.UTC(2100 + (seq % 50), Number(process.pid % 12), 1 + (seq++ % 27), 12));
@@ -193,23 +239,36 @@ const deps = (chain: DeployChain, o: Partial<DeployDeps> = {}): DeployDeps => ({
   receiptMs: 50,
   ...o,
 });
-const call = (s: { installationId: number; repoKey: string }, i: DeployInput = input(), login: string | null = null) => ({
+const call = (
+  s: { installationId: number; repoKey: string; shared?: boolean },
+  i: DeployInput = input(),
+  login: string | null = null,
+) => ({
   installationId: s.installationId,
   login,
+  shared: s.shared ?? false,
   repoKey: s.repoKey,
   projectName: 'TipJar',
   builderWallet: BUILDER,
   input: i,
 });
 const rowsOf = (repoKey: string) =>
-  sql()<{ id: number; status: string; owner_ok: boolean | null; address: string | null; cost_micro_usd: string; tx_hash: string; chain: string }[]>`
-    SELECT id, status, owner_ok, address, cost_micro_usd::text, tx_hash, chain FROM contract_deploys WHERE repo_key = ${repoKey} ORDER BY id`;
+  sql()<{ id: number; status: string; owner_ok: boolean | null; address: string | null; cost_micro_usd: string; tx_hash: string; chain: string; builder_key: string }[]>`
+    SELECT id, status, owner_ok, address, cost_micro_usd::text, tx_hash, chain, builder_key FROM contract_deploys WHERE repo_key = ${repoKey} ORDER BY id`;
 const monthUsed = async (now: Date) => {
   const [r] = await sql()<{ used: number }[]>`
     SELECT used FROM free_tier_usage WHERE name = 'deployGasMonth' AND period = ${periodKey('month', now)}`;
   return r?.used ?? 0;
 };
 const flagged = async (now = new Date()) => (await deployerGas(now, { chain: () => null })).needs_owner;
+const pastRows = (s: { installationId: number; repoKey: string }, days: number[]) =>
+  Promise.all(
+    days.map(
+      (d) => sql()`
+        INSERT INTO contract_deploys (installation_id, login, builder_key, repo_key, chain, tx_hash, status, cost_micro_usd, created_at)
+        VALUES (${s.installationId}, NULL, ${`installation:${s.installationId}`}, ${s.repoKey}, 'arc', '0x01', 'deployed', 1, now() - make_interval(days => ${d}))`,
+    ),
+  );
 
 // ---- 10.3 a happy deploy
 
@@ -227,14 +286,25 @@ test('10.3 a happy deploy on Base: one send with no value, the line, the row, an
     assert.equal(row.status, 'deployed');
     assert.equal(row.owner_ok, true);
     assert.equal(row.address, DEPLOYED.toLowerCase());
-    assert.equal(row.tx_hash, `0x${'ab'.repeat(32)}`);
+    assert.equal(row.tx_hash, HASH);
     assert.equal(row.cost_micro_usd, '5000', 'gasUsed × effectiveGasPrice at $1: $0.005');
     assert.equal(await monthUsed(d.now!), 5000, 'the reserve minus the give-back');
     assert.equal(await contractDeployed('base', DEPLOYED, { getCode: async () => { throw new Error('no RPC in this test'); } }), true);
   }),
 );
 
-test('10.3 a 25 KB runtime: the line says too big, owner_ok false, no getCode pass, and the cron flags it', dbTest, () =>
+test('10.3, I4: a 25 KB runtime from the simulation is too big before anything is sent', dbTest, () =>
+  withDeployer(async () => {
+    const s = await setup();
+    const { chain, calls } = fakeChain({ runtime: `0x${'60'.repeat(25 * 1024)}` as Hex });
+    const out = await deployForBuilder(call(s), deps(chain));
+    assert.deepEqual(out, { status: 'refused', show_to_builder: DEPLOY_LINES.tooBig });
+    assert.equal(calls.send.length, 0);
+    assert.equal((await rowsOf(s.repoKey)).length, 0);
+  }),
+);
+
+test('10.3: stored code that differs from the simulation (too big): owner_ok false, no getCode pass, flagged', dbTest, () =>
   withDeployer(async () => {
     const s = await setup();
     const addr = '0x00000000000000000000000000000000000b1600' as Address;
@@ -251,17 +321,35 @@ test('10.3 a 25 KB runtime: the line says too big, owner_ok false, no getCode pa
   }),
 );
 
-// ---- 10.4 the owner step
+test('fix round 1 (I4): a runtime with the ERC-20 selectors or CREATE2, from clean initcode, is refused before sending', dbTest, () =>
+  withDeployer(async () => {
+    for (const [runtime, line] of [
+      ['0x63a9059cbb63095ea7b36318160ddd00', DEPLOY_LINES.token],
+      ['0x600060006000f500', DEPLOY_LINES.factory],
+    ] as const) {
+      const s = await setup();
+      const { chain, calls } = fakeChain({ runtime: runtime as Hex });
+      assert.deepEqual(await deployForBuilder(call(s), deps(chain)), { status: 'refused', show_to_builder: line });
+      assert.equal(calls.send.length, 0);
+    }
+  }),
+);
 
-test('10.4 owner() is the deployer: one transferOwnership(builder), then the builder owns it', dbTest, () =>
+// ---- 10.4 the owner step (fix round 1 I5: raw probes, never the builder's ABI)
+
+test('10.4 owner() is the deployer: one capped transferOwnership(builder), then the builder owns it', dbTest, () =>
   withDeployer(async () => {
     const s = await setup();
+    const d = deps(fakeChain().chain);
     const { chain, calls } = fakeChain({ owner: () => DEPLOYER, afterTransfer: BUILDER });
-    const out = await deployForBuilder(call(s), deps(chain));
-    assert.deepEqual(calls.writes, [{ fn: 'transferOwnership', args: [BUILDER] }]);
+    const out = await deployForBuilder(call(s), { ...d, chain: () => chain });
+    assert.deepEqual(calls.writes.map((w) => [w.fn, w.args, w.gas, w.maxFeePerGas]), [['transferOwnership', [BUILDER], TRANSFER_GAS, 100_000_000_000n]]);
     assert.equal(out.status === 'deployed' && out.owner_ok, true);
     assert.match(out.show_to_builder, /You're the owner\.$/);
-    assert.equal((await rowsOf(s.repoKey))[0].owner_ok, true);
+    const [row] = await rowsOf(s.repoKey);
+    assert.equal(row.owner_ok, true);
+    assert.equal(row.cost_micro_usd, '8000', 'the deploy (5,000) and the transfer (3,000)');
+    assert.equal(await monthUsed(d.now!), 8000);
   }),
 );
 
@@ -279,16 +367,44 @@ test('10.4 still not the builder after the transfer: owner_ok false, no owner se
   }),
 );
 
-test('10.4 an ABI with no owner(): no read, no write, owner_ok null', dbTest, () =>
+test('10.4, I5: no owner() and no hasRole on the contract: owner_ok null, no write', dbTest, () =>
   withDeployer(async () => {
     const s = await setup();
-    const { chain, calls } = fakeChain();
+    const { chain, calls } = fakeChain({ owner: () => null, admin: null });
     const out = await deployForBuilder(call(s, input({ abi: PLAIN })), deps(chain));
-    assert.equal(calls.reads, 0);
     assert.equal(calls.writes.length, 0);
     assert.equal(out.status === 'deployed' && out.owner_ok, null);
     assert.equal(out.show_to_builder, deployedLine('TipJar', 'base', DEPLOYED, false));
     assert.equal((await rowsOf(s.repoKey))[0].owner_ok, null);
+  }),
+);
+
+test('fix round 1 (I5): an ABI without owner() still gets the raw probe; Ownable(deployer) is transferred', dbTest, () =>
+  withDeployer(async () => {
+    const s = await setup();
+    const { chain, calls } = fakeChain({ owner: () => DEPLOYER, afterTransfer: BUILDER });
+    const out = await deployForBuilder(call(s, input({ abi: PLAIN })), deps(chain));
+    assert.deepEqual(calls.reads.map((r) => r.fn), ['owner', 'owner', 'hasRole']);
+    assert.equal(calls.writes.length, 1);
+    assert.ok(calls.writes[0].abi.some((x) => x.type === 'function' && x.name === 'transferOwnership'), 'our own ABI, not the builder one');
+    assert.equal(out.status === 'deployed' && out.owner_ok, true);
+  }),
+);
+
+test('fix round 1 (I5): AccessControl with the deployer as admin, or a probe that fails: owner_ok false and flagged', dbTest, () =>
+  withDeployer(async () => {
+    const s = await setup();
+    const { chain, calls } = fakeChain({ owner: () => null, admin: true });
+    const out = await deployForBuilder(call(s, input({ abi: PLAIN })), deps(chain));
+    assert.deepEqual(calls.reads.at(-1), { fn: 'hasRole', args: [`0x${'00'.repeat(32)}`, DEPLOYER] });
+    assert.equal(out.status === 'deployed' && out.owner_ok, false);
+    const [row] = await rowsOf(s.repoKey);
+    assert.ok((await flagged()).includes(`deploy-owner:${row.id}`));
+    const s2 = await setup();
+    const failing = fakeChain({ probeThrows: true });
+    const out2 = await deployForBuilder(call(s2), deps(failing.chain));
+    assert.equal(out2.status === 'deployed' && out2.owner_ok, false);
+    assert.doesNotMatch(out2.show_to_builder, /owner/);
   }),
 );
 
@@ -300,7 +416,7 @@ test('10.5 a repo with no proof: notYours, nothing estimated', dbTest, () =>
     const { chain, calls } = fakeChain();
     const out = await deployForBuilder(call(s), deps(chain));
     assert.deepEqual(out, { status: 'refused', show_to_builder: DEPLOY_LINES.notYours });
-    assert.equal(calls.estimate, 0);
+    assert.equal(calls.estimate + calls.simulate, 0);
     assert.equal((await rowsOf(s.repoKey)).length, 0);
   }),
 );
@@ -316,6 +432,7 @@ test("10.5 a shared client: no signed_in login is notYours even when another log
     assert.equal(calls.estimate, 0);
     const bob = await deployForBuilder(call(s, input(), bobLogin), deps(chain));
     assert.equal(bob.status, 'deployed');
+    assert.equal((await rowsOf(s.repoKey))[0].builder_key, bobLogin.toLowerCase());
   }),
 );
 
@@ -345,13 +462,29 @@ test('10.6 a second deploy the same day on the same chain is limited; the other 
   }),
 );
 
+test('fix round 1 (I6): off a shared client the limits are per installation (or its login), never per repo', dbTest, () =>
+  withDeployer(async () => {
+    const s = await setup();
+    const other = { ...s, repoKey: `${s.repoKey}-two` };
+    await proofRow(s.installationId, other.repoKey);
+    const { chain, calls } = fakeChain();
+    const d = deps(chain);
+    assert.equal((await deployForBuilder(call(s), d)).status, 'deployed');
+    assert.deepEqual(await deployForBuilder(call(other), d), { status: 'refused', show_to_builder: DEPLOY_LINES.limit }, 'another repo, same builder, same chain and day');
+    assert.equal(calls.send.length, 1);
+    assert.equal((await rowsOf(s.repoKey))[0].builder_key, `installation:${s.installationId}`);
+    // With the installation's verified login, the login is the key.
+    const s2 = await setup();
+    const login = `dana${process.pid}x${Date.now()}`;
+    assert.equal((await deployForBuilder(call(s2, input(), login), d)).status, 'deployed');
+    assert.equal((await rowsOf(s2.repoKey))[0].builder_key, login);
+  }),
+);
+
 test('10.6 a fourth deploy in 30 days across chains is limited', dbTest, () =>
   withDeployer(async () => {
     const s = await setup();
-    for (const days of [3, 10, 29])
-      await sql()`
-        INSERT INTO contract_deploys (installation_id, login, repo_key, chain, tx_hash, status, cost_micro_usd, created_at)
-        VALUES (${s.installationId}, NULL, ${s.repoKey}, 'arc', '0x01', 'deployed', 1, now() - make_interval(days => ${days}))`;
+    await pastRows(s, [3, 10, 29]);
     const { chain, calls } = fakeChain();
     assert.deepEqual(await deployForBuilder(call(s), deps(chain)), { status: 'refused', show_to_builder: DEPLOY_LINES.limit });
     assert.equal(calls.estimate, 0);
@@ -371,12 +504,64 @@ test('10.6 the 21st deploy of the day across builders is dayFull; an estimate wo
     assert.equal(calls.estimate, 0);
     assert.equal((await rowsOf(s.repoKey)).length, 0, 'the reservation is released');
     const s2 = await setup();
-    const pricey = fakeChain({ feeWei: 2_600_000_000_000n }); // 100,000 gas × 2.6e12 = 0.26 at $1
+    const pricey = fakeChain({ feeWei: 1_300_000_000_000n }); // (100,000 + 100,000) gas × 1.3e12 = 0.26 at $1
     const high = await deployForBuilder(call(s2), deps(pricey.chain));
     assert.equal(high.status, 'refused');
     assert.equal(high.show_to_builder, DEPLOY_LINES.high);
     assert.equal(pricey.calls.send.length, 0);
     assert.equal((await rowsOf(s2.repoKey)).length, 0);
+  }),
+);
+
+// ---- Fix round 1 (C1): the transfer is capped and reserved with the deploy
+
+test('fix round 1 (C1): a deploy under $0.25 whose capped transfer takes it over is refused before sending', dbTest, () =>
+  withDeployer(async () => {
+    const s = await setup();
+    // The deploy alone: 100,000 × 1.3e12 = $0.13; with the 100,000-gas transfer cap: $0.26.
+    const { chain, calls } = fakeChain({ feeWei: 1_300_000_000_000n });
+    assert.deepEqual(await deployForBuilder(call(s), deps(chain)), { status: 'refused', show_to_builder: DEPLOY_LINES.high });
+    assert.equal(calls.send.length, 0);
+    // The balance check covers the transfer too: enough for the deploy alone is not enough.
+    const s2 = await setup();
+    const thin = fakeChain({ balance: 15_000_000_000_000_000n }); // 0.015: the deploy (0.01) fits, deploy + transfer (0.02) doesn't
+    assert.equal((await deployForBuilder(call(s2), deps(thin.chain))).show_to_builder, DEPLOY_LINES.lowBalance);
+    assert.equal(thin.calls.send.length, 0);
+  }),
+);
+
+test('fix round 1 (C1): a cost over the reserve is always counted, even past the ceiling, and the next deploy is paused', dbTest, () =>
+  withDeployer(async () => {
+    const now = farDay();
+    assert.equal(await takeFreeTier('deployGasMonth', 9_970_000, now), true);
+    const s = await setup();
+    // Reserve 20,000; the receipt says 400,000 gas: 40,000 micro-USD.
+    const { chain } = fakeChain({ receiptGas: 400_000n });
+    assert.equal((await deployForBuilder(call(s), deps(chain, { now }))).status, 'deployed');
+    assert.equal(await monthUsed(now), 10_010_000, 'over the $10 ceiling: the overage is counted');
+    const s2 = await setup();
+    assert.deepEqual(await deployForBuilder(call(s2), deps(fakeChain().chain, { now })), { status: 'refused', show_to_builder: DEPLOY_LINES.paused });
+    await forceFreeTier('deployGasMonth', 0, now); // a no-op
+    assert.equal(await monthUsed(now), 10_010_000);
+  }),
+);
+
+// ---- Fix round 1 (I2): Base's L1 data fee
+
+test("fix round 1 (I2): Base's L1 data fee is in the upper bound (twice the estimate) and in the receipt's cost", dbTest, () =>
+  withDeployer(async () => {
+    const s = await setup();
+    const d = deps(fakeChain().chain);
+    // Upper: 0.02 + 2 × 0.005 = 0.03; the receipt: 0.005 gas + 0.001 L1.
+    const { chain } = fakeChain({ l1Fee: 5_000_000_000_000_000n, receiptL1: 1_000_000_000_000_000n });
+    assert.equal((await deployForBuilder(call(s), { ...d, chain: () => chain })).status, 'deployed');
+    assert.equal((await rowsOf(s.repoKey))[0].cost_micro_usd, '6000');
+    assert.equal(await monthUsed(d.now!), 6000);
+    // An L1 fee that takes the bound over $0.25 refuses: 0.02 + 2 × 0.12 = 0.26.
+    const s2 = await setup();
+    const l1 = fakeChain({ l1Fee: 120_000_000_000_000_000n });
+    assert.equal((await deployForBuilder(call(s2), deps(l1.chain))).show_to_builder, DEPLOY_LINES.high);
+    assert.equal(l1.calls.send.length, 0);
   }),
 );
 
@@ -387,7 +572,7 @@ test('10.7 the month counter at $9.95 with an upper bound worth $0.10: paused, n
     const now = farDay();
     assert.equal(await takeFreeTier('deployGasMonth', 9_950_000, now), true);
     const s = await setup();
-    const { chain, calls } = fakeChain({ feeWei: 1_000_000_000_000n }); // $0.10
+    const { chain, calls } = fakeChain({ feeWei: 500_000_000_000n }); // (100,000 + 100,000) × 5e11 = $0.10
     assert.deepEqual(await deployForBuilder(call(s), deps(chain, { now })), { status: 'refused', show_to_builder: DEPLOY_LINES.paused });
     assert.equal(calls.send.length, 0);
     assert.equal(await monthUsed(now), 9_950_000, 'unchanged');
@@ -412,10 +597,7 @@ test('10.8 two deploys for one builder and chain started together: exactly one s
 test('10.8 two deploys for one builder on both chains at 2 of 3 in 30 days: exactly one send', dbTest, () =>
   withDeployer(async () => {
     const s = await setup();
-    for (const days of [3, 10])
-      await sql()`
-        INSERT INTO contract_deploys (installation_id, login, repo_key, chain, tx_hash, status, cost_micro_usd, created_at)
-        VALUES (${s.installationId}, NULL, ${s.repoKey}, 'arc', '0x01', 'deployed', 1, now() - make_interval(days => ${days}))`;
+    await pastRows(s, [3, 10]);
     const { chain, calls } = fakeChain({ sendDelayMs: 20 });
     const d = deps(chain);
     await Promise.all([deployForBuilder(call(s), d), deployForBuilder(call(s, input({ chain: 'arc' })), d)]);
@@ -452,11 +634,33 @@ test('10.9 no receipt within the budget: unknown, "still going", flagged; a retr
     assert.match((out as { agent_note?: string }).agent_note ?? '', /0xabab/);
     const [row] = await rowsOf(s.repoKey);
     assert.equal(row.status, 'unknown');
-    assert.equal(await monthUsed(d.now!), 10_000, 'the whole reserve stays counted');
+    assert.equal(await monthUsed(d.now!), 20_000, 'the whole reserve stays counted');
     assert.ok((await flagged()).includes(`deploy-unknown:${row.id}`));
     const again = await deployForBuilder(call(s), d);
     assert.equal(again.show_to_builder, DEPLOY_LINES.limit);
     assert.equal(calls.send.length, 1);
+  }),
+);
+
+test('fix round 1 (I3, M1): a DB error after the send never deletes the row or gives anything back; a send that throws reads "couldn\'t confirm"', dbTest, () =>
+  withDeployer(async () => {
+    const s = await setup();
+    // A hash Postgres can't store (a NUL byte): the UPDATE after the send throws.
+    const { chain, calls } = fakeChain({ hash: '0x\u0000' as Hex });
+    const d = deps(chain);
+    const out = await deployForBuilder(call(s), d);
+    assert.equal(calls.send.length, 1);
+    assert.equal(out.show_to_builder, DEPLOY_PENDING);
+    const [row] = await rowsOf(s.repoKey);
+    assert.equal(row?.status, 'unknown', 'the row is kept and flagged');
+    assert.equal(await monthUsed(d.now!), 20_000, 'the reserve is kept');
+    const [day] = await sql()<{ used: number }[]>`SELECT used FROM free_tier_usage WHERE name = 'deploysDay' AND period = ${periodKey('day', d.now!)}`;
+    assert.equal(day.used, 1, "the day's slot is kept");
+    const s2 = await setup();
+    const throwing: DeployChain = { ...fakeChain().chain, send: async () => { throw new Error('nonce too low'); } };
+    const out2 = await deployForBuilder(call(s2), deps(throwing));
+    assert.equal(out2.show_to_builder, DEPLOY_UNCONFIRMED);
+    assert.equal((await rowsOf(s2.repoKey))[0].status, 'unknown');
   }),
 );
 
@@ -473,17 +677,55 @@ test('10.10 the price read fails: refused before sending (R18)', dbTest, () =>
   }),
 );
 
-test('10.10 a balance under the upper bound: refused, and deployerGas reports TOP_UP for that chain', dbTest, () =>
+test('fix round 1 (M6): a big deploy priced under 100 micro-USD (wrong decimals) is refused', dbTest, () =>
   withDeployer(async () => {
     const s = await setup();
-    const { chain, calls } = fakeChain({ balance: 10n ** 15n }); // $0.001, under the $0.01 bound
+    const odd: DeployChain = { ...fakeChain().chain, estimate: async () => ({ gas: 2_000_000n, maxFeePerGas: 1n }) };
+    const out = await deployForBuilder(call(s, input({ chain: 'arc' })), deps(odd));
+    assert.equal(out.status, 'unavailable');
+    assert.equal((await rowsOf(s.repoKey)).length, 0);
+  }),
+);
+
+test('10.10 a balance under the upper bound: refused, and deployerGas reports TOP_UP for that chain; a failed price is PRICE_UNKNOWN (M3)', dbTest, () =>
+  withDeployer(async () => {
+    const s = await setup();
+    const { chain, calls } = fakeChain({ balance: 10n ** 15n }); // $0.001, under the $0.02 bound
     const out = await deployForBuilder(call(s), deps(chain));
     assert.deepEqual(out, { status: 'unavailable', show_to_builder: DEPLOY_LINES.lowBalance, agent_note: 'The deployer wallet on Base needs a top-up; the owner is told.' });
     assert.equal(calls.send.length, 0);
     const gas = await deployerGas(new Date(), { chain: (c) => (c === 'base' ? chain : null), usdPerNative: async () => 1 });
     assert.ok(gas.needs_owner.includes('deployer-gas:base'));
     assert.equal((gas.deployer_gas.base as { note?: string }).note, 'TOP_UP');
+    const noPrice = await deployerGas(new Date(), { chain: (c) => (c === 'base' ? chain : null), usdPerNative: async () => { throw new Error('down'); } });
+    assert.ok(noPrice.needs_owner.includes('deployer-price:base'));
+    assert.ok(!noPrice.needs_owner.includes('deployer-gas:base'));
+    assert.equal((noPrice.deployer_gas.base as { note?: string }).note, 'PRICE_UNKNOWN');
   }),
+);
+
+// ---- Ruling H11: a deploy flag alerts for 24 hours, then stays listed quietly
+
+test('fix round 1 (I1, H11): a deploy flag under 24 h old is a 503; over 24 h it is a quiet line and the cron answers 200', dbTest, () =>
+  withDeployer(async () => {
+    const s = await setup();
+    const [{ id }] = await sql()<{ id: number }[]>`
+      INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, status, owner_ok, cost_micro_usd, created_at)
+      VALUES (${s.installationId}, 'x', ${s.repoKey}, 'base', '0x01', 'deployed', false, 1, now() - interval '25 hours') RETURNING id`;
+    const lines = await flagged();
+    assert.ok(lines.includes(`deploy-owner:${id}${QUIET_OWNER}`));
+    assert.ok(!lines.includes(`deploy-owner:${id}`));
+    assert.ok((await flagged(new Date(Date.now() - 2 * 3_600_000))).includes(`deploy-owner:${id}`), 'at 23 hours old it alerts');
+    process.env.CRON_SECRET = 'cron-test-secret-0123456789abcdef0123';
+    const post = (needs_owner: string[]) =>
+      cronPost(new Request('http://x/api/cron', { method: 'POST', headers: { authorization: 'Bearer cron-test-secret-0123456789abcdef0123' } }), {
+        limit: async () => undefined,
+        run: async () => ({ needs_owner }),
+      });
+    assert.equal((await post([`deploy-owner:${id}${QUIET_OWNER}`])).status, 200);
+    assert.equal((await post([`deploy-owner:${id}`])).status, 503);
+    assert.equal((await post([`deploy-owner:${id}${QUIET_OWNER}`, 'deployer-gas:base'])).status, 503);
+  }, { CRON_SECRET: '' }),
 );
 
 test('deployForBuilder is off without the key: nothing read', async () => {
@@ -493,7 +735,7 @@ test('deployForBuilder is off without the key: nothing read', async () => {
     const { chain, calls } = fakeChain();
     const out = await deployForBuilder(call({ installationId: 1, repoKey: 'a/b' }), deps(chain));
     assert.deepEqual(out, { status: 'unavailable', show_to_builder: DEPLOY_LINES.off });
-    assert.equal(calls.estimate + calls.balance, 0);
+    assert.equal(calls.estimate + calls.balance + calls.simulate, 0);
   } finally {
     if (old !== undefined) process.env.DEPLOYER_PRIVATE_KEY = old;
   }

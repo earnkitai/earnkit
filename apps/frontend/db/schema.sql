@@ -934,10 +934,13 @@ ALTER TABLE token_offers ADD COLUMN IF NOT EXISTS offered_wallet text;
 -- v2.10 item 13: contracts EarnKit deployed for builders (the deployer holds no rights after).
 -- Pre-flight P16: the row is reserved (tx_hash '') inside the transaction that counts the
 -- builder's last 30 days, before anything is sent; it gets the hash right after the send.
+-- builder_key (fix round 1, I6): the verified login, else 'installation:<id>' (a shared client
+-- without a login: the repo key); the per-builder limits count by it.
 CREATE TABLE IF NOT EXISTS contract_deploys (
   id              serial PRIMARY KEY,
   installation_id integer NOT NULL REFERENCES installations(id) ON DELETE CASCADE,
   login           text,
+  builder_key     text NOT NULL,
   repo_key        text NOT NULL,
   chain           text NOT NULL CHECK (chain IN ('arc', 'base')),
   tx_hash         text NOT NULL,
@@ -948,4 +951,4 @@ CREATE TABLE IF NOT EXISTS contract_deploys (
   created_at      timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS contract_deploys_owner_flag ON contract_deploys (created_at) WHERE owner_ok = false OR status = 'unknown';
-CREATE INDEX IF NOT EXISTS contract_deploys_builder ON contract_deploys ((COALESCE(login, repo_key)), created_at);
+CREATE INDEX IF NOT EXISTS contract_deploys_builder ON contract_deploys (builder_key, created_at);

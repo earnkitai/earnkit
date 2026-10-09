@@ -650,13 +650,13 @@ ok(digestRow?.email === 'a@b.co' && digestRow.opted && digestRow.sent && digestR
 
 // v2.10 item 13: a contract deploy row survives the schema running again; a chain outside Arc and
 // Base and an unknown status are refused.
-await db`INSERT INTO contract_deploys (installation_id, repo_key, chain, tx_hash, status, cost_micro_usd)
-  VALUES (${memInst}, 'alice/tipjar', 'base', '0xab', 'deployed', 5000)`;
-const badChain = await db`INSERT INTO contract_deploys (installation_id, repo_key, chain, tx_hash, status, cost_micro_usd)
-  VALUES (${memInst}, 'alice/tipjar', 'monad', '0xab', 'sent', 0)`.then(() => false, () => true);
+await db`INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, status, cost_micro_usd)
+  VALUES (${memInst}, 'alice', 'alice/tipjar', 'base', '0xab', 'deployed', 5000)`;
+const badChain = await db`INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, status, cost_micro_usd)
+  VALUES (${memInst}, 'alice', 'alice/tipjar', 'monad', '0xab', 'sent', 0)`.then(() => false, () => true);
 ok(badChain, 'contract_deploys refuses a chain other than arc and base');
-const badContractStatus = await db`INSERT INTO contract_deploys (installation_id, repo_key, chain, tx_hash, status, cost_micro_usd)
-  VALUES (${memInst}, 'alice/tipjar', 'arc', '0xab', 'pending', 0)`.then(() => false, () => true);
+const badContractStatus = await db`INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, status, cost_micro_usd)
+  VALUES (${memInst}, 'alice', 'alice/tipjar', 'arc', '0xab', 'pending', 0)`.then(() => false, () => true);
 ok(badContractStatus, 'contract_deploys refuses an unknown status');
 await db.unsafe(now);
 const [deployRow] = await db<{ n: number; cost: string }[]>`

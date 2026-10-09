@@ -9,7 +9,8 @@ contracts/                     Foundry project (v2.1 sponsor escrow; not part of
   test/mocks/E2EMocks.sol      v2.4 campaign e2e only: MockToken18 (mock MINI), Ping (an app),
                                MockSmartAccount (execute, fanOut), MockEntryPoint (getNonce +
                                UserOperationEvent; its code is set at the real v0.7 address)
-  test/mocks/DeployMocks.sol   v2.10 item 13 deploy anvil test only: OwnedTipJar (deployer is first owner)
+  test/mocks/DeployMocks.sol   v2.10 item 13 deploy anvil test only: OwnedTipJar (deployer is first owner),
+                               MockGasPriceOracle (getL1Fee, set at Base's 0x420...0F predeploy)
   test/mocks/BonusMocks.sol    v2.5 bonus ledger anvil test only: MockWETH, MockFeeLocker (StoreTokens,
                                availableFees, claim), MockLpLocker (collectRewards / collectMany:
                                StoreTokens per slot then ClaimedRewards; tokenRewards)
@@ -525,13 +526,16 @@ apps/frontend/
     free-tier.ts(+test)        v2.9 C13: FREE_CAPS (r2Writes 900k/month, resend 100/day, 3,000/month;
                                v2.10 item 13: deploysDay 20, deployGasMonth 10,000,000 micro-USD),
                                periodKey, takeFreeTier (atomic hard cap), freeTierRoom, FreeTierFull,
-                               giveBackFreeTier (never below 0)
+                               giveBackFreeTier (never below 0), forceFreeTier (an overage, uncapped)
     deploy.ts(+test, +anvil)   v2.10 item 13: EarnKit deploys the builder's contract on Arc or Base
                                (DEPLOYER_PRIVATE_KEY, read only here). DEPLOY_CAPS, ERC20_SELECTORS,
-                               DEPLOY_LINES, DEPLOY_PENDING, deployedLine, initcode, deployRefusal,
-                               deployerAccount, keySeparate, deployEnabled, DeployChain (viemDeployChain:
-                               queued sends), nativeUsd (DefiLlama ETH; Arc USDC $1), weiToMicroUsd,
-                               deployForBuilder (caps, reservation row, receipt, owner step, markDeployed)
+                               DEPLOY_LINES (+ factory), DEPLOY_PENDING, DEPLOY_UNCONFIRMED, TRANSFER_GAS,
+                               deployedLine, initcode, deployRefusal, runtimeRefusal (the simulated runtime:
+                               24 KB, ERC-20, CREATE/CREATE2), deployerAccount, keySeparate, deployEnabled,
+                               DeployChain (viemDeployChain: queued sends, simulate, Base L1 fee, capped
+                               writes), OWNER_ABI/HAS_ROLE_ABI/TRANSFER_ABI (raw probes), nativeUsd,
+                               weiToMicroUsd, deployForBuilder (builder_key, caps with the transfer and L1
+                               fee reserved, sendAttempted, owner probes, markDeployed)
     match.ts(+test)            pure: chain detection (IDs + RPC hosts), repo x program verdicts;
                                v2.10 item 9: Detection.basis (Basis: deployed | deploy_config | mention;
                                absent = mention, R6), detectChains(files, paths) over detectMentions +
@@ -877,6 +881,7 @@ apps/frontend/
                                asked (P11); APP_CONFIRM_LEAD; limited/cookieValue/clearCsrf exported for the App; fix round 1:
                                nonce = HMAC(EARNKIT_AUTH_SECRET, seed), an open link reused (not on shared clients),
                                sweepVerifyNonces (cron cleanup step)
+                               v2.10 fix round 1 (I6): installationLogin (the installation's last verified login; deploy limits).
     github-app.ts(+test)       v2.10 item 7b: the optional read-only GitHub App. githubAppEnabled (GITHUB_APP_ID,
                                GITHUB_APP_SLUG, a PEM GITHUB_APP_PRIVATE_KEY, and the v2.9 sign-in on, P17), appJwt
                                (RS256, iat now-60 s, 10 min), installationToken (POST access_tokens: one repo, contents
@@ -951,7 +956,7 @@ apps/frontend/
                                termsOf/fromTerms/sameTerms, MANUAL_CHECK, TOP_UP, NO_PAYOUT_KEY, NOT_MAINNET,
                                needsOwner (the 503 notes); the page balance is funds.ts
     cron.ts(+test)             nextStep (the state machine), scoreMaxAge, runCron (one step per
-                               v2.10 item 13: deployerGas (deployer-gas:<chain> TOP_UP, deploy-owner:<id>, deploy-unknown:<id>); CronDeps.deployer.
+                               v2.10 item 13: deployerGas (deployer-gas:<chain> TOP_UP, deployer-price:<chain>, deploy-owner:<id>, deploy-unknown:<id>; H11: :quiet after 24 h, QUIET_OWNER, no 503 in cronPost); CronDeps.deployer.
                                campaign under its lease, then builder bonus scoring (scoreOpenRounds),
                                the ledger with its rounds step (bonus-payout advanceRounds), then the fee
                                refresh, then v2.9 Task 8 expireSites (R2 on; `hosting` in the result),
@@ -1156,7 +1161,7 @@ apps/frontend/
                                sponsor wallet, token, factory), sponsorStatus (survives scoring and
                                RPC failures), prepareAward (guarded UPDATE)
   db/schema.sql                the whole schema, idempotent (sponsor_campaigns, projects.prize_*,
-                               v2.10 item 13: contract_deploys (reservation row, tx_hash, status, owner_ok, cost_micro_usd).
+                               v2.10 item 13: contract_deploys (reservation row, builder_key, tx_hash, status, owner_ok, cost_micro_usd).
                                projects.repo_key + its partial unique index, projects.token_* and
                                token_repo_key + projects_token_repo_key (one token per repo),
                                sponsor_verifications,

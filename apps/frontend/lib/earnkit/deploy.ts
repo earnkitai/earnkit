@@ -1,8 +1,12 @@
 import {
+  BaseError,
+  ContractFunctionRevertedError,
+  ContractFunctionZeroDataError,
   createPublicClient,
   createWalletClient,
   defineChain,
   encodeDeployData,
+  encodeFunctionData,
   http,
   isAddress,
   isHex,
@@ -14,11 +18,12 @@ import {
 } from 'viem';
 import { privateKeyToAccount, type LocalAccount } from 'viem/accounts';
 import { base } from 'viem/chains';
+import { estimateL1Fee } from 'viem/op-stack';
 import { CHAIN_NAMES } from './chains';
 import { privateKeyProblem } from './cli';
 import { sql } from './db';
 import { shortWallet } from './entry-text';
-import { FREE_CAPS, giveBackFreeTier, takeFreeTier } from './free-tier';
+import { FREE_CAPS, forceFreeTier, giveBackFreeTier, takeFreeTier } from './free-tier';
 import { llamaPrice } from './prices';
 import { RateLimitError, enforce } from './rate-limit';
 import { repoOwnershipPasses, type OwnershipDeps } from './token-gate';
@@ -31,7 +36,10 @@ import { markDeployed, rpcFor } from './verify';
  * and one transferOwnership(builder); it never sends money to anyone. Every cap is enforced before
  * the send, atomically: 1 deploy per builder per chain per day (rate_windows), 3 per builder per 30
  * days (a count over contract_deploys under a lock, Pre-flight P16), 20 a day in total and $10 of
- * gas a month (free_tier_usage, R18: the upper bound is reserved, the unused part given back).
+ * gas a month (free_tier_usage, R18: the upper bound of the deploy plus one capped transfer, with
+ * Base's L1 data fee, is reserved; the unused part given back, any overage always counted). A
+ * builder is their verified GitHub login, else their installation (a shared client without a login:
+ * the repo key).
  */
 
 export const DEPLOY_CAPS = {
@@ -62,16 +70,24 @@ export const DEPLOY_LINES = {
   failed: "The deploy didn't go through. Nothing was charged to you.",
   dayFull: 'Deploys are paused until tomorrow.',
   lowBalance: 'Deploys are paused right now.',
+  factory: "I can't deploy a contract that creates other contracts.",
 } as const;
 
 /** The deploy was sent but its receipt didn't come within the call (10.9). */
 export const DEPLOY_PENDING = 'The deploy is still going. It can take a few minutes.';
+/** Fix round 1 (M1): the send threw, so it may or may not be on chain. */
+export const DEPLOY_UNCONFIRMED = "I couldn't confirm the deploy. EarnKit is checking it.";
 
 export const deployedLine = (name: string, chain: DeployChainName, address: string, owner: boolean) =>
   `${name} is deployed on ${CHAIN_NAMES[chain]}: ${shortWallet(address)}.${owner ? " You're the owner." : ''}`;
 
 /** The $0.25 per-deploy cap in micro-USD. */
 const PER_DEPLOY_MICRO = BigInt(Math.round(DEPLOY_CAPS.perDeployUsd * 1_000_000));
+/**
+ * Fix round 1 (C1): the gas cap on the one transferOwnership(builder) call. Its cost at the deploy's
+ * fee cap is reserved with the deploy, before anything is sent.
+ */
+export const TRANSFER_GAS = 100_000n;
 /** How long one call waits for the deploy's receipt (and the transfer's) before answering "still going". */
 const RECEIPT_MS = 30_000;
 /**
@@ -90,6 +106,41 @@ export function initcode(i: DeployInput): Hex {
     typeof v === 'string' && /^u?int\d*$/.test(ctor?.inputs?.[n]?.type ?? '') && /^-?\d+$/.test(v) ? BigInt(v) : v,
   );
   return encodeDeployData({ abi: i.abi, bytecode: i.bytecode, args } as Parameters<typeof encodeDeployData>[0]);
+}
+
+/**
+ * Fix round 1 (I4): the opcodes of `code`, PUSH data skipped and Solidity's trailing CBOR metadata
+ * (its length in the last 2 bytes) left out. Pure.
+ */
+function opcodes(code: Hex): number[] {
+  const bytes = Buffer.from(code.slice(2), 'hex');
+  let end = bytes.length;
+  if (end >= 2) {
+    const meta = bytes.readUInt16BE(end - 2);
+    if (meta > 0 && meta + 2 <= end && bytes[end - 2 - meta] >= 0xa0 && bytes[end - 2 - meta] <= 0xbf) end -= meta + 2;
+  }
+  const ops: number[] = [];
+  for (let i = 0; i < end; i++) {
+    const op = bytes[i];
+    ops.push(op);
+    if (op >= 0x60 && op <= 0x7f) i += op - 0x5f;
+  }
+  return ops;
+}
+
+/**
+ * Fix round 1 (I4): why EarnKit won't deploy a contract whose runtime (from an eth_call of the
+ * creation) is this, or null: over 24 KB (EIP-170), an ERC-20 (all three selectors PUSH4ed), or a
+ * factory (CREATE or CREATE2 in its code). Proxies (DELEGATECALL) stay allowed: a risk the owner
+ * accepted. Pure.
+ */
+export function runtimeRefusal(runtime: Hex): string | null {
+  if (!isHex(runtime, { strict: true }) || runtime.length % 2 !== 0) return DEPLOY_LINES.failed;
+  if ((runtime.length - 2) / 2 > DEPLOY_CAPS.runtimeBytes) return DEPLOY_LINES.tooBig;
+  const code = runtime.toLowerCase().slice(2);
+  if (ERC20_SELECTORS.every((s) => code.includes(`63${s}`))) return DEPLOY_LINES.token;
+  if (opcodes(runtime).some((op) => op === 0xf0 || op === 0xf5)) return DEPLOY_LINES.factory;
+  return null;
 }
 
 /** Why EarnKit won't deploy this artifact (builder text), or null. Pure. */
@@ -166,16 +217,23 @@ export function deployEnabled(env: Record<string, string | undefined> = process.
 
 /** The chain reads and the two writes a deploy needs; replaced in tests. */
 export type DeployChain = {
-  estimate(a: { data: Hex; from: Address }): Promise<{ gas: bigint; maxFeePerGas: bigint }>;
+  /**
+   * The creation's gas limit, the fee cap, and on Base the L1 data fee (the creation plus one
+   * transferOwnership; fix round 1 I2). Throws when the constructor reverts or the RPC is another chain.
+   */
+  estimate(a: { data: Hex; from: Address }): Promise<{ gas: bigint; maxFeePerGas: bigint; l1Fee?: bigint }>;
+  /** Fix round 1 (I4): an eth_call of the creation (no `to`): the runtime the chain would store. */
+  simulate(a: { data: Hex; from: Address }): Promise<Hex>;
   balance(a: Address): Promise<bigint>;
   send(a: { data: Hex; gas: bigint; maxFeePerGas: bigint }): Promise<Hex>;
   receipt(
     hash: Hex,
     timeoutMs: number,
-  ): Promise<{ status: 'success' | 'reverted'; contractAddress: Address | null; gasUsed: bigint; effectiveGasPrice: bigint } | null>;
+  ): Promise<{ status: 'success' | 'reverted'; contractAddress: Address | null; gasUsed: bigint; effectiveGasPrice: bigint; l1Fee?: bigint | null } | null>;
   code(a: Address): Promise<Hex>;
-  read(a: { address: Address; abi: Abi; fn: string }): Promise<unknown>;
-  write(a: { address: Address; abi: Abi; fn: string; args: unknown[] }): Promise<Hex>;
+  /** A view call: its result; null when it reverts or returns nothing (no such function); throws on an RPC error. */
+  read(a: { address: Address; abi: Abi; fn: string; args?: unknown[] }): Promise<unknown>;
+  write(a: { address: Address; abi: Abi; fn: string; args: unknown[]; gas: bigint; maxFeePerGas: bigint }): Promise<Hex>;
 };
 
 export type DeployDeps = {
@@ -203,6 +261,26 @@ const arcChain = (rpc: string) =>
 
 /** One send at a time from the deployer in this process, so two deploys never take one nonce. */
 let sendQueue: Promise<unknown> = Promise.resolve();
+const queued = <T>(fn: () => Promise<T>): Promise<T> => {
+  const run = sendQueue.then(fn);
+  sendQueue = run.catch(() => undefined);
+  return run;
+};
+
+/** A revert or an empty answer (no such function), as opposed to an RPC failure. */
+const noSuchCall = (err: unknown) =>
+  err instanceof BaseError &&
+  err.walk((e) => e instanceof ContractFunctionRevertedError || e instanceof ContractFunctionZeroDataError) !== null;
+
+/** The raw probes (fix round 1, I5): never the builder's ABI. */
+export const OWNER_ABI = [{ type: 'function', name: 'owner', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' }] as const satisfies Abi;
+export const HAS_ROLE_ABI = [
+  { type: 'function', name: 'hasRole', inputs: [{ name: 'role', type: 'bytes32' }, { name: 'account', type: 'address' }], outputs: [{ name: '', type: 'bool' }], stateMutability: 'view' },
+] as const satisfies Abi;
+export const TRANSFER_ABI = [
+  { type: 'function', name: 'transferOwnership', inputs: [{ name: 'newOwner', type: 'address' }], outputs: [], stateMutability: 'nonpayable' },
+] as const satisfies Abi;
+const DEFAULT_ADMIN_ROLE = `0x${'00'.repeat(32)}` as Hex;
 
 /** The viem DeployChain for `c`, or null (deploys off, or no RPC for the chain). */
 export function viemDeployChain(c: DeployChainName): DeployChain | null {
@@ -219,38 +297,55 @@ export function viemDeployChain(c: DeployChainName): DeployChain | null {
   const pub = createPublicClient({ chain, transport });
   const wallet = createWalletClient({ account, chain, transport });
   let tip = 0n;
+  const capTip = (maxFeePerGas: bigint) => (tip < maxFeePerGas ? tip : maxFeePerGas);
   return {
     estimate: async ({ data, from }) => {
+      // Fix round 1 (M6): the RPC is the chain we price for, before anything else.
+      const id = await pub.getChainId();
+      if (id !== chain.id) throw new Error(`RPC chain id ${id}, expected ${chain.id}`);
       const [gas, fees] = await Promise.all([pub.estimateGas({ account: from, data }), pub.estimateFeesPerGas()]);
       tip = fees.maxPriorityFeePerGas ?? 0n;
+      let l1Fee = 0n;
+      if (c === 'base') {
+        // Fix round 1 (I2): the OP Stack L1 data fee (GasPriceOracle.getL1Fee, a free eth_call) for
+        // the creation and for one transferOwnership.
+        const transfer = encodeFunctionData({ abi: TRANSFER_ABI, functionName: 'transferOwnership', args: [from] });
+        const [a, b] = await Promise.all([
+          estimateL1Fee(pub, { account: from, data, chain: base }),
+          estimateL1Fee(pub, { account: from, to: from, data: transfer, chain: base }),
+        ]);
+        l1Fee = a + b;
+      }
       // 20% over the estimate as the gas limit, so a small state change can't make it run out.
-      return { gas: (gas * 12n) / 10n, maxFeePerGas: fees.maxFeePerGas ?? (await pub.getGasPrice()) };
+      return { gas: (gas * 12n) / 10n, maxFeePerGas: fees.maxFeePerGas ?? (await pub.getGasPrice()), l1Fee };
     },
+    simulate: async ({ data, from }) => (await pub.call({ account: from, data })).data ?? '0x',
     balance: (a) => pub.getBalance({ address: a }),
-    send: ({ data, gas, maxFeePerGas }) => {
-      const run = sendQueue.then(() =>
-        // No `to` and no `value`: a contract creation that moves no money.
-        wallet.sendTransaction({ data, gas, maxFeePerGas, maxPriorityFeePerGas: tip < maxFeePerGas ? tip : maxFeePerGas }),
-      );
-      sendQueue = run.catch(() => undefined);
-      return run;
-    },
+    // No `to` and no `value`: a contract creation that moves no money.
+    send: ({ data, gas, maxFeePerGas }) =>
+      queued(() => wallet.sendTransaction({ data, gas, maxFeePerGas, maxPriorityFeePerGas: capTip(maxFeePerGas) })),
     receipt: async (hash, timeoutMs) => {
       try {
         const r = await pub.waitForTransactionReceipt({ hash, timeout: timeoutMs });
-        return { status: r.status, contractAddress: r.contractAddress ?? null, gasUsed: r.gasUsed, effectiveGasPrice: r.effectiveGasPrice };
+        const l1Fee = (r as { l1Fee?: bigint | null }).l1Fee ?? null;
+        return { status: r.status, contractAddress: r.contractAddress ?? null, gasUsed: r.gasUsed, effectiveGasPrice: r.effectiveGasPrice, l1Fee };
       } catch (err) {
         if (err instanceof WaitForTransactionReceiptTimeoutError) return null;
         throw err;
       }
     },
     code: async (a) => (await pub.getCode({ address: a })) ?? '0x',
-    read: ({ address, abi, fn }) => pub.readContract({ address, abi, functionName: fn }),
-    write: ({ address, abi, fn, args }) => {
-      const run = sendQueue.then(() => wallet.writeContract({ address, abi, functionName: fn, args, chain, account }));
-      sendQueue = run.catch(() => undefined);
-      return run;
+    read: async ({ address, abi, fn, args }) => {
+      try {
+        return await pub.readContract({ address, abi, functionName: fn, args });
+      } catch (err) {
+        if (noSuchCall(err)) return null;
+        throw err;
+      }
     },
+    // Fix round 1 (C1): an explicit gas cap and fee cap, never viem's own estimate.
+    write: ({ address, abi, fn, args, gas, maxFeePerGas }) =>
+      queued(() => wallet.writeContract({ address, abi, functionName: fn, args, chain, account, gas, maxFeePerGas, maxPriorityFeePerGas: capTip(maxFeePerGas) })),
   };
 }
 
@@ -267,9 +362,6 @@ export function weiToMicroUsd(wei: bigint, usd: number): bigint {
   return (wei * microPerToken + unit - 1n) / unit;
 }
 
-const hasFn = (abi: Abi, name: string, inputs: number) =>
-  abi.some((x) => x.type === 'function' && x.name === name && x.inputs.length === inputs);
-
 const sameAddr = (a: unknown, b: string) => typeof a === 'string' && a.toLowerCase() === b.toLowerCase();
 const errName = (err: unknown) => (err instanceof Error ? err.name : 'error');
 
@@ -277,19 +369,33 @@ const errName = (err: unknown) => (err instanceof Error ? err.name : 'error');
  * v2.10 item 13: deploys the builder's artifact on `input.chain` with the builder as owner, within
  * every cap, or says why not. Order (Review Focus 3): on; the artifact's guards; the repo is the
  * builder's (R19); the per-day limit (atomic, before any chain read, so a race passes once); the
- * 30-day count and the row's reservation under one lock; the day's total; the estimate and price
- * (a failed price read refuses, R18); the $0.25 cap; the deployer's balance; the month's gas
- * reserve; the send. Never throws: a chain error after the send is "unknown" and flagged for the
- * owner (the cron's deploy-unknown), never retried by this call.
+ * 30-day count and the row's reservation under one lock; the day's total; the simulated runtime
+ * (fix round 1 I4); the estimate (with Base's L1 fee) and price (a failed price read refuses, R18);
+ * the $0.25 cap on the deploy plus one capped transfer (C1); the deployer's balance; the month's
+ * reserve; the send. Never throws. Once the send was attempted nothing is given back (I3): a chain or
+ * DB error after it is "unknown" and flagged for the owner, never retried by this call.
+ *
+ * `shared`: the call is from a shared client, and `login` is its caller's verified login (null:
+ * none). Off a shared client `login` is the installation's verified login (or null) and keys the
+ * limits only (fix round 1 I6).
  */
 export async function deployForBuilder(
-  a: { installationId: number; login: string | null; repoKey: string; projectName: string; builderWallet: Address; input: DeployInput },
+  a: {
+    installationId: number;
+    login: string | null;
+    shared: boolean;
+    repoKey: string;
+    projectName: string;
+    builderWallet: Address;
+    input: DeployInput;
+  },
   deps: DeployDeps = {},
 ): Promise<DeployOutcome> {
   const now = deps.now ?? new Date();
   const started = Date.now();
   const c = a.input.chain;
   const refused = (line: string) => ({ status: 'refused' as const, show_to_builder: line });
+  const paused = (agent_note?: string): DeployOutcome => ({ status: 'unavailable', show_to_builder: DEPLOY_LINES.lowBalance, ...(agent_note && { agent_note }) });
   if (!deployEnabled() || (c !== 'arc' && c !== 'base')) return { status: 'unavailable', show_to_builder: DEPLOY_LINES.off };
   const chain = (deps.chain ?? viemDeployChain)(c);
   const deployer = deployerAccount()!.address;
@@ -298,17 +404,18 @@ export async function deployForBuilder(
   if (bad) return refused(bad);
   if (!isAddress(a.builderWallet, { strict: false })) return refused(DEPLOY_LINES.failed);
   const owns = await repoOwnershipPasses(
-    { installationId: a.installationId, repoUrl: `https://github.com/${a.repoKey}`, verifiedLogin: a.login ?? undefined },
+    { installationId: a.installationId, repoUrl: `https://github.com/${a.repoKey}`, verifiedLogin: a.shared ? a.login : undefined },
     deps.gate,
   );
   if (!owns) return refused(DEPLOY_LINES.notYours);
-  const who = (a.login ?? a.repoKey).toLowerCase();
+  // Fix round 1 (I6): the builder is their verified login, else their installation.
+  const who = (a.login ? a.login : a.shared ? a.repoKey : `installation:${a.installationId}`).toLowerCase();
   try {
     await enforce('deployDay', `${who}:${c}`, DEPLOY_LINES.limit);
   } catch (err) {
     if (err instanceof RateLimitError) return refused(DEPLOY_LINES.limit);
     console.error('[deploy] day limit', errName(err));
-    return { status: 'unavailable', show_to_builder: DEPLOY_LINES.lowBalance };
+    return paused();
   }
   // Pre-flight P16: the 30-day count and the reservation in one transaction, under a lock per builder.
   let rowId: number | null;
@@ -317,24 +424,27 @@ export async function deployForBuilder(
       await tx`SELECT pg_advisory_xact_lock(hashtext(${`contract-deploy:${who}`}))`;
       const [{ n }] = await tx<{ n: number }[]>`
         SELECT count(*)::int AS n FROM contract_deploys
-        WHERE COALESCE(login, repo_key) = ${who} AND created_at > now() - interval '30 days'`;
+        WHERE builder_key = ${who} AND created_at > now() - interval '30 days'`;
       if (n >= DEPLOY_CAPS.perBuilder30d) return null;
       const [row] = await tx<{ id: number }[]>`
-        INSERT INTO contract_deploys (installation_id, login, repo_key, chain, tx_hash, status, cost_micro_usd)
-        VALUES (${a.installationId}, ${a.login?.toLowerCase() ?? null}, ${a.repoKey.toLowerCase()}, ${c}, '', 'sent', 0)
+        INSERT INTO contract_deploys (installation_id, login, builder_key, repo_key, chain, tx_hash, status, cost_micro_usd)
+        VALUES (${a.installationId}, ${a.login?.toLowerCase() ?? null}, ${who}, ${a.repoKey.toLowerCase()}, ${c}, '', 'sent', 0)
         RETURNING id`;
       return row.id;
     });
   } catch (err) {
     console.error('[deploy] reserve', errName(err));
-    return { status: 'unavailable', show_to_builder: DEPLOY_LINES.lowBalance };
+    return paused();
   }
   if (rowId === null) return refused(DEPLOY_LINES.limit);
   const id = rowId;
   let dayTaken = false;
   let reserved = 0;
+  // Fix round 1 (I3): set just before the send; from then on nothing is given back or deleted.
+  let sendAttempted = false;
   /** Nothing was sent: the reservation and the counters taken so far go back. */
   const release = async () => {
+    if (sendAttempted) return;
     await sql()`DELETE FROM contract_deploys WHERE id = ${id} AND tx_hash = ''`.catch((err: unknown) => console.error('[deploy] release', errName(err)));
     if (dayTaken) await giveBackFreeTier('deploysDay', 1, now).catch(() => undefined);
     if (reserved > 0) await giveBackFreeTier('deployGasMonth', reserved, now).catch(() => undefined);
@@ -343,47 +453,59 @@ export async function deployForBuilder(
     await release();
     return out;
   };
+  const markUnknown = async (extra: { hash?: Hex; cost?: number } = {}) => {
+    await sql()`
+      UPDATE contract_deploys SET status = 'unknown'
+        ${extra.hash ? sql()`, tx_hash = ${extra.hash}` : sql()``}
+        ${extra.cost !== undefined ? sql()`, cost_micro_usd = ${extra.cost}` : sql()``}
+      WHERE id = ${id}`.catch((err: unknown) => console.error('[deploy] mark unknown', errName(err)));
+  };
   try {
     if (!(await takeFreeTier('deploysDay', 1, now))) return stop(refused(DEPLOY_LINES.dayFull));
     dayTaken = true;
     const data = initcode(a.input);
-    let est: { gas: bigint; maxFeePerGas: bigint };
+    // Fix round 1 (I4): what the chain would store, checked before anything is spent.
+    let runtime: Hex;
+    let est: { gas: bigint; maxFeePerGas: bigint; l1Fee?: bigint };
     try {
+      runtime = await chain.simulate({ data, from: deployer });
       est = await chain.estimate({ data, from: deployer });
     } catch (err) {
       console.error('[deploy] estimate', errName(err));
       return stop({ status: 'failed', show_to_builder: DEPLOY_LINES.failed, agent_note: 'Estimating the deploy failed: the constructor reverts with these arguments, or the chain is unreachable. Check the arguments and try tomorrow.' });
     }
+    const badRuntime = runtimeRefusal(runtime);
+    if (badRuntime) return stop(refused(badRuntime));
+    // Fix round 1 (C1, I2): the deploy, one capped transfer, and (Base) twice the L1 data fee estimate.
+    const upperWei = est.gas * est.maxFeePerGas + TRANSFER_GAS * est.maxFeePerGas + 2n * (est.l1Fee ?? 0n);
     let usd: number;
     let upperMicro: bigint;
     try {
       usd = await (deps.usdPerNative ?? nativeUsd)(c);
-      upperMicro = weiToMicroUsd(est.gas * est.maxFeePerGas, usd);
+      upperMicro = weiToMicroUsd(upperWei, usd);
     } catch (err) {
       // R18: no price, no deploy.
       console.error('[deploy] price', errName(err));
-      return stop({ status: 'unavailable', show_to_builder: DEPLOY_LINES.lowBalance, agent_note: "EarnKit couldn't price the gas right now. Try later." });
+      return stop(paused("EarnKit couldn't price the gas right now. Try later."));
     }
+    // Fix round 1 (M6): a price that can't be right (a big deploy for under 100 micro-USD) refuses.
+    if (est.gas > 100_000n && upperMicro < 100n) return stop(paused("EarnKit couldn't price the gas right now. Try later."));
     if (upperMicro > PER_DEPLOY_MICRO) return stop(refused(DEPLOY_LINES.high));
     const balance = await chain.balance(deployer);
-    if (balance < est.gas * est.maxFeePerGas)
-      return stop({
-        status: 'unavailable',
-        show_to_builder: DEPLOY_LINES.lowBalance,
-        agent_note: `The deployer wallet on ${CHAIN_NAMES[c]} needs a top-up; the owner is told.`,
-      });
+    if (balance < upperWei) return stop(paused(`The deployer wallet on ${CHAIN_NAMES[c]} needs a top-up; the owner is told.`));
     const upper = Number(upperMicro);
     if (upper > FREE_CAPS.deployGasMonth.cap || !(await takeFreeTier('deployGasMonth', upper, now))) return stop(refused(DEPLOY_LINES.paused));
     reserved = upper;
     let hash: Hex;
+    sendAttempted = true;
     try {
       // No `value`, no `to`: a contract creation.
       hash = await chain.send({ data, gas: est.gas, maxFeePerGas: est.maxFeePerGas });
     } catch (err) {
       // It may have reached the chain: keep every counter and flag it for the owner.
       console.error('[deploy] send', errName(err));
-      await sql()`UPDATE contract_deploys SET status = 'unknown', cost_micro_usd = ${upper} WHERE id = ${id}`;
-      return { status: 'failed', show_to_builder: DEPLOY_LINES.failed, agent_note: 'Sending the deploy failed; the owner checks whether it went out. Do not retry today.' };
+      await markUnknown({ cost: upper });
+      return { status: 'failed', show_to_builder: DEPLOY_UNCONFIRMED, agent_note: 'Sending the deploy failed; the owner checks whether it went out. Do not retry today.' };
     }
     await sql()`UPDATE contract_deploys SET tx_hash = ${hash}, cost_micro_usd = ${upper} WHERE id = ${id}`;
     const left = () => Math.max(1, (deps.receiptMs ?? RECEIPT_MS) - (Date.now() - started));
@@ -392,19 +514,19 @@ export async function deployForBuilder(
       return null;
     });
     if (!receipt || (receipt.status === 'success' && !receipt.contractAddress)) {
-      await sql()`UPDATE contract_deploys SET status = 'unknown' WHERE id = ${id}`;
+      await markUnknown({ hash });
       return {
         status: 'failed',
         show_to_builder: DEPLOY_PENDING,
         agent_note: `The deploy was sent (transaction ${hash} on ${CHAIN_NAMES[c]}) but isn't confirmed yet. Read its receipt on the explorer for the contract address; do not deploy again.`,
       };
     }
-    let spent = receipt.gasUsed * receipt.effectiveGasPrice;
+    let spent = receipt.gasUsed * receipt.effectiveGasPrice + (receipt.l1Fee ?? 0n);
     const settle = async (status: 'deployed' | 'reverted', fields: { address?: string; owner_ok?: boolean | null }) => {
       const cost = Number(weiToMicroUsd(spent, usd));
       if (cost < reserved) await giveBackFreeTier('deployGasMonth', reserved - cost, now);
-      else if (cost > reserved && !(await takeFreeTier('deployGasMonth', cost - reserved, now)))
-        console.error('[deploy] month counter: the transfer went over the reserve at the ceiling');
+      // C1: an overage is always counted, even past the ceiling, so the next deploy stops.
+      else if (cost > reserved) await forceFreeTier('deployGasMonth', cost - reserved, now);
       await sql()`
         UPDATE contract_deploys SET status = ${status}, address = ${fields.address ?? null},
           owner_ok = ${fields.owner_ok ?? null}, cost_micro_usd = ${cost}
@@ -419,36 +541,46 @@ export async function deployForBuilder(
       console.error('[deploy] code', errName(err));
       return null;
     });
-    if (code !== null && (code.length - 2) / 2 > DEPLOY_CAPS.runtimeBytes) {
+    if (code !== null && runtimeRefusal(code) !== null) {
+      // The stored code isn't what the simulation said: deployed, never cached, flagged for the owner.
       await settle('deployed', { address: address.toLowerCase(), owner_ok: false });
-      return { status: 'failed', show_to_builder: DEPLOY_LINES.tooBig, agent_note: 'The deployed code is over 24 KB; the owner is told. Do not use this address.' };
+      return { status: 'failed', show_to_builder: runtimeRefusal(code)!, agent_note: 'The deployed code differs from the check; the owner is told. Do not use this address.' };
     }
-    // The owner step: the builder owns it, or one transferOwnership(builder) from the deployer.
+    // Fix round 1 (I5): the owner step probes owner() and hasRole(DEFAULT_ADMIN_ROLE, deployer)
+    // directly, whatever the builder's ABI says. One transferOwnership(builder), capped, only when the
+    // deployer owns it. The deployer still owner or admin, or a probe that failed: owner_ok false.
     let ownerOk: boolean | null = null;
-    if (hasFn(a.input.abi, 'owner', 0)) {
-      const readOwner = () => chain.read({ address, abi: a.input.abi, fn: 'owner' }).catch(() => null);
+    try {
+      const readOwner = () => chain.read({ address, abi: OWNER_ABI, fn: 'owner' });
       let owner = await readOwner();
-      if (!sameAddr(owner, a.builderWallet) && sameAddr(owner, deployer) && hasFn(a.input.abi, 'transferOwnership', 1)) {
+      if (sameAddr(owner, deployer)) {
         try {
-          const tx = await chain.write({ address, abi: a.input.abi, fn: 'transferOwnership', args: [a.builderWallet] });
+          const tx = await chain.write({ address, abi: TRANSFER_ABI, fn: 'transferOwnership', args: [a.builderWallet], gas: TRANSFER_GAS, maxFeePerGas: est.maxFeePerGas });
           const r = await chain.receipt(tx, left()).catch(() => null);
-          if (r) spent += r.gasUsed * r.effectiveGasPrice;
+          // No receipt: count the transfer's whole cap (its share of the reserve stays taken).
+          spent += r ? r.gasUsed * r.effectiveGasPrice + (r.l1Fee ?? 0n) : TRANSFER_GAS * est.maxFeePerGas;
           owner = await readOwner();
         } catch (err) {
           console.error('[deploy] transferOwnership', errName(err));
+          spent += TRANSFER_GAS * est.maxFeePerGas;
         }
       }
-      ownerOk = sameAddr(owner, a.builderWallet);
+      const admin = await chain.read({ address, abi: HAS_ROLE_ABI, fn: 'hasRole', args: [DEFAULT_ADMIN_ROLE, deployer] });
+      if (admin === true || sameAddr(owner, deployer)) ownerOk = false;
+      else if (owner !== null) ownerOk = sameAddr(owner, a.builderWallet);
+      else if (admin !== null && admin !== false) ownerOk = false;
+    } catch (err) {
+      console.error('[deploy] owner probe', errName(err));
+      ownerOk = false;
     }
     if (code !== null) await markDeployed(c, address).catch((err: unknown) => console.error('[deploy] cache', errName(err)));
     await settle('deployed', { address: address.toLowerCase(), owner_ok: ownerOk });
     return { status: 'deployed', address, owner_ok: ownerOk, show_to_builder: deployedLine(a.projectName, c, address, ownerOk === true) };
   } catch (err) {
-    // A failure before the send: nothing went out. After it, the row keeps the hash for the owner.
     console.error('[deploy]', errName(err));
-    const [row] = await sql()<{ tx_hash: string }[]>`SELECT tx_hash FROM contract_deploys WHERE id = ${id}`.catch(() => [{ tx_hash: 'x' }]);
-    if (!row || row.tx_hash === '') return stop({ status: 'failed', show_to_builder: DEPLOY_LINES.failed });
-    await sql()`UPDATE contract_deploys SET status = 'unknown' WHERE id = ${id} AND status = 'sent'`.catch(() => undefined);
+    // I3: before the send, nothing went out; after it, the row is flagged and every counter kept.
+    if (!sendAttempted) return stop({ status: 'failed', show_to_builder: DEPLOY_LINES.failed });
+    await markUnknown();
     return { status: 'failed', show_to_builder: DEPLOY_PENDING };
   }
 }
