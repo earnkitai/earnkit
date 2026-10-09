@@ -295,6 +295,17 @@ const blockscoutFetch = async (url: string): Promise<{ transactions_count?: stri
   return (await res.json()) as { transactions_count?: string };
 };
 
+/** v2.10 Ruling H5 (I3): a fresh cached transaction count for `address` on `chain`, else null (never a read, never a slot). */
+export async function peekTxCount(chain: Chain, address: string, deps: CheckDeps = {}): Promise<number | null> {
+  if (!BLOCKSCOUT[chain] || !isAddress(address, { strict: false })) return null;
+  const cache = deps.cache ?? checkDefaults.cache ?? dbCache;
+  const row = await cache.get(`txcount:${chain}:${address.toLowerCase()}`).catch((err: unknown) => {
+    console.error(`[verify] txcount cache read ${errorClass(err)}`);
+    return null;
+  });
+  return row?.ok && typeof row.n === 'number' && cacheFresh(row, deps.now ?? new Date()) ? row.n : null;
+}
+
 /**
  * v2.10 item 6 (R4): how many transactions an address has on `chain` (Blockscout's
  * `/api/v2/addresses/<addr>/counters`). Base only. A read is cached 24 h in url_checks (key
@@ -308,11 +319,8 @@ export async function txCount(chain: Chain, address: string, deps: CheckDeps = {
   const key = `txcount:${chain}:${addr}`;
   const cache = deps.cache ?? checkDefaults.cache ?? dbCache;
   const now = deps.now ?? new Date();
-  const row = await cache.get(key).catch((err: unknown) => {
-    console.error(`[verify] txcount cache read ${errorClass(err)}`);
-    return null;
-  });
-  if (row?.ok && typeof row.n === 'number' && cacheFresh(row, now)) return row.n;
+  const cached = await peekTxCount(chain, addr, deps);
+  if (cached !== null) return cached;
   if (deps.budget && !deps.budget.takeTxCount()) return null;
   const read = deps.blockscout ?? checkDefaults.blockscout ?? blockscoutFetch;
   let n: number;

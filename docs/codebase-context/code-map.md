@@ -323,7 +323,7 @@ apps/frontend/
                                error is null and never cached, G15), bounded by
                                CheckBudget (ENTRY_BUDGET, LIST_BUDGET; v2.10 item 6: txCounts 1 / 2);
                                v2.10 item 6: txCount (Blockscout counters, Base only, txcount:base:<a>,
-                               CheckDeps.blockscout); addressesFrom, entryVerified,
+                               CheckDeps.blockscout; peekTxCount, H5); addressesFrom, entryVerified,
                                checkDefaults (tests: fixtures/no-network-checks.ts)
     chains.ts                  CHAINS, Chain, CHAIN_NAMES (import-free; match.ts re-exports them)
     safe-fetch.ts(+test)       SSRF-safe GET (safeFetchText): https on 443, domain names only, DNS

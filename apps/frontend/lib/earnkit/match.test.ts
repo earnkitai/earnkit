@@ -724,7 +724,18 @@ test('3.2 productOdds: product tier and traction 4+ is good; else low with the f
   // Traction 3: tx 1-49 without a live link, tx 0 with one, unknown tx with one.
   assert.deepEqual(productOdds(product, { tx_count: 5, live_ok: false, commits_90d: 0 }, 3), { odds: 'low', low_reason: 'live link not loading' });
   assert.deepEqual(productOdds(product, { tx_count: 0, live_ok: true, commits_90d: 1 }, 3), { odds: 'low', low_reason: 'no users yet' });
-  assert.deepEqual(productOdds(product, { tx_count: null, live_ok: true, commits_90d: 1 }, 3), { odds: 'low', low_reason: 'little recent activity' });
+  // Ruling H5 (I1): with the count unknown, a live link and a commit in 90 days are good odds; never
+  // "little recent activity".
+  assert.deepEqual(productOdds(product, { tx_count: null, live_ok: true, commits_90d: 1 }, 3), { odds: 'good', low_reason: null });
+  assert.deepEqual(productOdds(product, { tx_count: null, live_ok: true, commits_90d: null }, 2), { odds: 'good', low_reason: null }, 'an unknown commit count: product tier already needs activity');
+  assert.deepEqual(productOdds(product, { tx_count: null, live_ok: false, commits_90d: 20 }, 2), { odds: 'low', low_reason: 'live link not loading' });
+  assert.deepEqual(productOdds(product, { tx_count: null, live_ok: true, commits_90d: 0 }, 2), { odds: 'low', low_reason: SIGNAL_WORDS.active });
+  // Ruling H5 (I2): a copy or starter is low, whatever its traction.
+  assert.deepEqual(productOdds({ tier: 'product', missing: ['original'] }, { tx_count: 120, live_ok: true, commits_90d: 20 }, 10), {
+    odds: 'low',
+    low_reason: SIGNAL_WORDS.original,
+  });
+  assert.deepEqual(productOdds({ tier: 'product', missing: ['original'] }, { tx_count: null, live_ok: true, commits_90d: 20 }, 4).odds, 'low');
   // A project-tier repo: its missingSignalNote, even with high traction.
   const project = { tier: 'project' as const, missing: ['readme' as const] };
   assert.deepEqual(productOdds(project, { tx_count: 60, live_ok: true, commits_90d: 20 }, 10), { odds: 'low', low_reason: SIGNAL_WORDS.readme });
