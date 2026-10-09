@@ -1,5 +1,6 @@
 import { mixedScriptProblem, plainLettersProblem, reservedBrands } from './sponsor-identity';
 import { UntrustedTextError, cleanText } from './untrusted-text';
+import { tokensFunUrl } from './tokens';
 
 /**
  * EarnKit's proposed token for an entry (v2.3 §2): a name and ticker derived from the project
@@ -7,7 +8,6 @@ import { UntrustedTextError, cleanText } from './untrusted-text';
  * image is uploaded.
  */
 
-const TOKENSFUN_URL = (process.env.TOKENSFUN_API_URL ?? 'https://tokens.fun').replace(/\/$/, '');
 
 /** Tickers that read as a brand's or a major asset's own (v2.3 §2). */
 export const TICKER_RESERVED = [
@@ -84,7 +84,7 @@ export const tokensFunTickerCheck: TickerCheck = async (symbol) => {
   const key = process.env.TOKENSFUN_DEPLOY_API_KEY;
   if (!key) return null;
   try {
-    const res = await fetch(`${TOKENSFUN_URL}/api/check-ticker?symbol=${encodeURIComponent(symbol)}`, {
+    const res = await fetch(`${tokensFunUrl()}/api/check-ticker?symbol=${encodeURIComponent(symbol)}`, {
       headers: { Authorization: `Bearer ${key}` },
       signal: AbortSignal.timeout(3_000),
     });

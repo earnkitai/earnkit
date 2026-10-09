@@ -217,3 +217,32 @@ test('v2.8.1 §A4: retryAtOf reads retry_after (ISO or seconds), retry_after_sec
 test('earnings line is the spec text (v2.7 Ruling 18: no launch protocol named)', () => {
   assert.equal(EARNINGS_LINE('0xW'), 'You earn 40% of trading fees, paid in WETH to 0xW. tokens.fun pays the gas.');
 });
+
+test('v2.9 T12: the tokens.fun host is read per call, so a mock set after the modules load is the one used', async () => {
+  // The shared no-network fixture (and anything importing stats.ts) loads tokens.ts first; the
+  // anvil e2e sets its mock tokens.fun only afterwards. A host frozen at import sent its deploy to
+  // the real tokens.fun.
+  await import('./fixtures/no-network-checks');
+  const { tokensFunUrl } = await import('./tokens');
+  const { tokensFunTickerCheck } = await import('./token-proposal');
+  const saved = { url: process.env.TOKENSFUN_API_URL, key: process.env.TOKENSFUN_DEPLOY_API_KEY, fetch: globalThis.fetch };
+  const seen: string[] = [];
+  try {
+    process.env.TOKENSFUN_API_URL = 'http://127.0.0.1:9/';
+    process.env.TOKENSFUN_DEPLOY_API_KEY = 'k';
+    globalThis.fetch = (async (u: RequestInfo | URL) => {
+      seen.push(String(u));
+      return new Response('{"available":true}', { status: 200 });
+    }) as typeof fetch;
+    assert.equal(tokensFunUrl(), 'http://127.0.0.1:9');
+    assert.equal(await tokensFunTickerCheck('TIP'), true);
+    assert.deepEqual(seen, ['http://127.0.0.1:9/api/check-ticker?symbol=TIP']);
+    delete process.env.TOKENSFUN_API_URL;
+    assert.equal(tokensFunUrl(), 'https://tokens.fun');
+  } finally {
+    globalThis.fetch = saved.fetch;
+    for (const [k, v] of [['TOKENSFUN_API_URL', saved.url], ['TOKENSFUN_DEPLOY_API_KEY', saved.key]] as const)
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+  }
+});
