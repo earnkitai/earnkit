@@ -1,7 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { alertFit, newProgramOf, type FitRepo, type NewProgramRow } from './alerts';
 import { hiddenIds, hiddenPrograms, type BuilderMemory } from './builder-memory';
-import type { SubmissionRequirement } from './coach';
 import { sql, type Db } from './db';
 import { siteUrl } from './entry-text';
 import { freeTierRoom, takeFreeTier } from './free-tier';
@@ -164,10 +163,13 @@ export function cleanEmail(v: unknown): string | null {
   return e.length <= 254 && EMAIL.test(e) ? e : null;
 }
 
-/** The entry's email answer: the first contact field whose label says email (coach.ts's email slot). Pure. */
-export function entryEmail(reqs: Pick<SubmissionRequirement, 'key' | 'label' | 'kind'>[], values: Record<string, string>): string | null {
+/**
+ * The entry's email answer: the first field of type email, or contact field whose label says email
+ * (coach.ts's email slot), holding a plain address. Pure.
+ */
+export function entryEmail(reqs: { key: string; label: string; kind?: string; type?: string }[], values: Record<string, string>): string | null {
   for (const r of reqs) {
-    if (r.kind !== 'contact' || !/e-?mail/i.test(r.label)) continue;
+    if (r.type !== 'email' && (r.kind !== 'contact' || !/e-?mail/i.test(r.label))) continue;
     const e = cleanEmail(values[r.key]);
     if (e) return e;
   }

@@ -56,10 +56,18 @@ export const TellInput = z
     repo_facts: z.array(RepoFact).max(ITEMS).optional(),
     /** v2.9 B9 (Ruling G9): the code a shared client's builder pasted after signing in with GitHub. */
     signed_in: z.string().max(40).optional(),
+    /** v2.9 E19 (Ruling 13): the answer to the weekly email question, and the address if they gave one. */
+    weekly_email: z
+      .object({
+        answer: z.preprocess((v) => (typeof v === 'string' ? v.trim().toLowerCase() : v), z.enum(['yes', 'no'])),
+        email: z.string().max(320).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
-  .refine((i) => (i.program_status?.length ?? 0) + (i.repo_facts?.length ?? 0) > 0, {
-    message: 'Pass at least one program_status or repo_facts item.',
+  .refine((i) => (i.program_status?.length ?? 0) + (i.repo_facts?.length ?? 0) > 0 || i.weekly_email !== undefined, {
+    message: 'Pass at least one program_status, repo_facts or weekly_email item.',
   });
 export type TellInput = z.input<typeof TellInput>;
 

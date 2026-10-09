@@ -469,7 +469,7 @@ test('3.9 tell_earnkit replaces report_outcome: 8 tools, it writes, list_program
   assert.ok(!tools.some((t) => t.name === 'report_outcome'));
   const tell = tools.find((t) => t.name === 'tell_earnkit')!;
   assert.deepEqual(tell.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false });
-  assert.deepEqual(Object.keys((tell.inputSchema as { properties: object }).properties).sort(), ['program_status', 'repo_facts', 'signed_in']);
+  assert.deepEqual(Object.keys((tell.inputSchema as { properties: object }).properties).sort(), ['program_status', 'repo_facts', 'signed_in', 'weekly_email']);
   // v2.9 B10 (Pre-flight P45): launch_token takes the first reply's offer, the answer and the agent.
   const launch = tools.find((t) => t.name === 'launch_token')!;
   const props = (launch.inputSchema as { properties: object; required?: string[] });
