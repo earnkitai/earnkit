@@ -2445,8 +2445,39 @@ strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`, and in prod
   mention into `deployed`: mention and claimed chains (`unverifiedMainnets`) get their pairs first
   and are checked even when the live link loads. On a multi-chain program `matchRepo` takes a
   credited chain before a mentioned one.
+- **Traction and odds (v2.10 item 6).** `match.ts traction({ tx_count, live_ok, commits_90d })` =
+  3·band(tx: 0, 1-49, 50+) + 2·live + band(commits: 0, 1-9, 10+), 0 to 10 (R1; an unknown count
+  scores 0 and is never named). `productOdds`: good = product tier and traction 4+
+  (`GOOD_ODDS_TRACTION`); else low with the first reason (R2): the tier's `missingSignalNote`, "no
+  users yet" (tx 0), "live link not loading", "little recent activity". `rowOdds(product, verdict,
+  chains)` adds "not deployed yet" for a row waiting on a mainnet only mentioned (`onlyMentioned`);
+  a product without `odds` (unscored, pre-v2.10) reads as low (P26). `checkRepo`/`checkLocal` set
+  `Product.traction`, `odds`, `low_reason`. `tx_count` comes from `verify.ts txCount` (Blockscout
+  `base.blockscout.com/api/v2/addresses/<a>/counters`, Base only, `txcount:base:<a>` in
+  `url_checks.n` for 24 h, failures not cached): `runChecks` reads it, after the getCode phase, for
+  contracts with code on Base, newest repos first, within `LIST_BUDGET.txCounts` = 2
+  (`checkEligibility`: `ENTRY_BUDGET`, 1; P27). Base contract pairs are checked for code even when
+  the live link loads, since a count needs code. A local repo's commits are band 1 when its
+  `last_commit_at` is within 90 days, else 0 (R3), so a local repo with no Base contract reaches 3 at
+  most and is always low odds (P30, accepted: EarnKit never reads local code; the App in item 7b is
+  the fix). **Starters (R7):** `earnkit-orgs.ts EARNKIT_STARTER_NAMES` (copied from
+  `earnkitai/chain-kits` at b068976) against the root `package.json` name and the README's first `#`
+  heading (read from the same 2 KB range, also under 1.5 KB), folded (`starterRepo`; a deps seam
+  `MatchDeps.starters`): a match loses `original`. **Ranking:** `matchProjects` sorts fits by good
+  odds, then traction, then today's order; `present.ts layout` keeps, per program, the good-odds
+  repo with the most traction (P12) and sorts rows by entered last, good odds, traction, row level,
+  prize, quickness. A low-odds row's repo cell is `<repo>, low odds: <reason>` (`lowOddsCell`); it
+  never counts in "$X you qualify for" (`qualifies`), never gets the token offer (`tokenOfferFit`),
+  and the closing offer (`bestFit`) takes good odds first. With only low-odds rows the heading is
+  "Programs your repos could reach:" (`LOW_ODDS_HEADING`, P14: never "fit"). `alerts.ts repoCanWin`
+  is false for `product.odds === 'low'` and for a row on a chain only mentioned (P13), so neither
+  alerts nor Also qualifies offer it (a remembered fit repo from before v2.10, without `odds`, still
+  passes until the next match rewrites it). `match_shown.traction` (smallint) logs the traction
+  shown.
 - **Cache (P6).** `github_repo_facts.product` (jsonb) holds only the repo's own signals for that
-  version: `{ young, original, readme, addresses }`. owned, active and deployed are worked out on
+  version: `{ young, original, readme, addresses }` (v2.10: plus `starter`, and the `traction` and
+  `odds` of the last scoring, written in `finish` with one write only when they change; a row
+  without `starter` re-reads the files). owned, active and deployed are worked out on
   every call. A pre-v2.9 row (product NULL) re-reads the files. `cachedRepoAddresses(repoUrl)`
   hands the file candidates to `tools.ts entryChecks` after the project's and local_repos'
   contracts (P4).
