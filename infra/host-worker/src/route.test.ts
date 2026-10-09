@@ -292,6 +292,12 @@ test('7.6 (G17) /dir with dir/index.html is a 301 to /dir/; else 404.html, then 
   assert.deepEqual(lost.reads, ['state/s-a.json', 'sites/s-a/nope.css', 'sites/s-a/404.html']);
   assert.equal(lost.res.headers.get('Cache-Control'), 'public, max-age=60');
 
+  // The site's 404.html is read once for many missing paths.
+  const more = await run('https://s-a.earnkit.com/other.css', files, { cache: lost.cache });
+  assert.equal(more.res.status, 404);
+  assert.equal(await more.res.text(), '<p>lost</p>');
+  assert.deepEqual(more.reads, ['sites/s-a/other.css']);
+
   const plain = await run('https://t-a.earnkit.com/nope', files);
   assert.equal(plain.res.status, 404);
   assert.deepEqual(plain.reads, ['state/t-a.json', 'sites/t-a/nope', 'sites/t-a/nope/index.html', 'sites/t-a/404.html']);
@@ -347,6 +353,10 @@ test('I2 repeated misses read R2 once: unknown slug, killed site, 404 path, enco
   // The first 404 looks up the file and the site's 404.html once (plus the state); the other 99 read nothing.
   assert.equal(await many('https://s-a.earnkit.com/missing.css'), 3);
   assert.equal(await many('https://s-a.earnkit.com/missing.css'), 0);
+  // Distinct missing paths: one read each for the file (404.html is cached once, already above).
+  const before = b.reads.length;
+  for (let i = 0; i < 100; i++) await run(`https://s-a.earnkit.com/m${i}.css`, {}, { bucket: b, cache: c });
+  assert.equal(b.reads.length - before, 100);
   const variants = ['/app.js', '/%61pp.js', '/%61%70%70.js', '/app%2Ejs'];
   let reads = 0;
   for (const v of variants) reads += await many(`https://s-a.earnkit.com${v}`, 25);

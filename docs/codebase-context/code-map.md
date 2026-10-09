@@ -23,10 +23,12 @@ contracts/                     Foundry project (v2.1 sponsor escrow; not part of
 infra/host-worker/              v2.9 C12/C14 (Task 7): Cloudflare Worker for <slug>.earnkit.com (free plan;
                                the owner deploys by hand, never CI). wrangler.toml (earnkit-host, R2
                                BUCKET earnkit-sites, ZONE, RESERVED; routes commented), tsconfig.json
-                               (pnpm host:typecheck, P42), README (owner setup)
+                               (no Node types) + tsconfig.test.json (pnpm host:typecheck, P42),
+                               README (owner setup)
   src/route.ts(+test)          pure: siteSlug (one label, not reserved), objectKey (sites/<slug>/...,
                                traversal null), contentTypeFor, handle (state/<slug>.json kill switch
-                               and end page, 410; Cache API 300 s; HOST_HEADERS on every response)
+                               and end page, 410; G17 301 /dir to /dir/; Cache API: state 60 s,
+                               files 240 s, 404/301 60 s; HOST_HEADERS on every response)
   src/index.ts                 fetch wrapper: handle(req, env, caches.default, ctx.waitUntil)
 programs/                      program files (+ README: how Claude Code adds programs/starters)
   programs/outcomes/           v2.8 Part G, Ruling 30: announced results, <program-id>.json (OutcomeFile;

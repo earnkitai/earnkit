@@ -2785,7 +2785,8 @@ The v2.8.1 journeys (`v281-journey.test.ts`) still pass unchanged on Part 1.
 
 - **Where.** `infra/host-worker/` is a Cloudflare Worker (free plan) outside the Next build. The
   owner deploys it by hand with `wrangler deploy`; nothing in CI deploys it. Routing lives in the
-  pure `src/route.ts` (tested in Node by `pnpm test`, typechecked by `pnpm host:typecheck`, P42);
+  pure `src/route.ts` (tested in Node by `pnpm test`, typechecked by `pnpm host:typecheck`, P42:
+  Worker code without Node types, then the tests with them);
   `src/index.ts` only passes `caches.default` and `ctx.waitUntil`.
 - **Shared names.** `apps/frontend/lib/earnkit/host-names.ts` (import-free) holds `HOST_RESERVED`,
   `HOST_CSP`, `HOST_HEADERS`, `SITE_PREFIX` and `STATE_PREFIX`. The Worker imports it by relative
@@ -2797,16 +2798,22 @@ The v2.8.1 journeys (`v281-journey.test.ts`) still pass unchanged on Part 1.
   reach the Worker.
 - **Path to key.** `sites/<slug>/<decoded path>`; `/` and a trailing `/` add `index.html`. A path
   with a `.` or `..` segment (also `%2e%2e`), `//`, `\`, a control byte or bad percent-encoding is a
-  400 with no read. A missing extensionless path tries `<path>/index.html`, then the site's
-  `404.html` (404), then a plain 404.
-- **State (Ruling 9).** On a cache miss the Worker reads `state/<slug>.json`: `live` serves files;
-  `review` and `killed` serve `TAKEN_DOWN_PAGE` and `ended` serves `ENDED_PAGE`, both 410 and never
-  cached; no state, bad JSON or any other status is a 404 (fail closed).
-- **Cache.** Only 200 GET responses are cached (`Cache-Control: public, max-age=300`), keyed by
-  `https://<slug>.<zone><path>` so the query string and Host spelling can't split or bypass it. A
-  hit reads nothing from R2, so a takedown shows within 5 minutes per edge location.
+  400 with no read. A missing extensionless path whose `<path>/index.html` exists is a 301 to
+  `<path>/` (Ruling G17, so relative links resolve; the path-only `Location` keeps the query);
+  otherwise the site's `404.html` (404), then a plain 404.
+- **State (Ruling 9).** On a cache miss the Worker reads `state/<slug>.json`, cached per slug for
+  60 s under `https://<slug>.<zone>/?earnkit-state` ("none" when absent): `live` serves files;
+  `review` and `killed` serve `TAKEN_DOWN_PAGE` and `ended` serves `ENDED_PAGE`, both 410
+  (`no-store` to browsers); no state, bad JSON or any other status is a 404 (fail closed).
+- **Cache and R2 reads (review I2, "never bills").** Keyed by `https://<slug>.<zone>/<decoded
+  path, each segment re-encoded>`, never a query, so Host spelling, query and percent-encoding
+  can't split or bypass it, and no file name can reach the state entry. 200s live 240 s, 404s and
+  301s 60 s, and the site's `404.html` lookup has its own entry. A takedown shows within 300 s
+  (60 s state plus 240 s file). Repeats read nothing; a flood of distinct missing paths costs at
+  most 2 reads a request, about 6M a month at the 100k-a-day Worker cap (R2 free: 10M). HEAD
+  fills the cache like GET. A new or redeployed slug can show a cached 404 for up to 60 s.
 - **Headers.** Every response (files, 400, 404, 405, 410, 500 and cache hits) gets `HOST_HEADERS`
   set last: the sandbox CSP (`sandbox allow-scripts allow-forms allow-popups allow-modals;
-  form-action 'self'`), `X-Frame-Options: DENY`, `nosniff` and `no-referrer`. Only GET and HEAD are
-  served (405 with `Allow`). The Content-Type comes from the key's extension (`contentTypeFor`),
+  form-action 'self'`), `X-Frame-Options: DENY`, `nosniff` and `no-referrer`, the 301 included.
+  Only GET and HEAD are served (405 with `Allow`). Errors are logged by name only. The Content-Type comes from the key's extension (`contentTypeFor`),
   not from R2 metadata.
