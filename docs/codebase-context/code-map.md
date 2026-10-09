@@ -174,7 +174,9 @@ apps/frontend/
   app/api/projects/[id]/token-image/  (old links only since v2.10) a 512x512 next/og PNG monogram of the
                                stored ticker (validated A-Z0-9 only) on a colour from the project id;
                                the link carries ?s=SYMBOL and 404s unless it matches the stored ticker
-  app/mcp/route.ts             hosted MCP server (Streamable HTTP, stateless, Bearer token)
+  app/mcp/route.ts             hosted MCP server (Streamable HTTP, stateless, Bearer token); v2.10 item 4:
+                               withAliases rewrites old tool names (aliases.ts) before the transport and logs
+                               "[mcp] alias <old> -> <new>" (names only); imports lib/earnkit relatively (tests load it)
   app/oauth/{register,authorize,token}/   anonymous OAuth for MCP clients
   app/github/verify/(route, callback/route)  v2.9 B9: the sign-in link (GET confirm page, POST to GitHub) and
                                              GitHub's callback; re-export github-verify.ts handlers
@@ -229,6 +231,7 @@ apps/frontend/
                                present.ts byEase/byEaseThenPrize sort Easy first in the agent's tables (C4)
     submission.ts(+.test.ts)   prepareSubmission, rememberedWalletQuestion (pure)
     projects.ts(+test)         v2.10 item 3 (P23): hasProgramEntry (any row for the program; the guide never re-shows)
+                               v2.10 item 4 (R16): submittedEntry (tell.submitted's entry: by id, else the newest in the program; its saved answers)
                                v2.8.1 §B9 openEntries (this installation's entries in open,
                                non-campaign programs, with submitted); v2.8 Task 8: startEntry (the entry at confirmation: ownEntry or insert,
                                confirmed_at/complete_at set once, "skip" never on a row with a token;
@@ -424,7 +427,10 @@ apps/frontend/
                                authorize, code -> token (+ shared, limitKey), metadata, clientKeyOf;
                                publicOrigin = EARNKIT_URL (production throws without it; no Host
                                fallback)
-    mcp.ts(+test)              v2.10 item 2: list_programs takes more; its description says one line first
+    mcp.ts(+test)              v2.10 item 4: registers find, prepare, confirm, tell (+ sponsor_campaign with escrow);
+                               FIND_DESCRIPTION, TELL_DESCRIPTION, toolDescriptions, serverInstructions, OWNERSHIP_FOR_TOKEN all
+                               under 800 characters (mcp.test 9.1, 9.2; 9.7 the route alias end to end).
+                               v2.10 item 2: find takes more; its description says one line first
                                v2.9 F25: CONFIRM_ENTRY_DESCRIPTION and SPONSOR_CAMPAIGN_DESCRIPTION under 800 characters (mcp.test 11.8).
                                v2.9 A3: tell_earnkit registered (TELL_EARNKIT_DESCRIPTION, not read-only);
                                report_outcome removed (8 builder tools).
@@ -567,10 +573,17 @@ apps/frontend/
                                (github_repo_facts only, no GitHub call, for "Also qualifies")
     http.ts(+test)             CORS + small response helpers; secretMatches, bearerMatches
                                (timing-safe; v2.4 cron and veto)
-    tools.ts                   tool name -> handler + input validation (+ caller's installation);
+    aliases.ts(+test)          v2.10 item 4 (R17): OLD_TOOL_NAMES, ALIASES_UNTIL (2026-11-09), aliasCall (an old call
+                               as its new tool and arguments; Pre-flight P15 rules), rewriteAliases (a JSON-RPC
+                               message or batch). Pure.
+    tools.ts                   v2.10 item 4: `tools` = find, prepare, confirm, tell, sponsor_campaign, thin dispatchers
+                               over `handlers` (the v2.9 functions: list_programs ... launch_token); FindInput,
+                               PrepareInput, ConfirmInput (R15), TellToolInput (R16), markSubmitted (tell.submitted),
+                               eligibilityLine; launchFromOffer deleted (launch_token with offer throws).
+                               tool name -> handler + input validation (+ caller's installation);
                                v2.10 items 2, 3: list_programs more (pools only then), lead + LEAD_NOTE, one question (H10); prepare_submission prepends the guide on the first call
                                v2.10: withAlerts(ctx, result, signedIn?) puts the deadline line first; ToolContext.roundPools;
-                               no firstTokenOffer/token_offer; prepare_submission takes signed_in; launchFromOffer re-asks with confirmLine.
+                               no firstTokenOffer/token_offer; prepare_submission takes signed_in.
                                v2.8.1 T7: prepare_submission leads the coach's questions with
                                needsRepoLine when the program needs a repo and none is known ("<X> needs a
                                public repo … No repo yet? <Y> doesn't need one", Y = present.ts
