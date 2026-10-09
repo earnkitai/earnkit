@@ -18,10 +18,40 @@ import { checkDefaults } from './verify';
 import { LIVE_FAILED_LINE, PLACEHOLDER_LINE } from './placeholder';
 import { verifyCallback, verifyConfirm, verifyStart } from './github-verify';
 import { BASE_BONUS, FEE_LOCKER_ABI, type BonusRpc } from './bonus-ledger';
-import { readStats } from './stats';
 import { runCron } from './cron';
 import { MINI_FEE_RECIPIENT } from './policy';
 import type { FetchResult } from './ownership';
+import * as React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { strToU8, zipSync } from 'fflate';
+import { HOST_LINES, HOST_REVIEW, UPLOAD_NOTE, expireSites, hostSignInLine, hostTakedownPost, hostUploadPost, sitesInReview } from './hosting';
+import { HOST_HEADERS } from './host-names';
+import type { R2 } from './r2';
+import { ENDED_PAGE, handle as workerHandle } from '../../../../infra/host-worker/src/route';
+import {
+  EMAIL_NOTE,
+  EMAIL_ON,
+  EMAIL_QUESTION,
+  EMAIL_SIGN_IN,
+  UNSUB_CONFIRM,
+  UNSUB_DONE,
+  digestUnsubscribeGet,
+  digestUnsubscribePost,
+  sendDigests,
+  type Mailer,
+} from './digest';
+import { periodKey } from './free-tier';
+import { OutcomeFile, syncOutcomeFile } from './outcomes';
+import { readStats, readWonUsd, wonSource } from './stats';
+import { readLanding } from './landing';
+import { listPrograms } from './programs';
+import { moneyText, openMoneyUsd } from './pool';
+import { LEGAL_REDIRECTS } from '../../next.config';
+import TermsPage from '../../app/terms/page';
+import { FOOTER_COLUMNS } from './footer-links';
+
+// The app's pages use the classic JSX runtime under tsx (as public-pages.test.ts does).
+(globalThis as { React?: typeof React }).React = React;
 
 /**
  * v2.9 Task 12, Part 1 slice (Ruling G1): builder journeys through the real tools layer for what
@@ -34,6 +64,10 @@ import type { FetchResult } from './ownership';
  * (check-ticker and the deploy API behind the real deployToken), the link probe and RPC getCode
  * (verify.ts checkDefaults), and the chain under the cron's claims. Every other fetch gets a 503 and
  * is noted; the last test asserts nothing else tried the network.
+ *
+ * Part 2 (T12 Part 2 slice): hosting (12.3, R2 in memory and the Worker over it), the weekly email
+ * (12.10, Resend recorded), the won line (12.8), the one money figure (12.9), /terms (12.11) and Also
+ * qualifies' precision (12.6b, Ruling G15 M1).
  *
  * Asserted across every reply: "40%" exactly once per entry flow; "skip" only in token offers; no
  * emoji, em dash, "coin", "vault", "Clanker" or tool name in builder text; every reply under 50 s.
@@ -146,6 +180,8 @@ const GITHUB = {
   oauthCodes: new Map<string, string>(),
   /** A repo's hardhat.config.ts (chain ids, RPC hosts and contract addresses matching reads). */
   configs: new Map<string, string>(),
+  /** When a login's GitHub account was made (the hosting gate); 2019 by default. */
+  accountCreated: new Map<string, string>(),
 };
 function addRepos(owner: string, repos: GhRepo[]) {
   GITHUB.users.set(owner, [...(GITHUB.users.get(owner) ?? []), ...repos]);
@@ -185,7 +221,7 @@ function github(u: URL, init?: RequestInit): Response {
   // The OAuth token's own reads (github-verify.ts githubOAuth).
   if (auth?.startsWith('Bearer gho_')) {
     const login = GITHUB.oauthCodes.get(auth.slice('Bearer gho_'.length))!;
-    if (p === '/user') return json({ login, created_at: '2019-01-01T00:00:00Z', public_repos: 4 });
+    if (p === '/user') return json({ login, created_at: GITHUB.accountCreated.get(login) ?? '2019-01-01T00:00:00Z', public_repos: 4 });
     const m = p.match(/^\/repos\/([^/]+)\/([^/]+)$/);
     const r = m && GITHUB.repos.get(`${decodeURIComponent(m[1])}/${decodeURIComponent(m[2])}`.toLowerCase());
     if (!r) return notFound();
@@ -328,10 +364,10 @@ async function browserSignIn(link: string, login: string): Promise<string> {
   return text.split('\n').filter(Boolean).pop()!;
 }
 
-/** The expected log lines (a failed probe, the alerts' soft WETH price read) are kept out of the output. */
+/** The expected log lines (a failed probe, the alerts' and the cron's soft WETH price read) are kept out of the output. */
 const logError = console.error;
 console.error = (...a: unknown[]) => {
-  if (typeof a[0] === 'string' && /^\[(verify|fees)\]/.test(a[0])) return;
+  if (typeof a[0] === 'string' && /^\[(verify|fees)\]|^\[cron\] fees$/.test(a[0])) return;
   logError(...a);
 };
 
@@ -733,6 +769,333 @@ test('12.6b Also qualifies (Ruling G15 M1): never a program whose row needs real
   const again = await record('record again');
   assert.ok(!also(again).includes('arc-microgrants'), JSON.stringify(again.also_qualifies));
   assert.ok(!also(again).includes('circle-developer-grants'));
+  assert.equal(forty(J), 1, dump(J));
+});
+
+
+// ---- Part 2: hosting, the weekly email, the won line, one money figure, /terms ----------------
+
+/** R2, in memory (the bucket under hosting.ts and, through bucketOf, the Worker). */
+function memR2() {
+  const objects = new Map<string, Uint8Array>();
+  const r2: R2 = {
+    put: async (key, body) => void objects.set(key, body),
+    list: async (prefix) => [...objects.keys()].filter((k) => k.startsWith(prefix)),
+    del: async (keys) => keys.forEach((k) => objects.delete(k)),
+    copy: async (from, to) => {
+      const o = objects.get(from);
+      if (!o) throw new Error('no such key');
+      objects.set(to, o);
+    },
+  };
+  return { r2, objects };
+}
+const SITES = memR2();
+const R2_ENV = { R2_ACCOUNT_ID: 'v29-acct', R2_ACCESS_KEY_ID: 'v29-key', R2_SECRET_ACCESS_KEY: 'v29-r2-secret', R2_BUCKET: 'earnkit-sites' };
+
+async function withEnv<T>(vars: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> {
+  const old = Object.fromEntries(Object.keys(vars).map((k) => [k, process.env[k]]));
+  for (const [k, v] of Object.entries(vars)) if (v === undefined) delete process.env[k];
+  else process.env[k] = v;
+  try {
+    return await fn();
+  } finally {
+    for (const [k, v] of Object.entries(old)) if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+}
+const ADMIN = 'v29-journey-admin-secret-0123456789abcdef';
+const hostingOn = <T>(fn: () => Promise<T>) => withSignIn(() => withEnv({ ...R2_ENV, ADMIN_VETO_SECRET: ADMIN }, fn));
+
+/** The builder's agent POSTs the zip to the upload URL; the reply is recorded like a tool reply. */
+async function upload(journey: string, label: string, url: string, body: Uint8Array | ReadableStream<Uint8Array>) {
+  const started = Date.now();
+  const res = await hostUploadPost(
+    new Request(url, { method: 'POST', headers: { 'content-type': 'application/zip' }, body, duplex: 'half' } as RequestInit),
+    { r2: SITES.r2 },
+  );
+  const reply = (await res.json()) as Reply;
+  const ms = Date.now() - started;
+  said.push({ journey, label, text: reply.show_to_builder ?? '', ms, reply, agentText: JSON.stringify(reply) });
+  return { status: res.status, reply };
+}
+
+/** The Worker, as Cloudflare runs it, over the same in-memory bucket (no edge cache). */
+async function visit(url: string): Promise<{ status: number; text: string; headers: Headers }> {
+  const bucket = {
+    get: async (key: string) => {
+      const o = SITES.objects.get(key);
+      return o ? { body: new Response(o).body!, size: o.length } : null;
+    },
+  };
+  const cache = { match: async () => undefined, put: async () => {} };
+  const res = await workerHandle(new Request(url), { BUCKET: bucket, ZONE: 'earnkit.com' }, cache, () => {});
+  return { status: res.status, text: await res.text(), headers: res.headers };
+}
+
+const site = (body: string) =>
+  zipSync({ 'index.html': strToU8(`<!doctype html><html><head><title>TipJar</title></head><body>${body}</body></html>`), 'app.js': strToU8('console.log(1)') });
+
+test('12.3 lazy builder, no live link: sign-in, upload, the limits; the hosted link counts as live at once; a flagged redeploy waits in staging until approved; expiry ends it', dbTest, () =>
+  hostingOn(async () => {
+    const J = '12.3';
+    const id = await newInstallation();
+    const ctx = ctxFor(id);
+    const repo_url = 'https://github.com/hana/TipJar';
+    addRepos('hana', [ghRepo('hana', 'TipJar', { description: 'Tips for creators in USDC on Arc' })]);
+    const program = 'arc-microgrants';
+    const contracts = ['0x9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a'];
+    const project = { name: 'TipJar', repo_url, contracts };
+    const list = await call(J, 'list', 'list_programs', { local_repos: [{ name: 'TipJar', url: repo_url, chains: [{ chain: 'arc', mainnet: true }], contracts, last_commit_at: daysAgo(1) }] }, ctx);
+    assert.match(rowOf(list.show_to_builder!, 'Arc Microgrants') ?? '', /needs a live link/, list.show_to_builder);
+
+    // "Host it for me": first the one-click sign-in (purpose host), never the upload URL.
+    const first = await call(J, 'host (sign in)', 'prepare_submission', { program_id: program, project, agent: CC, host: true }, ctx);
+    const host1 = first.host as { sign_in_url?: string; show_to_builder?: string; upload_url?: string };
+    assert.ok(host1.sign_in_url && !host1.upload_url, JSON.stringify(host1));
+    assert.equal(host1.show_to_builder, hostSignInLine('TipJar', host1.sign_in_url));
+    const [nonce] = await sql()<{ purpose: string; repo_key: string }[]>`
+      SELECT purpose, repo_key FROM github_verify_nonces WHERE installation_id = ${id} ORDER BY created_at DESC LIMIT 1`;
+    assert.deepEqual([nonce.purpose, nonce.repo_key], ['host', 'hana/tipjar']);
+    await browserSignIn(host1.sign_in_url, 'hana');
+
+    // Signed in: the one-time upload URL, for the agent only.
+    const second = await call(J, 'host (upload url)', 'prepare_submission', { program_id: program, project, agent: CC, host: true }, ctx);
+    const host2 = second.host as { upload_url: string; expires_at: string; agent_note: string };
+    assert.match(host2.upload_url, /^https:\/\/earnkit\.com\/api\/host\/upload\?t=[\w-]{43}$/);
+    assert.equal(host2.agent_note, UPLOAD_NOTE);
+    assert.ok(Date.parse(host2.expires_at) - Date.now() <= 15 * 60_000);
+
+    // The limits: a non-website file, then a site over 25 MB, are refused in plain words and spend nothing.
+    const exe = await upload(J, 'upload .exe', host2.upload_url, zipSync({ 'index.html': strToU8('<p>x</p>'), 'tool.exe': strToU8('MZ') }));
+    assert.deepEqual([exe.status, exe.reply.show_to_builder], [400, HOST_LINES.notWebsite]);
+    const endless = new ReadableStream<Uint8Array>({ pull: (c) => c.enqueue(new Uint8Array(1024 * 1024)) });
+    const big = await upload(J, 'upload 25 MB+', host2.upload_url, endless);
+    assert.deepEqual([big.status, big.reply.show_to_builder], [413, HOST_LINES.tooBig]);
+    // The zip: live at once.
+    const up = await upload(J, 'upload', host2.upload_url, site('<h1>TipJar</h1>'));
+    assert.deepEqual([up.status, up.reply.show_to_builder], [200, 'TipJar is live: tipjar-hana.earnkit.com']);
+    assert.ok(!said.some((x) => x.text.includes('/api/host/upload')), 'the upload URL is never builder text');
+    // The link is single-use.
+    const again = await upload(J, 'upload (used link)', host2.upload_url, site('<h1>again</h1>'));
+    assert.deepEqual([again.status, again.reply.show_to_builder], [410, HOST_LINES.expired]);
+    // The Worker serves it, sandboxed, with the badge.
+    const page = await visit('https://tipjar-hana.earnkit.com/');
+    assert.equal(page.status, 200);
+    assert.match(page.text, /<h1>TipJar<\/h1>.*Built with EarnKit<\/a> by .*@hana<\/a>/s);
+    for (const [k, v] of Object.entries(HOST_HEADERS)) assert.equal(page.headers.get(k), v, k);
+
+    // The hosted link counts as live-verified at once (Ruling G19): even while the Worker's cached
+    // 404 says otherwise, the entry never probes it and completes.
+    DOWN.add('tipjar-hana.earnkit.com');
+    const hosted = { ...project, live_url: 'https://tipjar-hana.earnkit.com' };
+    const answers = { ...answersFor(program, { builder_profile: 'https://github.com/hana' }), payout_wallet: W };
+    const d = await call(J, 'draft (hosted link)', 'prepare_submission', { program_id: program, project: hosted, agent: CC, answers, coach_asked: true }, ctx);
+    assert.equal(d.ready, true, d.show_to_builder);
+    const c = await call(J, 'skip at confirm', 'confirm_entry', { program_id: program, project: hosted, answers, builder_confirmed: true, decision: 'skip', agent: CC }, ctx);
+    await call(J, 'record', 'record_submission', { program_id: program, project: hosted, submission_data: answers, builder_submitted: true, external_submission_url: 'https://dorahacks.io/buidl/7171' }, ctx);
+    assert.ok(!probed.some((u) => u.includes('tipjar-hana.earnkit.com')), 'the hosted link is never probed');
+    const [row] = await sql()<{ complete_at: Date | null; live_verified_at: Date | null }[]>`
+      SELECT complete_at, live_verified_at FROM projects WHERE id = ${c.project_id as number}`;
+    assert.ok(row.complete_at && row.live_verified_at, JSON.stringify(row));
+
+    // A redeploy the scan flags: staged, never served, the live site untouched; the owner reviews it.
+    const third = await call(J, 'host (redeploy url)', 'prepare_submission', { program_id: program, project: hosted, agent: CC, host: true }, ctx);
+    const flagged = await upload(J, 'upload (flagged)', (third.host as { upload_url: string }).upload_url, site('<form>Enter your seed phrase to claim</form>'));
+    assert.deepEqual([flagged.status, flagged.reply.show_to_builder, flagged.reply.review], [200, HOST_REVIEW, true]);
+    assert.ok([...SITES.objects.keys()].some((k) => k.startsWith('staging/tipjar-hana/')));
+    assert.doesNotMatch((await visit('https://tipjar-hana.earnkit.com/')).text, /seed phrase/, 'flagged files are never served');
+    assert.deepEqual(await sitesInReview(), ['tipjar-hana']);
+    const cron = await runCron({ only: ['v29-none'], deps: { hosting: { r2: SITES.r2 } } });
+    assert.ok((cron.needs_owner as string[]).includes('host-review:tipjar-hana'), JSON.stringify(cron.needs_owner));
+    // The owner's approve call (runbook): the staged files go live, staging is emptied.
+    const admin = (body: unknown, secret = ADMIN) =>
+      hostTakedownPost(new Request('https://earnkit.com/api/host/takedown', { method: 'POST', headers: { authorization: `Bearer ${secret}` }, body: JSON.stringify(body) }), { r2: SITES.r2 });
+    assert.equal((await admin({ slug: 'tipjar-hana', action: 'approve' }, 'wrong')).status, 401);
+    const approved = await admin({ slug: 'tipjar-hana', action: 'approve' });
+    assert.deepEqual([approved.status, await approved.json()], [200, { slug: 'tipjar-hana', status: 'live' }]);
+    assert.match((await visit('https://tipjar-hana.earnkit.com/')).text, /seed phrase/);
+    assert.ok(![...SITES.objects.keys()].some((k) => k.startsWith('staging/')));
+    assert.deepEqual(await sitesInReview(), []);
+
+    // Expiry: once its programs ended plus 7 days, the cron ends it; the Worker shows the end page.
+    const out = await expireSites(new Date('2100-06-01T00:00:00Z'), { r2: SITES.r2 });
+    assert.equal(out.ended, 1);
+    const ended = await visit('https://tipjar-hana.earnkit.com/');
+    assert.deepEqual([ended.status, ended.text], [410, ENDED_PAGE]);
+    assert.ok(![...SITES.objects.keys()].some((k) => k.startsWith('sites/tipjar-hana/')), 'its files are deleted');
+    const [check] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM url_checks WHERE key LIKE '%tipjar-hana%'`;
+    assert.equal(check.n, 0, 'and its link no longer counts as live');
+    DOWN.delete('tipjar-hana.earnkit.com');
+
+    // The gate: a GitHub account under 30 days old gets a plain reason, never an upload URL.
+    addRepos('neo', [ghRepo('neo', 'Pager')]);
+    GITHUB.accountCreated.set('neo', daysAgo(5));
+    const ctxNeo = ctxFor(await newInstallation());
+    const neoProject = { name: 'Pager', repo_url: 'https://github.com/neo/Pager' };
+    const signIn = await call(J, 'host (neo sign in)', 'prepare_submission', { program_id: program, project: neoProject, agent: CC, host: true }, ctxNeo);
+    await browserSignIn((signIn.host as { sign_in_url: string }).sign_in_url, 'neo');
+    const gated = await call(J, 'host (neo gated)', 'prepare_submission', { program_id: program, project: neoProject, agent: CC, host: true }, ctxNeo);
+    assert.deepEqual(gated.host, { unavailable: HOST_LINES.gate });
+    // "40%" once: the first reply's offer.
+    assert.equal(forty(J), 1, dump(J));
+  }),
+);
+
+/** Resend, recorded. */
+const mails: Parameters<Mailer>[0][] = [];
+const mailer: Mailer = async (m) => void mails.push(m);
+/** The Monday 14:05 UTC `weeks` weeks after the one following `from` (the email's send hour). */
+function monday(from: Date, weeks = 0): Date {
+  const d = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate(), 14, 5));
+  d.setUTCDate(d.getUTCDate() + ((8 - d.getUTCDay()) % 7 || 7) + 7 * weeks);
+  return d;
+}
+
+test('12.8 "Builders using EarnKit won $X": announced results only, the same figure on the landing, the stats and the first reply', dbTest, async () => {
+  const J = '12.8';
+  // An announcement names alice's TipJar (12.1) as an Arc winner, $500.
+  const today = new Date().toISOString().slice(0, 10);
+  await syncOutcomeFile(OutcomeFile.parse({
+    program_id: 'arc-microgrants', round_label: 'v29 journey round', source_url: 'https://www.arc.network/blog/microgrants', captured_at: today, complete: false,
+    results: [{ repo: 'https://github.com/alice/TipJar', result: 'won', prize_usd: 500 }],
+  }));
+  // A builder's own "I won $10,000" is never counted.
+  const [omar] = await sql()<{ id: number; installation_id: number }[]>`SELECT id, installation_id FROM projects WHERE repo_url ILIKE '%omar/ledgerly%' LIMIT 1`;
+  await call(J, 'self-report', 'tell_earnkit', { program_status: [{ program_id: 'arc-microgrants', status: 'won', project_id: omar.id, prize_usd: 10_000 }] }, ctxFor(omar.installation_id));
+  const [self] = await sql()<{ basis: string; prize_usd: string }[]>`SELECT basis, prize_usd::text FROM entry_outcomes WHERE project_id = ${omar.id} AND basis <> 'announcement'`;
+  assert.ok(self && self.basis !== 'announcement' && Number(self.prize_usd) === 10_000, JSON.stringify(self));
+  const saved = wonSource.read;
+  wonSource.read = () => readWonUsd();
+  try {
+    const [stats, landing] = await Promise.all([readStats(), readLanding()]);
+    assert.equal(stats.builders_won_usd, 500);
+    assert.equal(landing.won_line, 'Builders using EarnKit won $500');
+    const first = await call(J, 'list (no repo)', 'list_programs', { agent_can_build: true }, ctxFor(await newInstallation()));
+    assert.equal(first.show_to_builder!.split('Builders using EarnKit won $500.').length, 2, first.show_to_builder);
+    assert.match(first.show_to_builder!, /^\S+ in prizes open right now\. Builders using EarnKit won \$500\./);
+  } finally {
+    wonSource.read = saved;
+  }
+});
+
+test('12.9 one money figure: the landing, /api/stats and the first reply say the same top-prize total', dbTest, async () => {
+  const J = '12.9';
+  const figure = moneyText(openMoneyUsd(await listPrograms()));
+  assert.ok(figure, 'there is open money');
+  const [stats, landing] = await Promise.all([readStats(), readLanding()]);
+  assert.equal(stats.open_money_text, figure);
+  assert.equal(landing.open_text, figure);
+  const first = await call(J, 'list (no repo)', 'list_programs', { agent_can_build: true }, ctxFor(await newInstallation()));
+  assert.ok(first.show_to_builder!.startsWith(`${figure} in prizes open right now.`), first.show_to_builder);
+  assert.equal(first.show_to_builder!.split(figure!).length, 2, 'said once');
+});
+
+test('12.10 the weekly email: asked once after the first entry, opt-in, the Monday send, the caps, one-click unsubscribe; per login on a shared client', dbTest, () =>
+  hostingOn(() =>
+    withEnv({ RESEND_API_KEY: 're_v29_journey' }, async () => {
+      const J = '12.10';
+      const id = await newInstallation();
+      const ctx = ctxFor(id);
+      const enter = async (program: string, label: string) => {
+        const project = { name: 'Relay', repo_url: 'https://github.com/omi/relay', live_url: 'https://relay-omi.xyz' };
+        const answers = { ...answersFor(program, { builder_profile: 'https://github.com/omi' }), payout_wallet: W };
+        await call(J, `${label} draft`, 'prepare_submission', { program_id: program, project, agent: CC, answers, coach_asked: true }, ctx);
+        const c = await call(J, `${label} confirm`, 'confirm_entry', { program_id: program, project, answers, builder_confirmed: true, decision: 'skip', agent: CC }, ctx);
+        const r = await call(J, `${label} record`, 'record_submission', { program_id: program, project, submission_data: answers, builder_submitted: true, external_submission_url: `https://dorahacks.io/buidl/${label.length}` }, ctx);
+        return { c, r };
+      };
+      // The first entry: the question closes the kit reply, once; the second entry never asks.
+      const one = await enter('arc-microgrants', 'arc');
+      assert.ok(one.c.show_to_builder!.endsWith(`\n\n${EMAIL_QUESTION}`), one.c.show_to_builder);
+      assert.ok((one.c.agent_note as string).includes(EMAIL_NOTE));
+      assert.ok(!one.r.show_to_builder!.includes(EMAIL_QUESTION));
+      const two = await enter('avalanche-team1-mini-grants', 'avalanche');
+      assert.ok(![two.c, two.r].some((x) => x.show_to_builder!.includes('once a week')));
+      // Yes, with the address.
+      const yes = await call(J, 'yes', 'tell_earnkit', { weekly_email: { answer: 'yes', email: 'omi@relay-omi.xyz' } }, ctx);
+      assert.equal(yes.show_to_builder, EMAIL_ON);
+
+      // Monday 14:05 UTC: one mail (12.8's announced win), with one-click unsubscribe headers.
+      const mon = monday(new Date());
+      const sent = await sendDigests(mon, { mail: mailer, only: [id] });
+      assert.deepEqual([sent.sent, sent.capped], [1, false]);
+      const mail = mails.at(-1)!;
+      assert.equal(mail.to, 'omi@relay-omi.xyz');
+      assert.match(mail.text, /^Won: TipJar in Arc Microgrants, \$500\.$/m);
+      assert.match(mail.headers['List-Unsubscribe'], /^<https:\/\/earnkit\.com\/api\/digest\/unsubscribe\?t=[^>]+>$/);
+      assert.equal(mail.headers['List-Unsubscribe-Post'], 'List-Unsubscribe=One-Click');
+      assert.match(mail.idempotencyKey, new RegExp(`^digest-${id}-`));
+      // Once a week: a second run that Monday sends nothing.
+      assert.equal((await sendDigests(new Date(mon.getTime() + 3_600_000), { mail: mailer, only: [id] })).sent, 0);
+
+      // The caps: with the day's 100 already sent, the next Monday's run sends nothing and says so.
+      const next = monday(new Date(), 1);
+      await sql()`
+        INSERT INTO free_tier_usage (name, period, used) VALUES ('resendDay', ${periodKey('day', next)}, 100)
+        ON CONFLICT (name, period) DO UPDATE SET used = 100`;
+      const capped = await sendDigests(next, { mail: mailer, only: [id] });
+      assert.deepEqual([capped.sent, capped.capped], [0, true]);
+      await sql()`DELETE FROM free_tier_usage WHERE name = 'resendDay' AND period = ${periodKey('day', next)}`;
+
+      // One-click unsubscribe from the mail's own link: the page asks first; the POST stops it.
+      const link = mail.headers['List-Unsubscribe'].slice(1, -1);
+      const confirmPage = digestUnsubscribeGet(new Request(link));
+      assert.match(await confirmPage.text(), new RegExp(UNSUB_CONFIRM.replace('?', '\\?')));
+      const stop = await digestUnsubscribePost(new Request(link, { method: 'POST', body: 'List-Unsubscribe=One-Click', headers: { 'content-type': 'application/x-www-form-urlencoded' } }));
+      assert.match(await stop.text(), new RegExp(UNSUB_DONE.replace('.', '\\.')));
+      const before = mails.length;
+      assert.equal((await sendDigests(new Date(next.getTime() + 7 * 86_400_000), { mail: mailer, only: [id] })).sent, 0);
+      assert.equal(mails.length, before, 'no mail after the unsubscribe');
+
+      // A shared client (Grok Bot): never asked or subscribed without a sign-in; then once per login.
+      const grok = await newInstallation({ shared: true });
+      const gctx = ctxFor(grok, { shared: true });
+      const codes: Record<string, string> = {};
+      for (const login of ['sol', 'tam']) {
+        addRepos(login, [ghRepo(login, 'Relay')]);
+        const project = { name: 'Relay', repo_url: `https://github.com/${login}/Relay` };
+        const s1 = await call(J, `${login} host sign in`, 'prepare_submission', { program_id: 'arc-microgrants', project, agent: GROK, host: true }, gctx);
+        const page = await browserSignIn((s1.host as { sign_in_url: string }).sign_in_url, login);
+        codes[login] = page.match(/([A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{2})$/)![1];
+      }
+      const noCode = await call(J, 'shared yes, no code', 'tell_earnkit', { weekly_email: { answer: 'yes', email: 'sol@relay.xyz' } }, gctx);
+      assert.equal(noCode.show_to_builder, EMAIL_SIGN_IN);
+      for (const login of ['sol', 'tam']) {
+        const project = { name: 'Relay', repo_url: `https://github.com/${login}/Relay`, live_url: `https://${login}-relay.xyz` };
+        const answers = { ...answersFor('arc-microgrants', { builder_profile: `https://github.com/${login}` }), payout_wallet: W2 };
+        await call(J, `${login} draft`, 'prepare_submission', { program_id: 'arc-microgrants', project, agent: GROK, answers, coach_asked: true }, gctx);
+        const c = await call(J, `${login} confirm`, 'confirm_entry', { program_id: 'arc-microgrants', project, answers, builder_confirmed: true, decision: 'skip', agent: GROK, signed_in: codes[login] }, gctx);
+        assert.ok(c.show_to_builder!.endsWith(`\n\n${EMAIL_QUESTION}`), `${login}: ${c.show_to_builder}`);
+        const y = await call(J, `${login} yes`, 'tell_earnkit', { weekly_email: { answer: 'yes', email: `${login}@relay.xyz` }, signed_in: codes[login] }, gctx);
+        assert.equal(y.show_to_builder, EMAIL_ON);
+      }
+      const shared = await sendDigests(mon, { mail: mailer, only: [grok] });
+      assert.equal(shared.sent, 2);
+      const theirs = mails.slice(-2);
+      assert.deepEqual(theirs.map((m) => m.to).sort(), ['sol@relay.xyz', 'tam@relay.xyz']);
+      assert.notEqual(theirs[0].headers['List-Unsubscribe'], theirs[1].headers['List-Unsubscribe'], 'each login its own link');
+      assert.notEqual(theirs[0].idempotencyKey, theirs[1].idempotencyKey);
+      // Nothing about one builder in the other's mail.
+      for (const m of theirs) assert.ok(!m.text.includes(m.to === 'sol@relay.xyz' ? 'tam' : 'sol'), m.text);
+      // "40%" once per builder's entry flow (omi's first draft; sol's and tam's), never with the question.
+      assert.deepEqual(said.filter((x) => x.journey === J && /40%/.test(x.text)).map((x) => x.label), ['arc draft', 'sol draft', 'tam draft']);
+    }),
+  ),
+);
+
+test('12.11 /terms: the old legal paths 301 to their section; every link EarnKit shows goes to /terms', dbTest, () => {
+  const html = renderToStaticMarkup(React.createElement(TermsPage));
+  for (const r of LEGAL_REDIRECTS) {
+    assert.equal(r.statusCode, 301);
+    const [path, anchor] = r.destination.split('#');
+    assert.equal(path, '/terms');
+    assert.match(html, new RegExp(`id="${anchor}"`), r.source);
+  }
+  assert.deepEqual(LEGAL_REDIRECTS.map((r) => r.source).sort(), ['/policy', '/risk-disclosure', '/sponsor-terms']);
+  const legal = FOOTER_COLUMNS.flatMap((c) => c.links).filter((l) => /terms|policy|risk/i.test(l.href));
+  assert.deepEqual(legal.map((l) => l.href), ['/terms']);
+  for (const s of said) assert.doesNotMatch(s.agentText, /earnkit\.com\/(policy|risk-disclosure|sponsor-terms)\b/, `${s.journey} ${s.label}`);
 });
 
 /** The chain under the cron's claims: every EarnKit token's split names its creator and MINI; fees wait for each. */
