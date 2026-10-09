@@ -141,19 +141,40 @@ export async function appTokenFor(
   deps: AppDeps = {},
 ): Promise<string | null> {
   if (!githubAppEnabled() || a.login === null) return null;
-  const db = sql();
   try {
-    const [row] = await db<{ gid: string }[]>`
-      SELECT github_installation_id::text AS gid FROM github_verifications
-      WHERE via = 'app' AND purpose = 'app' AND installation_id = ${a.installationId} AND repo_key = ${a.repoKey.toLowerCase()}
-        AND used_at IS NULL AND github_installation_id IS NOT NULL
-        ${a.login !== undefined ? db`AND login = ${a.login.toLowerCase()}` : db``}
-      ORDER BY verified_at DESC, id DESC LIMIT 1`;
+    const row = await appProofRow(a);
     if (!row) return null;
     return await installationToken(Number(row.gid), a.repoKey.split('/')[1], deps);
   } catch (err) {
     console.error('[github-app] token', err instanceof Error ? err.name : 'error');
     return null;
+  }
+}
+
+/** The newest App proof row for this repo, scoped as appTokenFor (`login` null is handled by callers). */
+async function appProofRow(a: { installationId: number; login?: string | null; repoKey: string }) {
+  const db = sql();
+  const [row] = await db<{ gid: string }[]>`
+    SELECT github_installation_id::text AS gid FROM github_verifications
+    WHERE via = 'app' AND purpose = 'app' AND installation_id = ${a.installationId} AND repo_key = ${a.repoKey.toLowerCase()}
+      AND used_at IS NULL AND github_installation_id IS NOT NULL
+      ${a.login != null ? db`AND login = ${a.login.toLowerCase()}` : db``}
+    ORDER BY verified_at DESC, id DESC LIMIT 1`;
+  return row ?? null;
+}
+
+/**
+ * Final fix I2 (ledger c1): whether this builder already proved the repo with the App (scoped as
+ * appTokenFor; a shared client with no verified caller has none). A failed read counts as a proof,
+ * so the link is never offered on a guess. No GitHub call.
+ */
+export async function hasAppProof(a: { installationId: number; login?: string | null; repoKey: string }): Promise<boolean> {
+  if (a.login === null) return false;
+  try {
+    return (await appProofRow(a)) !== null;
+  } catch (err) {
+    console.error('[github-app] proof read', err instanceof Error ? err.name : 'error');
+    return true;
   }
 }
 

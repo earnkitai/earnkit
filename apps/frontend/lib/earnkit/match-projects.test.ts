@@ -1149,7 +1149,7 @@ test('4.1 a named private repo (404) the agent reported locally is scored from t
       assert.equal('error' in r, false);
       assert.equal(r.scored, 2);
       assert.deepEqual(keysOf(r), ['alice/site', 'alice/tipjar']);
-      assert.deepEqual(r.fromLocal, ['TipJar']);
+      assert.deepEqual(r.fromLocal, [{ name: 'TipJar', full_name: 'alice/tipjar' }]);
       assert.deepEqual(r.unseen, []);
     },
   );

@@ -1057,7 +1057,7 @@ test('4.5 a private repo matched from the local copy gets one line; a repo EarnK
   const repos = (link?: string | null) => ({
     ...fit('TipJar', arc.id),
     checked: 3,
-    fromLocal: ['TipJar'],
+    fromLocal: [{ name: 'TipJar', full_name: 'alice/tipjar' }],
     unseen: [
       { name: 'tipjar2', full_name: 'alice/tipjar2', ...(link !== undefined && { link }) },
       { name: 'other', full_name: 'alice/other' },
@@ -1076,6 +1076,23 @@ test('4.5 a private repo matched from the local copy gets one line; a repo EarnK
   assert.ok(on.includes("I can't see tipjar2 (private?). Describe it, or allow read access: https://earnkit.com/github/verify?n=abc"));
   // Nothing private: no such lines.
   assert.doesNotMatch(presentFirstMessage(msg({ cards: [arc], repos: fit('TipJar', arc.id) })), /private|can't see/);
+});
+
+test('final fix I2 (ledger c1): a private repo matched from the local copy carries the App link on its own line, once, with no extra question', () => {
+  const link = 'https://earnkit.com/github/verify?n=abc';
+  const repos = {
+    ...fit('TipJar', arc.id),
+    checked: 2,
+    fromLocal: [{ name: 'TipJar', full_name: 'alice/tipjar', link }, { name: 'Other', full_name: 'alice/other' }],
+  };
+  const t = presentFirstMessage(short({ cards: [arcOnArc, base], repos }));
+  const lines = t.split('\n');
+  assert.equal(lines[0], `TipJar is private, so I matched it from your local copy. For a fuller match, allow read access: ${link}`);
+  assert.equal(lines[1], 'Other is private, so I matched it from your local copy.');
+  assert.equal(t.split(link).length - 1, 1, 'one link');
+  assert.equal((t.match(/\?/g) ?? []).length - (link.match(/\?/g) ?? []).length, 1, 'one question: the lead');
+  noEmoji(t);
+  assert.doesNotMatch(t, /\u2014/, 'no em dash');
 });
 
 test('v2.10 item 15 (R12, Pre-flight P19): the deadline line comes right after news and "Your entries"', () => {
@@ -1127,7 +1144,7 @@ test('8.2 v2.10 item 2 (R12): a returning builder: news, entries, the deadline l
     cards: [arcOnArc, base],
     entries: [{ program_id: base.id, title: base.title, name: 'payapp', submitted: false }],
     deadline: line,
-    repos: { ...fit('TipJar', arc.id), checked: 2, fromLocal: ['TipJar'] },
+    repos: { ...fit('TipJar', arc.id), checked: 2, fromLocal: [{ name: 'TipJar', full_name: 'alice/tipjar' }] },
   }));
   assert.deepEqual(t.split('\n'), [
     'Since you last checked: you won $100.',

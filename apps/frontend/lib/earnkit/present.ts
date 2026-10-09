@@ -321,8 +321,11 @@ export type YourRepos =
        * App's link (item 7b), set by list_programs only while the App is on.
        */
       unseen?: { name: string; full_name: string; link?: string | null }[];
-      /** v2.10 item 7: private repos matched from the agent's local report, by name. */
-      fromLocal?: string[];
+      /**
+       * v2.10 item 7: private repos matched from the agent's local report; `link` (final fix I2) is the
+       * App's link, set by list_programs on the first one only, while the App is on and it has no proof.
+       */
+      fromLocal?: { name: string; full_name: string; link?: string | null }[];
     }
   | { error: string };
 
@@ -427,13 +430,16 @@ const CHAT_ONLY =
   "I can't build or deploy from here, but I can plan it and write every answer for you to submit. To have it done for you, add EarnKit to a coding agent (Claude Code, Cursor, Codex).";
 
 /**
- * v2.10 item 7: one line per private repo matched from its local report, and one for the first
- * named repo EarnKit can't see (with the App's link when it is on); null when there are none. Pure.
+ * v2.10 item 7: one line per private repo matched from its local report (final fix I2: the first may
+ * carry the App's link), and one for the first named repo EarnKit can't see (with the App's link when
+ * it is on); null when there are none. Pure.
  */
 export function privateRepoLines(r: YourRepos | null): string | null {
   if (!r || 'error' in r) return null;
   const first = r.unseen?.[0];
-  const lines = [...new Set(r.fromLocal ?? [])].map(PRIVATE_LOCAL_LINE);
+  const byName = new Map<string, string | null>();
+  for (const l of r.fromLocal ?? []) byName.set(l.name, byName.get(l.name) ?? l.link ?? null);
+  const lines = [...byName].map(([name, link]) => PRIVATE_LOCAL_LINE(name, link));
   if (first) lines.push(CANT_SEE_LINE(first.name, first.link ?? null));
   return lines.length ? lines.join('\n') : null;
 }

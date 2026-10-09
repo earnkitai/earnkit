@@ -866,7 +866,7 @@ test('4.13 (H6) a private repo matched only from the local copy (App off) shows 
       }),
       { programs: [] },
     );
-    assert.deepEqual(r.fromLocal, ['Hidden Jar']);
+    assert.deepEqual(r.fromLocal?.map((l) => l.name), ['Hidden Jar']);
   } finally {
     globalThis.fetch = original;
   }
