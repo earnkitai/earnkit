@@ -2844,16 +2844,31 @@ The v2.8.1 journeys (`v281-journey.test.ts`) still pass unchanged on Part 1.
   `index.html` at the root after `stripTopFolder`), then inflates each file with fflate's streaming
   `Inflate` in 1 KB pushes, stopping as soon as a file passes its declared size or 10 MB, or the
   site passes 25 MB: a zip bomb is never inflated in memory.
-- **Checks and writes.** The gate again (the login's newest sign-in), then `abuseFlags` on HTML, JS
-  and SVG and `withBadge` on HTML (Ruling 11). Under one advisory lock: the slug, 3 sites per login,
-  10 deploys in 24 h, stored bytes under 8 GB, room in the R2 counter, then the token's one use and a
-  `host_deploys` row. A refusal before that point never uses the token. R2: a flagged site's
-  `review` state first, the files (content type from `host-names.ts contentTypeFor`, shared with
-  the Worker), stale files deleted, a live site's `live` state last. Then `hosted_sites` (expiry
-  from `siteExpiry`) and, for a live site, a passing `url_checks` row for
-  `url:https://<slug>.earnkit.com/` (G19, P39), so the hosted link counts as verified at once.
-  Replies: `liveLine` (plus `STORAGE_NOTE` for the agent when the code uses browser storage),
-  `HOST_REVIEW`, `HOST_FULL` (507), or a plain refusal. Errors log the class only.
+- **Checks and writes (fix round 1).** One attempt on the token (5 at most per link), the gate again
+  (the login's newest sign-in), UTF-16/32 pages refused, then `abuseFlags` on HTML, JS and SVG (text
+  as a reader sees it: tags gone, entities and spaces collapsed) and `withBadge` on HTML (Ruling 11).
+  `.xml` is not hostable. Under one advisory lock, before any R2 write: the slug (killed, another
+  repo's, or the repo's other live site), one deploy at a time per slug and per login (`deploying`
+  under 10 minutes), 3 sites per login (live, review and `deploying` rows), stored bytes under 8 GB
+  (published sites plus every `deploying`, `review` or `failed` deploy's bytes), R2 counter room, the
+  token's one use, then the `host_deploys` row (`deploying`) and, for a site with nothing live, its
+  `hosted_sites` row (`deploying`). A refusal before the token's use never spends it. Each batch of
+  keys is recorded on the deploy row (`written`) before it is put.
+  - A clean zip for a site with nothing live goes straight into `sites/<slug>/`, stale keys go, and
+    the `live` state is written last.
+  - A flagged zip, or any redeploy of a live site, goes to `staging/<slug>/<deploy id>/`, which the
+    Worker never serves. A clean redeploy is then copied into place (`R2.copy`, Class A); a flagged
+    one waits (`host_deploys.status = 'review'`, a new site's row `review` with nothing served, a
+    live site untouched) until the owner approves (`approveSite` copies it into place) or kills it.
+  - A failure marks the deploy (and a never-published site) `failed`; its bytes count until the
+    cron's `cleanDeploys` deletes its recorded keys (never a live site's served files) and marks it
+    `cleaned`. A deploy `deploying` for over 10 minutes counts as failed. A takedown that lands
+    mid-deploy wins: the publish step sees `killed` and takes the site down again.
+  - Then `hosted_sites` goes `live` (expiry from `siteExpiry`) with a passing `url_checks` row for
+    `url:https://<slug>.earnkit.com/` (G19, P39). Replies: `liveLine` (plus `STORAGE_NOTE` for the
+    agent), `HOST_REVIEW`, `HOST_FULL` (507), or a plain refusal. Errors log the class only.
+  - A new upload link revokes the repo's unused ones; on a shared client the host sign-in is used
+    only when a link is issued.
 - **Free tier (`free_tier_usage`).** `takeFreeTier(name, n)` moves a counter only while it stays at or
   under its cap, in one statement: `r2Writes` 900k a month (every put and list page takes 1 first;
   deletes are free on R2), `resendDay` 100, `resendMonth` 3,000. A refused take throws
@@ -2861,13 +2876,17 @@ The v2.8.1 journeys (`v281-journey.test.ts`) still pass unchanged on Part 1.
 - **Expiry (Ruling 10).** `siteExpiry`: the latest end among the programs the repo entered plus 7
   days, null while an entered rolling program is active, else upload plus 7 days, and never before
   upload plus 7 days. Recomputed on deploy and when `confirm_entry` or `record_submission` records an
-  entry (`refreshSiteExpiry`). The hourly cron (`expireSites`, after the fee refresh, R2 on) sets
-  `now + 7 days` once on rolling sites whose programs all ended (50 a run), then ends up to 20 due
-  sites a run: `ended` state first, files deleted, row `ended`, the url_checks row removed.
-- **Owner.** A flagged site adds `host-review:<slug>` to the cron's `needs_owner` (503 hourly until
-  reviewed, P46). `POST /api/host/takedown` (Bearer `ADMIN_VETO_SECRET`, JSON `{ slug, action }`):
-  `kill` (default) writes `killed` before deleting the files; `approve` sets a `review` site live.
-- **Known limits.** A flagged redeploy of a live site can be served for up to 60 s from the Worker's
-  cached `live` state. Two concurrent deploys for different repos of one login can pass the 3-site
-  check together (the lock covers the checks, not the R2 writes). A free-tier refusal in the middle
-  of the writes leaves a partial site until the next deploy.
+  entry (`refreshSiteExpiry`). The hourly cron (`expireSites` then `cleanDeploys`, after the fee
+  refresh, R2 on) checks 50 sites with no expiry a run, least recently checked first
+  (`expiry_checked_at`, so none starves), setting `now + 7 days` once their programs all ended; then
+  ends up to 20 due sites a run: `ended` state first, served and staged files deleted, row `ended`,
+  the url_checks row removed. `cleanDeploys` cleans 10 failed deploys a run and prunes tokens a day
+  past expiry and finished deploy rows over 30 days old. While the R2 counter is full, ends wait for
+  the next month (they need a put and a list).
+- **Owner.** An upload in review adds `host-review:<slug>` to the cron's `needs_owner` (503 hourly
+  until reviewed, P46). `POST /api/host/takedown` (Bearer `ADMIN_VETO_SECRET`, JSON `{ slug, action }`):
+  `kill` (default) writes `killed` before deleting served and staged files, also for a slug that has
+  R2 objects but no row; `approve` copies the newest upload in review into place and sets it live.
+- **Known limits.** A clean redeploy of a live site that fails mid-copy can leave the site a mix of
+  old and new clean files until the next deploy (the Worker has no versioned prefix). A takedown of a
+  slug with objects but no row writes `killed` in R2 only (no row can hold it).

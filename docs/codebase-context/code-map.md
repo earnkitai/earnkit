@@ -443,10 +443,12 @@ apps/frontend/
                                zipProblems, stripTopFolder, readZip (central directory + streaming
                                Inflate with byte caps), abuseFlags, usesStorage, withBadge, siteExpiry,
                                builder lines (liveLine, HOST_FULL, HOST_REVIEW, HOST_LINES); issueUpload
-                               (Ruling 8, P11), deploySite, expireSites, takedown, approveSite,
-                               sitesInReview, refreshSiteExpiry; hostUploadPost, hostTakedownPost
+                               (Ruling 8, P11), deploySite (staged review, reserved rows, tracked
+                               writes), expireSites, cleanDeploys, takedown, approveSite,
+                               sitesInReview, refreshSiteExpiry, STAGING_PREFIX; hostUploadPost,
+                               hostTakedownPost
     r2.ts                      v2.9 C12: r2Enabled (4 env vars), r2Client (aws4fetch S3: put, list,
-                               del; Class A taken from free-tier first, FreeTierFull), R2Error
+                               del, copy; Class A taken from free-tier first, FreeTierFull), R2Error
     free-tier.ts(+test)        v2.9 C13: FREE_CAPS (r2Writes 900k/month, resend 100/day, 3,000/month),
                                periodKey, takeFreeTier (atomic hard cap), freeTierRoom, FreeTierFull
     match.ts(+test)            pure: chain detection (IDs + RPC hosts), repo x program verdicts;
