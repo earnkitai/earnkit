@@ -855,12 +855,13 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): P
   );
   const { homepage, chains: allChains } = base;
   const claimed = claimedMainnets(allChains);
-  // v2.10 item 8: a commit by any author in 90 days, or a push in 90 days (also when the read is
-  // empty: commits with an unlinked email or old dates). Only a repo someone else owns counts the
-  // builder's own commits (v2.9 A1). Pre-flight P28: the read also runs without a known builder.
+  // v2.10 item 8: on an owned repo, a commit by any author in 90 days, or a push in 90 days (also
+  // when the read is empty: commits with an unlinked email or old dates). Pre-flight P28: the read
+  // also runs without a known builder. Ruling H1 (c3): on a repo someone else owns, only the
+  // builder's own commits count (v2.9 A1), with no pushed_at fallback.
   const author = ctx.builder && ownerOf(repo).toLowerCase() !== ctx.builder.toLowerCase() ? ctx.builder : null;
   const commits_90d = await commitsRead(repo, ctx.now, author);
-  const active = (commits_90d ?? 0) > 0 || within(repo.pushed_at, 90, ctx.now);
+  const active = (commits_90d ?? 0) > 0 || (!author && within(repo.pushed_at, 90, ctx.now));
   const signals = { active, young: own.young || active, original: own.original, readme: own.readme, owned: ctx.owned };
   return {
     homepage,
