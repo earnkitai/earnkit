@@ -357,7 +357,7 @@ test('8.9 a clean zip goes live; a flagged one goes to review and waits on the o
     INSERT INTO host_upload_tokens (token_hash, installation_id, login, repo_key, slug, project, expires_at)
     VALUES (${sha(again.token)}, ${u.installationId}, 'alice', 'alice/tipjar-alice', 'tipjar-alice', 'TipJar', ${new Date(Date.now() + 900_000)})`;
   const g = fakeR2();
-  const flagged = await deploySite(again.token, site({ 'help.html': strToU8(html('Type your seed phrase to restore')) }), { r2: g.r2 });
+  const flagged = await deploySite(again.token, site({ 'img/help.svg': strToU8('<svg><text>Type your seed phrase to restore</text></svg>') }), { r2: g.r2 });
   assert.equal(flagged.status, 200);
   assert.deepEqual(flagged.body, { show_to_builder: HOST_REVIEW, review: true });
   assert.equal(g.calls[0], 'put state/tipjar-alice.json', 'the review state goes first');
