@@ -11,6 +11,8 @@ import {
   digestDue,
   digestEnabled,
   digestFacts,
+  cleanName,
+  NAME_MAX,
   digestUnsubscribeGet,
   digestUnsubscribePost,
   emailQuestionFor,
@@ -100,6 +102,34 @@ test('10.3 digestBody: nothing is null; new programs, wins, then your deadlines;
     assert.doesNotMatch(t, /\bcoin|vault|clanker\b/i);
     assert.doesNotMatch(t, /list_programs|tell_earnkit|confirm_entry|record_submission|launch_token/);
   }
+});
+
+test('names other people read: at most 40 characters, no URLs, emails or @handles', () => {
+  assert.equal(NAME_MAX, 40);
+  assert.equal(cleanName('PayLink', 'x'), 'PayLink');
+  assert.equal(cleanName('Next.js Tip Jar', 'x'), 'Next.js Tip Jar');
+  assert.equal(cleanName('PayLink https://scam.example/claim?x=1 now', 'x'), 'PayLink now');
+  assert.equal(cleanName('PayLink (www.free-money.xyz) by @alice', 'x'), 'PayLink by');
+  assert.equal(cleanName('Mail me: bob@evil.co for airdrop', 'x'), 'Mail me: for airdrop');
+  assert.equal(cleanName('claim at freeeth.io/now', 'x'), 'claim at');
+  assert.equal(cleanName('@alice', 'An EarnKit builder'), 'An EarnKit builder');
+  assert.equal(cleanName('https://x.co', 'An EarnKit builder'), 'An EarnKit builder');
+  const long = cleanName('The Extremely Long Project Name That Keeps Going And Going', 'x');
+  assert.ok(long.length <= 40, long);
+  assert.equal(long, 'The Extremely Long Project Name That');
+  assert.equal(cleanName('A'.repeat(60), 'x'), 'A'.repeat(40));
+  // In the email itself: every builder-supplied name, in the lines and the subject.
+  const b = digestBody({
+    newPrograms: [{ title: 'Avalanche Mini Grant', repo: 'tipjar https://evil.example @bob', prize_usd: null, ends_at: null }],
+    wins: [{ name: 'Win big at claim-now.xyz, DM @scammer or x@y.com, the longest project name ever written', program: 'Arc', prize_usd: 500 }],
+    deadlines: [],
+  })!;
+  const all = `${b.subject}\n${b.text}`;
+  assert.doesNotMatch(all, /https?:|www\.|@|claim-now|evil\.example/);
+  assert.equal(b.subject, 'New: Avalanche Mini Grant fits tipjar');
+  const won = b.text.split('\n').find((l) => l.startsWith('Won: '))!;
+  const name = won.slice('Won: '.length, won.indexOf(' in Arc'));
+  assert.ok(name.length <= 40, name);
 });
 
 test('10.4 unsubToken round-trips; another id, another login or a changed character is null', () => {
