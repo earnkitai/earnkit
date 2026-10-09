@@ -381,15 +381,26 @@ export function traction(f: TractionFacts): number {
 /** v2.10 item 6's fallback reason, when nothing more specific applies. */
 export const NOT_REAL_YET = 'not enough signs of a real product yet';
 /**
- * v2.10 item 6, R2: good odds are product tier and traction 4+; else low, with the first reason that
- * applies (a chain only mentioned is the row's, rowOdds). An unknown tx count is never named. Pure.
+ * v2.10 item 6, R2, Ruling H5: odds, with the first reason that applies (a chain only mentioned is
+ * the row's, rowOdds).
+ * - Not product tier: low, its missingSignalNote. A copy or starter (`original` missing): low (I2).
+ * - Transaction count known (Base): good at traction 4+; else "no users yet" (0 transactions) or
+ *   "live link not loading".
+ * - Count unknown (another chain, or no read slot; never named, I1): good with a live link and a
+ *   commit in 90 days (an unknown commit count counts: product tier already needs activity); else
+ *   "live link not loading" or "no commits in 90 days".
+ * Ranking still uses the raw score, so measured users rank first. Pure.
  */
 export function productOdds(p: Pick<Product, 'tier' | 'missing' | 'unchecked'>, t: TractionFacts, score: number): { odds: Odds; low_reason: string | null } {
-  if (p.tier === 'product' && score >= GOOD_ODDS_TRACTION) return { odds: 'good', low_reason: null };
   if (p.tier !== 'product') return { odds: 'low', low_reason: missingSignalNote(p) ?? NOT_REAL_YET };
-  if (t.tx_count === 0) return { odds: 'low', low_reason: 'no users yet' };
+  if (p.missing.includes('original')) return { odds: 'low', low_reason: SIGNAL_WORDS.original };
+  if (t.tx_count !== null) {
+    if (score >= GOOD_ODDS_TRACTION) return { odds: 'good', low_reason: null };
+    return { odds: 'low', low_reason: t.tx_count === 0 ? 'no users yet' : 'live link not loading' };
+  }
   if (!t.live_ok) return { odds: 'low', low_reason: 'live link not loading' };
-  return { odds: 'low', low_reason: 'little recent activity' };
+  if (t.commits_90d === 0) return { odds: 'low', low_reason: SIGNAL_WORDS.active };
+  return { odds: 'good', low_reason: null };
 }
 /**
  * v2.10 items 6, 9 (Pre-flight P13): a verdict that waits on a deploy to a mainnet the repo only

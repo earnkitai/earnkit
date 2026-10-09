@@ -2447,20 +2447,24 @@ strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`, and in prod
   credited chain before a mentioned one.
 - **Traction and odds (v2.10 item 6).** `match.ts traction({ tx_count, live_ok, commits_90d })` =
   3·band(tx: 0, 1-49, 50+) + 2·live + band(commits: 0, 1-9, 10+), 0 to 10 (R1; an unknown count
-  scores 0 and is never named). `productOdds`: good = product tier and traction 4+
-  (`GOOD_ODDS_TRACTION`); else low with the first reason (R2): the tier's `missingSignalNote`, "no
-  users yet" (tx 0), "live link not loading", "little recent activity". `rowOdds(product, verdict,
+  scores 0 and is never named). `productOdds` (Ruling H5): not product tier is low (its
+  `missingSignalNote`); a copy or starter (`original` missing) is always low; with a known count
+  (Base), good = traction 4+ (`GOOD_ODDS_TRACTION`), else "no users yet" (0) or "live link not
+  loading"; with the count unknown (another chain, or no read slot), good = a live link and a commit
+  in 90 days (an unknown commit count counts), else "live link not loading" or "no commits in 90
+  days". Ranking still uses the raw score, so measured users rank first. `rowOdds(product, verdict,
   chains)` adds "not deployed yet" for a row waiting on a mainnet only mentioned (`onlyMentioned`);
   a product without `odds` (unscored, pre-v2.10) reads as low (P26). `checkRepo`/`checkLocal` set
   `Product.traction`, `odds`, `low_reason`. `tx_count` comes from `verify.ts txCount` (Blockscout
   `base.blockscout.com/api/v2/addresses/<a>/counters`, Base only, `txcount:base:<a>` in
   `url_checks.n` for 24 h, failures not cached): `runChecks` reads it, after the getCode phase, for
   contracts with code on Base, newest repos first, within `LIST_BUDGET.txCounts` = 2
-  (`checkEligibility`: `ENTRY_BUDGET`, 1; P27). Base contract pairs are checked for code even when
-  the live link loads, since a count needs code. A local repo's commits are band 1 when its
-  `last_commit_at` is within 90 days, else 0 (R3), so a local repo with no Base contract reaches 3 at
-  most and is always low odds (P30, accepted: EarnKit never reads local code; the App in item 7b is
-  the fix). **Starters (R7):** `earnkit-orgs.ts EARNKIT_STARTER_NAMES` (copied from
+  (`checkEligibility`: `ENTRY_BUDGET`, 1; P27). Ruling H5 (I3): a repo whose live link loads gets
+  at most one extra Base getCode (for its count), newest first, only while a count slot remains,
+  and none when that address's count is cached (`peekTxCount`; the cached count is used).
+  `contractPairs` always keeps one Base pair inside the 2-pair cap (I4). A local repo's commits are
+  band 1 when its `last_commit_at` is within 90 days, else 0 (R3); with the H5 rule a live, active
+  local Arc product is good odds (P30's cap no longer decides odds). **Starters (R7):** `earnkit-orgs.ts EARNKIT_STARTER_NAMES` (copied from
   `earnkitai/chain-kits` at b068976) against the root `package.json` name and the README's first `#`
   heading (read from the same 2 KB range, also under 1.5 KB), folded (`starterRepo`; a deps seam
   `MatchDeps.starters`): a match loses `original`. **Ranking:** `matchProjects` sorts fits by good

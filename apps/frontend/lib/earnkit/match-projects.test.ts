@@ -196,6 +196,8 @@ function checkDeps(o: { probeOk?: boolean } = {}) {
         return '0x';
       },
       cache: { get: async (k) => store.get(k) ?? null, set: async (k, ok, now) => void store.set(k, { ok, checked_at: now }) },
+      // v2.10 item 6: no Blockscout read leaves the test (a test about counts sets its own).
+      blockscout: async () => ({ transactions_count: '0' }),
     },
     programs: [baseProgram],
   };
@@ -1021,4 +1023,104 @@ test('3.7 checkLocal (R3): a last commit 10 days ago is commits band 1; without 
   assert.equal(unknown.facts.commits_90d, 0);
   assert.equal(unknown.product.traction, 0);
   assert.equal(unknown.product.odds, 'low');
+});
+
+// ---- v2.10 Ruling H5 (Task 3 fix round 1) ----
+
+test('H5 I1: a live, active local Arc product (count unknown) is good odds and can lead; a measured Base product still ranks above it', async () => {
+  const { deps } = checkDeps({ probeOk: true });
+  deps.checks!.getCode = async () => '0x6080';
+  deps.programs = [{ ...baseProgram, id: 'arc-microgrants', title: 'Arc Microgrants', chains: ['arc'] }];
+  const local = (o: Record<string, unknown>) =>
+    matchProjects(MatchProjectsInput.parse({ local_repos: [{ name: 'quill', chains: ['arc'], contracts: [ADDR], last_commit_at: daysAgo(1), ...o }] }), deps);
+  const live = (await local({ live_url: 'https://quill.xyz' })).fits[0];
+  assert.equal(live.product.tier, 'product');
+  assert.equal(live.product.traction, 3);
+  assert.equal(live.product.odds, 'good');
+  assert.equal(live.product.low_reason, null);
+  const noLink = (await local({})).fits[0];
+  assert.deepEqual([noLink.product.odds, noLink.product.low_reason], ['low', 'live link not loading']);
+  // The first reply: the Arc product leads alone, counts in $X; a Base product with 120 transactions ranks above it.
+  const arcCard = { id: 'arc-microgrants', title: 'Arc Microgrants', summary: '500 USDC', tag: null, each_time: [], ends_at: null, max_award_usd: 500, builder_fields: 0 };
+  const baseCard = { ...arcCard, id: 'base-x', title: 'Base X' };
+  const msg = (fits: unknown[]) => ({
+    alerts: [], campaigns: [], cards: [arcCard, baseCard], repos: { checked: fits.length, fits }, workingOn: [], agentCanBuild: true,
+    sponsorEntries: null, now: T_NOW,
+  }) as Parameters<typeof presentFirstMessage>[0];
+  const alone = presentFirstMessage(msg([live]));
+  assert.match(alone, /EarnKit matches you to \$500 in prizes you qualify for\./, alone);
+  assert.match(alone, /\| Arc Microgrants \| .+ \| quill \|$/m, alone);
+  const measured = { ...live, repo: 'payapp', key: 'alice/payapp', verdicts: [{ ...live.verdicts[0], program_id: 'base-x', program: 'Base X' }], product: { ...live.product, traction: 9 } };
+  const both = presentFirstMessage(msg([live, measured]));
+  assert.ok(both.indexOf('| Base X |') < both.indexOf('| Arc Microgrants |'), both);
+});
+
+test('H5 I2: a kit clone with a live link and 10+ commits (the real scoring path) is low odds', async () => {
+  const { deps } = checkDeps({ probeOk: true });
+  deps.starters = ['tip-jar-starter'];
+  const ten = Array.from({ length: 12 }, (_, i) => ({ sha: `${i}` }));
+  const r = await withFetch(
+    (u) =>
+      u.pathname === '/users/bob/repos'
+        ? body([ghRepo('bob', 'tipjar', { homepage: 'https://tipjar.xyz' })])
+        : u.pathname === '/search/commits'
+          ? body({ items: [] })
+          : u.host === 'api.github.com' && /\/git\/trees\//.test(u.pathname)
+            ? body({ tree: [{ path: 'README.md', type: 'blob', size: README.length }, { path: 'hardhat.config.ts', type: 'blob', size: 100 }, { path: 'package.json', type: 'blob', size: 40 }] })
+            : u.host === 'raw.githubusercontent.com' && u.pathname.endsWith('/package.json')
+              ? body(JSON.stringify({ name: 'tip-jar-starter' }))
+              : u.host === 'api.github.com' && /\/commits$/.test(u.pathname) && u.searchParams.has('since')
+                ? body(ten)
+                : repoFiles(u),
+    async () => matchProjects(MatchProjectsInput.parse({ github_user: 'bob' }), deps),
+  );
+  const p = r.fits[0].product;
+  assert.equal(p.tier, 'product', 'still a product (5 of 6)');
+  assert.ok(p.missing.includes('original'));
+  assert.ok((p.traction ?? 0) >= 4, `traction ${p.traction}`);
+  assert.deepEqual([p.odds, p.low_reason], ['low', SIGNAL_WORDS.original]);
+});
+
+test('H5 I3: live repos get one Base getCode each only while a count slot remains, none with a cached count; an older Arc repo keeps its getCode', async () => {
+  const addr = (i: number, j: number) => `0x${`${i}${j}`.padStart(40, 'c')}`;
+  const ARC_ADDR = `0x${'d'.repeat(40)}`;
+  const own = [
+    ...[0, 1, 2].map((i) => ghRepo('alice', `live${i}`, { homepage: `https://live${i}.xyz`, pushed_at: daysAgo(i + 1) })),
+    ghRepo('alice', 'arcold', { pushed_at: daysAgo(30) }),
+  ];
+  const config = (u: URL) => {
+    if (u.host !== 'raw.githubusercontent.com' || !u.pathname.endsWith('/hardhat.config.ts')) return undefined;
+    const m = u.pathname.match(/^\/alice\/live(\d)\//);
+    if (m) return body(`networks: { base: { chainId: 8453 } } // ${addr(Number(m[1]), 1)} ${addr(Number(m[1]), 2)}`);
+    return body(`networks: { arc: { chainId: 5042 } } // ${ARC_ADDR}`);
+  };
+  const { n, deps } = checkDeps({ probeOk: true });
+  const asked: string[] = [];
+  deps.checks!.getCode = async (rpc, a) => (n.getCodes++, asked.push(`${rpc} ${a}`), '0x6080');
+  deps.checks!.blockscout = async () => ({ transactions_count: '7' });
+  deps.programs = [baseProgram, { ...baseProgram, id: 'arc-x', title: 'Arc X', chains: ['arc'] }];
+  // live0's count is cached: no getCode for it, and its count is used.
+  const store = new Map<string, { ok: boolean; checked_at: Date; n?: number | null }>([[`txcount:base:${addr(0, 1)}`, { ok: true, checked_at: T_NOW, n: 99 }]]);
+  deps.checks!.cache = { get: async (k) => store.get(k) ?? null, set: async (k, ok, now, extra) => void store.set(k, { ok, checked_at: now, ...extra }) };
+  const r = await withFetch(
+    (u) => (u.pathname === '/users/alice/repos' ? body(own) : u.pathname === '/search/commits' ? body({ items: [] }) : (config(u) ?? repoFiles(u))),
+    async () => matchProjects(MatchProjectsInput.parse({ github_user: 'alice' }), deps),
+  );
+  const base = asked.filter((x) => x.startsWith('https://mainnet.base.org'));
+  assert.deepEqual(base.sort(), [addr(1, 1), addr(2, 1)].map((a) => `https://mainnet.base.org ${a}`), 'one per live repo, none for the cached one');
+  assert.ok(asked.includes(`https://rpc.mainnet.arc.io ${ARC_ADDR}`), asked.join('\n'));
+  const fit = (k: string) => r.fits.find((f) => f.key === `alice/${k}`)!;
+  assert.equal(fit('live0').facts.product!.traction, 6 + 2 + 1, 'the cached 99');
+  assert.equal(fit('arcold').product.missing.includes('deployed'), false, 'the Arc contract was checked: deployed');
+});
+
+test('H5 I4: one Base pair stays inside the 2-pair cap, with Base listed third', async () => {
+  const { n, deps } = checkDeps();
+  const asked: string[] = [];
+  deps.checks!.getCode = async (rpc) => (n.getCodes++, asked.push(rpc), '0x6080');
+  deps.checks!.blockscout = async () => ({ transactions_count: '3' });
+  await matchProjects(MatchProjectsInput.parse({ local_repos: [{ name: 'relay', chains: ['arc', 'avalanche', 'base'], contracts: [ADDR], last_commit_at: daysAgo(1) }] }), deps);
+  assert.ok(asked.includes('https://mainnet.base.org'), asked.join(', '));
+  assert.ok(asked.includes('https://rpc.mainnet.arc.io'), 'the first claimed pair is kept');
+  assert.ok(asked.length <= 2);
 });

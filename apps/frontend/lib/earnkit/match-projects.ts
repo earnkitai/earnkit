@@ -47,6 +47,7 @@ import {
   liveChecked,
   peekContract,
   peekLive,
+  peekTxCount,
   rpcFor,
   txCount,
   type CheckDeps,
@@ -742,15 +743,23 @@ type Prepared = {
   finish: (d: Deployed) => Promise<{ repo: RepoFacts; verdicts: Verdict[] }>;
 };
 
-const contractPairs = (addresses: string[], chains: Chain[], claimed: Chain[] = []) =>
-  addresses
-    .flatMap((a) => chains.filter((c) => rpcFor(c)).map((c) => [c, a] as const))
-    // v2.9 A3: a claimed chain's pairs first, so its claim can be verified within GETCODE_PER_REPO.
-    .sort(([a], [b]) => Number(claimed.includes(b)) - Number(claimed.includes(a)))
-    .slice(0, GETCODE_PER_REPO);
-
-/** v2.10 item 6: the chains with a free Blockscout (txCount): their contracts are checked for code even once the link loads. */
+/** v2.10 item 6: the chains with a free Blockscout (txCount). */
 const countedChain = (c: Chain) => c === 'base';
+
+/**
+ * Up to GETCODE_PER_REPO (chain, address) pairs on mainnets with an RPC. v2.9 A3: a claimed chain's
+ * pairs first, so its claim can be verified. v2.10 Ruling H5 (I4): one Base pair always stays inside
+ * the cap (it is what a transaction count needs), in place of the last pair. Pure.
+ */
+const contractPairs = (addresses: string[], chains: Chain[], claimed: Chain[] = []) => {
+  const all = addresses
+    .flatMap((a) => chains.filter((c) => rpcFor(c)).map((c) => [c, a] as const))
+    .sort(([a], [b]) => Number(claimed.includes(b)) - Number(claimed.includes(a)));
+  const out = all.slice(0, GETCODE_PER_REPO);
+  const base = all.find(([c]) => countedChain(c));
+  if (base && out.length > 0 && !out.some(([c]) => countedChain(c))) out[out.length - 1] = base;
+  return out;
+};
 
 /**
  * v2.9 A2, Ruling G5: deployed means the live link loads from here, or one of the repo's contract
@@ -759,18 +768,16 @@ const countedChain = (c: Chain) => c === 'base';
  * the checks run in parallel, each repo on its own slots. A check with no slot is `unchecked`,
  * never a failure. v2.10 item 6 (R4): then, newest repos first, Blockscout counters for the
  * contracts with code on Base, within `budget.txCounts` (cached counts take no slot); a repo's
- * `tx_count` is the largest count read. `budget`: LIST_BUDGET, or ENTRY_BUDGET for one repo
- * (Pre-flight P27). Never throws.
+ * `tx_count` is the largest count read. Ruling H5 (I3): a repo whose live link loads gets at most
+ * one extra Base getCode (for its count), only while a count slot remains, and none when that
+ * address's count is cached (the cached count is used). `budget`: LIST_BUDGET, or ENTRY_BUDGET for
+ * one repo (Pre-flight P27). Never throws.
  */
 async function runChecks(
   list: Prepared[],
   checks: CheckDeps,
   budget: { probes: number; getCodes: number; txCounts: number } = LIST_BUDGET,
 ): Promise<Deployed[]> {
-  // v2.9 A3: once the live link loads, only a claimed chain's contracts are still worth a check;
-  // v2.10 item 6: and Base's, whose code is what a transaction count needs.
-  const pairsOf = (p: Prepared, live: boolean | null) =>
-    live === true ? p.pairs.filter(([c]) => p.claimed.includes(c) || countedChain(c)) : p.pairs;
   const items = list.map((p, i) => ({ p, i }));
   const livePeek = await mapLimit(items, 6, ({ p }) => (p.homepage ? peekLive(p.homepage, checks) : Promise.resolve(false)));
   let probes = budget.probes;
@@ -780,7 +787,22 @@ async function runChecks(
       ? liveChecked(p.homepage, { ...checks, budget: new CheckBudget({ probes: probeSlots[i], getCodes: 0 }) })
       : Promise.resolve(false as boolean | null),
   );
-  const codePeek = await mapLimit(items, 6, ({ p, i }) => Promise.all(pairsOf(p, live[i]).map(([c, a]) => peekContract(c, a, checks))));
+  // Ruling H5 (I3): a live repo's one Base pair worth a getCode for its count (newest first, while a
+  // count slot remains), or its cached count.
+  const baseOf = (p: Prepared) => p.pairs.find(([c]) => countedChain(c) && !p.claimed.includes(c));
+  const cachedTx = await mapLimit(items, 6, async ({ p, i }) => {
+    const pair = live[i] === true ? baseOf(p) : undefined;
+    return pair ? peekTxCount(pair[0], pair[1], checks) : null;
+  });
+  let txLeft = budget.txCounts;
+  const extra = items.map(({ p, i }) => {
+    const pair = live[i] === true && cachedTx[i] === null ? baseOf(p) : undefined;
+    return pair && txLeft > 0 ? (txLeft--, pair) : undefined;
+  });
+  // v2.9 A3: once the live link loads, only a claimed chain's contracts are still worth a check (plus the extra Base pair).
+  const pairsOf = (p: Prepared, i: number) =>
+    live[i] === true ? p.pairs.filter((pair) => p.claimed.includes(pair[0]) || pair === extra[i]) : p.pairs;
+  const codePeek = await mapLimit(items, 6, ({ p, i }) => Promise.all(pairsOf(p, i).map(([c, a]) => peekContract(c, a, checks))));
   let getCodes = budget.getCodes;
   const codeSlots = codePeek.map((peeks) =>
     peeks.reduce((n, v) => (v === null && getCodes > 0 ? (getCodes--, n + 1) : n), 0),
@@ -791,9 +813,10 @@ async function runChecks(
     const counted: string[] = [];
     let deployed = live[i] === true;
     let unchecked = live[i] === null;
-    for (const [chain, address] of pairsOf(p, live[i])) {
-      // Deployed already: only an unverified claimed chain, or a Base contract (its count), is still worth a check.
-      if (deployed && !countedChain(chain) && (!p.claimed.includes(chain) || withCode.includes(chain))) continue;
+    for (const pair of pairsOf(p, i)) {
+      const [chain, address] = pair;
+      // Deployed already: only an unverified claimed chain, or the extra Base pair (its count), is still worth a check.
+      if (deployed && pair !== extra[i] && (!p.claimed.includes(chain) || withCode.includes(chain))) continue;
       const r = await contractDeployed(chain, address, { ...checks, budget: slots });
       if (r === true) {
         deployed = true;
@@ -806,8 +829,8 @@ async function runChecks(
   // v2.10 item 6 (R4): one shared budget, newest repos first (sequential, so the order is deterministic).
   const txSlots = new CheckBudget({ probes: 0, getCodes: 0, txCounts: budget.txCounts });
   const out: Deployed[] = [];
-  for (const { counted, ...d } of done) {
-    let tx: number | null = null;
+  for (const [i, { counted, ...d }] of done.entries()) {
+    let tx: number | null = cachedTx[i];
     for (const address of counted) {
       const n = await txCount('base', address, { ...checks, budget: txSlots });
       if (n !== null) tx = Math.max(tx ?? 0, n);
