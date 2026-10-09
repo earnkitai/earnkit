@@ -109,6 +109,9 @@ import { BELOW_FLOOR_NOTE, INVESTMENT_NOTE, SIGNAL_WORDS, UNCHECKED_NOTE, matchR
 import { CHAINS } from './chains';
 import { LIVE_FAILED_LINE, PLACEHOLDER_LINE, contractMissingLine, contractUncheckedLine } from './placeholder';
 import PolicySection from '../../app/terms/sections/PolicySection';
+import TermsPage from '../../app/terms/page';
+import { ENDED_PAGE, TAKEN_DOWN_PAGE } from '../../../../infra/host-worker/src/route';
+import { MINI_LINE } from './policy';
 import SponsorTermsSection from '../../app/terms/sections/SponsorTermsSection';
 import BoardView from '../../app/bonus/[round]/BoardView';
 import type { Board } from './bonus-board';
@@ -1030,6 +1033,13 @@ const builderFacing: [string, string][] = [
     })!;
     return [['digest subject', b.subject], ['digest text', b.text]] as [string, string][];
   })(),
+  // v2.9 T12, Part 2: what a hosted site's visitors see when it ended or was taken down (the
+  // Worker's pages), the MINI line, the footer's company line and the /terms page above its footer.
+  ['Worker ENDED_PAGE', ENDED_PAGE.replace(/<[^>]+>/g, ' ')],
+  ['Worker TAKEN_DOWN_PAGE', TAKEN_DOWN_PAGE.replace(/<[^>]+>/g, ' ')],
+  ['MINI_LINE', MINI_LINE],
+  ['footer company line', 'EarnKit is a product of Tokenfi Inc.'],
+  ['/terms (above the footer)', pageText(React.createElement(TermsPage))],
 ];
 
 // noCoinYet is the AGENT's note (never shown to the builder as written; see entry-text.ts), so it
