@@ -17,6 +17,7 @@ import type { TokenPolicy } from './program-file';
 import { BASE_MAINNET, screenWallet } from './sanctions';
 import { createVerifyLink, githubVerifyEnabled, verifiedFor } from './github-verify';
 import { appTokenFor, githubAppEnabled } from './github-app';
+import { markRepoPublic } from './repo-cache';
 import { sharedGroup } from './installations';
 
 export type GateInput = {
@@ -102,7 +103,12 @@ export type GateResult =
     };
 
 const defaults: Omit<Required<GateDeps>, 'appToken' | 'appLink'> = {
-  repo: (o, r, token) => repoCodeFacts(`${o}/${r}`, { token }),
+  repo: async (o, r, token) => {
+    const facts = await repoCodeFacts(`${o}/${r}`, { token });
+    // v2.10 Ruling H6: GitHub said the repo is public (no App token): public pages may show its URL.
+    if (facts.public) await markRepoPublic(`${o}/${r}`);
+    return facts;
+  },
   // Ruling 14 (plan): the dev/test override (token-e2e's mock) is read as before; otherwise the
   // contents API, raw only when rate-limited. v2.10 item 7b: through the App's token for a private repo.
   owner: (r, token) =>

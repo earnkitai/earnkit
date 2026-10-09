@@ -5,6 +5,7 @@ import { roundEndLabel } from './entry-text';
 import { testInstallationIds } from './installations';
 import { coinSql, eligibleSql } from './traction';
 import { shownUrl } from './untrusted-text';
+import { publicRepoKeys, publicRepoUrl } from './repo-cache';
 
 /**
  * The public builder bonus leaderboard of one round (/bonus/<round>, v2.5 §4). Public data only:
@@ -226,7 +227,10 @@ export async function bonusBoard(roundKey: string, now = new Date()): Promise<Bo
           OR EXISTS (SELECT 1 FROM submissions su WHERE su.project_id = p.id))
       ORDER BY s.rank NULLS LAST, p.submitted_at, p.id
       LIMIT 500`;
-    return { ...base, pool: ethText(BigInt(wei)), rows: openRows(entries), removed: 0 };
+    // v2.10 Ruling H6: a repo URL only with an anonymous public read in the last 7 days (fail closed).
+    const shown = await publicRepoKeys(entries.map((e) => e.repo_url), now);
+    const visible = entries.map((e) => ({ ...e, repo_url: publicRepoUrl(e.repo_url, shown) }));
+    return { ...base, pool: ethText(BigInt(wei)), rows: openRows(visible), removed: 0 };
   }
   const frozen = await roundRows(r.round_key);
   const ids = frozen.map((x) => x.project_id);
@@ -237,6 +241,9 @@ export async function bonusBoard(roundKey: string, now = new Date()): Promise<Bo
       : []
     ).map((p) => [p.id, p]),
   );
+  // v2.10 Ruling H6: as for an open round.
+  const shown = await publicRepoKeys([...names.values()].map((n) => n.repo_url), now);
+  for (const n of names.values()) n.repo_url = publicRepoUrl(n.repo_url, shown);
   const { rows, removed } = frozenRows(frozen, (r.terms?.amounts ?? []).map(BigInt), names);
   return { ...base, pool: ethText(BigInt(r.terms?.pool_wei ?? '0')), rows, removed };
 }

@@ -31,7 +31,7 @@ import {
   type Verdict,
 } from './match';
 import { openProgramFacts } from './programs';
-import { loadRepoFacts, saveRepoFacts, type CachedProduct } from './repo-cache';
+import { loadRepoFacts, markRepoPublic, saveRepoFacts, type CachedProduct } from './repo-cache';
 import { sql } from './db';
 import { placeholderLink } from './placeholder';
 import { githubRepo } from './campaigns';
@@ -273,6 +273,8 @@ export type RepoCode = {
   aheadOfParent: number | null;
   /** v2.8.1 §A3: the repo's default branch, where the proof line goes (absent in older test doubles). */
   defaultBranch?: string;
+  /** v2.10 Ruling H6: GitHub said `private: false` on a read without an App token. */
+  public?: boolean;
 };
 
 /** The fork compare failed (ForkCheckError): the repo itself was read fine. */
@@ -295,8 +297,10 @@ export async function repoCodeFacts(fullName: string, opts: { token?: string } =
   if (!opts.token && (r.private || (r.visibility !== undefined && r.visibility !== 'public')))
     throw new GitHubError(`GitHub: /repos/${fullName} not found (or private)`, 404);
   const defaultBranch = r.default_branch;
+  // v2.10 Ruling H6: public evidence only from a read without an App token.
+  const shown = !opts.token && r.private === false && (r.visibility === undefined || r.visibility === 'public') ? { public: true } : {};
   if (!r.fork || !r.parent || !hasCommits)
-    return { fork: r.fork, hasCommits, aheadOfParent: null, defaultBranch };
+    return { fork: r.fork, hasCommits, aheadOfParent: null, defaultBranch, ...shown };
   const owner = r.full_name.split('/')[0];
   try {
     // per_page=1: only ahead_by is needed, not the commit list or the file diffs.
@@ -306,7 +310,7 @@ export async function repoCodeFacts(fullName: string, opts: { token?: string } =
       undefined,
       token,
     );
-    return { fork: true, hasCommits, aheadOfParent: c.ahead_by, defaultBranch };
+    return { fork: true, hasCommits, aheadOfParent: c.ahead_by, defaultBranch, ...shown };
   } catch (err) {
     throw new ForkCheckError(
       `GitHub: couldn't compare the fork with its parent (${err instanceof Error ? err.message : String(err)})`,
@@ -436,6 +440,27 @@ export const repoChains = async (repo: Repo): Promise<Detection> =>
   (await readRepoChains(repo)).chains;
 
 /**
+ * v2.10 fix round 1 (I2): who reads a cached repo row: the EarnKit installation and, on a shared
+ * client, the caller's verified login (null: none; undefined: not a shared client).
+ */
+export type AppViewer = { installationId: number; login?: string | null };
+
+/**
+ * v2.10 fix round 1 (I2): a row read through the App (`via_app`, a private repo) reaches only the
+ * installation (and on a shared client the login) that proved the repo with the App; everyone else,
+ * and every read without a viewer, sees public rows only. A SQL condition on github_repo_facts.
+ */
+function appRowsFor(full: string, viewer: AppViewer | undefined) {
+  const db = sql();
+  if (!viewer || viewer.login === null) return db`NOT via_app`;
+  return db`(NOT via_app OR EXISTS (
+    SELECT 1 FROM github_verifications v
+    WHERE v.via = 'app' AND v.purpose = 'app' AND v.used_at IS NULL AND v.repo_key = ${full}
+      AND v.installation_id = ${viewer.installationId}
+      ${viewer.login !== undefined ? db`AND v.login = ${viewer.login.toLowerCase()}` : db``}))`;
+}
+
+/**
  * v2.8 Ruling 29 (plan): a repo's cached chains, read from github_repo_facts only (no GitHub
  * call), for "Also qualifies" right after an entry. The latest cached row for this full name
  * (any version: a GitHub call to find the current pushed_at is exactly what this avoids), or null
@@ -443,9 +468,10 @@ export const repoChains = async (repo: Repo): Promise<Detection> =>
  * convention matchRepo uses (v2.10 item 9: `creditsMainnet`) — a chain seen only via a testnet host
  * or id, or only mentioned (a v2.9 row without `basis` reads as a mention, R6), never counts as a fit.
  */
-export async function cachedRepoChains(repoFullName: string): Promise<Chain[] | null> {
+export async function cachedRepoChains(repoFullName: string, viewer?: AppViewer): Promise<Chain[] | null> {
+  const full = repoFullName.toLowerCase();
   const [row] = await sql()<{ chains: Detection }[]>`
-    SELECT chains FROM github_repo_facts WHERE full_name = ${repoFullName.toLowerCase()}
+    SELECT chains FROM github_repo_facts WHERE full_name = ${full} AND ${appRowsFor(full, viewer)}
     ORDER BY fetched_at DESC LIMIT 1`;
   if (!row) return null;
   return creditedMainnets(row.chains);
@@ -456,11 +482,12 @@ export async function cachedRepoChains(repoFullName: string): Promise<Chain[] | 
  * scored read (github_repo_facts.product), read from the cache only (no GitHub call), at most
  * GETCODE_PER_REPO, lowercase. Empty when the repo isn't a GitHub link or nothing is cached.
  */
-export async function cachedRepoAddresses(repoUrl: string | null | undefined): Promise<string[]> {
+export async function cachedRepoAddresses(repoUrl: string | null | undefined, viewer?: AppViewer): Promise<string[]> {
   const gh = repoUrl ? githubRepo(repoUrl) : null;
   if (!gh) return [];
+  const full = `${gh.owner}/${gh.repo}`.toLowerCase();
   const [row] = await sql()<{ product: CachedProduct | null }[]>`
-    SELECT product FROM github_repo_facts WHERE full_name = ${`${gh.owner}/${gh.repo}`.toLowerCase()} AND product IS NOT NULL
+    SELECT product FROM github_repo_facts WHERE full_name = ${full} AND product IS NOT NULL AND ${appRowsFor(full, viewer)}
     ORDER BY fetched_at DESC LIMIT 1`;
   return (row?.product?.addresses ?? []).map((a) => a.toLowerCase()).slice(0, GETCODE_PER_REPO);
 }
@@ -708,8 +735,11 @@ function fullName(ref: string) {
 export type MatchDeps = {
   /** The open programs (default: openProgramFacts). */
   programs?: ProgramFacts[];
-  /** The repo facts cache (default: github_repo_facts). */
-  cache?: { load: typeof loadRepoFacts; save: typeof saveRepoFacts };
+  /**
+   * The repo facts cache (default: github_repo_facts). v2.10 Ruling H6: `public` records GitHub saying
+   * a repo is public (default repo-cache.ts markRepoPublic; absent in a test double: nothing recorded).
+   */
+  cache?: { load: typeof loadRepoFacts; save: typeof saveRepoFacts; public?: (fullName: string) => Promise<void> };
   /** Link probe, getCode and url_checks cache; one LIST_BUDGET is added per call. */
   checks?: CheckDeps;
   now?: Date;
@@ -727,6 +757,9 @@ export const PRIVATE_LOCAL_LINE = (name: string) => `${name} is private, so I ma
 /** v2.10 item 7: a named repo GitHub won't show and nobody described; `link` only with the App on (7b). */
 export const CANT_SEE_LINE = (name: string, link: string | null) =>
   `I can't see ${name} (private?). Describe it${link ? `, or allow read access: ${link}` : '.'}`;
+
+/** The production repo cache (github_repo_facts, and repo_public_reads for H6). */
+const DB_CACHE: NonNullable<MatchDeps['cache']> = { load: loadRepoFacts, save: saveRepoFacts, public: (n) => markRepoPublic(n) };
 
 /** What scoring one repo needs: who the builder is, whether the repo counts as theirs, one shared budget. */
 type ScoreCtx = {
@@ -943,7 +976,11 @@ function said(f: RepoFacts, s: SaidRepo | undefined): RepoFacts & { claims: Clai
  * (Pre-flight P6): one commits read for active, and the link and contract checks (url_checks).
  */
 async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): Promise<Prepared> {
-  const cached = await ctx.cache.load(repo.full_name, repo.pushed_at);
+  // v2.10 fix round 1 (I2): an App-read row only for a read through the App itself.
+  const cached = await ctx.cache.load(repo.full_name, repo.pushed_at, { viaApp: ctx.token !== undefined });
+  // v2.10 Ruling H6: GitHub said this repo is public (a read without an App token).
+  if (!ctx.token && repo.private === false && (repo.visibility === undefined || repo.visibility === 'public'))
+    await ctx.cache.public?.(repo.full_name);
   let changed = false;
   let cacheable = true;
   let chains = cached?.chains;
@@ -1201,7 +1238,7 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
     .slice(0, SCORE_LIMIT);
 
   const checks: CheckDeps = { ...deps.checks, now };
-  const cache = deps.cache ?? { load: loadRepoFacts, save: saveRepoFacts };
+  const cache = deps.cache ?? DB_CACHE;
   // The reads run in parallel; then one LIST_BUDGET of checks, newest repos first (Ruling G5).
   const prepared = await mapLimit(toScore, 6, async (c) => {
     const ctx: ScoreCtx = { builder, owned: c.owned, checks, now, cache, local: c.local, said: saidOf(c), starters: deps.starters, token: c.token };
@@ -1262,7 +1299,7 @@ export async function checkEligibility(ref: string, programId: string, deps: Mat
     owned: !earnkitOwner(ownerOf(repo)),
     checks,
     now,
-    cache: deps.cache ?? { load: loadRepoFacts, save: saveRepoFacts },
+    cache: deps.cache ?? DB_CACHE,
     starters: deps.starters,
   });
   // v2.10 R4 (Pre-flight P27): one repo, one ENTRY_BUDGET (1 Blockscout read).

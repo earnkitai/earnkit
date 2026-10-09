@@ -814,20 +814,54 @@ test('11.7 (F23): builder navigation never links the dormant sponsor pages; the 
   for (const r of ['fund/[ref]', 'award/[ref]']) assert.ok(existsSync(join(import.meta.dirname, '../../app', r, 'page.tsx')), r);
 });
 
-// ---- v2.10 R10: a private repo's name and URL never reach a public page (against the database).
+// ---- v2.10 R10, Ruling H6: a repo URL reaches a public page only with a fresh anonymous public read.
 
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 
-test('4.13 (R10) /p/<id>, the campaign board and the bonus board show a private entry by project name only; a public one keeps Code: <repo_url>', dbTest, async (t) => {
+test('4.13 (H6) a private repo matched only from the local copy (App off) shows no URL on /p, /campaigns or /bonus; a public one read within 7 days does', dbTest, async (t) => {
   const { sql } = await import('./db');
   const { bonusBoard } = await import('./bonus-board');
-  const { getCampaignBoard } = await import('./leaderboard');
-  // The /p page (app/p/[id]/page.tsx) renders exactly what getProjectPage returns: "Code:" only with a repo_url.
-  const { getProjectPage } = await import('./leaderboard');
+  const { getCampaignBoard, getProjectPage } = await import('./leaderboard');
+  const { matchProjects, MatchProjectsInput } = await import('./match-projects');
   t.after(async () => {
     await sql().end();
   });
   const tag = `t413-${process.pid}-${Date.now()}`;
+  const secret = `secret-${tag}`;
+  const open = `open-${tag}`;
+  const stale = `stale-${tag}`;
+  const appRead = `appread-${tag}`;
+  // Matching with the App off: alice/<secret> answers 404 and is matched from the local copy; the
+  // public repo answers private: false. Only the public one is recorded as publicly read.
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL | Request) => {
+    const u = new URL(String(url));
+    if (u.pathname === `/repos/alice/${open}`)
+      return Response.json({
+        name: open, full_name: `alice/${open}`, html_url: `https://github.com/alice/${open}`, homepage: null, default_branch: 'main',
+        created_at: new Date().toISOString(), pushed_at: new Date().toISOString(), fork: false, archived: false,
+        private: false, visibility: 'public', owner: { login: 'alice' },
+      });
+    return new Response('{"message":"Not Found"}', { status: 404 });
+  }) as typeof fetch;
+  try {
+    const r = await matchProjects(
+      MatchProjectsInput.parse({
+        repos: [`alice/${secret}`, `alice/${open}`],
+        local_repos: [{ name: 'Hidden Jar', url: `https://github.com/alice/${secret}`, chains: ['base'] }],
+      }),
+      { programs: [] },
+    );
+    assert.deepEqual(r.fromLocal, ['Hidden Jar']);
+  } finally {
+    globalThis.fetch = original;
+  }
+  const reads = await sql()<{ repo_key: string }[]>`SELECT repo_key FROM repo_public_reads WHERE repo_key LIKE ${`%${tag}`}`;
+  assert.deepEqual(reads.map((x) => x.repo_key), [`github.com/alice/${open}`]);
+  // A read 8 days ago is stale; an App-read entry (repo_private) stays hidden even with a fresh read.
+  await sql()`INSERT INTO repo_public_reads (repo_key, read_at) VALUES (${`github.com/alice/${stale}`}, now() - interval '8 days'),
+    (${`github.com/alice/${appRead}`}, now())`;
+
   const camp = `${tag}-camp`;
   const bonus = `${tag}-bonus`;
   const campaign = {
@@ -841,8 +875,7 @@ test('4.13 (R10) /p/<id>, the campaign board and the bonus board show a private 
   await sql()`
     INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work, builder_bonus)
     VALUES (${bonus}, 'Org', 'Rolling', 'd', 'https://x', 'https://x', 'r', 's', 'active', 'unknown', true)`;
-  const secret = `secretrepo-${tag}`;
-  const add = async (program: string, name: string, repo: string, repoPrivate: boolean) => {
+  const add = async (program: string, name: string, repo: string, repoPrivate = false) => {
     const [p] = await sql()<{ id: number }[]>`
       INSERT INTO projects (program_id, name, repo_url, repo_private, payout_wallet, submitted_at)
       VALUES (${program}, ${name}, ${`https://github.com/alice/${repo}`}, ${repoPrivate}, ${`0x${'5'.repeat(40)}`}, now() - interval '1 hour')
@@ -850,30 +883,40 @@ test('4.13 (R10) /p/<id>, the campaign board and the bonus board show a private 
     return p.id;
   };
   try {
-    const priv = await add(camp, 'Hidden Jar', secret, true);
-    const pub = await add(camp, 'Open Jar', `open-${tag}`, false);
-    await add(bonus, 'Hidden Jar', secret, true);
-    await add(bonus, 'Open Jar', `open-${tag}`, false);
-    const hidden = await getProjectPage(priv);
-    assert.equal(hidden?.name, 'Hidden Jar');
-    assert.equal(hidden?.repo_url, null, 'no Code: line on /p');
-    assert.ok(!JSON.stringify(hidden).includes(secret), 'no repo name or URL on /p');
-    assert.equal((await getProjectPage(pub))?.repo_url, `https://github.com/alice/open-${tag}`);
+    const ids: Record<string, number> = {};
+    for (const [name, repo, priv] of [['Hidden Jar', secret, false], ['Open Jar', open, false], ['Stale Jar', stale, false], ['App Jar', appRead, true]] as const) {
+      ids[name] = await add(camp, name, repo, priv);
+      await add(bonus, name, repo, priv);
+    }
+    const hiddenRepos = [secret, stale, appRead];
+    // /p (app/p/[id]/page.tsx renders exactly getProjectPage: "Code:" only with a repo_url).
+    for (const name of ['Hidden Jar', 'Stale Jar', 'App Jar']) {
+      const page = await getProjectPage(ids[name]);
+      assert.equal(page?.name, name);
+      assert.equal(page?.repo_url, null, `${name}: no Code: line on /p`);
+      assert.ok(!hiddenRepos.some((h) => JSON.stringify(page).includes(h)), name);
+    }
+    assert.equal((await getProjectPage(ids['Open Jar']))?.repo_url, `https://github.com/alice/${open}`);
     const pageSource = readFileSync(join(import.meta.dirname, '../../app/p/[id]/page.tsx'), 'utf8');
     assert.match(pageSource, /\{p\.repo_url \? \(/, 'the page shows Code: only with a repo_url');
-    // P33: the campaign board.
+    // /campaigns/<slug> (P33).
     const board = await getCampaignBoard(camp);
-    assert.ok(board && !JSON.stringify(board).includes(secret), 'no repo on the campaign board');
-    // The bonus board.
+    assert.ok(board);
+    const boardJson = JSON.stringify(board);
+    assert.ok(!hiddenRepos.some((h) => boardJson.includes(h)), 'no hidden repo on the campaign board');
+    assert.ok(boardJson.includes(open));
+    // /bonus/<round>.
     const month = new Date().toISOString().slice(0, 7);
     const b = await bonusBoard(`${bonus}:${month}`);
     assert.ok(b);
     const shown = view(b);
-    assert.ok(shown.includes('Hidden Jar') && shown.includes('Open Jar'));
-    assert.ok(!shown.includes(secret), 'no repo name or URL on /bonus');
-    assert.ok(shown.includes(`open-${tag}`), 'a public repo is still linked');
+    for (const name of ['Hidden Jar', 'Open Jar', 'Stale Jar', 'App Jar']) assert.ok(shown.includes(name), name);
+    assert.ok(!hiddenRepos.some((h) => shown.includes(h)), 'no hidden repo on /bonus');
+    assert.ok(shown.includes(open), 'a public repo read within 7 days is still linked');
   } finally {
     await sql()`DELETE FROM projects WHERE program_id IN (${camp}, ${bonus})`;
     await sql()`DELETE FROM programs WHERE id IN (${camp}, ${bonus})`;
+    await sql()`DELETE FROM repo_public_reads WHERE repo_key LIKE ${`%${tag}`}`;
+    await sql()`DELETE FROM github_repo_facts WHERE full_name LIKE ${`%${tag}`}`;
   }
 });

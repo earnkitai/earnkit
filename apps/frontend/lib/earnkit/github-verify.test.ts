@@ -513,3 +513,48 @@ test('4.10 an App nonce\'s callback stores the login on the nonce, writes no ver
     assert.equal(kept.login, 'alice');
   });
 });
+
+test('concern 4 (fix round 1): an open link is shown again for the same purpose, repo, entry and installation; never on a shared client', db, async () => {
+  const f = await fixture('reuse');
+  const t0 = new Date();
+  const link = (o: Partial<Parameters<typeof createVerifyLink>[0]> = {}, now = t0) =>
+    createVerifyLink({ installationId: f.inst, projectId: f.project, repoKey: f.repoKey, purpose: 'entry', wallet: WF, symbol: 'tip', ...o }, now);
+  const first = await link();
+  assert.equal(await link(), first, 'reused');
+  assert.equal(await link({ repoKey: f.repoKey.toUpperCase(), symbol: 'TIP' }), first, 'same repo and ticker, any case');
+  assert.notEqual(await link({ wallet: `0x${'2'.repeat(40)}` }), first, 'another wallet');
+  assert.notEqual(await link({ purpose: 'host', wallet: undefined, symbol: undefined }), first, 'another purpose');
+  assert.notEqual(await link({ projectId: null, purpose: 'pickup', wallet: undefined, symbol: undefined }), first);
+  assert.equal(
+    (await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM github_verify_nonces WHERE installation_id = ${f.inst} AND purpose = 'entry' AND wallet = ${WF}`)[0].n,
+    1,
+  );
+  // Less than 5 minutes left: a new link.
+  assert.notEqual(await link({}, new Date(t0.getTime() + VERIFY_TTL_MS - 4 * 60_000)), first);
+  // Used: a new link.
+  const again = await link();
+  assert.ok(await takeNonce(new URL(again).searchParams.get('n')!));
+  assert.notEqual(await link(), again);
+  // A shared client: every builder gets their own link.
+  const s = await fixture('reuseShared', { shared: true });
+  const shared = () => createVerifyLink({ installationId: s.inst, projectId: s.project, repoKey: s.repoKey, purpose: 'entry', wallet: WF, symbol: 'tip' });
+  assert.notEqual(await shared(), await shared());
+});
+
+test('concern 4 (fix round 1): the hourly cron deletes links expired over a day ago, in a bounded batch', db, async () => {
+  const { sweepVerifyNonces } = await import('./github-verify');
+  const f = await fixture('sweep');
+  const day = 86_400_000;
+  const old = new Date(Date.now() - 3 * day);
+  for (let i = 0; i < 3; i++) await createVerifyLink({ installationId: f.inst, projectId: null, repoKey: `${f.repoKey}-${i}`, purpose: 'pickup' }, old);
+  const recent = await createVerifyLink({ installationId: f.inst, projectId: null, repoKey: f.repoKey, purpose: 'pickup' }, new Date(Date.now() - VERIFY_TTL_MS - 60_000));
+  const count = async () => (await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM github_verify_nonces WHERE installation_id = ${f.inst}`)[0].n;
+  assert.equal(await count(), 4);
+  // Bounded: at most `limit` a run (other test rows may also be old, so only an upper bound is checked).
+  assert.ok((await sweepVerifyNonces(new Date(), 1)) <= 1);
+  const { runCron } = await import('./cron');
+  const out = await runCron({ only: ['none'], deps: { cleanup: { limit: 1000 }, refreshFees: async () => 0 } });
+  assert.ok('cleanup' in out && typeof (out.cleanup as { nonces: number }).nonces === 'number');
+  assert.equal(await count(), 1, 'only the link expired under a day ago is kept');
+  assert.equal(await peekNonce(new URL(recent).searchParams.get('n')!), false, 'expired, but kept');
+});

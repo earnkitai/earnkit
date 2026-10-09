@@ -808,6 +808,18 @@ ALTER TABLE github_verify_nonces ADD COLUMN IF NOT EXISTS public_repos integer;
 -- v2.10 item 7b: how a verification was made ('oauth' sign-in or the read-only 'app'), and the App installation.
 ALTER TABLE github_verifications ADD COLUMN IF NOT EXISTS via text NOT NULL DEFAULT 'oauth';
 ALTER TABLE github_verifications ADD COLUMN IF NOT EXISTS github_installation_id bigint;
+-- v2.10 fix round 1 (concern 4): a per-link random seed; the nonce is HMAC(EARNKIT_AUTH_SECRET, seed),
+-- so an open link can be shown again instead of minting a new one (the nonce itself is never stored).
+ALTER TABLE github_verify_nonces ADD COLUMN IF NOT EXISTS seed text;
+CREATE INDEX IF NOT EXISTS github_verify_nonces_open ON github_verify_nonces (installation_id, repo_key, purpose) WHERE used_at IS NULL;
+CREATE INDEX IF NOT EXISTS github_verify_nonces_expires ON github_verify_nonces (expires_at);
+-- v2.10 Ruling H6: when GitHub last said a repo is public (a read without an App token answering
+-- private: false), by normalized repo key. Public pages show a repo URL only within 7 days of it.
+CREATE TABLE IF NOT EXISTS repo_public_reads (
+  repo_key text PRIMARY KEY,
+  read_at  timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS repo_public_reads_read_at ON repo_public_reads (read_at);
 
 -- v2.9 B10: the builder said skip to a token offer for this repo; at 2 it is never offered again.
 -- Ruling G12: `login` is the builder ('' off shared clients, the verified login on one); `offers`

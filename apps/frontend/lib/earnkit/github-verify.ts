@@ -1,4 +1,4 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { githubRepo } from './campaigns';
 import { sql } from './db';
 import { sharedGroup } from './installations';
@@ -81,12 +81,24 @@ export type NonceRow = {
   public_repos: number | null;
 };
 
+/**
+ * v2.10 fix round 1 (concern 4): a link's nonce from its stored random seed: HMAC-SHA256 under
+ * EARNKIT_AUTH_SECRET, base64url (43 characters). The database alone never gives a nonce back; with
+ * the secret, an open link can be shown again instead of minting a new one. Pure.
+ */
+const nonceOfSeed = (seed: string, secret: string) => createHmac('sha256', secret).update(`verify-nonce:v1:${seed}`).digest('base64url');
+/** v2.10 fix round 1: an open link is shown again only with at least this long left. */
+export const REUSE_MIN_LEFT_MS = 5 * 60_000;
+
 /** The callback URL GitHub sends the builder back to (P47: from siteUrl, never the request). */
 export const callbackUrl = () => `${siteUrl()}/github/verify/callback`;
 
 /**
- * A new one-time sign-in link for this repo (`owner/repo`, answer-bank.ts repoKey), bound to the
+ * A one-time sign-in link for this repo (`owner/repo`, answer-bank.ts repoKey), bound to the
  * installation, the entry (null for pickup) and the purpose: `<site>/github/verify?n=<nonce>`.
+ * v2.10 fix round 1 (concern 4): an open link (unused, at least REUSE_MIN_LEFT_MS left, no sign-in
+ * started on it) for the same installation, purpose, repo, entry, wallet and ticker is shown again
+ * instead of minting a new one. Never on a shared client (each builder there gets their own link).
  */
 export async function createVerifyLink(
   a: {
@@ -104,12 +116,39 @@ export async function createVerifyLink(
   // v2.10 item 7b: no App link while the App is off (github-app.ts; imported here to keep the modules acyclic).
   if (a.purpose === 'app' && !(await import('./github-app')).githubAppEnabled())
     throw new Error('The read-only GitHub App is off.');
-  const nonce = randomBytes(32).toString('base64url');
+  const secret = process.env.EARNKIT_AUTH_SECRET;
+  const repoKey = a.repoKey.toLowerCase();
+  const wallet = a.wallet?.toLowerCase() ?? null;
+  const symbol = a.symbol?.toUpperCase() ?? null;
+  if (secret && !(await sharedGroup(a.installationId).catch(() => true))) {
+    const [open] = await sql()<{ seed: string }[]>`
+      SELECT seed FROM github_verify_nonces
+      WHERE installation_id = ${a.installationId} AND repo_key = ${repoKey} AND purpose = ${a.purpose}
+        AND project_id IS NOT DISTINCT FROM ${a.projectId} AND wallet IS NOT DISTINCT FROM ${wallet}::text
+        AND symbol IS NOT DISTINCT FROM ${symbol}::text AND used_at IS NULL AND login IS NULL AND seed IS NOT NULL
+        AND expires_at > ${new Date(now.getTime() + REUSE_MIN_LEFT_MS)}
+      ORDER BY expires_at DESC LIMIT 1`;
+    if (open) return `${siteUrl()}/github/verify?n=${nonceOfSeed(open.seed, secret)}`;
+  }
+  const seed = secret ? randomBytes(16).toString('base64url') : null;
+  const nonce = seed ? nonceOfSeed(seed, secret!) : randomBytes(32).toString('base64url');
   await sql()`
-    INSERT INTO github_verify_nonces (nonce_hash, installation_id, project_id, repo_key, purpose, created_at, expires_at, wallet, symbol)
-    VALUES (${sha256(nonce)}, ${a.installationId}, ${a.projectId}, ${a.repoKey.toLowerCase()}, ${a.purpose}, ${now},
-      ${new Date(now.getTime() + VERIFY_TTL_MS)}, ${a.wallet?.toLowerCase() ?? null}, ${a.symbol?.toUpperCase() ?? null})`;
+    INSERT INTO github_verify_nonces (nonce_hash, installation_id, project_id, repo_key, purpose, created_at, expires_at, wallet, symbol, seed)
+    VALUES (${sha256(nonce)}, ${a.installationId}, ${a.projectId}, ${repoKey}, ${a.purpose}, ${now},
+      ${new Date(now.getTime() + VERIFY_TTL_MS)}, ${wallet}, ${symbol}, ${seed})`;
   return `${siteUrl()}/github/verify?n=${nonce}`;
+}
+
+/**
+ * v2.10 fix round 1 (concern 4): the hourly cron deletes links expired over a day ago, at most
+ * `limit` a run (the oldest first). Returns how many went.
+ */
+export async function sweepVerifyNonces(now = new Date(), limit = 1000): Promise<number> {
+  const rows = await sql()`
+    DELETE FROM github_verify_nonces WHERE nonce_hash IN (
+      SELECT nonce_hash FROM github_verify_nonces WHERE expires_at < ${new Date(now.getTime() - 86_400_000)}
+      ORDER BY expires_at LIMIT ${limit})`;
+  return rows.count;
 }
 
 /** Whether the nonce is still usable (unused, unexpired); nothing changes. */

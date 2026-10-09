@@ -2697,6 +2697,26 @@ A GitHub OAuth App with no scopes; its callback URL is `<EARNKIT_URL>/github/ver
   (contents API, raw media type, P10) and commit reads all go through the token, so a private repo
   gets full scoring. `verifiedFor` never returns an App row unless `purpose: 'app'` is asked for, so
   the launch still needs the v2.9 proof line or a wallet-bound sign-in (G10, G11 unchanged).
+- **Public repo URLs (Ruling H6, fix round 1; supersedes P4 for display).** A public page shows a
+  repo URL only when GitHub said the repo is public within the last 7 days (`PUBLIC_READ_DAYS`): a
+  read without an App token answering `private: false` (`checkRepo` through `MatchDeps.cache.public`,
+  and the gate's default `repoCodeFacts` read via `RepoCode.public`) upserts `repo_public_reads`
+  (`markRepoPublic`, keyed by `normalizeRepoUrl`, outliving the 1-day facts purge). `/p`
+  (`getProjectPage`), `/campaigns` (`getCampaignBoard`, its rows and review), `/bonus` (open and
+  frozen rounds) and the sponsor tool's entries filter through `publicRepoKeys`/`publicRepoUrl`.
+  Never read, a failed read, a stale read, or a failed lookup shows the project name only (fail
+  closed). So a private repo matched only from the local copy never shows its URL.
+- **App rows stay with their prover (fix round 1, I2).** `cachedRepoChains` and
+  `cachedRepoAddresses` take an `AppViewer` (`tools.ts appViewer`): a `via_app` row reaches only an
+  installation with its own `via='app'` proof of the repo (on a shared client only that login); no
+  viewer sees public rows only. `loadRepoFacts` returns a `via_app` row only to a read through an App
+  token (`{ viaApp: true }`).
+- **Link reuse and cleanup (fix round 1, concern 4).** A nonce is `HMAC-SHA256(EARNKIT_AUTH_SECRET,
+  seed)` with a random `seed` stored on the row (only the nonce's sha256 is stored, as before).
+  `createVerifyLink` shows an open link again (same installation, purpose, repo, entry, wallet and
+  ticker; unused, no OAuth hop started, 5+ minutes left), never on a shared client. The cron's
+  cleanup step (`sweepVerifyNonces`, `sweepPublicReads`) deletes links expired over a day ago and
+  public reads past 7 days, at most 1000 rows each a run.
 - **Public pages and tokens.fun (R10, Pre-flight P4, P33).** A repo is private on evidence only: a
   `github_repo_facts` row with `via_app = true` (`startEntry` sets `projects.repo_private`; once
   true it stays), or the gate reading it through the App (`GateResult.private`, set with the launch

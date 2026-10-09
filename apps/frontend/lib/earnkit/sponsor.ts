@@ -33,6 +33,7 @@ import {
 } from './sponsor-identity';
 import { domainCheck, isFunded } from './sponsor-verify';
 import { plainText, shownUrl } from './untrusted-text';
+import { publicRepoKeys, publicRepoUrl } from './repo-cache';
 import { CANT_FUND, screenWinners, screenWallet } from './sanctions';
 import {
   DEADLINE_MARGIN_MS,
@@ -971,6 +972,8 @@ export async function sponsorStatus(ref: string, installationId: number) {
     undefined;
   facts.entries = entries.length;
   facts.paid = paidWinners(row, entries);
+  // v2.10 Ruling H6: the sponsor is a third party: a repo URL only with a fresh public read.
+  const shownRepos = await publicRepoKeys(entries.map((e) => e.repo_url));
   return {
     ...base,
     campaign_url: facts.campaignUrl,
@@ -988,7 +991,7 @@ export async function sponsorStatus(ref: string, installationId: number) {
       // Data: cleaned on read too (rows stored before v2.2's checks).
       name: plainText(e.name, true),
       live_url: shownUrl(e.live_url),
-      repo_url: shownUrl(e.repo_url),
+      repo_url: shownUrl(publicRepoUrl(e.repo_url, shownRepos)),
       live_link_note: sameLiveLink(e, entries),
       ...repoDates(e),
       score: e.score,

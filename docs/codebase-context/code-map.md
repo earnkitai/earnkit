@@ -378,7 +378,9 @@ apps/frontend/
     repo-cache.ts(+test)       GitHub repo facts for matching (chains, commits since each window
                                start, v2.9 A2 product: the repo's own signals and contract
                                candidates; v2.10 item 6: starter, traction, odds) in github_repo_facts,
-                               1 h per (repo, pushed_at); v2.10 R10: via_app (read through the App; once set, kept)
+                               1 h per (repo, pushed_at); v2.10 R10: via_app (read through the App; once set, kept); fix round 1:
+                               loadRepoFacts({ viaApp }) (App rows only through the App), Ruling H6 repo_public_reads:
+                               markRepoPublic, publicRepoKeys, publicRepoUrl, PUBLIC_READ_DAYS (7), sweepPublicReads
     installations.ts(+test)    save / touch installation by token hash or (v2.4) OAuth client key
                                (client_key); memory (GitHub, working_on, last payout wallet);
                                rememberWallets, installationWallets (installation_wallets);
@@ -802,7 +804,9 @@ apps/frontend/
                                login, account_created_at, public_repos on the nonce; 303 to the install page, cookie
                                kept, P3); takeNonce({ purpose: 'app' }) returns those columns; saveVerification (shared
                                insert, G9 code, via/github_installation_id); verifiedFor excludes 'app' rows unless
-                               asked (P11); APP_CONFIRM_LEAD; limited/cookieValue/clearCsrf exported for the App
+                               asked (P11); APP_CONFIRM_LEAD; limited/cookieValue/clearCsrf exported for the App; fix round 1:
+                               nonce = HMAC(EARNKIT_AUTH_SECRET, seed), an open link reused (not on shared clients),
+                               sweepVerifyNonces (cron cleanup step)
     github-app.ts(+test)       v2.10 item 7b: the optional read-only GitHub App. githubAppEnabled (GITHUB_APP_ID,
                                GITHUB_APP_SLUG, a PEM GITHUB_APP_PRIVATE_KEY, and the v2.9 sign-in on, P17), appJwt
                                (RS256, iat now-60 s, 10 min), installationToken (POST access_tokens: one repo, contents
