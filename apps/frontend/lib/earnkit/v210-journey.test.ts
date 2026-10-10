@@ -996,6 +996,89 @@ test('11.6 v2.10.2 (v2.11 8a): the owner\'s tokens.fun when the agent sends no m
   }),
 );
 
+test('11.7 v2.10.2 fix round 1 (C1): the owner\'s real flow with the real program files: tokens.fun without my_commits_90d, the tipjar Arc entry confirmed then submitted: the users question is about tokens.fun, asked exactly once; a yes or a no is final and no repo is asked twice', dbTest, () =>
+  withEnv({}, async () => {
+    const J = '11.7';
+    const ASK = /Does it have real users or revenue\?/;
+    const blockscout = checkDefaults.blockscout;
+    checkDefaults.blockscout = async (url: string) => ({ transactions_count: /0x498581ff/i.test(url) ? '99999' : '0' });
+    try {
+      const owner = 'jenil117';
+      const id = await newInstallation();
+      const ctx = ctxFor(id);
+      addRepos('minidevai', [ghRepo('minidevai', 'tokens.fun', { private: true, visibility: 'private', created_at: daysAgo(295) })]);
+      addRepos(owner, [ghRepo(owner, 'tipjar', { homepage: 'https://tipjar117-arc.vercel.app', created_at: daysAgo(6), description: 'Tips for creators in USDC on Arc' })]);
+      GITHUB.arcConfig.add(`${owner}/tipjar`);
+      PUSHED.add(`${owner}/tipjar`);
+      COMMITS.set(`${owner}/tipjar`, 4);
+      const TIPJAR_ARC = '0x3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c';
+      const input = {
+        github_user: owner,
+        repos: ['minidevai/tokens.fun', `${owner}/tipjar`],
+        local_repos: [
+          { name: 'tokens.fun', url: 'https://github.com/minidevai/tokens.fun', chains: [{ chain: 'base', mainnet: true }], live_url: 'https://tokens.fun', last_commit_at: daysAgo(2) },
+          { name: 'tipjar', url: `https://github.com/${owner}/tipjar`, chains: [{ chain: 'arc', mainnet: true }], contracts: [TIPJAR_ARC], live_url: 'https://tipjar117-arc.vercel.app', last_commit_at: daysAgo(1) },
+        ],
+      };
+      const replies: string[] = [];
+      const find = async (label: string, extra: object = {}) => {
+        const r = await call(J, label, 'find', { ...input, ...extra }, ctx);
+        replies.push(r.show_to_builder!);
+        return r;
+      };
+
+      // The tipjar's Arc entry, confirmed (the token launches), not submitted yet.
+      const program = 'arc-microgrants';
+      const project = { name: 'TipJar', description: 'Fans tip creators in USDC on Arc.', repo_url: `https://github.com/${owner}/tipjar`, live_url: 'https://tipjar117-arc.vercel.app', contracts: [TIPJAR_ARC] };
+      const answers = { ...answersFor(program, { builder_profile: `https://github.com/${owner}` }), payout_wallet: W };
+      await call(J, 'pick Arc', 'prepare', { program_id: program, project, agent: CC }, ctx);
+      const ready = await call(J, 'answers', 'prepare', { program_id: program, project, agent: CC, answers, coach_asked: true }, ctx);
+      assert.equal(ready.ready, true, ready.show_to_builder);
+      const yes = await call(J, 'yes', 'confirm', { program_id: program, project, answers, yes: true, wallet: W, agent: CC }, ctx);
+      assert.match(yes.show_to_builder!, /^Your token \$TIPJAR is live/, yes.show_to_builder);
+
+      // DoraHacks first: no users question while the entry waits on the owner's submission.
+      const waiting = await find('entry waiting');
+      assert.match(waiting.show_to_builder!.split('\n').at(-1)!, /^Your TipJar entry for Arc Microgrants is ready\. The only step left: submit it on DoraHacks by [A-Z][a-z]{2} \d{1,2}\. Did you submit it\?$/, waiting.show_to_builder);
+      assert.doesNotMatch(waiting.show_to_builder!, ASK);
+
+      // "I submitted": then the one users question, about tokens.fun (never the starter's Circle or a16z rows).
+      const told = await call(J, 'I submitted', 'tell', { submitted: { program_id: program, external_submission_url: 'https://dorahacks.io/buidl/2117' } }, ctx);
+      replies.push(told.show_to_builder ?? '');
+      const asked = await find('after submitting');
+      assert.equal(asked.show_to_builder!.split('\n').at(-1), 'tokens.fun could win up to $5,000 on Base with real users. Does it have real users or revenue? (yes/no)', asked.show_to_builder);
+      assert.equal((asked.users_question as { repo: string }).repo, 'minidevai/tokens.fun');
+
+      // Yes: final. tokens.fun leads; no repo is asked about after it.
+      await call(J, 'yes, real users', 'tell', { repo_facts: [{ repo: 'minidevai/tokens.fun', has_users: true }] }, ctx);
+      const known = await find('after yes');
+      assert.equal(known.show_to_builder!.split('\n').at(-1), 'Your tokens.fun can win up to $5,000 on Base. Want me to finish it?', known.show_to_builder);
+      assert.equal(known.users_question, undefined);
+      const again = await find('again');
+      assert.equal(again.users_question, undefined);
+      await find('show more', { more: true });
+      assert.equal(replies.filter((t) => ASK.test(t)).length, 1, replies.join('\n---\n'));
+
+      // No: final too, on a fresh connection: asked once about tokens.fun, then never about any repo.
+      const id2 = await newInstallation();
+      const ctx2 = ctxFor(id2);
+      // The same login holds the Arc entry, which it offers to pick up: the owner says no.
+      const offered = await call(J, 'no-path pickup', 'find', input, ctx2);
+      if (/^Pick up your earlier entr/.test(offered.show_to_builder!)) await call(J, 'no pickup', 'tell', { pickup: 'no' }, ctx2);
+      const first2 = await call(J, 'no-path first', 'find', input, ctx2);
+      assert.equal(first2.show_to_builder!.split('\n').at(-1), 'tokens.fun could win up to $5,000 on Base with real users. Does it have real users or revenue? (yes/no)', first2.show_to_builder);
+      await call(J, 'no users', 'tell', { repo_facts: [{ repo: 'minidevai/tokens.fun', has_users: false }] }, ctx2);
+      for (const label of ['after no', 'after no, again']) {
+        const r = await call(J, label, 'find', input, ctx2);
+        assert.doesNotMatch(r.show_to_builder!, ASK, r.show_to_builder);
+        assert.equal(r.users_question, undefined);
+      }
+    } finally {
+      checkDefaults.blockscout = blockscout;
+    }
+  }),
+);
+
 test('11.4 every journey reply: under 50 s; at most one bonus line; the first reply is one lead line (after private-repo lines only); "40%" only on the confirm line; no WETH, gas, terms link, emoji, em dash, "coin", "vault", "Clanker" or tool name; "skip" only as "skip the token"; no address in any description field; nothing else on the network', dbTest, async () => {
   assert.ok(said.length > 25, `${said.length} replies`);
   const coinWords = (text: string) =>
