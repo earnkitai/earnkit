@@ -304,8 +304,9 @@ export function alertFit(p: NewProgram, repos: FitRepo[], skip: AlertSkip, now: 
  */
 export function repoCanWin(p: NewProgram, r: FitRepo): boolean {
   if (!r.product || r.product.tier === 'noise') return false;
-  // v2.10 item 6: a low-odds repo is never alerted (nor offered in Also qualifies).
-  if (r.product.odds === 'low') return false;
+  // v2.10 item 6: a low-odds repo is never alerted (nor offered in Also qualifies). v2.11 8a (S3):
+  // nor an unknown one (asked about users first).
+  if (r.product.odds === 'low' || r.product.odds === 'unknown') return false;
   if ((p.any_chain || p.investment) && !fitsWideProgram(r.product)) return false;
   const f = applyBuilderFacts(repoFacts(r), r.said ?? undefined);
   if (!f) return false;

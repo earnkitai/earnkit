@@ -790,6 +790,13 @@ test('3.10 repoCanWin is false for a low-odds repo, even on a likely verdict; an
   assert.equal(alertable(p, [mentioned], NO_SKIP, NOW_ALERT), false);
 });
 
+test('v2.11 8a (1.7): repoCanWin is false for an unknown-odds repo (a private repo EarnKit couldn\'t read), so alerts never fire for it', () => {
+  const p = prog('base-unknown', 1);
+  const unknown = { score: 4, tier: 'project' as const, missing: [], unchecked: ['owned' as const, 'readme' as const], traction: 3, odds: 'unknown' as const, low_reason: null };
+  assert.equal(repoCanWin(p, tipjar({ product: unknown })), false);
+  assert.equal(alertable(p, [tipjar({ product: unknown })], NO_SKIP, NOW_ALERT), false);
+});
+
 // ---- v2.10 item 15: the deadline line ----
 const NOW15 = new Date('2026-10-12T15:00:00Z');
 const H = 3_600_000;

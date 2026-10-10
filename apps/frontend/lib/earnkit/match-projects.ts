@@ -16,6 +16,8 @@ import {
   ownerOk,
   missingSignalNote,
   productOdds,
+  hasRealUse,
+  oddsRank,
   productScore,
   reportedFacts,
   traction,
@@ -804,6 +806,11 @@ type ScoreCtx = {
    * read from the local view): `owned` is unchecked (never named, never counted), not false.
    */
   ownerUnknown?: boolean;
+  /**
+   * v2.11 8a (S4): GitHub hides this repo (a 404, re-review m1: never a rate limit), so a repo that is
+   * a product but for the unchecked owner is asked about (odds `unknown`), never scored low.
+   */
+  ownerHidden?: boolean;
 };
 
 const within = (iso: string | undefined | null, days: number, now: Date) =>
@@ -1126,11 +1133,14 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): P
  * v2.10 item 6: a product score with its traction and odds (productOdds). v2.10.1 B2: measured real
  * use makes it a product first (withRealUse), so polish never outweighs use. Pure.
  */
-function scored(p: Product, t: TractionFacts, usedTx: number | null, usersClaim: boolean): Product {
+function scored(p: Product, t: TractionFacts, usedTx: number | null, usersClaim: boolean, hidden: { ownerHidden?: boolean; saidNoUsers?: boolean } = {}): Product {
   const score = traction(t);
   // v2.10.1 (C1 b): the builder's users claim is real use once the live link loads and there is a commit in 90 days.
-  const used = withRealUse(p, usedTx, usersClaim && t.live_ok && (t.commits_90d ?? 0) > 0);
-  return { ...used, traction: score, ...productOdds(used, t, score) };
+  // v2.11 8a: on a repo GitHub hides, an active repo (last commit in 90 days, or no date sent, Ruling
+  // G3) is enough, so the yes never relies on an optional field the agent may not send.
+  const recent = (t.commits_90d ?? 0) > 0 || (hidden.ownerHidden === true && !p.missing.includes('active'));
+  const used = withRealUse(p, usedTx, usersClaim && t.live_ok && recent);
+  return { ...used, traction: score, ...productOdds(used, t, score, hidden) };
 }
 
 /**
@@ -1138,7 +1148,7 @@ function scored(p: Product, t: TractionFacts, usedTx: number | null, usersClaim:
  * active is a last commit within 90 days, or no date given (Ruling G3; young follows it); original
  * reads the name only.
  */
-function checkLocal(r: ReportedRepo, programs: ProgramFacts[], ctx: Pick<ScoreCtx, 'owned' | 'now' | 'said' | 'ownerUnknown'>): Prepared {
+function checkLocal(r: ReportedRepo, programs: ProgramFacts[], ctx: Pick<ScoreCtx, 'owned' | 'now' | 'said' | 'ownerUnknown' | 'ownerHidden'>): Prepared {
   const facts = said(reportedFacts(r, programs), ctx.said);
   const claimed = unverifiedMainnets(facts.chains);
   // Ruling G3: an unknown last commit counts as active (the agent is asked to send it).
@@ -1153,7 +1163,8 @@ function checkLocal(r: ReportedRepo, programs: ProgramFacts[], ctx: Pick<ScoreCt
       // v2.10 R3: EarnKit never reads its commits either: a last commit within 90 days is band 1.
       // v2.10.1 (C1 a): the builder's own count from the local git log, when the agent sends it.
       // Re-review m2: only for the builder's own repo; else the last-commit band.
-      const band = r.last_commit_at !== undefined && within(r.last_commit_at, 90, ctx.now) ? 1 : 0;
+      // v2.11 8a: no date sent is unknown (null, scores 0, never "no commits in 90 days"), as Ruling G3 reads it.
+      const band = r.last_commit_at === undefined ? null : within(r.last_commit_at, 90, ctx.now) ? 1 : 0;
       const commits_90d = ctx.owned ? (r.my_commits_90d ?? band) : band;
       const product = scored(
         productScore(
@@ -1164,6 +1175,7 @@ function checkLocal(r: ReportedRepo, programs: ProgramFacts[], ctx: Pick<ScoreCt
         { tx_count, live_ok: live, commits_90d },
         used_tx,
         facts.claims.includes('users'),
+        { ownerHidden: ctx.ownerHidden === true, saidNoUsers: ctx.said?.has_users === false },
       );
       const repo: RepoFacts = { ...confirmMainnets(facts, withCode), product, live_verified: live, commits_90d, tx_count: used_tx, users_said: ctx.said?.has_users ?? null };
       return { repo, verdicts: matchRepo(repo, programs) };
@@ -1173,8 +1185,8 @@ function checkLocal(r: ReportedRepo, programs: ProgramFacts[], ctx: Pick<ScoreCt
 
 /** A repo to score: from GitHub (with any local report of the same repo), or local only. */
 type Candidate =
-  | { key: string; github: Repo; owned: boolean; local?: ReportedRepo; token?: string; ownerUnknown?: undefined }
-  | { key: string; github?: undefined; owned: boolean; local: ReportedRepo; token?: undefined; ownerUnknown?: boolean };
+  | { key: string; github: Repo; owned: boolean; local?: ReportedRepo; token?: string; ownerUnknown?: undefined; ownerHidden?: undefined }
+  | { key: string; github?: undefined; owned: boolean; local: ReportedRepo; token?: undefined; ownerUnknown?: boolean; ownerHidden?: boolean };
 
 const recency = (c: Candidate) => Date.parse(c.github?.pushed_at ?? c.local?.last_commit_at ?? '') || 0;
 
@@ -1290,10 +1302,12 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
     let owned = !gh || !builder || gh.owner.toLowerCase() === builder.toLowerCase();
     // v2.10.1 B2: GitHub couldn't say (a private org repo): not owned, but unchecked, never "not your repo".
     let ownerUnknown = false;
+    let hidden = false;
     if (gh && builder && !owned && contribReads++ < CONTRIB_CANDIDATES) {
       const { c, notFound } = await contributionRead(`${gh.owner}/${gh.repo}`, builder);
       owned = c !== null && ownerOk(gh.owner, builder, c);
       ownerUnknown = c === null;
+      hidden = notFound;
       // v2.10.1 (C1 a): GitHub can't say, but the local git log shows the builder's own recent
       // commits: owned for matching, as a readable repo with their commits would be. Matching only:
       // the launch, deploy, entry and bonus gates keep their own proofs. Re-review m1: only when
@@ -1303,7 +1317,8 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
         ownerUnknown = false;
       }
     }
-    candidates.set(key, { key, owned, local: r, ...(ownerUnknown && { ownerUnknown }) });
+    // v2.11 8a (S4): only a 404 makes the repo unknown (asked about); a rate limit stays low.
+    candidates.set(key, { key, owned, local: r, ...(ownerUnknown && { ownerUnknown, ownerHidden: hidden }) });
   }
   // v2.9 A3: what the builder said, by repo key (else by the repo's name); a repo they said isn't
   // theirs is never scored (it still counts in `checked`).
@@ -1321,7 +1336,7 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
   const cache = deps.cache ?? DB_CACHE;
   // The reads run in parallel; then one LIST_BUDGET of checks, newest repos first (Ruling G5).
   const prepared = await mapLimit(toScore, 6, async (c) => {
-    const ctx: ScoreCtx = { builder, owned: c.owned, checks, now, cache, local: c.local, said: saidOf(c), starters: deps.starters, token: c.token, ownerUnknown: c.ownerUnknown };
+    const ctx: ScoreCtx = { builder, owned: c.owned, checks, now, cache, local: c.local, said: saidOf(c), starters: deps.starters, token: c.token, ownerUnknown: c.ownerUnknown, ownerHidden: c.ownerHidden };
     return c.github ? checkRepo(c.github, programs, ctx) : checkLocal(c.local, programs, ctx);
   });
   const deployed = await runChecks(prepared, checks);
@@ -1344,9 +1359,11 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
     }))
     .filter((r) => r.verdicts.length > 0)
     // v2.10 item 6 (Pre-flight P12): good odds first, then traction, then likely first, then the score.
+    // v2.11 8a (S5): odds (good, unknown, low), then real use (measured or claimed), then traction.
     .sort(
       (a, b) =>
-        Number(a.product.odds !== 'good') - Number(b.product.odds !== 'good') ||
+        oddsRank(a.product.odds) - oddsRank(b.product.odds) ||
+        Number(hasRealUse(b.facts)) - Number(hasRealUse(a.facts)) ||
         (b.product.traction ?? 0) - (a.product.traction ?? 0) ||
         Number(!a.verdicts.some((v) => v.status === 'likely')) -
           Number(!b.verdicts.some((v) => v.status === 'likely')) || b.product.score - a.product.score,
