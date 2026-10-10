@@ -21,7 +21,8 @@ import {
   tokenRow,
 } from './entry-text';
 import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TELL_DESCRIPTION, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
-import { bonusLine, presentFirstMessage, type Card, type FirstMessage } from './present';
+import { bonusLine, presentFirstMessage, skippedLine, submitStepLine, type Card, type FirstMessage } from './present';
+import { SKIP_REASONS } from './match-projects';
 import { ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, CONFIRM_SHARED_NOTE, PROJECT_REOFFER_NOTE, SUBMITTED_AGAIN_NOTE, SUBMITTED_SHARED_NOTE, handlers } from './tools';
 import { outcomeQuestion } from './outcomes';
 import { DEFAULT_GUIDANCE, PLAIN_FIX, PLAIN_LENGTH_FIX, PLAIN_NOTE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, walletAsk } from './coach';
@@ -99,7 +100,7 @@ import {
   sponsorDisclosureParts,
 } from './campaign-page-text';
 import type { FetchResult } from './ownership';
-import { BELOW_FLOOR_NOTE, INVESTMENT_NOTE, SIGNAL_WORDS, UNCHECKED_NOTE, matchRepo, productScore, type ProgramFacts, type RepoFacts, type Verdict } from './match';
+import { NEEDS_USERS, NO_USERS_YET, BELOW_FLOOR_NOTE, INVESTMENT_NOTE, SIGNAL_WORDS, UNCHECKED_NOTE, matchRepo, productScore, type ProgramFacts, type RepoFacts, type Verdict } from './match';
 import { CHAINS } from './chains';
 import { LIVE_FAILED_LINE, PLACEHOLDER_LINE, contractMissingLine, contractUncheckedLine } from './placeholder';
 import PolicySection from '../../app/terms/sections/PolicySection';
@@ -909,6 +910,8 @@ const v29ProjectTier = productScore({ active: true, young: true, original: true,
 const v29Verdicts = [
   matchRepo(v29Facts({ product: v29Product, live_verified: false, claims: ['mainnet', 'live', 'users'] }), v29Programs),
   matchRepo(v29Facts({ product: v29Product, live_verified: true, claims: ['users'] }), v29Programs),
+  // v2.10.1 B3: the investment note needs measured users (a16z is products only).
+  matchRepo(v29Facts({ product: v29Product, live_verified: true, tx_count: 120 }), v29Programs),
   matchRepo(v29Facts({ product: v29ProjectTier, live_verified: false }), v29Programs),
   matchRepo(v29Facts({ product: { ...v29ProjectTier, missing: [], unchecked: ['deployed'] }, live_verified: false }), v29Programs),
 ].flat();
@@ -928,6 +931,11 @@ const v29Part1Texts: [string, string][] = [
   ['UNCHECKED_NOTE', UNCHECKED_NOTE],
   ['INVESTMENT_NOTE', INVESTMENT_NOTE],
   ['BELOW_FLOOR_NOTE', BELOW_FLOOR_NOTE],
+  // v2.10.1 B1-B4: the submit step, the products-only note, its low-odds reason and every "Not matched" reason.
+  ['NEEDS_USERS', NEEDS_USERS],
+  ['NO_USERS_YET', NO_USERS_YET],
+  ['submitStepLine', submitStepLine({ entry: { program_id: 'arc-microgrants', title: 'Arc Microgrants', name: 'tipjar', submitted: false }, card: { ...arc, submit_site: 'DoraHacks' } })],
+  ['skippedLine', skippedLine({ checked: 3, fits: [], skipped: Object.values(SKIP_REASONS).map((reason, i) => ({ name: `repo${i}`, reason })) })!],
   ...v29Notes.map((n, i): [string, string] => [`matchRepo note[${i}]`, n]),
   ['presentFirstMessage: v2.9 rows', v29FirstReply],
 ];

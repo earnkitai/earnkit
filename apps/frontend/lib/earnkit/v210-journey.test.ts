@@ -187,6 +187,9 @@ function addRepos(owner: string, repos: GhRepo[]) {
   for (const r of repos) GITHUB.repos.set(r.full_name.toLowerCase(), r);
 }
 
+/** v2.10.1: commits in the last 90 days for a repo, when not the default 12. */
+const COMMITS = new Map<string, number>();
+
 /** Every installation's proof line, in the repos whose owner pushed it (`PUSHED`). */
 const OWNERS = new Set<number>();
 const PUSHED = new Set<string>();
@@ -269,7 +272,8 @@ function github(u: URL, init?: RequestInit): Response {
     if (rest.startsWith('/contents/')) return rawOf(r, decodeURIComponent(rest.slice('/contents/'.length)));
     if (rest === '/commits') {
       // 12 commits in the last 90 days, by an author GitHub can't link (a local email): item 8.
-      const n = u.searchParams.get('per_page') === '1' ? 1 : 12;
+      // v2.10.1: a fresh starter has only a few (COMMITS).
+      const n = u.searchParams.get('per_page') === '1' ? 1 : (COMMITS.get(key) ?? 12);
       return json(Array.from({ length: n }, (_, i) => ({ sha: `c${i}`, author: null, commit: { author: { date: daysAgo(i + 1) } } })));
     }
     if (rest === '/branches') return json([{ name: 'main' }]);
@@ -767,9 +771,16 @@ test('11.3 an old agent: confirm_entry with decision "go" through the MCP route 
   let names: string[];
   try {
     const res = await post(1, 'tools/call', { name: 'confirm_entry', arguments: { program_id: 'arc-microgrants', project, answers, decision: 'go', builder_confirmed: true, wallet: W } });
-    const body = (await res.json()) as { result?: { content: { text: string }[]; isError?: boolean } };
+    // v2.10.1 B5: an old-name call is answered as a stream: tools/list_changed first, then the reply
+    // in the words of the tools that client lists.
+    assert.match(res.headers.get('content-type') ?? '', /text\/event-stream/);
+    const events = (await res.text()).split('\n').filter((l) => l.startsWith('data: ')).map((l) => JSON.parse(l.slice(6)));
+    assert.deepEqual(events[0], { jsonrpc: '2.0', method: 'notifications/tools/list_changed' });
+    const body = events.at(-1) as { result?: { content: { text: string }[]; isError?: boolean } };
     assert.ok(body.result && !body.result.isError, JSON.stringify(body));
     reply = JSON.parse(body.result.content[0].text) as Reply;
+    assert.match(String(reply.tools_note), /refresh EarnKit's tool list/);
+    assert.doesNotMatch(JSON.stringify({ ...reply, show_to_builder: '' }), /\b(call|Call) (find|prepare|confirm|tell)\b/);
     const listed = (await (await post(2, 'tools/list', {})).json()) as { result: { tools: { name: string }[] } };
     names = listed.result.tools.map((t) => t.name).sort();
   } finally {
@@ -783,6 +794,128 @@ test('11.3 an old agent: confirm_entry with decision "go" through the MCP route 
   assert.deepEqual(names, ['confirm', 'find', 'prepare', 'tell']);
 });
 
+// ---- v2.10.1: the owner's live test of v2.10, replayed with the owner's real project shapes ----
+
+test('11.5 v2.10.1 the owner\'s three projects: tokens.fun (private org repo, live Base product with fee revenue) leads over the tipjar starter; EarnKit says why it is not matched; a16z never takes the starter; a confirmed Arc entry leads with the DoraHacks step; an old-name call names only old tools', dbTest, () =>
+  withEnv({}, async () => {
+    const J = '11.5';
+    const id = await newInstallation();
+    const ctx = ctxFor(id);
+    // GitHub as the owner has it (checked 2026-10-10): tokens.fun and EarnKit are private repos in
+    // orgs (404 to EarnKit, the contribution read too); the tipjar is a public starter, 4 commits.
+    addRepos('minidevai', [ghRepo('minidevai', 'tokens.fun', { private: true, visibility: 'private', created_at: daysAgo(295) })]);
+    addRepos('earnkitai', [ghRepo('earnkitai', 'earnkit', { private: true, visibility: 'private', created_at: daysAgo(653) })]);
+    addRepos('jenil04', [ghRepo('jenil04', 'tipjar', { homepage: 'https://tipjar-arc.vercel.app', created_at: daysAgo(6), description: 'Tips for creators in USDC on Arc' })]);
+    GITHUB.arcConfig.add('jenil04/tipjar');
+    PUSHED.add('jenil04/tipjar');
+    COMMITS.set('jenil04/tipjar', 4);
+    // tokens.fun's factory: thousands of Base transactions (its fees are real use); nothing else has any.
+    const TF_FACTORY = '0x7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a';
+    const TIPJAR_ARC = '0x3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b';
+    const blockscout = checkDefaults.blockscout;
+    checkDefaults.blockscout = async (url: string) => ({ transactions_count: url.toLowerCase().includes(TF_FACTORY) ? '12840' : '0' });
+    try {
+      const input = {
+        github_user: 'jenil04',
+        repos: ['minidevai/tokens.fun', 'earnkitai/earnkit', 'jenil04/tipjar'],
+        local_repos: [
+          { name: 'tokens.fun', url: 'https://github.com/minidevai/tokens.fun', chains: [{ chain: 'base', mainnet: true }], contracts: [TF_FACTORY], live_url: 'https://tokens.fun', last_commit_at: daysAgo(2) },
+          { name: 'earnkit', url: 'https://github.com/earnkitai/earnkit', chains: [], live_url: 'https://earnkit.com', last_commit_at: daysAgo(0) },
+          { name: 'tipjar', url: 'https://github.com/jenil04/tipjar', chains: [{ chain: 'arc', mainnet: true }], contracts: [TIPJAR_ARC], live_url: 'https://tipjar-arc.vercel.app', last_commit_at: daysAgo(1) },
+        ],
+      };
+
+      // "What can I earn?": every line the owner sees. tokens.fun leads (Base, measured users); EarnKit is named with its reason.
+      const first = await call(J, 'what can I earn', 'find', input, ctx, { first: true });
+      assert.deepEqual(first.show_to_builder!.split('\n'), [
+        'tokens.fun is private, so I matched it from your local copy.',
+        "Not matched: earnkit (EarnKit's own repo).",
+        'Your tokens.fun can win up to $5,000 on Base. Want me to finish it?',
+      ]);
+      assert.deepEqual(first.lead, { program_id: 'base-builder-grants', repo: 'tokens.fun' });
+      const matches = first.matches as { repo: string; program_id: string; status: string; missing: string[]; odds: string; traction: number; product_score?: number }[];
+      const tf = matches.find((m) => m.repo === 'tokens.fun' && m.program_id === 'base-builder-grants')!;
+      assert.deepEqual([tf.status, tf.missing, tf.odds], ['likely', [], 'good'], JSON.stringify(matches));
+      const tip = matches.find((m) => m.repo === 'tipjar' && m.program_id === 'arc-microgrants')!;
+      assert.ok(tf.traction > tip.traction, JSON.stringify(matches));
+      assert.ok(matches.every((m) => m.product_score === undefined));
+      // a16z: one row (any chain), tokens.fun's; never the starter.
+      assert.deepEqual(matches.filter((m) => m.program_id === 'a16z-speedrun').map((m) => m.repo), ['tokens.fun']);
+
+      // "Show more": tokens.fun's rows rank above the starter's; nothing says tokens.fun lacks users.
+      const more = await call(J, 'show more', 'find', { ...input, more: true }, ctx);
+      const t = more.show_to_builder!;
+      assert.ok(t.indexOf('| Base Builder Grant Program |') < t.indexOf('| Arc Microgrants |'), t);
+      assert.doesNotMatch(t, /tokens\.fun, (needs real users|low odds)/, t);
+      assert.doesNotMatch(t, /\| a16z speedrun SR008 \|[^\n]*\| tipjar/, t);
+      assert.match(t, /^Not matched: earnkit \(EarnKit's own repo\)\.$/m, t);
+
+      // The tipjar's Arc entry, confirmed (the token launches), not submitted on DoraHacks yet.
+      const program = 'arc-microgrants';
+      const project = { name: 'TipJar', description: 'Fans tip creators in USDC on Arc.', repo_url: 'https://github.com/jenil04/tipjar', live_url: 'https://tipjar-arc.vercel.app', contracts: [TIPJAR_ARC] };
+      const answers = { ...answersFor(program, { builder_profile: 'https://github.com/jenil04' }), payout_wallet: W };
+      await call(J, 'pick Arc', 'prepare', { program_id: program, project, agent: CC }, ctx);
+      const ready = await call(J, 'answers', 'prepare', { program_id: program, project, agent: CC, answers, coach_asked: true }, ctx);
+      assert.equal(ready.ready, true, ready.show_to_builder);
+      const yes = await call(J, 'yes', 'confirm', { program_id: program, project, answers, yes: true, wallet: W, agent: CC }, ctx);
+      assert.match(yes.show_to_builder!, /^Your token \$TIPJAR is live/, yes.show_to_builder);
+
+      // Back later: the only step left is the owner's own submission on DoraHacks, never "finish it".
+      const later = await call(J, 'later', 'find', input, ctx);
+      const day = later.show_to_builder!.match(/by ([A-Z][a-z]{2} \d{1,2})\. Did you submit it\?$/)?.[1];
+      assert.deepEqual(later.show_to_builder!.split('\n'), [
+        'Your entries: Arc Microgrants (TipJar, not submitted yet).',
+        'tokens.fun is private, so I matched it from your local copy.',
+        "Not matched: earnkit (EarnKit's own repo).",
+        `Your TipJar entry for Arc Microgrants is ready. The only step left: submit it on DoraHacks by ${day}. Did you submit it?`,
+      ]);
+      assert.ok(day, later.show_to_builder);
+      assert.doesNotMatch(later.show_to_builder!, /finish it|keep going/);
+      assert.deepEqual(later.lead, { program_id: program, step: 'submit', project_id: yes.project_id });
+      const showMore = await call(J, 'later, show more', 'find', { ...input, more: true }, ctx);
+      assert.match(showMore.show_to_builder!, /The only step left: submit it on DoraHacks by [A-Z][a-z]{2} \d{1,2}\. Did you submit it\?$/);
+      assert.doesNotMatch(showMore.show_to_builder!, /keep going|start on Arc/);
+      // "Yes, I submitted": then tokens.fun leads again.
+      await call(J, 'I submitted', 'tell', { submitted: { program_id: program, external_submission_url: 'https://dorahacks.io/buidl/2002' } }, ctx);
+      const after = await call(J, 'after submitting', 'find', input, ctx);
+      assert.equal(after.show_to_builder!.split('\n').at(-1), 'Your tokens.fun can win up to $5,000 on Base. Want me to finish it?');
+      // One question per short reply (the lead's), no em dash anywhere the owner reads.
+      for (const r of [first, later, after]) {
+        assert.equal((r.show_to_builder!.replaceAll('(private?)', '').match(/\?/g) ?? []).length, 1, r.show_to_builder);
+        assert.doesNotMatch(r.show_to_builder!, /—/);
+      }
+
+      // The owner's connector still lists the 8 old tools: list_programs answers in those words only.
+      const token = `v2101-route-${process.pid}-${Date.now()}`;
+      await saveInstallation(token);
+      const log = console.log;
+      console.log = () => {};
+      let res: Response;
+      try {
+        res = await mcpPost(
+          new Request('https://earnkit.com/mcp', {
+            method: 'POST',
+            headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'list_programs', arguments: input } }),
+          }),
+        );
+      } finally {
+        console.log = log;
+      }
+      const events = (await res.text()).split('\n').filter((l) => l.startsWith('data: ')).map((l) => JSON.parse(l.slice(6)));
+      assert.deepEqual(events[0], { jsonrpc: '2.0', method: 'notifications/tools/list_changed' });
+      const old = JSON.parse(events[1].result.content[0].text) as Reply;
+      const agentText = JSON.stringify({ ...old, show_to_builder: '' });
+      assert.doesNotMatch(agentText, /\b(call|Call|calling|then|or|before) (find|prepare|confirm|tell)\b(?! (me|you|it|them|the builder)\b)|\b(find|prepare|confirm|tell)'s\b/, agentText);
+      assert.match(agentText, /call prepare_submission/);
+      assert.match(String(old.tools_note), /refresh EarnKit's tool list in their connector settings, or disconnect and reconnect EarnKit/);
+      assert.match(old.show_to_builder!, /Not matched: earnkit \(EarnKit's own repo\)\./);
+    } finally {
+      checkDefaults.blockscout = blockscout;
+    }
+  }),
+);
+
 test('11.4 every journey reply: under 50 s; at most one bonus line; the first reply is one lead line (after private-repo lines only); "40%" only on the confirm line; no WETH, gas, terms link, emoji, em dash, "coin", "vault", "Clanker" or tool name; "skip" only as "skip the token"; no address in any description field; nothing else on the network', dbTest, async () => {
   assert.ok(said.length > 25, `${said.length} replies`);
   const coinWords = (text: string) =>
@@ -795,7 +928,8 @@ test('11.4 every journey reply: under 50 s; at most one bonus line; the first re
     `\\b(${[...OLD_TOOL_NAMES, 'sponsor_campaign'].join('|')})\\b|\\bcall(s|ing)? (find|prepare|confirm|tell)\\b|\\b(find|prepare|confirm|tell)( with\\b|\\()|\\bthe (find|prepare|confirm|tell) tool\\b`,
   );
   const confirmLine = /^(Ready\. )?Yes submits your entry and launches \$[A-Z0-9]+ \(.+\)(: 40% of its fees to you(, plus the builder bonus)?)?\.( Wallet: 0x[0-9a-fA-F]{4}…[0-9a-fA-F]{4}\.| Say yes with your wallet address\.)? yes \/ skip the token$/;
-  const otherFirstLine = /^(.+ is private, so I matched it from your local copy\.|I can't see .+ \(private\?\)\.( Allow read access: \S+)?)$/;
+  // v2.10.1 B4: and the one "Not matched" line for repos the agent named that got no row.
+  const otherFirstLine = /^(.+ is private, so I matched it from your local copy\.|I can't see .+ \(private\?\)\.( Allow read access: \S+)?|Not matched: .+\.)$/;
   for (const s of said) {
     const where = `${s.journey} ${s.label}`;
     assert.ok(s.ms < MAX_REPLY_MS, where);

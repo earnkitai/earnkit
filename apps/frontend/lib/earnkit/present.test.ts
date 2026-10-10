@@ -809,12 +809,11 @@ test('v2.8.1 §B9: a returning builder sees "Your entries" first; entered progra
     text,
   );
   assert.match(text, /\| Base Builder Grant Program \(entered\) \|/);
-  // Entered rows go last; the offer is never an entered program (nor speedrun). Arc, confirmed but
-  // not submitted yet, is not entered: finishing it is the offer.
-  assert.match(text, /\| Arc Microgrants \| 500 USDC/);
-  assert.match(text, /\| Base Builder Grant Program \(entered\) \|[^\n]*\n\n/);
-  assert.doesNotMatch(text, /start on (Base|a16z)/);
-  assert.match(text, /Want me to start on Arc Microgrants with tipjar\?/);
+  // Entered rows go last; the offer is never an entered program (nor speedrun). v2.10.1 B1: Arc,
+  // confirmed but not submitted yet, is entered too: the close is its only step left, on DoraHacks.
+  assert.match(text, /\| Arc Microgrants \(entered\) \| 500 USDC/);
+  assert.doesNotMatch(text, /start on (Base|a16z|Arc)|keep going/);
+  assert.ok(text.endsWith("Your tipjar entry for Arc Microgrants is ready. The only step left: submit it on the program's site by Oct 14. Did you submit it?"), text);
   const allIn = presentFirstMessage(msg({
     cards: [easyBase, easyArc, avax, speedrunCard],
     repos: repos(v('base-builder-grants', 'likely', ''), v('arc-microgrants', 'likely', ''), v('a16z-speedrun', 'likely', '')),
@@ -896,7 +895,8 @@ test('3.7 not interested: in no table, never the offer, not in Also open; applie
     applied,
   );
   assert.doesNotMatch(applied.split('\n\n').slice(1).join('\n\n'), /Base Builder Grant Program/);
-  assert.match(applied, /Want me to start on Arc Microgrants with tipjar\?/);
+  // v2.10.1 B1: the Arc entry is confirmed: submitting it is all that's left.
+  assert.match(applied, /The only step left: submit it on the program's site by Oct 14\. Did you submit it\?$/);
   // Applied alone still opens with the recap.
   const only = presentFirstMessage(msg({ cards, hidden: { notInterested: new Set(), applied: new Set(['base-builder-grants']) } }));
   assert.match(only, /^Your entries: Base Builder Grant Program: applied outside EarnKit\./);
@@ -1166,7 +1166,8 @@ test('8.2 v2.10 item 2 (R12): a returning builder: news, entries, the deadline l
     'Your entries: Base Builder Grant Program (payapp, not submitted yet).',
     line,
     'TipJar is private, so I matched it from your local copy.',
-    'Your TipJar can win 500 USDC on Arc by Oct 14. Want me to finish it?',
+    // v2.10.1 B1: the payapp entry is confirmed; its submission is the only step left, so it leads.
+    "Your payapp entry for Base Builder Grant Program is ready. The only step left: submit it on the program's site. Did you submit it?",
   ]);
   // A submitted entry's program never leads again.
   const done = presentFirstMessage(short({

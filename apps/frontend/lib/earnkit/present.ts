@@ -82,6 +82,8 @@ export type Card = {
   chains?: Chain[];
   /** Whether entries get a token (program file `token_policy`); 'off' means none. */
   token_policy?: 'encouraged' | 'allowed' | 'off';
+  /** v2.10.1 B1 (programs.ts submitSiteName): where the builder submits ("DoraHacks"), or null. */
+  submit_site?: string | null;
 };
 
 /** One EarnKit campaign row (leaderboard.ts campaignRow). */
@@ -138,7 +140,7 @@ export type FirstMessage = {
    * v2.8.1 §B9 (projects.ts openEntries): the builder's entries in open programs, newest first. They
    * open the message ("Your entries"), mark their programs "entered", and are never offered again.
    */
-  entries?: { program_id: string; title: string; name: string; submitted: boolean }[];
+  entries?: { program_id: string; title: string; name: string; submitted: boolean; id?: number }[];
   /**
    * v2.9 A3 (builder-memory.ts hiddenPrograms): programs the builder is not interested in, or applied
    * to outside EarnKit this round. Never in a table or the offer; applied ones are listed in "Your
@@ -326,6 +328,8 @@ export type YourRepos =
        * App's link, set by list_programs on the first one only, while the App is on and it has no proof.
        */
       fromLocal?: { name: string; full_name: string; link?: string | null }[];
+      /** v2.10.1 B4: repos the agent named that got no row, and why (match-projects.ts SKIP_REASONS). */
+      skipped?: { name: string; reason: string }[];
     }
   | { error: string };
 
@@ -441,7 +445,19 @@ export function privateRepoLines(r: YourRepos | null): string | null {
   for (const l of r.fromLocal ?? []) byName.set(l.name, byName.get(l.name) ?? l.link ?? null);
   const lines = [...byName].map(([name, link]) => PRIVATE_LOCAL_LINE(name, link));
   if (first) lines.push(CANT_SEE_LINE(first.name, first.link ?? null));
+  // v2.10.1 B4: no repo the agent named is ever dropped silently: one line for all of them.
+  const skipped = skippedLine(r);
+  if (skipped) lines.push(skipped);
   return lines.length ? lines.join('\n') : null;
+}
+
+/**
+ * v2.10.1 B4: "Not matched: earnkit (EarnKit's own repo); notes (no onchain code found)." for every
+ * repo the agent named that got no row, or null. Declarative, so the reply keeps its one question. Pure.
+ */
+export function skippedLine(r: YourRepos | null): string | null {
+  if (!r || 'error' in r || !r.skipped?.length) return null;
+  return `Not matched: ${r.skipped.map((x) => `${x.name} (${x.reason})`).join('; ')}.`;
 }
 
 /** No repo to match: none reported, or none found under the builder's GitHub user. */
@@ -501,12 +517,39 @@ const rowCell = (card: Card, row: RowLevel) =>
 const byRowLevel = (a: Pick<Fit, 'row'>, b: Pick<Fit, 'row'>) => levelRank(a.row?.level ?? 'Medium') - levelRank(b.row?.level ?? 'Medium');
 
 /**
- * v2.8.1 §B9: the programs the builder already entered (submitted). One confirmed but not submitted
- * yet stays offerable ("keep going"), so the builder finishes it. Pure. Not the same rule as
- * projects.ts enteredProgramIds (Ruling 29, "Also qualifies"), which counts any row, submitted or not.
+ * v2.8.1 §B9: the programs the builder already entered. v2.10.1 B1: every entry counts, submitted or
+ * not: an entry not submitted yet is already confirmed (projects.ts openEntries), so the only step
+ * left is the builder's own submission on the program's site (submitStep), never "finish it" or
+ * "keep going" again. Pure.
  */
-const enteredIds = (m: Pick<FirstMessage, 'entries'>) =>
-  new Set((m.entries ?? []).filter((e) => e.submitted).map((e) => e.program_id));
+const enteredIds = (m: Pick<FirstMessage, 'entries'>) => new Set((m.entries ?? []).map((e) => e.program_id));
+
+/**
+ * v2.10.1 B1: the entry whose only step left is the builder's submission on the program's site: the
+ * first (newest) entry not submitted yet, in a program still shown. Undefined without one. Pure.
+ */
+export function submitStep(m: Pick<FirstMessage, 'entries' | 'cards'>): { entry: NonNullable<FirstMessage['entries']>[number]; card: Card } | undefined {
+  const byId = new Map(m.cards.map((c) => [c.id, c]));
+  for (const e of m.entries ?? []) {
+    const card = byId.get(e.program_id);
+    if (!e.submitted && card && !card.sponsored) return { entry: e, card };
+  }
+  return undefined;
+}
+
+/**
+ * v2.10.1 B1: the submit-step lead, one line and one question: "Your tipjar entry for Arc
+ * Microgrants is ready. The only step left: submit it on DoraHacks by Oct 14. Did you submit it?".
+ * The site is the program's (programs.ts submitSiteName), else "the program's site"; "by" its own
+ * close day, dropped for a rolling one. Pure; exported for tests.
+ */
+export function submitStepLine(s: NonNullable<ReturnType<typeof submitStep>>): string {
+  const day = closeDayOf(s.card);
+  return (
+    `Your ${s.entry.name} entry for ${s.card.title} is ready. ` +
+    `The only step left: submit it on ${s.card.submit_site ?? "the program's site"}${day ? ` by ${day}` : ''}. Did you submit it?`
+  );
+}
 
 /** "Your entries" shows at most this many, then "N more". */
 const MAX_ENTRIES = 3;
@@ -670,13 +713,15 @@ export function presentFirstMessage(given: FirstMessage): string {
   const privateLines = privateRepoLines(m.repos);
   // v2.10 item 2 (R12, R14): news, entries and the deadline line, one line each, then the private
   // lines and the one lead. Everything else is behind "show more". No won line (no headline).
+  const step = submitStep(m);
   if (!given.more) {
     const lead = leadRow(m, entered);
     return [
       ...sections,
       privateLines,
       m.repos && 'error' in m.repos ? `Couldn't read your repos: ${m.repos.error}` : null,
-      given.holdQuestion ? null : leadLine(lead, { cards: given.cards, repos: m.repos, now: m.now }),
+      // v2.10.1 B1: an entry not submitted yet leads: its only step left is the builder's submission.
+      given.holdQuestion ? null : step ? submitStepLine(step) : leadLine(lead, { cards: given.cards, repos: m.repos, now: m.now }),
     ]
       .filter((x): x is string => Boolean(x))
       .join('\n');
@@ -844,6 +889,10 @@ function offer(
   // v2.8.1 §B8: with no repo, the program the builder can enter as they are (known not to need one).
   // v2.10 Ruling H1 (c1): the same pick as the "No repo yet?" line (noRepoPick).
   const asTheyAre = noMatch(m.repos) ? noRepoPick(m.cards.filter(offerable)) : undefined;
+  // v2.10.1 B1: an entry not submitted yet comes before any new start: submitting it is all that's
+  // left (no bonus line: its token is already decided).
+  const step = submitStep(m);
+  if (step) return { text: submitStepLine(step), campaign: false };
   if (!m.agentCanBuild) {
     const named = pick ? `${pick.card.title} with ${pick.repo}` : asTheyAre?.title;
     const namedId = pick ? pick.card.id : asTheyAre?.id;

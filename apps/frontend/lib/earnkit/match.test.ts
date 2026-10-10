@@ -432,11 +432,15 @@ test('2.6 a16z (any_chain, investment, min 5): products only, after_step with th
   const a16z: ProgramFacts = { ...speedrun, investment: true, min_product_score: 5 };
   const project = product({ deployed: false });
   assert.deepEqual(matchRepo(repo({ homepage: 'https://app.x', product: project }), [a16z]), []);
-  const [v] = matchRepo(repo({ homepage: 'https://app.x', product: product() }), [a16z]);
+  // v2.10.1 B3: products only: with measured users (50+ transactions) it is the company step.
+  const [v] = matchRepo(repo({ homepage: 'https://app.x', product: product(), tx_count: 120 }), [a16z]);
   assert.equal(v.status, 'after_step');
   assert.equal(v.note, INVESTMENT_NOTE);
   assert.deepEqual(v.missing, []);
   assert.equal(v.effort, 'weeks');
+  // Without them, never a fit: it needs real users first, and says so.
+  const [u] = matchRepo(repo({ homepage: 'https://app.x', product: product() }), [a16z]);
+  assert.deepEqual([u.status, u.note, u.missing, u.effort], ['after_step', 'needs real users first', ['real_users'], 'weeks']);
 });
 
 test('2.3b a docs repo is not original, so it never makes an a16z row', () => {

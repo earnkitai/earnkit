@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { yesNo } from './aliases';
+import { rowOdds } from './match';
 import { NotFoundError, alsoProgramFacts, getProgram, getProgramRow, isOpen, listPrograms } from './programs';
 import { guideText, programGuide } from './guide';
 import {
@@ -57,6 +58,7 @@ import {
   enterableWithoutRepo,
   layout,
   leadRow,
+  submitStep,
   presentFirstMessage,
   programUpdates,
   type FirstMessage,
@@ -261,19 +263,29 @@ const MATCHES_PER_PROGRAM = 3;
 
 /**
  * v2.9 A2: list_programs' `matches`, per repo and program, at most 3 repos per program (1 for an
- * any_chain program), the highest product score first. Programs keep the order the fits give. Pure.
+ * any_chain program). Programs keep the order the fits give. v2.10.1 B2: each row carries its odds
+ * (match.ts rowOdds), its low-odds reason and the repo's traction (real use: transactions, a live
+ * link, commits), and the repos rank by odds, then traction, then the product score; the polish-only
+ * product score is no longer shown, so a starter's README never reads as more than a product's users.
+ * Pure.
  */
 export function matchRows(fits: RepoFit[], oneRepo: Set<string>) {
-  const byProgram = new Map<string, { row: ReturnType<typeof row>; score: number }[]>();
-  const row = (f: RepoFit, v: RepoFit['verdicts'][number]) => ({
-    repo: f.repo,
-    repo_url: f.repo_url,
-    program_id: v.program_id,
-    status: v.status,
-    missing: v.missing,
-    effort: v.effort,
-    product_score: f.product?.score ?? null,
-  });
+  type Row = ReturnType<typeof row>;
+  const byProgram = new Map<string, { row: Row; score: number }[]>();
+  const row = (f: RepoFit, v: RepoFit['verdicts'][number]) => {
+    const odds = rowOdds(f.product, v, f.facts?.chains ?? {});
+    return {
+      repo: f.repo,
+      repo_url: f.repo_url,
+      program_id: v.program_id,
+      status: v.status,
+      missing: v.missing,
+      effort: v.effort,
+      odds: odds.odds,
+      ...(odds.low_reason && { low_reason: odds.low_reason }),
+      traction: f.product?.traction ?? 0,
+    };
+  };
   for (const f of fits)
     for (const v of f.verdicts) {
       const list = byProgram.get(v.program_id) ?? [];
@@ -282,7 +294,7 @@ export function matchRows(fits: RepoFit[], oneRepo: Set<string>) {
     }
   return [...byProgram].flatMap(([id, list]) =>
     list
-      .sort((a, b) => b.score - a.score)
+      .sort((a, b) => Number(a.row.odds !== 'good') - Number(b.row.odds !== 'good') || b.row.traction - a.row.traction || b.score - a.score)
       .slice(0, oneRepo.has(id) ? 1 : MATCHES_PER_PROGRAM)
       .map((x) => x.row),
   );
@@ -719,6 +731,8 @@ export function listProgramsInput(input: unknown) {
  */
 export const LEAD_NOTE =
   'A yes to "Want me to finish it?" means start preparing lead.program_id with lead.repo (call prepare). ' +
+  'When lead.step is "submit", the entry is already recorded and only the builder can submit it on the program\'s site: ' +
+  'never prepare it again; once they say they submitted, call tell with submitted: { program_id: lead.program_id }. ' +
   'Call find again with more: true only when the builder asks to see more programs, or says yes to "Want the 3 easiest?".';
 
 /** v2.8.1 §E18: what the agent does with list_programs' pick_up offer. */
@@ -1189,7 +1203,9 @@ export const handlers = {
     // v2.10 item 2: the short reply shows only its lead row (leadRow), "show more" every matched row.
     const shownLayout = { cards: withPools.filter((c) => !hide.has(c.id)), repos: yourRepos, entries: myEntries };
     // Ruling H10 (I1): the lead the short reply asks about, for the agent's yes.
-    const lead = more || first.holdQuestion ? undefined : leadRow(shownLayout);
+    // v2.10.1 B1: an entry not submitted yet leads instead (submitStep), as in presentFirstMessage.
+    const step = more || first.holdQuestion ? undefined : submitStep(shownLayout);
+    const lead = more || first.holdQuestion || step ? undefined : leadRow(shownLayout);
     const onScreen = !own ? [] : more ? layout(shownLayout).rows : [lead].filter((r) => r !== undefined);
     await recordShown(
       ctx.installationId,
@@ -1216,6 +1232,8 @@ export const handlers = {
         (more ? '' : ` ${LEAD_NOTE}`),
       // Ruling H10 (I1): what the lead line offers; a yes to it starts that program's preparation.
       ...(lead && { lead: { program_id: lead.card.id, repo: lead.repo } }),
+      // v2.10.1 B1: the entry is recorded; the builder's submission on the program's site is the only step left.
+      ...(step && { lead: { program_id: step.card.id, step: 'submit', ...(step.entry.id !== undefined && { project_id: step.entry.id }) } }),
       ...(walletNote && { wallet_note: walletNote }),
       ...(alerts.scheduleNote && { schedule_daily_check: alerts.scheduleNote }),
       ...(ask && {

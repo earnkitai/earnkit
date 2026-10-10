@@ -196,6 +196,8 @@ export type FitRepo = {
   product: Product;
   live_verified: boolean;
   said: SaidRepo | null;
+  /** v2.10.1 B2: the transaction count read for its contracts (real use); absent on rows from before v2.10.1 (unknown). */
+  tx_count?: number | null;
 };
 /**
  * v2.9 A7 (Pre-flight P13): a matched repo as alerts remember it, from its merged facts. A live link
@@ -219,6 +221,7 @@ export function fitRepoOf(
     product,
     live_verified: (f.live_verified ?? facts.live_verified) === true,
     said,
+    tx_count: facts.tx_count ?? null,
   };
 }
 
@@ -275,6 +278,7 @@ const repoFacts = (r: FitRepo): RepoFacts => ({
   commits_in_window: {},
   product: r.product,
   live_verified: r.live_verified,
+  tx_count: r.tx_count ?? null,
 });
 
 /**

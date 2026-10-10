@@ -19,6 +19,7 @@ import {
   productScore,
   reportedFacts,
   traction,
+  withRealUse,
   pickFiles,
   type Chain,
   type Claim,
@@ -168,7 +169,7 @@ const byPushed = (a: Repo, b: Repo) => Date.parse(b.pushed_at) - Date.parse(a.pu
 export async function userRepos(
   user: string,
   now = new Date(),
-): Promise<{ repos: Repo[]; found: number; dropped: Set<string>; contribReads: number }> {
+): Promise<{ repos: Repo[]; found: number; dropped: Map<string, string>; contribReads: number }> {
   const own: Repo[] = [];
   for (let page = 1; page <= 3 && own.length < REPO_LIMIT * 2; page++) {
     const batch = await gh<Repo[]>(
@@ -180,7 +181,8 @@ export async function userRepos(
   const names = new Set(own.map((r) => r.full_name.toLowerCase()));
   const contributed = await contributedRepos(user, names, now);
   const repos = [...own.filter((r) => !droppedRepo(r, now)), ...contributed.repos].sort(byPushed).slice(0, SCORE_LIMIT);
-  const dropped = new Set([...own.filter(notProduct), ...contributed.dropped].map(keyOf));
+  // v2.10.1 B4: each dropped repo's key with its reason, for a local report of the same repo.
+  const dropped = new Map([...own.filter(notProduct), ...contributed.dropped].map((r) => [keyOf(r), droppedReason(r)] as const));
   return { repos, found: own.length + contributed.found, dropped, contribReads: contributed.reads };
 }
 
@@ -784,6 +786,11 @@ type ScoreCtx = {
   starters?: readonly string[];
   /** v2.10 item 7b: the App installation token this repo is read through (a private repo), else absent. */
   token?: string;
+  /**
+   * v2.10.1 B2: GitHub couldn't say who owns this repo (a private repo of another account or an org,
+   * read from the local view): `owned` is unchecked (never named, never counted), not false.
+   */
+  ownerUnknown?: boolean;
 };
 
 const within = (iso: string | undefined | null, days: number, now: Date) =>
@@ -1083,16 +1090,20 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): P
     finish: async ({ live, deployed, unchecked, withCode, tx_count }) => {
       const product = scored(productScore({ ...signals, deployed }, unchecked ? ['deployed'] : []), { tx_count, live_ok: live, commits_90d });
       await save({ traction: product.traction, odds: product.odds });
-      const facts: RepoFacts = { ...confirmMainnets(base, withCode), product, live_verified: live, commits_90d };
+      const facts: RepoFacts = { ...confirmMainnets(base, withCode), product, live_verified: live, commits_90d, tx_count };
       return { repo: facts, verdicts: matchRepo(facts, programs) };
     },
   };
 }
 
-/** v2.10 item 6: a product score with its traction and odds (productOdds). Pure. */
+/**
+ * v2.10 item 6: a product score with its traction and odds (productOdds). v2.10.1 B2: measured real
+ * use makes it a product first (withRealUse), so polish never outweighs use. Pure.
+ */
 function scored(p: Product, t: TractionFacts): Product {
   const score = traction(t);
-  return { ...p, traction: score, ...productOdds(p, t, score) };
+  const used = withRealUse(p, t.tx_count);
+  return { ...used, traction: score, ...productOdds(used, t, score) };
 }
 
 /**
@@ -1100,7 +1111,7 @@ function scored(p: Product, t: TractionFacts): Product {
  * active is a last commit within 90 days, or no date given (Ruling G3; young follows it); original
  * reads the name only.
  */
-function checkLocal(r: ReportedRepo, programs: ProgramFacts[], ctx: Pick<ScoreCtx, 'owned' | 'now' | 'said'>): Prepared {
+function checkLocal(r: ReportedRepo, programs: ProgramFacts[], ctx: Pick<ScoreCtx, 'owned' | 'now' | 'said' | 'ownerUnknown'>): Prepared {
   const facts = said(reportedFacts(r, programs), ctx.said);
   const claimed = unverifiedMainnets(facts.chains);
   // Ruling G3: an unknown last commit counts as active (the agent is asked to send it).
@@ -1116,11 +1127,12 @@ function checkLocal(r: ReportedRepo, programs: ProgramFacts[], ctx: Pick<ScoreCt
       const product = scored(
         productScore(
           { active, young: active, original: !TUTORIAL.test(r.name), readme: false, deployed, owned: ctx.owned },
-          unchecked ? ['deployed', 'readme'] : ['readme'],
+          // v2.10.1 B2: an owner GitHub couldn't name is unchecked, never "not your repo".
+          [...(unchecked ? (['deployed', 'readme'] as const) : (['readme'] as const)), ...(ctx.ownerUnknown ? (['owned'] as const) : [])],
         ),
         { tx_count, live_ok: live, commits_90d },
       );
-      const repo: RepoFacts = { ...confirmMainnets(facts, withCode), product, live_verified: live, commits_90d };
+      const repo: RepoFacts = { ...confirmMainnets(facts, withCode), product, live_verified: live, commits_90d, tx_count };
       return { repo, verdicts: matchRepo(repo, programs) };
     },
   };
@@ -1128,8 +1140,8 @@ function checkLocal(r: ReportedRepo, programs: ProgramFacts[], ctx: Pick<ScoreCt
 
 /** A repo to score: from GitHub (with any local report of the same repo), or local only. */
 type Candidate =
-  | { key: string; github: Repo; owned: boolean; local?: ReportedRepo; token?: string }
-  | { key: string; github?: undefined; owned: boolean; local: ReportedRepo; token?: undefined };
+  | { key: string; github: Repo; owned: boolean; local?: ReportedRepo; token?: string; ownerUnknown?: undefined }
+  | { key: string; github?: undefined; owned: boolean; local: ReportedRepo; token?: undefined; ownerUnknown?: boolean };
 
 const recency = (c: Candidate) => Date.parse(c.github?.pushed_at ?? c.local?.last_commit_at ?? '') || 0;
 
@@ -1148,17 +1160,23 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
   const github: { repo: Repo; owned: boolean; token?: string }[] = [];
   // Ruling G4: keys dropped as a fork, template or archived repo stay dropped when the
   // same repo comes back through local_repos; the 100-commit reads share one cap of 3.
-  let dropped = new Set<string>();
+  let dropped = new Map<string, string>();
   let contribReads = 0;
   // v2.10 item 7: named repos GitHub won't show (404): read through the App, else matched from a
   // local report (`fromLocal`), else `unseen`. `skipLocal`: keys whose read failed another way.
   const notFound: string[] = [];
   const skipLocal = new Set<string>();
+  // v2.10.1 B4: every repo the agent named (repos or local_repos) that gets no row says why, once.
+  const skipped = new Map<string, { name: string; reason: string }>();
+  const skip = (key: string, name: string, reason: string) => {
+    if (!skipped.has(key)) skipped.set(key, { name, reason });
+  };
   const tokens = new Map<string, string>();
   if (input.repos?.length) {
     const names = input.repos.map(fullName);
     found += names.length;
     // v2.10 item 7: each repo read is caught on its own, so one private repo never fails the rest.
+    for (const n of names.filter((n) => earnkitOwner(n.split('/')[0]))) skip(namedKey(n), n.split('/')[1], SKIP_REASONS.earnkit);
     const settled = await mapLimit(
       names.filter((n) => !earnkitOwner(n.split('/')[0])),
       6,
@@ -1173,6 +1191,7 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
       if (!(s.err instanceof GitHubError && s.err.status === 404)) {
         // Review Focus 1: a rate limit or outage is not "private": skipped, and its local view too.
         skipLocal.add(namedKey(s.n));
+        skip(namedKey(s.n), s.n.split('/')[1], SKIP_REASONS.github);
         continue;
       }
       const token = (await deps.appToken?.(s.n).catch(() => null)) ?? null;
@@ -1186,8 +1205,11 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
     const firstErr = settled.find((s): s is { n: string; err: unknown } => 'err' in s)?.err;
     if (settled.length > 0 && settled.every((s) => 'err' in s && !(s.err instanceof GitHubError && s.err.status === 404)))
       throw firstErr;
-    dropped = new Set(read.filter(notProduct).map(keyOf));
-    const kept = read.filter((r) => !droppedRepo(r, now, { named: true })).sort(byPushed).slice(0, SCORE_LIMIT);
+    dropped = new Map(read.filter(notProduct).map((r) => [keyOf(r), droppedReason(r)] as const));
+    for (const r of read.filter(notProduct)) skip(keyOf(r), r.name, droppedReason(r));
+    const unread = read.filter((r) => !droppedRepo(r, now, { named: true })).sort(byPushed);
+    for (const r of unread.slice(SCORE_LIMIT)) skip(keyOf(r), r.name, SKIP_REASONS.limit);
+    const kept = unread.slice(0, SCORE_LIMIT);
     // Pre-flight P28: without a builder, a named repo counts like a local one (owned unless EarnKit's).
     for (const r of kept) {
       const owner = ownerOf(r);
@@ -1216,8 +1238,13 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
   for (const r of input.local_repos ?? []) {
     found++;
     const gh = r.url ? githubRepo(r.url) : null;
-    if (gh && earnkitOwner(gh.owner)) continue;
     const key = repoKey({ url: r.url, name: r.name });
+    if (gh && earnkitOwner(gh.owner)) {
+      skip(key, r.name, SKIP_REASONS.earnkit);
+      continue;
+    }
+    // v2.10.1 B4: a local repo GitHub showed as a fork, template, archived or EarnKit's says why.
+    if (dropped.has(key)) skip(key, r.name, dropped.get(key)!);
     if (dropped.has(key) || skipLocal.has(key)) continue;
     const known = candidates.get(key);
     if (known) {
@@ -1228,11 +1255,14 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
     // G4 (I3): then it gets the same 100-commit read (within the shared cap of 3). Ruling G5: fail
     // closed, so a repo GitHub won't show (private) is not owned and caps at project tier.
     let owned = !gh || !builder || gh.owner.toLowerCase() === builder.toLowerCase();
+    // v2.10.1 B2: GitHub couldn't say (a private org repo): not owned, but unchecked, never "not your repo".
+    let ownerUnknown = false;
     if (gh && builder && !owned && contribReads++ < CONTRIB_CANDIDATES) {
       const c = await contribution(`${gh.owner}/${gh.repo}`, builder);
       owned = c !== null && ownerOk(gh.owner, builder, c);
+      ownerUnknown = c === null;
     }
-    candidates.set(key, { key, owned, local: r });
+    candidates.set(key, { key, owned, local: r, ...(ownerUnknown && { ownerUnknown }) });
   }
   // v2.9 A3: what the builder said, by repo key (else by the repo's name); a repo they said isn't
   // theirs is never scored (it still counts in `checked`).
@@ -1240,16 +1270,17 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
     const name = c.github?.name ?? c.local?.name ?? '';
     return input.said?.[c.key] ?? input.said?.[repoKey({ name })];
   };
-  const toScore = [...candidates.values()]
-    .filter((c) => !saidOf(c)?.not_mine)
-    .sort((a, b) => recency(b) - recency(a))
-    .slice(0, SCORE_LIMIT);
+  const ranked = [...candidates.values()].filter((c) => !saidOf(c)?.not_mine).sort((a, b) => recency(b) - recency(a));
+  const toScore = ranked.slice(0, SCORE_LIMIT);
+  // v2.10.1 B4: only repos the agent named say why (a GitHub user's whole list never does).
+  const named = (c: Candidate) => Boolean(c.local) || Boolean(input.repos?.length);
+  for (const c of ranked.slice(SCORE_LIMIT)) if (named(c)) skip(c.key, c.github?.name ?? c.local!.name, SKIP_REASONS.limit);
 
   const checks: CheckDeps = { ...deps.checks, now };
   const cache = deps.cache ?? DB_CACHE;
   // The reads run in parallel; then one LIST_BUDGET of checks, newest repos first (Ruling G5).
   const prepared = await mapLimit(toScore, 6, async (c) => {
-    const ctx: ScoreCtx = { builder, owned: c.owned, checks, now, cache, local: c.local, said: saidOf(c), starters: deps.starters, token: c.token };
+    const ctx: ScoreCtx = { builder, owned: c.owned, checks, now, cache, local: c.local, said: saidOf(c), starters: deps.starters, token: c.token, ownerUnknown: c.ownerUnknown };
     return c.github ? checkRepo(c.github, programs, ctx) : checkLocal(c.local, programs, ctx);
   });
   const deployed = await runChecks(prepared, checks);
@@ -1289,8 +1320,38 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
       if (!saidOf(c)?.not_mine && toScore.includes(c)) fromLocal.push({ name: c.local.name, full_name: n });
     } else if (!c) unseen.push({ name: n.split('/')[1], full_name: n });
   }
-  return { checked: found, scored: results.length, fits, unseen, fromLocal };
+  // v2.10.1 B4: a scored repo the agent named with no row left: why, in a few words.
+  for (const r of results)
+    if (!fits.some((f) => f.key === r.key) && named(candidates.get(r.key)!)) skip(r.key, r.repo.name, noFitReason(r.repo));
+  // The can't-see line names the first unseen repo; every other one is listed here (never dropped).
+  for (const u of unseen.slice(1)) skip(namedKey(u.full_name), u.name, SKIP_REASONS.unseen);
+  return { checked: found, scored: results.length, fits, unseen, fromLocal, skipped: [...skipped.values()] };
 }
+
+/**
+ * v2.10.1 B4: why a repo the agent named gets no row, in a few builder words (the "Not matched:"
+ * line, present.ts skippedLine). Never a tool name.
+ */
+export const SKIP_REASONS = {
+  earnkit: "EarnKit's own repo",
+  fork: 'a fork',
+  template: 'a template',
+  archived: 'archived',
+  github: "GitHub didn't answer; ask me again in a minute",
+  limit: `only the ${SCORE_LIMIT} newest repos are checked`,
+  unseen: "private, and I can't see it",
+  noChain: 'no onchain code found',
+  noProduct: 'not enough signs of a real product yet',
+  noFit: 'no open program fits it yet',
+} as const;
+
+/** v2.10.1 B4: a dropped repo's reason (notProduct). Pure. */
+const droppedReason = (r: Repo) =>
+  earnkitOwner(ownerOf(r)) ? SKIP_REASONS.earnkit : r.archived ? SKIP_REASONS.archived : r.fork ? SKIP_REASONS.fork : SKIP_REASONS.template;
+
+/** v2.10.1 B4: a scored repo with no row: no chain at all, too little product, else nothing open fits. Pure. */
+const noFitReason = (f: RepoFacts) =>
+  Object.keys(f.chains).length === 0 ? SKIP_REASONS.noChain : f.product?.tier === 'noise' ? SKIP_REASONS.noProduct : SKIP_REASONS.noFit;
 
 /** A named repo's key (answer-bank.ts repoKey), as a local report of the same repo gets it. */
 const namedKey = (n: string) => repoKey({ url: `https://github.com/${n}`, name: n.split('/')[1] });

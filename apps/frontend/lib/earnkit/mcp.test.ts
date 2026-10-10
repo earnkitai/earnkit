@@ -6,7 +6,11 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { escrowConfig, escrowConfigProblem } from './escrow';
 import { FIND_DESCRIPTION, OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, errorSummary, TOOL_DESCRIPTIONS, createMcpServer, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { handlers } from './tools';
-import { OLD_TOOL_NAMES, aliasCall } from './aliases';
+import { OLD_TOOL_NAMES, STALE_TOOLS_NOTE, aliasCall, inOldWords } from './aliases';
+
+/** v2.10.1 B5: a reply object's agent strings in a stale client's words (aliases.ts forOldClient, minus the note). */
+const oldWords = (v: unknown, used: string): unknown =>
+  typeof v === 'string' ? inOldWords(v, used) : Array.isArray(v) ? v.map((x) => oldWords(x, used)) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, /^show_to_|^question$/.test(k) ? x : oldWords(x, used)])) : v;
 import { POST } from '../../app/mcp/route';
 import { saveInstallation } from './installations';
 import { upsertProgram } from './programs';
@@ -500,8 +504,14 @@ test('9.7 (Review Focus 2) the route: an old get_program call returns what find 
     const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'content-length': String(body.length) };
     return POST(new Request('https://earnkit.test/mcp', { method: 'POST', headers, body }));
   };
+  // v2.10.1 B5: an old-name call is answered as a stream whose first event is tools/list_changed.
+  const events = async (r: Response) =>
+    (await r.text())
+      .split('\n')
+      .filter((l) => l.startsWith('data: '))
+      .map((l) => JSON.parse(l.slice('data: '.length)) as Record<string, unknown>);
   const reply = async (r: Response) => {
-    const body = (await r.json()) as { result?: { content: { text: string }[]; isError?: boolean }; error?: unknown };
+    const body = (/event-stream/.test(r.headers.get('content-type') ?? '') ? (await events(r)).at(-1) : await r.json()) as { result?: { content: { text: string }[]; isError?: boolean }; error?: unknown };
     assert.ok(body.result, JSON.stringify(body));
     assert.notEqual(body.result.isError, true, body.result.content[0].text);
     // Alerts are said once per check, so the first reply may open with them: compared without.
@@ -513,10 +523,28 @@ test('9.7 (Review Focus 2) the route: an old get_program call returns what find 
   const log = console.log;
   console.log = (...a: unknown[]) => void logs.push(a.map(String).join(' '));
   try {
-    const fresh = await reply(await post(1, 'find', { program_id: program.id }));
-    const old = await reply(await post(2, 'get_program', { program_id: program.id }));
-    assert.deepEqual(old, fresh);
+    const freshRes = await post(1, 'find', { program_id: program.id });
+    assert.match(freshRes.headers.get('content-type') ?? '', /application\/json/, 'a new-name call is plain JSON');
+    const fresh = await reply(freshRes);
+    const oldRes = await post(2, 'get_program', { program_id: program.id });
+    assert.match(oldRes.headers.get('content-type') ?? '', /text\/event-stream/);
+    const [changed] = await events(oldRes.clone());
+    assert.deepEqual(changed, { jsonrpc: '2.0', method: 'notifications/tools/list_changed' });
+    const old = await reply(oldRes);
+    // v2.10.1 B5: the same reply, in the words of the tools that client lists, plus the refresh note.
+    assert.equal(old.tools_note, STALE_TOOLS_NOTE);
+    delete old.tools_note;
+    assert.deepEqual(old, oldWords(fresh, 'get_program'));
     assert.match(String(fresh.show_to_builder), /^Arc Microgrants/);
+    assert.equal(old.show_to_builder, fresh.show_to_builder);
+    // tools/list through the route: the 4 tools only, whichever names the client called.
+    const list = await POST(new Request('https://earnkit.test/mcp', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/list', params: {} }),
+    }));
+    const names = ((await list.json()) as { result: { tools: { name: string }[] } }).result.tools.map((t) => t.name).sort();
+    assert.deepEqual(names, FOUR);
   } finally {
     console.log = log;
   }
