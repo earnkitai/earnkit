@@ -4009,6 +4009,58 @@ test('fix round 2 (N6): prepare with deploy refuses when the installation login 
   }
 });
 
+test('final fix M3: on a shared client, prepare with deploy refuses while sign-in is off, and when the caller login read fails', dbTest, async () => {
+  const { DEPLOY_LINES } = await import('./deploy');
+  const f = committedProgram('arc-microgrants');
+  const stamp = `${process.pid}-${Date.now()}`;
+  Object.assign(f, { id: `t10-m3-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' });
+  await upsertProgram(ProgramFile.parse(f));
+  const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t10m3-${stamp}`}) RETURNING id`;
+  let chainCalls = 0;
+  let loginReads = 0;
+  const call = {
+    program_id: f.id,
+    project: { name: 'TipJar', repo_url: 'https://github.com/alice/tipjar' },
+    signed_in: 'ABCD-EFGH',
+    deploy: { chain: 'base', bytecode: '0x6060', abi: [], owner_wallet: '0x2222222222222222222222222222222222222222' },
+  };
+  const ctx = {
+    installationId: id,
+    sharedClient: true,
+    deployDeps: {
+      chain: () => ((chainCalls++), null),
+      callerLogin: async () => {
+        loginReads++;
+        throw new Error('db down');
+      },
+    },
+  };
+  const keys = ['DEPLOYER_PRIVATE_KEY', 'GITHUB_OAUTH_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_SECRET'];
+  const old = keys.map((k) => process.env[k]);
+  process.env.DEPLOYER_PRIVATE_KEY = '5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a';
+  delete process.env.GITHUB_OAUTH_CLIENT_ID;
+  delete process.env.GITHUB_OAUTH_CLIENT_SECRET;
+  try {
+    // Sign-in off: no deploy on a shared client (never keyed by the repo or the agent-wide proof).
+    const off = (await tools.prepare(call, ctx)) as { deploy: unknown; show_to_builder: string };
+    assert.deepEqual(off.deploy, { unavailable: DEPLOY_LINES.off });
+    assert.ok(off.show_to_builder.endsWith(DEPLOY_LINES.off), off.show_to_builder);
+    assert.equal(loginReads, 0);
+    // Sign-in on, the caller login read fails: refused (N6), never a deploy keyed by the repo.
+    process.env.GITHUB_OAUTH_CLIENT_ID = 'test-client';
+    process.env.GITHUB_OAUTH_CLIENT_SECRET = 'test-secret';
+    const errLog = console.error;
+    console.error = () => {};
+    const failed = (await tools.prepare(call, ctx).finally(() => (console.error = errLog))) as { deploy: unknown; show_to_builder: string };
+    assert.deepEqual(failed.deploy, { unavailable: DEPLOY_LINES.lowBalance });
+    assert.equal(loginReads, 1);
+    assert.equal(chainCalls, 0, 'nothing reached the deploy');
+  } finally {
+    keys.forEach((k, i) => (old[i] === undefined ? delete process.env[k] : (process.env[k] = old[i])));
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${f.id}`;
+  }
+});
+
 test('T11 fix (journey 11.0): prepare with deploy checks this draft with the deployed contract: no "No contract found" next to the deployed line', dbTest, async () => {
   const { deployedLine } = await import('./deploy');
   const f = committedProgram('arc-microgrants', { keepContract: true });
