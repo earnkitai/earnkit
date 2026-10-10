@@ -563,6 +563,13 @@ test('v2.10.2 fix round 1 (M6): the users question reads a range prize as "up to
   );
 });
 
+test('v2.10.2 re-review 2 (R2-I1): the users question never calls an investment money to win', () => {
+  const a16z = CARDS.find((c) => c.investment)!;
+  const line = usersAskLine({ repo: 'tokens.fun', key: null, card: a16z });
+  assert.equal(line, 'tokens.fun could get up to $1M investment from a16z speedrun SR008 with real users. Does it have real users or revenue? (yes/no)');
+  assert.doesNotMatch(line, /could win/);
+});
+
 // ---- v2.10.2 fix round 2 (re-review R1-I1): a starter is told apart by age or origin, never by traction ----
 
 test('v2.10.2 fix round 2: tokens.fun as the builder\'s own public repo (no contract, live, few commits) is asked about users, though its traction is 3', async () => {
