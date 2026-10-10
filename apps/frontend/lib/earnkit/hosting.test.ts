@@ -325,13 +325,15 @@ test('8.8 deploySite refusals write nothing', db, async () => {
 });
 
 test('8.9 a clean zip goes live; a flagged one goes to review and waits on the owner', db, async () => {
-  await sql()`DELETE FROM hosted_sites WHERE slug = 'tipjar-alice' OR repo_key = 'alice/tipjar-alice'`;
-  await sql()`DELETE FROM host_deploys WHERE login = 'alice'`;
-  await sql()`DELETE FROM github_verifications WHERE login = 'alice' AND repo_key = 'alice/tipjar-alice'`;
-  await sql()`INSERT INTO url_checks (key, ok, checked_at) VALUES ('url:https://tipjar-alice.earnkit.com/', false, now())
+  const L = `hz${stamp()}`; // its own login and slug: other files write `alice` sign-ins at the same time
+  const SLUG = `tipjar-${L}`;
+  await sql()`DELETE FROM hosted_sites WHERE slug = ${SLUG} OR repo_key = ${`${L}/${SLUG}`}`;
+  await sql()`DELETE FROM host_deploys WHERE login = ${L}`;
+  await sql()`DELETE FROM github_verifications WHERE login = ${L} AND repo_key = ${`${L}/${SLUG}`}`;
+  await sql()`INSERT INTO url_checks (key, ok, checked_at) VALUES (${`url:https://${SLUG}.earnkit.com/`}, false, now())
     ON CONFLICT (key) DO UPDATE SET ok = false, checked_at = now()`;
-  const u = await upload({ login: 'alice', slug: 'tipjar-alice' });
-  const f = fakeR2(['sites/tipjar-alice/old.html', 'sites/tipjar-alice/index.html']);
+  const u = await upload({ login: L, slug: SLUG });
+  const f = fakeR2([`sites/${SLUG}/old.html`, `sites/${SLUG}/index.html`]);
   const zip = zipOf({
     'dist/index.html': strToU8(html('<h1>Tip Jar</h1>')),
     'dist/app.js': strToU8("localStorage.setItem('tips', '1')"),
@@ -339,47 +341,47 @@ test('8.9 a clean zip goes live; a flagged one goes to review and waits on the o
   });
   const out = await deploySite(u.token, zip, { r2: f.r2 });
   assert.equal(out.status, 200);
-  assert.equal(out.body.show_to_builder, 'TipJar is live: tipjar-alice.earnkit.com');
-  assert.equal(out.body.url, 'https://tipjar-alice.earnkit.com');
+  assert.equal(out.body.show_to_builder, `TipJar is live: ${SLUG}.earnkit.com`);
+  assert.equal(out.body.url, `https://${SLUG}.earnkit.com`);
   assert.equal(out.body.agent_note, STORAGE_NOTE);
-  assert.ok(!f.objects.has('sites/tipjar-alice/old.html'), 'old files deleted');
-  assert.equal(f.objects.get('sites/tipjar-alice/index.html')?.type, 'text/html; charset=utf-8');
-  assert.equal(f.objects.get('sites/tipjar-alice/app.js')?.type, 'text/javascript');
-  assert.equal(f.objects.get('sites/tipjar-alice/img/logo.png')?.type, 'image/png');
-  assert.match(new TextDecoder().decode(f.objects.get('sites/tipjar-alice/index.html')!.body), /Report abuse\.<\/a><\/div><\/body>/);
-  assert.deepEqual(f.state('tipjar-alice'), { status: 'live', login: 'alice' });
-  assert.equal(f.calls.at(-1), 'put state/tipjar-alice.json', 'the live state is written last');
+  assert.ok(!f.objects.has(`sites/${SLUG}/old.html`), 'old files deleted');
+  assert.equal(f.objects.get(`sites/${SLUG}/index.html`)?.type, 'text/html; charset=utf-8');
+  assert.equal(f.objects.get(`sites/${SLUG}/app.js`)?.type, 'text/javascript');
+  assert.equal(f.objects.get(`sites/${SLUG}/img/logo.png`)?.type, 'image/png');
+  assert.match(new TextDecoder().decode(f.objects.get(`sites/${SLUG}/index.html`)!.body), /Report abuse\.<\/a><\/div><\/body>/);
+  assert.deepEqual(f.state(SLUG), { status: 'live', login: L });
+  assert.equal(f.calls.at(-1), `put state/${SLUG}.json`, 'the live state is written last');
   const [row] = await sql()<{ status: string; files: number; repo_key: string; expires_at: Date }[]>`
-    SELECT status, files, repo_key, expires_at FROM hosted_sites WHERE slug = 'tipjar-alice'`;
+    SELECT status, files, repo_key, expires_at FROM hosted_sites WHERE slug = ${SLUG}`;
   assert.equal(row.status, 'live');
   assert.equal(row.files, 3);
-  assert.equal(row.repo_key, 'alice/tipjar-alice');
+  assert.equal(row.repo_key, `${L}/${SLUG}`);
   assert.ok(Math.abs(row.expires_at.getTime() - (Date.now() + 7 * 86_400_000)) < 60_000, 'no entry: upload + 7 days');
   // Ruling G19, P39: the hosted link counts as verified now, the stale failure gone.
-  const [check] = await sql()<{ ok: boolean }[]>`SELECT ok FROM url_checks WHERE key = 'url:https://tipjar-alice.earnkit.com/'`;
+  const [check] = await sql()<{ ok: boolean }[]>`SELECT ok FROM url_checks WHERE key = ${`url:https://${SLUG}.earnkit.com/`}`;
   assert.equal(check.ok, true);
 
   // Flagged: review state first, the review line, and the owner's needs_owner.
-  const again = await upload({ login: 'alice', slug: 'tipjar-alice' });
+  const again = await upload({ login: L, slug: SLUG });
   await sql()`DELETE FROM host_upload_tokens WHERE token_hash = ${sha(again.token)}`;
   await sql()`
     INSERT INTO host_upload_tokens (token_hash, installation_id, login, repo_key, slug, project, expires_at)
-    VALUES (${sha(again.token)}, ${u.installationId}, 'alice', 'alice/tipjar-alice', 'tipjar-alice', 'TipJar', ${new Date(Date.now() + 900_000)})`;
+    VALUES (${sha(again.token)}, ${u.installationId}, ${L}, ${`${L}/${SLUG}`}, ${SLUG}, 'TipJar', ${new Date(Date.now() + 900_000)})`;
   const g = fakeR2();
   const flagged = await deploySite(again.token, site({ 'img/help.svg': strToU8('<svg><text>Type your seed phrase to restore</text></svg>') }), { r2: g.r2 });
   assert.equal(flagged.status, 200);
   assert.deepEqual(flagged.body, { show_to_builder: HOST_REVIEW, review: true });
   assert.ok(g.calls.every((c) => !c.includes(' sites/') && !c.includes(' state/')), 'nothing served is written (I1)');
-  const [r] = await sql()<{ status: string }[]>`SELECT status FROM hosted_sites WHERE slug = 'tipjar-alice'`;
+  const [r] = await sql()<{ status: string }[]>`SELECT status FROM hosted_sites WHERE slug = ${SLUG}`;
   assert.equal(r.status, 'live', 'the approved site keeps serving');
   const [d] = await sql()<{ status: string; flags: string[] }[]>`
-    SELECT status, flags FROM host_deploys WHERE slug = 'tipjar-alice' ORDER BY id DESC LIMIT 1`;
+    SELECT status, flags FROM host_deploys WHERE slug = ${SLUG} ORDER BY id DESC LIMIT 1`;
   assert.deepEqual(d, { status: 'review', flags: ['seed-phrase'] });
-  assert.ok((await sitesInReview()).includes('tipjar-alice'));
-  const cron = await withEnv(R2_ENV, () => runCron({ only: ['hz-none'], deps: { refreshFees: async () => 0, hosting: { r2: fakeR2().r2 } } }));
-  assert.ok(cron.needs_owner.includes('host-review:tipjar-alice'));
-  await sql()`UPDATE hosted_sites SET status = 'ended' WHERE slug = 'tipjar-alice'`;
-  await sql()`UPDATE host_deploys SET status = 'cleaned' WHERE slug = 'tipjar-alice' AND status = 'review'`;
+  assert.ok((await sitesInReview()).includes(SLUG));
+  const cron = await withEnv(R2_ENV, () => runCron({ only: ['hz-none'], deps: { refreshFees: async () => 0, hosting: { r2: fakeR2().r2, only: [] } } }));
+  assert.ok(cron.needs_owner.includes(`host-review:${SLUG}`));
+  await sql()`UPDATE hosted_sites SET status = 'ended' WHERE slug = ${SLUG}`;
+  await sql()`UPDATE host_deploys SET status = 'cleaned' WHERE slug = ${SLUG} AND status = 'review'`;
 });
 
 test('8.10 expireSites ends a site past its expiry and sets a rolling site whose programs ended once', db, async () => {
@@ -398,8 +400,8 @@ test('8.10 expireSites ends a site past its expiry and sets a rolling site whose
       (${rolling}, ${`hz${s}`}, ${`hz${s}/roll`}, ${inst}, 10, 1, 'live', '2026-10-01', NULL)`;
   const f = fakeR2([`sites/${due}/index.html`, `sites/${due}/a.js`, `sites/${rolling}/index.html`]);
   const now = new Date('2026-10-28T00:00:01Z');
-  const out = await expireSites(now, { r2: f.r2 });
-  assert.ok(out.ended >= 1);
+  const out = await expireSites(now, { r2: f.r2, only: [due, rolling] });
+  assert.equal(out.ended, 1);
   assert.deepEqual(f.state(due), { status: 'ended', login: `hz${s}` });
   assert.ok(!f.objects.has(`sites/${due}/index.html`) && !f.objects.has(`sites/${due}/a.js`), 'files deleted');
   assert.ok(f.calls.indexOf(`put state/${due}.json`) < f.calls.findIndex((c) => c.startsWith(`del sites/${due}/`)), 'ended state before the delete');
@@ -415,42 +417,44 @@ test('8.10 expireSites ends a site past its expiry and sets a rolling site whose
 });
 
 test('8.11 takedown writes killed before deleting files; the route needs the Bearer secret', db, async () => {
-  await sql()`DELETE FROM hosted_sites WHERE slug = 'tipjar-alice' OR repo_key = 'alice/tipjar-alice'`;
+  const L = `hz${stamp()}`; // its own login and slug: other files write `alice` sign-ins at the same time
+  const SLUG = `tipjar-${L}`;
+  await sql()`DELETE FROM hosted_sites WHERE slug = ${SLUG} OR repo_key = ${`${L}/${SLUG}`}`;
   const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`hz-kill-${stamp()}`}) RETURNING id`;
   await sql()`
     INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status)
-    VALUES ('tipjar-alice', 'alice', 'alice/tipjar-alice', ${id}, 10, 1, 'live')`;
-  const f = fakeR2(['sites/tipjar-alice/index.html']);
+    VALUES (${SLUG}, ${L}, ${`${L}/${SLUG}`}, ${id}, 10, 1, 'live')`;
+  const f = fakeR2([`sites/${SLUG}/index.html`]);
   const secret = 'k'.repeat(40);
   await withEnv({ ADMIN_VETO_SECRET: secret, ...R2_ENV }, async () => {
     const req = (auth?: string) =>
       new Request('https://earnkit.com/api/host/takedown', {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...(auth && { authorization: auth }) },
-        body: JSON.stringify({ slug: 'tipjar-alice' }),
+        body: JSON.stringify({ slug: SLUG }),
       });
     assert.equal((await hostTakedownPost(req(), { r2: f.r2 })).status, 401);
     assert.equal((await hostTakedownPost(req('Bearer wrong-wrong-wrong-wrong-wrong-wrong'), { r2: f.r2 })).status, 401);
     assert.deepEqual(f.calls, []);
-    const [still] = await sql()<{ status: string }[]>`SELECT status FROM hosted_sites WHERE slug = 'tipjar-alice'`;
+    const [still] = await sql()<{ status: string }[]>`SELECT status FROM hosted_sites WHERE slug = ${SLUG}`;
     assert.equal(still.status, 'live');
     const res = await hostTakedownPost(req(`Bearer ${secret}`), { r2: f.r2 });
     assert.equal(res.status, 200);
   });
-  assert.equal(f.calls[0], 'put state/tipjar-alice.json', 'killed goes first');
-  assert.deepEqual(f.state('tipjar-alice'), { status: 'killed', login: 'alice' });
-  assert.equal(f.objects.has('sites/tipjar-alice/index.html'), false);
-  const [row] = await sql()<{ status: string }[]>`SELECT status FROM hosted_sites WHERE slug = 'tipjar-alice'`;
+  assert.equal(f.calls[0], `put state/${SLUG}.json`, 'killed goes first');
+  assert.deepEqual(f.state(SLUG), { status: 'killed', login: L });
+  assert.equal(f.objects.has(`sites/${SLUG}/index.html`), false);
+  const [row] = await sql()<{ status: string }[]>`SELECT status FROM hosted_sites WHERE slug = ${SLUG}`;
   assert.equal(row.status, 'killed');
   assert.equal(await takedown('no-such-site-here', { r2: f.r2 }), false);
   // A killed site can't come back with a new upload.
-  await sql()`DELETE FROM host_deploys WHERE login = 'alice'`;
-  const u = await upload({ login: 'alice', slug: 'tipjar-alice' });
-  await sql()`UPDATE host_upload_tokens SET repo_key = 'alice/tipjar-alice' WHERE token_hash = ${sha(u.token)}`;
+  await sql()`DELETE FROM host_deploys WHERE login = ${L}`;
+  const u = await upload({ login: L, slug: SLUG });
+  await sql()`UPDATE host_upload_tokens SET repo_key = ${`${L}/${SLUG}`} WHERE token_hash = ${sha(u.token)}`;
   const back = await deploySite(u.token, site(), { r2: fakeR2().r2 });
   assert.equal(back.status, 409);
   assert.equal(back.body.show_to_builder, HOST_LINES.takenDown);
-  await sql()`DELETE FROM hosted_sites WHERE slug = 'tipjar-alice'`;
+  await sql()`DELETE FROM hosted_sites WHERE slug = ${SLUG}`;
 });
 
 test('8.12 with the R2 variables absent the upload route answers 503 and the cron skips expireSites', db, async () => {
@@ -458,13 +462,13 @@ test('8.12 with the R2 variables absent the upload route answers 503 and the cro
     const res = await hostUploadPost(new Request('https://earnkit.com/api/host/upload?t=x', { method: 'POST', body: site() }));
     assert.equal(res.status, 503);
     const f = fakeR2();
-    const out = await runCron({ only: ['hz-none'], deps: { refreshFees: async () => 0, hosting: { r2: f.r2 } } });
+    const out = await runCron({ only: ['hz-none'], deps: { refreshFees: async () => 0, hosting: { r2: f.r2, only: [] } } });
     assert.equal('hosting' in out, false);
     assert.deepEqual(f.calls, []);
     assert.equal(out.needs_owner.some((n) => n.startsWith('host-review:')), false);
   });
   await withEnv(R2_ENV, async () => {
-    const out = await runCron({ only: ['hz-none'], deps: { refreshFees: async () => 0, hosting: { r2: fakeR2().r2 } } });
+    const out = await runCron({ only: ['hz-none'], deps: { refreshFees: async () => 0, hosting: { r2: fakeR2().r2, only: [] } } });
     assert.ok('hosting' in out, 'on with R2');
   });
 });
@@ -788,7 +792,7 @@ test('I3: a write that fails mid-way marks the deploy failed, counts its bytes, 
   const [site0] = await sql()<{ status: string }[]>`SELECT status FROM hosted_sites WHERE slug = ${u.slug}`;
   assert.equal(site0.status, 'failed');
   assert.ok([...f.objects.keys()].some((k) => k.includes(u.slug)), 'objects left');
-  await cleanDeploys(new Date(), { r2: f.r2 });
+  await cleanDeploys(new Date(), { r2: f.r2, only: [u.slug] });
   assert.ok(![...f.objects.keys()].some((k) => k.includes(u.slug)), 'cleaned');
   const [c] = await sql()<{ status: string }[]>`SELECT status FROM host_deploys WHERE slug = ${u.slug} ORDER BY id DESC LIMIT 1`;
   assert.equal(c.status, 'cleaned');
@@ -808,7 +812,7 @@ test('I3: a deploy stuck in deploying for 10 minutes is failed and cleaned; take
     INSERT INTO host_deploys (login, slug, repo_key, at, status, bytes, written)
     VALUES (${login}, ${`st-${login}`}, ${`${login}/st`}, ${new Date(Date.now() - 11 * 60_000)}, 'deploying', 5, ${[`sites/st-${login}/index.html`]})`;
   const g = fakeR2([`sites/st-${login}/index.html`]);
-  await cleanDeploys(new Date(), { r2: g.r2 });
+  await cleanDeploys(new Date(), { r2: g.r2, only: [`st-${login}`] });
   assert.equal(g.objects.size, 0);
 });
 
@@ -833,7 +837,8 @@ test('I4: more than 50 rolling sites never starve a site whose programs ended', 
     INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status, deployed_at)
     VALUES (${`target-${login}`}, ${login}, ${`${login}/target`}, ${inst}, 1, 1, 'live', '2026-10-01')`;
   const now = new Date();
-  for (let run = 0; run < 3; run++) await expireSites(now, { r2: fakeR2().r2 });
+  const mine = [...Array.from({ length: 60 }, (_, i) => `r${i}-${login}`), `target-${login}`];
+  for (let run = 0; run < 3; run++) await expireSites(now, { r2: fakeR2().r2, only: mine });
   const [t] = await sql()<{ expires_at: Date | null }[]>`SELECT expires_at FROM hosted_sites WHERE slug = ${`target-${login}`}`;
   assert.ok(t.expires_at, 'the ended site got its expiry');
   await sql()`DELETE FROM projects WHERE program_id IN (${open}, ${closed})`;
@@ -868,7 +873,7 @@ test('final review M2: a slow fresh deploy the cron fails as stale stays failed,
       if (!fired && key.startsWith('sites/')) {
         fired = true;
         // The cron runs while this deploy writes, 11 minutes on.
-        await cleanDeploys(new Date(Date.now() + 11 * 60_000), { r2: f.r2 });
+        await cleanDeploys(new Date(Date.now() + 11 * 60_000), { r2: f.r2, only: [u.slug] });
       }
       await f.r2.put(key, body, type);
     },
@@ -898,7 +903,7 @@ test('final review M3: the cron never deletes a failed deploy\'s keys while a de
     VALUES (${login}, ${slug}, ${`${login}/m3`}, ${new Date(Date.now() - 20 * 60_000)}, 'failed', 5, ${[key]}),
            (${login}, ${slug}, ${`${login}/m3`}, ${new Date()}, 'deploying', 5, ${[key]})`;
   const f = fakeR2([key]);
-  await cleanDeploys(new Date(), { r2: f.r2 });
+  await cleanDeploys(new Date(), { r2: f.r2, only: [slug] });
   assert.ok(f.objects.has(key), 'the writing deploy keeps its file');
   const rows = await sql()<{ status: string }[]>`SELECT status FROM host_deploys WHERE slug = ${slug} ORDER BY id`;
   assert.deepEqual(rows.map((r) => r.status), ['failed', 'deploying']);

@@ -341,7 +341,8 @@ export async function earnkitCampaignRows(installationId: number, now = new Date
   >`
     SELECT p.id, p.title, p.campaign, p.ends_at, p.status, r.state
     FROM programs p LEFT JOIN campaign_runs r ON r.program_id = p.id
-    WHERE p.campaign->>'kind' = 'earnkit' AND p.ends_at IS NOT NULL AND (
+    -- A row with no prize yet (written mid-creation) is not a campaign to show (v2.11 T3 review: identity C2).
+    WHERE p.campaign->>'kind' = 'earnkit' AND p.campaign ? 'prize' AND p.ends_at IS NOT NULL AND (
       (p.status = 'active' AND p.ends_at > ${now})
       OR (COALESCE(r.state, 'running') <> 'paid' AND p.ends_at <= ${now}
           AND EXISTS (SELECT 1 FROM projects x WHERE x.program_id = p.id AND ${mineSql()})))

@@ -999,17 +999,30 @@ test('3.2 a deploy the runbook settles from unknown to deployed later writes no 
   ),
 );
 
-test('3.8 a deploy proven by the proof line alone records the repo owner with login_basis proof_line; a shared caller its own login', dbTest, () =>
+test('3.8 a deploy proven by the proof line alone records the owner only for the builder\'s own User account; a shared caller its own login', dbTest, () =>
   withEventLog(() =>
     withDeployer(async () => {
-      const s = await setup({ proof: false });
       const { tokenLineFor } = await import('./token-gate');
-      const line = tokenLineFor(s.installationId, `https://github.com/${s.repoKey}`);
-      const gate = { owner: async () => ({ status: 'ok' as const, text: `${line}\n` }), latest: async () => null };
-      assert.equal((await deployForBuilder(call(s), deps(fakeChain().chain, { gate }))).status, 'deployed');
-      const [e] = await eventsOfInstallation(s.installationId);
-      assert.equal(e.github_login, s.repoKey.split('/')[0].toLowerCase());
-      assert.equal(e.login_basis, 'proof_line');
+      // Review I2: the owner is recorded only when the builder said it is them and it is a User account.
+      const lineDeploy = async (type: 'User' | 'Organization') => {
+        const s = await setup({ proof: false });
+        const owner = s.repoKey.split('/')[0].toLowerCase();
+        await sql()`UPDATE installations SET github_user = ${owner} WHERE id = ${s.installationId}`;
+        await sql()`
+          INSERT INTO url_checks (key, ok, checked_at, note)
+          VALUES (${`ghuser:${owner}`}, true, now(), ${JSON.stringify({ type, created_at: '2020-01-01T00:00:00Z', public_repos: 2 })})`;
+        const line = tokenLineFor(s.installationId, `https://github.com/${s.repoKey}`);
+        const gate = { owner: async () => ({ status: 'ok' as const, text: `${line}\n` }), latest: async () => null };
+        assert.equal((await deployForBuilder(call(s), deps(fakeChain().chain, { gate }))).status, 'deployed');
+        const [e] = await eventsOfInstallation(s.installationId);
+        return { e, owner };
+      };
+      const user = await lineDeploy('User');
+      assert.equal(user.e.github_login, user.owner);
+      assert.equal(user.e.login_basis, 'proof_line');
+      const org = await lineDeploy('Organization');
+      assert.equal(org.e.type, 'deployed', 'the deploy is still logged');
+      assert.deepEqual([org.e.github_login, org.e.login_basis], [null, null], 'an org is never recorded as the builder');
 
       const bobLogin = `bob${process.pid}y${Date.now()}`;
       const shared = await setup({ shared: true, login: bobLogin });
@@ -1033,4 +1046,18 @@ test('3.6 a failing event write leaves the deploy reply identical and logs the t
     assert.deepEqual(lines, ['[events] deployed PostgresError']);
     assert.deepEqual(await eventsOfInstallation(s.installationId), []);
   }),
+);
+
+test('review M1: a deploy whose stored code differs is logged with code_differs, and the row keeps it', dbTest, () =>
+  withEventLog(() =>
+    withDeployer(async () => {
+      const s = await setup();
+      const out = await deployForBuilder(call(s), deps(fakeChain({ code: `0x${'5b'.repeat(24_577)}` as Hex }).chain));
+      assert.equal(out.status, 'failed');
+      const [row] = await sql()<{ id: number; code_differs: boolean }[]>`SELECT id, code_differs FROM contract_deploys WHERE repo_key = ${s.repoKey}`;
+      assert.equal(row.code_differs, true);
+      const [e] = await eventsOfInstallation(s.installationId);
+      assert.deepEqual(e.detail, { address: DEPLOYED.toLowerCase(), owner_ok: false, block: 4242, code_differs: true });
+    }),
+  ),
 );

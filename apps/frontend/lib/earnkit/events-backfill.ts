@@ -1,6 +1,6 @@
 import { sql, type Db } from './db';
 import { siteUrl } from './entry-text';
-import { eventLogEnabled, eventRepoKey, recordEvent, type BuilderEvent } from './events';
+import { eventLogEnabled, eventRepoKey, proofLink, recordEvent, type BuilderEvent } from './events';
 import { loginBasisFor, type LoginProof } from './github-verify';
 import { siteLink } from './hosting';
 import { sharedGroup } from './installations';
@@ -60,10 +60,10 @@ export async function backfillEvents(db: Db = sql(), o: { installationIds?: numb
   // backfill stays offline and free): T11's usage check reads a missing block from the receipt.
   type Deploy = {
     id: number; installation_id: number; login: string | null; repo_key: string; chain: string; tx_hash: string; address: string | null;
-    owner_ok: boolean | null; created_at: Date; owner_wallet: string | null; block: string | null;
+    owner_ok: boolean | null; created_at: Date; owner_wallet: string | null; block: string | null; code_differs: boolean;
   };
   for await (const d of pages((after) => db<Deploy[]>`
-      SELECT id, installation_id, login, repo_key, chain, tx_hash, address, owner_ok, created_at, owner_wallet, block::text FROM contract_deploys
+      SELECT id, installation_id, login, repo_key, chain, tx_hash, address, owner_ok, created_at, owner_wallet, block::text, code_differs FROM contract_deploys
       WHERE status = 'deployed' AND id > ${after} ${scope('installation_id')} ORDER BY id LIMIT ${PAGE}`)) {
     const shared = await sharedGroup(d.installation_id).catch(() => true);
     const proof = await loginBasisFor(d.installation_id, d.repo_key, shared ? { callerLogin: d.login } : { proofLine: true });
@@ -77,7 +77,10 @@ export async function backfillEvents(db: Db = sql(), o: { installationIds?: numb
       ...(d.tx_hash && { proof_tx: d.tx_hash }),
       ...(d.owner_wallet && { wallet: d.owner_wallet }),
       ...who(proof),
-      detail: { ...(d.address && { address: d.address }), owner_ok: d.owner_ok, ...(d.block !== null && { block: Number(d.block) }), backfill: true },
+      detail: { ...(d.address && { address: d.address }), owner_ok: d.owner_ok, ...(d.block !== null && { block: Number(d.block) }),
+        ...(d.code_differs && { code_differs: true }),
+        backfill: true,
+      },
     });
   }
 
@@ -106,11 +109,14 @@ export async function backfillEvents(db: Db = sql(), o: { installationIds?: numb
     first_submission_at: Date | null; submission_url: string | null;
   };
   for await (const p of pages((after) => db<Entry[]>`
-      SELECT p.id, p.installation_id, p.program_id, p.repo_url, COALESCE(p.payout_wallet, p.creator_wallet) AS wallet, p.submitted_at,
-        (SELECT min(s.created_at) FROM submissions s WHERE s.project_id = p.id) AS first_submission_at,
-        (SELECT s.external_submission_url FROM submissions s WHERE s.project_id = p.id AND s.external_submission_url IS NOT NULL
-          ORDER BY s.id LIMIT 1) AS submission_url
-      FROM projects p WHERE p.id > ${after} ${scope('p.installation_id')} ORDER BY p.id LIMIT ${PAGE}`)) {
+      SELECT p.id, p.installation_id, p.program_id, p.repo_url, p.payout_wallet AS wallet, p.submitted_at,
+        s.first_submission_at, s.submission_url
+      FROM projects p
+      LEFT JOIN LATERAL (
+        SELECT min(created_at) AS first_submission_at,
+          (array_agg(external_submission_url ORDER BY id) FILTER (WHERE external_submission_url IS NOT NULL))[1] AS submission_url
+        FROM submissions WHERE project_id = p.id) s ON true
+      WHERE p.id > ${after} ${scope('p.installation_id')} ORDER BY p.id LIMIT ${PAGE}`)) {
     const repoKey = eventRepoKey(p.repo_url);
     const proof = await entryLogin(p.installation_id, repoKey, p.id);
     const base = {
@@ -135,8 +141,8 @@ export async function backfillEvents(db: Db = sql(), o: { installationIds?: numb
         dedupe_key: `submitted:${p.id}`,
         at: p.first_submission_at,
         ...base,
-        ...(p.submission_url && { proof_url: p.submission_url }),
-        detail: { basis: p.submission_url ? 'link' : 'recorded', backfill: true },
+        ...(proofLink(p.submission_url) && { proof_url: proofLink(p.submission_url) }),
+        detail: { basis: proofLink(p.submission_url) ? 'link' : 'recorded', backfill: true },
       });
   }
 

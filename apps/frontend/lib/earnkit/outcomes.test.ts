@@ -8,6 +8,7 @@ import {
   ReportOutcome,
   matchOutcome,
   matchOutcomeAll,
+  outcomeEvent,
   outcomeEventType,
   outcomeQuestion,
   saveSelfReport,
@@ -306,40 +307,50 @@ test('3.x an announcement writes won and lost events with the results link and b
       (await sql()<{ id: number }[]>`
         INSERT INTO projects (program_id, name, installation_id, repo_url, submitted_at)
         VALUES (${tag}, ${name}, ${inst}, ${repo}, '2026-10-10T00:00:00Z') RETURNING id`)[0].id;
-    const winner = await entry('Winner', `https://github.com/A/win-${tag}`);
-    const placed = await entry('Placed', `https://github.com/a/placed-${tag}`);
-    const maybe = await entry('Maybe', `https://github.com/a/maybe-${tag}`);
-    const other = await entry('Other', `https://github.com/a/other-${tag}`);
-    const file = {
-      program_id: tag, round_label: 'R1', source_url: 'https://x.example/results', captured_at: '2026-10-22', complete: true,
-      entries_from: '2026-10-01', entries_until: '2026-10-22',
-      results: [
-        { repo: `github.com/a/win-${tag}`, result: 'won' as const, prize_usd: 500 },
-        { repo: `github.com/a/placed-${tag}`, result: 'placed' as const },
-        { repo: `github.com/a/maybe-${tag}`, result: 'unknown' as const },
-      ],
-    };
-    await syncOutcomeFile(file);
-    await syncOutcomeFile(file);
-    const events = await eventsOfInstallation(inst);
-    const by = new Map(events.map((e) => [e.project_id, e]));
-    assert.equal(events.length, 3, 'won, placed and the unnamed not_selected; unknown none; the re-sync none');
-    assert.equal(by.get(winner)!.type, 'won');
-    assert.equal(by.get(winner)!.dedupe_key, `outcome:${winner}:R1:announcement`);
-    assert.equal(by.get(winner)!.proof_url, 'https://x.example/results');
-    assert.equal(by.get(winner)!.repo_key, `a/win-${tag}`.toLowerCase());
-    assert.deepEqual(by.get(winner)!.detail, { basis: 'announcement', result: 'won', round: 'R1', prize_usd: 500 });
-    assert.equal(by.get(placed)!.type, 'won');
-    assert.equal(by.get(other)!.type, 'lost');
-    assert.ok(!by.has(maybe));
+    // Review I3: committed announcements would move every other file's global stats; removed after.
+    try {
+      const winner = await entry('Winner', `https://github.com/A/win-${tag}`);
+      const placed = await entry('Placed', `https://github.com/a/placed-${tag}`);
+      const maybe = await entry('Maybe', `https://github.com/a/maybe-${tag}`);
+      const other = await entry('Other', `https://github.com/a/other-${tag}`);
+      const file = {
+        program_id: tag, round_label: 'R1', source_url: 'https://x.example/results', captured_at: '2026-10-22', complete: true,
+        entries_from: '2026-10-01', entries_until: '2026-10-22',
+        results: [
+          { repo: `github.com/a/win-${tag}`, result: 'won' as const, prize_usd: 500 },
+          { repo: `github.com/a/placed-${tag}`, result: 'placed' as const },
+          { repo: `github.com/a/maybe-${tag}`, result: 'unknown' as const },
+        ],
+      };
+      await syncOutcomeFile(file);
+      await syncOutcomeFile(file);
+      const events = await eventsOfInstallation(inst);
+      const by = new Map(events.map((e) => [e.project_id, e]));
+      assert.equal(events.length, 3, 'won, placed and the unnamed not_selected; unknown none; the re-sync none');
+      assert.equal(by.get(winner)!.type, 'won');
+      assert.equal(by.get(winner)!.dedupe_key, `outcome:${winner}:R1:announcement`);
+      assert.equal(by.get(winner)!.proof_url, 'https://x.example/results');
+      assert.equal(by.get(winner)!.repo_key, `a/win-${tag}`.toLowerCase());
+      assert.deepEqual(by.get(winner)!.detail, { basis: 'announcement', result: 'won', round: 'R1', prize_usd: 500 });
+      assert.equal(by.get(winner)!.at.toISOString(), '2026-10-22T00:00:00.000Z', "the announcement's day (review M2)");
+      assert.equal(by.get(placed)!.type, 'won');
+      assert.equal(by.get(other)!.type, 'lost');
+      assert.ok(!by.has(maybe));
 
-    await saveSelfReport(inst, { project_id: maybe, result: 'finalist' });
-    await saveSelfReport(inst, { project_id: maybe, result: 'not_selected' });
-    const self = (await eventsOfInstallation(inst)).filter((e) => e.project_id === maybe);
-    assert.equal(self.length, 1, 'the first answer is kept');
-    assert.equal(self[0].type, 'won');
-    assert.equal(self[0].dedupe_key, `outcome:${maybe}:${SELF_REPORT_ROUND}:self_reported`);
-    assert.deepEqual(self[0].detail, { basis: 'self_reported', result: 'finalist', round: SELF_REPORT_ROUND });
-    assert.equal(self[0].proof_url, null);
+      // Review I1: saveSelfReport only returns its event; the caller writes it after its transaction commits.
+      const pending = await saveSelfReport(inst, { project_id: maybe, result: 'finalist' });
+      assert.equal((await eventsOfInstallation(inst)).filter((e) => e.project_id === maybe).length, 0, 'nothing written yet');
+      await outcomeEvent(pending);
+      await outcomeEvent(await saveSelfReport(inst, { project_id: maybe, result: 'not_selected' }));
+      const self = (await eventsOfInstallation(inst)).filter((e) => e.project_id === maybe);
+      assert.equal(self.length, 1, 'the first answer is kept');
+      assert.equal(self[0].type, 'won');
+      assert.equal(self[0].dedupe_key, `outcome:${maybe}:${SELF_REPORT_ROUND}:self_reported`);
+      assert.deepEqual(self[0].detail, { basis: 'self_reported', result: 'finalist', round: SELF_REPORT_ROUND });
+      assert.equal(self[0].proof_url, null);
+    } finally {
+      await sql()`DELETE FROM entry_outcomes WHERE program_id = ${tag}`;
+      await sql()`UPDATE programs SET status = 'closed' WHERE id = ${tag}`;
+    }
   }),
 );

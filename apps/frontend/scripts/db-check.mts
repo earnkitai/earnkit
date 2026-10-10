@@ -687,6 +687,14 @@ ok(v211Row.github_user === 'alice' && v211Row.payout_wallet === W && v211Row.fre
   'a v2.10.1 installation keeps its fields and gets fresh_offer_at and build = NULL');
 ok(JSON.stringify(await triggers()) === '["builder_events_no_change","builder_events_no_truncate"]',
   'over v2.10.1 rows the schema adds the append-only triggers once');
+// v2.11 T3 (review M8): the deploy rows' owner wallet, block and code_differs, and the submissions index.
+const t3Cols = await db<{ column_name: string; is_nullable: string }[]>`
+  SELECT column_name, is_nullable FROM information_schema.columns
+  WHERE table_name = 'contract_deploys' AND column_name IN ('owner_wallet', 'block', 'code_differs') ORDER BY column_name`;
+ok(JSON.stringify(t3Cols.map((c) => `${c.column_name}:${c.is_nullable}`)) === '["block:YES","code_differs:NO","owner_wallet:YES"]',
+  'contract_deploys has owner_wallet and block (nullable) and code_differs (default false)');
+const [t3Index] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM pg_indexes WHERE indexname = 'submissions_project'`;
+ok(t3Index.n === 1, 'submissions has its project_id index');
 await db`INSERT INTO builder_events (type, github_login, dedupe_key) VALUES ('built', 'alice', 'built:alice/tipjar:p')`;
 await db.unsafe(now);
 const [evKept] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_events WHERE dedupe_key = 'built:alice/tipjar:p'`;

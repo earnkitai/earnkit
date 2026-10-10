@@ -959,6 +959,11 @@ CREATE INDEX IF NOT EXISTS contract_deploys_builder ON contract_deploys (builder
 -- neither (the backfill leaves them null; T11 reads the block from the receipt).
 ALTER TABLE contract_deploys ADD COLUMN IF NOT EXISTS owner_wallet text;
 ALTER TABLE contract_deploys ADD COLUMN IF NOT EXISTS block bigint;
+-- v2.11 T3 review M1: the stored code differed from the simulation (the builder was told not to use
+-- it); the deployed event says so, so usage checks and the metric can leave it out.
+ALTER TABLE contract_deploys ADD COLUMN IF NOT EXISTS code_differs boolean NOT NULL DEFAULT false;
+-- v2.11 T3 review M5: record_submission's rows per entry (the backfill and the C10 EXISTS checks).
+CREATE INDEX IF NOT EXISTS submissions_project ON submissions (project_id);
 
 -- v2.11 spec 6: the builder event log. One row per thing a builder shipped (built, deployed,
 -- hosted, entered, submitted, won, lost, usage_check), with its public proof. Nothing reads it for

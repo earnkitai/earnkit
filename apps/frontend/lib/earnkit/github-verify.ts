@@ -458,17 +458,66 @@ export async function installationLogin(installationId: number): Promise<string 
 /** v2.11 T3: a GitHub login and how it was proven (builder_events.login_basis). */
 export type LoginProof = { login: string; basis: 'signin' | 'app' | 'proof_line' };
 
+/** A GitHub account's public facts (GET /users/<login>). */
+export type GitHubAccount = { type: string; created_at: string; public_repos: number };
+const GHUSER_TTL_MS = 24 * 60 * 60_000;
+
+/**
+ * Plan S9: a public read of GET /users/<login>, cached 24 hours in url_checks (key `ghuser:<login>`;
+ * `ok` false: no such user; `note`: the facts as JSON). Null when there is no such account or the
+ * read failed (a failure is not cached). EarnKit's GITHUB_TOKEN only raises the rate limit; the data
+ * is public. Never logs the token.
+ */
+export async function githubUser(login: string, now = new Date()): Promise<GitHubAccount | null> {
+  const name = login.toLowerCase();
+  if (!/^[a-z0-9-]{1,39}$/.test(name)) return null;
+  const key = `ghuser:${name}`;
+  const [hit] = await sql()<{ ok: boolean; note: string | null }[]>`
+    SELECT ok, note FROM url_checks WHERE key = ${key} AND checked_at > ${new Date(now.getTime() - GHUSER_TTL_MS)}`;
+  if (hit) {
+    if (!hit.ok || !hit.note) return null;
+    try {
+      return JSON.parse(hit.note) as GitHubAccount;
+    } catch {
+      return null;
+    }
+  }
+  try {
+    const token = process.env.GITHUB_TOKEN?.trim();
+    const res = await fetch(`https://api.github.com/users/${encodeURIComponent(name)}`, {
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'EarnKit', ...(token && { Authorization: `Bearer ${token}` }) },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    if (res.status !== 404 && !res.ok) return null;
+    const u = res.ok ? ((await res.json()) as { type?: unknown; created_at?: unknown; public_repos?: unknown }) : null;
+    const facts =
+      u && typeof u.type === 'string' && typeof u.created_at === 'string'
+        ? { type: u.type, created_at: u.created_at, public_repos: Number(u.public_repos) || 0 }
+        : null;
+    await sql()`
+      INSERT INTO url_checks (key, ok, checked_at, note) VALUES (${key}, ${facts !== null}, ${now}, ${facts && JSON.stringify(facts)})
+      ON CONFLICT (key) DO UPDATE SET ok = EXCLUDED.ok, checked_at = EXCLUDED.checked_at, note = EXCLUDED.note`;
+    return facts;
+  } catch (err) {
+    console.error('[github-verify] user read', err instanceof Error ? err.name : 'error');
+    return null;
+  }
+}
+
 /**
  * v2.11 T3 (spec 6, "Identity"): the GitHub login behind this installation's step on `repoKey`
- * ("owner/repo"), and its basis, or null. Never guessed, and never GITHUB_TOKEN's own login or the
- * login an agent reported (installations.github_user):
+ * ("owner/repo"), and its basis, or null (no login is recorded). Never guessed, and never
+ * GITHUB_TOKEN's own login:
  * - `signin` or `app`: a passing verification of this repo for this installation (a sign-in wins
  *   over the read-only App). On a shared client only the caller's own (`callerLogin`), or the one
  *   bound to this entry (`projectId`); without either, null.
- * - `proof_line`: off a shared client, this installation's `token: <code>` line proved push access
- *   to the repo: the caller says it just passed (`proofLine`), or a contract EarnKit deployed for
- *   this installation and repo shows it did (the deploy runs only after it, R19). The login is the
- *   repo's owner (plan S9). On a shared client the proof line is the whole agent's: never a login.
+ * - `proof_line` (review I2): off a shared client, this installation's `token: <code>` line proved
+ *   push access to the repo (the caller says it just passed, `proofLine`, or a contract EarnKit
+ *   deployed for this installation and repo shows it did, R19). That proves the agent can push, not
+ *   who the builder is, so the repo owner is recorded only when the builder said it is them (the
+ *   installation's `github_user`) and GitHub says it is a User account (githubUser, S9's cached
+ *   read). An organization, a collaborator's push to someone else's repo, or no answer: null. On a
+ *   shared client the proof line is the whole agent's: never a login.
  */
 export async function loginBasisFor(
   installationId: number,
@@ -488,9 +537,13 @@ export async function loginBasisFor(
     ORDER BY (via = 'app'), verified_at DESC, id DESC LIMIT 1`;
   if (row) return { login: row.login.toLowerCase(), basis: row.via === 'app' ? 'app' : 'signin' };
   if (shared) return null;
-  if (o.proofLine) return { login: owner, basis: 'proof_line' };
-  const [deployed] = await db`SELECT 1 FROM contract_deploys WHERE installation_id = ${installationId} AND repo_key = ${key} LIMIT 1`;
-  return deployed ? { login: owner, basis: 'proof_line' } : null;
+  if (!o.proofLine) {
+    const [deployed] = await db`SELECT 1 FROM contract_deploys WHERE installation_id = ${installationId} AND repo_key = ${key} LIMIT 1`;
+    if (!deployed) return null;
+  }
+  const [said] = await db<{ github_user: string | null }[]>`SELECT github_user FROM installations WHERE id = ${installationId}`;
+  if (said?.github_user?.trim().toLowerCase() !== owner) return null;
+  return (await githubUser(owner))?.type === 'User' ? { login: owner, basis: 'proof_line' } : null;
 }
 
 /** Ruling G7: the entries of this installation a login verified (a shared client shows only these). */

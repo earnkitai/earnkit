@@ -712,6 +712,10 @@ export async function deploySite(
   };
 }
 
+/** v2.11 T3 review: a test's slug filter for the cron's hosting steps (none: every site). */
+const slugFilter = (only: string[] | undefined) => (col: string) =>
+  only ? sql()`AND ${sql()(col)} = ANY(${only}::text[])` : sql()``;
+
 /** Sites ended per cron run, rolling expiries checked per run, failed deploys cleaned per run. */
 const EXPIRE_BATCH = 20;
 const ROLLING_BATCH = 50;
@@ -723,11 +727,12 @@ const CLEAN_BATCH = 10;
  * then ends up to EXPIRE_BATCH sites past their expiry: `ended` state first (the Worker serves the
  * end page), files deleted, row ended. One site's failure never stops the others.
  */
-export async function expireSites(now: Date, deps: { r2?: R2 } = {}): Promise<{ ended: number }> {
+export async function expireSites(now: Date, deps: { r2?: R2; /** Tests: only these slugs (runCron's `only` pattern). */ only?: string[] } = {}): Promise<{ ended: number }> {
   const r2 = deps.r2 ?? r2Client();
+  const only = slugFilter(deps.only);
   const open = await sql()<{ slug: string; repo_key: string; deployed_at: Date }[]>`
     SELECT slug, repo_key, deployed_at FROM hosted_sites
-    WHERE status IN ('live', 'review') AND expires_at IS NULL
+    WHERE status IN ('live', 'review') AND expires_at IS NULL ${only('slug')}
     ORDER BY expiry_checked_at NULLS FIRST, deployed_at LIMIT ${ROLLING_BATCH}`;
   for (const s of open) {
     const expires = siteExpiry({ deployedAt: s.deployed_at, entered: await enteredPrograms(s.repo_key), now });
@@ -736,7 +741,7 @@ export async function expireSites(now: Date, deps: { r2?: R2 } = {}): Promise<{ 
   }
   const due = await sql()<{ slug: string; login: string }[]>`
     SELECT slug, login FROM hosted_sites
-    WHERE status IN ('live', 'review') AND expires_at <= ${now} ORDER BY expires_at LIMIT ${EXPIRE_BATCH}`;
+    WHERE status IN ('live', 'review') AND expires_at <= ${now} ${only('slug')} ORDER BY expires_at LIMIT ${EXPIRE_BATCH}`;
   let ended = 0;
   for (const s of due)
     try {
@@ -753,15 +758,16 @@ export async function expireSites(now: Date, deps: { r2?: R2 } = {}): Promise<{ 
  * deploys get their recorded keys deleted (never a live site's served files) and are `cleaned`, so
  * their bytes stop counting. Then old tokens and finished deploy rows are pruned (review M5).
  */
-export async function cleanDeploys(now: Date, deps: { r2?: R2 } = {}): Promise<{ cleaned: number }> {
+export async function cleanDeploys(now: Date, deps: { r2?: R2; /** Tests: only these slugs (and no global pruning). */ only?: string[] } = {}): Promise<{ cleaned: number }> {
   const r2 = deps.r2 ?? r2Client();
+  const only = slugFilter(deps.only);
   const stale = await sql()<{ slug: string }[]>`
     UPDATE host_deploys SET status = 'failed'
-    WHERE status = 'deploying' AND at <= ${new Date(now.getTime() - STALE_DEPLOY_MS)} RETURNING slug`;
+    WHERE status = 'deploying' AND at <= ${new Date(now.getTime() - STALE_DEPLOY_MS)} ${only('slug')} RETURNING slug`;
   for (const s of stale) await sql()`UPDATE hosted_sites SET status = 'failed' WHERE slug = ${s.slug} AND status = 'deploying'`;
   // Final review M3: a slug with a deploy still writing waits, so its fresh files (same names) stay.
   const failed = await sql()<{ id: number; slug: string; written: string[] }[]>`
-    SELECT id, slug, written FROM host_deploys f WHERE status = 'failed'
+    SELECT id, slug, written FROM host_deploys f WHERE status = 'failed' ${only('f.slug')}
       AND NOT EXISTS (SELECT 1 FROM host_deploys d WHERE d.slug = f.slug AND d.status = 'deploying')
     ORDER BY id LIMIT ${CLEAN_BATCH}`;
   let cleaned = 0;
@@ -776,6 +782,7 @@ export async function cleanDeploys(now: Date, deps: { r2?: R2 } = {}): Promise<{
     } catch (err) {
       console.error('[hosting] clean', errorClass(err));
     }
+  if (deps.only) return { cleaned };
   await sql()`DELETE FROM host_upload_tokens WHERE expires_at < ${new Date(now.getTime() - DAY_MS)}`;
   await sql()`DELETE FROM host_deploys WHERE status IN ('live', 'cleaned') AND at < ${new Date(now.getTime() - 30 * DAY_MS)}`;
   return { cleaned };

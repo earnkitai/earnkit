@@ -920,7 +920,7 @@ test('12.3 lazy builder, no live link: sign-in, upload, the limits; the hosted l
     assert.ok([...SITES.objects.keys()].some((k) => k.startsWith('staging/tipjar-hana/')));
     assert.doesNotMatch((await visit('https://tipjar-hana.earnkit.com/')).text, /seed phrase/, 'flagged files are never served');
     assert.deepEqual(await sitesInReview(), ['tipjar-hana']);
-    const cron = await runCron({ only: ['v29-none'], deps: { refreshFees: async () => 0, hosting: { r2: SITES.r2 } } });
+    const cron = await runCron({ only: ['v29-none'], deps: { refreshFees: async () => 0, hosting: { r2: SITES.r2, only: ['tipjar-hana'] } } });
     assert.ok((cron.needs_owner as string[]).includes('host-review:tipjar-hana'), JSON.stringify(cron.needs_owner));
     // The owner's approve call (runbook): the staged files go live, staging is emptied.
     const admin = (body: unknown, secret = ADMIN) =>
@@ -933,7 +933,7 @@ test('12.3 lazy builder, no live link: sign-in, upload, the limits; the hosted l
     assert.deepEqual(await sitesInReview(), []);
 
     // Expiry: once its programs ended plus 7 days, the cron ends it; the Worker shows the end page.
-    const out = await expireSites(new Date('2100-06-01T00:00:00Z'), { r2: SITES.r2 });
+    const out = await expireSites(new Date('2100-06-01T00:00:00Z'), { r2: SITES.r2, only: ['tipjar-hana'] });
     assert.equal(out.ended, 1);
     const ended = await visit('https://tipjar-hana.earnkit.com/');
     assert.deepEqual([ended.status, ended.text], [410, ENDED_PAGE]);
