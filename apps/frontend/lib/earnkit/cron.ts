@@ -5,6 +5,7 @@ import { FINAL_GRACE_MS, REVIEW_MS, type CampaignConfig, type EarnKitCampaign } 
 import { scoreCampaignEntries, type ScoreDeps, type ScoreRow } from './campaign-score';
 import { FEE_TTL_MS, launchedCreatorWallets, refreshFees } from './fees';
 import { digestEnabled, sendDigests, type Mailer } from './digest';
+import { usageChecks, type UsageDeps } from './events';
 import { cleanDeploys, expireSites, sitesInReview } from './hosting';
 import { bearerMatches, json } from './http';
 import {
@@ -99,6 +100,8 @@ export type CronDeps = {
   cleanup?: { limit?: number };
   /** v2.10 item 13: the deployer's chains and price (tests); with `only`, the step runs only when given. */
   deployer?: Pick<DeployDeps, 'chain' | 'usdPerNative'>;
+  /** v2.11 T11: the usage checks' reads and `only` (deployed event ids); with `only`, the step runs only when given. */
+  usage?: UsageDeps;
 };
 
 /** Opens the 48 h review (once: only from 'running') and freezes the payout terms with it. */
@@ -370,6 +373,18 @@ export async function runCron(
       console.error('[cron] deployer', err instanceof Error ? err.name : 'error');
     }
   }
+  // v2.11 T11 (spec 7): the 30- and 90-day usage checks on deployed contracts, at most 20 a run
+  // (free reads: Blockscout on Base, the public RPC on Arc). Off while the event log is off. A failed
+  // read is retried on the next run and never waits on the owner.
+  let usage: Awaited<ReturnType<typeof usageChecks>> | { step: 'error'; note: string } | undefined;
+  if (!opts.only || deps.usage) {
+    try {
+      usage = await usageChecks(now, { deadline, ...deps.usage });
+    } catch (err) {
+      console.error('[cron] usage', err instanceof Error ? err.name : 'error');
+      usage = { step: 'error', note: STEP_FAILED };
+    }
+  }
   // Campaigns whose payout waits on the owner (manual check, changed terms, a wallet short of the
   // prize or of gas, or PAY_FAILED_RUNS failed pay steps in a row): the endpoint answers 503.
   const needs_owner = campaigns
@@ -432,6 +447,7 @@ export async function runCron(
     ...(digest && { digest }),
     ...(cleanup && { cleanup }),
     ...(deployer && Object.keys(deployer.deployer_gas).length > 0 && { deployer_gas: deployer.deployer_gas }),
+    ...(usage && { usage_checks: usage }),
     needs_owner,
   };
 }

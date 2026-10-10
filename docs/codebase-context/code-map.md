@@ -555,6 +555,10 @@ apps/frontend/
                                throws), eventRepoKey, eventDbForTests. Writers: deploy.ts (deployed), hosting.ts
                                deploySite/approveSite (hosted), projects.ts recordSubmission/startEntry (entered),
                                recordSubmission also (submitted), outcomes.ts sync/self-report (won, lost)
+                               v2.11 Task 11: usageChecks (30/90-day usage_check per deployed event, <= USAGE_LIMIT 20
+                               a run, oldest first; getCode everywhere, Blockscout txCount on Base, the starter's logs on
+                               Arc in logChunks of ARC_LOG_CHUNK 10,000 blocks, <= ARC_LOG_MAX_CHUNKS 50, else partial),
+                               STARTER_USAGE_EVENTS, usageTopic, logSender, UsageDeps
     events-backfill.ts(+test)  v2.11 Task 3: backfillEvents (contract_deploys, host_deploys, projects, submissions,
                                entry_outcomes; source time as at; live dedupe keys; owner-run only)
     deploy.ts(+test, +anvil)   v2.10 item 13: EarnKit deploys the builder's contract on Arc or Base
@@ -1032,6 +1036,8 @@ apps/frontend/
                                skipped (key missing or malformed, off mainnet) while bonusLive,
                                Rulings 19-20; an ended round's scoring failure once, Ruling 23; v2.8.1
                                token-pending:<id> for a launch claim pending > 10 min, CronDeps.stuckLaunches), cronPost
+                               v2.11 Task 11: the usage step after deployerGas (CronDeps.usage; `usage_checks` in the
+                               result; never needs_owner)
     bonus-rounds.ts(+test)     roundFor (windowed rounds keyed by start day, windowKey, Ruling 21;
                                v2.10 item 1: roundPools (pool and token count in one grouped read); roundPoolsWei maps it (wei > 0).
                                UTC-month rounds), bookingFor (round or Safe, with the reason; v2.6:

@@ -581,3 +581,46 @@ test('10.12 deployerGas: with the deployer on, each balance is read once a run a
     else process.env.DEPLOYER_PRIVATE_KEY = old;
   }
 });
+
+// ---- v2.11 T11: the usage checks run inside this cron
+
+test('11.5 runCron: the usage step reports its counts; a failed read never breaks the run (200, no needs_owner)', db, async () => {
+  const { EVENT_LOG_FLAG, recordEvent } = await import('./events');
+  const before = process.env[EVENT_LOG_FLAG];
+  process.env[EVENT_LOG_FLAG] = 'on';
+  process.env.CRON_SECRET = SECRET;
+  try {
+    const now = new Date();
+    const key = `deployed:t11-cron-${process.pid}-${Date.now()}`;
+    assert.equal(
+      await recordEvent({ type: 'deployed', dedupe_key: key, at: new Date(now.getTime() - 31 * 86_400_000), chain: 'base', detail: { address: '0x' + '5e'.repeat(20) } }),
+      true,
+    );
+    const [{ id }] = await sql()<{ id: string }[]>`SELECT id::text FROM builder_events WHERE dedupe_key = ${key}`;
+    let reads = 0;
+    const usage = {
+      only: [id],
+      getCode: async () => {
+        reads++;
+        throw new Error('rpc down');
+      },
+    };
+    const tag = `t11-cron-${process.pid}`;
+    const run = () => runCron({ now, deps: { refreshFees: async () => 0, usage }, only: [tag] });
+    const res = await cronPost(req(`Bearer ${SECRET}`), { limit: async () => {}, run });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { usage_checks?: unknown; needs_owner: string[] };
+    assert.deepEqual(body.usage_checks, { checked: 0, failed: 1 });
+    assert.deepEqual(body.needs_owner, []);
+    assert.equal(reads, 1, 'one read a run, no retry loop');
+    const ok = await runCron({ now, deps: { refreshFees: async () => 0, usage: { ...usage, getCode: async () => '0x6080', blockscout: async () => ({ transactions_count: '4' }) } }, only: [tag] });
+    assert.deepEqual((ok as { usage_checks?: unknown }).usage_checks, { checked: 1, failed: 0 });
+    // Without its deps, a run limited to other programs (tests, the e2e) skips the step.
+    const skipped = await runCron({ now, deps: { refreshFees: async () => 0 }, only: [tag] });
+    assert.equal((skipped as { usage_checks?: unknown }).usage_checks, undefined);
+  } finally {
+    if (before === undefined) delete process.env[EVENT_LOG_FLAG];
+    else process.env[EVENT_LOG_FLAG] = before;
+    delete process.env.CRON_SECRET;
+  }
+});
