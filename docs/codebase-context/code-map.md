@@ -105,8 +105,9 @@ apps/frontend/
                                live balance, the public pause note
   app/p/[id]/page.tsx          campaign entry page (rank only when ranked; status via entryStatus)
                                v2.10 item 5: one footer line with the token terms links (TOKEN_TERMS).
+                               v2.11 T12: a footer link to /terms#what-earnkit-records (RECORDS_HREF).
   app/terms/page.tsx           v2.9 F22 (Task 11): the one legal page, metadata title "Terms", canonical
-                               https://earnkit.com/terms; a section nav, then PolicySection (#policy),
+                               https://earnkit.com/terms; a section nav (v2.11 T12: + What EarnKit records), then PolicySection (#policy),
                                RiskSection (#risk-disclosure), SponsorTermsSection (#sponsor-terms), Footer.
                                /policy, /risk-disclosure, /sponsor-terms 301 here (next.config.ts
                                LEGAL_REDIRECTS, statusCode 301, never permanent: true = 308)
@@ -119,7 +120,8 @@ apps/frontend/
                                affiliation, contact); numbers from lib/earnkit/policy.ts; v2.6: the
                                bonus on every program unless opted out, page / confirmation /
                                unverified-page eligibility, the coin's earnkit.txt token line; v2.8: the
-                               builder bonus heading has a BonusPill (md) beside it (Section aside)
+                               builder bonus heading has a BonusPill (md) beside it (Section aside);
+                               v2.11 T12: "What EarnKit records" (#what-earnkit-records, before Contact)
   app/bonus/[round]/{page.tsx,BoardView.tsx}  v2.5 Task 9: the public builder bonus leaderboard
                                (bonus-board.ts data; BoardView is pure and markup-tested; Ext links
                                only shownUrl https forms, tx links only 32-byte hashes); v2.6
@@ -1084,7 +1086,8 @@ apps/frontend/
                                BONUS_ANVIL_URL/DATABASE_URL (both must be local)
     policy.ts                  v2.5 Task 9: FEE_SPLIT_BPS (a copy of tokens.fun's split), SAFE_ADDRESS, FEE_ROWS / SIGNAL_ROWS (traction
                                WEIGHTS) / PLACE_ROWS (BONUS_SPLIT_BPS) for /policy; v2.9 re-exports
-                               MINI_FEE_RECIPIENT and GAS_WALLET_MIN_WEI_DEFAULT
+                               MINI_FEE_RECIPIENT and GAS_WALLET_MIN_WEI_DEFAULT; v2.11 T12: RECORDS_* and
+                               RECORD_STEPS (the /terms "What EarnKit records" copy, checked against the writes)
     policy-constants.ts        v2.9 D16, D17: MINI_FEE_RECIPIENT (Ruling 17, confirmed read-only),
                                GAS_WALLET_MIN_WEI_DEFAULT, EARNKIT_SPLIT_BPS (slot order); a leaf so bonus-ledger.ts can import them
                                (policy.ts imports bonus-payout/traction, which import bonus-ledger)
@@ -1264,6 +1267,10 @@ apps/frontend/
                                v28-complete-at-window.mts: the Ruling C7 ship step (dry run by default)
                                events-backfill.mts: v2.11 T3, the owner's one-off event backfill (needs
                                EARNKIT_EVENT_LOG=on; never predeploy or cron)
+                               events-redact.mts: v2.11 T12, the owner's redaction of one builder's login
+                               and wallet in builder_events (--login/--wallet, dry run unless --apply);
+                               lists the other tables holding them, never changes them (lib/earnkit/
+                               events-redact.test.ts runs it as a child process)
     db-check.mts                v2.4: applies main's schema + rows, then db/schema.sql twice, on a
                                 local Postgres only; checks backfills, defaults, opened_at via sync,
                                 the v2.5 bonus tables' constraints, and (v2.6) the migration over real

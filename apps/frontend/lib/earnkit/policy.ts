@@ -55,3 +55,27 @@ export const PLACE_ROWS: [string, string][] = BONUS_SPLIT_BPS.map((bps, i) => [
   `${i + 1}${['st', 'nd', 'rd'][i] ?? 'th'}`,
   pct(bps),
 ]);
+
+/**
+ * v2.11 T12 (spec 9): /terms "What EarnKit records". Every line is checked against what the code
+ * writes: builder_events (events.ts and its callers in deploy.ts, hosting.ts, projects.ts and
+ * outcomes.ts), and the tables the agent's calls fill. Change it with them. Only the login and the
+ * wallet can be removed (scripts/events-redact.mts); the trigger keeps every other column.
+ */
+export const RECORDS_TITLE = 'What EarnKit records';
+export const RECORDS_ANCHOR = 'what-earnkit-records';
+export const RECORDS_HREF = `/terms#${RECORDS_ANCHOR}`;
+export const RECORDS_KEPT =
+  'To match you and track your entries, EarnKit keeps what your agent sends: the repos you share, your entries, the wallets you give, and your email if you ask for email updates.';
+export const RECORDS_HISTORY = 'EarnKit also keeps a history of each step you ship, with its public proof:';
+export const RECORD_STEPS = [
+  'A contract deploy: its transaction and address.',
+  'A hosted site: its live link.',
+  'An entry: its EarnKit entry page.',
+  'A submission: the link you gave, if any.',
+  "A program result: the program's results page, or your own answer.",
+];
+export const RECORDS_WITH =
+  'With each step, where it applies: the repo, the program, the wallet you gave, and your GitHub login if EarnKit checked it, with how: GitHub sign-in, the EarnKit GitHub App, or the earnkit.txt line in your repo.';
+export const RECORDS_WHY = 'EarnKit keeps it to show your builder history. Onchain proofs are public anyway.';
+export const RECORDS_REMOVAL = `To remove your GitHub login and wallet from your history, email ${CONTACT_EMAIL}. The steps, repos and proofs stay, and a repo name or hosted link can still show your login.`;

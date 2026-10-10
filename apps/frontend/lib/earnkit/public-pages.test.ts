@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import PolicySection from '../../app/terms/sections/PolicySection';
 import TermsPage, { metadata as termsMetadata } from '../../app/terms/page';
 import nextConfig from '../../next.config';
-import { FEE_SPLIT_BPS, MINI_LINE } from './policy';
+import { CONTACT_EMAIL, FEE_SPLIT_BPS, MINI_LINE, RECORDS_ANCHOR, RECORDS_HREF, RECORD_STEPS } from './policy';
 import BoardView from '../../app/bonus/[round]/BoardView';
 import Footer from '../../app/components/common/Footer';
 import type { Board } from './bonus-board';
@@ -812,6 +812,58 @@ test('11.7 (F23): builder navigation never links the dormant sponsor pages; the 
   for (const h of navs) assert.doesNotMatch(h, /href="[^"]*\/(fund|award)\b/);
   assert.doesNotMatch(readFileSync(join(import.meta.dirname, '../../public/llms.txt'), 'utf8'), /earnkit\.com\/(fund|award)\b/);
   for (const r of ['fund/[ref]', 'award/[ref]']) assert.ok(existsSync(join(import.meta.dirname, '../../app', r, 'page.tsx')), r);
+});
+
+test('12.1 v2.11 /terms "What EarnKit records": login and how it was checked, wallet, repo, program, each step and its proof, why, removal', () => {
+  const page = html(React.createElement(TermsPage));
+  assert.match(page, new RegExp(`<div id="${RECORDS_ANCHOR}"[^>]*>[\\s\\S]*?<h2[^>]*>What EarnKit records</h2>`));
+  assert.equal(RECORDS_HREF, '/terms#what-earnkit-records');
+  assert.match(page, /href="#what-earnkit-records"/, 'the section nav names it');
+  const h = html(React.createElement(PolicySection));
+  const start = h.indexOf('What EarnKit records</h2>');
+  const section = h.slice(start, h.indexOf('<h2', start + 1));
+  const t = text(section);
+  assert.ok(
+    t.includes(
+      'To match you and track your entries, EarnKit keeps what your agent sends: the repos you share, your entries, the wallets you give, and your email if you ask for email updates.',
+    ),
+    t,
+  );
+  assert.ok(t.includes('EarnKit also keeps a history of each step you ship, with its public proof:'));
+  for (const step of RECORD_STEPS) assert.ok(t.includes(step), step);
+  assert.deepEqual(RECORD_STEPS, [
+    'A contract deploy: its transaction and address.',
+    'A hosted site: its live link.',
+    'An entry: its EarnKit entry page.',
+    'A submission: the link you gave, if any.',
+    "A program result: the program's results page, or your own answer.",
+  ]);
+  // The login and how it was checked: exactly the bases the code writes (events.ts LOGIN_BASES that
+  // github-verify.ts loginBasisFor and hosting.ts return; repo_owner is never written).
+  assert.ok(
+    t.includes(
+      'With each step, where it applies: the repo, the program, the wallet you gave, and your GitHub login if EarnKit checked it, with how: GitHub sign-in, the EarnKit GitHub App, or the earnkit.txt line in your repo.',
+    ),
+  );
+  assert.ok(t.includes('EarnKit keeps it to show your builder history. Onchain proofs are public anyway.'));
+  assert.ok(
+    t.includes(
+      `To remove your GitHub login and wallet from your history, email ${CONTACT_EMAIL}. The steps, repos and proofs stay, and a repo name or hosted link can still show your login.`,
+    ),
+  );
+  assert.equal(CONTACT_EMAIL, 'j@earnkit.com');
+  // Plain words: no em or en dash, no emojis, never "coin" or "vault".
+  assert.doesNotMatch(section, /[\u2013\u2014]|&mdash;|&ndash;/);
+  assert.doesNotMatch(t, /\p{Emoji_Presentation}|\bcoin\b|vault/iu);
+});
+
+test('12.2 v2.11 /p/<id> links /terms#what-earnkit-records, unconditionally, in the footer', () => {
+  const src = readFileSync(join(import.meta.dirname, '../../app/p/[id]/page.tsx'), 'utf8');
+  assert.match(src, /import \{ RECORDS_HREF, RECORDS_TITLE \} from '@\/lib\/earnkit\/policy';/);
+  assert.match(src, /<Link href=\{RECORDS_HREF\}[^>]*>\{RECORDS_TITLE\}<\/Link>/);
+  const footer = src.slice(src.indexOf('</ul>'), src.indexOf('{p.scored_at ?'));
+  assert.ok(footer.includes('href={RECORDS_HREF}'), footer);
+  assert.doesNotMatch(footer, /\? \(|&&/);
 });
 
 // ---- v2.10 R10, Ruling H6: a repo URL reaches a public page only with a fresh anonymous public read.

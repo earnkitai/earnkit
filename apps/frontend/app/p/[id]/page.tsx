@@ -4,6 +4,7 @@ import { getProjectPage } from '@/lib/earnkit/leaderboard';
 import { entryStatus } from '@/lib/earnkit/campaigns';
 import { formatDeadline } from '@/lib/earnkit/dates';
 import { TOKEN_TERMS } from '@/lib/earnkit/tokens';
+import { RECORDS_HREF, RECORDS_TITLE } from '@/lib/earnkit/policy';
 
 export const dynamic = 'force-dynamic';
 /** Builder-supplied links: only http(s) becomes a link (no javascript: or data: URLs). */
@@ -112,6 +113,10 @@ export default async function ProjectPage({
         {/* v2.10 item 5: the token terms live here (and on tokens.fun), never in a reply. */}
         <p className="mt-6 font-funnel-sans text-sm font-light text-ek-blue-soft">
           Token terms: <A href={TOKEN_TERMS.agreement}>agreement</A> · <A href={TOKEN_TERMS.risks}>risks</A>
+        </p>
+        {/* v2.11 T12: what EarnKit records about this entry, and how to have the login and wallet removed. */}
+        <p className="mt-2 font-funnel-sans text-sm font-light text-ek-blue-soft">
+          <Link href={RECORDS_HREF} className="text-ek-white underline underline-offset-4">{RECORDS_TITLE}</Link>
         </p>
         {p.scored_at ? (
           <p className="mt-6 font-funnel-sans text-sm font-light text-ek-blue-soft">
