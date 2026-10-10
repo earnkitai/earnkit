@@ -4065,6 +4065,44 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
   makes no RPC read, so T11's usage check reads a missing block from the receipt, and `host_deploys` rows the cron pruned (live, over 30 days) are gone. Never in
   predeploy or the cron (`events-backfill.test.ts` checks package.json and every app file).
 
+## v2.11 Usage checks at 30 and 90 days (Task 11, spec 7, plan S12)
+
+- **Where it runs.** `events.ts usageChecks(now, deps)` is one step inside `runCron`, after
+  `deployerGas`; its counts go in the cron's JSON as `usage_checks: { checked, failed }`. No new
+  schedule. Off while `EARNKIT_EVENT_LOG` is off (no read, no write). With `only` (tests, the e2e)
+  it runs only when `CronDeps.usage` is given. It never adds a `needs_owner` line: a failure is
+  logged and the run answers 200.
+- **What is due.** A `deployed` event on arc or base with a `detail.address`, not `code_differs`,
+  at least 30 days old, with no `usage:<event id>:<window>` row yet. The window is 90 once the event
+  is 90 days old, else 30, so a deploy first seen past 90 days gets only its 90-day check. Oldest
+  first, at most `USAGE_LIMIT` (20) a run, and no new check starts after the cron's deadline.
+- **What it reads** (free sources only; each read once a run, never retried in the run):
+  - every chain: `eth_getCode` on the public RPC (`verify.ts rpcFor`), `code: true|false`;
+  - Base: Blockscout counters through `verify.ts txCount` (cached 24 h in `url_checks`),
+    `tx_count`, `source: 'blockscout'`;
+  - Arc with a known starter (`detail.starter`, mapped by `STARTER_USAGE_EVENTS`; today
+    `arc-tipjar` is `Tipped(address,uint256,string)`, topic `0x4f629a5f...73c2`): the starter's logs
+    over `eth_getLogs`, `ARC_LOG_CHUNK` (10,000) blocks a call from the deploy block to the head,
+    at most `ARC_LOG_MAX_CHUNKS` (50) calls. `events`, unique `senders` (the first indexed
+    argument), `from_block`, `to_block`, `source: 'rpc_logs'`, and `partial: true` when the range
+    was longer. The deploy block is `detail.block`; a pre-v2.11 event without one reads it from the
+    deploy's receipt (`proof_tx`). explorer.arc.io's API is behind a Cloudflare challenge, so it is
+    not used;
+  - Arc without a known starter: `eth_getCode` only, `source: 'rpc_code'`.
+- **Arc RPC facts** (rpc.mainnet.arc.io, 2026-10-10): chain id 5042; `eth_getLogs` answers a
+  10,000-block range (inclusive) and refuses 10,001 with `-32012 requested range too large`; no rate
+  limit is stated in docs.arc.io. Arc makes about 2 blocks a second, so 50 chunks cover about the
+  first 2.9 days after a deploy: an Arc check of a used starter is partial, and says so.
+- **What it writes.** One `usage_check` per deploy and window (dedupe key
+  `usage:<deployed event id>:<30|90>`), with the deploy's chain, installation, repo, wallet, login
+  and basis, program and project, `at = now`, and `detail: { window, deployed_event, address, code,
+  source, tx_count? | events?, senders?, from_block?, to_block?, partial? }`. A failed read writes
+  nothing, counts as `failed`, logs `[events] usage_check <ErrorName>` only, and is read again on the
+  next daily run.
+- **Reads in production** use a key-free viem public client per chain (10 s timeout, no retry),
+  separate from the deployer's client. Tests pass `getCode`, `blockscout`, `arcHead`, `arcLogs`
+  and `receiptBlock` stubs; none reaches the network.
+
 ## v2.11 Terms disclosure and redaction (Task 12, spec 9, owner decision 6)
 
 - **The disclosure.** `/terms` has a "What EarnKit records" section (`PolicySection`, id

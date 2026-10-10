@@ -1,7 +1,24 @@
 import { after, afterEach, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import postgres from 'postgres';
-import { EVENT_LOG_FLAG, EVENT_WAIT_MS, eventLogEnabled, eventRepoKey, noteEvent, proofLink, recordEvent, type BuilderEvent } from './events';
+import {
+  ARC_LOG_CHUNK,
+  ARC_LOG_MAX_CHUNKS,
+  EVENT_LOG_FLAG,
+  EVENT_WAIT_MS,
+  STARTER_USAGE_EVENTS,
+  USAGE_LIMIT,
+  eventLogEnabled,
+  eventRepoKey,
+  logChunks,
+  logSender,
+  noteEvent,
+  proofLink,
+  recordEvent,
+  usageChecks,
+  usageTopic,
+  type BuilderEvent,
+} from './events';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql, type Db } from './db';
@@ -365,4 +382,279 @@ test('proofLink (review M7): the link without its query, fragment or credentials
   assert.equal(proofLink('javascript:alert(1)'), undefined);
   assert.equal(proofLink('not a url'), undefined);
   assert.equal(proofLink(undefined), undefined);
+});
+
+// ---- v2.11 T11: usage checks at 30 and 90 days (spec 7, plan S12)
+
+const DAY = 86_400_000;
+const addr = () => `0x${Array.from({ length: 40 }, () => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('')}`;
+
+/** Seeds one deployed event `ageDays` before `now`; returns its id (as text, like postgres.js bigints). */
+async function seedDeployed(now: Date, ageDays: number, o: { chain?: string; detail?: Record<string, unknown>; proof_tx?: string } = {}) {
+  const key = `deployed:t11-${stamp()}`;
+  const address = addr();
+  assert.equal(
+    await recordEvent({
+      type: 'deployed',
+      dedupe_key: key,
+      at: new Date(now.getTime() - ageDays * DAY),
+      chain: o.chain ?? 'base',
+      installation_id: 99911,
+      repo_key: 'alice/tipjar',
+      wallet: W,
+      proof_tx: o.proof_tx ?? `0x${'ab'.repeat(32)}`,
+      detail: { address, owner_ok: true, ...o.detail },
+    }),
+    true,
+  );
+  const [row] = await sql()<{ id: string }[]>`SELECT id::text FROM builder_events WHERE dedupe_key = ${key}`;
+  return { id: row.id, address };
+}
+
+const usageOf = async (id: string) => [
+  ...(await sql()<{ dedupe_key: string; detail: Record<string, unknown>; chain: string | null; installation_id: number | null }[]>`
+    SELECT dedupe_key, detail, chain, installation_id FROM builder_events
+    WHERE type = 'usage_check' AND dedupe_key LIKE ${`usage:${id}:%`} ORDER BY id`),
+];
+
+const codeOk = async () => '0x6080';
+
+test('11.0 logChunks: ranges of ARC_LOG_CHUNK blocks from the deploy block to the head, at most ARC_LOG_MAX_CHUNKS; more is partial', () => {
+  assert.equal(ARC_LOG_CHUNK, 10_000n, 'rpc.mainnet.arc.io accepts 10,000 blocks per eth_getLogs (10,001 is refused)');
+  assert.equal(ARC_LOG_MAX_CHUNKS, 50);
+  assert.deepEqual(logChunks(100n, 25_099n), {
+    ranges: [
+      [100n, 10_099n],
+      [10_100n, 20_099n],
+      [20_100n, 25_099n],
+    ],
+    partial: false,
+  });
+  assert.deepEqual(logChunks(5n, 5n), { ranges: [[5n, 5n]], partial: false });
+  assert.deepEqual(logChunks(9n, 5n), { ranges: [], partial: false }, 'a head behind the start reads nothing');
+  const big = logChunks(1n, 1n + 50n * 10_000n);
+  assert.equal(big.ranges.length, 50);
+  assert.deepEqual(big.ranges[49], [490_001n, 500_000n]);
+  assert.equal(big.partial, true);
+  assert.equal(logChunks(1n, 50n * 10_000n).partial, false, 'exactly 50 chunks is whole');
+});
+
+test('11.0 the usage event topic is the starter contract\'s Tipped(address indexed, uint256, string)', () => {
+  assert.equal(STARTER_USAGE_EVENTS['arc-tipjar'], 'Tipped(address,uint256,string)');
+  assert.equal(usageTopic('Tipped(address,uint256,string)'), '0x4f629a5f1c8e7fc616770a8d34896b447f3457037c40a23347478746309d73c2');
+});
+
+test('11.0 usageChecks with the log off reads nothing and writes nothing', async () => {
+  delete process.env[EVENT_LOG_FLAG];
+  let reads = 0;
+  const out = await usageChecks(new Date(), {
+    getCode: async () => (reads++, '0x'),
+    blockscout: async () => (reads++, { transactions_count: '1' }),
+  });
+  assert.deepEqual(out, { checked: 0, failed: 0 });
+  assert.equal(reads, 0);
+});
+
+test('11.1 a 31-day-old Base deploy gets one 30-day check (Blockscout count, code); a second run writes none', dbTest, async () => {
+  const now = new Date();
+  const d = await seedDeployed(now, 31);
+  const urls: string[] = [];
+  const deps = {
+    only: [d.id],
+    getCode: async (chain: string, a: string) => (urls.push(`code:${chain}:${a}`), '0x6080'),
+    blockscout: async (url: string) => (urls.push(url), { transactions_count: '7' }),
+  };
+  assert.deepEqual(await usageChecks(now, deps), { checked: 1, failed: 0 });
+  const rows = await usageOf(d.id);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].dedupe_key, `usage:${d.id}:30`);
+  assert.equal(rows[0].chain, 'base');
+  assert.equal(rows[0].installation_id, 99911);
+  assert.deepEqual(rows[0].detail, { window: 30, deployed_event: Number(d.id), address: d.address, tx_count: 7, code: true, source: 'blockscout' });
+  assert.deepEqual(urls, [`code:base:${d.address}`, `https://base.blockscout.com/api/v2/addresses/${d.address}/counters`]);
+  assert.deepEqual(await usageChecks(now, deps), { checked: 0, failed: 0 });
+  assert.equal((await usageOf(d.id)).length, 1);
+  assert.equal(urls.length, 2, 'a done check reads nothing again');
+});
+
+test('11.1 a 29-day-old deploy is not due; a code_differs deploy and one without an address are never checked', dbTest, async () => {
+  const now = new Date();
+  const young = await seedDeployed(now, 29);
+  const differs = await seedDeployed(now, 40, { detail: { code_differs: true } });
+  const out = await usageChecks(now, { only: [young.id, differs.id], getCode: codeOk, blockscout: async () => ({ transactions_count: '1' }) });
+  assert.deepEqual(out, { checked: 0, failed: 0 });
+});
+
+test('11.2 an Arc arc-tipjar deploy counts Tipped logs in 10,000-block chunks from detail.block, with unique senders', dbTest, async () => {
+  const now = new Date();
+  const d = await seedDeployed(now, 31, { chain: 'arc', detail: { block: 1000, starter: 'arc-tipjar' } });
+  const calls: [string, string, bigint, bigint][] = [];
+  const A = '0x' + '11'.repeat(20);
+  const B = '0x' + '22'.repeat(20);
+  const out = await usageChecks(now, {
+    only: [d.id],
+    getCode: codeOk,
+    arcHead: async () => 25_000n,
+    arcLogs: async (a, topic, from, to) => {
+      calls.push([a, topic, from, to]);
+      return from === 1000n ? { count: 2, senders: [A, B] } : { count: 1, senders: [A.toUpperCase().replace('0X', '0x')] };
+    },
+    receiptBlock: async () => {
+      throw new Error('the block is known; no receipt read');
+    },
+  });
+  assert.deepEqual(out, { checked: 1, failed: 0 });
+  const topic = usageTopic('Tipped(address,uint256,string)');
+  assert.deepEqual(calls, [
+    [d.address, topic, 1000n, 10_999n],
+    [d.address, topic, 11_000n, 20_999n],
+    [d.address, topic, 21_000n, 25_000n],
+  ]);
+  const [row] = await usageOf(d.id);
+  assert.deepEqual(row.detail, {
+    window: 30,
+    deployed_event: Number(d.id),
+    address: d.address,
+    events: 4,
+    senders: 2,
+    from_block: 1000,
+    to_block: 25_000,
+    code: true,
+    source: 'rpc_logs',
+  });
+});
+
+test('11.2 more than 50 chunks reads 50 and writes partial: true; a pre-v2.11 deploy reads its block from the receipt', dbTest, async () => {
+  const now = new Date();
+  const d = await seedDeployed(now, 31, { chain: 'arc', detail: { starter: 'arc-tipjar' }, proof_tx: `0x${'cd'.repeat(32)}` });
+  let logReads = 0;
+  const receipts: string[] = [];
+  const out = await usageChecks(now, {
+    only: [d.id],
+    getCode: codeOk,
+    arcHead: async () => 7n + 50n * 10_000n + 3n,
+    arcLogs: async () => (logReads++, { count: 0, senders: [] }),
+    receiptBlock: async (chain, tx) => (receipts.push(`${chain}:${tx}`), 7n),
+  });
+  assert.deepEqual(out, { checked: 1, failed: 0 });
+  assert.equal(logReads, 50);
+  assert.deepEqual(receipts, [`arc:0x${'cd'.repeat(32)}`]);
+  const [row] = await usageOf(d.id);
+  assert.equal(row.detail.partial, true);
+  assert.equal(row.detail.from_block, 7);
+  assert.equal(row.detail.to_block, 7 + 50 * 10_000 - 1);
+  assert.equal(row.detail.events, 0);
+  assert.equal(row.detail.senders, 0);
+});
+
+test('11.2 an Arc deploy with no known usage event gets eth_getCode only', dbTest, async () => {
+  const now = new Date();
+  const d = await seedDeployed(now, 31, { chain: 'arc', detail: { block: 5 } });
+  let logReads = 0;
+  const out = await usageChecks(now, {
+    only: [d.id],
+    getCode: async () => '0x',
+    arcHead: async () => (logReads++, 10n),
+    arcLogs: async () => (logReads++, { count: 0, senders: [] }),
+  });
+  assert.deepEqual(out, { checked: 1, failed: 0 });
+  assert.equal(logReads, 0);
+  const [row] = await usageOf(d.id);
+  assert.deepEqual(row.detail, { window: 30, deployed_event: Number(d.id), address: d.address, code: false, source: 'rpc_code' });
+});
+
+test('11.3 a 91-day-old deploy with its 30-day check done gets only the 90-day check; one never checked gets only the 90-day one', dbTest, async () => {
+  const now = new Date();
+  const done30 = await seedDeployed(now, 91);
+  assert.equal(await recordEvent({ type: 'usage_check', dedupe_key: `usage:${done30.id}:30`, detail: { window: 30 } }), true);
+  const never = await seedDeployed(now, 95);
+  const deps = { only: [done30.id, never.id], getCode: codeOk, blockscout: async () => ({ transactions_count: '3' }) };
+  assert.deepEqual(await usageChecks(now, deps), { checked: 2, failed: 0 });
+  assert.deepEqual((await usageOf(done30.id)).map((r) => r.dedupe_key), [`usage:${done30.id}:30`, `usage:${done30.id}:90`]);
+  assert.deepEqual((await usageOf(never.id)).map((r) => [r.dedupe_key, r.detail.window]), [[`usage:${never.id}:90`, 90]]);
+  assert.deepEqual(await usageChecks(now, deps), { checked: 0, failed: 0 });
+});
+
+test('11.4 25 due deploys with limit 20: the 20 oldest are checked, and the next run takes the other 5', dbTest, async () => {
+  const now = new Date();
+  const seeded: { id: string; address: string }[] = [];
+  for (let i = 0; i < 25; i++) seeded.push(await seedDeployed(now, 31 + i)); // seeded[24] is the oldest
+  const only = seeded.map((s) => s.id);
+  const read: string[] = [];
+  const deps = { only, getCode: async (_c: string, a: string) => (read.push(a), '0x6080'), blockscout: async () => ({ transactions_count: '0' }) };
+  assert.deepEqual(await usageChecks(now, deps), { checked: 20, failed: 0 });
+  assert.deepEqual(read, seeded.slice(5).reverse().map((s) => s.address), 'oldest first');
+  read.length = 0;
+  assert.deepEqual(await usageChecks(now, deps), { checked: 5, failed: 0 });
+  assert.deepEqual(read, seeded.slice(0, 5).reverse().map((s) => s.address));
+  assert.equal(USAGE_LIMIT, 20);
+  assert.deepEqual(await usageChecks(now, { ...deps, limit: 3 }), { checked: 0, failed: 0 });
+});
+
+test('11.5 a failed read writes nothing, counts as failed, logs the class only, and is read once a run (retried next run)', dbTest, async () => {
+  const now = new Date();
+  const base = await seedDeployed(now, 31);
+  const arc = await seedDeployed(now, 32, { chain: 'arc', detail: { block: 1, starter: 'arc-tipjar' } });
+  const noCode = await seedDeployed(now, 33);
+  let blockscoutReads = 0;
+  let logReads = 0;
+  const lines = await errors(async () => {
+    const out = await usageChecks(now, {
+      only: [base.id, arc.id, noCode.id],
+      getCode: async (_c, a) => {
+        if (a === noCode.address) throw Object.assign(new Error(`rpc down ${a}`), { name: 'HttpRequestError' });
+        return '0x6080';
+      },
+      blockscout: async () => {
+        blockscoutReads++;
+        throw new Error('blockscout 503');
+      },
+      arcHead: async () => 30_000n,
+      arcLogs: async (_a, _t, from) => {
+        logReads++;
+        if (from > 1n) throw Object.assign(new Error('requested range too large'), { name: 'RpcRequestError' });
+        return { count: 1, senders: [W] };
+      },
+    });
+    assert.deepEqual(out, { checked: 0, failed: 3 });
+  });
+  assert.equal(blockscoutReads, 1, 'no retry inside a run');
+  assert.equal(logReads, 2, 'the check stops at its first failed chunk');
+  for (const d of [base, arc, noCode]) assert.deepEqual(await usageOf(d.id), []);
+  assert.ok(lines.length >= 3);
+  for (const l of lines) {
+    assert.match(l, /^\[(events|verify)\] /);
+    for (const d of [base, arc, noCode]) assert.ok(!l.includes(d.address), 'no address in the log');
+  }
+  // Next run, the reads work: each is checked once.
+  const out = await usageChecks(now, {
+    only: [base.id, arc.id, noCode.id],
+    getCode: codeOk,
+    blockscout: async () => ({ transactions_count: '2' }),
+    arcHead: async () => 30_000n,
+    arcLogs: async () => ({ count: 0, senders: [] }),
+  });
+  assert.deepEqual(out, { checked: 3, failed: 0 });
+});
+
+test('11.5 a failed selection never throws: usageChecks answers failed 1', async () => {
+  const lines = await errors(async () => assert.deepEqual(await usageChecks(new Date(), { db: failingDb('down').db }), { checked: 0, failed: 1 }));
+  assert.deepEqual(lines, ['[events] usage_check PostgresError']);
+});
+
+test('11.0 logSender: the first indexed argument as a lowercase address; anything else is null', () => {
+  const T0 = usageTopic('Tipped(address,uint256,string)');
+  assert.equal(logSender([T0, `0x${'0'.repeat(24)}${'AB'.repeat(20)}`]), `0x${'ab'.repeat(20)}`);
+  assert.equal(logSender([T0]), null);
+  assert.equal(logSender([T0, `0x${'1'.repeat(64)}`]), null, 'not an address word');
+});
+
+test('11.4 no check starts after the cron deadline', dbTest, async () => {
+  const now = new Date();
+  const d = await seedDeployed(now, 31);
+  let reads = 0;
+  const out = await usageChecks(now, { only: [d.id], deadline: Date.now() - 1, getCode: async () => (reads++, '0x6080') });
+  assert.deepEqual(out, { checked: 0, failed: 0 });
+  assert.equal(reads, 0);
+  assert.deepEqual(await usageOf(d.id), []);
 });
