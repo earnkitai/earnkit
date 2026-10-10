@@ -211,6 +211,27 @@ test('v2.10.1 B2 (fix round 1, I1): a shared contract (PoolManager) the agent re
   assert.deepEqual(app.verdicts[0].missing, ['real_users']);
 });
 
+test('v2.10.1 re-review m1, m2: a rate-limited owner read (403) is not a 404, so the local commit count never makes the repo the builder\'s or adds traction', async () => {
+  const rateLimited = (input: object = {}) =>
+    withGitHub(async () => {
+      const inner = globalThis.fetch;
+      globalThis.fetch = (async (url: string | URL | Request) => {
+        const u = new URL(String(url));
+        if (u.host === 'api.github.com' && u.pathname === '/repos/minidevai/tokens.fun/commits') return json({ message: 'API rate limit exceeded' }, 403);
+        return inner(url);
+      }) as typeof fetch;
+      try {
+        return await matchProjects(MatchProjectsInput.parse({ ...OWNER_INPUT, ...input }), deps());
+      } finally {
+        globalThis.fetch = inner;
+      }
+    });
+  const tf = (await rateLimited()).fits.find((f) => f.repo === 'tokens.fun')!;
+  assert.notEqual(tf.product.tier, 'product', 'a 403 is not proof the repo is private');
+  const bare = (await rateLimited({ local_repos: [{ ...OWNER_INPUT.local_repos[0], my_commits_90d: undefined }, ...OWNER_INPUT.local_repos.slice(1)] })).fits.find((f) => f.repo === 'tokens.fun')!;
+  assert.equal(tf.product.traction, bare.product.traction, 'my_commits_90d adds traction only to the builder\'s own repo');
+});
+
 // ---- Bug 3: products-only programs ----
 
 test('v2.10.1 B3: a16z never matches the tipjar starter as a fit: it is a step away, needs real users, low odds, and says so', async () => {

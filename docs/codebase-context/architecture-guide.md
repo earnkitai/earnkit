@@ -3860,7 +3860,9 @@ line the owner sees.
   - *The builder's own commits stand in for the owner read.* `local_repos[].my_commits_90d` (the
     builder's own commits from the local git log). When the contribution read can't say (404) and
     it is above 0, the repo is owned for matching and its commit count is the traction count. The
-    launch, deploy, entry and bonus gates keep their own proofs.
+    launch, deploy, entry and bonus gates keep their own proofs. Re-review m1: only a 404 counts
+    (`contributionRead().notFound`); a rate limit or outage leaves the repo unchecked and not owned.
+    Re-review m2: the count is traction only for an owned repo, else the last-commit band.
   - *A users claim is real use.* `match.ts hasRealUse` is measured use or the builder's `users` claim
     (tell's `has_users`). It clears "needs real users first" for any-chain and investment programs (I2;
     the claim joins `open`, so a likely row says "confirm: users"), passes the score floor, and makes a
