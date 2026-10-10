@@ -4085,7 +4085,7 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
     over `eth_getLogs`, `ARC_LOG_CHUNK` (10,000) blocks a call from the deploy block to the head,
     at most `ARC_LOG_MAX_CHUNKS` (50) calls. `events`, unique `senders` (the first indexed
     argument), `from_block`, `to_block`, `source: 'rpc_logs'`, and `partial: true` when the range
-    was longer. The deploy block is `detail.block`; a pre-v2.11 event without one reads it from the
+    was longer (or the cron's deadline came first; the blocks read are kept). The deploy block is `detail.block`; a pre-v2.11 event without one reads it from the
     deploy's receipt (`proof_tx`). explorer.arc.io's API is behind a Cloudflare challenge, so it is
     not used;
   - Arc without a known starter: `eth_getCode` only, `source: 'rpc_code'`.
