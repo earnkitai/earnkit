@@ -195,6 +195,11 @@ const keyOf = (r: Repo) => repoKey({ url: r.html_url, name: r.name });
 
 /** The builder's share of a repo's last 100 commits, for ownerOk. Null when GitHub couldn't say. */
 async function contribution(fullName: string, user: string, token?: string) {
+  return (await contributionRead(fullName, user, token)).c;
+}
+
+/** contribution, plus whether the read failed with a 404 (private or gone) rather than a rate limit or outage. */
+async function contributionRead(fullName: string, user: string, token?: string) {
   try {
     const recent = await gh<{ author?: { login?: string } | null }[]>(
       `/repos/${fullName}/commits?per_page=100`,
@@ -203,10 +208,10 @@ async function contribution(fullName: string, user: string, token?: string) {
       token ?? process.env.GITHUB_TOKEN,
     );
     const me = user.toLowerCase();
-    return { userCommits: recent.filter((c) => c.author?.login?.toLowerCase() === me).length, recentCommits: recent.length };
+    return { c: { userCommits: recent.filter((c) => c.author?.login?.toLowerCase() === me).length, recentCommits: recent.length }, notFound: false };
   } catch (err) {
     console.error('[match] contribution read failed:', err instanceof Error ? err.name : 'error');
-    return null;
+    return { c: null, notFound: err instanceof GitHubError && err.status === 404 };
   }
 }
 
@@ -1147,7 +1152,9 @@ function checkLocal(r: ReportedRepo, programs: ProgramFacts[], ctx: Pick<ScoreCt
       // Review M9: EarnKit never reads a local repo's README, so it is never named as missing.
       // v2.10 R3: EarnKit never reads its commits either: a last commit within 90 days is band 1.
       // v2.10.1 (C1 a): the builder's own count from the local git log, when the agent sends it.
-      const commits_90d = r.my_commits_90d ?? (r.last_commit_at !== undefined && within(r.last_commit_at, 90, ctx.now) ? 1 : 0);
+      // Re-review m2: only for the builder's own repo; else the last-commit band.
+      const band = r.last_commit_at !== undefined && within(r.last_commit_at, 90, ctx.now) ? 1 : 0;
+      const commits_90d = ctx.owned ? (r.my_commits_90d ?? band) : band;
       const product = scored(
         productScore(
           { active, young: active, original: !TUTORIAL.test(r.name), readme: false, deployed, owned: ctx.owned },
@@ -1284,13 +1291,14 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
     // v2.10.1 B2: GitHub couldn't say (a private org repo): not owned, but unchecked, never "not your repo".
     let ownerUnknown = false;
     if (gh && builder && !owned && contribReads++ < CONTRIB_CANDIDATES) {
-      const c = await contribution(`${gh.owner}/${gh.repo}`, builder);
+      const { c, notFound } = await contributionRead(`${gh.owner}/${gh.repo}`, builder);
       owned = c !== null && ownerOk(gh.owner, builder, c);
       ownerUnknown = c === null;
       // v2.10.1 (C1 a): GitHub can't say, but the local git log shows the builder's own recent
       // commits: owned for matching, as a readable repo with their commits would be. Matching only:
-      // the launch, deploy, entry and bonus gates keep their own proofs.
-      if (ownerUnknown && (r.my_commits_90d ?? 0) > 0) {
+      // the launch, deploy, entry and bonus gates keep their own proofs. Re-review m1: only when
+      // GitHub hides the repo (404); a rate limit or outage on a public repo stays unchecked.
+      if (ownerUnknown && notFound && (r.my_commits_90d ?? 0) > 0) {
         owned = true;
         ownerUnknown = false;
       }
