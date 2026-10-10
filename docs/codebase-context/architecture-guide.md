@@ -3893,3 +3893,39 @@ line the owner sees.
   builder brings it up. M3: the GitHub skip reason has no ";". M4: done in I3.
   - Skipped: M2's 24-hour hold, since the line stays until the builder answers. M5 and M6 are no-ops
     (the review accepted them).
+
+## v2.10.2: the odds fixes (v2.11 T1, spec 8a and 8b)
+
+Two bugs from the owner's live test of v2.10.1. `v2101.test.ts` reproduces both with the owner's
+real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through the tools.
+
+- **8a: a repo EarnKit can't read is asked about, never scored low.** The owner's agent doesn't send
+  the optional `my_commits_90d`, so tokens.fun (a private org repo GitHub 404s, live, no contract of
+  its own) stayed project tier with "low odds: not enough signs of a real product yet", the starter's
+  traction (3) and no users question.
+  - `match.ts Odds` is now `'good' | 'unknown' | 'low'`; `oddsRank` orders good, unknown, low.
+  - `productOdds(p, t, score, { ownerHidden, saidNoUsers })` (S4): a repo GitHub hides (404 only,
+    re-review m1: `contributionRead().notFound`, carried as `Candidate.ownerHidden` and
+    `ScoreCtx.ownerHidden`), with `owned` unchecked, original, active, deployed, reaching 5 once the
+    unchecked signals count, and a live link that loads, is `unknown`. Measured transactions of 0,
+    or the builder's "no", keep it low with "no users yet". A rate limit (403) stays low as before.
+  - `rowOdds` gives an unknown repo's row `unknown` with `USERS_UNKNOWN` ("users unknown") while it
+    waits only on users; the "show more" cell reads `tokens.fun, users unknown`, never "low odds".
+  - `present.ts usersAsk` also asks about an unknown repo wherever it ranks, unless the lead's repo
+    has real use. The copy is unchanged. A yes is the v2.10.1 users claim (`withRealUse`, since
+    `owned` is unchecked, not missing); on a hidden repo an active repo is enough for the claim, so
+    a yes never depends on an optional field. `checkLocal` reads a missing `last_commit_at` as an
+    unknown commit count (null, scores 0), never "no commits in 90 days".
+  - Never good: `qualifies`, `leadRow`, `anyGood` and the alerts (`alerts.ts repoCanWin` refuses
+    `unknown` as it does `low`) all treat unknown as not good.
+- **Real use outranks traction (S5).** The rank is odds, then `hasRealUse` (measured or claimed),
+  then traction, then difficulty, prize and quickness: `match-projects.ts` fits sort, `present.ts
+  byOdds` (so `layout`, `betterFit` and `bestFit`; `Fit.real_use`), and `tools.ts matchRows`. A
+  product with users ranks above a starter at any traction tie.
+- **8b: a row missing a requirement is never good odds.** `rowOdds` ignored `new_work` and
+  `live_url`, so the tipjar starter (good odds itself) showed good odds on World's Fair (new work
+  only) in `matches` and headed "show more" with "Your repos fit these open programs:". Now any
+  missing requirement is low with `MISSING_REASON` of the first one: "only new work counts", "no
+  live link yet", "not deployed yet", "no users yet". A project-tier repo's own reason still comes
+  first (R2).
+- The launch, deploy, entry and bonus gates are unchanged: all of this is matching and copy only.
