@@ -954,3 +954,62 @@ CREATE TABLE IF NOT EXISTS contract_deploys (
 );
 CREATE INDEX IF NOT EXISTS contract_deploys_owner_flag ON contract_deploys (created_at) WHERE owner_ok = false OR status = 'unknown';
 CREATE INDEX IF NOT EXISTS contract_deploys_builder ON contract_deploys (builder_key, created_at);
+
+-- v2.11 spec 6: the builder event log. One row per thing a builder shipped (built, deployed,
+-- hosted, entered, submitted, won, lost, usage_check), with its public proof. Nothing reads it for
+-- scoring yet; it exists so nothing is lost. No FKs: deleting an installation, program or project
+-- never removes history. dedupe_key makes every write idempotent (ON CONFLICT DO NOTHING).
+-- Writes are off until EARNKIT_EVENT_LOG=on (lib/earnkit/events.ts), which waits for the /terms
+-- disclosure (v2.11 T12).
+CREATE TABLE IF NOT EXISTS builder_events (
+  id              bigserial PRIMARY KEY,
+  at              timestamptz NOT NULL DEFAULT now(),
+  type            text NOT NULL CHECK (type IN ('built','deployed','hosted','entered','submitted','won','lost','usage_check')),
+  github_login    text,                 -- lowercased, only from a verified source
+  login_basis     text CHECK (login_basis IN ('signin','app','proof_line','repo_owner')),
+  installation_id integer,
+  wallet          text,                 -- lowercased 0x address the builder gave
+  repo_key        text,                 -- owner/repo, lowercased
+  program_id      text,
+  project_id      integer,
+  chain           text,
+  proof_tx        text,                 -- tx hash
+  proof_url       text,                 -- live link, repo, submission or results URL
+  detail          jsonb NOT NULL DEFAULT '{}'::jsonb,
+  dedupe_key      text NOT NULL UNIQUE
+);
+CREATE INDEX IF NOT EXISTS builder_events_login ON builder_events (github_login, at);
+CREATE INDEX IF NOT EXISTS builder_events_due ON builder_events (type, at) WHERE type = 'deployed';
+
+-- Append-only: UPDATE, DELETE and TRUNCATE raise. The one exception is the owner-run redaction
+-- script (v2.11 T12, scripts/events-redact.mts), which runs inside one transaction after
+--   SELECT set_config('earnkit.events_redact', 'on', true);   -- transaction-local
+-- and then UPDATEs (or DELETEs) one builder's rows. TRUNCATE is never allowed. The setting is a
+-- guard against app code paths, not against a hostile role: any role can set it, so app code must
+-- never set it (only the redaction script does, and a test pins that no lib/ file mentions it).
+CREATE OR REPLACE FUNCTION builder_events_append_only() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_LEVEL = 'ROW' AND coalesce(current_setting('earnkit.events_redact', true), '') = 'on' THEN
+    IF TG_OP = 'DELETE' THEN
+      RETURN OLD;
+    END IF;
+    RETURN NEW;
+  END IF;
+  RAISE EXCEPTION 'builder_events is append-only (% refused)', TG_OP USING ERRCODE = 'insufficient_privilege';
+END $$;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'builder_events_no_change' AND tgrelid = 'builder_events'::regclass) THEN
+    CREATE TRIGGER builder_events_no_change BEFORE UPDATE OR DELETE ON builder_events
+      FOR EACH ROW EXECUTE FUNCTION builder_events_append_only();
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'builder_events_no_truncate' AND tgrelid = 'builder_events'::regclass) THEN
+    CREATE TRIGGER builder_events_no_truncate BEFORE TRUNCATE ON builder_events
+      FOR EACH STATEMENT EXECUTE FUNCTION builder_events_append_only();
+  END IF;
+END $$;
+
+-- v2.11 plan S6 and the fresh pick: one build at a time per installation, and when the fresh
+-- build was last offered. Additive; NULL for every existing installation.
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS fresh_offer_at timestamptz;
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS build jsonb;

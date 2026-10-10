@@ -663,5 +663,42 @@ const [deployRow] = await db<{ n: number; cost: string }[]>`
   SELECT count(*)::int AS n, max(cost_micro_usd)::text AS cost FROM contract_deploys`;
 ok(deployRow.n === 1 && deployRow.cost === '5000', 'contract deploy rows survive the schema running again');
 
+// v2.11 Task 2 (2.6): the builder event log is additive. On a fresh database the schema applies
+// twice; over real v2.10.1 rows (9dbd372) it adds the table, its two triggers and the two
+// installation columns, and leaves existing rows alone. The log refuses UPDATE, DELETE and TRUNCATE.
+const triggers = async () =>
+  (await db<{ tgname: string }[]>`
+    SELECT tgname FROM pg_trigger WHERE tgrelid = 'builder_events'::regclass AND NOT tgisinternal ORDER BY tgname`).map((r) => r.tgname);
+await db.unsafe('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
+await db.unsafe(now);
+await db.unsafe(now);
+ok(JSON.stringify(await triggers()) === '["builder_events_no_change","builder_events_no_truncate"]',
+  'a fresh database gets builder_events with its two append-only triggers, once each after two runs');
+const v2101 = execFileSync('git', ['-C', root, 'show', '9dbd372:apps/frontend/db/schema.sql'], { encoding: 'utf8' });
+await db.unsafe('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
+await db.unsafe(v2101);
+const [{ id: v211Inst }] = await db<{ id: number }[]>`
+  INSERT INTO installations (token_hash, github_user, payout_wallet) VALUES ('v211-old', 'alice', ${W}) RETURNING id`;
+await db.unsafe(now);
+await db.unsafe(now); // every deploy runs it again
+const [v211Row] = await db<{ github_user: string; payout_wallet: string; fresh_offer_at: Date | null; build: unknown }[]>`
+  SELECT github_user, payout_wallet, fresh_offer_at, build FROM installations WHERE id = ${v211Inst}`;
+ok(v211Row.github_user === 'alice' && v211Row.payout_wallet === W && v211Row.fresh_offer_at === null && v211Row.build === null,
+  'a v2.10.1 installation keeps its fields and gets fresh_offer_at and build = NULL');
+ok(JSON.stringify(await triggers()) === '["builder_events_no_change","builder_events_no_truncate"]',
+  'over v2.10.1 rows the schema adds the append-only triggers once');
+await db`INSERT INTO builder_events (type, github_login, dedupe_key) VALUES ('built', 'alice', 'built:alice/tipjar:p')`;
+await db.unsafe(now);
+const [evKept] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_events WHERE dedupe_key = 'built:alice/tipjar:p'`;
+ok(evKept.n === 1, 'builder events survive the schema running again');
+const evUpdate = await db`UPDATE builder_events SET github_login = NULL`.then(() => false, () => true);
+const evDelete = await db`DELETE FROM builder_events`.then(() => false, () => true);
+const evTruncate = await db`TRUNCATE builder_events`.then(() => false, () => true);
+ok(evUpdate && evDelete && evTruncate, 'builder_events refuses UPDATE, DELETE and TRUNCATE');
+const evBadType = await db`INSERT INTO builder_events (type, dedupe_key) VALUES ('scored', 'x')`.then(() => false, () => true);
+ok(evBadType, 'builder_events refuses a type outside the list');
+const evDup = await db`INSERT INTO builder_events (type, dedupe_key) VALUES ('built', 'built:alice/tipjar:p')`.then(() => false, () => true);
+ok(evDup, 'builder_events holds one row per dedupe_key');
+
 await db.end();
 console.log(`db check: ${checks} checks passed`);

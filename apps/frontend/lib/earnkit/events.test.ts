@@ -1,0 +1,233 @@
+import { after, afterEach, beforeEach, test } from 'node:test';
+import assert from 'node:assert/strict';
+import postgres from 'postgres';
+import { EVENT_LOG_FLAG, eventLogEnabled, recordEvent, type BuilderEvent } from './events';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { sql, type Db } from './db';
+
+// v2.11 Task 2: the builder event log. The DB cases run against the local database when configured.
+const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
+
+after(async () => {
+  if (process.env.DATABASE_URL) await sql().end();
+});
+
+const flagBefore = process.env[EVENT_LOG_FLAG];
+beforeEach(() => {
+  process.env[EVENT_LOG_FLAG] = 'on';
+});
+afterEach(() => {
+  if (flagBefore === undefined) delete process.env[EVENT_LOG_FLAG];
+  else process.env[EVENT_LOG_FLAG] = flagBefore;
+});
+
+const stamp = () => `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const W = '0x' + 'AbC'.repeat(13) + 'd';
+
+/** Captures console.error lines while fn runs. */
+async function errors(fn: () => Promise<unknown>): Promise<string[]> {
+  const lines: string[] = [];
+  const orig = console.error;
+  console.error = (...args: unknown[]) => void lines.push(args.map(String).join(' '));
+  try {
+    await fn();
+  } finally {
+    console.error = orig;
+  }
+  return lines;
+}
+
+/** A tagged-template fake that records whether it was called and fails like a dead pool would. */
+function failingDb(message: string) {
+  let calls = 0;
+  const db = Object.assign(
+    () => {
+      calls++;
+      const err = new Error(message);
+      err.name = 'PostgresError';
+      return Promise.reject(err);
+    },
+    { json: (v: unknown) => v },
+  ) as unknown as Db;
+  return { db, calls: () => calls };
+}
+
+test('the log is off unless EARNKIT_EVENT_LOG=on, and off it writes nothing and never touches the DB', async () => {
+  for (const value of [undefined, '', '1', 'true', 'ON ', 'off']) {
+    if (value === undefined) delete process.env[EVENT_LOG_FLAG];
+    else process.env[EVENT_LOG_FLAG] = value;
+    assert.equal(eventLogEnabled(), false, `flag ${JSON.stringify(value)}`);
+    const fake = failingDb('x');
+    assert.equal(await recordEvent({ type: 'built', dedupe_key: 'k' }, fake.db), false);
+    assert.equal(fake.calls(), 0);
+  }
+  process.env[EVENT_LOG_FLAG] = 'on';
+  assert.equal(eventLogEnabled(), true);
+});
+
+test('2.4 a DB error returns false, never throws, and logs only the type and error class', async () => {
+  const fake = failingDb(`insert failed for ${W} alice/tipjar`);
+  let wrote: boolean | undefined;
+  const lines = await errors(async () => {
+    wrote = await recordEvent(
+      { type: 'deployed', dedupe_key: 'deployed:1', github_login: 'Alice', wallet: W, repo_key: 'Alice/TipJar', detail: { twist: 'secret' } },
+      fake.db,
+    );
+  });
+  assert.equal(wrote, false);
+  assert.equal(fake.calls(), 1);
+  assert.deepEqual(lines, ['[events] deployed PostgresError']);
+  for (const value of ['alice', W.toLowerCase(), 'tipjar', 'secret', 'deployed:1']) {
+    assert.ok(!lines.join('\n').toLowerCase().includes(value.toLowerCase()), `log line leaks ${value}`);
+  }
+});
+
+test('2.4 an invalid event is refused before the DB, logged without its values', async () => {
+  const fake = failingDb('x');
+  let wrote: boolean | undefined;
+  const lines = await errors(async () => {
+    wrote = await recordEvent({ type: 'hacked', dedupe_key: 'x' } as unknown as BuilderEvent, fake.db);
+  });
+  assert.equal(wrote, false);
+  assert.equal(fake.calls(), 0);
+  assert.deepEqual(lines, ['[events] invalid ZodError']);
+  const empty = await errors(async () => {
+    wrote = await recordEvent({ type: 'built', dedupe_key: '' }, fake.db);
+  });
+  assert.equal(wrote, false);
+  assert.deepEqual(empty, ['[events] built ZodError']);
+});
+
+test('2.1 recordEvent writes one row with lowercased login, wallet and repo key; the same key again is a no-op', dbTest, async () => {
+  const key = `built:t2-${stamp()}`;
+  const e: BuilderEvent = {
+    type: 'built',
+    dedupe_key: key,
+    github_login: 'Alice',
+    login_basis: 'proof_line',
+    installation_id: 99999,
+    wallet: W,
+    repo_key: 'Alice/TipJar',
+    program_id: 'arc-microgrants',
+    chain: 'arc',
+    proof_url: 'https://github.com/Alice/TipJar',
+    detail: { twist: 'tips for Alice' },
+  };
+  assert.equal(await recordEvent(e), true);
+  assert.equal(await recordEvent({ ...e, detail: { twist: 'changed' } }), false);
+  const rows = await sql()<
+    { github_login: string; wallet: string; repo_key: string; login_basis: string; installation_id: number; proof_url: string; detail: unknown }[]
+  >`SELECT github_login, wallet, repo_key, login_basis, installation_id, proof_url, detail FROM builder_events WHERE dedupe_key = ${key}`;
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].github_login, 'alice');
+  assert.equal(rows[0].wallet, W.toLowerCase());
+  assert.equal(rows[0].repo_key, 'alice/tipjar');
+  assert.equal(rows[0].login_basis, 'proof_line');
+  assert.equal(rows[0].installation_id, 99999, 'no FK: an installation id that does not exist is kept');
+  assert.equal(rows[0].proof_url, 'https://github.com/Alice/TipJar', 'the proof URL is kept as given');
+  assert.deepEqual(rows[0].detail, { twist: 'tips for Alice' }, 'the first write wins');
+});
+
+test('2.1 detail over 2 KB of JSON is stored as { truncated: true }; none is {}', dbTest, async () => {
+  const big = `entered:t2-big-${stamp()}`;
+  const none = `entered:t2-none-${stamp()}`;
+  assert.equal(await recordEvent({ type: 'entered', dedupe_key: big, detail: { twist: 'x'.repeat(2048) } }), true);
+  assert.equal(await recordEvent({ type: 'entered', dedupe_key: none }), true);
+  const rows = await sql()<{ dedupe_key: string; detail: unknown }[]>`
+    SELECT dedupe_key, detail FROM builder_events WHERE dedupe_key IN (${big}, ${none})`;
+  const by = new Map(rows.map((r) => [r.dedupe_key, r.detail]));
+  assert.deepEqual(by.get(big), { truncated: true });
+  assert.deepEqual(by.get(none), {});
+});
+
+test('2.2 UPDATE, DELETE and TRUNCATE on builder_events all throw', dbTest, async () => {
+  const key = `hosted:t2-${stamp()}`;
+  assert.equal(await recordEvent({ type: 'hosted', dedupe_key: key, github_login: 'bob' }), true);
+  const db = sql();
+  await assert.rejects(db`UPDATE builder_events SET github_login = NULL WHERE dedupe_key = ${key}`, /append-only/);
+  await assert.rejects(db`DELETE FROM builder_events WHERE dedupe_key = ${key}`, /append-only/);
+  await assert.rejects(db`TRUNCATE builder_events`, /append-only/);
+  // A setting other than 'on' never opens it.
+  await assert.rejects(
+    db.begin(async (tx) => {
+      await tx`SELECT set_config('earnkit.events_redact', 'yes', true)`;
+      await tx`UPDATE builder_events SET github_login = NULL WHERE dedupe_key = ${key}`;
+    }),
+    /append-only/,
+  );
+  const [row] = await db<{ github_login: string | null }[]>`SELECT github_login FROM builder_events WHERE dedupe_key = ${key}`;
+  assert.equal(row.github_login, 'bob');
+});
+
+test('2.2 the owner redaction path: inside one transaction with earnkit.events_redact = on, UPDATE and DELETE work; TRUNCATE never does', dbTest, async () => {
+  const key = `submitted:t2-${stamp()}`;
+  assert.equal(await recordEvent({ type: 'submitted', dedupe_key: key, github_login: 'carol', wallet: W }), true);
+  const gone = `submitted:t2-gone-${stamp()}`;
+  assert.equal(await recordEvent({ type: 'submitted', dedupe_key: gone, github_login: 'carol' }), true);
+  const db = sql();
+  await db.begin(async (tx) => {
+    await tx`SELECT set_config('earnkit.events_redact', 'on', true)`;
+    await tx`UPDATE builder_events SET github_login = NULL, wallet = NULL WHERE dedupe_key = ${key}`;
+    await tx`DELETE FROM builder_events WHERE dedupe_key = ${gone}`;
+    await assert.rejects(tx.savepoint((sp) => sp`TRUNCATE builder_events`), /append-only/);
+  });
+  const [row] = await db<{ github_login: string | null; wallet: string | null }[]>`
+    SELECT github_login, wallet FROM builder_events WHERE dedupe_key = ${key}`;
+  assert.deepEqual({ ...row }, { github_login: null, wallet: null });
+  const [{ n }] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_events WHERE dedupe_key = ${gone}`;
+  assert.equal(n, 0);
+  // The setting was local to that transaction: the next statement is append-only again.
+  await assert.rejects(db`UPDATE builder_events SET chain = 'x' WHERE dedupe_key = ${key}`, /append-only/);
+});
+
+test('2.3 ten parallel recordEvent calls with one key write one row', dbTest, async () => {
+  const key = `deployed:t2-race-${stamp()}`;
+  const results = await Promise.all(Array.from({ length: 10 }, () => recordEvent({ type: 'deployed', dedupe_key: key, proof_tx: '0xabc' })));
+  assert.equal(results.filter(Boolean).length, 1);
+  const [{ n }] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_events WHERE dedupe_key = ${key}`;
+  assert.equal(n, 1);
+});
+
+test('2.4 a closed pool returns false and does not throw', dbTest, async () => {
+  const closed = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
+  await closed.end();
+  let wrote: boolean | undefined;
+  const lines = await errors(async () => {
+    wrote = await recordEvent({ type: 'won', dedupe_key: `outcome:t2-${stamp()}`, github_login: 'dave' }, closed);
+  });
+  assert.equal(wrote, false);
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /^\[events\] won \w+$/);
+  assert.ok(!lines[0].includes('dave'));
+});
+
+test('2.5 a type outside the list is refused by the CHECK; so is an unknown login basis', dbTest, async () => {
+  const db = sql();
+  await assert.rejects(db`INSERT INTO builder_events (type, dedupe_key) VALUES ('scored', ${`t2-bad-${stamp()}`})`, /check/i);
+  await assert.rejects(
+    db`INSERT INTO builder_events (type, login_basis, dedupe_key) VALUES ('built', 'guess', ${`t2-bad-${stamp()}`})`,
+    /check/i,
+  );
+});
+
+test('no app code updates or deletes builder events, or sets the redaction setting', () => {
+  const root = join(import.meta.dirname, '..', '..');
+  const files: string[] = [];
+  const walk = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      if (name === 'node_modules' || name.startsWith('.')) continue;
+      const p = join(dir, name);
+      if (statSync(p).isDirectory()) walk(p);
+      else if (/\.(ts|tsx|mts)$/.test(name) && !/\.test\.ts$/.test(name)) files.push(p);
+    }
+  };
+  for (const dir of ['lib', 'app']) walk(join(root, dir));
+  assert.ok(files.some((f) => f.endsWith(join('earnkit', 'events.ts'))), 'the walk reaches lib/earnkit');
+  const bad = files.filter((f) =>
+    /(update\s+builder_events|delete\s+from\s+builder_events|truncate\s+(table\s+)?builder_events|earnkit\.events_redact)/i.test(
+      readFileSync(f, 'utf8'),
+    ),
+  );
+  assert.deepEqual(bad, []);
+});
