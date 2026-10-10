@@ -124,7 +124,8 @@ export function perWinnerUsd(p: {
 }) {
   if (p.campaign?.kind === 'earnkit') return prizeUsdEach(p.campaign);
   if (p.campaign?.kind === 'sponsor')
-    return p.campaign.prize.symbol === 'USDC'
+    // A sponsor row mid-creation can have no prize yet (v2.11 T3 review: identity C2 read one): null.
+    return p.campaign.prize?.symbol === 'USDC'
       ? Number(p.campaign.prize_total) / Math.max(p.campaign.winners, 3)
       : null;
   return p.max_award_usd == null ? null : Number(p.max_award_usd);

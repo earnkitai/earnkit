@@ -88,7 +88,8 @@ export type CronDeps = {
   /** v2.8.1 §A1: the projects whose launch claim is older than 10 minutes (default tokens.ts stuckLaunches). */
   stuckLaunches?: (now: Date) => Promise<number[]>;
   /** v2.9 C13: the hosted sites' R2 (default: r2.ts r2Client); with `only`, the step runs only when given. */
-  hosting?: { r2?: R2 };
+  /** `only`: tests limit the hosting steps to their own slugs. */
+  hosting?: { r2?: R2; only?: string[] };
   /** v2.9 E19: the weekly email's mailer and installations (tests); with `only`, the step runs only when given. */
   digest?: { mail?: Mailer; only?: number[] };
   /**

@@ -132,10 +132,19 @@ export function outcomeEventType(result: (typeof OUTCOME_RESULTS)[number]): Extr
  * `detail.basis = 'self_reported'` and never counts (spec 6). The first answer per round and basis
  * is the one kept (dedupe). `db` reads the entry (the caller's transaction sees its own rows).
  */
-export function outcomeEvent(
-  o: { projectId: number; programId: string; round: string; result: (typeof OUTCOME_RESULTS)[number]; basis: 'announcement' | 'self_reported'; prizeUsd: number | null; sourceUrl?: string },
-  db: Db = sql(),
-): Promise<void> {
+export type OutcomeEventInput = {
+  projectId: number;
+  programId: string;
+  round: string;
+  result: (typeof OUTCOME_RESULTS)[number];
+  basis: 'announcement' | 'self_reported';
+  prizeUsd: number | null;
+  sourceUrl?: string;
+  /** When it happened: an announcement's day (the backfill's `at` too); absent, now(). */
+  at?: Date;
+};
+
+export function outcomeEvent(o: OutcomeEventInput, db: Db = sql()): Promise<void> {
   const type = outcomeEventType(o.result);
   if (!type) return Promise.resolve();
   return noteEvent(type, async () => {
@@ -153,6 +162,7 @@ export function outcomeEvent(
       ...(repoKey && { repo_key: repoKey }),
       ...(who && { github_login: who.login, login_basis: who.basis }),
       ...(o.sourceUrl && { proof_url: o.sourceUrl }),
+      ...(o.at && { at: o.at }),
       detail: { basis: o.basis, result: o.result, round: o.round, ...(o.prizeUsd !== null && { prize_usd: o.prizeUsd }) },
     };
   });
@@ -212,7 +222,11 @@ export async function syncOutcomeFile(
       ON CONFLICT (project_id, round_label, basis) DO UPDATE SET
         result = EXCLUDED.result, prize_usd = EXCLUDED.prize_usd, source_url = EXCLUDED.source_url,
         captured_at = EXCLUDED.captured_at`;
-    await outcomeEvent({ projectId, programId: f.program_id, round: f.round_label, result, basis: 'announcement', prizeUsd: prize, sourceUrl: f.source_url }, db);
+    // Review M2: the announcement's day, as the backfill writes it, so whichever runs first agrees.
+    await outcomeEvent(
+      { projectId, programId: f.program_id, round: f.round_label, result, basis: 'announcement', prizeUsd: prize, sourceUrl: f.source_url, at: new Date(`${f.captured_at}T00:00:00Z`) },
+      db,
+    );
   };
   const named = new Set<number>();
   let matched = 0;
@@ -246,9 +260,11 @@ export async function syncOutcomeFile(
 
 /**
  * Stores the builder's answer for one of this installation's own entries (basis 'self_reported').
- * Another installation's entry, or none: NotFoundError.
+ * Another installation's entry, or none: NotFoundError. v2.11 T3 review I1: returns its event's
+ * input, which the caller writes (outcomeEvent) only once its transaction committed, so a rolled
+ * back report leaves no event in the append-only log.
  */
-export async function saveSelfReport(installationId: number, r: ReportOutcome, db: Db = sql()): Promise<void> {
+export async function saveSelfReport(installationId: number, r: ReportOutcome, db: Db = sql()): Promise<OutcomeEventInput> {
   const rows = await db<{ program_id: string }[]>`
     INSERT INTO entry_outcomes (project_id, program_id, round_label, result, prize_usd, basis)
     SELECT p.id, p.program_id, ${SELF_REPORT_ROUND}, ${r.result}, ${r.prize_usd ?? null}, 'self_reported'
@@ -257,10 +273,7 @@ export async function saveSelfReport(installationId: number, r: ReportOutcome, d
       result = EXCLUDED.result, prize_usd = EXCLUDED.prize_usd, captured_at = now()
     RETURNING program_id`;
   if (rows.length === 0) throw new NotFoundError(`No entry ${r.project_id} for this agent.`);
-  await outcomeEvent(
-    { projectId: r.project_id, programId: rows[0].program_id, round: SELF_REPORT_ROUND, result: r.result, basis: 'self_reported', prizeUsd: r.prize_usd ?? null },
-    db,
-  );
+  return { projectId: r.project_id, programId: rows[0].program_id, round: SELF_REPORT_ROUND, result: r.result, basis: 'self_reported', prizeUsd: r.prize_usd ?? null };
 }
 
 /**

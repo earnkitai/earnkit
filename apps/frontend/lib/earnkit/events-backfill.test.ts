@@ -49,7 +49,7 @@ async function seed() {
     VALUES (${tag}, 'Tip Jar', ${inst}, ${`https://github.com/${repoKey}`}, ${W.toLowerCase()}, '2026-10-04T10:00:00Z') RETURNING id`;
   await sql()`
     INSERT INTO submissions (project_id, submission_data, external_submission_url, created_at)
-    VALUES (${project.id}, '{}'::jsonb, 'https://dorahacks.io/buidl/77', '2026-10-05T10:00:00Z')`;
+    VALUES (${project.id}, '{}'::jsonb, 'https://dorahacks.io/buidl/77?edit2=secret#top', '2026-10-05T10:00:00Z')`;
   await sql()`
     INSERT INTO entry_outcomes (project_id, program_id, round_label, result, prize_usd, source_url, captured_at, basis)
     VALUES (${project.id}, ${tag}, 'R1', 'won', 250, 'https://x.example/results', '2026-10-20T00:00:00Z', 'announcement'),
@@ -57,78 +57,100 @@ async function seed() {
   return { tag, inst, repoKey, deploy: deploy.id, settled: settled.id, host: host.id, project: project.id };
 }
 
+/**
+ * Review I3: the seed's committed announcement and live site would move other files' global stats
+ * and host limits; they go once the test is done (its events stay: append-only, keyed per test).
+ */
+async function unseed(s: { tag: string; inst: number }) {
+  await sql()`DELETE FROM entry_outcomes WHERE program_id = ${s.tag}`;
+  await sql()`UPDATE hosted_sites SET status = 'ended' WHERE slug = ${s.tag}`;
+  await sql()`UPDATE programs SET status = 'closed' WHERE id = ${s.tag}`;
+}
+
 test('3.7 the backfill writes one event per source row with its own time and the live dedupe keys; a rerun writes 0', dbTest, () =>
   withEventLog(async () => {
     const s = await seed();
-    const first = await backfillEvents(sql(), { installationIds: [s.inst] });
-    assert.deepEqual(
-      Object.fromEntries(Object.entries(first).map(([k, v]) => [k, v.written])),
-      { deployed: 1, hosted: 1, entered: 1, submitted: 1, outcomes: 1 },
-    );
-    const events = await eventsOfInstallation(s.inst);
-    const by = new Map(events.map((e) => [e.dedupe_key, e]));
-    assert.equal(events.length, 5);
+    try {
+      const first = await backfillEvents(sql(), { installationIds: [s.inst] });
+      assert.deepEqual(
+        Object.fromEntries(Object.entries(first).map(([k, v]) => [k, v.written])),
+        { deployed: 1, hosted: 1, entered: 1, submitted: 1, outcomes: 1 },
+      );
+      const events = await eventsOfInstallation(s.inst);
+      const by = new Map(events.map((e) => [e.dedupe_key, e]));
+      assert.equal(events.length, 5);
 
-    const d = by.get(`deployed:${s.deploy}`)!;
-    assert.equal(d.type, 'deployed');
-    assert.equal(d.at.toISOString(), '2026-10-01T10:00:00.000Z');
-    assert.equal(d.proof_tx, '0x' + 'ab'.repeat(32));
-    assert.equal(d.chain, 'arc');
-    assert.equal(d.wallet, W.toLowerCase(), 'the owner wallet the row kept');
-    assert.deepEqual([d.github_login, d.login_basis], [s.tag, 'signin']);
-    assert.deepEqual(d.detail, { address: '0x' + '12'.repeat(20), owner_ok: true, block: 777, backfill: true });
+      const d = by.get(`deployed:${s.deploy}`)!;
+      assert.equal(d.type, 'deployed');
+      assert.equal(d.at.toISOString(), '2026-10-01T10:00:00.000Z');
+      assert.equal(d.proof_tx, '0x' + 'ab'.repeat(32));
+      assert.equal(d.chain, 'arc');
+      assert.equal(d.wallet, W.toLowerCase(), 'the owner wallet the row kept');
+      assert.deepEqual([d.github_login, d.login_basis], [s.tag, 'signin']);
+      assert.deepEqual(d.detail, { address: '0x' + '12'.repeat(20), owner_ok: true, block: 777, backfill: true });
 
-    const h = by.get(`hosted:${s.host}`)!;
-    assert.equal(h.at.toISOString(), '2026-10-03T10:01:00.000Z');
-    assert.equal(h.proof_url, `https://${s.tag}.earnkit.com`);
-    assert.equal(h.installation_id, s.inst);
-    assert.deepEqual(h.detail, { host: 'earnkit', slug: s.tag, backfill: true });
+      const h = by.get(`hosted:${s.host}`)!;
+      assert.equal(h.at.toISOString(), '2026-10-03T10:01:00.000Z');
+      assert.equal(h.proof_url, `https://${s.tag}.earnkit.com`);
+      assert.equal(h.installation_id, s.inst);
+      assert.deepEqual(h.detail, { host: 'earnkit', slug: s.tag, backfill: true });
 
-    const e = by.get(`entered:${s.project}`)!;
-    assert.equal(e.at.toISOString(), '2026-10-04T10:00:00.000Z');
-    assert.equal(e.wallet, W.toLowerCase());
-    assert.equal(e.repo_key, s.repoKey);
-    assert.match(e.proof_url ?? '', new RegExp(`/p/${s.project}$`));
+      const e = by.get(`entered:${s.project}`)!;
+      assert.equal(e.at.toISOString(), '2026-10-04T10:00:00.000Z');
+      assert.equal(e.wallet, null, 'creator_wallet may be set later (a token launch): never put on the entry event (review M4)');
+      assert.equal(e.repo_key, s.repoKey);
+      assert.match(e.proof_url ?? '', new RegExp(`/p/${s.project}$`));
 
-    const sub = by.get(`submitted:${s.project}`)!;
-    assert.equal(sub.at.toISOString(), '2026-10-05T10:00:00.000Z');
-    assert.equal(sub.proof_url, 'https://dorahacks.io/buidl/77');
+      const sub = by.get(`submitted:${s.project}`)!;
+      assert.equal(sub.at.toISOString(), '2026-10-05T10:00:00.000Z');
+      assert.equal(sub.proof_url, 'https://dorahacks.io/buidl/77', 'no query or fragment (review M7)');
 
-    const won = by.get(`outcome:${s.project}:R1:announcement`)!;
-    assert.equal(won.type, 'won');
-    assert.equal(won.at.toISOString(), '2026-10-20T00:00:00.000Z');
-    assert.deepEqual(won.detail, { basis: 'announcement', result: 'won', round: 'R1', prize_usd: 250, backfill: true });
+      const won = by.get(`outcome:${s.project}:R1:announcement`)!;
+      assert.equal(won.type, 'won');
+      assert.equal(won.at.toISOString(), '2026-10-20T00:00:00.000Z');
+      assert.deepEqual(won.detail, { basis: 'announcement', result: 'won', round: 'R1', prize_usd: 250, backfill: true });
 
-    const again = await backfillEvents(sql(), { installationIds: [s.inst] });
-    assert.deepEqual(
-      Object.fromEntries(Object.entries(again).map(([k, v]) => [k, v.written])),
-      { deployed: 0, hosted: 0, entered: 0, submitted: 0, outcomes: 0 },
-    );
-    assert.equal(again.deployed.seen, 1);
-    assert.equal((await eventsOfInstallation(s.inst)).length, 5);
+      const again = await backfillEvents(sql(), { installationIds: [s.inst] });
+      assert.deepEqual(
+        Object.fromEntries(Object.entries(again).map(([k, v]) => [k, v.written])),
+        { deployed: 0, hosted: 0, entered: 0, submitted: 0, outcomes: 0 },
+      );
+      assert.equal(again.deployed.seen, 1);
+      assert.equal((await eventsOfInstallation(s.inst)).length, 5);
+    } finally {
+      await unseed(s);
+    }
   }),
 );
 
 test('3.2 a deploy the runbook settled from unknown to deployed is picked up by the next backfill', dbTest, () =>
   withEventLog(async () => {
     const s = await seed();
-    await backfillEvents(sql(), { installationIds: [s.inst] });
-    await sql()`UPDATE contract_deploys SET status = 'deployed', address = ${'0x' + '34'.repeat(20)} WHERE id = ${s.settled}`;
-    const next = await backfillEvents(sql(), { installationIds: [s.inst] });
-    assert.equal(next.deployed.written, 1);
-    const [e] = (await eventsOfInstallation(s.inst)).filter((x) => x.dedupe_key === `deployed:${s.settled}`);
-    assert.equal(e.chain, 'base');
-    assert.equal(e.at.toISOString(), '2026-10-02T10:00:00.000Z');
-    assert.equal(e.wallet, null, 'an older row kept no owner wallet: none is made up');
-    assert.deepEqual(e.detail, { address: '0x' + '34'.repeat(20), owner_ok: null, backfill: true }, 'no block: T11 reads it from the receipt');
+    try {
+      await backfillEvents(sql(), { installationIds: [s.inst] });
+      await sql()`UPDATE contract_deploys SET status = 'deployed', address = ${'0x' + '34'.repeat(20)} WHERE id = ${s.settled}`;
+      const next = await backfillEvents(sql(), { installationIds: [s.inst] });
+      assert.equal(next.deployed.written, 1);
+      const [e] = (await eventsOfInstallation(s.inst)).filter((x) => x.dedupe_key === `deployed:${s.settled}`);
+      assert.equal(e.chain, 'base');
+      assert.equal(e.at.toISOString(), '2026-10-02T10:00:00.000Z');
+      assert.equal(e.wallet, null, 'an older row kept no owner wallet: none is made up');
+      assert.deepEqual(e.detail, { address: '0x' + '34'.repeat(20), owner_ok: null, backfill: true }, 'no block: T11 reads it from the receipt');
+    } finally {
+      await unseed(s);
+    }
   }),
 );
 
 test('the backfill writes nothing while EARNKIT_EVENT_LOG is off', dbTest, async () => {
   const s = await seed();
-  const counts = await backfillEvents(sql(), { installationIds: [s.inst] });
-  assert.ok(Object.values(counts).every((c) => c.seen === 0 && c.written === 0));
-  assert.equal((await eventsOfInstallation(s.inst)).length, 0);
+  try {
+    const counts = await backfillEvents(sql(), { installationIds: [s.inst] });
+    assert.ok(Object.values(counts).every((c) => c.seen === 0 && c.written === 0));
+    assert.equal((await eventsOfInstallation(s.inst)).length, 0);
+  } finally {
+    await unseed(s);
+  }
 });
 
 test('the backfill is owner-run only: never in predeploy, the cron or any app code path', () => {

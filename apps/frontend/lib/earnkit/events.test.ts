@@ -1,7 +1,7 @@
 import { after, afterEach, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import postgres from 'postgres';
-import { EVENT_LOG_FLAG, EVENT_WAIT_MS, eventLogEnabled, eventRepoKey, noteEvent, recordEvent, type BuilderEvent } from './events';
+import { EVENT_LOG_FLAG, EVENT_WAIT_MS, eventLogEnabled, eventRepoKey, noteEvent, proofLink, recordEvent, type BuilderEvent } from './events';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql, type Db } from './db';
@@ -357,4 +357,12 @@ test('eventRepoKey: owner/repo, lowercase, from any GitHub link; undefined other
   assert.equal(eventRepoKey('github.com/alice/tipjar/tree/main'), 'alice/tipjar');
   assert.equal(eventRepoKey('https://gitlab.com/alice/tipjar'), undefined);
   assert.equal(eventRepoKey(null), undefined);
+});
+
+test('proofLink (review M7): the link without its query, fragment or credentials; not a web link, undefined', () => {
+  assert.equal(proofLink('https://docs.google.com/forms/d/e/x/viewform?edit2=2_ABC#r'), 'https://docs.google.com/forms/d/e/x/viewform');
+  assert.equal(proofLink('https://u:p@dorahacks.io/buidl/1'), 'https://dorahacks.io/buidl/1');
+  assert.equal(proofLink('javascript:alert(1)'), undefined);
+  assert.equal(proofLink('not a url'), undefined);
+  assert.equal(proofLink(undefined), undefined);
 });

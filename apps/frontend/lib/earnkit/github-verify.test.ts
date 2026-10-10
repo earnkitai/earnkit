@@ -562,7 +562,7 @@ test('concern 4 (fix round 1): the hourly cron deletes links expired over a day 
 
 // ---- v2.11 T3 (3.8): loginBasisFor
 
-test('3.8 loginBasisFor: signin with a sign-in row (over the App), app with only the App, proof_line from the proof line or a deploy, null with neither', db, async () => {
+test('3.8 loginBasisFor: signin (over the App), app, proof_line only for the builder\'s own User account, null otherwise', db, async () => {
   const tag = `lb${process.pid}${Date.now().toString(36)}`;
   const inst = async (o: { shared?: boolean; githubUser?: string } = {}) =>
     (await sql()<{ id: number }[]>`
@@ -573,17 +573,38 @@ test('3.8 loginBasisFor: signin with a sign-in row (over the App), app with only
     VALUES (${repoKey}, ${login}, ${id}, ${projectId}, now(), 3, ${via === 'app' ? 'app' : 'entry'}, ${via})`;
   const repo = (n: string) => `${tag}/${n}`;
 
-  const a = await inst();
+  const a = await inst({ githubUser: tag });
   await verify(a, repo('both'), 'Alice', 'app');
   await verify(a, repo('both'), 'alice');
   assert.deepEqual(await loginBasisFor(a, repo('both')), { login: 'alice', basis: 'signin' }, 'a sign-in wins over the App');
   await verify(a, repo('app'), 'alice', 'app');
   assert.deepEqual(await loginBasisFor(a, repo('app').toUpperCase()), { login: 'alice', basis: 'app' });
-  assert.deepEqual(await loginBasisFor(a, repo('line'), { proofLine: true }), { login: tag, basis: 'proof_line' }, 'the repo owner');
+  // Review I2: the proof line names the owner only when the builder said it is them and GitHub says
+  // it is a User account (S9's cached read, seeded here: the test guard blocks the network).
+  const account = (login: string, type: string | null) => sql()`
+    INSERT INTO url_checks (key, ok, checked_at, note)
+    VALUES (${`ghuser:${login}`}, ${type !== null}, now(), ${type && JSON.stringify({ type, created_at: '2020-01-01T00:00:00Z', public_repos: 2 })})
+    ON CONFLICT (key) DO UPDATE SET ok = EXCLUDED.ok, checked_at = EXCLUDED.checked_at, note = EXCLUDED.note`;
+  assert.equal(await loginBasisFor(a, repo('line'), { proofLine: true }), null, 'no answer from GitHub: no login');
+  await account(tag, 'User');
+  assert.deepEqual(await loginBasisFor(a, repo('line'), { proofLine: true }), { login: tag, basis: 'proof_line' }, 'the builder, a User, owns it');
   await sql()`
     INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, status, cost_micro_usd)
     VALUES (${a}, ${`installation:${a}`}, ${repo('deployed')}, 'arc', '0x01', 'deployed', 1)`;
   assert.deepEqual(await loginBasisFor(a, repo('deployed')), { login: tag, basis: 'proof_line' }, 'a deploy only ran after the proof');
+  // An organization's repo: the proof line proves push access, never who the builder is.
+  const org = `${tag}-org`;
+  await account(org, 'Organization');
+  const member = await inst({ githubUser: org });
+  assert.equal(await loginBasisFor(member, `${org}/app`, { proofLine: true }), null, 'an org is never the builder');
+  // A collaborator's push to someone else's repo: the builder said another login.
+  const collaborator = await inst({ githubUser: `${tag}-bob` });
+  assert.equal(await loginBasisFor(collaborator, repo('line'), { proofLine: true }), null, "the owner is not the builder");
+  const unsaid = await inst();
+  assert.equal(await loginBasisFor(unsaid, repo('line'), { proofLine: true }), null, 'the builder said no login');
+  await account(`${tag}-gone`, null);
+  const gone = await inst({ githubUser: `${tag}-gone` });
+  assert.equal(await loginBasisFor(gone, `${tag}-gone/app`, { proofLine: true }), null, 'no such account');
 
   // Neither: null, never GITHUB_TOKEN's login or the login an agent reported.
   const old = process.env.GITHUB_TOKEN;

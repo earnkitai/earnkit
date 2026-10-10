@@ -592,7 +592,7 @@ export async function deployForBuilder(
       };
     }
     let spent = receipt.gasUsed * receipt.effectiveGasPrice + (receipt.l1Fee ?? 0n);
-    const settle = async (status: 'deployed' | 'reverted', fields: { address?: string; owner_ok?: boolean | null }) => {
+    const settle = async (status: 'deployed' | 'reverted', fields: { address?: string; owner_ok?: boolean | null; code_differs?: true }) => {
       const cost = Number(weiToMicroUsd(spent, usd));
       if (cost < reserved) await giveBackFreeTier('deployGasMonth', reserved - cost, now);
       // C1: an overage is always counted, even past the ceiling, so the next deploy stops.
@@ -600,11 +600,12 @@ export async function deployForBuilder(
       await sql()`
         UPDATE contract_deploys SET status = ${status}, address = ${fields.address ?? null},
           owner_ok = ${fields.owner_ok ?? null}, cost_micro_usd = ${cost},
-          block = ${receipt.blockNumber !== undefined ? receipt.blockNumber.toString() : null}::bigint
+          block = ${receipt.blockNumber !== undefined ? receipt.blockNumber.toString() : null}::bigint,
+          code_differs = ${fields.code_differs === true}
         WHERE id = ${id}`;
     };
     // v2.11 T3: the row is `deployed`: its event, with the tx, the address, the block and the owner check.
-    const deployedEvent = (address: string, ownerOk: boolean | null) =>
+    const deployedEvent = (address: string, ownerOk: boolean | null, codeDiffers = false) =>
       noteEvent('deployed', async () => {
         const who = await loginBasisFor(a.installationId, a.repoKey, { ...(a.shared && { callerLogin: a.login }), proofLine: true });
         return {
@@ -616,7 +617,13 @@ export async function deployForBuilder(
           proof_tx: hash,
           wallet: a.builderWallet,
           ...(who && { github_login: who.login, login_basis: who.basis }),
-          detail: { address, owner_ok: ownerOk, ...(receipt.blockNumber !== undefined && { block: Number(receipt.blockNumber) }) },
+          detail: {
+            address,
+            owner_ok: ownerOk,
+            ...(receipt.blockNumber !== undefined && { block: Number(receipt.blockNumber) }),
+            // Review M1: the builder was told not to use it; usage checks and the metric leave it out.
+            ...(codeDiffers && { code_differs: true }),
+          },
         };
       });
     if (receipt.status === 'reverted') {
@@ -630,8 +637,8 @@ export async function deployForBuilder(
     });
     if (code !== null && runtimeRefusal(code) !== null) {
       // The stored code isn't what the simulation said: deployed, never cached, flagged for the owner.
-      await settle('deployed', { address: address.toLowerCase(), owner_ok: false });
-      await deployedEvent(address.toLowerCase(), false);
+      await settle('deployed', { address: address.toLowerCase(), owner_ok: false, code_differs: true });
+      await deployedEvent(address.toLowerCase(), false, true);
       return { status: 'failed', show_to_builder: runtimeRefusal(code)!, agent_note: 'The deployed code differs from the check; the owner is told. Do not use this address.' };
     }
     // Fix round 1 (I5): the owner step probes owner() and hasRole(DEFAULT_ADMIN_ROLE, deployer)

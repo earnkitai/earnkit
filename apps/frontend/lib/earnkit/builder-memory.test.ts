@@ -1,7 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
-import { readStats } from './stats';
+import { eventsByKey, withEventLog } from './fixtures/events';
 import { NotFoundError, upsertProgram } from './programs';
 import { ProgramFile } from './program-file';
 import { committedProgram } from './fixtures/program-file';
@@ -94,7 +94,6 @@ test('3.6 tell: outcomes are self-reports on the own newest entry (lost is not_s
     sql()<{ basis: string; result: string; prize_usd: string | null }[]>`
       SELECT basis, result, prize_usd::text FROM entry_outcomes WHERE project_id = ${id}`;
   try {
-    const before = await readStats();
     const r = await tell(mine, { program_status: [{ program_id: arcId, status: 'won', prize_usd: 500 }] });
     assert.equal(r.saved.length, 1);
     assert.deepEqual([...(await outcomes(newest))], [{ basis: 'self_reported', result: 'won', prize_usd: '500' }]);
@@ -115,10 +114,11 @@ test('3.6 tell: outcomes are self-reports on the own newest entry (lost is not_s
     assert.equal((await readMemory(mine)).programs.size, 0);
     // No entry at all in that program: the same error.
     await assert.rejects(tell(none, { program_status: [{ program_id: arcId, status: 'won' }] }), NotFoundError);
-    // A self-report never counts in public figures.
-    const afterStats = await readStats();
-    assert.equal(afterStats.entries_won, before.entries_won);
-    assert.equal(afterStats.labelled_entries, before.labelled_entries);
+    // A self-report never counts in public figures (stats count only announcements). Review I3: checked
+    // on this test's own rows, never a global before/after count other files move while they run.
+    const [{ n }] = await sql()<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM entry_outcomes WHERE project_id = ANY(${[older, newest, theirs]}::int[]) AND basis <> 'self_reported'`;
+    assert.equal(n, 0);
 
     // applied, not interested and repo facts are read back.
     await tell(mine, {
@@ -153,3 +153,37 @@ test('v2.9 B9 (G6, G9): a shared client keys memory by the verified login of its
   // Not shared: the installation is the identity, whatever login is passed.
   assert.deepEqual(memoryKey({ installationId: 7, verifiedLogin: 'alice' }), { installationId: 7, login: '' });
 });
+
+test('v2.11 T3 review I1: a tell that rolls back leaves no self-report event; one that commits writes it after', dbTest, () =>
+  withEventLog(async () => {
+    const stamp = `${process.pid}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    const arcId = `arc-microgrants-i1-${stamp}`;
+    await upsertProgram(ProgramFile.parse({ ...committedProgram('arc-microgrants'), id: arcId, status: 'active', ends_at: '2099-01-01T00:00:00Z' }));
+    const [{ id: inst }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`i1-${stamp}`}) RETURNING id`;
+    const [{ id: entry }] = await sql()<{ id: number }[]>`
+      INSERT INTO projects (program_id, name, installation_id) VALUES (${arcId}, 'TipJar', ${inst}) RETURNING id`;
+    // The repo statement after the outcome fails inside the same transaction (a trigger on this test's own key).
+    const bad = `i1fail${stamp}/app`;
+    const fn = `i1_fail_${stamp.replace(/[^a-z0-9]/g, '')}`;
+    await sql().unsafe(`
+      CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN IF NEW.repo_key LIKE '%i1fail${stamp}%' THEN RAISE EXCEPTION 'injected'; END IF; RETURN NEW; END $$;
+      CREATE TRIGGER ${fn} BEFORE INSERT ON builder_repo_facts FOR EACH ROW EXECUTE FUNCTION ${fn}();`);
+    const key = `outcome:${entry}:builder report:self_reported`;
+    try {
+      await assert.rejects(
+        tell(inst, { program_status: [{ program_id: arcId, status: 'won', project_id: entry }], repo_facts: [{ repo: bad, has_users: true }] }),
+        /injected/,
+      );
+      assert.equal((await sql()`SELECT 1 FROM entry_outcomes WHERE project_id = ${entry}`).length, 0, 'the report rolled back');
+      assert.equal((await eventsByKey(key)).length, 0, 'and left no event');
+      await tell(inst, { program_status: [{ program_id: arcId, status: 'lost', project_id: entry }] });
+      const [e] = await eventsByKey(key);
+      assert.equal(e?.type, 'lost', 'the committed answer is the one logged');
+    } finally {
+      await sql().unsafe(`DROP TRIGGER IF EXISTS ${fn} ON builder_repo_facts; DROP FUNCTION IF EXISTS ${fn}();`);
+      await sql()`DELETE FROM projects WHERE program_id = ${arcId}`;
+      await sql()`UPDATE programs SET status = 'closed' WHERE id = ${arcId}`;
+    }
+  }),
+);

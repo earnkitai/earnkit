@@ -84,6 +84,21 @@ export function eventRepoKey(url: string | null | undefined): string | undefined
   return gh ? `${gh.owner}/${gh.repo}`.toLowerCase() : undefined;
 }
 
+/**
+ * v2.11 T3 review M7: a link the builder gave, as the log keeps it: no query string and no
+ * fragment (a form's response-edit token can ride there). Undefined when it isn't an http(s) link. Pure.
+ */
+export function proofLink(url: string | null | undefined): string | undefined {
+  if (!url || !URL.canParse(url)) return undefined;
+  const u = new URL(url);
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return undefined;
+  u.search = '';
+  u.hash = '';
+  u.username = '';
+  u.password = '';
+  return u.toString();
+}
+
 /** How long a step waits on its event before it answers; a slower write finishes in the background. */
 export const EVENT_WAIT_MS = 1000;
 

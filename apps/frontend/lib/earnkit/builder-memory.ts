@@ -4,7 +4,7 @@ import { CHAINS, type Chain } from './chains';
 import { sql, type Db } from './db';
 import { repoKey } from './answer-bank';
 import { reportedChains, reportedUrl } from './match-projects';
-import { saveSelfReport } from './outcomes';
+import { outcomeEvent, saveSelfReport, type OutcomeEventInput } from './outcomes';
 import { NotFoundError } from './programs';
 
 /**
@@ -253,6 +253,8 @@ export async function tell(
   }
 
   const saved: string[] = [];
+  // v2.11 T3 review I1: the self-reports' events, written only after the transaction commits.
+  const events: OutcomeEventInput[] = [];
   await db.begin(async (tx: Db) => {
     for (const s of memory === null ? [] : statuses) {
       if (s.status !== 'applied' && s.status !== 'not_interested') continue;
@@ -265,7 +267,7 @@ export async function tell(
       saved.push(`${s.program_id}: ${s.status === 'applied' ? 'applied outside EarnKit' : 'not interested'}`);
     }
     for (const o of outcomes) {
-      await saveSelfReport(installationId, { project_id: o.project_id, result: RESULT[o.status], prize_usd: o.prize_usd }, tx);
+      events.push(await saveSelfReport(installationId, { project_id: o.project_id, result: RESULT[o.status], prize_usd: o.prize_usd }, tx));
       saved.push(`${o.program_id}: ${o.status} (their own report)`);
     }
     for (const f of memory === null ? [] : (parsed.repo_facts ?? [])) {
@@ -288,5 +290,6 @@ export async function tell(
       saved.push(repoWords(key, f));
     }
   });
+  for (const e of events) await outcomeEvent(e);
   return { saved, outcomes: outcomes.length };
 }

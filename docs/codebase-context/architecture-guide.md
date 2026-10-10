@@ -4037,17 +4037,30 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
   `tell` write nothing. A deploy the runbook later settles to `deployed` writes nothing live; the
   backfill picks it up.
 - **Identity.** `github-verify.ts loginBasisFor(installationId, repoKey, { callerLogin?, projectId?, proofLine? })`
-  returns `{ login, basis }` or null. Off a shared client: a verification of the repo for this
-  installation (`signin` beats `app`), else `proof_line` with the repo owner as login when the caller
-  says the proof line just passed or a `contract_deploys` row shows it did. On a shared client: only
-  the caller's own verification (`callerLogin`) or the one bound to the entry (`projectId`), and
-  never the proof line. Never `GITHUB_TOKEN`'s login or `installations.github_user`.
+  returns `{ login, basis }` or null (then the event has no login and no basis). Off a shared client:
+  a verification of the repo for this installation (`signin` beats `app`). Else, when the proof line
+  holds (the caller says it just passed, or a `contract_deploys` row shows it did), the repo owner
+  with `proof_line`, but only when the builder said that login is theirs (`installations.github_user`)
+  and GitHub says it is a User account (`githubUser`, S9's `GET /users/<login>` cached 24 hours in
+  `url_checks` as `ghuser:<login>`). The proof line proves the agent can push, not who the builder
+  is, so an organization or a collaborator's push to someone else's repo records no login (review
+  I2). On a shared client: only the caller's own verification (`callerLogin`) or the one bound to the
+  entry (`projectId`), never the proof line. Never `GITHUB_TOKEN`'s login.
+- **Transactions.** Every writer runs after its step committed. `saveSelfReport` returns its event's
+  input and `builder-memory.ts tell` writes it after `db.begin` resolves, so a rolled-back report
+  leaves nothing in the append-only log (review I1). Announcement events take the announcement's day
+  as `at`, as the backfill does (M2). A deploy whose stored code differed carries
+  `detail.code_differs` and `contract_deploys.code_differs` (M1). Builder links in `proof_url` lose
+  their query and fragment (`proofLink`, M7).
 - **Backfill.** `events-backfill.ts backfillEvents(db, { installationIds? })`, run by the owner only
   through `scripts/events-backfill.mts` (`EARNKIT_EVENT_LOG=on pnpm exec tsx apps/frontend/scripts/events-backfill.mts`,
   after the /terms section is live). It reads `contract_deploys` (deployed), `host_deploys` (live),
   `projects` (every entry), `submissions` (the first row per entry is `submitted`) and
   `entry_outcomes` (not unknown), takes each row's own time as `at`, uses the live dedupe keys
-  (a rerun writes 0) and marks `detail.backfill = true`. It takes the wallet and block from
+  (a rerun writes 0) and marks `detail.backfill = true`. The entered event's wallet is `payout_wallet` only (a
+  later token launch can set `creator_wallet`; review M4), and a self-report's time is its latest
+  answer (`captured_at` is updated on each). Submissions are read through one lateral join on the new
+  `submissions_project` index (M5). It takes the wallet and block from
   `contract_deploys.owner_wallet` and `block`; rows from before v2.11 have neither, and the backfill
   makes no RPC read, so T11's usage check reads a missing block from the receipt, and `host_deploys` rows the cron pruned (live, over 30 days) are gone. Never in
   predeploy or the cron (`events-backfill.test.ts` checks package.json and every app file).

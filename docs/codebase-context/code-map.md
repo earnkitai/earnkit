@@ -535,7 +535,7 @@ apps/frontend/
                                Inflate with byte caps), abuseFlags, usesStorage, withBadge, siteExpiry,
                                builder lines (liveLine, HOST_FULL, HOST_REVIEW, HOST_LINES); issueUpload
                                (Ruling 8, P11), deploySite (staged review, reserved rows, tracked
-                               writes), expireSites, cleanDeploys, takedown, approveSite,
+                               writes), expireSites, cleanDeploys (deps.only: a test slug filter), takedown, approveSite,
                                sitesInReview, refreshSiteExpiry, STAGING_PREFIX; hostUploadPost
                                (10/hour per IP, the token attempt taken before the body read),
                                hostTakedownPost
@@ -545,7 +545,7 @@ apps/frontend/
                                v2.10 item 13: deploysDay 20, deployGasMonth 10,000,000 micro-USD),
                                periodKey, takeFreeTier (atomic hard cap), freeTierRoom, FreeTierFull,
                                giveBackFreeTier (never below 0), forceFreeTier (an overage, uncapped)
-    events.ts(+test)           v2.11 Task 2: the builder event log. recordEvent (zod-checked, lowercases
+    events.ts(+test)           v2.11 Task 2 (T3 adds proofLink, noteEvent): the builder event log. recordEvent (zod-checked, lowercases
                                login/wallet/repo_key, detail over 2 KB -> { truncated: true }, optional at, ON CONFLICT
                                DO NOTHING, errors logged as '[events] <type> <ErrorName>' and return false).
                                Off until EARNKIT_EVENT_LOG=on (after the /terms disclosure, T12)
@@ -933,8 +933,9 @@ apps/frontend/
                                nonce = HMAC(EARNKIT_AUTH_SECRET, seed), an open link reused (not on shared clients),
                                sweepVerifyNonces (cron cleanup step)
                                v2.10 fix round 1 (I6): installationLogin (the installation's last verified login; deploy limits).
-                               v2.11 T3: loginBasisFor (a step's login and login_basis: signin, app, proof_line; shared
-                               clients only the caller's or the entry's sign-in; never GITHUB_TOKEN's or github_user)
+                               v2.11 T3: loginBasisFor (a step's login and login_basis: signin, app, proof_line only for
+                               the builder's own User account; shared clients only the caller's or the entry's sign-in),
+                               githubUser (S9: GET /users/<login>, cached 24 h in url_checks ghuser:<login>)
     github-app.ts(+test)       v2.10 item 7b: the optional read-only GitHub App. githubAppEnabled (GITHUB_APP_ID,
                                GITHUB_APP_SLUG, a PEM GITHUB_APP_PRIVATE_KEY, and the v2.9 sign-in on, P17), appJwt
                                (RS256, iat now-60 s, 10 min), installationToken (POST access_tokens: one repo, contents
@@ -1224,7 +1225,7 @@ apps/frontend/
                                RPC failures), prepareAward (guarded UPDATE)
   db/schema.sql                the whole schema, idempotent (sponsor_campaigns, projects.prize_*,
                                v2.10 item 13: contract_deploys (reservation row, builder_key, tx_hash, status, owner_ok, blocked, cost_micro_usd).
-                               v2.11 T3: contract_deploys.owner_wallet, block (nullable; the deployed event's wallet and block).
+                               v2.11 T3: contract_deploys.owner_wallet, block (nullable), code_differs; submissions_project index.
                                projects.repo_key + its partial unique index, projects.token_* and
                                token_repo_key + projects_token_repo_key (one token per repo),
                                sponsor_verifications,

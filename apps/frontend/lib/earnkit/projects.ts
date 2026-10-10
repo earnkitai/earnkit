@@ -15,7 +15,7 @@ import {
 } from './campaigns';
 import { formatDeadline } from './dates';
 import { entryMessage, entrySigner } from './entry-proof';
-import { eventRepoKey, noteEvent } from './events';
+import { eventRepoKey, noteEvent, proofLink } from './events';
 import { loginBasisFor } from './github-verify';
 import { bonusRidesOn, enteredTable, repoCoinNote, roundEndLabel, siteUrl } from './entry-text';
 import { testInstallationIds } from './installations';
@@ -662,8 +662,8 @@ const submittedEvent = (e: { projectId: number; installationId: number; programI
       project_id: e.projectId,
       ...(repoKey && { repo_key: repoKey }),
       ...(who && { github_login: who.login, login_basis: who.basis }),
-      ...(e.url && { proof_url: e.url }),
-      detail: { basis: e.url ? 'link' : e.said ? 'builder_said' : 'recorded' },
+      ...(proofLink(e.url) && { proof_url: proofLink(e.url) }),
+      detail: { basis: proofLink(e.url) ? 'link' : e.said ? 'builder_said' : 'recorded' },
     };
   });
 
