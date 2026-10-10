@@ -622,7 +622,7 @@ test('12.2b Grok Bot (shared client), GitHub sign-in off: no first-reply token o
   assert.equal(forty(J), 1, dump(J));
 });
 
-test('12.4 statements, v2.11 8b: applied Base, not interested in a16z, testnet only on Arc lower the reply (low odds: not deployed yet); a mainnet claim raises it back once checked', dbTest, async (t) => {
+test('12.4 statements: applied Base, not interested in a16z, testnet only on Arc lower the reply; a mainnet claim raises it back once checked', dbTest, async (t) => {
   const J = '12.4';
   // v2.10 Ruling H5: this journey is about statements, not users, so Blockscout gives no count here
   // (unknown: a live, active product is good odds on any chain). The default fake's 0 transactions
@@ -656,8 +656,7 @@ test('12.4 statements, v2.11 8b: applied Base, not interested in a16z, testnet o
   assert.match(low, /^Your entries: Base Builder Grant Program: applied outside EarnKit\./);
   for (const t of ['Base Builder Grant Program', 'a16z speedrun SR008']) assert.equal(rowOf(low, t), undefined, `${t}: no row, in no table`);
   assert.ok(!(lowered.matches as { program_id: string }[]).some((m) => ['base-builder-grants', 'a16z-speedrun'].includes(m.program_id)));
-  // v2.11 8b: a row still missing the deploy is low odds, with that reason.
-  assert.match(rowOf(low, 'Arc Microgrants') ?? '', /^\| Arc Microgrants \| .+ \| Medium \| .+ \| paylink, low odds: not deployed yet \|$/, low);
+  assert.match(rowOf(low, 'Arc Microgrants') ?? '', /^\| Arc Microgrants \| .+ \| Medium \| .+ \| paylink, needs a deploy on Arc mainnet \|$/, low);
 
   // Raising: mainnet on Arc and real users are claims; the Arc contract has code, so Arc is Easy
   // again; the users claim stays a "confirm" until EarnKit can check it.
@@ -850,7 +849,7 @@ async function visit(url: string): Promise<{ status: number; text: string; heade
 const site = (body: string) =>
   zipSync({ 'index.html': strToU8(`<!doctype html><html><head><title>TipJar</title></head><body>${body}</body></html>`), 'app.js': strToU8('console.log(1)') });
 
-test('12.3 lazy builder, no live link (v2.11 8b: low odds, no live link yet): sign-in, upload, the limits; the hosted link counts as live at once; a flagged redeploy waits in staging until approved; expiry ends it', dbTest, () =>
+test('12.3 lazy builder, no live link: sign-in, upload, the limits; the hosted link counts as live at once; a flagged redeploy waits in staging until approved; expiry ends it', dbTest, () =>
   hostingOn(async () => {
     const J = '12.3';
     const id = await newInstallation();
@@ -861,8 +860,8 @@ test('12.3 lazy builder, no live link (v2.11 8b: low odds, no live link yet): si
     const contracts = ['0x9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a'];
     const project = { name: 'TipJar', repo_url, contracts };
     const list = await call(J, 'list', 'list_programs', { local_repos: [{ name: 'TipJar', url: repo_url, chains: [{ chain: 'arc', mainnet: true }], contracts, last_commit_at: daysAgo(1) }] }, ctx);
-    // v2.10 item 6: a contract with code but no live link: low odds, said as such (v2.11 8b: the row's missing link first).
-    assert.match(rowOf(list.show_to_builder!, 'Arc Microgrants') ?? '', /TipJar, low odds: no live link yet \|$/, list.show_to_builder);
+    // v2.10 item 6: a contract with code but no live link: low odds, said as such.
+    assert.match(rowOf(list.show_to_builder!, 'Arc Microgrants') ?? '', /TipJar, low odds: live link not loading \|$/, list.show_to_builder);
 
     // "Host it for me": first the one-click sign-in (purpose host), never the upload URL.
     const first = await call(J, 'host (sign in)', 'prepare_submission', { program_id: program, project, agent: CC, host: true }, ctx);

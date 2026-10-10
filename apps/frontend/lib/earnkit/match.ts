@@ -416,6 +416,13 @@ export const MISSING_REASON: Record<Missing, string> = {
 };
 /** v2.11 8a (S3): the reason on an unknown repo's row ("tokens.fun, users unknown"), never "low odds". */
 export const USERS_UNKNOWN = 'users unknown';
+/** v2.10.2 fix round 1 (I2): a missing deploy when the repo is on a testnet ("not deployed yet" otherwise). */
+export const NOT_ON_MAINNET = 'not on mainnet yet';
+/** v2.10.2 fix round 1 (M3): a repo whose owner GitHub didn't answer for (a rate limit), never "not enough signs". */
+export const OWNER_UNCHECKED = 'owner not checked yet';
+/** v2.10.2 fix round 1 (I2): the missing-deploy reason: "not on mainnet yet" when a chain is on testnet only. Pure. */
+export const deployReason = (chains: Detection): string =>
+  (Object.values(chains) as Detection[Chain][]).some((c) => c?.testnet && !creditsMainnet(c)) ? NOT_ON_MAINNET : MISSING_REASON.mainnet_deploy;
 /**
  * v2.11 8a (S4): whether a repo is a product but for signals EarnKit couldn't check: GitHub hid it
  * (a 404; re-review m1: never a rate limit), so `owned` is unchecked; it is original, active and
@@ -453,7 +460,8 @@ export function productOdds(
     if (t.tx_count === 0 || opts.saidNoUsers) return { odds: 'low', low_reason: NO_USERS_YET };
     return { odds: 'unknown', low_reason: null };
   }
-  if (p.tier !== 'product') return { odds: 'low', low_reason: missingSignalNote(p) ?? NOT_REAL_YET };
+  if (p.tier !== 'product')
+    return { odds: 'low', low_reason: missingSignalNote(p) ?? (p.unchecked?.includes('owned') ? OWNER_UNCHECKED : NOT_REAL_YET) };
   if (p.missing.includes('original')) return { odds: 'low', low_reason: SIGNAL_WORDS.original };
   if (t.tx_count !== null) {
     if (score >= GOOD_ODDS_TRACTION) return { odds: 'good', low_reason: null };
@@ -473,19 +481,23 @@ export const onlyMentioned = (v: Pick<Verdict, 'missing'>, chains: Detection): b
 /**
  * v2.10 items 6, 9: a row's odds. Low when its repo isn't product tier (that reason first, R2), when
  * its chain is only mentioned ("not deployed yet"), or when the repo's traction is low (or unscored).
- * v2.11 8b: a row missing any requirement is low, with the first one's reason (MISSING_REASON), so a
- * starter with good odds never shows them on a row it can't enter yet. v2.11 8a (S3): an unknown repo
- * reads "users unknown" while it waits only on users; any other missing requirement is still low.
- * Pure.
+ * v2.11 8b, v2.10.2 fix round 1 (I2, owner rule): a row missing new work, or users the program needs,
+ * is low for every repo (MISSING_REASON). A missing deploy or live link is low only below product
+ * tier: a product one deploy or one link away keeps its odds, since EarnKit does those steps. v2.11
+ * 8a (S3): an unknown repo reads "users unknown" while it waits on users; on a row that doesn't need
+ * users it has no reason (fix round 1, I1); a missing deploy or link is low for it too. Pure.
  */
 export function rowOdds(p: Product | undefined, v: Verdict, chains: Detection): { odds: Odds; low_reason: string | null } {
   if (!p) return { odds: 'low', low_reason: NOT_REAL_YET };
   const unknown = p.odds === 'unknown';
   if (p.tier !== 'product' && !unknown) return { odds: 'low', low_reason: p.low_reason ?? missingSignalNote(p) ?? NOT_REAL_YET };
-  if (onlyMentioned(v, chains)) return { odds: 'low', low_reason: MISSING_REASON.mainnet_deploy };
-  const other = v.missing.find((m) => m !== 'real_users');
-  if (other) return { odds: 'low', low_reason: MISSING_REASON[other] };
-  if (unknown) return { odds: 'unknown', low_reason: USERS_UNKNOWN };
+  if (onlyMentioned(v, chains)) return { odds: 'low', low_reason: deployReason(chains) };
+  if (v.missing.includes('new_work')) return { odds: 'low', low_reason: MISSING_REASON.new_work };
+  if (unknown) {
+    if (v.missing.includes('mainnet_deploy')) return { odds: 'low', low_reason: deployReason(chains) };
+    if (v.missing.includes('live_url')) return { odds: 'low', low_reason: MISSING_REASON.live_url };
+    return { odds: 'unknown', low_reason: v.missing.includes('real_users') ? USERS_UNKNOWN : null };
+  }
   // v2.10.1 B2, B3: a row still waiting on real users is never good odds, and says so.
   if (v.missing.includes('real_users')) return { odds: 'low', low_reason: NO_USERS_YET };
   if (p.odds !== 'good') return { odds: 'low', low_reason: p.low_reason ?? NOT_REAL_YET };

@@ -2,7 +2,7 @@ import { normalizeRepoUrl, usd } from './campaigns';
 import { NO_CELL } from './no-cell';
 import { closeDayOf, endsOf, prizeOf, repoCoinNote } from './entry-text';
 import { shortDate } from './dates';
-import { CHAIN_NAMES, EFFORT_ORDER, NOT_REAL_YET, USERS_UNKNOWN, hasRealUse, oddsRank, rowOdds, type Chain, type Effort, type Odds, type Product, type RepoFacts, type Verdict } from './match';
+import { CHAIN_NAMES, EFFORT_ORDER, GOOD_ODDS_TRACTION, NOT_REAL_YET, hasRealUse, oddsRank, rowOdds, type Chain, type Effort, type Odds, type Product, type RepoFacts, type Verdict } from './match';
 import { NEEDS_LIVE_PRODUCT, difficultyLabel, levelRank, rowDifficulty, type Difficulty, type Level } from './guide';
 import { moneyText, openMoneyUsd, wonLine } from './pool';
 import { CANT_SEE_LINE, PRIVATE_LOCAL_LINE } from './match-projects';
@@ -694,7 +694,8 @@ export function leadLine(r: Fit | undefined, m: Pick<FirstMessage, 'cards' | 're
  * program waits only on real users, is asked about once it ranks above the lead's repo (or there is
  * no lead): the builder's answer goes to tell (has_users) and decides. v2.11 8a (S3, S4): so is a
  * repo EarnKit couldn't read (odds unknown), wherever it ranks, unless the lead's repo has real use.
- * Undefined otherwise. Pure.
+ * v2.10.2 fix round 1 (C1): one pick across all repos (unknown first, then products, a grant before
+ * an investment), never a starter (traction under 4); a yes or no is final. Undefined otherwise. Pure.
  */
 export function usersAsk(
   m: Pick<FirstMessage, 'cards' | 'repos' | 'entries'>,
@@ -706,22 +707,31 @@ export function usersAsk(
   const fits = m.repos.fits;
   const leadAt = lead ? fits.findIndex((f) => f.repo === lead.repo) : fits.length;
   const above = (i: number) => i < (leadAt < 0 ? fits.length : leadAt);
+  // A grant before an investment, then the top prize.
+  const byGrant = (a: Card, b: Card) => Number(Boolean(a.investment)) - Number(Boolean(b.investment)) || byPrize(a, b);
+  const asks: { group: number; at: number; repo: string; key: string | null; card: Card }[] = [];
   for (const [i, f] of fits.entries()) {
-    // v2.11 8a (S3, S4): a repo EarnKit couldn't read (odds unknown) is asked about too, wherever it
-    // ranks, unless the lead's own repo has real use.
-    const askable =
-      (above(i) && f.product?.tier === 'product' && f.product.odds === 'good') || (f.product?.odds === 'unknown' && !lead?.real_use);
-    if (!askable || !f.facts) continue;
-    if (hasRealUse(f.facts) || f.facts.users_said != null) continue;
+    if (!f.facts || hasRealUse(f.facts) || f.facts.users_said != null) continue;
+    // v2.11 8a (S3, S4): a repo EarnKit couldn't read (odds unknown), wherever it ranks, unless the
+    // lead's own repo has real use. Fix round 1 (I1): on a row that waits on users, or on one with
+    // nothing missing (the yes promotes it everywhere), so it is never stuck unasked.
+    const unknown = f.product?.odds === 'unknown' && !lead?.real_use;
+    // v2.10.1 C1: a good-odds product ranked above the lead. Fix round 1 (C1): never a starter (traction
+    // under GOOD_ODDS_TRACTION: a live link and a few commits, nothing measured).
+    const product = above(i) && f.product?.tier === 'product' && f.product.odds === 'good' && (f.product.traction ?? 0) >= GOOD_ODDS_TRACTION;
+    if (!unknown && !product) continue;
+    const waits = (v: Verdict) => (v.missing.length === 1 && v.missing[0] === 'real_users') || (unknown && v.missing.length === 0);
     const waiting = f.verdicts
-      .filter((v) => v.missing.length === 1 && v.missing[0] === 'real_users')
-      .map((v) => byId.get(v.program_id))
-      .filter((c): c is Card => c !== undefined && !c.sponsored && !entered.has(c.id))
-      // A grant before an investment, then the top prize.
-      .sort((a, b) => Number(Boolean(a.investment)) - Number(Boolean(b.investment)) || byPrize(a, b));
-    if (waiting[0]) return { repo: f.repo, key: f.key ?? null, card: waiting[0] };
+      .filter(waits)
+      .map((v) => ({ card: byId.get(v.program_id), users: v.missing.length > 0 }))
+      .filter((w): w is { card: Card; users: boolean } => w.card !== undefined && !w.card.sponsored && !entered.has(w.card.id))
+      .sort((a, b) => byGrant(a.card, b.card) || Number(b.users) - Number(a.users));
+    if (waiting[0]) asks.push({ group: unknown ? 0 : 1, at: i, repo: f.repo, key: f.key ?? null, card: waiting[0].card });
   }
-  return undefined;
+  // Fix round 1 (C1): across every repo: the repos EarnKit couldn't read first, then products; a grant
+  // before an investment; then the fits order.
+  const [best] = asks.sort((a, b) => a.group - b.group || byGrant(a.card, b.card) || a.at - b.at);
+  return best && { repo: best.repo, key: best.key, card: best.card };
 }
 
 /**
@@ -730,7 +740,10 @@ export function usersAsk(
  */
 export function usersAskLine(a: NonNullable<ReturnType<typeof usersAsk>>): string {
   const chain = a.card.any_chain || !a.card.chains?.length ? '' : ` on ${CHAIN_NAMES[a.card.chains[0]]}`;
-  return `${a.repo} could win ${prizeOf(a.card).split(' × ')[0]}${chain} with real users. Does it have real users or revenue? (yes/no)`;
+  // Fix round 1 (M6): a range prize ("$5,000 to $100,000 USDC grants") reads "up to $100,000".
+  const prize = prizeOf(a.card).split(' × ')[0];
+  const money = / to /.test(prize) && a.card.max_award_usd ? `up to ${usd(a.card.max_award_usd)}` : prize;
+  return `${a.repo} could win ${money}${chain} with real users. Does it have real users or revenue? (yes/no)`;
 }
 
 /** The first message: see the type and the module comment for the order. Pure; exported for tests. */
@@ -810,8 +823,8 @@ export function presentFirstMessage(given: FirstMessage): string {
               odds === 'low'
                 ? `${repo}, ${lowOddsCell(low_reason ?? NOT_REAL_YET)}`
                 : // v2.11 8a (S3): an unknown row is never "low odds".
-                  odds === 'unknown'
-                  ? `${repo}, ${USERS_UNKNOWN}`
+                  odds === 'unknown' && low_reason
+                  ? `${repo}, ${low_reason}`
                   : v.status === 'likely' || !v.note ? repo : `${repo}, ${v.note}`,
             ];
           }),
@@ -888,7 +901,8 @@ const buildNew = (c: Card): Offer => ({
 
 /** v2.8.1 §B7, Ruling F5; v2.9 A4: the fit to offer: good odds first (v2.10 item 6), then the easiest row, then the top prize, then the quicker fit. Pure. */
 const bestFit = (rows: Fit[]): Fit | undefined =>
-  [...rows].sort((a, b) => byOdds(a, b) || byRowLevel(a, b) || byPrize(a.card, b.card) || quickness(a.v) - quickness(b.v))[0];
+  // v2.10.2 fix round 1 (M4): never an unknown row (its builder is asked about users instead).
+  [...rows.filter((r) => r.odds !== 'unknown')].sort((a, b) => byOdds(a, b) || byRowLevel(a, b) || byPrize(a.card, b.card) || quickness(a.v) - quickness(b.v))[0];
 
 /** v2.8.1 §B7: the program to offer without a fit: the Easy one with the most money, else programs needing forms last. Pure. */
 const bestCard = (cards: Card[]): Card | undefined =>

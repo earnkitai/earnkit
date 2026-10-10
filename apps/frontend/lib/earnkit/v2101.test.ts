@@ -5,7 +5,7 @@ import { MatchProjectsInput, SKIP_REASONS, matchProjects, type MatchDeps } from 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { NOT_REAL_YET, NO_USERS_YET, USERS_UNKNOWN, matchRepo, type ProgramFacts, type RepoFacts } from './match';
-import { LOW_ODDS_HEADING, layout, presentFirstMessage, submitStepLine, submitStep, type Card, type FirstMessage, type RepoFit, type YourRepos } from './present';
+import { LOW_ODDS_HEADING, layout, presentFirstMessage, submitStepLine, usersAskLine, submitStep, type Card, type FirstMessage, type RepoFit, type YourRepos } from './present';
 import { submitSiteName } from './programs';
 import { matchRows } from './tools';
 import { LEAD_NOTE } from './tools';
@@ -509,4 +509,56 @@ test('v2.11 8b (1.2): the tipjar starter on the real World\'s Fair (Base reporte
   assert.doesNotMatch(more, /Your repos fit these open programs:/);
   assert.match(more, new RegExp(`^${LOW_ODDS_HEADING}`, 'm'));
   assert.match(more, /tipjar, low odds: only new work counts/);
+});
+
+// ---- v2.10.2 fix round 1 (review C1, I1, M6) ----
+
+const CIRCLE: ProgramFacts = {
+  id: 'circle-developer-grants', title: 'Circle Developer Grants', chains: ['arc'], any_chain: false, existing_work: 'allowed',
+  tag: 'needs a live product', starts_at: null, investment: false, min_product_score: 0,
+};
+const CIRCLE_CARD: Card = {
+  id: CIRCLE.id, title: CIRCLE.title, summary: '$5,000 to $100,000 USDC grants · rolling', tag: CIRCLE.tag, each_time: [], ends_at: null,
+  max_award_usd: 100_000, builder_fields: 0, chains: ['arc'],
+};
+const withCircle = (o: { said?: Record<string, Said>; input?: object } = {}) =>
+  withGitHub(() => matchProjects(MatchProjectsInput.parse({ ...OWNER_INPUT, ...BARE_INPUT, ...o.input, ...(o.said && { said: o.said }) }), { ...deps(), programs: [...PROGRAMS, CIRCLE] }));
+const ARC_SUBMITTED = [{ id: 41, program_id: ARC.id, title: ARC.title, name: 'tipjar', submitted: true }];
+const lastLine = (repos: unknown, entries = ARC_SUBMITTED) =>
+  presentFirstMessage({ alerts: [], campaigns: [], cards: [...CARDS, CIRCLE_CARD], repos: repos as YourRepos, workingOn: [], agentCanBuild: true, sponsorEntries: null, now: NOW, more: false, entries })
+    .split('\n')
+    .at(-1)!;
+
+test('v2.10.2 fix round 1 (C1): with the Arc entry submitted, the users question is about tokens.fun, never the tipjar starter (Circle, a16z); a yes or a no is final and no repo is asked next', async () => {
+  const r = await withCircle();
+  const tip = r.fits.find((f) => f.repo === 'tipjar')!;
+  // The starter waits only on users at Circle (a chain grant), and it is still never asked.
+  assert.ok(tip.verdicts.some((v) => v.program_id === CIRCLE.id && v.missing.length === 1 && v.missing[0] === 'real_users'), JSON.stringify(tip.verdicts));
+  assert.equal(lastLine(r), 'tokens.fun could win up to $5,000 on Base with real users. Does it have real users or revenue? (yes/no)');
+  const yes = await withCircle({ said: saidUsers(true) });
+  assert.equal(lastLine(yes), 'Your tokens.fun can win up to $5,000 on Base. Want me to finish it?');
+  const no = await withCircle({ said: saidUsers(false) });
+  assert.doesNotMatch(lastLine(no), /real users or revenue/);
+  assert.doesNotMatch(lastLine(no), /tipjar could win/);
+});
+
+test('v2.10.2 fix round 1 (I1): an unknown repo whose only match is a program that doesn\'t need users is asked about (never stuck), and its row never says "users unknown"', async () => {
+  const onArc = { ...BARE_INPUT.local_repos[0], chains: [{ chain: 'arc', mainnet: true }] };
+  const r = await withGitHub(() => matchProjects(MatchProjectsInput.parse({ github_user: 'jenil04', repos: ['minidevai/tokens.fun'], local_repos: [onArc] }), { ...deps(), programs: [ARC] }));
+  const tf = r.fits.find((f) => f.repo === 'tokens.fun')!;
+  assert.equal(tf.product.odds, 'unknown');
+  const text = presentFirstMessage({ alerts: [], campaigns: [], cards: [CARDS[0]], repos: r as YourRepos, workingOn: [], agentCanBuild: true, sponsorEntries: null, now: NOW, more: false });
+  assert.equal(text.split('\n').at(-1), 'tokens.fun could win 500 USDC on Arc with real users. Does it have real users or revenue? (yes/no)');
+  const more = presentFirstMessage({ alerts: [], campaigns: [], cards: [CARDS[0]], repos: r as YourRepos, workingOn: [], agentCanBuild: true, sponsorEntries: null, now: NOW, more: true });
+  assert.match(more, /\| Arc Microgrants \|[^\n]*\| tokens\.fun \|/, more);
+  assert.doesNotMatch(more, /users unknown|low odds/);
+  // Fix round 1 (M4): "show more" never offers to start on an unknown row.
+  assert.doesNotMatch(more, /start on Arc Microgrants with tokens\.fun/);
+});
+
+test('v2.10.2 fix round 1 (M6): the users question reads a range prize as "up to" the top', () => {
+  assert.equal(
+    usersAskLine({ repo: 'paylink', key: null, card: CIRCLE_CARD }),
+    'paylink could win up to $100,000 on Arc with real users. Does it have real users or revenue? (yes/no)',
+  );
 });
