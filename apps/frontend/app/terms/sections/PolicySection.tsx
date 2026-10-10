@@ -8,6 +8,13 @@ import {
   FEE_ROWS,
   MINI_LINE,
   PLACE_ROWS,
+  RECORD_STEPS,
+  RECORDS_HISTORY,
+  RECORDS_KEPT,
+  RECORDS_REMOVAL,
+  RECORDS_TITLE,
+  RECORDS_WHY,
+  RECORDS_WITH,
   SAFE_ADDRESS,
   SIGNAL_ROWS,
 } from '../../../lib/earnkit/policy';
@@ -72,7 +79,7 @@ function Table({ head, rows }: { head: [string, string]; rows: [string, string |
 /**
  * The public policy (v2.5 §4), /terms#policy since v2.9 F22: matching, the fee split (then the
  * MINI line, F24), the builder bonus (funding, eligibility, ranking, review, payout), the optional
- * token, no affiliation, contact. Every number comes from lib/earnkit/policy.ts, which reads the
+ * token, no affiliation, what EarnKit records (v2.11 T12), contact. Every number comes from lib/earnkit/policy.ts, which reads the
  * constants the code applies.
  */
 export default function PolicySection() {
@@ -191,6 +198,16 @@ export default function PolicySection() {
             EarnKit lists programs by their factual names. EarnKit isn&apos;t affiliated with or endorsed by any
             program or its organizer. The builder bonus is paid by EarnKit from token fees, never by an organizer.
           </p>
+        </Section>
+
+        {/* v2.11 T12: id what-earnkit-records (RECORDS_ANCHOR); the entry page links it. */}
+        <Section title={RECORDS_TITLE}>
+          <p>{RECORDS_KEPT}</p>
+          <p>{RECORDS_HISTORY}</p>
+          <List items={RECORD_STEPS} />
+          <p>{RECORDS_WITH}</p>
+          <p>{RECORDS_WHY}</p>
+          <p>{RECORDS_REMOVAL}</p>
         </Section>
 
         <Section title="Contact">

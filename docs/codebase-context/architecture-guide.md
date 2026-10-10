@@ -4064,3 +4064,40 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
   `contract_deploys.owner_wallet` and `block`; rows from before v2.11 have neither, and the backfill
   makes no RPC read, so T11's usage check reads a missing block from the receipt, and `host_deploys` rows the cron pruned (live, over 30 days) are gone. Never in
   predeploy or the cron (`events-backfill.test.ts` checks package.json and every app file).
+
+## v2.11 Terms disclosure and redaction (Task 12, spec 9, owner decision 6)
+
+- **The disclosure.** `/terms` has a "What EarnKit records" section (`PolicySection`, id
+  `what-earnkit-records`; the copy is `policy.ts` `RECORDS_*` and `RECORD_STEPS`, so
+  `public-pages.test.ts` 12.1 reads it). It states only what the code writes: the agent's data
+  (repos shared, entries, wallets given, the digest email), then the event log's steps with their
+  proofs (deploy: tx and address; hosted: live link; entry: `/p/<id>`; submission: the link given;
+  result: the results page or the builder's own answer), the repo, program, wallet and the login with
+  its basis (sign-in, the App, the `earnkit.txt` line; `repo_owner` is never written), why, and the
+  removal email (`CONTACT_EMAIL`). It says the steps, repos and proofs stay, since the trigger keeps
+  them and a repo key or a hosted link (`<project>-<login>`) can still carry the login. The terms
+  nav and the entry page footer (`/p/<id>`, `RECORDS_HREF`) link it. **When a later task writes a
+  new field or step (T8/T9's `built` and any `detail.twist`, T11's `usage_check`), update this copy in
+  the same change.**
+- **Go-live order.** `EARNKIT_EVENT_LOG` stays off until this section is live in production. The
+  owner deploys the release, checks `https://earnkit.com/terms#what-earnkit-records` loads, then sets
+  `EARNKIT_EVENT_LOG=on` (and only then runs the backfill). Never the other way round.
+- **Redaction runbook.** On a builder's email request, the owner runs, from the repo root with the
+  production `DATABASE_URL`:
+
+  ```
+  pnpm exec tsx apps/frontend/scripts/events-redact.mts --login <login> --wallet <0x...>          # dry run
+  pnpm exec tsx apps/frontend/scripts/events-redact.mts --login <login> --wallet <0x...> --apply  # writes
+  ```
+
+  Either flag alone works. The dry run lists the matching `builder_events` rows (by login or wallet,
+  case-insensitive) inside a read-only transaction. `--apply` does it in one transaction: it sets
+  `earnkit.events_redact` to `'on:' || txid_current()`, nulls `github_login` and `wallet` and drops
+  `detail.twist` on every matching row, checks the counts and commits; the setting ends with it, so the
+  table is append-only again. The script prints the count, the time and each row, which is the
+  redaction note to keep with the reply. It also prints how many kept rows still name the login in
+  their repo or link, and the row count in every other table that holds the login or wallet
+  (installations, verifications, hosting, deploys, entries, payouts and a few jsonb columns). It never
+  changes those: the owner decides. Never from predeploy or the cron (`events-redact.test.ts` checks
+  package.json, and runs the script as a child process against the test DB, including a check that
+  every `*login`/`*wallet` column in the schema is listed).

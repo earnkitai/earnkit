@@ -1,17 +1,19 @@
 import Footer from '../components/common/Footer';
 import { Eyebrow, Panel } from '../components/common/Panel';
+import { RECORDS_HREF, RECORDS_TITLE } from '../../lib/earnkit/policy';
 import PolicySection from './sections/PolicySection';
 import RiskSection from './sections/RiskSection';
 import SponsorTermsSection from './sections/SponsorTermsSection';
 
 export const metadata = {
   title: 'Terms',
-  description: 'How EarnKit works, where token fees go, the builder bonus, the risks, and the sponsor terms.',
+  description: 'How EarnKit works, where token fees go, the builder bonus, what EarnKit records, the risks, and the sponsor terms.',
   alternates: { canonical: 'https://earnkit.com/terms' },
 };
 
 const SECTIONS = [
   { href: '#policy', label: 'How EarnKit works' },
+  { href: RECORDS_HREF.slice('/terms'.length), label: RECORDS_TITLE },
   { href: '#risk-disclosure', label: 'Risk disclosure' },
   { href: '#sponsor-terms', label: 'Sponsor terms' },
 ];
