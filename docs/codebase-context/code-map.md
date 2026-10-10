@@ -328,7 +328,7 @@ apps/frontend/
     placeholder.ts             v2.9 A5, pure: placeholderHost / placeholderLink (reserved names,
                                short list, IPs, earnkit.com, github.com/earnkitai) and the builder
                                lines PLACEHOLDER_LINE, LIVE_FAILED_LINE, liveErrorLine (v2.10: the
-                               link loads an error page), contractMissingLine,
+                               link loads an error page; final fix M2: the phrase cleaned, word-capped, quoted), contractMissingLine,
                                contractUncheckedLine (G15: a contract check that couldn't run)
     verify.ts(+test)           v2.9 A5: liveVerified (safeProbe) and contractDeployed (getCode via
                                v2.10 item 13: markDeployed (a fresh getcode:<chain>:<addr> pass for a deploy EarnKit made).
@@ -647,6 +647,7 @@ apps/frontend/
                                wallet, for the agent to echo as record_submission's payout_wallet;
                                record_submission never reads the remembered wallet)
                                v2.10 item 13: PrepareInput.deploy (DeployField, P9 owner_wallet), deployStep (the deployed line, reply.deploy), deployWalletLine.
+                               Final fix M3: deployStep on a shared client needs sign-in on and calls callerLogin directly (DeployDeps.callerLogin seam).
     tokens.ts(+test)           tokensFunUrl() (v2.9 T12: TOKENSFUN_API_URL read per call, never at import);
                                v2.10 item 11: tokenDescription (plain description, else the entry's
                                one-liner, else "<Name> on <Chain>" for a one-chain program, else "<Name>"; at most 280 characters), deployToken's description;
