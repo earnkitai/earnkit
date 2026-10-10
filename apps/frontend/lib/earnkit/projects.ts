@@ -586,12 +586,6 @@ export async function submittedEntry(
   return { id, project, answers: answers ?? {} };
 }
 
-/** v2.11 T3: an entry's repo link (for its events), or null. */
-export async function projectRepoUrl(projectId: number): Promise<string | null> {
-  const [row] = await sql()<{ repo_url: string | null }[]>`SELECT repo_url FROM projects WHERE id = ${projectId}`;
-  return row?.repo_url ?? null;
-}
-
 /**
  * v2.10 item 3 (Pre-flight P23): whether this installation has any entry (a row, confirmed or not)
  * for the program; the guide is not shown again after one.
@@ -648,6 +642,28 @@ const enteredEvent = (e: { projectId: number; installationId: number; programId:
       ...(e.wallet && { wallet: e.wallet }),
       ...(who && { github_login: who.login, login_basis: who.basis }),
       proof_url: `${siteUrl()}/p/${e.projectId}`,
+    };
+  });
+
+/**
+ * v2.11 T3 fix: record_submission recorded the entry (a `submissions` row, so it counts as submitted
+ * under Ruling C10, as the backfill reads it): its `submitted` event. Through tell `submitted` too.
+ * The first one per entry is kept.
+ */
+const submittedEvent = (e: { projectId: number; installationId: number; programId: string; repoUrl: string | null; url?: string; said: boolean }) =>
+  noteEvent('submitted', async () => {
+    const repoKey = eventRepoKey(e.repoUrl);
+    const who = repoKey ? await loginBasisFor(e.installationId, repoKey, { projectId: e.projectId }) : null;
+    return {
+      type: 'submitted',
+      dedupe_key: `submitted:${e.projectId}`,
+      installation_id: e.installationId,
+      program_id: e.programId,
+      project_id: e.projectId,
+      ...(repoKey && { repo_key: repoKey }),
+      ...(who && { github_login: who.login, login_basis: who.basis }),
+      ...(e.url && { proof_url: e.url }),
+      detail: { basis: e.url ? 'link' : e.said ? 'builder_said' : 'recorded' },
     };
   });
 
@@ -1075,6 +1091,14 @@ export async function recordSubmission(
           repoUrl: repo_url ?? null,
           wallet: entry?.payoutWallet ?? bonusWallet,
         });
+      await submittedEvent({
+        projectId: res.project_id,
+        installationId,
+        programId: program.id,
+        repoUrl: repo_url ?? null,
+        url: input.external_submission_url ?? undefined,
+        said: input.builder_submitted === true,
+      });
       return res;
     })
     .then(async (res) => {

@@ -494,8 +494,9 @@ export async function deployForBuilder(
       const [blocked] = await tx`SELECT 1 FROM contract_deploys WHERE builder_key = ${who} AND blocked LIMIT 1`;
       if (blocked) return 'blocked' as const;
       const [row] = await tx<{ id: number }[]>`
-        INSERT INTO contract_deploys (installation_id, login, builder_key, repo_key, chain, tx_hash, status, cost_micro_usd)
-        VALUES (${a.installationId}, ${a.login?.toLowerCase() ?? null}, ${who}, ${a.repoKey.toLowerCase()}, ${c}, '', 'sent', 0)
+        INSERT INTO contract_deploys (installation_id, login, builder_key, repo_key, chain, tx_hash, status, cost_micro_usd, owner_wallet)
+        VALUES (${a.installationId}, ${a.login?.toLowerCase() ?? null}, ${who}, ${a.repoKey.toLowerCase()}, ${c}, '', 'sent', 0,
+          ${a.builderWallet.toLowerCase()})
         RETURNING id`;
       return row.id;
     });
@@ -598,7 +599,8 @@ export async function deployForBuilder(
       else if (cost > reserved) await forceFreeTier('deployGasMonth', cost - reserved, now);
       await sql()`
         UPDATE contract_deploys SET status = ${status}, address = ${fields.address ?? null},
-          owner_ok = ${fields.owner_ok ?? null}, cost_micro_usd = ${cost}
+          owner_ok = ${fields.owner_ok ?? null}, cost_micro_usd = ${cost},
+          block = ${receipt.blockNumber !== undefined ? receipt.blockNumber.toString() : null}::bigint
         WHERE id = ${id}`;
     };
     // v2.11 T3: the row is `deployed`: its event, with the tx, the address, the block and the owner check.

@@ -954,6 +954,11 @@ CREATE TABLE IF NOT EXISTS contract_deploys (
 );
 CREATE INDEX IF NOT EXISTS contract_deploys_owner_flag ON contract_deploys (created_at) WHERE owner_ok = false OR status = 'unknown';
 CREATE INDEX IF NOT EXISTS contract_deploys_builder ON contract_deploys (builder_key, created_at);
+-- v2.11 T3: the wallet the builder named as owner, and the block the deploy landed in (the deployed
+-- event's proof, and where T11's usage checks start). Additive and nullable: rows from before have
+-- neither (the backfill leaves them null; T11 reads the block from the receipt).
+ALTER TABLE contract_deploys ADD COLUMN IF NOT EXISTS owner_wallet text;
+ALTER TABLE contract_deploys ADD COLUMN IF NOT EXISTS block bigint;
 
 -- v2.11 spec 6: the builder event log. One row per thing a builder shipped (built, deployed,
 -- hosted, entered, submitted, won, lost, usage_check), with its public proof. Nothing reads it for
