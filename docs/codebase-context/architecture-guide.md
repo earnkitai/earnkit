@@ -3852,3 +3852,42 @@ line the owner sees.
   (the protocol's signal to list again, sent on the POST's own stream). A call under a new name is
   plain JSON, unchanged. `serverInfo.version` is now `2.10.1`. The server instructions still name
   the 4 tools (they come with `initialize`, before the server knows which list the client holds).
+
+### v2.10.1 fix round 1 (review: C1, I1 to I3, M1 to M4)
+
+- **C1: the real tokens.fun.** tokens.fun has no contract of its own (it launches through Clanker's
+  and Uniswap's shared contracts), and GitHub can't show its repo. Three changes, matching only:
+  - *The builder's own commits stand in for the owner read.* `local_repos[].my_commits_90d` (the
+    builder's own commits from the local git log). When the contribution read can't say (404) and
+    it is above 0, the repo is owned for matching and its commit count is the traction count. The
+    launch, deploy, entry and bonus gates keep their own proofs.
+  - *A users claim is real use.* `match.ts hasRealUse` is measured use or the builder's `users` claim
+    (tell's `has_users`). It clears "needs real users first" for any-chain and investment programs (I2;
+    the claim joins `open`, so a likely row says "confirm: users"), passes the score floor, and makes a
+    repo a product with a live link and a commit in 90 days (`withRealUse`).
+  - *Ask, never guess.* `present.ts usersAsk`/`usersAskLine`: a product-tier repo with good odds, no
+    measured use, no claim and no answer yet (`RepoFacts.users_said`), whose open program waits only on
+    real users, and which ranks above the lead's repo (or there is no lead), is asked about instead of
+    the lead: "tokens.fun could win up to $5,000 on Base with real users. Does it have real users or
+    revenue? (yes/no)". `find` returns `users_question: { repo, agent_note: USERS_NOTE }`. The agent
+    passes the answer to tell (`repo_facts: [{ repo, has_users }]`). A no is never asked again, and the
+    row keeps "low odds: no users yet".
+  - Not built: an app or fee wallet as measured use. It needs a signature proof to stop someone
+    borrowing a busy wallet, so it is not the cheap free source the review allowed.
+- **I1: shared contracts are never anyone's.** `shared-contracts.ts SHARED_BASE_CONTRACTS` lists the
+  Clanker and PoolManager addresses (a test keeps it in step with `traction.ts CLANKER_ADDRESSES`), the
+  Uniswap v2/v3/v4 periphery, the Universal Routers, Permit2, WETH, USDC, Multicall3, the EntryPoints,
+  0x, 1inch and Aerodrome. They are dropped from reported contracts and from config addresses, so
+  they never count as deployed or as use. Real use (`RepoFacts.tx_count`, runChecks `used_tx`) counts
+  only contracts the agent reported. A busy contract a config file merely mentions still feeds
+  `traction`, but is never real use.
+- **I3: old-name replies.** The reply is plain JSON again (no `list_changed` stream). `aliases.ts
+  withOlderNames` writes each tool reference in both forms ("call prepare (prepare_submission if your
+  tool list is older)"; "call find with program_id" names get_program). Prose is left alone ("find
+  another program"). The argument words stay the new ones: an old name called with `yes`, `skip_token`,
+  `check`, `submitted` or `pickup` is that new call as given (`aliasCall`). `STALE_TOOLS_NOTE` assumes no
+  list: "If EarnKit's tools look out of date, ask the builder once to refresh ...".
+- **Minors.** M2: `LEAD_NOTE` says that on a no to the submit question, say nothing more until the
+  builder brings it up. M3: the GitHub skip reason has no ";". M4: done in I3.
+  - Skipped: M2's 24-hour hold, since the line stays until the builder answers. M5 and M6 are no-ops
+    (the review accepted them).

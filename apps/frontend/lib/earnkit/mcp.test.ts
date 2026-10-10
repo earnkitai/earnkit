@@ -6,11 +6,11 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { escrowConfig, escrowConfigProblem } from './escrow';
 import { FIND_DESCRIPTION, OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, errorSummary, TOOL_DESCRIPTIONS, createMcpServer, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { handlers } from './tools';
-import { OLD_TOOL_NAMES, STALE_TOOLS_NOTE, aliasCall, inOldWords } from './aliases';
+import { OLD_TOOL_NAMES, STALE_TOOLS_NOTE, aliasCall, withOlderNames } from './aliases';
 
 /** v2.10.1 B5: a reply object's agent strings in a stale client's words (aliases.ts forOldClient, minus the note). */
 const oldWords = (v: unknown, used: string): unknown =>
-  typeof v === 'string' ? inOldWords(v, used) : Array.isArray(v) ? v.map((x) => oldWords(x, used)) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, /^show_to_|^question$/.test(k) ? x : oldWords(x, used)])) : v;
+  typeof v === 'string' ? withOlderNames(v, used) : Array.isArray(v) ? v.map((x) => oldWords(x, used)) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, /^show_to_|^question$/.test(k) ? x : oldWords(x, used)])) : v;
 import { POST } from '../../app/mcp/route';
 import { saveInstallation } from './installations';
 import { upsertProgram } from './programs';
@@ -105,7 +105,8 @@ test('9.2 the instructions and each of the 4 descriptions: under 800 characters,
     }
   }
   // Pre-flight P21: T4's local_repos sentence and T7's token sentence are carried forward.
-  assert.ok(FIND_DESCRIPTION.includes('For private repos, report local_repos facts: name, chains, contracts, live link, last commit.'));
+  // v2.10.1 fix round 1 (C1): plus the builder's own commit count.
+  assert.ok(FIND_DESCRIPTION.includes('For private repos, report: name, chains, contracts, live link, last_commit_at, my_commits_90d.'));
   assert.ok(SERVER_INSTRUCTIONS.includes('Yes submits the entry and launches the token; skip the token submits without one.'));
   // The registered text is the same text.
   const { tools, instructions } = await listed({ ESCROW_FACTORY_ADDRESS: FACTORY });
@@ -527,11 +528,10 @@ test('9.7 (Review Focus 2) the route: an old get_program call returns what find 
     assert.match(freshRes.headers.get('content-type') ?? '', /application\/json/, 'a new-name call is plain JSON');
     const fresh = await reply(freshRes);
     const oldRes = await post(2, 'get_program', { program_id: program.id });
-    assert.match(oldRes.headers.get('content-type') ?? '', /text\/event-stream/);
-    const [changed] = await events(oldRes.clone());
-    assert.deepEqual(changed, { jsonrpc: '2.0', method: 'notifications/tools/list_changed' });
+    // v2.10.1 fix round 1 (I3): plain JSON, as before (no list_changed stream).
+    assert.match(oldRes.headers.get('content-type') ?? '', /application\/json/);
     const old = await reply(oldRes);
-    // v2.10.1 B5: the same reply, in the words of the tools that client lists, plus the refresh note.
+    // v2.10.1 B5: the same reply, each tool named in both forms, plus the refresh note.
     assert.equal(old.tools_note, STALE_TOOLS_NOTE);
     delete old.tools_note;
     assert.deepEqual(old, oldWords(fresh, 'get_program'));

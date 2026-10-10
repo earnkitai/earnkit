@@ -39,6 +39,7 @@ import { githubRepo } from './campaigns';
 import { repoKey } from './answer-bank';
 import type { SaidRepo } from './builder-memory';
 import { EARNKIT_STARTER_NAMES } from './earnkit-orgs';
+import { sharedContract } from './shared-contracts';
 import {
   CheckBudget,
   ENTRY_BUDGET,
@@ -393,7 +394,7 @@ async function readRepoChains(repo: Repo, token?: string) {
     ...new Set(files.flatMap((f) => f.text.match(ADDRESS) ?? []).map((a) => a.toLowerCase())),
   ]
     // Ruling G3: a known token (USDC, EURC, WETH, USDT) in a config file is not the builder's deployment.
-    .filter((a) => a !== ZERO_ADDRESS && !KNOWN_TOKEN_ADDRESSES.has(a))
+    .filter((a) => a !== ZERO_ADDRESS && !KNOWN_TOKEN_ADDRESSES.has(a) && !sharedContract(a))
     .slice(0, GETCODE_PER_REPO);
   return {
     // v2.10 item 9: every blob path, for deploy folders (broadcast/, ignition/, deployments/).
@@ -611,7 +612,9 @@ export function reportedContracts(v: unknown): string[] | undefined {
   const found = items
     .filter((x): x is string => typeof x === 'string' && x.length <= 300)
     .flatMap((x) => x.match(/0x[0-9a-fA-F]{40}(?![0-9a-fA-F])/g) ?? [])
-    .map((x) => x.toLowerCase());
+    .map((x) => x.toLowerCase())
+    // v2.10.1 (I1): a shared contract (a router, PoolManager, Clanker's) is never the repo's own.
+    .filter((x) => !sharedContract(x));
   const out = [...new Set(found)].slice(0, 2);
   return out.length ? out : undefined;
 }
@@ -639,6 +642,11 @@ export const ReportedRepoInput = z
      */
     url: z.unknown().transform((u) => (typeof u !== 'string' || u.length > 300 ? undefined : u)).optional(),
     contracts: z.unknown().transform(reportedContracts).optional(),
+    /** v2.10.1 (C1): the builder's own commits in 90 days, from the local git log (author = them). */
+    my_commits_90d: z
+      .unknown()
+      .transform((v) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.min(Math.floor(v), 1000) : undefined))
+      .optional(),
   });
 
 /**
@@ -822,6 +830,11 @@ type Deployed = {
   withCode: Chain[];
   /** v2.10 item 6: the largest Blockscout transaction count read for the repo's contracts with code; null when none was read. */
   tx_count: number | null;
+  /**
+   * v2.10.1 (I1): the same, for the contracts the agent reported only (never an address a config file
+   * merely mentions): what real use reads.
+   */
+  used_tx: number | null;
 };
 
 /** One repo ready for its link and contract checks, and how to finish its facts with their answers. */
@@ -834,6 +847,8 @@ type Prepared = {
    * checked even when the live link loads, since code there is what credits them.
    */
   claimed: Chain[];
+  /** v2.10.1 (I1): the contracts the agent reported (lowercase): only their counts are real use. */
+  reported: string[];
   /** Async: a GitHub repo's cache row is written here, with the traction and odds of this scoring. */
   finish: (d: Deployed) => Promise<{ repo: RepoFacts; verdicts: Verdict[] }>;
 };
@@ -926,11 +941,15 @@ async function runChecks(
   const out: Deployed[] = [];
   for (const [i, { counted, ...d }] of done.entries()) {
     let tx: number | null = cachedTx[i];
+    // v2.10.1 (I1): a cached count is real use only when its address is one the agent reported.
+    const cachedPair = live[i] === true ? baseOf(items[i].p) : undefined;
+    let used: number | null = cachedTx[i] !== null && cachedPair && items[i].p.reported.includes(cachedPair[1]) ? cachedTx[i] : null;
     for (const address of counted) {
       const n = await txCount('base', address, { ...checks, budget: txSlots });
       if (n !== null) tx = Math.max(tx ?? 0, n);
+      if (n !== null && items[i].p.reported.includes(address)) used = Math.max(used ?? 0, n);
     }
-    out.push({ ...d, tx_count: tx });
+    out.push({ ...d, tx_count: tx, used_tx: used });
   }
   return out;
 }
@@ -1085,12 +1104,14 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): P
   const signals = { active, young: files.young || active, original: files.original, readme: files.readme, owned: ctx.owned };
   return {
     homepage,
-    pairs: contractPairs([...new Set([...files.addresses, ...(ctx.local?.contracts ?? [])])], mainnetChains(allChains), claimed),
+    // v2.10.1 (I1): the agent's reported contracts first, so the one Base pair kept is theirs.
+    pairs: contractPairs([...new Set([...(ctx.local?.contracts ?? []), ...files.addresses])], mainnetChains(allChains), claimed),
     claimed,
-    finish: async ({ live, deployed, unchecked, withCode, tx_count }) => {
-      const product = scored(productScore({ ...signals, deployed }, unchecked ? ['deployed'] : []), { tx_count, live_ok: live, commits_90d });
+    reported: ctx.local?.contracts ?? [],
+    finish: async ({ live, deployed, unchecked, withCode, tx_count, used_tx }) => {
+      const product = scored(productScore({ ...signals, deployed }, unchecked ? ['deployed'] : []), { tx_count, live_ok: live, commits_90d }, used_tx, base.claims.includes('users'));
       await save({ traction: product.traction, odds: product.odds });
-      const facts: RepoFacts = { ...confirmMainnets(base, withCode), product, live_verified: live, commits_90d, tx_count };
+      const facts: RepoFacts = { ...confirmMainnets(base, withCode), product, live_verified: live, commits_90d, tx_count: used_tx, users_said: ctx.said?.has_users ?? null };
       return { repo: facts, verdicts: matchRepo(facts, programs) };
     },
   };
@@ -1100,9 +1121,10 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): P
  * v2.10 item 6: a product score with its traction and odds (productOdds). v2.10.1 B2: measured real
  * use makes it a product first (withRealUse), so polish never outweighs use. Pure.
  */
-function scored(p: Product, t: TractionFacts): Product {
+function scored(p: Product, t: TractionFacts, usedTx: number | null, usersClaim: boolean): Product {
   const score = traction(t);
-  const used = withRealUse(p, t.tx_count);
+  // v2.10.1 (C1 b): the builder's users claim is real use once the live link loads and there is a commit in 90 days.
+  const used = withRealUse(p, usedTx, usersClaim && t.live_ok && (t.commits_90d ?? 0) > 0);
   return { ...used, traction: score, ...productOdds(used, t, score) };
 }
 
@@ -1120,10 +1142,12 @@ function checkLocal(r: ReportedRepo, programs: ProgramFacts[], ctx: Pick<ScoreCt
     homepage: facts.homepage,
     pairs: contractPairs(r.contracts ?? [], mainnetChains(facts.chains), claimed),
     claimed,
-    finish: async ({ live, deployed, unchecked, withCode, tx_count }) => {
+    reported: r.contracts ?? [],
+    finish: async ({ live, deployed, unchecked, withCode, tx_count, used_tx }) => {
       // Review M9: EarnKit never reads a local repo's README, so it is never named as missing.
       // v2.10 R3: EarnKit never reads its commits either: a last commit within 90 days is band 1.
-      const commits_90d = r.last_commit_at !== undefined && within(r.last_commit_at, 90, ctx.now) ? 1 : 0;
+      // v2.10.1 (C1 a): the builder's own count from the local git log, when the agent sends it.
+      const commits_90d = r.my_commits_90d ?? (r.last_commit_at !== undefined && within(r.last_commit_at, 90, ctx.now) ? 1 : 0);
       const product = scored(
         productScore(
           { active, young: active, original: !TUTORIAL.test(r.name), readme: false, deployed, owned: ctx.owned },
@@ -1131,8 +1155,10 @@ function checkLocal(r: ReportedRepo, programs: ProgramFacts[], ctx: Pick<ScoreCt
           [...(unchecked ? (['deployed', 'readme'] as const) : (['readme'] as const)), ...(ctx.ownerUnknown ? (['owned'] as const) : [])],
         ),
         { tx_count, live_ok: live, commits_90d },
+        used_tx,
+        facts.claims.includes('users'),
       );
-      const repo: RepoFacts = { ...confirmMainnets(facts, withCode), product, live_verified: live, commits_90d, tx_count };
+      const repo: RepoFacts = { ...confirmMainnets(facts, withCode), product, live_verified: live, commits_90d, tx_count: used_tx, users_said: ctx.said?.has_users ?? null };
       return { repo, verdicts: matchRepo(repo, programs) };
     },
   };
@@ -1261,6 +1287,13 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
       const c = await contribution(`${gh.owner}/${gh.repo}`, builder);
       owned = c !== null && ownerOk(gh.owner, builder, c);
       ownerUnknown = c === null;
+      // v2.10.1 (C1 a): GitHub can't say, but the local git log shows the builder's own recent
+      // commits: owned for matching, as a readable repo with their commits would be. Matching only:
+      // the launch, deploy, entry and bonus gates keep their own proofs.
+      if (ownerUnknown && (r.my_commits_90d ?? 0) > 0) {
+        owned = true;
+        ownerUnknown = false;
+      }
     }
     candidates.set(key, { key, owned, local: r, ...(ownerUnknown && { ownerUnknown }) });
   }
@@ -1337,7 +1370,7 @@ export const SKIP_REASONS = {
   fork: 'a fork',
   template: 'a template',
   archived: 'archived',
-  github: "GitHub didn't answer; ask me again in a minute",
+  github: "GitHub didn't answer, ask me again in a minute",
   limit: `only the ${SCORE_LIMIT} newest repos are checked`,
   unseen: "private, and I can't see it",
   noChain: 'no onchain code found',

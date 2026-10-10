@@ -34,18 +34,14 @@ async function withAliases(request: Request): Promise<Aliased> {
   return { request: new Request(request.url, { method: request.method, headers, body: JSON.stringify(body) }), old };
 }
 
-/** v2.10.1 B5: the MCP notification that the server's tool list changed. */
-const LIST_CHANGED = { jsonrpc: '2.0', method: 'notifications/tools/list_changed' };
-
 /**
- * v2.10.1 B5: the reply to a call made with an old tool name. That client still lists the v2.9 tools
- * (claude.ai keeps a connector's list until it is refreshed), so (1) each tool reply names only those
- * tools (aliases.ts forOldClient), and (2) when the client accepts a stream, the reply is an SSE stream
- * whose first event is notifications/tools/list_changed, the protocol's signal to list the tools again
- * (this server is stateless, so a POST's own stream is the only place it can send one). Any other
+ * v2.10.1 B5, fix round 1 (I3): the reply to a call made with an old tool name. That client may still
+ * list the v2.9 tools, or may have refreshed: each tool reply names every tool in both forms and
+ * carries `tools_note` (aliases.ts forOldClient). Plain JSON, as every other reply (no list_changed
+ * stream: a client that obeys it mid-reply would hold a list the reply's words don't match). Any other
  * response passes through.
  */
-async function forOldNames(response: Response, old: Map<string | number, string>, accept: string): Promise<Response> {
+async function forOldNames(response: Response, old: Map<string | number, string>): Promise<Response> {
   if (old.size === 0 || response.status !== 200 || !/application\/json/i.test(response.headers.get('content-type') ?? '')) return response;
   const parsed = (await response.json()) as unknown;
   const one = (m: unknown) => {
@@ -56,11 +52,7 @@ async function forOldNames(response: Response, old: Map<string | number, string>
   const body = Array.isArray(parsed) ? parsed.map(one) : one(parsed);
   const headers = new Headers(response.headers);
   headers.delete('content-length');
-  if (!/text\/event-stream/i.test(accept)) return new Response(JSON.stringify(body), { status: 200, headers });
-  headers.set('content-type', 'text/event-stream');
-  headers.set('cache-control', 'no-cache');
-  const events = [LIST_CHANGED, body].map((m) => `event: message\ndata: ${JSON.stringify(m)}\n\n`).join('');
-  return new Response(events, { status: 200, headers });
+  return new Response(JSON.stringify(body), { status: 200, headers });
 }
 
 /** Hosted EarnKit MCP server (Streamable HTTP, stateless). Requires an installation token. */
@@ -108,7 +100,7 @@ async function handle(request: Request) {
     { campaignOpen },
   ).connect(transport);
   const aliased = await withAliases(request);
-  const response = await forOldNames(await transport.handleRequest(aliased.request), aliased.old, request.headers.get('accept') ?? '');
+  const response = await forOldNames(await transport.handleRequest(aliased.request), aliased.old);
 
   const headers = new Headers(response.headers);
   for (const [k, v] of Object.entries(CORS)) headers.set(k, v);
