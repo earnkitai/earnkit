@@ -551,3 +551,27 @@ test('v2.10 item 12: the real transport requests the path with its query', () =>
   assert.equal(o.agent, false);
   assert.deepEqual(o.headers, { accept: 'image/png', 'user-agent': 'EarnKit-verifier/1' });
 });
+
+test('final fix M1: a live Next.js page over 64 KB, cut inside an inline RSC chunk holding the not-found tree, is not an error page', async () => {
+  // App Router pages ship the default not-found boundary in their RSC payload (self.__next_f), even
+  // when the page itself loads fine. The probe reads 64 KB; the cut lands inside that chunk.
+  const head = '<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><title>TipJar</title>'
+    + '<script src="/_next/static/chunks/webpack-1.js" async=""></script></head>'
+    + '<body><main><h1>Tip creators in USDC</h1><p>One tap, no sign up.</p></main>';
+  let filler = '';
+  for (let i = 0; Buffer.byteLength(head + filler) < PROBE_MAX_BYTES - 1_500; i++)
+    filler += `<script>self.__next_f.push([1,"${`${i}:I[\\"chunk-${i}\\",[]]\\n`.repeat(20)}"])</script>`;
+  const notFound = '<script>self.__next_f.push([1,"9:[\\"$\\",\\"h1\\",null,{\\"className\\":\\"next-error-h1\\",\\"children\\":404}],[\\"$\\",\\"h2\\",null,{\\"children\\":\\"This page could not be found.\\"}]';
+  // The chunk runs on past the 64 KB cut.
+  const page = `${head}${filler}${notFound}${',[]'.repeat(2_000)}"])</script><footer>Made on Base</footer></body></html>`;
+  assert.ok(Buffer.byteLength(head + filler + notFound) < PROBE_MAX_BYTES && Buffer.byteLength(page) > PROBE_MAX_BYTES + 1_000);
+  const read = Buffer.from(page).subarray(0, PROBE_MAX_BYTES).toString();
+  assert.equal(errorPageText(read), null, 'the unclosed script at the cut is not visible text');
+  await safeProbe('https://tipjar.example/', { resolve: publicResolver, transport: typed(page, 'text/html; charset=utf-8') });
+  // A cut inside a tag, or inside an unclosed comment, leaves nothing visible either.
+  assert.equal(errorPageText('<html><title>App</title><p>Hi</p><script src="/a.js?q=Page not found'), null);
+  assert.equal(errorPageText('<html><title>App</title><p>Hi</p><!-- Page not found'), null);
+  assert.equal(errorPageText('<html><title>App</title><p>Hi</p><!-- Page not found --><p>Bye</p>'), null);
+  // A real short error page is still caught.
+  assert.ok(errorPageText('<html><title>App</title><body><h2>This page could not be found.</h2><script>self.__next_f.push([1,"'));
+});

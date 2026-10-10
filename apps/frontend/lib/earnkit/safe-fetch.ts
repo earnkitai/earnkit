@@ -94,11 +94,18 @@ export class ErrorPageError extends SafeFetchError {
   }
 }
 
-/** The page's <title> and its visible text (scripts, styles and tags removed, whitespace folded). Pure. */
+/**
+ * The page's <title> and its visible text (comments, scripts, styles and tags removed, whitespace
+ * folded). Final fix M1: a probe reads only the first 64 KB, so the cut can land inside a script (a
+ * Next.js RSC chunk holds the default "This page could not be found." tree on every page), a comment
+ * or a tag: what is left open at the end is dropped too, never read as visible text. Pure.
+ */
 export function visibleText(html: string): { title: string; text: string } {
   const title = (html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? '').replace(/\s+/g, ' ').trim();
   const text = html
-    .replace(/<(script|style|noscript|template)\b[\s\S]*?<\/\1\s*>/gi, ' ')
+    .replace(/<!--[\s\S]*?(-->|$)/g, ' ')
+    .replace(/<(script|style|noscript|template)\b[\s\S]*?(<\/\1\s*>|$)/gi, ' ')
+    .replace(/<[^>]*$/, ' ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/g, ' ')
     .replace(/\s+/g, ' ')
