@@ -4027,10 +4027,10 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
 
   | Event | Step | dedupe_key | Proof and detail |
   |---|---|---|---|
-  | deployed | `deploy.ts deployForBuilder`, after the row is settled `deployed` (both paths, incl. code that differs, owner_ok false) | `deployed:<contract_deploys.id>` | `proof_tx`, `wallet` = the builder's owner wallet, detail `{ address, owner_ok, block }` (the receipt's `blockNumber`) |
+  | deployed | `deploy.ts deployForBuilder`, after the row is settled `deployed` (both paths, incl. code that differs, owner_ok false) | `deployed:<contract_deploys.id>` | `proof_tx`, `wallet` = the builder's owner wallet, detail `{ address, owner_ok, block }` (the receipt's `blockNumber`). The row keeps both too: `contract_deploys.owner_wallet` (set at the reservation) and `block` (set when settled) |
   | hosted | `hosting.ts deploySite` (a clean upload goes live) and `approveSite` (a flagged one approved) | `hosted:<host_deploys.id>` | `proof_url` = the site link, detail `{ host: 'earnkit', slug }`, login = the host sign-in's (`signin`) |
   | entered | `projects.ts recordSubmission` and `startEntry` (confirm), only for a new row | `entered:<project_id>` | `proof_url` = `/p/<id>`; wallet only when given with the entry and kept (never on a shared client) |
-  | submitted | `tools.ts markSubmitted` (tell `submitted`, or confirm with `submitted`) once the reply names its project_id | `submitted:<project_id>` | `proof_url` = `external_submission_url` when given; detail `{ basis: 'link' \| 'builder_said' }` |
+  | submitted | `projects.ts recordSubmission`, every call (it writes a `submissions` row, so the entry counts as submitted under Ruling C10, as the backfill reads it); tell `submitted` reaches it through record_submission | `submitted:<project_id>` | `proof_url` = `external_submission_url` when given; detail `{ basis: 'link' \| 'builder_said' \| 'recorded' }`; a shared caller's login only through the sign-in bound to the entry |
   | won, lost | `outcomes.ts syncOutcomeFile` and `saveSelfReport` (won/placed/finalist: won; not_selected: lost; unknown: none) | `outcome:<project_id>:<round>:<basis>` | `proof_url` = the results URL; detail `{ basis, result, round, prize_usd }`. The first answer per round and basis is kept |
 
   A reverted or `unknown` deploy, a flagged upload in review, a repeat confirm and a noted shared
@@ -4047,6 +4047,7 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
   after the /terms section is live). It reads `contract_deploys` (deployed), `host_deploys` (live),
   `projects` (every entry), `submissions` (the first row per entry is `submitted`) and
   `entry_outcomes` (not unknown), takes each row's own time as `at`, uses the live dedupe keys
-  (a rerun writes 0) and marks `detail.backfill = true`. It records no wallet `contract_deploys`
-  doesn't keep, and `host_deploys` rows the cron pruned (live, over 30 days) are gone. Never in
+  (a rerun writes 0) and marks `detail.backfill = true`. It takes the wallet and block from
+  `contract_deploys.owner_wallet` and `block`; rows from before v2.11 have neither, and the backfill
+  makes no RPC read, so T11's usage check reads a missing block from the receipt, and `host_deploys` rows the cron pruned (live, over 30 days) are gone. Never in
   predeploy or the cron (`events-backfill.test.ts` checks package.json and every app file).

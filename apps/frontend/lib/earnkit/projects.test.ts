@@ -1191,7 +1191,7 @@ test('3.4 the confirmation step writes entered once for a new entry; a second co
   }),
 );
 
-test('3.4 record_submission writes entered for a new entry with the wallet the builder gave; a re-record writes none', dbTest, () =>
+test('3.4 record_submission writes entered (with the wallet the builder gave) and submitted for a new entry; a re-record writes neither again', dbTest, () =>
   withEventLog(async () => {
     const program = proofProgramFile(`t3-4r-${process.pid}-${Date.now()}`, { submission_proof: null });
     await upsertProgram(program);
@@ -1210,7 +1210,11 @@ test('3.4 record_submission writes entered for a new entry with the wallet the b
     assert.equal(events.length, 1);
     assert.equal(events[0].wallet, WALLET.toLowerCase());
     assert.equal(events[0].repo_key, 'alice/proof-343');
-    assert.equal((await eventsOfInstallation(installationId)).length, 1);
+    const [submitted] = await eventsByKey(`submitted:${first.project_id}`);
+    assert.equal(submitted.type, 'submitted', 'record_submission recorded it: submitted (Ruling C10), as the backfill reads it');
+    assert.equal(submitted.proof_url, null);
+    assert.deepEqual(submitted.detail, { basis: 'recorded' });
+    assert.deepEqual((await eventsOfInstallation(installationId)).map((e) => e.type), ['entered', 'submitted']);
   }),
 );
 
@@ -1227,7 +1231,7 @@ test('3.6 a failing event write leaves the entry reply identical to the success 
   const lines = await errorLines(() => withFailingEventLog(async () => (failed = await record(failInstallation))));
   const same = (r: Record<string, unknown>) => ({ ...r, project_id: 0, submitted_at: '' });
   assert.deepEqual(same(failed as never), same(ok as never));
-  assert.deepEqual(lines, ['[events] entered PostgresError']);
-  assert.equal((await eventsOfInstallation(okInstallation)).length, 1);
+  assert.deepEqual(lines, ['[events] entered PostgresError', '[events] submitted PostgresError']);
+  assert.equal((await eventsOfInstallation(okInstallation)).length, 2);
   assert.equal((await eventsOfInstallation(failInstallation)).length, 0);
 });

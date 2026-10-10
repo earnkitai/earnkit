@@ -26,8 +26,9 @@ async function seed() {
     INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work)
     VALUES (${tag}, 'o', ${tag}, 'd', 'https://x', 'https://x', 'r', 's', 'active', 'allowed')`;
   const [deploy] = await sql()<{ id: number }[]>`
-    INSERT INTO contract_deploys (installation_id, login, builder_key, repo_key, chain, tx_hash, address, status, owner_ok, cost_micro_usd, created_at)
-    VALUES (${inst}, ${tag}, ${tag}, ${repoKey}, 'arc', ${'0x' + 'ab'.repeat(32)}, ${'0x' + '12'.repeat(20)}, 'deployed', true, 5000, '2026-10-01T10:00:00Z')
+    INSERT INTO contract_deploys (installation_id, login, builder_key, repo_key, chain, tx_hash, address, status, owner_ok, cost_micro_usd, created_at, owner_wallet, block)
+    VALUES (${inst}, ${tag}, ${tag}, ${repoKey}, 'arc', ${'0x' + 'ab'.repeat(32)}, ${'0x' + '12'.repeat(20)}, 'deployed', true, 5000, '2026-10-01T10:00:00Z',
+      ${W.toLowerCase()}, 777)
     RETURNING id`;
   // 3.2: sent, left unknown, then settled by the runbook; a reverted one never counts.
   const [settled] = await sql()<{ id: number }[]>`
@@ -73,9 +74,9 @@ test('3.7 the backfill writes one event per source row with its own time and the
     assert.equal(d.at.toISOString(), '2026-10-01T10:00:00.000Z');
     assert.equal(d.proof_tx, '0x' + 'ab'.repeat(32));
     assert.equal(d.chain, 'arc');
-    assert.equal(d.wallet, null, 'contract_deploys keeps no wallet: none is made up');
+    assert.equal(d.wallet, W.toLowerCase(), 'the owner wallet the row kept');
     assert.deepEqual([d.github_login, d.login_basis], [s.tag, 'signin']);
-    assert.deepEqual(d.detail, { address: '0x' + '12'.repeat(20), owner_ok: true, backfill: true });
+    assert.deepEqual(d.detail, { address: '0x' + '12'.repeat(20), owner_ok: true, block: 777, backfill: true });
 
     const h = by.get(`hosted:${s.host}`)!;
     assert.equal(h.at.toISOString(), '2026-10-03T10:01:00.000Z');
@@ -118,6 +119,8 @@ test('3.2 a deploy the runbook settled from unknown to deployed is picked up by 
     const [e] = (await eventsOfInstallation(s.inst)).filter((x) => x.dedupe_key === `deployed:${s.settled}`);
     assert.equal(e.chain, 'base');
     assert.equal(e.at.toISOString(), '2026-10-02T10:00:00.000Z');
+    assert.equal(e.wallet, null, 'an older row kept no owner wallet: none is made up');
+    assert.deepEqual(e.detail, { address: '0x' + '34'.repeat(20), owner_ok: null, backfill: true }, 'no block: T11 reads it from the receipt');
   }),
 );
 

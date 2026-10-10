@@ -962,6 +962,9 @@ test('3.1 a deploy writes one deployed event: the tx, the address, the block, ow
       assert.deepEqual(e.detail, { address: DEPLOYED.toLowerCase(), owner_ok: true, block: 4242 });
       assert.equal(e.github_login, 'alice');
       assert.equal(e.login_basis, 'signin');
+      const [kept] = await sql()<{ owner_wallet: string | null; block: string | null }[]>`
+        SELECT owner_wallet, block::text FROM contract_deploys WHERE id = ${row.id}`;
+      assert.deepEqual({ ...kept }, { owner_wallet: BUILDER.toLowerCase(), block: '4242' }, 'the row keeps the owner wallet and the block');
     }),
   ),
 );

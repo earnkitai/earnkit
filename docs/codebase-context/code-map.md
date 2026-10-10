@@ -552,7 +552,7 @@ apps/frontend/
                                v2.11 Task 3: noteEvent (lazy build, flag-gated, waits <= EVENT_WAIT_MS, never
                                throws), eventRepoKey, eventDbForTests. Writers: deploy.ts (deployed), hosting.ts
                                deploySite/approveSite (hosted), projects.ts recordSubmission/startEntry (entered),
-                               tools.ts markSubmitted (submitted), outcomes.ts sync/self-report (won, lost)
+                               recordSubmission also (submitted), outcomes.ts sync/self-report (won, lost)
     events-backfill.ts(+test)  v2.11 Task 3: backfillEvents (contract_deploys, host_deploys, projects, submissions,
                                entry_outcomes; source time as at; live dedupe keys; owner-run only)
     deploy.ts(+test, +anvil)   v2.10 item 13: EarnKit deploys the builder's contract on Arc or Base
@@ -1224,6 +1224,7 @@ apps/frontend/
                                RPC failures), prepareAward (guarded UPDATE)
   db/schema.sql                the whole schema, idempotent (sponsor_campaigns, projects.prize_*,
                                v2.10 item 13: contract_deploys (reservation row, builder_key, tx_hash, status, owner_ok, blocked, cost_micro_usd).
+                               v2.11 T3: contract_deploys.owner_wallet, block (nullable; the deployed event's wallet and block).
                                projects.repo_key + its partial unique index, projects.token_* and
                                token_repo_key + projects_token_repo_key (one token per repo),
                                sponsor_verifications,

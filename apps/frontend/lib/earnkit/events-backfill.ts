@@ -56,9 +56,14 @@ export async function backfillEvents(db: Db = sql(), o: { installationIds?: numb
   };
 
   // deployed: every contract the deploy step settled as deployed (the runbook's too, plan 3.2).
-  type Deploy = { id: number; installation_id: number; login: string | null; repo_key: string; chain: string; tx_hash: string; address: string | null; owner_ok: boolean | null; created_at: Date };
+  // The owner wallet and block are kept from v2.11 on; older rows have neither. No RPC read here (the
+  // backfill stays offline and free): T11's usage check reads a missing block from the receipt.
+  type Deploy = {
+    id: number; installation_id: number; login: string | null; repo_key: string; chain: string; tx_hash: string; address: string | null;
+    owner_ok: boolean | null; created_at: Date; owner_wallet: string | null; block: string | null;
+  };
   for await (const d of pages((after) => db<Deploy[]>`
-      SELECT id, installation_id, login, repo_key, chain, tx_hash, address, owner_ok, created_at FROM contract_deploys
+      SELECT id, installation_id, login, repo_key, chain, tx_hash, address, owner_ok, created_at, owner_wallet, block::text FROM contract_deploys
       WHERE status = 'deployed' AND id > ${after} ${scope('installation_id')} ORDER BY id LIMIT ${PAGE}`)) {
     const shared = await sharedGroup(d.installation_id).catch(() => true);
     const proof = await loginBasisFor(d.installation_id, d.repo_key, shared ? { callerLogin: d.login } : { proofLine: true });
@@ -70,8 +75,9 @@ export async function backfillEvents(db: Db = sql(), o: { installationIds?: numb
       repo_key: d.repo_key,
       chain: d.chain,
       ...(d.tx_hash && { proof_tx: d.tx_hash }),
+      ...(d.owner_wallet && { wallet: d.owner_wallet }),
       ...who(proof),
-      detail: { ...(d.address && { address: d.address }), owner_ok: d.owner_ok, backfill: true },
+      detail: { ...(d.address && { address: d.address }), owner_ok: d.owner_ok, ...(d.block !== null && { block: Number(d.block) }), backfill: true },
     });
   }
 
