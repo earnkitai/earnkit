@@ -759,9 +759,12 @@ export type MatchDeps = {
  */
 export const PRIVATE_LOCAL_LINE = (name: string, link: string | null = null) =>
   `${name} is private, so I matched it from your local copy.${link ? ` For a fuller match, allow read access: ${link}` : ''}`;
-/** v2.10 item 7: a named repo GitHub won't show and nobody described; `link` only with the App on (7b). */
+/**
+ * v2.10 item 7: a named repo GitHub won't show and nobody described; `link` only with the App on (7b).
+ * Final fix M5: declarative, so the reply's one question stays the lead's.
+ */
 export const CANT_SEE_LINE = (name: string, link: string | null) =>
-  `I can't see ${name} (private?). Describe it${link ? `, or allow read access: ${link}` : '.'}`;
+  `I can't see ${name} (private?).${link ? ` Allow read access: ${link}` : ''}`;
 
 /** The production repo cache (github_repo_facts, and repo_public_reads for H6). */
 const DB_CACHE: NonNullable<MatchDeps['cache']> = { load: loadRepoFacts, save: saveRepoFacts, public: (n) => markRepoPublic(n) };

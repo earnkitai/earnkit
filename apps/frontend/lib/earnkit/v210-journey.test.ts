@@ -618,7 +618,7 @@ test('11.1 Claude Code, a private repo and the App: the private line and one lea
     // can't-see line carries the App link (item 7b on), then one lead line.
     const first = await call(J, 'what can I earn', 'find', { repos: ['alice/tipjar'] }, ctx, { first: true });
     const [cantSee, ...lead] = first.show_to_builder!.split('\n');
-    const link = cantSee.match(/^I can't see tipjar \(private\?\)\. Describe it, or allow read access: (https:\/\/earnkit\.com\/github\/verify\?n=[\w-]+)$/)?.[1];
+    const link = cantSee.match(/^I can't see tipjar \(private\?\)\. Allow read access: (https:\/\/earnkit\.com\/github\/verify\?n=[\w-]+)$/)?.[1];
     assert.ok(link, first.show_to_builder);
     assert.equal(lead.length, 1, first.show_to_builder);
     // The agent describes it from the local copy: the private line, then one lead line; "show more"
@@ -795,7 +795,7 @@ test('11.4 every journey reply: under 50 s; at most one bonus line; the first re
     `\\b(${[...OLD_TOOL_NAMES, 'sponsor_campaign'].join('|')})\\b|\\bcall(s|ing)? (find|prepare|confirm|tell)\\b|\\b(find|prepare|confirm|tell)( with\\b|\\()|\\bthe (find|prepare|confirm|tell) tool\\b`,
   );
   const confirmLine = /^(Ready\. )?Yes submits your entry and launches \$[A-Z0-9]+ \(.+\)(: 40% of its fees to you(, plus the builder bonus)?)?\.( Wallet: 0x[0-9a-fA-F]{4}…[0-9a-fA-F]{4}\.| Say yes with your wallet address\.)? yes \/ skip the token$/;
-  const otherFirstLine = /^(.+ is private, so I matched it from your local copy\.|I can't see .+ \(private\?\)\. Describe it.*)$/;
+  const otherFirstLine = /^(.+ is private, so I matched it from your local copy\.|I can't see .+ \(private\?\)\.( Allow read access: \S+)?)$/;
   for (const s of said) {
     const where = `${s.journey} ${s.label}`;
     assert.ok(s.ms < MAX_REPLY_MS, where);

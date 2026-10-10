@@ -910,7 +910,7 @@ test('final review M1: the no-repo headline is the site figure over every open p
   const hid = presentFirstMessage(msg({ cards, hidden: { notInterested: new Set(['base-builder-grants', 'arc-microgrants']), applied: new Set() } }));
   const headline = (t: string) => t.split('\n\n').find((l) => l.endsWith('in prizes open right now.'));
   assert.equal(headline(hid), headline(all));
-  assert.equal(headline(hid), `${moneyText(openMoneyUsd(cards))} in prizes open right now.`);
+  assert.equal(headline(hid), `${moneyText(openMoneyUsd(cards, NOW))} in prizes open right now.`);
   assert.doesNotMatch(hid, /Base Builder Grant Program|Arc Microgrants/);
 });
 
@@ -1066,14 +1066,14 @@ test('4.5 a private repo matched from the local copy gets one line; a repo EarnK
   const off = presentFirstMessage(msg({ cards: [arc, base], repos: repos() }));
   const local = 'TipJar is private, so I matched it from your local copy.';
   assert.equal(off.split(local).length - 1, 1, 'once');
-  assert.ok(off.includes("I can't see tipjar2 (private?). Describe it."));
+  assert.ok(off.includes("I can't see tipjar2 (private?).\n"), off);
   assert.doesNotMatch(off, /alice\/other|can't see other/, 'one can\'t-see line, the first');
   // Before the matched table (v2.9 layout; T8 moves them before the lead).
   assert.ok(off.indexOf(local) < off.indexOf('| Program'), off);
   noEmoji(off);
   assert.doesNotMatch(off, /\u2014/, 'no em dash');
   const on = presentFirstMessage(msg({ cards: [arc, base], repos: repos('https://earnkit.com/github/verify?n=abc') }));
-  assert.ok(on.includes("I can't see tipjar2 (private?). Describe it, or allow read access: https://earnkit.com/github/verify?n=abc"));
+  assert.ok(on.includes("I can't see tipjar2 (private?). Allow read access: https://earnkit.com/github/verify?n=abc"));
   // Nothing private: no such lines.
   assert.doesNotMatch(presentFirstMessage(msg({ cards: [arc], repos: fit('TipJar', arc.id) })), /private|can't see/);
 });
@@ -1093,6 +1093,21 @@ test('final fix I2 (ledger c1): a private repo matched from the local copy carri
   assert.equal((t.match(/\?/g) ?? []).length - (link.match(/\?/g) ?? []).length, 1, 'one question: the lead');
   noEmoji(t);
   assert.doesNotMatch(t, /\u2014/, 'no em dash');
+});
+
+test('final fix M5: a repo EarnKit can\'t see is said, not asked, so the first reply keeps one question (the lead)', () => {
+  const link = 'https://earnkit.com/github/verify?n=abc';
+  for (const l of [link, null]) {
+    const repos = { ...fit('TipJar', arc.id), checked: 2, unseen: [{ name: 'tipjar2', full_name: 'alice/tipjar2', link: l }] };
+    const t = presentFirstMessage(short({ cards: [arcOnArc, base], repos }));
+    const [cantSee, ...rest] = t.split('\n');
+    assert.equal(cantSee, l ? `I can't see tipjar2 (private?). Allow read access: ${link}` : "I can't see tipjar2 (private?).");
+    assert.doesNotMatch(cantSee, /describe/i, 'no ask on this line');
+    // The one question is the lead's: no "?" outside "(private?)" and the link.
+    const asks = t.replaceAll('(private?)', '').replaceAll(link, '');
+    assert.equal((asks.match(/\?/g) ?? []).length, 1, t);
+    assert.match(rest.at(-1)!, /\?$/, t);
+  }
 });
 
 test('v2.10 item 15 (R12, Pre-flight P19): the deadline line comes right after news and "Your entries"', () => {
