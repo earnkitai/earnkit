@@ -470,8 +470,11 @@ apps/frontend/
     v2101.test.ts              v2.10.1: the owner's 5 live bugs (B1 to B5), each with the owner's real project shapes
                                (tokens.fun, earnkitai/earnkit, the tipjar starter); journey 11.5 in v210-journey.test.ts.
                                v2.10.2 (v2.11 8a, 8b): tokens.fun without my_commits_90d (unknown, asked), the real
-                               World's Fair file (a starter missing new work is low); journey 11.6
-    present.ts(+test)          v2.10.2 (v2.11 8a): usersAsk also takes unknown repos; the "users unknown" cell; Fit.real_use and
+                               World's Fair file (a starter missing new work is low); journey 11.6. Fix round 1: C1 (Arc
+                               submitted: tokens.fun asked, never the starter), I1, M6; journey 11.7 (real program files)
+    present.ts(+test)          v2.10.2 fix round 1: usersAsk ranks every candidate (unknown, then products at traction 4+,
+                               a grant first), never a starter; usersAskLine "up to" for range prizes; bestFit skips unknown.
+                               v2.10.2 (v2.11 8a): usersAsk also takes unknown repos; the "users unknown" cell; Fit.real_use and
                                byOdds (good, unknown, low, then real use) rank layout, betterFit and bestFit.
                                v2.10.1 fix round 1: usersAsk/usersAskLine (one users question for a product EarnKit can't measure).
                                v2.10.1: submitStep/submitStepLine (a confirmed entry leads with its submission site),
@@ -551,7 +554,9 @@ apps/frontend/
                                gas and fee, DeployChain.nonce (above 1: flagged, contract_deploys.blocked,
                                DEPLOY_LINES.blocked), DeployDeps.installationLogin (tools seam; fails closed)
     shared-contracts.ts        v2.10.1 fix round 1 (I1): SHARED_BASE_CONTRACTS, sharedContract (never a builder's own; import-free)
-    match.ts(+test)            v2.10.2 (v2.11 8a, 8b): Odds adds 'unknown', oddsRank, USERS_UNKNOWN, MISSING_REASON; productOdds
+    match.ts(+test)            v2.10.2 fix round 1: rowOdds per the owner rule (new work, users: low for all; deploy, link:
+                               low below product tier), NOT_ON_MAINNET, deployReason, OWNER_UNCHECKED (403 copy).
+                               v2.10.2 (v2.11 8a, 8b): Odds adds 'unknown', oddsRank, USERS_UNKNOWN, MISSING_REASON; productOdds
                                takes { ownerHidden, saidNoUsers } (a 404'd possible product is unknown); rowOdds is low on
                                any missing requirement. v2.10.1 fix round 1: hasRealUse (measured or a users claim). v2.10.1: REAL_USE_TX (50), realUse, withRealUse (measured use makes a product), a
                                products-only program needs real use (NEEDS_USERS), rowOdds low on real_users. pure: chain detection (IDs + RPC hosts), repo x program verdicts;
