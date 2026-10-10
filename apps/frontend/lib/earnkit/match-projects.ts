@@ -642,6 +642,8 @@ export const ReportedRepoInput = z
       .transform(reportedChains),
     live_url: z.unknown().transform((v) => reportedUrl(typeof v === 'string' ? v : undefined)).optional(),
     last_commit_at: z.unknown().transform((v) => reportedDate(typeof v === 'string' ? v : undefined)).optional(),
+    /** v2.10.2 fix round 2: the repo's first commit, from the local git log: its age (a starter is under 30 days). */
+    first_commit_at: z.unknown().transform((v) => reportedDate(typeof v === 'string' ? v : undefined)).optional(),
     /**
      * Ruling 13 (plan): validated by `githubRepo`, never zod, so a bad url never fails the call.
      * A `.max()` would reject (not drop) an oversize one, so length is dropped the same way:

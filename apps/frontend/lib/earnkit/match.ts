@@ -741,6 +741,8 @@ export type ReportedRepo = {
   chains: { chain: Chain; mainnet: boolean }[];
   live_url?: string;
   last_commit_at?: string;
+  /** v2.10.2 fix round 2: the first commit (ISO), the repo's age when GitHub can't give it. */
+  first_commit_at?: string;
   /** Ruling 13 (plan): the repo's GitHub link, if the local remote is on GitHub. */
   url?: string;
   /** v2.9 A5 (Pre-flight P4): up to 2 mainnet contracts the agent saw deployed, lowercase. */
@@ -770,7 +772,8 @@ export function reportedFacts(
     name: r.name,
     url: repo ? `https://github.com/${repo.owner}/${repo.repo}` : '',
     homepage: r.live_url ?? null,
-    created_at: '',
+    // v2.10.2 fix round 2: the first commit the agent reports is the repo's age; else unknown ('').
+    created_at: r.first_commit_at ?? '',
     chains,
     // Unknown commit dates count as active; the verdict still says only new work counts.
     commits_in_window: Object.fromEntries(

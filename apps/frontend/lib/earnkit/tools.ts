@@ -1208,7 +1208,7 @@ export const handlers = {
     // loop. Never fails the tool. Ruling G7: not on a shared client (its repo keys and scores may be
     // another builder's) until memoryKey names a verified builder.
     // v2.10 item 2: the short reply shows only its lead row (leadRow), "show more" every matched row.
-    const shownLayout = { cards: withPools.filter((c) => !hide.has(c.id)), repos: yourRepos, entries: myEntries };
+    const shownLayout = { cards: withPools.filter((c) => !hide.has(c.id)), repos: yourRepos, entries: myEntries, now: first.now };
     // Ruling H10 (I1): the lead the short reply asks about, for the agent's yes.
     // v2.10.1 B1: an entry not submitted yet leads instead (submitStep), as in presentFirstMessage.
     const step = more || first.holdQuestion ? undefined : submitStep(shownLayout);
