@@ -285,6 +285,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
                   .describe("Up to 2 mainnet contract addresses the repo itself deployed, if you see them; never shared ones (routers, PoolManager, Clanker's)"),
                 my_commits_90d: z.unknown().optional().describe("The builder's own commits in the last 90 days (git log --author=<their email> --since=90.days)"),
                 last_commit_at: z.unknown().optional().describe('ISO 8601; a date alone counts as UTC. Always send it.'),
+                first_commit_at: z.unknown().optional().describe('ISO 8601: the first commit (git log --reverse), the repo\'s age'),
                 url: z
                   .unknown()
                   .optional()

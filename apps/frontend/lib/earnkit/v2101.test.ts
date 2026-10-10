@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import { MatchProjectsInput, SKIP_REASONS, matchProjects, type MatchDeps } from './match-projects';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { NOT_REAL_YET, NO_USERS_YET, USERS_UNKNOWN, matchRepo, type ProgramFacts, type RepoFacts } from './match';
-import { LOW_ODDS_HEADING, layout, presentFirstMessage, submitStepLine, usersAskLine, submitStep, type Card, type FirstMessage, type RepoFit, type YourRepos } from './present';
+import { NOT_REAL_YET, NO_USERS_YET, USERS_UNKNOWN, matchRepo, reportedFacts, type ProgramFacts, type RepoFacts } from './match';
+import { LOW_ODDS_HEADING, layout, presentFirstMessage, submitStepLine, starterRepo, usersAskLine, submitStep, type Card, type FirstMessage, type RepoFit, type YourRepos } from './present';
 import { submitSiteName } from './programs';
 import { matchRows } from './tools';
 import { LEAD_NOTE } from './tools';
@@ -561,4 +561,64 @@ test('v2.10.2 fix round 1 (M6): the users question reads a range prize as "up to
     usersAskLine({ repo: 'paylink', key: null, card: CIRCLE_CARD }),
     'paylink could win up to $100,000 on Arc with real users. Does it have real users or revenue? (yes/no)',
   );
+});
+
+// ---- v2.10.2 fix round 2 (re-review R1-I1): a starter is told apart by age or origin, never by traction ----
+
+test('v2.10.2 fix round 2: tokens.fun as the builder\'s own public repo (no contract, live, few commits) is asked about users, though its traction is 3', async () => {
+  // GitHub reads it (the builder's own, 300 days old, 2 commits in 90 days); no contract to measure.
+  const pub = await withGitHub(async () => {
+    const inner = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const u = new URL(String(url));
+      const p = u.pathname;
+      if (u.host === 'api.github.com' && p === '/repos/jenil04/tokens.fun')
+        return json({ name: 'tokens.fun', full_name: 'jenil04/tokens.fun', html_url: 'https://github.com/jenil04/tokens.fun', homepage: 'https://tokens.fun', default_branch: 'main', created_at: daysAgo(300), pushed_at: daysAgo(2), fork: false, archived: false, is_template: false, private: false, visibility: 'public', owner: { login: 'jenil04' }, description: 'Launch a token in one click', topics: [] });
+      if (u.host === 'api.github.com' && p.startsWith('/repos/jenil04/tokens.fun/git/trees/'))
+        return json({ tree: [{ path: 'README.md', type: 'blob', size: README.length }, { path: 'wagmi.config.ts', type: 'blob', size: 120 }] });
+      if (u.host === 'raw.githubusercontent.com' && p.startsWith('/jenil04/tokens.fun/') && p.endsWith('/README.md')) return json(README);
+      if (u.host === 'raw.githubusercontent.com' && p.startsWith('/jenil04/tokens.fun/') && p.endsWith('/wagmi.config.ts')) return json(`import { base } from 'wagmi/chains'; chainId: 8453`);
+      if (u.host === 'api.github.com' && p === '/repos/jenil04/tokens.fun/commits') return json([{ sha: 'a' }, { sha: 'b' }]);
+      return inner(url);
+    }) as typeof fetch;
+    try {
+      const local = { name: 'tokens.fun', url: 'https://github.com/jenil04/tokens.fun', chains: [{ chain: 'base', mainnet: true }], live_url: 'https://tokens.fun', last_commit_at: daysAgo(2) };
+      return await matchProjects(MatchProjectsInput.parse({ github_user: 'jenil04', repos: ['jenil04/tokens.fun', 'jenil04/tipjar'], local_repos: [local, OWNER_INPUT.local_repos[2]] }), deps());
+    } finally {
+      globalThis.fetch = inner;
+    }
+  });
+  const tf = pub.fits.find((f) => f.repo === 'tokens.fun')!;
+  assert.ok(tf, JSON.stringify(pub.skipped));
+  assert.deepEqual([tf.product.tier, tf.product.odds, tf.product.traction], ['product', 'good', 3]);
+  assert.equal(reply(pub).split('\n').at(-1), 'tokens.fun could win up to $5,000 on Base with real users. Does it have real users or revenue? (yes/no)');
+});
+
+test('v2.10.2 fix round 2: private tokens.fun with my_commits_90d: 5 (traction 3) is asked about users', async () => {
+  const five = { local_repos: [{ ...OWNER_INPUT.local_repos[0], my_commits_90d: 5 }, ...OWNER_INPUT.local_repos.slice(1)] };
+  const r = await ownerMatch({ input: five });
+  const tf = r.fits.find((f) => f.repo === 'tokens.fun')!;
+  assert.deepEqual([tf.product.tier, tf.product.odds, tf.product.traction], ['product', 'good', 3]);
+  assert.equal(reply(r).split('\n').at(-1), 'tokens.fun could win up to $5,000 on Base with real users. Does it have real users or revenue? (yes/no)');
+});
+
+test('v2.10.2 fix round 2: the 6-day-old tipjar is a starter: never asked about users, even alone with Circle and a16z waiting on users', async () => {
+  const r = await withGitHub(() =>
+    matchProjects(MatchProjectsInput.parse({ github_user: 'jenil04', repos: ['jenil04/tipjar'], local_repos: [OWNER_INPUT.local_repos[2]] }), { ...deps(), programs: [...PROGRAMS, CIRCLE] }),
+  );
+  const tip = r.fits.find((f) => f.repo === 'tipjar')!;
+  assert.ok(starterRepo(tip as RepoFit, NOW));
+  assert.ok(tip.verdicts.some((v) => v.program_id === CIRCLE.id && v.missing.join() === 'real_users'));
+  const cards = [...CARDS, CIRCLE_CARD];
+  const text = (entries: typeof ARC_SUBMITTED = []) =>
+    presentFirstMessage({ alerts: [], campaigns: [], cards, repos: r as YourRepos, workingOn: [], agentCanBuild: true, sponsorEntries: null, now: NOW, more: false, entries });
+  assert.doesNotMatch(text(), /real users or revenue/);
+  assert.doesNotMatch(text(ARC_SUBMITTED), /real users or revenue/);
+  // A local repo with a reported first commit under 30 days old is a starter too; with no age known, it is not.
+  const local = (first_commit_at?: string) => ({ repo: 'x', repo_url: null, verdicts: [], product: { score: 6, tier: 'product' as const, missing: [] }, facts: reportedFacts({ name: 'x', chains: [], ...(first_commit_at && { first_commit_at }) }, []) });
+  assert.equal(starterRepo(local(daysAgo(10)), NOW), true);
+  assert.equal(starterRepo(local(daysAgo(40)), NOW), false);
+  assert.equal(starterRepo(local(), NOW), false);
+  assert.equal(starterRepo({ product: { score: 6, tier: 'product', missing: ['original'] }, facts: undefined }, NOW), true, 'a template or EarnKit starter');
+  assert.equal(MatchProjectsInput.parse({ local_repos: [{ name: 'x', first_commit_at: daysAgo(3) }] }).local_repos![0].first_commit_at, daysAgo(3));
 });

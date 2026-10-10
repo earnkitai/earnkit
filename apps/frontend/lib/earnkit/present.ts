@@ -2,7 +2,7 @@ import { normalizeRepoUrl, usd } from './campaigns';
 import { NO_CELL } from './no-cell';
 import { closeDayOf, endsOf, prizeOf, repoCoinNote } from './entry-text';
 import { shortDate } from './dates';
-import { CHAIN_NAMES, EFFORT_ORDER, GOOD_ODDS_TRACTION, NOT_REAL_YET, hasRealUse, oddsRank, rowOdds, type Chain, type Effort, type Odds, type Product, type RepoFacts, type Verdict } from './match';
+import { CHAIN_NAMES, EFFORT_ORDER, NOT_REAL_YET, hasRealUse, oddsRank, rowOdds, type Chain, type Effort, type Odds, type Product, type RepoFacts, type Verdict } from './match';
 import { NEEDS_LIVE_PRODUCT, difficultyLabel, levelRank, rowDifficulty, type Difficulty, type Level } from './guide';
 import { moneyText, openMoneyUsd, wonLine } from './pool';
 import { CANT_SEE_LINE, PRIVATE_LOCAL_LINE } from './match-projects';
@@ -695,10 +695,24 @@ export function leadLine(r: Fit | undefined, m: Pick<FirstMessage, 'cards' | 're
  * no lead): the builder's answer goes to tell (has_users) and decides. v2.11 8a (S3, S4): so is a
  * repo EarnKit couldn't read (odds unknown), wherever it ranks, unless the lead's repo has real use.
  * v2.10.2 fix round 1 (C1): one pick across all repos (unknown first, then products, a grant before
- * an investment), never a starter (traction under 4); a yes or no is final. Undefined otherwise. Pure.
+ * an investment), never a starter (starterRepo); a yes or no is final. Undefined otherwise. Pure.
  */
+/** v2.10.2 fix round 2: a starter is never asked about users. Days a repo counts as new. */
+export const STARTER_DAYS = 30;
+/**
+ * v2.10.2 fix round 2 (re-review R1-I1): a starter, told apart by age or origin, never by traction:
+ * created within STARTER_DAYS (GitHub's created_at, or the first commit the agent reports), or made
+ * from a template or an EarnKit starter (`original` missing: a fork, a template, a starter name). A
+ * repo of unknown age and no template mark is not a starter. Free signals only. Pure.
+ */
+export const starterRepo = (f: Pick<RepoFit, 'product' | 'facts'>, now: Date): boolean => {
+  if (f.product?.missing.includes('original')) return true;
+  const born = Date.parse(f.facts?.created_at ?? '');
+  return Number.isFinite(born) && now.getTime() - born < STARTER_DAYS * 86_400_000;
+};
+
 export function usersAsk(
-  m: Pick<FirstMessage, 'cards' | 'repos' | 'entries'>,
+  m: Pick<FirstMessage, 'cards' | 'repos' | 'entries'> & { now?: Date },
   lead: Fit | undefined,
 ): { repo: string; key: string | null; card: Card } | undefined {
   if (!m.repos || !('fits' in m.repos)) return undefined;
@@ -707,6 +721,9 @@ export function usersAsk(
   const fits = m.repos.fits;
   const leadAt = lead ? fits.findIndex((f) => f.repo === lead.repo) : fits.length;
   const above = (i: number) => i < (leadAt < 0 ? fits.length : leadAt);
+  const now = m.now ?? new Date();
+  const leadFit = leadAt >= 0 && lead ? fits[leadAt] : undefined;
+  const starterLead = Boolean(leadFit && !lead?.real_use && starterRepo(leadFit, now));
   // A grant before an investment, then the top prize.
   const byGrant = (a: Card, b: Card) => Number(Boolean(a.investment)) - Number(Boolean(b.investment)) || byPrize(a, b);
   const asks: { group: number; at: number; repo: string; key: string | null; card: Card }[] = [];
@@ -716,9 +733,10 @@ export function usersAsk(
     // lead's own repo has real use. Fix round 1 (I1): on a row that waits on users, or on one with
     // nothing missing (the yes promotes it everywhere), so it is never stuck unasked.
     const unknown = f.product?.odds === 'unknown' && !lead?.real_use;
-    // v2.10.1 C1: a good-odds product ranked above the lead. Fix round 1 (C1): never a starter (traction
-    // under GOOD_ODDS_TRACTION: a live link and a few commits, nothing measured).
-    const product = above(i) && f.product?.tier === 'product' && f.product.odds === 'good' && (f.product.traction ?? 0) >= GOOD_ODDS_TRACTION;
+    // v2.10.1 C1: a good-odds product ranked above the lead. Fix round 1 (C1), round 2: never a starter
+    // (starterRepo: under 30 days old, or a template or EarnKit starter).
+    // Round 2: a lead on a starter never outranks a real product's question.
+    const product = (above(i) || starterLead) && f.product?.tier === 'product' && f.product.odds === 'good' && !starterRepo(f, now);
     if (!unknown && !product) continue;
     const waits = (v: Verdict) => (v.missing.length === 1 && v.missing[0] === 'real_users') || (unknown && v.missing.length === 0);
     const waiting = f.verdicts
