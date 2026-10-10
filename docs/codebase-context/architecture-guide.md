@@ -3787,3 +3787,68 @@ builder as the owner. The agent compiles; EarnKit never builds code or verifies 
    itself after 24 hours, H11). `deploy-unknown:<id>`: look up `tx_hash` (empty: the send never got a
    hash; check the deployer's nonce on the explorer) and set the row's `status`, `address` and
    `cost_micro_usd` to what happened.
+
+## v2.10.1: the owner's live test of v2.10 (5 bugs)
+
+The owner tested v2.10 in production with their own three projects, sent by Claude Code:
+tokens.fun (`minidevai/tokens.fun`, a private repo in an org, a live Base product with fee revenue),
+EarnKit (`earnkitai/earnkit`, a private monorepo in EarnKit's own org, an MCP server) and a tipjar
+starter (`jenil04/tipjar`, public, on Arc, a few commits, no users). The v2.10 journeys modelled all
+three as repos under the builder's own login, so none of these held. `v2101.test.ts` reproduces each
+bug with those shapes; journey 11.5 (`v210-journey.test.ts`) replays the whole run and checks every
+line the owner sees.
+
+- **B1: a confirmed entry's only step left (`present.ts submitStep`, `submitStepLine`).** Every row
+  in `openEntries` that isn't submitted is already confirmed, but `enteredIds` counted only submitted
+  ones, so the confirmed program led again ("Want me to finish it?") and the "show more" close said
+  "keep going". Now every entry counts as entered (marked "(entered)", never offered), and the newest
+  entry not submitted yet leads the short reply and closes "show more": "Your tipjar entry for Arc
+  Microgrants is ready. The only step left: submit it on DoraHacks by Oct 14. Did you submit it?".
+  The site is `Card.submit_site` (`programs.ts submitSiteName`: the submission proof's host, else the
+  submission URL's, by a short name map, else the host). `find` returns `lead: { program_id,
+  step: 'submit', project_id }` and `LEAD_NOTE` tells the agent a yes is `tell` with `submitted`,
+  never another prepare.
+- **B2: real use outweighs polish (`match.ts REAL_USE_TX`, `realUse`, `withRealUse`).** The tier and
+  the shown score were the six polish signals; measured use (the Blockscout count) only fed traction
+  after the tier gate, and "needs real users" was cleared only by a claim. On top, a private org repo
+  read from the local view failed the contribution read (404), so `owned` was false and tokens.fun
+  was "not your repo", project tier, low odds, "needs real users", score 4, below the starter's 6.
+  Now: 50+ transactions to the repo's own contract with code is real use. It makes the repo a
+  product whatever its polish (`withRealUse`, in `match-projects.ts scored`) unless it is a copy or
+  known to be someone else's; it passes a program's `min_product_score`; it clears `real_users` on
+  a "needs a live product" program. A local repo whose GitHub owner can't be read (contribution read
+  null) has `owned` unchecked (`Candidate.ownerUnknown`, `ScoreCtx.ownerUnknown`), never "not your
+  repo". `RepoFacts.tx_count` and `FitRepo.tx_count` carry the count (alerts read it; a remembered
+  repo from before v2.10.1 reads as unknown). `matches` rows (`tools.ts matchRows`) carry `odds`,
+  `low_reason` and `traction`, rank by odds, traction, then score, and no longer show
+  `product_score`.
+- **B3: products-only programs (`match.ts matchRepo`).** An any-chain or investment program (a16z,
+  Ruling G15) gave a polished starter a row with nothing missing. Now, without measured real use, the
+  row is `after_step`, `missing: ['real_users']`, note "needs real users first", effort weeks, and
+  `rowOdds` makes any row missing `real_users` low odds ("low odds: no users yet"), so it never
+  leads, counts in "$X you qualify for", or alerts (`repoCanWin`). With real use it is v2.9's company
+  step (`INVESTMENT_NOTE`).
+- **B4: no named repo dropped silently (`match-projects.ts SKIP_REASONS`, `present.ts skippedLine`).**
+  The v2.10 private-repo fix covered 404s only; a repo under `earnkitai` (EarnKit's own org, v2.9
+  A1) was filtered before any read, named or local, with no line. `matchProjects` now returns
+  `skipped: { name, reason }[]` for every repo the agent named (`repos` or `local_repos`) that gets no
+  row: EarnKit's own repo, a fork, a template, archived, GitHub didn't answer, past the 8-repo limit,
+  a second unseen private repo, no onchain code found, too little product, or no open program fits.
+  The reply says them in one declarative line after the private lines: "Not matched: earnkit
+  (EarnKit's own repo)." A GitHub user's own list is never listed (it can hold dozens). `userRepos`
+  returns `dropped` as a key-to-reason map so a local report of a dropped repo says why too.
+- **B5: replies name only the tools the client lists (`aliases.ts forOldClient`, `inOldWords`,
+  `aliasedIds`; `app/mcp/route.ts forOldNames`).** Production's `tools/list` has always returned the 4
+  tools; claude.ai keeps the list it read when the connector was added (v2.9's 8) until the
+  connector's tools are refreshed or it is reconnected, while every reply named `find`, `prepare`,
+  `confirm` and `tell`. The server is stateless, so it can never push `notifications/tools/list_changed`
+  on its own. Now a call that came in under an old name is proof the client has the old list: the
+  route rewrites that reply's agent strings into the old tools and their v2.9 argument words ("call
+  prepare" to "call prepare_submission", "confirm with project_id and yes: true" to "launch_token
+  with project_id and builder_confirmed: true", "tell with submitted" to "record_submission with
+  builder_submitted: true", and so on; `show_to_*` and `question` are builder text and left alone),
+  adds `tools_note` (`STALE_TOOLS_NOTE`, names no tool), and, when the client accepts
+  `text/event-stream`, answers as an SSE stream whose first event is `notifications/tools/list_changed`
+  (the protocol's signal to list again, sent on the POST's own stream). A call under a new name is
+  plain JSON, unchanged. `serverInfo.version` is now `2.10.1`. The server instructions still name
+  the 4 tools (they come with `initialize`, before the server knows which list the client holds).
