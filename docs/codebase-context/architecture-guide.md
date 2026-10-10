@@ -3951,3 +3951,16 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
   top (`max_award_usd`).
 - Skipped: M2 (a yes on a 404'd repo needs only an active repo; gates keep their own proofs) and M5
   (the question shows until answered; recording "shown" would drop it when the agent never showed it).
+
+### v2.10.2 fix round 2 (re-review R1-I1)
+
+- **A starter is told apart by age or origin, never by traction (`present.ts starterRepo`).** Round 1's
+  "traction under 4" also skipped real products (tokens.fun as the builder's own public repo, or with
+  `my_commits_90d: 5`, scores 3). A starter is now a repo created within `STARTER_DAYS` (30) days
+  (GitHub's `created_at`, or the agent's optional `local_repos[].first_commit_at`, which
+  `reportedFacts` turns into `created_at`), or one made from a template or an EarnKit starter
+  (`original` missing). A repo of unknown age and no template mark is not a starter. Absent fields only
+  ever make a repo askable, never a starter.
+- `usersAsk` asks a good-odds product that isn't a starter when it ranks above the lead, or when the
+  lead's repo is a starter without real use (a starter's lead never outranks a real product's
+  question). It takes `now` (tools.ts passes `first.now`).

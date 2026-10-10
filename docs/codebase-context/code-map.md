@@ -472,7 +472,10 @@ apps/frontend/
                                v2.10.2 (v2.11 8a, 8b): tokens.fun without my_commits_90d (unknown, asked), the real
                                World's Fair file (a starter missing new work is low); journey 11.6. Fix round 1: C1 (Arc
                                submitted: tokens.fun asked, never the starter), I1, M6; journey 11.7 (real program files)
-    present.ts(+test)          v2.10.2 fix round 1: usersAsk ranks every candidate (unknown, then products at traction 4+,
+                               Fix round 2: own public tokens.fun and my_commits_90d: 5 asked; the 6-day tipjar never
+    present.ts(+test)          v2.10.2 fix round 2: starterRepo/STARTER_DAYS (under 30 days old, or a template or EarnKit
+                               starter), usersAsk skips starters and a starter's lead yields to a product's question.
+                               v2.10.2 fix round 1: usersAsk ranks every candidate (unknown, then products at traction 4+,
                                a grant first), never a starter; usersAskLine "up to" for range prizes; bestFit skips unknown.
                                v2.10.2 (v2.11 8a): usersAsk also takes unknown repos; the "users unknown" cell; Fit.real_use and
                                byOdds (good, unknown, low, then real use) rank layout, betterFit and bestFit.
