@@ -59,6 +59,7 @@ import {
   layout,
   leadRow,
   submitStep,
+  usersAsk,
   presentFirstMessage,
   programUpdates,
   type FirstMessage,
@@ -732,8 +733,13 @@ export function listProgramsInput(input: unknown) {
 export const LEAD_NOTE =
   'A yes to "Want me to finish it?" means start preparing lead.program_id with lead.repo (call prepare). ' +
   'When lead.step is "submit", the entry is already recorded and only the builder can submit it on the program\'s site: ' +
-  'never prepare it again; once they say they submitted, call tell with submitted: { program_id: lead.program_id }. ' +
+  'never prepare it again; once they say they submitted, call tell with submitted: { program_id: lead.program_id }; on no, say nothing more about it until they bring it up. ' +
   'Call find again with more: true only when the builder asks to see more programs, or says yes to "Want the 3 easiest?".';
+
+/** v2.10.1 fix round 1 (C1): what the agent does with the users question. */
+export const USERS_NOTE =
+  'The reply asks whether this repo has real users or revenue. Pass the builder\'s answer, never your guess: ' +
+  'call tell with repo_facts: [{ repo: users_question.repo, has_users: true or false }].';
 
 /** v2.8.1 §E18: what the agent does with list_programs' pick_up offer. */
 export const PICKUP_NOTE =
@@ -1205,7 +1211,10 @@ export const handlers = {
     // Ruling H10 (I1): the lead the short reply asks about, for the agent's yes.
     // v2.10.1 B1: an entry not submitted yet leads instead (submitStep), as in presentFirstMessage.
     const step = more || first.holdQuestion ? undefined : submitStep(shownLayout);
-    const lead = more || first.holdQuestion || step ? undefined : leadRow(shownLayout);
+    const leadFit = more || first.holdQuestion || step ? undefined : leadRow(shownLayout);
+    // v2.10.1 fix round 1 (C1): a product EarnKit can't measure, ranked above the lead, is asked about users instead.
+    const usersQ = more || first.holdQuestion || step ? undefined : usersAsk(shownLayout, leadFit);
+    const lead = usersQ ? undefined : leadFit;
     const onScreen = !own ? [] : more ? layout(shownLayout).rows : [lead].filter((r) => r !== undefined);
     await recordShown(
       ctx.installationId,
@@ -1234,6 +1243,7 @@ export const handlers = {
       ...(lead && { lead: { program_id: lead.card.id, repo: lead.repo } }),
       // v2.10.1 B1: the entry is recorded; the builder's submission on the program's site is the only step left.
       ...(step && { lead: { program_id: step.card.id, step: 'submit', ...(step.entry.id !== undefined && { project_id: step.entry.id }) } }),
+      ...(usersQ && { users_question: { repo: usersQ.key ?? usersQ.repo, agent_note: USERS_NOTE } }),
       ...(walletNote && { wallet_note: walletNote }),
       ...(alerts.scheduleNote && { schedule_daily_check: alerts.scheduleNote }),
       ...(ask && {

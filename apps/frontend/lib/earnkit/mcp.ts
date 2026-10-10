@@ -108,9 +108,10 @@ export const OWNERSHIP_FOR_TOKEN =
  * local_repos sentence is carried forward (Pre-flight P21).
  */
 export const FIND_DESCRIPTION =
-  'What can I earn? Pass local_repos: repos the builder wrote, from local git remotes (chains, live link, last_commit_at). ' +
-  // v2.10 item 7: a private repo is matched from this report (GitHub won't show it).
-  'For private repos, report local_repos facts: name, chains, contracts, live link, last commit. ' +
+  'What can I earn? Pass local_repos: repos the builder wrote, from local git remotes. ' +
+  // v2.10 item 7: a private repo is matched from this report (GitHub won't show it). v2.10.1 fix
+  // round 1 (C1): plus the builder's own commit count.
+  'For private repos, report: name, chains, contracts, live link, last_commit_at, my_commits_90d. ' +
   'A yes to the reply prepares lead.program_id; more: true only when they ask for more. ' +
   'program_id: one program and its guide; repo: whether it fits. ' +
   SAFETY_TEXT;
@@ -278,7 +279,11 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
                     `Chains the code targets: a list of names, chain ids or { chain, mainnet } (${CHAINS.join(', ')} count; others are ignored); mainnet false = testnet only`,
                   ),
                 live_url: z.unknown().optional(),
-                contracts: z.unknown().optional().describe('Up to 2 mainnet contract addresses the repo deployed, if you see them'),
+                contracts: z
+                  .unknown()
+                  .optional()
+                  .describe("Up to 2 mainnet contract addresses the repo itself deployed, if you see them; never shared ones (routers, PoolManager, Clanker's)"),
+                my_commits_90d: z.unknown().optional().describe("The builder's own commits in the last 90 days (git log --author=<their email> --since=90.days)"),
                 last_commit_at: z.unknown().optional().describe('ISO 8601; a date alone counts as UTC'),
                 url: z
                   .unknown()

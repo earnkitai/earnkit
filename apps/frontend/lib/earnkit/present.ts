@@ -2,7 +2,7 @@ import { normalizeRepoUrl, usd } from './campaigns';
 import { NO_CELL } from './no-cell';
 import { closeDayOf, endsOf, prizeOf, repoCoinNote } from './entry-text';
 import { shortDate } from './dates';
-import { CHAIN_NAMES, EFFORT_ORDER, NOT_REAL_YET, rowOdds, type Chain, type Effort, type Odds, type Product, type RepoFacts, type Verdict } from './match';
+import { CHAIN_NAMES, EFFORT_ORDER, NOT_REAL_YET, hasRealUse, rowOdds, type Chain, type Effort, type Odds, type Product, type RepoFacts, type Verdict } from './match';
 import { NEEDS_LIVE_PRODUCT, difficultyLabel, levelRank, rowDifficulty, type Difficulty, type Level } from './guide';
 import { moneyText, openMoneyUsd, wonLine } from './pool';
 import { CANT_SEE_LINE, PRIVATE_LOCAL_LINE } from './match-projects';
@@ -683,6 +683,45 @@ export function leadLine(r: Fit | undefined, m: Pick<FirstMessage, 'cards' | 're
   return `Your ${r.repo} can win ${prizeOf(r.card).split(' × ')[0]}${chain}${day ? ` by ${day}` : ''}. Want me to finish it?`;
 }
 
+/**
+ * v2.10.1 fix round 1 (C1): the repo to ask about users instead of leading. EarnKit can't measure use
+ * for a product with no contract of its own (tokens.fun launches through shared contracts), so a
+ * product-tier repo with good odds, no measured use, no users claim and no answer yet, whose open
+ * program waits only on real users, is asked about once it ranks above the lead's repo (or there is
+ * no lead): the builder's answer goes to tell (has_users) and decides. Undefined otherwise. Pure.
+ */
+export function usersAsk(
+  m: Pick<FirstMessage, 'cards' | 'repos' | 'entries'>,
+  lead: Fit | undefined,
+): { repo: string; key: string | null; card: Card } | undefined {
+  if (!m.repos || !('fits' in m.repos)) return undefined;
+  const byId = new Map(m.cards.map((c) => [c.id, c]));
+  const entered = enteredIds(m);
+  const fits = m.repos.fits;
+  const leadAt = lead ? fits.findIndex((f) => f.repo === lead.repo) : fits.length;
+  for (const f of fits.slice(0, leadAt < 0 ? fits.length : leadAt)) {
+    if (f.product?.tier !== 'product' || f.product.odds !== 'good' || !f.facts) continue;
+    if (hasRealUse(f.facts) || f.facts.users_said != null) continue;
+    const waiting = f.verdicts
+      .filter((v) => v.missing.length === 1 && v.missing[0] === 'real_users')
+      .map((v) => byId.get(v.program_id))
+      .filter((c): c is Card => c !== undefined && !c.sponsored && !entered.has(c.id))
+      // A grant before an investment, then the top prize.
+      .sort((a, b) => Number(Boolean(a.investment)) - Number(Boolean(b.investment)) || byPrize(a, b));
+    if (waiting[0]) return { repo: f.repo, key: f.key ?? null, card: waiting[0] };
+  }
+  return undefined;
+}
+
+/**
+ * v2.10.1 fix round 1 (C1): "tokens.fun could win up to $5,000 on Base with real users. Does it have
+ * real users or revenue? (yes/no)". Money first, one question. Pure; exported for tests.
+ */
+export function usersAskLine(a: NonNullable<ReturnType<typeof usersAsk>>): string {
+  const chain = a.card.any_chain || !a.card.chains?.length ? '' : ` on ${CHAIN_NAMES[a.card.chains[0]]}`;
+  return `${a.repo} could win ${prizeOf(a.card).split(' × ')[0]}${chain} with real users. Does it have real users or revenue? (yes/no)`;
+}
+
 /** The first message: see the type and the module comment for the order. Pure; exported for tests. */
 export function presentFirstMessage(given: FirstMessage): string {
   const sections: string[] = [];
@@ -716,12 +755,20 @@ export function presentFirstMessage(given: FirstMessage): string {
   const step = submitStep(m);
   if (!given.more) {
     const lead = leadRow(m, entered);
+    const ask = usersAsk(m, lead);
     return [
       ...sections,
       privateLines,
       m.repos && 'error' in m.repos ? `Couldn't read your repos: ${m.repos.error}` : null,
       // v2.10.1 B1: an entry not submitted yet leads: its only step left is the builder's submission.
-      given.holdQuestion ? null : step ? submitStepLine(step) : leadLine(lead, { cards: given.cards, repos: m.repos, now: m.now }),
+      // Fix round 1 (C1): then a product EarnKit can't measure, ranked above the lead, is asked about users.
+      given.holdQuestion
+        ? null
+        : step
+          ? submitStepLine(step)
+          : ask
+            ? usersAskLine(ask)
+            : leadLine(lead, { cards: given.cards, repos: m.repos, now: m.now }),
     ]
       .filter((x): x is string => Boolean(x))
       .join('\n');

@@ -771,16 +771,13 @@ test('11.3 an old agent: confirm_entry with decision "go" through the MCP route 
   let names: string[];
   try {
     const res = await post(1, 'tools/call', { name: 'confirm_entry', arguments: { program_id: 'arc-microgrants', project, answers, decision: 'go', builder_confirmed: true, wallet: W } });
-    // v2.10.1 B5: an old-name call is answered as a stream: tools/list_changed first, then the reply
-    // in the words of the tools that client lists.
-    assert.match(res.headers.get('content-type') ?? '', /text\/event-stream/);
-    const events = (await res.text()).split('\n').filter((l) => l.startsWith('data: ')).map((l) => JSON.parse(l.slice(6)));
-    assert.deepEqual(events[0], { jsonrpc: '2.0', method: 'notifications/tools/list_changed' });
-    const body = events.at(-1) as { result?: { content: { text: string }[]; isError?: boolean } };
+    // v2.10.1 B5, fix round 1 (I3): plain JSON; each tool named in both forms, and the refresh note.
+    assert.match(res.headers.get('content-type') ?? '', /application\/json/);
+    const body = (await res.json()) as { result?: { content: { text: string }[]; isError?: boolean } };
     assert.ok(body.result && !body.result.isError, JSON.stringify(body));
     reply = JSON.parse(body.result.content[0].text) as Reply;
     assert.match(String(reply.tools_note), /refresh EarnKit's tool list/);
-    assert.doesNotMatch(JSON.stringify({ ...reply, show_to_builder: '' }), /\b(call|Call) (find|prepare|confirm|tell)\b/);
+    assert.doesNotMatch(JSON.stringify({ ...reply, show_to_builder: '' }), /\b(call|Call) (find|prepare|confirm|tell)\b(?! \()/);
     const listed = (await (await post(2, 'tools/list', {})).json()) as { result: { tools: { name: string }[] } };
     names = listed.result.tools.map((t) => t.name).sort();
   } finally {
@@ -809,40 +806,55 @@ test('11.5 v2.10.1 the owner\'s three projects: tokens.fun (private org repo, li
     GITHUB.arcConfig.add('jenil04/tipjar');
     PUSHED.add('jenil04/tipjar');
     COMMITS.set('jenil04/tipjar', 4);
-    // tokens.fun's factory: thousands of Base transactions (its fees are real use); nothing else has any.
-    const TF_FACTORY = '0x7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a';
+    // tokens.fun has no contract of its own (it launches through Clanker's and Uniswap's shared
+    // contracts); its fee revenue has no free source EarnKit can read. Shared contracts are busy.
     const TIPJAR_ARC = '0x3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b';
     const blockscout = checkDefaults.blockscout;
-    checkDefaults.blockscout = async (url: string) => ({ transactions_count: url.toLowerCase().includes(TF_FACTORY) ? '12840' : '0' });
+    checkDefaults.blockscout = async (url: string) => ({ transactions_count: /0x498581ff/i.test(url) ? '99999' : '0' });
     try {
       const input = {
         github_user: 'jenil04',
         repos: ['minidevai/tokens.fun', 'earnkitai/earnkit', 'jenil04/tipjar'],
         local_repos: [
-          { name: 'tokens.fun', url: 'https://github.com/minidevai/tokens.fun', chains: [{ chain: 'base', mainnet: true }], contracts: [TF_FACTORY], live_url: 'https://tokens.fun', last_commit_at: daysAgo(2) },
+          // The agent's local view: the live site and the builder's own commits; no contract of its own.
+          { name: 'tokens.fun', url: 'https://github.com/minidevai/tokens.fun', chains: [{ chain: 'base', mainnet: true }], live_url: 'https://tokens.fun', last_commit_at: daysAgo(2), my_commits_90d: 153 },
           { name: 'earnkit', url: 'https://github.com/earnkitai/earnkit', chains: [], live_url: 'https://earnkit.com', last_commit_at: daysAgo(0) },
           { name: 'tipjar', url: 'https://github.com/jenil04/tipjar', chains: [{ chain: 'arc', mainnet: true }], contracts: [TIPJAR_ARC], live_url: 'https://tipjar-arc.vercel.app', last_commit_at: daysAgo(1) },
         ],
       };
 
-      // "What can I earn?": every line the owner sees. tokens.fun leads (Base, measured users); EarnKit is named with its reason.
+      // "What can I earn?": every line the owner sees. EarnKit can't measure tokens.fun's use, and it
+      // ranks above the starter, so the one question is about its users (never the starter's lead,
+      // never a silent "missing real users"); EarnKit is named with its reason.
       const first = await call(J, 'what can I earn', 'find', input, ctx, { first: true });
       assert.deepEqual(first.show_to_builder!.split('\n'), [
         'tokens.fun is private, so I matched it from your local copy.',
         "Not matched: earnkit (EarnKit's own repo).",
+        'tokens.fun could win up to $5,000 on Base with real users. Does it have real users or revenue? (yes/no)',
+      ]);
+      assert.equal(first.lead, undefined);
+      assert.equal((first.users_question as { repo: string }).repo, 'minidevai/tokens.fun');
+      const matches = (r: Reply) => r.matches as { repo: string; program_id: string; status: string; missing: string[]; odds: string; low_reason?: string; traction: number; product_score?: number }[];
+      const tf = matches(first).find((m) => m.repo === 'tokens.fun' && m.program_id === 'base-builder-grants')!;
+      assert.deepEqual([tf.odds, tf.low_reason], ['low', 'no users yet'], JSON.stringify(matches(first)));
+      const tip = matches(first).find((m) => m.repo === 'tipjar' && m.program_id === 'arc-microgrants')!;
+      assert.ok(tf.traction > tip.traction, JSON.stringify(matches(first)));
+      assert.ok(matches(first).every((m) => m.product_score === undefined));
+      // a16z: one row (any chain), tokens.fun's; never the starter.
+      assert.deepEqual(matches(first).filter((m) => m.program_id === 'a16z-speedrun').map((m) => m.repo), ['tokens.fun']);
+
+      // "Yes, it has users and fee revenue": the agent passes the answer; tokens.fun now leads at Base.
+      await call(J, 'yes, real users', 'tell', { repo_facts: [{ repo: 'minidevai/tokens.fun', has_users: true }] }, ctx);
+      const known = await call(J, 'what can I earn, again', 'find', input, ctx);
+      assert.deepEqual(known.show_to_builder!.split('\n'), [
+        'tokens.fun is private, so I matched it from your local copy.',
+        "Not matched: earnkit (EarnKit's own repo).",
         'Your tokens.fun can win up to $5,000 on Base. Want me to finish it?',
       ]);
-      assert.deepEqual(first.lead, { program_id: 'base-builder-grants', repo: 'tokens.fun' });
-      const matches = first.matches as { repo: string; program_id: string; status: string; missing: string[]; odds: string; traction: number; product_score?: number }[];
-      const tf = matches.find((m) => m.repo === 'tokens.fun' && m.program_id === 'base-builder-grants')!;
-      assert.deepEqual([tf.status, tf.missing, tf.odds], ['likely', [], 'good'], JSON.stringify(matches));
-      const tip = matches.find((m) => m.repo === 'tipjar' && m.program_id === 'arc-microgrants')!;
-      assert.ok(tf.traction > tip.traction, JSON.stringify(matches));
-      assert.ok(matches.every((m) => m.product_score === undefined));
-      // a16z: one row (any chain), tokens.fun's; never the starter.
-      assert.deepEqual(matches.filter((m) => m.program_id === 'a16z-speedrun').map((m) => m.repo), ['tokens.fun']);
+      assert.deepEqual(known.lead, { program_id: 'base-builder-grants', repo: 'tokens.fun' });
+      assert.deepEqual(matches(known).filter((m) => m.program_id === 'a16z-speedrun').map((m) => [m.repo, m.odds]), [['tokens.fun', 'good']]);
 
-      // "Show more": tokens.fun's rows rank above the starter's; nothing says tokens.fun lacks users.
+      // "Show more": tokens.fun's rows rank above the starter's; a16z never takes the starter.
       const more = await call(J, 'show more', 'find', { ...input, more: true }, ctx);
       const t = more.show_to_builder!;
       assert.ok(t.indexOf('| Base Builder Grant Program |') < t.indexOf('| Arc Microgrants |'), t);
@@ -880,7 +892,7 @@ test('11.5 v2.10.1 the owner\'s three projects: tokens.fun (private org repo, li
       const after = await call(J, 'after submitting', 'find', input, ctx);
       assert.equal(after.show_to_builder!.split('\n').at(-1), 'Your tokens.fun can win up to $5,000 on Base. Want me to finish it?');
       // One question per short reply (the lead's), no em dash anywhere the owner reads.
-      for (const r of [first, later, after]) {
+      for (const r of [first, known, later, after]) {
         assert.equal((r.show_to_builder!.replaceAll('(private?)', '').match(/\?/g) ?? []).length, 1, r.show_to_builder);
         assert.doesNotMatch(r.show_to_builder!, /—/);
       }
@@ -902,13 +914,12 @@ test('11.5 v2.10.1 the owner\'s three projects: tokens.fun (private org repo, li
       } finally {
         console.log = log;
       }
-      const events = (await res.text()).split('\n').filter((l) => l.startsWith('data: ')).map((l) => JSON.parse(l.slice(6)));
-      assert.deepEqual(events[0], { jsonrpc: '2.0', method: 'notifications/tools/list_changed' });
-      const old = JSON.parse(events[1].result.content[0].text) as Reply;
-      const agentText = JSON.stringify({ ...old, show_to_builder: '' });
-      assert.doesNotMatch(agentText, /\b(call|Call|calling|then|or|before) (find|prepare|confirm|tell)\b(?! (me|you|it|them|the builder)\b)|\b(find|prepare|confirm|tell)'s\b/, agentText);
-      assert.match(agentText, /call prepare_submission/);
-      assert.match(String(old.tools_note), /refresh EarnKit's tool list in their connector settings, or disconnect and reconnect EarnKit/);
+      const old = JSON.parse(((await res.json()) as { result: { content: { text: string }[] } }).result.content[0].text) as Reply;
+      const agentText = JSON.stringify({ ...old, show_to_builder: '', tools_note: '' });
+      // Fix round 1 (I3): plain JSON; every tool reference names both forms; the note assumes no list.
+      assert.doesNotMatch(agentText, /\b(call|Call|calling) (find|prepare|confirm|tell)\b(?! \()(?! (me|you|it|them|the builder)\b)/, agentText);
+      assert.match(agentText, /call prepare \(prepare_submission if your tool list is older\)/);
+      assert.match(String(old.tools_note), /^If EarnKit's tools look out of date, ask the builder once to refresh/);
       assert.match(old.show_to_builder!, /Not matched: earnkit \(EarnKit's own repo\)\./);
     } finally {
       checkDefaults.blockscout = blockscout;
@@ -948,7 +959,8 @@ test('11.4 every journey reply: under 50 s; at most one bonus line; the first re
     for (const line of lines.filter((l) => /40%/.test(l))) assert.match(line, confirmLine, `${where}: ${line}`);
     if (s.first) {
       const shown = s.reply.show_to_builder!.split('\n');
-      assert.match(shown.at(-1)!, /^(Your .+ can win .+\. Want me to finish it\?|No repo fits yet\. .+ is open; want the 3 easiest\?)$/, `${where}: ${s.reply.show_to_builder}`);
+      // v2.10.1 fix round 1 (C1): or the one users question about a product EarnKit can't measure.
+      assert.match(shown.at(-1)!, /^(Your .+ can win .+\. Want me to finish it\?|No repo fits yet\. .+ is open; want the 3 easiest\?|.+ could win .+ with real users\. Does it have real users or revenue\? \(yes\/no\))$/, `${where}: ${s.reply.show_to_builder}`);
       for (const line of shown.slice(0, -1)) assert.match(line, otherFirstLine, `${where}: ${line}`);
       assert.ok(!('token_offer' in s.reply), where);
     }

@@ -394,8 +394,13 @@ export const NO_USERS_YET = 'no users yet';
  * v2.10.1 B2: a repo with measured real use is a product, whatever its polish signals (README, age,
  * a known owner), unless it looks like a copy or someone else's repo. Pure.
  */
-export const withRealUse = (p: Product, tx: number | null | undefined): Product =>
-  p.tier !== 'product' && realUse(tx) && !p.missing.includes('original') && !p.missing.includes('owned') ? { ...p, tier: 'product' } : p;
+export const withRealUse = (p: Product, tx: number | null | undefined, usersClaim = false): Product =>
+  p.tier !== 'product' && (realUse(tx) || usersClaim) && !p.missing.includes('original') && !p.missing.includes('owned') ? { ...p, tier: 'product' } : p;
+/**
+ * v2.10.1 fix round 1 (C1 b, I2): real use for matching: measured (50+ transactions to a contract the
+ * agent reported) or the builder's own users claim (v2.9 A3; the row still says "confirm: users"). Pure.
+ */
+export const hasRealUse = (repo: Pick<RepoFacts, 'tx_count' | 'claims'>): boolean => realUse(repo.tx_count) || (repo.claims ?? []).includes('users');
 /** v2.10 item 6's fallback reason, when nothing more specific applies. */
 export const NOT_REAL_YET = 'not enough signs of a real product yet';
 /**
@@ -547,8 +552,14 @@ export type RepoFacts = {
    * repo someone else owns, the builder's own commits only (not the repo's total).
    */
   commits_90d?: number | null;
-  /** v2.10.1 B2: the largest transaction count read for the repo's contracts with code; null or absent when none was read. */
+  /**
+   * v2.10.1 B2: the largest transaction count read for the contracts the agent reported (fix round 1,
+   * I1: never an address a config file merely mentions, never a shared contract); null or absent
+   * when none was read.
+   */
   tx_count?: number | null;
+  /** v2.10.1 fix round 1 (C1): what the builder answered about users (tell's has_users), null when never asked. */
+  users_said?: boolean | null;
 };
 
 /** v2.9 A3: a statement that raises eligibility: a mainnet deploy, a live link, real users. */
@@ -677,6 +688,8 @@ export type ReportedRepo = {
   url?: string;
   /** v2.9 A5 (Pre-flight P4): up to 2 mainnet contracts the agent saw deployed, lowercase. */
   contracts?: string[];
+  /** v2.10.1 fix round 1 (C1 a): the builder's own commits in 90 days, from the local git log. */
+  my_commits_90d?: number;
 };
 
 /** Turns an agent's report into the same facts matching uses for public repos. */
@@ -730,13 +743,14 @@ export function matchRepo(
     const chain = p.chains.find((c) => creditsMainnet(repo.chains[c])) ?? p.chains.find((c) => repo.chains[c]);
     if (!chain && !p.any_chain) continue;
     // v2.10.1 B2: measured real use passes a polish floor (the score counts README, age and the like).
-    if (product && product.score < (p.min_product_score ?? 0) && !realUse(repo.tx_count)) continue;
+    if (product && product.score < (p.min_product_score ?? 0) && !hasRealUse(repo)) continue;
     if (product && (p.any_chain || p.investment) && !fitsWideProgram(product)) continue;
     // v2.9 A3: the builder's claims this program's verdict relies on that no check backs yet.
     const open: Claim[] = [];
     if (chain && !p.any_chain && repo.chains[chain]?.mainnet && repo.chains[chain]?.evidence === CLAIMED_MAINNET) open.push('mainnet');
     if (claims.includes('live') && repo.live_verified !== true) open.push('live');
-    if (claims.includes('users') && p.tag === 'needs a live product') open.push('users');
+    // v2.10.1 fix round 1 (I2): products-only programs rely on the users claim too, until confirmed.
+    if (claims.includes('users') && (p.tag === 'needs a live product' || p.any_chain || p.investment)) open.push('users');
     const v = (
       status: Verdict['status'],
       note: string | null,
@@ -775,7 +789,7 @@ export function matchRepo(
 
     // v2.10.1 B3: a products-only program (any chain or an investment, Ruling G15) wants a product
     // people use: without measured real use the row is never a fit, and says what's missing.
-    if (product && (p.any_chain || p.investment) && !realUse(repo.tx_count)) {
+    if (product && (p.any_chain || p.investment) && !hasRealUse(repo)) {
       v('after_step', NEEDS_USERS, ['real_users'], 'weeks');
       continue;
     }

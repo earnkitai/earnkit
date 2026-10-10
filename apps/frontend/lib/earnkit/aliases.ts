@@ -64,6 +64,12 @@ export function aliasCall(name: string, a: Args, now = new Date()): AliasedCall 
   const go = yes && a.decision !== 'skip' && { yes: true };
   const skip = yes && a.decision === 'skip' && { skip_token: true };
   const check = a.check_back === true && { check: true };
+  // v2.10.1 fix round 1 (I3): a reply names tools in both forms with the new argument words, so an old
+  // name called with them (yes, skip_token, check, submitted, pickup) is that new call as given.
+  const newForm = ['yes', 'skip_token', 'check', 'submitted', 'pickup'].some((k) => a[k] !== undefined);
+  if (newForm && ['confirm_entry', 'launch_token', 'record_submission'].includes(name))
+    return { name: a.submitted !== undefined && a.yes === undefined && a.skip_token === undefined && a.program_id === undefined ? 'tell' : 'confirm', args: a };
+  if (newForm && name === 'pick_up_entries') return { name: 'tell', args: a };
   switch (name) {
     case 'list_programs':
       return { name: 'find', args: a };
@@ -166,60 +172,61 @@ export async function rewriteAliases(
 }
 
 /**
- * v2.10.1 B5: a client that calls an old name still has the v2.9 tool list (claude.ai keeps a
- * connector's list until it is refreshed or reconnected), so replies to it name only the tools it can
- * see, in their v2.9 argument words. The new tool each reply names maps to the old one the caller used
- * where that is the same step, else to the v2.9 tool for that step. Builder text (show_to_*) never
- * names a tool and is left alone. Pure.
+ * v2.10.1 B5, fix round 1 (I3): a client that called an old name may still list the v2.9 tools
+ * (claude.ai keeps a connector's list until it is refreshed or reconnected), or may have refreshed
+ * since. So a reply to an old-name call never assumes: every tool it names carries its older name too,
+ * "call prepare (prepare_submission if your tool list is older)", and the argument words stay the new
+ * ones, which the old names accept too (aliasCall's new-form calls). Only tool references are touched
+ * ("call find", "find's", "then confirm again", "before confirm;", "to tell as"), never prose such as
+ * "find another program"; builder text (show_to_*) never names a tool and is left alone. Pure.
  */
-const STEP_OLD: Record<AliasedCall['name'], (used: string) => string> = {
-  find: (used) => (used === 'get_program' ? 'get_program' : 'list_programs'),
-  prepare: () => 'prepare_submission',
-  confirm: (used) => (['launch_token', 'record_submission', 'confirm_entry'].includes(used) ? used : 'confirm_entry'),
-  tell: (used) => (used === 'pick_up_entries' ? 'pick_up_entries' : 'tell_earnkit'),
+const OLDER: Record<AliasedCall['name'], string> = {
+  find: 'list_programs',
+  prepare: 'prepare_submission',
+  confirm: 'confirm_entry',
+  tell: 'tell_earnkit',
 };
+const older = (name: string) => `${name} if your tool list is older`;
 
-/** One agent-facing string in v2.9 words for a client that called `used`. Pure; exported for tests. */
-export function inOldWords(text: string, used: string): string {
-  const old = (step: AliasedCall['name']) => STEP_OLD[step](used);
+/** One agent-facing string with each tool reference in both forms. Pure; exported for tests. */
+export function withOlderNames(text: string, _used?: string): string {
   return (
     text
-      // Argument words first, while the new tool names are still there to anchor them.
-      .replace(/\btell with submitted(?:: \{ ?([^}]*?) ?\})?/g, (_m, inner?: string) => `record_submission with builder_submitted: true${inner ? ` and ${inner}` : ''}`)
-      .replace(/\btell with pickup: "yes"/g, 'pick_up_entries with answer: "yes"')
-      .replace(/\bconfirm with project_id\b/g, 'launch_token with project_id')
-      .replace(/\bskip_token: true\b/g, 'builder_confirmed: true and decision: "skip"')
-      .replace(/\byes: true\b/g, 'builder_confirmed: true')
-      .replace(/\bcheck: true\b/g, 'check_back: true')
-      .replace(/\(find, prepare, confirm, tell\)/g, `(${OLD_TOOL_NAMES.join(', ')})`)
-      // Then each new name where it is a tool: "call find", "find's", "then confirm again", "to tell as".
-      .replace(/\b(call|Call|calling|Calling|then|or|before) (find|prepare|confirm|tell)\b(?! (me|you|it|them|the builder)\b)/g, (_m, w: string, t: AliasedCall['name']) => `${w} ${old(t)}`)
-      .replace(/\bto (find|prepare|confirm|tell) as\b/g, (_m, t: AliasedCall['name']) => `to ${old(t)} as`)
-      .replace(/\b(find|prepare|confirm|tell)'s\b/g, (_m, t: AliasedCall['name']) => `${old(t)}'s`)
+      .replace(/\(find, prepare, confirm, tell\)/g, `(find, prepare, confirm, tell; ${older(OLDER.find + ', ' + OLDER.prepare + ', ' + OLDER.confirm + ', ' + OLDER.tell)})`)
+      // M4: "call find with program_id" is get_program's job in the older list.
+      .replace(/\b(call|Call|calling|Calling) find with program_id\b/g, (_m, w: string) => `${w} find (${older('get_program')}) with program_id`)
+      .replace(
+        /\b(call|Call|calling|Calling) (find|prepare|confirm|tell)\b(?! \()(?! (me|you|it|them|the builder)\b)/g,
+        (_m, w: string, t: AliasedCall['name']) => `${w} ${t} (${older(OLDER[t])})`,
+      )
+      .replace(/\b(then|or) (find|prepare|confirm|tell) (?=again\b|with\b)/g, (_m, w: string, t: AliasedCall['name']) => `${w} ${t} (${older(OLDER[t])}) `)
+      .replace(/\bbefore (find|prepare|confirm|tell)(?=[;.,])/g, (_m, t: AliasedCall['name']) => `before ${t} (${older(OLDER[t])})`)
+      .replace(/\bto (find|prepare|confirm|tell) as\b/g, (_m, t: AliasedCall['name']) => `to ${t} (${older(OLDER[t])}) as`)
+      .replace(/\b(find|prepare|confirm|tell)'s\b/g, (_m, t: AliasedCall['name']) => `${t}'s (${older(`${OLDER[t]}'s`)})`)
   );
 }
 
 /** Keys whose strings are builder text: never rewritten (they never name a tool). */
 const BUILDER_KEY = /^show_to_|^question$/;
 
-function oldWordsIn(v: unknown, used: string, key = ''): unknown {
-  if (typeof v === 'string') return BUILDER_KEY.test(key) ? v : inOldWords(v, used);
-  if (Array.isArray(v)) return v.map((x) => oldWordsIn(x, used, key));
-  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, oldWordsIn(x, used, k)]));
+function olderNamesIn(v: unknown, used: string, key = ''): unknown {
+  if (typeof v === 'string') return BUILDER_KEY.test(key) ? v : withOlderNames(v, used);
+  if (Array.isArray(v)) return v.map((x) => olderNamesIn(x, used, key));
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, olderNamesIn(x, used, k)]));
   return v;
 }
 
 /**
- * v2.10.1 B5: what a stale client is told once per reply: its tool list is old. Agent-facing; names
- * no tool. The builder refreshes the connector's tools (or reconnects it) once.
+ * v2.10.1 B5, fix round 1 (I3): the note on a reply to an old-name call. It never claims which list
+ * the client holds, and names no tool.
  */
 export const STALE_TOOLS_NOTE =
-  "EarnKit's tools changed and this connection still lists the old ones; they keep working until Nov 9, 2026. " +
-  "Tell the builder once: refresh EarnKit's tool list in their connector settings, or disconnect and reconnect EarnKit.";
+  "If EarnKit's tools look out of date, ask the builder once to refresh EarnKit's tool list in their connector settings, or to reconnect it. " +
+  'The older names keep working until Nov 9, 2026.';
 
 /**
- * v2.10.1 B5: one JSON-RPC result of an aliased tools/call, rewritten for the caller's old tool list:
- * the tool reply's JSON (content[].text) in v2.9 words, plus `tools_note`. A text that isn't JSON (an
+ * v2.10.1 B5: one JSON-RPC result of an aliased tools/call: the tool reply's JSON (content[].text) with
+ * each tool named in both forms (withOlderNames), plus `tools_note`. A text that isn't JSON (an
  * error line) is rewritten as text. Pure.
  */
 export function forOldClient(message: unknown, used: string): unknown {
@@ -231,13 +238,13 @@ export function forOldClient(message: unknown, used: string): unknown {
     try {
       parsed = JSON.parse(c.text);
     } catch {
-      return { ...c, text: inOldWords(c.text, used) };
+      return { ...c, text: withOlderNames(c.text, used) };
     }
-    const rewritten = oldWordsIn(parsed, used);
+    const rewritten = olderNamesIn(parsed, used);
     const withNote = rewritten && typeof rewritten === 'object' && !Array.isArray(rewritten) ? { ...rewritten, tools_note: STALE_TOOLS_NOTE } : rewritten;
     return { ...c, text: JSON.stringify(withNote) };
   });
-  return { ...m, result: { ...m.result, content, ...(m.result.structuredContent !== undefined && { structuredContent: oldWordsIn(m.result.structuredContent, used) }) } };
+  return { ...m, result: { ...m.result, content, ...(m.result.structuredContent !== undefined && { structuredContent: olderNamesIn(m.result.structuredContent, used) }) } };
 }
 
 /** v2.10.1 B5: the old names a POSTed body called (by JSON-RPC id), before rewriteAliases. Pure. */
