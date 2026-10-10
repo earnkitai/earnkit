@@ -3922,10 +3922,32 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
   then traction, then difficulty, prize and quickness: `match-projects.ts` fits sort, `present.ts
   byOdds` (so `layout`, `betterFit` and `bestFit`; `Fit.real_use`), and `tools.ts matchRows`. A
   product with users ranks above a starter at any traction tie.
-- **8b: a row missing a requirement is never good odds.** `rowOdds` ignored `new_work` and
-  `live_url`, so the tipjar starter (good odds itself) showed good odds on World's Fair (new work
-  only) in `matches` and headed "show more" with "Your repos fit these open programs:". Now any
-  missing requirement is low with `MISSING_REASON` of the first one: "only new work counts", "no
-  live link yet", "not deployed yet", "no users yet". A project-tier repo's own reason still comes
-  first (R2).
+- **8b: a row missing a requirement is never good odds.** `rowOdds` ignored `new_work`, so the
+  tipjar starter (good odds itself) showed good odds on World's Fair (new work only) in `matches` and
+  headed "show more" with "Your repos fit these open programs:". Owner rule (fix round 1, I2): a
+  row missing new work ("only new work counts") or users the program needs ("no users yet") is low
+  for every repo. A missing deploy or live link is low only below product tier (an unknown repo:
+  "not deployed yet", or `NOT_ON_MAINNET` "not on mainnet yet" when a chain is on testnet only,
+  `deployReason`; "no live link yet"). A product one deploy or one link away keeps its v2.10.1 odds
+  and can lead, since EarnKit does those steps. A project-tier repo's own reason still comes first
+  (R2).
 - The launch, deploy, entry and bonus gates are unchanged: all of this is matching and copy only.
+
+### v2.10.2 fix round 1 (review: C1, I1, I2, M1 to M6)
+
+- **C1: the users question picks across all repos (`present.ts usersAsk`).** With the Arc entry
+  submitted there is no lead, and the first fit (the tipjar starter, waiting on users at Circle and
+  a16z) was asked instead of tokens.fun. Now every candidate is collected, then ranked: unknown repos
+  first, then good-odds products ranked above the lead, a grant before an investment, then the fits
+  order. A good product is a candidate only at traction 4 or more (`GOOD_ODDS_TRACTION`), so a starter
+  (a live link and a few commits, nothing measured) is never asked. A yes or a no (`users_said`) is
+  final. Journey 11.7 replays the owner's flow with the real program files.
+- **I1:** an unknown repo is also asked on a row with nothing missing (the yes promotes it
+  everywhere), and that row has no reason, so the cell is just the repo, never "users unknown".
+- **I2:** see 8b above. Journeys 12.3 and 12.4 read as in v2.10.1 again.
+- **M1:** find's `last_commit_at` says "Always send it.". **M3:** a rate-limited owner read reads
+  "owner not checked yet" (`OWNER_UNCHECKED`), never "not enough signs of a real product". **M4:**
+  `bestFit` never offers an unknown row. **M6:** `usersAskLine` reads a range prize as "up to" the
+  top (`max_award_usd`).
+- Skipped: M2 (a yes on a 404'd repo needs only an active repo; gates keep their own proofs) and M5
+  (the question shows until answered; recording "shown" would drop it when the agent never showed it).
