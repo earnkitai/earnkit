@@ -3981,3 +3981,29 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
 - `usersAsk` asks a good-odds product that isn't a starter when it ranks above the lead, or when the
   lead's repo is a starter without real use (a starter's lead never outranks a real product's
   question). It takes `now` (tools.ts passes `first.now`).
+
+## v2.11 The builder event log (Task 2, spec 6)
+
+- **Table.** `builder_events` (db/schema.sql) records one row per thing a builder shipped: `built`,
+  `deployed`, `hosted`, `entered`, `submitted`, `won`, `lost`, `usage_check`, with the login and how
+  it was checked (`login_basis`), the wallet the builder gave, the repo, the program and a public
+  proof (`proof_tx`, `proof_url`). No FKs, so deleting an installation, program or project never
+  removes history. `dedupe_key` is UNIQUE; every write is `ON CONFLICT DO NOTHING`, so retries and
+  backfills never double-count.
+- **Append-only.** The trigger function `builder_events_append_only()` backs two triggers: a row
+  trigger (BEFORE UPDATE OR DELETE) and a statement trigger (BEFORE TRUNCATE). All raise. The one
+  exception is the owner-run redaction script (T12, `scripts/events-redact.mts`): inside one
+  transaction it runs `SELECT set_config('earnkit.events_redact', 'on', true)` (transaction-local),
+  then UPDATEs (nulls `github_login` and `wallet`, blanks the twist) or DELETEs one builder's rows.
+  TRUNCATE is never allowed. The setting guards against app code paths, not a hostile role: any
+  role can set it, so app code never does (`events.test.ts` scans `lib/` and `app/` for it and for
+  any UPDATE, DELETE or TRUNCATE on the table). Using a setting instead of `ALTER TABLE ... DISABLE
+  TRIGGER` keeps the trigger on for every other session while the script runs and needs no table
+  owner rights.
+- **Writer.** `events.ts recordEvent(e, db?)` is the only writer. It checks the event with zod,
+  lowercases login, wallet and repo key, stores a `detail` over 2 KB of JSON as `{ truncated: true }`,
+  and returns true only when a row was written. A failure is logged as `[events] <type> <ErrorName>`
+  (no values) and returns false, so it never fails the builder's step.
+- **Off by default.** `recordEvent` writes nothing unless `EARNKIT_EVENT_LOG=on`. Turn it on only
+  after the `/terms` "What EarnKit records" section (T12) is live. T3 wires the writes.
+- **Also added (for later tasks):** `installations.fresh_offer_at` and `installations.build` (S6).

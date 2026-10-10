@@ -545,6 +545,10 @@ apps/frontend/
                                v2.10 item 13: deploysDay 20, deployGasMonth 10,000,000 micro-USD),
                                periodKey, takeFreeTier (atomic hard cap), freeTierRoom, FreeTierFull,
                                giveBackFreeTier (never below 0), forceFreeTier (an overage, uncapped)
+    events.ts(+test)           v2.11 Task 2: the builder event log. recordEvent (zod-checked, lowercases
+                               login/wallet/repo_key, detail over 2 KB -> { truncated: true }, ON CONFLICT
+                               DO NOTHING, errors logged as '[events] <type> <ErrorName>' and return false).
+                               Off until EARNKIT_EVENT_LOG=on (after the /terms disclosure, T12)
     deploy.ts(+test, +anvil)   v2.10 item 13: EarnKit deploys the builder's contract on Arc or Base
                                (DEPLOYER_PRIVATE_KEY, read only here). DEPLOY_CAPS, ERC20_SELECTORS,
                                DEPLOY_LINES (+ factory), DEPLOY_PENDING, DEPLOY_UNCONFIRMED, TRANSFER_GAS,
@@ -1238,6 +1242,10 @@ apps/frontend/
                                github_verify_nonces.login/account_created_at/public_repos/seed,
                                github_verifications.via ('oauth' | 'app') and github_installation_id,
                                repo_public_reads (H6), token_offers.offered_wallet, contract_deploys)
+                               v2.11 Task 2: builder_events (append-only event log, dedupe_key UNIQUE, no FKs;
+                               trigger builder_events_append_only() refuses UPDATE/DELETE/TRUNCATE unless the
+                               owner redaction sets earnkit.events_redact = on in its transaction),
+                               installations.fresh_offer_at and installations.build
   scripts/                     db-migrate.mts, programs-sync.mts (load .env.local); v2.7: programs-sync
                                writes the guide columns; --check (pnpm programs:check) also checks each logo file
                                (logo-check.ts) and the required items' todo; v2.8 Task 12: also validates
