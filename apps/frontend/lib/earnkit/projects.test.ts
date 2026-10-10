@@ -30,6 +30,7 @@ import { rememberedWallet } from './installations';
 import { roundFor } from './bonus-rounds';
 import type { ProgramRow } from './programs';
 import { committedProgram } from './fixtures/program-file';
+import { errorLines, eventsByKey, eventsOfInstallation, withEventLog, withFailingEventLog } from './fixtures/events';
 
 const W = '0x' + 'a'.repeat(40);
 const SPONSOR = '0x' + 'b'.repeat(40);
@@ -1157,4 +1158,76 @@ test('4.14 (R10, Pre-flight P4) startEntry marks repo_private only when the repo
   } finally {
     await sql()`DELETE FROM github_repo_facts WHERE full_name LIKE ${`alice/%-${tag}`}`;
   }
+});
+
+// ---- v2.11 T3: the entered event
+
+test('3.4 the confirmation step writes entered once for a new entry; a second confirm on the same entry writes none', dbTest, () =>
+  withEventLog(async () => {
+    const { startEntry } = await import('./projects');
+    const { getProgramRow } = await import('./programs');
+    const program = proofProgramFile(`t3-4-${process.pid}-${Date.now()}`);
+    await upsertProgram(program);
+    const row = (await getProgramRow(program.id))!;
+    const installationId = await freshInstallation();
+    const tag = `${process.pid}${Date.now()}`;
+    const confirm = () =>
+      startEntry({ program: row, installationId, project: { name: 'Tip Jar', repo_url: `https://github.com/Alice${tag}/TipJar` }, answers: {}, choice: 'go', now: new Date() });
+    const first = await confirm();
+    const second = await confirm();
+    assert.equal(second.id, first.id);
+    const events = await eventsOfInstallation(installationId);
+    assert.equal(events.length, 1);
+    const e = events[0];
+    assert.equal(e.type, 'entered');
+    assert.equal(e.dedupe_key, `entered:${first.id}`);
+    assert.equal(e.project_id, first.id);
+    assert.equal(e.program_id, program.id);
+    assert.equal(e.repo_key, `alice${tag}/tipjar`);
+    assert.match(e.proof_url ?? '', new RegExp(`/p/${first.id}$`));
+    assert.equal(e.github_login, null, 'no sign-in and no proof line: no login');
+    assert.equal(e.login_basis, null);
+    assert.equal(e.wallet, null);
+  }),
+);
+
+test('3.4 record_submission writes entered for a new entry with the wallet the builder gave; a re-record writes none', dbTest, () =>
+  withEventLog(async () => {
+    const program = proofProgramFile(`t3-4r-${process.pid}-${Date.now()}`, { submission_proof: null });
+    await upsertProgram(program);
+    const installationId = await freshInstallation();
+    const project = proofProject(343);
+    const WALLET = '0xAB12000000000000000000000000000000Ef0123';
+    const record = () =>
+      recordSubmission(
+        { program_id: program.id, project, submission_data: { repo_url: project.repo_url, description: project.description }, payout_wallet: WALLET } as never,
+        installationId,
+      );
+    const first = await record();
+    const again = await record();
+    assert.equal(again.project_id, first.project_id);
+    const events = await eventsByKey(`entered:${first.project_id}`);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].wallet, WALLET.toLowerCase());
+    assert.equal(events[0].repo_key, 'alice/proof-343');
+    assert.equal((await eventsOfInstallation(installationId)).length, 1);
+  }),
+);
+
+test('3.6 a failing event write leaves the entry reply identical to the success path', dbTest, async () => {
+  const program = proofProgramFile(`t3-6e-${process.pid}-${Date.now()}`, { submission_proof: null });
+  await upsertProgram(program);
+  const project = proofProject(366);
+  const record = (installationId: number) =>
+    recordSubmission({ program_id: program.id, project, submission_data: { repo_url: project.repo_url, description: project.description } } as never, installationId);
+  const okInstallation = await freshInstallation();
+  const ok = await withEventLog(() => record(okInstallation));
+  const failInstallation = await freshInstallation();
+  let failed: Awaited<ReturnType<typeof record>> | undefined;
+  const lines = await errorLines(() => withFailingEventLog(async () => (failed = await record(failInstallation))));
+  const same = (r: Record<string, unknown>) => ({ ...r, project_id: 0, submitted_at: '' });
+  assert.deepEqual(same(failed as never), same(ok as never));
+  assert.deepEqual(lines, ['[events] entered PostgresError']);
+  assert.equal((await eventsOfInstallation(okInstallation)).length, 1);
+  assert.equal((await eventsOfInstallation(failInstallation)).length, 0);
 });

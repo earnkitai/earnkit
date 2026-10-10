@@ -455,6 +455,44 @@ export async function installationLogin(installationId: number): Promise<string 
   return row?.login ?? null;
 }
 
+/** v2.11 T3: a GitHub login and how it was proven (builder_events.login_basis). */
+export type LoginProof = { login: string; basis: 'signin' | 'app' | 'proof_line' };
+
+/**
+ * v2.11 T3 (spec 6, "Identity"): the GitHub login behind this installation's step on `repoKey`
+ * ("owner/repo"), and its basis, or null. Never guessed, and never GITHUB_TOKEN's own login or the
+ * login an agent reported (installations.github_user):
+ * - `signin` or `app`: a passing verification of this repo for this installation (a sign-in wins
+ *   over the read-only App). On a shared client only the caller's own (`callerLogin`), or the one
+ *   bound to this entry (`projectId`); without either, null.
+ * - `proof_line`: off a shared client, this installation's `token: <code>` line proved push access
+ *   to the repo: the caller says it just passed (`proofLine`), or a contract EarnKit deployed for
+ *   this installation and repo shows it did (the deploy runs only after it, R19). The login is the
+ *   repo's owner (plan S9). On a shared client the proof line is the whole agent's: never a login.
+ */
+export async function loginBasisFor(
+  installationId: number,
+  repoKey: string,
+  o: { callerLogin?: string | null; projectId?: number; proofLine?: boolean } = {},
+): Promise<LoginProof | null> {
+  const [owner, repo, extra] = repoKey.toLowerCase().split('/');
+  if (!owner || !repo || extra !== undefined) return null;
+  const key = `${owner}/${repo}`;
+  const shared = o.callerLogin !== undefined || (await sharedGroup(installationId).catch(() => true));
+  const db = sql();
+  if (shared && !o.callerLogin && o.projectId === undefined) return null;
+  const [row] = await db<{ login: string; via: string }[]>`
+    SELECT login, via FROM github_verifications
+    WHERE installation_id = ${installationId} AND repo_key = ${key}
+      ${shared ? (o.callerLogin ? db`AND login = ${o.callerLogin.toLowerCase()}` : db`AND project_id = ${o.projectId!}`) : db``}
+    ORDER BY (via = 'app'), verified_at DESC, id DESC LIMIT 1`;
+  if (row) return { login: row.login.toLowerCase(), basis: row.via === 'app' ? 'app' : 'signin' };
+  if (shared) return null;
+  if (o.proofLine) return { login: owner, basis: 'proof_line' };
+  const [deployed] = await db`SELECT 1 FROM contract_deploys WHERE installation_id = ${installationId} AND repo_key = ${key} LIMIT 1`;
+  return deployed ? { login: owner, basis: 'proof_line' } : null;
+}
+
 /** Ruling G7: the entries of this installation a login verified (a shared client shows only these). */
 export async function verifiedEntryIds(installationId: number, login: string): Promise<number[]> {
   const rows = await sql()<{ project_id: number }[]>`

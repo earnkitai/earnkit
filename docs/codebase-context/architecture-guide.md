@@ -4015,3 +4015,38 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
   clears it, so a test turns it on itself). Turn it on only
   after the `/terms` "What EarnKit records" section (T12) is live. T3 wires the writes.
 - **Also added (for later tasks):** `installations.fresh_offer_at` and `installations.build` (S6).
+
+## v2.11 Every shipped step writes its event (Task 3, spec 6)
+
+- **`noteEvent(type, build)`** (events.ts) is how a step writes. `build` runs only while
+  `EARNKIT_EVENT_LOG=on`, so an off log costs no read. The step waits at most `EVENT_WAIT_MS` (1 s);
+  a slower write finishes in the background. Any failure, building or writing, logs
+  `[events] <type> <ErrorName>` and the step's reply is unchanged. `eventDbForTests` is the test
+  seam that makes writes fail.
+- **The writers:**
+
+  | Event | Step | dedupe_key | Proof and detail |
+  |---|---|---|---|
+  | deployed | `deploy.ts deployForBuilder`, after the row is settled `deployed` (both paths, incl. code that differs, owner_ok false) | `deployed:<contract_deploys.id>` | `proof_tx`, `wallet` = the builder's owner wallet, detail `{ address, owner_ok, block }` (the receipt's `blockNumber`) |
+  | hosted | `hosting.ts deploySite` (a clean upload goes live) and `approveSite` (a flagged one approved) | `hosted:<host_deploys.id>` | `proof_url` = the site link, detail `{ host: 'earnkit', slug }`, login = the host sign-in's (`signin`) |
+  | entered | `projects.ts recordSubmission` and `startEntry` (confirm), only for a new row | `entered:<project_id>` | `proof_url` = `/p/<id>`; wallet only when given with the entry and kept (never on a shared client) |
+  | submitted | `tools.ts markSubmitted` (tell `submitted`, or confirm with `submitted`) once the reply names its project_id | `submitted:<project_id>` | `proof_url` = `external_submission_url` when given; detail `{ basis: 'link' \| 'builder_said' }` |
+  | won, lost | `outcomes.ts syncOutcomeFile` and `saveSelfReport` (won/placed/finalist: won; not_selected: lost; unknown: none) | `outcome:<project_id>:<round>:<basis>` | `proof_url` = the results URL; detail `{ basis, result, round, prize_usd }`. The first answer per round and basis is kept |
+
+  A reverted or `unknown` deploy, a flagged upload in review, a repeat confirm and a noted shared
+  `tell` write nothing. A deploy the runbook later settles to `deployed` writes nothing live; the
+  backfill picks it up.
+- **Identity.** `github-verify.ts loginBasisFor(installationId, repoKey, { callerLogin?, projectId?, proofLine? })`
+  returns `{ login, basis }` or null. Off a shared client: a verification of the repo for this
+  installation (`signin` beats `app`), else `proof_line` with the repo owner as login when the caller
+  says the proof line just passed or a `contract_deploys` row shows it did. On a shared client: only
+  the caller's own verification (`callerLogin`) or the one bound to the entry (`projectId`), and
+  never the proof line. Never `GITHUB_TOKEN`'s login or `installations.github_user`.
+- **Backfill.** `events-backfill.ts backfillEvents(db, { installationIds? })`, run by the owner only
+  through `scripts/events-backfill.mts` (`EARNKIT_EVENT_LOG=on pnpm exec tsx apps/frontend/scripts/events-backfill.mts`,
+  after the /terms section is live). It reads `contract_deploys` (deployed), `host_deploys` (live),
+  `projects` (every entry), `submissions` (the first row per entry is `submitted`) and
+  `entry_outcomes` (not unknown), takes each row's own time as `at`, uses the live dedupe keys
+  (a rerun writes 0) and marks `detail.backfill = true`. It records no wallet `contract_deploys`
+  doesn't keep, and `host_deploys` rows the cron pruned (live, over 30 days) are gone. Never in
+  predeploy or the cron (`events-backfill.test.ts` checks package.json and every app file).

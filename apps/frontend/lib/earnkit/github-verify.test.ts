@@ -28,6 +28,7 @@ import {
   verifyCallback,
   verifyStart,
   type GitHubOAuthDeps,
+  loginBasisFor,
 } from './github-verify';
 import { SIGN_IN_FIRST, WALLET_CHANGED, tokenGate, tokenLineFor, type GateDeps } from './token-gate';
 
@@ -557,4 +558,70 @@ test('concern 4 (fix round 1): the hourly cron deletes links expired over a day 
   assert.ok('cleanup' in out && typeof (out.cleanup as { nonces: number }).nonces === 'number');
   assert.equal(await count(), 1, 'only the link expired under a day ago is kept');
   assert.equal(await peekNonce(new URL(recent).searchParams.get('n')!), false, 'expired, but kept');
+});
+
+// ---- v2.11 T3 (3.8): loginBasisFor
+
+test('3.8 loginBasisFor: signin with a sign-in row (over the App), app with only the App, proof_line from the proof line or a deploy, null with neither', db, async () => {
+  const tag = `lb${process.pid}${Date.now().toString(36)}`;
+  const inst = async (o: { shared?: boolean; githubUser?: string } = {}) =>
+    (await sql()<{ id: number }[]>`
+      INSERT INTO installations (token_hash, shared_client, github_user) VALUES (${`${tag}-${randomBytes(4).toString('hex')}`}, ${o.shared ?? false}, ${o.githubUser ?? null})
+      RETURNING id`)[0].id;
+  const verify = (id: number, repoKey: string, login: string, via: 'oauth' | 'app' = 'oauth', projectId: number | null = null) => sql()`
+    INSERT INTO github_verifications (repo_key, login, installation_id, project_id, account_created_at, public_repos, purpose, via)
+    VALUES (${repoKey}, ${login}, ${id}, ${projectId}, now(), 3, ${via === 'app' ? 'app' : 'entry'}, ${via})`;
+  const repo = (n: string) => `${tag}/${n}`;
+
+  const a = await inst();
+  await verify(a, repo('both'), 'Alice', 'app');
+  await verify(a, repo('both'), 'alice');
+  assert.deepEqual(await loginBasisFor(a, repo('both')), { login: 'alice', basis: 'signin' }, 'a sign-in wins over the App');
+  await verify(a, repo('app'), 'alice', 'app');
+  assert.deepEqual(await loginBasisFor(a, repo('app').toUpperCase()), { login: 'alice', basis: 'app' });
+  assert.deepEqual(await loginBasisFor(a, repo('line'), { proofLine: true }), { login: tag, basis: 'proof_line' }, 'the repo owner');
+  await sql()`
+    INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, status, cost_micro_usd)
+    VALUES (${a}, ${`installation:${a}`}, ${repo('deployed')}, 'arc', '0x01', 'deployed', 1)`;
+  assert.deepEqual(await loginBasisFor(a, repo('deployed')), { login: tag, basis: 'proof_line' }, 'a deploy only ran after the proof');
+
+  // Neither: null, never GITHUB_TOKEN's login or the login an agent reported.
+  const old = process.env.GITHUB_TOKEN;
+  process.env.GITHUB_TOKEN = 'ghp_test_never_used';
+  try {
+    const b = await inst({ githubUser: 'mallory' });
+    assert.equal(await loginBasisFor(b, repo('none')), null);
+    await verify(b, repo('other'), 'bob');
+    assert.equal(await loginBasisFor(b, repo('none')), null, "another repo's sign-in says nothing about this one");
+    assert.equal(await loginBasisFor(a, repo('none')), null);
+  } finally {
+    if (old === undefined) delete process.env.GITHUB_TOKEN;
+    else process.env.GITHUB_TOKEN = old;
+  }
+  assert.equal(await loginBasisFor(a, 'no-slash'), null);
+  assert.equal(await loginBasisFor(a, 'a/b/c'), null);
+});
+
+test('3.8 loginBasisFor on a shared client: only the caller\'s own sign-in or the entry\'s; never the proof line', db, async () => {
+  const tag = `lbs${process.pid}${Date.now().toString(36)}`;
+  const [{ id: s }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, shared_client) VALUES (${tag}, true) RETURNING id`;
+  const repoKey = `${tag}/app`;
+  await sql()`
+    INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose)
+    VALUES (${repoKey}, 'bob', ${s}, now(), 3, 'pickup')`;
+  assert.equal(await loginBasisFor(s, repoKey), null, 'no caller: no login');
+  assert.equal(await loginBasisFor(s, repoKey, { proofLine: true }), null, 'the proof line is the whole agent\'s');
+  assert.equal(await loginBasisFor(s, repoKey, { callerLogin: null, proofLine: true }), null);
+  assert.equal(await loginBasisFor(s, repoKey, { callerLogin: 'carol' }), null, "another builder's sign-in never names this caller");
+  assert.deepEqual(await loginBasisFor(s, repoKey, { callerLogin: 'Bob' }), { login: 'bob', basis: 'signin' });
+  await sql()`
+    INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work)
+    VALUES (${tag}, 'o', ${tag}, 'd', 'https://x', 'https://x', 'r', 's', 'active', 'allowed')`;
+  const [{ id: project }] = await sql()<{ id: number }[]>`
+    INSERT INTO projects (program_id, name, installation_id) VALUES (${tag}, 'App', ${s}) RETURNING id`;
+  assert.equal(await loginBasisFor(s, repoKey, { projectId: project }), null, 'no sign-in bound to the entry');
+  await sql()`
+    INSERT INTO github_verifications (repo_key, login, installation_id, project_id, account_created_at, public_repos, purpose)
+    VALUES (${repoKey}, 'dana', ${s}, ${project}, now(), 3, 'entry')`;
+  assert.deepEqual(await loginBasisFor(s, repoKey, { projectId: project }), { login: 'dana', basis: 'signin' });
 });

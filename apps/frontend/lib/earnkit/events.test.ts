@@ -1,7 +1,7 @@
 import { after, afterEach, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import postgres from 'postgres';
-import { EVENT_LOG_FLAG, eventLogEnabled, recordEvent, type BuilderEvent } from './events';
+import { EVENT_LOG_FLAG, EVENT_WAIT_MS, eventLogEnabled, eventRepoKey, noteEvent, recordEvent, type BuilderEvent } from './events';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql, type Db } from './db';
@@ -318,4 +318,43 @@ test('ids outside the integer column range, an invalid at and an over-long key a
   const fake = failingDb('x');
   await errors(async () => recordEvent({ type: 'hosted', dedupe_key: 'hosted:gh:https://a.github.io/' + 'p'.repeat(1900) }, fake.db));
   assert.equal(fake.calls(), 1, 'a long GitHub Pages key reaches the DB');
+});
+
+// ---- v2.11 T3: noteEvent, the steps' writer
+
+test('3.x noteEvent: off, the event is never built; a build that throws logs the type and error class only and never throws', async () => {
+  delete process.env[EVENT_LOG_FLAG];
+  let built = 0;
+  await noteEvent('deployed', () => {
+    built++;
+    return null;
+  });
+  assert.equal(built, 0, 'no read happens while the log is off');
+  process.env[EVENT_LOG_FLAG] = 'on';
+  const lines = await errors(() =>
+    noteEvent('hosted', async () => {
+      const err = new Error(`secret ${W}`);
+      err.name = 'PostgresError';
+      throw err;
+    }),
+  );
+  assert.deepEqual(lines, ['[events] hosted PostgresError']);
+  await noteEvent('entered', () => null);
+});
+
+test('3.6 noteEvent never holds a step up for more than EVENT_WAIT_MS', async () => {
+  let release!: () => void;
+  const hang = new Promise<null>((r) => (release = () => r(null)));
+  const t0 = Date.now();
+  await noteEvent('submitted', () => hang);
+  const took = Date.now() - t0;
+  assert.ok(took >= EVENT_WAIT_MS - 50 && took < EVENT_WAIT_MS + 500, `${took} ms`);
+  release();
+});
+
+test('eventRepoKey: owner/repo, lowercase, from any GitHub link; undefined otherwise', () => {
+  assert.equal(eventRepoKey('https://github.com/Alice/TipJar.git'), 'alice/tipjar');
+  assert.equal(eventRepoKey('github.com/alice/tipjar/tree/main'), 'alice/tipjar');
+  assert.equal(eventRepoKey('https://gitlab.com/alice/tipjar'), undefined);
+  assert.equal(eventRepoKey(null), undefined);
 });

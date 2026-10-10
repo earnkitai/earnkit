@@ -13,6 +13,7 @@ import {
   ownEntryWallet,
   startEntry,
   submittedEntry,
+  projectRepoUrl,
   launchEntry,
   type EntryDeps,
 } from './projects';
@@ -96,7 +97,8 @@ import { tokenLineFor } from './token-gate';
 import { READY_TO_SUBMIT, confirmDecision, confirmOffer, proofLineWaiting, signInLine, walletQuestion, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
 import { HOST_LINES, UPLOAD_NOTE, hostSignInLine, issueUpload, refreshSiteExpiry } from './hosting';
 import { r2Enabled } from './r2';
-import { callerLogin, createVerifyLink, entryVerifyLink, githubVerifyEnabled, installationLogin, verifiedEntryIds } from './github-verify';
+import { callerLogin, createVerifyLink, entryVerifyLink, githubVerifyEnabled, installationLogin, loginBasisFor, verifiedEntryIds } from './github-verify';
+import { eventRepoKey, noteEvent } from './events';
 import { appTokenFor, githubAppEnabled, hasAppProof } from './github-app';
 import { PROOF_LINE_PREFIX, SIGN_IN_FIRST, WALLET_CHANGED } from './token-gate';
 import { kitReplyNote, submitKit, type SubmitKit } from './submit-kit';
@@ -2360,8 +2362,35 @@ export function eligibilityLine(repo: string, e: unknown): string | null {
 export const SUBMITTED_SHARED_NOTE =
   "Nothing saved: this agent serves many builders, so pass signed_in (the code from the builder's GitHub sign-in) and the entry's project_id (from confirm's reply) with submitted.";
 
-/** tell's `submitted` (R16): the entry and its saved answers, then record_submission with builder_submitted. */
+/**
+ * tell's `submitted` (R16), then (v2.11 T3) its `submitted` event once an entry was marked (the reply
+ * names its project_id), with the submission link as proof when the builder gave one.
+ */
 async function markSubmitted(s: NonNullable<z.infer<typeof TellToolInput>['submitted']>, signedIn: string | undefined, ctx: ToolContext) {
+  const reply = await markSubmittedReply(s, signedIn, ctx);
+  const projectId = (reply as { project_id?: unknown }).project_id;
+  if (typeof projectId === 'number')
+    await noteEvent('submitted', async () => {
+      const repoKey = eventRepoKey(await projectRepoUrl(projectId));
+      const caller = ctx.sharedClient ? { callerLogin: await sharedLogin(ctx, signedIn, 'tell') } : {};
+      const who = repoKey ? await loginBasisFor(ctx.installationId, repoKey, { ...caller, projectId }) : null;
+      return {
+        type: 'submitted',
+        dedupe_key: `submitted:${projectId}`,
+        installation_id: ctx.installationId,
+        program_id: s.program_id,
+        project_id: projectId,
+        ...(repoKey && { repo_key: repoKey }),
+        ...(who && { github_login: who.login, login_basis: who.basis }),
+        ...(s.external_submission_url && { proof_url: s.external_submission_url }),
+        detail: { basis: s.external_submission_url ? 'link' : 'builder_said' },
+      };
+    });
+  return reply;
+}
+
+/** tell's `submitted` (R16): the entry and its saved answers, then record_submission with builder_submitted. */
+async function markSubmittedReply(s: NonNullable<z.infer<typeof TellToolInput>['submitted']>, signedIn: string | undefined, ctx: ToolContext) {
   const done = defined({ external_submission_url: s.external_submission_url, builder_submitted: true, signed_in: signedIn });
   const noted = { show_to_builder: NOTED_FOR_NOW, agent_note: SUBMITTED_SHARED_NOTE };
   // Rulings G7, G9 (fix round 1, I2): on a shared client only an entry the pasted code's verified

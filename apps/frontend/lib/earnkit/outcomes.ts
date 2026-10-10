@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { normalizeRepoUrl, usd } from './campaigns';
 import { sql, type Db } from './db';
+import { eventRepoKey, noteEvent, type EventType } from './events';
+import { loginBasisFor } from './github-verify';
 import { NotFoundError } from './programs';
 
 /**
@@ -119,6 +121,43 @@ export function winLine(o: { prize_usd: number | null; program_title: string; na
     : `${o.name} won in ${o.program_title}`;
 }
 
+/** v2.11 T3: the event an outcome writes: won, placed and finalist are `won`, not_selected is `lost`, unknown none. Pure. */
+export function outcomeEventType(result: (typeof OUTCOME_RESULTS)[number]): Extract<EventType, 'won' | 'lost'> | null {
+  if (result === 'won' || result === 'placed' || result === 'finalist') return 'won';
+  return result === 'not_selected' ? 'lost' : null;
+}
+
+/**
+ * v2.11 T3: one outcome row's `won` or `lost` event. A self-report is written with
+ * `detail.basis = 'self_reported'` and never counts (spec 6). The first answer per round and basis
+ * is the one kept (dedupe). `db` reads the entry (the caller's transaction sees its own rows).
+ */
+export function outcomeEvent(
+  o: { projectId: number; programId: string; round: string; result: (typeof OUTCOME_RESULTS)[number]; basis: 'announcement' | 'self_reported'; prizeUsd: number | null; sourceUrl?: string },
+  db: Db = sql(),
+): Promise<void> {
+  const type = outcomeEventType(o.result);
+  if (!type) return Promise.resolve();
+  return noteEvent(type, async () => {
+    const [p] = await db<{ installation_id: number | null; repo_url: string | null }[]>`
+      SELECT installation_id, repo_url FROM projects WHERE id = ${o.projectId}`;
+    const repoKey = eventRepoKey(p?.repo_url);
+    const installationId = p?.installation_id ?? undefined;
+    const who = repoKey && installationId !== undefined ? await loginBasisFor(installationId, repoKey, { projectId: o.projectId }) : null;
+    return {
+      type,
+      dedupe_key: `outcome:${o.projectId}:${o.round}:${o.basis}`,
+      ...(installationId !== undefined && { installation_id: installationId }),
+      program_id: o.programId,
+      project_id: o.projectId,
+      ...(repoKey && { repo_key: repoKey }),
+      ...(who && { github_login: who.login, login_basis: who.basis }),
+      ...(o.sourceUrl && { proof_url: o.sourceUrl }),
+      detail: { basis: o.basis, result: o.result, round: o.round, ...(o.prizeUsd !== null && { prize_usd: o.prizeUsd }) },
+    };
+  });
+}
+
 /** The builder's own answer to the outcome question (v2.9 A3: given through tell_earnkit). */
 export const ReportOutcome = z
   .object({
@@ -165,13 +204,16 @@ export async function syncOutcomeFile(
       AND (p.confirmed_at IS NULL OR p.submission_proof_ok_at IS NOT NULL OR p.submission_confirmed_at IS NOT NULL
         OR EXISTS (SELECT 1 FROM submissions su WHERE su.project_id = p.id))
     ORDER BY p.id`;
-  const upsert = (projectId: number, result: (typeof OUTCOME_RESULTS)[number], prize: number | null) => db`
-    INSERT INTO entry_outcomes (project_id, program_id, round_label, result, prize_usd, source_url, captured_at, basis)
-    VALUES (${projectId}, ${f.program_id}, ${f.round_label}, ${result}, ${prize}, ${f.source_url},
-      (${f.captured_at}::date::timestamp AT TIME ZONE 'UTC'), 'announcement')
-    ON CONFLICT (project_id, round_label, basis) DO UPDATE SET
-      result = EXCLUDED.result, prize_usd = EXCLUDED.prize_usd, source_url = EXCLUDED.source_url,
-      captured_at = EXCLUDED.captured_at`;
+  const upsert = async (projectId: number, result: (typeof OUTCOME_RESULTS)[number], prize: number | null) => {
+    await db`
+      INSERT INTO entry_outcomes (project_id, program_id, round_label, result, prize_usd, source_url, captured_at, basis)
+      VALUES (${projectId}, ${f.program_id}, ${f.round_label}, ${result}, ${prize}, ${f.source_url},
+        (${f.captured_at}::date::timestamp AT TIME ZONE 'UTC'), 'announcement')
+      ON CONFLICT (project_id, round_label, basis) DO UPDATE SET
+        result = EXCLUDED.result, prize_usd = EXCLUDED.prize_usd, source_url = EXCLUDED.source_url,
+        captured_at = EXCLUDED.captured_at`;
+    await outcomeEvent({ projectId, programId: f.program_id, round: f.round_label, result, basis: 'announcement', prizeUsd: prize, sourceUrl: f.source_url }, db);
+  };
   const named = new Set<number>();
   let matched = 0;
   let unmatched = 0;
@@ -207,14 +249,18 @@ export async function syncOutcomeFile(
  * Another installation's entry, or none: NotFoundError.
  */
 export async function saveSelfReport(installationId: number, r: ReportOutcome, db: Db = sql()): Promise<void> {
-  const rows = await db<{ id: number }[]>`
+  const rows = await db<{ program_id: string }[]>`
     INSERT INTO entry_outcomes (project_id, program_id, round_label, result, prize_usd, basis)
     SELECT p.id, p.program_id, ${SELF_REPORT_ROUND}, ${r.result}, ${r.prize_usd ?? null}, 'self_reported'
     FROM projects p WHERE p.id = ${r.project_id} AND p.installation_id = ${installationId}
     ON CONFLICT (project_id, round_label, basis) DO UPDATE SET
       result = EXCLUDED.result, prize_usd = EXCLUDED.prize_usd, captured_at = now()
-    RETURNING id`;
+    RETURNING program_id`;
   if (rows.length === 0) throw new NotFoundError(`No entry ${r.project_id} for this agent.`);
+  await outcomeEvent(
+    { projectId: r.project_id, programId: rows[0].program_id, round: SELF_REPORT_ROUND, result: r.result, basis: 'self_reported', prizeUsd: r.prize_usd ?? null },
+    db,
+  );
 }
 
 /**
