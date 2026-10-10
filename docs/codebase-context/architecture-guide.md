@@ -2070,7 +2070,8 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
     copy scans' "vault" ban is EarnKit's wording, so the journeys exempt only the guide's quoted
     program facts (`fixtures/quoted-facts.ts withoutQuotedFacts`: the bullets under "What won ...",
     "What <X> wants now" and "What it wants"). On a shared client the guide repeats on each prepare
-    without `coach_asked` (R13).
+    without `coach_asked` (R13). Final review M7 (accepted): that is per call, not per builder, so on
+    a shared client a builder who re-prepares without `coach_asked` sees a guide that may be stale.
   - *One question per reply (Ruling H10).* Priority: the pickup question, then `ask_outcome`, then
     the lead's question. With a pickup, `outcomeToAsk` isn't read (so the entry isn't marked asked)
     and `FirstMessage.holdQuestion` drops the lead line (short) or the closing offer (more); with
@@ -2458,7 +2459,8 @@ speedrun, no dead end for a no-repo builder on Arc, the returning recap with no 
   "Page not found", "This page could not be found", "Application error" or "Bad Gateway" (never
   a bare "404" or "not found") with `ErrorPageError`; `liveCheckDetail` caches that phrase as the
   `url_checks.note` and the entry's fix line is `liveErrorLine`: "Your live link loads but shows
-  an error (...)". There's no JS execution, so an error drawn by client JS isn't caught. The
+  an error (...)". Final fix M2: the phrase is the site's text, so `liveErrorLine` cleans it
+  (`plainText`), cuts it to 60 characters at a word boundary and quotes it (`quoted`). There's no JS execution, so an error drawn by client JS isn't caught. The
   builder bonus live signal (traction.ts) uses the same probe, so an error page counts as a down
   day there too, P31), `contractDeployed(chain, address)` runs `eth_getCode` through `rpcFor(chain)` (the
   `<CHAIN>_RPC_URL` variable, else the public default from each chain's docs; no RPC = null,
@@ -2798,7 +2800,9 @@ A GitHub OAuth App with no scopes; its callback URL is `<EARNKIT_URL>/github/ver
   when every named repo failed that way, the first error is thrown (`list_programs` keeps its
   "Couldn't read your repos" line). `present.ts privateRepoLines` puts one `PRIVATE_LOCAL_LINE` per
   `fromLocal` name and one `CANT_SEE_LINE` for the first unseen repo before the matched table; the
-  link appears only while the App is on. The `local_repos` instruction (mcp.ts) asks for name,
+  link appears only while the App is on. Final fix M5: the can't-see line is declarative ("I can't
+  see TipJar (private?). Allow read access: <link>", no "Describe it"), so the lead keeps the
+  reply's one question. The `local_repos` instruction (mcp.ts) asks for name,
   chains, contracts, live link and last commit for private repos. Ruling H5 replaced P30's cap: a
   live, active local-only repo on a chain with no known count is good odds and can lead (journey
   11.1). With a local view (now or remembered) `find` shows the private line, never the App link;
@@ -3656,6 +3660,10 @@ builder as the owner. The agent compiles; EarnKit never builds code or verifies 
   installation's last verified login, `github-verify.ts installationLogin`), else
   `installation:<id>`, and only a shared client with no login falls back to the repo key (it is
   refused by the ownership check anyway). One builder with many repos gets the same limits.
+  Final fix M3: a shared client reads its caller with `callerLogin` directly (a failed read refuses,
+  as N6), and while GitHub sign-in is off (`githubVerifyEnabled`) it gets no deploy at all ("Deploys
+  are off right now."). Final fix M4: `prepare`'s `deploy` property is in the MCP schema only while
+  `deployEnabled()`, as `sponsor_campaign` is only with the escrow.
 - **Order and caps (Review Focus 3).**
   1. on (`deployEnabled`);
   2. `deployRefusal` on the initcode (payable constructor; all of `transfer`/`approve`/`totalSupply`
