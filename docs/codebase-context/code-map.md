@@ -178,7 +178,9 @@ apps/frontend/
                                the link carries ?s=SYMBOL and 404s unless it matches the stored ticker
   app/mcp/route.ts             hosted MCP server (Streamable HTTP, stateless, Bearer token); v2.10 item 4:
                                withAliases rewrites old tool names (aliases.ts) before the transport and logs
-                               "[mcp] alias <old> -> <new>" (names only); imports lib/earnkit relatively (tests load it)
+                               "[mcp] alias <old> -> <new>" (names only); imports lib/earnkit relatively (tests load it);
+                               v2.10.1 B5: forOldNames answers an old-name call in the old tools' words (forOldClient)
+                               with tools_note, as SSE led by notifications/tools/list_changed when the client accepts it
   app/oauth/{register,authorize,token}/   anonymous OAuth for MCP clients
   app/github/verify/(route, callback/route)  v2.9 B9: the sign-in link (GET confirm page, POST to GitHub) and
                                              GitHub's callback; re-export github-verify.ts handlers
@@ -465,7 +467,10 @@ apps/frontend/
     human-text.ts(+test)       v2.8 Ruling 16: humanStrings (string/template/JSX text of a source file, via the TypeScript AST) and humanTextFiles; the test bans the em dash in all human text;
                                final review M1: notHumanText skips .test.ts/.test.tsx/.test.mts, and walkDir never enters a fixtures directory
     no-cell.ts                 NO_CELL (''), the empty table cell or chip; import-free so the client ProgramCard shares it (final review M1); present.ts re-exports it
-    present.ts(+test)          v2.10 item 2: FirstMessage.more ("show more": the v2.9 body), holdQuestion (H10), leadRow, leadLine, MORE_QUESTION;
+    v2101.test.ts              v2.10.1: the owner's 5 live bugs (B1 to B5), each with the owner's real project shapes
+                               (tokens.fun, earnkitai/earnkit, the tipjar starter); journey 11.5 in v210-journey.test.ts
+    present.ts(+test)          v2.10.1: submitStep/submitStepLine (a confirmed entry leads with its submission site),
+                               skippedLine ("Not matched: ..."), every entry counts as entered. v2.10 item 2: FirstMessage.more ("show more": the v2.9 body), holdQuestion (H10), leadRow, leadLine, MORE_QUESTION;
                                without more, the short first reply (news, entries, deadline, private lines, one lead)
                                v2.10 item 7: YourRepos.unseen (with the App link) and fromLocal; privateRepoLines
                                v2.10 items 1, 5, 15: bonusLine (the one bonus line; H8: the offered program's pool), Card.bonus_tokens, FirstMessage.deadline;
@@ -540,7 +545,8 @@ apps/frontend/
                                ETH_USD_BAND ($500-$20,000, nativeUsd), simulate after the estimate with its
                                gas and fee, DeployChain.nonce (above 1: flagged, contract_deploys.blocked,
                                DEPLOY_LINES.blocked), DeployDeps.installationLogin (tools seam; fails closed)
-    match.ts(+test)            pure: chain detection (IDs + RPC hosts), repo x program verdicts;
+    match.ts(+test)            v2.10.1: REAL_USE_TX (50), realUse, withRealUse (measured use makes a product), a
+                               products-only program needs real use (NEEDS_USERS), rowOdds low on real_users. pure: chain detection (IDs + RPC hosts), repo x program verdicts;
                                v2.10 item 9: Detection.basis (Basis: deployed | deploy_config | mention;
                                absent = mention, R6), detectChains(files, paths) over detectMentions +
                                deployConfigChains (Ruling H2: hardhat `networks` entries, foundry [rpc_endpoints],
@@ -556,7 +562,8 @@ apps/frontend/
                                reportedFacts(ReportedRepo) turns an agent's local_repos report into
                                RepoFacts, keeping url only when campaigns.ts githubRepo parses it
                                (Ruling 13), else ''
-    match-projects.ts          v2.10 item 7: named repos read one by one (mapLimit); a 404 goes through
+    match-projects.ts          v2.10.1: skipped + SKIP_REASONS (no named repo dropped silently), ownerUnknown (a
+                               private org repo's owner is unchecked), tx_count in RepoFacts. v2.10 item 7: named repos read one by one (mapLimit); a 404 goes through
                                MatchDeps.appToken (7b), else the local report (fromLocal), else unseen; other errors
                                skip that repo and its local view; all non-404 throws the first. PRIVATE_LOCAL_LINE,
                                CANT_SEE_LINE. gh/repoByName/repoCodeFacts take a token (an App token reads a private
@@ -595,7 +602,8 @@ apps/frontend/
                                (timing-safe; v2.4 cron and veto)
     aliases.ts(+test)          v2.10 item 4 (R17): OLD_TOOL_NAMES, ALIASES_UNTIL (2026-11-09), aliasCall (an old call
                                as its new tool and arguments; Pre-flight P15 rules), rewriteAliases (a JSON-RPC
-                               message or batch). Pure.
+                               message or batch). Pure. v2.10.1 B5: inOldWords, forOldClient (a reply in a stale
+                               client's tool words, plus STALE_TOOLS_NOTE), aliasedIds (old names by JSON-RPC id).
     tools.ts                   v2.10 item 4: `tools` = find, prepare, confirm, tell, sponsor_campaign, thin dispatchers
                                over `handlers` (the v2.9 functions: list_programs ... launch_token); FindInput,
                                PrepareInput, ConfirmInput (R15), TellToolInput (R16), markSubmitted (tell.submitted),
