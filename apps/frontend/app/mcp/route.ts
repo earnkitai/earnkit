@@ -1,5 +1,5 @@
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
-import { rewriteAliases } from '../../lib/earnkit/aliases';
+import { aliasedIds, forOldClient, rewriteAliases } from '../../lib/earnkit/aliases';
 import { CORS, json, preflight } from '../../lib/earnkit/http';
 import { connectInstallation, type Caller } from '../../lib/earnkit/installations';
 import { earnkitCampaignOpen } from '../../lib/earnkit/leaderboard';
@@ -11,21 +11,56 @@ import { publicOrigin } from '../../lib/earnkit/oauth';
  * new tool and its arguments before the transport sees it, and each use is logged by name only (never
  * an argument). A body that isn't JSON passes through untouched.
  */
-async function withAliases(request: Request): Promise<Request> {
-  if (request.method !== 'POST' || !/application\/json/i.test(request.headers.get('content-type') ?? '')) return request;
+type Aliased = { request: Request; old: Map<string | number, string> };
+
+async function withAliases(request: Request): Promise<Aliased> {
+  const none = new Map<string | number, string>();
+  if (request.method !== 'POST' || !/application\/json/i.test(request.headers.get('content-type') ?? '')) return { request, old: none };
   const raw = await request.text();
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return new Request(request.url, { method: request.method, headers: request.headers, body: raw });
+    return { request: new Request(request.url, { method: request.method, headers: request.headers, body: raw }), old: none };
   }
-  const { body, changed } = await rewriteAliases(parsed, new Date(), (old, next) => console.log(`[mcp] alias ${old} -> ${next}`));
-  if (!changed) return new Request(request.url, { method: request.method, headers: request.headers, body: raw });
+  const now = new Date();
+  // v2.10.1 B5: which calls used an old name, so their replies name only the tools that client lists.
+  const old = aliasedIds(parsed, now);
+  const { body, changed } = await rewriteAliases(parsed, now, (o, next) => console.log(`[mcp] alias ${o} -> ${next}`));
+  if (!changed) return { request: new Request(request.url, { method: request.method, headers: request.headers, body: raw }), old: none };
   // The rewritten body has its own length.
   const headers = new Headers(request.headers);
   headers.delete('content-length');
-  return new Request(request.url, { method: request.method, headers, body: JSON.stringify(body) });
+  return { request: new Request(request.url, { method: request.method, headers, body: JSON.stringify(body) }), old };
+}
+
+/** v2.10.1 B5: the MCP notification that the server's tool list changed. */
+const LIST_CHANGED = { jsonrpc: '2.0', method: 'notifications/tools/list_changed' };
+
+/**
+ * v2.10.1 B5: the reply to a call made with an old tool name. That client still lists the v2.9 tools
+ * (claude.ai keeps a connector's list until it is refreshed), so (1) each tool reply names only those
+ * tools (aliases.ts forOldClient), and (2) when the client accepts a stream, the reply is an SSE stream
+ * whose first event is notifications/tools/list_changed, the protocol's signal to list the tools again
+ * (this server is stateless, so a POST's own stream is the only place it can send one). Any other
+ * response passes through.
+ */
+async function forOldNames(response: Response, old: Map<string | number, string>, accept: string): Promise<Response> {
+  if (old.size === 0 || response.status !== 200 || !/application\/json/i.test(response.headers.get('content-type') ?? '')) return response;
+  const parsed = (await response.json()) as unknown;
+  const one = (m: unknown) => {
+    const id = (m as { id?: unknown })?.id;
+    const used = typeof id === 'string' || typeof id === 'number' ? old.get(id) : undefined;
+    return used ? forOldClient(m, used) : m;
+  };
+  const body = Array.isArray(parsed) ? parsed.map(one) : one(parsed);
+  const headers = new Headers(response.headers);
+  headers.delete('content-length');
+  if (!/text\/event-stream/i.test(accept)) return new Response(JSON.stringify(body), { status: 200, headers });
+  headers.set('content-type', 'text/event-stream');
+  headers.set('cache-control', 'no-cache');
+  const events = [LIST_CHANGED, body].map((m) => `event: message\ndata: ${JSON.stringify(m)}\n\n`).join('');
+  return new Response(events, { status: 200, headers });
 }
 
 /** Hosted EarnKit MCP server (Streamable HTTP, stateless). Requires an installation token. */
@@ -72,7 +107,8 @@ async function handle(request: Request) {
     { installationId: caller.id, ownInstallationId: caller.own, sharedClient: caller.shared },
     { campaignOpen },
   ).connect(transport);
-  const response = await transport.handleRequest(await withAliases(request));
+  const aliased = await withAliases(request);
+  const response = await forOldNames(await transport.handleRequest(aliased.request), aliased.old, request.headers.get('accept') ?? '');
 
   const headers = new Headers(response.headers);
   for (const [k, v] of Object.entries(CORS)) headers.set(k, v);

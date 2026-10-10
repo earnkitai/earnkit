@@ -584,7 +584,10 @@ test('G5 I3: a local repo in an org GitHub can\'t read (private or missing) is n
           deps,
         );
         assert.equal(calls.filter((c) => c.includes('/repos/ghost-org/app/commits?per_page=100')).length, 1);
-        assert.ok(r.fits[0].product.missing.includes('owned'));
+        // v2.10.1 B2: still not owned (never a product on polish alone), but GitHub couldn't say, so
+        // ownership is unchecked: never named "not your repo".
+        assert.ok(!r.fits[0].product.missing.includes('owned'));
+        assert.deepEqual(r.fits[0].product.unchecked, ['readme', 'owned']);
         assert.notEqual(r.fits[0].product.tier, 'product');
       },
     );

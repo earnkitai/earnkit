@@ -472,7 +472,11 @@ test('12.1 (v2.10 item 5) Claude Code, a real product on Arc: owned repos only, 
   const repoCells = text.split('\n').filter((l) => l.startsWith('| ') && l.split('|').length === 7).slice(1).map((l) => l.split('|')[5].trim());
   assert.ok(repoCells.length >= 1, text);
   for (const cell of repoCells) assert.match(cell, /^TipJar\b/, text);
-  for (const noise of ['wagmi', 'todo-app', 'old-experiment', 'starter-agent']) assert.ok(!text.includes(noise), `${noise}: ${text}`);
+  // v2.10.1 B4: the two the agent named (the kit clone, the fork) are never dropped silently: one
+  // "Not matched" line says why; the GitHub list's own noise stays out.
+  assert.match(text, /^Not matched: starter-agent-service \(EarnKit's own repo\); wagmi-fork \(a fork\)\.$/m, text);
+  const withoutNotMatched = text.replace(/^Not matched: .+$/m, '');
+  for (const noise of ['wagmi', 'todo-app', 'old-experiment', 'starter-agent']) assert.ok(!withoutNotMatched.includes(noise), `${noise}: ${text}`);
   assert.ok(!probed.some((u) => u.includes('wagmi-fork')), 'a dropped fork costs no check');
   assert.deepEqual([...new Set((list.matches as { repo: string }[]).map((m) => m.repo))], ['TipJar']);
   // The Arc row: Easy (verified live link, a contract with code on Arc mainnet, an owned product).
@@ -735,7 +739,8 @@ test('12.6 (v2.10 item 5) no first-reply offer; the confirm line once with "40%"
   assert.match(rec.show_to_builder!, /^Entered in Arc Microgrants\.(\n|$)/);
   assert.doesNotMatch(rec.show_to_builder!, /token/i);
   // Ruling G15 M1: Circle's row still needs real users, so Also qualifies never offers it.
-  assert.match(rowOf(list.show_to_builder!, 'Circle Developer Grants') ?? '', /needs real users/, list.show_to_builder);
+  // v2.10.1 B2: a row still waiting on users is low odds and says so.
+  assert.match(rowOf(list.show_to_builder!, 'Circle Developer Grants') ?? '', /low odds: no users yet/, list.show_to_builder);
   assert.ok(!(rec.also_qualifies as { id: string }[] | undefined)?.some((r) => r.id === 'circle-developer-grants'), JSON.stringify(rec.also_qualifies));
   assert.ok(!deployed.some((x) => x.symbol === 'QUILL'), 'nothing launched');
   assert.equal(forty(J), 1, dump(J));
@@ -751,7 +756,8 @@ test('12.6b Also qualifies (Ruling G15 M1): never a program whose row needs real
   ];
   const list = await call(J, 'list', 'list_programs', { local_repos }, ctx);
   assert.match(rowOf(list.show_to_builder!, 'Arc Microgrants') ?? '', /\| Easy \|/, list.show_to_builder);
-  assert.match(rowOf(list.show_to_builder!, 'Circle Developer Grants') ?? '', /needs real users/, list.show_to_builder);
+  // v2.10.1 B2: a row still waiting on users is low odds and says so.
+  assert.match(rowOf(list.show_to_builder!, 'Circle Developer Grants') ?? '', /low odds: no users yet/, list.show_to_builder);
   // GitHub's evidence (the repo-facts cache Also qualifies reads) has relay on Arc and Avalanche mainnet
   // (v2.10 item 9: in a deploy config).
   await sql()`

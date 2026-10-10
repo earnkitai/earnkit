@@ -378,6 +378,24 @@ const band = (n: number | null, mid: number, high: number) => (n === null || n <
 export function traction(f: TractionFacts): number {
   return 3 * band(f.tx_count, 1, 50) + 2 * Number(f.live_ok) + band(f.commits_90d, 1, 10);
 }
+/**
+ * v2.10.1 B2: measured real use: at least this many transactions to the repo's own contract with code
+ * (Blockscout, Base). It is what "users" means for matching: it makes a repo a product whatever its
+ * polish signals, clears "needs real users", and is what products-only programs ask for.
+ */
+export const REAL_USE_TX = 50;
+/** v2.10.1 B2: whether a transaction count shows real use. Unknown (null) never does. Pure. */
+export const realUse = (tx: number | null | undefined): boolean => (tx ?? 0) >= REAL_USE_TX;
+/** v2.10.1 B3: a row that still needs real users (a products-only program without measured use). */
+export const NEEDS_USERS = 'needs real users first';
+/** v2.10.1 B2, B3: a row's low-odds reason while it still needs real users. */
+export const NO_USERS_YET = 'no users yet';
+/**
+ * v2.10.1 B2: a repo with measured real use is a product, whatever its polish signals (README, age,
+ * a known owner), unless it looks like a copy or someone else's repo. Pure.
+ */
+export const withRealUse = (p: Product, tx: number | null | undefined): Product =>
+  p.tier !== 'product' && realUse(tx) && !p.missing.includes('original') && !p.missing.includes('owned') ? { ...p, tier: 'product' } : p;
 /** v2.10 item 6's fallback reason, when nothing more specific applies. */
 export const NOT_REAL_YET = 'not enough signs of a real product yet';
 /**
@@ -418,6 +436,8 @@ export function rowOdds(p: Product | undefined, v: Verdict, chains: Detection): 
   if (!p) return { odds: 'low', low_reason: NOT_REAL_YET };
   if (p.tier !== 'product') return { odds: 'low', low_reason: p.low_reason ?? missingSignalNote(p) ?? NOT_REAL_YET };
   if (onlyMentioned(v, chains)) return { odds: 'low', low_reason: 'not deployed yet' };
+  // v2.10.1 B2, B3: a row still waiting on real users is never good odds, and says so.
+  if (v.missing.includes('real_users')) return { odds: 'low', low_reason: NO_USERS_YET };
   if (p.odds !== 'good') return { odds: 'low', low_reason: p.low_reason ?? NOT_REAL_YET };
   return { odds: 'good', low_reason: null };
 }
@@ -527,6 +547,8 @@ export type RepoFacts = {
    * repo someone else owns, the builder's own commits only (not the repo's total).
    */
   commits_90d?: number | null;
+  /** v2.10.1 B2: the largest transaction count read for the repo's contracts with code; null or absent when none was read. */
+  tx_count?: number | null;
 };
 
 /** v2.9 A3: a statement that raises eligibility: a mainnet deploy, a live link, real users. */
@@ -707,7 +729,8 @@ export function matchRepo(
     // v2.10 (Task 1 review): a credited chain first, so a mention listed earlier never hides it.
     const chain = p.chains.find((c) => creditsMainnet(repo.chains[c])) ?? p.chains.find((c) => repo.chains[c]);
     if (!chain && !p.any_chain) continue;
-    if (product && product.score < (p.min_product_score ?? 0)) continue;
+    // v2.10.1 B2: measured real use passes a polish floor (the score counts README, age and the like).
+    if (product && product.score < (p.min_product_score ?? 0) && !realUse(repo.tx_count)) continue;
     if (product && (p.any_chain || p.investment) && !fitsWideProgram(product)) continue;
     // v2.9 A3: the builder's claims this program's verdict relies on that no check backs yet.
     const open: Claim[] = [];
@@ -750,6 +773,13 @@ export function matchRepo(
       continue;
     }
 
+    // v2.10.1 B3: a products-only program (any chain or an investment, Ruling G15) wants a product
+    // people use: without measured real use the row is never a fit, and says what's missing.
+    if (product && (p.any_chain || p.investment) && !realUse(repo.tx_count)) {
+      v('after_step', NEEDS_USERS, ['real_users'], 'weeks');
+      continue;
+    }
+
     // v2.9 A2: an investment is a company application, at most one step away and weeks of work.
     if (product && p.investment) {
       v('after_step', INVESTMENT_NOTE, [], 'weeks');
@@ -764,6 +794,12 @@ export function matchRepo(
     }
 
     if (p.tag === 'needs a live product') {
+      // v2.10.1 B2: measured real use is real users (no claim to confirm).
+      if (realUse(repo.tx_count)) {
+        if (!repo.homepage) v('after_step', 'needs a live link', ['live_url']);
+        else v('likely', 'looks eligible');
+        continue;
+      }
       // v2.9 A3: a users claim clears real_users; the row then waits on "confirm: users".
       if (claims.includes('users')) {
         if ((product && !repo.live_verified) || (!product && !repo.homepage)) v('after_step', 'needs a live link', ['live_url']);

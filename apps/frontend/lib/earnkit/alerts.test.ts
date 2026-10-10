@@ -622,7 +622,9 @@ test('4.9 an Easy program no repo fits is never alerted; any_chain fits a produc
   const memory = { checkedAt: t(4), state: { top: {}, newPrograms: [] }, feeAlertedUsd: null };
   const easy = prog('easy', 5, { chains: ['monad'] });
   const any = prog('any', 7, { chains: [], any_chain: true, min_product_score: 5 });
-  assert.deepEqual(lines(memory, [easy, any]).lines, ['new: any (up to $5,000)']);
+  // v2.10.1 B3: any_chain is products only: a product with measured users (no starter without them).
+  assert.deepEqual(lines(memory, [easy, any]).lines, []);
+  assert.deepEqual(lines(memory, [easy, any], [tipjar({ tx_count: 120 })]).lines, ['new: any (up to $5,000)']);
   assert.deepEqual(lines(memory, [easy, any], []).lines, []);
   // A program that didn't fit when it was new is marked seen: a later repo never makes it "new".
   const r = lines(memory, [easy]);
@@ -650,7 +652,10 @@ test('4.8 alertable: only when the builder could really win it', () => {
   assert.equal(ok(avax, avaxRepo), true);
   // any_chain (or investment) takes product tier only.
   const any = prog('any', 5, { chains: [], any_chain: true, min_product_score: 0 });
-  assert.equal(ok(any, tipjar()), true);
+  // v2.10.1 B3: products only means measured users (50+ transactions), never polish alone.
+  assert.equal(ok(any, tipjar()), false);
+  assert.equal(ok(any, tipjar({ tx_count: 49 })), false);
+  assert.equal(ok(any, tipjar({ tx_count: 120 })), true);
   assert.equal(ok(any, tipjar({ product: PROJECT_TIER })), false);
   // A project-tier repo is fine for a chain program when the row is close (after_step, minutes).
   assert.equal(ok(prog('base', 5), tipjar({ product: PROJECT_TIER })), true);

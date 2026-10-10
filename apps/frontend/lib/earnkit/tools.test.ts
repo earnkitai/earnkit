@@ -2498,7 +2498,9 @@ const fiveOnBase = [3, 6, 4, 5, 3].map((s, i) => scoredFit(`r${i}`, s, 'base-bui
 
 test('2.12 matches: at most 3 repos per program, highest product score first; an any_chain program shows one', () => {
   const rows = matchRows(fiveOnBase, new Set());
-  assert.deepEqual(rows.map((r) => [r.repo, r.product_score]), [['r1', 6], ['r3', 5], ['r2', 4]]);
+  // v2.10.1 B2: the polish-only score is no longer shown; with equal odds and traction it still breaks the tie.
+  assert.deepEqual(rows.map((r) => r.repo), ['r1', 'r3', 'r2']);
+  assert.ok(rows.every((r) => !('product_score' in r)));
   const a16z = matchRows([5, 6].map((s, i) => scoredFit(`a${i}`, s, 'a16z-speedrun')), new Set(['a16z-speedrun']));
   assert.deepEqual(a16z.map((r) => r.repo), ['a1']);
 });

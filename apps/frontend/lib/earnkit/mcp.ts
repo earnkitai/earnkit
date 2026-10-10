@@ -234,7 +234,8 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
   const campaignOpen = opts.campaignOpen ?? false;
   const descriptions = toolDescriptions(campaignOpen);
   const server = new McpServer(
-    { name: 'earnkit', version: '1.0.0' },
+    // v2.10.1 B5: the version moves with the tool list, so a client that keys its cached list on it lists again.
+    { name: 'earnkit', version: '2.10.1' },
     // MCP sends instructions once, in the initialize response. The route builds a server per
     // request (stateless), so each session's initialize carries the campaignOpen read for it.
     { instructions: serverInstructions(campaignOpen) },
