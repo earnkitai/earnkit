@@ -2,13 +2,17 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
 import { readStats } from './stats';
+import { eventsOfInstallation, withEventLog } from './fixtures/events';
 import {
   OutcomeFile,
   ReportOutcome,
   matchOutcome,
   matchOutcomeAll,
+  outcomeEventType,
   outcomeQuestion,
+  saveSelfReport,
   syncOutcomeFile,
+  SELF_REPORT_ROUND,
   winLine,
   type EntryRef,
 } from './outcomes';
@@ -281,3 +285,61 @@ test('re-review I-A: round 1 partial or missing, round 2 complete: round-1 entri
     if (err !== Rollback) throw err;
   }
 });
+
+// ---- v2.11 T3: won and lost events
+
+test('3.x outcomeEventType: won, placed and finalist are won; not_selected is lost; unknown writes nothing', () => {
+  assert.deepEqual(
+    (['won', 'placed', 'finalist', 'not_selected', 'unknown'] as const).map(outcomeEventType),
+    ['won', 'won', 'won', 'lost', null],
+  );
+});
+
+test('3.x an announcement writes won and lost events with the results link and basis; unknown none; a re-sync none; a self-report keeps its basis', dbTest, () =>
+  withEventLog(async () => {
+    const tag = `outcomes-t3-${process.pid}-${Date.now()}`;
+    const [{ id: inst }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${tag}) RETURNING id`;
+    await sql()`
+      INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work)
+      VALUES (${tag}, 'o', ${tag}, 'd', 'https://x', 'https://x', 'r', 's', 'active', 'allowed')`;
+    const entry = async (name: string, repo: string) =>
+      (await sql()<{ id: number }[]>`
+        INSERT INTO projects (program_id, name, installation_id, repo_url, submitted_at)
+        VALUES (${tag}, ${name}, ${inst}, ${repo}, '2026-10-10T00:00:00Z') RETURNING id`)[0].id;
+    const winner = await entry('Winner', `https://github.com/A/win-${tag}`);
+    const placed = await entry('Placed', `https://github.com/a/placed-${tag}`);
+    const maybe = await entry('Maybe', `https://github.com/a/maybe-${tag}`);
+    const other = await entry('Other', `https://github.com/a/other-${tag}`);
+    const file = {
+      program_id: tag, round_label: 'R1', source_url: 'https://x.example/results', captured_at: '2026-10-22', complete: true,
+      entries_from: '2026-10-01', entries_until: '2026-10-22',
+      results: [
+        { repo: `github.com/a/win-${tag}`, result: 'won' as const, prize_usd: 500 },
+        { repo: `github.com/a/placed-${tag}`, result: 'placed' as const },
+        { repo: `github.com/a/maybe-${tag}`, result: 'unknown' as const },
+      ],
+    };
+    await syncOutcomeFile(file);
+    await syncOutcomeFile(file);
+    const events = await eventsOfInstallation(inst);
+    const by = new Map(events.map((e) => [e.project_id, e]));
+    assert.equal(events.length, 3, 'won, placed and the unnamed not_selected; unknown none; the re-sync none');
+    assert.equal(by.get(winner)!.type, 'won');
+    assert.equal(by.get(winner)!.dedupe_key, `outcome:${winner}:R1:announcement`);
+    assert.equal(by.get(winner)!.proof_url, 'https://x.example/results');
+    assert.equal(by.get(winner)!.repo_key, `a/win-${tag}`.toLowerCase());
+    assert.deepEqual(by.get(winner)!.detail, { basis: 'announcement', result: 'won', round: 'R1', prize_usd: 500 });
+    assert.equal(by.get(placed)!.type, 'won');
+    assert.equal(by.get(other)!.type, 'lost');
+    assert.ok(!by.has(maybe));
+
+    await saveSelfReport(inst, { project_id: maybe, result: 'finalist' });
+    await saveSelfReport(inst, { project_id: maybe, result: 'not_selected' });
+    const self = (await eventsOfInstallation(inst)).filter((e) => e.project_id === maybe);
+    assert.equal(self.length, 1, 'the first answer is kept');
+    assert.equal(self[0].type, 'won');
+    assert.equal(self[0].dedupe_key, `outcome:${maybe}:${SELF_REPORT_ROUND}:self_reported`);
+    assert.deepEqual(self[0].detail, { basis: 'self_reported', result: 'finalist', round: SELF_REPORT_ROUND });
+    assert.equal(self[0].proof_url, null);
+  }),
+);

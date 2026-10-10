@@ -34,6 +34,7 @@ import {
 } from './hosting';
 import { contentTypeFor } from './host-names';
 import { r2Client, r2Enabled, type R2 } from './r2';
+import { errorLines, eventsOfInstallation, withEventLog, withFailingEventLog } from './fixtures/events';
 
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 const R2_ENV = { R2_ACCOUNT_ID: 'acct', R2_ACCESS_KEY_ID: 'AKIDTEST', R2_SECRET_ACCESS_KEY: 'r2-secret-never-logged-0123456789', R2_BUCKET: 'sites' };
@@ -930,4 +931,56 @@ test('final review M6: an approval waits while a deploy of the same slug is in f
     assert.equal((await approve()).status, 200);
     assert.equal(f.state(u.slug)?.status, 'live');
   });
+});
+
+// ---- v2.11 T3: the hosted event
+
+const deployIds = async (slug: string) =>
+  (await sql()<{ id: number; status: string }[]>`SELECT id, status FROM host_deploys WHERE slug = ${slug} ORDER BY id`).map((r) => ({ ...r }));
+
+test('3.3 a clean upload going live writes one hosted event with the link, host earnkit and the slug', db, () =>
+  withEventLog(async () => {
+    const u = await upload();
+    const out = await deploySite(u.token, site(), { r2: fakeR2().r2 });
+    assert.equal(out.status, 200);
+    const [d] = await deployIds(u.slug);
+    const events = await eventsOfInstallation(u.installationId);
+    assert.equal(events.length, 1);
+    const e = events[0];
+    assert.equal(e.type, 'hosted');
+    assert.equal(e.dedupe_key, `hosted:${d.id}`);
+    assert.equal(e.proof_url, `https://${u.slug}.earnkit.com`);
+    assert.equal(e.repo_key, u.repoKey.toLowerCase());
+    assert.equal(e.github_login, u.login.toLowerCase());
+    assert.equal(e.login_basis, 'signin');
+    assert.deepEqual(e.detail, { host: 'earnkit', slug: u.slug });
+  }),
+);
+
+test('3.3 a flagged upload in review writes no event until approveSite, which writes it once', db, () =>
+  withEventLog(async () => {
+    const u = await upload();
+    const f = fakeR2();
+    const out = await deploySite(u.token, site(PHISH), { r2: f.r2 });
+    assert.equal(out.body.review, true);
+    assert.equal((await eventsOfInstallation(u.installationId)).length, 0);
+    assert.equal(await approveSite(u.slug, { r2: f.r2 }), true);
+    const [d] = await deployIds(u.slug);
+    const events = await eventsOfInstallation(u.installationId);
+    assert.deepEqual(
+      events.map((e) => [e.type, e.dedupe_key, e.proof_url]),
+      [['hosted', `hosted:${d.id}`, `https://${u.slug}.earnkit.com`]],
+    );
+    assert.equal(await approveSite(u.slug, { r2: f.r2 }), false, 'nothing left in review');
+    assert.equal((await eventsOfInstallation(u.installationId)).length, 1);
+  }),
+);
+
+test('3.6 a failing event write leaves the upload reply identical', db, async () => {
+  const u = await upload();
+  let out: Awaited<ReturnType<typeof deploySite>> | undefined;
+  const lines = await errorLines(() => withFailingEventLog(async () => (out = await deploySite(u.token, site(), { r2: fakeR2().r2 }))));
+  assert.deepEqual(out, { status: 200, body: { show_to_builder: liveLine('TipJar', u.slug), url: `https://${u.slug}.earnkit.com` } });
+  assert.deepEqual(lines, ['[events] hosted PostgresError']);
+  assert.equal((await eventsOfInstallation(u.installationId)).length, 0);
 });

@@ -549,6 +549,12 @@ apps/frontend/
                                login/wallet/repo_key, detail over 2 KB -> { truncated: true }, optional at, ON CONFLICT
                                DO NOTHING, errors logged as '[events] <type> <ErrorName>' and return false).
                                Off until EARNKIT_EVENT_LOG=on (after the /terms disclosure, T12)
+                               v2.11 Task 3: noteEvent (lazy build, flag-gated, waits <= EVENT_WAIT_MS, never
+                               throws), eventRepoKey, eventDbForTests. Writers: deploy.ts (deployed), hosting.ts
+                               deploySite/approveSite (hosted), projects.ts recordSubmission/startEntry (entered),
+                               tools.ts markSubmitted (submitted), outcomes.ts sync/self-report (won, lost)
+    events-backfill.ts(+test)  v2.11 Task 3: backfillEvents (contract_deploys, host_deploys, projects, submissions,
+                               entry_outcomes; source time as at; live dedupe keys; owner-run only)
     deploy.ts(+test, +anvil)   v2.10 item 13: EarnKit deploys the builder's contract on Arc or Base
                                (DEPLOYER_PRIVATE_KEY, read only here). DEPLOY_CAPS, ERC20_SELECTORS,
                                DEPLOY_LINES (+ factory), DEPLOY_PENDING, DEPLOY_UNCONFIRMED, TRANSFER_GAS,
@@ -927,6 +933,8 @@ apps/frontend/
                                nonce = HMAC(EARNKIT_AUTH_SECRET, seed), an open link reused (not on shared clients),
                                sweepVerifyNonces (cron cleanup step)
                                v2.10 fix round 1 (I6): installationLogin (the installation's last verified login; deploy limits).
+                               v2.11 T3: loginBasisFor (a step's login and login_basis: signin, app, proof_line; shared
+                               clients only the caller's or the entry's sign-in; never GITHUB_TOKEN's or github_user)
     github-app.ts(+test)       v2.10 item 7b: the optional read-only GitHub App. githubAppEnabled (GITHUB_APP_ID,
                                GITHUB_APP_SLUG, a PEM GITHUB_APP_PRIVATE_KEY, and the v2.9 sign-in on, P17), appJwt
                                (RS256, iat now-60 s, 10 min), installationToken (POST access_tokens: one repo, contents
@@ -1252,6 +1260,8 @@ apps/frontend/
                                (logo-check.ts) and the required items' todo; v2.8 Task 12: also validates
                                programs/outcomes/*.json and sync matches them (syncOutcomeFile);
                                v28-complete-at-window.mts: the Ruling C7 ship step (dry run by default)
+                               events-backfill.mts: v2.11 T3, the owner's one-off event backfill (needs
+                               EARNKIT_EVENT_LOG=on; never predeploy or cron)
     db-check.mts                v2.4: applies main's schema + rows, then db/schema.sql twice, on a
                                 local Postgres only; checks backfills, defaults, opened_at via sync,
                                 the v2.5 bonus tables' constraints, and (v2.6) the migration over real

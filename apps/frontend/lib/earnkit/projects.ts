@@ -15,6 +15,8 @@ import {
 } from './campaigns';
 import { formatDeadline } from './dates';
 import { entryMessage, entrySigner } from './entry-proof';
+import { eventRepoKey, noteEvent } from './events';
+import { loginBasisFor } from './github-verify';
 import { bonusRidesOn, enteredTable, repoCoinNote, roundEndLabel, siteUrl } from './entry-text';
 import { testInstallationIds } from './installations';
 import {
@@ -584,6 +586,12 @@ export async function submittedEntry(
   return { id, project, answers: answers ?? {} };
 }
 
+/** v2.11 T3: an entry's repo link (for its events), or null. */
+export async function projectRepoUrl(projectId: number): Promise<string | null> {
+  const [row] = await sql()<{ repo_url: string | null }[]>`SELECT repo_url FROM projects WHERE id = ${projectId}`;
+  return row?.repo_url ?? null;
+}
+
 /**
  * v2.10 item 3 (Pre-flight P23): whether this installation has any entry (a row, confirmed or not)
  * for the program; the guide is not shown again after one.
@@ -621,6 +629,27 @@ export async function openEntries(installationId: number, onlyIds?: number[]): P
 /** A program's submission site as builder text ("dorahacks.io"), or null. Pure. */
 const siteOf = (url: string | null | undefined) =>
   url && URL.canParse(url) ? new URL(url).hostname.replace(/^www\./, '') : null;
+
+/**
+ * v2.11 T3: a new entry row (record_submission or the confirmation step): its `entered` event, with
+ * the entry page as proof. The wallet only when the builder gave one with this entry and it is kept.
+ */
+const enteredEvent = (e: { projectId: number; installationId: number; programId: string; repoUrl: string | null; wallet?: string | null }) =>
+  noteEvent('entered', async () => {
+    const repoKey = eventRepoKey(e.repoUrl);
+    const who = repoKey ? await loginBasisFor(e.installationId, repoKey, { projectId: e.projectId }) : null;
+    return {
+      type: 'entered',
+      dedupe_key: `entered:${e.projectId}`,
+      installation_id: e.installationId,
+      program_id: e.programId,
+      project_id: e.projectId,
+      ...(repoKey && { repo_key: repoKey }),
+      ...(e.wallet && { wallet: e.wallet }),
+      ...(who && { github_login: who.login, login_basis: who.basis }),
+      proof_url: `${siteUrl()}/p/${e.projectId}`,
+    };
+  });
 
 /** Stores a project after it was actually submitted to the external program. */
 export async function recordSubmission(
@@ -1038,6 +1067,17 @@ export async function recordSubmission(
       throw err;
     })
     .then(async (res) => {
+      if (!('updated' in res))
+        await enteredEvent({
+          projectId: res.project_id,
+          installationId,
+          programId: program.id,
+          repoUrl: repo_url ?? null,
+          wallet: entry?.payoutWallet ?? bonusWallet,
+        });
+      return res;
+    })
+    .then(async (res) => {
       if (!tokenHome || !bonusRepoKey) return res;
       // v2.8.1 §D, T5 fix round 1: read after the entry commits, so the rollover rule sees this
       // entry, and the note agrees with record_submission's builder text and token note (tools.ts
@@ -1113,7 +1153,7 @@ export async function startEntry(a: {
   const completeNow = completeAt(program.submission_requirements, { project: { ...project, repo_url: repoUrl ?? undefined }, answers, verified: a.verified }, null, now);
   const checked = verifiedAt(a.verified, now);
   const key = { programId: program.id, installationId, repoUrl, name: project.name };
-  return sql().begin(async (tx) => {
+  const out = await sql().begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtext(${`own-entry:${program.id}:${installationId}`}))`;
     const own = await ownEntry(tx, key);
     // v2.10 R10 (Pre-flight P4): the repo is private when it was read through the read-only App (a
@@ -1185,4 +1225,6 @@ export async function startEntry(a: {
       token_settled: row.token_settled,
     };
   });
+  if (out.created) await enteredEvent({ projectId: out.id, installationId, programId: program.id, repoUrl });
+  return out;
 }

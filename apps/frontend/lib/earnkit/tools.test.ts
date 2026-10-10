@@ -32,6 +32,7 @@ import { CANT_PUSH, NO_WALLET_HINT, confirmOffer, proofLineWaiting } from './con
 import { completeVerify, createVerifyLink, formatCode } from './github-verify';
 import { eligibleSql } from './traction';
 import { committedProgram } from './fixtures/program-file';
+import { eventsByKey, eventsOfInstallation, withEventLog } from './fixtures/events';
 import { alsoQualifies, alsoText, type AlsoRow } from './also-qualifies';
 import type { Chain } from './match';
 
@@ -4161,3 +4162,59 @@ test('T11 fix (journey 11.0): tell\'s "I submitted" keeps the entry\'s verified 
     await sql()`UPDATE programs SET status = 'closed' WHERE id = ${f.id}`;
   }
 });
+
+// ---- v2.11 T3: the entered and submitted events through the tools
+
+test('3.4, 3.5 confirm yes writes entered once; tell submitted writes submitted with the link once; a shared caller is named by its own sign-in', dbTest, () =>
+  withEventLog(() =>
+    withTokenEnv(() =>
+      withSignIn(async () => {
+        const t = await confirmSetup('t3tell');
+        const first = (await tools.confirm({ ...t.input, yes: true, wallet: W8 }, t.ctx)) as Confirmed;
+        assert.ok(first.kit, JSON.stringify(first));
+        await tools.confirm({ ...t.input, yes: true, wallet: W8 }, t.ctx);
+        const entered = await eventsByKey(`entered:${first.project_id}`);
+        assert.equal(entered.length, 1, 'a second confirm writes none');
+        const URL1 = 'https://dorahacks.io/buidl/3535';
+        await tools.tell({ submitted: { program_id: t.p.id, external_submission_url: URL1 } }, t.ctx);
+        await tools.tell({ submitted: { program_id: t.p.id, external_submission_url: 'https://dorahacks.io/buidl/9999' } }, t.ctx);
+        const submitted = await eventsByKey(`submitted:${first.project_id}`);
+        assert.equal(submitted.length, 1, 'a second tell writes none');
+        const e = submitted[0];
+        assert.equal(e.type, 'submitted');
+        assert.equal(e.proof_url, URL1);
+        assert.equal(e.program_id, t.p.id);
+        assert.equal(e.project_id, first.project_id);
+        assert.equal(e.installation_id, t.inst);
+        assert.deepEqual(e.detail, { basis: 'link' });
+        assert.deepEqual((await eventsOfInstallation(t.inst)).map((x) => x.type).sort(), ['entered', 'submitted']);
+
+        // A shared client: the caller's own sign-in for this entry names the login.
+        const s = await confirmSetup('t3tells');
+        const mine = (await tools.confirm({ ...s.input, yes: true, wallet: W8 }, s.ctx)) as Confirmed;
+        await sql()`UPDATE installations SET shared_client = true WHERE id = ${s.inst}`;
+        const code = await signInAs(s.inst, mine.project_id!, s.repo, 'alice');
+        await tools.tell({ submitted: { program_id: s.p.id, project_id: mine.project_id }, signed_in: code! }, { ...s.ctx, sharedClient: true });
+        const [shared] = await eventsByKey(`submitted:${mine.project_id}`);
+        assert.equal(shared.github_login, 'alice');
+        assert.equal(shared.login_basis, 'signin');
+        assert.equal(shared.proof_url, null);
+        assert.deepEqual(shared.detail, { basis: 'builder_said' });
+      }),
+    ),
+  ),
+);
+
+test('3.5 a shared client\'s tell submitted that is only noted writes no event', dbTest, () =>
+  withEventLog(() =>
+    withTokenEnv(() =>
+      withSignIn(async () => {
+        const t = await confirmSetup('t3noted');
+        const first = (await tools.confirm({ ...t.input, yes: true, wallet: W8 }, t.ctx)) as Confirmed;
+        await sql()`UPDATE installations SET shared_client = true WHERE id = ${t.inst}`;
+        await tools.tell({ submitted: { program_id: t.p.id, project_id: first.project_id } }, { ...t.ctx, sharedClient: true });
+        assert.equal((await eventsByKey(`submitted:${first.project_id}`)).length, 0);
+      }),
+    ),
+  ),
+);

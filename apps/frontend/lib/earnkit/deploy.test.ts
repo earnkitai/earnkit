@@ -28,6 +28,7 @@ import { createServer } from 'node:http';
 import { ETH_USD_BAND, nativeUsd, viemDeployChain } from './deploy';
 import { forceFreeTier, periodKey, takeFreeTier } from './free-tier';
 import { contractDeployed } from './verify';
+import { errorLines, eventsOfInstallation, withEventLog, withFailingEventLog } from './fixtures/events';
 
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {
@@ -200,6 +201,7 @@ function fakeChain(o: {
         gasUsed: o.receiptGas ?? 50_000n,
         effectiveGasPrice: 100_000_000_000n,
         l1Fee: o.receiptL1 ?? null,
+        blockNumber: 4242n,
       };
     },
     code: async () => o.code ?? (`0x${'60'.repeat(100)}` as Hex),
@@ -937,4 +939,95 @@ test('v2.10.3 DEPLOY_CHAINS=base: deployerGas reads Base only, so a low Arc wall
     assert.deepEqual(asked.sort(), ['arc', 'base'], 'unset: both, as before');
     assert.ok(unset.needs_owner.includes('deployer-gas:arc'));
   }, { DEPLOY_CHAINS: 'base' }),
+);
+
+// ---- v2.11 T3: the deployed event
+
+test('3.1 a deploy writes one deployed event: the tx, the address, the block, owner_ok, the wallet and the signed-in login', dbTest, () =>
+  withEventLog(() =>
+    withDeployer(async () => {
+      const s = await setup();
+      const out = await deployForBuilder(call(s), deps(fakeChain().chain));
+      assert.equal(out.status, 'deployed');
+      const [row] = await rowsOf(s.repoKey);
+      const events = await eventsOfInstallation(s.installationId);
+      assert.equal(events.length, 1);
+      const e = events[0];
+      assert.equal(e.type, 'deployed');
+      assert.equal(e.dedupe_key, `deployed:${row.id}`);
+      assert.equal(e.proof_tx, HASH);
+      assert.equal(e.chain, 'base');
+      assert.equal(e.repo_key, s.repoKey.toLowerCase());
+      assert.equal(e.wallet, BUILDER.toLowerCase());
+      assert.deepEqual(e.detail, { address: DEPLOYED.toLowerCase(), owner_ok: true, block: 4242 });
+      assert.equal(e.github_login, 'alice');
+      assert.equal(e.login_basis, 'signin');
+    }),
+  ),
+);
+
+test('3.1 a reverted deploy and one left unknown write no event; with the log off nothing is written', dbTest, () =>
+  withDeployer(async () => {
+    const reverted = await setup();
+    const unknown = await setup();
+    await withEventLog(async () => {
+      assert.equal((await deployForBuilder(call(reverted), deps(fakeChain({ receipt: 'reverted' }).chain))).status, 'failed');
+      assert.equal((await deployForBuilder(call(unknown), deps(fakeChain({ receipt: null }).chain))).status, 'failed');
+    });
+    assert.equal((await rowsOf(reverted.repoKey))[0].status, 'reverted');
+    assert.equal((await rowsOf(unknown.repoKey))[0].status, 'unknown');
+    assert.deepEqual(await eventsOfInstallation(reverted.installationId), []);
+    assert.deepEqual(await eventsOfInstallation(unknown.installationId), []);
+    const off = await setup();
+    assert.equal((await deployForBuilder(call(off), deps(fakeChain().chain))).status, 'deployed');
+    assert.deepEqual(await eventsOfInstallation(off.installationId), [], 'EARNKIT_EVENT_LOG is off');
+  }),
+);
+
+test('3.2 a deploy the runbook settles from unknown to deployed later writes no event (the backfill picks it up)', dbTest, () =>
+  withEventLog(() =>
+    withDeployer(async () => {
+      const s = await setup();
+      await deployForBuilder(call(s), deps(fakeChain({ receipt: null }).chain));
+      const [row] = await rowsOf(s.repoKey);
+      await sql()`UPDATE contract_deploys SET status = 'deployed', address = ${DEPLOYED.toLowerCase()} WHERE id = ${row.id}`;
+      assert.deepEqual(await eventsOfInstallation(s.installationId), []);
+    }),
+  ),
+);
+
+test('3.8 a deploy proven by the proof line alone records the repo owner with login_basis proof_line; a shared caller its own login', dbTest, () =>
+  withEventLog(() =>
+    withDeployer(async () => {
+      const s = await setup({ proof: false });
+      const { tokenLineFor } = await import('./token-gate');
+      const line = tokenLineFor(s.installationId, `https://github.com/${s.repoKey}`);
+      const gate = { owner: async () => ({ status: 'ok' as const, text: `${line}\n` }), latest: async () => null };
+      assert.equal((await deployForBuilder(call(s), deps(fakeChain().chain, { gate }))).status, 'deployed');
+      const [e] = await eventsOfInstallation(s.installationId);
+      assert.equal(e.github_login, s.repoKey.split('/')[0].toLowerCase());
+      assert.equal(e.login_basis, 'proof_line');
+
+      const bobLogin = `bob${process.pid}y${Date.now()}`;
+      const shared = await setup({ shared: true, login: bobLogin });
+      await sql()`INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose)
+        VALUES (${shared.repoKey}, 'carol', ${shared.installationId}, now(), 3, 'entry')`;
+      assert.equal((await deployForBuilder(call(shared, input(), bobLogin), deps(fakeChain().chain))).status, 'deployed');
+      const [b] = await eventsOfInstallation(shared.installationId);
+      assert.equal(b.github_login, bobLogin.toLowerCase(), "the caller's login, never another builder's on the same agent");
+      assert.equal(b.login_basis, 'signin');
+    }, { EARNKIT_AUTH_SECRET: 'deploy-test-secret' }),
+  ),
+);
+
+test('3.6 a failing event write leaves the deploy reply identical and logs the type and error class only', dbTest, () =>
+  withDeployer(async () => {
+    const s = await setup();
+    let out: Awaited<ReturnType<typeof deployForBuilder>> | undefined;
+    const lines = await errorLines(() => withFailingEventLog(async () => (out = await deployForBuilder(call(s), deps(fakeChain().chain)))));
+    assert.deepEqual(out, { status: 'deployed', address: DEPLOYED, owner_ok: true, show_to_builder: deployedLine('TipJar', 'base', DEPLOYED, true) });
+    assert.equal((await rowsOf(s.repoKey))[0].status, 'deployed');
+    assert.deepEqual(lines, ['[events] deployed PostgresError']);
+    assert.deepEqual(await eventsOfInstallation(s.installationId), []);
+  }),
 );

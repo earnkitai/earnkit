@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { githubRepo } from './campaigns';
 import { sql, type Db } from './db';
 
 /**
@@ -75,4 +76,39 @@ export async function recordEvent(e: BuilderEvent, db?: Db): Promise<boolean> {
     console.error(`[events] ${v.type} ${errName(err)}`);
     return false;
   }
+}
+
+/** The event log's repo key ("owner/repo", lowercase) of a GitHub link, or undefined. Pure. */
+export function eventRepoKey(url: string | null | undefined): string | undefined {
+  const gh = url ? githubRepo(url) : null;
+  return gh ? `${gh.owner}/${gh.repo}`.toLowerCase() : undefined;
+}
+
+/** How long a step waits on its event before it answers; a slower write finishes in the background. */
+export const EVENT_WAIT_MS = 1000;
+
+let testDb: Db | null = null;
+/** Test seam (v2.11 T3, 3.6): noteEvent writes go to `db` (a failing fake, say); null restores sql(). */
+export function eventDbForTests(db: Db | null) {
+  testDb = db;
+}
+
+/**
+ * v2.11 T3: a shipped step's event. `build` runs only while the log is on (so an off log costs no
+ * read), and may return null (nothing to write). Never throws and never holds the step up for more
+ * than EVENT_WAIT_MS: a failure, building or writing, logs `[events] <type> <ErrorName>` only.
+ */
+export async function noteEvent(type: EventType, build: () => Promise<BuilderEvent | null> | BuilderEvent | null): Promise<void> {
+  if (!eventLogEnabled()) return;
+  const write = (async () => {
+    const e = await build();
+    if (e) await recordEvent(e, testDb ?? undefined);
+  })().catch((err: unknown) => console.error(`[events] ${type} ${errName(err)}`));
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const wait = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, EVENT_WAIT_MS);
+    timer.unref?.();
+  });
+  await Promise.race([write, wait]);
+  clearTimeout(timer);
 }

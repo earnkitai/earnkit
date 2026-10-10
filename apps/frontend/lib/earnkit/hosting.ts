@@ -3,6 +3,7 @@ import { Inflate } from 'fflate';
 import { githubRepo, normalizeRepoUrl } from './campaigns';
 import { sql, type Db } from './db';
 import { siteUrl } from './entry-text';
+import { noteEvent } from './events';
 import { FreeTierFull, freeTierRoom } from './free-tier';
 import { VERIFY_TTL_MS, createVerifyLink, githubVerifyEnabled, takeHostVerification, verifiedFor } from './github-verify';
 import { HOST_RESERVED, SITE_PREFIX, STATE_PREFIX, contentTypeFor } from './host-names';
@@ -333,7 +334,29 @@ export function readZip(zip: Uint8Array, stats: { inflated: number } = { inflate
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 const errorClass = (err: unknown) => (err instanceof Error ? err.name : 'error');
-const siteLink = (slug: string) => `https://${slug}.${HOST_ZONE}`;
+/** A hosted site's link. Pure. */
+export const siteLink = (slug: string) => `https://${slug}.${HOST_ZONE}`;
+
+/**
+ * v2.11 T3: a site went live (a clean upload, or the owner's approval of a flagged one): its
+ * `hosted` event. The login is the one the host gate's GitHub sign-in proved.
+ */
+const hostedEvent = (d: { id: number; installationId?: number; login: string; repoKey: string; slug: string }) =>
+  noteEvent('hosted', async () => {
+    const installationId =
+      d.installationId ??
+      (await sql()<{ installation_id: number }[]>`SELECT installation_id FROM hosted_sites WHERE slug = ${d.slug}`)[0]?.installation_id;
+    return {
+      type: 'hosted',
+      dedupe_key: `hosted:${d.id}`,
+      github_login: d.login,
+      login_basis: 'signin',
+      ...(installationId !== undefined && { installation_id: installationId }),
+      repo_key: d.repoKey,
+      proof_url: siteLink(d.slug),
+      detail: { host: 'earnkit', slug: d.slug },
+    };
+  });
 /** verify.ts's url_checks key for the hosted link (canonicalBuilderUrl adds the `/`). */
 const checkKey = (slug: string) => `url:${siteLink(slug)}/`;
 const stateKey = (slug: string) => `${STATE_PREFIX}${slug}.json`;
@@ -682,6 +705,7 @@ export async function deploySite(
     return refused(502, HOST_LINES.failed);
   }
   if (flagged) return { status: 200, body: { show_to_builder: HOST_REVIEW, review: true } };
+  await hostedEvent({ id, installationId: t.installation_id, login: t.login, repoKey: t.repo_key, slug: t.slug });
   return {
     status: 200,
     body: { show_to_builder: liveLine(t.project, t.slug), url: siteLink(t.slug), ...(storage && { agent_note: STORAGE_NOTE }) },
@@ -808,6 +832,7 @@ export async function approveSite(slug: string, deps: { r2?: R2; now?: Date } = 
       INSERT INTO url_checks (key, ok, checked_at) VALUES (${checkKey(s)}, true, ${now})
       ON CONFLICT (key) DO UPDATE SET ok = true, checked_at = EXCLUDED.checked_at`;
   });
+  await hostedEvent({ id: d.id, login: d.login, repoKey: d.repo_key, slug: s });
   return true;
 }
 

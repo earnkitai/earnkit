@@ -23,7 +23,9 @@ import { CHAIN_NAMES } from './chains';
 import { privateKeyProblem } from './cli';
 import { sql } from './db';
 import { shortWallet } from './entry-text';
+import { noteEvent } from './events';
 import { FREE_CAPS, forceFreeTier, giveBackFreeTier, takeFreeTier } from './free-tier';
+import { loginBasisFor } from './github-verify';
 import { llamaPrice } from './prices';
 import { RateLimitError, enforce } from './rate-limit';
 import { repoOwnershipPasses, type OwnershipDeps } from './token-gate';
@@ -263,7 +265,15 @@ export type DeployChain = {
   receipt(
     hash: Hex,
     timeoutMs: number,
-  ): Promise<{ status: 'success' | 'reverted'; contractAddress: Address | null; gasUsed: bigint; effectiveGasPrice: bigint; l1Fee?: bigint | null } | null>;
+  ): Promise<{
+    status: 'success' | 'reverted';
+    contractAddress: Address | null;
+    gasUsed: bigint;
+    effectiveGasPrice: bigint;
+    l1Fee?: bigint | null;
+    /** v2.11 T3: the block it landed in (the deployed event's detail.block, where usage checks start). */
+    blockNumber?: bigint;
+  } | null>;
   code(a: Address): Promise<Hex>;
   /** A view call: its result; null when it reverts or returns nothing (no such function); throws on an RPC error. */
   read(a: { address: Address; abi: Abi; fn: string; args?: unknown[] }): Promise<unknown>;
@@ -369,7 +379,7 @@ export function viemDeployChain(c: DeployChainName): DeployChain | null {
       try {
         const r = await pub.waitForTransactionReceipt({ hash, timeout: timeoutMs });
         const l1Fee = (r as { l1Fee?: bigint | null }).l1Fee ?? null;
-        return { status: r.status, contractAddress: r.contractAddress ?? null, gasUsed: r.gasUsed, effectiveGasPrice: r.effectiveGasPrice, l1Fee };
+        return { status: r.status, contractAddress: r.contractAddress ?? null, gasUsed: r.gasUsed, effectiveGasPrice: r.effectiveGasPrice, l1Fee, blockNumber: r.blockNumber };
       } catch (err) {
         if (err instanceof WaitForTransactionReceiptTimeoutError) return null;
         throw err;
@@ -591,6 +601,22 @@ export async function deployForBuilder(
           owner_ok = ${fields.owner_ok ?? null}, cost_micro_usd = ${cost}
         WHERE id = ${id}`;
     };
+    // v2.11 T3: the row is `deployed`: its event, with the tx, the address, the block and the owner check.
+    const deployedEvent = (address: string, ownerOk: boolean | null) =>
+      noteEvent('deployed', async () => {
+        const who = await loginBasisFor(a.installationId, a.repoKey, { ...(a.shared && { callerLogin: a.login }), proofLine: true });
+        return {
+          type: 'deployed',
+          dedupe_key: `deployed:${id}`,
+          installation_id: a.installationId,
+          repo_key: a.repoKey,
+          chain: c,
+          proof_tx: hash,
+          wallet: a.builderWallet,
+          ...(who && { github_login: who.login, login_basis: who.basis }),
+          detail: { address, owner_ok: ownerOk, ...(receipt.blockNumber !== undefined && { block: Number(receipt.blockNumber) }) },
+        };
+      });
     if (receipt.status === 'reverted') {
       await settle('reverted', {});
       return { status: 'failed', show_to_builder: DEPLOY_LINES.failed, agent_note: 'The deploy reverted on chain (the constructor failed).' };
@@ -603,6 +629,7 @@ export async function deployForBuilder(
     if (code !== null && runtimeRefusal(code) !== null) {
       // The stored code isn't what the simulation said: deployed, never cached, flagged for the owner.
       await settle('deployed', { address: address.toLowerCase(), owner_ok: false });
+      await deployedEvent(address.toLowerCase(), false);
       return { status: 'failed', show_to_builder: runtimeRefusal(code)!, agent_note: 'The deployed code differs from the check; the owner is told. Do not use this address.' };
     }
     // Fix round 1 (I5): the owner step probes owner() and hasRole(DEFAULT_ADMIN_ROLE, deployer)
@@ -643,6 +670,7 @@ export async function deployForBuilder(
     if (code !== null && !children) await markDeployed(c, address).catch((err: unknown) => console.error('[deploy] cache', errName(err)));
     if (children) await sql()`UPDATE contract_deploys SET blocked = true WHERE id = ${id}`;
     await settle('deployed', { address: address.toLowerCase(), owner_ok: ownerOk });
+    await deployedEvent(address.toLowerCase(), ownerOk);
     return { status: 'deployed', address, owner_ok: ownerOk, show_to_builder: deployedLine(a.projectName, c, address, ownerOk === true) };
   } catch (err) {
     console.error('[deploy]', errName(err));
