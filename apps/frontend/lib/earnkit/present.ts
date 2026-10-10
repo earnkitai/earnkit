@@ -2,7 +2,7 @@ import { normalizeRepoUrl, usd } from './campaigns';
 import { NO_CELL } from './no-cell';
 import { closeDayOf, endsOf, prizeOf, repoCoinNote } from './entry-text';
 import { shortDate } from './dates';
-import { CHAIN_NAMES, EFFORT_ORDER, NOT_REAL_YET, hasRealUse, rowOdds, type Chain, type Effort, type Odds, type Product, type RepoFacts, type Verdict } from './match';
+import { CHAIN_NAMES, EFFORT_ORDER, NOT_REAL_YET, USERS_UNKNOWN, hasRealUse, oddsRank, rowOdds, type Chain, type Effort, type Odds, type Product, type RepoFacts, type Verdict } from './match';
 import { NEEDS_LIVE_PRODUCT, difficultyLabel, levelRank, rowDifficulty, type Difficulty, type Level } from './guide';
 import { moneyText, openMoneyUsd, wonLine } from './pool';
 import { CANT_SEE_LINE, PRIVATE_LOCAL_LINE } from './match-projects';
@@ -486,15 +486,18 @@ export type Fit = {
   odds: Odds;
   traction: number;
   low_reason: string | null;
+  /** v2.11 8a (S5): the repo has real use (measured, or the builder's users claim): it outranks traction. */
+  real_use: boolean;
 };
 
 /** v2.10 item 6: a low-odds row's label in its "Your repo" cell. Pure. */
 export const lowOddsCell = (reason: string) => `low odds: ${reason}`;
 
-/** v2.10 item 6: good odds first. Pure. */
-const byOdds = (a: Pick<Fit, 'odds'>, b: Pick<Fit, 'odds'>) => Number(a.odds !== 'good') - Number(b.odds !== 'good');
-/** v2.10 item 6 (Pre-flight P12): whether `a` is the better row for a program: good odds, then traction. Pure. */
-const betterFit = (a: Pick<Fit, 'odds' | 'traction'>, b: Pick<Fit, 'odds' | 'traction'>) =>
+/** v2.10 item 6: good odds first. v2.11 8a (S5): good, then unknown, then low; then real use. Pure. */
+const byOdds = (a: Pick<Fit, 'odds' | 'real_use'>, b: Pick<Fit, 'odds' | 'real_use'>) =>
+  oddsRank(a.odds) - oddsRank(b.odds) || Number(b.real_use) - Number(a.real_use);
+/** v2.10 item 6 (Pre-flight P12): whether `a` is the better row for a program: good odds, then real use (v2.11 S5), then traction. Pure. */
+const betterFit = (a: Pick<Fit, 'odds' | 'traction' | 'real_use'>, b: Pick<Fit, 'odds' | 'traction' | 'real_use'>) =>
   (byOdds(a, b) || b.traction - a.traction) < 0;
 
 /**
@@ -614,13 +617,14 @@ export function layout(m: Pick<FirstMessage, 'cards' | 'repos' | 'entries'>, don
         odds: odds.odds,
         traction: f.product?.traction ?? 0,
         low_reason: odds.low_reason,
+        real_use: f.facts ? hasRealUse(f.facts) : false,
       };
       // v2.10 item 6 (Pre-flight P12): per program, the repo with good odds, then more traction; else the first.
       const kept = matched.get(v.program_id);
       if (!kept || betterFit(fit, kept)) matched.set(v.program_id, fit);
     }
   // v2.10 item 6: good odds first, then traction (high first); then v2.9 A4: by the row's difficulty
-  // (Easy first), then prize, then the quicker fit.
+  // (Easy first), then prize, then the quicker fit. v2.11 8a (S5): real use before traction (byOdds).
   const rows = [...matched.values()].sort(
     (a, b) =>
       enteredLast(a.card, b.card) ||
@@ -688,7 +692,9 @@ export function leadLine(r: Fit | undefined, m: Pick<FirstMessage, 'cards' | 're
  * for a product with no contract of its own (tokens.fun launches through shared contracts), so a
  * product-tier repo with good odds, no measured use, no users claim and no answer yet, whose open
  * program waits only on real users, is asked about once it ranks above the lead's repo (or there is
- * no lead): the builder's answer goes to tell (has_users) and decides. Undefined otherwise. Pure.
+ * no lead): the builder's answer goes to tell (has_users) and decides. v2.11 8a (S3, S4): so is a
+ * repo EarnKit couldn't read (odds unknown), wherever it ranks, unless the lead's repo has real use.
+ * Undefined otherwise. Pure.
  */
 export function usersAsk(
   m: Pick<FirstMessage, 'cards' | 'repos' | 'entries'>,
@@ -699,8 +705,13 @@ export function usersAsk(
   const entered = enteredIds(m);
   const fits = m.repos.fits;
   const leadAt = lead ? fits.findIndex((f) => f.repo === lead.repo) : fits.length;
-  for (const f of fits.slice(0, leadAt < 0 ? fits.length : leadAt)) {
-    if (f.product?.tier !== 'product' || f.product.odds !== 'good' || !f.facts) continue;
+  const above = (i: number) => i < (leadAt < 0 ? fits.length : leadAt);
+  for (const [i, f] of fits.entries()) {
+    // v2.11 8a (S3, S4): a repo EarnKit couldn't read (odds unknown) is asked about too, wherever it
+    // ranks, unless the lead's own repo has real use.
+    const askable =
+      (above(i) && f.product?.tier === 'product' && f.product.odds === 'good') || (f.product?.odds === 'unknown' && !lead?.real_use);
+    if (!askable || !f.facts) continue;
     if (hasRealUse(f.facts) || f.facts.users_said != null) continue;
     const waiting = f.verdicts
       .filter((v) => v.missing.length === 1 && v.missing[0] === 'real_users')
@@ -796,7 +807,12 @@ export function presentFirstMessage(given: FirstMessage): string {
               prizeOf(card),
               rowCell(card, row),
               endsOf(card),
-              odds === 'low' ? `${repo}, ${lowOddsCell(low_reason ?? NOT_REAL_YET)}` : v.status === 'likely' || !v.note ? repo : `${repo}, ${v.note}`,
+              odds === 'low'
+                ? `${repo}, ${lowOddsCell(low_reason ?? NOT_REAL_YET)}`
+                : // v2.11 8a (S3): an unknown row is never "low odds".
+                  odds === 'unknown'
+                  ? `${repo}, ${USERS_UNKNOWN}`
+                  : v.status === 'likely' || !v.note ? repo : `${repo}, ${v.note}`,
             ];
           }),
         ),

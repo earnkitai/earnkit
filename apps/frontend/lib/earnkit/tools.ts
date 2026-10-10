@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { yesNo } from './aliases';
-import { rowOdds } from './match';
+import { hasRealUse, oddsRank, rowOdds } from './match';
 import { NotFoundError, alsoProgramFacts, getProgram, getProgramRow, isOpen, listPrograms } from './programs';
 import { guideText, programGuide } from './guide';
 import {
@@ -272,7 +272,7 @@ const MATCHES_PER_PROGRAM = 3;
  */
 export function matchRows(fits: RepoFit[], oneRepo: Set<string>) {
   type Row = ReturnType<typeof row>;
-  const byProgram = new Map<string, { row: Row; score: number }[]>();
+  const byProgram = new Map<string, { row: Row; score: number; used: boolean }[]>();
   const row = (f: RepoFit, v: RepoFit['verdicts'][number]) => {
     const odds = rowOdds(f.product, v, f.facts?.chains ?? {});
     return {
@@ -290,12 +290,13 @@ export function matchRows(fits: RepoFit[], oneRepo: Set<string>) {
   for (const f of fits)
     for (const v of f.verdicts) {
       const list = byProgram.get(v.program_id) ?? [];
-      list.push({ row: row(f, v), score: f.product?.score ?? -1 });
+      list.push({ row: row(f, v), score: f.product?.score ?? -1, used: f.facts ? hasRealUse(f.facts) : false });
       byProgram.set(v.program_id, list);
     }
   return [...byProgram].flatMap(([id, list]) =>
     list
-      .sort((a, b) => Number(a.row.odds !== 'good') - Number(b.row.odds !== 'good') || b.row.traction - a.row.traction || b.score - a.score)
+      // v2.11 8a (S5): odds (good, unknown, low), then real use (measured or claimed), then traction.
+      .sort((a, b) => oddsRank(a.row.odds) - oddsRank(b.row.odds) || Number(b.used) - Number(a.used) || b.row.traction - a.row.traction || b.score - a.score)
       .slice(0, oneRepo.has(id) ? 1 : MATCHES_PER_PROGRAM)
       .map((x) => x.row),
   );

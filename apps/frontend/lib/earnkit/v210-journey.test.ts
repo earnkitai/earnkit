@@ -793,7 +793,7 @@ test('11.3 an old agent: confirm_entry with decision "go" through the MCP route 
 
 // ---- v2.10.1: the owner's live test of v2.10, replayed with the owner's real project shapes ----
 
-test('11.5 v2.10.1 the owner\'s three projects: tokens.fun (private org repo, live Base product with fee revenue) leads over the tipjar starter; EarnKit says why it is not matched; a16z never takes the starter; a confirmed Arc entry leads with the DoraHacks step; an old-name call names only old tools', dbTest, () =>
+test('11.5 v2.10.1 the owner\'s three projects: tokens.fun (private org repo, live Base product with fee revenue) leads over the tipjar starter; EarnKit says why it is not matched; a16z never takes the starter; a confirmed Arc entry leads with the DoraHacks step; an old-name call names only old tools; v2.11 8b: a World\'s Fair row missing new work is low odds', dbTest, () =>
   withEnv({}, async () => {
     const J = '11.5';
     const id = await newInstallation();
@@ -858,7 +858,10 @@ test('11.5 v2.10.1 the owner\'s three projects: tokens.fun (private org repo, li
       const more = await call(J, 'show more', 'find', { ...input, more: true }, ctx);
       const t = more.show_to_builder!;
       assert.ok(t.indexOf('| Base Builder Grant Program |') < t.indexOf('| Arc Microgrants |'), t);
-      assert.doesNotMatch(t, /tokens\.fun, (needs real users|low odds)/, t);
+      // v2.11 8b: its Base row is good; only the World's Fair row (new work only) is low, and says why.
+      assert.doesNotMatch(t, /\| Base Builder Grant Program \|[^\n]*tokens\.fun, (needs real users|low odds)/, t);
+      assert.doesNotMatch(t, /tokens\.fun, needs real users/, t);
+      assert.match(t, /\| Crypto World's Fair Hackathon \|[^\n]*\| tokens\.fun, low odds: only new work counts \|/, t);
       assert.doesNotMatch(t, /\| a16z speedrun SR008 \|[^\n]*\| tipjar/, t);
       assert.match(t, /^Not matched: earnkit \(EarnKit's own repo\)\.$/m, t);
 
@@ -921,6 +924,72 @@ test('11.5 v2.10.1 the owner\'s three projects: tokens.fun (private org repo, li
       assert.match(agentText, /call prepare \(prepare_submission if your tool list is older\)/);
       assert.match(String(old.tools_note), /^If EarnKit's tools look out of date, ask the builder once to refresh/);
       assert.match(old.show_to_builder!, /Not matched: earnkit \(EarnKit's own repo\)\./);
+    } finally {
+      checkDefaults.blockscout = blockscout;
+    }
+  }),
+);
+
+test('11.6 v2.10.2 (v2.11 8a): the owner\'s tokens.fun when the agent sends no my_commits_90d (404, live, no contract): asked about users, never "low odds"; a yes through tell makes it the lead above the starter', dbTest, () =>
+  withEnv({}, async () => {
+    const J = '11.6';
+    const id = await newInstallation();
+    const ctx = ctxFor(id);
+    addRepos('minidevai', [ghRepo('minidevai', 'tokens.fun', { private: true, visibility: 'private', created_at: daysAgo(295) })]);
+    addRepos('earnkitai', [ghRepo('earnkitai', 'earnkit', { private: true, visibility: 'private', created_at: daysAgo(653) })]);
+    addRepos('jenil04', [ghRepo('jenil04', 'tipjar', { homepage: 'https://tipjar-arc.vercel.app', created_at: daysAgo(6), description: 'Tips for creators in USDC on Arc' })]);
+    GITHUB.arcConfig.add('jenil04/tipjar');
+    PUSHED.add('jenil04/tipjar');
+    COMMITS.set('jenil04/tipjar', 4);
+    const TIPJAR_ARC = '0x3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b';
+    const blockscout = checkDefaults.blockscout;
+    checkDefaults.blockscout = async (url: string) => ({ transactions_count: /0x498581ff/i.test(url) ? '99999' : '0' });
+    try {
+      const input = {
+        github_user: 'jenil04',
+        repos: ['minidevai/tokens.fun', 'earnkitai/earnkit', 'jenil04/tipjar'],
+        local_repos: [
+          // No my_commits_90d: the optional count the owner's agent didn't send.
+          { name: 'tokens.fun', url: 'https://github.com/minidevai/tokens.fun', chains: [{ chain: 'base', mainnet: true }], live_url: 'https://tokens.fun', last_commit_at: daysAgo(2) },
+          { name: 'earnkit', url: 'https://github.com/earnkitai/earnkit', chains: [], live_url: 'https://earnkit.com', last_commit_at: daysAgo(0) },
+          { name: 'tipjar', url: 'https://github.com/jenil04/tipjar', chains: [{ chain: 'arc', mainnet: true }], contracts: [TIPJAR_ARC], live_url: 'https://tipjar-arc.vercel.app', last_commit_at: daysAgo(1) },
+        ],
+      };
+      const matches = (r: Reply) => r.matches as { repo: string; program_id: string; odds: string; low_reason?: string; traction: number }[];
+      // The same login as 11.5, whose Arc entry it offers to pick up: the owner says no.
+      const offered = await call(J, 'what can I earn (pickup)', 'find', input, ctx);
+      assert.match(offered.show_to_builder!, /^Pick up your earlier entr/);
+      await call(J, 'no pickup', 'tell', { pickup: 'no' }, ctx);
+      const first = await call(J, 'what can I earn', 'find', input, ctx, { first: true });
+      assert.deepEqual(first.show_to_builder!.split('\n'), [
+        'tokens.fun is private, so I matched it from your local copy.',
+        "Not matched: earnkit (EarnKit's own repo).",
+        'tokens.fun could win up to $5,000 on Base with real users. Does it have real users or revenue? (yes/no)',
+      ]);
+      assert.equal(first.lead, undefined);
+      assert.equal((first.users_question as { repo: string }).repo, 'minidevai/tokens.fun');
+      const tf = matches(first).find((m) => m.repo === 'tokens.fun' && m.program_id === 'base-builder-grants')!;
+      assert.deepEqual([tf.odds, tf.low_reason], ['unknown', 'users unknown'], JSON.stringify(matches(first)));
+      const more = await call(J, 'show more', 'find', { ...input, more: true }, ctx);
+      assert.match(more.show_to_builder!, /\| Base Builder Grant Program \|[^\n]*\| tokens\.fun, users unknown \|/, more.show_to_builder);
+      assert.doesNotMatch(more.show_to_builder!, /tokens\.fun, low odds: (not enough signs|no users)/, more.show_to_builder);
+
+      await call(J, 'yes, real users', 'tell', { repo_facts: [{ repo: 'minidevai/tokens.fun', has_users: true }] }, ctx);
+      const known = await call(J, 'what can I earn, again', 'find', input, ctx);
+      assert.deepEqual(known.show_to_builder!.split('\n'), [
+        'tokens.fun is private, so I matched it from your local copy.',
+        "Not matched: earnkit (EarnKit's own repo).",
+        'Your tokens.fun can win up to $5,000 on Base. Want me to finish it?',
+      ]);
+      assert.deepEqual(known.lead, { program_id: 'base-builder-grants', repo: 'tokens.fun' });
+      const k = matches(known);
+      const tfK = k.find((m) => m.repo === 'tokens.fun' && m.program_id === 'base-builder-grants')!;
+      const tipK = k.find((m) => m.repo === 'tipjar' && m.program_id === 'arc-microgrants')!;
+      assert.equal(tfK.odds, 'good');
+      assert.equal(tfK.traction, tipK.traction, 'equal traction: real use decides');
+      const t = (await call(J, 'show more, again', 'find', { ...input, more: true }, ctx)).show_to_builder!;
+      assert.ok(t.indexOf('| Base Builder Grant Program |') < t.indexOf('| Arc Microgrants |'), t);
+      for (const r of [first, known]) assert.equal((r.show_to_builder!.match(/\?/g) ?? []).length, 1, r.show_to_builder);
     } finally {
       checkDefaults.blockscout = blockscout;
     }

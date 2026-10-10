@@ -1016,7 +1016,7 @@ test('3.6b a cached product without `starter` (a row from before v2.10) is read 
   assert.equal(p.odds, r.r.fits[0].product.odds);
 });
 
-test('3.7 checkLocal (R3): a last commit 10 days ago is commits band 1; without one, 0', async () => {
+test('3.7 checkLocal (R3), v2.11 8a: a last commit 10 days ago is commits band 1; without one, unknown (null, scores 0)', async () => {
   const { deps } = checkDeps();
   const run = async (last_commit_at?: string) =>
     (await matchProjects(MatchProjectsInput.parse({ local_repos: [{ name: 'tipjar', chains: ['base'], ...(last_commit_at && { last_commit_at }) }] }), deps)).fits[0];
@@ -1024,7 +1024,7 @@ test('3.7 checkLocal (R3): a last commit 10 days ago is commits band 1; without 
   assert.equal(recent.facts.commits_90d, 1);
   assert.equal(recent.product.traction, 1);
   const unknown = await run();
-  assert.equal(unknown.facts.commits_90d, 0);
+  assert.equal(unknown.facts.commits_90d, null);
   assert.equal(unknown.product.traction, 0);
   assert.equal(unknown.product.odds, 'low');
 });

@@ -366,8 +366,14 @@ export type Product = {
   low_reason?: string | null;
 };
 
-/** v2.10 item 6: a row's odds of winning. Only good odds lead, count as a fit, or alert. */
-export type Odds = 'good' | 'low';
+/**
+ * v2.10 item 6: a row's odds of winning. Only good odds lead, count as a fit, or alert. v2.11 8a (S3):
+ * `unknown` is a repo EarnKit couldn't read (GitHub 404s it) that may be a product: never good, never
+ * labelled low; the builder is asked about users instead.
+ */
+export type Odds = 'good' | 'unknown' | 'low';
+/** v2.11 8a (S5): odds as a rank key: good, then unknown, then low (absent reads low, P26). Pure. */
+export const oddsRank = (o: Odds | undefined): number => (o === 'good' ? 0 : o === 'unknown' ? 1 : 2);
 /** v2.10 item 6: what traction measures. A null count is unknown and scores 0 (never named). */
 export type TractionFacts = { tx_count: number | null; live_ok: boolean; commits_90d: number | null };
 /** v2.10 item 6: good odds need product tier and at least this much traction. */
@@ -401,6 +407,27 @@ export const withRealUse = (p: Product, tx: number | null | undefined, usersClai
  * agent reported) or the builder's own users claim (v2.9 A3; the row still says "confirm: users"). Pure.
  */
 export const hasRealUse = (repo: Pick<RepoFacts, 'tx_count' | 'claims'>): boolean => realUse(repo.tx_count) || (repo.claims ?? []).includes('users');
+/** v2.11 8b: a row's low-odds reason for each requirement it still misses. */
+export const MISSING_REASON: Record<Missing, string> = {
+  new_work: 'only new work counts',
+  live_url: 'no live link yet',
+  mainnet_deploy: 'not deployed yet',
+  real_users: NO_USERS_YET,
+};
+/** v2.11 8a (S3): the reason on an unknown repo's row ("tokens.fun, users unknown"), never "low odds". */
+export const USERS_UNKNOWN = 'users unknown';
+/**
+ * v2.11 8a (S4): whether a repo is a product but for signals EarnKit couldn't check: GitHub hid it
+ * (a 404; re-review m1: never a rate limit), so `owned` is unchecked; it is original, active and
+ * deployed, and it reaches product tier once the unchecked signals count. Pure.
+ */
+const unreadProduct = (p: Pick<Product, 'tier' | 'missing' | 'unchecked'> & { score?: number }, ownerHidden: boolean): boolean =>
+  ownerHidden &&
+  p.tier !== 'product' &&
+  (p.unchecked ?? []).includes('owned') &&
+  !(['original', 'active', 'deployed', 'owned'] as const).some((s) => p.missing.includes(s)) &&
+  !(p.unchecked ?? []).includes('deployed') &&
+  (p.score ?? 0) + (p.unchecked ?? []).length >= 5;
 /** v2.10 item 6's fallback reason, when nothing more specific applies. */
 export const NOT_REAL_YET = 'not enough signs of a real product yet';
 /**
@@ -414,7 +441,18 @@ export const NOT_REAL_YET = 'not enough signs of a real product yet';
  *   "live link not loading" or "no commits in 90 days".
  * Ranking still uses the raw score, so measured users rank first. Pure.
  */
-export function productOdds(p: Pick<Product, 'tier' | 'missing' | 'unchecked'>, t: TractionFacts, score: number): { odds: Odds; low_reason: string | null } {
+export function productOdds(
+  p: Pick<Product, 'tier' | 'missing' | 'unchecked'> & { score?: number },
+  t: TractionFacts,
+  score: number,
+  opts: { ownerHidden?: boolean; saidNoUsers?: boolean } = {},
+): { odds: Odds; low_reason: string | null } {
+  // v2.11 8a (S4): a hidden repo that may be a product is asked about, never scored low; measured
+  // transactions of 0, or the builder's "no" to the users question, still mean no users yet.
+  if (unreadProduct(p, opts.ownerHidden === true) && t.live_ok) {
+    if (t.tx_count === 0 || opts.saidNoUsers) return { odds: 'low', low_reason: NO_USERS_YET };
+    return { odds: 'unknown', low_reason: null };
+  }
   if (p.tier !== 'product') return { odds: 'low', low_reason: missingSignalNote(p) ?? NOT_REAL_YET };
   if (p.missing.includes('original')) return { odds: 'low', low_reason: SIGNAL_WORDS.original };
   if (t.tx_count !== null) {
@@ -435,12 +473,19 @@ export const onlyMentioned = (v: Pick<Verdict, 'missing'>, chains: Detection): b
 /**
  * v2.10 items 6, 9: a row's odds. Low when its repo isn't product tier (that reason first, R2), when
  * its chain is only mentioned ("not deployed yet"), or when the repo's traction is low (or unscored).
+ * v2.11 8b: a row missing any requirement is low, with the first one's reason (MISSING_REASON), so a
+ * starter with good odds never shows them on a row it can't enter yet. v2.11 8a (S3): an unknown repo
+ * reads "users unknown" while it waits only on users; any other missing requirement is still low.
  * Pure.
  */
 export function rowOdds(p: Product | undefined, v: Verdict, chains: Detection): { odds: Odds; low_reason: string | null } {
   if (!p) return { odds: 'low', low_reason: NOT_REAL_YET };
-  if (p.tier !== 'product') return { odds: 'low', low_reason: p.low_reason ?? missingSignalNote(p) ?? NOT_REAL_YET };
-  if (onlyMentioned(v, chains)) return { odds: 'low', low_reason: 'not deployed yet' };
+  const unknown = p.odds === 'unknown';
+  if (p.tier !== 'product' && !unknown) return { odds: 'low', low_reason: p.low_reason ?? missingSignalNote(p) ?? NOT_REAL_YET };
+  if (onlyMentioned(v, chains)) return { odds: 'low', low_reason: MISSING_REASON.mainnet_deploy };
+  const other = v.missing.find((m) => m !== 'real_users');
+  if (other) return { odds: 'low', low_reason: MISSING_REASON[other] };
+  if (unknown) return { odds: 'unknown', low_reason: USERS_UNKNOWN };
   // v2.10.1 B2, B3: a row still waiting on real users is never good odds, and says so.
   if (v.missing.includes('real_users')) return { odds: 'low', low_reason: NO_USERS_YET };
   if (p.odds !== 'good') return { odds: 'low', low_reason: p.low_reason ?? NOT_REAL_YET };

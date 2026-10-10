@@ -835,16 +835,17 @@ test('v2.8.1 §B9: a returning builder sees "Your entries" first; entered progra
   assert.doesNotMatch(text, /—|coin|Clanker/);
 });
 
-test('v2.8.1 §B10: "$X you qualify for" leaves out new-work-only programs for an existing repo, and investments', () => {
+test('v2.8.1 §B10, v2.11 8b: "$X you qualify for" leaves out new-work-only programs for an existing repo, and investments; a row missing new work is low odds, never "fit"', () => {
   const colo: Card = { ...colosseum, pool_usd: 30000, difficulty: null };
   const text = presentFirstMessage(msg({
     cards: [easyArc, colo, { ...speedrunCard, pool_usd: 1_000_000 }],
     repos: repos(v('arc-microgrants', 'likely', ''), withNew('colosseum-worlds-fair'), v('a16z-speedrun', 'likely', '')),
   }));
   assert.match(text, /^EarnKit matches you to \$500 in prizes you qualify for\./);
-  // Only rows like that: the plain fit line, never "qualify".
+  // Only rows like that: never "qualify", and (v2.11 8b) never "fit": the row misses new work, so it is low odds.
   const none = presentFirstMessage(msg({ cards: [colo], repos: repos(withNew('colosseum-worlds-fair')) }));
-  assert.match(none, /^Your repos fit these open programs:/);
+  assert.ok(none.startsWith(`${LOW_ODDS_HEADING}\n\n`), none);
+  assert.match(none, /tipjar, low odds: only new work counts/);
 });
 
 test('v2.8.1 §B: with the committed programs, the four first messages', async () => {

@@ -2,8 +2,10 @@ import './fixtures/no-network-checks';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MatchProjectsInput, SKIP_REASONS, matchProjects, type MatchDeps } from './match-projects';
-import { NO_USERS_YET, matchRepo, type ProgramFacts, type RepoFacts } from './match';
-import { presentFirstMessage, submitStepLine, submitStep, type Card, type FirstMessage, type RepoFit, type YourRepos } from './present';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { NOT_REAL_YET, NO_USERS_YET, USERS_UNKNOWN, matchRepo, type ProgramFacts, type RepoFacts } from './match';
+import { LOW_ODDS_HEADING, layout, presentFirstMessage, submitStepLine, submitStep, type Card, type FirstMessage, type RepoFit, type YourRepos } from './present';
 import { submitSiteName } from './programs';
 import { matchRows } from './tools';
 import { LEAD_NOTE } from './tools';
@@ -372,4 +374,139 @@ test('v2.10.1 fix round 1 (I1): every Clanker and PoolManager address traction.t
   const { SHARED_BASE_CONTRACTS } = await import('./shared-contracts');
   for (const a of CLANKER_ADDRESSES) assert.ok(SHARED_BASE_CONTRACTS.has(a), a);
   assert.equal(MatchProjectsInput.parse({ local_repos: [{ name: 'x', contracts: [POOL_MANAGER, '0x000000000022D473030F116dDEE9F6B43aC78BA3'] }] }).local_repos![0].contracts, undefined);
+});
+
+// ---- v2.10.2 (v2.11 T1, spec 8a, 8b): the odds fixes ----
+
+/**
+ * The owner's live case: Claude Code sends tokens.fun without the optional `my_commits_90d`. GitHub
+ * 404s (a private org repo), it is live, and it has no contract of its own.
+ */
+const BARE_INPUT = { local_repos: [{ ...OWNER_INPUT.local_repos[0], my_commits_90d: undefined }, ...OWNER_INPUT.local_repos.slice(1)] };
+
+test('v2.11 8a (1.3): tokens.fun with no my_commits_90d (404, live, active, no contract) is "unknown", never low or "not enough signs of a real product"', async () => {
+  const r = await ownerMatch({ input: BARE_INPUT });
+  const tf = r.fits.find((f) => f.repo === 'tokens.fun')!;
+  assert.ok(tf, JSON.stringify(r.skipped));
+  assert.equal(tf.product.tier, 'project');
+  assert.equal(tf.product.odds, 'unknown');
+  assert.notEqual(tf.product.low_reason, NOT_REAL_YET);
+  assert.ok(tf.product.unchecked?.includes('owned'), 'owned is unchecked, never "not your repo"');
+  // Its rows never say "low odds" for a repo EarnKit couldn't read: the Base row waits on users.
+  const base = matchRows(r.fits as RepoFit[], new Set([A16Z.id])).find((x) => x.repo === 'tokens.fun' && x.program_id === BASE.id)!;
+  assert.deepEqual([base.odds, base.low_reason], ['unknown', USERS_UNKNOWN]);
+});
+
+test('v2.11 8a (1.4): the first reply for tokens.fun with no my_commits_90d, plus the tipjar: the users question, exact lines', async () => {
+  const r = await ownerMatch({ input: BARE_INPUT });
+  assert.deepEqual(reply(r).split('\n'), [
+    'tokens.fun is private, so I matched it from your local copy.',
+    "Not matched: earnkit (EarnKit's own repo).",
+    'tokens.fun could win up to $5,000 on Base with real users. Does it have real users or revenue? (yes/no)',
+  ]);
+  // "Show more": its Base row says users unknown, never "low odds".
+  const more = reply(r, true);
+  assert.match(more, /\| Base Builder Grant Program \|[^\n]*\| tokens\.fun, users unknown \|/);
+  assert.doesNotMatch(more, /tokens\.fun, low odds/);
+});
+
+test('v2.11 8a (1.5): a yes makes tokens.fun the lead above the starter, with equal traction (3); a no keeps "no users yet" and the starter leads', async () => {
+  const yes = await ownerMatch({ input: BARE_INPUT, said: saidUsers(true) });
+  const tf = yes.fits.find((f) => f.repo === 'tokens.fun')!;
+  const tip = yes.fits.find((f) => f.repo === 'tipjar')!;
+  assert.deepEqual([tf.product.tier, tf.product.odds, tf.product.traction, tip.product.traction], ['product', 'good', 3, 3]);
+  assert.equal(yes.fits[0].repo, 'tokens.fun', 'real use outranks the starter at a traction tie');
+  assert.deepEqual(reply(yes).split('\n'), [
+    'tokens.fun is private, so I matched it from your local copy.',
+    "Not matched: earnkit (EarnKit's own repo).",
+    'Your tokens.fun can win up to $5,000 on Base. Want me to finish it?',
+  ]);
+  // "Show more": tokens.fun's row is the first row.
+  const table = reply(yes, true).split('\n').filter((l) => l.startsWith('| ') && !l.startsWith('| Program') && !l.startsWith('| ---'));
+  assert.match(table[0], /tokens\.fun/, table.join('\n'));
+  // The agent may send no last commit date either: still asked, and a yes still leads.
+  const dateless = { local_repos: [{ ...BARE_INPUT.local_repos[0], last_commit_at: undefined }, ...BARE_INPUT.local_repos.slice(1)] };
+  assert.equal(reply(await ownerMatch({ input: dateless })).split('\n').at(-1), 'tokens.fun could win up to $5,000 on Base with real users. Does it have real users or revenue? (yes/no)');
+  assert.equal(reply(await ownerMatch({ input: dateless, said: saidUsers(true) })).split('\n').at(-1), 'Your tokens.fun can win up to $5,000 on Base. Want me to finish it?');
+  const no = await ownerMatch({ input: BARE_INPUT, said: saidUsers(false) });
+  assert.equal(reply(no).split('\n').at(-1), 'Your tipjar can win 500 USDC on Arc by Oct 14. Want me to finish it?');
+  assert.match(reply(no, true), /tokens\.fun, low odds: no users yet/);
+});
+
+test('v2.11 8a (S5): real use outranks traction in layout rows and matchRows, for two good-odds repos with equal traction', () => {
+  const product = { score: 6, tier: 'product' as const, missing: [], traction: 3, odds: 'good' as const, low_reason: null };
+  const verdict = (id: string) => ({ program_id: id, program: id, status: 'likely' as const, missing: [], effort: 'none' as const, note: null });
+  const facts = (name: string, claims: ('users')[]): RepoFacts => ({
+    name, url: '', homepage: 'https://x.xyz', created_at: daysAgo(100), chains: { base: { mainnet: true, testnet: false, evidence: 'hardhat', basis: 'deploy_config' } },
+    commits_in_window: {}, product, live_verified: true, tx_count: null, claims,
+  });
+  const starter: RepoFit = { repo: 'starter', repo_url: null, verdicts: [verdict(ARC.id), verdict(BASE.id)], product, facts: facts('starter', []) };
+  const used: RepoFit = { repo: 'used', repo_url: null, verdicts: [verdict(BASE.id)], product, facts: facts('used', ['users']) };
+  const rows = matchRows([starter, used], new Set());
+  assert.deepEqual(rows.filter((x) => x.program_id === BASE.id).map((x) => x.repo), ['used', 'starter']);
+  const shown = layout({ cards: CARDS, repos: { checked: 2, fits: [starter, used] } });
+  assert.equal(shown.rows[0].repo, 'used', shown.rows.map((x) => `${x.repo}:${x.card.id}`).join(', '));
+});
+
+test('v2.11 8a (re-review m1 kept): a rate-limited owner read (403) is not a 404, so it is never "unknown" and never asked about', async () => {
+  const r = await withGitHub(async () => {
+    const inner = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const u = new URL(String(url));
+      if (u.host === 'api.github.com' && u.pathname === '/repos/minidevai/tokens.fun/commits') return json({ message: 'API rate limit exceeded' }, 403);
+      return inner(url);
+    }) as typeof fetch;
+    try {
+      return await matchProjects(MatchProjectsInput.parse({ ...OWNER_INPUT, ...BARE_INPUT }), deps());
+    } finally {
+      globalThis.fetch = inner;
+    }
+  });
+  const tf = r.fits.find((f) => f.repo === 'tokens.fun')!;
+  assert.notEqual(tf.product.odds, 'unknown');
+  assert.notEqual(tf.product.tier, 'product');
+});
+
+// The real World's Fair program file (programs/colosseum-worlds-fair.json).
+const WF_FILE = JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/colosseum-worlds-fair.json'), 'utf8'));
+const WF: ProgramFacts = {
+  id: WF_FILE.id, title: WF_FILE.title, chains: WF_FILE.chains, any_chain: WF_FILE.any_chain ?? false, existing_work: WF_FILE.existing_work,
+  tag: WF_FILE.tag ?? null, starts_at: new Date(WF_FILE.starts_at), investment: WF_FILE.investment ?? false, min_product_score: WF_FILE.min_product_score ?? 0,
+};
+const WF_CARD: Card = {
+  id: WF.id, title: WF.title, summary: 'Tempo $100K, Base $25K tracks · closes Oct 12, 11:59 PM PT', tag: WF.tag, each_time: [],
+  ends_at: new Date(WF_FILE.ends_at), max_award_usd: WF_FILE.max_award_usd, builder_fields: 4, chains: WF.chains,
+};
+
+test('v2.11 8b (1.2): the tipjar starter on the real World\'s Fair (Base reported) misses new_work, so it is low odds in matches and never "fit" in the show-more heading', async () => {
+  assert.equal(WF.existing_work, 'new_work_only');
+  const tipLocal = { ...OWNER_INPUT.local_repos[2], chains: [{ chain: 'arc', mainnet: true }, { chain: 'base', mainnet: true }] };
+  // The build window is read only for a chain the repo's own files name, so its config names Base too.
+  // Its transaction count can't be read, so the starter itself keeps its good odds.
+  const base = deps();
+  const wfDeps: MatchDeps = { ...base, checks: { ...base.checks!, blockscout: async () => ({}) } };
+  const r = await withGitHub(async () => {
+    const inner = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const u = new URL(String(url));
+      if (u.host === 'raw.githubusercontent.com' && u.pathname.endsWith('/hardhat.config.ts'))
+        return json(`networks: { arc: { url: 'https://rpc.arc.network', chainId: 5042 }, base: { url: 'https://mainnet.base.org', chainId: 8453 } } // ${TIPJAR_ARC}`);
+      return inner(url);
+    }) as typeof fetch;
+    try {
+      return await matchProjects(MatchProjectsInput.parse({ github_user: 'jenil04', repos: ['jenil04/tipjar'], local_repos: [tipLocal] }), { ...wfDeps, programs: [WF] });
+    } finally {
+      globalThis.fetch = inner;
+    }
+  });
+  const tip = r.fits.find((f) => f.repo === 'tipjar')!;
+  assert.equal(tip.product.odds, 'good', 'the starter itself has good odds');
+  const v = tip.verdicts.find((x) => x.program_id === WF.id)!;
+  assert.deepEqual(v.missing, ['new_work']);
+  const [row] = matchRows(r.fits as RepoFit[], new Set());
+  assert.deepEqual([row.program_id, row.odds, row.low_reason], [WF.id, 'low', 'only new work counts']);
+  const more = presentFirstMessage({ alerts: [], campaigns: [], cards: [WF_CARD], repos: r as YourRepos, workingOn: [], agentCanBuild: true, sponsorEntries: null, now: NOW, more: true });
+  assert.doesNotMatch(more, /Your repos fit these open programs:/);
+  assert.match(more, new RegExp(`^${LOW_ODDS_HEADING}`, 'm'));
+  assert.match(more, /tipjar, low odds: only new work counts/);
 });

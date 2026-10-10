@@ -18,6 +18,8 @@ import {
   SIGNAL_WORDS,
   productOdds,
   rowOdds,
+  MISSING_REASON,
+  USERS_UNKNOWN,
   traction,
   type ProductFacts,
   type ProgramFacts,
@@ -749,14 +751,15 @@ test('3.2 productOdds: product tier and traction 4+ is good; else low with the f
   });
 });
 
-test('3.3 rowOdds: a good-odds product whose row waits on a chain it only mentions is low, "not deployed yet"', () => {
+test('3.3, v2.11 8b: rowOdds: a good-odds product whose row waits on a chain it only mentions is low, "not deployed yet"; so is any row still missing a deploy', () => {
   const good = { score: 6, tier: 'product' as const, missing: [], traction: 8, odds: 'good' as const, low_reason: null };
   const verdict = (missing: Verdict['missing']): Verdict => ({ program_id: 'base-x', program: 'Base X', status: 'after_step', missing, effort: 'hours', note: null });
   const mention = { base: { mainnet: true, testnet: false, evidence: 'imports base', basis: 'mention' as const } };
   assert.deepEqual(rowOdds(good, verdict(['mainnet_deploy']), mention), { odds: 'low', low_reason: 'not deployed yet' });
-  // A v2.9 row without basis reads as a mention (R6); a claim is not a mention.
+  // A v2.9 row without basis reads as a mention (R6). v2.11 8b: a claim is not a mention, but a row
+  // still missing the deploy is low all the same.
   assert.deepEqual(rowOdds(good, verdict(['mainnet_deploy']), { base: { mainnet: true, testnet: false, evidence: 'x' } }).odds, 'low');
-  assert.deepEqual(rowOdds(good, verdict(['mainnet_deploy']), { base: { mainnet: true, testnet: false, evidence: CLAIMED_MAINNET, basis: 'mention' } }), { odds: 'good', low_reason: null });
+  assert.deepEqual(rowOdds(good, verdict(['mainnet_deploy']), { base: { mainnet: true, testnet: false, evidence: CLAIMED_MAINNET, basis: 'mention' } }), { odds: 'low', low_reason: 'not deployed yet' });
   assert.deepEqual(rowOdds(good, verdict([]), mention), { odds: 'good', low_reason: null });
   // The repo's own odds: low with its reason; unscored or older (no odds) reads as low.
   assert.deepEqual(rowOdds({ ...good, odds: 'low', low_reason: 'no users yet' }, verdict([]), {}), { odds: 'low', low_reason: 'no users yet' });
@@ -768,4 +771,37 @@ test('3.3 rowOdds: a good-odds product whose row waits on a chain it only mentio
     low_reason: SIGNAL_WORDS.readme,
   });
   assert.equal(GOOD_ODDS_TRACTION, 4);
+});
+
+// ---- v2.11 T1 (v2.10.2): the odds fixes ----
+
+test('v2.11 8b (1.1): rowOdds: a good-odds product on a row missing any requirement is low, with that requirement\'s reason', () => {
+  const p = { score: 6, tier: 'product' as const, missing: [], traction: 6, odds: 'good' as const, low_reason: null };
+  const v = (missing: ('new_work' | 'live_url' | 'mainnet_deploy' | 'real_users')[]) =>
+    ({ program_id: 'x', program: 'X', status: 'after_step' as const, missing, effort: 'days' as const, note: null });
+  assert.deepEqual(rowOdds(p, v(['new_work']), {}), { odds: 'low', low_reason: 'only new work counts' });
+  assert.deepEqual(rowOdds(p, v(['live_url']), {}), { odds: 'low', low_reason: 'no live link yet' });
+  assert.deepEqual(rowOdds(p, v(['mainnet_deploy']), {}), { odds: 'low', low_reason: 'not deployed yet' });
+  assert.deepEqual(rowOdds(p, v(['real_users']), {}), { odds: 'low', low_reason: 'no users yet' });
+  assert.deepEqual(rowOdds(p, v([]), {}), { odds: 'good', low_reason: null });
+  assert.deepEqual(MISSING_REASON, { new_work: 'only new work counts', live_url: 'no live link yet', mainnet_deploy: 'not deployed yet', real_users: 'no users yet' });
+  // An unknown repo: users unknown while it waits only on users; any other missing requirement is low.
+  const u = { score: 4, tier: 'project' as const, missing: [], unchecked: ['owned' as const, 'readme' as const], traction: 3, odds: 'unknown' as const, low_reason: null };
+  assert.deepEqual(rowOdds(u, v(['real_users']), {}), { odds: 'unknown', low_reason: USERS_UNKNOWN });
+  assert.deepEqual(rowOdds(u, v(['new_work']), {}), { odds: 'low', low_reason: 'only new work counts' });
+});
+
+test('v2.11 8a (1.6, S4): productOdds: a repo GitHub hides (404), live and active, is unknown; with 0 measured transactions it stays low "no users yet"', () => {
+  const hidden = productScore({ active: true, young: true, original: true, readme: false, deployed: true, owned: false }, ['readme', 'owned']);
+  assert.equal(hidden.tier, 'project');
+  const t = { tx_count: null, live_ok: true, commits_90d: 1 };
+  assert.deepEqual(productOdds(hidden, t, 3, { ownerHidden: true }), { odds: 'unknown', low_reason: null });
+  assert.deepEqual(productOdds(hidden, { ...t, tx_count: 0 }, 3, { ownerHidden: true }), { odds: 'low', low_reason: 'no users yet' });
+  // Not hidden (a rate limit), not live, a copy or not active: never unknown.
+  assert.equal(productOdds(hidden, t, 3).odds, 'low');
+  assert.equal(productOdds(hidden, { ...t, live_ok: false }, 3, { ownerHidden: true }).odds, 'low');
+  const copy = productScore({ active: true, young: true, original: false, readme: false, deployed: true, owned: false }, ['readme', 'owned']);
+  assert.equal(productOdds(copy, t, 3, { ownerHidden: true }).odds, 'low');
+  const stale = productScore({ active: false, young: false, original: true, readme: false, deployed: true, owned: false }, ['readme', 'owned']);
+  assert.equal(productOdds(stale, t, 3, { ownerHidden: true }).odds, 'low');
 });
