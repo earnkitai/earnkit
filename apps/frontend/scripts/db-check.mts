@@ -695,6 +695,12 @@ const evUpdate = await db`UPDATE builder_events SET github_login = NULL`.then(()
 const evDelete = await db`DELETE FROM builder_events`.then(() => false, () => true);
 const evTruncate = await db`TRUNCATE builder_events`.then(() => false, () => true);
 ok(evUpdate && evDelete && evTruncate, 'builder_events refuses UPDATE, DELETE and TRUNCATE');
+const leak = await db.reserve();
+await leak`SET earnkit.events_redact = 'on'`;
+const evSessionSet = await leak`UPDATE builder_events SET github_login = NULL`.then(() => false, () => true);
+await leak`RESET earnkit.events_redact`;
+leak.release();
+ok(evSessionSet, 'a session-level SET of the redaction setting does not open builder_events');
 const evBadType = await db`INSERT INTO builder_events (type, dedupe_key) VALUES ('scored', 'x')`.then(() => false, () => true);
 ok(evBadType, 'builder_events refuses a type outside the list');
 const evDup = await db`INSERT INTO builder_events (type, dedupe_key) VALUES ('built', 'built:alice/tipjar:p')`.then(() => false, () => true);

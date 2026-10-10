@@ -21,20 +21,23 @@ export type LoginBasis = (typeof LOGIN_BASES)[number];
 export const DETAIL_MAX_BYTES = 2048;
 
 const text = (max: number) => z.string().min(1).max(max);
+const int4 = z.number().int().min(1).max(2147483647);
 const Event = z.strictObject({
   type: z.enum(EVENT_TYPES),
-  dedupe_key: text(300),
+  dedupe_key: text(2100), // hosted:gh:<url> holds a whole URL; still under the btree limit
   github_login: text(100).optional(),
   login_basis: z.enum(LOGIN_BASES).optional(),
-  installation_id: z.number().int().optional(),
+  installation_id: int4.optional(),
   wallet: text(100).optional(),
   repo_key: text(300).optional(),
   program_id: text(200).optional(),
-  project_id: z.number().int().optional(),
+  project_id: int4.optional(),
   chain: text(50).optional(),
   proof_tx: text(200).optional(),
   proof_url: text(2048).optional(),
   detail: z.record(z.string(), z.unknown()).optional(),
+  /** When it happened, for the backfill (spec 6); a live write leaves it out and gets now(). */
+  at: z.date().optional(),
 });
 export type BuilderEvent = z.infer<typeof Event>;
 
@@ -60,9 +63,9 @@ export async function recordEvent(e: BuilderEvent, db?: Db): Promise<boolean> {
   try {
     const q = db ?? sql();
     const rows = await q`
-      INSERT INTO builder_events (type, github_login, login_basis, installation_id, wallet, repo_key, program_id,
+      INSERT INTO builder_events (at, type, github_login, login_basis, installation_id, wallet, repo_key, program_id,
         project_id, chain, proof_tx, proof_url, detail, dedupe_key)
-      VALUES (${v.type}, ${low(v.github_login)}, ${v.login_basis ?? null}, ${v.installation_id ?? null}, ${low(v.wallet)},
+      VALUES (coalesce(${v.at ?? null}::timestamptz, now()), ${v.type}, ${low(v.github_login)}, ${v.login_basis ?? null}, ${v.installation_id ?? null}, ${low(v.wallet)},
         ${low(v.repo_key)}, ${v.program_id ?? null}, ${v.project_id ?? null}, ${v.chain ?? null}, ${v.proof_tx ?? null},
         ${v.proof_url ?? null}, ${q.json(detail as Parameters<typeof q.json>[0])}, ${v.dedupe_key})
       ON CONFLICT (dedupe_key) DO NOTHING

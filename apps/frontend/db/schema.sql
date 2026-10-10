@@ -982,16 +982,28 @@ CREATE INDEX IF NOT EXISTS builder_events_login ON builder_events (github_login,
 CREATE INDEX IF NOT EXISTS builder_events_due ON builder_events (type, at) WHERE type = 'deployed';
 
 -- Append-only: UPDATE, DELETE and TRUNCATE raise. The one exception is the owner-run redaction
--- script (v2.11 T12, scripts/events-redact.mts), which runs inside one transaction after
---   SELECT set_config('earnkit.events_redact', 'on', true);   -- transaction-local
--- and then UPDATEs (or DELETEs) one builder's rows. TRUNCATE is never allowed. The setting is a
--- guard against app code paths, not against a hostile role: any role can set it, so app code must
--- never set it (only the redaction script does, and a test pins that no lib/ file mentions it).
+-- script (v2.11 T12, scripts/events-redact.mts). Inside one transaction it runs
+--   SELECT set_config('earnkit.events_redact', 'on:' || txid_current(), true);
+-- and then UPDATEs one builder's rows. The trigger accepts only a value bound to the current
+-- transaction id, so a session-level SET or a connection option ('on', or a stale 'on:<old txid>')
+-- never opens the table. Under redaction an UPDATE may only null github_login and wallet and change
+-- detail (blank the twist); every other column must stay as it was. DELETE and TRUNCATE are never
+-- allowed. This guards against app code paths, not a hostile role: on a single database role the
+-- app owns the table and could drop the trigger, so app code must never touch the setting
+-- (events.test.ts scans lib/ and app/ for it).
 CREATE OR REPLACE FUNCTION builder_events_append_only() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF TG_LEVEL = 'ROW' AND coalesce(current_setting('earnkit.events_redact', true), '') = 'on' THEN
-    IF TG_OP = 'DELETE' THEN
-      RETURN OLD;
+  IF TG_LEVEL = 'ROW' AND TG_OP = 'UPDATE'
+     AND coalesce(current_setting('earnkit.events_redact', true), '') = 'on:' || txid_current()::text THEN
+    IF (NEW.id, NEW.at, NEW.type, NEW.dedupe_key, NEW.login_basis, NEW.installation_id, NEW.repo_key,
+        NEW.program_id, NEW.project_id, NEW.chain, NEW.proof_tx, NEW.proof_url)
+       IS DISTINCT FROM
+       (OLD.id, OLD.at, OLD.type, OLD.dedupe_key, OLD.login_basis, OLD.installation_id, OLD.repo_key,
+        OLD.program_id, OLD.project_id, OLD.chain, OLD.proof_tx, OLD.proof_url)
+       OR (NEW.github_login IS DISTINCT FROM OLD.github_login AND NEW.github_login IS NOT NULL)
+       OR (NEW.wallet IS DISTINCT FROM OLD.wallet AND NEW.wallet IS NOT NULL) THEN
+      RAISE EXCEPTION 'builder_events is append-only (redaction may only null github_login and wallet and change detail)'
+        USING ERRCODE = 'insufficient_privilege';
     END IF;
     RETURN NEW;
   END IF;

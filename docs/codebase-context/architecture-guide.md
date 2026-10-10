@@ -3993,17 +3993,25 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
 - **Append-only.** The trigger function `builder_events_append_only()` backs two triggers: a row
   trigger (BEFORE UPDATE OR DELETE) and a statement trigger (BEFORE TRUNCATE). All raise. The one
   exception is the owner-run redaction script (T12, `scripts/events-redact.mts`): inside one
-  transaction it runs `SELECT set_config('earnkit.events_redact', 'on', true)` (transaction-local),
-  then UPDATEs (nulls `github_login` and `wallet`, blanks the twist) or DELETEs one builder's rows.
-  TRUNCATE is never allowed. The setting guards against app code paths, not a hostile role: any
-  role can set it, so app code never does (`events.test.ts` scans `lib/` and `app/` for it and for
-  any UPDATE, DELETE or TRUNCATE on the table). Using a setting instead of `ALTER TABLE ... DISABLE
-  TRIGGER` keeps the trigger on for every other session while the script runs and needs no table
-  owner rights.
+  transaction it runs `SELECT set_config('earnkit.events_redact', 'on:' || txid_current(), true)`,
+  then UPDATEs one builder's rows. The trigger accepts only a value bound to the current
+  transaction id, so a session-level `SET`, a connection option or a value left over from an
+  earlier transaction (for example on a pooled connection) never opens the table. Under redaction an
+  UPDATE may only null `github_login` and `wallet` and change `detail` (blank the twist); any other
+  column change raises. DELETE and TRUNCATE are never allowed. This guards against app code paths,
+  not a hostile role: on Neon's single role the app owns the table and could drop the trigger, so
+  real role-level enforcement needs a second owner role (an owner decision). App code never touches
+  the setting: `events.test.ts` scans `lib/` and `app/` for it, for UPDATE, DELETE, TRUNCATE or
+  ALTER TABLE on the table, for DROP/DISABLE TRIGGER and for `session_replication_role`. A setting
+  is used instead of `ALTER TABLE ... DISABLE TRIGGER`, which would lock out the app's inserts and
+  turn the guard off for every session while the script runs.
 - **Writer.** `events.ts recordEvent(e, db?)` is the only writer. It checks the event with zod,
-  lowercases login, wallet and repo key, stores a `detail` over 2 KB of JSON as `{ truncated: true }`,
-  and returns true only when a row was written. A failure is logged as `[events] <type> <ErrorName>`
+  lowercases login, wallet and repo key, stores a `detail` over 2 KB of JSON (or one that can't be
+  serialized) as `{ truncated: true }`, takes an optional `at` (the backfill passes the original
+  time; live writes get `now()`), and returns true only when a row was written. `dedupe_key` may be
+  up to 2100 characters, so `hosted:gh:<url>` fits. A failure is logged as `[events] <type> <ErrorName>`
   (no values) and returns false, so it never fails the builder's step.
-- **Off by default.** `recordEvent` writes nothing unless `EARNKIT_EVENT_LOG=on`. Turn it on only
+- **Off by default.** `recordEvent` writes nothing unless `EARNKIT_EVENT_LOG=on` (`test-guard.ts`
+  clears it, so a test turns it on itself). Turn it on only
   after the `/terms` "What EarnKit records" section (T12) is live. T3 wires the writes.
 - **Also added (for later tasks):** `installations.fresh_offer_at` and `installations.build` (S6).
