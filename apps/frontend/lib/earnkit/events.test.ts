@@ -160,25 +160,86 @@ test('2.2 UPDATE, DELETE and TRUNCATE on builder_events all throw', dbTest, asyn
   assert.equal(row.github_login, 'bob');
 });
 
-test('2.2 the owner redaction path: inside one transaction with earnkit.events_redact = on, UPDATE and DELETE work; TRUNCATE never does', dbTest, async () => {
+/** Opens redaction the way the T12 script will: bound to this transaction's id. */
+const openRedaction = (tx: postgres.TransactionSql) =>
+  tx`SELECT set_config('earnkit.events_redact', 'on:' || txid_current(), true)`;
+
+test('2.2 the owner redaction path: bound to the transaction, it may only null login and wallet and change detail', dbTest, async () => {
   const key = `submitted:t2-${stamp()}`;
-  assert.equal(await recordEvent({ type: 'submitted', dedupe_key: key, github_login: 'carol', wallet: W }), true);
-  const gone = `submitted:t2-gone-${stamp()}`;
-  assert.equal(await recordEvent({ type: 'submitted', dedupe_key: gone, github_login: 'carol' }), true);
+  assert.equal(
+    await recordEvent({ type: 'submitted', dedupe_key: key, github_login: 'carol', wallet: W, detail: { twist: 'carol tips' } }),
+    true,
+  );
   const db = sql();
   await db.begin(async (tx) => {
-    await tx`SELECT set_config('earnkit.events_redact', 'on', true)`;
-    await tx`UPDATE builder_events SET github_login = NULL, wallet = NULL WHERE dedupe_key = ${key}`;
-    await tx`DELETE FROM builder_events WHERE dedupe_key = ${gone}`;
-    await assert.rejects(tx.savepoint((sp) => sp`TRUNCATE builder_events`), /append-only/);
+    await openRedaction(tx);
+    await tx`UPDATE builder_events SET github_login = NULL, wallet = NULL, detail = '{}'::jsonb WHERE dedupe_key = ${key}`;
+    // Every other change is refused, even with redaction open.
+    for (const change of [
+      `UPDATE builder_events SET type = 'won' WHERE dedupe_key = $1`,
+      `UPDATE builder_events SET dedupe_key = 'rewritten' WHERE dedupe_key = $1`,
+      `UPDATE builder_events SET at = now() - interval '1 day' WHERE dedupe_key = $1`,
+      `UPDATE builder_events SET proof_url = 'https://x.example' WHERE dedupe_key = $1`,
+      `UPDATE builder_events SET github_login = 'mallory' WHERE dedupe_key = $1`,
+      `UPDATE builder_events SET wallet = '0x${'1'.repeat(40)}' WHERE dedupe_key = $1`,
+      `DELETE FROM builder_events WHERE dedupe_key = $1`,
+      `TRUNCATE builder_events`,
+    ]) {
+      const params = change.includes('$1') ? [key] : [];
+      await assert.rejects(tx.savepoint((sp) => sp.unsafe(change, params)), /append-only/, change);
+    }
   });
-  const [row] = await db<{ github_login: string | null; wallet: string | null }[]>`
-    SELECT github_login, wallet FROM builder_events WHERE dedupe_key = ${key}`;
-  assert.deepEqual({ ...row }, { github_login: null, wallet: null });
-  const [{ n }] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_events WHERE dedupe_key = ${gone}`;
-  assert.equal(n, 0);
-  // The setting was local to that transaction: the next statement is append-only again.
-  await assert.rejects(db`UPDATE builder_events SET chain = 'x' WHERE dedupe_key = ${key}`, /append-only/);
+  const [row] = await db<{ type: string; dedupe_key: string; github_login: string | null; wallet: string | null; detail: unknown }[]>`
+    SELECT type, dedupe_key, github_login, wallet, detail FROM builder_events WHERE dedupe_key = ${key}`;
+  assert.deepEqual({ ...row }, { type: 'submitted', dedupe_key: key, github_login: null, wallet: null, detail: {} });
+  // The value was bound to that transaction: the next statement is append-only again.
+  await assert.rejects(db`UPDATE builder_events SET detail = '{}'::jsonb WHERE dedupe_key = ${key}`, /append-only/);
+});
+
+test('2.2 a session-level SET, a stale txid value or a connection option never opens the table', dbTest, async () => {
+  const key = `entered:t2-leak-${stamp()}`;
+  assert.equal(await recordEvent({ type: 'entered', dedupe_key: key, github_login: 'erin' }), true);
+  const db = sql();
+  await db.reserve().then(async (conn) => {
+    try {
+      // Session scope, plain 'on': refused.
+      await conn`SET earnkit.events_redact = 'on'`;
+      await assert.rejects(conn`UPDATE builder_events SET github_login = NULL WHERE dedupe_key = ${key}`, /append-only/);
+      await assert.rejects(conn`DELETE FROM builder_events WHERE dedupe_key = ${key}`, /append-only/);
+      // A value bound to an earlier transaction, left at session scope: stale in every later one.
+      const [{ v }] = await conn<{ v: string }[]>`SELECT set_config('earnkit.events_redact', 'on:' || txid_current(), false) AS v`;
+      assert.match(v, /^on:\d+$/);
+      await assert.rejects(conn`UPDATE builder_events SET github_login = NULL WHERE dedupe_key = ${key}`, /append-only/);
+      await conn`RESET earnkit.events_redact`;
+    } finally {
+      conn.release();
+    }
+  });
+  // A connection option ('-c earnkit.events_redact=on').
+  const opened = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {}, connection: { 'earnkit.events_redact': 'on' } });
+  try {
+    const [{ v }] = await opened<{ v: string }[]>`SELECT current_setting('earnkit.events_redact', true) AS v`;
+    assert.equal(v, 'on', 'the option reached the server');
+    await assert.rejects(opened`UPDATE builder_events SET github_login = NULL WHERE dedupe_key = ${key}`, /append-only/);
+    await assert.rejects(opened`DELETE FROM builder_events WHERE dedupe_key = ${key}`, /append-only/);
+  } finally {
+    await opened.end();
+  }
+  const [row] = await db<{ github_login: string | null }[]>`SELECT github_login FROM builder_events WHERE dedupe_key = ${key}`;
+  assert.equal(row.github_login, 'erin');
+});
+
+test('I2 a given at is kept (the backfill); without one the row gets now()', dbTest, async () => {
+  const old = `deployed:t2-at-${stamp()}`;
+  const fresh = `deployed:t2-now-${stamp()}`;
+  const AT = new Date('2026-09-01T12:34:56.000Z');
+  const before = Date.now();
+  assert.equal(await recordEvent({ type: 'deployed', dedupe_key: old, at: AT }), true);
+  assert.equal(await recordEvent({ type: 'deployed', dedupe_key: fresh }), true);
+  const rows = await sql()<{ dedupe_key: string; at: Date }[]>`SELECT dedupe_key, at FROM builder_events WHERE dedupe_key IN (${old}, ${fresh})`;
+  const by = new Map(rows.map((r) => [r.dedupe_key, r.at]));
+  assert.equal(by.get(old)?.toISOString(), AT.toISOString());
+  assert.ok(by.get(fresh)!.getTime() >= before - 5000, 'a live write is stamped now');
 });
 
 test('2.3 ten parallel recordEvent calls with one key write one row', dbTest, async () => {
@@ -211,7 +272,7 @@ test('2.5 a type outside the list is refused by the CHECK; so is an unknown logi
   );
 });
 
-test('no app code updates or deletes builder events, or sets the redaction setting', () => {
+test('no app code updates, deletes or alters builder events, drops their triggers, or sets the redaction setting', () => {
   const root = join(import.meta.dirname, '..', '..');
   const files: string[] = [];
   const walk = (dir: string) => {
@@ -225,9 +286,36 @@ test('no app code updates or deletes builder events, or sets the redaction setti
   for (const dir of ['lib', 'app']) walk(join(root, dir));
   assert.ok(files.some((f) => f.endsWith(join('earnkit', 'events.ts'))), 'the walk reaches lib/earnkit');
   const bad = files.filter((f) =>
-    /(update\s+builder_events|delete\s+from\s+builder_events|truncate\s+(table\s+)?builder_events|earnkit\.events_redact)/i.test(
+    /(update\s+builder_events|delete\s+from\s+builder_events|truncate\s+(table\s+)?builder_events|earnkit\.events_redact|(drop|disable)\s+trigger\s+builder_events_|alter\s+table\s+(if\s+exists\s+)?builder_events|session_replication_role)/i.test(
       readFileSync(f, 'utf8'),
     ),
   );
   assert.deepEqual(bad, []);
+});
+
+test('a detail that cannot be serialized (a cycle or a bigint) is stored as { truncated: true }', async () => {
+  const seen: unknown[] = [];
+  const db = Object.assign(() => Promise.resolve([{ id: 1 }]), { json: (v: unknown) => (seen.push(v), v) }) as unknown as Db;
+  const cycle: Record<string, unknown> = {};
+  cycle.self = cycle;
+  assert.equal(await recordEvent({ type: 'built', dedupe_key: 'k1', detail: cycle }, db), true);
+  assert.equal(await recordEvent({ type: 'built', dedupe_key: 'k2', detail: { n: 1n } }, db), true);
+  assert.deepEqual(seen, [{ truncated: true }, { truncated: true }]);
+});
+
+test('ids outside the integer column range, an invalid at and an over-long key are refused by zod, before the DB', async () => {
+  for (const bad of [
+    { type: 'built', dedupe_key: 'k', installation_id: 2147483648 },
+    { type: 'built', dedupe_key: 'k', project_id: 0 },
+    { type: 'built', dedupe_key: 'k', at: new Date('nope') },
+    { type: 'built', dedupe_key: 'x'.repeat(2101) },
+  ] as BuilderEvent[]) {
+    const fake = failingDb('x');
+    const lines = await errors(async () => assert.equal(await recordEvent(bad, fake.db), false));
+    assert.deepEqual(lines, ['[events] built ZodError']);
+    assert.equal(fake.calls(), 0);
+  }
+  const fake = failingDb('x');
+  await errors(async () => recordEvent({ type: 'hosted', dedupe_key: 'hosted:gh:https://a.github.io/' + 'p'.repeat(1900) }, fake.db));
+  assert.equal(fake.calls(), 1, 'a long GitHub Pages key reaches the DB');
 });

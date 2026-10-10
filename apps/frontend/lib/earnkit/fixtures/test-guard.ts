@@ -28,6 +28,8 @@ const CLEARED = [
   'DEPLOYER_PRIVATE_KEY',
   // v2.10.3: the deploy chains (unset is both; a test that narrows them sets its own).
   'DEPLOY_CHAINS',
+  // v2.11 Task 2: the builder event log (a test that needs it on sets it).
+  'EARNKIT_EVENT_LOG',
 ];
 for (const name of CLEARED) delete process.env[name];
 
