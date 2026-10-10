@@ -1,5 +1,7 @@
 import { isIP } from 'node:net';
 import { CHAIN_NAMES, type Chain } from './chains';
+// untrusted-text.ts imports this module too; neither uses the other at load time.
+import { plainText, quoted } from './untrusted-text';
 
 /**
  * v2.9 A5: links no real product lives on, and the builder lines for a link or contract that
@@ -34,8 +36,19 @@ export function placeholderLink(url: string): boolean {
 
 export const PLACEHOLDER_LINE = 'Use your real site, not a placeholder.';
 export const LIVE_FAILED_LINE = "Live link didn't load from here. Check it's public.";
-/** v2.10 item 14: the live link loads, but shows an error page (`phrase` is what it shows). */
-export const liveErrorLine = (phrase: string) => `Your live link loads but shows an error ("${phrase}"). Fix it and tell me.`;
+/** Final fix M2: at most `max` characters, cut at the last word boundary (a single long word is cut). */
+const capWords = (s: string, max: number) => {
+  const t = s.trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max + 1).replace(/\s+\S*$/, '').trim();
+  return cut || t.slice(0, max);
+};
+/**
+ * v2.10 item 14: the live link loads, but shows an error page (`phrase` is what it shows). Final fix
+ * M2: the phrase is the probed site's text, so it is cleaned, cut to at most 60 characters at a word
+ * boundary, and quoted (untrusted-text.ts `plainText` and `quoted`).
+ */
+export const liveErrorLine = (phrase: string) => `Your live link loads but shows an error (${quoted(capWords(plainText(phrase, true), 60))}). Fix it and tell me.`;
 export const contractMissingLine = (chain: Chain) => `No contract found on ${CHAIN_NAMES[chain]} mainnet yet.`;
 /** Ruling G15: the contract check couldn't run (an RPC error or no check left): never "not found". */
 export const contractUncheckedLine = (chain: Chain) => `Couldn't check your ${CHAIN_NAMES[chain]} mainnet contract yet. It's checked again next step.`;
