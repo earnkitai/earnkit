@@ -2204,6 +2204,11 @@ async function deployStep(
   prep: { project?: { name?: string; repo_url?: string }; answers?: Record<string, string>; signed_in?: string },
   ctx: ToolContext,
 ): Promise<{ line: string; deploy: Reply; agent_note?: string }> {
+  const shared = ctx.sharedClient === true;
+  // Final fix M3: a shared client deploys only with GitHub sign-in on (its limits and proof need the
+  // caller's own login, never the repo key or the agent-wide proof).
+  if (shared && !githubVerifyEnabled())
+    return { line: DEPLOY_LINES.off, deploy: { unavailable: DEPLOY_LINES.off }, agent_note: 'Deploys on this client need GitHub sign-in, which is off right now.' };
   const repoUrl = prep.project?.repo_url ?? prep.answers?.repo_url;
   const gh = repoUrl ? githubRepo(repoUrl) : null;
   const name = prep.project?.name?.trim() || gh?.repo || 'your contract';
@@ -2215,11 +2220,11 @@ async function deployStep(
     return { line, deploy: { needs_wallet: line }, agent_note: 'Pass deploy.owner_wallet with the wallet the builder sends.' };
   }
   // Fix round 1 (I6): a shared client's caller login; else the installation's verified login (limits only).
-  const shared = ctx.sharedClient === true;
   let login: string | null;
   try {
+    // Final fix M3: callerLogin directly (sharedLogin swallows a failed read), so N6 holds here too.
     login = shared
-      ? await sharedLogin(ctx, prep.signed_in, 'prepare')
+      ? await (ctx.deployDeps?.callerLogin ?? callerLogin)(ctx.installationId, prep.signed_in)
       : await (ctx.deployDeps?.installationLogin ?? installationLogin)(ctx.installationId);
   } catch (err) {
     // Fix round 2 (N6): no login read, no deploy (never a fresh per-installation key).

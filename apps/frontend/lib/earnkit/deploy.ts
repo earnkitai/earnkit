@@ -252,6 +252,8 @@ export type DeployDeps = {
   receiptMs?: number;
   /** Test seam for tools.ts deployStep: the installation's verified login (github-verify.ts installationLogin). */
   installationLogin?: (installationId: number) => Promise<string | null>;
+  /** Test seam for tools.ts deployStep on a shared client: the caller's verified login (github-verify.ts callerLogin). */
+  callerLogin?: (installationId: number, signedIn: string | undefined) => Promise<string | null>;
 };
 
 export type DeployOutcome =
