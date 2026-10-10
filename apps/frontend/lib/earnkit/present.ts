@@ -760,8 +760,11 @@ export function usersAskLine(a: NonNullable<ReturnType<typeof usersAsk>>): strin
   const chain = a.card.any_chain || !a.card.chains?.length ? '' : ` on ${CHAIN_NAMES[a.card.chains[0]]}`;
   // Fix round 1 (M6): a range prize ("$5,000 to $100,000 USDC grants") reads "up to $100,000".
   const prize = prizeOf(a.card).split(' × ')[0];
-  const money = / to /.test(prize) && a.card.max_award_usd ? `up to ${usd(a.card.max_award_usd)}` : prize;
-  return `${a.repo} could win ${money}${chain} with real users. Does it have real users or revenue? (yes/no)`;
+  const ask = 'Does it have real users or revenue? (yes/no)';
+  // Re-review 2 (R2-I1): an investment is never money to win: "could get up to $1M investment from a16z".
+  if (a.card.investment) return `${a.repo} could get ${prize} from ${a.card.title} with real users. ${ask}`;
+  const money = /^\$[\d,.]+[KM]? to /.test(prize) && a.card.max_award_usd ? `up to ${usd(a.card.max_award_usd)}` : prize;
+  return `${a.repo} could win ${money}${chain} with real users. ${ask}`;
 }
 
 /** The first message: see the type and the module comment for the order. Pure; exported for tests. */
