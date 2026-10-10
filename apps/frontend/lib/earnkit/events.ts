@@ -267,19 +267,23 @@ async function readUsage(d: DueDeploy, address: string, now: Date, deps: UsageDe
   const arcLogs = deps.arcLogs ?? defaultReads.arcLogs;
   let events = 0;
   const senders = new Set<string>();
+  let read = 0;
   for (const [lo, hi] of ranges) {
+    // Past the cron's deadline, the blocks read so far are written as a partial count.
+    if (read > 0 && deps.deadline !== undefined && Date.now() >= deps.deadline) break;
     const r = await arcLogs(address, topic, lo, hi);
     events += r.count;
     for (const s of r.senders) senders.add(s.toLowerCase());
+    read++;
   }
-  const to = ranges.length > 0 ? ranges[ranges.length - 1][1] : head;
+  const to = read > 0 ? ranges[read - 1][1] : head;
   return {
     ...base,
     events,
     senders: senders.size,
     from_block: Number(from),
     to_block: Number(to),
-    ...(partial && { partial: true }),
+    ...((partial || read < ranges.length) && { partial: true }),
     code,
     source: 'rpc_logs',
   };

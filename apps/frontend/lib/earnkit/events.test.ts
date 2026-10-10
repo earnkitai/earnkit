@@ -658,3 +658,29 @@ test('11.4 no check starts after the cron deadline', dbTest, async () => {
   assert.equal(reads, 0);
   assert.deepEqual(await usageOf(d.id), []);
 });
+
+test('11.2 an Arc check that reaches the cron deadline mid-range writes the blocks it read as partial', dbTest, async () => {
+  const now = new Date();
+  const d = await seedDeployed(now, 31, { chain: 'arc', detail: { block: 0, starter: 'arc-tipjar' } });
+  let deadline = Date.now() + 60_000;
+  let reads = 0;
+  const out = await usageChecks(now, {
+    only: [d.id],
+    get deadline() {
+      return deadline;
+    },
+    getCode: codeOk,
+    arcHead: async () => 25_000n,
+    arcLogs: async () => {
+      reads++;
+      deadline = Date.now() - 1; // the budget runs out during the first chunk
+      return { count: 1, senders: [W] };
+    },
+  });
+  assert.deepEqual(out, { checked: 1, failed: 0 });
+  assert.equal(reads, 1);
+  const [row] = await usageOf(d.id);
+  assert.equal(row.detail.partial, true);
+  assert.equal(row.detail.to_block, 9_999);
+  assert.equal(row.detail.events, 1);
+});
