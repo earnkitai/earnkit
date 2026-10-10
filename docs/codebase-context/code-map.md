@@ -468,8 +468,12 @@ apps/frontend/
                                final review M1: notHumanText skips .test.ts/.test.tsx/.test.mts, and walkDir never enters a fixtures directory
     no-cell.ts                 NO_CELL (''), the empty table cell or chip; import-free so the client ProgramCard shares it (final review M1); present.ts re-exports it
     v2101.test.ts              v2.10.1: the owner's 5 live bugs (B1 to B5), each with the owner's real project shapes
-                               (tokens.fun, earnkitai/earnkit, the tipjar starter); journey 11.5 in v210-journey.test.ts
-    present.ts(+test)          v2.10.1 fix round 1: usersAsk/usersAskLine (one users question for a product EarnKit can't measure).
+                               (tokens.fun, earnkitai/earnkit, the tipjar starter); journey 11.5 in v210-journey.test.ts.
+                               v2.10.2 (v2.11 8a, 8b): tokens.fun without my_commits_90d (unknown, asked), the real
+                               World's Fair file (a starter missing new work is low); journey 11.6
+    present.ts(+test)          v2.10.2 (v2.11 8a): usersAsk also takes unknown repos; the "users unknown" cell; Fit.real_use and
+                               byOdds (good, unknown, low, then real use) rank layout, betterFit and bestFit.
+                               v2.10.1 fix round 1: usersAsk/usersAskLine (one users question for a product EarnKit can't measure).
                                v2.10.1: submitStep/submitStepLine (a confirmed entry leads with its submission site),
                                skippedLine ("Not matched: ..."), every entry counts as entered. v2.10 item 2: FirstMessage.more ("show more": the v2.9 body), holdQuestion (H10), leadRow, leadLine, MORE_QUESTION;
                                without more, the short first reply (news, entries, deadline, private lines, one lead)
@@ -547,7 +551,9 @@ apps/frontend/
                                gas and fee, DeployChain.nonce (above 1: flagged, contract_deploys.blocked,
                                DEPLOY_LINES.blocked), DeployDeps.installationLogin (tools seam; fails closed)
     shared-contracts.ts        v2.10.1 fix round 1 (I1): SHARED_BASE_CONTRACTS, sharedContract (never a builder's own; import-free)
-    match.ts(+test)            v2.10.1 fix round 1: hasRealUse (measured or a users claim). v2.10.1: REAL_USE_TX (50), realUse, withRealUse (measured use makes a product), a
+    match.ts(+test)            v2.10.2 (v2.11 8a, 8b): Odds adds 'unknown', oddsRank, USERS_UNKNOWN, MISSING_REASON; productOdds
+                               takes { ownerHidden, saidNoUsers } (a 404'd possible product is unknown); rowOdds is low on
+                               any missing requirement. v2.10.1 fix round 1: hasRealUse (measured or a users claim). v2.10.1: REAL_USE_TX (50), realUse, withRealUse (measured use makes a product), a
                                products-only program needs real use (NEEDS_USERS), rowOdds low on real_users. pure: chain detection (IDs + RPC hosts), repo x program verdicts;
                                v2.10 item 9: Detection.basis (Basis: deployed | deploy_config | mention;
                                absent = mention, R6), detectChains(files, paths) over detectMentions +
@@ -564,7 +570,9 @@ apps/frontend/
                                reportedFacts(ReportedRepo) turns an agent's local_repos report into
                                RepoFacts, keeping url only when campaigns.ts githubRepo parses it
                                (Ruling 13), else ''
-    match-projects.ts          v2.10.1: skipped + SKIP_REASONS (no named repo dropped silently), ownerUnknown (a
+    match-projects.ts          v2.10.2 (v2.11 8a): ownerHidden (404 only) into checkLocal/scored; fits sort by odds, real
+                               use, then traction; a missing last_commit_at is an unknown commit count (null).
+                               v2.10.1: skipped + SKIP_REASONS (no named repo dropped silently), ownerUnknown (a
                                private org repo's owner is unchecked), tx_count in RepoFacts. v2.10 item 7: named repos read one by one (mapLimit); a 404 goes through
                                MatchDeps.appToken (7b), else the local report (fromLocal), else unseen; other errors
                                skip that repo and its local view; all non-404 throws the first. PRIVATE_LOCAL_LINE,
@@ -606,7 +614,8 @@ apps/frontend/
                                as its new tool and arguments; Pre-flight P15 rules), rewriteAliases (a JSON-RPC
                                message or batch). Pure. v2.10.1 B5: withOlderNames, forOldClient (each tool named in both
                                forms, plus STALE_TOOLS_NOTE), aliasedIds (old names by JSON-RPC id); old names accept new args.
-    tools.ts                   v2.10 item 4: `tools` = find, prepare, confirm, tell, sponsor_campaign, thin dispatchers
+    tools.ts                   v2.10.2 (v2.11 8a): matchRows ranks by odds (oddsRank), real use, traction, score.
+                               v2.10 item 4: `tools` = find, prepare, confirm, tell, sponsor_campaign, thin dispatchers
                                over `handlers` (the v2.9 functions: list_programs ... launch_token); FindInput,
                                PrepareInput, ConfirmInput (R15), TellToolInput (R16), markSubmitted (tell.submitted),
                                eligibilityLine; launchFromOffer deleted (launch_token with offer throws).
@@ -858,7 +867,8 @@ apps/frontend/
                                feeAlert (>= $100, per $100 step), refreshFees, launchedCreatorWallets
     funds.ts(+test)            prizeFunds: the payout wallet's balance for the pages (60 s memo, 15 s
                                after a failure, 3 s timeout, no retries)
-    alerts.ts(+test)           v2.9 A7: FitRepo, fitRepoOf, alertFit/alertable (new programs only when a
+    alerts.ts(+test)           v2.10.2 (v2.11 8a): repoCanWin refuses an unknown-odds repo as it does a low one.
+                               v2.9 A7: FitRepo, fitRepoOf, alertFit/alertable (new programs only when a
                                v2.10 item 15: AlertFacts.entries, DeadlineEntry, deadlineLine, DEADLINE_DAYS, takeDeadlineLine
                                (installations.deadline_shown, once per entry per UTC day); no "(as WETH)" in the bonus win alert.
                                remembered repo could win; v2.9 T12: its per-repo rule is repoCanWin,
