@@ -568,3 +568,23 @@ test('11.8 (F25): confirm and sponsor_campaign descriptions under 800 characters
   assert.match(create.next_step, /brand/);
   assert.match(awardReply({ winners: [], token: { symbol: 'USDC', decimals: 6 }, feeUnits: 0n, awardUrl: 'https://earnkit.com/award/0xabc' }).next_step, /never send an award transaction the sponsor has not approved/i);
 });
+
+test('final fix M4: prepare lists deploy only while deploys are on', async () => {
+  const deployProp = async (key: string | undefined) => {
+    const old = process.env.DEPLOYER_PRIVATE_KEY;
+    if (key === undefined) delete process.env.DEPLOYER_PRIVATE_KEY;
+    else process.env.DEPLOYER_PRIVATE_KEY = key;
+    try {
+      const { tools } = await listed({});
+      const prepare = tools.find((t) => t.name === 'prepare')!;
+      return (prepare.inputSchema.properties as Record<string, unknown>)?.deploy;
+    } finally {
+      if (old === undefined) delete process.env.DEPLOYER_PRIVATE_KEY;
+      else process.env.DEPLOYER_PRIVATE_KEY = old;
+    }
+  };
+  assert.equal(await deployProp(undefined), undefined, 'no deployer key: no deploy field');
+  assert.equal(await deployProp('not-a-key'), undefined, 'a malformed key: no deploy field');
+  const on = await deployProp('5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a');
+  assert.match(JSON.stringify(on), /EarnKit pays the gas/);
+});
