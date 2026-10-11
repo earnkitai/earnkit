@@ -748,6 +748,102 @@ export async function deployForBuilder(
   }
 }
 
+/**
+ * Final fix M8: a build-path deploy whose receipt didn't come within its call (left `unknown`, with
+ * its tx hash) is settled when the same call is made again; nothing is ever sent twice. Read-only:
+ * the receipt, the code, owner() and hasRole and the nonce, read as deployForBuilder reads them, but
+ * with no transferOwnership (the build's starter takes its owner in the constructor; a contract the
+ * deployer still owns reads owner_ok false). The row is settled once (a concurrent settle wins) and
+ * writes its `deployed` event. Null: no such row for this installation, repo and chain, or deploys
+ * are off.
+ */
+export async function settlePendingDeploy(
+  a: { installationId: number; repoKey: string; chain: DeployChainName; projectName: string; starterId: string | null },
+  deps: DeployDeps = {},
+): Promise<DeployOutcome | null> {
+  if (!deployEnabled()) return null;
+  const repoKey = a.repoKey.toLowerCase();
+  const c = a.chain;
+  const [row] = await sql()<{ id: number; tx_hash: string; owner_wallet: string | null; line_owner: string | null }[]>`
+    SELECT id, tx_hash, owner_wallet, line_owner FROM contract_deploys
+    WHERE installation_id = ${a.installationId} AND repo_key = ${repoKey} AND chain = ${c} AND status = 'unknown' AND tx_hash <> ''
+    ORDER BY id DESC LIMIT 1`;
+  if (!row) return null;
+  const chain = (deps.chain ?? viemDeployChain)(c);
+  if (!chain) return null;
+  const deployer = deployerAccount()!.address;
+  const hash = row.tx_hash as Hex;
+  const pending: DeployOutcome = {
+    status: 'failed',
+    show_to_builder: DEPLOY_PENDING,
+    agent_note: `The deploy was sent (transaction ${hash} on ${CHAIN_NAMES[c]}) but isn't confirmed yet. Do not deploy again.`,
+  };
+  const receipt = await chain.receipt(hash, deps.receiptMs ?? RECEIPT_MS).catch((err: unknown) => {
+    console.error('[deploy] settle receipt', errName(err));
+    return null;
+  });
+  if (!receipt || (receipt.status === 'success' && !receipt.contractAddress)) return pending;
+  const block = receipt.blockNumber !== undefined ? receipt.blockNumber.toString() : null;
+  if (receipt.status === 'reverted') {
+    await sql()`UPDATE contract_deploys SET status = 'reverted', block = ${block}::bigint WHERE id = ${row.id} AND status = 'unknown'`;
+    return { status: 'failed', show_to_builder: DEPLOY_LINES.failed, agent_note: 'The deploy reverted on chain (the constructor failed).' };
+  }
+  const address = receipt.contractAddress!;
+  const code = await chain.code(address).catch((err: unknown) => {
+    console.error('[deploy] settle code', errName(err));
+    return null;
+  });
+  if (code === null) return pending;
+  const differs = runtimeRefusal(code) !== null;
+  let ownerOk: boolean | null = false;
+  if (!differs) {
+    try {
+      const owner = await chain.read({ address, abi: OWNER_ABI, fn: 'owner' });
+      const admin = await chain.read({ address, abi: HAS_ROLE_ABI, fn: 'hasRole', args: [DEFAULT_ADMIN_ROLE, deployer] });
+      if (admin === true || sameAddr(owner, deployer)) ownerOk = false;
+      else if (owner !== null) ownerOk = row.owner_wallet !== null && sameAddr(owner, row.owner_wallet);
+      else ownerOk = admin !== null && admin !== false ? false : null;
+    } catch (err) {
+      console.error('[deploy] settle owner probe', errName(err));
+      ownerOk = false;
+    }
+  }
+  const nonce = await chain.nonce(address).catch(() => null);
+  const children = nonce !== null && nonce > 1;
+  if (children || nonce === null) ownerOk = false;
+  const lower = address.toLowerCase();
+  const [settled] = await sql()<{ id: number }[]>`
+    UPDATE contract_deploys SET status = 'deployed', address = ${lower}, owner_ok = ${ownerOk}, block = ${block}::bigint,
+      code_differs = ${differs}, blocked = blocked OR ${children}
+    WHERE id = ${row.id} AND status = 'unknown' RETURNING id`;
+  if (settled) {
+    if (!differs && !children) await markDeployed(c, address).catch((err: unknown) => console.error('[deploy] cache', errName(err)));
+    await noteEvent('deployed', async () => {
+      const who = await loginBasisFor(a.installationId, repoKey, { lineOwner: row.line_owner });
+      return {
+        type: 'deployed',
+        dedupe_key: `deployed:${row.id}`,
+        installation_id: a.installationId,
+        repo_key: repoKey,
+        chain: c,
+        proof_tx: hash,
+        ...(row.owner_wallet && { wallet: row.owner_wallet }),
+        ...(who && { github_login: who.login, login_basis: who.basis }),
+        detail: {
+          address: lower,
+          owner_ok: ownerOk,
+          ...(block !== null && { block: Number(block) }),
+          ...(a.starterId && { starter: a.starterId }),
+          ...(differs && { code_differs: true }),
+          settled_later: true,
+        },
+      };
+    });
+  }
+  if (differs) return { status: 'failed', show_to_builder: runtimeRefusal(code)!, agent_note: 'The deployed code differs from the check; the owner is told. Do not use this address.' };
+  return { status: 'deployed', address, owner_ok: ownerOk, show_to_builder: deployedLine(a.projectName, c, address, ownerOk === true) };
+}
+
 /** The deployer's address while deploys are on, else null. */
 export function deployerAddress(): Address | null {
   return deployEnabled() ? deployerAccount()!.address : null;
