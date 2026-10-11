@@ -733,7 +733,7 @@ export const STARTER_TEST_WARN_DAYS = 23;
  * `now`. Pure.
  */
 export function starterAgeWarnings(
-  programs: Pick<ProgramFile, 'fresh_build'>[],
+  programs: { fresh_build?: { starter: string } | null }[],
   now: Date,
   starters: Record<string, Starter> = STARTERS,
 ): string[] {
