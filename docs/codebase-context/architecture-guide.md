@@ -4107,16 +4107,23 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
 
 - **The disclosure.** `/terms` has a "What EarnKit records" section (`PolicySection`, id
   `what-earnkit-records`; the copy is `policy.ts` `RECORDS_*` and `RECORD_STEPS`, so
-  `public-pages.test.ts` 12.1 reads it). It states only what the code writes: the agent's data
-  (repos shared, entries, wallets given, the digest email), then the event log's steps with their
-  proofs (deploy: tx and address; hosted: live link; entry: `/p/<id>`; submission: the link given;
-  result: the results page or the builder's own answer), the repo, program, wallet and the login with
-  its basis (sign-in, the App, the `earnkit.txt` line; `repo_owner` is never written), why, and the
-  removal email (`CONTACT_EMAIL`). It says the steps, repos and proofs stay, since the trigger keeps
-  them and a repo key or a hosted link (`<project>-<login>`) can still carry the login. The terms
-  nav and the entry page footer (`/p/<id>`, `RECORDS_HREF`) link it. **When a later task writes a
-  new field or step (T8/T9's `built` and any `detail.twist`, T11's `usage_check`), update this copy in
-  the same change.**
+  `public-pages.test.ts` 12.1 pins the whole section). It states only what the code keeps:
+  - what the agent sends: GitHub username (`installations.github_user`), repos and what the builder
+    says about them, programs worked on, entries and application answers (`answer_bank`,
+    `projects.application`, `submissions`), the token's name, ticker and image, wallets, hosted
+    sites, the digest email;
+  - what EarnKit reads itself: GitHub account age and public repo count, repo facts and commit
+    authors, contract activity;
+  - the IP address, briefly, as a rate-limit key (`rate_windows`);
+  - the event log's steps with their proofs (deploy, hosted, entry, submission, result, usage check),
+    the repo, program, wallet and the login with its basis (sign-in, the App, the `earnkit.txt`
+    line; `repo_owner` is never written);
+  - why, retention (owner decision: "for as long as EarnKit runs, unless you ask to remove your
+    login and wallet"), and removal limited to what the script does: login and wallet out of the
+    step history; steps, repos and proofs stay; other records only on request.
+  The terms nav and the entry page footer (`/p/<id>`, `RECORDS_HREF`) link it. **When a later task
+  writes a new field or step (T8/T9's `built` and any `detail.twist`), update this copy in the same
+  change.**
 - **Go-live order.** `EARNKIT_EVENT_LOG` stays off until this section is live in production. The
   owner deploys the release, checks `https://earnkit.com/terms#what-earnkit-records` loads, then sets
   `EARNKIT_EVENT_LOG=on` (and only then runs the backfill). Never the other way round.
@@ -4131,11 +4138,17 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
   Either flag alone works. The dry run lists the matching `builder_events` rows (by login or wallet,
   case-insensitive) inside a read-only transaction. `--apply` does it in one transaction: it sets
   `earnkit.events_redact` to `'on:' || txid_current()`, nulls `github_login` and `wallet` and drops
-  `detail.twist` on every matching row, checks the counts and commits; the setting ends with it, so the
+  `detail.twist` and `detail.slug` (`<project>-<login>`) on every matching row, checks the counts and commits; the setting ends with it, so the
   table is append-only again. The script prints the count, the time and each row, which is the
   redaction note to keep with the reply. It also prints how many kept rows still name the login in
-  their repo or link, and the row count in every other table that holds the login or wallet
-  (installations, verifications, hosting, deploys, entries, payouts and a few jsonb columns). It never
-  changes those: the owner decides. Never from predeploy or the cron (`events-redact.test.ts` checks
+  their repo or link (owner part, `-<login>` slug or `<login>.github.io`, never a bare substring),
+  and row counts for the main other tables that hold the login or wallet: login and wallet columns
+  (including `contract_deploys.builder_key`), wallet arrays (`projects.deployers`,
+  `sponsor_campaigns.award_winners`), jsonb (award plan and onchain, fallback plan, fee recipients,
+  local and fit repos, build, pickup), `rate_windows` and `url_checks` keys, and repo keys, repo URLs
+  and slugs. It never changes those: the owner decides. Redacted rows keep `installation_id` and
+  `project_id` (the trigger forbids changing them), which still join to those tables, so the terms
+  promise only removal from the step history, and say to email about other records. Never from predeploy or the cron (`events-redact.test.ts` checks
   package.json, and runs the script as a child process against the test DB, including a check that
-  every `*login`/`*wallet` column in the schema is listed).
+  every column whose name could hold a login, wallet, repo, link or key is listed or reviewed as not
+  identifying).

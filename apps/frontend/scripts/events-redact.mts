@@ -11,15 +11,17 @@ import { sql } from '../lib/earnkit/db';
  *
  * A dry run by default: it lists the matching builder_events rows in a read-only transaction and
  * changes nothing. --apply redacts them in one transaction: github_login and wallet become NULL and
- * detail loses its twist. That transaction sets earnkit.events_redact to 'on:' || txid_current(),
+ * detail loses its twist and its slug (the slug is <project>-<login>). That transaction sets earnkit.events_redact to 'on:' || txid_current(),
  * the only value the append-only trigger accepts, and only for those changes (db/schema.sql). The
  * setting ends with the transaction, so the table is append-only again right after.
  *
  * The repo, the program, the proofs and every other column stay (the trigger refuses any other
  * change). The output says how many kept rows still name the login in their repo or link.
  *
- * Every other table that holds the login or wallet is listed with its row count and never changed:
- * the owner decides what to do with those.
+ * The main other tables that hold the login or wallet (as a column, in a repo key, link, slug or
+ * jsonb, or as part of a rate-limit or cache key) are listed with their row counts and never
+ * changed: the owner decides what to do with those. Redacted rows keep installation_id and
+ * project_id, which still join to those tables.
  */
 
 const USAGE = 'Usage: events-redact.mts --login <github login> and/or --wallet <0x address> [--apply]';
@@ -40,6 +42,7 @@ const LOGIN_COLUMNS: [table: string, column: string][] = [
   ['host_deploys', 'login'],
   ['host_upload_tokens', 'login'],
   ['contract_deploys', 'login'],
+  ['contract_deploys', 'builder_key'],
   ['bonus_commits', 'login'],
 ];
 const WALLET_COLUMNS: [table: string, column: string][] = [
@@ -60,14 +63,51 @@ const WALLET_COLUMNS: [table: string, column: string][] = [
   ['sponsor_campaigns', 'sponsor_wallet'],
 ];
 /** text[] columns that can hold the wallet. */
-const WALLET_ARRAYS: [string, string][] = [['projects', 'deployers']];
-/** jsonb columns that can hold the login or the wallet as a JSON string value. */
+const WALLET_ARRAYS: [string, string][] = [
+  ['projects', 'deployers'],
+  ['sponsor_campaigns', 'award_winners'],
+];
+/** jsonb columns that can hold the login or the wallet (a JSON string value, a repo or a link). */
 const JSON_COLUMNS: [string, string][] = [
   ['installations', 'build'],
   ['installations', 'pickup'],
+  ['installations', 'local_repos'],
+  ['installations', 'fit_repos'],
   ['projects', 'fee_recipients'],
   ['sponsor_campaigns', 'fallback_plan'],
+  ['sponsor_campaigns', 'award_plan'],
+  ['sponsor_campaigns', 'award_onchain'],
 ];
+/** Keys made of ':'-separated parts, one of which can be the login or wallet (short-lived). */
+const KEY_COLUMNS: [string, string][] = [
+  ['rate_windows', 'key'],
+  ['url_checks', 'key'],
+];
+/** Repo keys, repo URLs, hosted slugs and links whose owner part can be the login. */
+const NAMED_COLUMNS: [string, string][] = [
+  ['projects', 'repo_url'],
+  ['projects', 'repo_key'],
+  ['projects', 'bonus_repo_key'],
+  ['projects', 'token_repo_key'],
+  ['projects', 'live_key'],
+  ['answer_bank', 'project_key'],
+  ['token_offers', 'entry_key'],
+  ['builder_repo_facts', 'repo_key'],
+  ['match_shown', 'repo_key'],
+  ['token_declines', 'repo_key'],
+  ['github_repo_facts', 'full_name'],
+  ['repo_public_reads', 'repo_key'],
+  ['github_verifications', 'repo_key'],
+  ['github_verify_nonces', 'repo_key'],
+  ['contract_deploys', 'repo_key'],
+  ['hosted_sites', 'repo_key'],
+  ['hosted_sites', 'slug'],
+  ['host_deploys', 'repo_key'],
+  ['host_deploys', 'slug'],
+  ['host_upload_tokens', 'repo_key'],
+  ['host_upload_tokens', 'slug'],
+];
+const NAMED_ARRAYS: [string, string][] = [['installations', 'repos']];
 
 const { values } = (() => {
   try {
@@ -94,6 +134,11 @@ if (wallet && !WALLET.test(wallet)) {
 
 const db = sql();
 const who = [login && `login ${login}`, wallet && `wallet ${wallet}`].filter(Boolean).join(', ');
+/**
+ * A repo key, URL, slug or link that names the login: owner/..., github.com/<login>/...,
+ * <project>-<login> (a hosted slug or link) or <login>.github.io. The login is [a-z0-9-] only.
+ */
+const named = login ? `(^|/)${login}(/|$)|-${login}(\\.|$)|(^|/)${login}\\.github\\.io` : null;
 const match = db`(${login ? db`lower(github_login) = ${login}` : db`false`} OR ${wallet ? db`lower(wallet) = ${wallet}` : db`false`})`;
 
 type Row = { id: string; type: string; at: Date; github_login: string | null; wallet: string | null; twist: boolean };
@@ -115,7 +160,7 @@ try {
       await tx`SELECT set_config('earnkit.events_redact', 'on:' || txid_current(), true)`;
       const found = await listRows(tx);
       const done = await tx`
-        UPDATE builder_events SET github_login = NULL, wallet = NULL, detail = detail - 'twist'
+        UPDATE builder_events SET github_login = NULL, wallet = NULL, detail = detail - 'twist' - 'slug'
         WHERE ${match} RETURNING id`;
       if (done.length !== found.length) throw new Error(`redacted ${done.length} of ${found.length} rows; rolled back`);
       return found;
@@ -127,13 +172,14 @@ try {
   }
 
   if (login) {
-    const [named] = await db<{ n: number }[]>`
+    const [kept] = await db<{ n: number }[]>`
       SELECT count(*)::int AS n FROM builder_events
-      WHERE split_part(repo_key, '/', 1) = ${login} OR lower(proof_url) LIKE ${`%${login}%`}`;
-    console.log(`Kept as they are: ${named.n} builder_events row(s) whose repo or link may still name ${login}.`);
+      WHERE lower(repo_key) ~ ${named} OR lower(proof_url) ~ ${named}`;
+    console.log(`Kept as they are: ${kept.n} builder_events row(s) whose repo or link may still name ${login}.`);
   }
 
-  console.log('Other tables (listed only, never changed here; the owner decides):');
+  console.log('Other tables (listed only, never changed here; the owner decides).');
+  console.log('Columns holding the login or wallet:');
   const count = async (label: string, where: ReturnType<typeof db>, table: string) => {
     const [r] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM ${db(table)} WHERE ${where}`;
     console.log(`  ${label}: ${r.n}`);
@@ -145,7 +191,14 @@ try {
   for (const [t, c] of WALLET_ARRAYS)
     await count(`${t}.${c}`, wallet ? db`EXISTS (SELECT 1 FROM unnest(${db(c)}) v WHERE lower(v) = ${wallet})` : db`false`, t);
   const quoted = [login, wallet].filter((x): x is string => x !== null).map((x) => `%"${x}"%`);
-  for (const [t, c] of JSON_COLUMNS) await count(`${t}.${c}`, db`lower(${db(c)}::text) LIKE ANY(${quoted}::text[])`, t);
+  for (const [t, c] of JSON_COLUMNS)
+    await count(`${t}.${c}`, db`(lower(${db(c)}::text) LIKE ANY(${quoted}::text[]) OR ${named ? db`lower(${db(c)}::text) ~ ${named}` : db`false`})`, t);
+  const parts = [login, wallet].filter((x): x is string => x !== null);
+  for (const [t, c] of KEY_COLUMNS) await count(`${t}.${c}`, db`string_to_array(lower(${db(c)}), ':') && ${parts}::text[]`, t);
+  console.log(`Repos, links and slugs that name the login${login ? '' : ' (no --login: none checked)'}:`);
+  for (const [t, c] of NAMED_COLUMNS) await count(`${t}.${c}`, named ? db`lower(${db(c)}) ~ ${named}` : db`false`, t);
+  for (const [t, c] of NAMED_ARRAYS)
+    await count(`${t}.${c}`, named ? db`EXISTS (SELECT 1 FROM unnest(${db(c)}) v WHERE lower(v) ~ ${named})` : db`false`, t);
 } finally {
   await db.end();
 }

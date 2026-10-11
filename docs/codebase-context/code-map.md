@@ -1275,7 +1275,7 @@ apps/frontend/
                                EARNKIT_EVENT_LOG=on; never predeploy or cron)
                                events-redact.mts: v2.11 T12, the owner's redaction of one builder's login
                                and wallet in builder_events (--login/--wallet, dry run unless --apply);
-                               lists the other tables holding them, never changes them (lib/earnkit/
+                               lists the main other tables, keys and repo columns holding them, never changes them (lib/earnkit/
                                events-redact.test.ts runs it as a child process)
     db-check.mts                v2.4: applies main's schema + rows, then db/schema.sql twice, on a
                                 local Postgres only; checks backfills, defaults, opened_at via sync,

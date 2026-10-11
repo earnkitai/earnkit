@@ -10,8 +10,14 @@ import {
   PLACE_ROWS,
   RECORD_STEPS,
   RECORDS_HISTORY,
-  RECORDS_KEPT,
-  RECORDS_REMOVAL,
+  RECORDS_IP,
+  RECORDS_READ,
+  RECORDS_READ_LEAD,
+  RECORDS_REMOVAL_AFTER,
+  RECORDS_REMOVAL_LEAD,
+  RECORDS_RETENTION,
+  RECORDS_SENT,
+  RECORDS_SENT_LEAD,
   RECORDS_TITLE,
   RECORDS_WHY,
   RECORDS_WITH,
@@ -202,12 +208,24 @@ export default function PolicySection() {
 
         {/* v2.11 T12: id what-earnkit-records (RECORDS_ANCHOR); the entry page links it. */}
         <Section title={RECORDS_TITLE}>
-          <p>{RECORDS_KEPT}</p>
+          <p>{RECORDS_SENT_LEAD}</p>
+          <List items={RECORDS_SENT} />
+          <p>{RECORDS_READ_LEAD}</p>
+          <List items={RECORDS_READ} />
+          <p>{RECORDS_IP}</p>
           <p>{RECORDS_HISTORY}</p>
           <List items={RECORD_STEPS} />
-          <p>{RECORDS_WITH}</p>
-          <p>{RECORDS_WHY}</p>
-          <p>{RECORDS_REMOVAL}</p>
+          <p>{RECORDS_WITH.join(' ')}</p>
+          <p>
+            {RECORDS_WHY} {RECORDS_RETENTION}
+          </p>
+          <p>
+            {RECORDS_REMOVAL_LEAD}{' '}
+            <a href={`mailto:${CONTACT_EMAIL}`} className={link}>
+              {CONTACT_EMAIL}
+            </a>
+            . {RECORDS_REMOVAL_AFTER.join(' ')}
+          </p>
         </Section>
 
         <Section title="Contact">

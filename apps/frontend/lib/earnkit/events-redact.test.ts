@@ -1,7 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
 
@@ -37,7 +37,7 @@ async function seed() {
   await db`
     INSERT INTO builder_events (type, github_login, login_basis, wallet, repo_key, proof_url, detail, dedupe_key) VALUES
       ('deployed', ${login}, 'proof_line', ${wallet}, ${`${login}/tipjar`}, NULL, ${db.json({ address: '0x' + '1'.repeat(40), block: 7 })}, ${keys[0]}),
-      ('hosted', ${login}, 'signin', NULL, ${`${login}/tipjar`}, ${`https://tipjar-${login}.earnkit.app`}, ${db.json({ host: 'earnkit' })}, ${keys[1]}),
+      ('hosted', ${login}, 'signin', NULL, ${`${login}/tipjar`}, ${`https://tipjar-${login}.earnkit.app`}, ${db.json({ host: 'earnkit', slug: `tipjar-${login}` })}, ${keys[1]}),
       ('entered', NULL, NULL, ${wallet.toUpperCase().replace('0X', '0x')}, ${`${login}/tipjar`}, 'https://earnkit.com/p/1', '{}', ${keys[2]}),
       ('built', ${other}, 'proof_line', NULL, ${`${other}/jar`}, NULL, ${db.json({ twist: 'tips for cats' })}, ${keys[3]})`;
   // Another table that holds the login: listed, never changed.
@@ -83,6 +83,7 @@ test('12.3 --apply nulls login and wallet and drops the twist in one transaction
   }
   assert.deepEqual(by.get(s.keys[0])!.detail, { address: '0x' + '1'.repeat(40), block: 7 });
   assert.equal(by.get(s.keys[1])!.proof_url, `https://tipjar-${s.login}.earnkit.app`);
+  assert.deepEqual(by.get(s.keys[1])!.detail, { host: 'earnkit' }, 'the slug (<project>-<login>) is dropped');
   assert.deepEqual(by.get(twistKey)!.detail, { basis: 'proof_line' });
   // The other builder is untouched, twist included.
   assert.equal(by.get(s.keys[3])!.github_login, s.other);
@@ -118,20 +119,57 @@ test('12.3 bad arguments write nothing and exit 2', () => {
   }
 });
 
-test('12.3 every login or wallet column outside builder_events is listed', dbTest, async () => {
+/**
+ * Columns the loose name match finds that hold no login or wallet (reviewed by hand). Any other
+ * match must be listed by the script, so a new column can't slip past unlisted.
+ */
+const NOT_IDENTIFYING = new Set([
+  'chain_checks.award_scan_hi', // a block number
+  'sponsor_campaigns.award_source', // 'onchain' | 'plan'
+  'sponsor_campaigns.award_tx', // a transaction hash
+  'digest_subscriptions.email', // found through digest_subscriptions.login
+  'installations.client_key', // a hash of the OAuth client id
+]);
+
+test('12.3 every column whose name could hold a login, wallet, repo, link or key is listed (or reviewed as not identifying)', dbTest, async () => {
   const cols = await sql()<{ c: string }[]>`
     SELECT table_name || '.' || column_name AS c FROM information_schema.columns
-    WHERE table_schema = 'public' AND table_name <> 'builder_events'
-      AND column_name ~ '(^|_)(login|wallet)$|^github_user$|^owner$|^deployers$'`;
-  assert.ok(cols.length > 20, 'the schema is there');
+    WHERE table_schema = 'public' AND table_name <> 'builder_events' AND data_type IN ('text', 'ARRAY', 'jsonb')
+      AND column_name ~ '(login|wallet|github|owner|deployer|winner|recipient|creator|award|repo|slug|email|live_key|full_name|^key$|_key$)'
+      AND column_name !~ '^round_key$'`;
+  assert.ok(cols.length > 50, 'the schema is there');
   const r = run('--login', 'nobody-here', '--wallet', '0x' + 'f'.repeat(40));
   assert.equal(r.code, 0, r.err);
-  for (const { c } of cols) assert.match(r.out, new RegExp(`\\n  ${c.replace('.', '\\.')}: \\d+\\n`), c);
+  for (const { c } of cols) {
+    if (NOT_IDENTIFYING.has(c)) continue;
+    assert.match(r.out, new RegExp(`\\n  ${c.replace('.', '\\.')}: \\d+\\n`), c);
+  }
 });
 
-test('12.3 owner-run only: no predeploy, cron or app code runs the script', () => {
-  const pkg = readFileSync(join(root, 'package.json'), 'utf8');
-  assert.doesNotMatch(pkg, /events-redact/);
+test('12.3 the listing finds the login and wallet in rate-limit keys, and the login as the owner of a repo (never a substring)', dbTest, async () => {
+  const t = tag();
+  const login = `nm-${t}`;
+  const wallet = `0x${hex(`w${t}`)}`;
+  const db = sql();
+  await db`INSERT INTO rate_windows (key, window_start, count) VALUES (${`deployDay:${login}:arc`}, now(), 1), (${`tokenLaunchWallet:${wallet}`}, now(), 1)`;
+  await db`INSERT INTO repo_public_reads (repo_key, read_at) VALUES (${`github.com/${login}/jar`}, now()), (${`github.com/x-${login}y/jar`}, now())`;
+  const r = run('--login', login, '--wallet', wallet);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /\n  rate_windows\.key: 2\n/);
+  assert.match(r.out, /\n  repo_public_reads\.repo_key: 1\n/, 'an owner part only, never a substring');
+});
+
+test('12.3 owner-run only: no package script, predeploy, Railway config, cron or app code runs the script', () => {
+  for (const f of ['package.json', 'apps/frontend/package.json', 'railway.toml', 'apps/frontend/railway.toml'])
+    if (existsSync(join(root, f))) assert.doesNotMatch(readFileSync(join(root, f), 'utf8'), /events-redact/, f);
+  const walk = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory() ? walk(join(dir, e.name)) : /\.(ts|tsx|mts)$/.test(e.name) && !/\.test\./.test(e.name) ? [join(dir, e.name)] : [],
+    );
+  const files = ['app', 'lib'].flatMap((d) => walk(join(root, 'apps/frontend', d)));
+  assert.ok(files.length > 100, 'the walk reaches the app');
+  // A quoted path or an import (a comment naming the script is fine).
+  for (const f of files) assert.doesNotMatch(readFileSync(f, 'utf8'), /['"`][^'"`\n]*events-redact[^'"`\n]*['"`]/, f);
   const src = readFileSync(script, 'utf8');
   assert.match(src, /set_config\('earnkit\.events_redact', 'on:' \|\| txid_current\(\), true\)/);
   assert.match(src, /begin\('read only'/, 'the dry run is a read-only transaction');
