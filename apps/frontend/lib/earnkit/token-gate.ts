@@ -381,14 +381,6 @@ const defaultAppLink = (input: GateInput) => async (repoKey: string) =>
     : null;
 
 /**
- * v2.10 item 13 (R19): whether this installation proved `repoUrl` is the builder's, the way a launch
- * does minus the wallet binding: a GitHub sign-in or read-only App proof of the repo (Pre-flight
- * P11: only here and appTokenFor read App rows), else this agent's `token: <code>` proof line in the
- * repo's earnkit.txt (default branch, then the most recently pushed one). Rulings G7, G10: on a
- * shared client (`verifiedLogin` given, or the group is shared while sign-in is on) only the
- * caller's own verified login counts, and the proof line never does. Fails closed; never throws.
- */
-/**
  * v2.11 T9 security fix (I1): who put this installation's `token: <code>` line into the repo's
  * earnkit.txt, as GitHub's push record says (OwnershipDeps.pusher), lowercase; null when it can't
  * be told. Push access is not identity: only this login, when it is the repo's owner, ties the line
@@ -437,6 +429,14 @@ export async function proveRepo(a: { installationId: number; repoUrl: string }, 
   return { installationId: a.installationId, repoKey: `${gh.owner}/${gh.repo}`.toLowerCase(), lineOwner } as ProvenRepo;
 }
 
+/**
+ * v2.10 item 13 (R19): whether this installation proved `repoUrl` is the builder's, the way a launch
+ * does minus the wallet binding: a GitHub sign-in or read-only App proof of the repo (Pre-flight
+ * P11: only here and appTokenFor read App rows), else this agent's `token: <code>` proof line in the
+ * repo's earnkit.txt (default branch, then the most recently pushed one). Rulings G7, G10: on a
+ * shared client (`verifiedLogin` given, or the group is shared while sign-in is on) only the
+ * caller's own verified login counts, and the proof line never does. Fails closed; never throws.
+ */
 export async function repoOwnershipPasses(
   a: { installationId: number; repoUrl: string; verifiedLogin?: string | null },
   deps: OwnershipDeps = {},
