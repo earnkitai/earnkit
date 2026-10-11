@@ -862,7 +862,7 @@ test('5.1f only owner-approved programs carry fresh_build (Arc Microgrants is th
 
 test('final fix I4: programs:check warns (never fails) once an offered starter was tested more than 23 days ago; nothing for an unoffered or untested one', () => {
   const now = new Date('2026-11-12T12:00:00Z');
-  const programs = [{ fresh_build: { starter: 'arc-tipjar' } }, { fresh_build: { starter: 'arc-tipjar' } }, { fresh_build: null }] as Parameters<typeof starterAgeWarnings>[0];
+  const programs = [{ fresh_build: { starter: 'arc-tipjar' } }, { fresh_build: { starter: 'arc-tipjar' } }, { fresh_build: null }];
   assert.equal(STARTER_TEST_WARN_DAYS, 23);
   assert.deepEqual(starterAgeWarnings(programs, now, tested('2026-10-20')), [], '23 days: no warning yet');
   assert.deepEqual(starterAgeWarnings(programs, now, tested('2026-10-19')), [
@@ -871,7 +871,7 @@ test('final fix I4: programs:check warns (never fails) once an offered starter w
   assert.deepEqual(starterAgeWarnings(programs, now, tested('2026-10-11')), [
     'arc-tipjar tested 32 days ago (2026-10-11); it is no longer offered. Rerun its test (bash scripts/e2e.sh) and update tested_at in starters.ts.',
   ]);
-  assert.deepEqual(starterAgeWarnings([{ fresh_build: null }] as Parameters<typeof starterAgeWarnings>[0], now, tested('2026-01-01')), [], 'no program offers it');
+  assert.deepEqual(starterAgeWarnings([{ fresh_build: null }], now, tested('2026-01-01')), [], 'no program offers it');
   assert.deepEqual(starterAgeWarnings(programs, now, { 'arc-tipjar': { ...arcTipjar, tested_at: null } }), [], 'untested: freshBuildProblems already fails it');
   // The script prints it as a warning and still exits 0 when the files are valid.
   const src = readFileSync(join(import.meta.dirname, '..', '..', 'scripts', 'programs-sync.mts'), 'utf8');
