@@ -14,7 +14,7 @@ const ARC = 'arc-microgrants';
 const CONTEXT = '$1.1M+ in prizes is open right now across 7 programs.';
 const ARC_LEAD = 'Arc Microgrants pays 500 USDC and closes in 4 days. A USDC tip page on Arc takes about an hour. Want me to build it?';
 const ARC_PLAN =
-  'Arc Microgrants pays 500 USDC and closes in 4 days. A coding agent like Claude Code builds the USDC tip page in about an hour. Want the plan?';
+  'Arc Microgrants pays 500 USDC and closes in 4 days. A coding agent builds the USDC tip page in about an hour. Want the plan?';
 
 const none = { hidden: new Set<string>(), entered: new Set<string>() };
 const on = { ...none, deployOn: () => true, hostOn: true, starters: TESTED_STARTERS };
@@ -75,6 +75,15 @@ test('7.2 fail closed: deploys off, hosting off, an untested starter, an unknown
   assert.equal(freshPick(cards, NOW, { ...on, hostOn: false }), undefined);
   assert.equal(freshPick(cards, NOW, { ...none, deployOn: () => true, hostOn: true }), undefined, 'STARTERS by default: untested');
   assert.equal(STARTERS['arc-tipjar'].tested_at, null, 'the real registry stays untested until T6');
+  // Review M6: a test more than 30 days old offers nothing (tested 2026-09-10: 30 days at Oct 10).
+  const aged = (tested_at: string) => ({ ...on, starters: { 'arc-tipjar': { ...TESTED_STARTERS['arc-tipjar'], tested_at } } });
+  assert.equal(freshPick(cards, NOW, aged('2026-09-10'))?.card.id, ARC, 'exactly 30 days');
+  assert.equal(freshPick(cards, NOW, aged('2026-09-09')), undefined, '31 days');
+  // Review M1: a repo read error or a repo EarnKit can't see keeps today's reply.
+  for (const repos of [{ error: 'rate limited' }, { checked: 1, fits: [], unseen: [{ name: 'secret', full_name: 'alice/secret' }] }] as FirstMessage['repos'][]) {
+    assert.equal(freshLead(short({ cards, repos, fresh: FRESH_ON })), undefined, JSON.stringify(repos));
+    assert.equal(presentFirstMessage(short({ cards, repos, fresh: FRESH_ON })), presentFirstMessage(short({ cards, repos })));
+  }
 });
 
 test('7.3 under 24 hours left never qualifies; 1 to 2 days reads "closes tomorrow"; exactly 24 hours and exactly 14 days qualify', () => {

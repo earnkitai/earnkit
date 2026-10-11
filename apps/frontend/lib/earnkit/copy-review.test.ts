@@ -969,6 +969,12 @@ function freshTexts(): [string, string][] {
   ];
 }
 
+test('v2.11 T7 (review I1): the fresh lead, the context line and their notes name no tool or product', () => {
+  const texts: [string, string][] = [...freshTexts(), ['BUILD_NOTE', BUILD_NOTE], ['PLAN_NOTE', PLAN_NOTE]];
+  assert.equal(texts.length, 9);
+  for (const [label, text] of texts) assert.doesNotMatch(text, /Claude Code|\bClaude\b|Cursor|Codex|Grok|ChatGPT/, label);
+});
+
 const builderFacing: [string, string][] = [
   ...v29Part1Texts,
   // v2.11 T5 (5.3): a starter's "what" is builder copy (the fresh lead line).

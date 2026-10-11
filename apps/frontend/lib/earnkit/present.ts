@@ -791,8 +791,8 @@ export function usersAskLine(a: NonNullable<ReturnType<typeof usersAsk>>): strin
 /**
  * v2.11 spec 1: the no-repo lead the short first reply shows, or undefined. Only when nothing else
  * leads: not "show more", no higher question held, no entry waiting on the builder's submission
- * (submitStep), no good-odds row (leadRow), no users question (usersAsk), and no open program the
- * builder's agent is preparing (working_on). Then freshPick over the programs not hidden or entered.
+ * (submitStep), no good-odds row (leadRow), no users question (usersAsk), no open program the
+ * builder's agent is preparing (working_on), and no repo read error or repo EarnKit can't see. Then freshPick over the programs not hidden or entered.
  * Pure; tools.ts reads it for build_offer.
  */
 export function freshLead(given: FirstMessage): (FreshPick & { canBuild: boolean }) | undefined {
@@ -800,6 +800,8 @@ export function freshLead(given: FirstMessage): (FreshPick & { canBuild: boolean
   if (!on || given.more || given.holdQuestion) return undefined;
   const hidden = new Set([...(given.hidden?.notInterested ?? []), ...(given.hidden?.applied ?? [])]);
   const m: FirstMessage = hidden.size ? { ...given, cards: given.cards.filter((c) => !hidden.has(c.id)) } : given;
+  // Review M1: a repo read error or a repo EarnKit can't see may still fit; never lead past it.
+  if (m.repos && ('error' in m.repos || m.repos.unseen?.length)) return undefined;
   const entered = enteredIds(m);
   if (submitStep(m)) return undefined;
   const lead = leadRow(m, entered);
