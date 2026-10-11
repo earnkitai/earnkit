@@ -836,7 +836,7 @@ test('12.1 v2.11 /terms "What EarnKit records": login and how it was checked, wa
     'Your GitHub account age and public repo count.',
     'Repo facts and commit authors.',
     'Contract activity.',
-    'For a short time it keeps your IP address, to limit abuse.',
+    'For up to 3 days it keeps your IP address, to limit abuse.',
     'EarnKit also keeps a history of each step you ship, with its public proof:',
     'A contract deploy: its transaction and address.',
     'A hosted site: its live link.',

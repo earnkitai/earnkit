@@ -81,7 +81,7 @@ export const RECORDS_READ = [
   'Contract activity.',
 ];
 /** rate_windows keys (rate-limit.ts clientIp); old windows are deleted as new ones start. */
-export const RECORDS_IP = 'For a short time it keeps your IP address, to limit abuse.';
+export const RECORDS_IP = 'For up to 3 days it keeps your IP address, to limit abuse.';
 export const RECORDS_HISTORY = 'EarnKit also keeps a history of each step you ship, with its public proof:';
 export const RECORD_STEPS = [
   'A contract deploy: its transaction and address.',

@@ -29,6 +29,7 @@ import { stuckLaunches } from './tokens';
 import { sweepVerifyNonces } from './github-verify';
 import { DEPLOY_CAPS, deployChains, deployEnabled, deployerAddress, nativeUsd, viemDeployChain, weiToMicroUsd, type DeployDeps } from './deploy';
 import { sweepPublicReads } from './repo-cache';
+import { sweepRateWindows } from './rate-limit';
 import { withScoringLock } from './sponsor';
 import { recheckSubmissionProofs } from './submission-proof';
 import { scoreOpenRounds, type TractionDeps } from './traction';
@@ -354,11 +355,15 @@ export async function runCron(
     }
   }
   // v2.10 fix round 1: bounded cleanup of expired sign-in links and stale public repo reads.
-  let cleanup: { nonces: number; public_reads: number } | { step: 'error'; note: string } | undefined;
+  let cleanup: { nonces: number; public_reads: number; rate_windows: number } | { step: 'error'; note: string } | undefined;
   if (!opts.only || deps.cleanup) {
     try {
       const limit = deps.cleanup?.limit;
-      cleanup = { nonces: await sweepVerifyNonces(now, limit), public_reads: await sweepPublicReads(now, limit) };
+      cleanup = {
+        nonces: await sweepVerifyNonces(now, limit),
+        public_reads: await sweepPublicReads(now, limit),
+        rate_windows: await sweepRateWindows(now, limit),
+      };
     } catch (err) {
       console.error('[cron] cleanup', err instanceof Error ? err.name : 'error');
       cleanup = { step: 'error', note: STEP_FAILED };
