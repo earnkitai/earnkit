@@ -784,6 +784,8 @@ test('13.5 the metric script, owner-run and read-only, counts the journeys: shar
   assert.match(more, /^Still in their first 24 hours \(left out of the share\): 1$/m);
   assert.match(more, /^Shipped in their first 24 hours \(deployed, hosted and entered with the submit kit\): 3$/m);
   assert.match(more, /^3 of 5 no-repo builders shipped in their first session \(60%\)$/m);
+  // Final fix M2 (b): the second share counts only builds that reached a repo (the 3 journeys here).
+  assert.match(more, /^3 of 3 whose agent made the repo shipped in their first session \(100%\)$/m, more);
   // Read-only: the script changed nothing.
   const [{ n }] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_events`;
   run(later);
