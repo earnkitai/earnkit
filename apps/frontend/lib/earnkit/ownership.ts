@@ -328,7 +328,17 @@ export async function fetchLinePusher(
   hasLine: (text: string) => boolean,
   /** R4 (b): when EarnKit first showed this installation the line for this repo; null: never credited. */
   issuedAt: Date | null,
-  deps: { fetch?: typeof fetch; raw?: OwnershipFetcher; token?: string } = {},
+  deps: {
+    fetch?: typeof fetch;
+    raw?: OwnershipFetcher;
+    token?: string;
+    /**
+     * Final fix M6: whether this repo ever read as a fork or as made from a template, given this
+     * reading (token-gate.ts repoEverDerived keeps the first reading, and any later one that is
+     * set, per repo). Without it only this reading counts.
+     */
+    everDerived?: (repoKey: string, derivedNow: boolean) => Promise<boolean>;
+  } = {},
 ): Promise<string | null> {
   const token = deps.token ?? process.env.GITHUB_TOKEN;
   const raw = deps.raw ?? fetchOwnershipFile;
@@ -398,7 +408,10 @@ export async function fetchLinePusher(
     const ownWork = async (push: Push, first: boolean): Promise<boolean> => {
       const repo = (await api('')) as { fork?: unknown; template_repository?: unknown; created_at?: unknown } | null;
       const created = typeof repo?.created_at === 'string' ? Date.parse(repo.created_at) : NaN;
-      if (!repo || repo.fork !== false || (repo.template_repository !== undefined && repo.template_repository !== null) || !Number.isFinite(created)) return false;
+      if (!repo || typeof repo.fork !== 'boolean' || !Number.isFinite(created)) return false;
+      const derived = repo.fork || (repo.template_repository !== undefined && repo.template_repository !== null);
+      // Final fix M6: a fork or template flag erased later (the source deleted or made private) never clears it.
+      if (deps.everDerived ? await deps.everDerived(`${r.owner}/${r.repo}`.toLowerCase(), derived) : derived) return false;
       if (first && (push.at < created - PUSHER_WINDOW.skewMs || push.at > created + PUSHER_WINDOW.firstEventMs)) return false;
       type Commit = { parents?: unknown; commit?: { committer?: { date?: unknown } | null } | null };
       let commits: Commit[];
