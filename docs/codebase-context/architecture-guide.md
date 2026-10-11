@@ -4080,28 +4080,35 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
   - every chain: `eth_getCode` on the public RPC (`verify.ts rpcFor`), `code: true|false`;
   - Base: Blockscout counters through `verify.ts txCount` (cached 24 h in `url_checks`),
     `tx_count`, `source: 'blockscout'`;
-  - Arc with a known starter (`detail.starter`, mapped by `STARTER_USAGE_EVENTS`; today
-    `arc-tipjar` is `Tipped(address,uint256,string)`, topic `0x4f629a5f...73c2`): the starter's logs
-    over `eth_getLogs`, `ARC_LOG_CHUNK` (10,000) blocks a call from the deploy block to the head,
-    at most `ARC_LOG_MAX_CHUNKS` (50) calls. `events`, unique `senders` (the first indexed
-    argument), `from_block`, `to_block`, `source: 'rpc_logs'`, and `partial: true` when the range
-    was longer (or the cron's deadline came first; the blocks read are kept). The deploy block is `detail.block`; a pre-v2.11 event without one reads it from the
-    deploy's receipt (`proof_tx`). explorer.arc.io's API is behind a Cloudflare challenge, so it is
-    not used;
+  - Arc with a known starter (`detail.starter`, mapped by `STARTER_USAGE`, the read rule T5
+    folds into `STARTERS`: `{ usage_event, usage_read: 'recent_logs' }`; today `arc-tipjar` is
+    `Tipped(address,uint256,string)`, topic `0x4f629a5f...73c2`): the chain-kits `UsdcTipJar`
+    keeps no running total (only `owner`, `USDC` and `tip`, and each tip goes straight to the
+    owner, so the balance says nothing), and a whole 30 or 90 days is 510 to 1,530 calls. So the
+    check counts the starter's logs over the RECENT window only: `recentChunks`, the last
+    `ARC_LOG_MAX_CHUNKS` (50) ranges of `ARC_LOG_CHUNK` (10,000) blocks ending at the head, about
+    the last 2.9 days. It writes `recent: { window: 'recent', blocks, from_block, to_block, tips,
+    unique }` (unique = distinct first indexed arguments, Tipped's `from`), with `partial: true` when
+    the cron's deadline came first (the blocks read are kept), and `source: 'rpc_logs'`. It answers
+    "is it still used", never a 30 or 90 day total. The deploy block isn't needed (checks are 30+
+    days after it). explorer.arc.io's API is behind a Cloudflare challenge, so it is not used;
   - Arc without a known starter: `eth_getCode` only, `source: 'rpc_code'`.
 - **Arc RPC facts** (rpc.mainnet.arc.io, 2026-10-10): chain id 5042; `eth_getLogs` answers a
   10,000-block range (inclusive) and refuses 10,001 with `-32012 requested range too large`; no rate
-  limit is stated in docs.arc.io. Arc makes about 2 blocks a second, so 50 chunks cover about the
-  first 2.9 days after a deploy: an Arc check of a used starter is partial, and says so.
+  limit is stated in docs.arc.io. Arc makes about 2 blocks a second.
 - **What it writes.** One `usage_check` per deploy and window (dedupe key
   `usage:<deployed event id>:<30|90>`), with the deploy's chain, installation, repo, wallet, login
-  and basis, program and project, `at = now`, and `detail: { window, deployed_event, address, code,
-  source, tx_count? | events?, senders?, from_block?, to_block?, partial? }`. A failed read writes
-  nothing, counts as `failed`, logs `[events] usage_check <ErrorName>` only, and is read again on the
-  next daily run.
+  and basis, program and project, `at = now`, and `detail: { window: 30|90, deployed_event, address,
+  code, source, tx_count? (Base) | recent? (Arc starter) }`. A failed read writes nothing, counts as
+  `failed`, logs `[events] usage_check <ErrorName>` only, and is read again on the next daily run.
+- **Failures in a row** (`usage_check_failures`, a plain counter table outside the append-only log:
+  `deployed_event_id`, `failures`, `last_failed_at`): each failed check adds one; a pass deletes the
+  row. After `USAGE_SKIP_AFTER` (5) failures in a row the deploy sits out `USAGE_SKIP_DAYS` (7) from
+  its last failure, so permanently failing deploys never take the 20 slots from newer ones; after
+  that it is read again, and one more failure skips it another 7 days.
 - **Reads in production** use a key-free viem public client per chain (10 s timeout, no retry),
-  separate from the deployer's client. Tests pass `getCode`, `blockscout`, `arcHead`, `arcLogs`
-  and `receiptBlock` stubs; none reaches the network.
+  separate from the deployer's client. Tests pass `getCode`, `blockscout`, `arcHead` and `arcLogs`
+  stubs; none reaches the network.
 
 ## v2.11 Terms disclosure and redaction (Task 12, spec 9, owner decision 6)
 

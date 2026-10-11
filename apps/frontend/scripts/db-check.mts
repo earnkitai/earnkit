@@ -714,5 +714,11 @@ ok(evBadType, 'builder_events refuses a type outside the list');
 const evDup = await db`INSERT INTO builder_events (type, dedupe_key) VALUES ('built', 'built:alice/tipjar:p')`.then(() => false, () => true);
 ok(evDup, 'builder_events holds one row per dedupe_key');
 
+// v2.11 T11: the usage checks' failure counter.
+const ucf = await db<{ column_name: string }[]>`
+  SELECT column_name FROM information_schema.columns WHERE table_name = 'usage_check_failures' ORDER BY column_name`;
+ok(JSON.stringify(ucf.map((c) => c.column_name)) === '["deployed_event_id","failures","last_failed_at"]',
+  'usage_check_failures has deployed_event_id, failures and last_failed_at');
+
 await db.end();
 console.log(`db check: ${checks} checks passed`);
