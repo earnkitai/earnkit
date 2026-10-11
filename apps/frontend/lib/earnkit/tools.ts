@@ -75,7 +75,7 @@ import {
   prepareSubmission,
 } from './submission';
 import { OWNERSHIP_FILE } from './ownership';
-import { DEPLOY_LINES, deployForBuilder, type DeployDeps, type DeployInput } from './deploy';
+import { DEPLOY_LINES, deployChains, deployForBuilder, deployOffLine, deployOffNote, type DeployDeps, type DeployInput } from './deploy';
 import {
   CANT_PUSH_RETRY_NOTE,
   STILL_CHECKING_LAUNCH,
@@ -2234,6 +2234,11 @@ async function deployStep(
   ctx: ToolContext,
 ): Promise<{ line: string; deploy: Reply; agent_note?: string }> {
   const shared = ctx.sharedClient === true;
+  // v2.10.3: a chain left out of DEPLOY_CHAINS is refused first, before the wallet ask or any read.
+  if (!deployChains().includes(d.chain)) {
+    const line = deployChains().length ? deployOffLine(d.chain) : DEPLOY_LINES.off;
+    return { line, deploy: { unavailable: line }, agent_note: deployOffNote(d.chain) };
+  }
   // Final fix M3: a shared client deploys only with GitHub sign-in on (its limits and proof need the
   // caller's own login, never the repo key or the agent-wide proof).
   if (shared && !githubVerifyEnabled())

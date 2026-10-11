@@ -615,4 +615,15 @@ test('final fix M4: prepare lists deploy only while deploys are on', async () =>
   assert.equal(await deployProp('not-a-key'), undefined, 'a malformed key: no deploy field');
   const on = await deployProp('5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a');
   assert.match(JSON.stringify(on), /EarnKit pays the gas/);
+  // v2.10.3: DEPLOY_CHAINS naming no chain EarnKit deploys on: no deploy field either.
+  const oldChains = process.env.DEPLOY_CHAINS;
+  process.env.DEPLOY_CHAINS = 'nowhere';
+  try {
+    assert.equal(await deployProp('5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a'), undefined, 'no chain on: no deploy field');
+    process.env.DEPLOY_CHAINS = 'base';
+    assert.match(JSON.stringify(await deployProp('5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a')), /EarnKit pays the gas/);
+  } finally {
+    if (oldChains === undefined) delete process.env.DEPLOY_CHAINS;
+    else process.env.DEPLOY_CHAINS = oldChains;
+  }
 });

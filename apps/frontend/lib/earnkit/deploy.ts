@@ -216,6 +216,34 @@ export function deployEnabled(env: Record<string, string | undefined> = process.
   return false;
 }
 
+const DEPLOY_CHAIN_NAMES = ['arc', 'base'] as const satisfies readonly DeployChainName[];
+let chainsWarned = false;
+/**
+ * v2.10.3: the chains EarnKit deploys on, from DEPLOY_CHAINS (comma-separated, any case, from arc and
+ * base). Unset or blank: both. An entry that is neither is ignored and logged once, by the variable's
+ * name only, never its value. Nothing valid left: no chain. Never throws.
+ */
+export function deployChains(env: Record<string, string | undefined> = process.env): DeployChainName[] {
+  const raw = env.DEPLOY_CHAINS?.trim();
+  if (!raw) return [...DEPLOY_CHAIN_NAMES];
+  const asked = raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+  if (asked.some((e) => !(DEPLOY_CHAIN_NAMES as readonly string[]).includes(e)) && !chainsWarned) {
+    console.error('[deploy] DEPLOY_CHAINS: ignored an entry that is not arc or base.');
+    chainsWarned = true;
+  }
+  return DEPLOY_CHAIN_NAMES.filter((c) => asked.includes(c));
+}
+
+/** v2.10.3: deploys are on for `c`: deployEnabled and `c` in DEPLOY_CHAINS. Never throws. */
+export function deployChainOn(c: DeployChainName, env: Record<string, string | undefined> = process.env): boolean {
+  return deployChains(env).includes(c) && deployEnabled(env);
+}
+
+/** v2.10.3: the builder's line for a deploy on a chain EarnKit doesn't deploy on. */
+export const deployOffLine = (c: DeployChainName) => `Deploys on ${CHAIN_NAMES[c]} are off right now.`;
+/** v2.10.3: the agent's note with deployOffLine. */
+export const deployOffNote = (c: DeployChainName) => `EarnKit doesn't deploy on ${CHAIN_NAMES[c]} right now. Don't retry it there.`;
+
 /** The chain reads and the two writes a deploy needs; replaced in tests. */
 export type DeployChain = {
   /**
@@ -292,8 +320,9 @@ export const TRANSFER_ABI = [
 ] as const satisfies Abi;
 const DEFAULT_ADMIN_ROLE = `0x${'00'.repeat(32)}` as Hex;
 
-/** The viem DeployChain for `c`, or null (deploys off, or no RPC for the chain). */
+/** The viem DeployChain for `c`, or null (deploys off, `c` not in DEPLOY_CHAINS, or no RPC for the chain). */
 export function viemDeployChain(c: DeployChainName): DeployChain | null {
+  if (!deployChains().includes(c)) return null;
   let account: LocalAccount | null;
   try {
     account = deployerAccount();
@@ -418,6 +447,10 @@ export async function deployForBuilder(
   const refused = (line: string) => ({ status: 'refused' as const, show_to_builder: line });
   const paused = (agent_note?: string): DeployOutcome => ({ status: 'unavailable', show_to_builder: DEPLOY_LINES.lowBalance, ...(agent_note && { agent_note }) });
   if (!deployEnabled() || (c !== 'arc' && c !== 'base')) return { status: 'unavailable', show_to_builder: DEPLOY_LINES.off };
+  // v2.10.3: a chain left out of DEPLOY_CHAINS is refused here, before any read or reservation.
+  const on = deployChains();
+  if (!on.length) return { status: 'unavailable', show_to_builder: DEPLOY_LINES.off };
+  if (!on.includes(c)) return { status: 'unavailable', show_to_builder: deployOffLine(c), agent_note: deployOffNote(c) };
   const chain = (deps.chain ?? viemDeployChain)(c);
   const deployer = deployerAccount()!.address;
   if (!chain) return { status: 'unavailable', show_to_builder: DEPLOY_LINES.off };

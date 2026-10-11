@@ -26,6 +26,8 @@ const CLEARED = [
   'GITHUB_APP_PRIVATE_KEY',
   // v2.10 item 13: EarnKit's contract deployer (a test that needs it on sets an anvil dev key).
   'DEPLOYER_PRIVATE_KEY',
+  // v2.10.3: the deploy chains (unset is both; a test that narrows them sets its own).
+  'DEPLOY_CHAINS',
 ];
 for (const name of CLEARED) delete process.env[name];
 

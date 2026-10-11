@@ -5,7 +5,7 @@ import { CHAINS } from './match';
 import { GitHubError } from './match-projects';
 import { NotFoundError } from './programs';
 import { EntryError } from './campaigns';
-import { deployEnabled } from './deploy';
+import { deployChains, deployEnabled } from './deploy';
 import { escrowConfigProblem } from './escrow';
 import { RateLimitError } from './rate-limit';
 import { SanctionsError } from './sanctions';
@@ -211,7 +211,7 @@ const SIGNED_IN = z
 const CHECK =
   'true only when checking back after "Your token is launching": it reads the result and never starts a launch';
 
-/** v2.10 item 13: prepare's `deploy` (registered only while deployEnabled(), final fix M4). */
+/** v2.10 item 13: prepare's `deploy` (registered only while deployEnabled(), final fix M4, and DEPLOY_CHAINS names a chain, v2.10.3). */
 const DEPLOY_SCHEMA = z
   .object({
     chain: z.enum(['arc', 'base']),
@@ -338,7 +338,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
         signed_in: SIGNED_IN,
         // v2.10 item 13: EarnKit deploys the builder's contract (Arc or Base), the builder as owner.
         // Final fix M4: advertised only while deploys are on (as sponsor_campaign with escrow).
-        ...(deployEnabled() && { deploy: DEPLOY_SCHEMA }),
+        ...(deployEnabled() && deployChains().length > 0 && { deploy: DEPLOY_SCHEMA }),
       },
       // v2.10 item 13: with deploy, prepare sends a transaction.
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
