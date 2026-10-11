@@ -26,7 +26,7 @@ import { r2Enabled, type R2 } from './r2';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
 import { stuckLaunches } from './tokens';
 import { sweepVerifyNonces } from './github-verify';
-import { DEPLOY_CAPS, deployEnabled, deployerAddress, nativeUsd, viemDeployChain, weiToMicroUsd, type DeployDeps } from './deploy';
+import { DEPLOY_CAPS, deployChains, deployEnabled, deployerAddress, nativeUsd, viemDeployChain, weiToMicroUsd, type DeployDeps } from './deploy';
 import { sweepPublicReads } from './repo-cache';
 import { withScoringLock } from './sponsor';
 import { recheckSubmissionProofs } from './submission-proof';
@@ -442,7 +442,8 @@ export async function runCron(
 export const QUIET_OWNER = ':quiet';
 
 /**
- * v2.10 item 13 (R18): while deploys are on, the deployer's balance on Arc and Base (one read each),
+ * v2.10 item 13 (R18): while deploys are on, the deployer's balance on each chain in DEPLOY_CHAINS
+ * (v2.10.3; unset is Arc and Base; one read each),
  * priced like a deploy; under one capped deploy's worth ($0.25) adds `deployer-gas:<chain>` (note
  * TOP_UP: the owner tops it up by hand); a failed price or balance read adds `deployer-price:<chain>`
  * (note PRICE_UNKNOWN, fix round 1 M3). Always: the last 7 days' deploys whose owner isn't the builder
@@ -455,7 +456,7 @@ export async function deployerGas(now: Date, deps: Pick<DeployDeps, 'chain' | 'u
   const deployer_gas: Record<string, { usd?: number; note?: string }> = {};
   const address = deployEnabled() ? deployerAddress() : null;
   if (address)
-    for (const c of ['arc', 'base'] as const) {
+    for (const c of deployChains()) {
       const chain = (deps.chain ?? viemDeployChain)(c);
       if (!chain) continue;
       try {

@@ -3964,6 +3964,31 @@ test('10.11 prepare with deploy: off without DEPLOYER_PRIVATE_KEY (no chain read
   }
 });
 
+test('v2.10.3 prepare with an Arc deploy while DEPLOY_CHAINS=base: refused cleanly, before the wallet ask, the login read or any chain', dbTest, async () => {
+  const f = committedProgram('arc-microgrants');
+  const stamp = `${process.pid}-${Date.now()}`;
+  Object.assign(f, { id: `t1003-arc-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' });
+  await upsertProgram(ProgramFile.parse(f));
+  const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t1003-${stamp}`}) RETURNING id`;
+  let touched = 0;
+  const names = ['DEPLOYER_PRIVATE_KEY', 'DEPLOY_CHAINS'];
+  const old = names.map((n) => process.env[n]);
+  process.env.DEPLOYER_PRIVATE_KEY = '5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a';
+  process.env.DEPLOY_CHAINS = 'base';
+  try {
+    const r = (await tools.prepare(
+      { program_id: f.id, project: { name: 'TipJar', repo_url: 'https://github.com/alice/tipjar' }, deploy: { chain: 'arc', bytecode: '0x6060', abi: [] } },
+      { installationId: id, deployDeps: { chain: () => ((touched++), null), installationLogin: async () => ((touched++), 'alice') } },
+    )) as { deploy: unknown; show_to_builder: string; agent_note?: string };
+    assert.deepEqual(r.deploy, { unavailable: 'Deploys on Arc are off right now.' });
+    assert.ok(r.show_to_builder.endsWith('Deploys on Arc are off right now.'), r.show_to_builder);
+    assert.equal(touched, 0, 'no login read, no chain');
+  } finally {
+    names.forEach((n, i) => (old[i] === undefined ? delete process.env[n] : (process.env[n] = old[i])));
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${f.id}`;
+  }
+});
+
 test('10.11 prepare with deploy and no wallet known: the reply asks for the owner wallet in one line', dbTest, async () => {
   const f = committedProgram('arc-microgrants');
   const stamp = `${process.pid}-${Date.now()}`;

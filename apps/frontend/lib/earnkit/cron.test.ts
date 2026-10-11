@@ -531,6 +531,30 @@ test('v2.9 D17 bonusWaitsOnOwner: a low gas balance, or a claim or collect out o
 
 // ---- v2.10 item 13: the deployer's gas
 
+test('v2.10.3 DEPLOY_CHAINS=base: the cron reads Base only and never lists deployer-gas:arc', db, async () => {
+  const reads: string[] = [];
+  const chainOf = (c: 'arc' | 'base') => ({
+    balance: async () => {
+      reads.push(c);
+      return 0n; // empty on both: only an enabled chain may be flagged
+    },
+  }) as unknown as import('./deploy').DeployChain;
+  const deps = { refreshFees: async () => 0, deployer: { chain: chainOf, usdPerNative: async () => 1 } };
+  const tag = `t1003-gas-${process.pid}`;
+  const names = ['DEPLOYER_PRIVATE_KEY', 'DEPLOY_CHAINS'] as const;
+  const old = names.map((n) => process.env[n]);
+  process.env.DEPLOYER_PRIVATE_KEY = '5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a';
+  process.env.DEPLOY_CHAINS = 'base';
+  try {
+    const on = await runCron({ deps, only: [tag] });
+    assert.deepEqual(reads, ['base']);
+    assert.ok(on.needs_owner.includes('deployer-gas:base'));
+    assert.ok(!on.needs_owner.some((k) => k.endsWith(':arc')), on.needs_owner.join(','));
+  } finally {
+    names.forEach((n, i) => (old[i] === undefined ? delete process.env[n] : (process.env[n] = old[i])));
+  }
+});
+
 test('10.12 deployerGas: with the deployer on, each balance is read once a run and a chain under $0.25 is TOP_UP; off, no read', db, async () => {
   const reads: string[] = [];
   const chainOf = (c: 'arc' | 'base') => ({

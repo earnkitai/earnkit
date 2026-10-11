@@ -9,8 +9,11 @@ import {
   DEPLOY_PENDING,
   DEPLOY_UNCONFIRMED,
   TRANSFER_GAS,
+  deployChainOn,
+  deployChains,
   deployEnabled,
   deployForBuilder,
+  deployOffLine,
   deployRefusal,
   deployedLine,
   deployerAccount,
@@ -861,4 +864,77 @@ test('fix round 2 (N5): a deploy priced with an ETH price outside the band is re
     assert.equal(calls.send.length, 0);
     assert.equal((await rowsOf(s.repoKey)).length, 0);
   }),
+);
+
+// ---- v2.10.3: DEPLOY_CHAINS (the chains EarnKit deploys on)
+
+test('v2.10.3 deployChains: unset or blank is both; "base, ARC " is normalized; garbage is ignored and logged once by name only', () => {
+  assert.deepEqual(deployChains({}), ['arc', 'base']);
+  assert.deepEqual(deployChains({ DEPLOY_CHAINS: '  ' }), ['arc', 'base'], 'blank is unset');
+  assert.deepEqual(deployChains({ DEPLOY_CHAINS: 'base' }), ['base']);
+  assert.deepEqual(deployChains({ DEPLOY_CHAINS: 'base, ARC ' }), ['arc', 'base']);
+  assert.deepEqual(deployChains({ DEPLOY_CHAINS: 'base,base,,' }), ['base'], 'repeats and empty entries are dropped');
+  const logged: string[] = [];
+  const orig = console.error;
+  console.error = (...a: unknown[]) => void logged.push(a.map(String).join(' '));
+  try {
+    assert.deepEqual(deployChains({ DEPLOY_CHAINS: 'base,s3cr3t-junk' }), ['base']);
+    assert.deepEqual(deployChains({ DEPLOY_CHAINS: 'ethereum' }), [], 'only garbage: no chain');
+    assert.deepEqual(deployChains({ DEPLOY_CHAINS: 'base,s3cr3t-junk' }), ['base']);
+  } finally {
+    console.error = orig;
+  }
+  assert.equal(logged.length, 1, logged.join('\n'));
+  assert.match(logged[0], /DEPLOY_CHAINS/);
+  assert.ok(!logged[0].includes('s3cr3t') && !logged[0].includes('ethereum'), logged[0]);
+});
+
+test('v2.10.3 deployChainOn: the key and the chain both on', () => {
+  const env = { DEPLOYER_PRIVATE_KEY: DEPLOYER_KEY };
+  assert.equal(deployChainOn('arc', env), true);
+  assert.equal(deployChainOn('base', env), true);
+  assert.equal(deployChainOn('arc', { ...env, DEPLOY_CHAINS: 'base' }), false);
+  assert.equal(deployChainOn('base', { ...env, DEPLOY_CHAINS: 'base' }), true);
+  assert.equal(deployChainOn('base', { DEPLOY_CHAINS: 'base' }), false, 'no key: off');
+});
+
+test('v2.10.3 DEPLOY_CHAINS=base: no Arc client; the Base client is still made', () =>
+  withDeployer(async () => {
+    assert.equal(viemDeployChain('arc'), null);
+    assert.notEqual(viemDeployChain('base'), null);
+  }, { DEPLOY_CHAINS: 'base' }),
+);
+
+test('v2.10.3 DEPLOY_CHAINS=base: an Arc deploy is refused cleanly before any read; no chain on is the plain off line', () =>
+  withDeployer(async () => {
+    const { chain, calls } = fakeChain();
+    let made: string[] = [];
+    const out = await deployForBuilder(call({ installationId: 1, repoKey: 'a/b' }, input({ chain: 'arc' })), deps(chain, { chain: (c) => ((made.push(c)), chain) }));
+    assert.deepEqual(out, { status: 'unavailable', show_to_builder: deployOffLine('arc'), agent_note: "EarnKit doesn't deploy on Arc right now. Don't retry it there." });
+    assert.equal(out.show_to_builder, 'Deploys on Arc are off right now.');
+    assert.deepEqual(made, [], 'no Arc client asked for');
+    assert.equal(calls.estimate + calls.balance + calls.simulate + calls.send.length, 0);
+    made = [];
+    const none = await withDeployer(() => deployForBuilder(call({ installationId: 1, repoKey: 'a/b' }), deps(chain, { chain: (c) => ((made.push(c)), chain) })), { DEPLOY_CHAINS: 'nope' });
+    assert.deepEqual(none, { status: 'unavailable', show_to_builder: DEPLOY_LINES.off }, 'no chain on: the plain off line');
+    assert.deepEqual(made, []);
+  }, { DEPLOY_CHAINS: 'base' }),
+);
+
+test('v2.10.3 DEPLOY_CHAINS=base: deployerGas reads Base only, so a low Arc wallet is never deployer-gas:arc', dbTest, () =>
+  withDeployer(async () => {
+    const asked: string[] = [];
+    const chainOf = (c: 'arc' | 'base') => {
+      asked.push(c);
+      return { balance: async () => (c === 'arc' ? 0n : 5n * 10n ** 18n) } as unknown as DeployChain;
+    };
+    const gas = await deployerGas(new Date(), { chain: chainOf, usdPerNative: async () => 1 });
+    assert.deepEqual(asked, ['base']);
+    assert.deepEqual(gas.deployer_gas, { base: { usd: 5 } });
+    assert.ok(!gas.needs_owner.some((k) => k.includes(':arc')), gas.needs_owner.join(','));
+    asked.length = 0;
+    const unset = await withDeployer(() => deployerGas(new Date(), { chain: chainOf, usdPerNative: async () => 1 }), { DEPLOY_CHAINS: '' });
+    assert.deepEqual(asked.sort(), ['arc', 'base'], 'unset: both, as before');
+    assert.ok(unset.needs_owner.includes('deployer-gas:arc'));
+  }, { DEPLOY_CHAINS: 'base' }),
 );
