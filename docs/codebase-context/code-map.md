@@ -1045,6 +1045,15 @@ apps/frontend/
                                on the slow deploy, then the check-back), a repo is never led with speedrun,
                                no Arc dead end without a repo, the returning recap with no re-offer, and
                                no "open this in Claude Code or Cursor" for an agent that can push
+    v211-journey.test.ts       v2.11 Task 13 DB-gated success-metric journey in its own throwaway database:
+                               real program files, starter registry and switches (deployer key and R2 set
+                               in the file only); fakes for GitHub (account, repos, push record, earnkit.txt),
+                               DeployChain, R2, the probe, the logo and tokens.fun. 13.0 the registry is
+                               fresh; 13.1 a no-repo connection: one yes, the twist, deploy and host, the
+                               joined live/deployed/confirm reply, yes, the kit, tell submitted (every line
+                               exact; built, deployed, hosted, entered, submitted once each, proof_line);
+                               13.2 a rerun writes nothing; 13.4 skip the token, the Pages fallback, fail
+                               closed (v2.10.2 byte for byte); 13.3 the sweep; 13.5 v211-metric.mts
     v210-journey.test.ts       v2.10 Task 11 DB-gated journeys through the 4 tools, in their own throwaway
                                database: 11.0 the owner's run (private tokens.fun and EarnKit repos from the
                                local view, a public tipjar, one lead line, the guide on the pick, the Arc
@@ -1324,16 +1333,17 @@ apps/frontend/
                                github_verify_nonces.login/account_created_at/public_repos/seed,
                                github_verifications.via ('oauth' | 'app') and github_installation_id,
                                repo_public_reads (H6), token_offers.offered_wallet, contract_deploys)
-                               v2.11 Task 2: builder_events (append-only event log, dedupe_key UNIQUE, no FKs;
-                               trigger builder_events_append_only() refuses UPDATE/DELETE/TRUNCATE; the owner
-                               redaction may only null login/wallet and change detail, with earnkit.events_redact
-                               = 'on:<current txid>'),
-                               installations.fresh_offer_at and installations.build,
-                               v2.11 Task 11: usage_check_failures (failed usage checks in a row per deployed event)
-                               v2.11 T5: programs.fresh_build (jsonb, the program file's fresh_build; NULL when unset)
-                               v2.11 T9: host_upload_tokens.basis and host_deploys.basis (signin | app | proof_line)
-                               v2.11 T9 security fix: contract_deploys.line_owner, contract_deploys_repo_day and _wallet_day indexes;
-                               proof_line_issues (installation_id, repo_key, first_at: the line's first issue, R4)
+                               v2.11 (all additive): the table builder_events (append-only event log,
+                               dedupe_key UNIQUE, no FKs; trigger builder_events_append_only() refuses
+                               UPDATE/DELETE/TRUNCATE; the owner redaction may only null login/wallet and
+                               change detail, with earnkit.events_redact = 'on:<current txid>');
+                               usage_check_failures (failed usage checks in a row per deployed event);
+                               proof_line_issues (installation_id, repo_key, first_at: the line's first issue).
+                               Columns: installations.fresh_offer_at (the metric's start, set once) and
+                               installations.build (the build in progress, S6); programs.fresh_build (jsonb);
+                               host_upload_tokens.basis and host_deploys.basis (signin | app | proof_line);
+                               contract_deploys.owner_wallet, block, code_differs, line_owner; indexes
+                               contract_deploys_repo_day and _wallet_day, submissions_project
   scripts/                     db-migrate.mts, programs-sync.mts (load .env.local); v2.7: programs-sync
                                writes the guide columns; --check (pnpm programs:check) also checks each logo file
                                (logo-check.ts) and the required items' todo; v2.8 Task 12: also validates
@@ -1341,6 +1351,10 @@ apps/frontend/
                                v28-complete-at-window.mts: the Ruling C7 ship step (dry run by default)
                                events-backfill.mts: v2.11 T3, the owner's one-off event backfill (needs
                                EARNKIT_EVENT_LOG=on; never predeploy or cron)
+                               v211-metric.mts: v2.11 T13, the success metric, shown, never a target
+                               (owner-run, read-only; never predeploy or cron): of no-repo builders who said
+                               yes to the build (fresh_offer_at, not shared, installations.build set), the
+                               share with deployed, hosted and entered within 24 h of the lead (--as-of)
                                events-redact.mts: v2.11 T12, the owner's redaction of one builder's login
                                and wallet in builder_events (--login/--wallet, dry run unless --apply);
                                lists the main other tables, keys and repo columns holding them, never changes them (lib/earnkit/
@@ -1434,6 +1448,11 @@ v2.5: the bonus wallet's address for traction's exclusions; default derived from
 agents; their entries are never scored, ranked or paid, show as "Test entry: not ranked", and
 stay out of `/api/stats`; malformed parts ignored with one warning). `GITHUB_TOKEN` is also the
 coin gate's `earnkit.txt` read (contents API) since v2.6.
+v2.11 (each off when unset): `DEPLOYER_PRIVATE_KEY` (deploys; with it the no-repo lead and the build
+path run, hosting on GitHub Pages without R2), `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`,
+`R2_SECRET_ACCESS_KEY`, `R2_BUCKET` and `EARNKIT_RESERVED_SUBDOMAINS` (EarnKit hosting, optional),
+`EARNKIT_EVENT_LOG=on` (the event log and usage checks; only once `/terms#what-earnkit-records` is
+live). The owner's go-live order is in the architecture guide's v2.11 section.
 Test only: `EARNKIT_BLOCKSCOUT_URL` and `EARNKIT_OWNERSHIP_BASE_URL` (honored only when NODE_ENV is
 development or test).
 

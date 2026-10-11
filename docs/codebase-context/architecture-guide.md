@@ -3982,508 +3982,308 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
   lead's repo is a starter without real use (a starter's lead never outranks a real product's
   question). It takes `now` (tools.ts passes `first.now`).
 
-## v2.11 The builder event log (Task 2, spec 6)
+## v2.11 One yes to a shipped entry (Tasks 1 to 13)
 
-- **Table.** `builder_events` (db/schema.sql) records one row per thing a builder shipped: `built`,
-  `deployed`, `hosted`, `entered`, `submitted`, `won`, `lost`, `usage_check`, with the login and how
-  it was checked (`login_basis`), the wallet the builder gave, the repo, the program and a public
-  proof (`proof_tx`, `proof_url`). No FKs, so deleting an installation, program or project never
-  removes history. `dedupe_key` is UNIQUE; every write is `ON CONFLICT DO NOTHING`, so retries and
-  backfills never double-count.
-- **Append-only.** The trigger function `builder_events_append_only()` backs two triggers: a row
-  trigger (BEFORE UPDATE OR DELETE) and a statement trigger (BEFORE TRUNCATE). All raise. The one
-  exception is the owner-run redaction script (T12, `scripts/events-redact.mts`): inside one
-  transaction it runs `SELECT set_config('earnkit.events_redact', 'on:' || txid_current(), true)`,
-  then UPDATEs one builder's rows. The trigger accepts only a value bound to the current
-  transaction id, so a session-level `SET`, a connection option or a value left over from an
-  earlier transaction (for example on a pooled connection) never opens the table. Under redaction an
-  UPDATE may only null `github_login` and `wallet` and change `detail` (blank the twist); any other
-  column change raises. DELETE and TRUNCATE are never allowed. This guards against app code paths,
-  not a hostile role: on Neon's single role the app owns the table and could drop the trigger, so
-  real role-level enforcement needs a second owner role (an owner decision). App code never touches
-  the setting: `events.test.ts` scans `lib/` and `app/` for it, for UPDATE, DELETE, TRUNCATE or
-  ALTER TABLE on the table, for DROP/DISABLE TRIGGER and for `session_replication_role`. A setting
-  is used instead of `ALTER TABLE ... DISABLE TRIGGER`, which would lock out the app's inserts and
-  turn the guard off for every session while the script runs.
-- **Writer.** `events.ts recordEvent(e, db?)` is the only writer. It checks the event with zod,
-  lowercases login, wallet and repo key, stores a `detail` over 2 KB of JSON (or one that can't be
-  serialized) as `{ truncated: true }`, takes an optional `at` (the backfill passes the original
-  time; live writes get `now()`), and returns true only when a row was written. `dedupe_key` may be
-  up to 2100 characters, so `hosted:gh:<url>` fits. A failure is logged as `[events] <type> <ErrorName>`
-  (no values) and returns false, so it never fails the builder's step.
-- **Off by default.** `recordEvent` writes nothing unless `EARNKIT_EVENT_LOG=on` (`test-guard.ts`
-  clears it, so a test turns it on itself). Turn it on only
-  after the `/terms` "What EarnKit records" section (T12) is live. T3 wires the writes.
-- **Also added (for later tasks):** `installations.fresh_offer_at` and `installations.build` (S6).
+A builder with no repo that fits says yes once and ends with a contract deployed on Arc that they
+own, a live link, a ready entry and the submit kit. The agent builds; EarnKit picks the program,
+checks the agent's work, deploys, hosts, drafts the entry and records each step. Every part fails
+closed: with deploys off the builder sees v2.10's reply byte for byte. Spec and plan:
+`docs/design-docs-and-implementation-plans/v2.11-one-yes.md` and `v2.11-one-yes-plan.md`.
 
-## v2.11 Every shipped step writes its event (Task 3, spec 6)
+### The path, as the builder sees it (`v211-journey.test.ts` 13.1)
 
-- **`noteEvent(type, build)`** (events.ts) is how a step writes. `build` runs only while
-  `EARNKIT_EVENT_LOG=on`, so an off log costs no read. The step waits at most `EVENT_WAIT_MS` (1 s);
-  a slower write finishes in the background. Any failure, building or writing, logs
-  `[events] <type> <ErrorName>` and the step's reply is unchanged. `eventDbForTests` is the test
-  seam that makes writes fail.
-- **The writers:**
+| Call (agent) | Builder sees |
+|---|---|
+| `find { github_user }`, no repo fits | `$1.1M+ in prizes is open right now across 7 programs.` / `Arc Microgrants pays 500 USDC and closes in 3 days. A USDC tip page on Arc takes about an hour. Want me to build it?` |
+| the yes: `prepare { build: { start: true, program_id } }` | `What should it do for you or your users? One line is enough, like "tips for my podcast listeners". Add the wallet that should own it.` |
+| the answer: `prepare { build: { program_id, twist, name, description, feature, for_whom, wallet } }` | `Building PodTips: a USDC tip page on Arc for your podcast listeners. I'll be back with the live link.` |
+| the same with `repo_url` (for the earnkit.txt line) | nothing |
+| `prepare { project, deploy, host: true, build: { program_id } }` | nothing (the deployed line waits) |
+| the upload to `host.upload_url` | nothing (its own live line waits; the agent is told) |
+| `prepare { project: { ..., live_url }, build: { program_id } }` | `PodTips is live: podtips-<login>.earnkit.com` / `PodTips is deployed on Arc: 0x0000…11ce. You're the owner.` / `Yes submits your entry and launches $PODTIP (PodTips): 40% of its fees to you, plus the builder bonus. Wallet: 0x12ab…9f3e. yes / skip the token` |
+| `confirm { yes: true, wallet, token }` | `Your token $PODTIP is live: tokens.fun/coin/0x….` then the DoraHacks kit (copy and paste; the builder clicks submit) |
+| `tell { submitted }` | `Entered in Arc Microgrants. Your token: ….` / `Send me your dorahacks.io entry link to join the builder bonus.` / the bonus line |
 
-  | Event | Step | dedupe_key | Proof and detail |
+"skip the token" instead of yes: `No token, no builder bonus.` then the same kit; the entry is just as
+ready. Hosting off (no R2): the live line is `PodTips is live: <login>.github.io/podtips`. At most one
+`?` per reply, "40%" once per flow, no address outside the deployed line, no wallet the builder didn't
+give. Events: `built`, `deployed`, `hosted`, `entered`, `submitted`, once each.
+
+### The no-repo lead (T7, spec 1)
+
+- **When.** The short first reply (`present.ts presentFirstMessage`, not "show more") gets this lead
+  only when nothing else leads: no good-odds row (`leadRow`), no entry waiting on the builder's
+  submission (`submitStep`), no users question (`usersAsk`), no held question, no open program the
+  agent is preparing (`working_on`), no repo read error or repo EarnKit can't see. Then
+  `freshLead(given)` asks `fresh-build.ts freshPick`, and a pick replaces v2.10's "No repo fits yet.
+  $X is open; want the 3 easiest?" with `contextLine` (the site's money figure over the same programs
+  `pool.ts openCurated` sums) and `freshLeadLine`. Chat-only and shared clients get "... A coding
+  agent builds the USDC tip page in about an hour. Want the plan?" and `PLAN_NOTE`.
+- **The pick (`freshPick`, pure).** Open and curated (never sponsored, an EarnKit campaign or an
+  investment, never "long shot" or "needs a live product", never hidden or entered); the program's
+  `fresh_build` names a registered starter tested within 30 days of now, on one of its chains;
+  EarnKit deploys to that chain, and hosting is on or the starter has a GitHub Pages fallback; Easy or
+  Medium; a known prize per winner of $5,000 or less; closing 24 hours to 14 days from now (rolling
+  only when no dated one fits). Rank: Easy, more winners per round, sooner close, higher prize.
+- **The switches (`tools.ts freshSwitches`).** Deploys on a chain need `deployEnabled()` and the
+  chain's RPC; hosting needs `r2Enabled()`. `ctx.freshDeps` overrides them in tests only. Rebase
+  note: on v2.10.3, `deployOn` must use `deployChainOn` (`DEPLOY_CHAINS`).
+- **find's reply.** With a pick, `build_offer { program_id, starter_id, agent_note: BUILD_NOTE }`.
+  The first build lead shown off a shared client sets `installations.fresh_offer_at` once
+  (`installations.ts markFreshOffer`): the metric's start. The lead itself shows on every find while
+  nothing else leads.
+- **`agent_can_build` defaults to true** (T7 review M4), so a chat client that isn't marked shared and
+  leaves the flag out is offered the build and starts `fresh_offer_at`. The metric script keeps it out
+  by counting only installations that said yes to the build (below).
+
+### Starters (T4 to T6, spec 2)
+
+- **Registry.** `starters.ts STARTERS`, pure data: `id`, `chain` (arc or base), `repo` (the degit
+  path), `what` (builder copy: "a USDC tip page on Arc"), `minutes: 60`, `contract` (`artifact`,
+  `owner_arg`, `bytecode_hash` = keccak256 of forge's exact creation bytecode, `constructor_types`),
+  `site_dir`, `pages_fallback`, `kit_twist` (the kit's own slots), `usage_event`, `usage_read`
+  (`view_total` with `usage_view`, or `recent_logs`), `tested_at`, `test_cmd`.
+- **Today only `arc-tipjar`:** chain-kits `arc/tipjar` (main 0f573a7), `UsdcTipJar(owner_, name_,
+  minTip_)` (the builder owns it from the first block), `stats()` running totals (selector
+  `0xd80528ae`), `site/`, `bash scripts/e2e.sh`, tested 2026-10-11. No Base starter and no x402
+  build path (owner decision 4). Its package name and README heading are in `EARNKIT_STARTER_NAMES`.
+- **The program field.** `"fresh_build": { "starter": "<id>" }`, owner-set only, where the program's
+  own facts support a fresh build (`programs/README.md`). `program-file.ts freshBuildProblems` (run by
+  `programs:check` and before `programs:sync` writes) refuses an unknown starter, one off the
+  program's chains or `needs_contract` chain, and one untested or tested more than 30 days before the
+  program's `verified_at`. Stored in `programs.fresh_build`; `listPrograms` cards carry it. Arc
+  Microgrants carries `arc-tipjar`.
+- **Keep it fresh.** The pick also holds the 30 days against now, so the lead stops on its own when the
+  starter's test ages out. Rerun the test in chain-kits and update `tested_at`; the journey's 13.0
+  fails with that instruction when the real registry is stale.
+
+### The twist and the build kit (T8, spec 3, plan S6 and S7)
+
+- **`prepare` with `build`** (`tools.ts prepareBuild`, strict; listed in the MCP schema only while
+  deploys are on):
+  - `{ start: true, program_id }`: the yes. One question (`twistQuestion`), plus the statement "Add
+    the wallet that should own it." when no wallet is known (decision D-D). Stores
+    `installations.build { program_id, starter_id, started_at }` (a new start replaces it).
+  - `{ program_id, twist, name, description, feature, for_whom, wallet?, repo_url? }`: what the agent
+    wrote from the builder's answer. On a pass: the building line and `kit`; the same fields again
+    (say with `repo_url`) show nothing new.
+  - `{ program_id }`: the build mark (below).
+- **Fail closed.** Each call re-runs the pick on that program (`buildPick`). No pick: an agent note,
+  nothing stored. A shared client gets `BUILD_CHAT_ONLY` and nothing is stored.
+- **The checks (`fresh-build.ts buildCheck`, pure; EarnKit runs no LLM).** Plain one-line words
+  (`coach.ts plainProblem`) within limits; the name is never a kit name; the twist names something of
+  the builder's own, and the name and description each use a word or stem of it; the feature is one
+  sentence of the builder's own, never the kit's default; `for_whom` starts with "for"; a wallet is
+  valid and never the zero address or a public test wallet (`PUBLIC_TEST_WALLETS`). Every refusal is
+  `Fix build.<field>: ...` in `agent_note`, with an empty `show_to_builder`. A valid wallet is kept
+  across a refusal and remembered on a pass, so it is never asked twice.
+- **The kit (agent only, `buildKit`).** The degit command, the filled twist slots, `owner_wallet`,
+  `earnkit.txt` with `proof_line` (null until `repo_url`), the artifact shape, the next call, the rules
+  and `order`: find with `github_user` (never guessed), copy and fill, create the public repo (no
+  template, not a fork), commit with earnkit.txt, push at once (within 10 minutes of creating the
+  repo, never a force push), then prepare.
+
+### Deploy and host in one call, with no click (T9, spec 4, decision 2, plan S9 to S11)
+
+- **The mark with `deploy` (`tools.ts buildShip`)**, never on a shared client, only for this
+  installation's checked build of the same program, in order:
+  1. Deploys off for the starter's chain: v2.10's `Deploys are off right now.`; nothing read or written.
+  2. Still a fresh pick; the artifact is on the starter's chain; the starter's exact bytecode
+     (`bytecode_hash`) followed by exactly its constructor arguments, ABI-encoded with the starter's own
+     types, `constructor_args[0]` and `owner_wallet` the build's wallet. Else an agent note.
+  3. The repo (never under an EarnKit org) holds this agent's earnkit.txt line, and the owner is
+     proven (below). Else an agent note (`BUILD_OWNER_NOTE` asks for a fresh push).
+  4. `built` (key `built:<installation>:<repo_key>:<program_id>`, proof the repo link, `detail
+     { starter, twist }`) through `deployForBuilder`'s `beforeSend`, after every cap passed.
+  5. The capped v2.10 deploy: once a day per chain and 3 in 30 days per builder, 3 a day per chain and
+     10 in 30 days per repo, 20 a day in total, $0.25 a deploy, $10 a month, Arc and Base only. The
+     `deployed` event names the starter only on its exact bytecode.
+  6. Only when the build wallet owns it (`owner_ok`): the one-use upload URL (`host.upload_url`,
+     `BUILD_UPLOAD_NOTE`), or, with EarnKit hosting off or refused, `host: { github_pages: true,
+     site_dir }` with `BUILD_PAGES_NOTE`. The builder sees nothing yet (`BUILD_HOLD_NOTE`).
+- **Hosting with no click (`hosting.ts issueUpload`, S9).** Off a shared client with no sign-in for the
+  repo, the owner-bound proof line stands in for the sign-in: the line's pusher is the repo owner, the
+  login the builder said (`installations.github_user`), a User account by GitHub's public read
+  (`githubUser`, cached 24 hours as `ghuser:<login>` in `url_checks`) that passes v2.9's gate (30 days,
+  1 public repo). The GitHub sign-in variables are no longer needed off a shared client; a shared
+  client keeps v2.9's sign-in. `host_upload_tokens.basis` and `host_deploys.basis` (`signin` | `app` |
+  `proof_line`) carry the basis to the `hosted` event; the upload re-checks it. A proof-line link never
+  replaces a site made under another login. Proof reads are capped at 20 an hour per installation.
+- **GitHub Pages (S10).** The next call's live link counts only when it is the build repo's own Pages
+  link (`pagesLinkOf`), with a contract EarnKit deployed for this installation and repo, and its probe
+  passes: `hosted` with `detail.host = 'github_pages'`, key `hosted:gh:<installation>:<repo_key>:<link>`.
+- **The owner proof (`ownership.ts fetchLinePusher`).** From GitHub's activity API, the actor of the
+  push that introduced the line (the branch walked back; at most 6 raw reads). A `push` credits its
+  actor; a `branch_creation` only as the repo's very first event, within 10 minutes of the repo's
+  creation; force pushes and merges credit no one; an earlier push of the same commit decides. And
+  only the actor's own fresh work: not a fork or template; no merge commits; committer dates from 10
+  minutes before the repo's creation and 5 minutes before this installation's first issue of the line
+  (`proof_line_issues`, written by `noteLineIssued`) up to the push. Commit author fields are never
+  used. Deploys with no sign-in or App proof need this proven owner (`provenOwnerLogin`, stored as
+  `contract_deploys.line_owner`).
+- **Accepted residual (the `proof_line` basis, the weakest).** An attacker who gets the repo owner to
+  push the attacker's line, dated inside the window, in a fresh non-fork repo, is credited as that
+  owner for that repo. They get hosting for that repo, `proof_line` events naming the owner (never used
+  for money or scoring) and use of the owner's deploy caps. No money moves: the contract belongs to the
+  wallet the attacker named, gas sits under the global caps, and nothing touches tokens, fees, bonuses
+  or payouts. The repo-creation bound is the real defence; sign-in and the App stay the strong bases.
+- **Keys.** Only `deploy.ts` reads `DEPLOYER_PRIVATE_KEY`; no reply, kit, repo or site gets it. The
+  builder signs nothing.
+
+### The entry from the build, one reply, the kit (T10, spec 5)
+
+- **The call after the live link (`buildJoin`).** With a contract EarnKit deployed for this
+  installation and the build's repo, the entry is drafted from the build: repo, live link, contract,
+  description (the agent's, else the build's, `coach.ts derivedDescription`), and the public profile
+  (`coach.ts derivedProfile`: `https://github.com/<login>` from `loginBasisFor`; no login, the coach
+  asks). Arc asks no coach question.
+- **One reply** (`prepare_submission(input, ctx, join)`): the live line, the deployed line, v2.10's
+  confirm line with the build wallet; no guide or table; "40%" once (a repeat drops it). It carries
+  `entry { project, answers }`, `shown_wallet` and `BUILD_ENTRY_NOTE`.
+- **The live line (`buildLiveLine`).** EarnKit hosting only for this installation's live site of the
+  repo; Pages only for the repo's own Pages link whose probe passes (`pagesLiveLine`). Any other link is
+  never called live.
+- **The confirm wallet (`buildWalletAgain`).** On the build path a yes launches only to the wallet the
+  confirm line showed (`token_offers.offered_wallet`); another wallet gets the confirm line again with
+  that wallet, and nothing is recorded or launched.
+- **Then v2.10's flow:** the yes (or "skip the token") records the entry (`entered`), launches or
+  skips the token and hands over the kit; `tell { submitted }` marks it (`submitted`).
+
+### The event log and its trigger (T2, T3, spec 6)
+
+- **Table.** `builder_events`: `built`, `deployed`, `hosted`, `entered`, `submitted`, `won`, `lost`,
+  `usage_check`, with `github_login` and `login_basis` (`signin` | `app` | `proof_line`; `repo_owner` is
+  never written), the wallet the builder gave, repo, program, project, chain and a public proof
+  (`proof_tx`, `proof_url`). No FKs. `dedupe_key` UNIQUE, every write `ON CONFLICT DO NOTHING`, so
+  reruns and the backfill never double-count (journey 13.2 reruns every call and writes nothing).
+- **Append-only.** `builder_events_append_only()` backs a row trigger (BEFORE UPDATE OR DELETE) and a
+  statement trigger (BEFORE TRUNCATE); all raise. The one exception is the owner's redaction: inside
+  one transaction `set_config('earnkit.events_redact', 'on:' || txid_current(), true)`, then an UPDATE
+  that may only null `github_login` and `wallet` and change `detail`. A value not bound to the current
+  transaction never opens the table. It guards app code paths, not a hostile role (on Neon's single
+  role the app owns the table). `events.test.ts` scans `lib/` and `app/` so app code never touches it.
+- **Writers.** `events.ts recordEvent` (zod-checked, lowercases login, wallet and repo key, `detail`
+  over 2 KB stored as `{ truncated: true }`, logs `[events] <type> <ErrorName>` only, never fails the
+  step) through `noteEvent(type, build)` (lazy, waits at most 1 s). Off unless `EARNKIT_EVENT_LOG=on`.
+
+  | Event | Written by | dedupe_key | Proof and detail |
   |---|---|---|---|
-  | deployed | `deploy.ts deployForBuilder`, after the row is settled `deployed` (both paths, incl. code that differs, owner_ok false) | `deployed:<contract_deploys.id>` | `proof_tx`, `wallet` = the builder's owner wallet, detail `{ address, owner_ok, block }` (the receipt's `blockNumber`). The row keeps both too: `contract_deploys.owner_wallet` (set at the reservation) and `block` (set when settled) |
-  | hosted | `hosting.ts deploySite` (a clean upload goes live) and `approveSite` (a flagged one approved) | `hosted:<host_deploys.id>` | `proof_url` = the site link, detail `{ host: 'earnkit', slug }`, login = the host sign-in's (`signin`) |
-  | entered | `projects.ts recordSubmission` and `startEntry` (confirm), only for a new row | `entered:<project_id>` | `proof_url` = `/p/<id>`; wallet only when given with the entry and kept (never on a shared client) |
-  | submitted | `projects.ts recordSubmission`, every call (it writes a `submissions` row, so the entry counts as submitted under Ruling C10, as the backfill reads it); tell `submitted` reaches it through record_submission | `submitted:<project_id>` | `proof_url` = `external_submission_url` when given; detail `{ basis: 'link' \| 'builder_said' \| 'recorded' }`; a shared caller's login only through the sign-in bound to the entry |
-  | won, lost | `outcomes.ts syncOutcomeFile` and `saveSelfReport` (won/placed/finalist: won; not_selected: lost; unknown: none) | `outcome:<project_id>:<round>:<basis>` | `proof_url` = the results URL; detail `{ basis, result, round, prize_usd }`. The first answer per round and basis is kept |
+  | built | `buildShip` via `deployForBuilder.beforeSend` | `built:<installation>:<repo_key>:<program_id>` | `proof_url` repo; `detail { starter, twist }` |
+  | deployed | `deploy.ts deployForBuilder` once settled | `deployed:<contract_deploys.id>` | `proof_tx`; `detail { address, owner_ok, block, starter?, code_differs? }` |
+  | hosted | `hosting.ts deploySite` / `approveSite`; the build's Pages link | `hosted:<host_deploys.id>`, `hosted:gh:<installation>:<repo_key>:<link>` | `proof_url` the site; `detail { host: 'earnkit', slug }` or `{ host: 'github_pages' }` |
+  | entered | `projects.ts recordSubmission`, `startEntry` (new rows only) | `entered:<project_id>` | `proof_url` `/p/<id>` |
+  | submitted | `projects.ts recordSubmission` (tell submitted) | `submitted:<project_id>` | `proof_url` the entry link when given; `detail.basis` link / builder_said / recorded |
+  | won, lost | `outcomes.ts syncOutcomeFile`, `saveSelfReport` (after the commit) | `outcome:<project_id>:<round>:<basis>` | results URL; `detail { basis, result, round, prize_usd }` |
+  | usage_check | `events.ts usageChecks` (cron) | `usage:<deployed event id>:<30\|90>` | below |
 
-  A reverted or `unknown` deploy, a flagged upload in review, a repeat confirm and a noted shared
-  `tell` write nothing. A deploy the runbook later settles to `deployed` writes nothing live; the
-  backfill picks it up.
-- **Identity.** `github-verify.ts loginBasisFor(installationId, repoKey, { callerLogin?, projectId?, proofLine? })`
-  returns `{ login, basis }` or null (then the event has no login and no basis). Off a shared client:
-  a verification of the repo for this installation (`signin` beats `app`). Else, when the proof line
-  holds (the caller says it just passed, or a `contract_deploys` row shows it did), the repo owner
-  with `proof_line`, but only when the builder said that login is theirs (`installations.github_user`)
-  and GitHub says it is a User account (`githubUser`, S9's `GET /users/<login>` cached 24 hours in
-  `url_checks` as `ghuser:<login>`). The proof line proves the agent can push, not who the builder
-  is, so an organization or a collaborator's push to someone else's repo records no login (review
-  I2). On a shared client: only the caller's own verification (`callerLogin`) or the one bound to the
-  entry (`projectId`), never the proof line. Never `GITHUB_TOKEN`'s login.
-- **Transactions.** Every writer runs after its step committed. `saveSelfReport` returns its event's
-  input and `builder-memory.ts tell` writes it after `db.begin` resolves, so a rolled-back report
-  leaves nothing in the append-only log (review I1). Announcement events take the announcement's day
-  as `at`, as the backfill does (M2). A deploy whose stored code differed carries
-  `detail.code_differs` and `contract_deploys.code_differs` (M1). Builder links in `proof_url` lose
-  their query and fragment (`proofLink`, M7).
-- **Backfill.** `events-backfill.ts backfillEvents(db, { installationIds? })`, run by the owner only
-  through `scripts/events-backfill.mts` (`EARNKIT_EVENT_LOG=on pnpm exec tsx apps/frontend/scripts/events-backfill.mts`,
-  after the /terms section is live). It reads `contract_deploys` (deployed), `host_deploys` (live),
-  `projects` (every entry), `submissions` (the first row per entry is `submitted`) and
-  `entry_outcomes` (not unknown), takes each row's own time as `at`, uses the live dedupe keys
-  (a rerun writes 0) and marks `detail.backfill = true`. The entered event's wallet is `payout_wallet` only (a
-  later token launch can set `creator_wallet`; review M4), and a self-report's time is its latest
-  answer (`captured_at` is updated on each). Submissions are read through one lateral join on the new
-  `submissions_project` index (M5). It takes the wallet and block from
-  `contract_deploys.owner_wallet` and `block`; rows from before v2.11 have neither, and the backfill
-  makes no RPC read, so T11's usage check reads a missing block from the receipt, and `host_deploys` rows the cron pruned (live, over 30 days) are gone. Never in
-  predeploy or the cron (`events-backfill.test.ts` checks package.json and every app file).
+- **Identity (`github-verify.ts loginBasisFor`).** Off a shared client: this installation's sign-in or
+  App proof of the repo; else the proof line's proven owner (`proof_line`). On a shared client only the
+  caller's own verification or the one bound to the entry. Never `GITHUB_TOKEN`'s login.
+- **Backfill.** `scripts/events-backfill.mts` (owner only, `EARNKIT_EVENT_LOG=on`, after the /terms
+  section is live) replays `contract_deploys`, `host_deploys`, `projects`, `submissions` and
+  `entry_outcomes` with each row's own time and the live dedupe keys (`detail.backfill = true`; a rerun
+  writes 0). Never in predeploy or the cron.
 
-## v2.11 Usage checks at 30 and 90 days (Task 11, spec 7, plan S12)
+### Usage checks at 30 and 90 days (T11, spec 7, plan S12)
 
-- **Where it runs.** `events.ts usageChecks(now, deps)` is one step inside `runCron`, after
-  `deployerGas`; its counts go in the cron's JSON as `usage_checks: { checked, failed }`. No new
-  schedule: the existing cron is hourly (`.github/workflows/earnkit-cron.yml`, `15 * * * *`), and
-  with nothing due a run costs one SELECT. Off while `EARNKIT_EVENT_LOG` is off (no read, no write). With `only` (tests, the e2e)
-  it runs only when `CronDeps.usage` is given. It never adds a `needs_owner` line: a failure is
-  logged and the run answers 200.
-- **What is due.** A `deployed` event on arc or base whose `detail.address` is a 0x address, not `code_differs`,
-  at least 30 days old, with no `usage:<event id>:<window>` row yet. The window is 90 once the event
-  is 90 days old, else 30, so a deploy first seen past 90 days gets only its 90-day check. Oldest
-  first, at most `USAGE_LIMIT` (20) checks a run (checks, not reads: an Arc check makes up to 53 RPC
-  calls: getCode, the view, head and 50 getLogs; a view_total starter usually needs 2), and no new check starts after the cron's deadline.
-- **What it reads** (free sources only; each read once a run, never retried in the run):
-  - every chain: `eth_getCode` on the public RPC (`verify.ts rpcFor`), `code: true|false`;
-  - Base: Blockscout counters through `verify.ts txCount` (cached 24 h in `url_checks`),
-    `tx_count` with `tx_scope: 'lifetime'` (Blockscout's count runs from the deploy to the check,
-    never a 30 or 90 day count), `source: 'blockscout'`;
-  - Arc with a known starter (`detail.starter`, looked up in `starters.ts` `STARTERS` with an
-    `Object.hasOwn` guard; T5/T6 follow-up) whose `usage_read` is `view_total`: one `eth_call` of the
-    starter's `usage_view` (arc-tipjar: `stats()`, selector `0xd80528ae`, three uint256 words), written
-    as `totals: { tips, total, tippers }` (exact decimal strings; `total` in USDC base units, since the
-    deploy), `source: 'rpc_view'`. A revert (`isRevert`: a builder who dropped the view) or an empty
-    answer from a contract with code falls back to the recent logs below; a transport error is a
-    failed read. No code at the address: `source: 'rpc_code'` at once, with no view or log read;
-  - Arc with a `recent_logs` starter (the fallback rule; `Tipped(address,uint256,string)`, topic
-    `0x4f629a5f...73c2`): a whole 30 or 90 days is 510 to 1,530 calls. So the
-    check counts the starter's logs over the RECENT window only: `recentChunks`, the last
-    `ARC_LOG_MAX_CHUNKS` (50) ranges of `ARC_LOG_CHUNK` (10,000) blocks ending at the head, about
-    the last 2.9 days, read newest first. It writes `recent: { window: 'recent', blocks, from_block, to_block, tips,
-    unique }` (unique = distinct first indexed arguments, Tipped's `from`), with `partial: true` when
-    the cron's deadline came first (the newest blocks read are kept), and `source: 'rpc_logs'`. It answers
-    "is it still used", never a 30 or 90 day total. The deploy block isn't needed (checks are 30+
-    days after it). explorer.arc.io's API is behind a Cloudflare challenge, so it is not used;
-  - Arc without a known starter: `eth_getCode` only, `source: 'rpc_code'`.
-- **Arc RPC facts** (rpc.mainnet.arc.io, 2026-10-10): chain id 5042; `eth_getLogs` answers a
-  10,000-block range (inclusive) and refuses 10,001 with `-32012 requested range too large`; no rate
-  limit is stated in docs.arc.io. Arc makes about 2 blocks a second.
-- **What it writes.** One `usage_check` per deploy and window (dedupe key
-  `usage:<deployed event id>:<30|90>`), with the deploy's chain, installation, repo, wallet, login
-  and basis, program and project, `at = now`, and `detail: { window: 30|90, deployed_event, address,
-  code, source, tx_count? (Base) | recent? (Arc starter) }`. A failed read writes nothing, counts as
-  `failed`, logs `[events] usage_check <ErrorName>` only, and is tried again 20 hours later at the
-  earliest. A usage_check write that fails counts as a failure too: `recordEvent` answers false for a
-  duplicate and a failed write alike, so a false is checked against the dedupe row (there: another
-  run wrote it, done; missing: failed). The top-level `window` is the due window (when the check ran),
-  not what a count covers; T13's metric must never sum `recent.tips` per 30 or 90 days.
-- **Failures in a row** (`usage_check_failures`, a plain counter table outside the append-only log:
-  `deployed_event_id`, `failures`, `last_failed_at`): each failed check adds one; a pass deletes the
-  row. A failing deploy is tried at most once per `USAGE_RETRY_HOURS` (20), since the cron is
-  hourly, so 5 in a row span about 4 days. After `USAGE_SKIP_AFTER` (5) failures in a row the deploy sits out `USAGE_SKIP_DAYS` (7) from
-  its last failure, so permanently failing deploys never take the 20 slots from newer ones; after
-  that it is read again, and one more failure skips it another 7 days.
-- **Reads in production** use a key-free viem public client per chain (10 s timeout, no retry),
-  separate from the deployer's client. Tests pass `getCode`, `blockscout`, `arcHead` and `arcLogs`
-  stubs; none reaches the network.
+- **Where.** `events.ts usageChecks`, one step of the existing hourly cron after `deployerGas`
+  (`usage_checks: { checked, failed }` in its JSON; never a `needs_owner` line). Off while the event log
+  is off.
+- **What is due.** A `deployed` event on arc or base (an address, not `code_differs`) at least 30 days
+  old with no `usage:<id>:<window>` row; 90 once 90 days old. Oldest first, at most 20 checks a run,
+  none started after the cron's deadline.
+- **What it reads, free sources only.** `eth_getCode` everywhere; Base: Blockscout's lifetime counters
+  (`tx_scope: 'lifetime'`); Arc with a `view_total` starter: one `eth_call` of its view
+  (`totals: { tips, total, tippers }`, `source: 'rpc_view'`; a revert or empty answer falls back to
+  logs); Arc `recent_logs`: the last 50 ranges of 10,000 blocks (about 2.9 days), newest first,
+  labelled `recent` (never a 30 or 90 day total; never sum `recent.tips`).
+- **Failures.** A failed read writes nothing and is tried again 20 hours later at the earliest
+  (`usage_check_failures`); after 5 in a row the deploy sits out 7 days. A failed write counts as a
+  failure.
 
-## v2.11 Terms disclosure and redaction (Task 12, spec 9, owner decision 6)
+### Terms disclosure and redaction (T12, spec 9, owner decision 6)
 
-- **The disclosure.** `/terms` has a "What EarnKit records" section (`PolicySection`, id
-  `what-earnkit-records`; the copy is `policy.ts` `RECORDS_*` and `RECORD_STEPS`, so
-  `public-pages.test.ts` 12.1 pins the whole section). It states only what the code keeps:
-  - what the agent sends: GitHub username (`installations.github_user`), repos and what the builder
-    says about them, programs worked on, entries and application answers (`answer_bank`,
-    `projects.application`, `submissions`), the token's name, ticker and image, wallets, hosted
-    sites, the digest email;
-  - what EarnKit reads itself: GitHub account age and public repo count, repo facts and commit
-    authors, contract activity;
-  - the IP address, briefly, as a rate-limit key (`rate_windows`);
-  - the event log's steps with their proofs (deploy, hosted, entry, submission, result, usage check),
-    the repo, program, wallet and the login with its basis (sign-in, the App, the `earnkit.txt`
-    line; `repo_owner` is never written);
-  - why, retention (owner decision: "for as long as EarnKit runs, unless you ask to remove your
-    login and wallet"), and removal limited to what the script does: login and wallet out of the
-    step history; steps, repos and proofs stay; other records only on request.
-  The terms nav and the entry page footer (`/p/<id>`, `RECORDS_HREF`) link it. **When a later task
-  writes a new field or step (T8/T9's `built` and any `detail.twist`), update this copy in the same
-  change.**
-- **Go-live order.** `EARNKIT_EVENT_LOG` stays off until this section is live in production. The
-  owner deploys the release, checks `https://earnkit.com/terms#what-earnkit-records` loads, then sets
-  `EARNKIT_EVENT_LOG=on` (and only then runs the backfill). Never the other way round.
-- **Redaction runbook.** On a builder's email request, the owner runs, from the repo root with the
-  production `DATABASE_URL`:
+- **/terms "What EarnKit records"** (`#what-earnkit-records`; copy in `policy.ts RECORDS_*` and
+  `RECORD_STEPS`, pinned by `public-pages.test.ts` 12.1; linked from the terms nav and the `/p/<id>`
+  footer). It lists what the agent sends, what EarnKit reads itself, the IP for up to 3 days as a
+  rate-limit key, the steps with their proofs (including "A build: its repo and your one-line idea for
+  it."), why, retention ("for as long as EarnKit runs, unless you ask to remove your login and
+  wallet"), and removal. A new field or step changes this copy in the same change.
+- **Redaction runbook.** On a builder's email request, from the repo root with production's
+  `DATABASE_URL`:
 
   ```
   pnpm exec tsx apps/frontend/scripts/events-redact.mts --login <login> --wallet <0x...>          # dry run
   pnpm exec tsx apps/frontend/scripts/events-redact.mts --login <login> --wallet <0x...> --apply  # writes
   ```
 
-  Either flag alone works. The dry run lists the matching `builder_events` rows (by login or wallet,
-  case-insensitive) inside a read-only transaction. `--apply` does it in one transaction: it sets
-  `earnkit.events_redact` to `'on:' || txid_current()`, nulls `github_login` and `wallet` and drops
-  `detail.twist` and `detail.slug` (`<project>-<login>`) on every matching row, checks the counts and commits; the setting ends with it, so the
-  table is append-only again. The script prints the count, the time and each row, which is the
-  redaction note to keep with the reply. It also prints how many kept rows still name the login in
-  their repo or link (owner part, `-<login>` slug or `<login>.github.io`, never a bare substring),
-  and row counts for the main other tables that hold the login or wallet: login and wallet columns
-  (including `contract_deploys.builder_key`), wallet arrays (`projects.deployers`,
-  `sponsor_campaigns.award_winners`), jsonb (award plan and onchain, fallback plan, fee recipients,
-  local and fit repos, build, pickup), `rate_windows` and `url_checks` keys, and repo keys, repo URLs
-  and slugs. It never changes those: the owner decides. Redacted rows keep `installation_id` and
-  `project_id` (the trigger forbids changing them), which still join to those tables, so the terms
-  promise only removal from the step history, and say to email about other records. Never from predeploy or the cron (`events-redact.test.ts` checks
-  package.json, and runs the script as a child process against the test DB, including a check that
-  every column whose name could hold a login, wallet, repo, link or key is listed or reviewed as not
-  identifying).
+  The dry run lists the matching rows in a read-only transaction. `--apply` nulls `github_login` and
+  `wallet` and drops `detail.twist` and `detail.slug` in one transaction, then prints the rows (keep it
+  as the redaction note), the kept rows whose repo or link still names the login, and the other tables
+  holding the login or wallet (listed only; the owner decides).
 
-## v2.11 Starter registry and the program's fresh-build starter (Task 5, spec 2)
+### The success metric (T13): shown, never a target
 
-- **The registry.** `starters.ts` `STARTERS` is pure data, import-free, sources in comments. Each
-  starter has `id`, `chain` (arc or base, the chains `deploy.ts` serves), `repo` (the degit path
-  builders' agents copy), `what` (builder copy, lower case, it sits mid-sentence in the fresh lead:
-  "a USDC tip page on Arc"), `minutes: 60` (the bar: zero to deployable in an hour), `contract`
-  (`{ artifact, owner_arg }`), `site_dir`, `usage_event` and `usage_read`, `tested_at` and
-  `test_cmd`. `tested_at` is the day the starter repo's own test last passed, and is null until it
-  has passed once.
-- **Today.** Only `arc-tipjar`: chain-kits `arc/tipjar` (main 0f573a7), the `UsdcTipJar` (owner is
-  the constructor argument, `Tipped(address,uint256,string)` counts as use, `stats()` keeps running
-  totals), `site_dir` `site`, `test_cmd` `bash scripts/e2e.sh`, `tested_at` 2026-10-11 (T6).
-  `base-checkin` is left out until a Base program qualifies for a fresh build and its test passes
-  (owner decision 4: no x402 build path). Its package name and README heading
-  (`earnkit-arc-tipjar-starter`, "Arc tip jar starter (EarnKit)") are in `EARNKIT_STARTER_NAMES`, so
-  an unchanged copy is a starter; BUILD.md has the agent rename both.
-- **The usage rule.** `usage_read` is `view_total` (one eth_call of `usage_view`, the contract's own
-  running totals, ruling R-T6; arc-tipjar) or `recent_logs` (count `usage_event` over the recent
-  window; the fallback). `events.ts` reads the rule from `STARTERS`; there is no second copy.
-- **The program field.** A program file may carry `"fresh_build": { "starter": "<id>" }` (strict,
-  a slug). Only the owner adds it, only where the program's own published facts support a fresh
-  build (`programs/README.md`). `freshBuildProblems` (program-file.ts), run by `programs:check` and
-  before `programs:sync` writes anything, refuses an unknown starter, a starter whose chain isn't one
-  of the program's `chains` or isn't its `needs_contract` chain (an any_chain program lists none, so
-  none fits), and a starter with `tested_at` null or more than 30 days before the program's
-  `verified_at`. It is a check-time rule, not the schema, so a stale registry never breaks reading
-  rows. `programs.fresh_build` (jsonb) stores it; `upsertProgram` writes null when the file drops
-  it; `listPrograms` cards (so `find`'s cards) carry `fresh_build`, null on any campaign.
-- **Arc carries it.** `programs/arc-microgrants.json` has `"fresh_build": { "starter": "arc-tipjar" }`
-  (its facts allow tiny apps and demos deployed on Arc mainnet; T5 report). T7's `freshPick` reads it.
-  Production still offers nothing: the deployer key and R2 are both unset, so the switches
-  (`tools.ts freshSwitches`) are off, and a test pins that with the real files and registry.
+`scripts/v211-metric.mts` (owner-run, read-only: one READ ONLY transaction over `installations` and
+`builder_events`; never in predeploy or the cron) prints counts and one share, and sets no goal:
 
-## v2.11 The no-repo lead (Task 7, spec 1)
+```
+pnpm exec tsx apps/frontend/scripts/v211-metric.mts [--as-of <ISO time>]
+```
 
-- **When it shows.** The short first reply (`present.ts` `presentFirstMessage`, not "show more")
-  gets a third kind of lead when nothing else leads: no good-odds row (`leadRow`), no entry waiting
-  on the builder's submission (`submitStep`), no users question (`usersAsk`), no higher question held
-  (`holdQuestion`), no open program the builder's agent is preparing (`working_on`), and no repo
-  read error or repo EarnKit can't see (review M1: it may still fit). Then
-  `freshLead(given)` asks `fresh-build.ts` `freshPick`. A pick replaces the v2.10 line ("No repo fits
-  yet. $X is open; want the 3 easiest?") with two lines: `contextLine` ("$1.1M+ in prizes is open
-  right now across 7 programs.", the same programs `pool.ts` `openCurated` gives `openMoneyUsd`) and
-  `freshLeadLine` ("Arc Microgrants pays 500 USDC and closes in 4 days. A USDC tip page on Arc takes
-  about an hour. Want me to build it?"). Chat-only and shared clients get "... A coding agent builds
-  the USDC tip page in about an hour. Want the plan?" (no tool names in builder copy).
-- **The pick rules (freshPick, pure).** Open and curated (never sponsored, an EarnKit campaign or an
-  investment, never tagged "long shot" or "needs a live product", never hidden or entered); the
-  program's `fresh_build` names a registered starter tested within the last 30 days (`tested_at`,
-  checked against now at pick time as well as at sync), on one of the program's
-  chains; EarnKit deploys to that chain and hosting is on; Easy or Medium; a known prize per winner
-  of $5,000 or less; closing 24 hours to 14 days from now (a rolling program only when no dated one
-  qualifies). Rank: Easy first, more `winners_per_round` (unknown is 1; `Card.winners_per_round` is
-  new on `programCard`), the sooner close, the higher prize.
-- **Fail closed.** `FirstMessage.fresh` (`FreshOn`: `deployOn`, `hostOn`, `canBuild`, optional
-  `starters`) is set only by `find` (`tools.ts` `freshSwitches`): deploys on a chain need
-  `deployEnabled()` plus the chain's RPC, hosting needs `r2Enabled()`. Without `fresh`, without a
-  tested starter, without a program carrying `fresh_build`, or with deploys or hosting off
-  (production on 2026-10-11: arc-tipjar is tested and Arc Microgrants names it since the T5/T6
-  follow-up, but neither the deployer key nor R2 is set), there is no pick and the reply is v2.10's
-  byte for byte. `ctx.freshDeps` overrides the switches in tests only.
-- **find's reply.** With a pick, `build_offer: { program_id, starter_id, agent_note }`: `BUILD_NOTE`
-  (a yes means `prepare` with `build: { start: true, program_id }`, T8) or, chat-only, `PLAN_NOTE`
-  (tell the builder to add EarnKit to a coding agent; no tool names). The `find` description says "build_offer:
-  follow its agent_note.".
-- **fresh_offer_at.** The first build lead shown to a non-shared installation sets
-  `installations.fresh_offer_at` (`installations.ts` `markFreshOffer`, `WHERE fresh_offer_at IS
-  NULL`), the start of the v2.11 metric; later leads never move it. It does not limit how often the
-  lead shows: like every other lead, it shows on each find while nothing else leads.
+- **Cohort:** `fresh_offer_at` set, not `shared_client`, and the build started (`installations.build`
+  is set: the yes). The yes keeps unmarked chat-only clients out (T7 M4); a coding-agent builder who
+  said no is left out too, and the "Shown the build lead" line still counts them.
+- **First session:** the 24 hours after `fresh_offer_at`. Sessions still open are counted apart and
+  left out of the share.
+- **Shipped:** a `deployed`, a `hosted` and an `entered` event of that installation inside the session
+  (`entered` is the confirm step that hands over the kit).
+- **Output:** `Shown the build lead`, `Said yes to the build`, `Still in their first 24 hours`,
+  `Shipped in their first 24 hours`, then `<n> of <m> no-repo builders shipped in their first session
+  (<p>%)`. It reads nothing before `EARNKIT_EVENT_LOG` was on.
 
-## v2.11 The twist question and the build kit (Task 8, spec 3, plan S6 and S7)
+### The journey (`v211-journey.test.ts`)
 
-- **The calls.** `prepare` with `build` (plan S7, `tools.ts prepareBuild`), strict:
-  - `{ start: true, program_id }`: the yes to the fresh lead (`build_offer`). The reply is the one
-    twist question, `What should it do for you or your users? One line is enough, like "tips for my
-    podcast listeners".`, plus the statement `Add the wallet that should own it.` when no wallet is
-    known (owner decision D-D: one question per reply). The build is stored in `installations.build`
-    (`{ program_id, starter_id, started_at }`, S6; a new start replaces it).
-  - `{ program_id, twist, name, description, feature, for_whom, wallet?, repo_url? }`: the fields the
-    agent wrote from the builder's answer (EarnKit runs no LLM; the agent writes, the server checks).
-    `for_whom` ("for your podcast listeners") feeds the building line; `repo_url` (optional) gets the
-    earnkit.txt proof line. On a pass the builder sees `Building PodTips: a USDC tip page on Arc for
-    your podcast listeners. I'll be back with the live link.` and the agent gets `kit`. The same
-    fields sent again (say, with `repo_url` added) show the builder nothing new.
-  - `{ program_id }`: the build mark (T9, below): the deploy-and-host call, or the call after it.
-  - Start and twist calls carry only `build` (and the same `program_id` at the top, which the MCP
-    schema requires). Any other key, a mixed shape or an unknown key inside `build` is an agent note.
-- **Fail closed.** Each call re-runs `freshPick` on that one program (`buildPick`: open, curated,
-  not hidden or entered, a tested starter, deploys on, and hosting on or the starter's GitHub Pages
-  fallback, T9). No pick: an agent note, nothing
-  stored. A shared client gets `BUILD_CHAT_ONLY` ("I can't build from here. ...") and nothing is
-  stored (S6). MCP lists `build` only while deploys are on, with `deploy`, and only then does the
-  prepare description say "build: a build_offer yes." (review M2).
-- **The checks (`fresh-build.ts buildCheck`, pure).** Every text field is one line of plain words
-  (`coach.ts plainProblem`: no address, hash, stat dump or link) within its limits (twist 3 to 200,
-  name 3 to 40, description and feature 10 to 160, for_whom 5 to 60). The name is never a kit name
-  (`EARNKIT_STARTER_NAMES` or the starter's `kit_twist.name`). The twist must name something of the
-  builder's own (a word that isn't the kit's or a stop word), and the name and the description each
-  use one of its words or stems ("Pod" in "PodTips" for "podcast"), which blocks an unchanged clone.
-  The feature (review I2) is one sentence, never the kit's default, with at least one word that isn't
-  the kit's (BUILD.md's "A goal bar shows how close the next release fund is." passes); `for_whom`
-  starts with "for". A given wallet is valid (EIP-55 when mixed case) and never
-  the zero address or a public test wallet (`PUBLIC_TEST_WALLETS`: anvil and Hardhat accounts 0 to
-  9, the starter's `artifact.mjs` list). Every refusal is `Fix build.<field>: ...` in `agent_note`
-  with an empty `show_to_builder`.
-- **Order.** `buildPick` runs first, so a shared client hears `BUILD_CHAT_ONLY` only when a build
-  would be offered at all (review M3); otherwise it gets the refusal note.
-- **The wallet.** A valid wallet sent with a twist is kept with the build before the other checks, so
-  a retry after an unrelated refusal needs it again never (review M1). The one given now, else the build's stored one, else the remembered one
-  (`walletMemory`, never on a shared client); a remembered public test wallet counts as none. A given
-  wallet is remembered (`rememberWallet`), so the next build's question needs no wallet ask: never
-  asked twice. Without any, the agent note asks the agent to pass `build.wallet`; EarnKit never makes
-  one up.
-- **Public test wallets in any deploy.** `prepare` with `deploy` (the v2.10 path) refuses one as the
-  owner too, given or remembered: the reply asks for the wallet ("Send me the wallet that should own
-  ...") and the agent note says why; nothing is deployed.
-- **The kit (agent only).** `buildKit`: `npx degit <starter.repo> <project>`, the twist slots filled
-  with the checked fields, `owner_wallet`, `proof_file` earnkit.txt and `proof_line`
-  (`token-gate.ts tokenLineFor` for the repo, which `deploy.ts` reads through `repoOwnershipPasses`;
-  null with a note until `repo_url` is sent; with `repo_url` sent and no line, no signing secret, a
-  note that says not to deploy (review M4)), the artifact shape `prepare.deploy` takes, the next call
-  (`prepare` with `deploy`, `host: true` and `build: { program_id }`) and the rules (public repo under
-  the builder's own account, not a fork, no secrets, rename the kit, never show the kit).
-- **What is stored.** `installations.build` holds the wallet, the twist, the name, the description,
-  the feature, `for_whom` and `repo_url` for T9 (the `built` event's `detail.twist`) and T10 (the
-  draft). T8 writes no `builder_events` row, so the /terms records list is unchanged by it.
+Its own throwaway database, every real program file (Arc closes in 3 days and an hour; other curated
+programs in 2099), the real starter registry and the real switches (the deployer key and R2 variables
+set inside the file only). Fakes only for the outside world: GitHub (the account read, the user's
+repos, the new repo, its push record, commits and earnkit.txt), `DeployChain`, R2, the probe and
+getCode, the logo reads, the sanctions screen and tokens.fun's deploy API behind the real
+`deployToken`. Real time, not a frozen clock: the database's `now()` writes events and upload
+tokens. 13.0 the registry is fresh and Arc names it; 13.1 the path above with each line exact, one
+deploy, one launch, the five events with their proofs and `proof_line` basis, a ready entry, one
+build yes; 13.2 a rerun of every call writes no event, deploys and launches nothing; 13.4 "skip the
+token", the GitHub Pages fallback, and fail closed (deploys off, or R2 only: v2.10.2's reply byte for
+byte, no `build_offer`, no `fresh_offer_at`, a refused build.start); 13.3 the sweep over every reply;
+13.5 the metric script as a child process (3 of 3, then shared, chat-only, stalled, late and open
+installations counted the right way).
 
-## v2.11 Deploy and host in one call, with no click (Task 9, spec 4, decision 2, plan S9 to S11)
+### Env vars (each feature is off when its vars are absent)
 
-- **The mark (`tools.ts buildShip`).** `prepare` with `build: { program_id }` fails closed (T8 review
-  M5): never on a shared client (`BUILD_CHAT_ONLY`, or the refusal note when no build would be
-  offered), and only for this installation's checked build of the same program (`installations.build`
-  with a name and a valid wallet; else `BUILD_NOT_READY`, an agent note).
-- **With `deploy` (the deploy-and-host call),** in order:
-  1. Deploys off for the starter's chain (`freshSwitches.deployOn`: the deployer key and the chain's
-     RPC): `show_to_builder` is v2.10's `Deploys are off right now.`, `deploy.unavailable`, and
-     nothing is read, deployed, hosted or logged.
-  2. The program is still a fresh pick (`buildPick`), the artifact is on the starter's chain, and the
-     owner is the build's wallet: `deploy.owner_wallet` (if sent) and, for a starter whose constructor
-     takes the owner (`contract.owner_arg`), `constructor_args[0]` must equal it (any case). Anything
-     else is an agent note naming the wallet; nothing is deployed.
-  3. The repo (`project.repo_url`, else the build's) is the builder's (never under an EarnKit org) and
-     its earnkit.txt holds this agent's line (`repoOwnershipPasses`); else an agent note with the line.
-  4. `built` (S11): key `built:<repo_key>:<program_id>`, proof the repo link, the build's wallet,
-     `detail { starter, twist }`, the login only on a basis (`loginBasisFor` with the proof line: the
-     builder's own User account). One per repo and program; written before the deploy.
-  5. The capped v2.10 deploy (`deployStep` with the build's wallet as owner; every v2.10 cap: once a
-     day per chain, 3 a month per builder, 20 a day, $0.25 a deploy, $10 a month, Arc and Base only).
-     The `deployed` event now carries `detail.starter` (ruling R-T6, the usage checks' read).
-  6. Only once it is deployed, hosting (`hostBlock` with the proof line already checked): the one-use
-     upload URL (`host.upload_url`, with `BUILD_UPLOAD_NOTE`), or, when EarnKit hosting is off or
-     refused for any reason (R2 off, the gate, the limits), `host: { github_pages: true, site_dir }`
-     with `BUILD_PAGES_NOTE` (S10).
-  T10: while the site goes up the builder sees nothing (`BUILD_HOLD_NOTE`); the deployed line comes
-  with the live line and the confirm line in the reply after the live link (below). A refusal, or a
-  contract the build wallet doesn't own, shows v2.10's line. Hosting's state is never builder text.
-- **Without `deploy` (the next call, with the live link),** a `https://<owner>.github.io/...` link
-  whose owner is the repo's owner and whose probe passes (`verify.ts liveCheckDetail`, cached) writes
-  `hosted` with `detail.host = 'github_pages'`, key `hosted:gh:<link>` (S10). Anyone else's
-  github.io link, or one that doesn't load, writes nothing. Then the call takes prepare's usual path
-  without `build`, joined with the build (T10, below).
-- **Hosting with no click (`hosting.ts issueUpload`, S9, decision 2).** Off a shared client with no
-  sign-in for the repo, `proofLineHost` stands in for it: this agent's earnkit.txt line in the repo
-  (skipped when the caller just checked it), the owner is the builder's own User account
-  (`loginBasisFor` with the proof line: the login the builder said, `installations.github_user`, and
-  GitHub's public `GET /users/<login>` says User; never an org or someone else's repo the agent can
-  push to), and that public read (`githubUser`, cached 24 hours in `url_checks` as `ghuser:<login>`)
-  passes v2.9's gate (30 days, 1 public repo). The slug login is the repo owner. The sign-in link stays
-  the way when the line fails and sign-in is on. The GitHub sign-in variables are no longer needed off
-  a shared client; a shared client keeps the v2.9 sign-in, unchanged (and nothing without it). Every
-  upload limit stays.
-- **The basis travels.** `host_upload_tokens.basis` and `host_deploys.basis` (`signin` | `app` |
-  `proof_line`, default `signin`, additive). The upload re-checks a proof-line link's gate with the
-  public read (a sign-in link reads its verification as before), and the `hosted` event (on upload or
-  `approveSite`) carries the basis as `login_basis` (closes T3 review M3).
-- **The fresh pick (`freshPick`).** Hosting off no longer blocks a starter whose site can go on GitHub
-  Pages (`Starter.pages_fallback`, true for `arc-tipjar`). Deploys off still offers nothing, so
-  production (no deployer key) stays on the v2.10 line byte for byte. With the deployer key and no
-  R2, the build path runs and hosts on GitHub Pages.
-- **/terms.** `RECORD_STEPS` gains `A build: its repo and your one-line idea for it.` (the `built`
-  event and its `detail.twist`); test 12.1 holds the whole section.
-- **Keys and money.** The deployer key is only read by `deploy.ts`; no reply, kit, repo or site gets
-  it. The builder signs nothing: the contract is theirs from the first block (owner constructor
-  argument), and the upload is the agent's.
+| Var | Turns on | Notes |
+|---|---|---|
+| `DEPLOYER_PRIVATE_KEY` | Deploys, so the build path and the fresh lead | Set in production 2026-10-11, Base and Arc funded (~$5 each). With it alone, the build path runs and hosts on GitHub Pages |
+| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | EarnKit hosting (`<slug>.earnkit.com`) | Optional: without them the build path uses the GitHub Pages fallback |
+| `EARNKIT_RESERVED_SUBDOMAINS` | Names no site may take | With R2; `RESERVED` on the Worker matches it |
+| `EARNKIT_EVENT_LOG=on` | The event log, usage checks | Only after `/terms#what-earnkit-records` is live |
+| `ARC_RPC_URL`, `BASE_RPC_URL` | The deployer's and usage checks' chains | Public RPCs when unset |
+| `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | v2.9 sign-in | No longer needed for hosting off a shared client |
 
-### T9 security fix round 1 (review: 0C 3I 7M)
+### Owner go-live, in this order
 
-- **I1, the proof line is push access, not identity.** A login is tied to a proof line only when
-  GitHub's own push record says the repo's owner pushed it: `ownership.ts fetchLinePusher` reads the
-  repo's activity API and returns the authenticated `actor` of the push that introduced the line (the
-  branch's pushes walked back to the first whose `before` commit lacks it; at most 6 commit-addressed
-  raw reads; null when the chain breaks or can't be read). Commit author fields are never used: anyone
-  can write any name or email into a commit. `token-gate.ts proofLineOwner` / `proveRepo` (a branded
-  `ProvenRepo`, so callers pass a proof, never a bare flag, M1). `github-verify.ts proofLineLogin`:
-  the pusher is the owner, the builder said it is them (`github_user`), and GitHub says User; else no
-  login. `loginBasisFor` takes `lineOwner` (or a deploy row's `contract_deploys.line_owner`).
-  - Hosting off a shared client needs that owner-bound proof (App rows never count, M1); a
-    collaborator's push, a lying `github_user`, an org or a fork host nothing on EarnKit (the build
-    path then goes to GitHub Pages), and no login reaches a slug, a site limit or an event.
-  - A proof-line link never replaces a live, in-review or deploying site made under another login,
-    at issue and again at upload; the upload also re-checks the said login (M2).
-  - The no-click proof's GitHub reads are capped at 20 an hour per installation (`LIMITS.hostProof`, M5).
-- **I2, the Pages `hosted` event:** only the build's own repo (`installations.build.repo_url`), only
-  with a contract EarnKit deployed for this installation and repo, only that repo's own link
-  (`pagesLinkOf`: `https://<owner>.github.io/<repo>/`, or `/` for `<owner>.github.io`), key
-  `hosted:gh:<installation>:<repo_key>:<link>`.
-- **I3, deploy caps:** see round 2 (R2, R3, N2) for the keys as they stand.
-- **M3:** the deployed event's `detail.starter` names the starter only for its exact bytecode (round 2,
-  N1, below); otherwise `starter: null`.
-- **M4:** `built` is keyed `built:<installation>:<repo_key>:<program_id>` and written through
-  `deployForBuilder`'s `beforeSend`, after every cap passed. **M6:** the upload URL (or Pages note) only
-  when `owner_ok` is true. **M7:** `githubUser` drops a `created_at` that isn't a date.
-- **Rebase note:** when v2.11 rebases onto v2.10.3, `freshPick`'s `deployOn` must use `deployChainOn`.
+1. **Ship v2.11.** `predeploy` runs the additive migration and `programs:sync` (Arc's `fresh_build`).
+   Production already has `DEPLOYER_PRIVATE_KEY`, so from this deploy the no-repo lead offers Arc and
+   the build path runs, hosting on GitHub Pages until step 2. Refresh the claude.ai connector (the tool
+   descriptions changed).
+2. **R2 and the host Worker (optional).** The R2 bucket `earnkit-sites` (a card on file; usage stays
+   in the free tier), `infra/host-worker` on Workers Free with a `*.earnkit.com` route and a proxied
+   wildcard DNS record, then the four R2 variables and `EARNKIT_RESERVED_SUBDOMAINS` on Railway and
+   `RESERVED` on the Worker. Without them, GitHub Pages hosts every build.
+3. **The event log, last.** Check `https://earnkit.com/terms#what-earnkit-records` loads in
+   production, then set `EARNKIT_EVENT_LOG=on`, then run the backfill once from a local shell against
+   production: `EARNKIT_EVENT_LOG=on pnpm exec tsx apps/frontend/scripts/events-backfill.mts`. Never
+   the other way round. The metric reads nothing until this step.
 
-### T9 security fix round 2 (re-review 1: 0C 3I 4M)
-
-- **R1, who wrote the line.** `fetchLinePusher` credits only a push whose actor wrote its commits. When
-  the introducing push's commit was pushed earlier (any branch), that earlier push decides (followed
-  the same way), so a fast-forward, reset or new branch onto someone else's commit never credits the
-  mover. A `push` credits its actor; a `branch_creation` only when it is the repo's very first event
-  on a complete activity page (a brand-new repo); a `force_push`, `pr_merge` or `merge_queue_merge`
-  credits no one. So a fork PR the owner merges gives no owner login.
-- **R2:** no cap on the owner wallet: it is only named, so a cap on it would let anyone block a
-  victim's deploys. Caps are charged only against proven keys.
-- **R3, deploys need a proven owner off a shared client without a sign-in.** `deployForBuilder`
-  (both the build path and prepare `deploy`): when the installation has no sign-in or App proof of
-  the repo (`token-gate.ts repoSignedIn`), the deploy needs `github-verify.ts provenOwnerLogin`: the
-  line's pusher is the repo owner, the builder's said login, a User, and passes OWNER_GATE (30 days,
-  1 public repo, the host gate). Else `refused` with `OWNER_PROOF_NOTE` and nothing is reserved. That
-  login is stored as `contract_deploys.line_owner` and capped (once a day per chain, 3 in 30 days),
-  besides the installation and global caps. A sign-in or App proof keeps the v2.10 path unchanged.
-  The build path checks the same before writing anything (agent note only).
-- **N1, exact artifact.** The build path deploys only the starter's exact bytecode
-  (`contract.bytecode_hash`, keccak256 of forge's bytecode, metadata included) followed by exactly its
-  constructor arguments ABI-encoded with the starter's own `constructor_types` (the agent's
-  constructor ABI is replaced), decoded back with `args[0]` the build wallet. No suffix can ride along.
-  The deployed event labels the starter only on that exact hash.
-- **N2:** the per-repo cap is looser (3 a day per chain, 10 in 30 days), so one prover can't lock the
-  owner out while farming one repo is still bounded.
-- **Skipped:** N3 (a sign-in link replacing a proof-line site of another login is v2.9's behaviour)
-  and N4 (the pusher walk and the proof read may look at different branches; both need this
-  installation's own code, so it is harmless).
-
-### T9 security fix round 3 (re-review 2: 0C 1I 3M)
-
-- **R4, only the owner's own fresh work credits the owner** (`ownership.ts fetchLinePusher` ownWork,
-  after R1's walk picks the crediting push):
-  - (a) one `GET /repos/{o}/{r}`: not a fork, not made from a template (`template_repository`);
-  - (b) the push's commits (compare `before...after`, status `ahead`, every commit read; for a
-    first-event creation the whole history, under 100 commits) have at most one parent (no merge
-    commit) and committer dates from 10 minutes before the repo's `created_at` and from 5 minutes
-    before this installation's first issue of the line (`proof_line_issues`, written by
-    `github-verify.ts noteLineIssued` wherever EarnKit shows the line: prepare's token_line, the build
-    kit, the proof note, the launch note), up to 5 minutes after the push;
-  - (c) a first-event `branch_creation` counts only within 10 minutes of the repo's creation (and its
-    commits as in b). The build flow (degit into a new folder, one local commit, create the repo under
-    the builder's account, push) passes: its commit is minutes before the repo, its push minutes after.
-    `PUSHER_WINDOW` holds the windows.
-- **S2 (ruling):** the per-repo cap (3 a day per chain, 10 in 30 days) applies to sign-in and App
-  deploys too; it is looser than the per-builder cap, so a single builder never meets it.
-- **Skipped:** S1 (an account-age gate and a reserved slice of the day for sign-in deploys would change
-  the v2.10 sign-in path, which round 2 keeps as it was; the global caps bound it) and S3 (the pusher
-  is read once per build call and passed through; the account read is cached).
-
-### Accepted residual for the `proof_line` basis (the weakest login basis, spec 6)
-
-- **What is still possible.** A targeted attacker who gets the repo owner to push (or rebase onto) a
-  commit holding the attacker's earnkit.txt line, with the commit dated inside the window around the
-  repo's creation and the push, no merge commit, in a repo that is neither a fork nor from a template,
-  is credited as the owner for that repo. The attacker must predict the owner's login, the repo name
-  and the push window, and the owner must push the attacker's content themselves.
-- **What it gives them.** EarnKit hosting for that one repo under `<project>-<owner>` (never replacing
-  a site made under another login; the owner's takedown and the abuse scan still apply), `proof_line`
-  events that name the owner (shown as the weakest basis, never used for money or scoring), and use of
-  the owner's deploy caps (once a day per chain, 3 in 30 days).
-- **Why it is bounded.** No money moves to anyone: a deployed contract is owned by the wallet the
-  attacker named (their own), gas is EarnKit's under the global caps ($0.25 a deploy, 20 a day, $10 a
-  month), and nothing here touches tokens, fees, bonuses or payouts. A sign-in or the App remains the
-  strong basis; this residual is the price of no-click hosting on non-shared clients.
-
-## v2.11 The entry from the build, one reply, the kit (Task 10, spec 5)
-
-- **The deployed line waits.** On the deploy-and-host call, once hosting continues (an upload URL or
-  the Pages note), `show_to_builder` is empty and `BUILD_HOLD_NOTE` tells the agent to show nothing
-  yet; `BUILD_UPLOAD_NOTE` says not to show the upload's own reply (its `liveLine` stays, v2.9).
-- **The call after the live link (`tools.ts buildJoin`).** With a contract EarnKit deployed for this
-  installation and the build's repo, the entry is drafted from the build: the build's repo, the live
-  link, the contract, the description (the agent's, else the build's, `coach.ts derivedDescription`
-  for a required project text field like Arc's `description`), and the public profile from the proven
-  repo owner (`coach.ts derivedProfile`: a required link field naming GitHub gets
-  `https://github.com/<login>`, the login from `loginBasisFor`: sign-in, App, or the owner's own push
-  of the line; no login, no answer, and the coach asks). So Arc asks no coach question.
-- **One reply.** `prepare_submission(input, ctx, join)` (`BuildJoin { lead, wallet }`) puts, one per
-  line: the live line, the deployed line, then v2.10's confirm line with the build wallet (short),
-  e.g. `PodTips is live: podtips-jenil04.earnkit.com` / `PodTips is deployed on Arc: 0x0000…11ce.
-  You're the owner.` / `Yes submits your entry and launches $PODTIP (PodTips): 40% of its fees to
-  you, plus the builder bonus. Wallet: 0x12ab…9f3e. yes / skip the token`. No guide, no draft table,
-  "40%" once (a repeat drops it), at most one question. Fixes (a link that doesn't load) go between.
-  The reply carries `entry { project, answers }` and `BUILD_ENTRY_NOTE` for the confirm call.
-- **The live line** (`buildLiveLine`): EarnKit hosting only for this installation's live site of the
-  repo (v2.9 `liveLine`); GitHub Pages only for the repo's own Pages link whose probe passes
-  (`pagesLiveLine`: `PodTips is live: jenil04.github.io/podtips`). Any other link is never called
-  live: the deployed line and the confirm line still show.
-- **The wallet at confirm (`buildWalletAgain`).** On the build path a yes launches only to the wallet
-  the confirm line showed (`token_offers.offered_wallet`, the build wallet first). A yes naming another
-  wallet gets the confirm line again with that wallet and nothing is recorded or launched
-  (`BUILD_WALLET_NOTE`); the builder's next yes covers it (Review Focus 5).
-- **Then v2.10's flow.** The yes records the entry (`entered`), launches the token and hands over the
-  DoraHacks kit (copy-paste only); `tell` with `submitted` marks it (`submitted`). Events: built,
-  deployed, hosted, entered, submitted, once each. No /terms change (the recorded data is unchanged).
-- **The kit's order (`fresh-build.ts buildKit.order`, T9 concerns).** `find` with `github_user` (the
-  builder's own login, never guessed) first; copy and fill the starter; create the public repo; commit
-  with earnkit.txt; push at once, within 10 minutes of creating the repo, never a force push. A build
-  deploy refused for the owner proof gets `BUILD_OWNER_NOTE`: check `github_user`, then a fresh commit
-  and a normal push, and call again.
+Then, as programs come: add `fresh_build` only to programs the owner approves, and curate 3 to 5
+small dated programs on Arc or Base. Arc Microgrants closes 2026-10-15 03:59 UTC, and the lead
+needs 24 hours left, so from Oct 14 03:59 UTC it has nothing to pick and the reply is v2.10's.
