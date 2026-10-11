@@ -3504,6 +3504,7 @@ the map; the detail lives in the sections it names.
 |---|---|---|
 | `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY` | The read-only GitHub App (item 7b) | All three, a valid PEM (newlines as `\n` allowed), and the v2.9 OAuth app (`GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`) |
 | `DEPLOYER_PRIVATE_KEY` | Contract deploys (item 13) | 64 hex. Refuses to start when it equals any other key it can see |
+| `DEPLOY_CHAINS` | Which chains deploys are on for (v2.10.3) | Comma-separated from `arc`, `base`, any case and spacing. Unset or blank: both. Other entries are ignored and logged once by name. None left: no chain (prepare lists no `deploy`) |
 | `BASE_RPC_URL`, `ARC_RPC_URL` | The deployer's chains | Public RPCs are used when unset |
 
 ### Owner go-live (after merge)
@@ -3520,6 +3521,7 @@ the map; the detail lives in the sections it names.
    that its native USDC balance and gas use 18 decimals (the pricing assumes both; if Arc says 6,
    don't fund Arc and leave the Arc RPC unset until the code is changed). Then send about $5 of ETH
    on Base and about $5 of USDC on Arc. Top up by hand when the cron lists `deployer-gas:<chain>`.
+   Funding Base only? Set `DEPLOY_CHAINS=base` (v2.10.3), so Arc is never read or flagged.
 4. **Deployer key.** Set `DEPLOYER_PRIVATE_KEY` and make sure `BASE_RPC_URL` and `ARC_RPC_URL` are
    set. Run the app on one replica (the nonce queue is per process).
 5. **Deploy flags.** `deploy-owner:<id>` and `deploy-unknown:<id>` make the cron answer 503 for 24
@@ -3734,8 +3736,21 @@ builder as the owner. The agent compiles; EarnKit never builds code or verifies 
     pushed one).
   - On a shared client only the caller's own `signed_in` login counts, and the proof line never
     does (G7, G10).
+- **Chains (v2.10.3, `deployChains`, `DEPLOY_CHAINS`).** Deploys are on for a chain only when the
+  key is on and the chain is in `DEPLOY_CHAINS` (unset or blank: Arc and Base; entries trimmed and
+  lowercased; anything but `arc`/`base` ignored and logged once, by the variable's name only; none
+  left: no chain). Every path checks it:
+  - `viemDeployChain(c)` is null for a chain left out (no client);
+  - `deployForBuilder` refuses one before any read or reservation: `Deploys on Arc are off right
+    now.` (`deployOffLine`, with `deployOffNote` for the agent), or `DEPLOY_LINES.off` when no
+    chain is on;
+  - `tools.ts deployStep` refuses it first, before the wallet ask or the login read;
+  - `mcp.ts` lists prepare's `deploy` only while some chain is on;
+  - `deployerGas` reads and flags only the listed chains, so `DEPLOY_CHAINS=base` never gives
+    `deployer-gas:arc` (no hourly 503 for an unfunded Arc wallet).
+  - `deployChainOn(c)` is the one-call check (key and chain).
 - **Cron (`cron.ts deployerGas`, inside the hourly run).**
-  - While deploys are on, each chain's balance is read once and priced as above. Under $0.25 adds
+  - While deploys are on, each chain in `DEPLOY_CHAINS`' balance is read once and priced as above. Under $0.25 adds
     `deployer-gas:<chain>` (`note: 'TOP_UP'`). A failed price or balance read adds
     `deployer-price:<chain>` (`PRICE_UNKNOWN`, M3).
   - Always: rows of the last 7 days with `owner_ok = false` give `deploy-owner:<id>`. Rows with
@@ -3759,10 +3774,12 @@ builder as the owner. The agent compiles; EarnKit never builds code or verifies 
    The server can check only `CAMPAIGN_PAYOUT_PRIVATE_KEY` (and the others if set there); the
    operator and guardian keys live only in the local shell, so keep them apart by hand (P16).
 2. Fund it with about $5 per chain: ETH on Base, USDC on Arc (Arc's gas token). Top up by hand when
-   the cron lists `deployer-gas:<chain>`. `deployer-price:<chain>` means the price or balance
+   the cron lists `deployer-gas:<chain>`. Funding only some chains: set `DEPLOY_CHAINS` to them
+   (say `base`; v2.10.3). An unlisted chain gets no client, no gas check and a clean "Deploys on Arc
+   are off right now." to the builder. `deployer-price:<chain>` means the price or balance
    couldn't be read: check DefiLlama and the RPC, not the wallet.
 3. Set `DEPLOYER_PRIVATE_KEY` on Railway (and `ARC_RPC_URL`/`BASE_RPC_URL` if the public RPCs
-   aren't wanted). Unset it to turn deploys off. Keep the app on one replica while it is set: the
+   aren't wanted), and `DEPLOY_CHAINS=base` while only Base is funded. Unset the key to turn deploys off. Keep the app on one replica while it is set: the
    nonce queue is per process (M5); a second replica's colliding send fails closed (`unknown`).
 4. Before the first Arc deploy, confirm on docs.arc.io that the chain id is 5042, that the native
    balance uses 18 decimals (the pricing assumes it; M6 refuses an absurdly cheap price) and that Arc

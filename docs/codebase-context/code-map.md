@@ -436,6 +436,7 @@ apps/frontend/
                                fallback)
     mcp.ts(+test)              v2.10 item 4: registers find, prepare, confirm, tell (+ sponsor_campaign with escrow);
                                v2.10 item 13: prepare's deploy schema (chain, bytecode, abi, constructor_args, owner_wallet); readOnlyHint false.
+                               v2.10.3: the deploy field is listed only while deployEnabled() and DEPLOY_CHAINS names a chain.
                                FIND_DESCRIPTION, TELL_DESCRIPTION, toolDescriptions, serverInstructions, OWNERSHIP_FOR_TOKEN all
                                under 800 characters (mcp.test 9.1, 9.2; 9.7 the route alias end to end).
                                v2.10 item 2: find takes more; its description says one line first
@@ -553,6 +554,10 @@ apps/frontend/
                                writes), OWNER_ABI/HAS_ROLE_ABI/TRANSFER_ABI (raw probes), nativeUsd,
                                weiToMicroUsd, deployForBuilder (builder_key, caps with the transfer and L1
                                fee reserved, sendAttempted, owner probes, markDeployed). Fix round 2 (H12):
+                               v2.10.3: deployChains (DEPLOY_CHAINS: unset/blank both, any case, garbage
+                               ignored and logged once by name, none left = no chain), deployChainOn,
+                               deployOffLine/deployOffNote; viemDeployChain null and deployForBuilder
+                               refuses for an unlisted chain before any read.
                                ETH_USD_BAND ($500-$20,000, nativeUsd), simulate after the estimate with its
                                gas and fee, DeployChain.nonce (above 1: flagged, contract_deploys.blocked,
                                DEPLOY_LINES.blocked), DeployDeps.installationLogin (tools seam; fails closed)
@@ -675,6 +680,7 @@ apps/frontend/
                                record_submission never reads the remembered wallet)
                                v2.10 item 13: PrepareInput.deploy (DeployField, P9 owner_wallet), deployStep (the deployed line, reply.deploy), deployWalletLine.
                                Final fix M3: deployStep on a shared client needs sign-in on and calls callerLogin directly (DeployDeps.callerLogin seam).
+                               v2.10.3: deployStep refuses a chain not in DEPLOY_CHAINS first (deployOffLine), before the wallet ask or any read.
     tokens.ts(+test)           tokensFunUrl() (v2.9 T12: TOKENSFUN_API_URL read per call, never at import);
                                v2.10 item 11: tokenDescription (plain description, else the entry's
                                one-liner, else "<Name> on <Chain>" for a one-chain program, else "<Name>"; at most 280 characters), deployToken's description;
@@ -1000,7 +1006,7 @@ apps/frontend/
                                termsOf/fromTerms/sameTerms, MANUAL_CHECK, TOP_UP, NO_PAYOUT_KEY, NOT_MAINNET,
                                needsOwner (the 503 notes); the page balance is funds.ts
     cron.ts(+test)             nextStep (the state machine), scoreMaxAge, runCron (one step per
-                               v2.10 item 13: deployerGas (deployer-gas:<chain> TOP_UP, deployer-price:<chain>, deploy-owner:<id>, deploy-unknown:<id>; H11: :quiet after 24 h, QUIET_OWNER, no 503 in cronPost); CronDeps.deployer.
+                               v2.10 item 13: deployerGas (v2.10.3: only the chains in DEPLOY_CHAINS; deployer-gas:<chain> TOP_UP, deployer-price:<chain>, deploy-owner:<id>, deploy-unknown:<id>; H11: :quiet after 24 h, QUIET_OWNER, no 503 in cronPost); CronDeps.deployer.
                                campaign under its lease, then builder bonus scoring (scoreOpenRounds),
                                the ledger with its rounds step (bonus-payout advanceRounds), then the fee
                                refresh, then v2.9 Task 8 expireSites (R2 on; `hosting` in the result),
