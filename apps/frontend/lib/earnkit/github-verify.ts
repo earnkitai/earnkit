@@ -546,6 +546,20 @@ export async function lineIssuedAt(installationId: number, repoKey: string): Pro
   return row?.first_at ?? null;
 }
 
+/**
+ * Final fix M6 (T9 N6): whether a repo ever read as a fork or as made from a template. The first
+ * reading per repo is kept in url_checks (`ghrepo:<owner/repo>`, ok = never derived), and a later
+ * reading that is set marks it for good, so erasing the flag later (the source repo deleted or made
+ * private) never makes the repo the owner's own work.
+ */
+export async function repoEverDerived(repoKey: string, derivedNow: boolean): Promise<boolean> {
+  const [row] = await sql()<{ ok: boolean }[]>`
+    INSERT INTO url_checks (key, ok, checked_at) VALUES (${`ghrepo:${repoKey.toLowerCase()}`}, ${!derivedNow}, now())
+    ON CONFLICT (key) DO UPDATE SET ok = url_checks.ok AND EXCLUDED.ok
+    RETURNING ok`;
+  return row ? !row.ok : derivedNow;
+}
+
 /** v2.11 T9 security fix R3: the account bar a proven owner login must pass (hosting.ts HOST_LIMITS' gate). */
 export const OWNER_GATE = { accountMinDays: 30, minPublicRepos: 1 } as const;
 
