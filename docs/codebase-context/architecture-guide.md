@@ -4203,16 +4203,18 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
 - **When it shows.** The short first reply (`present.ts` `presentFirstMessage`, not "show more")
   gets a third kind of lead when nothing else leads: no good-odds row (`leadRow`), no entry waiting
   on the builder's submission (`submitStep`), no users question (`usersAsk`), no higher question held
-  (`holdQuestion`), and no open program the builder's agent is preparing (`working_on`). Then
+  (`holdQuestion`), no open program the builder's agent is preparing (`working_on`), and no repo
+  read error or repo EarnKit can't see (review M1: it may still fit). Then
   `freshLead(given)` asks `fresh-build.ts` `freshPick`. A pick replaces the v2.10 line ("No repo fits
   yet. $X is open; want the 3 easiest?") with two lines: `contextLine` ("$1.1M+ in prizes is open
   right now across 7 programs.", the same programs `pool.ts` `openCurated` gives `openMoneyUsd`) and
   `freshLeadLine` ("Arc Microgrants pays 500 USDC and closes in 4 days. A USDC tip page on Arc takes
-  about an hour. Want me to build it?"). Chat-only and shared clients get "... A coding agent like
-  Claude Code builds the USDC tip page in about an hour. Want the plan?".
+  about an hour. Want me to build it?"). Chat-only and shared clients get "... A coding agent builds
+  the USDC tip page in about an hour. Want the plan?" (no tool names in builder copy).
 - **The pick rules (freshPick, pure).** Open and curated (never sponsored, an EarnKit campaign or an
   investment, never tagged "long shot" or "needs a live product", never hidden or entered); the
-  program's `fresh_build` names a registered starter with `tested_at` set, on one of the program's
+  program's `fresh_build` names a registered starter tested within the last 30 days (`tested_at`,
+  checked against now at pick time as well as at sync), on one of the program's
   chains; EarnKit deploys to that chain and hosting is on; Easy or Medium; a known prize per winner
   of $5,000 or less; closing 24 hours to 14 days from now (a rolling program only when no dated one
   qualifies). Rank: Easy first, more `winners_per_round` (unknown is 1; `Card.winners_per_round` is
@@ -4225,7 +4227,7 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
   pick and the reply is v2.10's byte for byte. `ctx.freshDeps` overrides the switches in tests only.
 - **find's reply.** With a pick, `build_offer: { program_id, starter_id, agent_note }`: `BUILD_NOTE`
   (a yes means `prepare` with `build: { start: true, program_id }`, T8) or, chat-only, `PLAN_NOTE`
-  (tell the builder to add EarnKit to a coding agent). The `find` description says "build_offer:
+  (tell the builder to add EarnKit to a coding agent; no tool names). The `find` description says "build_offer:
   follow its agent_note.".
 - **fresh_offer_at.** The first build lead shown to a non-shared installation sets
   `installations.fresh_offer_at` (`installations.ts` `markFreshOffer`, `WHERE fresh_offer_at IS

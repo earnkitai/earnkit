@@ -1,6 +1,7 @@
 import { CHAIN_NAMES } from './chains';
 import { prizeOf } from './entry-text';
 import { NEEDS_LIVE_PRODUCT } from './guide';
+import { STARTER_TEST_MAX_AGE_DAYS } from './program-file';
 import { moneyText, openCurated, openMoneyUsd } from './pool';
 import { STARTERS, type Starter, type StarterChain } from './starters';
 import type { Card } from './present';
@@ -39,12 +40,18 @@ const MIN_LEFT_MS = 24 * HOUR_MS;
 const MAX_LEFT_MS = 14 * DAY_MS;
 const LEVELS = ['Easy', 'Medium'] as const;
 
-/** The card's registered, tested starter, or undefined (never a prototype key such as "toString"). */
-function starterOf(c: Card, starters: Record<string, Starter>): Starter | undefined {
+/**
+ * The card's registered starter whose test passed within the last 30 days, or undefined (never a
+ * prototype key such as "toString"). Review M6: programs:check holds the same 30 days against
+ * verified_at at sync time; this holds it against now, so a stale test stops the offer at once.
+ */
+function starterOf(c: Card, starters: Record<string, Starter>, now: Date): Starter | undefined {
   const id = c.fresh_build?.starter;
   if (!id || !Object.hasOwn(starters, id)) return undefined;
   const s = starters[id];
-  return s.tested_at ? s : undefined;
+  if (!s.tested_at) return undefined;
+  const days = Math.floor((now.getTime() - new Date(`${s.tested_at}T00:00:00Z`).getTime()) / DAY_MS);
+  return days <= STARTER_TEST_MAX_AGE_DAYS ? s : undefined;
 }
 
 /**
@@ -68,7 +75,7 @@ export function freshPick(cards: Card[], now: Date, opts: FreshPickOpts): FreshP
     const level = card.difficulty?.level;
     if (!level || !(LEVELS as readonly string[]).includes(level)) continue;
     if (card.max_award_usd == null || card.max_award_usd > FRESH_MAX_USD) continue;
-    const starter = starterOf(card, starters);
+    const starter = starterOf(card, starters, now);
     if (!starter || !card.chains?.includes(starter.chain) || !opts.deployOn(starter.chain)) continue;
     if (card.ends_at) {
       const left = card.ends_at.getTime() - now.getTime();
@@ -106,7 +113,7 @@ export function contextLine(cards: Card[], now: Date): string | null {
  * v2.11 spec 1, Ruling S2: the lead, one question.
  * - Builds: "Arc Microgrants pays 500 USDC and closes in 4 days. A USDC tip page on Arc takes about
  *   an hour. Want me to build it?"
- * - Chat-only: "... A coding agent like Claude Code builds the USDC tip page in about an hour. Want
+ * - Chat-only: "... A coding agent builds the USDC tip page in about an hour. Want
  *   the plan?" (the starter's "what" as "the ...", its "on <chain>" dropped: the program already
  *   says where).
  * The prize is prizeOf cut at " × "; "closes in N days" counts whole days to `ends_at`, N = 1 reads
@@ -120,7 +127,7 @@ export function freshLeadLine(p: FreshPick, now: Date, canBuild: boolean): strin
   const what = p.starter.what;
   const build = canBuild
     ? `${what.charAt(0).toUpperCase()}${what.slice(1)} takes about an hour. Want me to build it?`
-    : `A coding agent like Claude Code builds ${theWhat(p.starter)} in about an hour. Want the plan?`;
+    : `A coding agent builds ${theWhat(p.starter)} in about an hour. Want the plan?`;
   return `${p.card.title} pays ${prize} ${when}. ${build}`;
 }
 

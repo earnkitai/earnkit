@@ -769,8 +769,8 @@ export const BUILD_NOTE =
 /** v2.11 T7: the chat-only lead's yes ("Want the plan?"): this client can't build, so the plan is how to get it built. */
 export const PLAN_NOTE =
   'This client can\'t build or deploy. A yes to "Want the plan?" means tell the builder, short and in your words: ' +
-  'add EarnKit to a coding agent (Claude Code, Cursor or Codex) and ask it to build for this program; ' +
-  'that agent builds it, and EarnKit deploys and hosts it. Never say you built anything.';
+  'add EarnKit to a coding agent and ask it to build for the program the lead line names; ' +
+  'that agent builds it, and EarnKit deploys and hosts it. Never name a product or say you built anything.';
 
 /** v2.10.1 fix round 1 (C1): what the agent does with the users question. */
 export const USERS_NOTE =
