@@ -17,9 +17,9 @@ import { TECHNICAL_TERMS, type TokenFlowDeps } from './token-launch';
 import { checkDefaults } from './verify';
 import type { DeployChain, DeployDeps } from './deploy';
 import { deploySite } from './hosting';
-import { contextLine } from './fresh-build';
+import { contextLine, freshPick } from './fresh-build';
 import { STARTERS } from './starters';
-import { STARTER_TEST_MAX_AGE_DAYS } from './program-file';
+import { STARTER_TEST_MAX_AGE_DAYS, starterAgeWarnings } from './program-file';
 import { EVENT_LOG_FLAG } from './events';
 import { ARC_TIPJAR_BYTECODE } from './fixtures/arc-tipjar-artifact';
 import type { EventRow } from './fixtures/events';
@@ -332,7 +332,14 @@ async function newInstallation(o: { shared?: boolean } = {}) {
   return id;
 }
 
-/** What the MCP route would pass, plus the outside world's fakes (never the switches or the registry). */
+/**
+ * Final fix I4: the real registry with arc-tipjar tested today, so no journey depends on the real
+ * date passing its tested_at (2026-11-10 and on). A test seam only: every other value, and the
+ * 30-day rule itself (13.0), stay the real ones; programs:check warns the owner instead.
+ */
+const TODAY_STARTERS = { ...STARTERS, 'arc-tipjar': { ...STARTERS['arc-tipjar'], tested_at: new Date().toISOString().slice(0, 10) } };
+
+/** What the MCP route would pass, plus the outside world's fakes and the registry seam (never the switches). */
 function ctxFor(id: number, owner: () => string) {
   const tokenDeps: TokenFlowDeps = {
     available: () => true,
@@ -344,7 +351,7 @@ function ctxFor(id: number, owner: () => string) {
     logo: (a) => launchLogo(a, logoDeps),
   };
   const deployDeps: DeployDeps = { chain: (c) => (c === 'arc' ? fakeArc(owner) : null), usdPerNative: async () => 1 };
-  return { installationId: id, ownInstallationId: id, tokenDeps, deployDeps };
+  return { installationId: id, ownInstallationId: id, tokenDeps, deployDeps, freshDeps: { starters: TODAY_STARTERS } };
 }
 type Ctx = ReturnType<typeof ctxFor>;
 
@@ -565,14 +572,19 @@ function assertOneYes(j: JourneyOut) {
   assert.equal(j.calls.filter(([, , input]) => JSON.stringify(input).includes('"start":true')).length, 1, 'one build.start');
 }
 
-test('13.0 the real switches and registry: arc-tipjar is tested within 30 days, and Arc names it', dbTest, async () => {
-  const days = Math.floor((Date.now() - Date.parse(`${STARTERS['arc-tipjar'].tested_at}T00:00:00Z`)) / (24 * HOUR));
-  assert.ok(
-    days <= STARTER_TEST_MAX_AGE_DAYS,
-    `arc-tipjar was tested ${days} days ago: rerun its test (chain-kits arc/tipjar, bash scripts/e2e.sh) and update tested_at in starters.ts`,
-  );
-  const arc = (await listPrograms()).find((p) => p.id === ARC);
-  assert.deepEqual(arc?.fresh_build, { starter: 'arc-tipjar' });
+test('13.0 the real registry: Arc names arc-tipjar; the 30-day rule still stops a stale starter (the date is injected, never the real one)', dbTest, async () => {
+  const arc = (await listPrograms()).find((p) => p.id === ARC)!;
+  assert.deepEqual(arc.fresh_build, { starter: 'arc-tipjar' });
+  const now = new Date();
+  const day = (ago: number) => new Date(now.getTime() - ago * 24 * HOUR).toISOString().slice(0, 10);
+  const pick = (testedAt: string) =>
+    freshPick([arc], now, { hidden: new Set(), entered: new Set(), deployOn: () => true, hostOn: true, starters: { ...STARTERS, 'arc-tipjar': { ...STARTERS['arc-tipjar'], tested_at: testedAt } } });
+  assert.equal(pick(day(0))?.starter.id, 'arc-tipjar', 'tested today');
+  assert.equal(pick(day(STARTER_TEST_MAX_AGE_DAYS))?.starter.id, 'arc-tipjar', 'exactly 30 days');
+  assert.equal(pick(day(STARTER_TEST_MAX_AGE_DAYS + 1)), undefined, 'production unchanged: a stale starter is never offered');
+  // The alarm is programs:check's warning now, never a red test (final fix I4).
+  assert.deepEqual(starterAgeWarnings([arc], now, { ...STARTERS, 'arc-tipjar': { ...STARTERS['arc-tipjar'], tested_at: day(10) } }), []);
+  assert.match(starterAgeWarnings([arc], now, { ...STARTERS, 'arc-tipjar': { ...STARTERS['arc-tipjar'], tested_at: day(24) } })[0], /^arc-tipjar tested 24 days ago/);
 });
 
 test('13.1 the full path, EarnKit hosting: a fresh connection with no repos says yes once and ends with a deployed contract, a hosted live link, a ready entry and the submit kit', dbTest, async () => {

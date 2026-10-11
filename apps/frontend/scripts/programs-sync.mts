@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkLogoFile } from '../lib/earnkit/logo-check';
 import { OutcomeFile } from '../lib/earnkit/outcomes';
-import { ProgramFile, freshBuildProblems, needsRepoMissing, requiredWithoutTodo, requirementsWithoutKind } from '../lib/earnkit/program-file';
+import { ProgramFile, freshBuildProblems, needsRepoMissing, requiredWithoutTodo, requirementsWithoutKind, starterAgeWarnings } from '../lib/earnkit/program-file';
 
 /**
  * pnpm programs:check — validates every programs/*.json.
@@ -81,6 +81,11 @@ for (const { f, result } of outcomes) {
   console.error(`outcomes/${f} is not valid:`);
   for (const p of problems) console.error(`  - ${p}`);
 }
+
+// Final fix I4: a starter going stale is the owner's notice, never a failure (fresh-build.ts stops
+// offering it at 30 days on its own).
+for (const w of starterAgeWarnings(parsed.flatMap(({ result }) => (result.success ? [result.data] : [])), new Date()))
+  console.warn(`Warning: ${w}`);
 
 if (invalid.length > 0 || fileProblems.length > 0 || outcomeProblems > 0) process.exit(1);
 
