@@ -55,6 +55,14 @@ export async function setFitRepos(installationId: number, repos: FitRepo[]): Pro
   await sql()`UPDATE installations SET fit_repos = ${sql().json(best as never)} WHERE id = ${installationId}`;
 }
 
+/**
+ * v2.11 T7: the first time find showed this installation the fresh-build lead (the v2.11 metric's
+ * start). Set once: a later lead never moves it.
+ */
+export async function markFreshOffer(installationId: number, at: Date): Promise<void> {
+  await sql()`UPDATE installations SET fresh_offer_at = ${at} WHERE id = ${installationId} AND fresh_offer_at IS NULL`;
+}
+
 /** v2.9 T12 (G15 M1): the builder's best owned repos as they last matched (setFitRepos). */
 export async function readFitRepos(installationId: number): Promise<FitRepo[]> {
   const [row] = await sql()<{ fit_repos: FitRepo[] | null }[]>`SELECT fit_repos FROM installations WHERE id = ${installationId}`;

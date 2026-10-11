@@ -141,11 +141,22 @@ export type OpenMoneyRow = {
  * call it (stats.ts re-exports it; it lives here because present.ts can't import stats.ts). Pure.
  */
 export function openMoneyUsd(programs: OpenMoneyRow[], now = new Date()): number {
-  return programs
-    .filter((p) => (p.status ?? 'active') === 'active' && !p.campaign && !p.earnkit_campaign && !p.sponsored && p.source !== 'sponsor')
-    .filter((p) => (!p.starts_at || p.starts_at <= now) && (!p.ends_at || now < p.ends_at))
-    .reduce((sum, p) => sum + Number(p.max_award_usd ?? 0), 0);
+  return programs.filter((p) => openCurated(p, now)).reduce((sum, p) => sum + Number(p.max_award_usd ?? 0), 0);
 }
+
+/**
+ * v2.9 F21: the programs openMoneyUsd sums: open (active, started, not ended) and curated (never an
+ * EarnKit campaign or a sponsor's). v2.11 T7 (Ruling S1): the context line counts these, so its money
+ * and its count always agree. Pure.
+ */
+export const openCurated = (p: OpenMoneyRow, now: Date): boolean =>
+  (p.status ?? 'active') === 'active' &&
+  !p.campaign &&
+  !p.earnkit_campaign &&
+  !p.sponsored &&
+  p.source !== 'sponsor' &&
+  (!p.starts_at || p.starts_at <= now) &&
+  (!p.ends_at || now < p.ends_at);
 
 /** v2.9 F21 (P18): the figure as text, "$1.1M+": rounded down, "+" when rounding dropped value; null at 0. Pure. */
 export const moneyText = (usd: number): string | null => poolTotalText([{ pool_usd: usd, plus: false }]);

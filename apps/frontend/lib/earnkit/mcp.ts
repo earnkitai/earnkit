@@ -113,6 +113,8 @@ export const FIND_DESCRIPTION =
   // round 1 (C1): plus the builder's own commit count.
   'For private repos, report: name, chains, contracts, live link, last_commit_at, my_commits_90d. ' +
   'A yes to the reply prepares lead.program_id; more: true only when they ask for more. ' +
+  // v2.11 T7: the no-repo lead's yes starts the build path (prepare with build).
+  'build_offer: follow its agent_note. ' +
   'program_id: one program and its guide; repo: whether it fits. ' +
   SAFETY_TEXT;
 
