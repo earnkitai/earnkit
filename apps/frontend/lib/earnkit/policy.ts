@@ -65,8 +65,23 @@ export const PLACE_ROWS: [string, string][] = BONUS_SPLIT_BPS.map((bps, i) => [
 export const RECORDS_TITLE = 'What EarnKit records';
 export const RECORDS_ANCHOR = 'what-earnkit-records';
 export const RECORDS_HREF = `/terms#${RECORDS_ANCHOR}`;
-export const RECORDS_KEPT =
-  'To match you and track your entries, EarnKit keeps what your agent sends: the repos you share, your entries, the wallets you give, and your email if you ask for email updates.';
+/** What the agent sends that EarnKit keeps (installations, projects, answer_bank, token_offers, hosted_sites, digest_subscriptions). */
+export const RECORDS_SENT_LEAD = 'To match you and track your entries, EarnKit keeps what your agent sends:';
+export const RECORDS_SENT = [
+  'Your GitHub username, your repos and what you say about them.',
+  'The programs you work on, your entries and your application answers.',
+  "Your token's name, ticker and image.",
+  'The wallets you give, the sites you host, and your email if you ask for updates.',
+];
+/** What EarnKit reads itself (github_verifications, github_users, github_repo_facts, bonus_commits, scoring, usage checks). */
+export const RECORDS_READ_LEAD = 'It also keeps what it reads from public GitHub and chains:';
+export const RECORDS_READ = [
+  'Your GitHub account age and public repo count.',
+  'Repo facts and commit authors.',
+  'Contract activity.',
+];
+/** rate_windows keys (rate-limit.ts clientIp); old windows are deleted as new ones start. */
+export const RECORDS_IP = 'For a short time it keeps your IP address, to limit abuse.';
 export const RECORDS_HISTORY = 'EarnKit also keeps a history of each step you ship, with its public proof:';
 export const RECORD_STEPS = [
   'A contract deploy: its transaction and address.',
@@ -74,8 +89,19 @@ export const RECORD_STEPS = [
   'An entry: its EarnKit entry page.',
   'A submission: the link you gave, if any.',
   "A program result: the program's results page, or your own answer.",
+  "A usage check: your contract's use 30 and 90 days after its deploy.",
 ];
-export const RECORDS_WITH =
-  'With each step, where it applies: the repo, the program, the wallet you gave, and your GitHub login if EarnKit checked it, with how: GitHub sign-in, the EarnKit GitHub App, or the earnkit.txt line in your repo.';
+export const RECORDS_WITH = [
+  'Each step notes the repo, the program and the wallet you gave.',
+  'It notes your GitHub login only if EarnKit checked it: by GitHub sign-in, the EarnKit GitHub App, or the earnkit.txt line in your repo.',
+];
 export const RECORDS_WHY = 'EarnKit keeps it to show your builder history. Onchain proofs are public anyway.';
-export const RECORDS_REMOVAL = `To remove your GitHub login and wallet from your history, email ${CONTACT_EMAIL}. The steps, repos and proofs stay, and a repo name or hosted link can still show your login.`;
+/** Owner decision (T12 fix round 1, I3). */
+export const RECORDS_RETENTION =
+  'EarnKit keeps this history for as long as EarnKit runs, unless you ask to remove your login and wallet.';
+/** Exactly what scripts/events-redact.mts does (I2): the email renders as a mailto link between the two. */
+export const RECORDS_REMOVAL_LEAD = 'To remove your GitHub login and wallet from your step history, email';
+export const RECORDS_REMOVAL_AFTER = [
+  'The steps, repos and proofs stay, and a repo name or hosted link can still show your login.',
+  'Email to ask about removing them from your other EarnKit records.',
+];
