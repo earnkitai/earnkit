@@ -84,6 +84,8 @@ export const RECORDS_READ = [
 export const RECORDS_IP = 'For up to 3 days it keeps your IP address, to limit abuse.';
 export const RECORDS_HISTORY = 'EarnKit also keeps a history of each step you ship, with its public proof:';
 export const RECORD_STEPS = [
+  // v2.11 T9: the built event (its repo link as proof, the twist in detail).
+  'A build: its repo and your one-line idea for it.',
   'A contract deploy: its transaction and address.',
   'A hosted site: its live link.',
   'An entry: its EarnKit entry page.',

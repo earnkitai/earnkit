@@ -838,6 +838,7 @@ test('12.1 v2.11 /terms "What EarnKit records": login and how it was checked, wa
     'Contract activity.',
     'For up to 3 days it keeps your IP address, to limit abuse.',
     'EarnKit also keeps a history of each step you ship, with its public proof:',
+    'A build: its repo and your one-line idea for it.',
     'A contract deploy: its transaction and address.',
     'A hosted site: its live link.',
     'An entry: its EarnKit entry page.',

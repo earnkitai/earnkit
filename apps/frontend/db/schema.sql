@@ -1048,3 +1048,13 @@ ALTER TABLE installations ADD COLUMN IF NOT EXISTS build jsonb;
 -- v2.11 T5 (spec 2): the program file's fresh_build ({ "starter": "<starters.ts id>" }), set by the
 -- owner only; NULL for a program without one. Additive.
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS fresh_build jsonb;
+
+-- v2.11 T9 (plan S9, decision 2): how an upload link's GitHub login was proven. 'signin' (the v2.9
+-- host sign-in, or 'app'), or 'proof_line': off a shared client, this agent's earnkit.txt line in
+-- the builder's own User account's repo plus a public account read (github-verify.ts githubUser).
+-- The upload re-checks the gate the same way, and the hosted event carries it. Additive; every
+-- existing row is a sign-in.
+ALTER TABLE host_upload_tokens ADD COLUMN IF NOT EXISTS basis text NOT NULL DEFAULT 'signin'
+  CHECK (basis IN ('signin', 'app', 'proof_line'));
+ALTER TABLE host_deploys ADD COLUMN IF NOT EXISTS basis text NOT NULL DEFAULT 'signin'
+  CHECK (basis IN ('signin', 'app', 'proof_line'));

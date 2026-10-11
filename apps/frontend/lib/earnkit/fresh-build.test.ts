@@ -61,7 +61,7 @@ test('7.1 today\'s files at 2026-10-10T12:00Z, deploys and hosting on, Arc tagge
   assert.deepEqual(freshLead(short({ cards, fresh: FRESH_ON })), { card: pick!.card, starter: pick!.starter, canBuild: true });
 });
 
-test('7.2 fail closed: deploys off, hosting off, an untested starter, an unknown starter or no program carrying fresh_build gives no pick, and the reply is the v2.10 line byte for byte', () => {
+test('7.2 fail closed: deploys off, hosting off for a starter with no Pages fallback, an untested starter, an unknown starter or no program carrying fresh_build gives no pick, and the reply is the v2.10 line byte for byte', () => {
   const cards = tagged();
   const v210 = presentFirstMessage(short({ cards }));
   assert.equal(v210, '$1.1M+ is open. Want the 3 easiest?');
@@ -70,7 +70,7 @@ test('7.2 fail closed: deploys off, hosting off, an untested starter, an unknown
   const cases: [string, Card[], FirstMessage['fresh']][] = [
     ['deploys off', cards, { ...FRESH_ON, deployOn: () => false }],
     ['deploys off on Arc only', cards, { ...FRESH_ON, deployOn: (c) => c !== 'arc' }],
-    ['hosting off', cards, { ...FRESH_ON, hostOn: false }],
+    ['hosting off, no Pages fallback', cards, { ...FRESH_ON, hostOn: false, starters: { 'arc-tipjar': { ...TESTED_STARTERS['arc-tipjar'], pages_fallback: false } } }],
     ['an untested starter', cards, { ...FRESH_ON, starters: { 'arc-tipjar': { ...STARTERS['arc-tipjar'], tested_at: null } } }],
     ['an unknown starter', withFreshBuild(fileCards(), [ARC], 'nope'), FRESH_ON],
     ['a prototype key as the starter', withFreshBuild(fileCards(), [ARC], 'toString'), FRESH_ON],
@@ -83,11 +83,15 @@ test('7.2 fail closed: deploys off, hosting off, an untested starter, an unknown
     assert.equal(presentFirstMessage(short({ cards: c, repos: { checked: 2, fits: [] }, fresh })), v210Repos, label);
   }
   assert.equal(freshPick(cards, NOW, { ...on, deployOn: () => false }), undefined);
-  assert.equal(freshPick(cards, NOW, { ...on, hostOn: false }), undefined);
+  const noPages = { 'arc-tipjar': { ...TESTED_STARTERS['arc-tipjar'], pages_fallback: false } };
+  assert.equal(freshPick(cards, NOW, { ...on, hostOn: false, starters: noPages }), undefined);
+  // v2.11 T9 (plan S10): with hosting off, a starter whose site can go on GitHub Pages is still picked.
+  assert.equal(TESTED_STARTERS['arc-tipjar'].pages_fallback, true);
+  assert.equal(freshPick(cards, NOW, { ...on, hostOn: false })?.card.id, ARC, 'hosting off: the Pages fallback');
   // T6 follow-up: the real registry is tested (2026-10-11), so the switches alone keep it closed.
   assert.equal(STARTERS['arc-tipjar'].tested_at, '2026-10-11');
   assert.equal(freshPick(cards, NOW, { ...none, deployOn: () => false, hostOn: true }), undefined, 'STARTERS by default, deploys off');
-  assert.equal(freshPick(cards, NOW, { ...none, deployOn: () => true, hostOn: false }), undefined, 'STARTERS by default, hosting off');
+  assert.equal(freshPick(cards, NOW, { ...none, deployOn: () => true, hostOn: false })?.starter.id, 'arc-tipjar', 'STARTERS by default, hosting off: the Pages fallback');
   // Review M6: a test more than 30 days old offers nothing (tested 2026-09-10: 30 days at Oct 10).
   const aged = (tested_at: string) => ({ ...on, starters: { 'arc-tipjar': { ...TESTED_STARTERS['arc-tipjar'], tested_at } } });
   assert.equal(freshPick(cards, NOW, aged('2026-09-10'))?.card.id, ARC, 'exactly 30 days');
