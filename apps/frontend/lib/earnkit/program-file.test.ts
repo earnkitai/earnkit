@@ -807,7 +807,9 @@ const arcWith = (fresh_build: unknown) => ({ ...programJson('arc-microgrants'), 
 
 test('5.1a the schema takes fresh_build as { starter } only, a slug, and refuses any other shape', () => {
   assert.deepEqual(ProgramFile.parse(arcWith({ starter: 'arc-tipjar' })).fresh_build, { starter: 'arc-tipjar' });
-  assert.equal(ProgramFile.parse(programJson('arc-microgrants')).fresh_build, undefined);
+  assert.equal(ProgramFile.parse({ ...programJson('arc-microgrants'), fresh_build: undefined }).fresh_build, undefined);
+  // T6 follow-up: the committed Arc file names the tested arc-tipjar.
+  assert.deepEqual(ProgramFile.parse(programJson('arc-microgrants')).fresh_build, { starter: 'arc-tipjar' });
   for (const bad of ['arc-tipjar', true, null, {}, { starter: '' }, { starter: 'Arc Tipjar' }, { starter: 'arc-tipjar', minutes: 30 }, ['arc-tipjar']])
     assert.equal(ProgramFile.safeParse(arcWith(bad)).success, false, JSON.stringify(bad));
 });

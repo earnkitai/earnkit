@@ -19,11 +19,18 @@ export type StarterChain = 'arc' | 'base';
 
 /**
  * How a starter's use is read by the 30 and 90 day usage checks (events.ts usageChecks).
- * `recent_logs`: count `usage_event` over the recent window of blocks (the contract keeps no total).
- * `view_total`: read the contract's own running-total views (ruling R-T6: the T6 arc-tipjar adds
- * `tipCount` and `totalTipped`; switch arc-tipjar to it when that starter ships).
+ * `view_total`: one eth_call of the contract's own running-total view (`usage_view`), exact since
+ * the deploy (ruling R-T6).
+ * `recent_logs`: count `usage_event` over the recent window of blocks, for a contract that keeps no
+ * total (and the fallback when a view_total contract's view answers nothing).
  */
 export type UsageRead = 'recent_logs' | 'view_total';
+
+/**
+ * A `view_total` starter's view: its signature, its 4-byte selector, and the name of each uint256
+ * word it returns, in order.
+ */
+export type UsageView = { call: string; selector: `0x${string}`; words: readonly string[] };
 
 export type Starter = {
   id: 'arc-tipjar';
@@ -41,6 +48,8 @@ export type Starter = {
   /** The event signature that counts as use (canonical types, no names or `indexed`). */
   usage_event: string;
   usage_read: UsageRead;
+  /** Required with `view_total`. */
+  usage_view?: UsageView;
   /** YYYY-MM-DD of the last passing starter test (`test_cmd`); null until it has passed once. */
   tested_at: string | null;
   /** The starter repo's own test: zero to deployable, owner() set, one usage call. */
@@ -50,13 +59,16 @@ export type StarterId = Starter['id'];
 
 export const STARTERS: Record<StarterId, Starter> = {
   /**
-   * Arc Microgrants. The contract is the chain-kits `arc/example/src/UsdcTipJar.sol` (main at
-   * b068976): `constructor(address owner_)`, `tip(uint256 amount, string note)`, and
-   * `event Tipped(address indexed from, uint256 amount, string note)`; tested on Arc testnet
-   * 2026-09-29. The starter around it (`arc/tipjar`: the static tip page, the twist slots, `site/`
-   * and `scripts/e2e.sh`) is T6's (v2.11 plan), so `repo`, `site_dir` and `test_cmd` are the plan's
-   * paths and `tested_at` stays null until T6's one-hour test passes. Usage: STARTER_USAGE in
-   * events.ts, the recent window of `Tipped` logs, until T6's view counters ship (ruling R-T6).
+   * Arc Microgrants. chain-kits `arc/tipjar` (main at 0f573a7, merged 2026-10-11; v2.11 T6 report):
+   * - `src/UsdcTipJar.sol`: `constructor(address owner_, string name_, uint256 minTip_)` (owner is
+   *   the builder, so no transfer), `tip(uint256 amount, string note)`, and
+   *   `event Tipped(address indexed from, uint256 amount, string note)`;
+   * - running totals (ruling R-T6): `stats()` returns (tips, total in USDC base units, unique
+   *   tippers), selector 0xd80528ae, so a usage check is one eth_call;
+   * - `site/` is the static tip page EarnKit hosts; `twist.json` holds the name, description and
+   *   feature slots; `scripts/e2e.sh` is the zero-to-deployable test (forge test, anvil deploy with
+   *   the builder as owner, one tip, the site zip and EarnKit's deploy and host checks). It passed on
+   *   2026-10-11, and two timed fresh-agent runs reached it in about 70 and 64 seconds.
    */
   'arc-tipjar': {
     id: 'arc-tipjar',
@@ -67,8 +79,9 @@ export const STARTERS: Record<StarterId, Starter> = {
     contract: { artifact: 'UsdcTipJar', owner_arg: true },
     site_dir: 'site',
     usage_event: 'Tipped(address,uint256,string)',
-    usage_read: 'recent_logs',
-    tested_at: null,
-    test_cmd: 'forge test && scripts/e2e.sh',
+    usage_read: 'view_total',
+    usage_view: { call: 'stats()', selector: '0xd80528ae', words: ['tips', 'total', 'tippers'] },
+    tested_at: '2026-10-11',
+    test_cmd: 'bash scripts/e2e.sh',
   },
 };

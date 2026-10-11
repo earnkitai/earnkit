@@ -6,7 +6,6 @@ import {
   ARC_LOG_MAX_CHUNKS,
   EVENT_LOG_FLAG,
   EVENT_WAIT_MS,
-  STARTER_USAGE,
   USAGE_RETRY_HOURS,
   USAGE_SKIP_AFTER,
   USAGE_SKIP_DAYS,
@@ -20,8 +19,10 @@ import {
   recordEvent,
   usageChecks,
   usageTopic,
+  viewTotals,
   type BuilderEvent,
 } from './events';
+import { STARTERS } from './starters';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql, type Db } from './db';
@@ -437,10 +438,28 @@ test('11.0 recentChunks: the last ARC_LOG_MAX_CHUNKS ranges of ARC_LOG_CHUNK blo
   assert.deepEqual(recentChunks(0n), [[0n, 0n]]);
 });
 
-test('11.0 the arc-tipjar starter: Tipped(address indexed, uint256, string), read as a recent window (the contract keeps no total)', () => {
-  assert.deepEqual(STARTER_USAGE['arc-tipjar'], { usage_event: 'Tipped(address,uint256,string)', usage_read: 'recent_logs' });
+test('11.0 the arc-tipjar starter: Tipped(address indexed, uint256, string); its use is read from stats() (R-T6), events.ts keeps no copy of the rule', () => {
+  assert.equal(STARTERS['arc-tipjar'].usage_event, 'Tipped(address,uint256,string)');
+  assert.equal(STARTERS['arc-tipjar'].usage_read, 'view_total');
   assert.equal(usageTopic('Tipped(address,uint256,string)'), '0x4f629a5f1c8e7fc616770a8d34896b447f3457037c40a23347478746309d73c2');
+  const src = readFileSync(join(import.meta.dirname, 'events.ts'), 'utf8');
+  assert.doesNotMatch(src, /STARTER_USAGE/, 'the rule lives on STARTERS only');
 });
+
+/** stats() answers (tips, total in USDC base units, unique tippers), three 32-byte words. */
+const statsWords = (...w: bigint[]) => `0x${w.map((x) => x.toString(16).padStart(64, '0')).join('')}` as `0x${string}`;
+
+test('11.0 viewTotals: three uint256 words as exact tips, total (base units, a string) and tippers; anything shorter is null', () => {
+  assert.deepEqual(viewTotals(statsWords(3n, 4_500_000n, 2n), ['tips', 'total', 'tippers']), { tips: '3', total: '4500000', tippers: '2' });
+  // Exact past 2^53: never rounded.
+  assert.deepEqual(viewTotals(statsWords(1n, 2n ** 80n + 1n, 1n), ['tips', 'total', 'tippers']), { tips: '1', total: (2n ** 80n + 1n).toString(), tippers: '1' });
+  assert.equal(viewTotals('0x', ['tips', 'total', 'tippers']), null, 'no such view');
+  assert.equal(viewTotals(statsWords(1n, 2n), ['tips', 'total', 'tippers']), null, 'too short');
+  assert.equal(viewTotals('0xzz' as `0x${string}`, ['tips']), null, 'not hex');
+});
+
+/** A registry where arc-tipjar is read from its logs (the recent_logs fallback rule). */
+const LOGS = { starters: { 'arc-tipjar': { ...STARTERS['arc-tipjar'], usage_read: 'recent_logs' as const, usage_view: undefined } } };
 
 test('11.0 usageChecks with the log off reads nothing and writes nothing', async () => {
   delete process.env[EVENT_LOG_FLAG];
@@ -484,7 +503,7 @@ test('11.1 a 29-day-old deploy is not due; a code_differs deploy and one without
   assert.deepEqual(out, { checked: 0, failed: 0 });
 });
 
-test('11.2 an Arc arc-tipjar deploy counts Tipped logs in the recent window (50 chunks ending at the head), never as a 30-day total', dbTest, async () => {
+test('11.2 (recent_logs rule) an Arc arc-tipjar deploy counts Tipped logs in the recent window (50 chunks ending at the head), never as a 30-day total', dbTest, async () => {
   const now = new Date();
   const d = await seedDeployed(now, 31, { chain: 'arc', detail: { block: 1000, starter: 'arc-tipjar' } });
   const calls: [string, string, bigint, bigint][] = [];
@@ -492,6 +511,7 @@ test('11.2 an Arc arc-tipjar deploy counts Tipped logs in the recent window (50 
   const B = '0x' + '22'.repeat(20);
   const head = 5_000_000n;
   const out = await usageChecks(now, {
+    ...LOGS,
     only: [d.id],
     getCode: codeOk,
     arcHead: async () => head,
@@ -524,6 +544,7 @@ test('11.2 the recent window needs no deploy block: a pre-v2.11 deploy makes no 
   const d = await seedDeployed(now, 31, { chain: 'arc', detail: { starter: 'arc-tipjar' } });
   let logReads = 0;
   const out = await usageChecks(now, {
+    ...LOGS,
     only: [d.id],
     getCode: codeOk,
     arcHead: async () => 15_000n,
@@ -549,6 +570,65 @@ test('11.2 an Arc deploy with no known usage event gets eth_getCode only', dbTes
   assert.equal(logReads, 0);
   const [row] = await usageOf(d.id);
   assert.deepEqual(row.detail, { window: 30, deployed_event: Number(d.id), address: d.address, code: false, source: 'rpc_code' });
+});
+
+test('11.7 (R-T6) an Arc arc-tipjar deploy is read with one eth_call of stats(): exact tips, total and tippers, no log reads', dbTest, async () => {
+  const now = new Date();
+  const d = await seedDeployed(now, 31, { chain: 'arc', detail: { block: 1000, starter: 'arc-tipjar' } });
+  const calls: [string, string, string][] = [];
+  let logReads = 0;
+  const out = await usageChecks(now, {
+    only: [d.id],
+    getCode: codeOk,
+    viewCall: async (chain, to, data) => (calls.push([chain, to, data]), statsWords(3n, 4_500_000n, 2n)),
+    arcHead: async () => (logReads++, 10n),
+    arcLogs: async () => (logReads++, { count: 0, senders: [] }),
+  });
+  assert.deepEqual(out, { checked: 1, failed: 0 });
+  assert.deepEqual(calls, [['arc', d.address, '0xd80528ae']], 'one eth_call of stats()');
+  assert.equal(logReads, 0);
+  const [row] = await usageOf(d.id);
+  assert.deepEqual(row.detail, {
+    window: 30,
+    deployed_event: Number(d.id),
+    address: d.address,
+    code: true,
+    source: 'rpc_view',
+    totals: { tips: '3', total: '4500000', tippers: '2' },
+  });
+});
+
+test('11.7 a view that answers nothing (the builder dropped stats()) falls back to the recent window of logs; a failed call is a failed read', dbTest, async () => {
+  const now = new Date();
+  const d = await seedDeployed(now, 31, { chain: 'arc', detail: { starter: 'arc-tipjar' } });
+  let logReads = 0;
+  const out = await usageChecks(now, {
+    only: [d.id],
+    getCode: codeOk,
+    viewCall: async () => '0x',
+    arcHead: async () => 15_000n,
+    arcLogs: async () => (logReads++, { count: 1, senders: [W] }),
+  });
+  assert.deepEqual(out, { checked: 1, failed: 0 });
+  assert.equal(logReads, 2);
+  const [row] = await usageOf(d.id);
+  assert.equal(row.detail.source, 'rpc_logs');
+  assert.deepEqual(row.detail.recent, { window: 'recent', blocks: 15_001, from_block: 0, to_block: 15_000, tips: 2, unique: 1 });
+  const e = await seedDeployed(now, 32, { chain: 'arc', detail: { starter: 'arc-tipjar' } });
+  const lines = await errors(async () =>
+    assert.deepEqual(
+      await usageChecks(now, {
+        only: [e.id],
+        getCode: codeOk,
+        viewCall: async () => {
+          throw Object.assign(new Error(`rpc down ${e.address}`), { name: 'HttpRequestError' });
+        },
+      }),
+      { checked: 0, failed: 1 },
+    ),
+  );
+  assert.deepEqual(await usageOf(e.id), []);
+  for (const l of lines) assert.ok(!l.includes(e.address), 'no address in the log');
 });
 
 test('11.3 a 91-day-old deploy with its 30-day check done gets only the 90-day check; one never checked gets only the 90-day one', dbTest, async () => {
@@ -588,6 +668,7 @@ test('11.5 a failed read writes nothing, counts as failed, logs the class only, 
   let logReads = 0;
   const lines = await errors(async () => {
     const out = await usageChecks(now, {
+      ...LOGS,
       only: [base.id, arc.id, noCode.id],
       getCode: async (_c, a) => {
         if (a === noCode.address) throw Object.assign(new Error(`rpc down ${a}`), { name: 'HttpRequestError' });
@@ -616,6 +697,7 @@ test('11.5 a failed read writes nothing, counts as failed, logs the class only, 
   }
   // The next try, 20 hours later at the earliest (review I1), the reads work: each is checked once.
   const out = await usageChecks(new Date(now.getTime() + 20 * 3_600_000), {
+    ...LOGS,
     only: [base.id, arc.id, noCode.id],
     getCode: codeOk,
     blockscout: async () => ({ transactions_count: '2' }),
@@ -653,6 +735,7 @@ test('11.2 an Arc check that reaches the cron deadline mid-window writes the blo
   let deadline = Date.now() + 60_000;
   let reads = 0;
   const out = await usageChecks(now, {
+    ...LOGS,
     only: [d.id],
     get deadline() {
       return deadline;

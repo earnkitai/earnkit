@@ -177,7 +177,7 @@ export type ToolContext = {
  * offered until the owner turns both on. A chat-only or shared client gets the chat-only lead (a
  * shared client never gets the build path, Ruling S6).
  */
-function freshSwitches(ctx: Pick<ToolContext, 'freshDeps' | 'sharedClient'>, agentCanBuild: boolean): FreshOn {
+export function freshSwitches(ctx: Pick<ToolContext, 'freshDeps' | 'sharedClient'>, agentCanBuild: boolean): FreshOn {
   const d = ctx.freshDeps ?? {};
   return {
     deployOn: d.deployOn ?? ((c) => deployEnabled() && rpcFor(c) !== null),

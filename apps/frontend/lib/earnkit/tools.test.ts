@@ -4,7 +4,7 @@ import { SafeFetchError } from './safe-fetch';
 import { after, test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
-import { BUILD_NOTE, PLAN_NOTE, CONFIRM_SHARED_NOTE, LEAD_NOTE, NOTED_FOR_NOW, eligibilityLine, withoutTokenLine, SponsorCampaignInput, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
+import { BUILD_NOTE, PLAN_NOTE, CONFIRM_SHARED_NOTE, LEAD_NOTE, NOTED_FOR_NOW, eligibilityLine, freshSwitches, withoutTokenLine, SponsorCampaignInput, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
 import { aliasCall } from './aliases';
 import { reportedGithubUser, reportedRepos } from './match-projects';
 import { sql } from './db';
@@ -20,7 +20,7 @@ import { enteredProgramIds, hasProgramEntry } from './projects';
 import { setSanctionsOracle } from './sanctions';
 import { tokenLineFor } from './token-gate';
 import { REPO_HELD } from './entry-text';
-import { endsOf, type RepoFit } from './present';
+import { endsOf, freshLead, presentFirstMessage, type RepoFit } from './present';
 import { LAUNCHING, LAUNCH_STUCK, SKIPPED_ENTRY, launchLimit, tickerTakenNote, type TokenFlowDeps } from './token-launch';
 import { offerKey, readOffer, saveOffer } from './token-offers';
 import { proposeToken } from './token-proposal';
@@ -32,7 +32,8 @@ import { CANT_PUSH, NO_WALLET_HINT, confirmOffer, proofLineWaiting } from './con
 import { completeVerify, createVerifyLink, formatCode } from './github-verify';
 import { eligibleSql } from './traction';
 import { committedProgram } from './fixtures/program-file';
-import { TESTED_STARTERS } from './fixtures/fresh-build';
+import { TESTED_STARTERS, fileCards } from './fixtures/fresh-build';
+import { STARTERS } from './starters';
 import { eventsByKey, eventsOfInstallation, withEventLog } from './fixtures/events';
 import { alsoQualifies, alsoText, type AlsoRow } from './also-qualifies';
 import type { Chain } from './match';
@@ -4311,7 +4312,7 @@ test('7.2 find fails closed: deploys off, hosting off or an untested starter: th
   const cases: [string, object][] = [
     ['deploys off', { deployOn: () => false, hostOn: true, starters: t.starters }],
     ['hosting off', { deployOn: () => true, hostOn: false, starters: t.starters }],
-    ['the real registry', { deployOn: () => true, hostOn: true }],
+    ['an untested starter', { deployOn: () => true, hostOn: true, starters: { [t.starterId]: { ...t.starters[t.starterId as 'arc-tipjar'], tested_at: null } } }],
   ];
   for (const [label, freshDeps] of cases) {
     const r = (await handlers.list_programs({}, { ...t.base, freshDeps })) as T7Found;
@@ -4359,4 +4360,57 @@ test('7.6 / 7.7 find: an entry in the tagged program, or "not interested" in it,
   const r = (await handlers.list_programs({}, ctx)) as T7Found;
   assert.ok(!('build_offer' in r), JSON.stringify(r.build_offer));
   assert.match(r.show_to_builder, T7_V210);
+});
+
+// ---- v2.11 T5/T6 follow-up: the real registry and Arc's real fresh_build stay closed in production ----
+
+test('T6 follow-up: production fails closed: no deployer key and no R2 (production today) offer nothing for the real files and registry, byte for byte; both set offer Arc', async () => {
+  // Arc Microgrants carries fresh_build in its program file, and arc-tipjar is tested (2026-10-11).
+  const now = new Date('2026-10-11T12:00:00Z');
+  const cards = fileCards();
+  assert.deepEqual(cards.find((c) => c.id === 'arc-microgrants')?.fresh_build, { starter: 'arc-tipjar' });
+  assert.equal(STARTERS['arc-tipjar'].tested_at, '2026-10-11');
+  const message = (fresh?: ReturnType<typeof freshSwitches>) => ({
+    alerts: [], campaigns: [], cards, repos: null, workingOn: [], agentCanBuild: true, sponsorEntries: null, now, more: false, ...(fresh && { fresh }),
+  });
+  const v210 = presentFirstMessage(message());
+  assert.match(v210, T7_V210);
+  // The switches read the env when the lead is worked out (deployOn is lazy), so all of it runs inside.
+  const run = (vars: Record<string, string>) =>
+    withShipEnv(vars, async () => {
+      const fresh = freshSwitches({}, true);
+      return { real: fresh.starters === undefined, lead: freshLead(message(fresh)), reply: presentFirstMessage(message(fresh)) };
+    });
+  for (const [label, vars] of [['production today (neither)', {}], ['deployer only', DEPLOYER_ON], ['R2 only', R2_ON]] as const) {
+    const r = await run(vars);
+    assert.ok(r.real, `${label}: the real registry`);
+    assert.equal(r.lead, undefined, label);
+    assert.equal(r.reply, v210, `${label}: the v2.10 line byte for byte`);
+  }
+  // Not vacuous: with both on, the same files and registry lead with Arc.
+  const on = await run({ ...DEPLOYER_ON, ...R2_ON });
+  assert.equal(on.lead?.card.id, 'arc-microgrants');
+  assert.equal(
+    on.reply.split('\n')[1],
+    'Arc Microgrants pays 500 USDC and closes in 3 days. A USDC tip page on Arc takes about an hour. Want me to build it?',
+  );
+});
+
+test('T6 follow-up: find on the real switches with production\'s env offers no build for a program naming the real arc-tipjar', dbTest, async (tc) => {
+  const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const p = { ...committedProgram('arc-microgrants'), id: `t6f-${stamp}`, status: 'active', ends_at: new Date(Date.now() + 36 * 3_600_000).toISOString() };
+  assert.deepEqual(p.fresh_build, { starter: 'arc-tipjar' });
+  await upsertProgram(ProgramFile.parse(p));
+  const [{ id: inst }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t6f-${stamp}`}) RETURNING id`;
+  tc.after(async () => {
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${p.id}`;
+    await sql()`DELETE FROM installations WHERE id = ${inst}`.catch(() => undefined);
+  });
+  const r = (await withShipEnv({}, () =>
+    handlers.list_programs({}, { installationId: inst, roundPools: async () => new Map(), repoCoins: async () => new Map() }),
+  )) as T7Found;
+  assert.match(r.show_to_builder, T7_V210);
+  assert.ok(!('build_offer' in r));
+  const [{ fresh_offer_at }] = await sql()<{ fresh_offer_at: Date | null }[]>`SELECT fresh_offer_at FROM installations WHERE id = ${inst}`;
+  assert.equal(fresh_offer_at, null);
 });

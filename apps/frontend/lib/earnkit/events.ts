@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { githubRepo } from './campaigns';
 import type { Chain } from './chains';
 import { sql, type Db } from './db';
+import { STARTERS, type Starter } from './starters';
 import { hasCode, rpcFor, txCount, type CheckDeps } from './verify';
 
 /**
@@ -136,7 +137,7 @@ export async function noteEvent(type: EventType, build: () => Promise<BuilderEve
 
 /** The windows, in days after the deploy. */
 export const USAGE_WINDOWS = [30, 90] as const;
-/** At most this many checks a cron run (spec 7). Checks, not reads: an Arc check makes up to 52 RPC calls (getCode, head, 50 getLogs), bounded by the cron's deadline. */
+/** At most this many checks a cron run (spec 7). Checks, not reads: an Arc check makes up to 53 RPC calls (getCode, the view, head, 50 getLogs; a view_total starter usually 2), bounded by the cron's deadline. */
 export const USAGE_LIMIT = 20;
 /**
  * Blocks per eth_getLogs call on Arc. rpc.mainnet.arc.io (2026-10-10, T11 run): a 10,000-block range
@@ -151,18 +152,27 @@ export const ARC_LOG_CHUNK = 10_000n;
 export const ARC_LOG_MAX_CHUNKS = 50;
 
 /**
- * How a starter's use is read (T5 folds this into STARTERS as `usage_event` and `usage_read`).
- * `recent_logs`: the contract keeps no running total (the chain-kits `UsdcTipJar` has only
- * `owner`, `USDC` and `tip`, and forwards each tip to the owner, so its balance says nothing), and a
- * whole 30 or 90 days of Arc blocks is 510 to 1,530 eth_getLogs calls. So the check counts the
- * usage event over the RECENT window (ARC_LOG_MAX_CHUNKS chunks ending at the head) and records it as
- * `recent: { window: 'recent', blocks, tips, unique }`: "is it still used", never a 30 or 90 day total.
- * Event: `event Tipped(address indexed from, uint256 amount, string note)` (arc/example/src/UsdcTipJar.sol).
+ * How a deploy's use is read comes from its starter (`detail.starter`, starters.ts STARTERS):
+ * - `view_total`: one eth_call of the starter's running-total view (`usage_view`; the arc-tipjar's
+ *   `stats()`), exact since the deploy. A view that answers nothing (a builder who dropped it) falls
+ *   back to the recent logs.
+ * - `recent_logs`: a whole 30 or 90 days of Arc blocks is 510 to 1,530 eth_getLogs calls, so the check
+ *   counts the usage event over the RECENT window (ARC_LOG_MAX_CHUNKS chunks ending at the head) and
+ *   records it as `recent: { window: 'recent', blocks, tips, unique }`: "is it still used", never a
+ *   30 or 90 day total.
  */
-export type StarterUsage = { usage_event: string; usage_read: 'recent_logs' };
-export const STARTER_USAGE: Record<string, StarterUsage> = {
-  'arc-tipjar': { usage_event: 'Tipped(address,uint256,string)', usage_read: 'recent_logs' },
-};
+const starterOf = (id: unknown, starters: Record<string, Starter>): Starter | undefined =>
+  typeof id === 'string' && Object.hasOwn(starters, id) ? starters[id] : undefined;
+
+/**
+ * A view's answer as its named uint256 words, exact (decimal strings), or null when it is shorter
+ * than `words` (no such view) or not hex. Pure.
+ */
+export function viewTotals(data: Hex, words: readonly string[]): Record<string, string> | null {
+  const hex = data.slice(2);
+  if (!/^[0-9a-fA-F]*$/.test(hex) || hex.length < 64 * words.length) return null;
+  return Object.fromEntries(words.map((w, i) => [w, BigInt(`0x${hex.slice(64 * i, 64 * (i + 1))}`).toString()]));
+}
 
 /** An event signature's topic 0. Pure. */
 export const usageTopic = (signature: string): Hex => toEventSelector(signature);
@@ -209,6 +219,10 @@ export type UsageDeps = {
   arcHead?: () => Promise<bigint>;
   /** One eth_getLogs chunk on Arc: how many logs, and each log's sender (its first indexed address). */
   arcLogs?: (address: string, topic: Hex, from: bigint, to: bigint) => Promise<{ count: number; senders: string[] }>;
+  /** One eth_call on `chain` (a view_total starter's view); the answer's data, '0x' when empty. */
+  viewCall?: (chain: Chain, to: string, data: Hex) => Promise<Hex>;
+  /** Test seam: the starter registry (starters.ts STARTERS). */
+  starters?: Record<string, Starter>;
 };
 
 /** A log's sender: its first indexed argument as an address (Tipped's `from`), or null. Pure. */
@@ -224,7 +238,7 @@ const readClient = (chain: Chain) => {
   return createPublicClient({ transport: http(rpc, { timeout: 10_000, retryCount: 0 }) });
 };
 
-const defaultReads: Required<Pick<UsageDeps, 'getCode' | 'arcHead' | 'arcLogs'>> = {
+const defaultReads: Required<Pick<UsageDeps, 'getCode' | 'arcHead' | 'arcLogs' | 'viewCall'>> = {
   getCode: async (chain, address) => (await readClient(chain).getCode({ address: address as Address })) ?? '0x',
   arcHead: () => readClient('arc').getBlockNumber({ cacheTime: 0 }),
   arcLogs: async (address, topic, from, to) => {
@@ -234,6 +248,7 @@ const defaultReads: Required<Pick<UsageDeps, 'getCode' | 'arcHead' | 'arcLogs'>>
     });
     return { count: logs.length, senders: logs.map((l) => logSender(l.topics)).filter((a): a is string => a !== null) };
   },
+  viewCall: async (chain, to, data) => (await readClient(chain).call({ to: to as Address, data })).data ?? '0x',
 };
 
 type DueDeploy = {
@@ -267,11 +282,17 @@ async function readUsage(d: DueDeploy, address: string, now: Date, deps: UsageDe
     // not a 30 or 90 day count; tx_scope says so.
     return { ...base, tx_count: tx, tx_scope: 'lifetime', code, source: 'blockscout' };
   }
-  const starter = chain === 'arc' && typeof d.detail.starter === 'string' ? STARTER_USAGE[d.detail.starter] : undefined;
+  const starter = chain === 'arc' ? starterOf(d.detail.starter, deps.starters ?? STARTERS) : undefined;
   if (!starter) return { ...base, code, source: 'rpc_code' };
+  // R-T6: the starter's own running totals, one eth_call, exact since the deploy.
+  if (starter.usage_read === 'view_total' && starter.usage_view) {
+    const v = starter.usage_view;
+    const totals = viewTotals(await (deps.viewCall ?? defaultReads.viewCall)(chain, address, v.selector), v.words);
+    if (totals) return { ...base, code, source: 'rpc_view', totals };
+  }
   // explorer.arc.io's API is behind a Cloudflare challenge: count the starter's logs over the public
-  // RPC, in the recent window only (STARTER_USAGE). Checks are 30+ days after the deploy, so the
-  // window never reaches back past it and the deploy block isn't needed.
+  // RPC, in the recent window only. Checks are 30+ days after the deploy, so the window never reaches
+  // back past it and the deploy block isn't needed.
   const head = await (deps.arcHead ?? defaultReads.arcHead)();
   const ranges = recentChunks(head);
   const topic = usageTopic(starter.usage_event);

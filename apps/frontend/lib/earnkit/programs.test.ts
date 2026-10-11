@@ -409,8 +409,9 @@ const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 test('5.2 programs:sync stores fresh_build and listPrograms cards (find\'s cards) carry it; a file without one stores null', dbTest, async () => {
   const id = `t5-fresh-${process.pid}`;
   const plain = `t5-plain-${process.pid}`;
-  // Rolling, so the clone stays open whatever day the suite runs.
-  const arc = { ...committedProgram('arc-microgrants'), ends_at: null };
+  // Rolling, so the clone stays open whatever day the suite runs. The committed Arc file names
+  // arc-tipjar (T6 follow-up), so the plain clone drops it.
+  const arc = { ...committedProgram('arc-microgrants'), ends_at: null, fresh_build: undefined };
   try {
     await upsertProgram(ProgramFile.parse({ ...arc, id, fresh_build: { starter: 'arc-tipjar' } }));
     await upsertProgram(ProgramFile.parse({ ...arc, id: plain }));

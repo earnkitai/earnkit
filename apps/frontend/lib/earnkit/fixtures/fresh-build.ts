@@ -6,8 +6,8 @@ import { STARTERS, type Starter } from '../starters';
 import type { Card, FreshOn } from '../present';
 
 /**
- * v2.11 T7: the starter registry with arc-tipjar marked tested, for tests only. starters.ts keeps
- * `tested_at: null` until T6's one-hour test passes, so the real registry offers no fresh build.
+ * v2.11 T7: the starter registry with arc-tipjar tested on 2026-10-09, for tests pinned to
+ * 2026-10-10 (the real registry's test passed on 2026-10-11, after that clock).
  */
 export const TESTED_STARTERS: Record<string, Starter> = {
   'arc-tipjar': { ...STARTERS['arc-tipjar'], tested_at: '2026-10-09' },
@@ -51,6 +51,9 @@ export function fileCards(): Card[] {
       ),
     );
 }
+
+/** The cards with no fresh_build anywhere (the catalogue before the T6 follow-up tagged Arc). */
+export const withoutFreshBuild = (cards: Card[]): Card[] => cards.map((c) => ({ ...c, fresh_build: null }));
 
 /** The cards with `fresh_build: { starter }` set on the given program ids (the fixture's tag only). */
 export const withFreshBuild = (cards: Card[], ids: string[], starter = 'arc-tipjar'): Card[] =>

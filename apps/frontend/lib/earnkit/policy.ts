@@ -89,7 +89,7 @@ export const RECORD_STEPS = [
   'An entry: its EarnKit entry page.',
   'A submission: the link you gave, if any.',
   "A program result: the program's results page, or your own answer.",
-  "A usage check: your contract's recent use, checked 30 and 90 days after its deploy.",
+  "A usage check: your contract's use, checked 30 and 90 days after its deploy.",
 ];
 export const RECORDS_WITH = [
   'Each step notes the repo, the program and the wallet you gave.',
