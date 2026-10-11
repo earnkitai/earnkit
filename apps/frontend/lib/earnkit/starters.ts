@@ -43,11 +43,13 @@ export type Starter = {
   minutes: 60;
   /**
    * The Foundry artifact EarnKit deploys, and whether the owner is its constructor argument.
-   * `initcode_hash` (v2.11 T9 security fix M3): keccak256 of its creation bytecode without the
-   * trailing CBOR metadata (deploy.ts initcodeHash), so a deploy is labelled with this starter only
-   * when it is this contract; null: never labelled.
+   * v2.11 T9 security fixes (M3, N1): `bytecode_hash` is keccak256 of its exact creation bytecode
+   * (`forge build`'s bytecode.object, metadata included) and `constructor_types` its constructor's
+   * parameter types. The build path deploys only this exact bytecode, followed by exactly these
+   * arguments ABI-encoded, the first being the build's wallet when `owner_arg`; a deploy is labelled
+   * with this starter only then. Null: never deployed on the build path or labelled.
    */
-  contract: { artifact: string; owner_arg: boolean; initcode_hash: `0x${string}` | null };
+  contract: { artifact: string; owner_arg: boolean; bytecode_hash: `0x${string}` | null; constructor_types: readonly string[] };
   /** The static output to zip and host, relative to the starter's folder. */
   site_dir: string;
   /**
@@ -92,8 +94,14 @@ export const STARTERS: Record<StarterId, Starter> = {
     repo: 'earnkitai/chain-kits/arc/tipjar',
     what: 'a USDC tip page on Arc',
     minutes: 60,
-    // initcode_hash: `forge build` of src/UsdcTipJar.sol at 0f573a7 (solc 0.8.30, prague, no optimizer).
-    contract: { artifact: 'UsdcTipJar', owner_arg: true, initcode_hash: '0x7e10c26c980aa0cd242f49411e7079757439e0cc26dcc54f01aa0d0981c5c50d' },
+    // bytecode_hash: `forge build` of src/UsdcTipJar.sol at 0f573a7 (solc 0.8.30, prague, no optimizer);
+    // the same bytes from any folder (checked: two paths, one hash).
+    contract: {
+      artifact: 'UsdcTipJar',
+      owner_arg: true,
+      bytecode_hash: '0xa6f7f8eea13d3342af071976fe7d480df0fdeda009e3eb4ffd3920e673df9f2e',
+      constructor_types: ['address', 'string', 'uint256'],
+    },
     site_dir: 'site',
     pages_fallback: true,
     kit_twist: {

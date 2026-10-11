@@ -82,7 +82,8 @@ import {
   prepareSubmission,
 } from './submission';
 import { OWNERSHIP_FILE } from './ownership';
-import { DEPLOY_LINES, deployChains, deployEnabled, deployForBuilder, deployOffLine, deployOffNote, type DeployDeps, type DeployInput } from './deploy';
+import { DEPLOY_LINES, OWNER_PROOF_NOTE, deployChains, deployEnabled, deployForBuilder, deployOffLine, deployOffNote, initcode, type DeployDeps, type DeployInput } from './deploy';
+import { decodeAbiParameters, isHex, keccak256, type Abi } from 'viem';
 import {
   CANT_PUSH_RETRY_NOTE,
   STILL_CHECKING_LAUNCH,
@@ -99,7 +100,7 @@ import {
   type TokenFlowDeps,
 } from './token-launch';
 import { RAW_CAP, canonicalBuilderUrl, cleanProject, quoted } from './untrusted-text';
-import { proveRepo, tokenLineFor, type ProvenRepo } from './token-gate';
+import { proveRepo, repoSignedIn, tokenLineFor, type ProvenRepo } from './token-gate';
 import { READY_TO_SUBMIT, confirmDecision, confirmOffer, proofLineWaiting, signInLine, walletQuestion, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
 import { HOST_LINES, UPLOAD_NOTE, hostSignInLine, issueUpload, refreshSiteExpiry } from './hosting';
 import { r2Enabled } from './r2';
@@ -116,7 +117,7 @@ import {
   type BuildFields,
   type FreshPick,
 } from './fresh-build';
-import { callerLogin, createVerifyLink, entryVerifyLink, githubVerifyEnabled, installationLogin, loginBasisFor, verifiedEntryIds } from './github-verify';
+import { callerLogin, createVerifyLink, entryVerifyLink, githubVerifyEnabled, installationLogin, loginBasisFor, provenOwnerLogin, verifiedEntryIds } from './github-verify';
 import { appTokenFor, githubAppEnabled, hasAppProof } from './github-app';
 import { PROOF_LINE_PREFIX, SIGN_IN_FIRST, WALLET_CHANGED } from './token-gate';
 import { kitReplyNote, submitKit, type SubmitKit } from './submit-kit';
@@ -2317,7 +2318,7 @@ async function deployStep(
    * v2.11 T9: the build path's starter (the deployed event names it only for its own bytecode), the
    * line's pusher it already read, and its `built` event, written once every cap passed.
    */
-  build: { starter?: { id: string; initcode_hash: string | null }; lineOwner?: string | null; beforeSend?: () => Promise<void> } = {},
+  build: { starter?: { id: string; bytecode_hash: string | null }; lineOwner?: string | null; beforeSend?: () => Promise<void> } = {},
 ): Promise<{ line: string; deploy: Reply; agent_note?: string }> {
   const shared = ctx.sharedClient === true;
   // v2.10.3: a chain left out of DEPLOY_CHAINS is refused first, before the wallet ask or any read.
@@ -2548,6 +2549,41 @@ export const BUILD_UPLOAD_NOTE =
   'Put deploy.address into the site as BUILD.md says, zip site_dir and POST it to host.upload_url within 15 minutes (Content-Type application/zip). ' +
   "Show the upload's show_to_builder as written. Then call prepare with program_id, project { name, description, repo_url, live_url: the upload's url } and build: { program_id }. " +
   'If the link expires, call prepare with program_id, project { name, repo_url } and host: true for a new one; never deploy again.';
+/** Security fix N1: the build path deploys the starter's own compiled contract, unchanged. */
+export const BUILD_BYTECODE_NOTE =
+  "deploy.bytecode must be the starter's own contract exactly as forge build compiles it from the kit (artifact.json's bytecode), with nothing changed or added: " +
+  "the twist goes in the constructor arguments and the site. Don't show this to the builder.";
+export const buildArgsNote = (types: readonly string[]) =>
+  `deploy.constructor_args must be exactly ${types.length} values (${types.join(', ')}), as scripts/artifact.mjs writes them. Don't show this to the builder.`;
+
+/**
+ * Security fixes M3, N1: the build path's artifact is the starter's own: its exact bytecode
+ * (`bytecode_hash`), followed by exactly the constructor arguments ABI-encoded with the starter's own
+ * constructor types (never the agent's ABI), the first being the build's wallet. Returns the ABI to
+ * deploy with (the starter's constructor), or the agent note.
+ */
+function starterArtifact(
+  starter: { contract: { owner_arg: boolean; bytecode_hash: string | null; constructor_types: readonly string[] }; chain: string },
+  d: z.infer<typeof DeployField>,
+  wallet: string,
+): { abi: z.infer<typeof DeployField>['abi'] } | { note: string } {
+  const c = starter.contract;
+  if (!c.bytecode_hash || !isHex(d.bytecode, { strict: true }) || keccak256(d.bytecode as `0x${string}`) !== c.bytecode_hash.toLowerCase()) return { note: BUILD_BYTECODE_NOTE };
+  const inputs = c.constructor_types.map((type, i) => ({ name: `arg${i}`, type }));
+  const abi = [{ type: 'constructor', inputs, stateMutability: 'nonpayable' }, ...d.abi.filter((x) => x.type !== 'constructor')];
+  const args = d.constructor_args ?? [];
+  if (args.length !== inputs.length) return { note: buildArgsNote(c.constructor_types) };
+  let decoded: readonly unknown[];
+  try {
+    const data = initcode({ chain: d.chain, bytecode: d.bytecode as `0x${string}`, abi: abi as unknown as Abi, constructor_args: args });
+    decoded = decodeAbiParameters(inputs, `0x${data.slice(d.bytecode.length)}`);
+  } catch {
+    return { note: buildArgsNote(c.constructor_types) };
+  }
+  if (c.owner_arg && String(decoded[0]).toLowerCase() !== wallet) return { note: buildOwnerNote('constructor_args[0]', wallet) };
+  return { abi };
+}
+
 /** Security fix M6: deployed, but the build's wallet doesn't own it, so nothing is hosted. */
 export const BUILD_NOT_OWNED_NOTE =
   "The builder's wallet doesn't own this contract (owner() isn't their wallet), so EarnKit won't host its site. Don't build a site for it; tell the builder in one short line. Don't show this note.";
@@ -2674,9 +2710,8 @@ async function buildShip(programId: string, rest: Record<string, unknown>, ctx: 
   if (deploy.chain !== starter.chain) return { reply: buildRefusal(buildChainNote(starter.chain)) };
   // Review T8 M5: the build's wallet is the owner; a different one the agent sends is refused.
   if (deploy.owner_wallet !== undefined && deploy.owner_wallet.trim().toLowerCase() !== wallet) return { reply: buildRefusal(buildOwnerNote('owner_wallet', wallet)) };
-  const first = deploy.constructor_args?.[0];
-  if (starter.contract.owner_arg && (typeof first !== 'string' || first.trim().toLowerCase() !== wallet))
-    return { reply: buildRefusal(buildOwnerNote('constructor_args[0]', wallet)) };
+  const artifact = starterArtifact(starter, deploy, wallet);
+  if ('note' in artifact) return { reply: buildRefusal(artifact.note) };
   if (!gh) return { reply: buildRefusal(buildFix('repo_url', "the github.com link of the builder's public repo, in project.repo_url")) };
   if ((EARNKIT_ORGS as readonly string[]).includes(gh.owner.toLowerCase()))
     return { reply: buildRefusal(buildFix('repo_url', "the builder's own repo, never EarnKit's kit")) };
@@ -2684,10 +2719,13 @@ async function buildShip(programId: string, rest: Record<string, unknown>, ctx: 
   const repoKey = `${gh.owner}/${gh.repo}`.toLowerCase();
   const proven = await proveRepo({ installationId: ctx.installationId, repoUrl: repo }, ctx.deployDeps?.gate);
   if (!proven) return { reply: buildRefusal(buildProofNote(tokenLineFor(ctx.installationId, repo))) };
+  // Security fix R3: with no sign-in, only the repo owner's own proven account deploys (deploy.ts checks it again).
+  if (!(await repoSignedIn({ installationId: ctx.installationId, repoKey }, ctx.deployDeps?.gate)) && !(await provenOwnerLogin(ctx.installationId, repoKey, proven.lineOwner)))
+    return { reply: buildRefusal(`${OWNER_PROOF_NOTE} Don't show this note.`) };
   const build = { ...stored, wallet, repo_url: repo };
   if (stored.repo_url !== repo) await saveBuild(ctx.installationId, build);
-  const step = await deployStep({ ...deploy, owner_wallet: wallet }, { project: { name: stored.name, repo_url: repo } }, ctx, {
-    starter: { id: starter.id, initcode_hash: starter.contract.initcode_hash },
+  const step = await deployStep({ ...deploy, abi: artifact.abi, owner_wallet: wallet }, { project: { name: stored.name, repo_url: repo } }, ctx, {
+    starter: { id: starter.id, bytecode_hash: starter.contract.bytecode_hash },
     lineOwner: proven.lineOwner,
     beforeSend: () => builtEvent(ctx, build, repoKey, proven.lineOwner),
   });

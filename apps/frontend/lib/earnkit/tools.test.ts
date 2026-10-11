@@ -36,6 +36,7 @@ import { committedProgram } from './fixtures/program-file';
 import { TESTED_STARTERS, fileCards } from './fixtures/fresh-build';
 import { BUILD_CHAT_ONLY, buildKit, buildingLine, twistQuestion } from './fresh-build';
 import { STARTERS } from './starters';
+import { ARC_TIPJAR_BYTECODE } from './fixtures/arc-tipjar-artifact';
 import { eventsByKey, eventsOfInstallation, withEventLog } from './fixtures/events';
 import { alsoQualifies, alsoText, type AlsoRow } from './also-qualifies';
 import type { Chain } from './match';
@@ -4759,9 +4760,10 @@ async function shipSetup(tag: string, tc: TestContext, o: { days?: number; line?
     assert.match(twisted.show_to_builder, /^Building PodTips/);
   });
   reads.length = 0;
+  // T9 N1: the starter's real forge bytecode (the build path deploys nothing else).
   const deploy = (d: Record<string, unknown> = {}) => ({
     chain: 'arc',
-    bytecode: `0x${'60'.repeat(40)}`,
+    bytecode: ARC_TIPJAR_BYTECODE,
     abi: T9_ABI,
     constructor_args: [T8_WALLET, 'PodTips', '1000000'],
     owner_wallet: T8_WALLET,
@@ -4789,7 +4791,7 @@ test('9.3 the build mark with deploy and host: true deploys once (owner and cons
       const r = await t.ship();
       assert.equal(t.sent.length, 1, 'exactly one deploy');
       const { decodeDeployData } = await import('viem');
-      const decoded = decodeDeployData({ abi: T9_ABI as never, bytecode: `0x${'60'.repeat(40)}`, data: t.sent[0] as `0x${string}` });
+      const decoded = decodeDeployData({ abi: T9_ABI as never, bytecode: ARC_TIPJAR_BYTECODE, data: t.sent[0] as `0x${string}` });
       assert.equal(String((decoded.args as unknown[])[0]).toLowerCase(), T8_WALLET, 'constructor_args[0] is the build wallet');
       assert.equal(r.show_to_builder, deployedLine('PodTips', 'arc', T9_ADDR, true));
       assert.equal(r.show_to_builder, "PodTips is deployed on Arc: 0x0000…11ce. You're the owner.");
@@ -4813,11 +4815,11 @@ test('9.3 the build mark with deploy and host: true deploys once (owner and cons
       assert.equal(built.wallet, T8_WALLET);
       assert.deepEqual([built.github_login, built.login_basis], [t.login, 'proof_line']);
       assert.deepEqual(built.detail, { starter: t.starterId, twist: T8_POD.twist });
-      // T9 M3: the test bytecode isn't the starter's, so the deployed event names no starter.
+      // T9 M3, N1: the starter's exact bytecode, so the deployed event names the starter.
       assert.equal(deployed.wallet, T8_WALLET);
       assert.equal(deployed.chain, 'arc');
       assert.deepEqual([deployed.github_login, deployed.login_basis], [t.login, 'proof_line']);
-      assert.equal(deployed.detail.starter, null);
+      assert.equal(deployed.detail.starter, t.starterId);
       assert.equal(deployed.detail.address, T9_ADDR);
       // 9.6: the upload's own reply is v2.9's liveLine, and it writes hosted once.
       const token = new URL(String(r.host?.upload_url)).searchParams.get('t')!;
@@ -4899,16 +4901,14 @@ test('9.5 a github.io link that does not load writes no hosted event', dbTest, (
   ),
 );
 
-test('9.1 the build path: a 10-day-old account is refused by the host gate, so the deploy goes on and the agent hosts on GitHub Pages; the builder sees the deployed line only', dbTest, (tc) =>
+test('9.1 / T9 R3 the build path: a 10-day-old account (no sign-in) is not a proven owner: no deploy, no built, an agent note only', dbTest, (tc) =>
   withEventLog(() =>
     withVars(shipVars(), async () => {
       const t = await shipSetup('young', tc, { days: 10 });
       const r = await t.ship();
-      assert.equal(t.sent.length, 1);
-      assert.equal(r.show_to_builder, "PodTips is deployed on Arc: 0x0000…11ce. You're the owner.");
-      assert.deepEqual(r.host, { github_pages: true, site_dir: 'site' });
-      assert.match(r.agent_note ?? '', /GitHub Pages/);
-      assert.equal((await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM host_upload_tokens WHERE installation_id = ${t.inst}`)[0].n, 0);
+      assert.equal(t.sent.length, 0);
+      refusedQuietly(r, /only for the repo owner's own account/);
+      assert.deepEqual(await eventsOfInstallation(t.inst), []);
     }),
   ),
 );
@@ -4938,13 +4938,13 @@ test('9.x (review T8 M5) the mark fails closed: an owner or constructor_args[0] 
       const cases: [string, Record<string, unknown>, RegExp][] = [
         ['another owner_wallet', { owner_wallet: OTHER }, /^deploy\.owner_wallet must be the build's wallet/],
         ['another constructor_args[0]', { constructor_args: [OTHER, 'PodTips', '1000000'] }, /^deploy\.constructor_args\[0\] must be the build's wallet/],
-        ['no constructor_args', { constructor_args: undefined }, /^deploy\.constructor_args\[0\] must be the build's wallet/],
+        ['no constructor_args', { constructor_args: undefined }, /^deploy\.constructor_args must be exactly 3 values/],
         ['the wrong chain', { chain: 'base' }, /^deploy\.chain must be 'arc'/],
       ];
       for (const [label, d, re] of cases) {
         const r = await t.ship(d);
         refusedQuietly(r, re, label);
-        if (label !== 'the wrong chain') assert.ok((r.agent_note ?? '').includes(T8_WALLET), `${label}: names the build wallet`);
+        if (label !== 'the wrong chain' && label !== 'no constructor_args') assert.ok((r.agent_note ?? '').includes(T8_WALLET), `${label}: names the build wallet`);
       }
       // An owner_wallet in other case is the same wallet.
       const upper = await t.ship({ owner_wallet: T8_WALLET.toUpperCase().replace('0X', '0x') });
@@ -4973,20 +4973,35 @@ test('9.x (review T8 M5) the mark fails closed: an owner or constructor_args[0] 
   ),
 );
 
-test('T9 I1 the build path: a collaborator\'s push of the line still deploys, but hosts on GitHub Pages and records no login anywhere', dbTest, (tc) =>
+test('T9 I1/R1/R3 the build path: a collaborator\'s push, or one merged by the owner (no pusher), is not the owner\'s proof: no deploy, no host, no login, no event', dbTest, (tc) =>
   withEventLog(() =>
     withVars(shipVars(), async () => {
-      const t = await shipSetup('collab', tc, { pusher: 'mallory-pushed-it' });
-      const r = await t.ship();
-      assert.equal(t.sent.length, 1);
-      assert.deepEqual(r.host, { github_pages: true, site_dir: 'site' });
-      assert.equal((await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM host_upload_tokens WHERE installation_id = ${t.inst}`)[0].n, 0);
-      const events = await eventsOfInstallation(t.inst);
-      assert.deepEqual(events.map((e) => [e.type, e.github_login, e.login_basis]), [['built', null, null], ['deployed', null, null]]);
-      // The Pages site of the repo: hosted, still with no login.
-      await t.ship(null, t.ctx, { live_url: `https://${t.login}.github.io/podtips/` });
-      const hosted = (await eventsOfInstallation(t.inst)).find((e) => e.type === 'hosted');
-      assert.deepEqual([hosted?.github_login, hosted?.login_basis], [null, null]);
+      for (const [tag, pusher] of [['collab', 'mallory-pushed-it'], ['merged', null]] as const) {
+        const t = await shipSetup(tag, tc, { pusher });
+        const r = await t.ship();
+        assert.equal(t.sent.length, 0, tag);
+        refusedQuietly(r, /only for the repo owner's own account/, tag);
+        assert.equal((await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM host_upload_tokens WHERE installation_id = ${t.inst}`)[0].n, 0);
+        assert.deepEqual(await eventsOfInstallation(t.inst), [], tag);
+      }
+    }),
+  ),
+);
+
+test('T9 N1 the build path deploys only the starter\'s exact bytecode with its own constructor encoding: a suffix, other bytecode, a wrong argument count or the agent\'s own constructor types are refused', dbTest, (tc) =>
+  withEventLog(() =>
+    withVars(shipVars(), async () => {
+      const t = await shipSetup('exact', tc);
+      const suffix = `${ARC_TIPJAR_BYTECODE}${'00'.repeat(12)}${'33'.repeat(20)}0040`;
+      refusedQuietly(await t.ship({ bytecode: suffix }), /^deploy\.bytecode must be the starter's own contract/, 'a suffix');
+      refusedQuietly(await t.ship({ bytecode: `0x${'60'.repeat(40)}` }), /^deploy\.bytecode must be/, 'other bytecode');
+      refusedQuietly(await t.ship({ constructor_args: [T8_WALLET, 'PodTips'] }), /^deploy\.constructor_args must be exactly 3 values/, 'two args');
+      refusedQuietly(await t.ship({ constructor_args: [T8_WALLET, 'PodTips', 'lots'] }), /^deploy\.constructor_args must be exactly 3 values/, 'not a number');
+      // The agent's ABI says the owner is the second argument: the starter's own types decide, so arg 0 is still checked.
+      const swapped = [{ type: 'constructor', inputs: [{ name: 'n', type: 'string' }, { name: 'o', type: 'address' }, { name: 'm', type: 'uint256' }], stateMutability: 'nonpayable' }];
+      refusedQuietly(await t.ship({ abi: swapped, constructor_args: ['PodTips', T8_WALLET, '1'] }), /constructor_args\[0\]|constructor_args must be exactly/, 'swapped types');
+      assert.equal(t.sent.length, 0);
+      assert.deepEqual(await eventsOfInstallation(t.inst), []);
     }),
   ),
 );
@@ -5036,9 +5051,10 @@ test('T9 M6 a deployed contract the build wallet does not own gets no site; M4 a
       assert.equal(capped.show_to_builder, 'You can deploy once a day per chain, 3 times a month.');
       assert.equal(t.sent.length, 1);
       const capOnly = await shipSetup('caponly', tc);
+      // N2: three deploys of this repo today by other installations reach the per-repo day cap.
       await sql()`
         INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, status, cost_micro_usd)
-        VALUES (${capOnly.inst}, 'installation:x', ${capOnly.repoKey}, 'arc', '0x01', 'deployed', 1)`;
+        SELECT ${capOnly.inst}, 'installation:x' || n, ${capOnly.repoKey}, 'arc', '0x01', 'deployed', 1 FROM generate_series(1, 3) n`;
       const r2 = await capOnly.ship();
       assert.equal(r2.show_to_builder, 'You can deploy once a day per chain, 3 times a month.');
       assert.deepEqual((await eventsOfInstallation(capOnly.inst)).map((e) => e.type), [], 'no built when a cap refuses');

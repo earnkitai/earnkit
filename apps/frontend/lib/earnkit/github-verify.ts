@@ -521,6 +521,23 @@ export async function proofLineLogin(installationId: number, repoKey: string, li
   return (await githubUser(owner))?.type === 'User' ? { login: owner, basis: 'proof_line' } : null;
 }
 
+/** v2.11 T9 security fix R3: the account bar a proven owner login must pass (hosting.ts HOST_LIMITS' gate). */
+export const OWNER_GATE = { accountMinDays: 30, minPublicRepos: 1 } as const;
+
+/**
+ * v2.11 T9 security fix R3: proofLineLogin's owner login, when the public account read also passes
+ * OWNER_GATE (30 days old, a public repo), the bar hosting holds; else null. What a deploy with no
+ * sign-in needs, and what its caps are keyed by.
+ */
+export async function provenOwnerLogin(installationId: number, repoKey: string, lineOwner: string | null | undefined, now = new Date()): Promise<string | null> {
+  const who = await proofLineLogin(installationId, repoKey, lineOwner);
+  if (!who) return null;
+  const facts = await githubUser(who.login, now);
+  if (!facts || facts.type !== 'User') return null;
+  const days = (now.getTime() - Date.parse(facts.created_at)) / 86_400_000;
+  return days >= OWNER_GATE.accountMinDays && facts.public_repos >= OWNER_GATE.minPublicRepos ? who.login : null;
+}
+
 /**
  * v2.11 T3 (spec 6, "Identity"): the GitHub login behind this installation's step on `repoKey`
  * ("owner/repo"), and its basis, or null (no login is recorded). Never guessed, and never

@@ -276,21 +276,34 @@ export async function fetchOwnershipLatestBranch(
   }
 }
 
-/** Activity kinds that move a branch to a new commit with the pusher as GitHub's authenticated actor. */
+/** Activity kinds that move a branch to a new commit (the walk reads them all; only some credit their actor). */
 const PUSH_KINDS = new Set(['push', 'force_push', 'branch_creation', 'pr_merge', 'merge_queue_merge']);
 /** At most this many commit-addressed earnkit.txt reads per pusher check. */
 export const PUSHER_MAX_READS = 6;
+/** The activity page read; fewer entries than this means the repo's whole history is on it. */
+const ACTIVITY_PAGE = 50;
 
 /**
- * v2.11 T9 security fix (I1): the GitHub login that put a line into earnkit.txt, as GitHub's own
- * authenticated record says: the `actor` of the push that introduced it (the repo's activity API,
- * newest first). Commit author and committer fields are not used: anyone can write any name or email
- * into a commit, while the activity actor is the account GitHub authenticated for the push.
+ * v2.11 T9 security fixes (I1, R1): the GitHub login that wrote a line into earnkit.txt, as GitHub's
+ * own authenticated record says: the `actor` of the push that introduced it (the repo's activity
+ * API, newest first). Commit author and committer fields are never used: anyone can write any name
+ * or email into a commit, while the activity actor is the account GitHub authenticated for the push.
+ *
  * The push that introduced it: on the branch of the newest push whose commit's earnkit.txt has the
- * line (`hasLine`), walk that branch's pushes back (each push's `before` is the older push's
- * `after`) to the first whose `before` commit has no such line (or is a branch creation). Null when
- * the activity can't be read, the chain of pushes breaks (older than the activity page), or more than
- * PUSHER_MAX_READS reads would be needed: no login is ever guessed. Never throws.
+ * line (`hasLine`), walk that branch's pushes back (each push's `before` is the older push's `after`)
+ * to the first whose `before` commit has no such line. Only a push whose actor wrote its commits
+ * credits that actor (R1):
+ * - when the same commit was pushed earlier (on any branch), that earlier push decides (followed the
+ *   same way), so moving a ref onto someone else's commit (a fast-forward, a reset, a new branch)
+ *   never credits the mover;
+ * - else a `push` credits its actor;
+ * - a `branch_creation` credits its actor only when it is the repo's very first event (the whole
+ *   history is on the page and nothing is older), so the commit can't have come from anyone else;
+ * - a `force_push` (it may point at any commit), `pr_merge` or `merge_queue_merge` (the merger didn't
+ *   write the head; its pusher lives in a fork) credits no one.
+ * Null when the activity can't be read, the chain breaks (older than the activity page), more than
+ * PUSHER_MAX_READS reads would be needed, or the introducing push credits no one: no login is ever
+ * guessed. Never throws.
  */
 export async function fetchLinePusher(
   r: { owner: string; repo: string },
@@ -301,7 +314,7 @@ export async function fetchLinePusher(
   const raw = deps.raw ?? fetchOwnershipFile;
   const zero = (sha: string) => /^0+$/.test(sha);
   try {
-    const res = await (deps.fetch ?? fetch)(`https://api.github.com/repos/${r.owner}/${r.repo}/activity?per_page=50`, {
+    const res = await (deps.fetch ?? fetch)(`https://api.github.com/repos/${r.owner}/${r.repo}/activity?per_page=${ACTIVITY_PAGE}`, {
       redirect: 'manual',
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'earnkit', ...(token && { Authorization: `Bearer ${token}` }) },
@@ -312,16 +325,18 @@ export async function fetchLinePusher(
     }
     const body = (await res.json()) as unknown;
     if (!Array.isArray(body)) return null;
-    type Push = { ref: string; before: string; after: string; actor: string };
+    const complete = body.length < ACTIVITY_PAGE;
+    type Push = { kind: string; ref: string; before: string; after: string; actor: string; idx: number };
     const pushes: Push[] = [];
-    for (const p of body as { ref?: unknown; before?: unknown; after?: unknown; activity_type?: unknown; actor?: { login?: unknown } | null }[]) {
+    for (const [idx, p] of (body as { ref?: unknown; before?: unknown; after?: unknown; activity_type?: unknown; actor?: { login?: unknown } | null }[]).entries()) {
+      const kind = String(p?.activity_type);
       const ref = typeof p?.ref === 'string' ? p.ref : '';
       const before = typeof p?.before === 'string' ? p.before : '';
       const after = typeof p?.after === 'string' ? p.after : '';
       const actor = typeof p?.actor?.login === 'string' ? p.actor.login : '';
-      if (!PUSH_KINDS.has(String(p?.activity_type)) || !ref.startsWith('refs/heads/')) continue;
+      if (!PUSH_KINDS.has(kind) || !ref.startsWith('refs/heads/')) continue;
       if (!/^[0-9a-f]{40}$/.test(before) || !/^[0-9a-f]{40}$/.test(after) || zero(after) || !/^[A-Za-z0-9-]{1,39}$/.test(actor)) continue;
-      pushes.push({ ref, before, after, actor });
+      pushes.push({ kind, ref, before, after, actor, idx });
     }
     let reads = 0;
     const lineAt = async (sha: string) => {
@@ -330,18 +345,24 @@ export async function fetchLinePusher(
       const got = await raw(`${RAW_GITHUB}/${r.owner}/${r.repo}/${sha}/${OWNERSHIP_FILE}`);
       return got.status === 'ok' && hasLine(got.text);
     };
+    /** From a push whose commit has the line, back along its branch to the push that introduced it, then who that credits. */
+    const introducer = async (from: Push, depth: number): Promise<string | null> => {
+      let at: Push | undefined = from;
+      while (at && (await lineAt(at.before))) {
+        const cur: Push = at;
+        at = pushes.find((p, i) => i > pushes.indexOf(cur) && p.ref === cur.ref && p.after === cur.before);
+      }
+      if (!at) return null;
+      const i = pushes.indexOf(at);
+      const earlier = pushes.find((p, j) => j > i && p.after === at!.after);
+      if (earlier) return depth < 3 ? introducer(earlier, depth + 1) : null;
+      if (at.kind === 'push') return at.actor.toLowerCase();
+      if (at.kind === 'branch_creation' && complete && at.idx === body.length - 1) return at.actor.toLowerCase();
+      return null;
+    };
     // The newest push of each branch first: the branch whose head has the line.
     const heads = pushes.filter((p, i) => pushes.findIndex((q) => q.ref === p.ref) === i);
-    let at: Push | undefined;
-    for (const h of heads) if (await lineAt(h.after)) {
-      at = h;
-      break;
-    }
-    while (at) {
-      if (!(await lineAt(at.before))) return at.actor.toLowerCase();
-      const from: Push = at;
-      at = pushes.find((p) => p.ref === from.ref && p.after === from.before);
-    }
+    for (const h of heads) if (await lineAt(h.after)) return await introducer(h, 0);
     return null;
   } catch {
     return null;

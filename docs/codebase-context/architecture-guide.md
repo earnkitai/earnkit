@@ -4378,14 +4378,40 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
   with a contract EarnKit deployed for this installation and repo, only that repo's own link
   (`pagesLinkOf`: `https://<owner>.github.io/<repo>/`, or `/` for `<owner>.github.io`), key
   `hosted:gh:<installation>:<repo_key>:<link>`.
-- **I3, deploy caps:** besides the builder key, once a day per chain and 3 in 30 days also per repo,
-  per owner wallet (day) and per proven line pusher, counted from `contract_deploys` under sorted
-  advisory locks. The global 20 a day and $10 a month stay.
-- **M3:** the deployed event's `detail.starter` names the starter only when `deploy.ts initcodeHash`
-  (keccak256 of the creation bytecode without its CBOR metadata) equals `contract.initcode_hash`
-  (arc-tipjar: the forge build at 0f573a7); otherwise `starter: null`.
+- **I3, deploy caps:** see round 2 (R2, R3, N2) for the keys as they stand.
+- **M3:** the deployed event's `detail.starter` names the starter only for its exact bytecode (round 2,
+  N1, below); otherwise `starter: null`.
 - **M4:** `built` is keyed `built:<installation>:<repo_key>:<program_id>` and written through
   `deployForBuilder`'s `beforeSend`, after every cap passed. **M6:** the upload URL (or Pages note) only
   when `owner_ok` is true. **M7:** `githubUser` drops a `created_at` that isn't a date.
 - **Rebase note:** when v2.11 rebases onto v2.10.3, `freshPick`'s `deployOn` must use `deployChainOn`.
+
+### T9 security fix round 2 (re-review 1: 0C 3I 4M)
+
+- **R1, who wrote the line.** `fetchLinePusher` credits only a push whose actor wrote its commits. When
+  the introducing push's commit was pushed earlier (any branch), that earlier push decides (followed
+  the same way), so a fast-forward, reset or new branch onto someone else's commit never credits the
+  mover. A `push` credits its actor; a `branch_creation` only when it is the repo's very first event
+  on a complete activity page (a brand-new repo); a `force_push`, `pr_merge` or `merge_queue_merge`
+  credits no one. So a fork PR the owner merges gives no owner login.
+- **R2:** no cap on the owner wallet: it is only named, so a cap on it would let anyone block a
+  victim's deploys. Caps are charged only against proven keys.
+- **R3, deploys need a proven owner off a shared client without a sign-in.** `deployForBuilder`
+  (both the build path and prepare `deploy`): when the installation has no sign-in or App proof of
+  the repo (`token-gate.ts repoSignedIn`), the deploy needs `github-verify.ts provenOwnerLogin`: the
+  line's pusher is the repo owner, the builder's said login, a User, and passes OWNER_GATE (30 days,
+  1 public repo, the host gate). Else `refused` with `OWNER_PROOF_NOTE` and nothing is reserved. That
+  login is stored as `contract_deploys.line_owner` and capped (once a day per chain, 3 in 30 days),
+  besides the installation and global caps. A sign-in or App proof keeps the v2.10 path unchanged.
+  The build path checks the same before writing anything (agent note only).
+- **N1, exact artifact.** The build path deploys only the starter's exact bytecode
+  (`contract.bytecode_hash`, keccak256 of forge's bytecode, metadata included) followed by exactly its
+  constructor arguments ABI-encoded with the starter's own `constructor_types` (the agent's
+  constructor ABI is replaced), decoded back with `args[0]` the build wallet. No suffix can ride along.
+  The deployed event labels the starter only on that exact hash.
+- **N2:** the per-repo cap is looser (3 a day per chain, 10 in 30 days), so one prover can't lock the
+  owner out while farming one repo is still bounded.
+- **Skipped:** N3 (a sign-in link replacing a proof-line site of another login is v2.9's behaviour)
+  and N4 (the pusher walk and the proof read may look at different branches; both need this
+  installation's own code, so it is harmless).
 

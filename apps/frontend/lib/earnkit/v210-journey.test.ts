@@ -250,6 +250,9 @@ function github(u: URL, init?: RequestInit): Response {
   }
   m = p.match(/^\/users\/([^/]+)\/repos$/);
   if (m) return json(GITHUB.users.get(decodeURIComponent(m[1]).toLowerCase()) ?? []);
+  // v2.11 T9 R3: the public account read (github-verify.ts githubUser): every login is an old User.
+  m = p.match(/^\/users\/([^/]+)$/);
+  if (m) return json({ login: decodeURIComponent(m[1]), type: 'User', created_at: '2019-01-01T00:00:00Z', public_repos: 4 });
   if (p === '/search/commits') return json({ items: [] });
   if (p === '/graphql') return json({ data: { repository: { usesCustomOpenGraphImage: false } } });
   m = p.match(/^\/repos\/([^/]+)\/([^/]+)(\/.*)?$/);
@@ -277,6 +280,13 @@ function github(u: URL, init?: RequestInit): Response {
       return json(Array.from({ length: n }, (_, i) => ({ sha: `c${i}`, author: null, commit: { author: { date: daysAgo(i + 1) } } })));
     }
     if (rest === '/branches') return json([{ name: 'main' }]);
+    // v2.11 T9 (I1, R1): the repo's push record: its owner created main with the proof line in it.
+    if (rest === '/activity')
+      return json(
+        PUSHED.has(key)
+          ? [{ activity_type: 'branch_creation', ref: 'refs/heads/main', before: '0'.repeat(40), after: 'a'.repeat(40), actor: { login: (r.owner as { login: string }).login } }]
+          : [],
+      );
   }
   return notFound();
 }
