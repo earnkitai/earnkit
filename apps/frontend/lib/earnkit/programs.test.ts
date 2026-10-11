@@ -1,13 +1,17 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  getProgramRow,
+  listPrograms,
   perWinnerUsd,
   programCard,
   programDetails,
   trust,
   trustFor,
+  upsertProgram,
   type ProgramRow,
 } from './programs';
+import { sql } from './db';
 import { presentFirstMessage } from './present';
 import { committedProgram } from './fixtures/program-file';
 import { ProgramFile } from './program-file';
@@ -314,6 +318,13 @@ test('v2.7 §2: programCard carries the logo path and chains', () => {
   assert.equal(noLogo.logo, null);
 });
 
+test('T5: programCard carries the fresh_build starter; none on a campaign or a row without one', () => {
+  assert.deepEqual(programCard({ ...fileRow(null), fresh_build: { starter: 'arc-tipjar' } }, []).fresh_build, { starter: 'arc-tipjar' });
+  assert.equal(programCard(fileRow(null), []).fresh_build, null);
+  assert.equal(programCard({ ...fileRow(earnkitCampaign), fresh_build: { starter: 'arc-tipjar' } }, []).fresh_build, null);
+  assert.equal(programCard({ ...sponsorRow(), fresh_build: { starter: 'arc-tipjar' } }, []).fresh_build, null);
+});
+
 test('v2.6 Minor 6: programCard.builder_bonus is false for any campaign (sponsor or EarnKit), true otherwise', () => {
   assert.equal(programCard(sponsorRow(), []).builder_bonus, false);
   assert.equal(programCard(fileRow(earnkitCampaign), []).builder_bonus, false);
@@ -390,4 +401,32 @@ test('v2.8.1 §B8 (fix round 1): needs_repo comes from the program file, never i
   for (const id of ['avalanche-team1-mini-grants', 'circle-developer-grants', 'a16z-speedrun']) assert.equal(needs(id), false, id);
   assert.equal(needsRepoMissing({ needs_repo: undefined }), true);
   assert.equal(needsRepoMissing({ needs_repo: false }), false);
+});
+
+// ---- v2.11 T5 (5.2): programs:sync stores fresh_build, and find's cards carry it ----
+const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
+
+test('5.2 programs:sync stores fresh_build and listPrograms cards (find\'s cards) carry it; a file without one stores null', dbTest, async () => {
+  const id = `t5-fresh-${process.pid}`;
+  const plain = `t5-plain-${process.pid}`;
+  // Rolling, so the clone stays open whatever day the suite runs.
+  const arc = { ...committedProgram('arc-microgrants'), ends_at: null };
+  try {
+    await upsertProgram(ProgramFile.parse({ ...arc, id, fresh_build: { starter: 'arc-tipjar' } }));
+    await upsertProgram(ProgramFile.parse({ ...arc, id: plain }));
+    assert.deepEqual((await getProgramRow(id)).fresh_build, { starter: 'arc-tipjar' });
+    assert.equal((await getProgramRow(plain)).fresh_build, null);
+    const cards = await listPrograms();
+    assert.deepEqual(cards.find((c) => c.id === id)?.fresh_build, { starter: 'arc-tipjar' });
+    assert.equal(cards.find((c) => c.id === plain)?.fresh_build, null);
+    // The file is the source of truth: removing the field clears the column.
+    await upsertProgram(ProgramFile.parse({ ...arc, id }));
+    assert.equal((await getProgramRow(id)).fresh_build, null);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id IN (${id}, ${plain})`;
+  }
+});
+
+after(async () => {
+  if (process.env.DATABASE_URL) await sql().end();
 });

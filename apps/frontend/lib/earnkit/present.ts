@@ -84,6 +84,8 @@ export type Card = {
   token_policy?: 'encouraged' | 'allowed' | 'off';
   /** v2.10.1 B1 (programs.ts submitSiteName): where the builder submits ("DoraHacks"), or null. */
   submit_site?: string | null;
+  /** v2.11 T5 (programs.ts programCard): the owner-set fresh-build starter (starters.ts), or null. */
+  fresh_build?: { starter: string } | null;
 };
 
 /** One EarnKit campaign row (leaderboard.ts campaignRow). */

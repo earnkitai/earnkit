@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { logoFileProblem, ProgramFile, requiredWithoutTodo, requirementsWithoutKind } from './program-file';
+import { freshBuildProblems, logoFileProblem, ProgramFile, requiredWithoutTodo, requirementsWithoutKind } from './program-file';
+import { STARTERS, type Starter } from './starters';
 
 /**
  * A committed program file that predates token_policy and lists one chain. v2.8 Task 6: named, not
@@ -792,4 +793,67 @@ test('1.10b every committed program passes the new rule; Avalanche Team1 Mini Gr
   }
   const avalanche = JSON.parse(readFileSync(join(dir, 'avalanche-team1-mini-grants.json'), 'utf8'));
   assert.equal(avalanche.difficulty_override, undefined);
+});
+
+// ---- v2.11 T5: a program names its fresh-build starter (spec 2) ----
+
+const arcTipjar = STARTERS['arc-tipjar'];
+/** A registry where arc-tipjar passed its test on `tested_at`, plus a Base starter for the chain check. */
+const tested = (tested_at = '2026-10-08'): Record<string, Starter> => ({
+  'arc-tipjar': { ...arcTipjar, tested_at },
+  'base-checkin': { ...arcTipjar, id: 'base-checkin' as Starter['id'], chain: 'base', tested_at },
+});
+const arcWith = (fresh_build: unknown) => ({ ...programJson('arc-microgrants'), fresh_build });
+
+test('5.1a the schema takes fresh_build as { starter } only, a slug, and refuses any other shape', () => {
+  assert.deepEqual(ProgramFile.parse(arcWith({ starter: 'arc-tipjar' })).fresh_build, { starter: 'arc-tipjar' });
+  assert.equal(ProgramFile.parse(programJson('arc-microgrants')).fresh_build, undefined);
+  for (const bad of ['arc-tipjar', true, null, {}, { starter: '' }, { starter: 'Arc Tipjar' }, { starter: 'arc-tipjar', minutes: 30 }, ['arc-tipjar']])
+    assert.equal(ProgramFile.safeParse(arcWith(bad)).success, false, JSON.stringify(bad));
+});
+
+test('5.1b programs:check refuses an unknown starter id', () => {
+  const p = ProgramFile.parse(arcWith({ starter: 'nope' }));
+  assert.deepEqual(freshBuildProblems(p, tested()), ['fresh_build.starter: "nope" is not a starter (starters.ts has arc-tipjar, base-checkin)']);
+});
+
+test('5.1c programs:check refuses a Base starter on an Arc program, and a starter off the needs_contract chain', () => {
+  const p = ProgramFile.parse(arcWith({ starter: 'base-checkin' }));
+  assert.deepEqual(freshBuildProblems(p, tested()), ['fresh_build.starter: base-checkin runs on base, not on this program\'s chains (arc)']);
+  // A program on both chains whose contract must be on Arc still can't take the Base starter.
+  const both = ProgramFile.parse({ ...arcWith({ starter: 'base-checkin' }), chains: ['arc', 'base'] });
+  assert.deepEqual(freshBuildProblems(both, tested()), ['fresh_build.starter: base-checkin deploys on base, but the program needs its contract on arc']);
+  // An any_chain program lists no chains, so no starter's chain is covered.
+  const any = ProgramFile.parse({ ...arcWith({ starter: 'arc-tipjar' }), chains: [], any_chain: true, min_product_score: 5, needs_contract: undefined });
+  assert.equal(freshBuildProblems(any, tested()).length, 1);
+});
+
+test('5.1d programs:check refuses a starter with no passing test, or one older than 30 days before verified_at', () => {
+  const p = ProgramFile.parse(arcWith({ starter: 'arc-tipjar' })); // verified_at 2026-10-07
+  assert.deepEqual(freshBuildProblems(p, { 'arc-tipjar': { ...arcTipjar, tested_at: null } }), [
+    'fresh_build.starter: arc-tipjar has no passing starter test yet (starters.ts tested_at)',
+  ]);
+  assert.deepEqual(freshBuildProblems(p, tested('2026-09-07')), []); // exactly 30 days
+  assert.deepEqual(freshBuildProblems(p, tested('2026-10-20')), []); // tested after the facts were checked
+  assert.deepEqual(freshBuildProblems(p, tested('2026-09-06')), [
+    'fresh_build.starter: arc-tipjar last passed its test on 2026-09-06, more than 30 days before verified_at 2026-10-07',
+  ]);
+});
+
+test('5.1e programs:check passes today\'s files, and Arc\'s field once arc-tipjar passes its test', () => {
+  const dir = join(import.meta.dirname, '../../../../programs');
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.json')))
+    assert.deepEqual(freshBuildProblems(ProgramFile.parse(JSON.parse(readFileSync(join(dir, f), 'utf8')))), [], f);
+  assert.deepEqual(freshBuildProblems(ProgramFile.parse(arcWith({ starter: 'arc-tipjar' })), tested()), []);
+  // Today's registry: arc-tipjar has no passing test yet (T6), so Arc can't carry the field.
+  assert.equal(freshBuildProblems(ProgramFile.parse(arcWith({ starter: 'arc-tipjar' }))).length, arcTipjar.tested_at ? 0 : 1);
+});
+
+test('5.1f only owner-approved programs carry fresh_build (Arc Microgrants is the only known case)', () => {
+  const dir = join(import.meta.dirname, '../../../../programs');
+  const approved = new Set(['arc-microgrants']);
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.json'))) {
+    const p = JSON.parse(readFileSync(join(dir, f), 'utf8'));
+    if (p.fresh_build !== undefined) assert.ok(approved.has(p.id), `${f}: fresh_build needs the owner's approval`);
+  }
 });

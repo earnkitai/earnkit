@@ -1044,3 +1044,7 @@ CREATE TABLE IF NOT EXISTS usage_check_failures (
 -- build was last offered. Additive; NULL for every existing installation.
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS fresh_offer_at timestamptz;
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS build jsonb;
+
+-- v2.11 T5 (spec 2): the program file's fresh_build ({ "starter": "<starters.ts id>" }), set by the
+-- owner only; NULL for a program without one. Additive.
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS fresh_build jsonb;

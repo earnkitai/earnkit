@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkLogoFile } from '../lib/earnkit/logo-check';
 import { OutcomeFile } from '../lib/earnkit/outcomes';
-import { ProgramFile, needsRepoMissing, requiredWithoutTodo, requirementsWithoutKind } from '../lib/earnkit/program-file';
+import { ProgramFile, freshBuildProblems, needsRepoMissing, requiredWithoutTodo, requirementsWithoutKind } from '../lib/earnkit/program-file';
 
 /**
  * pnpm programs:check — validates every programs/*.json.
@@ -46,6 +46,8 @@ for (const { f, result } of parsed) {
   // v2.8.1 §B8 (fix round 1): whether entering needs a repo is the author's call, from the source.
   if (needsRepoMissing(result.data))
     fileProblems.push({ f, problem: 'needs_repo: say whether entering needs a repo or a live product (true or false)' });
+  // v2.11 T5 (spec 2): a fresh_build names a known, tested starter on one of the program's chains.
+  for (const problem of freshBuildProblems(result.data)) fileProblems.push({ f, problem });
   const logo = result.data.logo;
   if (!logo) continue;
   const problem = checkLogoFile(logo, publicDir);

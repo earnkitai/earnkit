@@ -435,6 +435,10 @@ ok(v29 && v29.live_verified_at === null && v29.contract_verified_at === null, 'e
 const [needs] = await db<{ n: number; set: number }[]>`
   SELECT count(*)::int AS n, count(needs_contract)::int AS set FROM programs`;
 ok(needs.n > 0 && needs.set === 0, 'existing programs get needs_contract = NULL');
+// v2.11 T5: programs.fresh_build (the owner-set starter); existing programs read as NULL.
+const [fresh] = await db<{ n: number; set: number }[]>`
+  SELECT count(*)::int AS n, count(fresh_build)::int AS set FROM programs`;
+ok(fresh.n > 0 && fresh.set === 0, 'existing programs get fresh_build = NULL');
 await db`INSERT INTO url_checks (key, ok) VALUES ('url:https://tipjar.xyz', true)`;
 await db.unsafe(now);
 const [check] = await db<{ ok: boolean; checked_at: Date }[]>`SELECT ok, checked_at FROM url_checks WHERE key = 'url:https://tipjar.xyz'`;
