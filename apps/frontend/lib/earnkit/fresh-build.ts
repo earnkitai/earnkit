@@ -268,6 +268,8 @@ export type BuildKit = {
   starter: string;
   degit: string;
   steps: string;
+  /** v2.11 T10: the steps in the order the owner proof needs (T9 R4: a fresh push within 10 minutes of the repo). */
+  order: string[];
   twist_slots: { name: string; description: string; feature: string };
   owner_wallet: string;
   proof_file: string;
@@ -289,7 +291,18 @@ export function buildKit(starter: Starter, proofLine: string | null, f: BuildFie
   return {
     starter: starter.id,
     degit: `npx degit ${starter.repo} <project>`,
-    steps: 'Follow BUILD.md in the copy, with the twist slots and the wallet below.',
+    steps: 'Follow BUILD.md in the copy, with the twist slots and the wallet below, in the order below.',
+    // T10 (T9 concerns): EarnKit proves the owner from find's github_user and the owner's own first
+    // push, dated within 10 minutes of the repo's creation, so the repo comes first, then the commit,
+    // then the push at once.
+    order: [
+      "Call find with github_user: the builder's own GitHub login (what gh api user --jq .login prints); never guess it. EarnKit deploys and hosts only for that account.",
+      `Copy the starter (${'`'}npx degit ${starter.repo} <project>${'`'}) into a new folder, fill the twist slots and build it as BUILD.md says. Don't create the repo or commit yet.`,
+      "Create the public repo under that account (gh repo create <project> --public): no template, not a fork. If proof_line is null, send build.repo_url first (see proof_line_note).",
+      'Commit everything, earnkit.txt with proof_line included, as new commits made now.',
+      "Push at once, within 10 minutes of creating the repo, from the builder's own account: a normal push, never a force push.",
+      'Then call prepare as next says.',
+    ],
     twist_slots: { name: f.name.trim(), description: f.description.trim(), feature: f.feature.trim() },
     owner_wallet: f.wallet,
     proof_file: 'earnkit.txt',

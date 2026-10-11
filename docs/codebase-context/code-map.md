@@ -226,6 +226,7 @@ apps/frontend/
                                freshLeadLine (builds / chat-only). v2.11 T8: twistQuestion, BUILD_CHAT_ONLY,
                                buildingLine, buildCheck (plain words, limits, kit names, the twist's words in name,
                                description and feature), buildFix, PUBLIC_TEST_WALLETS / publicTestWallet, buildKit.
+                               v2.11 T10: buildKit.order (github_user to find, copy, create the repo, commit, push at once).
                                fixtures/fresh-build.ts: TESTED_STARTERS,
                                FRESH_ON, fileCards (real program files as cards), withFreshBuild, withoutFreshBuild
     starters.ts(+test)         v2.11 T5: the starter registry STARTERS (pure, import-free; id, chain, repo degit
@@ -695,6 +696,13 @@ apps/frontend/
                                pagesHostedEvent for a github.io link), githubPagesOwner, BUILD_NOT_READY,
                                BUILD_DEPLOYS_OFF_NOTE, buildOwnerNote, buildChainNote, buildProofNote,
                                BUILD_UPLOAD_NOTE, BUILD_PAGES_NOTE. hostBlock needs R2 only (sign-in only on shared).
+                               v2.11 T10: the deploy reply holds its line (BUILD_HOLD_NOTE); buildJoin (after the
+                               live link: the entry from the build, derivedDescription / derivedProfile) and
+                               buildLiveLine / pagesLiveLine feed prepare_submission's `join` (BuildJoin: the live
+                               and deployed lines, then the confirm line with the build wallet, one reply, `entry`
+                               for confirm, BUILD_ENTRY_NOTE); buildWalletAgain (confirm on the build path launches
+                               only to the wallet its confirm line showed, BUILD_WALLET_NOTE); BUILD_OWNER_NOTE
+                               (a fresh push and github_user).
                                v2.10 item 4: `tools` = find, prepare, confirm, tell, sponsor_campaign, thin dispatchers
                                over `handlers` (the v2.9 functions: list_programs ... launch_token); FindInput,
                                PrepareInput, ConfirmInput (R15), TellToolInput (R16), markSubmitted (tell.submitted),
@@ -907,6 +915,8 @@ apps/frontend/
                                key: value lists, number dumps, links, length), PLAIN_FIX, PLAIN_NOTE;
                                preSubmitCheck's not_plain agent fix (tools.ts plainRefusal refuses
                                confirm_entry, and a campaign's record_submission, while one stands)
+                               v2.11 T10: derivedProfile (a required GitHub profile link from the proven
+                               login, never invented), derivedDescription (the build's description).
     answer-bank.ts(+test)      v2.8 Task 9: projectKey, v2.9 repoKey (owner/repo), readBank, saveBank (table answer_bank,
                                Ruling 6: per installation, never public), saveApplication
                                (projects.application); final review M6: bankKeepsContact, contact

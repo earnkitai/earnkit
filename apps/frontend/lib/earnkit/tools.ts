@@ -82,7 +82,7 @@ import {
   prepareSubmission,
 } from './submission';
 import { OWNERSHIP_FILE } from './ownership';
-import { DEPLOY_LINES, OWNER_PROOF_NOTE, deployChains, deployEnabled, deployForBuilder, deployOffLine, deployOffNote, initcode, type DeployDeps, type DeployInput } from './deploy';
+import { DEPLOY_LINES, deployChains, deployEnabled, deployForBuilder, deployOffLine, deployOffNote, deployedLine, initcode, type DeployChainName, type DeployDeps, type DeployInput } from './deploy';
 import { decodeAbiParameters, isHex, keccak256, type Abi } from 'viem';
 import {
   CANT_PUSH_RETRY_NOTE,
@@ -102,7 +102,7 @@ import {
 import { RAW_CAP, canonicalBuilderUrl, cleanProject, quoted } from './untrusted-text';
 import { proveRepo, repoSignedIn, tokenLineFor, type ProvenRepo } from './token-gate';
 import { READY_TO_SUBMIT, confirmDecision, confirmOffer, proofLineWaiting, signInLine, walletQuestion, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
-import { HOST_LINES, UPLOAD_NOTE, hostSignInLine, issueUpload, refreshSiteExpiry } from './hosting';
+import { HOST_LINES, HOST_ZONE, UPLOAD_NOTE, hostSignInLine, issueUpload, liveLine, refreshSiteExpiry } from './hosting';
 import { r2Enabled } from './r2';
 import { EARNKIT_ORGS } from './earnkit-orgs';
 import {
@@ -127,6 +127,8 @@ import {
   bankFill,
   coachFields,
   coachIntro,
+  derivedDescription,
+  derivedProfile,
   draftTable,
   fixesLine,
   askableKeys,
@@ -1377,7 +1379,9 @@ export const handlers = {
     }
   },
 
-  prepare_submission: async (input: unknown, ctx: ToolContext) => {
+  // v2.11 T10: `join` (the build path only, from prepare): the live and deployed lines go before the
+  // confirm line in one reply, with the build's wallet; no guide (the builder said yes to the lead).
+  prepare_submission: async (input: unknown, ctx: ToolContext, join?: BuildJoin) => {
     const { program_id, agent, coach_asked, host, signed_in, ...known } = PrepareSubmissionInput.parse(input);
     const program = await getProgramRow(program_id);
     const hosting = host ? await hostBlock(ctx, known.project?.repo_url ?? known.answers?.repo_url, known.project?.name) : null;
@@ -1395,7 +1399,8 @@ export const handlers = {
       open && curated && (ctx.sharedClient ? !coach_asked : added && !(await hasProgramEntry(ctx.installationId, program_id)));
     // The guide's parts: what won, what it wants, best bet. No bonus line here: the confirm line says
     // the bonus when this entry can earn it (a repo's token entered elsewhere can't).
-    const guide = firstPrepare ? guideText(programGuide(program, null)) : null;
+    const guide = firstPrepare && !join ? guideText(programGuide(program, null)) : null;
+    const lead = join ? join.lead.join('\n') : null;
     const withGuide = <T extends { show_to_builder: string }>(r: T): T =>
       guide ? { ...r, show_to_builder: `${guide}\n\n${r.show_to_builder}` } : r;
     // This installation's last wallet (Ruling 10 (plan)). Campaign entries: asked about in full and
@@ -1445,7 +1450,7 @@ export const handlers = {
           // Campaigns: only a payout wallet given in this call (never the remembered one, which
           // is asked about, not assumed); without one the block asks the builder for the fee
           // wallet. Other programs (v2.6 §3): the wallet given now, else the remembered one.
-          creatorWallet: program.campaign ? given : (given ?? remembered),
+          creatorWallet: program.campaign ? given : (join?.wallet ?? given ?? remembered),
           // The earnkit.txt token line is bound to this agent and the repo; shown only in this reply.
           installationId: ctx.installationId,
           repoUrl,
@@ -1548,7 +1553,7 @@ export const handlers = {
     if (intro)
       return withAlerts(ctx, withGuide({
         program_id,
-        show_to_builder: repoFirst ? `${repoFirst}\n\n${intro}` : intro,
+        show_to_builder: [lead, repoFirst, intro].filter(Boolean).join('\n\n'),
         questions,
         coach,
         ready: false,
@@ -1564,7 +1569,7 @@ export const handlers = {
     const facts = open && prep.ready ? await offerFacts(program, repoUrl, ctx) : null;
     // Fix round 1 (item 1): the wallet this entry already holds comes first; a "go" without a
     // wallet launches to it, so it is the one shown.
-    const stored = given || !facts
+    const stored = given || join || !facts
       ? null
       : await entryWallet(ctx, {
           programId: program.id,
@@ -1572,7 +1577,7 @@ export const handlers = {
           repoUrl: repoUrl ?? null,
           name: known.project?.name?.trim() || titleCase(repoNameOf(repoUrl) ?? ''),
         });
-    const offerWallet = given ?? stored ?? remembered;
+    const offerWallet = join?.wallet ?? given ?? stored ?? remembered;
     // Fix round 1 (§A2): the pair the Yes line shows is stored; the one shown before wins (stable).
     const shownKey = offerKey(repoUrl ?? null, known.project?.name?.trim() || titleCase(repoNameOf(repoUrl) ?? ''));
     // v2.10 fix round 1 (I2): a stored pair means the confirm line was shown already in this flow,
@@ -1615,7 +1620,11 @@ export const handlers = {
       : [];
     const fixes = [...(failedCheck ? [failedCheck] : []), ...checked.filter((f) => f.for === 'builder')];
     const agent_fixes = checked.filter((f) => f.for === 'agent');
-    const show_to_builder = prep.ready
+    const show_to_builder = lead && prep.ready
+      ? [lead, fixesLine(fixes), offer].filter((x): x is string => Boolean(x)).join('\n')
+      : lead
+        ? `${lead}\n\n${table}`
+        : prep.ready
       ? [
           draftTable(program.submission_requirements, values),
           fixesLine(fixes),
@@ -1624,9 +1633,10 @@ export const handlers = {
           .filter((x): x is string => Boolean(x))
           .join('\n\n')
       : table;
+    // v2.11 T10: on the build path earnkit.txt already holds the line (the build's proof), and there is no table.
     const notes = [
-      line && TOKEN_LINE_NOTE,
-      ...(prep.ready ? [agent_fixes.length > 0 && AGENT_FIXES_NOTE, DRAFT_NOTE, fixes.length > 0 && FIXES_NOTE] : [COACH_NOTE]),
+      line && !join && TOKEN_LINE_NOTE,
+      ...(prep.ready ? [agent_fixes.length > 0 && AGENT_FIXES_NOTE, join ? BUILD_ENTRY_NOTE : DRAFT_NOTE, fixes.length > 0 && FIXES_NOTE] : [COACH_NOTE]),
     ].filter(Boolean);
     return withAlerts(ctx, withGuide({
       program_id,
@@ -1658,6 +1668,7 @@ export const handlers = {
       ...(offersToken && offerWallet && { shown_wallet: offerWallet }),
       ...(line && { token_line: line }),
       ...(notes.length > 0 && { agent_note: notes.join(' ') }),
+      ...(join && { entry: { project: known.project ?? {}, answers: known.answers ?? {} } }),
       ...(hosting && { host: hosting }),
     }), signed_in);
   },
@@ -2426,8 +2437,8 @@ export const buildRefused = (programId: string) =>
 export const WALLET_NEEDED_NOTE =
   "Pass build.wallet: the wallet the builder gives for this build. Never make one up; if they have none, help them create one on their own machine (EarnKit never sees the key). Don't show this to the builder.";
 export const KIT_NOTE =
-  'Show show_to_builder as written, then build from kit (never show it to the builder): copy the starter, fill its twist slots, ' +
-  'push the public repo with earnkit.txt, then call prepare as kit.next says.';
+  'Show show_to_builder as written, then build from kit (never show it to the builder), step by step in kit.order: ' +
+  'github_user to find first, then copy the starter and fill its twist slots, create the repo, commit with earnkit.txt and push at once, then call prepare as kit.next says.';
 
 /**
  * The program as a fresh build would offer it right now (freshPick on that one program: open,
@@ -2552,7 +2563,7 @@ export const buildProofNote = (line: string | null) =>
     : "EarnKit can't make the earnkit.txt line right now, so it can't deploy. Don't deploy; tell the builder in one short line to try again later.";
 export const BUILD_UPLOAD_NOTE =
   'Put deploy.address into the site as BUILD.md says, zip site_dir and POST it to host.upload_url within 15 minutes (Content-Type application/zip). ' +
-  "Show the upload's show_to_builder as written. Then call prepare with program_id, project { name, description, repo_url, live_url: the upload's url } and build: { program_id }. " +
+  "Don't show the upload's show_to_builder: the next reply says it. Then call prepare with program_id, project { name, description, repo_url, live_url: the upload's url } and build: { program_id }. " +
   'If the link expires, call prepare with program_id, project { name, repo_url } and host: true for a new one; never deploy again.';
 /** Security fix N1: the build path deploys the starter's own compiled contract, unchanged. */
 export const BUILD_BYTECODE_NOTE =
@@ -2598,6 +2609,24 @@ export const BUILD_PAGES_NOTE =
   '(a gh-pages branch, or Pages from a folder on the default branch); it is free and needs nothing from the builder. ' +
   "Once https://<owner>.github.io/<repo>/ loads, call prepare with program_id, project { name, description, repo_url, live_url: that link } and build: { program_id }. " +
   "Don't show this note or the reason.";
+
+/** v2.11 T10 (spec 5): the deploy reply's line waits, so the builder hears it once with the live link and the confirm line. */
+export const BUILD_HOLD_NOTE =
+  'Show the builder nothing yet: the reply after the live link says the deployed line with the live line and the confirm line, in one reply.';
+/**
+ * v2.11 T10 (T9 concerns 2 and 3): no proven owner on the build path. The proof is the owner's own
+ * fresh push (find's github_user, a normal push within 10 minutes of the repo or a new commit), so
+ * the agent retries with a fresh push before telling the builder anything.
+ */
+export const BUILD_OWNER_NOTE =
+  "EarnKit deploys from the earnkit.txt line only for the repo owner's own account: the builder's GitHub login passed to find as github_user, " +
+  'and their own push of the line, a normal push within 10 minutes of creating the repo or of a new commit. ' +
+  "Check find got github_user (never guess it), then make a fresh commit (any small change, earnkit.txt kept) and push it now from the builder's own account, never a force push, and call this again. " +
+  "If it is still refused, tell the builder in one short line that EarnKit couldn't confirm the repo is theirs. Don't show this note.";
+/** v2.11 T10: the joined reply's note: confirm with the entry drafted from the build. */
+export const BUILD_ENTRY_NOTE =
+  'Show show_to_builder as written. The entry is drafted from the build (entry). When the builder says yes, call confirm with program_id, ' +
+  'project: entry.project, answers: entry.answers, yes: true, wallet: shown_wallet and token: { name, symbol } of token.proposed; when they say skip the token, skip_token: true instead of yes.';
 
 /** The owner of a GitHub Pages link (`https://<owner>.github.io/...`), lowercase, or null. Pure. */
 export function githubPagesOwner(url: string | undefined): string | null {
@@ -2676,6 +2705,79 @@ const pagesHostedEvent = (ctx: ToolContext, programId: string, repoKey: string, 
   });
 
 /**
+ * v2.11 T10 (spec 5): what prepare_submission takes from the build path: the lines that go before
+ * the confirm line (the live line, then the deployed line) and the build's wallet, the one the
+ * confirm line shows and the token's fees go to.
+ */
+export type BuildJoin = { lead: string[]; wallet: string };
+
+/**
+ * v2.11 T10 (T9 concern 6): the live line for the build's own live link, or null. EarnKit hosting:
+ * this installation's live site for the repo (`PodTips is live: podtips-jenil04.earnkit.com`). GitHub
+ * Pages: the repo's own Pages link (pagesLinkOf) whose probe passes (`PodTips is live:
+ * jenil04.github.io/podtips`). Anything else is never called live.
+ */
+async function buildLiveLine(ctx: ToolContext, name: string, repoKey: string, live: string): Promise<string | null> {
+  const canonical = canonicalBuilderUrl(live).url;
+  if (!canonical) return null;
+  const u = new URL(canonical);
+  const [site] = await sql()<{ slug: string }[]>`
+    SELECT slug FROM hosted_sites WHERE installation_id = ${ctx.installationId} AND repo_key = ${repoKey} AND status = 'live' LIMIT 1`;
+  if (site && u.hostname === `${site.slug}.${HOST_ZONE}` && u.pathname === '/' && !u.search && !u.hash) return liveLine(name, site.slug);
+  const pages = pagesLinkOf(repoKey, canonical);
+  if (!pages || (await liveCheckDetail(pages, ctx.verifyDeps ?? {})).ok !== true) return null;
+  return pagesLiveLine(name, pages);
+}
+
+/** v2.11 T10: v2.9's live line for a GitHub Pages link: `PodTips is live: jenil04.github.io/podtips`. Pure. */
+export function pagesLiveLine(project: string, link: string): string {
+  const u = new URL(link);
+  return `${project} is live: ${u.hostname}${u.pathname.replace(/\/$/, '')}`;
+}
+
+/**
+ * v2.11 T10 (spec 5): the call after the live link, once EarnKit deployed the build's contract for
+ * this installation and repo. The entry is drafted from the build: the build's repo, the live link,
+ * the twist description (unless the agent wrote one), the deployed contract, and the public profile
+ * from the proven repo owner (coach.ts derivedProfile; never invented), so Arc asks no coach
+ * question. prepare_submission then puts the live line and the deployed line before the confirm
+ * line, with the build's wallet, in one reply. Null (prepare's usual path) before the deploy.
+ */
+async function buildJoin(
+  ctx: ToolContext,
+  b: StoredBuild & { wallet: string; repo_url: string },
+  repoKey: string,
+  live: string | undefined,
+  rest: Record<string, unknown>,
+): Promise<{ rest: Record<string, unknown>; join: BuildJoin } | null> {
+  const [d] = await sql()<{ address: string; chain: DeployChainName; owner_ok: boolean | null }[]>`
+    SELECT address, chain, owner_ok FROM contract_deploys
+    WHERE installation_id = ${ctx.installationId} AND repo_key = ${repoKey} AND status = 'deployed' AND address IS NOT NULL
+    ORDER BY id DESC LIMIT 1`;
+  if (!d) return null;
+  const name = b.name!;
+  const liveText = live ? await buildLiveLine(ctx, name, repoKey, live) : null;
+  const program = await getProgramRow(b.program_id);
+  const given = (rest.project ?? {}) as Record<string, unknown>;
+  const others = (Array.isArray(given.contracts) ? given.contracts : []).filter((c): c is string => typeof c === 'string' && c.toLowerCase() !== d.address.toLowerCase());
+  const project = {
+    ...given,
+    name: typeof given.name === 'string' && given.name.trim() ? given.name : name,
+    description: typeof given.description === 'string' && given.description.trim() ? given.description : b.description,
+    repo_url: b.repo_url,
+    contracts: [d.address, ...others].slice(0, 2),
+  };
+  const answers = { ...((rest.answers ?? {}) as Record<string, string>) };
+  const who = await loginBasisFor(ctx.installationId, repoKey).catch(() => null);
+  Object.assign(answers, derivedDescription(program.submission_requirements, answers, project.description));
+  Object.assign(answers, derivedProfile(program.submission_requirements, answers, who?.login ?? null));
+  return {
+    rest: { ...rest, project, answers },
+    join: { lead: [liveText, deployedLine(name, d.chain, d.address, d.owner_ok === true)].filter((x): x is string => Boolean(x)), wallet: b.wallet },
+  };
+}
+
+/**
  * v2.11 T9 (spec 4): the build path's mark (`build: { program_id }`). Fails closed (review T8 M5):
  * never on a shared client, only for this installation's checked build of the same program.
  * - With `deploy` (the deploy-and-host call): deploys off is v2.10's "Deploys are off right now."
@@ -2684,11 +2786,14 @@ const pagesHostedEvent = (ctx: ToolContext, programId: string, repoKey: string, 
  *   the starter takes the owner there) the build's wallet, and the repo's earnkit.txt line in place.
  *   Then `built` (S11), the capped v2.10 deploy with the build's wallet as owner, and, once it is
  *   deployed, the one-use upload URL (no click off a shared client, S9) or the GitHub Pages note
- *   (S10). The builder sees the deployed line only (or v2.10's line for why not).
+ *   (S10). T10: while the site goes up the builder sees nothing (the deployed line waits); a refusal
+ *   or a contract the wallet doesn't own shows v2.10's line.
  * - Without `deploy` (the next call, with the live link): a GitHub Pages link that loads writes its
- *   `hosted` event (S10); then prepare's usual path, without `build`.
+ *   `hosted` event (S10); then prepare's usual path, without `build`, and once the contract is
+ *   deployed (T10, buildJoin) with the entry drafted from the build and the live, deployed and
+ *   confirm lines in one reply.
  */
-async function buildShip(programId: string, rest: Record<string, unknown>, ctx: ToolContext): Promise<{ reply: Reply } | { rest: Record<string, unknown> }> {
+async function buildShip(programId: string, rest: Record<string, unknown>, ctx: ToolContext): Promise<{ reply: Reply } | { rest: Record<string, unknown>; join?: BuildJoin }> {
   if (ctx.sharedClient) {
     const pick = await buildPick(programId, ctx);
     return { reply: pick ? { show_to_builder: BUILD_CHAT_ONLY, agent_note: BUILD_SHARED_NOTE } : buildRefusal(buildRefused(programId)) };
@@ -2703,8 +2808,10 @@ async function buildShip(programId: string, rest: Record<string, unknown>, ctx: 
     // Security fix I2: only the build's own repo, never one this call names.
     const own = stored.repo_url ? githubRepo(stored.repo_url) : null;
     const live = prep.project?.live_url ?? prep.answers?.live_url;
-    if (own && live) await pagesHostedEvent(ctx, programId, `${own.owner}/${own.repo}`.toLowerCase(), live);
-    return { rest };
+    if (!own) return { rest };
+    const ownKey = `${own.owner}/${own.repo}`.toLowerCase();
+    if (live) await pagesHostedEvent(ctx, programId, ownKey, live);
+    return (await buildJoin(ctx, { ...stored, wallet, repo_url: stored.repo_url! }, ownKey, live, rest)) ?? { rest };
   }
   const any = await buildPick(programId, ctx, { anyDeploy: true });
   if (!any) return { reply: buildRefusal(buildRefused(programId)) };
@@ -2729,7 +2836,7 @@ async function buildShip(programId: string, rest: Record<string, unknown>, ctx: 
   }
   // Security fix R3: with no sign-in, only the repo owner's own proven account deploys (deploy.ts checks it again).
   if (!(await repoSignedIn({ installationId: ctx.installationId, repoKey }, ctx.deployDeps?.gate)) && !(await provenOwnerLogin(ctx.installationId, repoKey, proven.lineOwner)))
-    return { reply: buildRefusal(`${OWNER_PROOF_NOTE} Don't show this note.`) };
+    return { reply: buildRefusal(BUILD_OWNER_NOTE) };
   const build = { ...stored, wallet, repo_url: repo };
   if (stored.repo_url !== repo) await saveBuild(ctx.installationId, build);
   const step = await deployStep({ ...deploy, abi: artifact.abi, owner_wallet: wallet }, { project: { name: stored.name, repo_url: repo } }, ctx, {
@@ -2744,11 +2851,12 @@ async function buildShip(programId: string, rest: Record<string, unknown>, ctx: 
   const hosting = owned ? await hostBlock(ctx, repo, stored.name, proven) : null;
   const upload = hosting && 'upload_url' in hosting ? { upload_url: hosting.upload_url, expires_at: hosting.expires_at } : null;
   const host = hosting ? (upload ?? { github_pages: true, site_dir: starter.site_dir }) : null;
-  const note = [step.agent_note, hosting ? (upload ? BUILD_UPLOAD_NOTE : BUILD_PAGES_NOTE) : deployed ? BUILD_NOT_OWNED_NOTE : null].filter(Boolean).join(' ');
+  const note = [step.agent_note, hosting ? `${BUILD_HOLD_NOTE} ${upload ? BUILD_UPLOAD_NOTE : BUILD_PAGES_NOTE}` : deployed ? BUILD_NOT_OWNED_NOTE : null].filter(Boolean).join(' ');
   return {
     reply: {
       program_id: programId,
-      show_to_builder: step.line,
+      // T10 (spec 5): while the site goes up the deployed line waits for the joined reply.
+      show_to_builder: hosting ? '' : step.line,
       deploy: step.deploy,
       build: { program_id: programId, starter_id: starter.id, step: deployed ? 'host' : 'deploy' },
       ...(host && { host }),
@@ -2763,7 +2871,7 @@ async function buildShip(programId: string, rest: Record<string, unknown>, ctx: 
  * the deploy-and-host call, or the call after it that goes on to prepare's usual path. Returns the
  * reply, or the input without `build` for the usual path.
  */
-async function prepareBuild(input: Record<string, unknown>, ctx: ToolContext): Promise<{ reply: Reply } | { rest: Record<string, unknown> }> {
+async function prepareBuild(input: Record<string, unknown>, ctx: ToolContext): Promise<{ reply: Reply } | { rest: Record<string, unknown>; join?: BuildJoin }> {
   const { build, ...rest } = input;
   const b = build && typeof build === 'object' && !Array.isArray(build) ? (build as Record<string, unknown>) : null;
   if (!b) return { reply: buildRefusal("build: an object, as find's build_offer says. Don't show this to the builder.") };
@@ -2980,6 +3088,32 @@ async function confirmByProjectId(c: ConfirmArgs & { project_id: number }, ctx: 
   return { ...offer, project_id: entry.id, token: { status: 'skipped', fixable: true, ...(offer.token as object | undefined) }, agent_note: PROJECT_REOFFER_NOTE };
 }
 
+/** v2.11 T10: the agent's note when a yes on the build path named a wallet the confirm line didn't show. */
+export const BUILD_WALLET_NOTE =
+  'Nothing launched: this wallet is not the one the confirm line showed the builder. Show show_to_builder as written; ' +
+  'when the builder says yes, call confirm again with yes: true, wallet: shown_wallet and token: token.proposed.';
+
+/**
+ * v2.11 T10 (plan 10.3, Review Focus 5): on the build path a yes launches only to the wallet the
+ * confirm line showed (the build's wallet first). A yes naming another wallet gets the confirm line
+ * again, showing that wallet, and nothing is recorded or launched; the builder's next yes covers it.
+ * Null: not this build's entry, or the wallet shown, so confirm goes on as usual.
+ */
+async function buildWalletAgain(c: ConfirmArgs & { program_id: string; wallet: string }, ctx: ToolContext): Promise<Reply | null> {
+  const build = await readBuild(ctx.installationId);
+  const repoUrl = c.project?.repo_url ?? c.answers?.repo_url;
+  const name = c.project?.name;
+  if (!build?.repo_url || build.program_id !== c.program_id || typeof repoUrl !== 'string' || typeof name !== 'string') return null;
+  if (normalizeRepoUrl(repoUrl) !== normalizeRepoUrl(build.repo_url)) return null;
+  const shown = await readShownOffer(ctx.installationId, c.program_id, offerKey(repoUrl, name)).catch(() => null);
+  if (shown?.wallet && shown.wallet === c.wallet.trim().toLowerCase()) return null;
+  const offer = (await handlers.confirm_entry(
+    defined({ program_id: c.program_id, project: c.project, answers: c.answers, token: c.token, wallet: c.wallet, agent: c.agent, signed_in: c.signed_in }),
+    ctx,
+  )) as Reply;
+  return { ...offer, agent_note: BUILD_WALLET_NOTE };
+}
+
 /** The agent tools (v2.10 item 4): the MCP server forwards each call here; each dispatches to `handlers`. */
 export const tools = {
   // What can I earn (list_programs), or one program and its guide (get_program).
@@ -3001,13 +3135,15 @@ export const tools = {
   // spends nothing; a draft that fails after a deploy still returns the deploy.
   prepare: async (input: unknown, ctx: ToolContext) => {
     // v2.11 T8: the build path (plan S7).
+    let join: BuildJoin | undefined;
     if (input && typeof input === 'object' && 'build' in input) {
       const b = await prepareBuild(input as Record<string, unknown>, ctx);
       if ('reply' in b) return b.reply;
       input = b.rest;
+      join = b.join;
     }
     const { deploy, ...prep } = PrepareInput.parse(input);
-    if (!deploy) return handlers.prepare_submission(prep, ctx);
+    if (!deploy) return handlers.prepare_submission(prep, ctx, join);
     await getProgramRow(prep.program_id);
     const step = await deployStep(deploy, prep, ctx);
     const address = (step.deploy as { address?: string }).address;
@@ -3050,6 +3186,11 @@ export const tools = {
         }),
         ctx,
       );
+    // v2.11 T10: the build path launches only to the wallet its confirm line showed.
+    if (c.yes && !c.check && c.wallet !== undefined && !ctx.sharedClient) {
+      const again = await buildWalletAgain(c as ConfirmArgs & { program_id: string; wallet: string }, ctx);
+      if (again) return again;
+    }
     const confirmed = (await handlers.confirm_entry(
       defined({
         program_id: c.program_id,

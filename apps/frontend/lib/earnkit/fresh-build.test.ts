@@ -396,3 +396,18 @@ test('8.5 BUILD_CHAT_ONLY: "I can\'t build from here", no question, no tool or p
   assert.doesNotMatch(BUILD_CHAT_ONLY, /Claude|Cursor|Codex|Grok|ChatGPT/);
   plainCopy(BUILD_CHAT_ONLY);
 });
+
+test('10 (T10 notes) buildKit orders the push for the owner proof: github_user to find first, then create the repo, commit and push at once; never a force push', () => {
+  const kit = buildKit(TIPJAR, 'token: 0123456789abcdef', { ...POD, wallet: WALLET });
+  const at = (re: RegExp) => kit.order.findIndex((s) => re.test(s));
+  const user = at(/^Call find with github_user/);
+  const create = at(/^Create the public repo/);
+  const commit = at(/^Commit /);
+  const push = at(/^Push /);
+  assert.ok(user === 0 && user < create && create < commit && commit < push, kit.order.join(' | '));
+  assert.match(kit.order[user], /never guess/);
+  assert.match(kit.order[push], /within 10 minutes of creating the repo/);
+  assert.match(kit.order[push], /never a force push/);
+  assert.match(kit.steps, /in the order below/);
+  for (const s of kit.order) assert.doesNotMatch(s, /\u2014/, 'no em dash');
+});

@@ -4325,14 +4325,14 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
      upload URL (`host.upload_url`, with `BUILD_UPLOAD_NOTE`), or, when EarnKit hosting is off or
      refused for any reason (R2 off, the gate, the limits), `host: { github_pages: true, site_dir }`
      with `BUILD_PAGES_NOTE` (S10).
-  The builder sees the deployed line only (`PodTips is deployed on Arc: 0x12ab…9f3e. You're the
-  owner.`), or v2.10's line for why not. Hosting's state is never builder text; the live line comes
-  from the upload's own reply (v2.9 `liveLine`).
+  T10: while the site goes up the builder sees nothing (`BUILD_HOLD_NOTE`); the deployed line comes
+  with the live line and the confirm line in the reply after the live link (below). A refusal, or a
+  contract the build wallet doesn't own, shows v2.10's line. Hosting's state is never builder text.
 - **Without `deploy` (the next call, with the live link),** a `https://<owner>.github.io/...` link
   whose owner is the repo's owner and whose probe passes (`verify.ts liveCheckDetail`, cached) writes
   `hosted` with `detail.host = 'github_pages'`, key `hosted:gh:<link>` (S10). Anyone else's
   github.io link, or one that doesn't load, writes nothing. Then the call takes prepare's usual path
-  without `build` (T10 drafts the entry there).
+  without `build`, joined with the build (T10, below).
 - **Hosting with no click (`hosting.ts issueUpload`, S9, decision 2).** Off a shared client with no
   sign-in for the repo, `proofLineHost` stands in for it: this agent's earnkit.txt line in the repo
   (skipped when the caller just checked it), the owner is the builder's own User account
@@ -4452,3 +4452,38 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
   month), and nothing here touches tokens, fees, bonuses or payouts. A sign-in or the App remains the
   strong basis; this residual is the price of no-click hosting on non-shared clients.
 
+## v2.11 The entry from the build, one reply, the kit (Task 10, spec 5)
+
+- **The deployed line waits.** On the deploy-and-host call, once hosting continues (an upload URL or
+  the Pages note), `show_to_builder` is empty and `BUILD_HOLD_NOTE` tells the agent to show nothing
+  yet; `BUILD_UPLOAD_NOTE` says not to show the upload's own reply (its `liveLine` stays, v2.9).
+- **The call after the live link (`tools.ts buildJoin`).** With a contract EarnKit deployed for this
+  installation and the build's repo, the entry is drafted from the build: the build's repo, the live
+  link, the contract, the description (the agent's, else the build's, `coach.ts derivedDescription`
+  for a required project text field like Arc's `description`), and the public profile from the proven
+  repo owner (`coach.ts derivedProfile`: a required link field naming GitHub gets
+  `https://github.com/<login>`, the login from `loginBasisFor`: sign-in, App, or the owner's own push
+  of the line; no login, no answer, and the coach asks). So Arc asks no coach question.
+- **One reply.** `prepare_submission(input, ctx, join)` (`BuildJoin { lead, wallet }`) puts, one per
+  line: the live line, the deployed line, then v2.10's confirm line with the build wallet (short),
+  e.g. `PodTips is live: podtips-jenil04.earnkit.com` / `PodTips is deployed on Arc: 0x0000…11ce.
+  You're the owner.` / `Yes submits your entry and launches $PODTIP (PodTips): 40% of its fees to
+  you, plus the builder bonus. Wallet: 0x12ab…9f3e. yes / skip the token`. No guide, no draft table,
+  "40%" once (a repeat drops it), at most one question. Fixes (a link that doesn't load) go between.
+  The reply carries `entry { project, answers }` and `BUILD_ENTRY_NOTE` for the confirm call.
+- **The live line** (`buildLiveLine`): EarnKit hosting only for this installation's live site of the
+  repo (v2.9 `liveLine`); GitHub Pages only for the repo's own Pages link whose probe passes
+  (`pagesLiveLine`: `PodTips is live: jenil04.github.io/podtips`). Any other link is never called
+  live: the deployed line and the confirm line still show.
+- **The wallet at confirm (`buildWalletAgain`).** On the build path a yes launches only to the wallet
+  the confirm line showed (`token_offers.offered_wallet`, the build wallet first). A yes naming another
+  wallet gets the confirm line again with that wallet and nothing is recorded or launched
+  (`BUILD_WALLET_NOTE`); the builder's next yes covers it (Review Focus 5).
+- **Then v2.10's flow.** The yes records the entry (`entered`), launches the token and hands over the
+  DoraHacks kit (copy-paste only); `tell` with `submitted` marks it (`submitted`). Events: built,
+  deployed, hosted, entered, submitted, once each. No /terms change (the recorded data is unchanged).
+- **The kit's order (`fresh-build.ts buildKit.order`, T9 concerns).** `find` with `github_user` (the
+  builder's own login, never guessed) first; copy and fill the starter; create the public repo; commit
+  with earnkit.txt; push at once, within 10 minutes of creating the repo, never a force push. A build
+  deploy refused for the owner proof gets `BUILD_OWNER_NOTE`: check `github_user`, then a fresh commit
+  and a normal push, and call again.
