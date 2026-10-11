@@ -4,7 +4,7 @@ import { SafeFetchError } from './safe-fetch';
 import { after, test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
-import { BUILD_NOTE, PLAN_NOTE, CONFIRM_SHARED_NOTE, LEAD_NOTE, NOTED_FOR_NOW, eligibilityLine, freshSwitches, withoutTokenLine, SponsorCampaignInput, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
+import { BUILD_NOTE, BUILD_NO_LIVE_NOTE, PLAN_NOTE, CONFIRM_SHARED_NOTE, LEAD_NOTE, NOTED_FOR_NOW, eligibilityLine, freshSwitches, withoutTokenLine, SponsorCampaignInput, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
 import { aliasCall } from './aliases';
 import { reportedGithubUser, reportedRepos } from './match-projects';
 import { sql } from './db';
@@ -5092,6 +5092,9 @@ test('T9 I2 the Pages hosted event: only the build\'s own repo with a contract d
     withVars(shipVars({ r2: false }), async () => {
       const { pagesLinkOf } = await import('./tools');
       assert.equal(pagesLinkOf('alice/site', 'https://alice.github.io/site/'), 'https://alice.github.io/site/');
+      // Final fix I3: the gh-pages branch root BUILD_PAGES_NOTE publishes is served here; its site/ subpath never counts.
+      assert.equal(pagesLinkOf('alice/podtips', 'https://alice.github.io/podtips/'), 'https://alice.github.io/podtips/');
+      assert.equal(pagesLinkOf('alice/podtips', 'https://alice.github.io/podtips/site/'), null);
       assert.equal(pagesLinkOf('alice/site', 'https://ALICE.github.io/site'), 'https://alice.github.io/site');
       assert.equal(pagesLinkOf('alice/site', 'https://alice.github.io/other/'), null, 'another repo of the owner');
       assert.equal(pagesLinkOf('alice/site', 'https://alice.github.io/'), null, 'the user site');
@@ -5278,6 +5281,7 @@ test('10.0 the deploy-and-host call holds the deployed line: the builder sees no
         assert.equal(r.show_to_builder, '');
         assert.deepEqual(r.deploy, { address: T9_ADDR, chain: 'arc', owner_ok: true });
         assert.match(r.agent_note ?? '', /Show the builder nothing yet/);
+        assert.match(r.agent_note ?? '', /within 15 minutes/, 'final fix I2: the fallback on the upload path too');
         assert.match(r.agent_note ?? '', /Don't show the upload's show_to_builder/);
         assert.doesNotMatch(r.agent_note ?? '', /Show the upload's show_to_builder as written/);
       }),
@@ -5333,6 +5337,33 @@ test('10.2 (T9 concern 6) the GitHub Pages fallback: the live line names the git
         assert.equal(lines[2], T10_CONFIRM(j.token?.proposed.symbol ?? ''));
         assert.equal(lines.length, 3);
         assert.deepEqual((await eventsOfInstallation(t.inst)).map((e) => e.type), ['built', 'deployed', 'hosted']);
+      }),
+    ),
+  ),
+);
+
+test('final fix I2: the site never goes up: 15 minutes on, prepare with build and no live_url says the deployed line and one question, nothing invented', dbTest, (tc) =>
+  withEventLog(() =>
+    withTokenEnv(() =>
+      withVars(shipVars({ r2: false }), async () => {
+        const t = await joinSetup('nolive', tc, { hostOn: false });
+        const r = await t.ship({}, t.ctx);
+        assert.equal(r.show_to_builder, '');
+        assert.match(r.agent_note ?? '', /If the site isn't live within 15 minutes, call prepare with program_id, project \{ name, repo_url \} and build: \{ program_id \}, without live_url/);
+        assert.match(r.agent_note ?? '', /If it doesn't load within 15 minutes, make that call without live_url/);
+        // Exactly the call the notes name.
+        const j = (await t.prepare({ program_id: t.p.id, project: { name: 'PodTips', repo_url: t.repo }, build: { program_id: t.p.id } }, t.ctx)) as JoinedReply;
+        const lines = j.show_to_builder.split('\n');
+        assert.equal(lines[0], "PodTips is deployed on Arc: 0x0000…11ce. You're the owner.");
+        assert.doesNotMatch(j.show_to_builder, /is live/);
+        // The usual draft reply after the deployed line: "Before you submit: a live link on Arc mainnet." and the
+        // entry table. At most one question (in fact none: the missing link is a statement, never invented).
+        assert.equal(lines[2], 'Before you submit: a live link on Arc mainnet.');
+        atMostOneQuestion(j, 'I2');
+        assert.equal(j.ready, false);
+        assert.ok(String(j.agent_note).endsWith(BUILD_NO_LIVE_NOTE), 'the agent hears the entry waits for the live link');
+        assert.ok(!('live_url' in (j.entry?.project ?? {})), 'no live link invented');
+        assert.deepEqual((await eventsOfInstallation(t.inst)).map((e) => e.type), ['built', 'deployed'], 'no hosted event');
       }),
     ),
   ),
