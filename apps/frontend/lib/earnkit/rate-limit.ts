@@ -32,6 +32,8 @@ export const LIMITS = {
   oauthRegisterHost: { limit: 10_000, windowSeconds: 86_400 },
   /** list_programs with GitHub matching (a user or repos), per installation. */
   githubMatching: { limit: 30, windowSeconds: 3_600 },
+  /** v2.11 T9 security fix (M5): the no-click host proof's GitHub reads, per installation. */
+  hostProof: { limit: 20, windowSeconds: 3_600 },
   /** Chain reads: POST /api/sponsor/[ref]/check per IP, sponsor_campaign status per installation. */
   chainChecks: { limit: 60, windowSeconds: 60 },
   /**

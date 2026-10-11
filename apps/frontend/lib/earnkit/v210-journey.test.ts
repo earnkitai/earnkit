@@ -663,6 +663,9 @@ test('11.1 Claude Code, a private repo and the App: the private line and one lea
     assert.match(pick.show_to_builder!, /^Arc Microgrants · [\s\S]+\n\nWhat won before\n[\s\S]+\n\nArc Microgrants: 1 quick question/);
     // The deploy: ownership through the App proof; the builder line; the address only in `deploy`.
     const answers = { ...answersFor(program, { builder_profile: 'https://github.com/alice' }), payout_wallet: W };
+    // v2.11 T9 security fix (I3): 11.0's builder deployed to the same wallet W today, and a wallet now
+    // deploys once a day per chain; this journey is another day's, so that row is moved 2 days back.
+    await sql()`UPDATE contract_deploys SET created_at = created_at - interval '2 days' WHERE owner_wallet = ${W.toLowerCase()}`;
     const dep = await call(J, 'deploy on Arc', 'prepare', { program_id: program, project: ALICE_TIPJAR, agent: CC, answers, coach_asked: true, deploy: { chain: 'arc', bytecode: TIPJAR_BYTECODE, abi: OWNABLE_ABI, owner_wallet: W } }, ctx);
     assert.ok(dep.show_to_builder!.endsWith("\n\nTipJar is deployed on Arc: 0x12ab…9f3e. You're the owner."), dep.show_to_builder);
     assert.doesNotMatch(dep.show_to_builder!, /What won before/);

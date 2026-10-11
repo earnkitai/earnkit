@@ -99,7 +99,7 @@ import {
   type TokenFlowDeps,
 } from './token-launch';
 import { RAW_CAP, canonicalBuilderUrl, cleanProject, quoted } from './untrusted-text';
-import { repoOwnershipPasses, tokenLineFor } from './token-gate';
+import { proveRepo, tokenLineFor, type ProvenRepo } from './token-gate';
 import { READY_TO_SUBMIT, confirmDecision, confirmOffer, proofLineWaiting, signInLine, walletQuestion, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
 import { HOST_LINES, UPLOAD_NOTE, hostSignInLine, issueUpload, refreshSiteExpiry } from './hosting';
 import { r2Enabled } from './r2';
@@ -136,6 +136,7 @@ import {
 } from './coach';
 import { LIVE_FAILED_LINE, addressesFrom, contractMissingLine, entryVerified, liveCheckDetail, liveErrorLine, rpcFor, type CheckDeps, type Verified } from './verify';
 import { noteEvent } from './events';
+import { sql } from './db';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
 import { answerPickup, offerPickup, type PickupDeps } from './identity';
 import type { FieldKind } from './program-file';
@@ -848,8 +849,8 @@ async function hostBlock(
   ctx: ToolContext,
   repoUrl: string | undefined,
   name: string | undefined,
-  /** v2.11 T9: the build path already checked this repo's earnkit.txt line on this call. */
-  proofLine = false,
+  /** v2.11 T9: the build path's proof of this repo on this call (token-gate.ts proveRepo). */
+  proven: ProvenRepo | null = null,
 ): Promise<Record<string, string>> {
   // v2.11 T9 (decision 2): off a shared client hosting needs no GitHub sign-in (issueUpload's
   // proof-line gate); a shared client still does (issueUpload refuses there without it).
@@ -859,7 +860,7 @@ async function hostBlock(
   const project = name?.trim() || titleCase(gh.repo);
   try {
     const offer = await issueUpload(
-      { installationId: ctx.installationId, repoKey: `${gh.owner}/${gh.repo}`, project, proofLine },
+      { installationId: ctx.installationId, repoKey: `${gh.owner}/${gh.repo}`, project, proven },
       new Date(),
       { gate: ctx.deployDeps?.gate },
     );
@@ -2312,8 +2313,11 @@ async function deployStep(
   d: z.infer<typeof DeployField>,
   prep: { project?: { name?: string; repo_url?: string }; answers?: Record<string, string>; signed_in?: string },
   ctx: ToolContext,
-  /** v2.11 T9: the build path's starter, for the deployed event (ruling R-T6). */
-  starter?: string,
+  /**
+   * v2.11 T9: the build path's starter (the deployed event names it only for its own bytecode), the
+   * line's pusher it already read, and its `built` event, written once every cap passed.
+   */
+  build: { starter?: { id: string; initcode_hash: string | null }; lineOwner?: string | null; beforeSend?: () => Promise<void> } = {},
 ): Promise<{ line: string; deploy: Reply; agent_note?: string }> {
   const shared = ctx.sharedClient === true;
   // v2.10.3: a chain left out of DEPLOY_CHAINS is refused first, before the wallet ask or any read.
@@ -2364,7 +2368,7 @@ async function deployStep(
     ...(d.constructor_args && { constructor_args: d.constructor_args }),
   };
   const out = await deployForBuilder(
-    { installationId: ctx.installationId, login, shared, repoKey: `${gh.owner}/${gh.repo}`, projectName: name, builderWallet: wallet as `0x${string}`, input, ...(starter && { starter }) },
+    { installationId: ctx.installationId, login, shared, repoKey: `${gh.owner}/${gh.repo}`, projectName: name, builderWallet: wallet as `0x${string}`, input, ...build },
     ctx.deployDeps,
   );
   if (out.status === 'deployed')
@@ -2544,6 +2548,9 @@ export const BUILD_UPLOAD_NOTE =
   'Put deploy.address into the site as BUILD.md says, zip site_dir and POST it to host.upload_url within 15 minutes (Content-Type application/zip). ' +
   "Show the upload's show_to_builder as written. Then call prepare with program_id, project { name, description, repo_url, live_url: the upload's url } and build: { program_id }. " +
   'If the link expires, call prepare with program_id, project { name, repo_url } and host: true for a new one; never deploy again.';
+/** Security fix M6: deployed, but the build's wallet doesn't own it, so nothing is hosted. */
+export const BUILD_NOT_OWNED_NOTE =
+  "The builder's wallet doesn't own this contract (owner() isn't their wallet), so EarnKit won't host its site. Don't build a site for it; tell the builder in one short line. Don't show this note.";
 /** Plan S10: EarnKit hosting is off or refused; the agent publishes the site on GitHub Pages (free). */
 export const BUILD_PAGES_NOTE =
   "EarnKit can't host this site right now. Put deploy.address into the site as BUILD.md says, then publish site_dir on GitHub Pages from the builder's public repo " +
@@ -2560,16 +2567,19 @@ export function githubPagesOwner(url: string | undefined): string | null {
 }
 
 /**
- * Plan S11: the `built` event, once per repo and program (`built:<repo_key>:<program_id>`): the
- * first build-path call whose repo passed the earnkit.txt line. Proof: the repo link. The twist and
- * the starter go in detail; the wallet is the build's; the login only on a basis (T3's I2 rule).
+ * Plan S11: the `built` event, once per installation, repo and program
+ * (`built:<installation>:<repo_key>:<program_id>`, security fix M4): written on the build path once
+ * the repo passed the earnkit.txt line and every deploy cap passed, just before the send. Proof: the
+ * repo link. The twist and the starter go in detail; the wallet is the build's; the login only when
+ * the owner pushed the line (proofLineLogin).
  */
-const builtEvent = (ctx: ToolContext, b: StoredBuild & { wallet: string }, repoKey: string) =>
+const builtEvent = (ctx: ToolContext, b: StoredBuild & { wallet: string }, repoKey: string, lineOwner: string | null) =>
   noteEvent('built', async () => {
-    const who = await loginBasisFor(ctx.installationId, repoKey, { proofLine: true });
+    const who = await loginBasisFor(ctx.installationId, repoKey, { lineOwner });
     return {
       type: 'built',
-      dedupe_key: `built:${repoKey}:${b.program_id}`,
+      // Security fix M4: per installation, so another installation on the same repo never takes it first.
+      dedupe_key: `built:${ctx.installationId}:${repoKey}:${b.program_id}`,
       installation_id: ctx.installationId,
       repo_key: repoKey,
       program_id: b.program_id,
@@ -2581,21 +2591,40 @@ const builtEvent = (ctx: ToolContext, b: StoredBuild & { wallet: string }, repoK
   });
 
 /**
- * Plan S10: the GitHub Pages fallback went live. A `https://<owner>.github.io/...` live link whose
- * owner is the repo's owner, and whose probe passes (verify.ts liveCheckDetail, cached), writes
- * `hosted` with `detail.host = 'github_pages'`, key `hosted:gh:<link>`. Anyone else's github.io
- * link writes nothing. All of it runs only while the event log is on.
+ * Security fix I2: the repo's own GitHub Pages link, `https://<owner>.github.io/<repo>/` (or `/` for
+ * the repo named `<owner>.github.io`), canonical, else null. Pure.
+ */
+export function pagesLinkOf(repoKey: string, url: string | undefined): string | null {
+  const [owner, repo] = repoKey.toLowerCase().split('/');
+  const canonical = url ? canonicalBuilderUrl(url).url : undefined;
+  if (!canonical || !owner || !repo || githubPagesOwner(canonical) !== owner) return null;
+  const u = new URL(canonical);
+  if (u.search || u.hash) return null;
+  const path = u.pathname.toLowerCase();
+  const ok = repo === `${owner}.github.io` ? path === '/' : path === `/${repo}/` || path === `/${repo}`;
+  return ok ? canonical : null;
+}
+
+/**
+ * Plan S10, security fix I2: the GitHub Pages fallback went live. Only for the build's own repo
+ * (`installations.build.repo_url`, saved on the deploy call after its earnkit.txt line passed), with a
+ * contract EarnKit deployed for this installation and that repo, and only for that repo's own Pages
+ * link (pagesLinkOf) whose probe passes (verify.ts liveCheckDetail, cached). It writes `hosted` with
+ * `detail.host = 'github_pages'`, key `hosted:gh:<installation>:<repo_key>:<link>`, so no one can take
+ * another builder's record first. All of it runs only while the event log is on.
  */
 const pagesHostedEvent = (ctx: ToolContext, programId: string, repoKey: string, liveUrl: string) =>
   noteEvent('hosted', async () => {
-    const owner = githubPagesOwner(liveUrl);
-    if (!owner || owner !== repoKey.split('/')[0]) return null;
-    const link = canonicalBuilderUrl(liveUrl).url!;
+    const link = pagesLinkOf(repoKey, liveUrl);
+    if (!link) return null;
+    const [deployed] = await sql()`
+      SELECT 1 FROM contract_deploys WHERE installation_id = ${ctx.installationId} AND repo_key = ${repoKey} AND status = 'deployed' LIMIT 1`;
+    if (!deployed) return null;
     if ((await liveCheckDetail(link, ctx.verifyDeps ?? {})).ok !== true) return null;
     const who = await loginBasisFor(ctx.installationId, repoKey);
     return {
       type: 'hosted',
-      dedupe_key: `hosted:gh:${link}`,
+      dedupe_key: `hosted:gh:${ctx.installationId}:${repoKey}:${link}`,
       installation_id: ctx.installationId,
       repo_key: repoKey,
       program_id: programId,
@@ -2630,8 +2659,10 @@ async function buildShip(programId: string, rest: Record<string, unknown>, ctx: 
   const repoUrl = prep.project?.repo_url ?? prep.answers?.repo_url ?? stored.repo_url;
   const gh = repoUrl ? githubRepo(repoUrl) : null;
   if (!deploy) {
+    // Security fix I2: only the build's own repo, never one this call names.
+    const own = stored.repo_url ? githubRepo(stored.repo_url) : null;
     const live = prep.project?.live_url ?? prep.answers?.live_url;
-    if (gh && live) await pagesHostedEvent(ctx, programId, `${gh.owner}/${gh.repo}`.toLowerCase(), live);
+    if (own && live) await pagesHostedEvent(ctx, programId, `${own.owner}/${own.repo}`.toLowerCase(), live);
     return { rest };
   }
   const any = await buildPick(programId, ctx, { anyDeploy: true });
@@ -2651,17 +2682,23 @@ async function buildShip(programId: string, rest: Record<string, unknown>, ctx: 
     return { reply: buildRefusal(buildFix('repo_url', "the builder's own repo, never EarnKit's kit")) };
   const repo = `https://github.com/${gh.owner}/${gh.repo}`;
   const repoKey = `${gh.owner}/${gh.repo}`.toLowerCase();
-  if (!(await repoOwnershipPasses({ installationId: ctx.installationId, repoUrl: repo }, ctx.deployDeps?.gate)))
-    return { reply: buildRefusal(buildProofNote(tokenLineFor(ctx.installationId, repo))) };
+  const proven = await proveRepo({ installationId: ctx.installationId, repoUrl: repo }, ctx.deployDeps?.gate);
+  if (!proven) return { reply: buildRefusal(buildProofNote(tokenLineFor(ctx.installationId, repo))) };
   const build = { ...stored, wallet, repo_url: repo };
   if (stored.repo_url !== repo) await saveBuild(ctx.installationId, build);
-  await builtEvent(ctx, build, repoKey);
-  const step = await deployStep({ ...deploy, owner_wallet: wallet }, { project: { name: stored.name, repo_url: repo } }, ctx, starter.id);
-  const deployed = typeof (step.deploy as { address?: unknown }).address === 'string';
-  const hosting = deployed ? await hostBlock(ctx, repo, stored.name, true) : null;
+  const step = await deployStep({ ...deploy, owner_wallet: wallet }, { project: { name: stored.name, repo_url: repo } }, ctx, {
+    starter: { id: starter.id, initcode_hash: starter.contract.initcode_hash },
+    lineOwner: proven.lineOwner,
+    beforeSend: () => builtEvent(ctx, build, repoKey, proven.lineOwner),
+  });
+  const out = step.deploy as { address?: unknown; owner_ok?: unknown };
+  const deployed = typeof out.address === 'string';
+  // Security fix M6: a site only for a contract the builder's wallet owns.
+  const owned = deployed && out.owner_ok === true;
+  const hosting = owned ? await hostBlock(ctx, repo, stored.name, proven) : null;
   const upload = hosting && 'upload_url' in hosting ? { upload_url: hosting.upload_url, expires_at: hosting.expires_at } : null;
   const host = hosting ? (upload ?? { github_pages: true, site_dir: starter.site_dir }) : null;
-  const note = [step.agent_note, hosting ? (upload ? BUILD_UPLOAD_NOTE : BUILD_PAGES_NOTE) : null].filter(Boolean).join(' ');
+  const note = [step.agent_note, hosting ? (upload ? BUILD_UPLOAD_NOTE : BUILD_PAGES_NOTE) : deployed ? BUILD_NOT_OWNED_NOTE : null].filter(Boolean).join(' ');
   return {
     reply: {
       program_id: programId,

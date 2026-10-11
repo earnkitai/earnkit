@@ -4357,3 +4357,35 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
   it. The builder signs nothing: the contract is theirs from the first block (owner constructor
   argument), and the upload is the agent's.
 
+### T9 security fix round 1 (review: 0C 3I 7M)
+
+- **I1, the proof line is push access, not identity.** A login is tied to a proof line only when
+  GitHub's own push record says the repo's owner pushed it: `ownership.ts fetchLinePusher` reads the
+  repo's activity API and returns the authenticated `actor` of the push that introduced the line (the
+  branch's pushes walked back to the first whose `before` commit lacks it; at most 6 commit-addressed
+  raw reads; null when the chain breaks or can't be read). Commit author fields are never used: anyone
+  can write any name or email into a commit. `token-gate.ts proofLineOwner` / `proveRepo` (a branded
+  `ProvenRepo`, so callers pass a proof, never a bare flag, M1). `github-verify.ts proofLineLogin`:
+  the pusher is the owner, the builder said it is them (`github_user`), and GitHub says User; else no
+  login. `loginBasisFor` takes `lineOwner` (or a deploy row's `contract_deploys.line_owner`).
+  - Hosting off a shared client needs that owner-bound proof (App rows never count, M1); a
+    collaborator's push, a lying `github_user`, an org or a fork host nothing on EarnKit (the build
+    path then goes to GitHub Pages), and no login reaches a slug, a site limit or an event.
+  - A proof-line link never replaces a live, in-review or deploying site made under another login,
+    at issue and again at upload; the upload also re-checks the said login (M2).
+  - The no-click proof's GitHub reads are capped at 20 an hour per installation (`LIMITS.hostProof`, M5).
+- **I2, the Pages `hosted` event:** only the build's own repo (`installations.build.repo_url`), only
+  with a contract EarnKit deployed for this installation and repo, only that repo's own link
+  (`pagesLinkOf`: `https://<owner>.github.io/<repo>/`, or `/` for `<owner>.github.io`), key
+  `hosted:gh:<installation>:<repo_key>:<link>`.
+- **I3, deploy caps:** besides the builder key, once a day per chain and 3 in 30 days also per repo,
+  per owner wallet (day) and per proven line pusher, counted from `contract_deploys` under sorted
+  advisory locks. The global 20 a day and $10 a month stay.
+- **M3:** the deployed event's `detail.starter` names the starter only when `deploy.ts initcodeHash`
+  (keccak256 of the creation bytecode without its CBOR metadata) equals `contract.initcode_hash`
+  (arc-tipjar: the forge build at 0f573a7); otherwise `starter: null`.
+- **M4:** `built` is keyed `built:<installation>:<repo_key>:<program_id>` and written through
+  `deployForBuilder`'s `beforeSend`, after every cap passed. **M6:** the upload URL (or Pages note) only
+  when `owner_ok` is true. **M7:** `githubUser` drops a `created_at` that isn't a date.
+- **Rebase note:** when v2.11 rebases onto v2.10.3, `freshPick`'s `deployOn` must use `deployChainOn`.
+

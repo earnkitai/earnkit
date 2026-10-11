@@ -1,3 +1,5 @@
+import { initcodeHash } from './deploy';
+import { ARC_TIPJAR_BYTECODE } from './fixtures/arc-tipjar-artifact';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { toFunctionSelector } from 'viem';
@@ -39,7 +41,9 @@ test('T5/T6: arc-tipjar is chain-kits arc/tipjar (main 0f573a7): UsdcTipJar with
   assert.equal(s.chain, 'arc');
   assert.equal(s.repo, 'earnkitai/chain-kits/arc/tipjar');
   assert.equal(s.what, 'a USDC tip page on Arc');
-  assert.deepEqual(s.contract, { artifact: 'UsdcTipJar', owner_arg: true });
+  assert.deepEqual(s.contract, { artifact: 'UsdcTipJar', owner_arg: true, initcode_hash: '0x7e10c26c980aa0cd242f49411e7079757439e0cc26dcc54f01aa0d0981c5c50d' });
+  // T9 security fix M3: the hash is the real forge build's (the fixture), metadata stripped.
+  assert.equal(initcodeHash(ARC_TIPJAR_BYTECODE), s.contract.initcode_hash);
   assert.equal(s.site_dir, 'site');
   assert.equal(s.test_cmd, 'bash scripts/e2e.sh');
   assert.equal(s.tested_at, '2026-10-11');

@@ -562,7 +562,7 @@ test('concern 4 (fix round 1): the hourly cron deletes links expired over a day 
 
 // ---- v2.11 T3 (3.8): loginBasisFor
 
-test('3.8 loginBasisFor: signin (over the App), app, proof_line only for the builder\'s own User account, null otherwise', db, async () => {
+test('3.8 loginBasisFor: signin (over the App), app, proof_line only for the builder\'s own User account whose own push added the line (T9 I1), null otherwise', db, async () => {
   const tag = `lb${process.pid}${Date.now().toString(36)}`;
   const inst = async (o: { shared?: boolean; githubUser?: string } = {}) =>
     (await sql()<{ id: number }[]>`
@@ -585,26 +585,40 @@ test('3.8 loginBasisFor: signin (over the App), app, proof_line only for the bui
     INSERT INTO url_checks (key, ok, checked_at, note)
     VALUES (${`ghuser:${login}`}, ${type !== null}, now(), ${type && JSON.stringify({ type, created_at: '2020-01-01T00:00:00Z', public_repos: 2 })})
     ON CONFLICT (key) DO UPDATE SET ok = EXCLUDED.ok, checked_at = EXCLUDED.checked_at, note = EXCLUDED.note`;
-  assert.equal(await loginBasisFor(a, repo('line'), { proofLine: true }), null, 'no answer from GitHub: no login');
+  assert.equal(await loginBasisFor(a, repo('line'), { lineOwner: tag }), null, 'no answer from GitHub: no login');
   await account(tag, 'User');
-  assert.deepEqual(await loginBasisFor(a, repo('line'), { proofLine: true }), { login: tag, basis: 'proof_line' }, 'the builder, a User, owns it');
+  assert.deepEqual(await loginBasisFor(a, repo('line'), { lineOwner: tag }), { login: tag, basis: 'proof_line' }, 'the builder, a User, owns it and pushed the line');
+  assert.deepEqual(await loginBasisFor(a, repo('line'), { lineOwner: tag.toUpperCase() }), { login: tag, basis: 'proof_line' });
+  // T9 security fix I1: a collaborator's push (GitHub's push actor is someone else), or no known pusher: no login.
+  assert.equal(await loginBasisFor(a, repo('line'), { lineOwner: `${tag}-mallory` }), null, "a collaborator's push never names the owner");
+  assert.equal(await loginBasisFor(a, repo('line'), { lineOwner: null }), null, 'no pusher: no login');
+  assert.equal(await loginBasisFor(a, repo('line')), null, 'no pusher read and no deploy row: no login');
   await sql()`
-    INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, status, cost_micro_usd)
-    VALUES (${a}, ${`installation:${a}`}, ${repo('deployed')}, 'arc', '0x01', 'deployed', 1)`;
-  assert.deepEqual(await loginBasisFor(a, repo('deployed')), { login: tag, basis: 'proof_line' }, 'a deploy only ran after the proof');
+    INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, status, cost_micro_usd, line_owner)
+    VALUES (${a}, ${`installation:${a}`}, ${repo('deployed')}, 'arc', '0x01', 'deployed', 1, ${tag})`;
+  assert.deepEqual(await loginBasisFor(a, repo('deployed')), { login: tag, basis: 'proof_line' }, "a deploy row records the owner's push");
+  await sql()`
+    INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, status, cost_micro_usd, line_owner)
+    VALUES (${a}, ${`installation:${a}`}, ${repo('collab')}, 'arc', '0x01', 'deployed', 1, ${`${tag}-mallory`})`;
+  assert.equal(await loginBasisFor(a, repo('collab')), null, "a deploy row whose line a collaborator pushed names no one");
   // An organization's repo: the proof line proves push access, never who the builder is.
   const org = `${tag}-org`;
   await account(org, 'Organization');
   const member = await inst({ githubUser: org });
-  assert.equal(await loginBasisFor(member, `${org}/app`, { proofLine: true }), null, 'an org is never the builder');
+  assert.equal(await loginBasisFor(member, `${org}/app`, { lineOwner: org }), null, 'an org is never the builder');
   // A collaborator's push to someone else's repo: the builder said another login.
   const collaborator = await inst({ githubUser: `${tag}-bob` });
-  assert.equal(await loginBasisFor(collaborator, repo('line'), { proofLine: true }), null, "the owner is not the builder");
+  assert.equal(await loginBasisFor(collaborator, repo('line'), { lineOwner: tag }), null, "a github_user that isn't the owner");
+  // A lying github_user: the agent says the owner's login, but its own push added the line.
+  const liar = await inst({ githubUser: tag });
+  assert.equal(await loginBasisFor(liar, repo('line'), { lineOwner: `${tag}-liar` }), null, 'a lying github_user');
+  // A fork: its owner is the forker; the upstream owner's login is never reachable.
+  assert.equal(await loginBasisFor(liar, `${tag}-liar/line`, { lineOwner: `${tag}-liar` }), null, 'a fork under another account');
   const unsaid = await inst();
-  assert.equal(await loginBasisFor(unsaid, repo('line'), { proofLine: true }), null, 'the builder said no login');
+  assert.equal(await loginBasisFor(unsaid, repo('line'), { lineOwner: tag }), null, 'the builder said no login');
   await account(`${tag}-gone`, null);
   const gone = await inst({ githubUser: `${tag}-gone` });
-  assert.equal(await loginBasisFor(gone, `${tag}-gone/app`, { proofLine: true }), null, 'no such account');
+  assert.equal(await loginBasisFor(gone, `${tag}-gone/app`, { lineOwner: `${tag}-gone` }), null, 'no such account');
 
   // Neither: null, never GITHUB_TOKEN's login or the login an agent reported.
   const old = process.env.GITHUB_TOKEN;
@@ -631,8 +645,8 @@ test('3.8 loginBasisFor on a shared client: only the caller\'s own sign-in or th
     INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose)
     VALUES (${repoKey}, 'bob', ${s}, now(), 3, 'pickup')`;
   assert.equal(await loginBasisFor(s, repoKey), null, 'no caller: no login');
-  assert.equal(await loginBasisFor(s, repoKey, { proofLine: true }), null, 'the proof line is the whole agent\'s');
-  assert.equal(await loginBasisFor(s, repoKey, { callerLogin: null, proofLine: true }), null);
+  assert.equal(await loginBasisFor(s, repoKey, { lineOwner: repoKey.split('/')[0] }), null, 'the proof line is the whole agent\'s');
+  assert.equal(await loginBasisFor(s, repoKey, { callerLogin: null, lineOwner: repoKey.split('/')[0] }), null);
   assert.equal(await loginBasisFor(s, repoKey, { callerLogin: 'carol' }), null, "another builder's sign-in never names this caller");
   assert.deepEqual(await loginBasisFor(s, repoKey, { callerLogin: 'Bob' }), { login: 'bob', basis: 'signin' });
   await sql()`

@@ -276,6 +276,78 @@ export async function fetchOwnershipLatestBranch(
   }
 }
 
+/** Activity kinds that move a branch to a new commit with the pusher as GitHub's authenticated actor. */
+const PUSH_KINDS = new Set(['push', 'force_push', 'branch_creation', 'pr_merge', 'merge_queue_merge']);
+/** At most this many commit-addressed earnkit.txt reads per pusher check. */
+export const PUSHER_MAX_READS = 6;
+
+/**
+ * v2.11 T9 security fix (I1): the GitHub login that put a line into earnkit.txt, as GitHub's own
+ * authenticated record says: the `actor` of the push that introduced it (the repo's activity API,
+ * newest first). Commit author and committer fields are not used: anyone can write any name or email
+ * into a commit, while the activity actor is the account GitHub authenticated for the push.
+ * The push that introduced it: on the branch of the newest push whose commit's earnkit.txt has the
+ * line (`hasLine`), walk that branch's pushes back (each push's `before` is the older push's
+ * `after`) to the first whose `before` commit has no such line (or is a branch creation). Null when
+ * the activity can't be read, the chain of pushes breaks (older than the activity page), or more than
+ * PUSHER_MAX_READS reads would be needed: no login is ever guessed. Never throws.
+ */
+export async function fetchLinePusher(
+  r: { owner: string; repo: string },
+  hasLine: (text: string) => boolean,
+  deps: { fetch?: typeof fetch; raw?: OwnershipFetcher; token?: string } = {},
+): Promise<string | null> {
+  const token = deps.token ?? process.env.GITHUB_TOKEN;
+  const raw = deps.raw ?? fetchOwnershipFile;
+  const zero = (sha: string) => /^0+$/.test(sha);
+  try {
+    const res = await (deps.fetch ?? fetch)(`https://api.github.com/repos/${r.owner}/${r.repo}/activity?per_page=50`, {
+      redirect: 'manual',
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'earnkit', ...(token && { Authorization: `Bearer ${token}` }) },
+    });
+    if (res.status !== 200) {
+      await res.body?.cancel().catch(() => {});
+      return null;
+    }
+    const body = (await res.json()) as unknown;
+    if (!Array.isArray(body)) return null;
+    type Push = { ref: string; before: string; after: string; actor: string };
+    const pushes: Push[] = [];
+    for (const p of body as { ref?: unknown; before?: unknown; after?: unknown; activity_type?: unknown; actor?: { login?: unknown } | null }[]) {
+      const ref = typeof p?.ref === 'string' ? p.ref : '';
+      const before = typeof p?.before === 'string' ? p.before : '';
+      const after = typeof p?.after === 'string' ? p.after : '';
+      const actor = typeof p?.actor?.login === 'string' ? p.actor.login : '';
+      if (!PUSH_KINDS.has(String(p?.activity_type)) || !ref.startsWith('refs/heads/')) continue;
+      if (!/^[0-9a-f]{40}$/.test(before) || !/^[0-9a-f]{40}$/.test(after) || zero(after) || !/^[A-Za-z0-9-]{1,39}$/.test(actor)) continue;
+      pushes.push({ ref, before, after, actor });
+    }
+    let reads = 0;
+    const lineAt = async (sha: string) => {
+      if (zero(sha)) return false;
+      if (++reads > PUSHER_MAX_READS) throw new Error('too many reads');
+      const got = await raw(`${RAW_GITHUB}/${r.owner}/${r.repo}/${sha}/${OWNERSHIP_FILE}`);
+      return got.status === 'ok' && hasLine(got.text);
+    };
+    // The newest push of each branch first: the branch whose head has the line.
+    const heads = pushes.filter((p, i) => pushes.findIndex((q) => q.ref === p.ref) === i);
+    let at: Push | undefined;
+    for (const h of heads) if (await lineAt(h.after)) {
+      at = h;
+      break;
+    }
+    while (at) {
+      if (!(await lineAt(at.before))) return at.actor.toLowerCase();
+      const from: Push = at;
+      at = pushes.find((p) => p.ref === from.ref && p.after === from.before);
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Whether a GitHub API answer is a rate limit (Ruling 14 (plan), fix round 1): 429; a 403 with
  * x-ratelimit-remaining 0 (primary); or a 403 with retry-after or GitHub's "secondary rate limit" /

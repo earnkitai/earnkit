@@ -317,6 +317,7 @@ apps/frontend/
                                bonus-rounds.ts); ended or closed, it's skipped with no fetch;
                                filtered in SQL, at most RECHECK_BATCH (50) a run (M11)
     ownership.ts(+test)        builder ownership proof: earnkit.txt at the repo root (raw GitHub,
+                               v2.11 T9 security fix: fetchLinePusher (the activity actor of the push that added the line)
                                5 s, 4 KB, no redirects; EARNKIT_OWNERSHIP_BASE_URL in dev/test only):
                                v2.6 fetchOwnershipViaApi (the coin gate's read: GitHub contents API
                                with GITHUB_TOKEN, raw only when rate-limited: 429, 403 + remaining 0,
@@ -570,7 +571,9 @@ apps/frontend/
                                hostTakedownPost. v2.11 T9 (S9): issueUpload off a shared client takes
                                proofLineHost (earnkit.txt line + the builder's own User account + githubUser's
                                public read; deps.gate, proofLine), HostBasis on tokens and deploys, the upload
-                               re-checks a proof-line link with proofLineGate, hosted events carry the basis
+                               re-checks a proof-line link with proofLineGate, hosted events carry the basis.
+                               T9 security fix: proofLineHost needs proofLineLogin (the owner pushed the line),
+                               LIMITS.hostProof, otherLoginsSite (never replace another login's site)
     r2.ts                      v2.9 C12: r2Enabled (4 env vars), r2Client (aws4fetch S3: put, list,
                                del, copy; Class A taken from free-tier first, FreeTierFull), R2Error
     free-tier.ts(+test)        v2.9 C13: FREE_CAPS (r2Writes 900k/month, resend 100/day, 3,000/month;
@@ -596,6 +599,7 @@ apps/frontend/
     events-backfill.ts(+test)  v2.11 Task 3: backfillEvents (contract_deploys, host_deploys, projects, submissions,
                                entry_outcomes; source time as at; live dedupe keys; owner-run only)
     deploy.ts(+test, +anvil)   v2.10 item 13: EarnKit deploys the builder's contract on Arc or Base
+                               v2.11 T9: starter label (initcodeHash vs initcode_hash), lineOwner, beforeSend; caps per repo/wallet/pusher
                                (DEPLOYER_PRIVATE_KEY, read only here). DEPLOY_CAPS, ERC20_SELECTORS,
                                DEPLOY_LINES (+ factory), DEPLOY_PENDING, DEPLOY_UNCONFIRMED, TRANSFER_GAS,
                                deployedLine, initcode, deployRefusal, runtimeRefusal (the simulated runtime:
@@ -784,6 +788,7 @@ apps/frontend/
                                owner/repo; once per offerIdentity, G12), DECLINES_MAX = 2;
                                saveOffer(firstReply) and firstReplyShown (first_reply_at, G14)
     token-gate.ts(+test)       v2.10 item 13 (R19): repoOwnershipPasses (OwnershipDeps.repoVerified: sign-in or
+                               v2.11 T9 security fix: proofLineOwner, proveRepo (branded ProvenRepo), OwnershipDeps.pusher
                                App rows; else the proof line; shared clients: the caller's login only).
                                v2.10 item 7b: on "not found", GateDeps.appToken (default appTokenFor) reads the repo and
                                earnkit.txt through the App token (ok: { private: true }); else, with the App on,
@@ -1317,6 +1322,7 @@ apps/frontend/
                                v2.11 Task 11: usage_check_failures (failed usage checks in a row per deployed event)
                                v2.11 T5: programs.fresh_build (jsonb, the program file's fresh_build; NULL when unset)
                                v2.11 T9: host_upload_tokens.basis and host_deploys.basis (signin | app | proof_line)
+                               v2.11 T9 security fix: contract_deploys.line_owner, contract_deploys_repo_day and _wallet_day indexes
   scripts/                     db-migrate.mts, programs-sync.mts (load .env.local); v2.7: programs-sync
                                writes the guide columns; --check (pnpm programs:check) also checks each logo file
                                (logo-check.ts) and the required items' todo; v2.8 Task 12: also validates

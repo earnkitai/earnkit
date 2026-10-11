@@ -707,6 +707,10 @@ ok(JSON.stringify(t9Cols.map((c) => `${c.table_name}:${c.is_nullable}:${c.column
   'host_upload_tokens and host_deploys have basis, default signin');
 const t9Bad = await db`INSERT INTO host_deploys (login, slug, basis) VALUES ('x', 'x', 'repo_owner')`.then(() => false, () => true);
 ok(t9Bad, 'a host deploy basis is signin, app or proof_line only');
+// v2.11 T9 security fix (I1, I3): the line's pusher on deploy rows, and the per-repo and per-wallet cap indexes.
+const [t9Line] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name = 'contract_deploys' AND column_name = 'line_owner' AND is_nullable = 'YES'`;
+const [t9Idx] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM pg_indexes WHERE indexname IN ('contract_deploys_repo_day', 'contract_deploys_wallet_day')`;
+ok(t9Line.n === 1 && t9Idx.n === 2, 'contract_deploys has line_owner (nullable) and its repo and wallet cap indexes');
 await db`INSERT INTO builder_events (type, github_login, dedupe_key) VALUES ('built', 'alice', 'built:alice/tipjar:p')`;
 await db.unsafe(now);
 const [evKept] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_events WHERE dedupe_key = 'built:alice/tipjar:p'`;

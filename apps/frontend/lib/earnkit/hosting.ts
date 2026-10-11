@@ -10,7 +10,7 @@ import {
   createVerifyLink,
   githubUser,
   githubVerifyEnabled,
-  loginBasisFor,
+  proofLineLogin,
   takeHostVerification,
   verifiedFor,
   type LoginProof,
@@ -20,7 +20,7 @@ import { bearerMatches, json } from './http';
 import { sharedGroup } from './installations';
 import { r2Client, r2Enabled, type R2 } from './r2';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
-import { repoOwnershipPasses, type OwnershipDeps } from './token-gate';
+import { proveRepo, type OwnershipDeps, type ProvenRepo } from './token-gate';
 
 /**
  * v2.9 C12-C14 (server side): static hosting on `<slug>.earnkit.com`. The agent gets a one-time
@@ -467,30 +467,55 @@ export type HostBasis = LoginProof['basis'];
 type HostProof = { login: string; account_created_at: Date; public_repos: number; basis: HostBasis };
 
 /**
- * v2.11 T9 (plan S9, decision 2): the no-click host proof off a shared client. This agent's
- * earnkit.txt line is in the repo (token-gate.ts repoOwnershipPasses; `proofLine`: the caller just
- * checked it), and the repo owner is the builder's own User account (github-verify.ts loginBasisFor:
- * the login the builder said is theirs, and GitHub says it is a User; never an organization or
- * someone else's repo the agent can push to). The account facts come from the public read
+ * v2.11 T9 (plan S9, decision 2) and security fix I1: the no-click host proof off a shared client.
+ * This agent's earnkit.txt line is in the repo (token-gate.ts proveRepo; `proven`: the caller's
+ * proof of this very repo this call, else read here, at most LIMITS.hostProof times an hour per
+ * installation, M5), and GitHub's push record says the repo's owner pushed it, the builder said the
+ * owner is them, and the owner is a User (github-verify.ts proofLineLogin). Push access alone (a
+ * collaborator, a lying github_user, an org, an App proof: M1) gives nothing here: the build path
+ * then hosts on GitHub Pages, with no login anywhere. The account facts come from the public read
  * (githubUser, cached 24 hours). Null when any of it fails.
  */
 async function proofLineHost(
-  a: { installationId: number; repoKey: string; proofLine?: boolean },
+  a: { installationId: number; repoKey: string; proven?: ProvenRepo | null },
   now: Date,
   gate?: OwnershipDeps,
 ): Promise<HostProof | null> {
-  if (!a.proofLine && !(await repoOwnershipPasses({ installationId: a.installationId, repoUrl: `https://github.com/${a.repoKey}` }, gate))) return null;
-  const who = await loginBasisFor(a.installationId, a.repoKey, { proofLine: true });
+  let p = a.proven && a.proven.installationId === a.installationId && a.proven.repoKey === a.repoKey ? a.proven : null;
+  if (!p) {
+    try {
+      await enforce('hostProof', a.installationId, HOST_LINES.unavailable);
+    } catch (err) {
+      if (err instanceof RateLimitError) return null;
+      throw err;
+    }
+    p = await proveRepo({ installationId: a.installationId, repoUrl: `https://github.com/${a.repoKey}` }, gate);
+  }
+  if (!p?.lineOwner) return null;
+  const who = await proofLineLogin(a.installationId, a.repoKey, p.lineOwner);
   if (!who) return null;
   const facts = await githubUser(who.login, now);
   if (!facts || facts.type !== 'User') return null;
-  return { login: who.login, account_created_at: new Date(facts.created_at), public_repos: facts.public_repos, basis: who.basis };
+  return { login: who.login, account_created_at: new Date(facts.created_at), public_repos: facts.public_repos, basis: 'proof_line' };
 }
 
-/** v2.11 T9: the upload's re-check of a proof-line link: the public account read, a User that passes the gate. */
-async function proofLineGate(login: string, now: Date): Promise<boolean> {
+/**
+ * The upload's re-check of a proof-line link (security fix M2): the builder still says the login is
+ * theirs, and the public account read is still a User that passes the gate.
+ */
+async function proofLineGate(login: string, installationId: number, now: Date): Promise<boolean> {
+  const [said] = await sql()<{ github_user: string | null }[]>`SELECT github_user FROM installations WHERE id = ${installationId}`;
+  if (said?.github_user?.trim().toLowerCase() !== login.toLowerCase()) return false;
   const facts = await githubUser(login, now);
   return facts !== null && facts.type === 'User' && hostGatePasses({ account_created_at: new Date(facts.created_at), public_repos: facts.public_repos }, now);
+}
+
+/** Security fix I1: a live or in-review site (by slug or repo) made under another login; a proof-line link never replaces it. */
+async function otherLoginsSite(db: Db, a: { slug: string; repoKey: string; login: string }): Promise<boolean> {
+  const [row] = await db`
+    SELECT 1 FROM hosted_sites
+    WHERE (slug = ${a.slug} OR repo_key = ${a.repoKey}) AND status IN ('live', 'review', 'deploying') AND lower(login) <> ${a.login.toLowerCase()} LIMIT 1`;
+  return Boolean(row);
 }
 
 /**
@@ -503,11 +528,11 @@ async function proofLineGate(login: string, now: Date): Promise<boolean> {
  * proof line in the builder's own User account's repo plus the public account read stand in for the
  * sign-in (proofLineHost), so there is no click and the GitHub sign-in variables aren't needed. The
  * sign-in link stays the way when the proof line fails and sign-in is on. A shared client keeps the
- * v2.9 sign-in, unchanged. `proofLine`: the caller already checked the line this call; `gate`: the
+ * v2.9 sign-in, unchanged. `proven`: the caller's proof of this repo this call (token-gate.ts proveRepo); `gate`: the
  * proof reads (tests).
  */
 export async function issueUpload(
-  a: { installationId: number; repoKey: string; project: string; proofLine?: boolean },
+  a: { installationId: number; repoKey: string; project: string; proven?: ProvenRepo | null },
   now = new Date(),
   deps: { gate?: OwnershipDeps } = {},
 ): Promise<HostOffer> {
@@ -527,7 +552,7 @@ export async function issueUpload(
     v = s && { ...s, basis: 'signin' as const };
   } else {
     const s = signInOn ? await takeHostVerification({ installationId: a.installationId, repoKey, shared }, now) : null;
-    v = s ? { ...s, basis: 'signin' as const } : await proofLineHost({ installationId: a.installationId, repoKey, proofLine: a.proofLine }, now, deps.gate);
+    v = s ? { ...s, basis: 'signin' as const } : await proofLineHost({ installationId: a.installationId, repoKey, proven: a.proven }, now, deps.gate);
   }
   if (!v) return signInOn ? signIn() : { unavailable: HOST_LINES.unavailable };
   if (!hostGatePasses(v, now)) return { unavailable: HOST_LINES.gate };
@@ -538,6 +563,7 @@ export async function issueUpload(
   if (!slug) return { unavailable: HOST_LINES.badName };
   const taken = await slugProblem(sql(), slug, repoKey);
   if (taken) return { unavailable: taken };
+  if (v.basis === 'proof_line' && (await otherLoginsSite(sql(), { slug, repoKey, login }))) return { unavailable: HOST_LINES.repoHasSite };
   const limit = await limitProblem(sql(), { login, repoKey, slug, bytes: 0, writes: 2 * HOST_LIMITS.files + 4, now });
   if (limit) return { unavailable: limit.line };
   // P11: the shared sign-in is used now, once, by this URL (a lost race asks for a new sign-in).
@@ -647,7 +673,7 @@ export async function deploySite(
 
   // v2.11 T9: a proof-line link re-reads the public account; a sign-in link its verification.
   if (t.basis === 'proof_line') {
-    if (!(await proofLineGate(t.login, now))) return refused(403, HOST_LINES.gate);
+    if (!(await proofLineGate(t.login, t.installation_id, now))) return refused(403, HOST_LINES.gate);
   } else {
     const [v] = await sql()<{ account_created_at: Date; public_repos: number }[]>`
       SELECT account_created_at, public_repos FROM github_verifications WHERE login = ${t.login} ORDER BY verified_at DESC, id DESC LIMIT 1`;
@@ -675,6 +701,9 @@ export async function deploySite(
     await tx`SELECT pg_advisory_xact_lock(hashtext('earnkit-hosting'))`;
     const taken = await slugProblem(tx, t.slug, t.repo_key);
     if (taken) return { line: taken, status: 409 };
+    // Security fix I1: a proof-line upload never replaces a site someone else made.
+    if (t.basis === 'proof_line' && (await otherLoginsSite(tx, { slug: t.slug, repoKey: t.repo_key, login: t.login })))
+      return { line: HOST_LINES.repoHasSite, status: 409 };
     const [busy] = await tx`
       SELECT 1 FROM host_deploys WHERE status = 'deploying' AND at > ${new Date(now.getTime() - STALE_DEPLOY_MS)}
         AND (slug = ${t.slug} OR lower(login) = ${t.login}) LIMIT 1`;
