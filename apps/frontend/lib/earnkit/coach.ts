@@ -310,6 +310,41 @@ export function askableKeys(reqs: SubmissionRequirement[], answers: Record<strin
     .map((r) => r.key);
 }
 
+/** A GitHub login as GitHub allows it: 1 to 39 letters, digits or single hyphens, not at either end. */
+const GITHUB_LOGIN = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}$/i;
+
+/**
+ * v2.11 T10 (spec 5): on the build path, the builder's public profile is derived, never asked and
+ * never invented: a required, still empty link field that takes a GitHub profile (its label or
+ * description names GitHub; Arc's builder_profile: "GitHub, X, or Farcaster.") gets
+ * `https://github.com/<login>`, where `login` is the repo owner EarnKit proved (sign-in, App, or the
+ * owner's own push of the earnkit.txt line). No login: nothing, and the coach asks. Pure.
+ */
+export function derivedProfile(reqs: SubmissionRequirement[], answers: Record<string, string>, login: string | null): Record<string, string> {
+  if (!login || !GITHUB_LOGIN.test(login)) return {};
+  return Object.fromEntries(
+    reqs
+      .filter((r) => r.required && r.type === 'url' && kindOf(r) === 'contact' && !answers[r.key]?.trim() && /github/i.test(`${r.label} ${r.description ?? ''}`))
+      .map((r) => [r.key, `https://github.com/${login.toLowerCase()}`]),
+  );
+}
+
+/**
+ * v2.11 T10 (spec 5): on the build path, the entry's description is the build's (written from the
+ * builder's twist and checked by buildCheck): a required, still empty text field the agent drafts
+ * from the project (no project_field) that asks what the project does (key `description`, or kind
+ * `solution`). Pure.
+ */
+export function derivedDescription(reqs: SubmissionRequirement[], answers: Record<string, string>, description: string | undefined): Record<string, string> {
+  const d = description?.trim();
+  if (!d) return {};
+  return Object.fromEntries(
+    reqs
+      .filter((r) => r.required && r.type === 'text' && r.from === 'project' && !r.project_field && !answers[r.key]?.trim() && (r.key === 'description' || kindOf(r) === 'solution'))
+      .map((r) => [r.key, d]),
+  );
+}
+
 /** A contact label as the form means it, short: "X (Twitter) handle" reads "X", "Telegram username" "Telegram". */
 const contactLabel = (r: SubmissionRequirement) =>
   lowerFirst(

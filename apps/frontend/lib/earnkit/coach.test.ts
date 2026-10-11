@@ -15,6 +15,8 @@ import {
   bankEntries,
   bankFill,
   coachIntro,
+  derivedDescription,
+  derivedProfile,
   draftTable,
   fixesLine,
   guidanceFor,
@@ -645,4 +647,29 @@ test('6.10 v2.9 B11: questionsFor never asks an optional field, even empty and b
   // Required ones next to them: only the required field is asked.
   const asked = questionsFor({ reqs: [...optional, req('use', 'use_of_funds', { from: 'builder' })], answers: {}, first: true });
   assert.deepEqual(asked.flatMap((q) => q.keys), ['use']);
+});
+
+test('10.1 (v2.11 T10) derivedProfile: Arc\'s required profile link is the proven login\'s GitHub URL; never without a login, never over an answer, never a field that does not take GitHub', () => {
+  const dir = join(import.meta.dirname, '../../../../programs');
+  const arc = ProgramFile.parse(JSON.parse(readFileSync(join(dir, 'arc-microgrants.json'), 'utf8'))).submission_requirements;
+  assert.deepEqual(derivedProfile(arc, {}, 'Jenil04'), { builder_profile: 'https://github.com/jenil04' });
+  // No proven login: nothing is made up (the coach asks).
+  assert.deepEqual(derivedProfile(arc, {}, null), {});
+  // The builder's own answer stands.
+  assert.deepEqual(derivedProfile(arc, { builder_profile: 'https://x.com/jenil' }, 'jenil04'), {});
+  // Only a required link field that takes a GitHub profile.
+  const xOnly = req('x_profile', 'contact', { label: 'X profile', type: 'url', description: 'Your X account.' });
+  const optional = req('gh', 'contact', { label: 'GitHub profile', type: 'url', required: false });
+  const email = req('email', 'contact', { label: 'Email', type: 'email' });
+  assert.deepEqual(derivedProfile([xOnly, optional, email], {}, 'jenil04'), {});
+  // Never a login that is not a GitHub login.
+  assert.deepEqual(derivedProfile(arc, {}, 'not a login'), {});
+  // derivedDescription: the build's description fills Arc's description, never over an answer.
+  const desc = 'Podcast listeners tip the show in USDC on Arc.';
+  assert.deepEqual(derivedDescription(arc, {}, desc), { description: desc });
+  assert.deepEqual(derivedDescription(arc, { description: 'Mine.' }, desc), {});
+  assert.deepEqual(derivedDescription(arc, {}, '  '), {});
+  // Every required field of Arc is then derived on the build path: no coach question.
+  const answers = { live_deployment_url: 'https://podtips-jenil04.earnkit.com', repo_url: 'https://github.com/jenil04/podtips', ...derivedDescription(arc, {}, desc) };
+  assert.deepEqual(questionsFor({ reqs: arc, answers: { ...answers, ...derivedProfile(arc, answers, 'jenil04') }, first: true }), []);
 });

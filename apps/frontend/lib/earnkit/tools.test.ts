@@ -4787,7 +4787,7 @@ async function shipSetup(
   return { ...t, ctx, login, repo, repoKey, sent, reads, probes, ship, deploy };
 }
 
-test('9.3 the build mark with deploy and host: true deploys once (owner and constructor_args[0] the build wallet), shows the deployed line only, issues the upload URL with no click, and writes built then deployed', dbTest, (tc) =>
+test('9.3 the build mark with deploy and host: true deploys once (owner and constructor_args[0] the build wallet), holds the deployed line for the joined reply (T10), issues the upload URL with no click, and writes built then deployed', dbTest, (tc) =>
   withEventLog(() =>
     withVars(shipVars(), async () => {
       const { deployedLine } = await import('./deploy');
@@ -4798,8 +4798,9 @@ test('9.3 the build mark with deploy and host: true deploys once (owner and cons
       const { decodeDeployData } = await import('viem');
       const decoded = decodeDeployData({ abi: T9_ABI as never, bytecode: ARC_TIPJAR_BYTECODE, data: t.sent[0] as `0x${string}` });
       assert.equal(String((decoded.args as unknown[])[0]).toLowerCase(), T8_WALLET, 'constructor_args[0] is the build wallet');
-      assert.equal(r.show_to_builder, deployedLine('PodTips', 'arc', T9_ADDR, true));
-      assert.equal(r.show_to_builder, "PodTips is deployed on Arc: 0x0000…11ce. You're the owner.");
+      assert.equal(deployedLine('PodTips', 'arc', T9_ADDR, true), "PodTips is deployed on Arc: 0x0000…11ce. You're the owner.");
+      // T10 (spec 5): the deployed line waits for the reply after the live link.
+      assert.equal(r.show_to_builder, '');
       assert.deepEqual(r.deploy, { address: T9_ADDR, chain: 'arc', owner_ok: true });
       assert.match(String(r.host?.upload_url), /\/api\/host\/upload\?t=[A-Za-z0-9_-]{43}$/);
       assert.ok(!('sign_in_url' in (r.host ?? {})), 'no sign-in click');
@@ -4869,7 +4870,7 @@ test('9.5 hosting off: the deploy runs and the GitHub Pages note goes to the age
       const t = await shipSetup('pages', tc, { hostOn: false });
       const r = await t.ship();
       assert.equal(t.sent.length, 1);
-      assert.equal(r.show_to_builder, "PodTips is deployed on Arc: 0x0000…11ce. You're the owner.");
+      assert.equal(r.show_to_builder, '', 'T10: the deployed line waits for the live link');
       assert.deepEqual(r.host, { github_pages: true, site_dir: 'site' });
       assert.match(r.agent_note ?? '', /GitHub Pages/);
       assert.match(r.agent_note ?? '', /Don't show this note or the reason\./);
@@ -4953,7 +4954,7 @@ test('9.x (review T8 M5) the mark fails closed: an owner or constructor_args[0] 
       }
       // An owner_wallet in other case is the same wallet.
       const upper = await t.ship({ owner_wallet: T8_WALLET.toUpperCase().replace('0X', '0x') });
-      assert.equal(upper.show_to_builder, "PodTips is deployed on Arc: 0x0000…11ce. You're the owner.");
+      assert.deepEqual(upper.deploy, { address: T9_ADDR, chain: 'arc', owner_ok: true });
       assert.equal(t.sent.length, 1, 'only the matching call deployed');
 
       const noLine = await shipSetup('m5line', tc, { line: false });
@@ -5104,7 +5105,7 @@ test('T9 R4 journey: degit into a new folder, create the repo under the builder\
       const t = await shipSetup('r4flow', tc, { github: buildFlowGitHub() });
       const r = await t.ship();
       assert.equal(t.sent.length, 1);
-      assert.equal(r.show_to_builder, "PodTips is deployed on Arc: 0x0000…11ce. You're the owner.");
+      assert.deepEqual(r.deploy, { address: T9_ADDR, chain: 'arc', owner_ok: true });
       assert.match(String(r.host?.upload_url), /\/api\/host\/upload\?t=/);
       const events = await eventsOfInstallation(t.inst);
       assert.deepEqual(events.map((e) => [e.type, e.github_login, e.login_basis]), [['built', t.login, 'proof_line'], ['deployed', t.login, 'proof_line']]);
@@ -5135,6 +5136,214 @@ test('T9 R4 journey: a template repo, a fork, a cloned history, a local merge or
         assert.equal(t.sent.length, 0, label);
         assert.deepEqual(await eventsOfInstallation(t.inst), [], label);
       }
+    }),
+  ),
+);
+
+// ---- v2.11 T10 (spec 5): the entry drafted from the build, the live, deployed and confirm lines in one reply, the kit, submitted
+
+type JoinedReply = ShipReply & {
+  ready?: boolean;
+  questions?: unknown;
+  entry?: { project: Record<string, unknown>; answers: Record<string, string> };
+  token?: { proposed: { name: string; symbol: string } };
+  shown_wallet?: string;
+};
+
+/**
+ * A shipped build (shipSetup) whose agent also launches tokens: tokens.fun is a fake that records the
+ * creator wallet, the gate reads this agent's line in the repo. `live()` deploys and uploads the site
+ * to EarnKit hosting and returns its link; `joined(live_url)` is the call after the live link.
+ */
+async function joinSetup(tag: string, tc: TestContext, o: Parameters<typeof shipSetup>[2] = {}) {
+  const t = await shipSetup(`t10-${tag}`, tc, o);
+  const launched: string[] = [];
+  const tokenDeps = {
+    available: () => true,
+    limit: async () => {},
+    check: async () => true,
+    gate: {
+      repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
+      owner: async () => ({ status: 'ok' as const, text: tokenLineFor(t.inst, t.repo)! }),
+      screen: async () => {},
+    },
+    deploy: async (d: { projectId: number; name: string; symbol: string; creatorWallet: string }) => {
+      launched.push(d.creatorWallet.toLowerCase());
+      const url = `https://tokens.fun/coin/0x${randomBytes(20).toString('hex')}`;
+      await sql()`UPDATE projects SET token_url = ${url}, token_status = 'launched', coin_address = ${'0x' + randomBytes(20).toString('hex')},
+        coin_launched_at = now(), token_name = ${d.name}, token_symbol = ${d.symbol} WHERE id = ${d.projectId}`;
+      return { status: 'launched' as const, name: d.name, symbol: d.symbol, tokens_fun: url };
+    },
+  } as unknown as TokenFlowDeps;
+  const ctx = { ...t.ctx, tokenDeps };
+  const live = async () => {
+    const { deploySite } = await import('./hosting');
+    const r = await t.ship({}, ctx);
+    const token = new URL(String(r.host?.upload_url)).searchParams.get('t')!;
+    const r2 = { put: async () => {}, list: async () => [], del: async () => {}, copy: async () => {} };
+    const zip = (await import('fflate')).zipSync({ 'index.html': new TextEncoder().encode('<!doctype html><html><body>PodTips</body></html>') });
+    const up = await deploySite(token, zip, { r2 });
+    tc.after(() => sql()`UPDATE hosted_sites SET status = 'ended' WHERE repo_key = ${t.repoKey}`.then(() => undefined));
+    return { deployReply: r, upload: up.body as { show_to_builder: string; url: string } };
+  };
+  const joined = (live_url: string, c: object = ctx) => t.ship(null, c, { live_url }) as Promise<JoinedReply>;
+  const confirm = (input: object) => tools.confirm({ program_id: t.p.id, ...input }, ctx as never) as Promise<Confirmed>;
+  return { ...t, ctx, launched, live, joined, confirm };
+}
+
+const T10_CONFIRM = (symbol: string) =>
+  `Yes submits your entry and launches $${symbol} (PodTips): 40% of its fees to you, plus the builder bonus. Wallet: 0x12ab…9f3e. yes / skip the token`;
+
+test('10.0 the deploy-and-host call holds the deployed line: the builder sees nothing until the live link, and the upload\'s line waits too', dbTest, (tc) =>
+  withEventLog(() =>
+    withTokenEnv(() =>
+      withVars(shipVars(), async () => {
+        const t = await joinSetup('hold', tc);
+        const { deployReply: r } = await t.live();
+        assert.equal(r.show_to_builder, '');
+        assert.deepEqual(r.deploy, { address: T9_ADDR, chain: 'arc', owner_ok: true });
+        assert.match(r.agent_note ?? '', /Show the builder nothing yet/);
+        assert.match(r.agent_note ?? '', /Don't show the upload's show_to_builder/);
+        assert.doesNotMatch(r.agent_note ?? '', /Show the upload's show_to_builder as written/);
+      }),
+    ),
+  ),
+);
+
+test('10.1/10.2 after the live link: the entry is drafted from the build with no coach question, and one reply holds the live line, the deployed line and the confirm line (the build wallet, short)', dbTest, (tc) =>
+  withEventLog(() =>
+    withTokenEnv(() =>
+      withVars(shipVars(), async () => {
+        const t = await joinSetup('join', tc);
+        const { upload } = await t.live();
+        const j = await t.joined(upload.url);
+        const symbol = j.token?.proposed.symbol ?? '';
+        assert.deepEqual(j.show_to_builder.split('\n'), [
+          `PodTips is live: podtips-${t.login}.earnkit.com`,
+          "PodTips is deployed on Arc: 0x0000…11ce. You're the owner.",
+          T10_CONFIRM(symbol),
+        ]);
+        assert.equal(j.ready, true);
+        assert.ok(!('questions' in j), 'no coach question');
+        atMostOneQuestion(j, '10.2');
+        assert.equal(j.show_to_builder.split('40%').length - 1, 1, '40% once');
+        assert.doesNotMatch(j.show_to_builder, /What won before|Ready\.|\|/, 'no guide, no draft table');
+        // 10.1: the draft, from the build: the hosted link, the repo, the twist description, the owner's GitHub.
+        assert.equal(String(j.entry?.project.live_url).replace(/\/$/, ''), upload.url);
+        assert.equal(j.entry?.project.repo_url, t.repo);
+        assert.equal(j.entry?.project.description, T8_POD.description);
+        assert.deepEqual(j.entry?.project.contracts, [T9_ADDR]);
+        assert.equal(j.entry?.answers.builder_profile, `https://github.com/${t.login}`);
+        assert.equal(j.shown_wallet, T8_WALLET);
+        assert.match(j.agent_note ?? '', /entry\.project/);
+        // Called again: the confirm line without the earnings part (said once).
+        const again = await t.joined(upload.url);
+        assert.equal(again.show_to_builder.split('40%').length - 1, 0);
+      }),
+    ),
+  ),
+);
+
+test('10.2 (T9 concern 6) the GitHub Pages fallback: the live line names the github.io link', dbTest, (tc) =>
+  withEventLog(() =>
+    withTokenEnv(() =>
+      withVars(shipVars({ r2: false }), async () => {
+        const t = await joinSetup('pages', tc, { hostOn: false });
+        const r = await t.ship({}, t.ctx);
+        assert.equal(r.show_to_builder, '');
+        assert.deepEqual(r.host, { github_pages: true, site_dir: 'site' });
+        const j = await t.joined(`https://${t.login}.github.io/podtips/`);
+        const lines = j.show_to_builder.split('\n');
+        assert.deepEqual(lines.slice(0, 2), [`PodTips is live: ${t.login}.github.io/podtips`, "PodTips is deployed on Arc: 0x0000…11ce. You're the owner."]);
+        assert.equal(lines[2], T10_CONFIRM(j.token?.proposed.symbol ?? ''));
+        assert.equal(lines.length, 3);
+        assert.deepEqual((await eventsOfInstallation(t.inst)).map((e) => e.type), ['built', 'deployed', 'hosted']);
+      }),
+    ),
+  ),
+);
+
+test('10.2 a live link that is not the build\'s own (another site, or a Pages link that does not load) gets no live line: the deployed line still shows, never "is live"', dbTest, (tc) =>
+  withEventLog(() =>
+    withTokenEnv(() =>
+      withVars(shipVars({ r2: false }), async () => {
+        const t = await joinSetup('notown', tc, { hostOn: false });
+        await t.ship({}, t.ctx);
+        for (const [label, url, c] of [
+          ['someone else\'s site', 'https://someoneelse.github.io/podtips/', t.ctx],
+          ['a Pages link that does not load', `https://${t.login}.github.io/podtips/`, { ...t.ctx, verifyDeps: { probe: async () => { throw new Error('404'); } } }],
+        ] as const) {
+          const j = await t.joined(url, c);
+          assert.doesNotMatch(j.show_to_builder, /is live/, label);
+          assert.match(j.show_to_builder, /^PodTips is deployed on Arc: 0x0000…11ce\. You're the owner\.\n/, label);
+          atMostOneQuestion(j, label);
+        }
+      }),
+    ),
+  ),
+);
+
+test('10.3 confirm yes launches to the build wallet only; another wallet gets the confirm line again with that wallet, and nothing launches unseen', dbTest, (tc) =>
+  withEventLog(() =>
+    withTokenEnv(() =>
+      withVars(shipVars(), async () => {
+        const t = await joinSetup('wallet', tc);
+        const { upload } = await t.live();
+        const j = await t.joined(upload.url);
+        const input = { project: j.entry!.project, answers: j.entry!.answers, token: { name: j.token!.proposed.name, symbol: j.token!.proposed.symbol } };
+        const OTHER = '0x2222222222222222222222222222222222222222';
+        const other = await t.confirm({ ...input, yes: true, wallet: OTHER });
+        assert.ok(!('kit' in other), 'no kit');
+        assert.deepEqual(t.launched, [], 'nothing launched');
+        assert.match(other.show_to_builder, /^Yes submits your entry and launches \$\w+ \(PodTips\)\. Wallet: 0x2222…2222\. yes \/ skip the token$/);
+        assert.equal(other.shown_wallet, OTHER);
+        atMostOneQuestion(other as BuildReply, '10.3');
+        // Back to the build wallet: shown again first, then the yes launches to it.
+        const back = await t.confirm({ ...input, yes: true, wallet: T8_WALLET });
+        assert.ok(!('kit' in back));
+        assert.match(back.show_to_builder, /Wallet: 0x12ab…9f3e\. yes \/ skip the token$/);
+        const yes = await t.confirm({ ...input, yes: true, wallet: T8_WALLET });
+        assert.equal(yes.token?.status, 'launched');
+        assert.deepEqual(t.launched, [T8_WALLET]);
+        assert.ok(yes.kit);
+      }),
+    ),
+  ),
+);
+
+test('10.4 the yes hands over the DoraHacks kit (copy-paste only); tell submitted marks the entry; the events are built, deployed, hosted, entered, submitted, once each', dbTest, (tc) =>
+  withEventLog(() =>
+    withTokenEnv(() =>
+      withVars(shipVars(), async () => {
+        const t = await joinSetup('kit', tc);
+        const { upload } = await t.live();
+        const j = await t.joined(upload.url);
+        const input = { project: j.entry!.project, answers: j.entry!.answers, token: { name: j.token!.proposed.name, symbol: j.token!.proposed.symbol } };
+        const yes = await t.confirm({ ...input, yes: true, wallet: T8_WALLET });
+        assert.equal(yes.kit?.mode, 'copy_paste');
+        assert.match(yes.kit!.show_to_builder, /dorahacks\.io/);
+        assert.match(yes.show_to_builder, /^Your token \$\w+ is live: tokens\.fun\/coin\/0x/);
+        const sub = (await tools.tell({ submitted: { program_id: t.p.id } }, t.ctx as never)) as { show_to_builder: string };
+        assert.match(sub.show_to_builder, /^Entered in T7 Tip Grants\./);
+        const [row] = await sql()<{ submission_confirmed_at: Date | null }[]>`SELECT submission_confirmed_at FROM projects WHERE id = ${yes.project_id!}`;
+        assert.ok(row.submission_confirmed_at, 'submitted');
+        await tools.tell({ submitted: { program_id: t.p.id } }, t.ctx as never);
+        const events = await eventsOfInstallation(t.inst);
+        assert.deepEqual(events.map((e) => e.type), ['built', 'deployed', 'hosted', 'entered', 'submitted']);
+      }),
+    ),
+  ),
+);
+
+test('10 (T10 notes) a build-path deploy refused for the owner proof asks for a fresh push from the builder\'s own account and github_user in find', dbTest, (tc) =>
+  withEventLog(() =>
+    withVars(shipVars(), async () => {
+      const t = await shipSetup('t10-fresh', tc, { pusher: null });
+      const r = await t.ship();
+      refusedQuietly(r, /fresh commit/);
+      assert.match(r.agent_note ?? '', /github_user/);
+      assert.match(r.agent_note ?? '', /never a force push/);
+      assert.equal(t.sent.length, 0);
     }),
   ),
 );
