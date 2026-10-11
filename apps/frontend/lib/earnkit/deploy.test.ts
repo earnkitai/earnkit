@@ -1190,3 +1190,9 @@ test('T9 M3: the deployed event names the starter only for its own bytecode; oth
     }),
   ),
 );
+
+test('final fix M5: the v2.10 deploy\'s owner-proof note asks for a fresh push (an old push of the line never counts), never a force push', () => {
+  assert.match(OWNER_PROOF_NOTE, /A push from before the line was shown never counts: make a fresh commit \(any small change, earnkit\.txt kept\) and push it now from the builder's own account/);
+  assert.match(OWNER_PROOF_NOTE, /never a force push, then call this again/);
+  assert.doesNotMatch(OWNER_PROOF_NOTE, /—/);
+});
