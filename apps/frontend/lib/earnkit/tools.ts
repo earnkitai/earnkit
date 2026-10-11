@@ -100,6 +100,7 @@ import {
   type TokenFlowDeps,
 } from './token-launch';
 import { RAW_CAP, canonicalBuilderUrl, cleanProject, quoted } from './untrusted-text';
+import { pagesLinkOf } from './pages-link';
 import { proveRepo, repoSignedIn, tokenLineFor, type ProvenRepo } from './token-gate';
 import { READY_TO_SUBMIT, confirmDecision, confirmOffer, proofLineWaiting, signInLine, walletQuestion, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
 import { HOST_LINES, HOST_ZONE, UPLOAD_NOTE, hostSignInLine, issueUpload, liveLine, refreshSiteExpiry } from './hosting';
@@ -2604,16 +2605,25 @@ function starterArtifact(
 /** Security fix M6: deployed, but the build's wallet doesn't own it, so nothing is hosted. */
 export const BUILD_NOT_OWNED_NOTE =
   "The builder's wallet doesn't own this contract (owner() isn't their wallet), so EarnKit won't host its site. Don't build a site for it; tell the builder in one short line. Don't show this note.";
-/** Plan S10: EarnKit hosting is off or refused; the agent publishes the site on GitHub Pages (free). */
+/**
+ * Plan S10: EarnKit hosting is off or refused; the agent publishes the site on GitHub Pages (free).
+ * Final fix I3: GitHub serves a branch only from `/` or `/docs` (REST "Create a GitHub Pages site":
+ * POST repos/{owner}/{repo}/pages, source.branch, source.path), so the starter's site_dir goes to the
+ * root of a gh-pages branch, served at https://<owner>.github.io/<repo>/ (pagesLinkOf). Final fix I2:
+ * a site that never loads still gets the deployed line within 15 minutes (buildJoin without live_url).
+ */
 export const BUILD_PAGES_NOTE =
-  "EarnKit can't host this site right now. Put deploy.address into the site as BUILD.md says, then publish site_dir on GitHub Pages from the builder's public repo " +
-  '(a gh-pages branch, or Pages from a folder on the default branch); it is free and needs nothing from the builder. ' +
+  "EarnKit can't host this site right now. Put deploy.address into the site as BUILD.md says, commit and push it, then publish host.site_dir on GitHub Pages from the builder's public repo; " +
+  'it is free and needs nothing from the builder. Push the contents of host.site_dir to the root of a gh-pages branch: ' +
+  '`git subtree push --prefix <host.site_dir> origin gh-pages` (without git subtree: `git push origin "$(git commit-tree HEAD:<host.site_dir> -m site)":refs/heads/gh-pages`). ' +
+  "Then turn Pages on for that branch: `gh api -X POST repos/<owner>/<repo>/pages -f 'source[branch]=gh-pages' -f 'source[path]=/'` (a 409 means it is already on). " +
   "Once https://<owner>.github.io/<repo>/ loads, call prepare with program_id, project { name, description, repo_url, live_url: that link } and build: { program_id }. " +
-  "Don't show this note or the reason.";
+  "If it doesn't load within 15 minutes, make that call without live_url. Don't show this note or the reason.";
 
 /** v2.11 T10 (spec 5): the deploy reply's line waits, so the builder hears it once with the live link and the confirm line. */
 export const BUILD_HOLD_NOTE =
-  'Show the builder nothing yet: the reply after the live link says the deployed line with the live line and the confirm line, in one reply.';
+  'Show the builder nothing yet: the reply after the live link says the deployed line with the live line and the confirm line, in one reply. ' +
+  "If the site isn't live within 15 minutes, call prepare with program_id, project { name, repo_url } and build: { program_id }, without live_url, and show its show_to_builder as written.";
 /**
  * v2.11 T10 (T9 concerns 2 and 3): no proven owner on the build path. The proof is the owner's own
  * fresh push (find's github_user, a normal push within 10 minutes of the repo or a new commit), so
@@ -2629,13 +2639,7 @@ export const BUILD_ENTRY_NOTE =
   'Show show_to_builder as written. The entry is drafted from the build (entry). When the builder says yes, call confirm with program_id, ' +
   'project: entry.project, answers: entry.answers, yes: true, wallet: shown_wallet and token: { name, symbol } of token.proposed; when they say skip the token, skip_token: true instead of yes.';
 
-/** The owner of a GitHub Pages link (`https://<owner>.github.io/...`), lowercase, or null. Pure. */
-export function githubPagesOwner(url: string | undefined): string | null {
-  const canonical = url ? canonicalBuilderUrl(url).url : undefined;
-  if (!canonical) return null;
-  const m = /^([a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?)\.github\.io$/.exec(new URL(canonical).hostname);
-  return m ? m[1] : null;
-}
+export { githubPagesOwner, pagesLinkOf } from './pages-link';
 
 /**
  * Plan S11: the `built` event, once per installation, repo and program
@@ -2660,21 +2664,6 @@ const builtEvent = (ctx: ToolContext, b: StoredBuild & { wallet: string }, repoK
       detail: { starter: b.starter_id, ...(b.twist && { twist: b.twist }) },
     };
   });
-
-/**
- * Security fix I2: the repo's own GitHub Pages link, `https://<owner>.github.io/<repo>/` (or `/` for
- * the repo named `<owner>.github.io`), canonical, else null. Pure.
- */
-export function pagesLinkOf(repoKey: string, url: string | undefined): string | null {
-  const [owner, repo] = repoKey.toLowerCase().split('/');
-  const canonical = url ? canonicalBuilderUrl(url).url : undefined;
-  if (!canonical || !owner || !repo || githubPagesOwner(canonical) !== owner) return null;
-  const u = new URL(canonical);
-  if (u.search || u.hash) return null;
-  const path = u.pathname.toLowerCase();
-  const ok = repo === `${owner}.github.io` ? path === '/' : path === `/${repo}/` || path === `/${repo}`;
-  return ok ? canonical : null;
-}
 
 /**
  * Plan S10, security fix I2: the GitHub Pages fallback went live. Only for the build's own repo
@@ -2710,7 +2699,12 @@ const pagesHostedEvent = (ctx: ToolContext, programId: string, repoKey: string, 
  * the confirm line (the live line, then the deployed line) and the build's wallet, the one the
  * confirm line shows and the token's fees go to.
  */
-export type BuildJoin = { lead: string[]; wallet: string };
+export type BuildJoin = { lead: string[]; wallet: string; noLive?: true };
+
+/** Final fix I2: the call after the deploy came with no live link that loads; the entry waits for one. */
+export const BUILD_NO_LIVE_NOTE =
+  "The site isn't live yet, so the entry has no live link. Publish it as the deploy reply's note said and call this again with live_url once it loads; " +
+  "never put any other link in live_deployment_url. Don't show this note.";
 
 /**
  * v2.11 T10 (T9 concern 6): the live line for the build's own live link, or null. EarnKit hosting:
@@ -2774,7 +2768,11 @@ async function buildJoin(
   Object.assign(answers, derivedProfile(program.submission_requirements, answers, who?.login ?? null));
   return {
     rest: { ...rest, project, answers },
-    join: { lead: [liveText, deployedLine(name, d.chain, d.address, d.owner_ok === true)].filter((x): x is string => Boolean(x)), wallet: b.wallet },
+    join: {
+      lead: [liveText, deployedLine(name, d.chain, d.address, d.owner_ok === true)].filter((x): x is string => Boolean(x)),
+      wallet: b.wallet,
+      ...(!liveText && { noLive: true as const }),
+    },
   };
 }
 
@@ -3150,7 +3148,10 @@ export const tools = {
       join = b.join;
     }
     const { deploy, ...prep } = PrepareInput.parse(input);
-    if (!deploy) return handlers.prepare_submission(prep, ctx, join);
+    if (!deploy) {
+      const r = (await handlers.prepare_submission(prep, ctx, join)) as Reply;
+      return join?.noLive ? { ...r, agent_note: [r.agent_note, BUILD_NO_LIVE_NOTE].filter(Boolean).join(' ') } : r;
+    }
     await getProgramRow(prep.program_id);
     const step = await deployStep(deploy, prep, ctx);
     const address = (step.deploy as { address?: string }).address;

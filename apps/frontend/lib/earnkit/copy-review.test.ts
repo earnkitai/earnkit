@@ -23,7 +23,7 @@ import {
 import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TELL_DESCRIPTION, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { bonusLine, presentFirstMessage, skippedLine, submitStepLine, type Card, type FirstMessage } from './present';
 import { SKIP_REASONS } from './match-projects';
-import { BUILD_ENTRY_NOTE, BUILD_HOLD_NOTE, BUILD_OWNER_NOTE, BUILD_WALLET_NOTE, pagesLiveLine, BUILD_DEPLOYS_OFF_NOTE, BUILD_NOT_READY, BUILD_PAGES_NOTE, BUILD_UPLOAD_NOTE, buildChainNote, buildOwnerNote, buildProofNote, BUILD_NOT_STARTED, BUILD_SHARED_NOTE, KIT_NOTE, WALLET_NEEDED_NOTE, buildRefused, twistNote, BUILD_NOTE, PLAN_NOTE, ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, CONFIRM_SHARED_NOTE, PROJECT_REOFFER_NOTE, SUBMITTED_AGAIN_NOTE, SUBMITTED_SHARED_NOTE, handlers } from './tools';
+import { BUILD_ENTRY_NOTE, BUILD_NO_LIVE_NOTE, BUILD_HOLD_NOTE, BUILD_OWNER_NOTE, BUILD_WALLET_NOTE, pagesLiveLine, BUILD_DEPLOYS_OFF_NOTE, BUILD_NOT_READY, BUILD_PAGES_NOTE, BUILD_UPLOAD_NOTE, buildChainNote, buildOwnerNote, buildProofNote, BUILD_NOT_STARTED, BUILD_SHARED_NOTE, KIT_NOTE, WALLET_NEEDED_NOTE, buildRefused, twistNote, BUILD_NOTE, PLAN_NOTE, ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, CONFIRM_SHARED_NOTE, PROJECT_REOFFER_NOTE, SUBMITTED_AGAIN_NOTE, SUBMITTED_SHARED_NOTE, handlers } from './tools';
 import { outcomeQuestion } from './outcomes';
 import { DEFAULT_GUIDANCE, PLAIN_FIX, PLAIN_LENGTH_FIX, PLAIN_NOTE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, walletAsk } from './coach';
 import { alsoText } from './also-qualifies';
@@ -1107,6 +1107,7 @@ const agentFacing: [string, string][] = [
   ['BUILD_OWNER_NOTE', BUILD_OWNER_NOTE],
   ['BUILD_ENTRY_NOTE', BUILD_ENTRY_NOTE],
   ['BUILD_WALLET_NOTE', BUILD_WALLET_NOTE],
+  ['BUILD_NO_LIVE_NOTE', BUILD_NO_LIVE_NOTE],
   ...buildKit(STARTERS['arc-tipjar'], 'token: 0123456789abcdef', {
     twist: 'tips for my podcast listeners',
     name: 'PodTips',
@@ -1550,4 +1551,14 @@ test('11.3 (F21): one money figure on the landing, /programs, the no-repo first 
   // Never a hard-coded total in builder text.
   for (const [name, text] of builderFacing)
     for (const b of ['$1.3M', '1,170,500', '1170500']) assert.ok(!text.includes(b), `${name}: ${b}`);
+});
+
+test('final fix I3: the Pages note publishes site_dir as the root of a gh-pages branch and turns Pages on with the documented API shape; never "a folder on the default branch"', () => {
+  assert.doesNotMatch(BUILD_PAGES_NOTE, /folder on the default branch/i);
+  assert.match(BUILD_PAGES_NOTE, /to the root of a gh-pages branch/);
+  assert.ok(BUILD_PAGES_NOTE.includes('`git subtree push --prefix <host.site_dir> origin gh-pages`'));
+  // GitHub REST "Create a GitHub Pages site": POST /repos/{owner}/{repo}/pages, source.branch, source.path ('/' or '/docs').
+  assert.ok(BUILD_PAGES_NOTE.includes("`gh api -X POST repos/<owner>/<repo>/pages -f 'source[branch]=gh-pages' -f 'source[path]=/'`"));
+  assert.ok(BUILD_PAGES_NOTE.includes('https://<owner>.github.io/<repo>/'));
+  for (const note of [BUILD_PAGES_NOTE, BUILD_HOLD_NOTE]) assert.match(note, /15 minutes/, 'final fix I2: the fallback');
 });
