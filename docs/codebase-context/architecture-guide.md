@@ -4087,8 +4087,9 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
     `Object.hasOwn` guard; T5/T6 follow-up) whose `usage_read` is `view_total`: one `eth_call` of the
     starter's `usage_view` (arc-tipjar: `stats()`, selector `0xd80528ae`, three uint256 words), written
     as `totals: { tips, total, tippers }` (exact decimal strings; `total` in USDC base units, since the
-    deploy), `source: 'rpc_view'`. A view that answers nothing (`viewTotals` null: a builder who
-    dropped it) falls back to the recent logs below; a failed call is a failed read;
+    deploy), `source: 'rpc_view'`. A revert (`isRevert`: a builder who dropped the view) or an empty
+    answer from a contract with code falls back to the recent logs below; a transport error is a
+    failed read. No code at the address: `source: 'rpc_code'` at once, with no view or log read;
   - Arc with a `recent_logs` starter (the fallback rule; `Tipped(address,uint256,string)`, topic
     `0x4f629a5f...73c2`): a whole 30 or 90 days is 510 to 1,530 calls. So the
     check counts the starter's logs over the RECENT window only: `recentChunks`, the last
@@ -4262,18 +4263,24 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
 - **Fail closed.** Each call re-runs `freshPick` on that one program (`buildPick`: open, curated,
   not hidden or entered, a tested starter, deploys and hosting on). No pick: an agent note, nothing
   stored. A shared client gets `BUILD_CHAT_ONLY` ("I can't build from here. ...") and nothing is
-  stored (S6). MCP lists `build` only while deploys are on, with `deploy`.
+  stored (S6). MCP lists `build` only while deploys are on, with `deploy`, and only then does the
+  prepare description say "build: a build_offer yes." (review M2).
 - **The checks (`fresh-build.ts buildCheck`, pure).** Every text field is one line of plain words
   (`coach.ts plainProblem`: no address, hash, stat dump or link) within its limits (twist 3 to 200,
   name 3 to 40, description and feature 10 to 160, for_whom 5 to 60). The name is never a kit name
   (`EARNKIT_STARTER_NAMES` or the starter's `kit_twist.name`). The twist must name something of the
-  builder's own (a word that isn't the kit's or a stop word), and the name, the description and the
-  feature each use one of its words or stems ("Pod" in "PodTips" for "podcast"). The feature is one
-  sentence; `for_whom` starts with "for". A given wallet is valid (EIP-55 when mixed case) and never
+  builder's own (a word that isn't the kit's or a stop word), and the name and the description each
+  use one of its words or stems ("Pod" in "PodTips" for "podcast"), which blocks an unchanged clone.
+  The feature (review I2) is one sentence, never the kit's default, with at least one word that isn't
+  the kit's (BUILD.md's "A goal bar shows how close the next release fund is." passes); `for_whom`
+  starts with "for". A given wallet is valid (EIP-55 when mixed case) and never
   the zero address or a public test wallet (`PUBLIC_TEST_WALLETS`: anvil and Hardhat accounts 0 to
   9, the starter's `artifact.mjs` list). Every refusal is `Fix build.<field>: ...` in `agent_note`
   with an empty `show_to_builder`.
-- **The wallet.** The one given now, else the build's stored one, else the remembered one
+- **Order.** `buildPick` runs first, so a shared client hears `BUILD_CHAT_ONLY` only when a build
+  would be offered at all (review M3); otherwise it gets the refusal note.
+- **The wallet.** A valid wallet sent with a twist is kept with the build before the other checks, so
+  a retry after an unrelated refusal needs it again never (review M1). The one given now, else the build's stored one, else the remembered one
   (`walletMemory`, never on a shared client); a remembered public test wallet counts as none. A given
   wallet is remembered (`rememberWallet`), so the next build's question needs no wallet ask: never
   asked twice. Without any, the agent note asks the agent to pass `build.wallet`; EarnKit never makes
@@ -4284,7 +4291,8 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
 - **The kit (agent only).** `buildKit`: `npx degit <starter.repo> <project>`, the twist slots filled
   with the checked fields, `owner_wallet`, `proof_file` earnkit.txt and `proof_line`
   (`token-gate.ts tokenLineFor` for the repo, which `deploy.ts` reads through `repoOwnershipPasses`;
-  null with a note until `repo_url` is sent), the artifact shape `prepare.deploy` takes, the next call
+  null with a note until `repo_url` is sent; with `repo_url` sent and no line, no signing secret, a
+  note that says not to deploy (review M4)), the artifact shape `prepare.deploy` takes, the next call
   (`prepare` with `deploy`, `host: true` and `build: { program_id }`) and the rules (public repo under
   the builder's own account, not a fork, no secrets, rename the kit, never show the kit).
 - **What is stored.** `installations.build` holds the wallet, the twist, the name, the description,

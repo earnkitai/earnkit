@@ -119,13 +119,13 @@ export const FIND_DESCRIPTION =
   SAFETY_TEXT;
 
 /** v2.10 item 4: prepare's description (prepare_submission), its campaign words only while one is open (v2.8 Ruling 23). */
-const prepareDescription = (campaignOpen: boolean) =>
+const prepareDescription = (campaignOpen: boolean, buildOn: boolean) =>
   'On a program pick, pass program_id, project, answers you drafted from the repo (by requirement key) and agent: { browser, can_push }. ' +
   'When it asks questions, pass the answers with coach_asked: true. Call again until ready is true; ' +
   'then it ends with the confirm line (token and wallet). ' +
   'host: true hosts a static build with no live link (show host.show_to_builder, never upload_url). ' +
-  // v2.11 T8: the build path starts from find's build_offer.
-  'build: a build_offer yes. ' +
+  // v2.11 T8: the build path starts from find's build_offer; named only with the build field (review M2).
+  (buildOn ? 'build: a build_offer yes. ' : '') +
   (campaignOpen ? 'EarnKit campaigns: one Token row (a token on Base), then confirm is the entry. ' : '') +
   OWNERSHIP_FOR_TOKEN;
 
@@ -162,20 +162,21 @@ const SPONSOR_CAMPAIGN_DESCRIPTION =
 
 /**
  * v2.10 item 4: every tool description, agent-facing, each under 800 characters. v2.8 Ruling 23
- * (plan): the campaign sentences in prepare and confirm only while an EarnKit campaign is open. Pure.
+ * (plan): the campaign sentences in prepare and confirm only while an EarnKit campaign is open.
+ * v2.11 T8 review M2: prepare names `build` only while the field is listed (deploys on).
  */
-export function toolDescriptions(campaignOpen: boolean) {
+export function toolDescriptions(campaignOpen: boolean, buildOn: boolean = deployEnabled()) {
   return {
     find: FIND_DESCRIPTION,
-    prepare: prepareDescription(campaignOpen),
+    prepare: prepareDescription(campaignOpen, buildOn),
     confirm: confirmDescription(campaignOpen),
     tell: TELL_DESCRIPTION,
     sponsor_campaign: SPONSOR_CAMPAIGN_DESCRIPTION,
   };
 }
 
-/** Every description with its campaign sentences; exported for the copy-review test. */
-export const TOOL_DESCRIPTIONS = toolDescriptions(true);
+/** Every description with its campaign and build sentences (the longest); exported for the copy-review test. */
+export const TOOL_DESCRIPTIONS = toolDescriptions(true, true);
 
 /**
  * v2.8 Ruling 23 (plan): deployer_signature's description. While no EarnKit campaign is open only
@@ -241,8 +242,8 @@ const BUILD_SCHEMA = z
     start: z.literal(true).optional().describe("true on the builder's yes to build_offer: EarnKit asks them one question first"),
     twist: z.string().optional().describe("The builder's answer, in their words"),
     name: z.string().optional().describe('From the twist: 3 to 40 characters, a word of the twist in it'),
-    description: z.string().optional().describe('From the twist: one line'),
-    feature: z.string().optional().describe('From the twist: one sentence'),
+    description: z.string().optional().describe('From the twist: one line, a word of the twist in it'),
+    feature: z.string().optional().describe("From the twist: one sentence, not the kit's default"),
     for_whom: z.string().optional().describe('"for ..." from the twist, like "for your podcast listeners"'),
     wallet: z.string().optional().describe('The wallet the builder gave to own it; never one you made up'),
     repo_url: z.string().optional().describe("The public repo under the builder's own account, for the earnkit.txt line"),

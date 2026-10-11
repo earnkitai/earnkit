@@ -4434,11 +4434,16 @@ test('T6 follow-up: find on the real switches with production\'s env offers no b
     await sql()`UPDATE programs SET status = 'closed' WHERE id = ${p.id}`;
     await sql()`DELETE FROM installations WHERE id = ${inst}`.catch(() => undefined);
   });
-  const r = (await withShipEnv({}, () =>
-    handlers.list_programs({}, { installationId: inst, roundPools: async () => new Map(), repoCoins: async () => new Map() }),
-  )) as T7Found;
+  const find = () =>
+    withShipEnv({}, () => handlers.list_programs({}, { installationId: inst, roundPools: async () => new Map(), repoCoins: async () => new Map() }));
+  const r = (await find()) as T7Found;
   assert.match(r.show_to_builder, T7_V210);
   assert.ok(!('build_offer' in r));
+  // Review M6: byte for byte the reply with no fresh_build on the program at all (the second call
+  // each time: the first carries the one-time schedule_daily_check).
+  const withField = JSON.stringify(await find());
+  await sql()`UPDATE programs SET fresh_build = NULL WHERE id = ${p.id}`;
+  assert.equal(JSON.stringify(await find()), withField);
   const [{ fresh_offer_at }] = await sql()<{ fresh_offer_at: Date | null }[]>`SELECT fresh_offer_at FROM installations WHERE id = ${inst}`;
   assert.equal(fresh_offer_at, null);
 });
@@ -4565,22 +4570,24 @@ test('8.3 / 8.4 refusals are agent notes only, with an empty show_to_builder: an
   const q = await t.start();
   atMostOneQuestion(q, 'start');
   const cases: [string, object, RegExp][] = [
+    // First: once a valid wallet came with any twist, the build keeps it (review M1).
+    ['no wallet given or remembered', {}, /Pass build\.wallet/],
     ['address in the name', { name: `PodTips ${T8_WALLET}`, wallet: T8_WALLET }, /^Fix build\.name/],
     ['41-character name', { name: `Pod${'x'.repeat(38)}`, wallet: T8_WALLET }, /^Fix build\.name: 3 to 40 characters/],
     ['the kit name', { name: 'Arc kit', wallet: T8_WALLET }, /^Fix build\.name/],
     ['a bad wallet', { wallet: '0x12ab' }, /^Fix build\.wallet/],
     ['anvil account 0', { wallet: '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266' }, /^Fix build\.wallet: .*public test/],
     ['the zero address', { wallet: `0x${'0'.repeat(40)}` }, /^Fix build\.wallet/],
-    ['no wallet given or remembered', {}, /Pass build\.wallet/],
   ];
   for (const [label, b, re] of cases) {
     const r = await t.twist(b);
     refusedQuietly(r, re, label);
     atMostOneQuestion(r, label);
   }
-  // Nothing past the start was stored, and no wallet was remembered.
+  // Nothing past the start (and the kept wallet, review M1) was stored, and no wallet was remembered.
   const s = await t.stored();
   assert.ok(!('name' in (s.build ?? {})));
+  assert.equal(s.build?.wallet, T8_WALLET);
   assert.equal(s.payout_wallet, null);
 });
 
@@ -4636,5 +4643,23 @@ test('S7: build is strict: an unknown key, a mixed shape or a program_id that di
   refusedQuietly(await t.prepare({ program_id: t.p.id, build: { start: true, program_id: t.p.id, twist: 'x' } }), /build/);
   refusedQuietly(await t.prepare({ program_id: 'other', build: { start: true, program_id: t.p.id } }), /program_id/);
   refusedQuietly(await t.prepare({ program_id: t.p.id, project: { name: 'x' }, build: { start: true, program_id: t.p.id } }), /project/);
+  assert.equal((await t.stored()).build, null);
+});
+
+test('8.3 (review M1) a valid wallet sent with a twist that fails on another field is kept: the retry without it passes, and it is remembered only then', dbTest, async (tc) => {
+  const t = await buildSetup('keepwallet', tc);
+  await t.start();
+  refusedQuietly(await t.twist({ name: 'Arc kit', wallet: T8_WALLET }), /^Fix build\.name/);
+  assert.equal((await t.stored()).payout_wallet, null, 'not remembered on a refusal');
+  assert.equal((await t.stored()).build?.wallet, T8_WALLET, 'kept with the build');
+  const r = await t.twist();
+  assert.match(r.show_to_builder, /^Building PodTips/);
+  assert.equal(r.kit?.owner_wallet, T8_WALLET);
+});
+
+test('8.5 (review M3) a shared client with deploys off gets the refusal note, never "add EarnKit to a coding agent"', dbTest, async (tc) => {
+  const t = await buildSetup('sharedoff', tc);
+  const off = { ...t.ctx, sharedClient: true, freshDeps: { ...t.ctx.freshDeps, deployOn: () => false } };
+  for (const r of [await t.start(off), await t.twist({ wallet: T8_WALLET }, off)]) refusedQuietly(r, /can't start a build/);
   assert.equal((await t.stored()).build, null);
 });

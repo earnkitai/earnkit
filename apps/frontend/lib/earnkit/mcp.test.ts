@@ -386,7 +386,9 @@ test('v2.8 Ruling 23 (plan): toolDescriptions(false) drops the campaign sentence
       assert.ok(!closed[name].includes(word), `${name} (closed): ${word}`);
     assert.match(open[name], /EarnKit campaign/, name);
   }
-  assert.deepEqual(TOOL_DESCRIPTIONS, open);
+  // v2.11 T8 review M2: TOOL_DESCRIPTIONS is the longest variant (campaign open, build listed).
+  assert.deepEqual(TOOL_DESCRIPTIONS, toolDescriptions(true, true));
+  assert.equal(toolDescriptions(true, false).prepare, open.prepare, 'deploys off in the test env');
   // The rest of the text stays.
   assert.match(closed.prepare, /then it ends with the confirm line/);
   assert.match(closed.confirm, /yes: true when they say yes/);
@@ -636,10 +638,14 @@ test('v2.11 T8: prepare lists build only while deploys are on (with deploy); an 
     delete process.env.DEPLOYER_PRIVATE_KEY;
     let { tools } = await listed({});
     assert.ok(!('build' in (tools.find((t) => t.name === 'prepare')!.inputSchema.properties as object)), 'deploys off: no build field');
+    // Review M2: the description names build only while the field is listed.
+    assert.doesNotMatch(tools.find((t) => t.name === 'prepare')!.description!, /build_offer/);
     process.env.DEPLOYER_PRIVATE_KEY = '5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a';
     ({ tools } = await listed({}));
     const build = (tools.find((t) => t.name === 'prepare')!.inputSchema.properties as Record<string, unknown>).build;
     assert.match(JSON.stringify(build), /build_offer/);
+    assert.match(tools.find((t) => t.name === 'prepare')!.description!, /build: a build_offer yes\./);
+    assert.ok(tools.find((t) => t.name === 'prepare')!.description!.length < 800);
     const server = createMcpServer({ installationId: 1 });
     const [a, b] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'test', version: '0' });

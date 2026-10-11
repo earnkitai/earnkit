@@ -314,7 +314,8 @@ test('8.3 buildCheck refuses: an address or a stat dump, a name off 3 to 40 char
     ['a description without the twist', { description: 'Send a tip in USDC on Arc.' }, /^Fix build\.description/],
     ['a description over two lines', { description: 'Podcast listeners tip.\nIn USDC on Arc.' }, /^Fix build\.description/],
     ['a stat dump', { description: 'Podcast tips: 1, 2, 3, 4 and 5 USDC.' }, /^Fix build\.description/],
-    ['a feature without the twist', { feature: 'Every tip can carry a short note, shown on the page.' }, /^Fix build\.feature/],
+    ['the kit\'s default feature', { feature: 'Every tip can carry a short note, shown on the page.' }, /^Fix build\.feature: .*kit's default/],
+    ['the kit\'s words reworded', { feature: 'A tip can carry a note.' }, /^Fix build\.feature: the builder's own/],
     ['two sentences in the feature', { feature: 'Podcast fans leave notes. The host reads them.' }, /^Fix build\.feature: one sentence/],
     ['a twist over 200 characters', { twist: `tips for my podcast ${'listeners '.repeat(20)}` }, /^Fix build\.twist/],
     ['a twist with an address', { twist: `tips to ${WALLET}` }, /^Fix build\.twist/],
@@ -332,6 +333,23 @@ test('8.3 buildCheck refuses: an address or a stat dump, a name off 3 to 40 char
     assert.match(why!, /Don't show this to the builder\.$/, label);
     assert.doesNotMatch(why!, /\u2014/, label);
   }
+});
+
+test('8.2 (review I2) the feature only has to be the builder\'s own: BUILD.md\'s example passes, the kit\'s default never does', () => {
+  // The starter's own BUILD.md example, for its own twist and for the podcast.
+  const lib = { twist: 'a tip jar for my open-source library', name: 'LibFund', description: 'Back the library with a USDC tip on Arc.', for_whom: 'for your library' };
+  assert.equal(buildCheck({ ...lib, feature: 'A goal bar shows how close the next release fund is.' }, TIPJAR), null);
+  assert.equal(buildCheck({ ...POD, feature: 'A goal bar shows how close the next episode fund is.' }, TIPJAR), null);
+  // The kit's default, verbatim or with other case and punctuation: refused.
+  assert.match(buildCheck({ ...POD, feature: TIPJAR.kit_twist.feature }, TIPJAR)!, /^Fix build\.feature: .*kit's default/);
+  assert.match(buildCheck({ ...POD, feature: 'every tip can carry a short note shown on the page' }, TIPJAR)!, /^Fix build\.feature/);
+  // The kit's text plus one twist word is the builder's (the new rule); the kit's words alone are not.
+  assert.equal(buildCheck({ ...POD, feature: 'Every tip can carry a short note for the podcast.' }, TIPJAR), null);
+  assert.match(buildCheck({ ...POD, feature: 'Every tip can carry a short note.' }, TIPJAR)!, /^Fix build\.feature/);
+  // An unchanged clone still fails on the name and the description.
+  const clone = { ...POD, ...TIPJAR.kit_twist };
+  assert.match(buildCheck(clone, TIPJAR)!, /^Fix build\.name/);
+  assert.match(buildCheck({ ...clone, name: 'PodTips' }, TIPJAR)!, /^Fix build\.description/);
 });
 
 test('8.3 the public test wallets are anvil and Hardhat accounts 0 to 9 (the starter\'s artifact.mjs list) plus the zero address, any case', () => {
@@ -361,6 +379,11 @@ test('8.2 buildKit: the degit path, the twist slots, the proof line, the artifac
   const early = buildKit(TIPJAR, null, { ...POD, wallet: WALLET });
   assert.equal(early.proof_line, null);
   assert.match(early.proof_line_note!, /build\.repo_url/);
+  // Review M4: repo_url sent and still no line (no signing secret): never send the agent round again.
+  const noSecret = buildKit(TIPJAR, null, { ...POD, wallet: WALLET }, true);
+  assert.equal(noSecret.proof_line, null);
+  assert.doesNotMatch(noSecret.proof_line_note!, /repo_url/);
+  assert.match(noSecret.proof_line_note!, /can't make the earnkit\.txt line/);
 });
 
 test('8.5 BUILD_CHAT_ONLY: "I can\'t build from here", no question, no tool or product name', () => {
