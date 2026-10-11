@@ -2535,7 +2535,9 @@ async function buildTwist(b: z.infer<typeof BuildTwist>, ctx: ToolContext) {
     ...((repoUrl ?? stored.repo_url) && { repo_url: repoUrl ?? stored.repo_url }),
   };
   const shownBefore = (['wallet', 'twist', 'name', 'description', 'feature', 'for_whom'] as const).every((k) => stored[k] === next[k]);
-  if (given) await rememberWallet(ctx.installationId, given);
+  // Final fix M7: a wallet kept with the build across a refusal (review M1) is remembered once the twist passes, as if given now.
+  const remember = given || (stored.wallet && stored.wallet === wallet ? wallet : undefined);
+  if (remember) await rememberWallet(ctx.installationId, remember);
   await saveBuild(ctx.installationId, next);
   if (next.repo_url) await noteLineIssued(ctx.installationId, next.repo_url);
   return {
@@ -3093,30 +3095,39 @@ async function confirmByProjectId(c: ConfirmArgs & { project_id: number }, ctx: 
   return { ...offer, project_id: entry.id, token: { status: 'skipped', fixable: true, ...(offer.token as object | undefined) }, agent_note: PROJECT_REOFFER_NOTE };
 }
 
-/** v2.11 T10: the agent's note when a yes on the build path named a wallet the confirm line didn't show. */
+/** Final fix M4 (owner ruling): on the build path the token launches only to the build's wallet; another wallet is refused. */
 export const BUILD_WALLET_NOTE =
+  "Nothing launched: on a build the token goes only to the build's wallet, the one that owns the contract (shown_wallet on the joined reply). " +
+  "Call confirm again with wallet: that wallet, or with no wallet; never another one. If the builder asks for another wallet, say in one short line that the token goes to the wallet that owns the contract. Don't show this note.";
+/** v2.11 T10: a yes with the build's wallet while the confirm line showed another: the line is shown again with it. */
+export const BUILD_WALLET_SHOWN_NOTE =
   'Nothing launched: this wallet is not the one the confirm line showed the builder. Show show_to_builder as written; ' +
   'when the builder says yes, call confirm again with yes: true, wallet: shown_wallet and token: token.proposed.';
 
 /**
- * v2.11 T10 (plan 10.3, Review Focus 5): on the build path a yes launches only to the wallet the
- * confirm line showed (the build's wallet first). A yes naming another wallet gets the confirm line
- * again, showing that wallet, and nothing is recorded or launched; the builder's next yes covers it.
- * Null: not this build's entry, or the wallet shown, so confirm goes on as usual.
+ * v2.11 T10 (plan 10.3, Review Focus 5), final fix M4 (owner ruling): on the build path the token
+ * launches only to the build's wallet (installations.build.wallet), never to a wallet named later.
+ * Any confirm naming another wallet is refused with an agent note only: nothing recorded, shown or
+ * launched. A yes with the build's wallet while the confirm line showed another gets the confirm line
+ * again, showing it. Null: not this build's entry, or the build's wallet as shown, so confirm goes on.
  */
-async function buildWalletAgain(c: ConfirmArgs & { program_id: string; wallet: string }, ctx: ToolContext): Promise<Reply | null> {
+async function buildWalletOnly(c: ConfirmArgs & { program_id: string; wallet: string }, ctx: ToolContext): Promise<Reply | null> {
   const build = await readBuild(ctx.installationId);
   const repoUrl = c.project?.repo_url ?? c.answers?.repo_url;
   const name = c.project?.name;
   if (!build?.repo_url || build.program_id !== c.program_id || typeof repoUrl !== 'string' || typeof name !== 'string') return null;
   if (normalizeRepoUrl(repoUrl) !== normalizeRepoUrl(build.repo_url)) return null;
+  const own = buildWallet(build.wallet);
+  if (!own) return null;
+  if (c.wallet.trim().toLowerCase() !== own) return { program_id: c.program_id, show_to_builder: '', agent_note: BUILD_WALLET_NOTE };
+  if (!c.yes || c.check) return null;
   const shown = await readShownOffer(ctx.installationId, c.program_id, offerKey(repoUrl, name)).catch(() => null);
-  if (shown?.wallet && shown.wallet === c.wallet.trim().toLowerCase()) return null;
+  if (shown?.wallet && shown.wallet === own) return null;
   const offer = (await handlers.confirm_entry(
     defined({ program_id: c.program_id, project: c.project, answers: c.answers, token: c.token, wallet: c.wallet, agent: c.agent, signed_in: c.signed_in }),
     ctx,
   )) as Reply;
-  return { ...offer, agent_note: BUILD_WALLET_NOTE };
+  return { ...offer, agent_note: BUILD_WALLET_SHOWN_NOTE };
 }
 
 /** The agent tools (v2.10 item 4): the MCP server forwards each call here; each dispatches to `handlers`. */
@@ -3194,10 +3205,10 @@ export const tools = {
         }),
         ctx,
       );
-    // v2.11 T10: the build path launches only to the wallet its confirm line showed.
-    if (c.yes && !c.check && c.wallet !== undefined && !ctx.sharedClient) {
-      const again = await buildWalletAgain(c as ConfirmArgs & { program_id: string; wallet: string }, ctx);
-      if (again) return again;
+    // v2.11 T10, final fix M4: the build path launches only to the build's wallet, as its confirm line showed.
+    if (c.wallet !== undefined && !ctx.sharedClient) {
+      const only = await buildWalletOnly(c as ConfirmArgs & { program_id: string; wallet: string }, ctx);
+      if (only) return only;
     }
     const confirmed = (await handlers.confirm_entry(
       defined({
