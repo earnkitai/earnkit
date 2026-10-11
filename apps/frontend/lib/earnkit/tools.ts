@@ -30,6 +30,7 @@ import {
   readFitRepos,
   setFitRepos,
   setWorkingOn,
+  markFreshOffer,
 } from './installations';
 import { recordShown, saveEntryScore } from './match-loop';
 import { repoKey, repoKey as saidKeyOf } from './answer-bank';
@@ -62,7 +63,9 @@ import {
   usersAsk,
   presentFirstMessage,
   programUpdates,
+  freshLead,
   type FirstMessage,
+  type FreshOn,
   type RepoFit,
   type YourRepos,
 } from './present';
@@ -75,7 +78,7 @@ import {
   prepareSubmission,
 } from './submission';
 import { OWNERSHIP_FILE } from './ownership';
-import { DEPLOY_LINES, deployChains, deployForBuilder, deployOffLine, deployOffNote, type DeployDeps, type DeployInput } from './deploy';
+import { DEPLOY_LINES, deployChains, deployEnabled, deployForBuilder, deployOffLine, deployOffNote, type DeployDeps, type DeployInput } from './deploy';
 import {
   CANT_PUSH_RETRY_NOTE,
   STILL_CHECKING_LAUNCH,
@@ -114,7 +117,7 @@ import {
   questionsFor,
   type Fix,
 } from './coach';
-import { LIVE_FAILED_LINE, addressesFrom, contractMissingLine, entryVerified, liveErrorLine, type CheckDeps, type Verified } from './verify';
+import { LIVE_FAILED_LINE, addressesFrom, contractMissingLine, entryVerified, liveErrorLine, rpcFor, type CheckDeps, type Verified } from './verify';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
 import { answerPickup, offerPickup, type PickupDeps } from './identity';
 import type { FieldKind } from './program-file';
@@ -161,7 +164,28 @@ export type ToolContext = {
   verifyDeps?: CheckDeps;
   /** v2.10 item 13: test injection only: the deployer's chain, price and proof reads. */
   deployDeps?: DeployDeps;
+  /**
+   * v2.11 T7: test injection only: the no-repo lead's switches (deploys on a chain, hosting) and the
+   * starter registry; each defaults to the real one (freshSwitches).
+   */
+  freshDeps?: Partial<Pick<FreshOn, 'deployOn' | 'hostOn' | 'starters'>>;
 };
+
+/**
+ * v2.11 T7: the no-repo lead's switches. Deploys on a chain need the deployer key (deployEnabled)
+ * and the chain's RPC; hosting needs R2. Production has neither on 2026-10-10, so no fresh lead is
+ * offered until the owner turns both on. A chat-only or shared client gets the chat-only lead (a
+ * shared client never gets the build path, Ruling S6).
+ */
+function freshSwitches(ctx: Pick<ToolContext, 'freshDeps' | 'sharedClient'>, agentCanBuild: boolean): FreshOn {
+  const d = ctx.freshDeps ?? {};
+  return {
+    deployOn: d.deployOn ?? ((c) => deployEnabled() && rpcFor(c) !== null),
+    hostOn: d.hostOn ?? r2Enabled(),
+    canBuild: agentCanBuild && !ctx.sharedClient,
+    ...(d.starters && { starters: d.starters }),
+  };
+}
 
 /**
  * v2.9 A5: one entry step's link and contract checks (one ENTRY_BUDGET), or undefined for an
@@ -737,6 +761,17 @@ export const LEAD_NOTE =
   'never prepare it again; once they say they submitted, call tell with submitted: { program_id: lead.program_id }; on no, say nothing more about it until they bring it up. ' +
   'Call find again with more: true only when the builder asks to see more programs, or says yes to "Want the 3 easiest?".';
 
+/** v2.11 T7 (spec 1): what the agent does with a yes to the fresh lead ("Want me to build it?"). */
+export const BUILD_NOTE =
+  'A yes to "Want me to build it?" means call prepare with build: { start: true, program_id: build_offer.program_id }. ' +
+  'EarnKit then asks the builder one question before any work starts. Never start building before that.';
+
+/** v2.11 T7: the chat-only lead's yes ("Want the plan?"): this client can't build, so the plan is how to get it built. */
+export const PLAN_NOTE =
+  'This client can\'t build or deploy. A yes to "Want the plan?" means tell the builder, short and in your words: ' +
+  'add EarnKit to a coding agent (Claude Code, Cursor or Codex) and ask it to build for this program; ' +
+  'that agent builds it, and EarnKit deploys and hosts it. Never say you built anything.';
+
 /** v2.10.1 fix round 1 (C1): what the agent does with the users question. */
 export const USERS_NOTE =
   'The reply asks whether this repo has real users or revenue. Pass the builder\'s answer, never your guess: ' +
@@ -1191,6 +1226,8 @@ export const handlers = {
       // client's only for its verified login, none without one).
       deadline: await takeDeadlineLine(ctx.installationId, myEntries),
       more: more === true,
+      // v2.11 T7: the no-repo lead's switches; off (no pick) unless deploys and hosting are on.
+      fresh: freshSwitches(ctx, agent_can_build),
     };
     // v2.8 Ruling 30 (plan): at most one entry per call whose results were due; asked once. Read
     // after every other read (review minor 11), so nothing after marking it asked can lose the
@@ -1204,6 +1241,14 @@ export const handlers = {
     first.holdQuestion = Boolean(pickup || ask);
     // v2.10 item 5: no token offer here; the token is pitched once, at confirmation.
     const show_to_builder = presentFirstMessage(first);
+    // v2.11 T7: the no-repo lead the reply shows, if any (presentFirstMessage's own rule), for
+    // build_offer. The first build lead shown off a shared client starts the v2.11 metric
+    // (fresh_offer_at, set once). Never fails the tool.
+    const fresh = freshLead(first);
+    if (fresh?.canBuild && own)
+      await markFreshOffer(ctx.installationId, first.now).catch((err: unknown) =>
+        console.error('[list_programs] fresh offer', err instanceof Error ? err.name : 'error'),
+      );
     // v2.9 A8: what matching showed (the matched rows on screen, one per program), for the outcome
     // loop. Never fails the tool. Ruling G7: not on a shared client (its repo keys and scores may be
     // another builder's) until memoryKey names a verified builder.
@@ -1245,6 +1290,10 @@ export const handlers = {
       // v2.10.1 B1: the entry is recorded; the builder's submission on the program's site is the only step left.
       ...(step && { lead: { program_id: step.card.id, step: 'submit', ...(step.entry.id !== undefined && { project_id: step.entry.id }) } }),
       ...(usersQ && { users_question: { repo: usersQ.key ?? usersQ.repo, agent_note: USERS_NOTE } }),
+      // v2.11 T7: what the fresh lead offers; a yes starts the build path (or, chat-only, the plan).
+      ...(fresh && {
+        build_offer: { program_id: fresh.card.id, starter_id: fresh.starter.id, agent_note: fresh.canBuild ? BUILD_NOTE : PLAN_NOTE },
+      }),
       ...(walletNote && { wallet_note: walletNote }),
       ...(alerts.scheduleNote && { schedule_daily_check: alerts.scheduleNote }),
       ...(ask && {

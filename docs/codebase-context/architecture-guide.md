@@ -4197,3 +4197,37 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
 - **Nothing offers a build yet.** No code path reads `fresh_build` or `STARTERS` to offer a build;
   T7's `freshPick` does that. No program file carries `fresh_build` today: Arc Microgrants is the one
   known case, and it gets the field when arc-tipjar's test passes (T6 sets `tested_at`).
+
+## v2.11 The no-repo lead (Task 7, spec 1)
+
+- **When it shows.** The short first reply (`present.ts` `presentFirstMessage`, not "show more")
+  gets a third kind of lead when nothing else leads: no good-odds row (`leadRow`), no entry waiting
+  on the builder's submission (`submitStep`), no users question (`usersAsk`), no higher question held
+  (`holdQuestion`), and no open program the builder's agent is preparing (`working_on`). Then
+  `freshLead(given)` asks `fresh-build.ts` `freshPick`. A pick replaces the v2.10 line ("No repo fits
+  yet. $X is open; want the 3 easiest?") with two lines: `contextLine` ("$1.1M+ in prizes is open
+  right now across 7 programs.", the same programs `pool.ts` `openCurated` gives `openMoneyUsd`) and
+  `freshLeadLine` ("Arc Microgrants pays 500 USDC and closes in 4 days. A USDC tip page on Arc takes
+  about an hour. Want me to build it?"). Chat-only and shared clients get "... A coding agent like
+  Claude Code builds the USDC tip page in about an hour. Want the plan?".
+- **The pick rules (freshPick, pure).** Open and curated (never sponsored, an EarnKit campaign or an
+  investment, never tagged "long shot" or "needs a live product", never hidden or entered); the
+  program's `fresh_build` names a registered starter with `tested_at` set, on one of the program's
+  chains; EarnKit deploys to that chain and hosting is on; Easy or Medium; a known prize per winner
+  of $5,000 or less; closing 24 hours to 14 days from now (a rolling program only when no dated one
+  qualifies). Rank: Easy first, more `winners_per_round` (unknown is 1; `Card.winners_per_round` is
+  new on `programCard`), the sooner close, the higher prize.
+- **Fail closed.** `FirstMessage.fresh` (`FreshOn`: `deployOn`, `hostOn`, `canBuild`, optional
+  `starters`) is set only by `find` (`tools.ts` `freshSwitches`): deploys on a chain need
+  `deployEnabled()` plus the chain's RPC, hosting needs `r2Enabled()`. Without `fresh`, without a
+  tested starter (arc-tipjar's `tested_at` is null until T6), without a program carrying
+  `fresh_build` (none today), or with deploys or hosting off (production on 2026-10-10), there is no
+  pick and the reply is v2.10's byte for byte. `ctx.freshDeps` overrides the switches in tests only.
+- **find's reply.** With a pick, `build_offer: { program_id, starter_id, agent_note }`: `BUILD_NOTE`
+  (a yes means `prepare` with `build: { start: true, program_id }`, T8) or, chat-only, `PLAN_NOTE`
+  (tell the builder to add EarnKit to a coding agent). The `find` description says "build_offer:
+  follow its agent_note.".
+- **fresh_offer_at.** The first build lead shown to a non-shared installation sets
+  `installations.fresh_offer_at` (`installations.ts` `markFreshOffer`, `WHERE fresh_offer_at IS
+  NULL`), the start of the v2.11 metric; later leads never move it. It does not limit how often the
+  lead shows: like every other lead, it shows on each find while nothing else leads.

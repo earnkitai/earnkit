@@ -269,6 +269,8 @@ test('v2.10 item 4: find says a yes prepares lead.program_id, more only when ask
   assert.match(d, /A yes to the reply prepares lead\.program_id; more: true only when they ask for more\./);
   assert.match(d, /program_id: one program and its guide; repo: whether it fits\./);
   assert.match(d, /last_commit_at/);
+  // v2.11 T7: the no-repo lead's offer.
+  assert.match(d, /build_offer: follow its agent_note\./);
   const props = find.inputSchema.properties as Record<string, { description?: string }>;
   assert.match(props.more.description ?? '', /never for a yes to the lead/);
   for (const k of ['program_id', 'repo', 'local_repos', 'github_user', 'repos', 'wallet', 'agent_can_build', 'signed_in']) assert.ok(k in props, k);

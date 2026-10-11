@@ -442,6 +442,8 @@ export function programCard(
     submit_site: submitSiteName(p.submission_proof?.host ?? hostOf(p.submission_url)),
     // v2.11 T5: the owner-set fresh-build starter; never on a campaign (EarnKit or sponsor).
     fresh_build: p.campaign ? null : (p.fresh_build ?? null),
+    // v2.11 T7: the fresh pick ranks more winners per round first (fresh-build.ts freshPick).
+    winners_per_round: p.winners_per_round ?? null,
   };
 }
 

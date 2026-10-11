@@ -7,6 +7,8 @@ import { NEEDS_LIVE_PRODUCT, difficultyLabel, levelRank, rowDifficulty, type Dif
 import { moneyText, openMoneyUsd, wonLine } from './pool';
 import { CANT_SEE_LINE, PRIVATE_LOCAL_LINE } from './match-projects';
 import type { RoundPool } from './bonus-rounds';
+import { contextLine, freshLeadLine, freshPick, type FreshPick } from './fresh-build';
+import type { Starter, StarterChain } from './starters';
 
 /** v2.7: moved to entry-text.ts (shared with guide.ts); re-exported for existing callers. */
 export { endsOf } from './entry-text';
@@ -86,6 +88,21 @@ export type Card = {
   submit_site?: string | null;
   /** v2.11 T5 (programs.ts programCard): the owner-set fresh-build starter (starters.ts), or null. */
   fresh_build?: { starter: string } | null;
+  /** v2.11 T7 (programs.ts programCard): winners per round from the program file, or null (the fresh pick's rank). */
+  winners_per_round?: number | null;
+};
+
+/**
+ * v2.11 T7: what the no-repo lead (fresh-build.ts freshPick) needs from outside the pure reply: whether
+ * EarnKit deploys to a chain and hosts right now, and whether this client's agent can build (a
+ * chat-only or shared client gets the chat-only lead). Absent: no fresh lead (fail closed).
+ */
+export type FreshOn = {
+  deployOn: (c: StarterChain) => boolean;
+  hostOn: boolean;
+  canBuild: boolean;
+  /** The starter registry; starters.ts STARTERS unless a test passes its own. */
+  starters?: Record<string, Starter>;
 };
 
 /** One EarnKit campaign row (leaderboard.ts campaignRow). */
@@ -170,6 +187,8 @@ export type FirstMessage = {
    * using EarnKit won $X." follows the headline once; 0 or unset, no line (never "$0").
    */
   wonUsd?: number;
+  /** v2.11 T7: the no-repo lead's switches (FreshOn); absent, the short reply is v2.10's. */
+  fresh?: FreshOn;
 };
 
 /** v2.9 E20: a money headline the won line joins as its next sentence. */
@@ -769,6 +788,28 @@ export function usersAskLine(a: NonNullable<ReturnType<typeof usersAsk>>): strin
   return `${a.repo} could win ${money}${chain} with real users. ${ask}`;
 }
 
+/**
+ * v2.11 spec 1: the no-repo lead the short first reply shows, or undefined. Only when nothing else
+ * leads: not "show more", no higher question held, no entry waiting on the builder's submission
+ * (submitStep), no good-odds row (leadRow), no users question (usersAsk), and no open program the
+ * builder's agent is preparing (working_on). Then freshPick over the programs not hidden or entered.
+ * Pure; tools.ts reads it for build_offer.
+ */
+export function freshLead(given: FirstMessage): (FreshPick & { canBuild: boolean }) | undefined {
+  const on = given.fresh;
+  if (!on || given.more || given.holdQuestion) return undefined;
+  const hidden = new Set([...(given.hidden?.notInterested ?? []), ...(given.hidden?.applied ?? [])]);
+  const m: FirstMessage = hidden.size ? { ...given, cards: given.cards.filter((c) => !hidden.has(c.id)) } : given;
+  const entered = enteredIds(m);
+  if (submitStep(m)) return undefined;
+  const lead = leadRow(m, entered);
+  if (lead || usersAsk(m, lead)) return undefined;
+  const byId = new Set(m.cards.map((c) => c.id));
+  if (m.workingOn.some((id) => byId.has(id) && !entered.has(id))) return undefined;
+  const pick = freshPick(m.cards, m.now, { hidden, entered, deployOn: on.deployOn, hostOn: on.hostOn, starters: on.starters });
+  return pick && { ...pick, canBuild: on.canBuild };
+}
+
 /** The first message: see the type and the module comment for the order. Pure; exported for tests. */
 export function presentFirstMessage(given: FirstMessage): string {
   const sections: string[] = [];
@@ -803,6 +844,8 @@ export function presentFirstMessage(given: FirstMessage): string {
   if (!given.more) {
     const lead = leadRow(m, entered);
     const ask = usersAsk(m, lead);
+    // v2.11 spec 1: with nothing else to lead, one context line and one small program to build.
+    const fresh = step || lead || ask ? undefined : freshLead(given);
     return [
       ...sections,
       privateLines,
@@ -815,7 +858,9 @@ export function presentFirstMessage(given: FirstMessage): string {
           ? submitStepLine(step)
           : ask
             ? usersAskLine(ask)
-            : leadLine(lead, { cards: given.cards, repos: m.repos, now: m.now }),
+            : fresh
+              ? [contextLine(given.cards, m.now), freshLeadLine(fresh, m.now, fresh.canBuild)].filter(Boolean).join('\n')
+              : leadLine(lead, { cards: given.cards, repos: m.repos, now: m.now }),
     ]
       .filter((x): x is string => Boolean(x))
       .join('\n');

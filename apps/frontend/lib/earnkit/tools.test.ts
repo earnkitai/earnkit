@@ -4,7 +4,7 @@ import { SafeFetchError } from './safe-fetch';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
-import { CONFIRM_SHARED_NOTE, LEAD_NOTE, NOTED_FOR_NOW, eligibilityLine, withoutTokenLine, SponsorCampaignInput, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
+import { BUILD_NOTE, PLAN_NOTE, CONFIRM_SHARED_NOTE, LEAD_NOTE, NOTED_FOR_NOW, eligibilityLine, withoutTokenLine, SponsorCampaignInput, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
 import { aliasCall } from './aliases';
 import { reportedGithubUser, reportedRepos } from './match-projects';
 import { sql } from './db';
@@ -32,6 +32,7 @@ import { CANT_PUSH, NO_WALLET_HINT, confirmOffer, proofLineWaiting } from './con
 import { completeVerify, createVerifyLink, formatCode } from './github-verify';
 import { eligibleSql } from './traction';
 import { committedProgram } from './fixtures/program-file';
+import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { eventsByKey, eventsOfInstallation, withEventLog } from './fixtures/events';
 import { alsoQualifies, alsoText, type AlsoRow } from './also-qualifies';
 import type { Chain } from './match';
@@ -4218,3 +4219,137 @@ test('3.5 a shared client\'s tell submitted that is only noted writes no event',
     ),
   ),
 );
+
+// ---- v2.11 T7 (spec 1): find's no-repo lead, build_offer and fresh_offer_at ----
+
+const T7_CONTEXT = /^\$[\d.,]+[KM]?\+? in prizes is open right now across \d+ programs?\.$/;
+const T7_LEAD = 'T7 Tip Grants pays 500 USDC and closes tomorrow. A USDC tip page on Arc takes about an hour. Want me to build it?';
+const T7_PLAN = 'T7 Tip Grants pays 500 USDC and closes tomorrow. A coding agent like Claude Code builds the USDC tip page in about an hour. Want the plan?';
+/** v2.10's no-repo line, the reply whenever there is no fresh pick. */
+const T7_V210 = /^(\$[\d.,]+[KM]?\+?|Money) is open\. Want the 3 easiest\?$/;
+type T7Found = { show_to_builder: string; build_offer?: { program_id: string; starter_id: string; agent_note: string }; lead?: unknown; note: string };
+
+/**
+ * An Arc copy tagged for the fresh build (fixture only), closing in 36 hours ("closes tomorrow"), and
+ * a new installation with no repos. The copy names a starter of its own (arc-tipjar's facts, tested,
+ * under a test id), and `starters` registers only that one, so no other test's program can be the
+ * pick in the shared database.
+ */
+async function freshSetup(tag: string) {
+  const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const arc = committedProgram('arc-microgrants');
+  const p = {
+    ...arc,
+    id: `t7-${tag}-${stamp}`,
+    title: 'T7 Tip Grants',
+    status: 'active',
+    ends_at: new Date(Date.now() + 36 * 60 * 60 * 1000).toISOString(),
+    fresh_build: { starter: `t7-${tag}-starter` },
+  };
+  await upsertProgram(ProgramFile.parse(p));
+  const [{ id: inst }] = await sql()<{ id: number }[]>`
+    INSERT INTO installations (token_hash) VALUES (${`t7-${tag}-${stamp}`}) RETURNING id`;
+  const offerAt = async () => (await sql()<{ fresh_offer_at: Date | null }[]>`SELECT fresh_offer_at FROM installations WHERE id = ${inst}`)[0].fresh_offer_at;
+  const base = { installationId: inst, roundPools: async () => new Map(), repoCoins: async () => new Map() };
+  const starterId = `t7-${tag}-starter`;
+  const starters = { [starterId]: { ...TESTED_STARTERS['arc-tipjar'], id: starterId } } as unknown as typeof TESTED_STARTERS;
+  return { p, inst, offerAt, base, starterId, starters };
+}
+
+/** Runs `fn` with the deployer and R2 variables set as given (unset when undefined), then restores them. */
+async function withShipEnv<T>(vars: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> {
+  const names = ['DEPLOYER_PRIVATE_KEY', 'R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET'];
+  const saved = Object.fromEntries(names.map((n) => [n, process.env[n]]));
+  for (const n of names) {
+    if (vars[n] === undefined) delete process.env[n];
+    else process.env[n] = vars[n];
+  }
+  try {
+    return await fn();
+  } finally {
+    for (const n of names) {
+      if (saved[n] === undefined) delete process.env[n];
+      else process.env[n] = saved[n];
+    }
+  }
+}
+const R2_ON = { R2_ACCOUNT_ID: 'acct', R2_ACCESS_KEY_ID: 'id', R2_SECRET_ACCESS_KEY: 'secret', R2_BUCKET: 'earnkit-sites' };
+const DEPLOYER_ON = { DEPLOYER_PRIVATE_KEY: `0x${'11'.repeat(32)}` };
+
+test('7.1 / 7.8 find: a no-repo builder gets the context line and the fresh lead, build_offer with BUILD_NOTE; fresh_offer_at is set once and never changes', dbTest, async () => {
+  const t = await freshSetup('lead');
+  const ctx = { ...t.base, freshDeps: { deployOn: () => true, hostOn: true, starters: t.starters } };
+  const r = (await handlers.list_programs({}, ctx)) as T7Found;
+  const [context, lead, ...rest] = r.show_to_builder.split('\n');
+  assert.match(context, T7_CONTEXT);
+  assert.equal(lead, T7_LEAD);
+  assert.deepEqual(rest, []);
+  assert.equal(r.show_to_builder.split('?').length - 1, 1);
+  assert.deepEqual(r.build_offer, { program_id: t.p.id, starter_id: t.starterId, agent_note: BUILD_NOTE });
+  assert.match(BUILD_NOTE, /prepare with build: \{ start: true, program_id: build_offer\.program_id \}/);
+  assert.ok(!('lead' in r), 'no repo lead');
+  const first = await t.offerAt();
+  assert.ok(first instanceof Date, 'fresh_offer_at set on the first fresh lead');
+  // A second find shows the lead again and leaves fresh_offer_at as it was.
+  await new Promise((res) => setTimeout(res, 15));
+  const again = (await handlers.list_programs({}, ctx)) as T7Found;
+  assert.equal(again.show_to_builder.split('\n')[1], T7_LEAD);
+  assert.equal((await t.offerAt())!.getTime(), first.getTime());
+  // The find tool (the v2.10 name) gives the same.
+  assert.equal(((await tools.find({}, ctx)) as T7Found).build_offer?.program_id, t.p.id);
+});
+
+test('7.2 find fails closed: deploys off, hosting off or an untested starter: the v2.10 line, no build_offer, no fresh_offer_at', dbTest, async () => {
+  const t = await freshSetup('off');
+  const cases: [string, object][] = [
+    ['deploys off', { deployOn: () => false, hostOn: true, starters: t.starters }],
+    ['hosting off', { deployOn: () => true, hostOn: false, starters: t.starters }],
+    ['the real registry', { deployOn: () => true, hostOn: true }],
+  ];
+  for (const [label, freshDeps] of cases) {
+    const r = (await handlers.list_programs({}, { ...t.base, freshDeps })) as T7Found;
+    assert.match(r.show_to_builder, T7_V210, label);
+    assert.ok(!('build_offer' in r), label);
+  }
+  assert.equal(await t.offerAt(), null);
+});
+
+test('7.2 find fails closed on the real switches: no deployer key or no R2 means no fresh lead; both set turn it on', dbTest, async () => {
+  const t = await freshSetup('env');
+  const ctx = { ...t.base, freshDeps: { starters: t.starters } };
+  const find = async () => (await handlers.list_programs({}, ctx)) as T7Found;
+  for (const [label, vars] of [['production today (neither)', {}], ['deployer only', DEPLOYER_ON], ['R2 only', R2_ON]] as const) {
+    const r = await withShipEnv(vars, find);
+    assert.match(r.show_to_builder, T7_V210, label);
+    assert.ok(!('build_offer' in r), label);
+  }
+  assert.equal(await t.offerAt(), null);
+  const on = await withShipEnv({ ...DEPLOYER_ON, ...R2_ON }, find);
+  assert.equal(on.show_to_builder.split('\n')[1], T7_LEAD);
+  assert.equal(on.build_offer?.starter_id, t.starterId);
+});
+
+test('7.5 find: a chat-only client and a shared client get the chat-only lead and PLAN_NOTE; neither sets fresh_offer_at', dbTest, async () => {
+  const chat = await freshSetup('chat');
+  const r = (await handlers.list_programs({ agent_can_build: false }, { ...chat.base, freshDeps: { deployOn: () => true, hostOn: true, starters: chat.starters } })) as T7Found;
+  assert.equal(r.show_to_builder.split('\n')[1], T7_PLAN);
+  assert.deepEqual(r.build_offer, { program_id: chat.p.id, starter_id: chat.starterId, agent_note: PLAN_NOTE });
+  assert.equal(await chat.offerAt(), null);
+  const shared = await freshSetup('shared');
+  await sql()`UPDATE installations SET shared_client = true WHERE id = ${shared.inst}`;
+  const s = (await handlers.list_programs({}, { ...shared.base, sharedClient: true, freshDeps: { deployOn: () => true, hostOn: true, starters: shared.starters } })) as T7Found;
+  assert.equal(s.show_to_builder.split('\n')[1], T7_PLAN);
+  assert.equal(s.build_offer?.agent_note, PLAN_NOTE);
+  assert.equal(await shared.offerAt(), null);
+  for (const note of [BUILD_NOTE, PLAN_NOTE]) assert.doesNotMatch(note, /—/);
+});
+
+test('7.6 / 7.7 find: an entry in the tagged program, or "not interested" in it, means no fresh lead', dbTest, async () => {
+  const t = await freshSetup('hidden');
+  const ctx = { ...t.base, freshDeps: { deployOn: () => true, hostOn: true, starters: t.starters } };
+  assert.equal(((await handlers.list_programs({}, ctx)) as T7Found).build_offer?.program_id, t.p.id, 'the pick before');
+  await handlers.tell_earnkit({ program_status: [{ program_id: t.p.id, status: 'not_interested' }] }, t.base);
+  const r = (await handlers.list_programs({}, ctx)) as T7Found;
+  assert.ok(!('build_offer' in r), JSON.stringify(r.build_offer));
+  assert.match(r.show_to_builder, T7_V210);
+});

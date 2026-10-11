@@ -219,6 +219,12 @@ apps/frontend/
                                freshBuildProblems (programs:check and sync: a known starter, on the program's
                                chains and its needs_contract chain, tested_at set and at most 30 days before
                                verified_at, STARTER_TEST_MAX_AGE_DAYS)
+    fresh-build.ts(+test)      v2.11 T7: the no-repo lead (pure). freshPick (Easy/Medium, <= $5,000, closes in
+                               1 to 14 days or rolling, a tested starter on a chain EarnKit deploys to with
+                               hosting on; never a long shot, needs a live product, investment, hidden or
+                               entered), contextLine ("$X in prizes is open right now across N programs."),
+                               freshLeadLine (builds / chat-only). fixtures/fresh-build.ts: TESTED_STARTERS,
+                               FRESH_ON, fileCards (real program files as cards), withFreshBuild
     starters.ts(+test)         v2.11 T5: the starter registry STARTERS (pure, import-free; id, chain, repo degit
                                path, what (builder copy), minutes 60, contract { artifact, owner_arg }, site_dir,
                                usage_event, usage_read recent_logs | view_total, tested_at (null until the
@@ -417,7 +423,8 @@ apps/frontend/
                                1 h per (repo, pushed_at); v2.10 R10: via_app (read through the App; once set, kept); fix round 1:
                                loadRepoFacts({ viaApp }) (App rows only through the App), Ruling H6 repo_public_reads:
                                markRepoPublic, publicRepoKeys, publicRepoUrl, PUBLIC_READ_DAYS (7), sweepPublicReads
-    installations.ts(+test)    save / touch installation by token hash or (v2.4) OAuth client key
+    installations.ts(+test)    v2.11 T7: markFreshOffer (fresh_offer_at, set once).
+                               save / touch installation by token hash or (v2.4) OAuth client key
                                v2.10 item 3: setWorkingOn returns true only when it added the program
                                (client_key); memory (GitHub, working_on, last payout wallet);
                                rememberWallets, installationWallets (installation_wallets);
@@ -487,7 +494,9 @@ apps/frontend/
                                World's Fair file (a starter missing new work is low); journey 11.6. Fix round 1: C1 (Arc
                                submitted: tokens.fun asked, never the starter), I1, M6; journey 11.7 (real program files)
                                Fix round 2: own public tokens.fun and my_commits_90d: 5 asked; the 6-day tipjar never
-    present.ts(+test)          v2.10.2 fix round 2: starterRepo/STARTER_DAYS (under 30 days old, or a template or EarnKit
+    present.ts(+test)          v2.11 T7: FreshOn, FirstMessage.fresh, freshLead (the short reply's no-repo lead when
+                               nothing else leads; context line + fresh lead), Card.winners_per_round.
+                               v2.10.2 fix round 2: starterRepo/STARTER_DAYS (under 30 days old, or a template or EarnKit
                                starter), usersAsk skips starters and a starter's lead yields to a product's question.
                                v2.10.2 fix round 1: usersAsk ranks every candidate (unknown, then products at traction 4+,
                                a grant first), never a starter; usersAskLine "up to" for range prizes; bestFit skips unknown.
@@ -657,7 +666,9 @@ apps/frontend/
                                as its new tool and arguments; Pre-flight P15 rules), rewriteAliases (a JSON-RPC
                                message or batch). Pure. v2.10.1 B5: withOlderNames, forOldClient (each tool named in both
                                forms, plus STALE_TOOLS_NOTE), aliasedIds (old names by JSON-RPC id); old names accept new args.
-    tools.ts                   v2.10.2 (v2.11 8a): matchRows ranks by odds (oddsRank), real use, traction, score.
+    tools.ts                   v2.11 T7: find's build_offer (BUILD_NOTE / PLAN_NOTE), freshSwitches (deploys +
+                               RPC + R2; ctx.freshDeps in tests), fresh_offer_at on the first build lead.
+                               v2.10.2 (v2.11 8a): matchRows ranks by odds (oddsRank), real use, traction, score.
                                v2.10 item 4: `tools` = find, prepare, confirm, tell, sponsor_campaign, thin dispatchers
                                over `handlers` (the v2.9 functions: list_programs ... launch_token); FindInput,
                                PrepareInput, ConfirmInput (R15), TellToolInput (R16), markSubmitted (tell.submitted),
@@ -1123,7 +1134,8 @@ apps/frontend/
                                the DB is unreachable); GuidePage.has_bonus / bonus_amount;
                                v2.7 §2: readGuidePage(id) → GuidePage (curated only, else null; rejects
                                on a DB failure, never null)
-    pool.ts(+test)             v2.9 F21 (P18): openMoneyUsd (the top prize of every open curated program,
+    pool.ts(+test)             v2.11 T7: openCurated (the filter openMoneyUsd sums; the context line counts it).
+                               v2.9 F21 (P18): openMoneyUsd (the top prize of every open curated program,
                                summed; never an EarnKit campaign (campaign / earnkit_campaign), a sponsor's
                                (sponsored / source 'sponsor'), closed, not started or ended) and moneyText
                                ("$1.1M+", null at 0), the one money figure; stats.ts re-exports both

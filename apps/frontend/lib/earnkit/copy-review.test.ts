@@ -23,7 +23,7 @@ import {
 import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TELL_DESCRIPTION, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { bonusLine, presentFirstMessage, skippedLine, submitStepLine, type Card, type FirstMessage } from './present';
 import { SKIP_REASONS } from './match-projects';
-import { ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, CONFIRM_SHARED_NOTE, PROJECT_REOFFER_NOTE, SUBMITTED_AGAIN_NOTE, SUBMITTED_SHARED_NOTE, handlers } from './tools';
+import { BUILD_NOTE, PLAN_NOTE, ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, CONFIRM_SHARED_NOTE, PROJECT_REOFFER_NOTE, SUBMITTED_AGAIN_NOTE, SUBMITTED_SHARED_NOTE, handlers } from './tools';
 import { outcomeQuestion } from './outcomes';
 import { DEFAULT_GUIDANCE, PLAIN_FIX, PLAIN_LENGTH_FIX, PLAIN_NOTE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, walletAsk } from './coach';
 import { alsoText } from './also-qualifies';
@@ -123,6 +123,8 @@ import { landingFrom, statsLine } from './landing';
 import { bonusPillLabel } from '../../app/components/ui/BonusPill';
 import { eachLine, poolLine } from './pool';
 import { STARTERS } from './starters';
+import { contextLine, freshLeadLine, freshPick } from './fresh-build';
+import { TESTED_STARTERS, fileCards, withFreshBuild } from './fixtures/fresh-build';
 
 /**
  * v2.7 §4, Ruling 19 (plan): "coin" as a word in human-facing text, ignoring identifiers and URLs.
@@ -949,10 +951,30 @@ test('v2.9 Task 12: the Part 1 copy sweep sees the claim, floor, investment and 
   assert.doesNotMatch(v29FirstReply, /launches \$|40%|\bskip\b/);
 });
 
+/** v2.11 T7: the context line and the fresh lead (builds and chat-only; dated, tomorrow and rolling). */
+function freshTexts(): [string, string][] {
+  const now = new Date('2026-10-10T12:00:00Z');
+  const tomorrow = new Date('2026-10-13T05:00:00Z');
+  const cards = withFreshBuild(fileCards(), ['arc-microgrants']);
+  const opts = { hidden: new Set<string>(), entered: new Set<string>(), deployOn: () => true, hostOn: true, starters: TESTED_STARTERS };
+  const pick = freshPick(cards, now, opts)!;
+  const rolling = { ...pick, card: { ...pick.card, ends_at: null, summary: 'up to $5,000 · rolling' } };
+  return [
+    ['contextLine', contextLine(cards, now)!],
+    ...[true, false].flatMap((b): [string, string][] => [
+      [`freshLeadLine dated ${b}`, freshLeadLine(pick, now, b)],
+      [`freshLeadLine tomorrow ${b}`, freshLeadLine(pick, tomorrow, b)],
+      [`freshLeadLine rolling ${b}`, freshLeadLine(rolling, now, b)],
+    ]),
+  ];
+}
+
 const builderFacing: [string, string][] = [
   ...v29Part1Texts,
   // v2.11 T5 (5.3): a starter's "what" is builder copy (the fresh lead line).
   ...Object.values(STARTERS).map((s): [string, string] => [`STARTERS.${s.id}.what`, s.what]),
+  // v2.11 T7: the no-repo lead's context line and its lead, each variant.
+  ...freshTexts(),
   ['applied outside EarnKit', appliedOutsideText],
   ...tokenOfferTexts,
   ['NO_TOKEN_FOR_NOW', NO_TOKEN_FOR_NOW],
@@ -1036,6 +1058,8 @@ const builderFacing: [string, string][] = [
 // noCoinYet is the AGENT's note (never shown to the builder as written; see entry-text.ts), so it
 // may name launch_token — same bucket as OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS and the tool descriptions.
 const agentFacing: [string, string][] = [
+  ['BUILD_NOTE', BUILD_NOTE],
+  ['PLAN_NOTE', PLAN_NOTE],
   ['LAUNCHING_AGENT', LAUNCHING_AGENT],
   ['launchStuckAgent', launchStuckAgent('No answer from tokens.fun.')],
   ['SERVER_INSTRUCTIONS', SERVER_INSTRUCTIONS],
