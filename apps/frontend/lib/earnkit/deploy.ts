@@ -26,10 +26,10 @@ import { sql } from './db';
 import { shortWallet } from './entry-text';
 import { noteEvent } from './events';
 import { FREE_CAPS, forceFreeTier, giveBackFreeTier, takeFreeTier } from './free-tier';
-import { loginBasisFor } from './github-verify';
+import { loginBasisFor, provenOwnerLogin } from './github-verify';
 import { llamaPrice } from './prices';
 import { RateLimitError, enforce } from './rate-limit';
-import { proofLineOwner, repoOwnershipPasses, type OwnershipDeps } from './token-gate';
+import { proofLineOwner, repoOwnershipPasses, repoSignedIn, type OwnershipDeps } from './token-gate';
 import { markDeployed, rpcFor } from './verify';
 
 /**
@@ -53,7 +53,16 @@ export const DEPLOY_CAPS = {
   dayTotal: 20,
   perBuilderChainDay: 1,
   perBuilder30d: 3,
+  /** v2.11 T9 security fix N2: per repo, loose enough that no one prover locks the owner out. */
+  perRepoChainDay: 3,
+  perRepo30d: 10,
 } as const;
+
+/** v2.11 T9 security fix R3: the agent's note when a proof-line-only deploy has no proven owner login. */
+export const OWNER_PROOF_NOTE =
+  "EarnKit deploys from the earnkit.txt line only for the repo owner's own account: the owner's own push of the line (not a merge, " +
+  "a bot or a collaborator), the builder's GitHub username passed to find, and an account at least 30 days old with a public repo. " +
+  "Push the line from the builder's own account to a repo they own, or sign in with GitHub where that is offered. Tell the builder in one short line.";
 
 /** ERC-20 transfer, approve and totalSupply: bytecode PUSH4-ing all three is a token (refused). */
 export const ERC20_SELECTORS = ['a9059cbb', '095ea7b3', '18160ddd'] as const;
@@ -130,20 +139,6 @@ function opcodes(code: Hex): number[] {
     if (op >= 0x60 && op <= 0x7f) i += op - 0x5f;
   }
   return ops;
-}
-
-/**
- * v2.11 T9 security fix (M3): keccak256 of creation bytecode without its trailing Solidity CBOR
- * metadata (its length in the last 2 bytes), so the same source compiled anywhere hashes the same;
- * constructor arguments are never part of `bytecode`. Null when it isn't hex. Pure.
- */
-export function initcodeHash(bytecode: string): Hex | null {
-  if (!isHex(bytecode, { strict: true }) || bytecode.length < 6 || bytecode.length % 2 !== 0) return null;
-  const hex = bytecode.slice(2).toLowerCase();
-  const meta = parseInt(hex.slice(-4), 16);
-  const cut = (meta + 2) * 2;
-  const cbor = meta > 0 && cut < hex.length && /^[ab][0-9a-f]$/.test(hex.slice(hex.length - cut, hex.length - cut + 2));
-  return keccak256(`0x${cbor ? hex.slice(0, hex.length - cut) : hex}`);
 }
 
 /**
@@ -465,10 +460,11 @@ export async function deployForBuilder(
     input: DeployInput;
     /**
      * v2.11 T9 (ruling R-T6): the starter a build-path deploy came from, for its usage checks. The
-     * deployed event names it only when the bytecode is the starter's own (security fix M3:
-     * initcodeHash equals `initcode_hash`); else `starter: null`, so the checks fall back.
+     * deployed event names it only when the bytecode is exactly the starter's own (security fixes
+     * M3, N1: keccak256 of `bytecode` equals `bytecode_hash`); else `starter: null`, so the checks
+     * fall back.
      */
-    starter?: { id: string; initcode_hash: string | null };
+    starter?: { id: string; bytecode_hash: string | null };
     /**
      * v2.11 T9 security fix (I1): who pushed the earnkit.txt line (token-gate.ts proofLineOwner), when
      * the caller already read it; undefined: read here (off a shared client). Kept on the row, and a
@@ -504,8 +500,16 @@ export async function deployForBuilder(
     deps.gate,
   );
   if (!owns) return refused(DEPLOY_LINES.notYours);
-  const lineOwner = a.shared ? null : a.lineOwner !== undefined ? a.lineOwner : await proofLineOwner({ installationId: a.installationId, repoUrl: `https://github.com/${a.repoKey}` }, deps.gate);
   const repoKey = a.repoKey.toLowerCase();
+  // v2.11 T9 security fix R3: off a shared client with no sign-in or App proof of the repo, the
+  // earnkit.txt line alone is push access, and installations, repos and wallets are free. So a deploy
+  // there needs a proven login: GitHub's push record says the repo's owner wrote the line, the
+  // builder said that login is theirs, it is a User, and it passes the host gate (30 days, 1 public
+  // repo). Its caps are that login's. A sign-in or App proof keeps the v2.10 path unchanged.
+  const signedIn = a.shared || (await repoSignedIn({ installationId: a.installationId, repoKey }, deps.gate));
+  const lineOwner = a.shared ? null : a.lineOwner !== undefined ? a.lineOwner : signedIn ? null : await proofLineOwner({ installationId: a.installationId, repoUrl: `https://github.com/${a.repoKey}` }, deps.gate);
+  const owner = a.shared || !lineOwner ? null : await provenOwnerLogin(a.installationId, repoKey, lineOwner);
+  if (!signedIn && !owner) return { ...refused(DEPLOY_LINES.notYours), agent_note: OWNER_PROOF_NOTE };
   const wallet = a.builderWallet.toLowerCase();
   // Fix round 1 (I6): the builder is their verified login, else their installation.
   const who = (a.login ? a.login : a.shared ? a.repoKey : `installation:${a.installationId}`).toLowerCase();
@@ -517,37 +521,37 @@ export async function deployForBuilder(
     return paused();
   }
   // Pre-flight P16: the 30-day count and the reservation in one transaction, under a lock per builder.
-  // v2.11 T9 security fix (I3): with no sign-in a builder is an installation, and installations are
-  // free, so the same caps also hold per repo, per owner wallet and per proven line pusher: many
-  // installations on one repo, one wallet or one GitHub account still get once a day per chain and 3
-  // in 30 days. Each key is locked (sorted, so two deploys never deadlock).
+  // v2.11 T9 security fixes (I3, R2, R3, N2): the same caps also hold per proven owner login (once a
+  // day per chain, 3 in 30 days), and a looser per-repo cap stops farming one repo (3 a day per chain,
+  // 10 in 30 days, so a collaborator can't lock the owner out). Never per wallet: a wallet is only
+  // named, so a cap on it would let anyone block a victim's deploys. Each key is locked (sorted, so
+  // two deploys never deadlock).
   let rowId: number | 'blocked' | null;
   try {
     rowId = await sql().begin(async (tx) => {
-      const locks = [`contract-deploy:${who}`, `contract-deploy-repo:${repoKey}`, `contract-deploy-wallet:${wallet}`, ...(lineOwner ? [`contract-deploy-owner:${lineOwner}`] : [])].sort();
+      const locks = [`contract-deploy:${who}`, `contract-deploy-repo:${repoKey}`, ...(owner ? [`contract-deploy-owner:${owner}`] : [])].sort();
       for (const k of locks) await tx`SELECT pg_advisory_xact_lock(hashtext(${k}))`;
       const [{ n }] = await tx<{ n: number }[]>`
         SELECT count(*)::int AS n FROM contract_deploys
         WHERE builder_key = ${who} AND created_at > now() - interval '30 days'`;
       if (n >= DEPLOY_CAPS.perBuilder30d) return null;
-      const [o] = await tx<{ repo30: number; repoDay: number; walletDay: number; owner30: number; ownerDay: number }[]>`
+      const [o] = await tx<{ repo30: number; repoDay: number; owner30: number; ownerDay: number }[]>`
         SELECT
           count(*) FILTER (WHERE repo_key = ${repoKey})::int AS repo30,
           count(*) FILTER (WHERE repo_key = ${repoKey} AND chain = ${c} AND created_at > now() - interval '1 day')::int AS "repoDay",
-          count(*) FILTER (WHERE owner_wallet = ${wallet} AND chain = ${c} AND created_at > now() - interval '1 day')::int AS "walletDay",
-          count(*) FILTER (WHERE line_owner = ${lineOwner})::int AS owner30,
-          count(*) FILTER (WHERE line_owner = ${lineOwner} AND chain = ${c} AND created_at > now() - interval '1 day')::int AS "ownerDay"
+          count(*) FILTER (WHERE line_owner = ${owner})::int AS owner30,
+          count(*) FILTER (WHERE line_owner = ${owner} AND chain = ${c} AND created_at > now() - interval '1 day')::int AS "ownerDay"
         FROM contract_deploys
-        WHERE created_at > now() - interval '30 days' AND (repo_key = ${repoKey} OR owner_wallet = ${wallet} OR line_owner = ${lineOwner})`;
-      if (o.repo30 >= DEPLOY_CAPS.perBuilder30d || o.owner30 >= DEPLOY_CAPS.perBuilder30d) return null;
-      if (o.repoDay >= DEPLOY_CAPS.perBuilderChainDay || o.walletDay >= DEPLOY_CAPS.perBuilderChainDay || o.ownerDay >= DEPLOY_CAPS.perBuilderChainDay) return null;
+        WHERE created_at > now() - interval '30 days' AND (repo_key = ${repoKey} OR line_owner = ${owner})`;
+      if (o.repo30 >= DEPLOY_CAPS.perRepo30d || o.owner30 >= DEPLOY_CAPS.perBuilder30d) return null;
+      if (o.repoDay >= DEPLOY_CAPS.perRepoChainDay || o.ownerDay >= DEPLOY_CAPS.perBuilderChainDay) return null;
       // Fix round 2 (N2): a builder whose contract created contracts at deploy deploys no more.
       const [blocked] = await tx`SELECT 1 FROM contract_deploys WHERE builder_key = ${who} AND blocked LIMIT 1`;
       if (blocked) return 'blocked' as const;
       const [row] = await tx<{ id: number }[]>`
         INSERT INTO contract_deploys (installation_id, login, builder_key, repo_key, chain, tx_hash, status, cost_micro_usd, owner_wallet, line_owner)
         VALUES (${a.installationId}, ${a.login?.toLowerCase() ?? null}, ${who}, ${repoKey}, ${c}, '', 'sent', 0,
-          ${wallet}, ${lineOwner})
+          ${wallet}, ${owner})
         RETURNING id`;
       return row.id;
     });
@@ -659,7 +663,7 @@ export async function deployForBuilder(
     // v2.11 T3: the row is `deployed`: its event, with the tx, the address, the block and the owner check.
     const deployedEvent = (address: string, ownerOk: boolean | null, codeDiffers = false) =>
       noteEvent('deployed', async () => {
-        const who = await loginBasisFor(a.installationId, a.repoKey, a.shared ? { callerLogin: a.login } : { lineOwner });
+        const who = await loginBasisFor(a.installationId, a.repoKey, a.shared ? { callerLogin: a.login } : { lineOwner: owner });
         return {
           type: 'deployed',
           dedupe_key: `deployed:${id}`,
@@ -673,7 +677,7 @@ export async function deployForBuilder(
             address,
             owner_ok: ownerOk,
             ...(receipt.blockNumber !== undefined && { block: Number(receipt.blockNumber) }),
-            ...(a.starter && { starter: a.starter.initcode_hash !== null && initcodeHash(a.input.bytecode) === a.starter.initcode_hash ? a.starter.id : null }),
+            ...(a.starter && { starter: a.starter.bytecode_hash !== null && keccak256(a.input.bytecode) === a.starter.bytecode_hash.toLowerCase() ? a.starter.id : null }),
             // Review M1: the builder was told not to use it; usage checks and the metric leave it out.
             ...(codeDiffers && { code_differs: true }),
           },

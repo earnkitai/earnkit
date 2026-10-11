@@ -406,6 +406,18 @@ export async function proofLineOwner(a: { installationId: number; repoUrl: strin
   }
 }
 
+/**
+ * v2.11 T9 security fix R3: whether this installation proved `repoKey` by a GitHub sign-in or the
+ * read-only App (OwnershipDeps.repoVerified), the v2.10 proofs a deploy keeps as they were.
+ */
+export async function repoSignedIn(a: { installationId: number; repoKey: string }, deps: OwnershipDeps = {}): Promise<boolean> {
+  try {
+    return await (deps.repoVerified ?? repoVerified)({ installationId: a.installationId, repoKey: a.repoKey.toLowerCase() });
+  } catch {
+    return false;
+  }
+}
+
 declare const provenRepo: unique symbol;
 /**
  * v2.11 T9 security fix (M1): a repo this installation just proved (repoOwnershipPasses), and who

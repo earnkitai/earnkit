@@ -585,6 +585,22 @@ test('T9 I1 fetchLinePusher: the actor of the push that introduced the line; nev
   assert.equal((await run([push('alice', sha(1), sha(2))], {})).got, null);
   assert.equal((await run([], {}, 403)).got, null);
   assert.equal((await run([push('alice', ZERO, sha(1), { type: 'branch_deletion' })], { [sha(1)]: LINE })).got, null);
+  // R1: a fork PR merged by alice, a merge queue merge, a force push: the mover wrote nothing, so no one.
+  const files12 = { [sha(1)]: 'readme', [sha(2)]: LINE };
+  assert.equal((await run([push('alice', sha(1), sha(2), { type: 'pr_merge' })], files12)).got, null, 'a fork PR the owner merged');
+  assert.equal((await run([push('alice', sha(1), sha(2), { type: 'merge_queue_merge' })], files12)).got, null);
+  assert.equal((await run([push('alice', sha(1), sha(2), { type: 'force_push' })], files12)).got, null, 'a force push or reset');
+  // The owner's direct push: the owner.
+  assert.equal((await run([push('alice', sha(1), sha(2))], files12)).got, 'alice');
+  // A branch created from a commit (not the repo's first event): no one; traced to the owner's own push: the owner.
+  assert.equal((await run([push('alice', ZERO, sha(2), { type: 'branch_creation', ref: 'refs/heads/b' }), push('bob', sha(9), sha(1))], files12)).got, null);
+  assert.equal((await run([push('alice', ZERO, sha(2), { type: 'branch_creation', ref: 'refs/heads/b' }), push('alice', sha(1), sha(2))], files12)).got, 'alice');
+  // alice fast-forwards main onto mallory's pushed commit: mallory, never alice.
+  const ff = [push('alice', sha(1), sha(3)), push('mallory', sha(1), sha(3), { ref: 'refs/heads/feature' })];
+  assert.equal((await run(ff, { [sha(1)]: 'x', [sha(3)]: LINE })).got, 'mallory');
+  // A first-event creation on a page that is not the whole history: no one.
+  const full = [push('alice', ZERO, sha(1), { type: 'branch_creation' }), ...Array.from({ length: 49 }, () => ({ activity_type: 'branch_deletion', ref: 'refs/heads/x' }))].reverse().reverse();
+  assert.equal((await run([...full.slice(1), full[0]], { [sha(1)]: LINE })).got, null);
   // More reads than allowed: null, and it stops reading.
   const long = Array.from({ length: 10 }, (_, i) => push('alice', sha(i + 10), sha(i + 11))).reverse();
   const many = await run(long, Object.fromEntries(Array.from({ length: 12 }, (_, i) => [sha(i + 10), LINE])));

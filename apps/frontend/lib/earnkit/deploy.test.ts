@@ -25,7 +25,8 @@ import {
 } from './deploy';
 import { QUIET_OWNER, cronPost, deployerGas } from './cron';
 import { createServer } from 'node:http';
-import { ETH_USD_BAND, initcodeHash, nativeUsd, viemDeployChain } from './deploy';
+import { ETH_USD_BAND, OWNER_PROOF_NOTE, nativeUsd, viemDeployChain } from './deploy';
+import { keccak256 } from 'viem';
 import { ARC_TIPJAR_ABI, ARC_TIPJAR_BYTECODE } from './fixtures/arc-tipjar-artifact';
 import { forceFreeTier, periodKey, takeFreeTier } from './free-tier';
 import { contractDeployed } from './verify';
@@ -79,7 +80,7 @@ test('10.1 deployRefusal: bytecode that is not hex, or constructor args that do 
 test('10.1 deployedLine: the name, the chain and the short address; the owner sentence only when the builder owns it', () => {
   assert.equal(deployedLine('TipJar', 'arc', '0x12ab000000000000000000000000000000009f3e', true), "TipJar is deployed on Arc: 0x12ab…9f3e. You're the owner.");
   assert.equal(deployedLine('TipJar', 'base', '0x12ab000000000000000000000000000000009f3e', false), 'TipJar is deployed on Base: 0x12ab…9f3e.');
-  assert.deepEqual(DEPLOY_CAPS, { initcodeBytes: 49_152, runtimeBytes: 24_576, perDeployUsd: 0.25, monthMicroUsd: 10_000_000, dayTotal: 20, perBuilderChainDay: 1, perBuilder30d: 3 });
+  assert.deepEqual(DEPLOY_CAPS, { initcodeBytes: 49_152, runtimeBytes: 24_576, perDeployUsd: 0.25, monthMicroUsd: 10_000_000, dayTotal: 20, perBuilderChainDay: 1, perBuilder30d: 3, perRepoChainDay: 3, perRepo30d: 10 });
 });
 
 // ---- 10.2 the key
@@ -240,6 +241,29 @@ async function setup(o: { proof?: boolean; shared?: boolean; login?: string } = 
   if (o.proof !== false) await proofRow(id, repoKey, o.login);
   return { installationId: id, repoKey, shared: o.shared ?? false };
 }
+/**
+ * T9 security fix R3: a non-shared installation with no sign-in whose repo `<owner>/<name>` holds its
+ * earnkit.txt line, the builder's said login (`githubUser`), GitHub's cached account read for the
+ * owner (`days` old, 2 public repos, `type`) and the push record (`pusher`, default the owner).
+ */
+async function ownerSetup(o: { owner?: string; name?: string; githubUser?: string | null; days?: number; type?: string; pusher?: string | null } = {}) {
+  const s = await setup({ proof: false });
+  const owner = (o.owner ?? s.repoKey.split('/')[0]).toLowerCase();
+  const repoKey = `${owner}/${o.name ?? 'tipjar'}`;
+  await sql()`UPDATE installations SET github_user = ${o.githubUser === undefined ? owner : o.githubUser} WHERE id = ${s.installationId}`;
+  const note = JSON.stringify({ type: o.type ?? 'User', created_at: new Date(Date.now() - (o.days ?? 400) * 86_400_000).toISOString(), public_repos: 2 });
+  await sql()`
+    INSERT INTO url_checks (key, ok, checked_at, note) VALUES (${`ghuser:${owner}`}, true, now(), ${note})
+    ON CONFLICT (key) DO UPDATE SET ok = true, checked_at = now(), note = EXCLUDED.note`;
+  const { tokenLineFor } = await import('./token-gate');
+  const gate = {
+    owner: async (r: { owner: string; repo: string }) => ({ status: 'ok' as const, text: `${tokenLineFor(s.installationId, `https://github.com/${r.owner}/${r.repo}`)}\n` }),
+    latest: async () => null,
+    pusher: async () => (o.pusher === undefined ? owner : o.pusher),
+  };
+  return { ...s, repoKey, owner, gate };
+}
+
 // A month of its own (far from real time) per call, so the global counters start at zero: years 2100
 // to 2149 belong to this file, and each test clears them first (other files use other years).
 let months = 0;
@@ -478,15 +502,40 @@ test("10.5 a shared client: no signed_in login is notYours even when another log
   }),
 );
 
-test('10.5 the proof line in earnkit.txt proves the repo on a non-shared client (no sign-in row)', dbTest, () =>
+test('10.5 the proof line in earnkit.txt proves the repo on a non-shared client (no sign-in row) when the owner\'s own proven account pushed it (T9 R3)', dbTest, () =>
   withDeployer(async () => {
-    const s = await setup({ proof: false });
-    const { tokenLineFor } = await import('./token-gate');
-    const line = tokenLineFor(s.installationId, `https://github.com/${s.repoKey}`);
-    assert.ok(line, 'EARNKIT_AUTH_SECRET set for the test');
+    const s = await ownerSetup();
     const { chain } = fakeChain();
-    const out = await deployForBuilder(call(s), deps(chain, { gate: { owner: async () => ({ status: 'ok' as const, text: `${line}\n` }), latest: async () => null } }));
+    const out = await deployForBuilder(call(s), deps(chain, { gate: s.gate }));
     assert.equal(out.status, 'deployed');
+    const [row] = await sql()<{ line_owner: string | null }[]>`SELECT line_owner FROM contract_deploys WHERE repo_key = ${s.repoKey}`;
+    assert.equal(row.line_owner, s.owner, 'capped by the proven owner login');
+  }, { EARNKIT_AUTH_SECRET: 'deploy-test-secret' }),
+);
+
+test('T9 R3: a proof-line-only deploy with no proven owner login is refused with the agent note, nothing sent: a collaborator or merge push, no push record, a lying or missing github_user, an org, a 10-day account', dbTest, () =>
+  withDeployer(async () => {
+    const cases: [string, Parameters<typeof ownerSetup>[0]][] = [
+      ["a collaborator's push", { pusher: 'mallory-x' }],
+      ['no push record (a merge, a bot, a force push)', { pusher: null }],
+      ['a github_user that lies', { githubUser: 'someone-else' }],
+      ['no github_user', { githubUser: null }],
+      ['an org', { type: 'Organization' }],
+      ['a 10-day account', { days: 10 }],
+    ];
+    for (const [label, o] of cases) {
+      await nextWallet();
+      const s = await ownerSetup(o);
+      const { chain, calls } = fakeChain();
+      const out = await deployForBuilder(call(s), deps(chain, { gate: s.gate }));
+      assert.deepEqual(out, { status: 'refused', show_to_builder: DEPLOY_LINES.notYours, agent_note: OWNER_PROOF_NOTE }, label);
+      assert.equal(calls.estimate + calls.send.length, 0, label);
+      assert.equal((await rowsOf(s.repoKey)).length, 0, label);
+    }
+    // A sign-in proof keeps v2.10 as it was: no pusher needed.
+    await nextWallet();
+    const signed = await setup();
+    assert.equal((await deployForBuilder(call(signed), deps(fakeChain().chain, { gate: { ...noProofLine, pusher: async () => null } }))).status, 'deployed');
   }, { EARNKIT_AUTH_SECRET: 'deploy-test-secret' }),
 );
 
@@ -1023,6 +1072,7 @@ test('3.8 a deploy proven by the proof line alone records the owner only for the
       const lineDeploy = async (type: 'User' | 'Organization', pusher?: string) => {
         await nextWallet();
         const s = await setup({ proof: false });
+        // T9 R3: only the owner's own proven account deploys; the others are refused (tested in R3).
         const owner = s.repoKey.split('/')[0].toLowerCase();
         await sql()`UPDATE installations SET github_user = ${owner} WHERE id = ${s.installationId}`;
         await sql()`
@@ -1039,14 +1089,7 @@ test('3.8 a deploy proven by the proof line alone records the owner only for the
       const user = await lineDeploy('User');
       assert.equal(user.e.github_login, user.owner);
       assert.equal(user.e.login_basis, 'proof_line');
-      assert.equal(user.lineOwner, user.owner, 'the row keeps the pusher');
-      const collab = await lineDeploy('User', 'mallory-pushed-it');
-      assert.equal(collab.e.type, 'deployed', 'a collaborator\'s push still deploys');
-      assert.deepEqual([collab.e.github_login, collab.e.login_basis], [null, null], "a collaborator's push never names the owner");
-      assert.equal(collab.lineOwner, 'mallory-pushed-it');
-      const org = await lineDeploy('Organization');
-      assert.equal(org.e.type, 'deployed', 'the deploy is still logged');
-      assert.deepEqual([org.e.github_login, org.e.login_basis], [null, null], 'an org is never recorded as the builder');
+      assert.equal(user.lineOwner, user.owner, 'the row keeps the proven owner');
 
       await nextWallet();
       const bobLogin = `bob${process.pid}y${Date.now()}`;
@@ -1089,57 +1132,49 @@ test('review M1: a deploy whose stored code differs is logged with code_differs,
 
 // ---- v2.11 T9 security fix (I3): caps per repo, per owner wallet and per proven line pusher
 
-test('T9 I3: many installations on one repo, one owner wallet or one line pusher are capped like one builder; the global day cap stays', dbTest, () =>
+test('T9 I3/R2/R3/N2: the caps hold per proven owner login and per repo (looser), never per named wallet; the installation and global caps stay', dbTest, () =>
   withDeployer(async () => {
     const t0 = Date.now().toString(16).padStart(28, '0');
     const W = (n: number) => `0x${String(n).padStart(4, '0')}${process.pid.toString(16).padStart(8, '0')}${t0}`.slice(0, 42) as Address;
     const run = (s: { installationId: number; repoKey: string }, wallet: Address, o: { chain?: 'arc' | 'base'; gate?: DeployDeps['gate'] } = {}) =>
       deployForBuilder({ ...call(s, input({ chain: o.chain ?? 'base' })), builderWallet: wallet }, deps(fakeChain().chain, o.gate ? { gate: o.gate } : {}));
-    // One repo, two installations (each proved it), two wallets: the second is limited.
+    // R2: an attacker deploys naming the victim's wallet; the victim's own deploy that day still goes.
+    const attacker = await setup();
+    const victim = await setup();
+    assert.equal((await run(attacker, W(1))).status, 'deployed');
+    assert.equal((await run(victim, W(1))).status, 'deployed', "a named wallet never caps anyone's deploys");
+    // One proven owner login, two installations, two of its repos: the second is limited that day.
+    const owner = `pz${process.pid}${Date.now().toString(36)}`;
+    const e = await ownerSetup({ owner, name: 'one' });
+    const f = await ownerSetup({ owner, name: 'two' });
+    assert.equal((await run(e, W(2), { gate: e.gate })).status, 'deployed');
+    assert.deepEqual(await run(f, W(3), { gate: f.gate }), { status: 'refused', show_to_builder: DEPLOY_LINES.limit }, 'one owner login');
+    // N2: one repo, several installations that proved it (sign-ins): 3 a day per chain, then limited.
     const a = await setup();
-    const b = await setup({ proof: false });
-    await proofRow(b.installationId, a.repoKey);
-    assert.equal((await run(a, W(1))).status, 'deployed');
-    assert.deepEqual(await run({ ...b, repoKey: a.repoKey }, W(2)), { status: 'refused', show_to_builder: DEPLOY_LINES.limit }, 'one repo');
-    // One wallet, two installations, two repos: the second is limited on that chain, not on the other.
-    const c = await setup();
-    const d = await setup();
-    assert.equal((await run(c, W(3))).status, 'deployed');
-    assert.deepEqual(await run(d, W(3)), { status: 'refused', show_to_builder: DEPLOY_LINES.limit }, 'one wallet');
-    assert.equal((await run(d, W(3), { chain: 'arc' })).status, 'deployed', 'the other chain');
-    // One GitHub account pushing the line in two repos from two installations: the second is limited.
-    const pusher = `pz${process.pid}${Date.now().toString(36)}`;
-    const gate = { ...noProofLine, pusher: async () => pusher };
-    const e = await setup();
-    const f = await setup();
-    assert.equal((await run(e, W(4), { gate })).status, 'deployed');
-    assert.deepEqual(await run(f, W(5), { gate }), { status: 'refused', show_to_builder: DEPLOY_LINES.limit }, 'one pusher');
-    // 3 in 30 days on one repo from other installations: limited.
+    const more = [await setup({ proof: false }), await setup({ proof: false }), await setup({ proof: false })];
+    for (const m of more) await proofRow(m.installationId, a.repoKey);
+    assert.equal((await run(a, W(4))).status, 'deployed');
+    assert.equal((await run({ ...more[0], repoKey: a.repoKey }, W(5))).status, 'deployed');
+    assert.equal((await run({ ...more[1], repoKey: a.repoKey }, W(6))).status, 'deployed');
+    assert.deepEqual(await run({ ...more[2], repoKey: a.repoKey }, W(7)), { status: 'refused', show_to_builder: DEPLOY_LINES.limit }, '4th on one repo in a day');
+    // 10 in 30 days on one repo: limited.
     const g = await setup();
     await sql()`
       INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, status, cost_micro_usd, created_at)
       SELECT ${g.installationId}, 'installation:other' || n, ${g.repoKey}, 'arc', '0x01', 'deployed', 1, now() - make_interval(days => n + 2)
-      FROM generate_series(1, 3) n`;
-    assert.deepEqual(await run(g, W(6)), { status: 'refused', show_to_builder: DEPLOY_LINES.limit }, '3 in 30 days on the repo');
+      FROM generate_series(1, 10) n`;
+    assert.deepEqual(await run(g, W(8)), { status: 'refused', show_to_builder: DEPLOY_LINES.limit }, '10 in 30 days on the repo');
   }, { EARNKIT_AUTH_SECRET: 'deploy-test-secret' }),
 );
 
-test('T9 M3: initcodeHash ignores the CBOR metadata and nothing else; the real arc-tipjar bytecode hashes to the registry value', () => {
-  const hash = initcodeHash(ARC_TIPJAR_BYTECODE)!;
-  assert.equal(hash, '0x7e10c26c980aa0cd242f49411e7079757439e0cc26dcc54f01aa0d0981c5c50d');
-  // Another metadata hash (the same source from another path): the same.
-  const other = `${ARC_TIPJAR_BYTECODE.slice(0, -20)}${'ab'.repeat(8)}0033` as Hex;
-  assert.equal(initcodeHash(other), hash);
-  // One code byte changed: different.
-  const changed = `${ARC_TIPJAR_BYTECODE.slice(0, 40)}${ARC_TIPJAR_BYTECODE.slice(40, 42) === '00' ? '01' : '00'}${ARC_TIPJAR_BYTECODE.slice(42)}` as Hex;
-  assert.notEqual(initcodeHash(changed), hash);
-  assert.equal(initcodeHash('0xzz'), null);
+test('T9 N1: the registry hash is the exact forge bytecode (metadata included)', () => {
+  assert.equal(keccak256(ARC_TIPJAR_BYTECODE), '0xa6f7f8eea13d3342af071976fe7d480df0fdeda009e3eb4ffd3920e673df9f2e');
 });
 
 test('T9 M3: the deployed event names the starter only for its own bytecode; other bytecode gets starter null', dbTest, () =>
   withEventLog(() =>
     withDeployer(async () => {
-      const starter = { id: 'arc-tipjar', initcode_hash: '0x7e10c26c980aa0cd242f49411e7079757439e0cc26dcc54f01aa0d0981c5c50d' };
+      const starter = { id: 'arc-tipjar', bytecode_hash: '0xa6f7f8eea13d3342af071976fe7d480df0fdeda009e3eb4ffd3920e673df9f2e' };
       const deployOf = async (i: DeployInput) => {
         await nextWallet();
         const s = await setup();
@@ -1149,6 +1184,9 @@ test('T9 M3: the deployed event names the starter only for its own bytecode; oth
       const real = input({ chain: 'arc', bytecode: ARC_TIPJAR_BYTECODE, abi: ARC_TIPJAR_ABI as unknown as Abi, constructor_args: [BUILDER, 'PodTips', '1000000'] });
       assert.equal(await deployOf(real), 'arc-tipjar');
       assert.equal(await deployOf(input({ chain: 'arc' })), null, 'any other bytecode');
+      // N1: the real bytecode with a suffix (say, a crafted owner word and length bytes) is not the starter's.
+      const suffixed = `${ARC_TIPJAR_BYTECODE}${'00'.repeat(12)}${BUILDER.slice(2)}0040` as Hex;
+      assert.equal(await deployOf({ ...real, bytecode: suffixed }), null, 'an appended suffix');
     }),
   ),
 );
