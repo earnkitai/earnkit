@@ -131,11 +131,12 @@ export async function noteEvent(type: EventType, build: () => Promise<BuilderEve
   clearTimeout(timer);
 }
 
-// ---- v2.11 T11 (spec 7, plan S12): usage checks at 30 and 90 days, inside the daily cron.
+// ---- v2.11 T11 (spec 7, plan S12): usage checks at 30 and 90 days, inside the existing hourly cron
+// (.github/workflows/earnkit-cron.yml, `15 * * * *`; no new schedule).
 
 /** The windows, in days after the deploy. */
 export const USAGE_WINDOWS = [30, 90] as const;
-/** At most this many checks a cron run (spec 7). */
+/** At most this many checks a cron run (spec 7). Checks, not reads: an Arc check makes up to 52 RPC calls (getCode, head, 50 getLogs), bounded by the cron's deadline. */
 export const USAGE_LIMIT = 20;
 /**
  * Blocks per eth_getLogs call on Arc. rpc.mainnet.arc.io (2026-10-10, T11 run): a 10,000-block range
@@ -166,7 +167,7 @@ export const STARTER_USAGE: Record<string, StarterUsage> = {
 /** An event signature's topic 0. Pure. */
 export const usageTopic = (signature: string): Hex => toEventSelector(signature);
 
-/** The last `max` eth_getLogs ranges of `size` blocks ending at `head` (inclusive), oldest first, never below block 0. Pure. */
+/** The last `max` eth_getLogs ranges of `size` blocks ending at `head` (inclusive), oldest first, never below block 0. Pure. (readUsage reads them newest first.) */
 export function recentChunks(head: bigint, size = ARC_LOG_CHUNK, max = ARC_LOG_MAX_CHUNKS): [bigint, bigint][] {
   const span = size * BigInt(max);
   let start = head + 1n > span ? head + 1n - span : 0n;
@@ -179,7 +180,12 @@ export function recentChunks(head: bigint, size = ARC_LOG_CHUNK, max = ARC_LOG_M
   return ranges;
 }
 
-/** Concern 4: after this many failed runs in a row, a deploy is skipped for USAGE_SKIP_DAYS. */
+/**
+ * Concern 4 and review I1: the cron is hourly, so a failing deploy is tried at most once per
+ * USAGE_RETRY_HOURS (5 failures in a row span about 4 days, not 5 hours); after USAGE_SKIP_AFTER
+ * failures in a row it sits out USAGE_SKIP_DAYS from its last failure.
+ */
+export const USAGE_RETRY_HOURS = 20;
 export const USAGE_SKIP_AFTER = 5;
 export const USAGE_SKIP_DAYS = 7;
 
@@ -190,7 +196,10 @@ export type UsageDeps = {
   only?: string[];
   /** No new check starts after this time (ms; the cron's budget). */
   deadline?: number;
-  /** Test seam: the selection and writes go here. */
+  /**
+   * Test seam: the selection, the failure counter and the usage_check write go here. Not the Base
+   * count's 24 h cache: verify.ts txCount keeps it in url_checks through sql() (review M7).
+   */
   db?: Db;
   /** Blockscout counters read (verify.ts txCount's seam). */
   blockscout?: CheckDeps['blockscout'];
@@ -247,12 +256,16 @@ async function readUsage(d: DueDeploy, address: string, now: Date, deps: UsageDe
   const chain = d.chain;
   const getCode = deps.getCode ?? defaultReads.getCode;
   const code = hasCode(await getCode(chain, address));
+  // `window` is the due window (30 or 90, the dedupe key's); it says when the check ran, not what a
+  // count covers (Base's tx_count is lifetime, Arc's `recent` is ~2.9 days). Review M3.
   const base = { window: d.win, deployed_event: Number(d.id), address };
   if (chain === 'base') {
     // v2.10's Blockscout counters (cached 24 h in url_checks); null is a failed read.
     const tx = await txCount('base', address, { now, ...(deps.blockscout && { blockscout: deps.blockscout }) });
     if (tx === null) throw new Error('no count');
-    return { ...base, tx_count: tx, code, source: 'blockscout' };
+    // Review M2: Blockscout's transactions_count is the address's lifetime count (deploy to check),
+    // not a 30 or 90 day count; tx_scope says so.
+    return { ...base, tx_count: tx, tx_scope: 'lifetime', code, source: 'blockscout' };
   }
   const starter = chain === 'arc' && typeof d.detail.starter === 'string' ? STARTER_USAGE[d.detail.starter] : undefined;
   if (!starter) return { ...base, code, source: 'rpc_code' };
@@ -266,16 +279,18 @@ async function readUsage(d: DueDeploy, address: string, now: Date, deps: UsageDe
   let tips = 0;
   const senders = new Set<string>();
   let read = 0;
-  for (const [lo, hi] of ranges) {
-    // Past the cron's deadline, the blocks read so far are written, marked partial.
+  // Newest first (review M1): past the cron's deadline, the latest blocks read so far are written,
+  // marked partial.
+  const newest = [...ranges].reverse();
+  for (const [lo, hi] of newest) {
     if (read > 0 && deps.deadline !== undefined && Date.now() >= deps.deadline) break;
     const r = await arcLogs(address, topic, lo, hi);
     tips += r.count;
     for (const s of r.senders) senders.add(s.toLowerCase());
     read++;
   }
-  const lo = ranges[0][0];
-  const hi = ranges[read - 1][1];
+  const lo = newest[read - 1][0];
+  const hi = newest[0][1];
   return {
     ...base,
     code,
@@ -297,9 +312,11 @@ async function readUsage(d: DueDeploy, address: string, now: Date, deps: UsageDe
  * for that window yet, oldest first, at most `limit` a run, reads whether the contract is still
  * there and how much it was used, and writes one `usage_check` (dedupe_key
  * `usage:<deployed event id>:<window>`). A deploy past 90 days gets only its 90-day check. A
- * code_differs deploy (the builder was told not to use it) is never checked. A deploy that failed
- * USAGE_SKIP_AFTER runs in a row (usage_check_failures) sits out USAGE_SKIP_DAYS, so it never blocks
- * newer ones; a pass clears its count. Off with the log off
+ * code_differs deploy (the builder was told not to use it) or one whose address isn't an address is
+ * never checked. A failing deploy
+ * is tried at most once per USAGE_RETRY_HOURS, and after USAGE_SKIP_AFTER failures in a row
+ * (usage_check_failures) sits out USAGE_SKIP_DAYS, so it never blocks newer ones; a pass clears its
+ * count. Off with the log off
  * (no read, no write). A failed read writes nothing, counts as failed and is read again next run;
  * nothing here ever throws.
  */
@@ -322,10 +339,11 @@ export async function usageChecks(now: Date, deps: UsageDeps = {}): Promise<{ ch
           SELECT e.*, CASE WHEN e.at <= ${t90} THEN ${w90}::int ELSE ${w30}::int END AS win
           FROM builder_events e
           WHERE e.type = 'deployed' AND e.at <= ${t30} AND e.chain IN ('arc', 'base')
-            AND e.detail ? 'address' AND coalesce(e.detail->>'code_differs', 'false') <> 'true'
+            AND e.detail->>'address' ~* '^0x[0-9a-f]{40}$' AND coalesce(e.detail->>'code_differs', 'false') <> 'true'
             AND (${deps.only ?? null}::bigint[] IS NULL OR e.id = ANY(${deps.only ?? null}::bigint[]))
             AND NOT EXISTS (SELECT 1 FROM usage_check_failures f WHERE f.deployed_event_id = e.id
-              AND f.failures >= ${USAGE_SKIP_AFTER} AND f.last_failed_at > ${new Date(now.getTime() - USAGE_SKIP_DAYS * 86_400_000)})
+              AND (f.last_failed_at > ${new Date(now.getTime() - USAGE_RETRY_HOURS * 3_600_000)}
+                OR (f.failures >= ${USAGE_SKIP_AFTER} AND f.last_failed_at > ${new Date(now.getTime() - USAGE_SKIP_DAYS * 86_400_000)})))
         ) d
         WHERE NOT EXISTS (SELECT 1 FROM builder_events u WHERE u.dedupe_key = 'usage:' || d.id || ':' || d.win)
         ORDER BY d.at, d.id
@@ -359,6 +377,13 @@ export async function usageChecks(now: Date, deps: UsageDeps = {}): Promise<{ ch
         deps.db,
       );
       if (wrote) out.checked++;
+      else {
+        // Review I2: recordEvent answers false for a duplicate and for a failed write alike. A row
+        // that is there (another run wrote it) is done; one that isn't is a failure.
+        const key = `usage:${d.id}:${d.win}`;
+        const [there] = await q<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_events WHERE dedupe_key = ${key}`;
+        if (!there || there.n === 0) throw new Error('usage_check not written');
+      }
       await q`DELETE FROM usage_check_failures WHERE deployed_event_id = ${d.id}`.catch((e: unknown) =>
         console.error(`[events] usage_check failures ${errName(e)}`),
       );

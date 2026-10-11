@@ -4069,17 +4069,20 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
 
 - **Where it runs.** `events.ts usageChecks(now, deps)` is one step inside `runCron`, after
   `deployerGas`; its counts go in the cron's JSON as `usage_checks: { checked, failed }`. No new
-  schedule. Off while `EARNKIT_EVENT_LOG` is off (no read, no write). With `only` (tests, the e2e)
+  schedule: the existing cron is hourly (`.github/workflows/earnkit-cron.yml`, `15 * * * *`), and
+  with nothing due a run costs one SELECT. Off while `EARNKIT_EVENT_LOG` is off (no read, no write). With `only` (tests, the e2e)
   it runs only when `CronDeps.usage` is given. It never adds a `needs_owner` line: a failure is
   logged and the run answers 200.
-- **What is due.** A `deployed` event on arc or base with a `detail.address`, not `code_differs`,
+- **What is due.** A `deployed` event on arc or base whose `detail.address` is a 0x address, not `code_differs`,
   at least 30 days old, with no `usage:<event id>:<window>` row yet. The window is 90 once the event
   is 90 days old, else 30, so a deploy first seen past 90 days gets only its 90-day check. Oldest
-  first, at most `USAGE_LIMIT` (20) a run, and no new check starts after the cron's deadline.
+  first, at most `USAGE_LIMIT` (20) checks a run (checks, not reads: an Arc check makes up to 52 RPC
+  calls, getCode, head and 50 getLogs), and no new check starts after the cron's deadline.
 - **What it reads** (free sources only; each read once a run, never retried in the run):
   - every chain: `eth_getCode` on the public RPC (`verify.ts rpcFor`), `code: true|false`;
   - Base: Blockscout counters through `verify.ts txCount` (cached 24 h in `url_checks`),
-    `tx_count`, `source: 'blockscout'`;
+    `tx_count` with `tx_scope: 'lifetime'` (Blockscout's count runs from the deploy to the check,
+    never a 30 or 90 day count), `source: 'blockscout'`;
   - Arc with a known starter (`detail.starter`, mapped by `STARTER_USAGE`, the read rule T5
     folds into `STARTERS`: `{ usage_event, usage_read: 'recent_logs' }`; today `arc-tipjar` is
     `Tipped(address,uint256,string)`, topic `0x4f629a5f...73c2`): the chain-kits `UsdcTipJar`
@@ -4087,9 +4090,9 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
     owner, so the balance says nothing), and a whole 30 or 90 days is 510 to 1,530 calls. So the
     check counts the starter's logs over the RECENT window only: `recentChunks`, the last
     `ARC_LOG_MAX_CHUNKS` (50) ranges of `ARC_LOG_CHUNK` (10,000) blocks ending at the head, about
-    the last 2.9 days. It writes `recent: { window: 'recent', blocks, from_block, to_block, tips,
+    the last 2.9 days, read newest first. It writes `recent: { window: 'recent', blocks, from_block, to_block, tips,
     unique }` (unique = distinct first indexed arguments, Tipped's `from`), with `partial: true` when
-    the cron's deadline came first (the blocks read are kept), and `source: 'rpc_logs'`. It answers
+    the cron's deadline came first (the newest blocks read are kept), and `source: 'rpc_logs'`. It answers
     "is it still used", never a 30 or 90 day total. The deploy block isn't needed (checks are 30+
     days after it). explorer.arc.io's API is behind a Cloudflare challenge, so it is not used;
   - Arc without a known starter: `eth_getCode` only, `source: 'rpc_code'`.
@@ -4100,10 +4103,15 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
   `usage:<deployed event id>:<30|90>`), with the deploy's chain, installation, repo, wallet, login
   and basis, program and project, `at = now`, and `detail: { window: 30|90, deployed_event, address,
   code, source, tx_count? (Base) | recent? (Arc starter) }`. A failed read writes nothing, counts as
-  `failed`, logs `[events] usage_check <ErrorName>` only, and is read again on the next daily run.
+  `failed`, logs `[events] usage_check <ErrorName>` only, and is tried again 20 hours later at the
+  earliest. A usage_check write that fails counts as a failure too: `recordEvent` answers false for a
+  duplicate and a failed write alike, so a false is checked against the dedupe row (there: another
+  run wrote it, done; missing: failed). The top-level `window` is the due window (when the check ran),
+  not what a count covers; T13's metric must never sum `recent.tips` per 30 or 90 days.
 - **Failures in a row** (`usage_check_failures`, a plain counter table outside the append-only log:
   `deployed_event_id`, `failures`, `last_failed_at`): each failed check adds one; a pass deletes the
-  row. After `USAGE_SKIP_AFTER` (5) failures in a row the deploy sits out `USAGE_SKIP_DAYS` (7) from
+  row. A failing deploy is tried at most once per `USAGE_RETRY_HOURS` (20), since the cron is
+  hourly, so 5 in a row span about 4 days. After `USAGE_SKIP_AFTER` (5) failures in a row the deploy sits out `USAGE_SKIP_DAYS` (7) from
   its last failure, so permanently failing deploys never take the 20 slots from newer ones; after
   that it is read again, and one more failure skips it another 7 days.
 - **Reads in production** use a key-free viem public client per chain (10 s timeout, no retry),

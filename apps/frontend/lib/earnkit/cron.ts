@@ -380,7 +380,7 @@ export async function runCron(
   }
   // v2.11 T11 (spec 7): the 30- and 90-day usage checks on deployed contracts, at most 20 a run
   // (free reads: Blockscout on Base, the public RPC on Arc). Off while the event log is off. A failed
-  // read is retried on the next run and never waits on the owner.
+  // read is retried at most once per 20 hours (this cron is hourly) and never waits on the owner.
   let usage: Awaited<ReturnType<typeof usageChecks>> | { step: 'error'; note: string } | undefined;
   if (!opts.only || deps.usage) {
     try {
