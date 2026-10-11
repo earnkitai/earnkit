@@ -5,12 +5,22 @@ import { sql, type Db } from './db';
 import { siteUrl } from './entry-text';
 import { noteEvent } from './events';
 import { FreeTierFull, freeTierRoom } from './free-tier';
-import { VERIFY_TTL_MS, createVerifyLink, githubVerifyEnabled, takeHostVerification, verifiedFor } from './github-verify';
+import {
+  VERIFY_TTL_MS,
+  createVerifyLink,
+  githubUser,
+  githubVerifyEnabled,
+  loginBasisFor,
+  takeHostVerification,
+  verifiedFor,
+  type LoginProof,
+} from './github-verify';
 import { HOST_RESERVED, SITE_PREFIX, STATE_PREFIX, contentTypeFor } from './host-names';
 import { bearerMatches, json } from './http';
 import { sharedGroup } from './installations';
 import { r2Client, r2Enabled, type R2 } from './r2';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
+import { repoOwnershipPasses, type OwnershipDeps } from './token-gate';
 
 /**
  * v2.9 C12-C14 (server side): static hosting on `<slug>.earnkit.com`. The agent gets a one-time
@@ -21,6 +31,9 @@ import { RateLimitError, clientIp, enforce } from './rate-limit';
  *
  * - Gate: a GitHub sign-in for the repo, an account 30 days or older with a public repo.
  *   On a shared (hosted) client the host sign-in is single-use and lasts 15 minutes (P11).
+ *   v2.11 T9 (plan S9, decision 2): off a shared client no click is needed: this agent's earnkit.txt
+ *   line in the repo, owned by the builder's own User account, plus a public account read for the
+ *   same 30 days and 1 public repo.
  * - Limits: 3 live sites per GitHub account, 1 per repo, 10 deploys a day, 25 MB, 500 files,
  *   10 MB a file, static extensions only; total storage under 8 GB and the R2 free-tier counter
  *   (free-tier.ts), else "Hosting is full right now; try again tomorrow."
@@ -28,7 +41,7 @@ import { RateLimitError, clientIp, enforce } from './rate-limit';
  *   the owner (`host-review:<slug>` in the cron's needs_owner, P46).
  * - Expiry (Ruling 10): 7 days after the latest end of the programs the repo entered, else 7 days
  *   after upload; the hourly cron deletes the files and writes `ended` (expireSites).
- * - Off when the R2 variables or the GitHub sign-in variables are absent.
+ * - Off when the R2 variables are absent; on a shared client also when the GitHub sign-in variables are.
  */
 
 export const HOST_LIMITS = {
@@ -339,9 +352,10 @@ export const siteLink = (slug: string) => `https://${slug}.${HOST_ZONE}`;
 
 /**
  * v2.11 T3: a site went live (a clean upload, or the owner's approval of a flagged one): its
- * `hosted` event. The login is the one the host gate's GitHub sign-in proved.
+ * `hosted` event. The login is the one the host gate proved, and `basis` how (v2.11 T9: the sign-in,
+ * or the proof line).
  */
-const hostedEvent = (d: { id: number; installationId?: number; login: string; repoKey: string; slug: string }) =>
+const hostedEvent = (d: { id: number; installationId?: number; login: string; basis: HostBasis; repoKey: string; slug: string }) =>
   noteEvent('hosted', async () => {
     const installationId =
       d.installationId ??
@@ -350,7 +364,7 @@ const hostedEvent = (d: { id: number; installationId?: number; login: string; re
       type: 'hosted',
       dedupe_key: `hosted:${d.id}`,
       github_login: d.login,
-      login_basis: 'signin',
+      login_basis: d.basis,
       ...(installationId !== undefined && { installation_id: installationId }),
       repo_key: d.repoKey,
       proof_url: siteLink(d.slug),
@@ -448,25 +462,74 @@ async function slugProblem(db: Db, slug: string, repoKey: string): Promise<strin
   return null;
 }
 
+/** How an upload link's login was proven (host_upload_tokens.basis, the hosted event's login_basis). */
+export type HostBasis = LoginProof['basis'];
+type HostProof = { login: string; account_created_at: Date; public_repos: number; basis: HostBasis };
+
+/**
+ * v2.11 T9 (plan S9, decision 2): the no-click host proof off a shared client. This agent's
+ * earnkit.txt line is in the repo (token-gate.ts repoOwnershipPasses; `proofLine`: the caller just
+ * checked it), and the repo owner is the builder's own User account (github-verify.ts loginBasisFor:
+ * the login the builder said is theirs, and GitHub says it is a User; never an organization or
+ * someone else's repo the agent can push to). The account facts come from the public read
+ * (githubUser, cached 24 hours). Null when any of it fails.
+ */
+async function proofLineHost(
+  a: { installationId: number; repoKey: string; proofLine?: boolean },
+  now: Date,
+  gate?: OwnershipDeps,
+): Promise<HostProof | null> {
+  if (!a.proofLine && !(await repoOwnershipPasses({ installationId: a.installationId, repoUrl: `https://github.com/${a.repoKey}` }, gate))) return null;
+  const who = await loginBasisFor(a.installationId, a.repoKey, { proofLine: true });
+  if (!who) return null;
+  const facts = await githubUser(who.login, now);
+  if (!facts || facts.type !== 'User') return null;
+  return { login: who.login, account_created_at: new Date(facts.created_at), public_repos: facts.public_repos, basis: who.basis };
+}
+
+/** v2.11 T9: the upload's re-check of a proof-line link: the public account read, a User that passes the gate. */
+async function proofLineGate(login: string, now: Date): Promise<boolean> {
+  const facts = await githubUser(login, now);
+  return facts !== null && facts.type === 'User' && hostGatePasses({ account_created_at: new Date(facts.created_at), public_repos: facts.public_repos }, now);
+}
+
 /**
  * Ruling 8: prepare_submission's `host: true`. A one-time upload URL (15 minutes) once the repo has
  * a GitHub sign-in that passes the gate and the limits; the sign-in link when it has none (on a
  * shared client: none unused from the last 15 minutes, P11, used only when a URL is issued, review
  * M3); else a plain reason. A new URL revokes the repo's unused ones (I2).
+ *
+ * v2.11 T9 (plan S9, decision 2): off a shared client, with no sign-in for the repo, the earnkit.txt
+ * proof line in the builder's own User account's repo plus the public account read stand in for the
+ * sign-in (proofLineHost), so there is no click and the GitHub sign-in variables aren't needed. The
+ * sign-in link stays the way when the proof line fails and sign-in is on. A shared client keeps the
+ * v2.9 sign-in, unchanged. `proofLine`: the caller already checked the line this call; `gate`: the
+ * proof reads (tests).
  */
-export async function issueUpload(a: { installationId: number; repoKey: string; project: string }, now = new Date()): Promise<HostOffer> {
-  if (!r2Enabled() || !githubVerifyEnabled()) return { unavailable: HOST_LINES.unavailable };
+export async function issueUpload(
+  a: { installationId: number; repoKey: string; project: string; proofLine?: boolean },
+  now = new Date(),
+  deps: { gate?: OwnershipDeps } = {},
+): Promise<HostOffer> {
+  if (!r2Enabled()) return { unavailable: HOST_LINES.unavailable };
   const gh = githubRepo(`https://github.com/${a.repoKey}`);
   if (!gh) return { unavailable: HOST_LINES.noRepo };
   const repoKey = `${gh.owner}/${gh.repo}`.toLowerCase();
   const shared = await sharedGroup(a.installationId);
+  const signInOn = githubVerifyEnabled();
+  if (shared && !signInOn) return { unavailable: HOST_LINES.unavailable };
   const signIn = async (): Promise<HostOffer> => ({
     sign_in_url: await createVerifyLink({ installationId: a.installationId, projectId: null, repoKey, purpose: 'host' }, now),
   });
-  const v = shared
-    ? await verifiedFor({ installationId: a.installationId, repoKey, purpose: 'host', since: new Date(now.getTime() - VERIFY_TTL_MS) })
-    : await takeHostVerification({ installationId: a.installationId, repoKey, shared }, now);
-  if (!v) return signIn();
+  let v: HostProof | null;
+  if (shared) {
+    const s = await verifiedFor({ installationId: a.installationId, repoKey, purpose: 'host', since: new Date(now.getTime() - VERIFY_TTL_MS) });
+    v = s && { ...s, basis: 'signin' as const };
+  } else {
+    const s = signInOn ? await takeHostVerification({ installationId: a.installationId, repoKey, shared }, now) : null;
+    v = s ? { ...s, basis: 'signin' as const } : await proofLineHost({ installationId: a.installationId, repoKey, proofLine: a.proofLine }, now, deps.gate);
+  }
+  if (!v) return signInOn ? signIn() : { unavailable: HOST_LINES.unavailable };
   if (!hostGatePasses(v, now)) return { unavailable: HOST_LINES.gate };
   const login = v.login.toLowerCase();
   // One site per repo: a redeploy keeps the repo's address.
@@ -487,13 +550,13 @@ export async function issueUpload(a: { installationId: number; repoKey: string; 
   await sql().begin(async (tx) => {
     await tx`UPDATE host_upload_tokens SET used_at = ${now} WHERE repo_key = ${repoKey} AND used_at IS NULL`;
     await tx`
-      INSERT INTO host_upload_tokens (token_hash, installation_id, login, repo_key, slug, project, expires_at)
-      VALUES (${sha256(token)}, ${a.installationId}, ${login}, ${repoKey}, ${slug}, ${a.project}, ${expires})`;
+      INSERT INTO host_upload_tokens (token_hash, installation_id, login, repo_key, slug, project, expires_at, basis)
+      VALUES (${sha256(token)}, ${a.installationId}, ${login}, ${repoKey}, ${slug}, ${a.project}, ${expires}, ${v.basis})`;
   });
   return { upload_url: `${siteUrl()}/api/host/upload?t=${token}`, expires_at: expires.toISOString() };
 }
 
-type TokenRow = { installation_id: number; login: string; repo_key: string; slug: string; project: string };
+type TokenRow = { installation_id: number; login: string; repo_key: string; slug: string; project: string; basis: HostBasis };
 
 /**
  * One upload attempt on the token (review M2): its row while it is usable (unused, unexpired, under
@@ -504,7 +567,7 @@ async function attemptUpload(token: string, now = new Date()): Promise<TokenRow 
   const [row] = await sql()<TokenRow[]>`
     UPDATE host_upload_tokens SET attempts = attempts + 1
     WHERE token_hash = ${sha256(token)} AND used_at IS NULL AND expires_at > ${now} AND attempts < ${MAX_ATTEMPTS}
-    RETURNING installation_id, login, repo_key, slug, project`;
+    RETURNING installation_id, login, repo_key, slug, project, basis`;
   return row ?? null;
 }
 
@@ -582,9 +645,14 @@ export async function deploySite(
   const read = readZip(zip);
   if ('problem' in read) return refused(read.status, read.problem);
 
-  const [v] = await sql()<{ account_created_at: Date; public_repos: number }[]>`
-    SELECT account_created_at, public_repos FROM github_verifications WHERE login = ${t.login} ORDER BY verified_at DESC, id DESC LIMIT 1`;
-  if (!v || !hostGatePasses(v, now)) return refused(403, HOST_LINES.gate);
+  // v2.11 T9: a proof-line link re-reads the public account; a sign-in link its verification.
+  if (t.basis === 'proof_line') {
+    if (!(await proofLineGate(t.login, now))) return refused(403, HOST_LINES.gate);
+  } else {
+    const [v] = await sql()<{ account_created_at: Date; public_repos: number }[]>`
+      SELECT account_created_at, public_repos FROM github_verifications WHERE login = ${t.login} ORDER BY verified_at DESC, id DESC LIMIT 1`;
+    if (!v || !hostGatePasses(v, now)) return refused(403, HOST_LINES.gate);
+  }
 
   const pages = read.files.filter((f) => TEXT_FILE.test(f.name));
   if (pages.some((f) => wideBom(f.data))) return refused(400, HOST_LINES.notUtf8);
@@ -631,8 +699,8 @@ export async function deploySite(
     // An earlier upload still in review is replaced by this one; the cron removes its staged copy.
     await tx`UPDATE host_deploys SET status = 'failed' WHERE slug = ${t.slug} AND status = 'review'`;
     const [d] = await tx<{ id: number }[]>`
-      INSERT INTO host_deploys (login, slug, repo_key, at, status, bytes, files, flags)
-      VALUES (${t.login}, ${t.slug}, ${t.repo_key}, ${now}, 'deploying', ${bytes}, ${files.length}, ${flags}) RETURNING id`;
+      INSERT INTO host_deploys (login, slug, repo_key, at, status, bytes, files, flags, basis)
+      VALUES (${t.login}, ${t.slug}, ${t.repo_key}, ${now}, 'deploying', ${bytes}, ${files.length}, ${flags}, ${t.basis}) RETURNING id`;
     return { id: d.id, live };
   });
   if ('line' in reserved) return refused(reserved.status, reserved.line);
@@ -705,7 +773,7 @@ export async function deploySite(
     return refused(502, HOST_LINES.failed);
   }
   if (flagged) return { status: 200, body: { show_to_builder: HOST_REVIEW, review: true } };
-  await hostedEvent({ id, installationId: t.installation_id, login: t.login, repoKey: t.repo_key, slug: t.slug });
+  await hostedEvent({ id, installationId: t.installation_id, login: t.login, basis: t.basis, repoKey: t.repo_key, slug: t.slug });
   return {
     status: 200,
     body: { show_to_builder: liveLine(t.project, t.slug), url: siteLink(t.slug), ...(storage && { agent_note: STORAGE_NOTE }) },
@@ -816,8 +884,8 @@ export async function takedown(slug: string, deps: { r2?: R2 } = {}): Promise<bo
 export async function approveSite(slug: string, deps: { r2?: R2; now?: Date } = {}): Promise<boolean> {
   const s = slug.toLowerCase();
   const now = deps.now ?? new Date();
-  const [d] = await sql()<{ id: number; login: string; repo_key: string; bytes: string; files: number; flags: string[]; written: string[] }[]>`
-    SELECT id, login, repo_key, bytes::text, files, flags, written FROM host_deploys
+  const [d] = await sql()<{ id: number; login: string; basis: HostBasis; repo_key: string; bytes: string; files: number; flags: string[]; written: string[] }[]>`
+    SELECT id, login, basis, repo_key, bytes::text, files, flags, written FROM host_deploys
     WHERE slug = ${s} AND status = 'review' ORDER BY id DESC LIMIT 1`;
   if (!d || (await isKilled(s))) return false;
   // Final review M6: never promote older reviewed files over a deploy of the same slug in flight.
@@ -839,7 +907,7 @@ export async function approveSite(slug: string, deps: { r2?: R2; now?: Date } = 
       INSERT INTO url_checks (key, ok, checked_at) VALUES (${checkKey(s)}, true, ${now})
       ON CONFLICT (key) DO UPDATE SET ok = true, checked_at = EXCLUDED.checked_at`;
   });
-  await hostedEvent({ id: d.id, login: d.login, repoKey: d.repo_key, slug: s });
+  await hostedEvent({ id: d.id, login: d.login, basis: d.basis, repoKey: d.repo_key, slug: s });
   return true;
 }
 

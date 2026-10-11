@@ -4256,12 +4256,12 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
     earnkit.txt proof line. On a pass the builder sees `Building PodTips: a USDC tip page on Arc for
     your podcast listeners. I'll be back with the live link.` and the agent gets `kit`. The same
     fields sent again (say, with `repo_url` added) show the builder nothing new.
-  - `{ program_id }`: the deploy-and-host call's mark; `build` is dropped and the call takes
-    prepare's usual path (T9 gives it its own meaning).
+  - `{ program_id }`: the build mark (T9, below): the deploy-and-host call, or the call after it.
   - Start and twist calls carry only `build` (and the same `program_id` at the top, which the MCP
     schema requires). Any other key, a mixed shape or an unknown key inside `build` is an agent note.
 - **Fail closed.** Each call re-runs `freshPick` on that one program (`buildPick`: open, curated,
-  not hidden or entered, a tested starter, deploys and hosting on). No pick: an agent note, nothing
+  not hidden or entered, a tested starter, deploys on, and hosting on or the starter's GitHub Pages
+  fallback, T9). No pick: an agent note, nothing
   stored. A shared client gets `BUILD_CHAT_ONLY` ("I can't build from here. ...") and nothing is
   stored (S6). MCP lists `build` only while deploys are on, with `deploy`, and only then does the
   prepare description say "build: a build_offer yes." (review M2).
@@ -4298,4 +4298,62 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
 - **What is stored.** `installations.build` holds the wallet, the twist, the name, the description,
   the feature, `for_whom` and `repo_url` for T9 (the `built` event's `detail.twist`) and T10 (the
   draft). T8 writes no `builder_events` row, so the /terms records list is unchanged by it.
+
+## v2.11 Deploy and host in one call, with no click (Task 9, spec 4, decision 2, plan S9 to S11)
+
+- **The mark (`tools.ts buildShip`).** `prepare` with `build: { program_id }` fails closed (T8 review
+  M5): never on a shared client (`BUILD_CHAT_ONLY`, or the refusal note when no build would be
+  offered), and only for this installation's checked build of the same program (`installations.build`
+  with a name and a valid wallet; else `BUILD_NOT_READY`, an agent note).
+- **With `deploy` (the deploy-and-host call),** in order:
+  1. Deploys off for the starter's chain (`freshSwitches.deployOn`: the deployer key and the chain's
+     RPC): `show_to_builder` is v2.10's `Deploys are off right now.`, `deploy.unavailable`, and
+     nothing is read, deployed, hosted or logged.
+  2. The program is still a fresh pick (`buildPick`), the artifact is on the starter's chain, and the
+     owner is the build's wallet: `deploy.owner_wallet` (if sent) and, for a starter whose constructor
+     takes the owner (`contract.owner_arg`), `constructor_args[0]` must equal it (any case). Anything
+     else is an agent note naming the wallet; nothing is deployed.
+  3. The repo (`project.repo_url`, else the build's) is the builder's (never under an EarnKit org) and
+     its earnkit.txt holds this agent's line (`repoOwnershipPasses`); else an agent note with the line.
+  4. `built` (S11): key `built:<repo_key>:<program_id>`, proof the repo link, the build's wallet,
+     `detail { starter, twist }`, the login only on a basis (`loginBasisFor` with the proof line: the
+     builder's own User account). One per repo and program; written before the deploy.
+  5. The capped v2.10 deploy (`deployStep` with the build's wallet as owner; every v2.10 cap: once a
+     day per chain, 3 a month per builder, 20 a day, $0.25 a deploy, $10 a month, Arc and Base only).
+     The `deployed` event now carries `detail.starter` (ruling R-T6, the usage checks' read).
+  6. Only once it is deployed, hosting (`hostBlock` with the proof line already checked): the one-use
+     upload URL (`host.upload_url`, with `BUILD_UPLOAD_NOTE`), or, when EarnKit hosting is off or
+     refused for any reason (R2 off, the gate, the limits), `host: { github_pages: true, site_dir }`
+     with `BUILD_PAGES_NOTE` (S10).
+  The builder sees the deployed line only (`PodTips is deployed on Arc: 0x12ab…9f3e. You're the
+  owner.`), or v2.10's line for why not. Hosting's state is never builder text; the live line comes
+  from the upload's own reply (v2.9 `liveLine`).
+- **Without `deploy` (the next call, with the live link),** a `https://<owner>.github.io/...` link
+  whose owner is the repo's owner and whose probe passes (`verify.ts liveCheckDetail`, cached) writes
+  `hosted` with `detail.host = 'github_pages'`, key `hosted:gh:<link>` (S10). Anyone else's
+  github.io link, or one that doesn't load, writes nothing. Then the call takes prepare's usual path
+  without `build` (T10 drafts the entry there).
+- **Hosting with no click (`hosting.ts issueUpload`, S9, decision 2).** Off a shared client with no
+  sign-in for the repo, `proofLineHost` stands in for it: this agent's earnkit.txt line in the repo
+  (skipped when the caller just checked it), the owner is the builder's own User account
+  (`loginBasisFor` with the proof line: the login the builder said, `installations.github_user`, and
+  GitHub's public `GET /users/<login>` says User; never an org or someone else's repo the agent can
+  push to), and that public read (`githubUser`, cached 24 hours in `url_checks` as `ghuser:<login>`)
+  passes v2.9's gate (30 days, 1 public repo). The slug login is the repo owner. The sign-in link stays
+  the way when the line fails and sign-in is on. The GitHub sign-in variables are no longer needed off
+  a shared client; a shared client keeps the v2.9 sign-in, unchanged (and nothing without it). Every
+  upload limit stays.
+- **The basis travels.** `host_upload_tokens.basis` and `host_deploys.basis` (`signin` | `app` |
+  `proof_line`, default `signin`, additive). The upload re-checks a proof-line link's gate with the
+  public read (a sign-in link reads its verification as before), and the `hosted` event (on upload or
+  `approveSite`) carries the basis as `login_basis` (closes T3 review M3).
+- **The fresh pick (`freshPick`).** Hosting off no longer blocks a starter whose site can go on GitHub
+  Pages (`Starter.pages_fallback`, true for `arc-tipjar`). Deploys off still offers nothing, so
+  production (no deployer key) stays on the v2.10 line byte for byte. With the deployer key and no
+  R2, the build path runs and hosts on GitHub Pages.
+- **/terms.** `RECORD_STEPS` gains `A build: its repo and your one-line idea for it.` (the `built`
+  event and its `detail.twist`); test 12.1 holds the whole section.
+- **Keys and money.** The deployer key is only read by `deploy.ts`; no reply, kit, repo or site gets
+  it. The builder signs nothing: the contract is theirs from the first block (owner constructor
+  argument), and the upload is the agent's.
 

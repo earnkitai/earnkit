@@ -46,6 +46,12 @@ export type Starter = {
   /** The static output to zip and host, relative to the starter's folder. */
   site_dir: string;
   /**
+   * v2.11 T9 (plan S10): the site is static and needs nothing EarnKit's host adds, so the builder's
+   * agent can publish it on GitHub Pages from the public repo when EarnKit hosting is off or refused.
+   * A starter without it is picked only while EarnKit hosting is on.
+   */
+  pages_fallback: boolean;
+  /**
    * v2.11 T8: the kit's own twist slots (its `twist.json` as shipped). A build whose name,
    * description or feature is still one of these is the kit, not the builder's twist (buildCheck).
    */
@@ -83,6 +89,7 @@ export const STARTERS: Record<StarterId, Starter> = {
     minutes: 60,
     contract: { artifact: 'UsdcTipJar', owner_arg: true },
     site_dir: 'site',
+    pages_fallback: true,
     kit_twist: {
       name: 'Tip Jar',
       description: 'Send a tip in USDC on Arc.',

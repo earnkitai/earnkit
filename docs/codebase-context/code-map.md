@@ -221,7 +221,7 @@ apps/frontend/
                                verified_at, STARTER_TEST_MAX_AGE_DAYS)
     fresh-build.ts(+test)      v2.11 T7: the no-repo lead (pure). freshPick (Easy/Medium, <= $5,000, closes in
                                1 to 14 days or rolling, a tested starter on a chain EarnKit deploys to with
-                               hosting on; never a long shot, needs a live product, investment, hidden or
+                               hosting on, or off with the starter's pages_fallback (T9); never a long shot, needs a live product, investment, hidden or
                                entered), contextLine ("$X in prizes is open right now across N programs."),
                                freshLeadLine (builds / chat-only). v2.11 T8: twistQuestion, BUILD_CHAT_ONLY,
                                buildingLine, buildCheck (plain words, limits, kit names, the twist's words in name,
@@ -231,7 +231,7 @@ apps/frontend/
     starters.ts(+test)         v2.11 T5: the starter registry STARTERS (pure, import-free; id, chain, repo degit
                                path, what (builder copy), minutes 60, contract { artifact, owner_arg }, site_dir,
                                usage_event, usage_read view_total | recent_logs, usage_view { call, selector,
-                               words }, kit_twist (the kit's own twist.json slots, T8), tested_at (null until the
+                               words }, kit_twist (the kit's own twist.json slots, T8), pages_fallback (T9), tested_at (null until the
                                starter's test passes), test_cmd). Today only
                                arc-tipjar (chain-kits arc/tipjar, tested 2026-10-11, stats() view); base-checkin
                                left out (owner decision 4)
@@ -567,7 +567,10 @@ apps/frontend/
                                writes), expireSites, cleanDeploys (deps.only: a test slug filter), takedown, approveSite,
                                sitesInReview, refreshSiteExpiry, STAGING_PREFIX; hostUploadPost
                                (10/hour per IP, the token attempt taken before the body read),
-                               hostTakedownPost
+                               hostTakedownPost. v2.11 T9 (S9): issueUpload off a shared client takes
+                               proofLineHost (earnkit.txt line + the builder's own User account + githubUser's
+                               public read; deps.gate, proofLine), HostBasis on tokens and deploys, the upload
+                               re-checks a proof-line link with proofLineGate, hosted events carry the basis
     r2.ts                      v2.9 C12: r2Enabled (4 env vars), r2Client (aws4fetch S3: put, list,
                                del, copy; Class A taken from free-tier first, FreeTierFull), R2Error
     free-tier.ts(+test)        v2.9 C13: FREE_CAPS (r2Writes 900k/month, resend 100/day, 3,000/month;
@@ -682,6 +685,12 @@ apps/frontend/
                                buildTwist (buildCheck, wallet given or remembered, never a public test wallet,
                                rememberWallet, buildingLine, buildKit with tokenLineFor), buildPick (freshPick on one
                                program: fail closed), BUILD_SHARED_NOTE, twistNote, KIT_NOTE, WALLET_NEEDED_NOTE.
+                               v2.11 T9: buildShip (the build mark: deploys off line, owner = the build wallet and
+                               constructor_args[0], the earnkit.txt check, builtEvent, deployStep with the starter,
+                               hostBlock with the proof line, else the GitHub Pages note; without deploy,
+                               pagesHostedEvent for a github.io link), githubPagesOwner, BUILD_NOT_READY,
+                               BUILD_DEPLOYS_OFF_NOTE, buildOwnerNote, buildChainNote, buildProofNote,
+                               BUILD_UPLOAD_NOTE, BUILD_PAGES_NOTE. hostBlock needs R2 only (sign-in only on shared).
                                v2.10 item 4: `tools` = find, prepare, confirm, tell, sponsor_campaign, thin dispatchers
                                over `handlers` (the v2.9 functions: list_programs ... launch_token); FindInput,
                                PrepareInput, ConfirmInput (R15), TellToolInput (R16), markSubmitted (tell.submitted),
@@ -1307,6 +1316,7 @@ apps/frontend/
                                installations.fresh_offer_at and installations.build,
                                v2.11 Task 11: usage_check_failures (failed usage checks in a row per deployed event)
                                v2.11 T5: programs.fresh_build (jsonb, the program file's fresh_build; NULL when unset)
+                               v2.11 T9: host_upload_tokens.basis and host_deploys.basis (signin | app | proof_line)
   scripts/                     db-migrate.mts, programs-sync.mts (load .env.local); v2.7: programs-sync
                                writes the guide columns; --check (pnpm programs:check) also checks each logo file
                                (logo-check.ts) and the required items' todo; v2.8 Task 12: also validates

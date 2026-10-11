@@ -699,6 +699,14 @@ ok(JSON.stringify(t3Cols.map((c) => `${c.column_name}:${c.is_nullable}`)) === '[
   'contract_deploys has owner_wallet and block (nullable) and code_differs (default false)');
 const [t3Index] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM pg_indexes WHERE indexname = 'submissions_project'`;
 ok(t3Index.n === 1, 'submissions has its project_id index');
+// v2.11 T9 (plan S9): upload links and host deploys record how the login was proven; old rows are sign-ins.
+const t9Cols = await db<{ table_name: string; column_default: string | null; is_nullable: string }[]>`
+  SELECT table_name, column_default, is_nullable FROM information_schema.columns
+  WHERE table_name IN ('host_upload_tokens', 'host_deploys') AND column_name = 'basis' ORDER BY table_name`;
+ok(JSON.stringify(t9Cols.map((c) => `${c.table_name}:${c.is_nullable}:${c.column_default}`)) === `["host_deploys:NO:'signin'::text","host_upload_tokens:NO:'signin'::text"]`,
+  'host_upload_tokens and host_deploys have basis, default signin');
+const t9Bad = await db`INSERT INTO host_deploys (login, slug, basis) VALUES ('x', 'x', 'repo_owner')`.then(() => false, () => true);
+ok(t9Bad, 'a host deploy basis is signin, app or proof_line only');
 await db`INSERT INTO builder_events (type, github_login, dedupe_key) VALUES ('built', 'alice', 'built:alice/tipjar:p')`;
 await db.unsafe(now);
 const [evKept] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_events WHERE dedupe_key = 'built:alice/tipjar:p'`;

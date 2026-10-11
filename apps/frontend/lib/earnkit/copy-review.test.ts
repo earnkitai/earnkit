@@ -23,7 +23,7 @@ import {
 import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TELL_DESCRIPTION, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { bonusLine, presentFirstMessage, skippedLine, submitStepLine, type Card, type FirstMessage } from './present';
 import { SKIP_REASONS } from './match-projects';
-import { BUILD_NOT_STARTED, BUILD_SHARED_NOTE, KIT_NOTE, WALLET_NEEDED_NOTE, buildRefused, twistNote, BUILD_NOTE, PLAN_NOTE, ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, CONFIRM_SHARED_NOTE, PROJECT_REOFFER_NOTE, SUBMITTED_AGAIN_NOTE, SUBMITTED_SHARED_NOTE, handlers } from './tools';
+import { BUILD_DEPLOYS_OFF_NOTE, BUILD_NOT_READY, BUILD_PAGES_NOTE, BUILD_UPLOAD_NOTE, buildChainNote, buildOwnerNote, buildProofNote, BUILD_NOT_STARTED, BUILD_SHARED_NOTE, KIT_NOTE, WALLET_NEEDED_NOTE, buildRefused, twistNote, BUILD_NOTE, PLAN_NOTE, ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, CONFIRM_SHARED_NOTE, PROJECT_REOFFER_NOTE, SUBMITTED_AGAIN_NOTE, SUBMITTED_SHARED_NOTE, handlers } from './tools';
 import { outcomeQuestion } from './outcomes';
 import { DEFAULT_GUIDANCE, PLAIN_FIX, PLAIN_LENGTH_FIX, PLAIN_NOTE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, walletAsk } from './coach';
 import { alsoText } from './also-qualifies';
@@ -1091,6 +1091,15 @@ const agentFacing: [string, string][] = [
   ['WALLET_NEEDED_NOTE', WALLET_NEEDED_NOTE],
   ['KIT_NOTE', KIT_NOTE],
   ...buildFixTexts(),
+  // v2.11 T9: the deploy-and-host call's notes.
+  ['BUILD_NOT_READY', BUILD_NOT_READY],
+  ['BUILD_DEPLOYS_OFF_NOTE', BUILD_DEPLOYS_OFF_NOTE],
+  ['buildOwnerNote', buildOwnerNote('constructor_args[0]', '0x12ab34cd56ef7890a1b2c3d4e5f6a7b8c9d09f3e')],
+  ['buildChainNote', buildChainNote('arc')],
+  ['buildProofNote(line)', buildProofNote('token: 0123456789abcdef')],
+  ['buildProofNote(null)', buildProofNote(null)],
+  ['BUILD_UPLOAD_NOTE', BUILD_UPLOAD_NOTE],
+  ['BUILD_PAGES_NOTE', BUILD_PAGES_NOTE],
   ['PLAN_NOTE', PLAN_NOTE],
   ['LAUNCHING_AGENT', LAUNCHING_AGENT],
   ['launchStuckAgent', launchStuckAgent('No answer from tokens.fun.')],

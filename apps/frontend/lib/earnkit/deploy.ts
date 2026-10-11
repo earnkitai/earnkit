@@ -448,6 +448,8 @@ export async function deployForBuilder(
     projectName: string;
     builderWallet: Address;
     input: DeployInput;
+    /** v2.11 T9 (ruling R-T6): the starter a build-path deploy came from, for its usage checks. */
+    starter?: string;
   },
   deps: DeployDeps = {},
 ): Promise<DeployOutcome> {
@@ -621,6 +623,7 @@ export async function deployForBuilder(
             address,
             owner_ok: ownerOk,
             ...(receipt.blockNumber !== undefined && { block: Number(receipt.blockNumber) }),
+            ...(a.starter && { starter: a.starter }),
             // Review M1: the builder was told not to use it; usage checks and the metric leave it out.
             ...(codeDiffers && { code_differs: true }),
           },

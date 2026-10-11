@@ -16,8 +16,9 @@ import type { Card } from './present';
  * starter. Pure.
  *
  * Fail closed: no pick unless the program names a starter (owner-set `fresh_build`), the starter's
- * test has passed (`tested_at`), EarnKit can deploy to the starter's chain and hosting is on. Without
- * a pick the reply is the v2.10 line, byte for byte.
+ * test has passed (`tested_at`), EarnKit can deploy to the starter's chain, and hosting is on or the
+ * starter's site can go on GitHub Pages instead (`pages_fallback`, v2.11 T9, plan S10). Without a
+ * pick the reply is the v2.10 line, byte for byte.
  */
 
 export type FreshPick = { card: Card; starter: Starter };
@@ -29,7 +30,7 @@ export type FreshPickOpts = {
   entered: Set<string>;
   /** EarnKit deploys to this chain right now (deploy.ts deployEnabled plus the chain's RPC). */
   deployOn: (c: StarterChain) => boolean;
-  /** EarnKit hosting is on (r2.ts r2Enabled). Off means no pick until T9's GitHub Pages fallback. */
+  /** EarnKit hosting is on (r2.ts r2Enabled). Off: only a starter whose site can go on GitHub Pages (T9). */
   hostOn: boolean;
   /** The starter registry; starters.ts STARTERS unless a test passes its own. */
   starters?: Record<string, Starter>;
@@ -62,12 +63,11 @@ function starterOf(c: Card, starters: Record<string, Starter>, now: Date): Start
  * or undefined. A program qualifies when it is open and curated (never sponsored, an EarnKit
  * campaign or an investment, never tagged "long shot" or "needs a live product", never hidden or
  * entered); it names a tested starter on one of its chains that EarnKit can deploy to, with hosting
- * on; it is Easy or Medium; its prize per winner is known and $5,000 or less; and it closes 24 hours
- * to 14 days from now. A rolling program qualifies only when no dated one does. Rank: Easy first,
+ * on (or, off, a starter whose site can go on GitHub Pages: T9); it is Easy or Medium; its prize
+ * per winner is known and $5,000 or less; and it closes 24 hours to 14 days from now. A rolling program qualifies only when no dated one does. Rank: Easy first,
  * more winners per round (unknown counts as 1), the sooner close, the higher prize. Pure.
  */
 export function freshPick(cards: Card[], now: Date, opts: FreshPickOpts): FreshPick | undefined {
-  if (!opts.hostOn) return undefined;
   const starters = opts.starters ?? STARTERS;
   const fits: (FreshPick & { dated: boolean })[] = [];
   for (const card of cards) {
@@ -80,6 +80,7 @@ export function freshPick(cards: Card[], now: Date, opts: FreshPickOpts): FreshP
     if (card.max_award_usd == null || card.max_award_usd > FRESH_MAX_USD) continue;
     const starter = starterOf(card, starters, now);
     if (!starter || !card.chains?.includes(starter.chain) || !opts.deployOn(starter.chain)) continue;
+    if (!opts.hostOn && !starter.pages_fallback) continue;
     if (card.ends_at) {
       const left = card.ends_at.getTime() - now.getTime();
       if (left < MIN_LEFT_MS || left > MAX_LEFT_MS) continue;
