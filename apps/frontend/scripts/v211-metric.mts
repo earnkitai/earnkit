@@ -21,6 +21,7 @@ import { sql } from '../lib/earnkit/db';
  *   no is left out too; the "shown the lead" line counts them.
  * - The first session: the 24 hours after fresh_offer_at. Installations still inside it are counted
  *   apart and left out of the share.
+ * - A second share (final fix M2 b): the same, among builds that reached a repo (build.repo_url).
  * - Shipped: a `deployed`, a `hosted` and an `entered` event of that installation inside the first
  *   session. `entered` is written when the confirm step records the entry, the same reply that
  *   hands over the submit kit, so it stands for "a ready entry and the kit".
@@ -39,13 +40,13 @@ if (Number.isNaN(asOf.getTime())) {
   process.exit(2);
 }
 
-type Row = { shown: number; started: number; open: number; done: number; shipped: number; first_event: Date | null };
+type Row = { shown: number; started: number; open: number; done: number; shipped: number; repo_done: number; repo_shipped: number; first_event: Date | null };
 
 const db = sql();
 try {
   const [r] = await db.begin('read only', (tx) => tx<Row[]>`
     WITH cohort AS (
-      SELECT id, fresh_offer_at, build IS NOT NULL AS started,
+      SELECT id, fresh_offer_at, build IS NOT NULL AS started, COALESCE(build ? 'repo_url', false) AS made_repo,
              fresh_offer_at + ${SESSION}::interval > ${asOf} AS open
       FROM installations
       WHERE fresh_offer_at IS NOT NULL AND fresh_offer_at <= ${asOf} AND NOT shared_client
@@ -66,6 +67,8 @@ try {
       (SELECT count(*)::int FROM cohort WHERE started AND open) AS open,
       (SELECT count(*)::int FROM cohort WHERE started AND NOT open) AS done,
       (SELECT count(*)::int FROM session WHERE shipped) AS shipped,
+      (SELECT count(*)::int FROM cohort WHERE started AND NOT open AND made_repo) AS repo_done,
+      (SELECT count(*)::int FROM session s JOIN cohort c ON c.id = s.id WHERE s.shipped AND c.made_repo) AS repo_shipped,
       (SELECT min(at) FROM builder_events WHERE at <= ${asOf}) AS first_event`);
   console.log('v2.11 metric: no-repo builders who shipped in their first session. Shown, never a target.');
   console.log(`Shown the build lead (shared clients left out): ${r.shown}`);
@@ -77,6 +80,10 @@ try {
       ? 'No no-repo builder has finished a first session yet.'
       : `${r.shipped} of ${r.done} no-repo builders shipped in their first session (${Math.round((100 * r.shipped) / r.done)}%)`,
   );
+  // Final fix M2 (b): the same share among builds whose agent got as far as the repo (build.repo_url),
+  // an agent that proved it can push; an unmarked chat-only client that said yes never gets there.
+  if (r.repo_done > 0)
+    console.log(`${r.repo_shipped} of ${r.repo_done} whose agent made the repo shipped in their first session (${Math.round((100 * r.repo_shipped) / r.repo_done)}%)`);
   console.log(r.first_event ? `Event log rows since ${r.first_event.toISOString().slice(0, 10)}.` : 'The event log has no rows (EARNKIT_EVENT_LOG is off, or nothing happened yet).');
 } finally {
   await db.end();
