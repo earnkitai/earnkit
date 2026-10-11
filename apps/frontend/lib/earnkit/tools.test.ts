@@ -4,7 +4,7 @@ import { SafeFetchError } from './safe-fetch';
 import { after, test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
-import { BUILD_NOTE, BUILD_NO_LIVE_NOTE, BUILD_WALLET_NOTE, PLAN_NOTE, CONFIRM_SHARED_NOTE, LEAD_NOTE, NOTED_FOR_NOW, eligibilityLine, freshSwitches, withoutTokenLine, SponsorCampaignInput, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
+import { BUILD_NOTE, BUILD_NO_LIVE_NOTE, BUILD_PENDING_NOTE, BUILD_WALLET_NOTE, PLAN_NOTE, CONFIRM_SHARED_NOTE, LEAD_NOTE, NOTED_FOR_NOW, eligibilityLine, freshSwitches, withoutTokenLine, SponsorCampaignInput, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
 import { aliasCall } from './aliases';
 import { reportedGithubUser, reportedRepos } from './match-projects';
 import { sql } from './db';
@@ -5239,6 +5239,38 @@ test('final fix M6: a repo that once read as a template (or a fork) stays refuse
       // A clean repo reads clean the first time and deploys.
       const clean = await shipSetup('m6clean', tc, { github: buildFlowGitHub() });
       assert.deepEqual((await clean.ship()).deploy, { address: T9_ADDR, chain: 'arc', owner_ok: true });
+    }),
+  ),
+);
+
+test('final fix M8: a receipt timeout never strands the build: the same deploy-and-host call again settles the sent deploy from its receipt, sends nothing new and goes on to hosting', dbTest, (tc) =>
+  withEventLog(() =>
+    withVars(shipVars(), async () => {
+      const t = await shipSetup('m8pending', tc);
+      const real = t.ctx.deployDeps.chain();
+      const slow = { ...t.ctx, deployDeps: { ...t.ctx.deployDeps, chain: () => ({ ...real, receipt: async () => null }) } };
+      const first = await t.ship({}, slow);
+      assert.equal(first.show_to_builder, 'The deploy is still going. It can take a few minutes.');
+      assert.equal(first.agent_note, BUILD_PENDING_NOTE);
+      assert.equal(t.sent.length, 1);
+      const [row] = await sql()<{ status: string }[]>`SELECT status FROM contract_deploys WHERE installation_id = ${t.inst}`;
+      assert.equal(row.status, 'unknown');
+      // Still no receipt: the same answer, nothing sent again.
+      assert.equal((await t.ship({}, slow)).agent_note, BUILD_PENDING_NOTE);
+      assert.equal(t.sent.length, 1);
+      // The receipt is in: settled, never sent again, and the call goes on to hosting as a fresh deploy would.
+      const again = await t.ship();
+      assert.equal(t.sent.length, 1, 'never deployed twice');
+      assert.deepEqual(again.deploy, { address: T9_ADDR, chain: 'arc', owner_ok: true });
+      assert.equal(again.show_to_builder, '', 'the deployed line waits for the joined reply');
+      assert.match(String(again.host?.upload_url), /\/api\/host\/upload\?t=/);
+      assert.match(again.agent_note ?? '', /Show the builder nothing yet/);
+      const rows = await sql()<{ status: string; address: string; block: string }[]>`SELECT status, address, block::text FROM contract_deploys WHERE installation_id = ${t.inst}`;
+      assert.deepEqual(rows.map((r) => ({ ...r })), [{ status: 'deployed', address: T9_ADDR, block: '4242' }]);
+      const events = await eventsOfInstallation(t.inst);
+      assert.deepEqual(events.map((e) => e.type), ['built', 'deployed']);
+      assert.equal(events[1].dedupe_key, `deployed:${(await sql()<{ id: number }[]>`SELECT id FROM contract_deploys WHERE installation_id = ${t.inst}`)[0].id}`);
+      assert.equal((events[1].detail as { starter?: string }).starter, (events[0].detail as { starter?: string }).starter, 'the build\'s starter');
     }),
   ),
 );

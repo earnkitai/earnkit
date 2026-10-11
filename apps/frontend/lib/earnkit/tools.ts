@@ -82,7 +82,7 @@ import {
   prepareSubmission,
 } from './submission';
 import { OWNERSHIP_FILE } from './ownership';
-import { DEPLOY_LINES, deployChainOn, deployChains, deployEnabled, deployForBuilder, deployOffLine, deployOffNote, deployedLine, initcode, type DeployChainName, type DeployDeps, type DeployInput } from './deploy';
+import { DEPLOY_LINES, DEPLOY_PENDING, deployChainOn, deployChains, deployEnabled, deployForBuilder, deployOffLine, deployOffNote, deployedLine, initcode, settlePendingDeploy, type DeployChainName, type DeployDeps, type DeployInput } from './deploy';
 import { decodeAbiParameters, isHex, keccak256, type Abi } from 'viem';
 import {
   CANT_PUSH_RETRY_NOTE,
@@ -2604,6 +2604,9 @@ function starterArtifact(
   return { abi };
 }
 
+/** Final fix M8: the build's deploy is sent but unconfirmed; the same call made again settles it. */
+export const BUILD_PENDING_NOTE =
+  'Show show_to_builder as written. In a few minutes make this same prepare call again, deploy and all: EarnKit reads the receipt then and goes on from there; it never deploys twice. Never deploy it anywhere else.';
 /** Security fix M6: deployed, but the build's wallet doesn't own it, so nothing is hosted. */
 export const BUILD_NOT_OWNED_NOTE =
   "The builder's wallet doesn't own this contract (owner() isn't their wallet), so EarnKit won't host its site. Don't build a site for it; tell the builder in one short line. Don't show this note.";
@@ -2846,11 +2849,21 @@ async function buildShip(programId: string, rest: Record<string, unknown>, ctx: 
     return { reply: buildRefusal(BUILD_OWNER_NOTE) };
   const build = { ...stored, wallet, repo_url: repo };
   if (stored.repo_url !== repo) await saveBuild(ctx.installationId, build);
-  const step = await deployStep({ ...deploy, abi: artifact.abi, owner_wallet: wallet }, { project: { name: stored.name, repo_url: repo } }, ctx, {
-    starter: { id: starter.id, bytecode_hash: starter.contract.bytecode_hash },
-    lineOwner: proven.lineOwner,
-    beforeSend: () => builtEvent(ctx, build, repoKey, proven.lineOwner),
-  });
+  // Final fix M8: a deploy of this build still unconfirmed from an earlier call is settled from its
+  // receipt (read-only), never sent again; the call then goes on as if it had just deployed.
+  const pending = await settlePendingDeploy(
+    { installationId: ctx.installationId, repoKey, chain: starter.chain, projectName: stored.name, starterId: starter.id },
+    ctx.deployDeps,
+  );
+  const step = pending
+    ? pending.status === 'deployed'
+      ? { line: pending.show_to_builder, deploy: { address: pending.address, chain: starter.chain, owner_ok: pending.owner_ok } as Reply, agent_note: 'Add deploy.address to contracts; never put it in a description.' }
+      : { line: pending.show_to_builder, deploy: { [pending.status]: pending.show_to_builder } as Reply, ...(pending.agent_note && { agent_note: pending.agent_note }) }
+    : await deployStep({ ...deploy, abi: artifact.abi, owner_wallet: wallet }, { project: { name: stored.name, repo_url: repo } }, ctx, {
+        starter: { id: starter.id, bytecode_hash: starter.contract.bytecode_hash },
+        lineOwner: proven.lineOwner,
+        beforeSend: () => builtEvent(ctx, build, repoKey, proven.lineOwner),
+      });
   const out = step.deploy as { address?: unknown; owner_ok?: unknown };
   const deployed = typeof out.address === 'string';
   // Security fix M6: a site only for a contract the builder's wallet owns.
@@ -2858,7 +2871,11 @@ async function buildShip(programId: string, rest: Record<string, unknown>, ctx: 
   const hosting = owned ? await hostBlock(ctx, repo, stored.name, proven) : null;
   const upload = hosting && 'upload_url' in hosting ? { upload_url: hosting.upload_url, expires_at: hosting.expires_at } : null;
   const host = hosting ? (upload ?? { github_pages: true, site_dir: starter.site_dir }) : null;
-  const note = [step.agent_note, hosting ? `${BUILD_HOLD_NOTE} ${upload ? BUILD_UPLOAD_NOTE : BUILD_PAGES_NOTE}` : deployed ? BUILD_NOT_OWNED_NOTE : null].filter(Boolean).join(' ');
+  // Final fix M8: still unconfirmed: the same call again settles it (the explorer note isn't the build's way on).
+  const note =
+    step.line === DEPLOY_PENDING
+      ? BUILD_PENDING_NOTE
+      : [step.agent_note, hosting ? `${BUILD_HOLD_NOTE} ${upload ? BUILD_UPLOAD_NOTE : BUILD_PAGES_NOTE}` : deployed ? BUILD_NOT_OWNED_NOTE : null].filter(Boolean).join(' ');
   return {
     reply: {
       program_id: programId,
