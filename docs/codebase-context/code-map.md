@@ -223,12 +223,16 @@ apps/frontend/
                                1 to 14 days or rolling, a tested starter on a chain EarnKit deploys to with
                                hosting on; never a long shot, needs a live product, investment, hidden or
                                entered), contextLine ("$X in prizes is open right now across N programs."),
-                               freshLeadLine (builds / chat-only). fixtures/fresh-build.ts: TESTED_STARTERS,
+                               freshLeadLine (builds / chat-only). v2.11 T8: twistQuestion, BUILD_CHAT_ONLY,
+                               buildingLine, buildCheck (plain words, limits, kit names, the twist's words in name,
+                               description and feature), buildFix, PUBLIC_TEST_WALLETS / publicTestWallet, buildKit.
+                               fixtures/fresh-build.ts: TESTED_STARTERS,
                                FRESH_ON, fileCards (real program files as cards), withFreshBuild, withoutFreshBuild
     starters.ts(+test)         v2.11 T5: the starter registry STARTERS (pure, import-free; id, chain, repo degit
                                path, what (builder copy), minutes 60, contract { artifact, owner_arg }, site_dir,
                                usage_event, usage_read view_total | recent_logs, usage_view { call, selector,
-                               words }, tested_at (null until the starter's test passes), test_cmd). Today only
+                               words }, kit_twist (the kit's own twist.json slots, T8), tested_at (null until the
+                               starter's test passes), test_cmd). Today only
                                arc-tipjar (chain-kits arc/tipjar, tested 2026-10-11, stats() view); base-checkin
                                left out (owner decision 4)
     programs.ts(+test)         v2.8.1 §B8 card needs_repo (the program file's needs_repo, column
@@ -424,7 +428,8 @@ apps/frontend/
                                1 h per (repo, pushed_at); v2.10 R10: via_app (read through the App; once set, kept); fix round 1:
                                loadRepoFacts({ viaApp }) (App rows only through the App), Ruling H6 repo_public_reads:
                                markRepoPublic, publicRepoKeys, publicRepoUrl, PUBLIC_READ_DAYS (7), sweepPublicReads
-    installations.ts(+test)    v2.11 T7: markFreshOffer (fresh_offer_at, set once).
+    installations.ts(+test)    v2.11 T7: markFreshOffer (fresh_offer_at, set once). v2.11 T8: StoredBuild,
+                               readBuild / saveBuild (installations.build, plan S6).
                                save / touch installation by token hash or (v2.4) OAuth client key
                                v2.10 item 3: setWorkingOn returns true only when it added the program
                                (client_key); memory (GitHub, working_on, last payout wallet);
@@ -458,6 +463,7 @@ apps/frontend/
     mcp.ts(+test)              v2.10 item 4: registers find, prepare, confirm, tell (+ sponsor_campaign with escrow);
                                v2.10 item 13: prepare's deploy schema (chain, bytecode, abi, constructor_args, owner_wallet); readOnlyHint false.
                                v2.10.3: the deploy field is listed only while deployEnabled() and DEPLOY_CHAINS names a chain.
+                               v2.11 T8: prepare's build schema (BUILD_SCHEMA, passthrough), listed with deploy only.
                                FIND_DESCRIPTION, TELL_DESCRIPTION, toolDescriptions, serverInstructions, OWNERSHIP_FOR_TOKEN all
                                under 800 characters (mcp.test 9.1, 9.2; 9.7 the route alias end to end).
                                v2.10 item 2: find takes more; its description says one line first
@@ -671,6 +677,11 @@ apps/frontend/
     tools.ts                   v2.11 T7: find's build_offer (BUILD_NOTE / PLAN_NOTE), freshSwitches (deploys +
                                RPC + R2; ctx.freshDeps in tests), fresh_offer_at on the first build lead.
                                v2.10.2 (v2.11 8a): matchRows ranks by odds (oddsRank), real use, traction, score.
+                               v2.11 T8: prepare's build (plan S7, prepareBuild: BuildStart / BuildTwist strict,
+                               BuildMark goes on to the usual path), buildStart (twistQuestion, stores the build),
+                               buildTwist (buildCheck, wallet given or remembered, never a public test wallet,
+                               rememberWallet, buildingLine, buildKit with tokenLineFor), buildPick (freshPick on one
+                               program: fail closed), BUILD_SHARED_NOTE, twistNote, KIT_NOTE, WALLET_NEEDED_NOTE.
                                v2.10 item 4: `tools` = find, prepare, confirm, tell, sponsor_campaign, thin dispatchers
                                over `handlers` (the v2.9 functions: list_programs ... launch_token); FindInput,
                                PrepareInput, ConfirmInput (R15), TellToolInput (R16), markSubmitted (tell.submitted),

@@ -1,6 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { contextLine, freshLeadLine, freshPick, type FreshPick } from './fresh-build';
+import {
+  BUILD_CHAT_ONLY,
+  PUBLIC_TEST_WALLETS,
+  buildCheck,
+  buildKit,
+  buildingLine,
+  contextLine,
+  freshLeadLine,
+  freshPick,
+  publicTestWallet,
+  twistQuestion,
+  type FreshPick,
+} from './fresh-build';
 import { freshLead, presentFirstMessage, type Card, type FirstMessage } from './present';
 import { STARTERS } from './starters';
 import { FRESH_ON, TESTED_STARTERS, fileCards, withFreshBuild, withoutFreshBuild } from './fixtures/fresh-build';
@@ -241,4 +253,119 @@ test('freshLeadLine copy: the prize cut at " × ", the "what" from the registry,
   const other = { ...pick, starter: { ...pick.starter, what: 'a tiny thing on Arc' } };
   assert.match(freshLeadLine(other, NOW, true), / A tiny thing on Arc takes about an hour\./);
   assert.match(freshLeadLine(other, NOW, false), / builds the tiny thing in about an hour\./);
+});
+
+// ---- v2.11 T8 (spec 3): the twist question, the build checks, the building line and the kit ----
+
+const TIPJAR = STARTERS['arc-tipjar'];
+const WALLET = '0x12ab34cd56ef7890a1b2c3d4e5f6a7b8c9d09f3e';
+/** The spec's example: the twist baked into the name, the description and the feature. */
+const POD = {
+  twist: 'tips for my podcast listeners',
+  name: 'PodTips',
+  description: 'Podcast listeners tip the show in USDC on Arc.',
+  feature: 'Each tip can carry a question for the podcast to answer on air.',
+  for_whom: 'for your podcast listeners',
+};
+
+test('8.1 twistQuestion: the spec\'s two exact strings; the wallet sentence is a statement, so one question either way', () => {
+  const q = 'What should it do for you or your users? One line is enough, like "tips for my podcast listeners".';
+  assert.equal(twistQuestion(true), q);
+  assert.equal(twistQuestion(false), `${q} Add the wallet that should own it.`);
+  for (const t of [twistQuestion(true), twistQuestion(false)]) {
+    oneQuestion(t);
+    plainCopy(t);
+  }
+});
+
+test('8.2 buildingLine: "Building <name>: <what> <for whom>. I\'ll be back with the live link."', () => {
+  assert.equal(
+    buildingLine('PodTips', TIPJAR.what, 'for your podcast listeners'),
+    "Building PodTips: a USDC tip page on Arc for your podcast listeners. I'll be back with the live link.",
+  );
+  const line = buildingLine(POD.name, TIPJAR.what, POD.for_whom);
+  assert.doesNotMatch(line, /\?/);
+  plainCopy(line);
+});
+
+test('8.2 buildCheck passes the twist baked into the name, the description and the feature (no LLM: shared words)', () => {
+  assert.equal(buildCheck(POD, TIPJAR), null);
+  assert.equal(buildCheck({ ...POD, wallet: WALLET }, TIPJAR), null);
+  // Another twist, other words: a camelCase name part counts ("Lib" in "LibFund" for "library").
+  const lib = {
+    twist: 'a tip jar for my open-source library',
+    name: 'LibFund',
+    description: 'Back the library with a USDC tip on Arc.',
+    feature: 'A goal bar shows how close the library is to its next release.',
+    for_whom: 'for your library',
+  };
+  assert.equal(buildCheck(lib, TIPJAR), null);
+});
+
+test('8.3 buildCheck refuses: an address or a stat dump, a name off 3 to 40 characters, a kit name, a twist over 200 characters, two sentences, a missing twist, a bad or public test wallet', () => {
+  const bad: [string, Partial<typeof POD> & { wallet?: string }, RegExp][] = [
+    ['an address in the name', { name: `PodTips ${WALLET}` }, /^Fix build\.name/],
+    ['a 41-character name', { name: `Pod${'x'.repeat(38)}` }, /^Fix build\.name: 3 to 40 characters/],
+    ['a 2-character name', { name: 'Po' }, /^Fix build\.name/],
+    ['the kit\'s name', { name: 'Arc kit' }, /^Fix build\.name: .*kit/],
+    ['the starter package name', { name: 'earnkit-arc-tipjar-starter' }, /^Fix build\.name/],
+    ['the twist slot default', { name: 'Tip Jar' }, /^Fix build\.name/],
+    ['a name without the twist', { name: 'Tipster' }, /^Fix build\.name: .*twist/],
+    ['a description without the twist', { description: 'Send a tip in USDC on Arc.' }, /^Fix build\.description/],
+    ['a description over two lines', { description: 'Podcast listeners tip.\nIn USDC on Arc.' }, /^Fix build\.description/],
+    ['a stat dump', { description: 'Podcast tips: 1, 2, 3, 4 and 5 USDC.' }, /^Fix build\.description/],
+    ['a feature without the twist', { feature: 'Every tip can carry a short note, shown on the page.' }, /^Fix build\.feature/],
+    ['two sentences in the feature', { feature: 'Podcast fans leave notes. The host reads them.' }, /^Fix build\.feature: one sentence/],
+    ['a twist over 200 characters', { twist: `tips for my podcast ${'listeners '.repeat(20)}` }, /^Fix build\.twist/],
+    ['a twist with an address', { twist: `tips to ${WALLET}` }, /^Fix build\.twist/],
+    ['a twist that names nothing of theirs', { twist: 'a tip jar for users' }, /^Fix build\.twist: .*who it is for/],
+    ['for_whom without "for"', { for_whom: 'your podcast listeners' }, /^Fix build\.for_whom/],
+    ['a bad wallet', { wallet: '0x12ab' }, /^Fix build\.wallet/],
+    ['a bad checksum', { wallet: '0x12aB34cd56ef7890a1b2c3d4e5f6a7b8c9d09f3e' }, /^Fix build\.wallet/],
+    ['the zero address', { wallet: `0x${'0'.repeat(40)}` }, /^Fix build\.wallet/],
+    ['anvil account 0', { wallet: '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266' }, /^Fix build\.wallet: .*public test/],
+  ];
+  for (const [label, change, re] of bad) {
+    const why = buildCheck({ ...POD, ...change }, TIPJAR);
+    assert.ok(why, label);
+    assert.match(why!, re, label);
+    assert.match(why!, /Don't show this to the builder\.$/, label);
+    assert.doesNotMatch(why!, /\u2014/, label);
+  }
+});
+
+test('8.3 the public test wallets are anvil and Hardhat accounts 0 to 9 (the starter\'s artifact.mjs list) plus the zero address, any case', () => {
+  assert.equal(PUBLIC_TEST_WALLETS.length, 10);
+  assert.ok(publicTestWallet('0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266'));
+  assert.ok(publicTestWallet('0xA0EE7A142D267C1F36714E4A8F75612F20A79720'));
+  assert.ok(publicTestWallet(`0x${'0'.repeat(40)}`));
+  assert.ok(!publicTestWallet(WALLET));
+});
+
+test('8.2 buildKit: the degit path, the twist slots, the proof line, the artifact shape and the rules, for the agent only', () => {
+  const kit = buildKit(TIPJAR, 'token: 0123456789abcdef', { ...POD, wallet: WALLET });
+  assert.equal(kit.degit, 'npx degit earnkitai/chain-kits/arc/tipjar <project>');
+  assert.deepEqual(kit.twist_slots, { name: POD.name, description: POD.description, feature: POD.feature });
+  assert.equal(kit.owner_wallet, WALLET);
+  assert.equal(kit.proof_file, 'earnkit.txt');
+  assert.equal(kit.proof_line, 'token: 0123456789abcdef');
+  assert.match(kit.artifact_shape, /chain: 'arc'.*bytecode.*abi.*constructor_args.*owner_wallet/);
+  assert.match(kit.artifact_shape, /constructor_args\[0\] is the owner/);
+  const rules = kit.rules.join(' ');
+  assert.match(rules, /public/);
+  assert.match(rules, /builder's own GitHub account/);
+  assert.match(rules, /not a fork/);
+  assert.match(rules, /no keys or secrets/i);
+  assert.match(rules, /Never show the builder/);
+  // No repo yet: the proof line comes when build.repo_url is sent.
+  const early = buildKit(TIPJAR, null, { ...POD, wallet: WALLET });
+  assert.equal(early.proof_line, null);
+  assert.match(early.proof_line_note!, /build\.repo_url/);
+});
+
+test('8.5 BUILD_CHAT_ONLY: "I can\'t build from here", no question, no tool or product name', () => {
+  assert.match(BUILD_CHAT_ONLY, /^I can't build from here\./);
+  assert.doesNotMatch(BUILD_CHAT_ONLY, /\?/);
+  assert.doesNotMatch(BUILD_CHAT_ONLY, /Claude|Cursor|Codex|Grok|ChatGPT/);
+  plainCopy(BUILD_CHAT_ONLY);
 });

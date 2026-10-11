@@ -23,7 +23,7 @@ import {
 import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TELL_DESCRIPTION, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { bonusLine, presentFirstMessage, skippedLine, submitStepLine, type Card, type FirstMessage } from './present';
 import { SKIP_REASONS } from './match-projects';
-import { BUILD_NOTE, PLAN_NOTE, ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, CONFIRM_SHARED_NOTE, PROJECT_REOFFER_NOTE, SUBMITTED_AGAIN_NOTE, SUBMITTED_SHARED_NOTE, handlers } from './tools';
+import { BUILD_NOT_STARTED, BUILD_SHARED_NOTE, KIT_NOTE, WALLET_NEEDED_NOTE, buildRefused, twistNote, BUILD_NOTE, PLAN_NOTE, ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, CONFIRM_SHARED_NOTE, PROJECT_REOFFER_NOTE, SUBMITTED_AGAIN_NOTE, SUBMITTED_SHARED_NOTE, handlers } from './tools';
 import { outcomeQuestion } from './outcomes';
 import { DEFAULT_GUIDANCE, PLAIN_FIX, PLAIN_LENGTH_FIX, PLAIN_NOTE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, walletAsk } from './coach';
 import { alsoText } from './also-qualifies';
@@ -123,7 +123,7 @@ import { landingFrom, statsLine } from './landing';
 import { bonusPillLabel } from '../../app/components/ui/BonusPill';
 import { eachLine, poolLine } from './pool';
 import { STARTERS } from './starters';
-import { contextLine, freshLeadLine, freshPick } from './fresh-build';
+import { BUILD_CHAT_ONLY, buildCheck, buildingLine, contextLine, freshLeadLine, freshPick, twistQuestion } from './fresh-build';
 import { TESTED_STARTERS, fileCards, withFreshBuild } from './fixtures/fresh-build';
 
 /**
@@ -975,12 +975,29 @@ test('v2.11 T7 (review I1): the fresh lead, the context line and their notes nam
   for (const [label, text] of texts) assert.doesNotMatch(text, /Claude Code|\bClaude\b|Cursor|Codex|Grok|ChatGPT/, label);
 });
 
+/** v2.11 T8: one buildCheck fix per rule (agent notes). */
+function buildFixTexts(): [string, string][] {
+  const s = STARTERS['arc-tipjar'];
+  const ok = { twist: 'tips for my podcast listeners', name: 'PodTips', description: 'Podcast listeners tip the show.', feature: 'Each tip can carry a question for the podcast.', for_whom: 'for your podcast listeners' };
+  const cases: Partial<typeof ok & { wallet: string }>[] = [
+    { name: 'Po' }, { name: 'Arc kit' }, { name: 'Tipster' }, { description: 'Send a tip in USDC on Arc.' }, { feature: 'Podcast fans leave notes. The host reads them.' },
+    { feature: 'Every tip can carry a short note.' }, { twist: 'a tip jar for users' }, { for_whom: 'your listeners' }, { wallet: '0x12' },
+    { wallet: '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266' }, { description: 'Podcast tips 0x12ab34cd56ef7890a1b2c3d4e5f6a7b8c9d09f3e' },
+  ];
+  return cases.map((c, i): [string, string] => [`buildCheck fix ${i}`, buildCheck({ ...ok, ...c }, s)!]);
+}
+
 const builderFacing: [string, string][] = [
   ...v29Part1Texts,
   // v2.11 T5 (5.3): a starter's "what" is builder copy (the fresh lead line).
   ...Object.values(STARTERS).map((s): [string, string] => [`STARTERS.${s.id}.what`, s.what]),
   // v2.11 T7: the no-repo lead's context line and its lead, each variant.
   ...freshTexts(),
+  // v2.11 T8: the twist question (with and without the wallet ask), the building line, the shared reply.
+  ['twistQuestion(true)', twistQuestion(true)],
+  ['twistQuestion(false)', twistQuestion(false)],
+  ['buildingLine', buildingLine('PodTips', STARTERS['arc-tipjar'].what, 'for your podcast listeners')],
+  ['BUILD_CHAT_ONLY', BUILD_CHAT_ONLY],
   ['applied outside EarnKit', appliedOutsideText],
   ...tokenOfferTexts,
   ['NO_TOKEN_FOR_NOW', NO_TOKEN_FOR_NOW],
@@ -1065,6 +1082,15 @@ const builderFacing: [string, string][] = [
 // may name launch_token — same bucket as OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS and the tool descriptions.
 const agentFacing: [string, string][] = [
   ['BUILD_NOTE', BUILD_NOTE],
+  // v2.11 T8: the build path's notes and every build fix.
+  ['twistNote(true)', twistNote(true)],
+  ['twistNote(false)', twistNote(false)],
+  ['BUILD_SHARED_NOTE', BUILD_SHARED_NOTE],
+  ['BUILD_NOT_STARTED', BUILD_NOT_STARTED],
+  ['buildRefused', buildRefused('arc-microgrants')],
+  ['WALLET_NEEDED_NOTE', WALLET_NEEDED_NOTE],
+  ['KIT_NOTE', KIT_NOTE],
+  ...buildFixTexts(),
   ['PLAN_NOTE', PLAN_NOTE],
   ['LAUNCHING_AGENT', LAUNCHING_AGENT],
   ['launchStuckAgent', launchStuckAgent('No answer from tokens.fun.')],

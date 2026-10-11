@@ -4228,9 +4228,10 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
 - **Fail closed.** `FirstMessage.fresh` (`FreshOn`: `deployOn`, `hostOn`, `canBuild`, optional
   `starters`) is set only by `find` (`tools.ts` `freshSwitches`): deploys on a chain need
   `deployEnabled()` plus the chain's RPC, hosting needs `r2Enabled()`. Without `fresh`, without a
-  tested starter (arc-tipjar's `tested_at` is null until T6), without a program carrying
-  `fresh_build` (none today), or with deploys or hosting off (production on 2026-10-10), there is no
-  pick and the reply is v2.10's byte for byte. `ctx.freshDeps` overrides the switches in tests only.
+  tested starter, without a program carrying `fresh_build`, or with deploys or hosting off
+  (production on 2026-10-11: arc-tipjar is tested and Arc Microgrants names it since the T5/T6
+  follow-up, but neither the deployer key nor R2 is set), there is no pick and the reply is v2.10's
+  byte for byte. `ctx.freshDeps` overrides the switches in tests only.
 - **find's reply.** With a pick, `build_offer: { program_id, starter_id, agent_note }`: `BUILD_NOTE`
   (a yes means `prepare` with `build: { start: true, program_id }`, T8) or, chat-only, `PLAN_NOTE`
   (tell the builder to add EarnKit to a coding agent; no tool names). The `find` description says "build_offer:
@@ -4239,3 +4240,54 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
   `installations.fresh_offer_at` (`installations.ts` `markFreshOffer`, `WHERE fresh_offer_at IS
   NULL`), the start of the v2.11 metric; later leads never move it. It does not limit how often the
   lead shows: like every other lead, it shows on each find while nothing else leads.
+
+## v2.11 The twist question and the build kit (Task 8, spec 3, plan S6 and S7)
+
+- **The calls.** `prepare` with `build` (plan S7, `tools.ts prepareBuild`), strict:
+  - `{ start: true, program_id }`: the yes to the fresh lead (`build_offer`). The reply is the one
+    twist question, `What should it do for you or your users? One line is enough, like "tips for my
+    podcast listeners".`, plus the statement `Add the wallet that should own it.` when no wallet is
+    known (owner decision D-D: one question per reply). The build is stored in `installations.build`
+    (`{ program_id, starter_id, started_at }`, S6; a new start replaces it).
+  - `{ program_id, twist, name, description, feature, for_whom, wallet?, repo_url? }`: the fields the
+    agent wrote from the builder's answer (EarnKit runs no LLM; the agent writes, the server checks).
+    `for_whom` ("for your podcast listeners") feeds the building line; `repo_url` (optional) gets the
+    earnkit.txt proof line. On a pass the builder sees `Building PodTips: a USDC tip page on Arc for
+    your podcast listeners. I'll be back with the live link.` and the agent gets `kit`. The same
+    fields sent again (say, with `repo_url` added) show the builder nothing new.
+  - `{ program_id }`: the deploy-and-host call's mark; `build` is dropped and the call takes
+    prepare's usual path (T9 gives it its own meaning).
+  - Start and twist calls carry only `build` (and the same `program_id` at the top, which the MCP
+    schema requires). Any other key, a mixed shape or an unknown key inside `build` is an agent note.
+- **Fail closed.** Each call re-runs `freshPick` on that one program (`buildPick`: open, curated,
+  not hidden or entered, a tested starter, deploys and hosting on). No pick: an agent note, nothing
+  stored. A shared client gets `BUILD_CHAT_ONLY` ("I can't build from here. ...") and nothing is
+  stored (S6). MCP lists `build` only while deploys are on, with `deploy`.
+- **The checks (`fresh-build.ts buildCheck`, pure).** Every text field is one line of plain words
+  (`coach.ts plainProblem`: no address, hash, stat dump or link) within its limits (twist 3 to 200,
+  name 3 to 40, description and feature 10 to 160, for_whom 5 to 60). The name is never a kit name
+  (`EARNKIT_STARTER_NAMES` or the starter's `kit_twist.name`). The twist must name something of the
+  builder's own (a word that isn't the kit's or a stop word), and the name, the description and the
+  feature each use one of its words or stems ("Pod" in "PodTips" for "podcast"). The feature is one
+  sentence; `for_whom` starts with "for". A given wallet is valid (EIP-55 when mixed case) and never
+  the zero address or a public test wallet (`PUBLIC_TEST_WALLETS`: anvil and Hardhat accounts 0 to
+  9, the starter's `artifact.mjs` list). Every refusal is `Fix build.<field>: ...` in `agent_note`
+  with an empty `show_to_builder`.
+- **The wallet.** The one given now, else the build's stored one, else the remembered one
+  (`walletMemory`, never on a shared client); a remembered public test wallet counts as none. A given
+  wallet is remembered (`rememberWallet`), so the next build's question needs no wallet ask: never
+  asked twice. Without any, the agent note asks the agent to pass `build.wallet`; EarnKit never makes
+  one up.
+- **Public test wallets in any deploy.** `prepare` with `deploy` (the v2.10 path) refuses one as the
+  owner too, given or remembered: the reply asks for the wallet ("Send me the wallet that should own
+  ...") and the agent note says why; nothing is deployed.
+- **The kit (agent only).** `buildKit`: `npx degit <starter.repo> <project>`, the twist slots filled
+  with the checked fields, `owner_wallet`, `proof_file` earnkit.txt and `proof_line`
+  (`token-gate.ts tokenLineFor` for the repo, which `deploy.ts` reads through `repoOwnershipPasses`;
+  null with a note until `repo_url` is sent), the artifact shape `prepare.deploy` takes, the next call
+  (`prepare` with `deploy`, `host: true` and `build: { program_id }`) and the rules (public repo under
+  the builder's own account, not a fork, no secrets, rename the kit, never show the kit).
+- **What is stored.** `installations.build` holds the wallet, the twist, the name, the description,
+  the feature, `for_whom` and `repo_url` for T9 (the `built` event's `detail.twist`) and T10 (the
+  draft). T8 writes no `builder_events` row, so the /terms records list is unchanged by it.
+

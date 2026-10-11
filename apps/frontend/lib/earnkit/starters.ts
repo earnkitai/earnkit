@@ -45,6 +45,11 @@ export type Starter = {
   contract: { artifact: string; owner_arg: boolean };
   /** The static output to zip and host, relative to the starter's folder. */
   site_dir: string;
+  /**
+   * v2.11 T8: the kit's own twist slots (its `twist.json` as shipped). A build whose name,
+   * description or feature is still one of these is the kit, not the builder's twist (buildCheck).
+   */
+  kit_twist: { name: string; description: string; feature: string };
   /** The event signature that counts as use (canonical types, no names or `indexed`). */
   usage_event: string;
   usage_read: UsageRead;
@@ -78,6 +83,11 @@ export const STARTERS: Record<StarterId, Starter> = {
     minutes: 60,
     contract: { artifact: 'UsdcTipJar', owner_arg: true },
     site_dir: 'site',
+    kit_twist: {
+      name: 'Tip Jar',
+      description: 'Send a tip in USDC on Arc.',
+      feature: 'Every tip can carry a short note, shown on the page.',
+    },
     usage_event: 'Tipped(address,uint256,string)',
     usage_read: 'view_total',
     usage_view: { call: 'stats()', selector: '0xd80528ae', words: ['tips', 'total', 'tippers'] },

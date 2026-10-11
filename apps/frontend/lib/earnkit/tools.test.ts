@@ -15,10 +15,11 @@ import { PLAIN_FIX, PLAIN_NOTE, coachIntro, draftTable, fixesLine, preSubmitChec
 import { projectKey, readBank } from './answer-bank';
 import { alsoProgramFacts, getProgramRow, upsertProgram } from './programs';
 import { guideText, programGuide } from './guide';
-import { setWorkingOn } from './installations';
+import { rememberWallet, setWorkingOn } from './installations';
 import { enteredProgramIds, hasProgramEntry } from './projects';
 import { setSanctionsOracle } from './sanctions';
-import { tokenLineFor } from './token-gate';
+import { tokenCode, tokenLineFor } from './token-gate';
+import type { DeployDeps } from './deploy';
 import { REPO_HELD } from './entry-text';
 import { endsOf, freshLead, presentFirstMessage, type RepoFit } from './present';
 import { LAUNCHING, LAUNCH_STUCK, SKIPPED_ENTRY, launchLimit, tickerTakenNote, type TokenFlowDeps } from './token-launch';
@@ -33,6 +34,7 @@ import { completeVerify, createVerifyLink, formatCode } from './github-verify';
 import { eligibleSql } from './traction';
 import { committedProgram } from './fixtures/program-file';
 import { TESTED_STARTERS, fileCards } from './fixtures/fresh-build';
+import { BUILD_CHAT_ONLY, buildKit, buildingLine, twistQuestion } from './fresh-build';
 import { STARTERS } from './starters';
 import { eventsByKey, eventsOfInstallation, withEventLog } from './fixtures/events';
 import { alsoQualifies, alsoText, type AlsoRow } from './also-qualifies';
@@ -4010,6 +4012,32 @@ test('10.11 prepare with deploy and no wallet known: the reply asks for the owne
   }
 });
 
+test('v2.11 T8: prepare with deploy never makes a public test wallet the owner (given or remembered): it asks for the builder\'s own, and nothing is deployed', dbTest, async () => {
+  const f = committedProgram('arc-microgrants');
+  const stamp = `${process.pid}-${Date.now()}`;
+  Object.assign(f, { id: `t8-testw-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z', fresh_build: undefined });
+  await upsertProgram(ProgramFile.parse(f));
+  const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t8w-${stamp}`}) RETURNING id`;
+  let chainCalls = 0;
+  const deployDeps = { chain: () => (chainCalls++, null) } as unknown as DeployDeps;
+  try {
+    const call = (owner_wallet?: string) =>
+      tools.prepare(
+        { program_id: f.id, project: { name: 'TipJar', repo_url: 'https://github.com/alice/tipjar' }, deploy: { chain: 'arc', bytecode: '0x6060', abi: [], ...(owner_wallet && { owner_wallet }) } },
+        { installationId: id, deployDeps },
+      ) as Promise<{ deploy: unknown; show_to_builder: string; agent_note?: string }>;
+    const given = await call('0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266');
+    assert.deepEqual(given.deploy, { needs_wallet: 'Send me the wallet that should own TipJar.' });
+    assert.match(given.agent_note ?? '', /public test/);
+    await sql()`UPDATE installations SET payout_wallet = '0x70997970c51812dc3a010c7d01b50e0d17dc79c8' WHERE id = ${id}`;
+    const remembered = await call();
+    assert.deepEqual(remembered.deploy, { needs_wallet: 'Send me the wallet that should own TipJar.' });
+    assert.equal(chainCalls, 0, 'no deploy was attempted');
+  } finally {
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${f.id}`;
+  }
+});
+
 test('fix round 2 (N6): prepare with deploy refuses when the installation login read fails (never a fresh key)', dbTest, async () => {
   const { DEPLOY_LINES } = await import('./deploy');
   const f = committedProgram('arc-microgrants');
@@ -4413,4 +4441,200 @@ test('T6 follow-up: find on the real switches with production\'s env offers no b
   assert.ok(!('build_offer' in r));
   const [{ fresh_offer_at }] = await sql()<{ fresh_offer_at: Date | null }[]>`SELECT fresh_offer_at FROM installations WHERE id = ${inst}`;
   assert.equal(fresh_offer_at, null);
+});
+
+// ---- v2.11 T8 (spec 3, plan S6 and S7): the twist question, the build checks and the build kit ----
+
+type BuildReply = { show_to_builder: string; agent_note?: string; build?: Record<string, unknown>; kit?: ReturnType<typeof buildKit> };
+const T8_WALLET = '0x12ab34cd56ef7890a1b2c3d4e5f6a7b8c9d09f3e';
+const T8_POD = {
+  twist: 'tips for my podcast listeners',
+  name: 'PodTips',
+  description: 'Podcast listeners tip the show in USDC on Arc.',
+  feature: 'Each tip can carry a question for the podcast to answer on air.',
+  for_whom: 'for your podcast listeners',
+};
+const T8_REPO = 'https://github.com/jenil04/podtips';
+
+/** A pickable program (freshSetup) with deploys and hosting on, plus prepare and the stored build. */
+async function buildSetup(tag: string, tc: TestContext) {
+  const t = await freshSetup(`b-${tag}`, tc);
+  const ctx = { ...t.base, freshDeps: { deployOn: () => true, hostOn: true, starters: t.starters } };
+  const prepare = async (input: object, c: object = ctx) => (await tools.prepare(input, c as typeof ctx)) as BuildReply;
+  const stored = async () =>
+    (await sql()<{ build: Record<string, unknown> | null; payout_wallet: string | null }[]>`SELECT build, payout_wallet FROM installations WHERE id = ${t.inst}`)[0];
+  const start = (c?: object) => prepare({ program_id: t.p.id, build: { start: true, program_id: t.p.id } }, c);
+  const twist = (b: object = {}, c?: object) => prepare({ program_id: t.p.id, build: { program_id: t.p.id, ...T8_POD, ...b } }, c);
+  return { ...t, ctx, prepare, stored, start, twist };
+}
+const atMostOneQuestion = (r: BuildReply, label = '') => assert.ok(r.show_to_builder.split('?').length - 1 <= 1, `${label}: ${r.show_to_builder}`);
+const refusedQuietly = (r: BuildReply, re: RegExp, label = '') => {
+  assert.equal(r.show_to_builder, '', `${label}: nothing for the builder`);
+  assert.match(r.agent_note ?? '', re, label);
+};
+
+test('8.1 build.start with no wallet known: exactly the twist question plus "Add the wallet that should own it."; the build is stored (S6)', dbTest, async (tc) => {
+  const t = await buildSetup('nowallet', tc);
+  const r = await t.start();
+  assert.equal(r.show_to_builder, twistQuestion(false));
+  assert.equal(
+    r.show_to_builder,
+    'What should it do for you or your users? One line is enough, like "tips for my podcast listeners". Add the wallet that should own it.',
+  );
+  assert.match(r.agent_note ?? '', /wallet \(the one they give; never make one up/);
+  atMostOneQuestion(r, '8.1');
+  const { build } = await t.stored();
+  assert.equal(build?.program_id, t.p.id);
+  assert.equal(build?.starter_id, t.starterId);
+  assert.ok(typeof build?.started_at === 'string');
+  assert.ok(!('wallet' in (build ?? {})));
+  // A direct call without the top-level program_id is the same (S7's shape).
+  assert.equal((await t.prepare({ build: { start: true, program_id: t.p.id } })).show_to_builder, twistQuestion(false));
+});
+
+test('8.1 build.start with a remembered wallet (not shared): the question alone, never asked twice', dbTest, async (tc) => {
+  const t = await buildSetup('remembered', tc);
+  await rememberWallet(t.inst, T8_WALLET);
+  const r = await t.start();
+  assert.equal(r.show_to_builder, twistQuestion(true));
+  assert.equal(r.show_to_builder, 'What should it do for you or your users? One line is enough, like "tips for my podcast listeners".');
+  assert.doesNotMatch(r.agent_note ?? '', /Ask .*wallet/);
+  // The twist without a wallet uses the remembered one.
+  const b = await t.twist();
+  assert.equal(b.show_to_builder, buildingLine('PodTips', 'a USDC tip page on Arc', 'for your podcast listeners'));
+  assert.equal(b.kit?.owner_wallet, T8_WALLET);
+  assert.equal((await t.stored()).build?.wallet, T8_WALLET);
+});
+
+test('8.2 the twist with a wallet: the building line and the kit (degit path, proof line for the repo); the wallet is remembered off a shared client', dbTest, async (tc) => {
+  const t = await buildSetup('twist', tc);
+  const secret = process.env.EARNKIT_AUTH_SECRET;
+  process.env.EARNKIT_AUTH_SECRET = 'test-secret-t8';
+  tc.after(() => {
+    if (secret === undefined) delete process.env.EARNKIT_AUTH_SECRET;
+    else process.env.EARNKIT_AUTH_SECRET = secret;
+  });
+  await t.start();
+  const r = await t.twist({ wallet: T8_WALLET, repo_url: T8_REPO });
+  assert.equal(r.show_to_builder, "Building PodTips: a USDC tip page on Arc for your podcast listeners. I'll be back with the live link.");
+  atMostOneQuestion(r, '8.2');
+  assert.equal(r.kit?.degit, 'npx degit earnkitai/chain-kits/arc/tipjar <project>');
+  assert.deepEqual(r.kit?.twist_slots, { name: 'PodTips', description: T8_POD.description, feature: T8_POD.feature });
+  assert.equal(r.kit?.proof_line, tokenLineFor(t.inst, T8_REPO));
+  assert.equal(r.kit?.proof_line, `token: ${tokenCode(t.inst, T8_REPO)}`);
+  assert.equal(r.kit?.owner_wallet, T8_WALLET);
+  assert.deepEqual(r.build, { program_id: t.p.id, starter_id: t.starterId, step: 'build' });
+  const s = await t.stored();
+  assert.equal(s.payout_wallet, T8_WALLET, 'remembered');
+  assert.equal(s.build?.wallet, T8_WALLET);
+  assert.equal(s.build?.twist, T8_POD.twist);
+  assert.equal(s.build?.name, 'PodTips');
+  assert.equal(s.build?.description, T8_POD.description);
+  assert.equal(s.build?.feature, T8_POD.feature);
+  assert.equal(s.build?.repo_url, T8_REPO);
+  // Sent again unchanged (the agent adding nothing new): the builder already saw the building line.
+  const again = await t.twist({ wallet: T8_WALLET, repo_url: T8_REPO });
+  assert.equal(again.show_to_builder, '');
+  assert.equal(again.kit?.proof_line, r.kit?.proof_line);
+  // The next build's twist question needs no wallet: never asked twice.
+  assert.equal((await t.start()).show_to_builder, twistQuestion(true));
+});
+
+test('8.2 the twist before the repo exists: the kit says to send build.repo_url for the proof line, and that call shows the builder nothing new', dbTest, async (tc) => {
+  const t = await buildSetup('norepo', tc);
+  const secret = process.env.EARNKIT_AUTH_SECRET;
+  process.env.EARNKIT_AUTH_SECRET = 'test-secret-t8';
+  tc.after(() => {
+    if (secret === undefined) delete process.env.EARNKIT_AUTH_SECRET;
+    else process.env.EARNKIT_AUTH_SECRET = secret;
+  });
+  await t.start();
+  const r = await t.twist({ wallet: T8_WALLET });
+  assert.match(r.show_to_builder, /^Building PodTips/);
+  assert.equal(r.kit?.proof_line, null);
+  assert.match(r.kit?.proof_line_note ?? '', /build\.repo_url/);
+  const later = await t.twist({ wallet: T8_WALLET, repo_url: T8_REPO });
+  assert.equal(later.show_to_builder, '');
+  assert.equal(later.kit?.proof_line, tokenLineFor(t.inst, T8_REPO));
+  // A repo under EarnKit's own org is the kit, never the builder's.
+  refusedQuietly(await t.twist({ wallet: T8_WALLET, repo_url: 'https://github.com/earnkitai/chain-kits' }), /^Fix build\.repo_url/);
+});
+
+test('8.3 / 8.4 refusals are agent notes only, with an empty show_to_builder: an address in the name, 41 characters, "Arc kit", a bad wallet, a public test wallet; every reply has at most one "?"', dbTest, async (tc) => {
+  const t = await buildSetup('refuse', tc);
+  const q = await t.start();
+  atMostOneQuestion(q, 'start');
+  const cases: [string, object, RegExp][] = [
+    ['address in the name', { name: `PodTips ${T8_WALLET}`, wallet: T8_WALLET }, /^Fix build\.name/],
+    ['41-character name', { name: `Pod${'x'.repeat(38)}`, wallet: T8_WALLET }, /^Fix build\.name: 3 to 40 characters/],
+    ['the kit name', { name: 'Arc kit', wallet: T8_WALLET }, /^Fix build\.name/],
+    ['a bad wallet', { wallet: '0x12ab' }, /^Fix build\.wallet/],
+    ['anvil account 0', { wallet: '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266' }, /^Fix build\.wallet: .*public test/],
+    ['the zero address', { wallet: `0x${'0'.repeat(40)}` }, /^Fix build\.wallet/],
+    ['no wallet given or remembered', {}, /Pass build\.wallet/],
+  ];
+  for (const [label, b, re] of cases) {
+    const r = await t.twist(b);
+    refusedQuietly(r, re, label);
+    atMostOneQuestion(r, label);
+  }
+  // Nothing past the start was stored, and no wallet was remembered.
+  const s = await t.stored();
+  assert.ok(!('name' in (s.build ?? {})));
+  assert.equal(s.payout_wallet, null);
+});
+
+test('8.3 a remembered public test wallet is never used: the twist asks for the builder\'s own', dbTest, async (tc) => {
+  const t = await buildSetup('testwallet', tc);
+  await sql()`UPDATE installations SET payout_wallet = '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266' WHERE id = ${t.inst}`;
+  assert.equal((await t.start()).show_to_builder, twistQuestion(false), 'a test wallet counts as no wallet');
+  refusedQuietly(await t.twist(), /Pass build\.wallet/);
+});
+
+test('8.5 a shared client asking for the build path gets "I can\'t build from here", and nothing is stored', dbTest, async (tc) => {
+  const t = await buildSetup('shared', tc);
+  const shared = { ...t.ctx, sharedClient: true };
+  for (const r of [await t.start(shared), await t.twist({ wallet: T8_WALLET }, shared)]) {
+    assert.equal(r.show_to_builder, BUILD_CHAT_ONLY);
+    atMostOneQuestion(r, 'shared');
+    assert.ok(!r.kit);
+  }
+  const s = await t.stored();
+  assert.equal(s.build, null);
+  assert.equal(s.payout_wallet, null);
+});
+
+test('8.6 build.start for a program freshPick would not pick (a long shot), with deploys off, or one never started: an agent note, nothing stored', dbTest, async (tc) => {
+  const t = await buildSetup('nopick', tc);
+  const stamp = `${process.pid}-${Date.now()}`;
+  const monad = {
+    ...committedProgram('monad-metropolis'),
+    id: `t8-monad-${stamp}`,
+    status: 'active',
+    ends_at: new Date(Date.now() + 36 * 3_600_000).toISOString(),
+    fresh_build: { starter: t.starterId },
+  };
+  await upsertProgram(ProgramFile.parse(monad));
+  tc.after(async () => {
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${monad.id}`;
+  });
+  refusedQuietly(await t.prepare({ program_id: monad.id, build: { start: true, program_id: monad.id } }), /can't start a build/);
+  refusedQuietly(await t.start({ ...t.ctx, freshDeps: { ...t.ctx.freshDeps, deployOn: () => false } }), /can't start a build/);
+  refusedQuietly(await t.prepare({ program_id: 'no-such-program', build: { start: true, program_id: 'no-such-program' } }), /can't start a build/);
+  // The twist before build.start: never.
+  refusedQuietly(await t.twist({ wallet: T8_WALLET }), /build: \{ start: true/);
+  assert.equal((await t.stored()).build, null);
+  // Started for one program, the twist names another: refused, and the stored build stays.
+  await t.start();
+  refusedQuietly(await t.prepare({ program_id: monad.id, build: { program_id: monad.id, ...T8_POD, wallet: T8_WALLET } }), /build: \{ start: true/);
+  assert.equal((await t.stored()).build?.program_id, t.p.id);
+});
+
+test('S7: build is strict: an unknown key, a mixed shape or a program_id that differs from build.program_id is refused with an agent note', dbTest, async (tc) => {
+  const t = await buildSetup('strict', tc);
+  refusedQuietly(await t.prepare({ program_id: t.p.id, build: { start: true, program_id: t.p.id, color: 'red' } }), /color/);
+  refusedQuietly(await t.prepare({ program_id: t.p.id, build: { start: true, program_id: t.p.id, twist: 'x' } }), /build/);
+  refusedQuietly(await t.prepare({ program_id: 'other', build: { start: true, program_id: t.p.id } }), /program_id/);
+  refusedQuietly(await t.prepare({ program_id: t.p.id, project: { name: 'x' }, build: { start: true, program_id: t.p.id } }), /project/);
+  assert.equal((await t.stored()).build, null);
 });
