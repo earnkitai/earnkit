@@ -558,7 +558,8 @@ apps/frontend/
                                v2.11 Task 11: usageChecks (30/90-day usage_check per deployed event, <= USAGE_LIMIT 20
                                a run, oldest first; getCode everywhere, Blockscout txCount on Base, the starter's logs on
                                Arc over the recent window only: recentChunks, 50 x ARC_LOG_CHUNK 10,000 blocks ending at
-                               the head -> recent { blocks, tips, unique }; 5 failures in a row skip 7 days via the
+                               the head, newest first -> recent { blocks, tips, unique }; Base tx_scope 'lifetime'; one try per
+                               20 h while failing (the cron is hourly), 5 failures in a row skip 7 days via the
                                usage_check_failures table), STARTER_USAGE (usage_event, usage_read), usageTopic,
                                logSender, UsageDeps
     events-backfill.ts(+test)  v2.11 Task 3: backfillEvents (contract_deploys, host_deploys, projects, submissions,

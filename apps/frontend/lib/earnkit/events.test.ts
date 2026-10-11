@@ -7,6 +7,7 @@ import {
   EVENT_LOG_FLAG,
   EVENT_WAIT_MS,
   STARTER_USAGE,
+  USAGE_RETRY_HOURS,
   USAGE_SKIP_AFTER,
   USAGE_SKIP_DAYS,
   USAGE_LIMIT,
@@ -467,7 +468,7 @@ test('11.1 a 31-day-old Base deploy gets one 30-day check (Blockscout count, cod
   assert.equal(rows[0].dedupe_key, `usage:${d.id}:30`);
   assert.equal(rows[0].chain, 'base');
   assert.equal(rows[0].installation_id, 99911);
-  assert.deepEqual(rows[0].detail, { window: 30, deployed_event: Number(d.id), address: d.address, tx_count: 7, code: true, source: 'blockscout' });
+  assert.deepEqual(rows[0].detail, { window: 30, deployed_event: Number(d.id), address: d.address, tx_count: 7, tx_scope: 'lifetime', code: true, source: 'blockscout' });
   assert.deepEqual(urls, [`code:base:${d.address}`, `https://base.blockscout.com/api/v2/addresses/${d.address}/counters`]);
   assert.deepEqual(await usageChecks(now, deps), { checked: 0, failed: 0 });
   assert.equal((await usageOf(d.id)).length, 1);
@@ -478,7 +479,8 @@ test('11.1 a 29-day-old deploy is not due; a code_differs deploy and one without
   const now = new Date();
   const young = await seedDeployed(now, 29);
   const differs = await seedDeployed(now, 40, { detail: { code_differs: true } });
-  const out = await usageChecks(now, { only: [young.id, differs.id], getCode: codeOk, blockscout: async () => ({ transactions_count: '1' }) });
+  const badAddress = await seedDeployed(now, 40, { detail: { address: 'not-an-address' } });
+  const out = await usageChecks(now, { only: [young.id, differs.id, badAddress.id], getCode: codeOk, blockscout: async () => ({ transactions_count: '1' }) });
   assert.deepEqual(out, { checked: 0, failed: 0 });
 });
 
@@ -503,8 +505,8 @@ test('11.2 an Arc arc-tipjar deploy counts Tipped logs in the recent window (50 
   assert.deepEqual(out, { checked: 1, failed: 0 });
   const topic = usageTopic('Tipped(address,uint256,string)');
   assert.equal(calls.length, 50);
-  assert.deepEqual(calls[0], [d.address, topic, 4_500_001n, 4_510_000n]);
-  assert.deepEqual(calls[49], [d.address, topic, 4_990_001n, 5_000_000n]);
+  assert.deepEqual(calls[0], [d.address, topic, 4_990_001n, 5_000_000n], 'newest chunk first');
+  assert.deepEqual(calls[49], [d.address, topic, 4_500_001n, 4_510_000n]);
   const [row] = await usageOf(d.id);
   assert.deepEqual(row.detail, {
     window: 30,
@@ -598,7 +600,7 @@ test('11.5 a failed read writes nothing, counts as failed, logs the class only, 
       arcHead: async () => 30_000n,
       arcLogs: async (_a, _t, from) => {
         logReads++;
-        if (from > 1n) throw Object.assign(new Error('requested range too large'), { name: 'RpcRequestError' });
+        if (from < 30_000n) throw Object.assign(new Error('requested range too large'), { name: 'RpcRequestError' }); // the 2nd chunk (newest first)
         return { count: 1, senders: [W] };
       },
     });
@@ -612,8 +614,8 @@ test('11.5 a failed read writes nothing, counts as failed, logs the class only, 
     assert.match(l, /^\[(events|verify)\] /);
     for (const d of [base, arc, noCode]) assert.ok(!l.includes(d.address), 'no address in the log');
   }
-  // Next run, the reads work: each is checked once.
-  const out = await usageChecks(now, {
+  // The next try, 20 hours later at the earliest (review I1), the reads work: each is checked once.
+  const out = await usageChecks(new Date(now.getTime() + 20 * 3_600_000), {
     only: [base.id, arc.id, noCode.id],
     getCode: codeOk,
     blockscout: async () => ({ transactions_count: '2' }),
@@ -666,7 +668,7 @@ test('11.2 an Arc check that reaches the cron deadline mid-window writes the blo
   assert.deepEqual(out, { checked: 1, failed: 0 });
   assert.equal(reads, 1);
   const [row] = await usageOf(d.id);
-  assert.deepEqual(row.detail.recent, { window: 'recent', blocks: 10_000, from_block: 0, to_block: 9_999, tips: 1, unique: 1, partial: true });
+  assert.deepEqual(row.detail.recent, { window: 'recent', blocks: 5_001, from_block: 20_000, to_block: 25_000, tips: 1, unique: 1, partial: true }, 'a cut window keeps the newest blocks');
 });
 
 test('11.6 a deploy that failed USAGE_SKIP_AFTER (5) runs in a row is skipped for 7 days, so it never blocks a newer one; a pass clears it', dbTest, async () => {
@@ -721,4 +723,50 @@ test('11.6 a failure after the 7-day retry skips another 7 days', dbTest, async 
   });
   const [f] = await sql()<{ failures: number }[]>`SELECT failures FROM usage_check_failures WHERE deployed_event_id = ${bad.id}`;
   assert.equal(f.failures, 6);
+});
+
+test('11.6 (review I1) the cron is hourly: a failing deploy is tried at most once per 20 hours, so 5 in a row spans about 4 days', dbTest, async () => {
+  assert.equal(USAGE_RETRY_HOURS, 20);
+  const t0 = new Date();
+  const bad = await seedDeployed(t0, 40);
+  let reads = 0;
+  const deps = { only: [bad.id], getCode: async () => (reads++, Promise.reject(new Error('down'))) };
+  const hour = (n: number) => new Date(t0.getTime() + n * 3_600_000);
+  await errors(async () => {
+    for (let h = 0; h < 48; h++) await usageChecks(hour(h), deps);
+  });
+  assert.equal(reads, 3, 'hours 0, 20 and 40');
+  const [f] = await sql()<{ failures: number }[]>`SELECT failures FROM usage_check_failures WHERE deployed_event_id = ${bad.id}`;
+  assert.equal(f.failures, 3);
+});
+
+/** The real DB, except an INSERT INTO builder_events: `fail` rejects it; `race` writes it, then answers as a duplicate would. */
+function eventInsertDb(mode: 'fail' | 'race'): Db {
+  const real = sql();
+  return Object.assign(
+    async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      if (!strings.join('?').includes('INSERT INTO builder_events')) return real(strings, ...(values as never[]));
+      if (mode === 'fail') throw Object.assign(new Error('connection terminated'), { name: 'PostgresError' });
+      await real(strings, ...(values as never[]));
+      return [];
+    },
+    { json: real.json.bind(real) },
+  ) as unknown as Db;
+}
+
+test('11.5 (review I2) a failed usage_check write counts as failed and adds to the counter; a concurrent write counts as done', dbTest, async () => {
+  const now = new Date();
+  const d = await seedDeployed(now, 31);
+  const reads = { only: [d.id], getCode: codeOk, blockscout: async () => ({ transactions_count: '1' }) };
+  const lines = await errors(async () => assert.deepEqual(await usageChecks(now, { ...reads, db: eventInsertDb('fail') }), { checked: 0, failed: 1 }));
+  assert.ok(lines.includes('[events] usage_check Error'), lines.join('|'));
+  assert.deepEqual(await usageOf(d.id), []);
+  const [f] = await sql()<{ failures: number }[]>`SELECT failures FROM usage_check_failures WHERE deployed_event_id = ${d.id}`;
+  assert.equal(f.failures, 1);
+  // 20 hours later, another run wrote the same row first: not a failure, and the counter is cleared.
+  const later = new Date(now.getTime() + 20 * 3_600_000);
+  assert.deepEqual(await usageChecks(later, { ...reads, db: eventInsertDb('race') }), { checked: 0, failed: 0 });
+  assert.equal((await usageOf(d.id)).length, 1);
+  const [left] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM usage_check_failures WHERE deployed_event_id = ${d.id}`;
+  assert.equal(left.n, 0);
 });
