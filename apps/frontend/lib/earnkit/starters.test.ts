@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { STARTER_USAGE } from './events';
+import { toFunctionSelector } from 'viem';
+import { EARNKIT_STARTER_NAMES } from './earnkit-orgs';
+import { starterRepo } from './match-projects';
 import { STARTERS, type Starter } from './starters';
 
 test('5.3 every starter\'s "what" passes the copy rules: short, plain, no emoji, dash, coin, vault, Clanker or tool name', () => {
@@ -32,26 +34,38 @@ test('T5: the registry is keyed by id, on a chain EarnKit deploys to, with a rea
   }
 });
 
-test('T5: arc-tipjar is the UsdcTipJar (owner is a constructor argument, Tipped counts as use); untested until T6 passes', () => {
+test('T5/T6: arc-tipjar is chain-kits arc/tipjar (main 0f573a7): UsdcTipJar with the owner as constructor argument, tested 2026-10-11, use read from stats()', () => {
   const s = STARTERS['arc-tipjar'];
   assert.equal(s.chain, 'arc');
+  assert.equal(s.repo, 'earnkitai/chain-kits/arc/tipjar');
   assert.equal(s.what, 'a USDC tip page on Arc');
   assert.deepEqual(s.contract, { artifact: 'UsdcTipJar', owner_arg: true });
+  assert.equal(s.site_dir, 'site');
+  assert.equal(s.test_cmd, 'bash scripts/e2e.sh');
+  assert.equal(s.tested_at, '2026-10-11');
   assert.equal(s.usage_event, 'Tipped(address,uint256,string)');
-  // Ruling R-T6: view counters come with the T6 starter; until then the recent window of logs.
-  assert.equal(s.usage_read, 'recent_logs');
-  assert.equal(s.tested_at, null);
+  // Ruling R-T6: the T6 starter keeps running totals, so a usage check is one eth_call of stats().
+  assert.equal(s.usage_read, 'view_total');
+  assert.deepEqual(s.usage_view, { call: 'stats()', selector: '0xd80528ae', words: ['tips', 'total', 'tippers'] });
+});
+
+test('T6 follow-up: a view_total starter names its view, and the selector is the call\'s', () => {
+  for (const s of Object.values(STARTERS) as Starter[]) {
+    if (s.usage_read !== 'view_total') continue;
+    assert.ok(s.usage_view, `${s.id}: view_total needs usage_view`);
+    assert.equal(s.usage_view.selector, toFunctionSelector(s.usage_view.call), s.id);
+    assert.ok(s.usage_view.words.length >= 1, s.id);
+  }
 });
 
 test('T5 (owner decision 4): base-checkin is not registered until a Base program qualifies and its test passes', () => {
   assert.ok(!('base-checkin' in STARTERS));
 });
 
-test('T5: the usage rule on STARTERS matches events.ts STARTER_USAGE until events.ts reads STARTERS', () => {
-  for (const [id, u] of Object.entries(STARTER_USAGE)) {
-    const s = STARTERS[id as keyof typeof STARTERS];
-    assert.ok(s, `${id} is in STARTERS`);
-    assert.equal(s.usage_event, u.usage_event, id);
-    assert.equal(s.usage_read, u.usage_read, id);
-  }
+test('T6 follow-up: an unchanged arc/tipjar copy is a starter (its package name or README heading), a renamed one is not', () => {
+  assert.ok(EARNKIT_STARTER_NAMES.includes('earnkit-arc-tipjar-starter'));
+  assert.ok(EARNKIT_STARTER_NAMES.includes('Arc tip jar starter (EarnKit)'));
+  assert.equal(starterRepo({ packageName: 'earnkit-arc-tipjar-starter', heading: null }), true);
+  assert.equal(starterRepo({ packageName: null, heading: 'Arc tip jar starter (EarnKit)' }), true);
+  assert.equal(starterRepo({ packageName: 'podtips', heading: 'PodTips' }), false);
 });

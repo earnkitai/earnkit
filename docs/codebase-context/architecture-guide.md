@@ -4076,18 +4076,21 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
 - **What is due.** A `deployed` event on arc or base whose `detail.address` is a 0x address, not `code_differs`,
   at least 30 days old, with no `usage:<event id>:<window>` row yet. The window is 90 once the event
   is 90 days old, else 30, so a deploy first seen past 90 days gets only its 90-day check. Oldest
-  first, at most `USAGE_LIMIT` (20) checks a run (checks, not reads: an Arc check makes up to 52 RPC
-  calls, getCode, head and 50 getLogs), and no new check starts after the cron's deadline.
+  first, at most `USAGE_LIMIT` (20) checks a run (checks, not reads: an Arc check makes up to 53 RPC
+  calls: getCode, the view, head and 50 getLogs; a view_total starter usually needs 2), and no new check starts after the cron's deadline.
 - **What it reads** (free sources only; each read once a run, never retried in the run):
   - every chain: `eth_getCode` on the public RPC (`verify.ts rpcFor`), `code: true|false`;
   - Base: Blockscout counters through `verify.ts txCount` (cached 24 h in `url_checks`),
     `tx_count` with `tx_scope: 'lifetime'` (Blockscout's count runs from the deploy to the check,
     never a 30 or 90 day count), `source: 'blockscout'`;
-  - Arc with a known starter (`detail.starter`, mapped by `STARTER_USAGE`, the read rule T5
-    folds into `STARTERS`: `{ usage_event, usage_read: 'recent_logs' }`; today `arc-tipjar` is
-    `Tipped(address,uint256,string)`, topic `0x4f629a5f...73c2`): the chain-kits `UsdcTipJar`
-    keeps no running total (only `owner`, `USDC` and `tip`, and each tip goes straight to the
-    owner, so the balance says nothing), and a whole 30 or 90 days is 510 to 1,530 calls. So the
+  - Arc with a known starter (`detail.starter`, looked up in `starters.ts` `STARTERS` with an
+    `Object.hasOwn` guard; T5/T6 follow-up) whose `usage_read` is `view_total`: one `eth_call` of the
+    starter's `usage_view` (arc-tipjar: `stats()`, selector `0xd80528ae`, three uint256 words), written
+    as `totals: { tips, total, tippers }` (exact decimal strings; `total` in USDC base units, since the
+    deploy), `source: 'rpc_view'`. A view that answers nothing (`viewTotals` null: a builder who
+    dropped it) falls back to the recent logs below; a failed call is a failed read;
+  - Arc with a `recent_logs` starter (the fallback rule; `Tipped(address,uint256,string)`, topic
+    `0x4f629a5f...73c2`): a whole 30 or 90 days is 510 to 1,530 calls. So the
     check counts the starter's logs over the RECENT window only: `recentChunks`, the last
     `ARC_LOG_MAX_CHUNKS` (50) ranges of `ARC_LOG_CHUNK` (10,000) blocks ending at the head, about
     the last 2.9 days, read newest first. It writes `recent: { window: 'recent', blocks, from_block, to_block, tips,
@@ -4177,14 +4180,16 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
   (`{ artifact, owner_arg }`), `site_dir`, `usage_event` and `usage_read`, `tested_at` and
   `test_cmd`. `tested_at` is the day the starter repo's own test last passed, and is null until it
   has passed once.
-- **Today.** Only `arc-tipjar`: the chain-kits `UsdcTipJar` (owner is the constructor argument,
-  `Tipped(address,uint256,string)` counts as use). Its starter folder, page and e2e test are T6's,
-  so `tested_at` is null and no program can name it yet. `base-checkin` is left out until a Base
-  program qualifies for a fresh build and its test passes (owner decision 4: no x402 build path).
-- **The usage rule.** `usage_read` is `recent_logs` (count `usage_event` over the recent window) or
-  `view_total` (the contract's own running totals, ruling R-T6, once T6's view counters ship).
-  `events.ts` still reads its own `STARTER_USAGE`; `starters.test.ts` pins the two equal until
-  events.ts switches to `STARTERS` (a T11 or controller follow-up).
+- **Today.** Only `arc-tipjar`: chain-kits `arc/tipjar` (main 0f573a7), the `UsdcTipJar` (owner is
+  the constructor argument, `Tipped(address,uint256,string)` counts as use, `stats()` keeps running
+  totals), `site_dir` `site`, `test_cmd` `bash scripts/e2e.sh`, `tested_at` 2026-10-11 (T6).
+  `base-checkin` is left out until a Base program qualifies for a fresh build and its test passes
+  (owner decision 4: no x402 build path). Its package name and README heading
+  (`earnkit-arc-tipjar-starter`, "Arc tip jar starter (EarnKit)") are in `EARNKIT_STARTER_NAMES`, so
+  an unchanged copy is a starter; BUILD.md has the agent rename both.
+- **The usage rule.** `usage_read` is `view_total` (one eth_call of `usage_view`, the contract's own
+  running totals, ruling R-T6; arc-tipjar) or `recent_logs` (count `usage_event` over the recent
+  window; the fallback). `events.ts` reads the rule from `STARTERS`; there is no second copy.
 - **The program field.** A program file may carry `"fresh_build": { "starter": "<id>" }` (strict,
   a slug). Only the owner adds it, only where the program's own published facts support a fresh
   build (`programs/README.md`). `freshBuildProblems` (program-file.ts), run by `programs:check` and
@@ -4194,9 +4199,10 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
   `verified_at`. It is a check-time rule, not the schema, so a stale registry never breaks reading
   rows. `programs.fresh_build` (jsonb) stores it; `upsertProgram` writes null when the file drops
   it; `listPrograms` cards (so `find`'s cards) carry `fresh_build`, null on any campaign.
-- **Nothing offers a build yet.** No code path reads `fresh_build` or `STARTERS` to offer a build;
-  T7's `freshPick` does that. No program file carries `fresh_build` today: Arc Microgrants is the one
-  known case, and it gets the field when arc-tipjar's test passes (T6 sets `tested_at`).
+- **Arc carries it.** `programs/arc-microgrants.json` has `"fresh_build": { "starter": "arc-tipjar" }`
+  (its facts allow tiny apps and demos deployed on Arc mainnet; T5 report). T7's `freshPick` reads it.
+  Production still offers nothing: the deployer key and R2 are both unset, so the switches
+  (`tools.ts freshSwitches`) are off, and a test pins that with the real files and registry.
 
 ## v2.11 The no-repo lead (Task 7, spec 1)
 

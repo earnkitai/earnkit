@@ -224,12 +224,13 @@ apps/frontend/
                                hosting on; never a long shot, needs a live product, investment, hidden or
                                entered), contextLine ("$X in prizes is open right now across N programs."),
                                freshLeadLine (builds / chat-only). fixtures/fresh-build.ts: TESTED_STARTERS,
-                               FRESH_ON, fileCards (real program files as cards), withFreshBuild
+                               FRESH_ON, fileCards (real program files as cards), withFreshBuild, withoutFreshBuild
     starters.ts(+test)         v2.11 T5: the starter registry STARTERS (pure, import-free; id, chain, repo degit
                                path, what (builder copy), minutes 60, contract { artifact, owner_arg }, site_dir,
-                               usage_event, usage_read recent_logs | view_total, tested_at (null until the
-                               starter's test passes), test_cmd). Today only arc-tipjar (UsdcTipJar, untested
-                               until T6); base-checkin left out (owner decision 4)
+                               usage_event, usage_read view_total | recent_logs, usage_view { call, selector,
+                               words }, tested_at (null until the starter's test passes), test_cmd). Today only
+                               arc-tipjar (chain-kits arc/tipjar, tested 2026-10-11, stats() view); base-checkin
+                               left out (owner decision 4)
     programs.ts(+test)         v2.8.1 §B8 card needs_repo (the program file's needs_repo, column
                                programs.needs_repo; programs:check requires it, needsRepoMissing); list/get/upsert programs (source: 'file' | 'sponsor'); v2.7.1 pool_usd and
                                poolFacts (card pool_usd/pool_plus/pool_line); build_help
@@ -547,7 +548,7 @@ apps/frontend/
                                affiliation note any more (BONUS_NOTE removed, Ruling 14 (plan); the
                                policy page keeps that text, linked from the footer and the guide page)
     earnkit-orgs.ts            v2.9 A1: EARNKIT_ORGS (import-free; programs.ts re-exports it); v2.10 R7:
-                               EARNKIT_STARTER_NAMES (earnkitai/chain-kits examples)
+                               EARNKIT_STARTER_NAMES (earnkitai/chain-kits examples; v2.11 adds arc/tipjar's)
     host-names.ts              v2.9 C12 (Task 7), import-free: HOST_RESERVED, HOST_CSP, HOST_HEADERS,
                                SITE_PREFIX 'sites/', STATE_PREFIX 'state/'; imported by the host Worker
                                (relative path) and the hosting code
@@ -577,10 +578,11 @@ apps/frontend/
                                recordSubmission also (submitted), outcomes.ts sync/self-report (won, lost)
                                v2.11 Task 11: usageChecks (30/90-day usage_check per deployed event, <= USAGE_LIMIT 20
                                a run, oldest first; getCode everywhere, Blockscout txCount on Base, the starter's logs on
-                               Arc over the recent window only: recentChunks, 50 x ARC_LOG_CHUNK 10,000 blocks ending at
+                               Arc: the starter's view (view_total: one eth_call, totals { tips, total, tippers },
+                               viewTotals) else its logs over the recent window only: recentChunks, 50 x ARC_LOG_CHUNK 10,000 blocks ending at
                                the head, newest first -> recent { blocks, tips, unique }; Base tx_scope 'lifetime'; one try per
                                20 h while failing (the cron is hourly), 5 failures in a row skip 7 days via the
-                               usage_check_failures table), STARTER_USAGE (usage_event, usage_read), usageTopic,
+                               usage_check_failures table), the rule from STARTERS (usage_read, usage_view), usageTopic,
                                logSender, UsageDeps
     events-backfill.ts(+test)  v2.11 Task 3: backfillEvents (contract_deploys, host_deploys, projects, submissions,
                                entry_outcomes; source time as at; live dedupe keys; owner-run only)

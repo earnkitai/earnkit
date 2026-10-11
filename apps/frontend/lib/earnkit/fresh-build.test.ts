@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { contextLine, freshLeadLine, freshPick, type FreshPick } from './fresh-build';
 import { freshLead, presentFirstMessage, type Card, type FirstMessage } from './present';
 import { STARTERS } from './starters';
-import { FRESH_ON, TESTED_STARTERS, fileCards, withFreshBuild } from './fixtures/fresh-build';
+import { FRESH_ON, TESTED_STARTERS, fileCards, withFreshBuild, withoutFreshBuild } from './fixtures/fresh-build';
 import type { Verdict } from './match';
 
 // v2.11 T7 (spec 1): the no-repo lead. A builder with no repo that leads, nothing waiting on
@@ -18,7 +18,7 @@ const ARC_PLAN =
 
 const none = { hidden: new Set<string>(), entered: new Set<string>() };
 const on = { ...none, deployOn: () => true, hostOn: true, starters: TESTED_STARTERS };
-/** Today's catalogue with Arc tagged for the fresh build (fixture only; programs/*.json is untouched). */
+/** Today's catalogue with Arc tagged for the fresh build (programs/arc-microgrants.json carries it since the T6 follow-up). */
 const tagged = () => withFreshBuild(fileCards(), [ARC]);
 /** The short first reply (v2.10 item 2). */
 const short = (m: Partial<FirstMessage>): FirstMessage => ({
@@ -59,11 +59,10 @@ test('7.2 fail closed: deploys off, hosting off, an untested starter, an unknown
     ['deploys off', cards, { ...FRESH_ON, deployOn: () => false }],
     ['deploys off on Arc only', cards, { ...FRESH_ON, deployOn: (c) => c !== 'arc' }],
     ['hosting off', cards, { ...FRESH_ON, hostOn: false }],
-    ['the real registry (arc-tipjar untested)', cards, { ...FRESH_ON, starters: STARTERS }],
-    ['the default registry', cards, { deployOn: () => true, hostOn: true, canBuild: true }],
+    ['an untested starter', cards, { ...FRESH_ON, starters: { 'arc-tipjar': { ...STARTERS['arc-tipjar'], tested_at: null } } }],
     ['an unknown starter', withFreshBuild(fileCards(), [ARC], 'nope'), FRESH_ON],
     ['a prototype key as the starter', withFreshBuild(fileCards(), [ARC], 'toString'), FRESH_ON],
-    ['today\'s files (no fresh_build anywhere)', fileCards(), FRESH_ON],
+    ['no program carrying fresh_build', withoutFreshBuild(fileCards()), FRESH_ON],
     ['no fresh settings at all', cards, undefined],
   ];
   for (const [label, c, fresh] of cases) {
@@ -73,8 +72,10 @@ test('7.2 fail closed: deploys off, hosting off, an untested starter, an unknown
   }
   assert.equal(freshPick(cards, NOW, { ...on, deployOn: () => false }), undefined);
   assert.equal(freshPick(cards, NOW, { ...on, hostOn: false }), undefined);
-  assert.equal(freshPick(cards, NOW, { ...none, deployOn: () => true, hostOn: true }), undefined, 'STARTERS by default: untested');
-  assert.equal(STARTERS['arc-tipjar'].tested_at, null, 'the real registry stays untested until T6');
+  // T6 follow-up: the real registry is tested (2026-10-11), so the switches alone keep it closed.
+  assert.equal(STARTERS['arc-tipjar'].tested_at, '2026-10-11');
+  assert.equal(freshPick(cards, NOW, { ...none, deployOn: () => false, hostOn: true }), undefined, 'STARTERS by default, deploys off');
+  assert.equal(freshPick(cards, NOW, { ...none, deployOn: () => true, hostOn: false }), undefined, 'STARTERS by default, hosting off');
   // Review M6: a test more than 30 days old offers nothing (tested 2026-09-10: 30 days at Oct 10).
   const aged = (tested_at: string) => ({ ...on, starters: { 'arc-tipjar': { ...TESTED_STARTERS['arc-tipjar'], tested_at } } });
   assert.equal(freshPick(cards, NOW, aged('2026-09-10'))?.card.id, ARC, 'exactly 30 days');
@@ -109,7 +110,7 @@ test('7.3 under 24 hours left never qualifies; 1 to 2 days reads "closes tomorro
 
 test('7.4 never a long shot, a "needs a live product" program, an investment, a Hard program, a prize over $5,000 or a starter on another chain, even with fresh_build in a fixture', () => {
   const others = ['colosseum-worlds-fair', 'monad-metropolis', 'a16z-speedrun', 'base-builder-grants', 'circle-developer-grants', 'avalanche-team1-mini-grants'];
-  const cards = withFreshBuild(fileCards(), others);
+  const cards = withFreshBuild(withoutFreshBuild(fileCards()), others);
   assert.equal(freshPick(cards, NOW, on), undefined);
   // With Arc tagged too, Arc is still the pick.
   assert.equal(freshPick(withFreshBuild(cards, [ARC]), NOW, on)?.card.id, ARC);

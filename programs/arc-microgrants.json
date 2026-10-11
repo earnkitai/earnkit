@@ -115,6 +115,7 @@
   ],
   "tracks": [],
   "starters": [],
+  "fresh_build": { "starter": "arc-tipjar" },
   "logo": {
     "path": "programs/arc-microgrants.svg",
     "source_url": "https://www.circle.com/pressroom#brandkit"
