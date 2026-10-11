@@ -723,6 +723,31 @@ const DAY_MS = 86_400_000;
 /** How much older than the program's `verified_at` a starter's last passing test may be. */
 export const STARTER_TEST_MAX_AGE_DAYS = 30;
 
+/** Final fix I4: programs:check warns this many days after a starter's last passing test (a week before the 30-day stop). */
+export const STARTER_TEST_WARN_DAYS = 23;
+
+/**
+ * Final fix I4: the owner's notice that a starter some program offers is going stale. A warning,
+ * never an error (programs:check still exits 0): at 30 days fresh-build.ts stops offering it on its
+ * own, which fails closed. One line per starter tested more than STARTER_TEST_WARN_DAYS days before
+ * `now`. Pure.
+ */
+export function starterAgeWarnings(
+  programs: Pick<ProgramFile, 'fresh_build'>[],
+  now: Date,
+  starters: Record<string, Starter> = STARTERS,
+): string[] {
+  const ids = [...new Set(programs.flatMap((p) => (p.fresh_build ? [p.fresh_build.starter] : [])))].sort();
+  return ids.flatMap((id) => {
+    const s = Object.hasOwn(starters, id) ? starters[id] : undefined;
+    if (!s?.tested_at) return [];
+    const days = Math.floor((now.getTime() - Date.parse(`${s.tested_at}T00:00:00Z`)) / DAY_MS);
+    if (days <= STARTER_TEST_WARN_DAYS) return [];
+    const stop = days > STARTER_TEST_MAX_AGE_DAYS ? 'it is no longer offered' : `it stops being offered after ${STARTER_TEST_MAX_AGE_DAYS} days`;
+    return [`${id} tested ${days} days ago (${s.tested_at}); ${stop}. Rerun its test (${s.test_cmd}) and update tested_at in starters.ts.`];
+  });
+}
+
 /**
  * v2.11 spec 2 (plan T5): `pnpm programs:check` checks a program's `fresh_build` against the starter
  * registry: the starter exists; it deploys on one of the program's chains (and on its
