@@ -43,6 +43,8 @@ const LOGIN_COLUMNS: [table: string, column: string][] = [
   ['host_upload_tokens', 'login'],
   ['contract_deploys', 'login'],
   ['contract_deploys', 'builder_key'],
+  // v2.11 T9 security fix (I1): who GitHub says pushed the earnkit.txt line.
+  ['contract_deploys', 'line_owner'],
   ['bonus_commits', 'login'],
 ];
 const WALLET_COLUMNS: [table: string, column: string][] = [

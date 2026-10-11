@@ -543,3 +543,51 @@ test('v2.8.1 §A3: the most recently pushed other branch: one API call (push act
   assert.equal(shownBranch('feat/proof-1.2'), 'feat/proof-1.2');
   assert.equal(shownBranch('x"; rm -rf'), null);
 });
+
+// ---- v2.11 T9 security fix (I1): who pushed the line (GitHub's authenticated push actor)
+
+test('T9 I1 fetchLinePusher: the actor of the push that introduced the line; never the newest pusher, never a guess', async () => {
+  const { fetchLinePusher, PUSHER_MAX_READS } = await import('./ownership');
+  const sha = (n: number) => n.toString(16).padStart(40, '0');
+  const ZERO = '0'.repeat(40);
+  const LINE = 'token: 0123456789abcdef';
+  const push = (actor: string, before: string, after: string, o: { ref?: string; type?: string } = {}) => ({
+    activity_type: o.type ?? 'push', ref: o.ref ?? 'refs/heads/main', before, after, actor: { login: actor },
+  });
+  const run = async (activity: unknown, files: Record<string, string>, status = 200) => {
+    const reads: string[] = [];
+    const got = await fetchLinePusher(
+      { owner: 'alice', repo: 'podtips' },
+      (t) => t.includes(LINE),
+      {
+        fetch: (async () => new Response(JSON.stringify(activity), { status })) as unknown as typeof fetch,
+        raw: async (url) => {
+          const s = url.split('/')[5];
+          reads.push(s);
+          return s in files ? { status: 'ok', text: files[s] } : { status: 'missing' };
+        },
+      },
+    );
+    return { got, reads };
+  };
+  // alice created the branch with the line: alice.
+  assert.equal((await run([push('Alice', ZERO, sha(1), { type: 'branch_creation' })], { [sha(1)]: LINE })).got, 'alice');
+  // mallory added it, then alice pushed something else: mallory (the newest pusher is not the one who added it).
+  const collab = [push('alice', sha(2), sha(3)), push('mallory', sha(1), sha(2))];
+  assert.equal((await run(collab, { [sha(1)]: 'readme', [sha(2)]: LINE, [sha(3)]: LINE })).got, 'mallory');
+  // alice added it after mallory's unrelated push: alice.
+  assert.equal((await run(collab, { [sha(1)]: 'x', [sha(2)]: 'x', [sha(3)]: LINE })).got, 'alice');
+  // A line on another branch, pushed by mallory: mallory.
+  assert.equal((await run([push('mallory', sha(5), sha(6), { ref: 'refs/heads/feature' }), push('alice', sha(4), sha(5))], { [sha(6)]: LINE })).got, 'mallory');
+  // The chain breaks (the line predates the activity page): null.
+  assert.equal((await run([push('alice', sha(7), sha(8))], { [sha(7)]: LINE, [sha(8)]: LINE })).got, null);
+  // No line anywhere, an unreadable activity, a non-push event: null.
+  assert.equal((await run([push('alice', sha(1), sha(2))], {})).got, null);
+  assert.equal((await run([], {}, 403)).got, null);
+  assert.equal((await run([push('alice', ZERO, sha(1), { type: 'branch_deletion' })], { [sha(1)]: LINE })).got, null);
+  // More reads than allowed: null, and it stops reading.
+  const long = Array.from({ length: 10 }, (_, i) => push('alice', sha(i + 10), sha(i + 11))).reverse();
+  const many = await run(long, Object.fromEntries(Array.from({ length: 12 }, (_, i) => [sha(i + 10), LINE])));
+  assert.equal(many.got, null);
+  assert.equal(many.reads.length, PUSHER_MAX_READS);
+});

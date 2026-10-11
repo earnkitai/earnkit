@@ -491,7 +491,8 @@ export async function githubUser(login: string, now = new Date()): Promise<GitHu
     if (res.status !== 404 && !res.ok) return null;
     const u = res.ok ? ((await res.json()) as { type?: unknown; created_at?: unknown; public_repos?: unknown }) : null;
     const facts =
-      u && typeof u.type === 'string' && typeof u.created_at === 'string'
+      // T9 security review M7: a created_at that isn't a date is no facts.
+      u && typeof u.type === 'string' && typeof u.created_at === 'string' && Number.isFinite(Date.parse(u.created_at))
         ? { type: u.type, created_at: u.created_at, public_repos: Number(u.public_repos) || 0 }
         : null;
     await sql()`
@@ -505,24 +506,36 @@ export async function githubUser(login: string, now = new Date()): Promise<GitHu
 }
 
 /**
+ * v2.11 T9 security fix (I1): the repo owner as a `proof_line` login, or null. All of: off a shared
+ * client; the push that put this installation's earnkit.txt line into the repo was made by the
+ * owner (`lineOwner`, GitHub's authenticated push actor: token-gate.ts proofLineOwner); the builder
+ * said that login is theirs (`installations.github_user`); and GitHub says it is a User. So a
+ * collaborator's push, a lying `github_user`, an organization or a fork never name its owner.
+ */
+export async function proofLineLogin(installationId: number, repoKey: string, lineOwner: string | null | undefined): Promise<LoginProof | null> {
+  const [owner, repo, extra] = repoKey.toLowerCase().split('/');
+  if (!owner || !repo || extra !== undefined || lineOwner?.toLowerCase() !== owner) return null;
+  if (await sharedGroup(installationId).catch(() => true)) return null;
+  const [said] = await sql()<{ github_user: string | null }[]>`SELECT github_user FROM installations WHERE id = ${installationId}`;
+  if (said?.github_user?.trim().toLowerCase() !== owner) return null;
+  return (await githubUser(owner))?.type === 'User' ? { login: owner, basis: 'proof_line' } : null;
+}
+
+/**
  * v2.11 T3 (spec 6, "Identity"): the GitHub login behind this installation's step on `repoKey`
  * ("owner/repo"), and its basis, or null (no login is recorded). Never guessed, and never
  * GITHUB_TOKEN's own login:
  * - `signin` or `app`: a passing verification of this repo for this installation (a sign-in wins
  *   over the read-only App). On a shared client only the caller's own (`callerLogin`), or the one
  *   bound to this entry (`projectId`); without either, null.
- * - `proof_line` (review I2): off a shared client, this installation's `token: <code>` line proved
- *   push access to the repo (the caller says it just passed, `proofLine`, or a contract EarnKit
- *   deployed for this installation and repo shows it did, R19). That proves the agent can push, not
- *   who the builder is, so the repo owner is recorded only when the builder said it is them (the
- *   installation's `github_user`) and GitHub says it is a User account (githubUser, S9's cached
- *   read). An organization, a collaborator's push to someone else's repo, or no answer: null. On a
- *   shared client the proof line is the whole agent's: never a login.
+ * - `proof_line` (T9 security fix I1): off a shared client, proofLineLogin with the line's pusher:
+ *   `lineOwner` from the caller (it just read it), else the one a contract EarnKit deployed for this
+ *   installation and repo recorded (`contract_deploys.line_owner`). On a shared client never.
  */
 export async function loginBasisFor(
   installationId: number,
   repoKey: string,
-  o: { callerLogin?: string | null; projectId?: number; proofLine?: boolean } = {},
+  o: { callerLogin?: string | null; projectId?: number; lineOwner?: string | null } = {},
 ): Promise<LoginProof | null> {
   const [owner, repo, extra] = repoKey.toLowerCase().split('/');
   if (!owner || !repo || extra !== undefined) return null;
@@ -537,13 +550,14 @@ export async function loginBasisFor(
     ORDER BY (via = 'app'), verified_at DESC, id DESC LIMIT 1`;
   if (row) return { login: row.login.toLowerCase(), basis: row.via === 'app' ? 'app' : 'signin' };
   if (shared) return null;
-  if (!o.proofLine) {
-    const [deployed] = await db`SELECT 1 FROM contract_deploys WHERE installation_id = ${installationId} AND repo_key = ${key} LIMIT 1`;
-    if (!deployed) return null;
+  let lineOwner = o.lineOwner;
+  if (lineOwner === undefined || lineOwner === null) {
+    const [deployed] = await db<{ line_owner: string }[]>`
+      SELECT line_owner FROM contract_deploys
+      WHERE installation_id = ${installationId} AND repo_key = ${key} AND line_owner IS NOT NULL ORDER BY id DESC LIMIT 1`;
+    lineOwner = deployed?.line_owner ?? null;
   }
-  const [said] = await db<{ github_user: string | null }[]>`SELECT github_user FROM installations WHERE id = ${installationId}`;
-  if (said?.github_user?.trim().toLowerCase() !== owner) return null;
-  return (await githubUser(owner))?.type === 'User' ? { login: owner, basis: 'proof_line' } : null;
+  return proofLineLogin(installationId, key, lineOwner);
 }
 
 /** Ruling G7: the entries of this installation a login verified (a shared client shows only these). */

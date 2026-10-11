@@ -10,6 +10,7 @@ import {
   http,
   isAddress,
   isHex,
+  keccak256,
   WaitForTransactionReceiptTimeoutError,
   type Abi,
   type Address,
@@ -28,7 +29,7 @@ import { FREE_CAPS, forceFreeTier, giveBackFreeTier, takeFreeTier } from './free
 import { loginBasisFor } from './github-verify';
 import { llamaPrice } from './prices';
 import { RateLimitError, enforce } from './rate-limit';
-import { repoOwnershipPasses, type OwnershipDeps } from './token-gate';
+import { proofLineOwner, repoOwnershipPasses, type OwnershipDeps } from './token-gate';
 import { markDeployed, rpcFor } from './verify';
 
 /**
@@ -129,6 +130,20 @@ function opcodes(code: Hex): number[] {
     if (op >= 0x60 && op <= 0x7f) i += op - 0x5f;
   }
   return ops;
+}
+
+/**
+ * v2.11 T9 security fix (M3): keccak256 of creation bytecode without its trailing Solidity CBOR
+ * metadata (its length in the last 2 bytes), so the same source compiled anywhere hashes the same;
+ * constructor arguments are never part of `bytecode`. Null when it isn't hex. Pure.
+ */
+export function initcodeHash(bytecode: string): Hex | null {
+  if (!isHex(bytecode, { strict: true }) || bytecode.length < 6 || bytecode.length % 2 !== 0) return null;
+  const hex = bytecode.slice(2).toLowerCase();
+  const meta = parseInt(hex.slice(-4), 16);
+  const cut = (meta + 2) * 2;
+  const cbor = meta > 0 && cut < hex.length && /^[ab][0-9a-f]$/.test(hex.slice(hex.length - cut, hex.length - cut + 2));
+  return keccak256(`0x${cbor ? hex.slice(0, hex.length - cut) : hex}`);
 }
 
 /**
@@ -448,8 +463,23 @@ export async function deployForBuilder(
     projectName: string;
     builderWallet: Address;
     input: DeployInput;
-    /** v2.11 T9 (ruling R-T6): the starter a build-path deploy came from, for its usage checks. */
-    starter?: string;
+    /**
+     * v2.11 T9 (ruling R-T6): the starter a build-path deploy came from, for its usage checks. The
+     * deployed event names it only when the bytecode is the starter's own (security fix M3:
+     * initcodeHash equals `initcode_hash`); else `starter: null`, so the checks fall back.
+     */
+    starter?: { id: string; initcode_hash: string | null };
+    /**
+     * v2.11 T9 security fix (I1): who pushed the earnkit.txt line (token-gate.ts proofLineOwner), when
+     * the caller already read it; undefined: read here (off a shared client). Kept on the row, and a
+     * cap key (I3) and the only way a proof-line login is ever recorded.
+     */
+    lineOwner?: string | null;
+    /**
+     * v2.11 T9 security fix (M4): runs once every cap has passed, just before the send (the build
+     * path's `built` event). Never throws into the deploy.
+     */
+    beforeSend?: () => Promise<void>;
   },
   deps: DeployDeps = {},
 ): Promise<DeployOutcome> {
@@ -474,6 +504,9 @@ export async function deployForBuilder(
     deps.gate,
   );
   if (!owns) return refused(DEPLOY_LINES.notYours);
+  const lineOwner = a.shared ? null : a.lineOwner !== undefined ? a.lineOwner : await proofLineOwner({ installationId: a.installationId, repoUrl: `https://github.com/${a.repoKey}` }, deps.gate);
+  const repoKey = a.repoKey.toLowerCase();
+  const wallet = a.builderWallet.toLowerCase();
   // Fix round 1 (I6): the builder is their verified login, else their installation.
   const who = (a.login ? a.login : a.shared ? a.repoKey : `installation:${a.installationId}`).toLowerCase();
   try {
@@ -484,21 +517,37 @@ export async function deployForBuilder(
     return paused();
   }
   // Pre-flight P16: the 30-day count and the reservation in one transaction, under a lock per builder.
+  // v2.11 T9 security fix (I3): with no sign-in a builder is an installation, and installations are
+  // free, so the same caps also hold per repo, per owner wallet and per proven line pusher: many
+  // installations on one repo, one wallet or one GitHub account still get once a day per chain and 3
+  // in 30 days. Each key is locked (sorted, so two deploys never deadlock).
   let rowId: number | 'blocked' | null;
   try {
     rowId = await sql().begin(async (tx) => {
-      await tx`SELECT pg_advisory_xact_lock(hashtext(${`contract-deploy:${who}`}))`;
+      const locks = [`contract-deploy:${who}`, `contract-deploy-repo:${repoKey}`, `contract-deploy-wallet:${wallet}`, ...(lineOwner ? [`contract-deploy-owner:${lineOwner}`] : [])].sort();
+      for (const k of locks) await tx`SELECT pg_advisory_xact_lock(hashtext(${k}))`;
       const [{ n }] = await tx<{ n: number }[]>`
         SELECT count(*)::int AS n FROM contract_deploys
         WHERE builder_key = ${who} AND created_at > now() - interval '30 days'`;
       if (n >= DEPLOY_CAPS.perBuilder30d) return null;
+      const [o] = await tx<{ repo30: number; repoDay: number; walletDay: number; owner30: number; ownerDay: number }[]>`
+        SELECT
+          count(*) FILTER (WHERE repo_key = ${repoKey})::int AS repo30,
+          count(*) FILTER (WHERE repo_key = ${repoKey} AND chain = ${c} AND created_at > now() - interval '1 day')::int AS "repoDay",
+          count(*) FILTER (WHERE owner_wallet = ${wallet} AND chain = ${c} AND created_at > now() - interval '1 day')::int AS "walletDay",
+          count(*) FILTER (WHERE line_owner = ${lineOwner})::int AS owner30,
+          count(*) FILTER (WHERE line_owner = ${lineOwner} AND chain = ${c} AND created_at > now() - interval '1 day')::int AS "ownerDay"
+        FROM contract_deploys
+        WHERE created_at > now() - interval '30 days' AND (repo_key = ${repoKey} OR owner_wallet = ${wallet} OR line_owner = ${lineOwner})`;
+      if (o.repo30 >= DEPLOY_CAPS.perBuilder30d || o.owner30 >= DEPLOY_CAPS.perBuilder30d) return null;
+      if (o.repoDay >= DEPLOY_CAPS.perBuilderChainDay || o.walletDay >= DEPLOY_CAPS.perBuilderChainDay || o.ownerDay >= DEPLOY_CAPS.perBuilderChainDay) return null;
       // Fix round 2 (N2): a builder whose contract created contracts at deploy deploys no more.
       const [blocked] = await tx`SELECT 1 FROM contract_deploys WHERE builder_key = ${who} AND blocked LIMIT 1`;
       if (blocked) return 'blocked' as const;
       const [row] = await tx<{ id: number }[]>`
-        INSERT INTO contract_deploys (installation_id, login, builder_key, repo_key, chain, tx_hash, status, cost_micro_usd, owner_wallet)
-        VALUES (${a.installationId}, ${a.login?.toLowerCase() ?? null}, ${who}, ${a.repoKey.toLowerCase()}, ${c}, '', 'sent', 0,
-          ${a.builderWallet.toLowerCase()})
+        INSERT INTO contract_deploys (installation_id, login, builder_key, repo_key, chain, tx_hash, status, cost_micro_usd, owner_wallet, line_owner)
+        VALUES (${a.installationId}, ${a.login?.toLowerCase() ?? null}, ${who}, ${repoKey}, ${c}, '', 'sent', 0,
+          ${wallet}, ${lineOwner})
         RETURNING id`;
       return row.id;
     });
@@ -569,6 +618,7 @@ export async function deployForBuilder(
     if (upper > FREE_CAPS.deployGasMonth.cap || !(await takeFreeTier('deployGasMonth', upper, now))) return stop(refused(DEPLOY_LINES.paused));
     reserved = upper;
     let hash: Hex;
+    await a.beforeSend?.().catch((err: unknown) => console.error('[deploy] before send', errName(err)));
     sendAttempted = true;
     try {
       // No `value`, no `to`: a contract creation.
@@ -609,7 +659,7 @@ export async function deployForBuilder(
     // v2.11 T3: the row is `deployed`: its event, with the tx, the address, the block and the owner check.
     const deployedEvent = (address: string, ownerOk: boolean | null, codeDiffers = false) =>
       noteEvent('deployed', async () => {
-        const who = await loginBasisFor(a.installationId, a.repoKey, { ...(a.shared && { callerLogin: a.login }), proofLine: true });
+        const who = await loginBasisFor(a.installationId, a.repoKey, a.shared ? { callerLogin: a.login } : { lineOwner });
         return {
           type: 'deployed',
           dedupe_key: `deployed:${id}`,
@@ -623,7 +673,7 @@ export async function deployForBuilder(
             address,
             owner_ok: ownerOk,
             ...(receipt.blockNumber !== undefined && { block: Number(receipt.blockNumber) }),
-            ...(a.starter && { starter: a.starter }),
+            ...(a.starter && { starter: a.starter.initcode_hash !== null && initcodeHash(a.input.bytecode) === a.starter.initcode_hash ? a.starter.id : null }),
             // Review M1: the builder was told not to use it; usage checks and the metric leave it out.
             ...(codeDiffers && { code_differs: true }),
           },

@@ -1058,3 +1058,9 @@ ALTER TABLE host_upload_tokens ADD COLUMN IF NOT EXISTS basis text NOT NULL DEFA
   CHECK (basis IN ('signin', 'app', 'proof_line'));
 ALTER TABLE host_deploys ADD COLUMN IF NOT EXISTS basis text NOT NULL DEFAULT 'signin'
   CHECK (basis IN ('signin', 'app', 'proof_line'));
+-- v2.11 T9 security fix (I1): who GitHub says pushed this installation's earnkit.txt line into the
+-- repo (the push's authenticated actor), lowercase; NULL when unknown or proven by sign-in. A login
+-- is only ever recorded from it when it is the repo's owner (github-verify.ts proofLineLogin).
+ALTER TABLE contract_deploys ADD COLUMN IF NOT EXISTS line_owner text;
+CREATE INDEX IF NOT EXISTS contract_deploys_repo_day ON contract_deploys (repo_key, created_at);
+CREATE INDEX IF NOT EXISTS contract_deploys_wallet_day ON contract_deploys (owner_wallet, created_at);

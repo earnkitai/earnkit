@@ -4713,7 +4713,7 @@ type ShipReply = BuildReply & { deploy?: Record<string, unknown>; host?: Record<
  * (`days` old, 5 public repos). A fake Arc chain that counts deploys, the proof line in the repo
  * (`line: false`: none), a passing link probe, and `ship(deploy)` for the build mark.
  */
-async function shipSetup(tag: string, tc: TestContext, o: { days?: number; line?: boolean; hostOn?: boolean; deployOn?: boolean } = {}) {
+async function shipSetup(tag: string, tc: TestContext, o: { days?: number; line?: boolean; hostOn?: boolean; deployOn?: boolean; pusher?: string | null; ownerRead?: string } = {}) {
   const t = await buildSetup(`t9-${tag}`, tc);
   const login = `jt9${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
   const repo = `https://github.com/${login}/podtips`;
@@ -4732,7 +4732,7 @@ async function shipSetup(tag: string, tc: TestContext, o: { days?: number; line?
     simulate: async () => `0x${'60'.repeat(50)}` as const,
     nonce: async () => 1,
     code: async () => `0x${'60'.repeat(50)}` as const,
-    read: async (a: { fn: string }) => (a.fn === 'owner' ? T8_WALLET : null),
+    read: async (a: { fn: string }) => (a.fn === 'owner' ? (o.ownerRead ?? T8_WALLET) : null),
     write: async () => `0x${'cd'.repeat(32)}` as const,
   };
   const reads: string[] = [];
@@ -4742,6 +4742,8 @@ async function shipSetup(tag: string, tc: TestContext, o: { days?: number; line?
       return o.line === false ? ({ status: 'missing' as const }) : ({ status: 'ok' as const, text: `${tokenLineFor(t.inst, `https://github.com/${r.owner}/${r.repo}`)}\n` });
     },
     latest: async () => null,
+    // T9 security fix I1: who GitHub's push record says added the line (default: the repo owner).
+    pusher: async () => (o.pusher === undefined ? login : o.pusher),
   };
   const probes: string[] = [];
   const ctx = {
@@ -4805,16 +4807,17 @@ test('9.3 the build mark with deploy and host: true deploys once (owner and cons
       const events = await eventsOfInstallation(t.inst);
       assert.deepEqual(events.map((e) => e.type), ['built', 'deployed']);
       const [built, deployed] = events;
-      assert.equal(built.dedupe_key, `built:${t.repoKey}:${t.p.id}`);
+      assert.equal(built.dedupe_key, `built:${t.inst}:${t.repoKey}:${t.p.id}`);
       assert.equal(built.proof_url, t.repo);
       assert.equal(built.program_id, t.p.id);
       assert.equal(built.wallet, T8_WALLET);
       assert.deepEqual([built.github_login, built.login_basis], [t.login, 'proof_line']);
       assert.deepEqual(built.detail, { starter: t.starterId, twist: T8_POD.twist });
+      // T9 M3: the test bytecode isn't the starter's, so the deployed event names no starter.
       assert.equal(deployed.wallet, T8_WALLET);
       assert.equal(deployed.chain, 'arc');
       assert.deepEqual([deployed.github_login, deployed.login_basis], [t.login, 'proof_line']);
-      assert.equal(deployed.detail.starter, t.starterId);
+      assert.equal(deployed.detail.starter, null);
       assert.equal(deployed.detail.address, T9_ADDR);
       // 9.6: the upload's own reply is v2.9's liveLine, and it writes hosted once.
       const token = new URL(String(r.host?.upload_url)).searchParams.get('t')!;
@@ -4875,7 +4878,7 @@ test('9.5 hosting off: the deploy runs and the GitHub Pages note goes to the age
       const events = await eventsOfInstallation(t.inst);
       assert.deepEqual(events.map((e) => e.type), ['built', 'deployed', 'hosted']);
       const hosted = events[2];
-      assert.equal(hosted.dedupe_key, `hosted:gh:${live}`);
+      assert.equal(hosted.dedupe_key, `hosted:gh:${t.inst}:${t.repoKey}:${live}`);
       assert.equal(hosted.proof_url, live);
       assert.deepEqual(hosted.detail, { host: 'github_pages' });
       assert.deepEqual([hosted.github_login, hosted.login_basis], [t.login, 'proof_line']);
@@ -4966,6 +4969,79 @@ test('9.x (review T8 M5) the mark fails closed: an owner or constructor_args[0] 
       assert.equal(t.sent.length, 1, 'nothing more deployed');
       for (const r of [nl, shared]) atMostOneQuestion(r);
       assert.deepEqual((await eventsOfInstallation(t.inst)).map((e) => e.type), ['built', 'deployed']);
+    }),
+  ),
+);
+
+test('T9 I1 the build path: a collaborator\'s push of the line still deploys, but hosts on GitHub Pages and records no login anywhere', dbTest, (tc) =>
+  withEventLog(() =>
+    withVars(shipVars(), async () => {
+      const t = await shipSetup('collab', tc, { pusher: 'mallory-pushed-it' });
+      const r = await t.ship();
+      assert.equal(t.sent.length, 1);
+      assert.deepEqual(r.host, { github_pages: true, site_dir: 'site' });
+      assert.equal((await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM host_upload_tokens WHERE installation_id = ${t.inst}`)[0].n, 0);
+      const events = await eventsOfInstallation(t.inst);
+      assert.deepEqual(events.map((e) => [e.type, e.github_login, e.login_basis]), [['built', null, null], ['deployed', null, null]]);
+      // The Pages site of the repo: hosted, still with no login.
+      await t.ship(null, t.ctx, { live_url: `https://${t.login}.github.io/podtips/` });
+      const hosted = (await eventsOfInstallation(t.inst)).find((e) => e.type === 'hosted');
+      assert.deepEqual([hosted?.github_login, hosted?.login_basis], [null, null]);
+    }),
+  ),
+);
+
+test('T9 I2 the Pages hosted event: only the build\'s own repo with a contract deployed for this installation, only that repo\'s own link', dbTest, (tc) =>
+  withEventLog(() =>
+    withVars(shipVars({ r2: false }), async () => {
+      const { pagesLinkOf } = await import('./tools');
+      assert.equal(pagesLinkOf('alice/site', 'https://alice.github.io/site/'), 'https://alice.github.io/site/');
+      assert.equal(pagesLinkOf('alice/site', 'https://ALICE.github.io/site'), 'https://alice.github.io/site');
+      assert.equal(pagesLinkOf('alice/site', 'https://alice.github.io/other/'), null, 'another repo of the owner');
+      assert.equal(pagesLinkOf('alice/site', 'https://alice.github.io/'), null, 'the user site');
+      assert.equal(pagesLinkOf('alice/alice.github.io', 'https://alice.github.io/'), 'https://alice.github.io/');
+      assert.equal(pagesLinkOf('alice/site', 'https://bob.github.io/site/'), null);
+      assert.equal(pagesLinkOf('alice/site', 'https://alice.github.io/site/?x=1'), null);
+      // No contract deployed yet for this installation: nothing, even for the right link.
+      const t = await shipSetup('pagesi2', tc, { hostOn: false });
+      const live = `https://${t.login}.github.io/podtips/`;
+      await t.ship(null, t.ctx, { live_url: live });
+      assert.deepEqual(await eventsOfInstallation(t.inst), []);
+      // Another repo named in the call (someone else's site): nothing, even after a deploy.
+      await t.ship();
+      const victim = `jt9victim${Date.now().toString(36)}`;
+      await t.ship(null, t.ctx, { repo_url: `https://github.com/${victim}/site`, live_url: `https://${victim}.github.io/site/` });
+      await t.ship(null, t.ctx, { live_url: `https://${t.login}.github.io/other/` });
+      assert.deepEqual((await eventsOfInstallation(t.inst)).map((e) => e.type), ['built', 'deployed']);
+      // Another installation's record of the same link never blocks this one's (the key is scoped).
+      await t.ship(null, t.ctx, { live_url: live });
+      const [h] = (await eventsOfInstallation(t.inst)).filter((e) => e.type === 'hosted');
+      assert.equal(h.dedupe_key, `hosted:gh:${t.inst}:${t.repoKey}:${live}`);
+      assert.equal(h.repo_key, t.repoKey);
+    }),
+  ),
+);
+
+test('T9 M6 a deployed contract the build wallet does not own gets no site; M4 a deploy refused by a cap writes no built', dbTest, (tc) =>
+  withEventLog(() =>
+    withVars(shipVars(), async () => {
+      const t = await shipSetup('notowned', tc, { ownerRead: '0x3333333333333333333333333333333333333333' });
+      const r = await t.ship();
+      assert.equal(r.show_to_builder, 'PodTips is deployed on Arc: 0x0000…11ce.');
+      assert.ok(!('host' in r), 'no host block');
+      assert.match(r.agent_note ?? '', /won't host its site/);
+      assert.equal((await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM host_upload_tokens WHERE installation_id = ${t.inst}`)[0].n, 0);
+      // The same repo again the same day: the cap refuses it before anything is sent, and no second built.
+      const capped = await t.ship();
+      assert.equal(capped.show_to_builder, 'You can deploy once a day per chain, 3 times a month.');
+      assert.equal(t.sent.length, 1);
+      const capOnly = await shipSetup('caponly', tc);
+      await sql()`
+        INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, status, cost_micro_usd)
+        VALUES (${capOnly.inst}, 'installation:x', ${capOnly.repoKey}, 'arc', '0x01', 'deployed', 1)`;
+      const r2 = await capOnly.ship();
+      assert.equal(r2.show_to_builder, 'You can deploy once a day per chain, 3 times a month.');
+      assert.deepEqual((await eventsOfInstallation(capOnly.inst)).map((e) => e.type), [], 'no built when a cap refuses');
     }),
   ),
 );

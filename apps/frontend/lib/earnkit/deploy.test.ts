@@ -25,7 +25,8 @@ import {
 } from './deploy';
 import { QUIET_OWNER, cronPost, deployerGas } from './cron';
 import { createServer } from 'node:http';
-import { ETH_USD_BAND, nativeUsd, viemDeployChain } from './deploy';
+import { ETH_USD_BAND, initcodeHash, nativeUsd, viemDeployChain } from './deploy';
+import { ARC_TIPJAR_ABI, ARC_TIPJAR_BYTECODE } from './fixtures/arc-tipjar-artifact';
 import { forceFreeTier, periodKey, takeFreeTier } from './free-tier';
 import { contractDeployed } from './verify';
 import { errorLines, eventsOfInstallation, withEventLog, withFailingEventLog } from './fixtures/events';
@@ -249,7 +250,14 @@ const farDay = () => {
 beforeEach(async () => {
   if (process.env.DATABASE_URL)
     await sql()`DELETE FROM free_tier_usage WHERE name IN ('deploysDay', 'deployGasMonth') AND period >= '2100' AND period < '2150'`;
+  // v2.11 T9 security fix (I3): every test here deploys to the one BUILDER wallet; the new per-wallet
+  // day cap would carry over between tests, so earlier tests' rows for it are moved 40 days back.
+  if (process.env.DATABASE_URL) await nextWallet();
 });
+/** T9 I3: another deploy to BUILDER in the same test is a new builder's: age the wallet's rows out of every window. */
+async function nextWallet() {
+  await sql()`UPDATE contract_deploys SET created_at = created_at - interval '40 days' WHERE owner_wallet = ${BUILDER.toLowerCase()} AND created_at > now() - interval '30 days'`;
+}
 const noProofLine = { owner: async () => ({ status: 'missing' as const }), latest: async () => null };
 
 async function withDeployer<T>(fn: () => Promise<T>, extra: Record<string, string> = {}): Promise<T> {
@@ -496,7 +504,7 @@ test('10.6 a second deploy the same day on the same chain is limited; the other 
   }),
 );
 
-test('fix round 1 (I6): off a shared client the limits are per installation (or its login), never per repo', dbTest, () =>
+test('fix round 1 (I6): off a shared client the limits are per installation (or its login), and (T9 I3) per repo and per wallet too', dbTest, () =>
   withDeployer(async () => {
     const s = await setup();
     const other = { ...s, repoKey: `${s.repoKey}-two` };
@@ -504,10 +512,12 @@ test('fix round 1 (I6): off a shared client the limits are per installation (or 
     const { chain, calls } = fakeChain();
     const d = deps(chain);
     assert.equal((await deployForBuilder(call(s), d)).status, 'deployed');
+    await nextWallet();
     assert.deepEqual(await deployForBuilder(call(other), d), { status: 'refused', show_to_builder: DEPLOY_LINES.limit }, 'another repo, same builder, same chain and day');
     assert.equal(calls.send.length, 1);
     assert.equal((await rowsOf(s.repoKey))[0].builder_key, `installation:${s.installationId}`);
     // With the installation's verified login, the login is the key.
+    await nextWallet();
     const s2 = await setup();
     const login = `dana${process.pid}x${Date.now()}`;
     assert.equal((await deployForBuilder(call(s2, input(), login), d)).status, 'deployed');
@@ -573,6 +583,7 @@ test('fix round 1 (C1): a cost over the reserve is always counted, even past the
     const { chain } = fakeChain({ receiptGas: 400_000n });
     assert.equal((await deployForBuilder(call(s), deps(chain, { now }))).status, 'deployed');
     assert.equal(await monthUsed(now), 10_010_000, 'over the $10 ceiling: the overage is counted');
+    await nextWallet();
     const s2 = await setup();
     assert.deepEqual(await deployForBuilder(call(s2), deps(fakeChain().chain, { now })), { status: 'refused', show_to_builder: DEPLOY_LINES.paused });
     await forceFreeTier('deployGasMonth', 0, now); // a no-op
@@ -592,6 +603,7 @@ test("fix round 1 (I2): Base's L1 data fee is in the upper bound (twice the esti
     assert.equal((await rowsOf(s.repoKey))[0].cost_micro_usd, '6000');
     assert.equal(await monthUsed(d.now!), 6000);
     // An L1 fee that takes the bound over $0.25 refuses: 0.02 + 2 × 0.12 = 0.26.
+    await nextWallet();
     const s2 = await setup();
     const l1 = fakeChain({ l1Fee: 120_000_000_000_000_000n });
     assert.equal((await deployForBuilder(call(s2), deps(l1.chain))).show_to_builder, DEPLOY_LINES.high);
@@ -690,6 +702,7 @@ test('fix round 1 (I3, M1): a DB error after the send never deletes the row or g
     assert.equal(await monthUsed(d.now!), 20_000, 'the reserve is kept');
     const [day] = await sql()<{ used: number }[]>`SELECT used FROM free_tier_usage WHERE name = 'deploysDay' AND period = ${periodKey('day', d.now!)}`;
     assert.equal(day.used, 1, "the day's slot is kept");
+    await nextWallet();
     const s2 = await setup();
     const throwing: DeployChain = { ...fakeChain().chain, send: async () => { throw new Error('nonce too low'); } };
     const out2 = await deployForBuilder(call(s2), deps(throwing));
@@ -797,6 +810,7 @@ test('fix round 2 (N2): a contract whose nonce is above 1 (its constructor creat
     assert.deepEqual(await deployForBuilder(call(s, input({ chain: 'arc' })), deps(next.chain)), { status: 'refused', show_to_builder: DEPLOY_LINES.blocked });
     assert.equal(next.calls.estimate + next.calls.send.length, 0);
     // A nonce read that fails can't confirm it: flagged, not blocked.
+    await nextWallet();
     const s2 = await setup();
     const out2 = await deployForBuilder(call(s2), deps(fakeChain({ nonce: 'throws' }).chain));
     assert.equal(out2.status === 'deployed' && out2.owner_ok, false);
@@ -975,12 +989,14 @@ test('3.1 a reverted deploy and one left unknown write no event; with the log of
     const unknown = await setup();
     await withEventLog(async () => {
       assert.equal((await deployForBuilder(call(reverted), deps(fakeChain({ receipt: 'reverted' }).chain))).status, 'failed');
+      await nextWallet();
       assert.equal((await deployForBuilder(call(unknown), deps(fakeChain({ receipt: null }).chain))).status, 'failed');
     });
     assert.equal((await rowsOf(reverted.repoKey))[0].status, 'reverted');
     assert.equal((await rowsOf(unknown.repoKey))[0].status, 'unknown');
     assert.deepEqual(await eventsOfInstallation(reverted.installationId), []);
     assert.deepEqual(await eventsOfInstallation(unknown.installationId), []);
+    await nextWallet();
     const off = await setup();
     assert.equal((await deployForBuilder(call(off), deps(fakeChain().chain))).status, 'deployed');
     assert.deepEqual(await eventsOfInstallation(off.installationId), [], 'EARNKIT_EVENT_LOG is off');
@@ -1004,7 +1020,8 @@ test('3.8 a deploy proven by the proof line alone records the owner only for the
     withDeployer(async () => {
       const { tokenLineFor } = await import('./token-gate');
       // Review I2: the owner is recorded only when the builder said it is them and it is a User account.
-      const lineDeploy = async (type: 'User' | 'Organization') => {
+      const lineDeploy = async (type: 'User' | 'Organization', pusher?: string) => {
+        await nextWallet();
         const s = await setup({ proof: false });
         const owner = s.repoKey.split('/')[0].toLowerCase();
         await sql()`UPDATE installations SET github_user = ${owner} WHERE id = ${s.installationId}`;
@@ -1012,18 +1029,26 @@ test('3.8 a deploy proven by the proof line alone records the owner only for the
           INSERT INTO url_checks (key, ok, checked_at, note)
           VALUES (${`ghuser:${owner}`}, true, now(), ${JSON.stringify({ type, created_at: '2020-01-01T00:00:00Z', public_repos: 2 })})`;
         const line = tokenLineFor(s.installationId, `https://github.com/${s.repoKey}`);
-        const gate = { owner: async () => ({ status: 'ok' as const, text: `${line}\n` }), latest: async () => null };
+        // T9 security fix I1: GitHub's push record says who added the line (default: the owner).
+        const gate = { owner: async () => ({ status: 'ok' as const, text: `${line}\n` }), latest: async () => null, pusher: async () => pusher ?? owner };
         assert.equal((await deployForBuilder(call(s), deps(fakeChain().chain, { gate }))).status, 'deployed');
         const [e] = await eventsOfInstallation(s.installationId);
-        return { e, owner };
+        const [row] = await sql()<{ line_owner: string | null }[]>`SELECT line_owner FROM contract_deploys WHERE repo_key = ${s.repoKey}`;
+        return { e, owner, lineOwner: row.line_owner };
       };
       const user = await lineDeploy('User');
       assert.equal(user.e.github_login, user.owner);
       assert.equal(user.e.login_basis, 'proof_line');
+      assert.equal(user.lineOwner, user.owner, 'the row keeps the pusher');
+      const collab = await lineDeploy('User', 'mallory-pushed-it');
+      assert.equal(collab.e.type, 'deployed', 'a collaborator\'s push still deploys');
+      assert.deepEqual([collab.e.github_login, collab.e.login_basis], [null, null], "a collaborator's push never names the owner");
+      assert.equal(collab.lineOwner, 'mallory-pushed-it');
       const org = await lineDeploy('Organization');
       assert.equal(org.e.type, 'deployed', 'the deploy is still logged');
       assert.deepEqual([org.e.github_login, org.e.login_basis], [null, null], 'an org is never recorded as the builder');
 
+      await nextWallet();
       const bobLogin = `bob${process.pid}y${Date.now()}`;
       const shared = await setup({ shared: true, login: bobLogin });
       await sql()`INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose)
@@ -1058,6 +1083,72 @@ test('review M1: a deploy whose stored code differs is logged with code_differs,
       assert.equal(row.code_differs, true);
       const [e] = await eventsOfInstallation(s.installationId);
       assert.deepEqual(e.detail, { address: DEPLOYED.toLowerCase(), owner_ok: false, block: 4242, code_differs: true });
+    }),
+  ),
+);
+
+// ---- v2.11 T9 security fix (I3): caps per repo, per owner wallet and per proven line pusher
+
+test('T9 I3: many installations on one repo, one owner wallet or one line pusher are capped like one builder; the global day cap stays', dbTest, () =>
+  withDeployer(async () => {
+    const t0 = Date.now().toString(16).padStart(28, '0');
+    const W = (n: number) => `0x${String(n).padStart(4, '0')}${process.pid.toString(16).padStart(8, '0')}${t0}`.slice(0, 42) as Address;
+    const run = (s: { installationId: number; repoKey: string }, wallet: Address, o: { chain?: 'arc' | 'base'; gate?: DeployDeps['gate'] } = {}) =>
+      deployForBuilder({ ...call(s, input({ chain: o.chain ?? 'base' })), builderWallet: wallet }, deps(fakeChain().chain, o.gate ? { gate: o.gate } : {}));
+    // One repo, two installations (each proved it), two wallets: the second is limited.
+    const a = await setup();
+    const b = await setup({ proof: false });
+    await proofRow(b.installationId, a.repoKey);
+    assert.equal((await run(a, W(1))).status, 'deployed');
+    assert.deepEqual(await run({ ...b, repoKey: a.repoKey }, W(2)), { status: 'refused', show_to_builder: DEPLOY_LINES.limit }, 'one repo');
+    // One wallet, two installations, two repos: the second is limited on that chain, not on the other.
+    const c = await setup();
+    const d = await setup();
+    assert.equal((await run(c, W(3))).status, 'deployed');
+    assert.deepEqual(await run(d, W(3)), { status: 'refused', show_to_builder: DEPLOY_LINES.limit }, 'one wallet');
+    assert.equal((await run(d, W(3), { chain: 'arc' })).status, 'deployed', 'the other chain');
+    // One GitHub account pushing the line in two repos from two installations: the second is limited.
+    const pusher = `pz${process.pid}${Date.now().toString(36)}`;
+    const gate = { ...noProofLine, pusher: async () => pusher };
+    const e = await setup();
+    const f = await setup();
+    assert.equal((await run(e, W(4), { gate })).status, 'deployed');
+    assert.deepEqual(await run(f, W(5), { gate }), { status: 'refused', show_to_builder: DEPLOY_LINES.limit }, 'one pusher');
+    // 3 in 30 days on one repo from other installations: limited.
+    const g = await setup();
+    await sql()`
+      INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, status, cost_micro_usd, created_at)
+      SELECT ${g.installationId}, 'installation:other' || n, ${g.repoKey}, 'arc', '0x01', 'deployed', 1, now() - make_interval(days => n + 2)
+      FROM generate_series(1, 3) n`;
+    assert.deepEqual(await run(g, W(6)), { status: 'refused', show_to_builder: DEPLOY_LINES.limit }, '3 in 30 days on the repo');
+  }, { EARNKIT_AUTH_SECRET: 'deploy-test-secret' }),
+);
+
+test('T9 M3: initcodeHash ignores the CBOR metadata and nothing else; the real arc-tipjar bytecode hashes to the registry value', () => {
+  const hash = initcodeHash(ARC_TIPJAR_BYTECODE)!;
+  assert.equal(hash, '0x7e10c26c980aa0cd242f49411e7079757439e0cc26dcc54f01aa0d0981c5c50d');
+  // Another metadata hash (the same source from another path): the same.
+  const other = `${ARC_TIPJAR_BYTECODE.slice(0, -20)}${'ab'.repeat(8)}0033` as Hex;
+  assert.equal(initcodeHash(other), hash);
+  // One code byte changed: different.
+  const changed = `${ARC_TIPJAR_BYTECODE.slice(0, 40)}${ARC_TIPJAR_BYTECODE.slice(40, 42) === '00' ? '01' : '00'}${ARC_TIPJAR_BYTECODE.slice(42)}` as Hex;
+  assert.notEqual(initcodeHash(changed), hash);
+  assert.equal(initcodeHash('0xzz'), null);
+});
+
+test('T9 M3: the deployed event names the starter only for its own bytecode; other bytecode gets starter null', dbTest, () =>
+  withEventLog(() =>
+    withDeployer(async () => {
+      const starter = { id: 'arc-tipjar', initcode_hash: '0x7e10c26c980aa0cd242f49411e7079757439e0cc26dcc54f01aa0d0981c5c50d' };
+      const deployOf = async (i: DeployInput) => {
+        await nextWallet();
+        const s = await setup();
+        assert.equal((await deployForBuilder({ ...call(s, i), starter }, deps(fakeChain().chain))).status, 'deployed');
+        return (await eventsOfInstallation(s.installationId))[0].detail.starter;
+      };
+      const real = input({ chain: 'arc', bytecode: ARC_TIPJAR_BYTECODE, abi: ARC_TIPJAR_ABI as unknown as Abi, constructor_args: [BUILDER, 'PodTips', '1000000'] });
+      assert.equal(await deployOf(real), 'arc-tipjar');
+      assert.equal(await deployOf(input({ chain: 'arc' })), null, 'any other bytecode');
     }),
   ),
 );

@@ -41,8 +41,13 @@ export type Starter = {
   what: string;
   /** The bar: zero to deployable within this many minutes. */
   minutes: 60;
-  /** The Foundry artifact EarnKit deploys, and whether the owner is its constructor argument. */
-  contract: { artifact: string; owner_arg: boolean };
+  /**
+   * The Foundry artifact EarnKit deploys, and whether the owner is its constructor argument.
+   * `initcode_hash` (v2.11 T9 security fix M3): keccak256 of its creation bytecode without the
+   * trailing CBOR metadata (deploy.ts initcodeHash), so a deploy is labelled with this starter only
+   * when it is this contract; null: never labelled.
+   */
+  contract: { artifact: string; owner_arg: boolean; initcode_hash: `0x${string}` | null };
   /** The static output to zip and host, relative to the starter's folder. */
   site_dir: string;
   /**
@@ -87,7 +92,8 @@ export const STARTERS: Record<StarterId, Starter> = {
     repo: 'earnkitai/chain-kits/arc/tipjar',
     what: 'a USDC tip page on Arc',
     minutes: 60,
-    contract: { artifact: 'UsdcTipJar', owner_arg: true },
+    // initcode_hash: `forge build` of src/UsdcTipJar.sol at 0f573a7 (solc 0.8.30, prague, no optimizer).
+    contract: { artifact: 'UsdcTipJar', owner_arg: true, initcode_hash: '0x7e10c26c980aa0cd242f49411e7079757439e0cc26dcc54f01aa0d0981c5c50d' },
     site_dir: 'site',
     pages_fallback: true,
     kit_twist: {

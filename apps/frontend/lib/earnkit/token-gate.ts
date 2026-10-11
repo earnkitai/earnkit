@@ -1,6 +1,7 @@
 import {
   OWNERSHIP_FILE,
   fetchOwnershipFile,
+  fetchLinePusher,
   fetchOwnershipLatestBranch,
   fetchOwnershipViaApi,
   shownBranch,
@@ -88,6 +89,12 @@ export type GateDeps = {
  */
 export type OwnershipDeps = GateDeps & {
   repoVerified?: (a: { installationId: number; repoKey: string; login?: string }) => Promise<boolean>;
+  /**
+   * v2.11 T9 security fix (I1): the login GitHub says pushed the line into earnkit.txt (ownership.ts
+   * fetchLinePusher: the push's authenticated actor), or null. A test's injected `owner` reader
+   * pairs with no pusher unless the test gives one.
+   */
+  pusher?: (r: { owner: string; repo: string }, hasLine: (text: string) => boolean) => Promise<string | null>;
 };
 const repoVerified = async (a: { installationId: number; repoKey: string; login?: string }) =>
   (githubVerifyEnabled() && (await verifiedFor(a)) !== null) ||
@@ -381,6 +388,40 @@ const defaultAppLink = (input: GateInput) => async (repoKey: string) =>
  * shared client (`verifiedLogin` given, or the group is shared while sign-in is on) only the
  * caller's own verified login counts, and the proof line never does. Fails closed; never throws.
  */
+/**
+ * v2.11 T9 security fix (I1): who put this installation's `token: <code>` line into the repo's
+ * earnkit.txt, as GitHub's push record says (OwnershipDeps.pusher), lowercase; null when it can't
+ * be told. Push access is not identity: only this login, when it is the repo's owner, ties the line
+ * to the owner. Off a shared client only (the caller decides). Never throws.
+ */
+export async function proofLineOwner(a: { installationId: number; repoUrl: string }, deps: OwnershipDeps = {}): Promise<string | null> {
+  const gh = githubRepo(a.repoUrl);
+  const code = gh ? tokenCode(a.installationId, a.repoUrl) : null;
+  if (!gh || !code) return null;
+  const pusher = deps.pusher ?? (deps.owner ? async () => null : (r: { owner: string; repo: string }, has: (t: string) => boolean) => fetchLinePusher(r, has));
+  try {
+    return (await pusher(gh, (text) => proves({ status: 'ok', text }, code, null)))?.toLowerCase() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+declare const provenRepo: unique symbol;
+/**
+ * v2.11 T9 security fix (M1): a repo this installation just proved (repoOwnershipPasses), and who
+ * pushed its proof line (proofLineOwner). Only proveRepo makes one, so a caller can't pass a bare
+ * "already checked" flag.
+ */
+export type ProvenRepo = { readonly installationId: number; readonly repoKey: string; readonly lineOwner: string | null; readonly [provenRepo]: true };
+
+/** repoOwnershipPasses, then proofLineOwner: the proof as a value, or null when it fails. */
+export async function proveRepo(a: { installationId: number; repoUrl: string }, deps: OwnershipDeps = {}): Promise<ProvenRepo | null> {
+  const gh = githubRepo(a.repoUrl);
+  if (!gh || !(await repoOwnershipPasses(a, deps))) return null;
+  const lineOwner = await proofLineOwner(a, deps);
+  return { installationId: a.installationId, repoKey: `${gh.owner}/${gh.repo}`.toLowerCase(), lineOwner } as ProvenRepo;
+}
+
 export async function repoOwnershipPasses(
   a: { installationId: number; repoUrl: string; verifiedLogin?: string | null },
   deps: OwnershipDeps = {},
