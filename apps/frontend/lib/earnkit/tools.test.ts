@@ -4,7 +4,7 @@ import { SafeFetchError } from './safe-fetch';
 import { after, test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
-import { BUILD_NOTE, BUILD_NO_LIVE_NOTE, PLAN_NOTE, CONFIRM_SHARED_NOTE, LEAD_NOTE, NOTED_FOR_NOW, eligibilityLine, freshSwitches, withoutTokenLine, SponsorCampaignInput, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
+import { BUILD_NOTE, BUILD_NO_LIVE_NOTE, BUILD_WALLET_NOTE, PLAN_NOTE, CONFIRM_SHARED_NOTE, LEAD_NOTE, NOTED_FOR_NOW, eligibilityLine, freshSwitches, withoutTokenLine, SponsorCampaignInput, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
 import { aliasCall } from './aliases';
 import { reportedGithubUser, reportedRepos } from './match-projects';
 import { sql } from './db';
@@ -4707,6 +4707,8 @@ test('8.3 (review M1) a valid wallet sent with a twist that fails on another fie
   const r = await t.twist();
   assert.match(r.show_to_builder, /^Building PodTips/);
   assert.equal(r.kit?.owner_wallet, T8_WALLET);
+  // Final fix M7: the kept wallet is remembered once the twist passes, so a later session never asks again.
+  assert.equal((await t.stored()).payout_wallet, T8_WALLET, 'remembered on the pass');
 });
 
 test('8.5 (review M3) a shared client with deploys off gets the refusal note, never "add EarnKit to a coding agent"', dbTest, async (tc) => {
@@ -5170,7 +5172,9 @@ function buildFlowGitHub(o: { repo?: Record<string, unknown>; commits?: unknown[
       if (p.includes('/compare/')) return Response.json(o.compare ?? { status: 'ahead', total_commits: 0, commits: [] });
       return new Response('', { status: 404 });
     };
+    const { repoEverDerived } = await import('./github-verify');
     return fetchLinePusher(r, hasLine, issuedAt, {
+      everDerived: repoEverDerived, // as token-gate.ts proofLineOwner passes it (final fix M6)
       fetch: (async (url: string) => api(url)) as unknown as typeof fetch,
       raw: async (url) => (url.includes(`/${HEAD}/`) ? { status: 'ok', text: line } : { status: 'missing' }),
     });
@@ -5214,6 +5218,27 @@ test('T9 R4 journey: a template repo, a fork, a cloned history, a local merge or
         assert.equal(t.sent.length, 0, label);
         assert.deepEqual(await eventsOfInstallation(t.inst), [], label);
       }
+    }),
+  ),
+);
+
+test('final fix M6: a repo that once read as a template (or a fork) stays refused after the flag is erased; a clean repo still deploys', dbTest, (tc) =>
+  withEventLog(() =>
+    withVars(shipVars(), async () => {
+      const repo: Record<string, unknown> = { template_repository: { full_name: 'mallory/tutorial' } };
+      const t = await shipSetup('m6erase', tc, { github: buildFlowGitHub({ repo }) });
+      refusedQuietly(await t.ship(), /only for the repo owner's own account/, 'a template');
+      // The source template is deleted or made private: GitHub now reads null, and fork false.
+      repo.template_repository = null;
+      refusedQuietly(await t.ship(), /only for the repo owner's own account/, 'the template flag erased');
+      assert.equal(t.sent.length, 0);
+      const [cached] = await sql()<{ ok: boolean }[]>`SELECT ok FROM url_checks WHERE key = ${`ghrepo:${t.repoKey}`}`;
+      assert.equal(cached?.ok, false, 'the first reading is kept');
+      const src = (await import('node:fs')).readFileSync(new URL('./token-gate.ts', import.meta.url), 'utf8');
+      assert.match(src, /fetchLinePusher\(r, has, at, \{ everDerived: repoEverDerived \}\)/, 'production passes the cache');
+      // A clean repo reads clean the first time and deploys.
+      const clean = await shipSetup('m6clean', tc, { github: buildFlowGitHub() });
+      assert.deepEqual((await clean.ship()).deploy, { address: T9_ADDR, chain: 'arc', owner_ok: true });
     }),
   ),
 );
@@ -5389,7 +5414,7 @@ test('10.2 a live link that is not the build\'s own (another site, or a Pages li
   ),
 );
 
-test('10.3 confirm yes launches to the build wallet only; another wallet gets the confirm line again with that wallet, and nothing launches unseen', dbTest, (tc) =>
+test('10.3, final fix M4: on the build path the token launches only to the build wallet; another wallet is refused with an agent note, never shown or launched', dbTest, (tc) =>
   withEventLog(() =>
     withTokenEnv(() =>
       withVars(shipVars(), async () => {
@@ -5398,16 +5423,17 @@ test('10.3 confirm yes launches to the build wallet only; another wallet gets th
         const j = await t.joined(upload.url);
         const input = { project: j.entry!.project, answers: j.entry!.answers, token: { name: j.token!.proposed.name, symbol: j.token!.proposed.symbol } };
         const OTHER = '0x2222222222222222222222222222222222222222';
-        const other = await t.confirm({ ...input, yes: true, wallet: OTHER });
-        assert.ok(!('kit' in other), 'no kit');
+        for (const other of [{ yes: true, wallet: OTHER }, { wallet: OTHER }, { skip_token: true, wallet: OTHER }]) {
+          const r = await t.confirm({ ...input, ...other });
+          assert.ok(!('kit' in r), 'no kit');
+          assert.equal(r.show_to_builder, '', 'the other wallet is never shown');
+          assert.equal(r.agent_note, BUILD_WALLET_NOTE);
+          assert.ok(!('shown_wallet' in r));
+        }
         assert.deepEqual(t.launched, [], 'nothing launched');
-        assert.match(other.show_to_builder, /^Yes submits your entry and launches \$\w+ \(PodTips\)\. Wallet: 0x2222…2222\. yes \/ skip the token$/);
-        assert.equal(other.shown_wallet, OTHER);
-        atMostOneQuestion(other as BuildReply, '10.3');
-        // Back to the build wallet: shown again first, then the yes launches to it.
-        const back = await t.confirm({ ...input, yes: true, wallet: T8_WALLET });
-        assert.ok(!('kit' in back));
-        assert.match(back.show_to_builder, /Wallet: 0x12ab…9f3e\. yes \/ skip the token$/);
+        const [entry] = await sql()`SELECT 1 FROM projects WHERE installation_id = ${t.inst} AND program_id = ${t.p.id}`;
+        assert.equal(entry, undefined, 'nothing recorded');
+        // The build wallet, as the joined reply showed it: the yes launches to it.
         const yes = await t.confirm({ ...input, yes: true, wallet: T8_WALLET });
         assert.equal(yes.token?.status, 'launched');
         assert.deepEqual(t.launched, [T8_WALLET]);
