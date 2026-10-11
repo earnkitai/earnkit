@@ -4055,8 +4055,11 @@ give. Events: `built`, `deployed`, `hosted`, `entered`, `submitted`, once each.
   program's `verified_at`. Stored in `programs.fresh_build`; `listPrograms` cards carry it. Arc
   Microgrants carries `arc-tipjar`.
 - **Keep it fresh.** The pick also holds the 30 days against now, so the lead stops on its own when the
-  starter's test ages out. Rerun the test in chain-kits and update `tested_at`; the journey's 13.0
-  fails with that instruction when the real registry is stale.
+  starter's test ages out. Rerun the test in chain-kits and update `tested_at`. Final fix I4:
+  `programs:check` (and sync) prints `Warning: <id> tested N days ago ...` once a starter some program
+  offers is over 23 days old (`program-file.ts starterAgeWarnings`), a week's notice; it never fails
+  for it. No test depends on the real date: the journeys pass today's date as `tested_at` through
+  `freshDeps.starters`.
 
 ### The twist and the build kit (T8, spec 3, plan S6 and S7)
 
@@ -4104,6 +4107,16 @@ give. Events: `built`, `deployed`, `hosted`, `entered`, `submitted`, once each.
   6. Only when the build wallet owns it (`owner_ok`): the one-use upload URL (`host.upload_url`,
      `BUILD_UPLOAD_NOTE`), or, with EarnKit hosting off or refused, `host: { github_pages: true,
      site_dir }` with `BUILD_PAGES_NOTE`. The builder sees nothing yet (`BUILD_HOLD_NOTE`).
+  7. Final fix M8: a deploy of this build sent on an earlier call whose receipt never came (`unknown`
+     with its tx hash) is settled before step 5 by `deploy.ts settlePendingDeploy` (read-only: the
+     receipt, code, `owner()`, `hasRole`, nonce; no send, no transfer) with its `deployed` event, and
+     the call goes on to step 6. Still no receipt: the pending line again with `BUILD_PENDING_NOTE`
+     (make the same call again in a few minutes). Nothing is ever deployed twice.
+- **When the site never goes up (final fix I2).** `BUILD_HOLD_NOTE` and `BUILD_PAGES_NOTE` tell the
+  agent: if the site isn't live within 15 minutes, call prepare with `build: { program_id }` and no
+  `live_url`. `buildJoin` then gives the deployed line and the usual draft ("Before you submit: a live
+  link on Arc mainnet." and the entry table; no question invented), with `BUILD_NO_LIVE_NOTE` so the
+  agent never puts another link in `live_deployment_url`.
 - **Hosting with no click (`hosting.ts issueUpload`, S9).** Off a shared client with no sign-in for the
   repo, the owner-bound proof line stands in for the sign-in: the line's pusher is the repo owner, the
   login the builder said (`installations.github_user`), a User account by GitHub's public read
@@ -4112,10 +4125,19 @@ give. Events: `built`, `deployed`, `hosted`, `entered`, `submitted`, once each.
   client keeps v2.9's sign-in. `host_upload_tokens.basis` and `host_deploys.basis` (`signin` | `app` |
   `proof_line`) carry the basis to the `hosted` event; the upload re-checks it. A proof-line link never
   replaces a site made under another login. Proof reads are capped at 20 an hour per installation.
-- **GitHub Pages (S10).** The next call's live link counts only when it is the build repo's own Pages
+- **GitHub Pages (S10, final fix I3).** GitHub serves a branch only from `/` or `/docs`, so
+  `BUILD_PAGES_NOTE` has the agent push the contents of `host.site_dir` to the root of a `gh-pages`
+  branch (`git subtree push --prefix <site_dir> origin gh-pages`, or `git push origin "$(git
+  commit-tree HEAD:<site_dir> -m site)":refs/heads/gh-pages` without git subtree) and turn Pages on
+  with `gh api -X POST repos/<owner>/<repo>/pages -f 'source[branch]=gh-pages' -f 'source[path]=/'`
+  (GitHub's REST "Create a GitHub Pages site"; both git routes checked on a scratch repo). It serves at
+  `https://<owner>.github.io/<repo>/`. The next call's live link counts only when it is the build repo's own Pages
   link (`pagesLinkOf`), with a contract EarnKit deployed for this installation and repo, and its probe
   passes: `hosted` with `detail.host = 'github_pages'`, key `hosted:gh:<installation>:<repo_key>:<link>`.
-- **The owner proof (`ownership.ts fetchLinePusher`).** From GitHub's activity API, the actor of the
+- **The owner proof (`ownership.ts fetchLinePusher`).** Final fix M6: the fork and template reading is
+  kept per repo (`github-verify.ts repoEverDerived`, `url_checks` key `ghrepo:<owner/repo>`): a repo
+  that ever read as a fork or as made from a template stays refused when the flag is erased later.
+  From GitHub's activity API, the actor of the
   push that introduced the line (the branch walked back; at most 6 raw reads). A `push` credits its
   actor; a `branch_creation` only as the repo's very first event, within 10 minutes of the repo's
   creation; force pushes and merges credit no one; an earlier push of the same commit decides. And
@@ -4146,9 +4168,10 @@ give. Events: `built`, `deployed`, `hosted`, `entered`, `submitted`, once each.
 - **The live line (`buildLiveLine`).** EarnKit hosting only for this installation's live site of the
   repo; Pages only for the repo's own Pages link whose probe passes (`pagesLiveLine`). Any other link is
   never called live.
-- **The confirm wallet (`buildWalletAgain`).** On the build path a yes launches only to the wallet the
-  confirm line showed (`token_offers.offered_wallet`); another wallet gets the confirm line again with
-  that wallet, and nothing is recorded or launched.
+- **The confirm wallet (`buildWalletOnly`, final fix M4, owner ruling).** On the build path the token
+  launches only to the build's wallet (`installations.build.wallet`). Any confirm naming another
+  wallet is refused with `BUILD_WALLET_NOTE` only: nothing shown, recorded or launched. A yes with the
+  build's wallet while the confirm line showed another gets the line again (`BUILD_WALLET_SHOWN_NOTE`).
 - **Then v2.10's flow:** the yes (or "skip the token") records the entry (`entered`), launches or
   skips the token and hands over the kit; `tell { submitted }` marks it (`submitted`).
 
@@ -4183,9 +4206,15 @@ give. Events: `built`, `deployed`, `hosted`, `entered`, `submitted`, once each.
   App proof of the repo; else the proof line's proven owner (`proof_line`). On a shared client only the
   caller's own verification or the one bound to the entry. Never `GITHUB_TOKEN`'s login.
 - **Backfill.** `scripts/events-backfill.mts` (owner only, `EARNKIT_EVENT_LOG=on`, after the /terms
-  section is live) replays `contract_deploys`, `host_deploys`, `projects`, `submissions` and
-  `entry_outcomes` with each row's own time and the live dedupe keys (`detail.backfill = true`; a rerun
-  writes 0). Never in predeploy or the cron.
+  section is live) replays `installations.build`, `contract_deploys`, `host_deploys`, `projects`,
+  `submissions` and `entry_outcomes` with each row's own time and the live dedupe keys
+  (`detail.backfill = true`; a rerun writes 0). Never in predeploy or the cron. Final fix I1: `built`
+  comes from a build (never a shared client's) whose `repo_url` got a `contract_deploys` row from that
+  installation (the first row's time; the build's wallet, starter and twist; the login proven for that
+  row). A GitHub Pages `hosted` comes from an entry whose `live_url` is its repo's own Pages link
+  (`pages-link.ts pagesLinkOf`) with a deployed contract for that installation and repo (the entry's
+  time, `hosted:gh:` key, `detail { host: 'github_pages', probe: false }`, no probe). An EarnKit
+  upload keeps `host_deploys.basis` as its `login_basis` (M1: a proof-line upload is `proof_line`).
 
 ### Usage checks at 30 and 90 days (T11, spec 7, plan S12)
 
@@ -4243,7 +4272,8 @@ pnpm exec tsx apps/frontend/scripts/v211-metric.mts [--as-of <ISO time>]
   (`entered` is the confirm step that hands over the kit).
 - **Output:** `Shown the build lead`, `Said yes to the build`, `Still in their first 24 hours`,
   `Shipped in their first 24 hours`, then `<n> of <m> no-repo builders shipped in their first session
-  (<p>%)`. It reads nothing before `EARNKIT_EVENT_LOG` was on.
+  (<p>%)`, and (final fix M2 b) the same share among builds that reached a repo (`build.repo_url`).
+  It reads nothing before `EARNKIT_EVENT_LOG` was on.
 
 ### The journey (`v211-journey.test.ts`)
 
@@ -4253,7 +4283,8 @@ set inside the file only). Fakes only for the outside world: GitHub (the account
 repos, the new repo, its push record, commits and earnkit.txt), `DeployChain`, R2, the probe and
 getCode, the logo reads, the sanctions screen and tokens.fun's deploy API behind the real
 `deployToken`. Real time, not a frozen clock: the database's `now()` writes events and upload
-tokens. 13.0 the registry is fresh and Arc names it; 13.1 the path above with each line exact, one
+tokens. The one seam: arc-tipjar's `tested_at` is today (`freshDeps.starters`). 13.0 Arc names
+arc-tipjar and the 30-day rule still stops a stale starter (injected dates); 13.1 the path above with each line exact, one
 deploy, one launch, the five events with their proofs and `proof_line` basis, a ready entry, one
 build yes; 13.2 a rerun of every call writes no event, deploys and launches nothing; 13.4 "skip the
 token", the GitHub Pages fallback, and fail closed (deploys off, or R2 only: v2.10.2's reply byte for
@@ -4276,16 +4307,23 @@ installations counted the right way).
 
 1. **Ship v2.11.** `predeploy` runs the additive migration and `programs:sync` (Arc's `fresh_build`).
    Production already has `DEPLOYER_PRIVATE_KEY`, so from this deploy the no-repo lead offers Arc and
-   the build path runs, hosting on GitHub Pages until step 2. Refresh the claude.ai connector (the tool
+   the build path runs, hosting on GitHub Pages. Refresh the claude.ai connector (the tool
    descriptions changed).
-2. **R2 and the host Worker (optional).** The R2 bucket `earnkit-sites` (a card on file; usage stays
-   in the free tier), `infra/host-worker` on Workers Free with a `*.earnkit.com` route and a proxied
-   wildcard DNS record, then the four R2 variables and `EARNKIT_RESERVED_SUBDOMAINS` on Railway and
-   `RESERVED` on the Worker. Without them, GitHub Pages hosts every build.
-3. **The event log, last.** Check `https://earnkit.com/terms#what-earnkit-records` loads in
-   production, then set `EARNKIT_EVENT_LOG=on`, then run the backfill once from a local shell against
-   production: `EARNKIT_EVENT_LOG=on pnpm exec tsx apps/frontend/scripts/events-backfill.mts`. Never
-   the other way round. The metric reads nothing until this step.
+2. **The event log, in the same session (final fix I1).** Smoke-check that
+   `https://earnkit.com/terms#what-earnkit-records` loads in production (it ships in this same
+   deploy), then set `EARNKIT_EVENT_LOG=on` at once, before the first build. Every build in between
+   loses nothing it can't get back (the backfill below), but the live probe of a Pages link and the
+   exact times are only the live step's.
+3. **The backfill, once.** From a local shell against production:
+   `EARNKIT_EVENT_LOG=on pnpm exec tsx apps/frontend/scripts/events-backfill.mts`. It rebuilds
+   `built`, `deployed`, EarnKit and GitHub Pages `hosted`, `entered`, `submitted`, `won` and `lost`
+   from the tables (each row's own time, the live keys; a rerun writes 0). Never before step 2.
+4. **R2 and the host Worker (optional, last).** The R2 bucket `earnkit-sites` (a card on file; usage
+   stays in the free tier), `infra/host-worker` on Workers Free with a `*.earnkit.com` route and a
+   proxied wildcard DNS record, then the four R2 variables and `EARNKIT_RESERVED_SUBDOMAINS` on
+   Railway and `RESERVED` on the Worker. Without them, GitHub Pages hosts every build.
+
+The metric reads nothing before step 2.
 
 Then, as programs come: add `fresh_build` only to programs the owner approves, and curate 3 to 5
 small dated programs on Arc or Base. Arc Microgrants closes 2026-10-15 03:59 UTC, and the lead
