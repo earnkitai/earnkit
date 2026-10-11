@@ -63,6 +63,33 @@ export async function markFreshOffer(installationId: number, at: Date): Promise<
   await sql()`UPDATE installations SET fresh_offer_at = ${at} WHERE id = ${installationId} AND fresh_offer_at IS NULL`;
 }
 
+/**
+ * v2.11 plan S6: the one build in progress (installations.build): the program and its starter from
+ * build.start, then the wallet and the fields the agent wrote from the builder's twist, once they
+ * pass the build checks. A new build.start replaces it. Never on a shared client (no build path).
+ */
+export type StoredBuild = {
+  program_id: string;
+  starter_id: string;
+  started_at: string;
+  wallet?: string;
+  twist?: string;
+  name?: string;
+  description?: string;
+  feature?: string;
+  for_whom?: string;
+  repo_url?: string;
+};
+
+export async function readBuild(installationId: number): Promise<StoredBuild | null> {
+  const [row] = await sql()<{ build: StoredBuild | null }[]>`SELECT build FROM installations WHERE id = ${installationId}`;
+  return row?.build ?? null;
+}
+
+export async function saveBuild(installationId: number, build: StoredBuild): Promise<void> {
+  await sql()`UPDATE installations SET build = ${sql().json(build as never)} WHERE id = ${installationId}`;
+}
+
 /** v2.9 T12 (G15 M1): the builder's best owned repos as they last matched (setFitRepos). */
 export async function readFitRepos(installationId: number): Promise<FitRepo[]> {
   const [row] = await sql()<{ fit_repos: FitRepo[] | null }[]>`SELECT fit_repos FROM installations WHERE id = ${installationId}`;

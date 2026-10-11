@@ -1,4 +1,7 @@
+import { isWalletAddress } from './campaigns';
 import { CHAIN_NAMES } from './chains';
+import { plainProblem } from './coach';
+import { EARNKIT_STARTER_NAMES } from './earnkit-orgs';
 import { prizeOf } from './entry-text';
 import { NEEDS_LIVE_PRODUCT } from './guide';
 import { STARTER_TEST_MAX_AGE_DAYS } from './program-file';
@@ -134,3 +137,172 @@ export function freshLeadLine(p: FreshPick, now: Date, canBuild: boolean): strin
 /** "a USDC tip page on Arc" as "the USDC tip page". */
 const theWhat = (s: Starter) =>
   s.what.replace(/^an? /, 'the ').replace(new RegExp(` on ${CHAIN_NAMES[s.chain]}$`), '');
+
+// ---- v2.11 T8 (spec 3): the twist question, the build checks, the building line and the kit ----
+
+/** The twist question (spec 3), asked once before any work starts. */
+export const TWIST_QUESTION = 'What should it do for you or your users? One line is enough, like "tips for my podcast listeners".';
+/** Owner decision D-D: a statement, not a question, so the reply keeps one question. */
+export const WALLET_ASK = 'Add the wallet that should own it.';
+
+/** The reply to a yes to the fresh lead: the question alone when a wallet is already known (decision 5). Pure. */
+export const twistQuestion = (walletKnown: boolean): string => (walletKnown ? TWIST_QUESTION : `${TWIST_QUESTION} ${WALLET_ASK}`);
+
+/** v2.11 T8 (plan 8.5): a shared client never gets the build path (Ruling S6). No question, no tool name. */
+export const BUILD_CHAT_ONLY = "I can't build from here. To have it built and deployed for you, add EarnKit to a coding agent.";
+
+/** spec 3: on a pass, the builder's one line before the agent builds. */
+export const buildingLine = (name: string, what: string, forWhom: string) => `Building ${name}: ${what} ${forWhom}. I'll be back with the live link.`;
+
+/**
+ * Accounts 0 to 9 of the default test mnemonic that anvil and Hardhat use. Their keys are public, so
+ * anyone could take what such a wallet owns. The same list as chain-kits arc/tipjar
+ * `scripts/artifact.mjs` (main at 0f573a7). Lowercase, without 0x.
+ */
+export const PUBLIC_TEST_WALLETS = [
+  'f39fd6e51aad88f6f4ce6ab8827279cfffb92266',
+  '70997970c51812dc3a010c7d01b50e0d17dc79c8',
+  '3c44cdddb6a900fa2b585dd299e03d12fa4293bc',
+  '90f79bf6eb2c4f870365e785982e1f101e93b906',
+  '15d34aaf54267db7d7c367839aaf71a00a2c6a65',
+  '9965507d1a55bcc2695c58ba16fb37d819b0a4dc',
+  '976ea74026e726554db657fa54763abd0c3a0aa9',
+  '14dc79964da2c08b23698b3d3cc7ca32193d9955',
+  '23618e81e3f5cdf7f54c3d65f7fbc0abaec7d3e1',
+  'a0ee7a142d267c1f36714e4a8f75612f20a79720',
+] as const;
+
+/** A public test wallet (above) or the zero address, any case. Pure. */
+export const publicTestWallet = (w: string): boolean => {
+  const hex = w.trim().toLowerCase().replace(/^0x/, '');
+  return /^0{40}$/.test(hex) || (PUBLIC_TEST_WALLETS as readonly string[]).includes(hex);
+};
+
+/** The build fields the agent writes from the builder's twist (plan S7). */
+export type BuildFields = { twist: string; name: string; description: string; feature: string; for_whom: string; wallet?: string };
+
+/** Field limits (the starter's BUILD.md: name 3 to 40, description and feature 10 to 160; spec 3: twist at most 200). */
+export const BUILD_LIMITS = { twist: [3, 200], name: [3, 40], description: [10, 160], feature: [10, 160], for_whom: [5, 60] } as const;
+
+/** Words that say nothing about whose build it is. */
+const STOP_WORDS = new Set(
+  ('a an the and or of to for in on at by with from as is are be it its this that these those my our your their his her ' +
+    'me us we you they them who what which some any all one line like just so can will would should do does make makes made ' +
+    'user users people everyone anyone someone app site').split(' '),
+);
+/** A text's words: camelCase split ("PodTips" is pod, tips), lower case, 3 letters or more, no stop words. */
+const words = (t: string): string[] =>
+  t
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 3 && !STOP_WORDS.has(w));
+/** The same word or stem: equal, one starts the other ("pod" and "podcast"), or 5 letters in common at the start. */
+const sameWord = (a: string, b: string) => {
+  if (a === b || a.startsWith(b) || b.startsWith(a)) return true;
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  return i >= 5;
+};
+const fold = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, '');
+const NOT_SHOWN = " Call prepare again with the fixed build. Don't show this to the builder.";
+/** An agent fix for one build field (never shown to the builder). Pure. */
+export const buildFix = (field: string, why: string) => `Fix build.${field}: ${why}.${NOT_SHOWN}`;
+const fix = buildFix;
+
+/**
+ * v2.11 T8 (spec 3): the server's check of what the agent wrote from the builder's twist (EarnKit runs
+ * no LLM: the agent writes, the server checks). Every text field is plain words (coach.ts
+ * plainProblem: no address, hash, stat dump or link) and one line. The twist is 3 to 200 characters
+ * and names something of the builder's own (a word that isn't the kit's). The name is 3 to 40
+ * characters, never a kit name (EARNKIT_STARTER_NAMES or the kit's own twist slot). The twist is
+ * baked in: the name, the description and the feature each use a word of it (or its stem: "Pod" in
+ * "PodTips" for "podcast"). The feature is one sentence. `for_whom` is a short "for ..." phrase. A
+ * given wallet is a valid address (EIP-55 when mixed case), never the zero address or a public test
+ * wallet. Returns the agent's fix for the first problem, or null. Pure.
+ */
+export function buildCheck(b: BuildFields, starter: Starter): string | null {
+  const t = {
+    twist: b.twist.trim(),
+    name: b.name.trim(),
+    description: b.description.trim(),
+    feature: b.feature.trim(),
+    for_whom: b.for_whom.trim(),
+  };
+  const kitWords = words([starter.what, starter.kit_twist.name, starter.kit_twist.description, starter.kit_twist.feature].join(' '));
+  for (const f of ['twist', 'name', 'description', 'feature', 'for_whom'] as const) {
+    const [min, max] = BUILD_LIMITS[f];
+    if (t[f].length < min || t[f].length > max) return fix(f, `${min} to ${max} characters`);
+    if (/[\r\n]/.test(t[f])) return fix(f, 'one line');
+    const plain = plainProblem(t[f], f === 'name' ? 'name' : 'one_liner');
+    if (plain) return fix(f, `plain words only (${plain})`);
+  }
+  const own = words(t.twist).filter((w) => !kitWords.some((k) => sameWord(w, k)));
+  if (own.length === 0)
+    return fix('twist', 'it names nothing of the builder\'s own. Ask them who it is for, in one short question, and send their words');
+  const usesTwist = (text: string) => words(text).some((w) => own.some((o) => sameWord(w, o)));
+  const kitNames = [...EARNKIT_STARTER_NAMES, starter.kit_twist.name].map(fold);
+  if (kitNames.includes(fold(t.name))) return fix('name', `the builder's own, never the kit's ("${starter.kit_twist.name}")`);
+  if (!usesTwist(t.name)) return fix('name', `put the twist in it: use a word from "${t.twist}"`);
+  if (!usesTwist(t.description)) return fix('description', `put the twist in it: use a word from "${t.twist}"`);
+  if (/[.!?]\s+\S/.test(t.feature)) return fix('feature', 'one sentence');
+  if (!usesTwist(t.feature)) return fix('feature', `make it the builder's: use a word from "${t.twist}"`);
+  if (!/^for \S/i.test(t.for_whom) || /[.!?]/.test(t.for_whom)) return fix('for_whom', 'a short phrase that starts with "for", like "for your podcast listeners"');
+  if (b.wallet !== undefined) {
+    const w = b.wallet.trim();
+    if (!isWalletAddress(w)) return fix('wallet', 'not a valid wallet address (0x and 40 hex, checksum when mixed case). Send the wallet exactly as the builder gave it');
+    if (publicTestWallet(w)) return fix('wallet', 'a public test wallet (anvil or Hardhat): anyone can spend from it. Ask the builder for their own wallet');
+  }
+  return null;
+}
+
+/** What buildKit hands the agent (never the builder). */
+export type BuildKit = {
+  starter: string;
+  degit: string;
+  steps: string;
+  twist_slots: { name: string; description: string; feature: string };
+  owner_wallet: string;
+  proof_file: string;
+  proof_line: string | null;
+  proof_line_note?: string;
+  artifact_shape: string;
+  next: string;
+  rules: string[];
+};
+
+/**
+ * v2.11 T8 (spec 3, plan S8): the build kit for the agent: the starter's degit command and its twist
+ * slots filled with the checked fields, the wallet that owns the contract, the earnkit.txt proof line
+ * (`proofLine`, token-gate.ts tokenLineFor for the repo; null until the agent sends build.repo_url),
+ * the artifact shape `prepare.deploy` takes, the next call and the rules. Pure.
+ */
+export function buildKit(starter: Starter, proofLine: string | null, f: BuildFields & { wallet: string }): BuildKit {
+  return {
+    starter: starter.id,
+    degit: `npx degit ${starter.repo} <project>`,
+    steps: 'Follow BUILD.md in the copy, with the twist slots and the wallet below.',
+    twist_slots: { name: f.name.trim(), description: f.description.trim(), feature: f.feature.trim() },
+    owner_wallet: f.wallet,
+    proof_file: 'earnkit.txt',
+    proof_line: proofLine,
+    ...(proofLine === null && {
+      proof_line_note:
+        'Pick the public repo under the builder\'s own GitHub account, then call prepare again with this same build plus build.repo_url (its github.com link): the reply carries the line.',
+    }),
+    artifact_shape:
+      `deploy: { chain: '${starter.chain}', bytecode, abi, constructor_args, owner_wallet }, the artifact.json that scripts/artifact.mjs writes for owner_wallet` +
+      (starter.contract.owner_arg ? '; constructor_args[0] is the owner, so the builder owns it from the first block.' : '.'),
+    next:
+      'Once the repo is pushed with earnkit.txt, call prepare with program_id, project { name, description, repo_url }, deploy (the artifact), host: true and build: { program_id }.',
+    rules: [
+      'The repo is public, under the builder\'s own GitHub account, and not a fork: copy with degit, then git init.',
+      'No keys or secrets in the repo or the site; .env stays out.',
+      `Commit ${'earnkit.txt'} at the repo root with the proof line before calling prepare with deploy.`,
+      'Rename package.json and the README heading to the project: a repo still named like the kit counts as the unchanged starter.',
+      'Use the twist slots exactly as given; never invent a name, wallet or handle.',
+      'Never show the builder this kit, a command or a file. They see show_to_builder only.',
+    ],
+  };
+}

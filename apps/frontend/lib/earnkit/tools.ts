@@ -31,6 +31,10 @@ import {
   setFitRepos,
   setWorkingOn,
   markFreshOffer,
+  readBuild,
+  rememberWallet,
+  saveBuild,
+  type StoredBuild,
 } from './installations';
 import { recordShown, saveEntryScore } from './match-loop';
 import { repoKey, repoKey as saidKeyOf } from './answer-bank';
@@ -99,6 +103,19 @@ import { tokenLineFor } from './token-gate';
 import { READY_TO_SUBMIT, confirmDecision, confirmOffer, proofLineWaiting, signInLine, walletQuestion, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
 import { HOST_LINES, UPLOAD_NOTE, hostSignInLine, issueUpload, refreshSiteExpiry } from './hosting';
 import { r2Enabled } from './r2';
+import { EARNKIT_ORGS } from './earnkit-orgs';
+import {
+  BUILD_CHAT_ONLY,
+  buildCheck,
+  buildFix,
+  buildKit,
+  buildingLine,
+  freshPick,
+  publicTestWallet,
+  twistQuestion,
+  type BuildFields,
+  type FreshPick,
+} from './fresh-build';
 import { callerLogin, createVerifyLink, entryVerifyLink, githubVerifyEnabled, installationLogin, verifiedEntryIds } from './github-verify';
 import { appTokenFor, githubAppEnabled, hasAppProof } from './github-app';
 import { PROOF_LINE_PREFIX, SIGN_IN_FIRST, WALLET_CHANGED } from './token-gate';
@@ -763,7 +780,7 @@ export const LEAD_NOTE =
 
 /** v2.11 T7 (spec 1): what the agent does with a yes to the fresh lead ("Want me to build it?"). */
 export const BUILD_NOTE =
-  'A yes to "Want me to build it?" means call prepare with build: { start: true, program_id: build_offer.program_id }. ' +
+  'A yes to "Want me to build it?" means call prepare with build: { start: true, program_id: build_offer.program_id } (and the same program_id at the top). ' +
   'EarnKit then asks the builder one question before any work starts. Never start building before that.';
 
 /** v2.11 T7: the chat-only lead's yes ("Want the plan?"): this client can't build, so the plan is how to get it built. */
@@ -2302,6 +2319,16 @@ async function deployStep(
     const line = deployWalletLine(name);
     return { line, deploy: { needs_wallet: line }, agent_note: 'Pass deploy.owner_wallet with the wallet the builder sends.' };
   }
+  // v2.11 T8: never a public test wallet (anvil or Hardhat accounts 0 to 9; the starter's artifact.mjs
+  // list): anyone holds its key, so anyone could take what the contract sends its owner.
+  if (publicTestWallet(wallet)) {
+    const line = deployWalletLine(name);
+    return {
+      line,
+      deploy: { needs_wallet: line },
+      agent_note: 'That wallet is a public test account (anvil or Hardhat): anyone can spend from it. Pass deploy.owner_wallet with the builder\'s own wallet.',
+    };
+  }
   // Fix round 1 (I6): a shared client's caller login; else the installation's verified login (limits only).
   let login: string | null;
   try {
@@ -2331,6 +2358,163 @@ async function deployStep(
       agent_note: 'Add deploy.address to contracts; never put it in a description.',
     };
   return { line: out.show_to_builder, deploy: { [out.status]: out.show_to_builder }, ...(out.agent_note && { agent_note: out.agent_note }) };
+}
+
+// ---- v2.11 T8 (spec 3, plan S6 and S7): the build path's first two prepare calls ----
+
+/** Plan S7: prepare's `build`, strict. A yes to the fresh lead (start); the fields written from the twist; the deploy-and-host call's mark. */
+const BuildStart = z.strictObject({ start: z.literal(true), program_id: z.string().min(1).max(200) });
+const BuildTwist = z.strictObject({
+  program_id: z.string().min(1).max(200),
+  // The real limits are buildCheck's, so a long field is an agent note, not a schema error.
+  twist: z.string().max(2000),
+  name: z.string().max(2000),
+  description: z.string().max(2000),
+  feature: z.string().max(2000),
+  for_whom: z.string().max(2000),
+  wallet: z.string().max(200).optional(),
+  repo_url: z.string().max(500).optional(),
+});
+const BuildMark = z.strictObject({ program_id: z.string().min(1).max(200) });
+const TWIST_KEYS = ['twist', 'name', 'description', 'feature', 'for_whom', 'wallet', 'repo_url'];
+
+/** Every build refusal: an agent note only, nothing for the builder (plan 8.3). */
+const buildRefusal = (agent_note: string) => ({ show_to_builder: '', agent_note });
+const zodNote = (err: z.ZodError) =>
+  `${err.issues.map((i) => `build${i.path.length ? `.${i.path.join('.')}` : ''}: ${i.message}${'keys' in i ? ` (${(i.keys as string[]).join(', ')})` : ''}`).join('; ')}. Don't show this to the builder.`;
+
+/** Plan 8.5: a shared client never gets the build path (Ruling S6). */
+export const BUILD_SHARED_NOTE =
+  "This agent serves many builders, so it can't build or deploy for one. Show show_to_builder as written; never start building.";
+/** The twist reply's note: what the agent sends next. */
+export const twistNote = (walletKnown: boolean) =>
+  "Show show_to_builder as written and wait for the builder's answer. Then call prepare with build: { program_id, twist (their words), name, description, feature, for_whom (\"for ...\")" +
+  (walletKnown
+    ? ' }. EarnKit uses the wallet they gave before; add build.wallet only if they name another.'
+    : ", wallet (the one they give; never make one up; if they have none, help them create one on their own machine, EarnKit never sees the key) }.") +
+  ' You write name, description and feature from the twist, and each uses a word of it. Never start building before that call passes.';
+export const BUILD_NOT_STARTED =
+  "Call prepare with build: { start: true, program_id } first: EarnKit asks the builder one question before any work starts. Don't show this to the builder.";
+export const buildRefused = (programId: string) =>
+  `EarnKit can't start a build for ${programId} right now: it isn't open for a fresh build here, or deploys or hosting are off. ` +
+  "Don't build. Tell the builder in one short line in your words, and call find for what is open. Don't show this note.";
+export const WALLET_NEEDED_NOTE =
+  "Pass build.wallet: the wallet the builder gives for this build. Never make one up; if they have none, help them create one on their own machine (EarnKit never sees the key). Don't show this to the builder.";
+export const KIT_NOTE =
+  'Show show_to_builder as written, then build from kit (never show it to the builder): copy the starter, fill its twist slots, ' +
+  'push the public repo with earnkit.txt, then call prepare as kit.next says.';
+
+/**
+ * The program as a fresh build would offer it right now (freshPick on that one program: open,
+ * curated, Easy or Medium, a tested starter on a chain EarnKit deploys to with hosting on, not
+ * hidden or entered), or null. Fail closed: deploys or hosting off means null.
+ */
+async function buildPick(programId: string, ctx: ToolContext): Promise<FreshPick | null> {
+  const programs = await listPrograms();
+  const card = programs.find((p) => p.id === programId && !p.earnkit_campaign);
+  if (!card) return null;
+  const told = await memoryOf(memoryKey(ctx), 'prepare');
+  const hidden = hiddenIds(hiddenPrograms(told, programs));
+  const entered = new Set((await hasProgramEntry(ctx.installationId, programId)) ? [programId] : []);
+  const on = freshSwitches(ctx, true);
+  return freshPick([card], new Date(), { hidden, entered, deployOn: on.deployOn, hostOn: on.hostOn, ...(on.starters && { starters: on.starters }) }) ?? null;
+}
+
+/** The wallet a build may use without asking: valid, never a public test wallet, never on a shared client. */
+const buildWallet = (w: string | null | undefined) => (w && isWalletAddress(w) && !publicTestWallet(w) ? w.toLowerCase() : null);
+
+/**
+ * v2.11 T8 (spec 3): the yes to the fresh lead. Asks the one twist question (with "Add the wallet
+ * that should own it." when no wallet is known, decision 5) and stores the build (S6). Nothing is
+ * built before the builder answers.
+ */
+async function buildStart(programId: string, ctx: ToolContext) {
+  if (ctx.sharedClient) return { show_to_builder: BUILD_CHAT_ONLY, agent_note: BUILD_SHARED_NOTE };
+  const pick = await buildPick(programId, ctx);
+  if (!pick) return buildRefusal(buildRefused(programId));
+  const known = buildWallet(await walletMemory(ctx).catch(() => null));
+  await saveBuild(ctx.installationId, { program_id: programId, starter_id: pick.starter.id, started_at: new Date().toISOString() });
+  return {
+    program_id: programId,
+    show_to_builder: twistQuestion(known !== null),
+    build: { program_id: programId, starter_id: pick.starter.id, step: 'twist' },
+    agent_note: twistNote(known !== null),
+  };
+}
+
+/**
+ * v2.11 T8 (spec 3): the agent's build fields from the builder's twist. The server checks them
+ * (buildCheck: plain words, the twist in the name, the description and the feature, a real wallet,
+ * never a public test one), then remembers the wallet (off a shared client), stores the build and
+ * returns the building line and the kit. Every refusal is an agent note only. The same fields sent
+ * again (say, with repo_url for the proof line) show the builder nothing new.
+ */
+async function buildTwist(b: z.infer<typeof BuildTwist>, ctx: ToolContext) {
+  if (ctx.sharedClient) return { show_to_builder: BUILD_CHAT_ONLY, agent_note: BUILD_SHARED_NOTE };
+  const stored = await readBuild(ctx.installationId);
+  if (!stored || stored.program_id !== b.program_id) return buildRefusal(BUILD_NOT_STARTED);
+  const pick = await buildPick(b.program_id, ctx);
+  if (!pick) return buildRefusal(buildRefused(b.program_id));
+  const fields: BuildFields = { twist: b.twist, name: b.name, description: b.description, feature: b.feature, for_whom: b.for_whom, ...(b.wallet !== undefined && { wallet: b.wallet }) };
+  const problem = buildCheck(fields, pick.starter);
+  if (problem) return buildRefusal(problem);
+  let repoUrl: string | undefined;
+  if (b.repo_url !== undefined) {
+    const gh = githubRepo(b.repo_url.trim());
+    if (!gh) return buildRefusal(buildFix('repo_url', 'the github.com link of the public repo'));
+    if ((EARNKIT_ORGS as readonly string[]).includes(gh.owner.toLowerCase()))
+      return buildRefusal(buildFix('repo_url', "the builder's own repo, never EarnKit's kit"));
+    repoUrl = `https://github.com/${gh.owner}/${gh.repo}`;
+  }
+  const given = b.wallet?.trim();
+  const wallet = given ? given.toLowerCase() : (buildWallet(stored.wallet) ?? buildWallet(await walletMemory(ctx).catch(() => null)));
+  if (!wallet) return buildRefusal(WALLET_NEEDED_NOTE);
+  const next: StoredBuild = {
+    program_id: stored.program_id,
+    starter_id: pick.starter.id,
+    started_at: stored.started_at,
+    wallet,
+    twist: b.twist.trim(),
+    name: b.name.trim(),
+    description: b.description.trim(),
+    feature: b.feature.trim(),
+    for_whom: b.for_whom.trim(),
+    ...((repoUrl ?? stored.repo_url) && { repo_url: repoUrl ?? stored.repo_url }),
+  };
+  const shownBefore = (['wallet', 'twist', 'name', 'description', 'feature', 'for_whom'] as const).every((k) => stored[k] === next[k]);
+  if (given) await rememberWallet(ctx.installationId, given);
+  await saveBuild(ctx.installationId, next);
+  return {
+    program_id: next.program_id,
+    show_to_builder: shownBefore ? '' : buildingLine(next.name!, pick.starter.what, next.for_whom!),
+    build: { program_id: next.program_id, starter_id: pick.starter.id, step: 'build' },
+    kit: buildKit(pick.starter, next.repo_url ? tokenLineFor(ctx.installationId, next.repo_url) : null, { ...fields, wallet }),
+    agent_note: KIT_NOTE,
+  };
+}
+
+/**
+ * Plan S7: prepare with `build`. The start and twist calls carry only `build` (and the same
+ * program_id at the top, which the MCP schema requires); the deploy-and-host call's mark
+ * (`{ program_id }`) goes on to prepare's usual path. Returns the reply, or the input without
+ * `build` for the usual path.
+ */
+async function prepareBuild(input: Record<string, unknown>, ctx: ToolContext): Promise<{ reply: Reply } | { rest: Record<string, unknown> }> {
+  const { build, ...rest } = input;
+  const b = build && typeof build === 'object' && !Array.isArray(build) ? (build as Record<string, unknown>) : null;
+  if (!b) return { reply: buildRefusal("build: an object, as find's build_offer says. Don't show this to the builder.") };
+  const isStart = 'start' in b;
+  const isTwist = !isStart && TWIST_KEYS.some((k) => k in b);
+  const parsed = (isStart ? BuildStart : isTwist ? BuildTwist : BuildMark).safeParse(b);
+  if (!parsed.success) return { reply: buildRefusal(zodNote(parsed.error)) };
+  const programId = parsed.data.program_id;
+  if (rest.program_id !== undefined && rest.program_id !== programId)
+    return { reply: buildRefusal(`program_id at the top must equal build.program_id (${programId}). Don't show this to the builder.`) };
+  if (!isStart && !isTwist) return { rest: { ...rest, program_id: programId } };
+  const extra = Object.keys(rest).filter((k) => k !== 'program_id');
+  if (extra.length > 0)
+    return { reply: buildRefusal(`Send only build (and program_id) on this call, not ${extra.join(', ')}. Don't show this to the builder.`) };
+  return { reply: (isStart ? await buildStart(programId, ctx) : await buildTwist(parsed.data as z.infer<typeof BuildTwist>, ctx)) as Reply };
 }
 
 const Loose = z.record(z.string(), z.unknown());
@@ -2552,6 +2736,12 @@ export const tools = {
   // "No contract found" next to the deployed line. The program is read first, so an unknown one
   // spends nothing; a draft that fails after a deploy still returns the deploy.
   prepare: async (input: unknown, ctx: ToolContext) => {
+    // v2.11 T8: the build path (plan S7).
+    if (input && typeof input === 'object' && 'build' in input) {
+      const b = await prepareBuild(input as Record<string, unknown>, ctx);
+      if ('reply' in b) return b.reply;
+      input = b.rest;
+    }
     const { deploy, ...prep } = PrepareInput.parse(input);
     if (!deploy) return handlers.prepare_submission(prep, ctx);
     await getProgramRow(prep.program_id);

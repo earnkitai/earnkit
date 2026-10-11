@@ -120,10 +120,12 @@ export const FIND_DESCRIPTION =
 
 /** v2.10 item 4: prepare's description (prepare_submission), its campaign words only while one is open (v2.8 Ruling 23). */
 const prepareDescription = (campaignOpen: boolean) =>
-  'When the builder picks a program, pass program_id, project, answers you drafted from the repo (by requirement key) and agent: { browser, can_push }. ' +
+  'On a program pick, pass program_id, project, answers you drafted from the repo (by requirement key) and agent: { browser, can_push }. ' +
   'When it asks questions, pass the answers with coach_asked: true. Call again until ready is true; ' +
   'then it ends with the confirm line (token and wallet). ' +
   'host: true hosts a static build with no live link (show host.show_to_builder, never upload_url). ' +
+  // v2.11 T8: the build path starts from find's build_offer.
+  'build: a build_offer yes. ' +
   (campaignOpen ? 'EarnKit campaigns: one Token row (a token on Base), then confirm is the entry. ' : '') +
   OWNERSHIP_FOR_TOKEN;
 
@@ -228,6 +230,26 @@ const DEPLOY_SCHEMA = z
     'Only when the builder asks EarnKit to deploy their contract and you compiled it. EarnKit pays the gas and makes the builder the owner; ' +
       'once a day per chain. Put deploy.address from the reply in contracts, never in a description.',
   );
+
+/**
+ * v2.11 T8 (plan S7): prepare's `build`, registered with `deploy` (only while deploys are on: the
+ * build path needs them). Passthrough, so the handler's strict check names an unknown key.
+ */
+const BUILD_SCHEMA = z
+  .object({
+    program_id: z.string(),
+    start: z.literal(true).optional().describe("true on the builder's yes to build_offer: EarnKit asks them one question first"),
+    twist: z.string().optional().describe("The builder's answer, in their words"),
+    name: z.string().optional().describe('From the twist: 3 to 40 characters, a word of the twist in it'),
+    description: z.string().optional().describe('From the twist: one line'),
+    feature: z.string().optional().describe('From the twist: one sentence'),
+    for_whom: z.string().optional().describe('"for ..." from the twist, like "for your podcast listeners"'),
+    wallet: z.string().optional().describe('The wallet the builder gave to own it; never one you made up'),
+    repo_url: z.string().optional().describe("The public repo under the builder's own account, for the earnkit.txt line"),
+  })
+  .passthrough()
+  .optional()
+  .describe("Only after find's build_offer: follow each reply's agent_note.");
 
 /**
  * The EarnKit MCP server for one connected agent (installation). `campaignOpen` (v2.8 Ruling 23
@@ -340,7 +362,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
         signed_in: SIGNED_IN,
         // v2.10 item 13: EarnKit deploys the builder's contract (Arc or Base), the builder as owner.
         // Final fix M4: advertised only while deploys are on (as sponsor_campaign with escrow).
-        ...(deployEnabled() && deployChains().length > 0 && { deploy: DEPLOY_SCHEMA }),
+        ...(deployEnabled() && deployChains().length > 0 && { deploy: DEPLOY_SCHEMA, build: BUILD_SCHEMA }),
       },
       // v2.10 item 13: with deploy, prepare sends a transaction.
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },

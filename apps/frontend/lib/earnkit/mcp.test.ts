@@ -629,3 +629,30 @@ test('final fix M4: prepare lists deploy only while deploys are on', async () =>
     else process.env.DEPLOY_CHAINS = oldChains;
   }
 });
+
+test('v2.11 T8: prepare lists build only while deploys are on (with deploy); an unknown key inside build reaches prepare and is refused with an agent note', async () => {
+  const old = process.env.DEPLOYER_PRIVATE_KEY;
+  try {
+    delete process.env.DEPLOYER_PRIVATE_KEY;
+    let { tools } = await listed({});
+    assert.ok(!('build' in (tools.find((t) => t.name === 'prepare')!.inputSchema.properties as object)), 'deploys off: no build field');
+    process.env.DEPLOYER_PRIVATE_KEY = '5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a';
+    ({ tools } = await listed({}));
+    const build = (tools.find((t) => t.name === 'prepare')!.inputSchema.properties as Record<string, unknown>).build;
+    assert.match(JSON.stringify(build), /build_offer/);
+    const server = createMcpServer({ installationId: 1 });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test', version: '0' });
+    await Promise.all([server.connect(a), client.connect(b)]);
+    const r = (await client.callTool({ name: 'prepare', arguments: { program_id: 'p', build: { start: true, program_id: 'p', color: 'red' } } })) as {
+      content: { text: string }[];
+    };
+    await client.close();
+    const reply = JSON.parse(r.content[0].text) as { show_to_builder: string; agent_note: string };
+    assert.equal(reply.show_to_builder, '');
+    assert.match(reply.agent_note, /color/);
+  } finally {
+    if (old === undefined) delete process.env.DEPLOYER_PRIVATE_KEY;
+    else process.env.DEPLOYER_PRIVATE_KEY = old;
+  }
+});
