@@ -4025,9 +4025,10 @@ give. Events: `built`, `deployed`, `hosted`, `entered`, `submitted`, once each.
   EarnKit deploys to that chain, and hosting is on or the starter has a GitHub Pages fallback; Easy or
   Medium; a known prize per winner of $5,000 or less; closing 24 hours to 14 days from now (rolling
   only when no dated one fits). Rank: Easy, more winners per round, sooner close, higher prize.
-- **The switches (`tools.ts freshSwitches`).** Deploys on a chain need `deployEnabled()` and the
-  chain's RPC; hosting needs `r2Enabled()`. `ctx.freshDeps` overrides them in tests only. Rebase
-  note: on v2.10.3, `deployOn` must use `deployChainOn` (`DEPLOY_CHAINS`).
+- **The switches (`tools.ts freshSwitches`).** Deploys on a chain need `deployChainOn(c)` (the key
+  and the chain in `DEPLOY_CHAINS`, v2.10.3) and the chain's RPC; hosting needs `r2Enabled()`. So
+  with `DEPLOY_CHAINS=base` the Arc starter is never offered, and find's reply is v2.10's byte for
+  byte. `ctx.freshDeps` overrides them in tests only.
 - **find's reply.** With a pick, `build_offer { program_id, starter_id, agent_note: BUILD_NOTE }`.
   The first build lead shown off a shared client sets `installations.fresh_offer_at` once
   (`installations.ts markFreshOffer`): the metric's start. The lead itself shows on every find while
@@ -4088,6 +4089,8 @@ give. Events: `built`, `deployed`, `hosted`, `entered`, `submitted`, once each.
 - **The mark with `deploy` (`tools.ts buildShip`)**, never on a shared client, only for this
   installation's checked build of the same program, in order:
   1. Deploys off for the starter's chain: v2.10's `Deploys are off right now.`; nothing read or written.
+     With the key on but the chain left out of `DEPLOY_CHAINS` (v2.10.3), the same refusal as
+     `deployStep`: `Deploys on Arc are off right now.` with `deployOffNote` (no chain left: v2.10's line).
   2. Still a fresh pick; the artifact is on the starter's chain; the starter's exact bytecode
      (`bytecode_hash`) followed by exactly its constructor arguments, ABI-encoded with the starter's own
      types, `constructor_args[0]` and `owner_wallet` the build's wallet. Else an agent note.

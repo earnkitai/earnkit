@@ -165,7 +165,7 @@ const SPONSOR_CAMPAIGN_DESCRIPTION =
  * (plan): the campaign sentences in prepare and confirm only while an EarnKit campaign is open.
  * v2.11 T8 review M2: prepare names `build` only while the field is listed (deploys on).
  */
-export function toolDescriptions(campaignOpen: boolean, buildOn: boolean = deployEnabled()) {
+export function toolDescriptions(campaignOpen: boolean, buildOn: boolean = deployEnabled() && deployChains().length > 0) {
   return {
     find: FIND_DESCRIPTION,
     prepare: prepareDescription(campaignOpen, buildOn),
