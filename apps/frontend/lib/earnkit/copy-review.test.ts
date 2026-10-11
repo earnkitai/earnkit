@@ -122,6 +122,7 @@ import { HOW_TITLE, STEPS } from '../../app/components/sections/HowItWorks';
 import { landingFrom, statsLine } from './landing';
 import { bonusPillLabel } from '../../app/components/ui/BonusPill';
 import { eachLine, poolLine } from './pool';
+import { STARTERS } from './starters';
 
 /**
  * v2.7 §4, Ruling 19 (plan): "coin" as a word in human-facing text, ignoring identifiers and URLs.
@@ -950,6 +951,8 @@ test('v2.9 Task 12: the Part 1 copy sweep sees the claim, floor, investment and 
 
 const builderFacing: [string, string][] = [
   ...v29Part1Texts,
+  // v2.11 T5 (5.3): a starter's "what" is builder copy (the fresh lead line).
+  ...Object.values(STARTERS).map((s): [string, string] => [`STARTERS.${s.id}.what`, s.what]),
   ['applied outside EarnKit', appliedOutsideText],
   ...tokenOfferTexts,
   ['NO_TOKEN_FOR_NOW', NO_TOKEN_FOR_NOW],

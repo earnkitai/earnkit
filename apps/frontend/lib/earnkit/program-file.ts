@@ -3,6 +3,7 @@ import { CAMPAIGN_KEYS, CampaignConfig } from './campaigns';
 import { earnkitTexts } from './campaign-text';
 import { CHAINS } from './match';
 import { amountStated, poolStated } from './pool';
+import { STARTERS, type Starter } from './starters';
 import { apiPlatformOf, prefillKindOf, urlHost } from './submit-hosts';
 
 /**
@@ -537,6 +538,13 @@ export const ProgramFile = z
       .object({ url: HttpsUrl, expected: z.string().date() })
       .strict()
       .optional(),
+    /**
+     * v2.11 spec 2: the starter (starters.ts) a builder with no fitting repo can build fresh for this
+     * program. Set by the owner only, and only where the program's own published facts support a
+     * fresh build. `pnpm programs:check` refuses an unknown starter, one off the program's chains,
+     * and one without a recent passing test (freshBuildProblems).
+     */
+    fresh_build: z.object({ starter: slug }).strict().optional(),
   })
   .strict()
   .superRefine((p, ctx) => {
@@ -710,3 +718,36 @@ export const needsRepoMissing = (p: Pick<ProgramFile, 'needs_repo'>): boolean =>
 
 export const requirementsWithoutKind = (p: Pick<ProgramFile, 'submission_requirements'>): string[] =>
   p.submission_requirements.filter((r) => !r.kind).map((r) => r.key);
+
+const DAY_MS = 86_400_000;
+/** How much older than the program's `verified_at` a starter's last passing test may be. */
+export const STARTER_TEST_MAX_AGE_DAYS = 30;
+
+/**
+ * v2.11 spec 2 (plan T5): `pnpm programs:check` checks a program's `fresh_build` against the starter
+ * registry: the starter exists; it deploys on one of the program's chains (and on its
+ * `needs_contract` chain, when set; an any_chain program lists none, so none fits); and its own test
+ * has passed, at most 30 days before the program's `verified_at`. A check-time rule (the registry
+ * moves on its own), like needsRepoMissing. `starters` is injectable for tests. Returns the
+ * problems, empty when fine. Pure.
+ */
+export function freshBuildProblems(
+  p: Pick<ProgramFile, 'fresh_build' | 'chains' | 'needs_contract' | 'verified_at'>,
+  starters: Record<string, Starter> = STARTERS,
+): string[] {
+  if (!p.fresh_build) return [];
+  const id = p.fresh_build.starter;
+  const s = Object.hasOwn(starters, id) ? starters[id] : undefined;
+  if (!s) return [`fresh_build.starter: "${id}" is not a starter (starters.ts has ${Object.keys(starters).join(', ')})`];
+  const problems: string[] = [];
+  if (!p.chains.includes(s.chain))
+    problems.push(`fresh_build.starter: ${id} runs on ${s.chain}, not on this program's chains (${p.chains.join(', ') || 'none listed'})`);
+  else if (p.needs_contract && p.needs_contract !== s.chain)
+    problems.push(`fresh_build.starter: ${id} deploys on ${s.chain}, but the program needs its contract on ${p.needs_contract}`);
+  if (s.tested_at === null) problems.push(`fresh_build.starter: ${id} has no passing starter test yet (starters.ts tested_at)`);
+  else if (Date.parse(p.verified_at) - Date.parse(s.tested_at) > STARTER_TEST_MAX_AGE_DAYS * DAY_MS)
+    problems.push(
+      `fresh_build.starter: ${id} last passed its test on ${s.tested_at}, more than ${STARTER_TEST_MAX_AGE_DAYS} days before verified_at ${p.verified_at}`,
+    );
+  return problems;
+}

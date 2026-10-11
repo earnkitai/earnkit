@@ -225,6 +225,8 @@ export type ProgramRow = {
   form: SubmitForm | null;
   /** v2.8 Part G, Ruling 30 (plan): where and when results are announced, or null. */
   results: { url: string; expected: string } | null;
+  /** v2.11 T5 (program file fresh_build): the owner-set fresh-build starter, or null. Optional for older fixtures. */
+  fresh_build?: { starter: string } | null;
 };
 
 /** Open programs: marked active and the deadline hasn't passed. */
@@ -271,6 +273,7 @@ export async function listPrograms() {
       | 'starts_at'
       | 'match_precision'
       | 'submission_url'
+      | 'fresh_build'
     > & {
       sponsor_url: string | null;
       sponsor_wallet: string | null;
@@ -282,7 +285,7 @@ export async function listPrograms() {
       p.opened_at, p.submission_requirements, p.ideas, p.submission_proof, p.builder_bonus,
       p.logo, p.past_rounds, p.focus, p.best_bet, p.difficulty_override, p.winners_per_round,
       p.chains, p.any_chain, p.investment, p.needs_repo, p.needs_contract, p.rules, p.token_policy, p.starts_at,
-      p.match_precision, p.submission_url, sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
+      p.match_precision, p.submission_url, p.fresh_build, sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
     FROM programs p LEFT JOIN sponsor_campaigns sc ON sc.program_id = p.id
     WHERE p.status = 'active' AND (p.ends_at IS NULL OR p.ends_at > now())
     ORDER BY p.ends_at NULLS LAST, p.id`; // Task 11: a tie-breaker, so equal deadlines list in one order (the 9.3 find test compared two reads)
@@ -371,7 +374,7 @@ export function programCard(
     | 'difficulty_override'
     | 'winners_per_round'
     | 'rules'
-  > & { token_policy?: TokenPolicy; starts_at?: Date | null; match_precision?: string | null; submission_url?: string | null },
+  > & { token_policy?: TokenPolicy; starts_at?: Date | null; match_precision?: string | null; submission_url?: string | null; fresh_build?: { starter: string } | null },
   tracks: string[],
   /** A sponsor campaign's identity (sponsor-verify.ts); unverified when not given. */
   identity: SponsorIdentity = UNVERIFIED,
@@ -437,6 +440,8 @@ export function programCard(
     token_policy: p.token_policy,
     // v2.10.1 B1: where the builder submits ("DoraHacks"), for the submit-step lead.
     submit_site: submitSiteName(p.submission_proof?.host ?? hostOf(p.submission_url)),
+    // v2.11 T5: the owner-set fresh-build starter; never on a campaign (EarnKit or sponsor).
+    fresh_build: p.campaign ? null : (p.fresh_build ?? null),
   };
 }
 
@@ -791,6 +796,8 @@ export async function upsertProgram(
       submit_api: p.submit_api ?? false,
       form: p.form ? tx.json(p.form) : null,
       results: p.results ? tx.json(p.results) : null,
+      // v2.11 T5: the file is the source of truth, so a removed field clears the column.
+      fresh_build: p.fresh_build ? tx.json(p.fresh_build) : null,
       source,
       opened_at: p.status === 'active' ? new Date() : null,
     };

@@ -195,8 +195,19 @@ program is never closed under it either.
       The Easy rule: a `"needs a live product"` program is never Easy, rated or stated
       (`pnpm programs:check` refuses it), and shows at least Medium. A builder's row can be harder
       than the program (what their repo still needs), never easier.
-5. Do not add starters. The owner decides those.
+5. Do not add starters. The owner decides those. Never add `fresh_build` either (below).
 6. Run `pnpm programs:check`, then push.
+
+## `fresh_build`: the program's fresh-build starter
+
+`"fresh_build": { "starter": "arc-tipjar" }` names the starter (`apps/frontend/lib/earnkit/starters.ts`)
+a builder with no fitting repo can build from scratch and enter. Only the owner adds it, and only
+where the program's own published facts support a fresh build (new work is allowed, a small
+working app deployed on the starter's chain can win). `pnpm programs:check` refuses a starter id
+that isn't in `starters.ts`, a starter whose chain isn't one of the program's `chains` (or isn't
+its `needs_contract` chain), and a starter whose own test hasn't passed (`tested_at` null) or last
+passed more than 30 days before the program's `verified_at`. When re-verifying a program with
+`fresh_build`, re-run the starter's test first if its `tested_at` would fall out of that window.
 
 ## Weekly re-verification
 

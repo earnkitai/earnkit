@@ -214,7 +214,16 @@ apps/frontend/
                                submissions and winners);
                                any_chain (default false; chains [] only then, Ruling 13); isOptimismUrl
                                refuses optimism.io hosts (Ruling 15); v2.8 Task 12: results { url (https),
-                               expected (date) } (optional; programs.results; Arc 2026-10-21)
+                               expected (date) } (optional; programs.results; Arc 2026-10-21);
+                               v2.11 T5: fresh_build { starter } (optional, strict slug; owner-set only) and
+                               freshBuildProblems (programs:check and sync: a known starter, on the program's
+                               chains and its needs_contract chain, tested_at set and at most 30 days before
+                               verified_at, STARTER_TEST_MAX_AGE_DAYS)
+    starters.ts(+test)         v2.11 T5: the starter registry STARTERS (pure, import-free; id, chain, repo degit
+                               path, what (builder copy), minutes 60, contract { artifact, owner_arg }, site_dir,
+                               usage_event, usage_read recent_logs | view_total, tested_at (null until the
+                               starter's test passes), test_cmd). Today only arc-tipjar (UsdcTipJar, untested
+                               until T6); base-checkin left out (owner decision 4)
     programs.ts(+test)         v2.8.1 §B8 card needs_repo (the program file's needs_repo, column
                                programs.needs_repo; programs:check requires it, needsRepoMissing); list/get/upsert programs (source: 'file' | 'sponsor'); v2.7.1 pool_usd and
                                poolFacts (card pool_usd/pool_plus/pool_line); build_help
@@ -235,6 +244,8 @@ apps/frontend/
                                matchRepo skips chain and mainnet checks for any_chain programs; fix round 1:
                                investment (card "up to $1M investment", pool.ts eachLine, Ruling C5);
                                present.ts byEase/byEaseThenPrize sort Easy first in the agent's tables (C4)
+                               v2.11 T5: ProgramRow.fresh_build (programs.fresh_build jsonb, upserted from the
+                               file, null when absent) and Card.fresh_build (null on any campaign)
     submission.ts(+.test.ts)   prepareSubmission, rememberedWalletQuestion (pure)
     projects.ts(+test)         v2.10 item 3 (P23): hasProgramEntry (any row for the program; the guide never re-shows)
                                T11 fix: entry UPDATEs never clear contract_verified_at (COALESCE with the new check)
@@ -1270,6 +1281,7 @@ apps/frontend/
                                = 'on:<current txid>'),
                                installations.fresh_offer_at and installations.build,
                                v2.11 Task 11: usage_check_failures (failed usage checks in a row per deployed event)
+                               v2.11 T5: programs.fresh_build (jsonb, the program file's fresh_build; NULL when unset)
   scripts/                     db-migrate.mts, programs-sync.mts (load .env.local); v2.7: programs-sync
                                writes the guide columns; --check (pnpm programs:check) also checks each logo file
                                (logo-check.ts) and the required items' todo; v2.8 Task 12: also validates

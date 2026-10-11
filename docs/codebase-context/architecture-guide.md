@@ -4167,3 +4167,33 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
   package.json, and runs the script as a child process against the test DB, including a check that
   every column whose name could hold a login, wallet, repo, link or key is listed or reviewed as not
   identifying).
+
+## v2.11 Starter registry and the program's fresh-build starter (Task 5, spec 2)
+
+- **The registry.** `starters.ts` `STARTERS` is pure data, import-free, sources in comments. Each
+  starter has `id`, `chain` (arc or base, the chains `deploy.ts` serves), `repo` (the degit path
+  builders' agents copy), `what` (builder copy, lower case, it sits mid-sentence in the fresh lead:
+  "a USDC tip page on Arc"), `minutes: 60` (the bar: zero to deployable in an hour), `contract`
+  (`{ artifact, owner_arg }`), `site_dir`, `usage_event` and `usage_read`, `tested_at` and
+  `test_cmd`. `tested_at` is the day the starter repo's own test last passed, and is null until it
+  has passed once.
+- **Today.** Only `arc-tipjar`: the chain-kits `UsdcTipJar` (owner is the constructor argument,
+  `Tipped(address,uint256,string)` counts as use). Its starter folder, page and e2e test are T6's,
+  so `tested_at` is null and no program can name it yet. `base-checkin` is left out until a Base
+  program qualifies for a fresh build and its test passes (owner decision 4: no x402 build path).
+- **The usage rule.** `usage_read` is `recent_logs` (count `usage_event` over the recent window) or
+  `view_total` (the contract's own running totals, ruling R-T6, once T6's view counters ship).
+  `events.ts` still reads its own `STARTER_USAGE`; `starters.test.ts` pins the two equal until
+  events.ts switches to `STARTERS` (a T11 or controller follow-up).
+- **The program field.** A program file may carry `"fresh_build": { "starter": "<id>" }` (strict,
+  a slug). Only the owner adds it, only where the program's own published facts support a fresh
+  build (`programs/README.md`). `freshBuildProblems` (program-file.ts), run by `programs:check` and
+  before `programs:sync` writes anything, refuses an unknown starter, a starter whose chain isn't one
+  of the program's `chains` or isn't its `needs_contract` chain (an any_chain program lists none, so
+  none fits), and a starter with `tested_at` null or more than 30 days before the program's
+  `verified_at`. It is a check-time rule, not the schema, so a stale registry never breaks reading
+  rows. `programs.fresh_build` (jsonb) stores it; `upsertProgram` writes null when the file drops
+  it; `listPrograms` cards (so `find`'s cards) carry `fresh_build`, null on any campaign.
+- **Nothing offers a build yet.** No code path reads `fresh_build` or `STARTERS` to offer a build;
+  T7's `freshPick` does that. No program file carries `fresh_build` today: Arc Microgrants is the one
+  known case, and it gets the field when arc-tipjar's test passes (T6 sets `tested_at`).
