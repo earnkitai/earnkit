@@ -197,6 +197,7 @@ apps/frontend/
                                readable line per error), operatorKeyProblem, fallbackProblem,
                                parseFallbackPicks (--winners ranking [--split] or id:amount[:reason])
     program-file.ts            zod format of programs/*.json (+ starter limits, optional max_award_usd,
+                               final fix I4: starterAgeWarnings, programs:check's 23-day warning, never an error;
                                v2.7.1 optional pool_usd (stated in reward with a pool word, never on a campaign),
                                pool_source_url (only with pool_usd), min_award_usd (below max, in reward),
                                token_policy encouraged|allowed|off, default encouraged; tokenPolicyLine);
@@ -317,7 +318,9 @@ apps/frontend/
                                program stays active and its round is open (roundFor,
                                bonus-rounds.ts); ended or closed, it's skipped with no fetch;
                                filtered in SQL, at most RECHECK_BATCH (50) a run (M11)
-    ownership.ts(+test)        builder ownership proof: earnkit.txt at the repo root (raw GitHub,
+    ownership.ts(+test)        (final fix M6: fetchLinePusher's everDerived, github-verify.ts repoEverDerived,
+                               url_checks ghrepo:<key>: once a fork or template, always refused)
+                               builder ownership proof: earnkit.txt at the repo root (raw GitHub,
                                v2.11 T9 security fix: fetchLinePusher (the activity actor of the push that added the line; R4 ownWork, PUSHER_WINDOW)
                                5 s, 4 KB, no redirects; EARNKIT_OWNERSHIP_BASE_URL in dev/test only):
                                v2.6 fetchOwnershipViaApi (the coin gate's read: GitHub contents API
@@ -599,9 +602,14 @@ apps/frontend/
                                usage_check_failures table), the rule from STARTERS (usage_read, usage_view), usageTopic,
                                logSender, UsageDeps
     events-backfill.ts(+test)  v2.11 Task 3: backfillEvents (contract_deploys, host_deploys, projects, submissions,
-                               entry_outcomes; source time as at; live dedupe keys; owner-run only)
+                               entry_outcomes; source time as at; live dedupe keys; owner-run only); final fix I1:
+                               built (installations.build + its first contract_deploys row) and GitHub Pages hosted
+                               (projects.live_url via pagesLinkOf, a deployed contract, probe: false); M1 host basis
+    pages-link.ts              v2.11 final fix: githubPagesOwner, pagesLinkOf (pure; tools.ts re-exports them)
     deploy.ts(+test, +anvil)   v2.10 item 13: EarnKit deploys the builder's contract on Arc or Base
                                v2.11 T9: starter label (initcodeHash vs initcode_hash), lineOwner, beforeSend; caps per repo/wallet/pusher
+                               final fix M8: settlePendingDeploy (an unknown build deploy settled read-only from its
+                               receipt on the same call again); M5: OWNER_PROOF_NOTE asks for a fresh push
                                (DEPLOYER_PRIVATE_KEY, read only here). DEPLOY_CAPS, ERC20_SELECTORS,
                                DEPLOY_LINES (+ factory), DEPLOY_PENDING, DEPLOY_UNCONFIRMED, TRANSFER_GAS,
                                deployedLine, initcode, deployRefusal, runtimeRefusal (the simulated runtime:
@@ -696,13 +704,16 @@ apps/frontend/
                                hostBlock with the proof line, else the GitHub Pages note; without deploy,
                                pagesHostedEvent for a github.io link), githubPagesOwner, BUILD_NOT_READY,
                                BUILD_DEPLOYS_OFF_NOTE, buildOwnerNote, buildChainNote, buildProofNote,
-                               BUILD_UPLOAD_NOTE, BUILD_PAGES_NOTE. hostBlock needs R2 only (sign-in only on shared).
+                               BUILD_UPLOAD_NOTE, BUILD_PAGES_NOTE (final fix I3: site_dir to the root of gh-pages,
+                               gh api POST repos/<o>/<r>/pages; I2: 15-minute fallback, BUILD_NO_LIVE_NOTE;
+                               M8: BUILD_PENDING_NOTE). hostBlock needs R2 only (sign-in only on shared).
                                v2.11 T10: the deploy reply holds its line (BUILD_HOLD_NOTE); buildJoin (after the
                                live link: the entry from the build, derivedDescription / derivedProfile) and
                                buildLiveLine / pagesLiveLine feed prepare_submission's `join` (BuildJoin: the live
                                and deployed lines, then the confirm line with the build wallet, one reply, `entry`
-                               for confirm, BUILD_ENTRY_NOTE); buildWalletAgain (confirm on the build path launches
-                               only to the wallet its confirm line showed, BUILD_WALLET_NOTE); BUILD_OWNER_NOTE
+                               for confirm, BUILD_ENTRY_NOTE); buildWalletOnly (final fix M4: on the build path the
+                               token goes only to the build wallet; another is refused, BUILD_WALLET_NOTE;
+                               BUILD_WALLET_SHOWN_NOTE); M7 a kept wallet is remembered; BUILD_OWNER_NOTE
                                (a fresh push and github_user).
                                v2.10 item 4: `tools` = find, prepare, confirm, tell, sponsor_campaign, thin dispatchers
                                over `handlers` (the v2.9 functions: list_programs ... launch_token); FindInput,
