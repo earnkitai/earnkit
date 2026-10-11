@@ -843,7 +843,7 @@ test('12.1 v2.11 /terms "What EarnKit records": login and how it was checked, wa
     'An entry: its EarnKit entry page.',
     'A submission: the link you gave, if any.',
     "A program result: the program's results page, or your own answer.",
-    "A usage check: your contract's use 30 and 90 days after its deploy.",
+    "A usage check: your contract's recent use, checked 30 and 90 days after its deploy.",
     'Each step notes the repo, the program and the wallet you gave.',
     // The bases the code writes: events.ts LOGIN_BASES that loginBasisFor and hosting.ts return
     // (repo_owner is never written).
