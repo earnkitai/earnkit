@@ -217,8 +217,8 @@ const fix = buildFix;
  * plainProblem: no address, hash, stat dump or link) and one line. The twist is 3 to 200 characters
  * and names something of the builder's own (a word that isn't the kit's). The name is 3 to 40
  * characters, never a kit name (EARNKIT_STARTER_NAMES or the kit's own twist slot). The twist is
- * baked in: the name, the description and the feature each use a word of it (or its stem: "Pod" in
- * "PodTips" for "podcast"). The feature is one sentence. `for_whom` is a short "for ..." phrase. A
+ * baked in: the name and the description each use a word of it (or its stem: "Pod" in "PodTips" for
+ * "podcast"). The feature is one sentence, never the kit's default, with a word of its own. `for_whom` is a short "for ..." phrase. A
  * given wallet is a valid address (EIP-55 when mixed case), never the zero address or a public test
  * wallet. Returns the agent's fix for the first problem, or null. Pure.
  */
@@ -247,7 +247,12 @@ export function buildCheck(b: BuildFields, starter: Starter): string | null {
   if (!usesTwist(t.name)) return fix('name', `put the twist in it: use a word from "${t.twist}"`);
   if (!usesTwist(t.description)) return fix('description', `put the twist in it: use a word from "${t.twist}"`);
   if (/[.!?]\s+\S/.test(t.feature)) return fix('feature', 'one sentence');
-  if (!usesTwist(t.feature)) return fix('feature', `make it the builder's: use a word from "${t.twist}"`);
+  // Review I2: the name and the description carry the twist (and block an unchanged clone); the
+  // feature only has to be the builder's own: never the kit's default, and at least one word that
+  // isn't the kit's (BUILD.md's "A goal bar shows how close the next release fund is." passes).
+  if (fold(t.feature) === fold(starter.kit_twist.feature)) return fix('feature', `the builder's own, never the kit's default ("${starter.kit_twist.feature}")`);
+  const ownWord = words(t.feature).some((w) => !kitWords.some((k) => sameWord(w, k)));
+  if (!ownWord && !usesTwist(t.feature)) return fix('feature', `the builder's own: say what it does for them, not only the kit's words`);
   if (!/^for \S/i.test(t.for_whom) || /[.!?]/.test(t.for_whom)) return fix('for_whom', 'a short phrase that starts with "for", like "for your podcast listeners"');
   if (b.wallet !== undefined) {
     const w = b.wallet.trim();
@@ -275,10 +280,11 @@ export type BuildKit = {
 /**
  * v2.11 T8 (spec 3, plan S8): the build kit for the agent: the starter's degit command and its twist
  * slots filled with the checked fields, the wallet that owns the contract, the earnkit.txt proof line
- * (`proofLine`, token-gate.ts tokenLineFor for the repo; null until the agent sends build.repo_url),
+ * (`proofLine`, token-gate.ts tokenLineFor for the repo; null until the agent sends build.repo_url, or
+ * with `repoGiven` when EarnKit has no signing secret),
  * the artifact shape `prepare.deploy` takes, the next call and the rules. Pure.
  */
-export function buildKit(starter: Starter, proofLine: string | null, f: BuildFields & { wallet: string }): BuildKit {
+export function buildKit(starter: Starter, proofLine: string | null, f: BuildFields & { wallet: string }, repoGiven = false): BuildKit {
   return {
     starter: starter.id,
     degit: `npx degit ${starter.repo} <project>`,
@@ -288,8 +294,11 @@ export function buildKit(starter: Starter, proofLine: string | null, f: BuildFie
     proof_file: 'earnkit.txt',
     proof_line: proofLine,
     ...(proofLine === null && {
-      proof_line_note:
-        'Pick the public repo under the builder\'s own GitHub account, then call prepare again with this same build plus build.repo_url (its github.com link): the reply carries the line.',
+      // Review M4: with repo_url sent and still no line, EarnKit can't make one (no signing secret):
+      // never send the agent round for repo_url again.
+      proof_line_note: repoGiven
+        ? "EarnKit can't make the earnkit.txt line right now, so it can't deploy. Don't deploy; tell the builder in one short line to try again later."
+        : 'Pick the public repo under the builder\'s own GitHub account, then call prepare again with this same build plus build.repo_url (its github.com link): the reply carries the line.',
     }),
     artifact_shape:
       `deploy: { chain: '${starter.chain}', bytecode, abi, constructor_args, owner_wallet }, the artifact.json that scripts/artifact.mjs writes for owner_wallet` +

@@ -174,6 +174,24 @@ export function viewTotals(data: Hex, words: readonly string[]): Record<string, 
   return Object.fromEntries(words.map((w, i) => [w, BigInt(`0x${hex.slice(64 * i, 64 * (i + 1))}`).toString()]));
 }
 
+/**
+ * Review I1: an eth_call error that is the contract reverting (no such function, or a require),
+ * never the transport. Walks viem's error causes: ContractFunctionRevertedError, a
+ * CallExecutionError or RPC error that says "revert", or JSON-RPC code 3 (execution reverted).
+ * HttpRequestError, TimeoutError and the rest are not reverts. Pure.
+ */
+export function isRevert(err: unknown): boolean {
+  for (let e: unknown = err, depth = 0; e && typeof e === 'object' && depth < 8; e = (e as { cause?: unknown }).cause, depth++) {
+    const x = e as { name?: string; message?: string; shortMessage?: string; details?: string; code?: number };
+    if (x.name === 'HttpRequestError' || x.name === 'TimeoutError' || x.name === 'WebSocketRequestError') return false;
+    if (x.name === 'ContractFunctionRevertedError' || x.name === 'ExecutionRevertedError') return true;
+    if (x.code === 3) return true;
+    const text = `${x.shortMessage ?? ''} ${x.details ?? ''} ${x.message ?? ''}`;
+    if ((x.name === 'CallExecutionError' || x.code === -32000 || x.name === 'RpcRequestError') && /revert/i.test(text)) return true;
+  }
+  return false;
+}
+
 /** An event signature's topic 0. Pure. */
 export const usageTopic = (signature: string): Hex => toEventSelector(signature);
 
@@ -283,11 +301,20 @@ async function readUsage(d: DueDeploy, address: string, now: Date, deps: UsageDe
     return { ...base, tx_count: tx, tx_scope: 'lifetime', code, source: 'blockscout' };
   }
   const starter = chain === 'arc' ? starterOf(d.detail.starter, deps.starters ?? STARTERS) : undefined;
-  if (!starter) return { ...base, code, source: 'rpc_code' };
-  // R-T6: the starter's own running totals, one eth_call, exact since the deploy.
+  // Review I1: no code at the address means no use to count: one read, never a view or log read.
+  if (!starter || !code) return { ...base, code, source: 'rpc_code' };
+  // R-T6: the starter's own running totals, one eth_call, exact since the deploy. A revert (the
+  // builder's contract has no such view) or an empty answer (a fallback() that returns nothing)
+  // falls back to the recent logs; a transport error is a failed read, retried as any other.
   if (starter.usage_read === 'view_total' && starter.usage_view) {
     const v = starter.usage_view;
-    const totals = viewTotals(await (deps.viewCall ?? defaultReads.viewCall)(chain, address, v.selector), v.words);
+    let data: Hex = '0x';
+    try {
+      data = await (deps.viewCall ?? defaultReads.viewCall)(chain, address, v.selector);
+    } catch (err) {
+      if (!isRevert(err)) throw err;
+    }
+    const totals = viewTotals(data, v.words);
     if (totals) return { ...base, code, source: 'rpc_view', totals };
   }
   // explorer.arc.io's API is behind a Cloudflare challenge: count the starter's logs over the public

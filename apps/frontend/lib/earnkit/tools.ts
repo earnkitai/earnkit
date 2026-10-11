@@ -2392,7 +2392,7 @@ export const twistNote = (walletKnown: boolean) =>
   (walletKnown
     ? ' }. EarnKit uses the wallet they gave before; add build.wallet only if they name another.'
     : ", wallet (the one they give; never make one up; if they have none, help them create one on their own machine, EarnKit never sees the key) }.") +
-  ' You write name, description and feature from the twist, and each uses a word of it. Never start building before that call passes.';
+  ' You write name, description and feature from the twist: the name and the description each use a word of it, and the feature is theirs, never the kit\'s default. Never start building before that call passes.';
 export const BUILD_NOT_STARTED =
   "Call prepare with build: { start: true, program_id } first: EarnKit asks the builder one question before any work starts. Don't show this to the builder.";
 export const buildRefused = (programId: string) =>
@@ -2429,9 +2429,11 @@ const buildWallet = (w: string | null | undefined) => (w && isWalletAddress(w) &
  * built before the builder answers.
  */
 async function buildStart(programId: string, ctx: ToolContext) {
-  if (ctx.sharedClient) return { show_to_builder: BUILD_CHAT_ONLY, agent_note: BUILD_SHARED_NOTE };
+  // Review M3: fail closed first; a shared client hears "add EarnKit to a coding agent" only when a
+  // build would be offered at all.
   const pick = await buildPick(programId, ctx);
   if (!pick) return buildRefusal(buildRefused(programId));
+  if (ctx.sharedClient) return { show_to_builder: BUILD_CHAT_ONLY, agent_note: BUILD_SHARED_NOTE };
   const known = buildWallet(await walletMemory(ctx).catch(() => null));
   await saveBuild(ctx.installationId, { program_id: programId, starter_id: pick.starter.id, started_at: new Date().toISOString() });
   return {
@@ -2450,11 +2452,21 @@ async function buildStart(programId: string, ctx: ToolContext) {
  * again (say, with repo_url for the proof line) show the builder nothing new.
  */
 async function buildTwist(b: z.infer<typeof BuildTwist>, ctx: ToolContext) {
-  if (ctx.sharedClient) return { show_to_builder: BUILD_CHAT_ONLY, agent_note: BUILD_SHARED_NOTE };
+  if (ctx.sharedClient) {
+    const pick = await buildPick(b.program_id, ctx);
+    return pick ? { show_to_builder: BUILD_CHAT_ONLY, agent_note: BUILD_SHARED_NOTE } : buildRefusal(buildRefused(b.program_id));
+  }
   const stored = await readBuild(ctx.installationId);
   if (!stored || stored.program_id !== b.program_id) return buildRefusal(BUILD_NOT_STARTED);
   const pick = await buildPick(b.program_id, ctx);
   if (!pick) return buildRefusal(buildRefused(b.program_id));
+  // Review M1: a valid wallet is kept with the build before the other checks, so a retry after an
+  // unrelated refusal never needs it again. It is remembered as the payout wallet only on a pass.
+  const keep = buildWallet(b.wallet?.trim());
+  if (keep && stored.wallet !== keep) {
+    stored.wallet = keep;
+    await saveBuild(ctx.installationId, stored);
+  }
   const fields: BuildFields = { twist: b.twist, name: b.name, description: b.description, feature: b.feature, for_whom: b.for_whom, ...(b.wallet !== undefined && { wallet: b.wallet }) };
   const problem = buildCheck(fields, pick.starter);
   if (problem) return buildRefusal(problem);
@@ -2488,7 +2500,7 @@ async function buildTwist(b: z.infer<typeof BuildTwist>, ctx: ToolContext) {
     program_id: next.program_id,
     show_to_builder: shownBefore ? '' : buildingLine(next.name!, pick.starter.what, next.for_whom!),
     build: { program_id: next.program_id, starter_id: pick.starter.id, step: 'build' },
-    kit: buildKit(pick.starter, next.repo_url ? tokenLineFor(ctx.installationId, next.repo_url) : null, { ...fields, wallet }),
+    kit: buildKit(pick.starter, next.repo_url ? tokenLineFor(ctx.installationId, next.repo_url) : null, { ...fields, wallet }, Boolean(next.repo_url)),
     agent_note: KIT_NOTE,
   };
 }

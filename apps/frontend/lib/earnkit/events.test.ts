@@ -20,9 +20,11 @@ import {
   usageChecks,
   usageTopic,
   viewTotals,
+  isRevert,
   type BuilderEvent,
 } from './events';
 import { STARTERS } from './starters';
+import { HttpRequestError, createPublicClient, custom } from 'viem';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql, type Db } from './db';
@@ -598,37 +600,89 @@ test('11.7 (R-T6) an Arc arc-tipjar deploy is read with one eth_call of stats():
   });
 });
 
-test('11.7 a view that answers nothing (the builder dropped stats()) falls back to the recent window of logs; a failed call is a failed read', dbTest, async () => {
+/** A real viem eth_call whose node answers `error` (JSON-RPC), so the thrown error is viem's own chain. */
+const viemCall = (error: { code: number; message: string; data?: string }) => async (_c: string, to: string, data: `0x${string}`) =>
+  (
+    await createPublicClient({
+      transport: custom({
+        request: async () => {
+          throw Object.assign(new Error(error.message), error);
+        },
+      }, { retryCount: 0 }),
+    }).call({ to: to as `0x${string}`, data })
+  ).data ?? '0x';
+
+test('11.0 isRevert: viem\'s revert chain is a revert; a transport error is not', async () => {
+  const TO = `0x${'11'.repeat(20)}`;
+  const caught = async (f: () => Promise<unknown>) => f().then(() => null, (e: unknown) => e);
+  const revert = await caught(() => viemCall({ code: 3, message: 'execution reverted', data: '0x' })('arc', TO, '0xd80528ae'));
+  assert.ok(revert instanceof Error && revert.name === 'CallExecutionError', String(revert));
+  assert.equal(isRevert(revert), true);
+  assert.equal(isRevert(await caught(() => viemCall({ code: -32000, message: 'execution reverted' })('arc', TO, '0xd80528ae'))), true);
+  assert.equal(isRevert(new HttpRequestError({ url: 'https://rpc.example', status: 503 })), false);
+  assert.equal(isRevert(await caught(() => viemCall({ code: -32603, message: 'internal error' })('arc', TO, '0xd80528ae'))), false);
+});
+
+test('11.7 a view that reverts (the builder dropped stats()) or answers nothing falls back to the recent window of logs; a transport error is a failed read', dbTest, async () => {
   const now = new Date();
-  const d = await seedDeployed(now, 31, { chain: 'arc', detail: { starter: 'arc-tipjar' } });
-  let logReads = 0;
-  const out = await usageChecks(now, {
-    only: [d.id],
-    getCode: codeOk,
-    viewCall: async () => '0x',
-    arcHead: async () => 15_000n,
-    arcLogs: async () => (logReads++, { count: 1, senders: [W] }),
-  });
-  assert.deepEqual(out, { checked: 1, failed: 0 });
-  assert.equal(logReads, 2);
-  const [row] = await usageOf(d.id);
-  assert.equal(row.detail.source, 'rpc_logs');
-  assert.deepEqual(row.detail.recent, { window: 'recent', blocks: 15_001, from_block: 0, to_block: 15_000, tips: 2, unique: 1 });
+  for (const [label, viewCall] of [
+    ['a real viem revert', viemCall({ code: 3, message: 'execution reverted', data: '0x' })],
+    ['an empty answer from a contract with code', async () => '0x' as const],
+  ] as const) {
+    const d = await seedDeployed(now, 31, { chain: 'arc', detail: { starter: 'arc-tipjar' } });
+    let logReads = 0;
+    const out = await usageChecks(now, {
+      only: [d.id],
+      getCode: codeOk,
+      viewCall,
+      arcHead: async () => 15_000n,
+      arcLogs: async () => (logReads++, { count: 1, senders: [W] }),
+    });
+    assert.deepEqual(out, { checked: 1, failed: 0 }, label);
+    assert.equal(logReads, 2, label);
+    const [row] = await usageOf(d.id);
+    assert.equal(row.detail.source, 'rpc_logs', label);
+    assert.deepEqual(row.detail.recent, { window: 'recent', blocks: 15_001, from_block: 0, to_block: 15_000, tips: 2, unique: 1 }, label);
+  }
   const e = await seedDeployed(now, 32, { chain: 'arc', detail: { starter: 'arc-tipjar' } });
+  let logReads = 0;
   const lines = await errors(async () =>
     assert.deepEqual(
       await usageChecks(now, {
         only: [e.id],
         getCode: codeOk,
         viewCall: async () => {
-          throw Object.assign(new Error(`rpc down ${e.address}`), { name: 'HttpRequestError' });
+          throw new HttpRequestError({ url: `https://rpc.example/${e.address}`, status: 503 });
         },
+        arcHead: async () => (logReads++, 10n),
+        arcLogs: async () => (logReads++, { count: 0, senders: [] }),
       }),
       { checked: 0, failed: 1 },
     ),
   );
+  assert.equal(logReads, 0, 'no fallback on a transport error');
   assert.deepEqual(await usageOf(e.id), []);
   for (const l of lines) assert.ok(!l.includes(e.address), 'no address in the log');
+});
+
+test('11.7 (review I1) no code at a starter\'s address: one read (getCode), source rpc_code, no view and no getLogs', dbTest, async () => {
+  const now = new Date();
+  for (const starters of [undefined, LOGS.starters]) {
+    const d = await seedDeployed(now, 31, { chain: 'arc', detail: { starter: 'arc-tipjar' } });
+    let reads = 0;
+    const out = await usageChecks(now, {
+      ...(starters && { starters }),
+      only: [d.id],
+      getCode: async () => (reads++, '0x'),
+      viewCall: async () => (reads++, '0x'),
+      arcHead: async () => (reads++, 10n),
+      arcLogs: async () => (reads++, { count: 0, senders: [] }),
+    });
+    assert.deepEqual(out, { checked: 1, failed: 0 });
+    assert.equal(reads, 1, 'getCode only');
+    const [row] = await usageOf(d.id);
+    assert.deepEqual(row.detail, { window: 30, deployed_event: Number(d.id), address: d.address, code: false, source: 'rpc_code' });
+  }
 });
 
 test('11.3 a 91-day-old deploy with its 30-day check done gets only the 90-day check; one never checked gets only the 90-day one', dbTest, async () => {
