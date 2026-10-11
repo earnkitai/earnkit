@@ -557,8 +557,10 @@ apps/frontend/
                                recordSubmission also (submitted), outcomes.ts sync/self-report (won, lost)
                                v2.11 Task 11: usageChecks (30/90-day usage_check per deployed event, <= USAGE_LIMIT 20
                                a run, oldest first; getCode everywhere, Blockscout txCount on Base, the starter's logs on
-                               Arc in logChunks of ARC_LOG_CHUNK 10,000 blocks, <= ARC_LOG_MAX_CHUNKS 50, else partial),
-                               STARTER_USAGE_EVENTS, usageTopic, logSender, UsageDeps
+                               Arc over the recent window only: recentChunks, 50 x ARC_LOG_CHUNK 10,000 blocks ending at
+                               the head -> recent { blocks, tips, unique }; 5 failures in a row skip 7 days via the
+                               usage_check_failures table), STARTER_USAGE (usage_event, usage_read), usageTopic,
+                               logSender, UsageDeps
     events-backfill.ts(+test)  v2.11 Task 3: backfillEvents (contract_deploys, host_deploys, projects, submissions,
                                entry_outcomes; source time as at; live dedupe keys; owner-run only)
     deploy.ts(+test, +anvil)   v2.10 item 13: EarnKit deploys the builder's contract on Arc or Base
@@ -1265,7 +1267,8 @@ apps/frontend/
                                trigger builder_events_append_only() refuses UPDATE/DELETE/TRUNCATE; the owner
                                redaction may only null login/wallet and change detail, with earnkit.events_redact
                                = 'on:<current txid>'),
-                               installations.fresh_offer_at and installations.build
+                               installations.fresh_offer_at and installations.build,
+                               v2.11 Task 11: usage_check_failures (failed usage checks in a row per deployed event)
   scripts/                     db-migrate.mts, programs-sync.mts (load .env.local); v2.7: programs-sync
                                writes the guide columns; --check (pnpm programs:check) also checks each logo file
                                (logo-check.ts) and the required items' todo; v2.8 Task 12: also validates

@@ -144,35 +144,44 @@ export const USAGE_LIMIT = 20;
  */
 export const ARC_LOG_CHUNK = 10_000n;
 /**
- * Chunks one check may read (S12). Arc makes about 2 blocks a second (1,000,000 blocks took 507,649 s
- * on 2026-10-10), so 50 chunks cover about the first 2.9 days after the deploy; a check whose range
- * goes past that writes `partial: true` with the blocks it did read.
+ * Chunks one Arc check reads (S12). Arc makes about 2 blocks a second (1,000,000 blocks took 507,649 s
+ * on 2026-10-10), so 50 chunks are the last ~2.9 days before the check.
  */
 export const ARC_LOG_MAX_CHUNKS = 50;
+
 /**
- * The event that counts as use, per starter (spec 2 `usage_event`). From the chain-kits
- * `arc/example/src/UsdcTipJar.sol`: `event Tipped(address indexed from, uint256 amount, string note)`.
- * T5's STARTERS registry carries the same field; a deploy names its starter in `detail.starter`.
+ * How a starter's use is read (T5 folds this into STARTERS as `usage_event` and `usage_read`).
+ * `recent_logs`: the contract keeps no running total (the chain-kits `UsdcTipJar` has only
+ * `owner`, `USDC` and `tip`, and forwards each tip to the owner, so its balance says nothing), and a
+ * whole 30 or 90 days of Arc blocks is 510 to 1,530 eth_getLogs calls. So the check counts the
+ * usage event over the RECENT window (ARC_LOG_MAX_CHUNKS chunks ending at the head) and records it as
+ * `recent: { window: 'recent', blocks, tips, unique }`: "is it still used", never a 30 or 90 day total.
+ * Event: `event Tipped(address indexed from, uint256 amount, string note)` (arc/example/src/UsdcTipJar.sol).
  */
-export const STARTER_USAGE_EVENTS: Record<string, string> = { 'arc-tipjar': 'Tipped(address,uint256,string)' };
+export type StarterUsage = { usage_event: string; usage_read: 'recent_logs' };
+export const STARTER_USAGE: Record<string, StarterUsage> = {
+  'arc-tipjar': { usage_event: 'Tipped(address,uint256,string)', usage_read: 'recent_logs' },
+};
 
 /** An event signature's topic 0. Pure. */
 export const usageTopic = (signature: string): Hex => toEventSelector(signature);
 
-/**
- * The eth_getLogs ranges from `from` to `head` (both inclusive), ARC_LOG_CHUNK blocks each, at most
- * ARC_LOG_MAX_CHUNKS; `partial` when blocks are left over. Pure.
- */
-export function logChunks(from: bigint, head: bigint, size = ARC_LOG_CHUNK, max = ARC_LOG_MAX_CHUNKS) {
+/** The last `max` eth_getLogs ranges of `size` blocks ending at `head` (inclusive), oldest first, never below block 0. Pure. */
+export function recentChunks(head: bigint, size = ARC_LOG_CHUNK, max = ARC_LOG_MAX_CHUNKS): [bigint, bigint][] {
+  const span = size * BigInt(max);
+  let start = head + 1n > span ? head + 1n - span : 0n;
   const ranges: [bigint, bigint][] = [];
-  let start = from;
-  while (start <= head && ranges.length < max) {
+  while (start <= head) {
     const end = start + size - 1n < head ? start + size - 1n : head;
     ranges.push([start, end]);
     start = end + 1n;
   }
-  return { ranges, partial: start <= head };
+  return ranges;
 }
+
+/** Concern 4: after this many failed runs in a row, a deploy is skipped for USAGE_SKIP_DAYS. */
+export const USAGE_SKIP_AFTER = 5;
+export const USAGE_SKIP_DAYS = 7;
 
 export type UsageDeps = {
   /** Checks a run (default USAGE_LIMIT). */
@@ -191,8 +200,6 @@ export type UsageDeps = {
   arcHead?: () => Promise<bigint>;
   /** One eth_getLogs chunk on Arc: how many logs, and each log's sender (its first indexed address). */
   arcLogs?: (address: string, topic: Hex, from: bigint, to: bigint) => Promise<{ count: number; senders: string[] }>;
-  /** A pre-v2.11 deploy's block, from its transaction receipt (null when there is none). */
-  receiptBlock?: (chain: Chain, tx: string) => Promise<bigint | null>;
 };
 
 /** A log's sender: its first indexed argument as an address (Tipped's `from`), or null. Pure. */
@@ -208,7 +215,7 @@ const readClient = (chain: Chain) => {
   return createPublicClient({ transport: http(rpc, { timeout: 10_000, retryCount: 0 }) });
 };
 
-const defaultReads: Required<Pick<UsageDeps, 'getCode' | 'arcHead' | 'arcLogs' | 'receiptBlock'>> = {
+const defaultReads: Required<Pick<UsageDeps, 'getCode' | 'arcHead' | 'arcLogs'>> = {
   getCode: async (chain, address) => (await readClient(chain).getCode({ address: address as Address })) ?? '0x',
   arcHead: () => readClient('arc').getBlockNumber({ cacheTime: 0 }),
   arcLogs: async (address, topic, from, to) => {
@@ -218,7 +225,6 @@ const defaultReads: Required<Pick<UsageDeps, 'getCode' | 'arcHead' | 'arcLogs' |
     });
     return { count: logs.length, senders: logs.map((l) => logSender(l.topics)).filter((a): a is string => a !== null) };
   },
-  receiptBlock: async (chain, tx) => (await readClient(chain).getTransactionReceipt({ hash: tx as Hex })).blockNumber ?? null,
 };
 
 type DueDeploy = {
@@ -226,7 +232,6 @@ type DueDeploy = {
   win: number;
   /** The selection keeps arc and base only (the chains EarnKit deploys on). */
   chain: 'arc' | 'base';
-  proof_tx: string | null;
   detail: Record<string, unknown>;
   installation_id: number | null;
   repo_key: string | null;
@@ -249,43 +254,41 @@ async function readUsage(d: DueDeploy, address: string, now: Date, deps: UsageDe
     if (tx === null) throw new Error('no count');
     return { ...base, tx_count: tx, code, source: 'blockscout' };
   }
-  const signature = chain === 'arc' && typeof d.detail.starter === 'string' ? STARTER_USAGE_EVENTS[d.detail.starter] : undefined;
-  if (!signature) return { ...base, code, source: 'rpc_code' };
-  // explorer.arc.io's API is behind a Cloudflare challenge: count the starter's logs over the public RPC.
-  const known = d.detail.block;
-  let from: bigint | null =
-    typeof known === 'number' && Number.isSafeInteger(known) && known >= 0 ? BigInt(known) : null;
-  if (from === null) {
-    // Pre-v2.11 rows have no block: read it from the deploy's receipt.
-    if (!d.proof_tx) throw new Error('no deploy tx');
-    from = await (deps.receiptBlock ?? defaultReads.receiptBlock)(chain, d.proof_tx);
-    if (from === null) throw new Error('no deploy block');
-  }
+  const starter = chain === 'arc' && typeof d.detail.starter === 'string' ? STARTER_USAGE[d.detail.starter] : undefined;
+  if (!starter) return { ...base, code, source: 'rpc_code' };
+  // explorer.arc.io's API is behind a Cloudflare challenge: count the starter's logs over the public
+  // RPC, in the recent window only (STARTER_USAGE). Checks are 30+ days after the deploy, so the
+  // window never reaches back past it and the deploy block isn't needed.
   const head = await (deps.arcHead ?? defaultReads.arcHead)();
-  const { ranges, partial } = logChunks(from, head);
-  const topic = usageTopic(signature);
+  const ranges = recentChunks(head);
+  const topic = usageTopic(starter.usage_event);
   const arcLogs = deps.arcLogs ?? defaultReads.arcLogs;
-  let events = 0;
+  let tips = 0;
   const senders = new Set<string>();
   let read = 0;
   for (const [lo, hi] of ranges) {
-    // Past the cron's deadline, the blocks read so far are written as a partial count.
+    // Past the cron's deadline, the blocks read so far are written, marked partial.
     if (read > 0 && deps.deadline !== undefined && Date.now() >= deps.deadline) break;
     const r = await arcLogs(address, topic, lo, hi);
-    events += r.count;
+    tips += r.count;
     for (const s of r.senders) senders.add(s.toLowerCase());
     read++;
   }
-  const to = read > 0 ? ranges[read - 1][1] : head;
+  const lo = ranges[0][0];
+  const hi = ranges[read - 1][1];
   return {
     ...base,
-    events,
-    senders: senders.size,
-    from_block: Number(from),
-    to_block: Number(to),
-    ...((partial || read < ranges.length) && { partial: true }),
     code,
     source: 'rpc_logs',
+    recent: {
+      window: 'recent',
+      blocks: Number(hi - lo + 1n),
+      from_block: Number(lo),
+      to_block: Number(hi),
+      tips,
+      unique: senders.size,
+      ...(read < ranges.length && { partial: true }),
+    },
   };
 }
 
@@ -294,7 +297,9 @@ async function readUsage(d: DueDeploy, address: string, now: Date, deps: UsageDe
  * for that window yet, oldest first, at most `limit` a run, reads whether the contract is still
  * there and how much it was used, and writes one `usage_check` (dedupe_key
  * `usage:<deployed event id>:<window>`). A deploy past 90 days gets only its 90-day check. A
- * code_differs deploy (the builder was told not to use it) is never checked. Off with the log off
+ * code_differs deploy (the builder was told not to use it) is never checked. A deploy that failed
+ * USAGE_SKIP_AFTER runs in a row (usage_check_failures) sits out USAGE_SKIP_DAYS, so it never blocks
+ * newer ones; a pass clears its count. Off with the log off
  * (no read, no write). A failed read writes nothing, counts as failed and is read again next run;
  * nothing here ever throws.
  */
@@ -304,13 +309,14 @@ export async function usageChecks(now: Date, deps: UsageDeps = {}): Promise<{ ch
   const [w30, w90] = USAGE_WINDOWS;
   const limit = Math.max(0, Math.min(deps.limit ?? USAGE_LIMIT, USAGE_LIMIT));
   let due: DueDeploy[];
+  let q: Db;
   try {
-    const q = deps.db ?? sql();
+    q = deps.db ?? sql();
     const t30 = new Date(now.getTime() - w30 * 86_400_000);
     const t90 = new Date(now.getTime() - w90 * 86_400_000);
     due = [
       ...(await q<DueDeploy[]>`
-        SELECT d.id::text AS id, d.win, d.chain, d.proof_tx, d.detail, d.installation_id, d.repo_key, d.wallet,
+        SELECT d.id::text AS id, d.win, d.chain, d.detail, d.installation_id, d.repo_key, d.wallet,
           d.github_login, d.login_basis, d.program_id, d.project_id
         FROM (
           SELECT e.*, CASE WHEN e.at <= ${t90} THEN ${w90}::int ELSE ${w30}::int END AS win
@@ -318,6 +324,8 @@ export async function usageChecks(now: Date, deps: UsageDeps = {}): Promise<{ ch
           WHERE e.type = 'deployed' AND e.at <= ${t30} AND e.chain IN ('arc', 'base')
             AND e.detail ? 'address' AND coalesce(e.detail->>'code_differs', 'false') <> 'true'
             AND (${deps.only ?? null}::bigint[] IS NULL OR e.id = ANY(${deps.only ?? null}::bigint[]))
+            AND NOT EXISTS (SELECT 1 FROM usage_check_failures f WHERE f.deployed_event_id = e.id
+              AND f.failures >= ${USAGE_SKIP_AFTER} AND f.last_failed_at > ${new Date(now.getTime() - USAGE_SKIP_DAYS * 86_400_000)})
         ) d
         WHERE NOT EXISTS (SELECT 1 FROM builder_events u WHERE u.dedupe_key = 'usage:' || d.id || ':' || d.win)
         ORDER BY d.at, d.id
@@ -351,9 +359,18 @@ export async function usageChecks(now: Date, deps: UsageDeps = {}): Promise<{ ch
         deps.db,
       );
       if (wrote) out.checked++;
+      await q`DELETE FROM usage_check_failures WHERE deployed_event_id = ${d.id}`.catch((e: unknown) =>
+        console.error(`[events] usage_check failures ${errName(e)}`),
+      );
     } catch (err) {
       console.error(`[events] usage_check ${errName(err)}`);
       out.failed++;
+      // Concern 4: count failures in a row, so a deploy that keeps failing steps aside for a while.
+      await q`
+        INSERT INTO usage_check_failures (deployed_event_id, failures, last_failed_at) VALUES (${d.id}, 1, ${now})
+        ON CONFLICT (deployed_event_id) DO UPDATE SET failures = usage_check_failures.failures + 1, last_failed_at = ${now}`.catch(
+        (e: unknown) => console.error(`[events] usage_check failures ${errName(e)}`),
+      );
     }
   }
   return out;

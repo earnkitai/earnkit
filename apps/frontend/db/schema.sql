@@ -1031,6 +1031,15 @@ BEGIN
   END IF;
 END $$;
 
+-- v2.11 T11 (concern 4): failed usage-check runs in a row per deployed event. Not part of the
+-- append-only log (a counter, cleared when a check passes); after 5 in a row the deploy is skipped
+-- for 7 days (events.ts usageChecks), so a contract that can never be read never blocks newer ones.
+CREATE TABLE IF NOT EXISTS usage_check_failures (
+  deployed_event_id bigint PRIMARY KEY,   -- builder_events.id of the deployed event (no FK, like the log)
+  failures          integer NOT NULL,
+  last_failed_at    timestamptz NOT NULL
+);
+
 -- v2.11 plan S6 and the fresh pick: one build at a time per installation, and when the fresh
 -- build was last offered. Additive; NULL for every existing installation.
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS fresh_offer_at timestamptz;

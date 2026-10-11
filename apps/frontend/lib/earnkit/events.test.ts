@@ -6,11 +6,13 @@ import {
   ARC_LOG_MAX_CHUNKS,
   EVENT_LOG_FLAG,
   EVENT_WAIT_MS,
-  STARTER_USAGE_EVENTS,
+  STARTER_USAGE,
+  USAGE_SKIP_AFTER,
+  USAGE_SKIP_DAYS,
   USAGE_LIMIT,
   eventLogEnabled,
   eventRepoKey,
-  logChunks,
+  recentChunks,
   logSender,
   noteEvent,
   proofLink,
@@ -419,28 +421,23 @@ const usageOf = async (id: string) => [
 
 const codeOk = async () => '0x6080';
 
-test('11.0 logChunks: ranges of ARC_LOG_CHUNK blocks from the deploy block to the head, at most ARC_LOG_MAX_CHUNKS; more is partial', () => {
+test('11.0 recentChunks: the last ARC_LOG_MAX_CHUNKS ranges of ARC_LOG_CHUNK blocks ending at the head, oldest first', () => {
   assert.equal(ARC_LOG_CHUNK, 10_000n, 'rpc.mainnet.arc.io accepts 10,000 blocks per eth_getLogs (10,001 is refused)');
   assert.equal(ARC_LOG_MAX_CHUNKS, 50);
-  assert.deepEqual(logChunks(100n, 25_099n), {
-    ranges: [
-      [100n, 10_099n],
-      [10_100n, 20_099n],
-      [20_100n, 25_099n],
-    ],
-    partial: false,
-  });
-  assert.deepEqual(logChunks(5n, 5n), { ranges: [[5n, 5n]], partial: false });
-  assert.deepEqual(logChunks(9n, 5n), { ranges: [], partial: false }, 'a head behind the start reads nothing');
-  const big = logChunks(1n, 1n + 50n * 10_000n);
-  assert.equal(big.ranges.length, 50);
-  assert.deepEqual(big.ranges[49], [490_001n, 500_000n]);
-  assert.equal(big.partial, true);
-  assert.equal(logChunks(1n, 50n * 10_000n).partial, false, 'exactly 50 chunks is whole');
+  const r = recentChunks(1_000_000n);
+  assert.equal(r.length, 50);
+  assert.deepEqual(r[0], [500_001n, 510_000n]);
+  assert.deepEqual(r[49], [990_001n, 1_000_000n]);
+  assert.deepEqual(recentChunks(25_000n), [
+    [0n, 9_999n],
+    [10_000n, 19_999n],
+    [20_000n, 25_000n],
+  ], 'a young chain starts at block 0');
+  assert.deepEqual(recentChunks(0n), [[0n, 0n]]);
 });
 
-test('11.0 the usage event topic is the starter contract\'s Tipped(address indexed, uint256, string)', () => {
-  assert.equal(STARTER_USAGE_EVENTS['arc-tipjar'], 'Tipped(address,uint256,string)');
+test('11.0 the arc-tipjar starter: Tipped(address indexed, uint256, string), read as a recent window (the contract keeps no total)', () => {
+  assert.deepEqual(STARTER_USAGE['arc-tipjar'], { usage_event: 'Tipped(address,uint256,string)', usage_read: 'recent_logs' });
   assert.equal(usageTopic('Tipped(address,uint256,string)'), '0x4f629a5f1c8e7fc616770a8d34896b447f3457037c40a23347478746309d73c2');
 });
 
@@ -485,66 +482,55 @@ test('11.1 a 29-day-old deploy is not due; a code_differs deploy and one without
   assert.deepEqual(out, { checked: 0, failed: 0 });
 });
 
-test('11.2 an Arc arc-tipjar deploy counts Tipped logs in 10,000-block chunks from detail.block, with unique senders', dbTest, async () => {
+test('11.2 an Arc arc-tipjar deploy counts Tipped logs in the recent window (50 chunks ending at the head), never as a 30-day total', dbTest, async () => {
   const now = new Date();
   const d = await seedDeployed(now, 31, { chain: 'arc', detail: { block: 1000, starter: 'arc-tipjar' } });
   const calls: [string, string, bigint, bigint][] = [];
   const A = '0x' + '11'.repeat(20);
   const B = '0x' + '22'.repeat(20);
+  const head = 5_000_000n;
   const out = await usageChecks(now, {
     only: [d.id],
     getCode: codeOk,
-    arcHead: async () => 25_000n,
+    arcHead: async () => head,
     arcLogs: async (a, topic, from, to) => {
       calls.push([a, topic, from, to]);
-      return from === 1000n ? { count: 2, senders: [A, B] } : { count: 1, senders: [A.toUpperCase().replace('0X', '0x')] };
-    },
-    receiptBlock: async () => {
-      throw new Error('the block is known; no receipt read');
+      if (from === head - 499_999n) return { count: 2, senders: [A, B] };
+      if (to === head) return { count: 1, senders: [A.toUpperCase().replace('0X', '0x')] };
+      return { count: 0, senders: [] };
     },
   });
   assert.deepEqual(out, { checked: 1, failed: 0 });
   const topic = usageTopic('Tipped(address,uint256,string)');
-  assert.deepEqual(calls, [
-    [d.address, topic, 1000n, 10_999n],
-    [d.address, topic, 11_000n, 20_999n],
-    [d.address, topic, 21_000n, 25_000n],
-  ]);
+  assert.equal(calls.length, 50);
+  assert.deepEqual(calls[0], [d.address, topic, 4_500_001n, 4_510_000n]);
+  assert.deepEqual(calls[49], [d.address, topic, 4_990_001n, 5_000_000n]);
   const [row] = await usageOf(d.id);
   assert.deepEqual(row.detail, {
     window: 30,
     deployed_event: Number(d.id),
     address: d.address,
-    events: 4,
-    senders: 2,
-    from_block: 1000,
-    to_block: 25_000,
     code: true,
     source: 'rpc_logs',
+    recent: { window: 'recent', blocks: 500_000, from_block: 4_500_001, to_block: 5_000_000, tips: 3, unique: 2 },
   });
+  assert.ok(!('events' in row.detail) && !('tx_count' in row.detail), 'never a whole-window count');
 });
 
-test('11.2 more than 50 chunks reads 50 and writes partial: true; a pre-v2.11 deploy reads its block from the receipt', dbTest, async () => {
+test('11.2 the recent window needs no deploy block: a pre-v2.11 deploy makes no receipt read', dbTest, async () => {
   const now = new Date();
-  const d = await seedDeployed(now, 31, { chain: 'arc', detail: { starter: 'arc-tipjar' }, proof_tx: `0x${'cd'.repeat(32)}` });
+  const d = await seedDeployed(now, 31, { chain: 'arc', detail: { starter: 'arc-tipjar' } });
   let logReads = 0;
-  const receipts: string[] = [];
   const out = await usageChecks(now, {
     only: [d.id],
     getCode: codeOk,
-    arcHead: async () => 7n + 50n * 10_000n + 3n,
-    arcLogs: async () => (logReads++, { count: 0, senders: [] }),
-    receiptBlock: async (chain, tx) => (receipts.push(`${chain}:${tx}`), 7n),
+    arcHead: async () => 15_000n,
+    arcLogs: async () => (logReads++, { count: 1, senders: [W] }),
   });
   assert.deepEqual(out, { checked: 1, failed: 0 });
-  assert.equal(logReads, 50);
-  assert.deepEqual(receipts, [`arc:0x${'cd'.repeat(32)}`]);
+  assert.equal(logReads, 2);
   const [row] = await usageOf(d.id);
-  assert.equal(row.detail.partial, true);
-  assert.equal(row.detail.from_block, 7);
-  assert.equal(row.detail.to_block, 7 + 50 * 10_000 - 1);
-  assert.equal(row.detail.events, 0);
-  assert.equal(row.detail.senders, 0);
+  assert.deepEqual(row.detail.recent, { window: 'recent', blocks: 15_001, from_block: 0, to_block: 15_000, tips: 2, unique: 1 });
 });
 
 test('11.2 an Arc deploy with no known usage event gets eth_getCode only', dbTest, async () => {
@@ -659,7 +645,7 @@ test('11.4 no check starts after the cron deadline', dbTest, async () => {
   assert.deepEqual(await usageOf(d.id), []);
 });
 
-test('11.2 an Arc check that reaches the cron deadline mid-range writes the blocks it read as partial', dbTest, async () => {
+test('11.2 an Arc check that reaches the cron deadline mid-window writes the blocks it read, marked partial', dbTest, async () => {
   const now = new Date();
   const d = await seedDeployed(now, 31, { chain: 'arc', detail: { block: 0, starter: 'arc-tipjar' } });
   let deadline = Date.now() + 60_000;
@@ -680,7 +666,59 @@ test('11.2 an Arc check that reaches the cron deadline mid-range writes the bloc
   assert.deepEqual(out, { checked: 1, failed: 0 });
   assert.equal(reads, 1);
   const [row] = await usageOf(d.id);
-  assert.equal(row.detail.partial, true);
-  assert.equal(row.detail.to_block, 9_999);
-  assert.equal(row.detail.events, 1);
+  assert.deepEqual(row.detail.recent, { window: 'recent', blocks: 10_000, from_block: 0, to_block: 9_999, tips: 1, unique: 1, partial: true });
+});
+
+test('11.6 a deploy that failed USAGE_SKIP_AFTER (5) runs in a row is skipped for 7 days, so it never blocks a newer one; a pass clears it', dbTest, async () => {
+  assert.equal(USAGE_SKIP_AFTER, 5);
+  assert.equal(USAGE_SKIP_DAYS, 7);
+  const t0 = new Date();
+  const bad = await seedDeployed(t0, 40);
+  const good = await seedDeployed(t0, 31);
+  const reads: string[] = [];
+  const deps = (works: boolean) => ({
+    only: [bad.id, good.id],
+    limit: 1,
+    getCode: async (_c: string, a: string) => {
+      reads.push(a === bad.address ? 'bad' : 'good');
+      if (a === bad.address && !works) throw new Error('rpc down');
+      return '0x6080';
+    },
+    blockscout: async () => ({ transactions_count: '1' }),
+  });
+  const day = (n: number) => new Date(t0.getTime() + n * DAY);
+  await errors(async () => {
+    for (let i = 0; i < 5; i++) assert.deepEqual(await usageChecks(day(i), deps(false)), { checked: 0, failed: 1 });
+  });
+  assert.deepEqual(reads, ['bad', 'bad', 'bad', 'bad', 'bad'], 'limit 1: the older deploy takes the slot while it is retried');
+  reads.length = 0;
+  assert.deepEqual(await usageChecks(day(5), deps(false)), { checked: 1, failed: 0 });
+  assert.deepEqual(reads, ['good'], 'after 5 failures in a row the newer deploy gets the slot');
+  assert.deepEqual(await usageOf(bad.id), []);
+  reads.length = 0;
+  assert.deepEqual(await usageChecks(day(4 + 6), deps(false)), { checked: 0, failed: 0 }, 'still inside the 7 days');
+  assert.deepEqual(reads, []);
+  assert.deepEqual(await usageChecks(day(4 + 7), deps(true)), { checked: 1, failed: 0 }, 'read again after 7 days');
+  assert.deepEqual(reads, ['bad']);
+  assert.equal((await usageOf(bad.id)).length, 1);
+  const [left] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM usage_check_failures WHERE deployed_event_id = ${bad.id}`;
+  assert.equal(left.n, 0, 'a pass clears the counter');
+});
+
+test('11.6 a failure after the 7-day retry skips another 7 days', dbTest, async () => {
+  const t0 = new Date();
+  const bad = await seedDeployed(t0, 40);
+  const day = (n: number) => new Date(t0.getTime() + n * DAY);
+  let reads = 0;
+  const deps = { only: [bad.id], getCode: async () => (reads++, Promise.reject(new Error('down'))) };
+  await errors(async () => {
+    for (let i = 0; i < 5; i++) await usageChecks(day(i), deps);
+    assert.equal(reads, 5);
+    await usageChecks(day(11), deps); // the 6th failure, after the skip
+    assert.equal(reads, 6);
+    await usageChecks(day(12), deps);
+    assert.equal(reads, 6, 'skipped again right away');
+  });
+  const [f] = await sql()<{ failures: number }[]>`SELECT failures FROM usage_check_failures WHERE deployed_event_id = ${bad.id}`;
+  assert.equal(f.failures, 6);
 });
