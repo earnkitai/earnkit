@@ -82,7 +82,7 @@ import {
   prepareSubmission,
 } from './submission';
 import { OWNERSHIP_FILE } from './ownership';
-import { DEPLOY_LINES, deployChains, deployEnabled, deployForBuilder, deployOffLine, deployOffNote, deployedLine, initcode, type DeployChainName, type DeployDeps, type DeployInput } from './deploy';
+import { DEPLOY_LINES, deployChainOn, deployChains, deployEnabled, deployForBuilder, deployOffLine, deployOffNote, deployedLine, initcode, type DeployChainName, type DeployDeps, type DeployInput } from './deploy';
 import { decodeAbiParameters, isHex, keccak256, type Abi } from 'viem';
 import {
   CANT_PUSH_RETRY_NOTE,
@@ -194,15 +194,16 @@ export type ToolContext = {
 };
 
 /**
- * v2.11 T7: the no-repo lead's switches. Deploys on a chain need the deployer key (deployEnabled)
- * and the chain's RPC; hosting needs R2. Production has neither on 2026-10-10, so no fresh lead is
+ * v2.11 T7: the no-repo lead's switches. Deploys on a chain need the deployer key, the chain in
+ * DEPLOY_CHAINS (deployChainOn, v2.10.3: a chain left out is never offered) and the chain's RPC;
+ * hosting needs R2. Production has neither on 2026-10-10, so no fresh lead is
  * offered until the owner turns both on. A chat-only or shared client gets the chat-only lead (a
  * shared client never gets the build path, Ruling S6).
  */
 export function freshSwitches(ctx: Pick<ToolContext, 'freshDeps' | 'sharedClient'>, agentCanBuild: boolean): FreshOn {
   const d = ctx.freshDeps ?? {};
   return {
-    deployOn: d.deployOn ?? ((c) => deployEnabled() && rpcFor(c) !== null),
+    deployOn: d.deployOn ?? ((c) => deployChainOn(c) && rpcFor(c) !== null),
     hostOn: d.hostOn ?? r2Enabled(),
     canBuild: agentCanBuild && !ctx.sharedClient,
     ...(d.starters && { starters: d.starters }),
@@ -2816,6 +2817,12 @@ async function buildShip(programId: string, rest: Record<string, unknown>, ctx: 
   const any = await buildPick(programId, ctx, { anyDeploy: true });
   if (!any) return { reply: buildRefusal(buildRefused(programId)) };
   const starter = any.starter;
+  // v2.10.3: with deploys on, a starter chain left out of DEPLOY_CHAINS is refused as deployStep does
+  // ("Deploys on Arc are off right now."), before the build is checked, logged or anything is read.
+  if (deployEnabled() && !deployChains().includes(starter.chain)) {
+    const line = deployChains().length ? deployOffLine(starter.chain) : DEPLOY_LINES.off;
+    return { reply: { program_id: programId, show_to_builder: line, deploy: { unavailable: line }, agent_note: deployOffNote(starter.chain) } };
+  }
   if (!freshSwitches(ctx, true).deployOn(starter.chain))
     return { reply: { program_id: programId, show_to_builder: DEPLOY_LINES.off, deploy: { unavailable: DEPLOY_LINES.off }, agent_note: BUILD_DEPLOYS_OFF_NOTE } };
   if (!(await buildPick(programId, ctx))) return { reply: buildRefusal(buildRefused(programId)) };

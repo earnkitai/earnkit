@@ -4293,9 +4293,9 @@ async function freshSetup(tag: string, tc: TestContext) {
   return { p, inst, offerAt, base, starterId, starters };
 }
 
-/** Runs `fn` with the deployer and R2 variables set as given (unset when undefined), then restores them. */
+/** Runs `fn` with the deployer, DEPLOY_CHAINS (v2.10.3) and R2 variables set as given (unset when undefined), then restores them. */
 async function withShipEnv<T>(vars: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> {
-  const names = ['DEPLOYER_PRIVATE_KEY', 'R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET'];
+  const names = ['DEPLOYER_PRIVATE_KEY', 'DEPLOY_CHAINS', 'R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET'];
   const saved = Object.fromEntries(names.map((n) => [n, process.env[n]]));
   for (const n of names) {
     if (vars[n] === undefined) delete process.env[n];
@@ -4428,6 +4428,52 @@ test('T6 follow-up: production fails closed: no deployer key (production today, 
     on.reply.split('\n')[1],
     'Arc Microgrants pays 500 USDC and closes in 3 days. A USDC tip page on Arc takes about an hour. Want me to build it?',
   );
+});
+
+test('v2.10.3 freshSwitches: deployOn is deployChainOn, so a chain left out of DEPLOY_CHAINS is never a chain EarnKit can deploy to', async () => {
+  const deployOn = (vars: Record<string, string | undefined>) =>
+    withShipEnv(vars, async () => {
+      const on = freshSwitches({}, true);
+      return { arc: on.deployOn('arc'), base: on.deployOn('base') };
+    });
+  assert.deepEqual(await deployOn({ ...DEPLOYER_ON, DEPLOY_CHAINS: 'base' }), { arc: false, base: true });
+  assert.deepEqual(await deployOn({ ...DEPLOYER_ON, DEPLOY_CHAINS: 'ARC ' }), { arc: true, base: false });
+  assert.deepEqual(await deployOn(DEPLOYER_ON), { arc: true, base: true }, 'unset: both, as before');
+  assert.deepEqual(await deployOn({ DEPLOY_CHAINS: 'arc,base' }), { arc: false, base: false }, 'no deployer key: off');
+});
+
+test('v2.10.3 production with DEPLOY_CHAINS=base: the real files and registry never offer the Arc starter (the v2.10 line byte for byte); DEPLOY_CHAINS=arc offers it', async () => {
+  const now = new Date('2026-10-11T12:00:00Z');
+  const cards = fileCards();
+  const message = (fresh?: ReturnType<typeof freshSwitches>) => ({
+    alerts: [], campaigns: [], cards, repos: null, workingOn: [], agentCanBuild: true, sponsorEntries: null, now, more: false, ...(fresh && { fresh }),
+  });
+  const v210 = presentFirstMessage(message());
+  const run = (vars: Record<string, string>) =>
+    withShipEnv(vars, async () => {
+      const fresh = freshSwitches({}, true);
+      return { lead: freshLead(message(fresh)), reply: presentFirstMessage(message(fresh)) };
+    });
+  for (const [label, vars] of [['R2 and the key, Base only', { ...DEPLOYER_ON, ...R2_ON, DEPLOY_CHAINS: 'base' }], ['the key alone, Base only', { ...DEPLOYER_ON, DEPLOY_CHAINS: 'base' }]] as const) {
+    const r = await run(vars);
+    assert.equal(r.lead, undefined, label);
+    assert.equal(r.reply, v210, `${label}: the v2.10 line byte for byte`);
+  }
+  // Not vacuous: the same env with Arc listed leads with Arc.
+  assert.equal((await run({ ...DEPLOYER_ON, ...R2_ON, DEPLOY_CHAINS: 'arc' })).lead?.card.id, 'arc-microgrants');
+});
+
+test('7.2 / v2.10.3 find on the real switches with DEPLOY_CHAINS=base: the Arc starter is never offered (no build_offer, no fresh_offer_at); DEPLOY_CHAINS=arc offers it', dbTest, async (tc) => {
+  const t = await freshSetup('chains', tc);
+  const ctx = { ...t.base, freshDeps: { starters: t.starters } };
+  const find = async () => (await handlers.list_programs({}, ctx)) as T7Found;
+  const off = await withShipEnv({ ...DEPLOYER_ON, ...R2_ON, DEPLOY_CHAINS: 'base' }, find);
+  assert.match(off.show_to_builder, T7_V210);
+  assert.ok(!('build_offer' in off));
+  assert.equal(await t.offerAt(), null);
+  const on = await withShipEnv({ ...DEPLOYER_ON, ...R2_ON, DEPLOY_CHAINS: 'arc' }, find);
+  assert.equal(on.show_to_builder.split('\n')[1], T7_LEAD);
+  assert.equal(on.build_offer?.starter_id, t.starterId);
 });
 
 test('T6 follow-up: find on the real switches with production\'s env offers no build for a program naming the real arc-tipjar', dbTest, async (tc) => {
@@ -4861,6 +4907,35 @@ test('9.4 deploys off: "Deploys are off right now.", nothing deployed, no upload
     assert.deepEqual(t.reads, [], 'no proof read');
     assert.equal((await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM host_upload_tokens WHERE installation_id = ${t.inst}`)[0].n, 0);
     assert.deepEqual(await eventsOfInstallation(t.inst), []);
+  }),
+);
+
+test('9.4 v2.10.3 DEPLOY_CHAINS=base: the Arc build\'s deploy is refused as deployStep refuses it ("Deploys on Arc are off right now."); nothing deployed, read, hosted or logged; no chain left is the plain off line', dbTest, (tc) =>
+  withEventLog(async () => {
+    const { DEPLOY_LINES, deployOffLine, deployOffNote } = await import('./deploy');
+    const t = await shipSetup('chains', tc);
+    const real = { ...t.ctx, freshDeps: { ...t.ctx.freshDeps, deployOn: undefined } };
+    for (const [label, c] of [['the real switches', real], ['a deploy switch left on', t.ctx]] as const) {
+      const r = await withVars({ ...shipVars(), DEPLOY_CHAINS: 'base' }, () => t.ship({}, c));
+      assert.equal(r.show_to_builder, 'Deploys on Arc are off right now.', label);
+      assert.equal(r.show_to_builder, deployOffLine('arc'), label);
+      assert.deepEqual(r.deploy, { unavailable: deployOffLine('arc') }, label);
+      assert.equal(r.agent_note, deployOffNote('arc'), label);
+      assert.ok(!('host' in r), `${label}: no host block`);
+      atMostOneQuestion(r, label);
+    }
+    const none = await withVars({ ...shipVars(), DEPLOY_CHAINS: 'nope' }, () => t.ship({}, real));
+    assert.equal(none.show_to_builder, DEPLOY_LINES.off, 'no chain left: the plain off line');
+    assert.deepEqual(none.deploy, { unavailable: DEPLOY_LINES.off });
+    assert.equal(t.sent.length, 0);
+    assert.deepEqual(t.reads, [], 'no proof read');
+    assert.equal((await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM host_upload_tokens WHERE installation_id = ${t.inst}`)[0].n, 0);
+    assert.deepEqual(await eventsOfInstallation(t.inst), []);
+    // Not vacuous: Arc listed, the same build deploys.
+    const on = await withVars({ ...shipVars(), DEPLOY_CHAINS: 'arc' }, () => t.ship({}, real));
+    assert.equal(t.sent.length, 1, 'DEPLOY_CHAINS=arc deploys');
+    assert.deepEqual(on.deploy, { address: T9_ADDR, chain: 'arc', owner_ok: true });
+    await sql()`UPDATE hosted_sites SET status = 'ended' WHERE repo_key = ${t.repoKey}`;
   }),
 );
 

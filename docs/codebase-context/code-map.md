@@ -464,7 +464,8 @@ apps/frontend/
                                fallback)
     mcp.ts(+test)              v2.10 item 4: registers find, prepare, confirm, tell (+ sponsor_campaign with escrow);
                                v2.10 item 13: prepare's deploy schema (chain, bytecode, abi, constructor_args, owner_wallet); readOnlyHint false.
-                               v2.10.3: the deploy field is listed only while deployEnabled() and DEPLOY_CHAINS names a chain.
+                               v2.10.3: the deploy field is listed only while deployEnabled() and DEPLOY_CHAINS names a chain
+                               (v2.11: the build field and toolDescriptions' buildOn the same).
                                v2.11 T8: prepare's build schema (BUILD_SCHEMA, passthrough), listed with deploy only.
                                FIND_DESCRIPTION, TELL_DESCRIPTION, toolDescriptions, serverInstructions, OWNERSHIP_FOR_TOKEN all
                                under 800 characters (mcp.test 9.1, 9.2; 9.7 the route alias end to end).
@@ -756,6 +757,8 @@ apps/frontend/
                                v2.10 item 13: PrepareInput.deploy (DeployField, P9 owner_wallet), deployStep (the deployed line, reply.deploy), deployWalletLine.
                                Final fix M3: deployStep on a shared client needs sign-in on and calls callerLogin directly (DeployDeps.callerLogin seam).
                                v2.10.3: deployStep refuses a chain not in DEPLOY_CHAINS first (deployOffLine), before the wallet ask or any read.
+                               v2.11 on v2.10.3: freshSwitches' deployOn is deployChainOn (a chain off in DEPLOY_CHAINS is never offered);
+                               buildShip refuses a listed-off starter chain the same way (deployOffLine, deployOffNote).
     tokens.ts(+test)           tokensFunUrl() (v2.9 T12: TOKENSFUN_API_URL read per call, never at import);
                                v2.10 item 11: tokenDescription (plain description, else the entry's
                                one-liner, else "<Name> on <Chain>" for a one-chain program, else "<Name>"; at most 280 characters), deployToken's description;

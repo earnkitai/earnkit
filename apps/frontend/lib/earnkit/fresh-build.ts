@@ -28,7 +28,7 @@ export type FreshPickOpts = {
   hidden: Set<string>;
   /** Programs the builder already has an entry in. */
   entered: Set<string>;
-  /** EarnKit deploys to this chain right now (deploy.ts deployEnabled plus the chain's RPC). */
+  /** EarnKit deploys to this chain right now (deploy.ts deployChainOn: the key and DEPLOY_CHAINS; plus the chain's RPC). */
   deployOn: (c: StarterChain) => boolean;
   /** EarnKit hosting is on (r2.ts r2Enabled). Off: only a starter whose site can go on GitHub Pages (T9). */
   hostOn: boolean;
