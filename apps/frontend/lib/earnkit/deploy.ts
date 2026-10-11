@@ -58,11 +58,12 @@ export const DEPLOY_CAPS = {
   perRepo30d: 10,
 } as const;
 
-/** v2.11 T9 security fix R3: the agent's note when a proof-line-only deploy has no proven owner login. */
+/** v2.11 T9 security fix R3: the agent's note when a proof-line-only deploy has no proven owner login (final fix M5: a fresh push, as BUILD_OWNER_NOTE asks). */
 export const OWNER_PROOF_NOTE =
   "EarnKit deploys from the earnkit.txt line only for the repo owner's own account: the owner's own push of the line (not a merge, " +
   "a bot or a collaborator), the builder's GitHub username passed to find, and an account at least 30 days old with a public repo. " +
-  "Push the line from the builder's own account to a repo they own, or sign in with GitHub where that is offered. Tell the builder in one short line.";
+  "A push from before the line was shown never counts: make a fresh commit (any small change, earnkit.txt kept) and push it now from the builder's own account to a repo they own, " +
+  'never a force push, then call this again; or sign in with GitHub where that is offered. If it is still refused, tell the builder in one short line.';
 
 /** ERC-20 transfer, approve and totalSupply: bytecode PUSH4-ing all three is a token (refused). */
 export const ERC20_SELECTORS = ['a9059cbb', '095ea7b3', '18160ddd'] as const;
