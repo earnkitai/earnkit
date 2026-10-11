@@ -4415,3 +4415,40 @@ real shapes; journey 11.6 (`v210-journey.test.ts`) replays tokens.fun through th
   and N4 (the pusher walk and the proof read may look at different branches; both need this
   installation's own code, so it is harmless).
 
+### T9 security fix round 3 (re-review 2: 0C 1I 3M)
+
+- **R4, only the owner's own fresh work credits the owner** (`ownership.ts fetchLinePusher` ownWork,
+  after R1's walk picks the crediting push):
+  - (a) one `GET /repos/{o}/{r}`: not a fork, not made from a template (`template_repository`);
+  - (b) the push's commits (compare `before...after`, status `ahead`, every commit read; for a
+    first-event creation the whole history, under 100 commits) have at most one parent (no merge
+    commit) and committer dates from 10 minutes before the repo's `created_at` and from 5 minutes
+    before this installation's first issue of the line (`proof_line_issues`, written by
+    `github-verify.ts noteLineIssued` wherever EarnKit shows the line: prepare's token_line, the build
+    kit, the proof note, the launch note), up to 5 minutes after the push;
+  - (c) a first-event `branch_creation` counts only within 10 minutes of the repo's creation (and its
+    commits as in b). The build flow (degit into a new folder, one local commit, create the repo under
+    the builder's account, push) passes: its commit is minutes before the repo, its push minutes after.
+    `PUSHER_WINDOW` holds the windows.
+- **S2 (ruling):** the per-repo cap (3 a day per chain, 10 in 30 days) applies to sign-in and App
+  deploys too; it is looser than the per-builder cap, so a single builder never meets it.
+- **Skipped:** S1 (an account-age gate and a reserved slice of the day for sign-in deploys would change
+  the v2.10 sign-in path, which round 2 keeps as it was; the global caps bound it) and S3 (the pusher
+  is read once per build call and passed through; the account read is cached).
+
+### Accepted residual for the `proof_line` basis (the weakest login basis, spec 6)
+
+- **What is still possible.** A targeted attacker who gets the repo owner to push (or rebase onto) a
+  commit holding the attacker's earnkit.txt line, with the commit dated inside the window around the
+  repo's creation and the push, no merge commit, in a repo that is neither a fork nor from a template,
+  is credited as the owner for that repo. The attacker must predict the owner's login, the repo name
+  and the push window, and the owner must push the attacker's content themselves.
+- **What it gives them.** EarnKit hosting for that one repo under `<project>-<owner>` (never replacing
+  a site made under another login; the owner's takedown and the abuse scan still apply), `proof_line`
+  events that name the owner (shown as the weakest basis, never used for money or scoring), and use of
+  the owner's deploy caps (once a day per chain, 3 in 30 days).
+- **Why it is bounded.** No money moves to anyone: a deployed contract is owned by the wallet the
+  attacker named (their own), gas is EarnKit's under the global caps ($0.25 a deploy, 20 a day, $10 a
+  month), and nothing here touches tokens, fees, bonuses or payouts. A sign-in or the App remains the
+  strong basis; this residual is the price of no-click hosting on non-shared clients.
+

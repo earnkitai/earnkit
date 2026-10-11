@@ -16,7 +16,7 @@ import { normalizeRepoUrl } from './campaigns';
 import { ForkCheckError, repoCodeFacts, type RepoCode } from './match-projects';
 import type { TokenPolicy } from './program-file';
 import { BASE_MAINNET, screenWallet } from './sanctions';
-import { createVerifyLink, githubVerifyEnabled, verifiedFor } from './github-verify';
+import { createVerifyLink, githubVerifyEnabled, lineIssuedAt, verifiedFor } from './github-verify';
 import { appTokenFor, githubAppEnabled } from './github-app';
 import { markRepoPublic } from './repo-cache';
 import { sharedGroup } from './installations';
@@ -94,7 +94,7 @@ export type OwnershipDeps = GateDeps & {
    * fetchLinePusher: the push's authenticated actor), or null. A test's injected `owner` reader
    * pairs with no pusher unless the test gives one.
    */
-  pusher?: (r: { owner: string; repo: string }, hasLine: (text: string) => boolean) => Promise<string | null>;
+  pusher?: (r: { owner: string; repo: string }, hasLine: (text: string) => boolean, issuedAt: Date | null) => Promise<string | null>;
 };
 const repoVerified = async (a: { installationId: number; repoKey: string; login?: string }) =>
   (githubVerifyEnabled() && (await verifiedFor(a)) !== null) ||
@@ -398,9 +398,11 @@ export async function proofLineOwner(a: { installationId: number; repoUrl: strin
   const gh = githubRepo(a.repoUrl);
   const code = gh ? tokenCode(a.installationId, a.repoUrl) : null;
   if (!gh || !code) return null;
-  const pusher = deps.pusher ?? (deps.owner ? async () => null : (r: { owner: string; repo: string }, has: (t: string) => boolean) => fetchLinePusher(r, has));
+  const pusher =
+    deps.pusher ?? (deps.owner ? async () => null : (r: { owner: string; repo: string }, has: (t: string) => boolean, at: Date | null) => fetchLinePusher(r, has, at));
   try {
-    return (await pusher(gh, (text) => proves({ status: 'ok', text }, code, null)))?.toLowerCase() ?? null;
+    const issuedAt = await lineIssuedAt(a.installationId, `${gh.owner}/${gh.repo}`);
+    return (await pusher(gh, (text) => proves({ status: 'ok', text }, code, null), issuedAt))?.toLowerCase() ?? null;
   } catch {
     return null;
   }

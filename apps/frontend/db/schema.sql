@@ -1064,3 +1064,11 @@ ALTER TABLE host_deploys ADD COLUMN IF NOT EXISTS basis text NOT NULL DEFAULT 's
 ALTER TABLE contract_deploys ADD COLUMN IF NOT EXISTS line_owner text;
 CREATE INDEX IF NOT EXISTS contract_deploys_repo_day ON contract_deploys (repo_key, created_at);
 CREATE INDEX IF NOT EXISTS contract_deploys_wallet_day ON contract_deploys (owner_wallet, created_at);
+-- v2.11 T9 security fix R4 (b): when EarnKit first showed an installation the earnkit.txt line for a
+-- repo; a commit dated before it is never that builder's own writing of the line. Additive.
+CREATE TABLE IF NOT EXISTS proof_line_issues (
+  installation_id integer NOT NULL,
+  repo_key        text NOT NULL,
+  first_at        timestamptz NOT NULL,
+  PRIMARY KEY (installation_id, repo_key)
+);

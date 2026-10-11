@@ -282,6 +282,21 @@ const PUSH_KINDS = new Set(['push', 'force_push', 'branch_creation', 'pr_merge',
 export const PUSHER_MAX_READS = 6;
 /** The activity page read; fewer entries than this means the repo's whole history is on it. */
 const ACTIVITY_PAGE = 50;
+/**
+ * v2.11 T9 security fix R4: how far the crediting push's commits may sit from the repo's creation,
+ * the line's first issue and the push. A build commits locally, then creates the repo and pushes,
+ * so its commits come minutes before `created_at`; a cloned tutorial or old work comes long before.
+ */
+export const PUSHER_WINDOW = {
+  /** A commit may be dated at most this long before the repo was created. */
+  beforeRepoMs: 10 * 60_000,
+  /** Clock skew allowed against the line's first issue and the push time. */
+  skewMs: 5 * 60_000,
+  /** A first-event branch creation must come within this long of the repo's creation (R4 c). */
+  firstEventMs: 10 * 60_000,
+  /** Commits read per credit check (compare, or a new repo's whole history). */
+  maxCommits: 100,
+} as const;
 
 /**
  * v2.11 T9 security fixes (I1, R1): the GitHub login that wrote a line into earnkit.txt, as GitHub's
@@ -300,7 +315,10 @@ const ACTIVITY_PAGE = 50;
  * - a `branch_creation` credits its actor only when it is the repo's very first event (the whole
  *   history is on the page and nothing is older), so the commit can't have come from anyone else;
  * - a `force_push` (it may point at any commit), `pr_merge` or `merge_queue_merge` (the merger didn't
- *   write the head; its pusher lives in a fork) credits no one.
+ *   write the head; its pusher lives in a fork) credits no one;
+ * - and (R4) only when the push carries the actor's own new work (ownWork: not a fork or template
+ *   repo; no merge commits; commits dated around the repo's creation, after the line's first issue to
+ *   this installation, and before the push; a first-event creation within minutes of the repo's).
  * Null when the activity can't be read, the chain breaks (older than the activity page), more than
  * PUSHER_MAX_READS reads would be needed, or the introducing push credits no one: no login is ever
  * guessed. Never throws.
@@ -308,13 +326,15 @@ const ACTIVITY_PAGE = 50;
 export async function fetchLinePusher(
   r: { owner: string; repo: string },
   hasLine: (text: string) => boolean,
+  /** R4 (b): when EarnKit first showed this installation the line for this repo; null: never credited. */
+  issuedAt: Date | null,
   deps: { fetch?: typeof fetch; raw?: OwnershipFetcher; token?: string } = {},
 ): Promise<string | null> {
   const token = deps.token ?? process.env.GITHUB_TOKEN;
   const raw = deps.raw ?? fetchOwnershipFile;
   const zero = (sha: string) => /^0+$/.test(sha);
-  try {
-    const res = await (deps.fetch ?? fetch)(`https://api.github.com/repos/${r.owner}/${r.repo}/activity?per_page=${ACTIVITY_PAGE}`, {
+  const api = async (path: string): Promise<unknown> => {
+    const res = await (deps.fetch ?? fetch)(`https://api.github.com/repos/${r.owner}/${r.repo}${path}`, {
       redirect: 'manual',
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'earnkit', ...(token && { Authorization: `Bearer ${token}` }) },
@@ -323,12 +343,17 @@ export async function fetchLinePusher(
       await res.body?.cancel().catch(() => {});
       return null;
     }
-    const body = (await res.json()) as unknown;
+    return res.json();
+  };
+  if (!issuedAt) return null;
+  const issued = issuedAt.getTime();
+  try {
+    const body = await api(`/activity?per_page=${ACTIVITY_PAGE}`);
     if (!Array.isArray(body)) return null;
     const complete = body.length < ACTIVITY_PAGE;
-    type Push = { kind: string; ref: string; before: string; after: string; actor: string; idx: number };
+    type Push = { kind: string; ref: string; before: string; after: string; actor: string; idx: number; at: number };
     const pushes: Push[] = [];
-    for (const [idx, p] of (body as { ref?: unknown; before?: unknown; after?: unknown; activity_type?: unknown; actor?: { login?: unknown } | null }[]).entries()) {
+    for (const [idx, p] of (body as { ref?: unknown; before?: unknown; after?: unknown; activity_type?: unknown; timestamp?: unknown; actor?: { login?: unknown } | null }[]).entries()) {
       const kind = String(p?.activity_type);
       const ref = typeof p?.ref === 'string' ? p.ref : '';
       const before = typeof p?.before === 'string' ? p.before : '';
@@ -336,7 +361,9 @@ export async function fetchLinePusher(
       const actor = typeof p?.actor?.login === 'string' ? p.actor.login : '';
       if (!PUSH_KINDS.has(kind) || !ref.startsWith('refs/heads/')) continue;
       if (!/^[0-9a-f]{40}$/.test(before) || !/^[0-9a-f]{40}$/.test(after) || zero(after) || !/^[A-Za-z0-9-]{1,39}$/.test(actor)) continue;
-      pushes.push({ kind, ref, before, after, actor, idx });
+      const at = typeof p?.timestamp === 'string' ? Date.parse(p.timestamp) : NaN;
+      if (!Number.isFinite(at)) continue;
+      pushes.push({ kind, ref, before, after, actor, idx, at });
     }
     let reads = 0;
     const lineAt = async (sha: string) => {
@@ -356,9 +383,40 @@ export async function fetchLinePusher(
       const i = pushes.indexOf(at);
       const earlier = pushes.find((p, j) => j > i && p.after === at!.after);
       if (earlier) return depth < 3 ? introducer(earlier, depth + 1) : null;
-      if (at.kind === 'push') return at.actor.toLowerCase();
-      if (at.kind === 'branch_creation' && complete && at.idx === body.length - 1) return at.actor.toLowerCase();
-      return null;
+      const first = at.kind === 'branch_creation' && complete && at.idx === body.length - 1;
+      if (at.kind !== 'push' && !first) return null;
+      return (await ownWork(at, first)) ? at.actor.toLowerCase() : null;
+    };
+    /**
+     * R4: the crediting push carries only the actor's own new work. (a) The repo is neither a fork nor
+     * made from a template (one repo read). (c) A first-event creation comes within minutes of the
+     * repo's creation. (b) Every commit it brought (compare before...after; for the first event the
+     * whole history) has at most one parent (no merge), and is dated from 10 minutes before the
+     * repo's creation and from the line's first issue to this installation, up to the push: a cloned
+     * tutorial, old work or a merge of someone else's branch is never the owner's.
+     */
+    const ownWork = async (push: Push, first: boolean): Promise<boolean> => {
+      const repo = (await api('')) as { fork?: unknown; template_repository?: unknown; created_at?: unknown } | null;
+      const created = typeof repo?.created_at === 'string' ? Date.parse(repo.created_at) : NaN;
+      if (!repo || repo.fork !== false || (repo.template_repository !== undefined && repo.template_repository !== null) || !Number.isFinite(created)) return false;
+      if (first && (push.at < created - PUSHER_WINDOW.skewMs || push.at > created + PUSHER_WINDOW.firstEventMs)) return false;
+      type Commit = { parents?: unknown; commit?: { committer?: { date?: unknown } | null } | null };
+      let commits: Commit[];
+      if (first) {
+        const list = await api(`/commits?sha=${push.after}&per_page=${PUSHER_WINDOW.maxCommits}`);
+        if (!Array.isArray(list) || list.length === 0 || list.length >= PUSHER_WINDOW.maxCommits) return false;
+        commits = list as Commit[];
+      } else {
+        const cmp = (await api(`/compare/${push.before}...${push.after}`)) as { status?: unknown; total_commits?: unknown; commits?: unknown } | null;
+        if (!cmp || cmp.status !== 'ahead' || !Array.isArray(cmp.commits) || cmp.commits.length === 0 || cmp.total_commits !== cmp.commits.length || cmp.commits.length > PUSHER_WINDOW.maxCommits) return false;
+        commits = cmp.commits as Commit[];
+      }
+      const from = Math.max(created - PUSHER_WINDOW.beforeRepoMs, issued - PUSHER_WINDOW.skewMs);
+      const to = push.at + PUSHER_WINDOW.skewMs;
+      return commits.every((c) => {
+        const date = typeof c?.commit?.committer?.date === 'string' ? Date.parse(c.commit.committer.date) : NaN;
+        return Array.isArray(c?.parents) && c.parents.length <= 1 && Number.isFinite(date) && date >= from && date <= to;
+      });
     };
     // The newest push of each branch first: the branch whose head has the line.
     const heads = pushes.filter((p, i) => pushes.findIndex((q) => q.ref === p.ref) === i);

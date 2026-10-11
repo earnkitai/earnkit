@@ -4714,7 +4714,12 @@ type ShipReply = BuildReply & { deploy?: Record<string, unknown>; host?: Record<
  * (`days` old, 5 public repos). A fake Arc chain that counts deploys, the proof line in the repo
  * (`line: false`: none), a passing link probe, and `ship(deploy)` for the build mark.
  */
-async function shipSetup(tag: string, tc: TestContext, o: { days?: number; line?: boolean; hostOn?: boolean; deployOn?: boolean; pusher?: string | null; ownerRead?: string } = {}) {
+type PusherFn = (r: { owner: string; repo: string }, hasLine: (text: string) => boolean, issuedAt: Date | null) => Promise<string | null>;
+async function shipSetup(
+  tag: string,
+  tc: TestContext,
+  o: { days?: number; line?: boolean; hostOn?: boolean; deployOn?: boolean; pusher?: string | null; ownerRead?: string; github?: (inst: number, login: string) => PusherFn } = {},
+) {
   const t = await buildSetup(`t9-${tag}`, tc);
   const login = `jt9${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
   const repo = `https://github.com/${login}/podtips`;
@@ -4744,7 +4749,7 @@ async function shipSetup(tag: string, tc: TestContext, o: { days?: number; line?
     },
     latest: async () => null,
     // T9 security fix I1: who GitHub's push record says added the line (default: the repo owner).
-    pusher: async () => (o.pusher === undefined ? login : o.pusher),
+    pusher: o.github ? o.github(t.inst, login) : async () => (o.pusher === undefined ? login : o.pusher),
   };
   const probes: string[] = [];
   const ctx = {
@@ -5058,6 +5063,78 @@ test('T9 M6 a deployed contract the build wallet does not own gets no site; M4 a
       const r2 = await capOnly.ship();
       assert.equal(r2.show_to_builder, 'You can deploy once a day per chain, 3 times a month.');
       assert.deepEqual((await eventsOfInstallation(capOnly.inst)).map((e) => e.type), [], 'no built when a cap refuses');
+    }),
+  ),
+);
+
+// ---- v2.11 T9 security fix R4: the build flow through GitHub's real push record (fetchLinePusher)
+
+/**
+ * GitHub as the build flow leaves it, read through the real fetchLinePusher: the agent degits the
+ * starter into a new folder, commits once locally (one root commit, a minute before the repo
+ * exists), creates the repo under the builder's account and pushes main: the repo's first event, a
+ * branch creation a minute after its creation. `o` bends one part for each R4 attack.
+ */
+function buildFlowGitHub(o: { repo?: Record<string, unknown>; commits?: unknown[]; activity?: (login: string, now: number) => unknown[]; compare?: unknown } = {}) {
+  return (inst: number, login: string): PusherFn => async (r, hasLine, issuedAt) => {
+    const { fetchLinePusher } = await import('./ownership');
+    const now = Date.now();
+    const iso = (ms: number) => new Date(ms).toISOString();
+    const HEAD = 'c'.repeat(40);
+    const line = `${tokenLineFor(inst, `https://github.com/${r.owner}/${r.repo}`)}\n`;
+    const api = (url: string) => {
+      const p = new URL(url).pathname;
+      if (p.endsWith('/activity'))
+        return Response.json(o.activity ? o.activity(login, now) : [{ activity_type: 'branch_creation', ref: 'refs/heads/main', before: '0'.repeat(40), after: HEAD, timestamp: iso(now), actor: { login } }]);
+      if (p === `/repos/${r.owner}/${r.repo}`) return Response.json({ fork: false, template_repository: null, created_at: iso(now - 60_000), ...o.repo });
+      if (p.endsWith('/commits')) return Response.json(o.commits ?? [{ parents: [], commit: { committer: { date: iso(now - 120_000) } } }]);
+      if (p.includes('/compare/')) return Response.json(o.compare ?? { status: 'ahead', total_commits: 0, commits: [] });
+      return new Response('', { status: 404 });
+    };
+    return fetchLinePusher(r, hasLine, issuedAt, {
+      fetch: (async (url: string) => api(url)) as unknown as typeof fetch,
+      raw: async (url) => (url.includes(`/${HEAD}/`) ? { status: 'ok', text: line } : { status: 'missing' }),
+    });
+  };
+}
+
+test('T9 R4 journey: degit into a new folder, create the repo under the builder\'s account, push (a first-event branch creation within minutes): the builder\'s own proven login deploys and gets the upload URL', dbTest, (tc) =>
+  withEventLog(() =>
+    withVars(shipVars(), async () => {
+      const t = await shipSetup('r4flow', tc, { github: buildFlowGitHub() });
+      const r = await t.ship();
+      assert.equal(t.sent.length, 1);
+      assert.equal(r.show_to_builder, "PodTips is deployed on Arc: 0x0000…11ce. You're the owner.");
+      assert.match(String(r.host?.upload_url), /\/api\/host\/upload\?t=/);
+      const events = await eventsOfInstallation(t.inst);
+      assert.deepEqual(events.map((e) => [e.type, e.github_login, e.login_basis]), [['built', t.login, 'proof_line'], ['deployed', t.login, 'proof_line']]);
+    }),
+  ),
+);
+
+test('T9 R4 journey: a template repo, a fork, a cloned history, a local merge or a late first event never prove the owner: nothing deploys', dbTest, (tc) =>
+  withEventLog(() =>
+    withVars(shipVars(), async () => {
+      const day = 86_400_000;
+      const cases: [string, Parameters<typeof buildFlowGitHub>[0]][] = [
+        ['a template repo', { repo: { template_repository: { full_name: 'mallory/tutorial' } } }],
+        ['a fork', { repo: { fork: true } }],
+        ['a cloned history', { commits: [{ parents: [], commit: { committer: { date: new Date(Date.now() - 30 * day).toISOString() } } }] }],
+        ['a late first event (older events may have aged out)', { repo: { created_at: new Date(Date.now() - 2 * day).toISOString() } }],
+        [
+          'a local merge of a collaborator\'s branch',
+          {
+            activity: (login, now) => [{ activity_type: 'push', ref: 'refs/heads/main', before: 'b'.repeat(40), after: 'c'.repeat(40), timestamp: new Date(now).toISOString(), actor: { login } }],
+            compare: { status: 'ahead', total_commits: 1, commits: [{ parents: [{ sha: 'b'.repeat(40) }, { sha: 'd'.repeat(40) }], commit: { committer: { date: new Date().toISOString() } } }] },
+          },
+        ],
+      ];
+      for (const [i, [label, o]] of cases.entries()) {
+        const t = await shipSetup(`r4case${i}`, tc, { github: buildFlowGitHub(o) });
+        refusedQuietly(await t.ship(), /only for the repo owner's own account/, label);
+        assert.equal(t.sent.length, 0, label);
+        assert.deepEqual(await eventsOfInstallation(t.inst), [], label);
+      }
     }),
   ),
 );
