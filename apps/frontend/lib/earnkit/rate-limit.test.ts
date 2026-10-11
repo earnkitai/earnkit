@@ -7,6 +7,7 @@ import {
   hitResult,
   ipKey,
   retryText,
+  sweepRateWindows,
   windowStart,
 } from './rate-limit';
 
@@ -109,3 +110,17 @@ test(
     await sql()`DELETE FROM rate_windows WHERE key = ${key}`;
   },
 );
+
+test('v2.11 T12 re-review I5: the cron sweep deletes windows over 2 days old, bounded, and keeps recent ones', db, async () => {
+  const tag = `sweep-${process.pid}-${Date.now()}`;
+  await sql()`INSERT INTO rate_windows (key, window_start, count) VALUES
+    (${`${tag}-old1`}, now() - interval '3 days', 1), (${`${tag}-old2`}, now() - interval '50 hours', 1), (${`${tag}-new`}, now() - interval '20 hours', 1)`;
+  const left = async () => (await sql()<{ key: string }[]>`SELECT key FROM rate_windows WHERE key LIKE ${`${tag}%`} ORDER BY key`).map((r) => r.key);
+  assert.ok((await sweepRateWindows(new Date(), 1)) <= 1, 'bounded by the limit');
+  await sweepRateWindows(new Date(), 1000);
+  assert.deepEqual(await left(), [`${tag}-new`]);
+  const { runCron } = await import('./cron');
+  const out = await runCron({ only: ['none'], deps: { cleanup: { limit: 1000 }, refreshFees: async () => 0 } });
+  assert.equal(typeof (out.cleanup as { rate_windows: number }).rate_windows, 'number');
+  await sql()`DELETE FROM rate_windows WHERE key LIKE ${`${tag}%`}`;
+});
