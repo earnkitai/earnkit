@@ -521,6 +521,31 @@ export async function proofLineLogin(installationId: number, repoKey: string, li
   return (await githubUser(owner))?.type === 'User' ? { login: owner, basis: 'proof_line' } : null;
 }
 
+/**
+ * v2.11 T9 security fix R4 (b): EarnKit showed this installation the earnkit.txt line for this repo
+ * (prepare's token_line, the build kit, a proof note, the launch note). The first time is kept: a
+ * commit dated before it can't be the builder writing that line. Never throws.
+ */
+export async function noteLineIssued(installationId: number, repoUrl: string, now = new Date()): Promise<void> {
+  const gh = githubRepo(repoUrl);
+  if (!gh) return;
+  try {
+    await sql()`
+      INSERT INTO proof_line_issues (installation_id, repo_key, first_at)
+      VALUES (${installationId}, ${`${gh.owner}/${gh.repo}`.toLowerCase()}, ${now})
+      ON CONFLICT (installation_id, repo_key) DO NOTHING`;
+  } catch (err) {
+    console.error('[github-verify] line issued', err instanceof Error ? err.name : 'error');
+  }
+}
+
+/** R4 (b): when this installation was first shown the line for `repoKey`, or null. */
+export async function lineIssuedAt(installationId: number, repoKey: string): Promise<Date | null> {
+  const [row] = await sql()<{ first_at: Date }[]>`
+    SELECT first_at FROM proof_line_issues WHERE installation_id = ${installationId} AND repo_key = ${repoKey.toLowerCase()}`;
+  return row?.first_at ?? null;
+}
+
 /** v2.11 T9 security fix R3: the account bar a proven owner login must pass (hosting.ts HOST_LIMITS' gate). */
 export const OWNER_GATE = { accountMinDays: 30, minPublicRepos: 1 } as const;
 

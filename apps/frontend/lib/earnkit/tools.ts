@@ -117,7 +117,7 @@ import {
   type BuildFields,
   type FreshPick,
 } from './fresh-build';
-import { callerLogin, createVerifyLink, entryVerifyLink, githubVerifyEnabled, installationLogin, loginBasisFor, provenOwnerLogin, verifiedEntryIds } from './github-verify';
+import { callerLogin, createVerifyLink, entryVerifyLink, githubVerifyEnabled, installationLogin, loginBasisFor, noteLineIssued, provenOwnerLogin, verifiedEntryIds } from './github-verify';
 import { appTokenFor, githubAppEnabled, hasAppProof } from './github-app';
 import { PROOF_LINE_PREFIX, SIGN_IN_FIRST, WALLET_CHANGED } from './token-gate';
 import { kitReplyNote, submitKit, type SubmitKit } from './submit-kit';
@@ -1455,6 +1455,8 @@ export const handlers = {
         // (injected in tests; the defaults otherwise, as before).
         { check: ctx.tokenDeps?.check, available: ctx.tokenDeps?.available })
       : null;
+    // v2.11 T9 R4 (b): the token block's notes carry the earnkit.txt line for this repo.
+    if (token && repoUrl) await noteLineIssued(ctx.installationId, repoUrl);
     const payoutWallet = given;
     const sign_to_enter = signToEnter(
       program_id,
@@ -1600,6 +1602,8 @@ export const handlers = {
     // Ruling 25 (plan) / Part C: the token line, once the repo is known, for the agent to push with
     // its work before the builder confirms (an agent that can't push gets none).
     const line = repoUrl && canPush && program.token_policy !== 'off' && !prepTokensOff ? tokenLineFor(ctx.installationId, repoUrl) : null;
+    // v2.11 T9 R4 (b): when this installation was first shown the line for this repo.
+    if (line && repoUrl) await noteLineIssued(ctx.installationId, repoUrl);
     // Part D.4: the check before submitting, never blocking; shown with the draft once ready.
     const checked = prep.ready
       ? preSubmitCheck({
@@ -2520,6 +2524,7 @@ async function buildTwist(b: z.infer<typeof BuildTwist>, ctx: ToolContext) {
   const shownBefore = (['wallet', 'twist', 'name', 'description', 'feature', 'for_whom'] as const).every((k) => stored[k] === next[k]);
   if (given) await rememberWallet(ctx.installationId, given);
   await saveBuild(ctx.installationId, next);
+  if (next.repo_url) await noteLineIssued(ctx.installationId, next.repo_url);
   return {
     program_id: next.program_id,
     show_to_builder: shownBefore ? '' : buildingLine(next.name!, pick.starter.what, next.for_whom!),
@@ -2718,7 +2723,10 @@ async function buildShip(programId: string, rest: Record<string, unknown>, ctx: 
   const repo = `https://github.com/${gh.owner}/${gh.repo}`;
   const repoKey = `${gh.owner}/${gh.repo}`.toLowerCase();
   const proven = await proveRepo({ installationId: ctx.installationId, repoUrl: repo }, ctx.deployDeps?.gate);
-  if (!proven) return { reply: buildRefusal(buildProofNote(tokenLineFor(ctx.installationId, repo))) };
+  if (!proven) {
+    await noteLineIssued(ctx.installationId, repo);
+    return { reply: buildRefusal(buildProofNote(tokenLineFor(ctx.installationId, repo))) };
+  }
   // Security fix R3: with no sign-in, only the repo owner's own proven account deploys (deploy.ts checks it again).
   if (!(await repoSignedIn({ installationId: ctx.installationId, repoKey }, ctx.deployDeps?.gate)) && !(await provenOwnerLogin(ctx.installationId, repoKey, proven.lineOwner)))
     return { reply: buildRefusal(`${OWNER_PROOF_NOTE} Don't show this note.`) };

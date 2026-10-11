@@ -17,7 +17,7 @@ import { deployToken } from './tokens';
 import { launchLogo } from './token-logo';
 import { TECHNICAL_TERMS, type TokenFlowDeps } from './token-launch';
 import { checkDefaults } from './verify';
-import { verifyCallback, verifyConfirm, verifyStart } from './github-verify';
+import { noteLineIssued, verifyCallback, verifyConfirm, verifyStart } from './github-verify';
 import { appSetup } from './github-app';
 import { deployedLine, type DeployChain, type DeployDeps } from './deploy';
 import { getProjectPage } from './leaderboard';
@@ -233,7 +233,8 @@ function github(u: URL, init?: RequestInit): Response {
   if (p === '/installation/repositories' && appInstall)
     return json({ total_count: appInstall.repos.length, repositories: appInstall.repos.map((full_name) => ({ full_name })) });
   if (u.host === 'raw.githubusercontent.com') {
-    const [, owner, repo] = p.split('/');
+    const [, owner, repo, ref] = p.split('/');
+    if (ref === 'b'.repeat(40)) return notFound(); // the commit before the line was pushed
     const r = GITHUB.repos.get(`${owner}/${repo}`.toLowerCase());
     if (!r || r.private) return notFound();
     return rawOf(r, p.split('/').slice(4).join('/'));
@@ -280,13 +281,16 @@ function github(u: URL, init?: RequestInit): Response {
       return json(Array.from({ length: n }, (_, i) => ({ sha: `c${i}`, author: null, commit: { author: { date: daysAgo(i + 1) } } })));
     }
     if (rest === '/branches') return json([{ name: 'main' }]);
-    // v2.11 T9 (I1, R1): the repo's push record: its owner created main with the proof line in it.
+    // v2.11 T9 (I1, R1, R4): the repo's push record: a minute ago its owner pushed one fresh commit
+    // (one parent, dated now) adding the proof line to main (commit b...b had no earnkit.txt line).
     if (rest === '/activity')
       return json(
         PUSHED.has(key)
-          ? [{ activity_type: 'branch_creation', ref: 'refs/heads/main', before: '0'.repeat(40), after: 'a'.repeat(40), actor: { login: (r.owner as { login: string }).login } }]
+          ? [{ activity_type: 'push', ref: 'refs/heads/main', before: 'b'.repeat(40), after: 'a'.repeat(40), timestamp: new Date().toISOString(), actor: { login: (r.owner as { login: string }).login } }]
           : [],
       );
+    if (rest === `/compare/${'b'.repeat(40)}...${'a'.repeat(40)}`)
+      return json({ status: 'ahead', total_commits: 1, commits: [{ parents: [{ sha: 'b'.repeat(40) }], commit: { committer: { date: new Date(Date.now() - 60_000).toISOString() } } }] });
   }
   return notFound();
 }
@@ -524,6 +528,9 @@ test('11.0 the owner\'s run: private tokens.fun and EarnKit repos and a public t
     ]);
     GITHUB.arcConfig.add('jenil/arc-usdc-tipjar');
     PUSHED.add('jenil/arc-usdc-tipjar');
+    // v2.11 T9 R4 (b): the agent was shown its earnkit.txt line for the repo (a prepare's token_line)
+    // ten minutes ago, before the owner pushed it.
+    await noteLineIssued(id, 'https://github.com/jenil/arc-usdc-tipjar', new Date(Date.now() - 10 * 60_000));
     // Arc closes in a little over 2 days (inside the deadline line's 3).
     const arcEnds = new Date(NOW + 2.25 * 86_400_000).toISOString();
     await setDeadline('arc-microgrants', arcEnds);

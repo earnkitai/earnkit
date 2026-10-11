@@ -317,7 +317,7 @@ apps/frontend/
                                bonus-rounds.ts); ended or closed, it's skipped with no fetch;
                                filtered in SQL, at most RECHECK_BATCH (50) a run (M11)
     ownership.ts(+test)        builder ownership proof: earnkit.txt at the repo root (raw GitHub,
-                               v2.11 T9 security fix: fetchLinePusher (the activity actor of the push that added the line)
+                               v2.11 T9 security fix: fetchLinePusher (the activity actor of the push that added the line; R4 ownWork, PUSHER_WINDOW)
                                5 s, 4 KB, no redirects; EARNKIT_OWNERSHIP_BASE_URL in dev/test only):
                                v2.6 fetchOwnershipViaApi (the coin gate's read: GitHub contents API
                                with GITHUB_TOKEN, raw only when rate-limited: 429, 403 + remaining 0,
@@ -1322,7 +1322,8 @@ apps/frontend/
                                v2.11 Task 11: usage_check_failures (failed usage checks in a row per deployed event)
                                v2.11 T5: programs.fresh_build (jsonb, the program file's fresh_build; NULL when unset)
                                v2.11 T9: host_upload_tokens.basis and host_deploys.basis (signin | app | proof_line)
-                               v2.11 T9 security fix: contract_deploys.line_owner, contract_deploys_repo_day and _wallet_day indexes
+                               v2.11 T9 security fix: contract_deploys.line_owner, contract_deploys_repo_day and _wallet_day indexes;
+                               proof_line_issues (installation_id, repo_key, first_at: the line's first issue, R4)
   scripts/                     db-migrate.mts, programs-sync.mts (load .env.local); v2.7: programs-sync
                                writes the guide columns; --check (pnpm programs:check) also checks each logo file
                                (logo-check.ts) and the required items' todo; v2.8 Task 12: also validates

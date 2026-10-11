@@ -551,16 +551,32 @@ test('T9 I1 fetchLinePusher: the actor of the push that introduced the line; nev
   const sha = (n: number) => n.toString(16).padStart(40, '0');
   const ZERO = '0'.repeat(40);
   const LINE = 'token: 0123456789abcdef';
-  const push = (actor: string, before: string, after: string, o: { ref?: string; type?: string } = {}) => ({
-    activity_type: o.type ?? 'push', ref: o.ref ?? 'refs/heads/main', before, after, actor: { login: actor },
+  // R4: the repo was created at T0, the line first shown to the installation 5 minutes before, and
+  // each push lands 3 minutes after T0 with one fresh single-parent commit dated 2 minutes after T0.
+  const T0 = Date.parse('2026-10-11T12:00:00Z');
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const push = (actor: string, before: string, after: string, o: { ref?: string; type?: string; at?: number } = {}) => ({
+    activity_type: o.type ?? 'push', ref: o.ref ?? 'refs/heads/main', before, after, actor: { login: actor }, timestamp: iso(o.at ?? T0 + 180_000),
   });
-  const run = async (activity: unknown, files: Record<string, string>, status = 200) => {
+  const commit = (at: number, parents = 1) => ({ parents: Array.from({ length: parents }, (_, i) => ({ sha: sha(900 + i) })), commit: { committer: { date: iso(at) } } });
+  type R4 = { repo?: unknown; compare?: unknown; commits?: unknown; issuedAt?: Date | null };
+  const run = async (activity: unknown, files: Record<string, string>, status = 200, o: R4 = {}) => {
     const reads: string[] = [];
+    const api = (url: string) => {
+      const u = new URL(url);
+      if (u.pathname.endsWith('/activity')) return new Response(JSON.stringify(activity), { status });
+      if (u.pathname === '/repos/alice/podtips')
+        return o.repo === null ? new Response('', { status: 404 }) : Response.json(o.repo ?? { fork: false, template_repository: null, created_at: iso(T0) });
+      if (u.pathname.includes('/compare/')) return Response.json(o.compare ?? { status: 'ahead', total_commits: 1, commits: [commit(T0 + 120_000)] });
+      if (u.pathname.endsWith('/commits')) return Response.json(o.commits ?? [commit(T0 + 60_000, 0)]);
+      return new Response('', { status: 404 });
+    };
     const got = await fetchLinePusher(
       { owner: 'alice', repo: 'podtips' },
       (t) => t.includes(LINE),
+      o.issuedAt === undefined ? new Date(T0 - 300_000) : o.issuedAt,
       {
-        fetch: (async () => new Response(JSON.stringify(activity), { status })) as unknown as typeof fetch,
+        fetch: (async (url: string) => api(url)) as unknown as typeof fetch,
         raw: async (url) => {
           const s = url.split('/')[5];
           reads.push(s);
@@ -601,6 +617,33 @@ test('T9 I1 fetchLinePusher: the actor of the push that introduced the line; nev
   // A first-event creation on a page that is not the whole history: no one.
   const full = [push('alice', ZERO, sha(1), { type: 'branch_creation' }), ...Array.from({ length: 49 }, () => ({ activity_type: 'branch_deletion', ref: 'refs/heads/x' }))].reverse().reverse();
   assert.equal((await run([...full.slice(1), full[0]], { [sha(1)]: LINE })).got, null);
+  // ---- R4: only the owner's own fresh work.
+  const files = { [sha(1)]: 'readme', [sha(2)]: LINE };
+  const direct = [push('alice', sha(1), sha(2))];
+  assert.equal((await run(direct, files)).got, 'alice', 'the owner pushed fresh work');
+  // (a) A fork or a repo made from a template: no one.
+  assert.equal((await run(direct, files, 200, { repo: { fork: true, template_repository: null, created_at: iso(T0) } })).got, null, 'a fork');
+  assert.equal((await run(direct, files, 200, { repo: { fork: false, template_repository: { full_name: 'mallory/tutorial' }, created_at: iso(T0) } })).got, null, 'a template repo');
+  assert.equal((await run(direct, files, 200, { repo: null })).got, null, 'no repo read');
+  // (b) A local merge of mallory's branch: a two-parent commit.
+  assert.equal((await run(direct, files, 200, { compare: { status: 'ahead', total_commits: 2, commits: [commit(T0 + 60_000), commit(T0 + 120_000, 2)] } })).got, null, 'a merge commit');
+  // (b) A commit from before the repo existed (a cloned tutorial), or before the line was shown, or after the push.
+  assert.equal((await run(direct, files, 200, { compare: { status: 'ahead', total_commits: 1, commits: [commit(T0 - 2 * 86_400_000)] } })).got, null, 'old work');
+  assert.equal((await run(direct, files, 200, { issuedAt: new Date(T0 + 30 * 60_000) })).got, null, 'before the line was shown');
+  assert.equal((await run(direct, files, 200, { compare: { status: 'ahead', total_commits: 1, commits: [commit(T0 + 86_400_000)] } })).got, null, 'dated after the push');
+  assert.equal((await run(direct, files, 200, { issuedAt: null })).got, null, 'the line was never shown');
+  assert.equal((await run(direct, files, 200, { compare: { status: 'diverged', total_commits: 1, commits: [commit(T0 + 60_000)] } })).got, null, 'not a fast-forward');
+  assert.equal((await run(direct, files, 200, { compare: { status: 'ahead', total_commits: 300, commits: [commit(T0 + 60_000)] } })).got, null, 'more commits than read');
+  // (c) A first-event creation an hour after the repo was made (events before it may have aged out): no one.
+  const late = [push('alice', ZERO, sha(1), { type: 'branch_creation', at: T0 + 3_600_000 })];
+  assert.equal((await run(late, { [sha(1)]: LINE })).got, null, 'a late first event');
+  // A clone of mallory's tutorial pushed to a new repo: its history predates the repo.
+  const clone = [push('alice', ZERO, sha(1), { type: 'branch_creation' })];
+  assert.equal((await run(clone, { [sha(1)]: LINE }, 200, { commits: [commit(T0 - 30 * 86_400_000, 0), commit(T0 - 29 * 86_400_000)] })).got, null, 'a cloned history');
+  // The build flow: degit into a new folder, commit locally (2 minutes before the repo exists), create
+  // the repo under the builder's account, push: a first-event creation a minute later. The builder.
+  const build = [push('alice', ZERO, sha(1), { type: 'branch_creation', at: T0 + 60_000 })];
+  assert.equal((await run(build, { [sha(1)]: LINE }, 200, { commits: [commit(T0 - 120_000, 0)] })).got, 'alice', 'the build flow');
   // More reads than allowed: null, and it stops reading.
   const long = Array.from({ length: 10 }, (_, i) => push('alice', sha(i + 10), sha(i + 11))).reverse();
   const many = await run(long, Object.fromEntries(Array.from({ length: 12 }, (_, i) => [sha(i + 10), LINE])));

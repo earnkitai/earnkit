@@ -711,6 +711,8 @@ ok(t9Bad, 'a host deploy basis is signin, app or proof_line only');
 const [t9Line] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name = 'contract_deploys' AND column_name = 'line_owner' AND is_nullable = 'YES'`;
 const [t9Idx] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM pg_indexes WHERE indexname IN ('contract_deploys_repo_day', 'contract_deploys_wallet_day')`;
 ok(t9Line.n === 1 && t9Idx.n === 2, 'contract_deploys has line_owner (nullable) and its repo and wallet cap indexes');
+const [t9Issues] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name = 'proof_line_issues' AND column_name IN ('installation_id', 'repo_key', 'first_at')`;
+ok(t9Issues.n === 3, 'proof_line_issues has installation_id, repo_key and first_at (T9 R4)');
 await db`INSERT INTO builder_events (type, github_login, dedupe_key) VALUES ('built', 'alice', 'built:alice/tipjar:p')`;
 await db.unsafe(now);
 const [evKept] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_events WHERE dedupe_key = 'built:alice/tipjar:p'`;
