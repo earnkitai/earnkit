@@ -3,12 +3,13 @@ import { siteUrl } from './entry-text';
 import { eventLogEnabled, eventRepoKey, proofLink, recordEvent, type BuilderEvent } from './events';
 import { loginBasisFor, type LoginProof } from './github-verify';
 import { siteLink } from './hosting';
-import { sharedGroup } from './installations';
+import { sharedGroup, type StoredBuild } from './installations';
 import { outcomeEventType, type OUTCOME_RESULTS } from './outcomes';
+import { pagesLinkOf } from './pages-link';
 
 /**
  * v2.11 T3 (spec 6, "Backfill"): writes the builder events that happened before the log was on,
- * from contract_deploys, host_deploys, projects, submissions and entry_outcomes. Each event takes its
+ * from installations.build, contract_deploys, host_deploys, projects, submissions and entry_outcomes. Each event takes its
  * source row's own time as `at`, and the same dedupe_key the live step uses, so a rerun (or a step
  * that already wrote its event) writes nothing twice. Only what was proven or given is recorded:
  * the login through loginBasisFor, the wallet only when the builder gave it. Backfilled rows carry
@@ -18,7 +19,7 @@ import { outcomeEventType, type OUTCOME_RESULTS } from './outcomes';
  * unless EARNKIT_EVENT_LOG=on.
  */
 
-export type BackfillCounts = Record<'deployed' | 'hosted' | 'entered' | 'submitted' | 'outcomes', { seen: number; written: number }>;
+export type BackfillCounts = Record<'built' | 'deployed' | 'hosted' | 'entered' | 'submitted' | 'outcomes', { seen: number; written: number }>;
 
 const PAGE = 500;
 
@@ -43,6 +44,7 @@ async function entryLogin(installationId: number | null, repoKey: string | undef
 export async function backfillEvents(db: Db = sql(), o: { installationIds?: number[] } = {}): Promise<BackfillCounts> {
   const scope = (col: string) => (o.installationIds ? db`AND ${db(col)} = ANY(${o.installationIds}::int[])` : db``);
   const counts: BackfillCounts = {
+    built: { seen: 0, written: 0 },
     deployed: { seen: 0, written: 0 },
     hosted: { seen: 0, written: 0 },
     entered: { seen: 0, written: 0 },
@@ -54,6 +56,34 @@ export async function backfillEvents(db: Db = sql(), o: { installationIds?: numb
     counts[k].seen++;
     if (await recordEvent(e, db)) counts[k].written++;
   };
+
+  // built (final fix I1): the build path's build (installations.build, never on a shared client) whose
+  // repo got a contract_deploys row from this installation: the live step writes `built` just before
+  // that send. Its time is the first such row's (reserved right after the event); the login is the
+  // one proven for that row (its line_owner, else a sign-in or App proof), never guessed.
+  type Built = { id: number; build: StoredBuild };
+  for await (const i of pages((after) => db<Built[]>`
+      SELECT id, build FROM installations
+      WHERE build ? 'repo_url' AND id > ${after} ${scope('id')} ORDER BY id LIMIT ${PAGE}`)) {
+    const b = i.build;
+    const repoKey = eventRepoKey(b.repo_url);
+    if (!repoKey || !b.program_id) continue;
+    const [first] = await db<{ created_at: Date; line_owner: string | null }[]>`
+      SELECT created_at, line_owner FROM contract_deploys WHERE installation_id = ${i.id} AND repo_key = ${repoKey} ORDER BY id LIMIT 1`;
+    if (!first || (await sharedGroup(i.id).catch(() => true))) continue;
+    await write('built', {
+      type: 'built',
+      dedupe_key: `built:${i.id}:${repoKey}:${b.program_id}`,
+      at: first.created_at,
+      installation_id: i.id,
+      repo_key: repoKey,
+      program_id: b.program_id,
+      ...(b.wallet && { wallet: b.wallet }),
+      proof_url: `https://github.com/${repoKey}`,
+      ...who(await loginBasisFor(i.id, repoKey, { lineOwner: first.line_owner })),
+      detail: { starter: b.starter_id, ...(b.twist && { twist: b.twist }), backfill: true },
+    });
+  }
 
   // deployed: every contract the deploy step settled as deployed (the runbook's too, plan 3.2).
   // The owner wallet and block are kept from v2.11 on; older rows have neither. No RPC read here (the
@@ -84,10 +114,11 @@ export async function backfillEvents(db: Db = sql(), o: { installationIds?: numb
     });
   }
 
-  // hosted: every upload that went live (the host gate is a GitHub sign-in, so its login is signin).
-  type Host = { id: number; login: string; slug: string; repo_key: string | null; at: Date; installation_id: number | null };
+  // hosted: every upload that went live, with the way its login was proven (final fix M1: since T9 a
+  // proof-line upload is `proof_line`, not a sign-in).
+  type Host = { id: number; login: string; slug: string; repo_key: string | null; at: Date; installation_id: number | null; basis: 'signin' | 'app' | 'proof_line' };
   for await (const h of pages((after) => db<Host[]>`
-      SELECT d.id, d.login, d.slug, d.repo_key, COALESCE(d.done_at, d.at) AS at, s.installation_id
+      SELECT d.id, d.login, d.slug, d.repo_key, COALESCE(d.done_at, d.at) AS at, s.installation_id, d.basis
       FROM host_deploys d LEFT JOIN hosted_sites s ON s.slug = d.slug AND s.repo_key = d.repo_key
       WHERE d.status = 'live' AND d.id > ${after} ${scope('s.installation_id')} ORDER BY d.id LIMIT ${PAGE}`)) {
     await write('hosted', {
@@ -95,11 +126,39 @@ export async function backfillEvents(db: Db = sql(), o: { installationIds?: numb
       dedupe_key: `hosted:${h.id}`,
       at: h.at,
       github_login: h.login,
-      login_basis: 'signin',
+      login_basis: h.basis,
       ...(h.installation_id !== null && { installation_id: h.installation_id }),
       ...(h.repo_key && { repo_key: h.repo_key }),
       proof_url: siteLink(h.slug),
       detail: { host: 'earnkit', slug: h.slug, backfill: true },
+    });
+  }
+
+  // hosted on GitHub Pages (final fix I1): an entry whose live link is its repo's own Pages link
+  // (pagesLinkOf), with a contract EarnKit deployed for that installation and repo, under the live
+  // step's key. Offline: no probe (`detail.probe: false`); its time is the entry's, the first record
+  // of the link (the live step writes it on the call just before).
+  type Pages = { id: number; installation_id: number; repo_url: string; live_url: string; program_id: string; submitted_at: Date };
+  for await (const p of pages((after) => db<Pages[]>`
+      SELECT p.id, p.installation_id, p.repo_url, p.live_url, p.program_id, p.submitted_at FROM projects p
+      WHERE p.installation_id IS NOT NULL AND p.repo_url IS NOT NULL AND p.live_url ILIKE '%.github.io%'
+        AND p.id > ${after} ${scope('p.installation_id')} ORDER BY p.id LIMIT ${PAGE}`)) {
+    const repoKey = eventRepoKey(p.repo_url);
+    const link = repoKey ? pagesLinkOf(repoKey, p.live_url) : null;
+    if (!repoKey || !link) continue;
+    const [deployed] = await db`
+      SELECT 1 FROM contract_deploys WHERE installation_id = ${p.installation_id} AND repo_key = ${repoKey} AND status = 'deployed' LIMIT 1`;
+    if (!deployed || (await sharedGroup(p.installation_id).catch(() => true))) continue;
+    await write('hosted', {
+      type: 'hosted',
+      dedupe_key: `hosted:gh:${p.installation_id}:${repoKey}:${link}`,
+      at: p.submitted_at,
+      installation_id: p.installation_id,
+      repo_key: repoKey,
+      program_id: p.program_id,
+      proof_url: link,
+      ...who(await loginBasisFor(p.installation_id, repoKey)),
+      detail: { host: 'github_pages', probe: false, backfill: true },
     });
   }
 

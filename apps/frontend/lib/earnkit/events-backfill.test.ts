@@ -74,7 +74,7 @@ test('3.7 the backfill writes one event per source row with its own time and the
       const first = await backfillEvents(sql(), { installationIds: [s.inst] });
       assert.deepEqual(
         Object.fromEntries(Object.entries(first).map(([k, v]) => [k, v.written])),
-        { deployed: 1, hosted: 1, entered: 1, submitted: 1, outcomes: 1 },
+        { built: 0, deployed: 1, hosted: 1, entered: 1, submitted: 1, outcomes: 1 },
       );
       const events = await eventsOfInstallation(s.inst);
       const by = new Map(events.map((e) => [e.dedupe_key, e]));
@@ -113,7 +113,7 @@ test('3.7 the backfill writes one event per source row with its own time and the
       const again = await backfillEvents(sql(), { installationIds: [s.inst] });
       assert.deepEqual(
         Object.fromEntries(Object.entries(again).map(([k, v]) => [k, v.written])),
-        { deployed: 0, hosted: 0, entered: 0, submitted: 0, outcomes: 0 },
+        { built: 0, deployed: 0, hosted: 0, entered: 0, submitted: 0, outcomes: 0 },
       );
       assert.equal(again.deployed.seen, 1);
       assert.equal((await eventsOfInstallation(s.inst)).length, 5);
@@ -142,7 +142,82 @@ test('3.2 a deploy the runbook settled from unknown to deployed is picked up by 
   }),
 );
 
-test('the backfill writes nothing while EARNKIT_EVENT_LOG is off', dbTest, async () => {
+test('final fix I1, M1: the backfill writes the build path\'s built and Pages hosted events with their own times, and a proof-line upload as proof_line', dbTest, () =>
+  withEventLog(async () => {
+    const s = await seed();
+    try {
+      const repoUrl = `https://github.com/${s.repoKey}`;
+      await sql()`
+        UPDATE installations SET build = ${sql().json({
+          program_id: s.tag, starter_id: 'arc-tipjar', started_at: '2026-09-30T09:00:00Z', wallet: W.toLowerCase(),
+          twist: 'tips for podcasters', name: 'PodTips', description: 'd', feature: 'f', for_whom: 'podcasters', repo_url: repoUrl,
+        } as never)} WHERE id = ${s.inst}`;
+      const [owner] = s.repoKey.split('/');
+      const live = `https://${owner}.github.io/tipjar/`;
+      await sql()`UPDATE projects SET live_url = ${live} WHERE id = ${s.project}`;
+      // A second entry whose link is another repo's Pages page: never hosted for this repo.
+      await sql()`
+        INSERT INTO projects (program_id, name, installation_id, repo_url, live_url, submitted_at)
+        VALUES (${s.tag}, 'Other', ${s.inst}, ${repoUrl}, ${`https://${owner}.github.io/other/`}, '2026-10-04T11:00:00Z')`;
+      const [proofHost] = await sql()<{ id: number }[]>`
+        INSERT INTO host_deploys (login, slug, repo_key, at, status, done_at, basis)
+        VALUES (${s.tag}, ${s.tag}, ${s.repoKey}, '2026-10-03T11:00:00Z', 'live', '2026-10-03T11:01:00Z', 'proof_line') RETURNING id`;
+
+      const first = await backfillEvents(sql(), { installationIds: [s.inst] });
+      assert.equal(first.built.written, 1);
+      assert.equal(first.hosted.written, 3, 'the signed-in upload, the proof-line upload and the Pages link');
+      const by = new Map((await eventsOfInstallation(s.inst)).map((e) => [e.dedupe_key, e]));
+
+      const b = by.get(`built:${s.inst}:${s.repoKey}:${s.tag}`)!;
+      assert.equal(b.type, 'built');
+      assert.equal(b.at.toISOString(), '2026-10-01T10:00:00.000Z', 'the first contract_deploys row of the build repo');
+      assert.equal(b.wallet, W.toLowerCase());
+      assert.equal(b.program_id, s.tag);
+      assert.equal(b.proof_url, repoUrl);
+      assert.deepEqual([b.github_login, b.login_basis], [s.tag, 'signin']);
+      assert.deepEqual(b.detail, { starter: 'arc-tipjar', twist: 'tips for podcasters', backfill: true });
+
+      const gh = by.get(`hosted:gh:${s.inst}:${s.repoKey}:${live}`)!;
+      assert.equal(gh.type, 'hosted');
+      assert.equal(gh.at.toISOString(), '2026-10-04T10:00:00.000Z');
+      assert.equal(gh.proof_url, live);
+      assert.deepEqual([gh.github_login, gh.login_basis], [s.tag, 'signin']);
+      assert.deepEqual(gh.detail, { host: 'github_pages', probe: false, backfill: true });
+      assert.ok(![...by.keys()].some((k) => k.includes('/other/')), 'another repo\'s Pages link is never hosted');
+
+      const ph = by.get(`hosted:${proofHost.id}`)!;
+      assert.equal(ph.login_basis, 'proof_line', 'M1: never overstated as a sign-in');
+      assert.equal(by.get(`hosted:${s.host}`)!.login_basis, 'signin');
+
+      const again = await backfillEvents(sql(), { installationIds: [s.inst] });
+      assert.deepEqual([again.built.written, again.hosted.written], [0, 0]);
+    } finally {
+      await unseed(s);
+    }
+  }),
+);
+
+test('final fix I1: no built or Pages hosted event without a contract EarnKit deployed for that build repo', dbTest, () =>
+  withEventLog(async () => {
+    const s = await seed();
+    try {
+      await sql()`DELETE FROM contract_deploys WHERE installation_id = ${s.inst}`;
+      const [owner] = s.repoKey.split('/');
+      await sql()`
+        UPDATE installations SET build = ${sql().json({ program_id: s.tag, starter_id: 'arc-tipjar', started_at: '2026-09-30T09:00:00Z', repo_url: `https://github.com/${s.repoKey}` } as never)}
+        WHERE id = ${s.inst}`;
+      await sql()`UPDATE projects SET live_url = ${`https://${owner}.github.io/tipjar/`} WHERE id = ${s.project}`;
+      const counts = await backfillEvents(sql(), { installationIds: [s.inst] });
+      assert.equal(counts.built.seen, 0);
+      assert.equal(counts.hosted.written, 1, 'only the EarnKit upload');
+    } finally {
+      await unseed(s);
+    }
+  }),
+);
+
+test('the backfill writes nothing while EARNKIT_EVENT_LOG is off'
+, dbTest, async () => {
   const s = await seed();
   try {
     const counts = await backfillEvents(sql(), { installationIds: [s.inst] });
