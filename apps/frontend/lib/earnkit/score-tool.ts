@@ -1,4 +1,4 @@
-import { emptyReasonOf, publicScore, siteShowsUse, type EmptyReason } from './builder-score';
+import { emptyReasonOf, publicRow, publicScore, siteShowsUse, type EmptyReason } from './builder-score';
 import { sql } from './db';
 import { enqueueDiscovery, publicHttpsOrigin, DISCOVER_CAPS } from './discovery';
 import { profileCode } from './discovery-clues';
@@ -76,8 +76,9 @@ export function scoreLines(a: {
   return [
     `Score ${a.score}, top ${topPercent(a.percentile)}%${change}.${a.hidden ? '' : ` ${PROFILE_URL(a.slug)}`}`,
     a.held ? HELD_LINE : a.moved,
-    a.next.line,
+    // Money first (spec 7): a program that fits comes before the next step.
     a.program,
+    a.next.line,
   ].filter((x): x is string => Boolean(x)).join('\n');
 }
 
@@ -123,20 +124,33 @@ export async function scoreReply(ctx: Ctx, now: Date, deps: { programs?: () => P
   const hasPackage = verified.some((s) => s.kind === 'package_npm' || s.kind === 'package_pypi');
   // The step's earnkit.txt lines: proposed repos, or sites still to prove (proposed, or only linked by a repo).
   const repoLines = () => sources.filter((s) => s.kind === 'repo' && s.state === 'proposed').slice(0, DISCOVER_CAPS.remotes);
+  // Discovery's clue 6 order: proposed sites first, then by id.
   const siteLines = () =>
-    sources.filter((s) => s.kind === 'site' && (s.state === 'proposed' || !siteShowsUse(s))).slice(0, DISCOVER_CAPS.sites);
+    sources
+      .filter((s) => s.kind === 'site' && (s.state === 'proposed' || !siteShowsUse(s)))
+      .sort((a, b) => Number(b.state === 'proposed') - Number(a.state === 'proposed'))
+      .slice(0, DISCOVER_CAPS.sites);
+  // In review: the profile says so, or a score newer than the public one is held and not released.
+  const [heldRow] = await sql()`
+    SELECT 1 FROM builder_scores s WHERE s.builder_id = ${id} AND s.day > ${pub?.day ?? '0001-01-01'}::date AND NOT ${publicRow()} LIMIT 1`;
+  const held = profile.held || Boolean(heldRow);
 
   let reply: ScoreReply;
   let next: NextAction | null = null;
   if (!pub || pub.score === 0) {
     const [scored] = await sql()`SELECT 1 FROM builder_scores WHERE builder_id = ${id} LIMIT 1`;
-    let missing = scored ? await emptyReasonOf(id) : null;
-    // Unproven, but nothing to put a token line in: the step is the site's earnkit.txt line.
-    if (missing === 'ownership_unproven' && repoLines().length === 0) missing = 'no_github';
-    if (scored && missing) next = nextAction({ parts: pub?.parts ?? null, missing, hasPackage, hasSite });
-    // No score row yet: the first cron run hasn't scored them. A score above 0 but none public: held.
-    const head = !scored ? WORKING_LINE : (next?.line ?? HELD_LINE);
-    reply = { show_to_builder: lines(head, link), score: null, percentile: null };
+    let text: string;
+    if (!scored) text = lines(WORKING_LINE, link); // the first cron run hasn't scored them yet
+    else if (!pub && held) text = lines(HELD_LINE, link); // a first score, in review
+    else {
+      // A public 0, even after an earlier positive score: its fill step, now.
+      let missing = (await emptyReasonOf(id, { anyHistory: true })) ?? 'nothing_live';
+      // Unproven, but nothing to put a token line in: the step is the site's earnkit.txt line.
+      if (missing === 'ownership_unproven' && repoLines().length === 0) missing = 'no_github';
+      next = nextAction({ parts: pub?.parts ?? null, missing, hasPackage, hasSite });
+      text = lines(held ? HELD_LINE : null, next.line, link);
+    }
+    reply = { show_to_builder: text, score: null, percentile: null };
   } else {
     const before = await previous(id, pub.day, now);
     const change = before ? pub.score - before.score : null;
@@ -145,7 +159,7 @@ export async function scoreReply(ctx: Ctx, now: Date, deps: { programs?: () => P
     const program = await programFor(id, pub.day, now, deps.programs ?? (listPrograms as () => Promise<ScoreProgram[]>));
     reply = {
       show_to_builder: scoreLines({
-        score: pub.score, percentile: pub.percentile, change, since: before?.since, moved, held: profile.held,
+        score: pub.score, percentile: pub.percentile, change, since: before?.since, moved, held,
         slug: profile.slug, hidden: profile.hidden, next, program,
       }),
       score: pub.score,
@@ -181,7 +195,7 @@ async function previous(id: number, day: string, now: Date): Promise<{ score: nu
   const [row] = await sql()<{ score: number; parts: Parts }[]>`
     SELECT s.score, s.parts FROM builder_scores s
     WHERE s.builder_id = ${id} AND s.day <= ${weekAgo}::date
-      AND (NOT s.held OR EXISTS (SELECT 1 FROM score_releases x WHERE x.builder_id = s.builder_id AND x.day = s.day))
+      AND ${publicRow()}
     ORDER BY s.day DESC LIMIT 1`;
   return row ? { score: row.score, parts: row.parts, since: 'week' } : null;
 }
@@ -194,8 +208,9 @@ async function programFor(id: number, day: string, now: Date, programs: () => Pr
     WHERE s.builder_id = ${id} AND s.day = ${day}::date AND b.kind = 'contract' AND b.state = 'verified'`;
   if (chains.length === 0) return null;
   const on = new Set(chains.map((c) => c.chain));
+  // Never an investment (a16z speedrun): it is not a prize the agent can win for them.
   const card = (await programs()).find(
-    (c) => c.agent_completable !== false && !c.earnkit_campaign && (!c.starts_at || c.starts_at <= now) && c.chains.some((x) => on.has(x)),
+    (c) => c.agent_completable !== false && !c.earnkit_campaign && !c.investment && (!c.starts_at || c.starts_at <= now) && c.chains.some((x) => on.has(x)),
   );
   return card ? programLine({ title: card.title, prize: prizeOf(card) }) : null;
 }

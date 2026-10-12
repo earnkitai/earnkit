@@ -9,6 +9,7 @@ import {
   hardhatDeployment,
   npmPackage,
   pagesSite,
+  ownPagesSite,
   profileCode,
   pypiPackage,
   vercelSites,
@@ -401,11 +402,13 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
   // Clue 6: proposed live links whose earnkit.txt names this person. v2.12 T8: also a site a repo
   // only links (shown, never scored), which the score tool's next step asks to prove the same way;
   // the repo's own Pages site already counts. The score tool lists these same sites, in this order.
-  const proposedSites = await db<(Row & { ref: string })[]>`
-    SELECT id::int AS id, state, ref FROM builder_sources
-    WHERE builder_id = ${root} AND kind = 'site' AND (state = 'proposed' OR (state = 'verified' AND proof = 'repo_link'
-      AND lower(ref) NOT LIKE 'https://' || lower(split_part(project_key, '/', 1)) || '.github.io%'))
-    ORDER BY id LIMIT ${DISCOVER_CAPS.sites}`;
+  // Proposed sites first, so linked sites never crowd a new proposal out of the cap.
+  const proposedSites = (await db<(Row & { ref: string; project_key: string })[]>`
+    SELECT id::int AS id, state, ref, project_key FROM builder_sources
+    WHERE builder_id = ${root} AND kind = 'site' AND (state = 'proposed' OR (state = 'verified' AND proof = 'repo_link'))
+    ORDER BY (state = 'proposed') DESC, id`)
+    .filter((s) => s.state === 'proposed' || !ownPagesSite(s.ref, s.project_key))
+    .slice(0, DISCOVER_CAPS.sites);
   for (const s of proposedSites) {
     const origin = publicHttpsOrigin(s.ref);
     if (!origin || (s.state === 'proposed' && stateOf(s) !== 'proposed')) continue;

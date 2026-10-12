@@ -119,6 +119,17 @@ export function githubRemote(remote: string): string | null {
   return `${m[1]}/${m[2]}`.toLowerCase();
 }
 
+/**
+ * Whether a site is its repo's own GitHub Pages site (`<owner>.github.io`, `project_key` being the
+ * repo's "owner/name"): the one repo-linked site that counts as use (builder-score siteShowsUse) and
+ * that discovery never asks earnkit.txt of. Pure.
+ */
+export function ownPagesSite(ref: string, projectKey: string): boolean {
+  if (!URL.canParse(ref)) return false;
+  const owner = projectKey.split('/')[0]?.toLowerCase();
+  return !!owner && new URL(ref).hostname.toLowerCase() === `${owner}.github.io`;
+}
+
 /** The earnkit.txt `profile:` code for a site with no GitHub (spec 3 clue 6), v2.11's line family. */
 export function profileCode(builderId: number, siteOrigin: string, secret: string | undefined = process.env.EARNKIT_AUTH_SECRET): string | null {
   if (!secret) return null;

@@ -1,6 +1,6 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { FILL_LINES, MORE_USERS_LINE, SCORE_SHARED, SITE_TXT_LINE, WORKING_LINE, movedLine, nextAction, programLine, scoreLines, scoreReply, type ScoreProgram } from './score-tool';
+import { FILL_LINES, HELD_LINE, MORE_USERS_LINE, SCORE_NOTES, SCORE_SHARED, SITE_TXT_LINE, WORKING_LINE, movedLine, nextAction, programLine, scoreLines, scoreReply, type ScoreProgram } from './score-tool';
 import { emptyReasonOf, siteShowsUse } from './builder-score';
 import { discover } from './discovery';
 import type { ReaderDeps } from './source-readers';
@@ -51,7 +51,8 @@ test('8.4 a held score says it is in review and shows the last public number; a 
   const next = nextAction({ parts: parts(40), missing: null, hasPackage: false, hasSite: false });
   const text = scoreLines({ score: 41, percentile: 78, change: null, moved: null, held: true, slug: 'lee', next, program: programLine({ title: 'Arc Microgrants', prize: '500 USDC' }) });
   assert.match(text, /^Score 41, top 22%\. earnkit\.com\/b\/lee\nYour newest score is in a quick review\./);
-  assert.match(text, /\nArc Microgrants fits you: 500 USDC\.$/);
+  // Money first: the program line comes before the next step.
+  assert.match(text, /\nArc Microgrants fits you: 500 USDC\.\nMore people using what you shipped moves your score most\.$/);
 });
 
 test('8.5 a shared client gets one plain line and nothing is read', async () => {
@@ -177,12 +178,14 @@ test('8.11 a repo-linked site gets its earnkit.txt line; a program on the top pr
   const programs: ScoreProgram[] = [
     { title: 'Base Grants', summary: '$5k · closes Oct 30', chains: ['base'], investment: false, earnkit_campaign: false, starts_at: null },
     { title: 'Arc Hard', summary: '1 ETH', chains: ['arc'], investment: false, earnkit_campaign: false, starts_at: null, agent_completable: false },
+    { title: 'Arc Fund', summary: 'up to $1M', chains: ['arc'], investment: true, earnkit_campaign: false, starts_at: null },
     { title: 'Arc Microgrants', summary: '500 USDC × 20 grants · rolling', chains: ['arc'], investment: false, earnkit_campaign: false, starts_at: null },
   ];
   const r = await withEnv({ EARNKIT_AUTH_SECRET: SECRET }, () => scoreReply({ installationId: id }, NOW, { programs: async () => programs }));
   const lines = r.show_to_builder.split('\n');
-  assert.equal(lines.at(-2), SITE_TXT_LINE);
-  assert.equal(lines.at(-1), 'Arc Microgrants fits you: 500 USDC × 20 grants.');
+  // Money first; never the investment program; never the one the agent can't complete.
+  assert.equal(lines.at(-2), 'Arc Microgrants fits you: 500 USDC × 20 grants.');
+  assert.equal(lines.at(-1), SITE_TXT_LINE);
   assert.deepEqual(r.proof_line, [{ site: 'https://app.lee.dev', line: `profile: ${profileCode(id, 'https://app.lee.dev', SECRET)}` }]);
   assert.equal((r.show_to_builder.match(/\?/g) ?? []).length, 1);
 });
@@ -210,4 +213,44 @@ test('8.12 discovery proves a repo-linked site once its earnkit.txt names the pe
   const rows = await sql()<{ ref: string; proof: string }[]>`SELECT ref, proof FROM builder_sources WHERE builder_id = ${id} ORDER BY id`;
   assert.deepEqual(rows.map((r) => r.proof), ['earnkit_txt', 'repo_link']);
   assert.equal(siteShowsUse({ ...rows[0], project_key: `lee${T}/app` }), true);
+});
+
+test('8.13 a public score that fell to 0 gets its fill step, not the review line; a newer held score adds the review line', dbTest, async () => {
+  const id = T + 6;
+  await profile(id);
+  await scoreRow(id, '2026-10-09', 20, parts(10));
+  await scoreRow(id, '2026-10-10', 0, parts(0));
+  const r = await scoreReply({ installationId: id }, NOW, noPrograms);
+  assert.equal(r.show_to_builder, `${FILL_LINES.no_github.ask}\nearnkit.com/b/s${id}`);
+  assert.equal(r.agent_note, SCORE_NOTES.siteUnknown);
+  // A newer score in review (the profile flag not set yet): the review line, then the fill step.
+  await scoreRow(id, '2026-10-11', 50, parts(30), true);
+  const held = await scoreReply({ installationId: id }, NOW, noPrograms);
+  assert.equal(held.show_to_builder, `${HELD_LINE}\n${FILL_LINES.no_github.ask}\nearnkit.com/b/s${id}`);
+  assert.doesNotMatch(held.show_to_builder, /\b50\b/);
+});
+
+test('8.14 a new proposed site is never crowded out by unproven linked sites: discovery reads it and the score tool offers its line first', dbTest, async () => {
+  const id = T + 7;
+  await profile(id);
+  for (let i = 0; i < 5; i++) await source(id, 'site', `https://l${i}.lee.dev`, 'verified', 'repo_link', `lee${T}/app`);
+  await source(id, 'site', 'https://new.lee.dev', 'proposed');
+  await scoreRow(id, '2026-10-11', 52, parts(500), false, { key: `lee${T}/app`, title: 'app', users: 500, money_usd: 0 });
+  await sql()`INSERT INTO discovery_queue (builder_id, reason) VALUES (${id}, 'local_repo')`;
+  const read: string[] = [];
+  const no = async () => {
+    throw new Error('unexpected');
+  };
+  const reader: ReaderDeps = {
+    gh: no, probe: no, json: no, baseTxs: no, contractOrigin: no, arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, now: NOW,
+    fetchText: async (url) => {
+      read.push(url);
+      throw new Error('not found');
+    },
+  };
+  await withEnv({ EARNKIT_AUTH_SECRET: SECRET }, () => discover(NOW, { deadline: Date.now() + 30_000, reader, login: async () => null, only: [id] }));
+  assert.equal(read[0], 'https://new.lee.dev/earnkit.txt');
+  assert.equal(read.length, 5);
+  const r = await withEnv({ EARNKIT_AUTH_SECRET: SECRET }, () => scoreReply({ installationId: id }, NOW, noPrograms));
+  assert.deepEqual(r.proof_line?.map((x) => ('site' in x ? x.site : x.repo)), ['https://new.lee.dev', 'https://l0.lee.dev', 'https://l1.lee.dev', 'https://l2.lee.dev', 'https://l3.lee.dev']);
 });

@@ -1,6 +1,7 @@
 import { countProject, moneyOf, ringWeights, type ActorFacts, type Touch } from './anti-farming';
 import { sql } from './db';
 import { discover, type LoginOf } from './discovery';
+import { ownPagesSite } from './discovery-clues';
 import { noteEvent } from './events';
 import { clearXHandle } from './profiles';
 import { readParams, secretMatches } from './http';
@@ -35,9 +36,7 @@ export type SourceRow = { id: number; kind: string; ref: string; project_key: st
  */
 export function siteShowsUse(s: Pick<SourceRow, 'ref' | 'project_key' | 'proof'>): boolean {
   if (s.proof === 'earnkit_txt' || s.proof === 'dns_txt') return true;
-  if (s.proof !== 'repo_link' || !URL.canParse(s.ref)) return false;
-  const owner = s.project_key.split('/')[0]?.toLowerCase();
-  return !!owner && new URL(s.ref).hostname.toLowerCase() === `${owner}.github.io`;
+  return s.proof === 'repo_link' && ownPagesSite(s.ref, s.project_key);
 }
 export type ReadingRow = { source_id: number; day: string; ok: boolean; signals: unknown };
 
@@ -185,13 +184,16 @@ export function emptyReason(f: { login: boolean; proposed: number; verified: num
   return 'nothing_live';
 }
 
+/** A builder_scores row `s` is public: not held, or held and released (plan R7, R8). One rule for every reader. */
+export const publicRow = () => sql()`(NOT s.held OR EXISTS (SELECT 1 FROM score_releases x WHERE x.builder_id = s.builder_id AND x.day = s.day))`;
+
 /** The person's public score: the latest row not held, or held and released (plan R7, R8). */
 export async function publicScore(builderId: number): Promise<{ score: number; percentile: number; day: string; parts: Parts } | null> {
   const [row] = await sql()<{ score: number; percentile: number; day: string; parts: Parts }[]>`
     SELECT s.score, COALESCE(r.percentile, s.percentile) AS percentile, s.day::text AS day, s.parts
     FROM builder_scores s LEFT JOIN builder_ranks r ON r.builder_id = s.builder_id
     WHERE s.builder_id = ${builderId}
-      AND (NOT s.held OR EXISTS (SELECT 1 FROM score_releases x WHERE x.builder_id = s.builder_id AND x.day = s.day))
+      AND ${publicRow()}
     ORDER BY s.day DESC LIMIT 1`;
   return row ?? null;
 }
@@ -294,7 +296,7 @@ export async function percentiles(now: Date): Promise<number> {
       DELETE FROM builder_ranks r WHERE NOT EXISTS (SELECT 1 FROM builder_profiles p WHERE p.builder_id = r.builder_id)),
     pub AS (
       SELECT DISTINCT ON (s.builder_id) s.builder_id, s.score FROM builder_scores s JOIN builder_profiles p USING (builder_id)
-      WHERE NOT s.held OR EXISTS (SELECT 1 FROM score_releases x WHERE x.builder_id = s.builder_id AND x.day = s.day)
+      WHERE ${publicRow()}
       ORDER BY s.builder_id, s.day DESC),
     ranked AS (
       SELECT builder_id, score, 100.0 * (rank() OVER (ORDER BY score) - 1) / count(*) OVER () AS percentile FROM pub),
@@ -318,10 +320,14 @@ const emptyFacts = () => sql()`
   EXISTS (SELECT 1 FROM builder_scores s WHERE s.builder_id = p.builder_id AND s.score > 0) AS filled`;
 const reasonOf = (r: EmptyFacts) => emptyReason({ login: r.login, proposed: r.proposed, verified: r.verified, okReadings: r.ok_r, failedReadings: r.failed_r });
 
-/** v2.12 T8: what would fill this person's profile (profileEmpty's reason, now); null with a score above 0 (held or not) or no profile. */
-export async function emptyReasonOf(builderId: number): Promise<EmptyReason | null> {
+/**
+ * v2.12 T8: what would fill this person's profile (profileEmpty's reason, now); null with no profile,
+ * or with a score above 0 (held or not) unless `o.anyHistory` (the score tool: a public score that
+ * fell to 0 still gets its fill step).
+ */
+export async function emptyReasonOf(builderId: number, o: { anyHistory?: boolean } = {}): Promise<EmptyReason | null> {
   const [r] = await sql()<EmptyFacts[]>`SELECT ${emptyFacts()} FROM builder_profiles p WHERE p.builder_id = ${builderId}`;
-  return !r || r.filled ? null : reasonOf(r);
+  return !r || (r.filled && !o.anyHistory) ? null : reasonOf(r);
 }
 
 /**

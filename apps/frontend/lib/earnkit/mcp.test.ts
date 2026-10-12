@@ -140,6 +140,9 @@ test('8.6 v2.12: score is listed only with the flag on, its description under 80
     assert.equal(instructions.split('\n')[1], "Call score when they ask how they're doing.");
     assert.ok(instructions.length < 800, String(instructions.length));
     assert.equal(instructions, serverInstructions(false));
+    // Fix round 1: with the score on, an open EarnKit campaign adds no sentence (campaigns are archived).
+    assert.ok(serverInstructions(true).length <= 800, String(serverInstructions(true).length));
+    assert.doesNotMatch(serverInstructions(true), /EarnKit campaign/);
   } finally {
     delete process.env.EARNKIT_BUILDER_SCORE;
   }

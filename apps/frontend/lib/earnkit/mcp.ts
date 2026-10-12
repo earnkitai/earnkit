@@ -229,7 +229,9 @@ export function serverInstructions(campaignOpen: boolean) {
       : ["Call find, then prepare until ready, then confirm on the builder's yes, then tell once they submitted."]),
     'Show show_to_builder as written; since_you_last_checked first.',
     'Yes submits the entry and launches the token; skip the token submits without one.',
-    ...(campaignOpen ? ['EarnKit campaigns: confirm is the entry.'] : []),
+    // Fix round 1 (controller ruling): with the builder score on, no campaign sentence (campaigns
+    // are archived then, D5), so the instructions stay under 800 characters.
+    ...(campaignOpen && !builderScoreEnabled() ? ['EarnKit campaigns: confirm is the entry.'] : []),
     'Never name tools, fields or files to the builder, or invent personal details.',
     ...SAFETY_LINES,
   ].join('\n');
