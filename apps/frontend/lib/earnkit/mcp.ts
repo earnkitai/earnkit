@@ -168,6 +168,12 @@ export const TELL_DESCRIPTION_SCORE = TELL_DESCRIPTION.replace(
   'pickup: "yes" or "no" to the pick-up question. profile: "hide" or "show" when they say so. x_handle: the X handle they confirmed. ',
 );
 
+/** v2.12 spec 7: score's description (registered only while EARNKIT_BUILDER_SCORE=on). */
+export const SCORE_DESCRIPTION =
+  "The builder's verified score (0 to 100), rank, what moved it and the one next step. Call it when they ask how they're doing. " +
+  'Show show_to_builder as written; follow agent_note (proof_line: the earnkit.txt lines to push). ' +
+  SAFETY_TEXT;
+
 /**
  * v2.9 F25: sponsor_campaign's description, under 800 characters with the safety lines: the three
  * actions and their inputs. Defaults, verification, brand and approval rules are in the replies'
@@ -191,6 +197,7 @@ export function toolDescriptions(campaignOpen: boolean, buildOn: boolean = deplo
     prepare: prepareDescription(campaignOpen, buildOn),
     confirm: confirmDescription(campaignOpen),
     tell: builderScoreEnabled() ? TELL_DESCRIPTION_SCORE : TELL_DESCRIPTION,
+    score: SCORE_DESCRIPTION,
     sponsor_campaign: SPONSOR_CAMPAIGN_DESCRIPTION,
   };
 }
@@ -215,7 +222,11 @@ const deployerSignatureDescription = (campaignOpen: boolean) =>
  */
 export function serverInstructions(campaignOpen: boolean) {
   return [
-    "Call find, then prepare until ready, then confirm on the builder's yes, then tell once they submitted.",
+    // v2.12 spec 7: the score sentence only while the score tool is listed; the first line is
+    // shortened then (as find's description was) so the instructions stay under 800 characters.
+    ...(builderScoreEnabled()
+      ? ["Call find, prepare until ready, confirm on the builder's yes, then tell once they submitted.", "Call score when they ask how they're doing."]
+      : ["Call find, then prepare until ready, then confirm on the builder's yes, then tell once they submitted."]),
     'Show show_to_builder as written; since_you_last_checked first.',
     'Yes submits the entry and launches the token; skip the token submits without one.',
     ...(campaignOpen ? ['EarnKit campaigns: confirm is the entry.'] : []),
@@ -514,6 +525,18 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
     },
     (input) => run(ctx, 'tell', input),
   );
+
+  // v2.12 spec 7: the 5th tool, only with the builder score on (off: the 4 v2.11 tools, byte for byte).
+  if (builderScoreEnabled())
+    server.registerTool(
+      'score',
+      {
+        description: descriptions.score,
+        inputSchema: {},
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      },
+      (input) => run(ctx, 'score', input),
+    );
 
   // Sponsor campaigns are offered only once EarnKit's escrow is configured on this deployment
   // (ESCROW_FACTORY_ADDRESS set, ESCROW_CHAIN valid). Until then the server has the 4 builder

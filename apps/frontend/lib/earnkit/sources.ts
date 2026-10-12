@@ -109,6 +109,17 @@ export async function verifySource(id: number, proof: Proof, deployer: string | 
   if (row) await noteEvent('source_verified', () => ({ type: 'source_verified', dedupe_key: `source_verified:${id}`, installation_id: row.builder_id, detail: { source_id: id, kind: row.kind, proof } }));
 }
 
+/**
+ * v2.12 T8: a site a repo only links (proof repo_link, shown but never scored) whose earnkit.txt now
+ * names the person: its proof becomes earnkit_txt, so its readings count as use (siteShowsUse).
+ */
+export async function proveLinkedSite(id: number): Promise<void> {
+  const [row] = await sql()<{ builder_id: number }[]>`
+    UPDATE builder_sources SET proof = 'earnkit_txt', verified_at = now()
+    WHERE id = ${id} AND kind = 'site' AND state = 'verified' AND proof = 'repo_link' RETURNING builder_id`;
+  if (row) await noteEvent('source_verified', () => ({ type: 'source_verified', dedupe_key: `source_verified:${id}:earnkit_txt`, installation_id: row.builder_id, detail: { source_id: id, kind: 'site', proof: 'earnkit_txt' } }));
+}
+
 /** Refuses a proposed source, or revokes a verified one (it stops being read and scored). */
 export async function rejectSource(id: number, reason: string): Promise<void> {
   const [row] = await sql()<{ builder_id: number }[]>`

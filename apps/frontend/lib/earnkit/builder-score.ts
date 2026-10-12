@@ -307,18 +307,30 @@ export async function percentiles(now: Date): Promise<number> {
   return rows[0].n;
 }
 
+type EmptyFacts = { builder_id: number; login: boolean; proposed: number; verified: number; ok_r: number; failed_r: number; filled: boolean };
+/** profileEmpty's per-person facts (`p` is builder_profiles), shared with emptyReasonOf. */
+const emptyFacts = () => sql()`
+  p.builder_id, p.github_login IS NOT NULL AS login,
+  (SELECT count(*)::int FROM builder_sources b WHERE b.builder_id = p.builder_id AND b.state = 'proposed') AS proposed,
+  (SELECT count(*)::int FROM builder_sources b WHERE b.builder_id = p.builder_id AND b.state = 'verified') AS verified,
+  (SELECT count(*)::int FROM source_readings r JOIN builder_sources b ON b.id = r.source_id WHERE b.builder_id = p.builder_id AND r.ok) AS ok_r,
+  (SELECT count(*)::int FROM source_readings r JOIN builder_sources b ON b.id = r.source_id WHERE b.builder_id = p.builder_id AND NOT r.ok) AS failed_r,
+  EXISTS (SELECT 1 FROM builder_scores s WHERE s.builder_id = p.builder_id AND s.score > 0) AS filled`;
+const reasonOf = (r: EmptyFacts) => emptyReason({ login: r.login, proposed: r.proposed, verified: r.verified, okReadings: r.ok_r, failedReadings: r.failed_r });
+
+/** v2.12 T8: what would fill this person's profile (profileEmpty's reason, now); null with a score above 0 (held or not) or no profile. */
+export async function emptyReasonOf(builderId: number): Promise<EmptyReason | null> {
+  const [r] = await sql()<EmptyFacts[]>`SELECT ${emptyFacts()} FROM builder_profiles p WHERE p.builder_id = ${builderId}`;
+  return !r || r.filled ? null : reasonOf(r);
+}
+
 /**
  * spec 3's metric: once per person, 10 minutes after their first find, a profile with no score
  * above 0 gets one profile_empty event naming what would fill it. `only`: these people (tests).
  */
 export async function profileEmpty(now: Date, o: { only?: number[] } = {}): Promise<number> {
-  const due = await sql()<{ builder_id: number; login: boolean; proposed: number; verified: number; ok_r: number; failed_r: number; filled: boolean }[]>`
-    SELECT p.builder_id, p.github_login IS NOT NULL AS login,
-      (SELECT count(*)::int FROM builder_sources b WHERE b.builder_id = p.builder_id AND b.state = 'proposed') AS proposed,
-      (SELECT count(*)::int FROM builder_sources b WHERE b.builder_id = p.builder_id AND b.state = 'verified') AS verified,
-      (SELECT count(*)::int FROM source_readings r JOIN builder_sources b ON b.id = r.source_id WHERE b.builder_id = p.builder_id AND r.ok) AS ok_r,
-      (SELECT count(*)::int FROM source_readings r JOIN builder_sources b ON b.id = r.source_id WHERE b.builder_id = p.builder_id AND NOT r.ok) AS failed_r,
-      EXISTS (SELECT 1 FROM builder_scores s WHERE s.builder_id = p.builder_id AND s.score > 0) AS filled
+  const due = await sql()<EmptyFacts[]>`
+    SELECT ${emptyFacts()}
     FROM builder_profiles p
     WHERE p.empty_checked_at IS NULL AND p.first_find_at <= ${new Date(now.getTime() - 10 * 60_000)}
       ${o.only ? sql()`AND p.builder_id IN ${sql()(o.only.length ? o.only : [-1])}` : sql()``}`;
@@ -326,7 +338,7 @@ export async function profileEmpty(now: Date, o: { only?: number[] } = {}): Prom
   for (const r of due) {
     const [claimed] = await sql()`UPDATE builder_profiles SET empty_checked_at = ${now} WHERE builder_id = ${r.builder_id} AND empty_checked_at IS NULL RETURNING 1`;
     if (!claimed || r.filled) continue;
-    const missing = emptyReason({ login: r.login, proposed: r.proposed, verified: r.verified, okReadings: r.ok_r, failedReadings: r.failed_r });
+    const missing = reasonOf(r);
     await noteEvent('profile_empty', () => ({ type: 'profile_empty', dedupe_key: `profile_empty:${r.builder_id}`, installation_id: r.builder_id, detail: { missing } }));
     n++;
   }

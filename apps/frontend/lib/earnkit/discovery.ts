@@ -21,7 +21,7 @@ import { ScoreDeadline, beforeDeadline } from './campaigns';
 import { fetchLinePusher } from './ownership';
 import { clearXHandle, setFallback } from './profiles';
 import { GitHubBudgetStop, isBudgetStop, readContractOrigin, readMergedPrs, soft, type ReaderDeps, type RepoSignals } from './source-readers';
-import { claimContract, proposeSource, rejectSource, repoOwned, siteOwnedByText, verifySource, type Proof } from './sources';
+import { claimContract, proposeSource, proveLinkedSite, rejectSource, repoOwned, siteOwnedByText, verifySource, type Proof } from './sources';
 import { proofLineOwner } from './token-gate';
 
 /**
@@ -398,14 +398,21 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
     const prProof: Proof = proof.basis === 'proof_line' ? 'proof_line' : 'github_signin';
     for (const pr of await soft(readMergedPrs(L, d), [])) if (pr.url) verify(await propose('merged_pr', pr.url, 'oss'), prProof);
   }
-  // Clue 6: proposed live links whose earnkit.txt names this person.
+  // Clue 6: proposed live links whose earnkit.txt names this person. v2.12 T8: also a site a repo
+  // only links (shown, never scored), which the score tool's next step asks to prove the same way;
+  // the repo's own Pages site already counts. The score tool lists these same sites, in this order.
   const proposedSites = await db<(Row & { ref: string })[]>`
-    SELECT id::int AS id, state, ref FROM builder_sources WHERE builder_id = ${root} AND kind = 'site' AND state = 'proposed' ORDER BY id LIMIT ${DISCOVER_CAPS.sites}`;
+    SELECT id::int AS id, state, ref FROM builder_sources
+    WHERE builder_id = ${root} AND kind = 'site' AND (state = 'proposed' OR (state = 'verified' AND proof = 'repo_link'
+      AND lower(ref) NOT LIKE 'https://' || lower(split_part(project_key, '/', 1)) || '.github.io%'))
+    ORDER BY id LIMIT ${DISCOVER_CAPS.sites}`;
   for (const s of proposedSites) {
     const origin = publicHttpsOrigin(s.ref);
-    if (!origin || stateOf(s) !== 'proposed') continue;
+    if (!origin || (s.state === 'proposed' && stateOf(s) !== 'proposed')) continue;
     const text = await soft(d.fetchText(`${origin}/earnkit.txt`), null);
-    if (text !== null && siteOwnedByText(text, profileCode(root, origin))) verify(s, 'earnkit_txt');
+    if (text === null || !siteOwnedByText(text, profileCode(root, origin))) continue;
+    if (s.state === 'proposed') verify(s, 'earnkit_txt');
+    else verdicts.push(() => proveLinkedSite(s.id));
   }
   // Every read is done: now the verdicts.
   for (const v of verdicts) await v();

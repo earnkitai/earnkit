@@ -142,6 +142,7 @@ import { LIVE_FAILED_LINE, addressesFrom, contractMissingLine, entryVerified, li
 import { noteEvent } from './events';
 import { builderScoreEnabled } from './builder-score-flag';
 import { enqueueDiscovery, localGitInput, noteLocalGit } from './discovery';
+import { scoreReply } from './score-tool';
 import { SHARED_PROFILE_NOTE, X_SET_LINE, consentOnce, ensureProfile, setFallback, setHidden, setXHandle } from './profiles';
 import { sql } from './db';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
@@ -3306,6 +3307,9 @@ export const tools = {
       replies.push((await handlers.tell_earnkit(defined({ ...statements, signed_in }), ctx)) as Reply);
     return joinReplies(replies);
   },
+
+  // v2.12 spec 7: the builder's score (registered in mcp.ts only while EARNKIT_BUILDER_SCORE=on).
+  score: async (_input: unknown, ctx: ToolContext) => scoreReply(ctx, new Date()),
 
   sponsor_campaign: sponsorCampaign,
 } satisfies Record<string, (input: unknown, ctx: ToolContext) => Promise<unknown>>;

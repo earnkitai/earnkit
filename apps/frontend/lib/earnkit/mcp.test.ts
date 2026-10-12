@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { escrowConfig, escrowConfigProblem } from './escrow';
-import { FIND_DESCRIPTION, FIND_DESCRIPTION_SCORE, TELL_DESCRIPTION, TELL_DESCRIPTION_SCORE, OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, errorSummary, TOOL_DESCRIPTIONS, createMcpServer, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
+import { FIND_DESCRIPTION, FIND_DESCRIPTION_SCORE, SCORE_DESCRIPTION, TELL_DESCRIPTION, TELL_DESCRIPTION_SCORE, OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, errorSummary, TOOL_DESCRIPTIONS, createMcpServer, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { handlers } from './tools';
 import { OLD_TOOL_NAMES, STALE_TOOLS_NOTE, aliasCall, withOlderNames } from './aliases';
 
@@ -125,6 +125,26 @@ test('7.12 v2.12: flag off, tell is v2.11 (no profile or x_handle, the v2.11 des
   } finally {
     delete process.env.EARNKIT_BUILDER_SCORE;
   }
+});
+
+test('8.6 v2.12: score is listed only with the flag on, its description under 800 characters', async () => {
+  assert.deepEqual(await toolNames({}), FOUR);
+  assert.doesNotMatch((await listed({})).instructions, /\bscore\b/);
+  process.env.EARNKIT_BUILDER_SCORE = 'on';
+  try {
+    assert.deepEqual(await toolNames({}), [...FOUR, 'score'].sort());
+    const { tools, instructions } = await listed({});
+    const score = tools.find((t) => t.name === 'score')!;
+    assert.equal(score.description, SCORE_DESCRIPTION);
+    assert.deepEqual(Object.keys(score.inputSchema.properties ?? {}), []);
+    assert.equal(instructions.split('\n')[1], "Call score when they ask how they're doing.");
+    assert.ok(instructions.length < 800, String(instructions.length));
+    assert.equal(instructions, serverInstructions(false));
+  } finally {
+    delete process.env.EARNKIT_BUILDER_SCORE;
+  }
+  assert.ok(TOOL_DESCRIPTIONS.score.length < 800, String(TOOL_DESCRIPTIONS.score.length));
+  assert.doesNotMatch(TOOL_DESCRIPTIONS.score, /—/);
 });
 
 test('9.2 the instructions and each of the 4 descriptions: under 800 characters, no old tool name, no em dash', async () => {
