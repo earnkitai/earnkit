@@ -182,3 +182,36 @@ test('7.11 merge with no profile on either side writes nothing', dbTest, async (
   assert.equal(q.n, 0);
   assert.equal(await profileOf(root), null);
 });
+
+test('7.13 no impersonation: an X handle another person already shows is refused, even when their GitHub lists it too', dbTest, async () => {
+  const [a, b] = [T + 13, T + 14];
+  await fresh(a, b);
+  const handle = `Twin${T % 100000}`;
+  for (const [id, login] of [[a, `twa${T}`], [b, `twb${T}`]] as const) {
+    await ensureProfile(id, new Date());
+    await setFallback(id, { github_login: login });
+    await sql()`UPDATE builder_profiles SET twitter_prefill = ${handle} WHERE builder_id = ${id}`;
+  }
+  assert.ok((await setXHandle(a, 'yes')).ok);
+  const before = (await profileOf(b))!;
+  assert.deepEqual(await setXHandle(b, handle.toLowerCase()), { ok: false, agent_note: X_NOT_LISTED_NOTE });
+  const after = (await profileOf(b))!;
+  assert.deepEqual([after.x_handle, after.slug], [null, before.slug]);
+});
+
+test('7.14 a new random slug is never someone else\'s old slug (it would take over their redirect)', dbTest, async () => {
+  const [old, next] = [T + 15, T + 16];
+  await fresh(old, next);
+  const seq = [...'abcdefgh', ...'abcdefgh', ...'kkkkkkkk'];
+  const pick = 'abcdefghijkmnpqrstuvwxyz23456789';
+  const oldSlug = `b-abcdefgh`;
+  await sql()`DELETE FROM profile_slug_history WHERE old_slug = ${oldSlug}`;
+  await sql()`DELETE FROM builder_profiles WHERE slug IN (${oldSlug}, 'b-kkkkkkkk')`;
+  await sql()`INSERT INTO profile_slug_history (old_slug, builder_id) VALUES (${oldSlug}, ${old})`;
+  await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${old}, ${`now${old}`})`;
+  let i = 0;
+  const made = (await ensureProfile(next, new Date(), { rand: () => pick.indexOf(seq[i++]) }))!;
+  assert.equal(made.profile.slug, 'b-kkkkkkkk');
+  assert.deepEqual(await resolveSlug(oldSlug), { builderId: old, redirect: `now${old}` });
+  await sql()`DELETE FROM profile_slug_history WHERE old_slug = ${oldSlug}`;
+});

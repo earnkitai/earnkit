@@ -78,13 +78,20 @@ async function followName(db: Db, builderId: number, p: { x_handle: string | nul
 }
 
 /** The person's profile, made on their first find with a random slug. Never on a shared group (plan R2). */
-export async function ensureProfile(builderId: number, at: Date): Promise<{ profile: Profile; created: boolean } | null> {
+export async function ensureProfile(
+  builderId: number,
+  at: Date,
+  o: { rand?: (n: number) => number } = {},
+): Promise<{ profile: Profile; created: boolean } | null> {
   if (await sharedGroup(builderId)) return null;
   const existing = await profileOf(builderId);
   if (existing) return { profile: existing, created: false };
   for (let tries = 0; tries < 5; tries++) {
+    // Never another person's old slug: a live slug wins over history, so it would take over their redirect.
+    const slug = randomSlug(o.rand);
     const [row] = await sql()<Profile[]>`
-      INSERT INTO builder_profiles (builder_id, slug, first_find_at) VALUES (${builderId}, ${randomSlug()}, ${at})
+      INSERT INTO builder_profiles (builder_id, slug, first_find_at)
+      SELECT ${builderId}, ${slug}, ${at} WHERE NOT EXISTS (SELECT 1 FROM profile_slug_history WHERE old_slug = ${slug})
       ON CONFLICT DO NOTHING RETURNING ${sql()(COLUMNS)}`;
     if (row) return { profile: row, created: true };
     const again = await profileOf(builderId);
@@ -124,12 +131,17 @@ export async function setXHandle(builderId: number, given: string): Promise<{ ok
   const chosen = /^(yes|y|sure|ok)$/i.test(handle) ? prefill : handle;
   if (!p || !prefill || !chosen || !X_HANDLE.test(prefill) || chosen.toLowerCase() !== prefill.toLowerCase())
     return { ok: false, agent_note: X_NOT_LISTED_NOTE };
+  // One X handle, one person: a handle another profile already shows is refused (it would impersonate them).
   const slug = await sql().begin(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${`x_handle:${prefill.toLowerCase()}`}))`;
+    const [held] = await tx`SELECT 1 FROM builder_profiles WHERE lower(x_handle) = ${prefill.toLowerCase()} AND builder_id <> ${builderId}`;
+    if (held) return null;
     await tx`UPDATE builder_profiles SET x_handle = ${prefill}, updated_at = now() WHERE builder_id = ${builderId}`;
     const s = (await freeSlug(prefill.toLowerCase(), builderId, tx))!; // a handle is at most 15 characters
     await moveSlugIn(tx, builderId, s);
     return s;
   });
+  if (!slug) return { ok: false, agent_note: X_NOT_LISTED_NOTE };
   await noteEvent('x_added', () => ({ type: 'x_added', dedupe_key: `x_added:${builderId}:${prefill.toLowerCase()}`, installation_id: builderId, detail: { slug } }));
   return { ok: true, slug };
 }
@@ -201,7 +213,8 @@ export async function mergeProfiles(tx: postgres.TransactionSql, root: number, o
     x_asked_at: win.x_asked_at ?? lose.x_asked_at,
     empty_checked_at: win.empty_checked_at ?? lose.empty_checked_at,
   };
-  await tx`INSERT INTO profile_slug_history (old_slug, builder_id) VALUES (${lose.slug}, ${root}) ON CONFLICT (old_slug) DO UPDATE SET builder_id = ${root}`;
+  // DO NOTHING: an old slug is never moved off another person (the other's own history moved above).
+  await tx`INSERT INTO profile_slug_history (old_slug, builder_id) VALUES (${lose.slug}, ${root}) ON CONFLICT (old_slug) DO NOTHING`;
   await tx`DELETE FROM builder_profiles WHERE builder_id = ${lose.builder_id}`;
   if (win.builder_id !== root) await tx`UPDATE builder_profiles SET builder_id = ${root} WHERE builder_id = ${win.builder_id}`;
   await tx`UPDATE builder_profiles SET ${tx(merged)}, updated_at = now() WHERE builder_id = ${root}`;
