@@ -1,7 +1,25 @@
 import { builderScoreEnabled } from './builder-score-flag';
 import { sql, type Db } from './db';
-import { githubRemote } from './discovery-clues';
+import {
+  CLUE_PATHS,
+  cnameSite,
+  foundryBroadcast,
+  githubProfileClues,
+  githubRemote,
+  hardhatDeployment,
+  npmPackage,
+  pagesSite,
+  profileCode,
+  pypiPackage,
+  vercelSites,
+  wranglerSites,
+  type ContractClue,
+} from './discovery-clues';
 import { noteEvent } from './events';
+import { loginBasisFor, repoEverDerived } from './github-verify';
+import { isBudgetStop, readContractOrigin, readMergedPrs, type ReaderDeps, type RepoSignals } from './source-readers';
+import { claimContract, proposeSource, rejectSource, repoOwned, siteOwnedByText, verifySource, type Proof } from './sources';
+import { proofLineOwner } from './token-gate';
 
 /**
  * v2.12 spec 3: finding a person's past work. `find` never waits on it: it records the agent's
@@ -96,4 +114,262 @@ export async function enqueueClue(installationId: number, reason: 'wallet' | 'si
     console.error('[discovery] clue', err instanceof Error ? err.name : 'error');
     return false;
   }
+}
+
+// ---- spec 3, Task 6: the cron's discover step.
+
+/** Who a person's GitHub login is (plan R4: a sign-in, the read-only App, or the v2.11 proof line). */
+export type LoginOf = (builderId: number) => Promise<{ login: string; basis: 'signin' | 'app' | 'proof_line' } | null>;
+
+/** Per person and run: orgs looked at, repos checked per org, agent remotes checked, repos scanned for clue files, files per repo, contracts. */
+export const DISCOVER_CAPS = { orgs: 3, orgRepos: 10, remotes: 5, clueRepos: 10, clueFiles: 10, contracts: 20, sites: 5 } as const;
+/** A person whose discovery threw this many times is marked done until the next clue queues them. */
+export const DISCOVER_MAX_ATTEMPTS = 5;
+
+const FOUNDRY_FILE = /^broadcast\/[^/]+\/\d+\/run-latest\.json$/;
+const HARDHAT_FILE = /^deployments\/[^/]+\/[^/]+\.json$/;
+const REPO_KEY = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}\/(?!\.\.?$)[a-z0-9._-]{1,100}$/;
+
+type ListedRepo = {
+  full_name?: string; fork?: boolean; is_template?: boolean; homepage?: string | null; has_pages?: boolean;
+  created_at?: string | null; pushed_at?: string | null; owner?: { login?: string; type?: string };
+};
+
+/** `p`, or `fallback` on any error but a spent GitHub budget (which always propagates). */
+const soft = <T>(p: Promise<T>, fallback: T) => p.catch((err: unknown) => {
+  if (isBudgetStop(err)) throw err;
+  return fallback;
+});
+
+/** A repo's homepage as a public https origin ('example.com' and http:// read as https), or null. */
+export function homepageOrigin(h: unknown): string | null {
+  if (typeof h !== 'string' || !h.trim()) return null;
+  const t = h.trim();
+  return publicHttpsOrigin(/^https?:\/\//i.test(t) ? t.replace(/^http:/i, 'https:') : `https://${t}`);
+}
+
+/**
+ * plan R4: the newest sign-in (or App) verification of any installation in the group, else the
+ * v2.11 proof line on one of the agent's proposed repos (at most DISCOVER_CAPS.remotes), checked
+ * for each installation of the group. Never guessed.
+ */
+export async function provenLogin(builderId: number): Promise<{ login: string; basis: 'signin' | 'app' | 'proof_line' } | null> {
+  const members = (await sql()<{ id: number }[]>`SELECT id FROM installations WHERE COALESCE(builder_id, id) = ${builderId} ORDER BY id`).map((m) => m.id);
+  if (members.length === 0) return null;
+  const [v] = await sql()<{ login: string; via: string }[]>`
+    SELECT lower(login) AS login, via FROM github_verifications WHERE installation_id IN ${sql()(members)}
+    ORDER BY verified_at DESC, id DESC LIMIT 1`;
+  if (v) return { login: v.login, basis: v.via === 'app' ? 'app' : 'signin' };
+  const repos = await sql()<{ ref: string }[]>`
+    SELECT ref FROM builder_sources WHERE builder_id = ${builderId} AND kind = 'repo' AND state = 'proposed' ORDER BY id LIMIT ${DISCOVER_CAPS.remotes}`;
+  for (const { ref } of repos)
+    for (const m of members) {
+      const lineOwner = await proofLineOwner({ installationId: m, repoUrl: `https://github.com/${ref}` });
+      if (!lineOwner) continue;
+      const p = await loginBasisFor(m, ref, { lineOwner });
+      if (p) return p;
+    }
+  return null;
+}
+
+type Counts = { people: number; proposed: number; verified: number };
+type Row = { id: number; state: string };
+
+/** One person's discovery (spec 3, clues 1 to 6). Throws on a failed core read (the queue retries). */
+async function discoverOne(root: number, o: { reader: ReaderDeps; login?: LoginOf }, out: Counts): Promise<void> {
+  const d = o.reader;
+  const db = sql();
+  const members = (await db<{ id: number }[]>`SELECT id FROM installations WHERE COALESCE(builder_id, id) = ${root}`).map((m) => m.id);
+  const group = members.length ? members : [-1];
+  const propose = async (kind: string, ref: string, key: string): Promise<Row> => {
+    if ((await proposeSource({ builder_id: root, kind, ref, project_key: key, proposed_by: 'server' })) !== null) out.proposed++;
+    const [row] = await db<Row[]>`SELECT id::int AS id, state FROM builder_sources WHERE builder_id = ${root} AND kind = ${kind} AND ref = ${ref}`;
+    return row;
+  };
+  const verify = async (row: Row, proof: Proof) => {
+    if (row.state === 'verified') return;
+    await verifySource(row.id, proof);
+    row.state = 'verified';
+    out.verified++;
+  };
+  // R25: only a launched EarnKit token's creator wallet or an EarnKit deploy's confirmed owner proves a wallet.
+  const proven = new Set(
+    (await db<{ w: string }[]>`
+      SELECT lower(creator_wallet) AS w FROM projects WHERE installation_id IN ${db(group)} AND coin_address IS NOT NULL AND creator_wallet IS NOT NULL
+      UNION SELECT lower(owner_wallet) FROM contract_deploys WHERE installation_id IN ${db(group)} AND owner_ok AND owner_wallet IS NOT NULL`).map((r) => r.w),
+  );
+  // Clue 5: contracts EarnKit deployed for this person (their own group's deploys only).
+  const deploys = await db<{ chain: string; address: string; repo_key: string }[]>`
+    SELECT chain, lower(address) AS address, lower(repo_key) AS repo_key FROM contract_deploys
+    WHERE installation_id IN ${db(group)} AND status = 'deployed' AND address IS NOT NULL ORDER BY id`;
+  const ours = new Set(deploys.map((x) => `${x.chain}:${x.address}`));
+  let contracts = 0;
+  const claim = async (ref: string, key: string, facts: { clue?: ContractClue; repoCreated?: string | null }) => {
+    if (contracts >= DISCOVER_CAPS.contracts) return;
+    contracts++;
+    const row = await propose('contract', ref, key);
+    if (row.state === 'verified') return;
+    const earnkitDeployed = ours.has(ref);
+    // EarnKit's own deploys need no onchain read (the deployer is EarnKit's, never the person's).
+    const origin = earnkitDeployed ? { deployer: null, created_at: null } : await soft(readContractOrigin(ref, d), { deployer: null, created_at: null });
+    const r = await claimContract(row.id, root, ref, {
+      deployer: origin.deployer, created_at: origin.created_at, earnkitDeployed,
+      repo: facts.clue ? { deployer: facts.clue.deployer, created_at: facts.repoCreated ?? null } : null,
+    }, proven);
+    if ('proof' in r) out.verified++;
+  };
+  for (const x of deploys) await claim(`${x.chain}:${x.address}`, x.repo_key, {});
+
+  const proof = await (o.login ?? provenLogin)(root);
+  if (proof) {
+    const L = proof.login.toLowerCase();
+    await db`UPDATE builder_profiles SET github_login = ${L}, fallback_handle = COALESCE(fallback_handle, ${L}), updated_at = now() WHERE builder_id = ${root}`;
+    const user = await d.gh<{ blog?: string | null; twitter_username?: string | null }>(`/users/${L}`);
+    const clues = githubProfileClues(user ?? {});
+    if (clues.twitter) await db`UPDATE builder_profiles SET twitter_prefill = ${clues.twitter} WHERE builder_id = ${root}`;
+    // Clue 2: own repos, and org repos where they are the top contributor.
+    const candidates = new Map<string, { meta: ListedRepo; top: boolean }>();
+    for (const r of await d.gh<ListedRepo[]>(`/users/${L}/repos?type=owner&per_page=100`)) {
+      const key = r?.full_name?.toLowerCase();
+      if (key) candidates.set(key, { meta: r, top: false });
+    }
+    const topOf = async (key: string) => {
+      const c = await soft(d.gh<{ login?: string }[]>(`/repos/${key}/contributors?per_page=1`), []);
+      return Array.isArray(c) && c[0]?.login?.toLowerCase() === L;
+    };
+    const orgs = await soft(d.gh<{ login?: string }[]>(`/users/${L}/orgs`), []);
+    for (const org of (Array.isArray(orgs) ? orgs : []).slice(0, DISCOVER_CAPS.orgs)) {
+      if (!org?.login || !/^[A-Za-z0-9-]{1,39}$/.test(org.login)) continue;
+      const repos = await soft(d.gh<ListedRepo[]>(`/orgs/${org.login}/repos?per_page=100&sort=pushed`), []);
+      for (const r of (Array.isArray(repos) ? repos : []).filter((x) => !x?.fork && !x?.is_template).slice(0, DISCOVER_CAPS.orgRepos)) {
+        const key = r.full_name?.toLowerCase();
+        if (key && REPO_KEY.test(key) && !candidates.has(key) && (await topOf(key))) candidates.set(key, { meta: r, top: true });
+      }
+    }
+    // The agent's remotes (R4: clues only) are checked against the proven login.
+    const remotes = await db<{ ref: string }[]>`
+      SELECT ref FROM builder_sources WHERE builder_id = ${root} AND kind = 'repo' AND state = 'proposed' ORDER BY id LIMIT ${DISCOVER_CAPS.remotes}`;
+    for (const { ref } of remotes) {
+      const key = ref.toLowerCase();
+      if (candidates.has(key) || !REPO_KEY.test(key)) continue;
+      const meta = await soft(d.gh<ListedRepo | null>(`/repos/${key}`), null);
+      if (!meta) continue;
+      candidates.set(key, { meta, top: meta.owner?.type === 'Organization' && (await topOf(key)) });
+    }
+    const scan: { key: string; meta: ListedRepo }[] = [];
+    for (const [key, c] of candidates) {
+      if (!REPO_KEY.test(key)) continue;
+      const row = await propose('repo', key, key);
+      const fork = c.meta.fork === true;
+      const template = c.meta.is_template === true;
+      const ever = await repoEverDerived(key, fork || template);
+      const signals = { owner: (c.meta.owner?.login ?? key.split('/')[0]).toLowerCase(), owner_type: c.meta.owner?.type ?? 'User', fork, template } as RepoSignals;
+      if (repoOwned(signals, L, c.top, ever)) {
+        await verify(row, 'repo_owner');
+        scan.push({ key, meta: c.meta });
+      } else if (row.state !== 'rejected') await rejectSource(row.id, fork || template || ever ? 'derived' : 'not_owner');
+    }
+    // Clue 3: files of their newest verified repos.
+    scan.sort((a, b) => String(b.meta.pushed_at ?? '').localeCompare(String(a.meta.pushed_at ?? '')));
+    for (const { key, meta } of scan.slice(0, DISCOVER_CAPS.clueRepos)) {
+      const [owner, name] = key.split('/');
+      const sites = new Set<string>();
+      const home = homepageOrigin(meta.homepage);
+      if (home) sites.add(home);
+      const tree = await soft(d.gh<{ tree?: { path?: string; type?: string }[] }>(`/repos/${key}/git/trees/HEAD?recursive=1`), {});
+      const paths = (Array.isArray(tree?.tree) ? tree.tree : []).filter((t) => t?.type === 'blob' && typeof t.path === 'string').map((t) => t.path!);
+      const has = new Set(paths);
+      const want = [...CLUE_PATHS.filter((p) => has.has(p)), ...paths.filter((p) => FOUNDRY_FILE.test(p) || HARDHAT_FILE.test(p))];
+      let files = 0;
+      const text = async (path: string): Promise<string | null> => {
+        if (files >= DISCOVER_CAPS.clueFiles) return null;
+        files++;
+        const f = await soft(d.gh<{ content?: unknown; encoding?: unknown }>(`/repos/${key}/contents/${path.split('/').map(encodeURIComponent).join('/')}`), null);
+        return f && typeof f.content === 'string' && f.encoding === 'base64' ? Buffer.from(f.content, 'base64').toString('utf8') : null;
+      };
+      const found: ContractClue[] = [];
+      for (const path of want) {
+        if (files >= DISCOVER_CAPS.clueFiles) break;
+        const t = await text(path);
+        if (t === null) continue;
+        if (path === 'CNAME') {
+          const c = cnameSite(t);
+          if (c) sites.add(c);
+        } else if (path === 'vercel.json') vercelSites(t).forEach((x) => sites.add(x));
+        else if (path === 'wrangler.toml') wranglerSites(t).forEach((x) => sites.add(x));
+        else if (path === 'package.json') {
+          const n = npmPackage(t);
+          if (n) await propose('package_npm', n, key);
+        } else if (path === 'pyproject.toml') {
+          const n = pypiPackage(t);
+          if (n) await propose('package_pypi', n, key);
+        } else if (FOUNDRY_FILE.test(path)) found.push(...foundryBroadcast(path, t));
+        else {
+          const net = path.split('/')[1];
+          const chainId = has.has(`deployments/${net}/.chainId`) ? await text(`deployments/${net}/.chainId`) : null;
+          const c = hardhatDeployment(path, t, chainId);
+          if (c) found.push(c);
+        }
+      }
+      // Sites the repo links (homepage, CNAME, vercel.json, wrangler.toml) as public origins, and its Pages site.
+      const linked = [...new Set([...sites].map(publicHttpsOrigin).filter((x): x is string => !!x))];
+      if (meta.has_pages === true) linked.push(pagesSite(owner, name));
+      for (const site of linked) await verify(await propose('site', site, key), 'repo_link');
+      for (const c of found) await claim(`${c.chain}:${c.address}`, key, { clue: c, repoCreated: meta.created_at ?? null });
+    }
+    // The GitHub profile's blog: a proposal (verified above only when a verified repo links it, or by earnkit.txt below).
+    if (clues.site) {
+      const blog = publicHttpsOrigin(clues.site);
+      if (blog) await propose('site', blog, blog);
+    }
+    // Clue 4: merged PRs to repos they don't own.
+    for (const pr of await soft(readMergedPrs(L, d), [])) if (pr.url) await verify(await propose('merged_pr', pr.url, 'oss'), proof.basis === 'proof_line' ? 'proof_line' : 'github_signin');
+  }
+  // Clue 6: proposed live links whose earnkit.txt names this person.
+  const proposedSites = await db<(Row & { ref: string })[]>`
+    SELECT id::int AS id, state, ref FROM builder_sources WHERE builder_id = ${root} AND kind = 'site' AND state = 'proposed' ORDER BY id LIMIT ${DISCOVER_CAPS.sites}`;
+  for (const s of proposedSites) {
+    const origin = publicHttpsOrigin(s.ref);
+    if (!origin) continue;
+    const text = await soft(d.fetchText(`${origin}/earnkit.txt`), null);
+    if (text !== null && siteOwnedByText(text, profileCode(root, origin))) await verify(s, 'earnkit_txt');
+  }
+}
+
+/**
+ * spec 3, the cron's discover step: the oldest queued people (at most `limit`, DISCOVER_PER_RUN),
+ * while `deadline` allows. A shared client's group is never a person (R2): marked done untouched.
+ * A finished person is marked done; a thrown read leaves them queued and counts an attempt (after
+ * DISCOVER_MAX_ATTEMPTS they are done until the next clue); a spent GitHub budget or the deadline
+ * stops the step without counting one.
+ */
+export async function discover(now: Date, o: { deadline: number; reader: ReaderDeps; login?: LoginOf; limit?: number; only?: number[] }): Promise<Counts> {
+  void now;
+  const db = sql();
+  const queue = await db<{ builder_id: number }[]>`
+    SELECT builder_id FROM discovery_queue WHERE done_at IS NULL
+      ${o.only ? db`AND builder_id IN ${db(o.only.length ? o.only : [-1])}` : db``}
+    ORDER BY queued_at, builder_id LIMIT ${o.limit ?? DISCOVER_PER_RUN}`;
+  const out: Counts = { people: 0, proposed: 0, verified: 0 };
+  for (const { builder_id: root } of queue) {
+    if (Date.now() >= o.deadline) break;
+    const [g] = await db<{ shared: boolean | null }[]>`SELECT bool_or(shared_client) AS shared FROM installations WHERE COALESCE(builder_id, id) = ${root}`;
+    if (g?.shared) {
+      await db`UPDATE discovery_queue SET done_at = now() WHERE builder_id = ${root}`;
+      continue;
+    }
+    try {
+      await discoverOne(root, o, out);
+      await db`UPDATE discovery_queue SET done_at = now(), attempts = attempts + 1 WHERE builder_id = ${root}`;
+      out.people++;
+    } catch (err) {
+      if (isBudgetStop(err) || Date.now() >= o.deadline) break;
+      console.error('[discovery] person', err instanceof Error ? err.name : 'error');
+      await db`
+        UPDATE discovery_queue SET attempts = attempts + 1,
+          done_at = CASE WHEN attempts + 1 >= ${DISCOVER_MAX_ATTEMPTS} THEN now() END
+        WHERE builder_id = ${root}`;
+    }
+  }
+  return out;
 }

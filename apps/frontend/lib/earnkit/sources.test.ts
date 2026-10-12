@@ -22,7 +22,8 @@ test('5.11 propose is idempotent; verify and reject set state; only verified sou
   await verifySource(b, 'earnkit_txt');
   await rejectSource(c, 'ownership_unproven');
   await sql()`UPDATE builder_sources SET last_read_day = '2026-10-10' WHERE id = ${a}`;
-  const due = (await dueSources('2026-10-12', 10)).filter((s) => s.builder_id === ID).map((s) => s.id);
+  // A limit past every other test's never-read sources (files share the DB and run in parallel).
+  const due = (await dueSources('2026-10-12', 1_000_000)).filter((s) => s.builder_id === ID).map((s) => s.id);
   assert.deepEqual(due, [b, a], 'never read first, then the oldest');
   assert.deepEqual((await dueSources('2026-10-12', 10, [ID])).map((s) => s.id), [b, a], 'only: these people');
   assert.deepEqual(await dueSources('2026-10-12', 10, []), [], 'only: nobody');

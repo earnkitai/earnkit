@@ -8,6 +8,8 @@ import { digestEnabled, sendDigests, type Mailer } from './digest';
 import { usageChecks, type UsageDeps } from './events';
 import { cleanDeploys, expireSites, sitesInReview } from './hosting';
 import { bearerMatches, json } from './http';
+import { builderScoreEnabled } from './builder-score-flag';
+import { runScoreSteps, scoreSliceEnd, type ScoreCronDeps } from './builder-score';
 import {
   NOT_MAINNET,
   NO_PAYOUT_KEY,
@@ -103,6 +105,8 @@ export type CronDeps = {
   deployer?: Pick<DeployDeps, 'chain' | 'usdPerNative'>;
   /** v2.11 T11: the usage checks' reads and `only` (deployed event ids); with `only`, the step runs only when given. */
   usage?: UsageDeps;
+  /** v2.12 spec 6: the builder score's reads and people (tests); with `only`, the steps run only when given. */
+  builderScore?: ScoreCronDeps;
 };
 
 /** Opens the 48 h review (once: only from 'running') and freezes the payout terms with it. */
@@ -390,6 +394,20 @@ export async function runCron(
       usage = { step: 'error', note: STEP_FAILED };
     }
   }
+  // v2.12 spec 6: the builder score's four steps (discover and read, score, ranks, the empty-profile
+  // check), with at most 40% of what remains (no new schedule). Only with EARNKIT_BUILDER_SCORE=on.
+  // A hold waits on the owner quietly (listed, never a 503).
+  const needs_owner_extra: string[] = [];
+  let builderScore: Record<string, unknown> | undefined;
+  if (builderScoreEnabled() && (!opts.only || deps.builderScore)) {
+    try {
+      builderScore = await runScoreSteps(now, scoreSliceEnd(Date.now(), deadline), deps.builderScore);
+      for (const id of (builderScore.score as { held?: number[] } | undefined)?.held ?? []) needs_owner_extra.push(`score-hold:${id}${QUIET_OWNER}`);
+    } catch (err) {
+      console.error('[cron] builder score', err instanceof Error ? err.name : 'error');
+      builderScore = { step: 'error', note: STEP_FAILED };
+    }
+  }
   // Campaigns whose payout waits on the owner (manual check, changed terms, a wallet short of the
   // prize or of gas, or PAY_FAILED_RUNS failed pay steps in a row): the endpoint answers 503.
   const needs_owner = campaigns
@@ -440,6 +458,7 @@ export async function runCron(
     for (const slug of review) needs_owner.push(`host-review:${slug}`);
   }
   for (const key of deployer?.needs_owner ?? []) needs_owner.push(key);
+  needs_owner.push(...needs_owner_extra);
   return {
     now: now.toISOString(),
     campaigns,
@@ -453,6 +472,7 @@ export async function runCron(
     ...(cleanup && { cleanup }),
     ...(deployer && Object.keys(deployer.deployer_gas).length > 0 && { deployer_gas: deployer.deployer_gas }),
     ...(usage && { usage_checks: usage }),
+    ...(builderScore && { builder_score: builderScore }),
     needs_owner,
   };
 }

@@ -26,7 +26,11 @@ export type FarmCtx = {
   self: ReadonlySet<string>;
   actors: ReadonlyMap<string, ActorFacts>;
   ring: ReadonlyMap<string, number>;
-  /** Ring actor -> the partner person who owns it, so a partner counts once per project. */
+  /**
+   * Ring actor -> the partner person who owns it, so a partner counts once per project. Required
+   * for every ring actor whenever `ring` is non-empty (countProject throws otherwise): spread the
+   * whole ringWeights() output into the context.
+   */
   ringOwner?: ReadonlyMap<string, number>;
   clusterCap?: { actors: ReadonlySet<string>; cap: number };
 };
@@ -59,6 +63,8 @@ export function countProject(project: string, touches: Touch[], ctx: FarmCtx): C
   const known = lc(ctx.actors);
   const ring = lc(ctx.ring);
   const ringOwner = ctx.ringOwner && lc(ctx.ringOwner);
+  // A hand-built ring without its owners would weigh each account, not each person: refuse it.
+  for (const a of ring.keys()) if (!ringOwner?.has(a)) throw new Error(`ring actor ${a} has no ringOwner (spread the whole ringWeights() output)`);
   const cluster = ctx.clusterCap && { cap: ctx.clusterCap.cap, actors: new Set([...ctx.clusterCap.actors].map((a) => a.toLowerCase())) };
   // Self-exclusion, then one per account (earliest touch; its money summed per account).
   const first = new Map<string, Touch>();

@@ -8,6 +8,7 @@ import { PAY_FAILED_RUNS, TERMS_CHANGED, bonusWaitsOnOwner, cronPost, nextStep, 
 import { sql } from './db';
 import { MANUAL_CHECK, NOT_MAINNET, NO_PAYOUT_KEY, TOP_UP, dbPayoutStore, needsOwner, type PayoutRpc } from './payout';
 import { RateLimitError } from './rate-limit';
+import type { ReaderDeps } from './source-readers';
 
 const ENDS = new Date('2026-10-18T23:59:00Z');
 const at = (min: number) => new Date(ENDS.getTime() + min * 60_000);
@@ -623,5 +624,29 @@ test('11.5 runCron: the usage step reports its counts; a failed read never break
     if (before === undefined) delete process.env[EVENT_LOG_FLAG];
     else process.env[EVENT_LOG_FLAG] = before;
     delete process.env.CRON_SECRET;
+  }
+});
+
+/** A ReaderDeps whose every read throws 'unexpected', except the ones a test overrides: the guard never sees a fetch. */
+function fakeReader(): ReaderDeps {
+  const no = async () => {
+    throw new Error('unexpected');
+  };
+  return { gh: no, probe: no, fetchText: no, json: no, baseTxs: no, contractOrigin: no, arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, now: new Date() };
+}
+
+test('6.9 v2.12: with the flag off runCron has no builder_score key; on, the five step results come back and a failing read fails soft', db, async () => {
+  const off = await runCron({ only: ['none'], deps: { refreshFees: async () => 0 } });
+  assert.equal('builder_score' in off, false);
+  process.env.EARNKIT_BUILDER_SCORE = 'on';
+  try {
+    const slow = { ...fakeReader(), probe: async () => { await new Promise((r) => setTimeout(r, 50)); throw new Error('timeout'); } };
+    const on = await runCron({ only: ['none'], budgetMs: 2_000, deps: { refreshFees: async () => 0, builderScore: { reader: slow, only: [] } } });
+    assert.deepEqual(Object.keys(on.builder_score!), ['discover', 'read', 'score', 'ranks', 'empty']);
+    assert.deepEqual(on.needs_owner.filter((k: string) => !k.endsWith(':quiet')), []);
+    // Without its deps, a run limited to other programs (tests, the e2e) skips the steps.
+    assert.equal('builder_score' in (await runCron({ only: ['none'], deps: { refreshFees: async () => 0 } })), false);
+  } finally {
+    delete process.env.EARNKIT_BUILDER_SCORE;
   }
 });

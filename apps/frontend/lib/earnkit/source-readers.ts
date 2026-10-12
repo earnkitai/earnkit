@@ -28,7 +28,8 @@ export type PackageSignals = { weekly: number; repo_url: string | null };
 export type ContractSignals = { callers: (Who & { value_usd: number; first_tx_at?: string | null })[]; partial: boolean };
 /** Who created a contract onchain: the creation transaction's sender and time; null is unreadable. */
 export type ContractOrigin = { deployer: string | null; created_at: string | null };
-export type PrSignals = { target: string; target_stars: number; merged_at: string | null; author: string };
+/** `url`: the PR's own page (a merged_pr source's ref). */
+export type PrSignals = { target: string; target_stars: number; merged_at: string | null; author: string; url?: string };
 export type ReaderDeps = {
   gh: <T>(path: string, accept?: string) => Promise<T>;
   probe: (url: string) => Promise<{ status: number }>;
@@ -318,7 +319,7 @@ export async function readMergedPrs(login: string, d: ReaderDeps): Promise<PrSig
     const full = await soft(d.gh<{ merged_by?: { login?: string } | null }>(`/repos/${pr.target}/pulls/${number}`), {} as { merged_by?: { login?: string } | null });
     const merger = full.merged_by?.login?.toLowerCase();
     if (!merger || merger === me) continue;
-    out.push(pr);
+    out.push({ ...pr, url: `https://github.com/${pr.target}/pull/${number}` });
   }
   return out;
 }

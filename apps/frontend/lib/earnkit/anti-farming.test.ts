@@ -164,3 +164,11 @@ test('3.14 fresh wallet: a first transaction after the call is unknown data (50%
   const a = new Map<string, ActorFacts>([['wallet:0xfut', { first_tx_at: d(-300) }], ['wallet:0xo1', OLD], ['wallet:0xo2', OLD]]);
   assert.equal(countProject('p', t, { self: new Set(), actors: a, ring: new Map() }).users, 2.5);
 });
+
+test('3.14 a ring without its owners is refused: a hand-built context can never skip the once-per-person rule', () => {
+  const t = [call('gh:bob', 1), call('gh:bob2', 2)].map((x) => ({ ...x, kind: 'stargazer' as const }));
+  const actors = new Map<string, ActorFacts>(t.map((x) => [x.actor, OLD]));
+  assert.throws(() => countProject('p', t, { self: new Set(), actors, ring: new Map([['gh:bob', 0.5], ['gh:bob2', 0.5]]) }), /ringOwner/);
+  assert.throws(() => countProject('p', t, { self: new Set(), actors, ring: new Map([['gh:bob', 0.5]]), ringOwner: new Map() }), /ringOwner/);
+  assert.equal(countProject('p', t, { self: new Set(), actors, ring: new Map() }).users, 2, 'no ring: no owners needed');
+});

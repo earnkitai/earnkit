@@ -1,7 +1,7 @@
-import { sql } from './db';
+import { sql, type Db } from './db';
 import { profileCodesIn } from './discovery-clues';
 import { noteEvent } from './events';
-import type { PackageSignals, RepoSignals } from './source-readers';
+import { isBudgetStop, readContract, readNpm, readPypi, readRepo, readSite, type PackageSignals, type PrSignals, type ReaderDeps, type RepoSignals } from './source-readers';
 
 /** spec 6: at most this many sources are read a run (oldest first). */
 export const READS_PER_RUN = 200;
@@ -79,8 +79,8 @@ export function contractOwned(c: ContractFacts, provenWallets: ReadonlySet<strin
 }
 
 /** Whether another person already has this contract, or a contract by this deployer, verified. */
-export async function contractConflicts(builderId: number, ref: string, deployer: string | null): Promise<{ contractTaken: boolean; deployerTaken: boolean }> {
-  const [row] = await sql()<{ contract_taken: boolean; deployer_taken: boolean }[]>`
+export async function contractConflicts(builderId: number, ref: string, deployer: string | null, db: Db = sql()): Promise<{ contractTaken: boolean; deployerTaken: boolean }> {
+  const [row] = await db<{ contract_taken: boolean; deployer_taken: boolean }[]>`
     SELECT
       EXISTS (SELECT 1 FROM builder_sources WHERE kind = 'contract' AND state = 'verified' AND builder_id <> ${builderId} AND lower(ref) = ${ref.toLowerCase()}) AS contract_taken,
       EXISTS (SELECT 1 FROM builder_sources WHERE kind = 'contract' AND state = 'verified' AND builder_id <> ${builderId} AND ${deployer?.toLowerCase() ?? null}::text IS NOT NULL AND deployer = ${deployer?.toLowerCase() ?? null}) AS deployer_taken`;
@@ -144,4 +144,146 @@ export async function writeReading(id: number, builderId: number, day: string, r
   });
   if (written) await noteEvent('reading_taken', () => ({ type: 'reading_taken', dedupe_key: `reading:${id}:${day}`, installation_id: builderId, detail: { source_id: id, ok: r.ok } }));
   return written;
+}
+
+/**
+ * A proposed contract's verdict, decided and written in one transaction: transaction-scoped advisory
+ * locks on the contract and on its onchain deployer serialize every claim on either, so two people
+ * claiming one contract (or two contracts of one deployer) at once can never both be verified.
+ * `facts` is everything but the conflicts, which are read under the locks. Verified keeps the
+ * deployer (contractConflicts); refused is the CONTRACT_REFUSALS reason.
+ */
+export async function claimContract(
+  id: number,
+  builderId: number,
+  ref: string,
+  facts: Omit<ContractFacts, 'contractTaken' | 'deployerTaken'>,
+  provenWallets: ReadonlySet<string>,
+): Promise<{ proof: Proof } | { reject: string }> {
+  const deployer = facts.deployer?.toLowerCase() ?? null;
+  const { result, changed } = await sql().begin(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${`v212:contract:${ref.toLowerCase()}`}))`;
+    if (deployer) await tx`SELECT pg_advisory_xact_lock(hashtext(${`v212:deployer:${deployer}`}))`;
+    const conflicts = await contractConflicts(builderId, ref, deployer, tx);
+    const result = contractOwnership({ ...facts, deployer, ...conflicts }, provenWallets);
+    const rows =
+      'proof' in result
+        ? await tx`
+            UPDATE builder_sources SET state = 'verified', proof = ${result.proof}, verified_at = now(), reject_reason = NULL,
+              deployer = COALESCE(${deployer}::text, deployer)
+            WHERE id = ${id} AND builder_id = ${builderId} AND state <> 'verified' RETURNING id`
+        : await tx`
+            UPDATE builder_sources SET state = 'rejected', reject_reason = ${result.reject}
+            WHERE id = ${id} AND builder_id = ${builderId} AND state <> 'rejected' RETURNING id`;
+    return { result, changed: rows.length > 0 };
+  });
+  if (changed && 'proof' in result)
+    await noteEvent('source_verified', () => ({ type: 'source_verified', dedupe_key: `source_verified:${id}`, installation_id: builderId, detail: { source_id: id, kind: 'contract', proof: result.proof } }));
+  if (changed && 'reject' in result)
+    await noteEvent('source_rejected', () => ({ type: 'source_rejected', dedupe_key: `source_rejected:${id}:${result.reject}`, installation_id: builderId, detail: { source_id: id, reason: result.reject } }));
+  return result;
+}
+
+const DAY_MS = 86_400_000;
+type Due = { id: number; builder_id: number; kind: string; ref: string; last_read_day: string | null };
+
+/** A merged_pr ref's target repo and number ('https://github.com/<owner>/<repo>/pull/<n>'), or null. Pure. */
+export function prRef(ref: string): { target: string; number: string } | null {
+  const m = /^https:\/\/github\.com\/([A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}\/(?!\.\.?\/)[A-Za-z0-9._-]{1,100})\/pull\/(\d{1,9})$/.exec(ref);
+  return m ? { target: m[1].toLowerCase(), number: m[2] } : null;
+}
+
+/**
+ * A merged PR re-read: the target's stars today (one GitHub read); merged_at from the previous
+ * reading, or (first read) the PR itself. The author is the person's proven login.
+ */
+async function readPr(s: Due, d: ReaderDeps): Promise<PrSignals> {
+  const p = prRef(s.ref);
+  if (!p) throw new Error('not a PR url');
+  const meta = await d.gh<{ stargazers_count?: unknown }>(`/repos/${p.target}`);
+  const stars = typeof meta?.stargazers_count === 'number' && Number.isFinite(meta.stargazers_count) ? Math.max(0, meta.stargazers_count) : 0;
+  const prev = (await previousSignals(s.id)) as Partial<PrSignals> | null;
+  const valid = (x: unknown): x is string => typeof x === 'string' && !Number.isNaN(Date.parse(x));
+  let merged_at = valid(prev?.merged_at) ? prev.merged_at : null;
+  if (!merged_at) {
+    const pull = await d.gh<{ merged_at?: unknown }>(`/repos/${p.target}/pulls/${p.number}`);
+    merged_at = valid(pull?.merged_at) ? pull.merged_at : null;
+  }
+  const [who] = await sql()<{ login: string | null }[]>`SELECT lower(github_login) AS login FROM builder_profiles WHERE builder_id = ${s.builder_id}`;
+  return { target: p.target, target_stars: stars, merged_at, author: who?.login ?? '', url: s.ref };
+}
+
+/** One source's signals today, by kind (source-readers.ts). */
+async function readOne(s: Due, now: Date, d: ReaderDeps): Promise<unknown> {
+  switch (s.kind) {
+    case 'repo':
+      return readRepo(s.ref, d, await previousSignals(s.id));
+    case 'site':
+      return readSite(s.ref, d);
+    case 'package_npm':
+      return readNpm(s.ref, d);
+    case 'package_pypi':
+      return readPypi(s.ref, d);
+    case 'contract': {
+      // From the start of the last read day (its later calls are read again; buildInputs counts
+      // each call once), else the last 365 days.
+      const since = s.last_read_day ? new Date(`${s.last_read_day}T00:00:00Z`) : new Date(now.getTime() - 365 * DAY_MS);
+      return readContract(s.ref, since, d);
+    }
+    case 'merged_pr':
+      return readPr(s, d);
+    default:
+      throw new Error('unknown source kind');
+  }
+}
+
+/**
+ * spec 6, step 2: at most READS_PER_RUN reads, while `deadline` allows. First the proposed packages
+ * (verified on their first read when their metadata names a verified repo of the person, else
+ * rejected `repo_mismatch`; an unreadable one is tried again the next day), then the verified
+ * sources due today, never read first, then the oldest. A read that throws is a failed reading
+ * (its error class only); a spent GitHub budget writes nothing, so the source stays due.
+ */
+export async function readSources(now: Date, o: { deadline: number; reader: ReaderDeps; only?: number[] }): Promise<{ read: number; failed: number }> {
+  const day = now.toISOString().slice(0, 10);
+  const only = o.only ? sql()`AND builder_id IN ${sql()(o.only.length ? o.only : [-1])}` : sql()``;
+  const pending = await sql()<Due[]>`
+    SELECT id::int AS id, builder_id, kind, ref, last_read_day::text FROM builder_sources
+    WHERE state = 'proposed' AND kind IN ('package_npm', 'package_pypi')
+      AND (last_read_day IS NULL OR last_read_day < ${day}::date) ${only}
+    ORDER BY id LIMIT ${READS_PER_RUN}`;
+  let read = 0;
+  let failed = 0;
+  for (const s of pending) {
+    if (Date.now() >= o.deadline) return { read, failed };
+    try {
+      const signals = (await readOne(s, now, o.reader)) as PackageSignals;
+      const repos = await sql()<{ ref: string }[]>`
+        SELECT lower(ref) AS ref FROM builder_sources WHERE builder_id = ${s.builder_id} AND kind = 'repo' AND state = 'verified'`;
+      if (!packageOwned(signals, new Set(repos.map((r) => r.ref)))) {
+        await rejectSource(s.id, 'repo_mismatch');
+        continue;
+      }
+      await verifySource(s.id, 'repo_link');
+      if (await writeReading(s.id, s.builder_id, day, { ok: true, signals })) read++;
+    } catch (err) {
+      if (isBudgetStop(err)) continue;
+      // Not a reading (it isn't verified): tried again tomorrow.
+      await sql()`UPDATE builder_sources SET last_read_day = ${day} WHERE id = ${s.id} AND state = 'proposed'`;
+      failed++;
+    }
+  }
+  const due = await dueSources(day, Math.max(0, READS_PER_RUN - pending.length), o.only);
+  for (const s of due) {
+    if (Date.now() >= o.deadline) break;
+    try {
+      const signals = await readOne(s, now, o.reader);
+      if (await writeReading(s.id, s.builder_id, day, { ok: true, signals })) read++;
+    } catch (err) {
+      if (isBudgetStop(err)) continue;
+      const error = err instanceof Error ? err.name : 'Error';
+      if (await writeReading(s.id, s.builder_id, day, { ok: false, error })) failed++;
+    }
+  }
+  return { read, failed };
 }
