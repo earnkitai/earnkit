@@ -4110,6 +4110,11 @@ give. Events: `built`, `deployed`, `hosted`, `entered`, `submitted`, once each.
   7. Final fix M8: a deploy of this build sent on an earlier call whose receipt never came (`unknown`
      with its tx hash) is settled before step 5 by `deploy.ts settlePendingDeploy` (read-only: the
      receipt, code, `owner()`, `hasRole`, nonce; no send, no transfer) with its `deployed` event, and
+     (security re-review 4 F1) only a row the build path sent: `contract_deploys.starter` (set at
+     reservation only on the starter's exact bytecode) is this starter and `owner_wallet` is the
+     build's current wallet; the event's label comes from the row. Any other unconfirmed row is left
+     alone and the normal path's day cap refuses (fail closed). Its cost stays at the reserved upper
+     bound (F3, over-counted, accepted). Then
      the call goes on to step 6. Still no receipt: the pending line again with `BUILD_PENDING_NOTE`
      (make the same call again in a few minutes). Nothing is ever deployed twice.
 - **When the site never goes up (final fix I2).** `BUILD_HOLD_NOTE` and `BUILD_PAGES_NOTE` tell the
@@ -4210,8 +4215,9 @@ give. Events: `built`, `deployed`, `hosted`, `entered`, `submitted`, once each.
   section is live) replays `installations.build`, `contract_deploys`, `host_deploys`, `projects`,
   `submissions` and `entry_outcomes` with each row's own time and the live dedupe keys
   (`detail.backfill = true`; a rerun writes 0). Never in predeploy or the cron. Final fix I1: `built`
-  comes from a build (never a shared client's) whose `repo_url` got a `contract_deploys` row from that
-  installation (the first row's time; the build's wallet, starter and twist; the login proven for that
+  comes from a build (never a shared client's) whose `repo_url` got a `contract_deploys` row the build
+  sent (F5: its `starter` and build wallet, made after `build.started_at`, never reverted; the first
+  such row's time; the build's wallet, starter and twist; the login proven for that
   row). A GitHub Pages `hosted` comes from an entry whose `live_url` is its repo's own Pages link
   (`pages-link.ts pagesLinkOf`) with a deployed contract for that installation and repo (the entry's
   time, `hosted:gh:` key, `detail { host: 'github_pages', probe: false }`, no probe). An EarnKit

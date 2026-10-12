@@ -67,9 +67,14 @@ export async function backfillEvents(db: Db = sql(), o: { installationIds?: numb
       WHERE build ? 'repo_url' AND id > ${after} ${scope('id')} ORDER BY id LIMIT ${PAGE}`)) {
     const b = i.build;
     const repoKey = eventRepoKey(b.repo_url);
-    if (!repoKey || !b.program_id) continue;
+    if (!repoKey || !b.program_id || !b.wallet || !b.started_at) continue;
+    // Security re-review 4 F5: only a deploy this build itself sent: its starter's exact bytecode
+    // (contract_deploys.starter) for the build's wallet, made after the build started, never reverted.
     const [first] = await db<{ created_at: Date; line_owner: string | null }[]>`
-      SELECT created_at, line_owner FROM contract_deploys WHERE installation_id = ${i.id} AND repo_key = ${repoKey} ORDER BY id LIMIT 1`;
+      SELECT created_at, line_owner FROM contract_deploys
+      WHERE installation_id = ${i.id} AND repo_key = ${repoKey} AND starter = ${b.starter_id} AND owner_wallet = ${b.wallet.toLowerCase()}
+        AND created_at >= ${new Date(b.started_at)} AND status <> 'reverted'
+      ORDER BY id LIMIT 1`;
     if (!first || (await sharedGroup(i.id).catch(() => true))) continue;
     await write('built', {
       type: 'built',
