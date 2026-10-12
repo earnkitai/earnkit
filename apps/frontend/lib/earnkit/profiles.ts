@@ -5,6 +5,7 @@ import { sql, type Db } from './db';
 import { shortWallet } from './entry-text';
 import { noteEvent } from './events';
 import { sharedGroup } from './installations';
+import { profileChanged } from './profile-cache';
 
 /**
  * v2.12 spec 1, 8: one public profile per person (the group root, plan R1). X is the visible name,
@@ -193,6 +194,7 @@ export async function setXHandle(builderId: number, given: string): Promise<{ ok
   });
   if (!slug) return { ok: false, agent_note: X_TAKEN_NOTE };
   await noteEvent('x_added', () => ({ type: 'x_added', dedupe_key: `x_added:${builderId}:${prefill.toLowerCase()}`, installation_id: builderId, detail: { slug } }));
+  profileChanged();
   return { ok: true, slug };
 }
 
@@ -200,6 +202,7 @@ export async function setXHandle(builderId: number, given: string): Promise<{ ok
 export async function setHidden(builderId: number, hidden: boolean): Promise<string> {
   const [p] = await sql()<{ slug: string }[]>`UPDATE builder_profiles SET hidden = ${hidden}, updated_at = now() WHERE builder_id = ${builderId} RETURNING slug`;
   if (!p) return NO_PROFILE_LINE;
+  profileChanged();
   const type = hidden ? 'profile_hidden' : 'profile_shown';
   await noteEvent(type, () => ({ type, dedupe_key: `${type}:${builderId}:${Date.now()}`, installation_id: builderId }));
   return hidden ? HIDDEN_LINE : SHOWN_LINE(p.slug);
@@ -219,6 +222,7 @@ export async function clearXHandle(builderId: number, by: 'github' | 'owner'): P
     return p.x_handle.toLowerCase();
   });
   if (!cleared) return false;
+  profileChanged();
   await noteEvent('x_cleared', () => ({
     type: 'x_cleared', dedupe_key: `x_cleared:${builderId}:${cleared}:${Date.now()}`, installation_id: builderId, detail: { by },
   }));

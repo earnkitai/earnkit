@@ -1,8 +1,8 @@
-import { personInputs, publicRow, publicScore, scoreContext } from './builder-score';
+import { publicRow, publicScore, type StoredProject } from './builder-score';
 import { sql } from './db';
 import { shortWallet } from './entry-text';
 import { profileOf, resolveSlug } from './profiles';
-import { publicReadKey, PUBLIC_READ_DAYS } from './repo-cache';
+import { publicReadKey } from './repo-cache';
 import { topPercent, type Parts } from './score';
 import { shownUrl } from './untrusted-text';
 
@@ -31,12 +31,11 @@ export type ProfileData = {
 export const EMPTY_LINE = 'No verified outcomes yet.';
 export type EmptyProfile = { name: string; slug: string; line: typeof EMPTY_LINE };
 
-const WALLET_SLUG = /^0x[0-9a-f]{8}(-\d+)?$/;
-/** spec 7: X, else the proven GitHub login, else a neutral label. A wallet is never the name (only a source badge). Pure. */
-export function profileName(p: { x_handle: string | null; github_login: string | null; slug: string }): string {
+/** spec 7: X, else the proven GitHub login, else plain "Builder". A wallet or a slug is never the name (a wallet only as a source badge). Pure. */
+export function profileName(p: { x_handle: string | null; github_login: string | null }): string {
   if (p.x_handle) return `@${p.x_handle}`;
   if (p.github_login) return p.github_login;
-  return WALLET_SLUG.test(p.slug) ? 'Builder' : `Builder ${p.slug}`;
+  return 'Builder';
 }
 
 export function money(n: number): string {
@@ -68,12 +67,13 @@ export function stricterNote(rows: { day: string; calibration: string; percentil
   const before = older.find((r) => r.calibration !== now?.calibration);
   if (!now || !before || now.percentile < before.percentile) return null;
   const d = new Date(`${now.day}T00:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
-  return `Scoring got stricter on ${d}; your rank is unchanged.`;
+  return `Scoring got stricter on ${d}. Rank unchanged.`;
 }
 
 const DAY_MS = 86_400_000;
 const KIND_ORDER: Record<SourceKind, number> = { github: 0, site: 1, packages: 2, onchain: 3 };
 const RANK: Record<ProjectCard['entries'][number]['outcome'], number> = { won: 3, submitted: 2, entered: 1 };
+type Outcome = ProjectCard['entries'][number]['outcome'];
 const MAX_PROJECTS = 6;
 const host = (url: string) => {
   try {
@@ -83,11 +83,22 @@ const host = (url: string) => {
   }
 };
 const addDays = (day: string, n: number) => new Date(Date.parse(`${day}T00:00:00Z`) + n * DAY_MS).toISOString().slice(0, 10);
+const num = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) && x > 0 ? x : 0);
+
+/** The week's change: against the latest public row 7 to 10 days before the public day; null without one. Rows newest first. Pure. */
+export function weekChange(rows: { day: string; score: number }[]): number | null {
+  const [now] = rows;
+  if (!now) return null;
+  const before = rows.find((r) => r.day <= addDays(now.day, -7) && r.day >= addDays(now.day, -10));
+  return before ? now.score - before.score : null;
+}
 
 /**
- * The public profile behind `slug`: null for unknown or hidden (also through an old slug), a
- * redirect for an old slug, the neutral empty line without a public score above 0, else the score
- * (the last unheld or released day), its 90-day trend, the stats and the verified projects.
+ * The public profile behind `slug` (already lowercase): null for unknown or hidden (also through an
+ * old slug), a redirect for an old slug, the neutral empty line without a public score above 0,
+ * else the score (the last unheld or released day), its 90-day trend, the stats and the verified
+ * projects. Every read is this person's own rows: the per-project numbers are the ones the scorer
+ * stored with the public score row (builder_scores.projects), never recomputed here.
  */
 export async function profileData(slug: string, now: Date = new Date()): Promise<{ redirect: string } | ProfileData | EmptyProfile | null> {
   const r = await resolveSlug(slug);
@@ -95,31 +106,25 @@ export async function profileData(slug: string, now: Date = new Date()): Promise
   if (r.redirect) return { redirect: r.redirect };
   const p = await profileOf(r.builderId);
   if (!p || p.hidden) return null;
+  const id = p.builder_id;
   const name = profileName(p);
-  const pub = await publicScore(p.builder_id);
+  const pub = await publicScore(id);
   if (!pub || pub.score <= 0) return { name, slug: p.slug, line: EMPTY_LINE };
 
   // The public rows of the 90 days up to the public day: the trend, the week's change, the note.
   const rows = await sql()<{ day: string; score: number; calibration: string; percentile: number }[]>`
     SELECT s.day::text AS day, s.score, s.calibration, s.percentile FROM builder_scores s
-    WHERE s.builder_id = ${p.builder_id} AND ${publicRow()} AND s.day <= ${pub.day}::date AND s.day > ${addDays(pub.day, -90)}::date
+    WHERE s.builder_id = ${id} AND ${publicRow()} AND s.day <= ${pub.day}::date AND s.day > ${addDays(pub.day, -90)}::date
     ORDER BY s.day DESC`;
-  const weekAgo = rows.find((x) => x.day <= addDays(pub.day, -7));
-  const { sources, readings, projects } = await personInputs(p.builder_id, await scoreContext(), new Date(`${pub.day}T23:59:59Z`), pub.day);
+  const [stored] = await sql()<{ projects: StoredProject[] | null }[]>`SELECT projects FROM builder_scores WHERE builder_id = ${id} AND day = ${pub.day}::date`;
+  const projects = (Array.isArray(stored?.projects) ? stored.projects : []).filter((x) => typeof x?.key === 'string');
 
-  // Repos shown only when GitHub said public within 7 days (repo_public_reads) or the latest reading
-  // (made without access to private repos) is that recent; otherwise the card names no repo.
-  const fresh = addDays(now.toISOString().slice(0, 10), -PUBLIC_READ_DAYS);
-  const lastOk = new Map<number, string>();
-  for (const x of readings) if (x.ok && (lastOk.get(x.source_id) ?? '') < x.day) lastOk.set(x.source_id, x.day);
-  const repoKeys = sources.filter((s) => s.kind === 'repo').map((s) => publicReadKey(s.ref));
-  const publicReads = new Set(
-    repoKeys.length === 0
-      ? []
-      : (await sql()<{ repo_key: string }[]>`
-          SELECT repo_key FROM repo_public_reads WHERE repo_key IN ${sql()(repoKeys)} AND read_at > ${new Date(now.getTime() - PUBLIC_READ_DAYS * DAY_MS)}`).map((x) => x.repo_key),
-  );
-  const latestSignals = (id: number) => readings.find((x) => x.source_id === id && x.ok && x.day === lastOk.get(id))?.signals as Record<string, unknown> | undefined;
+  // The person's verified sources, each with its latest ok reading up to the public day (a held day's never shows).
+  const sources = await sql()<{ id: number; kind: string; ref: string; project_key: string; signals: Record<string, unknown> | null }[]>`
+    SELECT b.id::int AS id, b.kind, b.ref, b.project_key, last.signals FROM builder_sources b
+    LEFT JOIN LATERAL (
+      SELECT r.signals FROM source_readings r WHERE r.source_id = b.id AND r.ok AND r.day <= ${pub.day}::date ORDER BY r.day DESC LIMIT 1) last ON true
+    WHERE b.builder_id = ${id} AND b.state = 'verified' ORDER BY b.id`;
 
   const chips = new Map<string, ProjectCard['sources']>();
   const titles = new Map<string, string>();
@@ -127,20 +132,19 @@ export async function profileData(slug: string, now: Date = new Date()): Promise
   for (const s of sources) {
     const list = chips.get(s.project_key) ?? [];
     let chip: ProjectCard['sources'][number] | null = null;
-    if (s.kind === 'repo' && (publicReads.has(publicReadKey(s.ref)) || (lastOk.get(s.id) ?? '') >= fresh)) {
+    // A repo is named only when its latest reading says GitHub reported it public (private === false).
+    if (s.kind === 'repo' && s.signals?.private === false) {
       chip = { kind: 'github', label: s.ref, href: shownUrl(`https://github.com/${s.ref}`) };
       shownRepos.add(publicReadKey(s.ref));
       if (s.ref === s.project_key) titles.set(s.project_key, s.ref.split('/')[1] ?? s.ref);
     } else if (s.kind === 'merged_pr') {
-      const target = latestSignals(s.id)?.target;
+      const target = s.signals?.target;
       chip = { kind: 'github', label: typeof target === 'string' ? `PR to ${target}` : 'Merged PR', href: shownUrl(s.ref) };
       if (!titles.has(s.project_key)) titles.set(s.project_key, 'Open source');
     } else if (s.kind === 'site') {
       // A site is shown only when its latest reading found it up: "live", never more (siteShowsUse decides what scores).
       const h = host(s.ref);
-      if (h && latestSignals(s.id)?.up === true) {
-        chip = { kind: 'site', label: h, href: shownUrl(s.ref) };
-      }
+      if (h && s.signals?.up === true) chip = { kind: 'site', label: h, href: shownUrl(s.ref) };
     } else if (s.kind === 'package_npm' || s.kind === 'package_pypi') {
       const npm = s.kind === 'package_npm';
       chip = { kind: 'packages', label: `${npm ? 'npm' : 'PyPI'} ${s.ref}`, href: shownUrl(npm ? `https://www.npmjs.com/package/${s.ref}` : `https://pypi.org/project/${s.ref}`) };
@@ -159,31 +163,39 @@ export async function profileData(slug: string, now: Date = new Date()): Promise
       EXISTS (SELECT 1 FROM entry_outcomes o WHERE o.project_id = p.id AND o.basis = 'announcement' AND o.result IN ('won', 'placed', 'finalist')) AS won,
       (p.submission_proof_ok_at IS NOT NULL OR EXISTS (SELECT 1 FROM builder_events e WHERE e.type = 'submitted' AND e.project_id = p.id)) AS submitted
     FROM projects p JOIN installations i ON i.id = p.installation_id JOIN programs g ON g.id = p.program_id
-    WHERE COALESCE(i.builder_id, i.id) = ${p.builder_id} AND p.repo_url IS NOT NULL`;
-  const entries = new Map<string, Map<string, ProjectCard['entries'][number]['outcome']>>();
+    WHERE COALESCE(i.builder_id, i.id) = ${id} AND p.repo_url IS NOT NULL`;
+  const entries = new Map<string, Map<string, Outcome>>();
   for (const e of entryRows) {
     const repo = publicReadKey(e.repo_url);
     if (!shownRepos.has(repo)) continue;
-    const outcome: ProjectCard['entries'][number]['outcome'] = e.won ? 'won' : e.submitted ? 'submitted' : 'entered';
-    const m = entries.get(repo) ?? new Map<string, ProjectCard['entries'][number]['outcome']>();
+    const outcome: Outcome = e.won ? 'won' : e.submitted ? 'submitted' : 'entered';
+    const m = entries.get(repo) ?? new Map<string, Outcome>();
     if (!m.has(e.program) || RANK[outcome] > RANK[m.get(e.program)!]) m.set(e.program, outcome);
     entries.set(repo, m);
   }
 
-  const cards: ProjectCard[] = [...projects]
-    .sort((a, b) => b.users + b.money_usd / 10 - (a.users + a.money_usd / 10) || a.key.localeCompare(b.key))
-    .map((x, i) => {
-      const users = Math.round(x.users);
-      const src = (chips.get(x.key) ?? []).sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
-      const repo = /^[^/]+\/[^/]+$/.test(x.key) ? publicReadKey(x.key) : null;
+  // Every project key the person has: stored numbers first (strongest first), then sources-only projects.
+  const strength = (x: StoredProject) => num(x.users) + num(x.money_usd) / 10;
+  const keys = [
+    ...[...projects].sort((a, b) => strength(b) - strength(a) || a.key.localeCompare(b.key)).map((x) => x.key),
+    ...[...chips.keys()].sort(),
+  ].filter((k, i, all) => all.indexOf(k) === i);
+  const byKey = new Map(projects.map((x) => [x.key, x]));
+  const cards: ProjectCard[] = keys
+    .map((key, i) => {
+      const x = byKey.get(key);
+      const users = Math.round(num(x?.users));
+      const usd = num(x?.money_usd);
+      const src = (chips.get(key) ?? []).sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
+      const repo = /^[^/]+\/[^/]+$/.test(key) ? publicReadKey(key) : null;
       return {
         // The key is public markup: a repo's key only when that repo is shown (else it could name a private repo).
-        key: titles.has(x.key) && x.key !== 'oss' ? x.key : `project-${i + 1}`,
+        key: titles.has(key) && key !== 'oss' ? key : `project-${i + 1}`,
         // A repo's name only when the repo is shown; else the live site's host or the package's name.
-        title: titles.get(x.key) ?? src.find((c) => c.kind === 'site')?.label ?? src.find((c) => c.kind === 'packages')?.label.replace(/^\S+ /, '') ?? 'Private project',
-        numbers: [...(users > 0 ? [count(users, 'user', 'users')] : []), ...(x.money_usd >= 1 ? [money(x.money_usd)] : [])],
+        title: titles.get(key) ?? src.find((c) => c.kind === 'site')?.label ?? src.find((c) => c.kind === 'packages')?.label.replace(/^\S+ /, '') ?? 'Private project',
+        numbers: [...(users > 0 ? [count(users, 'user', 'users')] : []), ...(usd >= 1 ? [money(usd)] : [])],
         sources: src,
-        entries: [...((repo && entries.get(repo)) ?? new Map())].map(([program, outcome]) => ({ program, outcome })),
+        entries: [...((repo ? entries.get(repo) : undefined) ?? new Map<string, Outcome>())].map(([program, outcome]) => ({ program, outcome })),
       };
     })
     .filter((c) => c.numbers.length > 0 || c.sources.length > 0)
@@ -194,8 +206,8 @@ export async function profileData(slug: string, now: Date = new Date()): Promise
     slug: p.slug,
     score: pub.score,
     top_percent: topPercent(pub.percentile),
-    change_7d: weekAgo ? pub.score - weekAgo.score : null,
-    stats: statsOf(pub.parts, projects.map((x) => ({ first_outcome_at: x.first_outcome_at?.toISOString() ?? null })), now),
+    change_7d: weekChange(rows),
+    stats: statsOf(pub.parts, projects, now),
     projects: cards,
     sources: cards.flatMap((c) => c.sources),
     spark: [...rows].reverse().map((x) => x.score),

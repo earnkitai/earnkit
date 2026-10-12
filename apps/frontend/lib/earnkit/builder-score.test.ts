@@ -101,6 +101,14 @@ test('6.5 scoreBuilders: one row per person per day, an event, and a second run 
   assert.equal(rows.length, 1);
   assert.ok(rows[0].score > 0 && rows[0].score < HOLD.minScore, String(rows[0].score));
   assert.deepEqual([rows[0].formula, rows[0].calibration], ['v1', 'v1-launch']);
+  // T10 review: the per-project numbers the public profile shows are stored with the row.
+  const [{ projects }] = await sql()<{ projects: { key: string; users: number; money_usd: number; first_outcome_at: string | null }[] }[]>`
+    SELECT projects FROM builder_scores WHERE builder_id = ${T}`;
+  assert.equal(projects.length, 1);
+  assert.equal(projects[0].key, `p${T}/r`);
+  assert.equal(Math.round(projects[0].users), 40);
+  assert.equal(projects[0].money_usd, 0);
+  assert.match(projects[0].first_outcome_at ?? '', /^\d{4}-\d{2}-\d{2}T/);
 });
 
 test('6.6 the hold: a one-source score of 60+ is held; the public score stays the last unheld until the owner releases it', dbTest, async () => {

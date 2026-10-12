@@ -47,4 +47,4 @@ export const fullProfile: ProfileData = {
   stricter_note: null,
 };
 
-export const emptyProfile: EmptyProfile = { name: 'Builder b-x7k2m9qa', slug: 'b-x7k2m9qa', line: EMPTY_LINE };
+export const emptyProfile: EmptyProfile = { name: 'Builder', slug: 'b-x7k2m9qa', line: EMPTY_LINE };

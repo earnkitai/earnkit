@@ -16,6 +16,8 @@ import { rpcFor } from './verify';
  */
 export type Who = { id: string; at: string; created_at?: string | null };
 export type RepoSignals = {
+  /** GitHub's `private` flag at the read (T10 review): the public profile names a repo only when this is false. */
+  private?: boolean | null;
   owner: string;
   /** GitHub's owner type ('User' or 'Organization'): only an org repo counts for a top contributor. */
   owner_type: string;
@@ -125,7 +127,7 @@ export function knownAges(prev: unknown): Map<string, string> {
  */
 export async function readRepo(fullName: string, d: ReaderDeps, prev: unknown = null): Promise<RepoSignals> {
   if (!REPO.test(fullName)) throw new Error('not a repo name');
-  const meta = await d.gh<{ owner: { login: string; type?: string }; fork: boolean; is_template?: boolean; created_at?: string; stargazers_count?: number }>(`/repos/${fullName}`);
+  const meta = await d.gh<{ owner: { login: string; type?: string }; private?: boolean; fork: boolean; is_template?: boolean; created_at?: string; stargazers_count?: number }>(`/repos/${fullName}`);
   const owner = meta.owner.login.toLowerCase();
   let partial = false;
   // Stargazers come oldest first: read the newest READ_CAPS.stargazerPages pages.
@@ -175,6 +177,7 @@ export async function readRepo(fullName: string, d: ReaderDeps, prev: unknown = 
   const aged = (ws: Who[]) => ws.map((w) => (ages.has(w.id) ? { ...w, created_at: ages.get(w.id) } : w));
   return {
     owner, owner_type: typeof meta.owner.type === 'string' ? meta.owner.type : 'User',
+    private: typeof meta.private === 'boolean' ? meta.private : null,
     created_at: typeof meta.created_at === 'string' ? meta.created_at : null,
     fork: meta.fork === true, template: meta.is_template === true,
     stargazers: aged(stargazers), forkers: aged(forkers), issue_authors: aged(issue_authors), contributors: aged(contributors),

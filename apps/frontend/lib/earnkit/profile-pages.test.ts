@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ProfileView from '../../app/b/[slug]/ProfileView';
-import { EMPTY_LINE, SCORE_COLORS, money, profileData, profileName, statsOf, stricterNote, type ProfileData } from './profile-data';
+import { EMPTY_LINE, SCORE_COLORS, money, profileData, profileName, statsOf, stricterNote, weekChange, type ProfileData } from './profile-data';
 import { emptyProfile, fullProfile } from './fixtures/profile';
 import { sql } from './db';
 
@@ -32,16 +32,21 @@ test('10.3 project cards, verified sources row, sparkline; no self-reported text
   const h = html(React.createElement(ProfileView, { data: fullProfile }));
   assert.equal((h.match(/data-project=/g) ?? []).length, fullProfile.projects.length);
   assert.match(text(h), /Arc Microgrants: won/);
-  assert.match(h, /<svg[^>]*aria-label="Score over 90 days"/);
+  assert.match(h, /<svg[^>]*aria-label="Score over 90 days, from 18 to 41\."/);
   // Cut at the shared Footer, as copy-review.test.ts does: its "©" is Extended_Pictographic, not an emoji we add.
   assert.doesNotMatch(h.split('<footer')[0], /—|\p{Extended_Pictographic}/u);
+  // A public page: nothing addressed to the owner, the full profile included (with a stricter note).
+  const noted = html(React.createElement(ProfileView, { data: { ...fullProfile, stricter_note: stricterNote([{ day: '2026-12-01', calibration: 'v2', percentile: 80 }, { day: '2026-11-30', calibration: 'v1-launch', percentile: 78 }]) } }));
+  assert.match(text(noted), /Scoring got stricter on Dec 1, 2026\. Rank unchanged\./);
+  assert.doesNotMatch(text(noted.split('<footer')[0]), /\byour?\b|\bsay\b|earnkit\.txt/i);
   assert.doesNotMatch(h, /href="javascript:/);
 });
 
 test('10.4 an empty profile renders the neutral public line and no number; the score ring uses the two score tokens', () => {
   const h = html(React.createElement(ProfileView, { data: emptyProfile }));
   const t = text(h);
-  assert.match(t, /Builder b-x7k2m9qa/);
+  assert.match(h, /<h1[^>]*>Builder<\/h1>/);
+  assert.doesNotMatch(t, /b-x7k2m9qa/, 'never the slug as the name');
   assert.ok(t.includes(EMPTY_LINE));
   // A public page: nothing addressed to the owner (no "your", no "say ...", no fill step).
   assert.doesNotMatch(text(h.split('<footer')[0]), /\byour?\b|\bsay\b|earnkit\.txt/i);
@@ -73,7 +78,7 @@ test('10.6 statsOf and money: words, not jargon', () => {
 });
 
 test('10.7 the stricter note shows only when the calibration changed and the percentile did not fall', () => {
-  assert.equal(stricterNote([{ day: '2026-12-01', calibration: 'v2', percentile: 80 }, { day: '2026-11-30', calibration: 'v1-launch', percentile: 78 }]), 'Scoring got stricter on Dec 1, 2026; your rank is unchanged.');
+  assert.equal(stricterNote([{ day: '2026-12-01', calibration: 'v2', percentile: 80 }, { day: '2026-11-30', calibration: 'v1-launch', percentile: 78 }]), 'Scoring got stricter on Dec 1, 2026. Rank unchanged.');
   assert.equal(stricterNote([{ day: '2026-12-01', calibration: 'v2', percentile: 70 }, { day: '2026-11-30', calibration: 'v1-launch', percentile: 78 }]), null);
   assert.equal(stricterNote([{ day: '2026-12-01', calibration: 'v1-launch', percentile: 70 }]), null);
 });
@@ -83,15 +88,30 @@ test('10.8 the page: ISR 600, 404 for hidden and unknown, a permanent redirect f
   assert.match(page, /export const revalidate = 600/);
   assert.match(page, /permanentRedirect\(`\/b\/\$\{/);
   assert.match(page, /if \(!builderScoreEnabled\(\)\) notFound\(\)/);
+  // T10 review: one URL per profile (a mixed-case slug redirects to its lowercase form), cached under it, tagged for hide/show.
+  assert.match(page, /if \(slug !== slug\.toLowerCase\(\)\) permanentRedirect\(`\/b\/\$\{encodeURIComponent\(slug\.toLowerCase\(\)\)\}`\)/);
+  assert.match(page, /cached\(slug\.toLowerCase\(\)\)/);
+  assert.match(page, /tags: \[PROFILE_TAG\]/);
+  // Hide, show and an X handle change expire the cached profile at once.
+  const profiles = readFileSync(join(import.meta.dirname, 'profiles.ts'), 'utf8');
+  for (const fn of ['setHidden', 'setXHandle', 'clearXHandle']) {
+    const body = profiles.slice(profiles.indexOf(`export async function ${fn}(`)).split('\nexport ')[0];
+    assert.match(body, /profileChanged\(\)/, fn);
+  }
+  const cache = readFileSync(join(import.meta.dirname, 'profile-cache.ts'), 'utf8');
+  assert.match(cache, /revalidateTag\(PROFILE_TAG, \{ expire: 0 \}\)/);
 });
 
-test('10.9 the name: X, else the proven GitHub login, else a neutral label; never a wallet (spec 7)', () => {
-  assert.equal(profileName({ x_handle: 'lee_builds', github_login: 'lee', slug: 'lee_builds' }), '@lee_builds');
-  assert.equal(profileName({ x_handle: null, github_login: 'lee-dev', slug: 'lee-dev' }), 'lee-dev');
-  assert.equal(profileName({ x_handle: null, github_login: null, slug: 'b-x7k2m9qa' }), 'Builder b-x7k2m9qa');
-  // A wallet slug (and its numbered forms) is never part of the name.
-  assert.equal(profileName({ x_handle: null, github_login: null, slug: '0xabcd1234' }), 'Builder');
-  assert.equal(profileName({ x_handle: null, github_login: null, slug: '0xabcd1234-2' }), 'Builder');
+test('10.9 the name: X, else the proven GitHub login, else plain "Builder"; never a wallet or a slug (spec 7)', () => {
+  assert.equal(profileName({ x_handle: 'lee_builds', github_login: 'lee' }), '@lee_builds');
+  assert.equal(profileName({ x_handle: null, github_login: 'lee-dev' }), 'lee-dev');
+  assert.equal(profileName({ x_handle: null, github_login: null }), 'Builder');
+  // The week's change needs a public row 7 to 10 days back; an older one is no week.
+  assert.equal(weekChange([{ day: '2026-10-10', score: 36 }, { day: '2026-10-02', score: 31 }, { day: '2026-10-01', score: 30 }]), 5);
+  assert.equal(weekChange([{ day: '2026-10-10', score: 36 }, { day: '2026-10-05', score: 33 }, { day: '2026-09-29', score: 30 }]), null);
+  assert.equal(weekChange([]), null);
+  // On desktop the trend is capped to a readable width.
+  assert.match(html(React.createElement(ProfileView, { data: fullProfile })), /<figure class="[^"]*max-w-md/);
   // A single-value history draws no sparkline; a 0 change shows no change line.
   const h = html(React.createElement(ProfileView, { data: { ...fullProfile, spark: [41], change_7d: 0 } }));
   assert.doesNotMatch(h, /Score over 90 days/);
@@ -121,9 +141,10 @@ const parts = (users: number, U: number) => ({
 const profile = (id: number, o: { slug?: string; x?: string | null; login?: string | null; held?: boolean; hidden?: boolean } = {}) =>
   sql()`INSERT INTO builder_profiles (builder_id, slug, x_handle, github_login, fallback_handle, held, hidden)
     VALUES (${id}, ${o.slug ?? `s${id}`}, ${o.x ?? null}, ${o.login ?? null}, ${o.login ?? '0xabcd…1234'}, ${o.held ?? false}, ${o.hidden ?? false})`;
-const scoreRow = (id: number, day: string, score: number, o: { held?: boolean; U?: number } = {}) =>
-  sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held)
-    VALUES (${id}, ${day}, ${score}, 60, ${sql().json(parts(score, o.U ?? 3) as never)}, ${sql().json({} as never)}, 'v1', 'v1-launch', ${o.held ?? false})`;
+const scoreRow = (id: number, day: string, score: number, o: { held?: boolean; U?: number; projects?: unknown[] } = {}) =>
+  sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held, projects)
+    VALUES (${id}, ${day}, ${score}, 60, ${sql().json(parts(score, o.U ?? 3) as never)}, ${sql().json({} as never)}, 'v1', 'v1-launch', ${o.held ?? false},
+      ${o.projects ? sql().json(o.projects as never) : null})`;
 const source = async (id: number, kind: string, ref: string, project_key: string, proof: string) => {
   const [r] = await sql()<{ id: string }[]>`
     INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by)
@@ -145,9 +166,9 @@ test('10.10 profileData: unknown and hidden are null, an old slug redirects, no 
   await sql()`INSERT INTO profile_slug_history (old_slug, builder_id) VALUES (${`old${b}`}, ${b})`;
   assert.deepEqual(await profileData(`old${b}`, NOW), { redirect: `s${b}` });
   // A wallet fallback is never the name.
-  assert.deepEqual(await profileData(`s${b}`, NOW), { name: `Builder s${b}`, slug: `s${b}`, line: EMPTY_LINE });
+  assert.deepEqual(await profileData(`s${b}`, NOW), { name: 'Builder', slug: `s${b}`, line: EMPTY_LINE });
   await scoreRow(b, '2026-10-11', 0);
-  assert.deepEqual(await profileData(`s${b}`, NOW), { name: `Builder s${b}`, slug: `s${b}`, line: EMPTY_LINE }, 'a public 0 is empty too');
+  assert.deepEqual(await profileData(`s${b}`, NOW), { name: 'Builder', slug: `s${b}`, line: EMPTY_LINE }, 'a public 0 is empty too');
 });
 
 test('10.11 profileData: a held profile shows its last unheld score; 90-day spark and 7-day change from public rows only', dbTest, async () => {
@@ -168,25 +189,28 @@ test('10.11 profileData: a held profile shows its last unheld score; 90-day spar
   assert.equal(d.stricter_note, null);
 });
 
-test('10.12 profileData: a private repo is never named; a public one links; a repo-linked site shows as live only', dbTest, async () => {
+test('10.12 profileData: a repo is named only when its reading says public; a repo-linked site shows as live only', dbTest, async () => {
   const id = T + 3;
   await profile(id, { login: `lee${T}` });
-  await scoreRow(id, '2026-10-11', 20);
   const day = '2026-10-11';
-  const star = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `gh:fan${T}x${i}`, at: '2026-07-01T00:00:00Z', created_at: '2020-01-01T00:00:00Z' }));
-  const repoSignals = (n: number) => ({ owner: `lee${T}`, owner_type: 'User', fork: false, template: false, stargazers: star(n), forkers: [], issue_authors: [], contributors: [], commit_weeks: [], partial: false });
+  const repoSignals = (priv: boolean | undefined) => ({ owner: `lee${T}`, owner_type: 'User', fork: false, template: false, stargazers: [], forkers: [], issue_authors: [], contributors: [], commit_weeks: [], partial: false, ...(priv === undefined ? {} : { private: priv }) });
   const pub = await source(id, 'repo', `lee${T}/tipjar`, `lee${T}/tipjar`, 'repo_owner');
   const priv = await source(id, 'repo', `lee${T}/secret-plan`, `lee${T}/secret-plan`, 'repo_owner');
+  const old = await source(id, 'repo', `lee${T}/old-tool`, `lee${T}/old-tool`, 'repo_owner');
   const site = await source(id, 'site', 'https://tipjar.example.com', `lee${T}/tipjar`, 'repo_link');
-  await reading(pub, day, repoSignals(4));
-  await reading(priv, '2026-09-01', repoSignals(2));
+  await reading(pub, day, repoSignals(false));
+  await reading(priv, day, repoSignals(true));
+  await reading(old, day, repoSignals(undefined)); // read before `private` was recorded: not named
   await reading(site, day, { status: 200, up: true });
-  await sql()`INSERT INTO repo_public_reads (repo_key, read_at) VALUES (${`github.com/lee${T}/tipjar`}, ${NOW}) ON CONFLICT DO NOTHING`;
+  await scoreRow(id, day, 20, { projects: [
+    { key: `lee${T}/tipjar`, users: 4.4, money_usd: 0, first_outcome_at: '2026-07-01T00:00:00.000Z' },
+    { key: `lee${T}/secret-plan`, users: 2, money_usd: 0, first_outcome_at: '2026-07-01T00:00:00.000Z' },
+  ] });
   const d = await profileData(`s${id}`, NOW);
   assert.ok(isFull(d));
   assert.equal(d.name, `lee${T}`);
   const all = JSON.stringify(d);
-  assert.doesNotMatch(all, /secret-plan/);
+  assert.doesNotMatch(all, /secret-plan|old-tool/);
   const tip = d.projects.find((p) => p.key === `lee${T}/tipjar`);
   assert.ok(tip);
   assert.equal(tip.title, 'tipjar');
@@ -198,7 +222,33 @@ test('10.12 profileData: a private repo is never named; a public one links; a re
   const hidden = d.projects.find((p) => p.key !== `lee${T}/tipjar`);
   assert.match(hidden?.key ?? '', /^project-\d+$/);
   assert.equal(hidden?.title, 'Private project');
+  assert.deepEqual(hidden?.numbers, ['2 users']);
   assert.deepEqual(hidden?.sources, []);
   const t = text(html(React.createElement(ProfileView, { data: d })));
-  assert.doesNotMatch(t, /secret-plan/);
+  assert.doesNotMatch(t, /secret-plan|old-tool/);
+});
+
+test('10.13 profileData reads only this person: the stored numbers of the public row, never a recount or anyone else\'s rows', dbTest, async () => {
+  const [id, other] = [T + 5, T + 6];
+  await profile(id, { login: `ann${T}` });
+  await profile(other, { login: `bob${T}` });
+  // The readings alone would count 3 users; the scorer stored 1,100 with the public row: the page shows the scorer's number.
+  const stars = Array.from({ length: 3 }, (_, i) => ({ id: `gh:fan${T}y${i}`, at: '2026-07-01T00:00:00Z', created_at: '2020-01-01T00:00:00Z' }));
+  const repo = await source(id, 'repo', `ann${T}/app`, `ann${T}/app`, 'repo_owner');
+  await reading(repo, '2026-10-11', { owner: `ann${T}`, owner_type: 'User', private: false, fork: false, template: false, stargazers: stars, forkers: [], issue_authors: [], contributors: [], commit_weeks: [], partial: false });
+  await scoreRow(id, '2026-10-11', 30, { projects: [{ key: `ann${T}/app`, users: 1100, money_usd: 3100, first_outcome_at: '2025-08-01T00:00:00.000Z' }] });
+  // A later held day's reading never shows (readings stop at the public day).
+  await reading(repo, '2026-10-12', { owner: `ann${T}`, private: true, stargazers: [] });
+  await scoreRow(id, '2026-10-12', 80, { held: true, projects: [{ key: `ann${T}/app`, users: 9000, money_usd: 0, first_outcome_at: null }] });
+  // Another person's source under the same project key is not read.
+  const theirs = await source(other, 'site', 'https://bob.example.com', `ann${T}/app`, 'earnkit_txt');
+  await reading(theirs, '2026-10-11', { status: 200, up: true });
+  const d = await profileData(`s${id}`, NOW);
+  assert.ok(isFull(d));
+  assert.equal(d.score, 30);
+  assert.deepEqual(d.projects.map((p) => [p.key, p.numbers, p.sources.map((s) => s.label)]), [[`ann${T}/app`, ['1,100 users', '$3.1k'], [`ann${T}/app`]]]);
+  assert.doesNotMatch(JSON.stringify(d), /bob\.example\.com|9,000/);
+  // Scoped by construction: the profile never rebuilds the system-wide scoring context.
+  const src = readFileSync(join(import.meta.dirname, 'profile-data.ts'), 'utf8');
+  assert.doesNotMatch(src, /scoreContext|personInputs|installation_wallets|ringEdges/);
 });

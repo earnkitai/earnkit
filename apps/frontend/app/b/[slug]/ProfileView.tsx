@@ -105,8 +105,8 @@ function Sparkline({ values }: { values: number[] }) {
   const line = pts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
   const area = `0,${H} ${line} ${W},${H}`;
   return (
-    <figure className="mt-6">
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label="Score over 90 days" className="block h-16 w-full overflow-visible">
+    <figure className="mt-6 max-w-md">
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={`Score over 90 days, from ${values[0]} to ${values[values.length - 1]}.`} className="block h-16 w-full overflow-visible">
         <defs>
           <linearGradient id={`${id}-line`} x1="0" y1="0" x2={W} y2="0" gradientUnits="userSpaceOnUse">
             <stop offset="0" stopColor={SCORE_COLORS.to} />

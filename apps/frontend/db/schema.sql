@@ -1204,3 +1204,7 @@ CREATE TABLE IF NOT EXISTS x_handle_conflicts (
 );
 -- v2.12 spec 9: programs an agent can't complete (programs:sync derives it; the file may override).
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS agent_completable boolean NOT NULL DEFAULT true;
+-- v2.12 T10 review: each project's numbers behind a score row (key, users, money_usd, first_outcome_at),
+-- written at scoring time so the public profile shows the scorer's own numbers without re-reading
+-- the whole system. Additive; NULL on rows scored before it.
+ALTER TABLE builder_scores ADD COLUMN IF NOT EXISTS projects jsonb;

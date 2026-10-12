@@ -239,6 +239,11 @@ async function dueToday(day: string, late: boolean, only?: number[]) {
     ORDER BY p.builder_id`;
 }
 
+/** v2.12 T10 review: what a score row keeps per project, for the public profile (the scorer's own numbers). */
+export type StoredProject = { key: string; users: number; money_usd: number; first_outcome_at: string | null };
+export const storedProjects = (projects: ProjectInput[]): StoredProject[] =>
+  projects.map((p) => ({ key: p.key, users: p.users, money_usd: p.money_usd, first_outcome_at: p.first_outcome_at?.toISOString() ?? null }));
+
 /** Who owns which account (proven logins and every group wallet) and the ring edges: self-exclusion and rings (spec 5). */
 export type ScoreContext = { owners: { actor: string; builder_id: number }[]; owner: Map<string, number>; edges: [number, number][] };
 export async function scoreContext(): Promise<ScoreContext> {
@@ -292,8 +297,9 @@ export async function scoreBuilders(now: Date, o: { deadline: number; only?: num
     const reason = holdReason(prev?.score ?? null, s.score, sourceShares(perSource, s));
     const top = s.top ? { key: s.top.key, title: s.top.title, users: Math.round(s.top.users), money_usd: Math.round(s.top.money_usd) } : {};
     const [row] = await sql()<{ id: string }[]>`
-      INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held)
-      VALUES (${id}, ${day}, ${s.score}, ${percentileOf(s.score, all)}, ${sql().json(s.parts as never)}, ${sql().json(top as never)}, ${FORMULA}, ${cal.id}, ${reason !== null})
+      INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held, projects)
+      VALUES (${id}, ${day}, ${s.score}, ${percentileOf(s.score, all)}, ${sql().json(s.parts as never)}, ${sql().json(top as never)}, ${FORMULA}, ${cal.id}, ${reason !== null},
+        ${sql().json(storedProjects(projects) as never)})
       ON CONFLICT (builder_id, day) DO NOTHING RETURNING id`;
     if (!row) continue;
     scored++;
