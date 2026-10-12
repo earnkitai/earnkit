@@ -102,7 +102,7 @@ import {
 import { RAW_CAP, canonicalBuilderUrl, cleanProject, quoted } from './untrusted-text';
 import { pagesLinkOf } from './pages-link';
 import { proveRepo, repoSignedIn, tokenLineFor, type ProvenRepo } from './token-gate';
-import { READY_TO_SUBMIT, confirmDecision, confirmOffer, proofLineWaiting, signInLine, walletQuestion, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
+import { READY_TO_SUBMIT, confirmDecision, confirmOffer, proofLineWaiting, signInLine, walletQuestion, NO_TOKEN_HERE, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
 import { HOST_LINES, HOST_ZONE, UPLOAD_NOTE, hostSignInLine, issueUpload, liveLine, refreshSiteExpiry } from './hosting';
 import { r2Enabled } from './r2';
 import { EARNKIT_ORGS } from './earnkit-orgs';
@@ -714,6 +714,8 @@ async function walletToAsk(
 ): Promise<{ hasBonus: boolean } | null> {
   if (program.campaign || !repoUrl || !canPush || given || remembered) return null;
   try {
+    // v2.12 spec 7 (R22): the wallet is asked only for the token's fees and bonus: none under the pitch score.
+    if (!(await pitchAllowed(ctx.installationId).catch(() => false))) return null;
     const facts = await offerFacts(program, repoUrl, ctx);
     if (facts.coinIn || facts.policyOff || !facts.available || facts.declinedOut || facts.tokenHere) return null;
     const stored = await entryWallet(ctx, {
@@ -1066,9 +1068,23 @@ const GITHUB_LIMITED =
  * builder has none: what is needed, and the best program they can enter without one.
  */
 async function needsRepoLine(program: { id: string; title: string }): Promise<string> {
-  const alt = enterableWithoutRepo(await listPrograms().catch(() => []), program.id);
+  const open = await listPrograms().catch(() => []);
+  // v2.12 spec 9: as find, only programs an agent can complete with the score flag on.
+  const alt = enterableWithoutRepo(builderScoreEnabled() ? open.filter((p) => p.agent_completable !== false) : open, program.id);
   const head = `${program.title} needs a public repo with your project's code.`;
   return alt ? `${head} No repo yet? ${alt.title} doesn't need one: say the word and I'll start there.` : head;
+}
+
+/**
+ * v2.12 spec 7 (R22): a new token for this entry would be pitched to a person under the pitch score
+ * (or held; fail strict). False for an entry not this installation's, one with a token, a skipped one
+ * or an EarnKit campaign entry (exempt, controller ruling).
+ */
+async function tokenHeld(ctx: ToolContext, projectId: number): Promise<boolean> {
+  const entry = await launchEntry(ctx.installationId, projectId);
+  if (!entry || entry.token_url || entry.confirm_choice === 'skip') return false;
+  if ((await getProgramRow(entry.program_id)).campaign) return false;
+  return !(await pitchAllowed(ctx.installationId).catch(() => false));
 }
 
 /** v2.12 spec 7: the agent's step when find's second line offers to link the builder's work. */
@@ -1709,7 +1725,7 @@ export const handlers = {
     // v2.11 T10: on the build path earnkit.txt already holds the line (the build's proof), and there is no table.
     const notes = [
       line && !join && TOKEN_LINE_NOTE,
-      ...(prep.ready ? [agent_fixes.length > 0 && AGENT_FIXES_NOTE, join ? BUILD_ENTRY_NOTE : DRAFT_NOTE, fixes.length > 0 && FIXES_NOTE] : [COACH_NOTE]),
+      ...(prep.ready ? [agent_fixes.length > 0 && AGENT_FIXES_NOTE, join ? (belowScore ? BUILD_ENTRY_NO_TOKEN_NOTE : BUILD_ENTRY_NOTE) : DRAFT_NOTE, fixes.length > 0 && FIXES_NOTE] : [COACH_NOTE]),
     ].filter(Boolean);
     return withAlerts(ctx, withGuide({
       program_id,
@@ -2024,7 +2040,8 @@ export const handlers = {
         agent_note: `${token.agent_note ?? ''} The submit kit comes with that reply.`.trim(),
       };
 
-    const skipLine = facts.hasBonus ? 'No token, no builder bonus.' : 'No token.';
+    // v2.12 spec 7 (R22): under the pitch score the token was never offered, so nothing is said about it.
+    const skipLine = belowScore ? '' : facts.hasBonus ? 'No token, no builder bonus.' : 'No token.';
     const first =
       decision.kind === 'skip' && !entry.token_url
         ? skipLine
@@ -2284,6 +2301,9 @@ export const handlers = {
     // v2.10 item 4: the v2.9 first reply's offer path is gone (no reply makes that offer since item 5);
     // an old launch_token call with an offer reaches confirm through its alias (aliases.ts).
     if (parsed.offer) throw new EntryError(OFFER_GONE);
+    // v2.12 spec 7 (R22): with the score flag on, no new token for a person under the pitch score (campaigns aside).
+    if (builderScoreEnabled() && parsed.project_id !== undefined && !parsed.check_back && (await tokenHeld(ctx, parsed.project_id)))
+      return withAlerts(ctx, { status: 'skipped', project_id: parsed.project_id, note: NO_TOKEN_HERE, show_to_builder: NO_TOKEN_HERE }, parsed.signed_in);
     const out = await launchToken(
       parsed,
       ctx.installationId,
@@ -2717,6 +2737,11 @@ export const BUILD_OWNER_NOTE =
 export const BUILD_ENTRY_NOTE =
   'Show show_to_builder as written. The entry is drafted from the build (entry). When the builder says yes, call confirm with program_id, ' +
   'project: entry.project, answers: entry.answers, yes: true, wallet: shown_wallet and token: { name, symbol } of token.proposed; when they say skip the token, skip_token: true instead of yes.';
+
+/** v2.12 spec 7 (R22): BUILD_ENTRY_NOTE under the token pitch score: no token to name or skip. */
+export const BUILD_ENTRY_NO_TOKEN_NOTE =
+  'Show show_to_builder as written. The entry is drafted from the build (entry). When the builder says yes, call confirm with program_id, ' +
+  'project: entry.project, answers: entry.answers and yes: true.';
 
 export { githubPagesOwner, pagesLinkOf } from './pages-link';
 
@@ -3169,6 +3194,24 @@ async function confirmByProjectId(c: ConfirmArgs & { project_id: number }, ctx: 
   if (!entry || entry.token_url || entry.confirm_choice === 'skip') return launch(c.token ?? {});
   const program = await getProgramRow(entry.program_id);
   if (program.campaign) return launch(c.token ?? {});
+  // v2.12 spec 7 (R22): under the pitch score (or held, fail strict) nothing launches: the entry's confirmation without a token.
+  if (!(await pitchAllowed(ctx.installationId).catch(() => false))) {
+    if (!isOpen(program)) return { status: 'skipped' as const, note: NO_TOKEN_HERE, show_to_builder: NO_TOKEN_HERE };
+    const saved = await submittedEntry(ctx.installationId, program.id, entry.id);
+    return handlers.confirm_entry(
+      defined({
+        program_id: program.id,
+        project: saved?.project ?? { name: entry.name, ...(entry.repo_url && { repo_url: entry.repo_url }) },
+        answers: answersOf(saved?.answers ?? {}),
+        wallet: c.wallet,
+        agent: c.agent,
+        signed_in: c.signed_in,
+        builder_confirmed: true,
+        decision: 'go' as const,
+      }),
+      ctx,
+    );
+  }
   const shown = await readShownOffer(ctx.installationId, program.id, offerKey(entry.repo_url, entry.name)).catch(() => null);
   const asked = editsOf(c.token ?? {});
   const samePair = shown !== null && (asked.name === undefined || asked.name === shown.name) && (asked.symbol === undefined || asked.symbol === shown.symbol);

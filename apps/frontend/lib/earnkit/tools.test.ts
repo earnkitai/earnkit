@@ -5661,7 +5661,9 @@ test('9.4 v2.12 find: line 2 is the score line; an empty profile gets its fill s
     // No score yet: the fill step, declarative when line 1 already asks.
     const empty = (await tools.find({}, ctx)) as { show_to_builder: string; score_step?: { agent_note: string } };
     const last = empty.show_to_builder.split('\n').at(-1)!;
-    assert.ok([FILL_LINES.no_github.ask, FILL_LINES.no_github.say].includes(last), last);
+    // Line 1 for a builder with no repo asks ("Want the 3 easiest?"), so the fill step is said, never asked.
+    assert.match(empty.show_to_builder, /\?/);
+    assert.equal(last, FILL_LINES.no_github.say);
     assert.ok((empty.show_to_builder.match(/\?/g) ?? []).length <= 1, empty.show_to_builder);
     assert.match(empty.score_step?.agent_note ?? '', /score/);
     await sql()`UPDATE builder_profiles SET slug = ${`lee${ctx.installationId}`} WHERE builder_id = ${ctx.installationId}`;
@@ -5749,6 +5751,52 @@ test('9.6b v2.12 confirm below the score: a yes records the entry with no token 
       assert.equal(typeof r.project_id, 'number');
       assert.equal(t.calls.deploy, 0);
       assert.doesNotMatch(r.show_to_builder, /launches \$|40% of its fees/);
+    }),
+  ),
+);
+
+/** A profile with this one public score (held: the profile and the row are held). */
+async function scoreProfile(inst: number, score: number, held = false) {
+  await sql()`INSERT INTO builder_profiles (builder_id, slug, first_find_at, held) VALUES (${inst}, ${`t9f${inst}`}, now(), ${held})`;
+  await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held)
+    VALUES (${inst}, '2026-10-12', ${score}, 50, '{}', '{}', 'v1', 'v1-launch', ${held})`;
+}
+
+test('9.11 v2.12 prepare under the pitch score: the question round never asks for the token\'s wallet; the flag off still does', dbTest, () =>
+  withTokenEnv(async () => {
+    const off = await confirmSetup('t9-wask-off');
+    const asked = (await handlers.prepare_submission({ program_id: off.p.id, project: off.project, answers: {} }, off.ctx)) as { show_to_builder: string; ready: boolean };
+    assert.equal(asked.ready, false);
+    assert.match(asked.show_to_builder, /token/i, 'control: v2.11 asks the wallet for the token');
+    await withScoreFlag('on', async () => {
+      const t = await confirmSetup('t9-wask-on');
+      await scoreProfile(t.inst, 19);
+      const r = (await handlers.prepare_submission({ program_id: t.p.id, project: t.project, answers: {} }, t.ctx)) as { show_to_builder: string; ready: boolean };
+      assert.equal(r.ready, false);
+      assert.doesNotMatch(r.show_to_builder, /token/i);
+    });
+  }),
+);
+
+test('9.12 v2.12 under the pitch score nothing launches by project_id or the old launch route, and skip says nothing about a token', dbTest, () =>
+  withScoreFlag('on', () =>
+    withTokenEnv(async () => {
+      const t = await confirmSetup('t9-held', { remembered: W8 });
+      await scoreProfile(t.inst, 80, true);
+      // The entry, recorded without a token (a held person's yes).
+      const rec = (await tools.confirm({ program_id: t.p.id, project: t.project, answers: t.answers, yes: true, wallet: W8 }, t.ctx)) as Confirmed;
+      assert.equal(typeof rec.project_id, 'number');
+      // The stored offer matches: by project_id the yes would launch it.
+      const again = (await tools.confirm({ project_id: rec.project_id, yes: true, wallet: W8 }, t.ctx)) as Confirmed;
+      assert.doesNotMatch(again.show_to_builder, /launches \$|is live/);
+      const old = (await handlers.launch_token({ project_id: rec.project_id, builder_confirmed: true, creator_wallet: W8 }, t.ctx)) as { status: string };
+      assert.equal(old.status, 'skipped');
+      assert.equal(t.calls.deploy, 0);
+      assert.equal(t.calls.gate, 0);
+      const s = await confirmSetup('t9-skip', { remembered: W8 });
+      await scoreProfile(s.inst, 19);
+      const skipped = (await tools.confirm({ program_id: s.p.id, project: s.project, answers: s.answers, skip_token: true }, s.ctx)) as Confirmed;
+      assert.doesNotMatch(skipped.show_to_builder, /No token/);
     }),
   ),
 );
