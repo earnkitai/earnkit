@@ -30,6 +30,9 @@ export default {
         'ek-orange': '#FE6C11',
         'ek-brown': '#210800',
         'ek-purple-paint': '#8A63D2',
+        /* v2.12 builder score accents (plan R17): the ring's gradient and its highlights, 4.5:1+ on ek-navy-deep */
+        'ek-score-orange': '#FF7A1A',
+        'ek-score-purple': '#9B6BFF',
 
         /* Orange world — sampled from the Figma landing (sections 2-4) */
         'ek-ember': '#140300',

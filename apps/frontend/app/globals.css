@@ -15,6 +15,9 @@
   --ek-blue-bright: #579dff;
   --ek-blue-soft: #a3c5fe;
   --ek-blue-light: #e5eefc;
+  /* v2.12 builder score accents (plan R17) */
+  --ek-score-orange: #ff7a1a;
+  --ek-score-purple: #9b6bff;
 }
 
 /* add the code bellow */

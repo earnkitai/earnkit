@@ -239,6 +239,37 @@ async function dueToday(day: string, late: boolean, only?: number[]) {
     ORDER BY p.builder_id`;
 }
 
+/** Who owns which account (proven logins and every group wallet) and the ring edges: self-exclusion and rings (spec 5). */
+export type ScoreContext = { owners: { actor: string; builder_id: number }[]; owner: Map<string, number>; edges: [number, number][] };
+export async function scoreContext(): Promise<ScoreContext> {
+  const owners = await sql()<{ actor: string; builder_id: number }[]>`
+    SELECT 'gh:' || lower(github_login) AS actor, builder_id FROM builder_profiles WHERE github_login IS NOT NULL
+    UNION ALL
+    SELECT 'wallet:' || lower(w.wallet), COALESCE(i.builder_id, i.id) FROM installation_wallets w JOIN installations i ON i.id = w.installation_id`;
+  const owner = new Map(owners.map((r) => [r.actor, r.builder_id]));
+  return { owners, owner, edges: await ringEdges(owner) };
+}
+
+/**
+ * One person's verified sources and the formula's inputs from their readings of the last year
+ * (buildInputs). `through` (YYYY-MM-DD): only readings up to that day, so the public profile shows
+ * the numbers behind the public score, never a held day's (T10).
+ */
+export async function personInputs(id: number, ctx: ScoreContext, now: Date, through?: string) {
+  const sources = await sql()<SourceRow[]>`
+    SELECT b.id::int AS id, b.kind, b.ref, b.project_key, b.proof,
+      (b.kind = 'repo' AND lower(split_part(b.ref, '/', 1)) <> lower(COALESCE(p.github_login, ''))) AS owner_is_org
+    FROM builder_sources b JOIN builder_profiles p USING (builder_id)
+    WHERE b.builder_id = ${id} AND b.state = 'verified'`;
+  const readings = sources.length === 0 ? [] : await sql()<ReadingRow[]>`
+    SELECT source_id::int AS source_id, day::text AS day, ok, signals FROM source_readings
+    WHERE source_id IN ${sql()(sources.map((s) => s.id))} AND day > ${new Date(now.getTime() - YEAR_MS)}
+      ${through ? sql()`AND day <= ${through}::date` : sql()``}`;
+  // Every account of the person's group is self, even one another group also names.
+  const self = new Set(ctx.owners.filter((r) => r.builder_id === id).map((r) => r.actor));
+  return { sources, readings, ...buildInputs(sources, readings, { self, owner: ctx.owner, edges: ctx.edges, person: id, now }) };
+}
+
 /**
  * spec 6, step 3: one score row per due person per UTC day (R8), with the formula and calibration
  * ids, the parts' raw inputs and the hold verdict. A held row sets builder_profiles.held and never
@@ -249,29 +280,13 @@ export async function scoreBuilders(now: Date, o: { deadline: number; only?: num
   const cal = calibration(LIVE_CALIBRATION);
   const due = await dueToday(day, now.getUTCHours() >= LATE_HOUR_UTC, o.only);
   if (due.length === 0) return { scored: 0, held: [] };
-  // Who owns which account, for self-exclusion and rings (spec 5): proven logins and every group wallet.
-  const owners = await sql()<{ actor: string; builder_id: number }[]>`
-    SELECT 'gh:' || lower(github_login) AS actor, builder_id FROM builder_profiles WHERE github_login IS NOT NULL
-    UNION ALL
-    SELECT 'wallet:' || lower(w.wallet), COALESCE(i.builder_id, i.id) FROM installation_wallets w JOIN installations i ON i.id = w.installation_id`;
-  const owner = new Map(owners.map((r) => [r.actor, r.builder_id]));
-  const edges = await ringEdges(owner);
+  const ctx = await scoreContext();
   const all = (await sql()<{ score: number }[]>`SELECT score FROM builder_ranks`).map((r) => r.score);
   let scored = 0;
   const held: number[] = [];
   for (const { builder_id: id } of due) {
     if (Date.now() >= o.deadline) break;
-    const sources = await sql()<SourceRow[]>`
-      SELECT b.id::int AS id, b.kind, b.ref, b.project_key, b.proof,
-        (b.kind = 'repo' AND lower(split_part(b.ref, '/', 1)) <> lower(COALESCE(p.github_login, ''))) AS owner_is_org
-      FROM builder_sources b JOIN builder_profiles p USING (builder_id)
-      WHERE b.builder_id = ${id} AND b.state = 'verified'`;
-    const readings = sources.length === 0 ? [] : await sql()<ReadingRow[]>`
-      SELECT source_id::int AS source_id, day::text AS day, ok, signals FROM source_readings
-      WHERE source_id IN ${sql()(sources.map((s) => s.id))} AND day > ${new Date(now.getTime() - YEAR_MS)}`;
-    // Every account of the person's group is self, even one another group also names.
-    const self = new Set(owners.filter((r) => r.builder_id === id).map((r) => r.actor));
-    const { projects, perSource } = buildInputs(sources, readings, { self, owner, edges, person: id, now });
+    const { projects, perSource } = await personInputs(id, ctx, now);
     const s = computeScore(projects, cal, now);
     const prev = await publicScore(id);
     const reason = holdReason(prev?.score ?? null, s.score, sourceShares(perSource, s));
