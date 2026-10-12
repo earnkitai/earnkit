@@ -9,7 +9,7 @@ import { usageChecks, type UsageDeps } from './events';
 import { cleanDeploys, expireSites, sitesInReview } from './hosting';
 import { bearerMatches, json } from './http';
 import { builderScoreEnabled } from './builder-score-flag';
-import { runScoreSteps, scoreSliceEnd, type ScoreCronDeps } from './builder-score';
+import { heldPeople, runScoreSteps, scoreSliceEnd, type ScoreCronDeps } from './builder-score';
 import {
   NOT_MAINNET,
   NO_PAYOUT_KEY,
@@ -402,7 +402,8 @@ export async function runCron(
   if (builderScoreEnabled() && (!opts.only || deps.builderScore)) {
     try {
       builderScore = await runScoreSteps(now, scoreSliceEnd(Date.now(), deadline), deps.builderScore);
-      for (const id of (builderScore.score as { held?: number[] } | undefined)?.held ?? []) needs_owner_extra.push(`score-hold:${id}${QUIET_OWNER}`);
+      // Every current hold, not only this run's: a hold waits until the owner releases it.
+      for (const id of await heldPeople(deps.builderScore?.only)) needs_owner_extra.push(`score-hold:${id}${QUIET_OWNER}`);
     } catch (err) {
       console.error('[cron] builder score', err instanceof Error ? err.name : 'error');
       builderScore = { step: 'error', note: STEP_FAILED };

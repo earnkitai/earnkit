@@ -3,13 +3,15 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
-import { HOLD, SCORE_SLICE, buildInputs, emptyReason, holdReason, percentiles, profileEmpty, publicScore, scoreBuilders, scoreSliceEnd, scoresAdminKey, scoresPost, sourceShares, type ReadingRow, type SourceRow } from './builder-score';
-import { discover } from './discovery';
+import { HOLD, SCORE_SLICE, buildInputs, siteShowsUse, emptyReason, holdReason, percentiles, profileEmpty, publicScore, scoreBuilders, scoreSliceEnd, scoresAdminKey, scoresPost, sourceShares, type ReadingRow, type SourceRow } from './builder-score';
+import { ScoreDeadline } from './campaigns';
+import { discover, proofLineCheck, provenLogin } from './discovery';
+import { oneParam } from './http';
 import { profileCode } from './discovery-clues';
 import { computeScore } from './score';
 import { calibration } from './score-calibration';
 import { GitHubBudgetStop, type ReaderDeps } from './source-readers';
-import { CONTRACT_REFUSALS, claimContract, proposeSource, readSources } from './sources';
+import { CONTRACT_REFUSALS, claimContract, proposeSource, readSources, rejectSource, verifySource } from './sources';
 import { bonusVetoKey, vetoKey } from './veto';
 
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
@@ -445,4 +447,154 @@ test('6.17 scoresPost: only a held day can be released, and only a real date; a 
   } finally {
     delete process.env.ADMIN_VETO_SECRET;
   }
+});
+
+// ---- Fix round 1.
+
+const queueOf = async (id: number) => (await sql()<{ done_at: Date | null; attempts: number }[]>`SELECT done_at, attempts FROM discovery_queue WHERE builder_id = ${id}`)[0];
+
+test('6.18 discover cut by the deadline mid-person: still queued, no attempt, nothing rejected, verified or claimed', dbTest, async () => {
+  const id = T + 2;
+  const L = `cut${T}`;
+  await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${id}, ${`c${id}`})`;
+  await sql()`INSERT INTO discovery_queue (builder_id, reason) VALUES (${id}, 'first_find')`;
+  const repo = (name: string, fork: boolean) => ({ full_name: `${L}/${name}`, fork, is_template: false, pushed_at: iso(1), owner: { login: L, type: 'User' } });
+  const reader = fakeReader({
+    [`/users/${L}`]: {},
+    [`/users/${L}/repos?type=owner&per_page=100`]: [repo('app', false), repo('fork', true)],
+    [`/users/${L}/orgs`]: [],
+    // The slice ends while the repo's files are read (a soft read must not swallow it).
+    [`/repos/${L}/app/git/trees/HEAD?recursive=1`]: new ScoreDeadline(),
+  });
+  const r = await discover(NOW, { deadline: Date.now() + 30_000, reader, login: async () => ({ login: L, basis: 'signin' }), only: [id] });
+  assert.equal(r.people, 0);
+  const q = await queueOf(id);
+  assert.deepEqual([q.done_at, q.attempts], [null, 0]);
+  const s = await sourcesOf(id);
+  assert.equal(s[`repo ${L}/fork`].state, 'proposed', 'no reject from a person cut short');
+  assert.equal(s[`repo ${L}/app`].state, 'proposed', 'no verify either');
+  const [p] = await sql()<{ github_login: string | null }[]>`SELECT github_login FROM builder_profiles WHERE builder_id = ${id}`;
+  assert.equal(p.github_login, null);
+});
+
+test('6.18b readSources: a read cut by the deadline writes no reading; the source stays due', dbTest, async () => {
+  const id = T + 5;
+  const [row] = await sql()<{ id: string }[]>`
+    INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by, state, proof)
+    VALUES (${id}, 'site', 'https://cut.example.com', 'k', 'server', 'verified', 'earnkit_txt') RETURNING id`;
+  const reader = fakeReader({}, { probe: async () => { throw new ScoreDeadline(); } });
+  assert.deepEqual(await readSources(NOW, { deadline: Date.now() + 30_000, reader, only: [id] }), { read: 0, failed: 0 });
+  assert.equal((await sql()`SELECT 1 FROM source_readings WHERE source_id = ${row.id}`).length, 0);
+  const [left] = await sql()<{ last_read_day: string | null }[]>`SELECT last_read_day::text FROM builder_sources WHERE id = ${row.id}`;
+  assert.equal(left.last_read_day, null);
+});
+
+test('6.19 provenLogin: one login across the group or none; the proof-line check is injected, budgeted and deadline-bound', dbTest, async () => {
+  const stamp = `${T}-${process.pid}`;
+  const inst = async (tag: string, root?: number) => {
+    const [r] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, builder_id) VALUES (${`v212-t6-${tag}-${stamp}`}, ${root ?? null}) RETURNING id`;
+    return r.id;
+  };
+  const verified = (installationId: number, login: string) => sql()`
+    INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos) VALUES (${`${login}/r`}, ${login}, ${installationId}, now(), 3)`;
+  const a = await inst('a');
+  await verified(a, 'ann');
+  await verified(await inst('a2', a), 'Bob');
+  assert.equal(await provenLogin(a), null, 'two logins in one group name no one');
+  const c = await inst('c');
+  await verified(c, 'Cy');
+  await verified(await inst('c2', c), 'cy');
+  assert.deepEqual(await provenLogin(c), { login: 'cy', basis: 'signin' });
+  const e = await inst('e');
+  await proposeSource({ builder_id: e, kind: 'repo', ref: `dee${T}/x`, project_key: `dee${T}/x`, proposed_by: 'agent' });
+  const calls: string[] = [];
+  const proofLine = async (m: number, ref: string) => {
+    calls.push(`${m} ${ref}`);
+    return { login: `dee${T}`, basis: 'proof_line' as const };
+  };
+  assert.deepEqual(await provenLogin(e, { proofLine }), { login: `dee${T}`, basis: 'proof_line' });
+  assert.deepEqual(calls, [`${e} dee${T}/x`]);
+  assert.equal(await provenLogin(e), null, 'no check given: no proof-line login');
+  // The run's check: never without the run's budgeted fetch, never once the budget is spent or the slice is nearly over.
+  const noFetch = async () => {
+    throw new Error('unexpected fetch');
+  };
+  assert.equal(await proofLineCheck(fakeReader({}), Date.now() + 60_000)(e, `dee${T}/x`), null);
+  await assert.rejects(proofLineCheck(fakeReader({}, { ghFetch: noFetch, ghSpent: () => true }), Date.now() + 60_000)(e, `dee${T}/x`), GitHubBudgetStop);
+  await assert.rejects(proofLineCheck(fakeReader({}, { ghFetch: noFetch, ghSpent: () => false }), Date.now() + 1_000)(e, `dee${T}/x`), ScoreDeadline);
+  await sql()`DELETE FROM builder_sources WHERE builder_id = ${e}`;
+  await sql()`DELETE FROM installations WHERE token_hash LIKE ${`v212-t6-%-${stamp}`}`;
+});
+
+test('6.20 one login, one person: a login another profile holds names no one; the database refuses a second holder', dbTest, async () => {
+  const [holder, other] = [T + 6, T + 7];
+  const L = `held${T}`;
+  await sql()`INSERT INTO builder_profiles (builder_id, slug, github_login) VALUES (${holder}, ${`g${holder}`}, ${L})`;
+  await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${other}, ${`g${other}`})`;
+  await sql()`INSERT INTO discovery_queue (builder_id, reason) VALUES (${other}, 'first_find')`;
+  // No GitHub fake: with the login refused, nothing is read.
+  await discover(NOW, { deadline: Date.now() + 30_000, reader: fakeReader({}), login: async () => ({ login: L.toUpperCase(), basis: 'signin' }), only: [other] });
+  const [p] = await sql()<{ github_login: string | null }[]>`SELECT github_login FROM builder_profiles WHERE builder_id = ${other}`;
+  assert.equal(p.github_login, null);
+  assert.ok((await queueOf(other)).done_at);
+  await assert.rejects(sql()`UPDATE builder_profiles SET github_login = ${L.toUpperCase()} WHERE builder_id = ${other}`, /duplicate key/);
+});
+
+test('6.21 a rejected source is never verified again (discover or verifySource)', dbTest, async () => {
+  const id = T + 8;
+  const L = `rej${T}`;
+  await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${id}, ${`j${id}`})`;
+  await sql()`INSERT INTO discovery_queue (builder_id, reason) VALUES (${id}, 'first_find')`;
+  const sid = (await proposeSource({ builder_id: id, kind: 'repo', ref: `${L}/app`, project_key: `${L}/app`, proposed_by: 'agent' }))!;
+  await rejectSource(sid, 'merged');
+  const reader = fakeReader({
+    [`/users/${L}`]: {},
+    [`/users/${L}/repos?type=owner&per_page=100`]: [{ full_name: `${L}/app`, fork: false, is_template: false, owner: { login: L, type: 'User' } }],
+    [`/users/${L}/orgs`]: [],
+    [`/search/issues?q=${encodeURIComponent(`type:pr author:${L} is:merged -user:${L}`)}&per_page=100`]: { items: [] },
+  });
+  await discover(NOW, { deadline: Date.now() + 30_000, reader, login: async () => ({ login: L, basis: 'signin' }), only: [id] });
+  assert.equal((await sourcesOf(id))[`repo ${L}/app`].state, 'rejected');
+  await verifySource(sid, 'repo_owner');
+  assert.equal((await sourcesOf(id))[`repo ${L}/app`].state, 'rejected');
+});
+
+test('6.22 a site a repo merely links (google.com) adds no staying power; a proven site or the repo Pages host does', () => {
+  assert.equal(siteShowsUse({ ref: 'https://google.com', project_key: 'lee/x', proof: 'repo_link' }), false);
+  assert.equal(siteShowsUse({ ref: 'https://lee.github.io/x/', project_key: 'lee/x', proof: 'repo_link' }), true);
+  assert.equal(siteShowsUse({ ref: 'https://evil.github.io/x/', project_key: 'lee/x', proof: 'repo_link' }), false);
+  assert.equal(siteShowsUse({ ref: 'https://mine.example.com', project_key: 'k', proof: 'earnkit_txt' }), true);
+  assert.equal(siteShowsUse({ ref: 'https://google.com', project_key: 'lee/x' }), false, 'no proof given: strict');
+  const stars = { owner: 'lee', fork: false, template: false, stargazers: [old('gh:a', iso(100))], forkers: [], issue_authors: [], contributors: [], commit_weeks: [], partial: false };
+  const run = (site: SourceRow) => {
+    const sources: SourceRow[] = [{ id: 1, kind: 'repo', ref: 'lee/x', project_key: 'lee/x', owner_is_org: false }, site];
+    const readings: ReadingRow[] = [{ source_id: 1, day: '2026-10-12', ok: true, signals: stars }, { source_id: 2, day: '2026-10-12', ok: true, signals: { status: 200, up: true } }];
+    const { projects } = buildInputs(sources, readings, { self: new Set(), owner: new Map(), edges: [], person: 1, now: NOW });
+    return computeScore(projects, calibration(), NOW).parts;
+  };
+  const linked = run({ id: 2, kind: 'site', ref: 'https://google.com', project_key: 'lee/x', owner_is_org: false, proof: 'repo_link' });
+  assert.equal(linked.staying.points, 0);
+  const pages = run({ id: 2, kind: 'site', ref: 'https://lee.github.io/x/', project_key: 'lee/x', owner_is_org: false, proof: 'repo_link' });
+  assert.ok(pages.staying.points > 0);
+  assert.equal(linked.recency.points, pages.recency.points, 'a site is never an outcome');
+});
+
+test('6.23 a later unheld score clears the hold', dbTest, async () => {
+  const id = T + 9;
+  await person(id, `u${id}`, 40, { held: true });
+  await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held)
+    VALUES (${id}, '2026-10-11', 70, 0, '{}', '{}', 'v1', 'v1-launch', true)`;
+  const r = await scoreBuilders(NOW, { deadline: Date.now() + 30_000, only: [id] });
+  assert.deepEqual(r, { scored: 1, held: [] });
+  const [p] = await sql()<{ held: boolean }[]>`SELECT held FROM builder_profiles WHERE builder_id = ${id}`;
+  assert.equal(p.held, false);
+});
+
+test('6.24 admin keys: a repeated ?key= (an array) is never a key; every admin page reads it through oneParam', () => {
+  assert.equal(oneParam(['a', 'b']), undefined);
+  assert.equal(oneParam(undefined), undefined);
+  assert.equal(oneParam('k'), 'k');
+  const app = join(import.meta.dirname, '../../app');
+  for (const page of ['admin/scores/page.tsx', 'admin/veto/[slug]/page.tsx', 'admin/bonus/[round]/page.tsx'])
+    assert.match(readFileSync(join(app, page), 'utf8'), /const key = oneParam\(/, page);
 });

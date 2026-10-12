@@ -2,7 +2,7 @@ import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { publicScore, scoresAdminKey } from '@/lib/earnkit/builder-score';
 import { sql } from '@/lib/earnkit/db';
-import { secretMatches } from '@/lib/earnkit/http';
+import { oneParam, secretMatches } from '@/lib/earnkit/http';
 import { RateLimitError, clientIp, enforce } from '@/lib/earnkit/rate-limit';
 import type { Parts } from '@/lib/earnkit/score';
 import { VETO_ERRORS } from '@/lib/earnkit/veto';
@@ -20,8 +20,9 @@ const num = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) ? Math.
  * Release button (a POST with the key). Opening it only shows, and counts against the veto rate
  * limit per IP. A wrong key is a 404.
  */
-export default async function ScoresReviewPage({ searchParams }: { searchParams: Promise<{ key?: string }> }) {
-  const { key } = await searchParams;
+export default async function ScoresReviewPage({ searchParams }: { searchParams: Promise<{ key?: string | string[] }> }) {
+  // ?key=a&key=b is an array: never a key (a 404, not a crash).
+  const key = oneParam((await searchParams).key);
   try {
     await enforce('veto', clientIp(await headers()), VETO_ERRORS['rate-limited']);
   } catch (err) {

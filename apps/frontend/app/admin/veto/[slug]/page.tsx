@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
+import { oneParam } from '@/lib/earnkit/http';
 import { sql } from '@/lib/earnkit/db';
 import type { CampaignConfig } from '@/lib/earnkit/campaigns';
 import { formatDeadline } from '@/lib/earnkit/dates';
@@ -25,10 +26,11 @@ export default async function VetoPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ key?: string; removed?: string; error?: string }>;
+  searchParams: Promise<{ key?: string | string[]; removed?: string; error?: string }>;
 }) {
   const { slug } = await params;
-  const { key, removed, error } = await searchParams;
+  const { key: rawKey, removed, error } = await searchParams;
+  const key = oneParam(rawKey);
   try {
     await enforce('veto', clientIp(await headers()), VETO_ERRORS['rate-limited']);
   } catch (err) {

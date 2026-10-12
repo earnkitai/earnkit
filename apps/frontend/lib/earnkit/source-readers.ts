@@ -1,5 +1,5 @@
 import { createPublicClient, http, type Address, type Hash } from 'viem';
-import { beforeDeadline, blockscout, type TxPage } from './campaigns';
+import { ScoreDeadline, beforeDeadline, blockscout, type TxPage } from './campaigns';
 import { nativeUsd } from './deploy';
 import { ARC_LOG_CHUNK, recentChunks } from './events';
 import { gh } from './match-projects';
@@ -45,6 +45,13 @@ export type ReaderDeps = {
   arcSender: (tx: string) => Promise<{ from: string; value: bigint; at: string }>;
   usdPerNative: (chain: 'base' | 'arc') => Promise<number>;
   now: Date;
+  /** Whether the run's GitHub budget is spent (budgetedGh); absent: never. */
+  ghSpent?: () => boolean;
+  /**
+   * A fetch for GitHub API reads made outside `gh` (the v2.11 proof-line pusher read): counted
+   * against the same run budget and stopped at the same deadline. Absent: those reads are skipped.
+   */
+  ghFetch?: typeof fetch;
 };
 
 export const READ_CAPS = { stargazerPages: 3, userLookups: 80, basePages: 20, arcSenders: 200, prs: 30 } as const;
@@ -69,9 +76,12 @@ export class GitHubBudgetStop extends Error {
 }
 export const isBudgetStop = (err: unknown) => err instanceof GitHubBudgetStop;
 
-/** `p`, or `fallback` on any error except a budget stop (which always propagates). */
-const soft = <T>(p: Promise<T>, fallback: T) => p.catch((err: unknown) => {
-  if (isBudgetStop(err)) throw err;
+/**
+ * `p`, or `fallback` on any error except a budget stop or the run's deadline (ScoreDeadline), which
+ * always propagate: a read cut short is never a partial reading.
+ */
+export const soft = <T>(p: Promise<T>, fallback: T) => p.catch((err: unknown) => {
+  if (isBudgetStop(err) || err instanceof ScoreDeadline) throw err;
   return fallback;
 });
 
@@ -174,7 +184,13 @@ export async function readRepo(fullName: string, d: ReaderDeps, prev: unknown = 
 
 /** Up is any 2xx; a non-2xx or a thrown probe (refused host, DNS, timeout) is down, never an error. */
 export async function readSite(origin: string, d: ReaderDeps): Promise<SiteSignals> {
-  const status = await d.probe(origin).then((r) => finite(r.status), () => 0);
+  const status = await d.probe(origin).then(
+    (r) => finite(r.status),
+    (err: unknown) => {
+      if (err instanceof ScoreDeadline) throw err; // the run's deadline is not a down site
+      return 0;
+    },
+  );
   return { status, up: status >= 200 && status < 300 };
 }
 
@@ -359,14 +375,14 @@ type RawGh = <T>(path: string, accept?: string, onResponse?: (res: Response) => 
  * requests are left, every later call (and the failing one) throws GitHubBudgetStop. The search
  * API's own small limit (x-ratelimit-resource: search) never trips it.
  */
-export function budgetedGh(raw: RawGh, floor = GH_RATE_FLOOR): ReaderDeps['gh'] {
+export function budgetedGh(raw: RawGh, floor = GH_RATE_FLOOR): ReaderDeps['gh'] & { spent: () => boolean; watch: (res: Response) => void } {
   let stopped = false;
   const watch = (res: Response) => {
     const resource = res.headers.get('x-ratelimit-resource');
     const left = res.headers.get('x-ratelimit-remaining');
     if (left !== null && (resource === null || resource === 'core') && Number(left) < floor) stopped = true;
   };
-  return async <T>(path: string, accept?: string) => {
+  const gh = async <T>(path: string, accept?: string) => {
     if (stopped) throw new GitHubBudgetStop();
     try {
       return await raw<T>(path, accept, watch);
@@ -375,6 +391,7 @@ export function budgetedGh(raw: RawGh, floor = GH_RATE_FLOOR): ReaderDeps['gh'] 
       throw err;
     }
   };
+  return Object.assign(gh, { spent: () => stopped, watch });
 }
 
 /** Base: Blockscout's creation transaction, then its sender and time (never creator_address_hash, the factory). */
@@ -421,5 +438,12 @@ export function defaultReaderDeps(now: Date, deadline: number): ReaderDeps {
     },
     usdPerNative: (chain) => by(nativeUsd(chain)),
     now,
+    ghSpent: github.spent,
+    ghFetch: async (input, init) => {
+      if (github.spent()) throw new GitHubBudgetStop();
+      const res = await by(fetch(input, init));
+      github.watch(res);
+      return res;
+    },
   };
 }

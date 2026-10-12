@@ -1,3 +1,4 @@
+import { ScoreDeadline } from './campaigns';
 import { sql, type Db } from './db';
 import { profileCodesIn } from './discovery-clues';
 import { noteEvent } from './events';
@@ -96,12 +97,15 @@ export async function proposeSource(s: { builder_id: number; kind: string; ref: 
   return id;
 }
 
-/** `deployer` (a contract's onchain deployer) is kept so another person's repo_link by it is refused. */
+/**
+ * `deployer` (a contract's onchain deployer) is kept so another person's repo_link by it is refused.
+ * Only a proposed source is verified: a rejected or revoked one stays rejected.
+ */
 export async function verifySource(id: number, proof: Proof, deployer: string | null = null): Promise<void> {
   const [row] = await sql()<{ builder_id: number; kind: string }[]>`
     UPDATE builder_sources SET state = 'verified', proof = ${proof}, verified_at = now(), reject_reason = NULL,
       deployer = COALESCE(${deployer?.toLowerCase() ?? null}::text, deployer)
-    WHERE id = ${id} AND state <> 'verified' RETURNING builder_id, kind`;
+    WHERE id = ${id} AND state = 'proposed' RETURNING builder_id, kind`;
   if (row) await noteEvent('source_verified', () => ({ type: 'source_verified', dedupe_key: `source_verified:${id}`, installation_id: row.builder_id, detail: { source_id: id, kind: row.kind, proof } }));
 }
 
@@ -171,10 +175,10 @@ export async function claimContract(
         ? await tx`
             UPDATE builder_sources SET state = 'verified', proof = ${result.proof}, verified_at = now(), reject_reason = NULL,
               deployer = COALESCE(${deployer}::text, deployer)
-            WHERE id = ${id} AND builder_id = ${builderId} AND state <> 'verified' RETURNING id`
+            WHERE id = ${id} AND builder_id = ${builderId} AND state = 'proposed' RETURNING id`
         : await tx`
             UPDATE builder_sources SET state = 'rejected', reject_reason = ${result.reject}
-            WHERE id = ${id} AND builder_id = ${builderId} AND state <> 'rejected' RETURNING id`;
+            WHERE id = ${id} AND builder_id = ${builderId} AND state = 'proposed' RETURNING id`;
     return { result, changed: rows.length > 0 };
   });
   if (changed && 'proof' in result)
@@ -242,7 +246,7 @@ async function readOne(s: Due, now: Date, d: ReaderDeps): Promise<unknown> {
  * (verified on their first read when their metadata names a verified repo of the person, else
  * rejected `repo_mismatch`; an unreadable one is tried again the next day), then the verified
  * sources due today, never read first, then the oldest. A read that throws is a failed reading
- * (its error class only); a spent GitHub budget writes nothing, so the source stays due.
+ * (its error class only); a spent GitHub budget or the deadline writes nothing, so the source stays due.
  */
 export async function readSources(now: Date, o: { deadline: number; reader: ReaderDeps; only?: number[] }): Promise<{ read: number; failed: number }> {
   const day = now.toISOString().slice(0, 10);
@@ -267,6 +271,7 @@ export async function readSources(now: Date, o: { deadline: number; reader: Read
       await verifySource(s.id, 'repo_link');
       if (await writeReading(s.id, s.builder_id, day, { ok: true, signals })) read++;
     } catch (err) {
+      if (err instanceof ScoreDeadline) return { read, failed };
       if (isBudgetStop(err)) continue;
       // Not a reading (it isn't verified): tried again tomorrow.
       await sql()`UPDATE builder_sources SET last_read_day = ${day} WHERE id = ${s.id} AND state = 'proposed'`;
@@ -280,6 +285,8 @@ export async function readSources(now: Date, o: { deadline: number; reader: Read
       const signals = await readOne(s, now, o.reader);
       if (await writeReading(s.id, s.builder_id, day, { ok: true, signals })) read++;
     } catch (err) {
+      // A read cut by the deadline is not a failed read: no reading, the source stays due.
+      if (err instanceof ScoreDeadline) break;
       if (isBudgetStop(err)) continue;
       const error = err instanceof Error ? err.name : 'Error';
       if (await writeReading(s.id, s.builder_id, day, { ok: false, error })) failed++;

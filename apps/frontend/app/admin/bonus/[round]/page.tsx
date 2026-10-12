@@ -7,7 +7,7 @@ import { placesFor, roundRows, type BonusTerms } from '@/lib/earnkit/bonus-payou
 import { RateLimitError, clientIp, enforce } from '@/lib/earnkit/rate-limit';
 import { UNVERIFIED_PAGE_FLAG, type Signals } from '@/lib/earnkit/traction';
 import { VETO_ERRORS, bonusVetoKey } from '@/lib/earnkit/veto';
-import { secretMatches } from '@/lib/earnkit/http';
+import { oneParam, secretMatches } from '@/lib/earnkit/http';
 import { shownUrl } from '@/lib/earnkit/untrusted-text';
 
 export const dynamic = 'force-dynamic';
@@ -45,10 +45,11 @@ export default async function BonusReviewPage({
   searchParams,
 }: {
   params: Promise<{ round: string }>;
-  searchParams: Promise<{ key?: string; removed?: string; error?: string }>;
+  searchParams: Promise<{ key?: string | string[]; removed?: string; error?: string }>;
 }) {
   const raw = (await params).round;
-  const { key, removed, error } = await searchParams;
+  const { key: rawKey, removed, error } = await searchParams;
+  const key = oneParam(rawKey);
   try {
     await enforce('veto', clientIp(await headers()), VETO_ERRORS['rate-limited']);
   } catch (err) {

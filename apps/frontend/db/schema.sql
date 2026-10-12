@@ -1096,6 +1096,8 @@ CREATE TABLE IF NOT EXISTS builder_profiles (
   created_at       timestamptz NOT NULL DEFAULT now(),
   updated_at       timestamptz NOT NULL DEFAULT now()
 );
+-- v2.12 T6 review: one login, one person (no two profiles share a GitHub login).
+CREATE UNIQUE INDEX IF NOT EXISTS builder_profiles_github_login ON builder_profiles (lower(github_login)) WHERE github_login IS NOT NULL;
 CREATE TABLE IF NOT EXISTS profile_slug_history (
   old_slug   text PRIMARY KEY,
   builder_id integer NOT NULL,

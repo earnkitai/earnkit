@@ -23,7 +23,21 @@ export const scoreSliceEnd = (now: number, deadline: number) => Math.min(deadlin
 export const LATE_HOUR_UTC = 22;
 export const HOLD = { jump: 30, oneSource: 0.8, minScore: 60 } as const;
 export type EmptyReason = 'no_github' | 'nothing_live' | 'ownership_unproven' | 'read_failed';
-export type SourceRow = { id: number; kind: string; ref: string; project_key: string; owner_is_org: boolean };
+/** `proof`: how the source was verified (a site counts as use only with a proof of its own, siteShowsUse). */
+export type SourceRow = { id: number; kind: string; ref: string; project_key: string; owner_is_org: boolean; proof?: string | null };
+
+/**
+ * Whether a verified site's "up" readings count as the project being used (staying power): only
+ * when the site itself is proven (earnkit.txt or DNS TXT) or it is the repo's own GitHub Pages host.
+ * A site a repo merely links (homepage, CNAME, vercel.json, wrangler.toml) is shown, never scored:
+ * anyone can link google.com. Pure.
+ */
+export function siteShowsUse(s: Pick<SourceRow, 'ref' | 'project_key' | 'proof'>): boolean {
+  if (s.proof === 'earnkit_txt' || s.proof === 'dns_txt') return true;
+  if (s.proof !== 'repo_link' || !URL.canParse(s.ref)) return false;
+  const owner = s.project_key.split('/')[0]?.toLowerCase();
+  return !!owner && new URL(s.ref).hostname.toLowerCase() === `${owner}.github.io`;
+}
 export type ReadingRow = { source_id: number; day: string; ok: boolean; signals: unknown };
 
 const DAY_MS = 86_400_000;
@@ -114,7 +128,7 @@ export function buildInputs(
         if (credit > 0 && ok(merged)) extraOutcomes.push({ at: merged, weight: credit });
         perSource.set(s.id, { users: credit, money: 0 });
       }
-      if (s.kind === 'site')
+      if (s.kind === 'site' && siteShowsUse(s))
         for (const rr of good.filter((x) => x.source_id === s.id && inYear(x) && (x.signals as Partial<SiteSignals>).up === true)) {
           const day = d(`${rr.day}T00:00:00Z`);
           if (ok(day) && (!lastUp || day > lastUp)) lastUp = day;
@@ -216,7 +230,7 @@ export async function scoreBuilders(now: Date, o: { deadline: number; only?: num
   for (const { builder_id: id } of due) {
     if (Date.now() >= o.deadline) break;
     const sources = await sql()<SourceRow[]>`
-      SELECT b.id::int AS id, b.kind, b.ref, b.project_key,
+      SELECT b.id::int AS id, b.kind, b.ref, b.project_key, b.proof,
         (b.kind = 'repo' AND lower(split_part(b.ref, '/', 1)) <> lower(COALESCE(p.github_login, ''))) AS owner_is_org
       FROM builder_sources b JOIN builder_profiles p USING (builder_id)
       WHERE b.builder_id = ${id} AND b.state = 'verified'`;
@@ -237,7 +251,10 @@ export async function scoreBuilders(now: Date, o: { deadline: number; only?: num
     if (!row) continue;
     scored++;
     await noteEvent('score_computed', () => ({ type: 'score_computed', dedupe_key: `score:${id}:${day}`, installation_id: id, detail: { score: s.score, calibration: cal.id } }));
-    if (reason) {
+    if (!reason) {
+      // A later day's score came in unheld: it is the public one now, so nothing waits on the owner.
+      await sql()`UPDATE builder_profiles SET held = false, updated_at = now() WHERE builder_id = ${id} AND held`;
+    } else {
       held.push(id);
       await sql()`UPDATE builder_profiles SET held = true, updated_at = now() WHERE builder_id = ${id}`;
       await noteEvent('score_held', () => ({ type: 'score_held', dedupe_key: `score_held:${id}:${day}`, installation_id: id, detail: { reason, score: s.score, previous: prev?.score ?? null } }));
@@ -307,6 +324,15 @@ export async function profileEmpty(now: Date, o: { only?: number[] } = {}): Prom
     n++;
   }
   return n;
+}
+
+/** Everyone whose profile is held now (not only this run's holds), for the cron's needs_owner. `only`: these people. */
+export async function heldPeople(only?: number[]): Promise<number[]> {
+  const rows = await sql()<{ builder_id: number }[]>`
+    SELECT builder_id FROM builder_profiles WHERE held
+      ${only ? sql()`AND builder_id IN ${sql()(only.length ? only : [-1])}` : sql()``}
+    ORDER BY builder_id`;
+  return rows.map((r) => r.builder_id);
 }
 
 export type ScoreCronDeps = { reader?: ReaderDeps; login?: LoginOf; only?: number[] };

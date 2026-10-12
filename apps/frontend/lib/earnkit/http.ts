@@ -51,3 +51,9 @@ export function secretMatches(given: string | null | undefined, secret: string |
 /** "Authorization: Bearer <secret>". Pure. */
 export const bearerMatches = (header: string | null, secret: string | undefined) =>
   secretMatches(/^Bearer (\S+)$/.exec(header ?? '')?.[1], secret);
+
+/**
+ * A query parameter as one string: Next gives `?key=a&key=b` as an array, which is never a key.
+ * Pure.
+ */
+export const oneParam = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);

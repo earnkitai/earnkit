@@ -650,3 +650,22 @@ test('6.9 v2.12: with the flag off runCron has no builder_score key; on, the fiv
     delete process.env.EARNKIT_BUILDER_SCORE;
   }
 });
+
+test('6.9b needs_owner lists every current hold (quietly), not only the ones this run made', db, async () => {
+  const id = 2_140_000_000 + Math.floor(Math.random() * 7_000_000);
+  const today = new Date().toISOString().slice(0, 10);
+  await sql()`INSERT INTO builder_profiles (builder_id, slug, held) VALUES (${id}, ${`h${id}`}, true)`;
+  // Already scored (and held) today: this run scores no one.
+  await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held)
+    VALUES (${id}, ${today}, 80, 0, '{}', '{}', 'v1', 'v1-launch', true)`;
+  process.env.EARNKIT_BUILDER_SCORE = 'on';
+  try {
+    const on = await runCron({ only: ['none'], budgetMs: 5_000, deps: { refreshFees: async () => 0, builderScore: { reader: fakeReader(), only: [id] } } });
+    assert.deepEqual((on.builder_score!.score as { held: number[] }).held, []);
+    assert.ok(on.needs_owner.includes(`score-hold:${id}:quiet`), String(on.needs_owner));
+    assert.deepEqual(on.needs_owner.filter((k: string) => !k.endsWith(':quiet')), []);
+  } finally {
+    delete process.env.EARNKIT_BUILDER_SCORE;
+    await sql()`DELETE FROM builder_profiles WHERE builder_id = ${id}`;
+  }
+});

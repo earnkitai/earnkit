@@ -16,8 +16,10 @@ import {
   type ContractClue,
 } from './discovery-clues';
 import { noteEvent } from './events';
-import { loginBasisFor, repoEverDerived } from './github-verify';
-import { isBudgetStop, readContractOrigin, readMergedPrs, type ReaderDeps, type RepoSignals } from './source-readers';
+import { loginBasisFor, repoEverDerived, type LoginProof } from './github-verify';
+import { ScoreDeadline, beforeDeadline } from './campaigns';
+import { fetchLinePusher } from './ownership';
+import { GitHubBudgetStop, isBudgetStop, readContractOrigin, readMergedPrs, soft, type ReaderDeps, type RepoSignals } from './source-readers';
 import { claimContract, proposeSource, rejectSource, repoOwned, siteOwnedByText, verifySource, type Proof } from './sources';
 import { proofLineOwner } from './token-gate';
 
@@ -135,12 +137,6 @@ type ListedRepo = {
   created_at?: string | null; pushed_at?: string | null; owner?: { login?: string; type?: string };
 };
 
-/** `p`, or `fallback` on any error but a spent GitHub budget (which always propagates). */
-const soft = <T>(p: Promise<T>, fallback: T) => p.catch((err: unknown) => {
-  if (isBudgetStop(err)) throw err;
-  return fallback;
-});
-
 /** A repo's homepage as a public https origin ('example.com' and http:// read as https), or null. */
 export function homepageOrigin(h: unknown): string | null {
   if (typeof h !== 'string' || !h.trim()) return null;
@@ -148,25 +144,62 @@ export function homepageOrigin(h: unknown): string | null {
   return publicHttpsOrigin(/^https?:\/\//i.test(t) ? t.replace(/^http:/i, 'https:') : `https://${t}`);
 }
 
+/** The v2.11 proof-line check of one installation's repo ('owner/repo'): the proven login, or null. */
+export type ProofLineCheck = (installationId: number, repoKey: string) => Promise<LoginProof | null>;
+/** The proof-line check is not started with less than this much of the run left (it reads GitHub's activity log). */
+export const PROOF_LINE_MIN_MS = 15_000;
+
 /**
- * plan R4: the newest sign-in (or App) verification of any installation in the group, else the
- * v2.11 proof line on one of the agent's proposed repos (at most DISCOVER_CAPS.remotes), checked
- * for each installation of the group. Never guessed.
+ * The proof-line check inside a cron run: its GitHub API reads go through the run's `ghFetch` (the
+ * same budget as every other read, stopped at the same deadline), the whole check is cut at the
+ * deadline, and it is not started when the budget is spent (GitHubBudgetStop) or less than
+ * PROOF_LINE_MIN_MS remains (ScoreDeadline). A reader without `ghFetch` (tests) never checks.
  */
-export async function provenLogin(builderId: number): Promise<{ login: string; basis: 'signin' | 'app' | 'proof_line' } | null> {
+export function proofLineCheck(d: ReaderDeps, deadline: number): ProofLineCheck {
+  return async (installationId, repoKey) => {
+    const ghFetch = d.ghFetch;
+    if (!ghFetch) return null;
+    if (d.ghSpent?.()) throw new GitHubBudgetStop();
+    if (deadline - Date.now() < PROOF_LINE_MIN_MS) throw new ScoreDeadline();
+    const found = await beforeDeadline(
+      (async () => {
+        const lineOwner = await proofLineOwner(
+          { installationId, repoUrl: `https://github.com/${repoKey}` },
+          { pusher: (r, has, at) => fetchLinePusher(r, has, at, { everDerived: repoEverDerived, fetch: ghFetch }) },
+        );
+        // proofLineOwner never throws: a budget spent inside it reads as null, so ask again.
+        if (d.ghSpent?.()) throw new GitHubBudgetStop();
+        return lineOwner ? loginBasisFor(installationId, repoKey, { lineOwner }) : null;
+      })(),
+      deadline,
+    );
+    if (d.ghSpent?.()) throw new GitHubBudgetStop();
+    return found;
+  };
+}
+
+/**
+ * plan R4: who the person is on GitHub. A sign-in or App verification proves that a login approved
+ * a repo for an installation, not who the person is, so it names them only when every verification
+ * of the group names one and the same login (two or more: none). With no verification, the v2.11
+ * proof line on one of the agent's proposed repos (at most DISCOVER_CAPS.remotes), for each
+ * installation of the group, through `proofLine`. Never guessed.
+ */
+export async function provenLogin(builderId: number, o: { proofLine?: ProofLineCheck } = {}): Promise<LoginProof | null> {
   const members = (await sql()<{ id: number }[]>`SELECT id FROM installations WHERE COALESCE(builder_id, id) = ${builderId} ORDER BY id`).map((m) => m.id);
   if (members.length === 0) return null;
-  const [v] = await sql()<{ login: string; via: string }[]>`
-    SELECT lower(login) AS login, via FROM github_verifications WHERE installation_id IN ${sql()(members)}
-    ORDER BY verified_at DESC, id DESC LIMIT 1`;
-  if (v) return { login: v.login, basis: v.via === 'app' ? 'app' : 'signin' };
+  const logins = await sql()<{ login: string; via: string }[]>`
+    SELECT lower(login) AS login, (array_agg(via ORDER BY verified_at DESC, id DESC))[1] AS via
+    FROM github_verifications WHERE installation_id IN ${sql()(members)}
+    GROUP BY lower(login) LIMIT 2`;
+  if (logins.length > 1) return null;
+  if (logins.length === 1) return { login: logins[0].login, basis: logins[0].via === 'app' ? 'app' : 'signin' };
+  if (!o.proofLine) return null;
   const repos = await sql()<{ ref: string }[]>`
     SELECT ref FROM builder_sources WHERE builder_id = ${builderId} AND kind = 'repo' AND state = 'proposed' ORDER BY id LIMIT ${DISCOVER_CAPS.remotes}`;
   for (const { ref } of repos)
     for (const m of members) {
-      const lineOwner = await proofLineOwner({ installationId: m, repoUrl: `https://github.com/${ref}` });
-      if (!lineOwner) continue;
-      const p = await loginBasisFor(m, ref, { lineOwner });
+      const p = await o.proofLine(m, ref);
       if (p) return p;
     }
   return null;
@@ -174,23 +207,40 @@ export async function provenLogin(builderId: number): Promise<{ login: string; b
 
 type Counts = { people: number; proposed: number; verified: number };
 type Row = { id: number; state: string };
+type DiscoverOpts = { deadline: number; reader: ReaderDeps; login?: LoginOf; proofLine?: ProofLineCheck };
 
-/** One person's discovery (spec 3, clues 1 to 6). Throws on a failed core read (the queue retries). */
-async function discoverOne(root: number, o: { reader: ReaderDeps; login?: LoginOf }, out: Counts): Promise<void> {
+/**
+ * One person's discovery (spec 3, clues 1 to 6). Every read happens first; every verdict (verify,
+ * reject, contract claim, the profile's login) is applied only once all reads are done, so a
+ * person cut short (the deadline, a spent budget, a failed core read: all throw) leaves nothing
+ * decided from partial reads. Proposals are written as found (they decide nothing).
+ */
+async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<void> {
   const d = o.reader;
   const db = sql();
   const members = (await db<{ id: number }[]>`SELECT id FROM installations WHERE COALESCE(builder_id, id) = ${root}`).map((m) => m.id);
   const group = members.length ? members : [-1];
+  const verdicts: (() => Promise<void>)[] = [];
+  const planned = new Map<number, string>();
+  const stateOf = (row: Row) => planned.get(row.id) ?? row.state;
   const propose = async (kind: string, ref: string, key: string): Promise<Row> => {
     if ((await proposeSource({ builder_id: root, kind, ref, project_key: key, proposed_by: 'server' })) !== null) out.proposed++;
     const [row] = await db<Row[]>`SELECT id::int AS id, state FROM builder_sources WHERE builder_id = ${root} AND kind = ${kind} AND ref = ${ref}`;
     return row;
   };
-  const verify = async (row: Row, proof: Proof) => {
-    if (row.state === 'verified') return;
-    await verifySource(row.id, proof);
-    row.state = 'verified';
-    out.verified++;
+  // Only a proposed source is verified: a rejected (or revoked) one stays rejected.
+  const verify = (row: Row, proof: Proof) => {
+    if (stateOf(row) !== 'proposed') return;
+    planned.set(row.id, 'verified');
+    verdicts.push(async () => {
+      await verifySource(row.id, proof);
+      out.verified++;
+    });
+  };
+  const reject = (row: Row, reason: string) => {
+    if (stateOf(row) === 'rejected') return;
+    planned.set(row.id, 'rejected');
+    verdicts.push(() => rejectSource(row.id, reason));
   };
   // R25: only a launched EarnKit token's creator wallet or an EarnKit deploy's confirmed owner proves a wallet.
   const proven = new Set(
@@ -208,25 +258,35 @@ async function discoverOne(root: number, o: { reader: ReaderDeps; login?: LoginO
     if (contracts >= DISCOVER_CAPS.contracts) return;
     contracts++;
     const row = await propose('contract', ref, key);
-    if (row.state === 'verified') return;
+    if (stateOf(row) !== 'proposed') return;
+    planned.set(row.id, 'claimed');
     const earnkitDeployed = ours.has(ref);
     // EarnKit's own deploys need no onchain read (the deployer is EarnKit's, never the person's).
     const origin = earnkitDeployed ? { deployer: null, created_at: null } : await soft(readContractOrigin(ref, d), { deployer: null, created_at: null });
-    const r = await claimContract(row.id, root, ref, {
-      deployer: origin.deployer, created_at: origin.created_at, earnkitDeployed,
-      repo: facts.clue ? { deployer: facts.clue.deployer, created_at: facts.repoCreated ?? null } : null,
-    }, proven);
-    if ('proof' in r) out.verified++;
+    verdicts.push(async () => {
+      const r = await claimContract(row.id, root, ref, {
+        deployer: origin.deployer, created_at: origin.created_at, earnkitDeployed,
+        repo: facts.clue ? { deployer: facts.clue.deployer, created_at: facts.repoCreated ?? null } : null,
+      }, proven);
+      if ('proof' in r) out.verified++;
+    });
   };
   for (const x of deploys) await claim(`${x.chain}:${x.address}`, x.repo_key, {});
 
-  const proof = await (o.login ?? provenLogin)(root);
+  let proof = await (o.login ?? ((id: number) => provenLogin(id, { proofLine: o.proofLine ?? proofLineCheck(d, o.deadline) })))(root);
+  if (proof) {
+    // One login, one person: a login another profile already holds names no one here.
+    const [taken] = await db`SELECT 1 FROM builder_profiles WHERE lower(github_login) = ${proof.login.toLowerCase()} AND builder_id <> ${root}`;
+    if (taken) proof = null;
+  }
   if (proof) {
     const L = proof.login.toLowerCase();
-    await db`UPDATE builder_profiles SET github_login = ${L}, fallback_handle = COALESCE(fallback_handle, ${L}), updated_at = now() WHERE builder_id = ${root}`;
     const user = await d.gh<{ blog?: string | null; twitter_username?: string | null }>(`/users/${L}`);
     const clues = githubProfileClues(user ?? {});
-    if (clues.twitter) await db`UPDATE builder_profiles SET twitter_prefill = ${clues.twitter} WHERE builder_id = ${root}`;
+    verdicts.unshift(async () => {
+      await db`UPDATE builder_profiles SET github_login = ${L}, fallback_handle = COALESCE(fallback_handle, ${L}),
+        twitter_prefill = COALESCE(${clues.twitter}::text, twitter_prefill), updated_at = now() WHERE builder_id = ${root}`;
+    });
     // Clue 2: own repos, and org repos where they are the top contributor.
     const candidates = new Map<string, { meta: ListedRepo; top: boolean }>();
     for (const r of await d.gh<ListedRepo[]>(`/users/${L}/repos?type=owner&per_page=100`)) {
@@ -264,10 +324,11 @@ async function discoverOne(root: number, o: { reader: ReaderDeps; login?: LoginO
       const template = c.meta.is_template === true;
       const ever = await repoEverDerived(key, fork || template);
       const signals = { owner: (c.meta.owner?.login ?? key.split('/')[0]).toLowerCase(), owner_type: c.meta.owner?.type ?? 'User', fork, template } as RepoSignals;
-      if (repoOwned(signals, L, c.top, ever)) {
-        await verify(row, 'repo_owner');
+      if (!repoOwned(signals, L, c.top, ever)) reject(row, fork || template || ever ? 'derived' : 'not_owner');
+      else if (stateOf(row) !== 'rejected') {
+        verify(row, 'repo_owner');
         scan.push({ key, meta: c.meta });
-      } else if (row.state !== 'rejected') await rejectSource(row.id, fork || template || ever ? 'derived' : 'not_owner');
+      }
     }
     // Clue 3: files of their newest verified repos.
     scan.sort((a, b) => String(b.meta.pushed_at ?? '').localeCompare(String(a.meta.pushed_at ?? '')));
@@ -311,10 +372,11 @@ async function discoverOne(root: number, o: { reader: ReaderDeps; login?: LoginO
           if (c) found.push(c);
         }
       }
-      // Sites the repo links (homepage, CNAME, vercel.json, wrangler.toml) as public origins, and its Pages site.
+      // Sites the repo links (homepage, CNAME, vercel.json, wrangler.toml) as public origins, and its
+      // Pages site. Shown as theirs; only the Pages site (or an earnkit.txt line) counts as use (score).
       const linked = [...new Set([...sites].map(publicHttpsOrigin).filter((x): x is string => !!x))];
       if (meta.has_pages === true) linked.push(pagesSite(owner, name));
-      for (const site of linked) await verify(await propose('site', site, key), 'repo_link');
+      for (const site of linked) verify(await propose('site', site, key), 'repo_link');
       for (const c of found) await claim(`${c.chain}:${c.address}`, key, { clue: c, repoCreated: meta.created_at ?? null });
     }
     // The GitHub profile's blog: a proposal (verified above only when a verified repo links it, or by earnkit.txt below).
@@ -323,17 +385,20 @@ async function discoverOne(root: number, o: { reader: ReaderDeps; login?: LoginO
       if (blog) await propose('site', blog, blog);
     }
     // Clue 4: merged PRs to repos they don't own.
-    for (const pr of await soft(readMergedPrs(L, d), [])) if (pr.url) await verify(await propose('merged_pr', pr.url, 'oss'), proof.basis === 'proof_line' ? 'proof_line' : 'github_signin');
+    const prProof: Proof = proof.basis === 'proof_line' ? 'proof_line' : 'github_signin';
+    for (const pr of await soft(readMergedPrs(L, d), [])) if (pr.url) verify(await propose('merged_pr', pr.url, 'oss'), prProof);
   }
   // Clue 6: proposed live links whose earnkit.txt names this person.
   const proposedSites = await db<(Row & { ref: string })[]>`
     SELECT id::int AS id, state, ref FROM builder_sources WHERE builder_id = ${root} AND kind = 'site' AND state = 'proposed' ORDER BY id LIMIT ${DISCOVER_CAPS.sites}`;
   for (const s of proposedSites) {
     const origin = publicHttpsOrigin(s.ref);
-    if (!origin) continue;
+    if (!origin || stateOf(s) !== 'proposed') continue;
     const text = await soft(d.fetchText(`${origin}/earnkit.txt`), null);
-    if (text !== null && siteOwnedByText(text, profileCode(root, origin))) await verify(s, 'earnkit_txt');
+    if (text !== null && siteOwnedByText(text, profileCode(root, origin))) verify(s, 'earnkit_txt');
   }
+  // Every read is done: now the verdicts.
+  for (const v of verdicts) await v();
 }
 
 /**
@@ -341,9 +406,12 @@ async function discoverOne(root: number, o: { reader: ReaderDeps; login?: LoginO
  * while `deadline` allows. A shared client's group is never a person (R2): marked done untouched.
  * A finished person is marked done; a thrown read leaves them queued and counts an attempt (after
  * DISCOVER_MAX_ATTEMPTS they are done until the next clue); a spent GitHub budget or the deadline
- * stops the step without counting one.
+ * stops the step without counting one, and nothing is decided for the person it cut short.
  */
-export async function discover(now: Date, o: { deadline: number; reader: ReaderDeps; login?: LoginOf; limit?: number; only?: number[] }): Promise<Counts> {
+export async function discover(
+  now: Date,
+  o: { deadline: number; reader: ReaderDeps; login?: LoginOf; proofLine?: ProofLineCheck; limit?: number; only?: number[] },
+): Promise<Counts> {
   void now;
   const db = sql();
   const queue = await db<{ builder_id: number }[]>`
@@ -363,7 +431,7 @@ export async function discover(now: Date, o: { deadline: number; reader: ReaderD
       await db`UPDATE discovery_queue SET done_at = now(), attempts = attempts + 1 WHERE builder_id = ${root}`;
       out.people++;
     } catch (err) {
-      if (isBudgetStop(err) || Date.now() >= o.deadline) break;
+      if (isBudgetStop(err) || err instanceof ScoreDeadline || Date.now() >= o.deadline) break;
       console.error('[discovery] person', err instanceof Error ? err.name : 'error');
       await db`
         UPDATE discovery_queue SET attempts = attempts + 1,
