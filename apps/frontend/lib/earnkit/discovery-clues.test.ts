@@ -86,3 +86,22 @@ test('4.10 the earnkit.txt profile line: bound to the person and the origin; par
   assert.deepEqual(profileCodesIn(`# x\nProfile: ${c.toUpperCase()}\ntoken: abc\n`), [c]);
   assert.ok(CLUE_PATHS.includes('CNAME') && CLUE_PATHS.includes('wrangler.toml'));
 });
+
+test('4.17 a hostile 1 MB pyproject parses fast; every clue file is cut at 64 KB', () => {
+  const hostile = '[project]\n' + 'name   \n'.repeat(120_000) + '['.repeat(1000);
+  const t = Date.now();
+  assert.equal(pypiPackage(hostile), null);
+  assert.ok(Date.now() - t < 100, `${Date.now() - t} ms`);
+  assert.equal(pypiPackage('[project]\n' + ' '.repeat(70_000) + '\nname = "late"\n'), null);
+  assert.equal(pypiPackage('[tool.x]\nname = "no"\n[project]\nversion = "1"\nname = "yes-pkg"\n[other]\nname = "no2"\n'), 'yes-pkg');
+  assert.equal(cnameSite('\n'.repeat(70_000) + 'late.example.com'), null);
+});
+
+test('4.18 git remotes: . and .. repo names and hyphen-edged owners are refused', () => {
+  assert.equal(githubRemote('https://github.com/lee/..'), null);
+  assert.equal(githubRemote('https://github.com/lee/.'), null);
+  assert.equal(githubRemote('git@github.com:lee/..git'), null);
+  assert.equal(githubRemote('https://github.com/-lee/x'), null);
+  assert.equal(githubRemote('https://github.com/lee-/x'), null);
+  assert.equal(githubRemote('https://github.com/le-e/x.y'), 'le-e/x.y');
+});

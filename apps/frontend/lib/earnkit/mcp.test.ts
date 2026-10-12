@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { escrowConfig, escrowConfigProblem } from './escrow';
-import { FIND_DESCRIPTION, OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, errorSummary, TOOL_DESCRIPTIONS, createMcpServer, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
+import { FIND_DESCRIPTION, FIND_DESCRIPTION_SCORE, OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, errorSummary, TOOL_DESCRIPTIONS, createMcpServer, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { handlers } from './tools';
 import { OLD_TOOL_NAMES, STALE_TOOLS_NOTE, aliasCall, withOlderNames } from './aliases';
 
@@ -92,12 +92,23 @@ test('9.1 a configured escrow adds sponsor_campaign (and still no old name)', as
   );
 });
 
-test('4.14 v2.12: find takes local_git and its description stays under 800 characters', async () => {
-  const { tools } = await listed({});
-  const find = tools.find((t) => t.name === 'find')!;
-  assert.ok('local_git' in (find.inputSchema.properties ?? {}));
-  assert.ok(FIND_DESCRIPTION.length < 800, String(FIND_DESCRIPTION.length));
-  assert.match(FIND_DESCRIPTION, /local_git/);
+test('4.14 v2.12: flag off, find is v2.11 (no local_git, the v2.11 description); flag on, it takes local_git under 800 characters', async () => {
+  const off = (await listed({})).tools.find((t) => t.name === 'find')!;
+  assert.ok(!('local_git' in (off.inputSchema.properties ?? {})));
+  assert.equal(off.description, FIND_DESCRIPTION);
+  assert.ok(FIND_DESCRIPTION.startsWith('What can I earn? Pass local_repos: repos the builder wrote, from local git remotes. For private repos, report: name, chains, contracts, live link, last_commit_at, my_commits_90d. A yes to the reply prepares lead.program_id; more: true only when they ask for more. build_offer: follow its agent_note. program_id: one program and its guide; repo: whether it fits. '));
+  assert.doesNotMatch(FIND_DESCRIPTION, /local_git/);
+  process.env.EARNKIT_BUILDER_SCORE = 'on';
+  try {
+    const on = (await listed({})).tools.find((t) => t.name === 'find')!;
+    assert.ok('local_git' in (on.inputSchema.properties ?? {}));
+    assert.equal(on.description, FIND_DESCRIPTION_SCORE);
+    assert.ok(on.description!.length < 800, String(on.description!.length));
+    assert.match(on.description!, /local_git/);
+    assert.match(on.description!, /repos the builder wrote/);
+  } finally {
+    delete process.env.EARNKIT_BUILDER_SCORE;
+  }
 });
 
 test('9.2 the instructions and each of the 4 descriptions: under 800 characters, no old tool name, no em dash', async () => {

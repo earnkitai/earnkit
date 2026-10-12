@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ZodError, z } from 'zod';
+import { builderScoreEnabled } from './builder-score-flag';
 import { CHAINS } from './match';
 import { GitHubError } from './match-projects';
 import { NotFoundError } from './programs';
@@ -107,17 +108,29 @@ export const OWNERSHIP_FOR_TOKEN =
  * v2.10 item 4: find's description (list_programs and get_program). Exported for tests. T4's
  * local_repos sentence is carried forward (Pre-flight P21).
  */
-export const FIND_DESCRIPTION =
-  // v2.12 spec 3: local_git carries clues for the builder's public profile.
-  'What can I earn? Pass local_repos and local_git (remotes, user.email, live links). ' +
+const FIND_LEAD = 'What can I earn? Pass local_repos: repos the builder wrote, from local git remotes. ';
+const FIND_YES = 'A yes to the reply prepares lead.program_id; more: true only when they ask for more. ';
+const findDescription = (lead: string, yes: string) =>
+  lead +
   // v2.10 item 7: a private repo is matched from this report (GitHub won't show it). v2.10.1 fix
   // round 1 (C1): plus the builder's own commit count.
   'For private repos, report: name, chains, contracts, live link, last_commit_at, my_commits_90d. ' +
-  'A yes to the reply prepares lead.program_id; more: true only when they ask for more. ' +
+  yes +
   // v2.11 T7: the no-repo lead's yes starts the build path (prepare with build).
   'build_offer: follow its agent_note. ' +
   'program_id: one program and its guide; repo: whether it fits. ' +
   SAFETY_TEXT;
+
+/** v2.11's find description, byte for byte (the flag off). */
+export const FIND_DESCRIPTION = findDescription(FIND_LEAD, FIND_YES);
+/**
+ * v2.12 spec 3 (EARNKIT_BUILDER_SCORE on): adds local_git. v2.11's text leaves 4 characters under 800,
+ * so the yes sentence is shortened to make room; the local_repos clause is kept.
+ */
+export const FIND_DESCRIPTION_SCORE = findDescription(
+  FIND_LEAD + 'Also pass local_git. ',
+  'A yes prepares lead.program_id; more: true only on request. ',
+);
 
 /** v2.10 item 4: prepare's description (prepare_submission), its campaign words only while one is open (v2.8 Ruling 23). */
 const prepareDescription = (campaignOpen: boolean, buildOn: boolean) =>
@@ -168,7 +181,7 @@ const SPONSOR_CAMPAIGN_DESCRIPTION =
  */
 export function toolDescriptions(campaignOpen: boolean, buildOn: boolean = deployEnabled() && deployChains().length > 0) {
   return {
-    find: FIND_DESCRIPTION,
+    find: builderScoreEnabled() ? FIND_DESCRIPTION_SCORE : FIND_DESCRIPTION,
     prepare: prepareDescription(campaignOpen, buildOn),
     confirm: confirmDescription(campaignOpen),
     tell: TELL_DESCRIPTION,
@@ -323,11 +336,15 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           .describe(
             'Private or local repos you can see. For private repos, report local_repos facts: name, chains, contracts, live link, last commit. EarnKit never needs their code.',
           ),
-        // v2.12 spec 3: clues for the builder's public profile. Read leniently (discovery.ts localGitInput).
-        local_git: z
-          .unknown()
-          .optional()
-          .describe('{ emails, remotes, live_urls }: git config user.email, git remote -v URLs, and live links of projects you can see that have no GitHub'),
+        // v2.12 spec 3: clues for the builder's public profile, listed only with the flag on. Read leniently (discovery.ts localGitInput).
+        ...(builderScoreEnabled()
+          ? {
+              local_git: z
+                .unknown()
+                .optional()
+                .describe('{ emails, remotes, live_urls }: git config user.email, git remote -v URLs, and live links of projects you can see that have no GitHub'),
+            }
+          : {}),
         agent_can_build: z
           .unknown()
           .optional()

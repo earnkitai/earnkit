@@ -9,18 +9,36 @@ import { noteEvent } from './events';
  */
 export type LocalGit = { emails: string[]; remotes: string[]; live_urls: string[] };
 
-/** The most proposed sources one call may add (remotes 20 + live links 5). */
+/** How many queued people one cron run's discover step reads (Task 6). */
 export const DISCOVER_PER_RUN = 20;
 
-const strings = (v: unknown, max: number): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').map((s) => s.trim()).filter(Boolean).slice(0, max) : []);
+/** At most `scan` entries are looked at; strings only, trimmed, non-empty. */
+const strings = (v: unknown, scan: number): string[] =>
+  Array.isArray(v) ? v.slice(0, scan).filter((x): x is string => typeof x === 'string').map((s) => s.trim()).filter(Boolean) : [];
+
+/** A live link must be a public https site: no loopback, private, link-local or .local host. */
+export function publicHttpsOrigin(u: string): string | null {
+  if (u.length > 300 || !URL.canParse(u)) return null;
+  const url = new URL(u);
+  if (url.protocol !== 'https:') return null;
+  const h = url.hostname.toLowerCase().replace(/\.$/, '');
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal')) return null;
+  if (h.startsWith('[') || h.includes(':')) return null; // any IPv6 literal (::1, fe80::, fc00::)
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    if (a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127)) return null;
+  } else if (!h.includes('.') || /^[\d.]+$/.test(h) || /^0x/i.test(h)) return null; // no bare or numeric hosts
+  return url.origin;
+}
 
 /** find's `local_git`, read leniently (v2.8.1 §B6 style): never throws; at most 20 remotes and 5 emails and live links. */
 export function localGitInput(v: unknown): LocalGit {
   try {
     const o = v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
     const remotes = [...new Set(strings(o.remotes, 200).map(githubRemote).filter((r): r is string => !!r))].slice(0, 20);
-    const emails = strings(o.emails, 5).filter((e) => /^[^@\s]{1,64}@[^@\s]{1,255}$/.test(e)).map((e) => e.toLowerCase());
-    const live_urls = [...new Set(strings(o.live_urls, 5).filter((u) => URL.canParse(u) && new URL(u).protocol === 'https:').map((u) => new URL(u).origin))];
+    const emails = strings(o.emails, 50).filter((e) => /^[^@\s]{1,64}@[^@\s]{1,255}$/.test(e)).map((e) => e.toLowerCase()).slice(0, 5);
+    const live_urls = [...new Set(strings(o.live_urls, 50).map(publicHttpsOrigin).filter((u): u is string => !!u))].slice(0, 5);
     return { emails, remotes, live_urls };
   } catch {
     return { emails: [], remotes: [], live_urls: [] };
@@ -28,6 +46,11 @@ export function localGitInput(v: unknown): LocalGit {
 }
 
 export async function enqueueDiscovery(builderId: number, reason: 'first_find' | 'wallet' | 'signin' | 'local_repo', db: Db = sql()): Promise<void> {
+  // first_find is insert-only: a later find never re-opens a done entry. Only a new clue does.
+  if (reason === 'first_find') {
+    await db`INSERT INTO discovery_queue (builder_id, reason) VALUES (${builderId}, ${reason}) ON CONFLICT (builder_id) DO NOTHING`;
+    return;
+  }
   await db`
     INSERT INTO discovery_queue (builder_id, reason) VALUES (${builderId}, ${reason})
     ON CONFLICT (builder_id) DO UPDATE SET reason = EXCLUDED.reason, queued_at = now(), done_at = NULL

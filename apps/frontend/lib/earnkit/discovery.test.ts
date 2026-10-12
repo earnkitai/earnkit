@@ -19,6 +19,13 @@ test('4.11 local_git is read leniently: GitHub remotes, at most 20; emails kept 
   assert.equal(localGitInput({ remotes: Array.from({ length: 30 }, (_, i) => `https://github.com/lee/r${i}`) }).remotes.length, 20);
 });
 
+test('4.11b live links must be public https sites; the caps apply after filtering', () => {
+  const bad = ['https://localhost', 'https://127.0.0.1', 'https://10.1.2.3', 'https://172.16.0.1', 'https://172.31.9.9', 'https://192.168.1.1', 'https://169.254.169.254', 'https://[::1]', 'https://printer.local', 'https://intranet', 'http://a.example.com'];
+  assert.deepEqual(localGitInput({ live_urls: bad }).live_urls, []);
+  assert.deepEqual(localGitInput({ live_urls: [...bad, 'https://172.32.0.1', 'https://ok.example.com/x'] }).live_urls, ['https://172.32.0.1', 'https://ok.example.com']);
+  assert.equal(localGitInput({ emails: ['bad', 'b', 'c@x.dev', 'd@x.dev', 'e@x.dev', 'f@x.dev', 'g@x.dev', 'h@x.dev'] }).emails.length, 5);
+});
+
 test('4.12 remotes become proposed repo sources (agent), once; a new one queues discovery', dbTest, async () => {
   const id = 2_100_000_000 + (process.pid % 1000);
   await sql()`DELETE FROM builder_sources WHERE builder_id = ${id}`;
@@ -45,6 +52,19 @@ test('4.13 enqueue: a done person is queued again by a new clue; an open entry k
   await enqueueDiscovery(id, 'signin');
   const [c] = await sql()<{ reason: string; done_at: Date | null }[]>`SELECT reason, done_at FROM discovery_queue WHERE builder_id = ${id}`;
   assert.deepEqual([c.reason, c.done_at], ['signin', null]);
+});
+
+test('4.13b first_find never re-opens a done entry; a new clue does', dbTest, async () => {
+  const id = 2_100_002_000 + (process.pid % 1000);
+  await sql()`DELETE FROM discovery_queue WHERE builder_id = ${id}`;
+  await enqueueDiscovery(id, 'first_find');
+  await sql()`UPDATE discovery_queue SET done_at = now() WHERE builder_id = ${id}`;
+  await enqueueDiscovery(id, 'first_find');
+  const [a] = await sql()<{ reason: string; done_at: Date | null }[]>`SELECT reason, done_at FROM discovery_queue WHERE builder_id = ${id}`;
+  assert.notEqual(a.done_at, null, 'another find leaves a done entry done');
+  await enqueueDiscovery(id, 'wallet');
+  const [b] = await sql()<{ reason: string; done_at: Date | null }[]>`SELECT reason, done_at FROM discovery_queue WHERE builder_id = ${id}`;
+  assert.deepEqual([b.reason, b.done_at], ['wallet', null]);
 });
 
 test('4.15 a new clue queues the person again: a wallet not seen before (rememberWallets), only with the flag on and a profile', dbTest, async () => {

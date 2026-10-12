@@ -15,9 +15,12 @@ const host = (h: string): string | null => {
   return HOST.test(s) ? s : null;
 };
 const origin = (h: string | null) => (h ? `https://${h}` : null);
+/** Every clue file is cut to this many bytes' worth of characters before any parser reads it. */
+export const CLUE_FILE_MAX = 64 * 1024;
+const cap = (text: string) => (typeof text === 'string' ? text.slice(0, CLUE_FILE_MAX) : '');
 const json = (text: string): unknown => {
   try {
-    return JSON.parse(text);
+    return JSON.parse(cap(text));
   } catch {
     return null;
   }
@@ -31,7 +34,7 @@ const scored = (id: number | null): 'base' | 'arc' | null => {
 export const CLUE_PATHS = ['CNAME', 'vercel.json', 'wrangler.toml', 'package.json', 'pyproject.toml'] as const;
 
 export function cnameSite(text: string): string | null {
-  const line = text.split(/\r?\n/).map((l) => l.replace(/#.*$/, '').trim()).find(Boolean);
+  const line = cap(text).split(/\r?\n/).map((l) => l.replace(/#.*$/, '').trim()).find(Boolean);
   return line ? origin(host(line)) : null;
 }
 
@@ -42,7 +45,7 @@ export function vercelSites(text: string): string[] {
 }
 
 export function wranglerSites(text: string): string[] {
-  const hosts = [...text.matchAll(/\b(?:pattern|route)\s*=\s*"([^"]+)"/g)].map((m) => host(m[1])).filter((h): h is string => !!h);
+  const hosts = [...cap(text).matchAll(/\b(?:pattern|route)\s*=\s*"([^"]+)"/g)].map((m) => host(m[1])).filter((h): h is string => !!h);
   return [...new Set(hosts)].map((h) => `https://${h}`);
 }
 
@@ -58,8 +61,18 @@ export function npmPackage(text: string): string | null {
 }
 
 export function pypiPackage(text: string): string | null {
-  const m = /^\[(project|tool\.poetry)\][^[]*?^\s*name\s*=\s*"([A-Za-z0-9][A-Za-z0-9._-]{0,99})"/ms.exec(text);
-  return m ? m[2].toLowerCase() : null;
+  let inside = false;
+  for (const raw of cap(text).split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line.startsWith('[')) {
+      inside = line === '[project]' || line === '[tool.poetry]';
+      continue;
+    }
+    if (!inside) continue;
+    const m = /^name\s*=\s*"([A-Za-z0-9][A-Za-z0-9._-]{0,99})"\s*(#.*)?$/.exec(line);
+    if (m) return m[1].toLowerCase();
+  }
+  return null;
 }
 
 export function foundryBroadcast(path: string, text: string): ContractClue[] {
@@ -80,7 +93,7 @@ const NETWORK_CHAIN: Record<string, 'base' | 'arc'> = { base: 'base', 'base-main
 export function hardhatDeployment(path: string, text: string, chainIdFile: string | null = null): ContractClue | null {
   const m = /deployments\/([^/]+)\/([^/]+)\.json$/.exec(path);
   if (!m) return null;
-  const chain = chainIdFile !== null ? scored(Number(chainIdFile.trim())) : (NETWORK_CHAIN[m[1].toLowerCase()] ?? null);
+  const chain = chainIdFile !== null ? scored(Number(cap(chainIdFile).trim())) : (NETWORK_CHAIN[m[1].toLowerCase()] ?? null);
   const d = json(text) as { address?: unknown; receipt?: { from?: unknown } } | null;
   if (!chain || typeof d?.address !== 'string' || !ADDR.test(d.address)) return null;
   const from = typeof d.receipt?.from === 'string' && ADDR.test(d.receipt.from) ? d.receipt.from.toLowerCase() : null;
@@ -95,8 +108,10 @@ export function githubProfileClues(u: { blog?: string | null; twitter_username?:
 }
 
 export function githubRemote(remote: string): string | null {
+  if (typeof remote !== 'string' || remote.length > 300) return null;
   const m = /^(?:git@github\.com:|https?:\/\/(?:www\.)?github\.com\/)([A-Za-z0-9-]{1,39})\/([A-Za-z0-9._-]{1,100}?)(?:\.git)?\/?$/.exec(remote.trim());
-  return m ? `${m[1]}/${m[2]}`.toLowerCase() : null;
+  if (!m || m[1].startsWith('-') || m[1].endsWith('-') || m[2] === '.' || m[2] === '..') return null;
+  return `${m[1]}/${m[2]}`.toLowerCase();
 }
 
 /** The earnkit.txt `profile:` code for a site with no GitHub (spec 3 clue 6), v2.11's line family. */
@@ -106,5 +121,5 @@ export function profileCode(builderId: number, siteOrigin: string, secret: strin
 }
 
 export function profileCodesIn(text: string): string[] {
-  return text.split(/\r?\n/).map((l) => /^\s*profile\s*:\s*([0-9a-f]{16})\s*(#.*)?$/i.exec(l)?.[1]?.toLowerCase()).filter((c): c is string => !!c);
+  return cap(text).split(/\r?\n/).map((l) => /^\s*profile\s*:\s*([0-9a-f]{16})\s*(#.*)?$/i.exec(l)?.[1]?.toLowerCase()).filter((c): c is string => !!c);
 }
