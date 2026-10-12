@@ -108,7 +108,8 @@ export const OWNERSHIP_FOR_TOKEN =
  * local_repos sentence is carried forward (Pre-flight P21).
  */
 export const FIND_DESCRIPTION =
-  'What can I earn? Pass local_repos: repos the builder wrote, from local git remotes. ' +
+  // v2.12 spec 3: local_git carries clues for the builder's public profile.
+  'What can I earn? Pass local_repos and local_git (remotes, user.email, live links). ' +
   // v2.10 item 7: a private repo is matched from this report (GitHub won't show it). v2.10.1 fix
   // round 1 (C1): plus the builder's own commit count.
   'For private repos, report: name, chains, contracts, live link, last_commit_at, my_commits_90d. ' +
@@ -322,6 +323,11 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           .describe(
             'Private or local repos you can see. For private repos, report local_repos facts: name, chains, contracts, live link, last commit. EarnKit never needs their code.',
           ),
+        // v2.12 spec 3: clues for the builder's public profile. Read leniently (discovery.ts localGitInput).
+        local_git: z
+          .unknown()
+          .optional()
+          .describe('{ emails, remotes, live_urls }: git config user.email, git remote -v URLs, and live links of projects you can see that have no GitHub'),
         agent_can_build: z
           .unknown()
           .optional()

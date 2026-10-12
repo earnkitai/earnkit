@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { githubRepo } from './campaigns';
+import { builderScoreEnabled } from './builder-score-flag';
 import { sql } from './db';
 import { sharedGroup } from './installations';
 import { siteUrl } from './entry-text';
@@ -274,6 +275,8 @@ export async function saveVerification(
       ${user.created_at}, ${user.public_repos}, ${now}, ${row.purpose},
       ${paste && sha256(paste)}, ${paste && new Date(now.getTime() + CODE_TTL_MS)},
       ${app ? null : row.wallet}, ${app ? null : row.symbol}, ${app ? 'app' : 'oauth'}, ${app?.githubInstallationId ?? null})`;
+  // v2.12 spec 3: a GitHub sign-in (or App verification) is a new discovery clue.
+  if (builderScoreEnabled()) await (await import('./discovery')).enqueueClue(row.installation_id, 'signin');
   return paste;
 }
 

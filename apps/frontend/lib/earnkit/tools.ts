@@ -140,6 +140,8 @@ import {
 } from './coach';
 import { LIVE_FAILED_LINE, addressesFrom, contractMissingLine, entryVerified, liveCheckDetail, liveErrorLine, rpcFor, type CheckDeps, type Verified } from './verify';
 import { noteEvent } from './events';
+import { builderScoreEnabled } from './builder-score-flag';
+import { enqueueDiscovery, localGitInput, noteLocalGit } from './discovery';
 import { sql } from './db';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
 import { answerPickup, offerPickup, type PickupDeps } from './identity';
@@ -731,6 +733,8 @@ const ListProgramsInput = z
     github_user: z.unknown().optional(),
     repos: z.unknown().optional(),
     local_repos: LocalReposInput.optional(),
+    // v2.12 spec 3: read leniently by discovery.ts localGitInput; never refused.
+    local_git: z.unknown().optional(),
     // v2.8.1 §B6: anything else than a 0x address is ignored with WALLET_IGNORED, never an error.
     wallet: z.unknown().optional(),
     // v2.9 B9 (Ruling G9): the code a shared client's builder pasted after signing in; never refused.
@@ -761,7 +765,7 @@ export const WALLET_IGNORED =
  * (match-projects.ts ReportedRepoInput) or a wallet that isn't 0x (dropped, with a note). Exported for tests.
  */
 export function listProgramsInput(input: unknown) {
-  const { wallet, agent_can_build, github_user, repos, signed_in, ...rest } = ListProgramsInput.parse(input ?? {});
+  const { wallet, agent_can_build, github_user, repos, signed_in, local_git, ...rest } = ListProgramsInput.parse(input ?? {});
   const repoList = reportedRepos(repos);
   const given = typeof wallet === 'string' && wallet.trim() !== '' ? wallet.trim() : null;
   const valid = given && /^0x[0-9a-fA-F]{40}$/.test(given) ? given : null;
@@ -771,7 +775,8 @@ export function listProgramsInput(input: unknown) {
     github_user: reportedGithubUser(github_user),
     repos: repoList.length ? repoList : undefined,
     wallet: valid ?? undefined, walletNote: wallet != null && wallet !== '' && !valid ? WALLET_IGNORED : null,
-    signed_in: typeof signed_in === 'string' ? signed_in : undefined };
+    signed_in: typeof signed_in === 'string' ? signed_in : undefined,
+    local_git: localGitInput(local_git) };
 }
 
 /**
@@ -1071,7 +1076,7 @@ export const handlers = {
   // One answer to "what can I earn?": the builder's projects first, then what's worth building,
   // opening with what changed since their last check.
   list_programs: async (input: unknown, ctx: ToolContext) => {
-    const { agent_can_build, github_user, repos, local_repos, wallet, walletNote, signed_in, more } = listProgramsInput(input);
+    const { agent_can_build, github_user, repos, local_repos, wallet, walletNote, signed_in, more, local_git } = listProgramsInput(input);
     // v2.8.1 §E18: earlier installations of the builder this call names (its GitHub user, the owners
     // of the repos it reports, its wallet), never what this installation remembers; read before this
     // call's details are saved. Never fails the tool.
@@ -1090,6 +1095,13 @@ export const handlers = {
           })
         : null;
     if (wallet) await rememberWallets(ctx.installationId, [wallet]);
+    // v2.12 spec 3: the public profile's clues. Never fails the tool and never waits on a read.
+    // (Task 7 adds ensureProfile before noteLocalGit.)
+    if (builderScoreEnabled() && !ctx.sharedClient)
+      await (async () => {
+        await noteLocalGit(ctx.installationId, local_git);
+        await enqueueDiscovery(ctx.installationId, 'first_find');
+      })().catch((err: unknown) => console.error('[list_programs] profile', err instanceof Error ? err.name : 'error'));
     // v2.9 B9, Rulings G6, G7, G9: on a shared client, the GitHub-verified login of the pasted code.
     const login = await sharedLogin(ctx, signed_in, 'list_programs');
     const [memory, programs, campaigns, told] = await Promise.all([

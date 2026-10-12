@@ -92,6 +92,14 @@ test('9.1 a configured escrow adds sponsor_campaign (and still no old name)', as
   );
 });
 
+test('4.14 v2.12: find takes local_git and its description stays under 800 characters', async () => {
+  const { tools } = await listed({});
+  const find = tools.find((t) => t.name === 'find')!;
+  assert.ok('local_git' in (find.inputSchema.properties ?? {}));
+  assert.ok(FIND_DESCRIPTION.length < 800, String(FIND_DESCRIPTION.length));
+  assert.match(FIND_DESCRIPTION, /local_git/);
+});
+
 test('9.2 the instructions and each of the 4 descriptions: under 800 characters, no old tool name, no em dash', async () => {
   for (const open of [true, false]) {
     const texts: [string, string][] = [
