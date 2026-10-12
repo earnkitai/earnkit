@@ -67,6 +67,8 @@ const WALLET_COLUMNS: [table: string, column: string][] = [
   ['bonus_sweeps', 'to_wallet'],
   ['sponsor_verifications', 'wallet'],
   ['sponsor_campaigns', 'sponsor_wallet'],
+  // v2.12 T5: a verified contract's onchain deployer.
+  ['builder_sources', 'deployer'],
 ];
 /** text[] columns that can hold the wallet. */
 const WALLET_ARRAYS: [string, string][] = [

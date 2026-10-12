@@ -3,21 +3,31 @@ import { beforeDeadline, blockscout, type TxPage } from './campaigns';
 import { nativeUsd } from './deploy';
 import { ARC_LOG_CHUNK, recentChunks } from './events';
 import { gh } from './match-projects';
-import { safeFetchText, safeProbe } from './safe-fetch';
+import { ErrorPageError, LINKCHECK_UA, RedirectError, SafeFetchError, errorPageText, safeFetchText, sameSite, type Resolver, type Transport } from './safe-fetch';
 import { rpcFor } from './verify';
 
 /**
  * v2.12 spec 2: one reader per source kind. Every outside read is injected (ReaderDeps), so tests
  * never touch the network and the cron passes the real, free, keyless sources. Readers return
  * signals only: who touched what and when. Anti-farming and scoring happen later. A reader may
- * throw; the caller writes a failed reading. Every id is lowercase ('gh:<login>', 'wallet:0x..'),
+ * throw; the caller writes a failed reading, except for GitHubBudgetStop (isBudgetStop), which
+ * leaves the source unread and still due. Every id is lowercase ('gh:<login>', 'wallet:0x..'),
  * as anti-farming.ts expects, and every number is finite (score.ts does not guard NaN).
  */
 export type Who = { id: string; at: string; created_at?: string | null };
-export type RepoSignals = { owner: string; fork: boolean; template: boolean; stargazers: Who[]; forkers: Who[]; issue_authors: Who[]; contributors: Who[]; commit_weeks: string[]; partial: boolean };
+export type RepoSignals = {
+  owner: string;
+  /** GitHub's owner type ('User' or 'Organization'): only an org repo counts for a top contributor. */
+  owner_type: string;
+  /** The repo's GitHub created_at (a repo_link contract must be deployed after it). */
+  created_at: string | null;
+  fork: boolean; template: boolean; stargazers: Who[]; forkers: Who[]; issue_authors: Who[]; contributors: Who[]; commit_weeks: string[]; partial: boolean;
+};
 export type SiteSignals = { status: number; up: boolean };
 export type PackageSignals = { weekly: number; repo_url: string | null };
 export type ContractSignals = { callers: (Who & { value_usd: number; first_tx_at?: string | null })[]; partial: boolean };
+/** Who created a contract onchain: the creation transaction's sender and time; null is unreadable. */
+export type ContractOrigin = { deployer: string | null; created_at: string | null };
 export type PrSignals = { target: string; target_stars: number; merged_at: string | null; author: string };
 export type ReaderDeps = {
   gh: <T>(path: string, accept?: string) => Promise<T>;
@@ -27,6 +37,8 @@ export type ReaderDeps = {
   json: <T>(url: string) => Promise<T>;
   /** Blockscout, campaigns.ts blockscout. */
   baseTxs: (path: string) => Promise<TxPage>;
+  /** The creation transaction of a contract (Base: Blockscout; Arc: unreadable, nulls). */
+  contractOrigin: (chain: 'base' | 'arc', address: string) => Promise<ContractOrigin>;
   arcLogs: (address: string, from: bigint, to: bigint) => Promise<{ tx: string }[]>;
   arcHead: () => Promise<bigint>;
   arcSender: (tx: string) => Promise<{ from: string; value: bigint; at: string }>;
@@ -35,10 +47,32 @@ export type ReaderDeps = {
 };
 
 export const READ_CAPS = { stargazerPages: 3, userLookups: 80, basePages: 20, arcSenders: 200, prs: 30 } as const;
+/** GitHub's stargazer list ends at page 400 (40,000 stars); later pages answer 422. */
+const STAR_LAST_PAGE = 400;
+/** Below this many core GitHub requests left this hour, the run stops reading GitHub sources. */
+export const GH_RATE_FLOOR = 1000;
+/** A site read follows at most this many redirects, all within the same site (apex and www). */
+export const SITE_MAX_REDIRECTS = 3;
 const STAR = 'application/vnd.github.star+json';
 const LOGIN = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}$/i;
 const REPO = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}\/(?!\.\.?$)[a-z0-9._-]{1,100}$/i;
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+const NPM_NAME = /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]{0,213}$/;
+
+/** The run's GitHub budget is spent (GH_RATE_FLOOR): leave this source unread, it stays due. */
+export class GitHubBudgetStop extends Error {
+  constructor() {
+    super('GitHub budget for this run is spent');
+    this.name = 'GitHubBudgetStop';
+  }
+}
+export const isBudgetStop = (err: unknown) => err instanceof GitHubBudgetStop;
+
+/** `p`, or `fallback` on any error except a budget stop (which always propagates). */
+const soft = <T>(p: Promise<T>, fallback: T) => p.catch((err: unknown) => {
+  if (isBudgetStop(err)) throw err;
+  return fallback;
+});
 
 /** A finite number, else 0 (a malformed count never becomes NaN in a reading). */
 const finite = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) ? n : 0);
@@ -61,17 +95,38 @@ export function isoWeek(d: Date): string {
   return `${year}-W${String(week).padStart(2, '0')}`;
 }
 
-export async function readRepo(fullName: string, d: ReaderDeps): Promise<RepoSignals> {
+/** Account ages already known from a source's previous reading (only real dates; unknowns are read again). */
+export function knownAges(prev: unknown): Map<string, string> {
+  const out = new Map<string, string>();
+  if (!prev || typeof prev !== 'object') return out;
+  for (const key of ['stargazers', 'forkers', 'issue_authors', 'contributors'] as const) {
+    const list = (prev as Record<string, unknown>)[key];
+    if (!Array.isArray(list)) continue;
+    for (const w of list as Partial<Who>[])
+      if (typeof w?.id === 'string' && typeof w.created_at === 'string' && !Number.isNaN(Date.parse(w.created_at))) out.set(w.id.toLowerCase(), w.created_at);
+  }
+  return out;
+}
+
+/**
+ * `prev` is the source's previous reading (sources.ts previousSignals): account ages found there are
+ * reused instead of read again.
+ */
+export async function readRepo(fullName: string, d: ReaderDeps, prev: unknown = null): Promise<RepoSignals> {
   if (!REPO.test(fullName)) throw new Error('not a repo name');
-  const meta = await d.gh<{ owner: { login: string }; fork: boolean; is_template?: boolean }>(`/repos/${fullName}`);
+  const meta = await d.gh<{ owner: { login: string; type?: string }; fork: boolean; is_template?: boolean; created_at?: string; stargazers_count?: number }>(`/repos/${fullName}`);
   const owner = meta.owner.login.toLowerCase();
   let partial = false;
+  // Stargazers come oldest first: read the newest READ_CAPS.stargazerPages pages.
+  const stars = typeof meta.stargazers_count === 'number' && Number.isFinite(meta.stargazers_count) ? Math.max(0, meta.stargazers_count) : null;
+  const lastPage = stars === null ? 1 : Math.min(Math.ceil(stars / 100), STAR_LAST_PAGE);
+  const firstPage = Math.max(1, lastPage - READ_CAPS.stargazerPages + 1);
+  if (stars !== null && (firstPage > 1 || stars > STAR_LAST_PAGE * 100)) partial = true;
   const stargazers: Who[] = [];
-  for (let page = 1; page <= READ_CAPS.stargazerPages; page++) {
+  for (let page = firstPage; page <= lastPage; page++) {
     const rows = await d.gh<{ starred_at: string; user: { login: string } }[]>(`/repos/${fullName}/stargazers?per_page=100&page=${page}`, STAR);
     stargazers.push(...rows.map((r) => ({ id: `gh:${r.user.login.toLowerCase()}`, at: r.starred_at })));
-    if (rows.length < 100) break;
-    if (page === READ_CAPS.stargazerPages) partial = true;
+    if (stars === null && rows.length >= 100) partial = true;
   }
   // One page each (the newest 100): a full page means there may be more.
   const forkRows = await d.gh<{ owner: { login: string }; created_at: string }[]>(`/repos/${fullName}/forks?per_page=100`);
@@ -80,26 +135,37 @@ export async function readRepo(fullName: string, d: ReaderDeps): Promise<RepoSig
   const forkers = forkRows.map((f) => ({ id: `gh:${f.owner.login.toLowerCase()}`, at: f.created_at }));
   const issue_authors = issueRows.filter((i) => !i.pull_request).map((i) => ({ id: `gh:${i.user.login.toLowerCase()}`, at: i.created_at }));
   const contributors = (await d.gh<{ login: string }[]>(`/repos/${fullName}/contributors?per_page=100`)).map((c) => ({ id: `gh:${c.login.toLowerCase()}`, at: d.now.toISOString() }));
-  const activity = await d.gh<{ week: number; total: number }[]>(`/repos/${fullName}/stats/commit_activity`).catch(() => []);
+  const activity = await soft(d.gh<{ week: number; total: number }[]>(`/repos/${fullName}/stats/commit_activity`), []);
   const commit_weeks = (Array.isArray(activity) ? activity : [])
     .filter((w) => finite(w?.total) > 0 && Number.isFinite(w.week))
     .map((w) => isoWeek(new Date(w.week * 1000)));
-  // Account ages for the fresh-account rule (R12), at most READ_CAPS.userLookups; the rest stay unknown (counted 50%).
+  // Account ages for the fresh-account rule (R12): known ones reused, at most READ_CAPS.userLookups
+  // new reads; the rest stay unknown (counted 50%).
   const outside = [...stargazers, ...forkers, ...issue_authors, ...contributors].filter((w) => w.id !== `gh:${owner}`);
+  const known = knownAges(prev);
   const ages = new Map<string, string | null>();
+  let lookups = 0;
   for (const w of outside) {
     if (ages.has(w.id)) continue;
-    if (ages.size >= READ_CAPS.userLookups) {
-      partial = true;
-      break;
+    const cached = known.get(w.id);
+    if (cached !== undefined) {
+      ages.set(w.id, cached);
+      continue;
     }
+    if (lookups >= READ_CAPS.userLookups) {
+      partial = true;
+      continue;
+    }
+    lookups++;
     const login = w.id.slice(3);
-    const user = LOGIN.test(login) ? await d.gh<{ created_at?: string }>(`/users/${login}`).catch(() => ({ created_at: undefined })) : {};
+    const user = LOGIN.test(login) ? await soft(d.gh<{ created_at?: string }>(`/users/${login}`), {} as { created_at?: string }) : {};
     ages.set(w.id, typeof user.created_at === 'string' ? user.created_at : null);
   }
   const aged = (ws: Who[]) => ws.map((w) => (ages.has(w.id) ? { ...w, created_at: ages.get(w.id) } : w));
   return {
-    owner, fork: meta.fork === true, template: meta.is_template === true,
+    owner, owner_type: typeof meta.owner.type === 'string' ? meta.owner.type : 'User',
+    created_at: typeof meta.created_at === 'string' ? meta.created_at : null,
+    fork: meta.fork === true, template: meta.is_template === true,
     stargazers: aged(stargazers), forkers: aged(forkers), issue_authors: aged(issue_authors), contributors: aged(contributors),
     commit_weeks: [...new Set(commit_weeks)], partial,
   };
@@ -111,34 +177,83 @@ export async function readSite(origin: string, d: ReaderDeps): Promise<SiteSigna
   return { status, up: status >= 200 && status < 300 };
 }
 
+/**
+ * Whether a site loads: a 2xx that is not an error page, after at most SITE_MAX_REDIRECTS redirects,
+ * each within the same site as `url` (apex and www, any path). Every hop is a fresh safe-fetch:
+ * https on 443, a domain name, every DNS answer public, the body and time capped.
+ */
+export async function probeSite(url: string, deps: { resolve?: Resolver; transport?: Transport; timeoutMs?: number } = {}): Promise<void> {
+  const opts = { ...deps, probe: true, userAgent: LINKCHECK_UA };
+  const start = new URL(url).hostname;
+  let at = url;
+  for (let hop = 0; ; hop++) {
+    let page: string;
+    try {
+      page = await safeFetchText(at, opts);
+    } catch (err) {
+      if (!(err instanceof RedirectError) || !err.location) throw err;
+      if (hop >= SITE_MAX_REDIRECTS) throw new SafeFetchError('too many redirects');
+      const next = new URL(err.location, at);
+      if (!sameSite(next.hostname, start)) throw new SafeFetchError(`redirects to another site (${next.hostname})`);
+      at = next.href;
+      continue;
+    }
+    const phrase = errorPageText(page);
+    if (phrase) throw new ErrorPageError(phrase);
+    return;
+  }
+}
+
 const repoUrlOf = (raw: unknown): string | null => {
   const s = typeof raw === 'string' && raw.length <= 500 ? raw : null;
   const m = s && /github\.com[/:]([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?(?:[/#].*)?$/.exec(s);
   return m ? `https://github.com/${m[1]}/${m[2]}` : null;
 };
 
+/** A scoped name is one path segment on both npm APIs: '@types/node' -> '%40types%2Fnode' (checked live 2026-10-12). */
 export async function readNpm(name: string, d: ReaderDeps): Promise<PackageSignals> {
-  const range = await d.json<{ downloads?: { day: string; downloads: number }[] }>(`https://api.npmjs.org/downloads/range/last-month/${encodeURIComponent(name)}`);
+  if (!NPM_NAME.test(name)) throw new Error('not an npm package name');
+  const id = encodeURIComponent(name);
+  const range = await d.json<{ downloads?: { day: string; downloads: number }[] }>(`https://api.npmjs.org/downloads/range/last-month/${id}`);
   if (!Array.isArray(range?.downloads)) throw new Error('npm downloads unreadable');
   const last28 = range.downloads.slice(-28);
   const weeks = [0, 1, 2, 3].map((i) => last28.slice(i * 7, i * 7 + 7).reduce((n, x) => n + finite(x?.downloads), 0));
-  const meta = await d.json<{ repository?: { url?: string } | string }>(`https://registry.npmjs.org/${encodeURIComponent(name)}/latest`);
+  const meta = await d.json<{ repository?: { url?: string } | string }>(`https://registry.npmjs.org/${id}/latest`);
   const repo = typeof meta?.repository === 'string' ? meta.repository : meta?.repository?.url;
   return { weekly: finite(weeks.reduce((n, w) => n + w, 0) / 4), repo_url: repoUrlOf(repo) };
 }
 
+/** PEP 503: lowercase, every run of '-', '_' and '.' is one '-'. Pure. */
+export const pep503 = (name: string) => name.toLowerCase().replace(/[-_.]+/g, '-');
+
 export async function readPypi(name: string, d: ReaderDeps): Promise<PackageSignals> {
-  const recent = await d.json<{ data?: { last_month?: number } }>(`https://pypistats.org/api/packages/${encodeURIComponent(name)}/recent`);
+  const id = pep503(name);
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$/.test(id)) throw new Error('not a PyPI package name');
+  const recent = await d.json<{ data?: { last_month?: number } }>(`https://pypistats.org/api/packages/${id}/recent`);
   const month = recent?.data?.last_month;
   if (typeof month !== 'number' || !Number.isFinite(month)) throw new Error('pypi downloads unreadable');
-  const meta = await d.json<{ info?: { project_urls?: Record<string, string> | null; home_page?: string | null } }>(`https://pypi.org/pypi/${encodeURIComponent(name)}/json`);
+  const meta = await d.json<{ info?: { project_urls?: Record<string, string> | null; home_page?: string | null } }>(`https://pypi.org/pypi/${id}/json`);
   const urls = [...Object.values(meta?.info?.project_urls ?? {}), meta?.info?.home_page ?? ''];
   return { weekly: month / 4, repo_url: urls.map(repoUrlOf).find((u) => u !== null) ?? null };
 }
 
-export async function readContract(ref: string, since: Date, d: ReaderDeps): Promise<ContractSignals> {
+const contractRef = (ref: string): { chain: 'base' | 'arc'; address: string } => {
   const [chain, address, ...rest] = ref.split(':');
   if ((chain !== 'base' && chain !== 'arc') || rest.length > 0 || !ADDRESS.test(address ?? '')) throw new Error('not a contract ref');
+  return { chain, address: address.toLowerCase() };
+};
+
+/** Who created the contract and when (lowercase deployer); nulls when the chain can't say. */
+export async function readContractOrigin(ref: string, d: ReaderDeps): Promise<ContractOrigin> {
+  const { chain, address } = contractRef(ref);
+  const o = await d.contractOrigin(chain, address);
+  const deployer = typeof o?.deployer === 'string' && ADDRESS.test(o.deployer) ? o.deployer.toLowerCase() : null;
+  const created_at = typeof o?.created_at === 'string' && !Number.isNaN(Date.parse(o.created_at)) ? o.created_at : null;
+  return { deployer, created_at };
+}
+
+export async function readContract(ref: string, since: Date, d: ReaderDeps): Promise<ContractSignals> {
+  const { chain, address } = contractRef(ref);
   const usd = await d.usdPerNative(chain);
   if (!Number.isFinite(usd) || usd < 0) throw new Error('no native price');
   const callers: ContractSignals['callers'] = [];
@@ -156,11 +271,12 @@ export async function readContract(ref: string, since: Date, d: ReaderDeps): Pro
     }
     return { callers, partial: true };
   }
-  // Arc (R9): recent chunks only, newest first; daily readings accumulate the history.
+  // Arc (R9): recent chunks only, newest first (logs within a chunk come oldest first, so reversed);
+  // the newest READ_CAPS.arcSenders transactions are read. Daily readings accumulate the history.
   const head = await d.arcHead();
   const txs = new Set<string>();
   for (const [from, to] of recentChunks(head, ARC_LOG_CHUNK).reverse())
-    for (const l of await d.arcLogs(address, from, to)) txs.add(l.tx);
+    for (const l of [...(await d.arcLogs(address, from, to))].reverse()) txs.add(l.tx);
   for (const tx of [...txs].slice(0, READ_CAPS.arcSenders)) {
     const s = await d.arcSender(tx);
     if (!(new Date(s.at) >= since)) continue;
@@ -169,22 +285,42 @@ export async function readContract(ref: string, since: Date, d: ReaderDeps): Pro
   return { callers, partial: txs.size > READ_CAPS.arcSenders };
 }
 
+/**
+ * Merged PRs by `login` to repos they don't own, merged by someone else (a self-merged PR doesn't
+ * count; an unreadable merger doesn't either). At most READ_CAPS.prs * 2 star lookups and as many
+ * PR lookups; the top READ_CAPS.prs by target stars.
+ */
 export async function readMergedPrs(login: string, d: ReaderDeps): Promise<PrSignals[]> {
   if (!LOGIN.test(login)) throw new Error('not a GitHub login');
   const me = login.toLowerCase();
+  const lookups = READ_CAPS.prs * 2;
   const q = encodeURIComponent(`type:pr author:${me} is:merged -user:${me}`);
   const found = await d.gh<{ items: { html_url: string; repository_url: string; pull_request?: { merged_at?: string | null } }[] }>(`/search/issues?q=${q}&per_page=100`);
-  const prs = found.items.filter((i) => typeof i.repository_url === 'string' && !i.repository_url.toLowerCase().includes(`/repos/${me}/`));
   const stars = new Map<string, number>();
-  const out: PrSignals[] = [];
-  for (const p of prs) {
+  const candidates: (PrSignals & { number: string })[] = [];
+  for (const p of found.items) {
+    if (typeof p.repository_url !== 'string' || typeof p.html_url !== 'string') continue;
     const target = p.repository_url.replace('https://api.github.com/repos/', '').toLowerCase();
-    if (!REPO.test(target)) continue;
-    if (!stars.has(target))
-      stars.set(target, finite((await d.gh<{ stargazers_count: number }>(`/repos/${target}`).catch(() => ({ stargazers_count: 0 }))).stargazers_count));
-    out.push({ target, target_stars: stars.get(target)!, merged_at: p.pull_request?.merged_at ?? null, author: me });
+    const number = /\/pull\/(\d{1,9})$/.exec(p.html_url)?.[1];
+    if (!REPO.test(target) || target.startsWith(`${me}/`) || !number) continue;
+    if (!stars.has(target)) {
+      if (stars.size >= lookups) continue;
+      stars.set(target, finite((await soft(d.gh<{ stargazers_count: number }>(`/repos/${target}`), { stargazers_count: 0 })).stargazers_count));
+    }
+    candidates.push({ target, target_stars: stars.get(target)!, merged_at: p.pull_request?.merged_at ?? null, author: me, number });
   }
-  return out.sort((a, b) => b.target_stars - a.target_stars).slice(0, READ_CAPS.prs);
+  candidates.sort((a, b) => b.target_stars - a.target_stars);
+  const out: PrSignals[] = [];
+  let pulls = 0;
+  for (const { number, ...pr } of candidates) {
+    if (out.length >= READ_CAPS.prs || pulls >= lookups) break;
+    pulls++;
+    const full = await soft(d.gh<{ merged_by?: { login?: string } | null }>(`/repos/${pr.target}/pulls/${number}`), {} as { merged_by?: { login?: string } | null });
+    const merger = full.merged_by?.login?.toLowerCase();
+    if (!merger || merger === me) continue;
+    out.push(pr);
+  }
+  return out;
 }
 
 /** The only hosts `json` reads (npm and PyPI download counts and metadata; public, keyless). */
@@ -215,13 +351,48 @@ async function packageJson<T>(url: string, deadline: number): Promise<T> {
   return JSON.parse(Buffer.concat(chunks).toString('utf8')) as T;
 }
 
+type RawGh = <T>(path: string, accept?: string, onResponse?: (res: Response) => void) => Promise<T>;
+
+/**
+ * `raw` (match-projects.ts gh) with a run budget: once a core response says fewer than `floor`
+ * requests are left, every later call (and the failing one) throws GitHubBudgetStop. The search
+ * API's own small limit (x-ratelimit-resource: search) never trips it.
+ */
+export function budgetedGh(raw: RawGh, floor = GH_RATE_FLOOR): ReaderDeps['gh'] {
+  let stopped = false;
+  const watch = (res: Response) => {
+    const resource = res.headers.get('x-ratelimit-resource');
+    const left = res.headers.get('x-ratelimit-remaining');
+    if (left !== null && (resource === null || resource === 'core') && Number(left) < floor) stopped = true;
+  };
+  return async <T>(path: string, accept?: string) => {
+    if (stopped) throw new GitHubBudgetStop();
+    try {
+      return await raw<T>(path, accept, watch);
+    } catch (err) {
+      if (stopped) throw new GitHubBudgetStop();
+      throw err;
+    }
+  };
+}
+
+/** Base: Blockscout's creation transaction, then its sender and time (never creator_address_hash, the factory). */
+async function blockscoutOrigin(address: string, deadline: number): Promise<ContractOrigin> {
+  const a = await blockscout<{ creation_transaction_hash?: string | null; creation_tx_hash?: string | null }>(`/api/v2/addresses/${address}`, deadline);
+  const hash = a.creation_transaction_hash ?? a.creation_tx_hash ?? null;
+  if (!hash || !/^0x[0-9a-fA-F]{64}$/.test(hash)) return { deployer: null, created_at: null };
+  const tx = await blockscout<{ from?: { hash?: string }; timestamp?: string | null }>(`/api/v2/transactions/${hash}`, deadline);
+  return { deployer: tx.from?.hash ?? null, created_at: tx.timestamp ?? null };
+}
+
 /**
  * The real reads. Sites go through safe-fetch (public addresses only after DNS, https on 443, no
- * IP hosts, one same-site redirect re-vetted, size and time capped), so a site source can never
- * reach inside EarnKit's network. Every read stops at `deadline` (epoch ms).
+ * IP hosts, up to three same-site redirects each re-vetted, size and time capped), so a site source
+ * can never reach inside EarnKit's network. Every read stops at `deadline` (epoch ms).
  */
 export function defaultReaderDeps(now: Date, deadline: number): ReaderDeps {
   const by = <T>(p: Promise<T>) => beforeDeadline(p, deadline);
+  const github = budgetedGh((path, accept, onResponse) => gh(path, accept, onResponse));
   let arc: ReturnType<typeof createPublicClient> | null = null;
   const arcClient = () => {
     if (arc) return arc;
@@ -231,11 +402,13 @@ export function defaultReaderDeps(now: Date, deadline: number): ReaderDeps {
     return arc;
   };
   return {
-    gh: <T>(path: string, accept?: string) => by(gh<T>(path, accept)),
-    probe: (url) => by(safeProbe(url).then(() => ({ status: 200 }))),
+    gh: <T>(path: string, accept?: string) => by(github<T>(path, accept)),
+    probe: (url) => by(probeSite(url).then(() => ({ status: 200 }))),
     fetchText: (url) => by(safeFetchText(url)),
     json: <T>(url: string) => by(packageJson<T>(url, deadline)),
     baseTxs: (path) => blockscout<TxPage>(path, deadline),
+    // Arc has no readable explorer API (Cloudflare challenge): its origin is unknown, so a repo_link is refused.
+    contractOrigin: async (chain, address) => (chain === 'base' ? blockscoutOrigin(address, deadline) : { deployer: null, created_at: null }),
     arcLogs: async (address, from, to) =>
       (await by(arcClient().getLogs({ address: address as Address, fromBlock: from, toBlock: to }))).map((l) => ({ tx: l.transactionHash })),
     arcHead: () => by(arcClient().getBlockNumber({ cacheTime: 0 })),

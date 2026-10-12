@@ -1117,6 +1117,8 @@ CREATE TABLE IF NOT EXISTS builder_sources (
   verified_at   timestamptz,
   UNIQUE (builder_id, kind, ref)
 );
+-- v2.12 T5 review: a verified contract's onchain deployer (another person's repo_link by it is refused).
+ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS deployer text;
 CREATE INDEX IF NOT EXISTS builder_sources_due ON builder_sources (last_read_day NULLS FIRST, id) WHERE state = 'verified';
 CREATE TABLE IF NOT EXISTS source_readings (
   id        bigserial PRIMARY KEY,
