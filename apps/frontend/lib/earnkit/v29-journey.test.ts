@@ -960,9 +960,15 @@ test('12.3 lazy builder, no live link: sign-in, upload, the limits; the hosted l
 const mails: Parameters<Mailer>[0][] = [];
 const mailer: Mailer = async (m) => void mails.push(m);
 /** The Monday 14:05 UTC `weeks` weeks after the one following `from` (the email's send hour). */
+/**
+ * The first Monday 14:05 UTC after `from` (plus `weeks`). v2.11 final fix wave: on a Monday before
+ * 14:05 that is today, not a week on, so a win announced now is inside the digest's 7 days whatever
+ * the weekday the suite runs on (the old rule failed 12.10 every Monday).
+ */
 function monday(from: Date, weeks = 0): Date {
   const d = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate(), 14, 5));
-  d.setUTCDate(d.getUTCDate() + ((8 - d.getUTCDay()) % 7 || 7) + 7 * weeks);
+  while (d <= from || d.getUTCDay() !== 1) d.setUTCDate(d.getUTCDate() + 1);
+  d.setUTCDate(d.getUTCDate() + 7 * weeks);
   return d;
 }
 
