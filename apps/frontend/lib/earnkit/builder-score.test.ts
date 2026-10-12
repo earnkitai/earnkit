@@ -598,3 +598,39 @@ test('6.24 admin keys: a repeated ?key= (an array) is never a key; every admin p
   for (const page of ['admin/scores/page.tsx', 'admin/veto/[slug]/page.tsx', 'admin/bonus/[round]/page.tsx'])
     assert.match(readFileSync(join(app, page), 'utf8'), /const key = oneParam\(/, page);
 });
+
+test('6.25 (T7) discover sets the login once through setFallback (slug follows); a different proven login later names no one', dbTest, async () => {
+  const id = T + 14;
+  const L = `once${T}`;
+  await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${id}, ${`o${id}`})`;
+  await sql()`INSERT INTO discovery_queue (builder_id, reason) VALUES (${id}, 'first_find')`;
+  const reader = (login: string) =>
+    fakeReader({
+      [`/users/${login}`]: { twitter_username: 'oncex' },
+      [`/users/${login}/repos?type=owner&per_page=100`]: [],
+      [`/users/${login}/orgs`]: [],
+      [`/search/issues?q=${encodeURIComponent(`type:pr author:${login} is:merged -user:${login}`)}&per_page=100`]: { items: [] },
+    });
+  await discover(NOW, { deadline: Date.now() + 30_000, reader: reader(L), login: async () => ({ login: L, basis: 'signin' }), only: [id] });
+  const read = async () =>
+    (await sql()<{ github_login: string | null; fallback_handle: string | null; slug: string; twitter_prefill: string | null }[]>`
+      SELECT github_login, fallback_handle, slug, twitter_prefill FROM builder_profiles WHERE builder_id = ${id}`)[0];
+  assert.deepEqual(await read(), { github_login: L, fallback_handle: L, slug: L, twitter_prefill: 'oncex' });
+  await sql()`UPDATE discovery_queue SET done_at = NULL WHERE builder_id = ${id}`;
+  const M = `other${T}`;
+  // No GitHub fake for M: with the stored login kept, M names no one and nothing is read for it.
+  await discover(NOW, { deadline: Date.now() + 30_000, reader: fakeReader({}), login: async () => ({ login: M, basis: 'signin' }), only: [id] });
+  assert.deepEqual(await read(), { github_login: L, fallback_handle: L, slug: L, twitter_prefill: 'oncex' });
+});
+
+test('6.26 (T7) percentiles count only people with a profile: a merged-away id stops counting and its old rank goes', dbTest, async () => {
+  const [kept, gone] = [T + 15, T + 16];
+  await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${kept}, ${`k${kept}`})`;
+  for (const id of [kept, gone])
+    await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held)
+      VALUES (${id}, '2026-10-12', 33, 0, '{}', '{}', 'v1', 'v1-launch', false)`;
+  await sql()`INSERT INTO builder_ranks (builder_id, score, percentile, computed_at) VALUES (${gone}, 33, 10, now())`;
+  await percentiles(NOW);
+  const ranks = await sql()<{ builder_id: number }[]>`SELECT builder_id FROM builder_ranks WHERE builder_id IN (${kept}, ${gone})`;
+  assert.deepEqual(ranks.map((r) => r.builder_id), [kept]);
+});

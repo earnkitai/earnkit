@@ -5576,3 +5576,35 @@ test('10 (T10 notes) a build-path deploy refused for the owner proof asks for a 
     }),
   ),
 );
+
+test('7.8 v2.12: the first find ends with the consent line once; tell hide hides it; a refused X handle shows nothing', dbTest, async () => {
+  process.env.EARNKIT_BUILDER_SCORE = 'on';
+  try {
+    const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t7-consent-${process.pid}-${Date.now()}`}) RETURNING id`;
+    const ctx = { installationId: id };
+    const one = (await tools.find({}, ctx)) as { show_to_builder: string };
+    const lines = one.show_to_builder.split('\n');
+    assert.match(lines.at(-1)!, /^Your public work gets a public score at earnkit\.com\/b\/b-[a-z2-9]{8}\. Say hide anytime\.$/);
+    const two = (await tools.find({}, ctx)) as { show_to_builder: string };
+    assert.doesNotMatch(two.show_to_builder, /Say hide anytime/);
+    const hidden = (await tools.tell({ profile: 'hide' }, ctx)) as { show_to_builder: string };
+    assert.equal(hidden.show_to_builder, 'Your profile is hidden. Say show to list it again.');
+    const x = (await tools.tell({ x_handle: 'elonmusk' }, ctx)) as { show_to_builder?: string; agent_note?: string };
+    assert.equal(x.show_to_builder ?? '', '');
+    assert.match(x.agent_note ?? '', /GitHub profile lists/);
+  } finally {
+    delete process.env.EARNKIT_BUILDER_SCORE;
+  }
+});
+
+test('7.8b v2.12 flag off: find has no consent line and makes no profile; tell ignores profile (as an empty tell)', dbTest, async () => {
+  const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t7-off-${process.pid}-${Date.now()}`}) RETURNING id`;
+  const ctx = { installationId: id };
+  const one = (await tools.find({}, ctx)) as { show_to_builder: string };
+  assert.doesNotMatch(one.show_to_builder, /Say hide anytime/);
+  const [p] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_profiles WHERE builder_id = ${id}`;
+  assert.equal(p.n, 0);
+  // Ignored: tell answers as v2.11 does to a call with nothing in it.
+  await assert.rejects(tools.tell({ profile: 'hide' }, ctx), /Pass at least one/);
+  await assert.rejects(tools.tell({}, ctx), /Pass at least one/);
+});

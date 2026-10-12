@@ -20,7 +20,8 @@ import {
   notReadyTokenNote,
   tokenRow,
 } from './entry-text';
-import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TELL_DESCRIPTION, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
+import { CONSENT_LINE, X_NOT_LISTED_NOTE } from './profiles';
+import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TELL_DESCRIPTION, TELL_DESCRIPTION_SCORE, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { bonusLine, presentFirstMessage, skippedLine, submitStepLine, type Card, type FirstMessage } from './present';
 import { SKIP_REASONS } from './match-projects';
 import { BUILD_ENTRY_NOTE, BUILD_NO_LIVE_NOTE, BUILD_HOLD_NOTE, BUILD_OWNER_NOTE, BUILD_WALLET_NOTE, BUILD_PENDING_NOTE, pagesLiveLine, BUILD_DEPLOYS_OFF_NOTE, BUILD_NOT_READY, BUILD_PAGES_NOTE, BUILD_UPLOAD_NOTE, buildChainNote, buildOwnerNote, buildProofNote, BUILD_NOT_STARTED, BUILD_SHARED_NOTE, KIT_NOTE, WALLET_NEEDED_NOTE, buildRefused, twistNote, BUILD_NOTE, PLAN_NOTE, ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, CONFIRM_SHARED_NOTE, PROJECT_REOFFER_NOTE, SUBMITTED_AGAIN_NOTE, SUBMITTED_SHARED_NOTE, handlers } from './tools';
@@ -1154,6 +1155,10 @@ const agentFacing: [string, string][] = [
   ['SIGN_IN_CODE_NOTE', SIGN_IN_CODE_NOTE],
   ['CANT_PUSH_SIGN_IN_NOTE', CANT_PUSH_SIGN_IN_NOTE],
   ['TELL_DESCRIPTION', TELL_DESCRIPTION],
+  // v2.12 T7: the tell description with the profile fields, the consent line and the refused X handle note.
+  ['TELL_DESCRIPTION_SCORE', TELL_DESCRIPTION_SCORE],
+  ['CONSENT_LINE', CONSENT_LINE('lee')],
+  ['X_NOT_LISTED_NOTE', X_NOT_LISTED_NOTE],
   ['STORAGE_NOTE', STORAGE_NOTE],
   ['UPLOAD_NOTE', UPLOAD_NOTE],
   ['HOST_SIGN_IN_NOTE', HOST_SIGN_IN_NOTE],

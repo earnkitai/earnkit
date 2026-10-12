@@ -1,6 +1,7 @@
 import { githubRepo, normalizeRepoUrl } from './campaigns';
 import { sql } from './db';
 import { sharedGroup } from './installations';
+import { mergeProfiles } from './profiles';
 import {
   fetchOwnershipFile,
   fetchOwnershipLatestBranch,
@@ -426,6 +427,9 @@ export async function linkInstallations(own: number, roots: number[]): Promise<n
           alert_state = COALESCE(o.alert_state, '{}'::jsonb) || COALESCE(r.alert_state, '{}'::jsonb)
         FROM installations o WHERE r.id = ${root} AND o.id = ${other}`;
       await tx`UPDATE installations SET builder_id = ${root} WHERE id = ${other} OR builder_id = ${other}`;
+      // v2.12 plan R3: the two people's profiles, sources and slugs become one (nothing exists, so
+      // nothing is written, while EARNKIT_BUILDER_SCORE is off).
+      await mergeProfiles(tx, root, other);
     }
     const [{ n }] = await tx<{ n: number }[]>`
       SELECT count(*)::int AS n FROM projects WHERE installation_id = ${root}`;

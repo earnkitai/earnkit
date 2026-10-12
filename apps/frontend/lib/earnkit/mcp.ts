@@ -162,6 +162,12 @@ export const TELL_DESCRIPTION =
   'repo_facts: mainnet_chains, testnet_chains, live_url, has_users, not_mine. weekly_email: their answer. ' +
   'Results they report stay private and never count.';
 
+/** v2.12 spec 7, 8 (EARNKIT_BUILDER_SCORE on): tell also takes the profile's hide or show and the confirmed X handle. */
+export const TELL_DESCRIPTION_SCORE = TELL_DESCRIPTION.replace(
+  'pickup: "yes" or "no" to the pick-up question. ',
+  'pickup: "yes" or "no" to the pick-up question. profile: "hide" or "show" when they say so. x_handle: the X handle they confirmed. ',
+);
+
 /**
  * v2.9 F25: sponsor_campaign's description, under 800 characters with the safety lines: the three
  * actions and their inputs. Defaults, verification, brand and approval rules are in the replies'
@@ -184,7 +190,7 @@ export function toolDescriptions(campaignOpen: boolean, buildOn: boolean = deplo
     find: builderScoreEnabled() ? FIND_DESCRIPTION_SCORE : FIND_DESCRIPTION,
     prepare: prepareDescription(campaignOpen, buildOn),
     confirm: confirmDescription(campaignOpen),
-    tell: TELL_DESCRIPTION,
+    tell: builderScoreEnabled() ? TELL_DESCRIPTION_SCORE : TELL_DESCRIPTION,
     sponsor_campaign: SPONSOR_CAMPAIGN_DESCRIPTION,
   };
 }
@@ -459,6 +465,13 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
             .strict()
             .optional(),
           pickup: z.enum(['yes', 'no']).optional().describe("The builder's answer to the pick-up question"),
+          // v2.12 spec 7, 8: listed only with the flag on.
+          ...(builderScoreEnabled()
+            ? {
+                profile: z.enum(['hide', 'show']).optional().describe('hide or show their public profile, when they say so'),
+                x_handle: z.string().max(20).optional().describe('"yes" to the offered handle, or the X handle they typed'),
+              }
+            : {}),
           program_status: z
             .array(
               z

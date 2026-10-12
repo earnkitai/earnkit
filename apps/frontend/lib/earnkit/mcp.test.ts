@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { escrowConfig, escrowConfigProblem } from './escrow';
-import { FIND_DESCRIPTION, FIND_DESCRIPTION_SCORE, OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, errorSummary, TOOL_DESCRIPTIONS, createMcpServer, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
+import { FIND_DESCRIPTION, FIND_DESCRIPTION_SCORE, TELL_DESCRIPTION, TELL_DESCRIPTION_SCORE, OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, errorSummary, TOOL_DESCRIPTIONS, createMcpServer, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { handlers } from './tools';
 import { OLD_TOOL_NAMES, STALE_TOOLS_NOTE, aliasCall, withOlderNames } from './aliases';
 
@@ -106,6 +106,22 @@ test('4.14 v2.12: flag off, find is v2.11 (no local_git, the v2.11 description);
     assert.ok(on.description!.length < 800, String(on.description!.length));
     assert.match(on.description!, /local_git/);
     assert.match(on.description!, /repos the builder wrote/);
+  } finally {
+    delete process.env.EARNKIT_BUILDER_SCORE;
+  }
+});
+
+test('7.12 v2.12: flag off, tell is v2.11 (no profile or x_handle, the v2.11 description); flag on, it takes both under 800 characters', async () => {
+  const off = (await listed({})).tools.find((t) => t.name === 'tell')!;
+  assert.ok(!('profile' in (off.inputSchema.properties ?? {})) && !('x_handle' in (off.inputSchema.properties ?? {})));
+  assert.equal(off.description, TELL_DESCRIPTION);
+  process.env.EARNKIT_BUILDER_SCORE = 'on';
+  try {
+    const on = (await listed({})).tools.find((t) => t.name === 'tell')!;
+    assert.ok('profile' in (on.inputSchema.properties ?? {}) && 'x_handle' in (on.inputSchema.properties ?? {}));
+    assert.equal(on.description, TELL_DESCRIPTION_SCORE);
+    assert.ok(on.description!.length < 800, String(on.description!.length));
+    assert.match(on.description!, /profile: "hide" or "show" when they say so\. x_handle: the X handle they confirmed\./);
   } finally {
     delete process.env.EARNKIT_BUILDER_SCORE;
   }

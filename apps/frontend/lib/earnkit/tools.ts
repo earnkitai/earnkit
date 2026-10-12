@@ -142,6 +142,7 @@ import { LIVE_FAILED_LINE, addressesFrom, contractMissingLine, entryVerified, li
 import { noteEvent } from './events';
 import { builderScoreEnabled } from './builder-score-flag';
 import { enqueueDiscovery, localGitInput, noteLocalGit } from './discovery';
+import { CONSENT_LINE, PROFILE_URL, ensureProfile, setHidden, setXHandle } from './profiles';
 import { sql } from './db';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
 import { answerPickup, offerPickup, type PickupDeps } from './identity';
@@ -1095,10 +1096,14 @@ export const handlers = {
           })
         : null;
     if (wallet) await rememberWallets(ctx.installationId, [wallet]);
-    // v2.12 spec 3: the public profile's clues. Never fails the tool and never waits on a read.
-    // (Task 7 adds ensureProfile before noteLocalGit.)
+    // v2.12 spec 1, 3: the public profile (made on the first find, with the one-time consent line)
+    // and its clues. Never fails the tool and never waits on a read. A shared group gets none (R2).
+    let consent = null as string | null;
     if (builderScoreEnabled() && !ctx.sharedClient)
       await (async () => {
+        const made = await ensureProfile(ctx.installationId, new Date());
+        if (!made) return;
+        consent = made.created ? CONSENT_LINE(made.profile.slug) : null;
         await noteLocalGit(ctx.installationId, local_git);
         await enqueueDiscovery(ctx.installationId, 'first_find');
       })().catch((err: unknown) => console.error('[list_programs] profile', err instanceof Error ? err.name : 'error'));
@@ -1320,8 +1325,10 @@ export const handlers = {
       ),
     ).catch((err: unknown) => console.error('[list_programs] match shown', err instanceof Error ? err.name : 'error'));
 
+    // v2.12 spec 1: the consent line ends the first find's reply, once.
+    const shown = consent ? `${show_to_builder}\n${consent}` : show_to_builder;
     return {
-      show_to_builder: pickup ? [pickup.question, show_to_builder].filter(Boolean).join('\n\n') : show_to_builder,
+      show_to_builder: pickup ? [pickup.question, shown].filter(Boolean).join('\n\n') : shown,
       ...(pickup && { pick_up: { question: pickup.question, agent_note: PICKUP_NOTE } }),
       note:
         'Show show_to_builder to the builder exactly as written. ' +
@@ -2973,6 +2980,9 @@ export const TellToolInput = z
       .strict()
       .optional(),
     pickup: z.enum(['yes', 'no']).optional(),
+    // v2.12 spec 7, 8 (EARNKIT_BUILDER_SCORE on): "hide" or "show", and the X handle they confirmed.
+    profile: z.enum(['hide', 'show']).optional(),
+    x_handle: z.string().max(20).optional(),
     // Read by tell_earnkit (builder-memory.ts TellInput).
     program_status: z.unknown().optional(),
     repo_facts: z.unknown().optional(),
@@ -2982,6 +2992,12 @@ export const TellToolInput = z
   .strict();
 
 type Reply = Record<string, unknown>;
+
+/** v2.12 spec 7: the X handle reply. Refused (not on their proven GitHub profile): nothing shown, an agent note. */
+async function xHandleReply(builderId: number, given: string): Promise<Reply> {
+  const r = await setXHandle(builderId, given);
+  return r.ok ? { show_to_builder: `Your profile is now ${PROFILE_URL(r.slug)}.` } : { show_to_builder: '', agent_note: r.agent_note };
+}
 const defined = (o: Reply): Reply => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
 
 /** find with program_id and repo: the eligibility check as one plain line, or null. Pure; exported for tests. */
@@ -3265,9 +3281,14 @@ export const tools = {
 
   // R16: what the builder said: pickup, then "I submitted", then statements; replies joined.
   tell: async (input: unknown, ctx: ToolContext) => {
-    const { pickup, submitted, signed_in, ...rest } = TellToolInput.parse(input ?? {});
+    const { pickup, submitted, signed_in, profile, x_handle, ...rest } = TellToolInput.parse(input ?? {});
     const statements = defined(rest);
     const replies: Reply[] = [];
+    // v2.12 spec 8: "hide" and "show"; spec 7: the X handle the builder confirmed. Flag off: ignored (v2.11).
+    if (builderScoreEnabled() && !ctx.sharedClient) {
+      if (profile) replies.push({ show_to_builder: await setHidden(ctx.installationId, profile === 'hide') });
+      if (x_handle !== undefined) replies.push(await xHandleReply(ctx.installationId, x_handle));
+    }
     if (pickup !== undefined) replies.push((await handlers.pick_up_entries({ answer: pickup }, ctx)) as Reply);
     if (submitted) replies.push((await markSubmitted(submitted, signed_in, ctx)) as Reply);
     if (Object.keys(statements).length > 0 || replies.length === 0)

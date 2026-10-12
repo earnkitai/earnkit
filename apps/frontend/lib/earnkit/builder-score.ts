@@ -282,11 +282,17 @@ async function ringEdges(owner: Map<string, number>): Promise<[number, number][]
   return out;
 }
 
-/** Plan R7: every person's public score and percentile (hidden included, held at the last unheld) in one SQL pass. */
+/**
+ * Plan R7: every person's public score and percentile (hidden included, held at the last unheld) in
+ * one SQL pass. Only a person with a profile counts: a group merged away (T7 mergeProfiles) keeps its
+ * scores as history, but they and its old rank no longer count.
+ */
 export async function percentiles(now: Date): Promise<number> {
   const rows = await sql()<{ n: number }[]>`
-    WITH pub AS (
-      SELECT DISTINCT ON (s.builder_id) s.builder_id, s.score FROM builder_scores s
+    WITH gone AS (
+      DELETE FROM builder_ranks r WHERE NOT EXISTS (SELECT 1 FROM builder_profiles p WHERE p.builder_id = r.builder_id)),
+    pub AS (
+      SELECT DISTINCT ON (s.builder_id) s.builder_id, s.score FROM builder_scores s JOIN builder_profiles p USING (builder_id)
       WHERE NOT s.held OR EXISTS (SELECT 1 FROM score_releases x WHERE x.builder_id = s.builder_id AND x.day = s.day)
       ORDER BY s.builder_id, s.day DESC),
     ranked AS (

@@ -19,6 +19,7 @@ import { noteEvent } from './events';
 import { loginBasisFor, repoEverDerived, type LoginProof } from './github-verify';
 import { ScoreDeadline, beforeDeadline } from './campaigns';
 import { fetchLinePusher } from './ownership';
+import { setFallback } from './profiles';
 import { GitHubBudgetStop, isBudgetStop, readContractOrigin, readMergedPrs, soft, type ReaderDeps, type RepoSignals } from './source-readers';
 import { claimContract, proposeSource, rejectSource, repoOwned, siteOwnedByText, verifySource, type Proof } from './sources';
 import { proofLineOwner } from './token-gate';
@@ -275,17 +276,20 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
 
   let proof = await (o.login ?? ((id: number) => provenLogin(id, { proofLine: o.proofLine ?? proofLineCheck(d, o.deadline) })))(root);
   if (proof) {
-    // One login, one person: a login another profile already holds names no one here.
+    // One login, one person: a login another profile already holds names no one here, and once a
+    // profile has its login (set once, by setFallback) a different proven login names no one either.
     const [taken] = await db`SELECT 1 FROM builder_profiles WHERE lower(github_login) = ${proof.login.toLowerCase()} AND builder_id <> ${root}`;
-    if (taken) proof = null;
+    const [own] = await db<{ login: string | null }[]>`SELECT lower(github_login) AS login FROM builder_profiles WHERE builder_id = ${root}`;
+    if (taken || (own?.login && own.login !== proof.login.toLowerCase())) proof = null;
   }
   if (proof) {
     const L = proof.login.toLowerCase();
     const user = await d.gh<{ blog?: string | null; twitter_username?: string | null }>(`/users/${L}`);
     const clues = githubProfileClues(user ?? {});
     verdicts.unshift(async () => {
-      await db`UPDATE builder_profiles SET github_login = ${L}, fallback_handle = COALESCE(fallback_handle, ${L}),
-        twitter_prefill = COALESCE(${clues.twitter}::text, twitter_prefill), updated_at = now() WHERE builder_id = ${root}`;
+      await setFallback(root, { github_login: L });
+      await db`UPDATE builder_profiles SET twitter_prefill = COALESCE(${clues.twitter}::text, twitter_prefill), updated_at = now()
+        WHERE builder_id = ${root} AND github_login = ${L}`;
     });
     // Clue 2: own repos, and org repos where they are the top contributor.
     const candidates = new Map<string, { meta: ListedRepo; top: boolean }>();
