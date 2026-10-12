@@ -711,9 +711,9 @@ apps/frontend/
                                live link: the entry from the build, derivedDescription / derivedProfile) and
                                buildLiveLine / pagesLiveLine feed prepare_submission's `join` (BuildJoin: the live
                                and deployed lines, then the confirm line with the build wallet, one reply, `entry`
-                               for confirm, BUILD_ENTRY_NOTE); buildWalletOnly (final fix M4: on the build path the
-                               token goes only to the build wallet; another is refused, BUILD_WALLET_NOTE;
-                               BUILD_WALLET_SHOWN_NOTE); M7 a kept wallet is remembered; BUILD_OWNER_NOTE
+                               for confirm, BUILD_ENTRY_NOTE); buildWalletAgain (confirm on the build path launches
+                               only to the wallet its confirm line showed; another is shown first, BUILD_WALLET_NOTE;
+                               owner ruling on M4); M7 a kept wallet is remembered; BUILD_OWNER_NOTE
                                (a fresh push and github_user).
                                v2.10 item 4: `tools` = find, prepare, confirm, tell, sponsor_campaign, thin dispatchers
                                over `handlers` (the v2.9 functions: list_programs ... launch_token); FindInput,

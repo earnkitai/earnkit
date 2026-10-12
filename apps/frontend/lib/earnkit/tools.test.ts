@@ -5446,7 +5446,7 @@ test('10.2 a live link that is not the build\'s own (another site, or a Pages li
   ),
 );
 
-test('10.3, final fix M4: on the build path the token launches only to the build wallet; another wallet is refused with an agent note, never shown or launched', dbTest, (tc) =>
+test('10.3 (owner ruling on final fix M4) another wallet is allowed but never unseen: the confirm line shows it, and only the next yes launches to the wallet shown', dbTest, (tc) =>
   withEventLog(() =>
     withTokenEnv(() =>
       withVars(shipVars(), async () => {
@@ -5455,17 +5455,38 @@ test('10.3, final fix M4: on the build path the token launches only to the build
         const j = await t.joined(upload.url);
         const input = { project: j.entry!.project, answers: j.entry!.answers, token: { name: j.token!.proposed.name, symbol: j.token!.proposed.symbol } };
         const OTHER = '0x2222222222222222222222222222222222222222';
-        for (const other of [{ yes: true, wallet: OTHER }, { wallet: OTHER }, { skip_token: true, wallet: OTHER }]) {
-          const r = await t.confirm({ ...input, ...other });
-          assert.ok(!('kit' in r), 'no kit');
-          assert.equal(r.show_to_builder, '', 'the other wallet is never shown');
-          assert.equal(r.agent_note, BUILD_WALLET_NOTE);
-          assert.ok(!('shown_wallet' in r));
-        }
+        const other = await t.confirm({ ...input, yes: true, wallet: OTHER });
+        assert.ok(!('kit' in other), 'no kit');
         assert.deepEqual(t.launched, [], 'nothing launched');
-        const [entry] = await sql()`SELECT 1 FROM projects WHERE installation_id = ${t.inst} AND program_id = ${t.p.id}`;
-        assert.equal(entry, undefined, 'nothing recorded');
-        // The build wallet, as the joined reply showed it: the yes launches to it.
+        assert.match(other.show_to_builder, /^Yes submits your entry and launches \$\w+ \(PodTips\)\. Wallet: 0x2222…2222\. yes \/ skip the token$/);
+        assert.equal(other.shown_wallet, OTHER);
+        atMostOneQuestion(other as BuildReply, '10.3');
+        assert.equal(other.agent_note, BUILD_WALLET_NOTE);
+        // The next yes to the line that showed it launches to it, and only to it.
+        const yesOther = await t.confirm({ ...input, yes: true, wallet: OTHER });
+        assert.equal(yesOther.token?.status, 'launched');
+        assert.deepEqual(t.launched, [OTHER], 'the wallet the builder saw');
+        assert.ok(yesOther.kit);
+      }),
+    ),
+  ),
+);
+
+test('10.3 back to the build wallet after another was shown: shown again first, then the yes launches to it', dbTest, (tc) =>
+  withEventLog(() =>
+    withTokenEnv(() =>
+      withVars(shipVars(), async () => {
+        const t = await joinSetup('wallet2', tc);
+        const { upload } = await t.live();
+        const j = await t.joined(upload.url);
+        const input = { project: j.entry!.project, answers: j.entry!.answers, token: { name: j.token!.proposed.name, symbol: j.token!.proposed.symbol } };
+        const OTHER = '0x2222222222222222222222222222222222222222';
+        await t.confirm({ ...input, yes: true, wallet: OTHER });
+        assert.deepEqual(t.launched, []);
+        // Back to the build wallet: shown again first, then the yes launches to it.
+        const back = await t.confirm({ ...input, yes: true, wallet: T8_WALLET });
+        assert.ok(!('kit' in back));
+        assert.match(back.show_to_builder, /Wallet: 0x12ab…9f3e\. yes \/ skip the token$/);
         const yes = await t.confirm({ ...input, yes: true, wallet: T8_WALLET });
         assert.equal(yes.token?.status, 'launched');
         assert.deepEqual(t.launched, [T8_WALLET]);
