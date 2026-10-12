@@ -148,9 +148,9 @@ export async function ensureProfile(
  * X handle. A login is set once and only if no other profile holds it (one login, one person).
  */
 export async function setFallback(builderId: number, f: { github_login?: string; wallet?: string }): Promise<void> {
-  await sql().begin(async (tx) => {
+  const changed = await sql().begin(async (tx) => {
     const [p] = await tx<Profile[]>`SELECT ${tx(COLUMNS)} FROM builder_profiles WHERE builder_id = ${builderId} FOR UPDATE`;
-    if (!p) return;
+    if (!p) return false;
     let login = p.github_login;
     if (!login && f.github_login) {
       const want = f.github_login.toLowerCase();
@@ -164,7 +164,11 @@ export async function setFallback(builderId: number, f: { github_login?: string;
     if (login !== p.github_login || fallback !== p.fallback_handle)
       await tx`UPDATE builder_profiles SET github_login = ${login}, fallback_handle = ${fallback}, updated_at = now() WHERE builder_id = ${builderId}`;
     if (!p.x_handle && (login || wallet)) await followName(tx, builderId, { ...p, github_login: login }, wallet);
+    // The public name (a new login) or the slug changed: the cached page must follow (after commit).
+    const [after] = await tx<{ slug: string }[]>`SELECT slug FROM builder_profiles WHERE builder_id = ${builderId}`;
+    return login !== p.github_login || after?.slug !== p.slug;
   });
+  if (changed) profileChanged();
 }
 
 /** spec 7 "The offer", plan R5: 'yes' takes the prefill; a typed handle must equal it. Refused: nothing changes, no event. */
@@ -272,8 +276,9 @@ export async function resolveSlug(slug: string): Promise<{ builderId: number; re
  * profile on either side, the person is rediscovered with both groups' clues. Flag off, no profile
  * and no source exist, so nothing is written.
  */
-export async function mergeProfiles(tx: postgres.TransactionSql, root: number, other: number): Promise<void> {
-  if (root === other) return;
+/** True when a profile was re-keyed or merged (its page changes): the caller calls profileChanged() after commit. */
+export async function mergeProfiles(tx: postgres.TransactionSql, root: number, other: number): Promise<boolean> {
+  if (root === other) return false;
   await tx`
     UPDATE builder_sources s SET builder_id = ${root} WHERE builder_id = ${other}
       AND NOT EXISTS (SELECT 1 FROM builder_sources r WHERE r.builder_id = ${root} AND r.kind = s.kind AND r.ref = s.ref)`;
@@ -287,12 +292,12 @@ export async function mergeProfiles(tx: postgres.TransactionSql, root: number, o
   await tx`DELETE FROM builder_ranks WHERE builder_id = ${other}`;
   if (!o) {
     if (r && builderScoreEnabled()) await requeue(tx, root);
-    return;
+    return false;
   }
   if (!r) {
     await tx`UPDATE builder_profiles SET builder_id = ${root}, updated_at = now() WHERE builder_id = ${other}`;
     if (builderScoreEnabled()) await requeue(tx, root);
-    return;
+    return true;
   }
   const [win, lose] = !r.x_handle && o.x_handle ? [o, r] : [r, o];
   // The login and prefill travel together, X handle with them; the winner's own values win.
@@ -320,6 +325,7 @@ export async function mergeProfiles(tx: postgres.TransactionSql, root: number, o
   await tx`UPDATE builder_profiles SET ${tx(merged)}, updated_at = now() WHERE builder_id = ${root}`;
   if (!merged.x_handle) await followName(tx, root, { x_handle: null, github_login: login, slug: win.slug });
   if (builderScoreEnabled()) await requeue(tx, root);
+  return true;
 }
 
 /** The merged person is discovered again (a new clue: the other group's). */

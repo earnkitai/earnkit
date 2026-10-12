@@ -75,6 +75,11 @@ test('10.6 statsOf and money: words, not jargon', () => {
   assert.equal(money(1_200_000), '$1.2M');
   const parts = { users: { points: 40, raw: { U: 1240 } }, money: { points: 12, raw: { M: 3100 } }, staying: { points: 15, raw: {} }, recency: { points: 2, raw: {} }, consistency: { points: 1, raw: { weeks: 2 } } };
   assert.deepEqual(statsOf(parts, [{ first_outcome_at: '2025-08-01T00:00:00Z' }], new Date('2026-10-12T00:00:00Z')).map((s) => s.value), ['1,240 users', '14 months live', '$3.1k fees and volume']);
+  // No stored projects (a row scored before they were kept): no first outcome, so no "0 months live"; a 0 is never a stat.
+  const values = statsOf(parts, [], new Date('2026-10-12T00:00:00Z')).map((s) => s.value);
+  assert.deepEqual(values, ['1,240 users', '$3.1k fees and volume', 'Active lately']);
+  const zeroes = { ...parts, users: { points: 3, raw: { U: 0.2 } }, consistency: { points: 1, raw: { weeks: 0 } } };
+  assert.ok(statsOf(zeroes, [], new Date('2026-10-12T00:00:00Z')).every((s) => !/^\$?0\b/.test(s.value)));
 });
 
 test('10.7 the stricter note shows only when the calibration changed and the percentile did not fall', () => {
@@ -238,7 +243,7 @@ test('10.13 profileData reads only this person: the stored numbers of the public
   await reading(repo, '2026-10-11', { owner: `ann${T}`, owner_type: 'User', private: false, fork: false, template: false, stargazers: stars, forkers: [], issue_authors: [], contributors: [], commit_weeks: [], partial: false });
   await scoreRow(id, '2026-10-11', 30, { projects: [{ key: `ann${T}/app`, users: 1100, money_usd: 3100, first_outcome_at: '2025-08-01T00:00:00.000Z' }] });
   // A later held day's reading never shows (readings stop at the public day).
-  await reading(repo, '2026-10-12', { owner: `ann${T}`, private: true, stargazers: [] });
+  await reading(repo, '2026-10-12', { owner: `ann${T}`, private: false, stargazers: [] });
   await scoreRow(id, '2026-10-12', 80, { held: true, projects: [{ key: `ann${T}/app`, users: 9000, money_usd: 0, first_outcome_at: null }] });
   // Another person's source under the same project key is not read.
   const theirs = await source(other, 'site', 'https://bob.example.com', `ann${T}/app`, 'earnkit_txt');
@@ -252,3 +257,45 @@ test('10.13 profileData reads only this person: the stored numbers of the public
   const src = readFileSync(join(import.meta.dirname, 'profile-data.ts'), 'utf8');
   assert.doesNotMatch(src, /scoreContext|personInputs|installation_wallets|ringEdges/);
 });
+
+test('10.14 a repo stops being named at once when it goes private, when its newest reading is stale, or when a later held day failed it', dbTest, async () => {
+  const signals = (priv: boolean) => ({ owner: `cy${T}`, owner_type: 'User', private: priv, fork: false, template: false, stargazers: [], forkers: [], issue_authors: [], contributors: [], commit_weeks: [], partial: false });
+  const failed = (sid: number, day: string) => sql()`INSERT INTO source_readings (source_id, day, ok, error) VALUES (${sid}, ${day}, false, 'not found')`;
+  const named = async (id: number) => {
+    const d = await profileData(`s${id}`, NOW);
+    assert.ok(isFull(d));
+    return JSON.stringify(d);
+  };
+  // 1. Public on the 10th, then the read fails on the 11th (GitHub 404s a private repo): unnamed.
+  const a = T + 7;
+  await profile(a, { login: `cya${T}` });
+  const ra = await source(a, 'repo', `cy${T}/went-private`, `cy${T}/went-private`, 'repo_owner');
+  await reading(ra, '2026-10-10', signals(false));
+  await failed(ra, '2026-10-11');
+  await scoreRow(a, '2026-10-11', 20, { projects: [{ key: `cy${T}/went-private`, users: 3, money_usd: 0, first_outcome_at: '2026-07-01T00:00:00.000Z' }] });
+  assert.doesNotMatch(await named(a), /went-private/);
+  // 2. The newest reading is public but older than 7 days: unnamed.
+  const b = T + 8;
+  await profile(b, { login: `cyb${T}` });
+  const rb = await source(b, 'repo', `cy${T}/stale`, `cy${T}/stale`, 'repo_owner');
+  await reading(rb, '2026-10-01', signals(false));
+  await scoreRow(b, '2026-10-01', 20, { projects: [{ key: `cy${T}/stale`, users: 3, money_usd: 0, first_outcome_at: '2026-07-01T00:00:00.000Z' }] });
+  assert.doesNotMatch(await named(b), /cy\d+\/stale|"stale"/);
+  // 3. Held: the public day (10th) read it public, a later held day's read failed: unnamed.
+  const c = T + 9;
+  await profile(c, { login: `cyc${T}`, held: true });
+  const rc = await source(c, 'repo', `cy${T}/held-repo`, `cy${T}/held-repo`, 'repo_owner');
+  await reading(rc, '2026-10-10', signals(false));
+  await scoreRow(c, '2026-10-10', 20, { projects: [{ key: `cy${T}/held-repo`, users: 3, money_usd: 0, first_outcome_at: '2026-07-01T00:00:00.000Z' }] });
+  await failed(rc, '2026-10-11');
+  await scoreRow(c, '2026-10-11', 60, { held: true });
+  assert.doesNotMatch(await named(c), /held-repo/);
+  // Control: the same repo read public and recent is named.
+  const ok = T + 10;
+  await profile(ok, { login: `cyd${T}` });
+  const rok = await source(ok, 'repo', `cy${T}/fine`, `cy${T}/fine`, 'repo_owner');
+  await reading(rok, '2026-10-11', signals(false));
+  await scoreRow(ok, '2026-10-11', 20, { projects: [{ key: `cy${T}/fine`, users: 3, money_usd: 0, first_outcome_at: '2026-07-01T00:00:00.000Z' }] });
+  assert.match(await named(ok), new RegExp(`cy${T}/fine`));
+});
+

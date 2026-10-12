@@ -1,6 +1,7 @@
 import { githubRepo, normalizeRepoUrl } from './campaigns';
 import { sql } from './db';
 import { sharedGroup } from './installations';
+import { profileChanged } from './profile-cache';
 import { mergeProfiles } from './profiles';
 import {
   fetchOwnershipFile,
@@ -374,7 +375,8 @@ export async function answerPickup(own: number, yes: boolean, deps: PickupDeps =
  * Returns the group's entry count. Exported for tests.
  */
 export async function linkInstallations(own: number, roots: number[]): Promise<number> {
-  return sql().begin(async (tx) => {
+  let profilesMoved = false;
+  const n = await sql().begin(async (tx) => {
     const [mine] = await tx<{ root: number }[]>`
       SELECT COALESCE(builder_id, id) AS root FROM installations WHERE id = ${own} FOR UPDATE`;
     const all = [...new Set([mine.root, ...roots])].sort((a, b) => a - b);
@@ -429,10 +431,13 @@ export async function linkInstallations(own: number, roots: number[]): Promise<n
       await tx`UPDATE installations SET builder_id = ${root} WHERE id = ${other} OR builder_id = ${other}`;
       // v2.12 plan R3: the two people's profiles, sources and slugs become one (nothing exists, so
       // nothing is written, while EARNKIT_BUILDER_SCORE is off).
-      await mergeProfiles(tx, root, other);
+      if (await mergeProfiles(tx, root, other)) profilesMoved = true;
     }
     const [{ n }] = await tx<{ n: number }[]>`
       SELECT count(*)::int AS n FROM projects WHERE installation_id = ${root}`;
     return n;
   });
+  // After commit, so a render can't cache the pre-merge profile (v2.12 T10 review).
+  if (profilesMoved) profileChanged();
+  return n;
 }
