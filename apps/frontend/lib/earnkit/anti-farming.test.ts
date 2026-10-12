@@ -111,9 +111,9 @@ test('3.10 golden: a farmed project scores at or below its honest twin', () => {
     ...fresh.map((w) => call(w, 1, { fee_usd: 5 })),
     ...ringPeople.map((p) => ({ project: 'p', actor: `gh:ring${p}`, kind: 'stargazer' as const, at: d(1) })),
   ];
-  const farmedActors = new Map<string, { created_at?: Date; first_tx_at?: Date }>([
-    ...fresh.map((w) => [w, { first_tx_at: d(2) }] as [string, { first_tx_at: Date }]),
-    ...ringPeople.map((p) => [`gh:ring${p}`, OLD] as [string, typeof OLD]),
+  const farmedActors = new Map<string, ActorFacts>([
+    ...fresh.map((w) => [w, { first_tx_at: d(2) }] as [string, ActorFacts]),
+    ...ringPeople.map((p) => [`gh:ring${p}`, OLD] as [string, ActorFacts]),
   ]);
   const farmedCtx: FarmCtx = { self: new Set(['wallet:0xme1', 'wallet:0xme2', 'wallet:0xme3', 'wallet:0xme4', 'wallet:0xme5']), actors: farmedActors, ...ringWeights(edges, 1, owner) };
   const cal = calibration('v1-launch');
@@ -121,6 +121,14 @@ test('3.10 golden: a farmed project scores at or below its honest twin', () => {
   const h = computeScore([asInput(countProject('p', honest, honestCtx))], cal, NOW).score;
   const f = computeScore([asInput(countProject('p', farmed, farmedCtx))], cal, NOW).score;
   assert.ok(f <= h, `farmed ${f} > honest ${h}`);
+  // Variant: 2 off-day wallets, so the burst x fresh path (0.25 x 0.5) is exercised too.
+  const off = wallets(2, 'o');
+  const farmed2 = [...farmed, call(off[0], 6, { fee_usd: 5 }), call(off[1], 9, { fee_usd: 5 })];
+  const farmedCtx2: FarmCtx = { ...farmedCtx, actors: new Map([...farmedActors, ...off.map((w) => [w, { first_tx_at: d(300) }] as [string, ActorFacts])]) };
+  const c2 = countProject('p', farmed2, farmedCtx2);
+  assert.equal(c2.actors.get(fresh[0]), RULES.burstWeight * RULES.freshWeight);
+  const f2 = computeScore([asInput(c2)], cal, NOW).score;
+  assert.ok(f2 <= h, `farmed variant ${f2} > honest ${h}`);
   assert.ok(h > 0);
 });
 
@@ -132,4 +140,27 @@ test('3.11 finite outputs: invalid dates are skipped and NaN money counts 0', ()
   assert.equal(c.users, 3);
   for (const n of [c.users, c.fees_usd, c.volume_usd, moneyOf(c)]) assert.ok(Number.isFinite(n));
   assert.ok(c.outcomes.every((o) => Number.isFinite(o.at.getTime()) && Number.isFinite(o.weight)));
+});
+
+test('3.12 rings: a partner owning several accounts adds 0.5 once per project', () => {
+  const owner = new Map([['gh:bob', 2], ['wallet:0xb1', 2], ['wallet:0xb2', 2], ['wallet:0xb3', 2], ['gh:alice', 1]]);
+  const r = ringWeights([[1, 2], [2, 1]], 1, owner);
+  const t: Touch[] = [call('gh:bob', 1), call('wallet:0xb1', 1), call('wallet:0xb2', 2), call('wallet:0xb3', 3)].map((x) => ({ ...x, kind: 'stargazer' as const }));
+  const c = countProject('p', t, { self: new Set(), actors: new Map<string, ActorFacts>(t.map((x) => [x.actor, OLD])), ...r });
+  assert.equal(c.users, 0.5);
+});
+
+test('3.13 ids are case-insensitive: mixed-case self is excluded and 0xABC/0xabc dedupe', () => {
+  const t = [call('wallet:0xABC', 1, { fee_usd: 9 }), call('wallet:0xdef', 2), call('wallet:0xDEF', 3), call('wallet:0xghi', 4), call('wallet:0xjkl', 5)];
+  const c = countProject('p', t, ctx({ self: new Set(['wallet:0xabc']) }, ['wallet:0xdef', 'wallet:0xghi', 'wallet:0xjkl']));
+  assert.equal(c.users, 3);
+  assert.equal(c.fees_usd, 0);
+  const u = countProject('p', [call('wallet:0xAAA', 1), call('wallet:0xaaa', 2), call('wallet:0xbbb', 3)], ctx({}, ['wallet:0xaaa', 'wallet:0xbbb']));
+  assert.equal(u.actors.size, 2);
+});
+
+test('3.14 fresh wallet: a first transaction after the call is unknown data (50%)', () => {
+  const t = [call('wallet:0xfut', 5), call('wallet:0xo1', 1), call('wallet:0xo2', 2)];
+  const a = new Map<string, ActorFacts>([['wallet:0xfut', { first_tx_at: d(-300) }], ['wallet:0xo1', OLD], ['wallet:0xo2', OLD]]);
+  assert.equal(countProject('p', t, { self: new Set(), actors: a, ring: new Map() }).users, 2.5);
 });

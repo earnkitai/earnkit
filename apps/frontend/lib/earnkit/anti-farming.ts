@@ -26,6 +26,8 @@ export type FarmCtx = {
   self: ReadonlySet<string>;
   actors: ReadonlyMap<string, ActorFacts>;
   ring: ReadonlyMap<string, number>;
+  /** Ring actor -> the partner person who owns it, so a partner counts once per project. */
+  ringOwner?: ReadonlyMap<string, number>;
   clusterCap?: { actors: ReadonlySet<string>; cap: number };
 };
 export type Counted = { project: string; users: number; fees_usd: number; volume_usd: number; outcomes: Outcome[]; actors: Map<string, number> };
@@ -40,7 +42,9 @@ function freshWeight(actor: string, at: Date, facts: ActorFacts | undefined): nu
   if (isWallet(actor)) {
     const first = facts?.first_tx_at;
     if (!first || !Number.isFinite(first.getTime())) return RULES.freshWeight;
-    return Math.abs(at.getTime() - first.getTime()) <= RULES.freshWalletDays * DAY_MS ? RULES.freshWeight : 1;
+    const gap = at.getTime() - first.getTime();
+    if (gap < 0) return RULES.freshWeight; // a first transaction after the call is impossible data: unknown
+    return gap <= RULES.freshWalletDays * DAY_MS ? RULES.freshWeight : 1;
   }
   const created = facts?.created_at;
   if (!created || !Number.isFinite(created.getTime())) return RULES.freshWeight;
@@ -49,12 +53,20 @@ function freshWeight(actor: string, at: Date, facts: ActorFacts | undefined): nu
 
 /** One project's counted users and money after every rule. */
 export function countProject(project: string, touches: Touch[], ctx: FarmCtx): Counted {
+  // Actor ids are case-insensitive: lowercase every id once.
+  const lc = <T>(m: ReadonlyMap<string, T>) => new Map([...m].map(([k, v]) => [k.toLowerCase(), v] as [string, T]));
+  const self = new Set([...ctx.self].map((a) => a.toLowerCase()));
+  const known = lc(ctx.actors);
+  const ring = lc(ctx.ring);
+  const ringOwner = ctx.ringOwner && lc(ctx.ringOwner);
+  const cluster = ctx.clusterCap && { cap: ctx.clusterCap.cap, actors: new Set([...ctx.clusterCap.actors].map((a) => a.toLowerCase())) };
   // Self-exclusion, then one per account (earliest touch; its money summed per account).
   const first = new Map<string, Touch>();
   const fee = new Map<string, number>();
   const vol = new Map<string, number>();
-  for (const t of touches) {
-    if (t.project !== project || ctx.self.has(t.actor) || !Number.isFinite(t.at.getTime())) continue;
+  for (const raw of touches) {
+    const t = { ...raw, actor: raw.actor.toLowerCase() };
+    if (t.project !== project || self.has(t.actor) || !Number.isFinite(t.at.getTime())) continue;
     const seen = first.get(t.actor);
     if (!seen || t.at < seen.at) first.set(t.actor, t);
     fee.set(t.actor, (fee.get(t.actor) ?? 0) + nonNeg(t.fee_usd));
@@ -69,14 +81,28 @@ export function countProject(project: string, touches: Touch[], ctx: FarmCtx): C
 
   const actors = new Map<string, number>();
   for (const [actor, t] of first) {
-    const w = spread(t) * freshWeight(actor, t.at, ctx.actors.get(actor)) * (ctx.ring.get(actor) ?? 1);
+    const w = spread(t) * freshWeight(actor, t.at, known.get(actor)) * (ring.get(actor) ?? 1);
     actors.set(actor, w);
   }
+  // A ring partner counts once per project: only their best-weighted account keeps credit.
+  if (ringOwner) {
+    const best = new Map<number, [string, number]>();
+    for (const [a, w] of actors) {
+      const who = ringOwner.get(a);
+      if (who === undefined) continue;
+      const b = best.get(who);
+      if (!b || w > b[1]) best.set(who, [a, w]);
+    }
+    for (const [a] of actors) {
+      const who = ringOwner.get(a);
+      if (who !== undefined && best.get(who)![0] !== a) actors.set(a, 0);
+    }
+  }
   // Cluster cap: in-cluster credit at most `cap`, scaled down evenly.
-  if (ctx.clusterCap) {
-    const inCluster = [...actors].filter(([a]) => ctx.clusterCap!.actors.has(a));
+  if (cluster) {
+    const inCluster = [...actors].filter(([a]) => cluster.actors.has(a));
     const sum = inCluster.reduce((n, [, w]) => n + w, 0);
-    if (sum > ctx.clusterCap.cap) for (const [a, w] of inCluster) actors.set(a, (w * ctx.clusterCap.cap) / sum);
+    if (sum > cluster.cap) for (const [a, w] of inCluster) actors.set(a, (w * cluster.cap) / sum);
   }
   // Money: per-account cap at 10% of the project's (self-excluded) total, weighted like the account.
   const capped = (m: Map<string, number>) => {
@@ -98,7 +124,7 @@ export const moneyOf = (c: Pick<Counted, 'fees_usd' | 'volume_usd'>) => c.fees_u
  * the mutual-pair component holding them has 5+ people, their in-cluster credit is capped at 5.
  * `owner` maps actor ids to the person who owns them (verified wallets and logins). Pure.
  */
-export function ringWeights(edges: Array<[counter: number, counted: number]>, person: number, owner: ReadonlyMap<string, number>): Pick<FarmCtx, 'ring' | 'clusterCap'> {
+export function ringWeights(edges: Array<[counter: number, counted: number]>, person: number, owner: ReadonlyMap<string, number>): Pick<FarmCtx, 'ring' | 'ringOwner' | 'clusterCap'> {
   const has = new Set(edges.map(([a, b]) => `${a}>${b}`));
   const mutual = new Map<number, Set<number>>();
   for (const [a, b] of edges)
@@ -112,10 +138,12 @@ export function ringWeights(edges: Array<[counter: number, counted: number]>, pe
   const queue = [person];
   while (queue.length) for (const n of mutual.get(queue.shift()!) ?? []) if (!comp.has(n)) (comp.add(n), queue.push(n));
   const ring = new Map<string, number>();
+  const ringOwner = new Map<string, number>();
   const clusterActors = new Set<string>();
   for (const [actor, who] of owner) {
-    if (partners.has(who)) ring.set(actor, RULES.ringWeight);
-    if (who !== person && comp.has(who)) clusterActors.add(actor);
+    const id = actor.toLowerCase();
+    if (partners.has(who)) (ring.set(id, RULES.ringWeight), ringOwner.set(id, who));
+    if (who !== person && comp.has(who)) clusterActors.add(id);
   }
-  return { ring, ...(comp.size >= RULES.clusterMin && { clusterCap: { actors: clusterActors, cap: RULES.clusterCap } }) };
+  return { ring, ringOwner, ...(comp.size >= RULES.clusterMin && { clusterCap: { actors: clusterActors, cap: RULES.clusterCap } }) };
 }
