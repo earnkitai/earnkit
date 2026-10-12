@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CLUE_PATHS, cnameSite, foundryBroadcast, githubProfileClues, githubRemote, hardhatDeployment, npmPackage,
+  CLUE_FILE_MAX, CLUE_JSON_MAX, CLUE_PATHS, cnameSite, foundryBroadcast, githubProfileClues, githubRemote, hardhatDeployment, npmPackage,
   pagesSite, profileCode, profileCodesIn, pypiPackage, vercelSites, wranglerSites,
 } from './discovery-clues';
 
@@ -104,4 +104,14 @@ test('4.18 git remotes: . and .. repo names and hyphen-edged owners are refused'
   assert.equal(githubRemote('https://github.com/-lee/x'), null);
   assert.equal(githubRemote('https://github.com/lee-/x'), null);
   assert.equal(githubRemote('https://github.com/le-e/x.y'), 'le-e/x.y');
+});
+
+test('4.19 JSON clue files are cut at 1 MB, not 64 KB: a large foundry broadcast still yields its contract', () => {
+  const addr = '0x' + 'c'.repeat(40);
+  const filler = Array.from({ length: 400 }, (_, i) => ({ transactionType: 'CALL', contractAddress: null, transaction: { from: '0x' + 'd'.repeat(40), data: '0x' + 'ab'.repeat(100), nonce: i } }));
+  const big = JSON.stringify({ chain: 8453, transactions: [...filler, { transactionType: 'CREATE', contractAddress: addr, transaction: { from: '0x' + 'e'.repeat(40) } }] });
+  assert.ok(big.length > CLUE_FILE_MAX, `${big.length}`);
+  assert.ok(big.length < CLUE_JSON_MAX);
+  assert.deepEqual(foundryBroadcast('broadcast/Deploy.s.sol/8453/run-latest.json', big).map((c) => c.address), [addr]);
+  assert.deepEqual(foundryBroadcast('broadcast/Deploy.s.sol/8453/run-latest.json', ' '.repeat(CLUE_JSON_MAX) + big), [], 'over 1 MB is cut and unreadable');
 });

@@ -15,12 +15,17 @@ const host = (h: string): string | null => {
   return HOST.test(s) ? s : null;
 };
 const origin = (h: string | null) => (h ? `https://${h}` : null);
-/** Every clue file is cut to this many bytes' worth of characters before any parser reads it. */
+/** Every line or regex clue file is cut to this many bytes' worth of characters before any parser reads it. */
 export const CLUE_FILE_MAX = 64 * 1024;
+/**
+ * JSON clue files (foundry broadcasts, hardhat deployments, vercel.json, package.json) are cut at 1 MB
+ * instead: real broadcast files often pass 64 KB, and JSON.parse is linear, so the larger cap is safe.
+ */
+export const CLUE_JSON_MAX = 1024 * 1024;
 const cap = (text: string) => (typeof text === 'string' ? text.slice(0, CLUE_FILE_MAX) : '');
 const json = (text: string): unknown => {
   try {
-    return JSON.parse(cap(text));
+    return JSON.parse(typeof text === 'string' ? text.slice(0, CLUE_JSON_MAX) : '');
   } catch {
     return null;
   }
