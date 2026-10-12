@@ -1076,3 +1076,116 @@ CREATE TABLE IF NOT EXISTS proof_line_issues (
   first_at        timestamptz NOT NULL,
   PRIMARY KEY (installation_id, repo_key)
 );
+
+-- v2.12 (spec 1 to 6, 10): the verified builder score. Additive. Keys are the person's group root,
+-- COALESCE(installations.builder_id, installations.id) (plan R1); no FKs, like the event log, so
+-- history outlives an installation. Nothing writes these until EARNKIT_BUILDER_SCORE=on.
+CREATE TABLE IF NOT EXISTS builder_profiles (
+  builder_id       integer PRIMARY KEY,
+  x_handle         text CHECK (x_handle ~ '^[A-Za-z0-9_]{1,15}$'),
+  fallback_handle  text,                         -- verified GitHub login, else short wallet 0xabcd…1234
+  github_login     text,                         -- the proven login (plan R4); a data source, never the name
+  slug             text NOT NULL UNIQUE CHECK (slug ~ '^[a-z0-9][a-z0-9_-]{0,40}$'),
+  hidden           boolean NOT NULL DEFAULT false,
+  held             boolean NOT NULL DEFAULT false,
+  twitter_prefill  text,                         -- GitHub twitter_username: prefill only, never shown or scored
+  card_offered_at  timestamptz,
+  x_asked_at       timestamptz,
+  first_find_at    timestamptz NOT NULL DEFAULT now(),
+  empty_checked_at timestamptz,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_at       timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS profile_slug_history (
+  old_slug   text PRIMARY KEY,
+  builder_id integer NOT NULL,
+  moved_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS builder_sources (
+  id            bigserial PRIMARY KEY,
+  builder_id    integer NOT NULL,
+  -- An open enum (spec 2): v2.13's Stripe is one more value here.
+  kind          text NOT NULL CHECK (kind IN ('repo','site','package_npm','package_pypi','contract','merged_pr')),
+  ref           text NOT NULL,                  -- owner/repo, origin URL, package name, chain:address, PR URL
+  project_key   text NOT NULL,                  -- groups a repo, its site, package and contract
+  proof         text CHECK (proof IN ('github_signin','proof_line','repo_owner','deployer','deploy_wallet','earnkit_txt','dns_txt','repo_link')),
+  state         text NOT NULL DEFAULT 'proposed' CHECK (state IN ('proposed','verified','rejected')),
+  reject_reason text,
+  proposed_by   text NOT NULL CHECK (proposed_by IN ('agent','server')),
+  last_read_day date,                           -- the read queue's key (oldest first)
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  verified_at   timestamptz,
+  UNIQUE (builder_id, kind, ref)
+);
+CREATE INDEX IF NOT EXISTS builder_sources_due ON builder_sources (last_read_day NULLS FIRST, id) WHERE state = 'verified';
+CREATE TABLE IF NOT EXISTS source_readings (
+  id        bigserial PRIMARY KEY,
+  source_id bigint NOT NULL,
+  day       date NOT NULL,
+  signals   jsonb NOT NULL DEFAULT '{}'::jsonb,
+  ok        boolean NOT NULL,
+  error     text,
+  at        timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (source_id, day)
+);
+CREATE TABLE IF NOT EXISTS builder_scores (
+  id          bigserial PRIMARY KEY,
+  builder_id  integer NOT NULL,
+  day         date NOT NULL,
+  score       smallint NOT NULL CHECK (score BETWEEN 0 AND 100),
+  percentile  real NOT NULL CHECK (percentile BETWEEN 0 AND 100),
+  parts       jsonb NOT NULL,                   -- each part's points and raw, unscaled inputs
+  top_outcome jsonb NOT NULL,
+  formula     text NOT NULL,
+  calibration text NOT NULL,
+  held        boolean NOT NULL,
+  computed_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (builder_id, day)
+);
+-- The owner's release of a held day (app/admin/scores): a row, never an UPDATE of builder_scores.
+CREATE TABLE IF NOT EXISTS score_releases (
+  builder_id  integer NOT NULL,
+  day         date NOT NULL,
+  released_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (builder_id, day)
+);
+-- Plan R7: each person's public score and live percentile, rebuilt every run in one pass.
+CREATE TABLE IF NOT EXISTS builder_ranks (
+  builder_id  integer PRIMARY KEY,
+  score       smallint NOT NULL,
+  percentile  real NOT NULL,
+  computed_at timestamptz NOT NULL
+);
+CREATE TABLE IF NOT EXISTS discovery_queue (
+  builder_id integer PRIMARY KEY,
+  reason     text NOT NULL,                     -- first_find | wallet | signin | local_repo
+  queued_at  timestamptz NOT NULL DEFAULT now(),
+  done_at    timestamptz,
+  attempts   integer NOT NULL DEFAULT 0
+);
+-- Same append-only rule as builder_events, with no redaction door (nothing personal is stored raw).
+CREATE OR REPLACE FUNCTION v212_append_only() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION '% is append-only (% refused)', TG_TABLE_NAME, TG_OP USING ERRCODE = 'insufficient_privilege';
+END $$;
+DO $$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['source_readings', 'builder_scores'] LOOP
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = t || '_no_change' AND tgrelid = t::regclass) THEN
+      EXECUTE format('CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION v212_append_only()', t || '_no_change', t);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = t || '_no_truncate' AND tgrelid = t::regclass) THEN
+      EXECUTE format('CREATE TRIGGER %I BEFORE TRUNCATE ON %I FOR EACH STATEMENT EXECUTE FUNCTION v212_append_only()', t || '_no_truncate', t);
+    END IF;
+  END LOOP;
+END $$;
+-- v2.12 spec 10: the event log's types. The inline CHECK is named builder_events_type_check; adding
+-- a CHECK only scans rows (no row trigger fires), so the append-only trigger is untouched.
+ALTER TABLE builder_events DROP CONSTRAINT IF EXISTS builder_events_type_check;
+ALTER TABLE builder_events ADD CONSTRAINT builder_events_type_check CHECK (type IN (
+  'built','deployed','hosted','entered','submitted','won','lost','usage_check',
+  'source_proposed','source_verified','source_rejected','reading_taken','score_computed','score_held',
+  'profile_empty','profile_hidden','profile_shown','card_offered','x_added','card_shared','score_viewed'));
+-- v2.12 spec 9: programs an agent can't complete (programs:sync derives it; the file may override).
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS agent_completable boolean NOT NULL DEFAULT true;

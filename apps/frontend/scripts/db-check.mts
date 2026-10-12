@@ -738,5 +738,12 @@ const ucf = await db<{ column_name: string }[]>`
 ok(JSON.stringify(ucf.map((c) => c.column_name)) === '["deployed_event_id","failures","last_failed_at"]',
   'usage_check_failures has deployed_event_id, failures and last_failed_at');
 
+const [v212] = await db<{ n: number }[]>`
+  SELECT count(*)::int AS n FROM pg_trigger WHERE tgname IN
+    ('source_readings_no_change','source_readings_no_truncate','builder_scores_no_change','builder_scores_no_truncate')`;
+ok(v212.n === 4, 'v2.12: the append-only triggers exist once each after two runs');
+const [ck] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM pg_constraint WHERE conname = 'builder_events_type_check'`;
+ok(ck.n === 1, 'v2.12: one builder_events type CHECK after two runs');
+
 await db.end();
 console.log(`db check: ${checks} checks passed`);

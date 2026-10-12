@@ -30,6 +30,12 @@ const CLEARED = [
   'DEPLOY_CHAINS',
   // v2.11 Task 2: the builder event log (a test that needs it on sets it).
   'EARNKIT_EVENT_LOG',
+  // v2.12: the builder score and the four archive flags (a test that needs one on sets it).
+  'EARNKIT_BUILDER_SCORE',
+  'EARNKIT_SPONSOR_CAMPAIGNS',
+  'EARNKIT_STARTER_REGISTRY',
+  'EARNKIT_PROGRAM_LEADERBOARDS',
+  'EARNKIT_TOOL_ALIASES',
 ];
 for (const name of CLEARED) delete process.env[name];
 

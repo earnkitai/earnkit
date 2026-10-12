@@ -17,7 +17,12 @@ import { hasCode, rpcFor, txCount, type CheckDeps } from './verify';
 export const EVENT_LOG_FLAG = 'EARNKIT_EVENT_LOG';
 export const eventLogEnabled = () => process.env[EVENT_LOG_FLAG] === 'on';
 
-export const EVENT_TYPES = ['built', 'deployed', 'hosted', 'entered', 'submitted', 'won', 'lost', 'usage_check'] as const;
+export const EVENT_TYPES = [
+  'built', 'deployed', 'hosted', 'entered', 'submitted', 'won', 'lost', 'usage_check',
+  // v2.12 spec 10: the builder score's steps.
+  'source_proposed', 'source_verified', 'source_rejected', 'reading_taken', 'score_computed', 'score_held',
+  'profile_empty', 'profile_hidden', 'profile_shown', 'card_offered', 'x_added', 'card_shared', 'score_viewed',
+] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 export const LOGIN_BASES = ['signin', 'app', 'proof_line', 'repo_owner'] as const;
 export type LoginBasis = (typeof LOGIN_BASES)[number];

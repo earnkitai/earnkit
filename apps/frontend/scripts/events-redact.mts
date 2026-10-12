@@ -63,6 +63,9 @@ const WALLET_COLUMNS: [table: string, column: string][] = [
   ['bonus_sweeps', 'to_wallet'],
   ['sponsor_verifications', 'wallet'],
   ['sponsor_campaigns', 'sponsor_wallet'],
+  // v2.12: the builder score's profile (the proven login, the X handle).
+  ['builder_profiles', 'github_login'],
+  ['builder_profiles', 'x_handle'],
 ];
 /** text[] columns that can hold the wallet. */
 const WALLET_ARRAYS: [string, string][] = [
@@ -110,6 +113,11 @@ const NAMED_COLUMNS: [string, string][] = [
   ['host_deploys', 'slug'],
   ['host_upload_tokens', 'repo_key'],
   ['host_upload_tokens', 'slug'],
+  // v2.12: a profile's slug (the X handle or login), its history, and the sources' repo, site and project keys.
+  ['builder_profiles', 'slug'],
+  ['profile_slug_history', 'old_slug'],
+  ['builder_sources', 'ref'],
+  ['builder_sources', 'project_key'],
 ];
 const NAMED_ARRAYS: [string, string][] = [['installations', 'repos']];
 
