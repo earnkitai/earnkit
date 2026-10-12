@@ -4168,10 +4168,11 @@ give. Events: `built`, `deployed`, `hosted`, `entered`, `submitted`, once each.
 - **The live line (`buildLiveLine`).** EarnKit hosting only for this installation's live site of the
   repo; Pages only for the repo's own Pages link whose probe passes (`pagesLiveLine`). Any other link is
   never called live.
-- **The confirm wallet (`buildWalletOnly`, final fix M4, owner ruling).** On the build path the token
-  launches only to the build's wallet (`installations.build.wallet`). Any confirm naming another
-  wallet is refused with `BUILD_WALLET_NOTE` only: nothing shown, recorded or launched. A yes with the
-  build's wallet while the confirm line showed another gets the line again (`BUILD_WALLET_SHOWN_NOTE`).
+- **The confirm wallet (`buildWalletAgain`; owner ruling on final fix M4: another wallet is allowed).**
+  On the build path a yes launches only to the wallet the confirm line showed
+  (`token_offers.offered_wallet`, the build's wallet first). A yes naming another wallet gets the
+  confirm line again showing it ("Wallet: 0x…"), with nothing recorded or launched; the builder's next
+  yes launches to that wallet. The token never launches to a wallet the builder didn't see.
 - **Then v2.10's flow:** the yes (or "skip the token") records the entry (`entered`), launches or
   skips the token and hands over the kit; `tell { submitted }` marks it (`submitted`).
 
