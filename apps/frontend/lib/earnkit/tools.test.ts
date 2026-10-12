@@ -5275,6 +5275,50 @@ test('final fix M8: a receipt timeout never strands the build: the same deploy-a
   ),
 );
 
+test('security re-review 4 F1: a timed-out v2.10 deploy of other bytecode is never settled or labelled as the starter by the build path', dbTest, (tc) =>
+  withEventLog(() =>
+    withVars(shipVars(), async () => {
+      const t = await shipSetup('f1v210', tc);
+      const real = t.ctx.deployDeps.chain();
+      const slow = { ...t.ctx, deployDeps: { ...t.ctx.deployDeps, chain: () => ({ ...real, receipt: async () => null }) } };
+      // v2.10's plain prepare with deploy: any bytecode (here the starter's plus one byte), its receipt never comes.
+      await t.prepare({ program_id: t.p.id, project: { name: 'PodTips', repo_url: t.repo }, deploy: t.deploy({ bytecode: `${ARC_TIPJAR_BYTECODE}00` }) }, slow);
+      const [v210] = await sql()<{ status: string; starter: string | null }[]>`SELECT status, starter FROM contract_deploys WHERE installation_id = ${t.inst}`;
+      assert.deepEqual({ ...v210 }, { status: 'unknown', starter: null });
+      // The build path's call: that row is left alone; the normal path's day cap refuses (fail closed).
+      const r = await t.ship();
+      assert.equal(t.sent.length, 1, 'nothing sent again');
+      assert.ok(!('address' in (r.deploy ?? {})), JSON.stringify(r.deploy));
+      const rows = await sql()<{ status: string }[]>`SELECT status FROM contract_deploys WHERE installation_id = ${t.inst}`;
+      assert.deepEqual(rows.map((x) => x.status), ['unknown'], 'never settled');
+      assert.ok(!(await eventsOfInstallation(t.inst)).some((e) => e.type === 'deployed'), 'never labelled or logged as the starter');
+    }),
+  ),
+);
+
+test('security re-review 4 F1: the build\'s own unconfirmed deploy for a wallet that has since changed is never settled', dbTest, (tc) =>
+  withEventLog(() =>
+    withVars(shipVars(), async () => {
+      const t = await shipSetup('f1wallet', tc);
+      const real = t.ctx.deployDeps.chain();
+      const slow = { ...t.ctx, deployDeps: { ...t.ctx.deployDeps, chain: () => ({ ...real, receipt: async () => null }) } };
+      assert.equal((await t.ship({}, slow)).agent_note, BUILD_PENDING_NOTE);
+      const [sent] = await sql()<{ starter: string | null; owner_wallet: string }[]>`SELECT starter, owner_wallet FROM contract_deploys WHERE installation_id = ${t.inst}`;
+      assert.ok(sent.starter, 'the build path\'s row names its starter (exact bytecode)');
+      assert.equal(sent.owner_wallet, T8_WALLET);
+      const NEW = '0x' + '3c'.repeat(20);
+      await withVars(shipVars(), async () => {
+        await t.twist({ wallet: NEW, repo_url: t.repo }, t.ctx);
+      });
+      const r = await t.ship({ owner_wallet: NEW, constructor_args: [NEW, 'PodTips', '1000000'] });
+      assert.equal(t.sent.length, 1, 'nothing sent again');
+      assert.ok(!('address' in (r.deploy ?? {})), JSON.stringify(r.deploy));
+      const rows = await sql()<{ status: string }[]>`SELECT status FROM contract_deploys WHERE installation_id = ${t.inst}`;
+      assert.deepEqual(rows.map((x) => x.status), ['unknown'], 'never settled for the old wallet');
+    }),
+  ),
+);
+
 // ---- v2.11 T10 (spec 5): the entry drafted from the build, the live, deployed and confirm lines in one reply, the kit, submitted
 
 type JoinedReply = ShipReply & {

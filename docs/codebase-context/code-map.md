@@ -609,7 +609,9 @@ apps/frontend/
     deploy.ts(+test, +anvil)   v2.10 item 13: EarnKit deploys the builder's contract on Arc or Base
                                v2.11 T9: starter label (initcodeHash vs initcode_hash), lineOwner, beforeSend; caps per repo/wallet/pusher
                                final fix M8: settlePendingDeploy (an unknown build deploy settled read-only from its
-                               receipt on the same call again); M5: OWNER_PROOF_NOTE asks for a fresh push
+                               receipt on the same call again; F1: only its row's starter + build wallet, the
+                               contract_deploys.starter column set at reservation on the exact bytecode); M5:
+                               OWNER_PROOF_NOTE asks for a fresh push
                                (DEPLOYER_PRIVATE_KEY, read only here). DEPLOY_CAPS, ERC20_SELECTORS,
                                DEPLOY_LINES (+ factory), DEPLOY_PENDING, DEPLOY_UNCONFIRMED, TRANSFER_GAS,
                                deployedLine, initcode, deployRefusal, runtimeRefusal (the simulated runtime:

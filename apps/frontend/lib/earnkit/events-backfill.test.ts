@@ -2,6 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { sql } from './db';
 import { backfillEvents } from './events-backfill';
 import { eventsOfInstallation, withEventLog } from './fixtures/events';
@@ -13,6 +14,7 @@ after(async () => {
 });
 
 const W = '0x' + 'Ab'.repeat(20);
+const randomHex = () => randomBytes(32).toString('hex');
 
 /** One row in each source table (and a few that write nothing), for one fresh installation and login (never a shared one: host limits count by login). */
 async function seed() {
@@ -152,6 +154,7 @@ test('final fix I1, M1: the backfill writes the build path\'s built and Pages ho
           program_id: s.tag, starter_id: 'arc-tipjar', started_at: '2026-09-30T09:00:00Z', wallet: W.toLowerCase(),
           twist: 'tips for podcasters', name: 'PodTips', description: 'd', feature: 'f', for_whom: 'podcasters', repo_url: repoUrl,
         } as never)} WHERE id = ${s.inst}`;
+      await sql()`UPDATE contract_deploys SET starter = 'arc-tipjar' WHERE id = ${s.deploy}`; // the build path sent it (F1, F5)
       const [owner] = s.repoKey.split('/');
       const live = `https://${owner}.github.io/tipjar/`;
       await sql()`UPDATE projects SET live_url = ${live} WHERE id = ${s.project}`;
@@ -210,6 +213,34 @@ test('final fix I1: no built or Pages hosted event without a contract EarnKit de
       const counts = await backfillEvents(sql(), { installationIds: [s.inst] });
       assert.equal(counts.built.seen, 0);
       assert.equal(counts.hosted.written, 1, 'only the EarnKit upload');
+    } finally {
+      await unseed(s);
+    }
+  }),
+);
+
+test('security re-review 4 F5: built counts only a deploy the build sent: its starter and wallet, after the build started, never reverted', dbTest, () =>
+  withEventLog(async () => {
+    const s = await seed();
+    try {
+      const OTHER = '0x' + '22'.repeat(20);
+      await sql()`
+        UPDATE installations SET build = ${sql().json({
+          program_id: s.tag, starter_id: 'arc-tipjar', started_at: '2026-10-01T12:00:00Z', wallet: W.toLowerCase(), repo_url: `https://github.com/${s.repoKey}`,
+        } as never)} WHERE id = ${s.inst}`;
+      // The seed's deploy (10-01 10:00) predates the build: a v2.10 deploy, never the build's.
+      await sql()`UPDATE contract_deploys SET starter = 'arc-tipjar' WHERE id = ${s.deploy}`;
+      const row = (at: string, o: { starter?: string | null; wallet?: string; status?: string }) => sql()`
+        INSERT INTO contract_deploys (installation_id, login, builder_key, repo_key, chain, tx_hash, status, cost_micro_usd, created_at, owner_wallet, starter)
+        VALUES (${s.inst}, ${s.tag}, ${s.tag}, ${s.repoKey}, 'arc', ${'0x' + randomHex()}, ${o.status ?? 'deployed'}, 5000, ${at}, ${o.wallet ?? W.toLowerCase()}, ${o.starter === undefined ? 'arc-tipjar' : o.starter})`;
+      await row('2026-10-01T13:00:00Z', { status: 'reverted' });
+      await row('2026-10-01T14:00:00Z', { wallet: OTHER });
+      await row('2026-10-01T15:00:00Z', { starter: null }); // a v2.10 deploy of any bytecode
+      assert.equal((await backfillEvents(sql(), { installationIds: [s.inst] })).built.written, 0);
+      await row('2026-10-01T16:00:00Z', {});
+      assert.equal((await backfillEvents(sql(), { installationIds: [s.inst] })).built.written, 1);
+      const [b] = (await eventsOfInstallation(s.inst)).filter((e) => e.type === 'built');
+      assert.equal(b.at.toISOString(), '2026-10-01T16:00:00.000Z');
     } finally {
       await unseed(s);
     }

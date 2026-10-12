@@ -1064,6 +1064,10 @@ ALTER TABLE host_deploys ADD COLUMN IF NOT EXISTS basis text NOT NULL DEFAULT 's
 ALTER TABLE contract_deploys ADD COLUMN IF NOT EXISTS line_owner text;
 CREATE INDEX IF NOT EXISTS contract_deploys_repo_day ON contract_deploys (repo_key, created_at);
 CREATE INDEX IF NOT EXISTS contract_deploys_wallet_day ON contract_deploys (owner_wallet, created_at);
+-- v2.11 final fix wave (security re-review 4, F1): the build path's starter, set at reservation only
+-- when the artifact is exactly that starter's bytecode (NULL for every v2.10 deploy and every
+-- existing row). A deploy left unconfirmed is settled later only for this starter and build wallet.
+ALTER TABLE contract_deploys ADD COLUMN IF NOT EXISTS starter text;
 -- v2.11 T9 security fix R4 (b): when EarnKit first showed an installation the earnkit.txt line for a
 -- repo; a commit dated before it is never that builder's own writing of the line. Additive.
 CREATE TABLE IF NOT EXISTS proof_line_issues (

@@ -2852,7 +2852,7 @@ async function buildShip(programId: string, rest: Record<string, unknown>, ctx: 
   // Final fix M8: a deploy of this build still unconfirmed from an earlier call is settled from its
   // receipt (read-only), never sent again; the call then goes on as if it had just deployed.
   const pending = await settlePendingDeploy(
-    { installationId: ctx.installationId, repoKey, chain: starter.chain, projectName: stored.name, starterId: starter.id },
+    { installationId: ctx.installationId, repoKey, chain: starter.chain, projectName: stored.name, starterId: starter.id, wallet },
     ctx.deployDeps,
   );
   const step = pending

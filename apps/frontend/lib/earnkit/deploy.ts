@@ -512,6 +512,9 @@ export async function deployForBuilder(
   const owner = a.shared || !lineOwner ? null : await provenOwnerLogin(a.installationId, repoKey, lineOwner);
   if (!signedIn && !owner) return { ...refused(DEPLOY_LINES.notYours), agent_note: OWNER_PROOF_NOTE };
   const wallet = a.builderWallet.toLowerCase();
+  // Final fix wave F1: the row names the starter only for its exact bytecode (as the deployed event does).
+  const exactStarter =
+    a.starter && a.starter.bytecode_hash !== null && keccak256(a.input.bytecode) === a.starter.bytecode_hash.toLowerCase() ? a.starter.id : null;
   // Fix round 1 (I6): the builder is their verified login, else their installation.
   const who = (a.login ? a.login : a.shared ? a.repoKey : `installation:${a.installationId}`).toLowerCase();
   try {
@@ -550,9 +553,9 @@ export async function deployForBuilder(
       const [blocked] = await tx`SELECT 1 FROM contract_deploys WHERE builder_key = ${who} AND blocked LIMIT 1`;
       if (blocked) return 'blocked' as const;
       const [row] = await tx<{ id: number }[]>`
-        INSERT INTO contract_deploys (installation_id, login, builder_key, repo_key, chain, tx_hash, status, cost_micro_usd, owner_wallet, line_owner)
+        INSERT INTO contract_deploys (installation_id, login, builder_key, repo_key, chain, tx_hash, status, cost_micro_usd, owner_wallet, line_owner, starter)
         VALUES (${a.installationId}, ${a.login?.toLowerCase() ?? null}, ${who}, ${repoKey}, ${c}, '', 'sent', 0,
-          ${wallet}, ${owner})
+          ${wallet}, ${owner}, ${exactStarter})
         RETURNING id`;
       return row.id;
     });
@@ -753,20 +756,25 @@ export async function deployForBuilder(
  * its tx hash) is settled when the same call is made again; nothing is ever sent twice. Read-only:
  * the receipt, the code, owner() and hasRole and the nonce, read as deployForBuilder reads them, but
  * with no transferOwnership (the build's starter takes its owner in the constructor; a contract the
- * deployer still owns reads owner_ok false). The row is settled once (a concurrent settle wins) and
- * writes its `deployed` event. Null: no such row for this installation, repo and chain, or deploys
- * are off.
+ * deployer still owns reads owner_ok false). Only a row the build path sent for this starter's exact
+ * bytecode and this build wallet (F1). The row is settled once (a concurrent settle wins) and writes
+ * its `deployed` event. Null: no such row, or deploys are off. F3 (accepted): the cost stays at the
+ * reserved upper bound (over-counted, the safe side).
  */
 export async function settlePendingDeploy(
-  a: { installationId: number; repoKey: string; chain: DeployChainName; projectName: string; starterId: string | null },
+  a: { installationId: number; repoKey: string; chain: DeployChainName; projectName: string; starterId: string; wallet: string },
   deps: DeployDeps = {},
 ): Promise<DeployOutcome | null> {
   if (!deployEnabled()) return null;
   const repoKey = a.repoKey.toLowerCase();
   const c = a.chain;
-  const [row] = await sql()<{ id: number; tx_hash: string; owner_wallet: string | null; line_owner: string | null }[]>`
-    SELECT id, tx_hash, owner_wallet, line_owner FROM contract_deploys
+  // Final fix wave F1, F2: only a row this build path itself sent: the starter's exact bytecode
+  // (contract_deploys.starter, set at reservation) for the build's current wallet. Any other
+  // unconfirmed row is left alone (the normal path's day cap refuses a second deploy: fail closed).
+  const [row] = await sql()<{ id: number; tx_hash: string; owner_wallet: string; line_owner: string | null; starter: string }[]>`
+    SELECT id, tx_hash, owner_wallet, line_owner, starter FROM contract_deploys
     WHERE installation_id = ${a.installationId} AND repo_key = ${repoKey} AND chain = ${c} AND status = 'unknown' AND tx_hash <> ''
+      AND starter = ${a.starterId} AND owner_wallet = ${a.wallet.toLowerCase()}
     ORDER BY id DESC LIMIT 1`;
   if (!row) return null;
   const chain = (deps.chain ?? viemDeployChain)(c);
@@ -801,7 +809,7 @@ export async function settlePendingDeploy(
       const owner = await chain.read({ address, abi: OWNER_ABI, fn: 'owner' });
       const admin = await chain.read({ address, abi: HAS_ROLE_ABI, fn: 'hasRole', args: [DEFAULT_ADMIN_ROLE, deployer] });
       if (admin === true || sameAddr(owner, deployer)) ownerOk = false;
-      else if (owner !== null) ownerOk = row.owner_wallet !== null && sameAddr(owner, row.owner_wallet);
+      else if (owner !== null) ownerOk = sameAddr(owner, row.owner_wallet);
       else ownerOk = admin !== null && admin !== false ? false : null;
     } catch (err) {
       console.error('[deploy] settle owner probe', errName(err));
@@ -827,13 +835,13 @@ export async function settlePendingDeploy(
         repo_key: repoKey,
         chain: c,
         proof_tx: hash,
-        ...(row.owner_wallet && { wallet: row.owner_wallet }),
+        wallet: row.owner_wallet,
         ...(who && { github_login: who.login, login_basis: who.basis }),
         detail: {
           address: lower,
           owner_ok: ownerOk,
           ...(block !== null && { block: Number(block) }),
-          ...(a.starterId && { starter: a.starterId }),
+          starter: row.starter, // the row's own label, set only on the exact bytecode (F1)
           ...(differs && { code_differs: true }),
           settled_later: true,
         },
