@@ -34,6 +34,10 @@ const LOGIN_COLUMNS: [table: string, column: string][] = [
   ['github_verifications', 'login'],
   ['github_verify_nonces', 'login'],
   ['github_users', 'login'],
+  // v2.12: the builder score's profile (proven login, X handle, fallback handle: a login or a short wallet).
+  ['builder_profiles', 'github_login'],
+  ['builder_profiles', 'x_handle'],
+  ['builder_profiles', 'fallback_handle'],
   ['builder_program_status', 'login'],
   ['builder_repo_facts', 'login'],
   ['token_declines', 'login'],
@@ -63,9 +67,6 @@ const WALLET_COLUMNS: [table: string, column: string][] = [
   ['bonus_sweeps', 'to_wallet'],
   ['sponsor_verifications', 'wallet'],
   ['sponsor_campaigns', 'sponsor_wallet'],
-  // v2.12: the builder score's profile (the proven login, the X handle).
-  ['builder_profiles', 'github_login'],
-  ['builder_profiles', 'x_handle'],
 ];
 /** text[] columns that can hold the wallet. */
 const WALLET_ARRAYS: [string, string][] = [

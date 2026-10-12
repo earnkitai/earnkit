@@ -174,3 +174,15 @@ test('12.3 owner-run only: no package script, predeploy, Railway config, cron or
   assert.match(src, /set_config\('earnkit\.events_redact', 'on:' \|\| txid_current\(\), true\)/);
   assert.match(src, /begin\('read only'/, 'the dry run is a read-only transaction');
 });
+
+test('12.3 v2.12: a builder_profiles row naming the login is counted for --login', dbTest, async () => {
+  const t = tag();
+  const login = `bp-${t}`.toLowerCase().slice(0, 38);
+  const id = 2_100_000_000 + Math.floor(Math.random() * 40_000_000);
+  await sql()`INSERT INTO builder_profiles (builder_id, slug, github_login, x_handle, fallback_handle)
+    VALUES (${id}, ${`s-${t}`.toLowerCase()}, ${login}, ${login.replace(/-/g, '_').slice(0, 15)}, ${login})`;
+  const r = run('--login', login);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /\n  builder_profiles\.github_login: 1\n/);
+  assert.match(r.out, /\n  builder_profiles\.fallback_handle: 1\n/);
+});

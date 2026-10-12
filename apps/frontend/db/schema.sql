@@ -1163,7 +1163,7 @@ CREATE TABLE IF NOT EXISTS discovery_queue (
   done_at    timestamptz,
   attempts   integer NOT NULL DEFAULT 0
 );
--- Same append-only rule as builder_events, with no redaction door (nothing personal is stored raw).
+-- Same append-only rule as builder_events, with no redaction door (readings hold public signals only; the profile and source tables, which name a login, handle or repo, are mutable and listed by scripts/events-redact.mts).
 CREATE OR REPLACE FUNCTION v212_append_only() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   RAISE EXCEPTION '% is append-only (% refused)', TG_TABLE_NAME, TG_OP USING ERRCODE = 'insufficient_privilege';
