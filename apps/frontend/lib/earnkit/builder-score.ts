@@ -2,6 +2,7 @@ import { countProject, moneyOf, ringWeights, type ActorFacts, type Touch } from 
 import { sql } from './db';
 import { discover, type LoginOf } from './discovery';
 import { noteEvent } from './events';
+import { clearXHandle } from './profiles';
 import { readParams, secretMatches } from './http';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
 import { FORMULA, computeScore, percentileOf, type Parts, type ProjectInput, type Scored } from './score';
@@ -374,7 +375,7 @@ export const scoresAdminKey = (secret = process.env.ADMIN_VETO_SECRET) => vetoKe
 const isDay = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`)) && new Date(`${s}T00:00:00Z`).toISOString().slice(0, 10) === s;
 
 /**
- * POST /api/admin/scores (form: key, builder, day): releases a held day (a score_releases row,
+ * POST /api/admin/scores (form: key, builder, day, or action=clear_x and builder): releases a held day (a score_releases row,
  * never an UPDATE of builder_scores). Only a held day can be released; the profile stays held while
  * a newer held day waits. Rate limited per IP; a wrong key is a 404; otherwise back to the page (303).
  */
@@ -391,7 +392,11 @@ export async function scoresPost(request: Request, deps: { limit?: (ip: string) 
   if (expected === null || !secretMatches(key, expected)) return new Response('Not found', { status: 404 });
   const id = Number(form.get('builder'));
   const day = form.get('day') ?? '';
-  if (Number.isInteger(id) && id > 0 && id <= 2_147_483_647 && isDay(day)) {
+  const valid = Number.isInteger(id) && id > 0 && id <= 2_147_483_647;
+  // v2.12 T7 review: "Clear X handle" (a self-declared handle in conflict, or one the owner rules out).
+  if (form.get('action') === 'clear_x') {
+    if (valid) await clearXHandle(id, 'owner');
+  } else if (valid && isDay(day)) {
     const released = await sql()`
       INSERT INTO score_releases (builder_id, day)
       SELECT ${id}, ${day}::date WHERE EXISTS (SELECT 1 FROM builder_scores WHERE builder_id = ${id} AND day = ${day}::date AND held)

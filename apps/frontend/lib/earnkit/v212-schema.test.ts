@@ -10,7 +10,7 @@ after(async () => {
 });
 
 const V212_EVENTS = ['source_proposed', 'source_verified', 'source_rejected', 'reading_taken', 'score_computed', 'score_held',
-  'profile_empty', 'profile_hidden', 'profile_shown', 'card_offered', 'x_added', 'card_shared', 'score_viewed'];
+  'profile_empty', 'profile_hidden', 'profile_shown', 'card_offered', 'x_added', 'card_shared', 'score_viewed', 'x_cleared'];
 // A fresh person key per run: builder_scores is append-only and builder_profiles keys on it, so a
 // fixed key would make every later run of this file fail (below every other v2.12 test's range).
 const freshId = () => 2_000_000_000 + Math.floor(Math.random() * 90_000_000);

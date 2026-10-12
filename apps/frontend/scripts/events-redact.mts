@@ -38,6 +38,7 @@ const LOGIN_COLUMNS: [table: string, column: string][] = [
   ['builder_profiles', 'github_login'],
   ['builder_profiles', 'x_handle'],
   ['builder_profiles', 'fallback_handle'],
+  ['x_handle_conflicts', 'handle'],
   ['builder_program_status', 'login'],
   ['builder_repo_facts', 'login'],
   ['token_declines', 'login'],

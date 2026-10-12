@@ -1190,6 +1190,17 @@ ALTER TABLE builder_events DROP CONSTRAINT IF EXISTS builder_events_type_check;
 ALTER TABLE builder_events ADD CONSTRAINT builder_events_type_check CHECK (type IN (
   'built','deployed','hosted','entered','submitted','won','lost','usage_check',
   'source_proposed','source_verified','source_rejected','reading_taken','score_computed','score_held',
-  'profile_empty','profile_hidden','profile_shown','card_offered','x_added','card_shared','score_viewed'));
+  'profile_empty','profile_hidden','profile_shown','card_offered','x_added','card_shared','score_viewed','x_cleared'));
+-- v2.12 T7 review: the consent line is marked shown as the reply goes out (shown once, never lost).
+ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS consent_shown_at timestamptz;
+-- v2.12 T7 review: an X handle claim refused because another profile shows it (GitHub's
+-- twitter_username is self-declared); open while the holder still shows it, for the owner.
+CREATE TABLE IF NOT EXISTS x_handle_conflicts (
+  handle   text NOT NULL,                       -- lowercase
+  holder   integer NOT NULL,
+  claimant integer NOT NULL,
+  at       timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (handle, holder, claimant)
+);
 -- v2.12 spec 9: programs an agent can't complete (programs:sync derives it; the file may override).
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS agent_completable boolean NOT NULL DEFAULT true;

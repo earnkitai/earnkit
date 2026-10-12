@@ -20,7 +20,7 @@ import {
   notReadyTokenNote,
   tokenRow,
 } from './entry-text';
-import { CONSENT_LINE, X_NOT_LISTED_NOTE } from './profiles';
+import { CONSENT_LINE, HIDDEN_LINE, NO_PROFILE_LINE, SHARED_PROFILE_NOTE, SHOWN_LINE, X_NOT_LISTED_NOTE, X_SET_LINE, X_TAKEN_NOTE } from './profiles';
 import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TELL_DESCRIPTION, TELL_DESCRIPTION_SCORE, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { bonusLine, presentFirstMessage, skippedLine, submitStepLine, type Card, type FirstMessage } from './present';
 import { SKIP_REASONS } from './match-projects';
@@ -1159,6 +1159,12 @@ const agentFacing: [string, string][] = [
   ['TELL_DESCRIPTION_SCORE', TELL_DESCRIPTION_SCORE],
   ['CONSENT_LINE', CONSENT_LINE('lee')],
   ['X_NOT_LISTED_NOTE', X_NOT_LISTED_NOTE],
+  ['X_TAKEN_NOTE', X_TAKEN_NOTE],
+  ['SHARED_PROFILE_NOTE', SHARED_PROFILE_NOTE],
+  ['HIDDEN_LINE', HIDDEN_LINE],
+  ['SHOWN_LINE', SHOWN_LINE('lee')],
+  ['NO_PROFILE_LINE', NO_PROFILE_LINE],
+  ['X_SET_LINE', X_SET_LINE('lee')],
   ['STORAGE_NOTE', STORAGE_NOTE],
   ['UPLOAD_NOTE', UPLOAD_NOTE],
   ['HOST_SIGN_IN_NOTE', HOST_SIGN_IN_NOTE],

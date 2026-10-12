@@ -5608,3 +5608,24 @@ test('7.8b v2.12 flag off: find has no consent line and makes no profile; tell i
   await assert.rejects(tools.tell({ profile: 'hide' }, ctx), /Pass at least one/);
   await assert.rejects(tools.tell({}, ctx), /Pass at least one/);
 });
+
+test('7.8c v2.12: a find that failed after the profile was made still shows the consent line next time, once; a shared client\'s profile asks get an agent note', dbTest, async () => {
+  process.env.EARNKIT_BUILDER_SCORE = 'on';
+  try {
+    const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t7-lost-${process.pid}-${Date.now()}`}) RETURNING id`;
+    const ctx = { installationId: id };
+    // The first find made the profile, then threw before its reply (simulated): the line was never shown.
+    const { ensureProfile } = await import('./profiles');
+    await ensureProfile(id, new Date());
+    const one = (await tools.find({}, ctx)) as { show_to_builder: string };
+    assert.match(one.show_to_builder.split('\n').at(-1)!, /Say hide anytime\.$/);
+    const two = (await tools.find({}, ctx)) as { show_to_builder: string };
+    assert.doesNotMatch(two.show_to_builder, /Say hide anytime/);
+    const [{ id: shared }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, shared_client) VALUES (${`t7-shared-${process.pid}-${Date.now()}`}, true) RETURNING id`;
+    const r = (await tools.tell({ profile: 'hide' }, { installationId: shared, sharedClient: true })) as { show_to_builder?: string; agent_note?: string };
+    assert.equal(r.show_to_builder ?? '', '');
+    assert.match(r.agent_note ?? '', /serves many builders/);
+  } finally {
+    delete process.env.EARNKIT_BUILDER_SCORE;
+  }
+});

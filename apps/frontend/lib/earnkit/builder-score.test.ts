@@ -634,3 +634,49 @@ test('6.26 (T7) percentiles count only people with a profile: a merged-away id s
   const ranks = await sql()<{ builder_id: number }[]>`SELECT builder_id FROM builder_ranks WHERE builder_id IN (${kept}, ${gone})`;
   assert.deepEqual(ranks.map((r) => r.builder_id), [kept]);
 });
+
+test('6.27 (T7 review) discovery replaces the prefill from the latest GitHub read; a shown handle GitHub no longer lists is cleared', dbTest, async () => {
+  const id = T + 17;
+  const L = `rf${T}`;
+  await sql()`INSERT INTO builder_profiles (builder_id, slug, github_login, fallback_handle, x_handle, twitter_prefill)
+    VALUES (${id}, ${`rfx${T % 100000}`}, ${L}, ${L}, ${`Rfx${T % 100000}`}, ${`Rfx${T % 100000}`})`;
+  await sql()`INSERT INTO discovery_queue (builder_id, reason) VALUES (${id}, 'signin')`;
+  const reader = fakeReader({
+    [`/users/${L}`]: { twitter_username: 'someone_else' },
+    [`/users/${L}/repos?type=owner&per_page=100`]: [],
+    [`/users/${L}/orgs`]: [],
+    [`/search/issues?q=${encodeURIComponent(`type:pr author:${L} is:merged -user:${L}`)}&per_page=100`]: { items: [] },
+  });
+  process.env.EARNKIT_EVENT_LOG = 'on';
+  try {
+    await discover(NOW, { deadline: Date.now() + 30_000, reader, login: async () => ({ login: L, basis: 'signin' }), only: [id] });
+  } finally {
+    delete process.env.EARNKIT_EVENT_LOG;
+  }
+  const [p] = await sql()<{ x_handle: string | null; twitter_prefill: string | null; slug: string }[]>`
+    SELECT x_handle, twitter_prefill, slug FROM builder_profiles WHERE builder_id = ${id}`;
+  assert.deepEqual(p, { x_handle: null, twitter_prefill: 'someone_else', slug: L });
+  const [h] = await sql()<{ builder_id: number }[]>`SELECT builder_id FROM profile_slug_history WHERE old_slug = ${`rfx${T % 100000}`}`;
+  assert.equal(h.builder_id, id, 'the X slug stays theirs');
+  const [ev] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_events WHERE type = 'x_cleared' AND installation_id = ${id} AND detail->>'by' = 'github'`;
+  assert.equal(ev.n, 1);
+});
+
+test('6.28 (T7 review) the owner\'s "Clear X handle": a wrong key is a 404; the right one clears the handle (303)', dbTest, async () => {
+  const id = T + 18;
+  await sql()`INSERT INTO builder_profiles (builder_id, slug, github_login, fallback_handle, x_handle)
+    VALUES (${id}, ${`cx${T % 100000}`}, ${`cl${T}`}, ${`cl${T}`}, ${`Cx${T % 100000}`})`;
+  process.env.ADMIN_VETO_SECRET = 'k'.repeat(40);
+  try {
+    const key = scoresAdminKey()!;
+    const form = (k: string) => new Request('https://earnkit.com/api/admin/scores', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ key: k, action: 'clear_x', builder: String(id) }) });
+    assert.equal((await scoresPost(form('wrong'), { limit: async () => {} })).status, 404);
+    const [still] = await sql()<{ x_handle: string | null }[]>`SELECT x_handle FROM builder_profiles WHERE builder_id = ${id}`;
+    assert.ok(still.x_handle);
+    assert.equal((await scoresPost(form(key), { limit: async () => {} })).status, 303);
+  } finally {
+    delete process.env.ADMIN_VETO_SECRET;
+  }
+  const [p] = await sql()<{ x_handle: string | null; slug: string }[]>`SELECT x_handle, slug FROM builder_profiles WHERE builder_id = ${id}`;
+  assert.deepEqual(p, { x_handle: null, slug: `cl${T}` });
+});

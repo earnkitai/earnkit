@@ -10,6 +10,7 @@ import { cleanDeploys, expireSites, sitesInReview } from './hosting';
 import { bearerMatches, json } from './http';
 import { builderScoreEnabled } from './builder-score-flag';
 import { heldPeople, runScoreSteps, scoreSliceEnd, type ScoreCronDeps } from './builder-score';
+import { xHandleConflicts } from './profiles';
 import {
   NOT_MAINNET,
   NO_PAYOUT_KEY,
@@ -404,6 +405,8 @@ export async function runCron(
       builderScore = await runScoreSteps(now, scoreSliceEnd(Date.now(), deadline), deps.builderScore);
       // Every current hold, not only this run's: a hold waits until the owner releases it.
       for (const id of await heldPeople(deps.builderScore?.only)) needs_owner_extra.push(`score-hold:${id}${QUIET_OWNER}`);
+      // v2.12 T7 review: an X handle two people's GitHub profiles list (cleared at /admin/scores).
+      for (const c of await xHandleConflicts(deps.builderScore?.only)) needs_owner_extra.push(`${c.line}${QUIET_OWNER}`);
     } catch (err) {
       console.error('[cron] builder score', err instanceof Error ? err.name : 'error');
       builderScore = { step: 'error', note: STEP_FAILED };

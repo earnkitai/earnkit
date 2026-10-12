@@ -2,7 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
 import {
-  CONSENT_LINE, X_NOT_LISTED_NOTE, baseSlug, ensureProfile, mergeProfiles, nextFreeSlug, profileOf, randomSlug,
+  CONSENT_LINE, X_NOT_LISTED_NOTE, X_TAKEN_NOTE, baseSlug, clearXHandle, consentOnce, xHandleConflicts, ensureProfile, mergeProfiles, nextFreeSlug, profileOf, randomSlug,
   resolveSlug, setFallback, setHidden, setXHandle, shownName, walletSlug,
 } from './profiles';
 
@@ -16,6 +16,7 @@ after(async () => {
   await sql()`DELETE FROM builder_ranks WHERE builder_id BETWEEN ${T} AND ${T + 19}`;
   await sql()`DELETE FROM builder_profiles WHERE builder_id BETWEEN ${T} AND ${T + 19}`;
   await sql()`DELETE FROM profile_slug_history WHERE builder_id BETWEEN ${T} AND ${T + 19}`;
+  await sql()`DELETE FROM x_handle_conflicts WHERE holder BETWEEN ${T} AND ${T + 19} OR claimant BETWEEN ${T} AND ${T + 19}`;
   await sql().end();
 });
 const fresh = async (...ids: number[]) => {
@@ -23,9 +24,10 @@ const fresh = async (...ids: number[]) => {
   await sql()`DELETE FROM profile_slug_history WHERE builder_id IN ${sql()(ids)}`;
   await sql()`DELETE FROM discovery_queue WHERE builder_id IN ${sql()(ids)}`;
   await sql()`DELETE FROM builder_ranks WHERE builder_id IN ${sql()(ids)}`;
+  await sql()`DELETE FROM x_handle_conflicts WHERE holder IN ${sql()(ids)} OR claimant IN ${sql()(ids)}`;
 };
 /** A wallet whose short slug is unique to this run: 0x<4 hex of T> ... <last4>. */
-const runWallet = (last4: string) => `0x${(T % 65536).toString(16).padStart(4, '0')}${'0'.repeat(32)}${last4}`;
+const runWallet = (last4: string, mid = '0') => `0x${(T % 65536).toString(16).padStart(4, '0')}${mid.repeat(32)}${last4}`;
 
 test('7.1 slug rules: X handle lowercased, else the proven login, else the short wallet, else random', () => {
   assert.equal(baseSlug({ x_handle: 'Lee_Builds', github_login: 'lee' }), 'lee_builds');
@@ -65,7 +67,7 @@ test('7.3 an X handle changes the slug; the old one redirects forever and is nev
   assert.deepEqual(await resolveSlug(`bob${T}`), { builderId: b, redirect: now });
   // C's own wallet has the same short slug as B's old one: C gets the next free one.
   await ensureProfile(c, new Date());
-  await setFallback(c, { wallet: runWallet('1234').replace(/0{32}/, '1'.repeat(32)) });
+  await setFallback(c, { wallet: runWallet('1234', '1') });
   assert.equal((await profileOf(c))!.slug, `${first}-2`);
   // One login, one person: C can't take B's login.
   await setFallback(c, { github_login: `BOB${T}` });
@@ -194,24 +196,79 @@ test('7.13 no impersonation: an X handle another person already shows is refused
   }
   assert.ok((await setXHandle(a, 'yes')).ok);
   const before = (await profileOf(b))!;
-  assert.deepEqual(await setXHandle(b, handle.toLowerCase()), { ok: false, agent_note: X_NOT_LISTED_NOTE });
+  assert.deepEqual(await setXHandle(b, handle.toLowerCase()), { ok: false, agent_note: X_TAKEN_NOTE }, 'a distinct note: adding it on GitHub would not help');
   const after = (await profileOf(b))!;
   assert.deepEqual([after.x_handle, after.slug], [null, before.slug]);
+  // The owner sees the conflict (needs_owner and /admin/scores) while A still shows the handle.
+  assert.deepEqual((await xHandleConflicts([a, b])).map((c) => c.line), [`x_handle conflict: @${handle.toLowerCase()} (builder ids ${a}, ${b})`]);
+});
+
+test('7.15 the owner clears a held handle: the slug falls back to the login, the X slug still redirects, an event, the conflict closes; B can then claim it', dbTest, async () => {
+  const [a, b] = [T + 13, T + 14]; // from 7.13
+  const xSlug = (await profileOf(a))!.slug;
+  process.env.EARNKIT_EVENT_LOG = 'on';
+  try {
+    assert.equal(await clearXHandle(a, 'owner'), true);
+    assert.equal(await clearXHandle(a, 'owner'), false, 'nothing left to clear');
+  } finally {
+    delete process.env.EARNKIT_EVENT_LOG;
+  }
+  const p = (await profileOf(a))!;
+  assert.deepEqual([p.x_handle, p.slug], [null, `twa${T}`]);
+  assert.deepEqual(await resolveSlug(xSlug), { builderId: a, redirect: `twa${T}` }, 'the old X slug stays theirs');
+  const [ev] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_events WHERE type = 'x_cleared' AND installation_id = ${a} AND detail->>'by' = 'owner'`;
+  assert.equal(ev.n, 1);
+  assert.deepEqual(await xHandleConflicts([a, b]), []);
+  const r = await setXHandle(b, 'yes');
+  assert.ok(r.ok);
+  assert.equal(r.slug, `twin${T % 100000}-2`, 'never the X slug A\'s history keeps');
+});
+
+test('7.16 with no login, the first remembered wallet (earliest) names the person', dbTest, async () => {
+  const [row] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`v212-t7-wallet-${T}-${Date.now()}`}) RETURNING id`;
+  const [early, late] = [runWallet('aaaa'), runWallet('bbbb')];
+  await sql()`INSERT INTO installation_wallets (installation_id, wallet, first_seen_at) VALUES
+    (${row.id}, ${late}, now()), (${row.id}, ${early}, now() - interval '1 day')`;
+  await ensureProfile(row.id, new Date());
+  await setFallback(row.id, { wallet: late });
+  const p = (await profileOf(row.id))!;
+  assert.deepEqual([p.slug, p.fallback_handle], [walletSlug(early), `${early.slice(0, 6)}…${early.slice(-4)}`]);
+  await sql()`DELETE FROM builder_profiles WHERE builder_id = ${row.id}`;
+  await sql()`DELETE FROM profile_slug_history WHERE builder_id = ${row.id}`;
+});
+
+test('7.17 merge: a prefill goes only with the login it came from', dbTest, async () => {
+  const [root, other] = [T + 17, T + 18];
+  await fresh(root, other);
+  await ensureProfile(root, new Date());
+  await setFallback(root, { github_login: `pr${T}` });
+  await ensureProfile(other, new Date());
+  await sql()`UPDATE builder_profiles SET twitter_prefill = 'stray' WHERE builder_id = ${other}`;
+  await sql().begin((tx) => mergeProfiles(tx, root, other));
+  const p = (await profileOf(root))!;
+  assert.deepEqual([p.github_login, p.twitter_prefill], [`pr${T}`, null]);
+});
+
+test('7.18 the consent line: once, marked as the reply goes out', dbTest, async () => {
+  await fresh(T + 19);
+  const { profile } = (await ensureProfile(T + 19, new Date()))!;
+  assert.equal(await consentOnce(T + 19), CONSENT_LINE(profile.slug));
+  assert.equal(await consentOnce(T + 19), null);
 });
 
 test('7.14 a new random slug is never someone else\'s old slug (it would take over their redirect)', dbTest, async () => {
   const [old, next] = [T + 15, T + 16];
   await fresh(old, next);
-  const seq = [...'abcdefgh', ...'abcdefgh', ...'kkkkkkkk'];
   const pick = 'abcdefghijkmnpqrstuvwxyz23456789';
-  const oldSlug = `b-abcdefgh`;
-  await sql()`DELETE FROM profile_slug_history WHERE old_slug = ${oldSlug}`;
-  await sql()`DELETE FROM builder_profiles WHERE slug IN (${oldSlug}, 'b-kkkkkkkk')`;
-  await sql()`INSERT INTO profile_slug_history (old_slug, builder_id) VALUES (${oldSlug}, ${old})`;
+  // Slugs only this run makes: two letters from T, then fixed tails.
+  const head = `${pick[T % 32]}${pick[Math.floor(T / 32) % 32]}${pick[Math.floor(T / 1024) % 32]}`;
+  const taken = `${head}aaaaa`;
+  const free = `${head}zzzzz`;
+  await sql()`INSERT INTO profile_slug_history (old_slug, builder_id) VALUES (${`b-${taken}`}, ${old})`;
   await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${old}, ${`now${old}`})`;
+  const seq = [...taken, ...taken, ...free];
   let i = 0;
   const made = (await ensureProfile(next, new Date(), { rand: () => pick.indexOf(seq[i++]) }))!;
-  assert.equal(made.profile.slug, 'b-kkkkkkkk');
-  assert.deepEqual(await resolveSlug(oldSlug), { builderId: old, redirect: `now${old}` });
-  await sql()`DELETE FROM profile_slug_history WHERE old_slug = ${oldSlug}`;
+  assert.equal(made.profile.slug, `b-${free}`);
+  assert.deepEqual(await resolveSlug(`b-${taken}`), { builderId: old, redirect: `now${old}` });
 });

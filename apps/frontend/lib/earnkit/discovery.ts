@@ -19,7 +19,7 @@ import { noteEvent } from './events';
 import { loginBasisFor, repoEverDerived, type LoginProof } from './github-verify';
 import { ScoreDeadline, beforeDeadline } from './campaigns';
 import { fetchLinePusher } from './ownership';
-import { setFallback } from './profiles';
+import { clearXHandle, setFallback } from './profiles';
 import { GitHubBudgetStop, isBudgetStop, readContractOrigin, readMergedPrs, soft, type ReaderDeps, type RepoSignals } from './source-readers';
 import { claimContract, proposeSource, rejectSource, repoOwned, siteOwnedByText, verifySource, type Proof } from './sources';
 import { proofLineOwner } from './token-gate';
@@ -288,8 +288,14 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
     const clues = githubProfileClues(user ?? {});
     verdicts.unshift(async () => {
       await setFallback(root, { github_login: L });
-      await db`UPDATE builder_profiles SET twitter_prefill = COALESCE(${clues.twitter}::text, twitter_prefill), updated_at = now()
-        WHERE builder_id = ${root} AND github_login = ${L}`;
+      // The latest GitHub read replaces the prefill (twitter_username is self-declared, so it can be
+      // withdrawn); a shown X handle GitHub no longer lists is cleared (the slug falls back, the old
+      // one redirects).
+      if (!user || typeof user !== 'object') return; // no profile read: nothing to refresh
+      const [p] = await db<{ x_handle: string | null }[]>`
+        UPDATE builder_profiles SET twitter_prefill = ${clues.twitter ?? null}, updated_at = now()
+        WHERE builder_id = ${root} AND github_login = ${L} RETURNING x_handle`;
+      if (p?.x_handle && p.x_handle.toLowerCase() !== clues.twitter?.toLowerCase()) await clearXHandle(root, 'github');
     });
     // Clue 2: own repos, and org repos where they are the top contributor.
     const candidates = new Map<string, { meta: ListedRepo; top: boolean }>();

@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { publicScore, scoresAdminKey } from '@/lib/earnkit/builder-score';
 import { sql } from '@/lib/earnkit/db';
 import { oneParam, secretMatches } from '@/lib/earnkit/http';
+import { xHandleConflicts } from '@/lib/earnkit/profiles';
 import { RateLimitError, clientIp, enforce } from '@/lib/earnkit/rate-limit';
 import type { Parts } from '@/lib/earnkit/score';
 import { VETO_ERRORS } from '@/lib/earnkit/veto';
@@ -46,6 +47,8 @@ export default async function ScoresReviewPage({ searchParams }: { searchParams:
       ORDER BY s.day DESC LIMIT 1) s ON true
     WHERE p.held ORDER BY s.day, p.builder_id`;
   const shown = await Promise.all(held.map((h) => publicScore(h.builder_id)));
+  // v2.12 T7 review: X handles two people's GitHub profiles list (self-declared): clear the holder's.
+  const conflicts = await xHandleConflicts();
   return (
     <div className="w-full pt-4">
       <section className="rounded-[40px] bg-ek-navy-deep px-6 py-12 font-funnel-sans text-ek-blue-light md:px-16">
@@ -88,6 +91,24 @@ export default async function ScoresReviewPage({ searchParams }: { searchParams:
             ))}
           </tbody>
         </table>
+        <h2 className="mt-10 font-funnel-display text-2xl text-ek-white">X handle conflicts</h2>
+        <p className="mt-2 text-sm">
+          Another person&apos;s GitHub profile lists the same X handle. Clearing it takes the handle off the holder&apos;s profile; their old link still redirects to them.
+        </p>
+        {conflicts.length === 0 ? <p className="mt-6 text-sm text-ek-white">No conflicts.</p> : null}
+        <ul className="mt-6 text-sm">
+          {conflicts.map((c) => (
+            <li key={`${c.handle}:${c.holder}:${c.claimant}`} className="flex gap-4 border-t border-ek-navy py-2">
+              <span>{c.line}</span>
+              <form method="post" action="/api/admin/scores">
+                <input type="hidden" name="key" value={key} />
+                <input type="hidden" name="action" value="clear_x" />
+                <input type="hidden" name="builder" value={c.holder} />
+                <button type="submit" className="underline">Clear X handle</button>
+              </form>
+            </li>
+          ))}
+        </ul>
       </section>
     </div>
   );

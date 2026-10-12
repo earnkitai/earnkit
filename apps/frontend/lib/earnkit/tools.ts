@@ -142,7 +142,7 @@ import { LIVE_FAILED_LINE, addressesFrom, contractMissingLine, entryVerified, li
 import { noteEvent } from './events';
 import { builderScoreEnabled } from './builder-score-flag';
 import { enqueueDiscovery, localGitInput, noteLocalGit } from './discovery';
-import { CONSENT_LINE, PROFILE_URL, ensureProfile, setHidden, setXHandle } from './profiles';
+import { SHARED_PROFILE_NOTE, X_SET_LINE, consentOnce, ensureProfile, setFallback, setHidden, setXHandle } from './profiles';
 import { sql } from './db';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
 import { answerPickup, offerPickup, type PickupDeps } from './identity';
@@ -1096,14 +1096,16 @@ export const handlers = {
           })
         : null;
     if (wallet) await rememberWallets(ctx.installationId, [wallet]);
-    // v2.12 spec 1, 3: the public profile (made on the first find, with the one-time consent line)
-    // and its clues. Never fails the tool and never waits on a read. A shared group gets none (R2).
-    let consent = null as string | null;
+    // v2.12 spec 1, 3: the public profile (made on the first find; named by the first remembered
+    // wallet until a login is proven) and its clues. Never fails the tool and never waits on a read.
+    // A shared group gets none (R2).
+    let profiled = false;
     if (builderScoreEnabled() && !ctx.sharedClient)
       await (async () => {
         const made = await ensureProfile(ctx.installationId, new Date());
         if (!made) return;
-        consent = made.created ? CONSENT_LINE(made.profile.slug) : null;
+        profiled = true;
+        if (made.created || wallet) await setFallback(ctx.installationId, {});
         await noteLocalGit(ctx.installationId, local_git);
         await enqueueDiscovery(ctx.installationId, 'first_find');
       })().catch((err: unknown) => console.error('[list_programs] profile', err instanceof Error ? err.name : 'error'));
@@ -1325,7 +1327,14 @@ export const handlers = {
       ),
     ).catch((err: unknown) => console.error('[list_programs] match shown', err instanceof Error ? err.name : 'error'));
 
-    // v2.12 spec 1: the consent line ends the first find's reply, once.
+    // v2.12 spec 1: the consent line ends the reply once, marked shown only now, as the reply goes
+    // out (a find that failed after the profile was made shows it next time). Never fails the tool.
+    const consent = profiled
+      ? await consentOnce(ctx.installationId).catch((err: unknown) => {
+          console.error('[list_programs] consent', err instanceof Error ? err.name : 'error');
+          return null;
+        })
+      : null;
     const shown = consent ? `${show_to_builder}\n${consent}` : show_to_builder;
     return {
       show_to_builder: pickup ? [pickup.question, shown].filter(Boolean).join('\n\n') : shown,
@@ -2996,7 +3005,7 @@ type Reply = Record<string, unknown>;
 /** v2.12 spec 7: the X handle reply. Refused (not on their proven GitHub profile): nothing shown, an agent note. */
 async function xHandleReply(builderId: number, given: string): Promise<Reply> {
   const r = await setXHandle(builderId, given);
-  return r.ok ? { show_to_builder: `Your profile is now ${PROFILE_URL(r.slug)}.` } : { show_to_builder: '', agent_note: r.agent_note };
+  return r.ok ? { show_to_builder: X_SET_LINE(r.slug) } : { show_to_builder: '', agent_note: r.agent_note };
 }
 const defined = (o: Reply): Reply => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
 
@@ -3285,7 +3294,9 @@ export const tools = {
     const statements = defined(rest);
     const replies: Reply[] = [];
     // v2.12 spec 8: "hide" and "show"; spec 7: the X handle the builder confirmed. Flag off: ignored (v2.11).
-    if (builderScoreEnabled() && !ctx.sharedClient) {
+    if (builderScoreEnabled() && ctx.sharedClient && (profile || x_handle !== undefined))
+      replies.push({ show_to_builder: '', agent_note: SHARED_PROFILE_NOTE });
+    else if (builderScoreEnabled()) {
       if (profile) replies.push({ show_to_builder: await setHidden(ctx.installationId, profile === 'hide') });
       if (x_handle !== undefined) replies.push(await xHandleReply(ctx.installationId, x_handle));
     }

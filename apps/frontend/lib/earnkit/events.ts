@@ -22,6 +22,8 @@ export const EVENT_TYPES = [
   // v2.12 spec 10: the builder score's steps.
   'source_proposed', 'source_verified', 'source_rejected', 'reading_taken', 'score_computed', 'score_held',
   'profile_empty', 'profile_hidden', 'profile_shown', 'card_offered', 'x_added', 'card_shared', 'score_viewed',
+  // v2.12 T7 review: a shown X handle released (GitHub no longer lists it, or the owner cleared it).
+  'x_cleared',
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 export const LOGIN_BASES = ['signin', 'app', 'proof_line', 'repo_owner'] as const;

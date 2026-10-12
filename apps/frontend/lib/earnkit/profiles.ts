@@ -17,6 +17,17 @@ export const X_HANDLE = /^[A-Za-z0-9_]{1,15}$/;
 export const X_NOT_LISTED_NOTE =
   "EarnKit shows only the X handle the builder's GitHub profile lists. Ask them to add it there (GitHub, Settings, Profile, Social accounts), then pass x_handle again. Don't show this to the builder.";
 
+/** A refused claim: another profile already shows this handle (the owner sees the conflict). */
+export const X_TAKEN_NOTE =
+  "That X handle is already on another EarnKit profile, so EarnKit can't show it here. Don't show this to the builder.";
+/** tell's profile or x_handle on an agent serving many builders: there is no one profile to change. */
+export const SHARED_PROFILE_NOTE =
+  "This agent serves many builders, so there is no public profile to change here. Don't show this to the builder.";
+export const HIDDEN_LINE = 'Your profile is hidden. Say show to list it again.';
+export const SHOWN_LINE = (slug: string) => `Your profile is public again: ${PROFILE_URL(slug)}`;
+export const NO_PROFILE_LINE = 'You have no profile yet.';
+export const X_SET_LINE = (slug: string) => `Your profile is now ${PROFILE_URL(slug)}.`;
+
 const ALPHABET = 'abcdefghijkmnpqrstuvwxyz23456789';
 const SLUG = /^[a-z0-9][a-z0-9_-]{0,40}$/;
 export const walletSlug = (w: string) => `0x${w.slice(2, 6)}${w.slice(-4)}`.toLowerCase();
@@ -69,10 +80,41 @@ async function moveSlugIn(tx: Db, builderId: number, slug: string) {
   await tx`UPDATE builder_profiles SET slug = ${slug}, updated_at = now() WHERE builder_id = ${builderId}`;
 }
 
-/** The slug the person's best name gives (X, else login, else wallet), unless an X handle already set it. */
-async function followName(db: Db, builderId: number, p: { x_handle: string | null; github_login: string | null; slug: string }, wallet?: string | null) {
+/** A random slug no one holds, live or in history. */
+async function freeRandomSlug(db: Db, rand?: (n: number) => number): Promise<string> {
+  for (let tries = 0; tries < 5; tries++) {
+    const slug = randomSlug(rand);
+    const [used] = await db`SELECT 1 FROM builder_profiles WHERE slug = ${slug} UNION ALL SELECT 1 FROM profile_slug_history WHERE old_slug = ${slug}`;
+    if (!used) return slug;
+  }
+  throw new Error('no free slug');
+}
+
+/** The person's first remembered wallet (earliest first seen, across their group), lowercase, or null. */
+async function firstWallet(db: Db, builderId: number): Promise<string | null> {
+  const [w] = await db<{ wallet: string }[]>`
+    SELECT lower(w.wallet) AS wallet FROM installation_wallets w JOIN installations i ON i.id = w.installation_id
+    WHERE COALESCE(i.builder_id, i.id) = ${builderId} ORDER BY w.first_seen_at, w.wallet LIMIT 1`;
+  return w?.wallet ?? null;
+}
+
+/**
+ * The slug the person's best name gives (X, else login, else wallet). `noName`: with none of them,
+ * move off a slug that was a name (an X handle cleared) to a fresh random one.
+ */
+async function followName(
+  db: Db,
+  builderId: number,
+  p: { x_handle: string | null; github_login: string | null; slug: string },
+  wallet?: string | null,
+  noName = false,
+) {
   const base = baseSlug({ x_handle: p.x_handle, github_login: p.github_login, wallet: p.github_login ? null : wallet ?? null });
-  if (!base || onBase(p.slug, base)) return;
+  if (!base) {
+    if (noName) await moveSlugIn(db, builderId, await freeRandomSlug(db));
+    return;
+  }
+  if (onBase(p.slug, base)) return;
   const slug = await freeSlug(base, builderId, db);
   if (slug) await moveSlugIn(db, builderId, slug);
 }
@@ -114,8 +156,9 @@ export async function setFallback(builderId: number, f: { github_login?: string;
       const [taken] = await tx`SELECT 1 FROM builder_profiles WHERE lower(github_login) = ${want} AND builder_id <> ${builderId}`;
       if (!taken) login = want;
     }
-    // Only the first proven wallet names the person (a later one changes nothing).
-    const wallet = !p.fallback_handle && f.wallet ? f.wallet.toLowerCase() : null;
+    // Without a login, the person's first remembered wallet names them (else the one given); once
+    // a wallet named them, a later one changes nothing.
+    const wallet = login || p.fallback_handle ? null : ((await firstWallet(tx, builderId)) ?? f.wallet?.toLowerCase() ?? null);
     const fallback = login ?? p.fallback_handle ?? (wallet ? shortWallet(wallet) : null);
     if (login !== p.github_login || fallback !== p.fallback_handle)
       await tx`UPDATE builder_profiles SET github_login = ${login}, fallback_handle = ${fallback}, updated_at = now() WHERE builder_id = ${builderId}`;
@@ -131,17 +174,24 @@ export async function setXHandle(builderId: number, given: string): Promise<{ ok
   const chosen = /^(yes|y|sure|ok)$/i.test(handle) ? prefill : handle;
   if (!p || !prefill || !chosen || !X_HANDLE.test(prefill) || chosen.toLowerCase() !== prefill.toLowerCase())
     return { ok: false, agent_note: X_NOT_LISTED_NOTE };
-  // One X handle, one person: a handle another profile already shows is refused (it would impersonate them).
+  // One X handle, one person: a handle another profile already shows is refused (it would
+  // impersonate them). GitHub's twitter_username is self-declared, so the owner is told (xHandleConflicts).
+  const h = prefill.toLowerCase();
   const slug = await sql().begin(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock(hashtext(${`x_handle:${prefill.toLowerCase()}`}))`;
-    const [held] = await tx`SELECT 1 FROM builder_profiles WHERE lower(x_handle) = ${prefill.toLowerCase()} AND builder_id <> ${builderId}`;
-    if (held) return null;
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${`x_handle:${h}`}))`;
+    const [held] = await tx<{ builder_id: number }[]>`SELECT builder_id FROM builder_profiles WHERE lower(x_handle) = ${h} AND builder_id <> ${builderId}`;
+    if (held) {
+      await tx`
+        INSERT INTO x_handle_conflicts (handle, holder, claimant) VALUES (${h}, ${held.builder_id}, ${builderId})
+        ON CONFLICT (handle, holder, claimant) DO UPDATE SET at = now()`;
+      return null;
+    }
     await tx`UPDATE builder_profiles SET x_handle = ${prefill}, updated_at = now() WHERE builder_id = ${builderId}`;
     const s = (await freeSlug(prefill.toLowerCase(), builderId, tx))!; // a handle is at most 15 characters
     await moveSlugIn(tx, builderId, s);
     return s;
   });
-  if (!slug) return { ok: false, agent_note: X_NOT_LISTED_NOTE };
+  if (!slug) return { ok: false, agent_note: X_TAKEN_NOTE };
   await noteEvent('x_added', () => ({ type: 'x_added', dedupe_key: `x_added:${builderId}:${prefill.toLowerCase()}`, installation_id: builderId, detail: { slug } }));
   return { ok: true, slug };
 }
@@ -149,10 +199,53 @@ export async function setXHandle(builderId: number, given: string): Promise<{ ok
 /** spec 8: "hide" and "show". The row stays; a hidden person still counts in percentiles. */
 export async function setHidden(builderId: number, hidden: boolean): Promise<string> {
   const [p] = await sql()<{ slug: string }[]>`UPDATE builder_profiles SET hidden = ${hidden}, updated_at = now() WHERE builder_id = ${builderId} RETURNING slug`;
-  if (!p) return 'You have no profile yet.';
+  if (!p) return NO_PROFILE_LINE;
   const type = hidden ? 'profile_hidden' : 'profile_shown';
   await noteEvent(type, () => ({ type, dedupe_key: `${type}:${builderId}:${Date.now()}`, installation_id: builderId }));
-  return hidden ? 'Your profile is hidden. Say show to list it again.' : `Your profile is public again: ${PROFILE_URL(p.slug)}`;
+  return hidden ? HIDDEN_LINE : SHOWN_LINE(p.slug);
+}
+
+/**
+ * Release path for a self-declared handle: GitHub no longer lists it (by 'github', from discovery)
+ * or the owner cleared it (by 'owner', app/admin/scores). The slug falls back by the normal rules;
+ * the X slug stays in history (it still redirects to this person). True when a handle was cleared.
+ */
+export async function clearXHandle(builderId: number, by: 'github' | 'owner'): Promise<boolean> {
+  const cleared = await sql().begin(async (tx) => {
+    const [p] = await tx<Profile[]>`SELECT ${tx(COLUMNS)} FROM builder_profiles WHERE builder_id = ${builderId} FOR UPDATE`;
+    if (!p?.x_handle) return null;
+    await tx`UPDATE builder_profiles SET x_handle = NULL, updated_at = now() WHERE builder_id = ${builderId}`;
+    await followName(tx, builderId, { x_handle: null, github_login: p.github_login, slug: p.slug }, p.github_login ? null : await firstWallet(tx, builderId), true);
+    return p.x_handle.toLowerCase();
+  });
+  if (!cleared) return false;
+  await noteEvent('x_cleared', () => ({
+    type: 'x_cleared', dedupe_key: `x_cleared:${builderId}:${cleared}:${Date.now()}`, installation_id: builderId, detail: { by },
+  }));
+  return true;
+}
+
+/**
+ * The owner's open X handle conflicts: a claim refused because another profile shows the handle,
+ * while that profile still does. One line each: 'x_handle conflict: @h (builder ids a, b)'.
+ */
+export async function xHandleConflicts(only?: number[]): Promise<{ handle: string; holder: number; claimant: number; line: string }[]> {
+  const rows = await sql()<{ handle: string; holder: number; claimant: number }[]>`
+    SELECT c.handle, c.holder, c.claimant FROM x_handle_conflicts c
+    JOIN builder_profiles p ON p.builder_id = c.holder AND lower(p.x_handle) = c.handle
+    ${only ? sql()`WHERE c.holder IN ${sql()(only.length ? only : [-1])} OR c.claimant IN ${sql()(only.length ? only : [-1])}` : sql()``}
+    ORDER BY c.at, c.handle, c.claimant`;
+  return rows.map((r) => ({ ...r, line: `x_handle conflict: @${r.handle} (builder ids ${r.holder}, ${r.claimant})` }));
+}
+
+/**
+ * spec 1: the consent line, once per person: marked shown as the reply goes out, so a find that
+ * failed after the profile was made still shows it on the next one. Null when already shown.
+ */
+export async function consentOnce(builderId: number): Promise<string | null> {
+  const [p] = await sql()<{ slug: string }[]>`
+    UPDATE builder_profiles SET consent_shown_at = now() WHERE builder_id = ${builderId} AND consent_shown_at IS NULL RETURNING slug`;
+  return p ? CONSENT_LINE(p.slug) : null;
 }
 
 /** A live slug, or an old one with its redirect; null for hidden, unknown or never-installed. */
@@ -181,9 +274,9 @@ export async function mergeProfiles(tx: postgres.TransactionSql, root: number, o
     UPDATE builder_sources s SET builder_id = ${root} WHERE builder_id = ${other}
       AND NOT EXISTS (SELECT 1 FROM builder_sources r WHERE r.builder_id = ${root} AND r.kind = s.kind AND r.ref = s.ref)`;
   await tx`UPDATE builder_sources SET state = 'rejected', reject_reason = 'merged' WHERE builder_id = ${other} AND state <> 'rejected'`;
-  type Row = Profile & { empty_checked_at: Date | null };
+  type Row = Profile & { empty_checked_at: Date | null; consent_shown_at: Date | null };
   const rows = await tx<Row[]>`
-    SELECT ${tx(COLUMNS)}, empty_checked_at FROM builder_profiles WHERE builder_id IN (${root}, ${other}) ORDER BY builder_id FOR UPDATE`;
+    SELECT ${tx(COLUMNS)}, empty_checked_at, consent_shown_at FROM builder_profiles WHERE builder_id IN (${root}, ${other}) ORDER BY builder_id FOR UPDATE`;
   const r = rows.find((x) => x.builder_id === root);
   const o = rows.find((x) => x.builder_id === other);
   await tx`UPDATE profile_slug_history SET builder_id = ${root} WHERE builder_id = ${other}`;
@@ -202,16 +295,19 @@ export async function mergeProfiles(tx: postgres.TransactionSql, root: number, o
   const login = win.github_login ?? lose.github_login;
   const fromLoser = !win.github_login && !!lose.github_login;
   const merged = {
-    x_handle: win.x_handle ?? lose.x_handle,
+    // The X handle is the winner's (it wins only when it has one, or neither does).
+    x_handle: win.x_handle,
     github_login: login,
     fallback_handle: fromLoser ? lose.github_login : (win.fallback_handle ?? lose.fallback_handle),
-    twitter_prefill: fromLoser ? lose.twitter_prefill : (win.twitter_prefill ?? lose.twitter_prefill),
+    // A prefill is the twitter_username of one login: it goes only with that login.
+    twitter_prefill: fromLoser ? lose.twitter_prefill : win.github_login ? win.twitter_prefill : null,
     hidden: r.hidden || o.hidden,
     held: r.held || o.held,
     first_find_at: r.first_find_at < o.first_find_at ? r.first_find_at : o.first_find_at,
     card_offered_at: win.card_offered_at ?? lose.card_offered_at,
     x_asked_at: win.x_asked_at ?? lose.x_asked_at,
     empty_checked_at: win.empty_checked_at ?? lose.empty_checked_at,
+    consent_shown_at: win.consent_shown_at ?? lose.consent_shown_at,
   };
   // DO NOTHING: an old slug is never moved off another person (the other's own history moved above).
   await tx`INSERT INTO profile_slug_history (old_slug, builder_id) VALUES (${lose.slug}, ${root}) ON CONFLICT (old_slug) DO NOTHING`;
