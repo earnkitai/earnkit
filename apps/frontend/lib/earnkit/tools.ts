@@ -142,8 +142,9 @@ import { LIVE_FAILED_LINE, addressesFrom, contractMissingLine, entryVerified, li
 import { noteEvent } from './events';
 import { builderScoreEnabled } from './builder-score-flag';
 import { enqueueDiscovery, localGitInput, noteLocalGit } from './discovery';
-import { scoreReply } from './score-tool';
-import { SHARED_PROFILE_NOTE, X_SET_LINE, consentOnce, ensureProfile, setFallback, setHidden, setXHandle } from './profiles';
+import { scoreReply, secondLine } from './score-tool';
+import { SHARED_PROFILE_NOTE, X_SET_LINE, consentOnce, ensureProfile, profileOf, setFallback, setHidden, setXHandle } from './profiles';
+import { emptyReasonOf, pitchAllowed, publicScore, verifiedProject } from './builder-score';
 import { sql } from './db';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
 import { answerPickup, offerPickup, type PickupDeps } from './identity';
@@ -1070,6 +1071,30 @@ async function needsRepoLine(program: { id: string; title: string }): Promise<st
   return alt ? `${head} No repo yet? ${alt.title} doesn't need one: say the word and I'll start there.` : head;
 }
 
+/** v2.12 spec 7: the agent's step when find's second line offers to link the builder's work. */
+export const SCORE_STEP_NOTE =
+  "When the builder says yes (or link it) to the last line, call score: it returns the earnkit.txt lines to add. Never ask the builder to edit files.";
+
+/**
+ * v2.12 spec 7 (R13, R14): find's second line: the public score (never a held one), else the step
+ * that fills an empty profile (as the score tool names it), else nothing (a first score in review).
+ * `fill`: the line offers to link their work (score_step).
+ */
+async function scoreLineOf(id: number, lineOneAsks: boolean): Promise<{ line: string; fill: boolean } | null> {
+  const profile = await profileOf(id);
+  if (!profile) return null;
+  const pub = await publicScore(id);
+  const score = pub && pub.score > 0 ? pub : null;
+  let missing = score || profile.held ? null : await emptyReasonOf(id, { anyHistory: true });
+  // As the score tool: unproven with no repo to put a line in, the step is the site's earnkit.txt line.
+  if (missing === 'ownership_unproven') {
+    const [repo] = await sql()`SELECT 1 FROM builder_sources WHERE builder_id = ${id} AND kind = 'repo' AND state = 'proposed' LIMIT 1`;
+    if (!repo) missing = 'no_github';
+  }
+  const line = secondLine({ profile, score, missing, lineOneAsks });
+  return line ? { line, fill: missing === 'ownership_unproven' || missing === 'no_github' } : null;
+}
+
 /**
  * v2.10 item 4: the v2.9 tool handlers, unchanged except their agent notes. The 4 builder tools
  * (`tools` below) dispatch to them; tests call them directly.
@@ -1100,7 +1125,7 @@ export const handlers = {
     // v2.12 spec 1, 3: the public profile (made on the first find; named by the first remembered
     // wallet until a login is proven) and its clues. Never fails the tool and never waits on a read.
     // A shared group gets none (R2).
-    let profiled = false;
+    let profiled = false as boolean;
     if (builderScoreEnabled() && !ctx.sharedClient)
       await (async () => {
         const made = await ensureProfile(ctx.installationId, new Date());
@@ -1112,13 +1137,15 @@ export const handlers = {
       })().catch((err: unknown) => console.error('[list_programs] profile', err instanceof Error ? err.name : 'error'));
     // v2.9 B9, Rulings G6, G7, G9: on a shared client, the GitHub-verified login of the pasted code.
     const login = await sharedLogin(ctx, signed_in, 'list_programs');
-    const [memory, programs, campaigns, told] = await Promise.all([
+    const [memory, openPrograms, campaigns, told] = await Promise.all([
       checkPrograms(ctx.installationId, { github_user, repos, local_repos }),
       listPrograms(),
       earnkitCampaignRows(ctx.installationId),
       // v2.9 A3: what the builder told EarnKit, read once per call (G6: a shared client's verified login's).
       memoryOf(memoryKey({ ...ctx, verifiedLogin: login }), 'list_programs'),
     ]);
+    // v2.12 spec 9 (R21): with the score flag on, only programs an agent can complete for the builder.
+    const programs = builderScoreEnabled() ? openPrograms.filter((p) => p.agent_completable !== false) : openPrograms;
     const hidden = hiddenPrograms(told, programs);
     const hide = hiddenIds(hidden);
     const { lastCheck } = memory;
@@ -1163,9 +1190,11 @@ export const handlers = {
         // this builder proved it there (G7, G10: on a shared client only the caller's own proof).
         const appOn = githubAppEnabled();
         const appLogin = ctx.sharedClient ? login : undefined;
-        const matchDeps: Pick<MatchDeps, 'appToken'> = appOn
-          ? { appToken: (n) => appTokenFor({ installationId: ctx.installationId, login: appLogin, repoKey: n.toLowerCase() }) }
-          : {};
+        const matchDeps: Pick<MatchDeps, 'appToken' | 'verified'> = {
+          ...(appOn ? { appToken: (n: string) => appTokenFor({ installationId: ctx.installationId, login: appLogin, repoKey: n.toLowerCase() }) } : {}),
+          // v2.12 spec 7: odds from the person's verified users and money, when their public score has them.
+          ...(profiled ? { verified: (k: string) => verifiedProject(ctx.installationId, k) } : {}),
+        };
         const matched = await (ctx.matchProjects ?? matchProjects)(
           MatchProjectsInput.parse({
             github_user: user,
@@ -1336,10 +1365,20 @@ export const handlers = {
           return null;
         })
       : null;
-    const shown = consent ? `${show_to_builder}\n${consent}` : show_to_builder;
+    // v2.12 spec 7 (R13, R14): line 2, the person's score or the one step that fills the profile. The
+    // first find's consent line takes its place (one line after the lead, at most). Never fails the tool.
+    const second =
+      profiled && !consent
+        ? await scoreLineOf(ctx.installationId, /\?/.test(show_to_builder) || Boolean(pickup) || first.holdQuestion === true).catch((err: unknown) => {
+            console.error('[list_programs] score line', err instanceof Error ? err.name : 'error');
+            return null;
+          })
+        : null;
+    const shown = [show_to_builder, second?.line, consent].filter(Boolean).join('\n');
     return {
       show_to_builder: pickup ? [pickup.question, shown].filter(Boolean).join('\n\n') : shown,
       ...(pickup && { pick_up: { question: pickup.question, agent_note: PICKUP_NOTE } }),
+      ...(second?.fill && { score_step: { agent_note: SCORE_STEP_NOTE } }),
       note:
         'Show show_to_builder to the builder exactly as written. ' +
         (!own && (user || repoList?.length || local?.length)
@@ -1474,7 +1513,9 @@ export const handlers = {
     const repoUrl = known.project?.repo_url ?? known.answers?.repo_url;
     // The proposed token; its creator wallet is the entry's payout wallet when there is one.
     // No token block on a closed program (v2.4 §6, audit C22).
-    const token = open && prep.ready
+    // v2.12 spec 7 (R22): with the score flag on, no token for a person under the pitch score (campaigns aside).
+    const belowScore = open && prep.ready && !program.campaign ? !(await pitchAllowed(ctx.installationId).catch(() => false)) : false;
+    const token = open && prep.ready && !belowScore
       ? await tokenProposalBlock({
           program,
           projectName: known.project?.name,
@@ -1618,7 +1659,7 @@ export const handlers = {
     // v2.9 B9: with GitHub sign-in on, an agent that can't push still offers the token.
     const signIn = githubVerifyEnabled();
     // v2.9 B10: no token offer once the repo's token is this program's, or after two skips (P23).
-    const prepTokensOff = facts !== null && (facts.policyOff || !facts.available || facts.declinedOut || facts.tokenHere);
+    const prepTokensOff = facts !== null && (facts.policyOff || !facts.available || facts.declinedOut || facts.tokenHere || belowScore);
     if (shownPair && facts && !facts.coinIn && (canPush || signIn) && !prepTokensOff)
       await rememberOffer(ctx, program.id, shownKey, shownPair, offerWallet ?? null);
     const offer = facts
@@ -1629,6 +1670,7 @@ export const handlers = {
           signIn,
           wallet: offerWallet,
           tokensOff: prepTokensOff,
+          belowScore,
           proposal: shownPair,
           // v2.9 B10 (P21): the first reply's offer was skipped: no "40%" a second time.
           again: shownBefore !== null || facts.declinedOnce || facts.firstShown,
@@ -1748,6 +1790,8 @@ export const handlers = {
     // Ruling G12: whose token declines count (a shared client: the pasted code's login, else none).
     const declinedBy = declineLogin(ctx, ctx.sharedClient ? await sharedLogin(ctx, i.signed_in, 'confirm_entry') : undefined);
     const facts = await offerFacts(program, repoUrl, ctx, declinedBy);
+    // v2.12 spec 7 (R22): with the score flag on, under the pitch score (or held): no token, a yes records only.
+    const belowScore = !(await pitchAllowed(ctx.installationId).catch(() => false));
     const decision = confirmDecision({
       confirmed: i.builder_confirmed === true,
       decision: i.decision,
@@ -1758,9 +1802,10 @@ export const handlers = {
       policyOff: facts.policyOff || facts.declinedOut,
       available: facts.available,
       signIn,
+      belowScore,
     });
     // v2.9 B10: the offer is "Ready to submit?" alone once the repo's token is this program's.
-    const tokensOff = facts.policyOff || !facts.available || facts.declinedOut || facts.tokenHere;
+    const tokensOff = facts.policyOff || !facts.available || facts.declinedOut || facts.tokenHere || belowScore;
     const offersToken = !facts.coinIn && (canPush || signIn) && !tokensOff;
     if (decision.kind === 'offer') {
       // Fix round 1 (item 1): the entry's own wallet first (a "go" without a wallet uses it), then
@@ -1778,7 +1823,7 @@ export const handlers = {
       return {
         show_to_builder:
           (proposal?.taken ? `$${proposal.taken} is taken. ` : '') +
-          confirmOffer({ hasBonus: facts.hasBonus, coinIn: facts.coinIn, canPush, signIn, wallet, tokensOff, proposal: pair, again: Boolean(proposal?.taken) || shown !== null || facts.declinedOnce || facts.firstShown }),
+          confirmOffer({ hasBonus: facts.hasBonus, coinIn: facts.coinIn, canPush, signIn, wallet, tokensOff, belowScore, proposal: pair, again: Boolean(proposal?.taken) || shown !== null || facts.declinedOnce || facts.firstShown }),
         ...(offersToken && wallet && { shown_wallet: wallet }),
         ...(pair && { token: { proposed: pair } }),
         agent_note:
@@ -1843,7 +1888,7 @@ export const handlers = {
         (await entryWallet(ctx, { programId: program.id, installationId: ctx.installationId, repoUrl, name: i.project.name })) ??
         (await walletMemory(ctx));
       await rememberOffer(ctx, program.id, offerKey(repoUrl, i.project.name), proposal, wallet ?? null);
-      const offer = confirmOffer({ hasBonus: facts.hasBonus, coinIn: null, canPush, signIn, wallet, proposal, again: again || facts.declinedOnce || facts.firstShown });
+      const offer = confirmOffer({ hasBonus: facts.hasBonus, coinIn: null, canPush, signIn, wallet, proposal, belowScore, again: again || facts.declinedOnce || facts.firstShown });
       return {
         project_id: projectId,
         token: { status: 'skipped' as const, fixable: true, proposed: proposal },

@@ -61,6 +61,25 @@ export function movedLine(d: Record<keyof Parts, number>): string | null {
   return `${s[0].toUpperCase()}${s.slice(1)}.`;
 }
 
+/** v2.12 spec 7 (R13): find's second line with a score: "You: score 41, top 22%. earnkit.com/b/lee" (no link when hidden). Pure. */
+export const youLine = (a: { score: number; percentile: number; slug: string; hidden?: boolean }): string =>
+  `You: score ${a.score}, top ${topPercent(a.percentile)}%.${a.hidden ? '' : ` ${PROFILE_URL(a.slug)}`}`;
+
+/**
+ * v2.12 spec 7 (R13, R14): find's second line: the score line, else the step that fills an empty
+ * profile, said (not asked) when line 1 already asks; null with no profile or nothing to say. Pure.
+ */
+export function secondLine(a: {
+  profile: { slug: string; hidden?: boolean } | null;
+  score: { score: number; percentile: number } | null;
+  missing: EmptyReason | null;
+  lineOneAsks: boolean;
+}): string | null {
+  if (!a.profile) return null;
+  if (a.score) return youLine({ ...a.score, slug: a.profile.slug, hidden: a.profile.hidden });
+  return a.missing ? FILL_LINES[a.missing][a.lineOneAsks ? 'say' : 'ask'] : null;
+}
+
 export const programLine = (c: { title: string; prize: string }) => `${c.title} fits you: ${c.prize}.`;
 
 /**

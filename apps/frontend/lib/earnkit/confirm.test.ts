@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CANT_PUSH, SKIP_TOKEN, confirmDecision, confirmLine, confirmOffer, proofLineWaiting, signInLine } from './confirm';
+import { CANT_PUSH, READY_TO_SUBMIT, SKIP_TOKEN, TOKEN_PITCH_MIN_SCORE, confirmDecision, confirmLine, confirmOffer, proofLineWaiting, signInLine } from './confirm';
 
 const W = '0x12Ab' + '0'.repeat(32) + '9F3E';
 const TIP = { name: 'Tip Jar', symbol: 'TIP' };
@@ -96,4 +96,15 @@ test('5.9 v2.9 B9: with sign-in on, an agent that can\'t push gets sign_in (neve
   const on = confirmOffer({ ...offer, signIn: true });
   assert.doesNotMatch(on, /Claude Code|Cursor/);
   assert.match(on, /^Yes submits your entry and launches \$TIP \(TipJar\): 40% of its fees to you, plus the builder bonus\./);
+});
+
+test('9.3 below TOKEN_PITCH_MIN_SCORE the confirm line never mentions a token, and a yes records only', () => {
+  assert.equal(TOKEN_PITCH_MIN_SCORE, 20);
+  const offer = { hasBonus: true, coinIn: null, canPush: true, wallet: '0x' + '1'.repeat(40), proposal: { name: 'Tip Jar', symbol: 'TIP' } };
+  assert.equal(confirmOffer({ ...offer, belowScore: true }), READY_TO_SUBMIT);
+  assert.equal(confirmOffer({ ...offer, canPush: false, belowScore: true }), READY_TO_SUBMIT, 'no "open this in Claude Code" token line either');
+  assert.match(confirmOffer(offer), /launches \$TIP/);
+  assert.deepEqual(confirmDecision({ confirmed: true, decision: 'go', coinIn: null, canPush: true, hasRepo: true, policyOff: false, available: true, belowScore: true }), { kind: 'record_only', note: '' });
+  assert.deepEqual(confirmDecision({ confirmed: true, decision: 'skip', coinIn: null, canPush: true, hasRepo: true, policyOff: false, available: true, belowScore: true }), { kind: 'skip' });
+  assert.deepEqual(confirmDecision({ confirmed: true, decision: 'go', coinIn: null, canPush: true, hasRepo: true, policyOff: false, available: true }), { kind: 'launch' });
 });

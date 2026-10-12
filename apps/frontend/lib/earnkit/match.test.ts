@@ -818,3 +818,11 @@ test('v2.11 8a (1.6, S4): productOdds: a repo GitHub hides (404), live and activ
   const stale = productScore({ active: false, young: false, original: true, readme: false, deployed: true, owned: false }, ['readme', 'owned']);
   assert.equal(productOdds(stale, t, 3, { ownerHidden: true }).odds, 'low');
 });
+
+test('9.2 traction from verified numbers when the profile has them; v2.10 otherwise', () => {
+  assert.equal(traction({ tx_count: 0, live_ok: true, commits_90d: 30, verified: { users: 60, money_usd: 600 } }), 3 * 2 + 2 + 2);
+  assert.equal(traction({ tx_count: 500, live_ok: false, commits_90d: 30, verified: { users: 0, money_usd: 0 } }), 0, 'raw tx and commits no longer count');
+  assert.equal(traction({ tx_count: 500, live_ok: false, commits_90d: 30 }), 3 * 2 + 0 + 2);
+  assert.equal(traction({ tx_count: 500, live_ok: false, commits_90d: 30, verified: null }), 3 * 2 + 0 + 2, 'null is v2.10');
+  assert.equal(traction({ tx_count: null, live_ok: false, commits_90d: null, verified: { users: 5, money_usd: 1 } }), 3 * 1 + 0 + 1);
+});

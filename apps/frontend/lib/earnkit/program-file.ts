@@ -545,6 +545,8 @@ export const ProgramFile = z
      * and one without a recent passing test (freshBuildProblems).
      */
     fresh_build: z.object({ starter: slug }).strict().optional(),
+    /** v2.12 spec 9: overrides deriveAgentCompletable (owner only). */
+    agent_completable: z.boolean().optional(),
   })
   .strict()
   .superRefine((p, ctx) => {
@@ -698,6 +700,17 @@ export const ProgramFile = z
       issue('best_bet must be drawn from past_rounds or focus');
   });
 export type ProgramFile = z.infer<typeof ProgramFile>;
+
+/** v2.12 spec 9: requirement kinds and each_time asks an agent can't complete for the builder. */
+export const UNCOMPLETABLE_KINDS = [] as const; // owner ruling 2026-10-12 (D2): a team line and a demo video are agent-completable
+export const UNCOMPLETABLE_EACH_TIME = /\b(go-to-market|gtm|full-time team)\b/i;
+/** Whether an agent can complete an entry for the builder: no go-to-market plan, no full-time team. Pure. */
+export const deriveAgentCompletable = (p: Pick<ProgramFile, 'submission_requirements' | 'each_time'>): boolean =>
+  !p.submission_requirements.some((r) => (UNCOMPLETABLE_KINDS as readonly string[]).includes(r.kind ?? '')) &&
+  !p.each_time.some((e) => UNCOMPLETABLE_EACH_TIME.test(e));
+/** The stored value: the file's override when set (owner only), else the derivation. Pure. */
+export const agentCompletableOf = (p: Pick<ProgramFile, 'submission_requirements' | 'each_time' | 'agent_completable'>): boolean =>
+  p.agent_completable ?? deriveAgentCompletable(p);
 
 /**
  * v2.7 Task 4 carry (Ruling C5): `pnpm programs:check` requires a `todo` on every required

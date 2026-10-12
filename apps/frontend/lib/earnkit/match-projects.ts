@@ -769,6 +769,11 @@ export type MatchDeps = {
    * caller proved with the read-only App (github-app.ts appTokenFor), else null. Absent: no App reads.
    */
   appToken?: (fullName: string) => Promise<string | null>;
+  /**
+   * v2.12 spec 7: the person's verified users and money for a repo (by repo key, `owner/repo`), from
+   * their public builder score, else null. Absent (the score flag off): v2.10's traction.
+   */
+  verified?: (repoKey: string) => Promise<{ users: number; money_usd: number } | null>;
 };
 
 /**
@@ -813,7 +818,13 @@ type ScoreCtx = {
    * a product but for the unchecked owner is asked about (odds `unknown`), never scored low.
    */
   ownerHidden?: boolean;
+  /** v2.12 spec 7: this repo's verified users and money (MatchDeps.verified), else absent. */
+  verified?: () => Promise<{ users: number; money_usd: number } | null>;
 };
+
+/** v2.12 spec 7: the traction facts' verified numbers, only when the caller reads them; a failed read is v2.10's. */
+const verifiedOf = async (ctx: Pick<ScoreCtx, 'verified'>): Promise<Pick<TractionFacts, 'verified'>> =>
+  ctx.verified ? { verified: await ctx.verified().catch(() => null) } : {};
 
 const within = (iso: string | undefined | null, days: number, now: Date) =>
   Boolean(iso) && now.getTime() - Date.parse(iso!) <= days * DAY_MS;
@@ -1123,7 +1134,7 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): P
     claimed,
     reported: ctx.local?.contracts ?? [],
     finish: async ({ live, deployed, unchecked, withCode, tx_count, used_tx }) => {
-      const product = scored(productScore({ ...signals, deployed }, unchecked ? ['deployed'] : []), { tx_count, live_ok: live, commits_90d }, used_tx, base.claims.includes('users'));
+      const product = scored(productScore({ ...signals, deployed }, unchecked ? ['deployed'] : []), { tx_count, live_ok: live, commits_90d, ...(await verifiedOf(ctx)) }, used_tx, base.claims.includes('users'));
       await save({ traction: product.traction, odds: product.odds });
       const facts: RepoFacts = { ...confirmMainnets(base, withCode), product, live_verified: live, commits_90d, tx_count: used_tx, users_said: ctx.said?.has_users ?? null };
       return { repo: facts, verdicts: matchRepo(facts, programs) };
@@ -1150,7 +1161,7 @@ function scored(p: Product, t: TractionFacts, usedTx: number | null, usersClaim:
  * active is a last commit within 90 days, or no date given (Ruling G3; young follows it); original
  * reads the name only.
  */
-function checkLocal(r: ReportedRepo, programs: ProgramFacts[], ctx: Pick<ScoreCtx, 'owned' | 'now' | 'said' | 'ownerUnknown' | 'ownerHidden'>): Prepared {
+function checkLocal(r: ReportedRepo, programs: ProgramFacts[], ctx: Pick<ScoreCtx, 'owned' | 'now' | 'said' | 'ownerUnknown' | 'ownerHidden' | 'verified'>): Prepared {
   const facts = said(reportedFacts(r, programs), ctx.said);
   const claimed = unverifiedMainnets(facts.chains);
   // Ruling G3: an unknown last commit counts as active (the agent is asked to send it).
@@ -1174,7 +1185,7 @@ function checkLocal(r: ReportedRepo, programs: ProgramFacts[], ctx: Pick<ScoreCt
           // v2.10.1 B2: an owner GitHub couldn't name is unchecked, never "not your repo".
           [...(unchecked ? (['deployed', 'readme'] as const) : (['readme'] as const)), ...(ctx.ownerUnknown ? (['owned'] as const) : [])],
         ),
-        { tx_count, live_ok: live, commits_90d },
+        { tx_count, live_ok: live, commits_90d, ...(await verifiedOf(ctx)) },
         used_tx,
         facts.claims.includes('users'),
         { ownerHidden: ctx.ownerHidden === true, saidNoUsers: ctx.said?.has_users === false },
@@ -1338,7 +1349,7 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
   const cache = deps.cache ?? DB_CACHE;
   // The reads run in parallel; then one LIST_BUDGET of checks, newest repos first (Ruling G5).
   const prepared = await mapLimit(toScore, 6, async (c) => {
-    const ctx: ScoreCtx = { builder, owned: c.owned, checks, now, cache, local: c.local, said: saidOf(c), starters: deps.starters, token: c.token, ownerUnknown: c.ownerUnknown, ownerHidden: c.ownerHidden };
+    const ctx: ScoreCtx = { builder, owned: c.owned, checks, now, cache, local: c.local, said: saidOf(c), starters: deps.starters, token: c.token, ownerUnknown: c.ownerUnknown, ownerHidden: c.ownerHidden, ...(deps.verified && { verified: () => deps.verified!(c.key) }) };
     return c.github ? checkRepo(c.github, programs, ctx) : checkLocal(c.local, programs, ctx);
   });
   const deployed = await runChecks(prepared, checks);

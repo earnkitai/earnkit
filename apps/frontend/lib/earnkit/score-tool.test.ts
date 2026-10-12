@@ -1,7 +1,10 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { FILL_LINES, HELD_LINE, MORE_USERS_LINE, SCORE_NOTES, SCORE_SHARED, SITE_TXT_LINE, WORKING_LINE, movedLine, nextAction, programLine, scoreLines, scoreReply, type ScoreProgram } from './score-tool';
-import { emptyReasonOf, siteShowsUse } from './builder-score';
+import { FILL_LINES, HELD_LINE, MORE_USERS_LINE, SCORE_NOTES, SCORE_SHARED, SITE_TXT_LINE, WORKING_LINE, movedLine, nextAction, programLine, scoreLines, scoreReply, secondLine, youLine, type ScoreProgram } from './score-tool';
+import { listPrograms, upsertProgram } from './programs';
+import { ProgramFile } from './program-file';
+import { committedProgram } from './fixtures/program-file';
+import { emptyReasonOf, pitchAllowed, siteShowsUse, verifiedProject } from './builder-score';
 import { discover } from './discovery';
 import type { ReaderDeps } from './source-readers';
 import { profileCode } from './discovery-clues';
@@ -253,4 +256,53 @@ test('8.14 a new proposed site is never crowded out by unproven linked sites: di
   assert.equal(read.length, 5);
   const r = await withEnv({ EARNKIT_AUTH_SECRET: SECRET }, () => scoreReply({ installationId: id }, NOW, noPrograms));
   assert.deepEqual(r.proof_line?.map((x) => ('site' in x ? x.site : x.repo)), ['https://new.lee.dev', 'https://l0.lee.dev', 'https://l1.lee.dev', 'https://l2.lee.dev', 'https://l3.lee.dev']);
+});
+
+test('9.7 find\'s second line: the score line, else the fill step (declarative when line 1 asks), else nothing', () => {
+  assert.equal(youLine({ score: 41, percentile: 78, slug: 'lee' }), 'You: score 41, top 22%. earnkit.com/b/lee');
+  assert.equal(youLine({ score: 41, percentile: 78, slug: 'lee', hidden: true }), 'You: score 41, top 22%.');
+  const profile = { slug: 'lee' };
+  assert.equal(secondLine({ profile, score: { score: 41, percentile: 78 }, missing: null, lineOneAsks: true }), 'You: score 41, top 22%. earnkit.com/b/lee');
+  assert.equal(secondLine({ profile, score: null, missing: 'ownership_unproven', lineOneAsks: false }), FILL_LINES.ownership_unproven.ask);
+  assert.equal(secondLine({ profile, score: null, missing: 'ownership_unproven', lineOneAsks: true }), FILL_LINES.ownership_unproven.say);
+  assert.doesNotMatch(FILL_LINES.ownership_unproven.say, /\?/);
+  assert.equal(secondLine({ profile, score: null, missing: null, lineOneAsks: false }), null);
+  assert.equal(secondLine({ profile: null, score: { score: 41, percentile: 78 }, missing: null, lineOneAsks: false }), null);
+});
+
+test('9.8 listPrograms carries agent_completable, so the score tool never names a program the agent cannot complete', dbTest, async () => {
+  const stamp = `${process.pid}-${Date.now()}`;
+  const hard = { ...committedProgram('colosseum-worlds-fair'), id: `t9s-col-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' };
+  const easy = { ...committedProgram('arc-microgrants'), id: `t9s-arc-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' };
+  await upsertProgram(ProgramFile.parse(hard));
+  await upsertProgram(ProgramFile.parse(easy));
+  const cards = await listPrograms();
+  assert.equal(cards.find((c) => c.id === hard.id)?.agent_completable, false);
+  assert.equal(cards.find((c) => c.id === easy.id)?.agent_completable, true);
+  await sql()`UPDATE programs SET status = 'closed' WHERE id IN (${hard.id}, ${easy.id})`;
+});
+
+test('9.9 odds read the public score\'s top project: its verified users and money, for that repo only, never a held score', dbTest, async () => {
+  const id = T + 15;
+  await profile(id);
+  await scoreRow(id, '2026-10-10', 30, parts(60), false, { key: `Lee${T}/App`, title: 'app', users: 60, money_usd: 600 });
+  await scoreRow(id, '2026-10-11', 90, parts(500), true, { key: `lee${T}/app`, title: 'app', users: 900, money_usd: 9000 });
+  assert.deepEqual(await verifiedProject(id, `lee${T}/app`), { users: 60, money_usd: 600 });
+  assert.equal(await verifiedProject(id, `lee${T}/other`), null);
+  assert.equal(await verifiedProject(T + 16, `lee${T}/app`), null, 'no score: v2.10 traction');
+});
+
+test('9.10 the token pitch: flag off always; on, a public score of 20 or more and nothing held', dbTest, async () => {
+  const [low, ok, held] = [T + 17, T + 18, T + 19];
+  await profile(low);
+  await scoreRow(low, '2026-10-11', 19, parts(10));
+  await profile(ok);
+  await scoreRow(ok, '2026-10-11', 20, parts(10));
+  await profile(held, { held: true });
+  await scoreRow(held, '2026-10-10', 45, parts(30));
+  await scoreRow(held, '2026-10-11', 90, parts(500), true);
+  assert.deepEqual([await pitchAllowed(low), await pitchAllowed(ok), await pitchAllowed(held), await pitchAllowed(T + 16)], [true, true, true, true]);
+  await withEnv({ EARNKIT_BUILDER_SCORE: 'on' }, async () => {
+    assert.deepEqual([await pitchAllowed(low), await pitchAllowed(ok), await pitchAllowed(held), await pitchAllowed(T + 16)], [false, true, false, false]);
+  });
 });

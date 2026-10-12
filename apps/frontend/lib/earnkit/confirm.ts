@@ -30,7 +30,12 @@ export type OfferInput = {
    * builder hasn't seen): the line names the token without the earnings figure, said once already.
    */
   again?: boolean;
+  /** v2.12 spec 7 (R22): the person's public score is under TOKEN_PITCH_MIN_SCORE (or held): no token line. */
+  belowScore?: boolean;
 };
+
+/** v2.12 spec 7: the token is pitched only to a live, unheld score at least this high (owner ruling D4, under v1-launch). */
+export const TOKEN_PITCH_MIN_SCORE = 20;
 
 export const NO_WALLET_HINT = 'No wallet? Make one at keys.coinbase.com, then send me the address.';
 /** Only for an agent that said it can't push (agent.can_push: false); never after a proof-line miss. */
@@ -86,6 +91,7 @@ export function confirmLine(a: {
  */
 export function confirmOffer(a: OfferInput): string {
   if (a.coinIn) return READY_TO_SUBMIT;
+  if (a.belowScore) return READY_TO_SUBMIT;
   if (a.tokensOff) return READY_TO_SUBMIT;
   if (!a.canPush && !a.signIn) return `${CANT_PUSH}\n${READY_TO_SUBMIT}`;
   return confirmLine({ proposal: a.proposal ?? null, hasBonus: a.hasBonus, wallet: a.wallet, walletKnown: a.wallet !== null, again: a.again });
@@ -117,9 +123,12 @@ export function confirmDecision(a: {
   available: boolean;
   /** v2.9 B9: GitHub sign-in is on (githubVerifyEnabled). */
   signIn?: boolean;
+  /** v2.12 spec 7 (R22): under the token pitch score: a yes records the entry, no token. */
+  belowScore?: boolean;
 }): ConfirmDecision {
   if (!a.confirmed || !a.decision) return { kind: 'offer' };
   if (a.decision === 'skip') return { kind: 'skip' };
+  if (a.belowScore) return { kind: 'record_only', note: '' };
   // v2.8.1 §C13: the repo's token is in another program: the kit alone, no bonus note.
   if (a.coinIn) return { kind: 'record_only', note: '' };
   if (!a.canPush && !a.signIn) return { kind: 'record_only', note: CANT_PUSH };

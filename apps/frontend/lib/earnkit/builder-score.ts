@@ -1,4 +1,6 @@
 import { countProject, moneyOf, ringWeights, type ActorFacts, type Touch } from './anti-farming';
+import { builderScoreEnabled } from './builder-score-flag';
+import { TOKEN_PITCH_MIN_SCORE } from './confirm';
 import { sql } from './db';
 import { discover, type LoginOf } from './discovery';
 import { ownPagesSite } from './discovery-clues';
@@ -196,6 +198,33 @@ export async function publicScore(builderId: number): Promise<{ score: number; p
       AND ${publicRow()}
     ORDER BY s.day DESC LIMIT 1`;
   return row ?? null;
+}
+
+/**
+ * v2.12 spec 7 (R22, owner ruling D4): whether confirm may pitch the token. Flag off: always (v2.11).
+ * On: only a public score (the last unheld or released one) of TOKEN_PITCH_MIN_SCORE or more, and
+ * never while the person's newest score is held. No profile or no score is below it (fail strict).
+ */
+export async function pitchAllowed(builderId: number): Promise<boolean> {
+  if (!builderScoreEnabled()) return true;
+  const [p] = await sql()<{ held: boolean }[]>`SELECT held FROM builder_profiles WHERE builder_id = ${builderId}`;
+  if (!p || p.held) return false;
+  return ((await publicScore(builderId))?.score ?? 0) >= TOKEN_PITCH_MIN_SCORE;
+}
+
+/**
+ * v2.12 spec 7: the verified users and money behind a repo's odds: the latest public score's top
+ * project when its key is this repo (`owner/repo`, any case), else null (odds keep v2.10's traction).
+ */
+export async function verifiedProject(builderId: number, repoKey: string): Promise<{ users: number; money_usd: number } | null> {
+  const pub = await publicScore(builderId);
+  if (!pub) return null;
+  const [row] = await sql()<{ top: { key?: unknown; users?: unknown; money_usd?: unknown } | null }[]>`
+    SELECT top_outcome AS top FROM builder_scores WHERE builder_id = ${builderId} AND day = ${pub.day}::date`;
+  const top = row?.top;
+  if (typeof top?.key !== 'string' || top.key.toLowerCase() !== repoKey.toLowerCase()) return null;
+  const n = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) && x > 0 ? x : 0);
+  return { users: n(top.users), money_usd: n(top.money_usd) };
 }
 
 /** Who is due today (R8): no score today, not a shared client (R2), and every verified source read today or it's late. */

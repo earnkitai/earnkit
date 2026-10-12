@@ -33,6 +33,7 @@ import { CANT_PUSH, NO_WALLET_HINT, confirmOffer, proofLineWaiting } from './con
 import { completeVerify, createVerifyLink, formatCode } from './github-verify';
 import { eligibleSql } from './traction';
 import { committedProgram } from './fixtures/program-file';
+import { FILL_LINES } from './score-tool';
 import { TESTED_STARTERS, fileCards } from './fixtures/fresh-build';
 import { BUILD_CHAT_ONLY, buildKit, buildingLine, twistQuestion } from './fresh-build';
 import { STARTERS } from './starters';
@@ -5629,3 +5630,125 @@ test('7.8c v2.12: a find that failed after the profile was made still shows the 
     delete process.env.EARNKIT_BUILDER_SCORE;
   }
 });
+
+// ---- v2.12 T9: find's second line, the agent_completable filter, the token pitch gate ----
+
+async function newInstallation() {
+  const [{ id }] = await sql()<{ id: number }[]>`
+    INSERT INTO installations (token_hash) VALUES (${`t9-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`}) RETURNING id`;
+  return id;
+}
+
+async function withScoreFlag<T>(flag: string | undefined, fn: () => Promise<T>): Promise<T> {
+  const was = process.env.EARNKIT_BUILDER_SCORE;
+  if (flag === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
+  else process.env.EARNKIT_BUILDER_SCORE = flag;
+  try {
+    return await fn();
+  } finally {
+    if (was === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
+    else process.env.EARNKIT_BUILDER_SCORE = was;
+  }
+}
+
+test('9.4 v2.12 find: line 2 is the score line; an empty profile gets its fill step, declarative when line 1 asks', dbTest, async () => {
+  await withScoreFlag('on', async () => {
+    const ctx = { installationId: await newInstallation() };
+    const first = (await tools.find({}, ctx)) as { show_to_builder: string };
+    // The first find: the consent line wins the second line (it is shown once, last).
+    assert.match(first.show_to_builder.split('\n').at(-1)!, /Say hide anytime\.$/);
+    assert.doesNotMatch(first.show_to_builder, /^You: score/m);
+    // No score yet: the fill step, declarative when line 1 already asks.
+    const empty = (await tools.find({}, ctx)) as { show_to_builder: string; score_step?: { agent_note: string } };
+    const last = empty.show_to_builder.split('\n').at(-1)!;
+    assert.ok([FILL_LINES.no_github.ask, FILL_LINES.no_github.say].includes(last), last);
+    assert.ok((empty.show_to_builder.match(/\?/g) ?? []).length <= 1, empty.show_to_builder);
+    assert.match(empty.score_step?.agent_note ?? '', /score/);
+    await sql()`UPDATE builder_profiles SET slug = ${`lee${ctx.installationId}`} WHERE builder_id = ${ctx.installationId}`;
+    await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held)
+      VALUES (${ctx.installationId}, '2026-10-12', 41, 77.9, '{}', '{}', 'v1', 'v1-launch', false)`;
+    await sql()`INSERT INTO builder_ranks (builder_id, score, percentile, computed_at) VALUES (${ctx.installationId}, 41, 77.9, now())`;
+    // The card offer (T11) is made once and would go last; mark it made so line 2 stays the last line.
+    await sql()`UPDATE builder_profiles SET card_offered_at = now() WHERE builder_id = ${ctx.installationId}`;
+    const r = (await tools.find({}, ctx)) as { show_to_builder: string; score_step?: unknown };
+    assert.equal(r.show_to_builder.split('\n').at(-1), `You: score 41, top 23%. earnkit.com/b/lee${ctx.installationId}`);
+    assert.ok((r.show_to_builder.match(/\?/g) ?? []).length <= 1);
+    assert.ok(!('score_step' in r));
+    // Hidden: the score, never the link (a hidden profile is a 404).
+    await sql()`UPDATE builder_profiles SET hidden = true WHERE builder_id = ${ctx.installationId}`;
+    const hidden = (await tools.find({}, ctx)) as { show_to_builder: string };
+    assert.equal(hidden.show_to_builder.split('\n').at(-1), 'You: score 41, top 23%.');
+  });
+});
+
+test('9.4b v2.12 flag off: find has no second line and is the v2.11 reply', dbTest, async () => {
+  const ctx = { installationId: await newInstallation() };
+  const off = (await tools.find({}, ctx)) as { show_to_builder: string };
+  assert.doesNotMatch(off.show_to_builder, /You: score|isn't linked yet|Say hide anytime/);
+  assert.ok(!('score_step' in off));
+});
+
+/** The program ids find lists, and whether each title shows in the "show more" reply. */
+async function findCards(env: { EARNKIT_BUILDER_SCORE?: string }, ids: { id: string; title: string }[]) {
+  return withScoreFlag(env.EARNKIT_BUILDER_SCORE, async () => {
+    const ctx = { installationId: await newInstallation() };
+    const r = (await tools.find({ more: true }, ctx)) as { show_to_builder: string; programs: { id: string }[] };
+    const listed = new Set(r.programs.map((p) => p.id));
+    return ids.filter((p) => listed.has(p.id) && r.show_to_builder.includes(p.title)).map((p) => p.id);
+  });
+}
+
+test('9.5 v2.12 find drops programs an agent cannot complete; with the flag off every program stays', dbTest, async () => {
+  const stamp = `${process.pid}-${Date.now()}`;
+  const col = { ...committedProgram('colosseum-worlds-fair'), id: `t9-col-${stamp}`, title: `T9 Fair ${stamp}`, status: 'active', starts_at: '2026-01-01T00:00:00Z', ends_at: '2099-01-01T00:00:00Z' };
+  const arc = { ...committedProgram('arc-microgrants'), id: `t9-arc-${stamp}`, title: `T9 Grants ${stamp}`, status: 'active', starts_at: '2026-01-01T00:00:00Z', ends_at: '2099-01-01T00:00:00Z' };
+  await upsertProgram(ProgramFile.parse(col));
+  await upsertProgram(ProgramFile.parse(arc));
+  const [row] = await sql()<{ agent_completable: boolean }[]>`SELECT agent_completable FROM programs WHERE id = ${col.id}`;
+  assert.equal(row.agent_completable, false, 'programs:sync writes the derivation');
+  const both = [{ id: col.id, title: col.title }, { id: arc.id, title: arc.title }];
+  await withOnlyPrograms([col.id, arc.id], async () => {
+    const on = await findCards({ EARNKIT_BUILDER_SCORE: 'on' }, both);
+    assert.deepEqual(on, [arc.id]);
+    const off = await findCards({}, both);
+    assert.deepEqual(off.sort(), [arc.id, col.id].sort());
+  });
+});
+
+/** The confirm line a person with this public score (and held flag) sees, with the flag as given. */
+async function confirmLineFor(o: { score: number; held: boolean; flag: string | undefined }) {
+  return withScoreFlag(o.flag, () =>
+    withTokenEnv(async () => {
+      const t = await confirmSetup(`t9-${o.score}-${o.held}`, { remembered: W8 });
+      if (o.flag === 'on') {
+        await sql()`INSERT INTO builder_profiles (builder_id, slug, first_find_at, held) VALUES (${t.inst}, ${`t9p${t.inst}`}, now(), ${o.held})`;
+        // A held person: their newest score is held; the public one is the last unheld (here: none above 0).
+        await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held)
+          VALUES (${t.inst}, '2026-10-12', ${o.score}, 50, '{}', '{}', 'v1', 'v1-launch', ${o.held})`;
+      }
+      const r = (await tools.confirm({ program_id: t.p.id, project: t.project, answers: t.answers }, t.ctx)) as { show_to_builder: string };
+      return r.show_to_builder;
+    }),
+  );
+}
+
+test('9.6 v2.12 confirm: score 19 gets "Ready to submit?"; 20 gets the token line; held never does; the flag off is v2.11', dbTest, async () => {
+  for (const [score, held, flag, token] of [[19, false, 'on', false], [20, false, 'on', true], [80, true, 'on', false], [0, false, undefined, true]] as const) {
+    const line = await confirmLineFor({ score, held, flag });
+    assert.equal(/launches \$/.test(line), token, `${score} ${held} ${flag}: ${line}`);
+    if (!token) assert.equal(line, 'Ready to submit?');
+  }
+});
+
+test('9.6b v2.12 confirm below the score: a yes records the entry with no token launched', dbTest, () =>
+  withScoreFlag('on', () =>
+    withTokenEnv(async () => {
+      const t = await confirmSetup('t9-yes', { remembered: W8 });
+      await sql()`INSERT INTO builder_profiles (builder_id, slug, first_find_at) VALUES (${t.inst}, ${`t9y${t.inst}`}, now())`;
+      const r = (await tools.confirm({ program_id: t.p.id, project: t.project, answers: t.answers, yes: true, wallet: W8 }, t.ctx)) as Confirmed;
+      assert.equal(typeof r.project_id, 'number');
+      assert.equal(t.calls.deploy, 0);
+      assert.doesNotMatch(r.show_to_builder, /launches \$|40% of its fees/);
+    }),
+  ),
+);

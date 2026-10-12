@@ -375,13 +375,21 @@ export type Odds = 'good' | 'unknown' | 'low';
 /** v2.11 8a (S5): odds as a rank key: good, then unknown, then low (absent reads low, P26). Pure. */
 export const oddsRank = (o: Odds | undefined): number => (o === 'good' ? 0 : o === 'unknown' ? 1 : 2);
 /** v2.10 item 6: what traction measures. A null count is unknown and scores 0 (never named). */
-export type TractionFacts = { tx_count: number | null; live_ok: boolean; commits_90d: number | null };
+export type TractionFacts = {
+  tx_count: number | null;
+  live_ok: boolean;
+  commits_90d: number | null;
+  /** v2.12 spec 7: the person's verified users and money for this project (builder score), when known. */
+  verified?: { users: number; money_usd: number } | null;
+};
 /** v2.10 item 6: good odds need product tier and at least this much traction. */
 export const GOOD_ODDS_TRACTION = 4;
 /** 0 for none or unknown, 1 from `mid`, 2 from `high`. Pure. */
 const band = (n: number | null, mid: number, high: number) => (n === null || n <= 0 ? 0 : n < high ? (n >= mid ? 1 : 0) : 2);
 /** v2.10 item 6 (R1): 3·band(tx: 0, 1-49, 50+) + 2·live_ok + 1·band(commits: 0, 1-9, 10+), 0 to 10. Unknown counts score 0. Pure. */
 export function traction(f: TractionFacts): number {
+  // v2.12 spec 7: 3·band(users: 0, 1-49, 50+) + 2·live_ok + band(money: $0, $1-499, $500+) when the profile has them.
+  if (f.verified) return 3 * band(f.verified.users, 1, 50) + 2 * Number(f.live_ok) + band(f.verified.money_usd, 1, 500);
   return 3 * band(f.tx_count, 1, 50) + 2 * Number(f.live_ok) + band(f.commits_90d, 1, 10);
 }
 /**

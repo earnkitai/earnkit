@@ -9,6 +9,7 @@ import { boardLink } from './entry-text';
 import { difficultyOf, guideSources, guideText, programGuide, type Difficulty, type GuideBonus } from './guide';
 import { bonusCell } from './present';
 import {
+  agentCompletableOf,
   type DifficultyOverride,
   type Focus,
   type GuideLogo,
@@ -227,6 +228,8 @@ export type ProgramRow = {
   results: { url: string; expected: string } | null;
   /** v2.11 T5 (program file fresh_build): the owner-set fresh-build starter, or null. Optional for older fixtures. */
   fresh_build?: { starter: string } | null;
+  /** v2.12 spec 9 (programs.agent_completable): an agent can complete an entry. Optional for older fixtures. */
+  agent_completable?: boolean;
 };
 
 /** Open programs: marked active and the deadline hasn't passed. */
@@ -274,6 +277,7 @@ export async function listPrograms() {
       | 'match_precision'
       | 'submission_url'
       | 'fresh_build'
+      | 'agent_completable'
     > & {
       sponsor_url: string | null;
       sponsor_wallet: string | null;
@@ -285,7 +289,7 @@ export async function listPrograms() {
       p.opened_at, p.submission_requirements, p.ideas, p.submission_proof, p.builder_bonus,
       p.logo, p.past_rounds, p.focus, p.best_bet, p.difficulty_override, p.winners_per_round,
       p.chains, p.any_chain, p.investment, p.needs_repo, p.needs_contract, p.rules, p.token_policy, p.starts_at,
-      p.match_precision, p.submission_url, p.fresh_build, sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
+      p.match_precision, p.submission_url, p.fresh_build, p.agent_completable, sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
     FROM programs p LEFT JOIN sponsor_campaigns sc ON sc.program_id = p.id
     WHERE p.status = 'active' AND (p.ends_at IS NULL OR p.ends_at > now())
     ORDER BY p.ends_at NULLS LAST, p.id`; // Task 11: a tie-breaker, so equal deadlines list in one order (the 9.3 find test compared two reads)
@@ -374,7 +378,7 @@ export function programCard(
     | 'difficulty_override'
     | 'winners_per_round'
     | 'rules'
-  > & { token_policy?: TokenPolicy; starts_at?: Date | null; match_precision?: string | null; submission_url?: string | null; fresh_build?: { starter: string } | null },
+  > & { token_policy?: TokenPolicy; starts_at?: Date | null; match_precision?: string | null; submission_url?: string | null; fresh_build?: { starter: string } | null; agent_completable?: boolean },
   tracks: string[],
   /** A sponsor campaign's identity (sponsor-verify.ts); unverified when not given. */
   identity: SponsorIdentity = UNVERIFIED,
@@ -444,6 +448,8 @@ export function programCard(
     fresh_build: p.campaign ? null : (p.fresh_build ?? null),
     // v2.11 T7: the fresh pick ranks more winners per round first (fresh-build.ts freshPick).
     winners_per_round: p.winners_per_round ?? null,
+    // v2.12 spec 9: false only when an agent can't complete an entry (find drops it with the score flag on).
+    agent_completable: p.agent_completable !== false,
   };
 }
 
@@ -800,6 +806,8 @@ export async function upsertProgram(
       results: p.results ? tx.json(p.results) : null,
       // v2.11 T5: the file is the source of truth, so a removed field clears the column.
       fresh_build: p.fresh_build ? tx.json(p.fresh_build) : null,
+      // v2.12 spec 9: the file's override, else the derivation (find drops false with the score flag on).
+      agent_completable: agentCompletableOf(p),
       source,
       opened_at: p.status === 'active' ? new Date() : null,
     };

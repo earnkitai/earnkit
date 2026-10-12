@@ -20,14 +20,14 @@ import {
   notReadyTokenNote,
   tokenRow,
 } from './entry-text';
-import { FILL_LINES, HELD_LINE, MORE_USERS_LINE, SCORE_NOTES, SCORE_SHARED, SITE_LINE, SITE_TXT_LINE, WORKING_LINE, nextAction, programLine, scoreLines } from './score-tool';
+import { FILL_LINES, HELD_LINE, MORE_USERS_LINE, SCORE_NOTES, SCORE_SHARED, SITE_LINE, SITE_TXT_LINE, WORKING_LINE, nextAction, programLine, scoreLines, youLine } from './score-tool';
 import { computeScore } from './score';
 import { calibration } from './score-calibration';
 import { CONSENT_LINE, HIDDEN_LINE, NO_PROFILE_LINE, SHARED_PROFILE_NOTE, SHOWN_LINE, X_NOT_LISTED_NOTE, X_SET_LINE, X_TAKEN_NOTE } from './profiles';
 import { OWNERSHIP_FOR_TOKEN, SCORE_DESCRIPTION, SERVER_INSTRUCTIONS, TELL_DESCRIPTION, TELL_DESCRIPTION_SCORE, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { bonusLine, presentFirstMessage, skippedLine, submitStepLine, type Card, type FirstMessage } from './present';
 import { SKIP_REASONS } from './match-projects';
-import { BUILD_ENTRY_NOTE, BUILD_NO_LIVE_NOTE, BUILD_HOLD_NOTE, BUILD_OWNER_NOTE, BUILD_WALLET_NOTE, BUILD_PENDING_NOTE, pagesLiveLine, BUILD_DEPLOYS_OFF_NOTE, BUILD_NOT_READY, BUILD_PAGES_NOTE, BUILD_UPLOAD_NOTE, buildChainNote, buildOwnerNote, buildProofNote, BUILD_NOT_STARTED, BUILD_SHARED_NOTE, KIT_NOTE, WALLET_NEEDED_NOTE, buildRefused, twistNote, BUILD_NOTE, PLAN_NOTE, ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, CONFIRM_SHARED_NOTE, PROJECT_REOFFER_NOTE, SUBMITTED_AGAIN_NOTE, SUBMITTED_SHARED_NOTE, handlers } from './tools';
+import { BUILD_ENTRY_NOTE, BUILD_NO_LIVE_NOTE, BUILD_HOLD_NOTE, BUILD_OWNER_NOTE, BUILD_WALLET_NOTE, BUILD_PENDING_NOTE, pagesLiveLine, BUILD_DEPLOYS_OFF_NOTE, BUILD_NOT_READY, BUILD_PAGES_NOTE, BUILD_UPLOAD_NOTE, buildChainNote, buildOwnerNote, buildProofNote, BUILD_NOT_STARTED, BUILD_SHARED_NOTE, KIT_NOTE, WALLET_NEEDED_NOTE, buildRefused, twistNote, BUILD_NOTE, PLAN_NOTE, ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, CONFIRM_SHARED_NOTE, PROJECT_REOFFER_NOTE, SUBMITTED_AGAIN_NOTE, SUBMITTED_SHARED_NOTE, SCORE_STEP_NOTE, handlers } from './tools';
 import { outcomeQuestion } from './outcomes';
 import { DEFAULT_GUIDANCE, PLAIN_FIX, PLAIN_LENGTH_FIX, PLAIN_NOTE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, walletAsk } from './coach';
 import { alsoText } from './also-qualifies';
@@ -1097,6 +1097,9 @@ const builderFacing: [string, string][] = [
   ['SITE_TXT_LINE', SITE_TXT_LINE],
   ...Object.entries(FILL_LINES).flatMap(([k, v]): [string, string][] => [[`FILL_LINES.${k}.ask`, v.ask], [`FILL_LINES.${k}.say`, v.say]]),
   ['scoreLines', scoreLinesSample],
+  // v2.12 T9: find's second line with a score (the fill step is FILL_LINES above).
+  ['youLine', youLine({ score: 41, percentile: 78, slug: 'lee' })],
+  ['youLine hidden', youLine({ score: 41, percentile: 78, slug: 'lee', hidden: true })],
 ];
 
 // noCoinYet is the AGENT's note (never shown to the builder as written; see entry-text.ts), so it
@@ -1186,6 +1189,8 @@ const agentFacing: [string, string][] = [
   // v2.12 T8: the score tool's description and agent notes.
   ['SCORE_DESCRIPTION', SCORE_DESCRIPTION],
   ...Object.entries(SCORE_NOTES).map(([k, v]): [string, string] => [`SCORE_NOTES.${k}`, v]),
+  // v2.12 T9: find's score_step note.
+  ['SCORE_STEP_NOTE', SCORE_STEP_NOTE],
   ['STORAGE_NOTE', STORAGE_NOTE],
   ['UPLOAD_NOTE', UPLOAD_NOTE],
   ['HOST_SIGN_IN_NOTE', HOST_SIGN_IN_NOTE],

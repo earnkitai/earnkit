@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { freshBuildProblems, starterAgeWarnings, STARTER_TEST_WARN_DAYS, logoFileProblem, ProgramFile, requiredWithoutTodo, requirementsWithoutKind } from './program-file';
+import { agentCompletableOf, deriveAgentCompletable, freshBuildProblems, starterAgeWarnings, STARTER_TEST_WARN_DAYS, logoFileProblem, ProgramFile, requiredWithoutTodo, requirementsWithoutKind } from './program-file';
+import { committedProgram } from './fixtures/program-file';
 import { STARTERS, type Starter } from './starters';
 
 /**
@@ -877,4 +878,33 @@ test('final fix I4: programs:check warns (never fails) once an offered starter w
   const src = readFileSync(join(import.meta.dirname, '..', '..', 'scripts', 'programs-sync.mts'), 'utf8');
   assert.match(src, /console\.warn\(`Warning: \$\{w\}`\)/);
   assert.ok(src.indexOf('starterAgeWarnings(') < src.indexOf('process.exit(1)'), 'warned before the exit, never counted as a problem');
+});
+
+/** Every committed programs/*.json, parsed. */
+function realPrograms() {
+  const dir = join(import.meta.dirname, '../../../../programs');
+  return readdirSync(dir)
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => ProgramFile.parse(JSON.parse(readFileSync(join(dir, f), 'utf8'))));
+}
+
+test('9.1 agent_completable: false only for a go-to-market plan or a full-time team; team and demo_video items are fine; the file overrides', () => {
+  const p = committedProgram('arc-microgrants');
+  assert.equal(deriveAgentCompletable(p), true);
+  assert.equal(deriveAgentCompletable({ ...p, submission_requirements: [...p.submission_requirements, { ...p.submission_requirements[0], key: 'team', kind: 'team' }] }), true);
+  assert.equal(deriveAgentCompletable({ ...p, each_time: ['a 2-3 min pitch video'] }), true);
+  assert.equal(deriveAgentCompletable({ ...p, each_time: ['team and go-to-market answers'] }), false);
+  assert.equal(deriveAgentCompletable({ ...p, each_time: ['a full-time team'] }), false);
+  // the file overrides the derivation either way (owner only)
+  assert.equal(agentCompletableOf({ ...p, each_time: ['a full-time team'], agent_completable: true }), true);
+  assert.equal(agentCompletableOf({ ...p, agent_completable: false }), false);
+  assert.equal(agentCompletableOf(p), true);
+  assert.equal(ProgramFile.safeParse({ ...p, agent_completable: 'yes' }).success, false);
+  assert.equal(ProgramFile.safeParse({ ...p, agent_completable: false }).success, true);
+  // today's files (owner ruling D2): only Colosseum derives false.
+  const byId = Object.fromEntries(realPrograms().map((f) => [f.id, deriveAgentCompletable(f)]));
+  assert.deepEqual(byId, {
+    'a16z-speedrun': true, 'arc-microgrants': true, 'avalanche-team1-mini-grants': true, 'base-builder-grants': true,
+    'circle-developer-grants': true, 'colosseum-worlds-fair': false, 'earnkit-campaign-1-base': true, 'monad-metropolis': true,
+  });
 });
