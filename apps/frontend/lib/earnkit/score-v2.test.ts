@@ -75,3 +75,35 @@ test('2.7b invalid dates and numbers never produce NaN', () => {
   assert.ok(Number.isInteger(s.score) && s.score >= 0 && s.score <= 100);
   for (const p of Object.values(s.parts)) assert.ok(Number.isFinite(p.points));
 });
+
+test('2.11 the same account starring and calling counts as a user, not a capped star', () => {
+  const at = days(1);
+  for (const order of [0, 1]) {
+    const t = [
+      { project: 'p', actor: 'GH:Bob', at, weight: 1, kind: 'star' as const },
+      { project: 'p', actor: 'gh:bob', at, weight: 1, kind: 'caller' as const },
+    ];
+    if (order) t.reverse();
+    const s = computeScoreV2({ ...empty, ships: [ship('p')], touches: t }, cal, NOW);
+    assert.equal(s.parts.used.raw.star_fork, 0);
+    assert.ok(Math.abs(s.parts.used.raw.people - fade(at, NOW)) < 1e-9);
+    assert.equal(s.perProject.get('p')!.people, 1);
+  }
+  const heavyStar = [
+    { project: 'p', actor: 'x', at, weight: 5, kind: 'star' as const },
+    { project: 'p', actor: 'x', at, weight: 1, kind: 'trader' as const },
+  ];
+  const r = computeScoreV2({ ...empty, ships: [ship('p')], touches: heavyStar }, cal, NOW);
+  assert.equal(r.parts.used.raw.star_fork, 0);
+});
+
+test('2.12 an invalid week date is skipped and never sticks as NaN', () => {
+  const good = { week: '2026-W41', at: days(1) };
+  for (const ws of [[{ week: '2026-W41', at: new Date('x') }, good], [good, { week: '2026-W41', at: new Date('x') }]]) {
+    const s = computeScoreV2({ ...empty, ships: [ship('p')], weeks: ws }, cal, NOW);
+    assert.ok(Number.isFinite(s.parts.consistency.raw.W) && s.parts.consistency.raw.W > 0.9);
+    assert.equal(s.parts.consistency.raw.weeks, 1);
+  }
+  const only = computeScoreV2({ ...empty, ships: [ship('p')], weeks: [{ week: 'w', at: new Date('x') }] }, cal, NOW);
+  assert.equal(only.parts.consistency.raw.weeks, 0);
+});

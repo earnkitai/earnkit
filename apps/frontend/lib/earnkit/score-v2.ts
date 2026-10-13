@@ -54,7 +54,11 @@ export function computeScoreV2(i: V2Input, cal: CalibrationV2, now: Date): V2Sco
   for (const t of i.touches) {
     const k = `${t.project}\u0000${t.actor.toLowerCase()}`;
     const w = fin(t.weight) * fade(t.at, now);
-    if (!best.has(k) || best.get(k)!.w < w) best.set(k, { w, kind: t.kind, project: t.project });
+    const cur = best.get(k);
+    const sf = t.kind === 'star' || t.kind === 'fork';
+    const curSf = cur !== undefined && (cur.kind === 'star' || cur.kind === 'fork');
+    // A real use (caller, tagged, trader) always wins over a star or fork by the same account.
+    if (!cur || (curSf && !sf) || (curSf === sf && cur.w < w)) best.set(k, { w, kind: t.kind, project: t.project });
   }
   let people = 0;
   let starFork = 0;
@@ -86,7 +90,7 @@ export function computeScoreV2(i: V2Input, cal: CalibrationV2, now: Date): V2Sco
 
   // Consistency: distinct weeks, each faded by its age.
   const weekAt = new Map<string, Date>();
-  for (const w of i.weeks) if (!weekAt.has(w.week) || weekAt.get(w.week)! < w.at) weekAt.set(w.week, w.at);
+  for (const w of i.weeks) if (Number.isFinite(time(w.at)) && (!weekAt.has(w.week) || weekAt.get(w.week)! < w.at)) weekAt.set(w.week, w.at);
   const W = [...weekAt.values()].reduce((n, at) => n + fade(at, now), 0);
 
   const parts: V2Parts = {
