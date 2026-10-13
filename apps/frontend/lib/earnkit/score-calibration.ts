@@ -40,3 +40,25 @@ export function calibration(id: string = LIVE_CALIBRATION): Calibration {
   if (!Object.hasOwn(CALIBRATIONS, id)) throw new Error(`unknown calibration ${id}`);
   return CALIBRATIONS[id];
 }
+
+/** v2.12.1: the bars of formula v2 (Shipped, Used, Earned, Consistency). Same rule: only bars loosen, an owner decision. */
+export type CalibrationV2 = {
+  id: string;
+  /** Faded people (U) for the full 40 Used points. */
+  users: number;
+  /** USD earned (coin creator fees, fees into their contracts, prizes won) for the full 20 Earned points. */
+  money_usd: number;
+  /** Faded active weeks for the full 20 Consistency points. */
+  weeks: number;
+  /** A package's weekly downloads / 50 count as people, at most this many per package (v2.12 I6). */
+  package_users: number;
+  since: string;
+};
+export const V2_CALIBRATIONS: Record<string, CalibrationV2> = {
+  'v2-launch': { id: 'v2-launch', users: 500, money_usd: 5_000, weeks: 13, package_users: 100, since: '2026-10-14' },
+};
+export const LIVE_CALIBRATION_V2 = 'v2-launch';
+export function calibrationV2(id: string = LIVE_CALIBRATION_V2): CalibrationV2 {
+  if (!Object.hasOwn(V2_CALIBRATIONS, id)) throw new Error(`unknown calibration ${id}`);
+  return V2_CALIBRATIONS[id];
+}
