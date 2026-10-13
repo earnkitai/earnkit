@@ -1,3 +1,4 @@
+import { archiveFlag } from './builder-score-flag';
 import { sql } from './db';
 import { SafeFetchError, safeFetchText } from './safe-fetch';
 import {
@@ -82,11 +83,13 @@ export async function verifySponsor(
   if (!pending) {
     pending = (async () => {
       const v = await checkEarnkitTxt(host, w);
-      await sql()`
-        INSERT INTO sponsor_verifications (host, wallet, verified, checked_at, note)
-        VALUES (${host}, ${w}, ${v.verified}, now(), ${v.note})
-        ON CONFLICT (host, wallet) DO UPDATE
-          SET verified = EXCLUDED.verified, checked_at = EXCLUDED.checked_at, note = EXCLUDED.note`;
+      // v2.12 spec 9: sponsor_verifications is archived; no writes while the flag is off (verdict uncached).
+      if (archiveFlag('SPONSOR_CAMPAIGNS'))
+        await sql()`
+          INSERT INTO sponsor_verifications (host, wallet, verified, checked_at, note)
+          VALUES (${host}, ${w}, ${v.verified}, now(), ${v.note})
+          ON CONFLICT (host, wallet) DO UPDATE
+            SET verified = EXCLUDED.verified, checked_at = EXCLUDED.checked_at, note = EXCLUDED.note`;
       return v;
     })().finally(() => inFlight.delete(key));
     inFlight.set(key, pending);

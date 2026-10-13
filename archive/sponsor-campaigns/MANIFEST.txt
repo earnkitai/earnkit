@@ -9,3 +9,5 @@ apps/frontend/app/award/[ref]/page.tsx
 apps/frontend/app/award/[ref]/AwardClient.tsx
 apps/frontend/app/api/sponsor/[ref]/check/route.ts
 apps/frontend/scripts/sponsor-e2e.mts
+apps/frontend/app/components/WalletGate.tsx
+apps/frontend/app/components/wallet.ts

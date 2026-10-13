@@ -6,7 +6,7 @@ import { PLACEHOLDER_LINE, placeholderLink } from './placeholder';
  * Text written by sponsors or builders reaches other people's agents. One sanitizer for all of
  * it: an allowlist of plain characters, no links or markup, within a fixed length. Where it is
  * shown, it is either a quoted single-line name (`quoted`) or data inside an envelope that says
- * who wrote it (`get_program.sponsor_content`, `sponsor_campaign` `entries`).
+ * who wrote it (`get_program.sponsor_content`; archived v2.12: `sponsor_campaign` `entries`).
  */
 
 export class UntrustedTextError extends Error {}

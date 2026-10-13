@@ -811,6 +811,7 @@ test('11.7 (F23): builder navigation never links the sponsor pages; the routes a
   const navs = [html(React.createElement(Header)), html(React.createElement(Footer)), html(React.createElement(HomeView, { landing: homeFixture })), html(React.createElement(GuideView, { page: fullGuide }))];
   for (const h of navs) assert.doesNotMatch(h, /href="[^"]*\/(fund|award)\b/);
   assert.doesNotMatch(readFileSync(join(import.meta.dirname, '../../public/llms.txt'), 'utf8'), /earnkit\.com\/(fund|award)\b/);
+  assert.doesNotMatch(readFileSync(join(import.meta.dirname, '../../public/llms.txt'), 'utf8'), /sponsor_campaign/);
   for (const r of ['fund/[ref]', 'award/[ref]']) assert.ok(!existsSync(join(import.meta.dirname, '../../app', r, 'page.tsx')), r);
 });
 

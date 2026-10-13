@@ -8,9 +8,9 @@ import { sql } from './db';
 
 /** The limits (v2.2 §5). Keys are `<name>:<installation id or IP>`. */
 export const LIMITS = {
-  /** sponsor_campaign create, per installation. */
+  /** Archived v2.12 (sponsor_campaign tool): create, per installation. */
   sponsorCreate: { limit: 5, windowSeconds: 86_400 },
-  /** sponsor_campaign create with replaces (correcting an unfunded draft), per installation. */
+  /** Archived v2.12 (sponsor_campaign tool): create with replaces (correcting an unfunded draft), per installation. */
   sponsorReplace: { limit: 10, windowSeconds: 86_400 },
   /** record_submission, per installation. */
   recordSubmission: { limit: 20, windowSeconds: 86_400 },
@@ -34,7 +34,7 @@ export const LIMITS = {
   githubMatching: { limit: 30, windowSeconds: 3_600 },
   /** v2.11 T9 security fix (M5): the no-click host proof's GitHub reads, per installation. */
   hostProof: { limit: 20, windowSeconds: 3_600 },
-  /** Chain reads: POST /api/sponsor/[ref]/check per IP, sponsor_campaign status per installation. */
+  /** Chain reads: archived v2.12: POST /api/sponsor/[ref]/check per IP, sponsor_campaign status per installation. */
   chainChecks: { limit: 60, windowSeconds: 60 },
   /**
    * v2.8.1 §E17, Ruling F11: new installations (POST /oauth/token that creates one), per registration

@@ -4,8 +4,8 @@
 //   import { createSponsorDraft, prepareAward, sponsorStatus } from './sponsor';
 //   import { AwardPicks, DraftInput, SponsorError } from './sponsor-rules';
 // 1. Put SponsorCampaignInput (and Ref, if it is gone) next to the other tool inputs.
-// 2. Put sponsorCampaign above the `handlers` object.
-// 3. Add `sponsor_campaign: sponsorCampaign,` to `handlers`.
+// 2. Put sponsorCampaign above the `tools` object.
+// 3. Add `sponsor_campaign: sponsorCampaign,` to the `tools` object.
 
 const Ref = z.string().regex(/^0x[0-9a-f]{64}$/, 'the ref from create');
 export const SponsorCampaignInput = z.discriminatedUnion('action', [

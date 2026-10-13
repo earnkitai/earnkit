@@ -54,8 +54,8 @@ export const ESCROW_CHAINS = ['base', 'base-sepolia', 'local'] as const;
 export class EscrowConfigError extends Error {}
 
 /**
- * What is wrong with the escrow env, or null when it's usable. Sponsor campaigns are only offered
- * (the `sponsor_campaign` tool is only registered) when this is null. `ESCROW_CHAIN` defaults to
+ * What is wrong with the escrow env, or null when it's usable. Sponsor campaigns (archived in v2.12;
+ * the `sponsor_campaign` tool is gone unless restored) are only usable when this is null. `ESCROW_CHAIN` defaults to
  * `base` when unset.
  */
 export function escrowConfigProblem(

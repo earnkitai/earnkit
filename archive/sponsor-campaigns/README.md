@@ -16,6 +16,7 @@ Around it:
 | Award page | `/award/<ref>` |
 | Chain check route | `POST /api/sponsor/<ref>/check` |
 | Campaign logic and sponsor copy | `lib/earnkit/sponsor.ts`, `sponsor-text.ts` |
+| Wallet connect for those pages | `app/components/wallet.ts`, `WalletGate.tsx` |
 | End to end script | `scripts/sponsor-e2e.mts` (`pnpm sponsor:e2e`) |
 
 Production never had the escrow configured, so the tool was never offered there and no sponsor
@@ -26,7 +27,7 @@ campaign ran.
 `EARNKIT_SPONSOR_CAMPAIGNS=on`. Default off. With it off:
 
 - Sponsor programs are not listed (`listPrograms`) and `getProgram` says not found.
-- Nothing writes `sponsor_campaigns` (the link-merge update in `identity.ts` is skipped).
+- Nothing writes `sponsor_campaigns` (the link-merge update in `identity.ts` is skipped; `pnpm campaign refund` and `fallback` refuse) or `sponsor_verifications` (`verifySponsor` returns its verdict uncached).
 - The tool, `/fund`, `/award` and the check route do not exist (their files are in `files/`).
 
 The tables are kept and never dropped (see `TABLES.md`).
@@ -38,7 +39,6 @@ Live code reads these, so they did not move (plan R19):
 - `sponsor-rules.ts`, `sponsor-identity.ts`, `sponsor-verify.ts`: read by `programs.ts`, `leaderboard.ts`, `token-proposal.ts`, `mcp.ts` and `/campaigns/<slug>`.
 - `escrow.ts`, `escrow-abi.ts`: log-chunk helpers used by the cron and the bonus ledger, and escrow links.
 - `scoring-lock.ts`: `withScoringLock` moved here out of `sponsor.ts` (used by `cron.ts` and `bonus-ledger.ts`); the archived `sponsor.ts` re-exports it, so a restore needs no edit.
-- `app/components/wallet.ts` and `WalletGate.tsx`: still imported by the live tree.
 - `app/terms/sections/SponsorTermsSection.tsx`: signed sponsors' terms stay public.
 - `contracts/`: untouched.
 

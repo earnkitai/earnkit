@@ -59,6 +59,11 @@ if (command === 'fallback' && !FALLBACK.includes(sub ?? ''))
 // could pay twice, so there is none.
 if (command === 'payout' && (process.argv.includes('--execute') || process.argv.includes('--winners')))
   fail('pnpm campaign payout is a dry run only: the cron pays the winners after the 48-hour review.');
+{
+  const { sponsorCommandBlock } = await import('../lib/earnkit/sponsor-cli');
+  const blocked = sponsorCommandBlock(command);
+  if (blocked) fail(blocked);
+}
 if (!slug && command !== 'sync')
   fail(
     `pnpm campaign ${command}${sub ? ` ${sub}` : ''} needs a ${command === 'bonus-link' ? 'builder bonus round key' : `campaign ${['golive', 'rank', 'payout', 'veto-link'].includes(command) ? 'slug' : 'ref'}`}.\n\n${USAGE}`,
