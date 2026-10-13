@@ -256,15 +256,22 @@ export async function consentOnce(builderId: number): Promise<string | null> {
   return p ? CONSENT_LINE(p.slug) : null;
 }
 
-/** A live slug, or an old one with its redirect; null for hidden, unknown or never-installed. */
+/**
+ * A live slug, or an old one with its redirect; null for hidden, unknown or never-installed, and
+ * (v2.12 final review I4) for a person who has not been shown the consent line yet: disclosure
+ * comes before publication. The profile page, the card and the share route all read through here;
+ * the leaderboard applies the same rule (PUBLIC_PROFILE). Percentiles still count everyone.
+ */
 export async function resolveSlug(slug: string): Promise<{ builderId: number; redirect: string | null } | null> {
   const s = slug.toLowerCase();
   if (!SLUG.test(s)) return null;
-  const [p] = await sql()<{ builder_id: number; hidden: boolean }[]>`SELECT builder_id, hidden FROM builder_profiles WHERE slug = ${s}`;
-  if (p) return p.hidden ? null : { builderId: p.builder_id, redirect: null };
-  const [h] = await sql()<{ builder_id: number; slug: string; hidden: boolean }[]>`
-    SELECT p.builder_id, p.slug, p.hidden FROM profile_slug_history h JOIN builder_profiles p USING (builder_id) WHERE h.old_slug = ${s}`;
-  return h && !h.hidden ? { builderId: h.builder_id, redirect: h.slug } : null;
+  type Row = { builder_id: number; hidden: boolean; consented: boolean };
+  const [p] = await sql()<Row[]>`SELECT builder_id, hidden, consent_shown_at IS NOT NULL AS consented FROM builder_profiles WHERE slug = ${s}`;
+  if (p) return p.hidden || !p.consented ? null : { builderId: p.builder_id, redirect: null };
+  const [h] = await sql()<(Row & { slug: string })[]>`
+    SELECT p.builder_id, p.slug, p.hidden, p.consent_shown_at IS NOT NULL AS consented
+    FROM profile_slug_history h JOIN builder_profiles p USING (builder_id) WHERE h.old_slug = ${s}`;
+  return h && !h.hidden && h.consented ? { builderId: h.builder_id, redirect: h.slug } : null;
 }
 
 /**

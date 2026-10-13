@@ -8,6 +8,7 @@ import { emptyReasonOf, pitchAllowed, siteShowsUse, verifiedProject } from './bu
 import { discover } from './discovery';
 import type { ReaderDeps } from './source-readers';
 import { profileCode } from './discovery-clues';
+import { CONSENT_LINE } from './profiles';
 import { sql } from './db';
 import { computeScore, type Parts } from './score';
 import { calibration } from './score-calibration';
@@ -89,7 +90,7 @@ async function withEnv<R>(env: Record<string, string>, fn: () => Promise<R>): Pr
   }
 }
 const profile = (id: number, o: { held?: boolean; hidden?: boolean } = {}) =>
-  sql()`INSERT INTO builder_profiles (builder_id, slug, held, hidden) VALUES (${id}, ${`s${id}`}, ${o.held ?? false}, ${o.hidden ?? false})`;
+  sql()`INSERT INTO builder_profiles (builder_id, slug, held, hidden, consent_shown_at) VALUES (${id}, ${`s${id}`}, ${o.held ?? false}, ${o.hidden ?? false}, now())`;
 const scoreRow = (id: number, day: string, score: number, p: Parts | Record<string, never>, held = false, top: Record<string, unknown> = {}) =>
   sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held)
     VALUES (${id}, ${day}, ${score}, 50, ${sql().json(p as never)}, ${sql().json(top as never)}, 'v1', 'v1-launch', ${held})`;
@@ -101,13 +102,15 @@ const noPrograms = { programs: async () => [] };
 
 test('8.7 no score yet: the profile is made and queued, the reply says it is being worked out, with the link; one score_viewed a minute', dbTest, async () => {
   const id = T;
-  const r = await withEnv({ EARNKIT_EVENT_LOG: 'on' }, async () => {
+  const [r, again] = await withEnv({ EARNKIT_EVENT_LOG: 'on' }, async () => {
     const r = await scoreReply({ installationId: id }, NOW, noPrograms);
-    await scoreReply({ installationId: id }, NOW, noPrograms);
-    return r;
+    return [r, await scoreReply({ installationId: id }, NOW, noPrograms)];
   });
-  const [p] = await sql()<{ slug: string }[]>`SELECT slug FROM builder_profiles WHERE builder_id = ${id}`;
-  assert.equal(r.show_to_builder, `${WORKING_LINE}\nearnkit.com/b/${p.slug}`);
+  const [p] = await sql()<{ slug: string; consent: boolean }[]>`SELECT slug, consent_shown_at IS NOT NULL AS consent FROM builder_profiles WHERE builder_id = ${id}`;
+  // Final review I4: a first call to score delivers the consent line once (it carries the link).
+  assert.equal(r.show_to_builder, `${WORKING_LINE}\n${CONSENT_LINE(p.slug)}`);
+  assert.equal(again.show_to_builder, `${WORKING_LINE}\nearnkit.com/b/${p.slug}`);
+  assert.equal(p.consent, true);
   assert.deepEqual([r.score, r.percentile], [null, null]);
   const [q] = await sql()<{ reason: string }[]>`SELECT reason FROM discovery_queue WHERE builder_id = ${id}`;
   assert.equal(q.reason, 'first_find');

@@ -5,7 +5,7 @@ import { profileCode } from './discovery-clues';
 import { prizeOf } from './entry-text';
 import { eventLogEnabled, noteEvent } from './events';
 import { noteLineIssued } from './github-verify';
-import { PROFILE_URL, ensureProfile } from './profiles';
+import { PROFILE_URL, consentOnce, ensureProfile } from './profiles';
 import { listPrograms } from './programs';
 import { CARD_OFFER_NOTE, offerCard } from './share';
 import { MAX, partDeltas, topPercent, type Parts } from './score';
@@ -189,6 +189,14 @@ export async function scoreReply(ctx: Ctx, now: Date, deps: { programs?: () => P
     };
   }
   if (next) Object.assign(reply, await proofLines(ctx, next, repoLines(), siteLines(), now));
+  // v2.12 spec 1 (final review I4): the consent line, once per person, as find does, before the card
+  // offer (which stays last): a person whose first call is score sees it here. It carries the link,
+  // so a bare link line goes. Marked shown only as the reply goes out; never fails the tool.
+  const consent = await consentOnce(id).catch((err: unknown) => {
+    console.error('[score] consent', err instanceof Error ? err.name : 'error');
+    return null;
+  });
+  if (consent) reply.show_to_builder = lines(...reply.show_to_builder.split('\n').filter((l) => l !== link), consent);
   // v2.12 spec 7 "The offer": once, last, and only when nothing above asks (plan R14).
   const offer =
     reply.score !== null

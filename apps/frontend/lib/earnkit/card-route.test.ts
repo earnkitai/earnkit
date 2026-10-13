@@ -27,6 +27,7 @@ async function scored() {
   const id = 2_140_000_000 + Math.floor(Math.random() * 7_000_000);
   await ensureProfile(id, new Date());
   await sql()`UPDATE builder_profiles SET slug = ${`card${id}`} WHERE builder_id = ${id}`;
+  // Final review I4: not public before the consent line is shown (checked below, then shown).
   const parts = { users: { points: 10, raw: { U: 40 } }, money: { points: 0, raw: {} }, staying: { points: 0, raw: {} }, recency: { points: 0, raw: {} }, consistency: { points: 0, raw: {} } };
   await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held)
     VALUES (${id}, '2026-10-12', 41, 78, ${sql().json(parts)}, '{}', 'v1', 'v1-launch', false)`;
@@ -50,6 +51,10 @@ test('11.11 the card follows the profile at once: hidden is a 404 (no-store), an
   try {
     const id = await scored();
     const slug = `card${id}`;
+    const before = await get(slug);
+    assert.equal(before.status, 404, 'no consent line shown yet: not public');
+    assert.equal(before.headers.get('cache-control'), 'no-store');
+    await sql()`UPDATE builder_profiles SET consent_shown_at = now() WHERE builder_id = ${id}`;
     const ok = await get(slug);
     assert.equal(ok.status, 200);
     assert.equal(ok.headers.get('content-type'), 'image/png');

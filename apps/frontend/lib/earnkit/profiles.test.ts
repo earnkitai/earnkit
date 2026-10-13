@@ -6,6 +6,13 @@ import {
   resolveSlug, setFallback, setHidden, setXHandle, shownName, walletSlug,
 } from './profiles';
 
+/** Final review I4: a profile is public only once the consent line was shown; these tests are about other rules. */
+async function shownProfile(...a: Parameters<typeof ensureProfile>) {
+  const made = await ensureProfile(...a);
+  await sql()`UPDATE builder_profiles SET consent_shown_at = now() WHERE builder_id = ${a[0]} AND consent_shown_at IS NULL`;
+  return made;
+}
+
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 const W = '0xAbCd' + '0'.repeat(32) + '1234';
 const T = 2_100_004_000 + (process.pid % 900) * 20;
@@ -51,7 +58,7 @@ test('7.2 a taken slug gets -2, then -3 (taken includes other people\'s history)
 test('7.3 an X handle changes the slug; the old one redirects forever and is never given to anyone else', dbTest, async () => {
   const [b, c] = [T, T + 1];
   await fresh(b, c);
-  await ensureProfile(b, new Date());
+  await shownProfile(b, new Date());
   // B's first slug is its short wallet; then its proven login; then its X handle.
   await setFallback(b, { wallet: runWallet('1234') });
   const first = (await profileOf(b))!.slug;
@@ -66,7 +73,7 @@ test('7.3 an X handle changes the slug; the old one redirects forever and is nev
   assert.deepEqual(await resolveSlug(first), { builderId: b, redirect: now });
   assert.deepEqual(await resolveSlug(`bob${T}`), { builderId: b, redirect: now });
   // C's own wallet has the same short slug as B's old one: C gets the next free one.
-  await ensureProfile(c, new Date());
+  await shownProfile(c, new Date());
   await setFallback(c, { wallet: runWallet('1234', '1') });
   assert.equal((await profileOf(c))!.slug, `${first}-2`);
   // One login, one person: C can't take B's login.
@@ -76,7 +83,7 @@ test('7.3 an X handle changes the slug; the old one redirects forever and is nev
 
 test('7.4 a typed handle that isn\'t on the proven GitHub profile is refused: nothing changes, no event', dbTest, async () => {
   await fresh(T + 2);
-  await ensureProfile(T + 2, new Date());
+  await shownProfile(T + 2, new Date());
   await setFallback(T + 2, { github_login: `ann${T}` });
   await sql()`UPDATE builder_profiles SET twitter_prefill = 'ann_real' WHERE builder_id = ${T + 2}`;
   const slug = (await profileOf(T + 2))!.slug;
@@ -92,13 +99,13 @@ test('7.4 a typed handle that isn\'t on the proven GitHub profile is refused: no
   assert.equal(ev.n, 0, 'no x_added event');
   const noLogin = T + 3;
   await fresh(noLogin);
-  await ensureProfile(noLogin, new Date());
+  await shownProfile(noLogin, new Date());
   assert.equal((await setXHandle(noLogin, 'yes')).ok, false, 'no proven login: no prefill to accept');
 });
 
 test('7.5 hide and show: a hidden profile does not resolve (404) but keeps its row; show brings it back', dbTest, async () => {
   await fresh(T + 4);
-  const { profile } = (await ensureProfile(T + 4, new Date()))!;
+  const { profile } = (await shownProfile(T + 4, new Date()))!;
   assert.equal(await setHidden(T + 4, true), 'Your profile is hidden. Say show to list it again.');
   assert.equal(await resolveSlug(profile.slug), null);
   assert.ok(await profileOf(T + 4), 'the row stays');
@@ -110,8 +117,8 @@ test('7.6 linking merges profiles: one profile, sources moved once, the other sl
   const [root, other] = [T + 5, T + 6];
   await fresh(root, other);
   await sql()`DELETE FROM builder_sources WHERE builder_id IN (${root}, ${other})`;
-  await ensureProfile(root, new Date());
-  const otherSlug = (await ensureProfile(other, new Date()))!.profile.slug;
+  await shownProfile(root, new Date());
+  const otherSlug = (await shownProfile(other, new Date()))!.profile.slug;
   await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by) VALUES
     (${root}, 'repo', 'lee/a', 'lee/a', 'agent'), (${other}, 'repo', 'lee/a', 'lee/a', 'agent'), (${other}, 'repo', 'lee/b', 'lee/b', 'agent')`;
   await sql().begin((tx) => mergeProfiles(tx, root, other));
@@ -124,15 +131,15 @@ test('7.6 linking merges profiles: one profile, sources moved once, the other sl
 
 test('7.7 a shared group never gets a profile', dbTest, async () => {
   const [row] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, shared_client) VALUES (${`v212-shared-${T}-${Date.now()}`}, true) RETURNING id`;
-  assert.equal(await ensureProfile(row.id, new Date()), null);
+  assert.equal(await shownProfile(row.id, new Date()), null);
   assert.equal(await profileOf(row.id), null);
 });
 
 test('7.9 merge, the other has the X handle: it wins, takes the root id, keeps login and handle; the root slug redirects; its rank goes', dbTest, async () => {
   const [root, other] = [T + 7, T + 8];
   await fresh(root, other);
-  const rootSlug = (await ensureProfile(root, new Date()))!.profile.slug;
-  await ensureProfile(other, new Date());
+  const rootSlug = (await shownProfile(root, new Date()))!.profile.slug;
+  await shownProfile(other, new Date());
   await setFallback(other, { github_login: `mx${T}` });
   await sql()`UPDATE builder_profiles SET twitter_prefill = ${`Mx${T % 1000}`} WHERE builder_id = ${other}`;
   assert.ok((await setXHandle(other, 'yes')).ok);
@@ -159,8 +166,8 @@ test('7.9 merge, the other has the X handle: it wins, takes the root id, keeps l
 test('7.10 merge, the root wins: the other\'s login moves to it (no unique clash) and its slug follows the login', dbTest, async () => {
   const [root, other] = [T + 9, T + 10];
   await fresh(root, other);
-  const rootSlug = (await ensureProfile(root, new Date()))!.profile.slug;
-  await ensureProfile(other, new Date());
+  const rootSlug = (await shownProfile(root, new Date()))!.profile.slug;
+  await shownProfile(other, new Date());
   await setFallback(other, { github_login: `ml${T}` });
   await sql().begin((tx) => mergeProfiles(tx, root, other));
   const p = (await profileOf(root))!;
@@ -190,7 +197,7 @@ test('7.13 no impersonation: an X handle another person already shows is refused
   await fresh(a, b);
   const handle = `Twin${T % 100000}`;
   for (const [id, login] of [[a, `twa${T}`], [b, `twb${T}`]] as const) {
-    await ensureProfile(id, new Date());
+    await shownProfile(id, new Date());
     await setFallback(id, { github_login: login });
     await sql()`UPDATE builder_profiles SET twitter_prefill = ${handle} WHERE builder_id = ${id}`;
   }
@@ -229,7 +236,7 @@ test('7.16 with no login, the first remembered wallet (earliest) names the perso
   const [early, late] = [runWallet('aaaa'), runWallet('bbbb')];
   await sql()`INSERT INTO installation_wallets (installation_id, wallet, first_seen_at) VALUES
     (${row.id}, ${late}, now()), (${row.id}, ${early}, now() - interval '1 day')`;
-  await ensureProfile(row.id, new Date());
+  await shownProfile(row.id, new Date());
   await setFallback(row.id, { wallet: late });
   const p = (await profileOf(row.id))!;
   assert.deepEqual([p.slug, p.fallback_handle], [walletSlug(early), `${early.slice(0, 6)}…${early.slice(-4)}`]);
@@ -240,9 +247,9 @@ test('7.16 with no login, the first remembered wallet (earliest) names the perso
 test('7.17 merge: a prefill goes only with the login it came from', dbTest, async () => {
   const [root, other] = [T + 17, T + 18];
   await fresh(root, other);
-  await ensureProfile(root, new Date());
+  await shownProfile(root, new Date());
   await setFallback(root, { github_login: `pr${T}` });
-  await ensureProfile(other, new Date());
+  await shownProfile(other, new Date());
   await sql()`UPDATE builder_profiles SET twitter_prefill = 'stray' WHERE builder_id = ${other}`;
   await sql().begin((tx) => mergeProfiles(tx, root, other));
   const p = (await profileOf(root))!;
@@ -252,7 +259,9 @@ test('7.17 merge: a prefill goes only with the login it came from', dbTest, asyn
 test('7.18 the consent line: once, marked as the reply goes out', dbTest, async () => {
   await fresh(T + 19);
   const { profile } = (await ensureProfile(T + 19, new Date()))!;
+  assert.equal(await resolveSlug(profile.slug), null, 'final review I4: not public before the consent line');
   assert.equal(await consentOnce(T + 19), CONSENT_LINE(profile.slug));
+  assert.deepEqual(await resolveSlug(profile.slug), { builderId: T + 19, redirect: null });
   assert.equal(await consentOnce(T + 19), null);
 });
 
@@ -265,10 +274,10 @@ test('7.14 a new random slug is never someone else\'s old slug (it would take ov
   const taken = `${head}aaaaa`;
   const free = `${head}zzzzz`;
   await sql()`INSERT INTO profile_slug_history (old_slug, builder_id) VALUES (${`b-${taken}`}, ${old})`;
-  await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${old}, ${`now${old}`})`;
+  await sql()`INSERT INTO builder_profiles (builder_id, slug, consent_shown_at) VALUES (${old}, ${`now${old}`}, now())`;
   const seq = [...taken, ...taken, ...free];
   let i = 0;
-  const made = (await ensureProfile(next, new Date(), { rand: () => pick.indexOf(seq[i++]) }))!;
+  const made = (await shownProfile(next, new Date(), { rand: () => pick.indexOf(seq[i++]) }))!;
   assert.equal(made.profile.slug, `b-${free}`);
   assert.deepEqual(await resolveSlug(`b-${taken}`), { builderId: old, redirect: `now${old}` });
 });

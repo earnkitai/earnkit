@@ -144,9 +144,9 @@ const parts = (users: number, U: number) => ({
   users: { points: users, raw: { U } }, money: { points: 0, raw: { M: 0 } }, staying: { points: 0, raw: {} },
   recency: { points: 1, raw: {} }, consistency: { points: 0, raw: { weeks: 0 } },
 });
-const profile = (id: number, o: { slug?: string; x?: string | null; login?: string | null; held?: boolean; hidden?: boolean } = {}) =>
-  sql()`INSERT INTO builder_profiles (builder_id, slug, x_handle, github_login, fallback_handle, held, hidden)
-    VALUES (${id}, ${o.slug ?? `s${id}`}, ${o.x ?? null}, ${o.login ?? null}, ${o.login ?? '0xabcd…1234'}, ${o.held ?? false}, ${o.hidden ?? false})`;
+const profile = (id: number, o: { slug?: string; x?: string | null; login?: string | null; held?: boolean; hidden?: boolean; unconsented?: boolean } = {}) =>
+  sql()`INSERT INTO builder_profiles (builder_id, slug, x_handle, github_login, fallback_handle, held, hidden, consent_shown_at)
+    VALUES (${id}, ${o.slug ?? `s${id}`}, ${o.x ?? null}, ${o.login ?? null}, ${o.login ?? '0xabcd…1234'}, ${o.held ?? false}, ${o.hidden ?? false}, ${o.unconsented ? null : new Date()})`;
 const scoreRow = (id: number, day: string, score: number, o: { held?: boolean; U?: number; projects?: unknown[] } = {}) =>
   sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held, projects)
     VALUES (${id}, ${day}, ${score}, 60, ${sql().json(parts(score, o.U ?? 3) as never)}, ${sql().json({} as never)}, 'v1', 'v1-launch', ${o.held ?? false},
@@ -175,6 +175,18 @@ test('10.10 profileData: unknown and hidden are null, an old slug redirects, no 
   assert.deepEqual(await profileData(`s${b}`, NOW), { name: 'Builder', slug: `s${b}`, line: EMPTY_LINE });
   await scoreRow(b, '2026-10-11', 0);
   assert.deepEqual(await profileData(`s${b}`, NOW), { name: 'Builder', slug: `s${b}`, line: EMPTY_LINE }, 'a public 0 is empty too');
+});
+
+test('final I4 profileData: a profile whose consent line was never shown is not public (also through an old slug)', dbTest, async () => {
+  const id = T + 17;
+  await profile(id, { unconsented: true, login: `lee${T}c` });
+  await scoreRow(id, '2026-10-11', 40);
+  await sql()`INSERT INTO profile_slug_history (old_slug, builder_id) VALUES (${`oldc${id}`}, ${id})`;
+  assert.equal(await profileData(`s${id}`, NOW), null);
+  assert.equal(await profileData(`oldc${id}`, NOW), null);
+  await sql()`UPDATE builder_profiles SET consent_shown_at = now() WHERE builder_id = ${id}`;
+  assert.ok(isFull(await profileData(`s${id}`, NOW)));
+  assert.deepEqual(await profileData(`oldc${id}`, NOW), { redirect: `s${id}` });
 });
 
 test('10.11 profileData: a held profile shows its last unheld score; 90-day spark and 7-day change from public rows only', dbTest, async () => {

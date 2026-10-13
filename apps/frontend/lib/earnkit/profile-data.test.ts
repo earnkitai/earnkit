@@ -113,12 +113,12 @@ after(async () => {
 });
 
 const parts = { users: { points: 1, raw: { U: 1 } }, money: { points: 0, raw: { M: 0 } }, staying: { points: 0, raw: {} }, recency: { points: 0, raw: {} }, consistency: { points: 0, raw: { weeks: 0 } } };
-async function person(name: string, o: { hidden?: boolean; held?: boolean; x?: string; login?: string } = {}) {
+async function person(name: string, o: { hidden?: boolean; held?: boolean; x?: string; login?: string; unconsented?: boolean } = {}) {
   const [i] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`${TAG}-${name}`}) RETURNING id`;
   made.installs.push(i.id);
   const slug = `${TAG}-${name}`;
-  await sql()`INSERT INTO builder_profiles (builder_id, slug, x_handle, github_login, fallback_handle, held, hidden)
-    VALUES (${i.id}, ${slug}, ${o.x ?? null}, ${o.login ?? null}, ${o.login ?? '0xabcd…1234'}, ${o.held ?? false}, ${o.hidden ?? false})`;
+  await sql()`INSERT INTO builder_profiles (builder_id, slug, x_handle, github_login, fallback_handle, held, hidden, consent_shown_at)
+    VALUES (${i.id}, ${slug}, ${o.x ?? null}, ${o.login ?? null}, ${o.login ?? '0xabcd…1234'}, ${o.held ?? false}, ${o.hidden ?? false}, ${o.unconsented ? null : new Date()})`;
   return { id: i.id, slug };
 }
 const scoreRow = (id: number, day: string, score: number, o: { held?: boolean; top?: object } = {}) =>
@@ -154,6 +154,8 @@ async function seedBoard() {
   const a = await person('a', { hidden: true, x: 'aaa' });
   const b = await person('b', { held: true, login: `bee-${TAG}` });
   const c = await person('c');
+  const u = await person('u', { unconsented: true, login: `you-${TAG}` });
+  await scoreRow(u.id, '2026-10-11', 60);
   await scoreRow(a.id, '2026-10-11', 70);
   await scoreRow(b.id, '2026-10-11', 50);
   await scoreRow(b.id, '2026-10-12', 95, { held: true });
@@ -161,7 +163,7 @@ async function seedBoard() {
   await source(c.id, 'contract', `arc:0x${'c'.repeat(40)}`, 'arc-app');
   await sql()`INSERT INTO projects (program_id, name, installation_id) VALUES (${prog}, 'Arc app', ${c.id})`;
   await percentiles(NOW);
-  return { a: a.slug, b: b.slug, c: c.slug, slugs: [a.slug, b.slug, c.slug], prog };
+  return { a: a.slug, b: b.slug, c: c.slug, u: u.slug, slugs: [a.slug, b.slug, c.slug, u.slug], prog };
 }
 
 test('12.3 hidden people are not listed but count; held people show their last unheld score; program and chain filters', dbTest, async () => {
@@ -176,6 +178,10 @@ test('12.3 hidden people are not listed but count; held people show their last u
   // The hidden person still counts: B's rank sits below A's 70 in the percentiles.
   const [ranks] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_ranks r JOIN builder_profiles p USING (builder_id) WHERE p.slug = ${seeded.a}`;
   assert.equal(ranks.n, 1);
+  // Final review I4: never shown the consent line: not listed, still ranked (it counts for others).
+  const [unshown] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_ranks r JOIN builder_profiles p USING (builder_id) WHERE p.slug = ${seeded.u}`;
+  assert.equal(unshown.n, 1);
+  assert.ok(!all.some((r) => r.slug === seeded.u));
   const arc = await leaderboardData({ chain: 'arc', program: seeded.prog, window: 'all', page: 1 }, NOW);
   assert.deepEqual(arc.rows.filter((r) => seeded.slugs.includes(r.slug)).map((r) => r.slug), [seeded.c]);
   assert.deepEqual(arc.rows.map((r) => r.slug), [seeded.c], 'only this program');

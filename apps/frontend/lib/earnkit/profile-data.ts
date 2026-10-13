@@ -287,7 +287,8 @@ type BoardRaw = {
 /**
  * One page of the board in one query. Everyone with a profile and a public score is listed (score
  * and percentile from builder_ranks: the last unheld or released day, hidden people included in the
- * percentile) except hidden people, filtered here only. A shared client has no profile, so it is
+ * percentile) except hidden people and people not yet shown the consent line (final review I4; both
+ * still count in percentiles), filtered here only. A shared client has no profile, so it is
  * never listed. `all` ranks by score; `week` by the 7-day change (the public score against the
  * latest public row 7 to 10 days before it, as the profile's weekChange; none is no change), then
  * score. The top outcome comes from the public row's stored top_outcome, its project named only by
@@ -304,7 +305,7 @@ export async function leaderboardData(f: BoardFilters, now: Date = new Date()): 
     WITH cand AS (
       SELECT r.builder_id, r.score::int AS score, r.percentile, p.slug, p.x_handle, p.github_login, count(*) OVER ()::int AS total
       FROM builder_ranks r JOIN builder_profiles p ON p.builder_id = r.builder_id
-      WHERE NOT p.hidden
+      WHERE NOT p.hidden AND p.consent_shown_at IS NOT NULL
         ${f.chain ? db`AND EXISTS (SELECT 1 FROM builder_sources b WHERE b.builder_id = r.builder_id AND b.kind = 'contract' AND b.state = 'verified' AND b.ref LIKE ${`${f.chain}:%`})` : db``}
         ${f.program ? db`AND EXISTS (SELECT 1 FROM projects j JOIN installations i ON i.id = j.installation_id WHERE COALESCE(i.builder_id, i.id) = r.builder_id AND j.program_id = ${f.program})` : db``}
       ${week ? db`` : db`ORDER BY r.score DESC, p.slug ${pageCut}`}),
