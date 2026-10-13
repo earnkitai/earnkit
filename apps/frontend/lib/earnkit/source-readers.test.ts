@@ -426,3 +426,11 @@ test('3.11 a site read counts each request, redirects included', async () => {
   await probeSite('https://tip.example.com/', { resolve, transport, onRequest: () => n++ });
   assert.equal(n, 2);
 });
+
+test('3.21 a GitHub call the budget refuses is not counted as a request', async () => {
+  let n = 0;
+  const g = budgetedGh(async <T,>() => [] as T, GH_RATE_FLOOR, 1);
+  await g('/a', undefined, () => n++);
+  await assert.rejects(g('/b', undefined, () => n++), (e) => isBudgetStop(e));
+  assert.equal(n, 1);
+});

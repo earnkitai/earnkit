@@ -112,12 +112,13 @@ export async function readPersonGithub(login: string, d: ReaderDeps): Promise<Pe
 /**
  * Up to REPOS_MAX repos by name ('owner/name') in one GraphQL call: a tracked repo outside the person
  * query's newest 100, or an organization's repo. Keyed by the asked name (lowercase); a repo GitHub
- * does not know (or a malformed one) is absent.
+ * does not know, or a malformed name (never sent), is absent.
  */
 export async function readGithubRepos(keys: string[], d: ReaderDeps): Promise<Map<string, PersonRepo>> {
-  const asked = [...new Set(keys.map((k) => k.toLowerCase()))];
+  // A malformed name is never sent (it is absent from the answer); the rest still are.
+  const asked = [...new Set(keys.map((k) => k.toLowerCase()))].filter((k) => REPO.test(k));
   if (asked.length === 0) return new Map();
-  if (asked.length > REPOS_MAX || asked.some((k) => !REPO.test(k))) throw new Error('not a list of repo names');
+  if (asked.length > REPOS_MAX) throw new Error('too many repo names');
   const variables: Record<string, unknown> = { since: since(d.now) };
   asked.forEach((k, i) => {
     const [o, n] = k.split('/');

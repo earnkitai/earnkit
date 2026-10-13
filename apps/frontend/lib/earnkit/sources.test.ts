@@ -2,7 +2,7 @@ import { after, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
 import { contractConflicts, dueSources, previousSignals, proposeSource, readSources, rejectSource, verifySource, writeReading } from './sources';
-import type { ReaderDeps } from './source-readers';
+import { GitHubBudgetStop, type ReaderDeps } from './source-readers';
 
 /** A ReaderDeps whose every outside read throws, so a test sees exactly the reads it overrides. */
 function fakeReader(): ReaderDeps {
@@ -224,4 +224,32 @@ test('3.18 npm in bulk: a package npm has no data for is a failed no_data readin
   assert.equal(urls.length, 1);
   assert.deepEqual((await readingOf(a)).signals, { weekly: 12, repo_url: null });
   assert.deepEqual([(await readingOf(b)).ok, (await readingOf(b)).error], [false, 'no_data']);
+});
+
+test('3.19 a spent GitHub budget on the person query writes no reading: the repos stay due', dbTest, async () => {
+  const login = `led-${process.pid}`;
+  await setLogin(login);
+  const a = await addRepo(`${login}/one`);
+  const b = await addRepo(`${login}/two`);
+  const reader = { ...fakeReader(), ghGraphql: async () => { throw new GitHubBudgetStop(); } } as ReaderDeps;
+  assert.deepEqual(await readSources(new Date('2026-10-14T10:00:00Z'), { deadline: Date.now() + 5000, reader, only: [ID] }), { read: 0, failed: 0 });
+  assert.equal((await sql()`SELECT 1 FROM source_readings WHERE source_id IN (${a}, ${b})`).length, 0);
+  const due = (await dueSources('2026-10-14', 100, [ID])).map((s) => s.id);
+  assert.ok(due.includes(a) && due.includes(b), 'still due');
+});
+
+test('3.20 a malformed repo ref fails alone; the valid ones are still read by name', dbTest, async () => {
+  await setLogin(null);
+  const bad = await addRepo('a--b/x');
+  const good = await addRepo(`lee-${process.pid}/fine`);
+  const reader = {
+    ...fakeReader(),
+    ghGraphql: async <T,>(_q: string, v: Record<string, unknown>): Promise<T> => {
+      assert.deepEqual([v.o0, v.n0, v.o1], [`lee-${process.pid}`, 'fine', undefined]);
+      return { data: { r0: node(`lee-${process.pid}/fine`) } } as T;
+    },
+  } as ReaderDeps;
+  assert.deepEqual(await readSources(new Date('2026-10-14T10:00:00Z'), { deadline: Date.now() + 5000, reader, only: [ID] }), { read: 1, failed: 1 });
+  assert.deepEqual([(await readingOf(bad)).ok, (await readingOf(bad)).error], [false, 'not_a_repo']);
+  assert.equal((await readingOf(good)).ok, true);
 });

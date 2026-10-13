@@ -463,7 +463,7 @@ type RawGh = <T>(path: string, accept?: string, onResponse?: (res: Response) => 
  * search) never trips the floor; every call counts toward the cap. `take()` counts a call made
  * outside `gh` (ghFetch) and says whether it may go.
  */
-export function budgetedGh(raw: RawGh, floor = GH_RATE_FLOOR, cap = GH_RUN_CAP): ReaderDeps['gh'] & { spent: () => boolean; watch: (res: Response) => void; take: () => boolean; calls: () => number } {
+export function budgetedGh(raw: RawGh, floor = GH_RATE_FLOOR, cap = GH_RUN_CAP): (<T>(path: string, accept?: string, onRequest?: () => void) => Promise<T>) & { spent: () => boolean; watch: (res: Response) => void; take: () => boolean; calls: () => number } {
   let stopped = false;
   let calls = 0;
   const watch = (res: Response) => {
@@ -480,8 +480,10 @@ export function budgetedGh(raw: RawGh, floor = GH_RATE_FLOOR, cap = GH_RUN_CAP):
     calls++;
     return true;
   };
-  const gh = async <T>(path: string, accept?: string) => {
+  /** `onRequest`: called once the budget lets the call go (read usage counts real requests only). */
+  const gh = async <T>(path: string, accept?: string, onRequest?: () => void) => {
     if (!take()) throw new GitHubBudgetStop();
+    onRequest?.();
     try {
       return await raw<T>(path, accept, watch);
     } catch (err) {
@@ -509,8 +511,9 @@ export function graphqlUsable(body: unknown): boolean {
  * One GitHub GraphQL call, counted against the run's budget (`github.take()`, GitHubBudgetStop when
  * spent). An answer graphqlUsable refuses throws: the caller writes failed readings.
  */
-async function githubGraphql<T>(query: string, variables: Record<string, unknown>, github: ReturnType<typeof budgetedGh>): Promise<T> {
+async function githubGraphql<T>(query: string, variables: Record<string, unknown>, github: ReturnType<typeof budgetedGh>, onRequest?: () => void): Promise<T> {
   if (!github.take()) throw new GitHubBudgetStop();
+  onRequest?.();
   const token = process.env.GITHUB_TOKEN;
   try {
     const res = await fetch('https://api.github.com/graphql', {
@@ -561,8 +564,8 @@ export function defaultReaderDeps(now: Date, deadline: number): ReaderDeps {
   const requests: NonNullable<ReaderDeps['requests']> = { tick: null };
   const tick = (p: Provider) => requests.tick?.(p);
   return {
-    gh: <T>(path: string, accept?: string) => (tick('github_rest'), by(github<T>(path, accept))),
-    ghGraphql: <T>(query: string, variables: Record<string, unknown>) => (tick('github_graphql'), by(githubGraphql<T>(query, variables, github))),
+    gh: <T>(path: string, accept?: string) => by(github<T>(path, accept, () => tick('github_rest'))),
+    ghGraphql: <T>(query: string, variables: Record<string, unknown>) => by(githubGraphql<T>(query, variables, github, () => tick('github_graphql'))),
     probe: (url) => by(probeSite(url, { onRequest: () => tick('site') }).then(() => ({ status: 200 }))),
     fetchText: (url) => (tick('site'), by(safeFetchText(url))),
     json: <T>(url: string) => (tick(providerOfUrl(url)), by(packageJson<T>(url, deadline))),

@@ -267,6 +267,7 @@ async function readOne(s: Due, now: Date, d: ReaderDeps): Promise<unknown> {
 }
 
 const LOGIN = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}$/;
+const REPO_REF = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}\/(?!\.\.?$)[a-z0-9._-]{1,100}$/i;
 const ownerOf = (ref: string) => ref.toLowerCase().split('/')[0];
 /** An unscoped npm name (npm's bulk downloads read takes only these; scoped ones keep readNpm). */
 const bulkNpm = (s: Due) => s.kind === 'package_npm' && !s.ref.startsWith('@');
@@ -344,6 +345,8 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
   const due = await dueSources(day, Math.max(0, READS_PER_RUN - pending.length), o.only);
   /** Sources given a reading (ok or failed) in this run. */
   const settled = new Set<number>();
+  /** Sources whose read hit a spent GitHub budget: no reading, they stay due. */
+  const stalled = new Set<number>();
   const ok = async (s: Due, signals: unknown) => {
     settled.add(s.id);
     if (await writeReading(s.id, s.builder_id, day, { ok: true, signals })) read++;
@@ -359,7 +362,10 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
     } catch (err) {
       // A read cut by the deadline is not a failed read: no reading, the source stays due.
       if (err instanceof ScoreDeadline) return false;
-      if (isBudgetStop(err)) return true;
+      if (isBudgetStop(err)) {
+        for (const s of group) stalled.add(s.id);
+        return true;
+      }
       const error = err instanceof Error ? err.name : 'Error';
       for (const s of group) await fail(s, error);
     }
@@ -384,7 +390,9 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
       });
       if (!go) return { read, failed };
     }
-    // A repo the person query failed on already has its failed reading (settled).
+    // A repo the person query failed on already has its failed reading (settled). A malformed ref
+    // fails alone, so it never fails a by-name batch.
+    for (const s of repos) if (!settled.has(s.id) && !found.has(s.ref.toLowerCase()) && !REPO_REF.test(s.ref)) await fail(s, 'not_a_repo');
     const rest = repos.filter((s) => !found.has(s.ref.toLowerCase()) && !settled.has(s.id));
     for (let i = 0; i < rest.length; i += REPOS_MAX) {
       const batch = rest.slice(i, i + REPOS_MAX);
@@ -397,7 +405,8 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
       if (settled.has(s.id)) continue;
       const r = found.get(s.ref.toLowerCase());
       if (!r) {
-        await fail(s, 'not_found');
+        // Unread because the budget ran out is not unknown to GitHub: no reading, it stays due.
+        if (!stalled.has(s.id)) await fail(s, 'not_found');
         continue;
       }
       const go = await attempt([s], async () => {

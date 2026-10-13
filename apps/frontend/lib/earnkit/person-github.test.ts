@@ -59,8 +59,11 @@ test('3.9 the person query reads the newest 100 repos; others by name, names as 
   assert.deepEqual([vars.o0, vars.n0, vars.o1, vars.n1], ['acme', 'tool', 'lee', 'gone']);
   assert.equal(got.get('acme/tool')!.owner_type, 'Organization');
   assert.equal(got.has('lee/gone'), false, 'GitHub does not know it');
-  await assert.rejects(readGithubRepos(Array.from({ length: REPOS_MAX + 1 }, (_, i) => `lee/r${i}`), d), /repo names/);
-  await assert.rejects(readGithubRepos(['lee/x") { id } evil: repository(owner: "y'], d), /repo names/);
+  await assert.rejects(readGithubRepos(Array.from({ length: REPOS_MAX + 1 }, (_, i) => `lee/r${i}`), d), /too many repo names/);
+  // A malformed name (an owner GitHub refuses, an injection attempt) is never sent; the valid one still is.
+  const bad = await readGithubRepos(['a--b/x', 'lee/x") { id } evil: repository(owner: "y', 'Acme/Tool'], d);
+  assert.deepEqual(Object.keys(vars).filter((k) => k !== 'since').sort(), ['n0', 'o0']);
+  assert.deepEqual([...bad.keys()], ['acme/tool']);
 });
 
 test('3.10 a GraphQL answer is read only when every error is NOT_FOUND', () => {
