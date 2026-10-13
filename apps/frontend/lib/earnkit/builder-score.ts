@@ -464,6 +464,44 @@ export async function runScoreSteps(now: Date, sliceEnd: number, deps: ScoreCron
   return out;
 }
 
+/** One held person on /admin/scores: their newest held day not yet released, and the score the public sees now. */
+export type HeldReview = {
+  builder_id: number; slug: string; day: string; score: number; formula: string; parts: unknown; top_outcome: Record<string, unknown>;
+  shown: { score: number; day: string } | null;
+};
+/**
+ * /admin/scores's rows. A v1 day shows its public v1 score (publicScore); a v2 day (v2.12.1) shows
+ * the public live score (builder_live; a held first score is public 0).
+ */
+export async function heldForReview(): Promise<HeldReview[]> {
+  const held = await sql()<(Omit<HeldReview, 'shown'> & { live: number | null; live_day: string | null })[]>`
+    SELECT p.builder_id, p.slug, s.day::text AS day, s.score, s.formula, s.parts, s.top_outcome,
+      l.score AS live, l.computed_at::date::text AS live_day
+    FROM builder_profiles p
+    JOIN LATERAL (
+      SELECT day, score, formula, parts, top_outcome FROM builder_scores s
+      WHERE s.builder_id = p.builder_id AND s.held
+        AND NOT EXISTS (SELECT 1 FROM score_releases x WHERE x.builder_id = s.builder_id AND x.day = s.day)
+      ORDER BY s.day DESC LIMIT 1) s ON true
+    LEFT JOIN builder_live l ON l.builder_id = p.builder_id
+    WHERE p.held ORDER BY s.day, p.builder_id`;
+  return Promise.all(held.map(async ({ live, live_day, ...h }) => {
+    if (h.formula === 'v2') return { ...h, shown: live !== null && live_day ? { score: live, day: live_day } : null };
+    const pub = await publicScore(h.builder_id);
+    return { ...h, shown: pub ? { score: pub.score, day: pub.day } : null };
+  }));
+}
+
+const round1 = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) ? Math.round(n * 10) / 10 : 0);
+/** A score's parts as review lines ('used: 36 (U 267.4, people 267.4)'), any formula's shape; junk reads 0. Pure. */
+export function partLines(parts: unknown): string[] {
+  if (!parts || typeof parts !== 'object' || Array.isArray(parts)) return [];
+  return Object.entries(parts as Record<string, { points?: unknown; raw?: unknown } | null>).map(([name, part]) => {
+    const raw = part?.raw && typeof part.raw === 'object' ? Object.entries(part.raw as Record<string, unknown>) : [];
+    return `${name}: ${round1(part?.points)} (${raw.map(([k, v]) => `${k} ${round1(v)}`).join(', ')})`;
+  });
+}
+
 // 'admin:' keeps this key apart from every campaign veto key (vetoKey(slug)); bonus keys use 'bonus:'.
 export const scoresAdminKey = (secret = process.env.ADMIN_VETO_SECRET) => vetoKey('admin:scores', secret);
 /** The owner's /admin/scores link (pnpm campaign scores-link prints it); never sent anywhere by EarnKit. */
@@ -498,17 +536,30 @@ export async function scoresPost(request: Request, deps: { limit?: (ip: string) 
   if (form.get('action') === 'clear_x') {
     if (valid) await clearXHandle(id, 'owner');
   } else if (valid && isDay(day)) {
-    const released = await sql()`
-      INSERT INTO score_releases (builder_id, day)
-      SELECT ${id}, ${day}::date WHERE EXISTS (SELECT 1 FROM builder_scores WHERE builder_id = ${id} AND day = ${day}::date AND held)
-      ON CONFLICT DO NOTHING RETURNING day`;
-    if (released.length > 0) {
-      // v2.12.1: a held live rescore waiting in pending becomes the public live score.
-      await sql()`
-        UPDATE builder_live SET score = (pending->>'score')::smallint, parts = pending->'parts', ranked = (pending->>'ranked')::boolean,
-          shipped = (pending->>'shipped')::int, people = (pending->>'people')::int, formula = pending->>'formula',
-          calibration = pending->>'calibration', pending = NULL
-        WHERE builder_id = ${id} AND pending IS NOT NULL`;
+    const outcome = await sql().begin(async (tx) => {
+      // v2.12.1: a held v2 day is what the owner reviewed (the pending score of that day). Released
+      // only while builder_live.pending is still that score; a later rescore changed it: refused.
+      const [live] = await tx<{ pending: { day?: unknown; score?: unknown } | null }[]>`SELECT pending FROM builder_live WHERE builder_id = ${id} FOR UPDATE`;
+      const [h] = await tx<{ score: number; formula: string }[]>`SELECT score, formula FROM builder_scores WHERE builder_id = ${id} AND day = ${day}::date AND held`;
+      if (!h) return 'none';
+      const pending = live?.pending ?? null;
+      if (h.formula === 'v2' && pending && (pending.day !== day || pending.score !== h.score)) return 'stale';
+      const released = await tx`INSERT INTO score_releases (builder_id, day) VALUES (${id}, ${day}::date) ON CONFLICT DO NOTHING RETURNING day`;
+      if (released.length === 0) return 'none';
+      // The reviewed pending score becomes the public live score.
+      if (h.formula === 'v2' && pending)
+        await tx`
+          UPDATE builder_live SET score = (pending->>'score')::smallint, parts = pending->'parts', ranked = (pending->>'ranked')::boolean,
+            shipped = (pending->>'shipped')::int, people = (pending->>'people')::int, formula = pending->>'formula',
+            calibration = pending->>'calibration', pending = NULL
+          WHERE builder_id = ${id}`;
+      return 'released';
+    });
+    if (outcome === 'stale')
+      return new Response('This held score changed after it was put up for review, so it was not released. Reload the review page and look at the new one.', {
+        status: 409, headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    if (outcome === 'released') {
       await sql()`
         UPDATE builder_profiles SET updated_at = now(), held = EXISTS (
           SELECT 1 FROM builder_scores s WHERE s.builder_id = ${id} AND s.held AND s.day > ${day}::date

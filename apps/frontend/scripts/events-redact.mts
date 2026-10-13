@@ -215,10 +215,12 @@ try {
         // NOT NULL and the page's URL).
         await tx`
           UPDATE builder_profiles SET x_user_id = NULL, x_name = NULL, x_avatar_url = NULL, reported_github = NULL,
-            base_builder_code = NULL, identity = '{}'::jsonb, github_basis = NULL,
+            base_builder_code = NULL, identity = '{}'::jsonb, github_basis = NULL, ring = '{}'::jsonb,
             x_handle = CASE WHEN lower(x_handle) = ${login} THEN NULL ELSE x_handle END,
             fallback_handle = CASE WHEN lower(fallback_handle) = ${login} THEN NULL ELSE fallback_handle END
           WHERE builder_id = ANY(${ids})`;
+        // Other people's stored ring weights name this login as a partner's account: recomputed by the next cron.
+        await tx`UPDATE builder_profiles SET ring = '{}'::jsonb WHERE position(${`"gh:${login}"`} in ring::text) > 0`;
         const counts: string[] = [`page profiles: ${ids.length}`];
         for (const t of BUILDER_TABLES) {
           const d = await tx`DELETE FROM ${tx(t)} WHERE builder_id = ANY(${ids}) RETURNING 1`;
@@ -226,6 +228,8 @@ try {
         }
         page = counts;
       }
+      // v2.12.1: stored ring weights (builder_profiles.ring) naming the wallet are cleared; the next cron recomputes them.
+      if (wallet) await tx`UPDATE builder_profiles SET ring = '{}'::jsonb WHERE position(${`"wallet:${wallet}"`} in ring::text) > 0`;
       return found;
     });
     console.log(`builder_events: redacted ${rows.length} row(s) for ${who} at ${new Date().toISOString()}`);

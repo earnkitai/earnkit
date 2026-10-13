@@ -1,6 +1,6 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { scoresAdminKey, scoresPost } from './builder-score';
+import { heldForReview, partLines, scoresAdminKey, scoresPost } from './builder-score';
 import { isConfirmedProof } from './confirmed';
 import { sql } from './db';
 import { rescorePerson, refreshPerson, scorePeopleV2, standingOf, trackedKeys } from './person-score';
@@ -72,8 +72,15 @@ async function live(id: number, l: { score: number; ranked: boolean }) {
     INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at)
     VALUES (${id}, ${l.score}, '{"shipped":{"points":10,"raw":{}}}'::jsonb, ${l.ranked}, ${l.ranked ? 1 : 0}, 0, 'v2', 'v2-launch', ${new Date(NOW.getTime() - DAY)})`;
 }
-/** 600 callers across 30 days on an EarnKit-deployed contract. */
-async function fakeBigUse(id: number) {
+/** Yesterday's public history row (formula v2): the 30-point jump is measured against it. */
+async function history(id: number, score: number, day = new Date(NOW.getTime() - DAY)) {
+  await sql()`
+    INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held)
+    VALUES (${id}, ${day.toISOString().slice(0, 10)}, ${score}, 0, '{}', '{}', 'v2', 'v2-launch', false)
+    ON CONFLICT (builder_id, day) DO NOTHING`;
+}
+/** 600 callers across 30 days on an EarnKit-deployed contract; `rich`: long-lived wallets sending $100 each (60+ from one source). */
+async function fakeBigUse(id: number, o: { rich?: boolean } = {}) {
   const addr = `0x${hex40(id)}`;
   const key = `lee/big${id}`;
   await sql()`
@@ -81,7 +88,8 @@ async function fakeBigUse(id: number) {
     VALUES (${id}, ${`k${id}`}, ${key}, 'base', ${`0x${'a'.repeat(64)}`}, ${addr}, 'deployed', 0, ${new Date(NOW.getTime() - 40 * DAY)})`;
   await source(id, { kind: 'contract', ref: `base:${addr}`, key, state: 'verified', proof: 'deployer', by: 'server' });
   const callers = Array.from({ length: 600 }, (_, i) => ({
-    id: `wallet:0x${hex40(1_000_000 + i)}`, at: new Date(NOW.getTime() - (i % 30) * DAY - 3_600_000).toISOString(), value_usd: 0, codes: [],
+    id: `wallet:0x${hex40(1_000_000 + i)}`, at: new Date(NOW.getTime() - (i % 30) * DAY - 3_600_000).toISOString(),
+    value_usd: o.rich ? 100 : 0, codes: [], ...(o.rich && { first_tx_at: '2024-01-01T00:00:00Z' }),
   }));
   await reading(`base:${addr}`, { callers, partial: false });
 }
@@ -157,6 +165,7 @@ test('4.5 a refresh reads at most once in 10 minutes; a failed read keeps the la
 test('4.6 a 30-point jump is held: the public score stays, the new one waits in pending', dbTest, async () => {
   const id = T + 7;
   await person(id, {});
+  await history(id, 10);
   await live(id, { score: 10, ranked: true });
   await fakeBigUse(id); // 600 callers across 30 days on an EarnKit-deployed contract
   const r = await rescorePerson(id, NOW);
@@ -261,13 +270,24 @@ test('4.12 the owner releasing a held day makes the pending live score public', 
   const id = T + 13;
   const day = new Date(NOW.getTime() + 2 * DAY);
   await person(id, {});
+  await history(id, 10, new Date(day.getTime() - DAY));
   await live(id, { score: 10, ranked: true });
   await fakeBigUse(id);
   const r = await scorePeopleV2(day, { deadline: Date.now() + 10_000, only: [id] });
   const [before] = await sql()<{ score: number; pending: { score: number } | null }[]>`SELECT score, pending FROM builder_live WHERE builder_id = ${id}`;
-  if (r.scored === 1) assert.deepEqual(r.held, [id]);
+  assert.deepEqual(r.held, [id]);
   assert.equal(before.score, 10);
   const target = before.pending!.score;
+  // The held history row carries what the owner reviews: the pending score, not the public one.
+  const [h] = await sql()<{ score: number; held: boolean }[]>`SELECT score, held FROM builder_scores WHERE builder_id = ${id} AND day = ${day.toISOString().slice(0, 10)}`;
+  assert.deepEqual({ ...h }, { score: target, held: true });
+  // /admin/scores shows the v2 day, its parts, and the public live score.
+  const review = (await heldForReview()).find((x) => x.builder_id === id)!;
+  assert.deepEqual([review.score, review.formula, review.shown?.score], [target, 'v2', 10]);
+  const lines = partLines(review.parts);
+  assert.equal(lines.length, 4);
+  assert.ok(lines.some((l) => /^shipped: [\d.]+ \(S 1, keep [\d.]+\)$/.test(l)), lines.join(' | '));
+  assert.deepEqual(partLines('junk'), []);
   process.env.ADMIN_VETO_SECRET = 'k'.repeat(40);
   try {
     const body = new URLSearchParams({ key: scoresAdminKey()!, builder: String(id), day: day.toISOString().slice(0, 10) });
@@ -295,4 +315,90 @@ test('4.13 a refresh runs discovery when the person is queued, then at most once
   } finally {
     await sql()`DELETE FROM discovery_queue WHERE builder_id = ${id}`;
   }
+});
+
+test('4.14 the 30-point jump is measured against yesterday\'s public score: 10, then 39, then 53 within the hour is held', dbTest, async () => {
+  const id = T + 15;
+  await person(id, {});
+  await history(id, 10);
+  await live(id, { score: 39, ranked: true }); // stepped up by an earlier refresh (29 points: not held)
+  await fakeBigUse(id);
+  const r = await rescorePerson(id, NOW);
+  assert.equal(r.held, true);
+  const [row] = await sql()<{ score: number; pending: { score: number } | null }[]>`SELECT score, pending FROM builder_live WHERE builder_id = ${id}`;
+  assert.equal(row.score, 39);
+  assert.ok(row.pending!.score >= 40, String(row.pending?.score));
+});
+
+test('4.15 a first score of 60+ from one contract is held: public 0 and unranked, the score waits in pending', dbTest, async () => {
+  const id = T + 16;
+  await person(id, {});
+  await fakeBigUse(id, { rich: true });
+  const r = await rescorePerson(id, NOW);
+  assert.deepEqual([r.held, r.score, r.ranked], [true, 0, false]);
+  const [row] = await sql()<{ score: number; ranked: boolean; pending: { score: number } | null }[]>`SELECT score, ranked, pending FROM builder_live WHERE builder_id = ${id}`;
+  assert.deepEqual([row.score, row.ranked], [0, false]);
+  assert.ok(row.pending!.score >= 60, String(row.pending?.score));
+  const [p] = await sql()<{ held: boolean }[]>`SELECT held FROM builder_profiles WHERE builder_id = ${id}`;
+  assert.equal(p.held, true);
+});
+
+test('4.16 a release is refused when the pending score changed after the owner reviewed it', dbTest, async () => {
+  const id = T + 17;
+  const day = new Date(NOW.getTime() + 3 * DAY);
+  const d = day.toISOString().slice(0, 10);
+  await person(id, {});
+  await history(id, 10, new Date(day.getTime() - DAY));
+  await live(id, { score: 10, ranked: true });
+  await fakeBigUse(id);
+  await scorePeopleV2(day, { deadline: Date.now() + 10_000, only: [id] });
+  // A later rescore replaced what the owner saw.
+  await sql()`UPDATE builder_live SET pending = jsonb_set(jsonb_set(pending, '{day}', to_jsonb(${new Date(day.getTime() + DAY).toISOString().slice(0, 10)}::text)), '{score}', '99') WHERE builder_id = ${id}`;
+  process.env.ADMIN_VETO_SECRET = 'k'.repeat(40);
+  let res: Response;
+  try {
+    const body = new URLSearchParams({ key: scoresAdminKey()!, builder: String(id), day: d });
+    res = await scoresPost(new Request('https://earnkit.com/api/admin/scores', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body }), { limit: async () => {} });
+  } finally {
+    delete process.env.ADMIN_VETO_SECRET;
+  }
+  assert.equal(res.status, 409);
+  assert.match(await res.text(), /changed after/);
+  const [l] = await sql()<{ score: number }[]>`SELECT score FROM builder_live WHERE builder_id = ${id}`;
+  assert.equal(l.score, 10);
+  assert.equal((await sql()`SELECT 1 FROM score_releases WHERE builder_id = ${id} AND day = ${d}`).length, 0);
+});
+
+test('4.17 a shared client\'s group is never refreshed', dbTest, async () => {
+  const id = T + 18;
+  await person(id, {});
+  await sql()`UPDATE installations SET shared_client = true WHERE id = ${id}`;
+  let reads = 0;
+  const reader = { ...fakeReader(), probe: async () => (reads++, { status: 200 }) };
+  assert.deepEqual(await refreshPerson(id, { now: NOW, deadline: Date.now() + 3000, reader }), { refreshed: false });
+  assert.equal((await sql()`SELECT 1 FROM builder_live WHERE builder_id = ${id}`).length, 0);
+  assert.equal(reads, 0);
+});
+
+test('4.18 a refresh reads only the person\'s stored ring (no scan of everyone\'s edges); the cron step stores it', dbTest, async () => {
+  const [a, b] = [T + 19, T + 5];
+  const [la, lb] = [`ra${T}`, `rb${T}`];
+  await person(a, { login: la });
+  await person(b, { login: lb });
+  const star = (who: string) => ({ owner: 'x', owner_type: 'User', fork: false, template: false, stargazers: [{ id: `gh:${who}`, at: new Date(NOW.getTime() - 2 * DAY).toISOString(), created_at: '2020-01-01T00:00:00Z' }], forkers: [], issue_authors: [], contributors: [], commit_weeks: [], partial: false });
+  await source(a, { kind: 'repo', ref: `${la}/x`, state: 'verified', proof: 'repo_owner', by: 'server' });
+  await source(b, { kind: 'repo', ref: `${lb}/y`, state: 'verified', proof: 'repo_owner', by: 'server' });
+  await reading(`${la}/x`, star(lb));
+  await reading(`${lb}/y`, star(la));
+  const starFork = async () => (await sql()<{ v: number }[]>`SELECT (parts->'used'->'raw'->>'star_fork')::float AS v FROM builder_live WHERE builder_id = ${a}`)[0].v;
+  const faded = (days: number) => 0.5 ** (days / 90); // the star is 2 days old at NOW
+  // No stored ring yet: the refresh counts b's star in full (it never computes everyone's edges).
+  await refreshPerson(a, { now: NOW, deadline: Date.now() + 3000, reader: fakeReader() });
+  assert.ok(Math.abs((await starFork()) - faded(2)) < 1e-6, String(await starFork()));
+  // The cron step computes and stores the ring: b and a star each other, so b's star weighs 0.5.
+  await scorePeopleV2(new Date(NOW.getTime() + 4 * DAY), { deadline: Date.now() + 10_000, only: [a] });
+  const [p] = await sql()<{ ring: { ring?: [string, number][] } }[]>`SELECT ring FROM builder_profiles WHERE builder_id = ${a}`;
+  assert.deepEqual(p.ring.ring, [[`gh:${lb}`, 0.5]]);
+  await refreshPerson(a, { now: new Date(NOW.getTime() + 4 * DAY + 11 * 60_000), deadline: Date.now() + 3000, reader: fakeReader() });
+  assert.ok(Math.abs((await starFork()) - 0.5 * faded(6 + 11 / 1440)) < 1e-6, String(await starFork()));
 });

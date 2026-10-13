@@ -1,5 +1,5 @@
-import { countProject, moneyOf, ringWeights, type ActorFacts, type Touch } from './anti-farming';
-import { holdReason, scoreContext, type ScoreContext } from './builder-score'; // builder-score imports this file too: functions only, called after load
+import { countProject, moneyOf, ringWeights, type ActorFacts, type FarmCtx, type Touch } from './anti-farming';
+import { holdReason, publicRow, scoreContext } from './builder-score'; // builder-score imports this file too: functions only, called after load
 import { EARNKIT_BUILDER_CODE } from './builder-code';
 import { builderScoreEnabled } from './builder-score-flag';
 import { ScoreDeadline } from './campaigns';
@@ -25,7 +25,10 @@ import { previousSignals, withPastWeeks } from './sources';
  */
 export const TRACKED_MAX = 25;
 export const REFRESH_MS = 10 * 60_000;
-/** find answers within 10 s (spec 2): the refresh gets 8 s of it; anything slower finishes on the next reply or page view. */
+/**
+ * find answers within 10 s (spec 2): the refresh gets 8 s of it. A refresh cut off by it rescores from
+ * what it read in time (or not at all); the rest waits for the next 10-minute window.
+ */
 export const REFRESH_BUDGET_MS = 8_000;
 const QUIET_MS = 90 * 86_400_000;
 const DAY_MS = 86_400_000;
@@ -86,19 +89,37 @@ const firstSentence = (s: string) => {
 const packagePage = (s: Src) =>
   s.kind === 'package_npm' ? `https://www.npmjs.com/package/${s.ref}` : `https://pypi.org/project/${s.ref.replace(/^pypi:/i, '')}/`;
 
+/** A person's ring weights (anti-farming ringWeights), stored on builder_profiles.ring by the cron's score step. */
+export type PersonRing = Pick<FarmCtx, 'ring' | 'ringOwner' | 'clusterCap'>;
+type StoredRing = { ring?: [string, number][]; ringOwner?: [string, number][]; clusterCap?: { actors: string[]; cap: number } };
+export const ringToJson = (r: PersonRing): StoredRing => ({
+  ring: [...r.ring], ringOwner: [...(r.ringOwner ?? [])],
+  ...(r.clusterCap && { clusterCap: { actors: [...r.clusterCap.actors], cap: r.clusterCap.cap } }),
+});
+/** The stored ring, read leniently (malformed entries dropped; every ring actor keeps its owner, as countProject requires). Pure. */
+export function ringFromJson(j: unknown): PersonRing {
+  const o = (j && typeof j === 'object' ? j : {}) as StoredRing;
+  const pairs = (x: unknown) => list<unknown>(x).filter((e): e is [string, number] => Array.isArray(e) && typeof e[0] === 'string' && typeof e[1] === 'number' && Number.isFinite(e[1]));
+  const ringOwner = new Map(pairs(o.ringOwner));
+  const ring = new Map(pairs(o.ring).filter(([a]) => ringOwner.has(a)));
+  const cap = o.clusterCap;
+  const clusterCap = cap && typeof cap.cap === 'number' && Number.isFinite(cap.cap)
+    ? { actors: new Set(list<unknown>(cap.actors).filter((a): a is string => typeof a === 'string')), cap: cap.cap } : undefined;
+  return { ring, ringOwner, ...(clusterCap && { clusterCap }) };
+}
+
 type IdentityProject = { name?: unknown; what?: unknown; repo?: unknown; live_url?: unknown; package?: unknown; contracts?: unknown };
 
 /**
  * The person's v2 inputs (confirmed data only) and their projects (everything they have, confirmed
- * or not, spec S1). `ctx`: everyone's accounts and ring edges (scoreContext), shared across a cron
- * run; read when absent.
+ * or not, spec S1). Reads only this person's rows: `ring` is given by the cron's score step, else
+ * read from builder_profiles.ring (stored by that step), so a refresh never scans everyone's edges.
  */
-export async function personInputsV2(id: number, now: Date, ctx?: ScoreContext): Promise<{ input: V2Input; projects: ProjectRow[]; perSource: Map<number, { users: number; money: number }> }> {
+export async function personInputsV2(id: number, now: Date, personRing?: PersonRing): Promise<{ input: V2Input; projects: ProjectRow[]; perSource: Map<number, { users: number; money: number }> }> {
   const db = sql();
-  const c = ctx ?? (await scoreContext());
   const yearAgo = new Date(now.getTime() - YEAR_MS);
-  const [profile] = await db<{ login: string | null; reported: string | null; identity: { projects?: unknown } | null }[]>`
-    SELECT lower(github_login) AS login, lower(reported_github) AS reported, identity FROM builder_profiles WHERE builder_id = ${id}`;
+  const [profile] = await db<{ login: string | null; reported: string | null; identity: { projects?: unknown } | null; ring: unknown }[]>`
+    SELECT lower(github_login) AS login, lower(reported_github) AS reported, identity, ring FROM builder_profiles WHERE builder_id = ${id}`;
   const members = (await db<{ id: number }[]>`SELECT id FROM installations WHERE COALESCE(builder_id, id) = ${id}`).map((m) => m.id);
   const group = members.length ? members : [-1];
   const sources = [...(await db<Src[]>`
@@ -129,7 +150,9 @@ export async function personInputsV2(id: number, now: Date, ctx?: ScoreContext):
   const events = await db<{ at: Date; repo_key: string | null }[]>`
     SELECT at, repo_key FROM builder_events
     WHERE installation_id IN ${db(group)} AND type IN ('built', 'deployed', 'hosted') AND at > ${yearAgo}`;
-  const wallets = await db<{ wallet: string }[]>`SELECT wallet FROM person_wallets WHERE builder_id = ${id}`;
+  const wallets = await db<{ wallet: string }[]>`
+    SELECT wallet FROM person_wallets WHERE builder_id = ${id}
+    UNION SELECT lower(w.wallet) FROM installation_wallets w WHERE w.installation_id IN ${db(group)}`;
 
   // Keys: a source's own project_key wins (builder_projects matches it exactly, sources.ts dueSources).
   const canon = new Map<string, string>();
@@ -162,11 +185,11 @@ export async function personInputsV2(id: number, now: Date, ctx?: ScoreContext):
     return identity.find((p) => [p.repo, p.live_url, p.package, ...list<unknown>(p.contracts)].some((v) => typeof v === 'string' && lowKey(v) === k));
   };
 
-  // Self: every account of the person's group, their proven wallets, their proven and reported logins.
-  const self = new Set(c.owners.filter((r) => r.builder_id === id).map((r) => r.actor));
+  // Self: every wallet of the person's group, their proven wallets, their proven and reported logins.
+  const self = new Set<string>();
   for (const l of [profile?.login, profile?.reported]) if (l) self.add(`gh:${l}`);
   for (const w of wallets) self.add(`wallet:${w.wallet.toLowerCase()}`);
-  const ring = ringWeights(c.edges, id, c.owner);
+  const ring = personRing ?? ringFromJson(profile?.ring);
   const confirmedSrc = (s: Src) => s.state === 'verified' && isConfirmedProof(s.proof);
   const cal = calibrationV2();
 
@@ -376,28 +399,39 @@ export async function personInputsV2(id: number, now: Date, ctx?: ScoreContext):
 // ---- Live score, rank, refresh ---------------------------------------------------------------------
 
 /**
- * Rescore one person now: the live row (or, on a held jump, its `pending`), their projects with
- * the 25-project cap. A first row the refresh claimed (parts '{}') is not a previous score.
+ * Rescore one person now: the live row, their projects with the 25-project cap. A rescore the
+ * review hold stops (holdReason) waits in `pending` with its day; the public columns stay (a first
+ * score held this way is public 0, unranked). The 30-point jump is measured against the newest
+ * public history row before today, so ten-minute refreshes can never step past it.
  */
-export async function rescorePerson(id: number, now: Date, ctx?: ScoreContext): Promise<{ score: number; ranked: boolean; held: boolean }> {
+export async function rescorePerson(id: number, now: Date, ring?: PersonRing): Promise<{ score: number; ranked: boolean; held: boolean }> {
   const cal = calibrationV2();
-  const { input, projects, perSource } = await personInputsV2(id, now, ctx);
+  const day = now.toISOString().slice(0, 10);
+  const { input, projects, perSource } = await personInputsV2(id, now, ring);
   const s = computeScoreV2(input, cal, now);
   const prevTracked = new Set((await sql()<{ project_key: string }[]>`
     SELECT project_key FROM builder_projects WHERE builder_id = ${id} AND tracked`).map((r) => r.project_key));
   const tracked = trackedKeys(projects, now, prevTracked);
-  const [row0] = await sql()<{ score: number; blank: boolean }[]>`SELECT score, parts = '{}'::jsonb AS blank FROM builder_live WHERE builder_id = ${id}`;
-  const prev = row0 && !row0.blank ? row0 : undefined;
+  const [before] = await sql()<{ score: number }[]>`
+    SELECT s.score FROM builder_scores s
+    WHERE s.builder_id = ${id} AND s.formula = ${FORMULA_V2} AND s.day < ${day}::date AND ${publicRow()}
+    ORDER BY s.day DESC LIMIT 1`;
   const U = s.parts.used.raw.U;
   const shares = [...perSource.values()].map((x) => (U > 0 ? x.users / U : 0));
-  const reason = holdReason(prev?.score ?? null, s.score, shares);
-  const held = Boolean(reason && prev);
+  const reason = holdReason(before?.score ?? null, s.score, shares);
   const people = [...s.perProject.values()].filter((p) => p.people > 0).length;
-  const row = { score: s.score, parts: s.parts, ranked: s.ranked, shipped: s.shipped, people, formula: FORMULA_V2, calibration: cal.id };
-  await sql().begin(async (tx) => {
-    if (held) {
-      await tx`UPDATE builder_live SET pending = ${tx.json(row as never)}, computed_at = ${now} WHERE builder_id = ${id}`;
+  const row = { score: s.score, parts: s.parts, ranked: s.ranked, shipped: s.shipped, people, formula: FORMULA_V2, calibration: cal.id, day };
+  const shown = await sql().begin(async (tx) => {
+    const [cur] = await tx<{ score: number; ranked: boolean }[]>`SELECT score, ranked FROM builder_live WHERE builder_id = ${id} FOR UPDATE`;
+    let out: { score: number; ranked: boolean };
+    if (reason) {
+      // Held: the public columns stay (none yet: public 0, unranked) and the rescore waits for the owner.
+      await tx`
+        INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, pending, computed_at)
+        VALUES (${id}, 0, '{}'::jsonb, false, 0, 0, ${FORMULA_V2}, ${cal.id}, ${tx.json(row as never)}, ${now})
+        ON CONFLICT (builder_id) DO UPDATE SET pending = EXCLUDED.pending, computed_at = EXCLUDED.computed_at`;
       await tx`UPDATE builder_profiles SET held = true, updated_at = now() WHERE builder_id = ${id}`;
+      out = cur ? { score: cur.score, ranked: cur.ranked } : { score: 0, ranked: false };
     } else {
       await tx`
         INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, pending, computed_at)
@@ -406,6 +440,7 @@ export async function rescorePerson(id: number, now: Date, ctx?: ScoreContext): 
           shipped = EXCLUDED.shipped, people = EXCLUDED.people, formula = EXCLUDED.formula, calibration = EXCLUDED.calibration,
           pending = NULL, computed_at = EXCLUDED.computed_at`;
       await tx`UPDATE builder_profiles SET held = false, updated_at = now() WHERE builder_id = ${id} AND held`;
+      out = { score: s.score, ranked: s.ranked };
     }
     await tx`DELETE FROM builder_projects WHERE builder_id = ${id} AND NOT (project_key = ANY(${projects.map((p) => p.key)}::text[]))`;
     for (const p of projects)
@@ -421,13 +456,14 @@ export async function rescorePerson(id: number, now: Date, ctx?: ScoreContext): 
           people = EXCLUDED.people, people_week = EXCLUDED.people_week, money_usd = EXCLUDED.money_usd, has_coin = EXCLUDED.has_coin,
           sends_tx = EXCLUDED.sends_tx, tagged = EXCLUDED.tagged, untracked_contract = EXCLUDED.untracked_contract,
           last_active_at = EXCLUDED.last_active_at, updated_at = EXCLUDED.updated_at`;
+    return out;
   });
-  if (held)
+  if (reason)
     await noteEvent('score_held', () => ({
       type: 'score_held', dedupe_key: `score_held:${id}:${now.toISOString().slice(0, 13)}`, installation_id: id,
-      detail: { reason, score: s.score, previous: prev!.score },
+      detail: { reason, score: s.score, previous: before?.score ?? null },
     }));
-  return { score: held ? prev!.score : s.score, ranked: s.ranked, held };
+  return { ...shown, held: reason !== null };
 }
 
 /**
@@ -452,40 +488,49 @@ export async function standingOf(id: number, o: { only?: number[] } = {}): Promi
 
 /**
  * spec "Fresh within minutes for the person asking": re-read the person's sources and rescore, at
- * most once every REFRESH_MS (claimed atomically, so two finds at once read once). Never throws on a
- * read: nothing is retried and the page keeps the last good number.
+ * most once every REFRESH_MS (claimed atomically, so two finds at once read once). Never a shared
+ * client's group. Never throws (find and the page go on without it): nothing is retried and the
+ * page keeps the last good number.
  */
 export async function refreshPerson(id: number, o: { now: Date; deadline: number; reader?: ReaderDeps }): Promise<{ refreshed: boolean }> {
   if (!builderScoreEnabled()) return { refreshed: false };
-  const [claimed] = await sql()`
-    INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at, read_at)
-    VALUES (${id}, 0, '{}'::jsonb, false, 0, 0, ${FORMULA_V2}, ${LIVE_CALIBRATION_V2}, ${o.now}, ${o.now})
-    ON CONFLICT (builder_id) DO UPDATE SET read_at = EXCLUDED.read_at
-      WHERE builder_live.read_at IS NULL OR builder_live.read_at <= ${new Date(o.now.getTime() - REFRESH_MS)}
-    RETURNING 1`;
-  if (!claimed) return { refreshed: false };
-  const { deps, counts, stop } = countingDeps(o.reader ?? defaultReaderDeps(o.now, o.deadline));
+  let claimed = false;
   try {
-    // spec "Skip, don't chase": each step fails on its own, so a discovery error never stops the
-    // person's own sources being read.
-    for (const [step, run] of [
-      ['discover', () => refreshDiscovery(id, o.now, { deadline: o.deadline, reader: deps })],
-      ['read', () => readPersonLive(id, o.now, { deadline: o.deadline, reader: deps })],
-    ] as const) {
-      if (Date.now() >= o.deadline) break;
-      try {
-        await run();
-      } catch (err) {
-        console.error(`[refresh] ${step}`, err instanceof Error ? err.name : 'error');
+    const [g] = await sql()<{ shared: boolean | null }[]>`SELECT bool_or(shared_client) AS shared FROM installations WHERE COALESCE(builder_id, id) = ${id}`;
+    if (g?.shared) return { refreshed: false };
+    const rows = await sql()`
+      INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at, read_at)
+      VALUES (${id}, 0, '{}'::jsonb, false, 0, 0, ${FORMULA_V2}, ${LIVE_CALIBRATION_V2}, ${o.now}, ${o.now})
+      ON CONFLICT (builder_id) DO UPDATE SET read_at = EXCLUDED.read_at
+        WHERE builder_live.read_at IS NULL OR builder_live.read_at <= ${new Date(o.now.getTime() - REFRESH_MS)}
+      RETURNING 1`;
+    if (rows.length === 0) return { refreshed: false };
+    claimed = true;
+    const { deps, counts, stop } = countingDeps(o.reader ?? defaultReaderDeps(o.now, o.deadline));
+    try {
+      // spec "Skip, don't chase": each step fails on its own, so a discovery error never stops the
+      // person's own sources being read.
+      for (const [step, run] of [
+        ['discover', () => refreshDiscovery(id, o.now, { deadline: o.deadline, reader: deps })],
+        ['read', () => readPersonLive(id, o.now, { deadline: o.deadline, reader: deps })],
+      ] as const) {
+        if (Date.now() >= o.deadline) break;
+        try {
+          await run();
+        } catch (err) {
+          console.error(`[refresh] ${step}`, err instanceof Error ? err.name : 'error');
+        }
       }
+    } finally {
+      stop();
+      await flushReadUsage(o.now.toISOString().slice(0, 10), counts).catch((err: unknown) => console.error('[refresh] usage', err instanceof Error ? err.name : 'error'));
     }
-  } finally {
-    stop();
-    await flushReadUsage(o.now.toISOString().slice(0, 10), counts);
+    if (Date.now() < o.deadline) await rescorePerson(id, o.now);
+    await noteEvent('refreshed', () => ({ type: 'refreshed', dedupe_key: `refreshed:${id}:${o.now.toISOString().slice(0, 15)}`, installation_id: id }));
+  } catch (err) {
+    console.error('[refresh] person', err instanceof Error ? err.name : 'error');
   }
-  if (Date.now() < o.deadline + 1_000) await rescorePerson(id, o.now);
-  await noteEvent('refreshed', () => ({ type: 'refreshed', dedupe_key: `refreshed:${id}:${o.now.toISOString().slice(0, 15)}`, installation_id: id }));
-  return { refreshed: true };
+  return { refreshed: claimed };
 }
 
 /** Discovery inside a refresh: when a clue queued the person, else at most once a REFRESH_DISCOVER_MS (cost). */
@@ -515,7 +560,9 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
       AND ((b.state = 'verified' AND b.kind <> 'merged_pr') OR (b.state = 'proposed' AND b.kind IN ('repo', 'site', 'package_npm', 'package_pypi')))
       AND (l.read_at IS NULL OR l.read_at <= ${new Date(now.getTime() - REFRESH_MS)})
       AND NOT EXISTS (SELECT 1 FROM builder_projects p WHERE p.builder_id = b.builder_id AND p.project_key = b.project_key AND NOT p.tracked)
-    ORDER BY b.id`;
+    -- Most recently active first, so a refresh the deadline cuts reads what matters (also before the
+    -- first rescore, when no project rows exist yet).
+    ORDER BY (SELECT max(r.day) FROM source_readings r WHERE r.source_id = b.id) DESC NULLS LAST, b.created_at DESC, b.id`;
   let read = 0;
   let failed = 0;
   const put = async (s: LiveDue, r: { ok: true; signals: unknown } | { ok: false }) => {
@@ -526,7 +573,8 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
         ON CONFLICT (source_id) DO UPDATE SET signals = EXCLUDED.signals, ok = true, read_at = EXCLUDED.read_at`;
     } else {
       failed++;
-      // The last good live answer's signals stay in the row, unused (only ok rows are read).
+      // A failed read: personInputsV2 reads only ok rows, so the score falls back to the newest good
+      // daily reading (the last good number). The row's old signals stay, unused.
       await db`
         INSERT INTO source_live (source_id, signals, ok, read_at) VALUES (${s.id}, '{}'::jsonb, false, ${now})
         ON CONFLICT (source_id) DO UPDATE SET ok = false, read_at = EXCLUDED.read_at`;
@@ -628,8 +676,9 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
 
 /**
  * The cron's `score` step: everyone with a new reading since their last live score, plus everyone
- * not yet scored today (UTC), never a shared client; rescored while `deadline` allows, then one
- * history row per person per day (the public score; `held` when a rescore waits in pending).
+ * not yet scored today (UTC), never a shared client; each person's ring is stored, they are
+ * rescored while `deadline` allows, then one history row per person per day (the public score, or
+ * on a held day the pending score the owner reviews).
  */
 export async function scorePeopleV2(now: Date, o: { deadline: number; only?: number[] }): Promise<{ scored: number; held: number[] }> {
   const db = sql();
@@ -643,17 +692,25 @@ export async function scorePeopleV2(now: Date, o: { deadline: number; only?: num
       ${o.only ? db`AND p.builder_id IN ${db(o.only.length ? o.only : [-1])}` : db``}
     ORDER BY p.builder_id`;
   if (due.length === 0) return { scored: 0, held: [] };
+  // Everyone's accounts and ring edges, once a run: each person's ring is stored on their profile, so
+  // the on-demand refresh reads only that row.
   const ctx = await scoreContext();
   let scored = 0;
   const held: number[] = [];
   for (const { builder_id: id } of due) {
     if (Date.now() >= o.deadline) break;
-    const r = await rescorePerson(id, now, ctx);
+    const ring = ringWeights(ctx.edges, id, ctx.owner);
+    await db`UPDATE builder_profiles SET ring = ${db.json(ringToJson(ring) as never)} WHERE builder_id = ${id}`;
+    const r = await rescorePerson(id, now, ring);
     scored++;
     if (r.held) held.push(id);
     const [row] = await db<{ score: number }[]>`
       INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held, projects)
-      SELECT builder_id, ${day}, score, 0, parts, '{}'::jsonb, formula, calibration, pending IS NOT NULL, NULL FROM builder_live
+      SELECT builder_id, ${day},
+        -- A held day keeps what the owner reviews: the pending score and its parts.
+        COALESCE((pending->>'score')::smallint, score), 0, COALESCE(pending->'parts', parts), '{}'::jsonb,
+        COALESCE(pending->>'formula', formula), COALESCE(pending->>'calibration', calibration), pending IS NOT NULL, NULL
+      FROM builder_live
       WHERE builder_id = ${id} ON CONFLICT (builder_id, day) DO NOTHING RETURNING score`;
     if (row)
       await noteEvent('score_computed', () => ({
