@@ -122,6 +122,13 @@ apps/frontend/
                                unverified-page eligibility, the coin's earnkit.txt token line; v2.8: the
                                builder bonus heading has a BonusPill (md) beside it (Section aside);
                                v2.11 T12: "What EarnKit records" (#what-earnkit-records, before Contact)
+  app/leaderboard/{page.tsx,LeaderboardView.tsx,leaderboard-load.ts}  v2.12 T12: the unified builder
+                               leaderboard (404 unless EARNKIT_BUILDER_SCORE=on). Filters chain (base|arc),
+                               program (any programs.id, closed bonus-round programs too; unknown id 404),
+                               window (all|week), page (50 a page; past the end 404) via profile-data.ts
+                               leaderboardFilters/boardHref; one query (leaderboardData) cached per filter set
+                               10 min, tagged PROFILE_TAG (hide/show/X change expire it). Hidden excluded but
+                               counted; held at the last unheld score; week = bounded 7-day change.
   app/bonus/[round]/{page.tsx,BoardView.tsx}  v2.5 Task 9: the public builder bonus leaderboard
                                (bonus-board.ts data; BoardView is pure and markup-tested; Ext links
                                only shownUrl https forms, tx links only 32-byte hashes); v2.6

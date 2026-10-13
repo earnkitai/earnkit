@@ -226,3 +226,131 @@ export async function profileData(slug: string, now: Date = new Date()): Promise
     stricter_note: stricterNote(rows),
   };
 }
+
+// ---- v2.12 T12: the leaderboard (spec 7 "Leaderboard", app/leaderboard).
+
+export const PAGE_SIZE = 50;
+export type BoardFilters = { chain: 'base' | 'arc' | null; program: string | null; window: 'week' | 'all'; page: number };
+export type BoardRow = { rank: number; slug: string; name: string; score: number; top_percent: number; top_outcome: string; change_7d: number };
+export type LeaderboardData = { rows: BoardRow[]; page: number; pages: number; filters: BoardFilters };
+
+/** The board's query params. Junk (an unknown chain or window, an odd program id, a repeated key, a bad page) is dropped, never echoed. Pure. */
+export function leaderboardFilters(q: Record<string, string | string[] | undefined>): BoardFilters {
+  const one = (k: string) => (typeof q[k] === 'string' ? (q[k] as string) : null);
+  const chain = one('chain');
+  const program = one('program');
+  const raw = one('page');
+  const page = raw && /^[1-9]\d{0,5}$/.test(raw) ? Number(raw) : 1;
+  return {
+    chain: chain === 'base' || chain === 'arc' ? chain : null,
+    program: program && /^[a-z0-9-]{1,100}$/.test(program) ? program : null,
+    window: one('window') === 'week' ? 'week' : 'all',
+    page,
+  };
+}
+
+/** The board's URL for these filters: defaults left out, in one fixed order (chain, program, window, page). Pure. */
+export function boardHref(f: BoardFilters): string {
+  const q = new URLSearchParams();
+  if (f.chain) q.set('chain', f.chain);
+  if (f.program) q.set('program', f.program);
+  if (f.window === 'week') q.set('window', 'week');
+  if (f.page > 1) q.set('page', String(f.page));
+  const s = q.toString();
+  return s ? `/leaderboard?${s}` : '/leaderboard';
+}
+
+/**
+ * A row's top outcome in plain words, the share card's wording (share.ts cardModel). The project is
+ * named by the same rules as the profile: a repo only while it reads public (repo_title), else
+ * "their open source work" for merged PRs, a live site's host, a package's name, else "a private
+ * project". Never a wallet, never a private repo. Pure.
+ */
+export function boardOutcome(r: { score: number; users: number | null; money_usd: number | null; repo_title: string | null; oss: boolean; site_ref: string | null; package_ref: string | null }): string {
+  if (r.score <= 0) return 'No verified outcomes yet';
+  // No stored top project (an older row): no title to give.
+  if (r.users === null && r.money_usd === null) return 'Verified builder';
+  const users = Math.round(num(r.users));
+  const usd = num(r.money_usd);
+  const site = r.site_ref ? host(r.site_ref) : null;
+  const title = r.repo_title ?? (r.oss ? 'their open source work' : site ?? r.package_ref ?? 'a private project');
+  if (users > 0) return `${users.toLocaleString('en-US')} ${users === 1 ? 'person' : 'people'} used ${title}`;
+  if (usd >= 1) return `${money(usd)} through ${title}`;
+  return `Shipped ${title}`;
+}
+
+type BoardRaw = {
+  builder_id: number; slug: string; x_handle: string | null; github_login: string | null; score: number; percentile: number; total: number;
+  change: number | null; users: number | null; money_usd: number | null; repo_title: string | null; oss: boolean; site_ref: string | null; package_ref: string | null;
+};
+
+/**
+ * One page of the board in one query. Everyone with a profile and a public score is listed (score
+ * and percentile from builder_ranks: the last unheld or released day, hidden people included in the
+ * percentile) except hidden people, filtered here only. A shared client has no profile, so it is
+ * never listed. `all` ranks by score; `week` by the 7-day change (the public score against the
+ * latest public row 7 to 10 days before it, as the profile's weekChange; none is no change), then
+ * score. The top outcome comes from the public row's stored top_outcome, its project named only by
+ * the profile's public rules; the per-row lookups run on the page's 50 rows only (all) or on the
+ * filtered set's latest rows (week, to sort).
+ */
+export async function leaderboardData(f: BoardFilters, now: Date = new Date()): Promise<LeaderboardData> {
+  const db = sql();
+  const week = f.window === 'week';
+  const offset = (f.page - 1) * PAGE_SIZE;
+  const fresh = addDays(now.toISOString().slice(0, 10), -PUBLIC_REPO_DAYS);
+  const pageCut = db`LIMIT ${PAGE_SIZE} OFFSET ${offset}`;
+  const raw = await db<BoardRaw[]>`
+    WITH cand AS (
+      SELECT r.builder_id, r.score::int AS score, r.percentile, p.slug, p.x_handle, p.github_login, count(*) OVER ()::int AS total
+      FROM builder_ranks r JOIN builder_profiles p ON p.builder_id = r.builder_id
+      WHERE NOT p.hidden
+        ${f.chain ? db`AND EXISTS (SELECT 1 FROM builder_sources b WHERE b.builder_id = r.builder_id AND b.kind = 'contract' AND b.state = 'verified' AND b.ref LIKE ${`${f.chain}:%`})` : db``}
+        ${f.program ? db`AND EXISTS (SELECT 1 FROM projects j JOIN installations i ON i.id = j.installation_id WHERE COALESCE(i.builder_id, i.id) = r.builder_id AND j.program_id = ${f.program})` : db``}
+      ${week ? db`` : db`ORDER BY r.score DESC, p.slug ${pageCut}`}),
+    moved AS (
+      SELECT c.*, pub.day, pub.top_outcome, pub.score - prev.score AS change
+      FROM cand c
+      LEFT JOIN LATERAL (
+        SELECT s.day, s.score, s.top_outcome FROM builder_scores s WHERE s.builder_id = c.builder_id AND ${publicRow()} ORDER BY s.day DESC LIMIT 1) pub ON true
+      LEFT JOIN LATERAL (
+        SELECT s.score FROM builder_scores s WHERE s.builder_id = c.builder_id AND ${publicRow()} AND s.day <= pub.day - 7 AND s.day >= pub.day - 10
+        ORDER BY s.day DESC LIMIT 1) prev ON true
+      ${week ? db`ORDER BY COALESCE(pub.score - prev.score, 0) DESC, c.score DESC, c.slug ${pageCut}` : db``}),
+    shown AS (SELECT m.*, m.top_outcome->>'key' AS top_key FROM moved m)
+    SELECT t.builder_id, t.slug, t.x_handle, t.github_login, t.score, t.percentile, t.total, t.change,
+      CASE WHEN jsonb_typeof(t.top_outcome->'users') = 'number' THEN (t.top_outcome->>'users')::float8 END AS users,
+      CASE WHEN jsonb_typeof(t.top_outcome->'money_usd') = 'number' THEN (t.top_outcome->>'money_usd')::float8 END AS money_usd,
+      (SELECT split_part(b.ref, '/', 2) FROM builder_sources b
+        JOIN LATERAL (SELECT n.ok, n.day, n.signals FROM source_readings n WHERE n.source_id = b.id ORDER BY n.day DESC LIMIT 1) n ON true
+        WHERE b.builder_id = t.builder_id AND b.kind = 'repo' AND b.state = 'verified' AND b.ref = t.top_key AND b.project_key = t.top_key
+          AND n.ok AND n.signals->'private' = 'false'::jsonb AND n.day >= ${fresh}::date
+        LIMIT 1) AS repo_title,
+      EXISTS (SELECT 1 FROM builder_sources b WHERE b.builder_id = t.builder_id AND b.kind = 'merged_pr' AND b.state = 'verified' AND b.project_key = t.top_key) AS oss,
+      (SELECT b.ref FROM builder_sources b
+        JOIN LATERAL (SELECT r.signals FROM source_readings r WHERE r.source_id = b.id AND r.ok AND r.day <= t.day ORDER BY r.day DESC LIMIT 1) l ON true
+        WHERE b.builder_id = t.builder_id AND b.kind = 'site' AND b.state = 'verified' AND b.project_key = t.top_key AND l.signals->'up' = 'true'::jsonb
+        ORDER BY b.id LIMIT 1) AS site_ref,
+      (SELECT b.ref FROM builder_sources b
+        WHERE b.builder_id = t.builder_id AND b.kind IN ('package_npm', 'package_pypi') AND b.state = 'verified' AND b.project_key = t.top_key
+        ORDER BY b.id LIMIT 1) AS package_ref
+    FROM shown t
+    ORDER BY ${week ? db`COALESCE(t.change, 0) DESC,` : db``} t.score DESC, t.slug`;
+  const total = raw[0]?.total ?? 0;
+  const rows = raw.map((r, i) => ({
+    rank: offset + i + 1,
+    slug: r.slug,
+    name: profileName(r),
+    score: r.score,
+    top_percent: topPercent(r.percentile),
+    top_outcome: boardOutcome(r),
+    change_7d: r.change ?? 0,
+  }));
+  return { rows, page: f.page, pages: Math.max(1, Math.ceil(total / PAGE_SIZE)), filters: f };
+}
+
+/** A program's title by id, any status (a closed bonus round's program too, owner ruling D1); null when unknown. */
+export async function programTitle(id: string): Promise<string | null> {
+  const [row] = await sql()<{ title: string }[]>`SELECT title FROM programs WHERE id = ${id}`;
+  return row?.title ?? null;
+}
