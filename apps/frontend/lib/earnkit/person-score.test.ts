@@ -567,3 +567,87 @@ test('4.26 an older rescore never overwrites a newer one (decided and written un
   assert.deepEqual([l.score, l.computed_at.getTime()], [10, NOW.getTime() + DAY]);
   assert.equal((await sql()`SELECT 1 FROM builder_projects WHERE builder_id = ${id}`).length, 1);
 });
+
+// ---- Fix round 4.
+
+test('4.27 a refresh newer than the cron run never stops the cron storing the ring: checked_at is the run, and the person is ranked', dbTest, async () => {
+  const [a, c] = [T + 18, T + 19];
+  const [la, lc] = [`ra${T}`, `rc${T}`];
+  await person(c, { login: lc, ring: true });
+  await person(a, { login: la });
+  await hosted(a, { slug: `rk${a}`, repo_key: `${la}/x`, status: 'live' });
+  await source(a, { kind: 'repo', ref: `${la}/x`, state: 'verified', proof: 'repo_owner', by: 'server' });
+  await reading(`${la}/x`, { owner: la, owner_type: 'User', fork: false, template: false, forkers: [], issue_authors: [], contributors: [], commit_weeks: [], partial: false,
+    stargazers: [{ id: `gh:${lc}`, at: NOW.toISOString(), created_at: '2020-01-01T00:00:00Z' }] });
+  // A refresh during the cron run, before this person's turn: a later `now`, never-computed ring.
+  const later = new Date(NOW.getTime() + 10 * 60_000);
+  assert.equal((await rescorePerson(a, later)).ranked, false);
+  await scorePeopleV2(NOW, { deadline: Date.now() + 10_000, only: [a] });
+  const [p] = await sql()<{ ring: { ring?: unknown; checked?: [string, number[]][]; checked_at?: string } }[]>`SELECT ring FROM builder_profiles WHERE builder_id = ${a}`;
+  assert.ok(Array.isArray(p.ring.ring), 'the cron stored the ring');
+  assert.equal(p.ring.checked_at, NOW.toISOString());
+  assert.ok(p.ring.checked?.some(([acct]) => acct === `gh:${lc}`));
+  const [l] = await sql()<{ ranked: boolean; computed_at: Date }[]>`SELECT ranked, computed_at FROM builder_live WHERE builder_id = ${a}`;
+  assert.equal(l.ranked, true, 'eligible (a confirmed ship) and the ring is now computed');
+  assert.equal(l.computed_at.getTime(), later.getTime(), 'the newer score itself is not overwritten');
+  // The next refresh honours the cron's check: the other person's star counts in full.
+  await refreshPerson(a, { now: new Date(NOW.getTime() + 21 * 60_000), deadline: Date.now() + 3000, reader: fakeReader() });
+  const [v] = await sql()<{ v: number }[]>`SELECT (parts->'used'->'raw'->>'star_fork')::float AS v FROM builder_live WHERE builder_id = ${a}`;
+  assert.ok(Math.abs(v.v - 0.5 ** ((21 / 1440) / 90)) < 1e-6, String(v.v));
+});
+
+test('4.28 a second release on the same day keeps the earlier released score public', dbTest, async () => {
+  const id = T + 5;
+  const D = new Date(NOW.getTime() + 12 * DAY);
+  const d = D.toISOString().slice(0, 10);
+  await person(id, { ring: true });
+  await history(id, 10, new Date(D.getTime() - DAY));
+  await live(id, { score: 10, ranked: true });
+  await fakeBigUse(id);
+  await scorePeopleV2(D, { deadline: Date.now() + 10_000, only: [id] }); // the cron holds about 53 on D
+  const isPublic = async () => (await sql()`SELECT 1 FROM builder_scores s WHERE s.builder_id = ${id} AND s.day = ${d} AND ${publicRow()}`).length === 1;
+  const version = async () => (await heldForReview()).find((x) => x.builder_id === id)!.version!;
+  assert.equal((await release(id, { day: d, version: await version() })).status, 303);
+  assert.ok(await isPublic(), 'the reviewed cron score is public');
+  // Later that day a bigger rescore is held again and the owner releases it too.
+  await fakeBigUse(id, { rich: true, seed: 2 });
+  assert.equal((await rescorePerson(id, new Date(D.getTime() + 3_600_000))).held, true);
+  assert.equal((await release(id, { day: d, version: await version() })).status, 303);
+  assert.ok(await isPublic(), 'the earlier released score stays public');
+});
+
+test('4.29 the day-only release never publishes an unreviewed v2 day, and a held v1 day keeps the profile held while a later day is not public', dbTest, async () => {
+  const id = T + 7;
+  const D = new Date(NOW.getTime() + 14 * DAY);
+  const d = D.toISOString().slice(0, 10);
+  await person(id, { ring: true });
+  await history(id, 10, new Date(D.getTime() - DAY));
+  await live(id, { score: 10, ranked: true });
+  await fakeBigUse(id);
+  await scorePeopleV2(D, { deadline: Date.now() + 10_000, only: [id] });
+  const [h] = await sql()<{ score: number; held: boolean }[]>`SELECT score, held FROM builder_scores WHERE builder_id = ${id} AND day = ${d}`;
+  assert.equal(h.held, true);
+  const keep = (await sql()<{ pending: unknown }[]>`SELECT pending FROM builder_live WHERE builder_id = ${id}`)[0].pending;
+  // Nothing pending (a later unheld rescore replaced it): a hand-made day-only POST is refused.
+  await sql()`UPDATE builder_live SET pending = NULL WHERE builder_id = ${id}`;
+  assert.equal((await release(id, { day: d })).status, 409);
+  assert.equal((await sql()`SELECT 1 FROM score_releases WHERE builder_id = ${id} AND day = ${d}`).length, 0);
+  // With the reviewed pending score, the day-only release names it.
+  await sql()`UPDATE builder_live SET pending = ${sql().json(keep as never)} WHERE builder_id = ${id}`;
+  assert.equal((await release(id, { day: d })).status, 303);
+  const [x] = await sql()<{ score: number | null }[]>`SELECT score FROM score_releases WHERE builder_id = ${id} AND day = ${d}`;
+  assert.equal(x.score, h.score);
+
+  // Held clearing follows publicRow: a later v2 day whose release names another score is not public.
+  const id2 = T + 8;
+  await person(id2, {});
+  await sql()`UPDATE builder_profiles SET held = true WHERE builder_id = ${id2}`;
+  const [d1, d2] = [new Date(NOW.getTime() + 15 * DAY), new Date(NOW.getTime() + 16 * DAY)].map((t) => t.toISOString().slice(0, 10));
+  await sql()`
+    INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held)
+    VALUES (${id2}, ${d1}, 70, 0, '{}', '{}', 'v1', 'v1-launch', true), (${id2}, ${d2}, 55, 0, '{}', '{}', 'v2', 'v2-launch', true)
+    ON CONFLICT (builder_id, day) DO NOTHING`;
+  await sql()`INSERT INTO score_releases (builder_id, day, score) VALUES (${id2}, ${d2}, 30) ON CONFLICT DO NOTHING`;
+  assert.equal((await release(id2, { day: d1 })).status, 303);
+  assert.equal((await sql()<{ held: boolean }[]>`SELECT held FROM builder_profiles WHERE builder_id = ${id2}`)[0].held, true, `${d2}'s 55 is still not public`);
+});

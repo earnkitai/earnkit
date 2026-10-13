@@ -485,7 +485,20 @@ export async function rescorePerson(id: number, now: Date, ring?: PersonRing): P
     await tx`SELECT pg_advisory_xact_lock(${RESCORE_LOCK}, ${id})`;
     const [cur] = await tx<{ score: number; ranked: boolean; computed_at: Date }[]>`
       SELECT score, ranked, computed_at FROM builder_live WHERE builder_id = ${id} FOR UPDATE`;
-    if (cur && cur.computed_at > now) return { score: cur.score, ranked: cur.ranked, held: false, reason: null, s: null, before: null };
+    if (cur && cur.computed_at > now) {
+      // A newer rescore (a refresh during this cron run) keeps its score and projects. The cron's
+      // ring is still the freshest: it is stored with this run's check, and the newer row's rank
+      // follows it (ranked = a confirmed ship once the ring is known; `shipped` is that count).
+      if (!ring) return { score: cur.score, ranked: cur.ranked, held: false, reason: null, s: null, before: null };
+      const { checked } = await personInputsV2(id, now, ring, tx);
+      await tx`UPDATE builder_profiles SET ring = ${tx.json(ringToJson(ring, checked, now) as never)} WHERE builder_id = ${id}`;
+      const [l] = await tx<{ score: number; ranked: boolean; held: boolean }[]>`
+        UPDATE builder_live SET ranked = shipped >= 1,
+          pending = CASE WHEN pending IS NULL THEN NULL
+            ELSE jsonb_set(pending, '{ranked}', to_jsonb(COALESCE((pending->>'shipped')::numeric, 0) >= 1)) END
+        WHERE builder_id = ${id} RETURNING score, ranked, pending IS NOT NULL AS held`;
+      return { score: l.score, ranked: l.ranked, held: l.held, reason: null, s: null, before: null };
+    }
     const { input, projects, perSource, ringComputed, checked } = await personInputsV2(id, now, ring, tx);
     const s = computeScoreV2(input, cal, now);
     // Ranked only once the cron has computed the person's ring (fail strict on ring partners).

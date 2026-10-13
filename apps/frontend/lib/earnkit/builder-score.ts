@@ -1,7 +1,7 @@
 import { countProject, moneyOf, ringWeights, type ActorFacts, type Touch } from './anti-farming';
 import { builderScoreEnabled } from './builder-score-flag';
 import { TOKEN_PITCH_MIN_SCORE } from './confirm';
-import { sql } from './db';
+import { sql, type Db } from './db';
 import { discover, type LoginOf } from './discovery';
 import { ownPagesSite } from './discovery-clues';
 import { noteEvent } from './events';
@@ -213,7 +213,17 @@ export function emptyReason(f: { login: boolean; proposed: number; verified: num
 
 /** A builder_scores row `s` is public: not held, or held and released (plan R7, R8). One rule for every reader. */
 export const publicRow = () => sql()`(NOT s.held OR EXISTS (SELECT 1 FROM score_releases x WHERE x.builder_id = s.builder_id AND x.day = s.day
-  AND (x.score IS NULL OR x.score = s.score)))`;
+  AND (x.score IS NULL OR x.score = s.score OR s.score = ANY(x.scores))))`;
+
+/**
+ * v2 release of `score` for a day: `score` becomes the newest released one (the hold baseline) and
+ * joins `scores`, so a history row public under an earlier release that day stays public.
+ */
+const releaseV2 = (tx: Db, id: number, day: string, score: number) => tx`
+  INSERT INTO score_releases (builder_id, day, score, scores) VALUES (${id}, ${day}::date, ${score}, ARRAY[${score}]::smallint[])
+  ON CONFLICT (builder_id, day) DO UPDATE SET score = EXCLUDED.score, released_at = now(),
+    scores = (SELECT COALESCE(array_agg(DISTINCT v), '{}') FROM unnest(score_releases.scores || score_releases.score || EXCLUDED.score) v WHERE v IS NOT NULL)
+  RETURNING day`;
 
 /**
  * The person's public score: the latest row not held, or held and released (plan R7, R8). v2.12.1:
@@ -571,10 +581,7 @@ export async function scoresPost(request: Request, deps: { limit?: (ip: string) 
       // public only if it holds this score, and it is the next days' baseline. A held day the owner
       // never saw stays private.
       const pday = typeof pending.day === 'string' && isDay(pending.day) ? pending.day : null;
-      if (pday)
-        await tx`
-          INSERT INTO score_releases (builder_id, day, score) VALUES (${id}, ${pday}::date, ${Number(pending.score)})
-          ON CONFLICT (builder_id, day) DO UPDATE SET score = EXCLUDED.score, released_at = now()`;
+      if (pday) await releaseV2(tx, id, pday, Number(pending.score));
       // Still held only while another day waits: a later held v2 day, or a v1 held day, not public.
       await tx`
         UPDATE builder_profiles SET updated_at = now(), held = EXISTS (
@@ -589,14 +596,19 @@ export async function scoresPost(request: Request, deps: { limit?: (ip: string) 
       // v2.12.1: a held v2 day is what the owner reviewed (the pending score of that day). Released
       // only while builder_live.pending is still that score; a later rescore changed it: refused.
       const [live] = await tx<{ pending: { day?: unknown; score?: unknown } | null }[]>`SELECT pending FROM builder_live WHERE builder_id = ${id} FOR UPDATE`;
-      const [h] = await tx<{ score: number; formula: string }[]>`SELECT score, formula FROM builder_scores WHERE builder_id = ${id} AND day = ${day}::date AND held`;
-      if (!h) return 'none';
+      const [h] = await tx<{ score: number; formula: string; public: boolean }[]>`
+        SELECT s.score, s.formula, ${publicRow()} AS public FROM builder_scores s WHERE s.builder_id = ${id} AND s.day = ${day}::date AND s.held`;
+      if (!h || h.public) return 'none';
       const pending = live?.pending ?? null;
-      if (h.formula === 'v2' && pending && (pending.day !== day || pending.score !== h.score)) return 'stale';
-      const released = await tx`INSERT INTO score_releases (builder_id, day) VALUES (${id}, ${day}::date) ON CONFLICT DO NOTHING RETURNING day`;
+      // A v2 day is released only as the reviewed pending score of that day (the release names it);
+      // nothing pending, or a pending score that changed, was never what the owner saw: refused.
+      if (h.formula === 'v2' && (!pending || pending.day !== day || pending.score !== h.score)) return 'stale';
+      const released = h.formula === 'v2'
+        ? await releaseV2(tx, id, day, h.score)
+        : await tx`INSERT INTO score_releases (builder_id, day) VALUES (${id}, ${day}::date) ON CONFLICT DO NOTHING RETURNING day`;
       if (released.length === 0) return 'none';
       // The reviewed pending score becomes the public live score.
-      if (h.formula === 'v2' && pending)
+      if (h.formula === 'v2')
         await tx`
           UPDATE builder_live SET score = (pending->>'score')::smallint, parts = pending->'parts', ranked = (pending->>'ranked')::boolean,
             shipped = (pending->>'shipped')::int, people = (pending->>'people')::int, formula = pending->>'formula',
@@ -608,8 +620,7 @@ export async function scoresPost(request: Request, deps: { limit?: (ip: string) 
     if (outcome === 'released') {
       await sql()`
         UPDATE builder_profiles SET updated_at = now(), held = EXISTS (
-          SELECT 1 FROM builder_scores s WHERE s.builder_id = ${id} AND s.held AND s.day > ${day}::date
-            AND NOT EXISTS (SELECT 1 FROM score_releases x WHERE x.builder_id = s.builder_id AND x.day = s.day))
+          SELECT 1 FROM builder_scores s WHERE s.builder_id = ${id} AND s.held AND s.day > ${day}::date AND NOT ${publicRow()})
         WHERE builder_id = ${id}`;
     }
   }
