@@ -26,7 +26,8 @@ import type { FrozenTerms } from '../lib/earnkit/payout';
 
 /**
  * Admin for EarnKit's own campaigns (golive, and the read-only rank|payout|veto-link <slug>: the
- * cron scores and pays them) and for sponsor campaigns (fallback|refund|sync <ref>; local use).
+ * cron scores and pays them), the owner's review links (bonus-link <round>; v2.12 scores-link) and
+ * for sponsor campaigns (fallback|refund|sync <ref>; local use).
  * `pnpm campaign --help` lists every command (lib/earnkit/cli.ts USAGE). Sponsor signing keys
  * (OPERATOR_PRIVATE_KEY, GUARDIAN_PRIVATE_KEY) live only in the local shell, never on the server. Every error ends as one
  * readable line and exit code 1.
@@ -45,7 +46,7 @@ function fail(message: string): never {
   process.exit(1);
 }
 
-const COMMANDS = ['golive', 'rank', 'payout', 'veto-link', 'bonus-link', 'fallback', 'refund', 'sync'];
+const COMMANDS = ['golive', 'rank', 'payout', 'veto-link', 'bonus-link', 'scores-link', 'fallback', 'refund', 'sync'];
 const FALLBACK = ['propose', 'execute', 'veto'];
 if (!command || ['help', '--help', '-h'].includes(command)) {
   console.log(USAGE);
@@ -63,6 +64,15 @@ if (command === 'payout' && (process.argv.includes('--execute') || process.argv.
   const { sponsorCommandBlock } = await import('../lib/earnkit/sponsor-cli');
   const blocked = sponsorCommandBlock(command);
   if (blocked) fail(blocked);
+}
+// v2.12: the builder score review page's link (/admin/scores: holds and X handle conflicts; its own
+// key, no slug and no database needed).
+if (command === 'scores-link') {
+  const { scoresAdminLink } = await import('../lib/earnkit/builder-score');
+  const link = scoresAdminLink(process.env.EARNKIT_URL ?? 'https://earnkit.com');
+  if (!link) fail('Set ADMIN_VETO_SECRET in your local shell (the same value as on Railway, 32+ characters).');
+  console.log(link);
+  process.exit(0);
 }
 if (!slug && command !== 'sync')
   fail(

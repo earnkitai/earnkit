@@ -32,6 +32,21 @@ infra/host-worker/              v2.9 C12/C14 (Task 7): Cloudflare Worker for <sl
                                and end page, 410; G17 301 /dir to /dir/; Cache API: state 60 s,
                                files 240 s, 404/301 60 s; HOST_HEADERS on every response)
   src/index.ts                 fetch wrapper: handle(req, env, caches.default, ctx.waitUntil)
+archive/                       v2.12 spec 9 (R18): archived features. The app never imports from here. Each
+                               folder: MANIFEST.txt (original repo paths), files/<original path> (the moved
+                               files), README.md (what it did, its flag, restore), TABLES.md (its tables, kept
+                               with COMMENT 'archived v2.12'). apps/frontend/scripts/archive-restore.mts
+                               <feature> moves the files back (git mv).
+  sponsor-campaigns/           EARNKIT_SPONSOR_CAMPAIGNS: the sponsor_campaign tool (mcp-sponsor.ts,
+                               tools-sponsor.ts snippets), sponsor.ts(+test), sponsor-text.ts, /fund, /award,
+                               /api/sponsor/[ref]/check, app/components/{wallet.ts,WalletGate.tsx},
+                               scripts/sponsor-e2e.mts. contracts/ untouched; read-side modules stay live
+  starters/                    EARNKIT_STARTER_REGISTRY: programs-starters.ts(+test) (build_help: KITS,
+                               AGENT_SERVICE_STARTER, CAMPAIGN_STARTER; the starters table's writes/reads)
+  tool-aliases/                EARNKIT_TOOL_ALIASES: README + MANIFEST only; aliases.ts moves on or after
+                               2026-11-09 (scripted in the README)
+  program-leaderboards/        EARNKIT_PROGRAM_LEADERBOARDS: README + MANIFEST only; /campaigns/[slug] and
+                               campaign-page-text.ts move at go-live, once EARNKIT_BUILDER_SCORE is on for good
 programs/                      program files (+ README: how Claude Code adds programs/starters)
   programs/outcomes/           v2.8 Part G, Ruling 30: announced results, <program-id>.json (OutcomeFile;
                                README has the format); written by the weekly routine, validated by
@@ -107,10 +122,17 @@ apps/frontend/
                                v2.10 item 5: one footer line with the token terms links (TOKEN_TERMS).
                                v2.11 T12: a footer link to /terms#what-earnkit-records (RECORDS_HREF).
   app/terms/page.tsx           v2.9 F22 (Task 11): the one legal page, metadata title "Terms", canonical
-                               https://earnkit.com/terms; a section nav (v2.11 T12: + What EarnKit records), then PolicySection (#policy),
+                               https://earnkit.com/terms; a section nav (v2.11 T12: + What EarnKit records; v2.12 T15: + Builder
+                               profiles), then PolicySection (#policy), ProfilesSection (#builder-profiles, v2.12),
                                RiskSection (#risk-disclosure), SponsorTermsSection (#sponsor-terms), Footer.
                                /policy, /risk-disclosure, /sponsor-terms 301 here (next.config.ts
                                LEGAL_REDIRECTS, statusCode 301, never permanent: true = 308)
+  app/terms/sections/ProfilesSection.tsx  v2.12 T15 (spec 8): /terms#builder-profiles, a Panel laid out as
+                               "What EarnKit records" with policy.ts PROFILES_POINTS as a list (public sources
+                               only plus what the person links; profiles and the leaderboard are public; only
+                               verified use counts; say hide, hidden still counts in ranks; never posts, X only as
+                               GitHub lists it; may transfer in a merger or acquisition; removal by email).
+                               Needs the owner's lawyer review before EARNKIT_BUILDER_SCORE goes on
   app/terms/sections/RiskSection.tsx  Tokenfi Inc.'s risk disclosure (was app/risk-disclosure/page.tsx),
                                text unchanged, restyled onto the site's panel and ek tokens
   app/terms/sections/SponsorTermsSection.tsx  sponsor terms (was app/sponsor-terms/page.tsx; the fund
@@ -129,6 +151,27 @@ apps/frontend/
                                leaderboardFilters/boardHref; one query (leaderboardData) cached per filter set
                                10 min, tagged PROFILE_TAG (hide/show/X change expire it). Hidden excluded but
                                counted; held at the last unheld score; week = bounded 7-day change.
+  app/b/[slug]/page.tsx        v2.12 T10 (spec 7): the public profile, ISR 600 s; 404 unless
+                               EARNKIT_BUILDER_SCORE=on, hidden or no profile; mixed case and old slugs 308
+                               (permanentRedirect, R15); generateMetadata points og:image at the card
+  app/b/[slug]/ProfileView.tsx  pure render (markup-tested in profile-pages.test.ts): ScoreRing, "Top N% of
+                               builders", 7-day change, three stats in words, project cards with sources, one
+                               verified-from line, 90-day sparkline, the neutral stricter note; empty profile:
+                               EMPTY_LINE; the name is X, else GitHub login, else "Builder", never a wallet
+  app/b/[slug]/ScoreRing.tsx   the orange-to-purple ring (SCORE_COLORS: ek-score-orange #FF7A1A, ek-score-purple
+                               #9B6BFF, both 4.5:1+ on the navy panel, R17)
+  app/b/[slug]/profile-load.ts  cachedProfile: unstable_cache over profile-data.ts profileData, 600 s, tag PROFILE_TAG
+  app/b/[slug]/card.png/route.tsx  v2.12 T11 (R16: .tsx for JSX): next/og 1200x630 share card (share.ts
+                               cardModel: ring, Top N%, top outcome in words, the name; never a chain); checks the
+                               live row (hidden: no-store 404); CARD_CACHE max-age=0 s-maxage=60
+  app/b/[slug]/share/route.ts  v2.12 T11: records card_shared (once per person per day) and 302s to the X intent
+                               built from the public profile (no open redirect); EarnKit never posts
+  app/admin/scores/page.tsx    v2.12 T6 (spec 5): the owner's review of held scores (noindex, ?key= =
+                               builder-score.ts scoresAdminKey, link from `pnpm campaign scores-link`; array key
+                               404; veto rate limit): each held day's parts and top outcome beside the public
+                               score, Release; X handle conflicts with Clear X handle
+  app/api/admin/scores/route.ts  v2.12 T6: POST -> builder-score.ts scoresPost (release a held day as a
+                               score_releases row, or action=clear_x); wrong key 404; 303 back to the page
   app/bonus/[round]/{page.tsx,BoardView.tsx}  v2.5 Task 9: the public builder bonus leaderboard
                                (bonus-board.ts data; BoardView is pure and markup-tested; Ext links
                                only shownUrl https forms, tx links only 32-byte hashes); v2.6
@@ -163,7 +206,8 @@ apps/frontend/
   app/admin/veto/[slug]/page.tsx  v2.4: the owner's review (noindex, ?key= required, rate limited):
                                live balance, pause note, ranked entries with evidence, a Remove
                                form per entry
-  app/fund/[ref]/{page.tsx,FundClient.tsx}   sponsor deposit page (noindex; sponsor label): shows pool/prize/fee, sends
+  app/fund/[ref]/{page.tsx,FundClient.tsx}   ARCHIVED v2.12 (archive/sponsor-campaigns/files/, as are /award, the
+                               check route, wallet.ts and WalletGate.tsx below; not routed). Was: sponsor deposit page (noindex; sponsor label): shows pool/prize/fee, sends
                                approve + createCampaign from the bound sponsor wallet only (one
                                signature when the wallet supports EIP-5792 atomic batching), checks
                                the chain on load and polls /check after sending (the open page
@@ -362,7 +406,7 @@ apps/frontend/
                                (zod), cleanProject
                                (campaign entries), quoted() (sponsor names/titles in EarnKit's
                                sentences), SAFETY_LINES (server instructions + tool descriptions)
-    sponsor-text.ts            client-safe sponsor texts (DEADLINE_PASSED, DRAFT_EXPIRED, the fixed
+    sponsor-text.ts            ARCHIVED v2.12 (archive/sponsor-campaigns/files/). Was: client-safe sponsor texts (DEADLINE_PASSED, DRAFT_EXPIRED, the fixed
                                FUND_WARNING / AWARD_PROVENANCE scam copy, awardWarnings: red flags
                                for a winner that is the sponsor or a repeated wallet) and the
                                10-minute deadline margin (used by sponsor.ts and FundClient)
@@ -475,7 +519,12 @@ apps/frontend/
                                authorize, code -> token (+ shared, limitKey), metadata, clientKeyOf;
                                publicOrigin = EARNKIT_URL (production throws without it; no Host
                                fallback)
-    mcp.ts(+test)              v2.10 item 4: registers find, prepare, confirm, tell (+ sponsor_campaign with escrow);
+    mcp.ts(+test)              v2.12: registers find, prepare, confirm, tell, plus score only with
+                               EARNKIT_BUILDER_SCORE=on (find gains local_git, tell gains profile, x_handle, card,
+                               and FIND_DESCRIPTION_SCORE / TELL_DESCRIPTION_SCORE and the instructions change, all
+                               only with the flag on; off is v2.11 byte for byte); sponsor_campaign is archived
+                               (archive/sponsor-campaigns) and never registered.
+                               v2.10 item 4: registers find, prepare, confirm, tell (+ sponsor_campaign with escrow, until v2.12);
                                v2.10 item 13: prepare's deploy schema (chain, bytecode, abi, constructor_args, owner_wallet); readOnlyHint false.
                                v2.10.3: the deploy field is listed only while deployEnabled() and DEPLOY_CHAINS names a chain
                                (v2.11: the build field and toolDescriptions' buildOn the same).
@@ -491,7 +540,7 @@ apps/frontend/
                                v2.8 Task 5: createMcpServer(ctx, { campaignOpen }) and
                                toolDescriptions(campaignOpen) (campaign sentences only while one is open).
                                MCP server: the 5 builder tools, plus sponsor_campaign only when the
-                               escrow is configured; descriptions and schemas; v2.6:
+                               escrow is configured (both superseded: see v2.10 item 4 and v2.12 above); descriptions and schemas; v2.6:
                                OWNERSHIP_FOR_TOKEN (the agent writes and pushes `token: <code>`
                                itself), record_submission's builder_submitted (ask "Did you submit on
                                <site>?" first), local_repos[].url (Ruling 13), builder text never
@@ -729,7 +778,11 @@ apps/frontend/
                                only to the wallet its confirm line showed; another is shown first, BUILD_WALLET_NOTE;
                                owner ruling on M4); M7 a kept wallet is remembered; BUILD_OWNER_NOTE
                                (a fresh push and github_user).
-                               v2.10 item 4: `tools` = find, prepare, confirm, tell, sponsor_campaign, thin dispatchers
+                               v2.12: `tools` = find, prepare, confirm, tell, score (score-tool.ts scoreReply); find's
+                               line 2 (score-tool.ts secondLine), the first find's profile, consent line and discovery
+                               queue, tell's profile/x_handle/card, the token pitch gate (pitchAllowed) and odds from
+                               verifiedProject, all only with EARNKIT_BUILDER_SCORE=on; sponsor_campaign archived.
+                               v2.10 item 4: `tools` = find, prepare, confirm, tell, sponsor_campaign (until v2.12), thin dispatchers
                                over `handlers` (the v2.9 functions: list_programs ... launch_token); FindInput,
                                PrepareInput, ConfirmInput (R15), TellToolInput (R16), markSubmitted (tell.submitted),
                                eligibilityLine; launchFromOffer deleted (launch_token with offer throws).
@@ -767,7 +820,7 @@ apps/frontend/
                                v2.7: prepare_submission checks readiness first (Ruling 15): not ready → "Before you
                                submit: …" (notReadyLine/todoOf), no token block, shown_wallet or ticker check; ready → the
                                token block (tokenProposalBlock) and the Token row; list_programs closes on bonusClose;
-                               includes sponsor_campaign (create/status/award). ToolContext.tokenDeps
+                               included sponsor_campaign (create/status/award; archived v2.12). ToolContext.tokenDeps
                                (gate/check/deploy fakes) is test and e2e injection only; the MCP
                                route never sets it. ToolContext.roundPoolsWei overrides the builder
                                bonus pools read (default bonus-rounds.ts roundPoolsWei; null = the
@@ -1137,6 +1190,9 @@ apps/frontend/
                                token-pending:<id> for a launch claim pending > 10 min, CronDeps.stuckLaunches), cronPost
                                v2.11 Task 11: the usage step after deployerGas (CronDeps.usage; `usage_checks` in the
                                result; never needs_owner)
+                               v2.12 T6: last, with EARNKIT_BUILDER_SCORE=on, builder-score.ts runScoreSteps
+                               (CronDeps.builderScore: reader, login, only) inside scoreSliceEnd (40% of what
+                               remains); `builder_score` in the result; needs_owner score-hold:<id> and X conflicts
     bonus-rounds.ts(+test)     roundFor (windowed rounds keyed by start day, windowKey, Ruling 21;
                                v2.10 item 1: roundPools (pool and token count in one grouped read); roundPoolsWei maps it (wei > 0).
                                UTC-month rounds), bookingFor (round or Safe, with the reason; v2.6:
@@ -1192,7 +1248,9 @@ apps/frontend/
     policy.ts                  v2.5 Task 9: FEE_SPLIT_BPS (a copy of tokens.fun's split), SAFE_ADDRESS, FEE_ROWS / SIGNAL_ROWS (traction
                                WEIGHTS) / PLACE_ROWS (BONUS_SPLIT_BPS) for /policy; v2.9 re-exports
                                MINI_FEE_RECIPIENT and GAS_WALLET_MIN_WEI_DEFAULT; v2.11 T12: RECORDS_* and
-                               RECORD_STEPS (the /terms "What EarnKit records" copy, checked against the writes)
+                               RECORD_STEPS (the /terms "What EarnKit records" copy, checked against the writes);
+                               v2.12 T15: PROFILES_TITLE, PROFILES_ANCHOR ('builder-profiles'), PROFILES_POINTS
+                               (the /terms#builder-profiles copy; lawyer review before go-live)
     policy-constants.ts        v2.9 D16, D17: MINI_FEE_RECIPIENT (Ruling 17, confirmed read-only),
                                GAS_WALLET_MIN_WEI_DEFAULT, EARNKIT_SPLIT_BPS (slot order); a leaf so bonus-ledger.ts can import them
                                (policy.ts imports bonus-payout/traction, which import bonus-ledger)
@@ -1299,6 +1357,58 @@ apps/frontend/
                                bonus-db-lock.ts (test-only advisory lock for the bonus test files),
                                program-file.ts (committedProgram: a programs/*.json without its
                                id-bound logo, for tests that clone files under test ids)
+    builder-score-flag.ts      v2.12: BUILDER_SCORE_FLAG, builderScoreEnabled (exactly "on"), archiveFlag(name)
+                               for SPONSOR_CAMPAIGNS, STARTER_REGISTRY, PROGRAM_LEADERBOARDS, TOOL_ALIASES;
+                               import-free
+    score-calibration.ts       v2.12 T2: Calibration, CALIBRATIONS ('v1-launch': users 500, money $5,000,
+                               13 weeks, 60 days, since 2026-10-12), LIVE_CALIBRATION, calibration(id); pure
+    score.ts(+test)            v2.12 T2: formula v1 (FORMULA, MAX 45/20/15/10/10), ProjectInput, Parts,
+                               Scored, computeScore, percentileOf, topPercent; pure; golden farmed-vs-honest
+    anti-farming.ts(+test)     v2.12 T3 (spec 5): RULES, countProject (self-exclusion, one per account,
+                               10% fee cap, spread, fresh accounts, rings, cluster cap), moneyOf, ringWeights
+                               (ring + ringOwner + clusterCap); pure
+    discovery-clues.ts(+test)  v2.12 T4: pure clue parsers (cnameSite, vercelSites, wranglerSites, pagesSite,
+                               npmPackage, pypiPackage, foundryBroadcast, hardhatDeployment, githubProfileClues,
+                               githubRemote, ownPagesSite), CLUE_PATHS, CLUE_FILE_MAX 64 KB, CLUE_JSON_MAX 1 MB,
+                               profileCode / profileCodesIn (the earnkit.txt `profile:` line, HMAC under
+                               EARNKIT_AUTH_SECRET)
+    discovery.ts(+test)        v2.12 T4, T6: localGitInput, noteLocalGit (remotes and live_urls proposed,
+                               agent), enqueueDiscovery, enqueueClue (wallet, signin; flag on, not shared),
+                               LoginOf, provenLogin (R4), proofLineCheck, discover (DISCOVER_PER_RUN 20,
+                               DISCOVER_CAPS; reads first, verdicts after), publicHttpsOrigin, homepageOrigin
+    source-readers.ts(+test)   v2.12 T5: ReaderDeps, readRepo, readSite, probeSite, readNpm, readPypi,
+                               readContract (Base Blockscout, Arc logs), readContractOrigin, readMergedPrs,
+                               budgetedGh (GH_RATE_FLOOR), GitHubBudgetStop, soft, READ_CAPS,
+                               defaultReaderDeps (one per run)
+    sources.ts(+test)          v2.12 T5: Proof, repoOwned, packageOwned, siteOwnedByText, contractOwnership
+                               (fail strict), contractConflicts, proposeSource, verifySource, proveLinkedSite,
+                               rejectSource, dueSources, previousSignals, readSources (READS_PER_RUN 200)
+    builder-score.ts(+test)    v2.12 T6, T8, T9: SCORE_SLICE 0.4, scoreSliceEnd, LATE_HOUR_UTC 22, HOLD,
+                               buildInputs, scoreBuilders (one row per person per day; holds), percentiles
+                               (builder_ranks, one pass, hidden included), profileEmpty, emptyReasonOf,
+                               heldPeople, runScoreSteps, publicScore/publicRow, verifiedProject (odds),
+                               pitchAllowed (TOKEN_PITCH_MIN_SCORE), siteShowsUse, scoresAdminKey,
+                               scoresAdminLink (pnpm campaign scores-link), scoresPost
+    profiles.ts(+test)         v2.12 T7: PROFILE_URL, CONSENT_LINE, slugs (baseSlug, nextFreeSlug,
+                               randomSlug, walletSlug; never reused), profileOf, resolveSlug, ensureProfile,
+                               setFallback, setXHandle (only the proven GitHub profile's handle, R5),
+                               setHidden, clearXHandle, xHandleConflicts, mergeProfiles (R3)
+    profile-cache.ts           v2.12 T10: PROFILE_TAG, profileChanged() (revalidateTag; no-op outside Next)
+    profile-data.ts(+test)     v2.12 T10, T12: profileData (public facts only), profileName, statsOf,
+                               stricterNote, weekChange, money, SCORE_COLORS, EMPTY_LINE; leaderboardFilters,
+                               boardHref, boardOutcome, leaderboardData (PAGE_SIZE 50), programTitle
+    share.ts(+test)            v2.12 T11: cardModel, CARD_CACHE, cardOffer, findOfferLine, xAsk, intentUrl,
+                               offerCard (once; never when the reply asks), cardYes
+    score-tool.ts(+test)       v2.12 T8, T9: the score reply (scoreReply, scoreLines, nextAction,
+                               movedLine, programLine, FILL_LINES, SCORE_NOTES, SCORE_SHARED), find's line 2
+                               (youLine, secondLine)
+    scoring-lock.ts            v2.12 T13 (R19): withScoringLock, moved out of the archived sponsor.ts
+    sponsor-cli.ts             v2.12 T13: sponsorCommandBlock (campaign.mts refund/fallback refuse with the
+                               sponsor flag off)
+    yes-no.ts                  v2.12 (R23): yesNo, moved out of aliases.ts (tools.ts re-exports it)
+    v212-journey.test.ts       v2.12 T15: the end-to-end journey on its own database (see the
+                               architecture guide's v2.12 section); v212-schema.test.ts T1's schema checks;
+                               archive.test.ts T13/T14's flags-off checks; card-route.test.ts T11
     veto.ts(+test)             vetoKey, vetoLink, vetoEntry (FOR SHARE on the run), vetoPost, VETO_ERRORS;
                                v2.5: bonusVetoKey, bonusReviewLink, vetoBonusEntry (bonus_vetoes)
     escrow.ts                  read-only escrow client: chain/token config (ESCROW_*, validated by
@@ -1322,7 +1432,8 @@ apps/frontend/
                                onchain award back to entries (matchAwardToPlan, mapOffPlanAward),
                                and the sponsor's replies (createReply/statusReply/awardReply:
                                show_to_sponsor + next_step)
-    sponsor.ts(+test)          DB + chain: createSponsorDraft (binds sponsor_wallet; replaces: retires
+    sponsor.ts(+test)          ARCHIVED v2.12 (archive/sponsor-campaigns/files/; withScoringLock moved to
+                               scoring-lock.ts). Was: DB + chain: createSponsorDraft (binds sponsor_wallet; replaces: retires
                                an unfunded draft as 'replaced' in the same transaction; rate limit
                                charged via a callback only after validation), loadCampaign
                                (lazy draft expiry: 7 days unfunded, or under 10 minutes to the
@@ -1372,6 +1483,18 @@ apps/frontend/
                                host_upload_tokens.basis and host_deploys.basis (signin | app | proof_line);
                                contract_deploys.owner_wallet, block, code_differs, line_owner; indexes
                                contract_deploys_repo_day and _wallet_day, submissions_project
+                               v2.12 (all additive): builder_profiles (builder_id PK = group root; x_handle,
+                               fallback_handle, github_login (unique lower), slug (unique), hidden, held,
+                               twitter_prefill, card_offered_at, x_asked_at, first_find_at, empty_checked_at,
+                               consent_shown_at, created_at, updated_at), profile_slug_history (old_slug PK,
+                               builder_id, moved_at), builder_sources (kind, ref, project_key, proof, state,
+                               reject_reason, proposed_by, last_read_day, deployer, verified_at; unique
+                               builder_id+kind+ref; index builder_sources_due), source_readings and
+                               builder_scores (append-only via v212_append_only(); builder_scores.projects,
+                               held, parts, top_outcome, formula, calibration), score_releases, builder_ranks,
+                               discovery_queue, x_handle_conflicts; programs.agent_completable (default true);
+                               builder_events.type gains the 14 v2.12 types (incl. x_cleared); COMMENT
+                               'archived v2.12' on sponsor_campaigns, sponsor_verifications, chain_checks, starters
   scripts/                     db-migrate.mts, programs-sync.mts (load .env.local); v2.7: programs-sync
                                writes the guide columns; --check (pnpm programs:check) also checks each logo file
                                (logo-check.ts) and the required items' todo; v2.8 Task 12: also validates
@@ -1386,7 +1509,13 @@ apps/frontend/
                                events-redact.mts: v2.11 T12, the owner's redaction of one builder's login
                                and wallet in builder_events (--login/--wallet, dry run unless --apply);
                                lists the main other tables, keys and repo columns holding them, never changes them (lib/earnkit/
-                               events-redact.test.ts runs it as a child process)
+                               events-redact.test.ts runs it as a child process); v2.12: also the profile's login,
+                               X handle, fallback, slug and slug history, sources' ref/project_key/deployer
+                               v212-metric.mts: v2.12 T15, the empty-profile rate for new installs per UTC day
+                               (`<day>: N new, E empty (P%)`; --as-of, --days 14), shown, never a target
+                               (owner-run, one READ ONLY transaction; v212-journey.test.ts 15.5 runs it)
+                               archive-restore.mts: v2.12 T13, `<feature>` moves archive/<feature>/files back
+                               (git mv, refuses if a target exists) and names the feature's flag
     db-check.mts                v2.4: applies main's schema + rows, then db/schema.sql twice, on a
                                 local Postgres only; checks backfills, defaults, opened_at via sync,
                                 the v2.5 bonus tables' constraints, and (v2.6) the migration over real
@@ -1428,13 +1557,15 @@ apps/frontend/
                                 and claim on the FeeLocker simulated with eth_call; skips without
                                 BASE_RPC_URL or network; BONUS_FORK_TX pins the receipt;
                                 `pnpm bonus:fork-check`
-    campaign.mts                golive|rank|payout (dry run)|veto-link (EarnKit's own campaigns) and
+    campaign.mts                v2.12: scores-link (the /admin/scores link; ADMIN_VETO_SECRET, no database);
+                                refund/fallback refuse while EARNKIT_SPONSOR_CAMPAIGNS is off (sponsor-cli.ts).
+                                golive|rank|payout (dry run)|veto-link (EarnKit's own campaigns) and
                                 fallback propose|execute|veto, refund, sync [<ref>] (sponsor
                                 campaigns; local only; sync reads the chain for one ref or sweeps
                                 draft/expired/live; refund --escrow refunds a stray escrow);
                                 errors are one line + exit 1; propose refuses before endsAt + 7
                                 days onchain, refund names who gets the money
-    sponsor-e2e.mts             full sponsor flow (wallet-bound draft -> fund -> status finds it ->
+    sponsor-e2e.mts             ARCHIVED v2.12 (archive/sponsor-campaigns/files/; `pnpm sponsor:e2e` removed). Was: full sponsor flow (wallet-bound draft -> fund -> status finds it ->
                                 entries -> award read onchain; front-run and wrong-amount deposits,
                                 fallback propose/re-propose/execute and propose/veto, the operator
                                 CLI, entry statuses, sponsor replies without hashes, five-answer
@@ -1447,12 +1578,13 @@ required submission item), `pnpm test` (v2.9 T12: runs `pnpm host:typecheck` fir
 `token:e2e`, `campaign:e2e` and `sponsor:e2e` preload `lib/earnkit/fixtures/test-guard.ts`, which
 clears the tokens.fun, Resend, R2 and GitHub OAuth keys and makes `fetch` throw for any host but
 localhost, 127.0.0.1, ::1 and `BONUS_ANVIL_URL`; `LINK_CHECK=1` keeps the real fetch),
-`pnpm campaign --help`, `pnpm campaign golive|rank|payout|veto-link <slug>` (EarnKit's own
+`pnpm campaign --help`, `pnpm campaign scores-link` (v2.12: the owner's /admin/scores link), `pnpm campaign golive|rank|payout|veto-link <slug>` (EarnKit's own
 campaigns; payout is a dry run only, the cron pays), `pnpm campaign fallback propose|execute|veto <ref>`, `refund <ref>` (sponsor
 campaigns; dry run without `--execute`; `OPERATOR_PRIVATE_KEY`, the veto `GUARDIAN_PRIVATE_KEY`;
 `refund <ref> --escrow <address>` refunds a stray escrow for that ref), `pnpm campaign sync [<ref>]`
-(reads the chain and updates the database: one campaign, or every draft/expired/live one), `pnpm sponsor:e2e` (full sponsor flow on a local
-anvil + Postgres, see `contracts/README.md` and `sponsor-e2e.mts`'s header for the exact env),
+(reads the chain and updates the database: one campaign, or every draft/expired/live one; v2.12: refund and
+fallback refuse while EARNKIT_SPONSOR_CAMPAIGNS is off), `pnpm sponsor:e2e` (archived in v2.12 with the sponsor
+flow; restore with `archive-restore.mts sponsor-campaigns`),
 `pnpm token:e2e` (v2.3 token flows against a local Postgres and a mock tokens.fun; env in
 `token-e2e.mts`'s header), `pnpm campaign:e2e` and `pnpm campaign:fork-check` (v2.4; env in each
 script's header), `pnpm bonus:fork-check` (v2.5; read-only; skips without `BASE_RPC_URL`). The v2.5

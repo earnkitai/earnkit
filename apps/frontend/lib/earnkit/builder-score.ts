@@ -438,6 +438,11 @@ export async function runScoreSteps(now: Date, sliceEnd: number, deps: ScoreCron
 
 // 'admin:' keeps this key apart from every campaign veto key (vetoKey(slug)); bonus keys use 'bonus:'.
 export const scoresAdminKey = (secret = process.env.ADMIN_VETO_SECRET) => vetoKey('admin:scores', secret);
+/** The owner's /admin/scores link (pnpm campaign scores-link prints it); never sent anywhere by EarnKit. */
+export const scoresAdminLink = (origin: string, secret = process.env.ADMIN_VETO_SECRET) => {
+  const key = scoresAdminKey(secret);
+  return key ? `${origin.replace(/\/$/, '')}/admin/scores?key=${key}` : null;
+};
 
 /** A real calendar day 'YYYY-MM-DD'. Pure. */
 const isDay = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`)) && new Date(`${s}T00:00:00Z`).toISOString().slice(0, 10) === s;

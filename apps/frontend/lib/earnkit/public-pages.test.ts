@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import PolicySection from '../../app/terms/sections/PolicySection';
 import TermsPage, { metadata as termsMetadata } from '../../app/terms/page';
 import nextConfig from '../../next.config';
-import { CONTACT_EMAIL, FEE_SPLIT_BPS, MINI_LINE, RECORDS_ANCHOR, RECORDS_HREF, RECORD_STEPS } from './policy';
+import { CONTACT_EMAIL, FEE_SPLIT_BPS, MINI_LINE, PROFILES_POINTS, RECORDS_ANCHOR, RECORDS_HREF, RECORD_STEPS } from './policy';
 import BoardView from '../../app/bonus/[round]/BoardView';
 import Footer from '../../app/components/common/Footer';
 import type { Board } from './bonus-board';
@@ -863,6 +863,23 @@ test('12.1 v2.11 /terms "What EarnKit records": login and how it was checked, wa
   // Plain words: no em or en dash, no emojis, never "coin" or "vault".
   assert.doesNotMatch(section, /[\u2013\u2014]|&mdash;|&ndash;/);
   assert.doesNotMatch(t, /\p{Emoji_Presentation}|\bcoin\b|vault/iu);
+});
+
+test('15.1 /terms#builder-profiles: every point, the nav link, no em dash', () => {
+  const h = html(React.createElement(TermsPage));
+  assert.match(h, /id="builder-profiles"/);
+  assert.match(h, /href="#builder-profiles"/);
+  const t = text(h);
+  for (const p of PROFILES_POINTS) assert.ok(t.includes(p), p);
+  assert.match(t, /merged or acquired/);
+  assert.match(t, /Say hide to your agent/);
+  assert.match(t, /still counts when others' ranks are worked out/);
+  assert.ok(t.includes(CONTACT_EMAIL));
+  // The nav lists it right after "What EarnKit records", and the section follows the policy section.
+  assert.ok(h.indexOf('href="#builder-profiles"') > h.indexOf(`href="#${RECORDS_ANCHOR}"`));
+  assert.ok(h.indexOf('id="builder-profiles"') > h.indexOf(`id="${RECORDS_ANCHOR}"`));
+  assert.ok(h.indexOf('id="builder-profiles"') < h.indexOf('id="risk-disclosure"'));
+  assert.doesNotMatch(h, /—/);
 });
 
 test('12.2 v2.11 /p/<id> links /terms#what-earnkit-records, unconditionally, in the footer', () => {

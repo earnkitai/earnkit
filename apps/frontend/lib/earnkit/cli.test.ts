@@ -98,6 +98,28 @@ test('USAGE lists every command', () => {
   assert.doesNotMatch(USAGE, /--tx|\n  award /);
 });
 
+test('15.7 v2.12: scores-link prints the owner\'s /admin/scores link (its own key), and only with ADMIN_VETO_SECRET', async () => {
+  const { scoresAdminKey, scoresAdminLink } = await import('./builder-score');
+  const secret = 'k'.repeat(40);
+  assert.equal(scoresAdminLink('https://earnkit.com/', secret), `https://earnkit.com/admin/scores?key=${scoresAdminKey(secret)}`);
+  assert.equal(scoresAdminLink('https://earnkit.com', 'short'), null);
+  assert.match(USAGE, /\n  scores-link +print/);
+  const { spawnSync } = await import('node:child_process');
+  const { join } = await import('node:path');
+  const run = (env: Record<string, string | undefined>) =>
+    spawnSync(process.execPath, ['--import', 'tsx', join(import.meta.dirname, '../../scripts/campaign.mts'), 'scores-link'], {
+      cwd: join(import.meta.dirname, '../../../..'),
+      env: { ...process.env, DATABASE_URL: '', EARNKIT_URL: 'https://earnkit.com', ...env },
+      encoding: 'utf8',
+    });
+  const ok = run({ ADMIN_VETO_SECRET: secret });
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.equal(ok.stdout.trim(), `https://earnkit.com/admin/scores?key=${scoresAdminKey(secret)}`);
+  const no = run({ ADMIN_VETO_SECRET: '' });
+  assert.equal(no.status, 1);
+  assert.match(no.stderr, /ADMIN_VETO_SECRET/);
+});
+
 test('executeProblem: refuses before the 72-hour delay with the execute time', () => {
   const at = BigInt(Date.parse('2026-10-16T06:51:00Z') / 1000);
   assert.equal(

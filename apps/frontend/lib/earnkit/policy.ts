@@ -107,3 +107,23 @@ export const RECORDS_REMOVAL_AFTER = [
   'The steps, repos and proofs stay, and a repo name or hosted link can still show your login.',
   'Email to ask about removing them from your other EarnKit records.',
 ];
+
+/**
+ * v2.12 spec 8: /terms#builder-profiles, in plain words. Owner action before EARNKIT_BUILDER_SCORE
+ * goes on: the owner's lawyer reviews this section (spec open decision 1). Each point matches the
+ * code: discovery and the readers read only public sources and what the agent links (discovery.ts,
+ * source-readers.ts); /b/<slug> and /leaderboard are public; only verified outcomes score (score.ts);
+ * hide is tell's profile: 'hide' and a hidden person still counts in builder_ranks (builder-score.ts
+ * percentiles); the X handle shows only when it equals the verified GitHub profile's (profiles.ts).
+ */
+export const PROFILES_TITLE = 'Builder profiles';
+export const PROFILES_ANCHOR = 'builder-profiles';
+export const PROFILES_POINTS: readonly string[] = [
+  'EarnKit reads only public sources (your public repos, sites, packages and contracts) and what you link to it, such as an earnkit.txt line.',
+  'Your profile page on earnkit.com and the leaderboard are public.',
+  'Your score counts only things people verifiably used: never commits, deploys or token spend on their own.',
+  "Say hide to your agent at any time. A hidden profile is not shown or listed, and still counts when others' ranks are worked out.",
+  'EarnKit never posts for you. Your X handle shows only after you confirm it, and only the one your GitHub profile lists.',
+  'If EarnKit is merged or acquired, this data may transfer to the successor.',
+  `To remove your profile and its data, email ${CONTACT_EMAIL}.`,
+];
