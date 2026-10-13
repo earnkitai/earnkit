@@ -31,15 +31,25 @@ export function programOfRound(key: string): string | null {
 }
 
 /**
+ * v2.12 final review (T14 ruling): the board states that stay public on /bonus/<round>: a frozen
+ * round, the 48-hour review, and the payouts (paying, paid; win alerts link there, alerts.ts). Only
+ * an open or empty round's board moves to the leaderboard. Pure.
+ */
+export const BOARD_STAYS: ReadonlySet<string> = new Set(['frozen', 'review', 'paying', 'paid']);
+export const boardStays = (state: string) => BOARD_STAYS.has(state);
+
+/**
  * v2.12 spec 9, owner rulings D1 and D5: where a program board goes, or null to render it as in
- * v2.11. Only with EARNKIT_BUILDER_SCORE=on (the leaderboard is a 404 before); never while a round
- * is in review (the 48-hour public review stays public); never once the boards are restored. Pure.
+ * v2.11. Only with EARNKIT_BUILDER_SCORE=on (the leaderboard is a 404 before); never while the round
+ * stays public (`stays`: boardStays, so the review and the payout proof stay public); never once the
+ * boards are restored. The pages send it as a temporary redirect (307, final review M2): the flag
+ * can still be turned off, and a cached 308 would strand visitors on a 404. Pure.
  */
 export function boardRedirect(
-  b: { program: string | null; inReview: boolean },
+  b: { program: string | null; stays: boolean },
   env: Record<string, string | undefined> = process.env,
 ): string | null {
-  if (!builderScoreEnabled(env) || archiveFlag('PROGRAM_LEADERBOARDS', env) || b.inReview || !b.program) return null;
+  if (!builderScoreEnabled(env) || archiveFlag('PROGRAM_LEADERBOARDS', env) || b.stays || !b.program) return null;
   return `/leaderboard?program=${encodeURIComponent(b.program)}`;
 }
 

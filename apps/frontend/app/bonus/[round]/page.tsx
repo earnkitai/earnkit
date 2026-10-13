@@ -1,6 +1,6 @@
-import { notFound, permanentRedirect } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { bonusBoard } from '@/lib/earnkit/bonus-board';
-import { boardRedirect, programOfRound, resolveRoundParam } from '@/lib/earnkit/bonus-rounds';
+import { boardRedirect, boardStays, programOfRound, resolveRoundParam } from '@/lib/earnkit/bonus-rounds';
 import BoardView from './BoardView';
 
 export const dynamic = 'force-dynamic';
@@ -16,8 +16,9 @@ export default async function BonusRoundPage({ params }: { params: Promise<{ rou
   if (round === null) notFound();
   const board = await bonusBoard(round);
   if (!board) notFound();
-  // v2.12 (D1): a round in review stays public; with the score on, any other round's board moves to the leaderboard.
-  const target = boardRedirect({ program: programOfRound(round), inReview: board.state === 'review' });
-  if (target) permanentRedirect(target);
+  // v2.12 (D1, final review): a frozen, in-review, paying or paid round stays public; with the score
+  // on, an open or empty round's board moves to the leaderboard (307: the flag can still go off).
+  const target = boardRedirect({ program: programOfRound(round), stays: boardStays(board.state) });
+  if (target) redirect(target);
   return <BoardView board={board} />;
 }
