@@ -242,12 +242,15 @@ test('15.2 fresh install to a filled profile: find with local_git, cron discover
   ]);
   const page = await profileData('lee', NOW);
   assert.ok(page && 'score' in page && page.score > 0, JSON.stringify(page));
-  assert.match(html(React.createElement(ProfileView, { data: page })), /Top \d+% of builders/);
+  // Final review: "Top N%" only for N <= 50 (the rank depends on everyone in the DB).
+  const view = html(React.createElement(ProfileView, { data: page }));
+  if (page.top_percent === null) assert.doesNotMatch(view, /Top \d+%/);
+  else assert.ok(page.top_percent <= 50 && view.includes(`Top ${page.top_percent}% of builders`));
   // The old random slug redirects to the new one.
   const [{ old }] = await sql()<{ old: string }[]>`SELECT old_slug AS old FROM profile_slug_history WHERE builder_id = ${ctx.installationId}`;
   assert.deepEqual(await profileData(old, NOW), { redirect: 'lee' });
   const s = (await tools.score({}, ctx)) as { show_to_builder: string };
-  assert.match(s.show_to_builder, /^Score \d+, top \d+%\. earnkit\.com\/b\/lee/);
+  assert.match(s.show_to_builder, /^Score \d+(, top ([1-9]|[1-4]\d|50)%)?\. earnkit\.com\/b\/lee/);
   assert.equal(s.show_to_builder.split('\n').length >= 2, true);
   // The next action: 40 outside users is part of the users bar, so more users moves it most.
   assert.ok(s.show_to_builder.split('\n').includes(MORE_USERS_LINE), s.show_to_builder);

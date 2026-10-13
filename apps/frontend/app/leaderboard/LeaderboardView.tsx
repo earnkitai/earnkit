@@ -95,7 +95,7 @@ function Row({ r, week }: { r: BoardRow; week: boolean }) {
         {week ? <Moved n={r.change_7d} /> : null}
       </td>
       <td className="col-start-3 row-start-2 text-right font-funnel-sans text-xs text-ek-blue-soft md:table-cell md:py-5 md:pr-6 md:text-sm md:text-ek-blue-light">
-        Top {r.top_percent}%
+        {r.top_percent !== null ? `Top ${r.top_percent}%` : null}
       </td>
       <td className="col-start-2 row-start-2 min-w-0 font-funnel-sans text-sm font-light text-ek-blue-soft md:table-cell md:py-5 md:pr-4">
         <span className="line-clamp-2 break-words md:line-clamp-1">{r.top_outcome}</span>

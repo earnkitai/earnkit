@@ -78,14 +78,14 @@ export async function GET(_: Request, { params }: { params: Promise<{ slug: stri
             </div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 34, color: SCORE_COLORS.from, fontWeight: 600 }}>{m.handle}</div>
-            <div style={{ fontSize: 58, fontWeight: 700, lineHeight: 1.08, marginTop: 18, letterSpacing: -1 }}>{m.top}</div>
-            <div style={{ fontSize: 36, color: '#E5EEFC', marginTop: 26, lineHeight: 1.25 }}>{m.outcome}</div>
+            {m.handle ? <div style={{ fontSize: 34, color: SCORE_COLORS.from, fontWeight: 600, marginBottom: 18 }}>{m.handle}</div> : null}
+            {m.top ? <div style={{ fontSize: 58, fontWeight: 700, lineHeight: 1.08, marginBottom: 26, letterSpacing: -1 }}>{m.top}</div> : null}
+            <div style={{ fontSize: 44, color: '#E5EEFC', lineHeight: 1.2 }}>{m.outcome}</div>
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 26, color: SOFT }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 30, color: SOFT }}>
           <div style={{ display: 'flex' }}>Verified builder score</div>
-          <div style={{ display: 'flex', color: WHITE, fontWeight: 700, fontSize: 30 }}>EarnKit</div>
+          <div style={{ display: 'flex', color: WHITE, fontWeight: 700, fontSize: 34 }}>EarnKit</div>
         </div>
       </div>
     ),

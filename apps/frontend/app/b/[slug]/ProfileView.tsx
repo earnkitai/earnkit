@@ -178,7 +178,9 @@ export default function ProfileView({ data }: { data: ProfileData | EmptyProfile
           <div className="mt-8 flex flex-col gap-8 md:mt-10 md:flex-row md:items-center md:gap-14">
             <ScoreRing score={data.score} className="h-44 w-44 md:h-56 md:w-56" />
             <div className="min-w-0 flex-1">
-              <p className="font-funnel-display text-2xl font-medium text-ek-white md:text-4xl">Top {data.top_percent}% of builders</p>
+              {data.top_percent !== null ? (
+                <p className="font-funnel-display text-2xl font-medium text-ek-white md:text-4xl">Top {data.top_percent}% of builders</p>
+              ) : null}
               <Change n={data.change_7d} />
               {data.stricter_note ? <p className="mt-3 font-funnel-sans text-xs text-ek-blue-soft">{data.stricter_note}</p> : null}
               <Sparkline values={data.spark} />

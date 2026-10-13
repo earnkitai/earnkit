@@ -8,7 +8,7 @@ import { noteLineIssued } from './github-verify';
 import { PROFILE_URL, consentOnce, ensureProfile } from './profiles';
 import { listPrograms } from './programs';
 import { CARD_OFFER_NOTE, offerCard } from './share';
-import { MAX, partDeltas, topPercent, type Parts } from './score';
+import { MAX, partDeltas, shownTop, type Parts } from './score';
 import { tokenLineFor } from './token-gate';
 
 /**
@@ -62,9 +62,15 @@ export function movedLine(d: Record<keyof Parts, number>): string | null {
   return `${s[0].toUpperCase()}${s.slice(1)}.`;
 }
 
-/** v2.12 spec 7 (R13): find's second line with a score: "You: score 41, top 22%. earnkit.com/b/lee" (no link when hidden). Pure. */
+/** ", top 22%", or nothing above TOP_SHOWN_MAX (score.ts shownTop). Pure. */
+const topPart = (percentile: number) => {
+  const n = shownTop(percentile);
+  return n === null ? '' : `, top ${n}%`;
+};
+
+/** v2.12 spec 7 (R13): find's second line with a score: "You: score 41, top 22%. earnkit.com/b/lee" (no link when hidden; no "top" above 50%). Pure. */
 export const youLine = (a: { score: number; percentile: number; slug: string; hidden?: boolean }): string =>
-  `You: score ${a.score}, top ${topPercent(a.percentile)}%.${a.hidden ? '' : ` ${PROFILE_URL(a.slug)}`}`;
+  `You: score ${a.score}${topPart(a.percentile)}.${a.hidden ? '' : ` ${PROFILE_URL(a.slug)}`}`;
 
 /**
  * v2.12 spec 7 (R13, R14): find's second line: the score line, else the step that fills an empty
@@ -94,7 +100,7 @@ export function scoreLines(a: {
   const when = a.since === 'week' ? 'this week' : 'since you last asked';
   const change = a.change === null || a.change === 0 ? '' : `, ${a.change > 0 ? 'up' : 'down'} ${Math.abs(a.change)} ${when}`;
   return [
-    `Score ${a.score}, top ${topPercent(a.percentile)}%${change}.${a.hidden ? '' : ` ${PROFILE_URL(a.slug)}`}`,
+    `Score ${a.score}${topPart(a.percentile)}${change}.${a.hidden ? '' : ` ${PROFILE_URL(a.slug)}`}`,
     a.held ? HELD_LINE : a.moved,
     // Money first (spec 7): a program that fits comes before the next step.
     a.program,

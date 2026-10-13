@@ -3,7 +3,7 @@ import { sql } from './db';
 import { shortWallet } from './entry-text';
 import { profileOf, resolveSlug } from './profiles';
 import { publicReadKey } from './repo-cache';
-import { topPercent, type Parts } from './score';
+import { shownTop, type Parts } from './score';
 import { shownUrl } from './untrusted-text';
 
 /**
@@ -24,18 +24,21 @@ export type ProjectCard = {
   entries: { program: string; outcome: 'won' | 'submitted' | 'entered' }[];
 };
 export type ProfileData = {
-  name: string; slug: string; score: number; top_percent: number; change_7d: number | null;
+  /** top_percent: N of "Top N%", null above TOP_SHOWN_MAX (score.ts shownTop: show the score only). */
+  name: string; slug: string; score: number; top_percent: number | null; change_7d: number | null;
   stats: Stat[]; projects: ProjectCard[]; sources: ProjectCard['sources']; spark: number[]; stricter_note: string | null;
 };
 /** spec 7: the public page of a profile with nothing verified. Neutral: the page is public, so the fill step stays in the agent's replies. */
 export const EMPTY_LINE = 'No verified outcomes yet.';
 export type EmptyProfile = { name: string; slug: string; line: typeof EMPTY_LINE };
 
+/** The name of a profile with no X handle and no proven login (the card omits it). */
+export const FALLBACK_NAME = 'Builder';
 /** spec 7: X, else the proven GitHub login, else plain "Builder". A wallet or a slug is never the name (a wallet only as a source badge). Pure. */
 export function profileName(p: { x_handle: string | null; github_login: string | null }): string {
   if (p.x_handle) return `@${p.x_handle}`;
   if (p.github_login) return p.github_login;
-  return 'Builder';
+  return FALLBACK_NAME;
 }
 
 export function money(n: number): string {
@@ -217,7 +220,7 @@ export async function profileData(slug: string, now: Date = new Date()): Promise
     name,
     slug: p.slug,
     score: pub.score,
-    top_percent: topPercent(pub.percentile),
+    top_percent: shownTop(pub.percentile),
     change_7d: weekChange(rows),
     stats: statsOf(pub.parts, projects, now),
     projects: cards,
@@ -231,7 +234,7 @@ export async function profileData(slug: string, now: Date = new Date()): Promise
 
 export const PAGE_SIZE = 50;
 export type BoardFilters = { chain: 'base' | 'arc' | null; program: string | null; window: 'week' | 'all'; page: number };
-export type BoardRow = { rank: number; slug: string; name: string; score: number; top_percent: number; top_outcome: string; change_7d: number };
+export type BoardRow = { rank: number; slug: string; name: string; score: number; top_percent: number | null; top_outcome: string; change_7d: number };
 export type LeaderboardData = { rows: BoardRow[]; page: number; pages: number; filters: BoardFilters };
 
 /** The board's query params. Junk (an unknown chain or window, an odd program id, a repeated key, a bad page) is dropped, never echoed. Pure. */
@@ -343,7 +346,7 @@ export async function leaderboardData(f: BoardFilters, now: Date = new Date()): 
     slug: r.slug,
     name: profileName(r),
     score: r.score,
-    top_percent: topPercent(r.percentile),
+    top_percent: shownTop(r.percentile),
     top_outcome: boardOutcome(r),
     change_7d: r.change ?? 0,
   }));

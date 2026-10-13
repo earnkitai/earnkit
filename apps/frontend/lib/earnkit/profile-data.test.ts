@@ -35,6 +35,17 @@ test('12.1 the board: rank, name, score, Top N%, top outcome, each row links its
   assert.doesNotMatch(h.split('<footer')[0], /—|\p{Extended_Pictographic}/u);
 });
 
+test('final T15 ruling: a row above the top 50% shows its score and no "Top N%"', () => {
+  const rows = [
+    { rank: 1, slug: 'a', name: '@a', score: 60, top_percent: 2, top_outcome: 'x', change_7d: 0 },
+    { rank: 2, slug: 'b', name: '@b', score: 5, top_percent: null, top_outcome: 'y', change_7d: 0 },
+  ];
+  const t = text(board({ rows }));
+  assert.match(t, /1 @a 60 Top 2% x/);
+  assert.match(t, /2 @b 5 y/);
+  assert.equal((t.match(/Top \d+%/g) ?? []).length, 1);
+});
+
 test('12.2 filters as query params; the week window ranks by 7-day change and says so', () => {
   assert.deepEqual(leaderboardFilters({ chain: 'arc', program: 'arc-microgrants', window: 'week', page: '2' }), { chain: 'arc', program: 'arc-microgrants', window: 'week', page: 2 });
   assert.deepEqual(leaderboardFilters({ chain: 'solana', program: '../x', window: 'x', page: '-4' }), { chain: null, program: null, window: 'all', page: 1 });
@@ -171,7 +182,9 @@ test('12.3 hidden people are not listed but count; held people show their last u
   const all = await everyRow({ chain: null, program: null, window: 'all' });
   const mine = all.filter((r) => seeded.slugs.includes(r.slug));
   assert.deepEqual(mine.map((r) => [r.slug, r.score]), [[seeded.b, 50], [seeded.c, 30]]);
-  assert.ok(mine[0].top_percent < mine[1].top_percent);
+  // Final review: "Top N%" only for N <= 50, else null (the rank is read, so only the order is pinned).
+  assert.ok((mine[0].top_percent ?? 101) <= (mine[1].top_percent ?? 101));
+  for (const r of mine) assert.ok(r.top_percent === null || (r.top_percent >= 1 && r.top_percent <= 50));
   assert.ok(mine[0].rank < mine[1].rank);
   assert.equal(mine[0].name, `bee-${TAG}`);
   assert.equal(mine[1].name, 'Builder', 'never a wallet as the name');

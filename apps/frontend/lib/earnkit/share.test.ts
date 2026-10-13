@@ -1,5 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { sql } from './db';
 import { CARD_OFFER_NOTE, cardModel, cardOffer, cardYes, findOfferLine, intentUrl, offerCard, xAsk } from './share';
 import { fullProfile } from './fixtures/profile';
@@ -20,6 +22,23 @@ test('11.2 the offer and the X ask, one question each, no em dash', () => {
   assert.equal(xAsk('lee_builds'), 'Use @lee_builds?');
   assert.equal(xAsk(null), 'Add your X handle to your GitHub profile, then say done.');
   for (const s of [cardOffer(12), xAsk('a'), xAsk(null), CARD_OFFER_NOTE]) assert.doesNotMatch(s, /—/);
+});
+
+test('final T15 ruling: the card and the X text say "Top N%" only for N <= 50; above it the score alone', () => {
+  assert.equal(cardModel({ ...fullProfile, top_percent: 50 }).top, 'Top 50% of builders');
+  const low = cardModel({ ...fullProfile, top_percent: null });
+  assert.equal(low.top, null);
+  const u = new URL(intentUrl('lee_builds', low));
+  assert.equal(u.searchParams.get('text'), 'Builder score 41 on EarnKit. 1,100 people used tipjar.');
+  assert.doesNotMatch(u.searchParams.get('text')!, /Top|null/);
+});
+
+test('final T11: the card route draws the outcome at 44px and the footer at 30px; no name line or "Top" line when absent', () => {
+  const src = readFileSync(join(import.meta.dirname, '../../app/b/[slug]/card.png/route.tsx'), 'utf8');
+  assert.match(src, /fontSize: 44, color: '#E5EEFC'[^}]*\}\}>\{m\.outcome\}/);
+  assert.match(src, /justifyContent: 'space-between', fontSize: 30, color: SOFT/);
+  assert.match(src, /\{m\.handle \? </);
+  assert.match(src, /\{m\.top \? </);
 });
 
 test('11.3 the intent link carries the profile URL and no wallet; EarnKit never posts', () => {
@@ -44,6 +63,19 @@ test('11.4 the offer is made once, only with a public score, and waits when line
   assert.equal(await offerCard(id, false), null, 'once');
 });
 
+test('final T15 ruling: no card offer above the top 50% (and it is not used up, so it can come later)', dbTest, async () => {
+  const id = 2_140_000_000 + Math.floor(Math.random() * 7_000_000);
+  await ensureProfile(id, new Date());
+  await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held)
+    VALUES (${id}, '2026-10-12', 3, 30, '{}', '{}', 'v1', 'v1-launch', false)`;
+  await sql()`INSERT INTO builder_ranks (builder_id, score, percentile, computed_at) VALUES (${id}, 3, 30, now())
+    ON CONFLICT (builder_id) DO UPDATE SET percentile = 30`;
+  assert.equal(await offerCard(id, false), null);
+  const [p] = await sql()<{ at: Date | null }[]>`SELECT card_offered_at AS at FROM builder_profiles WHERE builder_id = ${id}`;
+  assert.equal(p.at, null);
+  await sql()`DELETE FROM builder_ranks WHERE builder_id = ${id}`;
+});
+
 test('11.6 the outcome in plain words: one person, money only, an unnamed project, nothing measured; never a wallet', () => {
   const one = { ...fullProfile, projects: [{ ...fullProfile.projects[0], numbers: ['1 user'] }] };
   assert.equal(cardModel(one).outcome, '1 person used tipjar');
@@ -53,8 +85,9 @@ test('11.6 the outcome in plain words: one person, money only, an unnamed projec
   assert.equal(cardModel(unnamed).outcome, '40 people used a private project');
   const oss = { ...fullProfile, projects: [{ ...fullProfile.projects[0], title: 'Open source', numbers: ['12 users'] }] };
   assert.equal(cardModel(oss).outcome, '12 people used their open source work');
+  // Final review: the plain "Builder" fallback is never on the card (no name line).
   const none = { ...fullProfile, name: 'Builder', projects: [] };
-  assert.deepEqual(cardModel(none), { score: 41, top: 'Top 22% of builders', outcome: 'Verified builder', handle: 'Builder' });
+  assert.deepEqual(cardModel(none), { score: 41, top: 'Top 22% of builders', outcome: 'Verified builder', handle: null });
   assert.equal(findOfferLine('You: score 41, top 22%. earnkit.com/b/lee'), 'You: score 41, top 22%. earnkit.com/b/lee. Want your card to post on X?');
 });
 
@@ -80,6 +113,8 @@ test('11.7 a yes to the offer: X set gives the share link; a GitHub prefill asks
   assert.match(ask.agent_note ?? '', /x_handle/);
   const [{ x_asked_at }] = await sql()<{ x_asked_at: Date | null }[]>`SELECT x_asked_at FROM builder_profiles WHERE builder_id = ${prefilled}`;
   assert.ok(x_asked_at);
+  // Final review M4: asked once; the next yes shares the card as it is (never "Use @name?" again).
+  assert.equal((await cardYes(prefilled)).show_to_builder, `Post it: https://earnkit.com/b/card${prefilled}/share`);
 
   const bare = await scored({ login: 'lee3' });
   assert.equal((await cardYes(bare)).show_to_builder, 'Add your X handle to your GitHub profile, then say done.');

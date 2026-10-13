@@ -29,6 +29,17 @@ test('8.1 the reply: score, top N%, change, what moved, one next action, one que
   assert.equal(week.split('\n')[0], 'Score 41, top 22%, down 3 this week.');
 });
 
+test('final T15 ruling: "top N%" only for N <= 50, in the score reply and find\'s line; above it the score alone', () => {
+  const next = nextAction({ parts: null, missing: null, hasPackage: false, hasSite: false });
+  const base = { change: null, moved: null, held: false, slug: 'lee', next, program: null };
+  assert.equal(scoreLines({ ...base, score: 41, percentile: 50 }).split('\n')[0], 'Score 41, top 50%. earnkit.com/b/lee');
+  assert.equal(scoreLines({ ...base, score: 7, percentile: 31 }).split('\n')[0], 'Score 7. earnkit.com/b/lee');
+  assert.equal(scoreLines({ ...base, score: 7, percentile: 31, change: 2 }).split('\n')[0], 'Score 7, up 2 since you last asked. earnkit.com/b/lee');
+  assert.equal(youLine({ score: 7, percentile: 31, slug: 'lee' }), 'You: score 7. earnkit.com/b/lee');
+  assert.equal(youLine({ score: 41, percentile: 78, slug: 'lee' }), 'You: score 41, top 22%. earnkit.com/b/lee');
+  assert.equal(youLine({ score: 7, percentile: 0, slug: 'lee', hidden: true }), 'You: score 7.');
+});
+
 test('8.2 the next action is the step with the most expected points; "no outside users" only when the users part is 0', () => {
   assert.equal(nextAction({ parts: null, missing: 'ownership_unproven', hasPackage: false, hasSite: false }).kind, 'link_repo');
   assert.equal(nextAction({ parts: null, missing: 'no_github', hasPackage: false, hasSite: false }).kind, 'link_site');
@@ -144,11 +155,11 @@ test('8.9 a scored person: change since the last time they asked and what moved;
   await sql()`INSERT INTO builder_ranks (builder_id, score, percentile, computed_at) VALUES (${id}, 41, 78, now())`;
   const first = await withEnv({ EARNKIT_EVENT_LOG: 'on' }, () => scoreReply({ installationId: id }, new Date('2026-10-10T12:00:00Z'), noPrograms));
   // builder_ranks is rebuilt by any test's percentiles() run, so the rank is read, not fixed.
-  assert.match(first.show_to_builder.split('\n')[0], new RegExp(`^Score 35, top \\d+%\\. earnkit\\.com/b/s${id}$`), 'first ask: no change line');
+  assert.match(first.show_to_builder.split('\n')[0], new RegExp(`^Score 35(, top \\d+%)?\\. earnkit\\.com/b/s${id}$`), 'first ask: no change line');
   await scoreRow(id, '2026-10-11', 41, parts(40));
   const second = await withEnv({ EARNKIT_EVENT_LOG: 'on' }, () => scoreReply({ installationId: id }, NOW, noPrograms));
   const lines = second.show_to_builder.split('\n');
-  assert.match(lines[0], new RegExp(`^Score 41, top \\d+%, up 6 since you last asked\\. earnkit\\.com/b/s${id}$`));
+  assert.match(lines[0], new RegExp(`^Score 41(, top \\d+%)?, up 6 since you last asked\\. earnkit\\.com/b/s${id}$`));
   assert.match(lines[1], /^Users \+\d+\.$/);
   assert.equal(lines[2], MORE_USERS_LINE);
   assert.equal(second.score, 41);
@@ -159,7 +170,7 @@ test('8.9 a scored person: change since the last time they asked and what moved;
   await scoreRow(id, '2026-10-12', 90, parts(500), true);
   await sql()`UPDATE builder_profiles SET held = true WHERE builder_id = ${id}`;
   const held = await scoreReply({ installationId: id }, NOW, noPrograms);
-  assert.match(held.show_to_builder, /^Score 41, top \d+%\. earnkit\.com\/b\/s\d+\nYour newest score is in a quick review\./);
+  assert.match(held.show_to_builder, /^Score 41(, top \d+%)?\. earnkit\.com\/b\/s\d+\nYour newest score is in a quick review\./);
   assert.doesNotMatch(held.show_to_builder, /\b90\b/);
   assert.equal(held.score, 41);
 });
@@ -171,7 +182,7 @@ test('8.10 with the event log off the change is over 7 days', dbTest, async () =
   await scoreRow(id, '2026-10-03', 30, parts(25));
   await scoreRow(id, '2026-10-11', 41, parts(40));
   const r = await scoreReply({ installationId: id }, NOW, noPrograms);
-  assert.match(r.show_to_builder, /^Score 41, top \d+%, up 11 this week\. /);
+  assert.match(r.show_to_builder, /^Score 41(, top \d+%)?, up 11 this week\. /);
 });
 
 test('8.11 a repo-linked site gets its earnkit.txt line; a program on the top project\'s chain names its prize', dbTest, async () => {

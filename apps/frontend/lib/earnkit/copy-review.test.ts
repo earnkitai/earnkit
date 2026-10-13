@@ -111,7 +111,7 @@ import { LIVE_FAILED_LINE, PLACEHOLDER_LINE, contractMissingLine, contractUnchec
 import PolicySection from '../../app/terms/sections/PolicySection';
 import TermsPage from '../../app/terms/page';
 import { ENDED_PAGE, TAKEN_DOWN_PAGE } from '../../../../infra/host-worker/src/route';
-import { MINI_LINE } from './policy';
+import { MINI_LINE, PROFILES_POINTS } from './policy';
 import SponsorTermsSection from '../../app/terms/sections/SponsorTermsSection';
 import BoardView from '../../app/bonus/[round]/BoardView';
 import type { Board } from './bonus-board';
@@ -1101,6 +1101,9 @@ const builderFacing: [string, string][] = [
   // v2.12 T9: find's second line with a score (the fill step is FILL_LINES above).
   ['youLine', youLine({ score: 41, percentile: 78, slug: 'lee' })],
   ['youLine hidden', youLine({ score: 41, percentile: 78, slug: 'lee', hidden: true })],
+  // v2.12 final review: above the top 50% the score alone; the terms' builder-profiles points.
+  ['youLine above 50%', youLine({ score: 7, percentile: 31, slug: 'lee' })],
+  ...PROFILES_POINTS.map((p, i): [string, string] => [`PROFILES_POINTS.${i}`, p]),
 ];
 
 // noCoinYet is the AGENT's note (never shown to the builder as written; see entry-text.ts), so it

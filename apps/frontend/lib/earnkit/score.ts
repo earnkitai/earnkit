@@ -85,6 +85,18 @@ export function percentileOf(score: number, all: readonly number[]): number {
 /** "Top N%": N = max(1, ceil(100 - percentile)). Pure. */
 export const topPercent = (percentile: number): number => Math.max(1, Math.ceil(100 - percentile));
 
+/**
+ * v2.12 final review (T15 ruling): "Top N%" is shown only for N up to this, on every surface (the
+ * profile, the card, the leaderboard, the score tool, find); above it, the score alone, and no card
+ * offer. An owner calibration ("top 100%" reads badly while few people are scored).
+ */
+export const TOP_SHOWN_MAX = 50;
+/** The N to show as "Top N%", or null above TOP_SHOWN_MAX (show the score only). Pure. */
+export const shownTop = (percentile: number): number | null => {
+  const n = topPercent(percentile);
+  return n <= TOP_SHOWN_MAX ? n : null;
+};
+
 /** Points moved per part since `before` (null: all of now). Pure. */
 export function partDeltas(now: Parts, before: Parts | null): Record<keyof Parts, number> {
   const keys = Object.keys(now) as (keyof Parts)[];

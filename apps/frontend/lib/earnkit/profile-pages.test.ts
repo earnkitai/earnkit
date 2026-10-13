@@ -13,6 +13,11 @@ import { sql } from './db';
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
 const text = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/&#x27;|&#39;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ');
 
+test('final T15 ruling: the profile hero says "Top N% of builders" only for N <= 50', () => {
+  assert.match(html(React.createElement(ProfileView, { data: fullProfile })), /Top 22% of builders/);
+  assert.doesNotMatch(html(React.createElement(ProfileView, { data: { ...fullProfile, top_percent: null } })), /Top \d+%|of builders/);
+});
+
 test('10.1 hero: one dominant number, "Top N% of builders", the 7-day change; the name is X, never a wallet', () => {
   const h = html(React.createElement(ProfileView, { data: fullProfile }));
   const t = text(h);
@@ -203,7 +208,7 @@ test('10.11 profileData: a held profile shows its last unheld score; 90-day spar
   assert.deepEqual(d.spark, [30, 33, 36]);
   assert.equal(d.change_7d, 6, 'against the score a week before (the latest public row on or before that day)');
   // builder_ranks is rebuilt by any test's percentiles() run, so the rank is read, not fixed.
-  assert.ok(Number.isInteger(d.top_percent) && d.top_percent >= 1 && d.top_percent <= 100);
+  assert.ok(d.top_percent === null || (Number.isInteger(d.top_percent) && d.top_percent >= 1 && d.top_percent <= 50));
   assert.equal(d.stricter_note, null);
 });
 
