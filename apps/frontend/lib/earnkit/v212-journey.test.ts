@@ -245,7 +245,7 @@ const proven = async () => ({ login: 'lee', basis: 'proof_line' as const });
 
 // ---- The journey -------------------------------------------------------------------------------
 
-test('15.2 fresh install to a filled profile: find with local_git, cron discover, read, score; the page renders; score names a next action', db, async () => {
+test('15.2 fresh install to a filled live score: find with local_git, cron discover, read, score (v2.12.1: the live v2 score)', db, async () => {
   const ctx = await freshInstallation();
   journeyId = ctx.installationId;
   const first = (await tools.find({ local_git: { emails: ['lee@x.dev'], remotes: ['git@github.com:lee/tipjar.git'] } }, ctx)) as { show_to_builder: string };
@@ -257,31 +257,44 @@ test('15.2 fresh install to a filled profile: find with local_git, cron discover
   const run = (await runCron({ now: NOW, only: ['none'], deps: { builderScore: { reader: fakeWorld(), login: proven, only: [ctx.installationId] } } })) as { builder_score?: Record<string, unknown> };
   assert.deepEqual(unserved, [], 'every GitHub read was served');
   assert.ok(run.builder_score, 'the score steps ran');
-  for (const s of ['discover', 'read', 'score', 'ranks', 'empty']) assert.doesNotMatch(JSON.stringify(run.builder_score[s]), /"step":"(error|skipped)"/, s);
+  for (const s of ['discover', 'read', 'score', 'empty']) assert.doesNotMatch(JSON.stringify(run.builder_score[s]), /"step":"(error|skipped)"/, s);
   const sources = await sql()<{ kind: string; ref: string; state: string }[]>`SELECT kind, ref, state FROM builder_sources WHERE builder_id = ${ctx.installationId} ORDER BY kind, ref`;
   assert.deepEqual([...sources], [
     { kind: 'repo', ref: 'lee/tipjar', state: 'verified' },
     { kind: 'site', ref: 'https://tip.example.com', state: 'verified' },
   ]);
+  // v2.12.1 T4: the cron's score step writes the live v2 score (builder_live) and a v2 history row.
+  const [live] = await sql()<{ score: number; ranked: boolean }[]>`SELECT score, ranked FROM builder_live WHERE builder_id = ${ctx.installationId}`;
+  assert.ok(live && live.score > 0 && live.ranked, JSON.stringify(live));
+  const [hist] = await sql()<{ formula: string }[]>`SELECT formula FROM builder_scores WHERE builder_id = ${ctx.installationId}`;
+  assert.equal(hist.formula, 'v2');
+  // The old random slug redirects to the new one.
+  const [{ old }] = await sql()<{ old: string }[]>`SELECT old_slug AS old FROM profile_slug_history WHERE builder_id = ${ctx.installationId}`;
+  assert.deepEqual(await profileData(old, NOW), { redirect: 'lee' });
+  const events = await eventTypes(ctx.installationId);
+  for (const t of ['source_proposed', 'source_verified', 'reading_taken', 'score_computed']) assert.ok(events.includes(t), t);
+  // A filled profile is never counted empty.
+  assert.ok(!events.includes('profile_empty'));
+});
+
+// v2.12.1 T4: the v2.12 page, "Top N% of builders" and the score tool read v1 rows only (publicScore),
+// which the cron no longer writes. T11 replaces them (deleted in T12).
+test('15.2b the v2.12 page and score tool after the cron (percentiles, "Top N% of builders")', { ...db, todo: 'replaced in T11' }, async () => {
+  assert.ok(journeyId, '15.2 ran');
+  const ctx = { installationId: journeyId } as Parameters<typeof tools.score>[1];
   const page = await profileData('lee', NOW);
   assert.ok(page && 'score' in page && page.score > 0, JSON.stringify(page));
   // Final review: "Top N%" only for N <= 50 (the rank depends on everyone in the DB).
   const view = html(React.createElement(ProfileView, { data: page }));
   if (page.top_percent === null) assert.doesNotMatch(view, /Top \d+%/);
   else assert.ok(page.top_percent <= 50 && view.includes(`Top ${page.top_percent}% of builders`));
-  // The old random slug redirects to the new one.
-  const [{ old }] = await sql()<{ old: string }[]>`SELECT old_slug AS old FROM profile_slug_history WHERE builder_id = ${ctx.installationId}`;
-  assert.deepEqual(await profileData(old, NOW), { redirect: 'lee' });
   const s = (await tools.score({}, ctx)) as { show_to_builder: string };
   assert.match(s.show_to_builder, /^Score \d+(, top ([1-9]|[1-4]\d|50)%)?\. earnkit\.com\/b\/lee/);
   assert.equal(s.show_to_builder.split('\n').length >= 2, true);
   // The next action: 40 outside users is part of the users bar, so more users moves it most.
   assert.ok(s.show_to_builder.split('\n').includes(MORE_USERS_LINE), s.show_to_builder);
   assert.doesNotMatch(s.show_to_builder, /—|\b(find|prepare|confirm|tell)\b/);
-  const events = await eventTypes(ctx.installationId);
-  for (const t of ['source_proposed', 'source_verified', 'reading_taken', 'score_computed', 'score_viewed']) assert.ok(events.includes(t), t);
-  // A filled profile is never counted empty.
-  assert.ok(!events.includes('profile_empty'));
+  assert.ok((await eventTypes(journeyId)).includes('score_viewed'));
 });
 
 test('15.3 a rerun of the cron the same day writes no score, reading or event', db, async () => {

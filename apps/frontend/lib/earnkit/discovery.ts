@@ -9,8 +9,6 @@ import {
   hardhatDeployment,
   npmPackage,
   pagesSite,
-  ownPagesSite,
-  profileCode,
   pypiPackage,
   vercelSites,
   wranglerSites,
@@ -21,8 +19,8 @@ import { loginBasisFor, repoEverDerived, type LoginProof } from './github-verify
 import { ScoreDeadline, beforeDeadline } from './campaigns';
 import { fetchLinePusher } from './ownership';
 import { clearXHandle, setFallback } from './profiles';
-import { GitHubBudgetStop, isBudgetStop, readContractOrigin, readMergedPrs, soft, type ReaderDeps, type RepoSignals } from './source-readers';
-import { claimContract, proposeSource, proveLinkedSite, rejectSource, repoOwned, siteOwnedByText, verifySource, type Proof } from './sources';
+import { GitHubBudgetStop, isBudgetStop, readContractOrigin, soft, type ReaderDeps, type RepoSignals } from './source-readers';
+import { claimContract, proposeSource, rejectSource, repoOwned, verifySource, type Proof } from './sources';
 import { proofLineOwner } from './token-gate';
 
 /**
@@ -212,7 +210,7 @@ type Row = { id: number; state: string };
 type DiscoverOpts = { deadline: number; reader: ReaderDeps; login?: LoginOf; proofLine?: ProofLineCheck };
 
 /**
- * One person's discovery (spec 3, clues 1 to 6). Every read happens first; every verdict (verify,
+ * One person's discovery (spec 3, clues 1, 2, 3 and 5; v2.12.1 S9 removed 4 and 6). Every read happens first; every verdict (verify,
  * reject, contract claim, the profile's login) is applied only once all reads are done, so a
  * person cut short (the deadline, a spent budget, a failed core read: all throw) leaves nothing
  * decided from partial reads. Proposals are written as found (they decide nothing).
@@ -394,29 +392,8 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
       const blog = publicHttpsOrigin(clues.site);
       if (blog) await propose('site', blog, blog);
     }
-    // Clue 4: merged PRs to repos they don't own.
-    const prProof: Proof = proof.basis === 'proof_line' ? 'proof_line' : 'github_signin';
-    const orgLogins = (Array.isArray(orgs) ? orgs : []).map((o) => o?.login).filter((x): x is string => typeof x === 'string');
-    for (const pr of await soft(readMergedPrs(L, d, orgLogins), [])) if (pr.url) verify(await propose('merged_pr', pr.url, 'oss'), prProof);
   }
-  // Clue 6: proposed live links whose earnkit.txt names this person. v2.12 T8: also a site a repo
-  // only links (shown, never scored), which the score tool's next step asks to prove the same way;
-  // the repo's own Pages site already counts. The score tool lists these same sites, in this order.
-  // Proposed sites first, so linked sites never crowd a new proposal out of the cap.
-  const proposedSites = (await db<(Row & { ref: string; project_key: string })[]>`
-    SELECT id::int AS id, state, ref, project_key FROM builder_sources
-    WHERE builder_id = ${root} AND kind = 'site' AND (state = 'proposed' OR (state = 'verified' AND proof = 'repo_link'))
-    ORDER BY (state = 'proposed') DESC, id`)
-    .filter((s) => s.state === 'proposed' || !ownPagesSite(s.ref, s.project_key))
-    .slice(0, DISCOVER_CAPS.sites);
-  for (const s of proposedSites) {
-    const origin = publicHttpsOrigin(s.ref);
-    if (!origin || (s.state === 'proposed' && stateOf(s) !== 'proposed')) continue;
-    const text = await soft(d.fetchText(`${origin}/earnkit.txt`), null);
-    if (text === null || !siteOwnedByText(text, profileCode(root, origin))) continue;
-    if (s.state === 'proposed') verify(s, 'earnkit_txt');
-    else verdicts.push(() => proveLinkedSite(s.id));
-  }
+  // v2.12.1 S9: no merged-PR clue (4) and no earnkit.txt site check (6); existing rows stay, not confirmed.
   // Every read is done: now the verdicts.
   for (const v of verdicts) await v();
 }
@@ -459,5 +436,24 @@ export async function discover(
         WHERE builder_id = ${root}`;
     }
   }
+  return out;
+}
+
+/**
+ * v2.12.1 refresh: one person's discovery now (discoverOne with `o.deadline`). A shared client's
+ * group is never a person. On success the queue row is done, as in `discover`; a thrown read
+ * (deadline, spent budget, failed core read) propagates and decides nothing.
+ */
+export async function discoverPerson(root: number, o: DiscoverOpts): Promise<Counts> {
+  const db = sql();
+  const out: Counts = { people: 0, proposed: 0, verified: 0 };
+  const [g] = await db<{ shared: boolean | null }[]>`SELECT bool_or(shared_client) AS shared FROM installations WHERE COALESCE(builder_id, id) = ${root}`;
+  if (g?.shared) return out;
+  await discoverOne(root, o, out);
+  // A person never queued gets a done row too, so the refresh can tell when discovery last ran.
+  await db`
+    INSERT INTO discovery_queue (builder_id, reason, done_at) VALUES (${root}, 'first_find', now())
+    ON CONFLICT (builder_id) DO UPDATE SET done_at = now()`;
+  out.people++;
   return out;
 }

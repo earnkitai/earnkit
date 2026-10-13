@@ -269,7 +269,7 @@ const sourcesOf = async (id: number) => {
   return Object.fromEntries(rows.map((r) => [`${r.kind} ${r.ref}`, r]));
 };
 
-test('6.11 discover: a proven login finds own repos, their sites, packages, contracts and merged PRs; only the server verifies', dbTest, async () => {
+test('6.11 discover: a proven login finds own repos, their sites, packages and contracts; only the server verifies (v2.12.1 S9: no merged PRs, no earnkit.txt check)', dbTest, async () => {
   const id = T + 22;
   const L = `lee${T}`;
   const addr = `0x${hex40(T)}`;
@@ -319,11 +319,11 @@ test('6.11 discover: a proven login finds own repos, their sites, packages, cont
   assert.deepEqual([s['site https://app.lee.dev'].state, s['site https://app.lee.dev'].proof, s['site https://app.lee.dev'].project_key], ['verified', 'repo_link', `${L}/app`]);
   assert.equal(s[`site https://${L}.github.io/app/`].state, 'verified', 'the Pages site');
   assert.equal(s['site https://blog.lee.dev'].state, 'proposed', 'a blog not linked from a verified repo and with no earnkit.txt line stays proposed');
-  assert.deepEqual([s['site https://mine.example.com'].state, s['site https://mine.example.com'].proof], ['verified', 'earnkit_txt']);
+  // v2.12.1 S9: the earnkit.txt site check is gone; the agent's site stays proposed (not yet confirmed).
+  assert.deepEqual([s['site https://mine.example.com'].state, s['site https://mine.example.com'].proof], ['proposed', null]);
   assert.equal(s[`package_npm lee-app-${T}`].state, 'proposed', 'packages are verified on their first read');
   assert.deepEqual([s[`contract base:${addr}`].state, s[`contract base:${addr}`].proof, s[`contract base:${addr}`].deployer], ['verified', 'repo_link', dep]);
-  const pr = s['merged_pr https://github.com/big/lib/pull/7'];
-  assert.deepEqual([pr.state, pr.proof, pr.project_key], ['verified', 'github_signin', 'oss']);
+  assert.equal(s['merged_pr https://github.com/big/lib/pull/7'], undefined, 'v2.12.1 S9: merged PRs are no longer proposed');
   const [p] = await sql()<{ github_login: string; fallback_handle: string; twitter_prefill: string }[]>`SELECT github_login, fallback_handle, twitter_prefill FROM builder_profiles WHERE builder_id = ${id}`;
   assert.deepEqual([p.github_login, p.fallback_handle, p.twitter_prefill], [L, L, 'leex']);
   const [q] = await sql()<{ done_at: Date | null; attempts: number }[]>`SELECT done_at, attempts FROM discovery_queue WHERE builder_id = ${id}`;

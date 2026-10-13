@@ -1,0 +1,298 @@
+import { after, test } from 'node:test';
+import assert from 'node:assert/strict';
+import { scoresAdminKey, scoresPost } from './builder-score';
+import { isConfirmedProof } from './confirmed';
+import { sql } from './db';
+import { rescorePerson, refreshPerson, scorePeopleV2, standingOf, trackedKeys } from './person-score';
+import type { ReaderDeps } from './source-readers';
+
+process.env.EARNKIT_BUILDER_SCORE = 'on';
+const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
+const T = 2_100_950_000 + (process.pid % 900) * 20;
+const NOW = new Date('2026-10-12T12:00:00Z');
+const DAY = 86_400_000;
+const hex40 = (n: number) => n.toString(16).padStart(40, '0');
+
+after(async () => {
+  if (!process.env.DATABASE_URL) return;
+  // builder_live rows of this file never count in another file's rank.
+  await sql()`DELETE FROM builder_live WHERE builder_id BETWEEN ${T} AND ${T + 19}`;
+  await sql()`DELETE FROM builder_projects WHERE builder_id BETWEEN ${T} AND ${T + 19}`;
+  await sql()`DELETE FROM source_live WHERE source_id IN (SELECT id FROM builder_sources WHERE builder_id BETWEEN ${T} AND ${T + 19})`;
+  await sql()`DELETE FROM builder_sources WHERE builder_id BETWEEN ${T} AND ${T + 19}`;
+  await sql()`DELETE FROM builder_profiles WHERE builder_id BETWEEN ${T} AND ${T + 19}`;
+  await sql()`DELETE FROM projects WHERE installation_id BETWEEN ${T} AND ${T + 19}`;
+  await sql()`DELETE FROM installations WHERE id BETWEEN ${T} AND ${T + 19}`;
+  await sql().end();
+});
+
+/** A ReaderDeps whose every read throws, unless a test overrides it. */
+function fakeReader(): ReaderDeps {
+  const no = async () => {
+    throw new Error('unexpected');
+  };
+  return { gh: no, ghGraphql: no, tokenTransfers: no, probe: no, fetchText: no, json: no, baseTxs: no, contractOrigin: no, arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, now: NOW };
+}
+
+async function clear(id: number) {
+  await sql()`DELETE FROM source_live WHERE source_id IN (SELECT id FROM builder_sources WHERE builder_id = ${id})`;
+  for (const t of ['builder_profiles', 'builder_sources', 'builder_live', 'builder_projects'])
+    await sql()`DELETE FROM ${sql()(t)} WHERE builder_id = ${id}`;
+  await sql()`DELETE FROM projects WHERE installation_id = ${id}`;
+  await sql()`DELETE FROM installations WHERE id = ${id}`;
+}
+async function person(id: number, o: { login?: string | null; reported?: string | null }) {
+  await clear(id);
+  await sql()`INSERT INTO installations (id, token_hash) VALUES (${id}, ${`ps-test-${id}`})`;
+  await sql()`INSERT INTO builder_profiles (builder_id, slug, github_login, reported_github) VALUES (${id}, ${`ps${id}`}, ${o.login ?? null}, ${o.reported ?? null})`;
+}
+async function source(id: number, s: { kind: string; ref: string; key?: string; state: string; proof: string | null; by: 'agent' | 'server' }) {
+  await sql()`
+    INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by)
+    VALUES (${id}, ${s.kind}, ${s.ref}, ${s.key ?? s.ref}, ${s.state}, ${s.proof}, ${s.by})`;
+}
+/** The newest reading of the newest source with this ref, a day before NOW. */
+async function reading(ref: string, signals: unknown, day = new Date(NOW.getTime() - DAY)) {
+  await sql()`
+    INSERT INTO source_readings (source_id, day, signals, ok)
+    SELECT id, ${day.toISOString().slice(0, 10)}, ${sql().json(signals as never)}, true
+    FROM builder_sources WHERE ref = ${ref} AND builder_id BETWEEN ${T} AND ${T + 19} ORDER BY id DESC LIMIT 1
+    ON CONFLICT (source_id, day) DO NOTHING`;
+}
+async function hosted(id: number, h: { slug: string; repo_key: string; status: string }) {
+  await sql()`
+    INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status, deployed_at)
+    VALUES (${h.slug}, 'lee', ${h.repo_key}, ${id}, 0, 0, ${h.status}, ${new Date(NOW.getTime() - 2 * DAY)})
+    ON CONFLICT (slug) DO UPDATE SET installation_id = EXCLUDED.installation_id, status = EXCLUDED.status, repo_key = EXCLUDED.repo_key`;
+}
+async function live(id: number, l: { score: number; ranked: boolean }) {
+  await sql()`DELETE FROM builder_live WHERE builder_id = ${id}`;
+  await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${id}, ${`ps${id}`}) ON CONFLICT (builder_id) DO NOTHING`;
+  await sql()`
+    INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at)
+    VALUES (${id}, ${l.score}, '{"shipped":{"points":10,"raw":{}}}'::jsonb, ${l.ranked}, ${l.ranked ? 1 : 0}, 0, 'v2', 'v2-launch', ${new Date(NOW.getTime() - DAY)})`;
+}
+/** 600 callers across 30 days on an EarnKit-deployed contract. */
+async function fakeBigUse(id: number) {
+  const addr = `0x${hex40(id)}`;
+  const key = `lee/big${id}`;
+  await sql()`
+    INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, address, status, cost_micro_usd, created_at)
+    VALUES (${id}, ${`k${id}`}, ${key}, 'base', ${`0x${'a'.repeat(64)}`}, ${addr}, 'deployed', 0, ${new Date(NOW.getTime() - 40 * DAY)})`;
+  await source(id, { kind: 'contract', ref: `base:${addr}`, key, state: 'verified', proof: 'deployer', by: 'server' });
+  const callers = Array.from({ length: 600 }, (_, i) => ({
+    id: `wallet:0x${hex40(1_000_000 + i)}`, at: new Date(NOW.getTime() - (i % 30) * DAY - 3_600_000).toISOString(), value_usd: 0, codes: [],
+  }));
+  await reading(`base:${addr}`, { callers, partial: false });
+}
+
+test('4.0 confirmed proofs: earnkit.txt and DNS site proofs are not confirmed', () => {
+  assert.equal(isConfirmedProof('repo_owner'), true);
+  assert.equal(isConfirmedProof('earnkit_hosted'), true);
+  assert.equal(isConfirmedProof('earnkit_txt'), false);
+  assert.equal(isConfirmedProof('dns_txt'), false);
+  assert.equal(isConfirmedProof(null), false);
+});
+
+test('4.1 only confirmed sources score; an agent-reported repo shows as a project and adds nothing', dbTest, async () => {
+  const id = T;
+  await person(id, { login: null, reported: 'lee' });
+  await source(id, { kind: 'repo', ref: 'lee/tipjar', state: 'proposed', proof: null, by: 'agent' });
+  await source(id, { kind: 'site', ref: 'https://tip.example.com', key: 'lee/tipjar', state: 'proposed', proof: null, by: 'agent' });
+  await reading('https://tip.example.com', { status: 200, up: true });
+  const r = await rescorePerson(id, NOW);
+  assert.deepEqual(r, { score: 0, ranked: false, held: false });
+  const [p] = await sql()`SELECT confirmed, shipped FROM builder_projects WHERE builder_id = ${id}`;
+  assert.deepEqual({ ...p }, { confirmed: false, shipped: true });
+});
+
+test('4.2 an EarnKit-hosted live app is a confirmed ship: ranked, Shipped 10', dbTest, async () => {
+  const id = T + 1;
+  await person(id, {});
+  await hosted(id, { slug: `tip${id}`, repo_key: `lee/tip${id}`, status: 'live' });
+  const r = await rescorePerson(id, NOW);
+  assert.equal(r.ranked, true);
+  const [l] = await sql()<{ parts: { shipped: { points: number } } }[]>`SELECT parts FROM builder_live WHERE builder_id = ${id}`;
+  assert.equal(l.parts.shipped.points, 10);
+});
+
+test('4.3 rank counts every ranked person with a higher score; ties share a number', dbTest, async () => {
+  await live(T + 2, { score: 50, ranked: true });
+  await live(T + 3, { score: 30, ranked: true });
+  await live(T + 4, { score: 30, ranked: true });
+  await live(T + 5, { score: 90, ranked: false });
+  const s = await standingOf(T + 3, { only: [T + 2, T + 3, T + 4, T + 5] });
+  assert.deepEqual([s.rank, s.total, s.ranked], [2, 3, true]);
+});
+
+test('4.4 at most 25 tracked projects, most recently active first; a tracked one quiet 90 days frees its place', () => {
+  const now = NOW;
+  const ps = Array.from({ length: 30 }, (_, i) => ({ key: `p${i}`, last_active_at: new Date(now.getTime() - i * 86_400_000) }));
+  const first = trackedKeys(ps, now, new Set());
+  assert.equal(first.size, 25);
+  assert.ok(first.has('p0') && !first.has('p29'));
+  const quiet = ps.map((p) => (p.key === 'p0' ? { ...p, last_active_at: new Date(now.getTime() - 91 * 86_400_000) } : p));
+  const next = trackedKeys(quiet, now, first);
+  assert.ok(!next.has('p0') && next.has('p25'));
+});
+
+test('4.5 a refresh reads at most once in 10 minutes; a failed read keeps the last good number', dbTest, async () => {
+  const id = T + 6;
+  await person(id, { login: null, reported: 'lee' });
+  await source(id, { kind: 'site', ref: 'https://keep.example.com', key: 'keep', state: 'proposed', proof: null, by: 'agent' });
+  await reading('https://keep.example.com', { status: 200, up: true }); // yesterday's good reading
+  let reads = 0;
+  const reader = { ...fakeReader(), probe: async () => { reads++; throw new Error('502'); } };
+  await refreshPerson(id, { now: NOW, deadline: Date.now() + 3000, reader });
+  const first = reads;
+  assert.ok(first >= 1);
+  await refreshPerson(id, { now: new Date(NOW.getTime() + 5 * 60_000), deadline: Date.now() + 3000, reader });
+  assert.equal(reads, first);
+  const [p] = await sql()<{ shipped: boolean }[]>`SELECT shipped FROM builder_projects WHERE builder_id = ${id} AND project_key = 'keep'`;
+  assert.equal(p.shipped, true); // the failed read did not replace the last good one
+  await refreshPerson(id, { now: new Date(NOW.getTime() + 11 * 60_000), deadline: Date.now() + 3000, reader });
+  assert.ok(reads > first);
+});
+
+test('4.6 a 30-point jump is held: the public score stays, the new one waits in pending', dbTest, async () => {
+  const id = T + 7;
+  await person(id, {});
+  await live(id, { score: 10, ranked: true });
+  await fakeBigUse(id); // 600 callers across 30 days on an EarnKit-deployed contract
+  const r = await rescorePerson(id, NOW);
+  assert.equal(r.held, true);
+  const [row] = await sql()<{ score: number; pending: { score: number } | null }[]>`SELECT score, pending FROM builder_live WHERE builder_id = ${id}`;
+  assert.equal(row.score, 10);
+  assert.ok(row.pending!.score >= 40);
+});
+
+test('4.7 coin buys count toward Used and the creator fees toward Earned (an EarnKit coin is a ship)', dbTest, async () => {
+  const id = T + 8;
+  await person(id, {});
+  const coin = `0x${hex40(id + 7)}`;
+  const creator = `0x${hex40(id + 8)}`;
+  const key = `lee/coin${id}`;
+  await sql()`
+    INSERT INTO projects (program_id, name, installation_id, coin_address, creator_wallet, repo_key, coin_launched_at)
+    VALUES ('earnkit-coin', 'Tip coin', ${id}, ${coin}, ${creator}, ${key}, ${new Date(NOW.getTime() - 20 * DAY)})`;
+  await sql()`
+    INSERT INTO token_fees (wallet, weth, usd, read_at) VALUES (${creator}, '0', 120, now())
+    ON CONFLICT (wallet) DO UPDATE SET usd = 120`;
+  await source(id, { kind: 'coin', ref: `base:${coin}`, key, state: 'verified', proof: 'earnkit_hosted', by: 'server' });
+  const traders = Array.from({ length: 12 }, (_, i) => ({ id: `wallet:0x${hex40(2_000_000 + i)}`, at: new Date(NOW.getTime() - (i % 6) * DAY).toISOString() }));
+  await reading(`base:${coin}`, { traders, partial: false });
+  const r = await rescorePerson(id, NOW);
+  assert.equal(r.ranked, true);
+  const [l] = await sql()<{ parts: { used: { raw: { U: number } }; earned: { raw: { E: number } }; shipped: { raw: { S: number } } } }[]>`
+    SELECT parts FROM builder_live WHERE builder_id = ${id}`;
+  assert.ok(l.parts.used.raw.U > 0, 'coin buys are people using it');
+  assert.equal(l.parts.earned.raw.E, 120);
+  assert.equal(l.parts.shipped.raw.S, 1, 'the coin and its source are one project');
+  const [p] = await sql()`SELECT kind, has_coin, confirmed, people, money_usd::float AS money FROM builder_projects WHERE builder_id = ${id}`;
+  assert.deepEqual({ ...p }, { kind: 'coin', has_coin: true, confirmed: true, people: 12, money: 120 });
+});
+
+test('4.8 a tagged call marks the project tagged; junk in a reading never makes the score NaN; own wallets never count', dbTest, async () => {
+  const id = T + 9;
+  await person(id, {});
+  const addr = `0x${hex40(id + 3)}`;
+  const own = `0x${hex40(id + 4)}`;
+  await sql()`INSERT INTO person_wallets (wallet, builder_id) VALUES (${own}, ${id}) ON CONFLICT (wallet) DO UPDATE SET builder_id = EXCLUDED.builder_id`;
+  await source(id, { kind: 'contract', ref: `base:${addr}`, key: `lee/tag${id}`, state: 'verified', proof: 'deploy_wallet', by: 'server' });
+  const at = (d: number) => new Date(NOW.getTime() - d * DAY).toISOString();
+  await reading(`base:${addr}`, {
+    callers: [
+      { id: `wallet:0x${hex40(3_000_001)}`, at: at(1), value_usd: 'NaN', codes: ['earnkit'] },
+      { id: `wallet:0x${hex40(3_000_002)}`, at: at(2), value_usd: Infinity, codes: [] },
+      { id: `wallet:0x${hex40(3_000_003)}`, at: at(3), value_usd: 5 },
+      { id: `wallet:${own}`, at: at(1), value_usd: 50 },
+      { id: 42, at: at(1), value_usd: 1 },
+      { id: `wallet:0x${hex40(3_000_004)}`, at: 'yesterday', value_usd: 1 },
+    ],
+    partial: false,
+  });
+  const r = await rescorePerson(id, NOW);
+  assert.ok(Number.isFinite(r.score) && r.score > 0, String(r.score));
+  const [p] = await sql()`SELECT tagged, sends_tx, people, kind FROM builder_projects WHERE builder_id = ${id}`;
+  assert.deepEqual({ ...p }, { tagged: true, sends_tx: true, people: 3, kind: 'contract' });
+});
+
+test('4.9 flag off: a refresh reads and writes nothing', dbTest, async () => {
+  const id = T + 10;
+  await person(id, {});
+  delete process.env.EARNKIT_BUILDER_SCORE;
+  try {
+    let reads = 0;
+    const reader = { ...fakeReader(), probe: async () => (reads++, { status: 200 }) };
+    assert.deepEqual(await refreshPerson(id, { now: NOW, deadline: Date.now() + 3000, reader }), { refreshed: false });
+    assert.equal(reads, 0);
+    assert.equal((await sql()`SELECT 1 FROM builder_live WHERE builder_id = ${id}`).length, 0);
+  } finally {
+    process.env.EARNKIT_BUILDER_SCORE = 'on';
+  }
+});
+
+test('4.10 a refresh with a good read uses it over the daily one; a first refresh is never held against its own claim row', dbTest, async () => {
+  const id = T + 11;
+  await person(id, { login: null });
+  await hosted(id, { slug: `up${id}`, repo_key: `lee/up${id}`, status: 'live' });
+  await fakeBigUse(id);
+  const reader = { ...fakeReader(), baseTxs: async () => ({ items: [], next_page_params: null }), usdPerNative: async () => 2000 };
+  const r = await refreshPerson(id, { now: NOW, deadline: Date.now() + 3000, reader });
+  assert.deepEqual(r, { refreshed: true });
+  const [l] = await sql()<{ score: number; pending: unknown; read_at: Date }[]>`SELECT score, pending, read_at FROM builder_live WHERE builder_id = ${id}`;
+  assert.ok(l.score >= 40, 'the claim row (score 0) is not a previous score: no 30-point hold');
+  assert.equal(l.pending, null);
+  const [live] = await sql()<{ ok: boolean }[]>`SELECT ok FROM source_live WHERE source_id = (SELECT id FROM builder_sources WHERE builder_id = ${id} AND kind = 'contract')`;
+  assert.equal(live.ok, true);
+});
+
+test('4.11 the cron score step: one history row per person per day (formula v2), and a rerun with nothing new scores no one', dbTest, async () => {
+  const id = T + 12;
+  await person(id, {});
+  await hosted(id, { slug: `cr${id}`, repo_key: `lee/cr${id}`, status: 'live' });
+  await scorePeopleV2(NOW, { deadline: Date.now() + 10_000, only: [id] });
+  const [h] = await sql()<{ formula: string; score: number; held: boolean }[]>`SELECT formula, score, held FROM builder_scores WHERE builder_id = ${id} AND day = ${NOW.toISOString().slice(0, 10)}`;
+  assert.deepEqual({ ...h }, { formula: 'v2', score: 10, held: false });
+  assert.deepEqual(await scorePeopleV2(NOW, { deadline: Date.now() + 10_000, only: [id] }), { scored: 0, held: [] });
+});
+
+test('4.12 the owner releasing a held day makes the pending live score public', dbTest, async () => {
+  const id = T + 13;
+  const day = new Date(NOW.getTime() + 2 * DAY);
+  await person(id, {});
+  await live(id, { score: 10, ranked: true });
+  await fakeBigUse(id);
+  const r = await scorePeopleV2(day, { deadline: Date.now() + 10_000, only: [id] });
+  const [before] = await sql()<{ score: number; pending: { score: number } | null }[]>`SELECT score, pending FROM builder_live WHERE builder_id = ${id}`;
+  if (r.scored === 1) assert.deepEqual(r.held, [id]);
+  assert.equal(before.score, 10);
+  const target = before.pending!.score;
+  process.env.ADMIN_VETO_SECRET = 'k'.repeat(40);
+  try {
+    const body = new URLSearchParams({ key: scoresAdminKey()!, builder: String(id), day: day.toISOString().slice(0, 10) });
+    const res = await scoresPost(new Request('https://earnkit.com/api/admin/scores', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body }), { limit: async () => {} });
+    assert.equal(res.status, 303);
+  } finally {
+    delete process.env.ADMIN_VETO_SECRET;
+  }
+  const [after] = await sql()<{ score: number; pending: unknown }[]>`SELECT score, pending FROM builder_live WHERE builder_id = ${id}`;
+  assert.deepEqual({ ...after }, { score: target, pending: null });
+});
+
+test('4.13 a refresh runs discovery when the person is queued, then at most once a day', dbTest, async () => {
+  const id = T + 14;
+  await person(id, {});
+  await sql()`DELETE FROM discovery_queue WHERE builder_id = ${id}`;
+  await sql()`INSERT INTO discovery_queue (builder_id, reason) VALUES (${id}, 'first_find')`;
+  const doneAt = async () => (await sql()<{ done_at: Date | null }[]>`SELECT done_at FROM discovery_queue WHERE builder_id = ${id}`)[0].done_at;
+  try {
+    await refreshPerson(id, { now: NOW, deadline: Date.now() + 3000, reader: fakeReader() });
+    const first = await doneAt();
+    assert.ok(first, 'queued: discovered and marked done');
+    await refreshPerson(id, { now: new Date(NOW.getTime() + 11 * 60_000), deadline: Date.now() + 3000, reader: fakeReader() });
+    assert.equal((await doneAt())!.getTime(), first.getTime(), 'done less than a day ago: not discovered again');
+  } finally {
+    await sql()`DELETE FROM discovery_queue WHERE builder_id = ${id}`;
+  }
+});

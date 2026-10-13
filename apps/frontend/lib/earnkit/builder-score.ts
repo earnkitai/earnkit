@@ -5,6 +5,7 @@ import { sql } from './db';
 import { discover, type LoginOf } from './discovery';
 import { ownPagesSite } from './discovery-clues';
 import { noteEvent } from './events';
+import { scorePeopleV2 } from './person-score'; // person-score imports this file too: functions only, called after load
 import { clearXHandle } from './profiles';
 import { readParams, secretMatches } from './http';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
@@ -15,8 +16,9 @@ import { READ_CAPS, defaultReaderDeps, isoWeek, type ContractSignals, type Packa
 import { vetoKey } from './veto';
 
 /**
- * v2.12 spec 4 to 6: the builder score's cron steps (discover, readSources, scoreBuilders,
- * percentiles, profileEmpty), the review hold, and the owner's release (app/admin/scores).
+ * v2.12 spec 4 to 6: the builder score's cron steps (discover, readSources, score, profileEmpty;
+ * v2.12.1: the score step is person-score.ts scorePeopleV2), the review hold, and the owner's
+ * release (app/admin/scores). scoreBuilders and percentiles (v1) stay until T12 removes them.
  */
 
 /** v2.12 spec 6: the four steps share at most this much of what remains of runCron's budget. */
@@ -212,12 +214,15 @@ export function emptyReason(f: { login: boolean; proposed: number; verified: num
 /** A builder_scores row `s` is public: not held, or held and released (plan R7, R8). One rule for every reader. */
 export const publicRow = () => sql()`(NOT s.held OR EXISTS (SELECT 1 FROM score_releases x WHERE x.builder_id = s.builder_id AND x.day = s.day))`;
 
-/** The person's public score: the latest row not held, or held and released (plan R7, R8). */
+/**
+ * The person's public score: the latest row not held, or held and released (plan R7, R8). v2.12.1:
+ * formula v1 rows only (v2 rows have another `parts` shape); T8 and T11 replace its last callers.
+ */
 export async function publicScore(builderId: number): Promise<{ score: number; percentile: number; day: string; parts: Parts } | null> {
   const [row] = await sql()<{ score: number; percentile: number; day: string; parts: Parts }[]>`
     SELECT s.score, COALESCE(r.percentile, s.percentile) AS percentile, s.day::text AS day, s.parts
     FROM builder_scores s LEFT JOIN builder_ranks r ON r.builder_id = s.builder_id
-    WHERE s.builder_id = ${builderId}
+    WHERE s.builder_id = ${builderId} AND s.formula = 'v1'
       AND ${publicRow()}
     ORDER BY s.day DESC LIMIT 1`;
   return row ?? null;
@@ -436,8 +441,9 @@ export async function heldPeople(only?: number[]): Promise<number[]> {
 export type ScoreCronDeps = { reader?: ReaderDeps; login?: LoginOf; only?: number[] };
 
 /**
- * spec 6: discover, readSources, scoreBuilders, percentiles then profileEmpty, each failing soft,
- * none started after `sliceEnd`. One ReaderDeps for the whole run, so its GitHub budget is shared.
+ * spec 6: discover, readSources, score (v2.12.1: scorePeopleV2, the live score; the rank is read
+ * live, so no percentile pass) then profileEmpty, each failing soft, none started after `sliceEnd`.
+ * One ReaderDeps for the whole run, so its GitHub budget is shared.
  */
 export async function runScoreSteps(now: Date, sliceEnd: number, deps: ScoreCronDeps = {}): Promise<Record<string, unknown>> {
   const reader = deps.reader ?? defaultReaderDeps(now, sliceEnd);
@@ -453,8 +459,7 @@ export async function runScoreSteps(now: Date, sliceEnd: number, deps: ScoreCron
   };
   await step('discover', () => discover(now, { deadline: sliceEnd, reader, login: deps.login, only: deps.only }));
   await step('read', () => readSources(now, { deadline: sliceEnd, reader, only: deps.only }));
-  await step('score', () => scoreBuilders(now, { deadline: sliceEnd, only: deps.only }));
-  await step('ranks', () => percentiles(now));
+  await step('score', () => scorePeopleV2(now, { deadline: sliceEnd, only: deps.only }));
   await step('empty', () => profileEmpty(now, { only: deps.only }));
   return out;
 }
@@ -497,12 +502,19 @@ export async function scoresPost(request: Request, deps: { limit?: (ip: string) 
       INSERT INTO score_releases (builder_id, day)
       SELECT ${id}, ${day}::date WHERE EXISTS (SELECT 1 FROM builder_scores WHERE builder_id = ${id} AND day = ${day}::date AND held)
       ON CONFLICT DO NOTHING RETURNING day`;
-    if (released.length > 0)
+    if (released.length > 0) {
+      // v2.12.1: a held live rescore waiting in pending becomes the public live score.
+      await sql()`
+        UPDATE builder_live SET score = (pending->>'score')::smallint, parts = pending->'parts', ranked = (pending->>'ranked')::boolean,
+          shipped = (pending->>'shipped')::int, people = (pending->>'people')::int, formula = pending->>'formula',
+          calibration = pending->>'calibration', pending = NULL
+        WHERE builder_id = ${id} AND pending IS NOT NULL`;
       await sql()`
         UPDATE builder_profiles SET updated_at = now(), held = EXISTS (
           SELECT 1 FROM builder_scores s WHERE s.builder_id = ${id} AND s.held AND s.day > ${day}::date
             AND NOT EXISTS (SELECT 1 FROM score_releases x WHERE x.builder_id = s.builder_id AND x.day = s.day))
         WHERE builder_id = ${id}`;
+    }
   }
   return new Response(null, { status: 303, headers: { Location: `/admin/scores?key=${encodeURIComponent(key)}` } });
 }

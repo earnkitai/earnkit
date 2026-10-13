@@ -1,0 +1,664 @@
+import { countProject, moneyOf, ringWeights, type ActorFacts, type Touch } from './anti-farming';
+import { holdReason, scoreContext, type ScoreContext } from './builder-score'; // builder-score imports this file too: functions only, called after load
+import { EARNKIT_BUILDER_CODE } from './builder-code';
+import { builderScoreEnabled } from './builder-score-flag';
+import { ScoreDeadline } from './campaigns';
+import { isConfirmedProof } from './confirmed';
+import { sql } from './db';
+import { discoverPerson } from './discovery';
+import { noteEvent } from './events';
+import { REPOS_MAX, readGithubRepos, readPersonGithub, type PersonRepo } from './person-github';
+import type { Standing } from './rank';
+import { countingDeps, flushReadUsage } from './read-usage';
+import { LIVE_CALIBRATION_V2, calibrationV2 } from './score-calibration';
+import { FORMULA_V2, computeScoreV2, type Ship, type UseTouch, type V2Input } from './score-v2';
+import {
+  defaultReaderDeps, isBudgetStop, isoWeek, readCoin, readContract, readNpm, readNpmBulk, readPypi,
+  type ContractSignals, type CoinSignals, type PackageSignals, type ReaderDeps, type RepoSignals, type SiteSignals, type Who,
+} from './source-readers';
+import { previousSignals, withPastWeeks } from './sources';
+
+/**
+ * v2.12.1 spec "Score" and "Scale": each person's live score (formula v2) from confirmed data only,
+ * their projects (shown confirmed or not), their rank, the 25-project cap, the cron's `score` step
+ * and the on-demand refresh (at most once every 10 minutes, inside find's 10-second answer).
+ */
+export const TRACKED_MAX = 25;
+export const REFRESH_MS = 10 * 60_000;
+/** find answers within 10 s (spec 2): the refresh gets 8 s of it; anything slower finishes on the next reply or page view. */
+export const REFRESH_BUDGET_MS = 8_000;
+const QUIET_MS = 90 * 86_400_000;
+const DAY_MS = 86_400_000;
+const YEAR_MS = 365 * DAY_MS;
+const WEEK_MS = 7 * DAY_MS;
+/** Refresh runs discovery for a person at most this often (unless a new clue queued them again). */
+export const REFRESH_DISCOVER_MS = DAY_MS;
+
+export type ProjectRow = {
+  key: string; name: string; what: string | null; link: string | null; kind: 'app' | 'package' | 'contract' | 'coin' | 'code';
+  confirmed: boolean; shipped: boolean; tracked: boolean; people: number; people_week: number; money_usd: number;
+  has_coin: boolean; sends_tx: boolean; tagged: boolean; untracked_contract: string | null; last_active_at: Date | null;
+};
+
+/** spec "Scale": the 25 most recently active projects; a tracked project keeps its place until it is quiet 90 days. Pure. */
+export function trackedKeys(projects: Pick<ProjectRow, 'key' | 'last_active_at'>[], now: Date, prevTracked: ReadonlySet<string>): Set<string> {
+  const active = (p: { last_active_at: Date | null }) => (p.last_active_at && Number.isFinite(p.last_active_at.getTime()) ? p.last_active_at.getTime() : 0);
+  const keep = projects.filter((p) => prevTracked.has(p.key) && now.getTime() - active(p) <= QUIET_MS).sort((a, b) => active(b) - active(a));
+  const out = new Set(keep.slice(0, TRACKED_MAX).map((p) => p.key));
+  for (const p of [...projects].sort((a, b) => active(b) - active(a) || a.key.localeCompare(b.key))) {
+    if (out.size >= TRACKED_MAX) break;
+    out.add(p.key);
+  }
+  return out;
+}
+
+// ---- Readings to inputs ---------------------------------------------------------------------------
+
+type Src = { id: number; kind: string; ref: string; project_key: string; proof: string | null; state: string; created_at: Date };
+/** One good observation of a source: a daily reading (`at` = its day) or the refresh's live one (`at` = read time). */
+type Obs = { at: Date; rank: number; signals: Record<string, unknown> };
+
+const list = <T>(x: unknown): T[] => (Array.isArray(x) ? (x as T[]) : []);
+const fin = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : 0);
+const date = (s: unknown): Date | null => {
+  const t = s instanceof Date ? s.getTime() : typeof s === 'string' ? Date.parse(s) : NaN;
+  return Number.isFinite(t) ? new Date(t) : null;
+};
+const newest = (...ds: (Date | null | undefined)[]): Date | null =>
+  ds.reduce<Date | null>((m, d) => (d && Number.isFinite(d.getTime()) && (!m || d > m) ? d : m), null);
+const WEEK = /^(\d{4})-W(\d{2})$/;
+/** The last moment of an ISO week ('2026-W40'), never after `now`; null for a malformed week. Pure. */
+export function weekEnd(week: string, now: Date): Date | null {
+  const m = WEEK.exec(week);
+  if (!m) return null;
+  const jan4 = Date.UTC(Number(m[1]), 0, 4);
+  const monday1 = jan4 - ((new Date(jan4).getUTCDay() + 6) % 7) * DAY_MS;
+  const end = monday1 + (Number(m[2]) - 1) * WEEK_MS + WEEK_MS - 1;
+  return new Date(Math.min(end, now.getTime()));
+}
+/** A project key: 'github.com/' dropped, lowercase (the grouping key). */
+const lowKey = (k: string) => k.trim().replace(/^(https?:\/\/)?(www\.)?github\.com\//i, '').toLowerCase();
+const hostOf = (k: string) => (URL.canParse(k) ? new URL(k).hostname : null);
+const firstSentence = (s: string) => {
+  const one = s.split(/(?<=[.!?])\s/)[0].trim();
+  return one.length > 60 ? `${one.slice(0, 59).trimEnd()}…` : one;
+};
+const packagePage = (s: Src) =>
+  s.kind === 'package_npm' ? `https://www.npmjs.com/package/${s.ref}` : `https://pypi.org/project/${s.ref.replace(/^pypi:/i, '')}/`;
+
+type IdentityProject = { name?: unknown; what?: unknown; repo?: unknown; live_url?: unknown; package?: unknown; contracts?: unknown };
+
+/**
+ * The person's v2 inputs (confirmed data only) and their projects (everything they have, confirmed
+ * or not, spec S1). `ctx`: everyone's accounts and ring edges (scoreContext), shared across a cron
+ * run; read when absent.
+ */
+export async function personInputsV2(id: number, now: Date, ctx?: ScoreContext): Promise<{ input: V2Input; projects: ProjectRow[]; perSource: Map<number, { users: number; money: number }> }> {
+  const db = sql();
+  const c = ctx ?? (await scoreContext());
+  const yearAgo = new Date(now.getTime() - YEAR_MS);
+  const [profile] = await db<{ login: string | null; reported: string | null; identity: { projects?: unknown } | null }[]>`
+    SELECT lower(github_login) AS login, lower(reported_github) AS reported, identity FROM builder_profiles WHERE builder_id = ${id}`;
+  const members = (await db<{ id: number }[]>`SELECT id FROM installations WHERE COALESCE(builder_id, id) = ${id}`).map((m) => m.id);
+  const group = members.length ? members : [-1];
+  const sources = [...(await db<Src[]>`
+    SELECT id::int AS id, kind, ref, project_key, proof, state, created_at FROM builder_sources
+    WHERE builder_id = ${id} AND state <> 'rejected' AND kind <> 'merged_pr' ORDER BY id`)];
+  const ids = sources.map((s) => s.id);
+  const readings = ids.length === 0 ? [] : await db<{ source_id: number; day: string; at: Date; signals: unknown }[]>`
+    SELECT source_id::int AS source_id, day::text AS day, at, signals FROM source_readings
+    WHERE source_id IN ${db(ids)} AND ok AND day > ${yearAgo} ORDER BY day`;
+  const lives = ids.length === 0 ? [] : await db<{ source_id: number; read_at: Date; signals: unknown }[]>`
+    SELECT source_id::int AS source_id, read_at, signals FROM source_live WHERE source_id IN ${db(ids)} AND ok`;
+  const hosted = await db<{ slug: string; repo_key: string; deployed_at: Date }[]>`
+    SELECT slug, repo_key, deployed_at FROM hosted_sites WHERE installation_id IN ${db(group)} AND status = 'live' ORDER BY slug`;
+  const deploys = await db<{ ref: string; repo_key: string; created_at: Date }[]>`
+    SELECT chain || ':' || lower(address) AS ref, repo_key, created_at FROM contract_deploys
+    WHERE installation_id IN ${db(group)} AND status = 'deployed' AND address IS NOT NULL ORDER BY id`;
+  const coins = await db<{ name: string; coin: string; creator: string | null; repo_key: string | null; launched: Date }[]>`
+    SELECT name, lower(coin_address) AS coin, lower(creator_wallet) AS creator, COALESCE(token_repo_key, repo_key) AS repo_key,
+      COALESCE(coin_launched_at, submitted_at) AS launched
+    FROM projects WHERE installation_id IN ${db(group)} AND coin_address IS NOT NULL ORDER BY id`;
+  const creators = [...new Set(coins.map((x) => x.creator).filter((w): w is string => !!w))];
+  const fees = creators.length === 0 ? [] : await db<{ wallet: string; usd: string }[]>`
+    SELECT lower(wallet) AS wallet, usd::text AS usd FROM token_fees WHERE lower(wallet) IN ${db(creators)}`;
+  const prizes = await db<{ repo_key: string | null; usd: string }[]>`
+    SELECT COALESCE(p.repo_key, p.token_repo_key) AS repo_key, o.prize_usd::text AS usd
+    FROM entry_outcomes o JOIN projects p ON p.id = o.project_id
+    WHERE p.installation_id IN ${db(group)} AND o.basis = 'announcement' AND o.result IN ('won', 'placed', 'finalist') AND o.prize_usd > 0`;
+  const events = await db<{ at: Date; repo_key: string | null }[]>`
+    SELECT at, repo_key FROM builder_events
+    WHERE installation_id IN ${db(group)} AND type IN ('built', 'deployed', 'hosted') AND at > ${yearAgo}`;
+  const wallets = await db<{ wallet: string }[]>`SELECT wallet FROM person_wallets WHERE builder_id = ${id}`;
+
+  // Keys: a source's own project_key wins (builder_projects matches it exactly, sources.ts dueSources).
+  const canon = new Map<string, string>();
+  for (const s of sources) if (!canon.has(lowKey(s.project_key))) canon.set(lowKey(s.project_key), s.project_key);
+  const keyOf = (k: string) => canon.get(lowKey(k)) ?? lowKey(k);
+  const keys = [...new Set([
+    ...sources.map((s) => s.project_key),
+    ...hosted.map((h) => keyOf(h.repo_key)),
+    ...deploys.map((x) => keyOf(x.repo_key)),
+    ...coins.map((x) => (x.repo_key ? keyOf(x.repo_key) : `coin:${x.coin}`)),
+  ])];
+
+  // Observations per source: the newest good one (the refresh's live read only when newer than the daily one), and all of them.
+  const obs = new Map<number, Obs[]>();
+  const push = (sid: number, o: Obs) => obs.set(sid, [...(obs.get(sid) ?? []), o]);
+  for (const r of readings) {
+    const dayAt = new Date(`${r.day}T00:00:00Z`);
+    if (!r.signals || typeof r.signals !== 'object' || !Number.isFinite(dayAt.getTime())) continue;
+    // A reading's own time, or the end of its day when it was stored later (a backfill, a test).
+    const rank = Math.min(r.at instanceof Date ? r.at.getTime() : Infinity, dayAt.getTime() + DAY_MS);
+    push(r.source_id, { at: dayAt, rank, signals: r.signals as Record<string, unknown> });
+  }
+  for (const l of lives) if (l.signals && typeof l.signals === 'object') push(l.source_id, { at: l.read_at, rank: l.read_at.getTime(), signals: l.signals as Record<string, unknown> });
+  const latest = (sid: number): Obs | null => (obs.get(sid) ?? []).reduce<Obs | null>((m, o) => (!m || o.rank > m.rank ? o : m), null);
+  const oldest = (sid: number): Obs | null => (obs.get(sid) ?? []).reduce<Obs | null>((m, o) => (!m || o.rank < m.rank ? o : m), null);
+
+  const identity = list<IdentityProject>(profile?.identity?.projects);
+  const named = (key: string) => {
+    const k = lowKey(key);
+    return identity.find((p) => [p.repo, p.live_url, p.package, ...list<unknown>(p.contracts)].some((v) => typeof v === 'string' && lowKey(v) === k));
+  };
+
+  // Self: every account of the person's group, their proven wallets, their proven and reported logins.
+  const self = new Set(c.owners.filter((r) => r.builder_id === id).map((r) => r.actor));
+  for (const l of [profile?.login, profile?.reported]) if (l) self.add(`gh:${l}`);
+  for (const w of wallets) self.add(`wallet:${w.wallet.toLowerCase()}`);
+  const ring = ringWeights(c.edges, id, c.owner);
+  const confirmedSrc = (s: Src) => s.state === 'verified' && isConfirmedProof(s.proof);
+  const cal = calibrationV2();
+
+  const input: V2Input = { ships: [], touches: [], packages: [], earned: [], weeks: [] };
+  const perSource = new Map<number, { users: number; money: number }>();
+  const rows: (Omit<ProjectRow, 'tracked' | 'people' | 'money_usd'> & { scored: boolean })[] = [];
+  const addWeek = (at: Date | null) => {
+    if (!at || !Number.isFinite(at.getTime()) || now.getTime() - at.getTime() > YEAR_MS) return;
+    input.weeks.push({ week: isoWeek(at), at });
+  };
+  const usedCreator = new Set<string>();
+  const peopleWeek = new Map<string, number>();
+
+  for (const key of keys) {
+    const low = lowKey(key);
+    const srcs = sources.filter((s) => lowKey(s.project_key) === low);
+    const hostedHere = hosted.filter((h) => lowKey(h.repo_key) === low);
+    const deploysHere = deploys.filter((x) => lowKey(x.repo_key) === low);
+    const coinsHere = coins.filter((x) => (x.repo_key ? lowKey(x.repo_key) === low : `coin:${x.coin}` === key));
+    const confirmedRepo = srcs.some((s) => s.kind === 'repo' && confirmedSrc(s));
+    const confirmed = srcs.some(confirmedSrc) || hostedHere.length > 0 || deploysHere.length > 0 || coinsHere.length > 0;
+    const touches: Touch[] = [];
+    const kinds = new Map<Touch, UseTouch['kind']>();
+    const facts = new Map<string, ActorFacts>();
+    const projSelf = new Set(self);
+    const firstSource = new Map<string, { sid: number; at: number }>();
+    const rawVolume = new Map<number, number>();
+    const add = (sid: number, kind: Touch['kind'], use: UseTouch['kind'], w: Who | undefined, money = 0) => {
+      const at = date(w?.at);
+      if (typeof w?.id !== 'string' || !at) return;
+      const actor = w.id.toLowerCase();
+      const t: Touch = { project: key, actor, kind, at, volume_usd: fin(money) };
+      touches.push(t);
+      kinds.set(t, use);
+      if (w.created_at !== undefined) facts.set(actor, { ...facts.get(actor), created_at: w.created_at ? date(w.created_at) : null });
+      const f = firstSource.get(actor);
+      if (!f || at.getTime() < f.at) firstSource.set(actor, { sid, at: at.getTime() });
+      rawVolume.set(sid, (rawVolume.get(sid) ?? 0) + fin(money));
+    };
+
+    let shipped = hostedHere.length > 0 || deploysHere.length > 0 || coinsHere.length > 0;
+    let liveSite: string | null = null;
+    let pkgLink: string | null = null;
+    let description: string | null = null;
+    let lastActive: Date | null = newest(
+      ...hostedHere.map((h) => h.deployed_at), ...deploysHere.map((x) => x.created_at), ...coinsHere.map((x) => x.launched),
+    );
+    let untracked: string | null = null;
+    let hasSite = false;
+    let hasContract = deploysHere.length > 0;
+    let hasPackage = false;
+    let hasCoinSource = false;
+    const ships: Ship[] = [];
+    for (const h of hostedHere) ships.push({ key, at: h.deployed_at, alive_at: now });
+    for (const x of deploysHere) ships.push({ key, at: x.created_at, alive_at: null });
+    for (const x of coinsHere) ships.push({ key, at: x.launched, alive_at: null });
+
+    for (const s of srcs) {
+      const scored = confirmedSrc(s);
+      const last = latest(s.id);
+      if (s.kind === 'repo') {
+        const g = (last?.signals ?? {}) as Partial<RepoSignals & PersonRepo>;
+        if (typeof g.description === 'string' && g.description.trim()) description ??= g.description.trim();
+        lastActive = newest(lastActive, date(g.pushed_at));
+        if (!scored || !last) continue;
+        // Members of their own org never count: every contributor of an org repo is self.
+        if (g.owner_type === 'Organization') for (const w of list<Who>(g.contributors)) if (typeof w?.id === 'string') projSelf.add(w.id.toLowerCase());
+        for (const w of list<Who>(g.stargazers)) add(s.id, 'stargazer', 'star', w);
+        for (const w of list<Who>(g.forkers)) add(s.id, 'forker', 'fork', w);
+        for (const wk of list<unknown>(g.commit_weeks)) if (typeof wk === 'string') addWeek(weekEnd(wk, now));
+      } else if (s.kind === 'site') {
+        hasSite = true;
+        const up = last && (last.signals as Partial<SiteSignals>).up === true;
+        if (up) {
+          shipped = true;
+          liveSite ??= s.ref;
+          lastActive = newest(lastActive, last.at);
+          // A site is a ship only on a project with a confirmed repo (spec: "Repos with a live homepage").
+          if (scored && confirmedRepo) {
+            const firstUp = (obs.get(s.id) ?? []).filter((o) => (o.signals as Partial<SiteSignals>).up === true).reduce((m, o) => (o.at < m ? o.at : m), last.at);
+            ships.push({ key, at: firstUp, alive_at: last.at });
+          }
+        }
+      } else if (s.kind === 'package_npm' || s.kind === 'package_pypi') {
+        hasPackage = true;
+        pkgLink ??= packagePage(s);
+        const weekly = fin((last?.signals as Partial<PackageSignals> | undefined)?.weekly);
+        if (weekly > 0) {
+          shipped = true;
+          lastActive = newest(lastActive, last!.at);
+        }
+        if (scored && last) {
+          ships.push({ key, at: oldest(s.id)!.at, alive_at: weekly > 0 ? last.at : null });
+          const credit = Math.min(cal.package_users, weekly / 50);
+          input.packages.push({ project: key, users: credit, at: last.at });
+          perSource.set(s.id, { users: credit, money: 0 });
+        }
+      } else if (s.kind === 'contract' || s.kind === 'coin') {
+        const isCoin = s.kind === 'coin';
+        if (isCoin) hasCoinSource = true;
+        else hasContract = true;
+        shipped = true;
+        if (!isCoin && s.state === 'proposed') {
+          const first = oldest(s.id);
+          if (first && list((first.signals as Partial<ContractSignals>).callers).length > 0) untracked ??= s.ref;
+        }
+        if (!scored) continue;
+        // Calls and buys accumulate over a year of readings (each overlaps the last read day): each once.
+        const seen = new Set<string>();
+        let newestCall: Date | null = null;
+        for (const o of obs.get(s.id) ?? []) {
+          const who = isCoin ? list<Who>((o.signals as Partial<CoinSignals>).traders) : list<ContractSignals['callers'][number]>((o.signals as Partial<ContractSignals>).callers);
+          for (const w of who) {
+            const v = isCoin ? 0 : fin((w as ContractSignals['callers'][number]).value_usd);
+            const once = `${w?.id}|${w?.at}|${v}`;
+            if (seen.has(once)) continue;
+            seen.add(once);
+            const codes = isCoin ? [] : list<unknown>((w as ContractSignals['callers'][number]).codes);
+            // Trades are onchain use like calls (the spread rule applies to both).
+            add(s.id, 'caller', isCoin ? 'trader' : codes.includes(EARNKIT_BUILDER_CODE) ? 'tagged' : 'caller', w, v);
+            newestCall = newest(newestCall, date(w?.at));
+            if (!isCoin && typeof w?.id === 'string') {
+              const ftx = (w as ContractSignals['callers'][number]).first_tx_at;
+              facts.set(w.id.toLowerCase(), { ...facts.get(w.id.toLowerCase()), first_tx_at: ftx ? date(ftx) : null });
+            }
+          }
+        }
+        lastActive = newest(lastActive, newestCall);
+        const made = isCoin ? coinsHere[0]?.launched : deploysHere[0]?.created_at;
+        ships.push({ key, at: made ?? oldest(s.id)?.at ?? s.created_at, alive_at: newestCall });
+      }
+    }
+    // The newest call or buy keeps a deploy or a coin alive.
+    const usedAt = newest(...touches.filter((t) => t.kind === 'caller').map((t) => t.at));
+    for (const sh of ships) if (sh.alive_at === null && usedAt) sh.alive_at = usedAt;
+    input.ships.push(...ships);
+
+    // Use: every touch through anti-farming; each counted account's newest touch per kind.
+    const counted = countProject(key, touches, { self: projSelf, actors: facts, ...ring });
+    const best = new Map<string, UseTouch>();
+    let tagged = false;
+    const recent = new Set<string>();
+    for (const t of touches) {
+      const w = counted.actors.get(t.actor) ?? 0;
+      if (!(w > 0)) continue;
+      const kind = kinds.get(t)!;
+      const k = `${t.actor}\u0000${kind}`;
+      const b = best.get(k);
+      if (!b || b.at < t.at) best.set(k, { project: key, actor: t.actor, at: t.at, weight: w, kind });
+      if (kind === 'tagged') tagged = true;
+      if (kind !== 'star' && kind !== 'fork') {
+        addWeek(t.at);
+        if (now.getTime() - t.at.getTime() <= WEEK_MS && t.at <= now) recent.add(t.actor);
+      }
+    }
+    input.touches.push(...best.values());
+    peopleWeek.set(key, recent.size);
+    lastActive = newest(lastActive, ...[...best.values()].map((t) => t.at));
+    // Fees into their contracts: 1% of counted callers' value (v2.12 R10), split by each source's raw volume.
+    const money = moneyOf(counted);
+    if (money > 0) input.earned.push({ project: key, usd: money, kind: 'contract_fees' });
+    const volume = [...rawVolume.values()].reduce((n, x) => n + x, 0);
+    for (const sid of rawVolume.keys()) perSource.set(sid, { users: 0, money: volume > 0 ? (money * rawVolume.get(sid)!) / volume : 0 });
+    // Users per source (the hold's one-source rule): real use only, credited where it was first seen.
+    const users = new Set(touches.filter((t) => kinds.get(t) !== 'star' && kinds.get(t) !== 'fork').map((t) => t.actor));
+    for (const [actor, f] of firstSource) if (users.has(actor)) perSource.get(f.sid)!.users += counted.actors.get(actor) ?? 0;
+    // Coin creator fees, each creator wallet once.
+    for (const x of coinsHere) {
+      if (!x.creator || usedCreator.has(x.creator)) continue;
+      usedCreator.add(x.creator);
+      const usd = fin(Number(fees.find((f) => f.wallet === x.creator)?.usd));
+      if (usd > 0) input.earned.push({ project: key, usd, kind: 'coin_fees' });
+    }
+    for (const p of prizes) if (p.repo_key && lowKey(p.repo_key) === low) input.earned.push({ project: key, usd: fin(Number(p.usd)), kind: 'prize' });
+
+    const ident = named(key);
+    const repoName = /^[^/:\s]+\/[^/\s]+$/.test(key) ? key.split('/')[1] : null;
+    const identName = typeof ident?.name === 'string' && ident.name.trim() ? ident.name.trim().slice(0, 60) : null;
+    const identWhat = typeof ident?.what === 'string' && ident.what.trim() ? ident.what.trim().slice(0, 120) : null;
+    const slug = hostedHere[0]?.slug;
+    rows.push({
+      key,
+      name: identName ?? repoName ?? hostOf(key) ?? (slug ? slug : null) ?? coinsHere[0]?.name ?? key,
+      what: identWhat ?? (description ? firstSentence(description) : null),
+      link: slug ? `https://${slug}.earnkit.com` : liveSite ?? pkgLink,
+      kind: slug || hasSite ? 'app' : hasContract ? 'contract' : hasPackage ? 'package' : coinsHere.length || hasCoinSource ? 'coin' : 'code',
+      confirmed, shipped, scored: confirmed,
+      people_week: confirmed ? peopleWeek.get(key) ?? 0 : 0,
+      has_coin: coinsHere.length > 0 || hasCoinSource,
+      sends_tx: hasContract,
+      tagged: confirmed && tagged,
+      untracked_contract: untracked,
+      last_active_at: lastActive ?? newest(...srcs.map((s) => s.created_at)),
+    });
+  }
+  // EarnKit's own events (built, deployed, hosted) mark their weeks.
+  for (const e of events) addWeek(e.at);
+
+  const scored = computeScoreV2(input, cal, now);
+  const projects: ProjectRow[] = rows.map(({ scored: isScored, ...r }) => {
+    const p = scored.perProject.get(r.key);
+    return { ...r, tracked: true, people: isScored ? Math.round(p?.people ?? 0) : 0, money_usd: isScored ? Math.round(100 * (p?.usd ?? 0)) / 100 : 0 };
+  });
+  return { input, projects, perSource };
+}
+
+// ---- Live score, rank, refresh ---------------------------------------------------------------------
+
+/**
+ * Rescore one person now: the live row (or, on a held jump, its `pending`), their projects with
+ * the 25-project cap. A first row the refresh claimed (parts '{}') is not a previous score.
+ */
+export async function rescorePerson(id: number, now: Date, ctx?: ScoreContext): Promise<{ score: number; ranked: boolean; held: boolean }> {
+  const cal = calibrationV2();
+  const { input, projects, perSource } = await personInputsV2(id, now, ctx);
+  const s = computeScoreV2(input, cal, now);
+  const prevTracked = new Set((await sql()<{ project_key: string }[]>`
+    SELECT project_key FROM builder_projects WHERE builder_id = ${id} AND tracked`).map((r) => r.project_key));
+  const tracked = trackedKeys(projects, now, prevTracked);
+  const [row0] = await sql()<{ score: number; blank: boolean }[]>`SELECT score, parts = '{}'::jsonb AS blank FROM builder_live WHERE builder_id = ${id}`;
+  const prev = row0 && !row0.blank ? row0 : undefined;
+  const U = s.parts.used.raw.U;
+  const shares = [...perSource.values()].map((x) => (U > 0 ? x.users / U : 0));
+  const reason = holdReason(prev?.score ?? null, s.score, shares);
+  const held = Boolean(reason && prev);
+  const people = [...s.perProject.values()].filter((p) => p.people > 0).length;
+  const row = { score: s.score, parts: s.parts, ranked: s.ranked, shipped: s.shipped, people, formula: FORMULA_V2, calibration: cal.id };
+  await sql().begin(async (tx) => {
+    if (held) {
+      await tx`UPDATE builder_live SET pending = ${tx.json(row as never)}, computed_at = ${now} WHERE builder_id = ${id}`;
+      await tx`UPDATE builder_profiles SET held = true, updated_at = now() WHERE builder_id = ${id}`;
+    } else {
+      await tx`
+        INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, pending, computed_at)
+        VALUES (${id}, ${s.score}, ${tx.json(s.parts as never)}, ${s.ranked}, ${s.shipped}, ${people}, ${FORMULA_V2}, ${cal.id}, NULL, ${now})
+        ON CONFLICT (builder_id) DO UPDATE SET score = EXCLUDED.score, parts = EXCLUDED.parts, ranked = EXCLUDED.ranked,
+          shipped = EXCLUDED.shipped, people = EXCLUDED.people, formula = EXCLUDED.formula, calibration = EXCLUDED.calibration,
+          pending = NULL, computed_at = EXCLUDED.computed_at`;
+      await tx`UPDATE builder_profiles SET held = false, updated_at = now() WHERE builder_id = ${id} AND held`;
+    }
+    await tx`DELETE FROM builder_projects WHERE builder_id = ${id} AND NOT (project_key = ANY(${projects.map((p) => p.key)}::text[]))`;
+    for (const p of projects)
+      await tx`
+        INSERT INTO builder_projects ${tx({
+          builder_id: id, project_key: p.key, name: p.name, what: p.what, link: p.link, kind: p.kind,
+          confirmed: p.confirmed, shipped: p.shipped, tracked: tracked.has(p.key), people: p.people, people_week: p.people_week,
+          money_usd: p.money_usd, has_coin: p.has_coin, sends_tx: p.sends_tx, tagged: p.tagged,
+          untracked_contract: p.untracked_contract, last_active_at: p.last_active_at, updated_at: now,
+        })}
+        ON CONFLICT (builder_id, project_key) DO UPDATE SET name = EXCLUDED.name, what = EXCLUDED.what, link = EXCLUDED.link,
+          kind = EXCLUDED.kind, confirmed = EXCLUDED.confirmed, shipped = EXCLUDED.shipped, tracked = EXCLUDED.tracked,
+          people = EXCLUDED.people, people_week = EXCLUDED.people_week, money_usd = EXCLUDED.money_usd, has_coin = EXCLUDED.has_coin,
+          sends_tx = EXCLUDED.sends_tx, tagged = EXCLUDED.tagged, untracked_contract = EXCLUDED.untracked_contract,
+          last_active_at = EXCLUDED.last_active_at, updated_at = EXCLUDED.updated_at`;
+  });
+  if (held)
+    await noteEvent('score_held', () => ({
+      type: 'score_held', dedupe_key: `score_held:${id}:${now.toISOString().slice(0, 13)}`, installation_id: id,
+      detail: { reason, score: s.score, previous: prev!.score },
+    }));
+  return { score: held ? prev!.score : s.score, ranked: s.ranked, held };
+}
+
+/**
+ * Where the person stands: their public live score and rank among ranked people (1 + those with a
+ * higher score; ties share a number). Only people with a profile count. `only` limits it (tests).
+ */
+export async function standingOf(id: number, o: { only?: number[] } = {}): Promise<Standing & { score: number; shipped: number; people: number; claimed: boolean; handle: string | null }> {
+  const db = sql();
+  const among = o.only ? db`AND o.builder_id IN ${db(o.only.length ? o.only : [-1])}` : db``;
+  const counted = db`o.ranked AND EXISTS (SELECT 1 FROM builder_profiles q WHERE q.builder_id = o.builder_id) ${among}`;
+  const [row] = await db<{ score: number; ranked: boolean; shipped: number; people: number; claimed: boolean; handle: string | null; total: number; rank: number }[]>`
+    SELECT l.score, l.ranked, l.shipped, l.people, p.x_user_id IS NOT NULL AS claimed, p.x_handle AS handle,
+      (SELECT count(*)::int FROM builder_live o WHERE ${counted}) AS total,
+      CASE WHEN l.ranked THEN 1 + (SELECT count(*)::int FROM builder_live o WHERE ${counted} AND o.score > l.score) ELSE 0 END AS rank
+    FROM builder_live l JOIN builder_profiles p USING (builder_id) WHERE l.builder_id = ${id}`;
+  if (row) return { ...row };
+  const [p] = await db<{ claimed: boolean; handle: string | null }[]>`
+    SELECT x_user_id IS NOT NULL AS claimed, x_handle AS handle FROM builder_profiles WHERE builder_id = ${id}`;
+  const [{ total }] = await db<{ total: number }[]>`SELECT count(*)::int AS total FROM builder_live o WHERE ${counted}`;
+  return { ranked: false, rank: 0, total, score: 0, shipped: 0, people: 0, claimed: p?.claimed ?? false, handle: p?.handle ?? null };
+}
+
+/**
+ * spec "Fresh within minutes for the person asking": re-read the person's sources and rescore, at
+ * most once every REFRESH_MS (claimed atomically, so two finds at once read once). Never throws on a
+ * read: nothing is retried and the page keeps the last good number.
+ */
+export async function refreshPerson(id: number, o: { now: Date; deadline: number; reader?: ReaderDeps }): Promise<{ refreshed: boolean }> {
+  if (!builderScoreEnabled()) return { refreshed: false };
+  const [claimed] = await sql()`
+    INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at, read_at)
+    VALUES (${id}, 0, '{}'::jsonb, false, 0, 0, ${FORMULA_V2}, ${LIVE_CALIBRATION_V2}, ${o.now}, ${o.now})
+    ON CONFLICT (builder_id) DO UPDATE SET read_at = EXCLUDED.read_at
+      WHERE builder_live.read_at IS NULL OR builder_live.read_at <= ${new Date(o.now.getTime() - REFRESH_MS)}
+    RETURNING 1`;
+  if (!claimed) return { refreshed: false };
+  const { deps, counts, stop } = countingDeps(o.reader ?? defaultReaderDeps(o.now, o.deadline));
+  try {
+    // spec "Skip, don't chase": each step fails on its own, so a discovery error never stops the
+    // person's own sources being read.
+    for (const [step, run] of [
+      ['discover', () => refreshDiscovery(id, o.now, { deadline: o.deadline, reader: deps })],
+      ['read', () => readPersonLive(id, o.now, { deadline: o.deadline, reader: deps })],
+    ] as const) {
+      if (Date.now() >= o.deadline) break;
+      try {
+        await run();
+      } catch (err) {
+        console.error(`[refresh] ${step}`, err instanceof Error ? err.name : 'error');
+      }
+    }
+  } finally {
+    stop();
+    await flushReadUsage(o.now.toISOString().slice(0, 10), counts);
+  }
+  if (Date.now() < o.deadline + 1_000) await rescorePerson(id, o.now);
+  await noteEvent('refreshed', () => ({ type: 'refreshed', dedupe_key: `refreshed:${id}:${o.now.toISOString().slice(0, 15)}`, installation_id: id }));
+  return { refreshed: true };
+}
+
+/** Discovery inside a refresh: when a clue queued the person, else at most once a REFRESH_DISCOVER_MS (cost). */
+async function refreshDiscovery(id: number, now: Date, o: { deadline: number; reader: ReaderDeps }): Promise<void> {
+  const [q] = await sql()<{ done_at: Date | null }[]>`SELECT done_at FROM discovery_queue WHERE builder_id = ${id}`;
+  if (q?.done_at && now.getTime() - q.done_at.getTime() < REFRESH_DISCOVER_MS) return;
+  await discoverPerson(id, o);
+}
+
+type LiveDue = { id: number; builder_id: number; kind: string; ref: string; state: string; last_read_day: string | null };
+const LOGIN = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}$/;
+
+/**
+ * The refresh's reads: every tracked source of the person not read in the last REFRESH_MS (verified
+ * ones, plus the agent's proposed repos, sites and packages for display; contracts and coins only
+ * when verified). One GraphQL query for their repos (others by name), one npm bulk call, one
+ * Blockscout walk per contract or coin since its last daily read, one request per site. Each answer
+ * goes to source_live (never source_readings: the daily history stays the cron's); a failure is
+ * `ok = false` and is not retried. A spent GitHub budget writes nothing; the deadline stops the reads.
+ */
+export async function readPersonLive(id: number, now: Date, o: { deadline: number; reader: ReaderDeps }): Promise<{ read: number; failed: number }> {
+  const db = sql();
+  const due = await db<LiveDue[]>`
+    SELECT b.id::int AS id, b.builder_id, b.kind, b.ref, b.state, b.last_read_day::text AS last_read_day
+    FROM builder_sources b LEFT JOIN source_live l ON l.source_id = b.id
+    WHERE b.builder_id = ${id}
+      AND ((b.state = 'verified' AND b.kind <> 'merged_pr') OR (b.state = 'proposed' AND b.kind IN ('repo', 'site', 'package_npm', 'package_pypi')))
+      AND (l.read_at IS NULL OR l.read_at <= ${new Date(now.getTime() - REFRESH_MS)})
+      AND NOT EXISTS (SELECT 1 FROM builder_projects p WHERE p.builder_id = b.builder_id AND p.project_key = b.project_key AND NOT p.tracked)
+    ORDER BY b.id`;
+  let read = 0;
+  let failed = 0;
+  const put = async (s: LiveDue, r: { ok: true; signals: unknown } | { ok: false }) => {
+    if (r.ok) {
+      read++;
+      await db`
+        INSERT INTO source_live (source_id, signals, ok, read_at) VALUES (${s.id}, ${db.json(r.signals as never)}, true, ${now})
+        ON CONFLICT (source_id) DO UPDATE SET signals = EXCLUDED.signals, ok = true, read_at = EXCLUDED.read_at`;
+    } else {
+      failed++;
+      // The last good live answer's signals stay in the row, unused (only ok rows are read).
+      await db`
+        INSERT INTO source_live (source_id, signals, ok, read_at) VALUES (${s.id}, '{}'::jsonb, false, ${now})
+        ON CONFLICT (source_id) DO UPDATE SET ok = false, read_at = EXCLUDED.read_at`;
+    }
+  };
+  /** One read for `group`; false when the deadline cut it (stop). A spent budget writes nothing. */
+  const attempt = async (group: LiveDue[], run: () => Promise<void>): Promise<boolean> => {
+    if (Date.now() >= o.deadline) return false;
+    try {
+      await run();
+    } catch (err) {
+      if (err instanceof ScoreDeadline) return false;
+      if (isBudgetStop(err)) return true;
+      for (const s of group) await put(s, { ok: false });
+    }
+    return true;
+  };
+  const since = (s: LiveDue) => (s.last_read_day ? new Date(`${s.last_read_day}T00:00:00Z`) : new Date(now.getTime() - YEAR_MS));
+  const done = () => ({ read, failed });
+
+  // Repos: the person's own under their login in one query, the rest by name (REPOS_MAX a call).
+  const repos = due.filter((s) => s.kind === 'repo');
+  if (repos.length > 0) {
+    const [p] = await db<{ login: string | null; reported: string | null }[]>`
+      SELECT lower(github_login) AS login, lower(reported_github) AS reported FROM builder_profiles WHERE builder_id = ${id}`;
+    const login = [p?.login, p?.reported].find((l): l is string => typeof l === 'string' && LOGIN.test(l)) ?? null;
+    const found = new Map<string, PersonRepo>();
+    const asked = new Set<number>();
+    const mine = login ? repos.filter((s) => s.ref.toLowerCase().split('/')[0] === login) : [];
+    if (mine.length > 0) {
+      const go = await attempt(mine, async () => {
+        for (const [k, r] of (await readPersonGithub(login!, o.reader))?.repos ?? []) found.set(k, r);
+        for (const s of mine) asked.add(s.id);
+      });
+      if (!go) return done();
+    }
+    const rest = repos.filter((s) => !found.has(s.ref.toLowerCase()));
+    for (let i = 0; i < rest.length; i += REPOS_MAX) {
+      const batch = rest.slice(i, i + REPOS_MAX);
+      const go = await attempt(batch, async () => {
+        for (const [k, r] of await readGithubRepos(batch.map((s) => s.ref), o.reader)) found.set(k, r);
+        for (const s of batch) asked.add(s.id);
+      });
+      if (!go) return done();
+    }
+    for (const s of repos) {
+      if (!asked.has(s.id)) continue; // a spent budget or a failed call (already written)
+      const r = found.get(s.ref.toLowerCase());
+      if (!r) {
+        await put(s, { ok: false });
+        continue;
+      }
+      const prev = (await previousSignals(s.id)) as Partial<RepoSignals> | null;
+      // An organization's contributors (the top-contributor rule) come from the daily read.
+      const contributors = r.owner_type === 'Organization' ? list<Who>(prev?.contributors) : r.contributors;
+      await put(s, { ok: true, signals: { ...r, contributors, commit_weeks: withPastWeeks(r.commit_weeks, prev, now) } });
+    }
+  }
+
+  // Unscoped npm packages in one bulk call; scoped ones and PyPI one at a time.
+  const bulk = due.filter((s) => s.kind === 'package_npm' && !s.ref.startsWith('@'));
+  if (bulk.length > 0) {
+    const go = await attempt(bulk, async () => {
+      const weekly = await readNpmBulk(bulk.map((s) => s.ref), o.reader);
+      for (const s of bulk) {
+        const n = weekly.get(s.ref);
+        await put(s, typeof n === 'number' ? { ok: true, signals: { weekly: n, repo_url: null } satisfies PackageSignals } : { ok: false });
+      }
+    });
+    if (!go) return done();
+  }
+  for (const s of due.filter((x) => x.kind !== 'repo' && !bulk.includes(x))) {
+    const go = await attempt([s], async () => {
+      switch (s.kind) {
+        case 'site': {
+          // A thrown probe is a failed read here (the last good reading stays), not a down site.
+          const { status } = await o.reader.probe(s.ref);
+          const n = typeof status === 'number' && Number.isFinite(status) ? status : 0;
+          return put(s, { ok: true, signals: { status: n, up: n >= 200 && n < 300 } satisfies SiteSignals });
+        }
+        case 'package_npm':
+          return put(s, { ok: true, signals: await readNpm(s.ref, o.reader) });
+        case 'package_pypi':
+          return put(s, { ok: true, signals: await readPypi(s.ref, o.reader) });
+        case 'contract':
+          return put(s, { ok: true, signals: await readContract(s.ref, since(s), o.reader) });
+        case 'coin': {
+          const wallets = await db<{ wallet: string }[]>`SELECT wallet FROM person_wallets WHERE builder_id = ${s.builder_id}`;
+          return put(s, { ok: true, signals: await readCoin(s.ref, since(s), o.reader, new Set(wallets.map((w) => `wallet:${w.wallet}`))) });
+        }
+        default:
+          throw new Error('unknown source kind');
+      }
+    });
+    if (!go) break;
+  }
+  return done();
+}
+
+/**
+ * The cron's `score` step: everyone with a new reading since their last live score, plus everyone
+ * not yet scored today (UTC), never a shared client; rescored while `deadline` allows, then one
+ * history row per person per day (the public score; `held` when a rescore waits in pending).
+ */
+export async function scorePeopleV2(now: Date, o: { deadline: number; only?: number[] }): Promise<{ scored: number; held: number[] }> {
+  const db = sql();
+  const day = now.toISOString().slice(0, 10);
+  const due = await db<{ builder_id: number }[]>`
+    SELECT p.builder_id FROM builder_profiles p LEFT JOIN builder_live l USING (builder_id)
+    WHERE NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND i.shared_client)
+      AND (NOT EXISTS (SELECT 1 FROM builder_scores s WHERE s.builder_id = p.builder_id AND s.day = ${day})
+        OR EXISTS (SELECT 1 FROM builder_sources b JOIN source_readings r ON r.source_id = b.id
+          WHERE b.builder_id = p.builder_id AND r.at > COALESCE(l.computed_at, '-infinity'::timestamptz)))
+      ${o.only ? db`AND p.builder_id IN ${db(o.only.length ? o.only : [-1])}` : db``}
+    ORDER BY p.builder_id`;
+  if (due.length === 0) return { scored: 0, held: [] };
+  const ctx = await scoreContext();
+  let scored = 0;
+  const held: number[] = [];
+  for (const { builder_id: id } of due) {
+    if (Date.now() >= o.deadline) break;
+    const r = await rescorePerson(id, now, ctx);
+    scored++;
+    if (r.held) held.push(id);
+    const [row] = await db<{ score: number }[]>`
+      INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held, projects)
+      SELECT builder_id, ${day}, score, 0, parts, '{}'::jsonb, formula, calibration, pending IS NOT NULL, NULL FROM builder_live
+      WHERE builder_id = ${id} ON CONFLICT (builder_id, day) DO NOTHING RETURNING score`;
+    if (row)
+      await noteEvent('score_computed', () => ({
+        type: 'score_computed', dedupe_key: `score:${id}:${day}`, installation_id: id, detail: { score: row.score, calibration: LIVE_CALIBRATION_V2 },
+      }));
+  }
+  return { scored, held };
+}

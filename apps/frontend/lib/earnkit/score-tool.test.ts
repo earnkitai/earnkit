@@ -207,7 +207,7 @@ test('8.11 a repo-linked site gets its earnkit.txt line; a program on the top pr
   assert.equal((r.show_to_builder.match(/\?/g) ?? []).length, 1);
 });
 
-test('8.12 discovery proves a repo-linked site once its earnkit.txt names the person; the Pages site is never re-read', dbTest, async () => {
+test('8.12 (v2.12.1 S9) discovery no longer reads earnkit.txt: a repo-linked site keeps its repo_link proof', dbTest, async () => {
   const id = T + 5;
   await profile(id);
   await source(id, 'site', 'https://app.lee.dev', 'verified', 'repo_link', `lee${T}/app`);
@@ -226,10 +226,10 @@ test('8.12 discovery proves a repo-linked site once its earnkit.txt names the pe
     },
   };
   await withEnv({ EARNKIT_AUTH_SECRET: SECRET }, () => discover(NOW, { deadline: Date.now() + 30_000, reader, login: async () => null, only: [id] }));
-  assert.deepEqual(read, ['https://app.lee.dev/earnkit.txt']);
+  assert.deepEqual(read, []);
   const rows = await sql()<{ ref: string; proof: string }[]>`SELECT ref, proof FROM builder_sources WHERE builder_id = ${id} ORDER BY id`;
-  assert.deepEqual(rows.map((r) => r.proof), ['earnkit_txt', 'repo_link']);
-  assert.equal(siteShowsUse({ ...rows[0], project_key: `lee${T}/app` }), true);
+  assert.deepEqual(rows.map((r) => r.proof), ['repo_link', 'repo_link']);
+  assert.equal(siteShowsUse({ ...rows[0], project_key: `lee${T}/app` }), false);
 });
 
 test('8.13 a public score that fell to 0 gets its fill step, not the review line; a newer held score adds the review line', dbTest, async () => {
@@ -247,7 +247,7 @@ test('8.13 a public score that fell to 0 gets its fill step, not the review line
   assert.doesNotMatch(held.show_to_builder, /\b50\b/);
 });
 
-test('8.14 a new proposed site is never crowded out by unproven linked sites: discovery reads it and the score tool offers its line first', dbTest, async () => {
+test('8.14 a new proposed site is never crowded out by unproven linked sites: the score tool offers its line first (v2.12.1 S9: discovery reads no earnkit.txt)', dbTest, async () => {
   const id = T + 7;
   await profile(id);
   for (let i = 0; i < 5; i++) await source(id, 'site', `https://l${i}.lee.dev`, 'verified', 'repo_link', `lee${T}/app`);
@@ -266,8 +266,7 @@ test('8.14 a new proposed site is never crowded out by unproven linked sites: di
     },
   };
   await withEnv({ EARNKIT_AUTH_SECRET: SECRET }, () => discover(NOW, { deadline: Date.now() + 30_000, reader, login: async () => null, only: [id] }));
-  assert.equal(read[0], 'https://new.lee.dev/earnkit.txt');
-  assert.equal(read.length, 5);
+  assert.deepEqual(read, []);
   const r = await withEnv({ EARNKIT_AUTH_SECRET: SECRET }, () => scoreReply({ installationId: id }, NOW, noPrograms));
   assert.deepEqual(r.proof_line?.map((x) => ('site' in x ? x.site : x.repo)), ['https://new.lee.dev', 'https://l0.lee.dev', 'https://l1.lee.dev', 'https://l2.lee.dev', 'https://l3.lee.dev']);
 });
