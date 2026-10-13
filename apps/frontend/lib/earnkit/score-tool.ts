@@ -7,6 +7,7 @@ import { eventLogEnabled, noteEvent } from './events';
 import { noteLineIssued } from './github-verify';
 import { PROFILE_URL, ensureProfile } from './profiles';
 import { listPrograms } from './programs';
+import { CARD_OFFER_NOTE, offerCard } from './share';
 import { MAX, partDeltas, topPercent, type Parts } from './score';
 import { tokenLineFor } from './token-gate';
 
@@ -113,6 +114,8 @@ export type ScoreReply = {
   percentile: number | null;
   /** The earnkit.txt lines for the next step: a repo's `token:` line or a site's `profile:` line. */
   proof_line?: ({ repo: string; line: string } | { site: string; line: string })[];
+  /** The once-only card offer was made in this reply (share.ts). */
+  card_offer?: { agent_note: string };
 };
 type Ctx = { installationId: number; ownInstallationId?: number; sharedClient?: boolean };
 type SourceFact = { kind: string; ref: string; project_key: string; state: string; proof: string | null };
@@ -186,6 +189,15 @@ export async function scoreReply(ctx: Ctx, now: Date, deps: { programs?: () => P
     };
   }
   if (next) Object.assign(reply, await proofLines(ctx, next, repoLines(), siteLines(), now));
+  // v2.12 spec 7 "The offer": once, last, and only when nothing above asks (plan R14).
+  const offer =
+    reply.score !== null
+      ? await offerCard(id, /\?/.test(reply.show_to_builder)).catch((err: unknown) => {
+          console.error('[score] card offer', err instanceof Error ? err.name : 'error');
+          return null;
+        })
+      : null;
+  if (offer) Object.assign(reply, { show_to_builder: lines(reply.show_to_builder, offer), card_offer: { agent_note: CARD_OFFER_NOTE } });
   const shown = pub && pub.score > 0 ? pub : null;
   await noteEvent('score_viewed', () => ({
     type: 'score_viewed',

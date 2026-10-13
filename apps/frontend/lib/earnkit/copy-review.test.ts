@@ -23,6 +23,7 @@ import {
 import { FILL_LINES, HELD_LINE, MORE_USERS_LINE, SCORE_NOTES, SCORE_SHARED, SITE_LINE, SITE_TXT_LINE, WORKING_LINE, nextAction, programLine, scoreLines, youLine } from './score-tool';
 import { computeScore } from './score';
 import { calibration } from './score-calibration';
+import { CARD_OFFER_NOTE, SHARE_LINE, SKIPPED_LINE, cardOffer, findOfferLine, xAsk } from './share';
 import { CONSENT_LINE, HIDDEN_LINE, NO_PROFILE_LINE, SHARED_PROFILE_NOTE, SHOWN_LINE, X_NOT_LISTED_NOTE, X_SET_LINE, X_TAKEN_NOTE } from './profiles';
 import { OWNERSHIP_FOR_TOKEN, SCORE_DESCRIPTION, SERVER_INSTRUCTIONS, TELL_DESCRIPTION, TELL_DESCRIPTION_SCORE, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { bonusLine, presentFirstMessage, skippedLine, submitStepLine, type Card, type FirstMessage } from './present';
@@ -1191,6 +1192,14 @@ const agentFacing: [string, string][] = [
   ...Object.entries(SCORE_NOTES).map(([k, v]): [string, string] => [`SCORE_NOTES.${k}`, v]),
   // v2.12 T9: find's score_step note.
   ['SCORE_STEP_NOTE', SCORE_STEP_NOTE],
+  // v2.12 T11: the card offer, the X ask and the share lines.
+  ['cardOffer', cardOffer(12)],
+  ['findOfferLine', findOfferLine('You: score 41, top 22%. earnkit.com/b/lee')],
+  ['xAsk', xAsk('lee')],
+  ['xAsk(null)', xAsk(null)],
+  ['CARD_OFFER_NOTE', CARD_OFFER_NOTE],
+  ['SHARE_LINE', SHARE_LINE('lee')],
+  ['SKIPPED_LINE', SKIPPED_LINE],
   ['BUILD_ENTRY_NO_TOKEN_NOTE', BUILD_ENTRY_NO_TOKEN_NOTE],
   ['STORAGE_NOTE', STORAGE_NOTE],
   ['UPLOAD_NOTE', UPLOAD_NOTE],

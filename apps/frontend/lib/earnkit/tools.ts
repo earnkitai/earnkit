@@ -143,6 +143,7 @@ import { noteEvent } from './events';
 import { builderScoreEnabled } from './builder-score-flag';
 import { enqueueDiscovery, localGitInput, noteLocalGit } from './discovery';
 import { scoreReply, secondLine } from './score-tool';
+import { CARD_OFFER_NOTE, SHARE_LINE, SKIPPED_LINE, cardYes, findOfferLine, offerCard } from './share';
 import { SHARED_PROFILE_NOTE, X_SET_LINE, consentOnce, ensureProfile, profileOf, setFallback, setHidden, setXHandle } from './profiles';
 import { emptyReasonOf, pitchAllowed, publicScore, verifiedProject } from './builder-score';
 import { sql } from './db';
@@ -1112,6 +1113,24 @@ async function scoreLineOf(id: number, lineOneAsks: boolean): Promise<{ line: st
 }
 
 /**
+ * find's line 2 (scoreLineOf) with the v2.12 spec 7 card offer: made once, on the score line itself
+ * (find keeps two lines), and only when nothing else in the reply asks (R14). The offer never fails
+ * the line. Exported for tests.
+ */
+export async function findSecondLine(id: number, lineOneAsks: boolean): Promise<{ line: string; fill: boolean; offered: boolean } | null> {
+  const second = await scoreLineOf(id, lineOneAsks);
+  if (!second) return null;
+  const offered =
+    !second.fill && !/\?/.test(second.line)
+      ? await offerCard(id, lineOneAsks).catch((err: unknown) => {
+          console.error('[list_programs] card offer', err instanceof Error ? err.name : 'error');
+          return null;
+        })
+      : null;
+  return { line: offered ? findOfferLine(second.line) : second.line, fill: second.fill, offered: Boolean(offered) };
+}
+
+/**
  * v2.10 item 4: the v2.9 tool handlers, unchanged except their agent notes. The 4 builder tools
  * (`tools` below) dispatch to them; tests call them directly.
  */
@@ -1383,9 +1402,10 @@ export const handlers = {
       : null;
     // v2.12 spec 7 (R13, R14): line 2, the person's score or the one step that fills the profile. The
     // first find's consent line takes its place (one line after the lead, at most). Never fails the tool.
+    const lineOneAsks = /\?/.test(show_to_builder) || Boolean(pickup) || first.holdQuestion === true;
     const second =
       profiled && !consent
-        ? await scoreLineOf(ctx.installationId, /\?/.test(show_to_builder) || Boolean(pickup) || first.holdQuestion === true).catch((err: unknown) => {
+        ? await findSecondLine(ctx.installationId, lineOneAsks).catch((err: unknown) => {
             console.error('[list_programs] score line', err instanceof Error ? err.name : 'error');
             return null;
           })
@@ -1395,6 +1415,7 @@ export const handlers = {
       show_to_builder: pickup ? [pickup.question, shown].filter(Boolean).join('\n\n') : shown,
       ...(pickup && { pick_up: { question: pickup.question, agent_note: PICKUP_NOTE } }),
       ...(second?.fill && { score_step: { agent_note: SCORE_STEP_NOTE } }),
+      ...(second?.offered && { card_offer: { agent_note: CARD_OFFER_NOTE } }),
       note:
         'Show show_to_builder to the builder exactly as written. ' +
         (!own && (user || repoList?.length || local?.length)
@@ -3063,6 +3084,8 @@ export const TellToolInput = z
     // v2.12 spec 7, 8 (EARNKIT_BUILDER_SCORE on): "hide" or "show", and the X handle they confirmed.
     profile: z.enum(['hide', 'show']).optional(),
     x_handle: z.string().max(20).optional(),
+    // v2.12 spec 7: the builder's answer to the card offer ("skip" is one word).
+    card: z.enum(['yes', 'skip']).optional(),
     // Read by tell_earnkit (builder-memory.ts TellInput).
     program_status: z.unknown().optional(),
     repo_facts: z.unknown().optional(),
@@ -3073,10 +3096,13 @@ export const TellToolInput = z
 
 type Reply = Record<string, unknown>;
 
-/** v2.12 spec 7: the X handle reply. Refused (not on their proven GitHub profile): nothing shown, an agent note. */
+/** v2.12 spec 7: the X handle reply, with the share link. Refused (not on their proven GitHub profile): nothing shown, an agent note. */
 async function xHandleReply(builderId: number, given: string): Promise<Reply> {
   const r = await setXHandle(builderId, given);
-  return r.ok ? { show_to_builder: X_SET_LINE(r.slug) } : { show_to_builder: '', agent_note: r.agent_note };
+  if (!r.ok) return { show_to_builder: '', agent_note: r.agent_note };
+  // The share link only when there is a card to share (a public score above 0).
+  const pub = await publicScore(builderId);
+  return { show_to_builder: pub && pub.score > 0 ? `${X_SET_LINE(r.slug)} ${SHARE_LINE(r.slug)}` : X_SET_LINE(r.slug) };
 }
 const defined = (o: Reply): Reply => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
 
@@ -3379,15 +3405,17 @@ export const tools = {
 
   // R16: what the builder said: pickup, then "I submitted", then statements; replies joined.
   tell: async (input: unknown, ctx: ToolContext) => {
-    const { pickup, submitted, signed_in, profile, x_handle, ...rest } = TellToolInput.parse(input ?? {});
+    const { pickup, submitted, signed_in, profile, x_handle, card, ...rest } = TellToolInput.parse(input ?? {});
     const statements = defined(rest);
     const replies: Reply[] = [];
     // v2.12 spec 8: "hide" and "show"; spec 7: the X handle the builder confirmed. Flag off: ignored (v2.11).
-    if (builderScoreEnabled() && ctx.sharedClient && (profile || x_handle !== undefined))
+    if (builderScoreEnabled() && ctx.sharedClient && (profile || x_handle !== undefined || card))
       replies.push({ show_to_builder: '', agent_note: SHARED_PROFILE_NOTE });
     else if (builderScoreEnabled()) {
       if (profile) replies.push({ show_to_builder: await setHidden(ctx.installationId, profile === 'hide') });
       if (x_handle !== undefined) replies.push(await xHandleReply(ctx.installationId, x_handle));
+      if (card === 'yes') replies.push(await cardYes(ctx.installationId));
+      if (card === 'skip') replies.push({ show_to_builder: SKIPPED_LINE });
     }
     if (pickup !== undefined) replies.push((await handlers.pick_up_entries({ answer: pickup }, ctx)) as Reply);
     if (submitted) replies.push((await markSubmitted(submitted, signed_in, ctx)) as Reply);

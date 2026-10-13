@@ -165,7 +165,7 @@ export const TELL_DESCRIPTION =
 /** v2.12 spec 7, 8 (EARNKIT_BUILDER_SCORE on): tell also takes the profile's hide or show and the confirmed X handle. */
 export const TELL_DESCRIPTION_SCORE = TELL_DESCRIPTION.replace(
   'pickup: "yes" or "no" to the pick-up question. ',
-  'pickup: "yes" or "no" to the pick-up question. profile: "hide" or "show" when they say so. x_handle: the X handle they confirmed. ',
+  'pickup: "yes" or "no" to the pick-up question. profile: "hide" or "show" when they say so. x_handle: the X handle they confirmed. card: "yes" or "skip" to the card offer. ',
 );
 
 /** v2.12 spec 7: score's description (registered only while EARNKIT_BUILDER_SCORE=on). */
@@ -483,6 +483,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
             ? {
                 profile: z.enum(['hide', 'show']).optional().describe('hide or show their public profile, when they say so'),
                 x_handle: z.string().max(20).optional().describe('"yes" to the offered handle, or the X handle they typed'),
+                card: z.enum(['yes', 'skip']).optional().describe('Their answer to the card offer'),
               }
             : {}),
           program_status: z

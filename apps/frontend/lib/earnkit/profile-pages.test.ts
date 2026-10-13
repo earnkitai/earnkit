@@ -95,8 +95,9 @@ test('10.8 the page: ISR 600, 404 for hidden and unknown, a permanent redirect f
   assert.match(page, /if \(!builderScoreEnabled\(\)\) notFound\(\)/);
   // T10 review: one URL per profile (a mixed-case slug redirects to its lowercase form), cached under it, tagged for hide/show.
   assert.match(page, /if \(slug !== slug\.toLowerCase\(\)\) permanentRedirect\(`\/b\/\$\{encodeURIComponent\(slug\.toLowerCase\(\)\)\}`\)/);
-  assert.match(page, /cached\(slug\.toLowerCase\(\)\)/);
-  assert.match(page, /tags: \[PROFILE_TAG\]/);
+  assert.match(page, /cachedProfile\(slug\.toLowerCase\(\)\)/);
+  const load = readFileSync(join(import.meta.dirname, '../../app/b/[slug]/profile-load.ts'), 'utf8');
+  assert.match(load, /tags: \[PROFILE_TAG\]/);
   // Hide, show and an X handle change expire the cached profile at once.
   const profiles = readFileSync(join(import.meta.dirname, 'profiles.ts'), 'utf8');
   for (const fn of ['setHidden', 'setXHandle', 'clearXHandle']) {
@@ -299,3 +300,24 @@ test('10.14 a repo stops being named at once when it goes private, when its newe
   assert.match(await named(ok), new RegExp(`cy${T}/fine`));
 });
 
+
+test('11.5 the card route draws 1200x630 with next/og and caches; the share route records card_shared and 302s to the intent', () => {
+  const card = readFileSync(join(import.meta.dirname, '../../app/b/[slug]/card.png/route.tsx'), 'utf8');
+  const share = readFileSync(join(import.meta.dirname, '../../app/b/[slug]/share/route.ts'), 'utf8');
+  assert.match(card, /from 'next\/og'/);
+  assert.match(card, /width: 1200,\s*height: 630/);
+  assert.match(card, /Cache-Control': 'public, max-age=600/);
+  for (const src of [card, share]) {
+    assert.match(src, /if \(!builderScoreEnabled\(\)\) return new Response\('Not found', \{ status: 404 \}\)/);
+    // The same cached, lowercase, per-person profile read as the page (its privacy rules).
+    assert.match(src, /cachedProfile\((lower|slug\.toLowerCase\(\))\)/);
+  }
+  assert.match(share, /status: 302/);
+  assert.match(share, /noteEvent\('card_shared'/);
+  assert.match(share, /dedupe_key: `card_shared:\$\{who\.builderId\}:\$\{day\}`/);
+  // No open redirect: the target is only ever the intent built here, never read from the request.
+  assert.match(share, /Location: intentUrl\(data\.slug, cardModel\(data\)\)/);
+  assert.match(share, /export async function GET\(_: Request/);
+  const config = readFileSync(join(import.meta.dirname, '../../next.config.ts'), 'utf8');
+  assert.match(config, /source: '\/b\/:slug\/card\.png',\s*headers: \[\{ key: 'Content-Security-Policy', value: IMAGE_CSP \}\]/);
+});
