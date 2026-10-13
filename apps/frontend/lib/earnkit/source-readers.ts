@@ -5,7 +5,8 @@ import { ARC_LOG_CHUNK, recentChunks } from './events';
 import { codesIn } from './builder-code';
 import { gh } from './match-projects';
 import { ErrorPageError, LINKCHECK_UA, RedirectError, SafeFetchError, errorPageText, safeFetchText, sameSite, type Resolver, type Transport } from './safe-fetch';
-import { sharedContract } from './shared-contracts';
+import { providerOfUrl, type Provider } from './read-usage';
+import { sharedContract, tradeVenue } from './shared-contracts';
 import { rpcFor } from './verify';
 
 /**
@@ -62,6 +63,12 @@ export type ReaderDeps = {
    * against the same run budget and stopped at the same deadline. Absent: those reads are skipped.
    */
   ghFetch?: typeof fetch;
+  /**
+   * v2.12.1 read usage: the real deps call `requests.tick` once per outside HTTP request (a site's
+   * redirects, a contract's two Blockscout reads and an Arc sender's two RPC reads each count);
+   * read-usage.ts countingDeps sets it. Absent (test fakes): countingDeps counts each call instead.
+   */
+  requests?: { tick: ((provider: Provider) => void) | null };
 };
 
 export const READ_CAPS = { stargazerPages: 3, userLookups: 80, basePages: 20, arcSenders: 200, prs: 30 } as const;
@@ -215,13 +222,15 @@ export async function readSite(origin: string, d: ReaderDeps): Promise<SiteSigna
  * each within the same site as `url` (apex and www, any path). Every hop is a fresh safe-fetch:
  * https on 443, a domain name, every DNS answer public, the body and time capped.
  */
-export async function probeSite(url: string, deps: { resolve?: Resolver; transport?: Transport; timeoutMs?: number } = {}): Promise<void> {
-  const opts = { ...deps, probe: true, userAgent: LINKCHECK_UA };
+export async function probeSite(url: string, deps: { resolve?: Resolver; transport?: Transport; timeoutMs?: number; onRequest?: () => void } = {}): Promise<void> {
+  const { onRequest, ...rest } = deps;
+  const opts = { ...rest, probe: true, userAgent: LINKCHECK_UA };
   const start = new URL(url).hostname;
   let at = url;
   for (let hop = 0; ; hop++) {
     let page: string;
     try {
+      onRequest?.();
       page = await safeFetchText(at, opts);
     } catch (err) {
       if (!(err instanceof RedirectError) || !err.location) throw err;
@@ -281,28 +290,33 @@ export async function readNpmBulk(names: string[], d: ReaderDeps): Promise<Map<s
 export type CoinSignals = { traders: Who[]; partial: boolean };
 const ZERO = '0x0000000000000000000000000000000000000000';
 /**
- * v2.12.1 spec "What EarnKit measures": a coin's trades count toward Used. Distinct receivers of
- * the coin since `since` (newest READ_CAPS.basePages pages of Blockscout transfers), never the
- * coin itself, the zero address, a shared contract (pools, routers, lockers: sharedContract) or
- * one of the person's own accounts (`self`, 'wallet:0x..').
+ * v2.12.1 spec "What EarnKit measures": a coin's trades count toward Used. A trader is a wallet that
+ * bought the coin since `since`: it received the coin from a pool or router (shared-contracts.ts
+ * tradeVenue). An airdrop or a send from a person is not a trade. Never the coin itself, the zero
+ * address, a shared contract or one of the person's own accounts (`self`, 'wallet:0x..'). `at` is the
+ * wallet's first buy read (transfers come newest first: READ_CAPS.basePages pages of Blockscout).
  */
 export async function readCoin(ref: string, since: Date, d: ReaderDeps, self: ReadonlySet<string>): Promise<CoinSignals> {
   const { chain, address } = contractRef(ref);
   if (chain !== 'base') throw new Error('coins are read on Base only');
   const seen = new Map<string, string>();
+  const done = (partial: boolean) => ({ traders: [...seen].map(([id, at]) => ({ id, at })), partial });
   let params = '';
   for (let page = 0; page < READ_CAPS.basePages; page++) {
     const data = await d.tokenTransfers(address, params);
     for (const t of data.items) {
-      if (!(new Date(t.timestamp) >= since)) return { traders: [...seen].map(([id, at]) => ({ id, at })), partial: false };
+      if (!(new Date(t.timestamp) >= since)) return done(false);
+      const from = t.from?.hash?.toLowerCase();
+      if (!from || !tradeVenue(from)) continue;
       const to = t.to?.hash?.toLowerCase();
       if (!to || !ADDRESS.test(to) || to === address || to === ZERO || sharedContract(to) || self.has(`wallet:${to}`)) continue;
-      if (!seen.has(`wallet:${to}`)) seen.set(`wallet:${to}`, t.timestamp);
+      // Newest first: the last one set is the wallet's earliest buy.
+      seen.set(`wallet:${to}`, t.timestamp);
     }
-    if (!data.next_page_params) return { traders: [...seen].map(([id, at]) => ({ id, at })), partial: false };
+    if (!data.next_page_params) return done(false);
     params = new URLSearchParams(Object.entries(data.next_page_params).map(([k, v]) => [k, String(v)])).toString();
   }
-  return { traders: [...seen].map(([id, at]) => ({ id, at })), partial: true };
+  return done(true);
 }
 
 /** PEP 503: lowercase, every run of '-', '_' and '.' is one '-'. Pure. */
@@ -424,12 +438,17 @@ async function packageJson<T>(url: string, deadline: number): Promise<T> {
     signal: AbortSignal.timeout(Math.min(10_000, left)),
   });
   if (!res.ok) throw new Error(`${u.hostname} returned ${res.status}`);
-  if (Number(res.headers.get('content-length')) > JSON_MAX_BYTES || !res.body) throw new Error('too large');
+  return cappedJson<T>(res, JSON_MAX_BYTES);
+}
+
+/** A response body as JSON, read in chunks and refused past `max` bytes (declared or actual). */
+async function cappedJson<T>(res: Response, max: number): Promise<T> {
+  if (Number(res.headers.get('content-length')) > max || !res.body) throw new Error('too large');
   const chunks: Uint8Array[] = [];
   let size = 0;
   for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
     size += chunk.byteLength;
-    if (size > JSON_MAX_BYTES) throw new Error('too large');
+    if (size > max) throw new Error('too large');
     chunks.push(chunk);
   }
   return JSON.parse(Buffer.concat(chunks).toString('utf8')) as T;
@@ -475,8 +494,20 @@ export function budgetedGh(raw: RawGh, floor = GH_RATE_FLOOR, cap = GH_RUN_CAP):
 
 const GRAPHQL_MAX_BYTES = 5_000_000;
 /**
+ * A GraphQL answer worth reading: it has data, and every error (if any) is NOT_FOUND (an unknown
+ * login or repo reads as null). Any other error (rate limit, timeout, a bad query) throws, so a
+ * partial answer is never read as zero. Pure; exported for tests.
+ */
+export function graphqlUsable(body: unknown): boolean {
+  const b = (body ?? {}) as { data?: unknown; errors?: unknown };
+  if (!b.data || typeof b.data !== 'object') return false;
+  if (b.errors === undefined) return true;
+  return Array.isArray(b.errors) && b.errors.every((e) => (e as { type?: unknown } | null)?.type === 'NOT_FOUND');
+}
+
+/**
  * One GitHub GraphQL call, counted against the run's budget (`github.take()`, GitHubBudgetStop when
- * spent). A body with `errors` (an unknown login among them) throws: the caller writes failed readings.
+ * spent). An answer graphqlUsable refuses throws: the caller writes failed readings.
  */
 async function githubGraphql<T>(query: string, variables: Record<string, unknown>, github: ReturnType<typeof budgetedGh>): Promise<T> {
   if (!github.take()) throw new GitHubBudgetStop();
@@ -491,9 +522,8 @@ async function githubGraphql<T>(query: string, variables: Record<string, unknown
     });
     github.watch(res);
     if (!res.ok) throw new Error(`GitHub GraphQL returned ${res.status}`);
-    if (Number(res.headers.get('content-length')) > GRAPHQL_MAX_BYTES) throw new Error('too large');
-    const body = (await res.json()) as { errors?: unknown[] } & Record<string, unknown>;
-    if (Array.isArray(body?.errors) && body.errors.length > 0) throw new Error('GitHub GraphQL answered errors');
+    const body = await cappedJson<{ data?: unknown; errors?: unknown[] }>(res, GRAPHQL_MAX_BYTES);
+    if (!graphqlUsable(body)) throw new Error('GitHub GraphQL answered errors');
     return body as T;
   } catch (err) {
     if (github.spent()) throw new GitHubBudgetStop();
@@ -502,10 +532,12 @@ async function githubGraphql<T>(query: string, variables: Record<string, unknown
 }
 
 /** Base: Blockscout's creation transaction, then its sender and time (never creator_address_hash, the factory). */
-async function blockscoutOrigin(address: string, deadline: number): Promise<ContractOrigin> {
+async function blockscoutOrigin(address: string, deadline: number, tick: () => void): Promise<ContractOrigin> {
+  tick();
   const a = await blockscout<{ creation_transaction_hash?: string | null; creation_tx_hash?: string | null }>(`/api/v2/addresses/${address}`, deadline);
   const hash = a.creation_transaction_hash ?? a.creation_tx_hash ?? null;
   if (!hash || !/^0x[0-9a-fA-F]{64}$/.test(hash)) return { deployer: null, created_at: null };
+  tick();
   const tx = await blockscout<{ from?: { hash?: string }; timestamp?: string | null }>(`/api/v2/transactions/${hash}`, deadline);
   return { deployer: tx.from?.hash ?? null, created_at: tx.timestamp ?? null };
 }
@@ -526,22 +558,28 @@ export function defaultReaderDeps(now: Date, deadline: number): ReaderDeps {
     arc = createPublicClient({ transport: http(rpc, { timeout: 10_000, retryCount: 0 }) });
     return arc;
   };
+  const requests: NonNullable<ReaderDeps['requests']> = { tick: null };
+  const tick = (p: Provider) => requests.tick?.(p);
   return {
-    gh: <T>(path: string, accept?: string) => by(github<T>(path, accept)),
-    ghGraphql: <T>(query: string, variables: Record<string, unknown>) => by(githubGraphql<T>(query, variables, github)),
-    probe: (url) => by(probeSite(url).then(() => ({ status: 200 }))),
-    fetchText: (url) => by(safeFetchText(url)),
-    json: <T>(url: string) => by(packageJson<T>(url, deadline)),
-    baseTxs: (path) => blockscout<TxPage>(path, deadline),
-    tokenTransfers: (address, params) => blockscout(`/api/v2/tokens/${address}/transfers${params ? `?${params}` : ''}`, deadline),
+    gh: <T>(path: string, accept?: string) => (tick('github_rest'), by(github<T>(path, accept))),
+    ghGraphql: <T>(query: string, variables: Record<string, unknown>) => (tick('github_graphql'), by(githubGraphql<T>(query, variables, github))),
+    probe: (url) => by(probeSite(url, { onRequest: () => tick('site') }).then(() => ({ status: 200 }))),
+    fetchText: (url) => (tick('site'), by(safeFetchText(url))),
+    json: <T>(url: string) => (tick(providerOfUrl(url)), by(packageJson<T>(url, deadline))),
+    baseTxs: (path) => (tick('blockscout'), blockscout<TxPage>(path, deadline)),
+    tokenTransfers: (address, params) => (tick('blockscout'), blockscout(`/api/v2/tokens/${address}/transfers${params ? `?${params}` : ''}`, deadline)),
     // Arc has no readable explorer API (Cloudflare challenge): its origin is unknown, so a repo_link is refused.
-    contractOrigin: async (chain, address) => (chain === 'base' ? blockscoutOrigin(address, deadline) : { deployer: null, created_at: null }),
-    arcLogs: async (address, from, to) =>
-      (await by(arcClient().getLogs({ address: address as Address, fromBlock: from, toBlock: to }))).map((l) => ({ tx: l.transactionHash })),
-    arcHead: () => by(arcClient().getBlockNumber({ cacheTime: 0 })),
+    contractOrigin: async (chain, address) => (chain === 'base' ? blockscoutOrigin(address, deadline, () => tick('blockscout')) : { deployer: null, created_at: null }),
+    arcLogs: async (address, from, to) => {
+      tick('arc_rpc');
+      return (await by(arcClient().getLogs({ address: address as Address, fromBlock: from, toBlock: to }))).map((l) => ({ tx: l.transactionHash }));
+    },
+    arcHead: () => (tick('arc_rpc'), by(arcClient().getBlockNumber({ cacheTime: 0 }))),
     arcSender: async (tx) => {
+      tick('arc_rpc');
       const t = await by(arcClient().getTransaction({ hash: tx as Hash }));
       if (t.blockNumber === null) throw new Error('pending transaction');
+      tick('arc_rpc');
       const b = await by(arcClient().getBlock({ blockNumber: t.blockNumber }));
       return { from: t.from, value: t.value, at: new Date(Number(b.timestamp) * 1000).toISOString(), input: t.input };
     },
@@ -550,9 +588,11 @@ export function defaultReaderDeps(now: Date, deadline: number): ReaderDeps {
     ghSpent: github.spent,
     ghFetch: async (input, init) => {
       if (!github.take()) throw new GitHubBudgetStop();
+      tick('github_rest');
       const res = await by(fetch(input, init));
       github.watch(res);
       return res;
     },
+    requests,
   };
 }

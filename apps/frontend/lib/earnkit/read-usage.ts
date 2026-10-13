@@ -17,16 +17,45 @@ export const FREE_LIMITS: Record<Provider, { perDay: number | null; basis: strin
   site: { perDay: null, basis: "one HEAD per site per day, the builder's own server" },
 };
 
-const providerOfUrl = (u: string): Provider => (/pypistats|pypi\.org/.test(u) ? 'pypi' : 'npm');
+/** npm or PyPI, by the URL a `json` read asks. Pure. */
+export const providerOfUrl = (u: string): Provider => (/pypistats|pypi\.org/.test(u) ? 'pypi' : 'npm');
 
-/** Wraps every outside read of `d` with a counter per provider (the deps stay the same shape). */
-export function countingDeps(d: ReaderDeps): { deps: ReaderDeps; counts: Map<Provider, number> } {
+/**
+ * Counts every outside read of `d` per provider. Deps that report their own HTTP requests
+ * (`d.requests`, the real ones: a redirect, a second Blockscout or RPC read each count) are counted
+ * from those reports until `stop()`; other deps (test fakes) are wrapped and counted once a call.
+ */
+export function countingDeps(d: ReaderDeps): { deps: ReaderDeps; counts: Map<Provider, number>; stop: () => void } {
   const counts = new Map<Provider, number>();
-  const tick = (p: Provider) => counts.set(p, (counts.get(p) ?? 0) + 1);
+  let on = true;
+  const tick = (p: Provider) => {
+    if (on) counts.set(p, (counts.get(p) ?? 0) + 1);
+  };
+  const stop = () => {
+    on = false;
+  };
+  if (d.requests) {
+    const sink = d.requests;
+    const before = sink.tick;
+    const ours = (p: Provider) => {
+      tick(p);
+      before?.(p);
+    };
+    sink.tick = ours;
+    return {
+      deps: d,
+      counts,
+      stop: () => {
+        stop();
+        if (sink.tick === ours) sink.tick = before;
+      },
+    };
+  }
   const wrap = <A extends unknown[], R>(p: Provider | ((...a: A) => Provider), f: (...a: A) => Promise<R>) =>
     (...a: A) => { tick(typeof p === 'function' ? p(...a) : p); return f(...a); };
   return {
     counts,
+    stop,
     deps: {
       ...d,
       gh: wrap('github_rest', d.gh) as ReaderDeps['gh'],

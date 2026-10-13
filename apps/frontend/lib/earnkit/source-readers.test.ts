@@ -381,7 +381,7 @@ test('3.4 npm downloads in batches of 128 (unscoped); scoped names are left to r
   assert.equal(out.has('@me/scoped'), false);
 });
 
-test('3.5 a Base call keeps its ERC-8021 codes; coin traders skip shared contracts and the person', async () => {
+test('3.5 a Base call keeps its ERC-8021 codes; a coin trader is a buyer from a pool, never an airdrop, a shared contract, the zero address, the coin or the person', async () => {
   const { Attribution } = await import('ox/erc8021');
   const tagged = `0xabcdef${Attribution.toDataSuffix({ codes: ['ek_abc123', 'earnkit'] }).slice(2)}`;
   const d = {
@@ -391,14 +391,38 @@ test('3.5 a Base call keeps its ERC-8021 codes; coin traders skip shared contrac
   const s = await readContract('base:0x' + '1'.repeat(40), new Date('2026-01-01'), d);
   assert.deepEqual(s.callers[0].codes, ['ek_abc123', 'earnkit']);
   // Full 40-hex addresses: readCoin skips anything ADDRESS refuses.
-  const [BB, CC, ME] = ['b', 'c', 'e'].map((x) => '0x' + x.repeat(40));
+  const COIN = '0x' + '2'.repeat(40);
+  const POOL = '0x498581ff718922c3f8e6a244956af099b2652b2b'; // Uniswap v4 PoolManager
+  const ROUTER = '0x6ff5693b99212da76ad316178a184ab56d299b43'; // Universal Router
+  const AIRDROP = '0xf652b3610d75d81871bf96db50825d9af28391e0'; // Clanker airdrop (shared, not a venue)
+  const [BB, CC, ME, DEV, GIFT] = ['b', 'c', 'e', 'd', 'f'].map((x) => '0x' + x.repeat(40));
+  const ZERO = '0x' + '0'.repeat(40);
   const t = {
     tokenTransfers: async () => ({ items: [
-      { timestamp: '2026-10-10T00:00:00Z', from: { hash: '0x' + '9'.repeat(40) }, to: { hash: BB.toUpperCase().replace('0X', '0x') } },
-      { timestamp: '2026-10-10T00:00:00Z', from: { hash: BB }, to: { hash: CC } },
-      { timestamp: '2026-10-10T00:00:00Z', from: { hash: CC }, to: { hash: ME } },
+      { timestamp: '2026-10-11T00:00:00Z', from: { hash: POOL }, to: { hash: BB.toUpperCase().replace('0X', '0x') } },
+      { timestamp: '2026-10-10T00:00:00Z', from: { hash: ROUTER }, to: { hash: CC } },
+      { timestamp: '2026-10-09T00:00:00Z', from: { hash: POOL }, to: { hash: BB } },
+      { timestamp: '2026-10-09T00:00:00Z', from: { hash: POOL }, to: { hash: ME } },
+      { timestamp: '2026-10-09T00:00:00Z', from: { hash: POOL }, to: { hash: ROUTER } },
+      { timestamp: '2026-10-09T00:00:00Z', from: { hash: POOL }, to: { hash: ZERO } },
+      { timestamp: '2026-10-09T00:00:00Z', from: { hash: POOL }, to: { hash: COIN } },
+      { timestamp: '2026-10-08T00:00:00Z', from: { hash: DEV }, to: { hash: GIFT } },
+      { timestamp: '2026-10-08T00:00:00Z', from: { hash: AIRDROP }, to: { hash: GIFT } },
+      { timestamp: '2026-10-08T00:00:00Z', from: { hash: BB }, to: { hash: GIFT } },
     ], next_page_params: null }), now: NOW,
   } as never;
-  const c = await readCoin('base:0x' + '2'.repeat(40), new Date('2026-01-01'), t, new Set([`wallet:${ME}`]));
-  assert.deepEqual(c.traders.map((w) => w.id).sort(), [`wallet:${BB}`, `wallet:${CC}`]);
+  const c = await readCoin(`base:${COIN}`, new Date('2026-01-01'), t, new Set([`wallet:${ME}`]));
+  assert.deepEqual(c.traders.map((w) => w.id).sort(), [`wallet:${BB}`, `wallet:${CC}`], 'buyers only');
+  assert.equal(c.traders.find((w) => w.id === `wallet:${BB}`)!.at, '2026-10-09T00:00:00Z', 'the first buy');
+});
+
+test('3.11 a site read counts each request, redirects included', async () => {
+  const resolve: Resolver = async () => [{ address: '93.184.216.34', family: 4 }];
+  const transport: Transport = async ({ url }) => {
+    async function* body() { yield Buffer.from('<html>ok</html>'); }
+    return url.pathname === '/' ? { status: 301, location: '/home', body: body() } : { status: 200, contentType: 'text/html', body: body() };
+  };
+  let n = 0;
+  await probeSite('https://tip.example.com/', { resolve, transport, onRequest: () => n++ });
+  assert.equal(n, 2);
 });

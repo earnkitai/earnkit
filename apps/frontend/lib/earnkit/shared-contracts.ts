@@ -58,3 +58,23 @@ export const SHARED_BASE_CONTRACTS: ReadonlySet<string> = new Set(
 
 /** v2.10.1 (I1): an address that is a shared Base contract, never a builder's own. Pure. */
 export const sharedContract = (address: string): boolean => SHARED_BASE_CONTRACTS.has(address.toLowerCase());
+
+/**
+ * v2.12.1: the shared contracts a coin is bought from (pools, routers, aggregators). A transfer out
+ * of one is a buy; one out of a locker, vault, airdrop, presale or the dev buy is not a trade.
+ */
+const TRADE_VENUES: ReadonlySet<string> = new Set([
+  '0x498581ff718922c3f8e6a244956af099b2652b2b', // Uniswap v4 PoolManager
+  '0x6ff5693b99212da76ad316178a184ab56d299b43', // Universal Router (v4)
+  '0x3fc91a3afd70395cd496c647d5a6cc9d4b2b7fad', // Universal Router (v3)
+  '0x000000000022d473030f116ddee9f6b43ac78ba3', // Permit2
+  '0x2626664c2603336e57b271c5c0b26f421741e481', // SwapRouter02
+  '0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24', // v2 router
+  '0xdef1c0ded9bec7f1a1670819833240f027b25eff', // 0x Exchange Proxy
+  '0x1111111254eeb25477b68fb85ed929f73a960582', // 1inch v5 router
+  '0x111111125421ca6dc452d289314280a0f8842a65', // 1inch v6 router
+  '0xcf77a3ba9a5ca399b7c97c74d54e5b1beb874e43', // Aerodrome router
+]);
+
+/** v2.12.1: a pool or router a coin is bought from (a subset of SHARED_BASE_CONTRACTS). Pure. */
+export const tradeVenue = (address: string): boolean => TRADE_VENUES.has(address.toLowerCase());

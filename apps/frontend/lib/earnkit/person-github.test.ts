@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PERSON_GITHUB_QUERY, personGithubFrom, readPersonGithub } from './person-github';
+import { PERSON_GITHUB_QUERY, REPOS_MAX, personGithubFrom, readGithubRepos, readPersonGithub, reposQuery } from './person-github';
+import { graphqlUsable } from './source-readers';
 
 const NOW = new Date('2026-10-14T00:00:00Z');
 const repo = (o: Record<string, unknown>) => ({
@@ -39,4 +40,32 @@ test('3.3 an unknown user or a malformed answer reads as null, never throws', as
   assert.ok(await readPersonGithub('lee', d));
   assert.equal(calls, 1);
   await assert.rejects(readPersonGithub('bad login!', d), /not a GitHub login/);
+});
+
+test('3.9 the person query reads the newest 100 repos; others by name, names as variables, up to 25 a call', async () => {
+  assert.match(PERSON_GITHUB_QUERY, /repositories\(first: 100,/);
+  const q = reposQuery(2);
+  assert.match(q, /r0: repository\(owner: \$o0, name: \$n0\)/);
+  assert.match(q, /r1: repository\(owner: \$o1, name: \$n1\)/);
+  let vars: Record<string, unknown> = {};
+  const d = {
+    ghGraphql: async (_q: string, v: Record<string, unknown>) => {
+      vars = v;
+      return { data: { r0: repo({ nameWithOwner: 'Acme/Tool', owner: { __typename: 'Organization', login: 'Acme' } }), r1: null } };
+    },
+    now: NOW,
+  } as never;
+  const got = await readGithubRepos(['Acme/Tool', 'lee/gone'], d);
+  assert.deepEqual([vars.o0, vars.n0, vars.o1, vars.n1], ['acme', 'tool', 'lee', 'gone']);
+  assert.equal(got.get('acme/tool')!.owner_type, 'Organization');
+  assert.equal(got.has('lee/gone'), false, 'GitHub does not know it');
+  await assert.rejects(readGithubRepos(Array.from({ length: REPOS_MAX + 1 }, (_, i) => `lee/r${i}`), d), /repo names/);
+  await assert.rejects(readGithubRepos(['lee/x") { id } evil: repository(owner: "y'], d), /repo names/);
+});
+
+test('3.10 a GraphQL answer is read only when every error is NOT_FOUND', () => {
+  assert.equal(graphqlUsable({ data: { user: null }, errors: [{ type: 'NOT_FOUND' }] }), true);
+  assert.equal(graphqlUsable({ data: { r0: {} } }), true);
+  assert.equal(graphqlUsable({ data: { user: {} }, errors: [{ type: 'RATE_LIMITED' }] }), false);
+  assert.equal(graphqlUsable({ errors: [{ type: 'NOT_FOUND' }] }), false);
 });

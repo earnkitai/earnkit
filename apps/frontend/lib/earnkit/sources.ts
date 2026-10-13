@@ -2,9 +2,9 @@ import { ScoreDeadline } from './campaigns';
 import { sql, type Db } from './db';
 import { profileCodesIn } from './discovery-clues';
 import { noteEvent } from './events';
-import { readPersonGithub } from './person-github';
+import { REPOS_MAX, readGithubRepos, readPersonGithub, type PersonRepo } from './person-github';
 import { countingDeps, flushReadUsage } from './read-usage';
-import { NPM_BULK_MAX, isBudgetStop, readCoin, readContract, readNpm, readNpmBulk, readPypi, readRepo, readSite, type PackageSignals, type PrSignals, type ReaderDeps, type RepoSignals } from './source-readers';
+import { NPM_BULK_MAX, isBudgetStop, isoWeek, readCoin, readContract, readNpm, readNpmBulk, readPypi, readRepo, readSite, type PackageSignals, type PrSignals, type ReaderDeps, type RepoSignals } from './source-readers';
 
 /** spec 6: at most this many sources are read a run (oldest first). */
 export const READS_PER_RUN = 200;
@@ -271,11 +271,23 @@ const ownerOf = (ref: string) => ref.toLowerCase().split('/')[0];
 /** An unscoped npm name (npm's bulk downloads read takes only these; scoped ones keep readNpm). */
 const bulkNpm = (s: Due) => s.kind === 'package_npm' && !s.ref.startsWith('@');
 
-/** The login a person's repos are read under: the proven login, else the reported one, else `owner`. */
-async function personLogin(builderId: number, owner: string): Promise<string> {
+/** The login a person's own repos are read under: the proven login, else the reported one, else none. */
+async function personLogin(builderId: number): Promise<string | null> {
   const [row] = await sql()<{ login: string | null; reported: string | null }[]>`
     SELECT lower(github_login) AS login, lower(reported_github) AS reported FROM builder_profiles WHERE builder_id = ${builderId}`;
-  return [row?.login, row?.reported].find((l): l is string => typeof l === 'string' && LOGIN.test(l)) ?? owner;
+  return [row?.login, row?.reported].find((l): l is string => typeof l === 'string' && LOGIN.test(l)) ?? null;
+}
+
+const WEEK = /^\d{4}-W\d{2}$/;
+/**
+ * The new reading's commit weeks joined with the previous good reading's (the query sees only the
+ * newest 100 commits, and the score reads only the latest reading), the last 52 weeks only. Pure.
+ */
+export function withPastWeeks(weeks: string[], prev: unknown, now: Date): string[] {
+  const old = (prev as { commit_weeks?: unknown } | null)?.commit_weeks;
+  const floor = isoWeek(new Date(now.getTime() - 52 * 7 * DAY_MS));
+  const all = [...weeks, ...(Array.isArray(old) ? old.filter((w): w is string => typeof w === 'string' && WEEK.test(w)) : [])];
+  return [...new Set(all)].filter((w) => w >= floor).sort();
 }
 
 /**
@@ -283,7 +295,7 @@ async function personLogin(builderId: number, owner: string): Promise<string> {
  * (verified on their first read when their metadata names a verified repo of the person, else
  * rejected `repo_mismatch`; an unreadable one is tried again the next day), then the verified
  * sources due today, never read first, then the oldest. v2.12.1 "Scale": a person's repos under
- * their login are read by one GraphQL query (person-github.ts; an org repo keeps readRepo), unscoped
+ * their login are read by one GraphQL query (person-github.ts; others by name, REPOS_MAX a call), unscoped
  * npm packages in bulk (NPM_BULK_MAX a call), coins by their transfers. A read that throws is one
  * failed reading for the day (its error class only; spec "skip, don't chase": never retried that
  * day, the last good number stays); a spent GitHub budget or the deadline writes nothing, so the
@@ -291,10 +303,11 @@ async function personLogin(builderId: number, owner: string): Promise<string> {
  */
 export async function readSources(now: Date, o: { deadline: number; reader: ReaderDeps; only?: number[] }): Promise<{ read: number; failed: number }> {
   const day = now.toISOString().slice(0, 10);
-  const { deps, counts } = countingDeps(o.reader);
+  const { deps, counts, stop } = countingDeps(o.reader);
   try {
     return await readAll(now, day, { ...o, reader: deps });
   } finally {
+    stop();
     await flushReadUsage(day, counts);
   }
 }
@@ -329,16 +342,20 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
     }
   }
   const due = await dueSources(day, Math.max(0, READS_PER_RUN - pending.length), o.only);
+  /** Sources given a reading (ok or failed) in this run. */
+  const settled = new Set<number>();
   const ok = async (s: Due, signals: unknown) => {
+    settled.add(s.id);
     if (await writeReading(s.id, s.builder_id, day, { ok: true, signals })) read++;
   };
   const fail = async (s: Due, error: string) => {
+    settled.add(s.id);
     if (await writeReading(s.id, s.builder_id, day, { ok: false, error })) failed++;
   };
   /** Runs one read for `group`; false when the deadline cut it (stop the run). */
-  const attempt = async (group: Due[], read: () => Promise<void>): Promise<boolean> => {
+  const attempt = async (group: Due[], run: () => Promise<void>): Promise<boolean> => {
     try {
-      await read();
+      await run();
     } catch (err) {
       // A read cut by the deadline is not a failed read: no reading, the source stays due.
       if (err instanceof ScoreDeadline) return false;
@@ -349,25 +366,50 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
     return true;
   };
 
-  // Repos, one GraphQL query per person: those under the person's login (an org repo is read alone).
+  // Repos, per person: one GraphQL query for those under the person's login (newest 100 pushed),
+  // then the rest by name, REPOS_MAX a call (one outside the newest 100, an organization's, or all of
+  // them when the person has no login). An organization's repo also reads its contributors (one
+  // REST call), for the top-contributor rule. A repo GitHub does not know is a failed `not_found`.
   const people = new Map<number, Due[]>();
   for (const s of due) if (s.kind === 'repo') people.set(s.builder_id, [...(people.get(s.builder_id) ?? []), s]);
-  const alone: Due[] = [];
   for (const [builderId, repos] of people) {
     if (Date.now() >= o.deadline) return { read, failed };
-    const login = await personLogin(builderId, ownerOf(repos[0].ref));
-    const mine = repos.filter((s) => ownerOf(s.ref) === login);
-    alone.push(...repos.filter((s) => ownerOf(s.ref) !== login));
-    if (mine.length === 0) continue;
-    const go = await attempt(mine, async () => {
-      const person = await readPersonGithub(login, o.reader);
-      for (const s of mine) {
-        const r = person?.repos.get(s.ref.toLowerCase());
-        if (r) await ok(s, r);
-        else await fail(s, 'not_found');
+    const login = await personLogin(builderId);
+    const found = new Map<string, PersonRepo>();
+    const mine = login ? repos.filter((s) => ownerOf(s.ref) === login) : [];
+    if (mine.length > 0) {
+      const go = await attempt(mine, async () => {
+        const person = await readPersonGithub(login!, o.reader);
+        for (const [k, r] of person?.repos ?? []) found.set(k, r);
+      });
+      if (!go) return { read, failed };
+    }
+    // A repo the person query failed on already has its failed reading (settled).
+    const rest = repos.filter((s) => !found.has(s.ref.toLowerCase()) && !settled.has(s.id));
+    for (let i = 0; i < rest.length; i += REPOS_MAX) {
+      const batch = rest.slice(i, i + REPOS_MAX);
+      const go = await attempt(batch, async () => {
+        for (const [k, r] of await readGithubRepos(batch.map((s) => s.ref), o.reader)) found.set(k, r);
+      });
+      if (!go) return { read, failed };
+    }
+    for (const s of repos) {
+      if (settled.has(s.id)) continue;
+      const r = found.get(s.ref.toLowerCase());
+      if (!r) {
+        await fail(s, 'not_found');
+        continue;
       }
-    });
-    if (!go) return { read, failed };
+      const go = await attempt([s], async () => {
+        const contributors =
+          r.owner_type === 'Organization'
+            ? (await o.reader.gh<{ login?: unknown }[]>(`/repos/${r.key}/contributors?per_page=100`))
+                .flatMap((c) => (typeof c?.login === 'string' ? [{ id: `gh:${c.login.toLowerCase()}`, at: now.toISOString() }] : []))
+            : r.contributors;
+        await ok(s, { ...r, contributors, commit_weeks: withPastWeeks(r.commit_weeks, await previousSignals(s.id), now) });
+      });
+      if (!go) return { read, failed };
+    }
   }
 
   // Unscoped npm packages, NPM_BULK_MAX names a call (one failing call fails only its own names).
@@ -389,8 +431,8 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
     if (!go) return { read, failed };
   }
 
-  // Everything else (and org repos), one source at a time.
-  for (const s of [...alone, ...due.filter((s) => s.kind !== 'repo' && !bulkNpm(s))]) {
+  // Everything else, one source at a time.
+  for (const s of due.filter((s) => s.kind !== 'repo' && !bulkNpm(s))) {
     if (Date.now() >= o.deadline) break;
     if (!(await attempt([s], async () => ok(s, await readOne(s, now, o.reader))))) break;
   }
