@@ -134,7 +134,10 @@ apps/frontend/
                                only shownUrl https forms, tx links only 32-byte hashes); v2.6
                                Ruling 12 (plan): the segment is the slug (<program>-<YYYY-MM-DD|
                                YYYY-MM>) or the v2.5 ':' form, via bonus-rounds.ts
-                               resolveRoundParam (a malformed escape is a 404)
+                               resolveRoundParam (a malformed escape is a 404). v2.12 (D1): with
+                               EARNKIT_BUILDER_SCORE=on a round not in review 308s to
+                               /leaderboard?program=<id> (bonus-rounds.ts boardRedirect); /campaigns/<slug>
+                               too (D5; its file move is staged in archive/program-leaderboards/)
   app/api/stats/route.ts       v2.5 Task 9: GET public stats JSON (revalidate 600, prerendered when
                                the build has a DATABASE_URL; plus unstable_cache 600 s on the read,
                                for builds without one, where it renders per request); 503 no-store
@@ -246,8 +249,8 @@ apps/frontend/
                                left out (owner decision 4)
     programs.ts(+test)         v2.8.1 §B8 card needs_repo (the program file's needs_repo, column
                                programs.needs_repo; programs:check requires it, needsRepoMissing); list/get/upsert programs (source: 'file' | 'sponsor'); v2.7.1 pool_usd and
-                               poolFacts (card pool_usd/pool_plus/pool_line); build_help
-                               (kits/starter + one start command), trust() (verified_at: skip
+                               poolFacts (card pool_usd/pool_plus/pool_line); (build_help and
+                               program starters archived v2.12: archive/starters, EARNKIT_STARTER_REGISTRY), trust() (verified_at: skip
                                re-reading sources within 7 days), trustFor (sponsor programs: an
                                escrow note, no verified_at), perWinnerUsd (tie-break amount); programCard/
                                programDetails (pure): sponsor campaigns get quoted title/name,
@@ -700,6 +703,8 @@ apps/frontend/
                                as its new tool and arguments; Pre-flight P15 rules), rewriteAliases (a JSON-RPC
                                message or batch). Pure. v2.10.1 B5: withOlderNames, forOldClient (each tool named in both
                                forms, plus STALE_TOOLS_NOTE), aliasedIds (old names by JSON-RPC id); old names accept new args.
+                               v2.12 (R23): aliasesOn(now, env) (before ALIASES_UNTIL, or EARNKIT_TOOL_ALIASES=on);
+                               yesNo moved to yes-no.ts (re-exported); the move is staged in archive/tool-aliases/.
     tools.ts                   v2.11 T7: find's build_offer (BUILD_NOTE / PLAN_NOTE), freshSwitches (deploys +
                                RPC + R2; ctx.freshDeps in tests), fresh_offer_at on the first build lead.
                                v2.10.2 (v2.11 8a): matchRows ranks by odds (oddsRank), real use, traction, score.

@@ -3617,7 +3617,8 @@ the v2.9 handler a behaviour lives in; this table maps them.
   `token: 'skip'`) needs `builder_confirmed`, like a go; record_submission with both flags is
   `confirm` with `submitted`; record_submission's token object gives `token: { name, symbol }`, its
   image fields, and its own `creator_wallet` as the wallet (before `payout_wallet`, as v2.9
-  runTokenFlow did); `pick_up_entries`' answer is read with v2.9's `yesNo` (now in aliases.ts). `rewriteAliases` rewrites
+  runTokenFlow did); `pick_up_entries`' answer is read with v2.9's `yesNo` (in aliases.ts; v2.12 moved it to `yes-no.ts`). v2.12 (R23): `aliasesOn(now, env)` keeps
+  the old names until 2026-11-09, after it only with `EARNKIT_TOOL_ALIASES=on`; the file move is staged in `archive/tool-aliases/`. `rewriteAliases` rewrites
   each old `tools/call` in a JSON-RPC message or batch and leaves everything else as the same object.
   `app/mcp/route.ts withAliases` applies it to authenticated JSON POSTs before the transport (a body
   that isn't JSON passes untouched; a rewritten body drops `content-length`) and logs

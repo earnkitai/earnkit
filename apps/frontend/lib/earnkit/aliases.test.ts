@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ALIASES_UNTIL, OLD_TOOL_NAMES, aliasCall, rewriteAliases } from './aliases';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { ALIASES_UNTIL, OLD_TOOL_NAMES, aliasCall, aliasesOn, rewriteAliases } from './aliases';
 
 // v2.10 item 4 (Review Focus 2): old tool calls in their v2.9 shapes reach the new tool with the same meaning.
 const NOW = new Date('2026-10-10T00:00:00Z');
@@ -132,4 +134,14 @@ test('9.6 rewriteAliases: a batch rewrites only the old call, logs it once by na
     assert.equal((await rewriteAliases(odd, NOW)).changed, false, JSON.stringify(odd));
   const single = await rewriteAliases({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'get_program', arguments: { program_id } } }, NOW);
   assert.deepEqual(single, { body: { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'find', arguments: { program_id } } }, changed: true });
+});
+
+test('14.3 the aliases keep working until 2026-11-09; after it only with EARNKIT_TOOL_ALIASES=on', () => {
+  assert.equal(aliasesOn(new Date('2026-11-08T23:59:59Z'), {}), true);
+  assert.equal(aliasesOn(new Date('2026-11-09T00:00:00Z'), {}), false);
+  assert.equal(aliasesOn(new Date('2026-12-01T00:00:00Z'), { EARNKIT_TOOL_ALIASES: 'on' }), true);
+  assert.equal(aliasCall('list_programs', {}, new Date('2026-11-10T00:00:00Z')), null, 'the test guard clears the flag');
+  assert.equal(aliasCall('list_programs', {}, new Date('2026-11-08T00:00:00Z'))?.name, 'find');
+  const readme = readFileSync(join(import.meta.dirname, '../../../../archive/tool-aliases/README.md'), 'utf8');
+  assert.match(readme, /2026-11-09/);
 });

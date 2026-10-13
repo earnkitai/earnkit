@@ -1,5 +1,6 @@
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, permanentRedirect } from 'next/navigation';
+import { boardRedirect } from '@/lib/earnkit/bonus-rounds';
 import { getCampaignBoard } from '@/lib/earnkit/leaderboard';
 import { entryStatus, payoutBy, prizeText, prizeUsdEach, usd } from '@/lib/earnkit/campaigns';
 import { formatDeadline } from '@/lib/earnkit/dates';
@@ -52,7 +53,11 @@ export default async function CampaignPage({
 }: {
   params: Promise<{ slug: string }>;
 }) {
-  const board = await getCampaignBoard((await params).slug);
+  // v2.12 (D5): the campaign board is archived; with the score on it moves to the leaderboard.
+  const slug = (await params).slug;
+  const target = boardRedirect({ program: /^[a-z0-9-]{1,100}$/.test(slug) ? slug : null, inReview: false });
+  if (target) permanentRedirect(target);
+  const board = await getCampaignBoard(slug);
   if (!board) notFound();
   const { program, rows, offPlan, sponsorState, sponsor, run, review, funds } = board;
   const identity = sponsor?.identity ?? UNVERIFIED;

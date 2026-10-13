@@ -59,7 +59,7 @@ names still work as hidden aliases of these four.
   chains, contracts, live link, last commit. A private repo EarnKit can't
   see gets one line with a link to EarnKit's read-only GitHub App (when it is
   on): the builder picks the repos it may read, and they are scored in full. With program_id: full details, rules, submission
-  requirements, links, tested build help and the program's guide; add repo
+  requirements, links and the program's guide; add repo
   to check whether that repo fits. Every reply of every tool opens with
   "Since you last checked" when there is news: a win, a payout, a rank
   change, token fees to claim, or a newly listed program the builder's repos

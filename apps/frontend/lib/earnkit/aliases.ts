@@ -4,6 +4,8 @@
  * so old names never appear in `tools/list` and each old call reaches the handler its new form does
  * (Review Focus 2). Pure: no database, no network.
  */
+import { archiveFlag } from './builder-score-flag';
+import { yesNo } from './yes-no';
 
 export const OLD_TOOL_NAMES = [
   'list_programs',
@@ -19,6 +21,13 @@ export const OLD_TOOL_NAMES = [
 /** R17: 30 days after the spec's approval, plus one. After it an old name is an unknown tool. The owner may move it. */
 export const ALIASES_UNTIL = new Date('2026-11-09T00:00:00Z');
 
+/**
+ * v2.12 spec 9 (R23): whether the old names still work at `now`: always before ALIASES_UNTIL (R17's
+ * promise to clients), after it only with EARNKIT_TOOL_ALIASES=on (archive/tool-aliases). Pure.
+ */
+export const aliasesOn = (now: Date, env: Record<string, string | undefined> = process.env) =>
+  archiveFlag('TOOL_ALIASES', env) || now < ALIASES_UNTIL;
+
 type Args = Record<string, unknown>;
 export type AliasedCall = { name: 'find' | 'prepare' | 'confirm' | 'tell'; args: Args };
 
@@ -32,18 +41,8 @@ const answersOf = (d: unknown) =>
 
 const pick = (a: Args, keys: string[]): Args => Object.fromEntries(keys.filter((k) => a[k] !== undefined).map((k) => [k, a[k]]));
 
-/**
- * v2.8.1 §E18: a yes or no in any form an agent passes it (a boolean, 1/0, "yes", "sure", "nope",
- * "not now"); null when unclear. Pure; tools.ts re-exports it.
- */
-export function yesNo(v: unknown): boolean | null {
-  if (typeof v === 'boolean') return v;
-  if (v === 1 || v === 0) return v === 1;
-  const t = typeof v === 'string' ? v.trim().toLowerCase().replace(/[.!]+$/, '') : '';
-  if (['yes', 'y', 'true', 'yeah', 'yep', 'sure', 'ok', 'okay'].includes(t)) return true;
-  if (['no', 'n', 'false', 'nope', 'not now'].includes(t)) return false;
-  return null;
-}
+/** v2.12 (R23): yesNo lives in yes-no.ts (tools.ts reads it there); re-exported for old imports. */
+export { yesNo };
 
 /** pick_up_entries' answer as tell's "yes" or "no"; an unclear one passes as given (tell refuses it). */
 const pickupOf = (v: unknown) => {
@@ -52,14 +51,15 @@ const pickupOf = (v: unknown) => {
 };
 
 /**
- * An old tool call as its new tool and arguments, until ALIASES_UNTIL (R17); null for any other name
- * or after the date. Pre-flight P15: a skip, like a go, needs builder_confirmed (v2.9 showed the offer
- * without it); record_submission with both builder_confirmed and builder_submitted confirms the entry
- * and marks it submitted (confirm's `submitted`); an "I submitted" carries the given project and answers
- * for an entry that doesn't exist yet (tell.submitted's fallback).
+ * An old tool call as its new tool and arguments, until ALIASES_UNTIL (R17) or with
+ * EARNKIT_TOOL_ALIASES=on (aliasesOn); null for any other name or after the date. Pre-flight P15:
+ * a skip, like a go, needs builder_confirmed (v2.9 showed the offer without it); record_submission
+ * with both builder_confirmed and builder_submitted confirms the entry and marks it submitted
+ * (confirm's `submitted`); an "I submitted" carries the given project and answers for an entry that
+ * doesn't exist yet (tell.submitted's fallback).
  */
 export function aliasCall(name: string, a: Args, now = new Date()): AliasedCall | null {
-  if (now >= ALIASES_UNTIL) return null;
+  if (!aliasesOn(now)) return null;
   const yes = a.builder_confirmed === true;
   const go = yes && a.decision !== 'skip' && { yes: true };
   const skip = yes && a.decision === 'skip' && { skip_token: true };

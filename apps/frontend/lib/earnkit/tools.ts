@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { yesNo } from './aliases';
+import { yesNo } from './yes-no';
 import { hasRealUse, oddsRank, rowOdds } from './match';
 import { NotFoundError, alsoProgramFacts, getProgram, getProgramRow, isOpen, listPrograms } from './programs';
 import { guideText, programGuide } from './guide';

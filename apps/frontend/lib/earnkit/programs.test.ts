@@ -1,6 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  getProgram,
   getProgramRow,
   listPrograms,
   perWinnerUsd,
@@ -17,6 +18,7 @@ import { committedProgram } from './fixtures/program-file';
 import { ProgramFile } from './program-file';
 import { trackRecordOf } from './sponsor-identity';
 import { DraftInput, sponsorProgramFile, withDefaults } from './sponsor-rules';
+import { STARTERS } from './starters';
 
 /** A program file's row (v2.4 tests). */
 const fileRow = (campaign: ProgramRow['campaign']): ProgramRow => ({
@@ -344,15 +346,20 @@ test('get_program: older rows are cleaned on read (no hidden or markup character
   assert.equal(d.sponsor_content?.criteria, "Best'code'");
 });
 
-test('v2.4 §7: an EarnKit campaign\'s build help is the campaign starter, not the grants kit or x402', () => {
-  const help = programDetails(fileRow(earnkitCampaign), [], []).build_help;
-  assert.equal(help[0].url, 'https://github.com/earnkitai/chain-kits/tree/main/base/campaign');
-  assert.equal(help[0].start, 'npx degit earnkitai/chain-kits/base/campaign my-entry');
-  assert.match(help[0].use, /people call directly/);
-  assert.match(help[0].use, /Builder Code/);
-  assert.ok(!help.some((h) => /needed for Base grants|x402/.test(h.use)));
-  const other = programDetails(fileRow(null), [], []).build_help;
-  assert.ok(other.some((h) => /needed for Base grants/.test(h.use)));
+test('v2.12 spec 9: with EARNKIT_STARTER_REGISTRY off, get_program has no build_help, starters or starters_note (archive/starters)', () => {
+  const row = { track_id: null, title: 'A tip page', what_to_build: 'A page', requirements: [], build_context: [] };
+  for (const c of [null, earnkitCampaign]) {
+    const d = programDetails(fileRow(c), [], [row]);
+    for (const k of ['build_help', 'starters', 'starters_note']) assert.equal(k in d, false, k);
+  }
+  process.env.EARNKIT_STARTER_REGISTRY = 'on';
+  try {
+    const d = programDetails(fileRow(null), [], [row]);
+    assert.equal(d.starters?.[0].title, 'A tip page');
+    assert.match(d.starters_note ?? '', /optional ideas/);
+  } finally {
+    delete process.env.EARNKIT_STARTER_REGISTRY;
+  }
 });
 
 test('v2.7 §2: programCard.difficulty for a curated program; null for any campaign', () => {
@@ -425,6 +432,34 @@ test('5.2 programs:sync stores fresh_build and listPrograms cards (find\'s cards
     assert.equal((await getProgramRow(id)).fresh_build, null);
   } finally {
     await sql()`DELETE FROM programs WHERE id IN (${id}, ${plain})`;
+  }
+});
+
+// ---- v2.12 T14 (14.4): the starter registry beyond arc-tipjar is archived ----
+const fileWithStarters = ProgramFile.parse({
+  ...committedProgram('arc-microgrants'),
+  id: `t14-starters-${process.pid}`,
+  ends_at: null,
+  starters: [{ title: 'A tip page', what_to_build: 'A USDC tip page', requirements: ['Deployed on Arc'], build_context: [] }],
+});
+
+test('14.4 with EARNKIT_STARTER_REGISTRY off, sync writes no starters rows and find shows no starters; arc-tipjar still serves the build path', dbTest, async () => {
+  try {
+    await upsertProgram(fileWithStarters);
+    const [{ n }] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM starters WHERE program_id = ${fileWithStarters.id}`;
+    assert.equal(n, 0);
+    assert.equal('starters' in (await getProgram(fileWithStarters.id)), false);
+    assert.ok(STARTERS['arc-tipjar']);
+    // With the flag on (the restore), sync writes the rows and get_program shows them again.
+    process.env.EARNKIT_STARTER_REGISTRY = 'on';
+    try {
+      await upsertProgram(fileWithStarters);
+      assert.equal((await getProgram(fileWithStarters.id)).starters?.[0].title, 'A tip page');
+    } finally {
+      delete process.env.EARNKIT_STARTER_REGISTRY;
+    }
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = ${fileWithStarters.id}`;
   }
 });
 

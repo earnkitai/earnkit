@@ -1,0 +1,5 @@
+# Files to move to archive/program-leaderboards/files/<same path> at go-live (README, "The move").
+# Commented until then: /campaigns/<slug> renders as v2.11 while EARNKIT_BUILDER_SCORE is off.
+# One repo-relative path per line; read by apps/frontend/scripts/archive-restore.mts.
+# apps/frontend/app/campaigns/[slug]/page.tsx
+# apps/frontend/lib/earnkit/campaign-page-text.ts

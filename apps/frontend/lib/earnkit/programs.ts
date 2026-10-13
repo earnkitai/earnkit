@@ -44,46 +44,8 @@ import { poolLine, poolStated, statedPool } from './pool';
 
 export class NotFoundError extends Error {}
 
-const KITS = 'https://github.com/earnkitai/chain-kits/tree/main';
 /** v2.9 A1: EarnKit's own GitHub orgs, never a builder's repo (import-free, so match.ts can read it). */
 export { EARNKIT_ORGS } from './earnkit-orgs';
-const AGENT_SERVICE_STARTER = {
-  use: 'Starting point for a service other agents pay per call in USDC (x402) on Arc or Base',
-  url: 'https://github.com/earnkitai/starter-agent-service',
-  start: 'npx degit earnkitai/starter-agent-service my-service',
-};
-
-/** EarnKit's Base campaign starter (v2.4 §7): contracts people call directly, Builder Codes on every transaction. */
-const CAMPAIGN_STARTER = {
-  use:
-    "Campaign starter: a Base contract people call directly (so every user counts), with EarnKit's Builder Code on every transaction. Registering your own Builder Code at base.dev also qualifies you for Base rewards.",
-  url: `${KITS}/base/campaign`,
-  start: 'npx degit earnkitai/chain-kits/base/campaign my-entry',
-};
-
-/** Tested, EarnKit-maintained help for the chains a program uses. Read before building. */
-function buildHelp(chains: Chain[], campaign?: CampaignConfig | null) {
-  // An EarnKit campaign scores users of the entry's contracts: only the starter that builds one.
-  if (campaign?.kind === 'earnkit') return [CAMPAIGN_STARTER];
-  const help: { use: string; url: string; start: string }[] = [];
-  if (chains.includes('arc')) {
-    help.push({
-      use: 'Deploy + verify on Arc; USDC gas, 18 vs 6 decimals, 20 gwei floor',
-      url: `${KITS}/arc`,
-      start: 'npx degit earnkitai/chain-kits/arc/example arc-kit',
-    });
-  }
-  if (chains.includes('base')) {
-    help.push({
-      use: 'Base Builder Codes (needed for Base grants): get one, attach it, check it',
-      url: `${KITS}/base`,
-      start: 'npx degit earnkitai/chain-kits/base/example base-kit',
-    });
-  }
-  if (chains.includes('arc') || chains.includes('base'))
-    help.push(AGENT_SERVICE_STARTER);
-  return help;
-}
 
 /** When the facts were last checked against the source, and whether the agent can skip re-checking. */
 export function trust(verifiedAt: Date | null, now = new Date()) {
@@ -577,9 +539,12 @@ export async function getProgram(programId: string) {
     throw new NotFoundError(`No program with id "${programId}". Call find for current ids.`);
   const tracks = await db<TrackRow[]>`
     SELECT id, name, description, requirements FROM tracks WHERE program_id = ${programId} ORDER BY id`;
-  const starters = await db<StarterRow[]>`
+  // v2.12 spec 9: the starters table is archived; read only with EARNKIT_STARTER_REGISTRY=on.
+  const starters = archiveFlag('STARTER_REGISTRY')
+    ? await db<StarterRow[]>`
     SELECT track_id, title, what_to_build, requirements, build_context FROM starters
-    WHERE program_id = ${programId} ORDER BY id`;
+    WHERE program_id = ${programId} ORDER BY id`
+    : [];
   const sponsorRow =
     program.campaign?.kind === 'sponsor'
       ? await sponsorOfProgram(programId)
@@ -683,7 +648,6 @@ export function programDetails(
     source_url: program.source_url,
     ...trustFor(program.source, program.verified_at),
     submission_url: program.submission_url,
-    build_help: buildHelp(program.chains, program.campaign),
     ...(program.campaign && {
       campaign:
         program.campaign.kind === 'earnkit'
@@ -734,7 +698,8 @@ export function programDetails(
           identity.verified && { sponsor_url: sponsor.sponsor.url }),
       },
     }),
-    ...(starters.length > 0 && {
+    // v2.12 spec 9: the starter registry beyond arc-tipjar is archived (archive/starters).
+    ...(archiveFlag('STARTER_REGISTRY') && starters.length > 0 && {
       starters: starters.map((s) => ({
         track: trackName(s.track_id),
         title: s.title,
@@ -750,7 +715,8 @@ export function programDetails(
 }
 
 /**
- * Replaces the program, its tracks, and its starters with the file's contents.
+ * Replaces the program, its tracks, and (only with EARNKIT_STARTER_REGISTRY=on, v2.12) its starters
+ * with the file's contents.
  *
  * `db` lets a caller that already holds a transaction (e.g. sponsor.ts's `confirmFunding`, which
  * must publish the program and flip the campaign's state atomically) reuse it instead of this
@@ -837,7 +803,9 @@ export async function upsertProgram(
         WHERE program_id = ${p.id} AND state = 'open' AND round_key = ${windowKey(p.id, new Date(p.starts_at))}
           AND (starts_at, ends_at) IS DISTINCT FROM (${p.starts_at}::timestamptz, ${p.ends_at}::timestamptz)`;
 
-    await tx`DELETE FROM starters WHERE program_id = ${p.id}`;
+    // v2.12 spec 9: the starters table is archived and receives no writes while the flag is off.
+    const starterRegistry = archiveFlag('STARTER_REGISTRY');
+    if (starterRegistry) await tx`DELETE FROM starters WHERE program_id = ${p.id}`;
     await tx`DELETE FROM tracks WHERE program_id = ${p.id}`;
     for (const t of p.tracks) {
       await tx`INSERT INTO tracks ${tx({
@@ -848,7 +816,7 @@ export async function upsertProgram(
         requirements: t.requirements,
       })}`;
     }
-    for (const s of p.starters) {
+    for (const s of starterRegistry ? p.starters : []) {
       await tx`INSERT INTO starters ${tx({
         program_id: p.id,
         track_id: s.track ? `${p.id}/${s.track}` : null,

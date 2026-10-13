@@ -1,4 +1,5 @@
 import type postgres from 'postgres';
+import { archiveFlag, builderScoreEnabled } from './builder-score-flag';
 import { sql } from './db';
 import { testInstallationIds } from './installations';
 
@@ -23,6 +24,24 @@ export const windowKey = (id: string, startsAt: Date) => `${id}:${startsAt.toISO
  * ("arc-microgrants-2026-09-16", "base-builder-grants-2026-10"). Pure.
  */
 export const boardSlug = (roundKey: string) => roundKey.replace(':', '-');
+
+/** v2.12: the program id of a round key (`windowKey`'s shape, or a month key), else null. Pure. */
+export function programOfRound(key: string): string | null {
+  return /^([a-z0-9-]{1,100}):\d{4}-\d{2}(?:-\d{2})?$/.exec(key)?.[1] ?? null;
+}
+
+/**
+ * v2.12 spec 9, owner rulings D1 and D5: where a program board goes, or null to render it as in
+ * v2.11. Only with EARNKIT_BUILDER_SCORE=on (the leaderboard is a 404 before); never while a round
+ * is in review (the 48-hour public review stays public); never once the boards are restored. Pure.
+ */
+export function boardRedirect(
+  b: { program: string | null; inReview: boolean },
+  env: Record<string, string | undefined> = process.env,
+): string | null {
+  if (!builderScoreEnabled(env) || archiveFlag('PROGRAM_LEADERBOARDS', env) || b.inReview || !b.program) return null;
+  return `/leaderboard?program=${encodeURIComponent(b.program)}`;
+}
 
 /**
  * The round key of a board URL segment: a slug (boardSlug) or the v2.5 `:` form, returned as is.

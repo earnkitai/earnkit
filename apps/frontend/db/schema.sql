@@ -1214,3 +1214,7 @@ ALTER TABLE builder_scores ADD COLUMN IF NOT EXISTS projects jsonb;
 COMMENT ON TABLE sponsor_campaigns IS 'archived v2.12';
 COMMENT ON TABLE sponsor_verifications IS 'archived v2.12';
 COMMENT ON TABLE chain_checks IS 'archived v2.12';
+
+-- v2.12 spec 9: the program files' starters archived (archive/starters/). Kept, never dropped; no writes
+-- while EARNKIT_STARTER_REGISTRY is off (a track's delete still cascades to its starter rows).
+COMMENT ON TABLE starters IS 'archived v2.12';

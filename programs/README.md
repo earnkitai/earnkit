@@ -9,7 +9,8 @@ pnpm programs:check    # validate every program file
 
 To publish, push to `main`. Every deploy writes all program files to the database
 (`pnpm predeploy`), and changes under `programs/` trigger a deploy. The files are the source of
-truth: a program's tracks and starters are replaced with what's in its file. Programs drop out
+truth: a program's tracks are replaced with what's in its file (its `starters` too, only with
+`EARNKIT_STARTER_REGISTRY=on`: archived in v2.12, see `archive/starters/`). Programs drop out
 of `list_programs` on their own after `ends_at`.
 
 ## "Add this program to EarnKit: <url>"
@@ -195,7 +196,7 @@ program is never closed under it either.
       The Easy rule: a `"needs a live product"` program is never Easy, rated or stated
       (`pnpm programs:check` refuses it), and shows at least Medium. A builder's row can be harder
       than the program (what their repo still needs), never easier.
-5. Do not add starters. The owner decides those. Never add `fresh_build` either (below).
+5. Do not add starters (archived in v2.12; `archive/starters/`). The owner decides those. Never add `fresh_build` either (below).
 6. Run `pnpm programs:check`, then push.
 
 ## `fresh_build`: the program's fresh-build starter
