@@ -1308,6 +1308,10 @@ CREATE TABLE IF NOT EXISTS read_usage (
   reads    integer NOT NULL DEFAULT 0,
   PRIMARY KEY (day, provider)
 );
+-- v2.12.1 T4 fix round 3: a v2 release publishes exactly the reviewed live score. NULL (v1 and
+-- before): the day's history row as it is. Set: only a history row with this score is public, and
+-- the released score is the next days' hold baseline (builder-score.ts publicRow, person-score.ts).
+ALTER TABLE score_releases ADD COLUMN IF NOT EXISTS score smallint;
 -- v2.12.1 T4 fix round 1: the person's ring weights (anti-farming ringWeights: partners' accounts and
 -- the cluster cap), computed by the cron's score step so an on-demand refresh never scans everyone.
 ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS ring jsonb NOT NULL DEFAULT '{}'::jsonb;
