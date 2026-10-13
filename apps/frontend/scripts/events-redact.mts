@@ -24,7 +24,8 @@ import { sql } from '../lib/earnkit/db';
  * project_id, which still join to those tables.
  */
 
-const USAGE = 'Usage: events-redact.mts --login <github login> and/or --wallet <0x address> [--apply]';
+const USAGE = `Usage: events-redact.mts --login <github login> and/or --wallet <0x address> [--apply]
+(--login also clears that login's page profile and page data; --wallet alone never touches profiles or person_wallets)`;
 const LOGIN = /^[a-z0-9](?:[a-z0-9-]{0,38})$/;
 const WALLET = /^0x[0-9a-f]{40}$/;
 
@@ -171,14 +172,33 @@ const listRows = (q: typeof db | Parameters<Parameters<typeof db.begin>[0]>[0]) 
 const show = (r: Row) =>
   `  #${r.id} ${r.type} ${r.at.toISOString().slice(0, 10)}: ${[r.github_login && 'login', r.wallet && 'wallet', r.twist && 'twist'].filter(Boolean).join(', ')}`;
 
+type Tx = Parameters<Parameters<typeof db.begin>[0]>[0];
+/** v2.12.1: the profile ids (found by the proven login) whose page data is cleared. */
+const profileIds = async (tx: Tx) =>
+  login ? (await tx<{ builder_id: number }[]>`SELECT builder_id FROM builder_profiles WHERE lower(github_login) = ${login}`).map((p) => p.builder_id) : [];
+const pageCounts = async (tx: Tx, ids: number[]) => {
+  const out: string[] = [`page profiles: ${ids.length}`];
+  for (const t of BUILDER_TABLES) {
+    const [r] = await tx<{ n: number }[]>`SELECT count(*)::int AS n FROM ${tx(t)} WHERE builder_id = ANY(${ids})`;
+    out.push(`${t}: ${r.n}`);
+  }
+  return out;
+};
+
 try {
   let rows: Row[];
   if (!values.apply) {
-    rows = await db.begin('read only', (tx) => listRows(tx));
+    let page: string[] = [];
+    rows = await db.begin('read only', async (tx) => {
+      if (login) page = await pageCounts(tx, await profileIds(tx));
+      return listRows(tx);
+    });
     console.log(`builder_events: ${rows.length} row(s) match ${who}`);
     for (const r of rows) console.log(show(r));
+    if (login) console.log(`Page data that --apply will clear or delete (${page.join(', ')})`);
     console.log('Dry run: nothing changed. Add --apply to redact these rows.');
   } else {
+    let page: string[] = [];
     rows = await db.begin(async (tx) => {
       await tx`SELECT set_config('earnkit.events_redact', 'on:' || txid_current(), true)`;
       const found = await listRows(tx);
@@ -189,18 +209,28 @@ try {
       // v2.12.1: the person's page data. The profile (found by the proven login) loses the new identifying
       // columns, and the rows keyed by its builder_id are deleted (none of them is append-only).
       if (login) {
-        const profiles = await tx<{ builder_id: number }[]>`
+        const ids = await profileIds(tx);
+        // x_handle and fallback_handle are nulled only when they are the login itself (an X handle that is
+        // not the login is the person's public name, kept and left to the owner like the slug, which is
+        // NOT NULL and the page's URL).
+        await tx`
           UPDATE builder_profiles SET x_user_id = NULL, x_name = NULL, x_avatar_url = NULL, reported_github = NULL,
-            base_builder_code = NULL, identity = '{}'::jsonb, github_basis = NULL
-          WHERE lower(github_login) = ${login} RETURNING builder_id`;
-        const ids = profiles.map((p) => p.builder_id);
-        if (ids.length)
-          for (const t of BUILDER_TABLES) await tx`DELETE FROM ${tx(t)} WHERE builder_id = ANY(${ids})`;
+            base_builder_code = NULL, identity = '{}'::jsonb, github_basis = NULL,
+            x_handle = CASE WHEN lower(x_handle) = ${login} THEN NULL ELSE x_handle END,
+            fallback_handle = CASE WHEN lower(fallback_handle) = ${login} THEN NULL ELSE fallback_handle END
+          WHERE builder_id = ANY(${ids})`;
+        const counts: string[] = [`page profiles: ${ids.length}`];
+        for (const t of BUILDER_TABLES) {
+          const d = await tx`DELETE FROM ${tx(t)} WHERE builder_id = ANY(${ids}) RETURNING 1`;
+          counts.push(`${t}: ${d.length}`);
+        }
+        page = counts;
       }
       return found;
     });
     console.log(`builder_events: redacted ${rows.length} row(s) for ${who} at ${new Date().toISOString()}`);
     for (const r of rows) console.log(show(r));
+    if (login) console.log(`Page data cleared or deleted (${page.join(', ')})`);
     const [left] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_events WHERE ${match}`;
     console.log(`Rows still matching: ${left.n}. The table is append-only again.`);
   }

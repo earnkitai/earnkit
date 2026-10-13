@@ -187,3 +187,60 @@ test('12.3 v2.12: a builder_profiles row naming the login is counted for --login
   assert.match(r.out, /\n  builder_profiles\.github_login: 1\n/);
   assert.match(r.out, /\n  builder_profiles\.fallback_handle: 1\n/);
 });
+
+test('12.4 --login clears that person\'s page data (dry run says so first), another login and a --wallet-only run change nothing', dbTest, async () => {
+  const t = tag();
+  const t8 = t.slice(-8);
+  const [X, Y] = [`px${t8}`, `py${t8}`];
+  const wallet = `0x${hex(`pw${t}`)}`;
+  const idX = 2_100_800_000 + Math.floor(Math.random() * 90_000);
+  const idY = idX + 1;
+  const db = sql();
+  const seedPerson = async (id: number, login: string, w: string) => {
+    await db`INSERT INTO builder_profiles (builder_id, slug, github_login, x_handle, fallback_handle, x_user_id, x_name, x_avatar_url,
+        reported_github, base_builder_code, identity, github_basis)
+      VALUES (${id}, ${`s-${login}`}, ${login}, ${login.replace(/-/g, '_')}, ${login}, ${`xu-${login}`}, 'N', 'https://a/b.png', ${login}, 'bc', ${db.json({ a: 1 })}, 'signin')`;
+    await db`INSERT INTO claim_codes (code_hash, builder_id) VALUES (${`h-${login}`}, ${id})`;
+    await db`INSERT INTO person_wallets (wallet, builder_id) VALUES (${w}, ${id})`;
+    await db`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped) VALUES (${id}, 'k', 'P', 'app', true, true)`;
+    await db`INSERT INTO x_oauth_states (state_hash, builder_id, code_verifier, csrf_hash, expires_at) VALUES (${`st-${login}`}, ${id}, 'v', 'c', now())`;
+    await db`INSERT INTO coin_moments (builder_id, project_key, moment) VALUES (${id}, 'k', 'built_live')`;
+  };
+  await seedPerson(idX, X, wallet);
+  await seedPerson(idY, Y, `0x${hex(`pz${t}`)}`);
+  const profile = async (id: number) =>
+    (await db<Record<string, unknown>[]>`SELECT x_user_id, x_name, x_avatar_url, reported_github, base_builder_code, github_basis, identity, x_handle, fallback_handle
+      FROM builder_profiles WHERE builder_id = ${id}`)[0];
+  const tables = ['claim_codes', 'person_wallets', 'builder_projects', 'x_oauth_states', 'coin_moments'];
+  const count = async (id: number) => Promise.all(tables.map(async (tb) => (await db`SELECT 1 FROM ${db(tb)} WHERE builder_id = ${id}`).length));
+  try {
+    const dry = run('--login', X);
+    assert.equal(dry.code, 0, dry.err);
+    assert.match(dry.out, /Page data that --apply will clear or delete \(page profiles: 1, claim_codes: 1, person_wallets: 1, builder_projects: 1, x_oauth_states: 1, coin_moments: 1\)/);
+    assert.deepEqual(await count(idX), [1, 1, 1, 1, 1]);
+    assert.equal((await profile(idX)).x_user_id, `xu-${X}`);
+
+    const wOnly = run('--wallet', wallet, '--apply');
+    assert.equal(wOnly.code, 0, wOnly.err);
+    assert.doesNotMatch(wOnly.out, /Page data/);
+    assert.deepEqual(await count(idX), [1, 1, 1, 1, 1], 'a --wallet-only run deletes nothing');
+    assert.equal((await profile(idX)).x_user_id, `xu-${X}`);
+
+    const r = run('--login', X, '--apply');
+    assert.equal(r.code, 0, r.err);
+    assert.match(r.out, /Page data cleared or deleted \(page profiles: 1, claim_codes: 1, person_wallets: 1, builder_projects: 1, x_oauth_states: 1, coin_moments: 1\)/);
+    const px = await profile(idX);
+    for (const k of ['x_user_id', 'x_name', 'x_avatar_url', 'reported_github', 'base_builder_code', 'github_basis', 'x_handle', 'fallback_handle']) assert.equal(px[k], null, k);
+    assert.deepEqual(px.identity, {});
+    assert.deepEqual(await count(idX), [0, 0, 0, 0, 0]);
+    const py = await profile(idY);
+    assert.equal(py.x_user_id, `xu-${Y}`);
+    assert.deepEqual(py.identity, { a: 1 });
+    assert.deepEqual(await count(idY), [1, 1, 1, 1, 1]);
+  } finally {
+    for (const id of [idX, idY]) {
+      for (const tb of tables) await db`DELETE FROM ${db(tb)} WHERE builder_id = ${id}`;
+      await db`DELETE FROM builder_profiles WHERE builder_id = ${id}`;
+    }
+  }
+});
