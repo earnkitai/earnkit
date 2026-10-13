@@ -477,7 +477,6 @@ export async function personInputsV2(
  */
 export async function rescorePerson(id: number, now: Date, ring?: PersonRing): Promise<{ score: number; ranked: boolean; held: boolean }> {
   const cal = calibrationV2();
-  const day = now.toISOString().slice(0, 10);
   // One transaction for the decision and the write: a per-person advisory lock first (rescores of
   // one person never interleave), then every input the hold depends on (the live row, the
   // baseline, the stored ring) is read under it. A rescore older than the stored one writes nothing.
@@ -485,27 +484,20 @@ export async function rescorePerson(id: number, now: Date, ring?: PersonRing): P
     await tx`SELECT pg_advisory_xact_lock(${RESCORE_LOCK}, ${id})`;
     const [cur] = await tx<{ score: number; ranked: boolean; computed_at: Date }[]>`
       SELECT score, ranked, computed_at FROM builder_live WHERE builder_id = ${id} FOR UPDATE`;
-    if (cur && cur.computed_at > now) {
-      // A newer rescore (a refresh during this cron run) keeps its score and projects. The cron's
-      // ring is still the freshest: it is stored with this run's check, and the newer row's rank
-      // follows it (ranked = a confirmed ship once the ring is known; `shipped` is that count).
-      if (!ring) return { score: cur.score, ranked: cur.ranked, held: false, reason: null, s: null, before: null };
-      const { checked } = await personInputsV2(id, now, ring, tx);
-      await tx`UPDATE builder_profiles SET ring = ${tx.json(ringToJson(ring, checked, now) as never)} WHERE builder_id = ${id}`;
-      const [l] = await tx<{ score: number; ranked: boolean; held: boolean }[]>`
-        UPDATE builder_live SET ranked = shipped >= 1,
-          pending = CASE WHEN pending IS NULL THEN NULL
-            ELSE jsonb_set(pending, '{ranked}', to_jsonb(COALESCE((pending->>'shipped')::numeric, 0) >= 1)) END
-        WHERE builder_id = ${id} RETURNING score, ranked, pending IS NOT NULL AS held`;
-      return { score: l.score, ranked: l.ranked, held: l.held, reason: null, s: null, before: null };
-    }
-    const { input, projects, perSource, ringComputed, checked } = await personInputsV2(id, now, ring, tx);
-    const s = computeScoreV2(input, cal, now);
+    // A newer rescore exists (a refresh during this cron run). Without a ring (an older refresh)
+    // nothing is written. The cron's ring is the freshest, so the cron rescores at the newer row's
+    // time: same readings, same computed_at (never moves back), the rank, cap and projects rebuilt
+    // with the computed ring. `checked_at` stays this cron run.
+    if (cur && cur.computed_at > now && !ring) return { score: cur.score, ranked: cur.ranked, held: false, reason: null, s: null, before: null };
+    const at = cur && cur.computed_at > now ? cur.computed_at : now;
+    const day = at.toISOString().slice(0, 10);
+    const { input, projects, perSource, ringComputed, checked } = await personInputsV2(id, at, ring, tx);
+    const s = computeScoreV2(input, cal, at);
     // Ranked only once the cron has computed the person's ring (fail strict on ring partners).
     const ranked = s.ranked && ringComputed;
     const prevTracked = new Set((await tx<{ project_key: string }[]>`
       SELECT project_key FROM builder_projects WHERE builder_id = ${id} AND tracked`).map((r) => r.project_key));
-    const tracked = trackedKeys(projects, now, prevTracked);
+    const tracked = trackedKeys(projects, at, prevTracked);
     // The baseline: the newest public score before today, a public v2 history row or a released
     // live score (a held day the owner never saw is neither).
     const [before] = await tx<{ score: number }[]>`
@@ -520,7 +512,9 @@ export async function rescorePerson(id: number, now: Date, ring?: PersonRing): P
     const reason = holdReason(before?.score ?? null, s.score, shares);
     const people = [...s.perProject.values()].filter((p) => p.people > 0).length;
     // `at` names this rescore: the owner's release applies it only while it is still the pending one.
-    const row = { score: s.score, parts: s.parts, ranked, shipped: s.shipped, people, formula: FORMULA_V2, calibration: cal.id, day, at: now.toISOString() };
+    // A cron rescore at a newer row's time is a different rescore, so it carries the run's time too.
+    const version = at === now ? now.toISOString() : `${at.toISOString()}~${now.toISOString()}`;
+    const row = { score: s.score, parts: s.parts, ranked, shipped: s.shipped, people, formula: FORMULA_V2, calibration: cal.id, day, at: version };
     // The cron's ring (and the accounts it checked, with their owners) is stored for the refreshes.
     if (ring) await tx`UPDATE builder_profiles SET ring = ${tx.json(ringToJson(ring, checked, now) as never)} WHERE builder_id = ${id}`;
     let out: { score: number; ranked: boolean };
@@ -528,14 +522,14 @@ export async function rescorePerson(id: number, now: Date, ring?: PersonRing): P
       // Held: the public columns stay (none yet: public 0, unranked) and the rescore waits for the owner.
       await tx`
         INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, pending, computed_at)
-        VALUES (${id}, 0, '{}'::jsonb, false, 0, 0, ${FORMULA_V2}, ${cal.id}, ${tx.json(row as never)}, ${now})
+        VALUES (${id}, 0, '{}'::jsonb, false, 0, 0, ${FORMULA_V2}, ${cal.id}, ${tx.json(row as never)}, ${at})
         ON CONFLICT (builder_id) DO UPDATE SET pending = EXCLUDED.pending, computed_at = EXCLUDED.computed_at`;
       await tx`UPDATE builder_profiles SET held = true, updated_at = now() WHERE builder_id = ${id}`;
       out = cur ? { score: cur.score, ranked: cur.ranked } : { score: 0, ranked: false };
     } else {
       await tx`
         INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, pending, computed_at)
-        VALUES (${id}, ${s.score}, ${tx.json(s.parts as never)}, ${ranked}, ${s.shipped}, ${people}, ${FORMULA_V2}, ${cal.id}, NULL, ${now})
+        VALUES (${id}, ${s.score}, ${tx.json(s.parts as never)}, ${ranked}, ${s.shipped}, ${people}, ${FORMULA_V2}, ${cal.id}, NULL, ${at})
         ON CONFLICT (builder_id) DO UPDATE SET score = EXCLUDED.score, parts = EXCLUDED.parts, ranked = EXCLUDED.ranked,
           shipped = EXCLUDED.shipped, people = EXCLUDED.people, formula = EXCLUDED.formula, calibration = EXCLUDED.calibration,
           pending = NULL, computed_at = EXCLUDED.computed_at`;
@@ -549,7 +543,7 @@ export async function rescorePerson(id: number, now: Date, ring?: PersonRing): P
           builder_id: id, project_key: p.key, name: p.name, what: p.what, link: p.link, kind: p.kind,
           confirmed: p.confirmed, shipped: p.shipped, tracked: tracked.has(p.key), people: p.people, people_week: p.people_week,
           money_usd: p.money_usd, has_coin: p.has_coin, sends_tx: p.sends_tx, tagged: p.tagged,
-          untracked_contract: p.untracked_contract, last_active_at: p.last_active_at, updated_at: now,
+          untracked_contract: p.untracked_contract, last_active_at: p.last_active_at, updated_at: at,
         })}
         ON CONFLICT (builder_id, project_key) DO UPDATE SET name = EXCLUDED.name, what = EXCLUDED.what, link = EXCLUDED.link,
           kind = EXCLUDED.kind, confirmed = EXCLUDED.confirmed, shipped = EXCLUDED.shipped, tracked = EXCLUDED.tracked,

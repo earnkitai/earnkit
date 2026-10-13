@@ -620,7 +620,8 @@ export async function scoresPost(request: Request, deps: { limit?: (ip: string) 
     if (outcome === 'released') {
       await sql()`
         UPDATE builder_profiles SET updated_at = now(), held = EXISTS (
-          SELECT 1 FROM builder_scores s WHERE s.builder_id = ${id} AND s.held AND s.day > ${day}::date AND NOT ${publicRow()})
+          SELECT 1 FROM builder_scores s WHERE s.builder_id = ${id} AND s.held AND NOT ${publicRow()}
+            AND (s.formula = 'v1' OR s.day > ${day}::date))
         WHERE builder_id = ${id}`;
     }
   }
