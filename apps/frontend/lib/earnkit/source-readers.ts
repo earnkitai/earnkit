@@ -61,6 +61,11 @@ export const READ_CAPS = { stargazerPages: 3, userLookups: 80, basePages: 20, ar
 const STAR_LAST_PAGE = 400;
 /** Below this many core GitHub requests left this hour, the run stops reading GitHub sources. */
 export const GH_RATE_FLOOR = 1000;
+/**
+ * v2.12 final review I5: at most this many GitHub calls per cron run (discovery and source reads
+ * together), on top of GH_RATE_FLOOR, so a backfill never spends the hour live find shares.
+ */
+export const GH_RUN_CAP = 1500;
 /** A site read follows at most this many redirects, all within the same site (apex and www). */
 export const SITE_MAX_REDIRECTS = 3;
 const STAR = 'application/vnd.github.star+json';
@@ -377,18 +382,30 @@ type RawGh = <T>(path: string, accept?: string, onResponse?: (res: Response) => 
 
 /**
  * `raw` (match-projects.ts gh) with a run budget: once a core response says fewer than `floor`
- * requests are left, every later call (and the failing one) throws GitHubBudgetStop. The search
- * API's own small limit (x-ratelimit-resource: search) never trips it.
+ * requests are left, or `cap` calls were made this run (GH_RUN_CAP), every later call (and the
+ * failing one) throws GitHubBudgetStop. The search API's own small limit (x-ratelimit-resource:
+ * search) never trips the floor; every call counts toward the cap. `take()` counts a call made
+ * outside `gh` (ghFetch) and says whether it may go.
  */
-export function budgetedGh(raw: RawGh, floor = GH_RATE_FLOOR): ReaderDeps['gh'] & { spent: () => boolean; watch: (res: Response) => void } {
+export function budgetedGh(raw: RawGh, floor = GH_RATE_FLOOR, cap = GH_RUN_CAP): ReaderDeps['gh'] & { spent: () => boolean; watch: (res: Response) => void; take: () => boolean; calls: () => number } {
   let stopped = false;
+  let calls = 0;
   const watch = (res: Response) => {
     const resource = res.headers.get('x-ratelimit-resource');
     const left = res.headers.get('x-ratelimit-remaining');
     if (left !== null && (resource === null || resource === 'core') && Number(left) < floor) stopped = true;
   };
+  const take = () => {
+    if (stopped) return false;
+    if (calls >= cap) {
+      stopped = true;
+      return false;
+    }
+    calls++;
+    return true;
+  };
   const gh = async <T>(path: string, accept?: string) => {
-    if (stopped) throw new GitHubBudgetStop();
+    if (!take()) throw new GitHubBudgetStop();
     try {
       return await raw<T>(path, accept, watch);
     } catch (err) {
@@ -396,7 +413,7 @@ export function budgetedGh(raw: RawGh, floor = GH_RATE_FLOOR): ReaderDeps['gh'] 
       throw err;
     }
   };
-  return Object.assign(gh, { spent: () => stopped, watch });
+  return Object.assign(gh, { spent: () => stopped, watch, take, calls: () => calls });
 }
 
 /** Base: Blockscout's creation transaction, then its sender and time (never creator_address_hash, the factory). */
@@ -445,7 +462,7 @@ export function defaultReaderDeps(now: Date, deadline: number): ReaderDeps {
     now,
     ghSpent: github.spent,
     ghFetch: async (input, init) => {
-      if (github.spent()) throw new GitHubBudgetStop();
+      if (!github.take()) throw new GitHubBudgetStop();
       const res = await by(fetch(input, init));
       github.watch(res);
       return res;

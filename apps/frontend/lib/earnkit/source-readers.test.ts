@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GH_RATE_FLOOR, GitHubBudgetStop, READ_CAPS, budgetedGh, defaultReaderDeps, isBudgetStop, isoWeek, pep503, probeSite, readContract, readContractOrigin, readMergedPrs, readNpm, readPypi, readRepo, readSite, type ReaderDeps } from './source-readers';
+import { GH_RATE_FLOOR, GH_RUN_CAP, GitHubBudgetStop, READ_CAPS, budgetedGh, defaultReaderDeps, isBudgetStop, isoWeek, pep503, probeSite, readContract, readContractOrigin, readMergedPrs, readNpm, readPypi, readRepo, readSite, type ReaderDeps } from './source-readers';
 import { CONTRACT_REFUSALS, contractOwned, contractOwnership, packageOwned, repoOwned, siteOwnedByText } from './sources';
 import type { Resolver, Transport } from './safe-fetch';
 
@@ -245,6 +245,27 @@ test('5.16 stargazers come oldest first: a 1,000-star repo reads pages 8 to 10 a
 });
 
 const ghResponse = (remaining: number, resource = 'core') => new Response('{}', { headers: { 'x-ratelimit-remaining': String(remaining), 'x-ratelimit-resource': resource } });
+
+test('final I5: a hard per-run cap of GH_RUN_CAP GitHub calls, with plenty left on the hour', async () => {
+  assert.equal(GH_RUN_CAP, 1500);
+  let calls = 0;
+  const raw = async <T,>(_p: string, _a?: string, on?: (r: Response) => void): Promise<T> => {
+    calls++;
+    on?.(ghResponse(4999));
+    return {} as T;
+  };
+  const gh = budgetedGh(raw);
+  for (let i = 0; i < GH_RUN_CAP; i++) await gh('/repos/a/b');
+  assert.equal(gh.spent(), false);
+  await assert.rejects(gh('/repos/a/b'), GitHubBudgetStop);
+  assert.equal(calls, GH_RUN_CAP, 'no call past the cap');
+  assert.equal(gh.spent(), true);
+  assert.equal(gh.take(), false, 'a call outside gh (ghFetch) is refused too');
+  const small = budgetedGh(raw, GH_RATE_FLOOR, 2);
+  assert.equal(small.take(), true);
+  await small('/x');
+  await assert.rejects(small('/x'), GitHubBudgetStop);
+});
 
 test('5.17 the GitHub floor: below GH_RATE_FLOOR core requests left, later reads stop with a budget stop (search never trips it)', async () => {
   let left = GH_RATE_FLOOR + 2;
