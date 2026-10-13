@@ -1222,3 +1222,123 @@ COMMENT ON TABLE chain_checks IS 'archived v2.12';
 -- v2.12 spec 9: the program files' starters archived (archive/starters/). Kept, never dropped; no writes
 -- while EARNKIT_STARTER_REGISTRY is off (a track's delete still cascades to its starter rows).
 COMMENT ON TABLE starters IS 'archived v2.12';
+
+-- v2.12.1 (where you stand). Additive. Keys are the person's group root as in v2.12 (plan R1).
+-- Nothing writes these while EARNKIT_BUILDER_SCORE is off.
+ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS x_user_id text;          -- immutable X user id (Sign in with X)
+ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS x_name text;             -- X display name, the page's top line
+ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS x_avatar_url text;
+ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS claimed_at timestamptz;
+ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS reported_github text;    -- agent-reported, never proof, never merges
+ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS page_ready_shown_at timestamptz;
+ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS standing_seen jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS card_moments jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS base_builder_code text;
+-- What the agent last reported (names and few words per project; T5 writes it, T4 reads names from it),
+-- and how the GitHub login was proven (signin, app, proof_line, x_match; T5 and T7).
+ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS identity jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS github_basis text;
+CREATE UNIQUE INDEX IF NOT EXISTS builder_profiles_x_user ON builder_profiles (x_user_id) WHERE x_user_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS builder_profiles_claimed_handle ON builder_profiles (lower(x_handle)) WHERE x_user_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS claim_codes (
+  code_hash  text PRIMARY KEY,                  -- sha256 of the deterministic claim code
+  builder_id integer NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS claim_codes_builder ON claim_codes (builder_id);
+CREATE TABLE IF NOT EXISTS x_oauth_states (
+  state_hash    text PRIMARY KEY,
+  builder_id    integer NOT NULL,
+  code_verifier text NOT NULL,
+  csrf_hash     text NOT NULL,
+  expires_at    timestamptz NOT NULL,
+  used_at       timestamptz
+);
+CREATE TABLE IF NOT EXISTS person_wallets (
+  wallet     text PRIMARY KEY CHECK (wallet ~ '^0x[0-9a-f]{40}$'),
+  builder_id integer NOT NULL,
+  proven_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS person_wallets_builder ON person_wallets (builder_id);
+CREATE TABLE IF NOT EXISTS builder_live (
+  builder_id  integer PRIMARY KEY,
+  score       smallint NOT NULL CHECK (score BETWEEN 0 AND 100),
+  parts       jsonb NOT NULL,
+  ranked      boolean NOT NULL,
+  shipped     integer NOT NULL,
+  people      integer NOT NULL,
+  formula     text NOT NULL,
+  calibration text NOT NULL,
+  pending     jsonb,                            -- a held rescore waiting for the owner
+  computed_at timestamptz NOT NULL,
+  read_at     timestamptz                       -- the last on-demand refresh (10-minute guard)
+);
+CREATE INDEX IF NOT EXISTS builder_live_rank ON builder_live (score DESC) WHERE ranked;
+CREATE TABLE IF NOT EXISTS builder_projects (
+  builder_id         integer NOT NULL,
+  project_key        text NOT NULL,
+  name               text NOT NULL,
+  what               text,
+  link               text,
+  kind               text NOT NULL CHECK (kind IN ('app','package','contract','coin','code')),
+  confirmed          boolean NOT NULL,
+  shipped            boolean NOT NULL,
+  tracked            boolean NOT NULL DEFAULT true,
+  people             integer NOT NULL DEFAULT 0,
+  people_week        integer NOT NULL DEFAULT 0,
+  money_usd          numeric NOT NULL DEFAULT 0,
+  has_coin           boolean NOT NULL DEFAULT false,
+  sends_tx           boolean NOT NULL DEFAULT false,
+  tagged             boolean NOT NULL DEFAULT false,
+  untracked_contract text,
+  last_active_at     timestamptz,
+  updated_at         timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (builder_id, project_key)
+);
+CREATE TABLE IF NOT EXISTS source_live (
+  source_id bigint PRIMARY KEY,
+  signals   jsonb NOT NULL,
+  ok        boolean NOT NULL,
+  read_at   timestamptz NOT NULL
+);
+CREATE TABLE IF NOT EXISTS read_usage (
+  day      date NOT NULL,
+  provider text NOT NULL,
+  reads    integer NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, provider)
+);
+CREATE TABLE IF NOT EXISTS coin_moments (
+  builder_id  integer NOT NULL,
+  project_key text NOT NULL,
+  moment      text NOT NULL CHECK (moment IN ('built_live','countable','first_five','has_people')),
+  offered_at  timestamptz NOT NULL DEFAULT now(),
+  answer      text CHECK (answer IN ('yes','no')),
+  answered_at timestamptz,
+  project_id  integer,
+  PRIMARY KEY (builder_id, project_key)
+);
+-- New source kind (coin) and proofs (x_match, wallet_signed, earnkit_hosted). Inline CHECKs carry
+-- Postgres' default names; re-adding a CHECK scans rows only.
+ALTER TABLE builder_sources DROP CONSTRAINT IF EXISTS builder_sources_kind_check;
+ALTER TABLE builder_sources ADD CONSTRAINT builder_sources_kind_check
+  CHECK (kind IN ('repo','site','package_npm','package_pypi','contract','merged_pr','coin'));
+ALTER TABLE builder_sources DROP CONSTRAINT IF EXISTS builder_sources_proof_check;
+ALTER TABLE builder_sources ADD CONSTRAINT builder_sources_proof_check
+  CHECK (proof IN ('github_signin','proof_line','repo_owner','deployer','deploy_wallet','earnkit_txt','dns_txt','repo_link','x_match','wallet_signed','earnkit_hosted'));
+ALTER TABLE github_verify_nonces DROP CONSTRAINT IF EXISTS github_verify_nonces_purpose_check;
+ALTER TABLE github_verify_nonces ADD CONSTRAINT github_verify_nonces_purpose_check CHECK (purpose IN ('entry', 'pickup', 'host', 'app', 'claim'));
+ALTER TABLE builder_events DROP CONSTRAINT IF EXISTS builder_events_type_check;
+ALTER TABLE builder_events ADD CONSTRAINT builder_events_type_check CHECK (type IN (
+  'built','deployed','hosted','entered','submitted','won','lost','usage_check',
+  'source_proposed','source_verified','source_rejected','reading_taken','score_computed','score_held',
+  'profile_empty','profile_hidden','profile_shown','card_offered','x_added','card_shared','score_viewed','x_cleared',
+  'identity_given','page_claimed','x_renamed','wallet_proven','refreshed','use_tracked','builder_code_issued',
+  'coin_offered','coin_answered','page_ready_shown','news_shown'));
+-- Spec S7 (plan): the internal program a coin-only entry belongs to. Closed, so nothing lists it.
+INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work, token_policy, builder_bonus, agent_completable)
+VALUES ('earnkit-coin', 'EarnKit', 'Your coin', 'A coin for a project the builder already has (v2.12.1 step 3b).',
+  'https://earnkit.com', 'https://earnkit.com', 'None', '', 'closed', 'allowed', 'encouraged', false, true)
+ON CONFLICT (id) DO NOTHING;
+ALTER TABLE builder_events DROP CONSTRAINT IF EXISTS builder_events_login_basis_check;
+ALTER TABLE builder_events ADD CONSTRAINT builder_events_login_basis_check CHECK (login_basis IN ('signin','app','proof_line','repo_owner','x_match'));

@@ -24,9 +24,13 @@ export const EVENT_TYPES = [
   'profile_empty', 'profile_hidden', 'profile_shown', 'card_offered', 'x_added', 'card_shared', 'score_viewed',
   // v2.12 T7 review: a shown X handle released (GitHub no longer lists it, or the owner cleared it).
   'x_cleared',
+  // v2.12.1: identity given at find, the X claim and renames, proven wallets, on-demand refresh,
+  // step 3 (use made countable, builder codes), step 3b (coin offered, answered), messages.
+  'identity_given', 'page_claimed', 'x_renamed', 'wallet_proven', 'refreshed', 'use_tracked', 'builder_code_issued',
+  'coin_offered', 'coin_answered', 'page_ready_shown', 'news_shown',
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
-export const LOGIN_BASES = ['signin', 'app', 'proof_line', 'repo_owner'] as const;
+export const LOGIN_BASES = ['signin', 'app', 'proof_line', 'repo_owner', 'x_match'] as const;
 export type LoginBasis = (typeof LOGIN_BASES)[number];
 
 /** detail over this many bytes of JSON is stored as { truncated: true }. */

@@ -129,6 +129,7 @@ const NOT_IDENTIFYING = new Set([
   'sponsor_campaigns.award_tx', // a transaction hash
   'digest_subscriptions.email', // found through digest_subscriptions.login
   'installations.client_key', // a hash of the OAuth client id
+  'builder_profiles.github_basis', // v2.12.1: how the login was proven (signin, app, ...)
 ]);
 
 test('12.3 every column whose name could hold a login, wallet, repo, link or key is listed (or reviewed as not identifying)', dbTest, async () => {

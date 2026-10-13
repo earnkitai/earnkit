@@ -24,7 +24,7 @@ test('1.1 the flags are off unless exactly "on"', () => {
 });
 
 test('1.2 events.ts lists every v2.12 event type, after the v2.11 ones', () => {
-  assert.deepEqual(EVENT_TYPES.slice(8), V212_EVENTS);
+  assert.deepEqual(EVENT_TYPES.slice(8, 8 + V212_EVENTS.length), V212_EVENTS);
 });
 
 test('1.3 the CHECK accepts every v2.12 type and still refuses an unknown one', dbTest, async () => {

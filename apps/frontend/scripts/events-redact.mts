@@ -37,6 +37,7 @@ const LOGIN_COLUMNS: [table: string, column: string][] = [
   // v2.12: the builder score's profile (proven login, X handle, fallback handle: a login or a short wallet).
   ['builder_profiles', 'github_login'],
   ['builder_profiles', 'x_handle'],
+  ['builder_profiles', 'reported_github'], // v2.12.1: the login the agent reported (never proof)
   ['builder_profiles', 'fallback_handle'],
   ['x_handle_conflicts', 'handle'],
   ['builder_program_status', 'login'],
@@ -70,6 +71,8 @@ const WALLET_COLUMNS: [table: string, column: string][] = [
   ['sponsor_campaigns', 'sponsor_wallet'],
   // v2.12 T5: a verified contract's onchain deployer.
   ['builder_sources', 'deployer'],
+  // v2.12.1: a wallet proven by signature or EarnKit deploy.
+  ['person_wallets', 'wallet'],
 ];
 /** text[] columns that can hold the wallet. */
 const WALLET_ARRAYS: [string, string][] = [
@@ -122,7 +125,11 @@ const NAMED_COLUMNS: [string, string][] = [
   ['profile_slug_history', 'old_slug'],
   ['builder_sources', 'ref'],
   ['builder_sources', 'project_key'],
+  ['builder_projects', 'project_key'],
+  ['coin_moments', 'project_key'],
 ];
+/** v2.12.1: a person's page data, keyed by builder_id (the profile's group root). Cleared with --apply. */
+const BUILDER_TABLES = ['claim_codes', 'person_wallets', 'builder_projects', 'x_oauth_states', 'coin_moments'] as const;
 const NAMED_ARRAYS: [string, string][] = [['installations', 'repos']];
 
 const { values } = (() => {
@@ -179,6 +186,17 @@ try {
         UPDATE builder_events SET github_login = NULL, wallet = NULL, detail = detail - 'twist' - 'slug'
         WHERE ${match} RETURNING id`;
       if (done.length !== found.length) throw new Error(`redacted ${done.length} of ${found.length} rows; rolled back`);
+      // v2.12.1: the person's page data. The profile (found by the proven login) loses the new identifying
+      // columns, and the rows keyed by its builder_id are deleted (none of them is append-only).
+      if (login) {
+        const profiles = await tx<{ builder_id: number }[]>`
+          UPDATE builder_profiles SET x_user_id = NULL, x_name = NULL, x_avatar_url = NULL, reported_github = NULL,
+            base_builder_code = NULL, identity = '{}'::jsonb, github_basis = NULL
+          WHERE lower(github_login) = ${login} RETURNING builder_id`;
+        const ids = profiles.map((p) => p.builder_id);
+        if (ids.length)
+          for (const t of BUILDER_TABLES) await tx`DELETE FROM ${tx(t)} WHERE builder_id = ANY(${ids})`;
+      }
       return found;
     });
     console.log(`builder_events: redacted ${rows.length} row(s) for ${who} at ${new Date().toISOString()}`);

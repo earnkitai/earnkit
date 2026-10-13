@@ -36,6 +36,10 @@ const CLEARED = [
   'EARNKIT_STARTER_REGISTRY',
   'EARNKIT_PROGRAM_LEADERBOARDS',
   'EARNKIT_TOOL_ALIASES',
+  // v2.12.1: Sign in with X and the Base agent codes (new vendor switches; a test that needs one sets a fake).
+  'X_CLIENT_ID',
+  'X_CLIENT_SECRET',
+  'EARNKIT_BASE_AGENT_CODES',
 ];
 for (const name of CLEARED) delete process.env[name];
 
