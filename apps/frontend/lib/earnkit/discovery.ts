@@ -397,7 +397,8 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
     }
     // Clue 4: merged PRs to repos they don't own.
     const prProof: Proof = proof.basis === 'proof_line' ? 'proof_line' : 'github_signin';
-    for (const pr of await soft(readMergedPrs(L, d), [])) if (pr.url) verify(await propose('merged_pr', pr.url, 'oss'), prProof);
+    const orgLogins = (Array.isArray(orgs) ? orgs : []).map((o) => o?.login).filter((x): x is string => typeof x === 'string');
+    for (const pr of await soft(readMergedPrs(L, d, orgLogins), [])) if (pr.url) verify(await propose('merged_pr', pr.url, 'oss'), prProof);
   }
   // Clue 6: proposed live links whose earnkit.txt names this person. v2.12 T8: also a site a repo
   // only links (shown, never scored), which the score tool's next step asks to prove the same way;

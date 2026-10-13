@@ -112,6 +112,17 @@ test('5.7 readMergedPrs: merged PRs by the login to repos they do not own, top 3
   assert.ok(prs.every((p) => !p.target.startsWith('lee/')));
 });
 
+test('final I2 readMergedPrs: PRs into the person\'s own orgs never count', async () => {
+  const items = ['acme', 'Other', 'lee'].map((o) => ({ html_url: `https://github.com/${o}/r/pull/1`, repository_url: `https://api.github.com/repos/${o}/r`, pull_request: { merged_at: iso(1) } }));
+  const gh = async <T,>(path: string): Promise<T> => {
+    if (path.startsWith('/search/issues')) return { items } as T;
+    if (path.includes('/pulls/')) return { merged_by: { login: 'maintainer' } } as T;
+    return { stargazers_count: 500 } as T;
+  };
+  const prs = await readMergedPrs('lee', { ...base, gh }, ['ACME']);
+  assert.deepEqual(prs.map((p) => p.target), ['other/r']);
+});
+
 test('5.8 ownership: own non-fork, non-template, never derived; an org repo only as top contributor', () => {
   const r = { owner: 'lee', owner_type: 'User', created_at: null, fork: false, template: false, stargazers: [], forkers: [], issue_authors: [], contributors: [], commit_weeks: [], partial: false };
   assert.equal(repoOwned(r, 'lee', false, false), true);

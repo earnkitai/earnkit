@@ -308,11 +308,13 @@ export async function readContract(ref: string, since: Date, d: ReaderDeps): Pro
 /**
  * Merged PRs by `login` to repos they don't own, merged by someone else (a self-merged PR doesn't
  * count; an unreadable merger doesn't either). At most READ_CAPS.prs * 2 star lookups and as many
- * PR lookups; the top READ_CAPS.prs by target stars.
+ * PR lookups; the top READ_CAPS.prs by target stars. v2.12 final review I2: `orgs` (the person's
+ * GitHub orgs, discovery's /users/:login/orgs read) are their own too: PRs into them never count.
  */
-export async function readMergedPrs(login: string, d: ReaderDeps): Promise<PrSignals[]> {
+export async function readMergedPrs(login: string, d: ReaderDeps, orgs: readonly string[] = []): Promise<PrSignals[]> {
   if (!LOGIN.test(login)) throw new Error('not a GitHub login');
   const me = login.toLowerCase();
+  const own = new Set([me, ...orgs.map((o) => o.toLowerCase())]);
   const lookups = READ_CAPS.prs * 2;
   const q = encodeURIComponent(`type:pr author:${me} is:merged -user:${me}`);
   const found = await d.gh<{ items: { html_url: string; repository_url: string; pull_request?: { merged_at?: string | null } }[] }>(`/search/issues?q=${q}&per_page=100`);
@@ -322,7 +324,7 @@ export async function readMergedPrs(login: string, d: ReaderDeps): Promise<PrSig
     if (typeof p.repository_url !== 'string' || typeof p.html_url !== 'string') continue;
     const target = p.repository_url.replace('https://api.github.com/repos/', '').toLowerCase();
     const number = /\/pull\/(\d{1,9})$/.exec(p.html_url)?.[1];
-    if (!REPO.test(target) || target.startsWith(`${me}/`) || !number) continue;
+    if (!REPO.test(target) || own.has(target.split('/')[0]) || !number) continue;
     if (!stars.has(target)) {
       if (stars.size >= lookups) continue;
       stars.set(target, finite((await soft(d.gh<{ stargazers_count: number }>(`/repos/${target}`), { stargazers_count: 0 })).stargazers_count));

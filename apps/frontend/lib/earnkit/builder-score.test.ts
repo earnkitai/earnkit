@@ -8,6 +8,7 @@ import { ScoreDeadline } from './campaigns';
 import { discover, proofLineCheck, provenLogin } from './discovery';
 import { oneParam } from './http';
 import { profileCode } from './discovery-clues';
+import { TOKEN_PITCH_MIN_SCORE } from './confirm';
 import { computeScore } from './score';
 import { calibration } from './score-calibration';
 import { GitHubBudgetStop, type ReaderDeps } from './source-readers';
@@ -45,8 +46,63 @@ test('6.1 buildInputs: repo touches by project; org contributors never count; PR
   const by = Object.fromEntries(projects.map((p) => [p.key, p]));
   assert.equal(by['lee/tipjar'].users, 2 + 100 / 50);
   assert.equal(by['acme/app'].users, 1, 'org contributors d and e never count');
-  assert.equal(by.oss.users, Math.min(5, Math.log10(1 + 999)));
+  assert.equal(by.oss.users, Math.min(calibration().pr_target_users, Math.log10(1 + 999)));
   assert.deepEqual(by['lee/tipjar'].commit_weeks, ['2026-W40']);
+});
+
+const prSource = (id: number, n: number, target = 'sock/lib'): SourceRow => ({ id, kind: 'merged_pr', ref: `https://github.com/${target}/pull/${n}`, project_key: 'oss', owner_is_org: false });
+
+test('final I2 golden: 30 merged PRs into one 1k-star repo never lift a fresh person to the token pitch score', () => {
+  const sources = Array.from({ length: 30 }, (_, i) => prSource(100 + i, i + 1));
+  const readings: ReadingRow[] = sources.map((s, i) => ({ source_id: s.id, day: '2026-10-12', ok: true, signals: { target: 'sock/lib', target_stars: 1000, merged_at: iso(i % 3), author: 'lee' } }));
+  const { projects, perSource } = buildInputs(sources, readings, { self: new Set(['gh:lee']), owner: new Map(), edges: [], person: 1, now: NOW });
+  assert.equal(projects[0].users, calibration().pr_target_users, 'one target counts once, at the per-target cap');
+  const s = computeScore(projects, calibration(), NOW);
+  assert.ok(s.score < TOKEN_PITCH_MIN_SCORE, `score ${s.score}`);
+  // All merged PRs are one source for the hold.
+  assert.equal(perSource.size, 1);
+  assert.deepEqual([...perSource.keys()], [100]);
+  assert.deepEqual(sourceShares(perSource, s), [1]);
+});
+
+test('final I2: PRs into different targets add up (log-scaled, capped per target); still one source', () => {
+  const sources = [prSource(1, 1, 'a/x'), prSource(2, 2, 'a/x'), prSource(3, 1, 'b/y'), prSource(4, 1, 'c/z')];
+  const stars = { 'a/x': 50_000, 'b/y': 9, 'c/z': 0 } as Record<string, number>;
+  const readings: ReadingRow[] = sources.map((s) => {
+    const target = s.ref.split('/').slice(3, 5).join('/');
+    return { source_id: s.id, day: '2026-10-12', ok: true, signals: { target, target_stars: stars[target], merged_at: iso(5), author: 'lee' } };
+  });
+  const { projects, perSource } = buildInputs(sources, readings, { self: new Set(), owner: new Map(), edges: [], person: 1, now: NOW });
+  const cap = calibration().pr_target_users;
+  assert.ok(Math.abs(projects[0].users - (cap + Math.min(cap, Math.log10(10)) + 0)) < 1e-9, String(projects[0].users));
+  assert.equal(perSource.size, 1);
+});
+
+test('final I6: a package counts at most package_users (100 under v1-launch) however many downloads', () => {
+  assert.equal(calibration('v1-launch').package_users, 100);
+  const sources: SourceRow[] = [{ id: 1, kind: 'package_npm', ref: 'botted', project_key: 'lee/botted', owner_is_org: false }];
+  const readings: ReadingRow[] = [{ source_id: 1, day: '2026-10-12', ok: true, signals: { weekly: 25_000, repo_url: null } }];
+  const { projects } = buildInputs(sources, readings, { self: new Set(), owner: new Map(), edges: [], person: 1, now: NOW });
+  assert.equal(projects[0].users, 100);
+});
+
+test('final I3: a contributor counts as a user but is never a dated outcome (no recency, no "still used")', () => {
+  const sources: SourceRow[] = [{ id: 1, kind: 'repo', ref: 'lee/old', project_key: 'lee/old', owner_is_org: false }];
+  // A star from 400 days ago, and an outside contributor read today (the reader stamps read time).
+  const signals = { owner: 'lee', fork: false, template: false, stargazers: [old('gh:fan', iso(400))], forkers: [], issue_authors: [], contributors: [old('gh:helper', NOW.toISOString())], commit_weeks: [], partial: false };
+  const { projects } = buildInputs(sources, [{ source_id: 1, day: '2026-10-12', ok: true, signals }], { self: new Set(['gh:lee']), owner: new Map(), edges: [], person: 1, now: NOW });
+  const p = projects[0];
+  assert.equal(p.users, 2);
+  assert.equal(p.outcomes.length, 1);
+  assert.equal(p.last_used_at?.toISOString(), iso(400), 'the repo is not "used today"');
+  const s = computeScore(projects, calibration(), NOW);
+  assert.ok(s.parts.recency.points < 1, String(s.parts.recency.points));
+  assert.equal(s.parts.staying.points, 0);
+  // A contributor-only project: users, no dated outcome.
+  const only = { ...signals, stargazers: [] };
+  const [q] = buildInputs(sources, [{ source_id: 1, day: '2026-10-12', ok: true, signals: only }], { self: new Set(['gh:lee']), owner: new Map(), edges: [], person: 1, now: NOW }).projects;
+  assert.equal(q.users, 1);
+  assert.equal(q.first_outcome_at, null);
 });
 
 test('6.2 buildInputs: a failed reading adds nothing; contract callers across readings count once each', () => {

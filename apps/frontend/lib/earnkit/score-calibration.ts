@@ -15,12 +15,23 @@ export type Calibration = {
   weeks: number;
   /** Days a project must stay live or used after its first outcome (staying power). */
   staying_days: number;
+  /**
+   * v2.12 final review I6: a package's weekly downloads / 50 count as users, at most this many per
+   * package (downloads can be botted for free; a botted package never fills the users part alone).
+   */
+  package_users: number;
+  /**
+   * v2.12 final review I2: merged-PR credit per target repo, at most this many users however many PRs
+   * went into it (log10(1 + target stars), one PR per target counts). Below the users a person needs
+   * for the token pitch, so a farm of PRs into one starred repo never reaches it alone.
+   */
+  pr_target_users: number;
   /** YYYY-MM-DD this calibration went live (the profile's "Scoring got stricter on <date>" note). */
   since: string;
 };
 
 export const CALIBRATIONS: Record<string, Calibration> = {
-  'v1-launch': { id: 'v1-launch', users: 500, money_usd: 5_000, weeks: 13, staying_days: 60, since: '2026-10-12' },
+  'v1-launch': { id: 'v1-launch', users: 500, money_usd: 5_000, weeks: 13, staying_days: 60, package_users: 100, pr_target_users: 2, since: '2026-10-12' },
 };
 
 export const LIVE_CALIBRATION = 'v1-launch';

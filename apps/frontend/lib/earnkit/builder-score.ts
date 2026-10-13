@@ -9,9 +9,9 @@ import { clearXHandle } from './profiles';
 import { readParams, secretMatches } from './http';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
 import { FORMULA, computeScore, percentileOf, type Parts, type ProjectInput, type Scored } from './score';
-import { LIVE_CALIBRATION, calibration } from './score-calibration';
+import { LIVE_CALIBRATION, calibration, type Calibration } from './score-calibration';
 import { readSources } from './sources'; // sources.ts never imports this file (READS_PER_RUN lives there)
-import { defaultReaderDeps, isoWeek, type ContractSignals, type PackageSignals, type PrSignals, type ReaderDeps, type RepoSignals, type SiteSignals, type Who } from './source-readers';
+import { READ_CAPS, defaultReaderDeps, isoWeek, type ContractSignals, type PackageSignals, type PrSignals, type ReaderDeps, type RepoSignals, type SiteSignals, type Who } from './source-readers';
 import { vetoKey } from './veto';
 
 /**
@@ -56,11 +56,18 @@ const list = <T>(x: unknown): T[] => (Array.isArray(x) ? (x as T[]) : []);
  * touched first, and each source's money is its share of the project's raw volume, so `perSource`
  * adds up to the project (the hold's one-source rule reads it). A contract's calls accumulate over
  * a year of readings, each call once; every other kind uses its latest successful reading.
+ *
+ * v2.12 final review: a package counts at most `cal.package_users` (I6). Merged PRs count once per
+ * target repo, at most `cal.pr_target_users` each, for the top READ_CAPS.prs targets, and all of them
+ * are ONE source in `perSource` (keyed by the lowest merged_pr source id), so the one-source hold
+ * sees a PR farm as one source (I2). A contributor's reading time is not when they contributed, so a
+ * person whose first touch is as a contributor still counts as a user but adds no dated outcome:
+ * no recency, no "still used" (I3).
  */
 export function buildInputs(
   sources: SourceRow[],
   readings: ReadingRow[],
-  ctx: { self: Set<string>; owner: Map<string, number>; edges: [number, number][]; person: number; now: Date },
+  ctx: { self: Set<string>; owner: Map<string, number>; edges: [number, number][]; person: number; now: Date; cal?: Calibration },
 ): { projects: ProjectInput[]; perSource: Map<number, { users: number; money: number }> } {
   // The whole ringWeights() output (ring, ringOwner, clusterCap): a partner counts once per project.
   const ring = ringWeights(ctx.edges, ctx.person, ctx.owner);
@@ -71,6 +78,7 @@ export function buildInputs(
   const weekFloor = isoWeek(new Date(ctx.now.getTime() - 52 * 7 * DAY_MS));
   const projects: ProjectInput[] = [];
   const perSource = new Map<number, { users: number; money: number }>();
+  const cal = ctx.cal ?? calibration();
   for (const key of [...new Set(sources.map((s) => s.project_key))]) {
     const touches: Touch[] = [];
     const facts = new Map<string, ActorFacts>();
@@ -79,8 +87,11 @@ export function buildInputs(
     const extraOutcomes: { at: Date; weight: number }[] = [];
     let commitWeeks = new Set<string>();
     let lastUp: Date | null = null;
-    const firstSource = new Map<string, { sid: number; at: number }>();
+    const firstSource = new Map<string, { sid: number; at: number; kind: Touch['kind'] }>();
     const rawVolume = new Map<number, number>();
+    // Merged PRs by target repo: the best credit and the newest merge (I2).
+    const prTargets = new Map<string, { credit: number; merged: Date | null }>();
+    let prSource: number | null = null;
     const add = (sid: number, kind: Touch['kind'], w: Who, money = 0) => {
       const at = d(w?.at);
       if (typeof w?.id !== 'string' || !ok(at)) return;
@@ -88,7 +99,7 @@ export function buildInputs(
       touches.push({ project: key, actor: id, kind, at, volume_usd: fin(money) });
       if (w.created_at !== undefined) facts.set(id, { ...facts.get(id), created_at: w.created_at ? d(w.created_at) : null });
       const f = firstSource.get(id);
-      if (!f || at.getTime() < f.at) firstSource.set(id, { sid, at: at.getTime() });
+      if (!f || at.getTime() < f.at) firstSource.set(id, { sid, at: at.getTime(), kind });
       rawVolume.set(sid, (rawVolume.get(sid) ?? 0) + fin(money));
     };
     for (const s of sources.filter((x) => x.project_key === key)) {
@@ -117,18 +128,19 @@ export function buildInputs(
           }
       }
       if ((s.kind === 'package_npm' || s.kind === 'package_pypi') && r) {
-        const credit = fin((r.signals as Partial<PackageSignals>).weekly) / 50;
+        const credit = Math.min(cal.package_users, fin((r.signals as Partial<PackageSignals>).weekly) / 50);
         extraUsers += credit;
         if (credit > 0) extraOutcomes.push({ at: d(`${r.day}T00:00:00Z`), weight: credit });
         perSource.set(s.id, { users: credit, money: 0 });
       }
       if (s.kind === 'merged_pr' && r) {
         const p = r.signals as Partial<PrSignals>;
-        const credit = Math.min(5, Math.log10(1 + fin(p.target_stars)));
-        extraUsers += credit;
+        const target = (typeof p.target === 'string' && p.target ? p.target : s.ref).toLowerCase();
+        const credit = Math.min(cal.pr_target_users, Math.log10(1 + fin(p.target_stars)));
         const merged = d(p.merged_at);
-        if (credit > 0 && ok(merged)) extraOutcomes.push({ at: merged, weight: credit });
-        perSource.set(s.id, { users: credit, money: 0 });
+        const t = prTargets.get(target) ?? { credit: 0, merged: null };
+        prTargets.set(target, { credit: Math.max(t.credit, credit), merged: ok(merged) && (!t.merged || merged > t.merged) ? merged : t.merged });
+        prSource = prSource === null ? s.id : Math.min(prSource, s.id);
       }
       if (s.kind === 'site' && siteShowsUse(s))
         for (const rr of good.filter((x) => x.source_id === s.id && inYear(x) && (x.signals as Partial<SiteSignals>).up === true)) {
@@ -136,12 +148,23 @@ export function buildInputs(
           if (ok(day) && (!lastUp || day > lastUp)) lastUp = day;
         }
     }
+    if (prSource !== null) {
+      const best = [...prTargets.values()].sort((a, b) => b.credit - a.credit).slice(0, READ_CAPS.prs);
+      const credit = best.reduce((n, t) => n + t.credit, 0);
+      extraUsers += credit;
+      for (const t of best) if (t.credit > 0 && t.merged) extraOutcomes.push({ at: t.merged, weight: t.credit });
+      perSource.set(prSource, { users: credit, money: 0 });
+    }
     const c = countProject(key, touches, { self, actors: facts, ...ring });
     const money = moneyOf(c);
     const volume = [...rawVolume.values()].reduce((n, x) => n + x, 0);
     for (const sid of rawVolume.keys()) perSource.set(sid, { users: 0, money: volume > 0 ? (money * rawVolume.get(sid)!) / volume : 0 });
     for (const [actor, f] of firstSource) perSource.get(f.sid)!.users += c.actors.get(actor) ?? 0;
-    const outcomes = [...c.outcomes, ...extraOutcomes];
+    // countProject's outcomes, minus anyone first seen as a contributor (read time, not their contribution: I3).
+    const counted = [...c.actors]
+      .filter(([a, w]) => w > 0 && firstSource.get(a)?.kind !== 'contributor')
+      .map(([a, w]) => ({ at: new Date(firstSource.get(a)!.at), weight: w }));
+    const outcomes = [...counted, ...extraOutcomes];
     const times = outcomes.map((o) => o.at.getTime());
     const first = times.length ? new Date(Math.min(...times)) : null;
     const lastTouch = times.length ? new Date(Math.max(...times)) : null;
