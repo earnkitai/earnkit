@@ -3,6 +3,7 @@ import { prizeText, prizeUsdEach, type CampaignConfig } from './campaigns';
 import type { AlsoProgram } from './also-qualifies';
 import { escrowLink } from './escrow';
 import type { Chain } from './match';
+import { archiveFlag } from './builder-score-flag';
 import { sql } from './db';
 import { bonusOn, roundFor, roundPools, windowKey } from './bonus-rounds';
 import { boardLink } from './entry-text';
@@ -292,6 +293,7 @@ export async function listPrograms() {
       p.match_precision, p.submission_url, p.fresh_build, p.agent_completable, sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
     FROM programs p LEFT JOIN sponsor_campaigns sc ON sc.program_id = p.id
     WHERE p.status = 'active' AND (p.ends_at IS NULL OR p.ends_at > now())
+      ${archiveFlag('SPONSOR_CAMPAIGNS') ? db`` : db`AND (p.campaign->>'kind') IS DISTINCT FROM 'sponsor'`}
     ORDER BY p.ends_at NULLS LAST, p.id`; // Task 11: a tie-breaker, so equal deadlines list in one order (the 9.3 find test compared two reads)
   const tracks = await db<{ id: string; program_id: string; name: string }[]>`
     SELECT id, program_id, name FROM tracks
@@ -570,6 +572,9 @@ type StarterRow = {
 export async function getProgram(programId: string) {
   const db = sql();
   const program = await getProgramRow(programId);
+  // v2.12 spec 9: sponsor campaigns are archived; their rows are not shown while the flag is off.
+  if (!archiveFlag('SPONSOR_CAMPAIGNS') && program.campaign?.kind === 'sponsor')
+    throw new NotFoundError(`No program with id "${programId}". Call find for current ids.`);
   const tracks = await db<TrackRow[]>`
     SELECT id, name, description, requirements FROM tracks WHERE program_id = ${programId} ORDER BY id`;
   const starters = await db<StarterRow[]>`

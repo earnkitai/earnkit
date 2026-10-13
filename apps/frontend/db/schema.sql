@@ -1208,3 +1208,9 @@ ALTER TABLE programs ADD COLUMN IF NOT EXISTS agent_completable boolean NOT NULL
 -- written at scoring time so the public profile shows the scorer's own numbers without re-reading
 -- the whole system. Additive; NULL on rows scored before it.
 ALTER TABLE builder_scores ADD COLUMN IF NOT EXISTS projects jsonb;
+
+-- v2.12 spec 9: sponsor campaigns archived (archive/sponsor-campaigns/). Kept, never dropped; no writes
+-- while EARNKIT_SPONSOR_CAMPAIGNS is off.
+COMMENT ON TABLE sponsor_campaigns IS 'archived v2.12';
+COMMENT ON TABLE sponsor_verifications IS 'archived v2.12';
+COMMENT ON TABLE chain_checks IS 'archived v2.12';

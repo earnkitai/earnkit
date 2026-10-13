@@ -38,7 +38,7 @@ import {
 } from './payout';
 import { EARNKIT_SPLIT_BPS, GAS_WALLET_MIN_WEI_DEFAULT, MINI_FEE_RECIPIENT } from './policy-constants';
 import { BASE_MAINNET } from './sanctions';
-import { withScoringLock } from './sponsor';
+import { withScoringLock } from './scoring-lock';
 
 /**
  * The builder bonus ledger (v2.5 §3, Ruling 5). The payout wallet (CAMPAIGN_PAYOUT_PRIVATE_KEY) is

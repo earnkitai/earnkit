@@ -73,9 +73,6 @@ import {
   type RepoFit,
   type YourRepos,
 } from './present';
-import { SPONSOR_NOT_OPEN, escrowEnabled } from './escrow';
-import { createSponsorDraft, prepareAward, sponsorStatus } from './sponsor';
-import { AwardPicks, DraftInput, SponsorError } from './sponsor-rules';
 import {
   ProjectInfo,
   rememberedWalletQuestion,
@@ -952,19 +949,6 @@ const memoryOf = (key: MemoryKey | null, where: string): Promise<BuilderMemory> 
         console.error(`[${where}] builder memory`, err instanceof Error ? err.name : 'error');
         return emptyMemory();
       });
-
-const Ref = z.string().regex(/^0x[0-9a-f]{64}$/, 'the ref from create');
-export const SponsorCampaignInput = z.discriminatedUnion('action', [
-  DraftInput.extend({ action: z.literal('create') }).strict(),
-  z.object({ action: z.literal('status'), ref: Ref }).strict(),
-  z
-    .object({
-      action: z.literal('award'),
-      ref: Ref,
-      ...AwardPicks,
-    })
-    .strict(),
-]);
 
 /** Alerts never fail a tool: on any error the reply goes out without them. */
 async function alertsFor(
@@ -2364,47 +2348,6 @@ export const handlers = {
   (input: unknown, ctx: ToolContext) => Promise<unknown>
 >;
 
-// Sponsors: create a campaign (returns a funding link and raw txs), check it (status reads the
-// chain for the bound wallet's deposit or award), award it.
-async function sponsorCampaign(input: unknown, ctx: ToolContext) {
-  // Normally unreachable (the tool isn't registered until the escrow is configured).
-  if (!escrowEnabled()) throw new SponsorError(SPONSOR_NOT_OPEN);
-  const i = SponsorCampaignInput.parse(
-    Object.fromEntries(
-      Object.entries(input as object).filter(([, v]) => v !== undefined),
-    ),
-  );
-  if (i.action === 'create') {
-    const { action: _a, ...draft } = i;
-    // Charged only once the draft (and any replaces) is valid; a replacement has its own cap.
-    return createSponsorDraft(draft, ctx.installationId, (replacing) =>
-      replacing
-        ? enforce(
-            'sponsorReplace',
-            ctx.installationId,
-            'This agent has replaced 10 sponsor drafts today, the daily limit.',
-          )
-        : enforce(
-            'sponsorCreate',
-            ctx.installationId,
-            'This agent has created 5 sponsor campaigns today, the daily limit.',
-          ),
-    );
-  }
-  if (i.action === 'award')
-    return prepareAward(i.ref, ctx.installationId, {
-      winners: i.winners,
-      split: i.split,
-    });
-  // status reads the chain (and may rescore entries).
-  await enforce(
-    'chainChecks',
-    ctx.installationId,
-    'Too many status checks from this agent.',
-  );
-  return sponsorStatus(i.ref, ctx.installationId);
-}
-
 /**
  * v2.10 item 4 (R15, R16): the 4 builder tools' inputs. Strict at the top; the nested project and
  * answers are checked by the handler each call reaches, so an old call and its new form fail alike.
@@ -3427,7 +3370,6 @@ export const tools = {
   // v2.12 spec 7: the builder's score (registered in mcp.ts only while EARNKIT_BUILDER_SCORE=on).
   score: async (_input: unknown, ctx: ToolContext) => scoreReply(ctx, new Date()),
 
-  sponsor_campaign: sponsorCampaign,
 } satisfies Record<string, (input: unknown, ctx: ToolContext) => Promise<unknown>>;
 
 export type ToolName = keyof typeof tools;

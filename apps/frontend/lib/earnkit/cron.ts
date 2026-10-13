@@ -33,7 +33,7 @@ import { sweepVerifyNonces } from './github-verify';
 import { DEPLOY_CAPS, deployChains, deployEnabled, deployerAddress, nativeUsd, viemDeployChain, weiToMicroUsd, type DeployDeps } from './deploy';
 import { sweepPublicReads } from './repo-cache';
 import { sweepRateWindows } from './rate-limit';
-import { withScoringLock } from './sponsor';
+import { withScoringLock } from './scoring-lock';
 import { recheckSubmissionProofs } from './submission-proof';
 import { scoreOpenRounds, type TractionDeps } from './traction';
 import type { Candidate, RunState } from './winners';

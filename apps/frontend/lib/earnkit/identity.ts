@@ -1,3 +1,4 @@
+import { archiveFlag } from './builder-score-flag';
 import { githubRepo, normalizeRepoUrl } from './campaigns';
 import { sql } from './db';
 import { sharedGroup } from './installations';
@@ -400,7 +401,9 @@ export async function linkInstallations(own: number, roots: number[]): Promise<n
       await tx`
         UPDATE projects SET installation_id = CASE WHEN id = ANY(${later}::int[]) THEN ${other}::int ELSE ${root}::int END
         WHERE installation_id IN (${root}, ${other})`;
-      await tx`UPDATE sponsor_campaigns SET installation_id = ${root} WHERE installation_id = ${other}`;
+      // v2.12 spec 9: sponsor_campaigns is archived and receives no writes while the flag is off.
+      if (archiveFlag('SPONSOR_CAMPAIGNS'))
+        await tx`UPDATE sponsor_campaigns SET installation_id = ${root} WHERE installation_id = ${other}`;
       await tx`
         INSERT INTO answer_bank (installation_id, project_key, kind, answer, program_id, updated_at)
         SELECT ${root}, project_key, kind, answer, program_id, updated_at FROM answer_bank WHERE installation_id = ${other}

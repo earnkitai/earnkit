@@ -4,7 +4,7 @@ import { SafeFetchError } from './safe-fetch';
 import { after, test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
-import { BUILD_NOTE, BUILD_NO_LIVE_NOTE, BUILD_PENDING_NOTE, BUILD_WALLET_NOTE, PLAN_NOTE, CONFIRM_SHARED_NOTE, LEAD_NOTE, NOTED_FOR_NOW, eligibilityLine, freshSwitches, withoutTokenLine, SponsorCampaignInput, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
+import { BUILD_NOTE, BUILD_NO_LIVE_NOTE, BUILD_PENDING_NOTE, BUILD_WALLET_NOTE, PLAN_NOTE, CONFIRM_SHARED_NOTE, LEAD_NOTE, NOTED_FOR_NOW, eligibilityLine, freshSwitches, withoutTokenLine, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
 import { aliasCall } from './aliases';
 import { reportedGithubUser, reportedRepos } from './match-projects';
 import { sql } from './db';
@@ -43,73 +43,6 @@ import { alsoQualifies, alsoText, type AlsoRow } from './also-qualifies';
 import type { Chain } from './match';
 
 const REF = `0x${'a'.repeat(64)}`;
-
-test('SponsorCampaignInput accepts a valid create input', () => {
-  const result = SponsorCampaignInput.safeParse({
-    action: 'create',
-    sponsor_wallet: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
-    sponsor_name: 'Acme',
-    title: 'Build on Acme',
-    theme: 'Build something cool with the Acme SDK during the campaign.',
-    criteria: 'Judged on creativity and polish.',
-    chains: ['base'],
-    token: 'USDC',
-    amount: '5000',
-    winners: 3,
-    ends_at: '2026-12-01T00:00:00Z',
-  });
-  assert.equal(result.success, true);
-});
-
-test('SponsorCampaignInput accepts a valid status input', () => {
-  const result = SponsorCampaignInput.safeParse({ action: 'status', ref: REF });
-  assert.equal(result.success, true);
-});
-
-test('SponsorCampaignInput: status takes no tx hash any more', () => {
-  assert.equal(
-    SponsorCampaignInput.safeParse({
-      action: 'status',
-      ref: REF,
-      tx: `0x${'b'.repeat(64)}`,
-    }).success,
-    false,
-  );
-});
-
-test('SponsorCampaignInput: create needs sponsor_wallet', () => {
-  const { success } = SponsorCampaignInput.safeParse({
-    action: 'create',
-    sponsor_name: 'Acme',
-    title: 'Build on Acme',
-    theme: 'Build something cool with the Acme SDK during the campaign.',
-    criteria: 'Judged on creativity and polish.',
-    chains: ['base'],
-    token: 'USDC',
-    amount: '5000',
-    winners: 3,
-    ends_at: '2026-12-01T00:00:00Z',
-  });
-  assert.equal(success, false);
-});
-
-test('SponsorCampaignInput accepts a valid award input', () => {
-  const result = SponsorCampaignInput.safeParse({
-    action: 'award',
-    ref: REF,
-    winners: [{ entry_id: 1, amount: '100', reason: 'Best use of the SDK' }],
-  });
-  assert.equal(result.success, true);
-});
-
-test('SponsorCampaignInput rejects an award whose winners is a number', () => {
-  const result = SponsorCampaignInput.safeParse({
-    action: 'award',
-    ref: REF,
-    winners: 3,
-  });
-  assert.equal(result.success, false);
-});
 
 // ---- v2.8.1 §B6: list_programs' input never fails on what an agent reports ----
 test('v2.8.1 §B6: a wallet that is not 0x is ignored with a note; a 0x one is kept', () => {

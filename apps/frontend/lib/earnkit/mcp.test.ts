@@ -68,7 +68,7 @@ test('9.1 without escrow config the server offers exactly the 4 builder tools; n
   for (const t of tools) assert.ok(!(OLD_TOOL_NAMES as readonly string[]).includes(t.name), t.name);
 });
 
-test('an invalid ESCROW_CHAIN keeps sponsor_campaign hidden', async () => {
+test('an invalid ESCROW_CHAIN leaves the 4 builder tools', async () => {
   assert.deepEqual(
     await toolNames({
       ESCROW_FACTORY_ADDRESS: FACTORY,
@@ -78,18 +78,9 @@ test('an invalid ESCROW_CHAIN keeps sponsor_campaign hidden', async () => {
   );
 });
 
-test('9.1 a configured escrow adds sponsor_campaign (and still no old name)', async () => {
-  assert.deepEqual(
-    await toolNames({
-      ESCROW_FACTORY_ADDRESS: FACTORY,
-      ESCROW_CHAIN: 'base-sepolia',
-    }),
-    [...FOUR, 'sponsor_campaign'].sort(),
-  );
-  assert.deepEqual(
-    await toolNames({ ESCROW_FACTORY_ADDRESS: FACTORY }), // ESCROW_CHAIN defaults to base
-    [...FOUR, 'sponsor_campaign'].sort(),
-  );
+test('9.1 v2.12: a configured escrow adds nothing (sponsor campaigns are archived); still the 4 builder tools and no old name', async () => {
+  assert.deepEqual(await toolNames({ ESCROW_FACTORY_ADDRESS: FACTORY, ESCROW_CHAIN: 'base-sepolia' }), FOUR);
+  assert.deepEqual(await toolNames({ ESCROW_FACTORY_ADDRESS: FACTORY }), FOUR);
 });
 
 test('4.14 v2.12: flag off, find is v2.11 (no local_git, the v2.11 description); flag on, it takes local_git under 800 characters', async () => {
@@ -224,10 +215,10 @@ test('the safety lines are in the instructions and every tool that carries third
   const { tools, instructions } = await listed({
     ESCROW_FACTORY_ADDRESS: FACTORY,
   });
-  // find carries program and sponsor text (v2.9 list_programs and get_program); sponsor_campaign the sponsor's.
+  // find carries program and sponsor text (v2.9 list_programs and get_program).
   for (const line of SAFETY_LINES) {
     assert.ok(instructions.includes(line), line);
-    for (const name of ['find', 'sponsor_campaign'])
+    for (const name of ['find'])
       assert.ok(tools.find((t) => t.name === name)!.description!.includes(line), `${name}: ${line}`);
   }
 });
@@ -632,15 +623,11 @@ test('final fix wave (M6): the unexpected-error log keeps only name, message and
 });
 
 
-test('11.8 (F25): confirm and sponsor_campaign descriptions under 800 characters; their rules are in the replies', () => {
+test('11.8 (F25): the confirm description under 800 characters; their rules are in the replies', () => {
   assert.ok(TOOL_DESCRIPTIONS.confirm.length < 800, `confirm: ${TOOL_DESCRIPTIONS.confirm.length}`);
-  assert.ok(TOOL_DESCRIPTIONS.sponsor_campaign.length < 800, `sponsor_campaign: ${TOOL_DESCRIPTIONS.sponsor_campaign.length}`);
   // confirm keeps when to call it, its inputs and to follow agent_note.
   for (const k of ['yes: true', 'skip_token: true', 'wallet', 'token: { name, symbol }', 'check: true', 'project_id', 'agent_note'])
     assert.ok(TOOL_DESCRIPTIONS.confirm.includes(k), k);
-  // sponsor_campaign keeps its three actions and their inputs.
-  for (const k of ['action=create', 'action=status', 'action=award', 'sponsor_name', 'sponsor_wallet', 'replaces=', 'winners'])
-    assert.ok(TOOL_DESCRIPTIONS.sponsor_campaign.includes(k), k);
   // The kit rules: the kit reply's agent_note (DoraHacks: copy and paste; the builder clicks submit).
   const dora: KitProgram = { title: 'Arc Microgrants', submission_url: 'https://dorahacks.io/hackathon/arc', submission_requirements: [] };
   const note = kitReplyNote(submitKit(dora, {}, { browser: true }), dora);

@@ -807,11 +807,11 @@ test('11.6 footer: Tokenfi line and the Terms link', () => {
   assert.doesNotMatch(h, /href="\/(policy|risk-disclosure|sponsor-terms)"/);
 });
 
-test('11.7 (F23): builder navigation never links the dormant sponsor pages; the routes stay', () => {
+test('11.7 (F23): builder navigation never links the sponsor pages; the routes are archived (v2.12 spec 9)', () => {
   const navs = [html(React.createElement(Header)), html(React.createElement(Footer)), html(React.createElement(HomeView, { landing: homeFixture })), html(React.createElement(GuideView, { page: fullGuide }))];
   for (const h of navs) assert.doesNotMatch(h, /href="[^"]*\/(fund|award)\b/);
   assert.doesNotMatch(readFileSync(join(import.meta.dirname, '../../public/llms.txt'), 'utf8'), /earnkit\.com\/(fund|award)\b/);
-  for (const r of ['fund/[ref]', 'award/[ref]']) assert.ok(existsSync(join(import.meta.dirname, '../../app', r, 'page.tsx')), r);
+  for (const r of ['fund/[ref]', 'award/[ref]']) assert.ok(!existsSync(join(import.meta.dirname, '../../app', r, 'page.tsx')), r);
 });
 
 test('12.1 v2.11 /terms "What EarnKit records": login and how it was checked, wallet, repo, program, each step and its proof, why, removal', () => {

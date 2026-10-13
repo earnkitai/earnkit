@@ -1,0 +1,11 @@
+# Files moved to archive/sponsor-campaigns/files/<same path> by the v2.12 unhook commit.
+# One repo-relative path per line; read by apps/frontend/scripts/archive-restore.mts.
+apps/frontend/lib/earnkit/sponsor.ts
+apps/frontend/lib/earnkit/sponsor.test.ts
+apps/frontend/lib/earnkit/sponsor-text.ts
+apps/frontend/app/fund/[ref]/page.tsx
+apps/frontend/app/fund/[ref]/FundClient.tsx
+apps/frontend/app/award/[ref]/page.tsx
+apps/frontend/app/award/[ref]/AwardClient.tsx
+apps/frontend/app/api/sponsor/[ref]/check/route.ts
+apps/frontend/scripts/sponsor-e2e.mts
