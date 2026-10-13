@@ -7,14 +7,17 @@
 
 ## The flag
 `EARNKIT_PROGRAM_LEADERBOARDS=on`, default off. With `EARNKIT_BUILDER_SCORE=on` and this flag off,
-`/campaigns/<slug>` and every `/bonus/<round>` not in review move to `/leaderboard?program=<id>`
-(`bonus-rounds.ts boardRedirect`). With the builder score off, both pages are as in v2.11.
+`/campaigns/<slug>` and every `/bonus/<round>` whose round is open or empty move to
+`/leaderboard?program=<id>` with a temporary redirect (307; `bonus-rounds.ts boardRedirect`). A
+frozen, in-review, paying or paid round stays on `/bonus/<round>` (`boardStays`). With the builder
+score off, both pages are as in v2.11.
 
 ## The move, at go-live
 Once EARNKIT_BUILDER_SCORE is on for good:
 1. `git mv apps/frontend/app/campaigns/[slug]/page.tsx apps/frontend/lib/earnkit/campaign-page-text.ts` into
    `archive/program-leaderboards/files/<same path>`, uncomment both MANIFEST.txt lines.
-2. Add `app/campaigns/[slug]/route.ts` answering 301 to `/leaderboard?program=<slug>` (a route can).
+2. Add `app/campaigns/[slug]/route.ts` answering 307 to `/leaderboard?program=<slug>` (301 only
+   once the score flag is permanent: browsers cache a permanent redirect).
 3. Add `'program-leaderboards': 'EARNKIT_PROGRAM_LEADERBOARDS'` to `archive.test.ts`'s ARCHIVED map; `pnpm -s test`; commit.
 
 ## Restore
