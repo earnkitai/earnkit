@@ -1,7 +1,7 @@
-import { builderScoreEnabled } from '@/lib/earnkit/builder-score-flag';
-import { noteEvent } from '@/lib/earnkit/events';
-import { resolveSlug } from '@/lib/earnkit/profiles';
-import { cardModel, intentUrl } from '@/lib/earnkit/share';
+import { builderScoreEnabled } from '../../../../lib/earnkit/builder-score-flag';
+import { noteEvent } from '../../../../lib/earnkit/events';
+import { resolveSlug } from '../../../../lib/earnkit/profiles';
+import { cardModel, intentUrl } from '../../../../lib/earnkit/share';
 import { cachedProfile } from '../profile-load';
 
 /**

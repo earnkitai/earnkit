@@ -1,7 +1,8 @@
 import { ImageResponse } from 'next/og';
-import { builderScoreEnabled } from '@/lib/earnkit/builder-score-flag';
-import { SCORE_COLORS } from '@/lib/earnkit/profile-data';
-import { cardModel } from '@/lib/earnkit/share';
+import { builderScoreEnabled } from '../../../../lib/earnkit/builder-score-flag';
+import { SCORE_COLORS } from '../../../../lib/earnkit/profile-data';
+import { resolveSlug } from '../../../../lib/earnkit/profiles';
+import { CARD_CACHE, cardModel } from '../../../../lib/earnkit/share';
 import { cachedProfile } from '../profile-load';
 
 const WHITE = '#F6F9FE'; // ek-white
@@ -24,20 +25,24 @@ function arcPath(score: number): string {
  * v2.12 spec 7: the share card, 1200x630, the profile's ring (orange to purple on navy), "Top N% of
  * builders", the top outcome in plain words and the name. Drawn on request from the same cached,
  * per-person profile read as the page (profile-data.ts privacy rules: hidden or no public score is
- * a 404, a held day never shows, never a private repo or a wallet as the name), cached 10 minutes
- * like the page. The slug is canonical lowercase; an old slug moves to the current card.
+ * a 404, a held day never shows, never a private repo or a wallet as the name), cached briefly
+ * (CARD_CACHE). The slug is canonical lowercase; an old slug moves to the current card.
  */
 export async function GET(_: Request, { params }: { params: Promise<{ slug: string }> }) {
   if (!builderScoreEnabled()) return new Response('Not found', { status: 404 });
   const slug = (await params).slug;
   const lower = slug.toLowerCase();
-  const data = await cachedProfile(lower);
-  if (!data) return new Response('Not found', { status: 404 });
+  // The live row first (one indexed read, never cached): hidden or unknown is a 404 at once, and an
+  // old slug (an X handle changed or cleared) moves on at once, whatever the cached read still holds.
+  const live = await resolveSlug(lower);
+  if (!live) return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+  const data = live.redirect ? { redirect: live.redirect } : await cachedProfile(lower);
+  if (!data) return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
   if ('redirect' in data || slug !== lower) {
     const to = 'redirect' in data ? data.redirect : lower;
-    return new Response(null, { status: 308, headers: { Location: `/b/${encodeURIComponent(to)}/card.png`, 'Cache-Control': 'public, max-age=600' } });
+    return new Response(null, { status: 308, headers: { Location: `/b/${encodeURIComponent(to)}/card.png`, 'Cache-Control': 'no-store' } });
   }
-  if (!('score' in data)) return new Response('Not found', { status: 404 });
+  if (!('score' in data)) return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
   const m = cardModel(data);
   const shown = Math.max(0, Math.min(100, Math.round(m.score)));
   return new ImageResponse(
@@ -84,6 +89,6 @@ export async function GET(_: Request, { params }: { params: Promise<{ slug: stri
         </div>
       </div>
     ),
-    { width: 1200, height: 630, headers: { 'Cache-Control': 'public, max-age=600, s-maxage=600', 'X-Content-Type-Options': 'nosniff' } },
+    { width: 1200, height: 630, headers: { 'Cache-Control': CARD_CACHE, 'X-Content-Type-Options': 'nosniff' } },
   );
 }

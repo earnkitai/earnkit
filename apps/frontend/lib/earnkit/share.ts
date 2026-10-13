@@ -37,6 +37,14 @@ export function cardModel(p: ProfileData): CardModel {
   return { score: p.score, top: `Top ${p.top_percent}% of builders`, outcome, handle: p.name };
 }
 
+/**
+ * The card's Cache-Control. Never immutable, never kept by the viewer's browser; a shared cache may
+ * keep it 60 seconds. A hide or an X handle change shows at the origin at once (the card route
+ * checks the live row; profileChanged() expires the PROFILE_TAG read), at the edge within a minute.
+ * A repo gone private follows the profile page's own window (the 10-minute cached read).
+ */
+export const CARD_CACHE = 'public, max-age=0, s-maxage=60, must-revalidate';
+
 export const cardOffer = (top: number) => `You're top ${top}%. Want your card to post on X?`;
 /** find's reply keeps two lines (spec 7): there the offer rides on the score line it already has. Pure. */
 export const findOfferLine = (scoreLine: string) => `${scoreLine}. Want your card to post on X?`;

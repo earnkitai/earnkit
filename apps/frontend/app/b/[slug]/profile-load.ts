@@ -1,6 +1,6 @@
 import { unstable_cache } from 'next/cache';
-import { PROFILE_TAG } from '@/lib/earnkit/profile-cache';
-import { profileData } from '@/lib/earnkit/profile-data';
+import { PROFILE_TAG } from '../../../lib/earnkit/profile-cache';
+import { profileData } from '../../../lib/earnkit/profile-data';
 
 /**
  * v2.12: the one cached profile read behind /b/<slug>, its card and its share link. At most one

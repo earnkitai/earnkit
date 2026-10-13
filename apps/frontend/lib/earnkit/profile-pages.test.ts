@@ -301,12 +301,15 @@ test('10.14 a repo stops being named at once when it goes private, when its newe
 });
 
 
-test('11.5 the card route draws 1200x630 with next/og and caches; the share route records card_shared and 302s to the intent', () => {
+test('11.5 the card route draws 1200x630 with next/og and caches briefly; the share route records card_shared and 302s to the intent', () => {
   const card = readFileSync(join(import.meta.dirname, '../../app/b/[slug]/card.png/route.tsx'), 'utf8');
   const share = readFileSync(join(import.meta.dirname, '../../app/b/[slug]/share/route.ts'), 'utf8');
   assert.match(card, /from 'next\/og'/);
   assert.match(card, /width: 1200,\s*height: 630/);
-  assert.match(card, /Cache-Control': 'public, max-age=600/);
+  // Security fix: never immutable or long-lived; the card follows the profile (card-route.test.ts 11.11).
+  assert.match(card, /'Cache-Control': CARD_CACHE/);
+  assert.match(card, /const live = await resolveSlug\(lower\)/);
+  assert.doesNotMatch(card, /immutable|max-age=600/);
   for (const src of [card, share]) {
     assert.match(src, /if \(!builderScoreEnabled\(\)\) return new Response\('Not found', \{ status: 404 \}\)/);
     // The same cached, lowercase, per-person profile read as the page (its privacy rules).
