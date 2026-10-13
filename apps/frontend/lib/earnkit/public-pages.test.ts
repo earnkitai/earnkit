@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import PolicySection from '../../app/terms/sections/PolicySection';
-import TermsPage, { metadata as termsMetadata } from '../../app/terms/page';
+import TermsPage, { generateMetadata as termsMetadataFor } from '../../app/terms/page';
 import nextConfig from '../../next.config';
 import { CONTACT_EMAIL, FEE_SPLIT_BPS, MINI_LINE, PROFILES_POINTS, RECORDS_ANCHOR, RECORDS_HREF, RECORD_STEPS } from './policy';
 import BoardView from '../../app/bonus/[round]/BoardView';
@@ -781,6 +781,7 @@ test('11.4 /terms: the policy, risk disclosure and sponsor terms sections; the f
   assert.ok(table > 0 && h.indexOf("10% buys MINI, EarnKit&#x27;s token") > table, 'the MINI line after the split table');
   assert.ok(t.includes(`${'MINI buyback'} 10% Builder bonus 20% EarnKit 30%`), t.slice(0, 400));
   assert.match(t, /Every entry is offered a token, named after the project\. Turn it down and there's no token\. No token means no builder bonus, nothing else\./);
+  const termsMetadata = termsMetadataFor();
   assert.equal(termsMetadata.title, 'Terms');
   assert.equal(termsMetadata.alternates?.canonical, 'https://earnkit.com/terms');
   for (const old of ['policy', 'risk-disclosure', 'sponsor-terms'])
@@ -865,8 +866,39 @@ test('12.1 v2.11 /terms "What EarnKit records": login and how it was checked, wa
   assert.doesNotMatch(t, /\p{Emoji_Presentation}|\bcoin\b|vault/iu);
 });
 
-test('15.1 /terms#builder-profiles: every point, the nav link, no em dash', () => {
+const withScoreFlag = <T,>(fn: () => T): T => {
+  const was = process.env.EARNKIT_BUILDER_SCORE;
+  process.env.EARNKIT_BUILDER_SCORE = 'on';
+  try {
+    return fn();
+  } finally {
+    if (was === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
+    else process.env.EARNKIT_BUILDER_SCORE = was;
+  }
+};
+
+test('final I1: flag off, /terms is v2.11: no builder-profiles section, nav link or description words', () => {
+  delete process.env.EARNKIT_BUILDER_SCORE;
   const h = html(React.createElement(TermsPage));
+  assert.doesNotMatch(h, /builder-profiles/);
+  assert.doesNotMatch(text(h), /Builder profiles/);
+  assert.equal(
+    termsMetadataFor().description,
+    'How EarnKit works, where token fees go, the builder bonus, what EarnKit records, the risks, and the sponsor terms.',
+  );
+  assert.match(withScoreFlag(() => termsMetadataFor().description) ?? '', /builder profiles/);
+});
+
+test('final T15: the terms name the login or short-wallet address and the agent-proposed sources', () => {
+  const t = withScoreFlag(() => text(html(React.createElement(TermsPage))));
+  assert.match(t, /your public name may be your GitHub login/);
+  assert.match(t, /short form of a wallet you linked \(like 0xabcd1234\)/);
+  assert.match(t, /Your agent may propose repos it finds on your computer and live links/);
+  assert.doesNotMatch(t, /[\u2013\u2014]/);
+});
+
+test('15.1 /terms#builder-profiles: every point, the nav link, no em dash', () => {
+  const h = withScoreFlag(() => html(React.createElement(TermsPage)));
   assert.match(h, /id="builder-profiles"/);
   assert.match(h, /href="#builder-profiles"/);
   const t = text(h);

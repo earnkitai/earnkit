@@ -124,6 +124,8 @@ export const PROFILES_POINTS: readonly string[] = [
   'Your score counts only things people verifiably used: never commits, deploys or token spend on their own.',
   "Say hide to your agent at any time. A hidden profile is not shown or listed, and still counts when others' ranks are worked out.",
   'EarnKit never posts for you. Your X handle shows only after you confirm it, and only the one your GitHub profile lists.',
+  'Without a confirmed X handle, your public name may be your GitHub login. Your profile address may use your X handle, your GitHub login or a short form of a wallet you linked (like 0xabcd1234).',
+  'Your agent may propose repos it finds on your computer and live links for EarnKit to check. Nothing scores or shows until EarnKit verifies it from public sources.',
   'If EarnKit is merged or acquired, this data may transfer to the successor.',
   `To remove your profile and its data, email ${CONTACT_EMAIL}.`,
 ];
