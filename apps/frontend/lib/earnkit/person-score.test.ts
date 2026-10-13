@@ -41,10 +41,13 @@ async function clear(id: number) {
   await sql()`DELETE FROM projects WHERE installation_id = ${id}`;
   await sql()`DELETE FROM installations WHERE id = ${id}`;
 }
-async function person(id: number, o: { login?: string | null; reported?: string | null }) {
+/** `ring`: the cron already computed the person's ring (empty); otherwise it was never computed. */
+async function person(id: number, o: { login?: string | null; reported?: string | null; ring?: boolean }) {
   await clear(id);
   await sql()`INSERT INTO installations (id, token_hash) VALUES (${id}, ${`ps-test-${id}`})`;
-  await sql()`INSERT INTO builder_profiles (builder_id, slug, github_login, reported_github) VALUES (${id}, ${`ps${id}`}, ${o.login ?? null}, ${o.reported ?? null})`;
+  await sql()`
+    INSERT INTO builder_profiles (builder_id, slug, github_login, reported_github, ring)
+    VALUES (${id}, ${`ps${id}`}, ${o.login ?? null}, ${o.reported ?? null}, ${o.ring ? sql().json({ ring: [], ringOwner: [] }) : sql().json({})})`;
 }
 async function source(id: number, s: { kind: string; ref: string; key?: string; state: string; proof: string | null; by: 'agent' | 'server' }) {
   await sql()`
@@ -80,8 +83,8 @@ async function history(id: number, score: number, day = new Date(NOW.getTime() -
     ON CONFLICT (builder_id, day) DO NOTHING`;
 }
 /** 600 callers across 30 days on an EarnKit-deployed contract; `rich`: long-lived wallets sending $100 each (60+ from one source). */
-async function fakeBigUse(id: number, o: { rich?: boolean } = {}) {
-  const addr = `0x${hex40(id)}`;
+async function fakeBigUse(id: number, o: { rich?: boolean; seed?: number } = {}) {
+  const addr = `0x${hex40(id + 1e9 * (o.seed ?? 0))}`;
   const key = `lee/big${id}`;
   await sql()`
     INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, address, status, cost_micro_usd, created_at)
@@ -116,7 +119,7 @@ test('4.1 only confirmed sources score; an agent-reported repo shows as a projec
 
 test('4.2 an EarnKit-hosted live app is a confirmed ship: ranked, Shipped 10', dbTest, async () => {
   const id = T + 1;
-  await person(id, {});
+  await person(id, { ring: true });
   await hosted(id, { slug: `tip${id}`, repo_key: `lee/tip${id}`, status: 'live' });
   const r = await rescorePerson(id, NOW);
   assert.equal(r.ranked, true);
@@ -177,7 +180,7 @@ test('4.6 a 30-point jump is held: the public score stays, the new one waits in 
 
 test('4.7 coin buys count toward Used and the creator fees toward Earned (an EarnKit coin is a ship)', dbTest, async () => {
   const id = T + 8;
-  await person(id, {});
+  await person(id, { ring: true });
   const coin = `0x${hex40(id + 7)}`;
   const creator = `0x${hex40(id + 8)}`;
   const key = `lee/coin${id}`;
@@ -392,13 +395,97 @@ test('4.18 a refresh reads only the person\'s stored ring (no scan of everyone\'
   await reading(`${lb}/y`, star(la));
   const starFork = async () => (await sql()<{ v: number }[]>`SELECT (parts->'used'->'raw'->>'star_fork')::float AS v FROM builder_live WHERE builder_id = ${a}`)[0].v;
   const faded = (days: number) => 0.5 ** (days / 90); // the star is 2 days old at NOW
-  // No stored ring yet: the refresh counts b's star in full (it never computes everyone's edges).
+  // No stored ring yet: the refresh looks up only the owners of the accounts that touched a's work
+  // (never everyone's edges): b is another EarnKit person, so b's star weighs 0.5.
   await refreshPerson(a, { now: NOW, deadline: Date.now() + 3000, reader: fakeReader() });
-  assert.ok(Math.abs((await starFork()) - faded(2)) < 1e-6, String(await starFork()));
+  assert.ok(Math.abs((await starFork()) - 0.5 * faded(2)) < 1e-6, String(await starFork()));
   // The cron step computes and stores the ring: b and a star each other, so b's star weighs 0.5.
   await scorePeopleV2(new Date(NOW.getTime() + 4 * DAY), { deadline: Date.now() + 10_000, only: [a] });
   const [p] = await sql()<{ ring: { ring?: [string, number][] } }[]>`SELECT ring FROM builder_profiles WHERE builder_id = ${a}`;
   assert.deepEqual(p.ring.ring, [[`gh:${lb}`, 0.5]]);
   await refreshPerson(a, { now: new Date(NOW.getTime() + 4 * DAY + 11 * 60_000), deadline: Date.now() + 3000, reader: fakeReader() });
   assert.ok(Math.abs((await starFork()) - 0.5 * faded(6 + 11 / 1440)) < 1e-6, String(await starFork()));
+});
+
+test('4.19 a never-computed ring fails strict: another person\'s account counts 0.5, and no rank until the cron computes the ring', dbTest, async () => {
+  const [a, c] = [T + 3, T + 4];
+  const [la, lc] = [`na${T}`, `nc${T}`];
+  await person(c, { login: lc, ring: true });
+  await person(a, { login: la });
+  await hosted(a, { slug: `nr${a}`, repo_key: `${la}/x`, status: 'live' });
+  await source(a, { kind: 'repo', ref: `${la}/x`, state: 'verified', proof: 'repo_owner', by: 'server' });
+  const starred = { owner: la, owner_type: 'User', fork: false, template: false, forkers: [], issue_authors: [], contributors: [], commit_weeks: [], partial: false,
+    stargazers: [{ id: `gh:${lc}`, at: new Date(NOW.getTime() - 2 * DAY).toISOString(), created_at: '2020-01-01T00:00:00Z' }] };
+  await reading(`${la}/x`, starred);
+  const r = await rescorePerson(a, NOW);
+  assert.equal(r.ranked, false, 'no rank before the ring is computed');
+  const [l] = await sql()<{ ranked: boolean; v: number }[]>`SELECT ranked, (parts->'used'->'raw'->>'star_fork')::float AS v FROM builder_live WHERE builder_id = ${a}`;
+  assert.equal(l.ranked, false);
+  assert.ok(Math.abs(l.v - 0.5 * 0.5 ** (2 / 90)) < 1e-6, String(l.v));
+  // A redaction-cleared ring ('{}') is never-computed too; a malformed one as well.
+  await sql()`UPDATE builder_profiles SET ring = '{"ring": "junk"}'::jsonb WHERE builder_id = ${a}`;
+  assert.equal((await rescorePerson(a, NOW)).ranked, false);
+  await scorePeopleV2(new Date(NOW.getTime() + 5 * DAY), { deadline: Date.now() + 10_000, only: [a] });
+  assert.equal((await sql()<{ ranked: boolean }[]>`SELECT ranked FROM builder_live WHERE builder_id = ${a}`)[0].ranked, true);
+});
+
+test('4.20 with a stored ring, an account another person owns that the ring does not name still counts 0.5', dbTest, async () => {
+  const [a, c] = [T + 2, T + 6];
+  const [la, lc] = [`sa${T}`, `sc${T}`];
+  await person(c, { login: lc, ring: true });
+  await person(a, { login: la, ring: true });
+  await source(a, { kind: 'repo', ref: `${la}/x`, state: 'verified', proof: 'repo_owner', by: 'server' });
+  await reading(`${la}/x`, { owner: la, owner_type: 'User', fork: false, template: false, forkers: [], issue_authors: [], contributors: [], commit_weeks: [], partial: false,
+    stargazers: [{ id: `gh:${lc}`, at: NOW.toISOString(), created_at: '2020-01-01T00:00:00Z' }, { id: 'gh:stranger-x', at: NOW.toISOString(), created_at: '2020-01-01T00:00:00Z' }] });
+  await rescorePerson(a, NOW);
+  const [l] = await sql()<{ v: number }[]>`SELECT (parts->'used'->'raw'->>'star_fork')::float AS v FROM builder_live WHERE builder_id = ${a}`;
+  assert.ok(Math.abs(l.v - 1.5) < 1e-6, String(l.v));
+});
+
+const release = async (id: number, f: Record<string, string>) => {
+  process.env.ADMIN_VETO_SECRET = 'k'.repeat(40);
+  try {
+    const body = new URLSearchParams({ key: scoresAdminKey()!, builder: String(id), ...f });
+    return await scoresPost(new Request('https://earnkit.com/api/admin/scores', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body }), { limit: async () => {} });
+  } finally {
+    delete process.env.ADMIN_VETO_SECRET;
+  }
+};
+
+test('4.21 a held day stays releasable after a later rescore changes the pending score: the review shows the current one', dbTest, async () => {
+  const id = T + 9;
+  const day = new Date(NOW.getTime() + 6 * DAY);
+  await person(id, {});
+  await history(id, 10, new Date(day.getTime() - DAY));
+  await live(id, { score: 10, ranked: true });
+  await fakeBigUse(id);
+  await scorePeopleV2(day, { deadline: Date.now() + 10_000, only: [id] });
+  // A refresh later that day: more use, a new pending score.
+  await fakeBigUse(id, { rich: true, seed: 1 });
+  await rescorePerson(id, new Date(day.getTime() + 3_600_000));
+  const [l] = await sql()<{ pending: { score: number } }[]>`SELECT pending FROM builder_live WHERE builder_id = ${id}`;
+  const review = (await heldForReview()).find((x) => x.builder_id === id)!;
+  assert.equal(review.score, l.pending.score, 'the review page shows the current pending score');
+  const res = await release(id, { day: review.day, ...(review.version && { version: review.version }) });
+  assert.equal(res.status, 303);
+  const [after] = await sql()<{ score: number; pending: unknown }[]>`SELECT score, pending FROM builder_live WHERE builder_id = ${id}`;
+  assert.deepEqual({ ...after }, { score: l.pending.score, pending: null });
+});
+
+test('4.22 a refresh that holds after the cron wrote an unheld day still puts the person up for review', dbTest, async () => {
+  const id = T + 10;
+  const day = new Date(NOW.getTime() + 7 * DAY);
+  await person(id, { ring: true });
+  await history(id, 10, new Date(day.getTime() - DAY));
+  await hosted(id, { slug: `rv${id}`, repo_key: `lee/rv${id}`, status: 'live' });
+  await scorePeopleV2(day, { deadline: Date.now() + 10_000, only: [id] }); // unheld (10, then 10)
+  await fakeBigUse(id);
+  const r = await rescorePerson(id, new Date(day.getTime() + 3_600_000));
+  assert.equal(r.held, true);
+  const review = (await heldForReview()).find((x) => x.builder_id === id);
+  assert.ok(review, 'held people always have a review row');
+  assert.equal((await release(id, { day: review.day, ...(review.version && { version: review.version }) })).status, 303);
+  const [after] = await sql()<{ score: number; pending: unknown }[]>`SELECT score, pending FROM builder_live WHERE builder_id = ${id}`;
+  assert.ok(after.score >= 40 && after.pending === null, JSON.stringify(after));
+  assert.equal((await sql()<{ held: boolean }[]>`SELECT held FROM builder_profiles WHERE builder_id = ${id}`)[0].held, false);
 });

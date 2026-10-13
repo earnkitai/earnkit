@@ -52,7 +52,7 @@ export default async function ScoresReviewPage({ searchParams }: { searchParams:
           </thead>
           <tbody>
             {held.map((h) => (
-              <tr key={h.builder_id} className="border-t border-ek-navy align-top">
+              <tr key={`${h.formula}:${h.builder_id}`} className="border-t border-ek-navy align-top">
                 <td className="py-2">{h.slug} (#{h.builder_id})</td>
                 <td className="py-2">{h.score} on {h.day}</td>
                 <td className="py-2">{h.shown ? `${h.shown.score} on ${h.shown.day}` : 'none yet'}</td>
@@ -69,6 +69,7 @@ export default async function ScoresReviewPage({ searchParams }: { searchParams:
                     <input type="hidden" name="key" value={key} />
                     <input type="hidden" name="builder" value={h.builder_id} />
                     <input type="hidden" name="day" value={h.day} />
+                    {h.version ? <input type="hidden" name="version" value={h.version} /> : null}
                     <button type="submit" className="underline">Release</button>
                   </form>
                 </td>

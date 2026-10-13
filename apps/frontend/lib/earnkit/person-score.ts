@@ -1,4 +1,4 @@
-import { countProject, moneyOf, ringWeights, type ActorFacts, type FarmCtx, type Touch } from './anti-farming';
+import { RULES, countProject, moneyOf, ringWeights, type ActorFacts, type FarmCtx, type Touch } from './anti-farming';
 import { holdReason, publicRow, scoreContext } from './builder-score'; // builder-score imports this file too: functions only, called after load
 import { EARNKIT_BUILDER_CODE } from './builder-code';
 import { builderScoreEnabled } from './builder-score-flag';
@@ -96,9 +96,14 @@ export const ringToJson = (r: PersonRing): StoredRing => ({
   ring: [...r.ring], ringOwner: [...(r.ringOwner ?? [])],
   ...(r.clusterCap && { clusterCap: { actors: [...r.clusterCap.actors], cap: r.clusterCap.cap } }),
 });
-/** The stored ring, read leniently (malformed entries dropped; every ring actor keeps its owner, as countProject requires). Pure. */
-export function ringFromJson(j: unknown): PersonRing {
-  const o = (j && typeof j === 'object' ? j : {}) as StoredRing;
+/**
+ * The stored ring, or null when it was never computed ('{}': a new profile, or cleared by redaction)
+ * or is malformed (fail strict: the caller then treats every other person's account as a partner).
+ * Malformed entries inside a computed ring are dropped; every ring actor keeps its owner. Pure.
+ */
+export function storedRing(j: unknown): PersonRing | null {
+  const o = (j && typeof j === 'object' && !Array.isArray(j) ? j : {}) as StoredRing;
+  if (!Array.isArray(o.ring) || !Array.isArray(o.ringOwner)) return null;
   const pairs = (x: unknown) => list<unknown>(x).filter((e): e is [string, number] => Array.isArray(e) && typeof e[0] === 'string' && typeof e[1] === 'number' && Number.isFinite(e[1]));
   const ringOwner = new Map(pairs(o.ringOwner));
   const ring = new Map(pairs(o.ring).filter(([a]) => ringOwner.has(a)));
@@ -108,6 +113,25 @@ export function ringFromJson(j: unknown): PersonRing {
   return { ring, ringOwner, ...(clusterCap && { clusterCap }) };
 }
 
+/**
+ * Who owns these accounts ('gh:<login>', 'wallet:0x..'): proven logins, group wallets and proven
+ * wallets, looked up for these ids only (never everyone's). An account two people claim maps to
+ * all of them.
+ */
+async function ownersOf(actors: string[]): Promise<Map<string, number[]>> {
+  const logins = [...new Set(actors.filter((a) => a.startsWith('gh:')).map((a) => a.slice(3)))];
+  const wallets = [...new Set(actors.filter((a) => a.startsWith('wallet:')).map((a) => a.slice(7)))];
+  const out = new Map<string, number[]>();
+  if (logins.length === 0 && wallets.length === 0) return out;
+  const rows = await sql()<{ actor: string; builder_id: number }[]>`
+    SELECT 'gh:' || lower(github_login) AS actor, builder_id FROM builder_profiles WHERE lower(github_login) = ANY(${logins}::text[])
+    UNION SELECT 'wallet:' || lower(w.wallet), COALESCE(i.builder_id, i.id) FROM installation_wallets w JOIN installations i ON i.id = w.installation_id
+      WHERE lower(w.wallet) = ANY(${wallets}::text[])
+    UNION SELECT 'wallet:' || lower(wallet), builder_id FROM person_wallets WHERE lower(wallet) = ANY(${wallets}::text[])`;
+  for (const r of rows) out.set(r.actor, [...(out.get(r.actor) ?? []), r.builder_id]);
+  return out;
+}
+
 type IdentityProject = { name?: unknown; what?: unknown; repo?: unknown; live_url?: unknown; package?: unknown; contracts?: unknown };
 
 /**
@@ -115,7 +139,9 @@ type IdentityProject = { name?: unknown; what?: unknown; repo?: unknown; live_ur
  * or not, spec S1). Reads only this person's rows: `ring` is given by the cron's score step, else
  * read from builder_profiles.ring (stored by that step), so a refresh never scans everyone's edges.
  */
-export async function personInputsV2(id: number, now: Date, personRing?: PersonRing): Promise<{ input: V2Input; projects: ProjectRow[]; perSource: Map<number, { users: number; money: number }> }> {
+export async function personInputsV2(
+  id: number, now: Date, personRing?: PersonRing,
+): Promise<{ input: V2Input; projects: ProjectRow[]; perSource: Map<number, { users: number; money: number }>; ringComputed: boolean }> {
   const db = sql();
   const yearAgo = new Date(now.getTime() - YEAR_MS);
   const [profile] = await db<{ login: string | null; reported: string | null; identity: { projects?: unknown } | null; ring: unknown }[]>`
@@ -189,8 +215,25 @@ export async function personInputsV2(id: number, now: Date, personRing?: PersonR
   const self = new Set<string>();
   for (const l of [profile?.login, profile?.reported]) if (l) self.add(`gh:${l}`);
   for (const w of wallets) self.add(`wallet:${w.wallet.toLowerCase()}`);
-  const ring = personRing ?? ringFromJson(profile?.ring);
   const confirmedSrc = (s: Src) => s.state === 'verified' && isConfirmedProof(s.proof);
+  // The ring: given by the cron, else stored by it (null: never computed or malformed). Either way,
+  // every account that touched their confirmed work and belongs to another EarnKit person, and that
+  // the ring does not already name, weighs as a partner's (0.5, once per project): fail strict.
+  const stored = personRing ?? storedRing(profile?.ring);
+  const ring = { ring: new Map(stored?.ring ?? []), ringOwner: new Map(stored?.ringOwner ?? []), ...(stored?.clusterCap && { clusterCap: stored.clusterCap }) };
+  const touchedBy = new Set<string>();
+  for (const s of sources)
+    if (confirmedSrc(s))
+      for (const o of obs.get(s.id) ?? [])
+        for (const f of ['stargazers', 'forkers', 'callers', 'traders'])
+          for (const w of list<Who>(o.signals[f])) if (typeof w?.id === 'string') touchedBy.add(w.id.toLowerCase());
+  for (const [actor, who] of await ownersOf([...touchedBy])) {
+    if (who.includes(id)) self.add(actor);
+    else if (!ring.ringOwner.has(actor)) {
+      ring.ring.set(actor, RULES.ringWeight);
+      ring.ringOwner.set(actor, Math.min(...who));
+    }
+  }
   const cal = calibrationV2();
 
   const input: V2Input = { ships: [], touches: [], packages: [], earned: [], weeks: [] };
@@ -393,7 +436,7 @@ export async function personInputsV2(id: number, now: Date, personRing?: PersonR
     const p = scored.perProject.get(r.key);
     return { ...r, tracked: true, people: isScored ? Math.round(p?.people ?? 0) : 0, money_usd: isScored ? Math.round(100 * (p?.usd ?? 0)) / 100 : 0 };
   });
-  return { input, projects, perSource };
+  return { input, projects, perSource, ringComputed: stored !== null };
 }
 
 // ---- Live score, rank, refresh ---------------------------------------------------------------------
@@ -407,8 +450,10 @@ export async function personInputsV2(id: number, now: Date, personRing?: PersonR
 export async function rescorePerson(id: number, now: Date, ring?: PersonRing): Promise<{ score: number; ranked: boolean; held: boolean }> {
   const cal = calibrationV2();
   const day = now.toISOString().slice(0, 10);
-  const { input, projects, perSource } = await personInputsV2(id, now, ring);
+  const { input, projects, perSource, ringComputed } = await personInputsV2(id, now, ring);
   const s = computeScoreV2(input, cal, now);
+  // Ranked only once the cron has computed the person's ring (fail strict on ring partners).
+  const ranked = s.ranked && ringComputed;
   const prevTracked = new Set((await sql()<{ project_key: string }[]>`
     SELECT project_key FROM builder_projects WHERE builder_id = ${id} AND tracked`).map((r) => r.project_key));
   const tracked = trackedKeys(projects, now, prevTracked);
@@ -420,7 +465,8 @@ export async function rescorePerson(id: number, now: Date, ring?: PersonRing): P
   const shares = [...perSource.values()].map((x) => (U > 0 ? x.users / U : 0));
   const reason = holdReason(before?.score ?? null, s.score, shares);
   const people = [...s.perProject.values()].filter((p) => p.people > 0).length;
-  const row = { score: s.score, parts: s.parts, ranked: s.ranked, shipped: s.shipped, people, formula: FORMULA_V2, calibration: cal.id, day };
+  // `at` names this rescore: the owner's release applies it only while it is still the pending one.
+  const row = { score: s.score, parts: s.parts, ranked, shipped: s.shipped, people, formula: FORMULA_V2, calibration: cal.id, day, at: now.toISOString() };
   const shown = await sql().begin(async (tx) => {
     const [cur] = await tx<{ score: number; ranked: boolean }[]>`SELECT score, ranked FROM builder_live WHERE builder_id = ${id} FOR UPDATE`;
     let out: { score: number; ranked: boolean };
@@ -435,12 +481,12 @@ export async function rescorePerson(id: number, now: Date, ring?: PersonRing): P
     } else {
       await tx`
         INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, pending, computed_at)
-        VALUES (${id}, ${s.score}, ${tx.json(s.parts as never)}, ${s.ranked}, ${s.shipped}, ${people}, ${FORMULA_V2}, ${cal.id}, NULL, ${now})
+        VALUES (${id}, ${s.score}, ${tx.json(s.parts as never)}, ${ranked}, ${s.shipped}, ${people}, ${FORMULA_V2}, ${cal.id}, NULL, ${now})
         ON CONFLICT (builder_id) DO UPDATE SET score = EXCLUDED.score, parts = EXCLUDED.parts, ranked = EXCLUDED.ranked,
           shipped = EXCLUDED.shipped, people = EXCLUDED.people, formula = EXCLUDED.formula, calibration = EXCLUDED.calibration,
           pending = NULL, computed_at = EXCLUDED.computed_at`;
       await tx`UPDATE builder_profiles SET held = false, updated_at = now() WHERE builder_id = ${id} AND held`;
-      out = { score: s.score, ranked: s.ranked };
+      out = { score: s.score, ranked };
     }
     await tx`DELETE FROM builder_projects WHERE builder_id = ${id} AND NOT (project_key = ANY(${projects.map((p) => p.key)}::text[]))`;
     for (const p of projects)
