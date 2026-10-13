@@ -744,3 +744,35 @@ test('6.28 (T7 review) the owner\'s "Clear X handle": a wrong key is a 404; the 
   const [p] = await sql()<{ x_handle: string | null; slug: string }[]>`SELECT x_handle, slug FROM builder_profiles WHERE builder_id = ${id}`;
   assert.deepEqual(p, { x_handle: null, slug: `cl${T}` });
 });
+
+test('6.29 (post-push audit) a typed wallet proves nothing: naming a stranger contract\'s deployer as a deploy owner never claims it', dbTest, async () => {
+  const stamp = `${T}-${Date.now()}`;
+  const [inst] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`v212-audit-${stamp}`}) RETURNING id`;
+  const id = inst.id;
+  const L = `aud${T}`;
+  const addr = `0x${hex40(T + 7, 'a')}`;
+  const stranger = `0x${hex40(T + 8, 'e')}`;
+  await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${id}, ${`aud${id}`})`;
+  await sql()`INSERT INTO discovery_queue (builder_id, reason) VALUES (${id}, 'first_find')`;
+  // The agent typed the stranger's wallet as the owner of an EarnKit deploy; EarnKit handed it ownership.
+  await sql()`INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, status, owner_ok, cost_micro_usd, owner_wallet)
+    VALUES (${id}, ${`bk-${stamp}`}, ${`${L}/app`}, 'base', ${`0x${hex40(T + 9, 'f')}`}, 'sent', true, 0, ${stranger})`;
+  const broadcast = JSON.stringify({ chain: 8453, transactions: [{ transactionType: 'CREATE', contractAddress: addr, transaction: { from: '0x0000000000000000000000000000000000000001' } }] });
+  const reader = fakeReader({
+    [`/users/${L}`]: {},
+    [`/users/${L}/repos?type=owner&per_page=100`]: [{ full_name: `${L}/app`, name: 'app', fork: false, is_template: false, homepage: null, has_pages: false, created_at: '2026-06-01T00:00:00Z', pushed_at: iso(2), owner: { login: L, type: 'User' } }],
+    [`/users/${L}/orgs`]: [],
+    [`/repos/${L}/app/git/trees/HEAD?recursive=1`]: { tree: [{ path: 'broadcast/Deploy.s.sol/8453/run-latest.json', type: 'blob' }] },
+    [`/repos/${L}/app/contents/broadcast/Deploy.s.sol/8453/run-latest.json`]: b64(broadcast),
+    [`/search/issues?q=${encodeURIComponent(`type:pr author:${L} is:merged -user:${L}`)}&per_page=100`]: { items: [] },
+  }, {
+    // The stranger deployed it long before this repo existed.
+    contractOrigin: async () => ({ deployer: stranger, created_at: '2024-01-01T00:00:00Z' }),
+  });
+  await discover(NOW, { deadline: Date.now() + 30_000, reader, login: async () => ({ login: L, basis: 'signin' }), only: [id] });
+  const s = await sourcesOf(id);
+  const c = s[`contract base:${addr}`];
+  assert.ok(c, 'the clue was proposed');
+  assert.notEqual(c.state, 'verified', 'a typed owner wallet must not prove the stranger\'s contract');
+  assert.notEqual(c.proof, 'deploy_wallet');
+});

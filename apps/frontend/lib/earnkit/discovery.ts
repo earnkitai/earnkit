@@ -244,12 +244,11 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
     planned.set(row.id, 'rejected');
     verdicts.push(() => rejectSource(row.id, reason));
   };
-  // R25: only a launched EarnKit token's creator wallet or an EarnKit deploy's confirmed owner proves a wallet.
-  const proven = new Set(
-    (await db<{ w: string }[]>`
-      SELECT lower(creator_wallet) AS w FROM projects WHERE installation_id IN ${db(group)} AND coin_address IS NOT NULL AND creator_wallet IS NOT NULL
-      UNION SELECT lower(owner_wallet) FROM contract_deploys WHERE installation_id IN ${db(group)} AND owner_ok AND owner_wallet IS NOT NULL`).map((r) => r.w),
-  );
+  // Post-push audit: no wallet is proven yet. A token's creator_wallet and a deploy's owner_wallet are
+  // typed by the agent, so treating them as proven let anyone claim a stranger's contracts by naming its
+  // deployer. A wallet will count only once it signs a message bound to this person (not built yet).
+  // Contracts EarnKit deployed for this person still verify through `earnkitDeployed`.
+  const proven = new Set<string>();
   // Clue 5: contracts EarnKit deployed for this person (their own group's deploys only).
   const deploys = await db<{ chain: string; address: string; repo_key: string }[]>`
     SELECT chain, lower(address) AS address, lower(repo_key) AS repo_key FROM contract_deploys
