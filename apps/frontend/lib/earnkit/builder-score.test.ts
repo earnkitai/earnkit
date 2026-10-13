@@ -251,6 +251,8 @@ function fakeReader(gh: Record<string, unknown>, over: Partial<ReaderDeps> = {})
     fetchText: no('fetchText'),
     json: no('json'),
     baseTxs: no('baseTxs'),
+    ghGraphql: no('ghGraphql'),
+    tokenTransfers: no('tokenTransfers'),
     contractOrigin: no('contractOrigin'),
     arcLogs: no('arcLogs'),
     arcHead: no('arcHead'),
@@ -368,15 +370,15 @@ test('6.12 readSources: each kind read once a day; packages verified on first re
   const npm = await add('package_npm', `r-pkg-${T}`, 'proposed');
   const pypi = await add('package_pypi', `other-${T}`, 'proposed');
   const reader = fakeReader({
-    [`/repos/${R}/a`]: { owner: { login: R, type: 'User' }, fork: false, is_template: false, stargazers_count: 0, created_at: iso(400) },
-    [`/repos/${R}/a/forks?per_page=100`]: [],
-    [`/repos/${R}/a/issues?state=all&per_page=100`]: [],
-    [`/repos/${R}/a/contributors?per_page=100`]: [],
-    [`/repos/${R}/a/stats/commit_activity`]: [],
     '/repos/big/lib': new GitHubBudgetStop(),
     '/repos/big/lib2': { stargazers_count: 50 },
     '/repos/big/lib2/pulls/3': { merged_at: iso(9), merged_by: { login: 'maint' } },
   }, {
+    // v2.12.1: the person's repos are one GraphQL query.
+    ghGraphql: async <T,>(_q: string, v: Record<string, unknown>): Promise<T> => {
+      assert.equal(v.login, R);
+      return { data: { user: { login: R, repositories: { nodes: [{ nameWithOwner: `${R}/a`, isFork: false, isTemplate: false, createdAt: iso(400), stargazerCount: 0 }] } } } } as T;
+    },
     probe: async () => ({ status: 200 }),
     usdPerNative: async () => {
       throw new Error('price down');

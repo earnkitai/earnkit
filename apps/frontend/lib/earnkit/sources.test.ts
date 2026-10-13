@@ -1,7 +1,20 @@
 import { after, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
-import { contractConflicts, dueSources, previousSignals, proposeSource, rejectSource, verifySource, writeReading } from './sources';
+import { contractConflicts, dueSources, previousSignals, proposeSource, readSources, rejectSource, verifySource, writeReading } from './sources';
+import type { ReaderDeps } from './source-readers';
+
+/** A ReaderDeps whose every outside read throws, so a test sees exactly the reads it overrides. */
+function fakeReader(): ReaderDeps {
+  const no = async (): Promise<never> => {
+    throw new Error('unexpected read');
+  };
+  return { gh: no, ghGraphql: no, probe: no, fetchText: no, json: no, baseTxs: no, tokenTransfers: no, contractOrigin: no, arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, now: new Date('2026-10-14T10:00:00Z') };
+}
+/** The person query's answer: these repos, bare. */
+const graphBody = (login: string, keys: string[]) => ({
+  data: { user: { login, twitterUsername: null, websiteUrl: null, repositories: { nodes: keys.map((k) => ({ nameWithOwner: k, isFork: false, isTemplate: false, stargazers: { edges: [] }, forks: { nodes: [] }, defaultBranchRef: null })) } } },
+});
 
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 const ID = 2_100_002_000 + (process.pid % 1000);
@@ -66,4 +79,34 @@ test('5.24 contract conflicts: another person\'s verified contract or deployer; 
   await writeReading(theirs, OTHER, '2026-10-10', { ok: true, signals: { n: 1 } });
   await writeReading(theirs, OTHER, '2026-10-11', { ok: false, error: 'TimeoutError' });
   assert.deepEqual(await previousSignals(theirs), { n: 1 });
+});
+
+test('3.6 a failing source writes one failed reading for the day and is not read again that day', dbTest, async () => {
+  const id = ID; // the file's own id; beforeEach clears its sources
+  const [s] = await sql()<{ id: string }[]>`
+    INSERT INTO builder_sources (builder_id, kind, ref, project_key, proof, state, proposed_by)
+    VALUES (${id}, 'site', 'https://down.example.com', 'k', 'repo_link', 'verified', 'server') RETURNING id`;
+  let probes = 0;
+  const reader = { ...fakeReader(), probe: async () => { probes++; throw new Error('ECONNREFUSED'); } };
+  const now = new Date('2026-10-14T10:00:00Z');
+  await readSources(now, { deadline: Date.now() + 5000, reader, only: [id] });
+  await readSources(now, { deadline: Date.now() + 5000, reader, only: [id] });
+  assert.equal(probes, 1);
+  const rows = await sql()`SELECT ok FROM source_readings WHERE source_id = ${s.id}`;
+  assert.equal(rows.length, 1);
+});
+
+test('3.7 every repo source of one person is read by one GraphQL query', dbTest, async () => {
+  const id = ID;
+  const login = `lee-${process.pid}`; // github_login is unique across people: one per run
+  const keys = ['a', 'b', 'c'].map((r) => `${login}/${r}`);
+  await sql()`INSERT INTO builder_profiles (builder_id, slug, github_login) VALUES (${id}, ${`b-t${id}`}, ${login})
+    ON CONFLICT (builder_id) DO UPDATE SET github_login = EXCLUDED.github_login`;
+  for (const r of keys)
+    await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proof, state, proposed_by) VALUES (${id}, 'repo', ${r}, ${r}, 'repo_owner', 'verified', 'server')`;
+  let queries = 0;
+  const reader = { ...fakeReader(), ghGraphql: async () => { queries++; return graphBody(login, keys); }, gh: async () => { throw new Error('no REST per repo'); } } as ReaderDeps;
+  const out = await readSources(new Date('2026-10-14T10:00:00Z'), { deadline: Date.now() + 5000, reader, only: [id] });
+  assert.equal(queries, 1);
+  assert.equal(out.read, 3);
 });

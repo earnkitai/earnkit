@@ -218,7 +218,7 @@ test('8.12 discovery proves a repo-linked site once its earnkit.txt names the pe
     throw new Error('unexpected');
   };
   const reader: ReaderDeps = {
-    gh: no, probe: no, json: no, baseTxs: no, contractOrigin: no, arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, now: NOW,
+    gh: no, ghGraphql: no, tokenTransfers: no, probe: no, json: no, baseTxs: no, contractOrigin: no, arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, now: NOW,
     fetchText: async (url) => {
       read.push(url);
       if (url === 'https://app.lee.dev/earnkit.txt') return `profile: ${profileCode(id, 'https://app.lee.dev', SECRET)}\n`;
@@ -259,7 +259,7 @@ test('8.14 a new proposed site is never crowded out by unproven linked sites: di
     throw new Error('unexpected');
   };
   const reader: ReaderDeps = {
-    gh: no, probe: no, json: no, baseTxs: no, contractOrigin: no, arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, now: NOW,
+    gh: no, ghGraphql: no, tokenTransfers: no, probe: no, json: no, baseTxs: no, contractOrigin: no, arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, now: NOW,
     fetchText: async (url) => {
       read.push(url);
       throw new Error('not found');

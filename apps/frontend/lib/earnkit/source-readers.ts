@@ -2,8 +2,10 @@ import { createPublicClient, http, type Address, type Hash } from 'viem';
 import { ScoreDeadline, beforeDeadline, blockscout, type TxPage } from './campaigns';
 import { nativeUsd } from './deploy';
 import { ARC_LOG_CHUNK, recentChunks } from './events';
+import { codesIn } from './builder-code';
 import { gh } from './match-projects';
 import { ErrorPageError, LINKCHECK_UA, RedirectError, SafeFetchError, errorPageText, safeFetchText, sameSite, type Resolver, type Transport } from './safe-fetch';
+import { sharedContract } from './shared-contracts';
 import { rpcFor } from './verify';
 
 /**
@@ -27,24 +29,30 @@ export type RepoSignals = {
 };
 export type SiteSignals = { status: number; up: boolean };
 export type PackageSignals = { weekly: number; repo_url: string | null };
-export type ContractSignals = { callers: (Who & { value_usd: number; first_tx_at?: string | null })[]; partial: boolean };
+/** `codes`: the ERC-8021 codes at the end of the call's input (builder-code.ts codesIn), [] for none. */
+export type ContractSignals = { callers: (Who & { value_usd: number; first_tx_at?: string | null; codes?: string[] })[]; partial: boolean };
 /** Who created a contract onchain: the creation transaction's sender and time; null is unreadable. */
 export type ContractOrigin = { deployer: string | null; created_at: string | null };
 /** `url`: the PR's own page (a merged_pr source's ref). */
 export type PrSignals = { target: string; target_stars: number; merged_at: string | null; author: string; url?: string };
 export type ReaderDeps = {
   gh: <T>(path: string, accept?: string) => Promise<T>;
+  /** GitHub GraphQL (one call per person, person-github.ts); counted against the run's GitHub budget. */
+  ghGraphql: <T>(query: string, variables: Record<string, unknown>) => Promise<T>;
   probe: (url: string) => Promise<{ status: number }>;
   fetchText: (url: string) => Promise<string>;
   /** npm and pypistats (public, keyless). */
   json: <T>(url: string) => Promise<T>;
   /** Blockscout, campaigns.ts blockscout. */
   baseTxs: (path: string) => Promise<TxPage>;
+  /** Blockscout token transfers of a coin (Base), newest first. */
+  tokenTransfers: (address: string, params: string) => Promise<{ items: { timestamp: string; from?: { hash?: string }; to?: { hash?: string } }[]; next_page_params: Record<string, unknown> | null }>;
   /** The creation transaction of a contract (Base: Blockscout; Arc: unreadable, nulls). */
   contractOrigin: (chain: 'base' | 'arc', address: string) => Promise<ContractOrigin>;
   arcLogs: (address: string, from: bigint, to: bigint) => Promise<{ tx: string }[]>;
   arcHead: () => Promise<bigint>;
-  arcSender: (tx: string) => Promise<{ from: string; value: bigint; at: string }>;
+  /** `input`: the transaction's calldata (its ERC-8021 codes are read from it). */
+  arcSender: (tx: string) => Promise<{ from: string; value: bigint; at: string; input?: string }>;
   usdPerNative: (chain: 'base' | 'arc') => Promise<number>;
   now: Date;
   /** Whether the run's GitHub budget is spent (budgetedGh); absent: never. */
@@ -248,6 +256,55 @@ export async function readNpm(name: string, d: ReaderDeps): Promise<PackageSigna
   return { weekly: finite(weeks.reduce((n, w) => n + w, 0) / 4), repo_url: repoUrlOf(repo) };
 }
 
+export const NPM_BULK_MAX = 128;
+/**
+ * v2.12.1 spec "Scale": "npm's bulk endpoint (up to 128 packages per call)". Unscoped names only
+ * (npm's bulk read refuses scoped ones; those keep readNpm). One name answers a bare object, many
+ * a map by name (null for a package with no downloads data).
+ */
+export async function readNpmBulk(names: string[], d: ReaderDeps): Promise<Map<string, number | null>> {
+  const out = new Map<string, number | null>();
+  const plain = [...new Set(names.filter((n) => NPM_NAME.test(n) && !n.startsWith('@')))];
+  for (let i = 0; i < plain.length; i += NPM_BULK_MAX) {
+    const batch = plain.slice(i, i + NPM_BULK_MAX);
+    const body = await d.json<Record<string, unknown>>(`https://api.npmjs.org/downloads/point/last-week/${batch.join(',')}`);
+    const of = (x: unknown) => {
+      const n = (x as { downloads?: unknown } | null)?.downloads;
+      return typeof n === 'number' && Number.isFinite(n) ? Math.max(0, n) : null;
+    };
+    if (batch.length === 1) out.set(batch[0], of(body));
+    else for (const n of batch) out.set(n, of(body?.[n]));
+  }
+  return out;
+}
+
+export type CoinSignals = { traders: Who[]; partial: boolean };
+const ZERO = '0x0000000000000000000000000000000000000000';
+/**
+ * v2.12.1 spec "What EarnKit measures": a coin's trades count toward Used. Distinct receivers of
+ * the coin since `since` (newest READ_CAPS.basePages pages of Blockscout transfers), never the
+ * coin itself, the zero address, a shared contract (pools, routers, lockers: sharedContract) or
+ * one of the person's own accounts (`self`, 'wallet:0x..').
+ */
+export async function readCoin(ref: string, since: Date, d: ReaderDeps, self: ReadonlySet<string>): Promise<CoinSignals> {
+  const { chain, address } = contractRef(ref);
+  if (chain !== 'base') throw new Error('coins are read on Base only');
+  const seen = new Map<string, string>();
+  let params = '';
+  for (let page = 0; page < READ_CAPS.basePages; page++) {
+    const data = await d.tokenTransfers(address, params);
+    for (const t of data.items) {
+      if (!(new Date(t.timestamp) >= since)) return { traders: [...seen].map(([id, at]) => ({ id, at })), partial: false };
+      const to = t.to?.hash?.toLowerCase();
+      if (!to || !ADDRESS.test(to) || to === address || to === ZERO || sharedContract(to) || self.has(`wallet:${to}`)) continue;
+      if (!seen.has(`wallet:${to}`)) seen.set(`wallet:${to}`, t.timestamp);
+    }
+    if (!data.next_page_params) return { traders: [...seen].map(([id, at]) => ({ id, at })), partial: false };
+    params = new URLSearchParams(Object.entries(data.next_page_params).map(([k, v]) => [k, String(v)])).toString();
+  }
+  return { traders: [...seen].map(([id, at]) => ({ id, at })), partial: true };
+}
+
 /** PEP 503: lowercase, every run of '-', '_' and '.' is one '-'. Pure. */
 export const pep503 = (name: string) => name.toLowerCase().replace(/[-_.]+/g, '-');
 
@@ -289,7 +346,7 @@ export async function readContract(ref: string, since: Date, d: ReaderDeps): Pro
       for (const tx of data.items as (TxPage['items'][number] & { value?: string })[]) {
         if (!(new Date(tx.timestamp) >= since)) return { callers, partial: false };
         if (tx.status !== 'ok' || typeof tx.from?.hash !== 'string') continue;
-        callers.push({ id: `wallet:${tx.from.hash.toLowerCase()}`, at: tx.timestamp, value_usd: priced(tx.value, usd) });
+        callers.push({ id: `wallet:${tx.from.hash.toLowerCase()}`, at: tx.timestamp, value_usd: priced(tx.value, usd), codes: codesIn(tx.raw_input) });
       }
       if (!data.next_page_params) return { callers, partial: false };
       params = new URLSearchParams(Object.entries(data.next_page_params).map(([k, v]) => [k, String(v)])).toString();
@@ -305,7 +362,7 @@ export async function readContract(ref: string, since: Date, d: ReaderDeps): Pro
   for (const tx of [...txs].slice(0, READ_CAPS.arcSenders)) {
     const s = await d.arcSender(tx);
     if (!(new Date(s.at) >= since)) continue;
-    callers.push({ id: `wallet:${s.from.toLowerCase()}`, at: s.at, value_usd: priced(s.value, usd) });
+    callers.push({ id: `wallet:${s.from.toLowerCase()}`, at: s.at, value_usd: priced(s.value, usd), codes: codesIn(s.input) });
   }
   return { callers, partial: txs.size > READ_CAPS.arcSenders };
 }
@@ -416,6 +473,34 @@ export function budgetedGh(raw: RawGh, floor = GH_RATE_FLOOR, cap = GH_RUN_CAP):
   return Object.assign(gh, { spent: () => stopped, watch, take, calls: () => calls });
 }
 
+const GRAPHQL_MAX_BYTES = 5_000_000;
+/**
+ * One GitHub GraphQL call, counted against the run's budget (`github.take()`, GitHubBudgetStop when
+ * spent). A body with `errors` (an unknown login among them) throws: the caller writes failed readings.
+ */
+async function githubGraphql<T>(query: string, variables: Record<string, unknown>, github: ReturnType<typeof budgetedGh>): Promise<T> {
+  if (!github.take()) throw new GitHubBudgetStop();
+  const token = process.env.GITHUB_TOKEN;
+  try {
+    const res = await fetch('https://api.github.com/graphql', {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'earnkit', ...(token && { Authorization: `Bearer ${token}` }) },
+      body: JSON.stringify({ query, variables }),
+      redirect: 'error',
+      signal: AbortSignal.timeout(15_000),
+    });
+    github.watch(res);
+    if (!res.ok) throw new Error(`GitHub GraphQL returned ${res.status}`);
+    if (Number(res.headers.get('content-length')) > GRAPHQL_MAX_BYTES) throw new Error('too large');
+    const body = (await res.json()) as { errors?: unknown[] } & Record<string, unknown>;
+    if (Array.isArray(body?.errors) && body.errors.length > 0) throw new Error('GitHub GraphQL answered errors');
+    return body as T;
+  } catch (err) {
+    if (github.spent()) throw new GitHubBudgetStop();
+    throw err;
+  }
+}
+
 /** Base: Blockscout's creation transaction, then its sender and time (never creator_address_hash, the factory). */
 async function blockscoutOrigin(address: string, deadline: number): Promise<ContractOrigin> {
   const a = await blockscout<{ creation_transaction_hash?: string | null; creation_tx_hash?: string | null }>(`/api/v2/addresses/${address}`, deadline);
@@ -443,10 +528,12 @@ export function defaultReaderDeps(now: Date, deadline: number): ReaderDeps {
   };
   return {
     gh: <T>(path: string, accept?: string) => by(github<T>(path, accept)),
+    ghGraphql: <T>(query: string, variables: Record<string, unknown>) => by(githubGraphql<T>(query, variables, github)),
     probe: (url) => by(probeSite(url).then(() => ({ status: 200 }))),
     fetchText: (url) => by(safeFetchText(url)),
     json: <T>(url: string) => by(packageJson<T>(url, deadline)),
     baseTxs: (path) => blockscout<TxPage>(path, deadline),
+    tokenTransfers: (address, params) => blockscout(`/api/v2/tokens/${address}/transfers${params ? `?${params}` : ''}`, deadline),
     // Arc has no readable explorer API (Cloudflare challenge): its origin is unknown, so a repo_link is refused.
     contractOrigin: async (chain, address) => (chain === 'base' ? blockscoutOrigin(address, deadline) : { deployer: null, created_at: null }),
     arcLogs: async (address, from, to) =>
@@ -456,7 +543,7 @@ export function defaultReaderDeps(now: Date, deadline: number): ReaderDeps {
       const t = await by(arcClient().getTransaction({ hash: tx as Hash }));
       if (t.blockNumber === null) throw new Error('pending transaction');
       const b = await by(arcClient().getBlock({ blockNumber: t.blockNumber }));
-      return { from: t.from, value: t.value, at: new Date(Number(b.timestamp) * 1000).toISOString() };
+      return { from: t.from, value: t.value, at: new Date(Number(b.timestamp) * 1000).toISOString(), input: t.input };
     },
     usdPerNative: (chain) => by(nativeUsd(chain)),
     now,

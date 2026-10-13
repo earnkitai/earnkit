@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GH_RATE_FLOOR, GH_RUN_CAP, GitHubBudgetStop, READ_CAPS, budgetedGh, defaultReaderDeps, isBudgetStop, isoWeek, pep503, probeSite, readContract, readContractOrigin, readMergedPrs, readNpm, readPypi, readRepo, readSite, type ReaderDeps } from './source-readers';
+import { GH_RATE_FLOOR, GH_RUN_CAP, GitHubBudgetStop, READ_CAPS, budgetedGh, defaultReaderDeps, isBudgetStop, isoWeek, pep503, probeSite, readContract, readContractOrigin, readCoin, readMergedPrs, readNpm, readNpmBulk, readPypi, readRepo, readSite, type ReaderDeps } from './source-readers';
 import { CONTRACT_REFUSALS, contractOwned, contractOwnership, packageOwned, repoOwned, siteOwnedByText } from './sources';
 import type { Resolver, Transport } from './safe-fetch';
 
@@ -11,7 +11,9 @@ const base: ReaderDeps = {
   probe: async () => ({ status: 200 }),
   fetchText: async () => '',
   json: async () => { throw new Error('unexpected json'); },
+  ghGraphql: async () => { throw new Error('unexpected graphql'); },
   baseTxs: async () => ({ items: [], next_page_params: null }),
+  tokenTransfers: async () => ({ items: [], next_page_params: null }),
   contractOrigin: async () => { throw new Error('unexpected origin'); },
   arcLogs: async () => [],
   arcHead: async () => 1_000n,
@@ -364,4 +366,39 @@ test('5.21 a site read follows up to 3 redirects within the same site, re-vettin
   await assert.rejects(probeSite('https://tip.example.com/', { resolve: resolver({}), transport: hops({ 'https://tip.example.com/': 'https://other.example.net/' }) }), /another site/);
   await assert.rejects(probeSite('https://tip.example.com/', { resolve: resolver({ 'www.tip.example.com': '10.0.0.7' }), transport: hops({ 'https://tip.example.com/': 'https://www.tip.example.com/' }) }), /public address/);
   await assert.rejects(probeSite('https://tip.example.com/', { resolve: resolver({}), transport: hops({ 'https://tip.example.com/': 'http://tip.example.com/' }) }), /https only/);
+});
+
+test('3.4 npm downloads in batches of 128 (unscoped); scoped names are left to readNpm', async () => {
+  const names = Array.from({ length: 130 }, (_, i) => `pkg${i}`).concat('@me/scoped');
+  const urls: string[] = [];
+  const d = { json: async (u: string) => { urls.push(u); const list = u.split('/').pop()!.split(','); return Object.fromEntries(list.map((n) => [n, n === 'pkg5' ? null : { downloads: 70, package: n }])); } } as never;
+  const out = await readNpmBulk(names, d);
+  assert.equal(urls.length, 2);
+  assert.ok(urls[0].startsWith('https://api.npmjs.org/downloads/point/last-week/pkg0,pkg1,'));
+  assert.equal(urls[0].split('/').pop()!.split(',').length, 128);
+  assert.equal(out.get('pkg1'), 70);
+  assert.equal(out.get('pkg5'), null);
+  assert.equal(out.has('@me/scoped'), false);
+});
+
+test('3.5 a Base call keeps its ERC-8021 codes; coin traders skip shared contracts and the person', async () => {
+  const { Attribution } = await import('ox/erc8021');
+  const tagged = `0xabcdef${Attribution.toDataSuffix({ codes: ['ek_abc123', 'earnkit'] }).slice(2)}`;
+  const d = {
+    usdPerNative: async () => 2000, now: NOW,
+    baseTxs: async () => ({ items: [{ timestamp: '2026-10-10T00:00:00Z', status: 'ok', from: { hash: '0xAA' }, raw_input: tagged, value: '0' }], next_page_params: null }),
+  } as never;
+  const s = await readContract('base:0x' + '1'.repeat(40), new Date('2026-01-01'), d);
+  assert.deepEqual(s.callers[0].codes, ['ek_abc123', 'earnkit']);
+  // Full 40-hex addresses: readCoin skips anything ADDRESS refuses.
+  const [BB, CC, ME] = ['b', 'c', 'e'].map((x) => '0x' + x.repeat(40));
+  const t = {
+    tokenTransfers: async () => ({ items: [
+      { timestamp: '2026-10-10T00:00:00Z', from: { hash: '0x' + '9'.repeat(40) }, to: { hash: BB.toUpperCase().replace('0X', '0x') } },
+      { timestamp: '2026-10-10T00:00:00Z', from: { hash: BB }, to: { hash: CC } },
+      { timestamp: '2026-10-10T00:00:00Z', from: { hash: CC }, to: { hash: ME } },
+    ], next_page_params: null }), now: NOW,
+  } as never;
+  const c = await readCoin('base:0x' + '2'.repeat(40), new Date('2026-01-01'), t, new Set([`wallet:${ME}`]));
+  assert.deepEqual(c.traders.map((w) => w.id).sort(), [`wallet:${BB}`, `wallet:${CC}`]);
 });

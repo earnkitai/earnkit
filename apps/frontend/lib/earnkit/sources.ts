@@ -2,7 +2,9 @@ import { ScoreDeadline } from './campaigns';
 import { sql, type Db } from './db';
 import { profileCodesIn } from './discovery-clues';
 import { noteEvent } from './events';
-import { isBudgetStop, readContract, readNpm, readPypi, readRepo, readSite, type PackageSignals, type PrSignals, type ReaderDeps, type RepoSignals } from './source-readers';
+import { readPersonGithub } from './person-github';
+import { countingDeps, flushReadUsage } from './read-usage';
+import { NPM_BULK_MAX, isBudgetStop, readCoin, readContract, readNpm, readNpmBulk, readPypi, readRepo, readSite, type PackageSignals, type PrSignals, type ReaderDeps, type RepoSignals } from './source-readers';
 
 /** spec 6: at most this many sources are read a run (oldest first). */
 export const READS_PER_RUN = 200;
@@ -127,13 +129,18 @@ export async function rejectSource(id: number, reason: string): Promise<void> {
   if (row) await noteEvent('source_rejected', () => ({ type: 'source_rejected', dedupe_key: `source_rejected:${id}:${reason}`, installation_id: row.builder_id, detail: { source_id: id, reason } }));
 }
 
-/** Verified sources not yet read on `day`, never read first, then the oldest read; `only` limits it to these people. */
+/**
+ * Verified sources not yet read on `day`, never read first, then the oldest read; `only` limits it to
+ * these people. v2.12.1: a source of a project the person no longer tracks (builder_projects.tracked
+ * false, the 25-project cap) is not read.
+ */
 export async function dueSources(day: string, limit: number, only?: number[]): Promise<{ id: number; builder_id: number; kind: string; ref: string; last_read_day: string | null }[]> {
   const rows = await sql()<{ id: number; builder_id: number; kind: string; ref: string; last_read_day: string | null }[]>`
-    SELECT id::int AS id, builder_id, kind, ref, last_read_day::text FROM builder_sources
-    WHERE state = 'verified' AND (last_read_day IS NULL OR last_read_day < ${day}::date)
-      ${only ? sql()`AND builder_id IN ${sql()(only.length ? only : [-1])}` : sql()``}
-    ORDER BY last_read_day NULLS FIRST, id LIMIT ${limit}`;
+    SELECT b.id::int AS id, b.builder_id, b.kind, b.ref, b.last_read_day::text FROM builder_sources b
+    WHERE b.state = 'verified' AND (b.last_read_day IS NULL OR b.last_read_day < ${day}::date)
+      AND NOT EXISTS (SELECT 1 FROM builder_projects p WHERE p.builder_id = b.builder_id AND p.project_key = b.project_key AND NOT p.tracked)
+      ${only ? sql()`AND b.builder_id IN ${sql()(only.length ? only : [-1])}` : sql()``}
+    ORDER BY b.last_read_day NULLS FIRST, b.id LIMIT ${limit}`;
   return [...rows];
 }
 
@@ -247,20 +254,52 @@ async function readOne(s: Due, now: Date, d: ReaderDeps): Promise<unknown> {
     }
     case 'merged_pr':
       return readPr(s, d);
+    case 'coin': {
+      // Like a contract: from the start of the last read day, else the last 365 days. The person's
+      // own proven wallets are never their coin's traders.
+      const since = s.last_read_day ? new Date(`${s.last_read_day}T00:00:00Z`) : new Date(now.getTime() - 365 * DAY_MS);
+      const wallets = await sql()<{ wallet: string }[]>`SELECT wallet FROM person_wallets WHERE builder_id = ${s.builder_id}`;
+      return readCoin(s.ref, since, d, new Set(wallets.map((w) => `wallet:${w.wallet}`)));
+    }
     default:
       throw new Error('unknown source kind');
   }
+}
+
+const LOGIN = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}$/;
+const ownerOf = (ref: string) => ref.toLowerCase().split('/')[0];
+/** An unscoped npm name (npm's bulk downloads read takes only these; scoped ones keep readNpm). */
+const bulkNpm = (s: Due) => s.kind === 'package_npm' && !s.ref.startsWith('@');
+
+/** The login a person's repos are read under: the proven login, else the reported one, else `owner`. */
+async function personLogin(builderId: number, owner: string): Promise<string> {
+  const [row] = await sql()<{ login: string | null; reported: string | null }[]>`
+    SELECT lower(github_login) AS login, lower(reported_github) AS reported FROM builder_profiles WHERE builder_id = ${builderId}`;
+  return [row?.login, row?.reported].find((l): l is string => typeof l === 'string' && LOGIN.test(l)) ?? owner;
 }
 
 /**
  * spec 6, step 2: at most READS_PER_RUN reads, while `deadline` allows. First the proposed packages
  * (verified on their first read when their metadata names a verified repo of the person, else
  * rejected `repo_mismatch`; an unreadable one is tried again the next day), then the verified
- * sources due today, never read first, then the oldest. A read that throws is a failed reading
- * (its error class only); a spent GitHub budget or the deadline writes nothing, so the source stays due.
+ * sources due today, never read first, then the oldest. v2.12.1 "Scale": a person's repos under
+ * their login are read by one GraphQL query (person-github.ts; an org repo keeps readRepo), unscoped
+ * npm packages in bulk (NPM_BULK_MAX a call), coins by their transfers. A read that throws is one
+ * failed reading for the day (its error class only; spec "skip, don't chase": never retried that
+ * day, the last good number stays); a spent GitHub budget or the deadline writes nothing, so the
+ * source stays due. Every outside read is counted per provider into read_usage.
  */
 export async function readSources(now: Date, o: { deadline: number; reader: ReaderDeps; only?: number[] }): Promise<{ read: number; failed: number }> {
   const day = now.toISOString().slice(0, 10);
+  const { deps, counts } = countingDeps(o.reader);
+  try {
+    return await readAll(now, day, { ...o, reader: deps });
+  } finally {
+    await flushReadUsage(day, counts);
+  }
+}
+
+async function readAll(now: Date, day: string, o: { deadline: number; reader: ReaderDeps; only?: number[] }): Promise<{ read: number; failed: number }> {
   const only = o.only ? sql()`AND builder_id IN ${sql()(o.only.length ? o.only : [-1])}` : sql()``;
   const pending = await sql()<Due[]>`
     SELECT id::int AS id, builder_id, kind, ref, last_read_day::text FROM builder_sources
@@ -290,18 +329,70 @@ export async function readSources(now: Date, o: { deadline: number; reader: Read
     }
   }
   const due = await dueSources(day, Math.max(0, READS_PER_RUN - pending.length), o.only);
-  for (const s of due) {
-    if (Date.now() >= o.deadline) break;
+  const ok = async (s: Due, signals: unknown) => {
+    if (await writeReading(s.id, s.builder_id, day, { ok: true, signals })) read++;
+  };
+  const fail = async (s: Due, error: string) => {
+    if (await writeReading(s.id, s.builder_id, day, { ok: false, error })) failed++;
+  };
+  /** Runs one read for `group`; false when the deadline cut it (stop the run). */
+  const attempt = async (group: Due[], read: () => Promise<void>): Promise<boolean> => {
     try {
-      const signals = await readOne(s, now, o.reader);
-      if (await writeReading(s.id, s.builder_id, day, { ok: true, signals })) read++;
+      await read();
     } catch (err) {
       // A read cut by the deadline is not a failed read: no reading, the source stays due.
-      if (err instanceof ScoreDeadline) break;
-      if (isBudgetStop(err)) continue;
+      if (err instanceof ScoreDeadline) return false;
+      if (isBudgetStop(err)) return true;
       const error = err instanceof Error ? err.name : 'Error';
-      if (await writeReading(s.id, s.builder_id, day, { ok: false, error })) failed++;
+      for (const s of group) await fail(s, error);
     }
+    return true;
+  };
+
+  // Repos, one GraphQL query per person: those under the person's login (an org repo is read alone).
+  const people = new Map<number, Due[]>();
+  for (const s of due) if (s.kind === 'repo') people.set(s.builder_id, [...(people.get(s.builder_id) ?? []), s]);
+  const alone: Due[] = [];
+  for (const [builderId, repos] of people) {
+    if (Date.now() >= o.deadline) return { read, failed };
+    const login = await personLogin(builderId, ownerOf(repos[0].ref));
+    const mine = repos.filter((s) => ownerOf(s.ref) === login);
+    alone.push(...repos.filter((s) => ownerOf(s.ref) !== login));
+    if (mine.length === 0) continue;
+    const go = await attempt(mine, async () => {
+      const person = await readPersonGithub(login, o.reader);
+      for (const s of mine) {
+        const r = person?.repos.get(s.ref.toLowerCase());
+        if (r) await ok(s, r);
+        else await fail(s, 'not_found');
+      }
+    });
+    if (!go) return { read, failed };
+  }
+
+  // Unscoped npm packages, NPM_BULK_MAX names a call (one failing call fails only its own names).
+  const npm = due.filter(bulkNpm);
+  const names = [...new Set(npm.map((s) => s.ref))];
+  for (let i = 0; i < names.length; i += NPM_BULK_MAX) {
+    if (Date.now() >= o.deadline) return { read, failed };
+    const batch = new Set(names.slice(i, i + NPM_BULK_MAX));
+    const group = npm.filter((s) => batch.has(s.ref));
+    const go = await attempt(group, async () => {
+      const weekly = await readNpmBulk([...batch], o.reader);
+      for (const s of group) {
+        const n = weekly.get(s.ref);
+        // The repo link was checked when the package was verified.
+        if (typeof n === 'number') await ok(s, { weekly: n, repo_url: null } satisfies PackageSignals);
+        else await fail(s, 'no_data');
+      }
+    });
+    if (!go) return { read, failed };
+  }
+
+  // Everything else (and org repos), one source at a time.
+  for (const s of [...alone, ...due.filter((s) => s.kind !== 'repo' && !bulkNpm(s))]) {
+    if (Date.now() >= o.deadline) break;
+    if (!(await attempt([s], async () => ok(s, await readOne(s, now, o.reader))))) break;
   }
   return { read, failed };
 }

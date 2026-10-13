@@ -181,7 +181,29 @@ function fakeWorld(): ReaderDeps {
   const no = (what: string) => async () => {
     throw new Error(`v212-journey: unexpected ${what} read`);
   };
+  // v2.12.1: the daily read is one GraphQL query for lee (the newest 10 stargazers, as GitHub answers).
+  const person = {
+    data: {
+      user: {
+        login: 'lee', twitterUsername: null, websiteUrl: null,
+        repositories: {
+          nodes: [{
+            nameWithOwner: 'lee/tipjar', description: null, homepageUrl: null, isFork: false, isTemplate: false,
+            createdAt: TIPJAR.created_at, pushedAt: TIPJAR.pushed_at, stargazerCount: FANS.length, forkCount: 0, parent: null, templateRepository: null,
+            stargazers: { edges: FANS.slice(-10).map((f, i) => ({ starredAt: iso(now.getTime() - ((i % 12) + 1) * DAY), node: { login: f, createdAt: iso(now.getTime() - 900 * DAY) } })) },
+            forks: { nodes: [] },
+            defaultBranchRef: { target: { history: { nodes: weeks.map((w) => ({ committedDate: iso(w.week * 1000) })) } } },
+          }],
+        },
+      },
+    },
+  };
   return {
+    ghGraphql: async <T,>(_q: string, v: Record<string, unknown>) => {
+      if (v.login === 'lee') return person as T;
+      unserved.push(`graphql ${String(v.login)}`);
+      throw new Error('v212-journey: GraphQL not served');
+    },
     gh: async <T,>(path: string) => {
       if (path.startsWith('/search/issues?')) return { items: [] } as T;
       if (path in gh) return gh[path] as T;
@@ -194,6 +216,7 @@ function fakeWorld(): ReaderDeps {
     },
     json: no('npm/pypi'),
     baseTxs: no('Blockscout'),
+    tokenTransfers: no('Blockscout transfers'),
     contractOrigin: no('contract origin'),
     arcLogs: no('Arc logs'),
     arcHead: no('Arc head'),
