@@ -238,12 +238,18 @@ export type BoardRow = { rank: number; slug: string; name: string; score: number
 export type LeaderboardData = { rows: BoardRow[]; page: number; pages: number; filters: BoardFilters };
 
 /** The board's query params. Junk (an unknown chain or window, an odd program id, a repeated key, a bad page) is dropped, never echoed. Pure. */
+/**
+ * v2.12 final review (T12): the highest board page a URL may ask for (10,000 people at 50 a page).
+ * Past it the page falls back to 1, so crafted page numbers can't each fill a cache entry.
+ */
+export const MAX_BOARD_PAGE = 200;
+
 export function leaderboardFilters(q: Record<string, string | string[] | undefined>): BoardFilters {
   const one = (k: string) => (typeof q[k] === 'string' ? (q[k] as string) : null);
   const chain = one('chain');
   const program = one('program');
   const raw = one('page');
-  const page = raw && /^[1-9]\d{0,5}$/.test(raw) ? Number(raw) : 1;
+  const page = raw && /^[1-9]\d{0,2}$/.test(raw) && Number(raw) <= MAX_BOARD_PAGE ? Number(raw) : 1;
   return {
     chain: chain === 'base' || chain === 'arc' ? chain : null,
     program: program && /^[a-z0-9-]{1,100}$/.test(program) ? program : null,
@@ -354,6 +360,11 @@ export async function leaderboardData(f: BoardFilters, now: Date = new Date()): 
 }
 
 /** A program's title by id, any status (a closed bonus round's program too, owner ruling D1); null when unknown. */
+/** Every program id (open or closed): the board validates `program=` against it before its cached read. */
+export async function programIds(): Promise<string[]> {
+  return (await sql()<{ id: string }[]>`SELECT id FROM programs ORDER BY id`).map((r) => r.id);
+}
+
 export async function programTitle(id: string): Promise<string | null> {
   const [row] = await sql()<{ title: string }[]>`SELECT title FROM programs WHERE id = ${id}`;
   return row?.title ?? null;

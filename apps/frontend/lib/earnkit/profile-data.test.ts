@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import LeaderboardView from '../../app/leaderboard/LeaderboardView';
 import { percentiles } from './builder-score';
 import { sql } from './db';
-import { boardHref, boardOutcome, leaderboardData, leaderboardFilters, PAGE_SIZE, type BoardRow, type LeaderboardData } from './profile-data';
+import { MAX_BOARD_PAGE, boardHref, boardOutcome, leaderboardData, leaderboardFilters, PAGE_SIZE, type BoardRow, type LeaderboardData } from './profile-data';
 
 /** v2.12 T12: the unified leaderboard (spec 7 "Leaderboard"). Markup on the pure view, then the one query. */
 
@@ -56,6 +56,11 @@ test('12.2 filters as query params; the week window ranks by 7-day change and sa
   assert.deepEqual(leaderboardFilters({ chain: ['arc', 'base'], program: 'A<b>', page: '1.5' }), ALL);
   assert.deepEqual(leaderboardFilters({ chain: 'Base', page: '1e3' }), ALL);
   assert.equal(leaderboardFilters({ page: '99999999999999999999' }).page, 1);
+  // Final review (T12): pages cap at MAX_BOARD_PAGE (200); past it, page 1 (no cache entry per crafted page).
+  assert.equal(MAX_BOARD_PAGE, 200);
+  assert.equal(leaderboardFilters({ page: '200' }).page, 200);
+  assert.equal(leaderboardFilters({ page: '201' }).page, 1);
+  assert.equal(leaderboardFilters({ page: '5000' }).page, 1);
 });
 
 test('12.2b filter links keep the other filters and reset the page; the selected program shows by its title', () => {
@@ -99,6 +104,9 @@ test('12.5 the page: ISR 600, 404 with the flag off, strict params, one cached r
   assert.match(page, /const q = await searchParams;\s*(\/\/.*\s*)*if \(!builderScoreEnabled\(\)\) notFound\(\);\s*const f = leaderboardFilters\(q\)/);
   const load = readFileSync(join(import.meta.dirname, '../../app/leaderboard/leaderboard-load.ts'), 'utf8');
   assert.match(load, /tags: \[PROFILE_TAG\]/);
+  // Final review (T12): program= is checked against one cached id list before the board's cached read.
+  assert.match(page, /if \(f\.program && !\(await cachedProgramIds\(\)\)\.includes\(f\.program\)\) notFound\(\);\s*const board = await cachedBoard\(f\)/);
+  assert.match(load, /export const cachedProgramIds = unstable_cache\(async \(\) => programIds\(\), \[[^\]]+\], \{ revalidate: 600 \}\)/);
   assert.match(load, /revalidate: 600/);
   const cache = readFileSync(join(import.meta.dirname, 'profile-cache.ts'), 'utf8');
   assert.match(cache, /revalidatePath\('\/leaderboard'\)/);

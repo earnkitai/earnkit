@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   RAW_CAP,
+  SAFETY_TEXT,
   SponsorUrl,
   TEXT_LIMITS,
   UntrustedTextError,
@@ -500,4 +501,9 @@ test('1.9 canonicalBuilderUrl refuses placeholder links (v2.9 A5)', async () => 
   for (const raw of ['https://example.com', 'yourdomain.com', 'https://1.2.3.4/x', 'https://github.com/earnkitai/chain-kits', 'https://app.example'])
     assert.deepEqual(canonicalBuilderUrl(raw), { problem: PLACEHOLDER_LINE }, raw);
   assert.deepEqual(canonicalBuilderUrl('https://tipjar.xyz'), { url: 'https://tipjar.xyz/' });
+});
+
+test('v2.12 final review (T14): the safety line points at EarnKit\'s own build steps, never the archived build_help', () => {
+  assert.match(SAFETY_TEXT, /use only EarnKit's own build steps\./);
+  assert.doesNotMatch(SAFETY_TEXT, /build_help/);
 });

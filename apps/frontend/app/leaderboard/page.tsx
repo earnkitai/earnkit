@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation';
 import { builderScoreEnabled } from '@/lib/earnkit/builder-score-flag';
 import { leaderboardFilters } from '@/lib/earnkit/profile-data';
 import LeaderboardView from './LeaderboardView';
-import { cachedBoard } from './leaderboard-load';
+import { cachedBoard, cachedProgramIds } from './leaderboard-load';
 
 export const revalidate = 600;
 export const metadata = {
@@ -12,8 +12,9 @@ export const metadata = {
 
 /**
  * v2.12 spec 7: the leaderboard. A 404 with the flag off (v2.11 had no such page), for a program id
- * that names no program, and for a page past the end. Unknown chain, window or page values fall back
- * to the defaults and are never echoed.
+ * that names no program (checked against one cached id list before the board's read), and for a page
+ * past the end. Unknown chain, window or page values (and pages past MAX_BOARD_PAGE) fall back to the
+ * defaults and are never echoed.
  */
 export default async function LeaderboardPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   // The query first: it makes the page render per request (never one static page for every filter);
@@ -21,6 +22,7 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
   const q = await searchParams;
   if (!builderScoreEnabled()) notFound();
   const f = leaderboardFilters(q);
+  if (f.program && !(await cachedProgramIds()).includes(f.program)) notFound();
   const board = await cachedBoard(f);
   if (!board.known) notFound();
   if (f.page > board.data.pages) notFound();
