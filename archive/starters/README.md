@@ -40,5 +40,7 @@ The app never imports from `archive/`. To bring the feature back:
    (the file's header says the same). Put "tested build help" back in `public/llms.txt`'s find line.
 3. Set `EARNKIT_STARTER_REGISTRY=on`, then `pnpm programs:sync` to write the files' starters again.
 
-Checked in v2.12 in a scratch worktree: restore plus step 2 passes `programs-starters.test.ts` and
-`programs.test.ts` with the flag on.
+Checked in v2.12 in a scratch worktree: restore plus step 2, with `programs.test.ts` as it was
+before the archive commit (`git show 43fab94~1:apps/frontend/lib/earnkit/programs.test.ts`),
+passes `programs-starters.test.ts`, `programs.test.ts`, `program-file.test.ts` and
+`starters.test.ts` with the flag on (73 tests, 0 fail).

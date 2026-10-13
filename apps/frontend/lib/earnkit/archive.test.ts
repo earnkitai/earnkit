@@ -108,6 +108,13 @@ test('14.1 boards: v2.11 with the score flag off; on, a round in review stays pu
   assert.match(readme, /## The move, at go-live/);
 });
 
+test('14.5 archive-restore names each feature\'s own flag, read from its README', async () => {
+  const { flagOf } = await import('../../scripts/archive-restore.mjs');
+  for (const [feature, flag] of Object.entries(ARCHIVED)) assert.equal(flagOf(feature, ROOT), flag, feature);
+  assert.equal(flagOf('program-leaderboards', ROOT), 'EARNKIT_PROGRAM_LEADERBOARDS');
+  assert.equal(flagOf('tool-aliases', ROOT), 'EARNKIT_TOOL_ALIASES');
+});
+
 test('14.2 the traction scorer, bonus payouts and the round board stay live (R20, D1)', () => {
   for (const f of ['traction.ts', 'bonus-payout.ts', 'bonus-ledger.ts', 'bonus-rounds.ts', 'bonus-board.ts']) assert.ok(existsSync(join(import.meta.dirname, f)), f);
   assert.ok(existsSync(join(ROOT, 'apps/frontend/app/bonus/[round]/BoardView.tsx')));

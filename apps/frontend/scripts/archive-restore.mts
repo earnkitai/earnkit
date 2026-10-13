@@ -11,6 +11,14 @@ export function manifestPaths(text: string): string[] {
   return text.split('\n').map((l) => l.replace(/#.*$/, '').trim()).filter(Boolean);
 }
 
+/** The feature's own flag: the first `EARNKIT_<NAME>=on` under its README's "## The flag", else null. */
+export function flagOf(feature: string, repo = root): string | null {
+  const readme = join(repo, 'archive', feature, 'README.md');
+  if (!/^[a-z0-9-]+$/.test(feature) || !existsSync(readme)) return null;
+  const section = readFileSync(readme, 'utf8').split('## The flag')[1] ?? '';
+  return /\b(EARNKIT_[A-Z_]+)=on\b/.exec(section)?.[1] ?? null;
+}
+
 export function restore(feature: string, repo = root): string[] {
   if (!/^[a-z0-9-]+$/.test(feature)) throw new Error(`Unknown feature "${feature}".`);
   const dir = join(repo, 'archive', feature);
@@ -36,7 +44,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   try {
     const moved = restore(feature);
     console.log(`Restored ${moved.length} files.`);
-    console.log(`Set EARNKIT_${feature.toUpperCase().replace(/-/g, '_')}=on, then revert the unhook commit named in README.md.`);
+    console.log(`Follow the rest of archive/${feature}/README.md "## Restore", then set ${flagOf(feature) ?? 'its flag'}=on.`);
   } catch (err) {
     console.error(err instanceof Error ? err.message : err);
     process.exit(1);
