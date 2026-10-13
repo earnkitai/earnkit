@@ -123,7 +123,9 @@ apps/frontend/
                                v2.11 T12: a footer link to /terms#what-earnkit-records (RECORDS_HREF).
   app/terms/page.tsx           v2.9 F22 (Task 11): the one legal page, metadata title "Terms", canonical
                                https://earnkit.com/terms; a section nav (v2.11 T12: + What EarnKit records; v2.12 T15: + Builder
-                               profiles), then PolicySection (#policy), ProfilesSection (#builder-profiles, v2.12),
+                               profiles, only with EARNKIT_BUILDER_SCORE=on: final review I1), then PolicySection
+                               (#policy), ProfilesSection (#builder-profiles, v2.12, flag on only; force-dynamic,
+                               generateMetadata's description names it only then),
                                RiskSection (#risk-disclosure), SponsorTermsSection (#sponsor-terms), Footer.
                                /policy, /risk-disclosure, /sponsor-terms 301 here (next.config.ts
                                LEGAL_REDIRECTS, statusCode 301, never permanent: true = 308)
@@ -131,7 +133,9 @@ apps/frontend/
                                "What EarnKit records" with policy.ts PROFILES_POINTS as a list (public sources
                                only plus what the person links; profiles and the leaderboard are public; only
                                verified use counts; say hide, hidden still counts in ranks; never posts, X only as
-                               GitHub lists it; may transfer in a merger or acquisition; removal by email).
+                               GitHub lists it; the name may be the GitHub login and the address a short wallet
+                               form; the agent may propose local repos and live links; may transfer in a merger
+                               or acquisition; removal by email).
                                Needs the owner's lawyer review before EARNKIT_BUILDER_SCORE goes on
   app/terms/sections/RiskSection.tsx  Tokenfi Inc.'s risk disclosure (was app/risk-disclosure/page.tsx),
                                text unchanged, restyled onto the site's panel and ek tokens
@@ -147,23 +151,27 @@ apps/frontend/
   app/leaderboard/{page.tsx,LeaderboardView.tsx,leaderboard-load.ts}  v2.12 T12: the unified builder
                                leaderboard (404 unless EARNKIT_BUILDER_SCORE=on). Filters chain (base|arc),
                                program (any programs.id, closed bonus-round programs too; unknown id 404),
-                               window (all|week), page (50 a page; past the end 404) via profile-data.ts
-                               leaderboardFilters/boardHref; one query (leaderboardData) cached per filter set
-                               10 min, tagged PROFILE_TAG (hide/show/X change expire it). Hidden excluded but
-                               counted; held at the last unheld score; week = bounded 7-day change.
+                               window (all|week), page (50 a page, MAX_BOARD_PAGE 200, past the end 404) via
+                               profile-data.ts leaderboardFilters/boardHref; program= checked against
+                               cachedProgramIds (one cached list) before the board read; one query
+                               (leaderboardData) cached per filter set 10 min, tagged PROFILE_TAG (hide/show/X
+                               change expire it). Hidden and not-yet-consented excluded but counted; held at the
+                               last unheld score; week = bounded 7-day change; "Top N%" only for N <= 50.
   app/b/[slug]/page.tsx        v2.12 T10 (spec 7): the public profile, ISR 600 s; 404 unless
-                               EARNKIT_BUILDER_SCORE=on, hidden or no profile; mixed case and old slugs 308
+                               EARNKIT_BUILDER_SCORE=on, hidden, no profile or consent line never shown
+                               (resolveSlug); mixed case and old slugs 308
                                (permanentRedirect, R15); generateMetadata points og:image at the card
   app/b/[slug]/ProfileView.tsx  pure render (markup-tested in profile-pages.test.ts): ScoreRing, "Top N% of
-                               builders", 7-day change, three stats in words, project cards with sources, one
+                               builders" (only N <= 50), 7-day change, three stats in words, project cards with sources, one
                                verified-from line, 90-day sparkline, the neutral stricter note; empty profile:
                                EMPTY_LINE; the name is X, else GitHub login, else "Builder", never a wallet
   app/b/[slug]/ScoreRing.tsx   the orange-to-purple ring (SCORE_COLORS: ek-score-orange #FF7A1A, ek-score-purple
                                #9B6BFF, both 4.5:1+ on the navy panel, R17)
   app/b/[slug]/profile-load.ts  cachedProfile: unstable_cache over profile-data.ts profileData, 600 s, tag PROFILE_TAG
   app/b/[slug]/card.png/route.tsx  v2.12 T11 (R16: .tsx for JSX): next/og 1200x630 share card (share.ts
-                               cardModel: ring, Top N%, top outcome in words, the name; never a chain); checks the
-                               live row (hidden: no-store 404); CARD_CACHE max-age=0 s-maxage=60
+                               cardModel: ring, Top N% (N <= 50 only), top outcome in words at 44px, the name
+                               (none for the "Builder" fallback), footer 30px; never a chain); checks the live row
+                               (hidden or not consented: no-store 404); CARD_CACHE max-age=0 s-maxage=60
   app/b/[slug]/share/route.ts  v2.12 T11: records card_shared (once per person per day) and 302s to the X intent
                                built from the public profile (no open redirect); EarnKit never posts
   app/admin/scores/page.tsx    v2.12 T6 (spec 5): the owner's review of held scores (noindex, ?key= =
@@ -178,9 +186,10 @@ apps/frontend/
                                Ruling 12 (plan): the segment is the slug (<program>-<YYYY-MM-DD|
                                YYYY-MM>) or the v2.5 ':' form, via bonus-rounds.ts
                                resolveRoundParam (a malformed escape is a 404). v2.12 (D1): with
-                               EARNKIT_BUILDER_SCORE=on a round not in review 308s to
-                               /leaderboard?program=<id> (bonus-rounds.ts boardRedirect); /campaigns/<slug>
-                               too (D5; its file move is staged in archive/program-leaderboards/)
+                               EARNKIT_BUILDER_SCORE=on an open or empty round 307s to
+                               /leaderboard?program=<id> (bonus-rounds.ts boardRedirect; boardStays keeps
+                               frozen, review, paying and paid); /campaigns/<slug> too (D5; its file move is
+                               staged in archive/program-leaderboards/)
   app/api/stats/route.ts       v2.5 Task 9: GET public stats JSON (revalidate 600, prerendered when
                                the build has a DATABASE_URL; plus unstable_cache 600 s on the read,
                                for builds without one, where it renders per request); 503 no-store
@@ -405,7 +414,8 @@ apps/frontend/
                                shownUrl (builder links, canonical form), untrusted()
                                (zod), cleanProject
                                (campaign entries), quoted() (sponsor names/titles in EarnKit's
-                               sentences), SAFETY_LINES (server instructions + tool descriptions)
+                               sentences), SAFETY_LINES (server instructions + tool descriptions; the fourth
+                               says "use only EarnKit's own build steps" since the v2.12 final review)
     sponsor-text.ts            ARCHIVED v2.12 (archive/sponsor-campaigns/files/). Was: client-safe sponsor texts (DEADLINE_PASSED, DRAFT_EXPIRED, the fixed
                                FUND_WARNING / AWARD_PROVENANCE scam copy, awardWarnings: red flags
                                for a winner that is the sponsor or a repeated wallet) and the
@@ -580,6 +590,7 @@ apps/frontend/
                                without more, the short first reply (news, entries, deadline, private lines, one lead)
                                v2.10 item 7: YourRepos.unseen (with the App link) and fromLocal; privateRepoLines
                                v2.10 items 1, 5, 15: bonusLine (the one bonus line; H8: the offered program's pool), Card.bonus_tokens, FirstMessage.deadline;
+                               v2.12 final review: FirstMessage.noBonus (under the token pitch score: no bonus line);
                                no first-reply token offer (tokenOffer, tokenOfferFit, bonusClose, TOKEN_LINE removed).
                                (one line per local match, one can't-see line) before the matched table.
                                v2.10 item 6: Fit.odds/traction/low_reason (rowOdds), lowOddsCell, LOW_ODDS_HEADING;
@@ -778,6 +789,8 @@ apps/frontend/
                                only to the wallet its confirm line showed; another is shown first, BUILD_WALLET_NOTE;
                                owner ruling on M4); M7 a kept wallet is remembered; BUILD_OWNER_NOTE
                                (a fresh push and github_user).
+                               v2.12 final review: withoutBonusLine (find with a program_id drops the guide's bonus
+                               line under the pitch score; confirm's bonus line too unless the token is live).
                                v2.12: `tools` = find, prepare, confirm, tell, score (score-tool.ts scoreReply); find's
                                line 2 (score-tool.ts secondLine), the first find's profile, consent line and discovery
                                queue, tell's profile/x_handle/card, the token pitch gate (pitchAllowed) and odds from
@@ -1361,9 +1374,11 @@ apps/frontend/
                                for SPONSOR_CAMPAIGNS, STARTER_REGISTRY, PROGRAM_LEADERBOARDS, TOOL_ALIASES;
                                import-free
     score-calibration.ts       v2.12 T2: Calibration, CALIBRATIONS ('v1-launch': users 500, money $5,000,
-                               13 weeks, 60 days, since 2026-10-12), LIVE_CALIBRATION, calibration(id); pure
+                               13 weeks, 60 days, package_users 100, pr_target_users 2, since 2026-10-12),
+                               LIVE_CALIBRATION, calibration(id); pure
     score.ts(+test)            v2.12 T2: formula v1 (FORMULA, MAX 45/20/15/10/10), ProjectInput, Parts,
-                               Scored, computeScore, percentileOf, topPercent; pure; golden farmed-vs-honest
+                               Scored, computeScore, percentileOf, topPercent, TOP_SHOWN_MAX 50, shownTop (null
+                               above 50: the score alone); pure; golden farmed-vs-honest
     anti-farming.ts(+test)     v2.12 T3 (spec 5): RULES, countProject (self-exclusion, one per account,
                                10% fee cap, spread, fresh accounts, rings, cluster cap), moneyOf, ringWeights
                                (ring + ringOwner + clusterCap); pure
@@ -1377,30 +1392,35 @@ apps/frontend/
                                LoginOf, provenLogin (R4), proofLineCheck, discover (DISCOVER_PER_RUN 20,
                                DISCOVER_CAPS; reads first, verdicts after), publicHttpsOrigin, homepageOrigin
     source-readers.ts(+test)   v2.12 T5: ReaderDeps, readRepo, readSite, probeSite, readNpm, readPypi,
-                               readContract (Base Blockscout, Arc logs), readContractOrigin, readMergedPrs,
-                               budgetedGh (GH_RATE_FLOOR), GitHubBudgetStop, soft, READ_CAPS,
+                               readContract (Base Blockscout, Arc logs), readContractOrigin, readMergedPrs (never
+                               into own orgs), budgetedGh (GH_RATE_FLOOR, GH_RUN_CAP 1500 calls a run),
+                               GitHubBudgetStop, soft, READ_CAPS,
                                defaultReaderDeps (one per run)
     sources.ts(+test)          v2.12 T5: Proof, repoOwned, packageOwned, siteOwnedByText, contractOwnership
                                (fail strict), contractConflicts, proposeSource, verifySource, proveLinkedSite,
                                rejectSource, dueSources, previousSignals, readSources (READS_PER_RUN 200)
     builder-score.ts(+test)    v2.12 T6, T8, T9: SCORE_SLICE 0.4, scoreSliceEnd, LATE_HOUR_UTC 22, HOLD,
-                               buildInputs, scoreBuilders (one row per person per day; holds), percentiles
+                               buildInputs (package cap, PR credit once per target and one source for the
+                               hold, contributors undated), scoreBuilders (one row per person per day; holds), percentiles
                                (builder_ranks, one pass, hidden included), profileEmpty, emptyReasonOf,
                                heldPeople, runScoreSteps, publicScore/publicRow, verifiedProject (odds),
                                pitchAllowed (TOKEN_PITCH_MIN_SCORE), siteShowsUse, scoresAdminKey,
                                scoresAdminLink (pnpm campaign scores-link), scoresPost
     profiles.ts(+test)         v2.12 T7: PROFILE_URL, CONSENT_LINE, slugs (baseSlug, nextFreeSlug,
-                               randomSlug, walletSlug; never reused), profileOf, resolveSlug, ensureProfile,
+                               randomSlug, walletSlug; never reused), profileOf, resolveSlug (null until the
+                               consent line was shown), consentOnce, ensureProfile,
                                setFallback, setXHandle (only the proven GitHub profile's handle, R5),
                                setHidden, clearXHandle, xHandleConflicts, mergeProfiles (R3)
     profile-cache.ts           v2.12 T10: PROFILE_TAG, profileChanged() (revalidateTag; no-op outside Next)
     profile-data.ts(+test)     v2.12 T10, T12: profileData (public facts only), profileName, statsOf,
                                stricterNote, weekChange, money, SCORE_COLORS, EMPTY_LINE; leaderboardFilters,
-                               boardHref, boardOutcome, leaderboardData (PAGE_SIZE 50), programTitle
+                               boardHref, boardOutcome, leaderboardData (PAGE_SIZE 50), MAX_BOARD_PAGE,
+                               programIds, programTitle, FALLBACK_NAME
     share.ts(+test)            v2.12 T11: cardModel, CARD_CACHE, cardOffer, findOfferLine, xAsk, intentUrl,
-                               offerCard (once; never when the reply asks), cardYes
+                               offerCard (once; only N <= 50; never when the reply asks), cardYes (X asked once)
     score-tool.ts(+test)       v2.12 T8, T9: the score reply (scoreReply, scoreLines, nextAction,
-                               movedLine, programLine, FILL_LINES, SCORE_NOTES, SCORE_SHARED), find's line 2
+                               movedLine, programLine, FILL_LINES, SCORE_NOTES, SCORE_SHARED; the consent line once),
+                               find's line 2
                                (youLine, secondLine)
     scoring-lock.ts            v2.12 T13 (R19): withScoringLock, moved out of the archived sponsor.ts
     sponsor-cli.ts             v2.12 T13: sponsorCommandBlock (campaign.mts refund/fallback refuse with the
