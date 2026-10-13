@@ -48,7 +48,7 @@ The app never imports from `archive/`. To bring the feature back:
 
 1. `pnpm exec tsx apps/frontend/scripts/archive-restore.mts sponsor-campaigns` (moves every path in `MANIFEST.txt` back with `git mv`; refuses if a target exists).
 2. Paste the two snippets back: `files/apps/frontend/lib/earnkit/tools-sponsor.ts` into `tools.ts` and `files/apps/frontend/lib/earnkit/mcp-sponsor.ts` into `mcp.ts` (each file's header says where). The old tool input tests are in `tools-sponsor.test.ts` there; add `sponsor:e2e` back to the root `package.json` scripts: `tsx --import ./apps/frontend/lib/earnkit/fixtures/test-guard.ts apps/frontend/scripts/sponsor-e2e.mts`.
-3. `git revert <the unhook commit>` for the rest of the unhook (restore the `mcp.test.ts` and `tools.test.ts` expectations). Resolve any conflict by keeping the flag checks.
+3. `git revert 7e9cb77` for the rest of the unhook (restore the `mcp.test.ts` and `tools.test.ts` expectations). Resolve any conflict by keeping the flag checks.
 4. Set `EARNKIT_SPONSOR_CAMPAIGNS=on` and deploy the escrow per `contracts/`.
 
 Checked in v2.12 in a scratch worktree: restore plus the snippets passes `sponsor.test.ts` and `mcp.test.ts` with the flag on.
