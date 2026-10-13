@@ -91,17 +91,23 @@ const packagePage = (s: Src) =>
 
 /** A person's ring weights (anti-farming ringWeights), stored on builder_profiles.ring by the cron's score step. */
 export type PersonRing = Pick<FarmCtx, 'ring' | 'ringOwner' | 'clusterCap'>;
-type StoredRing = { ring?: [string, number][]; ringOwner?: [string, number][]; clusterCap?: { actors: string[]; cap: number } };
-export const ringToJson = (r: PersonRing): StoredRing => ({
+/**
+ * `checked`: accounts of other EarnKit people that touched the person's work when the cron computed
+ * the ring from the full graph and found no ring between them (one-directional use: counts in full).
+ */
+type StoredRing = { ring?: [string, number][]; ringOwner?: [string, number][]; clusterCap?: { actors: string[]; cap: number }; checked?: string[] };
+export type KnownRing = PersonRing & { checked: ReadonlySet<string> };
+export const ringToJson = (r: PersonRing, checked: Iterable<string> = []): StoredRing => ({
   ring: [...r.ring], ringOwner: [...(r.ringOwner ?? [])],
   ...(r.clusterCap && { clusterCap: { actors: [...r.clusterCap.actors], cap: r.clusterCap.cap } }),
+  checked: [...checked],
 });
 /**
  * The stored ring, or null when it was never computed ('{}': a new profile, or cleared by redaction)
  * or is malformed (fail strict: the caller then treats every other person's account as a partner).
  * Malformed entries inside a computed ring are dropped; every ring actor keeps its owner. Pure.
  */
-export function storedRing(j: unknown): PersonRing | null {
+export function storedRing(j: unknown): KnownRing | null {
   const o = (j && typeof j === 'object' && !Array.isArray(j) ? j : {}) as StoredRing;
   if (!Array.isArray(o.ring) || !Array.isArray(o.ringOwner)) return null;
   const pairs = (x: unknown) => list<unknown>(x).filter((e): e is [string, number] => Array.isArray(e) && typeof e[0] === 'string' && typeof e[1] === 'number' && Number.isFinite(e[1]));
@@ -110,7 +116,8 @@ export function storedRing(j: unknown): PersonRing | null {
   const cap = o.clusterCap;
   const clusterCap = cap && typeof cap.cap === 'number' && Number.isFinite(cap.cap)
     ? { actors: new Set(list<unknown>(cap.actors).filter((a): a is string => typeof a === 'string')), cap: cap.cap } : undefined;
-  return { ring, ringOwner, ...(clusterCap && { clusterCap }) };
+  const checked = new Set(list<unknown>(o.checked).filter((a): a is string => typeof a === 'string'));
+  return { ring, ringOwner, checked, ...(clusterCap && { clusterCap }) };
 }
 
 /**
@@ -141,7 +148,7 @@ type IdentityProject = { name?: unknown; what?: unknown; repo?: unknown; live_ur
  */
 export async function personInputsV2(
   id: number, now: Date, personRing?: PersonRing,
-): Promise<{ input: V2Input; projects: ProjectRow[]; perSource: Map<number, { users: number; money: number }>; ringComputed: boolean }> {
+): Promise<{ input: V2Input; projects: ProjectRow[]; perSource: Map<number, { users: number; money: number }>; ringComputed: boolean; checked: string[] }> {
   const db = sql();
   const yearAgo = new Date(now.getTime() - YEAR_MS);
   const [profile] = await db<{ login: string | null; reported: string | null; identity: { projects?: unknown } | null; ring: unknown }[]>`
@@ -216,10 +223,13 @@ export async function personInputsV2(
   for (const l of [profile?.login, profile?.reported]) if (l) self.add(`gh:${l}`);
   for (const w of wallets) self.add(`wallet:${w.wallet.toLowerCase()}`);
   const confirmedSrc = (s: Src) => s.state === 'verified' && isConfirmedProof(s.proof);
-  // The ring: given by the cron, else stored by it (null: never computed or malformed). Either way,
-  // every account that touched their confirmed work and belongs to another EarnKit person, and that
-  // the ring does not already name, weighs as a partner's (0.5, once per project): fail strict.
-  const stored = personRing ?? storedRing(profile?.ring);
+  // The ring. The cron gives it, computed from the full graph (spec: only rings are discounted;
+  // builders using each other's work otherwise count in full), and records the other people's
+  // accounts it checked. A refresh reads the stored one (null: never computed or malformed) and,
+  // fail strict, weighs any other EarnKit person's account the cron has not checked as a partner's
+  // (0.5, once per project) until the next cron run.
+  const given = personRing !== undefined;
+  const stored: KnownRing | null = given ? { ...personRing, checked: new Set() } : storedRing(profile?.ring);
   const ring = { ring: new Map(stored?.ring ?? []), ringOwner: new Map(stored?.ringOwner ?? []), ...(stored?.clusterCap && { clusterCap: stored.clusterCap }) };
   const touchedBy = new Set<string>();
   for (const s of sources)
@@ -227,9 +237,12 @@ export async function personInputsV2(
       for (const o of obs.get(s.id) ?? [])
         for (const f of ['stargazers', 'forkers', 'callers', 'traders'])
           for (const w of list<Who>(o.signals[f])) if (typeof w?.id === 'string') touchedBy.add(w.id.toLowerCase());
+  const checked: string[] = [];
   for (const [actor, who] of await ownersOf([...touchedBy])) {
     if (who.includes(id)) self.add(actor);
-    else if (!ring.ringOwner.has(actor)) {
+    else if (ring.ringOwner.has(actor)) continue;
+    else if (given) checked.push(actor);
+    else if (!stored?.checked.has(actor)) {
       ring.ring.set(actor, RULES.ringWeight);
       ring.ringOwner.set(actor, Math.min(...who));
     }
@@ -436,7 +449,7 @@ export async function personInputsV2(
     const p = scored.perProject.get(r.key);
     return { ...r, tracked: true, people: isScored ? Math.round(p?.people ?? 0) : 0, money_usd: isScored ? Math.round(100 * (p?.usd ?? 0)) / 100 : 0 };
   });
-  return { input, projects, perSource, ringComputed: stored !== null };
+  return { input, projects, perSource, ringComputed: stored !== null, checked };
 }
 
 // ---- Live score, rank, refresh ---------------------------------------------------------------------
@@ -450,7 +463,7 @@ export async function personInputsV2(
 export async function rescorePerson(id: number, now: Date, ring?: PersonRing): Promise<{ score: number; ranked: boolean; held: boolean }> {
   const cal = calibrationV2();
   const day = now.toISOString().slice(0, 10);
-  const { input, projects, perSource, ringComputed } = await personInputsV2(id, now, ring);
+  const { input, projects, perSource, ringComputed, checked } = await personInputsV2(id, now, ring);
   const s = computeScoreV2(input, cal, now);
   // Ranked only once the cron has computed the person's ring (fail strict on ring partners).
   const ranked = s.ranked && ringComputed;
@@ -468,6 +481,8 @@ export async function rescorePerson(id: number, now: Date, ring?: PersonRing): P
   // `at` names this rescore: the owner's release applies it only while it is still the pending one.
   const row = { score: s.score, parts: s.parts, ranked, shipped: s.shipped, people, formula: FORMULA_V2, calibration: cal.id, day, at: now.toISOString() };
   const shown = await sql().begin(async (tx) => {
+    // The cron's ring (and the accounts it checked) is stored for the refreshes until its next run.
+    if (ring) await tx`UPDATE builder_profiles SET ring = ${tx.json(ringToJson(ring, checked) as never)} WHERE builder_id = ${id}`;
     const [cur] = await tx<{ score: number; ranked: boolean }[]>`SELECT score, ranked FROM builder_live WHERE builder_id = ${id} FOR UPDATE`;
     let out: { score: number; ranked: boolean };
     if (reason) {
@@ -745,9 +760,7 @@ export async function scorePeopleV2(now: Date, o: { deadline: number; only?: num
   const held: number[] = [];
   for (const { builder_id: id } of due) {
     if (Date.now() >= o.deadline) break;
-    const ring = ringWeights(ctx.edges, id, ctx.owner);
-    await db`UPDATE builder_profiles SET ring = ${db.json(ringToJson(ring) as never)} WHERE builder_id = ${id}`;
-    const r = await rescorePerson(id, now, ring);
+    const r = await rescorePerson(id, now, ringWeights(ctx.edges, id, ctx.owner));
     scored++;
     if (r.held) held.push(id);
     const [row] = await db<{ score: number }[]>`

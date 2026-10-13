@@ -489,3 +489,21 @@ test('4.22 a refresh that holds after the cron wrote an unheld day still puts th
   assert.ok(after.score >= 40 && after.pending === null, JSON.stringify(after));
   assert.equal((await sql()<{ held: boolean }[]>`SELECT held FROM builder_profiles WHERE builder_id = ${id}`)[0].held, false);
 });
+
+test('4.23 a one-directional user who is another EarnKit person: 0.5 in a refresh before the cron, 1.0 once the cron has checked the full graph', dbTest, async () => {
+  const [a, c] = [T + 11, T + 12];
+  const [la, lc] = [`oa${T}`, `oc${T}`];
+  await person(c, { login: lc, ring: true });
+  await person(a, { login: la });
+  await source(a, { kind: 'repo', ref: `${la}/x`, state: 'verified', proof: 'repo_owner', by: 'server' });
+  await reading(`${la}/x`, { owner: la, owner_type: 'User', fork: false, template: false, forkers: [], issue_authors: [], contributors: [], commit_weeks: [], partial: false,
+    stargazers: [{ id: `gh:${lc}`, at: NOW.toISOString(), created_at: '2020-01-01T00:00:00Z' }] });
+  const starFork = async () => (await sql()<{ v: number }[]>`SELECT (parts->'used'->'raw'->>'star_fork')::float AS v FROM builder_live WHERE builder_id = ${a}`)[0].v;
+  await refreshPerson(a, { now: NOW, deadline: Date.now() + 3000, reader: fakeReader() });
+  assert.ok(Math.abs((await starFork()) - 0.5) < 1e-6, String(await starFork()));
+  await scorePeopleV2(NOW, { deadline: Date.now() + 10_000, only: [a] });
+  assert.ok(Math.abs((await starFork()) - 1) < 1e-6, String(await starFork()));
+  // The next refresh reads the stored check: still in full.
+  await refreshPerson(a, { now: new Date(NOW.getTime() + 11 * 60_000), deadline: Date.now() + 3000, reader: fakeReader() });
+  assert.ok(Math.abs((await starFork()) - 0.5 ** ((11 / 1440) / 90)) < 1e-6, String(await starFork()));
+});
