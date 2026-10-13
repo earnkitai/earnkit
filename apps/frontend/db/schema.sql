@@ -1122,6 +1122,10 @@ CREATE TABLE IF NOT EXISTS builder_sources (
 -- v2.12 T5 review: a verified contract's onchain deployer (another person's repo_link by it is refused).
 ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS deployer text;
 CREATE INDEX IF NOT EXISTS builder_sources_due ON builder_sources (last_read_day NULLS FIRST, id) WHERE state = 'verified';
+-- v2.12 post-push audit: a typed wallet proves no contract. Revoke any contract verified that way
+-- (idempotent; matches nothing once applied, and nothing at all where discovery never ran).
+UPDATE builder_sources SET state = 'rejected', reject_reason = 'wallet_unproven'
+  WHERE kind = 'contract' AND proof = 'deploy_wallet' AND state <> 'rejected';
 CREATE TABLE IF NOT EXISTS source_readings (
   id        bigserial PRIMARY KEY,
   source_id bigint NOT NULL,

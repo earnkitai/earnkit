@@ -776,3 +776,14 @@ test('6.29 (post-push audit) a typed wallet proves nothing: naming a stranger co
   assert.notEqual(c.state, 'verified', 'a typed owner wallet must not prove the stranger\'s contract');
   assert.notEqual(c.proof, 'deploy_wallet');
 });
+
+test('6.30 (post-push audit) the migration revokes any contract a typed wallet verified', dbTest, async () => {
+  const id = T + 28;
+  const ref = `base:0x${hex40(T + 11, 'b')}`;
+  await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proof, state, proposed_by) VALUES (${id}, 'contract', ${ref}, ${ref}, 'deploy_wallet', 'verified', 'server')`;
+  const ddl = readFileSync(new URL('../../db/schema.sql', import.meta.url), 'utf8');
+  const stmt = ddl.slice(ddl.indexOf("UPDATE builder_sources SET state = 'rejected', reject_reason = 'wallet_unproven'"));
+  await sql().unsafe(stmt.slice(0, stmt.indexOf(';') + 1));
+  const [r] = await sql()<{ state: string; reject_reason: string }[]>`SELECT state, reject_reason FROM builder_sources WHERE builder_id = ${id} AND ref = ${ref}`;
+  assert.deepEqual([r.state, r.reject_reason], ['rejected', 'wallet_unproven']);
+});
