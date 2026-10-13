@@ -4,7 +4,7 @@ import { SafeFetchError } from './safe-fetch';
 import { after, test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
-import { BUILD_NOTE, BUILD_NO_LIVE_NOTE, BUILD_PENDING_NOTE, BUILD_WALLET_NOTE, PLAN_NOTE, CONFIRM_SHARED_NOTE, LEAD_NOTE, NOTED_FOR_NOW, eligibilityLine, freshSwitches, withoutTokenLine, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
+import { BUILD_NOTE, BUILD_NO_LIVE_NOTE, BUILD_PENDING_NOTE, BUILD_WALLET_NOTE, PLAN_NOTE, CONFIRM_SHARED_NOTE, LEAD_NOTE, NOTED_FOR_NOW, eligibilityLine, freshSwitches, withoutTokenLine, withoutBonusLine, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
 import { aliasCall } from './aliases';
 import { reportedGithubUser, reportedRepos } from './match-projects';
 import { sql } from './db';
@@ -5616,6 +5616,21 @@ test('9.4 v2.12 find: line 2 is the score line; an empty profile gets its fill s
   });
 });
 
+test('v2.12 final review (T9): withoutBonusLine drops only the guide\'s builder bonus section', () => {
+  assert.equal(withoutBonusLine('Head\nDifficulty: Easy\n\nYour best bet\n- x\n\nBuilder bonus: no tokens yet, so yours would be first'), 'Head\nDifficulty: Easy\n\nYour best bet\n- x');
+  assert.equal(withoutBonusLine('Head\n\nBest'), 'Head\n\nBest');
+});
+
+test('v2.12 final review (T9): with the flag on, find for a person under the pitch score never says the builder bonus', dbTest, async () => {
+  await withScoreFlag('on', async () => {
+    const ctx = { installationId: await newInstallation() };
+    for (let i = 0; i < 2; i++) {
+      const r = (await tools.find({ more: true }, ctx)) as { show_to_builder: string };
+      assert.doesNotMatch(r.show_to_builder, /Builder bonus:|so yours would be first/);
+    }
+  });
+});
+
 test('9.4b v2.12 flag off: find has no second line and is the v2.11 reply', dbTest, async () => {
   const ctx = { installationId: await newInstallation() };
   const off = (await tools.find({}, ctx)) as { show_to_builder: string };
@@ -5684,6 +5699,8 @@ test('9.6b v2.12 confirm below the score: a yes records the entry with no token 
       assert.equal(typeof r.project_id, 'number');
       assert.equal(t.calls.deploy, 0);
       assert.doesNotMatch(r.show_to_builder, /launches \$|40% of its fees/);
+      // Final review (T9): no builder bonus line after confirm either (the bonus is funded by a token).
+      assert.doesNotMatch(r.show_to_builder, /Builder bonus/);
     }),
   ),
 );

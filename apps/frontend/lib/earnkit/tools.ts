@@ -1344,6 +1344,9 @@ export const handlers = {
       return null;
     });
     first.holdQuestion = Boolean(pickup || ask);
+    // v2.12 final review (T9): under the pitch score, no builder bonus line (it is funded by a token).
+    // Flag off, pitchAllowed is true without a read (v2.11).
+    first.noBonus = !(await pitchAllowed(ctx.installationId).catch(() => false));
     // v2.10 item 5: no token offer here; the token is pitched once, at confirmation.
     const show_to_builder = presentFirstMessage(first);
     // v2.11 T7: the no-repo lead the reply shows, if any (presentFirstMessage's own rule), for
@@ -2214,7 +2217,8 @@ export const handlers = {
                   ...(token.note === STILL_CHECKING_LAUNCH && { note: token.note }),
                 };
     let bonus: EnteredText['bonus'] = null;
-    if (result.bonus_round && coin.status !== 'skipped') {
+    // v2.12 final review (T9): no bonus line for a person under the pitch score, unless their token is live.
+    if (result.bonus_round && coin.status !== 'skipped' && (coin.status === 'launched' || (await pitchAllowed(ctx.installationId).catch(() => false)))) {
       const pool = (await poolsOf(ctx.roundPools ?? roundPools, [parsed.program_id])).get(parsed.program_id);
       // v2.10 item 1: the one bonus line (no board link); null: the round froze (I2), so none.
       const line = bonusLine(pool);
@@ -3235,6 +3239,10 @@ async function buildWalletAgain(c: ConfirmArgs & { program_id: string; wallet: s
   return { ...offer, agent_note: BUILD_WALLET_NOTE };
 }
 
+/** A guide's text without its builder bonus section (guide.ts guideText: sections joined by a blank line). Pure. */
+export const withoutBonusLine = (text: string) =>
+  text.split('\n\n').filter((s) => !s.startsWith('Builder bonus:')).join('\n\n');
+
 /** The agent tools (v2.10 item 4): the MCP server forwards each call here; each dispatches to `handlers`. */
 export const tools = {
   // What can I earn (list_programs), or one program and its guide (get_program).
@@ -3243,8 +3251,13 @@ export const tools = {
     if (program_id === undefined)
       return handlers.list_programs(repo !== undefined && rest.repos === undefined ? { ...rest, repos: [repo] } : rest, ctx);
     const r = (await handlers.get_program(defined({ program_id, repo }), ctx)) as Reply & { guide?: { text?: string }; eligibility?: unknown };
-    const guide = r.guide?.text;
+    let guide = r.guide?.text;
     if (!guide) return r;
+    // v2.12 final review (T9): under the pitch score the guide has no builder bonus line (funded by a token).
+    if (!(await pitchAllowed(ctx.installationId).catch(() => false))) {
+      guide = withoutBonusLine(guide);
+      r.guide = { ...r.guide, text: guide };
+    }
     const line = repo ? eligibilityLine(repo, r.eligibility) : null;
     return { ...r, show_to_builder: line ? `${guide}\n\n${line}` : guide };
   },

@@ -183,6 +183,11 @@ export type FirstMessage = {
    */
   holdQuestion?: boolean;
   /**
+   * v2.12 final review (T9): the person is under the token pitch score (score flag on): no builder
+   * bonus line (the bonus is funded by a token, which is never mentioned to them). Unset: v2.11.
+   */
+  noBonus?: boolean;
+  /**
    * v2.9 E20 (stats.ts builders_won_usd): the announced prizes EarnKit builders won. Above 0, "Builders
    * using EarnKit won $X." follows the headline once; 0 or unset, no line (never "$0").
    */
@@ -954,7 +959,7 @@ export function presentFirstMessage(given: FirstMessage): string {
   // v2.10 item 1, Ruling H8: one plain builder bonus line (the offered program's pool), then the one
   // closing offer.
   const close = offer(m, byId, rows, ideas.length > 0, entered);
-  const bonus = offeredBonusLine(byId, close);
+  const bonus = m.noBonus ? null : offeredBonusLine(byId, close);
   if (bonus) sections.push(bonus);
   if (!given.holdQuestion) sections.push(close.text);
   return done();

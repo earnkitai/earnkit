@@ -625,6 +625,15 @@ test('7.1 v2.10 item 1, Ruling H8: bonusLine: ETH whenever the pool holds value 
   assert.equal(bonusLine(null), null);
 });
 
+test('v2.12 final review (T9): under the pitch score (noBonus) the first reply has no builder bonus line; the offer stays', () => {
+  const on = presentFirstMessage(msg({ cards: [arc, pool(base, 0.6)], repos: fit('tipjar', 'arc-microgrants') }));
+  assert.match(on, /Builder bonus: no tokens yet, so yours would be first/);
+  const below = presentFirstMessage(msg({ cards: [arc, pool(base, 0.6)], repos: fit('tipjar', 'arc-microgrants'), noBonus: true }));
+  assert.doesNotMatch(below, /Builder bonus|token/i);
+  assert.ok(below.endsWith('Want me to start on Arc Microgrants with tipjar?'), below);
+  assert.equal(below, on.replace('Builder bonus: no tokens yet, so yours would be first\n\n', ''));
+});
+
 test('Ruling H8: the first reply\'s bonus line is the offered program\'s pool, never a sum across programs', () => {
   // Base is offered (the top prize among the fits): its 0.60 ETH, not 0.60 + Arc's 0.42.
   const both = presentFirstMessage(msg({ cards: [pool(base, 0.6), pool(arc, 0.42)], repos: repos(v('base-builder-grants', 'likely', ''), v('arc-microgrants', 'likely', '')) }));
