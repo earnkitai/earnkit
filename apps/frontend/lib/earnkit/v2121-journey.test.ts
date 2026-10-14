@@ -335,11 +335,13 @@ test('2. the claim with X: the X field on GitHub matches, so lee ranks; the next
   assert.deepEqual({ ...g }, { github_login: 'lee', github_basis: 'x_match' });
   const st = await standingOf(lee.installationId);
   assert.equal(st.ranked, true, 'a confirmed ship ranks');
+  // Lee's one confirmed ship (the tip jar) ties @other3 at 14 behind 30 and 20: #3 of 4 listed.
+  assert.deepEqual({ ranked: st.ranked, rank: st.rank, total: st.total, score: st.score }, { ranked: true, rank: 3, total: 4, score: 14 });
   rankBefore = st.rank;
-  // spec "Lead with the work": the rank line only when it reads well (the top half under 50 ranked).
-  const words = rankWords(st);
-  if (words) assert.ok(r.show_to_builder.includes(words.reply), r.show_to_builder);
-  else assert.doesNotMatch(r.show_to_builder, /#\d+ of \d+/, r.show_to_builder);
+  // spec "Lead with the work": the rank line only when it reads well, the top half under 50 ranked
+  // (T2 ruling): #3 of 4 is not, so the reply has no rank line.
+  assert.equal(rankWords(st), null);
+  assert.doesNotMatch(r.show_to_builder, /#\d+ of \d+/, r.show_to_builder);
 });
 
 test('3. a second agent claims with the same X account: both agents say yes once, then one person and one page', db, async () => {
@@ -361,7 +363,9 @@ test('3. a second agent claims with the same X account: both agents say yes once
 
 test('4. one yes counts the tip jar\'s past users: "Done. N people ... now count. You\'re now #..." and the rank moves; the coin is that reply\'s one yes', db, async () => {
   const id = await rootOf(lee.installationId);
-  // The claim page's one-time wallet signature (wallet-proof.ts, T7) for the wallet that created it.
+  // The wallet that created the contract, as the claim page's one-time signature leaves it: the
+  // person_wallets row is inserted directly here; the signature itself (/claim/wallet, EIP-191) is
+  // covered by T7 (wallet-proof.test.ts 7.1, 7.3).
   await sql()`INSERT INTO person_wallets (wallet, builder_id) VALUES (${W.toLowerCase()}, ${id})`;
   await ago(id, 11);
   const r = await call('find', {}, lee);
@@ -450,7 +454,12 @@ test('9. hide my page: the page is gone (404) and the board drops lee; show brin
   assert.equal(hid.show_to_builder, 'Your page is hidden. Say show my page to list it again.');
   const { resolveHandle } = await import('./profiles');
   assert.equal(await resolveHandle('Lee_Builds'), null);
-  assert.equal((await boardRows()).rows.some((r) => r.handle === 'Lee_Builds'), false);
+  const hiddenBoard = await boardRows();
+  assert.equal(hiddenBoard.rows.some((r) => r.handle === 'Lee_Builds'), false);
+  // A hidden page is in no one's rank (terms: "it does not count toward anyone's rank").
+  assert.equal(hiddenBoard.count, 3);
+  for (const other of [900_001, 900_002, 900_003]) assert.equal((await standingOf(other)).total, 3, String(other));
+  assert.equal((await standingOf(900_003)).rank, 3);
   const shown = await call('tell', { profile: 'show' }, lee);
   assert.equal(shown.show_to_builder, 'Your page is public again: earnkit.com/Lee_Builds');
   assert.deepEqual(await resolveHandle('Lee_Builds'), { builderId: id, handle: 'Lee_Builds' });

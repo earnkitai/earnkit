@@ -508,3 +508,28 @@ test('G3 no saved offer at the yes: the line is shown again with a fresh pair, a
   assert.equal(typeof yes.project_id, 'number');
   assert.deepEqual(yes.token, { name: shown.name, symbol: shown.symbol });
 });
+
+test('T12 fix 1: flag off, a coin entry made while it was on is never confirmed or launched (confirm by project_id and the old launch route)', dbTest, async () => {
+  const id = await claimed('off_dev');
+  const repo = `https://github.com/lee/off${randomBytes(3).toString('hex')}`;
+  const key = repo.replace('https://github.com/', '');
+  await usedProject(id, key, 'Tip Jar', 9, { repo_url: repo });
+  const W = '0x' + 'c'.repeat(40);
+  const { calls, deps } = tokenDeps(id, repo);
+  const ctx = { installationId: id, tokenDeps: deps, roundPools: async () => new Map(), repoCoins: async () => new Map() } as never;
+  await offerCoin(id, key, 'has_people');
+  const yes = (await tools.tell({ coin: { project_key: key, answer: 'yes', wallet: W } }, ctx)) as { project_id: number; token: { name: string; symbol: string } };
+  delete process.env.EARNKIT_BUILDER_SCORE;
+  try {
+    const r = (await tools.confirm({ project_id: yes.project_id, yes: true, wallet: W, token: yes.token }, ctx)) as { status: string };
+    assert.notEqual(r.status, 'launched', JSON.stringify(r));
+    const { handlers } = await import('./tools');
+    const old = (await handlers.launch_token({ project_id: yes.project_id, builder_confirmed: true, creator_wallet: W }, ctx)) as { status: string };
+    assert.notEqual(old.status, 'launched', JSON.stringify(old));
+    assert.equal(calls.deploy, 0);
+    const [p] = await sql()<{ token_status: string | null }[]>`SELECT token_status FROM projects WHERE id = ${yes.project_id}`;
+    assert.notEqual(p.token_status, 'launched');
+  } finally {
+    process.env.EARNKIT_BUILDER_SCORE = 'on';
+  }
+});

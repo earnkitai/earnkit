@@ -83,7 +83,9 @@ test('11.5 (v2.12.1 T12) /b/<name>/card.png and /b/<name>/share: a reserved hand
   const card = readFileSync(join(import.meta.dirname, '../../app/b/[slug]/card.png/route.tsx'), 'utf8');
   const share = readFileSync(join(import.meta.dirname, '../../app/b/[slug]/share/route.ts'), 'utf8');
   for (const src of [card, share]) {
-    assert.match(src, /if \(!builderScoreEnabled\(\)\) return new Response\('Not found', \{ status: 404 \}\)/);
+    assert.match(src, /if \(!builderScoreEnabled\(\)\) return new Response\('Not found', \{ status: 404, headers: \{ 'Cache-Control': 'no-store' \} \}\)/);
+    // Every 404 is no-store, so a hide or a claim shows at once.
+    assert.doesNotMatch(src, /status: 404 \}\)/);
     assert.match(src, /isReserved\(slug\)/);
     assert.match(src, /const r = await resolveSlug\(slug\)/);
     assert.match(src, /status: 308/);

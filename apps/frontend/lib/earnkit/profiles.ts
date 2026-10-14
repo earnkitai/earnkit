@@ -132,7 +132,7 @@ export async function releaseLogin(builderId: number, login: string): Promise<bo
   return done;
 }
 
-/** spec 8: "hide" and "show". The row stays; a hidden person still counts when others are ranked. */
+/** spec 8: "hide" and "show". The row stays; a hidden page is not shown or listed and is in no one's rank (person-score.ts listedRanked). */
 export async function setHidden(builderId: number, hidden: boolean): Promise<string> {
   const [p] = await sql()<{ x_handle: string | null; claimed: boolean }[]>`
     UPDATE builder_profiles SET hidden = ${hidden}, updated_at = now() WHERE builder_id = ${builderId}

@@ -1744,11 +1744,16 @@ const ROWS: BoardRow[] = [
   { rank: 2, handle: 'maya', avatar: null, best: 'Shipped Recipes' },
 ];
 /** A page's words: the markup above the site footer (shared site chrome, flag-off parity), tags out. */
-const pageWords = (el: React.ReactElement) =>
-  renderToStaticMarkup(el).split('<footer')[0].replace(/<[^>]+>/g, '\n').replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+const decode = (t: string) => t.replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+/** A page's words: the text and the aria-label, alt and title attributes above the site footer (shared site chrome, flag-off parity). */
+const pageWords = (el: React.ReactElement) => {
+  const h = renderToStaticMarkup(el).split('<footer')[0];
+  const attrs = [...h.matchAll(/\b(?:aria-label|alt|title)="([^"]*)"/g)].map((m) => m[1]);
+  return decode([h.replace(/<[^>]+>/g, '\n'), ...attrs].join('\n'));
+};
 
 test('12.1 v2.12.1 builder and public text never uses a banned word', () => {
-  const exempt = ['Avalanche Team1 mini grants', 'Arc Microgrants', 'tokens.fun', 'TipJar', 'EarnKit', 'AI'];
+  const exempt = ['Avalanche Team1 mini grants', 'Arc Microgrants', 'tokens.fun', 'TipJar', 'Tip Jar', '$TIP', 'EarnKit', 'AI'];
   const texts = [
     ...Object.values(HEADS),
     whereYouStand(EXAMPLE_TARGET), whereYouStand(EXAMPLE_TRACTION), whereYouStand(EXAMPLE_NOTHING),
@@ -1758,6 +1763,11 @@ test('12.1 v2.12.1 builder and public text never uses a banned word', () => {
     ...Object.values(WALLET_TEXT),
     ...Object.values(COUNT_LINES).map((v) => (typeof v === 'function' ? (v as (...a: never[]) => string)(...(['x', 'x', 'x'] as never[])) : v)),
     ...(['built_live', 'countable', 'first_five', 'has_people'] as const).map((m) => coinLine(m, 'TipJar', null)),
+    // With a real coin: its $TICKER and name are names (exempt below), the wallet shown short.
+    ...(['built_live', 'countable', 'first_five', 'has_people'] as const).map((m) => coinLine(m, 'TipJar', '0x12ab000000000000000000000000000000009f3e', { name: 'Tip Jar', symbol: 'TIP' })),
+    // The share card's own literal words (card-response.tsx), as the scanner reads them.
+    ...humanStrings('apps/frontend/app/[handle]/card-response.tsx', readFileSync(join(import.meta.dirname, '../../app/[handle]/card-response.tsx'), 'utf8'))
+      .map((x) => x.text).filter((x) => /[a-z]{3,} [a-z]/i.test(x) && !/[{}();=]|https?:|\/\/|^[\w-]+:/.test(x)),
     SOURCES_LINE, NOT_CONFIRMED, NOT_TRACKED, NONE_CONFIRMED, NOTHING_YET, boardLine(25),
     cardHeadline({ moment: 'people', shipped: 3, noun: 'apps', best: { name: 'TipJar', people: 5 }, rank: null }),
     cardHeadline({ moment: 'shipped', shipped: 3, noun: 'apps', best: null, rank: null }),

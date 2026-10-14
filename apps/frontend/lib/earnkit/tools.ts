@@ -152,7 +152,7 @@ import type { ReaderDeps } from './source-readers';
 import { SKIPPED_LINE, cardYes } from './share';
 import { SHARED_PROFILE_NOTE, ensureProfile, setFallback, setHidden } from './profiles';
 import { verifiedProject } from './builder-score';
-import { COIN_NOTE, builtLiveAnswer, coinLine, coinNo, coinOfferable, coinOpen, coinPitchAllowed, coinYes, offerCoin, showBuiltLive } from './coin-moments';
+import { COIN_NOTE, COIN_PROGRAM, builtLiveAnswer, coinLine, coinNo, coinOfferable, coinOpen, coinPitchAllowed, coinYes, offerCoin, showBuiltLive } from './coin-moments';
 import { sql } from './db';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
 import { JOIN_TEXT, answerJoin, joinQuestion, answerPickup, askJoin, offerPickup, pendingJoinOf, type PickupDeps } from './identity';
@@ -1097,11 +1097,14 @@ async function buildEntryKey(ctx: ToolContext, programId: string, repoUrl: strin
 /**
  * v2.12.1 T10 (spec 3b, replacing v2.12's score-20 gate): whether this entry's token may be
  * pitched, asked a wallet for or launched (coin-moments.ts coinPitchAllowed). Flag off: always
- * (v2.11, no read). On: the coin program's own entry and the build path's entry at its built_live
+ * (v2.11, no read), except an earnkit-coin entry (never). On: the coin program's own entry and the build path's entry at its built_live
  * moment only; a failed read is no (fail strict). Every pitch and launch path calls this one.
  */
 async function tokenPitch(ctx: ToolContext, programId: string, repoUrl: string | null | undefined, projectId?: number): Promise<boolean> {
-  if (!builderScoreEnabled()) return true;
+  // v2.12.1 T12 fix round 1: a coin entry made while the flag was on waits for the flag; with it off
+  // nothing pitches or launches it (production never makes one, so flag off stays v2.11 for every
+  // real program).
+  if (!builderScoreEnabled()) return programId !== COIN_PROGRAM;
   try {
     const key = await buildEntryKey(ctx, programId, repoUrl);
     return await coinPitchAllowed(ctx.installationId, {
@@ -2516,8 +2519,10 @@ export const handlers = {
     // v2.10 item 4: the v2.9 first reply's offer path is gone (no reply makes that offer since item 5);
     // an old launch_token call with an offer reaches confirm through its alias (aliases.ts).
     if (parsed.offer) throw new EntryError(OFFER_GONE);
-    // v2.12 spec 7 (R22): with the score flag on, no new token for a person under the pitch score (campaigns aside).
-    if (builderScoreEnabled() && parsed.project_id !== undefined && !parsed.check_back && (await tokenHeld(ctx, parsed.project_id)))
+    // v2.12.1 T10: no new token where none is pitched (tokenPitch; campaigns aside). T12 fix round 1:
+    // flag off too, where only an earnkit-coin entry (made while it was on) is held; every real
+    // program's entry launches as in v2.11.
+    if (parsed.project_id !== undefined && !parsed.check_back && (await tokenHeld(ctx, parsed.project_id)))
       return withAlerts(ctx, { status: 'skipped', project_id: parsed.project_id, note: NO_TOKEN_HERE, show_to_builder: NO_TOKEN_HERE }, parsed.signed_in);
     const out = await launchToken(
       parsed,

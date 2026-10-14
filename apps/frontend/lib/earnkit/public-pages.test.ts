@@ -910,7 +910,9 @@ test('15.1 /terms#builder-profiles: every point, the nav link, no em dash', () =
   for (const p of PROFILES_POINTS) assert.ok(t.includes(p), p);
   assert.match(t, /merger or acquisition/);
   assert.match(t, /tell your agent "hide my page"/);
-  assert.match(t, /Hidden pages still count when others are ranked/);
+  assert.match(t, /A hidden page is not shown or listed, and it does not count toward anyone's rank\./);
+  assert.doesNotMatch(t, /still counts? when others/);
+  assert.match(t, /read each time you sign in with it/);
   assert.ok(t.includes(CONTACT_EMAIL));
   // The nav lists it right after "What EarnKit records", and the section follows the policy section.
   assert.ok(h.indexOf('href="#builder-profiles"') > h.indexOf(`href="#${RECORDS_ANCHOR}"`));

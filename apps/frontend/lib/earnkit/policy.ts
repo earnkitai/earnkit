@@ -116,19 +116,21 @@ export const RECORDS_REMOVAL_AFTER = [
  * people and money when measured, programs entered and won (page-data.ts); the readers read only
  * cheap public data and EarnKit's own records and never add anything to a site (person-github.ts,
  * source-readers.ts, S9: no earnkit.txt); only confirmed proofs count (confirmed.ts); a second agent
- * joins one page only with a yes (identity.ts pending joins); hide is tell's profile: 'hide' and a
- * hidden person still counts in the rank (person-score.ts); X is read once per sign-in and EarnKit
- * keeps the X user id, handle, name and picture (x-oauth.ts, claim.ts).
+ * joins one page only with a yes (identity.ts pending joins); hide is tell's profile: 'hide', and a
+ * hidden person is in no one's rank (person-score.ts listedRanked, T11); X is read at each sign-in
+ * (a rename is picked up then, plan S4) and EarnKit keeps the X user id, handle, name and picture
+ * (x-oauth.ts, claim.ts bindX). The page shows the rank and the score ring only when the rank reads
+ * well (page-data.ts pageHead).
  */
 export const PROFILES_TITLE = 'Builder profiles';
 export const PROFILES_ANCHOR = 'builder-profiles';
 export const PROFILES_POINTS: readonly string[] = [
   'Your EarnKit page is public only after you claim it with X. Before that, what EarnKit finds shows only in your own agent.',
-  'It shows your X name and picture, what you shipped, how many people use it, money it earned when EarnKit can see it, and programs you entered or won.',
+  'It shows your X name and picture, what you shipped, how many people use it, money it earned when EarnKit can see it, programs you entered or won, and your rank and score once something you shipped is confirmed.',
   'EarnKit reads only public data it can check cheaply: GitHub, live sites, package downloads, public transactions and what you did through EarnKit. It never adds anything to your site.',
   'Only what EarnKit confirms counts toward your rank. What your agent told EarnKit but EarnKit could not confirm is shown, marked not yet confirmed, and counts for nothing.',
   'When another agent signs in with your X or GitHub account, your agents ask you before the two share one page.',
-  'To hide your page, tell your agent "hide my page". Hidden pages still count when others are ranked.',
-  'EarnKit never posts for you. Your X account is used once to confirm it is yours; EarnKit keeps your X user id, handle, name and picture.',
+  'To hide your page, tell your agent "hide my page". A hidden page is not shown or listed, and it does not count toward anyone\'s rank.',
+  'EarnKit never posts for you. Your X account is read each time you sign in with it, to confirm it is yours and pick up a new handle, name or picture; EarnKit keeps your X user id, handle, name and picture.',
   'This data may transfer to a successor in a merger or acquisition. To have it removed, email the address on this page.',
 ];

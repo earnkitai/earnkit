@@ -5546,6 +5546,9 @@ test('7.8b flag off: find has no consent line and makes no profile; tell ignores
   assert.equal(p.n, 0);
   // Ignored: tell answers as v2.11 does to a call with nothing in it.
   await assert.rejects(tools.tell({ profile: 'hide' }, ctx), /Pass at least one/);
+  // v2.12.1 T12 fix round 1: the card yes is ignored too (no claim link, no share link, no read).
+  await assert.rejects(tools.tell({ card: 'yes' }, ctx), /Pass at least one/);
+  await assert.rejects(tools.tell({ card: 'skip' }, ctx), /Pass at least one/);
   await assert.rejects(tools.tell({}, ctx), /Pass at least one/);
 });
 

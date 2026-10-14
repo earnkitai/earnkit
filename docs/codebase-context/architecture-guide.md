@@ -4870,11 +4870,14 @@ builders", "Say hide anytime", an `earnkit.com/b/` link, "Builder score", "/100"
 
 ### Terms (`policy.ts PROFILES_POINTS`, `/terms#builder-profiles`, flag-gated)
 
-Public only after the X claim; what the page shows; EarnKit reads only cheap public data (GitHub,
-live sites, package downloads, public transactions, EarnKit itself) and never adds anything to a
-site; only confirmed data counts, the rest is shown marked; another agent signing in as you joins
-only after you say yes; "hide my page" (hidden pages still count when others are ranked); EarnKit
-never posts and keeps the X user id, handle, name and picture; data may transfer in a merger or
+Public only after the X claim; what the page shows (X name and picture, projects, people and money
+when measured, programs, and the rank and score ring once something shipped is confirmed); EarnKit
+reads only cheap public data (GitHub, live sites, package downloads, public transactions, EarnKit
+itself) and never adds anything to a site; only confirmed data counts, the rest is shown marked;
+another agent signing in as you joins only after you say yes; "hide my page": a hidden page is not
+shown or listed and is in no one's rank (`listedRanked` excludes hidden people since T11; the v2.12
+rule "hidden still counts" no longer holds); EarnKit never posts, reads X at each sign-in (a rename is
+picked up then) and keeps the X user id, handle, name and picture; data may transfer in a merger or
 acquisition; removal by email. **Needs the owner's lawyer review before the flag goes on.**
 
 ### What v2.12 code went (T12) and what stayed
@@ -4944,13 +4947,26 @@ In this order; none is done on this branch.
    The SDD folder's shots are scratch: re-shoot them against the merged build (`v2121-seed.mts`).
 7. **Merge and deploy with the flag unset** (`predeploy`: `pnpm db:migrate`, `pnpm programs:sync`).
    Confirm `EARNKIT_EVENT_LOG=on`, `EARNKIT_AUTH_SECRET`, `GITHUB_TOKEN`.
-8. **Turn it on**: `EARNKIT_BUILDER_SCORE=on`, only now that every T9 and T10 piece has landed (the
-   go_live, count and coin yes handlers; they have). Refresh the claude.ai connector (find gains
-   `identity`, tell gains `move_up` and `coin`). Then run the acceptance test (T13 runbook).
-9. **Turning the flag off later** is safe: every v2.12.1 surface 404s again and nothing is written.
-   Know that the redirects it served were permanent (308: `/b/<v2.12 slug>`, a handle's case, a
-   rename, the `/b/<slug>` card and share link), which browsers may cache; the v2.12 board redirects
-   that were 307 are gone (S11). Switching the flag back on restores everything.
+8. **Turn the flag on** only after every T9 and T10 piece has landed (they have: the go_live, count
+   and coin yes handlers), refresh the claude.ai connector (find gains `identity`, tell gains
+   `move_up` and `coin`), and run the owner acceptance test (the spec's "Acceptance test
+   (binding)" section): in the `earnkit-staging` Railway project with the flag on there, if that
+   project is set up; otherwise on production with `EARNKIT_BUILDER_SCORE=on` only for the test
+   window, turning it off again (step 9) the moment any check fails, and leaving it on only once
+   every check passes.
+9. **Turning the flag off** (after a failed check, or later): in Railway, unset
+   `EARNKIT_BUILDER_SCORE` on the frontend service and redeploy. Every v2.12.1 surface 404s again,
+   replies are v2.11 and nothing is written. Only the permanent (308) page redirects can stick in
+   browsers that followed them: `app/b/[slug]/page.tsx` (`/b/<v2.12 slug>` to `/<handle>`) and
+   `app/[handle]/handle-view.tsx` (a handle's case, a 90-day rename); after the flag is off they land
+   on a 404. The `/b/` and `/<handle>` card and share routes answer `Cache-Control: no-store` on
+   every 404 and redirect, so they never stick. v2.12's temporary (307) board redirects are gone
+   (plan S11). State that waits, untouched, for the flag to come back on: claimed pages
+   (`builder_profiles` X columns, `claim_codes`), proven wallets (`person_wallets`), pending joins
+   (`pending_joins`), contested-login rulings, live scores and projects (`builder_live`,
+   `builder_projects`), coin moments (`coin_moments`) and coin entries (`projects` in the
+   `earnkit-coin` program). With the flag off a coin entry is never confirmed or launched
+   (`tools.ts tokenPitch`, `launch_token`; coin-moments.test.ts "T12 fix 1").
 10. **Tune the calibration** (`v2-launch`) from the real distribution after real scores arrive.
 11. **The owner's own split installs** (from the 2026-10-13 flag-on) will see a join question or a
     contested login until both agents answer, or the owner claims and rules on `/admin/scores`.

@@ -10,7 +10,7 @@ import { cardResponse } from '../../../[handle]/card-response';
  * anything else is a 404. Flag off: 404.
  */
 export async function GET(_: Request, { params }: { params: Promise<{ slug: string }> }) {
-  if (!builderScoreEnabled()) return new Response('Not found', { status: 404 });
+  if (!builderScoreEnabled()) return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
   const { slug } = await params;
   if (isReserved(slug)) return cardResponse(slug, `/b/${slug}`);
   const r = await resolveSlug(slug);

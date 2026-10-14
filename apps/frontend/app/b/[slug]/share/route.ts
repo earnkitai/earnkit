@@ -10,10 +10,10 @@ import { shareResponse } from '../../../[handle]/card-response';
  * anything else is a 404. Flag off: 404.
  */
 export async function GET(_: Request, { params }: { params: Promise<{ slug: string }> }) {
-  if (!builderScoreEnabled()) return new Response('Not found', { status: 404 });
+  if (!builderScoreEnabled()) return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
   const { slug } = await params;
   if (isReserved(slug)) return shareResponse(slug, `/b/${slug}`);
   const r = await resolveSlug(slug);
-  if (!r) return new Response('Not found', { status: 404 });
+  if (!r) return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
   return new Response(null, { status: 308, headers: { Location: `${pagePath(r.handle)}/share`, 'Cache-Control': 'no-store' } });
 }
