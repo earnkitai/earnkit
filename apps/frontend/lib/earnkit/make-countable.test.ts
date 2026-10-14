@@ -551,3 +551,31 @@ test('9.22 (fix round 3) move_up.live_url reaches go_live through the MCP schema
     }
   }),
 );
+
+// ---- v2.12.1 T10 (spec 3b): the reply that confirms a project's use is countable offers its coin.
+
+test('10.12 the countable reply offers the coin as its one yes (once); without launches it is the T9 line', dbTest, () =>
+  withEnv({ TOKENSFUN_DEPLOY_API_KEY: 'test' }, async () => {
+    const id = await claimed('coin_tag');
+    const W = randomAddress().toLowerCase();
+    await sql()`INSERT INTO person_wallets (wallet, builder_id) VALUES (${W}, ${id})`;
+    await trackedContract(id, 'lee/app', `base:${randomAddress()}`);
+    assert.equal((await step(id))?.kind, 'tag_future');
+    const r = await moveUpYes(id, 'lee/app', NOW, { reader: fakeChain({ deployer: randomAddress(), callers: 0 }) });
+    const [p] = await sql()<{ name: string }[]>`SELECT name FROM builder_projects WHERE builder_id = ${id} AND project_key = 'lee/app'`;
+    assert.equal(r.show_to_builder, `${COUNT_LINES.added} Want to launch a coin for ${p.name}? You'd get 40% of its trading fees, paid to ${W.slice(0, 6)}…${W.slice(-4)}.`);
+    assert.equal(r.coin?.project_key, 'lee/app');
+    assert.match(r.coin!.agent_note, /tell with coin/);
+    assert.equal((r.show_to_builder.match(/\?/g) ?? []).length, 1);
+    const [m] = await sql()`SELECT moment FROM coin_moments WHERE builder_id = ${id}`;
+    assert.equal(m.moment, 'countable');
+  }),
+);
+
+test('10.12b without token launches (the key unset) the countable reply is the T9 line alone', dbTest, async () => {
+  const id = await claimed('coin_tag2');
+  await trackedContract(id, 'lee/app', `base:${randomAddress()}`);
+  const r = await moveUpYes(id, 'lee/app', NOW, { reader: fakeChain({ deployer: randomAddress(), callers: 0 }) });
+  assert.equal(r.show_to_builder, COUNT_LINES.added);
+  assert.equal(r.coin, undefined);
+});

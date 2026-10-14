@@ -2,6 +2,7 @@ import { getAddress } from 'viem';
 import { sql, type Db } from './db';
 import { prizeColumn, usd, wonUsdText, type CampaignConfig, type EarnKitCampaign } from './campaigns';
 import { boardLink, prizeOf, shortWallet } from './entry-text';
+import { COIN_PROGRAM } from './policy-constants';
 import { cachedFeesUsd, feeAlert } from './fees';
 import { campaignCandidates } from './leaderboard';
 import { difficultyOf, rowDifficulty, type Difficulty } from './guide';
@@ -572,7 +573,8 @@ export async function alertFacts(installationId: number, db: Db = sql()): Promis
         (pr.status = 'active' AND pr.campaign IS NULL) AS open,
         (p.confirmed_at IS NULL OR p.submission_confirmed_at IS NOT NULL OR p.submission_proof_ok_at IS NOT NULL) AS submitted
       FROM projects p JOIN programs pr ON pr.id = p.program_id
-      WHERE p.installation_id = ${installationId}`,
+      -- v2.12.1 T10 (plan S7): a coin entry is never a program entry (no deadline or submit reminder).
+      WHERE p.installation_id = ${installationId} AND p.program_id <> ${COIN_PROGRAM}`,
     // v2.9 A3, A7: applied outside EarnKit or not interested (builder memory), and what the builder
     // said about their repos now (a later "not mine" or "testnet only" wins over the remembered one).
     db<{ program_id: string; status: 'applied' | 'not_interested'; round_label: string | null; at: Date }[]>`

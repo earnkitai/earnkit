@@ -30,12 +30,12 @@ export type OfferInput = {
    * builder hasn't seen): the line names the token without the earnings figure, said once already.
    */
   again?: boolean;
-  /** v2.12 spec 7 (R22): the person's public score is under TOKEN_PITCH_MIN_SCORE (or held): no token line. */
+  /**
+   * v2.12 spec 7 (R22), v2.12.1 T10: no token line here: the token is not pitched for this entry
+   * (coin-moments.ts coinPitchAllowed: with the flag on, only the build path's and the coin's own).
+   */
   belowScore?: boolean;
 };
-
-/** v2.12 spec 7: the token is pitched only to a live, unheld score at least this high (owner ruling D4, under v1-launch). */
-export const TOKEN_PITCH_MIN_SCORE = 20;
 
 export const NO_WALLET_HINT = 'No wallet? Make one at keys.coinbase.com, then send me the address.';
 /** Only for an agent that said it can't push (agent.can_push: false); never after a proof-line miss. */
@@ -123,7 +123,7 @@ export function confirmDecision(a: {
   available: boolean;
   /** v2.9 B9: GitHub sign-in is on (githubVerifyEnabled). */
   signIn?: boolean;
-  /** v2.12 spec 7 (R22): under the token pitch score: a yes records the entry, no token. */
+  /** v2.12 spec 7 (R22), v2.12.1 T10: no token pitched for this entry: a yes records the entry, no token. */
   belowScore?: boolean;
 }): ConfirmDecision {
   if (!a.confirmed || !a.decision) return { kind: 'offer' };

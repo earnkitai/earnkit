@@ -4,7 +4,7 @@ import { SafeFetchError } from './safe-fetch';
 import { after, test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
-import { BUILD_NOTE, BUILD_NO_LIVE_NOTE, BUILD_PENDING_NOTE, BUILD_WALLET_NOTE, PLAN_NOTE, CONFIRM_SHARED_NOTE, LEAD_NOTE, NOTED_FOR_NOW, eligibilityLine, freshSwitches, withoutTokenLine, withoutBonusLine, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
+import { BUILD_COIN_NOTE, BUILD_ENTRY_NOTE, BUILD_NOTE, BUILD_NO_LIVE_NOTE, BUILD_PENDING_NOTE, BUILD_WALLET_NOTE, PLAN_NOTE, CONFIRM_SHARED_NOTE, LEAD_NOTE, NOTED_FOR_NOW, eligibilityLine, freshSwitches, withoutTokenLine, withoutBonusLine, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
 import { aliasCall } from './aliases';
 import { reportedGithubUser, reportedRepos } from './match-projects';
 import { sql } from './db';
@@ -15,7 +15,7 @@ import { PLAIN_FIX, PLAIN_NOTE, coachIntro, draftTable, fixesLine, preSubmitChec
 import { projectKey, readBank } from './answer-bank';
 import { alsoProgramFacts, getProgramRow, upsertProgram } from './programs';
 import { guideText, programGuide } from './guide';
-import { rememberWallet, setWorkingOn } from './installations';
+import { rememberWallet, saveBuild, setWorkingOn } from './installations';
 import { enteredProgramIds, hasProgramEntry } from './projects';
 import { setSanctionsOracle } from './sanctions';
 import { tokenCode, tokenLineFor } from './token-gate';
@@ -5682,15 +5682,15 @@ async function confirmLineFor(o: { score: number; held: boolean; flag: string | 
   );
 }
 
-test('9.6 v2.12 confirm: score 19 gets "Ready to submit?"; 20 gets the token line; held never does; the flag off is v2.11', dbTest, async () => {
-  for (const [score, held, flag, token] of [[19, false, 'on', false], [20, false, 'on', true], [80, true, 'on', false], [0, false, undefined, true]] as const) {
+test('9.6, v2.12.1 T10: with the flag on a program entry\'s confirm gets "Ready to submit?" at any score (the token waits for its 3b moments); the flag off is v2.11', dbTest, async () => {
+  for (const [score, held, flag, token] of [[19, false, 'on', false], [20, false, 'on', false], [95, false, 'on', false], [80, true, 'on', false], [0, false, undefined, true]] as const) {
     const line = await confirmLineFor({ score, held, flag });
     assert.equal(/launches \$/.test(line), token, `${score} ${held} ${flag}: ${line}`);
     if (!token) assert.equal(line, 'Ready to submit?');
   }
 });
 
-test('9.6b v2.12 confirm below the score: a yes records the entry with no token launched', dbTest, () =>
+test('9.6b v2.12, v2.12.1 T10: a program entry\'s confirm with the flag on: a yes records the entry with no token launched', dbTest, () =>
   withScoreFlag('on', () =>
     withTokenEnv(async () => {
       const t = await confirmSetup('t9-yes', { remembered: W8 });
@@ -5749,4 +5749,51 @@ test('9.12 v2.12 under the pitch score nothing launches by project_id or the old
       assert.doesNotMatch(skipped.show_to_builder, /No token/);
     }),
   ),
+);
+
+// ---- v2.12.1 T10 (spec 3b): built through EarnKit, the live reply asks the coin ----
+
+test('10.13 the build path with the flag on: the live reply asks "It\'s live. Want to launch a coin for it?" with the wallet; yes launches and is counted; a program entry never', dbTest, () =>
+  withScoreFlag('on', () =>
+    withTokenEnv(async () => {
+      const t = await confirmSetup('t10-built', { remembered: W8, noOffer: true });
+      await sql()`INSERT INTO builder_profiles (builder_id, slug, first_find_at) VALUES (${t.inst}, ${`t10b${t.inst}`}, now())`;
+      await saveBuild(t.inst, { program_id: t.p.id, starter_id: 'arc-tipjar', started_at: new Date().toISOString(), wallet: W8.toLowerCase(), name: 'Tip Jar', repo_url: t.repo });
+      const join = { lead: ['Tip Jar is live: tipjar.xyz'], wallet: W8.toLowerCase() };
+      const r = (await handlers.prepare_submission(t.input, t.ctx, join)) as { show_to_builder: string; agent_note: string; shown_wallet: string; token: { proposed: { name: string; symbol: string } } };
+      assert.equal(r.show_to_builder, "Tip Jar is live: tipjar.xyz\nIt's live. Want to launch a coin for it? You'd get 40% of its trading fees, paid to 0x1581…b9a3.");
+      assert.equal(r.agent_note.includes(BUILD_COIN_NOTE), true, r.agent_note);
+      const yes = (await tools.confirm({ ...t.input, yes: true, wallet: r.shown_wallet, token: { name: r.token.proposed.name, symbol: r.token.proposed.symbol } }, t.ctx)) as Confirmed;
+      assert.equal(t.calls.deploy, 1, JSON.stringify(yes));
+      const [m] = await sql()`SELECT moment, answer, project_id FROM coin_moments WHERE builder_id = ${t.inst}`;
+      assert.deepEqual({ ...m }, { moment: 'built_live', answer: 'yes', project_id: yes.project_id });
+      // Another program's entry by the same person: never a token with the flag on.
+      const other = await confirmSetup('t10-other', { remembered: W8 });
+      await sql()`INSERT INTO builder_profiles (builder_id, slug, first_find_at) VALUES (${other.inst}, ${`t10o${other.inst}`}, now())`;
+      const plain = (await handlers.prepare_submission(other.input, other.ctx)) as { show_to_builder: string };
+      assert.doesNotMatch(plain.show_to_builder, /launch a coin|launches \$|40%/);
+      assert.ok(plain.show_to_builder.endsWith("Ready to submit?"));
+    }),
+  ),
+);
+
+test('10.13b the build path: no to the coin enters without one and counts as a decline; the flag off keeps the v2.11 confirm line', dbTest, () =>
+  withTokenEnv(async () => {
+    const off = await confirmSetup('t10-off', { remembered: W8, noOffer: true });
+    await saveBuild(off.inst, { program_id: off.p.id, starter_id: 'arc-tipjar', started_at: new Date().toISOString(), wallet: W8.toLowerCase(), name: 'Tip Jar', repo_url: off.repo });
+    const v211 = (await handlers.prepare_submission(off.input, off.ctx, { lead: ['Tip Jar is live: tipjar.xyz'], wallet: W8.toLowerCase() })) as { show_to_builder: string; agent_note: string };
+    assert.match(v211.show_to_builder, /^Tip Jar is live: tipjar\.xyz\nYes submits your entry and launches \$/);
+    assert.ok(v211.agent_note.includes(BUILD_ENTRY_NOTE));
+    await withScoreFlag('on', async () => {
+      const t = await confirmSetup('t10-no', { remembered: W8, noOffer: true });
+      await sql()`INSERT INTO builder_profiles (builder_id, slug, first_find_at) VALUES (${t.inst}, ${`t10n${t.inst}`}, now())`;
+      await saveBuild(t.inst, { program_id: t.p.id, starter_id: 'arc-tipjar', started_at: new Date().toISOString(), wallet: W8.toLowerCase(), name: 'Tip Jar', repo_url: t.repo });
+      await handlers.prepare_submission(t.input, t.ctx, { lead: ['Tip Jar is live: tipjar.xyz'], wallet: W8.toLowerCase() });
+      const no = (await tools.confirm({ ...t.input, skip_token: true }, t.ctx)) as Confirmed;
+      assert.equal(typeof no.project_id, 'number');
+      assert.equal(t.calls.deploy, 0);
+      const [m] = await sql()`SELECT answer FROM coin_moments WHERE builder_id = ${t.inst}`;
+      assert.equal(m.answer, 'no');
+    });
+  }),
 );

@@ -3,6 +3,7 @@ import { alertFit, newProgramOf, type FitRepo, type NewProgramRow } from './aler
 import { hiddenIds, hiddenPrograms, type BuilderMemory } from './builder-memory';
 import { sql, type Db } from './db';
 import { siteUrl } from './entry-text';
+import { COIN_PROGRAM } from './policy-constants';
 import { freeTierRoom, takeFreeTier } from './free-tier';
 import { testInstallationIds } from './installations';
 
@@ -383,12 +384,12 @@ export async function digestFacts(s: SubRow, now: Date, db: Db = sql()): Promise
     db<{ program: string; at: Date }[]>`
       SELECT DISTINCT ON (pr.id) pr.title AS program, pr.ends_at AS at
       FROM projects p JOIN programs pr ON pr.id = p.program_id
-      WHERE p.installation_id = ${id} AND pr.ends_at > ${now} AND pr.ends_at <= ${week} ${own}
+      WHERE p.installation_id = ${id} AND p.program_id <> ${COIN_PROGRAM} AND pr.ends_at > ${now} AND pr.ends_at <= ${week} ${own}
       ORDER BY pr.id`,
     db<{ program: string; at: Date }[]>`
       SELECT DISTINCT ON (pr.id) pr.title AS program, (pr.results->>'expected')::date::timestamp AT TIME ZONE 'UTC' AS at
       FROM projects p JOIN programs pr ON pr.id = p.program_id
-      WHERE p.installation_id = ${id} AND pr.results->>'expected' IS NOT NULL
+      WHERE p.installation_id = ${id} AND p.program_id <> ${COIN_PROGRAM} AND pr.results->>'expected' IS NOT NULL
         AND (pr.results->>'expected')::date >= (${now}::timestamptz AT TIME ZONE 'UTC')::date
         AND (pr.results->>'expected')::date <= (${week}::timestamptz AT TIME ZONE 'UTC')::date ${own}
       ORDER BY pr.id`,

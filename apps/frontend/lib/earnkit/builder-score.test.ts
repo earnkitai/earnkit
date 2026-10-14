@@ -8,7 +8,6 @@ import { ScoreDeadline } from './campaigns';
 import { discover, proofLineCheck, provenLogin } from './discovery';
 import { oneParam } from './http';
 import { profileCode } from './discovery-clues';
-import { TOKEN_PITCH_MIN_SCORE } from './confirm';
 import { computeScore } from './score';
 import { calibration } from './score-calibration';
 import { GitHubBudgetStop, type ReaderDeps } from './source-readers';
@@ -52,13 +51,15 @@ test('6.1 buildInputs: repo touches by project; org contributors never count; PR
 
 const prSource = (id: number, n: number, target = 'sock/lib'): SourceRow => ({ id, kind: 'merged_pr', ref: `https://github.com/${target}/pull/${n}`, project_key: 'oss', owner_is_org: false });
 
-test('final I2 golden: 30 merged PRs into one 1k-star repo never lift a fresh person to the token pitch score', () => {
+// v2.12.1 T10 replaced v2.12's token pitch gate (score 20) with the 3b moments; the golden keeps its bound.
+const FRESH_PERSON_MAX = 20;
+test('final I2 golden: 30 merged PRs into one 1k-star repo never lift a fresh person to a score of 20', () => {
   const sources = Array.from({ length: 30 }, (_, i) => prSource(100 + i, i + 1));
   const readings: ReadingRow[] = sources.map((s, i) => ({ source_id: s.id, day: '2026-10-12', ok: true, signals: { target: 'sock/lib', target_stars: 1000, merged_at: iso(i % 3), author: 'lee' } }));
   const { projects, perSource } = buildInputs(sources, readings, { self: new Set(['gh:lee']), owner: new Map(), edges: [], person: 1, now: NOW });
   assert.equal(projects[0].users, calibration().pr_target_users, 'one target counts once, at the per-target cap');
   const s = computeScore(projects, calibration(), NOW);
-  assert.ok(s.score < TOKEN_PITCH_MIN_SCORE, `score ${s.score}`);
+  assert.ok(s.score < FRESH_PERSON_MAX, `score ${s.score}`);
   // All merged PRs are one source for the hold.
   assert.equal(perSource.size, 1);
   assert.deepEqual([...perSource.keys()], [100]);

@@ -1404,8 +1404,15 @@ apps/frontend/
                                hold, contributors undated), scoreBuilders (one row per person per day; holds), percentiles
                                (builder_ranks, one pass, hidden included), profileEmpty, emptyReasonOf,
                                heldPeople, runScoreSteps, publicScore/publicRow, verifiedProject (odds),
-                               pitchAllowed (TOKEN_PITCH_MIN_SCORE), siteShowsUse, scoresAdminKey,
+                               siteShowsUse, scoresAdminKey (v2.12.1 T10: pitchAllowed removed, coin-moments.ts),
                                scoresAdminLink (pnpm campaign scores-link), scoresPost
+    coin-moments.ts(+test)     v2.12.1 T10 (spec 3b): the coin offered only at its moments (built_live,
+                               countable, first_five, has_people), replacing v2.12's score-20 gate. COIN_PROGRAM
+                               (policy-constants.ts), coinLine, coinAllowed, coinWallet, offerCoin (records
+                               coin_moments, once per project), coinYes (the coin program's entry + saved offer;
+                               confirm by project_id launches it), coinNo (recordDecline), coinOpen,
+                               coinPitchAllowed (every token pitch/launch path, via tools.ts tokenPitch),
+                               builtLiveAnswer, COIN_NOTE, COIN_YES_NOTE, COIN_WALLET_ASK
     profiles.ts(+test)         v2.12 T7: PROFILE_URL, CONSENT_LINE, slugs (baseSlug, nextFreeSlug,
                                randomSlug, walletSlug; never reused), profileOf, resolveSlug (null until the
                                consent line was shown), consentOnce, ensureProfile,
@@ -1534,6 +1541,10 @@ apps/frontend/
                                v212-metric.mts: v2.12 T15, the empty-profile rate for new installs per UTC day
                                (`<day>: N new, E empty (P%)`; --as-of, --days 14), shown, never a target
                                (owner-run, one READ ONLY transaction; v212-journey.test.ts 15.5 runs it)
+                               v2121-metric.mts: v2.12.1 T10, per ISO week `Coin offers: shown N, accepted A,
+                               launched L`, reads per day per source against read-usage.ts FREE_LIMITS, claimed
+                               pages, `Leaderboard: N real builders (goal 20, shown, not a target)` (--as-of,
+                               --days 7; owner-run, one READ ONLY transaction; v2121-metric.test.ts runs it)
                                archive-restore.mts: v2.12 T13, `<feature>` moves archive/<feature>/files back
                                (git mv, refuses if a target exists) and names the feature's flag
     db-check.mts                v2.4: applies main's schema + rows, then db/schema.sql twice, on a

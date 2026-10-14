@@ -18,3 +18,9 @@ export const GAS_WALLET_MIN_WEI_DEFAULT = 2_000_000_000_000_000n;
  * policy.ts FEE_SPLIT_BPS (a test keeps them equal).
  */
 export const EARNKIT_SPLIT_BPS = [3000, 4000, 1000, 2000] as const;
+
+/**
+ * v2.12.1 T10 (spec 3b, plan S7): the internal program a coin-only entry belongs to (db/schema.sql
+ * seeds it closed). Its entries never show as program entries; coin-moments.ts re-exports it.
+ */
+export const COIN_PROGRAM = 'earnkit-coin';

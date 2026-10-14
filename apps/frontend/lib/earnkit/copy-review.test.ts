@@ -25,8 +25,9 @@ import { computeScore } from './score';
 import { calibration } from './score-calibration';
 import { CARD_OFFER_NOTE, POST_LINE, SHARE_LINE, SKIPPED_LINE, cardOffer, claimFirstLine, findOfferLine, xAsk } from './share';
 import { EARN_NOTE, MOVE_UP_NOTE, chooseStep, confirmLinkLine, newsOpener, pageReadyLine, rollingLine, standingNews, usersMoneyLine, whereYouStand, type StandProject, type StandView } from './where-you-stand';
-import { GO_LIVE_LINES, GO_LIVE_NOT_YET_NOTE, MOVE_UP_LATER_NOTE, buildStepLine, goLiveLineNote, goLivePagesNote, goLiveSignInNote, goLiveUploadNote, goLiveWrongLinkNote } from './tools';
+import { BUILD_COIN_NOTE, COIN_WALLET_NOTE, GO_LIVE_LINES, GO_LIVE_NOT_YET_NOTE, buildStepLine, goLiveLineNote, goLivePagesNote, goLiveSignInNote, goLiveUploadNote, goLiveWrongLinkNote } from './tools';
 import { COUNT_LINES, NO_LINE_NOTE, TAG_NOTE, TIPS_NOTE } from './make-countable';
+import { COIN_NOTE, COIN_WALLET_ASK, COIN_YES_NOTE, coinLine } from './coin-moments';
 import { ATTRIBUTION_RULE } from './fresh-build';
 import { SEND_LINK_NOTE } from './score-tool';
 import { CONSENT_LINE, HIDDEN_LINE, NO_PROFILE_LINE, SHARED_PROFILE_NOTE, SHOWN_LINE, X_NOT_LISTED_NOTE, X_SET_LINE, X_TAKEN_NOTE } from './profiles';
@@ -1052,6 +1053,24 @@ export const v2121Texts: [string, string][] = [
   ['GO_LIVE_LINES.cant', GO_LIVE_LINES.cant('TipJar')],
 ];
 /** The coin step (spec 3b's words: T10 owns the coin wording rule), checked by the v2.12.1 test only. */
+/**
+ * v2.12.1 T10 (spec 3b, owner-approved copy): the coin offer says "coin" ("Want to launch a coin
+ * for it? You'd get 40% of its trading fees."), so its lines and notes are checked by the v2.12.1
+ * copy rule below, not v2.7's "coin" rule.
+ */
+const v2121CoinTexts: [string, string][] = [
+  ...(['built_live', 'countable', 'first_five', 'has_people'] as const).flatMap((m): [string, string][] => [
+    [`coinLine ${m}`, coinLine(m, 'TipJar', '0x12ab000000000000000000000000000000009f3e')],
+    [`coinLine ${m} no wallet`, coinLine(m, 'TipJar', null)],
+  ]),
+  ['COIN_WALLET_ASK', COIN_WALLET_ASK],
+];
+const v2121CoinNotes: [string, string][] = [
+  ['COIN_NOTE', COIN_NOTE],
+  ['COIN_YES_NOTE', COIN_YES_NOTE],
+  ['COIN_WALLET_NOTE', COIN_WALLET_NOTE],
+  ['BUILD_COIN_NOTE', BUILD_COIN_NOTE],
+];
 const v2121CoinStep = chooseStep({ ...standBaseView, projects: [sp({ key: 'b', name: 'Busy', people: 9, tagged: true })] }, { coin: () => true, build: null })!.line;
 
 const builderFacing: [string, string][] = [
@@ -1275,7 +1294,6 @@ const agentFacing: [string, string][] = [
   ['MOVE_UP_NOTE', MOVE_UP_NOTE],
   ['EARN_NOTE', EARN_NOTE],
   ['SEND_LINK_NOTE', SEND_LINK_NOTE],
-  ['MOVE_UP_LATER_NOTE', MOVE_UP_LATER_NOTE],
   ['BUILD_ENTRY_NO_TOKEN_NOTE', BUILD_ENTRY_NO_TOKEN_NOTE],
   ['STORAGE_NOTE', STORAGE_NOTE],
   ['UPLOAD_NOTE', UPLOAD_NOTE],
@@ -1331,7 +1349,9 @@ test('v2.7 fix round 1 (Important #1): no implied affiliation, except the carved
 test('v2.7 §4: "coin" never appears in human-facing text', async () => {
   const all = [...builderFacing, ...agentFacing, ...(await gatherGateReasons()), ...(await gatherGateAgentNotes())];
   // Minor 4 (Task 10): a program form's own option, quoted verbatim in a kit, is exempt.
-  for (const [label, text] of all) assert.deepEqual(coinWords(label.startsWith('submitKit') ? withoutFormOptions(text) : text), [], label);
+  // v2.12.1 T10: tell's coin field (the 3b coin offer's answer, spec copy) is named in its description.
+  const coinField = (label: string, text: string) => (label === 'TELL_DESCRIPTION_SCORE' ? text.replace(' coin: their coin answer.', '') : text);
+  for (const [label, text] of all) assert.deepEqual(coinWords(coinField(label, label.startsWith('submitKit') ? withoutFormOptions(text) : text)), [], label);
 });
 
 test('v2.7 §3: never "Clanker" in builder or agent text, or on /policy', async () => {
@@ -1687,10 +1707,20 @@ test('final fix I3: the Pages note publishes site_dir as the root of a gh-pages 
   for (const note of [BUILD_PAGES_NOTE, BUILD_HOLD_NOTE]) assert.match(note, /15 minutes/, 'final fix I2: the fallback');
 });
 
+test('v2.12.1 T10: the coin notes for the agent: no emoji, no em dash, never a builder edit; the coin is offered, never launched before the yes', () => {
+  for (const [label, text] of v2121CoinNotes) {
+    assert.doesNotMatch(text, /\u2014|\p{Extended_Pictographic}/u, label);
+    assert.doesNotMatch(text, editFileRe, label);
+  }
+  assert.match(COIN_NOTE, /Never launch anything before that yes/);
+  // The spec's own words, verbatim (wallet shown before the yes).
+  assert.equal(coinLine('built_live', 'X', null).split('?')[0], "It's live. Want to launch a coin for it");
+});
+
 test('v2.12.1 T8 copy rule: plain sentences, sentence case, no jargon, no period after a link, one question at most', () => {
   const names = ['Arc Microgrants', 'TipJar', 'Keep', 'Recipes'];
   const banned = /\b(outcome|percentile|verified source|contract|wallet address|builder code|repo|commit|onchain|base|arc|monad|tempo|ethereum|robinhood chain)\b/i;
-  for (const [label, text] of [...v2121Texts, ['coin step', v2121CoinStep] as [string, string]]) {
+  for (const [label, text] of [...v2121Texts, ['coin step', v2121CoinStep] as [string, string], ...v2121CoinTexts]) {
     assert.ok(text.length > 0, label);
     const unnamed = names.reduce((t, n) => t.split(n).join('Name'), text);
     assert.doesNotMatch(unnamed, banned, label);

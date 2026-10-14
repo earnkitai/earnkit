@@ -4546,7 +4546,15 @@ counts against the veto rate limit.
   22%. earnkit.com/b/<slug>`, or, empty, the fill step (`FILL_LINES`, said not asked when line 1
   asks). The first find ends with the consent line instead (spec 8), shown once
   (`consent_shown_at`, marked at delivery).
-- **The token pitch gate** (R22, D4): with the flag on, the token is offered at confirm only when the
+- **The token pitch gate** (R22, D4; **replaced in v2.12.1 T10** by the spec 3b coin moments,
+  `coin-moments.ts coinPitchAllowed` through `tools.ts tokenPitch` at every pitch and launch path:
+  with the flag on, a program entry's confirm never pitches a token; the build path's entry pitches
+  it once at its built_live moment ("It's live. Want to launch a coin for it?"); a project with
+  people gets "Want to launch a coin for <app>? You'd get 40% of its trading fees." at the countable,
+  first-5 and has-people moments, answered by `tell coin` (or move_up kind coin), which makes an
+  `earnkit-coin` entry that confirm by project_id launches; at most once per project, never after
+  two declines, never shared or held; `scripts/v2121-metric.mts` counts offers shown, accepted and
+  launched per week). v2.12 text: with the flag on, the token is offered at confirm only when the
   person's live, unheld public score is at least `TOKEN_PITCH_MIN_SCORE` = 20 (`confirm.ts`;
   `builder-score.ts pitchAllowed`), including the v2.11 build path and the `project_id` launch path
   (fail strict). Below it: `Ready to submit?`, no token notes, and no builder bonus line (it is funded

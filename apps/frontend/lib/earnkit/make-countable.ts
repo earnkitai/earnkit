@@ -1,5 +1,6 @@
 import { attributionFor, chainOf, type AttributionLine, type BaseCodeDeps, type Chain } from './attribution';
 import { claimLink } from './claim';
+import { COIN_NOTE, offerCoin } from './coin-moments';
 import { sql } from './db';
 import { siteUrl } from './entry-text';
 import { noteEvent } from './events';
@@ -17,8 +18,9 @@ import { stepKey, type MoveUp } from './where-you-stand';
  * to "How to move up" for the steps that make a project's use countable: count past users (track a
  * contract EarnKit can prove is theirs, at once), count future users (the attribution line, for the
  * agent), and a way to take tips for an app where a payment fits. "Done" is said only when EarnKit
- * sees it counted. The step is always the server's own (stand-view.ts currentStep). `confirm` and
- * `go_live` are answered in tools.ts (they need the tool context); `coin` is T10's.
+ * sees it counted. The step is always the server's own (stand-view.ts currentStep). `confirm`,
+ * `go_live` and `coin` are answered in tools.ts (they need the tool context). T10 (spec 3b): the reply
+ * that confirms a project's use is countable ("Done." or "Added.") offers its coin as its one yes.
  */
 export const COUNT_LINES = {
   done: (n: number, name: string, rank: string | null) =>
@@ -57,6 +59,8 @@ export type YesReply = {
   agent_note?: string;
   attribution?: AttributionLine;
   prepare?: { program_id: string; starter: string };
+  /** T10: the countable moment's coin offer (the reply's one yes): its project, and how to answer it. */
+  coin?: { project_key: string; agent_note: string };
 };
 export type YesDeps = {
   reader?: ReaderDeps; base?: BaseCodeDeps; fresh?: Partial<Pick<FreshOn, 'deployOn' | 'hostOn' | 'starters'>>;
@@ -178,6 +182,21 @@ async function payment(builderId: number, now: Date, fresh: YesDeps['fresh'] = {
 }
 
 /**
+ * T10 (spec 3b): "the reply that confirms its use is countable" offers the coin (offerCoin: at most
+ * once per project, the wallet shown, never held or shared) after "Done." or "Added."; that line is
+ * then the reply's only question. Any other reply, or no offer to make: as it was. Never fails the yes.
+ */
+async function withCoin(builderId: number, key: string, r: YesReply): Promise<YesReply> {
+  if (!(r.show_to_builder.startsWith('Done.') || r.show_to_builder === COUNT_LINES.added)) return r;
+  const offer = await offerCoin(builderId, key, 'countable').catch((err: unknown) => {
+    console.error('[countable] coin', err instanceof Error ? err.name : 'error');
+    return null;
+  });
+  if (!offer) return r;
+  return { ...r, show_to_builder: `${r.show_to_builder} ${offer.line}`, coin: { project_key: key, agent_note: COIN_NOTE } };
+}
+
+/**
  * The step a yes or no answers: the server's current one (the agent's kind is never trusted, T8
  * ruling). Null when there is none, or when the agent named another of the person's projects (the
  * builder answered an older line; nothing is done for a step they were not asked about).
@@ -204,9 +223,9 @@ export async function moveUpYes(builderId: number, projectKey: string | null, no
   const reader = deps.reader ?? defaultReaderDeps(now, Date.now() + REFRESH_BUDGET_MS);
   switch (step.kind) {
     case 'count_past':
-      return p.untracked_contract ? countPast(builderId, key, p.name, p.untracked_contract, now, reader) : { show_to_builder: COUNT_LINES.noted };
+      return p.untracked_contract ? withCoin(builderId, key, await countPast(builderId, key, p.name, p.untracked_contract, now, reader)) : { show_to_builder: COUNT_LINES.noted };
     case 'tag_future':
-      return tagFuture(builderId, key, now, deps, reader);
+      return withCoin(builderId, key, await tagFuture(builderId, key, now, deps, reader));
     case 'payment':
       return payment(builderId, now, deps.fresh);
     default:

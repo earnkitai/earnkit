@@ -4,7 +4,7 @@ import { FILL_LINES, HELD_LINE, MORE_USERS_LINE, SCORE_NOTES, SCORE_SHARED, SITE
 import { listPrograms, upsertProgram } from './programs';
 import { ProgramFile } from './program-file';
 import { committedProgram } from './fixtures/program-file';
-import { emptyReasonOf, pitchAllowed, siteShowsUse, verifiedProject } from './builder-score';
+import { emptyReasonOf, siteShowsUse, verifiedProject } from './builder-score';
 import { discover } from './discovery';
 import type { ReaderDeps } from './source-readers';
 import { profileCode } from './discovery-clues';
@@ -305,17 +305,4 @@ test('9.9 odds read the public score\'s top project: its verified users and mone
   assert.equal(await verifiedProject(T + 16, `lee${T}/app`), null, 'no score: v2.10 traction');
 });
 
-test('9.10 the token pitch: flag off always; on, a public score of 20 or more and nothing held', dbTest, async () => {
-  const [low, ok, held] = [T + 17, T + 18, T + 19];
-  await profile(low);
-  await scoreRow(low, '2026-10-11', 19, parts(10));
-  await profile(ok);
-  await scoreRow(ok, '2026-10-11', 20, parts(10));
-  await profile(held, { held: true });
-  await scoreRow(held, '2026-10-10', 45, parts(30));
-  await scoreRow(held, '2026-10-11', 90, parts(500), true);
-  assert.deepEqual([await pitchAllowed(low), await pitchAllowed(ok), await pitchAllowed(held), await pitchAllowed(T + 16)], [true, true, true, true]);
-  await withEnv({ EARNKIT_BUILDER_SCORE: 'on' }, async () => {
-    assert.deepEqual([await pitchAllowed(low), await pitchAllowed(ok), await pitchAllowed(held), await pitchAllowed(T + 16)], [false, true, false, false]);
-  });
-});
+// 9.10 (v2.12's score-20 token pitch gate) moved to coin-moments.test.ts 10.4: v2.12.1 T10 replaced it with the 3b moments.

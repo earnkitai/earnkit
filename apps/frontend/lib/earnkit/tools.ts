@@ -144,14 +144,15 @@ import { builderScoreEnabled } from './builder-score-flag';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { identityInput, noteIdentity } from './identity-input';
 import { SEND_LINK_NOTE, scoreReply, secondLine } from './score-tool';
-import { EARN_NOTE, MOVE_UP_NOTE, chooseStep, placeBuild, newsOpener, whereYouStand, type EarnLine, type StandView } from './where-you-stand';
-import { confirmYes, earnPrize, earnWhen, hostFor, moneyFallback, standBase, startRefresh, takeNews, takePageReady } from './stand-view';
+import { EARN_NOTE, MOVE_UP_NOTE, chooseStep, placeBuild, newsOpener, stepKey, whereYouStand, type EarnLine, type MoveUp, type StandView } from './where-you-stand';
+import { confirmYes, earnPrize, earnWhen, hostFor, moneyFallback, standBase, startRefresh, takeNews, takePageReady, type Seen } from './stand-view';
 import { COUNT_LINES, moveUpNo, moveUpYes, stepFor } from './make-countable';
 import { attributionFor, chainOf } from './attribution';
 import type { ReaderDeps } from './source-readers';
 import { SKIPPED_LINE, cardYes, findOfferLine, offerCard } from './share';
 import { SHARED_PROFILE_NOTE, ensureProfile, profileOf, setFallback, setHidden } from './profiles';
-import { emptyReasonOf, pitchAllowed, publicScore, verifiedProject } from './builder-score';
+import { emptyReasonOf, publicScore, verifiedProject } from './builder-score';
+import { COIN_NOTE, builtLiveAnswer, coinAllowed, coinLine, coinNo, coinOpen, coinPitchAllowed, coinYes, offerCoin } from './coin-moments';
 import { sql } from './db';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
 import { JOIN_TEXT, answerJoin, joinQuestion, answerPickup, askJoin, offerPickup, pendingJoinOf, type PickupDeps } from './identity';
@@ -723,8 +724,8 @@ async function walletToAsk(
 ): Promise<{ hasBonus: boolean } | null> {
   if (program.campaign || !repoUrl || !canPush || given || remembered) return null;
   try {
-    // v2.12 spec 7 (R22): the wallet is asked only for the token's fees and bonus: none under the pitch score.
-    if (!(await pitchAllowed(ctx.installationId).catch(() => false))) return null;
+    // v2.12.1 T10 (spec 3b): the wallet is asked only for the token's fees and bonus: only where the token is pitched.
+    if (!(await tokenPitch(ctx, program.id, repoUrl))) return null;
     const facts = await offerFacts(program, repoUrl, ctx);
     if (facts.coinIn || facts.policyOff || !facts.available || facts.declinedOut || facts.tokenHere) return null;
     const stored = await entryWallet(ctx, {
@@ -1054,6 +1055,9 @@ async function withAlerts<T extends object>(ctx: Pick<ToolContext, 'installation
 /** v2.9 B10: the builder line when the builder said skip to a token launch (confirm with project_id and skip_token). */
 export const NO_TOKEN_FOR_NOW = 'No token for now.';
 
+/** v2.12.1 T10: what the first reply's bonus line is checked as: a program entry (never the coin program's, never a build's). */
+const FIRST_REPLY_ENTRY = 'first-reply-program-entry';
+
 /** v2.10 item 4: launch_token's offer, called directly (the alias routes it to confirm). */
 const OFFER_GONE = 'Pass project_id: the token is offered once, at confirmation (call confirm with program_id, project and answers).';
 
@@ -1077,15 +1081,46 @@ async function needsRepoLine(program: { id: string; title: string }): Promise<st
 }
 
 /**
- * v2.12 spec 7 (R22): a new token for this entry would be pitched to a person under the pitch score
- * (or held; fail strict). False for an entry not this installation's, one with a token, a skipped one
- * or an EarnKit campaign entry (exempt, controller ruling).
+ * v2.12.1 T10 (spec 3b): the build path's entry: this installation's build names this program and
+ * (when one is given) this repo. Its repo key (owner/repo, lowercase), the coin_moments key of the
+ * built_live moment; null for any other entry, with the flag off, or on a shared client.
+ */
+async function buildEntryKey(ctx: ToolContext, programId: string, repoUrl: string | null | undefined): Promise<string | null> {
+  if (ctx.sharedClient || !builderScoreEnabled()) return null;
+  const b = await readBuild(ctx.installationId);
+  if (!b?.repo_url || b.program_id !== programId) return null;
+  if (repoUrl && normalizeRepoUrl(repoUrl) !== normalizeRepoUrl(b.repo_url)) return null;
+  const gh = githubRepo(b.repo_url);
+  return gh ? `${gh.owner}/${gh.repo}`.toLowerCase() : null;
+}
+
+/**
+ * v2.12.1 T10 (spec 3b, replacing v2.12's score-20 gate): whether this entry's token may be
+ * pitched, asked a wallet for or launched (coin-moments.ts coinPitchAllowed). Flag off: always
+ * (v2.11, no read). On: the coin program's own entry and the build path's entry at its built_live
+ * moment only; a failed read is no (fail strict). Every pitch and launch path calls this one.
+ */
+async function tokenPitch(ctx: ToolContext, programId: string, repoUrl: string | null | undefined): Promise<boolean> {
+  if (!builderScoreEnabled()) return true;
+  try {
+    const key = await buildEntryKey(ctx, programId, repoUrl);
+    return await coinPitchAllowed(ctx.installationId, { program_id: programId, build: key !== null, ...(key && { project_key: key }) });
+  } catch (err) {
+    console.error('[coin] pitch', err instanceof Error ? err.name : 'error');
+    return false;
+  }
+}
+
+/**
+ * v2.12 spec 7 (R22), v2.12.1 T10: a new token for this entry is not pitched here (tokenPitch).
+ * False for an entry not this installation's, one with a token, a skipped one or an EarnKit
+ * campaign entry (exempt, controller ruling).
  */
 async function tokenHeld(ctx: ToolContext, projectId: number): Promise<boolean> {
   const entry = await launchEntry(ctx.installationId, projectId);
   if (!entry || entry.token_url || entry.confirm_choice === 'skip') return false;
   if ((await getProgramRow(entry.program_id)).campaign) return false;
-  return !(await pitchAllowed(ctx.installationId).catch(() => false));
+  return !(await tokenPitch(ctx, entry.program_id, entry.repo_url));
 }
 
 /** v2.12 spec 7: the agent's step when find's second line offers to link the builder's work. */
@@ -1130,6 +1165,37 @@ export async function findSecondLine(id: number, lineOneAsks: boolean): Promise<
   return { line: offered ? findOfferLine(second.line) : second.line, fill: second.fill, offered: Boolean(offered) };
 }
 
+
+/**
+ * v2.12.1 T10 (spec 3b): find's step with the coin moments. The reply that reports a project's first
+ * 5 people (the last look saw fewer) offers its coin in place of the step; else a project with people
+ * and no coin gets it when no bigger step exists (chooseStep's order). The moment is recorded with
+ * the offer (offerCoin: at most once per project); an offer that can't be made leaves the step as it
+ * was. The line is offerCoin's, with the wallet shown (or asked for).
+ */
+async function coinStep(id: number, seen: Seen | null, view0: Omit<StandView, 'step' | 'news'>, agentCanBuild: boolean): Promise<MoveUp | null> {
+  const host = hostFor(agentCanBuild);
+  const candidates = view0.projects.filter((p) => p.shipped && p.people > 0 && !p.has_coin);
+  if (seen?.at) {
+    const five = candidates.find((p) => (seen.people?.[p.key] ?? 0) < 5 && p.people >= 5);
+    const offer = five ? await offerCoin(id, five.key, 'first_five') : null;
+    if (five && offer) return { kind: 'coin', project_key: five.key, line: offer.line };
+  }
+  const coinKeys = new Set<string>();
+  // chooseStep takes the first eligible one in the projects' order: none is read past it.
+  for (const p of candidates) {
+    if (view0.declined?.includes(stepKey('coin', p.key)) || !(await coinAllowed(id, p.key))) continue;
+    coinKeys.add(p.key);
+    break;
+  }
+  let step = chooseStep(view0, { coin: (k) => coinKeys.has(k), build: null, host });
+  if (step?.kind === 'coin' && step.project_key) {
+    const offer = await offerCoin(id, step.project_key, 'has_people');
+    if (offer) return { ...step, line: offer.line };
+    step = chooseStep(view0, { coin: () => false, build: null, host });
+  }
+  return step;
+}
 
 /**
  * v2.12.1 T8 (spec 2, 4): find's reply with the score flag on. The person's view (stand-view.ts),
@@ -1187,9 +1253,12 @@ async function standFind(
       : { money: null, pick: null };
   const pick = lead ?? fallback.pick ?? undefined;
   const view0: Omit<StandView, 'step' | 'news'> = { ...base, earn, fresh: null, due, money: fallback.money };
-  // T10 (coinAllowed) fills the coin keys; none until then.
-  const coinKeys = new Set<string>();
-  const step0 = held || submit ? null : chooseStep(view0, { coin: (k) => coinKeys.has(k), build: null, host: hostFor(a.agentCanBuild) });
+  // v2.12.1 T10 (spec 3b): the coin as the reply's one yes, only at its moments, and only when nothing
+  // else asks. Never fails the tool (no coin on an error).
+  const step0 = held || submit ? null : await coinStep(id, read?.seen ?? null, view0, a.agentCanBuild).catch((err: unknown) => {
+    console.error('[list_programs] coin', err instanceof Error ? err.name : 'error');
+    return chooseStep(view0, { coin: () => false, build: null, host: hostFor(a.agentCanBuild) });
+  });
   // Fix round 2: a build is the step only when nothing else asks (never a second question).
   const { step, fresh } = placeBuild(pick ? { title: pick.card.title, prize: prizeOf(pick.card).split(' × ')[0], canBuild: pick.canBuild } : null, step0, held || Boolean(submit));
   // News and the page-ready line open the reply ("Since you last checked"); the card is asked only
@@ -1225,13 +1294,14 @@ async function standFind(
     ),
   ).catch((err: unknown) => console.error('[list_programs] match shown', err instanceof Error ? err.name : 'error'));
   const asked = step && step.kind !== 'send_link' && step.kind !== 'build' ? step : null;
+  const upNote = asked?.kind === 'coin' ? COIN_NOTE : MOVE_UP_NOTE;
   return {
     show_to_builder: shown,
     note: ['Show show_to_builder to the builder exactly as written.', EARN_NOTE, step?.kind === 'send_link' ? SEND_LINK_NOTE : null].filter(Boolean).join(' '),
     ...(a.pickup && { pick_up: { question: a.pickup.question, agent_note: PICKUP_NOTE } }),
     ...(earn[0] && !submit && { lead: { program_id: earn[0].program_id, repo: rows[0].repo } }),
     ...(submit && { lead: { program_id: submit.card.id, step: 'submit', ...(submit.entry.id !== undefined && { project_id: submit.entry.id }) } }),
-    ...(asked && { move_up: { kind: asked.kind, project_key: asked.project_key, agent_note: MOVE_UP_NOTE } }),
+    ...(asked && { move_up: { kind: asked.kind, project_key: asked.project_key, agent_note: upNote } }),
     ...(pick && { build_offer: { program_id: pick.card.id, starter_id: pick.starter.id, agent_note: pick.canBuild ? BUILD_NOTE : PLAN_NOTE } }),
     ...((ready || view.claimLink) && claim && { claim: { link: claim } }),
     ...(a.walletNote && { wallet_note: a.walletNote }),
@@ -1496,9 +1566,10 @@ export const handlers = {
       return null;
     });
     first.holdQuestion = Boolean(pickup || ask);
-    // v2.12 final review (T9): under the pitch score, no builder bonus line (it is funded by a token).
-    // Flag off, pitchAllowed is true without a read (v2.11).
-    first.noBonus = !(await pitchAllowed(ctx.installationId).catch(() => false));
+    // v2.12 final review (T9), v2.12.1 T10: no builder bonus line where no token is pitched (it is
+    // funded by a token). The first reply offers program entries, never the coin program or a build's
+    // own entry, so with the flag on there is none. Flag off: true without a read (v2.11).
+    first.noBonus = !(await coinPitchAllowed(ctx.installationId, { program_id: FIRST_REPLY_ENTRY, build: false }).catch(() => false));
     // v2.12.1 T8 (spec 2): with the score flag on, the three-part reply (where you stand, ways to
     // earn right now, how to move up) replaces the short v2.11 reply. "Show more" (more: true) keeps
     // the v2.11 tables, now without v2.12's second line and consent line. Flag off: everything below
@@ -1680,8 +1751,8 @@ export const handlers = {
     const repoUrl = known.project?.repo_url ?? known.answers?.repo_url;
     // The proposed token; its creator wallet is the entry's payout wallet when there is one.
     // No token block on a closed program (v2.4 §6, audit C22).
-    // v2.12 spec 7 (R22): with the score flag on, no token for a person under the pitch score (campaigns aside).
-    const belowScore = open && prep.ready && !program.campaign ? !(await pitchAllowed(ctx.installationId).catch(() => false)) : false;
+    // v2.12.1 T10 (spec 3b): with the score flag on, a token only where it is pitched (campaigns aside).
+    const belowScore = open && prep.ready && !program.campaign ? !(await tokenPitch(ctx, program_id, repoUrl)) : false;
     const token = open && prep.ready && !belowScore
       ? await tokenProposalBlock({
           program,
@@ -1844,6 +1915,11 @@ export const handlers = {
         })
       : null;
     const offersToken = facts !== null && !facts.coinIn && (canPush || signIn) && !prepTokensOff;
+    // v2.12.1 T10 (spec 3b): built through EarnKit, the reply that confirms the app is live asks the
+    // coin as its one yes ("It's live. Want to launch a coin for it?"), the wallet shown, in place of
+    // the v2.11 confirm line. Flag off (or no token here): the v2.11 line as before.
+    const builtCoin = Boolean(join && !join.noLive && builderScoreEnabled() && offersToken && offer && offer !== READY_TO_SUBMIT);
+    const pitch = builtCoin ? coinLine('built_live', known.project?.name?.trim() || 'it', offerWallet ?? null) : offer;
     // Ruling 25 (plan) / Part C: the token line, once the repo is known, for the agent to push with
     // its work before the builder confirms (an agent that can't push gets none).
     const line = repoUrl && canPush && program.token_policy !== 'off' && !prepTokensOff ? tokenLineFor(ctx.installationId, repoUrl) : null;
@@ -1861,7 +1937,7 @@ export const handlers = {
     const fixes = [...(failedCheck ? [failedCheck] : []), ...checked.filter((f) => f.for === 'builder')];
     const agent_fixes = checked.filter((f) => f.for === 'agent');
     const show_to_builder = lead && prep.ready
-      ? [lead, fixesLine(fixes), offer].filter((x): x is string => Boolean(x)).join('\n')
+      ? [lead, fixesLine(fixes), pitch].filter((x): x is string => Boolean(x)).join('\n')
       : lead
         ? `${lead}\n\n${table}`
         : prep.ready
@@ -1876,7 +1952,7 @@ export const handlers = {
     // v2.11 T10: on the build path earnkit.txt already holds the line (the build's proof), and there is no table.
     const notes = [
       line && !join && TOKEN_LINE_NOTE,
-      ...(prep.ready ? [agent_fixes.length > 0 && AGENT_FIXES_NOTE, join ? (belowScore ? BUILD_ENTRY_NO_TOKEN_NOTE : BUILD_ENTRY_NOTE) : DRAFT_NOTE, fixes.length > 0 && FIXES_NOTE] : [COACH_NOTE]),
+      ...(prep.ready ? [agent_fixes.length > 0 && AGENT_FIXES_NOTE, join ? (builtCoin ? BUILD_COIN_NOTE : belowScore ? BUILD_ENTRY_NO_TOKEN_NOTE : BUILD_ENTRY_NOTE) : DRAFT_NOTE, fixes.length > 0 && FIXES_NOTE] : [COACH_NOTE]),
     ].filter(Boolean);
     return withAlerts(ctx, withGuide({
       program_id,
@@ -1957,8 +2033,8 @@ export const handlers = {
     // Ruling G12: whose token declines count (a shared client: the pasted code's login, else none).
     const declinedBy = declineLogin(ctx, ctx.sharedClient ? await sharedLogin(ctx, i.signed_in, 'confirm_entry') : undefined);
     const facts = await offerFacts(program, repoUrl, ctx, declinedBy);
-    // v2.12 spec 7 (R22): with the score flag on, under the pitch score (or held): no token, a yes records only.
-    const belowScore = !(await pitchAllowed(ctx.installationId).catch(() => false));
+    // v2.12.1 T10 (spec 3b): with the score flag on, no token unless it is pitched here: a yes records only.
+    const belowScore = !(await tokenPitch(ctx, program.id, repoUrl));
     const decision = confirmDecision({
       confirmed: i.builder_confirmed === true,
       decision: i.decision,
@@ -2024,6 +2100,15 @@ export const handlers = {
       await declineOffer(ctx, declinedBy, program.id, repoUrl, i.project.name).catch((err: unknown) =>
         console.error('[confirm_entry] decline', err instanceof Error ? err.name : 'error'),
       );
+    // v2.12.1 T10 (spec 3b): the build entry's answer to its built_live coin, for the weekly metric
+    // (a yes with the token: accepted; skip: declined, one of the two). Never fails the confirmation.
+    if (offersToken && builderScoreEnabled() && (decision.kind === 'skip' || ((decision.kind === 'launch' || decision.kind === 'sign_in') && entry.confirm_choice === 'go'))) {
+      const built = await buildEntryKey(ctx, program.id, repoUrl).catch(() => null);
+      if (built)
+        await builtLiveAnswer(ctx.installationId, built, decision.kind === 'skip' ? 'no' : 'yes', entry.id).catch((err: unknown) =>
+          console.error('[confirm_entry] coin answer', err instanceof Error ? err.name : 'error'),
+        );
+    }
     // v2.9 A8: the entry's product score as matching showed it, for the program's match floor. Never
     // fails the confirmation. Ruling G7: not on a shared client (nothing is recorded there).
     if (remembers(ctx))
@@ -2360,8 +2445,8 @@ export const handlers = {
                   ...(token.note === STILL_CHECKING_LAUNCH && { note: token.note }),
                 };
     let bonus: EnteredText['bonus'] = null;
-    // v2.12 final review (T9): no bonus line for a person under the pitch score, unless their token is live.
-    if (result.bonus_round && coin.status !== 'skipped' && (coin.status === 'launched' || (await pitchAllowed(ctx.installationId).catch(() => false)))) {
+    // v2.12 final review (T9), v2.12.1 T10: no bonus line where no token is pitched, unless their token is live.
+    if (result.bonus_round && coin.status !== 'skipped' && (coin.status === 'launched' || (await tokenPitch(ctx, parsed.program_id, parsed.project.repo_url ?? answersOf(parsed.submission_data).repo_url)))) {
       const pool = (await poolsOf(ctx.roundPools ?? roundPools, [parsed.program_id])).get(parsed.program_id);
       // v2.10 item 1: the one bonus line (no board link); null: the round froze (I2), so none.
       const line = bonusLine(pool);
@@ -2878,7 +2963,15 @@ export const BUILD_ENTRY_NOTE =
   'Show show_to_builder as written. The entry is drafted from the build (entry). When the builder says yes, call confirm with program_id, ' +
   'project: entry.project, answers: entry.answers, yes: true, wallet: shown_wallet and token: { name, symbol } of token.proposed; when they say skip the token, skip_token: true instead of yes.';
 
-/** v2.12 spec 7 (R22): BUILD_ENTRY_NOTE under the token pitch score: no token to name or skip. */
+/**
+ * v2.12.1 T10 (spec 3b): BUILD_ENTRY_NOTE when the live reply asks the coin (the built_live moment):
+ * a yes enters the build's program with the coin, a no enters it without one.
+ */
+export const BUILD_COIN_NOTE =
+  'Show show_to_builder as written. The entry is drafted from the build (entry). When the builder says yes, call confirm with program_id, ' +
+  'project: entry.project, answers: entry.answers, yes: true, wallet: shown_wallet and token: { name, symbol } of token.proposed; when they say no, skip_token: true instead of yes.';
+
+/** v2.12 spec 7 (R22), v2.12.1 T10: BUILD_ENTRY_NOTE where no token is pitched: no token to name or skip. */
 export const BUILD_ENTRY_NO_TOKEN_NOTE =
   'Show show_to_builder as written. The entry is drafted from the build (entry). When the builder says yes, call confirm with program_id, ' +
   'project: entry.project, answers: entry.answers and yes: true.';
@@ -3217,6 +3310,15 @@ export const TellToolInput = z
       })
       .strict()
       .optional(),
+    // v2.12.1 T10 (spec 3b): the builder's yes or no to a coin offer, with the wallet they gave.
+    coin: z
+      .object({
+        project_key: z.string().max(300),
+        answer: z.enum(['yes', 'no']),
+        wallet: z.string().max(100).optional(),
+      })
+      .strict()
+      .optional(),
     // Read by tell_earnkit (builder-memory.ts TellInput).
     program_status: z.unknown().optional(),
     repo_facts: z.unknown().optional(),
@@ -3229,8 +3331,25 @@ type Reply = Record<string, unknown>;
 
 const defined = (o: Reply): Reply => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
 
-/** v2.12.1 T8: what tell says to a move-up step whose yes is not built yet (the coin, T10). */
-export const MOVE_UP_LATER_NOTE = 'Noted. This step is not available yet; nothing to show the builder.';
+/** v2.12.1 T10: a coin wallet that isn't a 0x address. */
+export const COIN_WALLET_NOTE = "wallet must be the 0x address the builder gave; ask them for it and call tell with coin again. Don't show this note.";
+
+/**
+ * v2.12.1 T10 (spec 3b): the builder's answer to a coin offer (tell coin, or move_up with kind
+ * coin). Only an offer EarnKit made and the builder hasn't answered (coin-moments.ts coinYes and
+ * coinNo check it); anything else is "Okay." with nothing changed. A yes returns the entry the
+ * agent confirms by project_id (the usual token steps follow); a no is never offered again.
+ */
+async function coinAnswer(ctx: ToolContext, c: { project_key: string; answer: 'yes' | 'no'; wallet?: string }): Promise<Reply> {
+  const id = ctx.installationId;
+  if (c.answer === 'no') {
+    await coinNo(id, c.project_key);
+    return { show_to_builder: COUNT_LINES.noted };
+  }
+  if (c.wallet !== undefined && !isWalletAddress(c.wallet.trim())) return { show_to_builder: '', agent_note: COIN_WALLET_NOTE };
+  const r = await coinYes(id, c.project_key, c.wallet ?? null, { check: ctx.tokenDeps?.check });
+  return 'project_id' in r ? { show_to_builder: '', ...r } : r;
+}
 
 /** Fix round 1: a thrown issueUpload, told apart from "no proof yet" (that one gets the proof line). */
 const GO_LIVE_FAILED = 'The hosting check failed.';
@@ -3306,11 +3425,15 @@ async function goLiveYes(ctx: ToolContext, key: string, liveUrl: string | undefi
  * (stand-view.ts currentStep); the agent's kind is never trusted, and a yes to a step that is no
  * longer the current one (or another project's) changes nothing. A no keeps that step away for 30
  * days. `confirm` re-issues the link that shows the work is theirs (confirmYes); `go_live` puts the
- * app online (goLiveYes); count_past, tag_future and payment are make-countable.ts's; the coin is T10's.
+ * app online (goLiveYes); count_past, tag_future and payment are make-countable.ts's; a coin offer
+ * (kind coin, still open) is coinAnswer's.
  */
 async function moveUpAnswer(ctx: ToolContext, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no'; live_url?: string }): Promise<Reply> {
   const id = ctx.installationId;
   const now = new Date();
+  // T10: a coin offer is answered as offered (the offer's own moment, which may not be chooseStep's
+  // step now: a countable or first-5 reply); coinOpen means EarnKit made it and it is unanswered.
+  if (m.kind === 'coin' && m.project_key && (await coinOpen(id, m.project_key))) return coinAnswer(ctx, { project_key: m.project_key, answer: m.answer });
   if (m.answer === 'no') return moveUpNo(id, now, m.project_key, ctx.freshDeps);
   const step = await stepFor(id, m.project_key, ctx.freshDeps);
   if (!step) return { show_to_builder: COUNT_LINES.noted };
@@ -3324,7 +3447,7 @@ async function moveUpAnswer(ctx: ToolContext, m: { kind?: string; project_key?: 
     case 'payment':
       return defined({ ...(await moveUpYes(id, m.project_key ?? null, now, { reader: ctx.readerDeps, fresh: ctx.freshDeps, step })) });
     case 'coin':
-      return { show_to_builder: '', agent_note: MOVE_UP_LATER_NOTE };
+      return coinAnswer(ctx, { project_key: step.project_key!, answer: 'yes' });
     default:
       return { show_to_builder: COUNT_LINES.noted };
   }
@@ -3444,8 +3567,8 @@ async function confirmByProjectId(c: ConfirmArgs & { project_id: number }, ctx: 
   if (!entry || entry.token_url || entry.confirm_choice === 'skip') return launch(c.token ?? {});
   const program = await getProgramRow(entry.program_id);
   if (program.campaign) return launch(c.token ?? {});
-  // v2.12 spec 7 (R22): under the pitch score (or held, fail strict) nothing launches: the entry's confirmation without a token.
-  if (!(await pitchAllowed(ctx.installationId).catch(() => false))) {
+  // v2.12.1 T10 (spec 3b): where no token is pitched (fail strict) nothing launches: the entry's confirmation without a token.
+  if (!(await tokenPitch(ctx, entry.program_id, entry.repo_url))) {
     if (!isOpen(program)) return { status: 'skipped' as const, note: NO_TOKEN_HERE, show_to_builder: NO_TOKEN_HERE };
     const saved = await submittedEntry(ctx.installationId, program.id, entry.id);
     return handlers.confirm_entry(
@@ -3530,8 +3653,9 @@ export const tools = {
     const r = (await handlers.get_program(defined({ program_id, repo }), ctx)) as Reply & { guide?: { text?: string }; eligibility?: unknown };
     let guide = r.guide?.text;
     if (!guide) return r;
-    // v2.12 final review (T9): under the pitch score the guide has no builder bonus line (funded by a token).
-    if (!(await pitchAllowed(ctx.installationId).catch(() => false))) {
+    // v2.12 final review (T9), v2.12.1 T10: no builder bonus line where no token is pitched (funded by
+    // a token). A guide is a program's, read before any entry: never the build's moment (nothing is recorded).
+    if (!(await coinPitchAllowed(ctx.installationId, { program_id, build: false }).catch(() => false))) {
       guide = withoutBonusLine(guide);
       r.guide = { ...r.guide, text: guide };
     }
@@ -3647,18 +3771,19 @@ export const tools = {
   tell: async (input: unknown, ctx: ToolContext) => {
     // v2.12.1 T8: x_handle is no longer taken with the flag on (the page's handle is the X claim's);
     // it is ignored, as with the flag off (v2.11).
-    const { pickup, submitted, signed_in, profile, x_handle, card, move_up, ...rest } = TellToolInput.parse(input ?? {});
+    const { pickup, submitted, signed_in, profile, x_handle, card, move_up, coin, ...rest } = TellToolInput.parse(input ?? {});
     void x_handle;
     const statements = defined(rest);
     const replies: Reply[] = [];
     // v2.12 spec 8: "hide" and "show". v2.12.1 T8: the card and the move-up answers. Flag off: ignored (v2.11).
-    if (builderScoreEnabled() && ctx.sharedClient && (profile || card || move_up))
+    if (builderScoreEnabled() && ctx.sharedClient && (profile || card || move_up || coin))
       replies.push({ show_to_builder: '', agent_note: SHARED_PROFILE_NOTE });
     else if (builderScoreEnabled()) {
       if (profile) replies.push({ show_to_builder: await setHidden(ctx.installationId, profile === 'hide') });
       if (card === 'yes') replies.push(await cardYes(ctx.installationId));
       if (card === 'skip') replies.push({ show_to_builder: SKIPPED_LINE });
       if (move_up) replies.push(await moveUpAnswer(ctx, move_up));
+      if (coin) replies.push(await coinAnswer(ctx, coin));
     }
     if (pickup !== undefined) replies.push((await handlers.pick_up_entries({ answer: pickup }, ctx)) as Reply);
     if (submitted) replies.push((await markSubmitted(submitted, signed_in, ctx)) as Reply);

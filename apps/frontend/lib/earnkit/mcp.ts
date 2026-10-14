@@ -170,7 +170,7 @@ export const TELL_DESCRIPTION =
  */
 export const TELL_DESCRIPTION_SCORE = TELL_DESCRIPTION.replace(
   'pickup: "yes" or "no" to the pick-up question. ',
-  'pickup: "yes" or "no" to the pick-up question. profile: "hide" or "show" when they say so. card: "yes" or "skip" to the card question. move_up: their answer to the last line, with its kind and project_key. ',
+  'pickup: "yes" or "no" to the pick-up question. profile: "hide" or "show" when they say so. card: "yes" or "skip" to the card question. move_up: their answer to the last line, with its kind and project_key. coin: their coin answer. ',
 );
 
 /** v2.12.1 T8: score's description (registered only while EARNKIT_BUILDER_SCORE=on). */
@@ -490,6 +490,15 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
                   .strict()
                   .optional()
                   .describe('Their answer to the How to move up line'),
+                coin: z
+                  .object({
+                    project_key: z.string().max(300).describe("The coin offer's project_key (move_up.project_key or coin.project_key)"),
+                    answer: z.enum(['yes', 'no']),
+                    wallet: z.string().max(100).optional().describe('The 0x address they gave for the fees, if they gave one'),
+                  })
+                  .strict()
+                  .optional()
+                  .describe('Their answer to a coin offer'),
               }
             : {}),
           program_status: z

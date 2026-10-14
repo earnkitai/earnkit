@@ -9,6 +9,7 @@ import { CANT_SEE_LINE, PRIVATE_LOCAL_LINE } from './match-projects';
 import type { RoundPool } from './bonus-rounds';
 import { contextLine, freshLeadLine, freshPick, type FreshPick } from './fresh-build';
 import type { Starter, StarterChain } from './starters';
+import { COIN_PROGRAM } from './policy-constants';
 
 /** v2.7: moved to entry-text.ts (shared with guide.ts); re-exported for existing callers. */
 export { endsOf } from './entry-text';
@@ -551,7 +552,8 @@ const byRowLevel = (a: Pick<Fit, 'row'>, b: Pick<Fit, 'row'>) => levelRank(a.row
  * left is the builder's own submission on the program's site (submitStep), never "finish it" or
  * "keep going" again. Pure.
  */
-export const enteredIds = (m: Pick<FirstMessage, 'entries'>) => new Set((m.entries ?? []).map((e) => e.program_id));
+// v2.12.1 T10 (plan S7): a coin entry is never a program entry.
+export const enteredIds = (m: Pick<FirstMessage, 'entries'>) => new Set((m.entries ?? []).filter((e) => e.program_id !== COIN_PROGRAM).map((e) => e.program_id));
 
 /**
  * v2.10.1 B1: the entry whose only step left is the builder's submission on the program's site: the
@@ -593,7 +595,7 @@ export function entriesLine(m: Pick<FirstMessage, 'entries' | 'cards' | 'hidden'
   // v2.9 A3: programs applied to outside EarnKit (open ones, so they have a title) come after the entries.
   const applied = [...(m.hidden?.applied ?? [])].filter((id) => titles.has(id));
   const lines = [
-    ...(m.entries ?? []).map((e) => `${titles.get(e.program_id) ?? e.title} (${e.name}, ${e.submitted ? 'submitted' : 'not submitted yet'})`),
+    ...(m.entries ?? []).filter((e) => e.program_id !== COIN_PROGRAM).map((e) => `${titles.get(e.program_id) ?? e.title} (${e.name}, ${e.submitted ? 'submitted' : 'not submitted yet'})`),
     ...applied.map((id) => `${titles.get(id)}: ${APPLIED_OUTSIDE}`),
   ];
   if (lines.length === 0) return null;

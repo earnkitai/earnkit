@@ -4,6 +4,7 @@ import { sql, type Db } from './db';
 import { eventRepoKey, noteEvent, type EventType } from './events';
 import { loginBasisFor } from './github-verify';
 import { NotFoundError } from './programs';
+import { COIN_PROGRAM } from './policy-constants';
 
 /**
  * v2.8 Part G, Ruling 30 (plan): what happened to each entry.
@@ -287,7 +288,7 @@ export async function outcomeToAsk(installationId: number, now = new Date(), onl
   const [row] = await db<{ project_id: number; program_id: string; name: string; program_title: string }[]>`
     WITH pick AS (
       SELECT p.id FROM projects p JOIN programs pr ON pr.id = p.program_id
-      WHERE p.installation_id = ${installationId}
+      WHERE p.installation_id = ${installationId} AND p.program_id <> ${COIN_PROGRAM}
         ${onlyIds ? db`AND p.id = ANY(${onlyIds}::int[])` : db``}
         AND p.outcome_asked_at IS NULL
         AND pr.results IS NOT NULL

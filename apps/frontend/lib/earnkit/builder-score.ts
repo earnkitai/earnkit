@@ -1,6 +1,4 @@
 import { countProject, moneyOf, ringWeights, type ActorFacts, type Touch } from './anti-farming';
-import { builderScoreEnabled } from './builder-score-flag';
-import { TOKEN_PITCH_MIN_SCORE } from './confirm';
 import { sql, type Db } from './db';
 import { discover, type LoginOf } from './discovery';
 import { ownPagesSite } from './discovery-clues';
@@ -237,18 +235,6 @@ export async function publicScore(builderId: number): Promise<{ score: number; p
       AND ${publicRow()}
     ORDER BY s.day DESC LIMIT 1`;
   return row ?? null;
-}
-
-/**
- * v2.12 spec 7 (R22, owner ruling D4): whether confirm may pitch the token. Flag off: always (v2.11).
- * On: only a public score (the last unheld or released one) of TOKEN_PITCH_MIN_SCORE or more, and
- * never while the person's newest score is held. No profile or no score is below it (fail strict).
- */
-export async function pitchAllowed(builderId: number): Promise<boolean> {
-  if (!builderScoreEnabled()) return true;
-  const [p] = await sql()<{ held: boolean }[]>`SELECT held FROM builder_profiles WHERE builder_id = ${builderId}`;
-  if (!p || p.held) return false;
-  return ((await publicScore(builderId))?.score ?? 0) >= TOKEN_PITCH_MIN_SCORE;
 }
 
 /**
