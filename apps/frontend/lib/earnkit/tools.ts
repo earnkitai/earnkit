@@ -146,7 +146,7 @@ import { SHARED_PROFILE_NOTE, X_SET_LINE, consentOnce, ensureProfile, profileOf,
 import { emptyReasonOf, pitchAllowed, publicScore, verifiedProject } from './builder-score';
 import { sql } from './db';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
-import { answerPickup, offerPickup, type PickupDeps } from './identity';
+import { JOIN_QUESTIONS, JOIN_TEXT, answerJoin, answerPickup, offerPickup, pendingJoinOf, type PickupDeps } from './identity';
 import type { FieldKind } from './program-file';
 import type { ProgramRow } from './programs';
 import { RateLimitError, enforce } from './rate-limit';
@@ -1135,8 +1135,17 @@ export const handlers = {
     // v2.8.1 §E18: earlier installations of the builder this call names (its GitHub user, the owners
     // of the repos it reports, its wallet), never what this installation remembers; read before this
     // call's details are saved. Never fails the tool.
-    const pickup =
-      !scoring && (github_user || repos?.length || local_repos?.length || wallet)
+    // Fix round 1: in its place, a group asked to take in another agent that proved its GitHub or X
+    // (identity.ts pendingJoinOf) sees that one yes first.
+    const join = scoring
+      ? await pendingJoinOf(ctx.installationId).catch((err: unknown) => {
+          console.error('[list_programs] join', err instanceof Error ? err.name : 'error');
+          return null;
+        })
+      : null;
+    const pickup = join
+      ? { question: JOIN_QUESTIONS[join.tie], entries: 0 }
+      : !scoring && (github_user || repos?.length || local_repos?.length || wallet)
         ? await offerPickup(ctx.ownInstallationId ?? ctx.installationId, {
             github_users: [
               github_user,
@@ -2257,6 +2266,15 @@ export const handlers = {
   // v2.8.1 §E18: the builder's yes or no to list_programs' "Pick up your N earlier entries?".
   pick_up_entries: async (input: unknown, ctx: ToolContext) => {
     const answer = yesNo((input as { answer?: unknown } | null)?.answer);
+    // v2.12.1 fix round 1: with the score flag on, the same yes answers a pending join first.
+    const join = builderScoreEnabled() && !ctx.sharedClient ? await pendingJoinOf(ctx.installationId) : null;
+    if (join && answer === null)
+      return { show_to_builder: JOIN_QUESTIONS[join.tie], agent_note: 'Ask the builder, then call tell with pickup: "yes" or "no".' };
+    if (join && answer !== null) {
+      const r = await answerJoin(ctx.installationId, answer);
+      if (r === 'linked') return { show_to_builder: JOIN_TEXT.linked, agent_note: 'Call find again to show their page.' };
+      if (r === 'declined') return { show_to_builder: JOIN_TEXT.declined };
+    }
     if (answer === null)
       return { show_to_builder: PICKUP_TEXT.unclear, agent_note: 'Ask the builder, then pass answer "yes" or "no".' };
     const r = await answerPickup(ctx.ownInstallationId ?? ctx.installationId, answer, ctx.pickupDeps);
@@ -3391,7 +3409,14 @@ export const tools = {
   },
 
   // v2.12 spec 7: the builder's score (registered in mcp.ts only while EARNKIT_BUILDER_SCORE=on).
-  score: async (_input: unknown, ctx: ToolContext) => scoreReply(ctx, new Date()),
+  score: async (_input: unknown, ctx: ToolContext) => {
+    const reply = await scoreReply(ctx, new Date());
+    // v2.12.1 fix round 1: a pending join's one yes leads the reply (pick_up, answered through tell).
+    const join = builderScoreEnabled() && !ctx.sharedClient ? await pendingJoinOf(ctx.installationId) : null;
+    if (!join) return reply;
+    const question = JOIN_QUESTIONS[join.tie];
+    return { ...reply, show_to_builder: [question, reply.show_to_builder].filter(Boolean).join('\n\n'), pick_up: { question, agent_note: PICKUP_NOTE } };
+  },
 
 } satisfies Record<string, (input: unknown, ctx: ToolContext) => Promise<unknown>>;
 

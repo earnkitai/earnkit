@@ -1352,3 +1352,14 @@ VALUES ('earnkit-coin', 'EarnKit', 'Your coin', 'A coin for a project the builde
 ON CONFLICT (id) DO NOTHING;
 ALTER TABLE builder_events DROP CONSTRAINT IF EXISTS builder_events_login_basis_check;
 ALTER TABLE builder_events ADD CONSTRAINT builder_events_login_basis_check CHECK (login_basis IN ('signin','app','proof_line','repo_owner','x_match'));
+-- v2.12.1 T5 fix round 1: a proven tie (a GitHub sign-in, an X claim) to a person another group
+-- already is joins only after that group's own yes (a sign-in link can be completed by anyone it
+-- was sent to). Keyed by installation ids; the tie names its kind only, never the login or X id.
+CREATE TABLE IF NOT EXISTS pending_joins (
+  installation_id integer NOT NULL,             -- the installation that proved the tie (the joining side)
+  target          integer NOT NULL,             -- the group root that already holds it (answers the yes)
+  tie             text NOT NULL CHECK (tie IN ('github_login','x_user_id')),
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (installation_id, target)
+);
+CREATE INDEX IF NOT EXISTS pending_joins_target ON pending_joins (target);

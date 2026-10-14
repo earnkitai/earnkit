@@ -25,7 +25,7 @@ test('1.6 the v2.12.1 tables, columns, checks and the internal coin program exis
     SELECT column_name FROM information_schema.columns WHERE table_name = 'builder_profiles'`;
   for (const c of ['x_user_id', 'x_name', 'x_avatar_url', 'claimed_at', 'reported_github', 'page_ready_shown_at', 'standing_seen', 'card_moments', 'base_builder_code', 'identity', 'github_basis'])
     assert.ok(cols.some((r) => r.column_name === c), c);
-  for (const t of ['claim_codes', 'x_oauth_states', 'person_wallets', 'builder_live', 'builder_projects', 'source_live', 'read_usage', 'coin_moments'])
+  for (const t of ['claim_codes', 'x_oauth_states', 'person_wallets', 'builder_live', 'builder_projects', 'source_live', 'read_usage', 'coin_moments', 'pending_joins'])
     assert.equal((await sql()`SELECT to_regclass(${t}) AS r`)[0].r, t);
   const [coin] = await sql()<{ status: string; token_policy: string; builder_bonus: boolean }[]>`
     SELECT status, token_policy, builder_bonus FROM programs WHERE id = 'earnkit-coin'`;

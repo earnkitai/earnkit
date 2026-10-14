@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
-import { enqueueClue, enqueueDiscovery, localGitInput, noteLocalGit } from './discovery';
+import { enqueueClue, enqueueDiscovery, localGitInput } from './discovery';
 import { rememberWallets } from './installations';
 
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
@@ -24,19 +24,6 @@ test('4.11b live links must be public https sites; the caps apply after filterin
   assert.deepEqual(localGitInput({ live_urls: bad }).live_urls, []);
   assert.deepEqual(localGitInput({ live_urls: [...bad, 'https://172.32.0.1', 'https://ok.example.com/x'] }).live_urls, ['https://172.32.0.1', 'https://ok.example.com']);
   assert.equal(localGitInput({ emails: ['bad', 'b', 'c@x.dev', 'd@x.dev', 'e@x.dev', 'f@x.dev', 'g@x.dev', 'h@x.dev'] }).emails.length, 5);
-});
-
-test('4.12 remotes become proposed repo sources (agent), once; a new one queues discovery', dbTest, async () => {
-  const id = 2_100_000_000 + (process.pid % 1000);
-  await sql()`DELETE FROM builder_sources WHERE builder_id = ${id}`;
-  await sql()`DELETE FROM discovery_queue WHERE builder_id = ${id}`;
-  const g = localGitInput({ remotes: ['https://github.com/lee/a', 'https://github.com/lee/b'] });
-  assert.equal(await noteLocalGit(id, g), 2);
-  assert.equal(await noteLocalGit(id, g), 0);
-  const rows = await sql()<{ state: string; proposed_by: string }[]>`SELECT state, proposed_by FROM builder_sources WHERE builder_id = ${id}`;
-  assert.deepEqual(new Set(rows.map((r) => `${r.state}/${r.proposed_by}`)), new Set(['proposed/agent']));
-  const [q] = await sql()<{ reason: string; done_at: Date | null }[]>`SELECT reason, done_at FROM discovery_queue WHERE builder_id = ${id}`;
-  assert.equal(q.reason, 'local_repo');
 });
 
 test('4.13 enqueue: a done person is queued again by a new clue; an open entry keeps its first reason and time', dbTest, async () => {

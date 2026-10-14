@@ -140,17 +140,25 @@ export const READ_FOR_DISPLAY = ['repo', 'site', 'package_npm', 'package_pypi'] 
  * Verified sources not yet read on `day`, never read first, then the oldest read; `only` limits it to
  * these people. v2.12.1: a source of a project the person no longer tracks (builder_projects.tracked
  * false, the 25-project cap) is not read; agent-proposed repos, sites and packages are read for
- * display (READ_FOR_DISPLAY); contracts and coins only on the chains EarnKit reads (base, arc).
+ * display (READ_FOR_DISPLAY), after every verified one, and only for a tracked project or one the
+ * agent's latest report names; contracts and coins only on the chains EarnKit reads (base, arc).
  */
 export async function dueSources(day: string, limit: number, only?: number[]): Promise<{ id: number; builder_id: number; kind: string; ref: string; last_read_day: string | null }[]> {
   const rows = await sql()<{ id: number; builder_id: number; kind: string; ref: string; last_read_day: string | null }[]>`
     SELECT b.id::int AS id, b.builder_id, b.kind, b.ref, b.last_read_day::text FROM builder_sources b
-    WHERE (b.state = 'verified' OR (b.state = 'proposed' AND b.proposed_by = 'agent' AND b.kind IN ${sql()(READ_FOR_DISPLAY)}))
+    WHERE (b.state = 'verified' OR (b.state = 'proposed' AND b.proposed_by = 'agent' AND b.kind IN ${sql()(READ_FOR_DISPLAY)}
+        -- fix round 1: only a project the person tracks, or one their agent's latest report names
+        AND (EXISTS (SELECT 1 FROM builder_projects p WHERE p.builder_id = b.builder_id AND p.project_key = b.project_key AND p.tracked)
+          OR b.project_key IN (
+            SELECT COALESCE(x->>'repo', x->>'live_url', x->>'package', x->'contracts'->>0)
+            FROM builder_profiles f CROSS JOIN LATERAL jsonb_array_elements(
+              CASE WHEN jsonb_typeof(f.identity->'projects') = 'array' THEN f.identity->'projects' ELSE '[]'::jsonb END) x
+            WHERE f.builder_id = b.builder_id))))
       AND (b.kind NOT IN ('contract', 'coin') OR b.ref ~ '^(base|arc):')
       AND (b.last_read_day IS NULL OR b.last_read_day < ${day}::date)
       AND NOT EXISTS (SELECT 1 FROM builder_projects p WHERE p.builder_id = b.builder_id AND p.project_key = b.project_key AND NOT p.tracked)
       ${only ? sql()`AND b.builder_id IN ${sql()(only.length ? only : [-1])}` : sql()``}
-    ORDER BY b.last_read_day NULLS FIRST, b.id LIMIT ${limit}`;
+    ORDER BY (b.state <> 'verified'), b.last_read_day NULLS FIRST, b.id LIMIT ${limit}`;
   return [...rows];
 }
 

@@ -14,7 +14,6 @@ import {
   wranglerSites,
   type ContractClue,
 } from './discovery-clues';
-import { noteEvent } from './events';
 import { loginBasisFor, repoEverDerived, type LoginProof } from './github-verify';
 import { ScoreDeadline, beforeDeadline } from './campaigns';
 import { fetchLinePusher } from './ownership';
@@ -75,25 +74,6 @@ export async function enqueueDiscovery(builderId: number, reason: 'first_find' |
     INSERT INTO discovery_queue (builder_id, reason) VALUES (${builderId}, ${reason})
     ON CONFLICT (builder_id) DO UPDATE SET reason = EXCLUDED.reason, queued_at = now(), done_at = NULL
     WHERE discovery_queue.done_at IS NOT NULL`;
-}
-
-/** Proposes the agent's remotes and live links as sources (never verified here); queues discovery on anything new. */
-export async function noteLocalGit(builderId: number, g: LocalGit): Promise<number> {
-  const db = sql();
-  const rows = [
-    ...g.remotes.map((r) => ({ builder_id: builderId, kind: 'repo', ref: r, project_key: r, proposed_by: 'agent' })),
-    ...g.live_urls.map((u) => ({ builder_id: builderId, kind: 'site', ref: u, project_key: u, proposed_by: 'agent' })),
-  ];
-  if (rows.length === 0) return 0;
-  const added = await db<{ id: string; kind: string; ref: string }[]>`
-    INSERT INTO builder_sources ${db(rows)} ON CONFLICT (builder_id, kind, ref) DO NOTHING RETURNING id, kind, ref`;
-  for (const s of added)
-    await noteEvent('source_proposed', () => ({
-      type: 'source_proposed', dedupe_key: `source_proposed:${s.id}`, installation_id: builderId,
-      detail: { source_id: Number(s.id), kind: s.kind, by: 'agent' },
-    }));
-  if (added.length > 0) await enqueueDiscovery(builderId, 'local_repo', db);
-  return added.length;
 }
 
 /**

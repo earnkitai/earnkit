@@ -3,7 +3,6 @@ import { enqueueDiscovery, publicHttpsOrigin, type LocalGit } from './discovery'
 import { sql } from './db';
 import { noteEvent } from './events';
 import { rememberWallets } from './installations';
-import { proposeSource } from './sources';
 import { plainText } from './untrusted-text';
 
 /**
@@ -88,16 +87,23 @@ function projectSources(p: IdentityProject): { key: string; sources: { kind: str
   return { key: p.repo ?? p.live_url ?? p.package ?? p.contracts[0], sources };
 }
 
+/** At most this many agent-reported projects (their project keys) per person; more are refused. */
+export const AGENT_PROJECTS_MAX = 25;
+
 /**
  * What find's identity tells EarnKit about a person (their group root), never as proof: the
  * reported login is kept as `reported_github` (a new one queues discovery, which reads it as a
  * clue), the whole report as `identity` (names and few words per project, shown as not yet
- * confirmed), every repo, site, package and contract as an agent-proposed source, and the wallets
- * remembered (never proven, never a merge). One `identity_given` event per person per UTC day. Only
- * for a person with a profile (the caller made it): else nothing is written.
+ * confirmed), every repo, site, package and contract as an agent-proposed source (one insert; at
+ * most AGENT_PROJECTS_MAX project keys per person, a new one past that is refused), and the wallets
+ * remembered (never proven, never a merge). One `identity_given` event per person per UTC day.
+ * Fix round 1: a find that carried nothing (no login, project or wallet) writes nothing, so it never
+ * wipes the last report. Only for a person with a profile (the caller made it).
  */
 export async function noteIdentity(builderId: number, i: Identity, now: Date): Promise<{ proposed: number }> {
-  const changed = await sql().begin(async (tx) => {
+  if (!i.github_login && i.projects.length === 0 && i.wallets.length === 0) return { proposed: 0 };
+  const result = await sql().begin(async (tx) => {
+    // The profile row's lock also serializes the cap below between two finds at once.
     const [p] = await tx<{ reported: string | null }[]>`
       SELECT reported_github AS reported FROM builder_profiles WHERE builder_id = ${builderId} FOR UPDATE`;
     if (!p) return null;
@@ -105,21 +111,35 @@ export async function noteIdentity(builderId: number, i: Identity, now: Date): P
     await tx`
       UPDATE builder_profiles SET reported_github = ${login}, identity = ${tx.json(i as never)}, updated_at = now()
       WHERE builder_id = ${builderId}`;
-    return login !== p.reported;
+    const held = new Set(
+      (await tx<{ key: string }[]>`
+        SELECT DISTINCT project_key AS key FROM builder_sources WHERE builder_id = ${builderId} AND proposed_by = 'agent'`).map((r) => r.key),
+    );
+    const rows: { builder_id: number; kind: string; ref: string; project_key: string; proposed_by: 'agent' }[] = [];
+    for (const project of i.projects) {
+      const { key, sources } = projectSources(project);
+      if (!held.has(key)) {
+        if (held.size >= AGENT_PROJECTS_MAX) continue;
+        held.add(key);
+      }
+      for (const x of sources) rows.push({ builder_id: builderId, kind: x.kind, ref: x.ref, project_key: key, proposed_by: 'agent' });
+    }
+    const added = rows.length === 0 ? [] : await tx<{ id: string; kind: string }[]>`
+      INSERT INTO builder_sources ${tx(rows)} ON CONFLICT (builder_id, kind, ref) DO NOTHING RETURNING id, kind`;
+    return { changed: login !== p.reported, added };
   });
-  if (changed === null) return { proposed: 0 };
-  let proposed = 0;
-  for (const p of i.projects) {
-    const { key, sources } = projectSources(p);
-    for (const x of sources)
-      if ((await proposeSource({ builder_id: builderId, kind: x.kind, ref: x.ref, project_key: key, proposed_by: 'agent' })) !== null) proposed++;
-  }
+  if (result === null) return { proposed: 0 };
+  for (const s of result.added)
+    await noteEvent('source_proposed', () => ({
+      type: 'source_proposed', dedupe_key: `source_proposed:${s.id}`, installation_id: builderId,
+      detail: { source_id: Number(s.id), kind: s.kind, by: 'agent' },
+    }));
   await rememberWallets(builderId, i.wallets);
-  if (changed || proposed > 0) await enqueueDiscovery(builderId, 'local_repo');
+  if (result.changed || result.added.length > 0) await enqueueDiscovery(builderId, 'local_repo');
   const day = now.toISOString().slice(0, 10);
   await noteEvent('identity_given', () => ({
     type: 'identity_given', dedupe_key: `identity_given:${builderId}:${day}`, installation_id: builderId,
     detail: { projects: i.projects.length },
   }));
-  return { proposed };
+  return { proposed: result.added.length };
 }

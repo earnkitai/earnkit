@@ -281,15 +281,15 @@ export async function resolveSlug(slug: string): Promise<{ builderId: number; re
 
 /**
  * Plan R3, inside linkInstallations' transaction. Sources move to the root (a duplicate is rejected,
- * 'merged'). The profile with an X handle wins (else the root's); it ends keyed on the root, with
- * the other's login, X handle and history moved over (cleared before set, so the one-login index
- * holds), hidden if either was. The losing slug redirects to the root. The merged-away id's rank is
+ * 'merged'). The root's profile (the older group) wins (v2.12.1 fix round 1; else the other's, re-keyed),
+ * filling gaps with the other's login, its v2.12 X handle and history (cleared before set, so the
+ * one-login index holds); held and hidden are the kept group's (`keep`), else the root's. The losing slug redirects to the root. The merged-away id's rank is
  * dropped (its scores stay as history and no longer count). With EARNKIT_BUILDER_SCORE on and a
  * profile on either side, the person is rediscovered with both groups' clues. Flag off, no profile
  * and no source exist, so nothing is written.
  */
 /** True when a profile was re-keyed or merged (its page changes): the caller calls profileChanged() after commit. */
-export async function mergeProfiles(tx: postgres.TransactionSql, root: number, other: number): Promise<boolean> {
+export async function mergeProfiles(tx: postgres.TransactionSql, root: number, other: number, keep?: number): Promise<boolean> {
   if (root === other) return false;
   await tx`
     UPDATE builder_sources s SET builder_id = ${root} WHERE builder_id = ${other}
@@ -316,6 +316,11 @@ export async function mergeProfiles(tx: postgres.TransactionSql, root: number, o
   await tx`DELETE FROM builder_projects WHERE builder_id = ${other}`;
   await tx`DELETE FROM builder_live WHERE builder_id = ${other}`;
   await tx`UPDATE builder_live SET read_at = NULL WHERE builder_id = ${root}`;
+  await tx`
+    INSERT INTO coin_moments (builder_id, project_key, moment, offered_at, answer, answered_at, project_id)
+    SELECT ${root}, project_key, moment, offered_at, answer, answered_at, project_id FROM coin_moments WHERE builder_id = ${other}
+    ON CONFLICT DO NOTHING`;
+  await tx`DELETE FROM coin_moments WHERE builder_id = ${other}`;
   await tx`UPDATE profile_slug_history SET builder_id = ${root} WHERE builder_id = ${other}`;
   await tx`DELETE FROM builder_ranks WHERE builder_id = ${other}`;
   if (!o) {
@@ -327,20 +332,24 @@ export async function mergeProfiles(tx: postgres.TransactionSql, root: number, o
     if (builderScoreEnabled()) await requeue(tx, root);
     return true;
   }
-  // v2.12.1: the claimed profile (an X user id) wins; else, as in v2.12, the one with an X handle, else the root's.
-  const [win, lose] = o.x_user_id && !r.x_user_id ? [o, r] : !r.x_user_id && !r.x_handle && o.x_handle ? [o, r] : [r, o];
-  // The login and prefill travel together, X handle with them; the winner's own values win.
+  // v2.12.1 fix round 1 (controller ruling): the older group (the root: its earliest installation)
+  // always keeps its page; a newer side, claimed or not, never takes it over. Its claim (X user id,
+  // name, picture) is not carried over. Held and hidden are the kept group's (the one that said yes),
+  // else the root's: never the joining side's.
+  const [win, lose] = [r, o];
+  const kept = keep === other ? o : r;
+  // The login and prefill travel together, a v2.12 X handle (one its GitHub lists, never a claim) with
+  // them; the winner's own values win.
   const login = win.github_login ?? lose.github_login;
   const fromLoser = !win.github_login && !!lose.github_login;
   const merged = {
-    // The X handle is the winner's (it wins only when it has one, or neither does).
-    x_handle: win.x_handle,
+    x_handle: win.x_handle ?? (fromLoser && !win.x_user_id && !lose.x_user_id ? lose.x_handle : null),
     github_login: login,
     fallback_handle: fromLoser ? lose.github_login : (win.fallback_handle ?? lose.fallback_handle),
     // A prefill is the twitter_username of one login: it goes only with that login.
     twitter_prefill: fromLoser ? lose.twitter_prefill : win.github_login ? win.twitter_prefill : null,
-    hidden: r.hidden || o.hidden,
-    held: r.held || o.held,
+    hidden: kept.hidden,
+    held: kept.held,
     first_find_at: r.first_find_at < o.first_find_at ? r.first_find_at : o.first_find_at,
     card_offered_at: win.card_offered_at ?? lose.card_offered_at,
     x_asked_at: win.x_asked_at ?? lose.x_asked_at,
@@ -366,12 +375,16 @@ export async function mergeProfiles(tx: postgres.TransactionSql, root: number, o
   await tx`DELETE FROM builder_profiles WHERE builder_id = ${lose.builder_id}`;
   if (win.builder_id !== root) await tx`UPDATE builder_profiles SET builder_id = ${root} WHERE builder_id = ${win.builder_id}`;
   await tx`UPDATE builder_profiles SET ${tx(merged)}, updated_at = now() WHERE builder_id = ${root}`;
-  if (!merged.x_handle) await followName(tx, root, { x_handle: null, github_login: login, slug: win.slug });
+  if (!win.x_user_id) await followName(tx, root, { x_handle: merged.x_handle, github_login: login, slug: win.slug });
   if (builderScoreEnabled()) await requeue(tx, root);
   return true;
 }
 
-const nonEmpty = (v: unknown) => !!v && typeof v === 'object' && Object.keys(v).length > 0;
+/** A stored identity report with at least one project (an empty one never replaces a real one). */
+const nonEmpty = (v: unknown) => {
+  const projects = (v as { projects?: unknown } | null)?.projects;
+  return Array.isArray(projects) && projects.length > 0;
+};
 const earliest = (a: Date | null, b: Date | null) => (a && b ? (a < b ? a : b) : (a ?? b));
 
 /** The merged person is discovered again (a new clue: the other group's). */
