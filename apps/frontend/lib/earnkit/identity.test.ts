@@ -1026,7 +1026,7 @@ test('6.13 reverse phish with X: an attacker holding a victim\'s login claims th
   });
 });
 
-test('6.14 a dormant install (no agent call in 30 days, no X claim) never contests its person\'s login', db, async () => {
+test('6.14 (fix round 1) a dormant prover still contests: an old install that proved the login is a second group, and neither stands', db, async () => {
   const { saveVerification } = await import('./github-verify');
   const { contestants } = await import('./login-contests');
   await scoreOn(async () => {
@@ -1038,17 +1038,35 @@ test('6.14 a dormant install (no agent call in 30 days, no X claim) never contes
     await sql()`UPDATE installations SET last_seen_at = now() - interval '31 days' WHERE id = ${old}`;
     await ensureProfile(fresh, NOW);
     await signIn(fresh);
-    assert.deepEqual(await contestants(login), [fresh]);
-    assert.equal(await loginStands(fresh, login, null), true, 'uncontested: the active person stands');
-    assert.ok(!(await loginContests()).some((c) => c.login === login));
-    // The old install comes back (an agent call): it contests again.
-    await sql()`UPDATE installations SET last_seen_at = now() WHERE id = ${old}`;
     assert.deepEqual(await contestants(login), [old, fresh].sort((a, b) => a - b));
-    // A dormant install with an X claim still contests.
-    await sql()`UPDATE installations SET last_seen_at = now() - interval '31 days' WHERE id = ${old}`;
+    assert.equal(await loginStands(fresh, login, null), false, 'contested: no one stands without a ruling or a matching X claim');
+    assert.ok((await loginContests()).some((c) => c.login === login));
+  });
+});
+
+test('6.14b (fix round 1) the stuck case: a dormant group holding the login in its profile is released when another group proves it; a matching X claim then stands', db, async () => {
+  const { saveVerification } = await import('./github-verify');
+  const { bindX } = await import('./claim');
+  await scoreOn(async () => {
+    const login = `st-${stamp()}`.slice(0, 39);
+    const twitter = `tw${process.pid}${Date.now() % 1000}`.slice(0, 15);
+    const user = { login, created_at: new Date('2020-01-01'), public_repos: 3 };
+    const signIn = (id: number) => saveVerification({ installation_id: id, project_id: null, repo_key: `${login}/app`, purpose: 'entry', wallet: null, symbol: null }, user, NOW);
+    const [old, fresh] = [await person(), await person()];
     await ensureProfile(old, NOW);
-    await sql()`UPDATE builder_profiles SET x_user_id = ${`8${old}`}, x_handle = ${`dx${old}`.slice(0, 15)} WHERE builder_id = ${old}`;
-    assert.deepEqual(await contestants(login), [old, fresh].sort((a, b) => a - b));
+    await signIn(old);
+    await sql()`UPDATE builder_profiles SET github_login = ${login}, github_basis = 'signin' WHERE builder_id = ${old}`;
+    await sql()`UPDATE installations SET last_seen_at = now() - interval '90 days' WHERE id = ${old}`;
+    await ensureProfile(fresh, NOW);
+    await signIn(fresh);
+    const [o] = await sql()`SELECT github_login FROM builder_profiles WHERE builder_id = ${old}`;
+    assert.equal(o.github_login, null, 'the dormant holder no longer stands, so it lets go');
+    assert.equal(await loginStands(fresh, login, twitter), false);
+    await bindX(fresh, { id: `6${fresh}`, username: twitter, name: 'F', avatar: null }, NOW);
+    assert.equal(await loginStands(fresh, login, twitter), true, 'the X GitHub lists, claimed: it stands');
+    await discoverAs(fresh, login, twitter);
+    const [f] = await sql()`SELECT github_login FROM builder_profiles WHERE builder_id = ${fresh}`;
+    assert.equal(f.github_login, login);
   });
 });
 

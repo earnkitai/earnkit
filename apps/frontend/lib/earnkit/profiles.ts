@@ -347,8 +347,9 @@ export const HANDLE_REDIRECT_DAYS = 90;
 
 /**
  * The page at /<handle> (or /b/<handle> when reserved): the claimed, shown person whose X handle it
- * is, in its own case; another case, or a handle renamed in the last HANDLE_REDIRECT_DAYS, is a
- * redirect to the page's path. Hidden, unclaimed or unknown: null.
+ * is, in its own case; another case, or an X handle renamed in the last HANDLE_REDIRECT_DAYS (a
+ * history row bindX marked handle_rename; never a v2.12 login or wallet slug), is a redirect to
+ * the page's path. Hidden, unclaimed or unknown: null.
  */
 export async function resolveHandle(raw: string, now = new Date()): Promise<{ builderId: number; handle: string } | { redirect: string } | null> {
   if (!X_HANDLE.test(raw)) return null;
@@ -358,7 +359,7 @@ export async function resolveHandle(raw: string, now = new Date()): Promise<{ bu
   if (live) return live.hidden ? null : live.x_handle === raw ? { builderId: live.builder_id, handle: live.x_handle } : { redirect: pagePath(live.x_handle) };
   const [old] = await sql()<{ x_handle: string | null; hidden: boolean }[]>`
     SELECT p.x_handle, p.hidden FROM profile_slug_history s JOIN builder_profiles p USING (builder_id)
-    WHERE s.old_slug = ${h} AND s.moved_at > ${new Date(now.getTime() - HANDLE_REDIRECT_DAYS * 86_400_000)} AND p.x_user_id IS NOT NULL`;
+    WHERE s.old_slug = ${h} AND s.handle_rename AND s.moved_at > ${new Date(now.getTime() - HANDLE_REDIRECT_DAYS * 86_400_000)} AND p.x_user_id IS NOT NULL`;
   return old?.x_handle && !old.hidden ? { redirect: pagePath(old.x_handle) } : null;
 }
 

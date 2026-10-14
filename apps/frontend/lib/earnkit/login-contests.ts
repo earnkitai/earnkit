@@ -15,19 +15,16 @@ import { releaseLogin } from './profiles';
  */
 const PROVEN_BASES = ['signin', 'app', 'proof_line'];
 
-/** v2.12.1 T6 (T5 carry): a group with no agent call (MCP) in this many days and no X claim never contests. */
-export const DORMANT_DAYS = 30;
 /**
- * The group rooted at `col` contests: not a shared client, and active (an agent call in the last
- * DORMANT_DAYS) or claimed with X. A person's old, forgotten install (the owner has split installs)
- * never contests their own login at launch; it does again once its agent calls.
+ * A group that proved the login contests unless it is a shared client. T6 fix round 1 (controller
+ * ruling, reversing the dormancy carry): a dormant prover still contests, so an old install that
+ * proved a login never lets it stand for a newer group by going quiet; settleLogin releases a holder
+ * that does not stand, dormant or not.
  */
 const contesting = (col: postgres.Fragment) => sql()`
-  NOT EXISTS (SELECT 1 FROM installations s WHERE COALESCE(s.builder_id, s.id) = ${col} AND s.shared_client)
-  AND (EXISTS (SELECT 1 FROM installations a WHERE COALESCE(a.builder_id, a.id) = ${col} AND a.last_seen_at > now() - make_interval(days => ${DORMANT_DAYS}))
-    OR EXISTS (SELECT 1 FROM builder_profiles q WHERE q.builder_id = ${col} AND q.x_user_id IS NOT NULL))`;
+  NOT EXISTS (SELECT 1 FROM installations s WHERE COALESCE(s.builder_id, s.id) = ${col} AND s.shared_client)`;
 
-/** The roots (ascending) of the unlinked, contesting groups that prove `login`. */
+/** The roots (ascending) of the unlinked, non-shared groups that prove `login`. */
 export async function contestants(login: string): Promise<number[]> {
   const L = login.toLowerCase();
   const rows = await sql()<{ r: number }[]>`

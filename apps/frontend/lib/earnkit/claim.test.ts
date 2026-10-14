@@ -210,10 +210,18 @@ test('6.10 OAuth binding: a cross-site POST, a wrong csrf, a missing cookie or a
   const code = await codeOf(id);
   // Another site's form post.
   assert.equal((await startClaim(code, { origin: 'https://evil.example.com' })).post.status, 403);
+  // No Origin at all (fix round 1 minor): refused too.
+  const { cookie: c0, csrf: csrf0 } = await startClaim(code);
+  const noOrigin = await claimPost(
+    new Request(`https://earnkit.com/claim/${code}`, { method: 'POST', headers: { cookie: c0, 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ csrf: csrf0 }) }),
+    code,
+    noLimit,
+  );
+  assert.equal(noOrigin.status, 403);
   // A form csrf that is not this browser's cookie.
   const { cookie } = await startClaim(code);
   const wrong = await claimPost(
-    new Request(`https://earnkit.com/claim/${code}`, { method: 'POST', headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ csrf: 'nope' }) }),
+    new Request(`https://earnkit.com/claim/${code}`, { method: 'POST', headers: { cookie, origin: 'https://earnkit.com', 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ csrf: 'nope' }) }),
     code,
     noLimit,
   );
@@ -274,4 +282,37 @@ test('6.12 the claim owns the X handle: setXHandle refuses a claimed page and Gi
   // GitHub's X field differing never clears a claimed handle (discovery's clearXHandle 'github').
   assert.equal(await clearXHandle(id, 'github'), false);
   assert.deepEqual(await resolveHandle(H('mine')), { builderId: id, handle: H('mine') });
+});
+
+test('6.18 (fix round 1) a 90-day /<name> redirect only for a real X handle rename; a v2.12 login or wallet slug never redirects at the root', dbTest, async () => {
+  const id = await profiled();
+  const login = `gl${RUN}${Date.now() % 100000}`.slice(0, 15);
+  await sql()`UPDATE builder_profiles SET slug = ${login} WHERE builder_id = ${id}`;
+  await bindX(id, { id: X('1212'), username: H('realname'), name: 'R', avatar: null }, NOW);
+  assert.equal(await resolveHandle(login), null, 'a GitHub-login slug is not an X handle');
+  assert.deepEqual(await resolveSlug(login), { builderId: id, redirect: H('realname').toLowerCase(), handle: H('realname') }, '/b/ keeps every old slug');
+  await bindX(id, { id: X('1212'), username: H('renamed'), name: 'R', avatar: null }, NOW);
+  assert.deepEqual(await resolveHandle(H('realname')), { redirect: `/${H('renamed')}` }, 'the X rename redirects');
+});
+
+test('6.19 (fix round 1) a stale holder (its handle moved to someone else) can claim again', dbTest, async () => {
+  const [a, b] = [await profiled(), await profiled()];
+  await bindX(a, { id: X('1313'), username: H('moved'), name: 'A', avatar: null }, NOW);
+  await bindX(b, { id: X('1414'), username: H('moved'), name: 'B', avatar: null }, NOW);
+  const link = await claimLink(a);
+  assert.match(link ?? '', /^earnkit\.com\/claim\/[a-z2-7]{12}$/);
+  const r = await runClaim(link!.split('/').pop()!, fakeX({ id: X('1313'), username: H('newhandle'), name: 'A', avatar: null }));
+  assert.equal(r.status, 200);
+  assert.deepEqual(await resolveHandle(H('newhandle')), { builderId: a, handle: H('newhandle') });
+  assert.equal(await claimLink(a), null, 'claimed with a handle again: no link');
+});
+
+test('6.20 (fix round 1) a bind that throws is a plain 500 page and the cookie is cleared', dbTest, async () => {
+  const id = await profiled();
+  const r = await runClaim(await codeOf(id), fakeX({ id: X('1515'), username: 'bad handle!', name: 'B', avatar: null }));
+  assert.equal(r.status, 500);
+  assert.match(await r.text(), new RegExp(CLAIM_TEXT.failed));
+  assert.match(r.headers.get('set-cookie') ?? '', /Max-Age=0/);
+  const [p] = await sql()`SELECT x_user_id FROM builder_profiles WHERE builder_id = ${id}`;
+  assert.equal(p.x_user_id, null);
 });

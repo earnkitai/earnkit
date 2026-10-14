@@ -58,22 +58,29 @@ export function claimCode(builderId: number, secret = process.env.EARNKIT_AUTH_S
   return [...mac.subarray(0, 12)].map((b) => BASE32[b % 32]).join('');
 }
 
-/** The reply's claim link, or null: X off, a shared group, no profile, or already claimed. Stores only the code's hash. */
+/** The reply's claim link, or null: X off, a shared group, no profile, or claimed with a handle. Stores only the code's hash. */
 export async function claimLink(builderId: number): Promise<string | null> {
   if (!builderScoreEnabled() || !xSignInEnabled() || (await sharedGroup(builderId))) return null;
-  const [p] = await sql()<{ x_user_id: string | null }[]>`SELECT x_user_id FROM builder_profiles WHERE builder_id = ${builderId}`;
-  if (!p || p.x_user_id) return null;
+  const [p] = await sql()<{ x_user_id: string | null; x_handle: string | null }[]>`
+    SELECT x_user_id, x_handle FROM builder_profiles WHERE builder_id = ${builderId}`;
+  // Claimed with a handle: no link. A stale holder (its handle moved to another X account, so bindX
+  // cleared it) claims again to get its page back.
+  if (!p || (p.x_user_id && p.x_handle)) return null;
   const code = claimCode(builderId);
   if (!code) return null;
   await sql()`INSERT INTO claim_codes (code_hash, builder_id) VALUES (${sha256(code)}, ${builderId}) ON CONFLICT (code_hash) DO NOTHING`;
   return `earnkit.com/claim/${code}`;
 }
 
-/** The unclaimed person a code names now (claim codes follow a merge to the root), or null. */
+/**
+ * The person a code names now, while they have no page (unclaimed, or a stale holder whose handle
+ * moved on), or null. Claim codes follow a merge to the root (profiles.ts mergeProfiles re-keys
+ * claim_codes), so a code made for a joined installation names the group's page.
+ */
 async function codeTarget(codeHash: string): Promise<number | null> {
   const [row] = await sql()<{ builder_id: number }[]>`
     SELECT c.builder_id FROM claim_codes c JOIN builder_profiles p ON p.builder_id = c.builder_id
-    WHERE c.code_hash = ${codeHash} AND p.x_user_id IS NULL`;
+    WHERE c.code_hash = ${codeHash} AND (p.x_user_id IS NULL OR p.x_handle IS NULL)`;
   if (!row || (await sharedGroup(row.builder_id))) return null;
   return row.builder_id;
 }
@@ -149,8 +156,8 @@ export async function claimPost(request: Request, code: string, deps: RouteDeps 
   const busy = await limited(request, deps);
   if (busy) return busy;
   if (!CODE.test(code)) return notFound();
-  const origin = request.headers.get('origin');
-  if (origin && origin !== new URL(siteUrl()).origin) return claimPage(CLAIM_TEXT.failed, 403);
+  // The page sends Referrer-Policy same-origin, so a real button press always carries Origin.
+  if (request.headers.get('origin') !== new URL(siteUrl()).origin) return claimPage(CLAIM_TEXT.failed, 403);
   const codeHash = sha256(code);
   const form = await request.formData().catch(() => null);
   const csrf = String(form?.get('csrf') ?? '');
@@ -187,7 +194,7 @@ export async function xCallback(request: Request, deps: RouteDeps & { x?: XOAuth
   if (!/^[A-Za-z0-9_-]{43}$/.test(state) || cookies.length === 0) return claimPage(CLAIM_TEXT.failed, 403);
   const [row] = await sql()<{ builder_id: number; code_verifier: string; code_hash: string | null }[]>`
     DELETE FROM x_oauth_states
-    WHERE state_hash = ${sha256(state)} AND expires_at > now() AND used_at IS NULL AND csrf_hash IN ${sql()(cookies.map(sha256))}
+    WHERE state_hash = ${sha256(state)} AND expires_at > now() AND csrf_hash IN ${sql()(cookies.map(sha256))}
     RETURNING builder_id, code_verifier, code_hash`;
   if (!row?.code_hash) return claimPage(CLAIM_TEXT.failed, 403);
   const clear = { 'Set-Cookie': clearCookie(row.code_hash) };
@@ -204,7 +211,13 @@ export async function xCallback(request: Request, deps: RouteDeps & { x?: XOAuth
     console.error('[x/callback] X', err instanceof Error ? err.name : 'error');
     return claimPage(CLAIM_TEXT.failed, 502, clear);
   }
-  const r = await bindX(target, user, new Date());
+  let r: BindResult;
+  try {
+    r = await bindX(target, user, new Date());
+  } catch (err) {
+    console.error('[x/callback] bind', err instanceof Error ? err.name : 'error');
+    return claimPage(CLAIM_TEXT.failed, 500, clear);
+  }
   if (r.ok) return claimPage(CLAIM_TEXT.done(r.handle), 200, clear);
   if (r.reason === 'join_pending') return claimPage(CLAIM_TEXT.joinPending, 200, clear);
   return claimPage(CLAIM_TEXT.claimedOther, 409, clear);
@@ -241,8 +254,8 @@ export async function bindX(builderId: number, user: XUser, now: Date): Promise<
     const renamed = p.x_user_id !== null && p.x_handle !== null && p.x_handle.toLowerCase() !== h;
     if (renamed)
       await tx`
-        INSERT INTO profile_slug_history (old_slug, builder_id, moved_at) VALUES (${p.x_handle!.toLowerCase()}, ${root}, ${now})
-        ON CONFLICT (old_slug) DO UPDATE SET builder_id = EXCLUDED.builder_id, moved_at = EXCLUDED.moved_at`;
+        INSERT INTO profile_slug_history (old_slug, builder_id, moved_at, handle_rename) VALUES (${p.x_handle!.toLowerCase()}, ${root}, ${now}, true)
+        ON CONFLICT (old_slug) DO UPDATE SET builder_id = EXCLUDED.builder_id, moved_at = EXCLUDED.moved_at, handle_rename = true`;
     // slug's CHECK wants a leading letter or digit; an X handle may start with '_' (then the old slug stays).
     const slug = /^[a-z0-9]/.test(h) ? h : p.slug;
     if (slug !== p.slug)

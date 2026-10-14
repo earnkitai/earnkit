@@ -1257,6 +1257,8 @@ CREATE TABLE IF NOT EXISTS x_oauth_states (
 );
 -- v2.12.1 T6: the state is bound to its claim code too (the code's sha256), and is deleted on use.
 ALTER TABLE x_oauth_states ADD COLUMN IF NOT EXISTS code_hash text;
+-- T6 fix round 1: an old slug that was a claimed X handle (a rename); only these redirect at /<name> (90 days).
+ALTER TABLE profile_slug_history ADD COLUMN IF NOT EXISTS handle_rename boolean NOT NULL DEFAULT false;
 CREATE TABLE IF NOT EXISTS person_wallets (
   wallet     text PRIMARY KEY CHECK (wallet ~ '^0x[0-9a-f]{40}$'),
   builder_id integer NOT NULL,
