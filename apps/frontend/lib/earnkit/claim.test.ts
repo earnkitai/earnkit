@@ -94,7 +94,10 @@ test('6.4 a forwarded claim link: the first X account wins, a second one is refu
   const code = await codeOf(id);
   const first = await runClaim(code, fakeX({ id: X('222'), username: H('owner_x'), name: 'Owner', avatar: null }));
   assert.equal(first.status, 200);
-  assert.match(await first.text(), new RegExp(`Your page is live: earnkit\\.com/${H('owner_x')}`));
+  const done = await first.text();
+  assert.match(done, new RegExp(`<h1>Your page is live</h1><p class="ek-url">earnkit\\.com/${H('owner_x')}</p>`));
+  // T11 fix round 2: the page link is the primary button.
+  assert.match(done, new RegExp(`<a class="ek-btn" href="https://earnkit\\.com/${H('owner_x')}">See your page</a>`));
   assert.match(first.headers.get('set-cookie') ?? '', /Max-Age=0/, 'the cookie is cleared');
   const again = await claimGet(new Request(`https://earnkit.com/claim/${code}`), code);
   assert.equal(again.status, 410);
@@ -170,14 +173,14 @@ test('6.9 the claim page says what becomes public and how to hide it before the 
   const body = await get.text();
   const at = (s: string) => body.indexOf(s);
   for (const line of [CLAIM_TEXT.lead, CLAIM_TEXT.public, CLAIM_TEXT.warning]) assert.ok(at(line) > 0 && at(line) < at(CLAIM_TEXT.button), line);
-  assert.ok(at('To hide it later, tell your agent') > 0 && at('To hide it later') < at(CLAIM_TEXT.button));
+  assert.ok(at('You can hide your page anytime by telling your agent') > 0);
   assert.match(body, /<form method="post" action="https:\/\/earnkit\.com\/claim\/[a-z2-7]{12}">/);
   assert.doesNotMatch(body, /<script/);
   assert.equal(get.headers.get('referrer-policy'), 'same-origin');
   assert.equal(get.headers.get('cache-control'), 'no-store');
   assert.match(get.headers.get('set-cookie')!, new RegExp(`^__Host-ekx-${createHash('sha256').update(code).digest('hex').slice(0, 16)}=[A-Za-z0-9_-]{43}; Path=/; Max-Age=900; HttpOnly; Secure; SameSite=Lax$`));
   for (const t of Object.values(CLAIM_TEXT)) {
-    const s = typeof t === 'function' ? t('lee') : t;
+    const s = String(t);
     assert.doesNotMatch(s, /—|–|\p{Extended_Pictographic}|outcome|verified source|wallet address|repo\b|onchain/iu, s);
   }
   // A malformed code is a 404, an unknown one "already claimed".
@@ -324,14 +327,14 @@ test('7.7 the done page offers the two optional upgrades as plain links; GitHub 
     delete process.env.GITHUB_OAUTH_CLIENT_SECRET;
     const a = await profiled();
     const off = await (await runClaim(await codeOf(a), fakeX({ id: X('771'), username: H('up_a'), name: 'A', avatar: null }))).text();
-    assert.match(off, /<a href="https:\/\/earnkit\.com\/claim\/wallet\?t=[^"]+">Show a wallet is yours \(optional\)<\/a>/);
+    assert.match(off, /<a class="ek-link" href="https:\/\/earnkit\.com\/claim\/wallet\?t=[^"]+">Show a wallet is yours \(optional\)<\/a>/);
     assert.doesNotMatch(off, /Sign in with GitHub/);
     process.env.GITHUB_OAUTH_CLIENT_ID = 'gid';
     process.env.GITHUB_OAUTH_CLIENT_SECRET = 'gsec';
     const b = await profiled();
     const on = await (await runClaim(await codeOf(b), fakeX({ id: X('772'), username: H('up_b'), name: 'B', avatar: null }))).text();
-    assert.match(on, new RegExp(`Your page is live: earnkit\\.com/${H('up_b')}`));
-    assert.match(on, /<a href="https:\/\/earnkit\.com\/github\/verify\?n=[A-Za-z0-9_-]{43}">Sign in with GitHub \(optional\)<\/a>/);
+    assert.match(on, new RegExp(`<p class="ek-url">earnkit\\.com/${H('up_b')}</p>`));
+    assert.match(on, /<a class="ek-link" href="https:\/\/earnkit\.com\/github\/verify\?n=[A-Za-z0-9_-]{43}">Sign in with GitHub \(optional\)<\/a>/);
     const [n] = await sql()<{ purpose: string; repo_key: string; installation_id: number }[]>`
       SELECT purpose, repo_key, installation_id FROM github_verify_nonces WHERE installation_id = ${b} AND purpose = 'claim'`;
     assert.deepEqual({ ...n }, { purpose: 'claim', repo_key: `claim/${b}`, installation_id: b });

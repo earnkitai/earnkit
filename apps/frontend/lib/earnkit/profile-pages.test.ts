@@ -394,6 +394,10 @@ test('6.17 /b/<v2.12 slug>: unclaimed is a 404, claimed is a 308 to /<handle>; /
     await profile(b, { slug: `b-c${T}` });
     const handle = `Pg${T}`.slice(0, 15);
     await bindX(b, { id: `31${T}`, username: handle, name: 'Page Person', avatar: null }, NOW);
+    // A rendered page starts the person's refresh (its cards); read just now, so it never rescores
+    // this person from their (empty) sources while the test writes their projects.
+    await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at, read_at)
+      VALUES (${b}, 0, '{}'::jsonb, false, 0, 0, 'v2', 'v2', now(), now() + interval '1 day')`;
     assert.equal(await outcome(() => bPage(`b-c${T}`)), `308 /${handle}`);
     assert.equal(await outcome(() => bPage(handle.toLowerCase())), `308 /${handle}`);
     assert.equal(await outcome(() => handlePage(handle.toLowerCase())), `308 /${handle}`, 'one URL: the handle in its own case');
@@ -401,7 +405,7 @@ test('6.17 /b/<v2.12 slug>: unclaimed is a 404, claimed is a 308 to /<handle>; /
     assert.ok(typeof shown === 'object');
     assert.match(html(shown), /<h1[^>]*>Page Person is building with AI\.<\/h1>/);
     await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped) VALUES (${b}, 'k1', 'Tip jar', 'app', true, true)`;
-    await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at) VALUES (${b}, 10, '{}'::jsonb, true, 1, 0, 'v2', 'v2', now()) ON CONFLICT (builder_id) DO UPDATE SET shipped = 1`;
+    await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at) VALUES (${b}, 10, '{}'::jsonb, true, 1, 0, 'v2', 'v2', now()) ON CONFLICT (builder_id) DO UPDATE SET score = 10, ranked = true, shipped = 1`;
     assert.match(html((await outcome(() => handlePage(handle))) as React.ReactElement), /<h1[^>]*>Page Person has shipped 1 app with AI\.<\/h1>/);
     await sql()`UPDATE builder_profiles SET hidden = true WHERE builder_id = ${b}`;
     assert.equal(await outcome(() => handlePage(handle)), 404, 'hidden');
@@ -432,6 +436,8 @@ test('11.9 (v2.12.1 T11) the page at /<handle>: the full profile; unclaimed none
     await profile(b, { slug: `p-c${T}` });
     const handle = `le${T}`.slice(0, 15);
     await bindX(b, { id: `33${T}`, username: handle, name: 'Lee', avatar: null }, NOW);
+    await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at, read_at)
+      VALUES (${b}, 0, '{}'::jsonb, false, 0, 0, 'v2', 'v2', now(), now() + interval '1 day')`;
     assert.equal(await outcome(() => handlePage(handle.toUpperCase())), `308 /${handle}`);
     await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped) VALUES
       (${b}, 'https://a.example', 'A', 'app', false, true), (${b}, 'https://b.example', 'B', 'app', false, true), (${b}, 'https://c.example', 'C', 'app', false, true)`;

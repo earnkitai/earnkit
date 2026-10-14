@@ -9,7 +9,8 @@ import { joinOnProvenTie, rootOf } from './identity';
 import { sharedGroup } from './installations';
 import { profileChanged } from './profile-cache';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
-import { pageUrl } from './reserved-routes';
+import { pagePath, pageUrl } from './reserved-routes';
+import { X_ICON, brandShell } from './brand-page';
 import { upgradeToken } from './wallet-proof';
 import { pkcePair, xAuthorizeUrl, xOAuth, type XOAuthDeps, type XUser } from './x-oauth';
 
@@ -33,10 +34,9 @@ import { pkcePair, xAuthorizeUrl, xOAuth, type XOAuthDeps, type XUser } from './
  * open yet.
  */
 export const CLAIM_TEXT = {
-  lead: 'Claim your EarnKit page with X.',
-  public: 'Your page shows your X name and picture, what you shipped, how many people use it, money it earned when EarnKit can see it, and programs you entered or won.',
-  hide: 'To hide it later, tell your agent "hide my page".',
-  warning: 'This links your X account to the page your agent made. Only continue if you started this from your own agent.',
+  lead: 'Claim your EarnKit page',
+  public: 'Your page shows what you shipped, who uses it and what it earned, under your X name.',
+  warning: 'Only continue if you started this from your own agent. You can hide your page anytime by telling your agent.',
   button: 'Continue with X',
   notOpen: 'Sign-in with X is not open yet. Your agent will share the link again when it is.',
   used: 'This page is already claimed.',
@@ -44,7 +44,8 @@ export const CLAIM_TEXT = {
   joinPending: 'This X account already has an EarnKit page. Your agents will each ask you once to add this agent to it.',
   failed: "Sign-in didn't finish. Open the link from your agent again.",
   busy: 'Too many sign-ins from here. Try again in an hour.',
-  done: (handle: string) => `Your page is live: ${pageUrl(handle)}`,
+  done: 'Your page is live',
+  see: 'See your page',
   /** v2.12.1 T7: the two optional upgrades under the done line (plain links, never a required step). */
   wallet: 'Show a wallet is yours (optional)',
   github: 'Sign in with GitHub (optional)',
@@ -94,12 +95,10 @@ async function codeTarget(codeHash: string): Promise<number | null> {
 /** Text and double-quoted attribute values; an apostrophe is safe in both. Pure. */
 const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 const PAGE_HEADERS = { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' };
-const shell = (body: string) =>
-  '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
-  '<title>EarnKit</title></head><body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem">' +
-  `${body}</body></html>`;
+/** T11 fix round 2: the profile's look (brand-page.ts). */
+const shell = (inner: string) => brandShell(inner);
 function claimPage(line: string, status: number, headers: Record<string, string> = {}): Response {
-  return new Response(shell(`<p>${escapeHtml(line)}</p>`), { status, headers: { ...PAGE_HEADERS, ...headers } });
+  return new Response(shell(`<p class="ek-line ek-first">${escapeHtml(line)}</p>`), { status, headers: { ...PAGE_HEADERS, ...headers } });
 }
 const notFound = () => new Response('Not found', { status: 404 });
 
@@ -112,15 +111,19 @@ const notFound = () => new Response('Not found', { status: 404 });
 async function donePage(handle: string, root: number, headers: Record<string, string>): Promise<Response> {
   const links: string[] = [];
   const t = upgradeToken(root, new Date());
-  if (t) links.push(`<a href="${escapeHtml(`${siteUrl()}/claim/wallet?t=${encodeURIComponent(t)}`)}">${escapeHtml(CLAIM_TEXT.wallet)}</a>`);
+  if (t) links.push(`<a class="ek-link" href="${escapeHtml(`${siteUrl()}/claim/wallet?t=${encodeURIComponent(t)}`)}">${escapeHtml(CLAIM_TEXT.wallet)}</a>`);
   if (githubVerifyEnabled()) {
     const gh = await createVerifyLink({ installationId: root, projectId: null, repoKey: `claim/${root}`, purpose: 'claim' }).catch((err: unknown) => {
       console.error('[claim] github link', err instanceof Error ? err.name : 'error');
       return null;
     });
-    if (gh) links.push(`<a href="${escapeHtml(gh)}">${escapeHtml(CLAIM_TEXT.github)}</a>`);
+    if (gh) links.push(`<a class="ek-link" href="${escapeHtml(gh)}">${escapeHtml(CLAIM_TEXT.github)}</a>`);
   }
-  const body = shell(`<p>${escapeHtml(CLAIM_TEXT.done(handle))}</p>${links.map((l) => `<p>${l}</p>`).join('')}`);
+  const body = shell(
+    `<h1>${escapeHtml(CLAIM_TEXT.done)}</h1><p class="ek-url">${escapeHtml(pageUrl(handle))}</p>` +
+      `<div class="ek-actions"><a class="ek-btn" href="${escapeHtml(`${siteUrl()}${pagePath(handle)}`)}">${escapeHtml(CLAIM_TEXT.see)}</a></div>` +
+      (links.length ? `<ul class="ek-links">${links.map((l) => `<li>${l}</li>`).join('')}</ul>` : ''),
+  );
   return new Response(body, { status: 200, headers: { ...PAGE_HEADERS, ...headers } });
 }
 
@@ -165,10 +168,11 @@ export async function claimGet(_request: Request, code: string): Promise<Respons
   if (!(await codeTarget(codeHash))) return claimPage(CLAIM_TEXT.used, 410);
   const csrf = randomBytes(32).toString('base64url');
   const body = shell(
-    [CLAIM_TEXT.lead, CLAIM_TEXT.public, CLAIM_TEXT.hide, CLAIM_TEXT.warning].map((l) => `<p>${escapeHtml(l)}</p>`).join('') +
-      `<form method="post" action="${escapeHtml(siteUrl())}/claim/${code}">` +
+    `<h1>${escapeHtml(CLAIM_TEXT.lead)}</h1><p class="ek-line">${escapeHtml(CLAIM_TEXT.public)}</p>` +
+      `<p class="ek-small">${escapeHtml(CLAIM_TEXT.warning)}</p>` +
+      `<div class="ek-actions"><form method="post" action="${escapeHtml(siteUrl())}/claim/${code}">` +
       `<input type="hidden" name="csrf" value="${escapeHtml(csrf)}">` +
-      `<button type="submit">${escapeHtml(CLAIM_TEXT.button)}</button></form>`,
+      `<button class="ek-btn" type="submit">${X_ICON}<span>${escapeHtml(CLAIM_TEXT.button)}</span></button></form></div>`,
   );
   // Same-origin, never no-referrer, so the button's POST carries a real Origin (as verifyStart).
   return new Response(body, { status: 200, headers: { ...PAGE_HEADERS, 'Referrer-Policy': 'same-origin', 'Set-Cookie': setCookie(codeHash, csrf) } });

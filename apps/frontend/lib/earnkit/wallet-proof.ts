@@ -10,6 +10,7 @@ import { profileChanged } from './profile-cache';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
 import { pageUrl } from './reserved-routes';
 import { rpcFor } from './verify';
+import { brandShell } from './brand-page';
 
 /**
  * v2.12.1 spec "Identity": "The claim page offers two optional one-tap upgrades: sign a message with
@@ -22,7 +23,8 @@ import { rpcFor } from './verify';
  */
 export const UPGRADE_TTL_MS = 30 * 60_000;
 export const WALLET_TEXT = {
-  lead: 'Show a wallet is yours. EarnKit then counts the apps it made.',
+  title: 'Show a wallet is yours',
+  lead: 'Sign one message with your wallet so EarnKit can count the apps it made. It costs nothing.',
   button: 'Sign with my wallet',
   done: 'Done. Your agent will show the new numbers next time you ask.',
   failed: "That signature didn't match. Try again from the link on your page.",
@@ -103,12 +105,10 @@ const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '
 /** A JSON value safe inside a <script> element. Pure. */
 const scriptJson = (v: unknown) => JSON.stringify(v).replace(/[<>&\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
 const PAGE_HEADERS = { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' };
-const shell = (body: string) =>
-  '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
-  '<title>EarnKit</title></head><body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem">' +
-  `${body}</body></html>`;
+/** T11 fix round 2: the profile's look (brand-page.ts); no data: fonts, so this page's CSP stays as it is. */
+const shell = (inner: string) => brandShell(inner, { fonts: false });
 const linePage = (line: string, status: number) =>
-  new Response(shell(`<p>${escapeHtml(line)}</p>`), { status, headers: PAGE_HEADERS });
+  new Response(shell(`<p class="ek-line ek-first">${escapeHtml(line)}</p>`), { status, headers: PAGE_HEADERS });
 const notFound = () => new Response('Not found', { status: 404 });
 
 /**
@@ -137,8 +137,9 @@ export async function walletGet(request: Request): Promise<Response> {
     'out.textContent=(await r.json()).line||BAD;' +
     '}catch(e){out.textContent=BAD;}});';
   const body = shell(
-    `<p>${escapeHtml(WALLET_TEXT.lead)}</p><button type="button" id="go">${escapeHtml(WALLET_TEXT.button)}</button>` +
-      `<p id="out" role="status"></p><script nonce="${nonce}">${script}</script>`,
+    `<h1>${escapeHtml(WALLET_TEXT.title)}</h1><p class="ek-line">${escapeHtml(WALLET_TEXT.lead)}</p>` +
+      `<div class="ek-actions"><button class="ek-btn" type="button" id="go">${escapeHtml(WALLET_TEXT.button)}</button></div>` +
+      `<p class="ek-status" id="out" role="status"></p><script nonce="${nonce}">${script}</script>`,
   );
   return new Response(body, {
     status: 200,
