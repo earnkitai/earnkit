@@ -482,3 +482,72 @@ test('9.20 (fix round 2) a signed wallet\'s contract is theirs even when that wa
   const r = await moveUpYes(id, `base:${C}`, NOW, { reader });
   assert.match(r.show_to_builder, /^Done\. 30 people who used tokens\.fun now count\./);
 });
+
+// ---- Fix round 3: through the MCP server's own input schemas, as a real agent calls them.
+
+const DEPLOYER_KEY = '5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a';
+async function mcpClient(installationId: number) {
+  const { createMcpServer } = await import('./mcp');
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+  const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
+  const server = createMcpServer({ installationId });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 't9', version: '0' });
+  await Promise.all([server.connect(a), client.connect(b)]);
+  return client;
+}
+const textOf = (r: unknown) => JSON.parse(((r as { content: { text: string }[] }).content[0]).text) as Record<string, unknown>;
+
+test('9.21 (fix round 3) tips: true reaches prepare through the MCP schema: only the deploy, no draft, no "working on"', dbTest, () =>
+  withEnv({ DEPLOYER_PRIVATE_KEY: DEPLOYER_KEY, DEPLOY_CHAINS: 'base' }, () =>
+    withTips(async (program) => {
+      const id = await claimed('mcp_tips');
+      const client = await mcpClient(id);
+      try {
+        const { tools: listed } = await client.listTools();
+        const props = listed.find((t) => t.name === 'prepare')!.inputSchema.properties as Record<string, unknown>;
+        assert.ok('tips' in props, 'listed with the flag on and deploys on');
+        const r = await client.callTool({
+          name: 'prepare',
+          arguments: {
+            program_id: program, project: { name: 'Shop', repo_url: 'https://github.com/lee/shop' }, tips: true,
+            deploy: { chain: 'arc', bytecode: '0x6080', abi: [{ type: 'constructor' }], owner_wallet: randomAddress() },
+          },
+        });
+        const out = textOf(r);
+        assert.ok(out.deploy, 'the deploy step answered');
+        assert.ok(!('coach' in out) && !('guide' in out), JSON.stringify(out));
+        const [i] = await sql()<{ working_on: string[] | null }[]>`SELECT working_on FROM installations WHERE id = ${id}`;
+        assert.ok(!(i.working_on ?? []).includes(program), 'never "working on" the grant: tips was not stripped');
+        const offers = await sql()`SELECT 1 FROM token_offers WHERE installation_id = ${id} AND program_id = ${program}`;
+        assert.equal(offers.length, 0);
+      } finally {
+        await client.close();
+      }
+    }),
+  ),
+);
+
+test('9.22 (fix round 3) move_up.live_url reaches go_live through the MCP schema; flag off lists neither field', dbTest, () =>
+  withEnv({ ...R2_OFF, DEPLOYER_PRIVATE_KEY: DEPLOYER_KEY, DEPLOY_CHAINS: 'base' }, async () => {
+    const { id, key } = await madeApp(`gl${randomBytes(3).toString('hex')}`);
+    const client = await mcpClient(id);
+    try {
+      const r = textOf(await client.callTool({ name: 'tell', arguments: { move_up: { kind: 'go_live', project_key: key, answer: 'yes', live_url: 'https://example.com/' } } }));
+      assert.match(String(r.agent_note), /own GitHub Pages link/, 'live_url arrived (stripped, it would be the Pages steps)');
+    } finally {
+      await client.close();
+    }
+    const flag = process.env.EARNKIT_BUILDER_SCORE;
+    delete process.env.EARNKIT_BUILDER_SCORE;
+    try {
+      const off = await mcpClient(id);
+      const { tools: listed } = await off.listTools();
+      await off.close();
+      assert.ok(!('tips' in (listed.find((t) => t.name === 'prepare')!.inputSchema.properties as Record<string, unknown>)));
+      assert.ok(!('move_up' in (listed.find((t) => t.name === 'tell')!.inputSchema.properties as Record<string, unknown>)));
+    } finally {
+      process.env.EARNKIT_BUILDER_SCORE = flag;
+    }
+  }),
+);

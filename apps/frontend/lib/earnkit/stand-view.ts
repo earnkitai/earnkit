@@ -183,7 +183,9 @@ export async function standBase(id: number, o: { fresh?: TipSwitches } = {}): Pr
   // rescore), checked for the count_past candidate chooseStep would pick (shipped, untracked users, not
   // declined), only when it is provable.
   const pastKey = (k: string) => declined.includes(stepKey('count_past', k));
-  const past = projects.find((x) => x.shipped && x.untracked_contract && x.untracked_people > 0 && !pastKey(x.key));
+  const canProve = claimed ? Boolean(process.env.EARNKIT_AUTH_SECRET) : link !== null;
+  // chooseStep's own count_past condition (certain is false here, so: provable, or the link can be made).
+  const past = projects.find((x) => x.shipped && x.untracked_contract && x.untracked_people > 0 && !pastKey(x.key) && (x.provable || canProve));
   if (past?.provable) past.certain = !(await trackingHeld(id, past.untracked_contract!, new Date()));
   // Fix round 1 (ruling 4): a step is offered only when its yes can deliver. `prove`: the one tap to
   // show work is theirs can be made (claimed: the wallet page needs the secret; unclaimed: the claim
@@ -191,7 +193,7 @@ export async function standBase(id: number, o: { fresh?: TipSwitches } = {}): Pr
   // (read only when a project could be offered one).
   const tipsWanted = projects.some((x) => x.shipped && x.app && !x.sends_tx && paymentStepFits(`${x.what ?? ''} ${x.name}`));
   const can = {
-    prove: claimed ? Boolean(process.env.EARNKIT_AUTH_SECRET) : link !== null,
+    prove: canProve,
     tag: personCode(id) !== null,
     tips: tipsWanted ? (await tipsPick(id, new Date(), o.fresh).catch(() => null)) !== null : false,
   };

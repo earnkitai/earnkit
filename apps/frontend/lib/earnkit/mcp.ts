@@ -399,6 +399,10 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
         // v2.10 item 13: EarnKit deploys the builder's contract (Arc or Base), the builder as owner.
         // Final fix M4: advertised only while deploys are on (as sponsor_campaign with escrow).
         ...(deployEnabled() && deployChains().length > 0 && { deploy: DEPLOY_SCHEMA, build: BUILD_SCHEMA }),
+        // v2.12.1 T9: the tip jar from a move-up yes (deploy only, no entry draft). Flag off: not listed.
+        ...(builderScoreEnabled() && deployEnabled() && deployChains().length > 0 && {
+          tips: z.literal(true).optional().describe('true only for the tip jar a move_up yes asked for: deploy alone, never an entry'),
+        }),
       },
       // v2.10 item 13: with deploy, prepare sends a transaction.
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
@@ -481,6 +485,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
                     kind: z.string().max(20).optional().describe("find's or score's move_up.kind"),
                     project_key: z.string().max(300).nullable().optional().describe("find's or score's move_up.project_key"),
                     answer: z.enum(['yes', 'no']),
+                    live_url: z.string().max(300).optional().describe("Only when a go_live note asks: the app's GitHub Pages link once it loads"),
                   })
                   .strict()
                   .optional()
