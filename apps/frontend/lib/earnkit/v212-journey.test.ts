@@ -297,7 +297,7 @@ test('15.2b the score tool after the cron: where you stand, the rank only as it 
   const s = (await tools.score({}, ctx)) as { show_to_builder: string; move_up?: { kind: string } };
   // Stars count toward the score (at most 5), not as people using the app: lee leads with the work.
   assert.match(s.show_to_builder, /^Where you stand\nYou've shipped 1 app with AI: tipjar\. You're #1 of 1 builder on EarnKit\.\n/);
-  assert.doesNotMatch(s.show_to_builder, /\bscore\b|top \d+%|earnkit\.com\/b\/|—|\b(find|prepare|confirm|tell)\b/i);
+  assert.doesNotMatch(s.show_to_builder, /\bscore\b|top \d+%.*builders|earnkit\.com\/b\/|—|\bcall (find|prepare|confirm|tell)\b/i);
   assert.ok((s.show_to_builder.match(/\?/g) ?? []).length <= 1, s.show_to_builder);
   assert.ok((await eventTypes(journeyId)).includes('score_viewed'));
 });

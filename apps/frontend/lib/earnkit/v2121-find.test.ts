@@ -90,9 +90,12 @@ const fitsFor = (programId: string) => [
   },
 ];
 
-type Found = { show_to_builder: string; claim?: { link: string }; move_up?: { kind: string; project_key: string | null }; lead?: { program_id: string }; note: string };
+type Found = { programs: { title: string }[]; show_to_builder: string; claim?: { link: string }; move_up?: { kind: string; project_key: string | null }; lead?: { program_id: string }; note: string };
 const find = (id: number, input: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) =>
   tools.find(input, { installationId: id, ...extra } as never) as Promise<Found>;
+
+/** Every open program's title (names are exempt from the copy rule's word list). */
+const titles = (r: Found) => (r.programs ?? []).map((x) => x.title);
 
 /** The copy rule: no technical word, no em dash, no emoji, no v2.12 line; names (program titles, project names) are exempt. */
 function plain(reply: string, names: string[]) {
@@ -131,7 +134,7 @@ How to move up
 Your tip jar has a payment side people could use. Want me to make it count the people who pay you? You won't have to do anything.`);
     assert.deepEqual(r.lead, { program_id: p.id, repo: 'TipJar' });
     assert.deepEqual(r.move_up && { kind: r.move_up.kind, project_key: r.move_up.project_key }, { kind: 'tag_future', project_key: 'lee/tipjar' });
-    plain(r.show_to_builder, [p.title, 'TipJar']);
+    plain(r.show_to_builder, [p.title, 'TipJar', ...titles(r)]);
     // Without X sign-in: no claim link anywhere.
     const off = await withEnv({ X_CLIENT_ID: undefined, X_CLIENT_SECRET: undefined }, () => find(id));
     assert.doesNotMatch(off.show_to_builder, /Claim your page/);
@@ -148,20 +151,27 @@ test('8.13 apps the agent named, none live (ruling S15): named, "None is live ye
         { key: 'lee/tipjar', name: 'TipJar', what: 'a tip jar', shipped: false },
       ],
     });
+    await avalanche();
     const r = await find(id);
+    // The open-all-year program is the shared test database's biggest one: its line is checked by shape.
+    const earn = /\n\nWays to earn right now\n(.+) pays (up to \$[\d.]+K?M?) and is open all year\. I can prepare an entry with one of your projects\.\n\n/.exec(r.show_to_builder);
+    assert.ok(earn, r.show_to_builder);
     assert.equal(r.show_to_builder,
 `Where you stand
 You've made 3 apps with AI: a recipe planner, a budget tracker and a tip jar. None is live yet.
 Claim your page with X: ${r.claim!.link}
 
+Ways to earn right now
+${earn[1]} pays ${earn[2]} and is open all year. I can prepare an entry with one of your projects.
+
 How to move up
-Want me to put your recipe planner online? It takes a minute and you won't have to do anything.`);
+Want me to put your recipe planner online? It takes a few minutes and you won't have to do anything.`);
     assert.deepEqual(r.move_up && { kind: r.move_up.kind, project_key: r.move_up.project_key }, { kind: 'go_live', project_key: 'lee/recipes' });
     // A chat-only agent with hosting off can't put it online: the link ask.
     const chat = await find(id, { agent_can_build: false });
     assert.ok(chat.show_to_builder.endsWith(`How to move up\n${SEND_LINK_LINE}`), chat.show_to_builder);
     assert.match(chat.note, /identity\.projects/);
-    plain(r.show_to_builder, []);
+    plain(r.show_to_builder, titles(r));
   }),
 );
 
@@ -177,18 +187,22 @@ test('8.14 someone with traction leads with the rank; people not counted yet are
     });
     const r = await find(id);
     // The shared test database ranks other files' people too: either wording reads well at the top.
-    assert.match(r.show_to_builder, /^Where you stand\nYou're (#1 of \d+ builders? on EarnKit|in the top [12]% of people building with AI)\. You've shipped 6 projects, and 2 of them have people using them\.\nClaim your page with X: earnkit\.com\/claim\/[a-z2-7]{12}\n\nHow to move up\ntokens\.fun has people using it who aren't counted yet\. Want me to count them\? One tap shows it's yours\.$/);
+    assert.match(r.show_to_builder, /^Where you stand\nYou're (#1 of \d+ builders? on EarnKit|in the top [12]% of people building with AI)\. You've shipped 6 projects, and 2 of them have people using them\.\nClaim your page with X: earnkit\.com\/claim\/[a-z2-7]{12}\n\n(Ways to earn right now\n[^\n]+\n\n)?How to move up\ntokens\.fun has people using it who aren't counted yet\. Want me to count them\? I'll send you a link to show it's yours\.$/);
     assert.equal(r.move_up?.kind, 'count_past');
-    plain(r.show_to_builder, ['tokens.fun']);
+    plain(r.show_to_builder, ['tokens.fun', ...titles(r)]);
   }),
 );
 
-test('8.15 nothing found: no claim line, the send-a-link step, and no rank (spec example 3 without a build on)', dbTest, () =>
+test('8.15 nothing found: no claim line, an open-all-year program to earn from, the send-a-link step, and no rank', dbTest, () =>
   scoreOn(async () => {
     const id = await person({ projects: [] });
+    // Fix round 1: every reply has a way to earn. With no build on, the best open-all-year program.
+    await avalanche();
     const r = await find(id);
-    assert.equal(r.show_to_builder, `Where you stand\nI couldn't find anything you've made yet.\n\nHow to move up\n${SEND_LINK_LINE}`);
+    assert.match(r.show_to_builder, /^Where you stand\nI couldn't find anything you've made yet\.\n\nWays to earn right now\n.+ pays .+ and is open all year\.\n\nHow to move up\n/);
+    assert.ok(r.show_to_builder.endsWith(SEND_LINK_LINE));
     assert.ok(!('move_up' in r));
+
   }),
 );
 
@@ -207,7 +221,7 @@ test('8.16 a fresh install with identity: the three parts in order within 10 s, 
     assert.ok(Date.now() - t0 < 10_000, `took ${Date.now() - t0} ms`);
     const heads = r.show_to_builder.split('\n').filter((l) => (Object.values(HEADS) as string[]).includes(l));
     assert.deepEqual(heads, [HEADS.stand, HEADS.earn, HEADS.up], r.show_to_builder);
-    plain(r.show_to_builder, [p.title, 'TipJar', 'tipjar']);
+    plain(r.show_to_builder, [p.title, 'TipJar', 'tipjar', ...titles(r)]);
     assert.match(r.claim?.link ?? '', /^earnkit\.com\/claim\//);
   }),
 );
@@ -279,7 +293,8 @@ test('8.19 a claimed person: their page, work not confirmed yet is the step, and
     // The score tool: the same view without programs, and the same step.
     const s = await scoreReply({ installationId: id }, NOW);
     assert.match(s.show_to_builder, /^Where you stand\nYou've shipped 1 app with AI: a tip jar\.\nYour page: /);
-    assert.doesNotMatch(s.show_to_builder, new RegExp(HEADS.earn));
+    // Fix round 1: one way to earn in the score reply too.
+    assert.equal(s.show_to_builder.split('\n\n')[1]?.split('\n')[0], HEADS.earn);
     assert.equal(s.move_up?.kind, 'confirm');
   }),
 );
@@ -301,5 +316,49 @@ test('8.21 a shared client never sees the view: find is the v2.11 short reply, a
     const t = (await tools.tell({ move_up: { answer: 'yes' } }, { installationId: id, sharedClient: true } as never)) as { show_to_builder?: string; agent_note?: string };
     assert.equal(t.show_to_builder ?? '', '');
     assert.match(t.agent_note ?? '', /serves many builders/);
+  }),
+);
+
+test('8.22 (fix round 1) a project that only waits on people using it: the earn part says what it could win', dbTest, () =>
+  scoreOn(async () => {
+    const p = await avalanche();
+    const id = await person({ projects: [{ key: 'lee/recipes', name: 'Recipes', what: 'a recipe planner', confirmed: true }] });
+    const fits = [{
+      repo: 'Recipes', repo_url: 'https://github.com/lee/recipes', key: 'lee/recipes',
+      verdicts: [{ program_id: p.id, program: p.id, status: 'maybe' as const, missing: ['real_users' as const], effort: 'hours' as const, note: null }],
+      product: { ...GOOD, missing: [] }, facts: { created_at: '2024-01-01T00:00:00Z', claims: [] },
+    }];
+    const r = await find(id, { local_repos: [{ name: 'Recipes' }] }, { matchProjects: async () => ({ checked: 1, scored: 1, fits }) });
+    assert.match(r.show_to_builder, new RegExp(`\\n\\nWays to earn right now\\nYour recipe planner could win up to \\$10K from ${p.title} once people use it\\.(\\n|$)`), r.show_to_builder);
+    plain(r.show_to_builder, [p.title, ...titles(r)]);
+  }),
+);
+
+test('8.23 (fix round 1) the server decides the step: a note-following agent without kind gets the confirm link; a wrong kind changes nothing', dbTest, () =>
+  scoreOn(async () => {
+    const id = await person({ projects: [{ key: 'lee/tipjar', name: 'TipJar', what: 'a tip jar', confirmed: false }] });
+    const handle = `v2121${randomBytes(3).toString('hex')}`;
+    assert.equal((await bindX(id, { id: `v2121y${randomBytes(6).toString('hex')}`, username: handle, name: handle, avatar: null }, NOW)).ok, true);
+    await sql()`UPDATE builder_live SET read_at = now() WHERE builder_id = ${id}`;
+    for (const move_up of [{ project_key: 'lee/tipjar', answer: 'yes' as const }, { kind: 'coin', project_key: 'x', answer: 'yes' as const }]) {
+      const yes = (await tools.tell({ move_up }, { installationId: id } as never)) as { show_to_builder: string };
+      assert.match(yes.show_to_builder, /^Open this to show it's yours\. It works for 30 minutes: https:\/\/earnkit\.com\/claim\/wallet\?t=\S+$/);
+    }
+    // An unclaimed person whose step is not confirm: a claimed-only kind passed by the agent is ignored.
+    const other = await person({ projects: [{ key: 'lee/n', name: 'Notes', what: 'a notes app', confirmed: false }] });
+    const r = (await tools.tell({ move_up: { kind: 'confirm', answer: 'yes' } }, { installationId: other } as never)) as { show_to_builder: string; agent_note?: string };
+    assert.equal(r.show_to_builder, '');
+    assert.match(r.agent_note ?? '', /not available yet/);
+  }),
+);
+
+test('8.24 (fix round 1) the score reply has one way to earn: the best program a remembered project can win, else an open-all-year one', dbTest, () =>
+  scoreOn(async () => {
+    const id = await person({ projects: [{ key: 'lee/notes', name: 'Notes', what: 'a notes app', confirmed: true }] });
+    const s = await scoreReply({ installationId: id }, NOW);
+    const parts = s.show_to_builder.split('\n\n');
+    assert.equal(parts[1].split('\n')[0], HEADS.earn, s.show_to_builder);
+    assert.equal(parts[1].split('\n').length, 2, 'one earn line');
+    assert.match(parts[1], /open all year/);
   }),
 );

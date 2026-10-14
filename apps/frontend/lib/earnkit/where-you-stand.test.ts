@@ -84,7 +84,7 @@ test('8.5 the step: count past users, then tag future users, then a coin, then a
 
 test('8.6 an uncertain count of past users promises no rank change', () => {
   const v = { ...base, projects: [p({ key: 'k', name: 'K', untracked_contract: 'base:0x' + '1'.repeat(40), untracked_people: 3, certain: false })] };
-  assert.equal(chooseStep(v, { coin: () => false, build: null })!.line, "K has people using it who aren't counted yet. Want me to count them? One tap shows it's yours.");
+  assert.equal(chooseStep(v, { coin: () => false, build: null })!.line, "K has people using it who aren't counted yet. Want me to count them? I'll send you a link to show it's yours.");
 });
 
 test('8.8 projects the agent named but none live: the reply names them, never "couldn\'t find anything"', () => {
@@ -100,7 +100,7 @@ test('8.8b (ruling S15) none live and EarnKit can host one: the one yes puts it 
   const v = { ...base, standing: { ranked: false, rank: 0, total: 40 }, earn: [], fresh: null,
     projects: base.projects.map((x) => ({ ...x, shipped: false })) };
   const step = chooseStep(v, { coin: () => false, build: null, host: (k) => k === 'b' })!;
-  assert.deepEqual(step, { kind: 'go_live', project_key: 'b', line: "Want me to put your budget tracker online? It takes a minute and you won't have to do anything." });
+  assert.deepEqual(step, { kind: 'go_live', project_key: 'b', line: "Want me to put your budget tracker online? It takes a few minutes and you won't have to do anything." });
   const one = { ...v, projects: [p({ key: 'r', name: 'Recipes', shipped: false })] };
   assert.match(whereYouStand({ ...one, step: chooseStep(one, { coin: () => false, build: null }), news: null }), /^You've made 1 app with AI: Recipes\. It isn't live yet\.$/m);
 });
@@ -154,4 +154,16 @@ test('8.12b one shipped app with people reads "and people are using it"; a GitHu
   assert.equal(plainWhat('Smart contract for tips'), null);
   assert.equal(plainWhat('plans recipes'), null);
   assert.equal(plainWhat('AI notes for my class'), null);
+});
+
+test('8.22 (fix round 1) the money statements: a project that could win once people use it, an open-all-year program', async () => {
+  const { usersMoneyLine, rollingLine, buildStepLine } = await import('./where-you-stand');
+  assert.equal(usersMoneyLine(p({ key: 'r', name: 'Recipes', what: 'a recipe planner' }), 'lee/recipes', 'Base Builder Grants', 'up to $5K'),
+    'Your recipe planner could win up to $5K from Base Builder Grants once people use it.');
+  assert.equal(usersMoneyLine(null, 'lee/recipes', 'T', 'up to $5K'), 'recipes could win up to $5K from T once people use it.');
+  assert.equal(rollingLine('Avalanche Team1 Mini Grants', 'up to $10K', true), 'Avalanche Team1 Mini Grants pays up to $10K and is open all year. I can prepare an entry with one of your projects.');
+  assert.equal(rollingLine('A', 'up to $10K', false), 'A pays up to $10K and is open all year.');
+  assert.equal(buildStepLine('Arc Microgrants', '500 USDC', false), 'Arc Microgrants pays 500 USDC for a small app. I can plan it with you; it takes about an hour to build. Want the plan?');
+  const v = { ...base, earn: [], money: 'A pays up to $10K and is open all year.' };
+  assert.match(whereYouStand({ ...v, step: null, news: null }), /\n\nWays to earn right now\nA pays up to \$10K and is open all year\.$/);
 });

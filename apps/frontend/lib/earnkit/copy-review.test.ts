@@ -24,7 +24,7 @@ import { FILL_LINES, HELD_LINE, MORE_USERS_LINE, SCORE_NOTES, SCORE_SHARED, SITE
 import { computeScore } from './score';
 import { calibration } from './score-calibration';
 import { CARD_OFFER_NOTE, POST_LINE, SHARE_LINE, SKIPPED_LINE, cardOffer, claimFirstLine, findOfferLine, xAsk } from './share';
-import { EARN_NOTE, MOVE_UP_NOTE, chooseStep, confirmLinkLine, newsOpener, pageReadyLine, standingNews, whereYouStand, type StandProject, type StandView } from './where-you-stand';
+import { EARN_NOTE, MOVE_UP_NOTE, chooseStep, confirmLinkLine, newsOpener, pageReadyLine, rollingLine, standingNews, usersMoneyLine, whereYouStand, type StandProject, type StandView } from './where-you-stand';
 import { MOVE_UP_LATER_NOTE, buildStepLine } from './tools';
 import { SEND_LINK_NOTE } from './score-tool';
 import { CONSENT_LINE, HIDDEN_LINE, NO_PROFILE_LINE, SHARED_PROFILE_NOTE, SHOWN_LINE, X_NOT_LISTED_NOTE, X_SET_LINE, X_TAKEN_NOTE } from './profiles';
@@ -1031,6 +1031,9 @@ export const v2121Texts: [string, string][] = [
   ['standingNews top', standingNews({ rank: 40, at: '2026-09-01T00:00:00Z' }, { standing: { ranked: true, rank: 12, total: 120 }, projects: [] }, new Date('2026-10-14T00:00:00Z'), false)!.line],
   ['newsOpener page ready', newsOpener([], [pageReadyLine('earnkit.com/claim/abcdefghijkl')])!],
   ['confirmLinkLine', confirmLinkLine('https://earnkit.com/claim/wallet?t=1.2.x')],
+  ['usersMoneyLine', usersMoneyLine(sp({ key: 'r', name: 'Recipes', what: 'a recipe planner' }), 'lee/recipes', 'Arc Microgrants', 'up to $500')],
+  ['rollingLine', rollingLine('Arc Microgrants', 'up to $500', true)],
+  ['rollingLine no projects', rollingLine('Arc Microgrants', 'up to $500', false)],
   ['POST_LINE', POST_LINE('lee')],
   ['claimFirstLine', claimFirstLine('earnkit.com/claim/abcdefghijkl')],
 ];

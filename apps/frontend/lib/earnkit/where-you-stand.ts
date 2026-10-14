@@ -34,6 +34,11 @@ export type StandView = {
    * whose only step left is the builder's own submission (its question is then the reply's one yes).
    */
   due?: string[];
+  /**
+   * Fix round 1 (every reply has a way to earn): a money statement when no program fits and no build
+   * is offered: a project that could win once people use it, or an open-all-year program.
+   */
+  money?: string | null;
 };
 
 const ARTICLE = /^(a|an|the|my)\s+/i;
@@ -88,7 +93,7 @@ export function chooseStep(
     if (live)
       return {
         kind: 'go_live', project_key: live.key,
-        line: `Want me to put ${yoursIn(live)} online? It takes a minute and you won't have to do anything.`,
+        line: `Want me to put ${yoursIn(live)} online? It takes a few minutes and you won't have to do anything.`,
       };
     return { kind: 'send_link', project_key: null, line: SEND_LINK_LINE };
   }
@@ -96,7 +101,7 @@ export function chooseStep(
   if (past)
     return {
       kind: 'count_past', project_key: past.key,
-      line: `${yours(past)} has people using it who aren't counted yet. Want me to count them? ${past.certain ? 'Your rank goes up today.' : "One tap shows it's yours."}`,
+      line: `${yours(past)} has people using it who aren't counted yet. Want me to count them? ${past.certain ? 'Your rank goes up today.' : "I'll send you a link to show it's yours."}`,
     };
   const unconfirmed = v.claimed ? shown.filter((p) => p.confirmed === false) : [];
   if (unconfirmed.length > 0) {
@@ -160,8 +165,23 @@ function earnLines(v: StandView): string[] {
     return [...due, ...lines];
   }
   if (v.fresh) return [...due, `${v.fresh.title} pays ${v.fresh.prize} for a small app, and I can build one with you in about an hour.`];
-  return due;
+  return v.money ? [...due, v.money] : due;
 }
+
+/** Fix round 1: a project that could win once people use it, as a statement (the reply's one yes stays the step). Pure. */
+export function usersMoneyLine(project: StandProject | null, repo: string, title: string, prize: string): string {
+  const who = project ? yours(project) : repo.split('/').pop()!;
+  return `${who} could win ${prize} from ${title} once people use it.`;
+}
+/** Fix round 1: an open-all-year program, as a statement. Pure. */
+export const rollingLine = (title: string, prize: string, hasProjects: boolean) =>
+  `${title} pays ${prize} and is open all year.${hasProjects ? ' I can prepare an entry with one of your projects.' : ''}`;
+
+/** The step when no project of theirs has a better one: the fresh build, money first. Pure. */
+export const buildStepLine = (title: string, prize: string, canBuild: boolean) =>
+  canBuild
+    ? `${title} pays ${prize} for a small app. Want me to build one with you? It takes about an hour.`
+    : `${title} pays ${prize} for a small app. I can plan it with you; it takes about an hour to build. Want the plan?`;
 
 export function whereYouStand(v: StandView, o: { programs?: boolean } = {}): string {
   const parts = [[HEADS.stand, ...standLines(v)]];
@@ -209,5 +229,5 @@ export function newsOpener(alerts: string[], news: string[]): string | null {
 export const pageReadyLine = (link: string) => `Your EarnKit page is ready. Claim it with X: ${link}`;
 /** The yes to a `confirm` step: the re-issued link, which lasts 30 minutes (never a period after it). */
 export const confirmLinkLine = (link: string) => `Open this to show it's yours. It works for 30 minutes: ${link}`;
-export const MOVE_UP_NOTE = 'A yes to the last line: call tell with move_up: { project_key, answer: "yes" }; a no: answer "no". Do the steps it returns yourself; never ask the builder to edit files.';
+export const MOVE_UP_NOTE = 'A yes to the last line: call tell with move_up: { kind, project_key, answer: "yes" } (kind and project_key as given here); a no: answer "no". Do the steps it returns yourself; never ask the builder to edit files.';
 export const EARN_NOTE = 'If the builder picks a program, prepare it with lead.program_id (call prepare). Programs are named, not asked: the reply has one question, the last line.';

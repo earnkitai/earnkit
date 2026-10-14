@@ -18,7 +18,7 @@ import {
 } from './projects';
 import { EntryError, githubRepo, givenWallet, isWalletAddress, normalizeRepoUrl, presentYourEntries } from './campaigns';
 import { signToEnter } from './entry-proof';
-import { closeDayOf, confirmTable, enteredText, noCoinYet, prizeOf, todoOf, type EnteredText } from './entry-text';
+import { confirmTable, enteredText, noCoinYet, prizeOf, todoOf, type EnteredText } from './entry-text';
 import { proposeToken, repoNameOf, titleCase, tokensFunTickerCheck } from './token-proposal';
 import { DECLINES_MAX, declines, firstReplyShown, offerIdentity, offerKey, readOffer, readShownOffer, recordDecline, saveOffer, type Offered } from './token-offers';
 import { earnkitCampaignRows, yourCampaignEntries } from './leaderboard';
@@ -144,9 +144,8 @@ import { builderScoreEnabled } from './builder-score-flag';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { identityInput, noteIdentity } from './identity-input';
 import { SEND_LINK_NOTE, scoreReply, secondLine } from './score-tool';
-import { moneyText } from './pool';
-import { EARN_NOTE, MOVE_UP_NOTE, chooseStep, newsOpener, whereYouStand, type EarnLine, type MoveUp, type StandView } from './where-you-stand';
-import { confirmYes, hostFor, standBase, startRefresh, takeNews, takePageReady } from './stand-view';
+import { EARN_NOTE, MOVE_UP_NOTE, buildStepLine, chooseStep, newsOpener, whereYouStand, type EarnLine, type MoveUp, type StandView } from './where-you-stand';
+import { confirmYes, currentStep, earnPrize, earnWhen, hostFor, moneyFallback, standBase, startRefresh, takeNews, takePageReady } from './stand-view';
 import type { ReaderDeps } from './source-readers';
 import { SKIPPED_LINE, cardYes, findOfferLine, offerCard } from './share';
 import { SHARED_PROFILE_NOTE, ensureProfile, profileOf, setFallback, setHidden } from './profiles';
@@ -1129,15 +1128,6 @@ export async function findSecondLine(id: number, lineOneAsks: boolean): Promise<
   return { line: offered ? findOfferLine(second.line) : second.line, fill: second.fill, offered: Boolean(offered) };
 }
 
-/** v2.12.1 T8: the step lines the reply ends on when no project of theirs has a better one: the fresh build, money first. Pure. */
-export const buildStepLine = (title: string, prize: string, canBuild: boolean) =>
-  canBuild
-    ? `${title} pays ${prize} for a small app. Want me to build one with you? It takes about an hour.`
-    : `${title} pays ${prize} for a small app. A coding agent can build it in about an hour. Want the plan?`;
-
-/** An earn line's prize: "up to $10K" from the per-winner award, else the summary's prize. Pure. */
-const earnPrize = (c: { max_award_usd?: number | null; summary: string; investment?: boolean }) =>
-  c.max_award_usd ? `up to ${moneyText(c.max_award_usd)}` : prizeOf(c).split(' × ')[0];
 
 /**
  * v2.12.1 T8 (spec 2, 4): find's reply with the score flag on. The person's view (stand-view.ts),
@@ -1177,17 +1167,21 @@ async function standFind(
   // needs new work), not entered, at most 3, each under the project that fits it best.
   const rows = layout(m, entered).rows.filter((r) => qualifies(r) && !r.card.sponsored && !entered.has(r.card.id)).slice(0, 3);
   const keyOf = (k: string) => base.projects.find((p) => p.key.toLowerCase() === k.toLowerCase())?.key ?? k;
-  const earn: EarnLine[] = rows.map((r) => {
-    const day = closeDayOf(r.card);
-    return { program_id: r.card.id, project: keyOf(r.key ?? r.repo), title: r.card.title, prize: earnPrize(r.card), when: day ? `closes ${day}` : 'open all year' };
-  });
+  const earn: EarnLine[] = rows.map((r) => ({ program_id: r.card.id, project: keyOf(r.key ?? r.repo), title: r.card.title, prize: earnPrize(r.card), when: earnWhen(r.card) }));
   // One question per reply: a join (or the outcome question) first; an entry waiting on their submission next.
   const held = Boolean(a.pickup || a.ask);
   const submit = held ? undefined : submitStep(m);
   const due = [...(a.first.deadline ? [a.first.deadline] : []), ...(submit ? [submitStepLine(submit)] : [])];
   // Money in every reply: with no program to name, the fresh build fills the earn part (or is the step).
-  const pick = earn.length === 0 ? freshLead({ ...a.first, holdQuestion: held || Boolean(submit) }) : undefined;
-  const view0: Omit<StandView, 'step' | 'news'> = { ...base, earn, fresh: null, due };
+  const lead = earn.length === 0 ? freshLead({ ...a.first, holdQuestion: held || Boolean(submit) }) : undefined;
+  // Fix round 1: every reply has a way to earn. No program fits and no build lead: a project that could
+  // win once people use it, else an open-all-year program, else a fresh build (stand-view.ts moneyFallback).
+  const fallback =
+    earn.length === 0 && !lead && due.length === 0
+      ? moneyFallback({ cards: a.cards, entered, hidden: a.hide, now, projects: base.projects, users: usersAsk(m, undefined), fresh: a.first.fresh })
+      : { money: null, pick: null };
+  const pick = lead ?? fallback.pick ?? undefined;
+  const view0: Omit<StandView, 'step' | 'news'> = { ...base, earn, fresh: null, due, money: fallback.money };
   // T10 (coinAllowed) fills the coin keys; none until then.
   const coinKeys = new Set<string>();
   const step0 = held || submit ? null : chooseStep(view0, { coin: (k) => coinKeys.has(k), build: null, host: hostFor(a.agentCanBuild) });
@@ -1300,7 +1294,7 @@ export const handlers = {
     // v2.12.1 T8 (spec 2): the person's own public data is re-read inside this call, within its
     // budget, in parallel with the reads below (stand-view.ts startRefresh). Never fails the tool.
     const start = Date.now();
-    let refresh: { within: () => Promise<void> } | null = null;
+    const refresh: { started: { within: () => Promise<void> } | null } = { started: null };
     if (scoring)
       await (async () => {
         const now = new Date();
@@ -1310,7 +1304,7 @@ export const handlers = {
         if (made.created || wallet) await setFallback(ctx.installationId, {});
         await noteIdentity(ctx.installationId, identity, now);
         await enqueueDiscovery(ctx.installationId, 'first_find');
-        refresh = startRefresh(ctx.installationId, { now, start, reader: ctx.readerDeps });
+        refresh.started = startRefresh(ctx.installationId, { now, start, reader: ctx.readerDeps });
       })().catch((err: unknown) => console.error('[list_programs] profile', err instanceof Error ? err.name : 'error'));
     // v2.9 B9, Rulings G6, G7, G9: on a shared client, the GitHub-verified login of the pasted code.
     const login = await sharedLogin(ctx, signed_in, 'list_programs');
@@ -1510,7 +1504,7 @@ export const handlers = {
     // the v2.11 tables, now without v2.12's second line and consent line. Flag off: everything below
     // is v2.11, byte for byte.
     if (scoring && profiled && !more) {
-      await (refresh as { within: () => Promise<void> } | null)?.within();
+      await refresh.started?.within();
       return standFind(ctx, {
         first, cards: withPools.filter((c) => !hide.has(c.id)), repos: yourRepos, myEntries, lastCheck, pickup, ask,
         alerts, agentCanBuild: agent_can_build, walletNote, programs, hide,
@@ -2872,6 +2866,7 @@ export const BUILD_ENTRY_NO_TOKEN_NOTE =
   'project: entry.project, answers: entry.answers and yes: true.';
 
 export { githubPagesOwner, pagesLinkOf } from './pages-link';
+export { buildStepLine } from './where-you-stand';
 
 /**
  * Plan S11: the `built` event, once per installation, repo and program
@@ -3215,12 +3210,15 @@ export const MOVE_UP_LATER_NOTE = 'Noted. This step is not available yet; nothin
 
 /**
  * v2.12.1 T8: the builder's answer to "How to move up". A no is skipped (asked again on a later
- * reply only if it is still the best step). A yes to `confirm` re-issues the link that shows the work
- * is theirs (stand-view.ts confirmYes); every other step's yes is T9's.
+ * reply only if it is still the best step). The step is the server's own (stand-view.ts currentStep):
+ * a yes to `confirm` re-issues the link that shows the work is theirs (confirmYes); every other
+ * step's yes is T9's.
  */
 async function moveUpAnswer(id: number, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no' }): Promise<Reply> {
   if (m.answer === 'no') return { show_to_builder: SKIPPED_LINE };
-  if (m.kind === 'confirm') return confirmYes(id, new Date());
+  // Fix round 1: the step is recomputed here; the agent's kind and project_key are never trusted.
+  const step = await currentStep(id);
+  if (step?.kind === 'confirm') return confirmYes(id, new Date());
   return { show_to_builder: '', agent_note: MOVE_UP_LATER_NOTE };
 }
 
@@ -3559,7 +3557,8 @@ export const tools = {
     // v2.12.1 fix rounds 1, 2: a pending join's one yes is asked once (pick_up, answered through tell).
     // T8: it is the reply's one question, last; the step up waits a reply.
     const join = builderScoreEnabled() && !ctx.sharedClient ? await askJoin(ctx.installationId) : null;
-    const reply = await scoreReply(ctx, new Date(), { hold: Boolean(join), reader: ctx.readerDeps });
+    const scored = await scoreReply(ctx, new Date(), { hold: Boolean(join), reader: ctx.readerDeps, fresh: freshSwitches(ctx, true) });
+    const reply = scored.build_offer ? { ...scored, build_offer: { ...scored.build_offer, agent_note: scored.build_offer.can_build ? BUILD_NOTE : PLAN_NOTE } } : scored;
     if (!join) return reply;
     const { question } = join;
     return { ...reply, show_to_builder: [reply.show_to_builder, question].filter(Boolean).join('\n\n'), pick_up: { question, agent_note: PICKUP_NOTE } };

@@ -8,7 +8,13 @@ import { r2Enabled } from './r2';
 import type { Standing } from './rank';
 import type { ReaderDeps } from './source-readers';
 import { upgradeToken } from './wallet-proof';
-import { confirmLinkLine, pageReadyLine, plainWhat, standingNews, type StandProject, type StandView } from './where-you-stand';
+import { chooseStep, confirmLinkLine, pageReadyLine, plainWhat, rollingLine, standingNews, usersMoneyLine, type EarnLine, type MoveUp, type StandProject, type StandView } from './where-you-stand';
+import { closeDayOf, prizeOf } from './entry-text';
+import { freshPick, type FreshPick } from './fresh-build';
+import { byPrize, type Card, type FreshOn } from './present';
+import { moneyText, openCurated } from './pool';
+import { newProgramOf, openCuratedRows, repoCanWin } from './alerts';
+import { readFitRepos } from './installations';
 
 /**
  * v2.12.1 T8: the reads and writes behind the three-part reply (where-you-stand.ts is pure): the
@@ -175,4 +181,84 @@ export async function confirmYes(id: number, now: Date): Promise<{ show_to_build
     });
   link ??= wallet();
   return link ? { show_to_builder: confirmLinkLine(link) } : { show_to_builder: '', agent_note: 'No link can be made right now. Ask again later.' };
+}
+
+// ---- Fix round 1: every reply has a way to earn -------------------------------------------------
+
+/** An earn line's prize: "up to $10K" from the per-winner award, else the summary's prize. Pure. */
+export const earnPrize = (c: { max_award_usd?: number | null; summary: string; investment?: boolean }) =>
+  c.max_award_usd ? `up to ${moneyText(c.max_award_usd)}` : prizeOf(c).split(' × ')[0];
+/** "closes Oct 14", or "open all year" for a rolling program. Pure. */
+export const earnWhen = (c: { summary: string; ends_at?: Date | null }) => {
+  const day = closeDayOf(c);
+  return day ? `closes ${day}` : 'open all year';
+};
+
+/** A program a person could still be shown: curated, open, never an investment, not entered or hidden. Pure. */
+const showable = (c: Card & { agent_completable?: boolean; earnkit_campaign?: boolean }, now: Date, skip: Set<string>) =>
+  !c.sponsored && !c.earnkit_campaign && !c.investment && c.agent_completable !== false && !skip.has(c.id) &&
+  openCurated(c as Parameters<typeof openCurated>[0], now);
+
+/**
+ * Fix round 1 (controller ruling): when no program fits a project and no build lead was made, the
+ * earn part still says how to earn, in this order: (a) a project that could win once people use it
+ * (find's users question, said as a statement), (b) the best open-all-year program, (c) a fresh build
+ * (freshPick directly, without v2.11's lead guards). Pure.
+ */
+export function moneyFallback(o: {
+  cards: Card[]; entered: Set<string>; hidden: Set<string>; now: Date; projects: StandProject[];
+  users?: { repo: string; key: string | null; card: Card };
+  fresh?: FreshOn;
+}): { money: string | null; pick: (FreshPick & { canBuild: boolean }) | null } {
+  if (o.users && !o.users.card.investment) {
+    const k = (o.users.key ?? o.users.repo).toLowerCase();
+    const p = o.projects.find((x) => x.key.toLowerCase() === k) ?? null;
+    return { money: usersMoneyLine(p, o.users.repo, o.users.card.title, earnPrize(o.users.card)), pick: null };
+  }
+  const skip = new Set([...o.entered, ...o.hidden]);
+  const rolling = o.cards.filter((c) => showable(c, o.now, skip) && closeDayOf(c) === null && (c.max_award_usd ?? 0) > 0).sort(byPrize)[0];
+  if (rolling) return { money: rollingLine(rolling.title, earnPrize(rolling), o.projects.length > 0), pick: null };
+  if (o.fresh) {
+    const pick = freshPick(o.cards, o.now, { hidden: o.hidden, entered: o.entered, deployOn: o.fresh.deployOn, hostOn: o.fresh.hostOn, starters: o.fresh.starters });
+    if (pick) return { money: null, pick: { ...pick, canBuild: o.fresh.canBuild } };
+  }
+  return { money: null, pick: null };
+}
+
+/**
+ * Fix round 1: the score reply's one earn line, by find's rules without a GitHub read: the biggest
+ * open program a remembered fitting project can win (alerts.ts repoCanWin over the fits find last
+ * saw), else moneyFallback's statement or build. `cards`: the open programs (listPrograms, agent
+ * completable). Never throws (no line on an error).
+ */
+export async function scoreEarn(
+  id: number,
+  o: { cards: Card[]; entered: Set<string>; hidden: Set<string>; now: Date; projects: StandProject[]; fresh?: FreshOn },
+): Promise<{ earn: EarnLine[]; money: string | null; pick: (FreshPick & { canBuild: boolean }) | null }> {
+  try {
+    const [fits, rows] = await Promise.all([readFitRepos(id), openCuratedRows()]);
+    const byId = new Map(rows.map((r) => [r.id, newProgramOf(r)]));
+    const skip = new Set([...o.entered, ...o.hidden]);
+    for (const c of o.cards.filter((x) => showable(x, o.now, skip)).sort(byPrize)) {
+      const np = byId.get(c.id);
+      const repo = np && fits.find((f) => repoCanWin(np, f));
+      if (!repo) continue;
+      const key = o.projects.find((p) => p.key.toLowerCase() === repo.key.toLowerCase())?.key ?? repo.key;
+      return { earn: [{ program_id: c.id, project: key, title: c.title, prize: earnPrize(c), when: earnWhen(c) }], money: null, pick: null };
+    }
+  } catch (err) {
+    console.error('[score] earn', err instanceof Error ? err.name : 'error');
+  }
+  return { earn: [], ...moneyFallback(o) };
+}
+
+/**
+ * Fix round 1: the person's step as the server sees it now, for a yes or no to "How to move up"
+ * (the agent's kind is never trusted). Coins wait for T10; hosting is judged as for an agent that
+ * builds. Null without a profile or a step.
+ */
+export async function currentStep(id: number): Promise<MoveUp | null> {
+  const v = await standBase(id);
+  if (!v) return null;
+  return chooseStep({ ...v.base, earn: [], fresh: null }, { coin: () => false, build: null, host: hostFor(true) });
 }
