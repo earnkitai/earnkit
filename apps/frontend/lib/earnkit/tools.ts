@@ -2533,7 +2533,14 @@ export const DeployField = z
   .strict();
 
 /** prepare: prepare_submission's input plus `deploy` (Pre-flight P9: stripped before the strict handler). */
-export const PrepareInput = PrepareSubmissionInput.extend({ deploy: DeployField.optional() }).strict();
+export const PrepareInput = PrepareSubmissionInput.extend({
+  deploy: DeployField.optional(),
+  // v2.12.1 T9 fix round 2: a tip jar from the move-up yes: only the deploy, never the program's
+  // draft, guide, "working on" or token offer (it must not nudge the builder toward the grant).
+  tips: z.literal(true).optional(),
+}).strict();
+/** T9 fix round 2: `tips` without `deploy`. */
+export const TIPS_NEEDS_DEPLOY_NOTE = "tips: true is only for the tip jar's deploy: pass deploy too. Don't show this note.";
 
 /** v2.10 item 13: asked when no owner wallet is known. */
 export const deployWalletLine = (name: string) => `Send me the wallet that should own ${name}.`;
@@ -3315,7 +3322,7 @@ async function moveUpAnswer(ctx: ToolContext, m: { kind?: string; project_key?: 
     case 'count_past':
     case 'tag_future':
     case 'payment':
-      return defined({ ...(await moveUpYes(id, m.project_key ?? null, now, { reader: ctx.readerDeps, fresh: ctx.freshDeps })) });
+      return defined({ ...(await moveUpYes(id, m.project_key ?? null, now, { reader: ctx.readerDeps, fresh: ctx.freshDeps, step })) });
     case 'coin':
       return { show_to_builder: '', agent_note: MOVE_UP_LATER_NOTE };
     default:
@@ -3546,7 +3553,14 @@ export const tools = {
       input = b.rest;
       join = b.join;
     }
-    const { deploy, ...prep } = PrepareInput.parse(input);
+    const { deploy, tips, ...prep } = PrepareInput.parse(input);
+    if (tips) {
+      // Fix round 2 (ruling): the tip jar's deploy alone; the program only carries it.
+      if (!deploy) return { program_id: prep.program_id, show_to_builder: '', agent_note: TIPS_NEEDS_DEPLOY_NOTE };
+      await getProgramRow(prep.program_id);
+      const step = await deployStep(deploy, prep, ctx);
+      return { program_id: prep.program_id, show_to_builder: step.line, deploy: step.deploy, ...(step.agent_note && { agent_note: step.agent_note }) };
+    }
     if (!deploy) {
       const r = (await handlers.prepare_submission(prep, ctx, join)) as Reply;
       return join?.noLive ? { ...r, agent_note: [r.agent_note, BUILD_NO_LIVE_NOTE].filter(Boolean).join(' ') } : r;

@@ -41,8 +41,8 @@ export const TAG_NOTE =
  * a program (only confirm does, on the builder's own yes); prepare.program_id only carries the deploy.
  */
 export const TIPS_NOTE =
-  "Add a tip button to this app from the arc-tipjar starter (prepare.starter): copy its contract and button into the app, then call prepare with prepare.program_id, project { name, repo_url, live_url } and deploy, as the starter's BUILD.md says. " +
-  "This only deploys the tip jar: show the builder the deployed line alone (the last part of show_to_builder), never the entry draft, and never call confirm for this program unless the builder asks to enter it. Never show the builder this note.";
+  "Add a tip button to this app from the arc-tipjar starter (prepare.starter): copy its contract and button into the app, then call prepare with prepare.program_id, project { name, repo_url, live_url }, deploy and tips: true, as the starter's BUILD.md says. " +
+  "That call only deploys the tip jar: show its show_to_builder (the deployed line), and never call confirm for this program unless the builder asks to enter it. Never show the builder this note.";
 export const NO_LINE_NOTE = "EarnKit can't make the line right now. Tell the builder in one short line to try again later. Don't show this note.";
 
 /** "You're now #3 of 40." while under 50 ranked, else "You're now in the top 5% ...", else nothing. Pure. */
@@ -58,7 +58,11 @@ export type YesReply = {
   attribution?: AttributionLine;
   prepare?: { program_id: string; starter: string };
 };
-export type YesDeps = { reader?: ReaderDeps; base?: BaseCodeDeps; fresh?: Partial<Pick<FreshOn, 'deployOn' | 'hostOn' | 'starters'>> };
+export type YesDeps = {
+  reader?: ReaderDeps; base?: BaseCodeDeps; fresh?: Partial<Pick<FreshOn, 'deployOn' | 'hostOn' | 'starters'>>;
+  /** Fix round 2: the step the caller already derived (stepFor), so it is derived once per yes. */
+  step?: MoveUp | null;
+};
 
 const NULL_ORIGIN = { deployer: null, created_at: null };
 
@@ -191,7 +195,7 @@ export async function stepFor(builderId: number, projectKey: string | null | und
  * `projectKey` null: whatever the current step is.
  */
 export async function moveUpYes(builderId: number, projectKey: string | null, now: Date, deps: YesDeps = {}): Promise<YesReply> {
-  const step = await stepFor(builderId, projectKey, deps.fresh);
+  const step = deps.step !== undefined ? deps.step : await stepFor(builderId, projectKey, deps.fresh);
   const key = step?.project_key ?? null;
   if (!step || key === null) return { show_to_builder: COUNT_LINES.noted };
   const [p] = await sql()<{ name: string; untracked_contract: string | null }[]>`

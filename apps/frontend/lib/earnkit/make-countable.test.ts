@@ -197,7 +197,7 @@ test('9.7 a payment side: the agent gets the tip-jar steps for that app; the dep
     assert.match(r.agent_note!, /arc-tipjar/);
     // Ruling 3: the tip jar never enters a grant the builder didn't choose.
     assert.match(r.agent_note!, /never call confirm for this program unless the builder asks/);
-    assert.match(r.agent_note!, /never the entry draft/);
+    assert.match(r.agent_note!, /tips: true/);
     const [entry] = await sql()`SELECT 1 FROM projects WHERE installation_id = ${id}`;
     assert.equal(entry, undefined);
     // Nothing EarnKit can deploy to: said plainly, nothing promised, and the step isn't offered.
@@ -420,3 +420,65 @@ test('9.15 go_live: a yes for another of their projects, or with no step, change
     assert.equal((await tell(id, { kind: 'go_live', project_key: 'lee/other', answer: 'yes' })).show_to_builder, 'Okay.');
   }),
 );
+
+test('9.18 (fix round 2) the tip deploy never nudges toward the grant: no draft, no "working on", no token offer remembered', dbTest, () =>
+  withTips(async (program) => {
+    const id = await claimed('tips_dev');
+    await siteProject(id, 'shop', 'Shop', 'a coffee shop site');
+    const { tools } = await import('./tools');
+    const was = process.env.DEPLOY_CHAINS;
+    // A deploy refused on its chain still went through the draft before: now nothing but the deploy line.
+    process.env.DEPLOY_CHAINS = 'base';
+    try {
+      const r = (await tools.prepare(
+        { program_id: program, project: { name: 'Shop', repo_url: 'https://github.com/lee/shop' }, tips: true,
+          deploy: { chain: 'arc', bytecode: '0x6080', abi: [{ type: 'constructor' }], owner_wallet: randomAddress() } },
+        { installationId: id } as never,
+      )) as { show_to_builder: string; deploy?: unknown; coach?: unknown };
+      assert.ok(r.deploy, 'the deploy step answered');
+      assert.ok(!('coach' in r));
+      assert.doesNotMatch(r.show_to_builder, /Ready to submit|What won|working on/i, r.show_to_builder);
+      const notip = (await tools.prepare({ program_id: program, tips: true }, { installationId: id } as never)) as { agent_note: string };
+      assert.match(notip.agent_note, /pass deploy too/);
+    } finally {
+      if (was === undefined) delete process.env.DEPLOY_CHAINS;
+      else process.env.DEPLOY_CHAINS = was;
+    }
+    const [i] = await sql()<{ working_on: string[] | null }[]>`SELECT working_on FROM installations WHERE id = ${id}`;
+    assert.ok(!(i.working_on ?? []).includes(program), 'never "working on" the grant');
+    const offers = await sql()`SELECT 1 FROM token_offers WHERE installation_id = ${id} AND program_id = ${program}`;
+    assert.equal(offers.length, 0, 'no token offer remembered');
+    await sql()`UPDATE builder_live SET read_at = now() WHERE builder_id = ${id}`;
+    const f = (await tools.find({}, { installationId: id } as never)) as { show_to_builder: string };
+    assert.doesNotMatch(f.show_to_builder, /working on/i, f.show_to_builder);
+  }),
+);
+
+test('9.19 (fix round 2) a program hidden in any installation of the person hides the tip jar', dbTest, () =>
+  withTips(async (program) => {
+    const id = await claimed('grp_dev');
+    await siteProject(id, 'shop', 'Shop', 'a coffee shop site');
+    assert.equal((await step(id))?.kind, 'payment');
+    const [{ id: member }] = await sql()<{ id: number }[]>`
+      INSERT INTO installations (token_hash, builder_id) VALUES (${`v2121-t9m-${randomBytes(8).toString('hex')}`}, ${id}) RETURNING id`;
+    await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status) VALUES (${member}, '', ${program}, 'not_interested')`;
+    assert.equal(await step(id), null);
+  }),
+);
+
+test('9.20 (fix round 2) a signed wallet\'s contract is theirs even when that wallet deployed another person\'s verified contract', dbTest, async () => {
+  const id = await claimed('dw_dev');
+  const [W, C] = [randomAddress(), randomAddress()];
+  await sql()`INSERT INTO person_wallets (wallet, builder_id) VALUES (${W}, ${id})`;
+  const other = await claimed('dw_other');
+  await sql()`
+    INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proposed_by, proof, verified_at, deployer)
+    VALUES (${other}, 'contract', ${`base:${randomAddress()}`}, 'x', 'verified', 'server', 'repo_link', now(), ${W})`;
+  const reader = fakeChain({ deployer: W, callers: 30 });
+  await agentContract(id, 'tokens.fun', `base:${C}`, reader);
+  const s0 = await step(id);
+  assert.equal(s0?.kind, 'count_past');
+  assert.match(s0!.line, /Want me to count them\?( Your rank goes up today\.)?$/, 'provable: never the link');
+  const r = await moveUpYes(id, `base:${C}`, NOW, { reader });
+  assert.match(r.show_to_builder, /^Done\. 30 people who used tokens\.fun now count\./);
+});

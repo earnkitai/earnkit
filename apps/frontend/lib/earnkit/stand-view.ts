@@ -13,7 +13,7 @@ import { r2Enabled } from './r2';
 import type { Standing } from './rank';
 import type { ReaderDeps } from './source-readers';
 import { upgradeToken } from './wallet-proof';
-import { chooseStep, paymentStepFits, confirmLinkLine, pageReadyLine, plainWhat, rollingLine, standingNews, usersMoneyLine, type EarnLine, type MoveUp, type StandProject, type StandView } from './where-you-stand';
+import { chooseStep, paymentStepFits, stepKey, confirmLinkLine, pageReadyLine, plainWhat, rollingLine, standingNews, usersMoneyLine, type EarnLine, type MoveUp, type StandProject, type StandView } from './where-you-stand';
 import { closeDayOf, prizeOf } from './entry-text';
 import { freshPick, type FreshPick } from './fresh-build';
 import { byPrize, type Card, type FreshOn } from './present';
@@ -82,8 +82,13 @@ export const TIPJAR = 'arc-tipjar';
 export async function tipsPick(id: number, now: Date, fresh: TipSwitches = {}): Promise<{ program_id: string; starter: string; entered: boolean } | null> {
   const cards = (await listPrograms()).filter((c) => c.fresh_build?.starter === TIPJAR);
   if (cards.length === 0) return null;
-  const memory = await readMemory({ installationId: id, login: '' }).catch(() => emptyMemory());
-  const hidden = hiddenIds(hiddenPrograms(memory, cards));
+  // Fix round 2: every installation of the person's group (their memory is per installation).
+  const group = (await sql()<{ id: number }[]>`SELECT id FROM installations WHERE COALESCE(builder_id, id) = ${id}`).map((r) => r.id);
+  const hidden = new Set<string>();
+  for (const member of group.length ? group : [id]) {
+    const memory = await readMemory({ installationId: member, login: '' }).catch(() => emptyMemory());
+    for (const h of hiddenIds(hiddenPrograms(memory, cards))) hidden.add(h);
+  }
   const rows = await sql()<{ program_id: string }[]>`
     SELECT DISTINCT p.program_id FROM projects p JOIN installations i ON i.id = p.installation_id
     WHERE COALESCE(i.builder_id, i.id) = ${id} AND p.program_id IN ${sql()(cards.map((c) => c.id))}`;
@@ -136,17 +141,16 @@ export async function standBase(id: number, o: { fresh?: TipSwitches } = {}): Pr
               WHERE COALESCE(i.builder_id, i.id) = ${id} AND d.status = 'deployed' AND d.address IS NOT NULL
                 AND d.chain || ':' || lower(d.address) = lower(p.untracked_contract))
           OR EXISTS (SELECT 1 FROM builder_sources s JOIN person_wallets w ON w.wallet = s.deployer AND w.builder_id = ${id}
-              WHERE s.builder_id = ${id} AND s.kind = 'contract' AND lower(s.ref) = lower(p.untracked_contract)
-                -- as contractOwnership: a deployer behind another person's verified contract proves nothing here
-                AND NOT EXISTS (SELECT 1 FROM builder_sources o WHERE o.kind = 'contract' AND o.state = 'verified'
-                  AND o.builder_id <> ${id} AND o.deployer = s.deployer)))) AS certain,
+              -- as contractOwnership: a proven wallet's contract is theirs (deploy_wallet comes before the
+              -- deployer-taken check, which only guards a repo deploy file's claim, repo_link)
+              WHERE s.builder_id = ${id} AND s.kind = 'contract' AND lower(s.ref) = lower(p.untracked_contract)))) AS certain,
       (EXISTS (SELECT 1 FROM builder_sources s WHERE s.builder_id = ${id} AND s.project_key = p.project_key AND s.kind = 'contract'
           AND s.state = 'verified' AND s.ref ~ '^(base|arc):')
         OR EXISTS (SELECT 1 FROM contract_deploys d JOIN installations i ON i.id = d.installation_id
           WHERE COALESCE(i.builder_id, i.id) = ${id} AND d.status = 'deployed' AND lower(d.repo_key) = lower(p.project_key))) AS tracked_tx
     FROM builder_projects p WHERE p.builder_id = ${id}
     ORDER BY p.shipped DESC, p.people DESC, p.last_active_at DESC NULLS LAST, p.project_key`;
-  const projects: StandProject[] = await Promise.all(rows.map(async (r) => ({
+  const projects: StandProject[] = rows.map((r) => ({
     key: r.project_key,
     name: r.name,
     what: plainWhat(r.what),
@@ -159,14 +163,14 @@ export async function standBase(id: number, o: { fresh?: TipSwitches } = {}): Pr
     untracked_contract: r.untracked_contract,
     // Task 4 sets untracked_contract only for a contract with callers; the count itself is T9's read.
     untracked_people: r.untracked_contract ? 1 : 0,
-    // T9: whether counting them moves the rank today: provable from stored facts (make-countable.ts
-    // countableNow) and, fix round 1, the rescore would not be held for review (trackingHeld).
-    certain: r.certain && !(await trackingHeld(id, r.untracked_contract!, new Date())),
+    // T9: provable from stored facts (make-countable.ts countableNow). `certain` (the count moves the
+    // rank today) is set below for the one count_past candidate only.
+    certain: false,
     provable: r.certain,
     tracked_tx: r.tracked_tx,
     app: r.kind === 'app',
     confirmed: r.confirmed,
-  })));
+  }));
   const claimed = s.claimed && Boolean(s.handle);
   const link = claimed ? null : await claimLink(id).catch((err: unknown) => {
     console.error('[stand] claim link', err instanceof Error ? err.name : 'error');
@@ -175,6 +179,12 @@ export async function standBase(id: number, o: { fresh?: TipSwitches } = {}): Pr
   const standing: Standing = { ranked: s.ranked, rank: s.rank, total: s.total };
   const seen = p.standing_seen && typeof p.standing_seen === 'object' ? (p.standing_seen as Seen) : {};
   const declined = declinedNow(seen, Date.now());
+  // Fix rounds 1, 2: "today" only when the rescore would not be held (trackingHeld, one rolled-back
+  // rescore), checked for the count_past candidate chooseStep would pick (shipped, untracked users, not
+  // declined), only when it is provable.
+  const pastKey = (k: string) => declined.includes(stepKey('count_past', k));
+  const past = projects.find((x) => x.shipped && x.untracked_contract && x.untracked_people > 0 && !pastKey(x.key));
+  if (past?.provable) past.certain = !(await trackingHeld(id, past.untracked_contract!, new Date()));
   // Fix round 1 (ruling 4): a step is offered only when its yes can deliver. `prove`: the one tap to
   // show work is theirs can be made (claimed: the wallet page needs the secret; unclaimed: the claim
   // link, X sign-in on). `tag`: the person code can be made. `tips`: a tip jar can be deployed now
