@@ -176,6 +176,34 @@ export async function setFallback(builderId: number, f: { github_login?: string;
   if (changed) profileChanged();
 }
 
+/**
+ * v2.12.1 T5 fix round 2 (login-contests.ts): the profile stops showing `login` as its GitHub (a
+ * contested login it no longer stands for). The login, its basis and prefill go, an X handle that came
+ * from that GitHub profile (never a claim) goes with them, and the work confirmed through the login
+ * (sign-in, repo owner, proof line, repo link) goes back to not yet confirmed (proposed: shown, never
+ * scored). The slug follows the remaining name. True when something changed.
+ */
+export async function releaseLogin(builderId: number, login: string): Promise<boolean> {
+  const done = await sql().begin(async (tx) => {
+    const [p] = await tx<(Profile & { x_user_id: string | null })[]>`
+      SELECT ${tx(COLUMNS)}, x_user_id FROM builder_profiles WHERE builder_id = ${builderId} AND lower(github_login) = ${login.toLowerCase()} FOR UPDATE`;
+    if (!p) return false;
+    const handle = p.x_user_id ? p.x_handle : null;
+    await tx`
+      UPDATE builder_profiles SET github_login = NULL, github_basis = NULL, twitter_prefill = NULL, x_handle = ${handle},
+        fallback_handle = CASE WHEN lower(fallback_handle) = ${login.toLowerCase()} THEN NULL ELSE fallback_handle END, updated_at = now()
+      WHERE builder_id = ${builderId}`;
+    await tx`
+      UPDATE builder_sources SET state = 'proposed', proof = NULL, verified_at = NULL
+      WHERE builder_id = ${builderId} AND state = 'verified' AND proof IN ('github_signin', 'repo_owner', 'proof_line', 'repo_link')`;
+    await tx`UPDATE builder_live SET read_at = NULL WHERE builder_id = ${builderId}`;
+    if (!handle) await followName(tx, builderId, { x_handle: null, github_login: null, slug: p.slug }, await firstWallet(tx, builderId), true);
+    return true;
+  });
+  if (done) profileChanged();
+  return done;
+}
+
 /** spec 7 "The offer", plan R5: 'yes' takes the prefill; a typed handle must equal it. Refused: nothing changes, no event. */
 export async function setXHandle(builderId: number, given: string): Promise<{ ok: true; slug: string } | { ok: false; agent_note: string }> {
   const p = await profileOf(builderId);
@@ -283,13 +311,13 @@ export async function resolveSlug(slug: string): Promise<{ builderId: number; re
  * Plan R3, inside linkInstallations' transaction. Sources move to the root (a duplicate is rejected,
  * 'merged'). The root's profile (the older group) wins (v2.12.1 fix round 1; else the other's, re-keyed),
  * filling gaps with the other's login, its v2.12 X handle and history (cleared before set, so the
- * one-login index holds); held and hidden are the kept group's (`keep`), else the root's. The losing slug redirects to the root. The merged-away id's rank is
+ * one-login index holds); hidden or held if either was. The losing slug redirects to the root. The merged-away id's rank is
  * dropped (its scores stay as history and no longer count). With EARNKIT_BUILDER_SCORE on and a
  * profile on either side, the person is rediscovered with both groups' clues. Flag off, no profile
  * and no source exist, so nothing is written.
  */
 /** True when a profile was re-keyed or merged (its page changes): the caller calls profileChanged() after commit. */
-export async function mergeProfiles(tx: postgres.TransactionSql, root: number, other: number, keep?: number): Promise<boolean> {
+export async function mergeProfiles(tx: postgres.TransactionSql, root: number, other: number): Promise<boolean> {
   if (root === other) return false;
   await tx`
     UPDATE builder_sources s SET builder_id = ${root} WHERE builder_id = ${other}
@@ -334,10 +362,9 @@ export async function mergeProfiles(tx: postgres.TransactionSql, root: number, o
   }
   // v2.12.1 fix round 1 (controller ruling): the older group (the root: its earliest installation)
   // always keeps its page; a newer side, claimed or not, never takes it over. Its claim (X user id,
-  // name, picture) is not carried over. Held and hidden are the kept group's (the one that said yes),
-  // else the root's: never the joining side's.
+  // name, picture) is not carried over. Fix round 2 addendum: hidden and held are either side's (hide
+  // wins; a held score stays under review), now that a merge needs both groups' yes.
   const [win, lose] = [r, o];
-  const kept = keep === other ? o : r;
   // The login and prefill travel together, a v2.12 X handle (one its GitHub lists, never a claim) with
   // them; the winner's own values win.
   const login = win.github_login ?? lose.github_login;
@@ -348,8 +375,8 @@ export async function mergeProfiles(tx: postgres.TransactionSql, root: number, o
     fallback_handle: fromLoser ? lose.github_login : (win.fallback_handle ?? lose.fallback_handle),
     // A prefill is the twitter_username of one login: it goes only with that login.
     twitter_prefill: fromLoser ? lose.twitter_prefill : win.github_login ? win.twitter_prefill : null,
-    hidden: kept.hidden,
-    held: kept.held,
+    hidden: r.hidden || o.hidden,
+    held: r.held || o.held,
     first_find_at: r.first_find_at < o.first_find_at ? r.first_find_at : o.first_find_at,
     card_offered_at: win.card_offered_at ?? lose.card_offered_at,
     x_asked_at: win.x_asked_at ?? lose.x_asked_at,

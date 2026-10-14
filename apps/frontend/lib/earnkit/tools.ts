@@ -146,7 +146,7 @@ import { SHARED_PROFILE_NOTE, X_SET_LINE, consentOnce, ensureProfile, profileOf,
 import { emptyReasonOf, pitchAllowed, publicScore, verifiedProject } from './builder-score';
 import { sql } from './db';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
-import { JOIN_QUESTIONS, JOIN_TEXT, answerJoin, answerPickup, offerPickup, pendingJoinOf, type PickupDeps } from './identity';
+import { JOIN_QUESTIONS, JOIN_TEXT, answerJoin, answerPickup, askJoin, offerPickup, pendingJoinOf, type PickupDeps } from './identity';
 import type { FieldKind } from './program-file';
 import type { ProgramRow } from './programs';
 import { RateLimitError, enforce } from './rate-limit';
@@ -1135,16 +1135,16 @@ export const handlers = {
     // v2.8.1 §E18: earlier installations of the builder this call names (its GitHub user, the owners
     // of the repos it reports, its wallet), never what this installation remembers; read before this
     // call's details are saved. Never fails the tool.
-    // Fix round 1: in its place, a group asked to take in another agent that proved its GitHub or X
-    // (identity.ts pendingJoinOf) sees that one yes first.
+    // Fix rounds 1, 2: in its place, each group of a pending join (another agent proved its GitHub or
+    // X) sees that one yes first, once (identity.ts askJoin).
     const join = scoring
-      ? await pendingJoinOf(ctx.installationId).catch((err: unknown) => {
+      ? await askJoin(ctx.installationId).catch((err: unknown) => {
           console.error('[list_programs] join', err instanceof Error ? err.name : 'error');
           return null;
         })
       : null;
     const pickup = join
-      ? { question: JOIN_QUESTIONS[join.tie], entries: 0 }
+      ? { question: join.question, entries: 0 }
       : !scoring && (github_user || repos?.length || local_repos?.length || wallet)
         ? await offerPickup(ctx.ownInstallationId ?? ctx.installationId, {
             github_users: [
@@ -2273,6 +2273,7 @@ export const handlers = {
     if (join && answer !== null) {
       const r = await answerJoin(ctx.installationId, answer);
       if (r === 'linked') return { show_to_builder: JOIN_TEXT.linked, agent_note: 'Call find again to show their page.' };
+      if (r === 'waiting') return { show_to_builder: JOIN_TEXT.waiting };
       if (r === 'declined') return { show_to_builder: JOIN_TEXT.declined };
     }
     if (answer === null)
@@ -3411,10 +3412,10 @@ export const tools = {
   // v2.12 spec 7: the builder's score (registered in mcp.ts only while EARNKIT_BUILDER_SCORE=on).
   score: async (_input: unknown, ctx: ToolContext) => {
     const reply = await scoreReply(ctx, new Date());
-    // v2.12.1 fix round 1: a pending join's one yes leads the reply (pick_up, answered through tell).
-    const join = builderScoreEnabled() && !ctx.sharedClient ? await pendingJoinOf(ctx.installationId) : null;
+    // v2.12.1 fix rounds 1, 2: a pending join's one yes leads the reply, once (pick_up, answered through tell).
+    const join = builderScoreEnabled() && !ctx.sharedClient ? await askJoin(ctx.installationId) : null;
     if (!join) return reply;
-    const question = JOIN_QUESTIONS[join.tie];
+    const { question } = join;
     return { ...reply, show_to_builder: [question, reply.show_to_builder].filter(Boolean).join('\n\n'), pick_up: { question, agent_note: PICKUP_NOTE } };
   },
 

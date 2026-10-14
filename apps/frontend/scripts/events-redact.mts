@@ -41,6 +41,7 @@ const LOGIN_COLUMNS: [table: string, column: string][] = [
   ['builder_profiles', 'reported_github'], // v2.12.1: the login the agent reported (never proof)
   ['builder_profiles', 'fallback_handle'],
   ['x_handle_conflicts', 'handle'],
+  ['login_contest_rulings', 'login'], // v2.12.1: the owner's ruling on a contested GitHub login
   ['builder_program_status', 'login'],
   ['builder_repo_facts', 'login'],
   ['token_declines', 'login'],

@@ -1363,3 +1363,17 @@ CREATE TABLE IF NOT EXISTS pending_joins (
   PRIMARY KEY (installation_id, target)
 );
 CREATE INDEX IF NOT EXISTS pending_joins_target ON pending_joins (target);
+-- v2.12.1 T5 fix round 2: a pending join merges only after a yes from both groups' agents, each asked
+-- once (asked_at) in its next find or score reply; either no deletes the row.
+ALTER TABLE pending_joins ADD COLUMN IF NOT EXISTS target_yes boolean;
+ALTER TABLE pending_joins ADD COLUMN IF NOT EXISTS joiner_yes boolean;
+ALTER TABLE pending_joins ADD COLUMN IF NOT EXISTS target_asked_at timestamptz;
+ALTER TABLE pending_joins ADD COLUMN IF NOT EXISTS joiner_asked_at timestamptz;
+-- A GitHub login proven by 2+ unlinked groups is contested: it confirms nothing for any of them except
+-- the group whose confirmed X is the one the GitHub profile lists, or the group the owner rules for
+-- here (/admin/scores). builder_id is an installation of that group (read through its root).
+CREATE TABLE IF NOT EXISTS login_contest_rulings (
+  login      text PRIMARY KEY CHECK (login = lower(login)),
+  builder_id integer NOT NULL,
+  ruled_at   timestamptz NOT NULL DEFAULT now()
+);

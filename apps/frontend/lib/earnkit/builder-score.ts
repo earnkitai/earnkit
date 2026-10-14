@@ -565,6 +565,9 @@ export async function scoresPost(request: Request, deps: { limit?: (ip: string) 
   const version = form.get('version');
   if (form.get('action') === 'clear_x') {
     if (valid) await clearXHandle(id, 'owner');
+  } else if (form.get('action') === 'rule_login') {
+    // v2.12.1 T5 fix round 2: a contested GitHub login counts for this group only (login-contests.ts).
+    if (valid) await (await import('./login-contests')).ruleContest(form.get('login') ?? '', id);
   } else if (valid && version) {
     // v2.12.1: release the pending live rescore the owner saw (its `at`), if it is still the pending
     // one; a newer rescore since is refused once (reload shows it), never forever.

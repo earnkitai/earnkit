@@ -279,10 +279,16 @@ export async function saveVerification(
   if (builderScoreEnabled()) await (await import('./discovery')).enqueueClue(row.installation_id, 'signin');
   // v2.12.1 spec "Identity": a sign-in proves the login, so installations signed in as it are one
   // person (never a shared client; never two X accounts). A failed join never fails the sign-in.
-  if (builderScoreEnabled())
+  // Fix rounds 1, 2: it never merges by itself (a pending join both groups must say yes to), and a
+  // login two unlinked groups prove is contested (login-contests.ts settleLogin).
+  if (builderScoreEnabled()) {
     await (await import('./identity'))
       .joinOnProvenTie(row.installation_id, { github_login: user.login })
       .catch((err: unknown) => console.error('[github-verify] join', err instanceof Error ? err.name : 'error'));
+    await (await import('./login-contests'))
+      .settleLogin(user.login)
+      .catch((err: unknown) => console.error('[github-verify] contest', err instanceof Error ? err.name : 'error'));
+  }
   return paste;
 }
 

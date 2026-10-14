@@ -17,7 +17,8 @@ import {
 import { loginBasisFor, repoEverDerived, type LoginProof } from './github-verify';
 import { ScoreDeadline, beforeDeadline } from './campaigns';
 import { fetchLinePusher } from './ownership';
-import { clearXHandle, setFallback } from './profiles';
+import { loginStands } from './login-contests';
+import { clearXHandle, releaseLogin, setFallback } from './profiles';
 import { GitHubBudgetStop, isBudgetStop, readContractOrigin, soft, type ReaderDeps, type RepoSignals } from './source-readers';
 import { claimContract, proposeSource, rejectSource, repoOwned, verifySource, type Proof } from './sources';
 import { proofLineOwner } from './token-gate';
@@ -260,11 +261,23 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
     const [own] = await db<{ login: string | null }[]>`SELECT lower(github_login) AS login FROM builder_profiles WHERE builder_id = ${root}`;
     if (taken || (own?.login && own.login !== proof.login.toLowerCase())) proof = null;
   }
+  // v2.12.1 T5 fix round 2: a contested login (two unlinked groups prove it) stands only for the group
+  // the owner ruled for, or whose confirmed X is the one this GitHub profile lists (login-contests.ts).
+  let read: { user: { blog?: string | null; twitter_username?: string | null } | null; clues: ReturnType<typeof githubProfileClues> } | null = null;
   if (proof) {
     const L = proof.login.toLowerCase();
-    const basis = proof.basis;
     const user = await d.gh<{ blog?: string | null; twitter_username?: string | null }>(`/users/${L}`);
-    const clues = githubProfileClues(user ?? {});
+    read = { user, clues: githubProfileClues(user ?? {}) };
+    if (!(await loginStands(root, L, read.clues.twitter ?? null))) {
+      // A login this profile shows but no longer stands for goes (with what it confirmed).
+      verdicts.push(async () => void (await releaseLogin(root, L)));
+      proof = null;
+    }
+  }
+  if (proof && read) {
+    const L = proof.login.toLowerCase();
+    const basis = proof.basis;
+    const { user, clues } = read;
     verdicts.unshift(async () => {
       await setFallback(root, { github_login: L, basis });
       // The latest GitHub read replaces the prefill (twitter_username is self-declared, so it can be

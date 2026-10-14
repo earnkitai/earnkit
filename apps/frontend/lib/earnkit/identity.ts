@@ -318,6 +318,9 @@ export type PickupResult =
  * pushed branch); until then, what to push. `own` is the calling installation, never its root.
  */
 export async function answerPickup(own: number, yes: boolean, deps: PickupDeps = {}): Promise<PickupResult> {
+  // v2.12.1 fix round 2: with the score flag on, people join only through a pending join both groups
+  // said yes to (answerJoin); an offer made before the flag went on never links.
+  if (builderScoreEnabled()) return { status: 'none' };
   const [row] = await sql()<{ pickup: PickupState | null }[]>`SELECT pickup FROM installations WHERE id = ${own}`;
   const state = row?.pickup ?? {};
   const offered = state.offered ?? [];
@@ -375,16 +378,13 @@ export async function answerPickup(own: number, yes: boolean, deps: PickupDeps =
  * stays). The root's memory keeps its own values, filling gaps from the others. One transaction.
  * Returns the group's entry count. Exported for tests.
  */
-export async function linkInstallations(own: number, roots: number[], o: { keep?: number } = {}): Promise<number> {
+export async function linkInstallations(own: number, roots: number[]): Promise<number> {
   let profilesMoved = false;
   const n = await sql().begin(async (tx) => {
     const [mine] = await tx<{ root: number }[]>`
       SELECT COALESCE(builder_id, id) AS root FROM installations WHERE id = ${own} FOR UPDATE`;
     const all = [...new Set([mine.root, ...roots])].sort((a, b) => a - b);
     const [root, ...others] = all;
-    // Fix round 1: the group whose held and hidden the person keeps (the one that said yes); it is
-    // the root once merged into it.
-    let keep = o.keep;
     for (const other of others) {
       // v2.12.1 spec "Identity": two people claimed with different X accounts are never one person,
       // whatever links them (a pickup, a proven tie): that group is left out.
@@ -442,8 +442,7 @@ export async function linkInstallations(own: number, roots: number[], o: { keep?
       await tx`UPDATE installations SET builder_id = ${root} WHERE id = ${other} OR builder_id = ${other}`;
       // v2.12 plan R3: the two people's profiles, sources and slugs become one (nothing exists, so
       // nothing is written, while EARNKIT_BUILDER_SCORE is off).
-      if (await mergeProfiles(tx, root, other, keep === other ? other : keep === root ? root : undefined)) profilesMoved = true;
-      if (keep === other) keep = root;
+      if (await mergeProfiles(tx, root, other)) profilesMoved = true;
     }
     const [{ n }] = await tx<{ n: number }[]>`
       SELECT count(*)::int AS n FROM projects WHERE installation_id = ${root}`;
@@ -467,6 +466,7 @@ export type JoinTie = keyof typeof JOIN_QUESTIONS;
 /** The builder's lines for their answer. */
 export const JOIN_TEXT = {
   linked: 'Done. That agent is on your page now.',
+  waiting: 'Okay. It joins once the other agent says yes too.',
   declined: 'Okay. That agent stays apart from your page.',
 } as const;
 
@@ -479,7 +479,8 @@ export const JOIN_TEXT = {
  *
  * Fix round 1 (controller ruling): a sign-in link can be completed by whoever it was sent to, so a
  * proof on this installation never merges it into a group that already holds the tie. Each such
- * group gets a pending join instead, and joins only on its own yes (answerJoin). With no other
+ * group gets a pending join instead. Fix round 2: it joins only after a yes from both groups' agents
+ * (answerJoin), each asked once (askJoin); either no deletes it. With no other
  * group holding it, the tie simply proves it here (nothing to join). Returns how many groups were
  * asked. T6 (the X claim) calls this with { x_user_id } before writing the claim.
  */
@@ -516,51 +517,76 @@ export async function joinOnProvenTie(installationId: number, tie: ProvenTie): P
     if (mine && theirs && mine !== theirs) continue; // two X accounts: two people
     await db`
       INSERT INTO pending_joins (installation_id, target, tie) VALUES (${installationId}, ${r}, ${kind})
-      ON CONFLICT (installation_id, target) DO UPDATE SET tie = EXCLUDED.tie, created_at = now()`;
+      ON CONFLICT (installation_id, target) DO NOTHING`;
     asked.push(r);
   }
   return asked.length;
 }
 
+type PendingRow = { installation_id: number; target: number; tie: JoinTie; side: 'target' | 'joiner'; asked: boolean };
+
 /**
- * The oldest pending join this group answers: another group's installation that proved a tie this
- * group already holds. Targets are read through their current root (a group merged since still
- * answers), and a join whose two sides are already one person is skipped. Null when none.
+ * The oldest pending join this group has not answered yet: as its target (it already held the tie) or
+ * as the joining side (its installation proved a tie another group holds). Groups are read through
+ * their current roots; a join whose two sides are already one person is skipped.
  */
-export async function pendingJoinOf(installationId: number): Promise<{ installation_id: number; tie: JoinTie } | null> {
-  const root = await rootOf(installationId);
-  const [row] = await sql()<{ installation_id: number; tie: JoinTie }[]>`
-    SELECT j.installation_id, j.tie FROM pending_joins j
+async function pendingRow(root: number): Promise<PendingRow | null> {
+  const [row] = await sql()<PendingRow[]>`
+    SELECT j.installation_id, j.target, j.tie,
+      CASE WHEN COALESCE(t.builder_id, t.id) = ${root} AND j.target_yes IS NULL THEN 'target' ELSE 'joiner' END AS side,
+      CASE WHEN COALESCE(t.builder_id, t.id) = ${root} AND j.target_yes IS NULL THEN j.target_asked_at IS NOT NULL
+        ELSE j.joiner_asked_at IS NOT NULL END AS asked
+    FROM pending_joins j
     JOIN installations t ON t.id = j.target
     JOIN installations i ON i.id = j.installation_id
-    WHERE COALESCE(t.builder_id, t.id) = ${root} AND COALESCE(i.builder_id, i.id) <> ${root}
+    WHERE COALESCE(t.builder_id, t.id) <> COALESCE(i.builder_id, i.id)
+      AND ((COALESCE(t.builder_id, t.id) = ${root} AND j.target_yes IS NULL)
+        OR (COALESCE(i.builder_id, i.id) = ${root} AND j.joiner_yes IS NULL))
     ORDER BY j.created_at, j.installation_id LIMIT 1`;
   return row ?? null;
 }
 
+/** This group's unanswered pending join (`installation_id` is the joining installation), or null. */
+export async function pendingJoinOf(installationId: number): Promise<{ installation_id: number; tie: JoinTie; side: 'target' | 'joiner' } | null> {
+  const row = await pendingRow(await rootOf(installationId));
+  return row ? { installation_id: row.installation_id, tie: row.tie, side: row.side } : null;
+}
+
 /**
- * This group's yes or no to its pending join (pendingJoinOf). Yes: the joining installation's group
- * joins this one, which keeps its page, its held and its hidden (linkInstallations' keep); never a
- * shared group, never two X accounts. No: the pending join is deleted. 'none': nothing pending.
+ * The join question this group's reply asks now, or null: each side is asked once (its next find or
+ * score reply); the answer, through tell, still works later.
  */
-export async function answerJoin(installationId: number, yes: boolean): Promise<'linked' | 'declined' | 'none'> {
+export async function askJoin(installationId: number): Promise<{ question: string } | null> {
+  if (!builderScoreEnabled()) return null;
+  const row = await pendingRow(await rootOf(installationId));
+  if (!row || row.asked) return null;
+  if (row.side === 'target')
+    await sql()`UPDATE pending_joins SET target_asked_at = now() WHERE installation_id = ${row.installation_id} AND target = ${row.target}`;
+  else await sql()`UPDATE pending_joins SET joiner_asked_at = now() WHERE installation_id = ${row.installation_id} AND target = ${row.target}`;
+  return { question: JOIN_QUESTIONS[row.tie] };
+}
+
+/**
+ * This group's yes or no to its pending join. No (from either side): the join is deleted. Yes: kept;
+ * once both groups said yes, the joining installation's group joins the target's (the older group
+ * keeps its page; hidden or held if either was); never a shared group, never two X accounts.
+ */
+export async function answerJoin(installationId: number, yes: boolean): Promise<'linked' | 'waiting' | 'declined' | 'none'> {
   if (!builderScoreEnabled()) return 'none';
-  const pending = await pendingJoinOf(installationId);
-  if (!pending) return 'none';
-  const root = await rootOf(installationId);
-  // This group's installations, read before any link (a merge can change the group's root).
-  const members = (await sql()<{ id: number }[]>`SELECT id FROM installations WHERE COALESCE(builder_id, id) = ${root}`).map((m) => m.id);
-  const drop = () => sql()`DELETE FROM pending_joins WHERE installation_id = ${pending.installation_id} AND target IN ${sql()(members)}`;
+  const row = await pendingRow(await rootOf(installationId));
+  if (!row) return 'none';
+  const key = sql()`installation_id = ${row.installation_id} AND target = ${row.target}`;
   if (!yes) {
-    await drop();
+    await sql()`DELETE FROM pending_joins WHERE ${key}`;
     return 'declined';
   }
-  const theirs = await rootOf(pending.installation_id);
-  if ((await sharedGroup(root)) || (await sharedGroup(theirs))) {
-    await drop();
-    return 'none';
-  }
-  await linkInstallations(installationId, [theirs], { keep: root });
-  await drop();
-  return (await rootOf(pending.installation_id)) === (await rootOf(installationId)) ? 'linked' : 'none';
+  const [both] = await sql()<{ both: boolean }[]>`
+    UPDATE pending_joins SET ${row.side === 'target' ? sql()`target_yes = true` : sql()`joiner_yes = true`}
+    WHERE ${key} RETURNING (target_yes AND joiner_yes) IS TRUE AS both`;
+  if (!both?.both) return 'waiting';
+  const [joiner, target] = [await rootOf(row.installation_id), await rootOf(row.target)];
+  await sql()`DELETE FROM pending_joins WHERE ${key}`;
+  if ((await sharedGroup(joiner)) || (await sharedGroup(target))) return 'none';
+  await linkInstallations(row.installation_id, [target]);
+  return (await rootOf(row.installation_id)) === (await rootOf(row.target)) ? 'linked' : 'none';
 }
