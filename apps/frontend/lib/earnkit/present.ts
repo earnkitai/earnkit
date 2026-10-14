@@ -551,7 +551,7 @@ const byRowLevel = (a: Pick<Fit, 'row'>, b: Pick<Fit, 'row'>) => levelRank(a.row
  * left is the builder's own submission on the program's site (submitStep), never "finish it" or
  * "keep going" again. Pure.
  */
-const enteredIds = (m: Pick<FirstMessage, 'entries'>) => new Set((m.entries ?? []).map((e) => e.program_id));
+export const enteredIds = (m: Pick<FirstMessage, 'entries'>) => new Set((m.entries ?? []).map((e) => e.program_id));
 
 /**
  * v2.10.1 B1: the entry whose only step left is the builder's submission on the program's site: the
@@ -613,7 +613,7 @@ const programCell = (c: Card, entered: Set<string>, noRepoYet: boolean) =>
  * investment, and never a program that counts only new work when the repo is existing work (its
  * verdict still needs new work). Pure.
  */
-const qualifies = (r: Fit) => r.odds === 'good' && !r.card.investment && !r.v.missing.includes('new_work');
+export const qualifies = (r: Fit) => r.odds === 'good' && !r.card.investment && !r.v.missing.includes('new_work');
 
 /**
  * What the first message shows: the programs the builder's repos fit (each curated program once,

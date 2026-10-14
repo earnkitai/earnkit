@@ -23,7 +23,10 @@ import {
 import { FILL_LINES, HELD_LINE, MORE_USERS_LINE, SCORE_NOTES, SCORE_SHARED, SITE_LINE, SITE_TXT_LINE, WORKING_LINE, nextAction, programLine, scoreLines, youLine } from './score-tool';
 import { computeScore } from './score';
 import { calibration } from './score-calibration';
-import { CARD_OFFER_NOTE, SHARE_LINE, SKIPPED_LINE, cardOffer, findOfferLine, xAsk } from './share';
+import { CARD_OFFER_NOTE, POST_LINE, SHARE_LINE, SKIPPED_LINE, cardOffer, claimFirstLine, findOfferLine, xAsk } from './share';
+import { EARN_NOTE, MOVE_UP_NOTE, chooseStep, confirmLinkLine, newsOpener, pageReadyLine, standingNews, whereYouStand, type StandProject, type StandView } from './where-you-stand';
+import { MOVE_UP_LATER_NOTE, buildStepLine } from './tools';
+import { SEND_LINK_NOTE } from './score-tool';
 import { CONSENT_LINE, HIDDEN_LINE, NO_PROFILE_LINE, SHARED_PROFILE_NOTE, SHOWN_LINE, X_NOT_LISTED_NOTE, X_SET_LINE, X_TAKEN_NOTE } from './profiles';
 import { OWNERSHIP_FOR_TOKEN, SCORE_DESCRIPTION, SERVER_INSTRUCTIONS, TELL_DESCRIPTION, TELL_DESCRIPTION_SCORE, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { bonusLine, presentFirstMessage, skippedLine, submitStepLine, type Card, type FirstMessage } from './present';
@@ -998,6 +1001,42 @@ const scoreLinesSample = scoreLines({
   next: nextAction({ parts: computeScore([{ key: 'k', title: 'k', users: 40, money_usd: 0, outcomes: [], first_outcome_at: null, last_used_at: null, commit_weeks: [] }], calibration(), new Date('2026-10-12T12:00:00Z')).parts, missing: null, hasPackage: false, hasSite: false }),
   program: programLine({ title: 'Arc Microgrants', prize: '500 USDC' }),
 });
+// v2.12.1 T8: the three-part reply, its steps, the news and page-ready lines, the card answers.
+const sp = (o: Partial<StandProject> & { key: string; name: string }): StandProject => ({
+  what: null, shipped: true, people: 0, has_coin: false, sends_tx: false, tagged: false, untracked_contract: null, untracked_people: 0, certain: false, app: true, ...o,
+});
+const standBaseView: Omit<StandView, 'step' | 'news'> = {
+  standing: { ranked: true, rank: 3, total: 40 }, claimed: false, handle: null, claimLink: 'earnkit.com/claim/abcdefghijkl',
+  projects: [sp({ key: 'r', name: 'Recipes', what: 'a recipe planner' }), sp({ key: 't', name: 'TipJar', what: 'a tip jar', sends_tx: true })],
+  earn: [{ program_id: 'p', project: 't', title: 'Arc Microgrants', prize: 'up to $500', when: 'closes Oct 14' }], fresh: null,
+};
+const noCoin = { coin: () => false, build: null };
+const stepLines = (projects: StandProject[], o: Partial<Omit<StandView, 'step' | 'news'>> = {}, host?: (k: string) => boolean) =>
+  chooseStep({ ...standBaseView, ...o, projects }, { ...noCoin, host })?.line ?? '';
+export const v2121Texts: [string, string][] = [
+  ['whereYouStand target', whereYouStand({ ...standBaseView, step: chooseStep(standBaseView, noCoin), news: null })],
+  ['whereYouStand claimed', whereYouStand({ ...standBaseView, claimed: true, handle: 'lee', claimLink: null, step: null, news: null })],
+  ['whereYouStand none live', whereYouStand({ ...standBaseView, earn: [], projects: standBaseView.projects.map((p) => ({ ...p, shipped: false })), step: null, news: null })],
+  ['whereYouStand nothing', whereYouStand({ ...standBaseView, projects: [], earn: [], fresh: { title: 'Arc Microgrants', prize: '500 USDC' }, step: chooseStep({ ...standBaseView, projects: [] }, noCoin), news: null })],
+  ['step count_past certain', stepLines([sp({ key: 'k', name: 'Keep', untracked_contract: 'base:0x1', untracked_people: 3, certain: true })])],
+  ['step count_past uncertain', stepLines([sp({ key: 'k', name: 'Keep', untracked_contract: 'base:0x1', untracked_people: 3 })])],
+  ['step confirm one', stepLines([sp({ key: 'k', name: 'Keep', what: 'a tip jar', confirmed: false })], { claimed: true, handle: 'lee' })],
+  ['step confirm many', stepLines([sp({ key: 'k', name: 'K', confirmed: false }), sp({ key: 'j', name: 'J', confirmed: false })], { claimed: true, handle: 'lee' })],
+  ['step tag_future plain', stepLines([sp({ key: 'g', name: 'Game', what: 'a puzzle game', sends_tx: true })])],
+  ['step payment', stepLines([sp({ key: 's', name: 'Shop', what: 'a coffee shop site' })])],
+  ['step go_live', stepLines([sp({ key: 'a/b', name: 'B', what: 'a budget tracker', shipped: false })], {}, () => true)],
+  ['buildStepLine', buildStepLine('Arc Microgrants', '500 USDC', true)],
+  ['buildStepLine chat', buildStepLine('Arc Microgrants', '500 USDC', false)],
+  ['standingNews people', standingNews({ rank: 5, people: { t: 1 }, at: '2026-10-10T00:00:00Z' }, { standing: { ranked: true, rank: 3, total: 40 }, projects: [{ key: 't', name: 'TipJar', people: 13 }] }, new Date('2026-10-14T00:00:00Z'), true)!.line],
+  ['standingNews top', standingNews({ rank: 40, at: '2026-09-01T00:00:00Z' }, { standing: { ranked: true, rank: 12, total: 120 }, projects: [] }, new Date('2026-10-14T00:00:00Z'), false)!.line],
+  ['newsOpener page ready', newsOpener([], [pageReadyLine('earnkit.com/claim/abcdefghijkl')])!],
+  ['confirmLinkLine', confirmLinkLine('https://earnkit.com/claim/wallet?t=1.2.x')],
+  ['POST_LINE', POST_LINE('lee')],
+  ['claimFirstLine', claimFirstLine('earnkit.com/claim/abcdefghijkl')],
+];
+/** The coin step (spec 3b's words: T10 owns the coin wording rule), checked by the v2.12.1 test only. */
+const v2121CoinStep = chooseStep({ ...standBaseView, projects: [sp({ key: 'b', name: 'Busy', people: 9, tagged: true })] }, { coin: () => true, build: null })!.line;
+
 const builderFacing: [string, string][] = [
   ...v29Part1Texts,
   // v2.11 T5 (5.3): a starter's "what" is builder copy (the fresh lead line).
@@ -1104,6 +1143,7 @@ const builderFacing: [string, string][] = [
   // v2.12 final review: above the top 50% the score alone; the terms' builder-profiles points.
   ['youLine above 50%', youLine({ score: 7, percentile: 31, slug: 'lee' })],
   ...PROFILES_POINTS.map((p, i): [string, string] => [`PROFILES_POINTS.${i}`, p]),
+  ...v2121Texts,
 ];
 
 // noCoinYet is the AGENT's note (never shown to the builder as written; see entry-text.ts), so it
@@ -1203,6 +1243,11 @@ const agentFacing: [string, string][] = [
   ['CARD_OFFER_NOTE', CARD_OFFER_NOTE],
   ['SHARE_LINE', SHARE_LINE('lee')],
   ['SKIPPED_LINE', SKIPPED_LINE],
+  // v2.12.1 T8: the move-up, earn and link notes.
+  ['MOVE_UP_NOTE', MOVE_UP_NOTE],
+  ['EARN_NOTE', EARN_NOTE],
+  ['SEND_LINK_NOTE', SEND_LINK_NOTE],
+  ['MOVE_UP_LATER_NOTE', MOVE_UP_LATER_NOTE],
   ['BUILD_ENTRY_NO_TOKEN_NOTE', BUILD_ENTRY_NO_TOKEN_NOTE],
   ['STORAGE_NOTE', STORAGE_NOTE],
   ['UPLOAD_NOTE', UPLOAD_NOTE],
@@ -1612,4 +1657,19 @@ test('final fix I3: the Pages note publishes site_dir as the root of a gh-pages 
   assert.ok(BUILD_PAGES_NOTE.includes("`gh api -X POST repos/<owner>/<repo>/pages -f 'source[branch]=gh-pages' -f 'source[path]=/'`"));
   assert.ok(BUILD_PAGES_NOTE.includes('https://<owner>.github.io/<repo>/'));
   for (const note of [BUILD_PAGES_NOTE, BUILD_HOLD_NOTE]) assert.match(note, /15 minutes/, 'final fix I2: the fallback');
+});
+
+test('v2.12.1 T8 copy rule: plain sentences, sentence case, no jargon, no period after a link, one question at most', () => {
+  const names = ['Arc Microgrants', 'TipJar', 'Keep', 'Recipes'];
+  const banned = /\b(outcome|percentile|verified source|contract|wallet address|builder code|repo|commit|onchain|base|arc|monad|tempo|ethereum|robinhood chain)\b/i;
+  for (const [label, text] of [...v2121Texts, ['coin step', v2121CoinStep] as [string, string]]) {
+    assert.ok(text.length > 0, label);
+    const unnamed = names.reduce((t, n) => t.split(n).join('Name'), text);
+    assert.doesNotMatch(unnamed, banned, label);
+    assert.doesNotMatch(text, /\u2014|\p{Extended_Pictographic}/u, label);
+    assert.doesNotMatch(text, /\b[A-Z]{3,}\b(?<!USDC)/, label);
+    assert.doesNotMatch(text, /(earnkit\.com|https:)\S*\.(\s|$)/, label);
+    assert.ok((text.match(/\?/g) ?? []).length <= 1, label);
+    for (const line of text.split('\n').filter(Boolean)) assert.match(line, /^([A-Z0-9#$]|Name)/, `${label}: ${line}`);
+  }
 });

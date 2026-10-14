@@ -105,17 +105,19 @@ test('4.14 v2.12, 5 v2.12.1: flag off, find is v2.11 (no local_git or identity, 
   }
 });
 
-test('7.12 v2.12: flag off, tell is v2.11 (no profile or x_handle, the v2.11 description); flag on, it takes both under 800 characters', async () => {
+test('7.12 v2.12, v2.12.1 T8: flag off, tell is v2.11 (no profile, card, move_up or x_handle); flag on, it takes profile, card and move_up (no x_handle) under 800 characters', async () => {
   const off = (await listed({})).tools.find((t) => t.name === 'tell')!;
-  assert.ok(!('profile' in (off.inputSchema.properties ?? {})) && !('x_handle' in (off.inputSchema.properties ?? {})));
+  for (const k of ['profile', 'x_handle', 'card', 'move_up']) assert.ok(!(k in (off.inputSchema.properties ?? {})), k);
   assert.equal(off.description, TELL_DESCRIPTION);
   process.env.EARNKIT_BUILDER_SCORE = 'on';
   try {
     const on = (await listed({})).tools.find((t) => t.name === 'tell')!;
-    assert.ok('profile' in (on.inputSchema.properties ?? {}) && 'x_handle' in (on.inputSchema.properties ?? {}));
+    for (const k of ['profile', 'card', 'move_up']) assert.ok(k in (on.inputSchema.properties ?? {}), k);
+    assert.ok(!('x_handle' in (on.inputSchema.properties ?? {})), 'the X claim sets the handle');
     assert.equal(on.description, TELL_DESCRIPTION_SCORE);
     assert.ok(on.description!.length < 800, String(on.description!.length));
-    assert.match(on.description!, /profile: "hide" or "show" when they say so\. x_handle: the X handle they confirmed\./);
+    assert.match(on.description!, /profile: "hide" or "show" when they say so\. card: "yes" or "skip" to the card question\. move_up: their answer to the last line/);
+    assert.doesNotMatch(on.description!, /x_handle/);
   } finally {
     delete process.env.EARNKIT_BUILDER_SCORE;
   }

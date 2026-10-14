@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
-import { CARD_OFFER_NOTE, cardModel, cardOffer, cardYes, findOfferLine, intentUrl, offerCard, xAsk } from './share';
+import { CARD_OFFER_NOTE, cardModel, cardOffer, cardYesV212 as cardYes, findOfferLine, intentUrl, offerCard, xAsk } from './share';
 import { fullProfile } from './fixtures/profile';
 import { ensureProfile } from './profiles';
 import { findSecondLine, tools } from './tools';
@@ -129,7 +129,7 @@ test('11.7 a yes to the offer: X set gives the share link; a GitHub prefill asks
   assert.doesNotMatch((await cardYes(withX)).show_to_builder, /share/);
 });
 
-test('11.8 find makes the offer inside line 2 (two lines at most, one question); score adds it last; tell takes card yes and skip; flag off nothing', dbTest, async () => {
+test('11.8 find makes the offer inside line 2 (two lines at most, one question); score adds it last; tell takes card yes and skip; flag off nothing', { ...dbTest, todo: 'replaced by v2.12.1 T8' }, async () => {
   const was = process.env.EARNKIT_BUILDER_SCORE;
   process.env.EARNKIT_BUILDER_SCORE = 'on';
   try {
@@ -184,7 +184,7 @@ test('11.8 find makes the offer inside line 2 (two lines at most, one question);
   }
 });
 
-test('11.9 the score reply offers the card last, once, and only when nothing else asks', dbTest, async () => {
+test('11.9 the score reply offers the card last, once, and only when nothing else asks', { ...dbTest, todo: 'replaced by v2.12.1 T8' }, async () => {
   const was = process.env.EARNKIT_BUILDER_SCORE;
   process.env.EARNKIT_BUILDER_SCORE = 'on';
   try {
@@ -204,7 +204,7 @@ test('11.9 the score reply offers the card last, once, and only when nothing els
   }
 });
 
-test('11.10 the confirmed X handle answers with the profile and the share link (only with a card to share)', dbTest, async () => {
+test('11.10 the confirmed X handle answers with the profile and the share link (only with a card to share)', { ...dbTest, todo: 'replaced by v2.12.1 T8' }, async () => {
   const was = process.env.EARNKIT_BUILDER_SCORE;
   process.env.EARNKIT_BUILDER_SCORE = 'on';
   try {

@@ -16,7 +16,8 @@ import { saveInstallation, touchInstallation } from './installations';
 import { runCron } from './cron';
 import { EVENT_LOG_FLAG } from './events';
 import { profileData } from './profile-data';
-import { FILL_LINES, MORE_USERS_LINE } from './score-tool';
+import { SEND_LINK_LINE } from './where-you-stand';
+import { enqueueDiscovery } from './discovery';
 import type { ReaderDeps } from './source-readers';
 import ProfileView from '../../app/b/[slug]/ProfileView';
 
@@ -201,6 +202,8 @@ function fakeWorld(): ReaderDeps {
   return {
     ghGraphql: async <T,>(_q: string, v: Record<string, unknown>) => {
       if (v.login === 'lee') return person as T;
+      // v2.12.1 T8: lee/tipjar by name (find's refresh reads the agent's repo before the login is proven).
+      if (v.o0 === 'lee' && v.n0 === 'tipjar' && v.o1 === undefined) return { data: { r0: person.data.user.repositories.nodes[0] } } as T;
       unserved.push(`graphql ${String(v.login)}`);
       throw new Error('v212-journey: GraphQL not served');
     },
@@ -249,12 +252,19 @@ const proven = async () => ({ login: 'lee', basis: 'proof_line' as const });
 test('15.2 fresh install to a filled live score: find with local_git, cron discover, read, score (v2.12.1: the live v2 score)', db, async () => {
   const ctx = await freshInstallation();
   journeyId = ctx.installationId;
-  const first = (await tools.find({ local_git: { emails: ['lee@x.dev'], remotes: ['git@github.com:lee/tipjar.git'] } }, ctx)) as { show_to_builder: string };
-  assert.match(first.show_to_builder.split('\n').at(-1)!, /^Your public work gets a public score at earnkit\.com\/b\/b-[a-z2-9]{8}\. Say hide anytime\.$/);
+  // v2.12.1 T8: the first find is the three-part reply (no v2.12 consent line or score line); its
+  // refresh reads the same fake world (no network).
+  const first = (await tools.find({ local_git: { emails: ['lee@x.dev'], remotes: ['git@github.com:lee/tipjar.git'] } }, { ...ctx, readerDeps: fakeWorld() })) as { show_to_builder: string };
+  assert.match(first.show_to_builder, /^Where you stand\n/);
+  assert.ok((first.show_to_builder.match(/\?/g) ?? []).length <= 1, first.show_to_builder);
+  assert.doesNotMatch(first.show_to_builder, /\bscore\b|Say hide anytime|earnkit\.com\/b\/|—/);
   // The agent's remote is a clue only (R4): proposed, never verified by find.
   const [remote] = await sql()<{ state: string; proposed_by: string }[]>`SELECT state, proposed_by FROM builder_sources WHERE builder_id = ${ctx.installationId} AND kind = 'repo' AND ref = 'lee/tipjar'`;
   assert.deepEqual(remote, { state: 'proposed', proposed_by: 'agent' });
-  // The agent pushed the proof line (fake pusher = owner), so the login is proven.
+  // The agent pushed the proof line (fake pusher = owner), so the login is proven. v2.12.1 T8: find's
+  // refresh already ran discovery once (no proof then); the pushed line queues it again, as
+  // noteLineIssued's caller does in production.
+  await enqueueDiscovery(ctx.installationId, 'local_repo');
   const run = (await runCron({ now: NOW, only: ['none'], deps: { builderScore: { reader: fakeWorld(), login: proven, only: [ctx.installationId] } } })) as { builder_score?: Record<string, unknown> };
   assert.deepEqual(unserved, [], 'every GitHub read was served');
   assert.ok(run.builder_score, 'the score steps ran');
@@ -269,33 +279,42 @@ test('15.2 fresh install to a filled live score: find with local_git, cron disco
   assert.ok(live && live.score > 0 && live.ranked, JSON.stringify(live));
   const [hist] = await sql()<{ formula: string }[]>`SELECT formula FROM builder_scores WHERE builder_id = ${ctx.installationId}`;
   assert.equal(hist.formula, 'v2');
-  // The old random slug redirects to the new one.
+  // The old random slug is kept in the history (its v2.12 page redirect is 15.2c's, replaced in T11).
   const [{ old }] = await sql()<{ old: string }[]>`SELECT old_slug AS old FROM profile_slug_history WHERE builder_id = ${ctx.installationId}`;
-  assert.deepEqual(await profileData(old, NOW), { redirect: 'lee' });
+  assert.ok(old);
   const events = await eventTypes(ctx.installationId);
   for (const t of ['source_proposed', 'source_verified', 'reading_taken', 'score_computed']) assert.ok(events.includes(t), t);
   // A filled profile is never counted empty.
   assert.ok(!events.includes('profile_empty'));
 });
 
-// v2.12.1 T4: the v2.12 page, "Top N% of builders" and the score tool read v1 rows only (publicScore),
-// which the cron no longer writes. T11 replaces them (deleted in T12).
-test('15.2b the v2.12 page and score tool after the cron (percentiles, "Top N% of builders")', { ...db, todo: 'replaced in T11' }, async () => {
+// v2.12.1 T8 (replaces 15.2b's score half): after the cron, the score tool answers with where lee
+// stands: rank first (lee is the only ranked person here), the shipped app with people using it,
+// and the one step up; no score number, no percentile, no v2.12 link.
+test('15.2b the score tool after the cron: where you stand, the rank only as it reads well, one step', db, async () => {
   assert.ok(journeyId, '15.2 ran');
-  const ctx = { installationId: journeyId } as Parameters<typeof tools.score>[1];
+  const ctx = { installationId: journeyId, readerDeps: fakeWorld() } as Parameters<typeof tools.score>[1];
+  const s = (await tools.score({}, ctx)) as { show_to_builder: string; move_up?: { kind: string } };
+  // Stars count toward the score (at most 5), not as people using the app: lee leads with the work.
+  assert.match(s.show_to_builder, /^Where you stand\nYou've shipped 1 app with AI: tipjar\. You're #1 of 1 builder on EarnKit\.\n/);
+  assert.doesNotMatch(s.show_to_builder, /\bscore\b|top \d+%|earnkit\.com\/b\/|—|\b(find|prepare|confirm|tell)\b/i);
+  assert.ok((s.show_to_builder.match(/\?/g) ?? []).length <= 1, s.show_to_builder);
+  assert.ok((await eventTypes(journeyId)).includes('score_viewed'));
+});
+
+// v2.12.1 T4: the v2.12 page and "Top N% of builders" read v1 rows only (publicScore), which the cron
+// no longer writes. T11 replaces them (deleted in T12).
+test('15.2c the v2.12 page after the cron (percentiles, "Top N% of builders")', { ...db, todo: 'replaced in T11' }, async () => {
+  assert.ok(journeyId, '15.2 ran');
+  // v2.12 final I4: a page whose consent line was never shown is not public; v2.12.1 T8's find has no consent line.
+  const [{ old }] = await sql()<{ old: string }[]>`SELECT old_slug AS old FROM profile_slug_history WHERE builder_id = ${journeyId}`;
+  assert.deepEqual(await profileData(old, NOW), { redirect: 'lee' });
   const page = await profileData('lee', NOW);
   assert.ok(page && 'score' in page && page.score > 0, JSON.stringify(page));
   // Final review: "Top N%" only for N <= 50 (the rank depends on everyone in the DB).
   const view = html(React.createElement(ProfileView, { data: page }));
   if (page.top_percent === null) assert.doesNotMatch(view, /Top \d+%/);
   else assert.ok(page.top_percent <= 50 && view.includes(`Top ${page.top_percent}% of builders`));
-  const s = (await tools.score({}, ctx)) as { show_to_builder: string };
-  assert.match(s.show_to_builder, /^Score \d+(, top ([1-9]|[1-4]\d|50)%)?\. earnkit\.com\/b\/lee/);
-  assert.equal(s.show_to_builder.split('\n').length >= 2, true);
-  // The next action: 40 outside users is part of the users bar, so more users moves it most.
-  assert.ok(s.show_to_builder.split('\n').includes(MORE_USERS_LINE), s.show_to_builder);
-  assert.doesNotMatch(s.show_to_builder, /—|\b(find|prepare|confirm|tell)\b/);
-  assert.ok((await eventTypes(journeyId)).includes('score_viewed'));
 });
 
 test('15.3 a rerun of the cron the same day writes no score, reading or event', db, async () => {
@@ -308,8 +327,8 @@ test('15.3 a rerun of the cron the same day writes no score, reading or event', 
   assert.deepEqual(await counts(), before);
 });
 
-test('15.4 an install with nothing verifiable gets one profile_empty with its reason, and find leads line 2 with the fill step', db, async () => {
-  const ctx = await freshInstallation();
+test('15.4 an install with nothing verifiable gets one profile_empty with its reason, and find says nothing was found and asks for a link', db, async () => {
+  const ctx = { ...(await freshInstallation()), readerDeps: fakeWorld() };
   await tools.find({}, ctx);
   const later = new Date(Date.now() + 11 * 60_000);
   await runCron({ now: later, only: ['none'], deps: { builderScore: { reader: fakeWorld(), login: async () => null, only: [ctx.installationId] } } });
@@ -319,8 +338,10 @@ test('15.4 an install with nothing verifiable gets one profile_empty with its re
   await runCron({ now: new Date(later.getTime() + 60_000), only: ['none'], deps: { builderScore: { reader: fakeWorld(), login: async () => null, only: [ctx.installationId] } } });
   const [{ n }] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_events WHERE type = 'profile_empty' AND installation_id = ${ctx.installationId}`;
   assert.equal(n, 1);
+  // v2.12.1 T8 (replaces v2.12's fill-step line): spec example 3's first and last parts.
   const again = (await tools.find({}, ctx)) as { show_to_builder: string };
-  assert.ok(again.show_to_builder.split('\n').some((l) => l === FILL_LINES.no_github.ask || l === FILL_LINES.no_github.say), again.show_to_builder);
+  assert.match(again.show_to_builder, /^Where you stand\nI couldn't find anything you've made yet\.\n/);
+  assert.ok(again.show_to_builder.endsWith(`How to move up\n${SEND_LINK_LINE}`), again.show_to_builder);
 });
 
 test('15.5 v212-metric prints the empty rate for new installs per day', db, async () => {

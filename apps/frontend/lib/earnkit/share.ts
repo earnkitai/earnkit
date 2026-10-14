@@ -5,6 +5,8 @@ import { noteEvent } from './events';
 import { HIDDEN_LINE, profileOf } from './profiles';
 import { FALLBACK_NAME, type ProfileData } from './profile-data';
 import { shownTop } from './score';
+import { claimLink } from './claim';
+import { pagePath } from './reserved-routes';
 
 /**
  * v2.12 spec 7 "Share card", "The offer": the card's words, the once-only offer, the X ask. EarnKit
@@ -82,13 +84,33 @@ export async function offerCard(builderId: number, lineOneAsks: boolean): Promis
   return cardOffer(top);
 }
 
+/** v2.12.1 T8: the share link of a claimed page (the share route records card_shared, then opens X). */
+export const POST_LINE = (handle: string) => `Post it: https://earnkit.com${pagePath(handle)}/share`;
+export const claimFirstLine = (link: string) => `Claim your page with X first: ${link}`;
+
 /**
- * A yes to the offer. X shown: the share link. Else, with a proven GitHub login, the X ask once:
+ * v2.12.1 T8 (spec 5): a yes to "Want a card to share it?". X is confirmed by the claim, so a
+ * claimed page gets its share link at once; someone who never claimed gets the claim link first.
+ * Hidden: the hidden line. No page to share: nothing shown, an agent note.
+ */
+export async function cardYes(builderId: number): Promise<{ show_to_builder: string; agent_note?: string }> {
+  const [p] = await sql()<{ hidden: boolean; x_user_id: string | null; x_handle: string | null }[]>`
+    SELECT hidden, x_user_id, x_handle FROM builder_profiles WHERE builder_id = ${builderId}`;
+  if (!p) return { show_to_builder: '', agent_note: 'There is no page to share yet.' };
+  if (p.hidden) return { show_to_builder: HIDDEN_LINE };
+  if (p.x_user_id && p.x_handle) return { show_to_builder: POST_LINE(p.x_handle) };
+  const link = await claimLink(builderId);
+  return link ? { show_to_builder: claimFirstLine(link) } : { show_to_builder: '', agent_note: 'There is no page to share yet.' };
+}
+
+/**
+ * v2.12's yes to the offer (replaced by cardYes above in v2.12.1 T8; its tests still run until T12).
+ * X shown: the share link. Else, with a proven GitHub login, the X ask once:
  * "Use @name?" with GitHub's prefill, or (none listed) add it there and say done, after which
  * GitHub is read again within the hour. Asked before, or no login (a handle could never be
  * shown): the share link as the card is.
  */
-export async function cardYes(builderId: number): Promise<{ show_to_builder: string; agent_note?: string }> {
+export async function cardYesV212(builderId: number): Promise<{ show_to_builder: string; agent_note?: string }> {
   const p = await profileOf(builderId);
   if (!p) return { show_to_builder: '' };
   if (p.hidden) return { show_to_builder: HIDDEN_LINE };

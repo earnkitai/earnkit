@@ -693,12 +693,15 @@ test('5.12 phishing: a victim completing a sign-in link made for an attacker\'s 
     assert.notEqual(await rootOf(attacker.id), await rootOf(victim.id), 'no merge');
     assert.equal((await pendingJoinOf(victim.id))?.side, 'target');
     assert.equal((await pendingJoinOf(attacker.id))?.side, 'joiner');
-    // Each agent's next find carries the one yes, first, once.
+    // Each agent's next find carries the one yes, once. v2.12.1 T8: it is the reply's last line (the
+    // three-part reply has no step up then; the step waits a reply).
     for (const id of [victim.id, attacker.id]) {
-      const out = (await handlers.list_programs({}, ctxOf(id))) as { show_to_builder: string; pick_up?: { question: string } };
+      const out = (await handlers.list_programs({}, ctxOf(id))) as { show_to_builder: string; pick_up?: { question: string }; move_up?: unknown };
       // T6 carry: the target is asked about the other agent, the joining agent about itself.
       const want = id === victim.id ? JOIN_QUESTIONS.github_login : JOIN_QUESTIONS_JOINER.github_login;
-      assert.ok(out.show_to_builder.startsWith(want), out.show_to_builder);
+      assert.ok(out.show_to_builder.startsWith('Where you stand\n') && out.show_to_builder.endsWith(`\n\n${want}`), out.show_to_builder);
+      assert.doesNotMatch(out.show_to_builder, /How to move up/);
+      assert.ok(!('move_up' in out));
       assert.equal(out.pick_up?.question, want);
       assert.equal((out.show_to_builder.match(/\?/g) ?? []).length, 1, 'one question');
       const again = JSON.stringify(await handlers.list_programs({}, ctxOf(id)));

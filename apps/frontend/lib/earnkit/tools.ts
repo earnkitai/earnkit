@@ -18,7 +18,7 @@ import {
 } from './projects';
 import { EntryError, githubRepo, givenWallet, isWalletAddress, normalizeRepoUrl, presentYourEntries } from './campaigns';
 import { signToEnter } from './entry-proof';
-import { confirmTable, enteredText, noCoinYet, todoOf, type EnteredText } from './entry-text';
+import { closeDayOf, confirmTable, enteredText, noCoinYet, prizeOf, todoOf, type EnteredText } from './entry-text';
 import { proposeToken, repoNameOf, titleCase, tokensFunTickerCheck } from './token-proposal';
 import { DECLINES_MAX, declines, firstReplyShown, offerIdentity, offerKey, readOffer, readShownOffer, recordDecline, saveOffer, type Offered } from './token-offers';
 import { earnkitCampaignRows, yourCampaignEntries } from './leaderboard';
@@ -63,7 +63,10 @@ import {
   enterableWithoutRepo,
   layout,
   leadRow,
+  qualifies,
+  enteredIds,
   submitStep,
+  submitStepLine,
   usersAsk,
   presentFirstMessage,
   programUpdates,
@@ -140,9 +143,13 @@ import { noteEvent } from './events';
 import { builderScoreEnabled } from './builder-score-flag';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { identityInput, noteIdentity } from './identity-input';
-import { scoreReply, secondLine } from './score-tool';
-import { CARD_OFFER_NOTE, SHARE_LINE, SKIPPED_LINE, cardYes, findOfferLine, offerCard } from './share';
-import { SHARED_PROFILE_NOTE, X_SET_LINE, consentOnce, ensureProfile, profileOf, setFallback, setHidden, setXHandle } from './profiles';
+import { SEND_LINK_NOTE, scoreReply, secondLine } from './score-tool';
+import { moneyText } from './pool';
+import { EARN_NOTE, MOVE_UP_NOTE, chooseStep, newsOpener, whereYouStand, type EarnLine, type MoveUp, type StandView } from './where-you-stand';
+import { confirmYes, hostFor, standBase, startRefresh, takeNews, takePageReady } from './stand-view';
+import type { ReaderDeps } from './source-readers';
+import { SKIPPED_LINE, cardYes, findOfferLine, offerCard } from './share';
+import { SHARED_PROFILE_NOTE, ensureProfile, profileOf, setFallback, setHidden } from './profiles';
 import { emptyReasonOf, pitchAllowed, publicScore, verifiedProject } from './builder-score';
 import { sql } from './db';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
@@ -196,6 +203,8 @@ export type ToolContext = {
    * starter registry; each defaults to the real one (freshSwitches).
    */
   freshDeps?: Partial<Pick<FreshOn, 'deployOn' | 'hostOn' | 'starters'>>;
+  /** v2.12.1 T8: test injection only: the on-demand refresh's readers (person-score.ts refreshPerson). */
+  readerDeps?: ReaderDeps;
 };
 
 /**
@@ -1120,6 +1129,131 @@ export async function findSecondLine(id: number, lineOneAsks: boolean): Promise<
   return { line: offered ? findOfferLine(second.line) : second.line, fill: second.fill, offered: Boolean(offered) };
 }
 
+/** v2.12.1 T8: the step lines the reply ends on when no project of theirs has a better one: the fresh build, money first. Pure. */
+export const buildStepLine = (title: string, prize: string, canBuild: boolean) =>
+  canBuild
+    ? `${title} pays ${prize} for a small app. Want me to build one with you? It takes about an hour.`
+    : `${title} pays ${prize} for a small app. A coding agent can build it in about an hour. Want the plan?`;
+
+/** An earn line's prize: "up to $10K" from the per-winner award, else the summary's prize. Pure. */
+const earnPrize = (c: { max_award_usd?: number | null; summary: string; investment?: boolean }) =>
+  c.max_award_usd ? `up to ${moneyText(c.max_award_usd)}` : prizeOf(c).split(' × ')[0];
+
+/**
+ * v2.12.1 T8 (spec 2, 4): find's reply with the score flag on. The person's view (stand-view.ts),
+ * up to 3 programs their projects qualify for, the one step up, any news since they last looked,
+ * and the one-time "Your page is ready". One question per reply: a pending join (or an outcome
+ * question) is asked first and the step waits a reply; an entry waiting on the builder's own
+ * submission asks that instead of a step. Never fails on its own reads: a failed view read falls
+ * back to an empty view.
+ */
+async function standFind(
+  ctx: ToolContext,
+  a: {
+    first: FirstMessage;
+    cards: FirstMessage['cards'];
+    repos: YourRepos | null;
+    myEntries: NonNullable<FirstMessage['entries']>;
+    lastCheck: Date | null;
+    pickup: { question: string } | null;
+    ask: { project_id: number; program_id: string; name: string; program_title: string } | null;
+    alerts: { lines: string[]; scheduleNote: string | null };
+    agentCanBuild: boolean;
+    walletNote: string | null;
+    programs: { id: string; title: string; summary: string; deadline: unknown; tag: string | null; verified_at: Date | null; any_chain?: boolean }[];
+    hide: Set<string>;
+  },
+): Promise<Reply> {
+  const id = ctx.installationId;
+  const now = a.first.now;
+  const m = { cards: a.cards, repos: a.repos, entries: a.myEntries, now };
+  const entered = enteredIds(m);
+  const read = await standBase(id).catch((err: unknown) => {
+    console.error('[list_programs] stand', err instanceof Error ? err.name : 'error');
+    return null;
+  });
+  const base = read?.base ?? { standing: { ranked: false, rank: 0, total: 0 }, claimed: false, handle: null, claimLink: null, projects: [] };
+  // Ways to earn: the programs a project qualifies for (good odds, never an investment or one that
+  // needs new work), not entered, at most 3, each under the project that fits it best.
+  const rows = layout(m, entered).rows.filter((r) => qualifies(r) && !r.card.sponsored && !entered.has(r.card.id)).slice(0, 3);
+  const keyOf = (k: string) => base.projects.find((p) => p.key.toLowerCase() === k.toLowerCase())?.key ?? k;
+  const earn: EarnLine[] = rows.map((r) => {
+    const day = closeDayOf(r.card);
+    return { program_id: r.card.id, project: keyOf(r.key ?? r.repo), title: r.card.title, prize: earnPrize(r.card), when: day ? `closes ${day}` : 'open all year' };
+  });
+  // One question per reply: a join (or the outcome question) first; an entry waiting on their submission next.
+  const held = Boolean(a.pickup || a.ask);
+  const submit = held ? undefined : submitStep(m);
+  const due = [...(a.first.deadline ? [a.first.deadline] : []), ...(submit ? [submitStepLine(submit)] : [])];
+  // Money in every reply: with no program to name, the fresh build fills the earn part (or is the step).
+  const pick = earn.length === 0 ? freshLead({ ...a.first, holdQuestion: held || Boolean(submit) }) : undefined;
+  const view0: Omit<StandView, 'step' | 'news'> = { ...base, earn, fresh: null, due };
+  // T10 (coinAllowed) fills the coin keys; none until then.
+  const coinKeys = new Set<string>();
+  const step0 = held || submit ? null : chooseStep(view0, { coin: (k) => coinKeys.has(k), build: null, host: hostFor(a.agentCanBuild) });
+  let step: MoveUp | null = step0;
+  let fresh: StandView['fresh'] = null;
+  if (pick) {
+    const prize = prizeOf(pick.card).split(' × ')[0];
+    if (step0) fresh = { title: pick.card.title, prize };
+    else step = { kind: 'build', project_key: null, line: buildStepLine(pick.card.title, prize, pick.canBuild) };
+  }
+  // News and the page-ready line open the reply ("Since you last checked"); the card is asked only
+  // when nothing else in the reply asks. Never fails the tool.
+  const asks = held || Boolean(submit) || Boolean(step?.line.includes('?'));
+  const news = read
+    ? await takeNews(id, read.seen, base, now, !asks).catch((err: unknown) => {
+        console.error('[list_programs] news', err instanceof Error ? err.name : 'error');
+        return null;
+      })
+    : null;
+  const ready = read
+    ? await takePageReady(id, { lastCheck: a.lastCheck, created_at: read.created_at, page_ready_shown_at: read.page_ready_shown_at, claimed: base.claimed, link: base.claimLink, projects: base.projects.length }).catch(
+        (err: unknown) => {
+          console.error('[list_programs] page ready', err instanceof Error ? err.name : 'error');
+          return null;
+        },
+      )
+    : null;
+  const claim = base.claimLink;
+  // The link shows once: in the page-ready line when there is one.
+  const view: StandView = { ...view0, claimLink: ready ? null : base.claimLink, fresh, step, news };
+  const opener = newsOpener(a.alerts.lines, [news, ready].filter((x): x is string => Boolean(x)));
+  const shown = [opener, whereYouStand(view), a.pickup?.question].filter(Boolean).join('\n\n');
+  if (pick?.canBuild)
+    await markFreshOffer(id, now).catch((err: unknown) => console.error('[list_programs] fresh offer', err instanceof Error ? err.name : 'error'));
+  await recordShown(
+    id,
+    rows.flatMap((r) =>
+      r.key && r.row
+        ? [{ program_id: r.card.id, repo_key: r.key, status: r.v.status, product_score: r.product_score, row_level: r.row.level, traction: r.product_score === null ? null : r.traction }]
+        : [],
+    ),
+  ).catch((err: unknown) => console.error('[list_programs] match shown', err instanceof Error ? err.name : 'error'));
+  const asked = step && step.kind !== 'send_link' && step.kind !== 'build' ? step : null;
+  return {
+    show_to_builder: shown,
+    note: ['Show show_to_builder to the builder exactly as written.', EARN_NOTE, step?.kind === 'send_link' ? SEND_LINK_NOTE : null].filter(Boolean).join(' '),
+    ...(a.pickup && { pick_up: { question: a.pickup.question, agent_note: PICKUP_NOTE } }),
+    ...(earn[0] && !submit && { lead: { program_id: earn[0].program_id, repo: rows[0].repo } }),
+    ...(submit && { lead: { program_id: submit.card.id, step: 'submit', ...(submit.entry.id !== undefined && { project_id: submit.entry.id }) } }),
+    ...(asked && { move_up: { kind: asked.kind, project_key: asked.project_key, agent_note: MOVE_UP_NOTE } }),
+    ...(pick && { build_offer: { program_id: pick.card.id, starter_id: pick.starter.id, agent_note: pick.canBuild ? BUILD_NOTE : PLAN_NOTE } }),
+    ...((ready || view.claimLink) && claim && { claim: { link: claim } }),
+    ...(a.walletNote && { wallet_note: a.walletNote }),
+    ...(a.alerts.scheduleNote && { schedule_daily_check: a.alerts.scheduleNote }),
+    ...(a.ask && {
+      ask_outcome: { project_id: a.ask.project_id, program_id: a.ask.program_id, question: outcomeQuestion(a.ask.name, a.ask.program_title), agent_note: ASK_OUTCOME_NOTE },
+    }),
+    matches:
+      a.repos && 'fits' in a.repos
+        ? matchRows(a.repos.fits, new Set(a.programs.filter((p) => p.any_chain).map((p) => p.id))).filter((r) => !a.hide.has(r.program_id))
+        : [],
+    working_on: a.first.workingOn,
+    programs: a.programs.map((p) => ({ id: p.id, title: p.title, summary: p.summary, deadline: p.deadline, tag: p.tag, verified_at: p.verified_at?.toISOString().slice(0, 10) ?? null })),
+  };
+}
+
 /**
  * v2.10 item 4: the v2.9 tool handlers, unchanged except their agent notes. The 4 builder tools
  * (`tools` below) dispatch to them; tests call them directly.
@@ -1163,6 +1297,10 @@ export const handlers = {
     // wallet until a login is proven) and its clues. Never fails the tool and never waits on a read.
     // A shared group gets none (R2).
     let profiled = false as boolean;
+    // v2.12.1 T8 (spec 2): the person's own public data is re-read inside this call, within its
+    // budget, in parallel with the reads below (stand-view.ts startRefresh). Never fails the tool.
+    const start = Date.now();
+    let refresh: { within: () => Promise<void> } | null = null;
     if (scoring)
       await (async () => {
         const now = new Date();
@@ -1172,6 +1310,7 @@ export const handlers = {
         if (made.created || wallet) await setFallback(ctx.installationId, {});
         await noteIdentity(ctx.installationId, identity, now);
         await enqueueDiscovery(ctx.installationId, 'first_find');
+        refresh = startRefresh(ctx.installationId, { now, start, reader: ctx.readerDeps });
       })().catch((err: unknown) => console.error('[list_programs] profile', err instanceof Error ? err.name : 'error'));
     // v2.9 B9, Rulings G6, G7, G9: on a shared client, the GitHub-verified login of the pasted code.
     const login = await sharedLogin(ctx, signed_in, 'list_programs');
@@ -1366,6 +1505,17 @@ export const handlers = {
     // v2.12 final review (T9): under the pitch score, no builder bonus line (it is funded by a token).
     // Flag off, pitchAllowed is true without a read (v2.11).
     first.noBonus = !(await pitchAllowed(ctx.installationId).catch(() => false));
+    // v2.12.1 T8 (spec 2): with the score flag on, the three-part reply (where you stand, ways to
+    // earn right now, how to move up) replaces the short v2.11 reply. "Show more" (more: true) keeps
+    // the v2.11 tables, now without v2.12's second line and consent line. Flag off: everything below
+    // is v2.11, byte for byte.
+    if (scoring && profiled && !more) {
+      await (refresh as { within: () => Promise<void> } | null)?.within();
+      return standFind(ctx, {
+        first, cards: withPools.filter((c) => !hide.has(c.id)), repos: yourRepos, myEntries, lastCheck, pickup, ask,
+        alerts, agentCanBuild: agent_can_build, walletNote, programs, hide,
+      });
+    }
     // v2.10 item 5: no token offer here; the token is pitched once, at confirmation.
     const show_to_builder = presentFirstMessage(first);
     // v2.11 T7: the no-repo lead the reply shows, if any (presentFirstMessage's own rule), for
@@ -1398,30 +1548,10 @@ export const handlers = {
       ),
     ).catch((err: unknown) => console.error('[list_programs] match shown', err instanceof Error ? err.name : 'error'));
 
-    // v2.12 spec 1: the consent line ends the reply once, marked shown only now, as the reply goes
-    // out (a find that failed after the profile was made shows it next time). Never fails the tool.
-    const consent = profiled
-      ? await consentOnce(ctx.installationId).catch((err: unknown) => {
-          console.error('[list_programs] consent', err instanceof Error ? err.name : 'error');
-          return null;
-        })
-      : null;
-    // v2.12 spec 7 (R13, R14): line 2, the person's score or the one step that fills the profile. The
-    // first find's consent line takes its place (one line after the lead, at most). Never fails the tool.
-    const lineOneAsks = /\?/.test(show_to_builder) || Boolean(pickup) || first.holdQuestion === true;
-    const second =
-      profiled && !consent
-        ? await findSecondLine(ctx.installationId, lineOneAsks).catch((err: unknown) => {
-            console.error('[list_programs] score line', err instanceof Error ? err.name : 'error');
-            return null;
-          })
-        : null;
-    const shown = [show_to_builder, second?.line, consent].filter(Boolean).join('\n');
+    const shown = show_to_builder;
     return {
       show_to_builder: pickup ? [pickup.question, shown].filter(Boolean).join('\n\n') : shown,
       ...(pickup && { pick_up: { question: pickup.question, agent_note: PICKUP_NOTE } }),
-      ...(second?.fill && { score_step: { agent_note: SCORE_STEP_NOTE } }),
-      ...(second?.offered && { card_offer: { agent_note: CARD_OFFER_NOTE } }),
       note:
         'Show show_to_builder to the builder exactly as written. ' +
         (!own && (user || repoList?.length || local?.length)
@@ -3063,6 +3193,11 @@ export const TellToolInput = z
     x_handle: z.string().max(20).optional(),
     // v2.12 spec 7: the builder's answer to the card offer ("skip" is one word).
     card: z.enum(['yes', 'skip']).optional(),
+    // v2.12.1 T8: the builder's yes or no to "How to move up" (find's or score's move_up).
+    move_up: z
+      .object({ kind: z.string().max(20).optional(), project_key: z.string().max(300).nullable().optional(), answer: z.enum(['yes', 'no']) })
+      .strict()
+      .optional(),
     // Read by tell_earnkit (builder-memory.ts TellInput).
     program_status: z.unknown().optional(),
     repo_facts: z.unknown().optional(),
@@ -3073,15 +3208,21 @@ export const TellToolInput = z
 
 type Reply = Record<string, unknown>;
 
-/** v2.12 spec 7: the X handle reply, with the share link. Refused (not on their proven GitHub profile): nothing shown, an agent note. */
-async function xHandleReply(builderId: number, given: string): Promise<Reply> {
-  const r = await setXHandle(builderId, given);
-  if (!r.ok) return { show_to_builder: '', agent_note: r.agent_note };
-  // The share link only when there is a card to share (a public score above 0).
-  const pub = await publicScore(builderId);
-  return { show_to_builder: pub && pub.score > 0 ? `${X_SET_LINE(r.slug)} ${SHARE_LINE(r.slug)}` : X_SET_LINE(r.slug) };
-}
 const defined = (o: Reply): Reply => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
+
+/** v2.12.1 T8: what tell says to a move-up step whose yes is not built yet (T9 builds them). */
+export const MOVE_UP_LATER_NOTE = 'Noted. This step is not available yet; nothing to show the builder.';
+
+/**
+ * v2.12.1 T8: the builder's answer to "How to move up". A no is skipped (asked again on a later
+ * reply only if it is still the best step). A yes to `confirm` re-issues the link that shows the work
+ * is theirs (stand-view.ts confirmYes); every other step's yes is T9's.
+ */
+async function moveUpAnswer(id: number, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no' }): Promise<Reply> {
+  if (m.answer === 'no') return { show_to_builder: SKIPPED_LINE };
+  if (m.kind === 'confirm') return confirmYes(id, new Date());
+  return { show_to_builder: '', agent_note: MOVE_UP_LATER_NOTE };
+}
 
 /** find with program_id and repo: the eligibility check as one plain line, or null. Pure; exported for tests. */
 export function eligibilityLine(repo: string, e: unknown): string | null {
@@ -3391,17 +3532,20 @@ export const tools = {
 
   // R16: what the builder said: pickup, then "I submitted", then statements; replies joined.
   tell: async (input: unknown, ctx: ToolContext) => {
-    const { pickup, submitted, signed_in, profile, x_handle, card, ...rest } = TellToolInput.parse(input ?? {});
+    // v2.12.1 T8: x_handle is no longer taken with the flag on (the page's handle is the X claim's);
+    // it is ignored, as with the flag off (v2.11).
+    const { pickup, submitted, signed_in, profile, x_handle, card, move_up, ...rest } = TellToolInput.parse(input ?? {});
+    void x_handle;
     const statements = defined(rest);
     const replies: Reply[] = [];
-    // v2.12 spec 8: "hide" and "show"; spec 7: the X handle the builder confirmed. Flag off: ignored (v2.11).
-    if (builderScoreEnabled() && ctx.sharedClient && (profile || x_handle !== undefined || card))
+    // v2.12 spec 8: "hide" and "show". v2.12.1 T8: the card and the move-up answers. Flag off: ignored (v2.11).
+    if (builderScoreEnabled() && ctx.sharedClient && (profile || card || move_up))
       replies.push({ show_to_builder: '', agent_note: SHARED_PROFILE_NOTE });
     else if (builderScoreEnabled()) {
       if (profile) replies.push({ show_to_builder: await setHidden(ctx.installationId, profile === 'hide') });
-      if (x_handle !== undefined) replies.push(await xHandleReply(ctx.installationId, x_handle));
       if (card === 'yes') replies.push(await cardYes(ctx.installationId));
       if (card === 'skip') replies.push({ show_to_builder: SKIPPED_LINE });
+      if (move_up) replies.push(await moveUpAnswer(ctx.installationId, move_up));
     }
     if (pickup !== undefined) replies.push((await handlers.pick_up_entries({ answer: pickup }, ctx)) as Reply);
     if (submitted) replies.push((await markSubmitted(submitted, signed_in, ctx)) as Reply);
@@ -3412,12 +3556,13 @@ export const tools = {
 
   // v2.12 spec 7: the builder's score (registered in mcp.ts only while EARNKIT_BUILDER_SCORE=on).
   score: async (_input: unknown, ctx: ToolContext) => {
-    const reply = await scoreReply(ctx, new Date());
-    // v2.12.1 fix rounds 1, 2: a pending join's one yes leads the reply, once (pick_up, answered through tell).
+    // v2.12.1 fix rounds 1, 2: a pending join's one yes is asked once (pick_up, answered through tell).
+    // T8: it is the reply's one question, last; the step up waits a reply.
     const join = builderScoreEnabled() && !ctx.sharedClient ? await askJoin(ctx.installationId) : null;
+    const reply = await scoreReply(ctx, new Date(), { hold: Boolean(join), reader: ctx.readerDeps });
     if (!join) return reply;
     const { question } = join;
-    return { ...reply, show_to_builder: [question, reply.show_to_builder].filter(Boolean).join('\n\n'), pick_up: { question, agent_note: PICKUP_NOTE } };
+    return { ...reply, show_to_builder: [reply.show_to_builder, question].filter(Boolean).join('\n\n'), pick_up: { question, agent_note: PICKUP_NOTE } };
   },
 
 } satisfies Record<string, (input: unknown, ctx: ToolContext) => Promise<unknown>>;

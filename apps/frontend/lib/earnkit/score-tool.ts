@@ -10,6 +10,12 @@ import { listPrograms } from './programs';
 import { CARD_OFFER_NOTE, offerCard } from './share';
 import { MAX, partDeltas, shownTop, type Parts } from './score';
 import { tokenLineFor } from './token-gate';
+import type { ReaderDeps } from './source-readers';
+import { hostFor, standBase, startRefresh } from './stand-view';
+import { MOVE_UP_NOTE, chooseStep, whereYouStand, type MoveUp } from './where-you-stand';
+
+/** v2.12.1 T8: the agent's note when the step asks for a link (find says the same). */
+export const SEND_LINK_NOTE = 'When the builder sends a link to something they made, pass it to find in identity.projects (live_url or repo).';
 
 /**
  * v2.12 spec 7: the `score` tool's reply (registered only while EARNKIT_BUILDER_SCORE=on): the
@@ -129,12 +135,53 @@ type SourceFact = { kind: string; ref: string; project_key: string; state: strin
 const DAY_MS = 86_400_000;
 const lines = (...xs: (string | null)[]) => xs.filter((x): x is string => Boolean(x)).join('\n');
 
+/** v2.12.1 T8: the score tool's reply: where the person stands and the one step up (no programs). */
+export type StandScoreReply = {
+  show_to_builder: string;
+  agent_note?: string;
+  move_up?: { kind: MoveUp['kind']; project_key: string | null; agent_note: string };
+  claim?: { link: string };
+};
+
 /**
- * The score tool. A shared client is never a person (plan R2): one plain line, nothing read or
+ * v2.12.1 T8: the score tool. A shared client is never a person (plan R2): one plain line, nothing
+ * read or written. Everyone else gets a profile (and a discovery run) on their first call, the
+ * on-demand refresh within its budget, then the same view as find's first part and its one step up
+ * (`hold`: the reply already asks something, a pending join, so the step waits). One score_viewed
+ * event a minute (v2.12).
+ */
+export async function scoreReply(ctx: Ctx, now: Date, o: { hold?: boolean; reader?: ReaderDeps } = {}): Promise<StandScoreReply> {
+  const shared: StandScoreReply = { show_to_builder: SCORE_SHARED };
+  if (ctx.sharedClient) return shared;
+  const id = ctx.installationId;
+  const made = await ensureProfile(id, now);
+  if (!made) return shared;
+  if (made.created) await enqueueDiscovery(id, 'first_find');
+  await startRefresh(id, { now, start: Date.now(), reader: o.reader }).within();
+  const read = await standBase(id);
+  const base = read?.base ?? { standing: { ranked: false, rank: 0, total: 0 }, claimed: false, handle: null, claimLink: null, projects: [] };
+  const step = o.hold ? null : chooseStep({ ...base, earn: [], fresh: null }, { coin: () => false, build: null, host: hostFor(false) });
+  const reply: StandScoreReply = { show_to_builder: whereYouStand({ ...base, earn: [], fresh: null, step, news: null }, { programs: false }) };
+  if (step && step.kind !== 'send_link' && step.kind !== 'build')
+    reply.move_up = { kind: step.kind, project_key: step.project_key, agent_note: MOVE_UP_NOTE };
+  if (step?.kind === 'send_link') reply.agent_note = SEND_LINK_NOTE;
+  if (base.claimLink) reply.claim = { link: base.claimLink };
+  await noteEvent('score_viewed', () => ({
+    type: 'score_viewed',
+    dedupe_key: `score_viewed:${id}:${Math.floor(now.getTime() / 60_000)}`,
+    installation_id: id,
+    detail: { rank: base.standing.ranked ? base.standing.rank : null, total: base.standing.total },
+  }));
+  return reply;
+}
+
+/**
+ * v2.12's score tool (replaced by scoreReply above in v2.12.1 T8; its tests still run until T12
+ * removes both). A shared client is never a person (plan R2): one plain line, nothing read or
  * written. Everyone else gets a profile (and a discovery run) if this is their first call, their
  * public score (never a held one), and one score_viewed event a minute.
  */
-export async function scoreReply(ctx: Ctx, now: Date, deps: { programs?: () => Promise<ScoreProgram[]> } = {}): Promise<ScoreReply> {
+export async function scoreReplyV212(ctx: Ctx, now: Date, deps: { programs?: () => Promise<ScoreProgram[]> } = {}): Promise<ScoreReply> {
   const shared: ScoreReply = { show_to_builder: SCORE_SHARED, score: null, percentile: null };
   if (ctx.sharedClient) return shared;
   const id = ctx.installationId;

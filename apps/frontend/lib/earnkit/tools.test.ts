@@ -5511,7 +5511,7 @@ test('10 (T10 notes) a build-path deploy refused for the owner proof asks for a 
   ),
 );
 
-test('7.8 v2.12: the first find ends with the consent line once; tell hide hides it; a refused X handle shows nothing', dbTest, async () => {
+test('7.8 v2.12: the first find ends with the consent line once; tell hide hides it; a refused X handle shows nothing', { ...dbTest, todo: 'replaced by v2.12.1 T8' }, async () => {
   process.env.EARNKIT_BUILDER_SCORE = 'on';
   try {
     const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t7-consent-${process.pid}-${Date.now()}`}) RETURNING id`;
@@ -5543,7 +5543,7 @@ test('7.8b v2.12 flag off: find has no consent line and makes no profile; tell i
   await assert.rejects(tools.tell({}, ctx), /Pass at least one/);
 });
 
-test('7.8c v2.12: a find that failed after the profile was made still shows the consent line next time, once; a shared client\'s profile asks get an agent note', dbTest, async () => {
+test('7.8c v2.12: a find that failed after the profile was made still shows the consent line next time, once; a shared client\'s profile asks get an agent note', { ...dbTest, todo: 'replaced by v2.12.1 T8' }, async () => {
   process.env.EARNKIT_BUILDER_SCORE = 'on';
   try {
     const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t7-lost-${process.pid}-${Date.now()}`}) RETURNING id`;
@@ -5584,7 +5584,7 @@ async function withScoreFlag<T>(flag: string | undefined, fn: () => Promise<T>):
   }
 }
 
-test('9.4 v2.12 find: line 2 is the score line; an empty profile gets its fill step, declarative when line 1 asks', dbTest, async () => {
+test('9.4 v2.12 find: line 2 is the score line; an empty profile gets its fill step, declarative when line 1 asks', { ...dbTest, todo: 'replaced by v2.12.1 T8' }, async () => {
   await withScoreFlag('on', async () => {
     const ctx = { installationId: await newInstallation() };
     const first = (await tools.find({}, ctx)) as { show_to_builder: string };

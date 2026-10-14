@@ -164,16 +164,19 @@ export const TELL_DESCRIPTION =
   'repo_facts: mainnet_chains, testnet_chains, live_url, has_users, not_mine. weekly_email: their answer. ' +
   'Results they report stay private and never count.';
 
-/** v2.12 spec 7, 8 (EARNKIT_BUILDER_SCORE on): tell also takes the profile's hide or show and the confirmed X handle. */
+/**
+ * v2.12 spec 7, 8 (EARNKIT_BUILDER_SCORE on): tell also takes the page's hide or show and the card
+ * answer. v2.12.1 T8: and the yes or no to "How to move up"; no X handle (the X claim sets it).
+ */
 export const TELL_DESCRIPTION_SCORE = TELL_DESCRIPTION.replace(
   'pickup: "yes" or "no" to the pick-up question. ',
-  'pickup: "yes" or "no" to the pick-up question. profile: "hide" or "show" when they say so. x_handle: the X handle they confirmed. card: "yes" or "skip" to the card offer. ',
+  'pickup: "yes" or "no" to the pick-up question. profile: "hide" or "show" when they say so. card: "yes" or "skip" to the card question. move_up: their answer to the last line, with its kind and project_key. ',
 );
 
-/** v2.12 spec 7: score's description (registered only while EARNKIT_BUILDER_SCORE=on). */
+/** v2.12.1 T8: score's description (registered only while EARNKIT_BUILDER_SCORE=on). */
 export const SCORE_DESCRIPTION =
-  "The builder's verified score (0 to 100), rank, what moved it and the one next step. Call it when they ask how they're doing. " +
-  'Show show_to_builder as written; follow agent_note (proof_line: the earnkit.txt lines to push). ' +
+  "Where the builder stands: what they shipped, their rank when it reads well, their page, and the one step up. Call it when they ask how they're doing. " +
+  'Show show_to_builder as written; a yes or no to its last line goes to tell move_up (with move_up.kind and project_key). ' +
   SAFETY_TEXT;
 
 /**
@@ -471,9 +474,17 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           // v2.12 spec 7, 8: listed only with the flag on.
           ...(builderScoreEnabled()
             ? {
-                profile: z.enum(['hide', 'show']).optional().describe('hide or show their public profile, when they say so'),
-                x_handle: z.string().max(20).optional().describe('"yes" to the offered handle, or the X handle they typed'),
-                card: z.enum(['yes', 'skip']).optional().describe('Their answer to the card offer'),
+                profile: z.enum(['hide', 'show']).optional().describe('hide or show their public page, when they say so'),
+                card: z.enum(['yes', 'skip']).optional().describe('Their answer to "Want a card to share it?"'),
+                move_up: z
+                  .object({
+                    kind: z.string().max(20).optional().describe("find's or score's move_up.kind"),
+                    project_key: z.string().max(300).nullable().optional().describe("find's or score's move_up.project_key"),
+                    answer: z.enum(['yes', 'no']),
+                  })
+                  .strict()
+                  .optional()
+                  .describe('Their answer to the How to move up line'),
               }
             : {}),
           program_status: z

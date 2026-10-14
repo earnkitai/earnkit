@@ -1,6 +1,6 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { FILL_LINES, HELD_LINE, MORE_USERS_LINE, SCORE_NOTES, SCORE_SHARED, SITE_TXT_LINE, WORKING_LINE, movedLine, nextAction, programLine, scoreLines, scoreReply, secondLine, youLine, type ScoreProgram } from './score-tool';
+import { FILL_LINES, HELD_LINE, MORE_USERS_LINE, SCORE_NOTES, SCORE_SHARED, SITE_TXT_LINE, WORKING_LINE, movedLine, nextAction, programLine, scoreLines, scoreReplyV212 as scoreReply, secondLine, youLine, type ScoreProgram } from './score-tool';
 import { listPrograms, upsertProgram } from './programs';
 import { ProgramFile } from './program-file';
 import { committedProgram } from './fixtures/program-file';
