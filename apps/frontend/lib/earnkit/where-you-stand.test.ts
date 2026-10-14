@@ -167,3 +167,18 @@ test('8.22 (fix round 1) the money statements: a project that could win once peo
   const v = { ...base, earn: [], money: 'A pays up to $10K and is open all year.' };
   assert.match(whereYouStand({ ...v, step: null, news: null }), /\n\nWays to earn right now\nA pays up to \$10K and is open all year\.$/);
 });
+
+test('8.25 (ruling) the open-all-year fallback: Easy first, then fewer things to fill in, then the bigger prize', async () => {
+  const { byLazy, moneyFallback } = await import('./stand-view');
+  const now = new Date('2026-10-14T00:00:00Z');
+  const card = (id: string, level: 'Easy' | 'Medium' | null, fields: number, usd: number) => ({
+    id, title: id, summary: `Up to $${usd} · rolling`, tag: null, each_time: [], builder_fields: fields, max_award_usd: usd, ends_at: null,
+    difficulty: level ? { level, estimate: '1 hour' } : null, status: 'active', starts_at: null,
+  }) as never;
+  const cards = [card('Big', 'Medium', 0, 100000), card('EasyMany', 'Easy', 4, 10000), card('EasyFew', 'Easy', 1, 500), card('NoLevel', null, 0, 50000)];
+  assert.deepEqual([...cards].sort(byLazy).map((c: { id: string }) => c.id), ['EasyFew', 'EasyMany', 'Big', 'NoLevel'], 'no level sorts as Medium, then the bigger prize');
+  const tie = [card('Small', 'Easy', 1, 500), card('Bigger', 'Easy', 1, 5000)];
+  assert.deepEqual([...tie].sort(byLazy).map((c: { id: string }) => c.id), ['Bigger', 'Small']);
+  const m = moneyFallback({ cards, entered: new Set(), hidden: new Set(), now, projects: [] });
+  assert.match(m.money ?? '', /^EasyFew pays up to \$500 and is open all year\.$/);
+});

@@ -12,6 +12,7 @@ import { chooseStep, confirmLinkLine, pageReadyLine, plainWhat, rollingLine, sta
 import { closeDayOf, prizeOf } from './entry-text';
 import { freshPick, type FreshPick } from './fresh-build';
 import { byPrize, type Card, type FreshOn } from './present';
+import { levelRank } from './guide';
 import { moneyText, openCurated } from './pool';
 import { newProgramOf, openCuratedRows, repoCanWin } from './alerts';
 import { readFitRepos } from './installations';
@@ -200,9 +201,19 @@ const showable = (c: Card & { agent_completable?: boolean; earnkit_campaign?: bo
   openCurated(c as Parameters<typeof openCurated>[0], now);
 
 /**
+ * Controller ruling (fix round 1, concern 2): the open-all-year fallback for the lazy target user:
+ * Easy before Medium (a program with no level sorts as Medium), then fewer things to fill in (each
+ * time asks plus builder-only fields), then the bigger prize. Pure.
+ */
+export const byLazy = (a: Card, b: Card) =>
+  levelRank(a.difficulty?.level ?? 'Medium') - levelRank(b.difficulty?.level ?? 'Medium') ||
+  a.each_time.length + (a.builder_fields ?? 0) - (b.each_time.length + (b.builder_fields ?? 0)) ||
+  byPrize(a, b);
+
+/**
  * Fix round 1 (controller ruling): when no program fits a project and no build lead was made, the
  * earn part still says how to earn, in this order: (a) a project that could win once people use it
- * (find's users question, said as a statement), (b) the best open-all-year program, (c) a fresh build
+ * (find's users question, said as a statement), (b) the easiest open-all-year program (byLazy), (c) a fresh build
  * (freshPick directly, without v2.11's lead guards). Pure.
  */
 export function moneyFallback(o: {
@@ -216,7 +227,7 @@ export function moneyFallback(o: {
     return { money: usersMoneyLine(p, o.users.repo, o.users.card.title, earnPrize(o.users.card)), pick: null };
   }
   const skip = new Set([...o.entered, ...o.hidden]);
-  const rolling = o.cards.filter((c) => showable(c, o.now, skip) && closeDayOf(c) === null && (c.max_award_usd ?? 0) > 0).sort(byPrize)[0];
+  const rolling = o.cards.filter((c) => showable(c, o.now, skip) && closeDayOf(c) === null && (c.max_award_usd ?? 0) > 0).sort(byLazy)[0];
   if (rolling) return { money: rollingLine(rolling.title, earnPrize(rolling), o.projects.length > 0), pick: null };
   if (o.fresh) {
     const pick = freshPick(o.cards, o.now, { hidden: o.hidden, entered: o.entered, deployOn: o.fresh.deployOn, hostOn: o.fresh.hostOn, starters: o.fresh.starters });
