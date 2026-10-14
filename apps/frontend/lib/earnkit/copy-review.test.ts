@@ -1041,6 +1041,7 @@ export const v2121Texts: [string, string][] = [
   // v2.12.1 T9: the reply after each yes.
   ['COUNT_LINES.done', COUNT_LINES.done(140, 'TipJar', "You're now #3 of 40.")],
   ['COUNT_LINES.done one', COUNT_LINES.done(1, 'TipJar', null)],
+  ['COUNT_LINES.done review', COUNT_LINES.done(140, 'TipJar', COUNT_LINES.review)],
   ['COUNT_LINES.added', COUNT_LINES.added],
   ['COUNT_LINES.tapLink', COUNT_LINES.tapLink('https://earnkit.com/claim/wallet?t=1.2.x')],
   ['COUNT_LINES.tips', COUNT_LINES.tips],

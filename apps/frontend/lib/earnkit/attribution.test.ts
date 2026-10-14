@@ -48,8 +48,16 @@ test('9.3 a Base code is asked for only when switched on, read from any of its k
     delete process.env.EARNKIT_BASE_AGENT_CODES;
     assert.equal(await baseBuilderCode(id, '0x' + 'a'.repeat(40), { post: async () => { throw new Error('not called'); } }), null);
     process.env.EARNKIT_BASE_AGENT_CODES = 'on';
-    // A failed call or an answer without a usable code stores nothing.
-    assert.equal(await baseBuilderCode(id, '0x' + 'a'.repeat(40), { post: async () => { throw new Error('down'); } }), null);
+    // A failed call or an answer without a usable code stores nothing (the failure is logged by name only).
+    const logged: unknown[][] = [];
+    const orig = console.error;
+    console.error = (...a: unknown[]) => void logged.push(a);
+    try {
+      assert.equal(await baseBuilderCode(id, '0x' + 'a'.repeat(40), { post: async () => { throw new Error('down'); } }), null);
+    } finally {
+      console.error = orig;
+    }
+    assert.deepEqual(logged, [['[attribution] base code', 'Error']]);
     assert.equal(await baseBuilderCode(id, '0x' + 'a'.repeat(40), { post: async () => ({ code: 'has spaces' }) }), null);
     let posts = 0;
     const deps = { post: async () => { posts++; return { builderCode: 'bc_x1' }; } };

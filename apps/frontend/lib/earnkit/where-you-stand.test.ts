@@ -213,3 +213,23 @@ test('8.27 (fix round 2) no fresh build past a repo read error or an unseen repo
   assert.doesNotMatch(moneyFallback({ cards: [rolling('needs a live product')], entered: new Set(), hidden: new Set(), now, projects: shipped }).money!, /prepare/);
   assert.doesNotMatch(moneyFallback({ cards: [rolling(null)], entered: new Set(), hidden: new Set(), now, projects: [p({ key: 'a', name: 'A', shipped: false })] }).money!, /prepare/);
 });
+
+test('9.17 (T9 fix round 1) a step is offered only when its yes can deliver; "today" only when the count goes public at once', () => {
+  const o = { coin: () => false, build: null };
+  const kind = (ps: StandProject[], can?: StandView['can']) => chooseStep({ ...base, projects: ps, ...(can && { can }) }, o)?.kind ?? null;
+  const past = p({ key: 'tf', name: 'tokens.fun', untracked_contract: 'base:0x1', untracked_people: 1, app: false });
+  assert.equal(kind([past]), 'count_past');
+  assert.equal(kind([past], { prove: false }), null, 'no link can be made and it is not provable: no step');
+  assert.equal(kind([{ ...past, provable: true }], { prove: false }), 'count_past', 'provable: counted on the yes, no link needed');
+  const line = (x: StandProject) => chooseStep({ ...base, projects: [x] }, o)!.line;
+  assert.ok(line({ ...past, certain: true, provable: true }).endsWith('Want me to count them? Your rank goes up today.'));
+  assert.ok(line({ ...past, provable: true }).endsWith('Want me to count them?'), 'held for review: no promise');
+  assert.ok(line(past).endsWith("I'll send you a link to show it's yours."));
+  const tag = p({ key: 'g', name: 'Game', what: 'a puzzle game', sends_tx: true });
+  assert.equal(kind([tag]), 'tag_future');
+  assert.equal(kind([tag], { tag: false }), null, 'no person code: no attribution line');
+  assert.equal(kind([{ ...tag, tracked_tx: false }], { prove: false }), null, 'untracked and no link: no step');
+  const shop = p({ key: 's', name: 'Shop', what: 'a coffee shop site' });
+  assert.equal(kind([shop]), 'payment');
+  assert.equal(kind([shop], { tips: false }), null, 'no tip jar can be deployed: no step');
+});

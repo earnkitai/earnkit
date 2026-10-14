@@ -3,12 +3,17 @@ import { sql } from './db';
 import { siteUrl } from './entry-text';
 import { noteEvent } from './events';
 import { createVerifyLink, githubVerifyEnabled } from './github-verify';
-import { REFRESH_BUDGET_MS, refreshPerson, standingOf } from './person-score';
+import { REFRESH_BUDGET_MS, refreshPerson, standingOf, trackingHeld } from './person-score';
+import { personCode } from './attribution';
+import { emptyMemory, hiddenIds, hiddenPrograms, readMemory } from './builder-memory';
+import { deployChainOn } from './deploy';
+import { listPrograms } from './programs';
+import { rpcFor } from './verify';
 import { r2Enabled } from './r2';
 import type { Standing } from './rank';
 import type { ReaderDeps } from './source-readers';
 import { upgradeToken } from './wallet-proof';
-import { chooseStep, confirmLinkLine, pageReadyLine, plainWhat, rollingLine, standingNews, usersMoneyLine, type EarnLine, type MoveUp, type StandProject, type StandView } from './where-you-stand';
+import { chooseStep, paymentStepFits, confirmLinkLine, pageReadyLine, plainWhat, rollingLine, standingNews, usersMoneyLine, type EarnLine, type MoveUp, type StandProject, type StandView } from './where-you-stand';
 import { closeDayOf, prizeOf } from './entry-text';
 import { freshPick, type FreshPick } from './fresh-build';
 import { byPrize, type Card, type FreshOn } from './present';
@@ -61,8 +66,39 @@ export function startRefresh(id: number, o: { now: Date; start: number; reader?:
 
 type ProjectDbRow = {
   project_key: string; name: string; what: string | null; kind: string; confirmed: boolean; shipped: boolean; people: number;
-  has_coin: boolean; sends_tx: boolean; tagged: boolean; untracked_contract: string | null; readable: boolean; certain: boolean;
+  has_coin: boolean; sends_tx: boolean; tagged: boolean; untracked_contract: string | null; readable: boolean; certain: boolean; tracked_tx: boolean;
 };
+
+/** Fix round 1: the switches a tip jar needs (FreshOn's); absent, the server's own (deploys, hosting). */
+export type TipSwitches = Partial<Pick<FreshOn, 'deployOn' | 'hostOn' | 'starters'>>;
+export const TIPJAR = 'arc-tipjar';
+
+/**
+ * Fix round 1 (rulings 2, 3): the program a tip jar can be deployed under now: freshPick over the
+ * open programs with the arc-tipjar starter, with the person's real hidden and entered programs; a
+ * program they already entered is reused (`entered`). The deploy itself never enters a program (an
+ * entry is only ever made by confirm, on the builder's own yes). Null when nothing can deploy one.
+ */
+export async function tipsPick(id: number, now: Date, fresh: TipSwitches = {}): Promise<{ program_id: string; starter: string; entered: boolean } | null> {
+  const cards = (await listPrograms()).filter((c) => c.fresh_build?.starter === TIPJAR);
+  if (cards.length === 0) return null;
+  const memory = await readMemory({ installationId: id, login: '' }).catch(() => emptyMemory());
+  const hidden = hiddenIds(hiddenPrograms(memory, cards));
+  const rows = await sql()<{ program_id: string }[]>`
+    SELECT DISTINCT p.program_id FROM projects p JOIN installations i ON i.id = p.installation_id
+    WHERE COALESCE(i.builder_id, i.id) = ${id} AND p.program_id IN ${sql()(cards.map((c) => c.id))}`;
+  const entered = new Set(rows.map((r) => r.program_id));
+  const opts = {
+    hidden,
+    deployOn: fresh.deployOn ?? ((c: Parameters<FreshOn['deployOn']>[0]) => deployChainOn(c) && rpcFor(c) !== null),
+    hostOn: fresh.hostOn ?? r2Enabled(),
+    ...(fresh.starters && { starters: fresh.starters }),
+  };
+  const fresh1 = freshPick(cards, now, { ...opts, entered });
+  if (fresh1) return { program_id: fresh1.card.id, starter: fresh1.starter.id, entered: false };
+  const again = freshPick(cards.filter((c) => entered.has(c.id)), now, { ...opts, entered: new Set() });
+  return again ? { program_id: again.card.id, starter: again.starter.id, entered: true } : null;
+}
 
 /** A GitHub repo key ("lee/tipjar"): the project EarnKit can host (R2) or put on GitHub Pages. Pure. */
 const REPO_KEY = /^[a-z0-9-]+\/[a-z0-9._-]+$/i;
@@ -76,7 +112,7 @@ export const hostFor = (agentCanBuild: boolean) => (key: string) => REPO_KEY.tes
  * The person's view without programs or a step: their standing (Task 4), their projects (shipped
  * first, then people, then newest), and the claim link while they have no page. Null without a profile.
  */
-export async function standBase(id: number): Promise<{ base: StandBase; seen: Seen; created_at: Date; page_ready_shown_at: Date | null } | null> {
+export async function standBase(id: number, o: { fresh?: TipSwitches } = {}): Promise<{ base: StandBase; seen: Seen; created_at: Date; page_ready_shown_at: Date | null } | null> {
   const [p] = await sql()<{ standing_seen: unknown; created_at: Date; page_ready_shown_at: Date | null }[]>`
     SELECT standing_seen, created_at, page_ready_shown_at FROM builder_profiles WHERE builder_id = ${id}`;
   if (!p) return null;
@@ -100,10 +136,17 @@ export async function standBase(id: number): Promise<{ base: StandBase; seen: Se
               WHERE COALESCE(i.builder_id, i.id) = ${id} AND d.status = 'deployed' AND d.address IS NOT NULL
                 AND d.chain || ':' || lower(d.address) = lower(p.untracked_contract))
           OR EXISTS (SELECT 1 FROM builder_sources s JOIN person_wallets w ON w.wallet = s.deployer AND w.builder_id = ${id}
-              WHERE s.builder_id = ${id} AND s.kind = 'contract' AND lower(s.ref) = lower(p.untracked_contract)))) AS certain
+              WHERE s.builder_id = ${id} AND s.kind = 'contract' AND lower(s.ref) = lower(p.untracked_contract)
+                -- as contractOwnership: a deployer behind another person's verified contract proves nothing here
+                AND NOT EXISTS (SELECT 1 FROM builder_sources o WHERE o.kind = 'contract' AND o.state = 'verified'
+                  AND o.builder_id <> ${id} AND o.deployer = s.deployer)))) AS certain,
+      (EXISTS (SELECT 1 FROM builder_sources s WHERE s.builder_id = ${id} AND s.project_key = p.project_key AND s.kind = 'contract'
+          AND s.state = 'verified' AND s.ref ~ '^(base|arc):')
+        OR EXISTS (SELECT 1 FROM contract_deploys d JOIN installations i ON i.id = d.installation_id
+          WHERE COALESCE(i.builder_id, i.id) = ${id} AND d.status = 'deployed' AND lower(d.repo_key) = lower(p.project_key))) AS tracked_tx
     FROM builder_projects p WHERE p.builder_id = ${id}
     ORDER BY p.shipped DESC, p.people DESC, p.last_active_at DESC NULLS LAST, p.project_key`;
-  const projects: StandProject[] = rows.map((r) => ({
+  const projects: StandProject[] = await Promise.all(rows.map(async (r) => ({
     key: r.project_key,
     name: r.name,
     what: plainWhat(r.what),
@@ -116,11 +159,14 @@ export async function standBase(id: number): Promise<{ base: StandBase; seen: Se
     untracked_contract: r.untracked_contract,
     // Task 4 sets untracked_contract only for a contract with callers; the count itself is T9's read.
     untracked_people: r.untracked_contract ? 1 : 0,
-    // T9: whether counting them moves the rank today (make-countable.ts countableNow, from stored facts).
-    certain: r.certain,
+    // T9: whether counting them moves the rank today: provable from stored facts (make-countable.ts
+    // countableNow) and, fix round 1, the rescore would not be held for review (trackingHeld).
+    certain: r.certain && !(await trackingHeld(id, r.untracked_contract!, new Date())),
+    provable: r.certain,
+    tracked_tx: r.tracked_tx,
     app: r.kind === 'app',
     confirmed: r.confirmed,
-  }));
+  })));
   const claimed = s.claimed && Boolean(s.handle);
   const link = claimed ? null : await claimLink(id).catch((err: unknown) => {
     console.error('[stand] claim link', err instanceof Error ? err.name : 'error');
@@ -129,8 +175,18 @@ export async function standBase(id: number): Promise<{ base: StandBase; seen: Se
   const standing: Standing = { ranked: s.ranked, rank: s.rank, total: s.total };
   const seen = p.standing_seen && typeof p.standing_seen === 'object' ? (p.standing_seen as Seen) : {};
   const declined = declinedNow(seen, Date.now());
+  // Fix round 1 (ruling 4): a step is offered only when its yes can deliver. `prove`: the one tap to
+  // show work is theirs can be made (claimed: the wallet page needs the secret; unclaimed: the claim
+  // link, X sign-in on). `tag`: the person code can be made. `tips`: a tip jar can be deployed now
+  // (read only when a project could be offered one).
+  const tipsWanted = projects.some((x) => x.shipped && x.app && !x.sends_tx && paymentStepFits(`${x.what ?? ''} ${x.name}`));
+  const can = {
+    prove: claimed ? Boolean(process.env.EARNKIT_AUTH_SECRET) : link !== null,
+    tag: personCode(id) !== null,
+    tips: tipsWanted ? (await tipsPick(id, new Date(), o.fresh).catch(() => null)) !== null : false,
+  };
   return {
-    base: { standing, claimed, handle: claimed ? s.handle : null, claimLink: link, projects, ...(declined.length > 0 && { declined }) },
+    base: { standing, claimed, handle: claimed ? s.handle : null, claimLink: link, projects, can, ...(declined.length > 0 && { declined }) },
     seen,
     created_at: p.created_at,
     page_ready_shown_at: p.page_ready_shown_at,
@@ -299,8 +355,8 @@ export async function scoreEarn(
  * (the agent's kind is never trusted). Coins wait for T10; hosting is judged as for an agent that
  * builds. Null without a profile or a step.
  */
-export async function currentStep(id: number): Promise<MoveUp | null> {
-  const v = await standBase(id);
+export async function currentStep(id: number, o: { fresh?: TipSwitches } = {}): Promise<MoveUp | null> {
+  const v = await standBase(id, o);
   if (!v) return null;
   return chooseStep({ ...v.base, earn: [], fresh: null }, { coin: () => false, build: null, host: hostFor(true) });
 }

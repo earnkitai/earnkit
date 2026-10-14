@@ -1,19 +1,14 @@
-import { attributionFor, type AttributionLine, type BaseCodeDeps, type Chain } from './attribution';
+import { attributionFor, chainOf, type AttributionLine, type BaseCodeDeps, type Chain } from './attribution';
 import { claimLink } from './claim';
 import { sql } from './db';
-import { deployChainOn } from './deploy';
 import { siteUrl } from './entry-text';
 import { noteEvent } from './events';
-import { freshPick } from './fresh-build';
 import { REFRESH_BUDGET_MS, personInputsV2, refreshPerson, standingOf } from './person-score';
 import type { FreshOn } from './present';
-import { listPrograms } from './programs';
-import { r2Enabled } from './r2';
 import { RANK_LIST_UNTIL, rankWords, type Standing } from './rank';
 import { defaultReaderDeps, readContractOrigin, soft, type ReaderDeps } from './source-readers';
 import { claimContract, contractConflicts, contractOwnership, type ContractFacts } from './sources';
-import { currentStep } from './stand-view';
-import { rpcFor } from './verify';
+import { currentStep, tipsPick } from './stand-view';
 import { upgradeToken } from './wallet-proof';
 import { stepKey, type MoveUp } from './where-you-stand';
 
@@ -34,13 +29,20 @@ export const COUNT_LINES = {
   cantTips: "I can't add tips right now.",
   claimFirst: (link: string | null) => (link ? `Claim your page with X first: ${link}` : 'Okay.'),
   noted: 'Okay.',
+  /** Fix round 1: counted, but the rescore waits for the owner's review (never "You're now"). */
+  review: 'Your new rank shows after a quick review.',
 } as const;
 
 export const TAG_NOTE =
   'Append attribution.data_suffix to every transaction the app sends (viem: dataSuffix on writeContract and sendTransaction), ' +
-  'commit and push it yourself, redeploy if it is hosted. Never show the builder this.';
+  'commit and push it yourself, redeploy if it is hosted. Show show_to_builder only once that push is done. Never show the builder this note.';
+/**
+ * Fix round 1 (ruling 3): the tip jar is deployed through prepare's deploy step, which never enters
+ * a program (only confirm does, on the builder's own yes); prepare.program_id only carries the deploy.
+ */
 export const TIPS_NOTE =
-  "Add a tip button to this app from the arc-tipjar starter (prepare.starter): copy its contract and button into the app, then call prepare with prepare.program_id, project { name, repo_url, live_url } and deploy, as the starter's BUILD.md says. Never show the builder this.";
+  "Add a tip button to this app from the arc-tipjar starter (prepare.starter): copy its contract and button into the app, then call prepare with prepare.program_id, project { name, repo_url, live_url } and deploy, as the starter's BUILD.md says. " +
+  "This only deploys the tip jar: show the builder the deployed line alone (the last part of show_to_builder), never the entry draft, and never call confirm for this program unless the builder asks to enter it. Never show the builder this note.";
 export const NO_LINE_NOTE = "EarnKit can't make the line right now. Tell the builder in one short line to try again later. Don't show this note.";
 
 /** "You're now #3 of 40." while under 50 ranked, else "You're now in the top 5% ...", else nothing. Pure. */
@@ -74,7 +76,15 @@ async function provable(builderId: number, ref: string, reader: ReaderDeps) {
   const earnkitDeployed = Boolean(d);
   const wallets = await sql()<{ wallet: string }[]>`SELECT wallet FROM person_wallets WHERE builder_id = ${builderId}`;
   const proven = new Set(wallets.map((w) => w.wallet.toLowerCase()));
-  const origin = earnkitDeployed || proven.size === 0 ? NULL_ORIGIN : await soft(readContractOrigin(ref, reader), NULL_ORIGIN).catch(() => NULL_ORIGIN);
+  // The creator the refresh already read (person-score.ts readPersonLive) is reused: no second read.
+  const [stored] = await sql()<{ deployer: string | null }[]>`
+    SELECT deployer FROM builder_sources WHERE builder_id = ${builderId} AND kind = 'contract' AND lower(ref) = ${ref.toLowerCase()} AND deployer IS NOT NULL LIMIT 1`;
+  const origin =
+    earnkitDeployed || proven.size === 0
+      ? NULL_ORIGIN
+      : stored?.deployer
+        ? { deployer: stored.deployer, created_at: null }
+        : await soft(readContractOrigin(ref, reader), NULL_ORIGIN).catch(() => NULL_ORIGIN);
   const facts: Omit<ContractFacts, 'contractTaken' | 'deployerTaken'> = { deployer: origin.deployer, created_at: origin.created_at, earnkitDeployed, repo: null };
   const conflicts = await contractConflicts(builderId, ref, origin.deployer);
   return { facts, proven, ok: 'proof' in contractOwnership({ ...facts, ...conflicts }, proven) };
@@ -126,15 +136,10 @@ async function countPast(builderId: number, key: string, name: string, ref: stri
   if (n === 0) return { show_to_builder: COUNT_LINES.added };
   // The rank line only when the rescore went public (a held one waits for the owner's review).
   const [h] = await sql()<{ held: boolean }[]>`SELECT held FROM builder_profiles WHERE builder_id = ${builderId}`;
-  const rank = h?.held ? null : nowRank(await standingOf(builderId));
+  const rank = h?.held ? COUNT_LINES.review : nowRank(await standingOf(builderId));
   return { show_to_builder: COUNT_LINES.done(n, name, rank) };
 }
 
-const CHAINS: readonly Chain[] = ['base', 'arc', 'monad', 'tempo'];
-const chainOf = (ref: string): Chain | null => {
-  const c = ref.split(':')[0]?.toLowerCase() as Chain;
-  return CHAINS.includes(c) ? c : null;
-};
 
 async function tagFuture(builderId: number, key: string, now: Date, deps: YesDeps, reader: ReaderDeps): Promise<YesReply> {
   // Tags are read only on contracts EarnKit tracks (base and arc): the project's own, or EarnKit's deploy for it.
@@ -161,18 +166,11 @@ async function tagFuture(builderId: number, key: string, now: Date, deps: YesDep
   return { show_to_builder: COUNT_LINES.added, agent_note: TAG_NOTE, attribution };
 }
 
-/** The open program a tip jar can be built for now (freshPick over programs with the arc-tipjar starter). */
-async function payment(now: Date, fresh: YesDeps['fresh'] = {}): Promise<YesReply> {
-  const cards = (await listPrograms()).filter((c) => c.fresh_build?.starter === 'arc-tipjar');
-  const pick = freshPick(cards, now, {
-    hidden: new Set(),
-    entered: new Set(),
-    deployOn: fresh.deployOn ?? ((c) => deployChainOn(c) && rpcFor(c) !== null),
-    hostOn: fresh.hostOn ?? r2Enabled(),
-    ...(fresh.starters && { starters: fresh.starters }),
-  });
+/** A tip jar for the app (stand-view.ts tipsPick: the person's real hidden and entered programs; an entered one is reused). */
+async function payment(builderId: number, now: Date, fresh: YesDeps['fresh'] = {}): Promise<YesReply> {
+  const pick = await tipsPick(builderId, now, fresh);
   if (!pick) return { show_to_builder: COUNT_LINES.cantTips };
-  return { show_to_builder: COUNT_LINES.tips, prepare: { program_id: pick.card.id, starter: pick.starter.id }, agent_note: TIPS_NOTE };
+  return { show_to_builder: COUNT_LINES.tips, prepare: { program_id: pick.program_id, starter: pick.starter }, agent_note: TIPS_NOTE };
 }
 
 /**
@@ -180,8 +178,8 @@ async function payment(now: Date, fresh: YesDeps['fresh'] = {}): Promise<YesRepl
  * ruling). Null when there is none, or when the agent named another of the person's projects (the
  * builder answered an older line; nothing is done for a step they were not asked about).
  */
-export async function stepFor(builderId: number, projectKey: string | null | undefined): Promise<MoveUp | null> {
-  const step = await currentStep(builderId);
+export async function stepFor(builderId: number, projectKey: string | null | undefined, fresh?: YesDeps['fresh']): Promise<MoveUp | null> {
+  const step = await currentStep(builderId, { fresh });
   if (!step || !projectKey || step.project_key?.toLowerCase() === projectKey.toLowerCase()) return step;
   const [other] = await sql()`SELECT 1 FROM builder_projects WHERE builder_id = ${builderId} AND lower(project_key) = ${projectKey.toLowerCase()}`;
   return other ? null : step;
@@ -193,7 +191,7 @@ export async function stepFor(builderId: number, projectKey: string | null | und
  * `projectKey` null: whatever the current step is.
  */
 export async function moveUpYes(builderId: number, projectKey: string | null, now: Date, deps: YesDeps = {}): Promise<YesReply> {
-  const step = await stepFor(builderId, projectKey);
+  const step = await stepFor(builderId, projectKey, deps.fresh);
   const key = step?.project_key ?? null;
   if (!step || key === null) return { show_to_builder: COUNT_LINES.noted };
   const [p] = await sql()<{ name: string; untracked_contract: string | null }[]>`
@@ -206,7 +204,7 @@ export async function moveUpYes(builderId: number, projectKey: string | null, no
     case 'tag_future':
       return tagFuture(builderId, key, now, deps, reader);
     case 'payment':
-      return payment(now, deps.fresh);
+      return payment(builderId, now, deps.fresh);
     default:
       return { show_to_builder: COUNT_LINES.noted };
   }
@@ -216,8 +214,8 @@ export async function moveUpYes(builderId: number, projectKey: string | null, no
  * A no: nothing changes; that step (the server's current one) is not offered again for 30 days
  * (builder_profiles.standing_seen.declined, stand-view.ts DECLINE_MS).
  */
-export async function moveUpNo(builderId: number, now: Date, projectKey?: string | null): Promise<YesReply> {
-  const step = await stepFor(builderId, projectKey);
+export async function moveUpNo(builderId: number, now: Date, projectKey?: string | null, fresh?: YesDeps['fresh']): Promise<YesReply> {
+  const step = await stepFor(builderId, projectKey, fresh);
   if (step && step.kind !== 'send_link' && step.kind !== 'build')
     await sql()`
       UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, '{declined}',

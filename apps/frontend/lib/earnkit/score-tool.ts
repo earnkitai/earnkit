@@ -166,7 +166,7 @@ export async function scoreReply(ctx: Ctx, now: Date, o: { hold?: boolean; reade
   if (!made) return shared;
   if (made.created) await enqueueDiscovery(id, 'first_find');
   await startRefresh(id, { now, start: Date.now(), reader: o.reader }).within();
-  const read = await standBase(id);
+  const read = await standBase(id, { fresh: o.fresh });
   const base = read?.base ?? { standing: { ranked: false, rank: 0, total: 0 }, claimed: false, handle: null, claimLink: null, projects: [] };
   const [programs, entries, memory] = await Promise.all([
     listPrograms().catch(() => []),

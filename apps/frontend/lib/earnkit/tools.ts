@@ -147,7 +147,7 @@ import { SEND_LINK_NOTE, scoreReply, secondLine } from './score-tool';
 import { EARN_NOTE, MOVE_UP_NOTE, chooseStep, placeBuild, newsOpener, whereYouStand, type EarnLine, type StandView } from './where-you-stand';
 import { confirmYes, earnPrize, earnWhen, hostFor, moneyFallback, standBase, startRefresh, takeNews, takePageReady } from './stand-view';
 import { COUNT_LINES, moveUpNo, moveUpYes, stepFor } from './make-countable';
-import { attributionFor, type Chain } from './attribution';
+import { attributionFor, chainOf } from './attribution';
 import type { ReaderDeps } from './source-readers';
 import { SKIPPED_LINE, cardYes, findOfferLine, offerCard } from './share';
 import { SHARED_PROFILE_NOTE, ensureProfile, profileOf, setFallback, setHidden } from './profiles';
@@ -1160,7 +1160,7 @@ async function standFind(
   const now = a.first.now;
   const m = { cards: a.cards, repos: a.repos, entries: a.myEntries, now };
   const entered = enteredIds(m);
-  const read = await standBase(id).catch((err: unknown) => {
+  const read = await standBase(id, { fresh: ctx.freshDeps }).catch((err: unknown) => {
     console.error('[list_programs] stand', err instanceof Error ? err.name : 'error');
     return null;
   });
@@ -2701,6 +2701,13 @@ async function buildStart(programId: string, ctx: ToolContext) {
   };
 }
 
+/** v2.12.1 T9: the attribution line a build kit carries (flag on, a chain EarnKit knows), else none. */
+async function kitAttribution(id: number, chain: string) {
+  const c = chainOf(chain);
+  if (!builderScoreEnabled() || !c) return undefined;
+  return (await attributionFor(id, c).catch(() => null)) ?? undefined;
+}
+
 /**
  * v2.11 T8 (spec 3): the agent's build fields from the builder's twist. The server checks them
  * (buildCheck: plain words, the twist in the name, the description and the feature, a real wallet,
@@ -2763,7 +2770,7 @@ async function buildTwist(b: z.infer<typeof BuildTwist>, ctx: ToolContext) {
     kit: buildKit(
       pick.starter, next.repo_url ? tokenLineFor(ctx.installationId, next.repo_url) : null, { ...fields, wallet }, Boolean(next.repo_url),
       // v2.12.1 T9 (spec 3): every app built through EarnKit carries the attribution line from the start.
-      builderScoreEnabled() ? ((await attributionFor(ctx.installationId, pick.starter.chain as Chain).catch(() => null)) ?? undefined) : undefined,
+      await kitAttribution(ctx.installationId, pick.starter.chain),
     ),
     agent_note: KIT_NOTE,
   };
@@ -3218,6 +3225,8 @@ const defined = (o: Reply): Reply => Object.fromEntries(Object.entries(o).filter
 /** v2.12.1 T8: what tell says to a move-up step whose yes is not built yet (the coin, T10). */
 export const MOVE_UP_LATER_NOTE = 'Noted. This step is not available yet; nothing to show the builder.';
 
+/** Fix round 1: a thrown issueUpload, told apart from "no proof yet" (that one gets the proof line). */
+const GO_LIVE_FAILED = 'The hosting check failed.';
 /** v2.12.1 T9 (ruling S15): the go_live yes, in plain words. "Live" is said only by the reply that saw it load. */
 export const GO_LIVE_LINES = {
   onIt: "On it. I'll send you the link when it's live.",
@@ -3261,16 +3270,17 @@ async function goLiveYes(ctx: ToolContext, key: string, liveUrl: string | undefi
     if (!link) return { show_to_builder: '', agent_note: goLiveWrongLinkNote(repoKey) };
     if ((await liveCheckDetail(link, ctx.verifyDeps ?? {})).ok !== true) return { show_to_builder: '', agent_note: GO_LIVE_NOT_YET_NOTE };
     // Shown from now on (not yet confirmed, read like any reported site); the next reply re-reads it.
-    await sql()`
+    const added = await sql()`
       INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by) VALUES (${id}, 'site', ${link}, ${key}, 'agent')
-      ON CONFLICT (builder_id, kind, ref) DO NOTHING`;
-    await sql()`UPDATE builder_live SET read_at = NULL WHERE builder_id = ${id}`;
+      ON CONFLICT (builder_id, kind, ref) DO NOTHING RETURNING id`;
+    // A new site: the next reply re-reads the person (once; a repeat yes reads nothing more).
+    if (added.length > 0) await sql()`UPDATE builder_live SET read_at = NULL WHERE builder_id = ${id}`;
     return { show_to_builder: pagesLiveLine(p.name, link) };
   }
   if (!r2Enabled()) return { show_to_builder: GO_LIVE_LINES.onIt, agent_note: goLivePagesNote(repoKey) };
   const offer = await issueUpload({ installationId: id, repoKey, project: p.name }, new Date(), { gate: ctx.deployDeps?.gate }).catch((err: unknown) => {
     console.error('[tell] go_live', err instanceof Error ? err.name : 'error');
-    return { unavailable: HOST_LINES.unavailable };
+    return { unavailable: GO_LIVE_FAILED };
   });
   if ('upload_url' in offer) return { show_to_builder: GO_LIVE_LINES.onIt, host: offer, agent_note: goLiveUploadNote() };
   if ('sign_in_url' in offer) return { show_to_builder: hostSignInLine(p.name, offer.sign_in_url), agent_note: goLiveSignInNote(repoKey) };
@@ -3294,8 +3304,8 @@ async function goLiveYes(ctx: ToolContext, key: string, liveUrl: string | undefi
 async function moveUpAnswer(ctx: ToolContext, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no'; live_url?: string }): Promise<Reply> {
   const id = ctx.installationId;
   const now = new Date();
-  if (m.answer === 'no') return moveUpNo(id, now, m.project_key);
-  const step = await stepFor(id, m.project_key);
+  if (m.answer === 'no') return moveUpNo(id, now, m.project_key, ctx.freshDeps);
+  const step = await stepFor(id, m.project_key, ctx.freshDeps);
   if (!step) return { show_to_builder: COUNT_LINES.noted };
   switch (step.kind) {
     case 'confirm':

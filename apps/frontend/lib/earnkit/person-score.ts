@@ -12,7 +12,7 @@ import { REPOS_MAX, readGithubRepos, readPersonGithub, type PersonRepo } from '.
 import type { Standing } from './rank';
 import { countingDeps, flushReadUsage } from './read-usage';
 import { LIVE_CALIBRATION_V2, calibrationV2 } from './score-calibration';
-import { FORMULA_V2, computeScoreV2, type Ship, type UseTouch, type V2Input } from './score-v2';
+import { FORMULA_V2, computeScoreV2, type Ship, type UseTouch, type V2Input, type V2Scored } from './score-v2';
 import {
   defaultReaderDeps, isBudgetStop, isoWeek, readCoin, readContract, readContractOrigin, readNpm, readNpmBulk, readPypi, soft,
   type ContractSignals, type CoinSignals, type PackageSignals, type ReaderDeps, type RepoSignals, type SiteSignals, type Who,
@@ -482,6 +482,50 @@ export async function personInputsV2(
 // ---- Live score, rank, refresh ---------------------------------------------------------------------
 
 /**
+ * The review hold for a rescore `s` on `day`: the baseline is the newest public score before that
+ * day, a public v2 history row or a released live score (a held day the owner never saw is neither).
+ */
+async function holdOf(tx: Db, id: number, day: string, s: V2Scored, perSource: Map<number, { users: number; money: number }>) {
+  const [before] = await tx<{ score: number }[]>`
+    SELECT score FROM (
+      SELECT s.day, 0 AS pri, s.score FROM builder_scores s
+      WHERE s.builder_id = ${id} AND s.formula = ${FORMULA_V2} AND s.day < ${day}::date AND ${publicRow()}
+      UNION ALL
+      SELECT x.day, 1, x.score FROM score_releases x WHERE x.builder_id = ${id} AND x.score IS NOT NULL AND x.day < ${day}::date
+    ) b ORDER BY day DESC, pri DESC LIMIT 1`;
+  const U = s.parts.used.raw.U;
+  const shares = [...perSource.values()].map((x) => (U > 0 ? x.users / U : 0));
+  return { before, reason: holdReason(before?.score ?? null, s.score, shares) };
+}
+
+class DryRun extends Error {}
+/**
+ * v2.12.1 T9 fix round 1: whether tracking the person's proposed contract `ref` now would be held for
+ * the owner's review (a jump or one source). Scored as if verified inside a transaction that is
+ * always rolled back: nothing is written. True on any error (fail strict: never promise "today").
+ */
+export async function trackingHeld(id: number, ref: string, now: Date): Promise<boolean> {
+  let held = true;
+  try {
+    await sql().begin(async (tx) => {
+      await tx`
+        UPDATE builder_sources SET state = 'verified', proof = 'deploy_wallet', verified_at = ${now}
+        WHERE builder_id = ${id} AND kind = 'contract' AND lower(ref) = ${ref.toLowerCase()} AND state = 'proposed'`;
+      const { input, perSource } = await personInputsV2(id, now, undefined, tx);
+      const sc = computeScoreV2(input, calibrationV2(), now);
+      held = (await holdOf(tx, id, now.toISOString().slice(0, 10), sc, perSource)).reason !== null;
+      throw new DryRun();
+    });
+  } catch (err) {
+    if (!(err instanceof DryRun)) {
+      console.error('[score] tracking held', err instanceof Error ? err.name : 'error');
+      return true;
+    }
+  }
+  return held;
+}
+
+/**
  * Rescore one person now: the live row, their projects with the 25-project cap. A rescore the
  * review hold stops (holdReason) waits in `pending` with its day; the public columns stay (a first
  * score held this way is public 0, unranked). The 30-point jump is measured against the newest
@@ -510,18 +554,7 @@ export async function rescorePerson(id: number, now: Date, ring?: PersonRing): P
     const prevTracked = new Set((await tx<{ project_key: string }[]>`
       SELECT project_key FROM builder_projects WHERE builder_id = ${id} AND tracked`).map((r) => r.project_key));
     const tracked = trackedKeys(projects, at, prevTracked);
-    // The baseline: the newest public score before today, a public v2 history row or a released
-    // live score (a held day the owner never saw is neither).
-    const [before] = await tx<{ score: number }[]>`
-      SELECT score FROM (
-        SELECT s.day, 0 AS pri, s.score FROM builder_scores s
-        WHERE s.builder_id = ${id} AND s.formula = ${FORMULA_V2} AND s.day < ${day}::date AND ${publicRow()}
-        UNION ALL
-        SELECT x.day, 1, x.score FROM score_releases x WHERE x.builder_id = ${id} AND x.score IS NOT NULL AND x.day < ${day}::date
-      ) b ORDER BY day DESC, pri DESC LIMIT 1`;
-    const U = s.parts.used.raw.U;
-    const shares = [...perSource.values()].map((x) => (U > 0 ? x.users / U : 0));
-    const reason = holdReason(before?.score ?? null, s.score, shares);
+    const { before, reason } = await holdOf(tx, id, day, s, perSource);
     const people = [...s.perProject.values()].filter((p) => p.people > 0).length;
     // `at` names this rescore: the owner's release applies it only while it is still the pending one.
     // A cron rescore at a newer row's time is a different rescore, so it carries the run's time too.

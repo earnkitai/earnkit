@@ -63,6 +63,12 @@ export async function baseBuilderCode(builderId: number, wallet: string, deps: B
 }
 
 export type Chain = 'base' | 'arc' | 'monad' | 'tempo';
+const CHAINS: readonly Chain[] = ['base', 'arc', 'monad', 'tempo'];
+/** The chain of a `chain:address` ref or a bare chain name, or null. Pure. */
+export const chainOf = (ref: string): Chain | null => {
+  const c = ref.split(':')[0]?.toLowerCase() as Chain;
+  return CHAINS.includes(c) ? c : null;
+};
 export type AttributionLine = { codes: string[]; data_suffix: string };
 
 /**

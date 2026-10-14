@@ -14,6 +14,13 @@ export type StandProject = {
   untracked_contract: string | null; untracked_people: number; certain: boolean; app: boolean;
   /** EarnKit confirmed it is theirs (T7). Absent: confirmed (nothing to offer). */
   confirmed?: boolean;
+  /**
+   * T9 fix round 1: its untracked contract is provable now (counted on a yes), though the rescore may
+   * wait for review (then `certain` is false: no "today"). Absent: as `certain`.
+   */
+  provable?: boolean;
+  /** T9 fix round 1: it has a contract EarnKit tracks (its tags are read now). Absent: tracked. */
+  tracked_tx?: boolean;
 };
 export type EarnLine = { program_id: string; project: string; title: string; prize: string; when: string };
 /**
@@ -44,6 +51,12 @@ export type StandView = {
    * stepKey), never offered again until then.
    */
   declined?: string[];
+  /**
+   * T9 fix round 1 (ruling 4): whether each kind of yes can deliver right now. `prove`: the one-tap
+   * link that shows work is theirs can be made; `tag`: the attribution line can be made; `tips`: a
+   * tip jar can be deployed. Absent (or a field absent): it can.
+   */
+  can?: { prove?: boolean; tag?: boolean; tips?: boolean };
 };
 
 const ARTICLE = /^(a|an|the|my)\s+/i;
@@ -113,12 +126,17 @@ export function chooseStep(
       };
     return { kind: 'send_link', project_key: null, line: SEND_LINK_LINE };
   }
-  const past = shown.find((p) => p.untracked_contract && p.untracked_people > 0 && !off('count_past', p.key));
-  if (past)
+  const prove = v.can?.prove !== false;
+  // Never a step whose yes can't deliver: an unprovable contract needs the one-tap link.
+  const past = shown.find((p) => p.untracked_contract && p.untracked_people > 0 && !off('count_past', p.key) && (p.certain || p.provable || prove));
+  if (past) {
+    // "Today" only when the rescore goes public at once; counted but reviewed first: no promise; not provable: the link.
+    const then = past.certain ? ' Your rank goes up today.' : past.provable ? '' : " I'll send you a link to show it's yours.";
     return {
       kind: 'count_past', project_key: past.key,
-      line: `${yours(past)} has people using it who aren't counted yet. Want me to count them? ${past.certain ? 'Your rank goes up today.' : "I'll send you a link to show it's yours."}`,
+      line: `${yours(past)} has people using it who aren't counted yet. Want me to count them?${then}`,
     };
+  }
   const unconfirmed = v.claimed ? shown.filter((p) => p.confirmed === false) : [];
   if (unconfirmed.length > 0 && !off('confirm', unconfirmed.length === 1 ? unconfirmed[0].key : null)) {
     const [one] = unconfirmed;
@@ -131,7 +149,7 @@ export function chooseStep(
       line: `${head} Want a link to show ${unconfirmed.length === 1 ? "it's" : "they're"} yours? It takes one tap.`,
     };
   }
-  const tag = shown.find((p) => p.sends_tx && !p.tagged && !off('tag_future', p.key));
+  const tag = v.can?.tag === false ? undefined : shown.find((p) => p.sends_tx && !p.tagged && !off('tag_future', p.key) && (p.tracked_tx !== false || prove));
   if (tag)
     return {
       kind: 'tag_future', project_key: tag.key,
@@ -142,7 +160,7 @@ export function chooseStep(
     };
   const coin = shown.find((p) => p.people > 0 && !p.has_coin && o.coin(p.key) && !off('coin', p.key));
   if (coin) return { kind: 'coin', project_key: coin.key, line: `${yours(coin)} has people using it. Want to launch a coin for it? You'd get 40% of its trading fees.` };
-  const pay = shown.find((p) => p.app && !p.sends_tx && paymentStepFits(`${p.what ?? ''} ${p.name}`) && !off('payment', p.key));
+  const pay = shown.find((p) => p.app && !p.sends_tx && paymentStepFits(`${p.what ?? ''} ${p.name}`) && !off('payment', p.key) && v.can?.tips !== false);
   if (pay) return { kind: 'payment', project_key: pay.key, line: `${yours(pay)} could take tips from the people who use it. Want me to add that? You won't have to do anything.` };
   return o.build ? { kind: 'build', project_key: null, line: o.build } : null;
 }

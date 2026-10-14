@@ -6,7 +6,8 @@ import { sql } from './db';
 import { bindX } from './claim';
 import { personCode } from './attribution';
 import { COUNT_LINES, countableNow, moveUpNo, moveUpYes, nowRank } from './make-countable';
-import { refreshPerson, rescorePerson } from './person-score';
+import { refreshPerson, rescorePerson, trackingHeld } from './person-score';
+import { FORMULA_V2 } from './score-v2';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { committedProgram } from './fixtures/program-file';
@@ -94,14 +95,20 @@ async function siteProject(id: number, key: string, name: string, what: string) 
 }
 const TESTED = { ...STARTERS, 'arc-tipjar': { ...STARTERS['arc-tipjar'], tested_at: NOW.toISOString().slice(0, 10) } };
 const FRESH = { deployOn: () => true, hostOn: true, starters: TESTED };
-let tipProgram: string | null = null;
-async function tipjarProgram(): Promise<string> {
-  if (tipProgram) return tipProgram;
+/**
+ * An open program with the arc-tipjar starter, open only while `fn` runs: other test files share the
+ * DB, and an open Easy program changes their fresh build.
+ */
+async function withTips<T>(fn: (program: string) => Promise<T>): Promise<T> {
   const p = { ...committedProgram('arc-microgrants'), id: `v2121-t9-tips-${randomBytes(4).toString('hex')}`, status: 'active', ends_at: new Date(NOW.getTime() + 7 * DAY).toISOString() };
   await upsertProgram(ProgramFile.parse(p));
-  tipProgram = p.id;
-  return p.id;
+  try {
+    return await fn(p.id);
+  } finally {
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${p.id}`;
+  }
 }
+const step = (id: number) => currentStep(id, { fresh: FRESH });
 
 test('9.4 count past users: a provable contract counts at once and the reply names the people and the rank', dbTest, async () => {
   const id = await claimed('tf_dev');
@@ -109,9 +116,9 @@ test('9.4 count past users: a provable contract counts at once and the reply nam
   await sql()`INSERT INTO person_wallets (wallet, builder_id) VALUES (${W}, ${id})`;
   const reader = fakeChain({ deployer: W, callers: 140 });
   await agentContract(id, 'tokens.fun', `base:${C}`, reader);
-  const step = await currentStep(id);
-  assert.equal(step?.kind, 'count_past');
-  assert.match(step!.line, /Your rank goes up today\.$/, 'provable: the step promises it');
+  const s0 = await step(id);
+  assert.equal(s0?.kind, 'count_past');
+  assert.match(s0!.line, /Your rank goes up today\.$/, 'provable and not held: the step promises it');
   assert.equal(await countableNow(id, `base:${C}`, reader), true);
   const r = await moveUpYes(id, `base:${C}`, NOW, { reader });
   // The rank part depends on how many people the shared DB has ranked: either wording, or none.
@@ -119,7 +126,7 @@ test('9.4 count past users: a provable contract counts at once and the reply nam
   const [s] = await sql()`SELECT state, proof FROM builder_sources WHERE builder_id = ${id} AND ref = ${`base:${C}`}`;
   assert.deepEqual({ ...s }, { state: 'verified', proof: 'deploy_wallet' });
   // Counted now: the step moves on (no longer count_past).
-  assert.notEqual((await currentStep(id))?.kind, 'count_past');
+  assert.notEqual((await step(id))?.kind, 'count_past');
 });
 
 test('9.5 an unprovable contract is not counted; the one tap to prove it is the reply', dbTest, async () => {
@@ -127,9 +134,9 @@ test('9.5 an unprovable contract is not counted; the one tap to prove it is the 
   const C2 = randomAddress();
   const reader = fakeChain({ deployer: randomAddress(), callers: 10 });
   await agentContract(id, 'tokens.fun', `base:${C2}`, reader);
-  const step = await currentStep(id);
-  assert.equal(step?.kind, 'count_past');
-  assert.match(step!.line, /I'll send you a link to show it's yours\.$/);
+  const s0 = await step(id);
+  assert.equal(s0?.kind, 'count_past');
+  assert.match(s0!.line, /I'll send you a link to show it's yours\.$/);
   assert.equal(await countableNow(id, `base:${C2}`, reader), false);
   const r = await moveUpYes(id, `base:${C2}`, NOW, { reader });
   assert.match(r.show_to_builder, /^One tap shows it's yours: https:\/\/earnkit\.com\/claim\/wallet\?t=\S+$/);
@@ -150,7 +157,7 @@ test('9.6 future users: the reply is one line and the agent gets the suffix to a
   const id = await claimed('tag_dev');
   const C3 = randomAddress();
   await trackedContract(id, 'lee/app', `base:${C3}`);
-  assert.equal((await currentStep(id))?.kind, 'tag_future');
+  assert.equal((await step(id))?.kind, 'tag_future');
   const r = await moveUpYes(id, 'lee/app', NOW, { reader: fakeChain({ deployer: randomAddress(), callers: 0 }) });
   assert.equal(r.show_to_builder, COUNT_LINES.added);
   assert.equal(r.show_to_builder, 'Added. People using it will count as they come in.');
@@ -160,7 +167,7 @@ test('9.6 future users: the reply is one line and the agent gets the suffix to a
   await refresh(id, fakeChain({ deployer: randomAddress(), callers: 12, codes: `0xa9059cbb${r.attribution!.data_suffix.slice(2)}` }));
   const [p] = await sql()<{ tagged: boolean }[]>`SELECT tagged FROM builder_projects WHERE builder_id = ${id} AND project_key = 'lee/app'`;
   assert.equal(p.tagged, true);
-  assert.notEqual((await currentStep(id))?.kind, 'tag_future', 'tagged: no longer offered');
+  assert.notEqual((await step(id))?.kind, 'tag_future', 'tagged: no longer offered');
 });
 
 test('9.6b future users on a contract EarnKit does not track yet: proven first, never promised', dbTest, async () => {
@@ -169,66 +176,140 @@ test('9.6b future users on a contract EarnKit does not track yet: proven first, 
   // A proposed contract with no past callers: no count_past step, so the step is to tag it.
   const reader = fakeChain({ deployer: randomAddress(), callers: 0 });
   await agentContract(id, 'app', ref, reader);
-  const step = await currentStep(id);
+  const s0 = await step(id);
   // Not confirmed (a claimed person): confirming it comes before tagging.
-  assert.equal(step?.kind, 'confirm');
+  assert.equal(s0?.kind, 'confirm');
   await sql()`UPDATE builder_projects SET confirmed = true WHERE builder_id = ${id}`;
-  assert.equal((await currentStep(id))?.kind, 'tag_future');
+  assert.equal((await step(id))?.kind, 'tag_future');
   const r = await moveUpYes(id, ref, NOW, { reader });
   assert.match(r.show_to_builder, /^One tap shows it's yours: https:\/\/earnkit\.com\/claim\/wallet\?t=/);
   assert.equal(r.attribution, undefined);
 });
 
-test('9.7 a payment side: the agent gets the tip-jar steps for that app', dbTest, async () => {
-  const program = await tipjarProgram();
-  const id = await claimed('shop_dev');
-  await siteProject(id, 'shop', 'Shop', 'a coffee shop site');
-  assert.equal((await currentStep(id))?.kind, 'payment');
-  let r;
-  try {
-    r = await moveUpYes(id, 'shop', NOW, { fresh: FRESH });
-  } finally {
-    // Other test files share the DB: an open Easy program changes their fresh build.
-    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${program}`;
-  }
-  assert.equal(r.show_to_builder, "On it. I'll tell you when people can tip.");
-  assert.equal(r.prepare!.starter, 'arc-tipjar');
-  assert.ok(r.prepare!.program_id.length > 0);
-  assert.match(r.agent_note!, /arc-tipjar/);
-  // Nothing EarnKit can deploy to: said plainly, nothing promised.
-  const off = await moveUpYes(id, 'shop', NOW, { fresh: { ...FRESH, deployOn: () => false } });
-  assert.equal(off.show_to_builder, COUNT_LINES.cantTips);
-  assert.equal(off.prepare, undefined);
-});
+test('9.7 a payment side: the agent gets the tip-jar steps for that app; the deploy enters nothing', dbTest, () =>
+  withTips(async (program) => {
+    const id = await claimed('shop_dev');
+    await siteProject(id, 'shop', 'Shop', 'a coffee shop site');
+    assert.equal((await step(id))?.kind, 'payment');
+    const r = await moveUpYes(id, 'shop', NOW, { fresh: FRESH });
+    assert.equal(r.show_to_builder, "On it. I'll tell you when people can tip.");
+    assert.deepEqual(r.prepare, { program_id: program, starter: 'arc-tipjar' });
+    assert.match(r.agent_note!, /arc-tipjar/);
+    // Ruling 3: the tip jar never enters a grant the builder didn't choose.
+    assert.match(r.agent_note!, /never call confirm for this program unless the builder asks/);
+    assert.match(r.agent_note!, /never the entry draft/);
+    const [entry] = await sql()`SELECT 1 FROM projects WHERE installation_id = ${id}`;
+    assert.equal(entry, undefined);
+    // Nothing EarnKit can deploy to: said plainly, nothing promised, and the step isn't offered.
+    const offFresh = { ...FRESH, deployOn: () => false };
+    const off = await moveUpYes(id, 'shop', NOW, { fresh: offFresh });
+    assert.equal(off.show_to_builder, COUNT_LINES.noted);
+    assert.equal(await currentStep(id, { fresh: offFresh }), null);
+  }),
+);
 
-test('9.7b an app that already takes tips is never offered a way to take tips', dbTest, async () => {
-  const id = await claimed('tj_dev');
-  await siteProject(id, 'tipjar', 'tipjar', 'a tip jar');
-  assert.equal(await currentStep(id), null);
-});
+test('9.7c payment uses the real entered and hidden programs: an entered one is reused, a hidden one never', dbTest, () =>
+  withTips(async (program) => {
+    const id = await claimed('shop_dev3');
+    await siteProject(id, 'shop', 'Shop', 'a coffee shop site');
+    await sql()`INSERT INTO projects (installation_id, program_id, name, repo_url) VALUES (${id}, ${program}, 'Shop', 'https://github.com/lee/shop')`;
+    const r = await moveUpYes(id, 'shop', NOW, { fresh: FRESH });
+    assert.deepEqual(r.prepare, { program_id: program, starter: 'arc-tipjar' }, 'reused, never a second entry');
+    const n = await sql()`SELECT 1 FROM projects WHERE installation_id = ${id}`;
+    assert.equal(n.length, 1);
+    // Hidden ("not interested"): no tip jar under it, so no payment step at all.
+    const other = await claimed('shop_dev4');
+    await siteProject(other, 'shop', 'Shop', 'a coffee shop site');
+    assert.equal((await step(other))?.kind, 'payment');
+    await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status) VALUES (${other}, '', ${program}, 'not_interested')`;
+    assert.equal(await step(other), null);
+  }),
+);
 
-test('9.8 a no: nothing changes, "Okay.", and that step is not offered again for 30 days', dbTest, async () => {
-  const id = await claimed('no_dev');
-  await siteProject(id, 'shop', 'Shop', 'a coffee shop site');
-  assert.equal((await currentStep(id))?.kind, 'payment');
-  const r = await moveUpNo(id, NOW);
-  assert.equal(r.show_to_builder, COUNT_LINES.noted);
-  assert.equal(r.show_to_builder, 'Okay.');
-  assert.equal(await currentStep(id), null);
-  // 31 days later it may come back.
+test('9.7b an app that already takes tips is never offered a way to take tips', dbTest, () =>
+  withTips(async () => {
+    const id = await claimed('tj_dev');
+    await siteProject(id, 'tipjar', 'tipjar', 'a tip jar');
+    assert.equal(await step(id), null);
+  }),
+);
+
+test('9.8 a no: nothing changes, "Okay.", and that step is not offered again for 30 days', dbTest, () =>
+  withTips(async () => {
+    const id = await claimed('no_dev');
+    await siteProject(id, 'shop', 'Shop', 'a coffee shop site');
+    assert.equal((await step(id))?.kind, 'payment');
+    const r = await moveUpNo(id, NOW, null, FRESH);
+    assert.equal(r.show_to_builder, COUNT_LINES.noted);
+    assert.equal(r.show_to_builder, 'Okay.');
+    assert.equal(await step(id), null);
+    // 31 days later it may come back.
+    await sql()`
+      UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, '{declined}', ${sql().json({ 'payment:shop': new Date(NOW.getTime() - 31 * DAY).toISOString() } as never)})
+      WHERE builder_id = ${id}`;
+    assert.equal((await step(id))?.kind, 'payment');
+  }),
+);
+
+test('9.9 a yes to a step that no longer applies (another project of theirs named) changes nothing', dbTest, () =>
+  withTips(async () => {
+    const id = await claimed('gone_dev');
+    await siteProject(id, 'shop', 'Shop', 'a coffee shop site');
+    await siteProject(id, 'notes', 'Notes', 'a notes app');
+    const r = await moveUpYes(id, 'notes', NOW, { fresh: FRESH });
+    assert.equal(r.show_to_builder, COUNT_LINES.noted);
+    assert.equal(r.prepare, undefined);
+  }),
+);
+
+test('9.4c count past users while the rescore is held: no "today" promise; the done line says the rank shows after a review', dbTest, async () => {
+  const id = await claimed('held_dev');
+  const [W, C] = [randomAddress(), randomAddress()];
+  await sql()`INSERT INTO person_wallets (wallet, builder_id) VALUES (${W}, ${id})`;
+  const reader = fakeChain({ deployer: W, callers: 140 });
+  await agentContract(id, 'tokens.fun', `base:${C}`, reader);
+  // A public score of 0 yesterday: counting 140 people is a jump the owner reviews first.
   await sql()`
-    UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, '{declined}', ${sql().json({ 'payment:shop': new Date(NOW.getTime() - 31 * DAY).toISOString() } as never)})
-    WHERE builder_id = ${id}`;
-  assert.equal((await currentStep(id))?.kind, 'payment');
+    INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held)
+    VALUES (${id}, ${new Date(NOW.getTime() - DAY).toISOString().slice(0, 10)}, 0, 0, '{}'::jsonb, '{}'::jsonb, ${FORMULA_V2}, 'v2-launch', false)`;
+  assert.equal(await trackingHeld(id, `base:${C}`, NOW), true);
+  const s0 = await step(id);
+  assert.equal(s0?.kind, 'count_past');
+  assert.equal(s0!.line, "tokens.fun has people using it who aren't counted yet. Want me to count them?");
+  const r = await moveUpYes(id, `base:${C}`, NOW, { reader });
+  assert.equal(r.show_to_builder, 'Done. 140 people who used tokens.fun now count. Your new rank shows after a quick review.');
+  // The dry run wrote nothing; the real count did.
+  const [s] = await sql()`SELECT state FROM builder_sources WHERE builder_id = ${id} AND ref = ${`base:${C}`}`;
+  assert.equal(s.state, 'verified');
 });
 
-test('9.9 a yes to a step that no longer applies (another project of theirs named) changes nothing', dbTest, async () => {
-  const id = await claimed('gone_dev');
-  await siteProject(id, 'shop', 'Shop', 'a coffee shop site');
-  await siteProject(id, 'notes', 'Notes', 'a notes app');
-  const r = await moveUpYes(id, 'notes', NOW, { fresh: FRESH });
-  assert.equal(r.show_to_builder, COUNT_LINES.noted);
-  assert.equal(r.prepare, undefined);
+test('9.16 a step is offered only when its yes can deliver (ruling 4)', dbTest, async () => {
+  // Unclaimed with X sign-in off: no claim link and no wallet page, so an unprovable contract is no step.
+  const id = await unclaimed();
+  const ref = `base:${randomAddress()}`;
+  const reader = fakeChain({ deployer: randomAddress(), callers: 10 });
+  await agentContract(id, 'tokens.fun', ref, reader);
+  assert.equal((await step(id))?.kind, 'count_past');
+  const was = { a: process.env.X_CLIENT_ID, b: process.env.X_CLIENT_SECRET };
+  delete process.env.X_CLIENT_ID;
+  delete process.env.X_CLIENT_SECRET;
+  try {
+    assert.notEqual((await step(id))?.kind, 'count_past');
+  } finally {
+    process.env.X_CLIENT_ID = was.a;
+    process.env.X_CLIENT_SECRET = was.b;
+  }
+  // No secret: no person code, so no future-users step (and no wallet page for a claimed person).
+  const tagger = await claimed('tag_dev3');
+  await trackedContract(tagger, 'lee/app2', `base:${randomAddress()}`);
+  assert.equal((await step(tagger))?.kind, 'tag_future');
+  const secret = process.env.EARNKIT_AUTH_SECRET;
+  delete process.env.EARNKIT_AUTH_SECRET;
+  try {
+    assert.notEqual((await step(tagger))?.kind, 'tag_future');
+  } finally {
+    process.env.EARNKIT_AUTH_SECRET = secret;
+  }
 });
 
 test('9.10 the rank words after a count: "#3 of 40" under 50 ranked, then the top share, else nothing', () => {
@@ -285,7 +366,7 @@ test('9.13 go_live with hosting off: the GitHub Pages steps for the agent; "live
   withEnv(R2_OFF, async () => {
     const login = `gl${randomBytes(3).toString('hex')}`;
     const { id, key } = await madeApp(login);
-    assert.equal((await currentStep(id))?.kind, 'go_live');
+    assert.equal((await step(id))?.kind, 'go_live');
     const yes = await tell(id, { kind: 'go_live', project_key: key, answer: 'yes' });
     assert.equal(yes.show_to_builder, "On it. I'll send you the link when it's live.");
     assert.match(yes.agent_note!, /gh-pages/);
