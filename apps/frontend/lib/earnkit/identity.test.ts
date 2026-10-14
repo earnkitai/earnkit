@@ -2,7 +2,9 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { sql } from './db';
-import { answerPickup, coveredRoots, findEarlier, linkInstallations, offerPickup, pickupQuestion, statedUsers } from './identity';
+import { answerPickup, coveredRoots, findEarlier, joinOnProvenTie, linkInstallations, offerPickup, pickupQuestion, rootOf, statedUsers } from './identity';
+import { identityInput, noteIdentity } from './identity-input';
+import { ensureProfile } from './profiles';
 import { connectInstallation, saveInstallation, sharedGroup } from './installations';
 import { readBank } from './answer-bank';
 import { tokenLineFor } from './token-gate';
@@ -553,3 +555,210 @@ test('Ruling H10 (I3): one question per reply: with a pickup, the reply asks onl
     await sql()`UPDATE programs SET status = 'closed' WHERE id = ${arc.id}`;
   }
 });
+
+// ---- v2.12.1 Task 5: the identity input and merges on proven ties only
+
+const NOW = new Date('2026-10-14T12:00:00Z');
+/** Runs `fn` with EARNKIT_BUILDER_SCORE and the event log on (the file's other cases run with them off). */
+async function scoreOn<T>(fn: () => Promise<T>): Promise<T> {
+  const was = { score: process.env.EARNKIT_BUILDER_SCORE, log: process.env.EARNKIT_EVENT_LOG };
+  process.env.EARNKIT_BUILDER_SCORE = 'on';
+  process.env.EARNKIT_EVENT_LOG = 'on';
+  try {
+    return await fn();
+  } finally {
+    if (was.score === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
+    else process.env.EARNKIT_BUILDER_SCORE = was.score;
+    if (was.log === undefined) delete process.env.EARNKIT_EVENT_LOG;
+    else process.env.EARNKIT_EVENT_LOG = was.log;
+  }
+}
+const person = async () => (await install()).id;
+
+test('5.2 noteIdentity proposes agent sources and remembers the reported login, never as proof', db, () =>
+  scoreOn(async () => {
+    const id = await person();
+    await ensureProfile(id, NOW);
+    await noteIdentity(id, identityInput({ github_login: 'lee', projects: [{ name: 'TipJar', what: 'a tip jar', repo: 'lee/tipjar', live_url: 'https://tip.example.com' }] }), NOW);
+    const [p] = await sql()`SELECT github_login, reported_github, identity->'projects'->0->>'what' AS what FROM builder_profiles WHERE builder_id = ${id}`;
+    assert.deepEqual({ ...p }, { github_login: null, reported_github: 'lee', what: 'a tip jar' });
+    const s = await sql()`SELECT kind, state, proposed_by FROM builder_sources WHERE builder_id = ${id} ORDER BY kind`;
+    assert.deepEqual(s.map((r) => `${r.kind}:${r.state}:${r.proposed_by}`), ['repo:proposed:agent', 'site:proposed:agent']);
+    const [e] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_events WHERE type = 'identity_given' AND installation_id = ${id}`;
+    assert.equal(e.n, 1);
+    // Again the same day: no second event; the reported login is unchanged, so no new discovery.
+    await sql()`UPDATE discovery_queue SET done_at = now() WHERE builder_id = ${id}`;
+    await noteIdentity(id, identityInput({ github_login: 'lee', projects: [] }), NOW);
+    const [e2] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_events WHERE type = 'identity_given' AND installation_id = ${id}`;
+    assert.equal(e2.n, 1);
+    const [q] = await sql()<{ done: boolean }[]>`SELECT done_at IS NOT NULL AS done FROM discovery_queue WHERE builder_id = ${id}`;
+    assert.equal(q.done, true);
+  }));
+
+test('5.2b noteIdentity proposes packages and chain-named contracts with their project key; wallets are remembered, never proven', db, () =>
+  scoreOn(async () => {
+    const id = await person();
+    await ensureProfile(id, NOW);
+    const w = '0x' + randomBytes(20).toString('hex');
+    const c = 'base:0x' + randomBytes(20).toString('hex');
+    await noteIdentity(id, identityInput({ projects: [{ name: 'Lib', package: 'left-pad' }, { name: 'Py', package: 'pypi:requests' }, { name: 'Coin', contracts: [c] }], wallets: [w] }), NOW);
+    const s = await sql()`SELECT kind, ref, project_key FROM builder_sources WHERE builder_id = ${id} ORDER BY kind, ref`;
+    assert.deepEqual(s.map((r) => `${r.kind}:${r.ref}:${r.project_key}`), [`contract:${c}:${c}`, 'package_npm:left-pad:left-pad', 'package_pypi:requests:pypi:requests']);
+    const [iw] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM installation_wallets WHERE installation_id = ${id} AND wallet = ${w}`;
+    assert.equal(iw.n, 1);
+    const [pw] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM person_wallets WHERE wallet = ${w}`;
+    assert.equal(pw.n, 0);
+  }));
+
+test('5.3 the same reported login or wallet on two installations never joins them', db, () =>
+  scoreOn(async () => {
+    const [a, b] = [await person(), await person()];
+    const w = '0x' + randomBytes(20).toString('hex');
+    for (const id of [a, b]) {
+      await ensureProfile(id, NOW);
+      await noteIdentity(id, identityInput({ github_login: 'lee', wallets: [w] }), NOW);
+    }
+    assert.notEqual(await rootOf(a), await rootOf(b));
+    assert.equal(await joinOnProvenTie(a, { github_login: 'lee' }), 0);
+    assert.notEqual(await rootOf(a), await rootOf(b));
+  }));
+
+test('5.4 the same signed-in GitHub login joins them; the claimed profile wins', db, () =>
+  scoreOn(async () => {
+    const [a, b] = [await person(), await person()];
+    const login = `lee-${b}`;
+    await ensureProfile(a, NOW);
+    await ensureProfile(b, NOW);
+    await sql()`UPDATE builder_profiles SET x_user_id = ${`9${b}`}, x_handle = ${`h${b}`.slice(0, 15)}, claimed_at = now(), github_login = ${login}, github_basis = 'signin' WHERE builder_id = ${b}`;
+    const [{ slug: lost }] = await sql()<{ slug: string }[]>`SELECT slug FROM builder_profiles WHERE builder_id = ${a}`;
+    assert.equal(await joinOnProvenTie(a, { github_login: login }), 1);
+    const root = await rootOf(a);
+    assert.equal(root, await rootOf(b));
+    const [p] = await sql()`SELECT x_user_id, github_basis, claimed_at IS NOT NULL AS claimed FROM builder_profiles WHERE builder_id = ${root}`;
+    assert.deepEqual({ ...p }, { x_user_id: `9${b}`, github_basis: 'signin', claimed: true });
+    // The loser's random slug was never public: it is not kept as a redirect.
+    const h = await sql()`SELECT 1 FROM profile_slug_history WHERE old_slug = ${lost}`;
+    assert.equal(h.length, 0);
+  }));
+
+test('5.4b a GitHub sign-in on two installations joins them (saveVerification), never with the flag off', db, async () => {
+  const { saveVerification } = await import('./github-verify');
+  const login = `sv-${stamp()}`.slice(0, 39);
+  const user = { login, created_at: new Date('2020-01-01'), public_repos: 3 };
+  const row = (installation_id: number) => ({ installation_id, project_id: null, repo_key: `${login}/r`, purpose: 'entry' as const, wallet: null, symbol: null });
+  const [a, b] = [await person(), await person()];
+  await saveVerification(row(a), user, NOW);
+  await saveVerification(row(b), user, NOW);
+  assert.notEqual(await rootOf(a), await rootOf(b));
+  await scoreOn(async () => {
+    const [c, d] = [await person(), await person()];
+    const l2 = `${login}-2`.slice(0, 39);
+    await saveVerification({ ...row(c), repo_key: `${l2}/r` }, { ...user, login: l2 }, NOW);
+    await saveVerification({ ...row(d), repo_key: `${l2}/r` }, { ...user, login: l2 }, NOW);
+    assert.equal(await rootOf(c), await rootOf(d));
+  });
+});
+
+test('5.5 two people claimed with different X accounts are never joined by a GitHub tie', db, () =>
+  scoreOn(async () => {
+    const [a, b] = [await person(), await person()];
+    for (const id of [a, b]) {
+      await ensureProfile(id, NOW);
+      await sql()`UPDATE builder_profiles SET x_user_id = ${`8${id}`}, x_handle = ${`k${id}`.slice(0, 15)}, claimed_at = now() WHERE builder_id = ${id}`;
+    }
+    await sql()`UPDATE builder_profiles SET github_login = ${`ann-${b}`}, github_basis = 'signin' WHERE builder_id = ${b}`;
+    assert.equal(await joinOnProvenTie(a, { github_login: `ann-${b}` }), 0);
+    assert.notEqual(await rootOf(a), await rootOf(b));
+  }));
+
+test('5.6 a login proven only by the X field match never joins anyone', db, () =>
+  scoreOn(async () => {
+    const [a, b] = [await person(), await person()];
+    await ensureProfile(a, NOW);
+    await ensureProfile(b, NOW);
+    await sql()`UPDATE builder_profiles SET github_login = ${`zed-${b}`}, github_basis = 'x_match' WHERE builder_id = ${b}`;
+    assert.equal(await joinOnProvenTie(a, { github_login: `zed-${b}` }), 0);
+  }));
+
+test('5.7 a shared client never joins, and the flag off joins no one', db, async () => {
+  const login = `sh-${stamp()}`.slice(0, 39);
+  const a = (await install({ shared: true })).id;
+  const b = await person();
+  await scoreOn(async () => {
+    await ensureProfile(b, NOW);
+    await sql()`UPDATE builder_profiles SET github_login = ${login}, github_basis = 'signin' WHERE builder_id = ${b}`;
+    assert.equal(await joinOnProvenTie(a, { github_login: login }), 0);
+  });
+  const c = await person();
+  assert.equal(await joinOnProvenTie(c, { github_login: login }), 0);
+  assert.notEqual(await rootOf(c), await rootOf(b));
+});
+
+test('5.8 merging moves claim codes and proven wallets, drops the loser\'s live score and projects, and re-reads the root', db, () =>
+  scoreOn(async () => {
+    const [a, b] = [await person(), await person()];
+    await ensureProfile(a, NOW);
+    await ensureProfile(b, NOW);
+    const w = '0x' + randomBytes(20).toString('hex');
+    const code = `c-${stamp()}`;
+    await sql()`INSERT INTO claim_codes (code_hash, builder_id) VALUES (${code}, ${b})`;
+    await sql()`INSERT INTO person_wallets (wallet, builder_id) VALUES (${w}, ${b})`;
+    for (const id of [a, b]) {
+      await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at, read_at)
+        VALUES (${id}, 10, '{}'::jsonb, false, 0, 0, 'v2', 'c', now(), now())`;
+      await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped) VALUES (${id}, 'k', 'K', 'code', false, false)`;
+    }
+    await linkInstallations(a, [b]);
+    const root = Math.min(a, b);
+    const other = Math.max(a, b);
+    const [cc] = await sql()`SELECT builder_id FROM claim_codes WHERE code_hash = ${code}`;
+    assert.equal(cc.builder_id, root);
+    const [pw] = await sql()`SELECT builder_id FROM person_wallets WHERE wallet = ${w}`;
+    assert.equal(pw.builder_id, root);
+    assert.equal((await sql()`SELECT 1 FROM builder_live WHERE builder_id = ${other}`).length, 0);
+    assert.equal((await sql()`SELECT 1 FROM builder_projects WHERE builder_id = ${other}`).length, 0);
+    const [live] = await sql()`SELECT read_at FROM builder_live WHERE builder_id = ${root}`;
+    assert.equal(live.read_at, null);
+  }));
+
+test('5.9 linking never merges two people with different X accounts (pickup or any other path)', db, () =>
+  scoreOn(async () => {
+    const [a, b] = [await person(), await person()];
+    for (const id of [a, b]) {
+      await ensureProfile(id, NOW);
+      await sql()`UPDATE builder_profiles SET x_user_id = ${`7${id}`}, x_handle = ${`m${id}`.slice(0, 15)}, claimed_at = now() WHERE builder_id = ${id}`;
+    }
+    await linkInstallations(a, [b]);
+    assert.notEqual(await rootOf(a), await rootOf(b));
+  }));
+
+test('5.10 flag on, find takes identity and never offers a pickup; flag off, identity is ignored', db, async () => {
+  const repo = `https://github.com/pk${process.pid}${Date.now()}/tipjar`;
+  const owner = repo.split('/')[3];
+  const earlier = await install({ github_user: owner });
+  await entry(earlier.id, repo);
+  const ctx = (id: number) => ({ installationId: id, ownInstallationId: id, sharedClient: false, pickupDeps: linesOf(repo, earlier.id) }) as never;
+  const on = await install();
+  await scoreOn(async () => {
+    const out = (await handlers.list_programs({ github_user: owner, identity: { github_login: owner, projects: [{ name: 'TipJar', what: 'a tip jar', repo }] } }, ctx(on.id))) as Record<string, unknown>;
+    assert.ok(!JSON.stringify(out).includes('Pick up'), JSON.stringify(out));
+    const [p] = await sql()`SELECT reported_github FROM builder_profiles WHERE builder_id = ${on.id}`;
+    assert.equal(p.reported_github, owner);
+  });
+  const off = await install();
+  const before = await handlers.list_programs({ github_user: owner }, ctx(off.id));
+  assert.match(JSON.stringify(before), /Pick up/);
+  const [none] = await sql()`SELECT count(*)::int AS n FROM builder_profiles WHERE builder_id = ${off.id}`;
+  assert.equal(none.n, 0);
+});
+
+test('5.11 a deploy wallet the agent typed joins no one (held for the owner\'s ruling: it is agent-reported)', db, () =>
+  scoreOn(async () => {
+    const [a, b] = [await person(), await person()];
+    const w = '0x' + randomBytes(20).toString('hex');
+    for (const id of [a, b])
+      await sql()`INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, status, cost_micro_usd, owner_wallet)
+        VALUES (${id}, ${`installation:${id}`}, ${`o/r${id}`}, 'base', ${`0x${randomBytes(32).toString('hex')}`}, 'deployed', 0, ${w})`;
+    assert.equal(await joinOnProvenTie(a, { deploy_wallet: w }), 0);
+    assert.notEqual(await rootOf(a), await rootOf(b));
+  }));

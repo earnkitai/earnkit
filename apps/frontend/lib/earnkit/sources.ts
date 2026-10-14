@@ -130,14 +130,24 @@ export async function rejectSource(id: number, reason: string): Promise<void> {
 }
 
 /**
+ * v2.12.1 (Honesty rule): what the agent reported is shown with its numbers, marked not yet
+ * confirmed, and never scored. So an agent-proposed repo, site or package is read too, for display
+ * only (the score reads verified sources alone); a proposed contract or coin never is.
+ */
+export const READ_FOR_DISPLAY = ['repo', 'site', 'package_npm', 'package_pypi'] as const;
+
+/**
  * Verified sources not yet read on `day`, never read first, then the oldest read; `only` limits it to
  * these people. v2.12.1: a source of a project the person no longer tracks (builder_projects.tracked
- * false, the 25-project cap) is not read.
+ * false, the 25-project cap) is not read; agent-proposed repos, sites and packages are read for
+ * display (READ_FOR_DISPLAY); contracts and coins only on the chains EarnKit reads (base, arc).
  */
 export async function dueSources(day: string, limit: number, only?: number[]): Promise<{ id: number; builder_id: number; kind: string; ref: string; last_read_day: string | null }[]> {
   const rows = await sql()<{ id: number; builder_id: number; kind: string; ref: string; last_read_day: string | null }[]>`
     SELECT b.id::int AS id, b.builder_id, b.kind, b.ref, b.last_read_day::text FROM builder_sources b
-    WHERE b.state = 'verified' AND (b.last_read_day IS NULL OR b.last_read_day < ${day}::date)
+    WHERE (b.state = 'verified' OR (b.state = 'proposed' AND b.proposed_by = 'agent' AND b.kind IN ${sql()(READ_FOR_DISPLAY)}))
+      AND (b.kind NOT IN ('contract', 'coin') OR b.ref ~ '^(base|arc):')
+      AND (b.last_read_day IS NULL OR b.last_read_day < ${day}::date)
       AND NOT EXISTS (SELECT 1 FROM builder_projects p WHERE p.builder_id = b.builder_id AND p.project_key = b.project_key AND NOT p.tracked)
       ${only ? sql()`AND b.builder_id IN ${sql()(only.length ? only : [-1])}` : sql()``}
     ORDER BY b.last_read_day NULLS FIRST, b.id LIMIT ${limit}`;
@@ -154,9 +164,12 @@ export async function previousSignals(id: number): Promise<unknown> {
 export async function writeReading(id: number, builderId: number, day: string, r: { ok: true; signals: unknown } | { ok: false; error: string }): Promise<boolean> {
   const db = sql();
   const written = await db.begin(async (tx) => {
-    // Only a verified source is read (a proposed, rejected or revoked one never gets a reading).
-    const [src] = await tx<{ state: string }[]>`SELECT state FROM builder_sources WHERE id = ${id} FOR UPDATE`;
-    if (src?.state !== 'verified') return false;
+    // Only a verified source is read, or (v2.12.1, for display, never scored) an agent-proposed repo,
+    // site or package; a rejected or revoked one, or a proposed contract or coin, never gets a reading.
+    const [src] = await tx<{ state: string; kind: string; proposed_by: string }[]>`
+      SELECT state, kind, proposed_by FROM builder_sources WHERE id = ${id} FOR UPDATE`;
+    const display = src?.state === 'proposed' && src.proposed_by === 'agent' && (READ_FOR_DISPLAY as readonly string[]).includes(src.kind);
+    if (src?.state !== 'verified' && !display) return false;
     const rows = await tx`
       INSERT INTO source_readings (source_id, day, signals, ok, error)
       VALUES (${id}, ${day}, ${tx.json((r.ok ? r.signals : {}) as never)}, ${r.ok}, ${r.ok ? null : r.error.slice(0, 200)})

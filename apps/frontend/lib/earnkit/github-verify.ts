@@ -277,6 +277,12 @@ export async function saveVerification(
       ${app ? null : row.wallet}, ${app ? null : row.symbol}, ${app ? 'app' : 'oauth'}, ${app?.githubInstallationId ?? null})`;
   // v2.12 spec 3: a GitHub sign-in (or App verification) is a new discovery clue.
   if (builderScoreEnabled()) await (await import('./discovery')).enqueueClue(row.installation_id, 'signin');
+  // v2.12.1 spec "Identity": a sign-in proves the login, so installations signed in as it are one
+  // person (never a shared client; never two X accounts). A failed join never fails the sign-in.
+  if (builderScoreEnabled())
+    await (await import('./identity'))
+      .joinOnProvenTie(row.installation_id, { github_login: user.login })
+      .catch((err: unknown) => console.error('[github-verify] join', err instanceof Error ? err.name : 'error'));
   return paste;
 }
 

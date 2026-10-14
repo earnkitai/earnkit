@@ -282,10 +282,11 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
   }
   if (proof) {
     const L = proof.login.toLowerCase();
+    const basis = proof.basis;
     const user = await d.gh<{ blog?: string | null; twitter_username?: string | null }>(`/users/${L}`);
     const clues = githubProfileClues(user ?? {});
     verdicts.unshift(async () => {
-      await setFallback(root, { github_login: L });
+      await setFallback(root, { github_login: L, basis });
       // The latest GitHub read replaces the prefill (twitter_username is self-declared, so it can be
       // withdrawn); a shown X handle GitHub no longer lists is cleared (the slug falls back, the old
       // one redirects).

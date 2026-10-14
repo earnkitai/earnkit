@@ -1,4 +1,4 @@
-import { archiveFlag } from './builder-score-flag';
+import { archiveFlag, builderScoreEnabled } from './builder-score-flag';
 import { githubRepo, normalizeRepoUrl } from './campaigns';
 import { sql } from './db';
 import { sharedGroup } from './installations';
@@ -383,6 +383,11 @@ export async function linkInstallations(own: number, roots: number[]): Promise<n
     const all = [...new Set([mine.root, ...roots])].sort((a, b) => a - b);
     const [root, ...others] = all;
     for (const other of others) {
+      // v2.12.1 spec "Identity": two people claimed with different X accounts are never one person,
+      // whatever links them (a pickup, a proven tie): that group is left out.
+      const xs = await tx<{ x: string }[]>`
+        SELECT DISTINCT x_user_id AS x FROM builder_profiles WHERE builder_id IN (${root}, ${other}) AND x_user_id IS NOT NULL`;
+      if (xs.length > 1) continue;
       // M3: one entry per (program, repo) in the group (per program and name without a repo, as
       // ownEntry matches): the row with the token, else the earlier-submitted one, moves to (or stays
       // on) the root; the other duplicate stays on, or moves to, the member installation, out of the
@@ -443,4 +448,54 @@ export async function linkInstallations(own: number, roots: number[]): Promise<n
   // After commit, so a render can't cache the pre-merge profile (v2.12 T10 review).
   if (profilesMoved) profileChanged();
   return n;
+}
+
+export type ProvenTie = { x_user_id: string } | { github_login: string } | { deploy_wallet: string };
+/** Off until the owner rules that a deploy wallet is proven (see joinOnProvenTie). */
+const DEPLOY_WALLET_TIES = false as boolean;
+
+/**
+ * v2.12.1 spec "Identity": "Installations join one person only on proven ties: the same confirmed
+ * X account (immutable X user id), the same proven GitHub login (sign-in or proof line), or the
+ * same EarnKit deploy wallet. An agent-reported login or wallet never merges anyone." A login
+ * proven only by the X field match (github_basis 'x_match') never joins. Two people claimed with
+ * different X accounts are never joined. Shared clients never join. Flag off: nothing. Returns how
+ * many people joined.
+ */
+export async function joinOnProvenTie(installationId: number, tie: ProvenTie): Promise<number> {
+  if (!builderScoreEnabled() || (await sharedGroup(installationId))) return 0;
+  // Task 5 (held for the owner's ruling): a deploy's owner_wallet is the wallet the agent typed
+  // (deploy.ts: "a wallet is only named"), so joining on it would let anyone who deploys to a
+  // stranger's wallet join that stranger's group, the very thing the binding rule forbids ("an
+  // agent-reported login or wallet never merges anyone"). Until a deploy wallet is proven (a
+  // signature bound to the deploying person), it joins no one, and deploy.ts does not call this.
+  if ('deploy_wallet' in tie && !DEPLOY_WALLET_TIES) return 0;
+  const root = await rootOf(installationId);
+  const db = sql();
+  const rows =
+    'x_user_id' in tie
+      ? await db<{ r: number }[]>`SELECT builder_id AS r FROM builder_profiles WHERE x_user_id = ${tie.x_user_id} AND builder_id <> ${root}`
+      : 'github_login' in tie
+        ? await db<{ r: number }[]>`
+            SELECT DISTINCT COALESCE(i.builder_id, i.id) AS r FROM github_verifications v JOIN installations i ON i.id = v.installation_id
+            WHERE lower(v.login) = ${tie.github_login.toLowerCase()} AND COALESCE(i.builder_id, i.id) <> ${root}
+            UNION
+            SELECT builder_id FROM builder_profiles
+            WHERE lower(github_login) = ${tie.github_login.toLowerCase()} AND github_basis IN ('signin', 'app', 'proof_line') AND builder_id <> ${root}`
+        : await db<{ r: number }[]>`
+            SELECT DISTINCT COALESCE(i.builder_id, i.id) AS r FROM contract_deploys d JOIN installations i ON i.id = d.installation_id
+            WHERE lower(d.owner_wallet) = ${tie.deploy_wallet.toLowerCase()} AND d.status = 'deployed' AND COALESCE(i.builder_id, i.id) <> ${root}`;
+  const xOf = async (id: number) =>
+    (await db<{ x: string | null }[]>`SELECT x_user_id AS x FROM builder_profiles WHERE builder_id = ${id}`)[0]?.x ?? null;
+  const mine = await xOf(root);
+  const others: number[] = [];
+  for (const { r } of rows) {
+    if (others.includes(r) || (await sharedGroup(r))) continue;
+    const theirs = await xOf(r);
+    if (mine && theirs && mine !== theirs) continue; // two X accounts: two people
+    others.push(r);
+  }
+  if (others.length === 0) return 0;
+  await linkInstallations(installationId, others);
+  return others.length;
 }

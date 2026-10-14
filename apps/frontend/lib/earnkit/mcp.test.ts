@@ -83,19 +83,22 @@ test('9.1 v2.12: a configured escrow adds nothing (sponsor campaigns are archive
   assert.deepEqual(await toolNames({ ESCROW_FACTORY_ADDRESS: FACTORY }), FOUR);
 });
 
-test('4.14 v2.12: flag off, find is v2.11 (no local_git, the v2.11 description); flag on, it takes local_git under 800 characters', async () => {
+test('4.14 v2.12, 5 v2.12.1: flag off, find is v2.11 (no local_git or identity, the v2.11 description); flag on, it takes identity under 800 characters', async () => {
   const off = (await listed({})).tools.find((t) => t.name === 'find')!;
   assert.ok(!('local_git' in (off.inputSchema.properties ?? {})));
+  assert.ok(!('identity' in (off.inputSchema.properties ?? {})));
   assert.equal(off.description, FIND_DESCRIPTION);
   assert.ok(FIND_DESCRIPTION.startsWith('What can I earn? Pass local_repos: repos the builder wrote, from local git remotes. For private repos, report: name, chains, contracts, live link, last_commit_at, my_commits_90d. A yes to the reply prepares lead.program_id; more: true only when they ask for more. build_offer: follow its agent_note. program_id: one program and its guide; repo: whether it fits. '));
   assert.doesNotMatch(FIND_DESCRIPTION, /local_git/);
   process.env.EARNKIT_BUILDER_SCORE = 'on';
   try {
     const on = (await listed({})).tools.find((t) => t.name === 'find')!;
-    assert.ok('local_git' in (on.inputSchema.properties ?? {}));
+    assert.ok('identity' in (on.inputSchema.properties ?? {}));
+    assert.ok(!('local_git' in (on.inputSchema.properties ?? {})));
     assert.equal(on.description, FIND_DESCRIPTION_SCORE);
-    assert.ok(on.description!.length < 800, String(on.description!.length));
-    assert.match(on.description!, /local_git/);
+    assert.ok(FIND_DESCRIPTION_SCORE.length < 800, String(FIND_DESCRIPTION_SCORE.length));
+    assert.match(FIND_DESCRIPTION_SCORE, /identity/);
+    assert.match(FIND_DESCRIPTION_SCORE, /never ask for it/);
     assert.match(on.description!, /repos the builder wrote/);
   } finally {
     delete process.env.EARNKIT_BUILDER_SCORE;

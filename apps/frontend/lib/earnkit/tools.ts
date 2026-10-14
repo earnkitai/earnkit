@@ -138,7 +138,8 @@ import {
 import { LIVE_FAILED_LINE, addressesFrom, contractMissingLine, entryVerified, liveCheckDetail, liveErrorLine, rpcFor, type CheckDeps, type Verified } from './verify';
 import { noteEvent } from './events';
 import { builderScoreEnabled } from './builder-score-flag';
-import { enqueueDiscovery, localGitInput, noteLocalGit } from './discovery';
+import { enqueueDiscovery, localGitInput } from './discovery';
+import { identityInput, noteIdentity } from './identity-input';
 import { scoreReply, secondLine } from './score-tool';
 import { CARD_OFFER_NOTE, SHARE_LINE, SKIPPED_LINE, cardYes, findOfferLine, offerCard } from './share';
 import { SHARED_PROFILE_NOTE, X_SET_LINE, consentOnce, ensureProfile, profileOf, setFallback, setHidden, setXHandle } from './profiles';
@@ -736,8 +737,12 @@ const ListProgramsInput = z
     github_user: z.unknown().optional(),
     repos: z.unknown().optional(),
     local_repos: LocalReposInput.optional(),
-    // v2.12 spec 3: read leniently by discovery.ts localGitInput; never refused.
+    // v2.12 spec 3: read leniently by discovery.ts localGitInput; never refused. v2.12.1: still
+    // accepted (folded into identity), no longer listed.
     local_git: z.unknown().optional(),
+    // v2.12.1 spec "1. Connect": what the agent can already see, read leniently by identity-input.ts
+    // identityInput; never refused, a clue only (never proof, never a merge). Ignored with the flag off.
+    identity: z.unknown().optional(),
     // v2.8.1 §B6: anything else than a 0x address is ignored with WALLET_IGNORED, never an error.
     wallet: z.unknown().optional(),
     // v2.9 B9 (Ruling G9): the code a shared client's builder pasted after signing in; never refused.
@@ -768,7 +773,7 @@ export const WALLET_IGNORED =
  * (match-projects.ts ReportedRepoInput) or a wallet that isn't 0x (dropped, with a note). Exported for tests.
  */
 export function listProgramsInput(input: unknown) {
-  const { wallet, agent_can_build, github_user, repos, signed_in, local_git, ...rest } = ListProgramsInput.parse(input ?? {});
+  const { wallet, agent_can_build, github_user, repos, signed_in, local_git, identity, ...rest } = ListProgramsInput.parse(input ?? {});
   const repoList = reportedRepos(repos);
   const given = typeof wallet === 'string' && wallet.trim() !== '' ? wallet.trim() : null;
   const valid = given && /^0x[0-9a-fA-F]{40}$/.test(given) ? given : null;
@@ -779,7 +784,8 @@ export function listProgramsInput(input: unknown) {
     repos: repoList.length ? repoList : undefined,
     wallet: valid ?? undefined, walletNote: wallet != null && wallet !== '' && !valid ? WALLET_IGNORED : null,
     signed_in: typeof signed_in === 'string' ? signed_in : undefined,
-    local_git: localGitInput(local_git) };
+    local_git: localGitInput(local_git),
+    identity: identityInput(identity, localGitInput(local_git)) };
 }
 
 /**
@@ -1122,12 +1128,15 @@ export const handlers = {
   // One answer to "what can I earn?": the builder's projects first, then what's worth building,
   // opening with what changed since their last check.
   list_programs: async (input: unknown, ctx: ToolContext) => {
-    const { agent_can_build, github_user, repos, local_repos, wallet, walletNote, signed_in, more, local_git } = listProgramsInput(input);
+    const { agent_can_build, github_user, repos, local_repos, wallet, walletNote, signed_in, more, identity } = listProgramsInput(input);
+    // v2.12.1 (plan S10): with the score flag on, people join only on proven ties (identity.ts
+    // joinOnProvenTie), so find never offers a pickup and what the agent reports is only a clue.
+    const scoring = builderScoreEnabled() && !ctx.sharedClient;
     // v2.8.1 §E18: earlier installations of the builder this call names (its GitHub user, the owners
     // of the repos it reports, its wallet), never what this installation remembers; read before this
     // call's details are saved. Never fails the tool.
     const pickup =
-      github_user || repos?.length || local_repos?.length || wallet
+      !scoring && (github_user || repos?.length || local_repos?.length || wallet)
         ? await offerPickup(ctx.ownInstallationId ?? ctx.installationId, {
             github_users: [
               github_user,
@@ -1145,13 +1154,14 @@ export const handlers = {
     // wallet until a login is proven) and its clues. Never fails the tool and never waits on a read.
     // A shared group gets none (R2).
     let profiled = false as boolean;
-    if (builderScoreEnabled() && !ctx.sharedClient)
+    if (scoring)
       await (async () => {
-        const made = await ensureProfile(ctx.installationId, new Date());
+        const now = new Date();
+        const made = await ensureProfile(ctx.installationId, now);
         if (!made) return;
         profiled = true;
         if (made.created || wallet) await setFallback(ctx.installationId, {});
-        await noteLocalGit(ctx.installationId, local_git);
+        await noteIdentity(ctx.installationId, identity, now);
         await enqueueDiscovery(ctx.installationId, 'first_find');
       })().catch((err: unknown) => console.error('[list_programs] profile', err instanceof Error ? err.name : 'error'));
     // v2.9 B9, Rulings G6, G7, G9: on a shared client, the GitHub-verified login of the pasted code.

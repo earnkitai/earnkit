@@ -147,7 +147,10 @@ export async function ensureProfile(
  * The proven login, else the first proven wallet: the shown fallback and the slug when there is no
  * X handle. A login is set once and only if no other profile holds it (one login, one person).
  */
-export async function setFallback(builderId: number, f: { github_login?: string; wallet?: string }): Promise<void> {
+export type GithubBasis = 'signin' | 'app' | 'proof_line' | 'x_match';
+
+/** v2.12.1: `basis` is how the login was proven, kept as github_basis with the login (a merge reads it). */
+export async function setFallback(builderId: number, f: { github_login?: string; basis?: GithubBasis; wallet?: string }): Promise<void> {
   const changed = await sql().begin(async (tx) => {
     const [p] = await tx<Profile[]>`SELECT ${tx(COLUMNS)} FROM builder_profiles WHERE builder_id = ${builderId} FOR UPDATE`;
     if (!p) return false;
@@ -163,6 +166,8 @@ export async function setFallback(builderId: number, f: { github_login?: string;
     const fallback = login ?? p.fallback_handle ?? (wallet ? shortWallet(wallet) : null);
     if (login !== p.github_login || fallback !== p.fallback_handle)
       await tx`UPDATE builder_profiles SET github_login = ${login}, fallback_handle = ${fallback}, updated_at = now() WHERE builder_id = ${builderId}`;
+    if (login && login !== p.github_login && f.basis)
+      await tx`UPDATE builder_profiles SET github_basis = ${f.basis} WHERE builder_id = ${builderId}`;
     if (!p.x_handle && (login || wallet)) await followName(tx, builderId, { ...p, github_login: login }, wallet);
     // The public name (a new login) or the slug changed: the cached page must follow (after commit).
     const [after] = await tx<{ slug: string }[]>`SELECT slug FROM builder_profiles WHERE builder_id = ${builderId}`;
@@ -290,11 +295,27 @@ export async function mergeProfiles(tx: postgres.TransactionSql, root: number, o
     UPDATE builder_sources s SET builder_id = ${root} WHERE builder_id = ${other}
       AND NOT EXISTS (SELECT 1 FROM builder_sources r WHERE r.builder_id = ${root} AND r.kind = s.kind AND r.ref = s.ref)`;
   await tx`UPDATE builder_sources SET state = 'rejected', reject_reason = 'merged' WHERE builder_id = ${other} AND state <> 'rejected'`;
-  type Row = Profile & { empty_checked_at: Date | null; consent_shown_at: Date | null };
+  type Row = Profile & {
+    empty_checked_at: Date | null; consent_shown_at: Date | null;
+    x_user_id: string | null; x_name: string | null; x_avatar_url: string | null; claimed_at: Date | null;
+    reported_github: string | null; github_basis: string | null; identity: unknown;
+    page_ready_shown_at: Date | null; standing_seen: unknown; card_moments: unknown;
+  };
   const rows = await tx<Row[]>`
-    SELECT ${tx(COLUMNS)}, empty_checked_at, consent_shown_at FROM builder_profiles WHERE builder_id IN (${root}, ${other}) ORDER BY builder_id FOR UPDATE`;
+    SELECT ${tx(COLUMNS)}, empty_checked_at, consent_shown_at, x_user_id, x_name, x_avatar_url, claimed_at, reported_github,
+      github_basis, identity, page_ready_shown_at, standing_seen, card_moments
+    FROM builder_profiles WHERE builder_id IN (${root}, ${other}) ORDER BY builder_id FOR UPDATE`;
   const r = rows.find((x) => x.builder_id === root);
   const o = rows.find((x) => x.builder_id === other);
+  // v2.12.1 spec "Identity": two X accounts are two people (linkInstallations leaves such a group out).
+  if (r?.x_user_id && o?.x_user_id && r.x_user_id !== o.x_user_id) throw new Error('two X accounts are two people');
+  // v2.12.1: the person's claim codes and signed wallets move to the root; the other's live score and
+  // projects go (rebuilt from the merged sources), and the root is read again on the next ask.
+  await tx`UPDATE claim_codes SET builder_id = ${root} WHERE builder_id = ${other}`;
+  await tx`UPDATE person_wallets SET builder_id = ${root} WHERE builder_id = ${other}`;
+  await tx`DELETE FROM builder_projects WHERE builder_id = ${other}`;
+  await tx`DELETE FROM builder_live WHERE builder_id = ${other}`;
+  await tx`UPDATE builder_live SET read_at = NULL WHERE builder_id = ${root}`;
   await tx`UPDATE profile_slug_history SET builder_id = ${root} WHERE builder_id = ${other}`;
   await tx`DELETE FROM builder_ranks WHERE builder_id = ${other}`;
   if (!o) {
@@ -306,7 +327,8 @@ export async function mergeProfiles(tx: postgres.TransactionSql, root: number, o
     if (builderScoreEnabled()) await requeue(tx, root);
     return true;
   }
-  const [win, lose] = !r.x_handle && o.x_handle ? [o, r] : [r, o];
+  // v2.12.1: the claimed profile (an X user id) wins; else, as in v2.12, the one with an X handle, else the root's.
+  const [win, lose] = o.x_user_id && !r.x_user_id ? [o, r] : !r.x_user_id && !r.x_handle && o.x_handle ? [o, r] : [r, o];
   // The login and prefill travel together, X handle with them; the winner's own values win.
   const login = win.github_login ?? lose.github_login;
   const fromLoser = !win.github_login && !!lose.github_login;
@@ -324,9 +346,23 @@ export async function mergeProfiles(tx: postgres.TransactionSql, root: number, o
     x_asked_at: win.x_asked_at ?? lose.x_asked_at,
     empty_checked_at: win.empty_checked_at ?? lose.empty_checked_at,
     consent_shown_at: win.consent_shown_at ?? lose.consent_shown_at,
+    // v2.12.1: the claim (X) travels with the winner; the agent's report and the login's basis are the
+    // winner's, else the loser's (the basis goes with the login it proves).
+    x_user_id: win.x_user_id,
+    x_name: win.x_name,
+    x_avatar_url: win.x_avatar_url,
+    claimed_at: win.claimed_at,
+    reported_github: win.reported_github ?? lose.reported_github,
+    github_basis: fromLoser ? lose.github_basis : win.github_login ? win.github_basis : null,
+    identity: tx.json((nonEmpty(win.identity) ? win.identity : lose.identity) as never),
+    page_ready_shown_at: earliest(win.page_ready_shown_at, lose.page_ready_shown_at),
+    standing_seen: tx.json(win.standing_seen as never),
+    card_moments: tx.json(win.card_moments as never),
   };
   // DO NOTHING: an old slug is never moved off another person (the other's own history moved above).
-  await tx`INSERT INTO profile_slug_history (old_slug, builder_id) VALUES (${lose.slug}, ${root}) ON CONFLICT (old_slug) DO NOTHING`;
+  // A claimed winner's loser slug was a random internal one, never public: it is not kept.
+  if (!win.x_user_id)
+    await tx`INSERT INTO profile_slug_history (old_slug, builder_id) VALUES (${lose.slug}, ${root}) ON CONFLICT (old_slug) DO NOTHING`;
   await tx`DELETE FROM builder_profiles WHERE builder_id = ${lose.builder_id}`;
   if (win.builder_id !== root) await tx`UPDATE builder_profiles SET builder_id = ${root} WHERE builder_id = ${win.builder_id}`;
   await tx`UPDATE builder_profiles SET ${tx(merged)}, updated_at = now() WHERE builder_id = ${root}`;
@@ -334,6 +370,9 @@ export async function mergeProfiles(tx: postgres.TransactionSql, root: number, o
   if (builderScoreEnabled()) await requeue(tx, root);
   return true;
 }
+
+const nonEmpty = (v: unknown) => !!v && typeof v === 'object' && Object.keys(v).length > 0;
+const earliest = (a: Date | null, b: Date | null) => (a && b ? (a < b ? a : b) : (a ?? b));
 
 /** The merged person is discovered again (a new clue: the other group's). */
 async function requeue(tx: Db, root: number) {
