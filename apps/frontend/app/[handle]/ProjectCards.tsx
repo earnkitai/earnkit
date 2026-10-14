@@ -1,4 +1,4 @@
-import { NOTHING_YET, NOT_CONFIRMED, NOT_TRACKED, type PageCard } from '../../lib/earnkit/page-data';
+import { NONE_CONFIRMED, NOTHING_YET, NOT_CONFIRMED, NOT_TRACKED, type PageCard } from '../../lib/earnkit/page-data';
 
 const CARD = 'flex min-w-0 flex-col rounded-[28px] bg-ek-navy/40 p-6 ring-1 ring-inset ring-ek-blue-soft/10 md:p-7';
 const GRID = 'grid gap-3 md:grid-cols-2 md:gap-4';
@@ -18,7 +18,7 @@ function Arrow() {
   );
 }
 
-function Card({ c }: { c: PageCard }) {
+function Card({ c, label }: { c: PageCard; label: boolean }) {
   const numbers = c.people !== null || c.money !== null;
   return (
     <li data-project={c.key} className={CARD}>
@@ -48,7 +48,7 @@ function Card({ c }: { c: PageCard }) {
           ))}
         </ul>
       ) : null}
-      {c.link || !c.confirmed || !c.tracked ? (
+      {c.link || (label && !c.confirmed) || !c.tracked ? (
         <div className="mt-auto flex flex-wrap items-center justify-between gap-x-4 gap-y-2 pt-6 font-funnel-sans text-sm">
           {c.link ? (
             <a href={c.link} target="_blank" rel="noopener noreferrer" className="group inline-flex min-h-11 min-w-0 max-w-full items-center gap-1.5 text-ek-blue-soft underline-offset-4 transition-colors hover:text-ek-white hover:underline">
@@ -59,7 +59,7 @@ function Card({ c }: { c: PageCard }) {
             <span />
           )}
           <span className="flex flex-col items-end gap-0.5 text-ek-blue-soft">
-            {!c.confirmed ? <span>{NOT_CONFIRMED}</span> : null}
+            {label && !c.confirmed ? <span>{NOT_CONFIRMED}</span> : null}
             {!c.tracked ? <span>{NOT_TRACKED}</span> : null}
           </span>
         </div>
@@ -72,10 +72,10 @@ function Card({ c }: { c: PageCard }) {
 function Skeleton() {
   return (
     <li data-skeleton="card" aria-hidden="true" className={`${CARD} min-h-[184px] animate-pulse motion-reduce:animate-none`}>
-      <span className="block h-6 w-2/5 rounded-full bg-ek-navy" />
-      <span className="mt-3 block h-4 w-4/5 rounded-full bg-ek-navy/70" />
-      <span className="mt-6 block h-5 w-1/3 rounded-full bg-ek-navy/70" />
-      <span className="mt-auto block h-4 w-1/4 rounded-full bg-ek-navy/60" />
+      <span className="block h-6 w-2/5 rounded-full bg-ek-blue-deep/70" />
+      <span className="mt-3 block h-4 w-4/5 rounded-full bg-ek-blue-deep/50" />
+      <span className="mt-6 block h-5 w-1/3 rounded-full bg-ek-blue-deep/50" />
+      <span className="mt-auto block h-4 w-1/4 rounded-full bg-ek-blue-deep/40" />
     </li>
   );
 }
@@ -95,11 +95,16 @@ export default function ProjectCards({ cards }: { cards: PageCard[] | null }) {
       </ul>
     );
   if (cards.length === 0) return <p className="font-funnel-sans text-base font-light text-ek-blue-light">{NOTHING_YET}</p>;
+  // Every card not yet confirmed: one quiet line for all of them, not the same label on each.
+  const none = cards.every((c) => !c.confirmed);
   return (
-    <ul className={GRID}>
-      {cards.map((c) => (
-        <Card key={c.key} c={c} />
-      ))}
-    </ul>
+    <>
+      {none ? <p className="-mt-2 mb-5 font-funnel-sans text-sm font-light text-ek-blue-soft md:mb-6 md:text-base">{NONE_CONFIRMED}</p> : null}
+      <ul className={GRID}>
+        {cards.map((c) => (
+          <Card key={c.key} c={c} label={!none} />
+        ))}
+      </ul>
+    </>
   );
 }

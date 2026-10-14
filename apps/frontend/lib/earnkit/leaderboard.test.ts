@@ -69,7 +69,8 @@ test('11.5 the leaderboard is one list of ranked people with a confirmed X; no f
   const { rows } = await boardRows();
   for (const r of rows) assert.ok(r.handle && r.rank >= 1);
   const html = renderToStaticMarkup(React.createElement(LeaderboardView, { rows: ROWS, count: 25 }));
-  assert.doesNotMatch(html, /Filters|aria-label="Chain"|uppercase|Top \d+%/);
+  // The page body (the shared site footer is not this page's; T11 fix round 1).
+  assert.doesNotMatch(html.split('<footer')[0], /Filters|aria-label="Chain"|uppercase|Top \d+%/);
   assert.match(html, /25 builders/);
 });
 
@@ -99,7 +100,7 @@ test('11.5c the page ignores every query parameter, reads one cached board per 1
   assert.equal(BOARD_MAX, 100);
 });
 
-test('11.5d boardRows: claimed, shown and not held only; the rank counts everyone ranked; the best project or what they shipped', dbTest, async () => {
+test('11.5d boardRows: claimed, shown and not held only; ranks within that one population, no gaps; the best project or what they shipped', dbTest, async () => {
   const person = async (i: number, score: number, o: { claimed?: boolean; hidden?: boolean; held?: boolean } = {}) => {
     const id = B + i;
     const claimed = o.claimed ?? true;
@@ -109,7 +110,6 @@ test('11.5d boardRows: claimed, shown and not held only; the rank counts everyon
       VALUES (${id}, ${score}, '{}'::jsonb, true, 1, 0, 'v2', 'v2', now())`;
     return id;
   };
-  // Scores of 100 sit above every other test's people, so this run's top rows are its own.
   const top = await person(0, 100);
   await person(1, 100, { claimed: false });
   await person(2, 100, { hidden: true });
@@ -118,14 +118,21 @@ test('11.5d boardRows: claimed, shown and not held only; the rank counts everyon
   await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, people) VALUES
     (${top}, 'https://tokens.fun', 'tokens.fun', 'app', true, true, 140), (${top}, 'https://b.example', 'B', 'app', true, true, 3),
     (${second}, 'https://a.example', 'A', 'app', false, true, 0), (${second}, 'k2', 'K', 'package', false, true, 0)`;
-  const { rows, count } = await boardRows(BOARD_MAX);
+  const only = Array.from({ length: 5 }, (_, i) => B + i);
+  const { rows, count } = await boardRows(BOARD_MAX, { only });
   const mine = rows.filter((r) => r.handle.startsWith('b') && [top, second].some((x) => r.handle === `b${x}`.slice(0, 15)));
   assert.deepEqual(mine.map((r) => [r.handle, r.best]), [[`b${top}`.slice(0, 15), '140 people use tokens.fun'], [`b${second}`.slice(0, 15), 'Shipped 2 projects with AI']]);
   assert.equal(mine[0].rank, rows[0].rank);
-  // Four people of this run share 100 (one rank for all); the next score comes at least four places
-  // later even though only one 100 of them is listed (other files' people may share it too).
-  assert.ok(mine[1].rank - mine[0].rank >= 4);
+  // T11 fix round 1: one population (listed people only), so the board has no gaps: each rank is the
+  // row's place, or the rank of the tie above it.
+  for (const [i, r] of rows.entries()) assert.ok(r.rank === i + 1 || (i > 0 && r.rank === rows[i - 1].rank), `${i} ${r.rank}`);
+  if (rows.length === count) assert.ok(rows[rows.length - 1].rank <= count);
   assert.ok(count >= 2);
+  // The page, the card and the replies say the same number (standingOf over the same population).
+  const { standingOf } = await import('./person-score');
+  assert.deepEqual(await standingOf(second, { only }).then((x) => [x.rank, x.total]), [mine[1].rank, count]);
+  assert.deepEqual(rows.map((r) => r.rank), [1, 2]);
+  assert.equal(count, 2);
   assert.ok(!rows.some((r) => [B + 1, B + 2, B + 3].some((x) => r.handle === `b${x}`.slice(0, 15))));
 });
 

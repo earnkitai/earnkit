@@ -608,22 +608,34 @@ export async function rescorePerson(id: number, now: Date, ring?: PersonRing): P
 }
 
 /**
- * Where the person stands: their public live score and rank among ranked people (1 + those with a
- * higher score; ties share a number). Only people with a profile count. `only` limits it (tests).
+ * v2.12.1 T11 fix round 1: the one ranked population behind every rank (replies, page, card,
+ * leaderboard): ranked, claimed with X, not hidden and not held (held = profile.held or a rescore
+ * waiting in builder_live.pending). A FROM source of (builder_id, score). `only` limits it (tests).
+ */
+export function listedRanked(db: Db, only?: number[]) {
+  const among = only ? db`AND l.builder_id IN ${db(only.length ? only : [-1])}` : db``;
+  return db`(SELECT l.builder_id, l.score FROM builder_live l JOIN builder_profiles p USING (builder_id)
+    WHERE l.ranked AND l.pending IS NULL AND p.x_user_id IS NOT NULL AND NOT p.hidden AND NOT p.held ${among})`;
+}
+
+/**
+ * Where the person stands: their public live score and rank among the listed ranked people
+ * (listedRanked: 1 + those with a higher score; ties share a number). A ranked person outside that
+ * population (not claimed yet, or held) is counted in as well, so their reply still has a place.
  */
 export async function standingOf(id: number, o: { only?: number[] } = {}): Promise<Standing & { score: number; shipped: number; people: number; claimed: boolean; handle: string | null }> {
   const db = sql();
-  const among = o.only ? db`AND o.builder_id IN ${db(o.only.length ? o.only : [-1])}` : db``;
-  const counted = db`o.ranked AND EXISTS (SELECT 1 FROM builder_profiles q WHERE q.builder_id = o.builder_id) ${among}`;
+  const listed = listedRanked(db, o.only);
   const [row] = await db<{ score: number; ranked: boolean; shipped: number; people: number; claimed: boolean; handle: string | null; total: number; rank: number }[]>`
     SELECT l.score, l.ranked, l.shipped, l.people, p.x_user_id IS NOT NULL AS claimed, p.x_handle AS handle,
-      (SELECT count(*)::int FROM builder_live o WHERE ${counted}) AS total,
-      CASE WHEN l.ranked THEN 1 + (SELECT count(*)::int FROM builder_live o WHERE ${counted} AND o.score > l.score) ELSE 0 END AS rank
+      (SELECT count(*)::int FROM ${listed} x)
+        + CASE WHEN l.ranked AND NOT EXISTS (SELECT 1 FROM ${listed} y WHERE y.builder_id = l.builder_id) THEN 1 ELSE 0 END AS total,
+      CASE WHEN l.ranked THEN 1 + (SELECT count(*)::int FROM ${listed} z WHERE z.score > l.score AND z.builder_id <> l.builder_id) ELSE 0 END AS rank
     FROM builder_live l JOIN builder_profiles p USING (builder_id) WHERE l.builder_id = ${id}`;
   if (row) return { ...row };
   const [p] = await db<{ claimed: boolean; handle: string | null }[]>`
     SELECT x_user_id IS NOT NULL AS claimed, x_handle AS handle FROM builder_profiles WHERE builder_id = ${id}`;
-  const [{ total }] = await db<{ total: number }[]>`SELECT count(*)::int AS total FROM builder_live o WHERE ${counted}`;
+  const [{ total }] = await db<{ total: number }[]>`SELECT count(*)::int AS total FROM ${listed} x`;
   return { ranked: false, rank: 0, total, score: 0, shipped: 0, people: 0, claimed: p?.claimed ?? false, handle: p?.handle ?? null };
 }
 

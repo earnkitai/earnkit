@@ -125,9 +125,20 @@ test('11.6 /<handle>/card.png: a PNG for a claimed page, the headline of the lat
     assert.deepEqual([hidden.status, hidden.headers.get('cache-control')], [404, 'no-store']);
     await sql()`UPDATE builder_profiles SET hidden = false, x_user_id = NULL WHERE builder_id = ${id}`;
     assert.equal((await get(handle)).status, 404, 'unclaimed: no card');
-    // A reserved handle's card is at /b/<handle>/card.png, drawn the same way.
-    const r = await bCard(new Request('http://x/b/mcp/card.png'), { params: Promise.resolve({ slug: 'mcp' }) });
-    assert.ok(r.status === 404 || r.status === 200 || r.status === 308);
+    // A reserved handle's card is at /b/<handle>/card.png, drawn the same way (@oauth, used by no other test).
+    const rid = id + 1;
+    await sql()`UPDATE builder_profiles SET x_handle = NULL, x_user_id = NULL WHERE lower(x_handle) = 'oauth'`;
+    await sql()`INSERT INTO builder_profiles (builder_id, slug, x_user_id, x_handle) VALUES (${rid}, ${`cr${rid}`}, ${`5${rid}`}, 'oauth')`;
+    try {
+      const r = await bCard(new Request('http://x/b/oauth/card.png'), { params: Promise.resolve({ slug: 'oauth' }) });
+      assert.equal(r.status, 200);
+      assert.equal(r.headers.get('content-type'), 'image/png');
+      assert.deepEqual([...new Uint8Array(await r.arrayBuffer()).slice(1, 4)], [0x50, 0x4e, 0x47]);
+      const root = await card(new Request('http://x/oauth/card.png'), { params: Promise.resolve({ handle: 'oauth' }) });
+      assert.deepEqual([root.status, root.headers.get('location')], [308, '/b/oauth/card.png']);
+    } finally {
+      await sql()`DELETE FROM builder_profiles WHERE builder_id = ${rid}`;
+    }
     delete process.env.EARNKIT_BUILDER_SCORE;
     assert.equal((await get(handle)).status, 404, 'flag off');
   } finally {

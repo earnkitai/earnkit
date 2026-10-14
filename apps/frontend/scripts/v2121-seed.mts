@@ -6,7 +6,7 @@
  *   DATABASE_URL=postgres://postgres@127.0.0.1:55442/v2121_shots?sslmode=disable pnpm exec tsx apps/frontend/scripts/v2121-seed.mts
  *
  * People: the target user (@maya_makes: 3 live apps, none confirmed yet, unranked), traction
- * (@lee_builds: #3 of 40, 140 people on tokens.fun, TipJar confirmed, two agent-only projects, one
+ * (@lee_builds: #3 of the 25 listed people, 140 people on tokens.fun, TipJar confirmed, two agent-only projects, one
  * untracked), a reserved handle with a long name (@terms, served at /b/terms), an empty claimed
  * page (@sam_new), and 38 ranked filler people (24 claimed, so the board shows gaps).
  */
@@ -60,7 +60,7 @@ await project(maya, { key: 'https://mealplan-maya.vercel.app', name: 'Recipe pla
 await project(maya, { key: 'https://budget-buddy.netlify.app', name: 'Budget buddy', what: 'Tracks spending and says it back in plain words', link: 'https://budget-buddy.netlify.app', confirmed: false, days: 21 });
 await project(maya, { key: 'https://tipjar-maya.vercel.app', name: 'Tip jar', what: 'A tip page for her cooking videos', link: 'https://tipjar-maya.vercel.app', confirmed: false, days: 45 });
 
-// Traction: #3 of 40.
+// Traction: #3 (of the listed people).
 const lee = 900002;
 await person({ id: lee, handle: 'lee_builds', name: 'Lee Okafor', score: 71, people: 2, moment: 'people' });
 await project(lee, { key: 'https://tokens.fun', name: 'tokens.fun', what: 'Launch a coin for your project in one tap', link: 'https://tokens.fun', confirmed: true, people: 140, money: 1234, days: 2 });

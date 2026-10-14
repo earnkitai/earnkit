@@ -128,13 +128,26 @@ test('4.2 an EarnKit-hosted live app is a confirmed ship: ranked, Shipped 10', d
   assert.equal(l.parts.shipped.points, 10);
 });
 
-test('4.3 rank counts every ranked person with a higher score; ties share a number', dbTest, async () => {
+test('4.3 rank counts every listed ranked person with a higher score; ties share a number', dbTest, async () => {
   await live(T + 2, { score: 50, ranked: true });
   await live(T + 3, { score: 30, ranked: true });
   await live(T + 4, { score: 30, ranked: true });
   await live(T + 5, { score: 90, ranked: false });
-  const s = await standingOf(T + 3, { only: [T + 2, T + 3, T + 4, T + 5] });
+  const only = [T + 2, T + 3, T + 4, T + 5];
+  // v2.12.1 T11 fix round 1: the population is the listed one (claimed with X, shown, not held).
+  await sql()`UPDATE builder_profiles SET x_user_id = 'x' || builder_id, hidden = false, held = false WHERE builder_id IN ${sql()(only)}`;
+  const s = await standingOf(T + 3, { only });
   assert.deepEqual([s.rank, s.total, s.ranked], [2, 3, true]);
+  // A held person leaves the population; asking, they are counted in again (a place for their own reply).
+  await sql()`UPDATE builder_profiles SET held = true WHERE builder_id = ${T + 4}`;
+  assert.deepEqual(await standingOf(T + 3, { only }).then((x) => [x.rank, x.total]), [2, 2]);
+  assert.deepEqual(await standingOf(T + 4, { only }).then((x) => [x.rank, x.total]), [2, 3]);
+  // Not claimed with X: the same, outside the population until the claim.
+  await sql()`UPDATE builder_profiles SET held = false WHERE builder_id = ${T + 4}`;
+  await sql()`UPDATE builder_profiles SET x_user_id = NULL WHERE builder_id = ${T + 2}`;
+  assert.deepEqual(await standingOf(T + 3, { only }).then((x) => [x.rank, x.total]), [1, 2]);
+  assert.deepEqual(await standingOf(T + 2, { only }).then((x) => [x.rank, x.total]), [1, 3]);
+  await sql()`UPDATE builder_profiles SET x_user_id = NULL WHERE builder_id IN ${sql()(only)}`;
 });
 
 test('4.4 at most 25 tracked projects, most recently active first; a tracked one quiet 90 days frees its place', () => {

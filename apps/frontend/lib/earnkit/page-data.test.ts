@@ -6,7 +6,7 @@ import ProfileView from '../../app/[handle]/ProfileView';
 import ProjectCards from '../../app/[handle]/ProjectCards';
 import { sql } from './db';
 import {
-  NOT_CONFIRMED, NOT_TRACKED, SOURCES_LINE, avatarUrl, cardHeadline, pageCards, pageHead, peopleLine, shareIntent, topLine,
+  NONE_CONFIRMED, NOT_CONFIRMED, NOT_TRACKED, SOURCES_LINE, avatarUrl, cardHeadline, pageCards, pageHead, peopleLine, shareIntent, topLine,
   type PageCard, type PageHead,
 } from './page-data';
 
@@ -145,6 +145,13 @@ test('11.2 project cards: most used first then newest; not yet confirmed and not
   assert.match(html, />Not yet confirmed</);
   assert.equal((html.match(/>Not yet confirmed</g) ?? []).length, cards.filter((c) => !c.confirmed).length);
   assert.doesNotMatch(html, /uppercase|tracking-\[|0\/100/);
+  assert.ok(!text(html).includes(NONE_CONFIRMED), 'mixed: the label on each unconfirmed card');
+  // T11 fix round 1: every card not yet confirmed (the target user): one quiet line, no label on each.
+  const all = await pageCards(await seededTargetUser());
+  const allHtml = renderToStaticMarkup(React.createElement(ProjectCards, { cards: all }));
+  assert.equal(all.length, 3);
+  assert.doesNotMatch(allHtml, />Not yet confirmed</);
+  assert.equal(text(allHtml).split(NONE_CONFIRMED.replace(/'/g, "'")).length - 1, 1);
 });
 
 test('11.2b cards: no people or money while a rescore is held; a private repo is never named; untracked go last', dbTest, async () => {
@@ -160,11 +167,15 @@ test('11.2b cards: no people or money while a rescore is held; a private repo is
   assert.equal(cards[0].what, null);
   assert.doesNotMatch(JSON.stringify(cards), /secret-plan|private description/);
   assert.deepEqual([cards[1].name, cards[1].tracked], ['Old site', false]);
+  // A hidden repo's GitHub page or Pages site would name it: no link.
+  await sql()`UPDATE builder_projects SET link = ${`https://lee${id}.github.io/secret-plan`} WHERE builder_id = ${id} AND project_key = ${`lee${id}/secret-plan`}`;
+  assert.equal((await pageCards(id))[0].link, null);
   // A repo read public in the last week is named.
   const sid = await sql()<{ id: string }[]>`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by)
     VALUES (${id}, 'repo', ${`lee${id}/secret-plan`}, ${`lee${id}/secret-plan`}, 'verified', 'repo_owner', 'server') RETURNING id`;
   await sql()`INSERT INTO source_live (source_id, signals, ok, read_at) VALUES (${sid[0].id}, '{"private": false}'::jsonb, true, now())`;
   assert.equal((await pageCards(id))[0].name, 'secret-plan');
+  assert.equal((await pageCards(id))[0].link, `https://lee${id}.github.io/secret-plan`, 'public again: the link too');
   await sql()`UPDATE source_live SET ok = false, read_at = now() WHERE source_id = ${sid[0].id}`;
   assert.equal((await pageCards(id))[0].name, 'Private project', 'a failed newest read: unnamed at once');
   await sql()`DELETE FROM source_live WHERE source_id = ${sid[0].id}`;

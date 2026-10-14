@@ -54,7 +54,7 @@ export default function ScoreRing({
         <span className={`font-funnel-display font-semibold leading-none tracking-tight text-ek-white tabular-nums ${numberClassName}`}>
           {shown}
         </span>
-        <span className="mt-1 font-funnel-sans text-[11px] font-medium text-ek-blue-soft">of 100</span>
+        <span className="mt-1 font-funnel-sans text-xs font-medium text-ek-blue-soft">of 100</span>
       </div>
     </div>
   );

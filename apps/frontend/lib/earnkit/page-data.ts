@@ -1,5 +1,6 @@
+import { cache } from 'react';
 import { sql } from './db';
-import { standingOf } from './person-score';
+import { listedRanked, standingOf } from './person-score';
 import { COIN_PROGRAM } from './policy-constants';
 import { money } from './profile-data';
 import { rankWords } from './rank';
@@ -18,6 +19,8 @@ export const SOURCES_LINE =
   'Numbers come from public data EarnKit can check: GitHub, live sites, package downloads, public transactions and EarnKit itself. Projects marked not yet confirmed are shown but do not count.';
 export const NOT_CONFIRMED = 'Not yet confirmed';
 export const NOT_TRACKED = 'Not tracked right now';
+/** T11 fix round 1: when no card is confirmed, one quiet line instead of a label on each. */
+export const NONE_CONFIRMED = "None of these are confirmed yet, so they don't count toward a rank.";
 export const NOTHING_YET = 'Projects show here once they are live.';
 export const BOARD_TITLE = 'Builders on EarnKit';
 export const boardLine = (n: number) => `${n.toLocaleString('en-US')} ${n === 1 ? 'builder' : 'builders'}, ranked by what they shipped and who uses it.`;
@@ -90,7 +93,8 @@ export async function personFacts(builderId: number, o: { only?: number[] } = {}
   return { name: displayName(p.x_name, p.x_handle), handle: p.x_handle, avatar: avatarUrl(p.x_avatar_url), shipped: n, noun, rank, people: s.people, score: s.score, moment };
 }
 
-export async function pageHead(builderId: number, o: { only?: number[] } = {}): Promise<PageHead> {
+/** The page header; React cache(): the page and its metadata read it once per request. */
+export const pageHead = cache(async (builderId: number, o: { only?: number[] } = {}): Promise<PageHead> => {
   const f = await personFacts(builderId, o);
   if (!f) throw new Error('pageHead: no claimed profile');
   return {
@@ -103,7 +107,7 @@ export async function pageHead(builderId: number, o: { only?: number[] } = {}): 
     peopleLine: f.rank ? peopleLine(f.people) : null,
     score: f.rank ? f.score : null,
   };
-}
+});
 
 type Row = {
   builder_id: number; key: string; name: string; what: string | null; link: string | null; confirmed: boolean; tracked: boolean;
@@ -131,8 +135,8 @@ async function shownProjects(ids: number[]): Promise<Map<number, (Row & { safeNa
     FROM builder_sources b
     LEFT JOIN LATERAL (
       SELECT x.ok, x.signals, x.at FROM (
-        SELECT r.ok, r.signals, r.day::timestamptz AS at FROM source_readings r WHERE r.source_id = b.id
-        UNION ALL SELECT s.ok, s.signals, s.read_at FROM source_live s WHERE s.source_id = b.id
+        (SELECT r.ok, r.signals, r.day::timestamptz AS at FROM source_readings r WHERE r.source_id = b.id ORDER BY r.day DESC LIMIT 1)
+        UNION ALL (SELECT s.ok, s.signals, s.read_at FROM source_live s WHERE s.source_id = b.id ORDER BY s.read_at DESC LIMIT 1)
       ) x ORDER BY x.at DESC LIMIT 1) n ON true
     WHERE b.builder_id IN ${db(ids)} AND b.kind = 'repo' AND b.state <> 'rejected'`;
   const shownRepo = new Set(repos.filter((r) => r.public).map((r) => `${r.builder_id}:${norm(r.ref)}`));
@@ -156,7 +160,10 @@ async function shownProjects(ids: number[]): Promise<Map<number, (Row & { safeNa
     const safeName = hiddenRepo && nameIsRepo ? PRIVATE_NAME : r.name;
     const safeWhat = hiddenRepo && !(r.what && own?.whats.has(r.what)) ? null : r.what;
     const list = out.get(r.builder_id) ?? [];
-    list.push({ ...r, safeName, safeWhat, people: r.confirmed && !r.held ? r.people : 0 });
+    // A hidden repo's own GitHub page (or its Pages site) would name it: no link then.
+    const linkHost = r.link && URL.canParse(r.link) ? new URL(r.link).hostname.toLowerCase() : '';
+    const safeLink = hiddenRepo && /(^|\.)github\.(io|com)$/.test(linkHost) ? null : r.link;
+    list.push({ ...r, link: safeLink, safeName, safeWhat, people: r.confirmed && !r.held ? r.people : 0 });
     out.set(r.builder_id, list);
   }
   const at = (d: Date | null) => (d ? d.getTime() : 0);
@@ -209,26 +216,24 @@ export type BoardRow = { rank: number; handle: string; avatar: string | null; be
 export const BOARD_MAX = 100;
 
 /**
- * spec "Leaderboard": ranked people with a confirmed X, not hidden and not waiting for a review, by
- * score. `rank` is their rank over every ranked person (plan S3: the same number as their reply,
- * page and card, so the list can skip numbers); `count` is how many are listed in all. `best` is the
- * most-used project in plain words, else what they shipped.
+ * spec "Leaderboard": the listed ranked people (person-score.ts listedRanked: claimed with X, shown,
+ * not held) by score. `rank` is their rank in that one population, the same number as their reply,
+ * page and card (T11 fix round 1), so the board has no gaps and `count` is the last rank's
+ * population. `best` is the most-used project in plain words, else what they shipped. `only`
+ * limits the population (tests: the shared DB holds other files' people).
  */
-export async function boardRows(limit: number = BOARD_MAX): Promise<{ rows: BoardRow[]; count: number }> {
+export async function boardRows(limit: number = BOARD_MAX, o: { only?: number[] } = {}): Promise<{ rows: BoardRow[]; count: number }> {
   const db = sql();
   const n = Math.max(1, Math.min(BOARD_MAX, Math.floor(limit)));
   const listed = await db<{ builder_id: number; handle: string; avatar: string | null; rank: number; count: number; shipped: number; apps: boolean }[]>`
     WITH ranked AS (
-      SELECT l.builder_id, l.score, rank() OVER (ORDER BY l.score DESC)::int AS rank
-      FROM builder_live l WHERE l.ranked AND EXISTS (SELECT 1 FROM builder_profiles q WHERE q.builder_id = l.builder_id)),
-    listed AS (
-      SELECT r.builder_id, r.score, r.rank, p.x_handle AS handle, p.x_avatar_url AS avatar
-      FROM ranked r JOIN builder_profiles p USING (builder_id)
-      WHERE p.x_user_id IS NOT NULL AND p.x_handle IS NOT NULL AND NOT p.hidden AND NOT p.held)
-    SELECT t.builder_id, t.handle, t.avatar, t.rank, count(*) OVER ()::int AS count,
-      (SELECT count(*)::int FROM builder_projects b WHERE b.builder_id = t.builder_id AND b.shipped) AS shipped,
-      COALESCE((SELECT bool_and(b.kind = 'app') FROM builder_projects b WHERE b.builder_id = t.builder_id AND b.shipped), false) AS apps
-    FROM listed t ORDER BY t.score DESC, lower(t.handle) LIMIT ${n}`;
+      SELECT x.builder_id, x.score, rank() OVER (ORDER BY x.score DESC)::int AS rank, count(*) OVER ()::int AS count FROM ${listedRanked(db, o.only)} x)
+    SELECT r.builder_id, p.x_handle AS handle, p.x_avatar_url AS avatar, r.rank, r.count,
+      (SELECT count(*)::int FROM builder_projects b WHERE b.builder_id = r.builder_id AND b.shipped) AS shipped,
+      COALESCE((SELECT bool_and(b.kind = 'app') FROM builder_projects b WHERE b.builder_id = r.builder_id AND b.shipped), false) AS apps
+    FROM ranked r JOIN builder_profiles p USING (builder_id)
+    WHERE p.x_handle IS NOT NULL
+    ORDER BY r.score DESC, lower(p.x_handle) LIMIT ${n}`;
   const projects = await shownProjects(listed.map((r) => r.builder_id));
   const rows = listed.map((r) => {
     const top = (projects.get(r.builder_id) ?? []).filter((p) => p.confirmed && !p.held && p.people > 0).sort((a, b) => b.people - a.people)[0];
