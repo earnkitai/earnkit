@@ -135,7 +135,7 @@ test('4.3 rank counts every listed ranked person with a higher score; ties share
   await live(T + 5, { score: 90, ranked: false });
   const only = [T + 2, T + 3, T + 4, T + 5];
   // v2.12.1 T11 fix round 1: the population is the listed one (claimed with X, shown, not held).
-  await sql()`UPDATE builder_profiles SET x_user_id = 'x' || builder_id, hidden = false, held = false WHERE builder_id IN ${sql()(only)}`;
+  await sql()`UPDATE builder_profiles SET x_user_id = 'x' || builder_id, x_handle = 'h' || builder_id, hidden = false, held = false WHERE builder_id IN ${sql()(only)}`;
   const s = await standingOf(T + 3, { only });
   assert.deepEqual([s.rank, s.total, s.ranked], [2, 3, true]);
   // A held person leaves the population; asking, they are counted in again (a place for their own reply).
@@ -147,7 +147,7 @@ test('4.3 rank counts every listed ranked person with a higher score; ties share
   await sql()`UPDATE builder_profiles SET x_user_id = NULL WHERE builder_id = ${T + 2}`;
   assert.deepEqual(await standingOf(T + 3, { only }).then((x) => [x.rank, x.total]), [1, 2]);
   assert.deepEqual(await standingOf(T + 2, { only }).then((x) => [x.rank, x.total]), [1, 3]);
-  await sql()`UPDATE builder_profiles SET x_user_id = NULL WHERE builder_id IN ${sql()(only)}`;
+  await sql()`UPDATE builder_profiles SET x_user_id = NULL, x_handle = NULL WHERE builder_id IN ${sql()(only)}`;
 });
 
 test('4.4 at most 25 tracked projects, most recently active first; a tracked one quiet 90 days frees its place', () => {

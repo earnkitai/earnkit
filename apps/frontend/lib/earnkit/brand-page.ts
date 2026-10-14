@@ -6,8 +6,7 @@ import { WORDMARK_D } from '../../app/components/ui/Logo';
  * v2.12.1 T11 fix round 2: the look of the claim, done and wallet pages (route handlers that answer
  * HTML with no script of ours but the wallet page's nonce one). The profile's navy design system in
  * one inline <style>: the site's navy, the panel shape, Funnel Display for the headline (embedded as
- * data: fonts only where the page's CSP allows fonts; the wallet page's CSP stays as it is and falls
- * back to the system font), one primary button, a thin orange to purple accent. Nothing external is
+ * data: fonts; the wallet page's CSP allows font-src data: for them), one primary button, a thin orange to purple accent. Nothing external is
  * loaded, so no CSP changes.
  */
 
@@ -66,13 +65,13 @@ export const X_ICON =
   '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"/></svg>';
 
 /**
- * The page: the wordmark above one panel holding `inner` (already escaped HTML). `fonts`: embed
- * Funnel Display (only where the page's CSP allows fonts). Pure apart from the font files.
+ * The page: the wordmark above one panel holding `inner` (already escaped HTML). `fonts: false`
+ * leaves Funnel Display out. Pure apart from the font files.
  */
-export function brandShell(inner: string, o: { title?: string; fonts?: boolean } = {}): string {
+export function brandShell(inner: string, o: { fonts?: boolean } = {}): string {
   return (
     '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
-    `<meta name="theme-color" content="#1A2238"><meta name="robots" content="noindex"><title>${o.title ?? 'EarnKit'}</title>` +
+    `<meta name="theme-color" content="#1A2238"><meta name="robots" content="noindex"><title>EarnKit</title>` +
     `<style>${o.fonts === false ? '' : fontFaces()}${CSS}</style></head><body>` +
     `<header class="ek-top"><svg viewBox="0 0 124 23" role="img" aria-label="EarnKit" fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="${WORDMARK_D}" fill="currentColor"/></svg></header>` +
     `<main class="ek-panel"><span class="ek-accent" aria-hidden="true"></span>${inner}</main></body></html>`

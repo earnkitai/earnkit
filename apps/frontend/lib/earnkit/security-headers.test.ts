@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import nextConfig, { IMAGE_CSP, securityHeaders } from '../../next.config';
+import nextConfig, { IMAGE_CSP, WALLET_EXCEPT, securityHeaders } from '../../next.config';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { csrfCookieName, verifyCallback, verifyStart } from './github-verify';
@@ -11,12 +11,20 @@ test('every response gets the anti-framing and referrer headers', async () => {
   assert.ok(all, 'a rule for every path');
   const h = Object.fromEntries(all.headers.map((x) => [x.key, x.value]));
   assert.equal(h['X-Frame-Options'], 'DENY');
-  assert.match(h['Content-Security-Policy'], /frame-ancestors 'none'/);
   assert.equal(h['Referrer-Policy'], 'strict-origin-when-cross-origin');
+  // v2.12.1 T11 fix round 3: the frame-ancestors policy is its own rule, on every path but the
+  // wallet page (config headers replace a route's own; that route sends its nonce policy).
+  const csp = rules.find((r) => r.source === WALLET_EXCEPT);
+  assert.ok(csp);
   assert.deepEqual(
-    all.headers,
-    securityHeaders(process.env.NODE_ENV === 'production'),
+    [...all.headers, ...csp.headers].sort((a, b) => a.key.localeCompare(b.key)),
+    securityHeaders(process.env.NODE_ENV === 'production').sort((a, b) => a.key.localeCompare(b.key)),
   );
+  assert.match(Object.fromEntries(csp.headers.map((x) => [x.key, x.value]))['Content-Security-Policy'], /frame-ancestors 'none'/);
+  const re = /^\/((?!claim\/wallet$).*)$/;
+  for (const path of ['/', '/lee', '/claim/abc', '/claim/wallet/x', '/leaderboard']) assert.ok(re.test(path), path);
+  assert.ok(!re.test('/claim/wallet'));
+  assert.equal(WALLET_EXCEPT, '/:path((?!claim/wallet$).*)');
 });
 
 test("the token image and the generated mark keep their sandbox CSP (config headers replace a route's own)", async () => {

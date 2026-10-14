@@ -105,8 +105,8 @@ const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '
 /** A JSON value safe inside a <script> element. Pure. */
 const scriptJson = (v: unknown) => JSON.stringify(v).replace(/[<>&\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
 const PAGE_HEADERS = { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' };
-/** T11 fix round 2: the profile's look (brand-page.ts); no data: fonts, so this page's CSP stays as it is. */
-const shell = (inner: string) => brandShell(inner, { fonts: false });
+/** T11 fix round 2: the profile's look (brand-page.ts), Funnel Display as data: fonts (font-src data: below). */
+const shell = (inner: string) => brandShell(inner, { fonts: true });
 const linePage = (line: string, status: number) =>
   new Response(shell(`<p class="ek-line ek-first">${escapeHtml(line)}</p>`), { status, headers: PAGE_HEADERS });
 const notFound = () => new Response('Not found', { status: 404 });
@@ -147,7 +147,7 @@ export async function walletGet(request: Request): Promise<Response> {
       ...PAGE_HEADERS,
       // Same-origin so the POST carries a real Origin (as claimGet).
       'Referrer-Policy': 'same-origin',
-      'Content-Security-Policy': `default-src 'none'; script-src 'nonce-${nonce}'; connect-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'`,
+      'Content-Security-Policy': `default-src 'none'; script-src 'nonce-${nonce}'; connect-src 'self'; style-src 'unsafe-inline'; font-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
     },
   });
 }

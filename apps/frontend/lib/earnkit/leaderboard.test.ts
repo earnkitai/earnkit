@@ -115,10 +115,13 @@ test('11.5d boardRows: claimed, shown and not held only; ranks within that one p
   await person(2, 100, { hidden: true });
   await person(3, 100, { held: true });
   const second = await person(4, 99);
+  // Claimed, but X gave the handle to someone else (bindX cleared it): outside the population.
+  const cleared = await person(5, 100);
+  await sql()`UPDATE builder_profiles SET x_handle = NULL WHERE builder_id = ${cleared}`;
   await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, people) VALUES
     (${top}, 'https://tokens.fun', 'tokens.fun', 'app', true, true, 140), (${top}, 'https://b.example', 'B', 'app', true, true, 3),
     (${second}, 'https://a.example', 'A', 'app', false, true, 0), (${second}, 'k2', 'K', 'package', false, true, 0)`;
-  const only = Array.from({ length: 5 }, (_, i) => B + i);
+  const only = Array.from({ length: 6 }, (_, i) => B + i);
   const { rows, count } = await boardRows(BOARD_MAX, { only });
   const mine = rows.filter((r) => r.handle.startsWith('b') && [top, second].some((x) => r.handle === `b${x}`.slice(0, 15)));
   assert.deepEqual(mine.map((r) => [r.handle, r.best]), [[`b${top}`.slice(0, 15), '140 people use tokens.fun'], [`b${second}`.slice(0, 15), 'Shipped 2 projects with AI']]);

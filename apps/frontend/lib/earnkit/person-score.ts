@@ -609,13 +609,13 @@ export async function rescorePerson(id: number, now: Date, ring?: PersonRing): P
 
 /**
  * v2.12.1 T11 fix round 1: the one ranked population behind every rank (replies, page, card,
- * leaderboard): ranked, claimed with X, not hidden and not held (held = profile.held or a rescore
+ * leaderboard): ranked, claimed with X with a handle (bindX clears a stale one), not hidden and not held (held = profile.held or a rescore
  * waiting in builder_live.pending). A FROM source of (builder_id, score). `only` limits it (tests).
  */
 export function listedRanked(db: Db, only?: number[]) {
   const among = only ? db`AND l.builder_id IN ${db(only.length ? only : [-1])}` : db``;
   return db`(SELECT l.builder_id, l.score FROM builder_live l JOIN builder_profiles p USING (builder_id)
-    WHERE l.ranked AND l.pending IS NULL AND p.x_user_id IS NOT NULL AND NOT p.hidden AND NOT p.held ${among})`;
+    WHERE l.ranked AND l.pending IS NULL AND p.x_user_id IS NOT NULL AND p.x_handle IS NOT NULL AND NOT p.hidden AND NOT p.held ${among})`;
 }
 
 /**

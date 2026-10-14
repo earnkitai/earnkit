@@ -172,8 +172,9 @@ test('6.9 the claim page says what becomes public and how to hide it before the 
   const get = await claimGet(new Request(`https://earnkit.com/claim/${code}`), code);
   const body = await get.text();
   const at = (s: string) => body.indexOf(s);
-  for (const line of [CLAIM_TEXT.lead, CLAIM_TEXT.public, CLAIM_TEXT.warning]) assert.ok(at(line) > 0 && at(line) < at(CLAIM_TEXT.button), line);
-  assert.ok(at('You can hide your page anytime by telling your agent') > 0);
+  const shown = (l: string) => l.replace(/"/g, '&quot;');
+  for (const line of [CLAIM_TEXT.lead, CLAIM_TEXT.public, CLAIM_TEXT.warning]) assert.ok(at(shown(line)) > 0 && at(shown(line)) < at(CLAIM_TEXT.button), line);
+  assert.ok(at('You can hide your page anytime by telling your agent &quot;hide my page&quot;.') > 0);
   assert.match(body, /<form method="post" action="https:\/\/earnkit\.com\/claim\/[a-z2-7]{12}">/);
   assert.doesNotMatch(body, /<script/);
   assert.equal(get.headers.get('referrer-policy'), 'same-origin');

@@ -97,6 +97,10 @@ test('7.5 the wallet page: 404 with the flag off; one button and the message to 
     assert.equal(get.status, 200);
     const body = await get.text();
     assert.ok(body.includes(WALLET_TEXT.lead));
+    // T11 fix round 3: the page's full policy (fonts only as data:, the one nonce script).
+    assert.match(get.headers.get('content-security-policy') ?? '', /^default-src 'none'; script-src 'nonce-[A-Za-z0-9+/=]+'; connect-src 'self'; style-src 'unsafe-inline'; font-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'$/);
+    assert.match(body, /@font-face\{font-family:"Funnel Display"/);
+    assert.match(body, /<h1>Show a wallet is yours<\/h1>/);
     assert.ok(body.includes(WALLET_TEXT.button));
     assert.ok(body.includes('personal_sign'));
     assert.ok(body.includes('Open this page in a browser with your wallet.'));

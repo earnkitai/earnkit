@@ -36,7 +36,7 @@ import { pkcePair, xAuthorizeUrl, xOAuth, type XOAuthDeps, type XUser } from './
 export const CLAIM_TEXT = {
   lead: 'Claim your EarnKit page',
   public: 'Your page shows what you shipped, who uses it and what it earned, under your X name.',
-  warning: 'Only continue if you started this from your own agent. You can hide your page anytime by telling your agent.',
+  warning: 'Only continue if you started this from your own agent. You can hide your page anytime by telling your agent "hide my page".',
   button: 'Continue with X',
   notOpen: 'Sign-in with X is not open yet. Your agent will share the link again when it is.',
   used: 'This page is already claimed.',

@@ -232,7 +232,6 @@ export async function boardRows(limit: number = BOARD_MAX, o: { only?: number[] 
       (SELECT count(*)::int FROM builder_projects b WHERE b.builder_id = r.builder_id AND b.shipped) AS shipped,
       COALESCE((SELECT bool_and(b.kind = 'app') FROM builder_projects b WHERE b.builder_id = r.builder_id AND b.shipped), false) AS apps
     FROM ranked r JOIN builder_profiles p USING (builder_id)
-    WHERE p.x_handle IS NOT NULL
     ORDER BY r.score DESC, lower(p.x_handle) LIMIT ${n}`;
   const projects = await shownProjects(listed.map((r) => r.builder_id));
   const rows = listed.map((r) => {
