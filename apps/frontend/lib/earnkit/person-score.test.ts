@@ -32,7 +32,7 @@ function fakeReader(): ReaderDeps {
   const no = async () => {
     throw new Error('unexpected');
   };
-  return { gh: no, ghGraphql: no, tokenTransfers: no, probe: no, fetchText: no, json: no, baseTxs: no, contractOrigin: no, arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, now: NOW };
+  return { gh: no, ghGraphql: no, tokenTransfers: no, probe: no, fetchText: no, json: no, baseTxs: no, contractOrigin: no, arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, walletCreations: no, now: NOW };
 }
 
 async function clear(id: number) {

@@ -4,12 +4,13 @@ import { sql } from './db';
 import { enqueueDiscovery } from './discovery';
 import { siteUrl } from './entry-text';
 import { noteEvent } from './events';
-import { cookieValue } from './github-verify';
+import { cookieValue, createVerifyLink, githubVerifyEnabled } from './github-verify';
 import { joinOnProvenTie, rootOf } from './identity';
 import { sharedGroup } from './installations';
 import { profileChanged } from './profile-cache';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
 import { pageUrl } from './reserved-routes';
+import { upgradeToken } from './wallet-proof';
 import { pkcePair, xAuthorizeUrl, xOAuth, type XOAuthDeps, type XUser } from './x-oauth';
 
 /**
@@ -44,6 +45,9 @@ export const CLAIM_TEXT = {
   failed: "Sign-in didn't finish. Open the link from your agent again.",
   busy: 'Too many sign-ins from here. Try again in an hour.',
   done: (handle: string) => `Your page is live: ${pageUrl(handle)}`,
+  /** v2.12.1 T7: the two optional upgrades under the done line (plain links, never a required step). */
+  wallet: 'Show a wallet is yours (optional)',
+  github: 'Sign in with GitHub (optional)',
 } as const;
 
 const STATE_TTL_MS = 15 * 60_000;
@@ -98,6 +102,27 @@ function claimPage(line: string, status: number, headers: Record<string, string>
   return new Response(shell(`<p>${escapeHtml(line)}</p>`), { status, headers: { ...PAGE_HEADERS, ...headers } });
 }
 const notFound = () => new Response('Not found', { status: 404 });
+
+/**
+ * v2.12.1 T7: the done page. Under the done line, two plain optional links: sign a message with a
+ * wallet (/claim/wallet, a 30-minute token for this person) and, while GitHub sign-in is on, Sign in
+ * with GitHub (a `claim` link: the login only, through the T5 proven-tie rules). A link that can't be
+ * made is left out; the claim itself is already done.
+ */
+async function donePage(handle: string, root: number, headers: Record<string, string>): Promise<Response> {
+  const links: string[] = [];
+  const t = upgradeToken(root, new Date());
+  if (t) links.push(`<a href="${escapeHtml(`${siteUrl()}/claim/wallet?t=${encodeURIComponent(t)}`)}">${escapeHtml(CLAIM_TEXT.wallet)}</a>`);
+  if (githubVerifyEnabled()) {
+    const gh = await createVerifyLink({ installationId: root, projectId: null, repoKey: `claim/${root}`, purpose: 'claim' }).catch((err: unknown) => {
+      console.error('[claim] github link', err instanceof Error ? err.name : 'error');
+      return null;
+    });
+    if (gh) links.push(`<a href="${escapeHtml(gh)}">${escapeHtml(CLAIM_TEXT.github)}</a>`);
+  }
+  const body = shell(`<p>${escapeHtml(CLAIM_TEXT.done(handle))}</p>${links.map((l) => `<p>${l}</p>`).join('')}`);
+  return new Response(body, { status: 200, headers: { ...PAGE_HEADERS, ...headers } });
+}
 
 /** One cookie per claim code (named from the code's hash), so two open claims don't clash. Pure. */
 const cookieName = (codeHash: string) => `__Host-ekx-${codeHash.slice(0, 16)}`;
@@ -218,7 +243,7 @@ export async function xCallback(request: Request, deps: RouteDeps & { x?: XOAuth
     console.error('[x/callback] bind', err instanceof Error ? err.name : 'error');
     return claimPage(CLAIM_TEXT.failed, 500, clear);
   }
-  if (r.ok) return claimPage(CLAIM_TEXT.done(r.handle), 200, clear);
+  if (r.ok) return donePage(r.handle, r.root, clear);
   if (r.reason === 'join_pending') return claimPage(CLAIM_TEXT.joinPending, 200, clear);
   return claimPage(CLAIM_TEXT.claimedOther, 409, clear);
 }

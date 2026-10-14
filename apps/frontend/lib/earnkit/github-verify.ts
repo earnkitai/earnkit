@@ -40,6 +40,8 @@ export const VERIFY_PAGE = {
   notYours: "This GitHub account can't push to that repo. Sign in with the account that owns it.",
   failed: "Sign-in didn't finish. Ask your agent for a new link.",
   busy: 'Too many sign-ins from here. Try again in an hour.',
+  /** v2.12.1 T7: after the claim page's GitHub sign-in. */
+  claimDone: 'Done. Your agent will show the new numbers next time you ask.',
   /** Spec B9: GitHub shows no permissions (an org repo a scopeless sign-in can't see): the proof line is the way. */
   orgRepo: "GitHub doesn't show whether this account can push to that repo. Ask your agent to prove it with a short line in the repo instead.",
 } as const;
@@ -63,8 +65,12 @@ export function normalizeCode(input: string | null | undefined): string | null {
 /** Ruling G9: the success page on a shared client. Pure. */
 export const codeLine = (code: string) => `Done. Paste this code to your agent: ${formatCode(code)}`;
 
-/** v2.10 item 7b (R8): `app` is the read-only GitHub App's link (github-app.ts): no launch rides on it (R9). */
-export type VerifyPurpose = 'entry' | 'pickup' | 'host' | 'app';
+/**
+ * v2.10 item 7b (R8): `app` is the read-only GitHub App's link (github-app.ts): no launch rides on it (R9).
+ * v2.12.1 T7: `claim` is the claim page's optional "Sign in with GitHub" (repo_key `claim/<root>`, no
+ * repo): it proves the login only, never a repo, and goes through the T5 proven-tie rules on save.
+ */
+export type VerifyPurpose = 'entry' | 'pickup' | 'host' | 'app' | 'claim';
 export type NonceRow = {
   installation_id: number;
   project_id: number | null;
@@ -340,7 +346,7 @@ export async function completeVerify(
   nonce: string,
   deps: GitHubOAuthDeps = githubOAuth,
   now = new Date(),
-): Promise<{ ok: true; repoKey: string; code?: string; install?: string } | { ok: false; reason: string }> {
+): Promise<{ ok: true; repoKey: string; code?: string; install?: string; line?: string } | { ok: false; reason: string }> {
   if ((await noncePurpose(nonce, now)) === 'app') return appSignIn(code, nonce, deps, now);
   const row = await takeNonce(nonce, now);
   if (!row) return { ok: false, reason: VERIFY_PAGE.expired };
@@ -349,6 +355,11 @@ export async function completeVerify(
   try {
     const token = await deps.exchange(code);
     const user = await deps.user(token);
+    // v2.12.1 T7: a claim sign-in proves the login, not a repo: no repo read (saveVerification joins on the tie).
+    if (row.purpose === 'claim') {
+      await saveVerification(row, { ...user, created_at: new Date(user.created_at) }, now);
+      return { ok: true, repoKey: row.repo_key, line: VERIFY_PAGE.claimDone };
+    }
     // Only when the login isn't the owner: the repo read (with the user's scopeless token).
     const perms = user.login.toLowerCase() === owner.toLowerCase() ? null : await deps.repoPerms(token, owner, repo);
     if (!ownershipPasses(user.login, { owner, repo }, perms))
@@ -393,7 +404,7 @@ export async function verifiedFor(a: {
       ${a.projectId !== undefined ? db`AND project_id = ${a.projectId}` : db``}
       ${a.installationId !== undefined ? db`AND installation_id = ${a.installationId}` : db``}
       ${a.since ? db`AND verified_at >= ${a.since}` : db``}
-      ${a.purpose ? db`AND purpose = ${a.purpose}` : db`AND purpose <> 'app'`}
+      ${a.purpose ? db`AND purpose = ${a.purpose}` : db`AND purpose NOT IN ('app', 'claim')`}
       ${a.login !== undefined ? db`AND login = ${a.login.toLowerCase()}` : db``}
     ORDER BY verified_at DESC, id DESC LIMIT 1`;
   return row ?? null;
@@ -470,8 +481,12 @@ export async function installationLogin(installationId: number): Promise<string 
   return row?.login ?? null;
 }
 
-/** v2.11 T3: a GitHub login and how it was proven (builder_events.login_basis). */
-export type LoginProof = { login: string; basis: 'signin' | 'app' | 'proof_line' };
+/**
+ * v2.11 T3: a GitHub login and how it was proven (builder_events.login_basis). v2.12.1 T7: `x_match`,
+ * the login the agent reported whose GitHub X field is the person's claimed X (discovery.ts
+ * provenLogin only; it confirms the person's own work and never joins anyone).
+ */
+export type LoginProof = { login: string; basis: 'signin' | 'app' | 'proof_line' | 'x_match' };
 
 /** A GitHub account's public facts (GET /users/<login>). */
 export type GitHubAccount = { type: string; created_at: string; public_repos: number };
@@ -616,7 +631,7 @@ export async function loginBasisFor(
   if (shared && !o.callerLogin && o.projectId === undefined) return null;
   const [row] = await db<{ login: string; via: string }[]>`
     SELECT login, via FROM github_verifications
-    WHERE installation_id = ${installationId} AND repo_key = ${key}
+    WHERE installation_id = ${installationId} AND repo_key = ${key} AND purpose <> 'claim'
       ${shared ? (o.callerLogin ? db`AND login = ${o.callerLogin.toLowerCase()}` : db`AND project_id = ${o.projectId!}`) : db``}
     ORDER BY (via = 'app'), verified_at DESC, id DESC LIMIT 1`;
   if (row) return { login: row.login.toLowerCase(), basis: row.via === 'app' ? 'app' : 'signin' };
@@ -656,6 +671,10 @@ export async function nonceDetails(
     WHERE n.nonce_hash = ${sha256(nonce)} AND n.used_at IS NULL AND n.expires_at > ${now}`;
   return row ?? null;
 }
+
+/** v2.12.1 T7: the confirm page's first line and warning on the claim page's GitHub sign-in (no repo named). */
+export const CLAIM_CONFIRM_LEAD = 'Sign in with GitHub to show this GitHub account is yours. EarnKit then counts the work on it.';
+export const CLAIM_CONFIRM_WARNING = 'This links your GitHub to your EarnKit page. Only continue if you opened this from your own page.';
 
 /** v2.10 item 7b: the confirm page's first line on an App link. */
 export const APP_CONFIRM_LEAD = 'Sign in with GitHub, then let EarnKit read this repo. Read only: EarnKit never changes your code.';
@@ -705,6 +724,13 @@ export function confirmPage(
   nonce: string,
   csrf: string,
 ): string {
+  if (d.purpose === 'claim')
+    return html(
+      `<p>${escapeHtml(CLAIM_CONFIRM_LEAD)}</p><p>${escapeHtml(CLAIM_CONFIRM_WARNING)}</p>` +
+        `<form method="post" action="${escapeHtml(siteUrl())}/github/verify">` +
+        `<input type="hidden" name="n" value="${escapeHtml(nonce)}"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}">` +
+        '<button type="submit">Continue with GitHub</button></form>',
+    );
   const rows = [
     `<li>Repo: github.com/${escapeHtml(d.repo_key)}</li>`,
     d.purpose === 'entry' && d.symbol ? `<li>Token: $${escapeHtml(d.symbol)}</li>` : '',
@@ -814,6 +840,6 @@ export async function verifyCallback(
       status: 303,
       headers: { Location: out.install, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' },
     });
-  if (out.ok) return verifyPage(out.code ? codeLine(out.code) : VERIFY_PAGE.done, 200, clear);
+  if (out.ok) return verifyPage(out.code ? codeLine(out.code) : (out.line ?? VERIFY_PAGE.done), 200, clear);
   return verifyPage(out.reason, out.reason === VERIFY_PAGE.expired ? 410 : 403, clear);
 }

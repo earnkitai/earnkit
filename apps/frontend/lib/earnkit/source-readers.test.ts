@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GH_RATE_FLOOR, GH_RUN_CAP, GitHubBudgetStop, READ_CAPS, budgetedGh, defaultReaderDeps, isBudgetStop, isoWeek, pep503, probeSite, readContract, readContractOrigin, readCoin, readMergedPrs, readNpm, readNpmBulk, readPypi, readRepo, readSite, type ReaderDeps } from './source-readers';
+import { GH_RATE_FLOOR, GH_RUN_CAP, GitHubBudgetStop, READ_CAPS, budgetedGh, defaultReaderDeps, isBudgetStop, isoWeek, pep503, probeSite, readContract, readContractOrigin, readCoin, readMergedPrs, readNpm, readNpmBulk, readPypi, readRepo, readSite, walletCreationsFrom, type ReaderDeps } from './source-readers';
 import { CONTRACT_REFUSALS, contractOwned, contractOwnership, packageOwned, repoOwned, siteOwnedByText } from './sources';
 import type { Resolver, Transport } from './safe-fetch';
 
@@ -19,6 +19,7 @@ const base: ReaderDeps = {
   arcHead: async () => 1_000n,
   arcSender: async () => { throw new Error('unexpected sender'); },
   usdPerNative: async (c) => (c === 'arc' ? 1 : 3_000),
+  walletCreations: async () => [],
   now: NOW,
 };
 
@@ -385,7 +386,7 @@ test('3.5 a Base call keeps its ERC-8021 codes; a coin trader is a buyer from a 
   const { Attribution } = await import('ox/erc8021');
   const tagged = `0xabcdef${Attribution.toDataSuffix({ codes: ['ek_abc123', 'earnkit'] }).slice(2)}`;
   const d = {
-    usdPerNative: async () => 2000, now: NOW,
+    usdPerNative: async () => 2000, walletCreations: async () => [], now: NOW,
     baseTxs: async () => ({ items: [{ timestamp: '2026-10-10T00:00:00Z', status: 'ok', from: { hash: '0xAA' }, raw_input: tagged, value: '0' }], next_page_params: null }),
   } as never;
   const s = await readContract('base:0x' + '1'.repeat(40), new Date('2026-01-01'), d);
@@ -433,4 +434,27 @@ test('3.21 a GitHub call the budget refuses is not counted as a request', async 
   await g('/a', undefined, () => n++);
   await assert.rejects(g('/b', undefined, () => n++), (e) => isBudgetStop(e));
   assert.equal(n, 1);
+});
+
+test('7.4b walletCreations: only successful contract creations from the wallet, at most 3 pages', async () => {
+  const paths: string[] = [];
+  const W = '0x' + 'ab'.repeat(20);
+  const c = (n: number) => '0x' + String(n).padStart(40, '0');
+  const page = async (path: string) => {
+    paths.push(path);
+    return {
+      items: [
+        { timestamp: '2026-09-01T00:00:00Z', status: 'ok', created_contract: { hash: c(paths.length).toUpperCase().replace('0X', '0x') } },
+        { timestamp: '2026-09-01T00:00:00Z', status: 'error', created_contract: { hash: c(90) } },
+        { timestamp: '2026-09-01T00:00:00Z', status: 'ok', created_contract: null },
+      ],
+      next_page_params: { block_number: 10 - paths.length, index: 0 },
+    };
+  };
+  const out = await walletCreationsFrom(W, page);
+  assert.deepEqual(out.map((x) => x.address), [c(1), c(2), c(3)]);
+  assert.equal(paths.length, 3);
+  assert.equal(paths[0], `/api/v2/addresses/${W}/transactions?filter=from`);
+  assert.equal(paths[1], `/api/v2/addresses/${W}/transactions?filter=from&block_number=9&index=0`);
+  await assert.rejects(walletCreationsFrom('nope', page));
 });

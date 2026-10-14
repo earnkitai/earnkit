@@ -55,6 +55,11 @@ export type ReaderDeps = {
   /** `input`: the transaction's calldata (its ERC-8021 codes are read from it). */
   arcSender: (tx: string) => Promise<{ from: string; value: bigint; at: string; input?: string }>;
   usdPerNative: (chain: 'base' | 'arc') => Promise<number>;
+  /**
+   * v2.12.1 T7: the contracts a wallet created (Base: Blockscout's transactions from it that created a
+   * contract, at most READ_CAPS.walletPages pages). Asked only for a signed wallet (person_wallets).
+   */
+  walletCreations: (wallet: string) => Promise<{ address: string; created_at: string }[]>;
   now: Date;
   /** Whether the run's GitHub budget is spent (budgetedGh); absent: never. */
   ghSpent?: () => boolean;
@@ -71,7 +76,7 @@ export type ReaderDeps = {
   requests?: { tick: ((provider: Provider) => void) | null };
 };
 
-export const READ_CAPS = { stargazerPages: 3, userLookups: 80, basePages: 20, arcSenders: 200, prs: 30 } as const;
+export const READ_CAPS = { stargazerPages: 3, userLookups: 80, basePages: 20, arcSenders: 200, prs: 30, walletPages: 3 } as const;
 /** GitHub's stargazer list ends at page 400 (40,000 stars); later pages answer 422. */
 const STAR_LAST_PAGE = 400;
 /** Below this many core GitHub requests left this hour, the run stops reading GitHub sources. */
@@ -545,6 +550,29 @@ async function blockscoutOrigin(address: string, deadline: number, tick: () => v
   return { deployer: tx.from?.hash ?? null, created_at: tx.timestamp ?? null };
 }
 
+type CreationPage = { items?: { timestamp?: string | null; status?: string; created_contract?: { hash?: string | null } | null }[]; next_page_params?: Record<string, unknown> | null };
+/**
+ * T7: the contracts `wallet` created on Base, newest first: its outgoing transactions that created a
+ * contract (successful ones), at most READ_CAPS.walletPages pages of Blockscout.
+ */
+export async function walletCreationsFrom(wallet: string, page: (path: string) => Promise<CreationPage>): Promise<{ address: string; created_at: string }[]> {
+  if (!ADDRESS.test(wallet)) throw new Error('not a wallet');
+  const out: { address: string; created_at: string }[] = [];
+  let params = 'filter=from';
+  for (let i = 0; i < READ_CAPS.walletPages; i++) {
+    const data = await page(`/api/v2/addresses/${wallet.toLowerCase()}/transactions?${params}`);
+    for (const tx of Array.isArray(data?.items) ? data.items : []) {
+      const a = tx?.created_contract?.hash;
+      if (typeof a === 'string' && ADDRESS.test(a) && tx.status === 'ok' && typeof tx.timestamp === 'string')
+        out.push({ address: a.toLowerCase(), created_at: tx.timestamp });
+    }
+    if (!data?.next_page_params) break;
+    // Blockscout's next_page_params do not carry the filter: it is kept on every page.
+    params = new URLSearchParams([['filter', 'from'], ...Object.entries(data.next_page_params).filter(([k]) => k !== 'filter').map(([k, v]): [string, string] => [k, String(v)])]).toString();
+  }
+  return out;
+}
+
 /**
  * The real reads. Sites go through safe-fetch (public addresses only after DNS, https on 443, no
  * IP hosts, up to three same-site redirects each re-vetted, size and time capped), so a site source
@@ -587,6 +615,7 @@ export function defaultReaderDeps(now: Date, deadline: number): ReaderDeps {
       return { from: t.from, value: t.value, at: new Date(Number(b.timestamp) * 1000).toISOString(), input: t.input };
     },
     usdPerNative: (chain) => by(nativeUsd(chain)),
+    walletCreations: (wallet) => walletCreationsFrom(wallet, (path) => (tick('blockscout'), blockscout<CreationPage>(path, deadline))),
     now,
     ghSpent: github.spent,
     ghFetch: async (input, init) => {

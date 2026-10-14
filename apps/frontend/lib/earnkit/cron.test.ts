@@ -632,7 +632,7 @@ function fakeReader(): ReaderDeps {
   const no = async () => {
     throw new Error('unexpected');
   };
-  return { gh: no, ghGraphql: no, tokenTransfers: no, probe: no, fetchText: no, json: no, baseTxs: no, contractOrigin: no, arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, now: new Date() };
+  return { gh: no, ghGraphql: no, tokenTransfers: no, probe: no, fetchText: no, json: no, baseTxs: no, contractOrigin: no, arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, walletCreations: no, now: new Date() };
 }
 
 test('6.9 v2.12: with the flag off runCron has no builder_score key; on, the four step results come back and a failing read fails soft', db, async () => {

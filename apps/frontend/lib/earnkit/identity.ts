@@ -167,7 +167,7 @@ async function provedRepos(roots: number[]): Promise<Set<string>> {
         AND p.token_status = 'launched' AND p.token_url IS NOT NULL AND p.token_url <> 'pending'`,
     !githubVerifyEnabled() ? Promise.resolve([]) : db<{ key: string }[]>`
       SELECT DISTINCT 'github.com/' || v.repo_key AS key FROM github_verifications v JOIN installations i ON i.id = v.installation_id
-      WHERE COALESCE(i.builder_id, i.id) IN ${db(roots)} AND v.used_at IS NULL`,
+      WHERE COALESCE(i.builder_id, i.id) IN ${db(roots)} AND v.used_at IS NULL AND v.purpose <> 'claim'`,
   ]);
   return new Set([...launched, ...signedIn].map((r) => r.key.toLowerCase()));
 }
@@ -197,7 +197,7 @@ export async function provenRoots(roots: number[], repo: string, codes: readonly
     !githubVerifyEnabled() ? Promise.resolve([]) : db<{ root: number }[]>`
       SELECT DISTINCT COALESCE(i.builder_id, i.id) AS root FROM github_verifications v JOIN installations i ON i.id = v.installation_id
       WHERE COALESCE(i.builder_id, i.id) IN ${db(roots)} AND v.repo_key = ${repoKey({ url: repo, name: '' })}
-        AND v.used_at IS NULL`,
+        AND v.used_at IS NULL AND v.purpose <> 'claim'`,
   ]);
   const proven = new Set([...launched, ...signedIn].map((r) => r.root));
   if (codes.length > 0) {

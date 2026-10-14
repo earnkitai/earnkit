@@ -9,7 +9,7 @@ function fakeReader(): ReaderDeps {
   const no = async (): Promise<never> => {
     throw new Error('unexpected read');
   };
-  return { gh: no, ghGraphql: no, probe: no, fetchText: no, json: no, baseTxs: no, tokenTransfers: no, contractOrigin: no, arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, now: new Date('2026-10-14T10:00:00Z') };
+  return { gh: no, ghGraphql: no, probe: no, fetchText: no, json: no, baseTxs: no, tokenTransfers: no, contractOrigin: no, arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, walletCreations: no, now: new Date('2026-10-14T10:00:00Z') };
 }
 /** The person query's answer: these repos, bare. */
 const graphBody = (login: string, keys: string[]) => ({

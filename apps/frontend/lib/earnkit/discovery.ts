@@ -22,6 +22,7 @@ import { clearXHandle, releaseLogin, setFallback } from './profiles';
 import { GitHubBudgetStop, isBudgetStop, readContractOrigin, soft, type ReaderDeps, type RepoSignals } from './source-readers';
 import { claimContract, proposeSource, rejectSource, repoOwned, verifySource, type Proof } from './sources';
 import { proofLineOwner } from './token-gate';
+import { readPersonGithub, type PersonGithub } from './person-github';
 
 /**
  * v2.12 spec 3: finding a person's past work. `find` never waits on it: it records the agent's
@@ -101,9 +102,11 @@ export async function enqueueClue(installationId: number, reason: 'wallet' | 'si
 
 // ---- spec 3, Task 6: the cron's discover step.
 
-/** Who a person's GitHub login is (plan R4: a sign-in, the read-only App, or the v2.11 proof line). */
-export type LoginOf = (builderId: number) => Promise<{ login: string; basis: 'signin' | 'app' | 'proof_line' } | null>;
+/** Who a person's GitHub login is (plan R4: a sign-in, the read-only App, the v2.11 proof line; v2.12.1 T7: the X field match). */
+export type LoginOf = (builderId: number) => Promise<LoginProof | null>;
 
+/** T7: how many of a person's signed wallets have their created contracts read per discovery. */
+export const WALLET_READS = 3;
 /** Per person and run: orgs looked at, repos checked per org, agent remotes checked, repos scanned for clue files, files per repo, contracts. */
 export const DISCOVER_CAPS = { orgs: 3, orgRepos: 10, remotes: 5, clueRepos: 10, clueFiles: 10, contracts: 20, sites: 5 } as const;
 /** A person whose discovery threw this many times is marked done until the next clue queues them. */
@@ -164,9 +167,15 @@ export function proofLineCheck(d: ReaderDeps, deadline: number): ProofLineCheck 
  * a repo for an installation, not who the person is, so it names them only when every verification
  * of the group names one and the same login (two or more: none). With no verification, the v2.11
  * proof line on one of the agent's proposed repos (at most DISCOVER_CAPS.remotes), for each
- * installation of the group, through `proofLine`. Never guessed.
+ * installation of the group, through `proofLine`. v2.12.1 T7: then, for a claimed person, the login
+ * their agent reported (`reported_github`) when GitHub's own X field for it (one person query through
+ * `reader`) is the X handle the claim wrote (x_user_id-bound): basis `x_match`. Any other reported
+ * login stays not yet confirmed. `person` receives that read, so discovery reuses it. Never guessed.
  */
-export async function provenLogin(builderId: number, o: { proofLine?: ProofLineCheck } = {}): Promise<LoginProof | null> {
+export async function provenLogin(
+  builderId: number,
+  o: { proofLine?: ProofLineCheck; reader?: ReaderDeps; person?: (p: PersonGithub) => void } = {},
+): Promise<LoginProof | null> {
   const members = (await sql()<{ id: number }[]>`SELECT id FROM installations WHERE COALESCE(builder_id, id) = ${builderId} ORDER BY id`).map((m) => m.id);
   if (members.length === 0) return null;
   const logins = await sql()<{ login: string; via: string }[]>`
@@ -175,16 +184,28 @@ export async function provenLogin(builderId: number, o: { proofLine?: ProofLineC
     GROUP BY lower(login) LIMIT 2`;
   if (logins.length > 1) return null;
   if (logins.length === 1) return { login: logins[0].login, basis: logins[0].via === 'app' ? 'app' : 'signin' };
-  if (!o.proofLine) return null;
-  const repos = await sql()<{ ref: string }[]>`
-    SELECT ref FROM builder_sources WHERE builder_id = ${builderId} AND kind = 'repo' AND state = 'proposed' ORDER BY id LIMIT ${DISCOVER_CAPS.remotes}`;
-  for (const { ref } of repos)
-    for (const m of members) {
-      const p = await o.proofLine(m, ref);
-      if (p) return p;
-    }
-  return null;
+  if (o.proofLine) {
+    const repos = await sql()<{ ref: string }[]>`
+      SELECT ref FROM builder_sources WHERE builder_id = ${builderId} AND kind = 'repo' AND state = 'proposed' ORDER BY id LIMIT ${DISCOVER_CAPS.remotes}`;
+    for (const { ref } of repos)
+      for (const m of members) {
+        const p = await o.proofLine(m, ref);
+        if (p) return p;
+      }
+  }
+  if (!o.reader) return null;
+  // Only the claim-written handle: an unclaimed profile's x_handle (typed, or GitHub's prefill) never matches.
+  const [p] = await sql()<{ x_handle: string | null; reported: string | null }[]>`
+    SELECT x_handle, lower(reported_github) AS reported FROM builder_profiles WHERE builder_id = ${builderId} AND x_user_id IS NOT NULL`;
+  if (!p?.x_handle || !p.reported || !GITHUB_LOGIN.test(p.reported)) return null;
+  // A failed read proves nothing this time (a spent budget or the deadline still stops the run).
+  const person = await soft(readPersonGithub(p.reported, o.reader), null);
+  if (!person || person.login !== p.reported) return null;
+  o.person?.(person);
+  const twitter = person.twitter?.replace(/^@/, '').toLowerCase();
+  return twitter && twitter === p.x_handle.toLowerCase() ? { login: p.reported, basis: 'x_match' } : null;
 }
+const GITHUB_LOGIN = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}$/;
 
 type Counts = { people: number; proposed: number; verified: number };
 type Row = { id: number; state: string };
@@ -223,11 +244,12 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
     planned.set(row.id, 'rejected');
     verdicts.push(() => rejectSource(row.id, reason));
   };
-  // Post-push audit: no wallet is proven yet. A token's creator_wallet and a deploy's owner_wallet are
-  // typed by the agent, so treating them as proven let anyone claim a stranger's contracts by naming its
-  // deployer. A wallet will count only once it signs a message bound to this person (not built yet).
-  // Contracts EarnKit deployed for this person still verify through `earnkitDeployed`.
-  const proven = new Set<string>();
+  // Post-push audit: a token's creator_wallet and a deploy's owner_wallet are typed by the agent, so
+  // they never prove anything. v2.12.1 T7: a wallet is proven only by a signature bound to this person
+  // (wallet-proof.ts, person_wallets). Contracts EarnKit deployed still verify through `earnkitDeployed`.
+  const signed = await db<{ wallet: string }[]>`
+    SELECT wallet FROM person_wallets WHERE builder_id = ${root} ORDER BY proven_at DESC, wallet`;
+  const proven = new Set(signed.map((w) => w.wallet.toLowerCase()));
   // Clue 5: contracts EarnKit deployed for this person (their own group's deploys only).
   const deploys = await db<{ chain: string; address: string; repo_key: string }[]>`
     SELECT chain, lower(address) AS address, lower(repo_key) AS repo_key FROM contract_deploys
@@ -252,8 +274,23 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
     });
   };
   for (const x of deploys) await claim(`${x.chain}:${x.address}`, x.repo_key, {});
+  // T7: the contracts a signed wallet created (the newest WALLET_READS wallets; Base); contractOwnership proves them deploy_wallet.
+  for (const w of [...proven].slice(0, WALLET_READS))
+    for (const c of await soft(d.walletCreations(w), [])) {
+      const a = typeof c?.address === 'string' ? c.address.toLowerCase() : '';
+      if (/^0x[0-9a-f]{40}$/.test(a)) await claim(`base:${a}`, `base:${a}`, {});
+    }
 
-  let proof = await (o.login ?? ((id: number) => provenLogin(id, { proofLine: o.proofLine ?? proofLineCheck(d, o.deadline) })))(root);
+  let person: PersonGithub | null = null;
+  let proof = await (o.login ??
+    ((id: number) => provenLogin(id, { proofLine: o.proofLine ?? proofLineCheck(d, o.deadline), reader: d, person: (p) => void (person = p) })))(root);
+  // T7: an X field match GitHub no longer shows (twitter_username is self-declared, so it can be
+  // withdrawn) stops confirming: the login and what it confirmed go back to not yet confirmed.
+  const read0 = person as PersonGithub | null;
+  if (!proof && read0) {
+    const [held] = await db`SELECT 1 FROM builder_profiles WHERE builder_id = ${root} AND github_basis = 'x_match' AND lower(github_login) = ${read0.login}`;
+    if (held) verdicts.push(async () => void (await releaseLogin(root, read0.login)));
+  }
   if (proof) {
     // One login, one person: a login another profile already holds names no one here, and once a
     // profile has its login (set once, by setFallback) a different proven login names no one either.
@@ -266,7 +303,11 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
   let read: { user: { blog?: string | null; twitter_username?: string | null } | null; clues: ReturnType<typeof githubProfileClues> } | null = null;
   if (proof) {
     const L = proof.login.toLowerCase();
-    const user = await d.gh<{ blog?: string | null; twitter_username?: string | null }>(`/users/${L}`);
+    // The X field match already read this person (one query): reused, never read twice.
+    const known = person as PersonGithub | null;
+    const user = known && known.login === L
+      ? { blog: known.website, twitter_username: known.twitter }
+      : await d.gh<{ blog?: string | null; twitter_username?: string | null }>(`/users/${L}`);
     read = { user, clues: githubProfileClues(user ?? {}) };
     if (!(await loginStands(root, L, read.clues.twitter ?? null))) {
       // A login this profile shows but no longer stands for goes (with what it confirmed).

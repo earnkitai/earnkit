@@ -218,7 +218,7 @@ test('8.12 (v2.12.1 S9) discovery no longer reads earnkit.txt: a repo-linked sit
     throw new Error('unexpected');
   };
   const reader: ReaderDeps = {
-    gh: no, ghGraphql: no, tokenTransfers: no, probe: no, json: no, baseTxs: no, contractOrigin: no, arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, now: NOW,
+    gh: no, ghGraphql: no, tokenTransfers: no, probe: no, json: no, baseTxs: no, contractOrigin: no, arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, walletCreations: no, now: NOW,
     fetchText: async (url) => {
       read.push(url);
       if (url === 'https://app.lee.dev/earnkit.txt') return `profile: ${profileCode(id, 'https://app.lee.dev', SECRET)}\n`;
@@ -259,7 +259,7 @@ test('8.14 a new proposed site is never crowded out by unproven linked sites: th
     throw new Error('unexpected');
   };
   const reader: ReaderDeps = {
-    gh: no, ghGraphql: no, tokenTransfers: no, probe: no, json: no, baseTxs: no, contractOrigin: no, arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, now: NOW,
+    gh: no, ghGraphql: no, tokenTransfers: no, probe: no, json: no, baseTxs: no, contractOrigin: no, arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, walletCreations: no, now: NOW,
     fetchText: async (url) => {
       read.push(url);
       throw new Error('not found');

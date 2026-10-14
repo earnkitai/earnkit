@@ -463,7 +463,7 @@ async function slugProblem(db: Db, slug: string, repoKey: string): Promise<strin
 }
 
 /** How an upload link's login was proven (host_upload_tokens.basis, the hosted event's login_basis). */
-export type HostBasis = LoginProof['basis'];
+export type HostBasis = Exclude<LoginProof['basis'], 'x_match'>;
 type HostProof = { login: string; account_created_at: Date; public_repos: number; basis: HostBasis };
 
 /**

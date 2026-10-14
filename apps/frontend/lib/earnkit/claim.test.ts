@@ -316,3 +316,29 @@ test('6.20 (fix round 1) a bind that throws is a plain 500 page and the cookie i
   const [p] = await sql()`SELECT x_user_id FROM builder_profiles WHERE builder_id = ${id}`;
   assert.equal(p.x_user_id, null);
 });
+
+test('7.7 the done page offers the two optional upgrades as plain links; GitHub only while its sign-in is on', dbTest, async () => {
+  const gh = { id: process.env.GITHUB_OAUTH_CLIENT_ID, secret: process.env.GITHUB_OAUTH_CLIENT_SECRET };
+  try {
+    delete process.env.GITHUB_OAUTH_CLIENT_ID;
+    delete process.env.GITHUB_OAUTH_CLIENT_SECRET;
+    const a = await profiled();
+    const off = await (await runClaim(await codeOf(a), fakeX({ id: X('771'), username: H('up_a'), name: 'A', avatar: null }))).text();
+    assert.match(off, /<a href="https:\/\/earnkit\.com\/claim\/wallet\?t=[^"]+">Show a wallet is yours \(optional\)<\/a>/);
+    assert.doesNotMatch(off, /Sign in with GitHub/);
+    process.env.GITHUB_OAUTH_CLIENT_ID = 'gid';
+    process.env.GITHUB_OAUTH_CLIENT_SECRET = 'gsec';
+    const b = await profiled();
+    const on = await (await runClaim(await codeOf(b), fakeX({ id: X('772'), username: H('up_b'), name: 'B', avatar: null }))).text();
+    assert.match(on, new RegExp(`Your page is live: earnkit\\.com/${H('up_b')}`));
+    assert.match(on, /<a href="https:\/\/earnkit\.com\/github\/verify\?n=[A-Za-z0-9_-]{43}">Sign in with GitHub \(optional\)<\/a>/);
+    const [n] = await sql()<{ purpose: string; repo_key: string; installation_id: number }[]>`
+      SELECT purpose, repo_key, installation_id FROM github_verify_nonces WHERE installation_id = ${b} AND purpose = 'claim'`;
+    assert.deepEqual({ ...n }, { purpose: 'claim', repo_key: `claim/${b}`, installation_id: b });
+    assert.doesNotMatch(on, /—/);
+  } finally {
+    for (const [k, v] of [['GITHUB_OAUTH_CLIENT_ID', gh.id], ['GITHUB_OAUTH_CLIENT_SECRET', gh.secret]] as const)
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+  }
+});

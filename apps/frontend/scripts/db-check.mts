@@ -745,5 +745,10 @@ ok(v212.n === 4, 'v2.12: the append-only triggers exist once each after two runs
 const [ck] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM pg_constraint WHERE conname = 'builder_events_type_check'`;
 ok(ck.n === 1, 'v2.12: one builder_events type CHECK after two runs');
 
+// v2.12.1 T7: a 'claim' sign-in link survives the next deploy's schema run (the v2.9 purpose CHECK is re-added on every run).
+await db`INSERT INTO github_verify_nonces (nonce_hash, installation_id, repo_key, purpose, expires_at) SELECT 't7-claim', min(id), 'claim/' || min(id), 'claim', now() FROM installations`;
+const claimRerun = await db.unsafe(now).then(() => true, () => false);
+ok(claimRerun, "v2.12.1: the schema runs again over a 'claim' sign-in link");
+
 await db.end();
 console.log(`db check: ${checks} checks passed`);

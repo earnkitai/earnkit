@@ -900,7 +900,7 @@ function ghReader(gh: Record<string, unknown>): never {
       return gh[path];
     },
     probe: no, fetchText: no, json: no, baseTxs: no, ghGraphql: no, tokenTransfers: no, contractOrigin: no,
-    arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, now: NOW,
+    arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, walletCreations: no, now: NOW,
   } as never;
 }
 const discoverAs = async (root: number, login: string, twitter: string | null) => {

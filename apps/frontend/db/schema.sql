@@ -801,7 +801,7 @@ ALTER TABLE github_verifications ADD COLUMN IF NOT EXISTS wallet text;
 ALTER TABLE github_verifications ADD COLUMN IF NOT EXISTS symbol text;
 -- v2.10 item 7b (R8): the App's nonce purpose; the login the OAuth hop proved, read by the setup URL.
 ALTER TABLE github_verify_nonces DROP CONSTRAINT IF EXISTS github_verify_nonces_purpose_check;
-ALTER TABLE github_verify_nonces ADD CONSTRAINT github_verify_nonces_purpose_check CHECK (purpose IN ('entry', 'pickup', 'host', 'app'));
+ALTER TABLE github_verify_nonces ADD CONSTRAINT github_verify_nonces_purpose_check CHECK (purpose IN ('entry', 'pickup', 'host', 'app', 'claim')); -- v2.12.1 T7: 'claim' here too, or a rerun fails on claim rows
 ALTER TABLE github_verify_nonces ADD COLUMN IF NOT EXISTS login text;
 -- v2.10 Pre-flight P3: the account facts of that sign-in, for the setup URL's verification row (its
 -- NOT NULL columns). NULL until an `app` nonce's OAuth hop passes.
@@ -1381,3 +1381,10 @@ CREATE TABLE IF NOT EXISTS login_contest_rulings (
   builder_id integer NOT NULL,
   ruled_at   timestamptz NOT NULL DEFAULT now()
 );
+-- v2.12.1 T7: a wallet signature from the claim page is used once (the hash of its link token and
+-- wallet), so a captured signature can never be replayed. Rows over a day old are swept as it is used.
+CREATE TABLE IF NOT EXISTS wallet_proof_uses (
+  use_hash text PRIMARY KEY,
+  used_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS wallet_proof_uses_used ON wallet_proof_uses (used_at);

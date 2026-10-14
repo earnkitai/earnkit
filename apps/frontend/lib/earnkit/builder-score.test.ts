@@ -258,6 +258,7 @@ function fakeReader(gh: Record<string, unknown>, over: Partial<ReaderDeps> = {})
     arcHead: no('arcHead'),
     arcSender: no('arcSender'),
     usdPerNative: no('usdPerNative'),
+    walletCreations: no('walletCreations'),
     now: NOW,
     ...over,
   };

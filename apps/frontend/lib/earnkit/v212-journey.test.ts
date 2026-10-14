@@ -222,6 +222,7 @@ function fakeWorld(): ReaderDeps {
     arcHead: no('Arc head'),
     arcSender: no('Arc sender'),
     usdPerNative: no('price'),
+    walletCreations: no('walletCreations'),
     now,
   };
 }
