@@ -15,7 +15,7 @@ import { hostFor, scoreEarn, standBase, startRefresh } from './stand-view';
 import { openEntries } from './projects';
 import { hiddenIds, hiddenPrograms, readMemory } from './builder-memory';
 import type { Card, FreshOn } from './present';
-import { MOVE_UP_NOTE, buildStepLine, chooseStep, whereYouStand, type MoveUp } from './where-you-stand';
+import { EARN_NOTE, MOVE_UP_NOTE, chooseStep, placeBuild, whereYouStand, type MoveUp } from './where-you-stand';
 
 /** v2.12.1 T8: the agent's note when the step asks for a link (find says the same). */
 export const SEND_LINK_NOTE = 'When the builder sends a link to something they made, pass it to find in identity.projects (live_url or repo).';
@@ -145,6 +145,8 @@ export type StandScoreReply = {
   move_up?: { kind: MoveUp['kind']; project_key: string | null; agent_note: string };
   claim?: { link: string };
   lead?: { program_id: string };
+  /** With a lead: prepare it with lead.program_id when the builder picks it (find's EARN_NOTE). */
+  note?: string;
   build_offer?: { program_id: string; starter_id: string; can_build: boolean };
 };
 
@@ -178,18 +180,16 @@ export async function scoreReply(ctx: Ctx, now: Date, o: { hold?: boolean; reade
   const money = await scoreEarn(id, { cards: cards.filter((c) => !hidden.has(c.id)), entered, hidden, now, projects: base.projects, fresh: o.fresh });
   const view0 = { ...base, earn: money.earn, fresh: null, money: money.money };
   const step0 = o.hold ? null : chooseStep(view0, { coin: () => false, build: null, host: hostFor(o.fresh?.canBuild ?? false) });
-  let step = step0;
-  let fresh: { title: string; prize: string } | null = null;
-  if (money.pick) {
-    const prize = prizeOf(money.pick.card).split(' × ')[0];
-    if (step0 || o.hold) fresh = { title: money.pick.card.title, prize };
-    else step = { kind: 'build', project_key: null, line: buildStepLine(money.pick.card.title, prize, money.pick.canBuild) };
-  }
+  const pick = money.pick ? { title: money.pick.card.title, prize: prizeOf(money.pick.card).split(' × ')[0], canBuild: money.pick.canBuild } : null;
+  const { step, fresh } = placeBuild(pick, step0, Boolean(o.hold));
   const reply: StandScoreReply = { show_to_builder: whereYouStand({ ...view0, fresh, step, news: null }) };
   if (step && step.kind !== 'send_link' && step.kind !== 'build')
     reply.move_up = { kind: step.kind, project_key: step.project_key, agent_note: MOVE_UP_NOTE };
   if (step?.kind === 'send_link') reply.agent_note = SEND_LINK_NOTE;
-  if (money.earn[0]) reply.lead = { program_id: money.earn[0].program_id };
+  if (money.earn[0]) {
+    reply.lead = { program_id: money.earn[0].program_id };
+    reply.note = EARN_NOTE;
+  }
   if (money.pick) reply.build_offer = { program_id: money.pick.card.id, starter_id: money.pick.starter.id, can_build: money.pick.canBuild };
   if (base.claimLink) reply.claim = { link: base.claimLink };
   await noteEvent('score_viewed', () => ({

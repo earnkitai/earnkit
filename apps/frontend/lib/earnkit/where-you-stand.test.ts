@@ -161,11 +161,11 @@ test('8.22 (fix round 1) the money statements: a project that could win once peo
   assert.equal(usersMoneyLine(p({ key: 'r', name: 'Recipes', what: 'a recipe planner' }), 'lee/recipes', 'Base Builder Grants', 'up to $5K'),
     'Your recipe planner could win up to $5K from Base Builder Grants once people use it.');
   assert.equal(usersMoneyLine(null, 'lee/recipes', 'T', 'up to $5K'), 'recipes could win up to $5K from T once people use it.');
-  assert.equal(rollingLine('Avalanche Team1 Mini Grants', 'up to $10K', true), 'Avalanche Team1 Mini Grants pays up to $10K and is open all year. I can prepare an entry with one of your projects.');
-  assert.equal(rollingLine('A', 'up to $10K', false), 'A pays up to $10K and is open all year.');
-  assert.equal(buildStepLine('Arc Microgrants', '500 USDC', false), 'Arc Microgrants pays 500 USDC for a small app. I can plan it with you; it takes about an hour to build. Want the plan?');
-  const v = { ...base, earn: [], money: 'A pays up to $10K and is open all year.' };
-  assert.match(whereYouStand({ ...v, step: null, news: null }), /\n\nWays to earn right now\nA pays up to \$10K and is open all year\.$/);
+  assert.equal(rollingLine('Avalanche Team1 Mini Grants', 'up to $10K', true), "You could win up to $10K from Avalanche Team1 Mini Grants; it's open all year. I can prepare an entry with one of your projects.");
+  assert.equal(rollingLine('A', 'up to $10K', false), "You could win up to $10K from A; it's open all year.");
+  assert.equal(buildStepLine('Arc Microgrants', '500 USDC', false), 'Arc Microgrants pays 500 USDC for a small app. I can build it with you in about an hour. Want me to start?');
+  const v = { ...base, earn: [], money: "You could win up to $10K from A; it's open all year." };
+  assert.match(whereYouStand({ ...v, step: null, news: null }), /\n\nWays to earn right now\nYou could win up to \$10K from A; it's open all year\.$/);
 });
 
 test('8.25 (ruling) the open-all-year fallback: Easy first, then fewer things to fill in, then the bigger prize', async () => {
@@ -180,5 +180,36 @@ test('8.25 (ruling) the open-all-year fallback: Easy first, then fewer things to
   const tie = [card('Small', 'Easy', 1, 500), card('Bigger', 'Easy', 1, 5000)];
   assert.deepEqual([...tie].sort(byLazy).map((c: { id: string }) => c.id), ['Bigger', 'Small']);
   const m = moneyFallback({ cards, entered: new Set(), hidden: new Set(), now, projects: [] });
-  assert.match(m.money ?? '', /^EasyFew pays up to \$500 and is open all year\.$/);
+  assert.equal(m.money, "You could win up to $500 from EasyFew; it's open all year.");
+});
+
+test('8.26 (fix round 2) a build is the step only when nothing else asks: with a pending join it is a statement, one question in all', async () => {
+  const { placeBuild, buildStepLine } = await import('./where-you-stand');
+  const pick = { title: 'Arc Microgrants', prize: '500 USDC', canBuild: true };
+  const join = 'Another agent signed in as your GitHub. Add it to your page?';
+  const v = { ...base, projects: [], earn: [], standing: { ranked: false, rank: 0, total: 40 } };
+  const held = placeBuild(pick, null, true);
+  assert.equal(held.step, null);
+  assert.deepEqual(held.fresh, { title: 'Arc Microgrants', prize: '500 USDC' });
+  const reply = [whereYouStand({ ...v, ...held, news: null }), join].join('\n\n');
+  assert.equal((reply.match(/\?/g) ?? []).length, 1, reply);
+  assert.match(reply, /Arc Microgrants pays 500 USDC for a small app, and I can build one with you in about an hour\./);
+  // Nothing else asks: the build is the step.
+  assert.equal(placeBuild(pick, null, false).step?.line, buildStepLine('Arc Microgrants', '500 USDC', true));
+  // A step of their own wins; the build is the statement.
+  const own = { kind: 'send_link' as const, project_key: null, line: 'x' };
+  assert.deepEqual(placeBuild(pick, own, false), { step: own, fresh: { title: 'Arc Microgrants', prize: '500 USDC' } });
+});
+
+test('8.27 (fix round 2) no fresh build past a repo read error or an unseen repo (Review M1); the entry offer only with a shipped project that can enter', async () => {
+  const { moneyFallback } = await import('./stand-view');
+  const now = new Date('2026-10-14T00:00:00Z');
+  const fresh = { deployOn: () => true, hostOn: true, canBuild: true };
+  const none = moneyFallback({ cards: [], entered: new Set(), hidden: new Set(), now, projects: [], fresh, repoTrouble: true });
+  assert.deepEqual(none, { money: null, pick: null });
+  const rolling = (tag: string | null) => ({ id: 'r', title: 'R', summary: 'Up to $900 · rolling', tag, each_time: [], max_award_usd: 900, ends_at: null, status: 'active', starts_at: null }) as never;
+  const shipped = [p({ key: 'a', name: 'A' })];
+  assert.match(moneyFallback({ cards: [rolling(null)], entered: new Set(), hidden: new Set(), now, projects: shipped }).money!, /I can prepare an entry/);
+  assert.doesNotMatch(moneyFallback({ cards: [rolling('needs a live product')], entered: new Set(), hidden: new Set(), now, projects: shipped }).money!, /prepare/);
+  assert.doesNotMatch(moneyFallback({ cards: [rolling(null)], entered: new Set(), hidden: new Set(), now, projects: [p({ key: 'a', name: 'A', shipped: false })] }).money!, /prepare/);
 });

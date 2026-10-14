@@ -144,7 +144,7 @@ import { builderScoreEnabled } from './builder-score-flag';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { identityInput, noteIdentity } from './identity-input';
 import { SEND_LINK_NOTE, scoreReply, secondLine } from './score-tool';
-import { EARN_NOTE, MOVE_UP_NOTE, buildStepLine, chooseStep, newsOpener, whereYouStand, type EarnLine, type MoveUp, type StandView } from './where-you-stand';
+import { EARN_NOTE, MOVE_UP_NOTE, chooseStep, placeBuild, newsOpener, whereYouStand, type EarnLine, type StandView } from './where-you-stand';
 import { confirmYes, currentStep, earnPrize, earnWhen, hostFor, moneyFallback, standBase, startRefresh, takeNews, takePageReady } from './stand-view';
 import type { ReaderDeps } from './source-readers';
 import { SKIPPED_LINE, cardYes, findOfferLine, offerCard } from './share';
@@ -1178,20 +1178,18 @@ async function standFind(
   // win once people use it, else an open-all-year program, else a fresh build (stand-view.ts moneyFallback).
   const fallback =
     earn.length === 0 && !lead && due.length === 0
-      ? moneyFallback({ cards: a.cards, entered, hidden: a.hide, now, projects: base.projects, users: usersAsk(m, undefined), fresh: a.first.fresh })
+      ? moneyFallback({
+          cards: a.cards, entered, hidden: a.hide, now, projects: base.projects, users: usersAsk(m, undefined), fresh: a.first.fresh,
+          repoTrouble: Boolean(a.repos && ('error' in a.repos || a.repos.unseen?.length)),
+        })
       : { money: null, pick: null };
   const pick = lead ?? fallback.pick ?? undefined;
   const view0: Omit<StandView, 'step' | 'news'> = { ...base, earn, fresh: null, due, money: fallback.money };
   // T10 (coinAllowed) fills the coin keys; none until then.
   const coinKeys = new Set<string>();
   const step0 = held || submit ? null : chooseStep(view0, { coin: (k) => coinKeys.has(k), build: null, host: hostFor(a.agentCanBuild) });
-  let step: MoveUp | null = step0;
-  let fresh: StandView['fresh'] = null;
-  if (pick) {
-    const prize = prizeOf(pick.card).split(' × ')[0];
-    if (step0) fresh = { title: pick.card.title, prize };
-    else step = { kind: 'build', project_key: null, line: buildStepLine(pick.card.title, prize, pick.canBuild) };
-  }
+  // Fix round 2: a build is the step only when nothing else asks (never a second question).
+  const { step, fresh } = placeBuild(pick ? { title: pick.card.title, prize: prizeOf(pick.card).split(' × ')[0], canBuild: pick.canBuild } : null, step0, held || Boolean(submit));
   // News and the page-ready line open the reply ("Since you last checked"); the card is asked only
   // when nothing else in the reply asks. Never fails the tool.
   const asks = held || Boolean(submit) || Boolean(step?.line.includes('?'));

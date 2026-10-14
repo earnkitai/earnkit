@@ -173,15 +173,33 @@ export function usersMoneyLine(project: StandProject | null, repo: string, title
   const who = project ? yours(project) : repo.split('/').pop()!;
   return `${who} could win ${prize} from ${title} once people use it.`;
 }
-/** Fix round 1: an open-all-year program, as a statement. Pure. */
-export const rollingLine = (title: string, prize: string, hasProjects: boolean) =>
-  `${title} pays ${prize} and is open all year.${hasProjects ? ' I can prepare an entry with one of your projects.' : ''}`;
+/**
+ * Fix rounds 1, 2: an open-all-year program, as a statement. `canPrepare`: a shipped project of theirs
+ * can enter it (the program needs no live product they lack), so the entry is offered too. Pure.
+ */
+export const rollingLine = (title: string, prize: string, canPrepare: boolean) =>
+  `You could win ${prize} from ${title}; it's open all year.${canPrepare ? ' I can prepare an entry with one of your projects.' : ''}`;
 
 /** The step when no project of theirs has a better one: the fresh build, money first. Pure. */
 export const buildStepLine = (title: string, prize: string, canBuild: boolean) =>
   canBuild
     ? `${title} pays ${prize} for a small app. Want me to build one with you? It takes about an hour.`
-    : `${title} pays ${prize} for a small app. I can plan it with you; it takes about an hour to build. Want the plan?`;
+    : `${title} pays ${prize} for a small app. I can build it with you in about an hour. Want me to start?`;
+
+/**
+ * Fix round 2: where a fresh build goes. It is the step (its question the reply's one yes) only when
+ * nothing else asks: no step from their projects, no pending join or outcome question (`held`), no
+ * entry waiting on their submission. Otherwise it is a statement under "Ways to earn right now". Pure.
+ */
+export function placeBuild(
+  pick: { title: string; prize: string; canBuild: boolean } | null,
+  step0: MoveUp | null,
+  asksElsewhere: boolean,
+): { step: MoveUp | null; fresh: StandView['fresh'] } {
+  if (!pick) return { step: step0, fresh: null };
+  if (step0 || asksElsewhere) return { step: step0, fresh: { title: pick.title, prize: pick.prize } };
+  return { step: { kind: 'build', project_key: null, line: buildStepLine(pick.title, pick.prize, pick.canBuild) }, fresh: null };
+}
 
 export function whereYouStand(v: StandView, o: { programs?: boolean } = {}): string {
   const parts = [[HEADS.stand, ...standLines(v)]];

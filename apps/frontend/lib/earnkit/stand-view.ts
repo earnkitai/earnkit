@@ -12,7 +12,7 @@ import { chooseStep, confirmLinkLine, pageReadyLine, plainWhat, rollingLine, sta
 import { closeDayOf, prizeOf } from './entry-text';
 import { freshPick, type FreshPick } from './fresh-build';
 import { byPrize, type Card, type FreshOn } from './present';
-import { levelRank } from './guide';
+import { NEEDS_LIVE_PRODUCT, levelRank } from './guide';
 import { moneyText, openCurated } from './pool';
 import { newProgramOf, openCuratedRows, repoCanWin } from './alerts';
 import { readFitRepos } from './installations';
@@ -220,6 +220,8 @@ export function moneyFallback(o: {
   cards: Card[]; entered: Set<string>; hidden: Set<string>; now: Date; projects: StandProject[];
   users?: { repo: string; key: string | null; card: Card };
   fresh?: FreshOn;
+  /** Matching failed or a repo couldn't be seen (freshLead's Review M1 guard): no fresh build. */
+  repoTrouble?: boolean;
 }): { money: string | null; pick: (FreshPick & { canBuild: boolean }) | null } {
   if (o.users && !o.users.card.investment) {
     const k = (o.users.key ?? o.users.repo).toLowerCase();
@@ -228,8 +230,10 @@ export function moneyFallback(o: {
   }
   const skip = new Set([...o.entered, ...o.hidden]);
   const rolling = o.cards.filter((c) => showable(c, o.now, skip) && closeDayOf(c) === null && (c.max_award_usd ?? 0) > 0).sort(byLazy)[0];
-  if (rolling) return { money: rollingLine(rolling.title, earnPrize(rolling), o.projects.length > 0), pick: null };
-  if (o.fresh) {
+  if (rolling)
+    return { money: rollingLine(rolling.title, earnPrize(rolling), o.projects.some((p) => p.shipped) && rolling.tag !== NEEDS_LIVE_PRODUCT), pick: null };
+  // Review M1 (as freshLead): never a fresh build past a repo read error or a repo EarnKit can't see.
+  if (o.fresh && !o.repoTrouble) {
     const pick = freshPick(o.cards, o.now, { hidden: o.hidden, entered: o.entered, deployOn: o.fresh.deployOn, hostOn: o.fresh.hostOn, starters: o.fresh.starters });
     if (pick) return { money: null, pick: { ...pick, canBuild: o.fresh.canBuild } };
   }

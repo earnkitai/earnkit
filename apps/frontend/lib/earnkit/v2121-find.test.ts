@@ -154,7 +154,8 @@ test('8.13 apps the agent named, none live (ruling S15): named, "None is live ye
     await avalanche();
     const r = await find(id);
     // The open-all-year program is the shared test database's biggest one: its line is checked by shape.
-    const earn = /\n\nWays to earn right now\n(.+) pays (up to \$[\d.]+K?M?) and is open all year\. I can prepare an entry with one of your projects\.\n\n/.exec(r.show_to_builder);
+    // None is live, so no entry is offered with the program.
+    const earn = /\n\nWays to earn right now\nYou could win (up to \$[\d.]+K?M?) from (.+); it's open all year\.\n\n/.exec(r.show_to_builder);
     assert.ok(earn, r.show_to_builder);
     assert.equal(r.show_to_builder,
 `Where you stand
@@ -162,7 +163,7 @@ You've made 3 apps with AI: a recipe planner, a budget tracker and a tip jar. No
 Claim your page with X: ${r.claim!.link}
 
 Ways to earn right now
-${earn[1]} pays ${earn[2]} and is open all year. I can prepare an entry with one of your projects.
+You could win ${earn[1]} from ${earn[2]}; it's open all year.
 
 How to move up
 Want me to put your recipe planner online? It takes a few minutes and you won't have to do anything.`);
@@ -199,7 +200,7 @@ test('8.15 nothing found: no claim line, an open-all-year program to earn from, 
     // Fix round 1: every reply has a way to earn. With no build on, the best open-all-year program.
     await avalanche();
     const r = await find(id);
-    assert.match(r.show_to_builder, /^Where you stand\nI couldn't find anything you've made yet\.\n\nWays to earn right now\n.+ pays .+ and is open all year\.\n\nHow to move up\n/);
+    assert.match(r.show_to_builder, /^Where you stand\nI couldn't find anything you've made yet\.\n\nWays to earn right now\nYou could win .+ from .+; it's open all year\.\n\nHow to move up\n/);
     assert.ok(r.show_to_builder.endsWith(SEND_LINK_LINE));
     assert.ok(!('move_up' in r));
 
