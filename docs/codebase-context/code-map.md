@@ -148,36 +148,43 @@ apps/frontend/
                                unverified-page eligibility, the coin's earnkit.txt token line; v2.8: the
                                builder bonus heading has a BonusPill (md) beside it (Section aside);
                                v2.11 T12: "What EarnKit records" (#what-earnkit-records, before Contact)
-  app/leaderboard/{page.tsx,LeaderboardView.tsx,leaderboard-load.ts}  v2.12 T12: the unified builder
-                               leaderboard (404 unless EARNKIT_BUILDER_SCORE=on). Filters chain (base|arc),
-                               program (any programs.id, closed bonus-round programs too; unknown id 404),
-                               window (all|week), page (50 a page, MAX_BOARD_PAGE 200, past the end 404) via
-                               profile-data.ts leaderboardFilters/boardHref; program= checked against
-                               cachedProgramIds (one cached list) before the board read; one query
-                               (leaderboardData) cached per filter set 10 min, tagged PROFILE_TAG (hide/show/X
-                               change expire it). Hidden and not-yet-consented excluded but counted; held at the
-                               last unheld score; week = bounded 7-day change; "Top N%" only for N <= 50.
-  app/b/[slug]/page.tsx        v2.12 T10 (spec 7): the public profile, ISR 600 s; 404 unless
-                               EARNKIT_BUILDER_SCORE=on, hidden, no profile or consent line never shown
-                               (resolveSlug); mixed case and old slugs 308
-                               (permanentRedirect, R15); generateMetadata points og:image at the card
-  app/b/[slug]/ProfileView.tsx  pure render (markup-tested in profile-pages.test.ts): ScoreRing, "Top N% of
-                               builders" (only N <= 50), 7-day change, three stats in words, project cards with sources, one
-                               verified-from line, 90-day sparkline, the neutral stricter note; empty profile:
-                               EMPTY_LINE; the name is X, else GitHub login, else "Builder", never a wallet
-  app/b/[slug]/ScoreRing.tsx   the orange-to-purple ring (SCORE_COLORS: ek-score-orange #FF7A1A, ek-score-purple
-                               #9B6BFF, both 4.5:1+ on the navy panel, R17)
-  app/b/[slug]/profile-load.ts  cachedProfile: unstable_cache over profile-data.ts profileData, 600 s, tag PROFILE_TAG
-  app/b/[slug]/card.png/route.tsx  v2.12 T11 (R16: .tsx for JSX): next/og 1200x630 share card (share.ts
-                               cardModel: ring, Top N% (N <= 50 only), top outcome in words at 44px, the name
-                               (none for the "Builder" fallback), footer 30px; never a chain); checks the live row
-                               (hidden or not consented: no-store 404); CARD_CACHE max-age=0 s-maxage=60
-  app/b/[slug]/share/route.ts  v2.12 T11: records card_shared (once per person per day) and 302s to the X intent
-                               built from the public profile (no open redirect); EarnKit never posts
+  app/leaderboard/{page.tsx,LeaderboardView.tsx,leaderboard-load.ts}  v2.12.1 T11 (spec "Card and
+                               leaderboard"): one gapless list of the ranked population (page-data.ts boardRows:
+                               ranked, claimed with X, not hidden, not held; BOARD_MAX 100): rank, avatar, @handle
+                               (pagePath), best project in words; header BOARD_TITLE + boardLine; force-dynamic,
+                               every query parameter ignored (S11); cachedBoard 10 min under PROFILE_TAG. 404
+                               unless EARNKIT_BUILDER_SCORE=on
+  app/[handle]/page.tsx        v2.12.1 T6/T11: earnkit.com/<x-handle> (force-dynamic; flag off 404); HandleView
+  app/[handle]/handle-view.tsx  HandleView (resolveHandle: hidden/unclaimed 404, case or a 90-day rename 308 to
+                               pagePath) renders ProfileView with pageHead at once and the cards in Suspense
+                               after refreshPerson (skeletons meanwhile); handleMetadata (title, og card)
+  app/[handle]/ProfileView.tsx  pure: avatar, X name and @handle, one h1 (topLine), ScoreRing + rank + people
+                               line only beside a rank that reads well, the cards, SOURCES_LINE, footer
+  app/[handle]/ProjectCards.tsx  pure: project cards (people/money when measured, programs, Not yet confirmed /
+                               Not tracked right now, NONE_CONFIRMED when all are unconfirmed); null = skeletons
+  app/[handle]/ScoreRing.tsx   (moved from app/b/[slug] in T12) the orange-to-purple ring, SCORE_COLORS
+                               (#FF7A1A, #9B6BFF, both 4.5:1+ on the navy panel), "N of 100" in words
+  app/[handle]/Avatar.tsx      the X picture (avatarUrl: pbs.twimg.com over https only) or the first letter
+  app/[handle]/card-response.tsx  cardResponse (next/og 1200x630, Funnel Display from assets/fonts, the X
+                               picture with a 3 s timeout, headline of card_moments.latest, CARD_CACHE) and
+                               shareResponse (card_shared once a day, 302 to the X intent); both check the live
+                               row (no-store 404, 308 to pagePath)
+  app/[handle]/{card.png/route.tsx,share/route.ts}  thin routes over card-response.tsx (flag off 404)
+  app/b/[slug]/page.tsx        v2.12.1: a reserved handle's page (HandleView at /b/<handle>); a claimed person's
+                               v2.12 slug (live or old) 308s to /<handle>; else 404 (flag off 404)
+  app/b/[slug]/{card.png/route.tsx,share/route.ts}  v2.12.1 T12: thin wrappers: a reserved handle through
+                               cardResponse/shareResponse at /b/<handle>; a claimed v2.12 slug 308s to
+                               pagePath(handle)/card.png or /share; else 404
+  app/claim/[code]/route.ts    v2.12.1 T6: GET claimGet (what is public, how to hide, one button; cookie +
+                               csrf), POST claimPost (303 to X); force-dynamic
+  app/claim/wallet/route.ts    v2.12.1 T7: the optional wallet signature page (walletGet, walletPost)
+  app/x/callback/route.ts      v2.12.1 T6: xCallback (state + this browser's cookie, then X, then bindX)
   app/admin/scores/page.tsx    v2.12 T6 (spec 5): the owner's review of held scores (noindex, ?key= =
                                builder-score.ts scoresAdminKey, link from `pnpm campaign scores-link`; array key
                                404; veto rate limit): each held day's parts and top outcome beside the public
-                               score, Release; X handle conflicts with Clear X handle
+                               score, Release; v2.12.1: pending live rescores (builder_live.pending, released by
+                               version), contested GitHub logins with a per-group rule button; X handle conflicts
+                               (v2.12 rows only) with Clear X handle
   app/api/admin/scores/route.ts  v2.12 T6: POST -> builder-score.ts scoresPost (release a held day as a
                                score_releases row, or action=clear_x); wrong key 404; 303 back to the page
   app/bonus/[round]/{page.tsx,BoardView.tsx}  v2.5 Task 9: the public builder bonus leaderboard
@@ -1400,10 +1407,11 @@ apps/frontend/
                                (fail strict), contractConflicts, proposeSource, verifySource, proveLinkedSite,
                                rejectSource, dueSources, previousSignals, readSources (READS_PER_RUN 200)
     builder-score.ts(+test)    v2.12 T6, T8, T9: SCORE_SLICE 0.4, scoreSliceEnd, LATE_HOUR_UTC 22, HOLD,
-                               buildInputs (package cap, PR credit once per target and one source for the
-                               hold, contributors undated), scoreBuilders (one row per person per day; holds), percentiles
-                               (builder_ranks, one pass, hidden included), profileEmpty, emptyReasonOf,
-                               heldPeople, runScoreSteps, publicScore/publicRow, verifiedProject (odds),
+                               buildInputs (v1 rules, kept as history with its tests), holdReason, sourceShares,
+                               profileEmpty, heldPeople, runScoreSteps (discover, read, score = person-score.ts
+                               scorePeopleV2, empty), publicRow, verifiedProject (odds: the person's confirmed
+                               builder_projects row; v2.12.1 T12), scoreContext, heldForReview,
+                               (T12 removed scoreBuilders, percentiles, publicScore, emptyReasonOf)
                                siteShowsUse, scoresAdminKey (v2.12.1 T10: pitchAllowed removed, coin-moments.ts),
                                scoresAdminLink (pnpm campaign scores-link), scoresPost
     coin-moments.ts(+test)     v2.12.1 T10 (spec 3b): the coin offered only at its moments (built_live,
@@ -1413,22 +1421,58 @@ apps/frontend/
                                confirm by project_id launches it), coinNo (recordDecline), coinOpen,
                                coinPitchAllowed (every token pitch/launch path, via tools.ts tokenPitch),
                                builtLiveAnswer, COIN_NOTE, COIN_YES_NOTE, COIN_WALLET_ASK
-    profiles.ts(+test)         v2.12 T7: PROFILE_URL, CONSENT_LINE, slugs (baseSlug, nextFreeSlug,
-                               randomSlug, walletSlug; never reused), profileOf, resolveSlug (null until the
-                               consent line was shown), consentOnce, ensureProfile,
-                               setFallback, setXHandle (only the proven GitHub profile's handle, R5),
-                               setHidden, clearXHandle, xHandleConflicts, mergeProfiles (R3)
+    profiles.ts(+test)         v2.12 T7, v2.12.1: X_HANDLE, randomSlug (the internal key until the claim),
+                               profileOf, ensureProfile (never a shared group), setFallback (login + basis; the
+                               slug no longer follows it), releaseLogin, setHidden (HIDDEN_LINE, SHOWN_LINE with
+                               the page link), clearXHandle, xHandleConflicts (reads v2.12 rows; no new writes),
+                               resolveSlug (claimed only), resolveHandle (HANDLE_REDIRECT_DAYS 90),
+                               mergeProfiles (older group keeps its page; hidden/held either side)
     profile-cache.ts           v2.12 T10: PROFILE_TAG, profileChanged() (revalidateTag; no-op outside Next)
-    profile-data.ts(+test)     v2.12 T10, T12: profileData (public facts only), profileName, statsOf,
-                               stricterNote, weekChange, money, SCORE_COLORS, EMPTY_LINE; leaderboardFilters,
-                               boardHref, boardOutcome, leaderboardData (PAGE_SIZE 50), MAX_BOARD_PAGE,
-                               programIds, programTitle, FALLBACK_NAME
-    share.ts(+test)            v2.12 T11: cardModel, CARD_CACHE, cardOffer, findOfferLine, xAsk, intentUrl,
-                               offerCard (once; only N <= 50; never when the reply asks), cardYes (X asked once)
-    score-tool.ts(+test)       v2.12 T8, T9: the score reply (scoreReply, scoreLines, nextAction,
-                               movedLine, programLine, FILL_LINES, SCORE_NOTES, SCORE_SHARED; the consent line once),
-                               find's line 2
-                               (youLine, secondLine)
+    share.ts                   v2.12.1: CARD_CACHE, SKIPPED_LINE, POST_LINE, claimFirstLine, cardYes (the share
+                               link of a claimed page, else the claim link first); the v2.12 offer is gone (T12)
+    score-tool.ts(+test)       v2.12.1 T8: scoreReply (where you stand, one way to earn, one step; score_viewed),
+                               SCORE_SHARED, SEND_LINK_NOTE (v2.12's reply removed in T12)
+    reserved-routes.ts(+test)  v2.12.1 T1: RESERVED_ROUTES (every top-level route; the test fails on a new one),
+                               isReserved, pagePath (/b/<handle> for a reserved one), pageUrl
+    score-v2.ts(+test)         v2.12.1 T2: computeScoreV2 (Shipped 20, Used 40, Earned 20, Consistency 20;
+                               fade 90-day half-life, Shipped keeps half; STAR_FORK_CAP 5; ranked = 1 ship)
+    rank.ts(+test)             v2.12.1 T2: rankWords ("#N of M builders on EarnKit" under RANK_LIST_UNTIL 50,
+                               top half only; then "top N% of people building with AI" for N <= 50), topPercentOf
+    person-github.ts(+test)    v2.12.1 T3: PERSON_GITHUB_QUERY (one GraphQL query a person), reposQuery
+                               (aliased by name, REPOS_MAX 25), readPersonGithub, readGithubRepos
+    read-usage.ts(+test)       v2.12.1 T3: FREE_LIMITS, countingDeps, flushReadUsage (read_usage per provider/day)
+    person-score.ts(+test)     v2.12.1 T4: personInputsV2, rescorePerson (builder_live, pending holds, the
+                               25-project cap TRACKED_MAX), listedRanked (the one ranked population),
+                               standingOf, refreshPerson (REFRESH_MS 10 min, REFRESH_BUDGET_MS 8 s),
+                               readPersonLive (source_live), scorePeopleV2 (cron; v2 history rows),
+                               trackingHeld, ring storage
+    confirmed.ts               v2.12.1 T4: CONFIRMED_PROOFS, isConfirmedProof
+    identity-input.ts(+test)   v2.12.1 T5: identityInput (find's identity, lenient), noteIdentity (proposes
+                               agent sources, at most 25 projects; remembers wallets, never proof)
+    login-contests.ts          v2.12.1 T5/T6: contestants, loginStands, settleLogin, loginContests, ruleContest
+    x-oauth.ts(+test)          v2.12.1 T6: X_SCOPES, pkcePair, xAuthorizeUrl, xUserFrom, xOAuth (token + /2/users/me)
+    claim.ts(+test)            v2.12.1 T6/T7: CLAIM_TEXT, claimCode (S13), claimLink, claimGet, claimPost,
+                               xCallback, bindX (join_pending when another group holds the X id)
+    wallet-proof.ts(+test)     v2.12.1 T7: upgradeToken/upgradeOf (30 min), WALLET_TEXT, walletMessage,
+                               proveWallet (EIP-191, once per signature), walletGet, walletPost
+    brand-page.ts              v2.12.1 T11: the claim, done and wallet pages' navy shell (fonts as data:), X_ICON
+    where-you-stand.ts(+test)  v2.12.1 T8: HEADS, whereYouStand, chooseStep, placeBuild, paymentFits,
+                               paymentStepFits, plainWhat, standingNews, newsOpener, pageReadyLine,
+                               confirmLinkLine, SEND_LINK_LINE, usersMoneyLine, rollingLine, buildStepLine,
+                               MOVE_UP_NOTE, EARN_NOTE
+    stand-view.ts              v2.12.1 T8/T9: startRefresh, standBase, takeNews, takePageReady, confirmYes,
+                               scoreEarn, moneyFallback, tipsPick, hostFor, currentStep, DECLINE_MS 30 days
+    make-countable.ts(+test)   v2.12.1 T9: COUNT_LINES, countableNow, stepFor, moveUpYes, moveUpNo, nowRank,
+                               TAG_NOTE, TIPS_NOTE, NO_LINE_NOTE (+ the countable coin line, T10)
+    attribution.ts(+test)      v2.12.1 T9: personCode (ek_...), attributionSuffix (ERC-8021), baseBuilderCode
+                               (EARNKIT_BASE_AGENT_CODES), attributionFor, chainOf
+    page-data.ts(+test)        v2.12.1 T11: every public sentence (SOURCES_LINE, NOT_CONFIRMED, NOT_TRACKED,
+                               NONE_CONFIRMED, NOTHING_YET, BOARD_TITLE, boardLine, topLine, peopleLine,
+                               cardHeadline, shareIntent), money, avatarUrl, displayName, personFacts,
+                               pageHead, pageCards, bestProject, boardRows
+    v2121-journey.test.ts      v2.12.1 T12: the flag-on journey on its own database (fresh install to page,
+                               count, coin, card, board); v2121-find.test.ts T8; v2121-schema.test.ts T1;
+                               fixtures/banned-words.ts (BANNED_WORDS, bannedIn: copy-review 12.1, 12.2)
     scoring-lock.ts            v2.12 T13 (R19): withScoringLock, moved out of the archived sponsor.ts
     sponsor-cli.ts             v2.12 T13: sponsorCommandBlock (campaign.mts refund/fallback refuse with the
                                sponsor flag off)
@@ -1545,6 +1589,8 @@ apps/frontend/
                                launched L`, reads per day per source against read-usage.ts FREE_LIMITS, claimed
                                pages, `Leaderboard: N real builders (goal 20, shown, not a target)` (--as-of,
                                --days 7; owner-run, one READ ONLY transaction; v2121-metric.test.ts runs it)
+                               v2121-seed.mts: v2.12.1 T11, seeds a local v2121_shots database for the design
+                               screenshots (refuses any other database)
                                archive-restore.mts: v2.12 T13, `<feature>` moves archive/<feature>/files back
                                (git mv, refuses if a target exists) and names the feature's flag
     db-check.mts                v2.4: applies main's schema + rows, then db/schema.sql twice, on a

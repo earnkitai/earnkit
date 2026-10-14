@@ -109,23 +109,26 @@ export const RECORDS_REMOVAL_AFTER = [
 ];
 
 /**
- * v2.12 spec 8: /terms#builder-profiles, in plain words. Owner action before EARNKIT_BUILDER_SCORE
- * goes on: the owner's lawyer reviews this section (spec open decision 1). Each point matches the
- * code: discovery and the readers read only public sources and what the agent links (discovery.ts,
- * source-readers.ts); /b/<slug> and /leaderboard are public; only verified outcomes score (score.ts);
- * hide is tell's profile: 'hide' and a hidden person still counts in builder_ranks (builder-score.ts
- * percentiles); the X handle shows only when it equals the verified GitHub profile's (profiles.ts).
+ * v2.12 spec 8, v2.12.1 T12: /terms#builder-profiles, in plain words. NEEDS THE OWNER'S LAWYER
+ * REVIEW before EARNKIT_BUILDER_SCORE goes on (owner setup step 4; the section shows only with the
+ * flag on, app/terms/page.tsx). Each point matches the code: the page is public only after the X
+ * claim (claim.ts bindX; profiles.ts resolveHandle); it shows the X name and picture, projects,
+ * people and money when measured, programs entered and won (page-data.ts); the readers read only
+ * cheap public data and EarnKit's own records and never add anything to a site (person-github.ts,
+ * source-readers.ts, S9: no earnkit.txt); only confirmed proofs count (confirmed.ts); a second agent
+ * joins one page only with a yes (identity.ts pending joins); hide is tell's profile: 'hide' and a
+ * hidden person still counts in the rank (person-score.ts); X is read once per sign-in and EarnKit
+ * keeps the X user id, handle, name and picture (x-oauth.ts, claim.ts).
  */
 export const PROFILES_TITLE = 'Builder profiles';
 export const PROFILES_ANCHOR = 'builder-profiles';
 export const PROFILES_POINTS: readonly string[] = [
-  'EarnKit reads only public sources (your public repos, sites, packages and contracts) and what you link to it, such as an earnkit.txt line.',
-  'Your profile page on earnkit.com and the leaderboard are public.',
-  'Your score counts only things people verifiably used: never commits, deploys or token spend on their own.',
-  "Say hide to your agent at any time. A hidden profile is not shown or listed, and still counts when others' ranks are worked out.",
-  'EarnKit never posts for you. Your X handle shows only after you confirm it, and only the one your GitHub profile lists.',
-  'Without a confirmed X handle, your public name may be your GitHub login. Your profile address may use your X handle, your GitHub login or a short form of a wallet you linked (like 0xabcd1234).',
-  'Your agent may propose repos it finds on your computer and live links for EarnKit to check. Nothing scores or shows until EarnKit verifies it from public sources.',
-  'If EarnKit is merged or acquired, this data may transfer to the successor.',
-  `To remove your profile and its data, email ${CONTACT_EMAIL}.`,
+  'Your EarnKit page is public only after you claim it with X. Before that, what EarnKit finds shows only in your own agent.',
+  'It shows your X name and picture, what you shipped, how many people use it, money it earned when EarnKit can see it, and programs you entered or won.',
+  'EarnKit reads only public data it can check cheaply: GitHub, live sites, package downloads, public transactions and what you did through EarnKit. It never adds anything to your site.',
+  'Only what EarnKit confirms counts toward your rank. What your agent told EarnKit but EarnKit could not confirm is shown, marked not yet confirmed, and counts for nothing.',
+  'When another agent signs in with your X or GitHub account, your agents ask you before the two share one page.',
+  'To hide your page, tell your agent "hide my page". Hidden pages still count when others are ranked.',
+  'EarnKit never posts for you. Your X account is used once to confirm it is yours; EarnKit keeps your X user id, handle, name and picture.',
+  'This data may transfer to a successor in a merger or acquisition. To have it removed, email the address on this page.',
 ];

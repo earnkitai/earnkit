@@ -20,21 +20,19 @@ import {
   notReadyTokenNote,
   tokenRow,
 } from './entry-text';
-import { FILL_LINES, HELD_LINE, MORE_USERS_LINE, SCORE_NOTES, SCORE_SHARED, SITE_LINE, SITE_TXT_LINE, WORKING_LINE, nextAction, programLine, scoreLines, youLine } from './score-tool';
-import { computeScore } from './score';
-import { calibration } from './score-calibration';
-import { CARD_OFFER_NOTE, POST_LINE, SHARE_LINE, SKIPPED_LINE, cardOffer, claimFirstLine, findOfferLine, xAsk } from './share';
-import { EARN_NOTE, MOVE_UP_NOTE, chooseStep, confirmLinkLine, newsOpener, pageReadyLine, rollingLine, standingNews, usersMoneyLine, whereYouStand, type StandProject, type StandView } from './where-you-stand';
+import { SCORE_SHARED } from './score-tool';
+import { POST_LINE, SKIPPED_LINE, claimFirstLine } from './share';
+import { EARN_NOTE, HEADS, MOVE_UP_NOTE, SEND_LINK_LINE, chooseStep, confirmLinkLine, newsOpener, pageReadyLine, rollingLine, standingNews, usersMoneyLine, whereYouStand, type StandProject, type StandView } from './where-you-stand';
 import { BUILD_COIN_NOTE, COIN_WALLET_NOTE, GO_LIVE_LINES, GO_LIVE_NOT_YET_NOTE, buildStepLine, goLiveLineNote, goLivePagesNote, goLiveSignInNote, goLiveUploadNote, goLiveWrongLinkNote } from './tools';
 import { COUNT_LINES, NO_LINE_NOTE, TAG_NOTE, TIPS_NOTE } from './make-countable';
 import { COIN_LAUNCHING, COIN_LIVE, COIN_NOTE, COIN_WALLET_ASK, COIN_YES_NOTE, coinLine } from './coin-moments';
 import { ATTRIBUTION_RULE } from './fresh-build';
 import { SEND_LINK_NOTE } from './score-tool';
-import { CONSENT_LINE, HIDDEN_LINE, NO_PROFILE_LINE, SHARED_PROFILE_NOTE, SHOWN_LINE, X_NOT_LISTED_NOTE, X_SET_LINE, X_TAKEN_NOTE } from './profiles';
+import { HIDDEN_LINE, NO_PROFILE_LINE, SHARED_PROFILE_NOTE, SHOWN_LINE } from './profiles';
 import { OWNERSHIP_FOR_TOKEN, SCORE_DESCRIPTION, SERVER_INSTRUCTIONS, TELL_DESCRIPTION, TELL_DESCRIPTION_SCORE, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { bonusLine, presentFirstMessage, skippedLine, submitStepLine, type Card, type FirstMessage } from './present';
 import { SKIP_REASONS } from './match-projects';
-import { BUILD_ENTRY_NOTE, BUILD_NO_LIVE_NOTE, BUILD_HOLD_NOTE, BUILD_OWNER_NOTE, BUILD_WALLET_NOTE, BUILD_PENDING_NOTE, pagesLiveLine, BUILD_DEPLOYS_OFF_NOTE, BUILD_NOT_READY, BUILD_PAGES_NOTE, BUILD_UPLOAD_NOTE, buildChainNote, buildOwnerNote, buildProofNote, BUILD_NOT_STARTED, BUILD_SHARED_NOTE, KIT_NOTE, WALLET_NEEDED_NOTE, buildRefused, twistNote, BUILD_NOTE, PLAN_NOTE, ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, CONFIRM_SHARED_NOTE, PROJECT_REOFFER_NOTE, SUBMITTED_AGAIN_NOTE, SUBMITTED_SHARED_NOTE, SCORE_STEP_NOTE, BUILD_ENTRY_NO_TOKEN_NOTE, handlers } from './tools';
+import { BUILD_ENTRY_NOTE, BUILD_NO_LIVE_NOTE, BUILD_HOLD_NOTE, BUILD_OWNER_NOTE, BUILD_WALLET_NOTE, BUILD_PENDING_NOTE, pagesLiveLine, BUILD_DEPLOYS_OFF_NOTE, BUILD_NOT_READY, BUILD_PAGES_NOTE, BUILD_UPLOAD_NOTE, buildChainNote, buildOwnerNote, buildProofNote, BUILD_NOT_STARTED, BUILD_SHARED_NOTE, KIT_NOTE, WALLET_NEEDED_NOTE, buildRefused, twistNote, BUILD_NOTE, PLAN_NOTE, ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, CONFIRM_SHARED_NOTE, PROJECT_REOFFER_NOTE, SUBMITTED_AGAIN_NOTE, SUBMITTED_SHARED_NOTE, BUILD_ENTRY_NO_TOKEN_NOTE, handlers } from './tools';
 import { outcomeQuestion } from './outcomes';
 import { DEFAULT_GUIDANCE, PLAIN_FIX, PLAIN_LENGTH_FIX, PLAIN_NOTE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, walletAsk } from './coach';
 import { alsoText } from './also-qualifies';
@@ -118,6 +116,14 @@ import PolicySection from '../../app/terms/sections/PolicySection';
 import TermsPage from '../../app/terms/page';
 import { ENDED_PAGE, TAKEN_DOWN_PAGE } from '../../../../infra/host-worker/src/route';
 import { MINI_LINE, PROFILES_POINTS } from './policy';
+import { bannedIn } from './fixtures/banned-words';
+import { humanStrings, humanTextFiles } from './human-text';
+import { CLAIM_TEXT } from './claim';
+import { WALLET_TEXT } from './wallet-proof';
+import { NONE_CONFIRMED, NOTHING_YET, NOT_CONFIRMED, NOT_TRACKED, SOURCES_LINE, boardLine, cardHeadline, type BoardRow, type PageCard, type PageHead } from './page-data';
+import HandleProfileView from '../../app/[handle]/ProfileView';
+import ProjectCards from '../../app/[handle]/ProjectCards';
+import LeaderboardView from '../../app/leaderboard/LeaderboardView';
 import SponsorTermsSection from '../../app/terms/sections/SponsorTermsSection';
 import BoardView from '../../app/bonus/[round]/BoardView';
 import type { Board } from './bonus-board';
@@ -998,12 +1004,6 @@ function buildFixTexts(): [string, string][] {
   return cases.map((c, i): [string, string] => [`buildCheck fix ${i}`, buildCheck({ ...ok, ...c }, s)!]);
 }
 
-// v2.12 T8: a full score reply (score, change, what moved, the next step, a program line).
-const scoreLinesSample = scoreLines({
-  score: 41, percentile: 78, change: 6, moved: 'Users +6, staying power -1.', held: false, slug: 'lee',
-  next: nextAction({ parts: computeScore([{ key: 'k', title: 'k', users: 40, money_usd: 0, outcomes: [], first_outcome_at: null, last_used_at: null, commit_weeks: [] }], calibration(), new Date('2026-10-12T12:00:00Z')).parts, missing: null, hasPackage: false, hasSite: false }),
-  program: programLine({ title: 'Arc Microgrants', prize: '500 USDC' }),
-});
 // v2.12.1 T8: the three-part reply, its steps, the news and page-ready lines, the card answers.
 const sp = (o: Partial<StandProject> & { key: string; name: string }): StandProject => ({
   what: null, shipped: true, people: 0, has_coin: false, sends_tx: false, tagged: false, untracked_contract: null, untracked_people: 0, certain: false, app: true, ...o,
@@ -1166,20 +1166,12 @@ const builderFacing: [string, string][] = [
   ['MINI_LINE', MINI_LINE],
   ['footer company line', 'EarnKit is a product of Tokenfi Inc.'],
   ['/terms (above the footer)', pageText(React.createElement(TermsPage))],
-  // v2.12 T8: the score tool's builder lines.
+  // The score tool's line on a shared client; v2.12.1 T12: hide and show; the terms' builder-profiles points.
   ['SCORE_SHARED', SCORE_SHARED],
-  ['MORE_USERS_LINE', MORE_USERS_LINE],
-  ['WORKING_LINE', WORKING_LINE],
-  ['HELD_LINE', HELD_LINE],
-  ['SITE_LINE', SITE_LINE],
-  ['SITE_TXT_LINE', SITE_TXT_LINE],
-  ...Object.entries(FILL_LINES).flatMap(([k, v]): [string, string][] => [[`FILL_LINES.${k}.ask`, v.ask], [`FILL_LINES.${k}.say`, v.say]]),
-  ['scoreLines', scoreLinesSample],
-  // v2.12 T9: find's second line with a score (the fill step is FILL_LINES above).
-  ['youLine', youLine({ score: 41, percentile: 78, slug: 'lee' })],
-  ['youLine hidden', youLine({ score: 41, percentile: 78, slug: 'lee', hidden: true })],
-  // v2.12 final review: above the top 50% the score alone; the terms' builder-profiles points.
-  ['youLine above 50%', youLine({ score: 7, percentile: 31, slug: 'lee' })],
+  ['HIDDEN_LINE', HIDDEN_LINE],
+  ['SHOWN_LINE', SHOWN_LINE('lee')],
+  ['SHOWN_LINE(null)', SHOWN_LINE(null)],
+  ['NO_PROFILE_LINE', NO_PROFILE_LINE],
   ...PROFILES_POINTS.map((p, i): [string, string] => [`PROFILES_POINTS.${i}`, p]),
   ...v2121Texts,
 ];
@@ -1269,28 +1261,10 @@ const agentFacing: [string, string][] = [
   ['SIGN_IN_CODE_NOTE', SIGN_IN_CODE_NOTE],
   ['CANT_PUSH_SIGN_IN_NOTE', CANT_PUSH_SIGN_IN_NOTE],
   ['TELL_DESCRIPTION', TELL_DESCRIPTION],
-  // v2.12 T7: the tell description with the profile fields, the consent line and the refused X handle note.
+  // The tell description with the page fields, the shared-client note and the score tool's description.
   ['TELL_DESCRIPTION_SCORE', TELL_DESCRIPTION_SCORE],
-  ['CONSENT_LINE', CONSENT_LINE('lee')],
-  ['X_NOT_LISTED_NOTE', X_NOT_LISTED_NOTE],
-  ['X_TAKEN_NOTE', X_TAKEN_NOTE],
   ['SHARED_PROFILE_NOTE', SHARED_PROFILE_NOTE],
-  ['HIDDEN_LINE', HIDDEN_LINE],
-  ['SHOWN_LINE', SHOWN_LINE('lee')],
-  ['NO_PROFILE_LINE', NO_PROFILE_LINE],
-  ['X_SET_LINE', X_SET_LINE('lee')],
-  // v2.12 T8: the score tool's description and agent notes.
   ['SCORE_DESCRIPTION', SCORE_DESCRIPTION],
-  ...Object.entries(SCORE_NOTES).map(([k, v]): [string, string] => [`SCORE_NOTES.${k}`, v]),
-  // v2.12 T9: find's score_step note.
-  ['SCORE_STEP_NOTE', SCORE_STEP_NOTE],
-  // v2.12 T11: the card offer, the X ask and the share lines.
-  ['cardOffer', cardOffer(12)],
-  ['findOfferLine', findOfferLine('You: score 41, top 22%. earnkit.com/b/lee')],
-  ['xAsk', xAsk('lee')],
-  ['xAsk(null)', xAsk(null)],
-  ['CARD_OFFER_NOTE', CARD_OFFER_NOTE],
-  ['SHARE_LINE', SHARE_LINE('lee')],
   ['SKIPPED_LINE', SKIPPED_LINE],
   // v2.12.1 T8: the move-up, earn and link notes.
   ['MOVE_UP_NOTE', MOVE_UP_NOTE],
@@ -1733,4 +1707,79 @@ test('v2.12.1 T8 copy rule: plain sentences, sentence case, no jargon, no period
     assert.ok((text.match(/\?/g) ?? []).length <= 1, label);
     for (const line of text.split('\n').filter(Boolean)) assert.match(line, /^([A-Z0-9#$]|Name)/, `${label}: ${line}`);
   }
+});
+
+// ---- v2.12.1 T12: the banned-word review over every builder-facing and public string.
+
+const EXAMPLE_TARGET: StandView = { ...standBaseView, standing: { ranked: false, rank: 0, total: 0 }, step: chooseStep(standBaseView, noCoin), news: null };
+const EXAMPLE_TRACTION: StandView = {
+  ...standBaseView, claimed: true, handle: 'lee', claimLink: null,
+  projects: [sp({ key: 'f', name: 'tokens.fun', what: 'a coin launcher', people: 140, untracked_contract: 'base:0x1', untracked_people: 30, certain: true }), ...standBaseView.projects],
+  step: chooseStep({ ...standBaseView, projects: [sp({ key: 'f', name: 'tokens.fun', people: 140, untracked_contract: 'base:0x1', untracked_people: 30, certain: true })] }, noCoin), news: null,
+};
+const EXAMPLE_NOTHING: StandView = { ...standBaseView, projects: [], earn: [], fresh: { title: 'Arc Microgrants', prize: '500 USDC' }, step: chooseStep({ ...standBaseView, projects: [] }, noCoin), news: null };
+/** One line per MoveUp kind (chooseStep's own fixtures, plus the build and link lines it places). */
+const ALL_STEP_LINES: string[] = [
+  stepLines([sp({ key: 'k', name: 'Keep', untracked_contract: 'base:0x1', untracked_people: 3, certain: true })]), // count_past
+  stepLines([sp({ key: 'k', name: 'Keep', untracked_contract: 'base:0x1', untracked_people: 3 })]), // count_past, one tap
+  stepLines([sp({ key: 'k', name: 'Keep', what: 'a tip jar', confirmed: false })], { claimed: true, handle: 'lee' }), // confirm
+  stepLines([sp({ key: 'g', name: 'Game', what: 'a puzzle game', sends_tx: true })]), // tag_future
+  v2121CoinStep, // coin
+  stepLines([sp({ key: 's', name: 'Shop', what: 'a coffee shop site' })]), // payment
+  stepLines([sp({ key: 'a/b', name: 'B', what: 'a budget tracker', shipped: false })], {}, () => true), // go_live
+  SEND_LINK_LINE, // send_link
+  buildStepLine('Arc Microgrants', '500 USDC', true), // build
+];
+const PREV = { rank: 5, people: { t: 1 }, at: '2026-10-10T00:00:00Z' };
+const NOW_STANDING = { standing: { ranked: true, rank: 3, total: 40 }, projects: [{ key: 't', name: 'TipJar', people: 13 }] };
+const AT = new Date('2026-10-14T00:00:00Z');
+const HEAD: PageHead = { handle: 'lee_builds', name: 'Lee', avatar: null, topLine: 'Lee has shipped 3 apps with AI.', rank: '#3 of 40 builders on EarnKit', peopleLine: '2 of them have people using them.', score: 41 };
+const CARDS: PageCard[] = [
+  { key: 't', name: 'TipJar', what: 'Tips for your stream', link: 'https://tipjar.app', people: 140, money: '$1.2k', programs: [{ title: 'Arc Microgrants', won: true }], confirmed: true, tracked: true },
+  { key: 'r', name: 'Recipes', what: null, link: null, people: null, money: null, programs: [], confirmed: false, tracked: true },
+  { key: 'o', name: 'Old', what: null, link: null, people: null, money: null, programs: [], confirmed: true, tracked: false },
+];
+const ROWS: BoardRow[] = [
+  { rank: 1, handle: 'lee_builds', avatar: null, best: '140 people use TipJar' },
+  { rank: 2, handle: 'maya', avatar: null, best: 'Shipped Recipes' },
+];
+/** A page's words: the markup above the site footer (shared site chrome, flag-off parity), tags out. */
+const pageWords = (el: React.ReactElement) =>
+  renderToStaticMarkup(el).split('<footer')[0].replace(/<[^>]+>/g, '\n').replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+
+test('12.1 v2.12.1 builder and public text never uses a banned word', () => {
+  const exempt = ['Avalanche Team1 mini grants', 'Arc Microgrants', 'tokens.fun', 'TipJar', 'EarnKit', 'AI'];
+  const texts = [
+    ...Object.values(HEADS),
+    whereYouStand(EXAMPLE_TARGET), whereYouStand(EXAMPLE_TRACTION), whereYouStand(EXAMPLE_NOTHING),
+    ...ALL_STEP_LINES, pageReadyLine('earnkit.com/claim/abcdefghijkl'),
+    standingNews(PREV, NOW_STANDING, AT, true)!.line,
+    ...Object.values(CLAIM_TEXT).map((v) => (typeof v === 'function' ? (v as (h: string) => string)('lee') : v)),
+    ...Object.values(WALLET_TEXT),
+    ...Object.values(COUNT_LINES).map((v) => (typeof v === 'function' ? (v as (...a: never[]) => string)(...(['x', 'x', 'x'] as never[])) : v)),
+    ...(['built_live', 'countable', 'first_five', 'has_people'] as const).map((m) => coinLine(m, 'TipJar', null)),
+    SOURCES_LINE, NOT_CONFIRMED, NOT_TRACKED, NONE_CONFIRMED, NOTHING_YET, boardLine(25),
+    cardHeadline({ moment: 'people', shipped: 3, noun: 'apps', best: { name: 'TipJar', people: 5 }, rank: null }),
+    cardHeadline({ moment: 'shipped', shipped: 3, noun: 'apps', best: null, rank: null }),
+    cardHeadline({ moment: 'rank', shipped: 3, noun: 'apps', best: null, rank: '#3 of 40 builders on EarnKit' }),
+    pageWords(React.createElement(HandleProfileView, { head: HEAD, cards: CARDS })),
+    pageWords(React.createElement(ProjectCards, { cards: CARDS.map((c) => ({ ...c, confirmed: false })) })),
+    pageWords(React.createElement(LeaderboardView, { rows: ROWS, count: 25 })),
+    HIDDEN_LINE, SHOWN_LINE('lee'), SHOWN_LINE(null), NO_PROFILE_LINE,
+    ...PROFILES_POINTS,
+  ];
+  for (const t of texts) assert.deepEqual(bannedIn(t, exempt), [], t);
+  // The rule itself catches each kind of word.
+  for (const bad of ['Track your contract', 'Your repo', 'onchain users', 'Deploy on Base', 'NEW', 'a — b', 'top percentile', 'a wallet address'])
+    assert.notDeepEqual(bannedIn(bad, exempt), [], bad);
+  assert.deepEqual(bannedIn('Arc Microgrants pays 500 USDC', exempt), [], 'program titles and USDC are fine');
+});
+
+test('12.2 no v2.12 builder line is left: no score out of 100, no "Top N% of builders", no consent line, no earnkit.com/b/ link', () => {
+  const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
+  const src = humanTextFiles(ROOT).filter((f) => f.startsWith('apps/frontend/lib/earnkit/') || f.startsWith('apps/frontend/app/'));
+  assert.ok(src.length > 50, 'the scan found the sources');
+  for (const f of src)
+    for (const { text } of humanStrings(f, readFileSync(join(ROOT, f), 'utf8')))
+      assert.doesNotMatch(text, /Top \d+% of builders|Top \$?\{?\w*\}?% of builders|Say hide anytime|earnkit\.com\/b\/|Builder score|Verified builder|\/100\b/, `${f}: ${text}`);
 });

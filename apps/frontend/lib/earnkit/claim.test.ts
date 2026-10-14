@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import { sql } from './db';
 import { CLAIM_TEXT, bindX, claimCode, claimGet, claimLink, claimPost, xCallback } from './claim';
-import { clearXHandle, resolveHandle, resolveSlug, ensureProfile, setXHandle } from './profiles';
+import { clearXHandle, resolveHandle, resolveSlug, ensureProfile } from './profiles';
 import { answerJoin, pendingJoinOf, rootOf } from './identity';
 import { connectInstallation, saveInstallation } from './installations';
 import type { XOAuthDeps, XUser } from './x-oauth';
@@ -264,7 +264,7 @@ test('6.10 OAuth binding: a cross-site POST, a wrong csrf, a missing cookie or a
   assert.equal(await claimLink(late), `earnkit.com/claim/${lateCode}`);
 });
 
-test('6.11 resolveSlug (the v2.12 card and share routes) means claimed: an unclaimed page is never public', dbTest, async () => {
+test('6.11 resolveSlug (/b/<v2.12 slug>, its card and share link) means claimed: an unclaimed page is never public', dbTest, async () => {
   const id = await profiled();
   const [{ slug }] = await sql()<{ slug: string }[]>`SELECT slug FROM builder_profiles WHERE builder_id = ${id}`;
   await sql()`UPDATE builder_profiles SET consent_shown_at = now() WHERE builder_id = ${id}`;
@@ -275,12 +275,10 @@ test('6.11 resolveSlug (the v2.12 card and share routes) means claimed: an uncla
   assert.deepEqual(await resolveSlug(H('slugged').toLowerCase()), { builderId: id, redirect: null, handle: H('slugged') });
 });
 
-test('6.12 the claim owns the X handle: setXHandle refuses a claimed page and GitHub never clears it', dbTest, async () => {
+test('6.12 the claim owns the X handle: GitHub\'s X field never replaces or clears it (v2.12.1 T12: setXHandle is gone)', dbTest, async () => {
   const id = await profiled();
   await bindX(id, { id: X('1010'), username: H('mine'), name: 'M', avatar: null }, NOW);
   await sql()`UPDATE builder_profiles SET github_login = ${`gl${id}`}, twitter_prefill = ${H('someone')} WHERE builder_id = ${id}`;
-  const r = await setXHandle(id, 'yes');
-  assert.equal(r.ok, false);
   const [p] = await sql()`SELECT x_handle FROM builder_profiles WHERE builder_id = ${id}`;
   assert.equal(p.x_handle, H('mine'));
   // GitHub's X field differing never clears a claimed handle (discovery's clearXHandle 'github').

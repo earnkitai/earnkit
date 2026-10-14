@@ -2,7 +2,6 @@ import { cache } from 'react';
 import { sql } from './db';
 import { listedRanked, standingOf } from './person-score';
 import { COIN_PROGRAM } from './policy-constants';
-import { money } from './profile-data';
 import { rankWords } from './rank';
 import { pagePath } from './reserved-routes';
 import { shownUrl } from './untrusted-text';
@@ -14,6 +13,13 @@ import { shownUrl } from './untrusted-text';
  * a repo's name only while its newest reading says public and is under a week old, never a wallet
  * as the name, hidden people never.
  */
+
+/** v2.12.1 T12 (from v2.12's profile-data.ts): money in plain words, "$1.2k". Pure. */
+export function money(n: number): string {
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(1).replace(/\.0$/, '')}k`;
+  return `$${Math.round(n)}`;
+}
 
 export const SOURCES_LINE =
   'Numbers come from public data EarnKit can check: GitHub, live sites, package downloads, public transactions and EarnKit itself. Projects marked not yet confirmed are shown but do not count.';

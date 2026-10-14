@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
-import { HOLD, SCORE_SLICE, buildInputs, siteShowsUse, emptyReason, holdReason, percentiles, profileEmpty, publicScore, scoreBuilders, scoreSliceEnd, scoresAdminKey, scoresPost, sourceShares, type ReadingRow, type SourceRow } from './builder-score';
+import { HOLD, SCORE_SLICE, buildInputs, siteShowsUse, emptyReason, holdReason, profileEmpty, publicRow, scoreSliceEnd, scoresAdminKey, scoresPost, sourceShares, type ReadingRow, type SourceRow } from './builder-score';
 import { ScoreDeadline } from './campaigns';
 import { discover, proofLineCheck, provenLogin } from './discovery';
 import { oneParam } from './http';
@@ -134,78 +134,9 @@ test('6.4 emptyReason: the single thing that would fill the profile', () => {
   assert.equal(emptyReason({ login: true, proposed: 0, verified: 3, okReadings: 3, failedReadings: 0 }), 'nothing_live');
 });
 
-// DB: one person with a verified repo whose stars are real.
-async function person(id: number, slug: string, stars: number, extra: { held?: boolean; weeks?: number } = {}) {
-  await sql()`DELETE FROM builder_profiles WHERE builder_id = ${id}`;
-  await sql()`INSERT INTO builder_profiles (builder_id, slug, held, first_find_at) VALUES (${id}, ${slug}, ${extra.held ?? false}, ${new Date(NOW.getTime() - 3_600_000)})`;
-  const [s] = await sql()<{ id: string }[]>`
-    INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by, state, proof, verified_at, last_read_day)
-    VALUES (${id}, 'repo', ${`${slug}/r`}, ${`${slug}/r`}, 'server', 'verified', 'repo_owner', now(), '2026-10-12') RETURNING id`;
-  const signals = { owner: slug, fork: false, template: false, stargazers: Array.from({ length: stars }, (_, i) => old(`gh:${slug}fan${i}`)), forkers: [], issue_authors: [], contributors: [], commit_weeks: Array.from({ length: extra.weeks ?? 0 }, (_, i) => `2026-W${String(20 + i).padStart(2, '0')}`), partial: false };
-  await sql()`INSERT INTO source_readings (source_id, day, signals, ok) VALUES (${s.id}, '2026-10-12', ${sql().json(signals as never)}, true)`;
-}
 // A fresh block of person keys per run (T to T + 29): builder_scores and builder_events are
 // append-only, so a key reused by a later run would find its rows already there.
 const T = 2_110_000_000 + Math.floor(Math.random() * 1_000_000) * 30;
-
-test('6.5 scoreBuilders: one row per person per day, an event, and a second run writes nothing', dbTest, async () => {
-  await person(T, `p${T}`, 40);
-  const a = await scoreBuilders(NOW, { deadline: Date.now() + 30_000, only: [T] });
-  assert.equal(a.scored, 1);
-  const b = await scoreBuilders(NOW, { deadline: Date.now() + 30_000, only: [T] });
-  assert.equal(b.scored, 0);
-  const rows = await sql()<{ score: number; formula: string; calibration: string }[]>`SELECT score, formula, calibration FROM builder_scores WHERE builder_id = ${T}`;
-  assert.equal(rows.length, 1);
-  assert.ok(rows[0].score > 0 && rows[0].score < HOLD.minScore, String(rows[0].score));
-  assert.deepEqual([rows[0].formula, rows[0].calibration], ['v1', 'v1-launch']);
-  // T10 review: the per-project numbers the public profile shows are stored with the row.
-  const [{ projects }] = await sql()<{ projects: { key: string; users: number; money_usd: number; first_outcome_at: string | null }[] }[]>`
-    SELECT projects FROM builder_scores WHERE builder_id = ${T}`;
-  assert.equal(projects.length, 1);
-  assert.equal(projects[0].key, `p${T}/r`);
-  assert.equal(Math.round(projects[0].users), 40);
-  assert.equal(projects[0].money_usd, 0);
-  assert.match(projects[0].first_outcome_at ?? '', /^\d{4}-\d{2}-\d{2}T/);
-});
-
-test('6.6 the hold: a one-source score of 60+ is held; the public score stays the last unheld until the owner releases it', dbTest, async () => {
-  const id = T + 1;
-  await person(id, `q${id}`, 5000, { weeks: 13 }); // 45 users + about 9.6 recency + 10 consistency, all from one source
-  const r = await scoreBuilders(NOW, { deadline: Date.now() + 30_000, only: [id] });
-  assert.deepEqual(r.held, [id]);
-  const [p] = await sql()<{ held: boolean }[]>`SELECT held FROM builder_profiles WHERE builder_id = ${id}`;
-  assert.equal(p.held, true);
-  assert.equal(await publicScore(id), null, 'no unheld score yet');
-  const key = scoresAdminKey('k'.repeat(40))!;
-  process.env.ADMIN_VETO_SECRET = 'k'.repeat(40);
-  const form = (k: string) => new Request('https://earnkit.com/api/admin/scores', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ key: k, builder: String(id), day: '2026-10-12' }) });
-  assert.equal((await scoresPost(form('wrong'), { limit: async () => {} })).status, 404);
-  assert.equal((await scoresPost(form(key), { limit: async () => {} })).status, 303);
-  delete process.env.ADMIN_VETO_SECRET;
-  assert.ok((await publicScore(id))!.score >= HOLD.minScore);
-  const [after] = await sql()<{ held: boolean }[]>`SELECT held FROM builder_profiles WHERE builder_id = ${id}`;
-  assert.equal(after.held, false);
-});
-
-test('6.7 percentiles: one pass over public scores, hidden included, a held person at the last unheld score', dbTest, async () => {
-  const ids = [T + 10, T + 11, T + 12, T + 13]; // 10; 20; 30 and hidden; held today at 90 after 15 yesterday
-  const row = (id: number, day: string, score: number, held: boolean) => sql()`
-    INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held)
-    VALUES (${id}, ${day}, ${score}, 0, '{}', '{}', 'v1', 'v1-launch', ${held})`;
-  for (const [i, id] of ids.entries())
-    await sql()`INSERT INTO builder_profiles (builder_id, slug, hidden, held) VALUES (${id}, ${`r${id}`}, ${i === 2}, ${i === 3})`;
-  await row(ids[0], '2026-10-12', 10, false);
-  await row(ids[1], '2026-10-12', 20, false);
-  await row(ids[2], '2026-10-12', 30, false);
-  await row(ids[3], '2026-10-11', 15, false);
-  await row(ids[3], '2026-10-12', 90, true);
-  await percentiles(NOW);
-  const ranks = await sql()<{ builder_id: number; score: number; percentile: number }[]>`
-    SELECT builder_id, score, percentile FROM builder_ranks WHERE builder_id IN ${sql()(ids)} ORDER BY builder_id`;
-  assert.equal(ranks.length, 4, 'the hidden one is ranked too');
-  assert.equal(ranks[3].score, 15, 'held: ranked at the last unheld score');
-  assert.ok(ranks[2].percentile > ranks[1].percentile && ranks[1].percentile > ranks[3].percentile && ranks[3].percentile > ranks[0].percentile);
-});
 
 test('6.8 profileEmpty: once, 10 minutes after the first find, with its reason; a filled profile gets none', dbTest, async () => {
   const [id, filled] = [T + 20, T + 21];
@@ -490,6 +421,11 @@ test('6.16 /admin/scores: a POST-only release with its own key; the page is rate
   assert.equal(scoresAdminKey('short'), null);
 });
 
+/** v2.12.1 T12: the public v1 score (the latest v1 row not held, or held and released), as /admin/scores shows it. */
+const publicV1 = async (id: number) =>
+  (await sql()<{ score: number }[]>`
+    SELECT s.score FROM builder_scores s WHERE s.builder_id = ${id} AND s.formula = 'v1' AND ${publicRow()} ORDER BY s.day DESC LIMIT 1`)[0] ?? null;
+
 test('6.17 scoresPost: only a held day can be released, and only a real date; a newer held day keeps the profile held', dbTest, async () => {
   const id = T + 29;
   await sql()`INSERT INTO builder_profiles (builder_id, slug, held) VALUES (${id}, ${`h${id}`}, true)`;
@@ -507,11 +443,11 @@ test('6.17 scoresPost: only a held day can be released, and only a real date; a 
     await post('2026-10-11');
     const [a] = await sql()<{ held: boolean }[]>`SELECT held FROM builder_profiles WHERE builder_id = ${id}`;
     assert.equal(a.held, true, 'the newer held day still waits');
-    assert.equal((await publicScore(id))!.score, 70);
+    assert.equal((await publicV1(id))!.score, 70);
     await post('2026-10-12');
     const [b] = await sql()<{ held: boolean }[]>`SELECT held FROM builder_profiles WHERE builder_id = ${id}`;
     assert.equal(b.held, false);
-    assert.equal((await publicScore(id))!.score, 75);
+    assert.equal((await publicV1(id))!.score, 75);
   } finally {
     delete process.env.ADMIN_VETO_SECRET;
   }
@@ -647,17 +583,6 @@ test('6.22 a site a repo merely links (google.com) adds no staying power; a prov
   assert.equal(linked.recency.points, pages.recency.points, 'a site is never an outcome');
 });
 
-test('6.23 a later unheld score clears the hold', dbTest, async () => {
-  const id = T + 9;
-  await person(id, `u${id}`, 40, { held: true });
-  await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held)
-    VALUES (${id}, '2026-10-11', 70, 0, '{}', '{}', 'v1', 'v1-launch', true)`;
-  const r = await scoreBuilders(NOW, { deadline: Date.now() + 30_000, only: [id] });
-  assert.deepEqual(r, { scored: 1, held: [] });
-  const [p] = await sql()<{ held: boolean }[]>`SELECT held FROM builder_profiles WHERE builder_id = ${id}`;
-  assert.equal(p.held, false);
-});
-
 test('6.24 admin keys: a repeated ?key= (an array) is never a key; every admin page reads it through oneParam', () => {
   assert.equal(oneParam(['a', 'b']), undefined);
   assert.equal(oneParam(undefined), undefined);
@@ -667,7 +592,7 @@ test('6.24 admin keys: a repeated ?key= (an array) is never a key; every admin p
     assert.match(readFileSync(join(app, page), 'utf8'), /const key = oneParam\(/, page);
 });
 
-test('6.25 (T7) discover sets the login once through setFallback (slug follows); a different proven login later names no one', dbTest, async () => {
+test('6.25 (T7) discover sets the login once through setFallback (v2.12.1 T12: the slug stays an internal key); a different proven login later names no one', dbTest, async () => {
   const id = T + 14;
   const L = `once${T}`;
   await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${id}, ${`o${id}`})`;
@@ -683,24 +608,12 @@ test('6.25 (T7) discover sets the login once through setFallback (slug follows);
   const read = async () =>
     (await sql()<{ github_login: string | null; fallback_handle: string | null; slug: string; twitter_prefill: string | null }[]>`
       SELECT github_login, fallback_handle, slug, twitter_prefill FROM builder_profiles WHERE builder_id = ${id}`)[0];
-  assert.deepEqual(await read(), { github_login: L, fallback_handle: L, slug: L, twitter_prefill: 'oncex' });
+  assert.deepEqual(await read(), { github_login: L, fallback_handle: L, slug: `o${id}`, twitter_prefill: 'oncex' });
   await sql()`UPDATE discovery_queue SET done_at = NULL WHERE builder_id = ${id}`;
   const M = `other${T}`;
   // No GitHub fake for M: with the stored login kept, M names no one and nothing is read for it.
   await discover(NOW, { deadline: Date.now() + 30_000, reader: fakeReader({}), login: async () => ({ login: M, basis: 'signin' }), only: [id] });
-  assert.deepEqual(await read(), { github_login: L, fallback_handle: L, slug: L, twitter_prefill: 'oncex' });
-});
-
-test('6.26 (T7) percentiles count only people with a profile: a merged-away id stops counting and its old rank goes', dbTest, async () => {
-  const [kept, gone] = [T + 15, T + 16];
-  await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${kept}, ${`k${kept}`})`;
-  for (const id of [kept, gone])
-    await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held)
-      VALUES (${id}, '2026-10-12', 33, 0, '{}', '{}', 'v1', 'v1-launch', false)`;
-  await sql()`INSERT INTO builder_ranks (builder_id, score, percentile, computed_at) VALUES (${gone}, 33, 10, now())`;
-  await percentiles(NOW);
-  const ranks = await sql()<{ builder_id: number }[]>`SELECT builder_id FROM builder_ranks WHERE builder_id IN (${kept}, ${gone})`;
-  assert.deepEqual(ranks.map((r) => r.builder_id), [kept]);
+  assert.deepEqual(await read(), { github_login: L, fallback_handle: L, slug: `o${id}`, twitter_prefill: 'oncex' });
 });
 
 test('6.27 (T7 review) discovery replaces the prefill from the latest GitHub read; a shown handle GitHub no longer lists is cleared', dbTest, async () => {
@@ -723,9 +636,7 @@ test('6.27 (T7 review) discovery replaces the prefill from the latest GitHub rea
   }
   const [p] = await sql()<{ x_handle: string | null; twitter_prefill: string | null; slug: string }[]>`
     SELECT x_handle, twitter_prefill, slug FROM builder_profiles WHERE builder_id = ${id}`;
-  assert.deepEqual(p, { x_handle: null, twitter_prefill: 'someone_else', slug: L });
-  const [h] = await sql()<{ builder_id: number }[]>`SELECT builder_id FROM profile_slug_history WHERE old_slug = ${`rfx${T % 100000}`}`;
-  assert.equal(h.builder_id, id, 'the X slug stays theirs');
+  assert.deepEqual(p, { x_handle: null, twitter_prefill: 'someone_else', slug: `rfx${T % 100000}` }, 'v2.12.1 T12: the slug stays (an internal key)');
   const [ev] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_events WHERE type = 'x_cleared' AND installation_id = ${id} AND detail->>'by' = 'github'`;
   assert.equal(ev.n, 1);
 });
@@ -746,7 +657,7 @@ test('6.28 (T7 review) the owner\'s "Clear X handle": a wrong key is a 404; the 
     delete process.env.ADMIN_VETO_SECRET;
   }
   const [p] = await sql()<{ x_handle: string | null; slug: string }[]>`SELECT x_handle, slug FROM builder_profiles WHERE builder_id = ${id}`;
-  assert.deepEqual(p, { x_handle: null, slug: `cl${T}` });
+  assert.deepEqual(p, { x_handle: null, slug: `cx${T % 100000}` });
 });
 
 test('6.29 (post-push audit) a typed wallet proves nothing: naming a stranger contract\'s deployer as a deploy owner never claims it', dbTest, async () => {

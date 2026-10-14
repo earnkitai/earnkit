@@ -645,11 +645,9 @@ test('5.4 (fix rounds 1, 2) a GitHub login another group already proved asks bot
     assert.equal(root, await rootOf(b));
     assert.equal(await pendingJoinOf(root), null);
     // The older group (the earliest installation) keeps its page: a newer claim never takes it over.
-    // The proven login fills its gap (as in v2.12), so the slug follows the login; the old one redirects.
+    // The proven login fills its gap (as in v2.12); v2.12.1 T12: the slug stays (an internal key).
     const [p] = await sql()`SELECT slug, x_user_id, x_handle, github_login FROM builder_profiles WHERE builder_id = ${root}`;
-    assert.deepEqual({ ...p }, { slug: login, x_user_id: null, x_handle: null, github_login: login });
-    const [h] = await sql()`SELECT builder_id FROM profile_slug_history WHERE old_slug = ${older}`;
-    assert.equal(h.builder_id, root);
+    assert.deepEqual({ ...p }, { slug: older, x_user_id: null, x_handle: null, github_login: login });
   }));
 
 test('5.4b a GitHub sign-in: the first one for a login proves it with no question; a second group\'s is a pending join, never a merge; flag off nothing', db, async () => {
@@ -1002,10 +1000,9 @@ test('5.20 every merge path needs both yeses: with the flag on, a v2.9 pickup ye
 
 // ---- v2.12.1 Task 6 carries (binding): the X claim against contested logins, dormant installs, the joiner's question
 
-test('6.13 reverse phish with X: an attacker holding a victim\'s login claims their own X, then names the victim\'s X through setXHandle: still not confirmed', db, async () => {
+test('6.13 reverse phish with X: an attacker holding a victim\'s login claims their own X, and GitHub\'s X field names the victim\'s X: still not confirmed', db, async () => {
   const { saveVerification } = await import('./github-verify');
   const { bindX } = await import('./claim');
-  const { setXHandle } = await import('./profiles');
   await scoreOn(async () => {
     const login = `rx-${stamp()}`.slice(0, 39);
     const victimX = `vx${process.pid}`.slice(0, 15);
@@ -1015,11 +1012,10 @@ test('6.13 reverse phish with X: an attacker holding a victim\'s login claims th
     for (const id of [attacker, victim]) await ensureProfile(id, NOW);
     await signIn(attacker); // the victim completed the attacker's link first
     await signIn(victim);
-    // The attacker claims their own X, and its prefill is the victim's X (GitHub's field).
+    // The attacker claims their own X, and its prefill is the victim's X (GitHub's field). v2.12.1
+    // T12: nothing writes a prefill into x_handle any more (setXHandle is gone).
     await bindX(attacker, { id: `7${attacker}`, username: `ax${attacker}`.slice(0, 15), name: 'A', avatar: null }, NOW);
     await sql()`UPDATE builder_profiles SET github_login = ${login}, github_basis = 'signin', twitter_prefill = ${victimX} WHERE builder_id = ${attacker}`;
-    const r = await setXHandle(attacker, 'yes');
-    assert.equal(r.ok, false, 'a claimed page never takes a handle through setXHandle');
     const [p] = await sql()`SELECT x_handle FROM builder_profiles WHERE builder_id = ${attacker}`;
     assert.equal(p.x_handle, `ax${attacker}`.slice(0, 15));
     assert.equal(await loginStands(attacker, login, victimX), false);

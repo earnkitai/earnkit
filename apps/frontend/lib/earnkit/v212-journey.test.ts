@@ -280,9 +280,11 @@ test('15.2 fresh install to a filled live score: find with local_git, cron disco
   assert.ok(live && live.score > 0 && live.ranked, JSON.stringify(live));
   const [hist] = await sql()<{ formula: string }[]>`SELECT formula FROM builder_scores WHERE builder_id = ${ctx.installationId}`;
   assert.equal(hist.formula, 'v2');
-  // The old random slug is kept in the history (its v2.12 page redirect is 15.2c's, replaced in T11).
-  const [{ old }] = await sql()<{ old: string }[]>`SELECT old_slug AS old FROM profile_slug_history WHERE builder_id = ${ctx.installationId}`;
-  assert.ok(old);
+  // v2.12.1 T12: the slug stays the random internal key (it no longer follows the proven login).
+  const [{ slug }] = await sql()<{ slug: string }[]>`SELECT slug FROM builder_profiles WHERE builder_id = ${ctx.installationId}`;
+  assert.match(slug, /^b-[a-z2-9]{8}$/);
+  const [{ n }] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM profile_slug_history WHERE builder_id = ${ctx.installationId}`;
+  assert.equal(n, 0);
   const events = await eventTypes(ctx.installationId);
   for (const t of ['source_proposed', 'source_verified', 'reading_taken', 'score_computed']) assert.ok(events.includes(t), t);
   // A filled profile is never counted empty.

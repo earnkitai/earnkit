@@ -9,50 +9,26 @@ import { profileChanged } from './profile-cache';
 import { pagePath } from './reserved-routes';
 
 /**
- * v2.12 spec 1, 8: one public profile per person (the group root, plan R1). X is the visible name,
- * only once it is the handle the person's proven GitHub profile lists (plan R5). Slugs are never
- * reused: an old slug redirects to its person forever (plan R6). One GitHub login, one profile.
+ * One profile per person (the group root, v2.12 plan R1). v2.12.1 spec "Identity": the public page
+ * is earnkit.com/<x-handle>, only once the person claimed it with Sign in with X (claim.ts bindX); the
+ * slug is an internal key (random until the claim, then the handle). A v2.12 slug, live or old (in
+ * profile_slug_history), moves to the page of a claimed person (resolveSlug). One GitHub login, one
+ * profile.
  */
-export const PROFILE_URL = (slug: string) => `earnkit.com/b/${slug}`;
-export const CONSENT_LINE = (slug: string) => `Your public work gets a public score at ${PROFILE_URL(slug)}. Say hide anytime.`;
 export const X_HANDLE = /^[A-Za-z0-9_]{1,15}$/;
-export const X_NOT_LISTED_NOTE =
-  "EarnKit shows only the X handle the builder's GitHub profile lists. Ask them to add it there (GitHub, Settings, Profile, Social accounts), then pass x_handle again. Don't show this to the builder.";
 
-/** A refused claim: another profile already shows this handle (the owner sees the conflict). */
-export const X_TAKEN_NOTE =
-  "That X handle is already on another EarnKit profile, so EarnKit can't show it here. Don't show this to the builder.";
-/** tell's profile or x_handle on an agent serving many builders: there is no one profile to change. */
+/** tell's profile, card, move_up or coin on an agent serving many builders: there is no one page to change. */
 export const SHARED_PROFILE_NOTE =
   "This agent serves many builders, so there is no public profile to change here. Don't show this to the builder.";
-/** setXHandle on a page claimed with X: the claim's handle stays. */
-export const X_CLAIMED_NOTE =
-  "This page is claimed with X, so its name is the X account the builder signed in with. Don't show this to the builder.";
-export const HIDDEN_LINE = 'Your profile is hidden. Say show to list it again.';
-export const SHOWN_LINE = (slug: string) => `Your profile is public again: ${PROFILE_URL(slug)}`;
-export const NO_PROFILE_LINE = 'You have no profile yet.';
-export const X_SET_LINE = (slug: string) => `Your profile is now ${PROFILE_URL(slug)}.`;
+/** v2.12.1 T12: "hide my page" and "show my page" (the claim page names the first). */
+export const HIDDEN_LINE = 'Your page is hidden. Say show my page to list it again.';
+export const SHOWN_LINE = (handle: string | null) => (handle ? `Your page is public again: earnkit.com${pagePath(handle)}` : 'Your page is no longer hidden.');
+export const NO_PROFILE_LINE = 'You have no page yet.';
 
 const ALPHABET = 'abcdefghijkmnpqrstuvwxyz23456789';
 const SLUG = /^[a-z0-9][a-z0-9_-]{0,40}$/;
-export const walletSlug = (w: string) => `0x${w.slice(2, 6)}${w.slice(-4)}`.toLowerCase();
 export const randomSlug = (rand: (n: number) => number = randomInt) =>
   `b-${Array.from({ length: 8 }, () => ALPHABET[rand(ALPHABET.length)]).join('')}`;
-export function baseSlug(p: { x_handle?: string | null; github_login?: string | null; wallet?: string | null }): string | null {
-  if (p.x_handle && X_HANDLE.test(p.x_handle)) return p.x_handle.toLowerCase();
-  if (p.github_login) return p.github_login.toLowerCase();
-  if (p.wallet) return walletSlug(p.wallet);
-  return null;
-}
-export function nextFreeSlug(base: string, taken: (slug: string) => boolean): string {
-  if (!taken(base)) return base;
-  for (let i = 2; ; i++) if (!taken(`${base}-${i}`)) return `${base}-${i}`;
-}
-export const shownName = (p: { x_handle: string | null; fallback_handle: string | null; slug: string }) =>
-  p.x_handle ? `@${p.x_handle}` : (p.fallback_handle ?? `Builder ${p.slug}`);
-
-/** The slug is already `base` or one of its numbered forms. */
-const onBase = (slug: string, base: string) => slug === base || (slug.startsWith(`${base}-`) && /^\d+$/.test(slug.slice(base.length + 1)));
 
 export type Profile = {
   builder_id: number; slug: string; x_handle: string | null; fallback_handle: string | null; github_login: string | null;
@@ -65,63 +41,12 @@ export async function profileOf(builderId: number, db: Db = sql()): Promise<Prof
   return p ?? null;
 }
 
-/** `base`, or the first numbered form no one else holds (another person's live slug or history); null when that is too long. */
-async function freeSlug(base: string, self: number, db: Db = sql()): Promise<string | null> {
-  const like = `${base.replace(/[\\%_]/g, '\\$&')}-%`;
-  const rows = await db<{ slug: string }[]>`
-    SELECT slug FROM builder_profiles WHERE builder_id <> ${self} AND (slug = ${base} OR slug LIKE ${like})
-    UNION SELECT old_slug FROM profile_slug_history WHERE builder_id <> ${self} AND (old_slug = ${base} OR old_slug LIKE ${like})`;
-  const taken = new Set(rows.map((r) => r.slug));
-  const slug = nextFreeSlug(base, (s) => taken.has(s));
-  return SLUG.test(slug) ? slug : null;
-}
-
-/** Moves the person to `slug` inside `tx`, keeping the old one in their history. */
-async function moveSlugIn(tx: Db, builderId: number, slug: string) {
-  const [p] = await tx<{ slug: string }[]>`SELECT slug FROM builder_profiles WHERE builder_id = ${builderId} FOR UPDATE`;
-  if (!p || p.slug === slug) return;
-  await tx`DELETE FROM profile_slug_history WHERE old_slug = ${slug} AND builder_id = ${builderId}`;
-  await tx`INSERT INTO profile_slug_history (old_slug, builder_id) VALUES (${p.slug}, ${builderId}) ON CONFLICT (old_slug) DO NOTHING`;
-  await tx`UPDATE builder_profiles SET slug = ${slug}, updated_at = now() WHERE builder_id = ${builderId}`;
-}
-
-/** A random slug no one holds, live or in history. */
-async function freeRandomSlug(db: Db, rand?: (n: number) => number): Promise<string> {
-  for (let tries = 0; tries < 5; tries++) {
-    const slug = randomSlug(rand);
-    const [used] = await db`SELECT 1 FROM builder_profiles WHERE slug = ${slug} UNION ALL SELECT 1 FROM profile_slug_history WHERE old_slug = ${slug}`;
-    if (!used) return slug;
-  }
-  throw new Error('no free slug');
-}
-
 /** The person's first remembered wallet (earliest first seen, across their group), lowercase, or null. */
 async function firstWallet(db: Db, builderId: number): Promise<string | null> {
   const [w] = await db<{ wallet: string }[]>`
     SELECT lower(w.wallet) AS wallet FROM installation_wallets w JOIN installations i ON i.id = w.installation_id
     WHERE COALESCE(i.builder_id, i.id) = ${builderId} ORDER BY w.first_seen_at, w.wallet LIMIT 1`;
   return w?.wallet ?? null;
-}
-
-/**
- * The slug the person's best name gives (X, else login, else wallet). `noName`: with none of them,
- * move off a slug that was a name (an X handle cleared) to a fresh random one.
- */
-async function followName(
-  db: Db,
-  builderId: number,
-  p: { x_handle: string | null; github_login: string | null; slug: string },
-  wallet?: string | null,
-  noName = false,
-) {
-  const base = baseSlug({ x_handle: p.x_handle, github_login: p.github_login, wallet: p.github_login ? null : wallet ?? null });
-  if (!base) {
-    if (noName) await moveSlugIn(db, builderId, await freeRandomSlug(db));
-    return;
-  }
-  if (onBase(p.slug, base)) return;
-  const slug = await freeSlug(base, builderId, db);
-  if (slug) await moveSlugIn(db, builderId, slug);
 }
 
 /** The person's profile, made on their first find with a random slug. Never on a shared group (plan R2). */
@@ -148,8 +73,9 @@ export async function ensureProfile(
 }
 
 /**
- * The proven login, else the first proven wallet: the shown fallback and the slug when there is no
- * X handle. A login is set once and only if no other profile holds it (one login, one person).
+ * The proven login, else the first proven wallet: the shown fallback (admin and history only; the
+ * page shows the X name). A login is set once and only if no other profile holds it (one login, one
+ * person).
  */
 export type GithubBasis = 'signin' | 'app' | 'proof_line' | 'x_match';
 
@@ -172,10 +98,9 @@ export async function setFallback(builderId: number, f: { github_login?: string;
       await tx`UPDATE builder_profiles SET github_login = ${login}, fallback_handle = ${fallback}, updated_at = now() WHERE builder_id = ${builderId}`;
     if (login && login !== p.github_login && f.basis)
       await tx`UPDATE builder_profiles SET github_basis = ${f.basis} WHERE builder_id = ${builderId}`;
-    if (!p.x_handle && (login || wallet)) await followName(tx, builderId, { ...p, github_login: login }, wallet);
-    // The public name (a new login) or the slug changed: the cached page must follow (after commit).
-    const [after] = await tx<{ slug: string }[]>`SELECT slug FROM builder_profiles WHERE builder_id = ${builderId}`;
-    return login !== p.github_login || after?.slug !== p.slug;
+    // v2.12.1 T12: the slug no longer follows the login or a wallet (it is an internal key; the page
+    // is the X handle). A new login changes what the page shows: the cached page must follow.
+    return login !== p.github_login;
   });
   if (changed) profileChanged();
 }
@@ -185,7 +110,7 @@ export async function setFallback(builderId: number, f: { github_login?: string;
  * contested login it no longer stands for). The login, its basis and prefill go, an X handle that came
  * from that GitHub profile (never a claim) goes with them, and the work confirmed through the login
  * (sign-in, repo owner, proof line, repo link) goes back to not yet confirmed (proposed: shown, never
- * scored). The slug follows the remaining name. True when something changed.
+ * scored). True when something changed.
  */
 export async function releaseLogin(builderId: number, login: string): Promise<boolean> {
   const done = await sql().begin(async (tx) => {
@@ -201,63 +126,28 @@ export async function releaseLogin(builderId: number, login: string): Promise<bo
       UPDATE builder_sources SET state = 'proposed', proof = NULL, verified_at = NULL
       WHERE builder_id = ${builderId} AND state = 'verified' AND proof IN ('github_signin', 'repo_owner', 'proof_line', 'repo_link')`;
     await tx`UPDATE builder_live SET read_at = NULL WHERE builder_id = ${builderId}`;
-    if (!handle) await followName(tx, builderId, { x_handle: null, github_login: null, slug: p.slug }, await firstWallet(tx, builderId), true);
     return true;
   });
   if (done) profileChanged();
   return done;
 }
 
-/** spec 7 "The offer", plan R5: 'yes' takes the prefill; a typed handle must equal it. Refused: nothing changes, no event. */
-export async function setXHandle(builderId: number, given: string): Promise<{ ok: true; slug: string } | { ok: false; agent_note: string }> {
-  const p = await profileOf(builderId);
-  // v2.12.1 T6 (T5 carry): the X claim owns a claimed page's handle (login-contests.ts compares GitHub's
-  // X field against it); a self-declared handle never replaces it.
-  const [claim] = await sql()<{ claimed: boolean }[]>`SELECT x_user_id IS NOT NULL AS claimed FROM builder_profiles WHERE builder_id = ${builderId}`;
-  if (claim?.claimed) return { ok: false, agent_note: X_CLAIMED_NOTE };
-  const prefill = p?.github_login ? p.twitter_prefill : null;
-  const handle = given.trim().replace(/^@/, '');
-  const chosen = /^(yes|y|sure|ok)$/i.test(handle) ? prefill : handle;
-  if (!p || !prefill || !chosen || !X_HANDLE.test(prefill) || chosen.toLowerCase() !== prefill.toLowerCase())
-    return { ok: false, agent_note: X_NOT_LISTED_NOTE };
-  // One X handle, one person: a handle another profile already shows is refused (it would
-  // impersonate them). GitHub's twitter_username is self-declared, so the owner is told (xHandleConflicts).
-  const h = prefill.toLowerCase();
-  const slug = await sql().begin(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock(hashtext(${`x_handle:${h}`}))`;
-    const [held] = await tx<{ builder_id: number }[]>`SELECT builder_id FROM builder_profiles WHERE lower(x_handle) = ${h} AND builder_id <> ${builderId}`;
-    if (held) {
-      await tx`
-        INSERT INTO x_handle_conflicts (handle, holder, claimant) VALUES (${h}, ${held.builder_id}, ${builderId})
-        ON CONFLICT (handle, holder, claimant) DO UPDATE SET at = now()`;
-      return null;
-    }
-    const [set] = await tx`UPDATE builder_profiles SET x_handle = ${prefill}, updated_at = now() WHERE builder_id = ${builderId} AND x_user_id IS NULL RETURNING 1`;
-    if (!set) return null;
-    const s = (await freeSlug(prefill.toLowerCase(), builderId, tx))!; // a handle is at most 15 characters
-    await moveSlugIn(tx, builderId, s);
-    return s;
-  });
-  if (!slug) return { ok: false, agent_note: X_TAKEN_NOTE };
-  await noteEvent('x_added', () => ({ type: 'x_added', dedupe_key: `x_added:${builderId}:${prefill.toLowerCase()}`, installation_id: builderId, detail: { slug } }));
-  profileChanged();
-  return { ok: true, slug };
-}
-
-/** spec 8: "hide" and "show". The row stays; a hidden person still counts in percentiles. */
+/** spec 8: "hide" and "show". The row stays; a hidden person still counts when others are ranked. */
 export async function setHidden(builderId: number, hidden: boolean): Promise<string> {
-  const [p] = await sql()<{ slug: string }[]>`UPDATE builder_profiles SET hidden = ${hidden}, updated_at = now() WHERE builder_id = ${builderId} RETURNING slug`;
+  const [p] = await sql()<{ x_handle: string | null; claimed: boolean }[]>`
+    UPDATE builder_profiles SET hidden = ${hidden}, updated_at = now() WHERE builder_id = ${builderId}
+    RETURNING x_handle, x_user_id IS NOT NULL AS claimed`;
   if (!p) return NO_PROFILE_LINE;
   profileChanged();
   const type = hidden ? 'profile_hidden' : 'profile_shown';
   await noteEvent(type, () => ({ type, dedupe_key: `${type}:${builderId}:${Date.now()}`, installation_id: builderId }));
-  return hidden ? HIDDEN_LINE : SHOWN_LINE(p.slug);
+  return hidden ? HIDDEN_LINE : SHOWN_LINE(p.claimed ? p.x_handle : null);
 }
 
 /**
- * Release path for a self-declared handle: GitHub no longer lists it (by 'github', from discovery)
- * or the owner cleared it (by 'owner', app/admin/scores). The slug falls back by the normal rules;
- * the X slug stays in history (it still redirects to this person). True when a handle was cleared.
+ * Release path for a handle: a v2.12 self-declared one GitHub no longer lists (by 'github', from
+ * discovery; never a claimed one) or one the owner cleared (by 'owner', app/admin/scores). With no
+ * handle the page is gone (resolveHandle and resolveSlug need one). True when a handle was cleared.
  */
 export async function clearXHandle(builderId: number, by: 'github' | 'owner'): Promise<boolean> {
   const cleared = await sql().begin(async (tx) => {
@@ -267,7 +157,6 @@ export async function clearXHandle(builderId: number, by: 'github' | 'owner'): P
     // v2.12.1 T6: a handle confirmed by Sign in with X is never GitHub's to clear (only the owner's).
     if (p.x_user_id && by === 'github') return null;
     await tx`UPDATE builder_profiles SET x_handle = NULL, updated_at = now() WHERE builder_id = ${builderId}`;
-    await followName(tx, builderId, { x_handle: null, github_login: p.github_login, slug: p.slug }, p.github_login ? null : await firstWallet(tx, builderId), true);
     return p.x_handle.toLowerCase();
   });
   if (!cleared) return false;
@@ -279,8 +168,9 @@ export async function clearXHandle(builderId: number, by: 'github' | 'owner'): P
 }
 
 /**
- * The owner's open X handle conflicts: a claim refused because another profile shows the handle,
- * while that profile still does. One line each: 'x_handle conflict: @h (builder ids a, b)'.
+ * The owner's open X handle conflicts: a v2.12 claim refused because another profile shows the
+ * handle, while that profile still does. One line each: 'x_handle conflict: @h (builder ids a, b)'.
+ * v2.12.1: kept for the rows v2.12 wrote; nothing writes new ones (X comes only from the claim).
  */
 export async function xHandleConflicts(only?: number[]): Promise<{ handle: string; holder: number; claimant: number; line: string }[]> {
   const rows = await sql()<{ handle: string; holder: number; claimant: number }[]>`
@@ -292,41 +182,10 @@ export async function xHandleConflicts(only?: number[]): Promise<{ handle: strin
 }
 
 /**
- * spec 1: the consent line, once per person: marked shown as the reply goes out, so a find that
- * failed after the profile was made still shows it on the next one. Null when already shown.
- */
-export async function consentOnce(builderId: number): Promise<string | null> {
-  const [p] = await sql()<{ slug: string }[]>`
-    UPDATE builder_profiles SET consent_shown_at = now() WHERE builder_id = ${builderId} AND consent_shown_at IS NULL RETURNING slug`;
-  return p ? CONSENT_LINE(p.slug) : null;
-}
-
-/**
- * v2.12.1 T6: until T11 replaces them, the v2.12 data read (profileData) still reads through this.
- * The public routes read through resolveSlug (claimed only).
- *
- * A live slug, or an old one with its redirect; null for hidden, unknown or never-installed, and
- * (v2.12 final review I4) for a person who has not been shown the consent line yet: disclosure
- * comes before publication. The profile page, the card and the share route all read through here;
- * the leaderboard applies the same rule (PUBLIC_PROFILE). Percentiles still count everyone.
- */
-export async function slugOwner(slug: string): Promise<{ builderId: number; redirect: string | null } | null> {
-  const s = slug.toLowerCase();
-  if (!SLUG.test(s)) return null;
-  type Row = { builder_id: number; hidden: boolean; consented: boolean };
-  const [p] = await sql()<Row[]>`SELECT builder_id, hidden, consent_shown_at IS NOT NULL AS consented FROM builder_profiles WHERE slug = ${s}`;
-  if (p) return p.hidden || !p.consented ? null : { builderId: p.builder_id, redirect: null };
-  const [h] = await sql()<(Row & { slug: string })[]>`
-    SELECT p.builder_id, p.slug, p.hidden, p.consent_shown_at IS NOT NULL AS consented
-    FROM profile_slug_history h JOIN builder_profiles p USING (builder_id) WHERE h.old_slug = ${s}`;
-  return h && !h.hidden && h.consented ? { builderId: h.builder_id, redirect: h.slug } : null;
-}
-
-/**
  * v2.12.1 owner ruling "Before the claim, everything shows in replies only; there is no public page":
  * a v2.12 slug (live or old) names a person only once they claimed their page with X, and is not
- * hidden; `redirect` is the current slug for an old one, `handle` the page's X handle (/b/<slug>
- * moves to it). Null otherwise. The card and share routes read through here until T11.
+ * hidden; `redirect` is the current slug for an old one, `handle` the page's X handle (/b/<slug>,
+ * its card and share link move to it). Null otherwise.
  */
 export async function resolveSlug(slug: string): Promise<{ builderId: number; redirect: string | null; handle: string } | null> {
   const s = slug.toLowerCase();
@@ -458,7 +317,6 @@ export async function mergeProfiles(tx: postgres.TransactionSql, root: number, o
   await tx`DELETE FROM builder_profiles WHERE builder_id = ${lose.builder_id}`;
   if (win.builder_id !== root) await tx`UPDATE builder_profiles SET builder_id = ${root} WHERE builder_id = ${win.builder_id}`;
   await tx`UPDATE builder_profiles SET ${tx(merged)}, updated_at = now() WHERE builder_id = ${root}`;
-  if (!win.x_user_id) await followName(tx, root, { x_handle: merged.x_handle, github_login: login, slug: win.slug });
   if (builderScoreEnabled()) await requeue(tx, root);
   return true;
 }

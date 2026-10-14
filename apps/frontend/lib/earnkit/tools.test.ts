@@ -33,7 +33,6 @@ import { CANT_PUSH, NO_WALLET_HINT, confirmOffer, proofLineWaiting } from './con
 import { completeVerify, createVerifyLink, formatCode } from './github-verify';
 import { eligibleSql } from './traction';
 import { committedProgram } from './fixtures/program-file';
-import { FILL_LINES } from './score-tool';
 import { TESTED_STARTERS, fileCards } from './fixtures/fresh-build';
 import { BUILD_CHAT_ONLY, buildKit, buildingLine, twistQuestion } from './fresh-build';
 import { STARTERS } from './starters';
@@ -5511,27 +5510,34 @@ test('10 (T10 notes) a build-path deploy refused for the owner proof asks for a 
   ),
 );
 
-test('7.8 v2.12: the first find ends with the consent line once; tell hide hides it; a refused X handle shows nothing', { ...dbTest, todo: 'replaced by v2.12.1 T8' }, async () => {
+test('7.8 (v2.12.1 T12, replaces v2.12 7.8 and 7.8c) flag on: find has no v2.12 consent or score line; tell hide hides the page; x_handle is accepted and ignored; a shared client\'s page asks get an agent note', dbTest, async () => {
   process.env.EARNKIT_BUILDER_SCORE = 'on';
   try {
     const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t7-consent-${process.pid}-${Date.now()}`}) RETURNING id`;
     const ctx = { installationId: id };
-    const one = (await tools.find({}, ctx)) as { show_to_builder: string };
-    const lines = one.show_to_builder.split('\n');
-    assert.match(lines.at(-1)!, /^Your public work gets a public score at earnkit\.com\/b\/b-[a-z2-9]{8}\. Say hide anytime\.$/);
-    const two = (await tools.find({}, ctx)) as { show_to_builder: string };
-    assert.doesNotMatch(two.show_to_builder, /Say hide anytime/);
+    for (let i = 0; i < 2; i++) {
+      const r = (await tools.find({}, ctx)) as { show_to_builder: string };
+      assert.match(r.show_to_builder, /^Where you stand\n/);
+      assert.doesNotMatch(r.show_to_builder, /Say hide anytime|earnkit\.com\/b\/|You: score|Score \d+/);
+    }
     const hidden = (await tools.tell({ profile: 'hide' }, ctx)) as { show_to_builder: string };
-    assert.equal(hidden.show_to_builder, 'Your profile is hidden. Say show to list it again.');
-    const x = (await tools.tell({ x_handle: 'elonmusk' }, ctx)) as { show_to_builder?: string; agent_note?: string };
-    assert.equal(x.show_to_builder ?? '', '');
-    assert.match(x.agent_note ?? '', /GitHub profile lists/);
+    assert.equal(hidden.show_to_builder, 'Your page is hidden. Say show my page to list it again.');
+    const shown = (await tools.tell({ profile: 'show' }, ctx)) as { show_to_builder: string };
+    assert.equal(shown.show_to_builder, 'Your page is no longer hidden.', 'unclaimed: no page link');
+    // An agent that kept v2.12's tell schema: x_handle parses and does nothing (the page's handle is the X claim's).
+    await assert.rejects(tools.tell({ x_handle: 'elonmusk' }, ctx), /Pass at least one/);
+    const [p] = await sql()<{ x_handle: string | null }[]>`SELECT x_handle FROM builder_profiles WHERE builder_id = ${id}`;
+    assert.equal(p.x_handle, null);
+    const [{ id: shared }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, shared_client) VALUES (${`t7-shared-${process.pid}-${Date.now()}`}, true) RETURNING id`;
+    const r = (await tools.tell({ profile: 'hide' }, { installationId: shared, sharedClient: true })) as { show_to_builder?: string; agent_note?: string };
+    assert.equal(r.show_to_builder ?? '', '');
+    assert.match(r.agent_note ?? '', /serves many builders/);
   } finally {
     delete process.env.EARNKIT_BUILDER_SCORE;
   }
 });
 
-test('7.8b v2.12 flag off: find has no consent line and makes no profile; tell ignores profile (as an empty tell)', dbTest, async () => {
+test('7.8b flag off: find has no consent line and makes no profile; tell ignores profile (as an empty tell)', dbTest, async () => {
   const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t7-off-${process.pid}-${Date.now()}`}) RETURNING id`;
   const ctx = { installationId: id };
   const one = (await tools.find({}, ctx)) as { show_to_builder: string };
@@ -5541,27 +5547,6 @@ test('7.8b v2.12 flag off: find has no consent line and makes no profile; tell i
   // Ignored: tell answers as v2.11 does to a call with nothing in it.
   await assert.rejects(tools.tell({ profile: 'hide' }, ctx), /Pass at least one/);
   await assert.rejects(tools.tell({}, ctx), /Pass at least one/);
-});
-
-test('7.8c v2.12: a find that failed after the profile was made still shows the consent line next time, once; a shared client\'s profile asks get an agent note', { ...dbTest, todo: 'replaced by v2.12.1 T8' }, async () => {
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
-  try {
-    const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t7-lost-${process.pid}-${Date.now()}`}) RETURNING id`;
-    const ctx = { installationId: id };
-    // The first find made the profile, then threw before its reply (simulated): the line was never shown.
-    const { ensureProfile } = await import('./profiles');
-    await ensureProfile(id, new Date());
-    const one = (await tools.find({}, ctx)) as { show_to_builder: string };
-    assert.match(one.show_to_builder.split('\n').at(-1)!, /Say hide anytime\.$/);
-    const two = (await tools.find({}, ctx)) as { show_to_builder: string };
-    assert.doesNotMatch(two.show_to_builder, /Say hide anytime/);
-    const [{ id: shared }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, shared_client) VALUES (${`t7-shared-${process.pid}-${Date.now()}`}, true) RETURNING id`;
-    const r = (await tools.tell({ profile: 'hide' }, { installationId: shared, sharedClient: true })) as { show_to_builder?: string; agent_note?: string };
-    assert.equal(r.show_to_builder ?? '', '');
-    assert.match(r.agent_note ?? '', /serves many builders/);
-  } finally {
-    delete process.env.EARNKIT_BUILDER_SCORE;
-  }
 });
 
 // ---- v2.12 T9: find's second line, the agent_completable filter, the token pitch gate ----
@@ -5583,38 +5568,6 @@ async function withScoreFlag<T>(flag: string | undefined, fn: () => Promise<T>):
     else process.env.EARNKIT_BUILDER_SCORE = was;
   }
 }
-
-test('9.4 v2.12 find: line 2 is the score line; an empty profile gets its fill step, declarative when line 1 asks', { ...dbTest, todo: 'replaced by v2.12.1 T8' }, async () => {
-  await withScoreFlag('on', async () => {
-    const ctx = { installationId: await newInstallation() };
-    const first = (await tools.find({}, ctx)) as { show_to_builder: string };
-    // The first find: the consent line wins the second line (it is shown once, last).
-    assert.match(first.show_to_builder.split('\n').at(-1)!, /Say hide anytime\.$/);
-    assert.doesNotMatch(first.show_to_builder, /^You: score/m);
-    // No score yet: the fill step, declarative when line 1 already asks.
-    const empty = (await tools.find({}, ctx)) as { show_to_builder: string; score_step?: { agent_note: string } };
-    const last = empty.show_to_builder.split('\n').at(-1)!;
-    // Line 1 for a builder with no repo asks ("Want the 3 easiest?"), so the fill step is said, never asked.
-    assert.match(empty.show_to_builder, /\?/);
-    assert.equal(last, FILL_LINES.no_github.say);
-    assert.ok((empty.show_to_builder.match(/\?/g) ?? []).length <= 1, empty.show_to_builder);
-    assert.match(empty.score_step?.agent_note ?? '', /score/);
-    await sql()`UPDATE builder_profiles SET slug = ${`lee${ctx.installationId}`} WHERE builder_id = ${ctx.installationId}`;
-    await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held)
-      VALUES (${ctx.installationId}, '2026-10-12', 41, 77.9, '{}', '{}', 'v1', 'v1-launch', false)`;
-    await sql()`INSERT INTO builder_ranks (builder_id, score, percentile, computed_at) VALUES (${ctx.installationId}, 41, 77.9, now())`;
-    // The card offer (T11) is made once and would go last; mark it made so line 2 stays the last line.
-    await sql()`UPDATE builder_profiles SET card_offered_at = now() WHERE builder_id = ${ctx.installationId}`;
-    const r = (await tools.find({}, ctx)) as { show_to_builder: string; score_step?: unknown };
-    assert.equal(r.show_to_builder.split('\n').at(-1), `You: score 41, top 23%. earnkit.com/b/lee${ctx.installationId}`);
-    assert.ok((r.show_to_builder.match(/\?/g) ?? []).length <= 1);
-    assert.ok(!('score_step' in r));
-    // Hidden: the score, never the link (a hidden profile is a 404).
-    await sql()`UPDATE builder_profiles SET hidden = true WHERE builder_id = ${ctx.installationId}`;
-    const hidden = (await tools.find({}, ctx)) as { show_to_builder: string };
-    assert.equal(hidden.show_to_builder.split('\n').at(-1), 'You: score 41, top 23%.');
-  });
-});
 
 test('v2.12 final review (T9): withoutBonusLine drops only the guide\'s builder bonus section', () => {
   assert.equal(withoutBonusLine('Head\nDifficulty: Easy\n\nYour best bet\n- x\n\nBuilder bonus: no tokens yet, so yours would be first'), 'Head\nDifficulty: Easy\n\nYour best bet\n- x');

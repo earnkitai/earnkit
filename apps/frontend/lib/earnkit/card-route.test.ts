@@ -4,7 +4,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import * as React from 'react';
 
 /**
- * v2.12 T11 security fix: the card route itself, run as Next runs it (its own process: Next's
+ * v2.12 T11 security fix, v2.12.1 T11/T12: the card routes themselves, run as Next runs them (its own process: Next's
  * request storage needs a real AsyncLocalStorage before any next module loads, so every import
  * here is dynamic, after it is set).
  */
@@ -22,67 +22,39 @@ after(async () => {
   if (process.env.DATABASE_URL) await (await load()).sql().end();
 });
 
-async function scored() {
-  const { sql, ensureProfile } = await load();
-  const id = 2_140_000_000 + Math.floor(Math.random() * 7_000_000);
-  await ensureProfile(id, new Date());
-  await sql()`UPDATE builder_profiles SET slug = ${`card${id}`} WHERE builder_id = ${id}`;
-  // Final review I4: not public before the consent line is shown (checked below, then shown).
-  const parts = { users: { points: 10, raw: { U: 40 } }, money: { points: 0, raw: {} }, staying: { points: 0, raw: {} }, recency: { points: 0, raw: {} }, consistency: { points: 0, raw: {} } };
-  await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held)
-    VALUES (${id}, '2026-10-12', 41, 78, ${sql().json(parts)}, '{}', 'v1', 'v1-launch', false)`;
-  return id;
-}
-
-test('11.11 the card follows the profile at once: hidden is a 404 (no-store), an old slug moves on, never an immutable or long cache', dbTest, async () => {
-  const { sql, CARD_CACHE, setHidden, GET } = await load();
-  // A real (Map-backed) Next data cache that nothing expires here (profileChanged() has no request
-  // context in tests): the cached read stays stale after a hide, as a missed revalidation would.
-  const store = new Map<string, unknown>();
-  const g = globalThis as { __incrementalCache?: unknown };
-  g.__incrementalCache = {
-    generateCacheKey: async (k: string) => k,
-    get: async (k: string) => (store.has(k) ? { value: store.get(k), isStale: false } : null),
-    set: async (k: string, v: unknown) => void store.set(k, v),
-  };
+test('11.11 (v2.12.1 T12) /b/<v2.12 slug>/card.png: unclaimed or hidden is a no-store 404, claimed moves to the page\'s card (308), an old slug too; flag off 404', dbTest, async () => {
+  const { sql, setHidden, ensureProfile, GET } = await load();
   const was = process.env.EARNKIT_BUILDER_SCORE;
   process.env.EARNKIT_BUILDER_SCORE = 'on';
   const get = (slug: string) => GET(new Request(`http://x/b/${slug}/card.png`), { params: Promise.resolve({ slug }) });
+  const id = 2_140_000_000 + Math.floor(Math.random() * 7_000_000);
   try {
-    const id = await scored();
+    await ensureProfile(id, new Date());
     const slug = `card${id}`;
+    await sql()`UPDATE builder_profiles SET slug = ${slug} WHERE builder_id = ${id}`;
     const before = await get(slug);
-    assert.equal(before.status, 404, 'v2.12.1 T6: not claimed with X yet: not public');
+    assert.equal(before.status, 404, 'not claimed with X yet: not public');
     assert.equal(before.headers.get('cache-control'), 'no-store');
-    await sql()`UPDATE builder_profiles SET consent_shown_at = now(), x_user_id = ${String(id)}, x_handle = ${`c${id}`.slice(0, 15)} WHERE builder_id = ${id}`;
-    const ok = await get(slug);
-    assert.equal(ok.status, 200);
-    assert.equal(ok.headers.get('content-type'), 'image/png');
-    assert.equal(ok.headers.get('cache-control'), CARD_CACHE);
-    assert.doesNotMatch(CARD_CACHE, /immutable/);
-    assert.ok(Number(/s-maxage=(\d+)/.exec(CARD_CACHE)![1]) <= 600 && /max-age=0\b/.test(CARD_CACHE));
-
-    // Hidden (through setHidden, as "hide" does): a 404 on the very next request, never stored.
+    const handle = `c${id}`.slice(0, 15);
+    await sql()`UPDATE builder_profiles SET x_user_id = ${String(id)}, x_handle = ${handle} WHERE builder_id = ${id}`;
+    const moved = await get(slug);
+    assert.equal(moved.status, 308);
+    assert.equal(moved.headers.get('location'), `/${handle}/card.png`);
+    assert.equal(moved.headers.get('cache-control'), 'no-store');
     await setHidden(id, true);
     const hidden = await get(slug);
     assert.equal(hidden.status, 404);
     assert.equal(hidden.headers.get('cache-control'), 'no-store');
     await setHidden(id, false);
-    assert.equal((await get(slug)).status, 200);
-
-    // A new slug (an X handle set or cleared): the old one moves on at once, never the old card.
+    // An old slug (history) moves to the same card.
     await sql()`UPDATE builder_profiles SET slug = ${`cardn${id}`} WHERE builder_id = ${id}`;
     await sql()`INSERT INTO profile_slug_history (old_slug, builder_id) VALUES (${slug}, ${id})`;
-    const moved = await get(slug);
-    assert.equal(moved.status, 308);
-    assert.equal(moved.headers.get('location'), `/b/cardn${id}/card.png`);
-    assert.equal(moved.headers.get('cache-control'), 'no-store');
-
-    assert.ok(store.size > 0, 'the cached read was really cached');
+    assert.equal((await get(slug)).headers.get('location'), `/${handle}/card.png`);
     delete process.env.EARNKIT_BUILDER_SCORE;
     assert.equal((await get(`cardn${id}`)).status, 404, 'flag off');
   } finally {
-    delete g.__incrementalCache;
+    await sql()`DELETE FROM profile_slug_history WHERE builder_id = ${id}`;
+    await sql()`DELETE FROM builder_profiles WHERE builder_id = ${id}`;
     if (was === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
     else process.env.EARNKIT_BUILDER_SCORE = was;
   }

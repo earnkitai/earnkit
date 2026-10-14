@@ -7,8 +7,8 @@ import { scorePeopleV2 } from './person-score'; // person-score imports this fil
 import { clearXHandle } from './profiles';
 import { readParams, secretMatches } from './http';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
-import { FORMULA, computeScore, percentileOf, type Parts, type ProjectInput, type Scored } from './score';
-import { LIVE_CALIBRATION, calibration, type Calibration } from './score-calibration';
+import { type ProjectInput, type Scored } from './score';
+import { calibration, type Calibration } from './score-calibration';
 import { readSources } from './sources'; // sources.ts never imports this file (READS_PER_RUN lives there)
 import { READ_CAPS, defaultReaderDeps, isoWeek, type ContractSignals, type PackageSignals, type PrSignals, type ReaderDeps, type RepoSignals, type SiteSignals, type Who } from './source-readers';
 import { vetoKey } from './veto';
@@ -16,7 +16,9 @@ import { vetoKey } from './veto';
 /**
  * v2.12 spec 4 to 6: the builder score's cron steps (discover, readSources, score, profileEmpty;
  * v2.12.1: the score step is person-score.ts scorePeopleV2), the review hold, and the owner's
- * release (app/admin/scores). scoreBuilders and percentiles (v1) stay until T12 removes them.
+ * release (app/admin/scores). v2.12.1 T12: the v1 scorer (scoreBuilders), its percentile pass and
+ * publicScore are gone; buildInputs and sourceShares stay as the tested record of v1's rules (score.ts
+ * keeps formula v1 for stored history).
  */
 
 /** v2.12 spec 6: the four steps share at most this much of what remains of runCron's budget. */
@@ -224,50 +226,21 @@ const releaseV2 = (tx: Db, id: number, day: string, score: number) => tx`
   RETURNING day`;
 
 /**
- * The person's public score: the latest row not held, or held and released (plan R7, R8). v2.12.1:
- * formula v1 rows only (v2 rows have another `parts` shape); T8 and T11 replace its last callers.
- */
-export async function publicScore(builderId: number): Promise<{ score: number; percentile: number; day: string; parts: Parts } | null> {
-  const [row] = await sql()<{ score: number; percentile: number; day: string; parts: Parts }[]>`
-    SELECT s.score, COALESCE(r.percentile, s.percentile) AS percentile, s.day::text AS day, s.parts
-    FROM builder_scores s LEFT JOIN builder_ranks r ON r.builder_id = s.builder_id
-    WHERE s.builder_id = ${builderId} AND s.formula = 'v1'
-      AND ${publicRow()}
-    ORDER BY s.day DESC LIMIT 1`;
-  return row ?? null;
-}
-
-/**
- * v2.12 spec 7: the verified users and money behind a repo's odds: the latest public score's top
- * project when its key is this repo (`owner/repo`, any case), else null (odds keep v2.10's traction).
+ * v2.12 spec 7, v2.12.1 T12: the confirmed people and money behind a repo's odds: the person's live
+ * project (builder_projects) with this key (`owner/repo`, any case) when it is confirmed and the
+ * person is not waiting for a review; else null (odds keep v2.10's traction).
  */
 export async function verifiedProject(builderId: number, repoKey: string): Promise<{ users: number; money_usd: number } | null> {
-  const pub = await publicScore(builderId);
-  if (!pub) return null;
-  const [row] = await sql()<{ top: { key?: unknown; users?: unknown; money_usd?: unknown } | null }[]>`
-    SELECT top_outcome AS top FROM builder_scores WHERE builder_id = ${builderId} AND day = ${pub.day}::date`;
-  const top = row?.top;
-  if (typeof top?.key !== 'string' || top.key.toLowerCase() !== repoKey.toLowerCase()) return null;
+  const [row] = await sql()<{ people: number; money_usd: number }[]>`
+    SELECT bp.people, bp.money_usd::float8 AS money_usd FROM builder_projects bp
+    JOIN builder_profiles p ON p.builder_id = bp.builder_id
+    LEFT JOIN builder_live l ON l.builder_id = bp.builder_id
+    WHERE bp.builder_id = ${builderId} AND lower(bp.project_key) = ${repoKey.toLowerCase()} AND bp.confirmed
+      AND NOT p.held AND l.pending IS NULL`;
+  if (!row) return null;
   const n = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) && x > 0 ? x : 0);
-  return { users: n(top.users), money_usd: n(top.money_usd) };
+  return { users: n(row.people), money_usd: n(row.money_usd) };
 }
-
-/** Who is due today (R8): no score today, not a shared client (R2), and every verified source read today or it's late. */
-async function dueToday(day: string, late: boolean, only?: number[]) {
-  return sql()<{ builder_id: number }[]>`
-    SELECT p.builder_id FROM builder_profiles p
-    WHERE NOT EXISTS (SELECT 1 FROM builder_scores s WHERE s.builder_id = p.builder_id AND s.day = ${day})
-      AND NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND i.shared_client)
-      AND (${late} OR NOT EXISTS (SELECT 1 FROM builder_sources b WHERE b.builder_id = p.builder_id AND b.state = 'verified'
-        AND (b.last_read_day IS NULL OR b.last_read_day < ${day}::date)))
-      ${only ? sql()`AND p.builder_id IN ${sql()(only.length ? only : [-1])}` : sql()``}
-    ORDER BY p.builder_id`;
-}
-
-/** v2.12 T10 review: what a score row keeps per project, for the public profile (the scorer's own numbers). */
-export type StoredProject = { key: string; users: number; money_usd: number; first_outcome_at: string | null };
-export const storedProjects = (projects: ProjectInput[]): StoredProject[] =>
-  projects.map((p) => ({ key: p.key, users: p.users, money_usd: p.money_usd, first_outcome_at: p.first_outcome_at?.toISOString() ?? null }));
 
 /** Who owns which account (proven logins and every group wallet) and the ring edges: self-exclusion and rings (spec 5). */
 export type ScoreContext = { owners: { actor: string; builder_id: number }[]; owner: Map<string, number>; edges: [number, number][] };
@@ -278,67 +251,6 @@ export async function scoreContext(): Promise<ScoreContext> {
     SELECT 'wallet:' || lower(w.wallet), COALESCE(i.builder_id, i.id) FROM installation_wallets w JOIN installations i ON i.id = w.installation_id`;
   const owner = new Map(owners.map((r) => [r.actor, r.builder_id]));
   return { owners, owner, edges: await ringEdges(owner) };
-}
-
-/**
- * One person's verified sources and the formula's inputs from their readings of the last year
- * (buildInputs). `through` (YYYY-MM-DD): only readings up to that day, so the public profile shows
- * the numbers behind the public score, never a held day's (T10).
- */
-export async function personInputs(id: number, ctx: ScoreContext, now: Date, through?: string) {
-  const sources = await sql()<SourceRow[]>`
-    SELECT b.id::int AS id, b.kind, b.ref, b.project_key, b.proof,
-      (b.kind = 'repo' AND lower(split_part(b.ref, '/', 1)) <> lower(COALESCE(p.github_login, ''))) AS owner_is_org
-    FROM builder_sources b JOIN builder_profiles p USING (builder_id)
-    WHERE b.builder_id = ${id} AND b.state = 'verified'`;
-  const readings = sources.length === 0 ? [] : await sql()<ReadingRow[]>`
-    SELECT source_id::int AS source_id, day::text AS day, ok, signals FROM source_readings
-    WHERE source_id IN ${sql()(sources.map((s) => s.id))} AND day > ${new Date(now.getTime() - YEAR_MS)}
-      ${through ? sql()`AND day <= ${through}::date` : sql()``}`;
-  // Every account of the person's group is self, even one another group also names.
-  const self = new Set(ctx.owners.filter((r) => r.builder_id === id).map((r) => r.actor));
-  return { sources, readings, ...buildInputs(sources, readings, { self, owner: ctx.owner, edges: ctx.edges, person: id, now }) };
-}
-
-/**
- * spec 6, step 3: one score row per due person per UTC day (R8), with the formula and calibration
- * ids, the parts' raw inputs and the hold verdict. A held row sets builder_profiles.held and never
- * reaches a public surface until the owner releases it (score_releases).
- */
-export async function scoreBuilders(now: Date, o: { deadline: number; only?: number[] }): Promise<{ scored: number; held: number[] }> {
-  const day = now.toISOString().slice(0, 10);
-  const cal = calibration(LIVE_CALIBRATION);
-  const due = await dueToday(day, now.getUTCHours() >= LATE_HOUR_UTC, o.only);
-  if (due.length === 0) return { scored: 0, held: [] };
-  const ctx = await scoreContext();
-  const all = (await sql()<{ score: number }[]>`SELECT score FROM builder_ranks`).map((r) => r.score);
-  let scored = 0;
-  const held: number[] = [];
-  for (const { builder_id: id } of due) {
-    if (Date.now() >= o.deadline) break;
-    const { projects, perSource } = await personInputs(id, ctx, now);
-    const s = computeScore(projects, cal, now);
-    const prev = await publicScore(id);
-    const reason = holdReason(prev?.score ?? null, s.score, sourceShares(perSource, s));
-    const top = s.top ? { key: s.top.key, title: s.top.title, users: Math.round(s.top.users), money_usd: Math.round(s.top.money_usd) } : {};
-    const [row] = await sql()<{ id: string }[]>`
-      INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held, projects)
-      VALUES (${id}, ${day}, ${s.score}, ${percentileOf(s.score, all)}, ${sql().json(s.parts as never)}, ${sql().json(top as never)}, ${FORMULA}, ${cal.id}, ${reason !== null},
-        ${sql().json(storedProjects(projects) as never)})
-      ON CONFLICT (builder_id, day) DO NOTHING RETURNING id`;
-    if (!row) continue;
-    scored++;
-    await noteEvent('score_computed', () => ({ type: 'score_computed', dedupe_key: `score:${id}:${day}`, installation_id: id, detail: { score: s.score, calibration: cal.id } }));
-    if (!reason) {
-      // A later day's score came in unheld: it is the public one now, so nothing waits on the owner.
-      await sql()`UPDATE builder_profiles SET held = false, updated_at = now() WHERE builder_id = ${id} AND held`;
-    } else {
-      held.push(id);
-      await sql()`UPDATE builder_profiles SET held = true, updated_at = now() WHERE builder_id = ${id}`;
-      await noteEvent('score_held', () => ({ type: 'score_held', dedupe_key: `score_held:${id}:${day}`, installation_id: id, detail: { reason, score: s.score, previous: prev?.score ?? null } }));
-    }
-  }
-  return { scored, held };
 }
 
 /** Person pairs where one's account is a counted touch of the other's verified sources (latest readings). */
@@ -360,32 +272,8 @@ async function ringEdges(owner: Map<string, number>): Promise<[number, number][]
   return out;
 }
 
-/**
- * Plan R7: every person's public score and percentile (hidden included, held at the last unheld) in
- * one SQL pass. Only a person with a profile counts: a group merged away (T7 mergeProfiles) keeps its
- * scores as history, but they and its old rank no longer count.
- */
-export async function percentiles(now: Date): Promise<number> {
-  const rows = await sql()<{ n: number }[]>`
-    WITH gone AS (
-      DELETE FROM builder_ranks r WHERE NOT EXISTS (SELECT 1 FROM builder_profiles p WHERE p.builder_id = r.builder_id)),
-    pub AS (
-      SELECT DISTINCT ON (s.builder_id) s.builder_id, s.score FROM builder_scores s JOIN builder_profiles p USING (builder_id)
-      WHERE ${publicRow()}
-      ORDER BY s.builder_id, s.day DESC),
-    ranked AS (
-      SELECT builder_id, score, 100.0 * (rank() OVER (ORDER BY score) - 1) / count(*) OVER () AS percentile FROM pub),
-    up AS (
-      INSERT INTO builder_ranks (builder_id, score, percentile, computed_at)
-      SELECT builder_id, score, percentile, ${now} FROM ranked
-      ON CONFLICT (builder_id) DO UPDATE SET score = EXCLUDED.score, percentile = EXCLUDED.percentile, computed_at = EXCLUDED.computed_at
-      RETURNING 1)
-    SELECT count(*)::int AS n FROM up`;
-  return rows[0].n;
-}
-
 type EmptyFacts = { builder_id: number; login: boolean; proposed: number; verified: number; ok_r: number; failed_r: number; filled: boolean };
-/** profileEmpty's per-person facts (`p` is builder_profiles), shared with emptyReasonOf. */
+/** profileEmpty's per-person facts (`p` is builder_profiles). */
 const emptyFacts = () => sql()`
   p.builder_id, p.github_login IS NOT NULL AS login,
   (SELECT count(*)::int FROM builder_sources b WHERE b.builder_id = p.builder_id AND b.state = 'proposed') AS proposed,
@@ -394,16 +282,6 @@ const emptyFacts = () => sql()`
   (SELECT count(*)::int FROM source_readings r JOIN builder_sources b ON b.id = r.source_id WHERE b.builder_id = p.builder_id AND NOT r.ok) AS failed_r,
   EXISTS (SELECT 1 FROM builder_scores s WHERE s.builder_id = p.builder_id AND s.score > 0) AS filled`;
 const reasonOf = (r: EmptyFacts) => emptyReason({ login: r.login, proposed: r.proposed, verified: r.verified, okReadings: r.ok_r, failedReadings: r.failed_r });
-
-/**
- * v2.12 T8: what would fill this person's profile (profileEmpty's reason, now); null with no profile,
- * or with a score above 0 (held or not) unless `o.anyHistory` (the score tool: a public score that
- * fell to 0 still gets its fill step).
- */
-export async function emptyReasonOf(builderId: number, o: { anyHistory?: boolean } = {}): Promise<EmptyReason | null> {
-  const [r] = await sql()<EmptyFacts[]>`SELECT ${emptyFacts()} FROM builder_profiles p WHERE p.builder_id = ${builderId}`;
-  return !r || (r.filled && !o.anyHistory) ? null : reasonOf(r);
-}
 
 /**
  * spec 3's metric: once per person, 10 minutes after their first find, a profile with no score
@@ -494,7 +372,11 @@ export async function heldForReview(): Promise<HeldReview[]> {
     WHERE l.pending IS NOT NULL`;
   const rows: HeldReview[] = [
     ...(await Promise.all(v1.map(async (h) => {
-      const pub = await publicScore(h.builder_id);
+      // The public v1 score beside it: the latest v1 row not held, or held and released (plan R7).
+      const [pub] = await sql()<{ score: number; day: string }[]>`
+        SELECT s.score, s.day::text AS day FROM builder_scores s
+        WHERE s.builder_id = ${h.builder_id} AND s.formula = 'v1' AND ${publicRow()}
+        ORDER BY s.day DESC LIMIT 1`;
       return { ...h, shown: pub ? { score: pub.score, day: pub.day } : null, version: null };
     }))),
     ...v2.map(({ live, live_day, ...h }) => ({ ...h, shown: { score: live, day: live_day } })),

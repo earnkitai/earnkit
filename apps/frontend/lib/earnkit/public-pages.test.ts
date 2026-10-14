@@ -36,7 +36,7 @@ import { FOOTER_COLUMNS, FOOTER_TAGLINE } from './footer-links';
 
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
 const view = (b: Board) => html(React.createElement(BoardView, { board: b }));
-const text = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/&#x27;|&#39;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ');
+const text = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/\s+/g, ' ');
 
 test('/terms#policy: every section, the fee split and payout tables, the weights, plain words', () => {
   const h = html(React.createElement(PolicySection));
@@ -889,11 +889,16 @@ test('final I1: flag off, /terms is v2.11: no builder-profiles section, nav link
   assert.match(withScoreFlag(() => termsMetadataFor().description) ?? '', /builder profiles/);
 });
 
-test('final T15: the terms name the login or short-wallet address and the agent-proposed sources', () => {
+test('v2.12.1 T12: the terms say the page is public only after the X claim, what is read, confirmed vs not, joins and hide; no v2.12 slug or earnkit.txt words', () => {
   const t = withScoreFlag(() => text(html(React.createElement(TermsPage))));
-  assert.match(t, /your public name may be your GitHub login/);
-  assert.match(t, /short form of a wallet you linked \(like 0xabcd1234\)/);
-  assert.match(t, /Your agent may propose repos it finds on your computer and live links/);
+  assert.match(t, /public only after you claim it with X/);
+  assert.match(t, /GitHub, live sites, package downloads, public transactions/);
+  assert.match(t, /marked not yet confirmed, and counts for nothing/);
+  assert.match(t, /your agents ask you before the two share one page/);
+  assert.match(t, /keeps your X user id, handle, name and picture/);
+  const section = t.slice(t.indexOf('Builder profiles Your EarnKit page'), t.indexOf(' Risk Risk disclosure'));
+  assert.ok(section.length > 100, 'the section is found');
+  assert.doesNotMatch(section, /earnkit\.txt|0xabcd1234|your public name may be your GitHub login|Your score counts/);
   assert.doesNotMatch(t, /[\u2013\u2014]/);
 });
 
@@ -903,9 +908,9 @@ test('15.1 /terms#builder-profiles: every point, the nav link, no em dash', () =
   assert.match(h, /href="#builder-profiles"/);
   const t = text(h);
   for (const p of PROFILES_POINTS) assert.ok(t.includes(p), p);
-  assert.match(t, /merged or acquired/);
-  assert.match(t, /Say hide to your agent/);
-  assert.match(t, /still counts when others' ranks are worked out/);
+  assert.match(t, /merger or acquisition/);
+  assert.match(t, /tell your agent "hide my page"/);
+  assert.match(t, /Hidden pages still count when others are ranked/);
   assert.ok(t.includes(CONTACT_EMAIL));
   // The nav lists it right after "What EarnKit records", and the section follows the policy section.
   assert.ok(h.indexOf('href="#builder-profiles"') > h.indexOf(`href="#${RECORDS_ANCHOR}"`));

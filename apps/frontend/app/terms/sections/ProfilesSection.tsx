@@ -2,9 +2,10 @@ import { Panel } from '../../components/common/Panel';
 import { PROFILES_ANCHOR, PROFILES_POINTS, PROFILES_TITLE } from '../../../lib/earnkit/policy';
 
 /**
- * v2.12 spec 8: /terms#builder-profiles, laid out as the policy section's "What EarnKit records"
- * (title left, list right). The words live in lib/earnkit/policy.ts (PROFILES_POINTS). Needs the
- * owner's lawyer review before EARNKIT_BUILDER_SCORE goes on.
+ * v2.12 spec 8, v2.12.1 T12: /terms#builder-profiles, laid out as the policy section's "What EarnKit
+ * records" (title left, list right). The words live in lib/earnkit/policy.ts (PROFILES_POINTS). Shown
+ * only with EARNKIT_BUILDER_SCORE on (app/terms/page.tsx). Needs the owner's lawyer review before the
+ * flag goes on.
  */
 export default function ProfilesSection() {
   return (

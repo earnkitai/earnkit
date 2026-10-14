@@ -58,7 +58,7 @@ export async function loginStands(root: number, login: string, twitter: string |
   if (ruled !== null) return ruled === root;
   if (!twitter) return false;
   // v2.12.1 T6: only the handle the X claim wrote (bound to x_user_id). On a claimed page nothing else
-  // writes x_handle (setXHandle refuses it, GitHub never clears it, a merge keeps the older page's claim and its handle together).
+  // writes x_handle (v2.12's setXHandle is gone (T12), GitHub never clears it, a merge keeps the older page's claim and its handle together).
   const [p] = await sql()<{ x_user_id: string | null; x_handle: string | null }[]>`
     SELECT x_user_id, x_handle FROM builder_profiles WHERE builder_id = ${root}`;
   return Boolean(p?.x_user_id && p.x_handle && p.x_handle.toLowerCase() === twitter.replace(/^@/, '').toLowerCase());

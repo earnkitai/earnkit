@@ -4347,6 +4347,11 @@ needs 24 hours left, so from Oct 14 03:59 UTC it has nothing to pick and the rep
 
 ## v2.12 The verified builder score (Tasks 1 to 15)
 
+**v2.12.1 replaced this section's onboarding, replies, scoring, profile, card and leaderboard** (see
+"v2.12.1 Where you stand" below). The subsections marked "replaced in v2.12.1" describe code that is
+gone or kept only for stored history; the storage, discovery, readers, anti-farming, the hold and the
+archives below still hold, with the changes v2.12.1 lists.
+
 Spec: `docs/design-docs-and-implementation-plans/v2.12-builder-score.md`; plan:
 `v2.12-builder-score-plan.md` (its plan rulings R1 to R26 and owner rulings D1 to D7 are cited
 below). Every person who installs gets a public profile at `earnkit.com/b/<slug>` with a 0 to 100
@@ -4452,7 +4457,7 @@ Recorded limits (owner notes for v2.13): `first_tx_at` is never filled, so every
 contract with its real deployer until the real owner verifies (the hold catches spikes); a GitHub
 rename stops discovery for that person (use the GitHub user id in v2.13).
 
-### The formula and the calibration (spec 4, R7, R8, R26)
+### The formula and the calibration (spec 4, R7, R8, R26) (replaced in v2.12.1: formula v1 is history only)
 
 `score.ts computeScore` (formula `v1`) is absolute within a calibration: Users 45, Money 20, Staying
 power 15, Recency 10 (90-day half-life), Shipping consistency 10 (only on projects with an outside
@@ -4485,7 +4490,7 @@ counts once per project at 50%; a cluster of 5+ caps in-cluster credit at 5). Ve
 from day one; only the bars are generous. Recorded limits: the 3-day rule is a cliff and rings catch
 mutual pairs only (proposed for a later calibration).
 
-### The cron steps and their slice (spec 6)
+### The cron steps and their slice (spec 6) (v2.12.1: no `ranks` step; `score` is v2)
 
 `cron.ts runCron` runs the builder score steps after every existing step, with the flag on and
 `deps.builderScore` (`if (!opts.only || deps.builderScore)`): `builder-score.ts runScoreSteps` runs
@@ -4506,7 +4511,7 @@ day shows its parts beside the public score with a Release button (`POST /api/ad
 `score_releases` row), and a "Clear X handle" button for a conflict. A wrong key is a 404; the page
 counts against the veto rate limit.
 
-### The surfaces (spec 7)
+### The surfaces (spec 7) (replaced in v2.12.1)
 
 - **`/b/<slug>`** (`app/b/[slug]/page.tsx`, ISR 600 s; pure `ProfileView.tsx`, data
   `profile-data.ts profileData`, cached read `profile-load.ts` tagged `PROFILE_TAG`): score ring
@@ -4568,7 +4573,7 @@ counts against the veto rate limit.
   agentCompletableOf`: only a go-to-market plan or a full-time team blocks; today only Colosseum
   World's Fair), and with the flag on `find` and the score program line drop those programs.
 
-### Consent and terms (spec 8)
+### Consent and terms (spec 8) (replaced in v2.12.1: no consent line; new terms text)
 
 The first find's last line: "Your public work gets a public score at earnkit.com/b/<slug>. Say hide
 anytime." `tell` takes `profile: 'hide' | 'show'` (`profile_hidden`, `profile_shown`), `x_handle`
@@ -4590,7 +4595,7 @@ once per person by the cron 10+ minutes after the first find when nothing verifi
 `detail.missing` (`no_github`, `nothing_live`, `ownership_unproven`, `read_failed`). The spec expects
 under 10%; the script sets no goal. It needs `EARNKIT_EVENT_LOG=on`.
 
-### The journey (`v212-journey.test.ts`)
+### The journey (`v212-journey.test.ts`) (v2.12.1: updated; the flag-on journey is `v2121-journey.test.ts`)
 
 Its own throwaway database, every real program file, the real flag-on code paths (tools, cron,
 discovery, readers' parsing, anti-farming, formula, percentiles, event log, `profileData` and
@@ -4628,7 +4633,7 @@ check the flag, so restored files stay dormant until it is on. Archived tables g
 | `EARNKIT_PROGRAM_LEADERBOARDS=on` | Keeps `/campaigns/<slug>` and `/bonus/<round>` as pages with the score on | |
 | `ADMIN_VETO_SECRET` | `/admin/scores` (its own key) | Already set |
 
-### Owner go-live steps
+### Owner go-live steps (replaced by v2.12.1's below)
 
 In this order, after merge (none is done on this branch):
 
@@ -4672,3 +4677,282 @@ exempt from the pitch gate; a minimum percentile before the card is offered (a s
 offered at "top 69%"; answered in the final review: "Top N%" and the offer only for N <= 50, owner
 may move the cutoff); the card font; listing installed-but-unscored profiles on `/leaderboard`. The
 bonus line below the pitch score is fixed (final review: no bonus line there).
+
+## v2.12.1 Where you stand (Tasks 1 to 13)
+
+Spec: `docs/design-docs-and-implementation-plans/v2.12.1-where-you-stand.md`; plan:
+`v2.12.1-where-you-stand-plan.md` (plan rulings S1 to S16); the build ledger with every controller
+ruling is `.superpowers/sdd/v2.12.1-where-you-stand-plan/progress.md` (scratch, not shipped). It
+replaces v2.12's onboarding, replies, scoring, profile, card and leaderboard. Everything still sits
+behind `EARNKIT_BUILDER_SCORE=on`: **flag off is production (v2.11 replies, no profile writes;
+`/b/*`, `/<handle>`, `/claim/*`, `/x/callback` and `/leaderboard` are 404; `score` is not listed;
+`/terms` has no builder-profiles section)**. Tools stay five (`find`, `prepare`, `confirm`, `tell`,
+`score`), each description under 800 characters.
+
+### The flow, as the builder sees it (`v2121-journey.test.ts`)
+
+1. **Connect.** `find` takes an optional `identity` input (MCP schema only with the flag on;
+   `identity-input.ts identityInput`, lenient, never throws): GitHub login, projects (name, a few
+   words, repo, live link, package, contracts as `base|arc|monad|tempo:0x..`), wallets. The tool
+   description tells the agent to fill it and never to ask. `local_git` is still accepted and mapped
+   in. `noteIdentity` stores it (`builder_profiles.identity`, `reported_github`), proposes agent
+   sources (at most 25 projects a person) and remembers wallets (never proof).
+2. **The first reply** (`where-you-stand.ts whereYouStand`, three parts under `HEADS`: "Where you
+   stand", "Ways to earn right now", "How to move up"), built by `tools.ts standFind` after the
+   person's own refresh (`stand-view.ts startRefresh`, raced against `REFRESH_BUDGET_MS` = 8 s inside
+   find's 10 s; a slow reader keeps going in the background). Lead with the work ("You've shipped 3
+   apps with AI: a tip jar, ..."; S1: every live thing counts in the sentence, confirmed or not; the
+   rank only from confirmed data). S2: rank first only when a project has people and the rank reads
+   well. S15: apps named but none live read "You've made N apps with AI: ... None is live yet." and
+   the step is go_live when EarnKit can host it. "Claim your page with X: earnkit.com/claim/<code>" is
+   a link, not a question, and only with X sign-in set. At most 3 programs, each tied to a project;
+   S16 and the T8 rulings: money in every reply (a program that fits, else a users-money line, else
+   the easiest rolling program, else the fresh build pick, which becomes the step when there is no
+   other). One yes per reply: a pending join's question or the outcome question takes the place of
+   the step (the join question goes last); the card question only when nothing else asks. Once
+   claimed: "Your page: earnkit.com/<handle>".
+3. **One yes** (`tell move_up { kind, project_key, answer, live_url? }`; the server recomputes the
+   step, never trusting the agent's kind; `make-countable.ts moveUpYes`/`moveUpNo`, `tools.ts
+   goLiveYes`, `stand-view.ts confirmYes`). `chooseStep` order: count_past, confirm (claimed people:
+   re-issue the wallet or GitHub link), tag_future, coin, payment, build; go_live when nothing is
+   live; else send_link. A step is offered only when its yes can deliver (T9 ruling 4). A no keeps that
+   step away 30 days (`standing_seen.declined`).
+   - count_past: a proposed contract on Base or Arc is read once a day for its past callers (at most 5
+     a refresh). Provable (EarnKit deployed it, or a wallet signed on the claim page created it):
+     tracked now, "Done. 140 people who used tokens.fun now count. You're now #3 of 40." (the rank
+     only when it reads well and the rescore is not held; held: "Your new rank shows after a quick
+     review."). Not provable: "One tap shows it's yours: <wallet link>"; unclaimed: the claim link
+     first.
+   - tag_future: the attribution line for the agent (`attribution.ts attributionFor`: `[ek_<person>,
+     earnkit]`, or `[<Base code>, earnkit]` on Base once `EARNKIT_BASE_AGENT_CODES=on`); "Added.
+     People using it will count as they come in." Tags are read only on tracked contracts.
+   - payment (S14 `paymentStepFits`: the app's own words fit and do not already say tips/pay): the
+     arc-tipjar starter as an add-on, preferring a deploy that enters nothing; it never nudges toward
+     a grant the builder didn't pick.
+   - go_live: EarnKit hosting (R2) when the repo is shown theirs, else the sign-in or proof line;
+     hosting off: the GitHub Pages steps, then a yes again with `live_url`.
+   - Every app built through EarnKit gets the attribution line from the start (`fresh-build.ts
+     buildKit(..., attribution)`, `ATTRIBUTION_RULE`).
+4. **3b, the coin** (`coin-moments.ts`; replaced v2.12's score-20 gate, `pitchAllowed` deleted): the
+   only places a coin is offered are the moments built_live (the build entry's confirm, "It's live.
+   Want to launch a coin, $TIP (Tip Jar), for it? ... Your entry is ready either way."), countable
+   (after a count or tag yes), first_five (the reply reporting a project's first 5 people) and
+   has_people (a project with people and no coin, when no bigger step exists). The coin and the
+   wallet are named before the yes (v2.8.1 A2); at most once per project (`coin_moments`), never
+   after two declines, never shared or held, only when the yes can launch (a confirmed repo or the
+   build path) and token launches are on. `tell coin { project_key, answer, wallet? }` (or move_up
+   kind coin) makes an entry in the internal closed program `earnkit-coin` (S7), which `confirm` by
+   project_id launches through the unchanged token path; a different wallet re-shows the line and
+   needs a fresh yes. Every pitch and launch path asks `tools.ts tokenPitch` -> `coinPitchAllowed`:
+   a program entry's confirm never pitches a token. Coin entries are hidden from "Your entries",
+   outcome questions, reminders and the digest.
+5. **Messages only when something real happens** (`stand-view.ts takeNews`, `standingNews`):
+   "Since you last checked: 12 new people used tokens.fun this week, and you moved up to #3. Want a
+   card to share it?" The first look records `standing_seen` and says nothing; a first rank is never
+   a "move up". Existing installs get one "Your EarnKit page is ready. Claim it with X: <link>"
+   (`takePageReady`, once, only with a project). S12: a line ending in a link has no period.
+6. **The card** (`share.ts cardYes`; `tell card: 'yes' | 'skip'`): a claimed page gets "Post it:
+   https://earnkit.com/<handle>/share"; unclaimed gets the claim link first.
+
+### Identity: X claim, pages, joins
+
+- **Sign in with X** (`x-oauth.ts`: OAuth 2.0 PKCE S256, scopes `users.read tweet.read`, one
+  `GET /2/users/me` per sign-in, about $0.01; the token is never stored). `claim.ts`: the claim code
+  is deterministic per person (S13, `HMAC(EARNKIT_AUTH_SECRET, 'claim:v1:<id>')`, 12 base32 chars;
+  only its sha256 in `claim_codes`). `GET /claim/<code>` says what becomes public and how to hide
+  ("hide my page") before one button, sets a `__Host-ekx-` cookie and csrf; `POST` (Origin, csrf,
+  `xClaim` rate limit) stores a 15-minute state (`x_oauth_states`, bound to the code) and 303s to
+  X; `GET /x/callback` checks the state with this browser's cookie before any X call. Without both
+  `X_CLIENT_ID` and `X_CLIENT_SECRET` no reply shows a claim link and the page says sign-in is not
+  open yet. X down: "Sign-in didn't finish. Open the link from your agent again." and the same link
+  still works (Review Focus 5). The first X account to finish owns the page; a second is refused
+  (Review Focus 1). The done page offers two optional upgrades: sign a message with a wallet
+  (`wallet-proof.ts`, `/claim/wallet`, EIP-191, each signature once via `wallet_proof_uses`,
+  30-minute token) and sign in with GitHub (purpose `claim`). Claim, done and wallet pages share the
+  navy design (`brand-page.ts`, fonts inline as data:, the wallet page's own nonce CSP).
+- **`bindX`**: writes `x_user_id`, `x_handle`, `x_name`, `x_avatar_url`, `claimed_at`; the slug becomes
+  the lowercase handle and the old random slug goes to history; a stale holder of the handle (it moved
+  to someone else) is cleared and no history row redirects to them (Review Focus 2); a rename keeps a
+  90-day redirect (`profile_slug_history.handle_rename`); queues discovery (the X field match).
+- **Pages**: `earnkit.com/<x-handle>` (`app/[handle]/`), case-insensitive with a 308 to the stored
+  case; a handle equal to a site route (`reserved-routes.ts RESERVED_ROUTES`; a new top-level route
+  fails `reserved-routes.test.ts` until added) is served at `/b/<handle>`, and every link and the card
+  follow `pagePath` (Review Focus 4). `/b/<v2.12 slug>` (and its card and share link) 308 to the X page
+  of a claimed person, else 404. Before the claim there is no public page.
+- **Joins** (`identity.ts joinOnProvenTie`, `pending_joins`): installations join one person only on a
+  proven tie: the same X user id, or the same proven GitHub login. Owner ruling (T5): a proven tie
+  auto-joins only when no other group holds it; otherwise a pending join asks both groups' agents
+  once (`askJoin`, the question last in the next reply; the joiner reads "Add this agent to your
+  EarnKit page?") and only two yeses merge (`tell pickup`). Hidden and held are either side's; the
+  older group keeps its page. The EarnKit deploy-wallet tie stays off (T5 ruling: the owner wallet on
+  a deploy is agent-typed). An agent-reported login or wallet never merges anyone (Review Focus 3).
+  S10: with the flag on, find never offers the v2.8.1 pickup.
+- **Contested logins** (`login-contests.ts`): a GitHub login proven by two or more unlinked groups
+  confirms nothing for any of them except the group whose claimed X equals the GitHub profile's X
+  field, or the group the owner rules for on `/admin/scores` (`login_contest_rulings`). Dormancy does
+  not matter (T6 ruling). **The owner's own split installs from the 2026-10-13 flag-on will see a
+  join question or a contested login until both agents answer or the owner claims and rules.**
+
+### Confirmed vs not yet confirmed (`confirmed.ts CONFIRMED_PROOFS`)
+
+Confirmed: `github_signin`, `proof_line`, `repo_owner`, `repo_link`, `deployer`, `deploy_wallet`,
+`wallet_signed`, `earnkit_hosted`, `x_match` (GitHub's public X field equals the claimed X; T7,
+`discovery.ts provenLogin`; withdrawn, the login is released). Everything else the agent reported is
+shown, marked "Not yet confirmed" on the page (one quiet line when none is confirmed), and adds 0.
+`earnkit_txt` and `dns_txt` rows count as not confirmed (S9: discovery no longer proposes merged PRs
+or reads `earnkit.txt`; old rows stay).
+
+### The score v2 and the rank (`score-v2.ts`, `rank.ts`, `person-score.ts`)
+
+- `computeScoreV2` (formula `v2`, pure): Shipped 20 (front-loaded, keeps at least half forever),
+  Used 40 (distinct people; callers, tagged calls, coin buys from a trade venue, package downloads
+  / 50 capped at 100 a package, stars and forks by others capped at 5), Earned 20 (1% of counted
+  caller value, coin creator fees, prizes won), Consistency 20 (weeks with a ship or use). Used and
+  Consistency fade with a 90-day half-life. Calibration `v2-launch` (`score-calibration.ts
+  V2_CALIBRATIONS`: users 500, $5,000, 13 weeks); tune it there (an owner decision, never automatic).
+  Ranked = at least one confirmed ship, **and** the person's ring computed by the cron (T4 ruling:
+  fail strict on ring partners), so a brand new person ranks after the next hourly cron.
+- `personInputsV2` reads confirmed sources only (the newest good observation: `source_live` when
+  newer than the daily `source_readings`), all v2.12 anti-farming rules (`countProject`), and builds
+  `builder_projects` for every project (confirmed or not) with the 25-project cap (`TRACKED_MAX`,
+  most recently active first; the rest "Not tracked right now").
+- `rescorePerson` writes `builder_live` (mutable, S5); a rescore the hold stops (+30 in a day against
+  the newest public history row, or one source over 80% at 60+) waits in `builder_live.pending`, and
+  the owner's release on `/admin/scores` publishes exactly the reviewed score (`score_releases.score`,
+  `scores`). The cron (`scorePeopleV2`) writes one `builder_scores` row a day (`formula = 'v2'`) as
+  history.
+- **One ranked population** (T11 ruling, `listedRanked`): ranked, claimed with a handle, not hidden,
+  not held. Replies, page, card and leaderboard all rank against it (a ranked person outside it is
+  counted in for their own reply), so a person's number never differs between surfaces.
+- **Rank words** (`rankWords`): "#N of M builders on EarnKit" while fewer than 50 are listed, and
+  only in the top half (T2 ruling: N <= ceil(M/2)); then "top N% of people building with AI" only
+  when N <= 50; otherwise no rank line.
+- **Fresh within minutes** (`refreshPerson`): `find`, `score` and a page view re-read that person's
+  sources at most once every 10 minutes (`REFRESH_MS`, claimed atomically), discovery inside a
+  refresh only when queued or once a day; never a shared client; never throws.
+
+### Scale and reads (spec "Scale")
+
+GitHub: one GraphQL query per person (`person-github.ts PERSON_GITHUB_QUERY`, newest 100 owned
+repos) plus aliased by-name calls (25 a call) for tracked repos outside it and org repos (with one
+REST contributors call each). npm downloads in bulk batches of 128 (`readNpmBulk`; scoped names
+keep `readNpm`). Blockscout once per contract per day (since its last daily read). One HEAD per
+site per day. A source that errors writes a failed reading once that day and is not retried; the
+page keeps the last good number. Every read is counted per provider (`read-usage.ts countingDeps`,
+`read_usage` table) against `FREE_LIMITS`, printed by the metric script. No new schedule: the cron
+slice is `SCORE_SLICE` = 0.4 of the hourly run.
+
+### The page, the card, the board (`page-data.ts`, `app/[handle]/`, `app/leaderboard/`)
+
+Every public sentence lives in `page-data.ts` (one place for the copy review). The page:
+avatar, X name and @handle, one h1 ("Lee has shipped 3 apps with AI."), the score ring
+(`app/[handle]/ScoreRing.tsx`, orange to purple, "41 of 100" in words) only beside a rank that reads
+well, the people line, then project cards (name, a few words, link, people and money when measured
+and not held, programs entered and won; "Not yet confirmed" and "Not tracked right now" quietly;
+a repo's name only while its newest reading says public and is under a week old), skeletons while
+`refreshPerson` runs (Suspense), and the sources line. The card (`card-response.tsx`, next/og
+1200x630, Funnel Display from `assets/fonts`, the X picture with a 3 s timeout) shows the headline of
+the latest moment (shipped, people, rank); the share link records `card_shared` and 302s to the X
+intent. `/leaderboard`: one gapless list (rank, avatar, @handle, best project), at most 100 rows,
+every query parameter ignored (S11: `boardRedirect` returns null, `/campaigns/<slug>` and
+`/bonus/<round>` render as v2.11). The footer is unchanged (its all-caps headings and the "For
+sponsors" link are production's; changing them is a separate owner call).
+
+### The copy rule (`fixtures/banned-words.ts`, `copy-review.test.ts` 12.1 and 12.2)
+
+Builder and public text never uses outcome, percentile, verified source, contract, wallet address,
+builder code, repo(sitory), commit, onchain, a chain name, an all-caps label (USDC excepted), an em
+dash or an emoji, unless the builder used the word first (their project names and program titles are
+exempt). 12.1 checks every v2.12.1 builder and public string (the three-part replies, every step,
+claim and wallet pages, the count and coin lines, the page, cards and board markup, the terms
+points); 12.2 scans every human string in `lib/earnkit` and `app` for a v2.12 line ("Top N% of
+builders", "Say hide anytime", an `earnkit.com/b/` link, "Builder score", "/100").
+
+### Terms (`policy.ts PROFILES_POINTS`, `/terms#builder-profiles`, flag-gated)
+
+Public only after the X claim; what the page shows; EarnKit reads only cheap public data (GitHub,
+live sites, package downloads, public transactions, EarnKit itself) and never adds anything to a
+site; only confirmed data counts, the rest is shown marked; another agent signing in as you joins
+only after you say yes; "hide my page" (hidden pages still count when others are ranked); EarnKit
+never posts and keeps the X user id, handle, name and picture; data may transfer in a merger or
+acquisition; removal by email. **Needs the owner's lawyer review before the flag goes on.**
+
+### What v2.12 code went (T12) and what stayed
+
+Removed: `app/b/[slug]/ProfileView.tsx`, `profile-load.ts`, `profile-data.ts` (v2.12 page and board
+readers; `money` moved to `page-data.ts`), `handle-page.ts` (T6 placeholder), `share.ts` card offer
+(`offerCard`, `cardOffer`, `findOfferLine`, `xAsk`, `CARD_OFFER_NOTE`, `cardModel`, `intentUrl`,
+`cardYesV212`), `score-tool.ts` v2.12 reply (`FILL_LINES`, `youLine`, `secondLine`, `nextAction`,
+`scoreLines`, `movedLine`, `scoreReplyV212`), `tools.ts` find's second line (`findSecondLine`,
+`scoreLineOf`, `SCORE_STEP_NOTE`), `profiles.ts` slug rules and X prefill (`setXHandle`,
+`followName`, `baseSlug`, `walletSlug`, `nextFreeSlug`, `shownName`, `CONSENT_LINE`, `consentOnce`,
+`PROFILE_URL`, `X_NOT_LISTED_NOTE`, `X_TAKEN_NOTE`, `X_CLAIMED_NOTE`, `X_SET_LINE`, `slugOwner`),
+`builder-score.ts` v1 scorer (`scoreBuilders`, `percentiles`, `publicScore`, `emptyReasonOf`).
+`/b/<slug>/card.png` and `/b/<slug>/share` are now thin wrappers over the `[handle]` handlers. The
+slug is an internal key: it no longer follows a login or wallet (it becomes the handle at the claim).
+`verifiedProject` (odds) now reads the person's confirmed `builder_projects` row. Kept: every table
+(`builder_ranks` and `x_handle_conflicts` get no new writes; the conflicts reader still feeds
+`/admin/scores` and `needs_owner` for v2.12 rows), `score.ts` formula v1 and `buildInputs` (history
+and its tests), `tell`'s `x_handle` field (accepted and ignored: an agent that kept v2.12's schema
+must not get a parse error).
+
+### Env vars
+
+| Var | Turns on | Notes |
+|---|---|---|
+| `EARNKIT_BUILDER_SCORE=on` | Everything above | Off = production. Needs `EARNKIT_EVENT_LOG=on`, `EARNKIT_AUTH_SECRET` (claim codes, person codes, upgrade tokens) and `GITHUB_TOKEN` (GraphQL needs a token) |
+| `X_CLIENT_ID`, `X_CLIENT_SECRET` | Sign in with X (claim links in replies, the claim page's button) | Both or neither; callback `https://earnkit.com/x/callback` |
+| `EARNKIT_BASE_AGENT_CODES=on` | A Base builder code per person through `POST https://api.base.dev/v1/agents/builder-codes` | Off until Base answers; off, Base apps get `ek_<person>` plus `earnkit` |
+| `EARNKIT_BUILDER_CODE` | EarnKit's own code if it differs from `earnkit` | |
+| R2 vars (`r2.ts`) | go_live through EarnKit hosting | Without them go_live uses the GitHub Pages fallback (the agent pushes) |
+| `TOKENSFUN_DEPLOY_API_KEY` | Coin offers (they are made only when launches are on) | Already set in production |
+
+### The metric (`scripts/v2121-metric.mts`, owner-run, READ ONLY)
+
+Per ISO week: coin offers shown, accepted and launched; reads per day per provider against each
+free limit; claimed pages; the leaderboard's real-builder count against the goal of 20 (shown, never
+a target). `scripts/v2121-seed.mts` seeds a local `v2121_shots` database for screenshots only.
+
+### The journey (`v2121-journey.test.ts`)
+
+Its own throwaway database, every real program file, flag on, the event log on, X set, token
+launches on; fakes only for GitHub, the site probe, Blockscout, tokens.fun's ticker check and X. A
+fresh install's `find` with `identity` (three parts, one question, the claim link, no rank before
+anything is confirmed); the claim through `claimGet`, `claimPost` and `xCallback` with a fake X; the
+hourly cron (x_match, the ring); "Your page: earnkit.com/Lee_Builds"; a second agent claiming the
+same X joins only after both say yes; a count_past yes ("Done. 12 people who used TipJar now count.
+You're now #1 of 4.") with the countable coin as its one yes; the 10-minute refresh guard; the page
+marking the two agent-only projects "Not yet confirmed"; the coin only at the countable moment; the
+card's share link and route; the leaderboard row with the same rank; hide and show; no network.
+
+### Owner go-live steps (v2.12.1)
+
+In this order; none is done on this branch.
+
+1. **Lawyer review** of `/terms#builder-profiles` (`policy.ts PROFILES_POINTS`).
+2. **X developer app** at console.x.com: verified phone, a few dollars of credits, OAuth 2.0 as a
+   confidential client, callback `https://earnkit.com/x/callback`, scopes `users.read tweet.read`;
+   `X_CLIENT_ID` and `X_CLIENT_SECRET` in Railway. Until then every flow except the X round trip
+   works and no reply shows a claim link.
+3. **The `earnkit` builder code on base.dev** (`EARNKIT_BUILDER_CODE` if it differs) and the note to
+   Base asking whether a code per builder through the agents API is fine; set
+   `EARNKIT_BASE_AGENT_CODES=on` only after Base says yes.
+4. **Hosting for go_live**: the R2 vars in Railway (else go_live uses the GitHub Pages fallback).
+5. **Programs**: the owner adds more once this version is shown ready; until then the rolling
+   programs already in EarnKit fill "Ways to earn right now".
+6. **Design sign-off** on screenshots of the page, card, leaderboard, claim, done and wallet pages.
+   The SDD folder's shots are scratch: re-shoot them against the merged build (`v2121-seed.mts`).
+7. **Merge and deploy with the flag unset** (`predeploy`: `pnpm db:migrate`, `pnpm programs:sync`).
+   Confirm `EARNKIT_EVENT_LOG=on`, `EARNKIT_AUTH_SECRET`, `GITHUB_TOKEN`.
+8. **Turn it on**: `EARNKIT_BUILDER_SCORE=on`, only now that every T9 and T10 piece has landed (the
+   go_live, count and coin yes handlers; they have). Refresh the claude.ai connector (find gains
+   `identity`, tell gains `move_up` and `coin`). Then run the acceptance test (T13 runbook).
+9. **Turning the flag off later** is safe: every v2.12.1 surface 404s again and nothing is written.
+   Know that the redirects it served were permanent (308: `/b/<v2.12 slug>`, a handle's case, a
+   rename, the `/b/<slug>` card and share link), which browsers may cache; the v2.12 board redirects
+   that were 307 are gone (S11). Switching the flag back on restores everything.
+10. **Tune the calibration** (`v2-launch`) from the real distribution after real scores arrive.
+11. **The owner's own split installs** (from the 2026-10-13 flag-on) will see a join question or a
+    contested login until both agents answer, or the owner claims and rules on `/admin/scores`.
+12. **Separate owner calls**: the footer's "For sponsors" link and its all-caps column headings are
+    production's and were left unchanged for flag-off parity.

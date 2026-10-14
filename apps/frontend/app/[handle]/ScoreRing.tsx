@@ -1,5 +1,7 @@
 import { useId } from 'react';
-import { SCORE_COLORS } from '../../../lib/earnkit/profile-data';
+
+/** The ring's two accents on the page's navy panel (orange to purple, v2.12 plan R17). */
+export const SCORE_COLORS = { from: '#FF7A1A', to: '#9B6BFF', panel: '#0F1839' } as const;
 
 const VIEW = 200;
 const STROKE = 14;

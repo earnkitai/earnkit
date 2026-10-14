@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import Footer from '../components/common/Footer';
 import { Panel } from '../components/common/Panel';
-import ScoreRing from '../b/[slug]/ScoreRing';
+import ScoreRing from './ScoreRing';
 import { SOURCES_LINE, type PageCard, type PageHead } from '../../lib/earnkit/page-data';
 import Avatar from './Avatar';
 import ProjectCards from './ProjectCards';

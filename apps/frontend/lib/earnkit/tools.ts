@@ -143,15 +143,15 @@ import { noteEvent } from './events';
 import { builderScoreEnabled } from './builder-score-flag';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { identityInput, noteIdentity } from './identity-input';
-import { SEND_LINK_NOTE, scoreReply, secondLine } from './score-tool';
+import { SEND_LINK_NOTE, scoreReply } from './score-tool';
 import { EARN_NOTE, MOVE_UP_NOTE, chooseStep, placeBuild, newsOpener, stepKey, whereYouStand, type EarnLine, type MoveUp, type StandView } from './where-you-stand';
 import { confirmYes, earnPrize, earnWhen, hostFor, moneyFallback, standBase, startRefresh, takeNews, takePageReady, type Seen } from './stand-view';
 import { COUNT_LINES, moveUpNo, moveUpYes, stepFor } from './make-countable';
 import { attributionFor, chainOf } from './attribution';
 import type { ReaderDeps } from './source-readers';
-import { SKIPPED_LINE, cardYes, findOfferLine, offerCard } from './share';
-import { SHARED_PROFILE_NOTE, ensureProfile, profileOf, setFallback, setHidden } from './profiles';
-import { emptyReasonOf, publicScore, verifiedProject } from './builder-score';
+import { SKIPPED_LINE, cardYes } from './share';
+import { SHARED_PROFILE_NOTE, ensureProfile, setFallback, setHidden } from './profiles';
+import { verifiedProject } from './builder-score';
 import { COIN_NOTE, builtLiveAnswer, coinLine, coinNo, coinOfferable, coinOpen, coinPitchAllowed, coinYes, offerCoin, showBuiltLive } from './coin-moments';
 import { sql } from './db';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
@@ -1124,49 +1124,6 @@ async function tokenHeld(ctx: ToolContext, projectId: number): Promise<boolean> 
   if ((await getProgramRow(entry.program_id)).campaign) return false;
   return !(await tokenPitch(ctx, entry.program_id, entry.repo_url, entry.id));
 }
-
-/** v2.12 spec 7: the agent's step when find's second line offers to link the builder's work. */
-export const SCORE_STEP_NOTE =
-  "When the builder says yes (or link it) to the last line, call score: it returns the earnkit.txt lines to add. Never ask the builder to edit files.";
-
-/**
- * v2.12 spec 7 (R13, R14): find's second line: the public score (never a held one), else the step
- * that fills an empty profile (as the score tool names it), else nothing (a first score in review).
- * `fill`: the line offers to link their work (score_step).
- */
-async function scoreLineOf(id: number, lineOneAsks: boolean): Promise<{ line: string; fill: boolean } | null> {
-  const profile = await profileOf(id);
-  if (!profile) return null;
-  const pub = await publicScore(id);
-  const score = pub && pub.score > 0 ? pub : null;
-  let missing = score || profile.held ? null : await emptyReasonOf(id, { anyHistory: true });
-  // As the score tool: unproven with no repo to put a line in, the step is the site's earnkit.txt line.
-  if (missing === 'ownership_unproven') {
-    const [repo] = await sql()`SELECT 1 FROM builder_sources WHERE builder_id = ${id} AND kind = 'repo' AND state = 'proposed' LIMIT 1`;
-    if (!repo) missing = 'no_github';
-  }
-  const line = secondLine({ profile, score, missing, lineOneAsks });
-  return line ? { line, fill: missing === 'ownership_unproven' || missing === 'no_github' } : null;
-}
-
-/**
- * find's line 2 (scoreLineOf) with the v2.12 spec 7 card offer: made once, on the score line itself
- * (find keeps two lines), and only when nothing else in the reply asks (R14). The offer never fails
- * the line. Exported for tests.
- */
-export async function findSecondLine(id: number, lineOneAsks: boolean): Promise<{ line: string; fill: boolean; offered: boolean } | null> {
-  const second = await scoreLineOf(id, lineOneAsks);
-  if (!second) return null;
-  const offered =
-    !second.fill && !/\?/.test(second.line)
-      ? await offerCard(id, lineOneAsks).catch((err: unknown) => {
-          console.error('[list_programs] card offer', err instanceof Error ? err.name : 'error');
-          return null;
-        })
-      : null;
-  return { line: offered ? findOfferLine(second.line) : second.line, fill: second.fill, offered: Boolean(offered) };
-}
-
 
 /**
  * v2.12.1 T10 (spec 3b): find's step with the coin moments. The reply that reports a project's first
@@ -3304,10 +3261,12 @@ export const TellToolInput = z
       .strict()
       .optional(),
     pickup: z.enum(['yes', 'no']).optional(),
-    // v2.12 spec 7, 8 (EARNKIT_BUILDER_SCORE on): "hide" or "show", and the X handle they confirmed.
+    // v2.12 spec 8 (EARNKIT_BUILDER_SCORE on): "hide" or "show".
     profile: z.enum(['hide', 'show']).optional(),
+    // v2.12.1 T12: kept and ignored. v2.12's tell took the X handle the builder confirmed; an agent
+    // that kept that schema (the flag was on briefly in production) must not get a parse error.
     x_handle: z.string().max(20).optional(),
-    // v2.12 spec 7: the builder's answer to the card offer ("skip" is one word).
+    // v2.12.1 T8: the builder's answer to "Want a card to share it?" ("skip" is one word).
     card: z.enum(['yes', 'skip']).optional(),
     // v2.12.1 T8: the builder's yes or no to "How to move up" (find's or score's move_up).
     move_up: z
