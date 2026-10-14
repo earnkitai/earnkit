@@ -52,9 +52,9 @@ test('11.11 the card follows the profile at once: hidden is a 404 (no-store), an
     const id = await scored();
     const slug = `card${id}`;
     const before = await get(slug);
-    assert.equal(before.status, 404, 'no consent line shown yet: not public');
+    assert.equal(before.status, 404, 'v2.12.1 T6: not claimed with X yet: not public');
     assert.equal(before.headers.get('cache-control'), 'no-store');
-    await sql()`UPDATE builder_profiles SET consent_shown_at = now() WHERE builder_id = ${id}`;
+    await sql()`UPDATE builder_profiles SET consent_shown_at = now(), x_user_id = ${String(id)}, x_handle = ${`c${id}`.slice(0, 15)} WHERE builder_id = ${id}`;
     const ok = await get(slug);
     assert.equal(ok.status, 200);
     assert.equal(ok.headers.get('content-type'), 'image/png');

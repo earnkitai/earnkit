@@ -1,3 +1,4 @@
+import type postgres from 'postgres';
 import { sql } from './db';
 import { profileChanged } from './profile-cache';
 import { releaseLogin } from './profiles';
@@ -14,7 +15,19 @@ import { releaseLogin } from './profiles';
  */
 const PROVEN_BASES = ['signin', 'app', 'proof_line'];
 
-/** The roots (ascending) of the unlinked, non-shared groups that prove `login`. */
+/** v2.12.1 T6 (T5 carry): a group with no agent call (MCP) in this many days and no X claim never contests. */
+export const DORMANT_DAYS = 30;
+/**
+ * The group rooted at `col` contests: not a shared client, and active (an agent call in the last
+ * DORMANT_DAYS) or claimed with X. A person's old, forgotten install (the owner has split installs)
+ * never contests their own login at launch; it does again once its agent calls.
+ */
+const contesting = (col: postgres.Fragment) => sql()`
+  NOT EXISTS (SELECT 1 FROM installations s WHERE COALESCE(s.builder_id, s.id) = ${col} AND s.shared_client)
+  AND (EXISTS (SELECT 1 FROM installations a WHERE COALESCE(a.builder_id, a.id) = ${col} AND a.last_seen_at > now() - make_interval(days => ${DORMANT_DAYS}))
+    OR EXISTS (SELECT 1 FROM builder_profiles q WHERE q.builder_id = ${col} AND q.x_user_id IS NOT NULL))`;
+
+/** The roots (ascending) of the unlinked, contesting groups that prove `login`. */
 export async function contestants(login: string): Promise<number[]> {
   const L = login.toLowerCase();
   const rows = await sql()<{ r: number }[]>`
@@ -23,7 +36,7 @@ export async function contestants(login: string): Promise<number[]> {
       WHERE lower(v.login) = ${L}
       UNION
       SELECT builder_id FROM builder_profiles WHERE lower(github_login) = ${L} AND github_basis IN ${sql()(PROVEN_BASES)}) x
-    WHERE NOT EXISTS (SELECT 1 FROM installations s WHERE COALESCE(s.builder_id, s.id) = x.r AND s.shared_client)
+    WHERE ${contesting(sql()`x.r`)}
     ORDER BY r`;
   return rows.map((x) => x.r);
 }
@@ -47,6 +60,8 @@ export async function loginStands(root: number, login: string, twitter: string |
   const ruled = await ruledRoot(login);
   if (ruled !== null) return ruled === root;
   if (!twitter) return false;
+  // v2.12.1 T6: only the handle the X claim wrote (bound to x_user_id). On a claimed page nothing else
+  // writes x_handle (setXHandle refuses it, GitHub never clears it, a merge keeps the older page's claim and its handle together).
   const [p] = await sql()<{ x_user_id: string | null; x_handle: string | null }[]>`
     SELECT x_user_id, x_handle FROM builder_profiles WHERE builder_id = ${root}`;
   return Boolean(p?.x_user_id && p.x_handle && p.x_handle.toLowerCase() === twitter.replace(/^@/, '').toLowerCase());
@@ -83,7 +98,7 @@ export async function loginContests(): Promise<LoginContest[]> {
       UNION
       SELECT lower(github_login), builder_id FROM builder_profiles WHERE github_login IS NOT NULL AND github_basis IN ${sql()(PROVEN_BASES)})
     SELECT login, array_agg(DISTINCT r ORDER BY r) AS groups FROM c
-    WHERE NOT EXISTS (SELECT 1 FROM installations s WHERE COALESCE(s.builder_id, s.id) = c.r AND s.shared_client)
+    WHERE ${contesting(sql()`c.r`)}
     GROUP BY login HAVING count(DISTINCT r) >= 2 ORDER BY login`;
   const out: LoginContest[] = [];
   for (const r of rows) {

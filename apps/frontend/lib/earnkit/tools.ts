@@ -146,7 +146,7 @@ import { SHARED_PROFILE_NOTE, X_SET_LINE, consentOnce, ensureProfile, profileOf,
 import { emptyReasonOf, pitchAllowed, publicScore, verifiedProject } from './builder-score';
 import { sql } from './db';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
-import { JOIN_QUESTIONS, JOIN_TEXT, answerJoin, answerPickup, askJoin, offerPickup, pendingJoinOf, type PickupDeps } from './identity';
+import { JOIN_TEXT, answerJoin, joinQuestion, answerPickup, askJoin, offerPickup, pendingJoinOf, type PickupDeps } from './identity';
 import type { FieldKind } from './program-file';
 import type { ProgramRow } from './programs';
 import { RateLimitError, enforce } from './rate-limit';
@@ -2269,12 +2269,13 @@ export const handlers = {
     // v2.12.1 fix round 1: with the score flag on, the same yes answers a pending join first.
     const join = builderScoreEnabled() && !ctx.sharedClient ? await pendingJoinOf(ctx.installationId) : null;
     if (join && answer === null)
-      return { show_to_builder: JOIN_QUESTIONS[join.tie], agent_note: 'Ask the builder, then call tell with pickup: "yes" or "no".' };
+      return { show_to_builder: joinQuestion(join.tie, join.side), agent_note: 'Ask the builder, then call tell with pickup: "yes" or "no".' };
     if (join && answer !== null) {
       const r = await answerJoin(ctx.installationId, answer);
-      if (r === 'linked') return { show_to_builder: JOIN_TEXT.linked, agent_note: 'Call find again to show their page.' };
-      if (r === 'waiting') return { show_to_builder: JOIN_TEXT.waiting };
-      if (r === 'declined') return { show_to_builder: JOIN_TEXT.declined };
+      const here = join.side === 'joiner';
+      if (r === 'linked') return { show_to_builder: here ? JOIN_TEXT.linkedHere : JOIN_TEXT.linked, agent_note: 'Call find again to show their page.' };
+      if (r === 'waiting') return { show_to_builder: here ? JOIN_TEXT.waitingHere : JOIN_TEXT.waiting };
+      if (r === 'declined') return { show_to_builder: here ? JOIN_TEXT.declinedHere : JOIN_TEXT.declined };
     }
     if (answer === null)
       return { show_to_builder: PICKUP_TEXT.unclear, agent_note: 'Ask the builder, then pass answer "yes" or "no".' };

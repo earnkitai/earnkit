@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import {
   CONSENT_LINE, X_NOT_LISTED_NOTE, X_TAKEN_NOTE, baseSlug, clearXHandle, consentOnce, xHandleConflicts, ensureProfile, mergeProfiles, nextFreeSlug, profileOf, randomSlug,
-  resolveSlug, setFallback, setHidden, setXHandle, shownName, walletSlug,
+  slugOwner, setFallback, setHidden, setXHandle, shownName, walletSlug,
 } from './profiles';
 
 /** Final review I4: a profile is public only once the consent line was shown; these tests are about other rules. */
@@ -70,8 +70,8 @@ test('7.3 an X handle changes the slug; the old one redirects forever and is nev
   assert.ok(r.ok);
   const now = (await profileOf(b))!.slug;
   assert.equal(now, `bob${T % 1000}`);
-  assert.deepEqual(await resolveSlug(first), { builderId: b, redirect: now });
-  assert.deepEqual(await resolveSlug(`bob${T}`), { builderId: b, redirect: now });
+  assert.deepEqual(await slugOwner(first), { builderId: b, redirect: now });
+  assert.deepEqual(await slugOwner(`bob${T}`), { builderId: b, redirect: now });
   // C's own wallet has the same short slug as B's old one: C gets the next free one.
   await shownProfile(c, new Date());
   await setFallback(c, { wallet: runWallet('1234', '1') });
@@ -107,10 +107,10 @@ test('7.5 hide and show: a hidden profile does not resolve (404) but keeps its r
   await fresh(T + 4);
   const { profile } = (await shownProfile(T + 4, new Date()))!;
   assert.equal(await setHidden(T + 4, true), 'Your profile is hidden. Say show to list it again.');
-  assert.equal(await resolveSlug(profile.slug), null);
+  assert.equal(await slugOwner(profile.slug), null);
   assert.ok(await profileOf(T + 4), 'the row stays');
   assert.equal(await setHidden(T + 4, false), `Your profile is public again: earnkit.com/b/${profile.slug}`);
-  assert.deepEqual(await resolveSlug(profile.slug), { builderId: T + 4, redirect: null });
+  assert.deepEqual(await slugOwner(profile.slug), { builderId: T + 4, redirect: null });
 });
 
 test('7.6 linking merges profiles: one profile, sources moved once, the other slug redirects to the root', dbTest, async () => {
@@ -126,7 +126,7 @@ test('7.6 linking merges profiles: one profile, sources moved once, the other sl
     SELECT builder_id, ref, state FROM builder_sources WHERE builder_id IN (${root}, ${other}) ORDER BY ref, builder_id`;
   assert.deepEqual(live.filter((s) => s.state !== 'rejected').map((s) => `${s.builder_id}:${s.ref}`), [`${root}:lee/a`, `${root}:lee/b`]);
   assert.equal(await profileOf(other), null);
-  assert.equal((await resolveSlug(otherSlug))?.builderId, root);
+  assert.equal((await slugOwner(otherSlug))?.builderId, root);
 });
 
 test('7.7 a shared group never gets a profile', dbTest, async () => {
@@ -155,8 +155,8 @@ test('7.9 merge, the other has the X handle: it wins, takes the root id, keeps l
   assert.deepEqual([p.github_login, p.x_handle, p.slug, p.hidden], [`mx${T}`, `Mx${T % 1000}`, `mx${T % 1000}`, true], 'login and handle kept; hidden stays hidden');
   assert.equal(await profileOf(other), null);
   await setHidden(root, false);
-  assert.deepEqual(await resolveSlug(rootSlug), { builderId: root, redirect: `mx${T % 1000}` });
-  assert.deepEqual(await resolveSlug(`mx${T}`), { builderId: root, redirect: `mx${T % 1000}` }, 'the moved history follows');
+  assert.deepEqual(await slugOwner(rootSlug), { builderId: root, redirect: `mx${T % 1000}` });
+  assert.deepEqual(await slugOwner(`mx${T}`), { builderId: root, redirect: `mx${T % 1000}` }, 'the moved history follows');
   const [rank] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_ranks WHERE builder_id = ${other}`;
   assert.equal(rank.n, 0, 'the merged-away id stops counting');
   const [q] = await sql()<{ reason: string }[]>`SELECT reason FROM discovery_queue WHERE builder_id = ${root}`;
@@ -172,8 +172,8 @@ test('7.10 merge, the root wins: the other\'s login moves to it (no unique clash
   await sql().begin((tx) => mergeProfiles(tx, root, other));
   const p = (await profileOf(root))!;
   assert.deepEqual([p.github_login, p.fallback_handle, p.slug], [`ml${T}`, `ml${T}`, `ml${T}`]);
-  assert.deepEqual(await resolveSlug(rootSlug), { builderId: root, redirect: `ml${T}` });
-  assert.deepEqual(await resolveSlug(`ml${T}`), { builderId: root, redirect: null });
+  assert.deepEqual(await slugOwner(rootSlug), { builderId: root, redirect: `ml${T}` });
+  assert.deepEqual(await slugOwner(`ml${T}`), { builderId: root, redirect: null });
   const [q] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM discovery_queue WHERE builder_id = ${root}`;
   assert.equal(q.n, 0, 'flag off: no queue write');
 });
@@ -222,7 +222,7 @@ test('7.15 the owner clears a held handle: the slug falls back to the login, the
   }
   const p = (await profileOf(a))!;
   assert.deepEqual([p.x_handle, p.slug], [null, `twa${T}`]);
-  assert.deepEqual(await resolveSlug(xSlug), { builderId: a, redirect: `twa${T}` }, 'the old X slug stays theirs');
+  assert.deepEqual(await slugOwner(xSlug), { builderId: a, redirect: `twa${T}` }, 'the old X slug stays theirs');
   const [ev] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_events WHERE type = 'x_cleared' AND installation_id = ${a} AND detail->>'by' = 'owner'`;
   assert.equal(ev.n, 1);
   assert.deepEqual(await xHandleConflicts([a, b]), []);
@@ -259,9 +259,9 @@ test('7.17 merge: a prefill goes only with the login it came from', dbTest, asyn
 test('7.18 the consent line: once, marked as the reply goes out', dbTest, async () => {
   await fresh(T + 19);
   const { profile } = (await ensureProfile(T + 19, new Date()))!;
-  assert.equal(await resolveSlug(profile.slug), null, 'final review I4: not public before the consent line');
+  assert.equal(await slugOwner(profile.slug), null, 'final review I4: not public before the consent line');
   assert.equal(await consentOnce(T + 19), CONSENT_LINE(profile.slug));
-  assert.deepEqual(await resolveSlug(profile.slug), { builderId: T + 19, redirect: null });
+  assert.deepEqual(await slugOwner(profile.slug), { builderId: T + 19, redirect: null });
   assert.equal(await consentOnce(T + 19), null);
 });
 
@@ -279,5 +279,5 @@ test('7.14 a new random slug is never someone else\'s old slug (it would take ov
   let i = 0;
   const made = (await shownProfile(next, new Date(), { rand: () => pick.indexOf(seq[i++]) }))!;
   assert.equal(made.profile.slug, `b-${free}`);
-  assert.deepEqual(await resolveSlug(`b-${taken}`), { builderId: old, redirect: `now${old}` });
+  assert.deepEqual(await slugOwner(`b-${taken}`), { builderId: old, redirect: `now${old}` });
 });

@@ -1255,6 +1255,8 @@ CREATE TABLE IF NOT EXISTS x_oauth_states (
   expires_at    timestamptz NOT NULL,
   used_at       timestamptz
 );
+-- v2.12.1 T6: the state is bound to its claim code too (the code's sha256), and is deleted on use.
+ALTER TABLE x_oauth_states ADD COLUMN IF NOT EXISTS code_hash text;
 CREATE TABLE IF NOT EXISTS person_wallets (
   wallet     text PRIMARY KEY CHECK (wallet ~ '^0x[0-9a-f]{40}$'),
   builder_id integer NOT NULL,

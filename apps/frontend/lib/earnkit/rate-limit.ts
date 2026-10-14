@@ -64,6 +64,8 @@ export const LIMITS = {
   deployDay: { limit: 1, windowSeconds: 86_400 },
   /** v2.9 B9: GET /github/verify and its callback, per client IP. */
   githubVerify: { limit: 30, windowSeconds: 3_600 },
+  /** v2.12.1: POST /claim/<code> and /x/callback (Sign in with X), per client IP. */
+  xClaim: { limit: 30, windowSeconds: 3_600 },
   /** v2.9 final review I2: POST /api/host/upload, per client IP (each read can be 25 MB). */
   hostUpload: { limit: 10, windowSeconds: 3_600 },
   /** GET /oauth/authorize, per client IP. */

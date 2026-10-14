@@ -93,22 +93,27 @@ test('10.7 the stricter note shows only when the calibration changed and the per
   assert.equal(stricterNote([{ day: '2026-12-01', calibration: 'v1-launch', percentile: 70 }]), null);
 });
 
-test('10.8 the page: ISR 600, 404 for hidden and unknown, a permanent redirect for an old slug, nothing with the flag off', () => {
+test('10.8 (v2.12.1 T6) the pages read live: /<handle> and /b/<name> are dynamic, nothing with the flag off; hide and show expire the cache', () => {
   const page = readFileSync(join(import.meta.dirname, '../../app/b/[slug]/page.tsx'), 'utf8');
-  assert.match(page, /export const revalidate = 600/);
-  assert.match(page, /permanentRedirect\(`\/b\/\$\{/);
-  assert.match(page, /if \(!builderScoreEnabled\(\)\) notFound\(\)/);
-  // T10 review: one URL per profile (a mixed-case slug redirects to its lowercase form), cached under it, tagged for hide/show.
-  assert.match(page, /if \(slug !== slug\.toLowerCase\(\)\) permanentRedirect\(`\/b\/\$\{encodeURIComponent\(slug\.toLowerCase\(\)\)\}`\)/);
-  assert.match(page, /cachedProfile\(slug\.toLowerCase\(\)\)/);
-  const load = readFileSync(join(import.meta.dirname, '../../app/b/[slug]/profile-load.ts'), 'utf8');
-  assert.match(load, /tags: \[PROFILE_TAG\]/);
+  const handle = readFileSync(join(import.meta.dirname, '../../app/[handle]/page.tsx'), 'utf8');
+  for (const src of [page, handle]) {
+    assert.match(src, /export const dynamic = 'force-dynamic'/);
+    assert.match(src, /if \(!builderScoreEnabled\(\)\) notFound\(\)/);
+  }
+  assert.match(page, /isReserved\(slug\)/);
+  assert.match(page, /HandleView\(/);
+  assert.match(handle, /HandleView\(/);
+  const view = readFileSync(join(import.meta.dirname, '../../app/[handle]/handle-view.tsx'), 'utf8');
+  assert.match(view, /resolveHandle\(handle\)/);
   // Hide, show and an X handle change expire the cached profile at once.
   const profiles = readFileSync(join(import.meta.dirname, 'profiles.ts'), 'utf8');
   for (const fn of ['setHidden', 'setXHandle', 'clearXHandle']) {
     const body = profiles.slice(profiles.indexOf(`export async function ${fn}(`)).split('\nexport ')[0];
     assert.match(body, /profileChanged\(\)/, fn);
   }
+  const claim = readFileSync(join(import.meta.dirname, 'claim.ts'), 'utf8');
+  const bind = claim.slice(claim.indexOf('export async function bindX(')).split('\nexport ')[0];
+  assert.match(bind, /profileChanged\(\)/, 'bindX');
   const cache = readFileSync(join(import.meta.dirname, 'profile-cache.ts'), 'utf8');
   assert.match(cache, /revalidateTag\(PROFILE_TAG, \{ expire: 0 \}\)/);
 });
@@ -142,6 +147,9 @@ after(async () => {
   await sql()`DELETE FROM builder_ranks WHERE builder_id BETWEEN ${T} AND ${T + 19}`;
   await sql()`DELETE FROM builder_profiles WHERE builder_id BETWEEN ${T} AND ${T + 19}`;
   await sql()`DELETE FROM profile_slug_history WHERE builder_id BETWEEN ${T} AND ${T + 19}`;
+  await sql()`DELETE FROM builder_projects WHERE builder_id BETWEEN ${T} AND ${T + 19}`;
+  await sql()`DELETE FROM builder_live WHERE builder_id BETWEEN ${T} AND ${T + 19}`;
+  await sql()`DELETE FROM claim_codes WHERE builder_id BETWEEN ${T} AND ${T + 19}`;
   await sql()`DELETE FROM repo_public_reads WHERE repo_key LIKE ${`github.com/lee${T}/%`}`;
   await sql().end();
 });
@@ -340,4 +348,73 @@ test('11.5 the card route draws 1200x630 with next/og and caches briefly; the sh
   assert.match(share, /export async function GET\(_: Request/);
   const config = readFileSync(join(import.meta.dirname, '../../next.config.ts'), 'utf8');
   assert.match(config, /source: '\/b\/:slug\/card\.png',\s*headers: \[\{ key: 'Content-Security-Policy', value: IMAGE_CSP \}\]/);
+});
+
+/** What a page did: rendered (its element), a 404, or a redirect ("308 /to"). Next's notFound and redirects throw. */
+async function outcome(run: () => unknown): Promise<React.ReactElement | 404 | string> {
+  try {
+    return (await run()) as React.ReactElement;
+  } catch (e) {
+    const d = String((e as { digest?: unknown }).digest ?? '');
+    if (d.startsWith('NEXT_HTTP_ERROR_FALLBACK;404')) return 404;
+    const m = /^NEXT_REDIRECT;[^;]*;([^;]*);(\d+);/.exec(d);
+    if (m) return `${m[2]} ${m[1]}`;
+    throw e;
+  }
+}
+const handlePage = async (handle: string) => (await import('../../app/[handle]/page')).default({ params: Promise.resolve({ handle }) });
+const bPage = async (slug: string) => (await import('../../app/b/[slug]/page')).default({ params: Promise.resolve({ slug }) });
+
+test('6.16 flag off: /claim/<code>, /x/callback, /<handle> and /b/<name> are all 404', async () => {
+  const was = process.env.EARNKIT_BUILDER_SCORE;
+  delete process.env.EARNKIT_BUILDER_SCORE;
+  try {
+    const claim = await import('../../app/claim/[code]/route');
+    const cb = await import('../../app/x/callback/route');
+    const params = { params: Promise.resolve({ code: 'x' }) };
+    assert.equal((await claim.GET(new Request('https://earnkit.com/claim/x'), params)).status, 404);
+    assert.equal((await claim.POST(new Request('https://earnkit.com/claim/x', { method: 'POST' }), params)).status, 404);
+    assert.equal((await cb.GET(new Request('https://earnkit.com/x/callback?code=c&state=s'))).status, 404);
+    assert.equal(await outcome(() => handlePage('lee_builds')), 404);
+    assert.equal(await outcome(() => bPage('lee_builds')), 404);
+  } finally {
+    if (was === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
+    else process.env.EARNKIT_BUILDER_SCORE = was;
+  }
+});
+
+test('6.17 /b/<v2.12 slug>: unclaimed is a 404, claimed is a 308 to /<handle>; /<handle> shows the top line; reserved handles live at /b/', dbTest, async () => {
+  const was = process.env.EARNKIT_BUILDER_SCORE;
+  process.env.EARNKIT_BUILDER_SCORE = 'on';
+  try {
+    const { bindX } = await import('./claim');
+    const [a, b] = [T + 11, T + 12];
+    await profile(a, { slug: `b-u${T}` });
+    assert.equal(await outcome(() => bPage(`b-u${T}`)), 404, 'unclaimed: no public page');
+    await profile(b, { slug: `b-c${T}` });
+    const handle = `Pg${T}`.slice(0, 15);
+    await bindX(b, { id: `31${T}`, username: handle, name: 'Page Person', avatar: null }, NOW);
+    assert.equal(await outcome(() => bPage(`b-c${T}`)), `308 /${handle}`);
+    assert.equal(await outcome(() => bPage(handle.toLowerCase())), `308 /${handle}`);
+    assert.equal(await outcome(() => handlePage(handle.toLowerCase())), `308 /${handle}`, 'one URL: the handle in its own case');
+    const shown = await outcome(() => handlePage(handle));
+    assert.ok(typeof shown === 'object');
+    assert.match(text(html(shown)), /^\s*Page Person is building with AI\.\s*$/);
+    await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped) VALUES (${b}, 'k1', 'Tip jar', 'app', true, true)`;
+    await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at) VALUES (${b}, 10, '{}'::jsonb, true, 1, 0, 'v2', 'v2', now()) ON CONFLICT (builder_id) DO UPDATE SET shipped = 1`;
+    assert.match(text(html((await outcome(() => handlePage(handle))) as React.ReactElement)), /Page Person has shipped 1 app with AI\./);
+    await sql()`UPDATE builder_profiles SET hidden = true WHERE builder_id = ${b}`;
+    assert.equal(await outcome(() => handlePage(handle)), 404, 'hidden');
+    assert.equal(await outcome(() => bPage(`b-c${T}`)), 404, 'hidden, also through the old slug');
+    // A reserved handle: served at /b/<Handle>; /<Handle> and the lowercase form move there.
+    const r = T + 13;
+    await profile(r, { slug: `b-r${T}` });
+    await bindX(r, { id: `32${T}`, username: 'Leaderboard', name: 'Board', avatar: null }, NOW);
+    assert.ok(typeof (await outcome(() => bPage('Leaderboard'))) === 'object');
+    assert.equal(await outcome(() => bPage('leaderboard')), '308 /b/Leaderboard');
+    assert.equal(await outcome(() => handlePage('Leaderboard')), '308 /b/Leaderboard');
+  } finally {
+    if (was === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
+    else process.env.EARNKIT_BUILDER_SCORE = was;
+  }
 });

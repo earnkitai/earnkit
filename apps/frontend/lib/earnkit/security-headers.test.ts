@@ -91,7 +91,14 @@ test('5.12 Ruling 7: every cookie EarnKit sets is __Host- (source scan of app/ a
     /Set-Cookie|cookies\(\)\.set|\.cookies\.set/i.test(readFileSync(p, 'utf8')),
   );
   // v2.10 item 7b: the App's setup URL only clears the sign-in's cookie, through github-verify's clearCsrf.
-  assert.deepEqual(setting.map((p) => p.slice(root.length + 1)), ['lib/earnkit/github-app.ts', 'lib/earnkit/github-verify.ts']);
+  // v2.12.1 T6: the X claim (claim.ts) sets its own per-code __Host- cookie, as the GitHub sign-in does.
+  assert.deepEqual(setting.map((p) => p.slice(root.length + 1)).sort(), ['lib/earnkit/claim.ts', 'lib/earnkit/github-app.ts', 'lib/earnkit/github-verify.ts']);
+  const claim = readFileSync(setting.find((p) => p.endsWith('claim.ts'))!, 'utf8');
+  const claimCookies = [...claim.matchAll(/=>\s*`\$\{cookieName\(codeHash\)\}=([^`]*)`/g)];
+  assert.equal(claimCookies.length, 2, 'set and clear');
+  for (const m of claimCookies) assert.match(m[1], /Path=\/; .*HttpOnly; Secure; SameSite=Lax$/);
+  assert.match(claim, /const cookieName = \(codeHash: string\) => `__Host-ekx-/);
+  setting.sort((a, b) => a.localeCompare(b)).shift();
   const app = readFileSync(setting[0], 'utf8');
   assert.deepEqual([...app.matchAll(/'Set-Cookie': ([^}]+)/g)].map((m) => m[1].trim()), ['clearCsrf(nonce)']);
   assert.doesNotMatch(app, /__Host-|Max-Age|cookies\(\)\.set/);

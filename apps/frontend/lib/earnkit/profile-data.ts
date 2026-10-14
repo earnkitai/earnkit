@@ -1,7 +1,7 @@
 import { publicRow, publicScore, type StoredProject } from './builder-score';
 import { sql } from './db';
 import { shortWallet } from './entry-text';
-import { profileOf, resolveSlug } from './profiles';
+import { profileOf, slugOwner } from './profiles';
 import { publicReadKey } from './repo-cache';
 import { shownTop, type Parts } from './score';
 import { shownUrl } from './untrusted-text';
@@ -110,7 +110,7 @@ export function weekChange(rows: { day: string; score: number }[]): number | nul
  * stored with the public score row (builder_scores.projects), never recomputed here.
  */
 export async function profileData(slug: string, now: Date = new Date()): Promise<{ redirect: string } | ProfileData | EmptyProfile | null> {
-  const r = await resolveSlug(slug);
+  const r = await slugOwner(slug);
   if (!r) return null;
   if (r.redirect) return { redirect: r.redirect };
   const p = await profileOf(r.builderId);

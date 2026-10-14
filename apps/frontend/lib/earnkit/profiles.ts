@@ -6,6 +6,7 @@ import { shortWallet } from './entry-text';
 import { noteEvent } from './events';
 import { sharedGroup } from './installations';
 import { profileChanged } from './profile-cache';
+import { pagePath } from './reserved-routes';
 
 /**
  * v2.12 spec 1, 8: one public profile per person (the group root, plan R1). X is the visible name,
@@ -24,6 +25,9 @@ export const X_TAKEN_NOTE =
 /** tell's profile or x_handle on an agent serving many builders: there is no one profile to change. */
 export const SHARED_PROFILE_NOTE =
   "This agent serves many builders, so there is no public profile to change here. Don't show this to the builder.";
+/** setXHandle on a page claimed with X: the claim's handle stays. */
+export const X_CLAIMED_NOTE =
+  "This page is claimed with X, so its name is the X account the builder signed in with. Don't show this to the builder.";
 export const HIDDEN_LINE = 'Your profile is hidden. Say show to list it again.';
 export const SHOWN_LINE = (slug: string) => `Your profile is public again: ${PROFILE_URL(slug)}`;
 export const NO_PROFILE_LINE = 'You have no profile yet.';
@@ -207,6 +211,10 @@ export async function releaseLogin(builderId: number, login: string): Promise<bo
 /** spec 7 "The offer", plan R5: 'yes' takes the prefill; a typed handle must equal it. Refused: nothing changes, no event. */
 export async function setXHandle(builderId: number, given: string): Promise<{ ok: true; slug: string } | { ok: false; agent_note: string }> {
   const p = await profileOf(builderId);
+  // v2.12.1 T6 (T5 carry): the X claim owns a claimed page's handle (login-contests.ts compares GitHub's
+  // X field against it); a self-declared handle never replaces it.
+  const [claim] = await sql()<{ claimed: boolean }[]>`SELECT x_user_id IS NOT NULL AS claimed FROM builder_profiles WHERE builder_id = ${builderId}`;
+  if (claim?.claimed) return { ok: false, agent_note: X_CLAIMED_NOTE };
   const prefill = p?.github_login ? p.twitter_prefill : null;
   const handle = given.trim().replace(/^@/, '');
   const chosen = /^(yes|y|sure|ok)$/i.test(handle) ? prefill : handle;
@@ -224,7 +232,8 @@ export async function setXHandle(builderId: number, given: string): Promise<{ ok
         ON CONFLICT (handle, holder, claimant) DO UPDATE SET at = now()`;
       return null;
     }
-    await tx`UPDATE builder_profiles SET x_handle = ${prefill}, updated_at = now() WHERE builder_id = ${builderId}`;
+    const [set] = await tx`UPDATE builder_profiles SET x_handle = ${prefill}, updated_at = now() WHERE builder_id = ${builderId} AND x_user_id IS NULL RETURNING 1`;
+    if (!set) return null;
     const s = (await freeSlug(prefill.toLowerCase(), builderId, tx))!; // a handle is at most 15 characters
     await moveSlugIn(tx, builderId, s);
     return s;
@@ -252,8 +261,11 @@ export async function setHidden(builderId: number, hidden: boolean): Promise<str
  */
 export async function clearXHandle(builderId: number, by: 'github' | 'owner'): Promise<boolean> {
   const cleared = await sql().begin(async (tx) => {
-    const [p] = await tx<Profile[]>`SELECT ${tx(COLUMNS)} FROM builder_profiles WHERE builder_id = ${builderId} FOR UPDATE`;
+    const [p] = await tx<(Profile & { x_user_id: string | null })[]>`
+      SELECT ${tx(COLUMNS)}, x_user_id FROM builder_profiles WHERE builder_id = ${builderId} FOR UPDATE`;
     if (!p?.x_handle) return null;
+    // v2.12.1 T6: a handle confirmed by Sign in with X is never GitHub's to clear (only the owner's).
+    if (p.x_user_id && by === 'github') return null;
     await tx`UPDATE builder_profiles SET x_handle = NULL, updated_at = now() WHERE builder_id = ${builderId}`;
     await followName(tx, builderId, { x_handle: null, github_login: p.github_login, slug: p.slug }, p.github_login ? null : await firstWallet(tx, builderId), true);
     return p.x_handle.toLowerCase();
@@ -290,12 +302,15 @@ export async function consentOnce(builderId: number): Promise<string | null> {
 }
 
 /**
+ * v2.12.1 T6: until T11 replaces them, the v2.12 data read (profileData) still reads through this.
+ * The public routes read through resolveSlug (claimed only).
+ *
  * A live slug, or an old one with its redirect; null for hidden, unknown or never-installed, and
  * (v2.12 final review I4) for a person who has not been shown the consent line yet: disclosure
  * comes before publication. The profile page, the card and the share route all read through here;
  * the leaderboard applies the same rule (PUBLIC_PROFILE). Percentiles still count everyone.
  */
-export async function resolveSlug(slug: string): Promise<{ builderId: number; redirect: string | null } | null> {
+export async function slugOwner(slug: string): Promise<{ builderId: number; redirect: string | null } | null> {
   const s = slug.toLowerCase();
   if (!SLUG.test(s)) return null;
   type Row = { builder_id: number; hidden: boolean; consented: boolean };
@@ -305,6 +320,46 @@ export async function resolveSlug(slug: string): Promise<{ builderId: number; re
     SELECT p.builder_id, p.slug, p.hidden, p.consent_shown_at IS NOT NULL AS consented
     FROM profile_slug_history h JOIN builder_profiles p USING (builder_id) WHERE h.old_slug = ${s}`;
   return h && !h.hidden && h.consented ? { builderId: h.builder_id, redirect: h.slug } : null;
+}
+
+/**
+ * v2.12.1 owner ruling "Before the claim, everything shows in replies only; there is no public page":
+ * a v2.12 slug (live or old) names a person only once they claimed their page with X, and is not
+ * hidden; `redirect` is the current slug for an old one, `handle` the page's X handle (/b/<slug>
+ * moves to it). Null otherwise. The card and share routes read through here until T11.
+ */
+export async function resolveSlug(slug: string): Promise<{ builderId: number; redirect: string | null; handle: string } | null> {
+  const s = slug.toLowerCase();
+  if (!SLUG.test(s)) return null;
+  type Row = { builder_id: number; slug: string; x_handle: string | null; hidden: boolean; live: boolean };
+  const [p] = await sql()<Row[]>`
+    SELECT builder_id, slug, x_handle, hidden, true AS live FROM builder_profiles WHERE slug = ${s} AND x_user_id IS NOT NULL
+    UNION ALL
+    SELECT p.builder_id, p.slug, p.x_handle, p.hidden, false FROM profile_slug_history h JOIN builder_profiles p USING (builder_id)
+    WHERE h.old_slug = ${s} AND p.x_user_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM builder_profiles q WHERE q.slug = ${s})
+    LIMIT 1`;
+  if (!p || p.hidden || !p.x_handle) return null;
+  return { builderId: p.builder_id, redirect: p.live ? null : p.slug, handle: p.x_handle };
+}
+
+/** v2.12.1 spec "Identity": an old X handle redirects to the new one for this many days after a rename. */
+export const HANDLE_REDIRECT_DAYS = 90;
+
+/**
+ * The page at /<handle> (or /b/<handle> when reserved): the claimed, shown person whose X handle it
+ * is, in its own case; another case, or a handle renamed in the last HANDLE_REDIRECT_DAYS, is a
+ * redirect to the page's path. Hidden, unclaimed or unknown: null.
+ */
+export async function resolveHandle(raw: string, now = new Date()): Promise<{ builderId: number; handle: string } | { redirect: string } | null> {
+  if (!X_HANDLE.test(raw)) return null;
+  const h = raw.toLowerCase();
+  const [live] = await sql()<{ builder_id: number; x_handle: string; hidden: boolean }[]>`
+    SELECT builder_id, x_handle, hidden FROM builder_profiles WHERE lower(x_handle) = ${h} AND x_user_id IS NOT NULL`;
+  if (live) return live.hidden ? null : live.x_handle === raw ? { builderId: live.builder_id, handle: live.x_handle } : { redirect: pagePath(live.x_handle) };
+  const [old] = await sql()<{ x_handle: string | null; hidden: boolean }[]>`
+    SELECT p.x_handle, p.hidden FROM profile_slug_history s JOIN builder_profiles p USING (builder_id)
+    WHERE s.old_slug = ${h} AND s.moved_at > ${new Date(now.getTime() - HANDLE_REDIRECT_DAYS * 86_400_000)} AND p.x_user_id IS NOT NULL`;
+  return old?.x_handle && !old.hidden ? { redirect: pagePath(old.x_handle) } : null;
 }
 
 /**

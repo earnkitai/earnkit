@@ -2,7 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { sql } from './db';
-import { JOIN_QUESTIONS, answerJoin, answerPickup, coveredRoots, findEarlier, joinOnProvenTie, linkInstallations, offerPickup, pendingJoinOf, pickupQuestion, rootOf, statedUsers } from './identity';
+import { JOIN_QUESTIONS, JOIN_QUESTIONS_JOINER, answerJoin, answerPickup, coveredRoots, findEarlier, joinOnProvenTie, linkInstallations, offerPickup, pendingJoinOf, pickupQuestion, rootOf, statedUsers } from './identity';
 import { dueSources } from './sources';
 import { loginContests, loginStands, ruleContest } from './login-contests';
 import { identityInput, noteIdentity } from './identity-input';
@@ -696,11 +696,13 @@ test('5.12 phishing: a victim completing a sign-in link made for an attacker\'s 
     // Each agent's next find carries the one yes, first, once.
     for (const id of [victim.id, attacker.id]) {
       const out = (await handlers.list_programs({}, ctxOf(id))) as { show_to_builder: string; pick_up?: { question: string } };
-      assert.ok(out.show_to_builder.startsWith(JOIN_QUESTIONS.github_login), out.show_to_builder);
-      assert.equal(out.pick_up?.question, JOIN_QUESTIONS.github_login);
+      // T6 carry: the target is asked about the other agent, the joining agent about itself.
+      const want = id === victim.id ? JOIN_QUESTIONS.github_login : JOIN_QUESTIONS_JOINER.github_login;
+      assert.ok(out.show_to_builder.startsWith(want), out.show_to_builder);
+      assert.equal(out.pick_up?.question, want);
       assert.equal((out.show_to_builder.match(/\?/g) ?? []).length, 1, 'one question');
       const again = JSON.stringify(await handlers.list_programs({}, ctxOf(id)));
-      assert.doesNotMatch(again, /Another agent/, 'asked once');
+      assert.doesNotMatch(again, /[Aa]nother agent/, 'asked once');
     }
     // The attacker says yes: nothing joins. The victim says no: the pending join is gone.
     assert.match(JSON.stringify(await tools.tell({ pickup: 'yes' }, ctxOf(attacker.id))), /says yes too/);
@@ -993,4 +995,69 @@ test('5.20 every merge path needs both yeses: with the flag on, a v2.9 pickup ye
     assert.equal(r.status, 'none');
     assert.notEqual(await rootOf(later.id), await rootOf(earlier.id));
   });
+});
+
+// ---- v2.12.1 Task 6 carries (binding): the X claim against contested logins, dormant installs, the joiner's question
+
+test('6.13 reverse phish with X: an attacker holding a victim\'s login claims their own X, then names the victim\'s X through setXHandle: still not confirmed', db, async () => {
+  const { saveVerification } = await import('./github-verify');
+  const { bindX } = await import('./claim');
+  const { setXHandle } = await import('./profiles');
+  await scoreOn(async () => {
+    const login = `rx-${stamp()}`.slice(0, 39);
+    const victimX = `vx${process.pid}`.slice(0, 15);
+    const user = { login, created_at: new Date('2020-01-01'), public_repos: 3 };
+    const signIn = (id: number) => saveVerification({ installation_id: id, project_id: null, repo_key: `${login}/app`, purpose: 'entry', wallet: null, symbol: null }, user, NOW);
+    const [attacker, victim] = [await person(), await person()];
+    for (const id of [attacker, victim]) await ensureProfile(id, NOW);
+    await signIn(attacker); // the victim completed the attacker's link first
+    await signIn(victim);
+    // The attacker claims their own X, and its prefill is the victim's X (GitHub's field).
+    await bindX(attacker, { id: `7${attacker}`, username: `ax${attacker}`.slice(0, 15), name: 'A', avatar: null }, NOW);
+    await sql()`UPDATE builder_profiles SET github_login = ${login}, github_basis = 'signin', twitter_prefill = ${victimX} WHERE builder_id = ${attacker}`;
+    const r = await setXHandle(attacker, 'yes');
+    assert.equal(r.ok, false, 'a claimed page never takes a handle through setXHandle');
+    const [p] = await sql()`SELECT x_handle FROM builder_profiles WHERE builder_id = ${attacker}`;
+    assert.equal(p.x_handle, `ax${attacker}`.slice(0, 15));
+    assert.equal(await loginStands(attacker, login, victimX), false);
+    // A handle written straight into x_handle without a claim never stands either.
+    await sql()`UPDATE builder_profiles SET x_handle = ${victimX} WHERE builder_id = ${victim}`;
+    assert.equal(await loginStands(victim, login, victimX), false, 'unclaimed: no X claim, no standing');
+  });
+});
+
+test('6.14 a dormant install (no agent call in 30 days, no X claim) never contests its person\'s login', db, async () => {
+  const { saveVerification } = await import('./github-verify');
+  const { contestants } = await import('./login-contests');
+  await scoreOn(async () => {
+    const login = `dm-${stamp()}`.slice(0, 39);
+    const user = { login, created_at: new Date('2020-01-01'), public_repos: 3 };
+    const signIn = (id: number) => saveVerification({ installation_id: id, project_id: null, repo_key: `${login}/app`, purpose: 'entry', wallet: null, symbol: null }, user, NOW);
+    const [old, fresh] = [await person(), await person()];
+    await signIn(old);
+    await sql()`UPDATE installations SET last_seen_at = now() - interval '31 days' WHERE id = ${old}`;
+    await ensureProfile(fresh, NOW);
+    await signIn(fresh);
+    assert.deepEqual(await contestants(login), [fresh]);
+    assert.equal(await loginStands(fresh, login, null), true, 'uncontested: the active person stands');
+    assert.ok(!(await loginContests()).some((c) => c.login === login));
+    // The old install comes back (an agent call): it contests again.
+    await sql()`UPDATE installations SET last_seen_at = now() WHERE id = ${old}`;
+    assert.deepEqual(await contestants(login), [old, fresh].sort((a, b) => a - b));
+    // A dormant install with an X claim still contests.
+    await sql()`UPDATE installations SET last_seen_at = now() - interval '31 days' WHERE id = ${old}`;
+    await ensureProfile(old, NOW);
+    await sql()`UPDATE builder_profiles SET x_user_id = ${`8${old}`}, x_handle = ${`dx${old}`.slice(0, 15)} WHERE builder_id = ${old}`;
+    assert.deepEqual(await contestants(login), [old, fresh].sort((a, b) => a - b));
+  });
+});
+
+test('6.15 the joining agent\'s question reads for the agent that just signed in; the holder keeps "Another agent ..."', () => {
+  assert.equal(JOIN_QUESTIONS.github_login, 'Another agent signed in as your GitHub. Add it to your page?');
+  assert.equal(JOIN_QUESTIONS.x_user_id, 'Another agent signed in with your X. Add it to your page?');
+  for (const q of Object.values(JOIN_QUESTIONS_JOINER)) {
+    assert.match(q, /Add this agent to your EarnKit page\?$/);
+    assert.equal((q.match(/\?/g) ?? []).length, 1);
+    assert.doesNotMatch(q, /—|–|^Another agent/);
+  }
 });

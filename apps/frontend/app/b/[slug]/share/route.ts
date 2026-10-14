@@ -12,6 +12,8 @@ import { cachedProfile } from '../profile-load';
 export async function GET(_: Request, { params }: { params: Promise<{ slug: string }> }) {
   if (!builderScoreEnabled()) return new Response('Not found', { status: 404 });
   const lower = (await params).slug.toLowerCase();
+  // v2.12.1 T6: only a page claimed with X is public (resolveSlug), checked live before the cached read.
+  if (!(await resolveSlug(lower))) return new Response('Not found', { status: 404 });
   const data = await cachedProfile(lower);
   if (!data) return new Response('Not found', { status: 404 });
   if ('redirect' in data) return new Response(null, { status: 308, headers: { Location: `/b/${encodeURIComponent(data.redirect)}/share`, 'Cache-Control': 'no-store' } });

@@ -463,11 +463,21 @@ export const JOIN_QUESTIONS = {
   x_user_id: 'Another agent signed in with your X. Add it to your page?',
 } as const;
 export type JoinTie = keyof typeof JOIN_QUESTIONS;
-/** The builder's lines for their answer. */
+/** v2.12.1 T6 (T5 carry): the same yes, as the agent that just signed in (the joining side) reads it. */
+export const JOIN_QUESTIONS_JOINER: Record<JoinTie, string> = {
+  github_login: 'Your GitHub is already on an EarnKit page from another agent. Add this agent to your EarnKit page?',
+  x_user_id: 'Your X is already on an EarnKit page from another agent. Add this agent to your EarnKit page?',
+};
+/** The question for `side` of a pending join. Pure. */
+export const joinQuestion = (tie: JoinTie, side: 'target' | 'joiner') => (side === 'joiner' ? JOIN_QUESTIONS_JOINER : JOIN_QUESTIONS)[tie];
+/** The builder's lines for their answer (`...Here`: said on the joining side). */
 export const JOIN_TEXT = {
   linked: 'Done. That agent is on your page now.',
+  linkedHere: 'Done. This agent is on your page now.',
   waiting: 'Okay. It joins once the other agent says yes too.',
+  waitingHere: 'Okay. This agent joins once your other agent says yes too.',
   declined: 'Okay. That agent stays apart from your page.',
+  declinedHere: 'Okay. This agent stays apart from your page.',
 } as const;
 
 /**
@@ -563,7 +573,7 @@ export async function askJoin(installationId: number): Promise<{ question: strin
   if (row.side === 'target')
     await sql()`UPDATE pending_joins SET target_asked_at = now() WHERE installation_id = ${row.installation_id} AND target = ${row.target}`;
   else await sql()`UPDATE pending_joins SET joiner_asked_at = now() WHERE installation_id = ${row.installation_id} AND target = ${row.target}`;
-  return { question: JOIN_QUESTIONS[row.tie] };
+  return { question: joinQuestion(row.tie, row.side) };
 }
 
 /**

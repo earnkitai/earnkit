@@ -32,6 +32,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ slug: stri
   if (!builderScoreEnabled()) return new Response('Not found', { status: 404 });
   const slug = (await params).slug;
   const lower = slug.toLowerCase();
+  // v2.12.1 T6: resolveSlug means claimed with X (an unclaimed person has no public card).
   // The live row first (one indexed read, never cached): hidden or unknown is a 404 at once, and an
   // old slug (an X handle changed or cleared) moves on at once, whatever the cached read still holds.
   const live = await resolveSlug(lower);
