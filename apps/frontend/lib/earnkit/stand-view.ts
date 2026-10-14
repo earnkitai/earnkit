@@ -25,7 +25,14 @@ import { readFitRepos } from './installations';
  */
 
 /** What the person was last told (builder_profiles.standing_seen). */
-export type Seen = { rank?: number; people?: Record<string, number>; at?: string };
+export type Seen = { rank?: number; people?: Record<string, number>; at?: string; declined?: Record<string, string> };
+/** T9: a no keeps that step away this long. */
+export const DECLINE_MS = 30 * 86_400_000;
+/** The step keys declined within DECLINE_MS of `now`. Pure. */
+export const declinedNow = (seen: Seen, now: number): string[] =>
+  Object.entries(seen.declined && typeof seen.declined === 'object' ? seen.declined : {})
+    .filter(([, at]) => typeof at === 'string' && now - Date.parse(at) < DECLINE_MS)
+    .map(([k]) => k);
 export type StandBase = Omit<StandView, 'step' | 'news' | 'earn' | 'fresh'>;
 
 /**
@@ -54,7 +61,7 @@ export function startRefresh(id: number, o: { now: Date; start: number; reader?:
 
 type ProjectDbRow = {
   project_key: string; name: string; what: string | null; kind: string; confirmed: boolean; shipped: boolean; people: number;
-  has_coin: boolean; sends_tx: boolean; tagged: boolean; untracked_contract: string | null;
+  has_coin: boolean; sends_tx: boolean; tagged: boolean; untracked_contract: string | null; readable: boolean; certain: boolean;
 };
 
 /** A GitHub repo key ("lee/tipjar"): the project EarnKit can host (R2) or put on GitHub Pages. Pure. */
@@ -74,10 +81,28 @@ export async function standBase(id: number): Promise<{ base: StandBase; seen: Se
     SELECT standing_seen, created_at, page_ready_shown_at FROM builder_profiles WHERE builder_id = ${id}`;
   if (!p) return null;
   const s = await standingOf(id);
+  // T9: `readable`: none of the project's contracts is only on a chain EarnKit doesn't read (Monad,
+  // Tempo), so its tags can be counted;
+  // `certain`: its untracked contract is provable now, so counting it moves the rank today (EarnKit
+  // deployed it for this person, or a wallet they signed with created it, and no one else has it).
   const rows = await sql()<ProjectDbRow[]>`
-    SELECT project_key, name, what, kind, confirmed, shipped, people, has_coin, sends_tx, tagged, untracked_contract
-    FROM builder_projects WHERE builder_id = ${id}
-    ORDER BY shipped DESC, people DESC, last_active_at DESC NULLS LAST, project_key`;
+    SELECT p.project_key, p.name, p.what, p.kind, p.confirmed, p.shipped, p.people, p.has_coin, p.sends_tx, p.tagged, p.untracked_contract,
+      (NOT EXISTS (SELECT 1 FROM builder_sources s WHERE s.builder_id = ${id} AND s.project_key = p.project_key AND s.kind = 'contract'
+          AND s.state <> 'rejected')
+        OR EXISTS (SELECT 1 FROM builder_sources s WHERE s.builder_id = ${id} AND s.project_key = p.project_key AND s.kind = 'contract'
+          AND s.state <> 'rejected' AND s.ref ~ '^(base|arc):')
+        OR EXISTS (SELECT 1 FROM contract_deploys d JOIN installations i ON i.id = d.installation_id
+          WHERE COALESCE(i.builder_id, i.id) = ${id} AND d.status = 'deployed' AND lower(d.repo_key) = lower(p.project_key))) AS readable,
+      (p.untracked_contract IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM builder_sources o WHERE o.kind = 'contract' AND o.state = 'verified' AND o.builder_id <> ${id}
+          AND lower(o.ref) = lower(p.untracked_contract))
+        AND (EXISTS (SELECT 1 FROM contract_deploys d JOIN installations i ON i.id = d.installation_id
+              WHERE COALESCE(i.builder_id, i.id) = ${id} AND d.status = 'deployed' AND d.address IS NOT NULL
+                AND d.chain || ':' || lower(d.address) = lower(p.untracked_contract))
+          OR EXISTS (SELECT 1 FROM builder_sources s JOIN person_wallets w ON w.wallet = s.deployer AND w.builder_id = ${id}
+              WHERE s.builder_id = ${id} AND s.kind = 'contract' AND lower(s.ref) = lower(p.untracked_contract)))) AS certain
+    FROM builder_projects p WHERE p.builder_id = ${id}
+    ORDER BY p.shipped DESC, p.people DESC, p.last_active_at DESC NULLS LAST, p.project_key`;
   const projects: StandProject[] = rows.map((r) => ({
     key: r.project_key,
     name: r.name,
@@ -85,13 +110,14 @@ export async function standBase(id: number): Promise<{ base: StandBase; seen: Se
     shipped: r.shipped,
     people: Math.max(0, r.people),
     has_coin: r.has_coin,
-    sends_tx: r.sends_tx,
+    // T9: tags are read only on contracts EarnKit reads: a project on any other chain is never asked to tag.
+    sends_tx: r.sends_tx && r.readable,
     tagged: r.tagged,
     untracked_contract: r.untracked_contract,
     // Task 4 sets untracked_contract only for a contract with callers; the count itself is T9's read.
     untracked_people: r.untracked_contract ? 1 : 0,
-    // T9 (countableNow): whether counting them moves the rank today. Until then, never promised.
-    certain: false,
+    // T9: whether counting them moves the rank today (make-countable.ts countableNow, from stored facts).
+    certain: r.certain,
     app: r.kind === 'app',
     confirmed: r.confirmed,
   }));
@@ -102,8 +128,9 @@ export async function standBase(id: number): Promise<{ base: StandBase; seen: Se
   });
   const standing: Standing = { ranked: s.ranked, rank: s.rank, total: s.total };
   const seen = p.standing_seen && typeof p.standing_seen === 'object' ? (p.standing_seen as Seen) : {};
+  const declined = declinedNow(seen, Date.now());
   return {
-    base: { standing, claimed, handle: claimed ? s.handle : null, claimLink: link, projects },
+    base: { standing, claimed, handle: claimed ? s.handle : null, claimLink: link, projects, ...(declined.length > 0 && { declined }) },
     seen,
     created_at: p.created_at,
     page_ready_shown_at: p.page_ready_shown_at,
@@ -123,7 +150,7 @@ export async function takeNews(id: number, seen: Seen, base: StandBase, now: Dat
       at: now.toISOString(),
     };
     await sql()`
-      UPDATE builder_profiles SET standing_seen = ${sql().json(next as never)},
+      UPDATE builder_profiles SET standing_seen = ${sql().json(next as never)}::jsonb || jsonb_strip_nulls(jsonb_build_object('declined', standing_seen->'declined')),
         card_moments = CASE WHEN ${card}::text IS NULL THEN card_moments ELSE card_moments || jsonb_build_object('latest', ${card}::text) END
       WHERE builder_id = ${id}`;
   };

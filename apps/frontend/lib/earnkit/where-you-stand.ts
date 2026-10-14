@@ -39,6 +39,11 @@ export type StandView = {
    * is offered: a project that could win once people use it, or an open-all-year program.
    */
   money?: string | null;
+  /**
+   * v2.12.1 T9: the steps the builder said no to in the last 30 days (`<kind>:<project_key or *>`,
+   * stepKey), never offered again until then.
+   */
+  declined?: string[];
 };
 
 const ARTICLE = /^(a|an|the|my)\s+/i;
@@ -58,6 +63,15 @@ const nounOf = (ps: StandProject[]) => {
 const PAY = /\b(tip|donat|pay|shop|store|ticket|book|course|member|support|fund|sell|order|subscri)/i;
 /** Plan S14: a payment side fits only apps whose own words are about money changing hands. Pure. */
 export const paymentFits = (words: string): boolean => PAY.test(words);
+/** T8 carry: words that say the app already takes money (a tip jar, donations, payments, checkout). */
+const PAY_THERE = /\b(tip ?jars?|tips|tipping|donat\w*|payments?|pay|paying|checkout|paywall)\b/i;
+/**
+ * T9 (T8 carry): a way to take tips is offered only where a payment fits and isn't already there:
+ * a coffee shop site yes, an app named tipjar (it already takes tips) no. Pure.
+ */
+export const paymentStepFits = (words: string): boolean => paymentFits(words) && !PAY_THERE.test(words);
+/** The key a no to this step is kept under (builder_profiles.standing_seen.declined). Pure. */
+export const stepKey = (kind: MoveUp['kind'], key: string | null) => `${kind}:${key ?? '*'}`;
 
 /** Words a builder reply never says unless the builder did (spec copy rule); a project's few words with one are not used. */
 const JARGON = /\b(contracts?|wallets?|repos?|repository|commits?|onchain|on-chain|builder codes?|outcomes?|percentiles?|base|arc|monad|tempo|ethereum|robinhood|solidity|erc-?\d+|evm|sdk|api|cli|next\.?js|react|typescript|javascript|python|npm|github)\b/i;
@@ -87,9 +101,11 @@ export function chooseStep(
   o: { coin: (key: string) => boolean; build: string | null; host?: (key: string) => boolean },
 ): MoveUp | null {
   const shown = v.projects.filter((p) => p.shipped);
+  const no = new Set(v.declined ?? []);
+  const off = (kind: MoveUp['kind'], key: string | null) => no.has(stepKey(kind, key));
   if (shown.length === 0) {
     // Ruling S15: the agent named apps but none is live: the one yes puts the best one online.
-    const live = o.host ? v.projects.find((p) => p.app && o.host!(p.key)) : undefined;
+    const live = o.host ? v.projects.find((p) => p.app && o.host!(p.key) && !off('go_live', p.key)) : undefined;
     if (live)
       return {
         kind: 'go_live', project_key: live.key,
@@ -97,14 +113,14 @@ export function chooseStep(
       };
     return { kind: 'send_link', project_key: null, line: SEND_LINK_LINE };
   }
-  const past = shown.find((p) => p.untracked_contract && p.untracked_people > 0);
+  const past = shown.find((p) => p.untracked_contract && p.untracked_people > 0 && !off('count_past', p.key));
   if (past)
     return {
       kind: 'count_past', project_key: past.key,
       line: `${yours(past)} has people using it who aren't counted yet. Want me to count them? ${past.certain ? 'Your rank goes up today.' : "I'll send you a link to show it's yours."}`,
     };
   const unconfirmed = v.claimed ? shown.filter((p) => p.confirmed === false) : [];
-  if (unconfirmed.length > 0) {
+  if (unconfirmed.length > 0 && !off('confirm', unconfirmed.length === 1 ? unconfirmed[0].key : null)) {
     const [one] = unconfirmed;
     const head =
       unconfirmed.length === 1
@@ -115,7 +131,7 @@ export function chooseStep(
       line: `${head} Want a link to show ${unconfirmed.length === 1 ? "it's" : "they're"} yours? It takes one tap.`,
     };
   }
-  const tag = shown.find((p) => p.sends_tx && !p.tagged);
+  const tag = shown.find((p) => p.sends_tx && !p.tagged && !off('tag_future', p.key));
   if (tag)
     return {
       kind: 'tag_future', project_key: tag.key,
@@ -124,9 +140,9 @@ export function chooseStep(
         ? `${yours(tag)} has a payment side people could use. Want me to make it count the people who pay you? You won't have to do anything.`
         : `Want me to make ${yoursIn(tag)} count the people who use it? You won't have to do anything.`,
     };
-  const coin = shown.find((p) => p.people > 0 && !p.has_coin && o.coin(p.key));
+  const coin = shown.find((p) => p.people > 0 && !p.has_coin && o.coin(p.key) && !off('coin', p.key));
   if (coin) return { kind: 'coin', project_key: coin.key, line: `${yours(coin)} has people using it. Want to launch a coin for it? You'd get 40% of its trading fees.` };
-  const pay = shown.find((p) => p.app && !p.sends_tx && paymentFits(`${p.what ?? ''} ${p.name}`));
+  const pay = shown.find((p) => p.app && !p.sends_tx && paymentStepFits(`${p.what ?? ''} ${p.name}`) && !off('payment', p.key));
   if (pay) return { kind: 'payment', project_key: pay.key, line: `${yours(pay)} could take tips from the people who use it. Want me to add that? You won't have to do anything.` };
   return o.build ? { kind: 'build', project_key: null, line: o.build } : null;
 }

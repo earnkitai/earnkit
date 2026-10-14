@@ -287,8 +287,9 @@ test('8.19 a claimed person: their page, work not confirmed yet is the step, and
     assert.ok(!('claim' in r));
     const yes = (await tools.tell({ move_up: { kind: 'confirm', project_key: 'lee/tipjar', answer: 'yes' } }, { installationId: id } as never)) as { show_to_builder: string };
     assert.match(yes.show_to_builder, /^Open this to show it's yours\. It works for 30 minutes: https:\/\/earnkit\.com\/claim\/wallet\?t=\S+$/);
+    // v2.12.1 T9: a no is "Okay." and that step is not offered again for 30 days.
     const no = (await tools.tell({ move_up: { kind: 'confirm', project_key: 'lee/tipjar', answer: 'no' } }, { installationId: id } as never)) as { show_to_builder: string };
-    assert.equal(no.show_to_builder, 'Skipped.');
+    assert.equal(no.show_to_builder, 'Okay.');
     const card = (await tools.tell({ card: 'yes' }, { installationId: id } as never)) as { show_to_builder: string };
     assert.equal(card.show_to_builder, `Post it: https://earnkit.com/${handle}/share`);
     // The score tool: the same view without programs, and the same step.
@@ -296,7 +297,7 @@ test('8.19 a claimed person: their page, work not confirmed yet is the step, and
     assert.match(s.show_to_builder, /^Where you stand\nYou've shipped 1 app with AI: a tip jar\.\nYour page: /);
     // Fix round 1: one way to earn in the score reply too.
     assert.equal(s.show_to_builder.split('\n\n')[1]?.split('\n')[0], HEADS.earn);
-    assert.equal(s.move_up?.kind, 'confirm');
+    assert.notEqual(s.move_up?.kind, 'confirm', 'declined: not offered again for 30 days');
   }),
 );
 
@@ -348,8 +349,9 @@ test('8.23 (fix round 1) the server decides the step: a note-following agent wit
     // An unclaimed person whose step is not confirm: a claimed-only kind passed by the agent is ignored.
     const other = await person({ projects: [{ key: 'lee/n', name: 'Notes', what: 'a notes app', confirmed: false }] });
     const r = (await tools.tell({ move_up: { kind: 'confirm', answer: 'yes' } }, { installationId: other } as never)) as { show_to_builder: string; agent_note?: string };
-    assert.equal(r.show_to_builder, '');
-    assert.match(r.agent_note ?? '', /not available yet/);
+    // v2.12.1 T9: no step to answer: "Okay." and nothing changes.
+    assert.equal(r.show_to_builder, 'Okay.');
+    assert.equal(r.agent_note, undefined);
   }),
 );
 

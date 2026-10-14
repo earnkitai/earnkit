@@ -411,3 +411,14 @@ test('10 (T10 notes) buildKit orders the push for the owner proof: github_user t
   assert.match(kit.steps, /in the order below/);
   for (const s of kit.order) assert.doesNotMatch(s, /\u2014/, 'no em dash');
 });
+
+test('9.12 (v2.12.1 T9) buildKit with an attribution line carries it and one rule for the agent; without one, the v2.11 kit', () => {
+  const line = { codes: ['ek_x', 'earnkit'], data_suffix: '0xabc' };
+  const kit = buildKit(TIPJAR, null, { ...POD, wallet: WALLET }, false, line);
+  assert.deepEqual(kit.attribution, line);
+  assert.ok(kit.rules.some((r) => r.includes('data_suffix')));
+  const plain = buildKit(TIPJAR, null, { ...POD, wallet: WALLET });
+  assert.ok(!('attribution' in plain));
+  assert.ok(!plain.rules.some((r) => r.includes('data_suffix')));
+  assert.deepEqual(kit.rules.slice(0, -1), plain.rules);
+});

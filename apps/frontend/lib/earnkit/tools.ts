@@ -145,7 +145,9 @@ import { enqueueDiscovery, localGitInput } from './discovery';
 import { identityInput, noteIdentity } from './identity-input';
 import { SEND_LINK_NOTE, scoreReply, secondLine } from './score-tool';
 import { EARN_NOTE, MOVE_UP_NOTE, chooseStep, placeBuild, newsOpener, whereYouStand, type EarnLine, type StandView } from './where-you-stand';
-import { confirmYes, currentStep, earnPrize, earnWhen, hostFor, moneyFallback, standBase, startRefresh, takeNews, takePageReady } from './stand-view';
+import { confirmYes, earnPrize, earnWhen, hostFor, moneyFallback, standBase, startRefresh, takeNews, takePageReady } from './stand-view';
+import { COUNT_LINES, moveUpNo, moveUpYes, stepFor } from './make-countable';
+import { attributionFor, type Chain } from './attribution';
 import type { ReaderDeps } from './source-readers';
 import { SKIPPED_LINE, cardYes, findOfferLine, offerCard } from './share';
 import { SHARED_PROFILE_NOTE, ensureProfile, profileOf, setFallback, setHidden } from './profiles';
@@ -2758,7 +2760,11 @@ async function buildTwist(b: z.infer<typeof BuildTwist>, ctx: ToolContext) {
     program_id: next.program_id,
     show_to_builder: shownBefore ? '' : buildingLine(next.name!, pick.starter.what, next.for_whom!),
     build: { program_id: next.program_id, starter_id: pick.starter.id, step: 'build' },
-    kit: buildKit(pick.starter, next.repo_url ? tokenLineFor(ctx.installationId, next.repo_url) : null, { ...fields, wallet }, Boolean(next.repo_url)),
+    kit: buildKit(
+      pick.starter, next.repo_url ? tokenLineFor(ctx.installationId, next.repo_url) : null, { ...fields, wallet }, Boolean(next.repo_url),
+      // v2.12.1 T9 (spec 3): every app built through EarnKit carries the attribution line from the start.
+      builderScoreEnabled() ? ((await attributionFor(ctx.installationId, pick.starter.chain as Chain).catch(() => null)) ?? undefined) : undefined,
+    ),
     agent_note: KIT_NOTE,
   };
 }
@@ -3188,7 +3194,13 @@ export const TellToolInput = z
     card: z.enum(['yes', 'skip']).optional(),
     // v2.12.1 T8: the builder's yes or no to "How to move up" (find's or score's move_up).
     move_up: z
-      .object({ kind: z.string().max(20).optional(), project_key: z.string().max(300).nullable().optional(), answer: z.enum(['yes', 'no']) })
+      .object({
+        kind: z.string().max(20).optional(),
+        project_key: z.string().max(300).nullable().optional(),
+        answer: z.enum(['yes', 'no']),
+        // v2.12.1 T9: a go_live yes again, with the GitHub Pages link once it loads.
+        live_url: z.string().max(300).optional(),
+      })
       .strict()
       .optional(),
     // Read by tell_earnkit (builder-memory.ts TellInput).
@@ -3203,21 +3215,102 @@ type Reply = Record<string, unknown>;
 
 const defined = (o: Reply): Reply => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
 
-/** v2.12.1 T8: what tell says to a move-up step whose yes is not built yet (T9 builds them). */
+/** v2.12.1 T8: what tell says to a move-up step whose yes is not built yet (the coin, T10). */
 export const MOVE_UP_LATER_NOTE = 'Noted. This step is not available yet; nothing to show the builder.';
 
+/** v2.12.1 T9 (ruling S15): the go_live yes, in plain words. "Live" is said only by the reply that saw it load. */
+export const GO_LIVE_LINES = {
+  onIt: "On it. I'll send you the link when it's live.",
+  cant: (name: string) => `I can't put ${name} online right now.`,
+} as const;
+const goLiveAgain = (key: string, extra = '') =>
+  `call tell with move_up: { kind: 'go_live', project_key: '${key}', answer: 'yes'${extra} } again`;
+export const goLiveUploadNote = () =>
+  'Build the app to static files (index.html at the top), zip that folder and POST it to host.upload_url within 15 minutes (Content-Type application/zip). ' +
+  "Show the upload reply's show_to_builder as written: it is the live link. If the upload is refused, tell the builder in one short line that you couldn't put it online. Don't show this note.";
+export const goLiveLineNote = (key: string, line: string) =>
+  `Commit earnkit.txt at the root of the repo ${key} (default branch) with the line "${line}" and push it from the builder's own account, then ${goLiveAgain(key)}. ` +
+  "If this note comes back after you pushed it, tell the builder in one short line that you couldn't put it online. Don't show this note.";
+export const goLiveSignInNote = (key: string) => `Show show_to_builder. When the builder says they signed in, ${goLiveAgain(key)}.`;
+export const goLivePagesNote = (key: string) =>
+  `EarnKit hosting is off, so publish the app on GitHub Pages from the builder's public repo ${key}; it is free and needs nothing from the builder. ` +
+  'Build it to static files and push that folder to the root of a gh-pages branch (`git subtree push --prefix <folder> origin gh-pages`), ' +
+  "then turn Pages on: `gh api -X POST repos/<owner>/<repo>/pages -f 'source[branch]=gh-pages' -f 'source[path]=/'` (a 409 means it is already on). " +
+  `Once https://<owner>.github.io/<repo>/ loads, ${goLiveAgain(key, ", live_url: that link")}: EarnKit checks it loads and tells the builder. ` +
+  "If it doesn't load within 15 minutes, tell the builder in one short line that you couldn't put it online. Don't show this note.";
+export const GO_LIVE_NOT_YET_NOTE =
+  "The link doesn't load yet. Wait a minute and call again with it; after 15 minutes, tell the builder in one short line that you couldn't put it online. Don't show this note.";
+export const goLiveWrongLinkNote = (key: string) =>
+  `live_url must be this repo's own GitHub Pages link, https://<owner>.github.io/<repo>/ for ${key}. Don't show this note.`;
+
 /**
- * v2.12.1 T8: the builder's answer to "How to move up". A no is skipped (asked again on a later
- * reply only if it is still the best step). The step is the server's own (stand-view.ts currentStep):
- * a yes to `confirm` re-issues the link that shows the work is theirs (confirmYes); every other
- * step's yes is T9's.
+ * v2.12.1 T9 (ruling S15): the yes to "Want me to put <app> online?": the named app goes online
+ * through EarnKit hosting, the v2.11 path: with hosting on, a one-use upload URL (issueUpload: the
+ * GitHub sign-in or the earnkit.txt proof line shows the repo is theirs); off, the GitHub Pages
+ * fallback, and EarnKit says it is live only once the repo's own Pages link loads. Anything else is
+ * an honest "I can't put it online right now."
  */
-async function moveUpAnswer(id: number, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no' }): Promise<Reply> {
-  if (m.answer === 'no') return { show_to_builder: SKIPPED_LINE };
-  // Fix round 1: the step is recomputed here; the agent's kind and project_key are never trusted.
-  const step = await currentStep(id);
-  if (step?.kind === 'confirm') return confirmYes(id, new Date());
-  return { show_to_builder: '', agent_note: MOVE_UP_LATER_NOTE };
+async function goLiveYes(ctx: ToolContext, key: string, liveUrl: string | undefined): Promise<Reply> {
+  const id = ctx.installationId;
+  const [p] = await sql()<{ name: string }[]>`SELECT name FROM builder_projects WHERE builder_id = ${id} AND project_key = ${key}`;
+  const gh = githubRepo(`https://github.com/${key}`);
+  if (!p || !gh) return { show_to_builder: COUNT_LINES.noted };
+  const repoKey = `${gh.owner}/${gh.repo}`;
+  if (liveUrl !== undefined) {
+    const link = pagesLinkOf(repoKey, liveUrl.trim());
+    if (!link) return { show_to_builder: '', agent_note: goLiveWrongLinkNote(repoKey) };
+    if ((await liveCheckDetail(link, ctx.verifyDeps ?? {})).ok !== true) return { show_to_builder: '', agent_note: GO_LIVE_NOT_YET_NOTE };
+    // Shown from now on (not yet confirmed, read like any reported site); the next reply re-reads it.
+    await sql()`
+      INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by) VALUES (${id}, 'site', ${link}, ${key}, 'agent')
+      ON CONFLICT (builder_id, kind, ref) DO NOTHING`;
+    await sql()`UPDATE builder_live SET read_at = NULL WHERE builder_id = ${id}`;
+    return { show_to_builder: pagesLiveLine(p.name, link) };
+  }
+  if (!r2Enabled()) return { show_to_builder: GO_LIVE_LINES.onIt, agent_note: goLivePagesNote(repoKey) };
+  const offer = await issueUpload({ installationId: id, repoKey, project: p.name }, new Date(), { gate: ctx.deployDeps?.gate }).catch((err: unknown) => {
+    console.error('[tell] go_live', err instanceof Error ? err.name : 'error');
+    return { unavailable: HOST_LINES.unavailable };
+  });
+  if ('upload_url' in offer) return { show_to_builder: GO_LIVE_LINES.onIt, host: offer, agent_note: goLiveUploadNote() };
+  if ('sign_in_url' in offer) return { show_to_builder: hostSignInLine(p.name, offer.sign_in_url), agent_note: goLiveSignInNote(repoKey) };
+  // No sign-in and no proof line yet: the line first (once pushed, the yes again gets the upload URL).
+  const repoUrl = `https://github.com/${repoKey}`;
+  const line = offer.unavailable === HOST_LINES.unavailable ? tokenLineFor(id, repoUrl) : null;
+  if (line) {
+    await noteLineIssued(id, repoUrl);
+    return { show_to_builder: '', agent_note: goLiveLineNote(repoKey, line) };
+  }
+  return { show_to_builder: GO_LIVE_LINES.cant(p.name), agent_note: `Why, for you only: ${offer.unavailable} Don't show this note.` };
+}
+
+/**
+ * v2.12.1 T8, T9: the builder's answer to "How to move up". The step is the server's own
+ * (stand-view.ts currentStep); the agent's kind is never trusted, and a yes to a step that is no
+ * longer the current one (or another project's) changes nothing. A no keeps that step away for 30
+ * days. `confirm` re-issues the link that shows the work is theirs (confirmYes); `go_live` puts the
+ * app online (goLiveYes); count_past, tag_future and payment are make-countable.ts's; the coin is T10's.
+ */
+async function moveUpAnswer(ctx: ToolContext, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no'; live_url?: string }): Promise<Reply> {
+  const id = ctx.installationId;
+  const now = new Date();
+  if (m.answer === 'no') return moveUpNo(id, now, m.project_key);
+  const step = await stepFor(id, m.project_key);
+  if (!step) return { show_to_builder: COUNT_LINES.noted };
+  switch (step.kind) {
+    case 'confirm':
+      return confirmYes(id, now);
+    case 'go_live':
+      return goLiveYes(ctx, step.project_key!, m.live_url);
+    case 'count_past':
+    case 'tag_future':
+    case 'payment':
+      return defined({ ...(await moveUpYes(id, m.project_key ?? null, now, { reader: ctx.readerDeps, fresh: ctx.freshDeps })) });
+    case 'coin':
+      return { show_to_builder: '', agent_note: MOVE_UP_LATER_NOTE };
+    default:
+      return { show_to_builder: COUNT_LINES.noted };
+  }
 }
 
 /** find with program_id and repo: the eligibility check as one plain line, or null. Pure; exported for tests. */
@@ -3541,7 +3634,7 @@ export const tools = {
       if (profile) replies.push({ show_to_builder: await setHidden(ctx.installationId, profile === 'hide') });
       if (card === 'yes') replies.push(await cardYes(ctx.installationId));
       if (card === 'skip') replies.push({ show_to_builder: SKIPPED_LINE });
-      if (move_up) replies.push(await moveUpAnswer(ctx.installationId, move_up));
+      if (move_up) replies.push(await moveUpAnswer(ctx, move_up));
     }
     if (pickup !== undefined) replies.push((await handlers.pick_up_entries({ answer: pickup }, ctx)) as Reply);
     if (submitted) replies.push((await markSubmitted(submitted, signed_in, ctx)) as Reply);

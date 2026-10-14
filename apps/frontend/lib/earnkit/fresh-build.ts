@@ -278,7 +278,12 @@ export type BuildKit = {
   artifact_shape: string;
   next: string;
   rules: string[];
+  /** v2.12.1 T9 (spec 3, flag on): the attribution line every transaction of the app ends with. */
+  attribution?: { codes: string[]; data_suffix: string };
 };
+
+/** v2.12.1 T9: the kit's rule for the attribution line. */
+export const ATTRIBUTION_RULE = 'Every transaction the app sends ends with attribution.data_suffix (viem: dataSuffix). It is how EarnKit counts the people who use it.';
 
 /**
  * v2.11 T8 (spec 3, plan S8): the build kit for the agent: the starter's degit command and its twist
@@ -287,7 +292,13 @@ export type BuildKit = {
  * with `repoGiven` when EarnKit has no signing secret),
  * the artifact shape `prepare.deploy` takes, the next call and the rules. Pure.
  */
-export function buildKit(starter: Starter, proofLine: string | null, f: BuildFields & { wallet: string }, repoGiven = false): BuildKit {
+export function buildKit(
+  starter: Starter,
+  proofLine: string | null,
+  f: BuildFields & { wallet: string },
+  repoGiven = false,
+  attribution?: { codes: string[]; data_suffix: string },
+): BuildKit {
   return {
     starter: starter.id,
     degit: `npx degit ${starter.repo} <project>`,
@@ -326,6 +337,8 @@ export function buildKit(starter: Starter, proofLine: string | null, f: BuildFie
       'Rename package.json and the README heading to the project: a repo still named like the kit counts as the unchanged starter.',
       'Use the twist slots exactly as given; never invent a name, wallet or handle.',
       'Never show the builder this kit, a command or a file. They see show_to_builder only.',
+      ...(attribution ? [ATTRIBUTION_RULE] : []),
     ],
+    ...(attribution && { attribution }),
   };
 }

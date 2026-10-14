@@ -1,5 +1,6 @@
 import { RULES, countProject, moneyOf, ringWeights, type ActorFacts, type FarmCtx, type Touch } from './anti-farming';
 import { holdReason, publicRow, scoreContext } from './builder-score'; // builder-score imports this file too: functions only, called after load
+import { personCode } from './attribution';
 import { EARNKIT_BUILDER_CODE } from './builder-code';
 import { builderScoreEnabled } from './builder-score-flag';
 import { ScoreDeadline } from './campaigns';
@@ -13,7 +14,7 @@ import { countingDeps, flushReadUsage } from './read-usage';
 import { LIVE_CALIBRATION_V2, calibrationV2 } from './score-calibration';
 import { FORMULA_V2, computeScoreV2, type Ship, type UseTouch, type V2Input } from './score-v2';
 import {
-  defaultReaderDeps, isBudgetStop, isoWeek, readCoin, readContract, readNpm, readNpmBulk, readPypi,
+  defaultReaderDeps, isBudgetStop, isoWeek, readCoin, readContract, readContractOrigin, readNpm, readNpmBulk, readPypi, soft,
   type ContractSignals, type CoinSignals, type PackageSignals, type ReaderDeps, type RepoSignals, type SiteSignals, type Who,
 } from './source-readers';
 import { previousSignals, withPastWeeks } from './sources';
@@ -43,6 +44,12 @@ export type ProjectRow = {
   key: string; name: string; what: string | null; link: string | null; kind: 'app' | 'package' | 'contract' | 'coin' | 'code';
   confirmed: boolean; shipped: boolean; tracked: boolean; people: number; people_week: number; money_usd: number;
   has_coin: boolean; sends_tx: boolean; tagged: boolean; untracked_contract: string | null; last_active_at: Date | null;
+  /**
+   * v2.12.1 T9: the distinct accounts of other people counted on a confirmed project (weight above 0
+   * after every anti-farming rule; stars and forks aside), for "Done. 140 people who used it now
+   * count." Not stored.
+   */
+  accounts?: number;
 };
 
 /** spec "Scale": the 25 most recently active projects; a tracked project keeps its place until it is quiet 90 days. Pure. */
@@ -164,8 +171,11 @@ export async function personInputsV2(
   id: number, now: Date, personRing?: PersonRing, db: Db = sql(),
 ): Promise<{ input: V2Input; projects: ProjectRow[]; perSource: Map<number, { users: number; money: number }>; ringComputed: boolean; checked: [string, number[]][] }> {
   const yearAgo = new Date(now.getTime() - YEAR_MS);
-  const [profile] = await db<{ login: string | null; reported: string | null; identity: { projects?: unknown } | null; ring: unknown }[]>`
-    SELECT lower(github_login) AS login, lower(reported_github) AS reported, identity, ring FROM builder_profiles WHERE builder_id = ${id}`;
+  const [profile] = await db<{ login: string | null; reported: string | null; identity: { projects?: unknown } | null; ring: unknown; base_code: string | null }[]>`
+    SELECT lower(github_login) AS login, lower(reported_github) AS reported, identity, ring, base_builder_code AS base_code FROM builder_profiles WHERE builder_id = ${id}`;
+  // v2.12.1 T9: a call is tagged when it carries this person's own code (ek_<person>, or their Base
+  // code) or EarnKit's, and it is a call to this person's own tracked contract (only those are read).
+  const ownCodes = new Set([EARNKIT_BUILDER_CODE, personCode(id), profile?.base_code].filter((c): c is string => typeof c === 'string' && c.length > 0));
   const members = (await db<{ id: number }[]>`SELECT id FROM installations WHERE COALESCE(builder_id, id) = ${id}`).map((m) => m.id);
   const group = members.length ? members : [-1];
   const sources = [...(await db<Src[]>`
@@ -380,7 +390,7 @@ export async function personInputsV2(
             seen.add(once);
             const codes = isCoin ? [] : list<unknown>((w as ContractSignals['callers'][number]).codes);
             // Trades are onchain use like calls (the spread rule applies to both).
-            add(s.id, 'caller', isCoin ? 'trader' : codes.includes(EARNKIT_BUILDER_CODE) ? 'tagged' : 'caller', w, v);
+            add(s.id, 'caller', isCoin ? 'trader' : codes.some((c) => typeof c === 'string' && ownCodes.has(c)) ? 'tagged' : 'caller', w, v);
             newestCall = newest(newestCall, date(w?.at));
             if (!isCoin && typeof w?.id === 'string') {
               const ftx = (w as ContractSignals['callers'][number]).first_tx_at;
@@ -426,6 +436,7 @@ export async function personInputsV2(
     for (const sid of rawVolume.keys()) perSource.set(sid, { users: 0, money: volume > 0 ? (money * rawVolume.get(sid)!) / volume : 0 });
     // Users per source (the hold's one-source rule): real use only, credited where it was first seen.
     const users = new Set(touches.filter((t) => kinds.get(t) !== 'star' && kinds.get(t) !== 'fork').map((t) => t.actor));
+    const accounts = [...users].filter((a) => (counted.actors.get(a) ?? 0) > 0).length;
     for (const [actor, f] of firstSource) if (users.has(actor)) perSource.get(f.sid)!.users += counted.actors.get(actor) ?? 0;
     // Coin creator fees, each creator wallet once.
     for (const x of coinsHere) {
@@ -454,6 +465,7 @@ export async function personInputsV2(
       tagged: confirmed && tagged,
       untracked_contract: untracked,
       last_active_at: lastActive ?? newest(...srcs.map((s) => s.created_at)),
+      accounts: confirmed ? accounts : 0,
     });
   }
   // EarnKit's own events (built, deployed, hosted) mark their weeks.
@@ -636,6 +648,8 @@ async function refreshDiscovery(id: number, now: Date, o: { deadline: number; re
   await discoverPerson(id, o);
 }
 
+/** v2.12.1 T9: proposed contracts read for their past users per refresh, at most. */
+export const PROPOSED_CONTRACTS_MAX = 5;
 type LiveDue = { id: number; builder_id: number; kind: string; ref: string; state: string; last_read_day: string | null };
 const LOGIN = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}$/;
 
@@ -653,7 +667,11 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
     SELECT b.id::int AS id, b.builder_id, b.kind, b.ref, b.state, b.last_read_day::text AS last_read_day
     FROM builder_sources b LEFT JOIN source_live l ON l.source_id = b.id
     WHERE b.builder_id = ${id}
-      AND ((b.state = 'verified' AND b.kind <> 'merged_pr') OR (b.state = 'proposed' AND b.kind IN ('repo', 'site', 'package_npm', 'package_pypi')))
+      AND ((b.state = 'verified' AND b.kind <> 'merged_pr') OR (b.state = 'proposed' AND b.kind IN ('repo', 'site', 'package_npm', 'package_pypi'))
+        -- v2.12.1 T9: a proposed contract on a chain EarnKit reads, at most once a day, to see whether
+        -- it has past users to count (shown as a step, never scored) and who created it.
+        OR (b.state = 'proposed' AND b.kind = 'contract' AND b.ref ~ '^(base|arc):'
+          AND (l.read_at IS NULL OR l.read_at <= ${new Date(now.getTime() - DAY_MS)})))
       AND (l.read_at IS NULL OR l.read_at <= ${new Date(now.getTime() - REFRESH_MS)})
       AND NOT EXISTS (SELECT 1 FROM builder_projects p WHERE p.builder_id = b.builder_id AND p.project_key = b.project_key AND NOT p.tracked)
     -- Most recently active first, so a refresh the deadline cuts reads what matters (also before the
@@ -742,7 +760,10 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
     });
     if (!go) return done();
   }
-  for (const s of due.filter((x) => x.kind !== 'repo' && !bulk.includes(x))) {
+  // v2.12.1 T9: at most PROPOSED_CONTRACTS_MAX proposed contracts a refresh, in `due`'s order.
+  let proposedContracts = 0;
+  const rest = due.filter((x) => x.kind !== 'repo' && !bulk.includes(x) && !(x.kind === 'contract' && x.state === 'proposed' && ++proposedContracts > PROPOSED_CONTRACTS_MAX));
+  for (const s of rest) {
     const go = await attempt([s], async () => {
       switch (s.kind) {
         case 'site': {
@@ -755,8 +776,16 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
           return put(s, { ok: true, signals: await readNpm(s.ref, o.reader) });
         case 'package_pypi':
           return put(s, { ok: true, signals: await readPypi(s.ref, o.reader) });
-        case 'contract':
-          return put(s, { ok: true, signals: await readContract(s.ref, since(s), o.reader) });
+        case 'contract': {
+          const signals = await readContract(s.ref, since(s), o.reader);
+          if (s.state === 'proposed') {
+            // Who created it (kept on the proposed row; contractConflicts reads verified rows only), so
+            // the reply knows whether counting it moves the rank today (stand-view.ts certain).
+            const origin = await soft(readContractOrigin(s.ref, o.reader), { deployer: null, created_at: null });
+            if (origin.deployer) await db`UPDATE builder_sources SET deployer = ${origin.deployer} WHERE id = ${s.id} AND state = 'proposed'`;
+          }
+          return put(s, { ok: true, signals });
+        }
         case 'coin': {
           const wallets = await db<{ wallet: string }[]>`SELECT wallet FROM person_wallets WHERE builder_id = ${s.builder_id}`;
           return put(s, { ok: true, signals: await readCoin(s.ref, since(s), o.reader, new Set(wallets.map((w) => `wallet:${w.wallet}`))) });

@@ -25,7 +25,9 @@ import { computeScore } from './score';
 import { calibration } from './score-calibration';
 import { CARD_OFFER_NOTE, POST_LINE, SHARE_LINE, SKIPPED_LINE, cardOffer, claimFirstLine, findOfferLine, xAsk } from './share';
 import { EARN_NOTE, MOVE_UP_NOTE, chooseStep, confirmLinkLine, newsOpener, pageReadyLine, rollingLine, standingNews, usersMoneyLine, whereYouStand, type StandProject, type StandView } from './where-you-stand';
-import { MOVE_UP_LATER_NOTE, buildStepLine } from './tools';
+import { GO_LIVE_LINES, GO_LIVE_NOT_YET_NOTE, MOVE_UP_LATER_NOTE, buildStepLine, goLiveLineNote, goLivePagesNote, goLiveSignInNote, goLiveUploadNote, goLiveWrongLinkNote } from './tools';
+import { COUNT_LINES, NO_LINE_NOTE, TAG_NOTE, TIPS_NOTE } from './make-countable';
+import { ATTRIBUTION_RULE } from './fresh-build';
 import { SEND_LINK_NOTE } from './score-tool';
 import { CONSENT_LINE, HIDDEN_LINE, NO_PROFILE_LINE, SHARED_PROFILE_NOTE, SHOWN_LINE, X_NOT_LISTED_NOTE, X_SET_LINE, X_TAKEN_NOTE } from './profiles';
 import { OWNERSHIP_FOR_TOKEN, SCORE_DESCRIPTION, SERVER_INSTRUCTIONS, TELL_DESCRIPTION, TELL_DESCRIPTION_SCORE, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
@@ -1036,6 +1038,17 @@ export const v2121Texts: [string, string][] = [
   ['rollingLine no projects', rollingLine('Arc Microgrants', 'up to $500', false)],
   ['POST_LINE', POST_LINE('lee')],
   ['claimFirstLine', claimFirstLine('earnkit.com/claim/abcdefghijkl')],
+  // v2.12.1 T9: the reply after each yes.
+  ['COUNT_LINES.done', COUNT_LINES.done(140, 'TipJar', "You're now #3 of 40.")],
+  ['COUNT_LINES.done one', COUNT_LINES.done(1, 'TipJar', null)],
+  ['COUNT_LINES.added', COUNT_LINES.added],
+  ['COUNT_LINES.tapLink', COUNT_LINES.tapLink('https://earnkit.com/claim/wallet?t=1.2.x')],
+  ['COUNT_LINES.tips', COUNT_LINES.tips],
+  ['COUNT_LINES.cantTips', COUNT_LINES.cantTips],
+  ['COUNT_LINES.claimFirst', COUNT_LINES.claimFirst('earnkit.com/claim/abcdefghijkl')],
+  ['COUNT_LINES.noted', COUNT_LINES.noted],
+  ['GO_LIVE_LINES.onIt', GO_LIVE_LINES.onIt],
+  ['GO_LIVE_LINES.cant', GO_LIVE_LINES.cant('TipJar')],
 ];
 /** The coin step (spec 3b's words: T10 owns the coin wording rule), checked by the v2.12.1 test only. */
 const v2121CoinStep = chooseStep({ ...standBaseView, projects: [sp({ key: 'b', name: 'Busy', people: 9, tagged: true })] }, { coin: () => true, build: null })!.line;
@@ -1153,6 +1166,17 @@ const builderFacing: [string, string][] = [
 // may name launch_token — same bucket as OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS and the tool descriptions.
 const agentFacing: [string, string][] = [
   ['BUILD_NOTE', BUILD_NOTE],
+  // v2.12.1 T9: the notes after a move-up yes, and the build kit's attribution rule.
+  ['TAG_NOTE', TAG_NOTE],
+  ['TIPS_NOTE', TIPS_NOTE],
+  ['NO_LINE_NOTE', NO_LINE_NOTE],
+  ['ATTRIBUTION_RULE', ATTRIBUTION_RULE],
+  ['goLiveUploadNote', goLiveUploadNote()],
+  ['goLiveLineNote', goLiveLineNote('lee/tipjar', 'token: 0123456789abcdef')],
+  ['goLiveSignInNote', goLiveSignInNote('lee/tipjar')],
+  ['goLivePagesNote', goLivePagesNote('lee/tipjar')],
+  ['GO_LIVE_NOT_YET_NOTE', GO_LIVE_NOT_YET_NOTE],
+  ['goLiveWrongLinkNote', goLiveWrongLinkNote('lee/tipjar')],
   // v2.11 T8: the build path's notes and every build fix.
   ['twistNote(true)', twistNote(true)],
   ['twistNote(false)', twistNote(false)],
