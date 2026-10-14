@@ -4953,7 +4953,8 @@ In this order; none is done on this branch.
    (binding)" section): in the `earnkit-staging` Railway project with the flag on there, if that
    project is set up; otherwise on production with `EARNKIT_BUILDER_SCORE=on` only for the test
    window, turning it off again (step 9) the moment any check fails, and leaving it on only once
-   every check passes.
+   every check passes. The test, step by step, is
+   `docs/design-docs-and-implementation-plans/v2.12.1-acceptance-runbook.md`.
 9. **Turning the flag off** (after a failed check, or later): in Railway, unset
    `EARNKIT_BUILDER_SCORE` on the frontend service and redeploy. Every v2.12.1 surface 404s again,
    replies are v2.11 and nothing is written. Only the permanent (308) page redirects can stick in
