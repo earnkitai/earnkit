@@ -41,6 +41,9 @@ export function coinLine(moment: Moment, name: string, wallet: string | null, co
 /** The builder's line when a coin yes came without a wallet and none was shown. */
 export const COIN_WALLET_ASK = 'Send me the wallet the fees should go to.';
 const NOTED = 'Okay.';
+/** Fix round 2: a yes after the coin launched. */
+export const COIN_LIVE = 'Your coin is already live.';
+export const COIN_LAUNCHING = 'Your coin is launching.';
 
 /** The agent's note with a coin offer (find's move_up, a countable reply): how to pass the answer. */
 export const COIN_NOTE =
@@ -189,22 +192,36 @@ export async function coinYes(
   if (!p) return { show_to_builder: NOTED };
   const links = await confirmedLinks(builderId, m.project_key);
   const [existing] = m.project_id
-    ? await sql()<{ id: number; repo_url: string | null }[]>`
-        SELECT id, repo_url FROM projects WHERE id = ${m.project_id} AND installation_id = ${builderId} AND program_id = ${COIN_PROGRAM}`
+    ? await sql()<{ id: number; repo_url: string | null; token_url: string | null; token_status: string | null }[]>`
+        SELECT id, repo_url, token_url, token_status FROM projects WHERE id = ${m.project_id} AND installation_id = ${builderId} AND program_id = ${COIN_PROGRAM}`
     : [];
+  // Fix round 2: the coin is out (or launching): nothing is shown again or rewritten.
+  if (existing?.token_url) return { show_to_builder: existing.token_url === 'pending' ? COIN_LAUNCHING : COIN_LIVE };
   const repoUrl = existing ? existing.repo_url : links.repo_url;
   const key = offerKey(repoUrl, p.name);
   const shown = await readShownOffer(builderId, COIN_PROGRAM, key);
-  const coin: Coin = shown
-    ? { name: shown.name, symbol: shown.symbol }
-    : await proposeToken(p.name, deps.check ?? tokensFunTickerCheck, repoUrl ?? undefined).then((x) => ({ name: x.name, symbol: x.symbol }));
   const given = wallet && isWalletAddress(wallet.trim()) ? wallet.trim().toLowerCase() : null;
-  if (given && m.wallet && given !== m.wallet) {
-    // Never launched to a wallet the builder wasn't shown: the line again, with it.
-    await sql()`UPDATE coin_moments SET wallet = ${given} WHERE builder_id = ${builderId} AND project_key = ${m.project_key}`;
-    await saveOffer(builderId, COIN_PROGRAM, key, coin, false, given);
-    return { show_to_builder: coinLine(m.moment, p.name, given, coin), agent_note: COIN_NOTE };
+  // A launch already tried (a proof line missing, say): the same entry, pair and wallet, never rewritten.
+  if (existing && existing.token_status && shown && m.answer === 'yes')
+    return { project_id: existing.id, token: { name: shown.name, symbol: shown.symbol }, wallet: shown.wallet, agent_note: COIN_YES_NOTE };
+  /**
+   * The line again, and a fresh yes waited for (fix rounds 1 and 2): a wallet the line didn't show,
+   * or no saved pair (never one proposed silently). An accepted offer goes back to open, so confirm
+   * by project_id launches nothing until the builder says yes to what this line shows.
+   */
+  const again = async (to: string | null, coin: Coin) => {
+    await sql()`
+      UPDATE coin_moments SET wallet = ${to}, answer = NULL, answered_at = NULL
+      WHERE builder_id = ${builderId} AND project_key = ${m.project_key}`;
+    await saveOffer(builderId, COIN_PROGRAM, key, coin, false, to);
+    return { show_to_builder: coinLine(m.moment, p.name, to, coin), agent_note: COIN_NOTE };
+  };
+  if (!shown) {
+    const pair = await proposeToken(p.name, deps.check ?? tokensFunTickerCheck, repoUrl ?? undefined);
+    return again(given ?? m.wallet, { name: pair.name, symbol: pair.symbol });
   }
+  const coin: Coin = { name: shown.name, symbol: shown.symbol };
+  if (given && m.wallet && given !== m.wallet) return again(given, coin);
   // A wallet given when the line asked for one is the builder's answer to it.
   const to = given ?? m.wallet;
   if (!to) return { show_to_builder: COIN_WALLET_ASK };
@@ -268,7 +285,8 @@ export async function coinPitchAllowed(
   if (!builderScoreEnabled()) return true;
   if (entry.program_id === COIN_PROGRAM) {
     if (!(await guards(builderId))) return false;
-    if (entry.project_id === undefined) return true;
+    // Fix round 2: a coin entry is checked only by its project_id (an accepted offer names it).
+    if (entry.project_id === undefined) return false;
     const [m] = await sql()`SELECT 1 FROM coin_moments WHERE builder_id = ${builderId} AND project_id = ${entry.project_id} AND answer = 'yes'`;
     return Boolean(m);
   }

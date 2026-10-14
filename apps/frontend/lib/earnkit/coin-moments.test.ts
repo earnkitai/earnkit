@@ -137,7 +137,8 @@ test('10.4 with the flag on, a program entry\'s confirm never pitches a token; t
   const id = await claimed('pitch_dev');
   assert.equal(await coinPitchAllowed(id, { program_id: 'arc-microgrants', build: false }), false);
   assert.equal(await coinPitchAllowed(id, { program_id: 'arc-microgrants', build: true }), true);
-  assert.equal(await coinPitchAllowed(id, { program_id: 'earnkit-coin', build: false }), true);
+  // Fix round 2: a coin entry is only ever checked by its project_id (an accepted offer names it).
+  assert.equal(await coinPitchAllowed(id, { program_id: 'earnkit-coin', build: false }), false);
   delete process.env.EARNKIT_BUILDER_SCORE;
   try {
     assert.equal(await coinPitchAllowed(id, { program_id: 'arc-microgrants', build: false }), true); // v2.11
@@ -367,7 +368,7 @@ test('F1 (critical) a yes naming another wallet than the one shown launches noth
   const repo = `https://github.com/lee/f1${randomBytes(3).toString('hex')}`;
   const key = repo.replace('https://github.com/', '');
   await usedProject(id, key, 'Tip Jar', 9, { repo_url: repo });
-  const W = '0x' + 'a'.repeat(40);
+  const W = '0xaaaa' + randomBytes(16).toString('hex') + 'aaaa';
   const W2 = '0x' + 'e'.repeat(40);
   await sql()`INSERT INTO person_wallets (wallet, builder_id) VALUES (${W}, ${id})`;
   const { calls, deps } = tokenDeps(id, repo);
@@ -440,4 +441,70 @@ test('F5 the build moment is recorded only when its line is shown (a pitch check
   const [m] = await sql()`SELECT moment, wallet FROM coin_moments WHERE builder_id = ${id}`;
   assert.deepEqual({ ...m }, { moment: 'built_live', wallet: '0x' + 'a'.repeat(40) });
   assert.equal(await coinPitchAllowed(id, entry), true);
+});
+
+// ---- Fix round 2 -------------------------------------------------------------------------------
+
+async function coinSetup(tag: string) {
+  const id = await claimed(tag);
+  const repo = `https://github.com/lee/${tag}${randomBytes(3).toString('hex')}`;
+  const key = repo.replace('https://github.com/', '');
+  await usedProject(id, key, 'Tip Jar', 9, { repo_url: repo });
+  // person_wallets.wallet is unique across people: a fresh one per run.
+  const W = '0xaaaa' + randomBytes(16).toString('hex') + 'aaaa';
+  await sql()`INSERT INTO person_wallets (wallet, builder_id) VALUES (${W}, ${id})`;
+  const t = tokenDeps(id, repo);
+  const ctx = { installationId: id, tokenDeps: t.deps, roundPools: async () => new Map(), repoCoins: async () => new Map() } as never;
+  assert.ok(await offerCoin(id, key, 'has_people'));
+  type Yes = { show_to_builder: string; project_id?: number; token?: { name: string; symbol: string }; wallet?: string; agent_note?: string };
+  const yes = (wallet?: string) => tools.tell({ coin: { project_key: key, answer: 'yes', ...(wallet && { wallet }) } }, ctx) as Promise<Yes>;
+  return { id, repo, key, W, ctx, calls: t.calls, yes };
+}
+
+test('G1 a yes after the coin launched changes nothing: "Your coin is already live."', dbTest, async () => {
+  const c = await coinSetup('g1');
+  const y = await c.yes();
+  await tools.confirm({ project_id: y.project_id, yes: true, wallet: y.wallet, token: y.token }, c.ctx);
+  assert.equal(c.calls.deploy, 1);
+  const before = await readShownOffer(c.id, COIN_PROGRAM, offerKey(c.repo, 'Tip Jar'));
+  const again = await c.yes('0x' + 'e'.repeat(40));
+  assert.equal(again.show_to_builder, 'Your coin is already live.');
+  assert.equal(again.project_id, undefined);
+  assert.deepEqual(await readShownOffer(c.id, COIN_PROGRAM, offerKey(c.repo, 'Tip Jar')), before, 'the offer is never rewritten');
+  const [m] = await sql()`SELECT answer, wallet FROM coin_moments WHERE builder_id = ${c.id}`;
+  assert.deepEqual({ ...m }, { answer: 'yes', wallet: c.W });
+});
+
+test('G2 a new wallet after a yes needs a fresh yes: confirm by project_id launches nothing until then', dbTest, async () => {
+  const c = await coinSetup('g2');
+  const first = await c.yes();
+  assert.equal(typeof first.project_id, 'number');
+  const W2 = '0x' + 'e'.repeat(40);
+  const reshown = await c.yes(W2);
+  assert.equal(reshown.project_id, undefined);
+  assert.match(reshown.show_to_builder, /paid to 0xeeee…eeee\.$/);
+  // The agent goes straight to confirm with the new wallet: nothing launches.
+  const early = (await tools.confirm({ project_id: first.project_id, yes: true, wallet: W2, token: first.token }, c.ctx)) as { status: string };
+  assert.notEqual(early.status, 'launched');
+  assert.equal(c.calls.deploy, 0);
+  // The builder's yes to the line that showed it: then it launches to W2.
+  const yes = await c.yes(W2);
+  assert.equal(yes.project_id, first.project_id);
+  const launched = (await tools.confirm({ project_id: yes.project_id, yes: true, wallet: yes.wallet, token: yes.token }, c.ctx)) as { status: string };
+  assert.equal(launched.status, 'launched');
+  assert.deepEqual(c.calls.wallets, [W2]);
+});
+
+test('G3 no saved offer at the yes: the line is shown again with a fresh pair, and only the next yes goes on', dbTest, async () => {
+  const c = await coinSetup('g3');
+  await sql()`DELETE FROM token_offers WHERE installation_id = ${c.id} AND program_id = ${COIN_PROGRAM}`;
+  const r = await c.yes();
+  assert.equal(r.project_id, undefined);
+  assert.match(r.show_to_builder, /Want to launch a coin, \$[A-Z0-9]+ \([^)]+\), for it\? You'd get 40% of its trading fees, paid to 0xaaaa…aaaa\.$/);
+  assert.equal((await sql()`SELECT 1 FROM projects WHERE installation_id = ${c.id}`).length, 0);
+  const shown = await readShownOffer(c.id, COIN_PROGRAM, offerKey(c.repo, 'Tip Jar'));
+  assert.ok(shown);
+  const yes = await c.yes();
+  assert.equal(typeof yes.project_id, 'number');
+  assert.deepEqual(yes.token, { name: shown.name, symbol: shown.symbol });
 });

@@ -27,7 +27,7 @@ import { CARD_OFFER_NOTE, POST_LINE, SHARE_LINE, SKIPPED_LINE, cardOffer, claimF
 import { EARN_NOTE, MOVE_UP_NOTE, chooseStep, confirmLinkLine, newsOpener, pageReadyLine, rollingLine, standingNews, usersMoneyLine, whereYouStand, type StandProject, type StandView } from './where-you-stand';
 import { BUILD_COIN_NOTE, COIN_WALLET_NOTE, GO_LIVE_LINES, GO_LIVE_NOT_YET_NOTE, buildStepLine, goLiveLineNote, goLivePagesNote, goLiveSignInNote, goLiveUploadNote, goLiveWrongLinkNote } from './tools';
 import { COUNT_LINES, NO_LINE_NOTE, TAG_NOTE, TIPS_NOTE } from './make-countable';
-import { COIN_NOTE, COIN_WALLET_ASK, COIN_YES_NOTE, coinLine } from './coin-moments';
+import { COIN_LAUNCHING, COIN_LIVE, COIN_NOTE, COIN_WALLET_ASK, COIN_YES_NOTE, coinLine } from './coin-moments';
 import { ATTRIBUTION_RULE } from './fresh-build';
 import { SEND_LINK_NOTE } from './score-tool';
 import { CONSENT_LINE, HIDDEN_LINE, NO_PROFILE_LINE, SHARED_PROFILE_NOTE, SHOWN_LINE, X_NOT_LISTED_NOTE, X_SET_LINE, X_TAKEN_NOTE } from './profiles';
@@ -1064,6 +1064,8 @@ const v2121CoinTexts: [string, string][] = [
     [`coinLine ${m} no wallet`, coinLine(m, 'TipJar', null, { name: 'Tip Jar', symbol: 'TIP' })],
   ]),
   ['COIN_WALLET_ASK', COIN_WALLET_ASK],
+  ['COIN_LIVE', COIN_LIVE],
+  ['COIN_LAUNCHING', COIN_LAUNCHING],
 ];
 const v2121CoinNotes: [string, string][] = [
   ['COIN_NOTE', COIN_NOTE],
