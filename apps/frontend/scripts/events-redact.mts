@@ -75,6 +75,8 @@ const WALLET_COLUMNS: [table: string, column: string][] = [
   ['builder_sources', 'deployer'],
   // v2.12.1: a wallet proven by signature or EarnKit deploy.
   ['person_wallets', 'wallet'],
+  // v2.12.1 T10 fix round 1: the wallet a coin line showed (the row is deleted with the page data).
+  ['coin_moments', 'wallet'],
 ];
 /** text[] columns that can hold the wallet. */
 const WALLET_ARRAYS: [string, string][] = [

@@ -401,8 +401,8 @@ export async function mergeProfiles(tx: postgres.TransactionSql, root: number, o
   await tx`DELETE FROM builder_live WHERE builder_id = ${other}`;
   await tx`UPDATE builder_live SET read_at = NULL WHERE builder_id = ${root}`;
   await tx`
-    INSERT INTO coin_moments (builder_id, project_key, moment, offered_at, answer, answered_at, project_id)
-    SELECT ${root}, project_key, moment, offered_at, answer, answered_at, project_id FROM coin_moments WHERE builder_id = ${other}
+    INSERT INTO coin_moments (builder_id, project_key, moment, offered_at, answer, answered_at, project_id, wallet)
+    SELECT ${root}, project_key, moment, offered_at, answer, answered_at, project_id, wallet FROM coin_moments WHERE builder_id = ${other}
     ON CONFLICT DO NOTHING`;
   await tx`DELETE FROM coin_moments WHERE builder_id = ${other}`;
   await tx`UPDATE profile_slug_history SET builder_id = ${root} WHERE builder_id = ${other}`;

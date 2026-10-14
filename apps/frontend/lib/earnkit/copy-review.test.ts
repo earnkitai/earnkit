@@ -1060,8 +1060,8 @@ export const v2121Texts: [string, string][] = [
  */
 const v2121CoinTexts: [string, string][] = [
   ...(['built_live', 'countable', 'first_five', 'has_people'] as const).flatMap((m): [string, string][] => [
-    [`coinLine ${m}`, coinLine(m, 'TipJar', '0x12ab000000000000000000000000000000009f3e')],
-    [`coinLine ${m} no wallet`, coinLine(m, 'TipJar', null)],
+    [`coinLine ${m}`, coinLine(m, 'TipJar', '0x12ab000000000000000000000000000000009f3e', { name: 'Tip Jar', symbol: 'TIP' })],
+    [`coinLine ${m} no wallet`, coinLine(m, 'TipJar', null, { name: 'Tip Jar', symbol: 'TIP' })],
   ]),
   ['COIN_WALLET_ASK', COIN_WALLET_ASK],
 ];
@@ -1714,7 +1714,7 @@ test('v2.12.1 T10: the coin notes for the agent: no emoji, no em dash, never a b
   }
   assert.match(COIN_NOTE, /Never launch anything before that yes/);
   // The spec's own words, verbatim (wallet shown before the yes).
-  assert.equal(coinLine('built_live', 'X', null).split('?')[0], "It's live. Want to launch a coin for it");
+  assert.equal(coinLine('built_live', 'X', null, { name: 'Tip Jar', symbol: 'TIP' }).split('?')[0], "It's live. Want to launch a coin, $TIP (Tip Jar), for it");
 });
 
 test('v2.12.1 T8 copy rule: plain sentences, sentence case, no jargon, no period after a link, one question at most', () => {
@@ -1725,7 +1725,8 @@ test('v2.12.1 T8 copy rule: plain sentences, sentence case, no jargon, no period
     const unnamed = names.reduce((t, n) => t.split(n).join('Name'), text);
     assert.doesNotMatch(unnamed, banned, label);
     assert.doesNotMatch(text, /\u2014|\p{Extended_Pictographic}/u, label);
-    assert.doesNotMatch(text, /\b[A-Z]{3,}\b(?<!USDC)/, label);
+    // A coin's ticker ($TIP) is its name (v2.8.1 A2: the coin that launches is named).
+    assert.doesNotMatch(text.replace(/\$[A-Z0-9]+\b/g, '$X'), /\b[A-Z]{3,}\b(?<!USDC)/, label);
     assert.doesNotMatch(text, /(earnkit\.com|https:)\S*\.(\s|$)/, label);
     assert.ok((text.match(/\?/g) ?? []).length <= 1, label);
     for (const line of text.split('\n').filter(Boolean)) assert.match(line, /^([A-Z0-9#$]|Name)/, `${label}: ${line}`);

@@ -62,6 +62,8 @@ export type YesReply = {
   /** T10: the countable moment's coin offer (the reply's one yes): its project, and how to answer it. */
   coin?: { project_key: string; agent_note: string };
 };
+/** T10 fix round 1 (minor): a reply that confirms the project's use is countable now ("Done." or "Added."). */
+type Counted = { reply: YesReply; countable: boolean };
 export type YesDeps = {
   reader?: ReaderDeps; base?: BaseCodeDeps; fresh?: Partial<Pick<FreshOn, 'deployOn' | 'hostOn' | 'starters'>>;
   /** Fix round 2: the step the caller already derived (stepFor), so it is derived once per yes. */
@@ -130,10 +132,10 @@ const tracked = (builderId: number, key: string, kind: 'count_past' | 'tag_futur
     type: 'use_tracked', dedupe_key: `use_tracked:${builderId}:${kind}:${key}`, installation_id: builderId, detail: { kind, ...(ref && { ref }) },
   }));
 
-async function countPast(builderId: number, key: string, name: string, ref: string, now: Date, reader: ReaderDeps): Promise<YesReply> {
+async function countPast(builderId: number, key: string, name: string, ref: string, now: Date, reader: ReaderDeps): Promise<Counted> {
   const p = await provable(builderId, ref, reader);
-  if (!p.ok) return proveFirst(builderId, now);
-  if (!(await track(builderId, ref, p))) return { show_to_builder: COUNT_LINES.noted };
+  if (!p.ok) return { reply: await proveFirst(builderId, now), countable: false };
+  if (!(await track(builderId, ref, p))) return { reply: { show_to_builder: COUNT_LINES.noted }, countable: false };
   // Read it now and rescore (the 10-minute guard cleared for this one refresh).
   await sql()`UPDATE builder_live SET read_at = NULL WHERE builder_id = ${builderId}`;
   await refreshPerson(builderId, { now, deadline: Date.now() + REFRESH_BUDGET_MS, reader });
@@ -141,15 +143,20 @@ async function countPast(builderId: number, key: string, name: string, ref: stri
   // "Done" only for what EarnKit counted: the distinct people on the project after every rule.
   const { projects } = await personInputsV2(builderId, now);
   const n = projects.find((x) => x.key === key)?.accounts ?? 0;
-  if (n === 0) return { show_to_builder: COUNT_LINES.added };
+  if (n === 0) return { reply: { show_to_builder: COUNT_LINES.added }, countable: true };
   // The rank line only when the rescore went public (a held one waits for the owner's review).
   const [h] = await sql()<{ held: boolean }[]>`SELECT held FROM builder_profiles WHERE builder_id = ${builderId}`;
   const rank = h?.held ? COUNT_LINES.review : nowRank(await standingOf(builderId));
-  return { show_to_builder: COUNT_LINES.done(n, name, rank) };
+  return { reply: { show_to_builder: COUNT_LINES.done(n, name, rank) }, countable: true };
 }
 
 
-async function tagFuture(builderId: number, key: string, now: Date, deps: YesDeps, reader: ReaderDeps): Promise<YesReply> {
+async function tagFuture(builderId: number, key: string, now: Date, deps: YesDeps, reader: ReaderDeps): Promise<Counted> {
+  const r = await tagFutureReply(builderId, key, now, deps, reader);
+  return { reply: r, countable: r.show_to_builder === COUNT_LINES.added && r.attribution !== undefined };
+}
+
+async function tagFutureReply(builderId: number, key: string, now: Date, deps: YesDeps, reader: ReaderDeps): Promise<YesReply> {
   // Tags are read only on contracts EarnKit tracks (base and arc): the project's own, or EarnKit's deploy for it.
   const sources = await sql()<{ ref: string; state: string }[]>`
     SELECT ref, state FROM builder_sources
@@ -186,8 +193,9 @@ async function payment(builderId: number, now: Date, fresh: YesDeps['fresh'] = {
  * once per project, the wallet shown, never held or shared) after "Done." or "Added."; that line is
  * then the reply's only question. Any other reply, or no offer to make: as it was. Never fails the yes.
  */
-async function withCoin(builderId: number, key: string, r: YesReply): Promise<YesReply> {
-  if (!(r.show_to_builder.startsWith('Done.') || r.show_to_builder === COUNT_LINES.added)) return r;
+async function withCoin(builderId: number, key: string, c: Counted): Promise<YesReply> {
+  const r = c.reply;
+  if (!c.countable) return r;
   const offer = await offerCoin(builderId, key, 'countable').catch((err: unknown) => {
     console.error('[countable] coin', err instanceof Error ? err.name : 'error');
     return null;

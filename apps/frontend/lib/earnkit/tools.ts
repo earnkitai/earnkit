@@ -19,7 +19,7 @@ import {
 import { EntryError, githubRepo, givenWallet, isWalletAddress, normalizeRepoUrl, presentYourEntries } from './campaigns';
 import { signToEnter } from './entry-proof';
 import { confirmTable, enteredText, noCoinYet, prizeOf, todoOf, type EnteredText } from './entry-text';
-import { proposeToken, repoNameOf, titleCase, tokensFunTickerCheck } from './token-proposal';
+import { proposeToken, repoNameOf, titleCase, tokensFunTickerCheck, type TickerCheck } from './token-proposal';
 import { DECLINES_MAX, declines, firstReplyShown, offerIdentity, offerKey, readOffer, readShownOffer, recordDecline, saveOffer, type Offered } from './token-offers';
 import { earnkitCampaignRows, yourCampaignEntries } from './leaderboard';
 import {
@@ -152,7 +152,7 @@ import type { ReaderDeps } from './source-readers';
 import { SKIPPED_LINE, cardYes, findOfferLine, offerCard } from './share';
 import { SHARED_PROFILE_NOTE, ensureProfile, profileOf, setFallback, setHidden } from './profiles';
 import { emptyReasonOf, publicScore, verifiedProject } from './builder-score';
-import { COIN_NOTE, builtLiveAnswer, coinAllowed, coinLine, coinNo, coinOpen, coinPitchAllowed, coinYes, offerCoin } from './coin-moments';
+import { COIN_NOTE, builtLiveAnswer, coinLine, coinNo, coinOfferable, coinOpen, coinPitchAllowed, coinYes, offerCoin, showBuiltLive } from './coin-moments';
 import { sql } from './db';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
 import { JOIN_TEXT, answerJoin, joinQuestion, answerPickup, askJoin, offerPickup, pendingJoinOf, type PickupDeps } from './identity';
@@ -1100,11 +1100,13 @@ async function buildEntryKey(ctx: ToolContext, programId: string, repoUrl: strin
  * (v2.11, no read). On: the coin program's own entry and the build path's entry at its built_live
  * moment only; a failed read is no (fail strict). Every pitch and launch path calls this one.
  */
-async function tokenPitch(ctx: ToolContext, programId: string, repoUrl: string | null | undefined): Promise<boolean> {
+async function tokenPitch(ctx: ToolContext, programId: string, repoUrl: string | null | undefined, projectId?: number): Promise<boolean> {
   if (!builderScoreEnabled()) return true;
   try {
     const key = await buildEntryKey(ctx, programId, repoUrl);
-    return await coinPitchAllowed(ctx.installationId, { program_id: programId, build: key !== null, ...(key && { project_key: key }) });
+    return await coinPitchAllowed(ctx.installationId, {
+      program_id: programId, build: key !== null, ...(key && { project_key: key }), ...(projectId !== undefined && { project_id: projectId }),
+    });
   } catch (err) {
     console.error('[coin] pitch', err instanceof Error ? err.name : 'error');
     return false;
@@ -1120,7 +1122,7 @@ async function tokenHeld(ctx: ToolContext, projectId: number): Promise<boolean> 
   const entry = await launchEntry(ctx.installationId, projectId);
   if (!entry || entry.token_url || entry.confirm_choice === 'skip') return false;
   if ((await getProgramRow(entry.program_id)).campaign) return false;
-  return !(await tokenPitch(ctx, entry.program_id, entry.repo_url));
+  return !(await tokenPitch(ctx, entry.program_id, entry.repo_url, entry.id));
 }
 
 /** v2.12 spec 7: the agent's step when find's second line offers to link the builder's work. */
@@ -1173,24 +1175,24 @@ export async function findSecondLine(id: number, lineOneAsks: boolean): Promise<
  * the offer (offerCoin: at most once per project); an offer that can't be made leaves the step as it
  * was. The line is offerCoin's, with the wallet shown (or asked for).
  */
-async function coinStep(id: number, seen: Seen | null, view0: Omit<StandView, 'step' | 'news'>, agentCanBuild: boolean): Promise<MoveUp | null> {
+async function coinStep(id: number, seen: Seen | null, view0: Omit<StandView, 'step' | 'news'>, agentCanBuild: boolean, deps: { check?: TickerCheck } = {}): Promise<MoveUp | null> {
   const host = hostFor(agentCanBuild);
   const candidates = view0.projects.filter((p) => p.shipped && p.people > 0 && !p.has_coin);
   if (seen?.at) {
     const five = candidates.find((p) => (seen.people?.[p.key] ?? 0) < 5 && p.people >= 5);
-    const offer = five ? await offerCoin(id, five.key, 'first_five') : null;
+    const offer = five ? await offerCoin(id, five.key, 'first_five', deps) : null;
     if (five && offer) return { kind: 'coin', project_key: five.key, line: offer.line };
   }
   const coinKeys = new Set<string>();
   // chooseStep takes the first eligible one in the projects' order: none is read past it.
   for (const p of candidates) {
-    if (view0.declined?.includes(stepKey('coin', p.key)) || !(await coinAllowed(id, p.key))) continue;
+    if (view0.declined?.includes(stepKey('coin', p.key)) || !(await coinOfferable(id, p.key))) continue;
     coinKeys.add(p.key);
     break;
   }
   let step = chooseStep(view0, { coin: (k) => coinKeys.has(k), build: null, host });
   if (step?.kind === 'coin' && step.project_key) {
-    const offer = await offerCoin(id, step.project_key, 'has_people');
+    const offer = await offerCoin(id, step.project_key, 'has_people', deps);
     if (offer) return { ...step, line: offer.line };
     step = chooseStep(view0, { coin: () => false, build: null, host });
   }
@@ -1255,7 +1257,7 @@ async function standFind(
   const view0: Omit<StandView, 'step' | 'news'> = { ...base, earn, fresh: null, due, money: fallback.money };
   // v2.12.1 T10 (spec 3b): the coin as the reply's one yes, only at its moments, and only when nothing
   // else asks. Never fails the tool (no coin on an error).
-  const step0 = held || submit ? null : await coinStep(id, read?.seen ?? null, view0, a.agentCanBuild).catch((err: unknown) => {
+  const step0 = held || submit ? null : await coinStep(id, read?.seen ?? null, view0, a.agentCanBuild, { check: ctx.tokenDeps?.check }).catch((err: unknown) => {
     console.error('[list_programs] coin', err instanceof Error ? err.name : 'error');
     return chooseStep(view0, { coin: () => false, build: null, host: hostFor(a.agentCanBuild) });
   });
@@ -1919,7 +1921,15 @@ export const handlers = {
     // coin as its one yes ("It's live. Want to launch a coin for it?"), the wallet shown, in place of
     // the v2.11 confirm line. Flag off (or no token here): the v2.11 line as before.
     const builtCoin = Boolean(join && !join.noLive && builderScoreEnabled() && offersToken && offer && offer !== READY_TO_SUBMIT);
-    const pitch = builtCoin ? coinLine('built_live', known.project?.name?.trim() || 'it', offerWallet ?? null) : offer;
+    const pitch = builtCoin ? coinLine('built_live', known.project?.name?.trim() || 'it', offerWallet ?? null, shownPair) : offer;
+    // Fix round 1 (minor): the built_live moment is recorded when its line is shown (here), with its wallet.
+    if (builtCoin) {
+      const built = await buildEntryKey(ctx, program_id, repoUrl).catch(() => null);
+      if (built)
+        await showBuiltLive(ctx.installationId, built, offerWallet ?? null).catch((err: unknown) =>
+          console.error('[prepare] coin moment', err instanceof Error ? err.name : 'error'),
+        );
+    }
     // Ruling 25 (plan) / Part C: the token line, once the repo is known, for the agent to push with
     // its work before the builder confirms (an agent that can't push gets none).
     const line = repoUrl && canPush && program.token_policy !== 'off' && !prepTokensOff ? tokenLineFor(ctx.installationId, repoUrl) : null;
@@ -3568,7 +3578,7 @@ async function confirmByProjectId(c: ConfirmArgs & { project_id: number }, ctx: 
   const program = await getProgramRow(entry.program_id);
   if (program.campaign) return launch(c.token ?? {});
   // v2.12.1 T10 (spec 3b): where no token is pitched (fail strict) nothing launches: the entry's confirmation without a token.
-  if (!(await tokenPitch(ctx, entry.program_id, entry.repo_url))) {
+  if (!(await tokenPitch(ctx, entry.program_id, entry.repo_url, entry.id))) {
     if (!isOpen(program)) return { status: 'skipped' as const, note: NO_TOKEN_HERE, show_to_builder: NO_TOKEN_HERE };
     const saved = await submittedEntry(ctx.installationId, program.id, entry.id);
     return handlers.confirm_entry(

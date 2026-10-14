@@ -1332,6 +1332,9 @@ CREATE TABLE IF NOT EXISTS coin_moments (
   project_id  integer,
   PRIMARY KEY (builder_id, project_key)
 );
+-- v2.12.1 T10 fix round 1: the wallet the coin line showed (NULL: it asked for one). A yes naming
+-- another wallet re-shows the line with it, stored here; only a yes to the wallet shown launches.
+ALTER TABLE coin_moments ADD COLUMN IF NOT EXISTS wallet text;
 -- New source kind (coin) and proofs (x_match, wallet_signed, earnkit_hosted). Inline CHECKs carry
 -- Postgres' default names; re-adding a CHECK scans rows only.
 ALTER TABLE builder_sources DROP CONSTRAINT IF EXISTS builder_sources_kind_check;

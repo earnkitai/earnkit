@@ -9,7 +9,7 @@ import { COUNT_LINES, countableNow, moveUpNo, moveUpYes, nowRank } from './make-
 import { refreshPerson, rescorePerson, trackingHeld } from './person-score';
 import { FORMULA_V2 } from './score-v2';
 import { ProgramFile } from './program-file';
-import { upsertProgram } from './programs';
+import { listPrograms, upsertProgram } from './programs';
 import { committedProgram } from './fixtures/program-file';
 import { STARTERS } from './starters';
 import { currentStep } from './stand-view';
@@ -109,6 +109,16 @@ async function withTips<T>(fn: (program: string) => Promise<T>): Promise<T> {
   }
 }
 const step = (id: number) => currentStep(id, { fresh: FRESH });
+/**
+ * T10 fix round 1 (minor): only this test's tip-jar program for this person. Other test files leave
+ * open programs with the arc-tipjar starter in the shared DB; they are hidden for this person only
+ * ("not interested", per installation), so nothing global changes.
+ */
+async function onlyTips(id: number, program: string) {
+  const others = (await listPrograms()).filter((c) => c.fresh_build?.starter === 'arc-tipjar' && c.id !== program);
+  for (const c of others)
+    await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status) VALUES (${id}, '', ${c.id}, 'not_interested') ON CONFLICT DO NOTHING`;
+}
 
 test('9.4 count past users: a provable contract counts at once and the reply names the people and the rank', dbTest, async () => {
   const id = await claimed('tf_dev');
@@ -190,6 +200,7 @@ test('9.7 a payment side: the agent gets the tip-jar steps for that app; the dep
   withTips(async (program) => {
     const id = await claimed('shop_dev');
     await siteProject(id, 'shop', 'Shop', 'a coffee shop site');
+    await onlyTips(id, program);
     assert.equal((await step(id))?.kind, 'payment');
     const r = await moveUpYes(id, 'shop', NOW, { fresh: FRESH });
     assert.equal(r.show_to_builder, "On it. I'll tell you when people can tip.");
@@ -212,6 +223,7 @@ test('9.7c payment uses the real entered and hidden programs: an entered one is 
   withTips(async (program) => {
     const id = await claimed('shop_dev3');
     await siteProject(id, 'shop', 'Shop', 'a coffee shop site');
+    await onlyTips(id, program);
     await sql()`INSERT INTO projects (installation_id, program_id, name, repo_url) VALUES (${id}, ${program}, 'Shop', 'https://github.com/lee/shop')`;
     const r = await moveUpYes(id, 'shop', NOW, { fresh: FRESH });
     assert.deepEqual(r.prepare, { program_id: program, starter: 'arc-tipjar' }, 'reused, never a second entry');
@@ -220,6 +232,7 @@ test('9.7c payment uses the real entered and hidden programs: an entered one is 
     // Hidden ("not interested"): no tip jar under it, so no payment step at all.
     const other = await claimed('shop_dev4');
     await siteProject(other, 'shop', 'Shop', 'a coffee shop site');
+    await onlyTips(other, program);
     assert.equal((await step(other))?.kind, 'payment');
     await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status) VALUES (${other}, '', ${program}, 'not_interested')`;
     assert.equal(await step(other), null);
@@ -458,6 +471,7 @@ test('9.19 (fix round 2) a program hidden in any installation of the person hide
   withTips(async (program) => {
     const id = await claimed('grp_dev');
     await siteProject(id, 'shop', 'Shop', 'a coffee shop site');
+    await onlyTips(id, program);
     assert.equal((await step(id))?.kind, 'payment');
     const [{ id: member }] = await sql()<{ id: number }[]>`
       INSERT INTO installations (token_hash, builder_id) VALUES (${`v2121-t9m-${randomBytes(8).toString('hex')}`}, ${id}) RETURNING id`;
@@ -560,10 +574,14 @@ test('10.12 the countable reply offers the coin as its one yes (once); without l
     const W = randomAddress().toLowerCase();
     await sql()`INSERT INTO person_wallets (wallet, builder_id) VALUES (${W}, ${id})`;
     await trackedContract(id, 'lee/app', `base:${randomAddress()}`);
+    // Fix round 1 (ruling 3): offered only with a confirmed repo (its yes can launch).
+    await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proof, state, proposed_by, verified_at)
+      VALUES (${id}, 'repo', 'lee/app', 'lee/app', 'repo_owner', 'verified', 'server', now())`;
     assert.equal((await step(id))?.kind, 'tag_future');
     const r = await moveUpYes(id, 'lee/app', NOW, { reader: fakeChain({ deployer: randomAddress(), callers: 0 }) });
     const [p] = await sql()<{ name: string }[]>`SELECT name FROM builder_projects WHERE builder_id = ${id} AND project_key = 'lee/app'`;
-    assert.equal(r.show_to_builder, `${COUNT_LINES.added} Want to launch a coin for ${p.name}? You'd get 40% of its trading fees, paid to ${W.slice(0, 6)}…${W.slice(-4)}.`);
+    const named = r.show_to_builder.replace(/\$[A-Z0-9]+ \([^)]+\)/, '$X (X)');
+    assert.equal(named, `${COUNT_LINES.added} Want to launch a coin, $X (X), for ${p.name}? You'd get 40% of its trading fees, paid to ${W.slice(0, 6)}…${W.slice(-4)}.`, r.show_to_builder);
     assert.equal(r.coin?.project_key, 'lee/app');
     assert.match(r.coin!.agent_note, /tell with coin/);
     assert.equal((r.show_to_builder.match(/\?/g) ?? []).length, 1);

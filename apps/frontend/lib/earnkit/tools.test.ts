@@ -5761,7 +5761,11 @@ test('10.13 the build path with the flag on: the live reply asks "It\'s live. Wa
       await saveBuild(t.inst, { program_id: t.p.id, starter_id: 'arc-tipjar', started_at: new Date().toISOString(), wallet: W8.toLowerCase(), name: 'Tip Jar', repo_url: t.repo });
       const join = { lead: ['Tip Jar is live: tipjar.xyz'], wallet: W8.toLowerCase() };
       const r = (await handlers.prepare_submission(t.input, t.ctx, join)) as { show_to_builder: string; agent_note: string; shown_wallet: string; token: { proposed: { name: string; symbol: string } } };
-      assert.equal(r.show_to_builder, "Tip Jar is live: tipjar.xyz\nIt's live. Want to launch a coin for it? You'd get 40% of its trading fees, paid to 0x1581…b9a3.");
+      // Fix round 1 (rulings 5, 6): the coin that launches is named, and a no still enters.
+      const { name, symbol } = r.token.proposed;
+      assert.equal(r.show_to_builder, `Tip Jar is live: tipjar.xyz\nIt's live. Want to launch a coin, $${symbol} (${name}), for it? You'd get 40% of its trading fees, paid to 0x1581…b9a3. Your entry is ready either way.`);
+      const [shown] = await sql()`SELECT moment, wallet FROM coin_moments WHERE builder_id = ${t.inst}`;
+      assert.deepEqual({ ...shown }, { moment: 'built_live', wallet: W8.toLowerCase() }, 'recorded with the line, with its wallet');
       assert.equal(r.agent_note.includes(BUILD_COIN_NOTE), true, r.agent_note);
       const yes = (await tools.confirm({ ...t.input, yes: true, wallet: r.shown_wallet, token: { name: r.token.proposed.name, symbol: r.token.proposed.symbol } }, t.ctx)) as Confirmed;
       assert.equal(t.calls.deploy, 1, JSON.stringify(yes));
