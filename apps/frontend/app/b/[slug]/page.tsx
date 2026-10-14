@@ -1,11 +1,18 @@
+import type { Metadata } from 'next';
 import { notFound, permanentRedirect } from 'next/navigation';
 import { builderScoreEnabled } from '../../../lib/earnkit/builder-score-flag';
 import { resolveSlug } from '../../../lib/earnkit/profiles';
 import { isReserved, pagePath } from '../../../lib/earnkit/reserved-routes';
-import { HandleView } from '../../[handle]/handle-view';
+import { HandleView, handleMetadata } from '../../[handle]/handle-view';
 
 /** Read live on every request: a hide, a claim or a rename shows at once. */
 export const dynamic = 'force-dynamic';
+
+/** A reserved handle's page carries the same title and card as any other (its card is /b/<handle>/card.png). */
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const { slug } = await params;
+  return builderScoreEnabled() && isReserved(slug) ? handleMetadata(slug) : {};
+}
 
 /**
  * v2.12.1 spec "Identity": "A handle equal to a site route is served at /b/<handle>." Any other name

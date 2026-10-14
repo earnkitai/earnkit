@@ -2,6 +2,8 @@ import { ImageResponse } from 'next/og';
 import { builderScoreEnabled } from '../../../../lib/earnkit/builder-score-flag';
 import { SCORE_COLORS } from '../../../../lib/earnkit/profile-data';
 import { resolveSlug } from '../../../../lib/earnkit/profiles';
+import { isReserved } from '../../../../lib/earnkit/reserved-routes';
+import { cardResponse } from '../../../[handle]/card-response';
 import { CARD_CACHE, cardModel } from '../../../../lib/earnkit/share';
 import { cachedProfile } from '../profile-load';
 
@@ -31,6 +33,8 @@ function arcPath(score: number): string {
 export async function GET(_: Request, { params }: { params: Promise<{ slug: string }> }) {
   if (!builderScoreEnabled()) return new Response('Not found', { status: 404 });
   const slug = (await params).slug;
+  // v2.12.1: a reserved handle's card lives here (/b/<handle>/card.png), drawn as every other page's.
+  if (isReserved(slug)) return cardResponse(slug, `/b/${slug}`);
   const lower = slug.toLowerCase();
   // v2.12.1 T6: resolveSlug means claimed with X (an unclaimed person has no public card).
   // The live row first (one indexed read, never cached): hidden or unknown is a 404 at once, and an

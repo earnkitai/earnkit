@@ -1,5 +1,4 @@
 import type postgres from 'postgres';
-import { archiveFlag, builderScoreEnabled } from './builder-score-flag';
 import { sql } from './db';
 import { testInstallationIds } from './installations';
 
@@ -47,10 +46,12 @@ export const boardStays = (state: string) => BOARD_STAYS.has(state);
  */
 export function boardRedirect(
   b: { program: string | null; stays: boolean },
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   env: Record<string, string | undefined> = process.env,
 ): string | null {
-  if (!builderScoreEnabled(env) || archiveFlag('PROGRAM_LEADERBOARDS', env) || b.stays || !b.program) return null;
-  return `/leaderboard?program=${encodeURIComponent(b.program)}`;
+  // v2.12.1 plan S11: the new leaderboard has no program filter, so no board moves there; every
+  // board page renders as in v2.11.
+  return null;
 }
 
 /**

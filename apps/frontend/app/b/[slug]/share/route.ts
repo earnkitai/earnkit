@@ -1,6 +1,8 @@
 import { builderScoreEnabled } from '../../../../lib/earnkit/builder-score-flag';
 import { noteEvent } from '../../../../lib/earnkit/events';
 import { resolveSlug } from '../../../../lib/earnkit/profiles';
+import { isReserved } from '../../../../lib/earnkit/reserved-routes';
+import { shareResponse } from '../../../[handle]/card-response';
 import { cardModel, intentUrl } from '../../../../lib/earnkit/share';
 import { cachedProfile } from '../profile-load';
 
@@ -11,7 +13,10 @@ import { cachedProfile } from '../profile-load';
  */
 export async function GET(_: Request, { params }: { params: Promise<{ slug: string }> }) {
   if (!builderScoreEnabled()) return new Response('Not found', { status: 404 });
-  const lower = (await params).slug.toLowerCase();
+  const raw = (await params).slug;
+  // v2.12.1: a reserved handle's share link lives here (/b/<handle>/share).
+  if (isReserved(raw)) return shareResponse(raw, `/b/${raw}`);
+  const lower = raw.toLowerCase();
   // v2.12.1 T6: only a page claimed with X is public (resolveSlug), checked live before the cached read.
   if (!(await resolveSlug(lower))) return new Response('Not found', { status: 404 });
   const data = await cachedProfile(lower);

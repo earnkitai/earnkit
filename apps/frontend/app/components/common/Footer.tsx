@@ -22,7 +22,7 @@ export default function Footer() {
           <div className="grid grid-cols-2 gap-8 md:grid-cols-4">
             {FOOTER_COLUMNS.map((column) => (
               <div key={column.title}>
-                <h3 className="font-funnel-sans text-xs font-semibold uppercase tracking-wide text-ek-blue-soft/60">
+                <h3 className="font-funnel-sans text-sm font-medium text-ek-blue-light">
                   {column.title}
                 </h3>
                 <ul className="mt-4 flex flex-col items-start gap-2">

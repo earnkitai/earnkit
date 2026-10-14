@@ -88,14 +88,14 @@ test('13.7 the agent-facing docs do not offer the sponsor tool', () => {
   assert.doesNotMatch(readFileSync(join(ROOT, 'README.md'), 'utf8'), /`sponsor_campaign`/);
 });
 
-test('14.1 boards: v2.11 with the score flag off; on, a round in review stays public (D1) and every other board moves to /leaderboard?program=<id>', () => {
+test('14.1 boards: v2.11 with the score flag off and (v2.12.1 plan S11) on too: the new board has no program filter, so nothing moves', () => {
   assert.equal(programOfRound('arc-microgrants:2026-09-16'), 'arc-microgrants');
   assert.equal(programOfRound('base-builder-grants:2026-10'), 'base-builder-grants');
   assert.equal(programOfRound('no-date-here'), null);
   const on = { EARNKIT_BUILDER_SCORE: 'on' };
   assert.equal(boardRedirect({ program: 'arc-microgrants', stays: false }, {}), null, 'flag off: v2.11');
   assert.equal(boardRedirect({ program: 'arc-microgrants', stays: true }, on), null, 'in review or paying: the board stays public');
-  assert.equal(boardRedirect({ program: 'arc-microgrants', stays: false }, on), '/leaderboard?program=arc-microgrants');
+  assert.equal(boardRedirect({ program: 'arc-microgrants', stays: false }, on), null, 'v2.12.1 S11: every board renders as in v2.11');
   assert.equal(boardRedirect({ program: null, stays: false }, on), null, 'no program: the page answers as today');
   assert.equal(boardRedirect({ program: 'arc-microgrants', stays: false }, { ...on, EARNKIT_PROGRAM_LEADERBOARDS: 'on' }), null, 'boards restored');
   // Final review (T14 ruling): frozen, review, paying and paid stay; only open and empty move.

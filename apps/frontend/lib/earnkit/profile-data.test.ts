@@ -1,57 +1,16 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import * as React from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
-import LeaderboardView from '../../app/leaderboard/LeaderboardView';
 import { percentiles } from './builder-score';
 import { sql } from './db';
-import { MAX_BOARD_PAGE, boardHref, boardOutcome, leaderboardData, leaderboardFilters, PAGE_SIZE, type BoardRow, type LeaderboardData } from './profile-data';
+import { MAX_BOARD_PAGE, boardHref, boardOutcome, leaderboardData, leaderboardFilters, type BoardRow } from './profile-data';
 
-/** v2.12 T12: the unified leaderboard (spec 7 "Leaderboard"). Markup on the pure view, then the one query. */
+/** v2.12 T12: the v2.12 board reader (its view is replaced in v2.12.1 T11; the reader goes in T12). */
 
-(globalThis as { React?: typeof React }).React = React;
-const html = (el: React.ReactElement) => renderToStaticMarkup(el);
-const text = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/&#x27;|&#39;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ');
 const ALL = { chain: null, program: null, window: 'all', page: 1 } as const;
-const board = (data: Partial<LeaderboardData>, programs: { id: string; title: string }[] = []) =>
-  html(React.createElement(LeaderboardView, { data: { rows: [], page: 1, pages: 1, filters: ALL, ...data }, programs }));
 
-test('12.1 the board: rank, name, score, Top N%, top outcome, each row links its profile; 50 a page', () => {
-  const rows = Array.from({ length: 50 }, (_, i) => ({ rank: i + 1, slug: `p${i}`, name: `@p${i}`, score: 90 - i, top_percent: i + 1, top_outcome: `${100 - i} people used app${i}`, change_7d: 0 }));
-  const h = html(React.createElement(LeaderboardView, { data: { rows, page: 1, pages: 3, filters: { chain: null, program: null, window: 'all', page: 1 } }, programs: [] }));
-  assert.equal((h.match(/<tr data-row=/g) ?? []).length, 50);
-  assert.match(h, /href="\/b\/p0"/);
-  assert.match(text(h), /1 @p0 90 Top 1% 100 people used app0/);
-  assert.match(h, /href="\/leaderboard\?page=2"/);
-  assert.equal(PAGE_SIZE, 50);
-  // Page 1 has no previous link; the last page has no next one.
-  assert.doesNotMatch(h, /href="\/leaderboard\?page=0"/);
-  const last = board({ rows: rows.slice(0, 2), page: 3, pages: 3, filters: { ...ALL, page: 3 } });
-  assert.match(last, /href="\/leaderboard\?page=2"/);
-  assert.doesNotMatch(last, /page=4/);
-  // A public page: no em dash, no emoji (cut at the shared Footer, as 10.3 does).
-  assert.doesNotMatch(h.split('<footer')[0], /—|\p{Extended_Pictographic}/u);
-});
-
-test('final T15 ruling: a row above the top 50% shows its score and no "Top N%"', () => {
-  const rows = [
-    { rank: 1, slug: 'a', name: '@a', score: 60, top_percent: 2, top_outcome: 'x', change_7d: 0 },
-    { rank: 2, slug: 'b', name: '@b', score: 5, top_percent: null, top_outcome: 'y', change_7d: 0 },
-  ];
-  const t = text(board({ rows }));
-  assert.match(t, /1 @a 60 Top 2% x/);
-  assert.match(t, /2 @b 5 y/);
-  assert.equal((t.match(/Top \d+%/g) ?? []).length, 1);
-});
-
-test('12.2 filters as query params; the week window ranks by 7-day change and says so', () => {
+test('12.2 filters as query params (v2.12 reader, removed in T12; the v2.12.1 board ignores them)', () => {
   assert.deepEqual(leaderboardFilters({ chain: 'arc', program: 'arc-microgrants', window: 'week', page: '2' }), { chain: 'arc', program: 'arc-microgrants', window: 'week', page: 2 });
   assert.deepEqual(leaderboardFilters({ chain: 'solana', program: '../x', window: 'x', page: '-4' }), { chain: null, program: null, window: 'all', page: 1 });
-  const h = html(React.createElement(LeaderboardView, { data: { rows: [], page: 1, pages: 1, filters: { chain: null, program: null, window: 'week', page: 1 } }, programs: [] }));
-  assert.match(text(h), /Biggest movers this week/);
-  assert.match(text(h), /No builders here yet/);
   // Repeated, odd or huge values are dropped, never echoed.
   assert.deepEqual(leaderboardFilters({ chain: ['arc', 'base'], program: 'A<b>', page: '1.5' }), ALL);
   assert.deepEqual(leaderboardFilters({ chain: 'Base', page: '1e3' }), ALL);
@@ -63,26 +22,9 @@ test('12.2 filters as query params; the week window ranks by 7-day change and sa
   assert.equal(leaderboardFilters({ page: '5000' }).page, 1);
 });
 
-test('12.2b filter links keep the other filters and reset the page; the selected program shows by its title', () => {
+test('12.2b filter links keep the other filters (v2.12 reader, removed in T12)', () => {
   assert.equal(boardHref(ALL), '/leaderboard');
   assert.equal(boardHref({ chain: 'base', program: 'arc-microgrants', window: 'week', page: 3 }), '/leaderboard?chain=base&program=arc-microgrants&window=week&page=3');
-  const f = { chain: 'arc', program: 'arc-microgrants', window: 'all', page: 2 } as const;
-  const rows: BoardRow[] = [{ rank: 51, slug: 'lee', name: '@lee', score: 40, top_percent: 20, top_outcome: 'Shipped tipjar', change_7d: 3 }];
-  const h = board({ rows, page: 2, pages: 2, filters: f }, [{ id: 'arc-microgrants', title: 'Arc Microgrants' }, { id: 'base-builder-grants', title: 'Base Builder Grants' }]);
-  assert.match(h, /href="\/leaderboard\?chain=base&amp;program=arc-microgrants"/);
-  assert.match(h, /href="\/leaderboard\?program=arc-microgrants"/, 'all chains');
-  assert.match(h, /href="\/leaderboard\?chain=arc&amp;program=arc-microgrants&amp;window=week"/);
-  assert.match(h, /href="\/leaderboard\?chain=arc&amp;program=base-builder-grants"/);
-  assert.match(h, /href="\/leaderboard\?chain=arc"/, 'all programs');
-  assert.match(h, /href="\/leaderboard\?chain=arc&amp;program=arc-microgrants"/, 'previous page keeps the filters');
-  assert.match(h, /aria-current="page"[^>]*>Arc</);
-  assert.match(text(h), /Arc Microgrants/);
-  // The all-time board does not show the week's change; the week board does, in words.
-  assert.doesNotMatch(text(h), /up 3/);
-  const week = board({ rows, filters: { ...f, window: 'week', page: 1 } });
-  assert.match(text(week), /up 3/);
-  assert.match(text(board({ rows: [{ ...rows[0], change_7d: -2 }], filters: { ...ALL, window: 'week' } })), /down 2/);
-  assert.match(text(board({ rows: [{ ...rows[0], change_7d: 0 }], filters: { ...ALL, window: 'week' } })), /no change/);
 });
 
 test('12.2c the top outcome in plain words: users, else money, else shipped; never a private repo or a wallet', () => {
@@ -94,22 +36,6 @@ test('12.2c the top outcome in plain words: users, else money, else shipped; nev
   assert.equal(boardOutcome({ score: 41, users: 3, money_usd: 0, repo_title: null, oss: false, site_ref: null, package_ref: 'tip-sdk' }), '3 people used tip-sdk');
   assert.equal(boardOutcome({ score: 41, users: null, money_usd: null, repo_title: null, oss: false, site_ref: null, package_ref: null }), 'Verified builder');
   assert.equal(boardOutcome({ score: 0, users: null, money_usd: null, repo_title: null, oss: false, site_ref: null, package_ref: null }), 'No verified outcomes yet');
-});
-
-test('12.5 the page: ISR 600, 404 with the flag off, strict params, one cached read revalidated with the profiles', () => {
-  const page = readFileSync(join(import.meta.dirname, '../../app/leaderboard/page.tsx'), 'utf8');
-  assert.match(page, /export const revalidate = 600/);
-  assert.match(page, /if \(!builderScoreEnabled\(\)\) notFound\(\)/);
-  // searchParams is read before the flag check, so the route is dynamic: a static prerender would serve one page for every filter.
-  assert.match(page, /const q = await searchParams;\s*(\/\/.*\s*)*if \(!builderScoreEnabled\(\)\) notFound\(\);\s*const f = leaderboardFilters\(q\)/);
-  const load = readFileSync(join(import.meta.dirname, '../../app/leaderboard/leaderboard-load.ts'), 'utf8');
-  assert.match(load, /tags: \[PROFILE_TAG\]/);
-  // Final review (T12): program= is checked against one cached id list before the board's cached read.
-  assert.match(page, /if \(f\.program && !\(await cachedProgramIds\(\)\)\.includes\(f\.program\)\) notFound\(\);\s*const board = await cachedBoard\(f\)/);
-  assert.match(load, /export const cachedProgramIds = unstable_cache\(async \(\) => programIds\(\), \[[^\]]+\], \{ revalidate: 600 \}\)/);
-  assert.match(load, /revalidate: 600/);
-  const cache = readFileSync(join(import.meta.dirname, 'profile-cache.ts'), 'utf8');
-  assert.match(cache, /revalidatePath\('\/leaderboard'\)/);
 });
 
 // ---- With a database: the one leaderboard query.

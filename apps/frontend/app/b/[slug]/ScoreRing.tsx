@@ -12,7 +12,16 @@ const C = 2 * Math.PI * R;
  * over an ek-navy track. The whole ring is one image with a text equivalent ("Score 41 of 100").
  * Scales with its box: `className` sets the size (the viewBox does the rest).
  */
-export default function ScoreRing({ score, className = 'h-44 w-44' }: { score: number; className?: string }) {
+export default function ScoreRing({
+  score,
+  className = 'h-44 w-44',
+  numberClassName = 'text-[3.25rem] md:text-[4rem]',
+}: {
+  score: number;
+  className?: string;
+  /** v2.12.1 T11: the number's size, for a smaller ring beside the rank line. */
+  numberClassName?: string;
+}) {
   const id = `ek-score-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
   const shown = Math.max(0, Math.min(100, Math.round(score)));
   const arc = (C * shown) / 100;
@@ -42,10 +51,10 @@ export default function ScoreRing({ score, className = 'h-44 w-44' }: { score: n
         ) : null}
       </svg>
       <div aria-hidden="true" className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="font-funnel-display text-[3.25rem] font-semibold leading-none tracking-tight text-ek-white tabular-nums md:text-[4rem]">
+        <span className={`font-funnel-display font-semibold leading-none tracking-tight text-ek-white tabular-nums ${numberClassName}`}>
           {shown}
         </span>
-        <span className="mt-2 font-funnel-sans text-xs font-medium text-ek-blue-soft">of 100</span>
+        <span className="mt-1 font-funnel-sans text-[11px] font-medium text-ek-blue-soft">of 100</span>
       </div>
     </div>
   );

@@ -75,6 +75,11 @@ const nextConfig: NextConfig = {
         source: '/b/:slug/card.png',
         headers: [{ key: 'Content-Security-Policy', value: IMAGE_CSP }],
       },
+      // v2.12.1 spec "Card": the card at earnkit.com/<x-handle>/card.png, same policy.
+      {
+        source: '/:handle/card.png',
+        headers: [{ key: 'Content-Security-Policy', value: IMAGE_CSP }],
+      },
       // v2.7 fix round 1 (Finding 4), narrowed in fix round 2: a program logo under
       // /public/programs is a static file on this origin; nothing loads or runs if it's opened
       // directly, same as the token images. Matched by extension only (never a bare :file*), so

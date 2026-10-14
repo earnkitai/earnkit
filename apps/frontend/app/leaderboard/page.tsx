@@ -1,30 +1,22 @@
 import { notFound } from 'next/navigation';
 import { builderScoreEnabled } from '@/lib/earnkit/builder-score-flag';
-import { leaderboardFilters } from '@/lib/earnkit/profile-data';
+import { BOARD_TITLE } from '@/lib/earnkit/page-data';
 import LeaderboardView from './LeaderboardView';
-import { cachedBoard, cachedProgramIds } from './leaderboard-load';
+import { cachedBoard } from './leaderboard-load';
 
-export const revalidate = 600;
+/** Rendered per request (the flag is read at run time); the board itself is one cached read per 10 minutes. */
+export const dynamic = 'force-dynamic';
 export const metadata = {
-  title: 'Leaderboard · EarnKit',
-  description: 'Builders ranked by a verified score: real people using what they shipped.',
+  title: `${BOARD_TITLE} · EarnKit`,
+  description: 'Builders ranked by what they shipped and who uses it.',
 };
 
 /**
- * v2.12 spec 7: the leaderboard. A 404 with the flag off (v2.11 had no such page), for a program id
- * that names no program (checked against one cached id list before the board's read), and for a page
- * past the end. Unknown chain, window or page values (and pages past MAX_BOARD_PAGE) fall back to the
- * defaults and are never echoed.
+ * v2.12.1 spec "Leaderboard" (plan S11): one list, every query parameter ignored (no filters, no
+ * pages: nothing a URL can vary fills a cache entry). A 404 with the flag off.
  */
-export default async function LeaderboardPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  // The query first: it makes the page render per request (never one static page for every filter);
-  // the board itself is the cached read (leaderboard-load.ts), one query per filter set per 10 minutes.
-  const q = await searchParams;
+export default async function LeaderboardPage() {
   if (!builderScoreEnabled()) notFound();
-  const f = leaderboardFilters(q);
-  if (f.program && !(await cachedProgramIds()).includes(f.program)) notFound();
-  const board = await cachedBoard(f);
-  if (!board.known) notFound();
-  if (f.page > board.data.pages) notFound();
-  return <LeaderboardView data={board.data} programs={board.programs} />;
+  const { rows, count } = await cachedBoard();
+  return <LeaderboardView rows={rows} count={count} />;
 }

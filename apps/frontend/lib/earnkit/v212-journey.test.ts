@@ -15,11 +15,12 @@ import { tools } from './tools';
 import { saveInstallation, touchInstallation } from './installations';
 import { runCron } from './cron';
 import { EVENT_LOG_FLAG } from './events';
-import { profileData } from './profile-data';
+import { pageCards } from './page-data';
+import { resolveHandle } from './profiles';
 import { SEND_LINK_LINE } from './where-you-stand';
 import { enqueueDiscovery } from './discovery';
 import type { ReaderDeps } from './source-readers';
-import ProfileView from '../../app/b/[slug]/ProfileView';
+import ProjectCards from '../../app/[handle]/ProjectCards';
 
 /**
  * v2.12 Task 15 (spec 11, "End to end"): a fresh install ends with a filled public profile and a
@@ -302,19 +303,17 @@ test('15.2b the score tool after the cron: where you stand, the rank only as it 
   assert.ok((await eventTypes(journeyId)).includes('score_viewed'));
 });
 
-// v2.12.1 T4: the v2.12 page and "Top N% of builders" read v1 rows only (publicScore), which the cron
-// no longer writes. T11 replaces them (deleted in T12).
-test('15.2c the v2.12 page after the cron (percentiles, "Top N% of builders")', { ...db, todo: 'replaced in T11' }, async () => {
+// v2.12.1 T11 (replaces v2.12's page check): after the cron the page's cards read the stored
+// projects (tipjar, confirmed); without a claim with X there is no public page yet.
+test('15.2c the page data after the cron: the confirmed project on its card; no page before the claim', db, async () => {
   assert.ok(journeyId, '15.2 ran');
-  // v2.12 final I4: a page whose consent line was never shown is not public; v2.12.1 T8's find has no consent line.
-  const [{ old }] = await sql()<{ old: string }[]>`SELECT old_slug AS old FROM profile_slug_history WHERE builder_id = ${journeyId}`;
-  assert.deepEqual(await profileData(old, NOW), { redirect: 'lee' });
-  const page = await profileData('lee', NOW);
-  assert.ok(page && 'score' in page && page.score > 0, JSON.stringify(page));
-  // Final review: "Top N%" only for N <= 50 (the rank depends on everyone in the DB).
-  const view = html(React.createElement(ProfileView, { data: page }));
-  if (page.top_percent === null) assert.doesNotMatch(view, /Top \d+%/);
-  else assert.ok(page.top_percent <= 50 && view.includes(`Top ${page.top_percent}% of builders`));
+  const cards = await pageCards(journeyId);
+  const tip = cards.find((c) => c.name === 'tipjar');
+  assert.ok(tip, JSON.stringify(cards));
+  assert.equal(tip.confirmed, true);
+  assert.equal(await resolveHandle('lee'), null, 'not claimed with X: no public page');
+  const view = html(React.createElement(ProjectCards, { cards }));
+  assert.doesNotMatch(view, /Top \d+%|of 100|Not yet confirmed/);
 });
 
 test('15.3 a rerun of the cron the same day writes no score, reading or event', db, async () => {

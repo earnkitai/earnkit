@@ -1,0 +1,242 @@
+import { sql } from './db';
+import { standingOf } from './person-score';
+import { COIN_PROGRAM } from './policy-constants';
+import { money } from './profile-data';
+import { rankWords } from './rank';
+import { pagePath } from './reserved-routes';
+import { shownUrl } from './untrusted-text';
+
+/**
+ * v2.12.1 spec "Profile", "Card and leaderboard": what the page at earnkit.com/<x-handle>, its share
+ * card and the leaderboard show. Every public sentence is here (one place for the copy review).
+ * Public facts only: a project's people and money only when confirmed and not waiting for a review,
+ * a repo's name only while its newest reading says public and is under a week old, never a wallet
+ * as the name, hidden people never.
+ */
+
+export const SOURCES_LINE =
+  'Numbers come from public data EarnKit can check: GitHub, live sites, package downloads, public transactions and EarnKit itself. Projects marked not yet confirmed are shown but do not count.';
+export const NOT_CONFIRMED = 'Not yet confirmed';
+export const NOT_TRACKED = 'Not tracked right now';
+export const NOTHING_YET = 'Projects show here once they are live.';
+export const BOARD_TITLE = 'Builders on EarnKit';
+export const boardLine = (n: number) => `${n.toLocaleString('en-US')} ${n === 1 ? 'builder' : 'builders'}, ranked by what they shipped and who uses it.`;
+export const topLine = (name: string, n: number, noun: string) => `${name} has shipped ${n} ${noun} with AI.`;
+export const buildingLine = (name: string) => `${name} is building with AI.`;
+export const peopleLine = (k: number) => (k === 0 ? null : `${k} of them ${k === 1 ? 'has people using it' : 'have people using them'}.`);
+export const peopleUse = (n: number) => `${n.toLocaleString('en-US')} ${n === 1 ? 'person uses' : 'people use'}`;
+
+export function cardHeadline(h: { moment: 'shipped' | 'people' | 'rank' | null; shipped: number; noun: string; best: { name: string; people: number } | null; rank: string | null }): string {
+  if (h.moment === 'people' && h.best && h.best.people > 0) return `${peopleUse(h.best.people)} ${h.best.name}`;
+  if (h.moment === 'rank' && h.rank) return h.rank;
+  if (h.shipped <= 0) return 'Building with AI';
+  return `Shipped ${h.shipped} ${h.noun} with AI`;
+}
+
+/** The X intent for the share link: the card's headline and the page; nothing else. Pure. */
+export function shareIntent(handle: string, headline: string): string {
+  const u = new URL('https://x.com/intent/post');
+  u.searchParams.set('text', `${headline} on EarnKit.`);
+  u.searchParams.set('url', `https://earnkit.com${pagePath(handle)}`);
+  return u.toString();
+}
+
+/** X's own image host only, over https; the 400px size instead of X's 48px default. Null otherwise. Pure. */
+export function avatarUrl(raw: string | null | undefined): string | null {
+  if (!raw || !URL.canParse(raw)) return null;
+  const u = new URL(raw);
+  if (u.protocol !== 'https:' || u.hostname !== 'pbs.twimg.com' || u.username || u.password || u.port) return null;
+  u.pathname = u.pathname.replace(/_(normal|bigger|mini)(\.[a-z]+)$/i, '_400x400$2');
+  return u.toString();
+}
+
+export type PageCard = {
+  key: string; name: string; what: string | null; link: string | null; people: number | null; money: string | null;
+  programs: { title: string; won: boolean }[]; confirmed: boolean; tracked: boolean;
+};
+export type PageHead = { handle: string; name: string; avatar: string | null; topLine: string; rank: string | null; peopleLine: string | null; score: number | null };
+
+/** The page shows at most this many projects (25 tracked, then the rest as not tracked). */
+const CARDS_MAX = 50;
+const PRIVATE_NAME = 'Private project';
+/** A repo is named only while its newest reading is at most this old (profile-data.ts PUBLIC_REPO_DAYS). */
+const PUBLIC_REPO_DAYS = 7;
+const WALLET = /\b0x[0-9a-f]{40}\b/i;
+/** A project or entry key compared: no scheme, no github.com/, no www., no trailing slash, lowercase. */
+const norm = (k: string) => k.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^(www\.)?github\.com\//, '').replace(/^www\./, '').replace(/\/+$/, '');
+const REPO_KEY = /^[^/:\s]+\/[^/\s]+$/;
+
+/** The display name: the X name (trimmed, never a wallet), else @handle. Pure. */
+export function displayName(xName: string | null, handle: string): string {
+  const n = (xName ?? '').replace(/\s+/g, ' ').trim().slice(0, 50);
+  return n && !WALLET.test(n) ? n : `@${handle}`;
+}
+
+export type PersonFacts = { name: string; handle: string; avatar: string | null; shipped: number; noun: string; rank: string | null; people: number; score: number; moment: 'shipped' | 'people' | 'rank' | null };
+
+/** What the header and the card need about one claimed person. Null when there is no claimed profile. */
+export async function personFacts(builderId: number, o: { only?: number[] } = {}): Promise<PersonFacts | null> {
+  const [p] = await sql()<{ x_name: string | null; x_handle: string | null; x_avatar_url: string | null; moment: string | null }[]>`
+    SELECT x_name, x_handle, x_avatar_url, card_moments->>'latest' AS moment FROM builder_profiles WHERE builder_id = ${builderId}`;
+  if (!p?.x_handle) return null;
+  const s = await standingOf(builderId, o);
+  // Spec S1: every shipped project counts in the top line, confirmed or not; the rank only from confirmed data.
+  const kinds = await sql()<{ kind: string }[]>`SELECT kind FROM builder_projects WHERE builder_id = ${builderId} AND shipped`;
+  const n = kinds.length;
+  const apps = n > 0 && kinds.every((k) => k.kind === 'app');
+  const noun = apps ? (n === 1 ? 'app' : 'apps') : n === 1 ? 'project' : 'projects';
+  const rank = rankWords(s)?.short ?? null;
+  const moment = p.moment === 'people' || p.moment === 'rank' ? p.moment : 'shipped';
+  return { name: displayName(p.x_name, p.x_handle), handle: p.x_handle, avatar: avatarUrl(p.x_avatar_url), shipped: n, noun, rank, people: s.people, score: s.score, moment };
+}
+
+export async function pageHead(builderId: number, o: { only?: number[] } = {}): Promise<PageHead> {
+  const f = await personFacts(builderId, o);
+  if (!f) throw new Error('pageHead: no claimed profile');
+  return {
+    handle: f.handle,
+    name: f.name,
+    avatar: f.avatar,
+    topLine: f.shipped > 0 ? topLine(f.name, f.shipped, f.noun) : buildingLine(f.name),
+    rank: f.rank,
+    // The ring and the people line sit only beside a rank that reads well (never "0/100").
+    peopleLine: f.rank ? peopleLine(f.people) : null,
+    score: f.rank ? f.score : null,
+  };
+}
+
+type Row = {
+  builder_id: number; key: string; name: string; what: string | null; link: string | null; confirmed: boolean; tracked: boolean;
+  people: number; money_usd: number; last_active_at: Date | null; held: boolean;
+};
+
+/**
+ * The projects of these people, safe to show: a repo-derived name or description only while the
+ * repo's newest reading (daily or live) is ok, says public and is under a week old; people and money
+ * only on confirmed projects of people not waiting for a review. Ordered per person: tracked first,
+ * then most people, then most recently active.
+ */
+async function shownProjects(ids: number[]): Promise<Map<number, (Row & { safeName: string; safeWhat: string | null })[]>> {
+  const out = new Map<number, (Row & { safeName: string; safeWhat: string | null })[]>();
+  if (ids.length === 0) return out;
+  const db = sql();
+  const rows = await db<Row[]>`
+    SELECT bp.builder_id, bp.project_key AS key, bp.name, bp.what, bp.link, bp.confirmed, bp.tracked, bp.people, bp.money_usd::float8 AS money_usd,
+      bp.last_active_at, COALESCE(l.pending IS NOT NULL, false) OR COALESCE(p.held, false) AS held
+    FROM builder_projects bp LEFT JOIN builder_live l USING (builder_id) LEFT JOIN builder_profiles p USING (builder_id)
+    WHERE bp.builder_id IN ${db(ids)}`;
+  const cut = new Date(Date.now() - PUBLIC_REPO_DAYS * 86_400_000);
+  const repos = await db<{ builder_id: number; ref: string; public: boolean }[]>`
+    SELECT b.builder_id, b.ref, COALESCE(n.ok AND n.signals->'private' = 'false'::jsonb AND n.at >= ${cut}, false) AS public
+    FROM builder_sources b
+    LEFT JOIN LATERAL (
+      SELECT x.ok, x.signals, x.at FROM (
+        SELECT r.ok, r.signals, r.day::timestamptz AS at FROM source_readings r WHERE r.source_id = b.id
+        UNION ALL SELECT s.ok, s.signals, s.read_at FROM source_live s WHERE s.source_id = b.id
+      ) x ORDER BY x.at DESC LIMIT 1) n ON true
+    WHERE b.builder_id IN ${db(ids)} AND b.kind = 'repo' AND b.state <> 'rejected'`;
+  const shownRepo = new Set(repos.filter((r) => r.public).map((r) => `${r.builder_id}:${norm(r.ref)}`));
+  const idents = await db<{ builder_id: number; identity: { projects?: unknown } | null }[]>`
+    SELECT builder_id, identity FROM builder_profiles WHERE builder_id IN ${db(ids)}`;
+  const reported = new Map<number, { names: Set<string>; whats: Set<string> }>();
+  for (const i of idents) {
+    const ps = Array.isArray(i.identity?.projects) ? (i.identity.projects as { name?: unknown; what?: unknown }[]) : [];
+    reported.set(i.builder_id, {
+      names: new Set(ps.map((p) => (typeof p?.name === 'string' ? p.name.trim().slice(0, 60).toLowerCase() : '')).filter(Boolean)),
+      whats: new Set(ps.map((p) => (typeof p?.what === 'string' ? p.what.trim().slice(0, 120) : '')).filter(Boolean)),
+    });
+  }
+  for (const r of rows) {
+    const k = norm(r.key);
+    const hiddenRepo = REPO_KEY.test(k) && !shownRepo.has(`${r.builder_id}:${k}`);
+    const own = reported.get(r.builder_id);
+    // The agent's own name for it is the builder's; the repo's name only while the repo reads public.
+    const repoName = k.split('/')[1] ?? '';
+    const nameIsRepo = r.name.trim().toLowerCase() === repoName || !own?.names.has(r.name.trim().toLowerCase());
+    const safeName = hiddenRepo && nameIsRepo ? PRIVATE_NAME : r.name;
+    const safeWhat = hiddenRepo && !(r.what && own?.whats.has(r.what)) ? null : r.what;
+    const list = out.get(r.builder_id) ?? [];
+    list.push({ ...r, safeName, safeWhat, people: r.confirmed && !r.held ? r.people : 0 });
+    out.set(r.builder_id, list);
+  }
+  const at = (d: Date | null) => (d ? d.getTime() : 0);
+  for (const list of out.values())
+    list.sort((a, b) => Number(b.tracked) - Number(a.tracked) || b.people - a.people || at(b.last_active_at) - at(a.last_active_at) || a.key.localeCompare(b.key));
+  return out;
+}
+
+export async function pageCards(builderId: number): Promise<PageCard[]> {
+  const list = ((await shownProjects([builderId])).get(builderId) ?? []).slice(0, CARDS_MAX);
+  if (list.length === 0) return [];
+  // Programs entered and won (announcements only), matched to a project by its repo or live link; coin entries are not program entries.
+  const entries = await sql()<{ keys: (string | null)[]; title: string; won: boolean; submitted_at: Date }[]>`
+    SELECT ARRAY[p.repo_key, p.token_repo_key, p.repo_url, p.live_url] AS keys, g.title, p.submitted_at,
+      EXISTS (SELECT 1 FROM entry_outcomes o WHERE o.project_id = p.id AND o.basis = 'announcement' AND o.result IN ('won', 'placed', 'finalist')) AS won
+    FROM projects p JOIN installations i ON i.id = p.installation_id JOIN programs g ON g.id = p.program_id
+    WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND p.program_id <> ${COIN_PROGRAM} AND p.vetoed_at IS NULL
+    ORDER BY p.submitted_at, p.id`;
+  return list.map((r, i) => {
+    const k = norm(r.key);
+    const programs = new Map<string, boolean>();
+    for (const e of entries)
+      if (e.keys.some((x) => x && norm(x) === k)) programs.set(e.title, (programs.get(e.title) ?? false) || e.won);
+    const measured = r.confirmed && !r.held;
+    return {
+      // Public markup: never a key that could name a private repo.
+      key: r.safeName === PRIVATE_NAME ? `project-${i + 1}` : `project-${i + 1}-${r.safeName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+      name: r.safeName,
+      what: r.safeWhat,
+      link: shownUrl(r.link),
+      people: measured && r.people > 0 ? r.people : null,
+      money: measured && r.money_usd > 1 ? money(r.money_usd) : null,
+      programs: [...programs].map(([title, won]) => ({ title, won })).sort((a, b) => Number(b.won) - Number(a.won)),
+      confirmed: r.confirmed,
+      tracked: r.tracked,
+    };
+  });
+}
+
+/** The card's best project: the confirmed one most people use (none while held). */
+export async function bestProject(builderId: number): Promise<{ name: string; people: number } | null> {
+  const top = ((await shownProjects([builderId])).get(builderId) ?? []).filter((p) => p.confirmed && !p.held && p.people > 0).sort((a, b) => b.people - a.people)[0];
+  return top ? { name: top.safeName, people: top.people } : null;
+}
+
+// ---- The leaderboard -------------------------------------------------------------------------------
+
+export type BoardRow = { rank: number; handle: string; avatar: string | null; best: string };
+/** The board lists at most this many people (one page, no paging). */
+export const BOARD_MAX = 100;
+
+/**
+ * spec "Leaderboard": ranked people with a confirmed X, not hidden and not waiting for a review, by
+ * score. `rank` is their rank over every ranked person (plan S3: the same number as their reply,
+ * page and card, so the list can skip numbers); `count` is how many are listed in all. `best` is the
+ * most-used project in plain words, else what they shipped.
+ */
+export async function boardRows(limit: number = BOARD_MAX): Promise<{ rows: BoardRow[]; count: number }> {
+  const db = sql();
+  const n = Math.max(1, Math.min(BOARD_MAX, Math.floor(limit)));
+  const listed = await db<{ builder_id: number; handle: string; avatar: string | null; rank: number; count: number; shipped: number; apps: boolean }[]>`
+    WITH ranked AS (
+      SELECT l.builder_id, l.score, rank() OVER (ORDER BY l.score DESC)::int AS rank
+      FROM builder_live l WHERE l.ranked AND EXISTS (SELECT 1 FROM builder_profiles q WHERE q.builder_id = l.builder_id)),
+    listed AS (
+      SELECT r.builder_id, r.score, r.rank, p.x_handle AS handle, p.x_avatar_url AS avatar
+      FROM ranked r JOIN builder_profiles p USING (builder_id)
+      WHERE p.x_user_id IS NOT NULL AND p.x_handle IS NOT NULL AND NOT p.hidden AND NOT p.held)
+    SELECT t.builder_id, t.handle, t.avatar, t.rank, count(*) OVER ()::int AS count,
+      (SELECT count(*)::int FROM builder_projects b WHERE b.builder_id = t.builder_id AND b.shipped) AS shipped,
+      COALESCE((SELECT bool_and(b.kind = 'app') FROM builder_projects b WHERE b.builder_id = t.builder_id AND b.shipped), false) AS apps
+    FROM listed t ORDER BY t.score DESC, lower(t.handle) LIMIT ${n}`;
+  const projects = await shownProjects(listed.map((r) => r.builder_id));
+  const rows = listed.map((r) => {
+    const top = (projects.get(r.builder_id) ?? []).filter((p) => p.confirmed && !p.held && p.people > 0).sort((a, b) => b.people - a.people)[0];
+    const noun = r.apps ? (r.shipped === 1 ? 'app' : 'apps') : r.shipped === 1 ? 'project' : 'projects';
+    const best = top
+      ? cardHeadline({ moment: 'people', shipped: r.shipped, noun, best: { name: top.safeName, people: top.people }, rank: null })
+      : cardHeadline({ moment: 'shipped', shipped: r.shipped, noun, best: null, rank: null });
+    return { rank: r.rank, handle: r.handle, avatar: avatarUrl(r.avatar), best };
+  });
+  return { rows, count: listed[0]?.count ?? 0 };
+}

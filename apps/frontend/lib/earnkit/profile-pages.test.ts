@@ -399,10 +399,10 @@ test('6.17 /b/<v2.12 slug>: unclaimed is a 404, claimed is a 308 to /<handle>; /
     assert.equal(await outcome(() => handlePage(handle.toLowerCase())), `308 /${handle}`, 'one URL: the handle in its own case');
     const shown = await outcome(() => handlePage(handle));
     assert.ok(typeof shown === 'object');
-    assert.match(text(html(shown)), /^\s*Page Person is building with AI\.\s*$/);
+    assert.match(html(shown), /<h1[^>]*>Page Person is building with AI\.<\/h1>/);
     await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped) VALUES (${b}, 'k1', 'Tip jar', 'app', true, true)`;
     await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at) VALUES (${b}, 10, '{}'::jsonb, true, 1, 0, 'v2', 'v2', now()) ON CONFLICT (builder_id) DO UPDATE SET shipped = 1`;
-    assert.match(text(html((await outcome(() => handlePage(handle))) as React.ReactElement)), /Page Person has shipped 1 app with AI\./);
+    assert.match(html((await outcome(() => handlePage(handle))) as React.ReactElement), /<h1[^>]*>Page Person has shipped 1 app with AI\.<\/h1>/);
     await sql()`UPDATE builder_profiles SET hidden = true WHERE builder_id = ${b}`;
     assert.equal(await outcome(() => handlePage(handle)), 404, 'hidden');
     assert.equal(await outcome(() => bPage(`b-c${T}`)), 404, 'hidden, also through the old slug');
@@ -417,4 +417,55 @@ test('6.17 /b/<v2.12 slug>: unclaimed is a 404, claimed is a 308 to /<handle>; /
     if (was === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
     else process.env.EARNKIT_BUILDER_SCORE = was;
   }
+});
+
+test('11.9 (v2.12.1 T11) the page at /<handle>: the full profile; unclaimed none, hidden 404, /Lee 308 to /lee, a reserved handle at /b/ and /terms stays the terms page', dbTest, async () => {
+  const was = process.env.EARNKIT_BUILDER_SCORE;
+  process.env.EARNKIT_BUILDER_SCORE = 'on';
+  try {
+    const { bindX } = await import('./claim');
+    const [a, b, r] = [T + 14, T + 15, T + 16];
+    await profile(a, { slug: `p-u${T}` });
+    // Unclaimed: no page under any name.
+    assert.equal(await outcome(() => handlePage(`p-u${T}`.slice(0, 15))), 404);
+    // Claimed as lowercase "lee…": /Lee… is a 308 to the stored case; the page shows the header and the projects' place.
+    await profile(b, { slug: `p-c${T}` });
+    const handle = `le${T}`.slice(0, 15);
+    await bindX(b, { id: `33${T}`, username: handle, name: 'Lee', avatar: null }, NOW);
+    assert.equal(await outcome(() => handlePage(handle.toUpperCase())), `308 /${handle}`);
+    await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped) VALUES
+      (${b}, 'https://a.example', 'A', 'app', false, true), (${b}, 'https://b.example', 'B', 'app', false, true), (${b}, 'https://c.example', 'C', 'app', false, true)`;
+    const page = html((await outcome(() => handlePage(handle))) as React.ReactElement);
+    assert.match(page, /<h1[^>]*>Lee has shipped 3 apps with AI\.<\/h1>/);
+    assert.match(text(page), /Numbers come from public data EarnKit can check/);
+    assert.doesNotMatch(page, /Score \d+ of 100/, 'not ranked: no ring');
+    // The page's title, description and card.
+    const meta = await (await import('../../app/[handle]/page')).generateMetadata({ params: Promise.resolve({ handle }) });
+    assert.equal(meta.title, 'Lee on EarnKit');
+    assert.equal(meta.description, 'Lee has shipped 3 apps with AI.');
+    assert.match(JSON.stringify(meta.openGraph), new RegExp(`/${handle}/card\\.png`));
+    await sql()`UPDATE builder_profiles SET hidden = true WHERE builder_id = ${b}`;
+    assert.equal(await outcome(() => handlePage(handle)), 404, 'hidden');
+    // A reserved handle (@mcp): its profile at /b/mcp, its card at /b/mcp/card.png.
+    await profile(r, { slug: `p-r${T}` });
+    await bindX(r, { id: `34${T}`, username: 'mcp', name: 'Em', avatar: null }, NOW);
+    const reserved = await outcome(() => bPage('mcp'));
+    assert.ok(typeof reserved === 'object');
+    assert.match(html(reserved), /<h1[^>]*>Em is building with AI\.<\/h1>/);
+    const bMeta = await (await import('../../app/b/[slug]/page')).generateMetadata({ params: Promise.resolve({ slug: 'mcp' }) });
+    assert.match(JSON.stringify(bMeta.openGraph), /\/b\/mcp\/card\.png/);
+    assert.equal(await outcome(() => handlePage('mcp')), '308 /b/mcp');
+    // /terms is its own route (a static segment wins over [handle]), so it stays the terms page.
+    const { existsSync } = await import('node:fs');
+    assert.ok(existsSync(join(import.meta.dirname, '../../app/terms/page.tsx')));
+  } finally {
+    await sql()`UPDATE builder_profiles SET x_user_id = NULL, x_handle = NULL WHERE builder_id IN ${sql()([T + 14, T + 15, T + 16])}`;
+    if (was === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
+    else process.env.EARNKIT_BUILDER_SCORE = was;
+  }
+});
+
+test('11.10 the card at /<handle>/card.png has the image policy, as /b/<name>/card.png', () => {
+  const config = readFileSync(join(import.meta.dirname, '../../next.config.ts'), 'utf8');
+  assert.match(config, /source: '\/:handle\/card\.png',\s*headers: \[\{ key: 'Content-Security-Policy', value: IMAGE_CSP \}\]/);
 });
