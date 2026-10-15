@@ -63,6 +63,22 @@ apps/frontend/
                                (C9)): lib/earnkit/llms/v212.txt (the former public/llms.txt, byte for
                                byte) with EARNKIT_BENCH off, lib/earnkit/llms/v213.txt (no builder bonus,
                                "The Bench" section) with it on
+  app/bench/{page.tsx,BenchView.tsx,BenchRowItem.tsx,FilterChip.tsx,bench-load.ts}  v2.13 T10: /bench (404
+                               flag off), the Bench: top 100, chain/raising/weekly filters as URL links, 16
+                               cached variants (unstable_cache, 60 s, PROFILE_TAG); /leaderboard is a 307 to it
+  app/feed/{page.tsx,FeedView.tsx}  v2.13 T6/T12: /feed (404 flag off), the finished weeks' best updates as
+                               long cards
+  app/[handle]/{BenchProfileView,ProjectTab,ScoreParts,ShipGrid}.tsx  v2.13 T11: the Bench profile (photo,
+                               rank lines, score parts, 52-week grid, Ship log tab, ?tab=project); Avatar falls
+                               back to the initial; card-response and page.tsx branch under the flag
+  app/components/sections/{BenchTop,UpdateCarousel,CarouselRow,BenchHowItWorks}.tsx  v2.13 T12: the landing's
+                               Bench top 10, update carousel, shared carousel row, three steps; HomeView, Hero,
+                               ProgramCards, Footer, Header, BackedBy branch under the flag (no bonus pill,
+                               sentence-case labels)
+  app/components/ui/{ChainLogo,RaisingPill,UpdateCard}.tsx  v2.13: chain logo chips, the Raising pill, the
+                               long and square update cards
+  public/images/chains/{base,arc,robinhood}.svg  v2.13: chain logos (arc and robinhood are monograms until
+                               the owner supplies the brand SVGs)
   app/page.tsx                 home (v2.7 §1): revalidate 600; getLanding() then HomeView
   app/HomeView.tsx             v2.7 §1, v2.8 Part A: the pure home render (Hero with stats_line,
                                ProgramCards (every open program, carousel), HowItWorks, BackedBy, Footer);
@@ -1412,6 +1428,24 @@ apps/frontend/
                                into own orgs), budgetedGh (GH_RATE_FLOOR, GH_RUN_CAP 1500 calls a run),
                                GitHubBudgetStop, soft, READ_CAPS,
                                defaultReaderDeps (one per run)
+    weeks.ts(+test)            v2.13 T1: ISO weeks (isoWeekOf, mondayOf, lastFinishedMonday, last52, streakOf,
+                               weeksShipping)
+    main-project.ts(+test)     v2.13 T2: the one project (main_project_key): mainProjectOf, setMainProject,
+                               benchConfirmedSql (repo key needs a confirmed repo proof), CONFIRMING_WINDOW_MS
+                               (1 h fast refresh), PROOF_NOTE
+    week-facts.ts(+test)       v2.13 T4: WeekFacts, weekFactsFor, factChips, startedLine, upsertWeekFacts,
+                               weeklyFactsStep (Mondays from 15:00 UTC)
+    update-text.ts(+test)      v2.13 T5: checkUpdate (280 characters, no @, secrets, own links only), notes
+    updates.ts(+test)          v2.13 T5: postUpdate, hideUpdate, setUpdates, ownLinks (tell update / updates)
+    feed.ts(+test)             v2.13 T6: pointsOf, feedRankStep (daily, feedRank:<day>), rankFeed, feedWeeks,
+                               carouselCards, setFeedFlag (pin/hide)
+    bench-rank.ts(+test)       v2.13 T7: chainPools, rankLines (Top P% and per-chain lines; rank.ts has benchRank,
+                               CHAIN_CHIP_MIN, BENCH_CHAINS)
+    bench-reply.ts(+test)      v2.13 T8: the reply's three headings, lines and ask kinds
+    bench-find.ts(+test)       v2.13 T8/T9: benchFind, benchScore, benchAsked, benchMoveUp, coinAskBench
+    raising.ts(+test)          v2.13 T9: raisingCoin, setRaising, pillOf, raiseAsk (projects.raising_at)
+    bench-data.ts(+test)       v2.13 T10/T11: parseBenchFilter, benchRows, profile and project tab data, logCards
+    llms/{v212,v213}.txt       v2.13: the two /llms.txt bodies (flag off / on)
     sources.ts(+test)          v2.12 T5: Proof, repoOwned, packageOwned, siteOwnedByText, contractOwnership
                                (fail strict), contractConflicts, proposeSource, verifySource, proveLinkedSite,
                                rejectSource, dueSources, previousSignals, readSources (READS_PER_RUN 200)
@@ -1588,6 +1622,7 @@ apps/frontend/
                                v28-complete-at-window.mts: the Ruling C7 ship step (dry run by default)
                                events-backfill.mts: v2.11 T3, the owner's one-off event backfill (needs
                                EARNKIT_EVENT_LOG=on; never predeploy or cron)
+                               scripts/feed.mts: v2.13 T6, pnpm feed:pin|feed:hide <update-id> [--off] (owner-run)
                                v211-metric.mts: v2.11 T13, the success metric, shown, never a target
                                (owner-run, read-only; never predeploy or cron): of no-repo builders who said
                                yes to the build (fresh_offer_at, not shared, installations.build set), the
@@ -1716,3 +1751,11 @@ Sponsor escrow (v2.1), also never on Railway's write path — the server only re
 (falls back to `BASE_RPC_URL` on `base`), `ESCROW_LOCAL_TOKEN` (the mock token address, `local`
 chain only). `OPERATOR_PRIVATE_KEY` (fallback propose/execute, refund) and `GUARDIAN_PRIVATE_KEY`
 (fallback veto) are local only, never on Railway.
+
+v2.13 changed entry points: `tools.ts` `list_programs`/find branch to `benchFind` and `tell` takes `update`,
+`updates` and `coin { raising }` under `EARNKIT_BENCH` (`moveUpAnswer` goes to `benchMoveUp`);
+`builder-score.ts runScoreSteps` gains `weekly` and `feed` steps; `cron.ts runCron` skips the bonus steps
+under the flag; `bonus-rounds.ts bonusOn` is false under it; `policy-constants.ts EARNKIT_SPLITS_BPS` holds
+both fee splits; `app/llms.txt/route.ts` replaces `public/llms.txt`; `schema.sql` adds
+`builder_profiles.main_project_key/updates_on_at`, `project_updates`, `builder_projects.chains/streak/
+weeks_shipping`, `projects.raising_at/coin_tx/coin_chain_id`, `programs.pitch` and the new event types.

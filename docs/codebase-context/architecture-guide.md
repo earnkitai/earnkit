@@ -5010,7 +5010,125 @@ In this order; none is done on this branch.
 12. **Separate owner calls**: the footer's "For sponsors" link and its all-caps column headings are
     production's and were left unchanged for flag-off parity.
 
-### v2.13 T13: the builder bonus off under the Bench flag
+## v2.13 The Bench (Tasks 1 to 16)
+
+Spec: `docs/design-docs-and-implementation-plans/v2.13-the-bench.md`. Owner test, step by step:
+`docs/design-docs-and-implementation-plans/v2.13-acceptance-runbook.md`. One switch, `EARNKIT_BENCH=on`
+(on top of `EARNKIT_BUILDER_SCORE=on`; `builder-score-flag.ts benchEnabled`). Off, every surface is
+v2.12.2. The thesis: connect builders to capital. One builder, one project, a weekly ship log written
+by the builder's own agent, public filters for the capital side, and an optional raise.
+
+### The flow, as the builder sees it
+
+- **2a, a project.** `find` takes `identity.project` (one; an older agent's `projects[]` keeps its first
+  entry). The reply (`bench-reply.ts`, `bench-find.ts benchFind`) has three parts: "Where you stand",
+  "Ways to get funded", "How to move up". The agent commits the proof line in the same turn
+  (`main-project.ts PROOF_NOTE`), or the reply carries the sign-in link when it cannot push. The server
+  writes the first ship log entry "Started tracking <name>." (`week-facts.ts startedLine`).
+- **2b, no project.** The reply leads with ideas the builder can earn from (`ideasLine`) and the one yes
+  builds a starter that is the project (v2.11 flow).
+- **The weekly update.** One yes (`builder_profiles.updates_on_at`), then the agent's weekly task
+  (`schedule_weekly_update` replaces `schedule_daily_check`) calls `tell update { text }`.
+- **Raise.** Optional, through a tokens.fun coin (`raising.ts`).
+- **The last line is one question, the first that applies:** no project (build), not live (go live),
+  updates not on (the yes), updates on but none this week and the agent cannot schedule (post one),
+  a coin moment (raise), else the best-fitting program. `bench-find.ts BenchAskKind` holds the kinds;
+  the yes goes through `benchMoveUp`.
+
+### One project and its proof
+
+- `builder_profiles.main_project_key` (`main-project.ts mainProjectOf`, `setMainProject`). A later
+  project from the same builder is identity only; it is not shown and not scored.
+- **Confirmed gate (B2).** Under the flag, for an owner/repo key the Bench, the weekly rank gate and the
+  ship log need a verified repo source with a confirmed proof on that ref (`benchConfirmedSql`,
+  `confirmedSrc`); a coin or entry naming an unproven repo does not count. Keys that are not repos
+  (hosted slug, site only) use `builder_projects.confirmed`. Fail strict.
+- **Fast confirming (B4).** For one hour after the proof line is issued (`CONFIRMING_WINDOW_MS`) a reply
+  may refresh the check once a minute (`CONFIRMING_REFRESH_MS`). After that the daily discovery gate
+  and the cron's proof check apply, so a builder who never confirms costs nothing.
+- **Shared repo.** `project_updates` stays UNIQUE (project_key, week): the first confirmed owner keeps
+  the ship log; a second owner is never overwritten and never "due".
+
+### Reads
+
+No person query on the reply path or the daily read under the flag (`readPersonGithub` is not called).
+`source-readers.ts readGithubRepos` reads the one repo by name, 25 projects a call across builders,
+once a day. `person-github.ts` keeps `commit_counts` per ISO week (from the dates already read), which
+feeds `shipped_code`. The X photo refreshes at sign-in only; `Avatar` falls back to the initial.
+
+### The weekly facts and the score
+
+- `weeks.ts`: ISO weeks (`isoWeekOf`, `mondayOf`, `lastFinishedMonday`, `last52`, `streakOf`,
+  `weeksShipping`).
+- `week-facts.ts`: `weekFactsFor` (B5: `shipped_code`, `went_live`, `users_up`, `earned`, `won`, `streak`,
+  `raising`), `factChips`, `upsertWeekFacts`. **`weeklyFactsStep`** runs from `runScoreSteps` as the
+  `weekly` step: Mondays from 15:00 UTC (`WEEKLY_HOUR_UTC`), after the digest, `WEEKLY_PER_RUN` 200,
+  only confirmed projects the builder holds. It writes the finished week's `project_updates` row (the
+  facts; text stays null until the agent posts) and fills `builder_projects.chains`, `streak`,
+  `weeks_shipping` (B6, `person-score.ts`). A package used outside the one project stays out of the
+  score.
+- **Dated events** in `builder_events` (`events.ts`): `shipped_code`, `went_live`, `users_up`,
+  `update_posted`, `update_hidden`, `raising_on`, `raising_off`, each with a dedupe key per project and
+  week. Both type checks in `schema.sql` list the same values (`schema-rerun.test.ts`).
+- Streak and `weeks_shipping` count only confirmed ship weeks.
+
+### Updates
+
+- `tell update { text }` (`updates.ts postUpdate`), `update { hide: "YYYY-MM-DD" }` (`hideUpdate`),
+  `updates { on }` (`setUpdates`). One row per project per ISO week; a second post in the week replaces
+  the text. Hidden updates leave the profile and the feed; their facts still count.
+- **The text rule (`update-text.ts checkUpdate`, `UPDATE_MAX` 280).** One paragraph. No `@` mentions, no
+  run of 7 or more digits, no key, token, seed or address (checked after normalizing, so combining
+  marks and mixed scripts do not hide one), and the shared banned-word checks. **Own links** only to a
+  confirmed site, the hosted `<slug>.earnkit.com`, or the confirmed GitHub repo (`updates.ts ownLinks`);
+  never a package registry, never a file link; stored as the parsed href. No "written by an agent"
+  label (R6).
+
+### The feed
+
+- `feed.ts pointsOf`: went_live 40, won 40, users_up `min(30, 6*log2(1+n))`, earned
+  `min(20, 5*log2(1+d/10))`, shipped_code 10, streak `min(10, w)`. Updates with no facts never reach
+  the feed. Ties: the higher Bench score.
+- **`feedRankStep`** (the `feed` step, once a day through the `feedRank:<day>` rate window, from 15:00
+  UTC after `weekly`) writes `project_updates.points`. `feedWeeks` shows the top `FEED_WEEK_MAX` 20 of
+  the last finished week, then `FEED_OLDER_WEEKS` older ones; `carouselCards` is the landing's top
+  `CAROUSEL_MAX` 12.
+- **Owner control:** `pnpm feed:pin <update-id> [--off]` and `pnpm feed:hide <update-id> [--off]`
+  (`scripts/feed.mts`, `setFeedFlag`). Pin leads the week; hide leaves the feed, stays on the profile.
+
+### Rank
+
+`rank.ts`: P = 100 * rank / total. "Top P%" only when the pool has `BENCH_PERCENT_FROM` 20 or more and
+P is 50 or less (1 or more: rounded up whole; under 1: rounded up to one decimal, never below 0.1).
+Under 20: "#N of M" in the top half only. `rank.ts benchRank` and `bench-rank.ts` (`rankLines`,
+`chainPools`) give one pool per chain (Base, Robinhood Chain, Arc; `BENCH_CHAINS`); a chain's chip and
+rank line show only from `CHAIN_CHIP_MIN` 10 ranked projects. A project is on a chain by a confirmed
+contract, an EarnKit deploy, a launched coin or a program entry naming it. "Percentile" never appears.
+
+### Raising
+
+`raising.ts`: `raisingCoin`, `setRaising`, `pillOf`, `raiseAsk`. Moments are the v2.12.1 coin moments
+plus `streak_five` (`coin-moments.ts`, `bench-find.ts coinAskBench`). The yes runs the existing launch
+(`token-launch.ts`, `tokens.ts`) and sets `projects.raising_at`; `tell coin { raising: false }` clears it
+and the coin stays. A coin from before v2.13 shows no pill until its builder says yes ("Want to show
+you're raising with $X?"). The launch now stores `projects.coin_tx` and `coin_chain_id`. The pill
+(`RaisingPill`) says "Raising $SYMBOL" and links to tokens.fun; it names nothing about returns.
+
+### Surfaces
+
+- `/bench` (`app/bench/*`, `bench-data.ts`): top 100, filters as URL parameters (`chain`, `raising`,
+  `weekly` = streak of 4 or more), 16 cached variants (`unstable_cache`, revalidate 60, `PROFILE_TAG`).
+  `/leaderboard` is a 307 to `/bench` (temporary, so nothing sticks).
+- `/feed` (`app/feed/*`).
+- The profile `app/[handle]/BenchProfileView.tsx`: photo, rank lines, score parts (`ScoreParts`), the
+  52-week grid (`ShipGrid`), tabs as links (Ship log default, `?tab=project` = `ProjectTab`). The card
+  (OG) shows photo, name, "Top N% on the Bench", project, streak; it never names a confirming project.
+- The landing (`HomeView`): hero "Ship every week. Get funded.", `BenchTop`, `UpdateCarousel`, grants,
+  `BenchHowItWorks`, Backed by. `/llms.txt` is a route (`lib/earnkit/llms/v213.txt` under the flag,
+  `v212.txt` off). Chain logos: `public/images/chains/{base,arc,robinhood}.svg`.
+
+
+### The builder bonus (T13, B16, R16)
 
 - `bonus-rounds.ts bonusOn` is false under `benchEnabled()`, so every card, guide, reply line, round and
   `bookingFor` target follows: every bonus deposit books to the Safe. Nothing is deleted while the flag
@@ -5027,3 +5145,36 @@ In this order; none is done on this branch.
   `/admin/bonus/*` (404), the sitemap's rounds, `/llms.txt`. `/api/stats` keeps its keys
   (`bonus_programs_open` is 0 under the flag).
 
+### The copy rule (B17)
+
+Chain names and "Top P%" are allowed in public text under the flag; "percentile" stays banned
+(`fixtures/banned-words.ts`, `copy-review.test.ts`). Under the flag there are no all-caps labels:
+"Backed by" and the footer column titles render in sentence case (site-wide under the flag), and the
+footer tagline becomes the hero line.
+
+### Env vars
+
+`EARNKIT_BENCH=on` (needs `EARNKIT_BUILDER_SCORE=on`). Nothing else is new. `X_CLIENT_ID` and
+`X_CLIENT_SECRET` are set on Railway (2026-10-15; the claim redirect to x.com was verified).
+`EARNKIT_BONUS_WALLET` is no longer needed by new launches.
+
+### Turning the flag off
+
+Unset `EARNKIT_BENCH` and redeploy. Every surface is v2.12.2 again (replies, landing, profile, `/bench`
+and `/feed` 404, `/leaderboard` serves the v2.12.1 board, the weekly and feed steps do not run, the
+bonus returns as it was). State that waits, untouched: `project_updates`, `builder_profiles.main_project_key`
+and `updates_on_at`, `projects.raising_at`, `coin_tx`, `coin_chain_id`, and the new `builder_projects`
+columns (`chains`, `streak`, `weeks_shipping`). `/leaderboard`'s redirect is temporary, so nothing
+sticks in a browser; v2.12.1's 308s are unchanged.
+
+### Owner go-live steps (v2.13)
+
+1. **Lawyer** approves the word "Raising", the raise line and the pill.
+2. **Brand SVGs** for Arc and Robinhood Chain at `apps/frontend/public/images/chains/arc.svg` and
+   `robinhood.svg` (monograms today).
+3. **Deploy order.** EarnKit (with both-split fee claiming, `EARNKIT_SPLITS_BPS`) goes first. Then the
+   tokens.fun split change (branch `earnkit-split-v213`, commit 12a2874; creator 40, MINI 10, Safe 50).
+   The other way round, creator fees on new coins are not claimed.
+4. **`EARNKIT_BENCH=on`** on the frontend service, then the acceptance runbook.
+
+Done: `X_CLIENT_ID` and `X_CLIENT_SECRET` (2026-10-15).
