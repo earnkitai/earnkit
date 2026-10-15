@@ -15,7 +15,6 @@ import { type ToolContext, type ToolName, tools } from './tools';
 import {
   SAFETY_LINES,
   SAFETY_TEXT,
-  TEXT_LIMITS,
   UntrustedTextError,
 } from './untrusted-text';
 
