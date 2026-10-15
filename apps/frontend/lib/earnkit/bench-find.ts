@@ -98,10 +98,10 @@ async function benchRead(id: number, now: Date, fresh: ToolContext['freshDeps'])
 }
 
 /**
- * The coin as the last line (spec 3b's moments under the Bench, and v2.13 spec "4. Optional: raise"):
- * 1. the one project has a launched coin it isn't raising with: "Want to show you're raising with
- * $X?", once (standing_seen.raise_asked, marked here: the ask is used whenever it is returned);
- * 2. no coin, confirmed and shipped, five weeks in a row: the streak_five moment; 3. with people:
+ * The coin as the last line (spec 3b's moments under the Bench, and v2.13 spec "4. Optional: raise"),
+ * only for a confirmed one project: 1. it has a launched coin it isn't raising with: "Want to show
+ * you're raising with $X?", once (standing_seen.raise_asked, marked here: the ask is used whenever
+ * it is returned); 2. no coin, shipped, five weeks in a row: the streak_five moment; 3. with people:
  * its first 5 people (the last look saw fewer), else has_people. offerCoin records the moment (at
  * most once per project, so the streak moment comes once).
  */
@@ -111,12 +111,15 @@ export async function coinAskBench(
   seen: Seen,
   deps: { check?: TickerCheck } = {},
 ): Promise<BenchAsk | null> {
-  const raise = await raiseAsk(id, p.key, seen);
+  // Fix round 1: a Confirming project is never asked to raise (nor offered a coin).
+  if (!p.confirmed) return null;
+  const coin = await raisingCoin(id);
+  const raise = await raiseAsk(id, p.key, seen, coin);
   if (raise) {
     await markRaiseAsked(id, p.key, new Date());
     return raise;
   }
-  if (!p.confirmed || !p.shipped || p.has_coin || (await raisingCoin(id))) return null;
+  if (!p.shipped || p.has_coin || coin) return null;
   if (p.streak >= 5) {
     const offer = await offerCoin(id, p.key, 'streak_five', deps);
     if (offer) return { kind: 'coin', project_key: p.key, line: offer.line };

@@ -8,12 +8,12 @@ import { benchRank } from './rank';
 import { raiseLine } from './coin-moments';
 import { RAISE_LINES, showRaisingLine } from './raising';
 import RaisingPill from '../../app/components/ui/RaisingPill';
-
-// The components are compiled with the classic JSX runtime here (as feed.test.ts).
-(globalThis as { React?: typeof React }).React = React;
 import {
   CONFIRMED_LINE, NO_PROJECT_LINE, POST_UPDATE_ASK, UPDATES_ASK, buildAsk, claimToJoinLine, confirmingLine, enterAsk, fitsLine, goLiveAsk, ideasLine, onBenchLine,
 } from './bench-reply';
+
+// The components are compiled with the classic JSX runtime here (as feed.test.ts).
+(globalThis as { React?: typeof React }).React = React;
 
 /** Builder and public text added in v2.13, checked by the v2.13 rule (plan B17). Names (projects, programs, $TICKERS) are exempt. */
 const EXEMPT = ['Recipe planner', 'Avalanche Team1 Mini Grants', 'Base Builder Grants', 'EarnKit', 'tokens.fun', '$RECIPE', 'RECIPE'];
