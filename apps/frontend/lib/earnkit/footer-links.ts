@@ -22,6 +22,8 @@ export const CONTACT_EMAIL = 'mailto:j@earnkit.com';
 
 /** Ruling 22 (plan): the tagline under the wordmark, on the left of the footer card. */
 export const FOOTER_TAGLINE = 'Earn rewards for building';
+/** v2.13 (controller ruling): the tagline under the flag, the landing hero's title. */
+export const BENCH_FOOTER_TAGLINE = 'Ship every week. Get funded.';
 
 /**
  * Ruling 22 (plan): the only external destinations the footer may link to. Owner rule: real

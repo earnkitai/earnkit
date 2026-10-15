@@ -9,6 +9,19 @@ import type { PublicStats } from './stats';
 import { committedProgram } from './fixtures/program-file';
 import { presentFirstMessage } from './present';
 import { moneyText, openMoneyUsd, wonLine } from './stats';
+import * as React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import HomeView from '../../app/HomeView';
+import Footer from '../../app/components/common/Footer';
+import { homeFixture as LANDING_FIXTURE } from './fixtures/landing';
+import { BENCH_FOOTER_TAGLINE, FOOTER_TAGLINE } from './footer-links';
+import { BENCH_HERO_SUBTITLE, BENCH_HERO_TITLE, HERO_TITLE } from '../../app/components/sections/Hero';
+import { BENCH_TOP_TITLE, SEE_BENCH } from '../../app/components/sections/BenchTop';
+import { CAROUSEL_TITLE } from '../../app/components/sections/UpdateCarousel';
+import { BENCH_HOW_TITLE, BENCH_STEPS } from '../../app/components/sections/BenchHowItWorks';
+
+// The components are compiled with the classic JSX runtime here (as feed.test.ts).
+(globalThis as { React?: typeof React }).React = React;
 
 const stats = (o: Partial<PublicStats> = {}): PublicStats => ({
   open_money_usd: 0,
@@ -364,4 +377,90 @@ test('10.11 the won line: absent at 0 (never "$0"); "Builders using EarnKit won 
   assert.equal(landingFrom([arc], new Map(), stats({ builders_won_usd: 12_500 }), now).won_line, 'Builders using EarnKit won $12,500');
   assert.equal(wonLine(0), null);
   assert.equal(wonLine(1_234_567), 'Builders using EarnKit won $1,234,567');
+});
+
+// ---- v2.13 Task 12: the landing page under the flag (spec "Landing page", R15).
+const page = (landing: Parameters<typeof HomeView>[0]['landing']) => renderToStaticMarkup(React.createElement(HomeView, { landing })).replace(/&#x27;/g, "'");
+const ROW = { rank: 1, line: 'Top 1%', handle: 'maya_makes', name: 'Maya Chen', avatar: null, raising: null, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
+const CARD = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import. It plans a week.', chips: ['Went live', '+31 people', '12 commits'], pinned: false };
+/** Runs `fn` with EARNKIT_BENCH set to `on` (true) or unset (false), and restores both flags after. */
+const withBench = <T>(on: boolean, fn: () => T): T => {
+  const prev = { score: process.env.EARNKIT_BUILDER_SCORE, bench: process.env.EARNKIT_BENCH };
+  process.env.EARNKIT_BUILDER_SCORE = 'on';
+  if (on) process.env.EARNKIT_BENCH = 'on';
+  else delete process.env.EARNKIT_BENCH;
+  const restore = () => {
+    for (const [k, v] of [['EARNKIT_BUILDER_SCORE', prev.score], ['EARNKIT_BENCH', prev.bench]] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  };
+  try {
+    const out = fn();
+    if (out instanceof Promise) return out.finally(restore) as T;
+    restore();
+    return out;
+  } catch (e) {
+    restore();
+    throw e;
+  }
+};
+
+test('12.1 the hero, word for word, and its one button', () => {
+  assert.equal(BENCH_HERO_TITLE, 'Ship every week. Get funded.');
+  assert.equal(BENCH_HERO_SUBTITLE, 'Add EarnKit to your AI agent. It puts your project on the Bench, posts what you ship, and finds you grants and a way to raise.');
+  const h = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], chips: ['base'], cards: [CARD] } });
+  assert.ok(h.includes(BENCH_HERO_TITLE) && h.includes(BENCH_HERO_SUBTITLE) && h.includes('Add to your agent'));
+  assert.ok(!h.includes('Agents only'), 'no all-caps eyebrow under the flag');
+  assert.ok(!/Builder bonus/i.test(h), 'R16');
+});
+
+test('12.2 the sections in order: hero, the Bench top 10, this week on the Bench, grants open now, how it works, backed by', () => {
+  const h = page({ ...LANDING_FIXTURE, bench: { rows: Array.from({ length: 12 }, (_, i) => ({ ...ROW, handle: `b${i}`, rank: i + 1 })), chips: ['base'], cards: [CARD] } });
+  const at = [BENCH_HERO_TITLE, BENCH_TOP_TITLE, CAROUSEL_TITLE, 'Grants open now', BENCH_HOW_TITLE, 'Backed by'].map((s) => h.indexOf(s));
+  assert.ok(at.every((i, k) => i >= 0 && (k === 0 || i > at[k - 1])), at.join(','));
+  assert.equal((h.match(/data-row=/g) ?? []).length, 10, 'the top 10');
+  assert.match(h, new RegExp(`href="/bench"[^>]*>${SEE_BENCH}`));
+  assert.match(h, /href="\/bench\?chain=base"/);
+  assert.match(h, /href="\/bench\?raising=1"/);
+  assert.match(h, /data-shape="square"/);
+  for (const s of BENCH_STEPS) assert.ok(h.includes(s), s);
+});
+
+test('12.3 the square card: photo, @handle, project, the first line of the update and at most two chips', () => {
+  const h = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], chips: [], cards: [CARD] } });
+  assert.ok(h.includes('Added fridge photo import.') && !h.includes('It plans a week.'));
+  assert.ok(h.includes('Went live') && h.includes('+31 people') && !h.includes('12 commits'));
+  assert.ok(h.includes('@maya_makes') && h.includes('Recipe planner'));
+  // No updates this week: no carousel (the Bench and the grants still show).
+  const none = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], chips: [], cards: [] } });
+  assert.ok(!none.includes(CAROUSEL_TITLE) && none.includes(BENCH_TOP_TITLE) && none.includes('Grants open now'));
+});
+
+test('12.4 flag off: today\'s landing page (review focus 4)', () => {
+  const h = withBench(false, () => page({ ...LANDING_FIXTURE, bench: null }));
+  assert.ok(h.includes(HERO_TITLE) && h.includes('Agents only') && h.includes('Open programs') && h.includes('How you earn'));
+  assert.ok(!h.includes(BENCH_TOP_TITLE));
+  assert.ok(h.includes('Builder bonus'), 'the hero pill and the card pills stay');
+  assert.ok(h.includes(`>${FOOTER_TAGLINE}<`) && !h.includes(BENCH_FOOTER_TAGLINE));
+});
+
+test('12.5 the footer tagline: "Ship every week. Get funded." under the flag, today\'s without it', () => {
+  assert.equal(BENCH_FOOTER_TAGLINE, 'Ship every week. Get funded.');
+  assert.equal(FOOTER_TAGLINE, 'Earn rewards for building');
+  const on = withBench(true, () => renderToStaticMarkup(React.createElement(Footer)));
+  assert.ok(on.includes(`>${BENCH_FOOTER_TAGLINE}<`) && !on.includes(FOOTER_TAGLINE));
+  const off = withBench(false, () => renderToStaticMarkup(React.createElement(Footer)));
+  assert.ok(off.includes(`>${FOOTER_TAGLINE}<`) && !off.includes(BENCH_FOOTER_TAGLINE));
+});
+
+test('12.6 readLanding: the Bench (at most 10 rows, its chips, the carousel cards) under the flag, null without it; plain JSON', dbTest, async () => {
+  const on = await withBench(true, () => readLanding(now));
+  assert.ok(on.bench);
+  assert.ok(Array.isArray(on.bench.rows) && on.bench.rows.length <= 10);
+  assert.ok(Array.isArray(on.bench.chips) && Array.isArray(on.bench.cards) && on.bench.cards.length <= 12);
+  assert.deepEqual(Object.keys(on.bench).sort(), ['cards', 'chips', 'rows']);
+  assert.deepEqual(JSON.parse(JSON.stringify(on)), on, 'unstable_cache serializes it');
+  const off = await withBench(false, () => readLanding(now));
+  assert.equal(off.bench, null);
 });

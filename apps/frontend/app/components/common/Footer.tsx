@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { Wordmark } from '../ui/Logo';
 import { XIcon } from '../ui/Icons';
-import { FOOTER_COLUMNS, FOOTER_TAGLINE } from '../../../lib/earnkit/footer-links';
+import { BENCH_FOOTER_TAGLINE, FOOTER_COLUMNS, FOOTER_TAGLINE } from '../../../lib/earnkit/footer-links';
+import { benchEnabled } from '../../../lib/earnkit/builder-score-flag';
 
 // Ruling 22 (plan): 44px tap targets.
 const LINK =
@@ -16,7 +17,7 @@ export default function Footer() {
             <Link href="/" className="inline-flex min-h-11 items-center text-ek-blue-light">
               <Wordmark className="h-7 w-auto" />
             </Link>
-            <p className="font-funnel-sans text-lg text-ek-blue-light">{FOOTER_TAGLINE}</p>
+            <p className="font-funnel-sans text-lg text-ek-blue-light">{benchEnabled() ? BENCH_FOOTER_TAGLINE : FOOTER_TAGLINE}</p>
           </div>
 
           <div className="grid grid-cols-2 gap-8 md:grid-cols-4">

@@ -7,6 +7,10 @@ import { getProgramRow, guideBonus, isOpen, listPrograms, NotFoundError } from '
 import { boardSlug, roundFor, roundPoolsWei } from './bonus-rounds';
 import { moneyText, openMoneyUsd, readStats, wonLine, type PublicStats } from './stats';
 import { sql } from './db';
+import { benchRows, type BenchRow } from './bench-data';
+import { benchEnabled } from './builder-score-flag';
+import { carouselCards, type FeedCard } from './feed';
+import type { BenchChain } from './rank';
 
 /**
  * The landing page's live data (v2.7 §1, v2.7.1): the open curated programs as cards, the hero's
@@ -55,6 +59,8 @@ export type Landing = {
   stats_line: string | null;
   /** v2.9 E20: "Builders using EarnKit won $12,500" under the stats line, or null (no announced win with a prize). */
   won_line: string | null;
+  /** v2.13 spec "Landing page": the Bench's top 10 and its chain chips, and this week's square cards; null with the flag off. */
+  bench: { rows: BenchRow[]; chips: BenchChain[]; cards: FeedCard[] } | null;
 };
 
 /**
@@ -132,13 +138,21 @@ export function landingFrom(cards: Card[], pools: Map<string, bigint | null>, st
     tiles,
     stats_line: statsLine(stats),
     won_line: wonLine(stats.builders_won_usd),
+    bench: null,
   };
+}
+
+/** v2.13: the landing's Bench parts (only `rows` and `chips` from benchRows), or null with the flag off. Plain JSON. */
+async function readBench(now: Date): Promise<Landing['bench']> {
+  if (!benchEnabled()) return null;
+  const { rows, chips } = await benchRows({ chain: null, raising: false, weekly: false }, { limit: 10 });
+  return { rows, chips, cards: await carouselCards(now) };
 }
 
 /**
  * The landing page's one read: open programs, their open rounds' pools, the public stats. It
  * rejects when the database is unreachable (never empty data): the caller renders without the
- * live parts (Ruling 21 (plan), Review Focus 1).
+ * live parts (Ruling 21 (plan), Review Focus 1). v2.13: plus the Bench parts under the flag.
  */
 export async function readLanding(now = new Date()): Promise<Landing> {
   const cards: Card[] = await listPrograms();
@@ -147,7 +161,7 @@ export async function readLanding(now = new Date()): Promise<Landing> {
     { now },
   );
   const stats = await readStats(now);
-  return landingFrom(cards, pools, stats, now);
+  return { ...landingFrom(cards, pools, stats, now), bench: await readBench(now) };
 }
 
 /**

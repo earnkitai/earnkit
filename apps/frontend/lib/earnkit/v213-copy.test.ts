@@ -90,3 +90,23 @@ test('11.11 the profile\'s words pass the v2.13 rule on both tabs; chain names o
     assert.deepEqual(bannedInBench(page, exempt), [], page);
   }
 });
+
+test('12.7 the landing page\'s words pass the v2.13 rule (copy rules)', async () => {
+  const { default: HomeView } = await import('../../app/HomeView');
+  const { homeFixture } = await import('./fixtures/landing');
+  const { BENCH_HERO_SUBTITLE, BENCH_HERO_TITLE } = await import('../../app/components/sections/Hero');
+  const { BENCH_TOP_TITLE, SEE_BENCH } = await import('../../app/components/sections/BenchTop');
+  const { CAROUSEL_TITLE, SEE_ALL_UPDATES } = await import('../../app/components/sections/UpdateCarousel');
+  const { BENCH_HOW_TITLE, BENCH_STEPS } = await import('../../app/components/sections/BenchHowItWorks');
+  const { BENCH_FOOTER_TAGLINE } = await import('./footer-links');
+  for (const t of [BENCH_HERO_TITLE, BENCH_HERO_SUBTITLE, BENCH_TOP_TITLE, SEE_BENCH, CAROUSEL_TITLE, SEE_ALL_UPDATES, 'Grants open now', BENCH_HOW_TITLE, ...BENCH_STEPS, BENCH_FOOTER_TAGLINE])
+    assert.deepEqual(bannedInBench(t, EXEMPT), [], t);
+  const row = { rank: 1, line: 'Top 1%', handle: 'maya_makes', name: 'Maya Chen', avatar: null, raising: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
+  const card = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import. It plans a week.', chips: ['Went live', '+31 people'], pinned: false };
+  const rows = Array.from({ length: 12 }, (_, i) => ({ ...row, handle: `b${i}`, rank: i + 1 }));
+  const page = pageWords(React.createElement(HomeView, { landing: { ...homeFixture, bench: { rows, chips: ['base', 'robinhood', 'arc'], cards: [card] } } }));
+  // Names: the builder, the project, the coin, the programs' titles, the chains on the chips and logos (R14), the investors' logos (Backed by, unchanged).
+  const investors = ['The LAO', 'IDEO', 'GCR'];
+  const exempt = ['Maya Chen', 'Recipe planner', '$RECIPE', 'EarnKit', ...homeFixture.tiles.map((t) => t.title), ...Object.values(CHAIN_LABEL), ...investors];
+  assert.deepEqual(bannedInBench(page, exempt), [], page);
+});

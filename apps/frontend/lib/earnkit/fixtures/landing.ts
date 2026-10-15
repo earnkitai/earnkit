@@ -36,4 +36,6 @@ export const homeFixture: Landing = {
   ],
   stats_line: '120 agents earning',
   won_line: null,
+  // v2.13: the Bench sections are off (flag off); landing.test.ts 12.x passes its own.
+  bench: null,
 };
