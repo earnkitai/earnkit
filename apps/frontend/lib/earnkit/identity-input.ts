@@ -87,14 +87,58 @@ function projectSources(p: IdentityProject): { key: string; sources: { kind: str
   return { key: p.repo ?? p.live_url ?? p.package ?? p.contracts[0], sources };
 }
 
+const refsOf = (p: IdentityProject) => [p.repo, p.live_url, p.package, ...p.contracts].filter((v): v is string => typeof v === 'string');
+const asProject = (v: unknown): IdentityProject | null => {
+  const p = o(v);
+  if (typeof p.name !== 'string' || !p.name) return null;
+  const str = (x: unknown) => (typeof x === 'string' && x ? x : null);
+  return {
+    name: p.name, what: str(p.what), repo: str(p.repo), live_url: str(p.live_url), package: str(p.package),
+    contracts: Array.isArray(p.contracts) ? p.contracts.filter((c): c is string => typeof c === 'string') : [],
+  };
+};
+
+/**
+ * Final fix wave: a new report merged into the stored one, so one agent (or a find with only the
+ * login) never erases what another reported. A stored project that shares a link, repo, package
+ * or contract with a new one is that project: the new report wins, and what it left out (the plain
+ * words, a link) is kept. Stored projects the new report did not mention stay, after the new ones,
+ * up to IDENTITY_CAPS.projects. The login is the new one, else the stored one; wallets are both,
+ * newest first. Pure.
+ */
+export function mergeIdentity(stored: unknown, next: Identity): Identity {
+  const old = o(stored);
+  const before = (Array.isArray(old.projects) ? old.projects : []).map(asProject).filter((p): p is IdentityProject => p !== null);
+  const used = new Set<number>();
+  const projects = next.projects.map((p) => {
+    const refs = new Set(refsOf(p).map((r) => r.toLowerCase()));
+    const i = before.findIndex((q, k) => !used.has(k) && refsOf(q).some((r) => refs.has(r.toLowerCase())));
+    if (i < 0) return p;
+    used.add(i);
+    const q = before[i];
+    return {
+      name: p.name, what: p.what ?? q.what, repo: p.repo ?? q.repo, live_url: p.live_url ?? q.live_url, package: p.package ?? q.package,
+      contracts: [...new Set([...p.contracts, ...q.contracts])].slice(0, IDENTITY_CAPS.contracts),
+    };
+  });
+  for (const [k, q] of before.entries()) if (!used.has(k) && projects.length < IDENTITY_CAPS.projects) projects.push(q);
+  const oldWallets = Array.isArray(old.wallets) ? old.wallets.filter((w): w is string => typeof w === 'string' && ADDRESS.test(w)) : [];
+  const oldLogin = typeof old.github_login === 'string' && LOGIN.test(old.github_login) ? old.github_login : null;
+  return {
+    github_login: next.github_login ?? oldLogin,
+    projects: projects.slice(0, IDENTITY_CAPS.projects),
+    wallets: [...new Set([...next.wallets, ...oldWallets])].slice(0, IDENTITY_CAPS.wallets),
+  };
+}
+
 /** At most this many agent-reported projects (their project keys) per person; more are refused. */
 export const AGENT_PROJECTS_MAX = 25;
 
 /**
  * What find's identity tells EarnKit about a person (their group root), never as proof: the
  * reported login is kept as `reported_github` (a new one queues discovery, which reads it as a
- * clue), the whole report as `identity` (names and few words per project, shown as not yet
- * confirmed), every repo, site, package and contract as an agent-proposed source (one insert; at
+ * clue), the report merged into `identity` (mergeIdentity: names and few words per project, shown as
+ * not yet confirmed; never erased by another agent's or a login-only report), every repo, site, package and contract as an agent-proposed source (one insert; at
  * most AGENT_PROJECTS_MAX project keys per person, a new one past that is refused), and the wallets
  * remembered (never proven, never a merge). One `identity_given` event per person per UTC day.
  * Fix round 1: a find that carried nothing (no login, project or wallet) writes nothing, so it never
@@ -104,12 +148,13 @@ export async function noteIdentity(builderId: number, i: Identity, now: Date): P
   if (!i.github_login && i.projects.length === 0 && i.wallets.length === 0) return { proposed: 0 };
   const result = await sql().begin(async (tx) => {
     // The profile row's lock also serializes the cap below between two finds at once.
-    const [p] = await tx<{ reported: string | null }[]>`
-      SELECT reported_github AS reported FROM builder_profiles WHERE builder_id = ${builderId} FOR UPDATE`;
+    const [p] = await tx<{ reported: string | null; identity: unknown }[]>`
+      SELECT reported_github AS reported, identity FROM builder_profiles WHERE builder_id = ${builderId} FOR UPDATE`;
     if (!p) return null;
     const login = i.github_login ?? p.reported;
+    // Final fix wave: merged into the stored report (a second agent or a login-only find never wipes it).
     await tx`
-      UPDATE builder_profiles SET reported_github = ${login}, identity = ${tx.json(i as never)}, updated_at = now()
+      UPDATE builder_profiles SET reported_github = ${login}, identity = ${tx.json(mergeIdentity(p.identity, i) as never)}, updated_at = now()
       WHERE builder_id = ${builderId}`;
     const held = new Set(
       (await tx<{ key: string }[]>`

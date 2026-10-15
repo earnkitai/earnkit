@@ -1450,8 +1450,9 @@ apps/frontend/
                                readPersonLive (source_live), scorePeopleV2 (cron; v2 history rows),
                                trackingHeld, ring storage
     confirmed.ts               v2.12.1 T4: CONFIRMED_PROOFS, isConfirmedProof
-    identity-input.ts(+test)   v2.12.1 T5: identityInput (find's identity, lenient), noteIdentity (proposes
-                               agent sources, at most 25 projects; remembers wallets, never proof)
+    identity-input.ts(+test)   v2.12.1 T5: identityInput (find's identity, lenient), mergeIdentity (reports
+                               merge by project, never wiped), noteIdentity (proposes agent sources, at
+                               most 25 projects; remembers wallets, never proof)
     login-contests.ts          v2.12.1 T5/T6: contestants, loginStands, settleLogin, loginContests, ruleContest
     x-oauth.ts(+test)          v2.12.1 T6: X_SCOPES, pkcePair, xAuthorizeUrl, xUserFrom, xOAuth (token + /2/users/me)
     claim.ts(+test)            v2.12.1 T6/T7: CLAIM_TEXT, claimCode (S13), claimLink, claimGet, claimPost,

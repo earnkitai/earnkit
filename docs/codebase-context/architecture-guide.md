@@ -4695,8 +4695,10 @@ behind `EARNKIT_BUILDER_SCORE=on`: **flag off is production (v2.11 replies, no p
    `identity-input.ts identityInput`, lenient, never throws): GitHub login, projects (name, a few
    words, repo, live link, package, contracts as `base|arc|monad|tempo:0x..`), wallets. The tool
    description tells the agent to fill it and never to ask. `local_git` is still accepted and mapped
-   in. `noteIdentity` stores it (`builder_profiles.identity`, `reported_github`), proposes agent
-   sources (at most 25 projects a person) and remembers wallets (never proof).
+   in. `noteIdentity` merges it into the stored report (`mergeIdentity`, final fix wave: the same
+   project by any shared link keeps the words a new report left out; projects a second agent or a
+   login-only find did not mention stay, 25 at most; `builder_profiles.identity`, `reported_github`),
+   proposes agent sources (at most 25 projects a person) and remembers wallets (never proof).
 2. **The first reply** (`where-you-stand.ts whereYouStand`, three parts under `HEADS`: "Where you
    stand", "Ways to earn right now", "How to move up"), built by `tools.ts standFind` after the
    person's own refresh (`stand-view.ts startRefresh`, raced against `REFRESH_BUDGET_MS` = 8 s inside

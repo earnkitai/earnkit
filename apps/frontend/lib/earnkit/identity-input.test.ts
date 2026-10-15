@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { IDENTITY_CAPS, identityInput } from './identity-input';
+import { IDENTITY_CAPS, identityInput, mergeIdentity } from './identity-input';
 
 test('5.1 identity is read leniently: junk is dropped, caps hold, the old local_git maps in', () => {
   assert.deepEqual(identityInput('nonsense'), { github_login: null, projects: [], wallets: [] });
@@ -36,4 +36,30 @@ test('5.1b the old local_git fills in when there is room; bad logins, packages a
   ]);
   assert.deepEqual(i.wallets, []);
   assert.deepEqual(identityInput({ projects: { length: 3 }, wallets: [{}, 1] }), { github_login: null, projects: [], wallets: [] });
+});
+
+test('5.1c (final fix wave) mergeIdentity: the same project by any shared link keeps the words the new report left out; unmentioned ones stay', () => {
+  const stored = identityInput({
+    github_login: 'lee',
+    wallets: ['0x' + 'a'.repeat(40)],
+    projects: [
+      { name: 'TipJar', what: 'a tip jar', repo: 'lee/tipjar', live_url: 'https://tip.example.com' },
+      { name: 'Recipes', what: 'a recipe planner', live_url: 'https://recipes.example.com' },
+    ],
+  });
+  // Another agent sees the tip jar only by its site, with no words, and a new project.
+  const next = identityInput({ wallets: ['0x' + 'b'.repeat(40)], projects: [{ name: 'Tips', live_url: 'https://tip.example.com' }, { name: 'Budget', what: 'a budget tracker', live_url: 'https://budget.example.com' }] });
+  const m = mergeIdentity(stored, next);
+  assert.deepEqual(m.projects.map((p) => [p.name, p.what, p.repo, p.live_url]), [
+    ['Tips', 'a tip jar', 'lee/tipjar', 'https://tip.example.com'],
+    ['Budget', 'a budget tracker', null, 'https://budget.example.com'],
+    ['Recipes', 'a recipe planner', null, 'https://recipes.example.com'],
+  ]);
+  assert.equal(m.github_login, 'lee');
+  assert.deepEqual(m.wallets, ['0x' + 'b'.repeat(40), '0x' + 'a'.repeat(40)]);
+  // Nothing stored (or junk): the new report as is; the cap holds.
+  assert.deepEqual(mergeIdentity({}, next), next);
+  assert.deepEqual(mergeIdentity('junk', next), next);
+  const many = identityInput({ projects: Array.from({ length: 25 }, (_, k) => ({ name: `a${k}`, live_url: `https://a${k}.example.com` })) });
+  assert.equal(mergeIdentity(many, next).projects.length, IDENTITY_CAPS.projects);
 });

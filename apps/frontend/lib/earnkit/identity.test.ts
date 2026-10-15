@@ -753,6 +753,36 @@ test('5.14 a later find without identity keeps the last one; a merge keeps the s
     assert.equal(m.n, 'TipJar');
   }));
 
+test('5.14b (final fix wave) two agents of one person: each report merges by project; a login-only or partial find never erases names or words', db, () =>
+  scoreOn(async () => {
+    const [a, b] = [await person(), await person()];
+    await ensureProfile(a, NOW);
+    await ensureProfile(b, NOW);
+    await linkInstallations(a, [b]);
+    const root = await rootOf(a);
+    assert.equal(await rootOf(b), root);
+    // The first agent sees all three projects.
+    await noteIdentity(root, identityInput({
+      github_login: 'lee',
+      projects: [
+        { name: 'TipJar', what: 'a tip jar', repo: 'lee/tipjar' },
+        { name: 'Recipes', what: 'a recipe planner', live_url: 'https://recipes.example.com' },
+        { name: 'Budget', what: 'a budget tracker', live_url: 'https://budget.example.com' },
+      ],
+    }), NOW);
+    // The second agent sees only one, described its own way; then a find with only the login.
+    await noteIdentity(root, identityInput({ projects: [{ name: 'Budget', what: 'a money planner', live_url: 'https://budget.example.com' }] }), NOW);
+    await noteIdentity(root, identityInput({ github_login: 'lee' }), NOW);
+    const [p] = await sql()<{ identity: { github_login: string | null; projects: { name: string; what: string | null }[] } }[]>`
+      SELECT identity FROM builder_profiles WHERE builder_id = ${root}`;
+    assert.deepEqual(
+      p.identity.projects.map((x) => `${x.name}: ${x.what}`).sort(),
+      ['Budget: a money planner', 'Recipes: a recipe planner', 'TipJar: a tip jar'],
+      'merged by project key, the newest words win per project',
+    );
+    assert.equal(p.identity.github_login, 'lee');
+  }));
+
 test('5.15 agent proposals are capped at 25 projects per person, in one insert; only reported or tracked ones are read, verified first', db, () =>
   scoreOn(async () => {
     const id = await person();
@@ -763,11 +793,15 @@ test('5.15 agent proposals are capped at 25 projects per person, in one insert; 
     assert.equal((await noteIdentity(id, more, NOW)).proposed, 0, 'a 26th project is refused');
     const [n] = await sql()<{ n: number }[]>`SELECT count(DISTINCT project_key)::int AS n FROM builder_sources WHERE builder_id = ${id} AND proposed_by = 'agent'`;
     assert.equal(n.n, 25);
-    // The latest report names only b0..b4 (none proposed): of a0..a24 only tracked ones are read.
+    // The latest report names only b0..b4 (none proposed). Final fix wave: reports merge, so the
+    // stored report keeps b0..b4 first, then a0..a19 (25 at most); a20..a24 fell out of it and are
+    // read only when tracked (none is).
     await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped) VALUES (${id}, ${`https://a3-${id}.example.com`}, 'a3', 'app', false, false)`;
+    await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped) VALUES (${id}, ${`https://a22-${id}.example.com`}, 'a22', 'app', false, false)`;
     await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by, state, proof) VALUES (${id}, 'repo', ${`v${id}/x`}, ${`v${id}/x`}, 'server', 'verified', 'github_signin')`;
     const due = await dueSources('2999-01-01', 1000, [id]);
-    assert.deepEqual(due.map((s) => s.ref), [`v${id}/x`, `https://a3-${id}.example.com`], 'verified first, then the tracked proposal');
+    const named = Array.from({ length: 20 }, (_, k) => `https://a${k}-${id}.example.com`);
+    assert.deepEqual(due.map((s) => s.ref), [`v${id}/x`, ...named.slice(0, 20), `https://a22-${id}.example.com`], 'verified first, then the reported and tracked proposals');
     await noteIdentity(id, first, NOW);
     assert.equal((await dueSources('2999-01-01', 1000, [id])).length, 26, 'the latest report names them all again');
   }));
