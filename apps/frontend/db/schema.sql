@@ -1194,7 +1194,10 @@ ALTER TABLE builder_events DROP CONSTRAINT IF EXISTS builder_events_type_check;
 ALTER TABLE builder_events ADD CONSTRAINT builder_events_type_check CHECK (type IN (
   'built','deployed','hosted','entered','submitted','won','lost','usage_check',
   'source_proposed','source_verified','source_rejected','reading_taken','score_computed','score_held',
-  'profile_empty','profile_hidden','profile_shown','card_offered','x_added','card_shared','score_viewed','x_cleared'));
+  'profile_empty','profile_hidden','profile_shown','card_offered','x_added','card_shared','score_viewed','x_cleared',
+  -- v2.12.2: the v2.12.1 types here too, or a rerun fails on v2.12.1 rows before the later re-add.
+  'identity_given','page_claimed','x_renamed','wallet_proven','refreshed','use_tracked','builder_code_issued',
+  'coin_offered','coin_answered','page_ready_shown','news_shown'));
 -- v2.12 T7 review: the consent line is marked shown as the reply goes out (shown once, never lost).
 ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS consent_shown_at timestamptz;
 -- v2.12 T7 review: an X handle claim refused because another profile shows it (GitHub's
