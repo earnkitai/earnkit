@@ -22,13 +22,16 @@ export { COIN_PROGRAM };
 export type Moment = 'built_live' | 'countable' | 'first_five' | 'has_people';
 export type Coin = { name: string; symbol: string };
 
+// Final fix wave: the line asks one thing, the yes. A known wallet is a statement; with none known,
+// the yes's reply asks for it (coinYes: COIN_WALLET_ASK), never this line.
 const fees = (wallet: string | null) =>
-  wallet ? `You'd get 40% of its trading fees, paid to ${shortWallet(wallet.toLowerCase())}.` : "You'd get 40% of its trading fees. Send me the wallet they should go to.";
+  wallet ? `You'd get 40% of its trading fees, paid to ${shortWallet(wallet.toLowerCase())}.` : "You'd get 40% of its trading fees.";
 
 /**
  * The offer line for a moment: the coin that launches named (fix round 1, ruling 5: v2.8.1 A2, the
- * builder sees what launches) and the wallet shown, or asked for. Built through EarnKit, a no still
- * enters the program, and the line says so (ruling 6). One question. Pure.
+ * builder sees what launches) and the wallet shown when one is known (asked for after the yes, in
+ * the next reply). Built through EarnKit, a no still enters the program, and the line says so
+ * (ruling 6). One question. Pure.
  */
 export function coinLine(moment: Moment, name: string, wallet: string | null, coin: Coin | null = null): string {
   const a = coin ? `a coin, $${coin.symbol} (${coin.name}),` : 'a coin';
@@ -134,7 +137,7 @@ async function claimMoment(builderId: number, key: string, moment: Moment, walle
 
 /**
  * The offer at one of a project's 3b moments: its line (the coin that launches and the wallet
- * shown, or asked for) and the wallet, or null when it may not be offered (coinOfferable) or was
+ * shown when known, else asked after the yes) and the wallet, or null when it may not be offered (coinOfferable) or was
  * offered already. Callers show the line in the reply they build (shown: recorded). The pair is
  * saved as the shown offer, so the yes launches exactly it.
  */

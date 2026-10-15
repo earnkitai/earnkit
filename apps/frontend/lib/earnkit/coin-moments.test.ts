@@ -98,14 +98,19 @@ test('10.2 the wallet is shown before the yes', dbTest, async () => {
   assert.equal((await offerCoin(id, 'a', 'has_people'))!.line,
     `tokens.fun has people using it. Want to launch a coin, $${pair.symbol} (${pair.name}), for it? You'd get 40% of its trading fees, paid to 0xabcd…1234.`);
   const tip = { name: 'PodTips', symbol: 'PODTIP' };
-  // No wallet known: the line asks for one in the same sentence; the copy for every moment.
+  // No wallet known (final fix wave): the line asks only the yes; the wallet is asked in the next
+  // reply (coinYes: COIN_WALLET_ASK). A known wallet is shown as a statement.
   // Fix round 1 (ruling 6): the build path's no still enters, and the line says so (one question).
-  assert.equal(coinLine('built_live', 'PodTips', null, tip), "It's live. Want to launch a coin, $PODTIP (PodTips), for it? You'd get 40% of its trading fees. Send me the wallet they should go to. Your entry is ready either way.");
-  assert.equal(coinLine('countable', 'PodTips', null, tip), "Want to launch a coin, $PODTIP (PodTips), for PodTips? You'd get 40% of its trading fees. Send me the wallet they should go to.");
-  assert.equal(coinLine('first_five', 'PodTips', null, tip), "5 people have used PodTips. Want to launch a coin, $PODTIP (PodTips), for it? You'd get 40% of its trading fees. Send me the wallet they should go to.");
+  assert.equal(coinLine('built_live', 'PodTips', null, tip), "It's live. Want to launch a coin, $PODTIP (PodTips), for it? You'd get 40% of its trading fees. Your entry is ready either way.");
+  assert.equal(coinLine('countable', 'PodTips', null, tip), "Want to launch a coin, $PODTIP (PodTips), for PodTips? You'd get 40% of its trading fees.");
+  assert.equal(coinLine('first_five', 'PodTips', null, tip), "5 people have used PodTips. Want to launch a coin, $PODTIP (PodTips), for it? You'd get 40% of its trading fees.");
   for (const m of ['built_live', 'countable', 'first_five', 'has_people'] as const) {
     assert.doesNotMatch(coinLine(m, 'X', '0x' + 'a'.repeat(40), tip), /—|token|contract|wallet address|onchain|repo/i);
-    assert.equal((coinLine(m, 'X', null, tip).match(/\?/g) ?? []).length, 1);
+    for (const w of [null, '0x' + 'a'.repeat(40)]) {
+      const line = coinLine(m, 'X', w, tip);
+      assert.equal((line.match(/\?/g) ?? []).length, 1);
+      assert.doesNotMatch(line, /send me|tell me|which wallet|what wallet/i, 'one ask: the yes, never a wallet too');
+    }
   }
 });
 
@@ -126,11 +131,15 @@ test('10.3 a yes makes a coin entry the confirm path launches; nothing else chan
   assert.equal('project_id' in again && again.project_id, r.project_id);
   await usedProject(id, 'lee/b', 'B', 3);
   assert.deepEqual(await coinYes(id, 'lee/b', '0x' + 'b'.repeat(40), noCheck), { show_to_builder: 'Okay.' });
-  // No wallet given and none known: the builder is asked.
+  // No wallet given and none known: the line asked only the yes; the yes's reply asks the wallet,
+  // and the wallet the builder sends next is the answer (it launches to that one).
   const nw = await claimed('coin_nw');
-  await usedProject(nw, 'a', 'A', 3);
-  await offerCoin(nw, 'a', 'has_people');
+  await usedProject(nw, 'a', 'A', 3, { repo_url: 'https://github.com/lee/a' });
+  const offered = await offerCoin(nw, 'a', 'has_people');
+  assert.ok(offered && !/wallet/i.test(offered.line), offered?.line);
   assert.deepEqual(await coinYes(nw, 'a', null, noCheck), { show_to_builder: 'Send me the wallet the fees should go to.' });
+  const sent = await coinYes(nw, 'a', '0x' + 'c'.repeat(40), noCheck);
+  assert.ok('project_id' in sent && sent.wallet === '0x' + 'c'.repeat(40), JSON.stringify(sent));
 });
 
 test('10.4 with the flag on, a program entry\'s confirm never pitches a token; the build path and coin entries do', dbTest, async () => {
@@ -314,7 +323,7 @@ test('10.8 find: the reply that reports a project\'s first 5 people offers the c
   const id = await person([{ key: 'lee/five', name: 'Five', people: 6 }], seen);
   const r = await find(id);
   assert.ok(r.show_to_builder.startsWith('Since you last checked: 4 new people used Five this week.\n\n'), r.show_to_builder);
-  assert.match(r.show_to_builder, /How to move up\n5 people have used Five\. Want to launch a coin, \$[A-Z0-9]+ \([^)]+\), for it\? You'd get 40% of its trading fees\. Send me the wallet they should go to\.$/, r.show_to_builder);
+  assert.match(r.show_to_builder, /How to move up\n5 people have used Five\. Want to launch a coin, \$[A-Z0-9]+ \([^)]+\), for it\? You'd get 40% of its trading fees\.$/, r.show_to_builder);
   const [m] = await sql()`SELECT moment FROM coin_moments WHERE builder_id = ${id}`;
   assert.equal(m.moment, 'first_five');
   // Without the launch key (production before tokens are on): no coin anywhere, the v2.12.1 step as before.

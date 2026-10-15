@@ -1133,7 +1133,7 @@ async function tokenHeld(ctx: ToolContext, projectId: number): Promise<boolean> 
  * 5 people (the last look saw fewer) offers its coin in place of the step; else a project with people
  * and no coin gets it when no bigger step exists (chooseStep's order). The moment is recorded with
  * the offer (offerCoin: at most once per project); an offer that can't be made leaves the step as it
- * was. The line is offerCoin's, with the wallet shown (or asked for).
+ * was. The line is offerCoin's, with the wallet shown (or asked after the yes).
  */
 async function coinStep(id: number, seen: Seen | null, view0: Omit<StandView, 'step' | 'news'>, agentCanBuild: boolean, deps: { check?: TickerCheck } = {}): Promise<MoveUp | null> {
   const host = hostFor(agentCanBuild);

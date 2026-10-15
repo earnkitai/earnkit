@@ -4740,8 +4740,10 @@ behind `EARNKIT_BUILDER_SCORE=on`: **flag off is production (v2.11 replies, no p
    only places a coin is offered are the moments built_live (the build entry's confirm, "It's live.
    Want to launch a coin, $TIP (Tip Jar), for it? ... Your entry is ready either way."), countable
    (after a count or tag yes), first_five (the reply reporting a project's first 5 people) and
-   has_people (a project with people and no coin, when no bigger step exists). The coin and the
-   wallet are named before the yes (v2.8.1 A2); at most once per project (`coin_moments`), never
+   has_people (a project with people and no coin, when no bigger step exists). The coin and a known
+   wallet are named before the yes (v2.8.1 A2); with no wallet known the line asks only the yes and
+   the yes's reply asks for the wallet (`COIN_WALLET_ASK`, final fix wave: never a yes and a wallet
+   in one reply); at most once per project (`coin_moments`), never
    after two declines, never shared or held, only when the yes can launch (a confirmed repo or the
    build path) and token launches are on. `tell coin { project_key, answer, wallet? }` (or move_up
    kind coin) makes an entry in the internal closed program `earnkit-coin` (S7), which `confirm` by
