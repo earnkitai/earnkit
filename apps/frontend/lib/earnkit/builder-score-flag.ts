@@ -11,3 +11,10 @@ export const archiveFlag = (name: ArchiveName, env: Record<string, string | unde
 /** v2.12.1: Sign in with X is on only with both OAuth 2.0 client values set (graceful when unset). */
 export const xSignInEnabled = (env: Record<string, string | undefined> = process.env) =>
   Boolean(env.X_CLIENT_ID?.trim() && env.X_CLIENT_SECRET?.trim());
+
+/**
+ * v2.13 The Bench: one switch on top of the score flag (plan B1). Off unless both are exactly "on";
+ * off is production as it is (v2.12.2 with EARNKIT_BUILDER_SCORE=on).
+ */
+export const BENCH_FLAG = 'EARNKIT_BENCH';
+export const benchEnabled = (env: Record<string, string | undefined> = process.env) => builderScoreEnabled(env) && env[BENCH_FLAG] === 'on';

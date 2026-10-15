@@ -131,9 +131,13 @@ const NAMED_COLUMNS: [string, string][] = [
   ['builder_sources', 'project_key'],
   ['builder_projects', 'project_key'],
   ['coin_moments', 'project_key'],
+  // v2.13: the profile's main project and the ship log's project key and text.
+  ['builder_profiles', 'main_project_key'],
+  ['project_updates', 'project_key'],
+  ['project_updates', 'text'],
 ];
 /** v2.12.1: a person's page data, keyed by builder_id (the profile's group root). Cleared with --apply. */
-const BUILDER_TABLES = ['claim_codes', 'person_wallets', 'builder_projects', 'x_oauth_states', 'coin_moments'] as const;
+const BUILDER_TABLES = ['claim_codes', 'person_wallets', 'builder_projects', 'x_oauth_states', 'coin_moments', 'project_updates'] as const;
 const NAMED_ARRAYS: [string, string][] = [['installations', 'repos']];
 
 const { values } = (() => {
@@ -218,7 +222,7 @@ try {
         // NOT NULL and the page's URL).
         await tx`
           UPDATE builder_profiles SET x_user_id = NULL, x_name = NULL, x_avatar_url = NULL, reported_github = NULL,
-            base_builder_code = NULL, identity = '{}'::jsonb, github_basis = NULL, ring = '{}'::jsonb,
+            base_builder_code = NULL, main_project_key = NULL, updates_on_at = NULL, updates_scheduled_at = NULL, identity = '{}'::jsonb, github_basis = NULL, ring = '{}'::jsonb,
             x_handle = CASE WHEN lower(x_handle) = ${login} THEN NULL ELSE x_handle END,
             fallback_handle = CASE WHEN lower(fallback_handle) = ${login} THEN NULL ELSE fallback_handle END
           WHERE builder_id = ANY(${ids})`;

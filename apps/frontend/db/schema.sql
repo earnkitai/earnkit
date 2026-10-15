@@ -1197,7 +1197,9 @@ ALTER TABLE builder_events ADD CONSTRAINT builder_events_type_check CHECK (type 
   'profile_empty','profile_hidden','profile_shown','card_offered','x_added','card_shared','score_viewed','x_cleared',
   -- v2.12.2: the v2.12.1 types here too, or a rerun fails on v2.12.1 rows before the later re-add.
   'identity_given','page_claimed','x_renamed','wallet_proven','refreshed','use_tracked','builder_code_issued',
-  'coin_offered','coin_answered','page_ready_shown','news_shown'));
+  'coin_offered','coin_answered','page_ready_shown','news_shown',
+  -- v2.13: in every re-add, or a rerun fails on v2.13 rows before the later re-add (schema-rerun.test.ts).
+  'shipped_code','went_live','users_up','update_posted','update_hidden','raising_on','raising_off'));
 -- v2.12 T7 review: the consent line is marked shown as the reply goes out (shown once, never lost).
 ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS consent_shown_at timestamptz;
 -- v2.12 T7 review: an X handle claim refused because another profile shows it (GitHub's
@@ -1354,7 +1356,9 @@ ALTER TABLE builder_events ADD CONSTRAINT builder_events_type_check CHECK (type 
   'source_proposed','source_verified','source_rejected','reading_taken','score_computed','score_held',
   'profile_empty','profile_hidden','profile_shown','card_offered','x_added','card_shared','score_viewed','x_cleared',
   'identity_given','page_claimed','x_renamed','wallet_proven','refreshed','use_tracked','builder_code_issued',
-  'coin_offered','coin_answered','page_ready_shown','news_shown'));
+  'coin_offered','coin_answered','page_ready_shown','news_shown',
+  -- v2.13: in every re-add, or a rerun fails on v2.13 rows before the later re-add (schema-rerun.test.ts).
+  'shipped_code','went_live','users_up','update_posted','update_hidden','raising_on','raising_off'));
 -- Spec S7 (plan): the internal program a coin-only entry belongs to. Closed, so nothing lists it.
 INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work, token_policy, builder_bonus, agent_completable)
 VALUES ('earnkit-coin', 'EarnKit', 'Your coin', 'A coin for a project the builder already has (v2.12.1 step 3b).',
@@ -1402,3 +1406,43 @@ CREATE TABLE IF NOT EXISTS x_owner_clears (
   builder_id integer NOT NULL,
   cleared_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- v2.13 (the Bench). Additive. Nothing writes these while EARNKIT_BENCH is off.
+-- The one project (spec R1): its builder_projects key, set once (plan B2). The weekly-update yes (R5)
+-- and whether the agent scheduled the weekly task (plan B10).
+ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS main_project_key text;
+ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS updates_on_at timestamptz;
+ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS updates_scheduled_at timestamptz;
+-- The ship log: one row per project and ISO week (week = its Monday). text NULL: a week with facts
+-- and no update (plan B8). hidden: the builder's hide; feed_hidden: the owner's feed:hide.
+CREATE TABLE IF NOT EXISTS project_updates (
+  id          bigserial PRIMARY KEY,
+  builder_id  integer NOT NULL,
+  project_key text NOT NULL,
+  week        date NOT NULL CHECK (extract(isodow FROM week) = 1),
+  text        text CHECK (text IS NULL OR char_length(text) <= 280),
+  facts       jsonb NOT NULL DEFAULT '{}'::jsonb,
+  points      integer NOT NULL DEFAULT 0,
+  pinned      boolean NOT NULL DEFAULT false,
+  hidden      boolean NOT NULL DEFAULT false,
+  feed_hidden boolean NOT NULL DEFAULT false,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  edited_at   timestamptz,
+  UNIQUE (project_key, week)
+);
+CREATE INDEX IF NOT EXISTS project_updates_builder ON project_updates (builder_id, week DESC);
+CREATE INDEX IF NOT EXISTS project_updates_feed ON project_updates (week, points DESC) WHERE NOT hidden AND NOT feed_hidden;
+-- Computed by the rescore (T4): chains the project is on (base, robinhood, arc), the streak, weeks
+-- shipping in the last 52, and those weeks themselves for the profile's grid (plan B7).
+ALTER TABLE builder_projects ADD COLUMN IF NOT EXISTS chains text[] NOT NULL DEFAULT '{}';
+ALTER TABLE builder_projects ADD COLUMN IF NOT EXISTS streak integer NOT NULL DEFAULT 0;
+ALTER TABLE builder_projects ADD COLUMN IF NOT EXISTS weeks_shipping integer NOT NULL DEFAULT 0;
+ALTER TABLE builder_projects ADD COLUMN IF NOT EXISTS ship_weeks text[] NOT NULL DEFAULT '{}';
+-- Raising (R8): set on the yes, cleared on "stop raising"; the coin's launch tx and chain (tokens.fun's txHash, chainId).
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS raising_at timestamptz;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS coin_tx text;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS coin_chain_id integer;
+-- The fifth week in a row is a coin moment too (spec "Optional: raise"). Re-added once only.
+ALTER TABLE coin_moments DROP CONSTRAINT IF EXISTS coin_moments_moment_check;
+ALTER TABLE coin_moments ADD CONSTRAINT coin_moments_moment_check
+  CHECK (moment IN ('built_live','countable','first_five','has_people','streak_five'));

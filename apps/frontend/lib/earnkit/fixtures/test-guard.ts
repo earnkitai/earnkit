@@ -40,6 +40,8 @@ const CLEARED = [
   'X_CLIENT_ID',
   'X_CLIENT_SECRET',
   'EARNKIT_BASE_AGENT_CODES',
+  // v2.13: the Bench (a test that needs it on sets it, with EARNKIT_BUILDER_SCORE).
+  'EARNKIT_BENCH',
 ];
 for (const name of CLEARED) delete process.env[name];
 
