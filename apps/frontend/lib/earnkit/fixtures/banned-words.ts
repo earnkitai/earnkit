@@ -19,7 +19,7 @@ export function bannedIn(text: string, exempt: string[]): string[] {
  * never use ("signal", "written by", the builder bonus).
  */
 export const BENCH_PITCH_ALLOWED: RegExp[] = [
-  /\b(?:Base|Arc|Robinhood Chain) pays up to \$\d[\d,.]*[KkMm]? for [\w -]+?\./g,
+  /\b(?:Base|Arc|Robinhood Chain)(?= pays up to \$\d[\d,.]*[KkMm]? for )/g, // strips the \"who\" name only; the tail is still checked
   /\b[Aa] tip jar on (?:Base|Arc|Robinhood Chain)\b/g,
 ];
 export const BENCH_ALLOWED: RegExp[] = [

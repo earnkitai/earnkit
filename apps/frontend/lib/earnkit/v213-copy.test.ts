@@ -22,7 +22,8 @@ test('7.6 the rule: chain names only inside a rank line, "percentile", "signal",
   assert.deepEqual(bannedInBench('12 commits', []), [], 'a fact chip');
   assert.deepEqual(bannedInBench('Arc pays up to $10K for payment apps.', []), [], 'program pitch (F10)');
   assert.deepEqual(bannedInBench('a tip jar on Arc', []), [], 'starter offer (F10)');
-  for (const bad of ['Deploy on Base', 'Base pays more', 'top percentile', 'a strong signal', 'your outcome', 'the builder bonus', 'written by an agent', 'Your repo'])
+  for (const bad of ['Deploy on Base', 'Base pays more', 'top percentile', 'a strong signal', 'your outcome', 'the builder bonus', 'written by an agent', 'Your repo',
+    'Base pays up to $5K for the builder bonus.', 'Arc pays up to $5K for Base apps.', 'Desktop 5% on Base', 'Stop 1% on Base'])
     assert.notDeepEqual(bannedInBench(bad, []), [], bad);
   assert.ok(BENCH_ALLOWED.every((r) => r.global), 'every allowance strips every match');
 });

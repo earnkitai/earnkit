@@ -44,6 +44,10 @@ test('7.1 P = 100 * rank / total: whole numbers rounded up from 1, one decimal r
   assert.equal(benchPercent(1, 300), 0.4, '0.33 rounds up to 0.4');
   assert.equal(benchPercent(1, 1000), 0.1);
   assert.equal(benchPercent(1, 5000), 0.1, '0.02 floors at 0.1');
+  assert.equal(benchPercent(7, 100), 7, 'naive ceil(rank/total*100) gives 8');
+  assert.equal(benchPercent(21, 75), 28, 'naive gives 29');
+  assert.equal(benchPercent(7, 10000), 0.1);
+  assert.equal(benchPercent(11, 1000), 2, 'P in (1, 2)');
   assert.equal(percentText(0.3), '0.3');
   assert.equal(percentText(4), '4');
   assert.equal(BENCH_PERCENT_FROM, 20);
