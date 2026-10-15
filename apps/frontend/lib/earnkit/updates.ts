@@ -107,7 +107,9 @@ export async function hideUpdate(builderId: number, day: unknown): Promise<Reply
 
 export async function setUpdates(builderId: number, u: { on: boolean; scheduled?: boolean }, now: Date): Promise<Reply> {
   if (!u.on) {
-    await sql()`UPDATE builder_profiles SET updates_on_at = NULL, updates_scheduled_at = NULL WHERE builder_id = ${builderId}`;
+    // T8 fix round 1: the weekly-task note (bench-find.ts weekly_note_at) is due again once posting is back on.
+    await sql()`UPDATE builder_profiles SET updates_on_at = NULL, updates_scheduled_at = NULL,
+      standing_seen = COALESCE(standing_seen, '{}'::jsonb) - 'weekly_note_at' WHERE builder_id = ${builderId}`;
     return { show_to_builder: UPDATE_LINES.off };
   }
   const [p] = await sql()<{ sched: Date | null }[]>`

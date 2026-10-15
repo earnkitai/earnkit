@@ -5,7 +5,7 @@ import { randomBytes } from 'node:crypto';
 import { sql } from './db';
 import { bindX } from './claim';
 import { tools } from './tools';
-import { DAY, GOOD, NOW, X_ON, avalanche, find, fitsFor, install, person, withEnv, type Found } from './fixtures/find';
+import { DAY, GOOD, NOW, X_ON, avalanche, dropAvalanche, find, fitsFor, install, person, withEnv, type Found } from './fixtures/find';
 import { scoreReply } from './score-tool';
 import { EVENT_LOG_FLAG } from './events';
 import { HEADS, SEND_LINK_LINE } from './where-you-stand';
@@ -22,7 +22,9 @@ import type { ReaderDeps } from './source-readers';
 process.env.EARNKIT_AUTH_SECRET ||= 'v2121-find-secret';
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {
-  if (process.env.DATABASE_URL) await sql().end();
+  if (!process.env.DATABASE_URL) return;
+  await dropAvalanche();
+  await sql().end();
 });
 
 /** The builder score flag on (and the event log), with X sign-in set unless `x` is false. */

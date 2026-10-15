@@ -315,7 +315,10 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'fres
 
 /** The ask stored with the last Bench reply, when the agent's answer names it (kind, if given, and project_key). */
 export async function benchAsked(id: number, m: { kind?: string; project_key?: string | null }): Promise<{ kind: BenchAskKind; key: string | null; program_id?: string } | null> {
-  const [p] = await sql()<{ ask: Seen['bench_ask'] | null }[]>`SELECT standing_seen->'bench_ask' AS ask FROM builder_profiles WHERE builder_id = ${id}`;
+  const [p] = await sql()<{ ask: Seen['bench_ask'] | null }[]>`SELECT standing_seen->'bench_ask' AS ask FROM builder_profiles WHERE builder_id = ${id}`.catch((err: unknown) => {
+    logged('asked')(err);
+    return [];
+  });
   const asked = p?.ask;
   if (!asked || typeof asked !== 'object' || typeof asked.kind !== 'string') return null;
   if (m.kind !== undefined && m.kind !== asked.kind) return null;
@@ -337,9 +340,20 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId'>, m: {
   if (m.answer === 'no') {
     await sql()`
       UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{declined}',
-        COALESCE(standing_seen->'declined', '{}'::jsonb) || jsonb_build_object(${benchStepKey(asked.kind, asked.key)}::text, ${now.toISOString()}::text))
-      WHERE builder_id = ${id}`;
+        COALESCE(standing_seen->'declined', '{}'::jsonb) || jsonb_build_object(${benchStepKey(asked.kind, asked.key)}::text, ${now.toISOString()}::text)) - 'bench_ask'
+      WHERE builder_id = ${id}`.catch(logged('decline'));
     return okay;
+  }
+  // Fix round 1: answered once. The ask is cleared before the yes runs, so a retried yes is "Okay.".
+  // (go_live and coin yeses stay in tools.ts: go_live's yes is sent again with live_url by design.)
+  if (['updates', 'post_update', 'build', 'enter'].includes(asked.kind)) {
+    const [taken] = await sql()`
+      UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask'
+      WHERE builder_id = ${id} AND standing_seen->'bench_ask' = ${sql().json(asked as never)}::jsonb RETURNING 1`.catch((err: unknown) => {
+      logged('take ask')(err);
+      return [];
+    });
+    if (!taken) return okay;
   }
   switch (asked.kind) {
     case 'updates':

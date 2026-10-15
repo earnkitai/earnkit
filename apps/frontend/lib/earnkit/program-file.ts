@@ -564,6 +564,8 @@ export const ProgramFile = z
 
     // v2.8 Ruling 13 (plan): one chain at least, unless the program fits any chain (then none).
     if (p.any_chain && p.chains.length > 0) issue('any_chain programs list no chains');
+    // v2.13 T8: the pitch reads "<who> pays up to $N for <for>." only with a per-winner amount.
+    if (p.pitch && p.max_award_usd === undefined) issue('pitch needs max_award_usd (the line reads "pays up to $N for")');
     if (!p.any_chain && p.chains.length === 0) issue('chains needs at least one chain (or any_chain: true)');
     if (p.needs_contract && !p.any_chain && !p.chains.includes(p.needs_contract)) issue('needs_contract must be one of the chains');
     // v2.9 A2 (Pre-flight P24): a program open to any chain matches products only.

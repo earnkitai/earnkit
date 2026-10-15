@@ -908,3 +908,13 @@ test('9.1 agent_completable: false only for a go-to-market plan or a full-time t
     'circle-developer-grants': true, 'colosseum-worlds-fair': false, 'earnkit-campaign-1-base': true, 'monad-metropolis': true,
   });
 });
+
+test('v2.13 T8: a program with a pitch needs max_award_usd (the line reads "pays up to $N for")', () => {
+  const base = { ...committedProgram('arc-microgrants'), pitch: { who: 'Arc', for: 'payment apps' } };
+  assert.equal(ProgramFile.safeParse(base).success, true);
+  const { max_award_usd: _drop, ...noMax } = base as Record<string, unknown>;
+  void _drop;
+  const r = ProgramFile.safeParse(noMax);
+  assert.equal(r.success, false);
+  assert.match(JSON.stringify(r.error?.issues), /pitch needs max_award_usd/);
+});

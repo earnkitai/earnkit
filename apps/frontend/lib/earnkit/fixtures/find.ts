@@ -70,7 +70,16 @@ export async function person(o: { projects: Seed[]; score?: number; ranked?: boo
   return id;
 }
 
-/** A program the target user's tip jar fits (a copy of Avalanche Team1 Mini Grants: up to $10K, rolling). */
+/**
+ * Delete program rows a test made (their tracks and starters cascade). A row something still points
+ * at (an entry, a bonus round) is closed instead, so no test leaves an active program behind.
+ */
+export async function dropPrograms(ids: string[]): Promise<void> {
+  for (const id of ids)
+    await sql()`DELETE FROM programs WHERE id = ${id}`.catch(() => sql()`UPDATE programs SET status = 'closed' WHERE id = ${id}`);
+}
+
+/** A program the target user's tip jar fits (a copy of Avalanche Team1 Mini Grants: up to $10K, rolling). Call dropAvalanche in the file's after hook. */
 let program: { id: string; title: string } | null = null;
 export async function avalanche() {
   if (program) return program;
@@ -78,6 +87,11 @@ export async function avalanche() {
   await upsertProgram(ProgramFile.parse(p));
   program = { id: p.id, title: p.title };
   return program;
+}
+/** Removes this file's avalanche() copy (fix round 1: copies never pile up across runs). */
+export async function dropAvalanche(): Promise<void> {
+  if (program) await dropPrograms([program.id]);
+  program = null;
 }
 export const GOOD = { score: 6, tier: 'product' as const, missing: [], traction: 8, odds: 'good' as const, low_reason: null };
 /** The matcher's one fit: `key`'s repo is likely for the program (v2.13: any repo key; lee/tipjar is "TipJar"). */
