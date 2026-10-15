@@ -773,3 +773,28 @@ test('5.11 flag on: tell lists update and updates and stays under 800 characters
     delete process.env.EARNKIT_BUILDER_SCORE;
   }
 });
+
+test('5.12 flag off: the registered tell input schema is byte for byte the one before v2.13 Task 5 (fix round 1, review 10)', async () => {
+  const { createHash } = await import('node:crypto');
+  // sha256 of JSON.stringify(tell.inputSchema), taken from mcp.ts before Task 5 (score off, score on).
+  const BEFORE = { off: '273e03cf26598f86a2f880818133ec687780af9e35ad9aa8951103860e4b9698', on: 'd5e44c8470bcd030483406eca659289d1dd77a3f6bd263f522e906588def6cb2' };
+  const saved = { bench: process.env.EARNKIT_BENCH, score: process.env.EARNKIT_BUILDER_SCORE };
+  delete process.env.EARNKIT_BENCH;
+  try {
+    for (const score of ['off', 'on'] as const) {
+      if (score === 'on') process.env.EARNKIT_BUILDER_SCORE = 'on';
+      else delete process.env.EARNKIT_BUILDER_SCORE;
+      const tell = (await listed({})).tools.find((t) => t.name === 'tell')!;
+      assert.equal(createHash('sha256').update(JSON.stringify(tell.inputSchema)).digest('hex'), BEFORE[score], score);
+      assert.ok(!('update' in (tell.inputSchema.properties ?? {})) && !('updates' in (tell.inputSchema.properties ?? {})));
+    }
+    process.env.EARNKIT_BENCH = 'on';
+    const on = (await listed({})).tools.find((t) => t.name === 'tell')!;
+    assert.ok('update' in (on.inputSchema.properties ?? {}) && 'updates' in (on.inputSchema.properties ?? {}));
+  } finally {
+    if (saved.bench === undefined) delete process.env.EARNKIT_BENCH;
+    else process.env.EARNKIT_BENCH = saved.bench;
+    if (saved.score === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
+    else process.env.EARNKIT_BUILDER_SCORE = saved.score;
+  }
+});

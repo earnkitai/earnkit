@@ -157,7 +157,7 @@ import { verifiedProject } from './builder-score';
 import { COIN_NOTE, COIN_PROGRAM, builtLiveAnswer, coinLine, coinNo, coinOfferable, coinOpen, coinPitchAllowed, coinYes, offerCoin, showBuiltLive } from './coin-moments';
 import { sql } from './db';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
-import { JOIN_TEXT, answerJoin, joinQuestion, answerPickup, askJoin, offerPickup, pendingJoinOf, rootOf, type PickupDeps } from './identity';
+import { JOIN_TEXT, answerJoin, joinQuestion, answerPickup, askJoin, offerPickup, pendingJoinOf, type PickupDeps } from './identity';
 import type { FieldKind } from './program-file';
 import type { ProgramRow } from './programs';
 import { RateLimitError, enforce } from './rate-limit';
@@ -3794,13 +3794,12 @@ export const tools = {
       if (card === 'skip') replies.push({ show_to_builder: SKIPPED_LINE });
       if (move_up) replies.push(await moveUpAnswer(ctx, move_up));
       if (coin) replies.push(await coinAnswer(ctx, coin));
-      // v2.13 spec 3: the ship log, keyed by the person (the group root).
+      // v2.13 spec 3: the ship log (ctx.installationId is already the group root).
       if (benchEnabled() && (update || updates)) {
         const now = new Date();
-        const person = await rootOf(ctx.installationId);
-        if (update?.text !== undefined) replies.push(await postUpdate(person, update.text, now));
-        if (update?.hide !== undefined) replies.push(await hideUpdate(person, update.hide));
-        if (updates) replies.push(await setUpdates(person, updates, now));
+        if (update?.text !== undefined) replies.push(await postUpdate(ctx.installationId, update.text, now));
+        if (update?.hide !== undefined) replies.push(await hideUpdate(ctx.installationId, update.hide));
+        if (updates) replies.push(await setUpdates(ctx.installationId, updates, now));
       }
     }
     if (pickup !== undefined) replies.push((await handlers.pick_up_entries({ answer: pickup }, ctx)) as Reply);

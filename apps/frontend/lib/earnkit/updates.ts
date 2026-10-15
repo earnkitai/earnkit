@@ -1,8 +1,10 @@
 import { sql } from './db';
 import { noteEvent } from './events';
-import { mainConfirmed, mainProjectOf } from './main-project';
+import { CONFIRMED_PROOFS } from './confirmed';
+import { HOST_ZONE } from './hosting';
+import { REPO_KEY, mainConfirmed, mainProjectOf } from './main-project';
 import { pageUrl } from './reserved-routes';
-import { checkUpdate } from './update-text';
+import { checkUpdate, type OwnLinks } from './update-text';
 import { weekFactsFor } from './week-facts';
 import { mondayOf, weekOfMonday } from './weeks';
 
@@ -32,12 +34,28 @@ export const WEEKLY_UPDATE_NOTE =
   'writes one plain paragraph (at most 280 characters, links only to the live site or the repo) and calls tell with update: { text }. ' +
   "Then call tell with updates: { on: true, scheduled: true }. Never ask the builder to write it. Don't show this note.";
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const REPO = /^[a-z0-9-]+\/[a-z0-9._-]+$/i;
 
-export async function ownLinks(builderId: number): Promise<{ live: string | null; repo: string | null }> {
+/**
+ * Fix round 1 (ruling on review 5): the links an update may hold. Only the origins of the one
+ * project's CONFIRMED site sources, its EarnKit-hosted <slug>.earnkit.com site, and its GitHub repo
+ * when the one project is a confirmed repo key. Never builder_projects.link (it may be an unproven
+ * site) and never a package registry.
+ */
+export async function ownLinks(builderId: number): Promise<OwnLinks> {
   const key = await mainProjectOf(builderId);
-  const [p] = key ? await sql()<{ link: string | null }[]>`SELECT link FROM builder_projects WHERE builder_id = ${builderId} AND lower(project_key) = lower(${key})` : [];
-  return { live: p?.link ?? null, repo: key && REPO.test(key) ? key.toLowerCase() : null };
+  if (!key) return { sites: [], repo: null };
+  const sites = await sql()<{ ref: string }[]>`
+    SELECT ref FROM builder_sources WHERE builder_id = ${builderId} AND kind = 'site' AND state = 'verified'
+      AND proof = ANY(${[...CONFIRMED_PROOFS]}::text[]) AND lower(project_key) = lower(${key})`;
+  const hosted = await sql()<{ slug: string }[]>`
+    SELECT h.slug FROM hosted_sites h JOIN installations i ON i.id = h.installation_id
+    WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND lower(h.repo_key) = lower(${key}) AND h.status = 'live'`;
+  const origins = [...sites.map((s) => s.ref), ...hosted.map((h) => `https://${h.slug}.${HOST_ZONE}`)]
+    .map((r) => (URL.canParse(r) ? r : `https://${r}`))
+    .filter((r) => URL.canParse(r) && new URL(r).protocol === 'https:')
+    .map((r) => new URL(r).origin);
+  const repo = REPO_KEY.test(key.toLowerCase()) && (await mainConfirmed(builderId)) ? key.toLowerCase() : null;
+  return { sites: [...new Set(origins)], repo };
 }
 
 export async function postUpdate(builderId: number, text: unknown, now: Date): Promise<Reply> {
@@ -47,7 +65,11 @@ export async function postUpdate(builderId: number, text: unknown, now: Date): P
   if (!checked.ok) return { show_to_builder: '', agent_note: checked.note };
   const monday = mondayOf(now);
   const week = weekOfMonday(monday)!;
-  const facts = await weekFactsFor(builderId, monday, now).catch(() => ({}));
+  // The text still posts when the facts can't be read; the Monday cron fills them in.
+  const facts = await weekFactsFor(builderId, monday, now).catch((err: unknown) => {
+    console.error(`[updates] weekFactsFor ${err instanceof Error ? err.name : 'error'}`);
+    return {};
+  });
   // Another builder's row (a shared repo) is left alone: the WHERE skips it and nothing returns.
   const [r] = await sql()<{ was: string | null }[]>`
     WITH old AS (SELECT text AS was FROM project_updates WHERE project_key = ${key} AND week = ${monday})

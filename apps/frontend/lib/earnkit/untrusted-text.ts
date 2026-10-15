@@ -121,7 +121,7 @@ const RUN_CHAR = /[\p{L}\p{N}-]/u;
 const TLD_PART = /^\p{L}{2,24}(?![\p{L}\p{N}])/u;
 
 /** Any `word.letters{2,24}` in one word, other than a known library name. Linear: one pass per part. */
-function hasDomain(word: string) {
+export function hasDomain(word: string) {
   const parts = word.split('.');
   for (let i = 1; i < parts.length; i++) {
     const tld = TLD_PART.exec(parts[i]);

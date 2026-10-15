@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { sql } from './db';
 import { EVENT_LOG_FLAG } from './events';
-import { HELD_NOTE, HIDE_DATE_NOTE, HIDE_NONE_NOTE, NOT_CONFIRMED_NOTE, UPDATE_LINES, WEEKLY_UPDATE_NOTE, hideUpdate, postUpdate, setUpdates } from './updates';
+import { HELD_NOTE, HIDE_DATE_NOTE, HIDE_NONE_NOTE, NOT_CONFIRMED_NOTE, UPDATE_LINES, WEEKLY_UPDATE_NOTE, hideUpdate, ownLinks, postUpdate, setUpdates } from './updates';
 import { UPDATE_LINK_NOTE } from './update-text';
 import { tools } from './tools';
 
@@ -91,6 +91,26 @@ test('5.7c a week another builder holds for a shared repo is refused and left al
   assert.deepEqual(r.map((x) => [x.builder_id, x.text]), [[first.id, 'Mine.']]);
   assert.deepEqual(await hideUpdate(second.id, '2026-10-14'), { show_to_builder: '', agent_note: HIDE_NONE_NOTE });
   assert.equal((await rows(first.key))[0].hidden, false);
+});
+
+test('5.7d own links: confirmed sites, the hosted site and the confirmed repo only; never the project link or a registry (fix round 1, review 5)', dbTest, async () => {
+  const { id, key } = await person();
+  // builder_projects.link is https://recipes.app, but no site source proves it.
+  assert.deepEqual(await ownLinks(id), { sites: [], repo: key });
+  const now = new Date('2026-10-14T10:00:00Z');
+  assert.deepEqual(await postUpdate(id, 'Live at https://recipes.app/x', now), { show_to_builder: '', agent_note: UPDATE_LINK_NOTE });
+  await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by)
+    VALUES (${id}, 'site', 'https://recipes.app', ${key}, 'verified', 'earnkit_txt', 'agent'),
+           (${id}, 'site', ${`https://proved${id}.example`}, ${key}, 'verified', 'repo_link', 'server'),
+           (${id}, 'package_npm', 'recipes', ${key}, 'verified', 'repo_link', 'server')`;
+  await sql()`INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status)
+    VALUES (${`v213u${id}`}, 'maya', ${key}, ${id}, 1, 1, 'live')`;
+  const own = await ownLinks(id);
+  assert.deepEqual(own.sites.sort(), [`https://proved${id}.example`, `https://v213u${id}.earnkit.com`].sort(), 'an earnkit_txt site is not confirmed');
+  assert.deepEqual(await postUpdate(id, 'Live at https://recipes.app/x', now), { show_to_builder: '', agent_note: UPDATE_LINK_NOTE });
+  assert.deepEqual(await postUpdate(id, 'On npm: https://www.npmjs.com/package/recipes', now), { show_to_builder: '', agent_note: UPDATE_LINK_NOTE });
+  assert.equal((await postUpdate(id, `Live at https://v213u${id}.earnkit.com/`, now)).show_to_builder, UPDATE_LINES.posted);
+  assert.equal((await rows(key))[0].text, `Live at https://v213u${id}.earnkit.com/`);
 });
 
 test('5.8 hide takes any day of the week; a bad date or an empty week is a note (review focus 5)', dbTest, async () => {
