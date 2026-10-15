@@ -19,7 +19,7 @@ import {
   defaultReaderDeps, isBudgetStop, isoWeek, readCoin, readContract, readContractOrigin, readNpm, readNpmBulk, readPypi, soft,
   type ContractSignals, type CoinSignals, type PackageSignals, type ReaderDeps, type RepoSignals, type SiteSignals, type Who,
 } from './source-readers';
-import { previousSignals, withPastWeeks } from './sources';
+import { previousSignals, withPastCounts, withPastWeeks } from './sources';
 
 /**
  * v2.12.1 spec "Score" and "Scale": each person's live score (formula v2) from confirmed data only,
@@ -808,7 +808,8 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
     const login = [p?.login, p?.reported].find((l): l is string => typeof l === 'string' && LOGIN.test(l)) ?? null;
     const found = new Map<string, PersonRepo>();
     const asked = new Set<number>();
-    const mine = login ? repos.filter((s) => s.ref.toLowerCase().split('/')[0] === login) : [];
+    // v2.13 (R2): under the flag no person query; every repo goes by name below.
+    const mine = login && !benchEnabled() ? repos.filter((s) => s.ref.toLowerCase().split('/')[0] === login) : [];
     if (mine.length > 0) {
       const go = await attempt(mine, async () => {
         for (const [k, r] of (await readPersonGithub(login!, o.reader))?.repos ?? []) found.set(k, r);
@@ -835,7 +836,7 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
       const prev = (await previousSignals(s.id)) as Partial<RepoSignals> | null;
       // An organization's contributors (the top-contributor rule) come from the daily read.
       const contributors = r.owner_type === 'Organization' ? list<Who>(prev?.contributors) : r.contributors;
-      await put(s, { ok: true, signals: { ...r, contributors, commit_weeks: withPastWeeks(r.commit_weeks, prev, now) } });
+      await put(s, { ok: true, signals: { ...r, contributors, commit_weeks: withPastWeeks(r.commit_weeks, prev, now), commit_counts: withPastCounts(r.commit_counts ?? {}, prev, now) } });
     }
   }
 

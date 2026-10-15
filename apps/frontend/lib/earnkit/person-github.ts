@@ -101,6 +101,11 @@ function repoFrom(raw: unknown, now: Date): PersonRepo | null {
   const commits = arr(obj(obj(obj(obj(r.defaultBranchRef).target).history)).nodes)
     .map((c) => Date.parse(str(obj(c).committedDate) ?? ''))
     .filter((t) => Number.isFinite(t) && t <= now.getTime());
+  const counts: Record<string, number> = {};
+  for (const t of commits) {
+    const w = isoWeek(new Date(t));
+    counts[w] = (counts[w] ?? 0) + 1;
+  }
   const fork = r.isFork === true;
   const template = r.isTemplate === true;
   return {
@@ -108,6 +113,7 @@ function repoFrom(raw: unknown, now: Date): PersonRepo | null {
     created_at: str(r.createdAt), fork, template,
     stargazers, forkers, issue_authors: [], contributors: [],
     commit_weeks: [...new Set(commits.map((t) => isoWeek(new Date(t))))].sort(),
+    commit_counts: counts,
     partial: num(r.stargazerCount) > stargazers.length || num(r.forkCount) > forkers.length,
     description: str(r.description)?.slice(0, 200) ?? null,
     name: str(r.nameWithOwner)?.split('/')[1] ?? null,
@@ -166,4 +172,11 @@ export async function readGithubRepos(keys: string[], d: ReaderDeps): Promise<Ma
     if (r) out.set(k, { ...r, key: k });
   });
   return out;
+}
+
+/** v2.13 (R2): the person's GitHub profile only, for the X field match; no repos (about 0.2 s). */
+export const GITHUB_USER_QUERY = `query($login: String!) { user(login: $login) { login twitterUsername websiteUrl } }`;
+export async function readGithubUser(login: string, d: ReaderDeps): Promise<PersonGithub | null> {
+  if (!LOGIN.test(login)) throw new Error('not a GitHub login');
+  return personGithubFrom(await d.ghGraphql(GITHUB_USER_QUERY, { login }), d.now);
 }

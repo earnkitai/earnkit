@@ -1,4 +1,4 @@
-import { builderScoreEnabled } from './builder-score-flag';
+import { benchEnabled, builderScoreEnabled } from './builder-score-flag';
 import { sql, type Db } from './db';
 import {
   CLUE_PATHS,
@@ -22,7 +22,7 @@ import { clearXHandle, releaseLogin, setFallback } from './profiles';
 import { GitHubBudgetStop, isBudgetStop, readContractOrigin, soft, type ReaderDeps, type RepoSignals } from './source-readers';
 import { claimContract, proposeSource, rejectSource, repoOwned, verifySource, type Proof } from './sources';
 import { proofLineOwner } from './token-gate';
-import { readOwnedRepos, readPersonGithub, type PersonGithub } from './person-github';
+import { readGithubUser, readOwnedRepos, readPersonGithub, type PersonGithub } from './person-github';
 
 /**
  * v2.12 spec 3: finding a person's past work. `find` never waits on it: it records the agent's
@@ -209,7 +209,7 @@ export async function provenLogin(
     SELECT x_handle, lower(reported_github) AS reported FROM builder_profiles WHERE builder_id = ${builderId} AND x_user_id IS NOT NULL`;
   if (!p?.x_handle || !p.reported || !GITHUB_LOGIN.test(p.reported)) return null;
   // A failed read proves nothing this time (a spent budget or the deadline still stops the run).
-  const person = await soft(readPersonGithub(p.reported, o.reader), null);
+  const person = await soft((benchEnabled() ? readGithubUser : readPersonGithub)(p.reported, o.reader), null);
   if (!person || person.login !== p.reported) return null;
   o.person?.(person);
   const twitter = person.twitter?.replace(/^@/, '').toLowerCase();
@@ -352,15 +352,17 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
     });
     // Clue 2: own repos, and org repos where they are the top contributor.
     const candidates = new Map<string, { meta: ListedRepo; top: boolean }>();
-    for (const r of await d.gh<ListedRepo[]>(`/users/${L}/repos?type=owner&per_page=100`)) {
-      const key = r?.full_name?.toLowerCase();
-      if (key) candidates.set(key, { meta: r, top: false });
-    }
+    // v2.13 (R2, "Cost"): under the flag no owned-repo or org listing; the main project (an agent remote) is checked below.
+    if (!benchEnabled())
+      for (const r of await d.gh<ListedRepo[]>(`/users/${L}/repos?type=owner&per_page=100`)) {
+        const key = r?.full_name?.toLowerCase();
+        if (key) candidates.set(key, { meta: r, top: false });
+      }
     const topOf = async (key: string) => {
       const c = await soft(d.gh<{ login?: string }[]>(`/repos/${key}/contributors?per_page=1`), []);
       return Array.isArray(c) && c[0]?.login?.toLowerCase() === L;
     };
-    const orgs = await soft(d.gh<{ login?: string }[]>(`/users/${L}/orgs`), []);
+    const orgs = benchEnabled() ? [] : await soft(d.gh<{ login?: string }[]>(`/users/${L}/orgs`), []);
     for (const org of (Array.isArray(orgs) ? orgs : []).slice(0, DISCOVER_CAPS.orgs)) {
       if (!org?.login || !/^[A-Za-z0-9-]{1,39}$/.test(org.login)) continue;
       const repos = await soft(d.gh<ListedRepo[]>(`/orgs/${org.login}/repos?per_page=100&sort=pushed`), []);
@@ -454,7 +456,7 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
   // never scored."). Proposed only: never verified, never a merge; proving the login later verifies
   // these same rows (Clue 2). A login another profile has proven is skipped. One GraphQL call (the X
   // field check's read when there was one), only within the budget and before the deadline.
-  if (!proof) {
+  if (!proof && !benchEnabled()) {
     const [r] = await db<{ reported: string | null }[]>`SELECT lower(reported_github) AS reported FROM builder_profiles WHERE builder_id = ${root}`;
     const L = r?.reported && GITHUB_LOGIN.test(r.reported) ? r.reported : null;
     const [taken] = L ? await db`SELECT 1 FROM builder_profiles WHERE lower(github_login) = ${L} AND builder_id <> ${root}` : [];

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PERSON_GITHUB_QUERY, REPOS_MAX, personGithubFrom, readGithubRepos, readPersonGithub, reposQuery } from './person-github';
+import { PERSON_GITHUB_QUERY, REPOS_MAX, personGithubFrom, readGithubRepos, readGithubUser, readPersonGithub, reposQuery } from './person-github';
 import { graphqlUsable } from './source-readers';
 
 const NOW = new Date('2026-10-14T00:00:00Z');
@@ -71,4 +71,25 @@ test('3.10 a GraphQL answer is read only when every error is NOT_FOUND', () => {
   assert.equal(graphqlUsable({ data: { r0: {} } }), true);
   assert.equal(graphqlUsable({ data: { user: {} }, errors: [{ type: 'RATE_LIMITED' }] }), false);
   assert.equal(graphqlUsable({ errors: [{ type: 'NOT_FOUND' }] }), false);
+});
+
+test('3.7 commits are counted per ISO week from the dates already read', () => {
+  const r = personGithubFrom(body([repo({
+    defaultBranchRef: { target: { history: { nodes: [
+      { committedDate: '2026-10-13T10:00:00Z' }, { committedDate: '2026-10-12T00:00:01Z' }, { committedDate: '2026-10-11T23:59:59Z' },
+      { committedDate: '2026-10-01T10:00:00Z' }, { committedDate: '2099-01-01T00:00:00Z' }, { committedDate: 'junk' },
+    ] } } },
+  })]), NOW)!.repos.get('lee/tipjar')!;
+  assert.deepEqual(r.commit_counts, { '2026-W40': 1, '2026-W41': 1, '2026-W42': 2 }, 'a future or unreadable date counts nowhere');
+  assert.deepEqual(r.commit_weeks, ['2026-W40', '2026-W41', '2026-W42']);
+});
+
+test('3.8 the light user read asks for the login, X field and website only', async () => {
+  let asked = '';
+  const d = { now: NOW, ghGraphql: async (q: string) => { asked = q; return { data: { user: { login: 'Lee', twitterUsername: 'lee_builds', websiteUrl: null } } }; } } as never;
+  const u = await readGithubUser('lee', d);
+  assert.equal(u?.twitter, 'lee_builds');
+  assert.equal(u?.repos.size, 0);
+  assert.doesNotMatch(asked, /repositories|history|stargazers/);
+  await assert.rejects(readGithubUser('not a login', d));
 });

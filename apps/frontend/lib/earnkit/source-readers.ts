@@ -27,6 +27,8 @@ export type RepoSignals = {
   /** The repo's GitHub created_at (a repo_link contract must be deployed after it). */
   created_at: string | null;
   fork: boolean; template: boolean; stargazers: Who[]; forkers: Who[]; issue_authors: Who[]; contributors: Who[]; commit_weeks: string[]; partial: boolean;
+  /** v2.13: commits on the default branch per ISO week, last 52 weeks (the newest 100 read; earlier weeks from the previous reading). */
+  commit_counts?: Record<string, number>;
 };
 export type SiteSignals = { status: number; up: boolean };
 export type PackageSignals = { weekly: number; repo_url: string | null };

@@ -2,6 +2,7 @@ import { ScoreDeadline } from './campaigns';
 import { sql, type Db } from './db';
 import { profileCodesIn } from './discovery-clues';
 import { noteEvent } from './events';
+import { benchEnabled } from './builder-score-flag';
 import { REPOS_MAX, readGithubRepos, readPersonGithub, type PersonRepo } from './person-github';
 import { countingDeps, flushReadUsage } from './read-usage';
 import { NPM_BULK_MAX, isBudgetStop, isoWeek, readCoin, readContract, readNpm, readNpmBulk, readPypi, readRepo, readSite, type PackageSignals, type PrSignals, type ReaderDeps, type RepoSignals } from './source-readers';
@@ -301,6 +302,20 @@ async function personLogin(builderId: number): Promise<string | null> {
 }
 
 const WEEK = /^\d{4}-W\d{2}$/;
+/** v2.13: a reading's commit counts merged with the previous reading's: the larger per week, last 52 weeks only. Pure. */
+export function withPastCounts(counts: Record<string, number>, prev: unknown, now: Date): Record<string, number> {
+  const old = (prev as { commit_counts?: unknown } | null)?.commit_counts;
+  const floor = isoWeek(new Date(now.getTime() - 52 * 7 * DAY_MS));
+  const out: Record<string, number> = {};
+  const add = (w: string, n: unknown) => {
+    if (!WEEK.test(w) || w < floor || typeof n !== 'number' || !Number.isFinite(n) || n <= 0) return;
+    out[w] = Math.max(out[w] ?? 0, Math.floor(n));
+  };
+  for (const [w, n] of Object.entries(counts)) add(w, n);
+  if (old && typeof old === 'object' && !Array.isArray(old)) for (const [w, n] of Object.entries(old)) add(w, n);
+  return Object.fromEntries(Object.entries(out).sort(([a], [b]) => a.localeCompare(b)));
+}
+
 /**
  * The new reading's commit weeks joined with the previous good reading's (the query sees only the
  * newest 100 commits, and the score reads only the latest reading), the last 52 weeks only. Pure.
@@ -393,52 +408,73 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
     return true;
   };
 
+  /** The tail shared by both paths: a repo's reading written (not found: failed unless stalled or settled). Returns false when the deadline cut it. */
+  const writeRepo = async (s: Due, r: PersonRepo | undefined): Promise<boolean> => {
+    if (settled.has(s.id)) return true;
+    if (!r) {
+      // Unread because the budget ran out is not unknown to GitHub: no reading, it stays due.
+      if (!stalled.has(s.id)) await fail(s, 'not_found');
+      return true;
+    }
+    return attempt([s], async () => {
+      const contributors =
+        r.owner_type === 'Organization'
+          ? (await o.reader.gh<{ login?: unknown }[]>(`/repos/${r.key}/contributors?per_page=100`))
+              .flatMap((c) => (typeof c?.login === 'string' ? [{ id: `gh:${c.login.toLowerCase()}`, at: now.toISOString() }] : []))
+          : r.contributors;
+      const prev = await previousSignals(s.id);
+      await ok(s, { ...r, contributors, commit_weeks: withPastWeeks(r.commit_weeks, prev, now), commit_counts: withPastCounts(r.commit_counts ?? {}, prev, now) });
+    });
+  };
+
   // Repos, per person: one GraphQL query for those under the person's login (newest 100 pushed),
   // then the rest by name, REPOS_MAX a call (one outside the newest 100, an organization's, or all of
   // them when the person has no login). An organization's repo also reads its contributors (one
   // REST call), for the top-contributor rule. A repo GitHub does not know is a failed `not_found`.
-  const people = new Map<number, Due[]>();
-  for (const s of due) if (s.kind === 'repo') people.set(s.builder_id, [...(people.get(s.builder_id) ?? []), s]);
-  for (const [builderId, repos] of people) {
-    if (Date.now() >= o.deadline) return { read, failed };
-    const login = await personLogin(builderId);
+  // v2.13: under the flag (Bench) the person query is never asked: one by-name pass across builders.
+  if (benchEnabled()) {
+    // v2.13 (R2, "Cost"): no person query; every due repo by name, REPOS_MAX a call across builders.
+    const repos = due.filter((s) => s.kind === 'repo');
+    for (const s of repos) if (!REPO_REF.test(s.ref)) await fail(s, 'not_a_repo');
+    const named = repos.filter((s) => REPO_REF.test(s.ref));
     const found = new Map<string, PersonRepo>();
-    const mine = login ? repos.filter((s) => ownerOf(s.ref) === login) : [];
-    if (mine.length > 0) {
-      const go = await attempt(mine, async () => {
-        const person = await readPersonGithub(login!, o.reader);
-        for (const [k, r] of person?.repos ?? []) found.set(k, r);
-      });
-      if (!go) return { read, failed };
-    }
-    // A repo the person query failed on already has its failed reading (settled). A malformed ref
-    // fails alone, so it never fails a by-name batch.
-    for (const s of repos) if (!settled.has(s.id) && !found.has(s.ref.toLowerCase()) && !REPO_REF.test(s.ref)) await fail(s, 'not_a_repo');
-    const rest = repos.filter((s) => !found.has(s.ref.toLowerCase()) && !settled.has(s.id));
-    for (let i = 0; i < rest.length; i += REPOS_MAX) {
-      const batch = rest.slice(i, i + REPOS_MAX);
+    for (let i = 0; i < named.length; i += REPOS_MAX) {
+      if (Date.now() >= o.deadline) return { read, failed };
+      const batch = named.slice(i, i + REPOS_MAX);
+      const refs = [...new Set(batch.map((s) => s.ref.toLowerCase()))];
       const go = await attempt(batch, async () => {
-        for (const [k, r] of await readGithubRepos(batch.map((s) => s.ref), o.reader)) found.set(k, r);
+        for (const [k, r] of await readGithubRepos(refs, o.reader)) found.set(k, r);
       });
       if (!go) return { read, failed };
     }
-    for (const s of repos) {
-      if (settled.has(s.id)) continue;
-      const r = found.get(s.ref.toLowerCase());
-      if (!r) {
-        // Unread because the budget ran out is not unknown to GitHub: no reading, it stays due.
-        if (!stalled.has(s.id)) await fail(s, 'not_found');
-        continue;
+    for (const s of named) if (!(await writeRepo(s, found.get(s.ref.toLowerCase())))) return { read, failed };
+  } else {
+    const people = new Map<number, Due[]>();
+    for (const s of due) if (s.kind === 'repo') people.set(s.builder_id, [...(people.get(s.builder_id) ?? []), s]);
+    for (const [builderId, repos] of people) {
+      if (Date.now() >= o.deadline) return { read, failed };
+      const login = await personLogin(builderId);
+      const found = new Map<string, PersonRepo>();
+      const mine = login ? repos.filter((s) => ownerOf(s.ref) === login) : [];
+      if (mine.length > 0) {
+        const go = await attempt(mine, async () => {
+          const person = await readPersonGithub(login!, o.reader);
+          for (const [k, r] of person?.repos ?? []) found.set(k, r);
+        });
+        if (!go) return { read, failed };
       }
-      const go = await attempt([s], async () => {
-        const contributors =
-          r.owner_type === 'Organization'
-            ? (await o.reader.gh<{ login?: unknown }[]>(`/repos/${r.key}/contributors?per_page=100`))
-                .flatMap((c) => (typeof c?.login === 'string' ? [{ id: `gh:${c.login.toLowerCase()}`, at: now.toISOString() }] : []))
-            : r.contributors;
-        await ok(s, { ...r, contributors, commit_weeks: withPastWeeks(r.commit_weeks, await previousSignals(s.id), now) });
-      });
-      if (!go) return { read, failed };
+      // A repo the person query failed on already has its failed reading (settled). A malformed ref
+      // fails alone, so it never fails a by-name batch.
+      for (const s of repos) if (!settled.has(s.id) && !found.has(s.ref.toLowerCase()) && !REPO_REF.test(s.ref)) await fail(s, 'not_a_repo');
+      const rest = repos.filter((s) => !found.has(s.ref.toLowerCase()) && !settled.has(s.id));
+      for (let i = 0; i < rest.length; i += REPOS_MAX) {
+        const batch = rest.slice(i, i + REPOS_MAX);
+        const go = await attempt(batch, async () => {
+          for (const [k, r] of await readGithubRepos(batch.map((s) => s.ref), o.reader)) found.set(k, r);
+        });
+        if (!go) return { read, failed };
+      }
+      for (const s of repos) if (!(await writeRepo(s, found.get(s.ref.toLowerCase())))) return { read, failed };
     }
   }
 
