@@ -4,10 +4,11 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { sql } from './db';
 import { benchProject, noteIdentity, projectKeyOf } from './identity-input';
-import { MAIN_PROOF_MIN_MS, PROOF_NOTE, confirming, fillGithubUser, mainProjectOf, pickMainProject, proofFor, setMainProject } from './main-project';
+import { MAIN_PROOF_MIN_MS, PROOF_NOTE, confirming, confirmingFast, fillGithubUser, mainProjectOf, pickMainProject, proofFor, setMainProject } from './main-project';
 import { proofLineCheck } from './discovery';
 import type { ReaderDeps } from './source-readers';
 import { tools } from './tools';
+import { refreshDiscovery } from './person-score';
 
 process.env.EARNKIT_BUILDER_SCORE = 'on';
 process.env.EARNKIT_BENCH = 'on';
@@ -64,6 +65,11 @@ test('2.3 under the flag find records the one project: its sources only, propose
   // A different project sent later never replaces the one project (review focus 3).
   await tools.find({ identity: { github_login: `maya${RUN}`, project: { name: 'C', repo: `maya${RUN}/c` } } }, ctx);
   assert.equal(await mainProjectOf(id), `maya${RUN}/a`);
+  // ...and is stored in identity only: no source proposed for it (fix round 1, item 4).
+  const later = await sql()<{ ref: string }[]>`SELECT ref FROM builder_sources WHERE builder_id = ${id} ORDER BY ref`;
+  assert.deepEqual(later.map((x) => x.ref), ['https://a.example.com', `maya${RUN}/a`]);
+  const [{ identity: stored }] = await sql()<{ identity: { projects: { repo: string | null }[] } }[]>`SELECT identity FROM builder_profiles WHERE builder_id = ${id}`;
+  assert.ok(stored.projects.some((x) => x.repo === `maya${RUN}/c`), 'kept in identity');
 });
 
 test('2.4 the proof line: issued for an unconfirmed repo, recorded, github_user filled with the owner; none once confirmed', dbTest, async () => {
@@ -113,4 +119,49 @@ test('2.6 the lazy pick for a person with projects and no main one: confirmed, m
   assert.equal(await mainProjectOf(id), k('busy'), 'stored once');
   await sql()`UPDATE builder_projects SET people = 500 WHERE builder_id = ${id} AND project_key = ${k('old')}`;
   assert.equal(await pickMainProject(id, sql()), k('busy'), 'never moves on its own');
+});
+
+test('2.9 the fast confirming mode lasts an hour after the line was issued: then the normal cadence and no discovery bypass (fix round 1)', dbTest, async () => {
+  const now = new Date();
+  // A reader that records every read discovery makes (each one fails, as offline).
+  const touched: string[] = [];
+  const reader = new Proxy({}, {
+    get: (_t, k) => (k === 'now' ? now : k === 'ghSpent' ? () => false : async () => { touched.push(String(k)); throw new Error('offline'); }),
+  }) as ReaderDeps;
+  const at = async (ago: number) => {
+    const id = await person();
+    const key = `late${RUN}/p${id}`;
+    await setMainProject(id, { name: 'P', what: null, repo: key, live_url: null, package: null, contracts: [] });
+    await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by) VALUES (${id}, 'repo', ${key}, ${key}, 'agent')`;
+    await sql()`INSERT INTO proof_line_issues (installation_id, repo_key, first_at) VALUES (${id}, ${key}, ${new Date(now.getTime() - ago)})`;
+    // Discovery ran just now, so only the fast mode reruns it inside a refresh.
+    await sql()`INSERT INTO discovery_queue (builder_id, reason, done_at) VALUES (${id}, 'first_find', now())`;
+    touched.length = 0;
+    await refreshDiscovery(id, now, { deadline: Date.now() + 10_000, reader }).catch(() => {});
+    return { id, fast: await confirmingFast(id, now), read: touched.length > 0 };
+  };
+  const old = await at(2 * 3_600_000);
+  assert.equal(await confirming(old.id), true, 'still Confirming');
+  assert.deepEqual({ fast: old.fast, read: old.read }, { fast: false, read: false }, 'normal cadence, the daily discovery gate holds');
+  const fresh = await at(5 * 60_000);
+  assert.deepEqual({ fast: fresh.fast, read: fresh.read }, { fast: true, read: true }, 'every refresh checks, within the hour');
+});
+
+test('2.10 the fast proof check: over the 4 s floor it runs; under it, it hands the line back to the cron (fix round 1)', dbTest, async () => {
+  const now = new Date();
+  const reader = new Proxy({}, { get: (_t, k) => (k === 'now' ? now : k === 'ghSpent' ? () => false : async () => []) }) as ReaderDeps;
+  const queued = async (left: number) => {
+    const id = await person();
+    const key = `short${RUN}/p${id}`;
+    await setMainProject(id, { name: 'P', what: null, repo: key, live_url: null, package: null, contracts: [] });
+    await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by) VALUES (${id}, 'repo', ${key}, ${key}, 'agent')`;
+    await sql()`INSERT INTO proof_line_issues (installation_id, repo_key, first_at) VALUES (${id}, ${key}, ${now})`;
+    await refreshDiscovery(id, now, { deadline: Date.now() + left, reader }).catch(() => {});
+    const [q] = await sql()<{ reason: string; done_at: Date | null }[]>`SELECT reason, done_at FROM discovery_queue WHERE builder_id = ${id}`;
+    return q && { reason: q.reason, done: q.done_at !== null };
+  };
+  // 8 s left (under the cron's 15 s, over 4 s): the line is checked here; discovery is done.
+  assert.deepEqual(await queued(8_000), { reason: 'first_find', done: true });
+  // Under MAIN_PROOF_MIN_MS left: skipped, and the queue row waits for the cron.
+  assert.deepEqual(await queued(MAIN_PROOF_MIN_MS - 1_000), { reason: 'proof_line', done: false });
 });

@@ -165,9 +165,11 @@ export const AGENT_PROJECTS_MAX = 25;
  * most AGENT_PROJECTS_MAX project keys per person, a new one past that is refused), and the wallets
  * remembered (never proven, never a merge). One `identity_given` event per person per UTC day.
  * Fix round 1: a find that carried nothing (no login, project or wallet) writes nothing, so it never
- * wipes the last report. Only for a person with a profile (the caller made it).
+ * wipes the last report. Only for a person with a profile (the caller made it). v2.13 (T2 fix round 1):
+ * `propose: false` stores the report in identity only (no source proposed), for a project that is not
+ * the person's one project.
  */
-export async function noteIdentity(builderId: number, i: Identity, now: Date): Promise<{ proposed: number }> {
+export async function noteIdentity(builderId: number, i: Identity, now: Date, o: { propose?: boolean } = {}): Promise<{ proposed: number }> {
   if (!i.github_login && i.projects.length === 0 && i.wallets.length === 0) return { proposed: 0 };
   const result = await sql().begin(async (tx) => {
     // The profile row's lock also serializes the cap below between two finds at once.
@@ -184,7 +186,7 @@ export async function noteIdentity(builderId: number, i: Identity, now: Date): P
         SELECT DISTINCT project_key AS key FROM builder_sources WHERE builder_id = ${builderId} AND proposed_by = 'agent'`).map((r) => r.key),
     );
     const rows: { builder_id: number; kind: string; ref: string; project_key: string; proposed_by: 'agent' }[] = [];
-    for (const project of i.projects) {
+    for (const project of o.propose === false ? [] : i.projects) {
       const { key, sources } = projectSources(project);
       if (!held.has(key)) {
         if (held.size >= AGENT_PROJECTS_MAX) continue;

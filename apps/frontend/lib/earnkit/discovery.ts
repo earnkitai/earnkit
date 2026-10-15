@@ -227,6 +227,8 @@ type DiscoverOpts = {
   deadline: number; reader: ReaderDeps; login?: LoginOf; proofLine?: ProofLineCheck;
   /** v2.12.2: skip the proof-line check (never throw) when less than PROOF_LINE_MIN_MS remains. */
   skipShortProofLine?: boolean;
+  /** v2.13 plan B4: the proof-line check's floor in place of PROOF_LINE_MIN_MS (a skip still goes to the cron). */
+  proofLineMinMs?: number;
 };
 
 /**
@@ -301,7 +303,7 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
 
   let person: PersonGithub | null = null;
   let proof = await (o.login ??
-    ((id: number) => provenLogin(id, { proofLine: o.proofLine ?? proofLineCheck(d, o.deadline, { skipShort: o.skipShortProofLine, onSkip: () => void (out.proofSkipped = true) }), reader: d, person: (p) => void (person = p) })))(root);
+    ((id: number) => provenLogin(id, { proofLine: o.proofLine ?? proofLineCheck(d, o.deadline, { skipShort: o.skipShortProofLine, minMs: o.proofLineMinMs, onSkip: () => void (out.proofSkipped = true) }), reader: d, person: (p) => void (person = p) })))(root);
   // T7: an X field match GitHub no longer shows (twitter_username is self-declared, so it can be
   // withdrawn) stops confirming: the login and what it confirmed go back to not yet confirmed.
   const read0 = person as PersonGithub | null;

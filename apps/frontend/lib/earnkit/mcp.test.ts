@@ -721,6 +721,7 @@ const identityWords = (t: { inputSchema: { properties?: Record<string, object> }
 
 test('2.7 flag off: find\'s description and identity field are byte for byte v2.12.2\'s', async () => {
   const saved = process.env.EARNKIT_BENCH;
+  const savedScore = process.env.EARNKIT_BUILDER_SCORE;
   delete process.env.EARNKIT_BENCH;
   process.env.EARNKIT_BUILDER_SCORE = 'on';
   try {
@@ -729,7 +730,8 @@ test('2.7 flag off: find\'s description and identity field are byte for byte v2.
     assert.equal(off.description, FIND_DESCRIPTION_SCORE);
     assert.equal(identityWords(off), IDENTITY_WORDS_V2122);
   } finally {
-    delete process.env.EARNKIT_BUILDER_SCORE;
+    if (savedScore === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
+    else process.env.EARNKIT_BUILDER_SCORE = savedScore;
     if (saved === undefined) delete process.env.EARNKIT_BENCH;
     else process.env.EARNKIT_BENCH = saved;
   }

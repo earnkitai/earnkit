@@ -142,8 +142,8 @@ import { LIVE_FAILED_LINE, addressesFrom, contractMissingLine, entryVerified, li
 import { noteEvent } from './events';
 import { benchEnabled, builderScoreEnabled } from './builder-score-flag';
 import { enqueueDiscovery, localGitInput } from './discovery';
-import { benchProject, identityInput, noteIdentity } from './identity-input';
-import { CONFIRMING_REFRESH_MS, confirming, fillGithubUser, proofFor, setMainProject } from './main-project';
+import { benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
+import { CONFIRMING_REFRESH_MS, confirmingFast, fillGithubUser, proofFor, setMainProject } from './main-project';
 import { SEND_LINK_NOTE, scoreReply } from './score-tool';
 import { EARN_NOTE, MOVE_UP_NOTE, chooseStep, placeBuild, newsOpener, stepKey, whereYouStand, type EarnLine, type MoveUp, type StandView } from './where-you-stand';
 import { confirmYes, earnPrize, earnWhen, hostFor, moneyFallback, standBase, startRefresh, takeNews, takePageReady, type Seen } from './stand-view';
@@ -1338,14 +1338,14 @@ export const handlers = {
         profiled = true;
         if (made.created || wallet) await setFallback(ctx.installationId, {});
         if (benchEnabled()) {
-          // v2.13 R1: the one project only. Set once (B2); its sources proposed; github_user filled (B3).
-          if (project) {
-            await setMainProject(ctx.installationId, project);
-            if (project.repo) await fillGithubUser(ctx.installationId, project.repo, identity.github_login);
-          }
-          await noteIdentity(ctx.installationId, { ...identity, projects: project ? [project] : [] }, now);
-          // B4: the refresh may check the proof every minute while confirming.
-          const fast = await confirming(ctx.installationId);
+          // v2.13 R1: the one project only. Set once (B2); only its sources proposed and github_user filled
+          // (B3). A different project sent later is stored in identity only.
+          const main = project ? await setMainProject(ctx.installationId, project) : null;
+          const isMain = Boolean(project && main && main.key.toLowerCase() === projectKeyOf(project).toLowerCase());
+          if (isMain && project?.repo) await fillGithubUser(ctx.installationId, project.repo, identity.github_login);
+          await noteIdentity(ctx.installationId, { ...identity, projects: project ? [project] : [] }, now, { propose: isMain });
+          // B4: the refresh may check the proof every minute in the hour after the line was issued.
+          const fast = await confirmingFast(ctx.installationId, now);
           refresh.started = startRefresh(ctx.installationId, { now, start, reader: ctx.readerDeps, ...(fast && { minAgeMs: CONFIRMING_REFRESH_MS }) });
           await enqueueDiscovery(ctx.installationId, 'first_find');
           return;
