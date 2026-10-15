@@ -683,7 +683,7 @@ test('4.8 the weekly step exists only under the flag (flag off: the v2.12.2 step
     assert.deepEqual(Object.keys(off), ['discover', 'read', 'score', 'empty']);
     process.env.EARNKIT_BENCH = 'on';
     const on = await runScoreSteps(new Date('2026-10-19T15:30:00Z'), sliceEnd, { only: [], reader: noReads });
-    assert.deepEqual(Object.keys(on), ['discover', 'read', 'score', 'empty', 'weekly']);
+    assert.deepEqual(Object.keys(on), ['discover', 'read', 'score', 'empty', 'weekly', 'feed']);
   } finally {
     delete process.env.EARNKIT_BENCH;
     if (score === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
