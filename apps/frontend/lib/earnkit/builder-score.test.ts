@@ -7,6 +7,7 @@ import { HOLD, SCORE_SLICE, buildInputs, siteShowsUse, emptyReason, holdReason, 
 import { ScoreDeadline } from './campaigns';
 import { discover, proofLineCheck, provenLogin } from './discovery';
 import { oneParam } from './http';
+import { ownerClears } from './profiles';
 import { profileCode } from './discovery-clues';
 import { computeScore } from './score';
 import { calibration } from './score-calibration';
@@ -658,6 +659,27 @@ test('6.28 (T7 review) the owner\'s "Clear X handle": a wrong key is a 404; the 
   }
   const [p] = await sql()<{ x_handle: string | null; slug: string }[]>`SELECT x_handle, slug FROM builder_profiles WHERE builder_id = ${id}`;
   assert.deepEqual(p, { x_handle: null, slug: `cx${T % 100000}` });
+});
+
+test('6.28b (final fix wave) the owner\'s "Clear X handle" on a claimed page sticks, and "Release" undoes it', dbTest, async () => {
+  const id = T + 18;
+  const xid = `cx-x-${T}`;
+  await sql()`DELETE FROM x_owner_clears WHERE x_user_id = ${xid}`;
+  await sql()`UPDATE builder_profiles SET x_handle = ${`Cy${T % 100000}`}, x_user_id = ${xid}, claimed_at = now() WHERE builder_id = ${id}`;
+  process.env.ADMIN_VETO_SECRET = 'k'.repeat(40);
+  try {
+    const key = scoresAdminKey()!;
+    const form = (action: string) => new Request('https://earnkit.com/api/admin/scores', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ key, action, builder: String(id) }) });
+    assert.equal((await scoresPost(form('clear_x'), { limit: async () => {} })).status, 303);
+    const [c] = await sql()<{ builder_id: number }[]>`SELECT builder_id FROM x_owner_clears WHERE x_user_id = ${xid}`;
+    assert.equal(c?.builder_id, id);
+    assert.ok((await ownerClears()).some((r) => r.builder_id === id));
+    assert.equal((await scoresPost(form('release_x'), { limit: async () => {} })).status, 303);
+    assert.equal((await sql()`SELECT 1 FROM x_owner_clears WHERE x_user_id = ${xid}`).length, 0);
+  } finally {
+    delete process.env.ADMIN_VETO_SECRET;
+    await sql()`UPDATE builder_profiles SET x_user_id = NULL, claimed_at = NULL WHERE builder_id = ${id}`;
+  }
 });
 
 test('6.29 (post-push audit) a typed wallet proves nothing: naming a stranger contract\'s deployer as a deploy owner never claims it', dbTest, async () => {

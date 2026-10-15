@@ -185,9 +185,10 @@ apps/frontend/
                                404; veto rate limit): each held day's parts and top outcome beside the public
                                score, Release; v2.12.1: pending live rescores (builder_live.pending, released by
                                version), contested GitHub logins with a per-group rule button; X handle conflicts
-                               (v2.12 rows only) with Clear X handle
+                               (v2.12 rows only) with Clear X handle; X handles you cleared
+                               (x_owner_clears) with Release
   app/api/admin/scores/route.ts  v2.12 T6: POST -> builder-score.ts scoresPost (release a held day as a
-                               score_releases row, or action=clear_x); wrong key 404; 303 back to the page
+                               score_releases row, or action=clear_x / release_x); wrong key 404; 303 back
   app/bonus/[round]/{page.tsx,BoardView.tsx}  v2.5 Task 9: the public builder bonus leaderboard
                                (bonus-board.ts data; BoardView is pure and markup-tested; Ext links
                                only shownUrl https forms, tx links only 32-byte hashes); v2.6
@@ -1425,7 +1426,8 @@ apps/frontend/
     profiles.ts(+test)         v2.12 T7, v2.12.1: X_HANDLE, randomSlug (the internal key until the claim),
                                profileOf, ensureProfile (never a shared group), setFallback (login + basis; the
                                slug no longer follows it), releaseLogin, setHidden (HIDDEN_LINE, SHOWN_LINE with
-                               the page link), clearXHandle, xHandleConflicts (reads v2.12 rows; no new writes),
+                               the page link), clearXHandle (owner: sticky via x_owner_clears), releaseXClear,
+                               ownerClears, xHandleConflicts (reads v2.12 rows; no new writes),
                                resolveSlug (claimed only), resolveHandle (HANDLE_REDIRECT_DAYS 90),
                                mergeProfiles (older group keeps its page; hidden/held either side)
     profile-cache.ts           v2.12 T10: PROFILE_TAG, profileChanged() (revalidateTag; no-op outside Next)

@@ -42,6 +42,8 @@ export const CLAIM_TEXT = {
   used: 'This page is already claimed.',
   claimedOther: 'This page is already claimed by another X account.',
   joinPending: 'This X account already has an EarnKit page. Your agents will each ask you once to add this agent to it.',
+  /** Final fix wave: an X account whose page the owner took down (x_owner_clears). */
+  paused: "This X account can't claim a page right now.",
   failed: "Sign-in didn't finish. Open the link from your agent again.",
   busy: 'Too many sign-ins from here. Try again in an hour.',
   done: 'Your page is live',
@@ -66,11 +68,12 @@ export function claimCode(builderId: number, secret = process.env.EARNKIT_AUTH_S
 /** The reply's claim link, or null: X off, a shared group, no profile, or claimed with a handle. Stores only the code's hash. */
 export async function claimLink(builderId: number): Promise<string | null> {
   if (!builderScoreEnabled() || !xSignInEnabled() || (await sharedGroup(builderId))) return null;
-  const [p] = await sql()<{ x_user_id: string | null; x_handle: string | null }[]>`
-    SELECT x_user_id, x_handle FROM builder_profiles WHERE builder_id = ${builderId}`;
+  const [p] = await sql()<{ x_user_id: string | null; x_handle: string | null; blocked: boolean }[]>`
+    SELECT x_user_id, x_handle, EXISTS (SELECT 1 FROM x_owner_clears c WHERE c.x_user_id = p.x_user_id) AS blocked
+    FROM builder_profiles p WHERE builder_id = ${builderId}`;
   // Claimed with a handle: no link. A stale holder (its handle moved to another X account, so bindX
-  // cleared it) claims again to get its page back.
-  if (!p || (p.x_user_id && p.x_handle)) return null;
+  // cleared it) claims again to get its page back; one the owner cleared waits for the owner.
+  if (!p || (p.x_user_id && p.x_handle) || p.blocked) return null;
   const code = claimCode(builderId);
   if (!code) return null;
   await sql()`INSERT INTO claim_codes (code_hash, builder_id) VALUES (${sha256(code)}, ${builderId}) ON CONFLICT (code_hash) DO NOTHING`;
@@ -85,7 +88,8 @@ export async function claimLink(builderId: number): Promise<string | null> {
 async function codeTarget(codeHash: string): Promise<number | null> {
   const [row] = await sql()<{ builder_id: number }[]>`
     SELECT c.builder_id FROM claim_codes c JOIN builder_profiles p ON p.builder_id = c.builder_id
-    WHERE c.code_hash = ${codeHash} AND (p.x_user_id IS NULL OR p.x_handle IS NULL)`;
+    WHERE c.code_hash = ${codeHash} AND (p.x_user_id IS NULL OR p.x_handle IS NULL)
+      AND NOT EXISTS (SELECT 1 FROM x_owner_clears x WHERE x.x_user_id = p.x_user_id)`;
   if (!row || (await sharedGroup(row.builder_id))) return null;
   return row.builder_id;
 }
@@ -249,10 +253,11 @@ export async function xCallback(request: Request, deps: RouteDeps & { x?: XOAuth
   }
   if (r.ok) return donePage(r.handle, r.root, clear);
   if (r.reason === 'join_pending') return claimPage(CLAIM_TEXT.joinPending, 200, clear);
+  if (r.reason === 'owner_cleared') return claimPage(CLAIM_TEXT.paused, 403, clear);
   return claimPage(CLAIM_TEXT.claimedOther, 409, clear);
 }
 
-export type BindResult = { ok: true; handle: string; root: number } | { ok: false; reason: 'claimed_by_other' | 'join_pending' };
+export type BindResult = { ok: true; handle: string; root: number } | { ok: false; reason: 'claimed_by_other' | 'join_pending' | 'owner_cleared' };
 
 /**
  * The X claim on `builderId`'s person (its group root). One X account per person, one person per X
@@ -271,6 +276,9 @@ export async function bindX(builderId: number, user: XUser, now: Date): Promise<
     const [p] = await tx<{ x_user_id: string | null; x_handle: string | null; slug: string }[]>`
       SELECT x_user_id, x_handle, slug FROM builder_profiles WHERE builder_id = ${root} FOR UPDATE`;
     if (!p) throw new Error('no profile');
+    // Final fix wave: an X account the owner cleared binds nowhere until the owner releases it.
+    const [cleared] = await tx`SELECT 1 FROM x_owner_clears WHERE x_user_id = ${user.id}`;
+    if (cleared) return { ok: false as const, reason: 'owner_cleared' as const };
     if (p.x_user_id && p.x_user_id !== user.id) return { ok: false as const, reason: 'claimed_by_other' as const };
     const [held] = await tx`SELECT 1 FROM builder_profiles WHERE x_user_id = ${user.id} AND builder_id <> ${root}`;
     if (held) return { ok: false as const, reason: 'join_pending' as const };

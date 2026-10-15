@@ -157,6 +157,12 @@ export async function clearXHandle(builderId: number, by: 'github' | 'owner'): P
     // v2.12.1 T6: a handle confirmed by Sign in with X is never GitHub's to clear (only the owner's).
     if (p.x_user_id && by === 'github') return null;
     await tx`UPDATE builder_profiles SET x_handle = NULL, updated_at = now() WHERE builder_id = ${builderId}`;
+    // Final fix wave: the owner's clear sticks. That X account claims no page again until the owner
+    // releases it (releaseXClear).
+    if (by === 'owner' && p.x_user_id)
+      await tx`
+        INSERT INTO x_owner_clears (x_user_id, builder_id) VALUES (${p.x_user_id}, ${builderId})
+        ON CONFLICT (x_user_id) DO UPDATE SET builder_id = EXCLUDED.builder_id, cleared_at = now()`;
     return p.x_handle.toLowerCase();
   });
   if (!cleared) return false;
@@ -165,6 +171,29 @@ export async function clearXHandle(builderId: number, by: 'github' | 'owner'): P
     type: 'x_cleared', dedupe_key: `x_cleared:${builderId}:${cleared}:${Date.now()}`, installation_id: builderId, detail: { by },
   }));
   return true;
+}
+
+/**
+ * Final fix wave: the owner releases an X account they cleared (/admin/scores), on the page it was
+ * cleared from (or the page that X account is on now); its next claim binds again. True when one was released.
+ */
+export async function releaseXClear(builderId: number): Promise<boolean> {
+  const rows = await sql()`
+    DELETE FROM x_owner_clears WHERE builder_id = ${builderId}
+      OR x_user_id = (SELECT x_user_id FROM builder_profiles WHERE builder_id = ${builderId})
+    RETURNING 1`;
+  if (rows.length === 0) return false;
+  await noteEvent('x_cleared', () => ({
+    type: 'x_cleared', dedupe_key: `x_cleared:${builderId}:released:${Date.now()}`, installation_id: builderId, detail: { by: 'owner', released: true },
+  }));
+  return true;
+}
+
+/** The X accounts the owner cleared and has not released, newest first: one line each for /admin/scores. */
+export async function ownerClears(): Promise<{ builder_id: number; line: string }[]> {
+  const rows = await sql()<{ builder_id: number; cleared_at: Date }[]>`
+    SELECT builder_id, cleared_at FROM x_owner_clears ORDER BY cleared_at DESC LIMIT 100`;
+  return rows.map((r) => ({ builder_id: r.builder_id, line: `Cleared on ${r.cleared_at.toISOString().slice(0, 10)} (builder id ${r.builder_id})` }));
 }
 
 /**
@@ -255,6 +284,7 @@ export async function mergeProfiles(tx: postgres.TransactionSql, root: number, o
   // v2.12.1: the person's claim codes and signed wallets move to the root; the other's live score and
   // projects go (rebuilt from the merged sources), and the root is read again on the next ask.
   await tx`UPDATE claim_codes SET builder_id = ${root} WHERE builder_id = ${other}`;
+  await tx`UPDATE x_owner_clears SET builder_id = ${root} WHERE builder_id = ${other}`;
   await tx`UPDATE person_wallets SET builder_id = ${root} WHERE builder_id = ${other}`;
   await tx`DELETE FROM builder_projects WHERE builder_id = ${other}`;
   await tx`DELETE FROM builder_live WHERE builder_id = ${other}`;

@@ -4672,7 +4672,8 @@ In this order, after merge (none is done on this branch):
 ### Owner questions recorded during the build
 
 D3 (accept typed X handles, shown unverified?) and a stronger X proof (OAuth) in v2.13; the
-owner's "Clear X handle" is not sticky while GitHub still lists the handle; campaign entries are
+owner's "Clear X handle" is not sticky while GitHub still lists the handle (v2.12; in v2.12.1 the
+owner's clear of a claimed page sticks, `x_owner_clears`); campaign entries are
 exempt from the pitch gate; a minimum percentile before the card is offered (a score of 7 is
 offered at "top 69%"; answered in the final review: "Top N%" and the offer only for N <= 50, owner
 may move the cutoff); the card font; listing installed-but-unscored profiles on `/leaderboard`. The
@@ -4776,6 +4777,11 @@ behind `EARNKIT_BUILDER_SCORE=on`: **flag off is production (v2.11 replies, no p
   the lowercase handle and the old random slug goes to history; a stale holder of the handle (it moved
   to someone else) is cleared and no history row redirects to them (Review Focus 2); a rename keeps a
   90-day redirect (`profile_slug_history.handle_rename`); queues discovery (the X field match).
+- **The owner's clear sticks** (final fix wave): "Clear X handle" on `/admin/scores` (`clearXHandle(id,
+  'owner')`) on a claimed page records its X user id in `x_owner_clears`; `claimLink` gives no link,
+  `codeTarget` refuses old codes (410) and `bindX` answers `owner_cleared` from any installation (no
+  join offered; the page reads `CLAIM_TEXT.paused`), until the owner presses "Release" under "X
+  handles you cleared" (`action=release_x`, `releaseXClear`). A merge moves the row to the root.
 - **Pages**: `earnkit.com/<x-handle>` (`app/[handle]/`), case-insensitive with a 308 to the stored
   case; a handle equal to a site route (`reserved-routes.ts RESERVED_ROUTES`; a new top-level route
   fails `reserved-routes.test.ts` until added) is served at `/b/<handle>`, and every link and the card

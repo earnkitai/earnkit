@@ -4,7 +4,7 @@ import { discover, type LoginOf } from './discovery';
 import { ownPagesSite } from './discovery-clues';
 import { noteEvent } from './events';
 import { scorePeopleV2 } from './person-score'; // person-score imports this file too: functions only, called after load
-import { clearXHandle } from './profiles';
+import { clearXHandle, releaseXClear } from './profiles';
 import { readParams, secretMatches } from './http';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
 import { type ProjectInput, type Scored } from './score';
@@ -411,7 +411,7 @@ const staleRelease = () =>
 const isDay = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`)) && new Date(`${s}T00:00:00Z`).toISOString().slice(0, 10) === s;
 
 /**
- * POST /api/admin/scores (form: key, builder, day, or action=clear_x and builder): releases a held day (a score_releases row,
+ * POST /api/admin/scores (form: key, builder, day, or action=clear_x / release_x and builder): releases a held day (a score_releases row,
  * never an UPDATE of builder_scores). Only a held day can be released; the profile stays held while
  * a newer held day waits. Rate limited per IP; a wrong key is a 404; otherwise back to the page (303).
  */
@@ -433,6 +433,9 @@ export async function scoresPost(request: Request, deps: { limit?: (ip: string) 
   const version = form.get('version');
   if (form.get('action') === 'clear_x') {
     if (valid) await clearXHandle(id, 'owner');
+  } else if (form.get('action') === 'release_x') {
+    // Final fix wave: the owner's clear sticks until the owner releases it here.
+    if (valid) await releaseXClear(id);
   } else if (form.get('action') === 'rule_login') {
     // v2.12.1 T5 fix round 2: a contested GitHub login counts for this group only (login-contests.ts).
     if (valid) await (await import('./login-contests')).ruleContest(form.get('login') ?? '', id);

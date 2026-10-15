@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { heldForReview, partLines, scoresAdminKey } from '@/lib/earnkit/builder-score';
 import { loginContests } from '@/lib/earnkit/login-contests';
 import { oneParam, secretMatches } from '@/lib/earnkit/http';
-import { xHandleConflicts } from '@/lib/earnkit/profiles';
+import { ownerClears, xHandleConflicts } from '@/lib/earnkit/profiles';
 import { RateLimitError, clientIp, enforce } from '@/lib/earnkit/rate-limit';
 import { VETO_ERRORS } from '@/lib/earnkit/veto';
 
@@ -39,6 +39,8 @@ export default async function ScoresReviewPage({ searchParams }: { searchParams:
   const conflicts = await xHandleConflicts();
   // v2.12.1 T5 fix round 2: GitHub logins two unlinked groups prove; confirmed for none until ruled.
   const contests = await loginContests();
+  // Final fix wave: X accounts the owner cleared claim nothing again until released here.
+  const cleared = await ownerClears();
   return (
     <div className="w-full pt-4">
       <section className="rounded-[40px] bg-ek-navy-deep px-6 py-12 font-funnel-sans text-ek-blue-light md:px-16">
@@ -94,6 +96,24 @@ export default async function ScoresReviewPage({ searchParams }: { searchParams:
                 <input type="hidden" name="action" value="clear_x" />
                 <input type="hidden" name="builder" value={c.holder} />
                 <button type="submit" className="underline">Clear X handle</button>
+              </form>
+            </li>
+          ))}
+        </ul>
+        <h2 className="mt-10 font-funnel-display text-2xl text-ek-white">X handles you cleared</h2>
+        <p className="mt-2 text-sm">
+          The X account of a page you cleared can&apos;t claim a page again until you release it here.
+        </p>
+        {cleared.length === 0 ? <p className="mt-6 text-sm text-ek-white">None.</p> : null}
+        <ul className="mt-6 text-sm">
+          {cleared.map((c) => (
+            <li key={c.builder_id} className="flex gap-4 border-t border-ek-navy py-2">
+              <span>{c.line}</span>
+              <form method="post" action="/api/admin/scores">
+                <input type="hidden" name="key" value={key} />
+                <input type="hidden" name="action" value="release_x" />
+                <input type="hidden" name="builder" value={c.builder_id} />
+                <button type="submit" className="underline">Release</button>
               </form>
             </li>
           ))}

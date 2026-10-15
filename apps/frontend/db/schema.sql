@@ -1391,3 +1391,11 @@ CREATE TABLE IF NOT EXISTS wallet_proof_uses (
   used_at  timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS wallet_proof_uses_used ON wallet_proof_uses (used_at);
+-- v2.12.1 final fix wave: an X account whose handle the owner cleared (/admin/scores "Clear X handle")
+-- claims no page again, from any installation, until the owner releases it (claim.ts claimLink,
+-- codeTarget and bindX refuse it; profiles.ts clearXHandle and releaseXClear).
+CREATE TABLE IF NOT EXISTS x_owner_clears (
+  x_user_id  text PRIMARY KEY,
+  builder_id integer NOT NULL,
+  cleared_at timestamptz NOT NULL DEFAULT now()
+);

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import { sql } from './db';
 import { CLAIM_TEXT, bindX, claimCode, claimGet, claimLink, claimPost, xCallback } from './claim';
-import { clearXHandle, resolveHandle, resolveSlug, ensureProfile } from './profiles';
+import { clearXHandle, releaseXClear, resolveHandle, resolveSlug, ensureProfile } from './profiles';
 import { answerJoin, pendingJoinOf, rootOf } from './identity';
 import { connectInstallation, saveInstallation } from './installations';
 import type { XOAuthDeps, XUser } from './x-oauth';
@@ -343,4 +343,36 @@ test('7.7 the done page offers the two optional upgrades as plain links; GitHub 
       if (v === undefined) delete process.env[k];
       else process.env[k] = v;
   }
+});
+
+test('6.30 (final fix wave) the owner\'s clear sticks: the same X account can\'t claim again, from any installation, until the owner releases it', dbTest, async () => {
+  const [a, c] = [await profiled(), await profiled()];
+  const user = { id: X('3030'), username: H('cleared'), name: 'C', avatar: null };
+  assert.equal((await bindX(a, user, NOW)).ok, true);
+  assert.equal(await clearXHandle(a, 'owner'), true);
+  assert.equal(await claimLink(a), null, 'no claim link for an owner-cleared page');
+  // The code the person had before: the claim page shows nothing to press.
+  const old = claimCode(a)!;
+  await sql()`INSERT INTO claim_codes (code_hash, builder_id) VALUES (${createHash('sha256').update(old).digest('hex')}, ${a}) ON CONFLICT DO NOTHING`;
+  assert.equal((await claimGet(new Request(`https://earnkit.com/claim/${old}`), old)).status, 410);
+  // Straight to the bind (a sign-in already under way), and from a second installation.
+  assert.deepEqual(await bindX(a, user, NOW), { ok: false, reason: 'owner_cleared' });
+  assert.deepEqual(await bindX(c, { ...user, username: H('cleared2') }, NOW), { ok: false, reason: 'owner_cleared' });
+  assert.equal(await pendingJoinOf(c), null, 'no join is offered either');
+  assert.equal(await resolveHandle(H('cleared')), null);
+  assert.equal(await resolveHandle(H('cleared2')), null);
+  // The owner releases it: the same X account claims again.
+  assert.equal(await releaseXClear(a), true);
+  const link = await claimLink(a);
+  assert.match(link ?? '', /^earnkit\.com\/claim\/[a-z2-7]{12}$/);
+  const r = await runClaim(link!.split('/').pop()!, fakeX(user));
+  assert.equal(r.status, 200);
+  assert.deepEqual(await resolveHandle(H('cleared')), { builderId: a, handle: H('cleared') });
+});
+
+test('6.31 (final fix wave) a GitHub clear never blocks a claim (only the owner\'s does)', dbTest, async () => {
+  const a = await profiled();
+  await sql()`UPDATE builder_profiles SET x_handle = ${H('ghonly')} WHERE builder_id = ${a}`;
+  assert.equal(await clearXHandle(a, 'github'), true);
+  assert.equal((await bindX(a, { id: X('3131'), username: H('ghonly'), name: 'G', avatar: null }, NOW)).ok, true);
 });
