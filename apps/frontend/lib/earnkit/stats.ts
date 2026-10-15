@@ -1,6 +1,7 @@
 import { sql, type Db } from './db';
 import { testInstallationIds } from './installations';
 import { FEE_SPLIT_BPS } from './policy';
+import { benchEnabled } from './builder-score-flag';
 import { moneyText, openMoneyUsd, poolTotal, statedPool } from './pool';
 
 /**
@@ -109,7 +110,7 @@ type Row = {
  * EarnKit coins (M5: never a deposit from a coin EarnKit didn't launch); plus
  * the builder bonus money routed to the Safe (after a program ends, programs without public
  * submissions, empty rounds, a paid round's unclaimed places). It is not all-time Safe revenue.
- * Pure.
+ * Pure but for the Bench flag (bonus_programs_open).
  */
 export function statsFrom(r: Row, now = new Date()): PublicStats {
   const big = (v: string | null) => BigInt(v ?? '0');
@@ -128,7 +129,8 @@ export function statsFrom(r: Row, now = new Date()): PublicStats {
     open_pools_usd: Math.round(pools.usd),
     open_pools_plus: pools.plus,
     programs_open: Number(r.programs_open),
-    bonus_programs_open: Number(r.bonus_programs_open),
+    // v2.13 R16: no program has the builder bonus under the Bench flag (bonusOn); the key stays for jenil.ai.
+    bonus_programs_open: benchEnabled() ? 0 : Number(r.bonus_programs_open),
     coins_launched: Number(r.coins_launched),
     fees_to_safe_eth: weiToEth(safeWei),
     bonus_paid_eth: weiToEth(big(r.bonus_paid_wei)),

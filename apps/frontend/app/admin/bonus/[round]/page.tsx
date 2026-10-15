@@ -1,5 +1,6 @@
 import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
+import { benchEnabled } from '@/lib/earnkit/builder-score-flag';
 import { formatUnits } from 'viem';
 import { sql } from '@/lib/earnkit/db';
 import { formatDeadline } from '@/lib/earnkit/dates';
@@ -47,6 +48,8 @@ export default async function BonusReviewPage({
   params: Promise<{ round: string }>;
   searchParams: Promise<{ key?: string | string[]; removed?: string; error?: string }>;
 }) {
+  // v2.13 R16: no builder bonus rounds under the Bench flag; the review page is a 404 (flag off: today's).
+  if (benchEnabled()) notFound();
   const raw = (await params).round;
   const { key: rawKey, removed, error } = await searchParams;
   const key = oneParam(rawKey);

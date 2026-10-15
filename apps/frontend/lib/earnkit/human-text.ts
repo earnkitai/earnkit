@@ -29,7 +29,7 @@ export function humanStrings(path: string, source: string): { text: string; line
 }
 
 const SOURCE_DIRS = ['apps/frontend/app', 'apps/frontend/lib', 'apps/frontend/scripts'];
-const TEXT_FILES = ['apps/frontend/public/llms.txt', 'programs/README.md', 'README.md', 'apps/frontend/README.md'];
+const TEXT_FILES = ['apps/frontend/lib/earnkit/llms/v212.txt', 'apps/frontend/lib/earnkit/llms/v213.txt', 'programs/README.md', 'README.md', 'apps/frontend/README.md'];
 /** Not human text: tests (`.test.ts`, `.test.tsx`, `.test.mts`), fixtures, node_modules and this file. Pure. */
 export const notHumanText = (p: string) =>
   /\.test\.m?tsx?$/.test(p) || p.includes('/fixtures/') || p.includes('node_modules') || p.endsWith('/human-text.ts');

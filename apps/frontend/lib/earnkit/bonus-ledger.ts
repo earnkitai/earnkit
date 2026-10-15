@@ -36,7 +36,7 @@ import {
   type PayoutRpc,
   type PayoutStore,
 } from './payout';
-import { EARNKIT_SPLIT_BPS, GAS_WALLET_MIN_WEI_DEFAULT, MINI_FEE_RECIPIENT } from './policy-constants';
+import { GAS_WALLET_MIN_WEI_DEFAULT, MINI_FEE_RECIPIENT, isEarnkitSplit } from './policy-constants';
 import { BASE_MAINNET } from './sanctions';
 import { withScoringLock } from './scoring-lock';
 
@@ -56,6 +56,9 @@ import { withScoringLock } from './scoring-lock';
  * 5. claim_others (v2.9 D16): after the rounds and the sweep, in at most OTHERS_CLAIM_MS,
  *    `claim(owner, WETH)` for MINI and each EarnKit token's creator when worth ≥ 10× its gas; the
  *    FeeLocker always pays the owner.
+ * v2.13: coins launched after tokens.fun's split change have no bonus slot (Safe 50, creator 40,
+ * MINI 10), so their fees reach the Safe by its own claim. Under the Bench flag the cron runs this
+ * ledger without the rounds step, and bonusOn is false, so every bonus deposit books to the Safe.
  */
 
 /** The contracts the ledger reads (lowercase). Injectable for the anvil test. */
@@ -673,8 +676,9 @@ export const RECIPIENT_READS_PER_RUN = 20;
 
 /**
  * v2.9 D16: a token's creator (slot 1) and MINI (slot 2) fee recipients, from the first locker that
- * knows it, cached on `projects.fee_recipients` only when its split is EarnKit's
- * (EARNKIT_SPLIT_BPS: Safe, creator, MINI, bonus wallet). A failed read (an RPC error, or no locker knows
+ * knows it, cached on `projects.fee_recipients` only when its split is one of EarnKit's
+ * (EARNKIT_SPLITS_BPS: Safe, creator, MINI, then v2.5's bonus wallet; v2.13 coins have no bonus slot,
+ * their former share goes to the Safe). A failed read (an RPC error, or no locker knows
  * the coin): the creator unknown, MINI the policy.ts fallback (Ruling 17), nothing cached, so the
  * next run reads again; the coin is added to `d.unread` (claimFees logs them once per run).
  */
@@ -688,8 +692,9 @@ export async function feeRecipients(coin: Hex, d: { rpc: BonusRpc; chain: BonusC
         throw err;
       });
       if (recipients.length === 0) continue;
-      // Only EarnKit's split says which slot is whose; any other split is unread (never cached).
-      if (bps.length !== EARNKIT_SPLIT_BPS.length || bps.some((b, i) => b !== EARNKIT_SPLIT_BPS[i])) {
+      // Only EarnKit's splits (v2.5's 4 slots, v2.13's 3) say which slot is whose, read from the
+      // coin's own split, never guessed from its launch date; any other split is unread (never cached).
+      if (!isEarnkitSplit(bps)) {
         console.error('[bonus] fee recipients of', coin, 'not read: its split is', bps.join('/'), 'not EarnKit\'s');
         break;
       }

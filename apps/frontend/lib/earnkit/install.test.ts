@@ -16,7 +16,7 @@ import { logoFileProblem } from './program-file';
 const FRONTEND = join(import.meta.dirname, '../..');
 const PUBLIC = join(FRONTEND, 'public');
 const html = renderToStaticMarkup(React.createElement(AddToAgent, { onClose: () => {} }));
-const llms = readFileSync(join(PUBLIC, 'llms.txt'), 'utf8');
+const llms = readFileSync(join(import.meta.dirname, 'llms/v212.txt'), 'utf8');
 const readme = readFileSync(join(FRONTEND, '../../README.md'), 'utf8');
 const byName = (name: string) => AGENTS.find((a) => a.name === name)!;
 

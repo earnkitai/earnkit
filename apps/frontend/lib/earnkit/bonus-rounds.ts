@@ -1,6 +1,7 @@
 import type postgres from 'postgres';
 import { sql } from './db';
 import { testInstallationIds } from './installations';
+import { benchEnabled } from './builder-score-flag';
 
 /**
  * Builder bonus rounds (v2.5 §3). A program with an end date (`ends_at`) is one round per window,
@@ -96,9 +97,22 @@ export function roundFor(program: Window, at: Date): Round | null {
 /**
  * v2.6 §4, Ruling 7 (plan): whether a program's entries can earn the builder bonus. One rule for
  * booking, list_programs, the coin row, the board and the cron. SQL twin:
- * `g.status = 'active' AND g.builder_bonus AND g.campaign IS NULL`. Pure.
+ * `g.status = 'active' AND g.builder_bonus AND g.campaign IS NULL` (v2.13: plus the Bench flag off,
+ * which the SQL readers of rounds and pools follow through the rounds this rule makes). Reads the flag.
+ */
+/*
+ * v2.13 R16, plan B16: with the Bench flag on there is no builder bonus (bonusOn is false), but
+ * nothing is deleted while the flag can still go off (production reaches every bonus path). Once the
+ * flag is retired, delete: bonus-rounds.ts, bonus-board.ts, bonus-payout.ts and their tests;
+ * traction.ts's round scoring; veto.ts and app/admin/veto; app/bonus/*, app/admin/bonus/*;
+ * BonusPill.tsx; HowItWorks.tsx (step 3; BenchHowItWorks replaces it); present.ts bonusCell,
+ * bonusLine, bonusProgramIds; entry-text.ts's round lines; landing.ts bonusAmount;
+ * submission-proof.ts's re-check; the bonus_* stats. bonus-ledger.ts stays (fee claims and the
+ * sweep to the Safe), renamed fee-ledger.ts then.
  */
 export function bonusOn(p: { status: string; builder_bonus?: boolean | null; campaign?: unknown }) {
+  // v2.13 R16: no builder bonus anywhere under the Bench flag; every deposit books to the Safe (the treasury).
+  if (benchEnabled()) return false;
   return p.status === 'active' && p.builder_bonus !== false && (p.campaign === null || p.campaign === undefined);
 }
 

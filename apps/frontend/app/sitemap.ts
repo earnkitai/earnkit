@@ -24,11 +24,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         AND (ends_at IS NULL OR ends_at > now()) ORDER BY id`;
     for (const p of programs)
       pages.push({ url: `${SITE}/programs/${p.id}`, changeFrequency: 'daily', priority: 0.7 });
-    // Every builder bonus round with a public page (an empty one has nothing to show).
-    const rounds = await sql()<{ round_key: string }[]>`
-      SELECT round_key FROM bonus_rounds WHERE state <> 'empty' ORDER BY ends_at DESC LIMIT 500`;
-    for (const r of rounds)
-      pages.push({ url: `${SITE}/bonus/${boardSlug(r.round_key)}`, changeFrequency: 'daily', priority: 0.6 });
+    // Every builder bonus round with a public page (an empty one has nothing to show); v2.13: none
+    // under the Bench flag (the round pages are a 404 then).
+    if (!benchEnabled()) {
+      const rounds = await sql()<{ round_key: string }[]>`
+        SELECT round_key FROM bonus_rounds WHERE state <> 'empty' ORDER BY ends_at DESC LIMIT 500`;
+      for (const r of rounds)
+        pages.push({ url: `${SITE}/bonus/${boardSlug(r.round_key)}`, changeFrequency: 'daily', priority: 0.6 });
+    }
   } catch (err) {
     console.error('[sitemap] programs and bonus rounds', err);
   }

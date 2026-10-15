@@ -45,13 +45,14 @@ test('Ruling 16 (plan): the scan is not vacuous', () => {
   const files = humanTextFiles(ROOT);
   // Every scanned root contributes files, so a root dropped from the scan can't hide behind the
   // total; the total stays close to the real count (149 at v2.8 Task 2).
-  for (const [root, min] of [['apps/frontend/app/', 50], ['apps/frontend/lib/', 55], ['apps/frontend/scripts/', 8], ['programs/', 6], ['apps/frontend/public/', 1]] as const) {
+  for (const [root, min] of [['apps/frontend/app/', 50], ['apps/frontend/lib/', 55], ['apps/frontend/scripts/', 8], ['programs/', 6]] as const) {
     const n = files.filter((f) => f.startsWith(root)).length;
     assert.ok(n >= min, `${root}: only ${n} files`);
   }
   assert.ok(files.includes('apps/frontend/scripts/programs-sync.mts'), 'scripts');
   assert.ok(files.length >= 140, `only ${files.length} files`);
-  for (const f of ['apps/frontend/public/llms.txt', 'programs/arc-microgrants.json', 'programs/README.md', 'apps/frontend/app/page.tsx', 'apps/frontend/app/components/sections/Hero.tsx'])
+  // v2.13: llms.txt moved from public/ to lib/earnkit/llms/ (served by app/llms.txt/route.ts), both versions scanned.
+  for (const f of ['apps/frontend/lib/earnkit/llms/v212.txt', 'apps/frontend/lib/earnkit/llms/v213.txt', 'programs/arc-microgrants.json', 'programs/README.md', 'apps/frontend/app/page.tsx', 'apps/frontend/app/components/sections/Hero.tsx'])
     assert.ok(files.includes(f), f);
   assert.ok(!files.some((f) => /\.test\.tsx?$/.test(f) || f.includes('/fixtures/') || f.endsWith('/human-text.ts')));
 });

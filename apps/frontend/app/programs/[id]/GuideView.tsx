@@ -8,6 +8,7 @@ import { difficultyBasis, difficultyLabel, wonHeading, type GuideSource } from '
 import BonusPill from '../../components/ui/BonusPill';
 import type { GuidePage } from '../../../lib/earnkit/landing';
 import { shownUrl } from '../../../lib/earnkit/untrusted-text';
+import { benchEnabled } from '../../../lib/earnkit/builder-score-flag';
 
 /** v2.8 Ruling 13 (plan), Task 3 carry: the guide page (not the slim card) says a program fits any chain. */
 export const ANY_CHAIN = 'Any chain';
@@ -76,8 +77,11 @@ function Sources({ sources }: { sources: GuideSource[] }) {
  * title, prize and end, difficulty with its basis), then one panel per guide part that has data
  * (what won, what the ecosystem wants, the best bet), then "Ask your agent" (not on a closed
  * program), the sources and the footer. v2.7.1: the builder bonus is a pill beside Difficulty. Same text as get_program (guide.ts).
+ * v2.13 R16 (controller F3): a server component, so it reads the Bench flag itself: no bonus pill,
+ * here or in the install modal, under the flag.
  */
 export default function GuideView({ page }: { page: GuidePage }) {
+  const bench = benchEnabled();
   const g = page.guide;
   const facts = g.header.startsWith(`${page.title} · `) ? g.header.slice(page.title.length + 3) : g.header;
   return (
@@ -109,12 +113,12 @@ export default function GuideView({ page }: { page: GuidePage }) {
               </dd>
             </dl>
             {/* v2.8 Ruling 19 (plan): the builder bonus pill beside Difficulty, linking to the leaderboard. */}
-            {page.has_bonus && page.board_path && <BonusPill size="md" amount={page.bonus_amount} href={page.board_path} />}
+            {!bench && page.has_bonus && page.board_path && <BonusPill size="md" amount={page.bonus_amount} href={page.board_path} />}
           </div>
           {/* Fix round 1: the next step above the fold on mobile; the action row below repeats it. */}
           {page.open && (
             <div className="mt-8">
-              <AskAgent prompt={askPrompt(page.title)} />
+              <AskAgent prompt={askPrompt(page.title)} bench={bench} />
             </div>
           )}
         </Panel>
@@ -162,7 +166,7 @@ export default function GuideView({ page }: { page: GuidePage }) {
 
         <Panel className="py-8 md:py-10">
           <div className="flex flex-col gap-3 sm:flex-row">
-            {page.open && <AskAgent prompt={askPrompt(page.title)} />}
+            {page.open && <AskAgent prompt={askPrompt(page.title)} bench={bench} />}
             <Link href="/programs" className={SECONDARY}>
               All programs
             </Link>

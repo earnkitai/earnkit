@@ -72,12 +72,13 @@ const ethText = (eth: number) =>
 
 /**
  * v2.7.1: the one short line under the hero, only once there is something to show: installs from
- * 100, builder bonus paid above 0. Null otherwise. Pure.
+ * 100, builder bonus paid above 0 (never under the Bench flag). Null otherwise. Reads the flag.
  */
 export function statsLine(s: PublicStats): string | null {
   const parts: string[] = [];
   if (s.installs >= INSTALLS_SHOWN_FROM) parts.push(`${s.installs.toLocaleString('en-US')} agents earning`);
-  if (s.bonus_paid_eth > 0) parts.push(`${ethText(s.bonus_paid_eth)} ETH builder bonus paid`);
+  // v2.13 R16: never the builder bonus under the Bench flag.
+  if (s.bonus_paid_eth > 0 && !benchEnabled()) parts.push(`${ethText(s.bonus_paid_eth)} ETH builder bonus paid`);
   return parts.length ? parts.join(' · ') : null;
 }
 

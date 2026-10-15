@@ -690,3 +690,41 @@ test('4.8 the weekly step exists only under the flag (flag off: the v2.12.2 step
     else process.env.EARNKIT_BUILDER_SCORE = score;
   }
 });
+
+test('13.7 under the flag the cron runs the ledger without rounds, no traction scoring, no proof re-check, no bonus: line; flag off: all of them', db, async () => {
+  const score = process.env.EARNKIT_BUILDER_SCORE;
+  process.env.EARNKIT_BUILDER_SCORE = 'on';
+  // The ledger's recording fake: whether the cron handed it the rounds step; its result names a round waiting on the owner.
+  const ledgerCalls: { rounds: boolean }[] = [];
+  const ledger = async (d: { rounds?: unknown }) => {
+    ledgerCalls.push({ rounds: typeof d.rounds === 'function' });
+    return { rounds: { needs_owner: ['t13-round'] } };
+  };
+  const traced: string[] = [];
+  // No round key matches, so scoring reads nothing; the step still reports when it ran.
+  const traction = { only: ['t13-no-such-round'], score: async () => { traced.push('score'); return []; } };
+  const proofRecheck = { fetchText: async () => { throw new Error('no reads'); } };
+  const run = () => runCron({ now: new Date(), budgetMs: 5_000, deps: { bonus: {}, ledger, traction, proofRecheck, refreshFees: async () => 0 }, only: [] });
+  delete process.env.EARNKIT_BENCH;
+  try {
+    process.env.EARNKIT_BENCH = 'on';
+    const on = await run();
+    assert.deepEqual(ledgerCalls, [{ rounds: false }], 'the ledger runs (fee claims, the sweep), without the rounds step');
+    assert.equal((on as { bonus_scoring?: unknown }).bonus_scoring, undefined, 'no traction scoring');
+    assert.equal((on as { proof_recheck?: unknown }).proof_recheck, undefined, 'no proof re-check');
+    assert.ok(!on.needs_owner.some((l) => l.startsWith('bonus:')), on.needs_owner.join());
+    assert.deepEqual(traced, []);
+
+    // Flag off (production): the rounds step is handed over, scoring runs, a round waiting on the owner is listed.
+    delete process.env.EARNKIT_BENCH;
+    ledgerCalls.length = 0;
+    const off = await runCron({ now: new Date(), budgetMs: 5_000, deps: { bonus: {}, ledger, traction, refreshFees: async () => 0 }, only: [] });
+    assert.deepEqual(ledgerCalls, [{ rounds: true }]);
+    assert.notEqual((off as { bonus_scoring?: unknown }).bonus_scoring, undefined, 'traction scoring ran');
+    assert.ok(off.needs_owner.includes('bonus:t13-round'), off.needs_owner.join());
+  } finally {
+    delete process.env.EARNKIT_BENCH;
+    if (score === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
+    else process.env.EARNKIT_BUILDER_SCORE = score;
+  }
+});

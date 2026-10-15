@@ -58,8 +58,11 @@ apps/frontend/
                                programs:check), served under a scoped image CSP (next.config.ts IMAGE_CSP); rendered
                                only via <img> (ProgramLogo, GuideView). v2.8.1: a16z-speedrun.png (the
                                "sr" mark from speedrun.a16z.com's apple-touch-icon)
-  public/llms.txt              agent-readable summary: install, "What can I earn?", program guides
-                               (earnkit.com/programs/<id>), the tools, live numbers (C9)
+  app/llms.txt/route.ts        v2.13: GET /llms.txt, the agent-readable summary (install, "What can I
+                               earn?", program guides earnkit.com/programs/<id>, the tools, live numbers
+                               (C9)): lib/earnkit/llms/v212.txt (the former public/llms.txt, byte for
+                               byte) with EARNKIT_BENCH off, lib/earnkit/llms/v213.txt (no builder bonus,
+                               "The Bench" section) with it on
   app/page.tsx                 home (v2.7 §1): revalidate 600; getLanding() then HomeView
   app/HomeView.tsx             v2.7 §1, v2.8 Part A: the pure home render (Hero with stats_line,
                                ProgramCards (every open program, carousel), HowItWorks, BackedBy, Footer);

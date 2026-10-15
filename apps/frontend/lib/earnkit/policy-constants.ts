@@ -13,11 +13,20 @@ export const MINI_FEE_RECIPIENT = '0x6DCeEAFA8b06977e5bD2F2D9B0cF949f640f47D1';
 export const GAS_WALLET_MIN_WEI_DEFAULT = 2_000_000_000_000_000n;
 
 /**
- * v2.9 D16: an EarnKit token's split by slot, bps (Safe, creator, MINI, bonus wallet), as read from
- * its locker. Recipients are read by slot only from a token with this split. The same numbers as
- * policy.ts FEE_SPLIT_BPS (a test keeps them equal).
+ * EarnKit coins' reward splits, bps, as read from a coin's locker; slot order Safe, creator, MINI
+ * (then the v2.5 bonus wallet). v2.5 to v2.12: 30/40/10/20. v2.13 (tokens.fun's split change, T14):
+ * 50/40/10, the former bonus share to the Safe. A coin's split is fixed at its launch, so both exist
+ * and recipients are read by slot from a coin with either one (bonus-ledger.ts feeRecipients); the
+ * creator (slot 1) and MINI (slot 2) are the same slots in both. The same numbers as policy.ts
+ * FEE_SPLIT_BPS and FEE_SPLIT_BPS_V213 (tests keep them equal).
  */
-export const EARNKIT_SPLIT_BPS = [3000, 4000, 1000, 2000] as const;
+export const EARNKIT_SPLITS_BPS = [[3000, 4000, 1000, 2000], [5000, 4000, 1000]] as const;
+/** v2.9 D16: v2.5's split, kept for the tests and the docs that name it. */
+export const EARNKIT_SPLIT_BPS = EARNKIT_SPLITS_BPS[0];
+
+/** Whether `bps` (a coin's split as its locker reads it) is one of EarnKit's splits. Pure. */
+export const isEarnkitSplit = (bps: readonly number[]) =>
+  EARNKIT_SPLITS_BPS.some((s) => s.length === bps.length && s.every((b, i) => b === bps[i]));
 
 /**
  * v2.12.1 T10 (spec 3b, plan S7): the internal program a coin-only entry belongs to (db/schema.sql

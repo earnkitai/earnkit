@@ -8,7 +8,7 @@ import { digestEnabled, sendDigests, type Mailer } from './digest';
 import { usageChecks, type UsageDeps } from './events';
 import { cleanDeploys, expireSites, sitesInReview } from './hosting';
 import { bearerMatches, json } from './http';
-import { builderScoreEnabled } from './builder-score-flag';
+import { benchEnabled, builderScoreEnabled } from './builder-score-flag';
 import { heldPeople, runScoreSteps, scoreSliceEnd, type ScoreCronDeps } from './builder-score';
 import { xHandleConflicts } from './profiles';
 import {
@@ -84,6 +84,8 @@ export type CronDeps = {
   refreshFees?: (wallets: string[]) => Promise<number>;
   /** The builder bonus ledger's chain, wallet and contracts (v2.5). */
   bonus?: BonusDeps;
+  /** v2.13: the ledger itself (tests record what the cron hands it; default bonus-ledger.ts runBonusLedger). */
+  ledger?: (deps: BonusDeps) => Promise<Record<string, unknown>>;
   /** The daily submission-proof re-check's fetch (v2.5 §3, Ruling 11). */
   proofRecheck?: { fetchText?: (url: string) => Promise<string> };
   /** The builder bonus traction scoring's reads (v2.5 §3; `only`: these round keys). */
@@ -247,7 +249,8 @@ async function refreshStaleFees(now: Date, deadline: number, refresh: (wallets: 
  * one campaign's failure never stops the others; then the token-fee refresh for creator wallets
  * whose cached fees are over 6 h old; between them, the builder bonus: traction scoring
  * (traction.ts scoreOpenRounds), then the ledger (bonus-ledger.ts) with the rounds' freeze,
- * review and WETH payouts (bonus-payout.ts).
+ * review and WETH payouts (bonus-payout.ts). v2.13 R16: under the Bench flag only the ledger runs
+ * (claims and the sweep; no scoring, rounds, proof re-check or `bonus:` lines).
  * `needs_owner` lists the campaigns whose payout waits on the
  * owner (cronPost answers 503 for them). `now` is injectable for the e2e (production: the real
  * time); `only` limits the run to these program ids (tests and the e2e).
@@ -286,9 +289,12 @@ export async function runCron(
   // v2.5 builder bonus traction (Task 7 carry): every run scores the open rounds (each entry is
   // read at most once a day; after a round's end, its final reads), with at most half the budget
   // left so the ledger and payouts below always get time. Under its own lease.
+  // v2.13 R16 (plan B16): under the Bench flag there is no builder bonus, so no scoring, no rounds
+  // and no proof re-check; the ledger still runs (fee claims for the Safe, creators and MINI, the sweep).
+  const bench = benchEnabled();
   let bonusScoring: unknown;
   const scoringStalled: string[] = [];
-  if (!opts.only || deps.traction) {
+  if (!bench && (!opts.only || deps.traction)) {
     try {
       const half = Math.min(deadline, Date.now() + (deadline - Date.now()) / 2);
       const r = await withScoringLock(
@@ -308,11 +314,11 @@ export async function runCron(
   let bonus: Record<string, unknown> | undefined;
   if (!opts.only || deps.bonus) {
     try {
-      bonus = await runBonusLedger({
+      bonus = await (deps.ledger ?? runBonusLedger)({
         now,
         deadline,
         // The ledger's own state (followOnly, the run's nonce floor) always wins over test deps (M14).
-        rounds: (account, d) => advanceRounds(account, { ...deps.rounds, ...d }),
+        ...(bench ? {} : { rounds: (account, d) => advanceRounds(account, { ...deps.rounds, ...d }) }),
         ...deps.bonus,
       });
     } catch (err) {
@@ -323,7 +329,7 @@ export async function runCron(
   // v2.5 §3, Ruling 11: the daily re-check of a submission proof that hasn't passed yet, until its
   // program's round ends. Same `only`/deps gating as the bonus ledger step.
   let proofRecheck: { checked: number; passed: number } | undefined;
-  if (!opts.only || deps.proofRecheck) {
+  if (!bench && (!opts.only || deps.proofRecheck)) {
     try {
       proofRecheck = await recheckSubmissionProofs(now, deadline, deps.proofRecheck);
     } catch (err) {
@@ -423,10 +429,13 @@ export async function runCron(
   if (bonusWaitsOnOwner(bonus)) needs_owner.push('bonus-ledger');
   // A builder bonus round waiting on the owner: a pay note that does, failed pay steps in a row, or
   // flagged entries in its review (bonus-payout.ts advanceRounds).
-  const rounds = bonus?.rounds as { needs_owner?: string[] } | undefined;
-  for (const key of rounds?.needs_owner ?? []) needs_owner.push(`bonus:${key}`);
-  // Ruling 23: an ended round whose final scoring failed (once per round).
-  for (const key of scoringStalled) if (!needs_owner.includes(`bonus:${key}`)) needs_owner.push(`bonus:${key}`);
+  // v2.13: none under the Bench flag (no rounds, no scoring).
+  if (!bench) {
+    const rounds = bonus?.rounds as { needs_owner?: string[] } | undefined;
+    for (const key of rounds?.needs_owner ?? []) needs_owner.push(`bonus:${key}`);
+    // Ruling 23: an ended round whose final scoring failed (once per round).
+    for (const key of scoringStalled) if (!needs_owner.includes(`bonus:${key}`)) needs_owner.push(`bonus:${key}`);
+  }
   // Rulings 19 and 20: the ledger (and so the rounds step) was skipped for want of a usable payout
   // key (missing or malformed) or of Base mainnet while the bonus can earn: an active program with
   // a builder bonus, an EarnKit coin, or an ended unpaid round. Nothing is indexed, claimed or

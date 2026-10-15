@@ -97,7 +97,7 @@ export default function Hero({ statsLine = null, wonLine = null, bench = false }
         )}
       </motion.div>
 
-      {installOpen && <AddToAgent onClose={closeInstall} />}
+      {installOpen && <AddToAgent onClose={closeInstall} bench={bench} />}
 
       {open && (
         <div

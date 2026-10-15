@@ -1,6 +1,7 @@
 import { payoutBy, prizeUsdEach, usd, type CampaignConfig } from './campaigns';
 import { boardSlug } from './bonus-rounds';
 import { shortDate } from './dates';
+import { benchEnabled } from './builder-score-flag';
 
 /** EarnKit's public origin for links in builder text. */
 export const siteUrl = () => (process.env.EARNKIT_URL ?? 'https://earnkit.com').replace(/\/$/, '');
@@ -144,6 +145,8 @@ export const noCoinYet = (endsLabel: string | null) =>
 
 /** Final review M1: the one line for an entry whose repo another entry already holds here. */
 export const REPO_HELD = 'Another entry of this repo already holds its token and builder bonus here.';
+/** v2.13 R16: REPO_HELD under the Bench flag (no builder bonus). */
+export const REPO_HELD_BENCH = 'Another entry of this repo already holds its token here.';
 
 /**
  * Ruling 5 (plan), v2.8.1 §C13: the repo's one token is entered in this program, so its builder
@@ -198,7 +201,7 @@ export type EnteredText = {
 export function enteredText(a: EnteredText) {
   const entered = `Entered in ${a.programTitle}.`;
   // M1: no coin and no bonus to offer here; one plain line, never a wallet ask or a bonus line.
-  if (a.repoHeld) return `${entered} ${REPO_HELD}`;
+  if (a.repoHeld) return `${entered} ${benchEnabled() ? REPO_HELD_BENCH : REPO_HELD}`;
   if (a.countsIn) return entered;
   const round = a.bonus?.line ?? null;
   if (a.coin.status === 'no_wallet')

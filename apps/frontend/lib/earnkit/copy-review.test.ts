@@ -1281,7 +1281,9 @@ const agentFacing: [string, string][] = [
   ['EMAIL_NOTE', EMAIL_NOTE],
   ['EMAIL_SHARED_NOTE', EMAIL_SHARED_NOTE],
   // v2.7 fix round 1 (Minor 6): llms.txt is what agents read about EarnKit.
-  ['llms.txt', readFileSync(join(import.meta.dirname, '../../public/llms.txt'), 'utf8')],
+  ['llms.txt', readFileSync(join(import.meta.dirname, 'llms/v212.txt'), 'utf8')],
+  // v2.13: the Bench's llms.txt (served under the flag, app/llms.txt/route.ts).
+  ['llms.txt (v2.13)', readFileSync(join(import.meta.dirname, 'llms/v213.txt'), 'utf8')],
 ];
 
 // Tool names, derived from the handlers themselves (I2), not a hard-coded list. v2.10 item 4: the
@@ -1331,7 +1333,8 @@ test('v2.7 §4: "coin" never appears in human-facing text', async () => {
   // Minor 4 (Task 10): a program form's own option, quoted verbatim in a kit, is exempt.
   // v2.12.1 T10: tell's coin field (the 3b coin offer's answer, spec copy) is named in its description.
   const coinField = (label: string, text: string) => (label === 'TELL_DESCRIPTION_SCORE' ? text.replace(' coin: their coin answer.', '') : text);
-  for (const [label, text] of all) assert.deepEqual(coinWords(coinField(label, label.startsWith('submitKit') ? withoutFormOptions(text) : text)), [], label);
+  // v2.13 (T13 brief): the Bench's llms.txt names the coin ("The coin", "a tokens.fun coin"); every other rule still reads it.
+  for (const [label, text] of all.filter(([label]) => label !== 'llms.txt (v2.13)')) assert.deepEqual(coinWords(coinField(label, label.startsWith('submitKit') ? withoutFormOptions(text) : text)), [], label);
 });
 
 test('v2.7 §3: never "Clanker" in builder or agent text, or on /policy', async () => {

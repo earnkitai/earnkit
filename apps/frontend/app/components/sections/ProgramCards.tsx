@@ -22,6 +22,7 @@ export default function ProgramCards({
   heading = 'h2',
   layout = 'carousel',
   bench = false,
+  bonus = true,
 }: {
   tiles: Tile[];
   /** The one money figure ("$1.1M+", landing.open_text), shown under the title; null hides the line. */
@@ -31,6 +32,8 @@ export default function ProgramCards({
   layout?: 'carousel' | 'grid';
   /** v2.13: the landing under the flag. */
   bench?: boolean;
+  /** v2.13 R16: false under the Bench flag (/programs): no builder bonus pill on a card or in the install modal. */
+  bonus?: boolean;
 }) {
   const Heading = heading;
   const carousel = layout === 'carousel';
@@ -38,7 +41,8 @@ export default function ProgramCards({
   const close = useCallback(() => setAsking(false), []);
   const title = bench ? 'Grants open now' : 'Open programs';
   // v2.13 R16: no builder bonus pill under the flag (T13 also clears has_bonus at the source).
-  const shown = bench ? tiles.map((t) => ({ ...t, has_bonus: false })) : tiles;
+  const noBonus = bench || !bonus;
+  const shown = noBonus ? tiles.map((t) => ({ ...t, has_bonus: false })) : tiles;
 
   const head = (
     <div>
@@ -79,7 +83,7 @@ export default function ProgramCards({
         </>
       )}
 
-      {asking && <AddToAgent onClose={close} />}
+      {asking && <AddToAgent onClose={close} bench={noBonus} />}
     </Panel>
   );
 }

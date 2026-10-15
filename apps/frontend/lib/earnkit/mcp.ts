@@ -468,8 +468,11 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
             .max(5)
             .optional()
             .describe(
-              `${campaignOpen ? 'EarnKit campaigns, and other programs (optional)' : 'Optional'}: the project's Base contracts (up to 5). ` +
-                "Their real users count toward the builder bonus once verified: deployed by the entry's wallet (or by the wallet that signed deployer_signature), with earnkit.txt naming it.",
+              // v2.13 R16: under the Bench flag, only the first sentence (no builder bonus).
+              benchEnabled()
+                ? `${campaignOpen ? 'EarnKit campaigns, and other programs (optional)' : 'Optional'}: the project's Base contracts (up to 5).`
+                : `${campaignOpen ? 'EarnKit campaigns, and other programs (optional)' : 'Optional'}: the project's Base contracts (up to 5). ` +
+                    "Their real users count toward the builder bonus once verified: deployed by the entry's wallet (or by the wallet that signed deployer_signature), with earnkit.txt naming it.",
             ),
           deployer_signature: z.string().optional().describe(deployerSignatureDescription(campaignOpen)),
           submitted: z

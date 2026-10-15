@@ -1,4 +1,5 @@
 import { BONUS_SPLIT_BPS } from './bonus-payout';
+import { benchEnabled } from './builder-score-flag';
 import { WEIGHTS } from './traction';
 
 /**
@@ -10,6 +11,8 @@ import { WEIGHTS } from './traction';
 
 /** A coin's fee split after Clanker's 20%, bps. A copy of tokens.fun's EarnKit reward recipients. */
 export const FEE_SPLIT_BPS = { project: 4000, buyback: 1000, bonus: 2000, earnkit: 3000 } as const;
+/** v2.13: coins launched from then on (tokens.fun's split change): no builder bonus slot, its share to EarnKit's Safe. */
+export const FEE_SPLIT_BPS_V213 = { project: 4000, buyback: 1000, earnkit: 5000 } as const;
 
 /**
  * v2.9 D16, D17 (Ruling 17): the MINI fallback fee recipient and the payout wallet's gas floor. They
@@ -34,6 +37,20 @@ export const FEE_ROWS: [string, string][] = [
   ['Builder bonus', pct(FEE_SPLIT_BPS.bonus)],
   ['EarnKit', pct(FEE_SPLIT_BPS.earnkit)],
 ];
+
+/** The terms' fee table: today's four rows, or v2.13's three under the Bench flag (no builder bonus). */
+export function feeTable(): [string, string][] {
+  if (benchEnabled())
+    return [
+      ['Your project', pct(FEE_SPLIT_BPS_V213.project)],
+      ['MINI buyback', pct(FEE_SPLIT_BPS_V213.buyback)],
+      ['EarnKit', pct(FEE_SPLIT_BPS_V213.earnkit)],
+    ];
+  return FEE_ROWS;
+}
+
+/** v2.13: under the Bench flag, the line after the fee table (coins keep the split they launched with). */
+export const SPLIT_KEPT_V213 = 'Coins launched before this change keep the split they launched with.';
 
 /**
  * v2.9 F24: the one plain MINI line, right after the fee split wherever it is shown (FEE_SPLIT_BPS.buyback

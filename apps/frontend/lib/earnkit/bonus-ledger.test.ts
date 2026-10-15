@@ -38,8 +38,8 @@ import { holdBonusDbLock } from './fixtures/bonus-db-lock';
 import { deployToken } from './tokens';
 import { BONUS_WALLET_UNSET, cronPost, runCron } from './cron';
 import { TOP_UP, needsOwner } from './payout';
-import { FEE_SPLIT_BPS, GAS_WALLET_MIN_WEI_DEFAULT, MINI_FEE_RECIPIENT } from './policy';
-import { EARNKIT_SPLIT_BPS } from './policy-constants';
+import { FEE_SPLIT_BPS, FEE_SPLIT_BPS_V213, GAS_WALLET_MIN_WEI_DEFAULT, MINI_FEE_RECIPIENT } from './policy';
+import { EARNKIT_SPLITS_BPS, EARNKIT_SPLIT_BPS } from './policy-constants';
 
 const C = BASE_BONUS;
 const [NEW_LOCKER, OLD_LOCKER] = C.lockers;
@@ -1418,6 +1418,57 @@ test('9.9 (fix round 1) a split that is not EarnKit\'s is never read by slot: un
     const [row] = await sql()<{ fee_recipients: unknown }[]>`SELECT fee_recipients FROM projects WHERE coin_address = ${COIN_A}`;
     assert.equal(row.fee_recipients, null);
   } finally {
+    await t9cleanup();
+  }
+});
+
+test('13.6 fee recipients are read from both EarnKit splits: v2.5 (4 slots) and v2.13 (3 slots: Safe 50, creator 40, MINI 10)', async () => {
+  const coin = `0x${'7'.repeat(40)}` as Hex;
+  const creator = `0x${'8'.repeat(40)}`;
+  const mini = `0x${'9'.repeat(40)}`;
+  const chain = { lockers: [`0x${'1'.repeat(40)}`] } as never;
+  const rpc = (bps: number[]) => ({ rewardInfo: async () => ({ recipients: [`0x${'5'.repeat(40)}`, creator, mini, ...(bps.length === 4 ? [`0x${'6'.repeat(40)}`] : [])], bps }) }) as never;
+  // The new split is the terms' v2.13 table: the former bonus share to the Safe, creator and MINI unchanged.
+  assert.deepEqual([...EARNKIT_SPLITS_BPS[1]], [FEE_SPLIT_BPS_V213.earnkit, FEE_SPLIT_BPS_V213.project, FEE_SPLIT_BPS_V213.buyback]);
+  assert.equal(FEE_SPLIT_BPS_V213.earnkit, FEE_SPLIT_BPS.earnkit + FEE_SPLIT_BPS.bonus);
+  assert.deepEqual([FEE_SPLIT_BPS_V213.project, FEE_SPLIT_BPS_V213.buyback], [FEE_SPLIT_BPS.project, FEE_SPLIT_BPS.buyback]);
+  // The cache write (no project holds this coin) is a no-op; without a database it fails soft.
+  const err = console.error;
+  console.error = () => {};
+  try {
+    assert.deepEqual(await feeRecipients(coin, { rpc: rpc([5000, 4000, 1000]), chain }), { creator, mini });
+    assert.deepEqual(await feeRecipients(coin, { rpc: rpc([3000, 4000, 1000, 2000]), chain }), { creator, mini });
+    const unread: Hex[] = [];
+    assert.equal((await feeRecipients(coin, { rpc: rpc([5000, 3000, 2000]), chain, unread })).creator, null, 'any other split is unread');
+    assert.deepEqual(unread, [coin]);
+    // A 3-slot split in another order, or the old split's first three slots, is not EarnKit's either.
+    const more: Hex[] = [];
+    await feeRecipients(coin, { rpc: rpc([4000, 5000, 1000]), chain, unread: more });
+    await feeRecipients(coin, { rpc: rpc([3000, 4000, 1000]), chain, unread: more });
+    assert.deepEqual(more, [coin, coin]);
+  } finally {
+    console.error = err;
+  }
+});
+
+test('13.6b a v2.13 coin (3 slots) is cached and claimed like a v2.5 one: creator and MINI each paid their own fees', db, async () => {
+  try {
+    await t9cleanup();
+    await launched(COIN_A);
+    await launched(COIN_B);
+    const f = fakeChain({ available: { [CREATOR]: 10n ** 18n, [CREATOR_2]: 10n ** 18n, [MINI]: 10n ** 18n } });
+    f.state.rewards[`${NEW_LOCKER}:${COIN_A}`] = split(CREATOR);
+    f.state.rewards[`${NEW_LOCKER}:${COIN_B}`] = { recipients: [SAFE, CREATOR_2, MINI], bps: [5000, 4000, 1000] };
+    const out = await claimForOthers(ACCOUNT, { rpc: f.rpc, chain: C, log: quiet });
+    assert.deepEqual(
+      out.filter((o) => o.role === 'creator' || o.role === 'mini').map((o) => o.owner).sort(),
+      [CREATOR, CREATOR_2, MINI].sort(),
+    );
+    const cached = await sql()<{ coin_address: string; fee_recipients: unknown }[]>`
+      SELECT coin_address, fee_recipients FROM projects WHERE coin_address IN (${COIN_A}, ${COIN_B}) ORDER BY coin_address`;
+    assert.deepEqual(cached.map((r) => r.fee_recipients), [{ creator: CREATOR, mini: MINI }, { creator: CREATOR_2, mini: MINI }]);
+  } finally {
+    await sql()`DELETE FROM projects WHERE program_id = ${PROG}`;
     await t9cleanup();
   }
 });

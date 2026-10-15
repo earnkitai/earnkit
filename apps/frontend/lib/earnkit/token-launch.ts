@@ -4,6 +4,7 @@ import { sql } from './db';
 import { rememberWallet, sharedGroup } from './installations';
 import { OWNERSHIP_FILE } from './ownership';
 import { bonusOn } from './bonus-rounds';
+import { benchEnabled } from './builder-score-flag';
 import type { Chain } from './chains';
 import type { SubmissionRequirement, TokenPolicy } from './program-file';
 import { answersOf } from './projects';
@@ -427,6 +428,8 @@ const dbStore: FlowStore = {
       WHERE p.id = ${projectId}`;
     if (!row) return null;
     const { live_verified_at, contract_verified_at, needs_contract, ...project } = row;
+    // v2.13 R16: the SQL above is bonusOn's twin, so it takes bonusOn's Bench switch too (no non-Base bonus note).
+    if (benchEnabled()) project.has_bonus = false;
     return withStoredChecks(project, { live_verified_at, contract_verified_at, needs_contract });
   },
   setStatus: setTokenStatus,

@@ -110,3 +110,39 @@ test('12.7 the landing page\'s words pass the v2.13 rule (copy rules)', async ()
   const exempt = ['Maya Chen', 'Recipe planner', '$RECIPE', 'EarnKit', ...homeFixture.tiles.map((t) => t.title), ...Object.values(CHAIN_LABEL), ...investors];
   assert.deepEqual(bannedInBench(page, exempt), [], page);
 });
+
+test('13.8 no builder-visible bonus text under the flag: replies, landing, program pages, guides, the install modal, terms (acceptance 7)', async () => {
+  const { default: HomeView } = await import('../../app/HomeView');
+  const { homeFixture } = await import('./fixtures/landing');
+  const { default: TermsPage } = await import('../../app/terms/page');
+  const { default: GuideView } = await import('../../app/programs/[id]/GuideView');
+  const { default: AddToAgent } = await import('../../app/components/sections/AddToAgent');
+  const { default: ProgramCards } = await import('../../app/components/sections/ProgramCards');
+  const { fullGuide } = await import('./fixtures/guide');
+  const { toolDescriptions, serverInstructions } = await import('./mcp');
+  const score = process.env.EARNKIT_BUILDER_SCORE;
+  process.env.EARNKIT_BUILDER_SCORE = 'on';
+  const bonusWords = /builder bonus|bonus pool|\bbonus\b/i;
+  // Flag off: the guide's pill and the install modal's pill are today's (the switch is what hides them).
+  delete process.env.EARNKIT_BENCH;
+  assert.match(renderToStaticMarkup(React.createElement(GuideView, { page: fullGuide })), /Builder bonus/);
+  assert.match(renderToStaticMarkup(React.createElement(AddToAgent, { onClose: () => {} })), /Builder bonus/);
+  process.env.EARNKIT_BENCH = 'on';
+  try {
+    const pages = [
+      renderToStaticMarkup(React.createElement(HomeView, { landing: { ...homeFixture, bench: { rows: [], chips: [], cards: [] } } })),
+      renderToStaticMarkup(React.createElement(TermsPage)),
+      // F3: no `bench` prop; GuideView reads the switch itself.
+      renderToStaticMarkup(React.createElement(GuideView, { page: fullGuide })),
+      renderToStaticMarkup(React.createElement(AddToAgent, { onClose: () => {}, bench: true })),
+      // /programs under the flag: every card without its pill.
+      renderToStaticMarkup(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1', layout: 'grid', bonus: false })),
+      ...Object.values(toolDescriptions(true, true)), serverInstructions(true), serverInstructions(false),
+    ];
+    for (const p of pages) assert.doesNotMatch(p, bonusWords, p.slice(0, 200));
+  } finally {
+    delete process.env.EARNKIT_BENCH;
+    if (score === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
+    else process.env.EARNKIT_BUILDER_SCORE = score;
+  }
+});

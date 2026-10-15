@@ -119,8 +119,9 @@ export const START_PROMPT = 'What can I earn?';
 /**
  * The install path: the EarnKit link plus short steps for each agent, then what to ask: the
  * starting phrase, or a program's own ("What can I earn on Arc Microgrants?") from its card.
+ * v2.13 R16 (`bench`, the Bench flag, passed by the server parent): no builder bonus pill.
  */
-export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose: () => void; prompt?: string }) {
+export default function AddToAgent({ onClose, prompt = START_PROMPT, bench = false }: { onClose: () => void; prompt?: string; bench?: boolean }) {
   const [active, setActive] = useState(0);
   const closeRef = useRef<HTMLButtonElement>(null);
   const agent = AGENTS[active];
@@ -258,10 +259,12 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
               <CopyButton text={agent.afterCode} label={`Copy the ${agent.name} login`} />
             </div>
           )}
-          {/* v2.8 Ruling 19 (plan): the builder bonus pill under the steps. */}
-          <div className="mt-4">
-            <BonusPill size="sm" />
-          </div>
+          {/* v2.8 Ruling 19 (plan): the builder bonus pill under the steps (never under the Bench flag). */}
+          {!bench && (
+            <div className="mt-4">
+              <BonusPill size="sm" />
+            </div>
+          )}
         </div>
 
         <p className="mt-7 border-t border-ek-navy pt-5 font-funnel-sans text-base text-ek-white">

@@ -1,6 +1,6 @@
 import Footer from '../components/common/Footer';
 import { Eyebrow, Panel } from '../components/common/Panel';
-import { builderScoreEnabled } from '../../lib/earnkit/builder-score-flag';
+import { benchEnabled, builderScoreEnabled } from '../../lib/earnkit/builder-score-flag';
 import { PROFILES_ANCHOR, PROFILES_TITLE, RECORDS_HREF, RECORDS_TITLE } from '../../lib/earnkit/policy';
 import PolicySection from './sections/PolicySection';
 import ProfilesSection from './sections/ProfilesSection';
@@ -13,11 +13,13 @@ export const dynamic = 'force-dynamic';
 
 const DESCRIPTION_V211 = 'How EarnKit works, where token fees go, the builder bonus, what EarnKit records, the risks, and the sponsor terms.';
 const DESCRIPTION_PROFILES = 'How EarnKit works, where token fees go, the builder bonus, what EarnKit records, builder profiles, the risks, and the sponsor terms.';
+/** v2.13 R16: no builder bonus under the Bench flag. */
+const DESCRIPTION_BENCH = 'How EarnKit works, where token fees go, what EarnKit records, builder profiles, the risks, and the sponsor terms.';
 
 export function generateMetadata() {
   return {
     title: 'Terms',
-    description: builderScoreEnabled() ? DESCRIPTION_PROFILES : DESCRIPTION_V211,
+    description: benchEnabled() ? DESCRIPTION_BENCH : builderScoreEnabled() ? DESCRIPTION_PROFILES : DESCRIPTION_V211,
     alternates: { canonical: 'https://earnkit.com/terms' },
   };
 }

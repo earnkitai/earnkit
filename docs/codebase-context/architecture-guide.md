@@ -5009,3 +5009,21 @@ In this order; none is done on this branch.
     contested login until both agents answer, or the owner claims and rules on `/admin/scores`.
 12. **Separate owner calls**: the footer's "For sponsors" link and its all-caps column headings are
     production's and were left unchanged for flag-off parity.
+
+### v2.13 T13: the builder bonus off under the Bench flag
+
+- `bonus-rounds.ts bonusOn` is false under `benchEnabled()`, so every card, guide, reply line, round and
+  `bookingFor` target follows: every bonus deposit books to the Safe. Nothing is deleted while the flag
+  can go off (plan B16); the removal list for when the flag is retired is the comment above `bonusOn`.
+- `cron.ts runCron` under the flag: no traction scoring, no proof re-check, the ledger without its
+  `rounds` step, no `bonus:` needs_owner lines. The ledger (`bonus-ledger.ts`) still indexes, claims the
+  bonus wallet, the Safe, creators and MINI, and sweeps to the Safe.
+- Fee split: tokens.fun's v2.13 split is Safe 50 / creator 40 / MINI 10 (3 slots). `policy-constants.ts
+  EARNKIT_SPLITS_BPS` holds both splits; `feeRecipients` reads each coin's own split from its locker and
+  accepts either (creator slot 1, MINI slot 2 in both), so claims work before and after the tokens.fun change.
+- Builder-visible text gated by the flag: the terms' fee table (`policy.ts feeTable`, 40/10/50) and bonus
+  paragraphs, confirm's `contracts` description, `REPO_HELD`, the hero stats line, the bonus pills
+  (Hero, cards, guide page, install modal via a `bench` prop from the server parent), `/bonus/*` and
+  `/admin/bonus/*` (404), the sitemap's rounds, `/llms.txt`. `/api/stats` keeps its keys
+  (`bonus_programs_open` is 0 under the flag).
+

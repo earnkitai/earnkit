@@ -380,7 +380,7 @@ test('v2.7 §1: the install modal asks the starting phrase, or the program\'s ow
 test('v2.7: the site description and llms.txt use the starting phrase and name the guides', () => {
   const layout = readFileSync(join(import.meta.dirname, '../../app/layout.tsx'), 'utf8');
   assert.ok(layout.includes('EarnKit gives your AI agent live builder programs with real rewards. Add it to your agent, ask "What can I earn?", build, and submit.'));
-  const llms = readFileSync(join(import.meta.dirname, '../../public/llms.txt'), 'utf8');
+  const llms = readFileSync(join(import.meta.dirname, 'llms/v212.txt'), 'utf8');
   assert.ok(llms.includes('What can I earn?'));
   assert.match(llms, /earnkit\.com\/programs\/<id>/);
   assert.doesNotMatch(llms, /Anything worth building/);
@@ -811,8 +811,8 @@ test('11.6 footer: Tokenfi line and the Terms link', () => {
 test('11.7 (F23): builder navigation never links the sponsor pages; the routes are archived (v2.12 spec 9)', () => {
   const navs = [html(React.createElement(Header)), html(React.createElement(Footer)), html(React.createElement(HomeView, { landing: homeFixture })), html(React.createElement(GuideView, { page: fullGuide }))];
   for (const h of navs) assert.doesNotMatch(h, /href="[^"]*\/(fund|award)\b/);
-  assert.doesNotMatch(readFileSync(join(import.meta.dirname, '../../public/llms.txt'), 'utf8'), /earnkit\.com\/(fund|award)\b/);
-  assert.doesNotMatch(readFileSync(join(import.meta.dirname, '../../public/llms.txt'), 'utf8'), /sponsor_campaign/);
+  assert.doesNotMatch(readFileSync(join(import.meta.dirname, 'llms/v212.txt'), 'utf8'), /earnkit\.com\/(fund|award)\b/);
+  assert.doesNotMatch(readFileSync(join(import.meta.dirname, 'llms/v212.txt'), 'utf8'), /sponsor_campaign/);
   for (const r of ['fund/[ref]', 'award/[ref]']) assert.ok(!existsSync(join(import.meta.dirname, '../../app', r, 'page.tsx')), r);
 });
 

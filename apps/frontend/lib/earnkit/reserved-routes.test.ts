@@ -10,10 +10,11 @@ test('1.1 every top-level app route and public file name is reserved (a new rout
   const app = join(FRONTEND, 'app');
   for (const name of readdirSync(app)) {
     if (name.startsWith('[') || name.startsWith('(')) continue;
-    if (statSync(join(app, name)).isDirectory()) assert.ok(isReserved(name), `app/${name} is not in RESERVED_ROUTES`);
+    // A route file's directory (app/llms.txt) is its name without the extension, as a public file's.
+    if (statSync(join(app, name)).isDirectory()) assert.ok(isReserved(name.replace(/(?<=.)\.[^.]+$/, '')), `app/${name} is not in RESERVED_ROUTES`);
   }
   for (const file of ['favicon.ico', 'sitemap.ts']) assert.ok(isReserved(file.replace(/\..*$/, '')), file);
-  for (const name of readdirSync(join(FRONTEND, 'public'))) assert.ok(isReserved(name.replace(/\.[^.]+$/, '')), `public/${name}`);
+  for (const name of readdirSync(join(FRONTEND, 'public'))) assert.ok(isReserved(name.replace(/(?<=.)\.[^.]+$/, '')), `public/${name}`);
 });
 
 test('1.2 reserved checks ignore case', () => {
