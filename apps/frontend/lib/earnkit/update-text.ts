@@ -47,6 +47,12 @@ const secretIn = (s: string) =>
   SECRET.test(s) || SEED_WORDS.test(s) || STRIPE.test(s) || HEX64.test(s) || BASE58.test(s) || keyLike(s) || seedWords(s);
 /** NFKC, hidden characters dropped: what cleanText would rebuild a split or full-width secret into. */
 const unhidden = (s: string) => s.normalize('NFKC').replace(HIDDEN, '');
+/** Fix round 2: NFKD with every combining mark dropped, so marks on a secret's letters can't hide it ("café" passes: no secret). */
+const unmarked = (s: string) => s.normalize('NFKC').normalize('NFKD').replace(/\p{M}/gu, '').replace(HIDDEN, '');
+/** Fix round 2: one word mixing Latin with Cyrillic or Greek letters (homoglyphs); a word in one script is fine. */
+const WORD = /[\p{L}\p{N}\p{M}_-]+/gu;
+const mixedScript = (s: string) =>
+  [...s.normalize('NFKC').replace(HIDDEN, '').matchAll(WORD)].some(([w]) => /\p{Script=Latin}/u.test(w) && /[\p{Script=Cyrillic}\p{Script=Greek}]/u.test(w));
 
 // --- Own links ---------------------------------------------------------------------------------
 /**
@@ -58,10 +64,11 @@ const LINK = /\b(?:[a-z][a-z0-9+.-]*:\/\/\S+|(?<![\p{L}\p{N}\p{M}._-])(?:www\.)?
 const TRAILING = /[).,;:!?'"]+$/;
 const LINK_MAX = 200;
 const TAIL_MAX = 120;
-// untrusted-text.ts's builder-link alphabet, without @ (no mentions inside links either).
-const LINK_CHARS = /^[A-Za-z0-9\-._~/:?#=&%+]+$/;
+// untrusted-text.ts's builder-link alphabet, without @ (no mentions inside links either) and,
+// fix round 2, without % (no percent-encoding anywhere in an own link).
+const LINK_CHARS = /^[A-Za-z0-9\-._~/:?#=&+]+$/;
 const PATH = /^(?:\/[A-Za-z0-9\-._~/]*)?$/;
-const QUERY_FRAGMENT = /^(?:\?[A-Za-z0-9\-._~/=&%+]*)?(?:#[A-Za-z0-9\-._~/=&%+]*)?$/;
+const QUERY_FRAGMENT = /^(?:\?[A-Za-z0-9\-._~/=&+]*)?(?:#[A-Za-z0-9\-._~/=&+]*)?$/;
 const DIGITS_IN_LINK = /\d(?:[.\-/_~]?\d){6}/;
 
 /** The parsed href when the link is the project's own site or inside its own GitHub repo; else null. */
@@ -77,7 +84,7 @@ function ownLink(raw: string, own: OwnLinks): string | null {
   const q = tail.search(/[?#]/);
   const path = q < 0 ? tail : tail.slice(0, q);
   const query = q < 0 ? '' : tail.slice(q);
-  if (tail.length > TAIL_MAX || !PATH.test(path) || !QUERY_FRAGMENT.test(query) || /%2[ef]|%3a/i.test(query)) return null;
+  if (tail.length > TAIL_MAX || !PATH.test(path) || !QUERY_FRAGMENT.test(query)) return null;
   if (DIGITS_IN_LINK.test(tail)) return null;
   const segments = path.split('/').filter(Boolean);
   if (segments.some((s) => s === '.' || s === '..')) return null;
@@ -115,7 +122,9 @@ function nonce(): string {
 
 export function checkUpdate(raw: unknown, own: OwnLinks): UpdateCheck {
   if (typeof raw !== 'string' || !raw.trim()) return { ok: false, note: UPDATE_EMPTY_NOTE };
-  if (secretIn(raw) || secretIn(unhidden(raw))) return { ok: false, note: UPDATE_SECRET_NOTE };
+  // cleanText's own raw cap, checked before any regex here runs (the link scan backtracks on long dotted runs).
+  if (raw.length > 4 * UPDATE_MAX) return { ok: false, note: updateLongNote([...raw].length) };
+  if (secretIn(raw) || secretIn(unhidden(raw)) || secretIn(unmarked(raw))) return { ok: false, note: UPDATE_SECRET_NOTE };
   const links: string[] = [];
   let bad: string | null = null;
   const mark = nonce();
@@ -138,7 +147,9 @@ export function checkUpdate(raw: unknown, own: OwnLinks): UpdateCheck {
   }
   text = text.replace(new RegExp(`${mark}(\\d+)`, 'g'), (_, i: string) => links[Number(i)] ?? '').replace(/\s+/g, ' ').trim();
   if (!text) return { ok: false, note: UPDATE_EMPTY_NOTE };
-  if (secretIn(text)) return { ok: false, note: UPDATE_SECRET_NOTE };
+  // A word mixing scripts is refused as a disguised secret (a key or seed with look-alike letters);
+  // checked after the link rules, so a look-alike domain prefix still gets the links note.
+  if (secretIn(text) || mixedScript(text)) return { ok: false, note: UPDATE_SECRET_NOTE };
   const n = [...text].length;
   return n > UPDATE_MAX ? { ok: false, note: updateLongNote(n) } : { ok: true, text };
 }

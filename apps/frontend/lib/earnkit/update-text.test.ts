@@ -5,6 +5,7 @@ import { UPDATE_EMPTY_NOTE, UPDATE_LINK_NOTE, UPDATE_MENTION_NOTE, UPDATE_NUMBER
 const OWN = { sites: ['https://recipes.app'], repo: 'maya/recipes' };
 const fw = (s: string) => [...s].map((c) => String.fromCharCode(c.charCodeAt(0) + 0xfee0)).join('');
 const ZW = '\u200B';
+const SEED = 'abandon ability able about above absent absorb abstract absurd abuse access accident';
 const ok = (raw: string) => {
   const r = checkUpdate(raw, OWN);
   assert.ok(r.ok, `${raw}: ${'note' in r ? r.note : ''}`);
@@ -36,6 +37,8 @@ test('5.2 any other link is refused, however it is written (review focus 2)', ()
     'https://recipes.app/?r=https://evil.example/claim', 'https://recipes.app/,evil.example', 'https://github.com/maya/recipes#evil.example',
     'see \u00EBgithub.com/maya/recipes', 'see \u0430github.com/maya/recipes',
     'https://github.com/maya/recipes/../../evil/x', 'https://github.com\\@evil.example/maya/recipes', 'https://recipes.app:8443/',
+    // Fix round 2 (review 3): no % anywhere in an own link.
+    'https://recipes.app/?r=evil%E3%80%82example', 'https://recipes.app/?r=https%253A%252F%252Fevil%252Eexample', 'https://recipes.app/?x=%40everyone',
   ])
     refused(raw, UPDATE_LINK_NOTE);
   // The @ and digit-run rules hold inside an own link too.
@@ -60,8 +63,15 @@ test('5.3 keys, tokens, seed phrases and addresses are refused (review focus 2)'
     // Fix round 1 (review 6): more key shapes, and a bare BIP39 phrase.
     'sk_live_abcdefghijABCDEFGHIJabcd', 'send to 7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV', `key ${'abcdef'.repeat(10)}abcd`,
     'abandon ability able about above absent absorb abstract absurd abuse access accident', `token ${'aB3'.repeat(11)}`,
+    // Fix round 2 (review 1): combining marks on a secret's letters.
+    'ghp_' + 'aB3dE6gH9jK2mN5pQ8sT1vW4yZ7bC0eF3hJ'.split('').join('\u0300'), SEED.replace(/a/g, 'a\u0300'), 'AKIA\u0301ABCDEFGHIJKLMNOP',
+    // Fix round 2 (review 2): Latin mixed with Cyrillic or Greek look-alikes in one word.
+    '0x' + 'deadbeef'.repeat(5).replace(/a/g, '\u0430').replace(/e/g, '\u0435'), '\u0410KIAABCDEFGHIJKLMNOP', SEED.replace(/a/g, '\u0430'),
   ])
     refused(raw, UPDATE_SECRET_NOTE);
+  // Real prose keeps its accents and its other scripts.
+  assert.equal(ok('Caf\u00E9 menu and a na\u00EFve parser shipped'), 'Caf\u00E9 menu and a na\u00EFve parser shipped');
+  assert.equal(ok('Added \u0440\u0443\u0441\u0441\u043A\u0438\u0439 and \u03B5\u03BB\u03BB\u03B7\u03BD\u03B9\u03BA\u03AC menus'), 'Added \u0440\u0443\u0441\u0441\u043A\u0438\u0439 and \u03B5\u03BB\u03BB\u03B7\u03BD\u03B9\u03BA\u03AC menus');
 });
 
 test('5.4 at most 280 characters after cleaning; empty is refused', () => {
