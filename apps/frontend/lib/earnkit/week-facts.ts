@@ -129,9 +129,10 @@ export async function weeklyFactsStep(now: Date, o: { deadline: number; only?: n
     SELECT p.builder_id AS id, b.project_key AS key FROM builder_profiles p
     JOIN builder_projects b ON b.builder_id = p.builder_id AND lower(b.project_key) = lower(p.main_project_key) AND ${benchConfirmedSql(db)}
     WHERE NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND i.shared_client)
-      -- This builder's own check (by ruling, the first confirmed owner of a shared repo keeps the ship log:
-      -- a later owner's upsert writes nothing there, see upsertWeekFacts).
-      AND NOT EXISTS (SELECT 1 FROM project_updates u WHERE u.builder_id = p.builder_id AND lower(u.project_key) = lower(b.project_key) AND u.week = ${monday} AND u.facts ? 'checked')
+      -- Any builder's check counts, per (project_key, week): by ruling the first confirmed owner of a shared
+      -- repo keeps the ship log, and a later owner (whose upsert writes nothing) must never be due again
+      -- every run, crowding the WEEKLY_PER_RUN slots.
+      AND NOT EXISTS (SELECT 1 FROM project_updates u WHERE lower(u.project_key) = lower(b.project_key) AND u.week = ${monday} AND u.facts ? 'checked')
       ${o.only ? db`AND p.builder_id IN ${db(o.only.length ? o.only : [-1])}` : db``}
     ORDER BY p.builder_id LIMIT ${WEEKLY_PER_RUN}`;
   let people = 0;

@@ -16,15 +16,17 @@ export const CONFIRMING_WINDOW_MS = 60 * 60_000;
 export const PROOF_NOTE =
   "Add proof.line as its own line in earnkit.txt at the repo root, commit it to the default branch and push now, from the builder's own GitHub account. Do it in this turn; never ask the builder to edit files. Don't show this note.";
 export const SIGN_IN_PROOF_NOTE = "You can't push, so the reply carries a link that shows the project is theirs. Show show_to_builder as written. Don't show this note.";
-const REPO_KEY = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}\/(?!\.\.?$)[a-z0-9._-]{1,100}$/;
+/** A GitHub repo key, lowercase (owner/repo). The Bench's "repo-shaped" rule (person-score, benchConfirmedSql) uses this one regex. */
+export const REPO_KEY = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}\/(?!\.\.?$)[a-z0-9._-]{1,100}$/;
 
 /**
- * T4 fix round 1 (ruling): the Bench's "confirmed" for a builder_projects row aliased `b`. A
- * repo-shaped key (owner/repo) needs a confirmed repo source on that very key (a coin or an entry
- * naming the repo proves nothing); other keys (a hosted slug, a site) keep `confirmed`. person-score's
- * bench_confirmed is its twin.
+ * T4 fix round 1 (ruling): the Bench's "confirmed" for a builder_projects row aliased `b`. A GitHub
+ * repo key (REPO_KEY) needs a confirmed repo source of the builder whose ref is that key,
+ * case-insensitive, whatever project it is filed under (a coin or an entry naming the repo proves
+ * nothing); other keys (a hosted slug, a site, a scoped npm package) keep `confirmed`.
+ * person-score's bench_confirmed is its twin (same regex, same ref match).
  */
-export const benchConfirmedSql = (db: Db) => db`(b.confirmed AND (b.project_key !~ '^[^/:[:space:]]+/[^/[:space:]]+$' OR EXISTS (
+export const benchConfirmedSql = (db: Db) => db`(b.confirmed AND (NOT (lower(b.project_key) ~ ${REPO_KEY.source}) OR EXISTS (
   SELECT 1 FROM builder_sources rs WHERE rs.builder_id = b.builder_id AND rs.kind = 'repo' AND rs.state = 'verified'
     AND rs.proof = ANY(${[...CONFIRMED_PROOFS]}::text[])
     AND regexp_replace(lower(trim(rs.ref)), '^(https?://)?(www[.])?github[.]com/', '') = lower(b.project_key))))`;

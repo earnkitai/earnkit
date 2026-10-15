@@ -7,7 +7,7 @@ import { ScoreDeadline } from './campaigns';
 import { isConfirmedProof } from './confirmed';
 import { sql, type Db } from './db';
 import { discoverPerson } from './discovery';
-import { MAIN_PROOF_MIN_MS, confirmingFast, mainProjectOf, pickMainProject } from './main-project';
+import { MAIN_PROOF_MIN_MS, REPO_KEY, confirmingFast, mainProjectOf, pickMainProject } from './main-project';
 import { noteEvent } from './events';
 import { REPOS_MAX, readGithubRepos, readPersonGithub, type PersonRepo } from './person-github';
 import { BENCH_CHAINS, type BenchChain, type Standing } from './rank';
@@ -103,8 +103,6 @@ export function weekEnd(week: string, now: Date): Date | null {
   return new Date(Math.min(end, now.getTime()));
 }
 /** A project key: 'github.com/' dropped, lowercase (the grouping key). */
-/** A repo-shaped project key ('owner/repo'). */
-const REPO_SHAPE = /^[^/:\s]+\/[^/\s]+$/;
 const lowKey = (k: string) => k.trim().replace(/^(https?:\/\/)?(www\.)?github\.com\//i, '').toLowerCase();
 const hostOf = (k: string) => (URL.canParse(k) ? new URL(k).hostname : null);
 const firstSentence = (s: string) => {
@@ -542,7 +540,7 @@ export async function personInputsV2(
     chainsOf.set(key, chainList);
 
     const ident = named(key);
-    const repoName = REPO_SHAPE.test(key) ? (ghName ?? key.split('/')[1]) : null;
+    const repoName = /^[^/:\s]+\/[^/\s]+$/.test(key) ? (ghName ?? key.split('/')[1]) : null;
     const identName = typeof ident?.name === 'string' && ident.name.trim() ? ident.name.trim().slice(0, 60) : null;
     const identWhat = typeof ident?.what === 'string' && ident.what.trim() ? ident.what.trim().slice(0, 120) : null;
     const slug = hostedHere[0]?.slug;
@@ -553,7 +551,8 @@ export async function personInputsV2(
       link: slug ? `https://${slug}.earnkit.com` : liveSite ?? pkgLink,
       kind: slug || hasSite ? 'app' : hasContract ? 'contract' : hasPackage ? 'package' : coinsHere.length || hasCoinSource ? 'coin' : 'code',
       confirmed, shipped, scored: confirmed,
-      bench_confirmed: confirmed && (!REPO_SHAPE.test(key) || srcs.some((s) => s.kind === 'repo' && confirmedSrc(s) && lowKey(s.ref) === low)),
+      // Twin of main-project benchConfirmedSql: a repo source matched on its ref, whatever its project.
+      bench_confirmed: confirmed && (!REPO_KEY.test(low) || sources.some((s) => s.kind === 'repo' && confirmedSrc(s) && lowKey(s.ref) === low)),
       people_week: confirmed ? peopleWeek.get(key) ?? 0 : 0,
       has_coin: coinsHere.length > 0 || hasCoinSource,
       sends_tx: hasContract,
@@ -614,7 +613,9 @@ export async function trackingHeld(id: number, ref: string, now: Date): Promise<
       await tx`
         UPDATE builder_sources SET state = 'verified', proof = 'deploy_wallet', verified_at = ${now}
         WHERE builder_id = ${id} AND kind = 'contract' AND lower(ref) = ${ref.toLowerCase()} AND state = 'proposed'`;
-      const { input, perSource } = await personInputsV2(id, now, undefined, tx);
+      // Under the flag, the same scope as the rescore (rolled back with the rest).
+      const main = benchEnabled() ? ((await mainProjectOf(id, tx)) ?? (await pickMainProject(id, tx))) : null;
+      const { input, perSource } = await personInputsV2(id, now, undefined, tx, { scope: main });
       const sc = computeScoreV2(input, calibrationV2(), now);
       held = (await holdOf(tx, id, now.toISOString().slice(0, 10), sc, perSource)).reason !== null;
       throw new DryRun();

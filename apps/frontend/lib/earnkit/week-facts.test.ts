@@ -271,6 +271,9 @@ test('4.13 the weekly step counts a row only when it wrote one (another builder\
   try {
     assert.deepEqual(await weeklyFactsStep(new Date('2026-10-19T15:30:00Z'), { deadline: Date.now() + 10_000, only: [id] }), { people: 1, rows: 0 });
     assert.equal((await sql()`SELECT 1 FROM builder_events WHERE dedupe_key = ${`shipped_code:${key}:2026-W42`}`).length, 0, 'no event for a log that is not theirs');
+    // The first owner's week is checked: the second owner is not due again (no starving the run's slots).
+    await sql()`UPDATE project_updates SET facts = facts || '{"checked": true}'::jsonb WHERE builder_id = ${id + 1_000_000}`;
+    assert.deepEqual(await weeklyFactsStep(new Date('2026-10-19T16:30:00Z'), { deadline: Date.now() + 10_000, only: [id] }), { people: 0, rows: 0 });
   } finally {
     await sql()`DELETE FROM project_updates WHERE builder_id = ${id + 1_000_000}`;
   }
@@ -295,5 +298,20 @@ test('4.14 a coin and an entry naming an unproven repo do not confirm it for the
   await rescorePerson(id, new Date(NOW.getTime() + 60_000));
   assert.equal(await ranked(), true);
   assert.equal(await mainConfirmed(id), true);
+  assert.equal((await sql()`SELECT 1 FROM project_updates WHERE builder_id = ${id} AND facts ? 'started'`).length, 1);
+});
+
+test('4.15 a scoped npm package as the one project, confirmed through its package source, is ranked and gets its Started row', dbTest, async () => {
+  const id = T + 13;
+  const key = `@v213s${T}/pkg`;
+  await clear(id);
+  await sql()`INSERT INTO installations (id, token_hash) VALUES (${id}, ${`v213-wf-${id}`})`;
+  await sql()`INSERT INTO builder_profiles (builder_id, slug, main_project_key, ring) VALUES (${id}, ${`v213wf-${id}`}, ${key}, ${sql().json({ ring: [], ringOwner: [] })})`;
+  const [{ sid }] = await sql()<{ sid: number }[]>`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by)
+    VALUES (${id}, 'package_npm', ${key}, ${key}, 'verified', 'repo_link', 'server') RETURNING id::int AS sid`;
+  await sql()`INSERT INTO source_live (source_id, signals, ok, read_at) VALUES (${sid}, ${sql().json({ weekly: 500 } as never)}, true, now())`;
+  await rescorePerson(id, NOW);
+  const [live] = await sql()<{ ranked: boolean }[]>`SELECT ranked FROM builder_live WHERE builder_id = ${id}`;
+  assert.equal(live.ranked, true);
   assert.equal((await sql()`SELECT 1 FROM project_updates WHERE builder_id = ${id} AND facts ? 'started'`).length, 1);
 });
