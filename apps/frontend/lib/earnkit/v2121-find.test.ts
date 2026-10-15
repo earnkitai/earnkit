@@ -365,3 +365,60 @@ test('8.24 (fix round 1) the score reply has one way to earn: the best program a
     assert.match(parts[1], /open all year/);
   }),
 );
+
+// ---- Final fix wave: identity (find) and card (tell) through the MCP server's own input schemas.
+
+async function mcpClient(installationId: number) {
+  const { createMcpServer } = await import('./mcp');
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+  const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
+  const server = createMcpServer({ installationId } as never);
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'v2121-find', version: '0' });
+  await Promise.all([server.connect(a), client.connect(b)]);
+  return client;
+}
+const mcpText = (r: unknown) => JSON.parse((r as { content: { text: string }[] }).content[0].text) as Found;
+
+test('8.25 (final fix wave) find.identity reaches noteIdentity through the MCP schema: the login, names and words are stored, the site proposed', dbTest, () =>
+  scoreOn(async () => {
+    // A person with no projects yet, read just now (the refresh guard), so find reads nothing.
+    const id = await person({ projects: [] });
+    const client = await mcpClient(id);
+    try {
+      const props = (await client.listTools()).tools.find((t) => t.name === 'find')!.inputSchema.properties as Record<string, unknown>;
+      assert.ok('identity' in props, 'listed with the flag on');
+      const r = mcpText(await client.callTool({
+        name: 'find',
+        arguments: { identity: { github_login: 'lee', projects: [{ name: 'TipJar', what: 'a tip jar', live_url: 'https://tip.example.com' }] } },
+      }));
+      assert.match(r.show_to_builder, /^Where you stand\n/, r.show_to_builder);
+    } finally {
+      await client.close();
+    }
+    const [p] = await sql()<{ reported_github: string | null; identity: { projects: { name: string; what: string | null }[] } }[]>`
+      SELECT reported_github, identity FROM builder_profiles WHERE builder_id = ${id}`;
+    assert.equal(p.reported_github, 'lee');
+    assert.deepEqual(p.identity.projects.map((x) => [x.name, x.what]), [['TipJar', 'a tip jar']]);
+    const s = await sql()`SELECT kind, ref, state FROM builder_sources WHERE builder_id = ${id}`;
+    assert.deepEqual(s.map((x) => `${x.kind}:${x.ref}:${x.state}`), ['site:https://tip.example.com:proposed']);
+  }),
+);
+
+test('8.26 (final fix wave) tell.card reaches the card handler through the MCP schema: the share link for a claimed page', dbTest, () =>
+  scoreOn(async () => {
+    const id = await person({ projects: [{ key: 'lee/notes', name: 'Notes', what: 'a notes app', confirmed: true, people: 14 }] });
+    const handle = `v2121${randomBytes(3).toString('hex')}`;
+    assert.equal((await bindX(id, { id: `v2121c${randomBytes(6).toString('hex')}`, username: handle, name: handle, avatar: null }, NOW)).ok, true);
+    await sql()`UPDATE builder_live SET read_at = now() WHERE builder_id = ${id}`;
+    const client = await mcpClient(id);
+    try {
+      const props = (await client.listTools()).tools.find((t) => t.name === 'tell')!.inputSchema.properties as Record<string, unknown>;
+      assert.ok('card' in props, 'listed with the flag on');
+      const r = mcpText(await client.callTool({ name: 'tell', arguments: { card: 'yes' } }));
+      assert.equal(r.show_to_builder, `Post it: https://earnkit.com/${handle}/share`);
+    } finally {
+      await client.close();
+    }
+  }),
+);
