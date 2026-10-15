@@ -164,7 +164,7 @@ export function stripTopFolder(names: string[]): string | null {
 
 const BRANDS = /\b(metamask|coinbase|phantom|rabby|trust\s?wallet|ledger|binance|kraken|chase|wells\s?fargo|bank of america|paypal|revolut)\b/i;
 
-const SEED = /\b(seed|recovery|secret|mnemonic) (phrase|words?)\b|\bmnemonic\b|\b(12|24)[- ]words?\b|\b(enter|paste|type|import) (your )?private key\b/i;
+export const SEED_WORDS = /\b(seed|recovery|secret|mnemonic) (phrase|words?)\b|\bmnemonic\b|\b(12|24)[- ]words?\b|\b(enter|paste|type|import) (your )?private key\b/i;
 
 /** Spec C14's upload scan (regex). Any flag sends the site to owner review. Pure. */
 export function abuseFlags(files: { path: string; text: string }[]): string[] {
@@ -173,7 +173,7 @@ export function abuseFlags(files: { path: string; text: string }[]): string[] {
     if (/<input[^>]+type\s*=\s*["']?password/i.test(f.text) && BRANDS.test(f.text)) out.add('password-brand');
     // Fix round 1 (review M1): the words as a reader sees them (tags gone, entities and spaces collapsed).
     const plain = f.text.replace(/<[^>]*>/g, '').replace(/&nbsp;|&#160;|&#xa0;/gi, ' ').replace(/\s+/g, ' ');
-    if (SEED.test(plain)) out.add('seed-phrase');
+    if (SEED_WORDS.test(plain)) out.add('seed-phrase');
     if (/\b(approve|setApprovalForAll|increaseAllowance|permit)\s*\(\s*["']?0x[0-9a-fA-F]{40}/.test(f.text)) out.add('hardcoded-approval');
   }
   return [...out];

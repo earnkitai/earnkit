@@ -185,6 +185,17 @@ export const TELL_DESCRIPTION_SCORE = TELL_DESCRIPTION.replace(
   'pickup: "yes" or "no" to the pick-up question. profile: "hide" or "show" when they say so. card: "yes" or "skip" to the card question. move_up: their answer to the last line, with its kind and project_key. coin: their coin answer. ',
 );
 
+/**
+ * v2.13 (EARNKIT_BENCH on): tell also takes this week's update (or a week to hide) and the weekly
+ * posting yes; under 800 characters (mcp.test.ts 5.11). coin { raising } is added by T9.
+ */
+export const TELL_DESCRIPTION_BENCH =
+  "What the builder told you; call it only with what they said. submitted: { program_id, external_submission_url? } once they say they submitted on the program's site; a shared agent adds project_id. " +
+  'update: { text } posts this week\'s update (your weekly task writes it from git log and deploys); { hide: "YYYY-MM-DD" } hides that week\'s. ' +
+  'updates: { on } when they say yes to weekly posting or stop posting updates. coin: their coin answer. ' +
+  'move_up: their answer to the last line, with its kind and project_key. pickup, profile (hide or show), card (yes or skip): their answers. ' +
+  'program_status: applied, not_interested, won, placed or lost. repo_facts and weekly_email: what they said. Results they report stay private.';
+
 /** v2.12.1 T8: score's description (registered only while EARNKIT_BUILDER_SCORE=on). */
 export const SCORE_DESCRIPTION =
   "Where the builder stands: what they shipped, their rank when it reads well, their page, and the one step up. Call it when they ask how they're doing. " +
@@ -201,7 +212,7 @@ export function toolDescriptions(campaignOpen: boolean, buildOn: boolean = deplo
     find: benchEnabled() ? FIND_DESCRIPTION_BENCH : builderScoreEnabled() ? FIND_DESCRIPTION_SCORE : FIND_DESCRIPTION,
     prepare: prepareDescription(campaignOpen, buildOn),
     confirm: confirmDescription(campaignOpen),
-    tell: builderScoreEnabled() ? TELL_DESCRIPTION_SCORE : TELL_DESCRIPTION,
+    tell: benchEnabled() ? TELL_DESCRIPTION_BENCH : builderScoreEnabled() ? TELL_DESCRIPTION_SCORE : TELL_DESCRIPTION,
     score: SCORE_DESCRIPTION,
   };
 }
@@ -515,6 +526,24 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
                   .strict()
                   .optional()
                   .describe('Their answer to a coin offer'),
+                // v2.13: listed only with the Bench flag on.
+                ...(benchEnabled()
+                  ? {
+                      update: z
+                        .object({
+                          text: z.string().max(2000).optional().describe("This week's update: one plain paragraph, at most 280 characters"),
+                          hide: z.string().max(20).optional().describe('YYYY-MM-DD, any day of the week to hide'),
+                        })
+                        .strict()
+                        .optional()
+                        .describe("This week's update, or the week to hide"),
+                      updates: z
+                        .object({ on: z.boolean(), scheduled: z.boolean().optional().describe('true once your weekly task is scheduled') })
+                        .strict()
+                        .optional()
+                        .describe('Weekly posting on or off'),
+                    }
+                  : {}),
               }
             : {}),
           program_status: z

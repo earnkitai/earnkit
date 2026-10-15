@@ -141,6 +141,7 @@ import {
 import { LIVE_FAILED_LINE, addressesFrom, contractMissingLine, entryVerified, liveCheckDetail, liveErrorLine, rpcFor, type CheckDeps, type Verified } from './verify';
 import { noteEvent } from './events';
 import { benchEnabled, builderScoreEnabled } from './builder-score-flag';
+import { hideUpdate, postUpdate, setUpdates } from './updates';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
 import { CONFIRMING_REFRESH_MS, confirmingFast, fillGithubUser, proofFor, setMainProject } from './main-project';
@@ -156,7 +157,7 @@ import { verifiedProject } from './builder-score';
 import { COIN_NOTE, COIN_PROGRAM, builtLiveAnswer, coinLine, coinNo, coinOfferable, coinOpen, coinPitchAllowed, coinYes, offerCoin, showBuiltLive } from './coin-moments';
 import { sql } from './db';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
-import { JOIN_TEXT, answerJoin, joinQuestion, answerPickup, askJoin, offerPickup, pendingJoinOf, type PickupDeps } from './identity';
+import { JOIN_TEXT, answerJoin, joinQuestion, answerPickup, askJoin, offerPickup, pendingJoinOf, rootOf, type PickupDeps } from './identity';
 import type { FieldKind } from './program-file';
 import type { ProgramRow } from './programs';
 import { RateLimitError, enforce } from './rate-limit';
@@ -3323,6 +3324,9 @@ export const TellToolInput = z
       })
       .strict()
       .optional(),
+    // v2.13: this week's update (or hide one week), and the weekly-posting yes. Flag off: not listed in the MCP schema.
+    update: z.object({ text: z.string().max(2000).optional(), hide: z.string().max(20).optional() }).strict().optional(),
+    updates: z.object({ on: z.boolean(), scheduled: z.boolean().optional() }).strict().optional(),
     // Read by tell_earnkit (builder-memory.ts TellInput).
     program_status: z.unknown().optional(),
     repo_facts: z.unknown().optional(),
@@ -3504,10 +3508,12 @@ function joinReplies(replies: Reply[]): Reply {
   if (replies.length === 1) return replies[0];
   const shown = replies.map((r) => r.show_to_builder).filter((v): v is string => typeof v === 'string' && v !== '');
   const notes = replies.map((r) => r.agent_note).filter((v): v is string => typeof v === 'string' && v !== '');
+  const schedule = replies.find((r) => typeof r.schedule_weekly_update === 'string')?.schedule_weekly_update;
   return {
     ...Object.assign({}, ...replies),
     ...(shown.length > 0 && { show_to_builder: shown.join('\n') }),
     ...(notes.length > 0 && { agent_note: notes.join(' ') }),
+    ...(schedule !== undefined && { schedule_weekly_update: schedule }),
   };
 }
 
@@ -3775,12 +3781,12 @@ export const tools = {
   tell: async (input: unknown, ctx: ToolContext) => {
     // v2.12.1 T8: x_handle is no longer taken with the flag on (the page's handle is the X claim's);
     // it is ignored, as with the flag off (v2.11).
-    const { pickup, submitted, signed_in, profile, x_handle, card, move_up, coin, ...rest } = TellToolInput.parse(input ?? {});
+    const { pickup, submitted, signed_in, profile, x_handle, card, move_up, coin, update, updates, ...rest } = TellToolInput.parse(input ?? {});
     void x_handle;
     const statements = defined(rest);
     const replies: Reply[] = [];
     // v2.12 spec 8: "hide" and "show". v2.12.1 T8: the card and the move-up answers. Flag off: ignored (v2.11).
-    if (builderScoreEnabled() && ctx.sharedClient && (profile || card || move_up || coin))
+    if (builderScoreEnabled() && ctx.sharedClient && (profile || card || move_up || coin || update || updates))
       replies.push({ show_to_builder: '', agent_note: SHARED_PROFILE_NOTE });
     else if (builderScoreEnabled()) {
       if (profile) replies.push({ show_to_builder: await setHidden(ctx.installationId, profile === 'hide') });
@@ -3788,6 +3794,14 @@ export const tools = {
       if (card === 'skip') replies.push({ show_to_builder: SKIPPED_LINE });
       if (move_up) replies.push(await moveUpAnswer(ctx, move_up));
       if (coin) replies.push(await coinAnswer(ctx, coin));
+      // v2.13 spec 3: the ship log, keyed by the person (the group root).
+      if (benchEnabled() && (update || updates)) {
+        const now = new Date();
+        const person = await rootOf(ctx.installationId);
+        if (update?.text !== undefined) replies.push(await postUpdate(person, update.text, now));
+        if (update?.hide !== undefined) replies.push(await hideUpdate(person, update.hide));
+        if (updates) replies.push(await setUpdates(person, updates, now));
+      }
     }
     if (pickup !== undefined) replies.push((await handlers.pick_up_entries({ answer: pickup }, ctx)) as Reply);
     if (submitted) replies.push((await markSubmitted(submitted, signed_in, ctx)) as Reply);
