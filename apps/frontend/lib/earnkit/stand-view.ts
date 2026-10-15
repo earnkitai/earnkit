@@ -226,7 +226,9 @@ export async function takeNews(id: number, seen: Seen, base: StandBase, now: Dat
       at: now.toISOString(),
     };
     await sql()`
-      UPDATE builder_profiles SET standing_seen = ${sql().json(next as never)}::jsonb || jsonb_strip_nulls(jsonb_build_object('declined', standing_seen->'declined')),
+      UPDATE builder_profiles SET standing_seen = ${sql().json(next as never)}::jsonb || jsonb_strip_nulls(jsonb_build_object('declined', standing_seen->'declined',
+          -- v2.13 (bench-find.ts): what the Bench reply asked and noted is kept too (absent with the flag off).
+          'bench_ask', standing_seen->'bench_ask', 'weekly_note_at', standing_seen->'weekly_note_at', 'raise_asked', standing_seen->'raise_asked')),
         card_moments = CASE WHEN ${card}::text IS NULL THEN card_moments ELSE card_moments || jsonb_build_object('latest', ${card}::text) END
       WHERE builder_id = ${id}`;
   };
@@ -303,6 +305,14 @@ const showable = (c: Card & { agent_completable?: boolean; earnkit_campaign?: bo
   !c.sponsored && !c.earnkit_campaign && !c.investment && c.agent_completable !== false && !skip.has(c.id) &&
   openCurated(c as Parameters<typeof openCurated>[0], now);
 
+/** The open-all-year program to name when nothing fits (byLazy first), or undefined. Pure. */
+export const rollingPick = (cards: Card[], now: Date, skip: Set<string>): Card | undefined =>
+  cards.filter((c) => showable(c, now, skip) && closeDayOf(c) === null && (c.max_award_usd ?? 0) > 0).sort(byLazy)[0];
+
+/** v2.13 (spec "2b"): the biggest-prize program a person could still be shown, other than `not`. Pure. */
+export const biggestPick = (cards: Card[], now: Date, skip: Set<string>, not: string | null): Card | undefined =>
+  cards.filter((c) => c.id !== not && showable(c, now, skip) && (c.max_award_usd ?? 0) > 0).sort(byPrize)[0];
+
 /**
  * Controller ruling (fix round 1, concern 2): the open-all-year fallback for the lazy target user:
  * Easy before Medium (a program with no level sorts as Medium), then fewer things to fill in (each
@@ -331,8 +341,7 @@ export function moneyFallback(o: {
     const p = o.projects.find((x) => x.key.toLowerCase() === k) ?? null;
     return { money: usersMoneyLine(p, o.users.repo, o.users.card.title, earnPrize(o.users.card)), pick: null };
   }
-  const skip = new Set([...o.entered, ...o.hidden]);
-  const rolling = o.cards.filter((c) => showable(c, o.now, skip) && closeDayOf(c) === null && (c.max_award_usd ?? 0) > 0).sort(byLazy)[0];
+  const rolling = rollingPick(o.cards, o.now, new Set([...o.entered, ...o.hidden]));
   if (rolling)
     return { money: rollingLine(rolling.title, earnPrize(rolling), o.projects.some((p) => p.shipped) && rolling.tag !== NEEDS_LIVE_PRODUCT), pick: null };
   // Review M1 (as freshLead): never a fresh build past a repo read error or a repo EarnKit can't see.

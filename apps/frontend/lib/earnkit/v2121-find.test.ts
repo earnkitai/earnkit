@@ -4,10 +4,8 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { sql } from './db';
 import { bindX } from './claim';
-import { ProgramFile } from './program-file';
-import { upsertProgram } from './programs';
-import { committedProgram } from './fixtures/program-file';
 import { tools } from './tools';
+import { DAY, GOOD, NOW, X_ON, avalanche, find, fitsFor, install, person, withEnv, type Found } from './fixtures/find';
 import { scoreReply } from './score-tool';
 import { EVENT_LOG_FLAG } from './events';
 import { HEADS, SEND_LINK_LINE } from './where-you-stand';
@@ -27,72 +25,9 @@ after(async () => {
   if (process.env.DATABASE_URL) await sql().end();
 });
 
-const NOW = new Date();
-const DAY = 86_400_000;
-const X_ON = { X_CLIENT_ID: 'v2121-x-id', X_CLIENT_SECRET: 'v2121-x-secret' };
-
-async function withEnv<T>(vars: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> {
-  const was: Record<string, string | undefined> = {};
-  for (const [k, v] of Object.entries(vars)) {
-    was[k] = process.env[k];
-    if (v === undefined) delete process.env[k];
-    else process.env[k] = v;
-  }
-  try {
-    return await fn();
-  } finally {
-    for (const [k, v] of Object.entries(was)) {
-      if (v === undefined) delete process.env[k];
-      else process.env[k] = v;
-    }
-  }
-}
 /** The builder score flag on (and the event log), with X sign-in set unless `x` is false. */
 const scoreOn = <T>(fn: () => Promise<T>, o: { x?: boolean } = {}) =>
   withEnv({ EARNKIT_BUILDER_SCORE: 'on', [EVENT_LOG_FLAG]: 'on', ...(o.x === false ? { X_CLIENT_ID: undefined, X_CLIENT_SECRET: undefined } : X_ON) }, fn);
-
-async function install(): Promise<number> {
-  const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`v2121-find-${randomBytes(8).toString('hex')}`}) RETURNING id`;
-  return id;
-}
-
-type Seed = { key: string; name: string; what?: string | null; kind?: string; shipped?: boolean; confirmed?: boolean; people?: number; sends_tx?: boolean; untracked?: string | null };
-/** A person as Task 4's rescore leaves them: a profile, a live row (refreshed just now) and their projects. */
-async function person(o: { projects: Seed[]; score?: number; ranked?: boolean; seen?: Record<string, unknown> }): Promise<number> {
-  const id = await install();
-  await sql()`INSERT INTO builder_profiles (builder_id, slug, standing_seen) VALUES (${id}, ${`v2121f-${id}`}, ${sql().json((o.seen ?? {}) as never)})`;
-  await sql()`
-    INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at, read_at)
-    VALUES (${id}, ${o.score ?? 0}, '{}'::jsonb, ${o.ranked ?? false}, ${o.projects.filter((p) => p.shipped !== false).length}, 0, 'v2', 'v2-launch', now(), now())`;
-  for (const [i, p] of o.projects.entries())
-    await sql()`
-      INSERT INTO builder_projects (builder_id, project_key, name, what, link, kind, confirmed, shipped, people, sends_tx, untracked_contract, last_active_at)
-      VALUES (${id}, ${p.key}, ${p.name}, ${p.what ?? null}, null, ${p.kind ?? 'app'}, ${p.confirmed ?? false}, ${p.shipped ?? true}, ${p.people ?? 0},
-        ${p.sends_tx ?? false}, ${p.untracked ?? null}, ${new Date(NOW.getTime() - i * DAY)})`;
-  return id;
-}
-
-/** A program the target user's tip jar fits (a copy of Avalanche Team1 Mini Grants: up to $10K, rolling). */
-let program: { id: string; title: string } | null = null;
-async function avalanche() {
-  if (program) return program;
-  const p = { ...committedProgram('avalanche-team1-mini-grants'), id: `v2121-ava-${randomBytes(4).toString('hex')}`, status: 'active' };
-  await upsertProgram(ProgramFile.parse(p));
-  program = { id: p.id, title: p.title };
-  return program;
-}
-const GOOD = { score: 6, tier: 'product' as const, missing: [], traction: 8, odds: 'good' as const, low_reason: null };
-const fitsFor = (programId: string) => [
-  {
-    repo: 'TipJar', repo_url: 'https://github.com/lee/tipjar', key: 'lee/tipjar',
-    verdicts: [{ program_id: programId, program: programId, status: 'likely' as const, missing: [], effort: 'none' as const, note: null }],
-    product: GOOD,
-  },
-];
-
-type Found = { programs: { title: string }[]; show_to_builder: string; claim?: { link: string }; move_up?: { kind: string; project_key: string | null }; lead?: { program_id: string }; note: string };
-const find = (id: number, input: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) =>
-  tools.find(input, { installationId: id, ...extra } as never) as Promise<Found>;
 
 /** Every open program's title (names are exempt from the copy rule's word list). */
 const titles = (r: Found) => (r.programs ?? []).map((x) => x.title);

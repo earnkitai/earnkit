@@ -1442,6 +1442,8 @@ ALTER TABLE builder_projects ADD COLUMN IF NOT EXISTS ship_weeks text[] NOT NULL
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS raising_at timestamptz;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS coin_tx text;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS coin_chain_id integer;
+-- A program's pitch for the no-project reply (spec "2b", plan B12): { who, for } from its program file.
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS pitch jsonb;
 -- The fifth week in a row is a coin moment too (spec "Optional: raise"). Re-added once only.
 ALTER TABLE coin_moments DROP CONSTRAINT IF EXISTS coin_moments_moment_check;
 ALTER TABLE coin_moments ADD CONSTRAINT coin_moments_moment_check

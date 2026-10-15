@@ -193,6 +193,8 @@ export type ProgramRow = {
   fresh_build?: { starter: string } | null;
   /** v2.12 spec 9 (programs.agent_completable): an agent can complete an entry. Optional for older fixtures. */
   agent_completable?: boolean;
+  /** v2.13 (program file pitch): the no-project reply's pitch, or null. Optional for older fixtures. */
+  pitch?: { who: string; for: string } | null;
 };
 
 /** Open programs: marked active and the deadline hasn't passed. */
@@ -241,6 +243,7 @@ export async function listPrograms() {
       | 'submission_url'
       | 'fresh_build'
       | 'agent_completable'
+      | 'pitch'
     > & {
       sponsor_url: string | null;
       sponsor_wallet: string | null;
@@ -252,7 +255,7 @@ export async function listPrograms() {
       p.opened_at, p.submission_requirements, p.ideas, p.submission_proof, p.builder_bonus,
       p.logo, p.past_rounds, p.focus, p.best_bet, p.difficulty_override, p.winners_per_round,
       p.chains, p.any_chain, p.investment, p.needs_repo, p.needs_contract, p.rules, p.token_policy, p.starts_at,
-      p.match_precision, p.submission_url, p.fresh_build, p.agent_completable, sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
+      p.match_precision, p.submission_url, p.fresh_build, p.agent_completable, p.pitch, sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
     FROM programs p LEFT JOIN sponsor_campaigns sc ON sc.program_id = p.id
     WHERE p.status = 'active' AND (p.ends_at IS NULL OR p.ends_at > now())
       ${archiveFlag('SPONSOR_CAMPAIGNS') ? db`` : db`AND (p.campaign->>'kind') IS DISTINCT FROM 'sponsor'`}
@@ -342,7 +345,7 @@ export function programCard(
     | 'difficulty_override'
     | 'winners_per_round'
     | 'rules'
-  > & { token_policy?: TokenPolicy; starts_at?: Date | null; match_precision?: string | null; submission_url?: string | null; fresh_build?: { starter: string } | null; agent_completable?: boolean },
+  > & { token_policy?: TokenPolicy; starts_at?: Date | null; match_precision?: string | null; submission_url?: string | null; fresh_build?: { starter: string } | null; agent_completable?: boolean; pitch?: { who: string; for: string } | null },
   tracks: string[],
   /** A sponsor campaign's identity (sponsor-verify.ts); unverified when not given. */
   identity: SponsorIdentity = UNVERIFIED,
@@ -414,6 +417,8 @@ export function programCard(
     winners_per_round: p.winners_per_round ?? null,
     // v2.12 spec 9: false only when an agent can't complete an entry (find drops it with the score flag on).
     agent_completable: p.agent_completable !== false,
+    // v2.13 (plan B12): the no-project reply's pitch; never on a campaign.
+    pitch: p.campaign ? null : (p.pitch ?? null),
   };
 }
 
@@ -779,6 +784,8 @@ export async function upsertProgram(
       fresh_build: p.fresh_build ? tx.json(p.fresh_build) : null,
       // v2.12 spec 9: the file's override, else the derivation (find drops false with the score flag on).
       agent_completable: agentCompletableOf(p),
+      // v2.13: the file is the source of truth (a removed pitch clears the column).
+      pitch: p.pitch ? tx.json(p.pitch) : null,
       source,
       opened_at: p.status === 'active' ? new Date() : null,
     };

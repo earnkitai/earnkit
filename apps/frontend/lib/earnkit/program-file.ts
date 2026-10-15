@@ -547,6 +547,15 @@ export const ProgramFile = z
     fresh_build: z.object({ starter: slug }).strict().optional(),
     /** v2.12 spec 9: overrides deriveAgentCompletable (owner only). */
     agent_completable: z.boolean().optional(),
+    /**
+     * v2.13 spec "2b" (plan B12): the no-project reply's pitch, "<who> pays up to $10K for <for>.":
+     * the funder's short name and what it pays for, in plain words.
+     */
+    pitch: z
+      .object({ who: z.string().min(1).max(20), for: z.string().min(1).max(60) })
+      .strict()
+      .refine((x) => !/—/.test(`${x.who} ${x.for}`), 'pitch: no em dashes')
+      .optional(),
   })
   .strict()
   .superRefine((p, ctx) => {

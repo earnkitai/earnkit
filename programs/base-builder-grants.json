@@ -269,5 +269,6 @@
     },
     "sign_in": "email_only",
     "read_at": "2026-10-07"
-  }
+  },
+  "pitch": { "who": "Base", "for": "a live app" }
 }

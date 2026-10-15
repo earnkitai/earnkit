@@ -144,7 +144,8 @@ import { benchEnabled, builderScoreEnabled } from './builder-score-flag';
 import { hideUpdate, postUpdate, setUpdates } from './updates';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
-import { CONFIRMING_REFRESH_MS, confirmingFast, fillGithubUser, proofFor, setMainProject } from './main-project';
+import { CONFIRMING_REFRESH_MS, REPO_KEY, confirmingFast, fillGithubUser, mainProjectOf, setMainProject } from './main-project';
+import { benchAsked, benchFind, benchMoveUp } from './bench-find';
 import { SEND_LINK_NOTE, scoreReply } from './score-tool';
 import { EARN_NOTE, MOVE_UP_NOTE, chooseStep, placeBuild, newsOpener, stepKey, whereYouStand, type EarnLine, type MoveUp, type StandView } from './where-you-stand';
 import { confirmYes, earnPrize, earnWhen, hostFor, moneyFallback, standBase, startRefresh, takeNews, takePageReady, type Seen } from './stand-view';
@@ -1383,20 +1384,30 @@ export const handlers = {
     // v2.12.2: matching that only rides on the reported login (the agent asked for nothing) is quiet:
     // its failure is never shown, and it counts as "repos given" only when it found some.
     const quiet = reported !== null && user === reported;
-    const repoList = repos?.length
+    let repoList = repos?.length
       ? repos
       : github_user || !own
         ? undefined
         : (memory.repos ?? undefined);
-    const local = local_repos?.length
+    let local = local_repos?.length
       ? local_repos
       : own
         ? (memory.local_repos ?? undefined)
         : undefined;
+    // v2.13 spec "Program matching uses the one project only": under the Bench flag the matcher gets
+    // the one project's repo (set at the first find, else the project this call names) and nothing else.
+    const bench = scoring && profiled && benchEnabled();
+    if (bench) {
+      const main = (await mainProjectOf(ctx.installationId).catch(() => null))?.toLowerCase() ?? null;
+      const one = main && REPO_KEY.test(main) ? main : (reportedRepos(project?.repo ? [project.repo] : [])[0] ?? null);
+      repoList = one ? [one] : undefined;
+      local = undefined;
+    }
+    const matchUser = bench ? undefined : user;
     // Ruling 11 (plan): a GitHub user or repo list, given now or remembered, turns off "You could".
     // Local repos count too (fix round 1, Minor 5): the spec's gate is "no repos are reported or
     // found", and a repo the agent reported is a repo reported, matching error or not.
-    let githubGiven = Boolean((user && !quiet) || repoList?.length || local?.length);
+    let githubGiven = Boolean((matchUser && !quiet) || repoList?.length || local?.length);
     // EarnKit campaigns are their own table (campaigns), not program cards (v2.4 §1).
     const cards = programs.filter((p) => !p.earnkit_campaign).map((p) => ({
       ...p,
@@ -1405,11 +1416,11 @@ export const handlers = {
     }));
 
     let yourRepos: YourRepos | null = null;
-    if (user || repoList?.length || local?.length) {
+    if (matchUser || repoList?.length || local?.length) {
       try {
         // Reading GitHub is limited per installation. Reported local repos alone read no GitHub, but
         // their links and contracts are still checked under LIST_BUDGET (review M3: no per-install limit yet).
-        if (user || repoList?.length)
+        if (matchUser || repoList?.length)
           await enforce('githubMatching', ctx.installationId, GITHUB_LIMITED);
         // v2.10 item 7b (R9): a named repo GitHub won't show is read through the read-only App when
         // this builder proved it there (G7, G10: on a shared client only the caller's own proof).
@@ -1422,7 +1433,7 @@ export const handlers = {
         };
         const matched = await (ctx.matchProjects ?? matchProjects)(
           MatchProjectsInput.parse({
-            github_user: user,
+            github_user: matchUser,
             repos: repoList,
             local_repos: local,
             // v2.9 A3: applied before the checks, so a claimed live link is checked (Pre-flight P15).
@@ -1465,13 +1476,13 @@ export const handlers = {
           }
         }
       } catch (err) {
-        if (quiet) console.error('[list_programs] reported login matching', err instanceof Error ? err.name : 'error');
+        if (quiet && matchUser) console.error('[list_programs] reported login matching', err instanceof Error ? err.name : 'error');
         else if (err instanceof GitHubError || err instanceof RateLimitError)
           yourRepos = { error: err.message };
         else console.error('[list_programs] matching failed:', err);
       }
       // A reported login with no repos found reads as no repos given ("You could" stays).
-      if (quiet) {
+      if (quiet && matchUser) {
         if (yourRepos && 'checked' in yourRepos && yourRepos.checked > 0) githubGiven = true;
         else yourRepos = null;
       }
@@ -1566,13 +1577,28 @@ export const handlers = {
     // is v2.11, byte for byte.
     if (scoring && profiled && !more) {
       await refresh.started?.within();
-      const r = await standFind(ctx, {
-        first, cards: withPools.filter((c) => !hide.has(c.id)), repos: yourRepos, myEntries, lastCheck, pickup, ask,
-        alerts, agentCanBuild: agent_can_build, walletNote, programs, hide,
-      });
-      // v2.13 R2: the one project's proof in the same turn (T8's benchFind takes this over).
-      const proof = benchEnabled() ? await proofFor(ctx.installationId, ctx.installationId, { canPush: agent_can_build, now: new Date() }).catch(() => null) : null;
-      return proof ? { ...r, proof } : r;
+      const shownCards = withPools.filter((c) => !hide.has(c.id));
+      if (!benchEnabled())
+        return standFind(ctx, {
+          first, cards: shownCards, repos: yourRepos, myEntries, lastCheck, pickup, ask,
+          alerts, agentCanBuild: agent_can_build, walletNote, programs, hide,
+        });
+      // v2.13 T8: the Bench's three parts (bench-find.ts), with what standFind's reply also carries.
+      const r = await benchFind(ctx, { first, cards: shownCards, repos: yourRepos, myEntries, pickup, ask, alerts, agentCanBuild: agent_can_build, hide, project });
+      const offer = r.build_offer as { program_id: string; starter_id: string; can_build: boolean } | undefined;
+      return {
+        ...r,
+        ...(offer && { build_offer: { program_id: offer.program_id, starter_id: offer.starter_id, agent_note: offer.can_build ? BUILD_NOTE : PLAN_NOTE } }),
+        ...(pickup && { pick_up: { question: pickup.question, agent_note: PICKUP_NOTE } }),
+        ...(walletNote && { wallet_note: walletNote }),
+        ...(ask && { ask_outcome: { project_id: ask.project_id, program_id: ask.program_id, question: outcomeQuestion(ask.name, ask.program_title), agent_note: ASK_OUTCOME_NOTE } }),
+        matches:
+          yourRepos && 'fits' in yourRepos
+            ? matchRows(yourRepos.fits, new Set(programs.filter((p) => p.any_chain).map((p) => p.id))).filter((x) => !hide.has(x.program_id))
+            : [],
+        working_on: first.workingOn,
+        programs: programs.map((p) => ({ id: p.id, title: p.title, summary: p.summary, deadline: p.deadline, tag: p.tag, verified_at: p.verified_at?.toISOString().slice(0, 10) ?? null })),
+      };
     }
     // v2.10 item 5: no token offer here; the token is pitched once, at confirmation.
     const show_to_builder = presentFirstMessage(first);
@@ -3202,6 +3228,10 @@ async function buildShip(programId: string, rest: Record<string, unknown>, ctx: 
       });
   const out = step.deploy as { address?: unknown; owner_ok?: unknown };
   const deployed = typeof out.address === 'string';
+  // v2.13 T8 (spec "2b"): under the Bench flag the build becomes the one project (set once, plan B2),
+  // once its contract is deployed. Never fails the build.
+  if (deployed && benchEnabled())
+    await setMainProject(ctx.installationId, { name: build.name ?? repoKey.split('/')[1], what: build.description ?? null, repo: repoKey, live_url: null, package: null, contracts: [] }).catch(() => undefined);
   // Security fix M6: a site only for a contract the builder's wallet owns.
   const owned = deployed && out.owner_ok === true;
   const hosting = owned ? await hostBlock(ctx, repo, stored.name, proven) : null;
@@ -3442,6 +3472,14 @@ async function moveUpAnswer(ctx: ToolContext, m: { kind?: string; project_key?: 
   // T10: a coin offer is answered as offered (the offer's own moment, which may not be chooseStep's
   // step now: a countable or first-5 reply); coinOpen means EarnKit made it and it is unanswered.
   if (m.kind === 'coin' && m.project_key && (await coinOpen(id, m.project_key))) return coinAnswer(ctx, { project_key: m.project_key, answer: m.answer });
+  // v2.13 T8: under the Bench flag, the ask its last reply stored. go_live and coin yeses are answered
+  // here (goLiveYes, coinAnswer); every other answer is bench-find.ts benchMoveUp's.
+  if (benchEnabled()) {
+    const asked = m.answer === 'yes' ? await benchAsked(id, m) : null;
+    if (asked?.kind === 'go_live' && asked.key) return goLiveYes(ctx, asked.key, m.live_url);
+    if (asked?.kind === 'coin' && asked.key) return coinAnswer(ctx, { project_key: asked.key, answer: 'yes' });
+    return benchMoveUp(ctx, m);
+  }
   if (m.answer === 'no') return moveUpNo(id, now, m.project_key, ctx.freshDeps);
   const step = await stepFor(id, m.project_key, ctx.freshDeps);
   if (!step) return { show_to_builder: COUNT_LINES.noted };

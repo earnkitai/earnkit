@@ -198,5 +198,6 @@
     "level": "Easy",
     "rated_by": "earnkit",
     "source_url": "https://community.arc.io/public/events/arc-microgrants-f8tijfjhyq"
-  }
+  },
+  "pitch": { "who": "Arc", "for": "payment apps" }
 }

@@ -39,6 +39,8 @@ export type Starter = {
   repo: string;
   /** Builder copy, mid-sentence and lower case: 'a USDC tip page on Arc'. */
   what: string;
+  /** v2.13 (plan B12): the build ask's words, mid-sentence: 'a tip jar on Arc'. */
+  offer: string;
   /** The bar: zero to deployable within this many minutes. */
   minutes: 60;
   /**
@@ -93,6 +95,7 @@ export const STARTERS: Record<StarterId, Starter> = {
     chain: 'arc',
     repo: 'earnkitai/chain-kits/arc/tipjar',
     what: 'a USDC tip page on Arc',
+    offer: 'a tip jar on Arc',
     minutes: 60,
     // bytecode_hash: `forge build` of src/UsdcTipJar.sol at 0f573a7 (solc 0.8.30, prague, no optimizer);
     // the same bytes from any folder (checked: two paths, one hash).

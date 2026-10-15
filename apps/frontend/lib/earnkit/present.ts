@@ -91,6 +91,8 @@ export type Card = {
   fresh_build?: { starter: string } | null;
   /** v2.11 T7 (programs.ts programCard): winners per round from the program file, or null (the fresh pick's rank). */
   winners_per_round?: number | null;
+  /** v2.13 (programs.ts programCard): the program file's pitch for the no-project reply, or null. */
+  pitch?: { who: string; for: string } | null;
 };
 
 /**

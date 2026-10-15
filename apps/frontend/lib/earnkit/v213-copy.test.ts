@@ -2,6 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BENCH_ALLOWED, bannedIn, bannedInBench } from './fixtures/banned-words';
 import { benchRank } from './rank';
+import {
+  CONFIRMED_LINE, NO_PROJECT_LINE, POST_UPDATE_ASK, UPDATES_ASK, buildAsk, claimToJoinLine, confirmingLine, enterAsk, fitsLine, goLiveAsk, ideasLine, onBenchLine,
+} from './bench-reply';
 
 /** Builder and public text added in v2.13, checked by the v2.13 rule (plan B17). Names (projects, programs, $TICKERS) are exempt. */
 const EXEMPT = ['Recipe planner', 'Avalanche Team1 Mini Grants', 'Base Builder Grants', 'EarnKit', 'tokens.fun', '$RECIPE', 'RECIPE'];
@@ -9,6 +12,11 @@ const s = (rank: number, total: number) => ({ ranked: true, rank, total });
 export const TEXTS: string[] = [
   ...[s(18, 100), s(3, 1000), s(10, 19)].flatMap((x) => [benchRank(x)!.short, benchRank(x)!.phrase]),
   ...(['base', 'arc', 'robinhood'] as const).flatMap((chain) => [benchRank(s(1, 100), { chain })!.short, benchRank(s(2, 12), { chain })!.short]),
+  // T8: the reply's lines. The 2b lines name a funder and the starter's offer through the BENCH_PITCH_ALLOWED hook (plan B12).
+  NO_PROJECT_LINE, confirmingLine('Recipe planner'), onBenchLine('Recipe planner', 'top 18% of builders', 6), UPDATES_ASK, POST_UPDATE_ASK,
+  goLiveAsk('Recipe planner'), enterAsk('Base Builder Grants'), fitsLine('Avalanche Team1 Mini Grants', 'up to $10K', 'Recipe planner', 'open all year'),
+  claimToJoinLine('Recipe planner', 'earnkit.com/claim/abcdefghijkl'), CONFIRMED_LINE('Recipe planner'),
+  ideasLine([{ who: 'Arc', prize: 'up to $10K', for: 'payment apps' }, { who: 'Base', prize: 'up to $5K', for: 'a live app' }]), buildAsk('a tip jar on Arc'),
 ];
 
 test('7.5 every v2.13 string passes the v2.13 copy rule', () => {
