@@ -74,7 +74,8 @@ function fakeGithub(login: string, web = true) {
         };
       if (k === 'ghGraphql')
         return async (_q: string, v: Record<string, unknown>) => {
-          calls.push(`graphql ${JSON.stringify(v.login ?? Object.keys(v).filter((x) => x.startsWith('n')).map((x) => v[x]))}`);
+          // The light owned-repos listing (OWNED_REPOS_QUERY, `first`) is recorded apart from the full person query.
+          calls.push(`${'first' in v ? 'owned' : 'graphql'} ${JSON.stringify(v.login ?? Object.keys(v).filter((x) => x.startsWith('n')).map((x) => v[x]))}`);
           const node = (r: ReturnType<typeof repos>[number]) => ({
             nameWithOwner: r.full_name, description: r.description, homepageUrl: null, primaryLanguage: r.language ? { name: r.language } : null, isFork: false, isTemplate: false, isPrivate: false,
             createdAt: r.pushed, pushedAt: r.pushed, stargazerCount: 0, forkCount: 0, owner: { __typename: 'User', login },
@@ -129,8 +130,9 @@ test('fixed: identity.github_login only (unproven) -> one read lists their own r
     assert.deepEqual(p, { github_login: null, reported_github: login });
     const [q] = await sql()<{ done_at: Date | null }[]>`SELECT done_at FROM discovery_queue WHERE builder_id = ${id}`;
     assert.ok(q?.done_at, 'discovery ran in the refresh');
-    // Discovery listed the reported login's repos with one person query (no REST repo listing).
-    assert.ok(gh.calls.includes(`graphql "${login}"`), `GitHub calls: ${gh.calls.join(', ')}`);
+    // Discovery listed the reported login's repos with one light listing (about 1 s; the full person
+    // query can take the refresh's whole 8 s on an account with popular repos), no REST repo listing.
+    assert.equal(gh.calls.filter((c) => c === `owned "${login}"`).length, 1, `GitHub calls: ${gh.calls.join(', ')}`);
     assert.equal(gh.calls.filter((c) => c.startsWith(`gh /users/${login}/repos`)).length, 0, gh.calls.join(', '));
     const s = await sql()<{ state: string; proposed_by: string }[]>`SELECT state, proposed_by FROM builder_sources WHERE builder_id = ${id} AND kind = 'repo'`;
     assert.equal(s.length, 3);
@@ -233,7 +235,7 @@ test('review 1: a proof-line check the short refresh skipped stays queued; the c
     // The next refresh does not rerun discovery for it (the cron has the time).
     const before = gh.calls.length;
     await find(id, { identity: { github_login: login } }, { readerDeps: gh.reader, matchProjects: async () => ({ checked: 0, scored: 0, fits: [] }) });
-    assert.equal(gh.calls.slice(before).filter((c) => c === `graphql "${login}"`).length, 0, gh.calls.slice(before).join(', '));
+    assert.equal(gh.calls.slice(before).filter((c) => c === `graphql "${login}"` || c === `owned "${login}"`).length, 0, gh.calls.slice(before).join(', '));
     // The cron's discover runs the check and proves the login.
     const checked: string[] = [];
     await discover(new Date(), { deadline: Date.now() + 60_000, reader: gh.reader, only: [id],

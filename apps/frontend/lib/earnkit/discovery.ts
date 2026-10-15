@@ -22,7 +22,7 @@ import { clearXHandle, releaseLogin, setFallback } from './profiles';
 import { GitHubBudgetStop, isBudgetStop, readContractOrigin, soft, type ReaderDeps, type RepoSignals } from './source-readers';
 import { claimContract, proposeSource, rejectSource, repoOwned, verifySource, type Proof } from './sources';
 import { proofLineOwner } from './token-gate';
-import { readPersonGithub, type PersonGithub } from './person-github';
+import { readOwnedRepos, readPersonGithub, type PersonGithub } from './person-github';
 
 /**
  * v2.12 spec 3: finding a person's past work. `find` never waits on it: it records the agent's
@@ -459,7 +459,8 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
     // The read itself stops on a spent budget or the deadline (budgeted ghGraphql; soft rethrows both).
     if (L && !taken && Date.now() < o.deadline) {
       const known = person as PersonGithub | null;
-      const gh = known && known.login === L ? known : await soft(readPersonGithub(L, d), null);
+      // The light listing (about 1 s): the full person read can take the refresh's whole 8 s.
+      const gh = known && known.login === L ? known : await soft(readOwnedRepos(L, REPORTED_REPOS_MAX, d), null);
       const own = [...(gh?.repos.values() ?? [])]
         .filter((x) => !x.derived && x.private !== true && x.owner === L)
         .sort((a, b) => (b.pushed_at ?? '').localeCompare(a.pushed_at ?? ''))

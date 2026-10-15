@@ -30,6 +30,25 @@ export const PERSON_GITHUB_QUERY = `query($login: String!, $since: GitTimestamp!
   }
 }`;
 
+/**
+ * v2.12.2: the light listing of a reported login's own public repos (names, homepages, languages;
+ * no stargazers, forks or commits). About 1 s where PERSON_GITHUB_QUERY takes 6 s or more (or times
+ * out) on an account with popular repos: the on-demand refresh has 8 s. Never a reading: repos it
+ * finds are proposed only, and the daily read reads them in full.
+ */
+export const OWNED_REPOS_QUERY = `query($login: String!, $first: Int!) {
+  user(login: $login) {
+    login twitterUsername websiteUrl
+    repositories(first: $first, ownerAffiliations: OWNER, privacy: PUBLIC, isFork: false, orderBy: {field: PUSHED_AT, direction: DESC}) {
+      nodes {
+        nameWithOwner description homepageUrl primaryLanguage { name } isFork isTemplate isPrivate createdAt pushedAt
+        owner { __typename login }
+        parent { nameWithOwner } templateRepository { nameWithOwner }
+      }
+    }
+  }
+}`;
+
 /** At most this many repos are read by name in one GraphQL call (one alias each). */
 export const REPOS_MAX = 25;
 
@@ -116,6 +135,12 @@ export function personGithubFrom(json: unknown, now: Date): PersonGithub | null 
 export async function readPersonGithub(login: string, d: ReaderDeps): Promise<PersonGithub | null> {
   if (!LOGIN.test(login)) throw new Error('not a GitHub login');
   return personGithubFrom(await d.ghGraphql(PERSON_GITHUB_QUERY, { login, since: since(d.now) }), d.now);
+}
+
+/** v2.12.2: one light GraphQL call: `login`'s newest `first` own public repos (OWNED_REPOS_QUERY). */
+export async function readOwnedRepos(login: string, first: number, d: ReaderDeps): Promise<PersonGithub | null> {
+  if (!LOGIN.test(login)) throw new Error('not a GitHub login');
+  return personGithubFrom(await d.ghGraphql(OWNED_REPOS_QUERY, { login, first }), d.now);
 }
 
 /**
