@@ -4810,8 +4810,11 @@ or reads `earnkit.txt`; old rows stay).
   caller value, coin creator fees, prizes won), Consistency 20 (weeks with a ship or use). Used and
   Consistency fade with a 90-day half-life. Calibration `v2-launch` (`score-calibration.ts
   V2_CALIBRATIONS`: users 500, $5,000, 13 weeks); tune it there (an owner decision, never automatic).
-  Ranked = at least one confirmed ship, **and** the person's ring computed by the cron (T4 ruling:
-  fail strict on ring partners), so a brand new person ranks after the next hourly cron.
+  Ranked = at least one confirmed ship, **and** the person's ring known: computed by the cron, or
+  (final fix wave) no other EarnKit person's account touched their work, so a new person ranks on
+  the first refresh (the first message after a confirmed ship). Touched by another EarnKit person
+  and never computed: those touches weigh 0.5 and the person waits for the hourly cron (T4 ruling:
+  fail strict on ring partners).
 - `personInputsV2` reads confirmed sources only (the newest good observation: `source_live` when
   newer than the daily `source_readings`), all v2.12 anti-farming rules (`countProject`), and builds
   `builder_projects` for every project (confirmed or not) with the 25-project cap (`TRACKED_MAX`,

@@ -421,6 +421,23 @@ test('4.18 a refresh reads only the person\'s stored ring (no scan of everyone\'
   assert.ok(Math.abs((await starFork()) - 0.5 * faded(6 + 11 / 1440)) < 1e-6, String(await starFork()));
 });
 
+test('4.19b (final fix wave) a never-computed ring with no other EarnKit person touching the work ranks on the first rescore', dbTest, async () => {
+  const a = T + 5;
+  const la = `nb${T}`;
+  await person(a, { login: la }); // ring '{}': the cron never computed it
+  await hosted(a, { slug: `nb${a}`, repo_key: `${la}/x`, status: 'live' });
+  await source(a, { kind: 'repo', ref: `${la}/x`, state: 'verified', proof: 'repo_owner', by: 'server' });
+  // A star from someone who is not on EarnKit: no ring partner is possible.
+  const starred = { owner: la, owner_type: 'User', fork: false, template: false, forkers: [], issue_authors: [], contributors: [], commit_weeks: [], partial: false,
+    stargazers: [{ id: `gh:stranger${T}`, at: new Date(NOW.getTime() - 2 * DAY).toISOString(), created_at: '2020-01-01T00:00:00Z' }] };
+  await reading(`${la}/x`, starred);
+  const r = await rescorePerson(a, NOW);
+  assert.equal(r.ranked, true, 'ranked at once, no cron run');
+  const [l] = await sql()<{ ranked: boolean; ring: unknown }[]>`
+    SELECT l.ranked, p.ring FROM builder_live l JOIN builder_profiles p USING (builder_id) WHERE l.builder_id = ${a}`;
+  assert.deepEqual({ ...l }, { ranked: true, ring: {} });
+});
+
 test('4.19 a never-computed ring fails strict: another person\'s account counts 0.5, and no rank until the cron computes the ring', dbTest, async () => {
   const [a, c] = [T + 3, T + 4];
   const [la, lc] = [`na${T}`, `nc${T}`];

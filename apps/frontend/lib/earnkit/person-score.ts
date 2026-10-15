@@ -262,10 +262,16 @@ export async function personInputsV2(
         for (const f of ['stargazers', 'forkers', 'callers', 'traders'])
           for (const w of list<Who>(o.signals[f])) if (typeof w?.id === 'string') touchedBy.add(w.id.toLowerCase());
   const checked: [string, number[]][] = [];
+  // Other EarnKit people's accounts that touched this person's work (the ring is about them only).
+  let others = 0;
   for (const [actor, who] of await ownersOf([...touchedBy], db)) {
-    if (who.includes(id)) self.add(actor);
-    else if (ring.ringOwner.has(actor)) continue;
-    else if (given) checked.push([actor, [...who].sort((x, y) => x - y)]);
+    if (who.includes(id)) {
+      self.add(actor);
+      continue;
+    }
+    others++;
+    if (ring.ringOwner.has(actor)) continue;
+    if (given) checked.push([actor, [...who].sort((x, y) => x - y)]);
     // Honoured only while it still has the owners the cron saw, and the check is fresh.
     else if (!(checkFresh && sameOwners(stored?.checked.get(actor), who))) {
       ring.ring.set(actor, RULES.ringWeight);
@@ -476,7 +482,11 @@ export async function personInputsV2(
     const p = scored.perProject.get(r.key);
     return { ...r, tracked: true, people: isScored ? Math.round(p?.people ?? 0) : 0, money_usd: isScored ? Math.round(100 * (p?.usd ?? 0)) / 100 : 0 };
   });
-  return { input, projects, perSource, ringComputed: stored !== null, checked };
+  // Final fix wave (first-message rank): with no other EarnKit person's account touching the work
+  // there is no ring to find, so the ring counts as computed and a confirmed ship ranks on the first
+  // refresh. Touched by others and never computed by the cron: unranked until it is (fail strict;
+  // the touches above are already weighed as a partner's).
+  return { input, projects, perSource, ringComputed: stored !== null || others === 0, checked };
 }
 
 // ---- Live score, rank, refresh ---------------------------------------------------------------------
@@ -549,7 +559,8 @@ export async function rescorePerson(id: number, now: Date, ring?: PersonRing): P
     const day = at.toISOString().slice(0, 10);
     const { input, projects, perSource, ringComputed, checked } = await personInputsV2(id, at, ring, tx);
     const s = computeScoreV2(input, cal, at);
-    // Ranked only once the cron has computed the person's ring (fail strict on ring partners).
+    // Ranked only once the ring is known: computed by the cron, or no other EarnKit person touched
+    // the work (fail strict on ring partners).
     const ranked = s.ranked && ringComputed;
     const prevTracked = new Set((await tx<{ project_key: string }[]>`
       SELECT project_key FROM builder_projects WHERE builder_id = ${id} AND tracked`).map((r) => r.project_key));

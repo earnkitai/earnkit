@@ -323,10 +323,11 @@ test('2. the claim with X: the X field on GitHub matches, so lee ranks; the next
   assert.match(await done.text(), /Your page is live/);
   const [p] = await sql()<{ x_user_id: string; x_handle: string }[]>`SELECT x_user_id, x_handle FROM builder_profiles WHERE builder_id = ${lee.installationId}`;
   assert.deepEqual({ ...p }, { x_user_id: '1', x_handle: 'Lee_Builds' });
-  // The hourly cron's score steps (discovery reads GitHub's X field: x_match; the ring is computed,
-  // so a confirmed ship ranks), then lee asks again 11 minutes later.
-  const run = (await runCron({ now: new Date(), only: ['none'], deps: { builderScore: { reader: world(), only: [lee.installationId] } } })) as { builder_score?: Record<string, unknown> };
-  for (const s of ['discover', 'read', 'score']) assert.doesNotMatch(JSON.stringify(run.builder_score?.[s]), /"step":"(error|skipped)"/, s);
+  // Final fix wave (first-message rank): NO cron run here. lee asks again 11 minutes later; that
+  // find's own refresh reads GitHub's X field (x_match, queued by the claim), scores the confirmed
+  // ship and ranks it at once: no other EarnKit person touched lee's work, so no ring is needed.
+  const [ring] = await sql()<{ ring: unknown }[]>`SELECT ring FROM builder_profiles WHERE builder_id = ${lee.installationId}`;
+  assert.deepEqual(ring.ring, {}, 'the cron never computed a ring');
   await ago(lee.installationId, 11);
   const r = await call('find', {}, lee);
   assert.match(r.show_to_builder, /Your page: earnkit\.com\/Lee_Builds(\n|$)/, r.show_to_builder);
@@ -380,6 +381,19 @@ test('4. one yes counts the tip jar\'s past users: "Done. N people ... now count
   assert.equal(yes.coin?.project_key, 'lee/tipjar', yes.show_to_builder);
   assert.match(yes.show_to_builder, /Want to launch a coin, \$[A-Z0-9]+ \([^)]+\), for TipJar\? You'd get 40% of its trading fees/);
   assert.equal((yes.show_to_builder.match(/\?/g) ?? []).length, 1);
+});
+
+test('4b. the hourly cron then computes lee\'s ring: nothing to discount, so the rank the first replies showed never drops', db, async () => {
+  const id = await rootOf(lee.installationId);
+  const before = await standingOf(id);
+  const run = (await runCron({ now: new Date(), only: ['none'], deps: { builderScore: { reader: world(), only: [id] } } })) as { builder_score?: Record<string, unknown> };
+  for (const s of ['discover', 'read', 'score']) assert.doesNotMatch(JSON.stringify(run.builder_score?.[s]), /"step":"(error|skipped)"/, s);
+  const [p] = await sql()<{ ring: { ring?: unknown[] } }[]>`SELECT ring FROM builder_profiles WHERE builder_id = ${id}`;
+  assert.deepEqual(p.ring.ring, [], 'computed, no ring partner');
+  // The cron's full daily read can add history (more weeks, more people); the ring takes nothing away.
+  const after = await standingOf(id);
+  assert.equal(after.ranked, true);
+  assert.ok(after.score >= before.score && after.rank <= before.rank, `${JSON.stringify(before)} -> ${JSON.stringify(after)}`);
 });
 
 test('5. the page reads lee\'s sources at most once every 10 minutes: 5 minutes later nothing, 11 minutes later once', db, async () => {
