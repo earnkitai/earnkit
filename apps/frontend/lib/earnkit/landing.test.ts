@@ -1,5 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { bonusAmount, byPool, INSTALLS_SHOWN_FROM, landingFrom, readGuideIds, readGuidePage, readLanding, statsLine } from './landing';
 import { ProgramFile } from './program-file';
 import { getProgramRow, poolFacts, upsertProgram } from './programs';
@@ -463,4 +465,21 @@ test('12.6 readLanding: the Bench (at most 10 rows, its chips, the carousel card
   assert.deepEqual(JSON.parse(JSON.stringify(on)), on, 'unstable_cache serializes it');
   const off = await withBench(false, () => readLanding(now));
   assert.equal(off.bench, null);
+});
+
+test('12.8 no all-caps labels under the flag: "Backed by" and the footer column titles are sentence case; flag off unchanged', () => {
+  const caps = (h: string, text: string) => new RegExp(`<(?:p|h3) class="[^"]*\\buppercase\\b[^"]*">\\s*${text}\\s*<`).test(h);
+  const bench = { rows: [ROW], chips: [], cards: [CARD] };
+  const on = withBench(true, () => page({ ...LANDING_FIXTURE, bench }));
+  const off = withBench(false, () => page({ ...LANDING_FIXTURE, bench: null }));
+  for (const t of ['Backed by', 'Product', 'Resources', 'Legal', 'Contact']) {
+    assert.ok(on.includes(`>${t}<`) && !caps(on, t), `flag on: ${t}`);
+    assert.ok(caps(off, t), `flag off: ${t}`);
+  }
+  assert.doesNotMatch(on.split('<footer')[1], /\buppercase\b/, 'the footer under the flag');
+});
+
+test('12.9 the landing\'s Bench parts never import the /bench page module (BenchView pulls in its Footer)', () => {
+  const src = readFileSync(join(import.meta.dirname, '../../app/components/sections/BenchTop.tsx'), 'utf8');
+  assert.doesNotMatch(src, /bench\/BenchView'/);
 });

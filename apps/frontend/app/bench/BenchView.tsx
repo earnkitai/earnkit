@@ -1,33 +1,15 @@
-import type { ReactNode } from 'react';
-import Link from 'next/link';
 import Footer from '../components/common/Footer';
 import { Panel } from '../components/common/Panel';
 import ChainLogo from '../components/ui/ChainLogo';
 import { filterHref, type BenchFilter, type BenchRow } from '../../lib/earnkit/bench-data';
 import { CHAIN_LABEL, type BenchChain } from '../../lib/earnkit/rank';
 import BenchRowItem from './BenchRowItem';
+import { Chip, FILTER_RAISING, FILTER_WEEKLY } from './FilterChip';
 
 export const BENCH_TITLE = 'The Bench';
 export const benchLine = (n: number) => `${n.toLocaleString('en-US')} ${n === 1 ? 'builder' : 'builders'} who ship, ranked by what they shipped and who uses it.`;
 export const BENCH_EMPTY = 'No one here yet.';
-export const FILTER_RAISING = 'Raising';
-export const FILTER_WEEKLY = 'Shipping every week';
-
-const CHIP = 'inline-flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-4 font-funnel-sans text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ek-blue-soft';
-const CHIP_ON = 'bg-ek-blue-bright text-ek-navy-deep';
-const CHIP_OFF = 'border border-ek-blue-soft/40 text-ek-blue-light hover:border-ek-blue-soft hover:text-ek-white';
-
-/**
- * A filter: a link to the same Bench with it toggled (never a form, so every variant is a plain URL).
- * The landing's top 10 uses it without `on`: a plain link into the Bench, not a toggle.
- */
-export function Chip({ on, href, children }: { on?: boolean; href: string; children: ReactNode }) {
-  return (
-    <Link href={href} aria-pressed={on} className={`${CHIP} ${on ? CHIP_ON : CHIP_OFF}`}>
-      {children}
-    </Link>
-  );
-}
+export { FILTER_RAISING, FILTER_WEEKLY };
 
 /**
  * v2.13 spec "The Bench" (R4, R9, R14): one row per builder, best score first; filters are links

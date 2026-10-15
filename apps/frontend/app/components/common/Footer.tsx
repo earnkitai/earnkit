@@ -9,6 +9,7 @@ const LINK =
   'inline-flex min-h-11 items-center px-1 text-ek-blue-soft underline-offset-4 transition-colors hover:text-ek-white hover:underline';
 
 export default function Footer() {
+  const bench = benchEnabled();
   return (
     <footer className="w-full bg-ek-base pb-[calc(10dvh+76px)] pt-4 md:pb-10">
       <div className="rounded-[40px] bg-ek-navy-deep px-8 py-12 md:rounded-[56px] md:px-16 md:py-14">
@@ -17,13 +18,14 @@ export default function Footer() {
             <Link href="/" className="inline-flex min-h-11 items-center text-ek-blue-light">
               <Wordmark className="h-7 w-auto" />
             </Link>
-            <p className="font-funnel-sans text-lg text-ek-blue-light">{benchEnabled() ? BENCH_FOOTER_TAGLINE : FOOTER_TAGLINE}</p>
+            <p className="font-funnel-sans text-lg text-ek-blue-light">{bench ? BENCH_FOOTER_TAGLINE : FOOTER_TAGLINE}</p>
           </div>
 
           <div className="grid grid-cols-2 gap-8 md:grid-cols-4">
             {FOOTER_COLUMNS.map((column) => (
               <div key={column.title}>
-                <h3 className="font-funnel-sans text-xs font-semibold uppercase tracking-wide text-ek-blue-soft/60">
+                {/* v2.13: sentence case under the flag (no all-caps labels). */}
+                <h3 className={bench ? 'font-funnel-sans text-sm font-semibold text-ek-blue-soft/60' : 'font-funnel-sans text-xs font-semibold uppercase tracking-wide text-ek-blue-soft/60'}>
                   {column.title}
                 </h3>
                 <ul className="mt-4 flex flex-col items-start gap-2">

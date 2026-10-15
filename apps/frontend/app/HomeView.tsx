@@ -82,7 +82,7 @@ export default function HomeView({ landing }: { landing: Landing | null }) {
           {bench.cards.length > 0 && <UpdateCarousel cards={bench.cards} />}
           {landing && landing.tiles.length > 0 && <ProgramCards tiles={landing.tiles} figure={landing.open_text} bench />}
           <BenchHowItWorks />
-          <BackedBy />
+          <BackedBy bench />
         </div>
       ) : (
         <div className="flex flex-col gap-4 pt-4">

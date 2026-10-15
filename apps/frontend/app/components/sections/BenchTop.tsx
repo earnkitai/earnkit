@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { Panel } from '../common/Panel';
 import ChainLogo from '../ui/ChainLogo';
 import BenchRowItem from '../../bench/BenchRowItem';
-import { Chip, FILTER_RAISING } from '../../bench/BenchView';
+import { Chip, FILTER_RAISING } from '../../bench/FilterChip';
 import { filterHref, type BenchRow } from '../../../lib/earnkit/bench-data';
 import { CHAIN_LABEL, type BenchChain } from '../../../lib/earnkit/rank';
 
