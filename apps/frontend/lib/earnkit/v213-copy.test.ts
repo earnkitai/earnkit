@@ -4,7 +4,9 @@ import { BENCH_ALLOWED, bannedIn, bannedInBench } from './fixtures/banned-words'
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { pageWords } from './fixtures/page-words';
-import { benchRank } from './rank';
+import { CHAIN_LABEL, benchRank } from './rank';
+import { bestFact } from './bench-data';
+import BenchView, { BENCH_EMPTY, BENCH_TITLE, FILTER_RAISING, FILTER_WEEKLY, benchLine } from '../../app/bench/BenchView';
 import { raiseLine } from './coin-moments';
 import { RAISE_LINES, showRaisingLine } from './raising';
 import RaisingPill from '../../app/components/ui/RaisingPill';
@@ -52,4 +54,18 @@ test('9.9 the pill says "Raising $RECIPE" and links to the coin\'s tokens.fun pa
   const h = renderToStaticMarkup(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/coin/0xabc', size: 'sm' }));
   assert.equal(pageWords(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/coin/0xabc' })).trim(), 'Raising $RECIPE');
   assert.match(h, /^<a href="https:\/\/tokens\.fun\/coin\/0xabc" target="_blank" rel="noopener noreferrer"/);
+});
+
+test('10.7 the Bench\'s words pass the v2.13 rule; its chips may name a chain (copy rules)', () => {
+  const facts = [
+    { people_week: 1, streak: 0, weeks_shipping: 0, shipped: true }, { people_week: 31, streak: 6, weeks_shipping: 9, shipped: true },
+    { people_week: 0, streak: 6, weeks_shipping: 9, shipped: true }, { people_week: 0, streak: 1, weeks_shipping: 1, shipped: true },
+    { people_week: 0, streak: 1, weeks_shipping: 9, shipped: true }, { people_week: 0, streak: 0, weeks_shipping: 0, shipped: true },
+    { people_week: 0, streak: 0, weeks_shipping: 0, shipped: false },
+  ].map(bestFact);
+  for (const t of [BENCH_TITLE, benchLine(25), benchLine(1), BENCH_EMPTY, FILTER_RAISING, FILTER_WEEKLY, ...facts]) assert.deepEqual(bannedInBench(t, EXEMPT), [], t);
+  const row = { rank: 2, line: 'Top 4%', handle: 'maya_makes', name: 'Maya Chen', avatar: null, raising: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const, 'robinhood' as const, 'arc' as const], project: 'Recipe planner', best: '31 people this week' };
+  const page = pageWords(React.createElement(BenchView, { rows: [row], count: 25, chips: ['base', 'robinhood', 'arc'], filter: { chain: 'base', raising: true, weekly: false } }));
+  // Chain names only in the chips and the logos' alt text and tooltips (R14).
+  assert.deepEqual(bannedInBench(page, ['Maya Chen', 'Recipe planner', '$RECIPE', ...Object.values(CHAIN_LABEL)]), [], page);
 });

@@ -1,5 +1,6 @@
 import { MetadataRoute } from 'next';
 import { boardSlug } from '@/lib/earnkit/bonus-rounds';
+import { benchEnabled } from '@/lib/earnkit/builder-score-flag';
 import { sql } from '@/lib/earnkit/db';
 
 const SITE = 'https://earnkit.com';
@@ -13,6 +14,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${SITE}/terms`, changeFrequency: 'monthly', priority: 0.5 },
     { url: `${SITE}/programs`, changeFrequency: 'daily', priority: 0.8 },
   ];
+  // v2.13: the Bench and its feed, only under the flag (off: a 404).
+  if (benchEnabled())
+    pages.push({ url: `${SITE}/bench`, changeFrequency: 'daily', priority: 0.8 }, { url: `${SITE}/feed`, changeFrequency: 'daily', priority: 0.6 });
   try {
     // v2.7 §2: each open curated program's guide (never an EarnKit or sponsor campaign).
     const programs = await sql()<{ id: string }[]>`

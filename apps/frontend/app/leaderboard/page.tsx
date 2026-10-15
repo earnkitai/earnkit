@@ -1,5 +1,5 @@
-import { notFound } from 'next/navigation';
-import { builderScoreEnabled } from '@/lib/earnkit/builder-score-flag';
+import { notFound, redirect } from 'next/navigation';
+import { benchEnabled, builderScoreEnabled } from '@/lib/earnkit/builder-score-flag';
 import { BOARD_TITLE } from '@/lib/earnkit/page-data';
 import LeaderboardView from './LeaderboardView';
 import { cachedBoard } from './leaderboard-load';
@@ -13,9 +13,11 @@ export const metadata = {
 
 /**
  * v2.12.1 spec "Leaderboard" (plan S11): one list, every query parameter ignored (no filters, no
- * pages: nothing a URL can vary fills a cache entry). A 404 with the flag off.
+ * pages: nothing a URL can vary fills a cache entry). A 404 with the flag off. v2.13: under the
+ * Bench flag it is the Bench (a 307, so turning the flag off never sticks in a browser).
  */
 export default async function LeaderboardPage() {
+  if (benchEnabled()) redirect('/bench');
   if (!builderScoreEnabled()) notFound();
   const { rows, count } = await cachedBoard();
   return <LeaderboardView rows={rows} count={count} />;
