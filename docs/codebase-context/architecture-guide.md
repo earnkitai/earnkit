@@ -4830,9 +4830,12 @@ or reads `earnkit.txt`; old rows stay).
 - **Rank words** (`rankWords`): "#N of M builders on EarnKit" while fewer than 50 are listed, and
   only in the top half (T2 ruling: N <= ceil(M/2)); then "top N% of people building with AI" only
   when N <= 50; otherwise no rank line.
-- **Fresh within minutes** (`refreshPerson`): `find`, `score` and a page view re-read that person's
-  sources at most once every 10 minutes (`REFRESH_MS`, claimed atomically), discovery inside a
-  refresh only when queued or once a day; never a shared client; never throws.
+- **Fresh within minutes** (`refreshPerson`): `find` and `score` re-read that person's sources at
+  most once every 10 minutes (`REFRESH_MS`, claimed atomically), discovery inside a refresh only
+  when queued or once a day; never a shared client; never throws. A page view goes through
+  `pageViewRefresh` (final fix wave): only when the last read is over `PAGE_REFRESH_MS` (a day) old
+  or was reset (claim, merge), and only under `LIMITS.pageRefreshIp` (20 an hour per IP) then
+  `LIMITS.pageRefresh` (200 an hour for all views), so crawlers never spend the cron's daily reads.
 
 ### Scale and reads (spec "Scale")
 

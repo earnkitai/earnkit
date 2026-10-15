@@ -16,7 +16,7 @@ import { EVENT_LOG_FLAG } from './events';
 import { runCron } from './cron';
 import { claimGet, claimPost, xCallback } from './claim';
 import { rootOf } from './identity';
-import { REFRESH_BUDGET_MS, refreshPerson, standingOf } from './person-score';
+import { REFRESH_BUDGET_MS, pageViewRefresh, refreshPerson, standingOf } from './person-score';
 import { NOT_CONFIRMED, boardRows, pageCards, pageHead } from './page-data';
 import { coinPitchAllowed } from './coin-moments';
 import { HEADS } from './where-you-stand';
@@ -33,7 +33,7 @@ import LeaderboardView from '../../app/leaderboard/LeaderboardView';
  * project, a coin moment, a card and a leaderboard row, through the real flag-on code paths:
  * find with `identity` (the three-part reply, the claim link, the 10-second refresh), the claim
  * (claimGet, claimPost, xCallback), a second agent joining the same page with both yeses, tell's
- * move_up yes (count past users), the page's refresh guard, the page markup, tell's card yes and the
+ * move_up yes (count past users), the page view's refresh guard (a day; find's is 10 minutes), the page markup, tell's card yes and the
  * share route, the score tool and the leaderboard rows. It replaces the v2.12 journey's parked
  * cases (tools 7.8, 7.8c, 9.4; share 11.8, 11.9, 11.10: consent line, score line, card offer).
  *
@@ -396,19 +396,26 @@ test('4b. the hourly cron then computes lee\'s ring: nothing to discount, so the
   assert.ok(after.score >= before.score && after.rank <= before.rank, `${JSON.stringify(before)} -> ${JSON.stringify(after)}`);
 });
 
-test('5. the page reads lee\'s sources at most once every 10 minutes: 5 minutes later nothing, 11 minutes later once', db, async () => {
+test('5. a page view reads lee\'s sources only after a day (find keeps 10 minutes): 11 minutes later nothing, 25 hours later once', db, async () => {
   const id = await rootOf(lee.installationId);
-  const view = () => refreshPerson(id, { now: new Date(), deadline: Date.now() + REFRESH_BUDGET_MS, reader: world() }); // as handle-view.tsx's Cards
-  await ago(id, 5);
+  const view = () => pageViewRefresh(id, { now: new Date(), deadline: Date.now() + REFRESH_BUDGET_MS, ip: '203.0.113.7', reader: world() }); // as handle-view.tsx's Cards
+  const asks = () => refreshPerson(id, { now: new Date(), deadline: Date.now() + REFRESH_BUDGET_MS, reader: world() }); // as find and score
+  await ago(id, 11);
   const n0 = reads.length;
   assert.deepEqual(await view(), { refreshed: false });
-  assert.equal(reads.length, n0, 'nothing read');
+  assert.equal(reads.length, n0, 'nothing read for a viewer');
+  await ago(id, 5);
+  assert.deepEqual(await asks(), { refreshed: false }, 'the person asking: not within 10 minutes');
   await ago(id, 11);
-  assert.deepEqual(await view(), { refreshed: true });
-  assert.ok(reads.length > n0, 'read once');
+  assert.deepEqual(await asks(), { refreshed: true }, 'the person asking: after 10 minutes');
   const n1 = reads.length;
+  assert.ok(n1 > n0);
+  await ago(id, 25 * 60);
+  assert.deepEqual(await view(), { refreshed: true });
+  assert.ok(reads.length > n1, 'read once');
+  const n2 = reads.length;
   assert.deepEqual(await view(), { refreshed: false });
-  assert.equal(reads.length, n1);
+  assert.equal(reads.length, n2);
 });
 
 test('6. the page: filled at /Lee_Builds, the two projects only the agent named marked "Not yet confirmed", no banned word', db, async () => {

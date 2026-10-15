@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { heldForReview, partLines, publicRow, scoresAdminKey, scoresPost } from './builder-score';
 import { isConfirmedProof } from './confirmed';
 import { sql } from './db';
-import { rescorePerson, refreshPerson, scorePeopleV2, standingOf, trackedKeys } from './person-score';
+import { PAGE_REFRESH_MS, pageViewRefresh, rescorePerson, refreshPerson, scorePeopleV2, standingOf, trackedKeys } from './person-score';
+import { LIMITS, windowStart } from './rate-limit';
 import type { ReaderDeps } from './source-readers';
 
 process.env.EARNKIT_BUILDER_SCORE = 'on';
@@ -177,6 +178,52 @@ test('4.5 a refresh reads at most once in 10 minutes; a failed read keeps the la
   assert.equal(p.shipped, true); // the failed read did not replace the last good one
   await refreshPerson(id, { now: new Date(NOW.getTime() + 11 * 60_000), deadline: Date.now() + 3000, reader });
   assert.ok(reads > first);
+});
+
+test('4.5b (final fix wave) a page view re-reads only a person last read over a day ago, under a global hourly cap and a per-IP cap', dbTest, async () => {
+  const id = T + 6;
+  await person(id, { login: null, reported: 'lee' });
+  await source(id, { kind: 'site', ref: 'https://keep.example.com', key: 'keep', state: 'proposed', proof: null, by: 'agent' });
+  let reads = 0;
+  const reader = { ...fakeReader(), probe: async () => { reads++; return { status: 200 }; } };
+  const ip = `203.0.113.${process.pid % 250}`;
+  const view = (at: number, from = ip) => pageViewRefresh(id, { now: new Date(NOW.getTime() + at), deadline: Date.now() + 3000, ip: from, reader });
+  assert.equal(PAGE_REFRESH_MS, 86_400_000);
+  // Never read: the first view reads (a claim resets read_at the same way).
+  assert.deepEqual(await view(0), { refreshed: true });
+  const first = reads;
+  assert.ok(first >= 1);
+  // find and score keep the 10-minute refresh; a page view waits a day.
+  assert.deepEqual(await view(11 * 60_000), { refreshed: false });
+  assert.deepEqual(await view(23 * 3_600_000), { refreshed: false });
+  assert.equal(reads, first, 'nothing read');
+  assert.deepEqual(await refreshPerson(id, { now: new Date(NOW.getTime() + 11 * 60_000), deadline: Date.now() + 3000, reader }), { refreshed: true });
+  const asked = reads;
+  assert.ok(asked > first, 'the person asking still refreshes at 10 minutes');
+  // A day after that read: the view reads again.
+  const day = 11 * 60_000 + PAGE_REFRESH_MS + 60_000;
+  assert.deepEqual(await view(day), { refreshed: true });
+  assert.ok(reads > asked);
+  // The caps: this IP is out of views for the hour, then every IP is.
+  const at = new Date(NOW.getTime() + 2 * PAGE_REFRESH_MS);
+  const seed = async (key: string, count: number) => {
+    const start = windowStart(at, 3_600_000);
+    await sql()`INSERT INTO rate_windows (key, window_start, count) VALUES (${key}, ${start}, ${count})
+      ON CONFLICT (key, window_start) DO UPDATE SET count = EXCLUDED.count`;
+  };
+  await seed(`pageRefreshIp:${ip}`, LIMITS.pageRefreshIp.limit);
+  const n = reads;
+  assert.deepEqual(await view(2 * PAGE_REFRESH_MS), { refreshed: false }, 'per-IP cap');
+  assert.equal(reads, n);
+  await seed('pageRefresh:global', LIMITS.pageRefresh.limit);
+  try {
+    assert.deepEqual(await view(2 * PAGE_REFRESH_MS, `198.51.100.${process.pid % 250}`), { refreshed: false }, 'global cap');
+    assert.equal(reads, n);
+  } finally {
+    await sql()`DELETE FROM rate_windows WHERE key = 'pageRefresh:global'`;
+  }
+  assert.equal(LIMITS.pageRefresh.limit, 200);
+  assert.equal(LIMITS.pageRefresh.windowSeconds, 3_600);
 });
 
 test('4.6 a 30-point jump is held: the public score stays, the new one waits in pending', dbTest, async () => {

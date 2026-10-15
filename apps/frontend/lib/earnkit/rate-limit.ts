@@ -64,6 +64,13 @@ export const LIMITS = {
   deployDay: { limit: 1, windowSeconds: 86_400 },
   /** v2.9 B9: GET /github/verify and its callback, per client IP. */
   githubVerify: { limit: 30, windowSeconds: 3_600 },
+  /**
+   * v2.12.1 final fix wave: a page view's refresh of the person it shows (only when their last read
+   * is over a day old, person-score.ts pageViewRefresh): all views together per hour, so crawlers
+   * never spend the cron's daily reads, and per client IP.
+   */
+  pageRefresh: { limit: 200, windowSeconds: 3_600 },
+  pageRefreshIp: { limit: 20, windowSeconds: 3_600 },
   /** v2.12.1: POST /claim/<code> and /x/callback (Sign in with X), per client IP. */
   xClaim: { limit: 30, windowSeconds: 3_600 },
   /** v2.9 final review I2: POST /api/host/upload, per client IP (each read can be 25 MB). */

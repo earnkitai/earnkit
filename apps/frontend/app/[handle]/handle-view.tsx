@@ -1,19 +1,24 @@
 import { Suspense } from 'react';
 import type { Metadata } from 'next';
+import { headers } from 'next/headers';
 import { notFound, permanentRedirect } from 'next/navigation';
-import { REFRESH_BUDGET_MS, refreshPerson } from '../../lib/earnkit/person-score';
+import { REFRESH_BUDGET_MS, pageViewRefresh } from '../../lib/earnkit/person-score';
+import { clientIp } from '../../lib/earnkit/rate-limit';
 import { pageCards, pageHead } from '../../lib/earnkit/page-data';
 import { resolveHandle } from '../../lib/earnkit/profiles';
 import { pagePath } from '../../lib/earnkit/reserved-routes';
 import ProfileView from './ProfileView';
 import ProjectCards from './ProjectCards';
 
-/** The projects, after a fresh read of the person's sources (at most once every 10 minutes, refreshPerson). */
+/**
+ * The projects, after a fresh read of the person's sources only when their last read is over a day
+ * old, under the hourly caps (pageViewRefresh; find and score keep the 10-minute refresh).
+ */
 async function Cards({ id }: { id: number }) {
   // Local design review only (never in production): hold the cards back to see the skeletons.
   const hold = process.env.NODE_ENV === 'development' ? Number(process.env.EARNKIT_DEV_CARDS_DELAY_MS ?? 0) : 0;
   if (hold > 0) await new Promise((done) => setTimeout(done, Math.min(hold, 30_000)));
-  await refreshPerson(id, { now: new Date(), deadline: Date.now() + REFRESH_BUDGET_MS });
+  await pageViewRefresh(id, { now: new Date(), deadline: Date.now() + REFRESH_BUDGET_MS, ip: clientIp(await headers()) });
   return <ProjectCards cards={await pageCards(id)} />;
 }
 

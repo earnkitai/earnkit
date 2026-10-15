@@ -10,6 +10,7 @@ import { discoverPerson } from './discovery';
 import { noteEvent } from './events';
 import { REPOS_MAX, readGithubRepos, readPersonGithub, type PersonRepo } from './person-github';
 import type { Standing } from './rank';
+import { LIMITS, hit } from './rate-limit';
 import { countingDeps, flushReadUsage } from './read-usage';
 import { LIVE_CALIBRATION_V2, calibrationV2 } from './score-calibration';
 import { FORMULA_V2, computeScoreV2, type Ship, type UseTouch, type V2Input, type V2Scored } from './score-v2';
@@ -654,9 +655,9 @@ export async function standingOf(id: number, o: { only?: number[] } = {}): Promi
  * spec "Fresh within minutes for the person asking": re-read the person's sources and rescore, at
  * most once every REFRESH_MS (claimed atomically, so two finds at once read once). Never a shared
  * client's group. Never throws (find and the page go on without it): nothing is retried and the
- * page keeps the last good number.
+ * page keeps the last good number. `minAgeMs` (a page view: PAGE_REFRESH_MS) replaces REFRESH_MS.
  */
-export async function refreshPerson(id: number, o: { now: Date; deadline: number; reader?: ReaderDeps }): Promise<{ refreshed: boolean }> {
+export async function refreshPerson(id: number, o: { now: Date; deadline: number; reader?: ReaderDeps; minAgeMs?: number }): Promise<{ refreshed: boolean }> {
   if (!builderScoreEnabled()) return { refreshed: false };
   let claimed = false;
   try {
@@ -666,7 +667,7 @@ export async function refreshPerson(id: number, o: { now: Date; deadline: number
       INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at, read_at)
       VALUES (${id}, 0, '{}'::jsonb, false, 0, 0, ${FORMULA_V2}, ${LIVE_CALIBRATION_V2}, ${o.now}, ${o.now})
       ON CONFLICT (builder_id) DO UPDATE SET read_at = EXCLUDED.read_at
-        WHERE builder_live.read_at IS NULL OR builder_live.read_at <= ${new Date(o.now.getTime() - REFRESH_MS)}
+        WHERE builder_live.read_at IS NULL OR builder_live.read_at <= ${new Date(o.now.getTime() - (o.minAgeMs ?? REFRESH_MS))}
       RETURNING 1`;
     if (rows.length === 0) return { refreshed: false };
     claimed = true;
@@ -695,6 +696,30 @@ export async function refreshPerson(id: number, o: { now: Date; deadline: number
     console.error('[refresh] person', err instanceof Error ? err.name : 'error');
   }
   return { refreshed: claimed };
+}
+
+/** Final fix wave: a page view re-reads the person it shows only when their last read is this old. */
+export const PAGE_REFRESH_MS = DAY_MS;
+
+/**
+ * Final fix wave (spec "On-demand refresh is limited to the person asking"): a page view (anyone,
+ * signed in or not) refreshes the person it shows only when their last read is over PAGE_REFRESH_MS
+ * old (never read, or reset by a claim or merge, counts as old), and only under the hourly caps
+ * (LIMITS.pageRefreshIp for `ip`, then LIMITS.pageRefresh for all views), so crawlers can never spend
+ * the reads the cron needs. find, score and make-countable keep refreshPerson's 10 minutes. Never throws.
+ */
+export async function pageViewRefresh(id: number, o: { now: Date; deadline: number; ip: string; reader?: ReaderDeps }): Promise<{ refreshed: boolean }> {
+  if (!builderScoreEnabled()) return { refreshed: false };
+  try {
+    const [l] = await sql()<{ read_at: Date | null }[]>`SELECT read_at FROM builder_live WHERE builder_id = ${id}`;
+    if (l?.read_at && o.now.getTime() - l.read_at.getTime() < PAGE_REFRESH_MS) return { refreshed: false };
+    const cap = async (name: 'pageRefreshIp' | 'pageRefresh', who: string) => (await hit(`${name}:${who}`, LIMITS[name].limit, LIMITS[name].windowSeconds, o.now)).allowed;
+    if (!(await cap('pageRefreshIp', o.ip)) || !(await cap('pageRefresh', 'global'))) return { refreshed: false };
+  } catch (err) {
+    console.error('[refresh] page view', err instanceof Error ? err.name : 'error');
+    return { refreshed: false };
+  }
+  return refreshPerson(id, { now: o.now, deadline: o.deadline, reader: o.reader, minAgeMs: PAGE_REFRESH_MS });
 }
 
 /** Discovery inside a refresh: when a clue queued the person, else at most once a REFRESH_DISCOVER_MS (cost). */

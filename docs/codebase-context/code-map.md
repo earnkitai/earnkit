@@ -157,7 +157,8 @@ apps/frontend/
   app/[handle]/page.tsx        v2.12.1 T6/T11: earnkit.com/<x-handle> (force-dynamic; flag off 404); HandleView
   app/[handle]/handle-view.tsx  HandleView (resolveHandle: hidden/unclaimed 404, case or a 90-day rename 308 to
                                pagePath) renders ProfileView with pageHead at once and the cards in Suspense
-                               after refreshPerson (skeletons meanwhile); handleMetadata (title, og card)
+                               after pageViewRefresh (a day old only, hourly caps; skeletons meanwhile);
+                               handleMetadata (title, og card)
   app/[handle]/ProfileView.tsx  pure: avatar, X name and @handle, one h1 (topLine), ScoreRing + rank + people
                                line only beside a rank that reads well, the cards, SOURCES_LINE, footer
   app/[handle]/ProjectCards.tsx  pure: project cards (people/money when measured, programs, Not yet confirmed /
@@ -1444,6 +1445,8 @@ apps/frontend/
     person-score.ts(+test)     v2.12.1 T4: personInputsV2, rescorePerson (builder_live, pending holds, the
                                25-project cap TRACKED_MAX), listedRanked (the one ranked population),
                                standingOf, refreshPerson (REFRESH_MS 10 min, REFRESH_BUDGET_MS 8 s),
+                               pageViewRefresh (page views: PAGE_REFRESH_MS a day, LIMITS.pageRefresh
+                               200/h global, pageRefreshIp 20/h per IP),
                                readPersonLive (source_live), scorePeopleV2 (cron; v2 history rows),
                                trackingHeld, ring storage
     confirmed.ts               v2.12.1 T4: CONFIRMED_PROOFS, isConfirmedProof
