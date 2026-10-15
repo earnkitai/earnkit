@@ -322,6 +322,7 @@ export async function personInputsV2(
     let liveSite: string | null = null;
     let pkgLink: string | null = null;
     let description: string | null = null;
+    let ghName: string | null = null;
     let lastActive: Date | null = newest(
       ...hostedHere.map((h) => h.deployed_at), ...deploysHere.map((x) => x.created_at), ...coinsHere.map((x) => x.launched),
     );
@@ -341,6 +342,8 @@ export async function personInputsV2(
       if (s.kind === 'repo') {
         const g = (last?.signals ?? {}) as Partial<RepoSignals & PersonRepo>;
         if (typeof g.description === 'string' && g.description.trim()) description ??= g.description.trim();
+        // v2.12.2: GitHub's own casing for the name ("Hello-World"), when the reading has it.
+        if (typeof g.name === 'string' && g.name && lowKey(s.ref) === low) ghName ??= g.name;
         lastActive = newest(lastActive, date(g.pushed_at));
         if (!scored || !last) continue;
         // Members of their own org never count: every contributor of an org repo is self.
@@ -455,7 +458,7 @@ export async function personInputsV2(
     for (const p of prizes) if (p.repo_key && lowKey(p.repo_key) === low) input.earned.push({ project: key, usd: fin(Number(p.usd)), kind: 'prize' });
 
     const ident = named(key);
-    const repoName = /^[^/:\s]+\/[^/\s]+$/.test(key) ? key.split('/')[1] : null;
+    const repoName = /^[^/:\s]+\/[^/\s]+$/.test(key) ? (ghName ?? key.split('/')[1]) : null;
     const identName = typeof ident?.name === 'string' && ident.name.trim() ? ident.name.trim().slice(0, 60) : null;
     const identWhat = typeof ident?.what === 'string' && ident.what.trim() ? ident.what.trim().slice(0, 120) : null;
     const slug = hostedHere[0]?.slug;

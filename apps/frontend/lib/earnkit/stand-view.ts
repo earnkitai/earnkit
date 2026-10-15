@@ -169,6 +169,7 @@ export async function standBase(id: number, o: { fresh?: TipSwitches } = {}): Pr
     provable: r.certain,
     tracked_tx: r.tracked_tx,
     app: r.kind === 'app',
+    code: r.kind === 'code',
     confirmed: r.confirmed,
   }));
   const claimed = s.claimed && Boolean(s.handle);

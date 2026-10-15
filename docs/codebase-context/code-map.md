@@ -1401,6 +1401,8 @@ apps/frontend/
                                agent), enqueueDiscovery, enqueueClue (wallet, signin; flag on, not shared),
                                LoginOf, provenLogin (R4), proofLineCheck, discover (DISCOVER_PER_RUN 20,
                                DISCOVER_CAPS; reads first, verdicts after), publicHttpsOrigin, homepageOrigin
+                               v2.12.2: REPORTED_REPOS_MAX (a reported login's own repos proposed, not
+                               confirmed), proofLineCheck skipShort (discoverPerson, the refresh)
     source-readers.ts(+test)   v2.12 T5: ReaderDeps, readRepo, readSite, probeSite, readNpm, readPypi,
                                readContract (Base Blockscout, Arc logs), readContractOrigin, readMergedPrs (never
                                into own orgs), budgetedGh (GH_RATE_FLOOR, GH_RUN_CAP 1500 calls a run),
@@ -1468,6 +1470,7 @@ apps/frontend/
                                paymentStepFits, plainWhat, standingNews, newsOpener, pageReadyLine,
                                confirmLinkLine, SEND_LINK_LINE, usersMoneyLine, rollingLine, buildStepLine,
                                MOVE_UP_NOTE, EARN_NOTE
+                               v2.12.2: StandProject.code ("on GitHub" line, go_live for code-only repos)
     stand-view.ts              v2.12.1 T8/T9: startRefresh, standBase, takeNews, takePageReady, confirmYes,
                                scoreEarn, moneyFallback, tipsPick, hostFor, currentStep, DECLINE_MS 30 days
     make-countable.ts(+test)   v2.12.1 T9: COUNT_LINES, countableNow, stepFor, moveUpYes, moveUpNo, nowRank,

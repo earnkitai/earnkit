@@ -42,6 +42,8 @@ ${i.map((k) => `  r${k}: repository(owner: $o${k}, name: $n${k}) {\n        ${RE
 }
 
 export type PersonRepo = RepoSignals & {
+  /** v2.12.2: the repo's name as GitHub writes it ("Hello-World"; `key` is lowercase). */
+  name?: string | null;
   key: string; description: string | null; homepage: string | null; pushed_at: string | null; derived: boolean; stars: number; forks: number;
 };
 export type PersonGithub = { login: string; twitter: string | null; website: string | null; repos: Map<string, PersonRepo> };
@@ -84,6 +86,7 @@ function repoFrom(raw: unknown, now: Date): PersonRepo | null {
     commit_weeks: [...new Set(commits.map((t) => isoWeek(new Date(t))))].sort(),
     partial: num(r.stargazerCount) > stargazers.length || num(r.forkCount) > forkers.length,
     description: str(r.description)?.slice(0, 200) ?? null,
+    name: str(r.nameWithOwner)?.split('/')[1] ?? null,
     homepage: str(r.homepageUrl), pushed_at: str(r.pushedAt),
     derived: fork || template || obj(r.parent).nameWithOwner !== undefined || obj(r.templateRepository).nameWithOwner !== undefined,
     stars: num(r.stargazerCount), forks: num(r.forkCount),

@@ -1358,9 +1358,15 @@ export const handlers = {
     const loginEntries = !own && login ? await verifiedEntryIds(ctx.installationId, login).catch(() => []) : null;
     const workingOn = own ? memory.working_on : [];
     // Remembered from an earlier call when not given now (G7: a verified login is its own GitHub user).
+    // v2.12.2: with the score flag on, else the login the agent reported (identity), so a program can
+    // be tied to one of their repos (a fit only: it confirms nothing).
     const user =
       github_user ??
-      (repos?.length ? undefined : own ? (memory.github_user ?? undefined) : (login ?? undefined));
+      (repos?.length
+        ? undefined
+        : own
+          ? (memory.github_user ?? (scoring ? identity.github_login : null) ?? undefined)
+          : (login ?? undefined));
     const repoList = repos?.length
       ? repos
       : github_user || !own

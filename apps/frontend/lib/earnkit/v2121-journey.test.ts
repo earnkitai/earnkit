@@ -41,7 +41,8 @@ import LeaderboardView from '../../app/leaderboard/LeaderboardView';
  * rank, the claim and its X binding, the join, the event log, every program file, and a throwaway
  * database of its own (schema.sql, dropped after).
  *
- * Faked, the outside world only: GitHub (one GraphQL person query, and its REST profile), the site
+ * Faked, the outside world only: GitHub (one GraphQL person query, and its REST profile; v2.12.2:
+ * find's matcher reading the reported login's repos and commits, answered empty), the site
  * probe, Blockscout (the contract's callers and creator), tokens.fun's ticker check and X (the token
  * exchange and /2/users/me).
  * The one-time wallet signature on the claim page (wallet-proof.ts, tested in T7) is written as its
@@ -93,6 +94,16 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   if (u.hostname === 'tokens.fun' && u.pathname === '/api/check-ticker') {
     reads.push('tokens.fun');
     return Response.json({ available: true });
+  }
+  // v2.12.2: find's program matcher reads the reported login (identity.github_login): its repos and
+  // its recent commits, none here.
+  if (u.hostname === 'api.github.com' && u.pathname === '/users/lee/repos') {
+    reads.push('github matcher');
+    return Response.json([]);
+  }
+  if (u.hostname === 'api.github.com' && u.pathname === '/search/commits' && u.searchParams.get('q')?.startsWith('author:lee ')) {
+    reads.push('github matcher');
+    return Response.json({ total_count: 0, items: [] });
   }
   blocked.push(url);
   return new Response('v2121-journey: no network', { status: 503 });

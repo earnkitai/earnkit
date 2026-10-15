@@ -12,6 +12,8 @@ export const HEADS = { stand: 'Where you stand', earn: 'Ways to earn right now',
 export type StandProject = {
   key: string; name: string; what: string | null; shipped: boolean; people: number; has_coin: boolean; sends_tx: boolean; tagged: boolean;
   untracked_contract: string | null; untracked_people: number; certain: boolean; app: boolean;
+  /** v2.12.2: only code (a GitHub repo, no site, package, contract or coin): it can be put online too. Absent: no. */
+  code?: boolean;
   /** EarnKit confirmed it is theirs (T7). Absent: confirmed (nothing to offer). */
   confirmed?: boolean;
   /**
@@ -118,11 +120,14 @@ export function chooseStep(
   const off = (kind: MoveUp['kind'], key: string | null) => no.has(stepKey(kind, key));
   if (shown.length === 0) {
     // Ruling S15: the agent named apps but none is live: the one yes puts the best one online.
-    const live = o.host ? v.projects.find((p) => p.app && o.host!(p.key) && !off('go_live', p.key)) : undefined;
+    // v2.12.2: code only on GitHub can be put online too (GitHub Pages; a non-web repo gets the
+    // honest "couldn't put it online" reply), after any app; it is named by its own name.
+    const can = (p: StandProject) => o.host!(p.key) && !off('go_live', p.key);
+    const live = o.host ? (v.projects.find((p) => p.app && can(p)) ?? v.projects.find((p) => p.code && can(p))) : undefined;
     if (live)
       return {
         kind: 'go_live', project_key: live.key,
-        line: `Want me to put ${yoursIn(live)} online? It takes a few minutes and you won't have to do anything.`,
+        line: `Want me to put ${live.code ? live.name : yoursIn(live)} online? It takes a few minutes and you won't have to do anything.`,
       };
     return { kind: 'send_link', project_key: null, line: SEND_LINK_LINE };
   }
@@ -173,7 +178,11 @@ function standLines(v: StandView): string[] {
     // never "nothing found". No rank (nothing confirmed ranks them yet).
     const k = v.projects.length;
     if (k === 0) return ["I couldn't find anything you've made yet."];
-    const made = `You've made ${k} ${nounOf(v.projects)} with AI${k <= 3 ? `: ${andList(v.projects.map(listed))}` : ''}. ${k === 1 ? "It isn't" : 'None is'} live yet.`;
+    // v2.12.2: only code on GitHub (often their reported login's repos): "on GitHub", by name (a repo's
+    // description is not plain words for a list).
+    const code = v.projects.every((p) => p.code);
+    const names = v.projects.map(code ? (p: StandProject) => p.name : listed);
+    const made = `You've made ${k} ${nounOf(v.projects)} ${code ? 'on GitHub' : 'with AI'}${k <= 3 ? `: ${andList(names)}` : ''}. ${k === 1 ? "It isn't" : 'None is'} live yet.`;
     return [made, ...(link ? [link] : [])];
   }
   const n = shipped.length;

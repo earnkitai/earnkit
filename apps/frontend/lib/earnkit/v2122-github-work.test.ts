@@ -1,0 +1,209 @@
+import './fixtures/no-network-checks';
+import { after, test } from 'node:test';
+import assert from 'node:assert/strict';
+import { randomBytes } from 'node:crypto';
+import { sql } from './db';
+import { tools } from './tools';
+import { scoreReply } from './score-tool';
+import { EVENT_LOG_FLAG } from './events';
+import type { ReaderDeps } from './source-readers';
+import { discoverPerson, proofLineCheck } from './discovery';
+import { ScoreDeadline } from './campaigns';
+
+/**
+ * v2.12.2: a fresh install whose agent reports only `identity.github_login` (an octocat-like
+ * account with public owned repos, none with a live site) used to get "I couldn't find anything
+ * you've made yet." Now its own repos are shown, not yet confirmed. Mirrors production with the flag on, GITHUB_TOKEN set (a fake reader answers GitHub), no
+ * X keys, no R2. Every GitHub call the server makes is recorded.
+ */
+
+const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
+after(async () => {
+  if (process.env.DATABASE_URL) await sql().end();
+});
+const NOW = new Date();
+
+async function withEnv<T>(vars: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> {
+  const was: Record<string, string | undefined> = {};
+  for (const [k, v] of Object.entries(vars)) {
+    was[k] = process.env[k];
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  try {
+    return await fn();
+  } finally {
+    for (const [k, v] of Object.entries(was)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+// Production: flag on, no X keys, no R2.
+const prod = <T>(fn: () => Promise<T>) =>
+  withEnv({ EARNKIT_BUILDER_SCORE: 'on', [EVENT_LOG_FLAG]: 'on', X_CLIENT_ID: undefined, X_CLIENT_SECRET: undefined, R2_BUCKET: undefined }, fn);
+
+async function install(): Promise<number> {
+  const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`v2122-gh-${randomBytes(8).toString('hex')}`}) RETURNING id`;
+  return id;
+}
+
+/** octocat-like public repos: owned, not forks, two with descriptions, none with a homepage. */
+const repos = (login: string) => [
+  { name: 'Hello-World', description: 'My first repository on GitHub!' },
+  { name: 'Spoon-Knife', description: 'This repo is for demonstration purposes only.' },
+  { name: 'linguist', description: null },
+].map((r, i) => ({ ...r, full_name: `${login}/${r.name}`, login, pushed: new Date(NOW.getTime() - (i + 1) * 86_400_000).toISOString() }));
+
+/** A fake GitHub (REST + GraphQL) that answers for `login` and records each call. */
+function fakeGithub(login: string) {
+  const calls: string[] = [];
+  const rs = repos(login);
+  const reader = new Proxy({} as ReaderDeps, {
+    get: (_t, k) => {
+      if (k === 'now') return NOW;
+      if (k === 'gh')
+        return async (path: string) => {
+          calls.push(`gh ${path}`);
+          if (path.startsWith(`/users/${login}/repos`))
+            return rs.map((r) => ({ full_name: r.full_name, fork: false, is_template: false, homepage: null, has_pages: false, pushed_at: r.pushed, created_at: r.pushed, owner: { login, type: 'User' } }));
+          if (path === `/users/${login}`) return { login, blog: null, twitter_username: null };
+          if (path.startsWith(`/users/${login}/orgs`)) return [];
+          return {};
+        };
+      if (k === 'ghGraphql')
+        return async (_q: string, v: Record<string, unknown>) => {
+          calls.push(`graphql ${JSON.stringify(v.login ?? Object.keys(v).filter((x) => x.startsWith('n')).map((x) => v[x]))}`);
+          const node = (r: ReturnType<typeof repos>[number]) => ({
+            nameWithOwner: r.full_name, description: r.description, homepageUrl: null, isFork: false, isTemplate: false, isPrivate: false,
+            createdAt: r.pushed, pushedAt: r.pushed, stargazerCount: 0, forkCount: 0, owner: { __typename: 'User', login },
+            parent: null, templateRepository: null, stargazers: { edges: [] }, forks: { nodes: [] },
+            defaultBranchRef: { target: { history: { nodes: [{ committedDate: r.pushed }] } } },
+          });
+          if (typeof v.login === 'string') return { data: { user: { login, twitterUsername: null, websiteUrl: null, repositories: { nodes: rs.map(node) } } } };
+          const data: Record<string, unknown> = {};
+          for (const key of Object.keys(v).filter((x) => /^n\d+$/.test(x))) {
+            const r = rs.find((x) => x.name.toLowerCase() === String(v[key]).toLowerCase());
+            data[`r${key.slice(1)}`] = r ? node(r) : null;
+          }
+          return { data };
+        };
+      if (k === 'probe') return async () => ({ status: 404 });
+      if (k === 'ghSpent') return () => false;
+      if (typeof k !== 'string' || k === 'then') return undefined;
+      return async () => {
+        throw new Error('offline');
+      };
+    },
+  });
+  return { reader, calls };
+}
+
+type Found = { show_to_builder: string };
+const find = (id: number, input: Record<string, unknown>, extra: Record<string, unknown>) =>
+  tools.find(input, { installationId: id, ...extra } as never) as Promise<Found>;
+
+const FIXED_STAND = /^Where you stand\nYou've made 3 projects on GitHub: Hello-World, Spoon-Knife and linguist\. None is live yet\./;
+const GO_LIVE = /How to move up\nWant me to put Hello-World online\? It takes a few minutes and you won't have to do anything\.$/;
+
+test('fixed: identity.github_login only (unproven) -> one read lists their own repos, shown on GitHub, not confirmed (find, find, score)', dbTest, () =>
+  prod(async () => {
+    const id = await install();
+    const login = `octo${randomBytes(3).toString('hex')}`;
+    const gh = fakeGithub(login);
+    let matchedUser: unknown = 'not called';
+    const extra = { readerDeps: gh.reader, matchProjects: async (i: { github_user?: string }) => ((matchedUser = i.github_user), { checked: 0, scored: 0, fits: [] }) };
+
+    const one = await find(id, { identity: { github_login: login } }, extra);
+    const two = await find(id, { identity: { github_login: login } }, extra);
+    const three = await scoreReply({ installationId: id, sharedClient: false } as never, new Date(), { reader: gh.reader });
+    for (const r of [one, two, three]) {
+      assert.match(r.show_to_builder, FIXED_STAND, r.show_to_builder);
+      assert.doesNotMatch(r.show_to_builder, /couldn't find anything/);
+    }
+    assert.match(one.show_to_builder, GO_LIVE, one.show_to_builder);
+
+    // The login stays only reported (never proven: no X claim, no sign-in, no proof line).
+    const [p] = await sql()<{ github_login: string | null; reported_github: string | null }[]>`SELECT github_login, reported_github FROM builder_profiles WHERE builder_id = ${id}`;
+    assert.deepEqual(p, { github_login: null, reported_github: login });
+    const [q] = await sql()<{ done_at: Date | null }[]>`SELECT done_at FROM discovery_queue WHERE builder_id = ${id}`;
+    assert.ok(q?.done_at, 'discovery ran in the refresh');
+    // Discovery listed the reported login's repos with one person query (no REST repo listing).
+    assert.ok(gh.calls.includes(`graphql "${login}"`), `GitHub calls: ${gh.calls.join(', ')}`);
+    assert.equal(gh.calls.filter((c) => c.startsWith(`gh /users/${login}/repos`)).length, 0, gh.calls.join(', '));
+    const s = await sql()<{ state: string; proposed_by: string }[]>`SELECT state, proposed_by FROM builder_sources WHERE builder_id = ${id} AND kind = 'repo'`;
+    assert.equal(s.length, 3);
+    assert.ok(s.every((x) => x.state === 'proposed' && x.proposed_by === 'server'), 'proposed only, never verified');
+    const [{ confirmed, n }] = await sql()<{ confirmed: number; n: number }[]>`SELECT count(*)::int AS n, count(*) FILTER (WHERE confirmed)::int AS confirmed FROM builder_projects WHERE builder_id = ${id}`;
+    assert.equal(n, 3);
+    assert.equal(confirmed, 0, 'never scored');
+    // find's v2.11 matching sees the reported login, so a program can be tied to one of their repos.
+    assert.equal(matchedUser, login);
+  }),
+);
+
+test('fixed: repos the agent named (identity.projects) read as "on GitHub", and the one yes puts one online', dbTest, () =>
+  prod(async () => {
+    const id = await install();
+    const login = `octo${randomBytes(3).toString('hex')}`;
+    const gh = fakeGithub(login);
+    const r = await find(
+      id,
+      { identity: { github_login: login, projects: repos(login).map((x) => ({ name: x.name, repo: x.full_name })) } },
+      { readerDeps: gh.reader, matchProjects: async () => ({ checked: 0, scored: 0, fits: [] }) },
+    );
+    assert.ok(gh.calls.some((c) => c.startsWith('graphql')), `one person query: ${gh.calls.join(', ')}`);
+    assert.match(r.show_to_builder, FIXED_STAND, r.show_to_builder);
+    assert.match(r.show_to_builder, GO_LIVE, r.show_to_builder);
+  }),
+);
+
+test('a reported login another profile proved is skipped: nothing of theirs is listed here', dbTest, () =>
+  prod(async () => {
+    const login = `octo${randomBytes(3).toString('hex')}`;
+    const owner = await install();
+    await sql()`INSERT INTO builder_profiles (builder_id, slug, github_login) VALUES (${owner}, ${`own${randomBytes(4).toString('hex')}`}, ${login})`;
+    const id = await install();
+    const gh = fakeGithub(login);
+    const r = await find(id, { identity: { github_login: login } }, { readerDeps: gh.reader, matchProjects: async () => ({ checked: 0, scored: 0, fits: [] }) });
+    assert.match(r.show_to_builder, /I couldn't find anything you've made yet\./, r.show_to_builder);
+    const [{ n }] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_sources WHERE builder_id = ${id}`;
+    assert.equal(n, 0);
+  }),
+);
+
+test('proving the reported login later verifies the same proposed rows', dbTest, () =>
+  prod(async () => {
+    const id = await install();
+    const login = `octo${randomBytes(3).toString('hex')}`;
+    const gh = fakeGithub(login);
+    await find(id, { identity: { github_login: login } }, { readerDeps: gh.reader, matchProjects: async () => ({ checked: 0, scored: 0, fits: [] }) });
+    const before = await sql()<{ id: number }[]>`SELECT id::int AS id FROM builder_sources WHERE builder_id = ${id} AND kind = 'repo' ORDER BY id`;
+    assert.equal(before.length, 3);
+    await sql()`INSERT INTO github_verifications (installation_id, login, repo_key, account_created_at, public_repos) VALUES (${id}, ${login}, ${`${login}/hello-world`}, now() - interval '3 years', 3)`;
+    await discoverPerson(id, { deadline: Date.now() + 8000, reader: gh.reader });
+    const after = await sql()<{ id: number; state: string }[]>`SELECT id::int AS id, state FROM builder_sources WHERE builder_id = ${id} AND kind = 'repo' ORDER BY id`;
+    assert.deepEqual(after.map((x) => x.id), before.map((x) => x.id), 'the same rows');
+    assert.ok(after.every((x) => x.state === 'verified'), JSON.stringify(after));
+  }),
+);
+
+test('the on-demand refresh skips the proof-line check when time is short, never throwing (cron still stops)', async () => {
+  const reader = { ghFetch: async () => new Response('{}'), ghSpent: () => false } as unknown as ReaderDeps;
+  assert.equal(await proofLineCheck(reader, Date.now() + 1_000, { skipShort: true })(1, 'a/b'), null);
+  await assert.rejects(proofLineCheck(reader, Date.now() + 1_000)(1, 'a/b'), ScoreDeadline);
+});
+
+test('(c) the 10-minute window: the second find within 10 min does not refresh again', dbTest, () =>
+  prod(async () => {
+    const id = await install();
+    const login = `octo${randomBytes(3).toString('hex')}`;
+    const gh = fakeGithub(login);
+    const extra = { readerDeps: gh.reader, matchProjects: async () => ({ checked: 0, scored: 0, fits: [] }) };
+    await find(id, { identity: { github_login: login } }, extra);
+    const [a] = await sql()<{ read_at: Date }[]>`SELECT read_at FROM builder_live WHERE builder_id = ${id}`;
+    await find(id, { identity: { github_login: login } }, extra);
+    const [b] = await sql()<{ read_at: Date }[]>`SELECT read_at FROM builder_live WHERE builder_id = ${id}`;
+    assert.equal(b.read_at.getTime(), a.read_at.getTime(), 'claimed once');
+  }),
+);

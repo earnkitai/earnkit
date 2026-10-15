@@ -32,6 +32,8 @@ export type LocalGit = { emails: string[]; remotes: string[]; live_urls: string[
 
 /** How many queued people one cron run's discover step reads (Task 6). */
 export const DISCOVER_PER_RUN = 20;
+/** v2.12.2: an unproven reported login's newest owned repos proposed per person (the 25-project cap). */
+export const REPORTED_REPOS_MAX = 25;
 
 /** At most `scan` entries are looked at; strings only, trimmed, non-empty. */
 const strings = (v: unknown, scan: number): string[] =>
@@ -139,12 +141,17 @@ export const PROOF_LINE_MIN_MS = 15_000;
  * deadline, and it is not started when the budget is spent (GitHubBudgetStop) or less than
  * PROOF_LINE_MIN_MS remains (ScoreDeadline). A reader without `ghFetch` (tests) never checks.
  */
-export function proofLineCheck(d: ReaderDeps, deadline: number): ProofLineCheck {
+export function proofLineCheck(d: ReaderDeps, deadline: number, o: { skipShort?: boolean } = {}): ProofLineCheck {
   return async (installationId, repoKey) => {
     const ghFetch = d.ghFetch;
     if (!ghFetch) return null;
     if (d.ghSpent?.()) throw new GitHubBudgetStop();
-    if (deadline - Date.now() < PROOF_LINE_MIN_MS) throw new ScoreDeadline();
+    if (deadline - Date.now() < PROOF_LINE_MIN_MS) {
+      // v2.12.2: the on-demand refresh (8 s) never has PROOF_LINE_MIN_MS: it skips the check (no
+      // proof from it this time; the cron's discovery still checks) instead of aborting discovery.
+      if (o.skipShort) return null;
+      throw new ScoreDeadline();
+    }
     const found = await beforeDeadline(
       (async () => {
         const lineOwner = await proofLineOwner(
@@ -209,7 +216,11 @@ const GITHUB_LOGIN = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}$/;
 
 type Counts = { people: number; proposed: number; verified: number };
 type Row = { id: number; state: string };
-type DiscoverOpts = { deadline: number; reader: ReaderDeps; login?: LoginOf; proofLine?: ProofLineCheck };
+type DiscoverOpts = {
+  deadline: number; reader: ReaderDeps; login?: LoginOf; proofLine?: ProofLineCheck;
+  /** v2.12.2: skip the proof-line check (never throw) when less than PROOF_LINE_MIN_MS remains. */
+  skipShortProofLine?: boolean;
+};
 
 /**
  * One person's discovery (spec 3, clues 1, 2, 3 and 5; v2.12.1 S9 removed 4 and 6). Every read happens first; every verdict (verify,
@@ -283,7 +294,7 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
 
   let person: PersonGithub | null = null;
   let proof = await (o.login ??
-    ((id: number) => provenLogin(id, { proofLine: o.proofLine ?? proofLineCheck(d, o.deadline), reader: d, person: (p) => void (person = p) })))(root);
+    ((id: number) => provenLogin(id, { proofLine: o.proofLine ?? proofLineCheck(d, o.deadline, { skipShort: o.skipShortProofLine }), reader: d, person: (p) => void (person = p) })))(root);
   // T7: an X field match GitHub no longer shows (twitter_username is self-declared, so it can be
   // withdrawn) stops confirming: the login and what it confirmed go back to not yet confirmed.
   const read0 = person as PersonGithub | null;
@@ -428,6 +439,35 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
       if (blog) await propose('site', blog, blog);
     }
   }
+  // v2.12.2: no proven login, but the agent reported one: that login's own public repos (not forks or
+  // templates, newest pushed first, at most REPORTED_REPOS_MAX) and the homepages they link are shown
+  // as theirs, not yet confirmed (spec "Not yet confirmed: anything else the agent reported. Shown,
+  // never scored."). Proposed only: never verified, never a merge; proving the login later verifies
+  // these same rows (Clue 2). A login another profile has proven is skipped. One GraphQL call (the X
+  // field check's read when there was one), only within the budget and before the deadline.
+  if (!proof) {
+    const [r] = await db<{ reported: string | null }[]>`SELECT lower(reported_github) AS reported FROM builder_profiles WHERE builder_id = ${root}`;
+    const L = r?.reported && GITHUB_LOGIN.test(r.reported) ? r.reported : null;
+    const [taken] = L ? await db`SELECT 1 FROM builder_profiles WHERE lower(github_login) = ${L} AND builder_id <> ${root}` : [];
+    if (L && !taken && Date.now() < o.deadline && d.ghSpent?.() !== true) {
+      const known = person as PersonGithub | null;
+      const gh = known && known.login === L ? known : await soft(readPersonGithub(L, d), null);
+      const own = [...(gh?.repos.values() ?? [])]
+        .filter((x) => !x.derived && x.private !== true && x.owner === L)
+        .sort((a, b) => (b.pushed_at ?? '').localeCompare(a.pushed_at ?? ''))
+        .slice(0, REPORTED_REPOS_MAX);
+      let homes = 0;
+      for (const x of own) {
+        await propose('repo', x.key, x.key);
+        const home = homepageOrigin(x.homepage);
+        const site = home && publicHttpsOrigin(home);
+        if (site && homes < DISCOVER_CAPS.sites) {
+          homes++;
+          await propose('site', site, x.key);
+        }
+      }
+    }
+  }
   // v2.12.1 S9: no merged-PR clue (4) and no earnkit.txt site check (6); existing rows stay, not confirmed.
   // Every read is done: now the verdicts.
   for (const v of verdicts) await v();
@@ -484,7 +524,8 @@ export async function discoverPerson(root: number, o: DiscoverOpts): Promise<Cou
   const out: Counts = { people: 0, proposed: 0, verified: 0 };
   const [g] = await db<{ shared: boolean | null }[]>`SELECT bool_or(shared_client) AS shared FROM installations WHERE COALESCE(builder_id, id) = ${root}`;
   if (g?.shared) return out;
-  await discoverOne(root, o, out);
+  // v2.12.2: the refresh's short budget skips the proof-line check rather than aborting discovery.
+  await discoverOne(root, { skipShortProofLine: true, ...o }, out);
   // A person never queued gets a done row too, so the refresh can tell when discovery last ran.
   await db`
     INSERT INTO discovery_queue (builder_id, reason, done_at) VALUES (${root}, 'first_find', now())

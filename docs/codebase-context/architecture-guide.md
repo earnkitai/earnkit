@@ -4812,6 +4812,21 @@ shown, marked "Not yet confirmed" on the page (one quiet line when none is confi
 `earnkit_txt` and `dns_txt` rows count as not confirmed (S9: discovery no longer proposes merged PRs
 or reads `earnkit.txt`; old rows stay).
 
+**v2.12.2, a reported login's own repos** (`discovery.ts discoverOne`; design note
+`v2.12.2-reported-github-work.md`): with no proven login but an `identity.github_login` the agent
+reported (`reported_github`) that no other profile has proven, one GitHub person query lists that
+login's newest `REPORTED_REPOS_MAX` (25) own public repos (no forks or templates) and proposes them,
+plus their homepages (at most `DISCOVER_CAPS.sites`), as `server` sources. Never verified, never a
+merge, never scored; a later proven login verifies the same rows (Clue 2). Only within the GitHub
+budget and before the deadline. The first reply then says "You've made N projects on GitHub: A, B
+and C. None is live yet." (`where-you-stand.ts`, names as GitHub writes them via `PersonRepo.name`),
+and a code-only project can get the `go_live` yes (GitHub Pages; a non-web repo ends in the honest
+"couldn't put it online"). find passes the reported login to the v2.11 matcher (flag on, own
+installation only), so a program can be tied to a reported repo as a fit. The on-demand refresh
+(8 s) skips the proof-line check when less than `PROOF_LINE_MIN_MS` remains
+(`proofLineCheck(..., { skipShort })`, set by `discoverPerson`) instead of aborting discovery; the
+cron still stops with `ScoreDeadline`. Flag off: unchanged.
+
 ### The score v2 and the rank (`score-v2.ts`, `rank.ts`, `person-score.ts`)
 
 - `computeScoreV2` (formula `v2`, pure): Shipped 20 (front-loaded, keeps at least half forever),

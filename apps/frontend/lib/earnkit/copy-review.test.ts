@@ -1028,6 +1028,9 @@ export const v2121Texts: [string, string][] = [
   ['step tag_future plain', stepLines([sp({ key: 'g', name: 'Game', what: 'a puzzle game', sends_tx: true })])],
   ['step payment', stepLines([sp({ key: 's', name: 'Shop', what: 'a coffee shop site' })])],
   ['step go_live', stepLines([sp({ key: 'a/b', name: 'B', what: 'a budget tracker', shipped: false })], {}, () => true)],
+  // v2.12.2: only code on GitHub (a reported login's repos, not yet confirmed), and its one yes.
+  ['whereYouStand on GitHub', whereYouStand({ ...standBaseView, earn: [], projects: [sp({ key: 'o/hello-world', name: 'Hello-World', what: 'My first repository on GitHub!', shipped: false, app: false, code: true }), sp({ key: 'o/spoon-knife', name: 'Spoon-Knife', shipped: false, app: false, code: true })], step: null, news: null })],
+  ['step go_live code', stepLines([sp({ key: 'o/hello-world', name: 'Hello-World', what: 'My first repository on GitHub!', shipped: false, app: false, code: true }), sp({ key: 'o/spoon-knife', name: 'Spoon-Knife', shipped: false, app: false, code: true })], {}, () => true)],
   ['buildStepLine', buildStepLine('Arc Microgrants', '500 USDC', true)],
   ['buildStepLine chat', buildStepLine('Arc Microgrants', '500 USDC', false)],
   ['standingNews people', standingNews({ rank: 5, people: { t: 1 }, at: '2026-10-10T00:00:00Z' }, { standing: { ranked: true, rank: 3, total: 40 }, projects: [{ key: 't', name: 'TipJar', people: 13 }] }, new Date('2026-10-14T00:00:00Z'), true)!.line],
