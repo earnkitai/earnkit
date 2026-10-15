@@ -44,8 +44,12 @@ export function cardHeadline(h: { moment: 'shipped' | 'people' | 'rank' | null; 
 
 /** The X intent for the share link: the card's headline and the page; nothing else. Pure. */
 export function shareIntent(handle: string, headline: string): string {
+  return shareIntentText(handle, `${headline} on EarnKit.`);
+}
+/** v2.13: the X intent with the post's whole text (benchShareText) and the page. Pure. */
+export function shareIntentText(handle: string, text: string): string {
   const u = new URL('https://x.com/intent/post');
-  u.searchParams.set('text', `${headline} on EarnKit.`);
+  u.searchParams.set('text', text);
   u.searchParams.set('url', `https://earnkit.com${pagePath(handle)}`);
   return u.toString();
 }

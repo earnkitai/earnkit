@@ -1,10 +1,10 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ImageResponse } from 'next/og';
-import { benchCardFacts, streakWords, type BenchCardFacts } from '../../lib/earnkit/bench-data';
+import { benchCardFacts, benchShareText, streakWords, type BenchCardFacts } from '../../lib/earnkit/bench-data';
 import { benchEnabled } from '../../lib/earnkit/builder-score-flag';
 import { noteEvent } from '../../lib/earnkit/events';
-import { bestProject, cardHeadline, personFacts, shareIntent, type PersonFacts } from '../../lib/earnkit/page-data';
+import { bestProject, cardHeadline, personFacts, shareIntent, shareIntentText, type PersonFacts } from '../../lib/earnkit/page-data';
 import { resolveHandle } from '../../lib/earnkit/profiles';
 import { pagePath, pageUrl } from '../../lib/earnkit/reserved-routes';
 import { CARD_CACHE } from '../../lib/earnkit/share';
@@ -213,9 +213,18 @@ export async function cardResponse(handle: string, path: string): Promise<Respon
 export async function shareResponse(handle: string, path: string): Promise<Response> {
   const who = await live(handle, path, 'share');
   if (who instanceof Response) return who;
-  const h = await headlineOf(who.builderId);
-  if (!h) return notFound();
+  // v2.13: the post says what the card shows (benchShareText); flag off, the v2.12.1 headline.
+  let location: string;
+  if (benchEnabled()) {
+    const f = await benchCardFacts(who.builderId);
+    if (!f) return notFound();
+    location = shareIntentText(who.handle, benchShareText(f));
+  } else {
+    const h = await headlineOf(who.builderId);
+    if (!h) return notFound();
+    location = shareIntent(who.handle, h.headline);
+  }
   const day = new Date().toISOString().slice(0, 10);
   await noteEvent('card_shared', () => ({ type: 'card_shared', dedupe_key: `card_shared:${who.builderId}:${day}`, installation_id: who.builderId }));
-  return new Response(null, { status: 302, headers: { Location: shareIntent(who.handle, h.headline), 'Cache-Control': 'no-store' } });
+  return new Response(null, { status: 302, headers: { Location: location, 'Cache-Control': 'no-store' } });
 }

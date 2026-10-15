@@ -267,9 +267,21 @@ export async function benchCardFacts(builderId: number): Promise<BenchCardFacts 
       SELECT b.streak, ${benchConfirmedSql(db)} AS confirmed FROM builder_projects b WHERE b.builder_id = ${builderId} AND lower(b.project_key) = lower(${p.main})`;
     const shown = ((await shownProjects([builderId])).get(builderId) ?? []).find((r) => norm(r.key) === norm(p.main!));
     if (b && shown) {
-      project = shown.safeName;
+      // Fix round 1: a project the Bench doesn't count as confirmed (maybe someone else's repo) is never named on the card.
+      project = b.confirmed ? shown.safeName : null;
       streak = b.confirmed ? b.streak : 0;
     }
   }
   return { handle: p.x_handle, name: displayName(p.x_name, p.x_handle), avatar: avatarUrl(p.x_avatar_url), bench: lines.bench, project, streak, raising: pill?.symbol ?? null };
+}
+
+/**
+ * The share post's words under the Bench flag, matching the card: the Bench line, else the confirmed
+ * project and its streak, else the person's page. Pure.
+ */
+export function benchShareText(f: Pick<BenchCardFacts, 'handle' | 'bench' | 'project' | 'streak'>): string {
+  if (f.bench) return `${f.bench} at EarnKit.`;
+  const streak = streakWords(f.streak);
+  if (f.project) return streak ? `Shipping ${f.project}, ${streak}, on EarnKit.` : `Shipping ${f.project} on EarnKit.`;
+  return `@${f.handle} on EarnKit.`;
 }

@@ -179,3 +179,24 @@ test('11.12 the Raising chip shows once, on the newest card (the header carries 
   ], 'Recipe planner', 'RECIPE');
   assert.deepEqual(cards.map((c) => c.chips), [['1 commit', 'Raising $RECIPE'], ['2 commits']]);
 });
+
+test('11.14 (fix round 1) the share post\'s words: the Bench line, else the confirmed project and streak, else the page', async () => {
+  const { benchShareText } = await import('./bench-data');
+  assert.equal(benchShareText({ handle: 'maya_makes', bench: 'Top 4% on the Bench', project: 'Recipe planner', streak: 6 }), 'Top 4% on the Bench at EarnKit.');
+  assert.equal(benchShareText({ handle: 'maya_makes', bench: null, project: 'Recipe planner', streak: 6 }), 'Shipping Recipe planner, 6 weeks in a row, on EarnKit.');
+  assert.equal(benchShareText({ handle: 'maya_makes', bench: null, project: 'Recipe planner', streak: 0 }), 'Shipping Recipe planner on EarnKit.');
+  assert.equal(benchShareText({ handle: 'maya_makes', bench: null, project: null, streak: 0 }), '@maya_makes on EarnKit.');
+});
+
+test('11.15 (fix round 1) the Project tab of a project not yet confirmed: its name and the line, no links, no numbers', () => {
+  const h = html(React.createElement(BenchProfileView, { data: { ...DATA, project: { ...DATA.project!, confirmed: false } }, tab: 'project' }));
+  assert.ok(h.includes('Recipe planner') && h.includes(CONFIRMING_LINE));
+  for (const s of ['https://recipes.app', 'https://github.com/maya/recipes', 'Live site', '31 people use it', 'Won Base Builder Grants', 'Ways to get funded', 'a recipe planner'])
+    assert.ok(!h.includes(s), s);
+});
+
+test('11.16 (fix round 1) Avatar remembers which photo failed: a new src gets its own try', async () => {
+  const src = (await import('node:fs')).readFileSync(new URL('../../app/[handle]/Avatar.tsx', import.meta.url), 'utf8');
+  assert.match(src, /failedSrc === src/);
+  assert.match(src, /onError=\{\(\) => setFailedSrc\(src\)\}/);
+});

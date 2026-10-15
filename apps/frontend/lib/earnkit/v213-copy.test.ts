@@ -75,8 +75,11 @@ test('11.11 the profile\'s words pass the v2.13 rule on both tabs; chain names o
   const { shippedWords } = await import('../../app/[handle]/ShipGrid');
   const { factChips, startedChips, startedLine } = await import('./week-facts');
   const { DATA } = await import('./fixtures/profile-data');
+  const { benchShareText } = await import('./bench-data');
   const texts = [
     TAB_LOG, TAB_PROJECT, BENCH_SOURCES_LINE, LOG_EMPTY, CONFIRMING_LINE, streakWords(6)!, streakWords(1)!, shippedWords(9), shippedWords(1),
+    benchShareText({ handle: 'maya_makes', bench: 'Top 4% on the Bench', project: null, streak: 0 }), benchShareText({ handle: 'maya_makes', bench: '#2 of 18 on the Bench', project: null, streak: 0 }),
+    benchShareText({ handle: 'maya_makes', bench: null, project: 'Recipe planner', streak: 6 }), benchShareText({ handle: 'maya_makes', bench: null, project: null, streak: 0 }),
     startedLine('Recipe planner'), ...startedChips({ live: true, weeks: 3, people: 31 }), ...startedChips({ live: false, weeks: 1, people: 1 }),
     ...factChips({ went_live: true, won: [{ title: 'Base Builder Grants' }], users_up: { n: 31 }, earned: { usd: 120 }, shipped_code: { n: 12 }, streak: { w: 6 } }, { raising: 'RECIPE' }),
   ];

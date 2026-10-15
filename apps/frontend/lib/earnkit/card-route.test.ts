@@ -171,3 +171,42 @@ test('11.8 the card reads at X\'s mobile preview: Funnel Display, a big headline
   assert.equal(await avatarData('https://pbs.twimg.com/x3.jpg', async () => { throw new Error('down'); }), null);
   assert.equal(await avatarData(null), null);
 });
+
+test('11.13 (v2.13 fix round 1) under the Bench flag: the card and the share post never name a confirming project; the post says what the card says; flag off unchanged', dbTest, async () => {
+  const { sql, share, card } = await loadV2121();
+  const { benchCardFacts } = await import('./bench-data');
+  const was = { score: process.env.EARNKIT_BUILDER_SCORE, bench: process.env.EARNKIT_BENCH };
+  process.env.EARNKIT_BUILDER_SCORE = 'on';
+  process.env.EARNKIT_BENCH = 'on';
+  const id = 2_146_500_000 + Math.floor(Math.random() * 400_000);
+  const handle = `Bc${id}`.slice(0, 15);
+  const key = `bc${id}/notmine`;
+  const text = async () => new URL((await share(new Request(`http://x/${handle}/share`), { params: Promise.resolve({ handle }) })).headers.get('location')!).searchParams.get('text');
+  try {
+    await sql()`INSERT INTO builder_profiles (builder_id, slug, x_user_id, x_handle, main_project_key) VALUES (${id}, ${`bc${id}`}, ${`7${id}`}, ${handle}, ${key})`;
+    await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, streak) VALUES (${id}, ${key}, 'Not Mine App', 'app', true, true, 3)`;
+    await sql()`UPDATE builder_profiles SET identity = '{"projects":[{"name":"Not Mine App"}]}'::jsonb WHERE builder_id = ${id}`;
+    // Confirming (no proof from the repo): the card and the post never name it.
+    const f = (await benchCardFacts(id))!;
+    assert.equal(f.project, null);
+    assert.equal(f.streak, 0);
+    assert.equal(await text(), `@${handle} on EarnKit.`);
+    const png = await card(new Request(`http://x/${handle}/card.png`), { params: Promise.resolve({ handle }) });
+    assert.equal(png.status, 200);
+    assert.equal(png.headers.get('content-type'), 'image/png');
+    // Confirmed by the repo's own proof: the project and its streak, as the card's footer says.
+    await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES (${id}, 'repo', ${key}, ${key}, 'verified', 'proof_line', 'agent')`;
+    assert.equal((await benchCardFacts(id))!.project, 'Not Mine App');
+    assert.equal(await text(), 'Shipping Not Mine App, 3 weeks in a row, on EarnKit.');
+    // Flag off: the v2.12.1 headline.
+    delete process.env.EARNKIT_BENCH;
+    assert.equal(await text(), 'Shipped 1 app with AI on EarnKit.');
+  } finally {
+    await sql()`DELETE FROM builder_sources WHERE builder_id = ${id}`;
+    await sql()`DELETE FROM builder_projects WHERE builder_id = ${id}`;
+    await sql()`DELETE FROM builder_profiles WHERE builder_id = ${id}`;
+    for (const [k, v] of [['EARNKIT_BUILDER_SCORE', was.score], ['EARNKIT_BENCH', was.bench]] as const)
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+  }
+});

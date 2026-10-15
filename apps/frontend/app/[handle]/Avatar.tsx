@@ -17,11 +17,13 @@ export default function Avatar({
   handle: string;
   className?: string;
 }) {
-  const [failed, setFailed] = useState(false);
+  // The src that failed: a new photo (a reused instance) gets its own try.
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const failed = src !== null && failedSrc === src;
   const img = useRef<HTMLImageElement>(null);
   useEffect(() => {
     const el = img.current;
-    if (el && el.complete && el.naturalWidth === 0) setFailed(true);
+    if (el && el.complete && el.naturalWidth === 0) setFailedSrc(src);
   }, [src]);
   if (src && !failed)
     return (
@@ -33,7 +35,7 @@ export default function Avatar({
         referrerPolicy="no-referrer"
         loading="lazy"
         decoding="async"
-        onError={() => setFailed(true)}
+        onError={() => setFailedSrc(src)}
         className={`shrink-0 rounded-full bg-ek-navy object-cover ring-1 ring-ek-blue-soft/20 ${className}`}
       />
     );

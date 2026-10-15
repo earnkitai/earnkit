@@ -69,6 +69,18 @@ export default function ProjectTab({
       </p>
     );
   const p = project;
+  // Fix round 1: until it's confirmed (it may be someone else's repo), only its name and the line; no links.
+  if (!p.confirmed)
+    return (
+      <div>
+        <h2 className="min-w-0 break-words font-funnel-display text-2xl font-medium leading-tight text-ek-white md:text-[2rem]">
+          {p.name}
+        </h2>
+        <p className="mt-3 font-funnel-sans text-base font-light text-ek-blue-soft">
+          {confirming}
+        </p>
+      </div>
+    );
   const stats = p.people !== null || p.money !== null || p.coin !== null;
   return (
     <div>
@@ -114,12 +126,6 @@ export default function ProjectTab({
             </a>
           ) : null}
         </div>
-      ) : null}
-
-      {!p.confirmed ? (
-        <p className="mt-8 font-funnel-sans text-base font-light text-ek-blue-soft">
-          {confirming}
-        </p>
       ) : null}
 
       {stats ? (
