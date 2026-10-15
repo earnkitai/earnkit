@@ -14,6 +14,8 @@ export type StandProject = {
   untracked_contract: string | null; untracked_people: number; certain: boolean; app: boolean;
   /** v2.12.2: only code (a GitHub repo, no site, package, contract or coin): it can be put online too. Absent: no. */
   code?: boolean;
+  /** v2.12.2: code with a sign it is a website (a homepage, or web code): only then go_live for it. Absent: no. */
+  web?: boolean;
   /** EarnKit confirmed it is theirs (T7). Absent: confirmed (nothing to offer). */
   confirmed?: boolean;
   /**
@@ -120,10 +122,10 @@ export function chooseStep(
   const off = (kind: MoveUp['kind'], key: string | null) => no.has(stepKey(kind, key));
   if (shown.length === 0) {
     // Ruling S15: the agent named apps but none is live: the one yes puts the best one online.
-    // v2.12.2: code only on GitHub can be put online too (GitHub Pages; a non-web repo gets the
-    // honest "couldn't put it online" reply), after any app; it is named by its own name.
+    // v2.12.2: code only on GitHub can be put online too (GitHub Pages), after any app, when it shows
+    // a sign of being a website (a homepage or web code); it is named by its own name. Else the link ask.
     const can = (p: StandProject) => o.host!(p.key) && !off('go_live', p.key);
-    const live = o.host ? (v.projects.find((p) => p.app && can(p)) ?? v.projects.find((p) => p.code && can(p))) : undefined;
+    const live = o.host ? (v.projects.find((p) => p.app && can(p)) ?? v.projects.find((p) => p.code && p.web && can(p))) : undefined;
     if (live)
       return {
         kind: 'go_live', project_key: live.key,

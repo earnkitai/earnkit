@@ -4820,12 +4820,17 @@ plus their homepages (at most `DISCOVER_CAPS.sites`), as `server` sources. Never
 merge, never scored; a later proven login verifies the same rows (Clue 2). Only within the GitHub
 budget and before the deadline. The first reply then says "You've made N projects on GitHub: A, B
 and C. None is live yet." (`where-you-stand.ts`, names as GitHub writes them via `PersonRepo.name`),
-and a code-only project can get the `go_live` yes (GitHub Pages; a non-web repo ends in the honest
-"couldn't put it online"). find passes the reported login to the v2.11 matcher (flag on, own
-installation only), so a program can be tied to a reported repo as a fit. The on-demand refresh
-(8 s) skips the proof-line check when less than `PROOF_LINE_MIN_MS` remains
-(`proofLineCheck(..., { skipShort })`, set by `discoverPerson`) instead of aborting discovery; the
-cron still stops with `ScoreDeadline`. Flag off: unchanged.
+and a code-only project gets the `go_live` yes (GitHub Pages) only with a web signal (`stand-view.ts`
+`web`: a site source, or `PersonRepo.web` from its homepage or a web `primaryLanguage`); otherwise
+the link ask. find passes the reported login to the v2.11 matcher (flag on, own installation, no
+github_user, repos or remembered user); that matching is quiet (`tools.ts quiet`): a failure is never
+shown and no repos found reads as none given. The on-demand refresh (8 s) skips the proof-line check
+when less than `PROOF_LINE_MIN_MS` remains (`proofLineCheck(..., { skipShort, onSkip })`, set by
+`discoverPerson`) instead of aborting discovery, and then leaves the queue row open with reason
+`proof_line` so the cron's `discover` runs the check (the refresh does not rerun discovery for that
+row). The proof-line and remote checks read agent-proposed repos first
+(`ORDER BY (proposed_by = 'agent') DESC, id`), so the 25 server rows never crowd them out. Flag off:
+unchanged.
 
 ### The score v2 and the rank (`score-v2.ts`, `rank.ts`, `person-score.ts`)
 

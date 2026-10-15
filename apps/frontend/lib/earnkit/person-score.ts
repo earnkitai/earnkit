@@ -727,8 +727,10 @@ export async function pageViewRefresh(id: number, o: { now: Date; deadline: numb
 
 /** Discovery inside a refresh: when a clue queued the person, else at most once a REFRESH_DISCOVER_MS (cost). */
 async function refreshDiscovery(id: number, now: Date, o: { deadline: number; reader: ReaderDeps }): Promise<void> {
-  const [q] = await sql()<{ done_at: Date | null }[]>`SELECT done_at FROM discovery_queue WHERE builder_id = ${id}`;
+  const [q] = await sql()<{ done_at: Date | null; reason: string }[]>`SELECT done_at, reason FROM discovery_queue WHERE builder_id = ${id}`;
   if (q?.done_at && now.getTime() - q.done_at.getTime() < REFRESH_DISCOVER_MS) return;
+  // v2.12.2: a proof-line check the refresh had no time for waits for the cron (it has the time).
+  if (q && !q.done_at && q.reason === 'proof_line') return;
   await discoverPerson(id, o);
 }
 

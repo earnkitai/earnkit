@@ -105,17 +105,20 @@ test('8.8b (ruling S15) none live and EarnKit can host one: the one yes puts it 
   assert.match(whereYouStand({ ...one, step: chooseStep(one, { coin: () => false, build: null }), news: null }), /^You've made 1 app with AI: Recipes\. It isn't live yet\.$/m);
 });
 
-test('v2.12.2 only code on GitHub: "on GitHub" by name (at most 3 named), and the one yes puts one online after any app', () => {
-  const code = (key: string, name: string, what: string | null = null) => p({ key, name, what, shipped: false, app: false, code: true });
+test('v2.12.2 only code on GitHub: "on GitHub" by name (at most 3 named); the one yes puts a web repo online, after any app', () => {
+  const code = (key: string, name: string, what: string | null = null, web = false) => p({ key, name, what, shipped: false, app: false, code: true, web });
   const v = { ...base, standing: { ranked: false, rank: 0, total: 40 }, earn: [], fresh: null, claimLink: null,
-    projects: [code('o/hello-world', 'Hello-World', 'My first repository on GitHub!'), code('o/spoon-knife', 'Spoon-Knife'), code('o/linguist', 'linguist')] };
+    projects: [code('o/hello-world', 'Hello-World', 'My first repository on GitHub!'), code('o/spoon-knife', 'Spoon-Knife', null, true), code('o/linguist', 'linguist')] };
   const step = chooseStep(v, { coin: () => false, build: null, host: () => true })!;
-  assert.deepEqual(step, { kind: 'go_live', project_key: 'o/hello-world', line: "Want me to put Hello-World online? It takes a few minutes and you won't have to do anything." });
+  assert.deepEqual(step, { kind: 'go_live', project_key: 'o/spoon-knife', line: "Want me to put Spoon-Knife online? It takes a few minutes and you won't have to do anything." });
   assert.equal(whereYouStand({ ...v, step, news: null }), `Where you stand
 You've made 3 projects on GitHub: Hello-World, Spoon-Knife and linguist. None is live yet.
 
 How to move up
-Want me to put Hello-World online? It takes a few minutes and you won't have to do anything.`);
+Want me to put Spoon-Knife online? It takes a few minutes and you won't have to do anything.`);
+  // No sign any repo is a website: never offered (the link ask).
+  const noWeb = { ...v, projects: v.projects.map((x) => ({ ...x, web: false })) };
+  assert.equal(chooseStep(noWeb, { coin: () => false, build: null, host: () => true })!.kind, 'send_link');
   const many = { ...v, projects: [...v.projects, code('o/x', 'x')] };
   assert.match(whereYouStand({ ...many, step: null, news: null }), /^You've made 4 projects on GitHub\. None is live yet\.$/m);
   // An app the agent named comes first; without hosting the link ask stays.

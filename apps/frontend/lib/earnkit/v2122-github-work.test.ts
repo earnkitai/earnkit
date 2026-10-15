@@ -7,7 +7,8 @@ import { tools } from './tools';
 import { scoreReply } from './score-tool';
 import { EVENT_LOG_FLAG } from './events';
 import type { ReaderDeps } from './source-readers';
-import { discoverPerson, proofLineCheck } from './discovery';
+import { discover, discoverPerson, proofLineCheck } from './discovery';
+import { GitHubError } from './match-projects';
 import { ScoreDeadline } from './campaigns';
 
 /**
@@ -48,17 +49,17 @@ async function install(): Promise<number> {
   return id;
 }
 
-/** octocat-like public repos: owned, not forks, two with descriptions, none with a homepage. */
-const repos = (login: string) => [
-  { name: 'Hello-World', description: 'My first repository on GitHub!' },
-  { name: 'Spoon-Knife', description: 'This repo is for demonstration purposes only.' },
-  { name: 'linguist', description: null },
+/** octocat-like public repos: owned, not forks, two with descriptions, none with a homepage; only Spoon-Knife is web code. */
+const repos = (login: string, web = true) => [
+  { name: 'Hello-World', description: 'My first repository on GitHub!', language: null },
+  { name: 'Spoon-Knife', description: 'This repo is for demonstration purposes only.', language: web ? 'HTML' : 'Shell' },
+  { name: 'linguist', description: null, language: 'Ruby' },
 ].map((r, i) => ({ ...r, full_name: `${login}/${r.name}`, login, pushed: new Date(NOW.getTime() - (i + 1) * 86_400_000).toISOString() }));
 
 /** A fake GitHub (REST + GraphQL) that answers for `login` and records each call. */
-function fakeGithub(login: string) {
+function fakeGithub(login: string, web = true) {
   const calls: string[] = [];
-  const rs = repos(login);
+  const rs = repos(login, web);
   const reader = new Proxy({} as ReaderDeps, {
     get: (_t, k) => {
       if (k === 'now') return NOW;
@@ -75,7 +76,7 @@ function fakeGithub(login: string) {
         return async (_q: string, v: Record<string, unknown>) => {
           calls.push(`graphql ${JSON.stringify(v.login ?? Object.keys(v).filter((x) => x.startsWith('n')).map((x) => v[x]))}`);
           const node = (r: ReturnType<typeof repos>[number]) => ({
-            nameWithOwner: r.full_name, description: r.description, homepageUrl: null, isFork: false, isTemplate: false, isPrivate: false,
+            nameWithOwner: r.full_name, description: r.description, homepageUrl: null, primaryLanguage: r.language ? { name: r.language } : null, isFork: false, isTemplate: false, isPrivate: false,
             createdAt: r.pushed, pushedAt: r.pushed, stargazerCount: 0, forkCount: 0, owner: { __typename: 'User', login },
             parent: null, templateRepository: null, stargazers: { edges: [] }, forks: { nodes: [] },
             defaultBranchRef: { target: { history: { nodes: [{ committedDate: r.pushed }] } } },
@@ -99,12 +100,12 @@ function fakeGithub(login: string) {
   return { reader, calls };
 }
 
-type Found = { show_to_builder: string };
+type Found = { show_to_builder: string; note?: string };
 const find = (id: number, input: Record<string, unknown>, extra: Record<string, unknown>) =>
   tools.find(input, { installationId: id, ...extra } as never) as Promise<Found>;
 
 const FIXED_STAND = /^Where you stand\nYou've made 3 projects on GitHub: Hello-World, Spoon-Knife and linguist\. None is live yet\./;
-const GO_LIVE = /How to move up\nWant me to put Hello-World online\? It takes a few minutes and you won't have to do anything\.$/;
+const GO_LIVE = /How to move up\nWant me to put Spoon-Knife online\? It takes a few minutes and you won't have to do anything\.$/;
 
 test('fixed: identity.github_login only (unproven) -> one read lists their own repos, shown on GitHub, not confirmed (find, find, score)', dbTest, () =>
   prod(async () => {
@@ -207,3 +208,79 @@ test('(c) the 10-minute window: the second find within 10 min does not refresh a
     assert.equal(b.read_at.getTime(), a.read_at.getTime(), 'claimed once');
   }),
 );
+
+test('review 3: no sign any repo is a website: no go_live offer, the link ask', dbTest, () =>
+  prod(async () => {
+    const id = await install();
+    const login = `octo${randomBytes(3).toString('hex')}`;
+    const gh = fakeGithub(login, false);
+    const r = await find(id, { identity: { github_login: login } }, { readerDeps: gh.reader, matchProjects: async () => ({ checked: 0, scored: 0, fits: [] }) });
+    assert.match(r.show_to_builder, FIXED_STAND, r.show_to_builder);
+    assert.match(r.show_to_builder, /How to move up\nSend me a link to something you've made and I'll add it\.$/, r.show_to_builder);
+  }),
+);
+
+test('review 1: a proof-line check the short refresh skipped stays queued; the cron runs it and proves the login', dbTest, () =>
+  prod(async () => {
+    const id = await install();
+    const login = `octo${randomBytes(3).toString('hex')}`;
+    const gh = fakeGithub(login);
+    // An agent-reported repo (where the proof line lives), then find: its 8 s refresh skips the 15 s check.
+    await find(id, { identity: { github_login: login, projects: [{ name: 'Hello-World', repo: `${login}/Hello-World` }] } },
+      { readerDeps: gh.reader, matchProjects: async () => ({ checked: 0, scored: 0, fits: [] }) });
+    const [q] = await sql()<{ done_at: Date | null; reason: string }[]>`SELECT done_at, reason FROM discovery_queue WHERE builder_id = ${id}`;
+    assert.deepEqual({ ...q }, { done_at: null, reason: 'proof_line' }, 'left open for the cron');
+    // The next refresh does not rerun discovery for it (the cron has the time).
+    const before = gh.calls.length;
+    await find(id, { identity: { github_login: login } }, { readerDeps: gh.reader, matchProjects: async () => ({ checked: 0, scored: 0, fits: [] }) });
+    assert.equal(gh.calls.slice(before).filter((c) => c === `graphql "${login}"`).length, 0, gh.calls.slice(before).join(', '));
+    // The cron's discover runs the check and proves the login.
+    const checked: string[] = [];
+    await discover(new Date(), { deadline: Date.now() + 60_000, reader: gh.reader, only: [id],
+      proofLine: async (_m, ref) => (checked.push(ref), ref === `${login}/hello-world` ? { login, basis: 'proof_line' } : null) });
+    assert.equal(checked[0], `${login}/hello-world`);
+    const [p] = await sql()<{ github_login: string | null }[]>`SELECT lower(github_login) AS github_login FROM builder_profiles WHERE builder_id = ${id}`;
+    assert.equal(p.github_login, login);
+    const [d] = await sql()<{ done_at: Date | null }[]>`SELECT done_at FROM discovery_queue WHERE builder_id = ${id}`;
+    assert.ok(d.done_at);
+  }),
+);
+
+test('review 2: the proof-line check and the remote check read agent-reported repos before the 25 server-proposed ones', dbTest, () =>
+  prod(async () => {
+    const id = await install();
+    const login = `octo${randomBytes(3).toString('hex')}`;
+    const gh = fakeGithub(login);
+    await find(id, { identity: { github_login: login } }, { readerDeps: gh.reader, matchProjects: async () => ({ checked: 0, scored: 0, fits: [] }) });
+    // Six server rows first (oldest ids), then the agent's repo.
+    for (let i = 0; i < 6; i++)
+      await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by) VALUES (${id}, 'repo', ${`${login}/old${i}`}, ${`${login}/old${i}`}, 'server')`;
+    await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by) VALUES (${id}, 'repo', ${`${login}/agentrepo`}, ${`${login}/agentrepo`}, 'agent')`;
+    await sql()`UPDATE discovery_queue SET done_at = NULL WHERE builder_id = ${id}`;
+    const checked: string[] = [];
+    await discover(new Date(), { deadline: Date.now() + 60_000, reader: gh.reader, only: [id], proofLine: async (_m, ref) => (checked.push(ref), null) });
+    assert.equal(checked[0], `${login}/agentrepo`, checked.join(', '));
+  }),
+);
+
+test('review 4: matching that rides only on the reported login is quiet: no repos or a failed read reads as none given', dbTest, () =>
+  prod(async () => {
+    const offline = new Proxy({} as ReaderDeps, { get: (_t, k) => (k === 'now' ? NOW : k === 'then' ? undefined : async () => { throw new Error('offline'); }) });
+    const norm = (t: string) => t.replace(/earnkit\.com\/claim\/\S+/g, 'CLAIM');
+    const login = `octo${randomBytes(3).toString('hex')}`;
+    const run = async (input: Record<string, unknown>, matchProjects: () => Promise<unknown>) => {
+      const r = await find(await install(), { agent_can_build: true, ...input }, { readerDeps: offline, matchProjects });
+      return { text: norm(r.show_to_builder), note: r.note };
+    };
+    const none = await run({}, async () => assert.fail('not called'));
+    const empty = await run({ identity: { github_login: login } }, async () => ({ checked: 0, scored: 0, fits: [] }));
+    const failed = await run({ identity: { github_login: login } }, async () => {
+      throw new GitHubError('GitHub said no (403)', 403);
+    });
+    // Same reply and the same agent note (never "EarnKit remembers their GitHub username": it doesn't).
+    assert.deepEqual(empty, none);
+    assert.deepEqual(failed, none);
+    assert.doesNotMatch(failed.text, /Couldn't read your repos/);
+  }),
+);
+

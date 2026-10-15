@@ -141,7 +141,7 @@ export const PROOF_LINE_MIN_MS = 15_000;
  * deadline, and it is not started when the budget is spent (GitHubBudgetStop) or less than
  * PROOF_LINE_MIN_MS remains (ScoreDeadline). A reader without `ghFetch` (tests) never checks.
  */
-export function proofLineCheck(d: ReaderDeps, deadline: number, o: { skipShort?: boolean } = {}): ProofLineCheck {
+export function proofLineCheck(d: ReaderDeps, deadline: number, o: { skipShort?: boolean; onSkip?: () => void } = {}): ProofLineCheck {
   return async (installationId, repoKey) => {
     const ghFetch = d.ghFetch;
     if (!ghFetch) return null;
@@ -149,7 +149,10 @@ export function proofLineCheck(d: ReaderDeps, deadline: number, o: { skipShort?:
     if (deadline - Date.now() < PROOF_LINE_MIN_MS) {
       // v2.12.2: the on-demand refresh (8 s) never has PROOF_LINE_MIN_MS: it skips the check (no
       // proof from it this time; the cron's discovery still checks) instead of aborting discovery.
-      if (o.skipShort) return null;
+      if (o.skipShort) {
+        o.onSkip?.();
+        return null;
+      }
       throw new ScoreDeadline();
     }
     const found = await beforeDeadline(
@@ -193,7 +196,7 @@ export async function provenLogin(
   if (logins.length === 1) return { login: logins[0].login, basis: logins[0].via === 'app' ? 'app' : 'signin' };
   if (o.proofLine) {
     const repos = await sql()<{ ref: string }[]>`
-      SELECT ref FROM builder_sources WHERE builder_id = ${builderId} AND kind = 'repo' AND state = 'proposed' ORDER BY id LIMIT ${DISCOVER_CAPS.remotes}`;
+      SELECT ref FROM builder_sources WHERE builder_id = ${builderId} AND kind = 'repo' AND state = 'proposed' ORDER BY (proposed_by = 'agent') DESC, id LIMIT ${DISCOVER_CAPS.remotes}`;
     for (const { ref } of repos)
       for (const m of members) {
         const p = await o.proofLine(m, ref);
@@ -214,7 +217,11 @@ export async function provenLogin(
 }
 const GITHUB_LOGIN = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}$/;
 
-type Counts = { people: number; proposed: number; verified: number };
+type Counts = {
+  people: number; proposed: number; verified: number;
+  /** v2.12.2: the proof-line check was skipped for lack of time with candidates to check (discoverPerson). */
+  proofSkipped?: boolean;
+};
 type Row = { id: number; state: string };
 type DiscoverOpts = {
   deadline: number; reader: ReaderDeps; login?: LoginOf; proofLine?: ProofLineCheck;
@@ -294,7 +301,7 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
 
   let person: PersonGithub | null = null;
   let proof = await (o.login ??
-    ((id: number) => provenLogin(id, { proofLine: o.proofLine ?? proofLineCheck(d, o.deadline, { skipShort: o.skipShortProofLine }), reader: d, person: (p) => void (person = p) })))(root);
+    ((id: number) => provenLogin(id, { proofLine: o.proofLine ?? proofLineCheck(d, o.deadline, { skipShort: o.skipShortProofLine, onSkip: () => void (out.proofSkipped = true) }), reader: d, person: (p) => void (person = p) })))(root);
   // T7: an X field match GitHub no longer shows (twitter_username is self-declared, so it can be
   // withdrawn) stops confirming: the login and what it confirmed go back to not yet confirmed.
   const read0 = person as PersonGithub | null;
@@ -362,7 +369,7 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
     }
     // The agent's remotes (R4: clues only) are checked against the proven login.
     const remotes = await db<{ ref: string }[]>`
-      SELECT ref FROM builder_sources WHERE builder_id = ${root} AND kind = 'repo' AND state = 'proposed' ORDER BY id LIMIT ${DISCOVER_CAPS.remotes}`;
+      SELECT ref FROM builder_sources WHERE builder_id = ${root} AND kind = 'repo' AND state = 'proposed' ORDER BY (proposed_by = 'agent') DESC, id LIMIT ${DISCOVER_CAPS.remotes}`;
     for (const { ref } of remotes) {
       const key = ref.toLowerCase();
       if (candidates.has(key) || !REPO_KEY.test(key)) continue;
@@ -449,7 +456,8 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
     const [r] = await db<{ reported: string | null }[]>`SELECT lower(reported_github) AS reported FROM builder_profiles WHERE builder_id = ${root}`;
     const L = r?.reported && GITHUB_LOGIN.test(r.reported) ? r.reported : null;
     const [taken] = L ? await db`SELECT 1 FROM builder_profiles WHERE lower(github_login) = ${L} AND builder_id <> ${root}` : [];
-    if (L && !taken && Date.now() < o.deadline && d.ghSpent?.() !== true) {
+    // The read itself stops on a spent budget or the deadline (budgeted ghGraphql; soft rethrows both).
+    if (L && !taken && Date.now() < o.deadline) {
       const known = person as PersonGithub | null;
       const gh = known && known.login === L ? known : await soft(readPersonGithub(L, d), null);
       const own = [...(gh?.repos.values() ?? [])]
@@ -526,10 +534,18 @@ export async function discoverPerson(root: number, o: DiscoverOpts): Promise<Cou
   if (g?.shared) return out;
   // v2.12.2: the refresh's short budget skips the proof-line check rather than aborting discovery.
   await discoverOne(root, { skipShortProofLine: true, ...o }, out);
-  // A person never queued gets a done row too, so the refresh can tell when discovery last ran.
-  await db`
-    INSERT INTO discovery_queue (builder_id, reason, done_at) VALUES (${root}, 'first_find', now())
-    ON CONFLICT (builder_id) DO UPDATE SET done_at = now()`;
+  if (out.proofSkipped) {
+    // The skipped check is the cron's to run: the row stays open (reason 'proof_line'), so the next
+    // cron discover checks the proof line; the refresh does not rerun discovery for it (person-score.ts).
+    await db`
+      INSERT INTO discovery_queue (builder_id, reason) VALUES (${root}, 'proof_line')
+      ON CONFLICT (builder_id) DO UPDATE SET reason = 'proof_line', queued_at = now(), done_at = NULL`;
+  } else {
+    // A person never queued gets a done row too, so the refresh can tell when discovery last ran.
+    await db`
+      INSERT INTO discovery_queue (builder_id, reason, done_at) VALUES (${root}, 'first_find', now())
+      ON CONFLICT (builder_id) DO UPDATE SET done_at = now()`;
+  }
   out.people++;
   return out;
 }

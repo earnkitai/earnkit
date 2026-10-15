@@ -1360,13 +1360,12 @@ export const handlers = {
     // Remembered from an earlier call when not given now (G7: a verified login is its own GitHub user).
     // v2.12.2: with the score flag on, else the login the agent reported (identity), so a program can
     // be tied to one of their repos (a fit only: it confirms nothing).
+    const reported = scoring && own && !github_user && !repos?.length && !memory.github_user ? identity.github_login : null;
     const user =
-      github_user ??
-      (repos?.length
-        ? undefined
-        : own
-          ? (memory.github_user ?? (scoring ? identity.github_login : null) ?? undefined)
-          : (login ?? undefined));
+      github_user ?? (repos?.length ? undefined : own ? (memory.github_user ?? reported ?? undefined) : (login ?? undefined));
+    // v2.12.2: matching that only rides on the reported login (the agent asked for nothing) is quiet:
+    // its failure is never shown, and it counts as "repos given" only when it found some.
+    const quiet = reported !== null && user === reported;
     const repoList = repos?.length
       ? repos
       : github_user || !own
@@ -1380,7 +1379,7 @@ export const handlers = {
     // Ruling 11 (plan): a GitHub user or repo list, given now or remembered, turns off "You could".
     // Local repos count too (fix round 1, Minor 5): the spec's gate is "no repos are reported or
     // found", and a repo the agent reported is a repo reported, matching error or not.
-    const githubGiven = Boolean(user || repoList?.length || local?.length);
+    let githubGiven = Boolean((user && !quiet) || repoList?.length || local?.length);
     // EarnKit campaigns are their own table (campaigns), not program cards (v2.4 §1).
     const cards = programs.filter((p) => !p.earnkit_campaign).map((p) => ({
       ...p,
@@ -1449,9 +1448,15 @@ export const handlers = {
           }
         }
       } catch (err) {
-        if (err instanceof GitHubError || err instanceof RateLimitError)
+        if (quiet) console.error('[list_programs] reported login matching', err instanceof Error ? err.name : 'error');
+        else if (err instanceof GitHubError || err instanceof RateLimitError)
           yourRepos = { error: err.message };
         else console.error('[list_programs] matching failed:', err);
+      }
+      // A reported login with no repos found reads as no repos given ("You could" stays).
+      if (quiet) {
+        if (yourRepos && 'checked' in yourRepos && yourRepos.checked > 0) githubGiven = true;
+        else yourRepos = null;
       }
     }
     // v2.9 A7: the builder's best owned repos that fit something, for new program alerts (no GitHub
@@ -1589,7 +1594,7 @@ export const handlers = {
         'Show show_to_builder to the builder exactly as written. ' +
         (!own && (user || repoList?.length || local?.length)
           ? 'This agent serves many builders, so pass their repos again on each call. '
-          : user || repoList?.length
+          : (user && !quiet) || repoList?.length
           ? 'EarnKit remembers their GitHub username or repos for next time. '
           : local?.length
             ? 'EarnKit remembers the repos you reported for next time. '

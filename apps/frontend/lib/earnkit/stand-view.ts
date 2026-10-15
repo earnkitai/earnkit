@@ -66,7 +66,7 @@ export function startRefresh(id: number, o: { now: Date; start: number; reader?:
 
 type ProjectDbRow = {
   project_key: string; name: string; what: string | null; kind: string; confirmed: boolean; shipped: boolean; people: number;
-  has_coin: boolean; sends_tx: boolean; tagged: boolean; untracked_contract: string | null; readable: boolean; certain: boolean; tracked_tx: boolean;
+  has_coin: boolean; sends_tx: boolean; tagged: boolean; untracked_contract: string | null; readable: boolean; certain: boolean; tracked_tx: boolean; web: boolean;
 };
 
 /** Fix round 1: the switches a tip jar needs (FreshOn's); absent, the server's own (deploys, hosting). */
@@ -147,7 +147,13 @@ export async function standBase(id: number, o: { fresh?: TipSwitches } = {}): Pr
       (EXISTS (SELECT 1 FROM builder_sources s WHERE s.builder_id = ${id} AND s.project_key = p.project_key AND s.kind = 'contract'
           AND s.state = 'verified' AND s.ref ~ '^(base|arc):')
         OR EXISTS (SELECT 1 FROM contract_deploys d JOIN installations i ON i.id = d.installation_id
-          WHERE COALESCE(i.builder_id, i.id) = ${id} AND d.status = 'deployed' AND lower(d.repo_key) = lower(p.project_key))) AS tracked_tx
+          WHERE COALESCE(i.builder_id, i.id) = ${id} AND d.status = 'deployed' AND lower(d.repo_key) = lower(p.project_key))) AS tracked_tx,
+      -- v2.12.2: a sign the code is a website (its homepage, or GitHub's web-code reading): go_live is offered only then.
+      (EXISTS (SELECT 1 FROM builder_sources s WHERE s.builder_id = ${id} AND s.project_key = p.project_key AND s.kind = 'site' AND s.state <> 'rejected')
+        OR EXISTS (SELECT 1 FROM builder_sources s JOIN source_live l ON l.source_id = s.id
+          WHERE s.builder_id = ${id} AND s.kind = 'repo' AND lower(s.ref) = lower(p.project_key) AND l.signals->>'web' = 'true')
+        OR EXISTS (SELECT 1 FROM builder_sources s JOIN source_readings g ON g.source_id = s.id
+          WHERE s.builder_id = ${id} AND s.kind = 'repo' AND lower(s.ref) = lower(p.project_key) AND g.signals->>'web' = 'true')) AS web
     FROM builder_projects p WHERE p.builder_id = ${id}
     ORDER BY p.shipped DESC, p.people DESC, p.last_active_at DESC NULLS LAST, p.project_key`;
   const projects: StandProject[] = rows.map((r) => ({
@@ -170,6 +176,7 @@ export async function standBase(id: number, o: { fresh?: TipSwitches } = {}): Pr
     tracked_tx: r.tracked_tx,
     app: r.kind === 'app',
     code: r.kind === 'code',
+    web: r.web,
     confirmed: r.confirmed,
   }));
   const claimed = s.claimed && Boolean(s.handle);

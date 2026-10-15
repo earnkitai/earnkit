@@ -6,7 +6,7 @@ import { isoWeek, type ReaderDeps, type RepoSignals, type Who } from './source-r
  * of the last 52 weeks (the newest 100 commits; sources.ts keeps earlier weeks from the previous
  * reading).
  */
-const REPO_FIELDS = `nameWithOwner description homepageUrl isFork isTemplate isPrivate createdAt pushedAt stargazerCount forkCount
+const REPO_FIELDS = `nameWithOwner description homepageUrl primaryLanguage { name } isFork isTemplate isPrivate createdAt pushedAt stargazerCount forkCount
         owner { __typename login }
         parent { nameWithOwner } templateRepository { nameWithOwner }
         stargazers(last: 10, orderBy: {field: STARRED_AT, direction: ASC}) { edges { starredAt node { login createdAt } } }
@@ -44,6 +44,8 @@ ${i.map((k) => `  r${k}: repository(owner: $o${k}, name: $n${k}) {\n        ${RE
 export type PersonRepo = RepoSignals & {
   /** v2.12.2: the repo's name as GitHub writes it ("Hello-World"; `key` is lowercase). */
   name?: string | null;
+  /** v2.12.2: a sign it is a website (a homepage, or mostly web code): only then is putting it online offered. */
+  web?: boolean;
   key: string; description: string | null; homepage: string | null; pushed_at: string | null; derived: boolean; stars: number; forks: number;
 };
 export type PersonGithub = { login: string; twitter: string | null; website: string | null; repos: Map<string, PersonRepo> };
@@ -56,6 +58,9 @@ const arr = (x: unknown): unknown[] => (Array.isArray(x) ? x : []);
 type O = Record<string, unknown>;
 const obj = (x: unknown): O => (x && typeof x === 'object' && !Array.isArray(x) ? (x as O) : {});
 const since = (now: Date) => new Date(now.getTime() - 52 * 7 * 86_400_000).toISOString();
+
+/** v2.12.2: GitHub primary languages that make a repo a likely website (static or a web framework). */
+const WEB_LANGS = new Set(['html', 'css', 'javascript', 'typescript', 'vue', 'svelte', 'astro', 'mdx']);
 
 /** One repo node (REPO_FIELDS) as repo signals, or null when it is malformed. Pure. */
 function repoFrom(raw: unknown, now: Date): PersonRepo | null {
@@ -87,6 +92,7 @@ function repoFrom(raw: unknown, now: Date): PersonRepo | null {
     partial: num(r.stargazerCount) > stargazers.length || num(r.forkCount) > forkers.length,
     description: str(r.description)?.slice(0, 200) ?? null,
     name: str(r.nameWithOwner)?.split('/')[1] ?? null,
+    web: str(r.homepageUrl) !== null || WEB_LANGS.has(str(obj(r.primaryLanguage).name)?.toLowerCase() ?? ''),
     homepage: str(r.homepageUrl), pushed_at: str(r.pushedAt),
     derived: fork || template || obj(r.parent).nameWithOwner !== undefined || obj(r.templateRepository).nameWithOwner !== undefined,
     stars: num(r.stargazerCount), forks: num(r.forkCount),
