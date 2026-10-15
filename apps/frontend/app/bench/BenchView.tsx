@@ -4,7 +4,7 @@ import Footer from '../components/common/Footer';
 import { Panel } from '../components/common/Panel';
 import ChainLogo from '../components/ui/ChainLogo';
 import RaisingPill from '../components/ui/RaisingPill';
-import BenchAvatar from './BenchAvatar';
+import Avatar from '../[handle]/Avatar';
 import { filterHref, type BenchFilter, type BenchRow } from '../../lib/earnkit/bench-data';
 import { CHAIN_LABEL, type BenchChain } from '../../lib/earnkit/rank';
 import { pagePath } from '../../lib/earnkit/reserved-routes';
@@ -35,7 +35,7 @@ function Row({ r }: { r: BenchRow }) {
       data-row={r.handle}
       className="relative grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 border-t border-ek-blue-soft/10 py-4 transition-colors first:border-t-0 hover:bg-ek-navy/30 md:gap-x-5 md:rounded-3xl md:border-t-0 md:px-4 md:py-3"
     >
-      <BenchAvatar src={r.avatar} handle={r.handle} className="h-11 w-11 text-base" />
+      <Avatar src={r.avatar} handle={r.handle} className="h-11 w-11 text-base" />
       <div className="min-w-0">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <Link

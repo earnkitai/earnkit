@@ -72,7 +72,7 @@ const PRIVATE_NAME = 'Private project';
 const PUBLIC_REPO_DAYS = 7;
 const WALLET = /\b0x[0-9a-f]{40}\b/i;
 /** A project or entry key compared: no scheme, no github.com/, no www., no trailing slash, lowercase. */
-const norm = (k: string) => k.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^(www\.)?github\.com\//, '').replace(/^www\./, '').replace(/\/+$/, '');
+export const norm = (k: string) => k.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^(www\.)?github\.com\//, '').replace(/^www\./, '').replace(/\/+$/, '');
 const REPO_KEY = /^[^/:\s]+\/[^/\s]+$/;
 
 /** The display name: the X name (trimmed, never a wallet), else @handle. Pure. */
@@ -126,8 +126,9 @@ type Row = {
  * only on confirmed projects of people not waiting for a review. Ordered per person: tracked first,
  * then most people, then most recently active.
  */
-async function shownProjects(ids: number[]): Promise<Map<number, (Row & { safeName: string; safeWhat: string | null })[]>> {
-  const out = new Map<number, (Row & { safeName: string; safeWhat: string | null })[]>();
+export type ShownProject = Row & { safeName: string; safeWhat: string | null; hiddenRepo: boolean };
+export async function shownProjects(ids: number[]): Promise<Map<number, ShownProject[]>> {
+  const out = new Map<number, ShownProject[]>();
   if (ids.length === 0) return out;
   const db = sql();
   const rows = await db<Row[]>`
@@ -169,7 +170,7 @@ async function shownProjects(ids: number[]): Promise<Map<number, (Row & { safeNa
     // A hidden repo's own GitHub page (or its Pages site) would name it: no link then.
     const linkHost = r.link && URL.canParse(r.link) ? new URL(r.link).hostname.toLowerCase() : '';
     const safeLink = hiddenRepo && /(^|\.)github\.(io|com)$/.test(linkHost) ? null : r.link;
-    list.push({ ...r, link: safeLink, safeName, safeWhat, people: r.confirmed && !r.held ? r.people : 0 });
+    list.push({ ...r, link: safeLink, safeName, safeWhat, hiddenRepo, people: r.confirmed && !r.held ? r.people : 0 });
     out.set(r.builder_id, list);
   }
   const at = (d: Date | null) => (d ? d.getTime() : 0);
@@ -178,21 +179,31 @@ async function shownProjects(ids: number[]): Promise<Map<number, (Row & { safeNa
   return out;
 }
 
-export async function pageCards(builderId: number): Promise<PageCard[]> {
-  const list = ((await shownProjects([builderId])).get(builderId) ?? []).slice(0, CARDS_MAX);
-  if (list.length === 0) return [];
-  // Programs entered and won (announcements only), matched to a project by its repo or live link; coin entries are not program entries.
-  const entries = await sql()<{ keys: (string | null)[]; title: string; won: boolean; submitted_at: Date }[]>`
+/** Programs entered and won (announcements only), matched to a project by its repo or live link; coin entries are not program entries. */
+async function programEntries(builderId: number) {
+  return sql()<{ keys: (string | null)[]; title: string; won: boolean; submitted_at: Date }[]>`
     SELECT ARRAY[p.repo_key, p.token_repo_key, p.repo_url, p.live_url] AS keys, g.title, p.submitted_at,
       EXISTS (SELECT 1 FROM entry_outcomes o WHERE o.project_id = p.id AND o.basis = 'announcement' AND o.result IN ('won', 'placed', 'finalist')) AS won
     FROM projects p JOIN installations i ON i.id = p.installation_id JOIN programs g ON g.id = p.program_id
     WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND p.program_id <> ${COIN_PROGRAM} AND p.vetoed_at IS NULL
     ORDER BY p.submitted_at, p.id`;
+}
+/** The programs one project (by key) entered and won, won first. Pure. */
+const programsOf = (entries: Awaited<ReturnType<typeof programEntries>>, key: string) => {
+  const k = norm(key);
+  const programs = new Map<string, boolean>();
+  for (const e of entries)
+    if (e.keys.some((x) => x && norm(x) === k)) programs.set(e.title, (programs.get(e.title) ?? false) || e.won);
+  return [...programs].map(([title, won]) => ({ title, won })).sort((a, b) => Number(b.won) - Number(a.won));
+};
+/** v2.13 T11: the programs the person's project `key` entered and won, as pageCards reads them. */
+export const projectPrograms = async (builderId: number, key: string) => programsOf(await programEntries(builderId), key);
+
+export async function pageCards(builderId: number): Promise<PageCard[]> {
+  const list = ((await shownProjects([builderId])).get(builderId) ?? []).slice(0, CARDS_MAX);
+  if (list.length === 0) return [];
+  const entries = await programEntries(builderId);
   return list.map((r, i) => {
-    const k = norm(r.key);
-    const programs = new Map<string, boolean>();
-    for (const e of entries)
-      if (e.keys.some((x) => x && norm(x) === k)) programs.set(e.title, (programs.get(e.title) ?? false) || e.won);
     const measured = r.confirmed && !r.held;
     return {
       // Public markup: never a key that could name a private repo.
@@ -202,7 +213,7 @@ export async function pageCards(builderId: number): Promise<PageCard[]> {
       link: shownUrl(r.link),
       people: measured && r.people > 0 ? r.people : null,
       money: measured && r.money_usd > 1 ? money(r.money_usd) : null,
-      programs: [...programs].map(([title, won]) => ({ title, won })).sort((a, b) => Number(b.won) - Number(a.won)),
+      programs: programsOf(entries, r.key),
       confirmed: r.confirmed,
       tracked: r.tracked,
     };

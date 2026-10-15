@@ -69,3 +69,21 @@ test('10.7 the Bench\'s words pass the v2.13 rule; its chips may name a chain (c
   // Chain names only in the chips and the logos' alt text and tooltips (R14).
   assert.deepEqual(bannedInBench(page, ['Maya Chen', 'Recipe planner', '$RECIPE', ...Object.values(CHAIN_LABEL)]), [], page);
 });
+
+test('11.11 the profile\'s words pass the v2.13 rule on both tabs; chain names only in rank lines and logos (copy rules)', async () => {
+  const { default: BenchProfileView, BENCH_SOURCES_LINE, CONFIRMING_LINE, LOG_EMPTY, TAB_LOG, TAB_PROJECT, streakWords } = await import('../../app/[handle]/BenchProfileView');
+  const { shippedWords } = await import('../../app/[handle]/ShipGrid');
+  const { factChips, startedChips, startedLine } = await import('./week-facts');
+  const { DATA } = await import('./fixtures/profile-data');
+  const texts = [
+    TAB_LOG, TAB_PROJECT, BENCH_SOURCES_LINE, LOG_EMPTY, CONFIRMING_LINE, streakWords(6)!, streakWords(1)!, shippedWords(9), shippedWords(1),
+    startedLine('Recipe planner'), ...startedChips({ live: true, weeks: 3, people: 31 }), ...startedChips({ live: false, weeks: 1, people: 1 }),
+    ...factChips({ went_live: true, won: [{ title: 'Base Builder Grants' }], users_up: { n: 31 }, earned: { usd: 120 }, shipped_code: { n: 12 }, streak: { w: 6 } }, { raising: 'RECIPE' }),
+  ];
+  for (const t of texts) assert.deepEqual(bannedInBench(t, EXEMPT), [], t);
+  const exempt = ['Maya Chen', 'Recipe planner', '$RECIPE', 'Base Builder Grants', 'Avalanche Team1 Mini Grants', 'https://recipes.app', 'https://github.com/maya/recipes', ...Object.values(CHAIN_LABEL)];
+  for (const tab of ['log', 'project'] as const) {
+    const page = pageWords(React.createElement(BenchProfileView, { data: DATA, tab }));
+    assert.deepEqual(bannedInBench(page, exempt), [], page);
+  }
+});

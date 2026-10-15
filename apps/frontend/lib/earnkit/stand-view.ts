@@ -301,7 +301,7 @@ export const earnWhen = (c: { summary: string; ends_at?: Date | null }) => {
 };
 
 /** A program a person could still be shown: curated, open, never an investment, not entered or hidden. Pure. */
-const showable = (c: Card & { agent_completable?: boolean; earnkit_campaign?: boolean }, now: Date, skip: Set<string>) =>
+export const showable = (c: Card & { agent_completable?: boolean; earnkit_campaign?: boolean }, now: Date, skip: Set<string>) =>
   !c.sponsored && !c.earnkit_campaign && !c.investment && c.agent_completable !== false && !skip.has(c.id) &&
   openCurated(c as Parameters<typeof openCurated>[0], now);
 

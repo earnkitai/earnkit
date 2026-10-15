@@ -1,5 +1,5 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { builderScoreEnabled, xSignInEnabled } from './builder-score-flag';
+import { benchEnabled, builderScoreEnabled, xSignInEnabled } from './builder-score-flag';
 import { sql } from './db';
 import { enqueueDiscovery } from './discovery';
 import { siteUrl } from './entry-text';
@@ -297,8 +297,10 @@ export async function bindX(builderId: number, user: XUser, now: Date): Promise<
     const slug = /^[a-z0-9]/.test(h) ? h : p.slug;
     if (slug !== p.slug)
       await tx`INSERT INTO profile_slug_history (old_slug, builder_id, moved_at) VALUES (${p.slug}, ${root}, ${now}) ON CONFLICT (old_slug) DO NOTHING`;
+    // v2.13 R12 (B14, F9): the picture is refreshed at every sign-in; under the Bench flag X sending none keeps the stored one.
+    const keep = benchEnabled() && user.avatar === null;
     await tx`
-      UPDATE builder_profiles SET x_user_id = ${user.id}, x_handle = ${user.username}, x_name = ${user.name}, x_avatar_url = ${user.avatar},
+      UPDATE builder_profiles SET x_user_id = ${user.id}, x_handle = ${user.username}, x_name = ${user.name}, x_avatar_url = ${keep ? tx`x_avatar_url` : user.avatar},
         claimed_at = COALESCE(claimed_at, ${now}), slug = ${slug}, updated_at = now()
       WHERE builder_id = ${root}`;
     await tx`DELETE FROM claim_codes WHERE builder_id = ${root}`;
