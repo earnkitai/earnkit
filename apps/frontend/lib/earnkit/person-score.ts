@@ -54,6 +54,11 @@ export type ProjectRow = {
   /** v2.13: the Bench chains it is on, its streak, weeks shipping in the last 52, and those weeks (plan B7). */
   chains: BenchChain[]; streak: number; weeks_shipping: number; ship_weeks: string[];
   /**
+   * v2.13 Bench gate (T4 fix round 1, ruling): confirmed, and for a repo-shaped key (owner/repo) a
+   * confirmed repo source on that very key. A coin or an entry naming a repo never proves it. Not stored.
+   */
+  bench_confirmed: boolean;
+  /**
    * v2.12.1 T9: the distinct accounts of other people counted on a confirmed project (weight above 0
    * after every anti-farming rule; stars and forks aside), for "Done. 140 people who used it now
    * count." Not stored.
@@ -98,6 +103,8 @@ export function weekEnd(week: string, now: Date): Date | null {
   return new Date(Math.min(end, now.getTime()));
 }
 /** A project key: 'github.com/' dropped, lowercase (the grouping key). */
+/** A repo-shaped project key ('owner/repo'). */
+const REPO_SHAPE = /^[^/:\s]+\/[^/\s]+$/;
 const lowKey = (k: string) => k.trim().replace(/^(https?:\/\/)?(www\.)?github\.com\//i, '').toLowerCase();
 const hostOf = (k: string) => (URL.canParse(k) ? new URL(k).hostname : null);
 const firstSentence = (s: string) => {
@@ -219,10 +226,12 @@ export async function personInputsV2(
     SELECT at, lower(repo_key) AS repo_key FROM builder_events
     WHERE installation_id IN ${db(group)} AND type IN ('built', 'deployed', 'hosted') AND at > ${yearAgo}`;
   // v2.13: chains from program entries and launched coins (any chain; coin_address is Base only).
-  const entries = await db<{ repo_key: string | null; chains: string[] | null }[]>`
+  // Flag off: neither query runs (production as it is).
+  const bench = benchEnabled();
+  const entries = !bench ? [] : await db<{ repo_key: string | null; chains: string[] | null }[]>`
     SELECT COALESCE(p.repo_key, p.token_repo_key) AS repo_key, g.chains FROM projects p JOIN programs g ON g.id = p.program_id
     WHERE p.installation_id IN ${db(group)} AND p.program_id <> ${COIN_PROGRAM} AND p.vetoed_at IS NULL`;
-  const launched = await db<{ repo_key: string | null; chain_id: number | null; coin: string | null }[]>`
+  const launched = !bench ? [] : await db<{ repo_key: string | null; chain_id: number | null; coin: string | null }[]>`
     SELECT COALESCE(token_repo_key, repo_key) AS repo_key, coin_chain_id AS chain_id, lower(coin_address) AS coin
     FROM projects WHERE installation_id IN ${db(group)} AND token_status = 'launched'`;
   const wallets = await db<{ wallet: string }[]>`
@@ -401,7 +410,8 @@ export async function personInputsV2(
           if (scored && confirmedRepo) {
             ships.push({ key, at: firstUp(s.id, last.at), alive_at: last.at });
           }
-          shipAt(firstUp(s.id, last.at));
+          // Fail strict: only a confirmed site's first day up is a shipping week.
+          if (scored) shipAt(firstUp(s.id, last.at));
         }
       } else if (s.kind === 'package_npm' || s.kind === 'package_pypi') {
         hasPackage = true;
@@ -415,11 +425,12 @@ export async function personInputsV2(
           ships.push({ key, at: oldest(s.id)!.at, alive_at: weekly > 0 ? last.at : null });
           const credit = Math.min(cal.package_users, weekly / 50);
           input.packages.push({ project: key, users: credit, at: last.at });
-          perSource.set(s.id, { users: credit, money: 0 });
+          if (inScope) perSource.set(s.id, { users: credit, money: 0 });
         }
       } else if (s.kind === 'contract' || s.kind === 'coin') {
         const isCoin = s.kind === 'coin';
-        if (!isCoin && s.state === 'verified') {
+        // A chain only from a confirmed contract (never the agent's word: identity, repo facts, fit_chains).
+        if (!isCoin && scored) {
           const chain = /^(base|arc):/i.exec(s.ref)?.[1].toLowerCase();
           if (chain === 'base' || chain === 'arc') chains.add(chain);
         }
@@ -486,11 +497,12 @@ export async function personInputsV2(
     const money = moneyOf(counted);
     if (money > 0 && inScope) input.earned.push({ project: key, usd: money, kind: 'contract_fees' });
     const volume = [...rawVolume.values()].reduce((n, x) => n + x, 0);
-    for (const sid of rawVolume.keys()) perSource.set(sid, { users: 0, money: volume > 0 ? (money * rawVolume.get(sid)!) / volume : 0 });
+    // The hold's shares are of the scored U: only the one project's sources (v2.13 scope) credit it.
+    if (inScope) for (const sid of rawVolume.keys()) perSource.set(sid, { users: 0, money: volume > 0 ? (money * rawVolume.get(sid)!) / volume : 0 });
     // Users per source (the hold's one-source rule): real use only, credited where it was first seen.
     const users = new Set(touches.filter((t) => kinds.get(t) !== 'star' && kinds.get(t) !== 'fork').map((t) => t.actor));
     const accounts = [...users].filter((a) => (counted.actors.get(a) ?? 0) > 0).length;
-    for (const [actor, f] of firstSource) if (users.has(actor)) perSource.get(f.sid)!.users += counted.actors.get(actor) ?? 0;
+    if (inScope) for (const [actor, f] of firstSource) if (users.has(actor)) perSource.get(f.sid)!.users += counted.actors.get(actor) ?? 0;
     // v2.13: new people per ISO week, each counted account (real use) at its first touch.
     const fresh: Record<string, number> = {};
     for (const [actor, f] of firstSource) {
@@ -530,7 +542,7 @@ export async function personInputsV2(
     chainsOf.set(key, chainList);
 
     const ident = named(key);
-    const repoName = /^[^/:\s]+\/[^/\s]+$/.test(key) ? (ghName ?? key.split('/')[1]) : null;
+    const repoName = REPO_SHAPE.test(key) ? (ghName ?? key.split('/')[1]) : null;
     const identName = typeof ident?.name === 'string' && ident.name.trim() ? ident.name.trim().slice(0, 60) : null;
     const identWhat = typeof ident?.what === 'string' && ident.what.trim() ? ident.what.trim().slice(0, 120) : null;
     const slug = hostedHere[0]?.slug;
@@ -541,6 +553,7 @@ export async function personInputsV2(
       link: slug ? `https://${slug}.earnkit.com` : liveSite ?? pkgLink,
       kind: slug || hasSite ? 'app' : hasContract ? 'contract' : hasPackage ? 'package' : coinsHere.length || hasCoinSource ? 'coin' : 'code',
       confirmed, shipped, scored: confirmed,
+      bench_confirmed: confirmed && (!REPO_SHAPE.test(key) || srcs.some((s) => s.kind === 'repo' && confirmedSrc(s) && lowKey(s.ref) === low)),
       people_week: confirmed ? peopleWeek.get(key) ?? 0 : 0,
       has_coin: coinsHere.length > 0 || hasCoinSource,
       sends_tx: hasContract,
@@ -660,8 +673,8 @@ export async function rescorePerson(id: number, now: Date, ring?: PersonRing): P
     const mainRow = main ? projects.find((p) => p.key.toLowerCase() === main.toLowerCase()) : undefined;
     // Ranked only once the ring is known: computed by the cron, or no other EarnKit person touched
     // the work (fail strict on ring partners). v2.13 B5: on the Bench as soon as the one project is
-    // confirmed; flag off: v2.12.1's rule.
-    const ranked = (bench ? Boolean(mainRow?.confirmed) : s.ranked) && ringComputed;
+    // confirmed (a repo key: by its own repo proof); flag off: v2.12.1's rule.
+    const ranked = (bench ? Boolean(mainRow?.bench_confirmed) : s.ranked) && ringComputed;
     const prevTracked = new Set((await tx<{ project_key: string }[]>`
       SELECT project_key FROM builder_projects WHERE builder_id = ${id} AND tracked`).map((r) => r.project_key));
     const tracked = trackedKeys(projects, at, prevTracked);
@@ -709,7 +722,7 @@ export async function rescorePerson(id: number, now: Date, ring?: PersonRing): P
           last_active_at = EXCLUDED.last_active_at, updated_at = EXCLUDED.updated_at, chains = EXCLUDED.chains,
           streak = EXCLUDED.streak, weeks_shipping = EXCLUDED.weeks_shipping, ship_weeks = EXCLUDED.ship_weeks`;
     // v2.13 B9 (F2): the "Started tracking" row, only for a confirmed one project.
-    if (bench && mainRow?.confirmed)
+    if (bench && mainRow?.bench_confirmed)
       await ensureStartedRow(tx, id, mainRow.key, at, { live: mainRow.shipped && mainRow.kind === 'app', weeks: mainRow.weeks_shipping, people: mainRow.people });
     return { ...out, held: reason !== null, reason, s, before: before?.score ?? null };
   });

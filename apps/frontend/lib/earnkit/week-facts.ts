@@ -1,5 +1,6 @@
 import { sql } from './db';
 import { noteEvent } from './events';
+import { benchConfirmedSql } from './main-project';
 import { money } from './page-data';
 import { personInputsV2 } from './person-score';
 import { COIN_PROGRAM } from './policy-constants';
@@ -49,7 +50,7 @@ export async function weekFactsFor(builderId: number, monday: string, now: Date)
   const db = sql();
   const [p] = await db<{ key: string; ship_weeks: string[] }[]>`
     SELECT b.project_key AS key, b.ship_weeks FROM builder_profiles f JOIN builder_projects b ON b.builder_id = f.builder_id AND lower(b.project_key) = lower(f.main_project_key)
-    WHERE f.builder_id = ${builderId} AND b.confirmed`;
+    WHERE f.builder_id = ${builderId} AND ${benchConfirmedSql(db)}`;
   if (!p) return {};
   const start = new Date(`${monday}T00:00:00Z`);
   const end = new Date(start.getTime() + 7 * DAY);
@@ -101,12 +102,16 @@ export async function weekFactsFor(builderId: number, monday: string, now: Date)
   return f;
 }
 
-/** The week's row for the project: facts merged in, text, pins and hides kept. Another builder's row is left alone. */
-export async function upsertWeekFacts(builderId: number, projectKey: string, monday: string, f: WeekFacts): Promise<void> {
-  await sql()`
+/**
+ * The week's row for the project: facts merged in, text, pins and hides kept. Another builder's row
+ * is left alone. True when a row was written.
+ */
+export async function upsertWeekFacts(builderId: number, projectKey: string, monday: string, f: WeekFacts): Promise<boolean> {
+  const wrote = await sql()`
     INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${builderId}, ${projectKey}, ${monday}, ${sql().json(f as never)})
     ON CONFLICT (project_key, week) DO UPDATE SET facts = project_updates.facts || EXCLUDED.facts
-    WHERE project_updates.builder_id = EXCLUDED.builder_id`;
+    WHERE project_updates.builder_id = EXCLUDED.builder_id RETURNING 1`;
+  return wrote.length > 0;
 }
 
 /**
@@ -122,9 +127,11 @@ export async function weeklyFactsStep(now: Date, o: { deadline: number; only?: n
   const db = sql();
   const due = await db<{ id: number; key: string }[]>`
     SELECT p.builder_id AS id, b.project_key AS key FROM builder_profiles p
-    JOIN builder_projects b ON b.builder_id = p.builder_id AND lower(b.project_key) = lower(p.main_project_key) AND b.confirmed
+    JOIN builder_projects b ON b.builder_id = p.builder_id AND lower(b.project_key) = lower(p.main_project_key) AND ${benchConfirmedSql(db)}
     WHERE NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND i.shared_client)
-      AND NOT EXISTS (SELECT 1 FROM project_updates u WHERE lower(u.project_key) = lower(b.project_key) AND u.week = ${monday} AND u.facts ? 'checked')
+      -- This builder's own check (by ruling, the first confirmed owner of a shared repo keeps the ship log:
+      -- a later owner's upsert writes nothing there, see upsertWeekFacts).
+      AND NOT EXISTS (SELECT 1 FROM project_updates u WHERE u.builder_id = p.builder_id AND lower(u.project_key) = lower(b.project_key) AND u.week = ${monday} AND u.facts ? 'checked')
       ${o.only ? db`AND p.builder_id IN ${db(o.only.length ? o.only : [-1])}` : db``}
     ORDER BY p.builder_id LIMIT ${WEEKLY_PER_RUN}`;
   let people = 0;
@@ -132,8 +139,9 @@ export async function weeklyFactsStep(now: Date, o: { deadline: number; only?: n
   for (const { id, key } of due) {
     if (Date.now() >= o.deadline) break;
     const f = await weekFactsFor(id, monday, now);
-    await upsertWeekFacts(id, key, monday, { ...f, checked: true });
     people++;
+    // Another builder's row for the key and week: nothing written, no events.
+    if (!(await upsertWeekFacts(id, key, monday, { ...f, checked: true }))) continue;
     rows++;
     const at = new Date(`${monday}T12:00:00Z`);
     const ev = (type: 'shipped_code' | 'went_live' | 'users_up', detail: Record<string, unknown>) =>

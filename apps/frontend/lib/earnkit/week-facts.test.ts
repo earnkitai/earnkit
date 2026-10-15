@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { EVENT_LOG_FLAG } from './events';
 import { factChips, hasFacts, startedChips, startedLine, weekFactsFor, weeklyFactsStep } from './week-facts';
+import { mainConfirmed } from './main-project';
 import { personInputsV2, rescorePerson } from './person-score';
 import { isoWeekOf, mondayOf } from './weeks';
 import { randomBytes } from 'node:crypto';
@@ -123,7 +124,7 @@ test('4.5 a finished week\'s facts: commits, going live once, money from creator
     INSERT INTO projects (program_id, name, repo_url, repo_key, installation_id, creator_wallet, coin_address, token_status, token_url)
     VALUES (${base.id}, 'Shop', ${`https://github.com/${key}`}, ${key}, ${id}, ${wallet}, ${`0x${(T % 1e9).toString(16).padStart(40, '0')}`}, 'launched', 'https://tokens.fun/x') RETURNING id AS pid`;
   await sql()`INSERT INTO token_fees (wallet, weth, usd, read_at) VALUES (${wallet}, '1000000000000000000', 3000, now()) ON CONFLICT (wallet) DO UPDATE SET weth = EXCLUDED.weth, usd = EXCLUDED.usd`;
-  await sql()`INSERT INTO fee_claims (tx_hash, owner, role, weth, gas_wei, at) VALUES (${`0x${(T + 3).toString(16).padStart(64, '0')}`}, ${wallet}, 'creator', '40000000000000000', 0, ${inWeek})
+  await sql()`INSERT INTO fee_claims (tx_hash, owner, role, weth, gas_wei, at) VALUES (${`0x${randomBytes(32).toString('hex')}`}, ${wallet}, 'creator', '40000000000000000', 0, ${inWeek})
     ON CONFLICT (tx_hash) DO NOTHING`;
   await sql()`INSERT INTO entry_outcomes (project_id, program_id, round_label, result, prize_usd, basis, captured_at) VALUES (${pid}, ${base.id}, 'r1', 'won', 500, 'announcement', ${inWeek})`;
   const f = await weekFactsFor(id, monday, NOW);
@@ -201,4 +202,98 @@ test('4.9 new people per week are counted accounts at their first touch; the sco
   const other = await personInputsV2(id, NOW, undefined, sql(), { scope: `https://side${T}.example.com` });
   assert.equal(other.input.touches.length, 0, 'another project in scope: these calls stay out of the score');
   assert.deepEqual(other.newPeople.get(key), fresh, 'the rows are built for every project');
+});
+
+/** A verified contract `base:<addr>` on `key` with `n` long-lived callers, first calls spread over three days (the spread rule). */
+async function callersOn(id: number, key: string, n: number, seed: number) {
+  const addr = `0x${(T * 10 + seed).toString(16).padStart(40, '0')}`;
+  const [{ sid }] = await sql()<{ sid: number }[]>`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by)
+    VALUES (${id}, 'contract', ${`base:${addr}`}, ${key}, 'verified', 'deployer', 'server') RETURNING id::int AS sid`;
+  const callers = Array.from({ length: n }, (_, i) => [9 + (i % 3), 2].map((d) => ({
+    id: `wallet:0x${(T * 1000 + seed * 1000 + i).toString(16).padStart(40, '0')}`, at: new Date(NOW.getTime() - d * DAY - i * 60_000).toISOString(),
+    value_usd: 100, codes: [], first_tx_at: '2024-01-01T00:00:00Z',
+  }))).flat();
+  await sql()`INSERT INTO source_live (source_id, signals, ok, read_at) VALUES (${sid}, ${sql().json({ callers, partial: false } as never)}, true, now())`;
+  return sid;
+}
+
+test('4.10 a side project with more users than the one project never holds the score as one source', dbTest, async () => {
+  const id = T + 8;
+  const key = `dee${T}/main`;
+  await person(id, key, { [wk(0)]: 2 });
+  await callersOn(id, key, 30, 1);
+  await callersOn(id, key, 30, 2);
+  const side = await callersOn(id, `dee${T}/side`, 400, 3);
+  const { perSource } = await personInputsV2(id, NOW, undefined, sql(), { scope: key });
+  assert.equal(perSource.has(side), false, 'the side project credits no users to the one project\'s hold');
+  const r = await rescorePerson(id, NOW);
+  assert.equal(r.held, false);
+});
+
+test('4.11 a proposed site\'s days up add no shipping week; a confirmed one does', dbTest, async () => {
+  const id = T + 9;
+  const key = `eve${T}/site`;
+  const origin = `https://eve${T}.example.com`;
+  await person(id, key, { [wk(0)]: 1 });
+  const [{ sid }] = await sql()<{ sid: number }[]>`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by)
+    VALUES (${id}, 'site', ${origin}, ${key}, 'proposed', null, 'agent') RETURNING id::int AS sid`;
+  for (const d of [21, 1])
+    await sql()`INSERT INTO source_readings (source_id, day, signals, ok) VALUES (${sid}, ${new Date(NOW.getTime() - d * DAY).toISOString().slice(0, 10)}, ${sql().json({ up: true } as never)}, true)`;
+  const weeks = async () => (await sql()<{ ship_weeks: string[] }[]>`SELECT ship_weeks FROM builder_projects WHERE builder_id = ${id} AND project_key = ${key}`)[0].ship_weeks;
+  await rescorePerson(id, NOW);
+  assert.equal((await weeks()).includes(wk(21)), false, 'proposed: not a shipping week');
+  await sql()`UPDATE builder_sources SET state = 'verified', proof = 'repo_link' WHERE id = ${sid}`;
+  await rescorePerson(id, new Date(NOW.getTime() + 60_000));
+  assert.equal((await weeks()).includes(wk(21)), true, 'confirmed: its first day up is a shipping week');
+});
+
+test('4.12 a chain only from a confirmed contract, an EarnKit deploy, a launched coin or a program entry; never what an agent says', dbTest, async () => {
+  const id = T + 10;
+  const key = `fay${T}/dapp`;
+  await person(id, key, { [wk(0)]: 1 });
+  await sql()`UPDATE builder_profiles SET identity = ${sql().json({ projects: [{ name: 'Dapp', repo: `https://github.com/${key}`, chain: 'base', contracts: [] }] } as never)} WHERE builder_id = ${id}`;
+  await sql()`UPDATE installations SET fit_chains = ${['base', 'arc']} WHERE id = ${id}`;
+  // A contract the agent proposed, and one verified on a proof that does not confirm: neither counts.
+  await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES
+    (${id}, 'contract', ${`base:0x${'1'.repeat(40)}`}, ${key}, 'proposed', null, 'agent'),
+    (${id}, 'contract', ${`arc:0x${'2'.repeat(40)}`}, ${key}, 'verified', 'earnkit_txt', 'agent')`;
+  await rescorePerson(id, NOW);
+  const [p] = await sql()<{ chains: string[] }[]>`SELECT chains FROM builder_projects WHERE builder_id = ${id} AND project_key = ${key}`;
+  assert.deepEqual(p.chains, []);
+});
+
+test('4.13 the weekly step counts a row only when it wrote one (another builder\'s week row is left alone)', dbTest, async () => {
+  const id = T + 11;
+  const key = `gus${T}/app`;
+  await person(id, key, { '2026-W42': 2 });
+  await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped) VALUES (${id}, ${key}, 'App', 'code', true, false)`;
+  await sql()`INSERT INTO project_updates (builder_id, project_key, week, text) VALUES (${id + 1_000_000}, ${key}, '2026-10-12', 'theirs')`;
+  try {
+    assert.deepEqual(await weeklyFactsStep(new Date('2026-10-19T15:30:00Z'), { deadline: Date.now() + 10_000, only: [id] }), { people: 1, rows: 0 });
+    assert.equal((await sql()`SELECT 1 FROM builder_events WHERE dedupe_key = ${`shipped_code:${key}:2026-W42`}`).length, 0, 'no event for a log that is not theirs');
+  } finally {
+    await sql()`DELETE FROM project_updates WHERE builder_id = ${id + 1_000_000}`;
+  }
+});
+
+test('4.14 a coin and an entry naming an unproven repo do not confirm it for the Bench: not ranked, no Started row, not due; its repo proof does', dbTest, async () => {
+  const id = T + 12;
+  const key = `hal${T}/coin`;
+  await person(id, key, { '2026-W42': 2, [wk(0)]: 1 }, { confirmed: false });
+  const base = await program('base-builder-grants');
+  await sql()`INSERT INTO projects (program_id, name, repo_url, repo_key, installation_id, creator_wallet, coin_address, token_status)
+    VALUES (${base.id}, 'Coin', ${`https://github.com/${key}`}, ${key}, ${id}, ${`0x${randomBytes(20).toString('hex')}`}, ${`0x${randomBytes(20).toString('hex')}`}, 'launched')`;
+  await rescorePerson(id, NOW);
+  const [row] = await sql()<{ confirmed: boolean }[]>`SELECT confirmed FROM builder_projects WHERE builder_id = ${id} AND project_key = ${key}`;
+  assert.equal(row.confirmed, true, 'the coin makes the row confirmed (v2.12.1 rule, unchanged)');
+  const ranked = async () => (await sql()<{ ranked: boolean }[]>`SELECT ranked FROM builder_live WHERE builder_id = ${id}`)[0].ranked;
+  assert.equal(await ranked(), false);
+  assert.equal(await mainConfirmed(id), false);
+  assert.equal((await sql()`SELECT 1 FROM project_updates WHERE builder_id = ${id}`).length, 0, 'no Started row');
+  assert.deepEqual(await weeklyFactsStep(new Date('2026-10-19T15:30:00Z'), { deadline: Date.now() + 10_000, only: [id] }), { people: 0, rows: 0 });
+  await sql()`UPDATE builder_sources SET state = 'verified', proof = 'proof_line' WHERE builder_id = ${id} AND kind = 'repo'`;
+  await rescorePerson(id, new Date(NOW.getTime() + 60_000));
+  assert.equal(await ranked(), true);
+  assert.equal(await mainConfirmed(id), true);
+  assert.equal((await sql()`SELECT 1 FROM project_updates WHERE builder_id = ${id} AND facts ? 'started'`).length, 1);
 });

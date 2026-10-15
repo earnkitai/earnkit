@@ -88,7 +88,10 @@ test('2.4 the proof line: issued for an unconfirmed repo, recorded, github_user 
   assert.equal(await confirming(id), true);
   const [issued] = await sql()`SELECT 1 FROM proof_line_issues WHERE installation_id = ${id} AND repo_key = ${key}`;
   assert.ok(issued, 'commits after this moment count (v2.11 R4 b)');
+  // T4 fix round 1 (ruling): a confirmed row alone (a coin or an entry naming the repo) is not the repo's proof.
   await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped) VALUES (${id}, ${key}, 'P', 'code', true, false)`;
+  assert.equal(await confirming(id), true, 'still Confirming without the repo proof');
+  await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES (${id}, 'repo', ${key}, ${key}, 'verified', 'proof_line', 'server')`;
   assert.equal(await proofFor(id, id, { canPush: true, now: new Date() }), null);
   assert.equal(await confirming(id), false);
 });
