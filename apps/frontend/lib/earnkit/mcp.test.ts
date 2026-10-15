@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { escrowConfig, escrowConfigProblem } from './escrow';
-import { FIND_DESCRIPTION, FIND_DESCRIPTION_SCORE, SCORE_DESCRIPTION, TELL_DESCRIPTION, TELL_DESCRIPTION_SCORE, OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, errorSummary, TOOL_DESCRIPTIONS, createMcpServer, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
+import { FIND_DESCRIPTION, FIND_DESCRIPTION_BENCH, FIND_DESCRIPTION_SCORE, SCORE_DESCRIPTION, TELL_DESCRIPTION, TELL_DESCRIPTION_SCORE, OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, errorSummary, TOOL_DESCRIPTIONS, createMcpServer, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { handlers } from './tools';
 import { OLD_TOOL_NAMES, STALE_TOOLS_NOTE, aliasCall, withOlderNames } from './aliases';
 
@@ -710,5 +710,46 @@ test('v2.11 T8: prepare lists build only while deploys are on (with deploy); an 
   } finally {
     if (old === undefined) delete process.env.DEPLOYER_PRIVATE_KEY;
     else process.env.DEPLOYER_PRIVATE_KEY = old;
+  }
+});
+
+/** v2.12.2's identity field words, byte for byte (the flag off). */
+const IDENTITY_WORDS_V2122 =
+  "What you can already see; fill it yourself, never ask the builder: { github_login (gh auth status), projects: [{ name, what: a few plain words like 'a tip jar', repo, live_url, package, contracts: ['base:0x..'] }], wallets }";
+const identityWords = (t: { inputSchema: { properties?: Record<string, object> } }) =>
+  (t.inputSchema.properties?.identity as { description?: string } | undefined)?.description;
+
+test('2.7 flag off: find\'s description and identity field are byte for byte v2.12.2\'s', async () => {
+  const saved = process.env.EARNKIT_BENCH;
+  delete process.env.EARNKIT_BENCH;
+  process.env.EARNKIT_BUILDER_SCORE = 'on';
+  try {
+    assert.equal(toolDescriptions(false).find, FIND_DESCRIPTION_SCORE);
+    const off = (await listed({})).tools.find((t) => t.name === 'find')!;
+    assert.equal(off.description, FIND_DESCRIPTION_SCORE);
+    assert.equal(identityWords(off), IDENTITY_WORDS_V2122);
+  } finally {
+    delete process.env.EARNKIT_BUILDER_SCORE;
+    if (saved === undefined) delete process.env.EARNKIT_BENCH;
+    else process.env.EARNKIT_BENCH = saved;
+  }
+});
+
+test('2.8 flag on: find asks for identity.project (one, never a list) and stays under 800 characters', async () => {
+  process.env.EARNKIT_BUILDER_SCORE = 'on';
+  process.env.EARNKIT_BENCH = 'on';
+  try {
+    const d = toolDescriptions(false).find;
+    assert.equal(d, FIND_DESCRIPTION_BENCH);
+    assert.ok(d.length < 800, `${d.length}`);
+    assert.match(d, /identity\.project/);
+    assert.match(d, /never a list/);
+    const on = (await listed({})).tools.find((t) => t.name === 'find')!;
+    assert.equal(on.description, FIND_DESCRIPTION_BENCH);
+    assert.match(identityWords(on) ?? '', /project: the project in this folder/);
+    assert.match(identityWords(on) ?? '', /One project, never a list\.$/);
+  } finally {
+    delete process.env.EARNKIT_BENCH;
+    delete process.env.EARNKIT_BUILDER_SCORE;
   }
 });

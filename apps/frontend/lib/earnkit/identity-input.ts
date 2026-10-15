@@ -37,6 +37,30 @@ const repoOf = (v: unknown): string | null => {
 };
 const list = (v: unknown, scan: number): unknown[] => (Array.isArray(v) ? v.slice(0, scan) : []);
 
+/**
+ * One reported project, read leniently: the repo (a remote, a github.com link or 'owner/repo'), the
+ * live origin, a package, contracts on a named chain, and a name (else the repo's or the site's).
+ * Null when it names nothing to read. The `chain` an agent sends is read nowhere. Pure.
+ */
+export function projectOf(raw: unknown): IdentityProject | null {
+  const p = o(raw);
+  const repo = repoOf(p.repo);
+  const live = typeof p.live_url === 'string' ? publicHttpsOrigin(p.live_url) : null;
+  const given = s(p.package, 214).toLowerCase();
+  const pkg = NPM.test(given) || PYPI.test(given) ? given : null;
+  // A bare address names no chain, so it is dropped; monad and tempo are kept (shown "not tracked yet").
+  const contracts = [
+    ...new Set(
+      list(p.contracts, 20)
+        .map((c) => (typeof c === 'string' ? c.trim().toLowerCase() : ''))
+        .filter((c) => CONTRACT.test(c)),
+    ),
+  ].slice(0, IDENTITY_CAPS.contracts);
+  const name = s(p.name, 40) || (repo ? repo.split('/')[1] : '') || (live ? new URL(live).hostname : '');
+  if (!name || (!repo && !live && !pkg && contracts.length === 0)) return null;
+  return { name, what: s(p.what, 60) || null, repo, live_url: live, package: pkg, contracts };
+}
+
 export function identityInput(v: unknown, legacy?: LocalGit): Identity {
   try {
     const i = o(v);
@@ -44,22 +68,8 @@ export function identityInput(v: unknown, legacy?: LocalGit): Identity {
     const projects: IdentityProject[] = [];
     for (const raw of list(i.projects, 100)) {
       if (projects.length >= IDENTITY_CAPS.projects) break;
-      const p = o(raw);
-      const repo = repoOf(p.repo);
-      const live = typeof p.live_url === 'string' ? publicHttpsOrigin(p.live_url) : null;
-      const given = s(p.package, 214).toLowerCase();
-      const pkg = NPM.test(given) || PYPI.test(given) ? given : null;
-      // A bare address names no chain, so it is dropped; monad and tempo are kept (shown "not tracked yet").
-      const contracts = [
-        ...new Set(
-          list(p.contracts, 20)
-            .map((c) => (typeof c === 'string' ? c.trim().toLowerCase() : ''))
-            .filter((c) => CONTRACT.test(c)),
-        ),
-      ].slice(0, IDENTITY_CAPS.contracts);
-      const name = s(p.name, 40) || (repo ? repo.split('/')[1] : '') || (live ? new URL(live).hostname : '');
-      if (!name || (!repo && !live && !pkg && contracts.length === 0)) continue;
-      projects.push({ name, what: s(p.what, 60) || null, repo, live_url: live, package: pkg, contracts });
+      const p = projectOf(raw);
+      if (p) projects.push(p);
     }
     // The v2.12 local_git, still accepted: its remotes and live links fill in when there is room.
     for (const r of legacy?.remotes ?? [])
@@ -77,6 +87,19 @@ export function identityInput(v: unknown, legacy?: LocalGit): Identity {
   }
 }
 
+/** The project key a reported project is stored under (projectSources' key). Pure. */
+export const projectKeyOf = (p: IdentityProject): string => p.repo ?? p.live_url ?? p.package ?? p.contracts[0];
+
+/**
+ * v2.13 spec "2a": the one project the agent is in: `identity.project` (an object), else the first
+ * entry of an older agent's `identity.projects[]` (the rest ignored). Null when neither reads. Pure.
+ */
+export function benchProject(identity: unknown): IdentityProject | null {
+  const i = o(identity);
+  if (i.project !== undefined) return Array.isArray(i.project) ? null : projectOf(i.project);
+  return Array.isArray(i.projects) && i.projects.length > 0 ? projectOf(i.projects[0]) : null;
+}
+
 /** The sources one reported project proposes (kind, ref), under its project key. Pure. */
 function projectSources(p: IdentityProject): { key: string; sources: { kind: string; ref: string }[] } {
   const sources: { kind: string; ref: string }[] = [];
@@ -84,7 +107,7 @@ function projectSources(p: IdentityProject): { key: string; sources: { kind: str
   if (p.live_url) sources.push({ kind: 'site', ref: p.live_url });
   if (p.package) sources.push(p.package.startsWith('pypi:') ? { kind: 'package_pypi', ref: p.package.slice(5) } : { kind: 'package_npm', ref: p.package });
   for (const c of p.contracts) sources.push({ kind: 'contract', ref: c });
-  return { key: p.repo ?? p.live_url ?? p.package ?? p.contracts[0], sources };
+  return { key: projectKeyOf(p), sources };
 }
 
 const refsOf = (p: IdentityProject) => [p.repo, p.live_url, p.package, ...p.contracts].filter((v): v is string => typeof v === 'string');

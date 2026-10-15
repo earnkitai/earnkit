@@ -2,11 +2,12 @@ import { RULES, countProject, moneyOf, ringWeights, type ActorFacts, type FarmCt
 import { holdReason, publicRow, scoreContext } from './builder-score'; // builder-score imports this file too: functions only, called after load
 import { personCode } from './attribution';
 import { EARNKIT_BUILDER_CODE } from './builder-code';
-import { builderScoreEnabled } from './builder-score-flag';
+import { benchEnabled, builderScoreEnabled } from './builder-score-flag';
 import { ScoreDeadline } from './campaigns';
 import { isConfirmedProof } from './confirmed';
 import { sql, type Db } from './db';
-import { discoverPerson } from './discovery';
+import { discoverPerson, proofLineCheck } from './discovery';
+import { MAIN_PROOF_MIN_MS, confirming } from './main-project';
 import { noteEvent } from './events';
 import { REPOS_MAX, readGithubRepos, readPersonGithub, type PersonRepo } from './person-github';
 import type { Standing } from './rank';
@@ -727,6 +728,10 @@ export async function pageViewRefresh(id: number, o: { now: Date; deadline: numb
 
 /** Discovery inside a refresh: when a clue queued the person, else at most once a REFRESH_DISCOVER_MS (cost). */
 async function refreshDiscovery(id: number, now: Date, o: { deadline: number; reader: ReaderDeps }): Promise<void> {
+  // v2.13 plan B4: while the one project waits for its proof line, check that line on every refresh (the
+  // refresh may run every minute then), with a 4 s floor in place of the cron's 15 s.
+  if (benchEnabled() && (await confirming(id)))
+    return void (await discoverPerson(id, { ...o, proofLine: proofLineCheck(o.reader, o.deadline, { minMs: MAIN_PROOF_MIN_MS, skipShort: true }) }));
   const [q] = await sql()<{ done_at: Date | null; reason: string }[]>`SELECT done_at, reason FROM discovery_queue WHERE builder_id = ${id}`;
   if (q?.done_at && now.getTime() - q.done_at.getTime() < REFRESH_DISCOVER_MS) return;
   // v2.12.2: a proof-line check the refresh had no time for waits for the cron (it has the time).

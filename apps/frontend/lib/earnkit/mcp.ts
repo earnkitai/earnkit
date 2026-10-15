@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ZodError, z } from 'zod';
-import { builderScoreEnabled } from './builder-score-flag';
+import { benchEnabled, builderScoreEnabled } from './builder-score-flag';
 import { CHAINS } from './match';
 import { GitHubError } from './match-projects';
 import { NotFoundError } from './programs';
@@ -133,6 +133,19 @@ export const FIND_DESCRIPTION_SCORE = findDescription(
   'A yes prepares lead.program_id; more: true if asked. ',
 );
 
+/**
+ * v2.13 spec "Tools": find takes the one project the agent is in (identity.project) and every agent
+ * note is followed (the proof line is in proof.agent_note). Under 800 characters (mcp.test.ts 2.8).
+ */
+export const FIND_DESCRIPTION_BENCH =
+  'Where the builder stands and how to get funded. Pass identity.project: the project in this folder (name and what from the README, repo from git remote, live_url), one, never a list; never ask. ' +
+  'Follow every agent_note. A yes prepares lead.program_id. build_offer: follow its agent_note. program_id: one program and its guide. ' +
+  SAFETY_TEXT;
+
+/** v2.13: find's identity field under the flag: the one project, never a list. */
+const BENCH_IDENTITY_WORDS =
+  "Fill it yourself, never ask the builder: { github_login (gh auth status), project: the project in this folder { name, what: a few plain words like 'a recipe planner' (README or package file), repo: git remote, live_url: README, package homepage or deploy config }, wallets }. One project, never a list.";
+
 /** v2.10 item 4: prepare's description (prepare_submission), its campaign words only while one is open (v2.8 Ruling 23). */
 const prepareDescription = (campaignOpen: boolean, buildOn: boolean) =>
   'On a program pick, pass program_id, project, answers you drafted from the repo (by requirement key) and agent: { browser, can_push }. ' +
@@ -185,7 +198,7 @@ export const SCORE_DESCRIPTION =
  */
 export function toolDescriptions(campaignOpen: boolean, buildOn: boolean = deployEnabled() && deployChains().length > 0) {
   return {
-    find: builderScoreEnabled() ? FIND_DESCRIPTION_SCORE : FIND_DESCRIPTION,
+    find: benchEnabled() ? FIND_DESCRIPTION_BENCH : builderScoreEnabled() ? FIND_DESCRIPTION_SCORE : FIND_DESCRIPTION,
     prepare: prepareDescription(campaignOpen, buildOn),
     confirm: confirmDescription(campaignOpen),
     tell: builderScoreEnabled() ? TELL_DESCRIPTION_SCORE : TELL_DESCRIPTION,
@@ -353,7 +366,11 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
               identity: z
                 .unknown()
                 .optional()
-                .describe("What you can already see; fill it yourself, never ask the builder: { github_login (gh auth status), projects: [{ name, what: a few plain words like 'a tip jar', repo, live_url, package, contracts: ['base:0x..'] }], wallets }"),
+                .describe(
+                  benchEnabled()
+                    ? BENCH_IDENTITY_WORDS
+                    : "What you can already see; fill it yourself, never ask the builder: { github_login (gh auth status), projects: [{ name, what: a few plain words like 'a tip jar', repo, live_url, package, contracts: ['base:0x..'] }], wallets }",
+                ),
             }
           : {}),
         agent_can_build: z

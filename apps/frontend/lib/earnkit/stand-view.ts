@@ -47,9 +47,9 @@ export type StandBase = Omit<StandView, 'step' | 'news' | 'earn' | 'fresh'>;
  * first. A reader that ignores its deadline keeps running in the background and its rescore lands
  * for the next reply; this reply uses the last stored numbers.
  */
-export function startRefresh(id: number, o: { now: Date; start: number; reader?: ReaderDeps }): { within: () => Promise<void> } {
+export function startRefresh(id: number, o: { now: Date; start: number; reader?: ReaderDeps; minAgeMs?: number }): { within: () => Promise<void> } {
   const deadline = o.start + REFRESH_BUDGET_MS;
-  const refresh = refreshPerson(id, { now: o.now, deadline, reader: o.reader }).catch((err: unknown) => {
+  const refresh = refreshPerson(id, { now: o.now, deadline, reader: o.reader, minAgeMs: o.minAgeMs }).catch((err: unknown) => {
     console.error('[stand] refresh', err instanceof Error ? err.name : 'error');
   });
   return {

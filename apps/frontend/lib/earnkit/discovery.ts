@@ -141,12 +141,12 @@ export const PROOF_LINE_MIN_MS = 15_000;
  * deadline, and it is not started when the budget is spent (GitHubBudgetStop) or less than
  * PROOF_LINE_MIN_MS remains (ScoreDeadline). A reader without `ghFetch` (tests) never checks.
  */
-export function proofLineCheck(d: ReaderDeps, deadline: number, o: { skipShort?: boolean; onSkip?: () => void } = {}): ProofLineCheck {
+export function proofLineCheck(d: ReaderDeps, deadline: number, o: { skipShort?: boolean; onSkip?: () => void; minMs?: number } = {}): ProofLineCheck {
   return async (installationId, repoKey) => {
     const ghFetch = d.ghFetch;
     if (!ghFetch) return null;
     if (d.ghSpent?.()) throw new GitHubBudgetStop();
-    if (deadline - Date.now() < PROOF_LINE_MIN_MS) {
+    if (deadline - Date.now() < (o.minMs ?? PROOF_LINE_MIN_MS)) {
       // v2.12.2: the on-demand refresh (8 s) never has PROOF_LINE_MIN_MS: it skips the check (no
       // proof from it this time; the cron's discovery still checks) instead of aborting discovery.
       if (o.skipShort) {

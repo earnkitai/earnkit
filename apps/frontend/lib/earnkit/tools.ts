@@ -140,9 +140,10 @@ import {
 } from './coach';
 import { LIVE_FAILED_LINE, addressesFrom, contractMissingLine, entryVerified, liveCheckDetail, liveErrorLine, rpcFor, type CheckDeps, type Verified } from './verify';
 import { noteEvent } from './events';
-import { builderScoreEnabled } from './builder-score-flag';
+import { benchEnabled, builderScoreEnabled } from './builder-score-flag';
 import { enqueueDiscovery, localGitInput } from './discovery';
-import { identityInput, noteIdentity } from './identity-input';
+import { benchProject, identityInput, noteIdentity } from './identity-input';
+import { CONFIRMING_REFRESH_MS, confirming, fillGithubUser, proofFor, setMainProject } from './main-project';
 import { SEND_LINK_NOTE, scoreReply } from './score-tool';
 import { EARN_NOTE, MOVE_UP_NOTE, chooseStep, placeBuild, newsOpener, stepKey, whereYouStand, type EarnLine, type MoveUp, type StandView } from './where-you-stand';
 import { confirmYes, earnPrize, earnWhen, hostFor, moneyFallback, standBase, startRefresh, takeNews, takePageReady, type Seen } from './stand-view';
@@ -796,7 +797,9 @@ export function listProgramsInput(input: unknown) {
     wallet: valid ?? undefined, walletNote: wallet != null && wallet !== '' && !valid ? WALLET_IGNORED : null,
     signed_in: typeof signed_in === 'string' ? signed_in : undefined,
     local_git: localGitInput(local_git),
-    identity: identityInput(identity, localGitInput(local_git)) };
+    identity: identityInput(identity, localGitInput(local_git)),
+    // v2.13 spec "2a": the one project the agent is in (identity.project, else an old agent's first).
+    project: benchProject(identity) };
 }
 
 /**
@@ -1288,7 +1291,7 @@ export const handlers = {
   // One answer to "what can I earn?": the builder's projects first, then what's worth building,
   // opening with what changed since their last check.
   list_programs: async (input: unknown, ctx: ToolContext) => {
-    const { agent_can_build, github_user, repos, local_repos, wallet, walletNote, signed_in, more, identity } = listProgramsInput(input);
+    const { agent_can_build, github_user, repos, local_repos, wallet, walletNote, signed_in, more, identity, project } = listProgramsInput(input);
     // v2.12.1 (plan S10): with the score flag on, people join only on proven ties (identity.ts
     // joinOnProvenTie), so find never offers a pickup and what the agent reports is only a clue.
     const scoring = builderScoreEnabled() && !ctx.sharedClient;
@@ -1334,6 +1337,19 @@ export const handlers = {
         if (!made) return;
         profiled = true;
         if (made.created || wallet) await setFallback(ctx.installationId, {});
+        if (benchEnabled()) {
+          // v2.13 R1: the one project only. Set once (B2); its sources proposed; github_user filled (B3).
+          if (project) {
+            await setMainProject(ctx.installationId, project);
+            if (project.repo) await fillGithubUser(ctx.installationId, project.repo, identity.github_login);
+          }
+          await noteIdentity(ctx.installationId, { ...identity, projects: project ? [project] : [] }, now);
+          // B4: the refresh may check the proof every minute while confirming.
+          const fast = await confirming(ctx.installationId);
+          refresh.started = startRefresh(ctx.installationId, { now, start, reader: ctx.readerDeps, ...(fast && { minAgeMs: CONFIRMING_REFRESH_MS }) });
+          await enqueueDiscovery(ctx.installationId, 'first_find');
+          return;
+        }
         await noteIdentity(ctx.installationId, identity, now);
         await enqueueDiscovery(ctx.installationId, 'first_find');
         refresh.started = startRefresh(ctx.installationId, { now, start, reader: ctx.readerDeps });
@@ -1549,10 +1565,13 @@ export const handlers = {
     // is v2.11, byte for byte.
     if (scoring && profiled && !more) {
       await refresh.started?.within();
-      return standFind(ctx, {
+      const r = await standFind(ctx, {
         first, cards: withPools.filter((c) => !hide.has(c.id)), repos: yourRepos, myEntries, lastCheck, pickup, ask,
         alerts, agentCanBuild: agent_can_build, walletNote, programs, hide,
       });
+      // v2.13 R2: the one project's proof in the same turn (T8's benchFind takes this over).
+      const proof = benchEnabled() ? await proofFor(ctx.installationId, ctx.installationId, { canPush: agent_can_build, now: new Date() }).catch(() => null) : null;
+      return proof ? { ...r, proof } : r;
     }
     // v2.10 item 5: no token offer here; the token is pitched once, at confirmation.
     const show_to_builder = presentFirstMessage(first);
