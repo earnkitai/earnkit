@@ -1,4 +1,5 @@
 import './fixtures/no-network-checks';
+import { pageWords } from './fixtures/page-words';
 import {
   EMAIL_NOTE, EMAIL_OFF, EMAIL_ON, EMAIL_QUESTION, EMAIL_SHARED_NOTE, EMAIL_SIGN_IN, EMAIL_UNAVAILABLE, UNSUB_BAD, UNSUB_CONFIRM, UNSUB_DONE, WHICH_EMAIL,
   digestBody, emailQuestionFor,
@@ -1746,15 +1747,6 @@ const ROWS: BoardRow[] = [
   { rank: 1, handle: 'lee_builds', avatar: null, best: '140 people use TipJar' },
   { rank: 2, handle: 'maya', avatar: null, best: 'Shipped Recipes' },
 ];
-/** A page's words: the markup above the site footer (shared site chrome, flag-off parity), tags out. */
-const decode = (t: string) => t.replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&');
-/** A page's words: the text and the aria-label, alt and title attributes above the site footer (shared site chrome, flag-off parity). */
-const pageWords = (el: React.ReactElement) => {
-  const h = renderToStaticMarkup(el).split('<footer')[0];
-  const attrs = [...h.matchAll(/\b(?:aria-label|alt|title)="([^"]*)"/g)].map((m) => m[1]);
-  return decode([h.replace(/<[^>]+>/g, '\n'), ...attrs].join('\n'));
-};
-
 test('12.1 v2.12.1 builder and public text never uses a banned word', () => {
   const exempt = ['Avalanche Team1 mini grants', 'Arc Microgrants', 'tokens.fun', 'TipJar', 'Tip Jar', '$TIP', 'EarnKit', 'AI'];
   const texts = [

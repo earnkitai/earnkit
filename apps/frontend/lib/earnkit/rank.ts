@@ -27,3 +27,32 @@ export function rankWords(s: Standing): { reply: string; short: string } | null 
 export const BENCH_CHAINS = ['base', 'robinhood', 'arc'] as const;
 export type BenchChain = (typeof BENCH_CHAINS)[number];
 export const CHAIN_LABEL: Record<BenchChain, string> = { base: 'Base', robinhood: 'Robinhood Chain', arc: 'Arc' };
+
+/**
+ * v2.13 spec "Percentile (R13)": P = 100 * rank / total. "Top P%" only from BENCH_PERCENT_FROM ranked
+ * and P <= TOP_PERCENT_MAX; P of 1 or more rounded up to a whole number, under 1 rounded up to one
+ * decimal and never below 0.1. Under BENCH_PERCENT_FROM: "#N of M", only in the top half. A chain's
+ * pool uses the same rule and names the chain; a chain's line shows only from CHAIN_CHIP_MIN ranked
+ * projects on it (bench-rank.ts). The word "percentile" never appears. Pure.
+ */
+export const BENCH_PERCENT_FROM = 20;
+export const CHAIN_CHIP_MIN = 10;
+export function benchPercent(rank: number, total: number): number {
+  const whole = Math.ceil((100 * rank) / total);
+  if (whole > 1 || (100 * rank) / total === 1) return whole;
+  return Math.max(1, Math.ceil((1000 * rank) / total)) / 10;
+}
+export const percentText = (p: number) => (p >= 1 ? String(p) : p.toFixed(1));
+export function benchRank(s: Standing, o: { chain?: BenchChain } = {}): { short: string; phrase: string } | null {
+  if (!s.ranked || !Number.isFinite(s.rank) || !Number.isFinite(s.total) || s.rank < 1 || s.total < 1 || s.rank > s.total) return null;
+  const where = o.chain ? `on ${CHAIN_LABEL[o.chain]}` : 'on the Bench';
+  if (s.total < BENCH_PERCENT_FROM) {
+    if (s.rank > Math.ceil(s.total / 2)) return null;
+    const of = `#${s.rank} of ${s.total}`;
+    return { short: `${of} ${where}`, phrase: o.chain ? `${of} ${where}` : `${of} ${s.total === 1 ? 'builder' : 'builders'}` };
+  }
+  const p = benchPercent(s.rank, s.total);
+  if ((100 * s.rank) / s.total > TOP_PERCENT_MAX) return null;
+  const t = percentText(p);
+  return { short: `Top ${t}% ${where}`, phrase: o.chain ? `top ${t}% ${where}` : `top ${t}% of builders` };
+}
