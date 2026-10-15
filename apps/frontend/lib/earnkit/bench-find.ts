@@ -12,6 +12,7 @@ import { rankLines, type RankLines } from './bench-rank';
 import { WEEKLY_UPDATE_NOTE, setUpdates } from './updates';
 import { mondayOf } from './weeks';
 import { COIN_NOTE, offerCoin } from './coin-moments';
+import { markRaiseAsked, raiseAsk, raisingCoin, setRaising } from './raising';
 import { freshPick, type FreshPick } from './fresh-build';
 import { EARN_NOTE, newsOpener } from './where-you-stand';
 import { COUNT_LINES } from './make-countable';
@@ -97,9 +98,12 @@ async function benchRead(id: number, now: Date, fresh: ToolContext['freshDeps'])
 }
 
 /**
- * The coin as the last line (spec 3b's moments under the Bench): the confirmed, shipped one project
- * with people and no coin; its first 5 people (the last look saw fewer) is that moment, else
- * has_people. offerCoin records the moment (at most once per project). T9 adds streak_five and raise.
+ * The coin as the last line (spec 3b's moments under the Bench, and v2.13 spec "4. Optional: raise"):
+ * 1. the one project has a launched coin it isn't raising with: "Want to show you're raising with
+ * $X?", once (standing_seen.raise_asked, marked here: the ask is used whenever it is returned);
+ * 2. no coin, confirmed and shipped, five weeks in a row: the streak_five moment; 3. with people:
+ * its first 5 people (the last look saw fewer), else has_people. offerCoin records the moment (at
+ * most once per project, so the streak moment comes once).
  */
 export async function coinAskBench(
   id: number,
@@ -107,7 +111,17 @@ export async function coinAskBench(
   seen: Seen,
   deps: { check?: TickerCheck } = {},
 ): Promise<BenchAsk | null> {
-  if (!p.confirmed || !p.shipped || p.people <= 0 || p.has_coin) return null;
+  const raise = await raiseAsk(id, p.key, seen);
+  if (raise) {
+    await markRaiseAsked(id, p.key, new Date());
+    return raise;
+  }
+  if (!p.confirmed || !p.shipped || p.has_coin || (await raisingCoin(id))) return null;
+  if (p.streak >= 5) {
+    const offer = await offerCoin(id, p.key, 'streak_five', deps);
+    if (offer) return { kind: 'coin', project_key: p.key, line: offer.line };
+  }
+  if (p.people <= 0) return null;
   const was = seen.people?.[p.key];
   const moment = was !== undefined && was < 5 && p.people >= 5 ? 'first_five' : 'has_people';
   const offer = await offerCoin(id, p.key, moment, deps);
@@ -180,7 +194,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
     project, rank: read.ranks.phrase, claimed: read.base.claimed, handle: read.base.handle, claimLink: read.base.claimLink,
     proofLink: o.proofLink, fund, ask, due: o.due,
   };
-  const note = ask?.kind === 'coin' || ask?.kind === 'raise' ? COIN_NOTE : BENCH_MOVE_UP_NOTE;
+  // A raise ask is answered through move_up (benchMoveUp: setRaising), as every Bench ask but the coin offer.
+  const note = ask?.kind === 'coin' ? COIN_NOTE : BENCH_MOVE_UP_NOTE;
   const fields: Reply = {
     ...(ask && { move_up: { kind: ask.kind, project_key: ask.project_key, agent_note: note } }),
     ...(showsClaimLink(view) && read.base.claimLink && { claim: { link: read.base.claimLink } }),
@@ -346,7 +361,7 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId'>, m: {
   }
   // Fix round 1: answered once. The ask is cleared before the yes runs, so a retried yes is "Okay.".
   // (go_live and coin yeses stay in tools.ts: go_live's yes is sent again with live_url by design.)
-  if (['updates', 'post_update', 'build', 'enter'].includes(asked.kind)) {
+  if (['updates', 'post_update', 'build', 'enter', 'raise'].includes(asked.kind)) {
     const [taken] = await sql()`
       UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask'
       WHERE builder_id = ${id} AND standing_seen->'bench_ask' = ${sql().json(asked as never)}::jsonb RETURNING 1`.catch((err: unknown) => {
@@ -364,6 +379,8 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId'>, m: {
       return asked.program_id ? { show_to_builder: '', agent_note: buildYesNote(asked.program_id) } : okay;
     case 'enter':
       return asked.program_id ? { show_to_builder: '', lead: { program_id: asked.program_id }, agent_note: ENTER_NOTE } : okay;
+    case 'raise':
+      return setRaising(id, true);
     default:
       return okay;
   }

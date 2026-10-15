@@ -5,7 +5,7 @@ import { randomBytes } from 'node:crypto';
 import { sql } from './db';
 import { bindX } from './claim';
 import { EVENT_LOG_FLAG } from './events';
-import { COIN_NOTE, COIN_PROGRAM, coinAllowed, coinLine, coinNo, coinPitchAllowed, coinYes, offerCoin, showBuiltLive } from './coin-moments';
+import { COIN_NOTE, COIN_PROGRAM, coinAllowed, coinLine, coinNo, coinPitchAllowed, coinYes, offerCoin, raiseLine, showBuiltLive } from './coin-moments';
 import { offerKey, readShownOffer, recordDecline } from './token-offers';
 import { proposeToken } from './token-proposal';
 import { tokenLineFor } from './token-gate';
@@ -540,5 +540,46 @@ test('T12 fix 1: flag off, a coin entry made while it was on is never confirmed 
     assert.notEqual(p.token_status, 'launched');
   } finally {
     process.env.EARNKIT_BUILDER_SCORE = 'on';
+  }
+});
+
+test('9.7 under the flag every coin moment but built_live says the raise line; flag off the v2.12.1 lines stay', () => {
+  process.env.EARNKIT_BUILDER_SCORE = 'on';
+  const coin = { name: 'Recipe planner', symbol: 'RECIPE' };
+  delete process.env.EARNKIT_BENCH;
+  assert.equal(coinLine('has_people', 'Recipe planner', null, coin), "Recipe planner has people using it. Want to launch a coin, $RECIPE (Recipe planner), for it? You'd get 40% of its trading fees.");
+  process.env.EARNKIT_BENCH = 'on';
+  try {
+    for (const m of ['countable', 'first_five', 'has_people', 'streak_five'] as const)
+      assert.equal(coinLine(m, 'Recipe planner', null, coin), raiseLine('Recipe planner', 'RECIPE', null));
+    assert.match(coinLine('built_live', 'Recipe planner', null, coin), /^It's live\./);
+  } finally {
+    delete process.env.EARNKIT_BENCH;
+  }
+});
+
+test('9.7b five weeks in a row is a coin moment (once); the yes sets raising_at and logs raising_on', dbTest, async () => {
+  const id = await claimed('streak_dev');
+  const key = `lee/streak${randomBytes(3).toString('hex')}`;
+  await usedProject(id, key, 'Tip Jar', 0);
+  process.env.EARNKIT_BENCH = 'on';
+  try {
+    const { coinAskBench } = await import('./bench-find');
+    const p = { key, name: 'Tip Jar', confirmed: true, live: true, weeks: 5, people: 0, has_coin: false, streak: 5, shipped: true };
+    assert.equal(await coinAskBench(id, { ...p, streak: 4 }, {}, noCheck), null, 'four weeks, no people: no moment');
+    const ask = await coinAskBench(id, p, {}, noCheck);
+    assert.equal(ask?.kind, 'coin');
+    const [m] = await sql()<{ moment: string }[]>`SELECT moment FROM coin_moments WHERE builder_id = ${id} AND project_key = ${key}`;
+    assert.equal(m.moment, 'streak_five');
+    const shown = await readShownOffer(id, COIN_PROGRAM, offerKey(repoFor(key), 'Tip Jar'));
+    assert.equal(ask?.line, raiseLine('Tip Jar', shown!.symbol, null));
+    assert.equal(await coinAskBench(id, p, {}, noCheck), null, 'once per project');
+    const yes = await coinYes(id, key, `0x${'d'.repeat(40)}`, noCheck);
+    assert.ok('project_id' in yes, JSON.stringify(yes));
+    const [x] = await sql()<{ raising: boolean }[]>`SELECT raising_at IS NOT NULL AS raising FROM projects WHERE id = ${yes.project_id}`;
+    assert.equal(x.raising, true);
+    assert.equal((await sql()`SELECT 1 FROM builder_events WHERE installation_id = ${id} AND type = 'raising_on'`).length, 1);
+  } finally {
+    delete process.env.EARNKIT_BENCH;
   }
 });

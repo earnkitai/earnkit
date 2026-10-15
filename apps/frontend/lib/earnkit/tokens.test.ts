@@ -447,3 +447,67 @@ test('6.4 deployToken: no upload and no logo sends the generated mark, never the
     await sql()`DELETE FROM installations WHERE id = ${inst.id}`;
   }
 });
+
+/**
+ * v2.13 T9: one launch through deployToken against a fake tokens.fun whose deploy answer carries
+ * `txHash` (and `chainId` when given), on a project of its own. `done` removes every row it made.
+ */
+async function launchedThroughFake(o: { chain: 'base' | 'robinhood' | 'arbitrum'; txHash: string; chainId?: number }): Promise<{ projectId: number; done: () => Promise<void> }> {
+  const { sql } = await import('./db');
+  const { deployToken } = await import('./tokens');
+  const key = process.env.TOKENSFUN_DEPLOY_API_KEY;
+  process.env.TOKENSFUN_DEPLOY_API_KEY = 'test-key';
+  const tag = `t98-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const [inst] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${tag}) RETURNING id`;
+  await sql()`
+    INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work)
+    VALUES (${tag}, 'X', 'P', 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed')`;
+  const repo = `https://github.com/alice/${tag}`;
+  const [p] = await sql()<{ id: number }[]>`
+    INSERT INTO projects (program_id, name, installation_id, repo_url) VALUES (${tag}, 'TipJar', ${inst.id}, ${repo}) RETURNING id`;
+  const done = async () => {
+    await sql()`DELETE FROM projects WHERE program_id = ${tag}`;
+    await sql()`DELETE FROM programs WHERE id = ${tag}`;
+    await sql()`DELETE FROM installations WHERE id = ${inst.id}`;
+  };
+  const log = console.log;
+  console.log = () => {};
+  try {
+    const answer = { success: true, tokenAddress: `0x${(await import('node:crypto')).randomBytes(20).toString('hex')}`, txHash: o.txHash, ...(o.chainId !== undefined && { chainId: o.chainId }) };
+    const out = await deployToken(
+      { projectId: p.id, installationId: inst.id, name: 'Tip Jar', symbol: 'TIPJ', creatorWallet: `0x${'1'.repeat(40)}`, image: null, repoUrl: repo, liveUrl: null, chain: o.chain },
+      { fetch: (async () => Response.json(answer)) as typeof fetch },
+    );
+    assert.equal(out.status, 'launched');
+  } catch (err) {
+    await done();
+    throw err;
+  } finally {
+    console.log = log;
+    if (key === undefined) delete process.env.TOKENSFUN_DEPLOY_API_KEY;
+    else process.env.TOKENSFUN_DEPLOY_API_KEY = key;
+  }
+  return { projectId: p.id, done };
+}
+
+test('9.8 a launch stores tokens.fun\'s txHash and the chainId it answered, else the chain asked for (F8)', dbTest, async () => {
+  const { sql } = await import('./db');
+  const tx = `0x${'c'.repeat(64)}`;
+  // tokens.fun answers chainId 4663 (Robinhood Chain) for a Robinhood launch: 4663 is stored.
+  const answered = await launchedThroughFake({ chain: 'robinhood', txHash: tx, chainId: 4663 });
+  // Its answer wins over the chain asked for.
+  const differs = await launchedThroughFake({ chain: 'base', txHash: tx, chainId: 4663 });
+  // No chainId in the answer: the chain the launch asked for (CHAIN_IDS.arbitrum).
+  const asked = await launchedThroughFake({ chain: 'arbitrum', txHash: tx });
+  try {
+    const read = async (id: number) =>
+      (await sql()<{ coin_tx: string | null; coin_chain_id: number | null }[]>`SELECT coin_tx, coin_chain_id FROM projects WHERE id = ${id}`)[0];
+    assert.deepEqual(await read(answered.projectId), { coin_tx: tx, coin_chain_id: 4663 });
+    assert.deepEqual(await read(differs.projectId), { coin_tx: tx, coin_chain_id: 4663 });
+    assert.deepEqual(await read(asked.projectId), { coin_tx: tx, coin_chain_id: 42161 });
+  } finally {
+    await answered.done();
+    await differs.done();
+    await asked.done();
+  }
+});

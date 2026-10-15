@@ -1,5 +1,5 @@
 import { repoKey } from './answer-bank';
-import { builderScoreEnabled } from './builder-score-flag';
+import { benchEnabled, builderScoreEnabled } from './builder-score-flag';
 import { isWalletAddress } from './campaigns';
 import { sql } from './db';
 import { shortWallet } from './entry-text';
@@ -19,13 +19,17 @@ import { tokenLaunchesAvailable } from './tokens';
  * score-20 gate.
  */
 export { COIN_PROGRAM };
-export type Moment = 'built_live' | 'countable' | 'first_five' | 'has_people';
+export type Moment = 'built_live' | 'countable' | 'first_five' | 'has_people' | 'streak_five';
 export type Coin = { name: string; symbol: string };
 
 // Final fix wave: the line asks one thing, the yes. A known wallet is a statement; with none known,
 // the yes's reply asks for it (coinYes: COIN_WALLET_ASK), never this line.
 const fees = (wallet: string | null) =>
   wallet ? `You'd get 40% of its trading fees, paid to ${shortWallet(wallet.toLowerCase())}.` : "You'd get 40% of its trading fees.";
+
+/** v2.13 spec "4. Optional: raise": the coin is named before the yes; the wallet is shown when known (plan B13). Pure. */
+export const raiseLine = (name: string, symbol: string, wallet: string | null) =>
+  `Want to raise for ${name}? I'll launch $${symbol} on tokens.fun and you get 40% of its trading fees${wallet ? `, paid to ${shortWallet(wallet.toLowerCase())}` : ''}.`;
 
 /**
  * The offer line for a moment: the coin that launches named (fix round 1, ruling 5: v2.8.1 A2, the
@@ -34,10 +38,12 @@ const fees = (wallet: string | null) =>
  * (ruling 6). One question. Pure.
  */
 export function coinLine(moment: Moment, name: string, wallet: string | null, coin: Coin | null = null): string {
+  // v2.13: under the Bench flag every project moment is the raise line (built_live keeps its own).
+  if (benchEnabled() && moment !== 'built_live' && coin) return raiseLine(name, coin.symbol, wallet);
   const a = coin ? `a coin, $${coin.symbol} (${coin.name}),` : 'a coin';
   if (moment === 'built_live') return `It's live. Want to launch ${a} for it? ${fees(wallet)} Your entry is ready either way.`;
   if (moment === 'first_five') return `5 people have used ${name}. Want to launch ${a} for it? ${fees(wallet)}`;
-  if (moment === 'countable') return `Want to launch ${a} for ${name}? ${fees(wallet)}`;
+  if (moment === 'countable' || moment === 'streak_five') return `Want to launch ${a} for ${name}? ${fees(wallet)}`;
   return `${name} has people using it. Want to launch ${a} for it? ${fees(wallet)}`;
 }
 
@@ -237,6 +243,13 @@ export async function coinYes(
           VALUES (${COIN_PROGRAM}, ${p.name}, ${links.repo_url}, ${links.live_url}, ${builderId}, ${to}, now(), 'go') RETURNING id`
       )[0].id;
   if (existing) await sql()`UPDATE projects SET creator_wallet = ${to} WHERE id = ${projectId} AND token_url IS NULL`;
+  // v2.13 spec "4. Optional: raise": the yes is the raise; the pill shows once the coin is launched.
+  if (benchEnabled()) {
+    await sql()`UPDATE projects SET raising_at = COALESCE(raising_at, now()) WHERE id = ${projectId}`;
+    await noteEvent('raising_on', () => ({
+      type: 'raising_on', dedupe_key: `raising_on:${projectId}:${new Date().toISOString().slice(0, 10)}`, installation_id: builderId, project_id: projectId,
+    }));
+  }
   await saveOffer(builderId, COIN_PROGRAM, key, coin, false, to);
   await sql()`
     UPDATE coin_moments SET answer = 'yes', answered_at = COALESCE(answered_at, now()), project_id = ${projectId}

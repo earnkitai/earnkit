@@ -146,6 +146,7 @@ import { enqueueDiscovery, localGitInput } from './discovery';
 import { benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
 import { CONFIRMING_REFRESH_MS, REPO_KEY, confirmingFast, fillGithubUser, mainProjectOf, setMainProject } from './main-project';
 import { benchAsked, benchFind, benchMoveUp } from './bench-find';
+import { setRaising } from './raising';
 import { SEND_LINK_NOTE, scoreReply } from './score-tool';
 import { EARN_NOTE, MOVE_UP_NOTE, chooseStep, placeBuild, newsOpener, stepKey, whereYouStand, type EarnLine, type MoveUp, type StandView } from './where-you-stand';
 import { confirmYes, earnPrize, earnWhen, hostFor, moneyFallback, standBase, startRefresh, takeNews, takePageReady, type Seen } from './stand-view';
@@ -3346,13 +3347,16 @@ export const TellToolInput = z
       .strict()
       .optional(),
     // v2.12.1 T10 (spec 3b): the builder's yes or no to a coin offer, with the wallet they gave.
+    // v2.13 T9: or { raising } (Bench flag only; the MCP schema lists it only then).
     coin: z
       .object({
-        project_key: z.string().max(300),
-        answer: z.enum(['yes', 'no']),
+        project_key: z.string().max(300).optional(),
+        answer: z.enum(['yes', 'no']).optional(),
         wallet: z.string().max(100).optional(),
+        raising: z.boolean().optional(),
       })
       .strict()
+      .refine((c) => c.answer !== undefined || c.raising !== undefined, { message: 'Pass answer, or raising.' })
       .optional(),
     // v2.13: this week's update (or hide one week), and the weekly-posting yes. Flag off: not listed in the MCP schema.
     update: z.object({ text: z.string().max(2000).optional(), hide: z.string().max(20).optional() }).strict().optional(),
@@ -3831,7 +3835,15 @@ export const tools = {
       if (card === 'yes') replies.push(await cardYes(ctx.installationId));
       if (card === 'skip') replies.push({ show_to_builder: SKIPPED_LINE });
       if (move_up) replies.push(await moveUpAnswer(ctx, move_up));
-      if (coin) replies.push(await coinAnswer(ctx, coin));
+      // v2.13 T9: coin { raising } turns the page's raising line on or off (Bench flag only).
+      if (coin)
+        replies.push(
+          coin.raising !== undefined && benchEnabled()
+            ? await setRaising(ctx.installationId, coin.raising)
+            : coin.answer && coin.project_key
+              ? await coinAnswer(ctx, { project_key: coin.project_key, answer: coin.answer, wallet: coin.wallet })
+              : { show_to_builder: COUNT_LINES.noted },
+        );
       // v2.13 spec 3: the ship log (ctx.installationId is already the group root).
       if (benchEnabled() && (update || updates)) {
         const now = new Date();

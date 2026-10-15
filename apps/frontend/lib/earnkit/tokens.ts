@@ -261,7 +261,7 @@ export function outcomeOf(
   data: DeployResponse | null,
   chain: 'base' | 'robinhood' | 'arbitrum',
   retryAt: Date | null = null,
-): TokenOutcome & { release: boolean; retry?: true; busy?: true } {
+): TokenOutcome & { release: boolean; retry?: true; busy?: true; chain_id?: number } {
   if (!res) {
     return {
       status: 'pending',
@@ -279,6 +279,8 @@ export function outcomeOf(
       tokens_fun: page,
       explorer: data.urls?.explorer,
       tx_hash: data.txHash,
+      // v2.13 T9 (F8): the chain tokens.fun says it launched on, else the one asked for. Internal: deployToken writes it.
+      chain_id: Number.isSafeInteger(data.chainId) ? data.chainId : CHAIN_IDS[chain],
       release: false,
     };
   }
@@ -688,7 +690,7 @@ export async function deployToken(
     await (deps.sleep ?? sleep)(result.busy ? BUSY_RETRY_PAUSE_MS : RETRY_PAUSE_MS);
     result = await post();
   }
-  const { release, retry: _retry, busy: _busy, ...outcome } = result;
+  const { release, retry: _retry, busy: _busy, chain_id: chainId, ...outcome } = result;
 
   if (release) {
     await sql()`
@@ -705,8 +707,10 @@ export async function deployToken(
     const coin = chain === 'base' && outcome.token_address && /^0x[0-9a-fA-F]{40}$/.test(outcome.token_address)
       ? outcome.token_address.toLowerCase()
       : null;
+    // v2.13 T9: the launch's tx and chain (internal; written with the Bench flag off too, nothing reads them there).
     const launched = (withCoin: boolean) => sql()`
-      UPDATE projects SET token_url = ${outcome.tokens_fun ?? null}, token_status = 'launched', token_note = NULL
+      UPDATE projects SET token_url = ${outcome.tokens_fun ?? null}, token_status = 'launched', token_note = NULL,
+        coin_tx = ${outcome.tx_hash ?? null}, coin_chain_id = ${chainId ?? CHAIN_IDS[chain]}
         ${withCoin ? sql()`, coin_address = ${coin}, coin_launched_at = COALESCE(coin_launched_at, now())` : sql()``}
       WHERE id = ${a.projectId}`;
     try {

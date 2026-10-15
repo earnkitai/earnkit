@@ -765,9 +765,9 @@ test('5.11 flag on: tell lists update and updates and stays under 800 characters
     const d = toolDescriptions(false).tell;
     assert.equal(d, TELL_DESCRIPTION_BENCH);
     assert.ok(d.length < 800, `${d.length}`);
-    // F20: coin { raising } is Task 9's; not listed here.
-    for (const w of ['update: { text }', 'hide', 'updates: { on']) assert.ok(d.includes(w), w);
-    assert.ok(!d.includes('raising'), 'raising waits for Task 9');
+    // F20: coin { raising } is Task 9's, listed only under the Bench flag.
+    for (const w of ['update: { text }', 'hide', 'updates: { on', 'raising']) assert.ok(d.includes(w), w);
+    assert.ok(!TELL_DESCRIPTION_SCORE.includes('raising'));
   } finally {
     delete process.env.EARNKIT_BENCH;
     delete process.env.EARNKIT_BUILDER_SCORE;
@@ -791,6 +791,10 @@ test('5.12 flag off: the registered tell input schema is byte for byte the one b
     process.env.EARNKIT_BENCH = 'on';
     const on = (await listed({})).tools.find((t) => t.name === 'tell')!;
     assert.ok('update' in (on.inputSchema.properties ?? {}) && 'updates' in (on.inputSchema.properties ?? {}));
+    // T9 (F20): coin takes raising under the flag, with project_key and answer optional.
+    const coin = (on.inputSchema.properties as Record<string, { properties?: Record<string, unknown>; required?: string[] }>).coin;
+    assert.ok(coin.properties && 'raising' in coin.properties);
+    assert.deepEqual(coin.required ?? [], []);
   } finally {
     if (saved.bench === undefined) delete process.env.EARNKIT_BENCH;
     else process.env.EARNKIT_BENCH = saved.bench;

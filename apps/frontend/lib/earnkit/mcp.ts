@@ -187,12 +187,12 @@ export const TELL_DESCRIPTION_SCORE = TELL_DESCRIPTION.replace(
 
 /**
  * v2.13 (EARNKIT_BENCH on): tell also takes this week's update (or a week to hide) and the weekly
- * posting yes; under 800 characters (mcp.test.ts 5.11). coin { raising } is added by T9.
+ * posting yes, and coin { raising } (T9); under 800 characters (mcp.test.ts 5.11).
  */
 export const TELL_DESCRIPTION_BENCH =
   "What the builder told you; call it only with what they said. submitted: { program_id, external_submission_url? } once they say they submitted on the program's site; a shared agent adds project_id. " +
   'update: { text } posts this week\'s update (your weekly task writes it from git log and deploys); { hide: "YYYY-MM-DD" } hides that week\'s. ' +
-  'updates: { on } when they say yes to weekly posting or stop posting updates. coin: their coin answer. ' +
+  'updates: { on } when they say yes to weekly posting or stop posting updates. coin: their coin answer, or { raising } when they say they\'re raising or stop. ' +
   'move_up: their answer to the last line, with its kind and project_key. pickup, profile (hide or show), card (yes or skip): their answers. ' +
   'program_status: applied, not_interested, won, placed or lost. repo_facts and weekly_email: what they said. Results they report stay private.';
 
@@ -517,15 +517,27 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
                   .strict()
                   .optional()
                   .describe('Their answer to the How to move up line'),
-                coin: z
-                  .object({
-                    project_key: z.string().max(300).describe("The coin offer's project_key (move_up.project_key or coin.project_key)"),
-                    answer: z.enum(['yes', 'no']),
-                    wallet: z.string().max(100).optional().describe('The 0x address they gave for the fees, if they gave one'),
-                  })
-                  .strict()
-                  .optional()
-                  .describe('Their answer to a coin offer'),
+                // v2.13 T9 (F20): under the Bench flag coin also takes raising; flag off, byte for byte v2.12.2.
+                coin: benchEnabled()
+                  ? z
+                      .object({
+                        project_key: z.string().max(300).optional().describe("The coin offer's project_key (move_up.project_key or coin.project_key)"),
+                        answer: z.enum(['yes', 'no']).optional(),
+                        wallet: z.string().max(100).optional().describe('The 0x address they gave for the fees, if they gave one'),
+                        raising: z.boolean().optional().describe("true when they say they're raising, false when they say stop raising"),
+                      })
+                      .strict()
+                      .optional()
+                      .describe('Their answer to a coin offer, or raising')
+                  : z
+                      .object({
+                        project_key: z.string().max(300).describe("The coin offer's project_key (move_up.project_key or coin.project_key)"),
+                        answer: z.enum(['yes', 'no']),
+                        wallet: z.string().max(100).optional().describe('The 0x address they gave for the fees, if they gave one'),
+                      })
+                      .strict()
+                      .optional()
+                      .describe('Their answer to a coin offer'),
                 // v2.13: listed only with the Bench flag on.
                 ...(benchEnabled()
                   ? {

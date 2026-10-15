@@ -1,7 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BENCH_ALLOWED, bannedIn, bannedInBench } from './fixtures/banned-words';
+import * as React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { pageWords } from './fixtures/page-words';
 import { benchRank } from './rank';
+import { raiseLine } from './coin-moments';
+import { RAISE_LINES, showRaisingLine } from './raising';
+import RaisingPill from '../../app/components/ui/RaisingPill';
+
+// The components are compiled with the classic JSX runtime here (as feed.test.ts).
+(globalThis as { React?: typeof React }).React = React;
 import {
   CONFIRMED_LINE, NO_PROJECT_LINE, POST_UPDATE_ASK, UPDATES_ASK, buildAsk, claimToJoinLine, confirmingLine, enterAsk, fitsLine, goLiveAsk, ideasLine, onBenchLine,
 } from './bench-reply';
@@ -17,6 +26,9 @@ export const TEXTS: string[] = [
   goLiveAsk('Recipe planner'), enterAsk('Base Builder Grants'), fitsLine('Avalanche Team1 Mini Grants', 'up to $10K', 'Recipe planner', 'open all year'),
   claimToJoinLine('Recipe planner', 'earnkit.com/claim/abcdefghijkl'), CONFIRMED_LINE('Recipe planner'),
   ideasLine([{ who: 'Arc', prize: 'up to $10K', for: 'payment apps' }, { who: 'Base', prize: 'up to $5K', for: 'a live app' }]), buildAsk('a tip jar on Arc'),
+  // T9: the raise lines and the pill's words.
+  raiseLine('Recipe planner', 'RECIPE', null), showRaisingLine('RECIPE'), RAISE_LINES.on('RECIPE'), RAISE_LINES.off, RAISE_LINES.notLaunched,
+  pageWords(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/coin/0xabc' })),
 ];
 
 test('7.5 every v2.13 string passes the v2.13 copy rule', () => {
@@ -34,4 +46,10 @@ test('7.6 the rule: chain names only inside a rank line, "percentile", "signal",
     'Base pays up to $5K for the builder bonus.', 'Arc pays up to $5K for Base apps.', 'Desktop 5% on Base', 'Stop 1% on Base'])
     assert.notDeepEqual(bannedInBench(bad, []), [], bad);
   assert.ok(BENCH_ALLOWED.every((r) => r.global), 'every allowance strips every match');
+});
+
+test('9.9 the pill says "Raising $RECIPE" and links to the coin\'s tokens.fun page, nothing else', () => {
+  const h = renderToStaticMarkup(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/coin/0xabc', size: 'sm' }));
+  assert.equal(pageWords(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/coin/0xabc' })).trim(), 'Raising $RECIPE');
+  assert.match(h, /^<a href="https:\/\/tokens\.fun\/coin\/0xabc" target="_blank" rel="noopener noreferrer"/);
 });
