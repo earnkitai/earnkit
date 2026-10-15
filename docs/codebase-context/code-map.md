@@ -178,7 +178,8 @@ apps/frontend/
                                pagePath(handle)/card.png or /share; else 404
   app/claim/[code]/route.ts    v2.12.1 T6: GET claimGet (what is public, how to hide, one button; cookie +
                                csrf), POST claimPost (303 to X); force-dynamic
-  app/claim/wallet/route.ts    v2.12.1 T7: the optional wallet signature page (walletGet, walletPost)
+  app/claim/wallet/route.ts    v2.12.1 T7: the optional wallet signature page (walletGet, walletPost; PUT,
+                               PATCH, DELETE -> walletOtherMethod 405, frame-ancestors kept)
   app/x/callback/route.ts      v2.12.1 T6: xCallback (state + this browser's cookie, then X, then bindX)
   app/admin/scores/page.tsx    v2.12 T6 (spec 5): the owner's review of held scores (noindex, ?key= =
                                builder-score.ts scoresAdminKey, link from `pnpm campaign scores-link`; array key
@@ -1460,7 +1461,8 @@ apps/frontend/
     claim.ts(+test)            v2.12.1 T6/T7: CLAIM_TEXT, claimCode (S13), claimLink, claimGet, claimPost,
                                xCallback, bindX (join_pending when another group holds the X id)
     wallet-proof.ts(+test)     v2.12.1 T7: upgradeToken/upgradeOf (30 min), WALLET_TEXT, walletMessage,
-                               proveWallet (EIP-191, once per signature), walletGet, walletPost
+                               proveWallet (EIP-191, once per signature), walletGet, walletPost,
+                               walletOtherMethod (405); every non-200 answer carries WALLET_FRAME_CSP
     brand-page.ts              v2.12.1 T11: the claim, done and wallet pages' navy shell (fonts as data:), X_ICON
     where-you-stand.ts(+test)  v2.12.1 T8: HEADS, whereYouStand, chooseStep, placeBuild, paymentFits,
                                paymentStepFits, plainWhat, standingNews, newsOpener, pageReadyLine,
@@ -1595,6 +1597,9 @@ apps/frontend/
                                launched L`, reads per day per source against read-usage.ts FREE_LIMITS, claimed
                                pages, `Leaderboard: N real builders (goal 20, shown, not a target)` (--as-of,
                                --days 7; owner-run, one READ ONLY transaction; v2121-metric.test.ts runs it)
+                               v2121-prod-check.mts: v2.12.1 T13, the runbook's read-only checks (GET only;
+                               one opt-in POST to a claim button with --handoff); its method allow-list is
+                               lib/earnkit/v2121-prod-check.ts requestAllowed (tested, final fix wave)
                                v2121-seed.mts: v2.12.1 T11, seeds a local v2121_shots database for the design
                                screenshots (refuses any other database)
                                archive-restore.mts: v2.12 T13, `<feature>` moves archive/<feature>/files back

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
-import { checkClaimPage, checkHandoff, checkLeaderboard, checkReply, claimCodeIn, claimFormOf } from '../lib/earnkit/v2121-prod-check';
+import { checkClaimPage, checkHandoff, checkLeaderboard, checkReply, claimCodeIn, claimFormOf, requestAllowed } from '../lib/earnkit/v2121-prod-check';
 
 /**
  * v2.12.1 acceptance runbook (docs/design-docs-and-implementation-plans/v2.12.1-acceptance-runbook.md),
@@ -42,8 +42,7 @@ const report = (name: string, problems: string[]) => {
 
 /** The only way out of this script. GET always; POST only to a claim page's own button, and only with --handoff. */
 async function request(method: 'GET' | 'POST', path: string, init: { headers?: Record<string, string>; body?: string } = {}) {
-  if (method === 'POST' && !(values.handoff && /^\/claim\/[a-z2-7]{12}$/.test(path))) throw new Error(`refused: ${method} ${path}`);
-  if (method !== 'GET' && method !== 'POST') throw new Error(`refused: ${method}`);
+  if (!requestAllowed(method, path, values.handoff === true)) throw new Error(`refused: ${method} ${path}`);
   const res = await fetch(`${base}${path}`, { method, redirect: 'manual', signal: AbortSignal.timeout(15_000), ...init });
   return { status: res.status, location: res.headers.get('location'), setCookie: res.headers.get('set-cookie'), text: await res.text() };
 }

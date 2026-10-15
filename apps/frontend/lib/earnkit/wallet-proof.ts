@@ -104,12 +104,24 @@ class TakenError extends Error {}
 const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 /** A JSON value safe inside a <script> element. Pure. */
 const scriptJson = (v: unknown) => JSON.stringify(v).replace(/[<>&\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
-const PAGE_HEADERS = { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' };
+/**
+ * Final fix wave: next.config's site-wide frame-ancestors policy skips /claim/wallet (WALLET_EXCEPT),
+ * so every answer of this route carries it itself: the 200 page in its nonce policy, every other
+ * answer (404, 410, JSON, 405) this one.
+ */
+export const WALLET_FRAME_CSP = { 'Content-Security-Policy': "frame-ancestors 'none'" } as const;
+const PAGE_HEADERS = { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', ...WALLET_FRAME_CSP };
 /** T11 fix round 2: the profile's look (brand-page.ts), Funnel Display as data: fonts (font-src data: below). */
 const shell = (inner: string) => brandShell(inner, { fonts: true });
 const linePage = (line: string, status: number) =>
   new Response(shell(`<p class="ek-line ek-first">${escapeHtml(line)}</p>`), { status, headers: PAGE_HEADERS });
-const notFound = () => new Response('Not found', { status: 404 });
+const notFound = () => new Response('Not found', { status: 404, headers: WALLET_FRAME_CSP });
+
+/** Any method but GET and POST on /claim/wallet: 405 (404 with the flag off, as the rest of the route). */
+export function walletOtherMethod(): Response {
+  if (!builderScoreEnabled()) return notFound();
+  return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET, POST', 'Cache-Control': 'no-store', ...WALLET_FRAME_CSP } });
+}
 
 /**
  * GET /claim/wallet?t=<token>: the lead, one button, and one script: the browser wallet's account,
@@ -154,7 +166,7 @@ export async function walletGet(request: Request): Promise<Response> {
 
 type RouteDeps = { limit?: (request: Request) => Promise<unknown>; verify?: Verify; now?: Date };
 const json = (line: string, status = 200) =>
-  new Response(JSON.stringify({ line }), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+  new Response(JSON.stringify({ line }), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...WALLET_FRAME_CSP } });
 
 /** POST /claim/wallet ({ t, wallet, signature }): same origin, the xClaim limit, then proveWallet; answers { line }. */
 export async function walletPost(request: Request, deps: RouteDeps = {}): Promise<Response> {

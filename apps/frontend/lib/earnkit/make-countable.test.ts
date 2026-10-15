@@ -303,26 +303,16 @@ test('9.16 a step is offered only when its yes can deliver (ruling 4)', dbTest, 
   const reader = fakeChain({ deployer: randomAddress(), callers: 10 });
   await agentContract(id, 'tokens.fun', ref, reader);
   assert.equal((await step(id))?.kind, 'count_past');
-  const was = { a: process.env.X_CLIENT_ID, b: process.env.X_CLIENT_SECRET };
-  delete process.env.X_CLIENT_ID;
-  delete process.env.X_CLIENT_SECRET;
-  try {
+  await withEnv({ X_CLIENT_ID: undefined, X_CLIENT_SECRET: undefined }, async () => {
     assert.notEqual((await step(id))?.kind, 'count_past');
-  } finally {
-    process.env.X_CLIENT_ID = was.a;
-    process.env.X_CLIENT_SECRET = was.b;
-  }
+  });
   // No secret: no person code, so no future-users step (and no wallet page for a claimed person).
   const tagger = await claimed('tag_dev3');
   await trackedContract(tagger, 'lee/app2', `base:${randomAddress()}`);
   assert.equal((await step(tagger))?.kind, 'tag_future');
-  const secret = process.env.EARNKIT_AUTH_SECRET;
-  delete process.env.EARNKIT_AUTH_SECRET;
-  try {
+  await withEnv({ EARNKIT_AUTH_SECRET: undefined }, async () => {
     assert.notEqual((await step(tagger))?.kind, 'tag_future');
-  } finally {
-    process.env.EARNKIT_AUTH_SECRET = secret;
-  }
+  });
 });
 
 test('9.10 the rank words after a count: "#3 of 40" under 50 ranked, then the top share, else nothing', () => {
@@ -552,17 +542,14 @@ test('9.22 (fix round 3) move_up.live_url reaches go_live through the MCP schema
     } finally {
       await client.close();
     }
-    const flag = process.env.EARNKIT_BUILDER_SCORE;
-    delete process.env.EARNKIT_BUILDER_SCORE;
-    try {
+    // Final fix wave: withEnv restores an unset flag by deleting it (never the string "undefined").
+    await withEnv({ EARNKIT_BUILDER_SCORE: undefined }, async () => {
       const off = await mcpClient(id);
       const { tools: listed } = await off.listTools();
       await off.close();
       assert.ok(!('tips' in (listed.find((t) => t.name === 'prepare')!.inputSchema.properties as Record<string, unknown>)));
       assert.ok(!('move_up' in (listed.find((t) => t.name === 'tell')!.inputSchema.properties as Record<string, unknown>)));
-    } finally {
-      process.env.EARNKIT_BUILDER_SCORE = flag;
-    }
+    });
   }),
 );
 

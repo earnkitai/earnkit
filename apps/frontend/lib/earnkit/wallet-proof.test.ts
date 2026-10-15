@@ -88,6 +88,37 @@ test('7.3 a signed message proves a wallet once; a wrong signer, an expired toke
   assert.deepEqual(await proveWallet({ token: tp, wallet: third.address, signature: sp }, NOW, viemVerify), { ok: false, line: WALLET_TEXT.expired });
 });
 
+test('7.5b (final fix wave) every non-200 answer of /claim/wallet carries frame-ancestors: 404, 410, JSON errors and 405', dbTest, async () => {
+  const frame = (r: Response) => assert.equal(r.headers.get('content-security-policy'), "frame-ancestors 'none'", `${r.status}`);
+  const route = await import('../../app/claim/wallet/route');
+  // Flag off: the route is a 404 for every method, framed by no one.
+  frame(await walletGet(new Request('https://earnkit.com/claim/wallet?t=junk')));
+  for (const m of [route.PUT, route.PATCH, route.DELETE]) {
+    const r = await m();
+    assert.equal(r.status, 404);
+    frame(r);
+  }
+  await withScore(async () => {
+    const gone = await walletGet(new Request('https://earnkit.com/claim/wallet?t=junk'));
+    assert.equal(gone.status, 410);
+    frame(gone);
+    const post = (origin: string, body: string) =>
+      walletPost(new Request('https://earnkit.com/claim/wallet', { method: 'POST', headers: { 'content-type': 'application/json', origin }, body }), { ...noLimit, verify: viemVerify });
+    const cross = await post('https://evil.example', '{}');
+    assert.equal(cross.status, 403);
+    frame(cross);
+    const bad = await post('https://earnkit.com', 'garbage');
+    assert.equal(bad.status, 400);
+    frame(bad);
+    for (const m of [route.PUT, route.PATCH, route.DELETE]) {
+      const r = await m();
+      assert.equal(r.status, 405);
+      assert.equal(r.headers.get('allow'), 'GET, POST');
+      frame(r);
+    }
+  });
+});
+
 test('7.5 the wallet page: 404 with the flag off; one button and the message to sign; the POST checks Origin and answers a line', dbTest, async () => {
   const id = await claimed(`wp${randomBytes(4).toString('hex')}`);
   const t = upgradeToken(id, new Date())!;

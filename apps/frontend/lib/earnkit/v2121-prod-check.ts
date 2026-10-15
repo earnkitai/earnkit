@@ -77,3 +77,13 @@ export function checkHandoff(status: number, location: string | null, base: stri
 export function checkLeaderboard(html: string): string[] {
   return /<form\b|<select\b|role="tab"|role="tablist"|[?&](chain|tool|filter|tab|page)=/i.test(html) ? ['leaderboard: filter markup'] : [];
 }
+
+/**
+ * The prod-check script's one way out (scripts/v2121-prod-check.mts request): GET always; POST only
+ * to a claim page's own button (/claim/<12 letters>) and only with --handoff; any other method never.
+ * Pure.
+ */
+export function requestAllowed(method: string, path: string, handoff: boolean): boolean {
+  if (method === 'GET') return true;
+  return method === 'POST' && handoff && /^\/claim\/[a-z2-7]{12}$/.test(path);
+}

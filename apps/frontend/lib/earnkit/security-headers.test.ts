@@ -43,6 +43,18 @@ test("the token image and the generated mark keep their sandbox CSP (config head
   assert.match(IMAGE_CSP, /frame-ancestors 'none'/);
 });
 
+test('final fix wave: every IMAGE_CSP rule comes after the WALLET_EXCEPT rule (a later rule wins for the same header)', async () => {
+  const rules = await nextConfig.headers!();
+  const wallet = rules.findIndex((r) => r.source === WALLET_EXCEPT);
+  assert.ok(wallet > 0, 'the frame-ancestors rule, after the global one');
+  const image = rules.map((r, i) => ({ r, i })).filter(({ r }) => r.headers.some((h) => h.key === 'Content-Security-Policy' && h.value === IMAGE_CSP));
+  assert.deepEqual(
+    image.map(({ r }) => r.source),
+    ['/api/projects/:id/image', '/api/projects/:id/token-image', '/api/projects/:id/mark', '/b/:slug/card.png', '/:handle/card.png', '/programs/:file([a-z0-9-]+\\.(?:svg|png))'],
+  );
+  for (const { r, i } of image) assert.ok(i > wallet, `${r.source} after ${WALLET_EXCEPT}`);
+});
+
 /**
  * The source string is a path-to-regexp pattern: `/programs/:file(<custom regex>)`. Rebuilt here
  * as a plain RegExp (no path-to-regexp dependency available to apps/frontend's test runner) so

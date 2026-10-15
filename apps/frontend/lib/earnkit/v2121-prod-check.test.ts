@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkClaimPage, checkHandoff, checkLeaderboard, checkReply, claimCodeIn, claimFormOf } from './v2121-prod-check';
+import { checkClaimPage, checkHandoff, checkLeaderboard, checkReply, claimCodeIn, claimFormOf, requestAllowed } from './v2121-prod-check';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 // A recorded first reply for a target user (a few small apps, little GitHub, no traction), as whereYouStand prints it.
 const GOLDEN_TARGET_REPLY = `Where you stand
@@ -49,4 +51,21 @@ test('13.3 the claim, handoff and leaderboard checks', () => {
   assert.ok(checkHandoff(200, null, 'https://earnkit.com').length > 0);
   assert.deepEqual(checkLeaderboard('<ol><li>#1 @lee</li></ol>'), []);
   assert.deepEqual(checkLeaderboard('<select><option>Base</option></select>'), ['leaderboard: filter markup']);
+});
+
+test('13.4 (final fix wave) the script\'s method allow-list: GET always, POST only to a claim button with --handoff, nothing else', () => {
+  for (const p of ['/', '/leaderboard', '/claim/abcdefghijkl', '/x/callback']) {
+    assert.equal(requestAllowed('GET', p, false), true, p);
+    assert.equal(requestAllowed('GET', p, true), true, p);
+  }
+  assert.equal(requestAllowed('POST', '/claim/abcdefghijkl', true), true);
+  assert.equal(requestAllowed('POST', '/claim/abcdefghijkl', false), false, 'no --handoff');
+  for (const p of ['/claim/abcdefghijk', '/claim/abcdefghijklm', '/claim/ABCDEFGHIJKL', '/claim/abcdefghijk1', '/claim/wallet', '/claim/abcdefghijkl/x', '/x/callback', '/api/cron', '/claim/abcdefghijkl?x=1'])
+    assert.equal(requestAllowed('POST', p, true), false, p);
+  for (const m of ['PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS', 'post', 'get'])
+    assert.equal(requestAllowed(m, '/claim/abcdefghijkl', true), false, m);
+  // The script goes out only through request(), which asks requestAllowed first.
+  const script = readFileSync(join(import.meta.dirname, '../../scripts/v2121-prod-check.mts'), 'utf8');
+  assert.equal(script.match(/\bfetch\(/g)?.length, 1);
+  assert.match(script, /if \(!requestAllowed\(method, path, values\.handoff === true\)\) throw/);
 });
