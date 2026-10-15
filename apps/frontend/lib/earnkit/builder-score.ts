@@ -1,4 +1,5 @@
 import { countProject, moneyOf, ringWeights, type ActorFacts, type Touch } from './anti-farming';
+import { benchEnabled } from './builder-score-flag';
 import { sql, type Db } from './db';
 import { discover, type LoginOf } from './discovery';
 import { ownPagesSite } from './discovery-clues';
@@ -12,6 +13,7 @@ import { calibration, type Calibration } from './score-calibration';
 import { readSources } from './sources'; // sources.ts never imports this file (READS_PER_RUN lives there)
 import { READ_CAPS, defaultReaderDeps, isoWeek, type ContractSignals, type PackageSignals, type PrSignals, type ReaderDeps, type RepoSignals, type SiteSignals, type Who } from './source-readers';
 import { vetoKey } from './veto';
+import { weeklyFactsStep } from './week-facts'; // week-facts imports person-score, which imports this file: functions only, called after load
 
 /**
  * v2.12 spec 4 to 6: the builder score's cron steps (discover, readSources, score, profileEmpty;
@@ -336,6 +338,8 @@ export async function runScoreSteps(now: Date, sliceEnd: number, deps: ScoreCron
   await step('read', () => readSources(now, { deadline: sliceEnd, reader, only: deps.only }));
   await step('score', () => scorePeopleV2(now, { deadline: sliceEnd, only: deps.only }));
   await step('empty', () => profileEmpty(now, { only: deps.only }));
+  // v2.13 spec "Cost": the weekly facts (Mondays from 15:00 UTC, after the digest). Flag off: no step.
+  if (benchEnabled()) await step('weekly', () => weeklyFactsStep(now, { deadline: sliceEnd, only: deps.only }));
   return out;
 }
 

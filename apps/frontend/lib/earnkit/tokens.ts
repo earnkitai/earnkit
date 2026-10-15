@@ -22,7 +22,8 @@ export const TOKEN_TERMS = {
   risks: 'https://tokens.fun/risk-disclosure',
 };
 
-const CHAIN_IDS = { base: 8453, robinhood: 4663, arbitrum: 42161 } as const;
+/** tokens.fun chain ids (person-score.ts reads them back to name a launched coin's chain). */
+export const CHAIN_IDS = { base: 8453, robinhood: 4663, arbitrum: 42161 } as const;
 
 export class LaunchError extends Error {}
 

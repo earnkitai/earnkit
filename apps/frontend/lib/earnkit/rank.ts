@@ -22,3 +22,8 @@ export function rankWords(s: Standing): { reply: string; short: string } | null 
   if (p > TOP_PERCENT_MAX) return null;
   return { reply: `You're in the top ${p}% of people building with AI.`, short: `Top ${p}% of people building with AI` };
 }
+
+/** v2.13 R14: the chains a project can be shown on (logos), in the Bench's order. */
+export const BENCH_CHAINS = ['base', 'robinhood', 'arc'] as const;
+export type BenchChain = (typeof BENCH_CHAINS)[number];
+export const CHAIN_LABEL: Record<BenchChain, string> = { base: 'Base', robinhood: 'Robinhood Chain', arc: 'Arc' };

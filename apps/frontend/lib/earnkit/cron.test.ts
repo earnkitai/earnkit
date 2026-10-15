@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { decodeFunctionData, encodeFunctionData, erc20Abi, keccak256, parseTransaction, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import { runScoreSteps } from './builder-score';
 import { PAY_FAILED_RUNS, TERMS_CHANGED, bonusWaitsOnOwner, cronPost, nextStep, runCron, scoreMaxAge } from './cron';
 import { sql } from './db';
 import { MANUAL_CHECK, NOT_MAINNET, NO_PAYOUT_KEY, TOP_UP, dbPayoutStore, needsOwner, type PayoutRpc } from './payout';
@@ -668,5 +669,24 @@ test('6.9b needs_owner lists every current hold (quietly), not only the ones thi
   } finally {
     delete process.env.EARNKIT_BUILDER_SCORE;
     await sql()`DELETE FROM builder_profiles WHERE builder_id = ${id}`;
+  }
+});
+
+test('4.8 the weekly step exists only under the flag (flag off: the v2.12.2 steps, nothing else)', db, async () => {
+  const score = process.env.EARNKIT_BUILDER_SCORE;
+  process.env.EARNKIT_BUILDER_SCORE = 'on';
+  const sliceEnd = Date.now() + 5_000;
+  const noReads = new Proxy({}, { get: (_t, k) => (k === 'now' ? new Date() : async () => { throw new Error('no reads'); }) }) as never;
+  delete process.env.EARNKIT_BENCH;
+  try {
+    const off = await runScoreSteps(new Date('2026-10-19T15:30:00Z'), sliceEnd, { only: [], reader: noReads });
+    assert.deepEqual(Object.keys(off), ['discover', 'read', 'score', 'empty']);
+    process.env.EARNKIT_BENCH = 'on';
+    const on = await runScoreSteps(new Date('2026-10-19T15:30:00Z'), sliceEnd, { only: [], reader: noReads });
+    assert.deepEqual(Object.keys(on), ['discover', 'read', 'score', 'empty', 'weekly']);
+  } finally {
+    delete process.env.EARNKIT_BENCH;
+    if (score === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
+    else process.env.EARNKIT_BUILDER_SCORE = score;
   }
 });

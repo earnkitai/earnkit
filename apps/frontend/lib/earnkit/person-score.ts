@@ -7,10 +7,11 @@ import { ScoreDeadline } from './campaigns';
 import { isConfirmedProof } from './confirmed';
 import { sql, type Db } from './db';
 import { discoverPerson } from './discovery';
-import { MAIN_PROOF_MIN_MS, confirmingFast } from './main-project';
+import { MAIN_PROOF_MIN_MS, confirmingFast, mainProjectOf, pickMainProject } from './main-project';
 import { noteEvent } from './events';
 import { REPOS_MAX, readGithubRepos, readPersonGithub, type PersonRepo } from './person-github';
-import type { Standing } from './rank';
+import { BENCH_CHAINS, type BenchChain, type Standing } from './rank';
+import { COIN_PROGRAM } from './policy-constants';
 import { LIMITS, hit } from './rate-limit';
 import { countingDeps, flushReadUsage } from './read-usage';
 import { LIVE_CALIBRATION_V2, calibrationV2 } from './score-calibration';
@@ -20,6 +21,8 @@ import {
   type ContractSignals, type CoinSignals, type PackageSignals, type ReaderDeps, type RepoSignals, type SiteSignals, type Who,
 } from './source-readers';
 import { previousSignals, withPastCounts, withPastWeeks } from './sources';
+import { CHAIN_IDS } from './tokens';
+import { isoWeekOf, last52, mondayOf, streakOf, weeksShipping } from './weeks';
 
 /**
  * v2.12.1 spec "Score" and "Scale": each person's live score (formula v2) from confirmed data only,
@@ -39,6 +42,8 @@ const DAY_MS = 86_400_000;
 const RESCORE_LOCK = 21_214;
 const YEAR_MS = 365 * DAY_MS;
 const WEEK_MS = 7 * DAY_MS;
+/** v2.13: a launched coin's tokens.fun chain id (tokens.ts CHAIN_IDS), read back as a Bench chain. */
+const CHAIN_OF_ID: Record<number, BenchChain> = { [CHAIN_IDS.base]: 'base', [CHAIN_IDS.robinhood]: 'robinhood' };
 /** Refresh runs discovery for a person at most this often (unless a new clue queued them again). */
 export const REFRESH_DISCOVER_MS = DAY_MS;
 
@@ -46,6 +51,8 @@ export type ProjectRow = {
   key: string; name: string; what: string | null; link: string | null; kind: 'app' | 'package' | 'contract' | 'coin' | 'code';
   confirmed: boolean; shipped: boolean; tracked: boolean; people: number; people_week: number; money_usd: number;
   has_coin: boolean; sends_tx: boolean; tagged: boolean; untracked_contract: string | null; last_active_at: Date | null;
+  /** v2.13: the Bench chains it is on, its streak, weeks shipping in the last 52, and those weeks (plan B7). */
+  chains: BenchChain[]; streak: number; weeks_shipping: number; ship_weeks: string[];
   /**
    * v2.12.1 T9: the distinct accounts of other people counted on a confirmed project (weight above 0
    * after every anti-farming rule; stars and forks aside), for "Done. 140 people who used it now
@@ -170,8 +177,11 @@ type IdentityProject = { name?: unknown; what?: unknown; repo?: unknown; live_ur
  * read from builder_profiles.ring (stored by that step), so a refresh never scans everyone's edges.
  */
 export async function personInputsV2(
-  id: number, now: Date, personRing?: PersonRing, db: Db = sql(),
-): Promise<{ input: V2Input; projects: ProjectRow[]; perSource: Map<number, { users: number; money: number }>; ringComputed: boolean; checked: [string, number[]][] }> {
+  id: number, now: Date, personRing?: PersonRing, db: Db = sql(), o: { scope?: string | null } = {},
+): Promise<{
+  input: V2Input; projects: ProjectRow[]; perSource: Map<number, { users: number; money: number }>; ringComputed: boolean; checked: [string, number[]][];
+  newPeople: Map<string, Record<string, number>>; shipWeeks: Map<string, string[]>; chains: Map<string, BenchChain[]>;
+}> {
   const yearAgo = new Date(now.getTime() - YEAR_MS);
   const [profile] = await db<{ login: string | null; reported: string | null; identity: { projects?: unknown } | null; ring: unknown; base_code: string | null }[]>`
     SELECT lower(github_login) AS login, lower(reported_github) AS reported, identity, ring, base_builder_code AS base_code FROM builder_profiles WHERE builder_id = ${id}`;
@@ -206,8 +216,15 @@ export async function personInputsV2(
     FROM entry_outcomes o JOIN projects p ON p.id = o.project_id
     WHERE p.installation_id IN ${db(group)} AND o.basis = 'announcement' AND o.result IN ('won', 'placed', 'finalist') AND o.prize_usd > 0`;
   const events = await db<{ at: Date; repo_key: string | null }[]>`
-    SELECT at, repo_key FROM builder_events
+    SELECT at, lower(repo_key) AS repo_key FROM builder_events
     WHERE installation_id IN ${db(group)} AND type IN ('built', 'deployed', 'hosted') AND at > ${yearAgo}`;
+  // v2.13: chains from program entries and launched coins (any chain; coin_address is Base only).
+  const entries = await db<{ repo_key: string | null; chains: string[] | null }[]>`
+    SELECT COALESCE(p.repo_key, p.token_repo_key) AS repo_key, g.chains FROM projects p JOIN programs g ON g.id = p.program_id
+    WHERE p.installation_id IN ${db(group)} AND p.program_id <> ${COIN_PROGRAM} AND p.vetoed_at IS NULL`;
+  const launched = await db<{ repo_key: string | null; chain_id: number | null; coin: string | null }[]>`
+    SELECT COALESCE(token_repo_key, repo_key) AS repo_key, coin_chain_id AS chain_id, lower(coin_address) AS coin
+    FROM projects WHERE installation_id IN ${db(group)} AND token_status = 'launched'`;
   const wallets = await db<{ wallet: string }[]>`
     SELECT wallet FROM person_wallets WHERE builder_id = ${id}
     UNION SELECT lower(w.wallet) FROM installation_wallets w WHERE w.installation_id IN ${db(group)}`;
@@ -236,6 +253,9 @@ export async function personInputsV2(
   for (const l of lives) if (l.signals && typeof l.signals === 'object') push(l.source_id, { at: l.read_at, rank: l.read_at.getTime(), signals: l.signals as Record<string, unknown> });
   const latest = (sid: number): Obs | null => (obs.get(sid) ?? []).reduce<Obs | null>((m, o) => (!m || o.rank > m.rank ? o : m), null);
   const oldest = (sid: number): Obs | null => (obs.get(sid) ?? []).reduce<Obs | null>((m, o) => (!m || o.rank < m.rank ? o : m), null);
+  /** A site's first observation up (`last`: its newest, which is up). */
+  const firstUp = (sid: number, last: Date) =>
+    (obs.get(sid) ?? []).filter((o) => (o.signals as Partial<SiteSignals>).up === true).reduce((m, o) => (o.at < m ? o.at : m), last);
 
   const identity = list<IdentityProject>(profile?.identity?.projects);
   const named = (key: string) => {
@@ -285,15 +305,29 @@ export async function personInputsV2(
   const input: V2Input = { ships: [], touches: [], packages: [], earned: [], weeks: [] };
   const perSource = new Map<number, { users: number; money: number }>();
   const rows: (Omit<ProjectRow, 'tracked' | 'people' | 'money_usd'> & { scored: boolean })[] = [];
-  const addWeek = (at: Date | null) => {
-    if (!at || !Number.isFinite(at.getTime()) || now.getTime() - at.getTime() > YEAR_MS) return;
+  // v2.13 (scope): only the one project's work feeds the score; every project's row is still built.
+  const scopeLow = o.scope ? lowKey(o.scope) : null;
+  const addWeek = (at: Date | null, inScope = true) => {
+    if (!inScope || !at || !Number.isFinite(at.getTime()) || now.getTime() - at.getTime() > YEAR_MS) return;
     input.weeks.push({ week: isoWeek(at), at });
   };
   const usedCreator = new Set<string>();
   const peopleWeek = new Map<string, number>();
+  const newPeople = new Map<string, Record<string, number>>();
+  const shipWeeks = new Map<string, string[]>();
+  const chainsOf = new Map<string, BenchChain[]>();
+  const last53 = new Set([...last52(now), isoWeekOf(new Date(now.getTime() - 52 * WEEK_MS))]);
+  const weekOf = (at: Date | null | undefined) => (at && Number.isFinite(at.getTime()) ? isoWeekOf(at) : null);
 
   for (const key of keys) {
     const low = lowKey(key);
+    const inScope = !scopeLow || scopeLow === low;
+    const ship = new Set<string>();
+    const shipAt = (at: Date | null | undefined) => {
+      const w = weekOf(at);
+      if (w) ship.add(w);
+    };
+    const chains = new Set<BenchChain>();
     const srcs = sources.filter((s) => lowKey(s.project_key) === low);
     const hostedHere = hosted.filter((h) => lowKey(h.repo_key) === low);
     const deploysHere = deploys.filter((x) => lowKey(x.repo_key) === low);
@@ -351,7 +385,11 @@ export async function personInputsV2(
         if (g.owner_type === 'Organization') for (const w of list<Who>(g.contributors)) if (typeof w?.id === 'string') projSelf.add(w.id.toLowerCase());
         for (const w of list<Who>(g.stargazers)) add(s.id, 'stargazer', 'star', w);
         for (const w of list<Who>(g.forkers)) add(s.id, 'forker', 'fork', w);
-        for (const wk of list<unknown>(g.commit_weeks)) if (typeof wk === 'string') addWeek(weekEnd(wk, now));
+        for (const wk of list<unknown>(g.commit_weeks))
+          if (typeof wk === 'string') {
+            addWeek(weekEnd(wk, now), inScope);
+            if (WEEK.test(wk)) ship.add(wk);
+          }
       } else if (s.kind === 'site') {
         hasSite = true;
         const up = last && (last.signals as Partial<SiteSignals>).up === true;
@@ -361,9 +399,9 @@ export async function personInputsV2(
           lastActive = newest(lastActive, last.at);
           // A site is a ship only on a project with a confirmed repo (spec: "Repos with a live homepage").
           if (scored && confirmedRepo) {
-            const firstUp = (obs.get(s.id) ?? []).filter((o) => (o.signals as Partial<SiteSignals>).up === true).reduce((m, o) => (o.at < m ? o.at : m), last.at);
-            ships.push({ key, at: firstUp, alive_at: last.at });
+            ships.push({ key, at: firstUp(s.id, last.at), alive_at: last.at });
           }
+          shipAt(firstUp(s.id, last.at));
         }
       } else if (s.kind === 'package_npm' || s.kind === 'package_pypi') {
         hasPackage = true;
@@ -381,6 +419,10 @@ export async function personInputsV2(
         }
       } else if (s.kind === 'contract' || s.kind === 'coin') {
         const isCoin = s.kind === 'coin';
+        if (!isCoin && s.state === 'verified') {
+          const chain = /^(base|arc):/i.exec(s.ref)?.[1].toLowerCase();
+          if (chain === 'base' || chain === 'arc') chains.add(chain);
+        }
         if (isCoin) hasCoinSource = true;
         else hasContract = true;
         shipped = true;
@@ -417,7 +459,7 @@ export async function personInputsV2(
     // The newest call or buy keeps a deploy or a coin alive.
     const usedAt = newest(...touches.filter((t) => t.kind === 'caller').map((t) => t.at));
     for (const sh of ships) if (sh.alive_at === null && usedAt) sh.alive_at = usedAt;
-    input.ships.push(...ships);
+    if (inScope) input.ships.push(...ships);
 
     // Use: every touch through anti-farming; each counted account's newest touch per kind.
     const counted = countProject(key, touches, { self: projSelf, actors: facts, ...ring });
@@ -433,30 +475,59 @@ export async function personInputsV2(
       if (!b || b.at < t.at) best.set(k, { project: key, actor: t.actor, at: t.at, weight: w, kind });
       if (kind === 'tagged') tagged = true;
       if (kind !== 'star' && kind !== 'fork') {
-        addWeek(t.at);
+        addWeek(t.at, inScope);
         if (now.getTime() - t.at.getTime() <= WEEK_MS && t.at <= now) recent.add(t.actor);
       }
     }
-    input.touches.push(...best.values());
+    if (inScope) input.touches.push(...best.values());
     peopleWeek.set(key, recent.size);
     lastActive = newest(lastActive, ...[...best.values()].map((t) => t.at));
     // Fees into their contracts: 1% of counted callers' value (v2.12 R10), split by each source's raw volume.
     const money = moneyOf(counted);
-    if (money > 0) input.earned.push({ project: key, usd: money, kind: 'contract_fees' });
+    if (money > 0 && inScope) input.earned.push({ project: key, usd: money, kind: 'contract_fees' });
     const volume = [...rawVolume.values()].reduce((n, x) => n + x, 0);
     for (const sid of rawVolume.keys()) perSource.set(sid, { users: 0, money: volume > 0 ? (money * rawVolume.get(sid)!) / volume : 0 });
     // Users per source (the hold's one-source rule): real use only, credited where it was first seen.
     const users = new Set(touches.filter((t) => kinds.get(t) !== 'star' && kinds.get(t) !== 'fork').map((t) => t.actor));
     const accounts = [...users].filter((a) => (counted.actors.get(a) ?? 0) > 0).length;
     for (const [actor, f] of firstSource) if (users.has(actor)) perSource.get(f.sid)!.users += counted.actors.get(actor) ?? 0;
+    // v2.13: new people per ISO week, each counted account (real use) at its first touch.
+    const fresh: Record<string, number> = {};
+    for (const [actor, f] of firstSource) {
+      if (!users.has(actor) || !((counted.actors.get(actor) ?? 0) > 0)) continue;
+      const w = isoWeekOf(new Date(f.at));
+      fresh[w] = (fresh[w] ?? 0) + 1;
+    }
+    newPeople.set(key, fresh);
     // Coin creator fees, each creator wallet once.
     for (const x of coinsHere) {
       if (!x.creator || usedCreator.has(x.creator)) continue;
       usedCreator.add(x.creator);
       const usd = fin(Number(fees.find((f) => f.wallet === x.creator)?.usd));
-      if (usd > 0) input.earned.push({ project: key, usd, kind: 'coin_fees' });
+      if (usd > 0 && inScope) input.earned.push({ project: key, usd, kind: 'coin_fees' });
     }
-    for (const p of prizes) if (p.repo_key && lowKey(p.repo_key) === low) input.earned.push({ project: key, usd: fin(Number(p.usd)), kind: 'prize' });
+    if (inScope) for (const p of prizes) if (p.repo_key && lowKey(p.repo_key) === low) input.earned.push({ project: key, usd: fin(Number(p.usd)), kind: 'prize' });
+
+    // v2.13: shipping weeks (commits, EarnKit hosting and deploys, a site's first day up, EarnKit's
+    // own build events) and the Bench chains (verified contracts, EarnKit deploys, launched coins, entries).
+    for (const h of hostedHere) shipAt(h.deployed_at);
+    for (const x of deploysHere) {
+      shipAt(x.created_at);
+      const chain = x.ref.split(':')[0];
+      if ((BENCH_CHAINS as readonly string[]).includes(chain)) chains.add(chain as BenchChain);
+    }
+    for (const e of events) if (e.repo_key === low) shipAt(e.at);
+    for (const c of launched) {
+      if (!c.repo_key || lowKey(c.repo_key) !== low) continue;
+      const chain = (c.chain_id !== null ? CHAIN_OF_ID[c.chain_id] : undefined) ?? (c.coin ? 'base' : null);
+      if (chain) chains.add(chain);
+    }
+    for (const e of entries)
+      if (e.repo_key && lowKey(e.repo_key) === low)
+        for (const c of e.chains ?? []) if ((BENCH_CHAINS as readonly string[]).includes(c)) chains.add(c as BenchChain);
+    shipWeeks.set(key, [...ship].sort());
+    const chainList = BENCH_CHAINS.filter((c) => chains.has(c));
+    chainsOf.set(key, chainList);
 
     const ident = named(key);
     const repoName = /^[^/:\s]+\/[^/\s]+$/.test(key) ? (ghName ?? key.split('/')[1]) : null;
@@ -477,10 +548,14 @@ export async function personInputsV2(
       untracked_contract: untracked,
       last_active_at: lastActive ?? newest(...srcs.map((s) => s.created_at)),
       accounts: confirmed ? accounts : 0,
+      chains: chainList,
+      ship_weeks: [...ship].filter((w) => last53.has(w)).sort(),
+      streak: streakOf(ship, now),
+      weeks_shipping: weeksShipping(ship, now),
     });
   }
   // EarnKit's own events (built, deployed, hosted) mark their weeks.
-  for (const e of events) addWeek(e.at);
+  for (const e of events) addWeek(e.at, !scopeLow || e.repo_key === scopeLow);
 
   const scored = computeScoreV2(input, cal, now);
   const projects: ProjectRow[] = rows.map(({ scored: isScored, ...r }) => {
@@ -491,7 +566,7 @@ export async function personInputsV2(
   // there is no ring to find, so the ring counts as computed and a confirmed ship ranks on the first
   // refresh. Touched by others and never computed by the cron: unranked until it is (fail strict;
   // the touches above are already weighed as a partner's).
-  return { input, projects, perSource, ringComputed: stored !== null || others === 0, checked };
+  return { input, projects, perSource, ringComputed: stored !== null || others === 0, checked, newPeople, shipWeeks, chains: chainsOf };
 }
 
 // ---- Live score, rank, refresh ---------------------------------------------------------------------
@@ -541,6 +616,21 @@ export async function trackingHeld(id: number, ref: string, now: Date): Promise<
 }
 
 /**
+ * v2.13 plan B9: the "Started tracking" facts on the week the one project entered, once per builder
+ * and project (F2: scoped to the builder, so someone else's row for the same key never blocks it).
+ * Lives here, not in week-facts.ts, which imports this file (no import cycle). Callers pass only a
+ * confirmed project. A week row of another builder for the key is left alone.
+ */
+export async function ensureStartedRow(db: Db, builderId: number, key: string, at: Date, s: { live: boolean; weeks: number; people: number }): Promise<void> {
+  const [had] = await db`SELECT 1 FROM project_updates WHERE builder_id = ${builderId} AND lower(project_key) = lower(${key}) AND facts ? 'started' LIMIT 1`;
+  if (had) return;
+  await db`
+    INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${builderId}, ${key}, ${mondayOf(at)}, ${db.json({ started: s } as never)})
+    ON CONFLICT (project_key, week) DO UPDATE SET facts = project_updates.facts || EXCLUDED.facts
+    WHERE project_updates.builder_id = EXCLUDED.builder_id AND NOT (project_updates.facts ? 'started')`;
+}
+
+/**
  * Rescore one person now: the live row, their projects with the 25-project cap. A rescore the
  * review hold stops (holdReason) waits in `pending` with its day; the public columns stay (a first
  * score held this way is public 0, unranked). The 30-point jump is measured against the newest
@@ -562,11 +652,16 @@ export async function rescorePerson(id: number, now: Date, ring?: PersonRing): P
     if (cur && cur.computed_at > now && !ring) return { score: cur.score, ranked: cur.ranked, held: false, reason: null, s: null, before: null };
     const at = cur && cur.computed_at > now ? cur.computed_at : now;
     const day = at.toISOString().slice(0, 10);
-    const { input, projects, perSource, ringComputed, checked } = await personInputsV2(id, at, ring, tx);
+    // v2.13 (flag on): the score is the one project's (plan B2: picked once when none was named).
+    const bench = benchEnabled();
+    const main = bench ? ((await mainProjectOf(id, tx)) ?? (await pickMainProject(id, tx))) : null;
+    const { input, projects, perSource, ringComputed, checked } = await personInputsV2(id, at, ring, tx, { scope: main });
     const s = computeScoreV2(input, cal, at);
+    const mainRow = main ? projects.find((p) => p.key.toLowerCase() === main.toLowerCase()) : undefined;
     // Ranked only once the ring is known: computed by the cron, or no other EarnKit person touched
-    // the work (fail strict on ring partners).
-    const ranked = s.ranked && ringComputed;
+    // the work (fail strict on ring partners). v2.13 B5: on the Bench as soon as the one project is
+    // confirmed; flag off: v2.12.1's rule.
+    const ranked = (bench ? Boolean(mainRow?.confirmed) : s.ranked) && ringComputed;
     const prevTracked = new Set((await tx<{ project_key: string }[]>`
       SELECT project_key FROM builder_projects WHERE builder_id = ${id} AND tracked`).map((r) => r.project_key));
     const tracked = trackedKeys(projects, at, prevTracked);
@@ -605,12 +700,17 @@ export async function rescorePerson(id: number, now: Date, ring?: PersonRing): P
           confirmed: p.confirmed, shipped: p.shipped, tracked: tracked.has(p.key), people: p.people, people_week: p.people_week,
           money_usd: p.money_usd, has_coin: p.has_coin, sends_tx: p.sends_tx, tagged: p.tagged,
           untracked_contract: p.untracked_contract, last_active_at: p.last_active_at, updated_at: at,
+          chains: p.chains, streak: p.streak, weeks_shipping: p.weeks_shipping, ship_weeks: p.ship_weeks,
         })}
         ON CONFLICT (builder_id, project_key) DO UPDATE SET name = EXCLUDED.name, what = EXCLUDED.what, link = EXCLUDED.link,
           kind = EXCLUDED.kind, confirmed = EXCLUDED.confirmed, shipped = EXCLUDED.shipped, tracked = EXCLUDED.tracked,
           people = EXCLUDED.people, people_week = EXCLUDED.people_week, money_usd = EXCLUDED.money_usd, has_coin = EXCLUDED.has_coin,
           sends_tx = EXCLUDED.sends_tx, tagged = EXCLUDED.tagged, untracked_contract = EXCLUDED.untracked_contract,
-          last_active_at = EXCLUDED.last_active_at, updated_at = EXCLUDED.updated_at`;
+          last_active_at = EXCLUDED.last_active_at, updated_at = EXCLUDED.updated_at, chains = EXCLUDED.chains,
+          streak = EXCLUDED.streak, weeks_shipping = EXCLUDED.weeks_shipping, ship_weeks = EXCLUDED.ship_weeks`;
+    // v2.13 B9 (F2): the "Started tracking" row, only for a confirmed one project.
+    if (bench && mainRow?.confirmed)
+      await ensureStartedRow(tx, id, mainRow.key, at, { live: mainRow.shipped && mainRow.kind === 'app', weeks: mainRow.weeks_shipping, people: mainRow.people });
     return { ...out, held: reason !== null, reason, s, before: before?.score ?? null };
   });
   if (result.reason && result.s) {
