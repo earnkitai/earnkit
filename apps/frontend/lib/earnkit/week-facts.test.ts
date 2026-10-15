@@ -2,7 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
 import { EVENT_LOG_FLAG } from './events';
-import { factChips, hasFacts, startedChips, startedLine, weekFactsFor, weeklyFactsStep } from './week-facts';
+import { factChips, hasFacts, startedChips, startedLine, upsertWeekFacts, weekFactsFor, weeklyFactsStep } from './week-facts';
 import { mainConfirmed } from './main-project';
 import { personInputsV2, rescorePerson } from './person-score';
 import { isoWeekOf, mondayOf } from './weeks';
@@ -262,16 +262,18 @@ test('4.12 a chain only from a confirmed contract, an EarnKit deploy, a launched
   assert.deepEqual(p.chains, []);
 });
 
-test('4.13 the weekly step counts a row only when it wrote one (another builder\'s week row is left alone)', dbTest, async () => {
+test('4.13 another builder\'s week row for the key (checked or not) is left alone, and its owner-to-be is not due', dbTest, async () => {
   const id = T + 11;
   const key = `gus${T}/app`;
   await person(id, key, { '2026-W42': 2 });
   await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped) VALUES (${id}, ${key}, 'App', 'code', true, false)`;
-  await sql()`INSERT INTO project_updates (builder_id, project_key, week, text) VALUES (${id + 1_000_000}, ${key}, '2026-10-12', 'theirs')`;
+  // The first owner's row: a Started-only row, unchecked.
+  await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${id + 1_000_000}, ${key}, '2026-10-12', '{"started": {"live": false, "weeks": 1, "people": 0}}'::jsonb)`;
   try {
-    assert.deepEqual(await weeklyFactsStep(new Date('2026-10-19T15:30:00Z'), { deadline: Date.now() + 10_000, only: [id] }), { people: 1, rows: 0 });
+    // Not due: no starving the run's slots with a second owner whose upsert would write nothing.
+    assert.deepEqual(await weeklyFactsStep(new Date('2026-10-19T15:30:00Z'), { deadline: Date.now() + 10_000, only: [id] }), { people: 0, rows: 0 });
+    assert.equal(await upsertWeekFacts(id, key, '2026-10-12', { checked: true }), false, 'nothing written over another builder\'s row');
     assert.equal((await sql()`SELECT 1 FROM builder_events WHERE dedupe_key = ${`shipped_code:${key}:2026-W42`}`).length, 0, 'no event for a log that is not theirs');
-    // The first owner's week is checked: the second owner is not due again (no starving the run's slots).
     await sql()`UPDATE project_updates SET facts = facts || '{"checked": true}'::jsonb WHERE builder_id = ${id + 1_000_000}`;
     assert.deepEqual(await weeklyFactsStep(new Date('2026-10-19T16:30:00Z'), { deadline: Date.now() + 10_000, only: [id] }), { people: 0, rows: 0 });
   } finally {
@@ -314,4 +316,26 @@ test('4.15 a scoped npm package as the one project, confirmed through its packag
   const [live] = await sql()<{ ranked: boolean }[]>`SELECT ranked FROM builder_live WHERE builder_id = ${id}`;
   assert.equal(live.ranked, true);
   assert.equal((await sql()`SELECT 1 FROM project_updates WHERE builder_id = ${id} AND facts ? 'started'`).length, 1);
+});
+
+test('4.16 downloads of a package outside the one project add nothing to the score under the flag; flag off they count as today', dbTest, async () => {
+  const id = T + 14;
+  const key = `ivy${T}/main`;
+  await person(id, key, { [wk(0)]: 1 });
+  const [{ sid }] = await sql()<{ sid: number }[]>`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by)
+    VALUES (${id}, 'package_npm', ${`ivy-side-${T}`}, ${`ivy-side-${T}`}, 'verified', 'repo_link', 'server') RETURNING id::int AS sid`;
+  await sql()`INSERT INTO source_live (source_id, signals, ok, read_at) VALUES (${sid}, ${sql().json({ weekly: 5000 } as never)}, true, now())`;
+  const scoped = await personInputsV2(id, NOW, undefined, sql(), { scope: key });
+  assert.deepEqual(scoped.input.packages, []);
+  const U = async () => Number((await sql()<{ u: string }[]>`SELECT parts->'used'->'raw'->>'U' AS u FROM builder_live WHERE builder_id = ${id}`)[0].u ?? 0);
+  await rescorePerson(id, NOW);
+  const on = await U();
+  delete process.env.EARNKIT_BENCH;
+  try {
+    await rescorePerson(id, new Date(NOW.getTime() + 60_000));
+    assert.ok((await U()) > on, `flag off: the package counts (U ${await U()} > ${on})`);
+  } finally {
+    process.env.EARNKIT_BENCH = 'on';
+  }
+  assert.equal(on, 0, 'flag on: no use from outside the one project');
 });

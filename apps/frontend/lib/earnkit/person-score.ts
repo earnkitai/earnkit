@@ -422,7 +422,7 @@ export async function personInputsV2(
         if (scored && last) {
           ships.push({ key, at: oldest(s.id)!.at, alive_at: weekly > 0 ? last.at : null });
           const credit = Math.min(cal.package_users, weekly / 50);
-          input.packages.push({ project: key, users: credit, at: last.at });
+          if (inScope) input.packages.push({ project: key, users: credit, at: last.at });
           if (inScope) perSource.set(s.id, { users: credit, money: 0 });
         }
       } else if (s.kind === 'contract' || s.kind === 'coin') {
