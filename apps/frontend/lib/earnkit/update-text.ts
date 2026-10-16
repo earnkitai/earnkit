@@ -1,6 +1,7 @@
 import { english as BIP39_ENGLISH } from 'viem/accounts';
 import { SEED_WORDS } from './hosting';
 import { UntrustedTextError, cleanText, hasDomain } from './untrusted-text';
+import { RENDERED_LINK, RENDERED_TRAILING } from './update-links';
 
 /**
  * v2.13 spec "The text": one paragraph, at most 280 characters, plain words; links only to the
@@ -62,6 +63,9 @@ const mixedScript = (s: string) =>
  */
 const LINK = /\b(?:[a-z][a-z0-9+.-]*:\/\/\S+|(?<![\p{L}\p{N}\p{M}._-])(?:www\.)?github\.com\/\S+)/giu;
 const TRAILING = /[).,;:!?'"]+$/;
+/** v2.13.1 O4: what a hidden character becomes for the link scan (a control character cleanText drops). */
+const HIDDEN_MARK = '\u0001';
+const SCAN_TRAILING = /[).,;:!?'"\u0001]+$/;
 const LINK_MAX = 200;
 const TAIL_MAX = 120;
 // untrusted-text.ts's builder-link alphabet, without @ (no mentions inside links either) and,
@@ -100,6 +104,14 @@ function ownLink(raw: string, own: OwnLinks): string | null {
   return words(more) || words(queryWords) ? null : u.href;
 }
 
+/** v2.13.1 O4: whether every link in the final `text` (as rendered, and as scanned) is one of the checked `links`. */
+function onlyCheckedLinks(text: string, links: string[]): boolean {
+  const checked = new Set(links.filter(Boolean));
+  for (const [m] of text.matchAll(RENDERED_LINK)) if (!checked.has(m.replace(RENDERED_TRAILING, ''))) return false;
+  for (const [m] of text.matchAll(LINK)) if (!checked.has(m.slice(0, m.length - (TRAILING.exec(m)?.[0].length ?? 0)))) return false;
+  return true;
+}
+
 /** cleanText's refusal, as the note that names its reason (F16). */
 function noteFor(err: UntrustedTextError, n: number): string {
   if (/@ signs/.test(err.message)) return UPDATE_MENTION_NOTE;
@@ -128,9 +140,15 @@ export function checkUpdate(raw: unknown, own: OwnLinks): UpdateCheck {
   const links: string[] = [];
   let bad: string | null = null;
   const mark = nonce();
+  // v2.13.1 O4 (parser differential): U+FEFF ends \S+ but cleanText drops it, so it once ended the scan
+  // and then glued an unchecked tail onto an own link. The scan now reads the text as cleanText does
+  // (NFKC) with every hidden character turned into HIDDEN_MARK: never a link boundary, dropped by
+  // cleanText, and outside an own link's alphabet (a link holding one is refused; one right after a
+  // link counts as trailing, so a stray U+FEFF before a space still posts).
+  const src = raw.normalize('NFKC').replace(HIDDEN, HIDDEN_MARK);
   // Own links are set aside as placeholders, so cleanText checks only the words around them.
-  const masked = raw.replace(LINK, (m) => {
-    const tail = TRAILING.exec(m)?.[0] ?? '';
+  const masked = src.replace(LINK, (m) => {
+    const tail = SCAN_TRAILING.exec(m)?.[0] ?? '';
     const link = m.slice(0, m.length - tail.length);
     const href = ownLink(link, own);
     if (!href) bad ??= linkNote(link);
@@ -147,6 +165,9 @@ export function checkUpdate(raw: unknown, own: OwnLinks): UpdateCheck {
   }
   text = text.replace(new RegExp(`${mark}(\\d+)`, 'g'), (_, i: string) => links[Number(i)] ?? '').replace(/\s+/g, ' ').trim();
   if (!text) return { ok: false, note: UPDATE_EMPTY_NOTE };
+  // v2.13.1 O4: a round trip. Every link the stored text holds, read the way the page links it and the
+  // way this scan reads it, must be exactly one of the own links checked above.
+  if (!onlyCheckedLinks(text, links)) return { ok: false, note: UPDATE_LINK_NOTE };
   // A word mixing scripts is refused as a disguised secret (a key or seed with look-alike letters);
   // checked after the link rules, so a look-alike domain prefix still gets the links note.
   if (secretIn(text) || mixedScript(text)) return { ok: false, note: UPDATE_SECRET_NOTE };

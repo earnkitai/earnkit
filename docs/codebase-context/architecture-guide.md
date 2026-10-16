@@ -5127,7 +5127,10 @@ feeds `shipped_code`. The X photo refreshes at sign-in only; `Avatar` falls back
   marks and mixed scripts do not hide one), and the shared banned-word checks. **Own links** only to a
   confirmed site, the hosted `<slug>.earnkit.com`, or the confirmed GitHub repo (`updates.ts ownLinks`);
   never a package registry, never a file link; stored as the parsed href. No "written by an agent"
-  label (R6).
+  label (R6). v2.13.1 O4: the link scan reads the text as cleanText does (NFKC, every hidden character
+  turned into a mark that is never a link boundary), and the final text is re-scanned with the
+  renderer's rule (`update-links.ts RENDERED_LINK`, shared with `UpdateCard`): every link in it must be
+  one of the checked own links, else the links note.
 
 ### The feed
 

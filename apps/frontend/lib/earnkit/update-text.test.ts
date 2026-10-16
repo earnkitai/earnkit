@@ -89,3 +89,34 @@ test('5.4b mentions and long numbers are refused with their own note, not the li
   assert.notEqual(UPDATE_MENTION_NOTE, UPDATE_LINK_NOTE);
   assert.notEqual(UPDATE_NUMBER_NOTE, UPDATE_LINK_NOTE);
 });
+
+test('5.9 (v2.13.1 O4) a hidden character can\'t join an unchecked tail onto an own link (parser differential)', () => {
+  const own = { sites: ['https://own.site'], repo: 'alice/app' };
+  const check = (raw: string) => checkUpdate(raw, own);
+  // The renderer's link rule: every link the stored text would show must be one EarnKit checked.
+  const RENDERED = /https:\/\/[A-Za-z0-9.-]+(?:\/[A-Za-z0-9._~\-/?=&#+]*)?/g;
+  const safe = (r: ReturnType<typeof check>, raw: string) => {
+    if (!r.ok) return assert.equal(r.note, UPDATE_LINK_NOTE, raw);
+    for (const [m] of r.text.matchAll(RENDERED)) {
+      const href = m.replace(/[.,;:!?]+$/, '');
+      assert.ok(['https://github.com/alice/app', 'https://own.site/'].includes(href) && !/\/\.\.?(\/|$)/.test(href), `${raw} stored ${r.text}`);
+    }
+  };
+  for (const h of ['﻿', '​', '⁠', '­']) {
+    for (const raw of [
+      `Shipped https://github.com/alice/app${h}/../../mallory/evil today`,
+      `Shipped github.com/alice/app${h}/../../../login/oauth/authorize?client_id=abc today`,
+      `Live at https://own.site${h}/../evil today`,
+      `Live at https://own.site${h}.evil.example today`,
+    ]) {
+      const r = check(raw);
+      assert.equal(r.ok, false, `${JSON.stringify(raw)} -> ${JSON.stringify(r)}`);
+      safe(r, raw);
+    }
+  }
+  // The security note's own example, stored never.
+  assert.deepEqual(check('Shipped https://github.com/alice/app﻿/../../mallory/evil today'), { ok: false, note: UPDATE_LINK_NOTE });
+  // A hidden character next to an own link with a space after it still posts, the link as checked.
+  const kept = check('Shipped https://github.com/alice/app﻿ today');
+  assert.deepEqual(kept, { ok: true, text: 'Shipped https://github.com/alice/app today' });
+});

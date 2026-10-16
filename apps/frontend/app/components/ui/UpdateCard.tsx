@@ -1,5 +1,6 @@
 import Avatar from '../../[handle]/Avatar';
 import { pagePath } from '../../../lib/earnkit/reserved-routes';
+import { RENDERED_LINK, RENDERED_TRAILING } from '../../../lib/earnkit/update-links';
 import { weekLabel } from '../../../lib/earnkit/weeks';
 
 /** What a card needs. The person's handle, name, avatar and project are only for showPerson (the profile omits them). */
@@ -8,8 +9,6 @@ export type UpdateCardData = {
   week: string; text: string | null; chips: string[]; started?: string | null;
 };
 
-/** A full https link in the stored text: the strict alphabet update-text stores own links in. */
-const LINK = /https:\/\/[A-Za-z0-9.-]+(?:\/[A-Za-z0-9._~\-/?=&#+]*)?/g;
 
 /**
  * The update as plain React text (escaped). Only a full https href that update-text stored
@@ -18,8 +17,9 @@ const LINK = /https:\/\/[A-Za-z0-9.-]+(?:\/[A-Za-z0-9._~\-/?=&#+]*)?/g;
 function Body({ text }: { text: string }) {
   const out: (string | React.ReactElement)[] = [];
   let at = 0;
-  for (const m of text.matchAll(LINK)) {
-    const href = m[0].replace(/[.,;:!?]+$/, '');
+  // A full https link in the strict alphabet update-text stores own links in (and checks on the way out).
+  for (const m of text.matchAll(RENDERED_LINK)) {
+    const href = m[0].replace(RENDERED_TRAILING, '');
     if (m.index > at) out.push(text.slice(at, m.index));
     out.push(<a key={m.index} href={href} rel="nofollow noopener ugc" className="underline underline-offset-2">{href.replace(/^https:\/\//, '')}</a>);
     at = m.index + href.length;

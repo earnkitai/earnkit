@@ -1462,6 +1462,8 @@ apps/frontend/
     week-facts.ts(+test)       v2.13 T4: WeekFacts, weekFactsFor, factChips, startedLine, upsertWeekFacts,
                                weeklyFactsStep (Mondays from 15:00 UTC)
     update-text.ts(+test)      v2.13 T5: checkUpdate (280 characters, no @, secrets, own links only), notes
+    update-links.ts            v2.13.1 O4: RENDERED_LINK / RENDERED_TRAILING, the card's link rule; update-text
+                               re-scans stored text with it (no hidden-character parser differential)
     updates.ts(+test)          v2.13 T5: postUpdate, hideUpdate, setUpdates, ownLinks (tell update / updates);
                                UPDATE_POSTS_PER_DAY 20 a person (rate window updatePost:<root>)
     feed.ts(+test)             v2.13 T6: pointsOf, feedRankStep (daily, feedRank:<day>), rankFeed, feedWeeks,
