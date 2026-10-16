@@ -1398,7 +1398,10 @@ apps/frontend/
                                clanker-base-launch.json (a real Base receipt, from tokens.fun),
                                bonus-db-lock.ts (test-only advisory lock for the bonus test files),
                                program-file.ts (committedProgram: a programs/*.json without its
-                               id-bound logo, for tests that clone files under test ids)
+                               id-bound logo, for tests that clone files under test ids),
+                               programs-cleanup.ts (v2.13 T17: dropPrograms; dropRunPrograms, which each
+                               DB test file calls at its end so the programs it made (ids carrying its pid)
+                               never outlive the run in the shared test DB)
     builder-score-flag.ts      v2.12: BUILDER_SCORE_FLAG, builderScoreEnabled (exactly "on"), archiveFlag(name)
                                for SPONSOR_CAMPAIGNS, STARTER_REGISTRY, PROGRAM_LEADERBOARDS, TOOL_ALIASES;
                                import-free
