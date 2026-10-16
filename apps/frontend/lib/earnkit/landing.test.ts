@@ -413,14 +413,14 @@ const withBench = <T>(on: boolean, fn: () => T): T => {
 test('12.1 the hero, word for word, and its one button', () => {
   assert.equal(BENCH_HERO_TITLE, 'Ship every week. Get funded.');
   assert.equal(BENCH_HERO_SUBTITLE, 'Add EarnKit to your AI agent. It puts your project on the Bench, posts what you ship, and finds you grants and a way to raise.');
-  const h = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], chips: ['base'], cards: [CARD] } });
+  const h = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], chips: ['base'], cards: [CARD], raising: true } });
   assert.ok(h.includes(BENCH_HERO_TITLE) && h.includes(BENCH_HERO_SUBTITLE) && h.includes('Add to your agent'));
   assert.ok(!h.includes('Agents only'), 'no all-caps eyebrow under the flag');
   assert.ok(!/Builder bonus/i.test(h), 'R16');
 });
 
 test('12.2 the sections in order: hero, the Bench top 10, this week on the Bench, grants open now, how it works, backed by', () => {
-  const h = page({ ...LANDING_FIXTURE, bench: { rows: Array.from({ length: 12 }, (_, i) => ({ ...ROW, handle: `b${i}`, rank: i + 1 })), chips: ['base'], cards: [CARD] } });
+  const h = page({ ...LANDING_FIXTURE, bench: { rows: Array.from({ length: 12 }, (_, i) => ({ ...ROW, handle: `b${i}`, rank: i + 1 })), chips: ['base'], cards: [CARD], raising: true } });
   const at = [BENCH_HERO_TITLE, BENCH_TOP_TITLE, CAROUSEL_TITLE, 'Grants open now', BENCH_HOW_TITLE, 'Backed by'].map((s) => h.indexOf(s));
   assert.ok(at.every((i, k) => i >= 0 && (k === 0 || i > at[k - 1])), at.join(','));
   assert.equal((h.match(/data-row=/g) ?? []).length, 10, 'the top 10');
@@ -432,12 +432,12 @@ test('12.2 the sections in order: hero, the Bench top 10, this week on the Bench
 });
 
 test('12.3 the square card: photo, @handle, project, the first line of the update and at most two chips', () => {
-  const h = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], chips: [], cards: [CARD] } });
+  const h = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], chips: [], cards: [CARD], raising: true } });
   assert.ok(h.includes('Added fridge photo import.') && !h.includes('It plans a week.'));
   assert.ok(h.includes('Went live') && h.includes('+31 people') && !h.includes('12 commits'));
   assert.ok(h.includes('@maya_makes') && h.includes('Recipe planner'));
   // No updates this week: no carousel (the Bench and the grants still show).
-  const none = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], chips: [], cards: [] } });
+  const none = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], chips: [], cards: [], raising: true } });
   assert.ok(!none.includes(CAROUSEL_TITLE) && none.includes(BENCH_TOP_TITLE) && none.includes('Grants open now'));
 });
 
@@ -463,7 +463,7 @@ test('12.6 readLanding: the Bench (at most 10 rows, its chips, the carousel card
   assert.ok(on.bench);
   assert.ok(Array.isArray(on.bench.rows) && on.bench.rows.length <= 10);
   assert.ok(Array.isArray(on.bench.chips) && Array.isArray(on.bench.cards) && on.bench.cards.length <= 12);
-  assert.deepEqual(Object.keys(on.bench).sort(), ['cards', 'chips', 'rows']);
+  assert.deepEqual(Object.keys(on.bench).sort(), ['cards', 'chips', 'raising', 'rows']);
   assert.deepEqual(JSON.parse(JSON.stringify(on)), on, 'unstable_cache serializes it');
   const off = await withBench(false, () => readLanding(now));
   assert.equal(off.bench, null);
@@ -471,7 +471,7 @@ test('12.6 readLanding: the Bench (at most 10 rows, its chips, the carousel card
 
 test('12.8 no all-caps labels under the flag: "Backed by" and the footer column titles are sentence case; flag off unchanged', () => {
   const caps = (h: string, text: string) => new RegExp(`<(?:p|h3) class="[^"]*\\buppercase\\b[^"]*">\\s*${text}\\s*<`).test(h);
-  const bench = { rows: [ROW], chips: [], cards: [CARD] };
+  const bench = { rows: [ROW], chips: [], cards: [CARD], raising: true };
   const on = withBench(true, () => page({ ...LANDING_FIXTURE, bench }));
   const off = withBench(false, () => page({ ...LANDING_FIXTURE, bench: null }));
   for (const t of ['Backed by', 'Product', 'Resources', 'Legal', 'Contact']) {

@@ -15,6 +15,8 @@ export type BenchView = {
   project: BenchProject | null; rank: string | null; claimed: boolean; handle: string | null; claimLink: string | null;
   /** GitHub sign-in when the agent can't push the proof line (plan B3). */
   proofLink?: string | null;
+  /** Final fix I3: not confirmed and outside the hour of fast checks (main-project confirmingFast): no "a minute or two". */
+  slow?: boolean;
   fund: FundLine[]; ask: BenchAsk | null;
   /** Money already on its way (v2.12.1 `due`: a deadline, an entry waiting on the builder's own submission). */
   due?: string[];
@@ -22,6 +24,8 @@ export type BenchView = {
 
 export const NO_PROJECT_LINE = "You're not on the Bench yet. Pick something to build and you're on it today.";
 export const confirmingLine = (name: string) => `${name} joins the Bench as soon as I've confirmed it's yours (a minute or two).`;
+/** Final fix I3: outside the hour of fast checks, no time is promised. */
+export const confirmingSlowLine = (name: string) => `${name} joins the Bench once I've confirmed it's yours. I check again every day.`;
 export const showItsYoursLine = (name: string, link: string) => `${name} joins the Bench as soon as you show it's yours: ${link}`;
 export const claimToJoinLine = (name: string, link: string) => `${name} goes on the Bench once you claim your page with X: ${link}`;
 export const CONFIRMED_LINE = (name: string) => `${name} is confirmed as yours.`;
@@ -68,7 +72,7 @@ function standLines(v: BenchView): string[] {
   const p = v.project;
   if (!p) return [NO_PROJECT_LINE];
   if (!p.confirmed) {
-    const first = v.proofLink ? showItsYoursLine(p.name, v.proofLink) : confirmingLine(p.name);
+    const first = v.proofLink ? showItsYoursLine(p.name, v.proofLink) : v.slow ? confirmingSlowLine(p.name) : confirmingLine(p.name);
     return [first, ...(!v.claimed && v.claimLink ? [`Claim your page with X: ${v.claimLink}`] : [])];
   }
   if (!v.claimed) return [v.claimLink ? claimToJoinLine(p.name, v.claimLink) : CONFIRMED_LINE(p.name)];

@@ -1,7 +1,8 @@
 import { sql } from './db';
+import { benchConfirmedSql } from './main-project';
 import { hit } from './rate-limit';
 import { listedRanked } from './person-score';
-import { avatarUrl, displayName } from './page-data';
+import { avatarUrl, displayName, safeNames } from './page-data';
 import { factChips, hasFacts, WEEKLY_HOUR_UTC, type WeekFacts } from './week-facts';
 import { lastFinishedMonday, weekLabel } from './weeks';
 
@@ -47,21 +48,27 @@ export async function feedRankStep(now: Date): Promise<{ step: 'skipped' } | { r
 }
 
 export type FeedCard = { id: number; handle: string; name: string; avatar: string | null; project: string; week: string; text: string | null; chips: string[]; pinned: boolean };
-type Row = { id: number; week: string; text: string | null; facts: WeekFacts; pinned: boolean; handle: string; x_name: string | null; avatar: string | null; project: string };
+type Row = { id: number; builder_id: number; key: string; week: string; text: string | null; facts: WeekFacts; pinned: boolean; handle: string; x_name: string | null; avatar: string | null; project: string };
 
-/** Visible updates with points, of listed people's confirmed one project, in [since, until). */
+/**
+ * Visible updates with points, of listed people's one project while the Bench counts it confirmed
+ * (final fix M1: benchConfirmedSql, read now), in [since, until). The project's name is the shown
+ * one (final fix I1: page-data safeNames, never a private repo's).
+ */
 async function feedRows(since: string, until: string, only?: number[]): Promise<Row[]> {
   const db = sql();
-  return db<Row[]>`
+  const rows = await db<Omit<Row, 'project'>[]>`
     SELECT * FROM (
-      SELECT u.id::int AS id, u.week::text AS week, u.text, u.facts, u.pinned, p.x_handle AS handle, p.x_name, p.x_avatar_url AS avatar, b.name AS project,
+      SELECT u.id::int AS id, u.builder_id::int AS builder_id, b.project_key AS key, u.week::text AS week, u.text, u.facts, u.pinned, p.x_handle AS handle, p.x_name, p.x_avatar_url AS avatar,
         row_number() OVER (PARTITION BY u.week ORDER BY u.pinned DESC, u.points DESC, l.score DESC, u.id) AS n
       FROM project_updates u
       JOIN ${listedRanked(db, only)} l ON l.builder_id = u.builder_id
       JOIN builder_profiles p ON p.builder_id = u.builder_id AND lower(p.main_project_key) = lower(u.project_key)
-      JOIN builder_projects b ON b.builder_id = u.builder_id AND lower(b.project_key) = lower(u.project_key) AND b.confirmed
+      JOIN builder_projects b ON b.builder_id = u.builder_id AND lower(b.project_key) = lower(u.project_key) AND ${benchConfirmedSql(db)}
       WHERE u.week >= ${since} AND u.week < ${until} AND NOT u.hidden AND NOT u.feed_hidden AND u.points > 0
     ) x WHERE x.n <= ${FEED_WEEK_MAX} ORDER BY x.week DESC, x.n`;
+  const nameOf = await safeNames(rows.map((r) => r.builder_id));
+  return rows.map((r) => ({ ...r, project: nameOf(r.builder_id, r.key) }));
 }
 const toCard = (r: Row): FeedCard => ({
   id: r.id, handle: r.handle, name: displayName(r.x_name, r.handle), avatar: avatarUrl(r.avatar), project: r.project, week: r.week,

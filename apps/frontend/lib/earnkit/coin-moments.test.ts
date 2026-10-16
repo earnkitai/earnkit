@@ -545,6 +545,8 @@ test('T12 fix 1: flag off, a coin entry made while it was on is never confirmed 
 
 test('9.7 under the flag every coin moment but built_live says the raise line; flag off the v2.12.1 lines stay', () => {
   process.env.EARNKIT_BUILDER_SCORE = 'on';
+  // Final fix: the raise line is EARNKIT_RAISING's (v213-final-fix F10: off keeps the v2.12.1 line).
+  process.env.EARNKIT_RAISING = 'on';
   const coin = { name: 'Recipe planner', symbol: 'RECIPE' };
   delete process.env.EARNKIT_BENCH;
   assert.equal(coinLine('has_people', 'Recipe planner', null, coin), "Recipe planner has people using it. Want to launch a coin, $RECIPE (Recipe planner), for it? You'd get 40% of its trading fees.");
@@ -555,6 +557,7 @@ test('9.7 under the flag every coin moment but built_live says the raise line; f
     assert.match(coinLine('built_live', 'Recipe planner', null, coin), /^It's live\./);
   } finally {
     delete process.env.EARNKIT_BENCH;
+    delete process.env.EARNKIT_RAISING;
   }
 });
 
@@ -563,6 +566,7 @@ test('9.7b five weeks in a row is a coin moment (once); the yes sets raising_at 
   const key = `lee/streak${randomBytes(3).toString('hex')}`;
   await usedProject(id, key, 'Tip Jar', 0);
   process.env.EARNKIT_BENCH = 'on';
+  process.env.EARNKIT_RAISING = 'on';
   try {
     const { coinAskBench } = await import('./bench-find');
     const p = { key, name: 'Tip Jar', confirmed: true, live: true, weeks: 5, people: 0, has_coin: false, streak: 5, shipped: true };
@@ -581,5 +585,6 @@ test('9.7b five weeks in a row is a coin moment (once); the yes sets raising_at 
     assert.equal((await sql()`SELECT 1 FROM builder_events WHERE installation_id = ${id} AND type = 'raising_on'`).length, 1);
   } finally {
     delete process.env.EARNKIT_BENCH;
+    delete process.env.EARNKIT_RAISING;
   }
 });

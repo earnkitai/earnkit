@@ -78,7 +78,7 @@ export default function HomeView({ landing }: { landing: Landing | null }) {
       {/* Sections stack 16px apart, as on every page; the footer brings its own top margin. */}
       {bench ? (
         <div className="flex flex-col gap-4 pt-4">
-          <BenchTop rows={bench.rows} chips={bench.chips} />
+          <BenchTop rows={bench.rows} chips={bench.chips} raising={bench.raising} />
           {bench.cards.length > 0 && <UpdateCarousel cards={bench.cards} />}
           {landing && landing.tiles.length > 0 && <ProgramCards tiles={landing.tiles} figure={landing.open_text} bench />}
           <BenchHowItWorks />

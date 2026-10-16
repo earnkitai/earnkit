@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ZodError, z } from 'zod';
-import { benchEnabled, builderScoreEnabled } from './builder-score-flag';
+import { benchEnabled, builderScoreEnabled, raisingEnabled } from './builder-score-flag';
 import { CHAINS } from './match';
 import { GitHubError } from './match-projects';
 import { NotFoundError } from './programs';
@@ -196,6 +196,12 @@ export const TELL_DESCRIPTION_BENCH =
   'move_up: their answer to the last line, with its kind and project_key. pickup, profile (hide or show), card (yes or skip): their answers. ' +
   'program_status: applied, not_interested, won, placed or lost. repo_facts and weekly_email: what they said. Results they report stay private.';
 
+/** Final fix (controller ruling): EARNKIT_RAISING off under the Bench: coin takes no { raising }. */
+export const TELL_DESCRIPTION_BENCH_NO_RAISING = TELL_DESCRIPTION_BENCH.replace(
+  "coin: their coin answer, or { raising } when they say they're raising or stop. ",
+  'coin: their coin answer. ',
+);
+
 /** v2.12.1 T8: score's description (registered only while EARNKIT_BUILDER_SCORE=on). */
 export const SCORE_DESCRIPTION =
   "Where the builder stands: what they shipped, their rank when it reads well, their page, and the one step up. Call it when they ask how they're doing. " +
@@ -212,7 +218,7 @@ export function toolDescriptions(campaignOpen: boolean, buildOn: boolean = deplo
     find: benchEnabled() ? FIND_DESCRIPTION_BENCH : builderScoreEnabled() ? FIND_DESCRIPTION_SCORE : FIND_DESCRIPTION,
     prepare: prepareDescription(campaignOpen, buildOn),
     confirm: confirmDescription(campaignOpen),
-    tell: benchEnabled() ? TELL_DESCRIPTION_BENCH : builderScoreEnabled() ? TELL_DESCRIPTION_SCORE : TELL_DESCRIPTION,
+    tell: benchEnabled() ? (raisingEnabled() ? TELL_DESCRIPTION_BENCH : TELL_DESCRIPTION_BENCH_NO_RAISING) : builderScoreEnabled() ? TELL_DESCRIPTION_SCORE : TELL_DESCRIPTION,
     score: SCORE_DESCRIPTION,
   };
 }
@@ -520,8 +526,9 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
                   .strict()
                   .optional()
                   .describe('Their answer to the How to move up line'),
-                // v2.13 T9 (F20): under the Bench flag coin also takes raising; flag off, byte for byte v2.12.2.
-                coin: benchEnabled()
+                // v2.13 T9 (F20): under the Bench flag with EARNKIT_RAISING on, coin also takes raising;
+                // otherwise byte for byte v2.12.2.
+                coin: raisingEnabled()
                   ? z
                       .object({
                         project_key: z.string().max(300).optional().describe("The coin offer's project_key (move_up.project_key or coin.project_key)"),

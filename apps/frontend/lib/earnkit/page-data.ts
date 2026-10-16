@@ -183,6 +183,16 @@ export async function shownProjects(ids: number[]): Promise<Map<number, ShownPro
   return out;
 }
 
+/**
+ * Final fix I1: the shown name of a person's project by key, as the profile and the card show it
+ * (shownProjects' safeName: never a private repo's name), for many people in one read. A key with no
+ * row reads as the private name.
+ */
+export async function safeNames(ids: number[]): Promise<(builderId: number, key: string) => string> {
+  const shown = await shownProjects([...new Set(ids)]);
+  return (id, key) => (shown.get(id) ?? []).find((r) => norm(r.key) === norm(key))?.safeName ?? PRIVATE_NAME;
+}
+
 /** Programs entered and won (announcements only), matched to a project by its repo or live link; coin entries are not program entries. */
 async function programEntries(builderId: number) {
   return sql()<{ keys: (string | null)[]; title: string; won: boolean; submitted_at: Date }[]>`

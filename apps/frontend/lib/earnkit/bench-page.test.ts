@@ -13,6 +13,8 @@ import BenchView, { BENCH_EMPTY, BENCH_TITLE, FILTER_RAISING, FILTER_WEEKLY } fr
 
 process.env.EARNKIT_BUILDER_SCORE = 'on';
 process.env.EARNKIT_BENCH = 'on';
+// Final fix: the raising filter and pill are behind EARNKIT_RAISING; these cases are the flag on (v213-final-fix F9, F11: off).
+process.env.EARNKIT_RAISING = 'on';
 // The components are compiled with the classic JSX runtime here (as feed.test.ts).
 (globalThis as { React?: typeof React }).React = React;
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
@@ -99,7 +101,7 @@ test('10.3 chain, raising and weekly filter the rows; ranks are the whole Bench\
 
 test('10.4 the row: photo, name, @handle, pill, chain logos with the name as alt and tooltip, project, best fact, "Top N%" on the right', () => {
   const row = { rank: 2, line: 'Top 4% on the Bench', handle: 'maya_makes', name: 'Maya Chen', avatar: null, raising: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
-  const html = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 25, chips: ['base'], filter: { chain: null, raising: false, weekly: false } }));
+  const html = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 25, chips: ['base'], filter: { chain: null, raising: false, weekly: false }, raising: true }));
   for (const s of [BENCH_TITLE, 'Maya Chen', '@maya_makes', 'Raising $RECIPE', 'Recipe planner', '31 people this week', 'Top 4%', FILTER_RAISING, FILTER_WEEKLY])
     assert.ok(html.includes(s), s);
   assert.match(html, /<img[^>]+alt="Base"[^>]+title="Base"|<img[^>]+title="Base"[^>]+alt="Base"/);
@@ -108,12 +110,12 @@ test('10.4 the row: photo, name, @handle, pill, chain logos with the name as alt
   assert.match(html, /href="\/bench\?weekly=1"/);
   assert.doesNotMatch(html, /<form/, 'filters are links');
   // A filter that is on links back to the Bench without it, and says so.
-  const on = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 25, chips: ['base'], filter: { chain: 'base', raising: true, weekly: false } }));
+  const on = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 25, chips: ['base'], filter: { chain: 'base', raising: true, weekly: false }, raising: true }));
   const link = (h: string, href: string) => h.match(/<a [^>]*>/g)!.find((a) => a.includes(`href="${href}"`)) ?? '';
   assert.match(link(on, '/bench?raising=1'), /aria-pressed="true"/, 'Base is on: its chip turns it off');
   assert.match(link(on, '/bench?chain=base'), /aria-pressed="true"/, 'Raising is on: its chip turns it off');
   assert.match(link(on, '/bench?chain=base&amp;raising=1&amp;weekly=1'), /aria-pressed="false"/);
-  assert.ok(renderToStaticMarkup(React.createElement(BenchView, { rows: [], count: 0, chips: [], filter: { chain: 'base', raising: false, weekly: false } })).includes(BENCH_EMPTY));
+  assert.ok(renderToStaticMarkup(React.createElement(BenchView, { rows: [], count: 0, chips: [], filter: { chain: 'base', raising: false, weekly: false }, raising: true })).includes(BENCH_EMPTY));
 });
 
 test('10.5 /leaderboard redirects to /bench under the flag (a temporary redirect, so turning the flag off never sticks)', () => {

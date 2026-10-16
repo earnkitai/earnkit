@@ -7,7 +7,7 @@ import { openEntries } from './projects';
 import { hiddenIds, hiddenPrograms, readMemory } from './builder-memory';
 import { recordShown } from './match-loop';
 import { markFreshOffer } from './installations';
-import { benchConfirmedSql, proofFor } from './main-project';
+import { benchConfirmedSql, confirmingFast, proofFor } from './main-project';
 import { rankLines, type RankLines } from './bench-rank';
 import { WEEKLY_UPDATE_NOTE, setUpdates } from './updates';
 import { mondayOf } from './weeks';
@@ -193,9 +193,11 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
     UPDATE builder_profiles SET standing_seen = CASE WHEN ${stored === null} THEN COALESCE(standing_seen, '{}'::jsonb) - 'bench_ask'
       ELSE COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json(stored as never)}::jsonb) END
     WHERE builder_id = ${id}`.catch(logged('ask'));
+  // Final fix I3: "a minute or two" only within the hour of fast checks after the line was issued.
+  const slow = Boolean(project && !project.confirmed && !o.proofLink) && !(await confirmingFast(id, now).catch(() => false));
   const view: BenchView = {
     project, rank: read.ranks.phrase, claimed: read.base.claimed, handle: read.base.handle, claimLink: read.base.claimLink,
-    proofLink: o.proofLink, fund, ask, due: o.due,
+    proofLink: o.proofLink, slow, fund, ask, due: o.due,
   };
   // A raise ask is answered through move_up (benchMoveUp: setRaising), as every Bench ask but the coin offer.
   const note = ask?.kind === 'coin' ? COIN_NOTE : BENCH_MOVE_UP_NOTE;

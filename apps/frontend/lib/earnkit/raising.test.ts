@@ -10,6 +10,8 @@ import { raiseLine } from './coin-moments';
 
 process.env.EARNKIT_BUILDER_SCORE = 'on';
 process.env.EARNKIT_BENCH = 'on';
+// Final fix: the Raising pill and asks are behind EARNKIT_RAISING (raisingEnabled); these cases are the flag on.
+process.env.EARNKIT_RAISING = 'on';
 process.env[EVENT_LOG_FLAG] = 'on';
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 const RUN = randomBytes(3).toString('hex');

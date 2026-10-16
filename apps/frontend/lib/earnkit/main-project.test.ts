@@ -112,12 +112,16 @@ test('2.5 a repo the agent does not own stays Confirming: proposed, unranked, an
   assert.equal(src.state, 'proposed');
 });
 
-test('2.6 the lazy pick for a person with projects and no main one: confirmed, most people, then newest (B2)', dbTest, async () => {
+test('2.6 the lazy pick for a person with projects and no main one: Bench-confirmed only, most people, then newest (B2, final fix I2)', dbTest, async () => {
   const id = await person();
   const k = (s: string) => `p${RUN}/${s}`;
   for (const [key, confirmed, people, days] of [[k('old'), true, 3, 9], [k('busy'), true, 40, 30], [k('mine'), false, 99, 1]] as const)
+  {
     await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, people, last_active_at)
       VALUES (${id}, ${key}, ${key}, 'app', ${confirmed}, true, ${people}, now() - ${`${days} days`}::interval)`;
+    // Final fix I2: only a project the Bench counts as confirmed (the repo's own proof) is picked.
+    if (confirmed) await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES (${id}, 'repo', ${key}, ${key}, 'verified', 'proof_line', 'agent')`;
+  }
   assert.equal(await pickMainProject(id, sql()), k('busy'));
   assert.equal(await mainProjectOf(id), k('busy'), 'stored once');
   await sql()`UPDATE builder_projects SET people = 500 WHERE builder_id = ${id} AND project_key = ${k('old')}`;

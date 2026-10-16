@@ -65,7 +65,7 @@ test('10.7 the Bench\'s words pass the v2.13 rule; its chips may name a chain (c
   ].map(bestFact);
   for (const t of [BENCH_TITLE, benchLine(25), benchLine(1), BENCH_EMPTY, FILTER_RAISING, FILTER_WEEKLY, ...facts]) assert.deepEqual(bannedInBench(t, EXEMPT), [], t);
   const row = { rank: 2, line: 'Top 4%', handle: 'maya_makes', name: 'Maya Chen', avatar: null, raising: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const, 'robinhood' as const, 'arc' as const], project: 'Recipe planner', best: '31 people this week' };
-  const page = pageWords(React.createElement(BenchView, { rows: [row], count: 25, chips: ['base', 'robinhood', 'arc'], filter: { chain: 'base', raising: true, weekly: false } }));
+  const page = pageWords(React.createElement(BenchView, { rows: [row], count: 25, chips: ['base', 'robinhood', 'arc'], filter: { chain: 'base', raising: true, weekly: false }, raising: true }));
   // Chain names only in the chips and the logos' alt text and tooltips (R14).
   assert.deepEqual(bannedInBench(page, ['Maya Chen', 'Recipe planner', '$RECIPE', ...Object.values(CHAIN_LABEL)]), [], page);
 });
@@ -104,7 +104,7 @@ test('12.7 the landing page\'s words pass the v2.13 rule (copy rules)', async ()
   const row = { rank: 1, line: 'Top 1%', handle: 'maya_makes', name: 'Maya Chen', avatar: null, raising: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
   const card = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import. It plans a week.', chips: ['Went live', '+31 people'], pinned: false };
   const rows = Array.from({ length: 12 }, (_, i) => ({ ...row, handle: `b${i}`, rank: i + 1 }));
-  const page = pageWords(React.createElement(HomeView, { landing: { ...homeFixture, bench: { rows, chips: ['base', 'robinhood', 'arc'], cards: [card] } } }));
+  const page = pageWords(React.createElement(HomeView, { landing: { ...homeFixture, bench: { rows, chips: ['base', 'robinhood', 'arc'], cards: [card], raising: true } } }));
   // Names: the builder, the project, the coin, the programs' titles, the chains on the chips and logos (R14), the investors' logos (Backed by, unchanged).
   const investors = ['The LAO', 'IDEO', 'GCR'];
   const exempt = ['Maya Chen', 'Recipe planner', '$RECIPE', 'EarnKit', ...homeFixture.tiles.map((t) => t.title), ...Object.values(CHAIN_LABEL), ...investors];
@@ -130,7 +130,7 @@ test('13.8 no builder-visible bonus text under the flag: replies, landing, progr
   process.env.EARNKIT_BENCH = 'on';
   try {
     const pages = [
-      renderToStaticMarkup(React.createElement(HomeView, { landing: { ...homeFixture, bench: { rows: [], chips: [], cards: [] } } })),
+      renderToStaticMarkup(React.createElement(HomeView, { landing: { ...homeFixture, bench: { rows: [], chips: [], cards: [], raising: true } } })),
       renderToStaticMarkup(React.createElement(TermsPage)),
       // F3: no `bench` prop; GuideView reads the switch itself.
       renderToStaticMarkup(React.createElement(GuideView, { page: fullGuide })),

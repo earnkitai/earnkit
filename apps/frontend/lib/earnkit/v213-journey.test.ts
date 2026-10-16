@@ -95,6 +95,8 @@ const savedEnv: Record<string, string | undefined> = {};
 const ENV: Record<string, string | undefined> = {
   EARNKIT_BUILDER_SCORE: 'on',
   EARNKIT_BENCH: 'on',
+  // Final fix: the raise path (16.5) runs as built, with EARNKIT_RAISING on.
+  EARNKIT_RAISING: 'on',
   [EVENT_LOG_FLAG]: 'on',
   EARNKIT_AUTH_SECRET: process.env.EARNKIT_AUTH_SECRET || 'v213-journey-secret',
   X_CLIENT_ID: 'v213-journey-x',
@@ -560,7 +562,7 @@ test('16.4 acceptance 4, Bench filters: /bench?chain=base lists only Base projec
   assert.ok(base.rows.length >= 10 && base.rows.every((r) => r.chains.includes('base')), JSON.stringify(base.rows));
   assert.ok(!base.rows.some((r) => r.handle === 'maya_makes'), 'maya is not on Base yet');
   assert.ok(base.chips.includes('base'));
-  assert.match(html(React.createElement(BenchView, { ...base, filter })), /alt="Base"/);
+  assert.match(html(React.createElement(BenchView, { ...base, filter, raising: true })), /alt="Base"/);
   assert.match(await renderProfile(BASE_HANDLE, 'log'), /#\d+ of \d+ on Base|Top \d+(\.\d)?% on Base/);
 });
 

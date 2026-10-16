@@ -16,6 +16,8 @@ async function listed(score: number, chains: string[]): Promise<number> {
   await sql()`INSERT INTO builder_profiles (builder_id, slug, main_project_key, x_user_id, x_handle) VALUES (${id}, ${`v213b-${id}`}, ${key}, ${`bx${id}`}, ${`b${RUN}${id}`})`;
   await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at) VALUES (${id}, ${score}, '{}'::jsonb, true, 1, 0, 'v2', 'v2-launch', now())`;
   await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, chains) VALUES (${id}, ${key}, 'P', 'app', true, true, ${chains})`;
+  // Final fix M1: the pool reads the Bench gate (the repo's own proof) now.
+  await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES (${id}, 'repo', ${key}, ${key}, 'verified', 'proof_line', 'agent')`;
   return id;
 }
 

@@ -42,6 +42,8 @@ const CLEARED = [
   'EARNKIT_BASE_AGENT_CODES',
   // v2.13: the Bench (a test that needs it on sets it, with EARNKIT_BUILDER_SCORE).
   'EARNKIT_BENCH',
+  // v2.13 final fix: the Raising pill and asks (a test that needs it on sets it, with the Bench flags).
+  'EARNKIT_RAISING',
 ];
 for (const name of CLEARED) delete process.env[name];
 

@@ -1,5 +1,5 @@
 import { repoKey } from './answer-bank';
-import { benchEnabled, builderScoreEnabled } from './builder-score-flag';
+import { builderScoreEnabled, raisingEnabled } from './builder-score-flag';
 import { isWalletAddress } from './campaigns';
 import { sql } from './db';
 import { shortWallet } from './entry-text';
@@ -38,8 +38,9 @@ export const raiseLine = (name: string, symbol: string, wallet: string | null) =
  * (ruling 6). One question. Pure.
  */
 export function coinLine(moment: Moment, name: string, wallet: string | null, coin: Coin | null = null): string {
-  // v2.13: under the Bench flag every project moment is the raise line (built_live keeps its own).
-  if (benchEnabled() && moment !== 'built_live' && coin) return raiseLine(name, coin.symbol, wallet);
+  // v2.13: under the Bench flag every project moment is the raise line (built_live keeps its own);
+  // final fix: only with EARNKIT_RAISING on, else v2.12.1's coin line.
+  if (raisingEnabled() && moment !== 'built_live' && coin) return raiseLine(name, coin.symbol, wallet);
   const a = coin ? `a coin, $${coin.symbol} (${coin.name}),` : 'a coin';
   if (moment === 'built_live') return `It's live. Want to launch ${a} for it? ${fees(wallet)} Your entry is ready either way.`;
   if (moment === 'first_five') return `5 people have used ${name}. Want to launch ${a} for it? ${fees(wallet)}`;
@@ -244,7 +245,8 @@ export async function coinYes(
       )[0].id;
   if (existing) await sql()`UPDATE projects SET creator_wallet = ${to} WHERE id = ${projectId} AND token_url IS NULL`;
   // v2.13 spec "4. Optional: raise": the yes is the raise; the pill shows once the coin is launched.
-  if (benchEnabled()) {
+  // Final fix: only with EARNKIT_RAISING on (off, the yes was to v2.12.1's coin line, not a raise).
+  if (raisingEnabled()) {
     await sql()`UPDATE projects SET raising_at = COALESCE(raising_at, now()) WHERE id = ${projectId}`;
     await noteEvent('raising_on', () => ({
       type: 'raising_on', dedupe_key: `raising_on:${projectId}:${new Date().toISOString().slice(0, 10)}`, installation_id: builderId, project_id: projectId,

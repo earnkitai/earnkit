@@ -1,10 +1,23 @@
 import { unstable_cache } from 'next/cache';
 import { connection } from 'next/server';
 import { cache } from 'react';
+import { benchEnabled, raisingEnabled } from '../../lib/earnkit/builder-score-flag';
 import { gatedGuidePage, readGuideIds, readGuidePage, readLanding, type GuidePage, type Landing } from '../../lib/earnkit/landing';
 
-/** One DB read per 10 minutes at most (no new service); the value is plain JSON (Ruling 21 (plan)). v2.8: the key moved with the Tile shape (days_left), so a kept cache never serves old tiles. v2.13: the key moved with `bench`. */
-const cached = unstable_cache(() => readLanding(), ['landing-v213'], { revalidate: 600 });
+/**
+ * One DB read per 10 minutes at most (no new service); the value is plain JSON (Ruling 21 (plan)).
+ * v2.8: the key moved with the Tile shape (days_left), so a kept cache never serves old tiles. v2.13:
+ * the key moved with `bench`. Final fix M4: it names EARNKIT_BENCH and EARNKIT_RAISING, so a flag flip
+ * never serves the other variant (landingCacheKey).
+ */
+export const landingCacheKey = () => `landing-v213${benchEnabled() ? '-bench' : ''}${raisingEnabled() ? '-raising' : ''}`;
+const byKey = new Map<string, () => Promise<Landing>>();
+const cached = () => {
+  const key = landingCacheKey();
+  let read = byKey.get(key);
+  if (!read) byKey.set(key, (read = unstable_cache(() => readLanding(), [key], { revalidate: 600 })));
+  return read();
+};
 
 /**
  * v2.7 Ruling 21 (plan): the landing data, or null. A failed read is logged and renders the page

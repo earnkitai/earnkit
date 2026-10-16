@@ -13,9 +13,10 @@ export { FILTER_RAISING, FILTER_WEEKLY };
 
 /**
  * v2.13 spec "The Bench" (R4, R9, R14): one row per builder, best score first; filters are links
- * (a chain chip only from 10 ranked projects on it, Raising, Shipping every week). Pure.
+ * (a chain chip only from 10 ranked projects on it, Raising while `raising` (EARNKIT_RAISING) is on,
+ * Shipping every week). Pure.
  */
-export default function BenchView({ rows, count, chips, filter }: { rows: BenchRow[]; count: number; chips: BenchChain[]; filter: BenchFilter }) {
+export default function BenchView({ rows, count, chips, filter, raising }: { rows: BenchRow[]; count: number; chips: BenchChain[]; filter: BenchFilter; raising: boolean }) {
   return (
     <div className="w-full pt-4">
       <Panel className="relative overflow-hidden py-10 md:py-16" label={BENCH_TITLE}>
@@ -32,9 +33,11 @@ export default function BenchView({ rows, count, chips, filter }: { rows: BenchR
                 {CHAIN_LABEL[c]}
               </Chip>
             ))}
-            <Chip on={filter.raising} href={filterHref({ ...filter, raising: !filter.raising })}>
-              {FILTER_RAISING}
-            </Chip>
+            {raising && (
+              <Chip on={filter.raising} href={filterHref({ ...filter, raising: !filter.raising })}>
+                {FILTER_RAISING}
+              </Chip>
+            )}
             <Chip on={filter.weekly} href={filterHref({ ...filter, weekly: !filter.weekly })}>
               {FILTER_WEEKLY}
             </Chip>

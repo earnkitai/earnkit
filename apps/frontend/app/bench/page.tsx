@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { benchEnabled } from '@/lib/earnkit/builder-score-flag';
+import { benchEnabled, raisingEnabled } from '@/lib/earnkit/builder-score-flag';
 import { parseBenchFilter } from '@/lib/earnkit/bench-data';
 import BenchView, { BENCH_TITLE } from './BenchView';
 import { cachedBench } from './bench-load';
@@ -14,5 +14,5 @@ export default async function BenchPage({ searchParams }: Props) {
   if (!benchEnabled()) notFound();
   const filter = parseBenchFilter(await searchParams);
   const { rows, count, chips } = await cachedBench(filter);
-  return <BenchView rows={rows} count={count} chips={chips} filter={filter} />;
+  return <BenchView rows={rows} count={count} chips={chips} filter={filter} raising={raisingEnabled()} />;
 }

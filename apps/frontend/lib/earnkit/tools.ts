@@ -140,7 +140,7 @@ import {
 } from './coach';
 import { LIVE_FAILED_LINE, addressesFrom, contractMissingLine, entryVerified, liveCheckDetail, liveErrorLine, rpcFor, type CheckDeps, type Verified } from './verify';
 import { noteEvent } from './events';
-import { benchEnabled, builderScoreEnabled } from './builder-score-flag';
+import { benchEnabled, builderScoreEnabled, raisingEnabled } from './builder-score-flag';
 import { hideUpdate, postUpdate, setUpdates } from './updates';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
@@ -3835,10 +3835,10 @@ export const tools = {
       if (card === 'yes') replies.push(await cardYes(ctx.installationId));
       if (card === 'skip') replies.push({ show_to_builder: SKIPPED_LINE });
       if (move_up) replies.push(await moveUpAnswer(ctx, move_up));
-      // v2.13 T9: coin { raising } turns the page's raising line on or off (Bench flag only).
+      // v2.13 T9: coin { raising } turns the page's raising line on or off (Bench flag and EARNKIT_RAISING only).
       if (coin)
         replies.push(
-          coin.raising !== undefined && benchEnabled()
+          coin.raising !== undefined && raisingEnabled()
             ? await setRaising(ctx.installationId, coin.raising)
             : coin.answer && coin.project_key
               ? await coinAnswer(ctx, { project_key: coin.project_key, answer: coin.answer, wallet: coin.wallet })

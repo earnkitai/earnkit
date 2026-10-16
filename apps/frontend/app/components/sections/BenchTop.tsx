@@ -12,10 +12,10 @@ const TOP = 10;
 
 /**
  * v2.13 spec "Landing page" 2: the Bench's top 10 as on /bench (BenchRowItem), the chain chips
- * (a chain only from 10 ranked projects on it) and Raising as links into the filtered Bench, and
+ * (a chain only from 10 ranked projects on it) and Raising (only with EARNKIT_RAISING on) as links into the filtered Bench, and
  * "See the Bench". Server-safe: links only.
  */
-export default function BenchTop({ rows, chips }: { rows: BenchRow[]; chips: BenchChain[] }) {
+export default function BenchTop({ rows, chips, raising }: { rows: BenchRow[]; chips: BenchChain[]; raising: boolean }) {
   return (
     <Panel id="bench" label={BENCH_TOP_TITLE} className="relative overflow-hidden py-12 md:py-16">
       <div aria-hidden="true" className="pointer-events-none absolute -right-40 -top-48 h-[28rem] w-[28rem] rounded-full bg-ek-score-purple/[0.09] blur-3xl" />
@@ -30,7 +30,7 @@ export default function BenchTop({ rows, chips }: { rows: BenchRow[]; chips: Ben
               {CHAIN_LABEL[c]}
             </Chip>
           ))}
-          <Chip href={filterHref({ chain: null, raising: true, weekly: false })}>{FILTER_RAISING}</Chip>
+          {raising && <Chip href={filterHref({ chain: null, raising: true, weekly: false })}>{FILTER_RAISING}</Chip>}
         </nav>
         {rows.length > 0 && (
           <ol className="mt-6 md:-mx-4 md:mt-8">

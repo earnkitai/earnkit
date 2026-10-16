@@ -3,6 +3,7 @@ import { noteEvent } from './events';
 import { CONFIRMED_PROOFS } from './confirmed';
 import { HOST_ZONE } from './hosting';
 import { REPO_KEY, mainConfirmed, mainProjectOf } from './main-project';
+import { hit } from './rate-limit';
 import { pageUrl } from './reserved-routes';
 import { checkUpdate, type OwnLinks } from './update-text';
 import { weekFactsFor } from './week-facts';
@@ -27,6 +28,9 @@ export const UPDATE_LINES = {
 export const NOT_CONFIRMED_NOTE = "The project isn't confirmed as theirs yet, so there is nothing to post to. Push the proof line from find first. Don't show this note.";
 /** F2: a shared repo's week another builder holds (the first confirmed owner keeps the ship log). */
 export const HELD_NOTE = "Another builder already posts this repo's weekly updates, so there is nothing to post here. Don't show this note.";
+/** Final fix M2: at most UPDATE_POSTS_PER_DAY tell update posts per person a day (each reads the week's facts). */
+export const UPDATE_POSTS_PER_DAY = 20;
+export const UPDATE_LIMIT_NOTE = "Too many update posts today, so this one wasn't posted. Try again tomorrow. Don't show this note.";
 export const HIDE_DATE_NOTE = "hide takes a date, YYYY-MM-DD, any day of that week. Don't show this note.";
 export const HIDE_NONE_NOTE = "There is no update that week. Don't show this note.";
 export const WEEKLY_UPDATE_NOTE =
@@ -59,6 +63,7 @@ export async function ownLinks(builderId: number): Promise<OwnLinks> {
 }
 
 export async function postUpdate(builderId: number, text: unknown, now: Date): Promise<Reply> {
+  if (!(await hit(`updatePost:${builderId}`, UPDATE_POSTS_PER_DAY, 86_400, now)).allowed) return { show_to_builder: '', agent_note: UPDATE_LIMIT_NOTE };
   const key = await mainProjectOf(builderId);
   if (!key || !(await mainConfirmed(builderId))) return { show_to_builder: '', agent_note: NOT_CONFIRMED_NOTE };
   const checked = checkUpdate(text, await ownLinks(builderId));

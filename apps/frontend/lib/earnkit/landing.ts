@@ -8,7 +8,7 @@ import { boardSlug, roundFor, roundPoolsWei } from './bonus-rounds';
 import { moneyText, openMoneyUsd, readStats, wonLine, type PublicStats } from './stats';
 import { sql } from './db';
 import { benchRows, type BenchRow } from './bench-data';
-import { benchEnabled } from './builder-score-flag';
+import { benchEnabled, raisingEnabled } from './builder-score-flag';
 import { carouselCards, type FeedCard } from './feed';
 import type { BenchChain } from './rank';
 
@@ -60,7 +60,8 @@ export type Landing = {
   /** v2.9 E20: "Builders using EarnKit won $12,500" under the stats line, or null (no announced win with a prize). */
   won_line: string | null;
   /** v2.13 spec "Landing page": the Bench's top 10 and its chain chips, and this week's square cards; null with the flag off. */
-  bench: { rows: BenchRow[]; chips: BenchChain[]; cards: FeedCard[] } | null;
+  /** `raising`: EARNKIT_RAISING was on for this read (the Raising chip shows only then). */
+  bench: { rows: BenchRow[]; chips: BenchChain[]; cards: FeedCard[]; raising: boolean } | null;
 };
 
 /**
@@ -147,7 +148,7 @@ export function landingFrom(cards: Card[], pools: Map<string, bigint | null>, st
 async function readBench(now: Date): Promise<Landing['bench']> {
   if (!benchEnabled()) return null;
   const { rows, chips } = await benchRows({ chain: null, raising: false, weekly: false }, { limit: 10 });
-  return { rows, chips, cards: await carouselCards(now) };
+  return { rows, chips, cards: await carouselCards(now), raising: raisingEnabled() };
 }
 
 /**

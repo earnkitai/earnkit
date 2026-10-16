@@ -1,10 +1,11 @@
 import { sql } from './db';
 import { newProgramOf, openCuratedRows, repoCanWin } from './alerts';
-import { chainPools, rankLines } from './bench-rank';
+import { benchPool, chainPools, rankLines } from './bench-rank';
+import { raisingEnabled } from './builder-score-flag';
 import { readFitRepos } from './installations';
 import { REPO_KEY, benchConfirmedSql } from './main-project';
 import { listedRanked } from './person-score';
-import { avatarUrl, displayName, money, norm, projectPrograms, shownProjects } from './page-data';
+import { avatarUrl, displayName, money, norm, projectPrograms, safeNames, shownProjects } from './page-data';
 import { COIN_PROGRAM } from './policy-constants';
 import { byPrize, type Card } from './present';
 import { listPrograms } from './programs';
@@ -24,10 +25,12 @@ export const BENCH_MAX = 100;
 
 const one = (v: string | string[] | undefined) => (typeof v === 'string' ? v : undefined);
 
-/** Pure. Anything but one known value per key is ignored, so at most 4 x 2 x 2 = 16 variants exist. */
+/** Pure but for EARNKIT_RAISING. Anything but one known value per key is ignored, so at most 4 x 2 x 2 = 16 variants exist. */
 export function parseBenchFilter(q: Record<string, string | string[] | undefined>): BenchFilter {
   const c = one(q.chain)?.toLowerCase();
-  return { chain: (BENCH_CHAINS as readonly string[]).includes(c ?? '') ? (c as BenchChain) : null, raising: one(q.raising) === '1', weekly: one(q.weekly) === '1' };
+  // EARNKIT_RAISING off: the raising filter doesn't exist (?raising=1 is ignored).
+  const raising = raisingEnabled() && one(q.raising) === '1';
+  return { chain: (BENCH_CHAINS as readonly string[]).includes(c ?? '') ? (c as BenchChain) : null, raising, weekly: one(q.weekly) === '1' };
 }
 
 /** Pure. The one URL of a filter variant (also its cache key). */
@@ -51,50 +54,53 @@ export function bestFact(p: { people_week: number; streak: number; weeks_shippin
 export type BenchRow = { rank: number; line: string | null; handle: string; name: string; avatar: string | null; raising: { symbol: string; url: string } | null; chains: BenchChain[]; project: string; best: string };
 
 /**
- * The Bench: the listed ranked people (listedRanked: ranked means the one project is confirmed),
- * best score first, filtered by chain, raising and the weekly streak. A rank is always the whole
- * Bench's. The coin read mirrors raising.ts raisingCoin (the newest coin on the one project); a row
- * whose coin reads as raising is checked with pillOf, and the pill is pillOf's result only.
+ * The Bench: the listed ranked people whose one project counts as confirmed now (bench-rank
+ * benchPool: final fix M1, the gate is read here, not only at the last rescore), best score first,
+ * filtered by chain, raising and the weekly streak. A rank is always the whole Bench's. The coin read
+ * mirrors raising.ts raisingCoin (the newest coin on the one project); the pill is pillOf's rule in
+ * the same read (final fix M7: launched, raising, the one project confirmed, and EARNKIT_RAISING on).
+ * The project's name is the shown one (final fix I1: never a private repo's).
  */
 export async function benchRows(f: BenchFilter, o: { limit?: number; only?: number[] } = {}): Promise<{ rows: BenchRow[]; count: number; chips: BenchChain[] }> {
   const db = sql();
-  const rows = await db<{ builder_id: number; rank: number; handle: string; x_name: string | null; avatar: string | null; chains: string[]; project: string;
-    people_week: number; streak: number; weeks_shipping: number; shipped: boolean; raising: boolean }[]>`
+  const raisingOn = raisingEnabled();
+  const byRaising = f.raising && raisingOn;
+  const rows = await db<{ builder_id: number; rank: number; handle: string; x_name: string | null; avatar: string | null; chains: string[]; key: string;
+    people_week: number; streak: number; weeks_shipping: number; shipped: boolean; raising: boolean; symbol: string | null; url: string | null }[]>`
     WITH ranked AS (
-      SELECT x.builder_id, x.score, rank() OVER (ORDER BY x.score DESC)::int AS rank FROM ${listedRanked(db, o.only)} x)
-    SELECT r.builder_id, r.rank, p.x_handle AS handle, p.x_name, p.x_avatar_url AS avatar, b.chains, b.name AS project, b.people_week, b.streak, b.weeks_shipping, b.shipped,
-      COALESCE(c.token_status = 'launched' AND c.raising_at IS NOT NULL, false) AS raising
+      SELECT x.builder_id, x.score, rank() OVER (ORDER BY x.score DESC)::int AS rank FROM ${benchPool(o.only)} x)
+    SELECT r.builder_id, r.rank, p.x_handle AS handle, p.x_name, p.x_avatar_url AS avatar, b.chains, b.project_key AS key, b.people_week, b.streak, b.weeks_shipping, b.shipped,
+      COALESCE(c.token_status = 'launched' AND c.raising_at IS NOT NULL, false) AS raising, c.token_symbol AS symbol, c.token_url AS url
     FROM ranked r JOIN builder_profiles p USING (builder_id)
-    JOIN builder_projects b ON b.builder_id = r.builder_id AND lower(b.project_key) = lower(p.main_project_key)
-    LEFT JOIN LATERAL (SELECT x.token_status, x.raising_at FROM projects x JOIN installations i ON i.id = x.installation_id
+    JOIN builder_projects b ON b.builder_id = r.builder_id AND lower(b.project_key) = lower(p.main_project_key) AND ${benchConfirmedSql(db)}
+    LEFT JOIN LATERAL (SELECT x.token_status, x.raising_at, x.token_symbol, x.token_url FROM projects x JOIN installations i ON i.id = x.installation_id
       WHERE COALESCE(i.builder_id, i.id) = r.builder_id AND x.token_url IS NOT NULL AND x.token_symbol IS NOT NULL
         AND (x.token_repo_key = 'github.com/' || lower(p.main_project_key)
           OR lower(x.repo_url) IN (lower('https://github.com/' || p.main_project_key), lower('https://github.com/' || p.main_project_key || '/')))
       ORDER BY x.coin_launched_at DESC NULLS LAST, x.id DESC LIMIT 1) c ON true
     WHERE (${f.chain}::text IS NULL OR ${f.chain}::text = ANY(b.chains))
-      AND (NOT ${f.raising}::boolean OR (c.token_status = 'launched' AND c.raising_at IS NOT NULL))
+      AND (NOT ${byRaising}::boolean OR (c.token_status = 'launched' AND c.raising_at IS NOT NULL))
       AND (NOT ${f.weekly}::boolean OR b.streak >= ${WEEKLY_STREAK})
     ORDER BY r.score DESC, lower(p.x_handle) LIMIT ${Math.min(BENCH_MAX, o.limit ?? BENCH_MAX)}`;
-  const [{ total }] = await db<{ total: number }[]>`SELECT count(*)::int AS total FROM ${listedRanked(db, o.only)} x`;
+  const [{ total }] = await db<{ total: number }[]>`SELECT count(*)::int AS total FROM ${benchPool(o.only)} x`;
   const pools = await chainPools(o);
-  const pills = new Map(await Promise.all(rows.filter((r) => r.raising).map(async (r) => [r.builder_id, await pillOf(r.builder_id)] as const)));
+  const nameOf = await safeNames(rows.map((r) => r.builder_id));
+  const pill = (r: (typeof rows)[number]) => (raisingOn && r.raising && r.symbol && r.url ? { symbol: r.symbol, url: r.url } : null);
   return {
     count: total,
     chips: BENCH_CHAINS.filter((c) => pools[c] >= CHAIN_CHIP_MIN),
-    rows: rows
-      .filter((r) => !f.raising || pills.get(r.builder_id))
-      .map((r) => ({
-        rank: r.rank,
-        // The page is the Bench: "Top 4%" or "#3 of 12", without "on the Bench".
-        line: benchRank({ ranked: true, rank: r.rank, total })?.short.replace(/ on the Bench$/, '') ?? null,
-        handle: r.handle,
-        name: displayName(r.x_name, r.handle),
-        avatar: avatarUrl(r.avatar),
-        raising: pills.get(r.builder_id) ?? null,
-        chains: BENCH_CHAINS.filter((c) => r.chains.includes(c)),
-        project: r.project,
-        best: bestFact(r),
-      })),
+    rows: rows.map((r) => ({
+      rank: r.rank,
+      // The page is the Bench: "Top 4%" or "#3 of 12", without "on the Bench".
+      line: benchRank({ ranked: true, rank: r.rank, total })?.short.replace(/ on the Bench$/, '') ?? null,
+      handle: r.handle,
+      name: displayName(r.x_name, r.handle),
+      avatar: avatarUrl(r.avatar),
+      raising: pill(r),
+      chains: BENCH_CHAINS.filter((c) => r.chains.includes(c)),
+      project: nameOf(r.builder_id, r.key),
+      best: bestFact(r),
+    })),
   };
 }
 
