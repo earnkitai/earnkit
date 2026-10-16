@@ -14,7 +14,7 @@ import { tools } from './tools';
 import { saveInstallation, touchInstallation } from './installations';
 import { EVENT_LOG_FLAG } from './events';
 import { runCron } from './cron';
-import { claimGet, claimPost, xCallback } from './claim';
+import { claimThroughX } from './fixtures/claim-x';
 import { rootOf } from './identity';
 import { REFRESH_BUDGET_MS, pageViewRefresh, refreshPerson, standingOf } from './person-score';
 import { NOT_CONFIRMED, boardRows, pageCards, pageHead } from './page-data';
@@ -254,26 +254,7 @@ async function ago(id: number, minutes: number) {
 }
 const EXEMPT = ['TipJar', 'Recipes', 'Budget', 'EarnKit', 'AI'];
 
-/** The claim link's page, its form and X's callback, as a browser carries them. */
-async function claim(link: string): Promise<Response> {
-  const code = link.split('/').pop()!;
-  const get = await claimGet(new Request(`https://earnkit.com/claim/${code}`), code);
-  assert.equal(get.status, 200);
-  const cookie = get.headers.get('set-cookie')!.split(';')[0];
-  const csrf = /name="csrf" value="([^"]+)"/.exec(await get.text())![1];
-  const post = await claimPost(
-    new Request(`https://earnkit.com/claim/${code}`, {
-      method: 'POST',
-      headers: { cookie, origin: 'https://earnkit.com', 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ csrf }),
-    }),
-    code,
-    { limit: async () => {} },
-  );
-  assert.equal(post.status, 303);
-  const state = new URL(post.headers.get('location')!).searchParams.get('state')!;
-  return xCallback(new Request(`https://earnkit.com/x/callback?code=c&state=${encodeURIComponent(state)}`, { headers: { cookie } }), { x: fakeX, limit: async () => {} });
-}
+const claim = (link: string) => claimThroughX(link, fakeX);
 
 /** Three other people on the board, ranked and claimed, so lee's rank can move. Never read again. */
 async function others() {

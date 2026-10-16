@@ -1446,6 +1446,9 @@ apps/frontend/
     raising.ts(+test)          v2.13 T9: raisingCoin, setRaising, pillOf, raiseAsk (projects.raising_at)
     bench-data.ts(+test)       v2.13 T10/T11: parseBenchFilter, benchRows, profile and project tab data, logCards
     llms/{v212,v213}.txt       v2.13: the two /llms.txt bodies (flag off / on)
+    v213-journey.test.ts       v2.13 T16: acceptance steps 1 to 7 (the runbook) on fakes in its own database,
+                               plus Review Focus 3 (a Confirming claimant of the same repo) and 4 (flag off);
+                               fixtures/claim-x.ts (claimThroughX), fixtures/arc-chain.ts (fakeArc, TIPJAR_ABI)
     sources.ts(+test)          v2.12 T5: Proof, repoOwned, packageOwned, siteOwnedByText, contractOwnership
                                (fail strict), contractConflicts, proposeSource, verifySource, proveLinkedSite,
                                rejectSource, dueSources, previousSignals, readSources (READS_PER_RUN 200)
