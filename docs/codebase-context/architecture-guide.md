@@ -5028,8 +5028,9 @@ by the builder's own agent, public filters for the capital side, and an optional
   owner of a User's repo (any pusher for an org's), is exclusive (the first holder keeps a repo),
   verifies the repo (`proof_branch`), records the login and rescores at once, and the next reply tells
   the agent to delete the branch. One code a day per person; a branch that never shows in the hour gets
-  "I couldn't show <project> is yours..." (no loop). A `proof_branch` repo passes the token gate with no
-  earnkit.txt line (`token-gate.ts branchProven`). The v2.13 proof line and sign-in
+  "I couldn't show <project> is yours..." (no loop). Under the Bench the token gate takes a proof branch,
+  never an earnkit.txt line (`token-gate.ts branchProof`, `proof-branch.ts coinBranchProof`): a proof
+  under 30 days whose repo still reads the same numeric id, owner and not-a-fork, else a fresh branch. The v2.13 proof line and sign-in
   link (`main-project.ts proofFor`) now run only with the flag off. The server
   writes the first ship log entry "Started tracking <name>." (`week-facts.ts startedLine`).
 - **2b, no project.** The reply leads with ideas the builder can earn from (`ideasLine`) and the one yes

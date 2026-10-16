@@ -21,6 +21,7 @@ import { appTokenFor, githubAppEnabled } from './github-app';
 import { markRepoPublic } from './repo-cache';
 import { sharedGroup } from './installations';
 import { benchEnabled } from './builder-score-flag';
+import type { CoinBranchProof, ProofBranch } from './proof-branch';
 
 export type GateInput = {
   policy: TokenPolicy;
@@ -81,11 +82,11 @@ export type GateDeps = {
    */
   shared?: (installationId: number) => Promise<boolean>;
   /**
-   * v2.13.1 O1 fix round 1 (ruling a): under the Bench, whether the launching installation's person
-   * proved this repo (lowercase owner/repo) with a proof branch, which stands in for the earnkit.txt
-   * line. Never on a shared client; false with the flag off.
+   * v2.13.1 O1 fix rounds 1 and 2 (rulings): under the Bench the repo (lowercase owner/repo) is proven
+   * by a proof branch, never an earnkit.txt line (proof-branch.ts coinBranchProof): the proof stands,
+   * a branch for the agent to push, or a plain line. Null: flag off or a shared client (today's gate).
    */
-  branchProven?: (installationId: number, repoKey: string) => Promise<boolean>;
+  branchProof?: (installationId: number, repoKey: string) => Promise<CoinBranchProof | null>;
 };
 
 /**
@@ -149,10 +150,10 @@ const defaults: Omit<Required<GateDeps>, 'appToken' | 'appLink'> = {
   verified: async (projectId, repoKey, login) =>
     githubVerifyEnabled() ? verifiedFor({ projectId, repoKey, login }) : null,
   shared: async (installationId) => githubVerifyEnabled() && (await sharedGroup(installationId)),
-  branchProven: async (installationId, repoKey) =>
-    benchEnabled() &&
-    !(await sharedGroup(installationId).catch(() => true)) &&
-    (await import('./proof-branch')).branchProvenRepo(installationId, `https://github.com/${repoKey}`),
+  branchProof: async (installationId, repoKey) =>
+    benchEnabled() && !(await sharedGroup(installationId).catch(() => true))
+      ? (await import('./proof-branch')).coinBranchProof(installationId, repoKey, new Date())
+      : null,
 };
 
 const msg = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -164,6 +165,14 @@ const AGAIN = `Try again in a minute: ${SAY}.`;
  * second "go" whose proof line still can't be confirmed returns the kit instead of looping.
  */
 export const PROOF_LINE_PREFIX = 'I need to add a short proof line to your repo';
+
+/** v2.13.1 O1 fix round 2: under the Bench the coin's repo is proven by a temporary branch (the builder's line). */
+export const coinBranchReason = (repo: string) =>
+  `I'll check ${repo} is yours with a quick temporary branch on GitHub. It's removed right after. Then ${SAY}.`;
+/** The agent's note with it: push, confirm again, then delete the branch. */
+export const coinBranchNote = (p: ProofBranch) =>
+  `Run "${p.push}" in the folder of the repo ${p.repo} (a temporary branch at the current commit: no file, no commit), ` +
+  `then call confirm with project_id and yes: true. After the launch, delete the branch: "${p.remove}". Never ask the builder to edit files.`;
 
 export const TOKENS_NOT_CONFIGURED = "Token launches aren't configured right now.";
 /** v2.9 B9, Ruling G10: on a shared client only a GitHub sign-in proves the repo. */
@@ -358,9 +367,11 @@ export async function tokenGate(input: GateInput, deps: GateDeps = {}): Promise<
       : null;
   const signedIn = signIn !== null && signIn.wallet !== null && signIn.wallet === input.wallet.toLowerCase();
   const walletChanged = { ok: false as const, reason: WALLET_CHANGED, fixable: true as const, sign_in: 'wallet_changed' as const };
-  // v2.13.1 O1 fix round 1 (ruling a): a repo the person proved with a proof branch needs no line.
-  const branchProven = !signedIn && !shared && (await d.branchProven(input.installationId, repoKey).catch(() => false));
-  if (!signedIn && !branchProven) {
+  // v2.13.1 O1 fix rounds 1 and 2 (rulings): under the Bench a proof branch proves the repo, never a line.
+  const branch = !signedIn && !shared ? await d.branchProof?.(input.installationId, repoKey).catch(() => null) : null;
+  if (branch && 'line' in branch) return { ok: false, reason: branch.line, fixable: true };
+  if (branch && 'proof' in branch) return { ok: false, reason: coinBranchReason(gh.repo), agent_note: coinBranchNote(branch.proof), fixable: true };
+  if (!signedIn && !branch) {
     // Ruling G10: on a shared client (verifiedLogin given) the proof line is the whole agent's, so
     // while sign-in is on it never proves a launch there.
     if (shared && githubVerifyEnabled())

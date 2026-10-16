@@ -145,7 +145,6 @@ import { hideUpdate, postUpdate, setUpdates } from './updates';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
 import { CONFIRMING_REFRESH_MS, REPO_KEY, confirmingFast, fillGithubUser, mainProjectOf, setMainProject } from './main-project';
-import { branchProvenRepo } from './proof-branch';
 import { benchAsked, benchFind, benchMoveUp } from './bench-find';
 import { setRaising } from './raising';
 import { SEND_LINK_NOTE, scoreReply } from './score-tool';
@@ -1953,8 +1952,8 @@ export const handlers = {
     }
     // Ruling 25 (plan) / Part C: the token line, once the repo is known, for the agent to push with
     // its work before the builder confirms (an agent that can't push gets none).
-    // v2.13.1 O1 fix round 1 (ruling a): under the Bench a repo proven by its proof branch needs no line.
-    const branchProven = Boolean(repoUrl) && benchEnabled() && (await branchProvenRepo(ctx.installationId, repoUrl!));
+    // v2.13.1 O1 fix rounds 1 and 2 (rulings): under the Bench a coin's repo is proven by a proof branch, never a line.
+    const branchProven = benchEnabled() && !ctx.sharedClient;
     const line = repoUrl && canPush && !branchProven && program.token_policy !== 'off' && !prepTokensOff ? tokenLineFor(ctx.installationId, repoUrl) : null;
     // v2.11 T9 R4 (b): when this installation was first shown the line for this repo.
     if (line && repoUrl) await noteLineIssued(ctx.installationId, repoUrl);

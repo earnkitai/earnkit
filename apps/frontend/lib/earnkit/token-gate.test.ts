@@ -30,7 +30,7 @@ const ok: Required<GateDeps> = {
   owner: async () => ({ status: 'ok', text: LINE }),
   latest: async () => null,
   screen: async () => {},
-  branchProven: async () => false,
+  branchProof: async () => null,
 };
 const input: GateInput = { policy: 'encouraged', repoUrl: REPO, wallet: W, symbol: 'KIT', installationId: 1 };
 
@@ -102,7 +102,7 @@ test('order: repo, then earnkit.txt, then the screen; stops at the first failure
   const seen: string[] = [];
   const trace: Required<GateDeps> = {
     verified: async () => null,
-    branchProven: async () => false,
+    branchProof: async () => null,
   shared: async () => false,
     // v2.10 item 7b: no App reads.
     appToken: async () => null,

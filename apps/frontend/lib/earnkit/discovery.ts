@@ -21,6 +21,7 @@ import { loginStands } from './login-contests';
 import { clearXHandle, releaseLogin, setFallback } from './profiles';
 import { GitHubBudgetStop, isBudgetStop, readContractOrigin, soft, type ReaderDeps, type RepoSignals } from './source-readers';
 import { claimContract, proposeSource, rejectSource, repoOwned, verifySource, type Proof } from './sources';
+import { heldByOther } from './proof-branch';
 import { proofLineOwner } from './token-gate';
 import { readGithubUser, readOwnedRepos, readPersonGithub, type PersonGithub } from './person-github';
 
@@ -119,7 +120,7 @@ const HARDHAT_FILE = /^deployments\/[^/]+\/[^/]+\.json$/;
 const REPO_KEY = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}\/(?!\.\.?$)[a-z0-9._-]{1,100}$/;
 
 type ListedRepo = {
-  full_name?: string; fork?: boolean; is_template?: boolean; homepage?: string | null; has_pages?: boolean;
+  id?: number; full_name?: string; fork?: boolean; is_template?: boolean; homepage?: string | null; has_pages?: boolean;
   created_at?: string | null; pushed_at?: string | null; owner?: { login?: string; type?: string };
 };
 
@@ -222,7 +223,7 @@ type Counts = {
   /** v2.12.2: the proof-line check was skipped for lack of time with candidates to check (discoverPerson). */
   proofSkipped?: boolean;
 };
-type Row = { id: number; state: string; proof?: string | null };
+type Row = { id: number; state: string; proof?: string | null; gh_repo_id?: string | null };
 type DiscoverOpts = {
   deadline: number; reader: ReaderDeps; login?: LoginOf; proofLine?: ProofLineCheck;
   /** v2.12.2: skip the proof-line check (never throw) when less than PROOF_LINE_MIN_MS remains. */
@@ -247,7 +248,7 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
   const stateOf = (row: Row) => planned.get(row.id) ?? row.state;
   const propose = async (kind: string, ref: string, key: string): Promise<Row> => {
     if ((await proposeSource({ builder_id: root, kind, ref, project_key: key, proposed_by: 'server' })) !== null) out.proposed++;
-    const [row] = await db<Row[]>`SELECT id::int AS id, state, proof FROM builder_sources WHERE builder_id = ${root} AND kind = ${kind} AND ref = ${ref}`;
+    const [row] = await db<Row[]>`SELECT id::int AS id, state, proof, gh_repo_id::text AS gh_repo_id FROM builder_sources WHERE builder_id = ${root} AND kind = ${kind} AND ref = ${ref}`;
     return row;
   };
   // Only a proposed source is verified: a rejected (or revoked) one stays rejected.
@@ -260,8 +261,9 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
     });
   };
   const reject = (row: Row, reason: string) => {
-    // v2.13.1 O1 fix round 1: a repo proven by its own pushed branch is never revoked by discovery.
-    if (stateOf(row) === 'rejected' || row.proof === 'proof_branch') return;
+    // v2.13.1 O1 fix rounds 1 and 2: a repo proven by its own pushed branch survives only the
+    // not_owner verdict (a push proves more than a login); a repo now derived, or re-created, goes.
+    if (stateOf(row) === 'rejected' || (row.proof === 'proof_branch' && reason === 'not_owner')) return;
     planned.set(row.id, 'rejected');
     verdicts.push(() => rejectSource(row.id, reason));
   };
@@ -390,7 +392,12 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
       const template = c.meta.is_template === true;
       const ever = await repoEverDerived(key, fork || template);
       const signals = { owner: (c.meta.owner?.login ?? key.split('/')[0]).toLowerCase(), owner_type: c.meta.owner?.type ?? 'User', fork, template } as RepoSignals;
-      if (!repoOwned(signals, L, c.top, ever)) reject(row, fork || template || ever ? 'derived' : 'not_owner');
+      // v2.13.1 O1 fix round 2: a proof_branch repo whose GitHub id changed is another repo now.
+      const recreated = row.proof === 'proof_branch' && row.gh_repo_id != null && c.meta.id != null && String(c.meta.id) !== row.gh_repo_id;
+      if (recreated) reject(row, 'repo_changed');
+      else if (!repoOwned(signals, L, c.top, ever)) reject(row, fork || template || ever ? 'derived' : 'not_owner');
+      // v2.13.1 O1 fix round 2: never a repo another person already holds (the first holder keeps it).
+      else if (stateOf(row) === 'proposed' && (await heldByOther(root, key))) continue;
       else if (stateOf(row) !== 'rejected') {
         verify(row, 'repo_owner');
         scan.push({ key, meta: c.meta });

@@ -1443,9 +1443,11 @@ apps/frontend/
                                HMAC(secret, seed)): proofBranchFor (open code, else one a day per person, coding
                                agents only; failed / needs_agent / taken), checkProofBranch (once a minute per
                                code; ref, repo, pusher: User repo owner only, org any; exclusive; proof
-                               `proof_branch`, login basis `proof_branch`, rescore), branchProvenRepo (the token
-                               gate's stand-in for the line), branchToRemove, proofBranchStep (cron, deadline,
-                               7-day cleanup); tests: v2131-proof-branch.test.ts
+                               `proof_branch` with gh_repo_id/gh_owner, login basis `proof_branch`, rescore),
+                               heldByOther (group roots; discovery asks it too), coinBranchProof (the token
+                               gate under the Bench: a proof under 30 days whose repo id still reads the same,
+                               else a fresh branch, never a line), branchToRemove, proofBranchStep (cron,
+                               deadline, 7-day cleanup); tests: v2131-proof-branch.test.ts
     week-facts.ts(+test)       v2.13 T4: WeekFacts, weekFactsFor, factChips, startedLine, upsertWeekFacts,
                                weeklyFactsStep (Mondays from 15:00 UTC)
     update-text.ts(+test)      v2.13 T5: checkUpdate (280 characters, no @, secrets, own links only), notes

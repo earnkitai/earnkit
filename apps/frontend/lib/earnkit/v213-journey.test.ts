@@ -166,7 +166,7 @@ function firstPush(r: GhRepo, line: string) {
   r.activity.unshift({ activity_type: 'branch_creation', ref: 'refs/heads/main', before: sha('0'), after, timestamp: iso(at), actor: { login: r.owner } });
 }
 const repoJson = (r: GhRepo) => ({
-  name: r.name, full_name: `${r.owner}/${r.name}`, html_url: `https://github.com/${r.owner}/${r.name}`, homepage: r.homepage, has_pages: false,
+  id: [...GITHUB.keys()].indexOf(`${r.owner}/${r.name}`) + 1000, name: r.name, full_name: `${r.owner}/${r.name}`, html_url: `https://github.com/${r.owner}/${r.name}`, homepage: r.homepage, has_pages: false,
   default_branch: 'main', created_at: iso(r.createdAt), pushed_at: iso(r.head?.at ?? r.createdAt), fork: false, archived: false, is_template: false,
   template_repository: null, private: false, visibility: 'public', owner: { login: r.owner, type: 'User' }, description: null, topics: [],
 });

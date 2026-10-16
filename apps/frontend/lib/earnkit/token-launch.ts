@@ -253,8 +253,8 @@ export async function tokenProposalBlock(
   // Ruling 22: outside campaigns the wallet goes to record_submission explicitly.
   if (!program.campaign)
     notes.push("Pass the wallet the builder confirmed (the wallet on the confirm line) as confirm's wallet");
-  // v2.13.1 O1 fix round 1 (ruling a): a repo proven by its proof branch needs no line (the gate takes the branch).
-  const branchProven = Boolean(a.repoUrl) && benchEnabled() && (await (await import('./proof-branch')).branchProvenRepo(a.installationId, a.repoUrl!));
+  // v2.13.1 O1 fix rounds 1 and 2 (rulings): under the Bench (off a shared client) the gate takes a proof branch, never a line.
+  const branchProven = benchEnabled() && !(await sharedGroup(a.installationId).catch(() => true));
   // Shown only to this agent (prepare_submission's reply): its code is useless to anyone else.
   const tokenLine = a.repoUrl && !branchProven ? tokenLineFor(a.installationId, a.repoUrl) : null;
   const hasBonus = hasBuilderBonus(program);

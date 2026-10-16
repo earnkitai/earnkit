@@ -398,7 +398,7 @@ async function gatherGateReasons(): Promise<[string, string][]> {
   const input: GateInput = { policy: 'encouraged', repoUrl: REPO, wallet: '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3', symbol: 'KIT', installationId: 1 };
   const okDeps: Required<GateDeps> = {
     verified: async () => null,
-    branchProven: async () => false,
+    branchProof: async () => null,
   shared: async () => false,
     // v2.10 item 7b: no App reads.
     appToken: async () => null,
@@ -447,7 +447,7 @@ async function gatherGateAgentNotes(): Promise<[string, string][]> {
   const input: GateInput = { policy: 'encouraged', repoUrl: REPO, wallet: '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3', symbol: 'KIT', installationId: 1 };
   const okDeps: Required<GateDeps> = {
     verified: async () => null,
-    branchProven: async () => false,
+    branchProof: async () => null,
   shared: async () => false,
     // v2.10 item 7b: no App reads.
     appToken: async () => null,

@@ -1466,3 +1466,8 @@ CREATE TABLE IF NOT EXISTS proof_branches (
 );
 CREATE INDEX IF NOT EXISTS proof_branches_person ON proof_branches (builder_id, issued_at DESC);
 CREATE INDEX IF NOT EXISTS proof_branches_open ON proof_branches (expires_at) WHERE used_at IS NULL;
+-- v2.13.1 O1 fix round 2: a proof_branch confirmation keeps GitHub's numeric repo id and owner, so a
+-- coin launch (and discovery) can tell the same repo from a re-created key. Additive.
+ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS gh_repo_id bigint;
+ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS gh_owner text;
+ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS gh_owner_type text;

@@ -54,6 +54,8 @@ const LOGIN_COLUMNS: [table: string, column: string][] = [
   // v2.11 T9 security fix (I1): who GitHub says pushed the earnkit.txt line.
   ['contract_deploys', 'line_owner'],
   ['bonus_commits', 'login'],
+  // v2.13.1 O1 fix round 2: the repo owner a proof branch was taken for.
+  ['builder_sources', 'gh_owner'],
 ];
 const WALLET_COLUMNS: [table: string, column: string][] = [
   ['installations', 'payout_wallet'],

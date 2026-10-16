@@ -1,5 +1,5 @@
 import { createHash, createHmac, randomBytes } from 'node:crypto';
-import { githubRepo } from './campaigns';
+import { cantShowLine, takenLine } from './bench-reply';
 import { CONFIRMED_PROOFS } from './confirmed';
 import { sql, type Db } from './db';
 import { noteEvent } from './events';
@@ -76,11 +76,20 @@ const proofOf = (key: string, code: string): ProofBranch => ({
 /** A repo source's ref as a repo key (benchConfirmedSql's own normalisation). */
 const refKey = (db: Db) => db`regexp_replace(lower(trim(ref)), '^(https?://)?(www[.])?github[.]com/', '')`;
 
-/** Whether another person already holds a confirmed repo source for `key`. */
-async function heldByOther(builderId: number, key: string, db: Db = sql()): Promise<boolean> {
+/** A builder id's person: its installation's group root (fix round 2), else the id itself. */
+const rootSql = (db: Db, id: number) => db`COALESCE((SELECT COALESCE(i.builder_id, i.id) FROM installations i WHERE i.id = ${id}), ${id})`;
+
+/**
+ * Whether another person (another group root, fix round 2: never the person's own linked
+ * installation) already holds a confirmed repo source for `key`. Discovery's repo_owner verdict asks
+ * it too, so the first confirmed holder keeps a repo.
+ */
+export async function heldByOther(builderId: number, key: string, db: Db = sql()): Promise<boolean> {
   const [r] = await db`
-    SELECT 1 FROM builder_sources WHERE builder_id <> ${builderId} AND kind = 'repo' AND state = 'verified'
-      AND proof = ANY(${[...CONFIRMED_PROOFS]}::text[]) AND ${refKey(db)} = ${key} LIMIT 1`;
+    SELECT 1 FROM builder_sources s WHERE s.kind = 'repo' AND s.state = 'verified'
+      AND s.proof = ANY(${[...CONFIRMED_PROOFS]}::text[]) AND regexp_replace(lower(trim(s.ref)), '^(https?://)?(www[.])?github[.]com/', '') = ${key.toLowerCase()}
+      AND COALESCE((SELECT COALESCE(i.builder_id, i.id) FROM installations i WHERE i.id = s.builder_id), s.builder_id) <> ${rootSql(db, builderId)}
+    LIMIT 1`;
   return Boolean(r);
 }
 
@@ -89,7 +98,7 @@ async function heldByOther(builderId: number, key: string, db: Db = sql()): Prom
  * the open code; else, for an agent that can build and with no code issued to the person in the last
  * day, a new one; else `failed` (this key's last code expired unused) or null (wait for the day).
  */
-export async function proofBranchFor(builderId: number, key: string, now: Date, o: { canBuild: boolean }): Promise<BranchState> {
+export async function proofBranchFor(builderId: number, key: string, now: Date, o: { canBuild: boolean; reproof?: boolean }): Promise<BranchState> {
   const k = key.toLowerCase();
   const secret = process.env.EARNKIT_AUTH_SECRET;
   if (!REPO_KEY.test(k) || !secret) return null;
@@ -99,15 +108,16 @@ export async function proofBranchFor(builderId: number, key: string, now: Date, 
     await tx`SELECT pg_advisory_xact_lock(hashtext(${`proof_branch:${builderId}`}))`;
     const [last] = await tx<{ seed: string; expires_at: Date; used_at: Date | null }[]>`
       SELECT seed, expires_at, used_at FROM proof_branches WHERE builder_id = ${builderId} AND repo_key = ${k} ORDER BY issued_at DESC LIMIT 1`;
-    if (last?.used_at) return null;
-    if (last && last.expires_at > now) {
+    // A used code confirmed the repo; only a coin launch's fresh proof (fix round 2) asks again.
+    if (last?.used_at && !o.reproof) return null;
+    if (last && !last.used_at && last.expires_at > now) {
       const code = codeOf(last.seed, secret);
       return code ? { kind: 'checking' as const, proof: proofOf(k, code) } : null;
     }
     if (!o.canBuild) return { kind: 'needs_agent' as const };
     const [recent] = await tx`
       SELECT 1 FROM proof_branches WHERE builder_id = ${builderId} AND issued_at > ${new Date(now.getTime() - PROOF_BRANCH_ISSUE_GAP_MS)} LIMIT 1`;
-    if (recent) return last ? { kind: 'failed' as const } : null;
+    if (recent) return last && !last.used_at ? { kind: 'failed' as const } : null;
     const seed = randomBytes(16).toString('base64url');
     const code = codeOf(seed, secret)!;
     await tx`
@@ -118,50 +128,69 @@ export async function proofBranchFor(builderId: number, key: string, now: Date, 
 }
 
 const TIMEOUT_MS = 10_000;
+/** Fix round 2: a coin trusts a proof branch this long, and only after a launch-time read of the repo. */
+export const PROOF_BRANCH_COIN_MAX_AGE_MS = 30 * 24 * 60 * 60_000;
+
+/** One GitHub REST read of `/repos/{key}{path}` (EarnKit's token, redirects refused): the JSON, or null on anything but a 200. */
+async function ghRead(key: string, path: string, f: typeof fetch): Promise<unknown> {
+  const token = process.env.GITHUB_TOKEN?.trim();
+  const res = await f(`https://api.github.com/repos/${key}${path}`, {
+    redirect: 'manual',
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'EarnKit', 'X-GitHub-Api-Version': '2022-11-28', ...(token && { Authorization: `Bearer ${token}` }) },
+  });
+  if (res.status !== 200) {
+    await res.body?.cancel().catch(() => {});
+    return null;
+  }
+  return res.json().catch(() => null);
+}
+const obj = (x: unknown) => (x && typeof x === 'object' && !Array.isArray(x) ? (x as Record<string, unknown>) : null);
+const LOGIN = /^[A-Za-z0-9-]{1,39}$/;
+
+/** What GitHub says about exactly `key` when it is the person's own work (discovery's rule): its numeric id and owner; else null. */
+type RepoRead = { id: number; owner: string; ownerType: 'User' | 'Organization' };
+async function readRepo(key: string, f: typeof fetch): Promise<RepoRead | null> {
+  const repo = obj(await ghRead(key, '', f));
+  if (typeof repo?.full_name !== 'string' || repo.full_name.toLowerCase() !== key) return null;
+  if (typeof repo.id !== 'number' || !Number.isSafeInteger(repo.id)) return null;
+  if (await repoEverDerived(key, repo.fork !== false || repo.is_template === true)) return null;
+  const owner = obj(repo.owner);
+  const login = typeof owner?.login === 'string' ? owner.login.toLowerCase() : null;
+  const type = owner?.type;
+  if (!login || login !== key.split('/')[0] || (type !== 'User' && type !== 'Organization')) return null;
+  return { id: repo.id, owner: login, ownerType: type };
+}
 
 /**
- * Who pushed `earnkit-<code>` to exactly `key`, when that push may confirm it, else null: the ref is on
- * that key (no redirect), the repo is that key and the person's own work (not a fork or template), and
- * (a User's repo) every push of the branch is its owner's, or (an Organization's) anyone's: its creator.
- * Never throws.
+ * Who pushed `earnkit-<code>` to exactly `key`, when that push may confirm it, with the repo's read;
+ * else null. The ref is on that key (no redirect), the repo is that key and the person's own work, and
+ * the branch's pushes (GitHub's activity record): a User's repo only when every one names its owner
+ * (fix round 2: one with no readable actor refuses); an Organization's, its creator (the
+ * branch_creation entry, never a later push). Never throws.
  */
-async function branchPusher(key: string, code: string, f: typeof fetch): Promise<string | null> {
-  const token = process.env.GITHUB_TOKEN?.trim();
-  const get = async (path: string): Promise<unknown> => {
-    const res = await f(`https://api.github.com/repos/${key}${path}`, {
-      redirect: 'manual',
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'EarnKit', 'X-GitHub-Api-Version': '2022-11-28', ...(token && { Authorization: `Bearer ${token}` }) },
-    });
-    if (res.status !== 200) {
-      await res.body?.cancel().catch(() => {});
-      return null;
-    }
-    return res.json().catch(() => null);
-  };
-  const obj = (x: unknown) => (x && typeof x === 'object' && !Array.isArray(x) ? (x as Record<string, unknown>) : null);
+async function branchPusher(key: string, code: string, f: typeof fetch): Promise<(RepoRead & { login: string }) | null> {
   try {
     const branch = branchOf(code);
     const full = `refs/heads/${branch}`;
-    const ref = obj(await get(`/git/ref/heads/${branch}`));
+    const ref = obj(await ghRead(key, `/git/ref/heads/${branch}`, f));
     if (ref?.ref !== full) return null;
     if (typeof ref.url !== 'string' || !ref.url.toLowerCase().startsWith(`https://api.github.com/repos/${key}/git/refs/heads/`)) return null;
-    const repo = obj(await get(''));
-    if (typeof repo?.full_name !== 'string' || repo.full_name.toLowerCase() !== key) return null;
-    if (await repoEverDerived(key, repo.fork !== false || repo.is_template === true)) return null;
-    const owner = obj(repo.owner);
-    const ownerLogin = typeof owner?.login === 'string' ? owner.login.toLowerCase() : null;
-    if (!ownerLogin || ownerLogin !== key.split('/')[0]) return null;
-    const activity = await get(`/activity?ref=${encodeURIComponent(full)}&per_page=30`);
-    const pushers = (Array.isArray(activity) ? activity : [])
-      .map(obj)
-      .filter((a): a is Record<string, unknown> => a?.ref === full)
-      .map((a) => obj(a.actor)?.login)
-      .filter((l): l is string => typeof l === 'string' && /^[A-Za-z0-9-]{1,39}$/.test(l))
-      .map((l) => l.toLowerCase());
-    if (pushers.length === 0) return null;
-    if (owner?.type === 'Organization') return pushers[pushers.length - 1];
-    return owner?.type === 'User' && pushers.every((l) => l === ownerLogin) ? ownerLogin : null;
+    const repo = await readRepo(key, f);
+    if (!repo) return null;
+    const activity = await ghRead(key, `/activity?ref=${encodeURIComponent(full)}&per_page=100`, f);
+    const entries = (Array.isArray(activity) ? activity : []).map(obj).filter((a): a is Record<string, unknown> => a?.ref === full);
+    const actorOf = (a: Record<string, unknown>) => {
+      const l = obj(a.actor)?.login;
+      return typeof l === 'string' && LOGIN.test(l) ? l.toLowerCase() : null;
+    };
+    if (entries.length === 0) return null;
+    if (repo.ownerType === 'Organization') {
+      const created = entries.find((a) => a.activity_type === 'branch_creation');
+      const login = created ? actorOf(created) : null;
+      return login ? { ...repo, login } : null;
+    }
+    return entries.every((a) => actorOf(a) === repo.owner) ? { ...repo, login: repo.owner } : null;
   } catch (err) {
     console.error('[proof-branch] read', err instanceof Error ? err.name : 'error');
     return null;
@@ -169,14 +198,15 @@ async function branchPusher(key: string, code: string, f: typeof fetch): Promise
 }
 
 /**
- * Checks the person's open code (their one project, unexpired, unused, not read in the last minute:
- * claimed atomically, so at most one GitHub check a minute however many replies ask). On a pass, the
- * module comment's steps. True when it confirmed. `ghFetch`: the caller's budgeted fetch (absent: a
- * budget of its own). Never throws.
+ * Checks the person's open code for `key` (default: their one project), unexpired, unused, not read
+ * in the last minute (claimed atomically, so at most one GitHub check a minute however many replies
+ * ask). On a pass, the module comment's steps; a repo already verified (a coin's fresh proof, fix
+ * round 2) gets the proof again with GitHub's id and owner now. True when it confirmed. `ghFetch`:
+ * the caller's budgeted fetch (absent: a budget of its own). Never throws.
  */
-export async function checkProofBranch(builderId: number, now: Date, o: { ghFetch?: typeof fetch } = {}): Promise<boolean> {
+export async function checkProofBranch(builderId: number, now: Date, o: { ghFetch?: typeof fetch; key?: string } = {}): Promise<boolean> {
   try {
-    const key = (await mainProjectOf(builderId))?.toLowerCase() ?? null;
+    const key = (o.key ?? (await mainProjectOf(builderId)))?.toLowerCase() ?? null;
     if (!key || !REPO_KEY.test(key)) return false;
     const [open] = await sql()<{ code_hash: string; seed: string }[]>`
       UPDATE proof_branches SET checked_at = ${now}
@@ -189,35 +219,37 @@ export async function checkProofBranch(builderId: number, now: Date, o: { ghFetc
     const code = open ? codeOf(open.seed) : null;
     if (!open || !code || (await heldByOther(builderId, key))) return false;
     const f = o.ghFetch ?? defaultReaderDeps(now, Date.now() + TIMEOUT_MS).ghFetch ?? fetch;
-    const pusher = await branchPusher(key, code, f);
-    if (!pusher) return false;
+    const read = await branchPusher(key, code, f);
+    if (!read) return false;
     const sourceId = await sql().begin(async (tx) => {
       // Per repo: two people's checks of one repo never both confirm it.
       await tx`SELECT pg_advisory_xact_lock(hashtext(${`proof_branch_repo:${key}`}))`;
       if (await heldByOther(builderId, key, tx)) return null;
       const find = () => tx<{ id: number; state: string }[]>`
         SELECT id::int AS id, state FROM builder_sources WHERE builder_id = ${builderId} AND kind = 'repo' AND ${refKey(tx)} = ${key}
-        ORDER BY (state = 'proposed') DESC, id LIMIT 1`;
+        ORDER BY (state = 'verified') DESC, (state = 'proposed') DESC, id LIMIT 1`;
       let [s] = await find();
       if (!s) {
         await tx`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by) VALUES (${builderId}, 'repo', ${key}, ${key}, 'server') ON CONFLICT DO NOTHING`;
         [s] = await find();
       }
       // A refused repo stays refused (a push never overrides discovery's verdict).
-      if (!s || s.state !== 'proposed') return null;
+      if (!s || s.state === 'rejected') return null;
       const [used] = await tx`
         UPDATE proof_branches SET used_at = ${now} WHERE code_hash = ${open.code_hash} AND used_at IS NULL AND expires_at > ${now} RETURNING 1`;
       if (!used) return null;
       await tx`
-        UPDATE builder_sources SET state = 'verified', proof = 'proof_branch', verified_at = now(), reject_reason = NULL
-        WHERE id = ${s.id} AND state = 'proposed'`;
+        UPDATE builder_sources SET state = 'verified', proof = 'proof_branch', verified_at = ${now}, reject_reason = NULL,
+          gh_repo_id = ${read.id}, gh_owner = ${read.owner}, gh_owner_type = ${read.ownerType}
+        WHERE id = ${s.id} AND state IN ('proposed', 'verified')`;
       return s.id;
     });
     if (sourceId === null) return false;
     await noteEvent('source_verified', () => ({
-      type: 'source_verified', dedupe_key: `source_verified:${sourceId}`, installation_id: builderId, detail: { source_id: sourceId, kind: 'repo', proof: 'proof_branch' },
+      type: 'source_verified', dedupe_key: `source_verified:${sourceId}:${now.toISOString()}`, installation_id: builderId,
+      detail: { source_id: sourceId, kind: 'repo', proof: 'proof_branch' },
     }));
-    await setFallback(builderId, { github_login: pusher, basis: 'proof_branch' });
+    await setFallback(builderId, { github_login: read.login, basis: 'proof_branch' });
     await (await import('./person-score')).rescorePerson(builderId, now);
     profileChanged();
     return true;
@@ -228,24 +260,47 @@ export async function checkProofBranch(builderId: number, now: Date, o: { ghFetc
 }
 
 /**
- * Fix round 1 (ruling a): whether this installation's person proved `repoUrl` with a proof branch,
- * so a coin needs no earnkit.txt line. The installation's own rows or its group root's. Never throws.
+ * Fix round 2 (controller ruling): whether a coin may trust the person's proof branch for `key`: taken
+ * under PROOF_BRANCH_COIN_MAX_AGE_MS ago, and a launch-time read of the repo shows the same numeric
+ * id, still not a fork or template, and (a User's repo) the same owner. Never throws.
  */
-export async function branchProvenRepo(installationId: number, repoUrl: string): Promise<boolean> {
-  const gh = githubRepo(repoUrl);
-  if (!gh) return false;
-  const key = `${gh.owner}/${gh.repo}`.toLowerCase();
+async function freshBranchProof(builderId: number, key: string, now: Date, f: typeof fetch): Promise<boolean> {
   try {
     const db = sql();
-    const [r] = await db`
-      SELECT 1 FROM builder_sources s JOIN installations i ON s.builder_id IN (i.id, COALESCE(i.builder_id, i.id))
-      WHERE i.id = ${installationId} AND s.kind = 'repo' AND s.state = 'verified' AND s.proof = 'proof_branch' AND ${refKey(db)} = ${key}
-      LIMIT 1`;
-    return Boolean(r);
+    const [p] = await db<{ gh_repo_id: string; gh_owner: string | null; gh_owner_type: string | null }[]>`
+      SELECT s.gh_repo_id::text AS gh_repo_id, s.gh_owner, s.gh_owner_type FROM builder_sources s
+      WHERE s.kind = 'repo' AND s.state = 'verified' AND s.proof = 'proof_branch' AND s.gh_repo_id IS NOT NULL
+        AND s.verified_at > ${new Date(now.getTime() - PROOF_BRANCH_COIN_MAX_AGE_MS)} AND ${refKey(db)} = ${key}
+        AND COALESCE((SELECT COALESCE(i.builder_id, i.id) FROM installations i WHERE i.id = s.builder_id), s.builder_id) = ${rootSql(db, builderId)}
+      ORDER BY s.verified_at DESC LIMIT 1`;
+    if (!p) return false;
+    const read = await readRepo(key, f);
+    if (!read || String(read.id) !== p.gh_repo_id) return false;
+    return p.gh_owner_type !== 'User' || read.owner === p.gh_owner;
   } catch (err) {
-    console.error('[proof-branch] proven', err instanceof Error ? err.name : 'error');
+    console.error('[proof-branch] coin read', err instanceof Error ? err.name : 'error');
     return false;
   }
+}
+
+/** The coin gate's answer under the Bench: the proof stands, or a branch for the agent to push, or a plain line. */
+export type CoinBranchProof = { ok: true } | { proof: ProofBranch } | { line: string };
+
+/**
+ * Fix round 1 (ruling a) and round 2: under the Bench a coin's repo is proven by a proof branch, never
+ * an earnkit.txt line. A fresh proof (freshBranchProof) stands; else an open code for this repo is
+ * checked; else a code is issued (the once-a-day cap holds), or the plain line (another person holds
+ * it, or no code may be issued now).
+ */
+export async function coinBranchProof(builderId: number, repoKey: string, now: Date, o: { ghFetch?: typeof fetch } = {}): Promise<CoinBranchProof> {
+  const key = repoKey.toLowerCase();
+  const name = key.split('/')[1] ?? key;
+  const f = o.ghFetch ?? defaultReaderDeps(now, Date.now() + TIMEOUT_MS).ghFetch ?? fetch;
+  if (await freshBranchProof(builderId, key, now, f)) return { ok: true };
+  if (await checkProofBranch(builderId, now, { ghFetch: f, key })) return { ok: true };
+  const state = await proofBranchFor(builderId, key, now, { canBuild: true, reproof: true }).catch(() => null);
+  if (state?.kind === 'checking') return { proof: state.proof };
+  return { line: state?.kind === 'taken' ? takenLine(name) : cantShowLine(name) };
 }
 
 /** Once after a confirmation: the agent's note to delete the branch (null when there is nothing to tell). */
