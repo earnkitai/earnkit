@@ -1435,19 +1435,26 @@ apps/frontend/
                                weeksShipping)
     main-project.ts(+test)     v2.13 T2: the one project (main_project_key): mainProjectOf, setMainProject,
                                benchConfirmedSql (repo key needs a confirmed repo proof), CONFIRMING_WINDOW_MS
-                               (1 h fast refresh), PROOF_NOTE
+                               (1 h fast refresh), PROOF_NOTE (names proof.repo), proofFor (the line, or the
+                               sign-in link: can't push, owner not github_user, an org, or the hour passed;
+                               SIGN_IN_OWNER_NOTE), pickMainProject (Bench-confirmed only, else null)
     week-facts.ts(+test)       v2.13 T4: WeekFacts, weekFactsFor, factChips, startedLine, upsertWeekFacts,
                                weeklyFactsStep (Mondays from 15:00 UTC)
     update-text.ts(+test)      v2.13 T5: checkUpdate (280 characters, no @, secrets, own links only), notes
-    updates.ts(+test)          v2.13 T5: postUpdate, hideUpdate, setUpdates, ownLinks (tell update / updates)
+    updates.ts(+test)          v2.13 T5: postUpdate, hideUpdate, setUpdates, ownLinks (tell update / updates);
+                               UPDATE_POSTS_PER_DAY 20 a person (rate window updatePost:<root>)
     feed.ts(+test)             v2.13 T6: pointsOf, feedRankStep (daily, feedRank:<day>), rankFeed, feedWeeks,
                                carouselCards, setFeedFlag (pin/hide)
-    bench-rank.ts(+test)       v2.13 T7: chainPools, rankLines (Top P% and per-chain lines; rank.ts has benchRank,
+    bench-rank.ts(+test)       v2.13 T7: benchPool (listed ranked + benchConfirmedSql), chainPools, rankLines (Top P% and per-chain lines; rank.ts has benchRank,
                                CHAIN_CHIP_MIN, BENCH_CHAINS)
     bench-reply.ts(+test)      v2.13 T8: the reply's three headings, lines and ask kinds
     bench-find.ts(+test)       v2.13 T8/T9: benchFind, benchScore, benchAsked, benchMoveUp, coinAskBench
-    raising.ts(+test)          v2.13 T9: raisingCoin, setRaising, pillOf, raiseAsk (projects.raising_at)
-    bench-data.ts(+test)       v2.13 T10/T11: parseBenchFilter, benchRows, profile and project tab data, logCards
+    raising.ts(+test)          v2.13 T9: raisingCoin, setRaising, pillOf, raiseAsk (projects.raising_at); all off
+                               unless EARNKIT_RAISING (builder-score-flag.ts raisingEnabled)
+    bench-data.ts(+test)       v2.13 T10/T11: parseBenchFilter, benchRows (safe names, pill in the same read),
+                               profile and project tab data, logCards
+    v213-final-fix.test.ts     v2.13 final fix wave: private names, lazy pick, proof repo and sign-in, the
+                               Bench gate, the update limit, EARNKIT_RAISING off and on
     llms/{v212,v213}.txt       v2.13: the two /llms.txt bodies (flag off / on)
     v213-journey.test.ts       v2.13 T16: acceptance steps 1 to 7 (the runbook) on fakes in its own database,
                                plus Review Focus 3 (a Confirming claimant of the same repo) and 4 (flag off);
@@ -1759,7 +1766,7 @@ chain only). `OPERATOR_PRIVATE_KEY` (fallback propose/execute, refund) and `GUAR
 (fallback veto) are local only, never on Railway.
 
 v2.13 changed entry points: `tools.ts` `list_programs`/find branch to `benchFind` and `tell` takes `update`,
-`updates` and `coin { raising }` under `EARNKIT_BENCH` (`moveUpAnswer` goes to `benchMoveUp`);
+`updates` under `EARNKIT_BENCH` and `coin { raising }` under `EARNKIT_RAISING` too (`moveUpAnswer` goes to `benchMoveUp`);
 `builder-score.ts runScoreSteps` gains `weekly` and `feed` steps; `cron.ts runCron` skips the bonus steps
 under the flag; `bonus-rounds.ts bonusOn` is false under it; `policy-constants.ts EARNKIT_SPLITS_BPS` holds
 both fee splits; `app/llms.txt/route.ts` replaces `public/llms.txt`; `schema.sql` adds

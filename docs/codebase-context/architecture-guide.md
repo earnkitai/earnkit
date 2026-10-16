@@ -5023,7 +5023,9 @@ by the builder's own agent, public filters for the capital side, and an optional
 - **2a, a project.** `find` takes `identity.project` (one; an older agent's `projects[]` keeps its first
   entry). The reply (`bench-reply.ts`, `bench-find.ts benchFind`) has three parts: "Where you stand",
   "Ways to get funded", "How to move up". The agent commits the proof line in the same turn
-  (`main-project.ts PROOF_NOTE`), or the reply carries the sign-in link when it cannot push. The server
+  (`main-project.ts PROOF_NOTE`; `proof.repo` names the exact owner/repo the line goes to), or the
+  reply carries the sign-in link when it cannot push, or when a pushed line can't confirm the repo
+  (final fix I3, see "One project and its proof"). The server
   writes the first ship log entry "Started tracking <name>." (`week-facts.ts startedLine`).
 - **2b, no project.** The reply leads with ideas the builder can earn from (`ideasLine`) and the one yes
   builds a starter that is the project (v2.11 flow).
@@ -5039,10 +5041,26 @@ by the builder's own agent, public filters for the capital side, and an optional
 
 - `builder_profiles.main_project_key` (`main-project.ts mainProjectOf`, `setMainProject`). A later
   project from the same builder is identity only; it is not shown and not scored.
+- **The lazy pick (B2, final fix I2).** `pickMainProject` (run by every rescore under the flag) fills
+  an empty `main_project_key` only with a project the Bench counts as confirmed (`benchConfirmedSql`),
+  most people first, then newest. With none, it stays null, so the project the agent names next
+  (`identity.project`) is the one.
+- **When the line can't confirm (final fix I3).** `proofLineLogin` names the owner only when
+  `installations.github_user` is the repo owner and GitHub says the owner is a User. So `proofFor` gives
+  an agent that can push the GitHub sign-in link (`createVerifyLink`, purpose `claim`,
+  `SIGN_IN_OWNER_NOTE`) instead of the line when `github_user` is not the owner (a reported login that
+  differs, or none), the owner is an Organization (`githubUser`, cached a day), or the line was first
+  issued over `CONFIRMING_WINDOW_MS` ago without a confirm. A claim sign-in proves the login; discovery
+  then verifies repos that login owns, or an org repo it is a top contributor of (`repoOwned`). With
+  sign-in off (`GITHUB_OAUTH_*` unset) the line stays the way. The reply says "a minute or two" only
+  inside that hour (`confirmingFast`); outside it, `confirmingSlowLine` ("I check again every day").
 - **Confirmed gate (B2).** Under the flag, for an owner/repo key the Bench, the weekly rank gate and the
   ship log need a verified repo source with a confirmed proof on that ref (`benchConfirmedSql`,
   `confirmedSrc`); a coin or entry naming an unproven repo does not count. Keys that are not repos
-  (hosted slug, site only) use `builder_projects.confirmed`. Fail strict.
+  (hosted slug, site only) use `builder_projects.confirmed`. Fail strict. Final fix M1: the Bench
+  rows (`bench-data.ts benchRows`), the chain pools (`bench-rank.ts benchPool`, `rankLines`) and the
+  feed (`feed.ts feedRows`) read `benchConfirmedSql` in their joins, so a project that stops being
+  confirmed leaves them at once, not at the next rescore of `builder_live.ranked`.
 - **Fast confirming (B4).** For one hour after the proof line is issued (`CONFIRMING_WINDOW_MS`) a reply
   may refresh the check once a minute (`CONFIRMING_REFRESH_MS`). After that the daily discovery gate
   and the cron's proof check apply, so a builder who never confirms costs nothing.
@@ -5076,7 +5094,8 @@ feeds `shipped_code`. The X photo refreshes at sign-in only; `Avatar` falls back
 
 - `tell update { text }` (`updates.ts postUpdate`), `update { hide: "YYYY-MM-DD" }` (`hideUpdate`),
   `updates { on }` (`setUpdates`). One row per project per ISO week; a second post in the week replaces
-  the text. Hidden updates leave the profile and the feed; their facts still count.
+  the text. At most `UPDATE_POSTS_PER_DAY` 20 posts a person a day (`hit('updatePost:<root>')`, final
+  fix M2); then a plain agent note. Hidden updates leave the profile and the feed; their facts still count.
 - **The text rule (`update-text.ts checkUpdate`, `UPDATE_MAX` 280).** One paragraph. No `@` mentions, no
   run of 7 or more digits, no key, token, seed or address (checked after normalizing, so combining
   marks and mixed scripts do not hide one), and the shared banned-word checks. **Own links** only to a
@@ -5107,6 +5126,15 @@ contract, an EarnKit deploy, a launched coin or a program entry naming it. "Perc
 
 ### Raising
 
+**Its own switch (final fix, controller ruling): `EARNKIT_RAISING=on`** (`builder-score-flag.ts
+raisingEnabled` = `benchEnabled()` and `EARNKIT_RAISING === 'on'`; off by default, cleared by
+`fixtures/test-guard.ts`). Off under the Bench: `pillOf` is null (no pill on the profile, the Bench, the
+card, the landing; no Raising chip on update cards), `raiseAsk` and `setRaising` do nothing, coin moments
+say v2.12.1's coin line (`coinLine`) and a coin yes does not set `raising_at`, the "Raising" filter chip
+is hidden on `/bench` and the landing (`?raising=1` is ignored, `parseBenchFilter`), tell's `coin` is
+v2.12.2's (no `{ raising }`, `TELL_DESCRIPTION_BENCH_NO_RAISING`), and `/llms.txt` names no raising.
+On: everything below, as built. The `/bench` and landing cache keys name the flag.
+
 `raising.ts`: `raisingCoin`, `setRaising`, `pillOf`, `raiseAsk`. Moments are the v2.12.1 coin moments
 plus `streak_five` (`coin-moments.ts`, `bench-find.ts coinAskBench`). The yes runs the existing launch
 (`token-launch.ts`, `tokens.ts`) and sets `projects.raising_at`; `tell coin { raising: false }` clears it
@@ -5118,13 +5146,18 @@ you're raising with $X?"). The launch now stores `projects.coin_tx` and `coin_ch
 
 - `/bench` (`app/bench/*`, `bench-data.ts`): top 100, filters as URL parameters (`chain`, `raising`,
   `weekly` = streak of 4 or more), 16 cached variants (`unstable_cache`, revalidate 60, `PROFILE_TAG`).
+  Project names on `/bench`, `/feed` and the landing carousel are the shown names
+  (`page-data.ts safeNames` over `shownProjects`), so a private repo reads "Private project" there, as on
+  the profile and the card (final fix I1). The pill comes from the same read as the row (final fix M7,
+  `pillOf`'s rule), not one call per row.
   `/leaderboard` is a 307 to `/bench` (temporary, so nothing sticks).
 - `/feed` (`app/feed/*`).
 - The profile `app/[handle]/BenchProfileView.tsx`: photo, rank lines, score parts (`ScoreParts`), the
   52-week grid (`ShipGrid`), tabs as links (Ship log default, `?tab=project` = `ProjectTab`). The card
   (OG) shows photo, name, "Top N% on the Bench", project, streak; it never names a confirming project.
 - The landing (`HomeView`): hero "Ship every week. Get funded.", `BenchTop`, `UpdateCarousel`, grants,
-  `BenchHowItWorks`, Backed by. `/llms.txt` is a route (`lib/earnkit/llms/v213.txt` under the flag,
+  `BenchHowItWorks`, Backed by. The landing cache key names `EARNKIT_BENCH` and `EARNKIT_RAISING`
+  (`landing-cache.ts landingCacheKey`, final fix M4). `/llms.txt` is a route (`lib/earnkit/llms/v213.txt` under the flag,
   `v212.txt` off). Chain logos: `public/images/chains/{base,arc,robinhood}.svg`.
 
 
@@ -5154,7 +5187,8 @@ footer tagline becomes the hero line.
 
 ### Env vars
 
-`EARNKIT_BENCH=on` (needs `EARNKIT_BUILDER_SCORE=on`). Nothing else is new. `X_CLIENT_ID` and
+`EARNKIT_BENCH=on` (needs `EARNKIT_BUILDER_SCORE=on`). `EARNKIT_RAISING=on` (needs the Bench) turns on the
+Raising pill and asks, a separate step after the lawyer. Nothing else is new. `X_CLIENT_ID` and
 `X_CLIENT_SECRET` are set on Railway (2026-10-15; the claim redirect to x.com was verified).
 `EARNKIT_BONUS_WALLET` is no longer needed by new launches.
 
@@ -5169,12 +5203,15 @@ sticks in a browser; v2.12.1's 308s are unchanged.
 
 ### Owner go-live steps (v2.13)
 
-1. **Lawyer** approves the word "Raising", the raise line and the pill.
-2. **Brand SVGs** for Arc and Robinhood Chain at `apps/frontend/public/images/chains/arc.svg` and
+1. **Brand SVGs** for Arc and Robinhood Chain at `apps/frontend/public/images/chains/arc.svg` and
    `robinhood.svg` (monograms today).
-3. **Deploy order.** EarnKit (with both-split fee claiming, `EARNKIT_SPLITS_BPS`) goes first. Then the
-   tokens.fun split change (branch `earnkit-split-v213`, commit 12a2874; creator 40, MINI 10, Safe 50).
-   The other way round, creator fees on new coins are not claimed.
-4. **`EARNKIT_BENCH=on`** on the frontend service, then the acceptance runbook.
+2. **Deploy order (final review I4).** Deploy EarnKit with the flag off (it claims fees from both splits,
+   `EARNKIT_SPLITS_BPS`) and check production. Then set `EARNKIT_BENCH=on`. Then merge and deploy the
+   tokens.fun split change (branch `earnkit-split-v213`; creator 40, MINI 10, Safe 50) within minutes,
+   so the flag-off terms (which still promise the 20% bonus slot) never meet a 3-slot coin. tokens.fun
+   before EarnKit means creator fees on new coins wait until EarnKit deploys.
+3. The acceptance runbook, with `EARNKIT_RAISING` still off.
+4. **Lawyer** approves the word "Raising", the raise line and the pill. Then, as its own step,
+   `EARNKIT_RAISING=on` on the frontend service and redeploy (runbook section 5).
 
 Done: `X_CLIENT_ID` and `X_CLIENT_SECRET` (2026-10-15).
