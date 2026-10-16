@@ -80,6 +80,8 @@ export type StoredBuild = {
   feature?: string;
   for_whom?: string;
   repo_url?: string;
+  /** v2.13.1 O2 (B4): when the agent sent the build's live link (the build is no longer in progress). */
+  done_at?: string;
 };
 
 export async function readBuild(installationId: number): Promise<StoredBuild | null> {

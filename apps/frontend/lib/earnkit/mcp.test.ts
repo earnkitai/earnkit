@@ -818,3 +818,26 @@ test('5.12 flag off: the registered tell input schema is byte for byte the one b
     else process.env.EARNKIT_BUILDER_SCORE = saved.score;
   }
 });
+
+test('O2.6 flag on: the Bench branch of the server instructions (under 800), no old entry-and-token flow; find names move_up, not build_offer\'s note; flag off byte for byte', async () => {
+  const off = serverInstructions(false);
+  process.env.EARNKIT_BUILDER_SCORE = 'on';
+  process.env.EARNKIT_BENCH = 'on';
+  try {
+    const on = serverInstructions(false);
+    assert.ok(on.length < 800, String(on.length));
+    assert.equal(serverInstructions(true), on);
+    assert.ok(on.startsWith('Call find first. Show show_to_builder exactly as written and follow every agent_note.\nA yes or no to the last line goes to tell move_up.\nCall score when they ask where they stand.\nNever name tools, fields or files to the builder'));
+    assert.doesNotMatch(on, /launches the token|submits the entry|since_you_last_checked|prepare until ready/);
+    for (const line of SAFETY_LINES) assert.ok(on.includes(line));
+    assert.equal((await listed({})).instructions, on);
+    assert.doesNotMatch(FIND_DESCRIPTION_BENCH, /build_offer|A yes prepares/);
+    assert.match(FIND_DESCRIPTION_BENCH, /A yes or no to the last line goes to tell move_up\./);
+    assert.ok(FIND_DESCRIPTION_BENCH.length < 800);
+  } finally {
+    delete process.env.EARNKIT_BENCH;
+    delete process.env.EARNKIT_BUILDER_SCORE;
+  }
+  assert.equal(serverInstructions(false), off);
+  assert.ok(off.includes('Yes submits the entry and launches the token'));
+});

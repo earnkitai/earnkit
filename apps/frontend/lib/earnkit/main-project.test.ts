@@ -37,13 +37,18 @@ test('2.1 the one project: identity.project wins, else the first of an old agent
   assert.equal(benchProject(undefined), null);
 });
 
-test('2.2 the project is set once: a later, different project never replaces it (R1)', dbTest, async () => {
+test('2.2 the project is set once it is confirmed; before that a different project replaces it (R1, v2.13.1 O2 B6)', dbTest, async () => {
   const id = await person();
   const a = await setMainProject(id, { name: 'A', what: null, repo: `maya${RUN}/a`, live_url: null, package: null, contracts: [] });
   assert.deepEqual(a, { key: `maya${RUN}/a`, set: true });
   const b = await setMainProject(id, { name: 'B', what: null, repo: `maya${RUN}/b`, live_url: null, package: null, contracts: [] });
-  assert.deepEqual(b, { key: `maya${RUN}/a`, set: false });
-  assert.equal(await mainProjectOf(id), `maya${RUN}/a`);
+  assert.deepEqual(b, { key: `maya${RUN}/b`, set: true }, 'not confirmed: replaced');
+  assert.deepEqual(await setMainProject(id, { name: 'B', what: null, repo: `maya${RUN}/b`, live_url: null, package: null, contracts: [] }), { key: `maya${RUN}/b`, set: false });
+  await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped) VALUES (${id}, ${`maya${RUN}/b`}, 'B', 'app', true, true)`;
+  await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proof, state, proposed_by, verified_at) VALUES (${id}, 'repo', ${`maya${RUN}/b`}, ${`maya${RUN}/b`}, 'proof_line', 'verified', 'agent', now())`;
+  const c = await setMainProject(id, { name: 'C', what: null, repo: `maya${RUN}/c`, live_url: null, package: null, contracts: [] });
+  assert.deepEqual(c, { key: `maya${RUN}/b`, set: false }, 'confirmed: set once');
+  assert.equal(await mainProjectOf(id), `maya${RUN}/b`);
 });
 
 // Preflight F17: through the real find (tools.ts list_programs), an old agent's two projects: only
@@ -65,14 +70,11 @@ test('2.3 under the flag find records the one project: its sources only, propose
   assert.equal(r.proof?.push, `git push origin HEAD:refs/heads/${r.proof?.branch}`);
   assert.equal(r.proof?.agent_note, PROOF_BRANCH_NOTE);
   assert.equal((await sql()`SELECT github_user FROM installations WHERE id = ${id}`)[0].github_user, `maya${RUN}`);
-  // A different project sent later never replaces the one project (review focus 3).
+  // v2.13.1 O2 (B6): a different project sent later replaces the one project while it isn't confirmed.
   await tools.find({ identity: { github_login: `maya${RUN}`, project: { name: 'C', repo: `maya${RUN}/c` } } }, ctx);
-  assert.equal(await mainProjectOf(id), `maya${RUN}/a`);
-  // ...and is stored in identity only: no source proposed for it (fix round 1, item 4).
+  assert.equal(await mainProjectOf(id), `maya${RUN}/c`);
   const later = await sql()<{ ref: string }[]>`SELECT ref FROM builder_sources WHERE builder_id = ${id} ORDER BY ref`;
-  assert.deepEqual(later.map((x) => x.ref), ['https://a.example.com', `maya${RUN}/a`]);
-  const [{ identity: stored }] = await sql()<{ identity: { projects: { repo: string | null }[] } }[]>`SELECT identity FROM builder_profiles WHERE builder_id = ${id}`;
-  assert.ok(stored.projects.some((x) => x.repo === `maya${RUN}/c`), 'kept in identity');
+  assert.ok(later.some((x) => x.ref === `maya${RUN}/c`), 'the new one project is proposed');
 });
 
 test('2.4 the proof line (flag off only; none under the flag): issued for an unconfirmed repo, recorded, github_user filled with the owner; none once confirmed', dbTest, async () => {

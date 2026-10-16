@@ -53,10 +53,35 @@ function starterOf(c: Card, starters: Record<string, Starter>, now: Date): Start
   const id = c.fresh_build?.starter;
   if (!id || !Object.hasOwn(starters, id)) return undefined;
   const s = starters[id];
-  if (!s.tested_at) return undefined;
-  const days = Math.floor((now.getTime() - new Date(`${s.tested_at}T00:00:00Z`).getTime()) / DAY_MS);
-  return days <= STARTER_TEST_MAX_AGE_DAYS ? s : undefined;
+  return tested(s, now) ? s : undefined;
 }
+/** The starter's test passed within the last STARTER_TEST_MAX_AGE_DAYS days. Pure. */
+function tested(s: Starter, now: Date): boolean {
+  if (!s.tested_at) return false;
+  const days = Math.floor((now.getTime() - new Date(`${s.tested_at}T00:00:00Z`).getTime()) / DAY_MS);
+  return days <= STARTER_TEST_MAX_AGE_DAYS;
+}
+
+/**
+ * v2.13.1 O2 (B1): the build a builder with no project is offered when no open program qualifies for a
+ * fresh build. Its program_id at prepare is this reserved id (no program file is named it): the yes
+ * builds, deploys, hosts and sets the one project, and enters no program. Only under EARNKIT_BENCH.
+ */
+export const BENCH_BUILD_ID = 'earnkit-bench';
+
+/**
+ * v2.13.1 O2 (B1): the starter for a build with no program: tested within the last 30 days, on a chain
+ * EarnKit deploys to now, with hosting on (or a starter whose site can go on GitHub Pages). The first by
+ * id, or undefined (fail closed). Pure.
+ */
+export function benchStarter(now: Date, o: { deployOn: (c: StarterChain) => boolean; hostOn: boolean; starters?: Record<string, Starter> }): Starter | undefined {
+  return Object.values(o.starters ?? STARTERS)
+    .filter((s) => tested(s, now) && o.deployOn(s.chain) && (o.hostOn || s.pages_fallback))
+    .sort((a, b) => a.id.localeCompare(b.id))[0];
+}
+
+/** v2.13.1 O2 (B1): the starter's offer with no chain, for the build with no program ("a tip jar"). Pure. */
+export const benchOffer = (s: Starter) => s.offer.replace(new RegExp(` on ${CHAIN_NAMES[s.chain]}$`), '');
 
 /**
  * v2.11 spec 1: the one program a builder with no fitting repo can build for now, with its starter,

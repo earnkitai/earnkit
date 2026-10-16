@@ -1438,7 +1438,9 @@ apps/frontend/
                                (1 h fast refresh), PROOF_NOTE (names proof.repo), proofFor (the line, or the
                                sign-in link: can't push, owner not github_user, an org, or the hour passed;
                                SIGN_IN_OWNER_NOTE; v2.13.1: null under the flag), pickMainProject
-                               (Bench-confirmed only, else null)
+                               (Bench-confirmed only, else null); v2.13.1 O2: setMainProject replaces an
+                               unconfirmed one (old key's open proof code cleared), dropMainProject (tell
+                               repo_facts not_mine on the unconfirmed one project)
     proof-branch.ts            v2.13.1 O1: the proof branch (table proof_branches: sha256 + seed, code =
                                HMAC(secret, seed)): proofBranchFor (open code, else one a day per person, coding
                                agents only; failed / needs_agent / taken), checkProofBranch (once a minute per
@@ -1447,7 +1449,9 @@ apps/frontend/
                                heldByOther (group roots; discovery asks it too), coinBranchProof (the token
                                gate under the Bench: a proof under 30 days whose repo id still reads the same,
                                else a fresh branch, never a line), branchToRemove, proofBranchStep (cron,
-                               deadline, 7-day cleanup); tests: v2131-proof-branch.test.ts
+                               deadline, 7-day cleanup); v2.13.1 O2: coinBranchProof passes a Bench-confirmed
+                               main project with any other confirmed proof; tests: v2131-proof-branch.test.ts,
+                               v2131-onboarding.test.ts (O2: B1, B2, B4, B6, page link, last line, coin)
     week-facts.ts(+test)       v2.13 T4: WeekFacts, weekFactsFor, factChips, startedLine, upsertWeekFacts,
                                weeklyFactsStep (Mondays from 15:00 UTC)
     update-text.ts(+test)      v2.13 T5: checkUpdate (280 characters, no @, secrets, own links only), notes

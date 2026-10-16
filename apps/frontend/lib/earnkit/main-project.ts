@@ -43,17 +43,49 @@ export async function mainProjectOf(builderId: number, db: Db = sql()): Promise<
 }
 
 /**
- * Set once (plan B2): a different project later is stored in identity only (find proposes no source
- * for it). `set`: this call wrote it; `key` is the one project's key either way.
+ * The one project. v2.13.1 O2 (B6): it can change until it is Bench-confirmed: a different project the
+ * agent names replaces an unconfirmed one (and the old key's open proof code is cleared, so the new
+ * key may get one); once confirmed it is set once (plan B2), and a different project later is stored in
+ * identity only. `set`: this call wrote it; `key` is the one project's key either way.
  */
 export async function setMainProject(builderId: number, p: IdentityProject): Promise<{ key: string; set: boolean }> {
   const key = projectKeyOf(p);
-  const [r] = await sql()<{ key: string; was: string | null }[]>`
-    WITH old AS (SELECT main_project_key AS was FROM builder_profiles WHERE builder_id = ${builderId} FOR UPDATE)
-    UPDATE builder_profiles SET main_project_key = COALESCE(main_project_key, ${key}), updated_at = now()
-    FROM old WHERE builder_id = ${builderId}
-    RETURNING main_project_key AS key, old.was`;
-  return r ? { key: r.key, set: r.was === null } : { key, set: false };
+  return sql().begin(async (tx) => {
+    const [old] = await tx<{ was: string | null }[]>`SELECT main_project_key AS was FROM builder_profiles WHERE builder_id = ${builderId} FOR UPDATE`;
+    if (!old) return { key, set: false };
+    if (old.was !== null && (old.was.toLowerCase() === key.toLowerCase() || (await confirmedIn(tx, builderId)))) return { key: old.was, set: false };
+    await tx`UPDATE builder_profiles SET main_project_key = ${key}, updated_at = now() WHERE builder_id = ${builderId}`;
+    if (old.was !== null) await clearOpenCodes(tx, builderId, old.was);
+    return { key, set: true };
+  });
+}
+
+/** Whether the person's one project is Bench-confirmed (mainConfirmed, on a transaction). */
+const confirmedIn = async (db: Db, builderId: number) =>
+  Boolean(
+    (
+      await db`
+    SELECT 1 FROM builder_profiles p JOIN builder_projects b ON b.builder_id = p.builder_id AND lower(b.project_key) = lower(p.main_project_key)
+    WHERE p.builder_id = ${builderId} AND ${benchConfirmedSql(db)}`
+    )[0],
+  );
+/** v2.13.1 O2 (B6): the old key's unused proof codes go with it. */
+const clearOpenCodes = (db: Db, builderId: number, key: string) =>
+  db`DELETE FROM proof_branches WHERE builder_id = ${builderId} AND repo_key = ${key.toLowerCase()} AND used_at IS NULL`;
+
+/**
+ * v2.13.1 O2 (B6): the builder said `key` is not theirs (tell repo_facts not_mine). When it is the one
+ * project and not Bench-confirmed, it is cleared (with its open proof code), so the next project the
+ * agent names is the one. True when cleared.
+ */
+export async function dropMainProject(builderId: number, key: string): Promise<boolean> {
+  return sql().begin(async (tx) => {
+    const [old] = await tx<{ was: string | null }[]>`SELECT main_project_key AS was FROM builder_profiles WHERE builder_id = ${builderId} FOR UPDATE`;
+    if (!old?.was || old.was.toLowerCase() !== key.toLowerCase() || (await confirmedIn(tx, builderId))) return false;
+    await tx`UPDATE builder_profiles SET main_project_key = NULL, updated_at = now() WHERE builder_id = ${builderId}`;
+    await clearOpenCodes(tx, builderId, old.was);
+    return true;
+  });
 }
 
 /** Whether the one project is a confirmed project of the person (its proof was read). */

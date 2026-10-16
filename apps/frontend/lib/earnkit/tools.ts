@@ -41,7 +41,7 @@ import { repoKey, repoKey as saidKeyOf } from './answer-bank';
 import { outcomeQuestion, outcomeToAsk } from './outcomes';
 import { wonSource } from './stats';
 import { EMAIL_SHARED_NOTE, EMAIL_SIGN_IN, WHICH_EMAIL, askWeeklyEmail, cleanEmail, entryEmail, saveWeeklyEmail } from './digest';
-import { TellInput, emptyMemory, hiddenIds, hiddenPrograms, memoryKey, readMemory, tell, type BuilderMemory, type MemoryKey, type SaidRepo } from './builder-memory';
+import { TellInput, emptyMemory, hiddenIds, hiddenPrograms, memoryKey, readMemory, saidKey, tell, type BuilderMemory, type MemoryKey, type SaidRepo } from './builder-memory';
 import { fitRepoOf, newProgramOf, openCuratedRows, repoCanWin, sinceLine, sinceYouLastChecked, takeDeadlineLine, type DeadlineEntry, type FitRepo } from './alerts';
 import {
   GitHubError,
@@ -107,7 +107,9 @@ import { HOST_LINES, HOST_ZONE, UPLOAD_NOTE, hostSignInLine, issueUpload, liveLi
 import { r2Enabled } from './r2';
 import { EARNKIT_ORGS } from './earnkit-orgs';
 import {
+  BENCH_BUILD_ID,
   BUILD_CHAT_ONLY,
+  benchStarter,
   buildCheck,
   buildFix,
   buildKit,
@@ -144,7 +146,7 @@ import { benchEnabled, builderScoreEnabled, raisingEnabled } from './builder-sco
 import { hideUpdate, postUpdate, setUpdates } from './updates';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
-import { CONFIRMING_REFRESH_MS, REPO_KEY, confirmingFast, fillGithubUser, mainProjectOf, setMainProject } from './main-project';
+import { CONFIRMING_REFRESH_MS, REPO_KEY, confirmingFast, dropMainProject, fillGithubUser, mainProjectOf, setMainProject } from './main-project';
 import { benchAsked, benchFind, benchMoveUp } from './bench-find';
 import { setRaising } from './raising';
 import { SEND_LINK_NOTE, scoreReply } from './score-tool';
@@ -1591,7 +1593,8 @@ export const handlers = {
       const offer = r.build_offer as { program_id: string; starter_id: string; can_build: boolean } | undefined;
       return {
         ...r,
-        ...(offer && { build_offer: { program_id: offer.program_id, starter_id: offer.starter_id, agent_note: offer.can_build ? BUILD_NOTE : PLAN_NOTE } }),
+        // v2.13.1 O2: no separate note under the Bench (move_up is the one route for the yes).
+        ...(offer && { build_offer: { program_id: offer.program_id, starter_id: offer.starter_id } }),
         ...(pickup && { pick_up: { question: pickup.question, agent_note: PICKUP_NOTE } }),
         ...(walletNote && { wallet_note: walletNote }),
         ...(ask && { ask_outcome: { project_id: ask.project_id, program_id: ask.program_id, question: outcomeQuestion(ask.name, ask.program_title), agent_note: ASK_OUTCOME_NOTE } }),
@@ -2791,7 +2794,14 @@ export const KIT_NOTE =
  * Pages fallback, means null. `anyDeploy` (T9): as if deploys were on, to name the starter's chain
  * when they are off.
  */
-async function buildPick(programId: string, ctx: ToolContext, o: { anyDeploy?: boolean } = {}): Promise<FreshPick | null> {
+async function buildPick(programId: string, ctx: ToolContext, o: { anyDeploy?: boolean } = {}): Promise<Pick<FreshPick, 'starter'> | null> {
+  // v2.13.1 O2 (B1): under the Bench, the starter build with no program (bench-find.ts withNoProgram).
+  if (programId === BENCH_BUILD_ID) {
+    if (!benchEnabled()) return null;
+    const on = freshSwitches(ctx, true);
+    const starter = benchStarter(new Date(), { deployOn: o.anyDeploy ? () => true : on.deployOn, hostOn: on.hostOn, ...(on.starters && { starters: on.starters }) });
+    return starter ? { starter } : null;
+  }
   const programs = await listPrograms();
   const card = programs.find((p) => p.id === programId && !p.earnkit_campaign);
   if (!card) return null;
@@ -3179,9 +3189,12 @@ async function buildShip(programId: string, rest: Record<string, unknown>, ctx: 
     // Security fix I2: only the build's own repo, never one this call names.
     const own = stored.repo_url ? githubRepo(stored.repo_url) : null;
     const live = prep.project?.live_url ?? prep.answers?.live_url;
+    if (programId === BENCH_BUILD_ID) return { reply: await benchBuildLive(ctx, { ...stored, wallet }, own, live) };
     if (!own) return { rest };
     const ownKey = `${own.owner}/${own.repo}`.toLowerCase();
     if (live) await pagesHostedEvent(ctx, programId, ownKey, live);
+    // v2.13.1 O2 (B4): the live link is the build's last step; find no longer says "Building".
+    if (live) await saveBuild(ctx.installationId, { ...stored, done_at: new Date().toISOString() });
     return (await buildJoin(ctx, { ...stored, wallet, repo_url: stored.repo_url! }, ownKey, live, rest)) ?? { rest };
   }
   const any = await buildPick(programId, ctx, { anyDeploy: true });
@@ -3258,6 +3271,31 @@ async function buildShip(programId: string, rest: Record<string, unknown>, ctx: 
       ...(note && { agent_note: note }),
     },
   };
+}
+
+/** v2.13.1 O2 (B1): the note with the no-program build's live reply. */
+export const BENCH_BUILD_LIVE_NOTE = "Show show_to_builder as written. It enters no program; call find for where they stand. Don't show this note.";
+export const BENCH_BUILD_NOT_LIVE_NOTE =
+  "The live link doesn't load yet (or isn't the build's own site). Send project.live_url again once it loads. Don't show this to the builder.";
+
+/**
+ * v2.13.1 O2 (B1): the call after the live link for the build with no program: the live and deployed
+ * lines, nothing entered (the build is already the one project, set on its deploy). Done once the link
+ * loads (done_at): find no longer says "Building".
+ */
+async function benchBuildLive(ctx: ToolContext, b: StoredBuild & { wallet: string }, own: { owner: string; repo: string } | null, live: string | undefined): Promise<Reply> {
+  if (!own || !live) return buildRefusal(BENCH_BUILD_NOT_LIVE_NOTE);
+  const key = `${own.owner}/${own.repo}`.toLowerCase();
+  const [d] = await sql()<{ address: string; chain: DeployChainName; owner_ok: boolean | null }[]>`
+    SELECT address, chain, owner_ok FROM contract_deploys
+    WHERE installation_id = ${ctx.installationId} AND repo_key = ${key} AND status = 'deployed' AND address IS NOT NULL
+    ORDER BY id DESC LIMIT 1`;
+  if (!d) return buildRefusal(BUILD_NOT_READY);
+  await pagesHostedEvent(ctx, BENCH_BUILD_ID, key, live);
+  const liveText = await buildLiveLine(ctx, b.name!, key, live);
+  if (!liveText) return buildRefusal(BENCH_BUILD_NOT_LIVE_NOTE);
+  await saveBuild(ctx.installationId, { ...b, done_at: new Date().toISOString() });
+  return { show_to_builder: [liveText, deployedLine(b.name!, d.chain, d.address, d.owner_ok === true)].join('\n'), agent_note: BENCH_BUILD_LIVE_NOTE };
 }
 
 /**
@@ -3856,6 +3894,13 @@ export const tools = {
         if (updates) replies.push(await setUpdates(ctx.installationId, updates, now));
       }
     }
+    // v2.13.1 O2 (B6): "not mine" on the one project, while it isn't Bench-confirmed, clears it.
+    if (benchEnabled() && !ctx.sharedClient && Array.isArray(statements.repo_facts))
+      for (const f of statements.repo_facts as unknown[])
+        if (f && typeof f === 'object' && (f as { not_mine?: unknown }).not_mine === true && typeof (f as { repo?: unknown }).repo === 'string')
+          await dropMainProject(ctx.installationId, saidKey((f as { repo: string }).repo)).catch((err: unknown) =>
+            console.error('[tell] not mine', err instanceof Error ? err.name : 'error'),
+          );
     if (pickup !== undefined) replies.push((await handlers.pick_up_entries({ answer: pickup }, ctx)) as Reply);
     if (submitted) replies.push((await markSubmitted(submitted, signed_in, ctx)) as Reply);
     if (Object.keys(statements).length > 0 || replies.length === 0)
@@ -3869,7 +3914,13 @@ export const tools = {
     // T8: it is the reply's one question, last; the step up waits a reply.
     const join = builderScoreEnabled() && !ctx.sharedClient ? await askJoin(ctx.installationId) : null;
     const scored = await scoreReply(ctx, new Date(), { hold: Boolean(join), reader: ctx.readerDeps, fresh: freshSwitches(ctx, true) });
-    const reply = scored.build_offer ? { ...scored, build_offer: { ...scored.build_offer, agent_note: scored.build_offer.can_build ? BUILD_NOTE : PLAN_NOTE } } : scored;
+    // v2.13.1 O2: under the Bench, build_offer carries no note (move_up is the one route).
+    const offer = scored.build_offer;
+    const reply = offer
+      ? benchEnabled()
+        ? { ...scored, build_offer: { program_id: offer.program_id, starter_id: offer.starter_id } }
+        : { ...scored, build_offer: { ...offer, agent_note: offer.can_build ? BUILD_NOTE : PLAN_NOTE } }
+      : scored;
     if (!join) return reply;
     const { question } = join;
     return { ...reply, show_to_builder: [reply.show_to_builder, question].filter(Boolean).join('\n\n'), pick_up: { question, agent_note: PICKUP_NOTE } };

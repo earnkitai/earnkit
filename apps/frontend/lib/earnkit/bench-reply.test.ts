@@ -3,6 +3,7 @@ process.env.EARNKIT_BENCH = 'on';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  NO_OFFER_LINE, benchBuildAsk, buildingNowLine, pageLine, showsClaimLink,
   NO_PROJECT_LINE, POST_UPDATE_ASK, UPDATES_ASK, benchReply, buildAsk, cantShowLine, checkingBranchLine, chooseAsk, confirmingLine, enterAsk, goLiveAsk, onBenchLine, type BenchAsk, type BenchView,
 } from './bench-reply';
 
@@ -51,7 +52,7 @@ test('8.3 spec 2b, word for word', () => {
     'Arc pays up to $10K for payment apps. Base pays up to $5K for a live app.',
     '',
     'How to move up',
-    "Want me to build a tip jar on Arc and put it online? It takes a few minutes and you won't have to do anything.",
+    "Want me to build a tip jar on Arc and put it online? It takes a few minutes and I'll ask you one or two things.",
   ].join('\n'));
   assert.equal(NO_PROJECT_LINE, "You're not on the Bench yet. Pick something to build and you're on it today.");
 });
@@ -79,4 +80,54 @@ test('8.5 the last line asks the first that applies, in the spec\'s order', () =
   assert.equal(chooseAsk(base)?.kind, 'coin', '5. a coin moment');
   assert.equal(chooseAsk({ ...base, coin: null })?.kind, 'enter', '6. the best program');
   assert.equal(chooseAsk({ ...base, updatesOn: false, declined: ['updates:maya/recipes'] })?.kind, 'coin', 'a no keeps it away 30 days');
+});
+
+// ---- v2.13.1 O2
+
+test('O2.1 B1: "Pick something to build" only with the offer that follows; the starter build with no program; no ask, the plain line', () => {
+  const none: BenchView = { project: null, rank: null, claimed: true, handle: 'maya', claimLink: null, fund: [], ask: null };
+  assert.equal(benchReply(none), ['Where you stand', NO_OFFER_LINE].join('\n'));
+  assert.doesNotMatch(benchReply(none), /Pick something/);
+  assert.equal(benchBuildAsk('a tip jar'), "Want me to build a tip jar and put it online? You'll be on the Bench today.");
+  const offer = benchReply({ ...none, ask: { kind: 'build', project_key: null, program_id: 'earnkit-bench', line: benchBuildAsk('a tip jar') } });
+  assert.equal(offer, ['Where you stand', NO_PROJECT_LINE, '', 'How to move up', benchBuildAsk('a tip jar')].join('\n'));
+});
+
+test('O2.2 B2: the claim link shows on every reply while unclaimed, project or not', () => {
+  const link = 'https://earnkit.com/claim/abcdefghijkl';
+  const v: BenchView = { project: null, rank: null, claimed: false, handle: null, claimLink: link, fund: [], ask: null };
+  assert.equal(benchReply(v).split('\n')[2], `Claim your page with X: ${link}`);
+  assert.equal(showsClaimLink(v), true);
+  assert.equal(showsClaimLink({ ...v, claimed: true }), false);
+  assert.equal((benchReply(v).match(/https:\/\//g) ?? []).length, 1, 'the only link');
+});
+
+test('O2.3 B4: while a build is in progress the reply is only the building line (no funding, no ask)', () => {
+  const v: BenchView = {
+    project: null, rank: null, claimed: true, handle: 'maya', claimLink: null, building: 'Podcast Tips',
+    fund: [{ kind: 'idea', who: 'Arc', prize: 'up to $500', for: 'payment apps' }], ask: { kind: 'build', project_key: null, line: buildAsk('a tip jar on Arc') },
+  };
+  assert.equal(buildingNowLine('Podcast Tips'), "Building Podcast Tips. I'll be back with the live link.");
+  assert.equal(benchReply(v), ['Where you stand', buildingNowLine('Podcast Tips')].join('\n'));
+});
+
+test('O2.5 once claimed, the page link right after the stand line', () => {
+  const v: BenchView = { project: RECIPE, rank: null, claimed: true, handle: 'maya_makes', claimLink: null, page: 'https://earnkit.com/maya_makes', fund: [], ask: null };
+  assert.deepEqual(benchReply(v).split('\n').slice(1, 3), [onBenchLine('Recipe planner', null, 6), 'Your page: https://earnkit.com/maya_makes']);
+  assert.equal(pageLine('https://earnkit.com/x'), 'Your page: https://earnkit.com/x');
+  assert.match(benchReply({ ...v, project: { ...RECIPE, confirmed: false }, branch: 'checking' }), /^Your page: https:\/\/earnkit\.com\/maya_makes$/m);
+  assert.match(benchReply({ ...v, project: null }), /^Your page: https:\/\/earnkit\.com\/maya_makes$/m);
+});
+
+test('O2.8 honest build copy: never "you won\'t have to do anything"', () => {
+  for (const line of [buildAsk('a tip jar on Arc'), goLiveAsk('Recipe planner'), benchBuildAsk('a tip jar')]) assert.doesNotMatch(line, /won't have to do anything/);
+  assert.equal(buildAsk('a tip jar on Arc'), "Want me to build a tip jar on Arc and put it online? It takes a few minutes and I'll ask you one or two things.");
+});
+
+test('O2.9 a project being checked is asked the next Bench step (the updates yes), never a grant last', () => {
+  const base = { canHost: false, updatesOn: false, postedThisWeek: false, scheduled: false, coin: null, build: null, enter: null, declined: [] as string[] };
+  const p = { ...RECIPE, confirmed: false };
+  assert.equal(chooseAsk({ ...base, project: p }), null, 'not joining (no proof under way): nothing');
+  assert.deepEqual(chooseAsk({ ...base, project: p, joining: true }), { kind: 'updates', project_key: 'maya/recipes', line: UPDATES_ASK });
+  assert.equal(chooseAsk({ ...base, project: p, joining: true, updatesOn: true }), null, 'post_update waits for confirmation');
 });

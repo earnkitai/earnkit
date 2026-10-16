@@ -139,7 +139,7 @@ export const FIND_DESCRIPTION_SCORE = findDescription(
  */
 export const FIND_DESCRIPTION_BENCH =
   'Where the builder stands and how to get funded. Pass identity.project: the project in this folder (name and what from the README, repo from git remote, live_url), one, never a list; never ask. ' +
-  'Follow every agent_note. A yes prepares lead.program_id. build_offer: follow its agent_note. program_id: one program and its guide. ' +
+  'Follow every agent_note. A yes or no to the last line goes to tell move_up. program_id: one program and its guide. ' +
   SAFETY_TEXT;
 
 /** v2.13: find's identity field under the flag: the one project, never a list. */
@@ -241,7 +241,19 @@ const deployerSignatureDescription = (campaignOpen: boolean) =>
  * characters with the safety lines; T7's token sentence carried forward (Pre-flight P21). v2.8
  * Ruling 23: the campaign sentence only while an EarnKit campaign is open. Pure.
  */
+/**
+ * v2.13.1 O2 (EARNKIT_BENCH on): the Bench's flow, not the v2.10 entry-and-token one (the agent must
+ * never read a yes to "post updates" or "build a tip jar" as a token launch). Under 800 characters.
+ */
+export const BENCH_INSTRUCTION_LINES = [
+  'Call find first. Show show_to_builder exactly as written and follow every agent_note.',
+  'A yes or no to the last line goes to tell move_up.',
+  'Call score when they ask where they stand.',
+  'Never name tools, fields or files to the builder, or invent personal details.',
+];
+
 export function serverInstructions(campaignOpen: boolean) {
+  if (benchEnabled()) return [...BENCH_INSTRUCTION_LINES, ...SAFETY_LINES].join('\n');
   return [
     // v2.12 spec 7: the score sentence only while the score tool is listed; the first line is
     // shortened then (as find's description was) so the instructions stay under 800 characters.

@@ -5033,8 +5033,20 @@ by the builder's own agent, public filters for the capital side, and an optional
   under 30 days whose repo still reads the same numeric id, owner and not-a-fork, else a fresh branch. The v2.13 proof line and sign-in
   link (`main-project.ts proofFor`) now run only with the flag off. The server
   writes the first ship log entry "Started tracking <name>." (`week-facts.ts startedLine`).
-- **2b, no project.** The reply leads with ideas the builder can earn from (`ideasLine`) and the one yes
-  builds a starter that is the project (v2.11 flow).
+- **2b, no project.** The reply leads with ideas the builder can earn from (`ideasLine`; v2.13.1 O2: never a
+  program that needs a live product or a repo) and the one yes builds a starter that is the project (v2.11
+  flow). v2.13.1 O2 (B1): with no program to build for, the starter build with no program
+  (`fresh-build.ts BENCH_BUILD_ID`, `benchStarter`; "Want me to build a tip jar and put it online? You'll be on
+  the Bench today."): the yes builds, deploys, hosts and sets the one project, entering nothing
+  (`tools.ts benchBuildLive`). With nothing to build: "Tell me what you'd like to build...". While a build is
+  in progress (`installations.build`, under 24 h, no `done_at`) the reply is only "Building <name>. I'll be
+  back with the live link." (B4).
+- **v2.13.1 O2 reply rules.** The claim link on every reply while unclaimed (B2); once claimed, "Your page:
+  https://earnkit.com/<handle>" after the stand line; the one project can change until Bench-confirmed (B6);
+  the open-all-year program only when it fits the project's chain (or any chain; a live product only when
+  live); a project whose proof branch is being checked is asked the updates yes; build_offer has no note
+  under the flag; the server instructions have a Bench branch (`mcp.ts BENCH_INSTRUCTION_LINES`); any
+  Bench-confirmed main project passes the coin gate with no line.
 - **The weekly update.** One yes (`builder_profiles.updates_on_at`), then the agent's weekly task
   (`schedule_weekly_update` replaces `schedule_daily_check`) calls `tell update { text }`.
 - **Raise.** Optional, through a tokens.fun coin (`raising.ts`).

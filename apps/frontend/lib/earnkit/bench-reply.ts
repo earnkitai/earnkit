@@ -22,11 +22,24 @@ export type BenchView = {
   /** Final fix I3: not confirmed and outside the hour of fast checks (main-project confirmingFast): no "a minute or two". */
   slow?: boolean;
   fund: FundLine[]; ask: BenchAsk | null;
+  /**
+   * v2.13.1 O2 (B4): a build is in progress for this person: the stand line is only "Building <name>. I'll
+   * be back with the live link." (no ways to get funded, no ask).
+   */
+  building?: string | null;
+  /** v2.13.1 O2: the claimed person's page, a full https URL ("Your page: ..." after the stand line). */
+  page?: string | null;
   /** Money already on its way (v2.12.1 `due`: a deadline, an entry waiting on the builder's own submission). */
   due?: string[];
 };
 
 export const NO_PROJECT_LINE = "You're not on the Bench yet. Pick something to build and you're on it today.";
+/** v2.13.1 O2 (B1): no project and no build to offer: never "Pick something to build" without the offer. */
+export const NO_OFFER_LINE = "You're not on the Bench yet. Tell me what you'd like to build and I'll help you start.";
+/** v2.13.1 O2 (B4): a build is in progress: the whole stand part, no ask. */
+export const buildingNowLine = (name: string) => `Building ${name}. I'll be back with the live link.`;
+/** v2.13.1 O2: once claimed, the page link after the stand line. */
+export const pageLine = (url: string) => `Your page: ${url}`;
 export const confirmingLine = (name: string) => `${name} joins the Bench as soon as I've confirmed it's yours (a minute or two).`;
 /** Final fix I3: outside the hour of fast checks, no time is promised. */
 export const confirmingSlowLine = (name: string) => `${name} joins the Bench once I've confirmed it's yours. I check again every day.`;
@@ -53,8 +66,11 @@ export const ideasLine = (ideas: { who: string; prize: string; for: string }[]) 
 export const rollingFundLine = (title: string, prize: string) => `${title} pays ${prize}; it's open all year.`;
 export const UPDATES_ASK = 'Want me to post what you ship here every week? It keeps your streak going on the Bench.';
 export const POST_UPDATE_ASK = "Want me to post this week's update?";
-export const buildAsk = (offer: string) => `Want me to build ${offer} and put it online? It takes a few minutes and you won't have to do anything.`;
-export const goLiveAsk = (name: string) => `Want me to put ${name} online? It takes a few minutes and you won't have to do anything.`;
+/** v2.13.1 O2 (honest build copy): the build then asks a twist and a wallet, so never "you won't have to do anything". */
+export const buildAsk = (offer: string) => `Want me to build ${offer} and put it online? It takes a few minutes and I'll ask you one or two things.`;
+/** v2.13.1 O2 (B1): the starter build with no program attached ("a tip jar", no chain). */
+export const benchBuildAsk = (offer: string) => `Want me to build ${offer} and put it online? You'll be on the Bench today.`;
+export const goLiveAsk = (name: string) => `Want me to put ${name} online? It takes a few minutes.`;
 export const enterAsk = (title: string) => `Want me to prepare an entry for ${title}?`;
 /** The key a no keeps an ask away under (standing_seen.declined, 30 days). Pure. */
 export const benchStepKey = (kind: BenchAskKind, key: string | null) => `${kind}:${key ?? '*'}`;
@@ -63,25 +79,30 @@ export const benchStepKey = (kind: BenchAskKind, key: string | null) => `${kind}
  * spec "The last line: one question, in this order": 1. no project: the build; 2. not live and
  * EarnKit can put it online; 3. confirmed, posting not on; 4. posting on, nothing posted this week
  * and no scheduled task; 5. a coin moment; 6. the best program's entry. A no keeps that ask away
- * for 30 days (`declined`, benchStepKey). Pure.
+ * for 30 days (`declined`, benchStepKey). v2.13.1 O2: the updates yes is also the next step while the
+ * project is joining (`joining`: its proof branch is being checked), so a first reply ends on a question. Pure.
  */
 export function chooseAsk(o: {
   project: BenchProject | null; canHost: boolean; updatesOn: boolean; postedThisWeek: boolean; scheduled: boolean;
-  coin: BenchAsk | null; build: BenchAsk | null; enter: BenchAsk | null; declined: string[];
+  coin: BenchAsk | null; build: BenchAsk | null; enter: BenchAsk | null; declined: string[]; joining?: boolean;
 }): BenchAsk | null {
   const p = o.project;
   if (!p) return o.build;
   const off = (k: BenchAskKind) => o.declined.includes(benchStepKey(k, p.key));
   if (!p.live && o.canHost && !off('go_live')) return { kind: 'go_live', project_key: p.key, line: goLiveAsk(p.name) };
-  if (p.confirmed && !o.updatesOn && !off('updates')) return { kind: 'updates', project_key: p.key, line: UPDATES_ASK };
+  if ((p.confirmed || o.joining) && !o.updatesOn && !off('updates')) return { kind: 'updates', project_key: p.key, line: UPDATES_ASK };
   if (p.confirmed && o.updatesOn && !o.postedThisWeek && !o.scheduled && !off('post_update')) return { kind: 'post_update', project_key: p.key, line: POST_UPDATE_ASK };
   if (o.coin) return o.coin;
   return o.enter && !off('enter') ? o.enter : null;
 }
 
 function standLines(v: BenchView): string[] {
+  const claim = !v.claimed && v.claimLink ? [`Claim your page with X: ${v.claimLink}`] : [];
+  const page = v.claimed && v.handle && v.page ? [pageLine(v.page)] : [];
+  if (v.building) return [buildingNowLine(v.building), ...claim, ...page];
   const p = v.project;
-  if (!p) return [NO_PROJECT_LINE];
+  // v2.13.1 O2 (B1, B2): "Pick something" only with the build offer that follows; the claim link either way.
+  if (!p) return [v.ask?.kind === 'build' ? NO_PROJECT_LINE : NO_OFFER_LINE, ...claim, ...page];
   if (!p.confirmed) {
     const first =
       v.branch === 'checking' ? checkingBranchLine(p.name)
@@ -89,13 +110,13 @@ function standLines(v: BenchView): string[] {
       : v.branch === 'needs_agent' ? NEEDS_AGENT_LINE
       : v.branch === 'taken' ? takenLine(p.name)
       : v.slow ? confirmingSlowLine(p.name) : confirmingLine(p.name);
-    return [first, ...(!v.claimed && v.claimLink ? [`Claim your page with X: ${v.claimLink}`] : [])];
+    return [first, ...claim, ...page];
   }
   if (!v.claimed) return [v.claimLink ? claimToJoinLine(p.name, v.claimLink) : CONFIRMED_LINE(p.name)];
-  return [onBenchLine(p.name, v.rank, p.weeks)];
+  return [onBenchLine(p.name, v.rank, p.weeks), ...page];
 }
-/** Whether the reply shows the claim link (find's `claim` field goes with it). Pure. */
-export const showsClaimLink = (v: BenchView): boolean => Boolean(v.project && !v.claimed && v.claimLink);
+/** Whether the reply shows the claim link (find's `claim` field goes with it). v2.13.1 O2 (B2): project or not. Pure. */
+export const showsClaimLink = (v: BenchView): boolean => Boolean(!v.claimed && v.claimLink);
 
 function fundLines(v: BenchView): string[] {
   const name = v.project?.name ?? '';
@@ -106,6 +127,7 @@ function fundLines(v: BenchView): string[] {
 }
 export function benchReply(v: BenchView): string {
   const parts = [[BENCH_HEADS.stand, ...standLines(v)]];
+  if (v.building) return parts[0].join('\n');
   const fund = fundLines(v);
   if (fund.length) parts.push([BENCH_HEADS.fund, ...fund]);
   if (v.ask) parts.push([BENCH_HEADS.up, v.ask.line]);

@@ -4,7 +4,7 @@ import { CONFIRMED_PROOFS } from './confirmed';
 import { sql, type Db } from './db';
 import { noteEvent } from './events';
 import { repoEverDerived } from './github-verify';
-import { REPO_KEY, mainProjectOf } from './main-project';
+import { REPO_KEY, benchConfirmedSql, mainProjectOf } from './main-project';
 import { profileChanged } from './profile-cache';
 import { setFallback } from './profiles';
 import { defaultReaderDeps, type ReaderDeps } from './source-readers';
@@ -283,6 +283,26 @@ async function freshBranchProof(builderId: number, key: string, now: Date, f: ty
   }
 }
 
+/**
+ * v2.13.1 O2 (controller ruling): `key` is the person's one project (their group root's), it is
+ * Bench-confirmed (benchConfirmedSql), and one of the person's verified repo sources for it carries a
+ * confirmed proof other than `proof_branch`. Never throws.
+ */
+async function confirmedMainOtherwise(builderId: number, key: string): Promise<boolean> {
+  try {
+    const db = sql();
+    const [r] = await db`
+      SELECT 1 FROM builder_profiles p JOIN builder_projects b ON b.builder_id = p.builder_id AND lower(b.project_key) = lower(p.main_project_key)
+      WHERE p.builder_id = ${rootSql(db, builderId)} AND lower(p.main_project_key) = ${key} AND ${benchConfirmedSql(db)}
+        AND EXISTS (SELECT 1 FROM builder_sources s WHERE s.builder_id = p.builder_id AND s.kind = 'repo' AND s.state = 'verified'
+          AND s.proof = ANY(${[...CONFIRMED_PROOFS].filter((x) => x !== 'proof_branch')}::text[]) AND ${refKey(db)} = ${key})`;
+    return Boolean(r);
+  } catch (err) {
+    console.error('[proof-branch] confirmed main', err instanceof Error ? err.name : 'error');
+    return false;
+  }
+}
+
 /** The coin gate's answer under the Bench: the proof stands, or a branch for the agent to push, or a plain line. */
 export type CoinBranchProof = { ok: true } | { proof: ProofBranch } | { line: string };
 
@@ -295,6 +315,9 @@ export type CoinBranchProof = { ok: true } | { proof: ProofBranch } | { line: st
 export async function coinBranchProof(builderId: number, repoKey: string, now: Date, o: { ghFetch?: typeof fetch } = {}): Promise<CoinBranchProof> {
   const key = repoKey.toLowerCase();
   const name = key.split('/')[1] ?? key;
+  // v2.13.1 O2 (controller ruling): the person's Bench-confirmed one project, confirmed by any proof
+  // but a proof branch, passes with no line and no GitHub read (a proof branch keeps its checks below).
+  if (await confirmedMainOtherwise(builderId, key)) return { ok: true };
   const f = o.ghFetch ?? defaultReaderDeps(now, Date.now() + TIMEOUT_MS).ghFetch ?? fetch;
   if (await freshBranchProof(builderId, key, now, f)) return { ok: true };
   if (await checkProofBranch(builderId, now, { ghFetch: f, key })) return { ok: true };
