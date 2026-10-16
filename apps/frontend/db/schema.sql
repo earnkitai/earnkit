@@ -1471,3 +1471,7 @@ CREATE INDEX IF NOT EXISTS proof_branches_open ON proof_branches (expires_at) WH
 ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS gh_repo_id bigint;
 ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS gh_owner text;
 ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS gh_owner_type text;
+-- v2.13.1 O2 fix round 1 (ruling 2): a code closed because the one project changed (B6). Its key
+-- may get a new code at once (the 5-a-day cap still holds), and the agent is told once to delete any
+-- branch it pushed. Additive.
+ALTER TABLE proof_branches ADD COLUMN IF NOT EXISTS closed_at timestamptz;

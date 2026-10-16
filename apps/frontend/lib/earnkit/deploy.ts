@@ -31,6 +31,7 @@ import { llamaPrice } from './prices';
 import { RateLimitError, enforce } from './rate-limit';
 import { proofLineOwner, repoOwnershipPasses, repoSignedIn, type OwnershipDeps } from './token-gate';
 import { markDeployed, rpcFor } from './verify';
+import { benchEnabled } from './builder-score-flag';
 
 /**
  * v2.10 item 13: EarnKit deploys the builder's own compiled contract on Arc or Base from its own
@@ -496,10 +497,14 @@ export async function deployForBuilder(
   const bad = deployRefusal(a.input);
   if (bad) return refused(bad);
   if (!isAddress(a.builderWallet, { strict: false })) return refused(DEPLOY_LINES.failed);
-  const owns = await repoOwnershipPasses(
-    { installationId: a.installationId, repoUrl: `https://github.com/${a.repoKey}`, verifiedLogin: a.shared ? a.login : undefined },
-    deps.gate,
-  );
+  // v2.13.1 O2 fix round 1 (fresh-build ruling): under the Bench a build's proof branch proves the repo (no line).
+  const branchOwner = !a.shared && benchEnabled() ? await (await import('./proof-branch')).branchProvenOwner(a.installationId, a.repoKey, now) : null;
+  const owns =
+    branchOwner !== null ||
+    (await repoOwnershipPasses(
+      { installationId: a.installationId, repoUrl: `https://github.com/${a.repoKey}`, verifiedLogin: a.shared ? a.login : undefined },
+      deps.gate,
+    ));
   if (!owns) return refused(DEPLOY_LINES.notYours);
   const repoKey = a.repoKey.toLowerCase();
   // v2.11 T9 security fix R3: off a shared client with no sign-in or App proof of the repo, the
@@ -508,7 +513,7 @@ export async function deployForBuilder(
   // builder said that login is theirs, it is a User, and it passes the host gate (30 days, 1 public
   // repo). Its caps are that login's. A sign-in or App proof keeps the v2.10 path unchanged.
   const signedIn = a.shared || (await repoSignedIn({ installationId: a.installationId, repoKey }, deps.gate));
-  const lineOwner = a.shared ? null : a.lineOwner !== undefined ? a.lineOwner : signedIn ? null : await proofLineOwner({ installationId: a.installationId, repoUrl: `https://github.com/${a.repoKey}` }, deps.gate);
+  const lineOwner = a.shared ? null : a.lineOwner !== undefined ? a.lineOwner : branchOwner ?? (signedIn ? null : await proofLineOwner({ installationId: a.installationId, repoUrl: `https://github.com/${a.repoKey}` }, deps.gate));
   const owner = a.shared || !lineOwner ? null : await provenOwnerLogin(a.installationId, repoKey, lineOwner);
   if (!signedIn && !owner) return { ...refused(DEPLOY_LINES.notYours), agent_note: OWNER_PROOF_NOTE };
   const wallet = a.builderWallet.toLowerCase();

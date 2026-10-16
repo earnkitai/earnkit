@@ -775,6 +775,15 @@ export function starterAgeWarnings(
 }
 
 /**
+ * v2.13.1 O2 (B1): the program_id the Bench's starter build with no program uses at prepare. No program
+ * file may take it (reservedIdProblem; programs:check and sync refuse it).
+ */
+export const BENCH_BUILD_ID = 'earnkit-bench';
+/** v2.13.1 O2 fix round 1 (ruling 5): a program file named with a reserved id, or null. Pure. */
+export const reservedIdProblem = (p: Pick<ProgramFile, 'id'>): string | null =>
+  p.id.toLowerCase() === BENCH_BUILD_ID ? `id: "${BENCH_BUILD_ID}" is reserved for the Bench's starter build with no program` : null;
+
+/**
  * v2.11 spec 2 (plan T5): `pnpm programs:check` checks a program's `fresh_build` against the starter
  * registry: the starter exists; it deploys on one of the program's chains (and on its
  * `needs_contract` chain, when set; an any_chain program lists none, so none fits); and its own test

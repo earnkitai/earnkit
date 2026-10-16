@@ -36,8 +36,10 @@ import { defaultReaderDeps, type ReaderDeps } from './source-readers';
 export const PROOF_BRANCH_TTL_MS = 60 * 60_000;
 /** Fix round 1: GitHub is read for a code at most this often. */
 export const PROOF_BRANCH_RECHECK_MS = 60_000;
-/** Fix round 1 (ruling b): at most one new code per person in this long, across every repo key. */
+/** Fix round 1 (ruling b): a code that expired unused blocks a new one for its key this long. */
 export const PROOF_BRANCH_ISSUE_GAP_MS = 24 * 60 * 60_000;
+/** v2.13.1 O2 fix round 1 (ruling 2): at most this many new codes per person per rolling PROOF_BRANCH_ISSUE_GAP_MS, across every key. */
+export const PROOF_BRANCH_MAX_PER_DAY = 5;
 /** Fix round 1: the cron clears used or expired codes issued longer ago than this. */
 export const PROOF_BRANCH_KEEP_MS = 7 * 24 * 60 * 60_000;
 
@@ -106,8 +108,8 @@ export async function proofBranchFor(builderId: number, key: string, now: Date, 
   return sql().begin(async (tx) => {
     // Per person: the once-a-day cap spans every key.
     await tx`SELECT pg_advisory_xact_lock(hashtext(${`proof_branch:${builderId}`}))`;
-    const [last] = await tx<{ seed: string; expires_at: Date; used_at: Date | null }[]>`
-      SELECT seed, expires_at, used_at FROM proof_branches WHERE builder_id = ${builderId} AND repo_key = ${k} ORDER BY issued_at DESC LIMIT 1`;
+    const [last] = await tx<{ seed: string; expires_at: Date; used_at: Date | null; closed_at: Date | null; issued_at: Date }[]>`
+      SELECT seed, expires_at, used_at, closed_at, issued_at FROM proof_branches WHERE builder_id = ${builderId} AND repo_key = ${k} ORDER BY issued_at DESC LIMIT 1`;
     // A used code confirmed the repo; only a coin launch's fresh proof (fix round 2) asks again.
     if (last?.used_at && !o.reproof) return null;
     if (last && !last.used_at && last.expires_at > now) {
@@ -115,9 +117,14 @@ export async function proofBranchFor(builderId: number, key: string, now: Date, 
       return code ? { kind: 'checking' as const, proof: proofOf(k, code) } : null;
     }
     if (!o.canBuild) return { kind: 'needs_agent' as const };
-    const [recent] = await tx`
-      SELECT 1 FROM proof_branches WHERE builder_id = ${builderId} AND issued_at > ${new Date(now.getTime() - PROOF_BRANCH_ISSUE_GAP_MS)} LIMIT 1`;
-    if (recent) return last && !last.used_at ? { kind: 'failed' as const } : null;
+    const dayAgo = new Date(now.getTime() - PROOF_BRANCH_ISSUE_GAP_MS);
+    // A code that expired unused (the branch never showed): no loop, the plain line for a day.
+    // O2 fix round 1 (ruling 2): a code closed because the one project changed doesn't count.
+    const failed = Boolean(last && !last.used_at && !last.closed_at);
+    if (failed && last!.issued_at > dayAgo) return { kind: 'failed' as const };
+    const [{ n }] = await tx<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM proof_branches WHERE builder_id = ${builderId} AND issued_at > ${dayAgo}`;
+    if (n >= PROOF_BRANCH_MAX_PER_DAY) return failed ? { kind: 'failed' as const } : null;
     const seed = randomBytes(16).toString('base64url');
     const code = codeOf(seed, secret)!;
     await tx`
@@ -283,23 +290,65 @@ async function freshBranchProof(builderId: number, key: string, now: Date, f: ty
   }
 }
 
+/** v2.13.1 O2 fix round 1 (revised controller ruling): proofs of control of the repo (a push or a sign-in). */
+const CONTROL_PROOFS = ['proof_line', 'github_signin'] as const;
+
 /**
- * v2.13.1 O2 (controller ruling): `key` is the person's one project (their group root's), it is
- * Bench-confirmed (benchConfirmedSql), and one of the person's verified repo sources for it carries a
- * confirmed proof other than `proof_branch`. Never throws.
+ * v2.13.1 O2 fix round 1 (revised controller ruling): `key` is the person's one project (their group
+ * root's), Bench-confirmed, with a verified repo source whose proof shows control of the repo
+ * (CONTROL_PROOFS: never repo_owner, x_match, deployer or repo_link, which discovery can derive from
+ * history); no other person holds it; and a launch-time read of the repo shows it is still exactly that
+ * key, not a fork or template, with the stored owner and numeric id where they were kept. Never throws.
  */
-async function confirmedMainOtherwise(builderId: number, key: string): Promise<boolean> {
+async function controlProvenMain(builderId: number, key: string, f: typeof fetch): Promise<boolean> {
   try {
     const db = sql();
-    const [r] = await db`
-      SELECT 1 FROM builder_profiles p JOIN builder_projects b ON b.builder_id = p.builder_id AND lower(b.project_key) = lower(p.main_project_key)
+    const [r] = await db<{ gh_repo_id: string | null; gh_owner: string | null; gh_owner_type: string | null }[]>`
+      SELECT s.gh_repo_id::text AS gh_repo_id, s.gh_owner, s.gh_owner_type
+      FROM builder_profiles p JOIN builder_projects b ON b.builder_id = p.builder_id AND lower(b.project_key) = lower(p.main_project_key)
+        JOIN builder_sources s ON s.builder_id = p.builder_id AND s.kind = 'repo' AND s.state = 'verified'
+          AND s.proof = ANY(${[...CONTROL_PROOFS]}::text[]) AND regexp_replace(lower(trim(s.ref)), '^(https?://)?(www[.])?github[.]com/', '') = ${key}
       WHERE p.builder_id = ${rootSql(db, builderId)} AND lower(p.main_project_key) = ${key} AND ${benchConfirmedSql(db)}
-        AND EXISTS (SELECT 1 FROM builder_sources s WHERE s.builder_id = p.builder_id AND s.kind = 'repo' AND s.state = 'verified'
-          AND s.proof = ANY(${[...CONFIRMED_PROOFS].filter((x) => x !== 'proof_branch')}::text[]) AND ${refKey(db)} = ${key})`;
-    return Boolean(r);
+      ORDER BY s.verified_at DESC NULLS LAST LIMIT 1`;
+    if (!r || (await heldByOther(builderId, key))) return false;
+    const read = await readRepo(key, f);
+    if (!read) return false;
+    if (r.gh_repo_id !== null && r.gh_repo_id !== String(read.id)) return false;
+    return !(r.gh_owner_type === 'User' && r.gh_owner && r.gh_owner !== read.owner);
   } catch (err) {
-    console.error('[proof-branch] confirmed main', err instanceof Error ? err.name : 'error');
+    console.error('[proof-branch] control proof', err instanceof Error ? err.name : 'error');
     return false;
+  }
+}
+
+/** v2.13.1 O2 fix round 1 (fresh-build ruling): a build's deploy trusts a proof branch taken this recently. */
+export const PROOF_BRANCH_DEPLOY_MAX_AGE_MS = 24 * 60 * 60_000;
+
+/**
+ * v2.13.1 O2 fix round 1 (fresh-build ruling): under the Bench a build's repo is proven by its proof
+ * branch, never an earnkit.txt line. The owner of `key` when the person (group root) holds a verified
+ * `proof_branch` source for exactly that key, taken under PROOF_BRANCH_DEPLOY_MAX_AGE_MS ago, on a
+ * User's repo whose owner pushed it (checkProofBranch's rule, gh_owner the key's owner), and no other
+ * person holds it; else null. The deploy's own owner gate (a User, 30 days, a public repo) still runs.
+ * Never throws.
+ */
+export async function branchProvenOwner(builderId: number, key: string, now: Date): Promise<string | null> {
+  try {
+    const k = key.toLowerCase();
+    const owner = k.split('/')[0];
+    if (!REPO_KEY.test(k)) return null;
+    const db = sql();
+    const [r] = await db`
+      SELECT 1 FROM builder_sources s
+      WHERE s.kind = 'repo' AND s.state = 'verified' AND s.proof = 'proof_branch' AND ${refKey(db)} = ${k}
+        AND s.gh_owner_type = 'User' AND s.gh_owner = ${owner} AND s.verified_at > ${new Date(now.getTime() - PROOF_BRANCH_DEPLOY_MAX_AGE_MS)}
+        AND COALESCE((SELECT COALESCE(i.builder_id, i.id) FROM installations i WHERE i.id = s.builder_id), s.builder_id) = ${rootSql(db, builderId)}
+      LIMIT 1`;
+    if (!r || (await heldByOther(builderId, k))) return null;
+    return owner;
+  } catch (err) {
+    console.error('[proof-branch] deploy proof', err instanceof Error ? err.name : 'error');
+    return null;
   }
 }
 
@@ -315,10 +364,10 @@ export type CoinBranchProof = { ok: true } | { proof: ProofBranch } | { line: st
 export async function coinBranchProof(builderId: number, repoKey: string, now: Date, o: { ghFetch?: typeof fetch } = {}): Promise<CoinBranchProof> {
   const key = repoKey.toLowerCase();
   const name = key.split('/')[1] ?? key;
-  // v2.13.1 O2 (controller ruling): the person's Bench-confirmed one project, confirmed by any proof
-  // but a proof branch, passes with no line and no GitHub read (a proof branch keeps its checks below).
-  if (await confirmedMainOtherwise(builderId, key)) return { ok: true };
   const f = o.ghFetch ?? defaultReaderDeps(now, Date.now() + TIMEOUT_MS).ghFetch ?? fetch;
+  // v2.13.1 O2 fix round 1 (revised ruling): a Bench-confirmed one project proven by control (a line
+  // or a sign-in) passes with no line, after one launch-time read; a proof branch keeps its 30 days below.
+  if (await controlProvenMain(builderId, key, f)) return { ok: true };
   if (await freshBranchProof(builderId, key, now, f)) return { ok: true };
   if (await checkProofBranch(builderId, now, { ghFetch: f, key })) return { ok: true };
   const state = await proofBranchFor(builderId, key, now, { canBuild: true, reproof: true }).catch(() => null);
@@ -326,17 +375,24 @@ export async function coinBranchProof(builderId: number, repoKey: string, now: D
   return { line: state?.kind === 'taken' ? takenLine(name) : cantShowLine(name) };
 }
 
-/** Once after a confirmation: the agent's note to delete the branch (null when there is nothing to tell). */
+/** v2.13.1 O2 fix round 1 (ruling 2): a code closed because the one project changed. */
+export const closedRemoveNote = (remove: string) => `The project changed, so that check is off. If you pushed its branch, delete it now: ${remove}. Don't show this note.`;
+
+/**
+ * Once after a confirmation (or, O2 fix round 1, after a code was closed because the one project
+ * changed): the agent's note to delete the branch (null when there is nothing to tell).
+ */
 export async function branchToRemove(builderId: number, now: Date): Promise<{ remove: string; agent_note: string } | null> {
-  const [row] = await sql()<{ seed: string }[]>`
+  const [row] = await sql()<{ seed: string; used: boolean }[]>`
     UPDATE proof_branches SET told_at = ${now}
-    WHERE code_hash = (SELECT code_hash FROM proof_branches WHERE builder_id = ${builderId} AND used_at IS NOT NULL AND told_at IS NULL ORDER BY used_at DESC LIMIT 1)
+    WHERE code_hash = (SELECT code_hash FROM proof_branches WHERE builder_id = ${builderId} AND (used_at IS NOT NULL OR closed_at IS NOT NULL) AND told_at IS NULL
+        ORDER BY COALESCE(used_at, closed_at) DESC LIMIT 1)
       AND told_at IS NULL
-    RETURNING seed`;
+    RETURNING seed, used_at IS NOT NULL AS used`;
   const code = row ? codeOf(row.seed) : null;
   if (!code) return null;
   const remove = removeCommand(code);
-  return { remove, agent_note: removeNote(remove) };
+  return { remove, agent_note: row!.used ? removeNote(remove) : closedRemoveNote(remove) };
 }
 
 /**

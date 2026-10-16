@@ -101,7 +101,8 @@ import {
 } from './token-launch';
 import { RAW_CAP, canonicalBuilderUrl, cleanProject, quoted } from './untrusted-text';
 import { pagesLinkOf } from './pages-link';
-import { proveRepo, repoSignedIn, tokenLineFor, type ProvenRepo } from './token-gate';
+import { proveRepo, proveRepoByBranch, repoSignedIn, tokenLineFor, type ProvenRepo } from './token-gate';
+import { branchToRemove, checkProofBranch, proofBranchFor } from './proof-branch';
 import { READY_TO_SUBMIT, confirmDecision, confirmOffer, proofLineWaiting, signInLine, walletQuestion, NO_TOKEN_HERE, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
 import { HOST_LINES, HOST_ZONE, UPLOAD_NOTE, hostSignInLine, issueUpload, liveLine, refreshSiteExpiry } from './hosting';
 import { r2Enabled } from './r2';
@@ -1345,8 +1346,9 @@ export const handlers = {
         profiled = true;
         if (made.created || wallet) await setFallback(ctx.installationId, {});
         if (benchEnabled()) {
-          // v2.13 R1: the one project only. Set once (B2); only its sources proposed and github_user filled
-          // (B3). A different project sent later is stored in identity only.
+          // v2.13 R1: the one project only; only its sources proposed and github_user filled (B3).
+          // v2.13.1 O2 (B6): a different project replaces it until it is Bench-confirmed; after that it is
+          // set once (B2) and a different project is stored in identity only.
           const main = project ? await setMainProject(ctx.installationId, project) : null;
           const isMain = Boolean(project && main && main.key.toLowerCase() === projectKeyOf(project).toLowerCase());
           if (isMain && project?.repo) await fillGithubUser(ctx.installationId, project.repo, identity.github_login);
@@ -2898,18 +2900,54 @@ async function buildTwist(b: z.infer<typeof BuildTwist>, ctx: ToolContext) {
   const remember = given || (stored.wallet && stored.wallet === wallet ? wallet : undefined);
   if (remember) await rememberWallet(ctx.installationId, remember);
   await saveBuild(ctx.installationId, next);
-  if (next.repo_url) await noteLineIssued(ctx.installationId, next.repo_url);
+  // v2.13.1 O2 fix round 1 (fresh-build ruling): under the Bench the kit carries a proof branch, never an earnkit.txt line.
+  const bench = benchEnabled();
+  if (next.repo_url && !bench) await noteLineIssued(ctx.installationId, next.repo_url);
+  const branch = bench && next.repo_url ? await buildBranch(ctx, next.repo_url) : null;
   return {
     program_id: next.program_id,
     show_to_builder: shownBefore ? '' : buildingLine(next.name!, pick.starter.what, next.for_whom!),
     build: { program_id: next.program_id, starter_id: pick.starter.id, step: 'build' },
     kit: buildKit(
-      pick.starter, next.repo_url ? tokenLineFor(ctx.installationId, next.repo_url) : null, { ...fields, wallet }, Boolean(next.repo_url),
+      pick.starter, next.repo_url && !bench ? tokenLineFor(ctx.installationId, next.repo_url) : null, { ...fields, wallet }, Boolean(next.repo_url),
       // v2.12.1 T9 (spec 3): every app built through EarnKit carries the attribution line from the start.
       await kitAttribution(ctx.installationId, pick.starter.chain),
+      ...(bench ? [{ proof: branch && 'proof' in branch ? branch.proof : null }] : []),
     ),
-    agent_note: KIT_NOTE,
+    agent_note: bench ? KIT_NOTE_BENCH : KIT_NOTE,
   };
+}
+
+/** v2.13.1 O2 fix round 1 (fresh-build ruling): the kit note under the Bench (a proof branch, no earnkit.txt). */
+export const KIT_NOTE_BENCH =
+  'Show show_to_builder as written, then build from kit (never show it to the builder), step by step in kit.order: ' +
+  'github_user to find first, then copy the starter and fill its twist slots, create the repo, commit and push at once, push the proof branch, then call prepare as kit.next says.';
+/** The build's deploy call before its proof branch showed: push it, then call again. */
+export const buildBranchNote = (push: string) =>
+  `Push the proof branch first: ${push} (in the repo's folder; a branch at the current commit, no file). Then call this again. Don't show this to the builder.`;
+export const BUILD_BRANCH_TAKEN_NOTE = "That repo is already on the Bench under another account, so EarnKit won't deploy it. Use a new repo under the builder's own account. Don't show this to the builder.";
+export const BUILD_BRANCH_WAIT_NOTE = "EarnKit can't check the repo right now, so it can't deploy. Don't deploy; tell the builder in one short line to try again later.";
+
+/** v2.13.1 O2 fix round 1: the proof branch for a build's new repo (the agent can build: it is building). */
+async function buildBranch(ctx: ToolContext, repoUrl: string): Promise<{ proof: { branch: string; push: string; remove: string } } | { note: string }> {
+  const gh = githubRepo(repoUrl);
+  if (!gh) return { note: BUILD_BRANCH_WAIT_NOTE };
+  const state = await proofBranchFor(ctx.installationId, `${gh.owner}/${gh.repo}`, new Date(), { canBuild: true }).catch(() => null);
+  if (state?.kind === 'checking') return { proof: { branch: state.proof.branch, push: state.proof.push, remove: state.proof.remove } };
+  return { note: state?.kind === 'taken' ? BUILD_BRANCH_TAKEN_NOTE : BUILD_BRANCH_WAIT_NOTE };
+}
+
+/**
+ * v2.13.1 O2 fix round 1 (fresh-build ruling): under the Bench, the build's repo proven by its proof
+ * branch (checked now, once a minute at most), else the reply that asks for it. Never a line.
+ */
+async function buildProofByBranch(ctx: ToolContext, repo: string, repoKey: string): Promise<{ proven: ProvenRepo } | { reply: Reply }> {
+  const now = new Date();
+  await checkProofBranch(ctx.installationId, now, { key: repoKey, ghFetch: ctx.proofBranchFetch ?? ctx.readerDeps?.ghFetch });
+  const proven = await proveRepoByBranch({ installationId: ctx.installationId, repoUrl: repo });
+  if (proven) return { proven };
+  const b = await buildBranch(ctx, repo);
+  return { reply: 'proof' in b ? { ...buildRefusal(buildBranchNote(b.proof.push)), proof: b.proof } : buildRefusal(b.note) };
 }
 
 // ---- v2.11 T9 (spec 4, decision 2, plan S9 to S11): deploy and host in one call, with no click ----
@@ -3194,7 +3232,7 @@ async function buildShip(programId: string, rest: Record<string, unknown>, ctx: 
     const ownKey = `${own.owner}/${own.repo}`.toLowerCase();
     if (live) await pagesHostedEvent(ctx, programId, ownKey, live);
     // v2.13.1 O2 (B4): the live link is the build's last step; find no longer says "Building".
-    if (live) await saveBuild(ctx.installationId, { ...stored, done_at: new Date().toISOString() });
+    if (live && benchEnabled()) await saveBuild(ctx.installationId, { ...stored, done_at: new Date().toISOString() });
     return (await buildJoin(ctx, { ...stored, wallet, repo_url: stored.repo_url! }, ownKey, live, rest)) ?? { rest };
   }
   const any = await buildPick(programId, ctx, { anyDeploy: true });
@@ -3219,10 +3257,17 @@ async function buildShip(programId: string, rest: Record<string, unknown>, ctx: 
     return { reply: buildRefusal(buildFix('repo_url', "the builder's own repo, never EarnKit's kit")) };
   const repo = `https://github.com/${gh.owner}/${gh.repo}`;
   const repoKey = `${gh.owner}/${gh.repo}`.toLowerCase();
-  const proven = await proveRepo({ installationId: ctx.installationId, repoUrl: repo }, ctx.deployDeps?.gate);
-  if (!proven) {
-    await noteLineIssued(ctx.installationId, repo);
-    return { reply: buildRefusal(buildProofNote(tokenLineFor(ctx.installationId, repo))) };
+  let proven: ProvenRepo | null;
+  if (benchEnabled()) {
+    const byBranch = await buildProofByBranch(ctx, repo, repoKey);
+    if ('reply' in byBranch) return byBranch;
+    proven = byBranch.proven;
+  } else {
+    proven = await proveRepo({ installationId: ctx.installationId, repoUrl: repo }, ctx.deployDeps?.gate);
+    if (!proven) {
+      await noteLineIssued(ctx.installationId, repo);
+      return { reply: buildRefusal(buildProofNote(tokenLineFor(ctx.installationId, repo))) };
+    }
   }
   // Security fix R3: with no sign-in, only the repo owner's own proven account deploys (deploy.ts checks it again).
   if (!(await repoSignedIn({ installationId: ctx.installationId, repoKey }, ctx.deployDeps?.gate)) && !(await provenOwnerLogin(ctx.installationId, repoKey, proven.lineOwner)))
@@ -3248,8 +3293,12 @@ async function buildShip(programId: string, rest: Record<string, unknown>, ctx: 
   const deployed = typeof out.address === 'string';
   // v2.13 T8 (spec "2b"): under the Bench flag the build becomes the one project (set once, plan B2),
   // once its contract is deployed. Never fails the build.
-  if (deployed && benchEnabled())
+  if (deployed && benchEnabled()) {
     await setMainProject(ctx.installationId, { name: build.name ?? repoKey.split('/')[1], what: build.description ?? null, repo: repoKey, live_url: null, package: null, contracts: [] }).catch(() => undefined);
+    // v2.13.1 O2 fix round 1 (fresh-build ruling): the branch proved it, so it is on the Bench today.
+    await (await import('./person-score')).rescorePerson(ctx.installationId, new Date()).catch(() => undefined);
+  }
+  const remove = deployed && benchEnabled() ? await branchToRemove(ctx.installationId, new Date()).catch(() => null) : null;
   // Security fix M6: a site only for a contract the builder's wallet owns.
   const owned = deployed && out.owner_ok === true;
   const hosting = owned ? await hostBlock(ctx, repo, stored.name, proven) : null;
@@ -3259,7 +3308,7 @@ async function buildShip(programId: string, rest: Record<string, unknown>, ctx: 
   const note =
     step.line === DEPLOY_PENDING
       ? BUILD_PENDING_NOTE
-      : [step.agent_note, hosting ? `${BUILD_HOLD_NOTE} ${upload ? BUILD_UPLOAD_NOTE : BUILD_PAGES_NOTE}` : deployed ? BUILD_NOT_OWNED_NOTE : null].filter(Boolean).join(' ');
+      : [step.agent_note, hosting ? `${BUILD_HOLD_NOTE} ${upload ? BUILD_UPLOAD_NOTE : BUILD_PAGES_NOTE}` : deployed ? BUILD_NOT_OWNED_NOTE : null, remove?.agent_note].filter(Boolean).join(' ');
   return {
     reply: {
       program_id: programId,
@@ -3894,13 +3943,14 @@ export const tools = {
         if (updates) replies.push(await setUpdates(ctx.installationId, updates, now));
       }
     }
-    // v2.13.1 O2 (B6): "not mine" on the one project, while it isn't Bench-confirmed, clears it.
-    if (benchEnabled() && !ctx.sharedClient && Array.isArray(statements.repo_facts))
-      for (const f of statements.repo_facts as unknown[])
-        if (f && typeof f === 'object' && (f as { not_mine?: unknown }).not_mine === true && typeof (f as { repo?: unknown }).repo === 'string')
-          await dropMainProject(ctx.installationId, saidKey((f as { repo: string }).repo)).catch((err: unknown) =>
-            console.error('[tell] not mine', err instanceof Error ? err.name : 'error'),
-          );
+    // v2.13.1 O2 (B6): "not mine" on the one project, while it isn't Bench-confirmed, clears it. Fix
+    // round 1 (minor): only for input tell_earnkit's own schema (TellInput) accepts.
+    const facts = benchEnabled() && !ctx.sharedClient && statements.repo_facts !== undefined ? TellInput.safeParse(defined({ ...statements, signed_in })) : null;
+    for (const f of facts?.success ? (facts.data.repo_facts ?? []) : [])
+      if (f.not_mine === true)
+        await dropMainProject(ctx.installationId, saidKey(f.repo)).catch((err: unknown) =>
+          console.error('[tell] not mine', err instanceof Error ? err.name : 'error'),
+        );
     if (pickup !== undefined) replies.push((await handlers.pick_up_entries({ answer: pickup }, ctx)) as Reply);
     if (submitted) replies.push((await markSubmitted(submitted, signed_in, ctx)) as Reply);
     if (Object.keys(statements).length > 0 || replies.length === 0)

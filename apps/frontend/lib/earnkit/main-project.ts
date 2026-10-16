@@ -44,8 +44,7 @@ export async function mainProjectOf(builderId: number, db: Db = sql()): Promise<
 
 /**
  * The one project. v2.13.1 O2 (B6): it can change until it is Bench-confirmed: a different project the
- * agent names replaces an unconfirmed one (and the old key's open proof code is cleared, so the new
- * key may get one); once confirmed it is set once (plan B2), and a different project later is stored in
+ * agent names replaces an unconfirmed one (and the old key's open proof code is closed, fix round 1); once confirmed it is set once (plan B2), and a different project later is stored in
  * identity only. `set`: this call wrote it; `key` is the one project's key either way.
  */
 export async function setMainProject(builderId: number, p: IdentityProject): Promise<{ key: string; set: boolean }> {
@@ -69,9 +68,14 @@ const confirmedIn = async (db: Db, builderId: number) =>
     WHERE p.builder_id = ${builderId} AND ${benchConfirmedSql(db)}`
     )[0],
   );
-/** v2.13.1 O2 (B6): the old key's unused proof codes go with it. */
+/**
+ * v2.13.1 O2 (B6), fix round 1 (ruling 2): the old key's open proof codes are closed (never deleted, so
+ * they still count toward the 5-a-day cap); the next reply tells the agent once to delete any branch it
+ * pushed (proof-branch.ts branchToRemove).
+ */
 const clearOpenCodes = (db: Db, builderId: number, key: string) =>
-  db`DELETE FROM proof_branches WHERE builder_id = ${builderId} AND repo_key = ${key.toLowerCase()} AND used_at IS NULL`;
+  db`UPDATE proof_branches SET closed_at = now(), expires_at = LEAST(expires_at, now())
+    WHERE builder_id = ${builderId} AND repo_key = ${key.toLowerCase()} AND used_at IS NULL AND closed_at IS NULL AND expires_at > now()`;
 
 /**
  * v2.13.1 O2 (B6): the builder said `key` is not theirs (tell repo_facts not_mine). When it is the one

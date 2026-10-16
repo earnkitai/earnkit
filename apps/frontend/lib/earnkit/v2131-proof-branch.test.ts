@@ -307,16 +307,19 @@ test('O1.6 expired: never verifies, the plain line, no new code within a day; af
   }),
 );
 
-test('O1.7 one code a day per person across all keys: a new main project the same day gets no code (the slow line)', dbTest, () =>
+test('O1.7 (O2 fix round 1, ruling 2) at most 5 new codes per person per rolling day across all keys: alternating between two projects 6 times gives 5 codes, then the slow line', dbTest, () =>
   withEnv(ON, async () => {
     const gh = fakeGitHub();
-    const { id } = await start(gh, `${uniq('one')}/recipes`);
-    const other = `${uniq('two')}/recipes`;
-    await sql()`UPDATE builder_profiles SET main_project_key = ${other} WHERE builder_id = ${id}`;
-    const r = await again(gh, id);
-    assert.equal(r.proof, undefined);
-    assert.equal((await rows(id)).length, 1);
-    assert.equal(r.show_to_builder.split('\n')[1], confirmingSlowLine(other.split('/')[1]), r.show_to_builder);
+    const a = `${uniq('one')}/recipes`;
+    const b = `${uniq('two')}/recipes`;
+    const { id } = await start(gh, a);
+    let last: Awaited<ReturnType<typeof find>> | null = null;
+    for (let i = 0; i < 6; i++) last = await find(id, named(i % 2 === 0 ? b : a, { agent_can_build: true }), { ...NO_MATCH, proofBranchFetch: gh.f });
+    assert.equal((await rows(id)).length, 5, 'five codes in the day');
+    assert.equal(last!.proof, undefined, 'the sixth switch gets no code');
+    const closed = await sql()`SELECT 1 FROM proof_branches WHERE builder_id = ${id} AND closed_at IS NOT NULL`;
+    assert.equal(closed.length, 5, 'every switched-away code is closed, never deleted');
+    assert.equal(last!.show_to_builder.split('\n')[1], confirmingSlowLine('Recipe planner'), last!.show_to_builder);
   }),
 );
 

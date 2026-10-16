@@ -17,7 +17,7 @@ import { EVENT_LOG_FLAG } from './events';
 import { claimThroughX } from './fixtures/claim-x';
 import { resolveHandle } from './profiles';
 import { refreshPerson, REFRESH_BUDGET_MS, rescorePerson } from './person-score';
-import { mainProjectOf } from './main-project';
+import { mainConfirmed, mainProjectOf } from './main-project';
 import { benchCardFacts, benchRows, parseBenchFilter, profileData } from './bench-data';
 import { UPDATES_ASK, buildAsk, checkingBranchLine, takenLine } from './bench-reply';
 import { NOT_CONFIRMED_NOTE, UPDATE_LINES } from './updates';
@@ -369,7 +369,7 @@ after(async () => {
 type Reply = {
   show_to_builder: string; agent_note?: string; claim?: { link: string }; proof?: { line?: string; branch?: string; remove?: string; agent_note?: string };
   move_up?: { kind: string; project_key: string | null }; build_offer?: { program_id: string }; schedule_weekly_update?: string;
-  kit?: { proof_line?: string | null }; project_id?: number;
+  kit?: { proof_line?: string | null; proof_branch?: { branch: string } }; project_id?: number;
 };
 async function newInstall(): Promise<number> {
   const token = `v213-${randomBytes(16).toString('hex')}`;
@@ -466,12 +466,18 @@ async function runStarterBuild(id: number, programId: string): Promise<void> {
     const tipjar = repo('maya2', 'tipjar', Date.now() - 2 * 60_000, null);
     const repoUrl = 'https://github.com/maya2/tipjar';
     const withRepo = await call('prepare', { program_id: programId, build: { program_id: programId, ...twist, wallet: MAYA2_WALLET, repo_url: repoUrl } }, c);
-    const line = withRepo.kit?.proof_line;
-    assert.ok(line, JSON.stringify(withRepo));
-    firstPush(tipjar, line);
+    // v2.13.1 O2 fix round 1 (fresh-build ruling): under the Bench the kit carries a proof branch, never a line.
+    assert.equal(withRepo.kit?.proof_line, null, JSON.stringify(withRepo));
+    const branch = withRepo.kit?.proof_branch?.branch;
+    assert.match(branch ?? '', /^earnkit-[a-z2-7]{12}$/, JSON.stringify(withRepo));
+    firstPush(tipjar, '');
+    pushBranch(tipjar, branch!);
     const deploy = { chain: 'arc', bytecode: ARC_TIPJAR_BYTECODE, abi: TIPJAR_ABI, constructor_args: [MAYA2_WALLET, 'PodTips', '1000000'], owner_wallet: MAYA2_WALLET };
     const shipped = await call('prepare', { program_id: programId, project: { name: 'PodTips', description: twist.description, repo_url: repoUrl }, deploy, host: true, build: { program_id: programId } }, c);
     assert.equal((shipped as { deploy?: { address?: string } }).deploy?.address, ARC_CONTRACT, JSON.stringify(shipped));
+    // The branch proved it: the build is on the Bench the same day, and the agent is told to delete the branch.
+    assert.ok(shipped.agent_note?.includes(`git push origin :refs/heads/${branch}`), shipped.agent_note);
+    assert.equal(await mainConfirmed(id), true, 'the build is Bench-confirmed');
   });
 }
 

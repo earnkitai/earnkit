@@ -5045,8 +5045,16 @@ by the builder's own agent, public filters for the capital side, and an optional
   https://earnkit.com/<handle>" after the stand line; the one project can change until Bench-confirmed (B6);
   the open-all-year program only when it fits the project's chain (or any chain; a live product only when
   live); a project whose proof branch is being checked is asked the updates yes; build_offer has no note
-  under the flag; the server instructions have a Bench branch (`mcp.ts BENCH_INSTRUCTION_LINES`); any
-  Bench-confirmed main project passes the coin gate with no line.
+  under the flag; the server instructions have a Bench branch (`mcp.ts BENCH_INSTRUCTION_LINES`).
+  Fix round 1: the coin gate's shortcut takes only control proofs of the Bench-confirmed main project
+  (proof_line, github_signin; proof_branch keeps its 30 days), never a repo another person holds, after one
+  launch-time repo read (`proof-branch.ts controlProvenMain`); a project switch closes the old key's code
+  (`proof_branches.closed_at`, the agent told once in `remove_branch`) and codes are capped at 5 a person a
+  rolling day; every reply ends on one question (`chooseAsk`: the suggestion, a different project for
+  failed/taken, the week's update or grants that fit, each with a yes in `benchMoveUp`); under the Bench a
+  starter build is proven by its own proof branch, never an earnkit.txt line (`fresh-build.ts benchKit`,
+  `token-gate.ts proveRepoByBranch`, `deploy.ts` via `branchProvenOwner`), so it is on the Bench the same
+  day; `programs:check` refuses the reserved id `earnkit-bench`.
 - **The weekly update.** One yes (`builder_profiles.updates_on_at`), then the agent's weekly task
   (`schedule_weekly_update` replaces `schedule_daily_check`) calls `tell update { text }`.
 - **Raise.** Optional, through a tokens.fun coin (`raising.ts`).

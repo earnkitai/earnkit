@@ -3,6 +3,7 @@ process.env.EARNKIT_BENCH = 'on';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  OTHER_PROJECT_ASK, SUGGEST_ASK, UPDATES_ASK_JOINING, grantsAsk,
   NO_OFFER_LINE, benchBuildAsk, buildingNowLine, pageLine, showsClaimLink,
   NO_PROJECT_LINE, POST_UPDATE_ASK, UPDATES_ASK, benchReply, buildAsk, cantShowLine, checkingBranchLine, chooseAsk, confirmingLine, enterAsk, goLiveAsk, onBenchLine, type BenchAsk, type BenchView,
 } from './bench-reply';
@@ -70,7 +71,7 @@ test('8.5 the last line asks the first that applies, in the spec\'s order', () =
   const enter: BenchAsk = { kind: 'enter', project_key: 'k', program_id: 'p', line: enterAsk('Base Builder Grants') };
   const base = { project: RECIPE, canHost: true, updatesOn: true, postedThisWeek: true, scheduled: true, coin, build, enter, declined: [] as string[] };
   assert.equal(chooseAsk({ ...base, project: null })?.kind, 'build', '1. no project');
-  assert.equal(chooseAsk({ ...base, project: null, build: null }), null);
+  assert.equal(chooseAsk({ ...base, project: null, build: null })?.kind, 'suggest', 'O2 fix round 1: nothing to build, the suggestion');
   assert.deepEqual(chooseAsk({ ...base, project: { ...RECIPE, live: false } }), { kind: 'go_live', project_key: 'maya/recipes', line: goLiveAsk('Recipe planner') }, '2. not live');
   assert.equal(chooseAsk({ ...base, project: { ...RECIPE, live: false }, canHost: false })?.kind, 'coin', 'not live but nothing can host it');
   assert.deepEqual(chooseAsk({ ...base, updatesOn: false }), { kind: 'updates', project_key: 'maya/recipes', line: UPDATES_ASK }, '3. updates not on');
@@ -127,7 +128,29 @@ test('O2.8 honest build copy: never "you won\'t have to do anything"', () => {
 test('O2.9 a project being checked is asked the next Bench step (the updates yes), never a grant last', () => {
   const base = { canHost: false, updatesOn: false, postedThisWeek: false, scheduled: false, coin: null, build: null, enter: null, declined: [] as string[] };
   const p = { ...RECIPE, confirmed: false };
-  assert.equal(chooseAsk({ ...base, project: p }), null, 'not joining (no proof under way): nothing');
-  assert.deepEqual(chooseAsk({ ...base, project: p, joining: true }), { kind: 'updates', project_key: 'maya/recipes', line: UPDATES_ASK });
-  assert.equal(chooseAsk({ ...base, project: p, joining: true, updatesOn: true }), null, 'post_update waits for confirmation');
+  assert.equal(chooseAsk({ ...base, project: p })?.kind, 'grants', 'not joining: the fallback, never nothing');
+  assert.deepEqual(chooseAsk({ ...base, project: p, joining: true }), { kind: 'updates', project_key: 'maya/recipes', line: UPDATES_ASK_JOINING });
+  assert.equal(chooseAsk({ ...base, project: p, joining: true, updatesOn: true })?.kind, 'grants', 'post_update waits for confirmation');
+});
+
+test('O2 fix round 1 (ruling 3): every reply ends with one question, in each state', () => {
+  const base = { canHost: false, updatesOn: true, postedThisWeek: true, scheduled: true, coin: null, build: null, enter: null, declined: [] as string[] };
+  // A confirmed project with nothing pending: the week's update when posting is on, else grants that fit.
+  assert.deepEqual(chooseAsk({ ...base, project: RECIPE }), { kind: 'post_update', project_key: 'maya/recipes', line: POST_UPDATE_ASK });
+  assert.deepEqual(chooseAsk({ ...base, project: RECIPE, updatesOn: false, declined: ['updates:maya/recipes'] }), { kind: 'grants', project_key: 'maya/recipes', line: grantsAsk('Recipe planner') });
+  assert.equal(grantsAsk('Recipe planner'), 'Want me to find grants that fit Recipe planner?');
+  // The coin step still comes first when nothing earlier applies (the fallback is left out for that check).
+  assert.equal(chooseAsk({ ...base, project: RECIPE, fallback: false }), null);
+  // No project and nothing to build: the suggestion, after NO_OFFER_LINE.
+  const none = chooseAsk({ ...base, project: null });
+  assert.deepEqual(none, { kind: 'suggest', project_key: null, line: SUGGEST_ASK });
+  assert.equal(benchReply({ project: null, rank: null, claimed: true, handle: 'm', claimLink: null, fund: [], ask: none }), ['Where you stand', NO_OFFER_LINE, '', 'How to move up', SUGGEST_ASK].join('\n'));
+  // The branch never showed, or another person holds it: a different project (never an entry).
+  const p = { ...RECIPE, confirmed: false };
+  const enter: BenchAsk = { kind: 'enter', project_key: 'maya/recipes', program_id: 'p', line: enterAsk('X') };
+  assert.deepEqual(chooseAsk({ ...base, project: p, other: true, enter, canHost: true }), { kind: 'other_project', project_key: 'maya/recipes', line: OTHER_PROJECT_ASK });
+  assert.equal(OTHER_PROJECT_ASK, 'Want to use a different project?');
+  // needs_agent is joining: the updates yes, without "on the Bench".
+  assert.deepEqual(chooseAsk({ ...base, project: p, updatesOn: false, joining: true }), { kind: 'updates', project_key: 'maya/recipes', line: UPDATES_ASK_JOINING });
+  assert.doesNotMatch(UPDATES_ASK_JOINING, /Bench/);
 });

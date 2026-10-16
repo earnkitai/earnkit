@@ -1451,7 +1451,10 @@ apps/frontend/
                                else a fresh branch, never a line), branchToRemove, proofBranchStep (cron,
                                deadline, 7-day cleanup); v2.13.1 O2: coinBranchProof passes a Bench-confirmed
                                main project with any other confirmed proof; tests: v2131-proof-branch.test.ts,
-                               v2131-onboarding.test.ts (O2: B1, B2, B4, B6, page link, last line, coin)
+                               v2131-onboarding.test.ts (O2: B1, B2, B4, B6, page link, last line, coin);
+                               O2 fix round 1: controlProvenMain (coin: proof_line/github_signin only, one
+                               repo read, not held), PROOF_BRANCH_MAX_PER_DAY 5, closed_at + closedRemoveNote,
+                               branchProvenOwner (a build's deploy proof under the Bench)
     week-facts.ts(+test)       v2.13 T4: WeekFacts, weekFactsFor, factChips, startedLine, upsertWeekFacts,
                                weeklyFactsStep (Mondays from 15:00 UTC)
     update-text.ts(+test)      v2.13 T5: checkUpdate (280 characters, no @, secrets, own links only), notes

@@ -445,6 +445,19 @@ declare const provenRepo: unique symbol;
  */
 export type ProvenRepo = { readonly installationId: number; readonly repoKey: string; readonly lineOwner: string | null; readonly [provenRepo]: true };
 
+/**
+ * v2.13.1 O2 fix round 1 (fresh-build ruling): under the Bench, off a shared client, a build's repo
+ * proven by its proof branch (proof-branch.ts branchProvenOwner) as a value, its pusher (the repo's
+ * owner) in place of the line's; else null. No earnkit.txt line is read.
+ */
+export async function proveRepoByBranch(a: { installationId: number; repoUrl: string }): Promise<ProvenRepo | null> {
+  const gh = githubRepo(a.repoUrl);
+  if (!gh || !benchEnabled() || (await sharedGroup(a.installationId).catch(() => true))) return null;
+  const repoKey = `${gh.owner}/${gh.repo}`.toLowerCase();
+  const owner = await (await import('./proof-branch')).branchProvenOwner(a.installationId, repoKey, new Date());
+  return owner ? ({ installationId: a.installationId, repoKey, lineOwner: owner } as ProvenRepo) : null;
+}
+
 /** repoOwnershipPasses, then proofLineOwner: the proof as a value, or null when it fails. */
 export async function proveRepo(a: { installationId: number; repoUrl: string }, deps: OwnershipDeps = {}): Promise<ProvenRepo | null> {
   const gh = githubRepo(a.repoUrl);
