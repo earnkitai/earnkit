@@ -4,7 +4,7 @@
  * name and the starter's offer are names (plan B12). Pure.
  */
 export const BENCH_HEADS = { stand: 'Where you stand', fund: 'Ways to get funded', up: 'How to move up' } as const;
-export type BenchAskKind = 'build' | 'go_live' | 'updates' | 'post_update' | 'coin' | 'raise' | 'enter' | 'grants' | 'suggest' | 'other_project';
+export type BenchAskKind = 'build' | 'go_live' | 'updates' | 'post_update' | 'coin' | 'raise' | 'enter' | 'grants' | 'suggest' | 'other_project' | 'grants_later';
 export type BenchAsk = { kind: BenchAskKind; project_key: string | null; line: string; program_id?: string };
 export type FundLine =
   | { kind: 'fits'; title: string; prize: string; when: string }
@@ -79,6 +79,8 @@ export const POST_UPDATE_ASK = "Want me to post this week's update?";
 export const UPDATES_ASK_JOINING = 'Want me to post what you ship here every week?';
 /** v2.13.1 O2 fix round 1 (ruling 3): a confirmed project with nothing pending and updates off. */
 export const grantsAsk = (name: string) => `Want me to find grants that fit ${name}?`;
+/** v2.13.1 O5 fix round 2: the last fallback after a grants yes that found nothing (its yes keeps grants quiet a week). */
+export const GRANTS_LATER_ASK = 'Want me to check again for grants next week?';
 /** v2.13.1 O5 N5: a project with nothing pending once grants found none (or were declined): one small thing to ship. */
 export const shipAsk = (name: string) => `Want me to suggest one small thing to ship in ${name} this week?`;
 /** v2.13.1 O2 fix round 1 (ruling 3): no project and nothing EarnKit can build here. */

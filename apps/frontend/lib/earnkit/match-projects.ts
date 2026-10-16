@@ -71,6 +71,8 @@ export class GitHubError extends Error {
     readonly status?: number,
   ) {
     super(message);
+    // v2.13.1 O5 fix round 2: every log that prints err.name shows the class.
+    this.name = 'GitHubError';
   }
 }
 

@@ -211,6 +211,8 @@ export class RateLimitError extends Error {
     readonly retryAfter: number,
   ) {
     super(`${what} Try again in ${retryText(retryAfter)}.`);
+    // v2.13.1 O5 fix round 2: every log that prints err.name shows the class.
+    this.name = 'RateLimitError';
   }
 }
 

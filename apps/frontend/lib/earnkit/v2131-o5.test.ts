@@ -10,11 +10,15 @@ import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
 import {
-  OTHER_PROJECT_ASK, UPDATES_ASK_JOINING, benchBuildAsk, benchReply, cantSeeLine, cantShowLine, copyLine, checkingBranchLine, foreignLine, grantsAsk, needsAgentLine, shipAsk, type BenchView,
+  GRANTS_LATER_ASK, OTHER_PROJECT_ASK, UPDATES_ASK_JOINING, benchBuildAsk, benchReply, cantSeeLine, cantShowLine, copyLine, checkingBranchLine, foreignLine, grantsAsk, needsAgentLine, shipAsk, type BenchView,
 } from './bench-reply';
 import { GRANTS_QUIET_MS, noGrantLine } from './bench-find';
+import { GitHubError } from './match-projects';
+import { RateLimitError } from './rate-limit';
+import { mondayOf } from './weeks';
+import { takeNews } from './stand-view';
 import { BENCH_BUILD_ID, BENCH_WALLET_ASK, TWIST_QUESTION, WALLET_ASK, twistQuestion } from './fresh-build';
-import { PROOF_BRANCH_NOTE, removeNote } from './proof-branch';
+import { PROOF_BRANCH_NOTE, REPO_PROBE_KEEP_MS, removeNote } from './proof-branch';
 import { readPersonLive, rescorePerson } from './person-score';
 import { safeNames } from './page-data';
 import { EARN_NOTE } from './where-you-stand';
@@ -480,5 +484,63 @@ test('O5 fix round 1: matching cut by the reply wait still lands: the next reply
     assert.match(r2.show_to_builder, /Ways to get funded/, r2.show_to_builder);
     assert.ok(r2.show_to_builder.includes(ava.title), r2.show_to_builder);
     await sleep(1200);
+  }),
+);
+
+// ---- O5 fix round 2 --------------------------------------------------------------------------------
+
+test('O5 fix round 2: GitHubError and RateLimitError carry their class names (every log prints err.name)', () => {
+  assert.equal(new GitHubError('x', 404).name, 'GitHubError');
+  assert.equal(new RateLimitError('Too many.', 60).name, 'RateLimitError');
+});
+
+test('O5 fix round 2: a new repo read prunes kept reads older than a day; kept values keep their nulls through find', dbTest, () =>
+  on(async () => {
+    const id = await install();
+    await find(id, {}, NO_MATCH);
+    const old = new Date(Date.now() - REPO_PROBE_KEEP_MS - 60_000).toISOString();
+    await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || ${sql().json({
+      repo_probe: { 'old/gone': { kind: 'missing', at: old } },
+      bench_match: { key: 'x/y', at: new Date().toISOString(), checked: 1, scored: 0, fits: [{ repo: 'y', repo_url: null, verdicts: [] }] },
+    } as never)}::jsonb - 'at' WHERE builder_id = ${id}`;
+    const key = `${uniq('maya')}/fresh`;
+    await find(id, named(key), { ...NO_MATCH, proofBranchFetch: repoFake({ [key]: { private: null } }).f });
+    const [r] = await sql()<{ probe: Record<string, Record<string, unknown>> }[]>`
+      SELECT standing_seen->'repo_probe' AS probe FROM builder_profiles WHERE builder_id = ${id}`;
+    assert.deepEqual(Object.keys(r.probe), [key], 'the old read is pruned');
+    assert.ok('private' in r.probe[key] && r.probe[key].private === null, JSON.stringify(r.probe));
+    // The kept match keeps its nulls when find records what it showed (takeNews rewrites standing_seen).
+    await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || ${sql().json({
+      bench_match: { key: 'x/y', at: new Date().toISOString(), checked: 1, scored: 0, fits: [{ repo: 'y', repo_url: null, verdicts: [] }] },
+    } as never)}::jsonb WHERE builder_id = ${id}`;
+    await takeNews(id, {}, { standing: { ranked: false, rank: 0, total: 0 }, claimed: false, handle: null, claimLink: null, projects: [] }, new Date(), false);
+    const [m] = await sql()<{ match: { fits: Record<string, unknown>[] } }[]>`SELECT standing_seen->'bench_match' AS match FROM builder_profiles WHERE builder_id = ${id}`;
+    assert.ok('repo_url' in m.match.fits[0] && m.match.fits[0].repo_url === null, JSON.stringify(m.match));
+  }),
+);
+
+test('O5 fix round 2: a grants yes that finds nothing always ends on a question: posting, the week\'s post, else "check again next week" (its yes keeps grants quiet)', dbTest, () =>
+  on(async () => {
+    const key = `${uniq('gl')}/hello-world`;
+    const now = new Date().toISOString();
+    const id = await person({ main: key, claimed: uniq('gl'), seen: { declined: { [`suggest:${key}`]: now } }, projects: [{ key, name: 'Hello-World', confirmed: true }] });
+    await sql()`UPDATE builder_profiles SET updates_on_at = now(), updates_scheduled_at = now() WHERE builder_id = ${id}`;
+    await sql()`INSERT INTO project_updates (builder_id, project_key, week, text, facts) VALUES (${id}, ${key}, ${mondayOf(new Date())}, 'Shipped it.', '{}'::jsonb)`;
+    const r = await find(id, {}, NO_MATCH);
+    assert.ok(r.show_to_builder.endsWith(grantsAsk('Hello-World')), r.show_to_builder);
+    const g = (await tools.tell({ move_up: { kind: 'grants', project_key: key, answer: 'yes' } }, { installationId: id } as never)) as R;
+    assert.equal(g.show_to_builder, `${noGrantLine('Hello-World')}\n${GRANTS_LATER_ASK}`);
+    assert.equal(GRANTS_LATER_ASK, 'Want me to check again for grants next week?');
+    assert.equal(g.move_up?.kind, 'grants_later');
+    const y = (await tools.tell({ move_up: { kind: 'grants_later', project_key: key, answer: 'yes' } }, { installationId: id } as never)) as R;
+    assert.ok(y.show_to_builder.length > 0);
+    const [q] = await sql()<{ at: string | null }[]>`SELECT standing_seen->'quiet'->>${`grants:${key}`} AS at FROM builder_profiles WHERE builder_id = ${id}`;
+    assert.ok(q.at && Date.now() - Date.parse(q.at) < 60_000, 'the quiet window is set');
+    // Posting off (declined suggest, nothing else): the weekly-posting ask.
+    const k2 = `${uniq('gl')}/two`;
+    const p2 = await person({ main: k2, claimed: uniq('gm'), seen: { declined: { [`suggest:${k2}`]: now, [`updates:${k2}`]: now } }, projects: [{ key: k2, name: 'Two', confirmed: true }] });
+    await find(p2, {}, NO_MATCH);
+    const g2 = (await tools.tell({ move_up: { kind: 'grants', project_key: k2, answer: 'yes' } }, { installationId: p2 } as never)) as R;
+    assert.equal(questions(g2.show_to_builder), 1, g2.show_to_builder);
   }),
 );

@@ -183,9 +183,12 @@ async function knownUnprovable(builderId: number, key: string, now: Date, f: typ
     probe = await probeRepo(key, f ?? defaultReaderDeps(now, Date.now() + REPO_PROBE_MS).ghFetch ?? fetch);
     if (probe.kind === 'read' && probe.private === false) await markPublic(builderId, key, now, db);
     if (probe.kind !== 'unknown')
+      // O5 fix round 2: kept reads older than REPO_PROBE_KEEP_MS are dropped on every write.
       await db`
         UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{repo_probe}',
-          COALESCE(standing_seen->'repo_probe', '{}'::jsonb) || jsonb_build_object(${key}::text, ${db.json({ ...probe, at: now.toISOString() } as never)}::jsonb))
+          COALESCE((SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(standing_seen->'repo_probe') e
+            WHERE (e.value->>'at') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' AND (e.value->>'at')::timestamptz > ${new Date(now.getTime() - REPO_PROBE_KEEP_MS)}), '{}'::jsonb)
+            || jsonb_build_object(${key}::text, ${db.json({ ...probe, at: now.toISOString() } as never)}::jsonb))
         WHERE builder_id = ${builderId}`;
   }
   if (probe.kind === 'missing') return { kind: 'unseen' };

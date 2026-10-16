@@ -231,8 +231,10 @@ export async function takeNews(id: number, seen: Seen, base: StandBase, now: Dat
       UPDATE builder_profiles SET standing_seen = ${sql().json(next as never)}::jsonb || jsonb_strip_nulls(jsonb_build_object('declined', standing_seen->'declined',
           -- v2.13 (bench-find.ts): what the Bench reply asked and noted is kept too (absent with the flag off).
           'bench_ask', standing_seen->'bench_ask', 'weekly_note_at', standing_seen->'weekly_note_at', 'raise_asked', standing_seen->'raise_asked',
-          -- v2.13.1 O5: the quiet asks, the kept repo reads and the kept match of the one project.
-          'quiet', standing_seen->'quiet', 'repo_probe', standing_seen->'repo_probe', 'bench_match', standing_seen->'bench_match')),
+          -- v2.13.1 O5: the quiet asks.
+          'quiet', standing_seen->'quiet'))
+          -- v2.13.1 O5 fix round 2: the kept repo reads and match, unstripped (their nulls are values).
+          || (SELECT COALESCE(jsonb_object_agg(k, standing_seen->k), '{}'::jsonb) FROM unnest(ARRAY['repo_probe', 'bench_match']) k WHERE standing_seen ? k),
         card_moments = CASE WHEN ${card}::text IS NULL THEN card_moments ELSE card_moments || jsonb_build_object('latest', ${card}::text) END
       WHERE builder_id = ${id}`;
   };

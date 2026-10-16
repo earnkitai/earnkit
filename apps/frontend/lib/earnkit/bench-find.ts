@@ -32,7 +32,7 @@ import type { TickerCheck } from './token-proposal';
 import { projectKeyOf, type IdentityProject } from './identity-input';
 import type { ToolContext } from './tools';
 import {
-  benchBuildAsk, benchReply, benchStepKey, buildAsk, chooseAsk, enterAsk, showsClaimLink,
+  GRANTS_LATER_ASK, POST_UPDATE_ASK, UPDATES_ASK, UPDATES_ASK_JOINING, benchBuildAsk, benchReply, benchStepKey, buildAsk, chooseAsk, enterAsk, showsClaimLink,
   type BenchAsk, type BenchAskKind, type BenchProject, type BenchView, type FundLine,
 } from './bench-reply';
 
@@ -507,7 +507,7 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId'>, m: {
   }
   // Fix round 1: answered once. The ask is cleared before the yes runs, so a retried yes is "Okay.".
   // (go_live and coin yeses stay in tools.ts: go_live's yes is sent again with live_url by design.)
-  if (['updates', 'post_update', 'build', 'enter', 'raise', 'grants', 'suggest', 'other_project'].includes(asked.kind)) {
+  if (['updates', 'post_update', 'build', 'enter', 'raise', 'grants', 'suggest', 'other_project', 'grants_later'].includes(asked.kind)) {
     const [taken] = await sql()`
       UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask'
       WHERE builder_id = ${id} AND standing_seen->'bench_ask' = ${sql().json(asked as never)}::jsonb RETURNING 1`.catch((err: unknown) => {
@@ -534,6 +534,10 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId'>, m: {
       return asked.key ? { show_to_builder: '', agent_note: SHIP_NOTE } : suggestYes(now);
     case 'other_project':
       return { show_to_builder: '', agent_note: OTHER_PROJECT_NOTE };
+    case 'grants_later':
+      // O5 fix round 2: grants stay quiet a week from now; then the grants ask comes back.
+      if (asked.key) await keepGrantsQuiet(id, asked.key, now);
+      return { show_to_builder: GRANTS_LATER_DONE };
     default:
       return okay;
   }
@@ -566,29 +570,46 @@ async function grantsYes(id: number, key: string, now: Date): Promise<Reply> {
   const name = row?.name ?? key.split('/').pop() ?? key;
   const fit = { chains: row?.chains ?? [], live: row?.live ?? false };
   const cards = (await openCards(now)).filter((c) => fitsProject(c, fit)).slice(0, 3);
-  if (cards.length === 0) {
-    // O5 N5: never the same question again right away: grants stay quiet for GRANTS_QUIET_MS.
-    await sql()`
-      UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{quiet}',
-        COALESCE(standing_seen->'quiet', '{}'::jsonb) || jsonb_build_object(${benchStepKey('grants', key)}::text, ${now.toISOString()}::text))
-      WHERE builder_id = ${id}`.catch(logged('grants quiet'));
-    // O5 fix round 1 (ruling): a reply the builder sees ends on one question: the next step, asked and
-    // stored as every Bench ask is (its yes goes to tell move_up).
-    const read = await benchRead(id, now, undefined);
-    const next = chooseAsk({
-      project: { key, name, confirmed: true, live: fit.live, weeks: read.row?.weeks ?? 0 }, canHost: false, updatesOn: read.updatesOn,
-      postedThisWeek: read.postedThisWeek, scheduled: read.scheduled, coin: null, build: null, enter: null, claimed: read.base.claimed,
-      declined: [...declinedNow(read.seen, now.getTime()), ...quietNow(read.seen, now.getTime()), benchStepKey('grants', key)],
-    });
-    if (!next) return { show_to_builder: noGrantLine(name) };
-    await sql()`
-      UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json({ kind: next.kind, key: next.project_key } as never)}::jsonb)
-      WHERE builder_id = ${id}`.catch(logged('ask'));
-    return {
-      show_to_builder: `${noGrantLine(name)}\n${next.line}`,
-      move_up: { kind: next.kind, project_key: next.project_key, agent_note: BENCH_MOVE_UP_NOTE },
-    };
-  }
+  if (cards.length > 0) return grantsFound(cards);
+  // O5 N5: never the same question again right away: grants stay quiet for GRANTS_QUIET_MS.
+  await keepGrantsQuiet(id, key, now);
+  // O5 fix round 1 (ruling): a reply the builder sees ends on one question: the next step, asked and
+  // stored as every Bench ask is (its yes goes to tell move_up).
+  const read = await benchRead(id, now, undefined);
+  const declined = declinedNow(read.seen, now.getTime());
+  const next = chooseAsk({
+    project: { key, name, confirmed: true, live: fit.live, weeks: read.row?.weeks ?? 0 }, canHost: false, updatesOn: read.updatesOn,
+    postedThisWeek: read.postedThisWeek, scheduled: read.scheduled, coin: null, build: null, enter: null, claimed: read.base.claimed,
+    declined: [...declined, ...quietNow(read.seen, now.getTime()), benchStepKey('grants', key)],
+  });
+  // O5 fix round 2: nothing left in the order: posting, the week's post, else checking again next week
+  // (a no to any of them is still honoured).
+  const off = (k: BenchAskKind) => declined.includes(benchStepKey(k, key));
+  const ask: BenchAsk | null =
+    next ??
+    (!read.updatesOn && !off('updates') ? { kind: 'updates', project_key: key, line: read.base.claimed ? UPDATES_ASK : UPDATES_ASK_JOINING }
+      : read.updatesOn && !read.postedThisWeek && !off('post_update') ? { kind: 'post_update', project_key: key, line: POST_UPDATE_ASK }
+      : off('grants_later') ? null
+      : { kind: 'grants_later', project_key: key, line: GRANTS_LATER_ASK });
+  if (!ask) return { show_to_builder: noGrantLine(name) };
+  await sql()`
+    UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json({ kind: ask.kind, key: ask.project_key } as never)}::jsonb)
+    WHERE builder_id = ${id}`.catch(logged('ask'));
+  return { show_to_builder: `${noGrantLine(name)}\n${ask.line}`, move_up: { kind: ask.kind, project_key: ask.project_key, agent_note: BENCH_MOVE_UP_NOTE } };
+}
+
+/** O5 N5: grants stay quiet for GRANTS_QUIET_MS from `now` (standing_seen.quiet). Never throws. */
+async function keepGrantsQuiet(id: number, key: string, now: Date): Promise<void> {
+  await sql()`
+    UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{quiet}',
+      COALESCE(standing_seen->'quiet', '{}'::jsonb) || jsonb_build_object(${benchStepKey('grants', key)}::text, ${now.toISOString()}::text))
+    WHERE builder_id = ${id}`.catch(logged('grants quiet'));
+}
+/** O5 fix round 2: the yes to "Want me to check again for grants next week?". */
+export const GRANTS_LATER_DONE = "Okay. I'll check again for grants next week.";
+
+/** The programs that fit, one line each (the grants yes). Pure. */
+function grantsFound(cards: Card[]): Reply {
   const lines = cards.map((c) => {
     const when = earnWhen(c);
     return `${c.title} pays ${earnPrize(c)}; ${when === 'open all year' ? "it's open all year" : `it ${when}`}.`;
