@@ -204,9 +204,9 @@ test('v2.5 §1 golden (c): a program without a per-winner amount is not counted 
   // v2.9 F21: the one money figure (openMoneyUsd over the rows you qualify for), never a pool.
   assert.match(text, /^EarnKit matches you to \$500 in prizes you qualify for\.\n\n/);
   assert.match(text, /\| Monad Metropolis Hackathon \| \$250K\+ prize pool \|  \| Oct 13, 11:59 PM ET \| tipjar \|/);
-  assert.equal(openMoneyUsd([arc, monad]), 500);
-  assert.equal(openMoneyUsd([monad]), 0);
-  assert.equal(moneyText(openMoneyUsd([monad])), null);
+  assert.equal(openMoneyUsd([arc, monad], NOW), 500);
+  assert.equal(openMoneyUsd([monad], NOW), 0);
+  assert.equal(moneyText(openMoneyUsd([monad], NOW)), null);
   // Nothing countable: no "$0" line.
   const unknown = presentFirstMessage(msg({ cards: [circle], repos: repos(v('circle-developer-grants', 'likely', 'looks eligible')) }));
   assert.match(unknown, /^Your repos fit these open programs:\n\n\| Program \| Prize \| Difficulty \| Ends \| Your repo \|/);

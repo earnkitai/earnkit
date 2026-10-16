@@ -26,6 +26,7 @@ import { entryMessage } from './entry-proof';
 import { upsertProgram } from './programs';
 import { bookDeposit } from './bonus-ledger';
 import { sql } from './db';
+import { dropRunPrograms } from './fixtures/programs-cleanup';
 import { rememberedWallet } from './installations';
 import { roundFor } from './bonus-rounds';
 import type { ProgramRow } from './programs';
@@ -572,7 +573,7 @@ test('record_submission (v2.6 §3): a checked-out page is stored as basis page',
 
 test('Ruling 25 (I8): a repo whose coin is entered in another program is told at record time: no builder bonus here', dbTest, async () => {
   const tag = `fw-coin-${process.pid}-${Date.now()}`;
-  const coinProgram = proofProgramFile(`${tag}-a`, { title: 'Coin Home Program' });
+  const coinProgram = proofProgramFile(`${tag}-a`, { title: 'Coin Home Program', starts_at: '2026-01-01T00:00:00Z', ends_at: '2030-01-01T00:00:00Z' });
   const program = proofProgramFile(`${tag}-b`, { starts_at: '2026-01-01T00:00:00Z', ends_at: '2030-01-01T00:00:00Z' });
   await upsertProgram(coinProgram);
   await upsertProgram(program);
@@ -935,6 +936,8 @@ test('v2.8 Ruling C7: completeAtWindow marks deploy-window launches complete onl
 });
 
 after(async () => {
+  // Task 17: this file's programs never outlive the run.
+  if (process.env.DATABASE_URL) await dropRunPrograms();
   if (process.env.DATABASE_URL) await sql().end();
 });
 

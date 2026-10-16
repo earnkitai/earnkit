@@ -105,7 +105,9 @@ type Found = { show_to_builder: string; note?: string };
 const find = (id: number, input: Record<string, unknown>, extra: Record<string, unknown>) =>
   tools.find(input, { installationId: id, ...extra } as never) as Promise<Found>;
 
-const FIXED_STAND = /^Where you stand\nYou've made 3 projects on GitHub: Hello-World, Spoon-Knife and linguist\. None is live yet\./;
+// Other files running in parallel open and close programs on the shared DB, so a second find may
+// start with their "Since you last checked: new: ..." line; what is tested here comes after it.
+const FIXED_STAND = /^(Since you last checked: [^\n]*\n\n)?Where you stand\nYou've made 3 projects on GitHub: Hello-World, Spoon-Knife and linguist\. None is live yet\./;
 const GO_LIVE = /How to move up\nWant me to put Spoon-Knife online\? It takes a few minutes and you won't have to do anything\.$/;
 
 test('fixed: identity.github_login only (unproven) -> one read lists their own repos, shown on GitHub, not confirmed (find, find, score)', dbTest, () =>
@@ -268,7 +270,14 @@ test('review 2: the proof-line check and the remote check read agent-reported re
 test('review 4: matching that rides only on the reported login is quiet: no repos or a failed read reads as none given', dbTest, () =>
   prod(async () => {
     const offline = new Proxy({} as ReaderDeps, { get: (_t, k) => (k === 'now' ? NOW : k === 'then' ? undefined : async () => { throw new Error('offline'); }) });
-    const norm = (t: string) => t.replace(/earnkit\.com\/claim\/\S+/g, 'CLAIM');
+    // "Ways to earn right now" (and any "new:" line) follow the shared DB's open programs, which other
+    // files running in parallel add and close: leave them out, so the three runs compare only what
+    // the login could change.
+    const norm = (t: string) =>
+      t
+        .replace(/earnkit\.com\/claim\/\S+/g, 'CLAIM')
+        .replace(/^Since you last checked: [^\n]*\n\n/, '')
+        .replace(/\n\nWays to earn right now\n[\s\S]*?(?=\n\n|$)/, '');
     const login = `octo${randomBytes(3).toString('hex')}`;
     const run = async (input: Record<string, unknown>, matchProjects: () => Promise<unknown>) => {
       const r = await find(await install(), { agent_can_build: true, ...input }, { readerDeps: offline, matchProjects });

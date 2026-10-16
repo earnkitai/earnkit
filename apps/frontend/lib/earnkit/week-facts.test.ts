@@ -10,19 +10,24 @@ import { randomBytes } from 'node:crypto';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { committedProgram } from './fixtures/program-file';
+import { dropRunPrograms } from './fixtures/programs-cleanup';
 
 process.env.EARNKIT_BUILDER_SCORE = 'on';
 process.env.EARNKIT_BENCH = 'on';
 process.env[EVENT_LOG_FLAG] = 'on';
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
-after(async () => { if (process.env.DATABASE_URL) await sql().end(); });
+after(async () => {
+  if (!process.env.DATABASE_URL) return;
+  await dropRunPrograms(); // Task 17: this file's program copies never outlive the run
+  await sql().end();
+});
 const DAY = 86_400_000;
 const T = 2_131_400_000 + (process.pid % 1000) * 20;
 const NOW = new Date();
 const wk = (daysAgo: number) => isoWeekOf(new Date(NOW.getTime() - daysAgo * DAY));
 /** A copy of a committed program under a fresh id (the shared DB may not have run programs:sync). */
 async function program(name: string): Promise<{ id: string; title: string }> {
-  const p = { ...committedProgram(name), id: `v213-${name}-${randomBytes(3).toString('hex')}`, status: 'active' };
+  const p = { ...committedProgram(name), id: `v213-${name}-${process.pid}-${randomBytes(3).toString('hex')}`, status: 'active' };
   await upsertProgram(ProgramFile.parse(p));
   return { id: p.id, title: p.title };
 }

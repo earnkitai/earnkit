@@ -2,6 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { sql } from './db';
+import { dropRunPrograms } from './fixtures/programs-cleanup';
 import { JOIN_QUESTIONS, JOIN_QUESTIONS_JOINER, answerJoin, answerPickup, coveredRoots, findEarlier, joinOnProvenTie, linkInstallations, offerPickup, pendingJoinOf, pickupQuestion, rootOf, statedUsers } from './identity';
 import { dueSources } from './sources';
 import { loginContests, loginStands, ruleContest } from './login-contests';
@@ -17,6 +18,8 @@ process.env.EARNKIT_AUTH_SECRET ??= 'identity-test-secret';
 
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {
+  // Task 17: this file's programs never outlive the run.
+  if (process.env.DATABASE_URL) await dropRunPrograms();
   if (process.env.DATABASE_URL) await sql().end();
 });
 

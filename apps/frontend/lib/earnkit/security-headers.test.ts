@@ -101,7 +101,8 @@ test('HSTS in production only (local http is never pinned)', () => {
 const sources = (dir: string): string[] =>
   readdirSync(dir).flatMap((f) => {
     const p = join(dir, f);
-    if (statSync(p).isDirectory()) return f === 'node_modules' ? [] : sources(p);
+    // fixtures/ is test-only code (it reads a response's set-cookie), never a cookie EarnKit sets.
+    if (statSync(p).isDirectory()) return f === 'node_modules' || f === 'fixtures' ? [] : sources(p);
     return /\.(ts|tsx|mts)$/.test(f) && !/\.test\.ts$/.test(f) ? [p] : [];
   });
 

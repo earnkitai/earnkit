@@ -4,6 +4,7 @@ import { ProgramFile } from '../program-file';
 import { upsertProgram } from '../programs';
 import { committedProgram } from './program-file';
 import { tools } from '../tools';
+import { dropPrograms } from './programs-cleanup';
 
 /**
  * find's test helpers (moved from v2121-find.test.ts, v2.13 F19): the env switch, a bare
@@ -70,14 +71,7 @@ export async function person(o: { projects: Seed[]; score?: number; ranked?: boo
   return id;
 }
 
-/**
- * Delete program rows a test made (their tracks and starters cascade). A row something still points
- * at (an entry, a bonus round) is closed instead, so no test leaves an active program behind.
- */
-export async function dropPrograms(ids: string[]): Promise<void> {
-  for (const id of ids)
-    await sql()`DELETE FROM programs WHERE id = ${id}`.catch(() => sql()`UPDATE programs SET status = 'closed' WHERE id = ${id}`);
-}
+export { dropPrograms, dropRunPrograms } from './programs-cleanup';
 
 /** A program the target user's tip jar fits (a copy of Avalanche Team1 Mini Grants: up to $10K, rolling). Call dropAvalanche in the file's after hook. */
 let program: { id: string; title: string } | null = null;

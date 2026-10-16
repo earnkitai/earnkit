@@ -260,7 +260,9 @@ test('review #1, #9: Circle\'s range and pool source reach the DB and the guide\
   ]);
 });
 
-test('readGuidePage: a curated program\'s guide, plain JSON (unstable_cache serializes it)', dbTest, async () => {
+test('readGuidePage: a curated program\'s guide, plain JSON (unstable_cache serializes it)', dbTest, async (t) => {
+  // isOpen reads the clock itself: pin it to the test's `now`, so Arc is open whatever today's date.
+  t.mock.timers.enable({ apis: ['Date'], now });
   await upsertProgram(ProgramFile.parse(programFile('arc-microgrants')));
   const page = await readGuidePage('arc-microgrants', now);
   assert.ok(page);

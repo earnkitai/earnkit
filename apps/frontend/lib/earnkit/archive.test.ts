@@ -51,6 +51,7 @@ test('13.4 flag off: a sponsor program is absent from listPrograms and getProgra
   const { committedProgram } = await import('./fixtures/program-file');
   const f = committedProgram('arc-microgrants');
   f.id = 't13-sponsor-row';
+  f.ends_at = null; // open whatever today's date (the committed file's deadline passes)
   await upsertProgram(ProgramFile.parse(f));
   try {
     assert.ok((await listPrograms()).some((p) => p.id === 't13-sponsor-row'), 'a curated row lists');

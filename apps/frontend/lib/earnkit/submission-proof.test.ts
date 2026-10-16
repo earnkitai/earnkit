@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   PROOF_RECHECK_INTERVAL_MS,
@@ -17,6 +17,7 @@ import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { recordSubmission, submissionBasis } from './projects';
 import { committedProgram } from './fixtures/program-file';
+import { dropRunPrograms } from './fixtures/programs-cleanup';
 
 const program = {
   id: 'arc-microgrants',
@@ -177,6 +178,10 @@ test('proofProblem: an invalid submission URL is refused', async () => {
 
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 // Held for the whole file (M11): the re-check is global, like the other bonus jobs.
+// Task 17: this file's programs never outlive the run (registered before the lock's pool end).
+after(async () => {
+  if (process.env.DATABASE_URL) await dropRunPrograms();
+});
 holdBonusDbLock();
 
 /** arc-microgrants.json (real submission_proof: dorahacks.io, /buidl/<id>) under a fresh id. */

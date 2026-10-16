@@ -33,6 +33,7 @@ import { CANT_PUSH, NO_WALLET_HINT, confirmOffer, proofLineWaiting } from './con
 import { completeVerify, createVerifyLink, formatCode } from './github-verify';
 import { eligibleSql } from './traction';
 import { committedProgram } from './fixtures/program-file';
+import { dropPrograms, dropRunPrograms } from './fixtures/find';
 import { TESTED_STARTERS, fileCards } from './fixtures/fresh-build';
 import { BUILD_CHAT_ONLY, buildKit, buildingLine, twistQuestion } from './fresh-build';
 import { STARTERS } from './starters';
@@ -96,25 +97,23 @@ test('v2.8.1 §B6: list_programs input with any chain, dates without a timezone 
 
 // Against the local database when configured.
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
+/** Task 17: an active campaign copy a test makes is gone (or closed) when the test ends, so no other file sees it later. */
+const dropAfter = (tc: TestContext, ...ids: string[]) => tc.after(() => dropPrograms(ids));
 // v2.10 item 2: the list_programs tests below read the v2.9 tables, which are behind "show more"
 // (more: true); the short first reply is tested in 8.8.
 
 /**
- * v2.8 Task 11: other dbTests leave stray active, curated, non-campaign programs behind (never
- * closed), which record_submission's "Also qualifies" (Ruling 29 (plan)) would now pick up and
- * fold into show_to_builder, breaking an exact-equality assertion written before that existed.
- * Closes every such program except `keep`'s ids for the duration of `fn` (best effort, same
- * pattern as the neighboring "v2.5 §1" and "Ruling 11 (plan) fix round 1" tests), then reopens them.
+ * v2.8 Task 11: other dbTests leave stray active, curated, non-campaign programs behind, which
+ * record_submission's "Also qualifies" (Ruling 29 (plan)) and find's tables would pick up, breaking
+ * exact assertions. Task 17: this builder says "not interested" to every such program but `keep`
+ * (their own memory, builder-memory.ts hiddenPrograms), never closing programs other files read.
  */
-async function withOnlyPrograms<T>(keep: string[], fn: () => Promise<T>): Promise<T> {
-  const stray = await sql()<{ id: string }[]>`
-    SELECT id FROM programs WHERE status = 'active' AND source = 'file' AND campaign IS NULL AND id NOT IN ${sql()(keep)}`;
-  if (stray.length) await sql()`UPDATE programs SET status = 'closed' WHERE id IN ${sql()(stray.map((s) => s.id))}`;
-  try {
-    return await fn();
-  } finally {
-    if (stray.length) await sql()`UPDATE programs SET status = 'active' WHERE id IN ${sql()(stray.map((s) => s.id))}`;
-  }
+async function hideOthers(installationId: number, keep: string[]): Promise<void> {
+  await sql()`
+    INSERT INTO builder_program_status (installation_id, login, program_id, status)
+    SELECT ${installationId}, '', id, 'not_interested' FROM programs
+    WHERE status = 'active' AND source = 'file' AND campaign IS NULL AND id NOT IN ${sql()(keep)}
+    ON CONFLICT (installation_id, login, program_id) DO NOTHING`;
 }
 
 /**
@@ -128,7 +127,7 @@ function assertEntered(actual: string, prefix: string, message?: string) {
   assert.match(actual, new RegExp(`^${escaped}(\\n\\n|$)`), message ?? actual);
 }
 
-test('v2.4 §2: a failed entry uses none of the daily 20; a recorded one uses one', dbTest, async () => {
+test('v2.4 §2: a failed entry uses none of the daily 20; a recorded one uses one', dbTest, async (tc) => {
   const PAY = '0x' + 'a'.repeat(40);
   const C1 = '0x' + '1'.repeat(40);
   const f = committedProgram('earnkit-campaign-1-base');
@@ -140,6 +139,7 @@ test('v2.4 §2: a failed entry uses none of the daily 20; a recorded one uses on
   });
   Object.assign(f, earnkitTexts(f));
   await upsertProgram(ProgramFile.parse(f));
+  dropAfter(tc, f.id);
   const [{ id }] = await sql()<{ id: number }[]>`
     INSERT INTO installations (token_hash) VALUES (${`t4-limit-${process.pid}-${Date.now()}`}) RETURNING id`;
   const used = async () =>
@@ -193,7 +193,7 @@ test('v2.4 §6 (audit C22): prepare_submission on a closed program has no token 
   assert.ok(!('token' in result));
 });
 
-test('I8: prepare_submission asks about the remembered payout wallet in full and never prefills it', dbTest, async () => {
+test('I8: prepare_submission asks about the remembered payout wallet in full and never prefills it', dbTest, async (tc) => {
   const W = '0x' + 'b'.repeat(39) + '7';
   const f = committedProgram('earnkit-campaign-1-base');
   Object.assign(f, {
@@ -204,6 +204,7 @@ test('I8: prepare_submission asks about the remembered payout wallet in full and
   });
   Object.assign(f, earnkitTexts(f));
   await upsertProgram(ProgramFile.parse(f));
+  dropAfter(tc, f.id);
   const [{ id }] = await sql()<{ id: number }[]>`
     INSERT INTO installations (token_hash, payout_wallet) VALUES (${`i8-${process.pid}-${Date.now()}`}, ${W}) RETURNING id`;
   const r = (await handlers.prepare_submission(
@@ -225,7 +226,7 @@ test('I8: prepare_submission asks about the remembered payout wallet in full and
   assert.equal(ok.payout_wallet_note, undefined);
 });
 
-test('campaign fee wallet: only a payout wallet given in this call, never the remembered one; other programs keep it', dbTest, async () => {
+test('campaign fee wallet: only a payout wallet given in this call, never the remembered one; other programs keep it', dbTest, async (tc) => {
   const W = '0x' + 'c'.repeat(39) + '7';
   const GIVEN = '0x' + 'd'.repeat(39) + '1';
   const stamp = `${process.pid}-${Date.now()}`;
@@ -236,6 +237,7 @@ test('campaign fee wallet: only a payout wallet given in this call, never the re
   const plain = committedProgram('arc-microgrants');
   Object.assign(plain, { id: `fee-plain-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' });
   await upsertProgram(ProgramFile.parse(plain));
+  dropAfter(tc, camp.id, plain.id);
   const [{ id }] = await sql()<{ id: number }[]>`
     INSERT INTO installations (token_hash, payout_wallet) VALUES (${`fee-${stamp}`}, ${W}) RETURNING id`;
   // Token launches on, the ticker check unreachable (no network in tests).
@@ -337,6 +339,7 @@ test('v2.5 §1: list_programs reads the builder bonus pools once, only where ent
   const run = `${process.pid}-${Date.now()}`;
   const proof = Object.assign(file('arc-microgrants'), {
     id: `v25-proof-${run}`, title: `Proof ${run}`, status: 'active', ends_at: '2099-01-01T00:00:00Z', max_award_usd: 9_999_999,
+    agent_completable: false, // Task 17: as noProof below
     // v2.10 item 10: an EarnKit Easy rating over $1,000 per winner needs sourced odds.
     past_rounds: [{ label: 'Round 1', source_url: 'https://www.arc.network/', own: true, submissions: 100, winners: 30 }],
   });
@@ -345,6 +348,10 @@ test('v2.5 §1: list_programs reads the builder bonus pools once, only where ent
     // neither a submission_proof pattern nor, now, a builder bonus).
     id: `v25-noproof-${run}`, title: `No proof ${run}`, status: 'active', ends_at: '2099-01-01T00:00:00Z', max_award_usd: 9_999_998,
     builder_bonus: false,
+    // Task 17: Easy, rolling and the biggest prize, this row would be every other file's find pick
+    // while it is open; agent_completable: false keeps it out of finds with the score flag on (this
+    // test runs with it off, where every program is listed).
+    agent_completable: false,
     // v2.9 A6: Base is no longer Easy. This fixture keeps an Easy rating (without the live-product
     // tag, which programs:check refuses with Easy), so it stays among the 5 rows when other tests
     // leave Easy programs open in the shared DB.
@@ -451,10 +458,12 @@ test('Ruling 11 (plan) fix round 1: a remembered GitHub user whose matching fail
 });
 
 after(async () => {
+  // Task 17: this file's programs never outlive the run.
+  if (process.env.DATABASE_URL) await dropRunPrograms();
   if (process.env.DATABASE_URL) await sql().end();
 });
 
-test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet records the entry with no coin yet', dbTest, async () => {
+test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet records the entry with no coin yet', dbTest, async (tc) => {
   const W = '0x' + 'e'.repeat(39) + '3';
   const stamp = `${process.pid}-${Date.now()}`;
   const arc = committedProgram('arc-microgrants');
@@ -462,8 +471,11 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
   const b = { ...arc, id: `t4-b-${stamp}`, title: 'Other Grants', status: 'active', ends_at: '2099-01-01T00:00:00Z', submission_proof: null };
   await upsertProgram(ProgramFile.parse(a));
   await upsertProgram(ProgramFile.parse(b));
-  const inst = async (tag: string) =>
-    (await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t4-${tag}-${stamp}`}) RETURNING id`)[0].id;
+  const inst = async (tag: string) => {
+    const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t4-${tag}-${stamp}`}) RETURNING id`;
+    await hideOthers(id, [a.id, b.id]);
+    return id;
+  };
   const entry = (program_id: string, n: number, extra: Record<string, unknown>) => ({
     program_id,
     project: { name: `Tip Jar ${n}`, description: 'Tips', repo_url: `https://github.com/alice/t4-${stamp}-${n}`, live_url: `https://t4-${n}.xyz` },
@@ -485,7 +497,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     answers: { description: 'Tips', builder_profile: 'https://github.com/alice' },
   });
   try {
-    await withOnlyPrograms([a.id, b.id], () => run());
+    await run();
   } finally {
     if (secret === undefined) delete process.env.EARNKIT_AUTH_SECRET;
     else process.env.EARNKIT_AUTH_SECRET = secret;
@@ -533,6 +545,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     Object.assign(camp, { id: `t4-camp-${stamp}`, status: 'active', starts_at: '2026-09-01T00:00:00Z', ends_at: '2099-01-01T00:00:00Z' });
     Object.assign(camp, earnkitTexts(camp));
     await upsertProgram(ProgramFile.parse(camp));
+    dropAfter(tc, camp.id);
     const cp = (await handlers.prepare_submission({ program_id: camp.id, project: { name: 'Tip Jar' } }, { installationId: id })) as {
       show_to_builder: string;
       token?: { creator_wallet: string | null };
@@ -843,7 +856,7 @@ test('v2.8 Rulings 2-3 (plan), C8: launch_token on real rows: a skipped entry is
   }
 });
 
-test('v2.8 Ruling 23 (plan): how_to_submit and sign_to_enter only for an open campaign; v2.8 Ruling 4: no submission link before the confirmation', dbTest, async () => {
+test('v2.8 Ruling 23 (plan): how_to_submit and sign_to_enter only for an open campaign; v2.8 Ruling 4: no submission link before the confirmation', dbTest, async (tc) => {
   const stamp = `${process.pid}-${Date.now()}`;
   const plain = committedProgram('arc-microgrants');
   Object.assign(plain, { id: `r23-plain-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' });
@@ -856,6 +869,7 @@ test('v2.8 Ruling 23 (plan): how_to_submit and sign_to_enter only for an open ca
   Object.assign(open, { id: `r23-open-${stamp}`, status: 'active', starts_at: '2026-09-01T00:00:00Z', ends_at: '2099-01-01T00:00:00Z' });
   Object.assign(open, earnkitTexts(open));
   await upsertProgram(ProgramFile.parse(open));
+  dropAfter(tc, plain.id, closed.id, open.id);
   const [{ id }] = await sql()<{ id: number }[]>`
     INSERT INTO installations (token_hash) VALUES (${`r23-${stamp}`}) RETURNING id`;
   const prep = async (program_id: string) =>
@@ -968,7 +982,7 @@ test('8.1 Ruling 4 (plan): prepare_submission ready ends with the offer; no kit,
     assert.ok(String(noPush.show_to_builder).endsWith('\n\nTo launch your token, open this in Claude Code or Cursor.\nReady to submit?'), String(noPush.show_to_builder));
   }));
 
-test('8.2/8.3: confirm_entry without the yes (or without a decision) is the offer only, nothing recorded; record_submission never returns a kit', dbTest, () =>
+test('8.2/8.3: confirm_entry without the yes (or without a decision) is the offer only, nothing recorded; record_submission never returns a kit', dbTest, (tc) =>
   withTokenEnv(async () => {
     const t = await confirmSetup('offer', { remembered: W8 });
     // v2.8.1 §A2: the Yes line names the token that launches.
@@ -998,6 +1012,7 @@ test('8.2/8.3: confirm_entry without the yes (or without a decision) is the offe
     Object.assign(camp, { id: `t8-camp-${process.pid}-${Date.now()}`, status: 'active', starts_at: '2026-09-01T00:00:00Z', ends_at: '2099-01-01T00:00:00Z' });
     Object.assign(camp, earnkitTexts(camp));
     await upsertProgram(ProgramFile.parse(camp));
+    dropAfter(tc, camp.id);
     await assert.rejects(handlers.confirm_entry({ ...t.input, program_id: camp.id, ...go }, t.ctx), /EarnKit campaigns are entered in one step\./);
   }));
 
@@ -1708,83 +1723,81 @@ test('10 Part E: confirm_entry on DoraHacks with a browser is still the paste li
     assert.match(r.agent_note ?? '', /terms ban automated use/);
   }));
 
-test('11 Also qualifies: after confirm_entry "go" and record_submission on Arc, also_qualifies reuses the bank and the cached chains; never Arc; Task 8 carry excludes an entered one', dbTest, () =>
+test('11 Also qualifies: after confirm_entry "go" and record_submission on Arc, also_qualifies reuses the bank and the cached chains; never Arc; Task 8 carry excludes an entered one', dbTest, (tc) =>
   withTokenEnv(async () => {
     const t = await confirmSetup('also', { extra: COACH_EXTRA });
     // v2.8 Part E's Base fixture, cloned under a fresh id (already open and rolling, as committed).
     const other = { ...committedProgram('base-builder-grants'), id: `${t.p.id}-base`, title: `Also Base ${t.p.id}` };
     await upsertProgram(ProgramFile.parse(other));
+    dropAfter(tc, other.id);
 
-    // Isolate: close every other active, curated, non-campaign program for the duration, so stray
-    // rows other dbTests leave in this shared database can't crowd the top MAX_ALSO rows (same
-    // pattern as the v2.5 §1 list_programs test's stray-campaign handling).
-    const stray = await sql()<{ id: string }[]>`
-      SELECT id FROM programs WHERE status = 'active' AND source = 'file' AND campaign IS NULL AND id NOT IN (${t.p.id}, ${other.id})`;
-    if (stray.length) await sql()`UPDATE programs SET status = 'closed' WHERE id IN ${sql()(stray.map((s) => s.id))}`;
-    try {
-      const go1 = (await handlers.confirm_entry({ ...t.input, answers: COACH_ANSWERS, ...go, wallet: W8 }, t.ctx)) as Confirmed;
-      assert.ok(go1.kit);
-      const submit = () =>
-        handlers.record_submission(
-          { program_id: t.p.id, project: t.project, submission_data: COACH_ANSWERS, builder_submitted: true },
-          t.ctx,
-        ) as Promise<{ also_qualifies?: AlsoRow[]; show_to_builder: string }>;
-
-      // Uncached: chains fall back to Arc's own (arc only), so the Base-chain program doesn't fit.
-      const r1 = await submit();
-      assert.ok(!r1.also_qualifies?.some((x) => x.id === other.id));
-      // No candidate fits yet (isolated to just t.p and other, and other needs base): the reply is
-      // exactly the entered text, with no "Also qualifies" suffix at all. Captured for the full
-      // joined-string check below (review fix round 1, item 4).
-      const mainText = r1.show_to_builder;
-      assert.ok(!r1.also_qualifies);
-
-      // Cache the repo's chains as covering Base too: it now shows, via the cache (Ruling 29). v2.10
-      // item 9: credited mainnets (a deploy config); a v2.9 row without basis reads as a mention.
-      const full = t.repo.replace('https://github.com/', '');
-      await sql()`
-        INSERT INTO github_repo_facts (full_name, pushed_at, chains, commits_since) VALUES (
-          ${full}, now(),
-          ${sql().json({ arc: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' }, base: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' } })},
-          '{}')`;
-      // v2.9 T12 (G15 M1): Base needs a live product with real users; until the builder says the
-      // repo has users, its row still needs them, so it is not offered.
-      const unsaid = await submit();
-      assert.ok(!unsaid.also_qualifies?.some((x) => x.id === other.id), JSON.stringify(unsaid.also_qualifies));
-      await handlers.tell_earnkit({ repo_facts: [{ repo: full, has_users: true }] }, t.ctx);
-      const r2 = await submit();
-      assert.ok(!r2.also_qualifies?.some((x) => x.id === t.p.id), 'never the entered program itself');
-      const row = r2.also_qualifies?.find((x) => x.id === other.id);
-      assert.ok(row, 'the Base-chain program shows via the cached chains');
-
-      // The wiring matches the pure function exactly, given the same bank, programs and entries.
-      const bank = await readBank(t.inst, projectKey({ repo_url: t.repo, name: 'Tip Jar' }));
-      const programs = await alsoProgramFacts();
-      const enteredIds = await enteredProgramIds(t.inst, { repoUrl: t.repo, name: 'Tip Jar' });
-      const args = { enteredProgramId: t.p.id, chains: ['arc', 'base'] as Chain[], programs, bank, answers: COACH_ANSWERS, hasLiveProduct: true, now: new Date() };
-      const expectedRows = alsoQualifies({ ...args, enteredIds });
-      assert.deepEqual(r2.also_qualifies, expectedRows);
-      // confirmSetup's ctx.repoCoins always answers {} (so the token launch flow never sees this
-      // repo as held elsewhere): the same stub makes coinIn null here, not the entered program.
-      // Review fix round 1, item 4: the full joined string (mainText + "\n\n" + the block), not
-      // just the tail, so a regression that glues the sections together would be caught.
-      assert.equal(r2.show_to_builder, `${mainText}\n\n${alsoText(expectedRows)}`);
-
-      // Reusing the bank cuts how much is left (usage_numbers, kind traction, is filled from Arc's).
-      const unbanked = alsoQualifies({ ...args, enteredIds, bank: new Map() }).find((x) => x.id === other.id)!;
-      assert.ok(row!.left < unbanked.left, 'reusing the bank cuts how much is left for the next program');
-
-      // Task 8 carry: confirming Base too (skip, never submitted) still counts as entered; it is
-      // never offered a second time.
-      await handlers.confirm_entry(
-        { program_id: other.id, project: t.project, answers: COACH_ANSWERS, builder_confirmed: true, decision: 'skip' },
+    // Isolate (hideOthers), again before each submit: stray rows other dbTests leave in this shared
+    // database can't crowd the top MAX_ALSO rows.
+    const hideStrays = () => hideOthers(t.inst, [t.p.id, other.id]);
+    await hideStrays();
+    const go1 = (await handlers.confirm_entry({ ...t.input, answers: COACH_ANSWERS, ...go, wallet: W8 }, t.ctx)) as Confirmed;
+    assert.ok(go1.kit);
+    const submit = async () => {
+      await hideStrays();
+      return (await handlers.record_submission(
+        { program_id: t.p.id, project: t.project, submission_data: COACH_ANSWERS, builder_submitted: true },
         t.ctx,
-      );
-      const r3 = await submit();
-      assert.ok(!r3.also_qualifies?.some((x) => x.id === other.id), 'already entered (confirmed, unsubmitted): never offered twice');
-    } finally {
-      if (stray.length) await sql()`UPDATE programs SET status = 'active' WHERE id IN ${sql()(stray.map((s) => s.id))}`;
-    }
+      )) as { also_qualifies?: AlsoRow[]; show_to_builder: string };
+    };
+
+    // Uncached: chains fall back to Arc's own (arc only), so the Base-chain program doesn't fit.
+    const r1 = await submit();
+    assert.ok(!r1.also_qualifies?.some((x) => x.id === other.id));
+    // No candidate fits yet (isolated to just t.p and other, and other needs base): the reply is
+    // exactly the entered text, with no "Also qualifies" suffix at all. Captured for the full
+    // joined-string check below (review fix round 1, item 4).
+    const mainText = r1.show_to_builder;
+    assert.ok(!r1.also_qualifies);
+
+    // Cache the repo's chains as covering Base too: it now shows, via the cache (Ruling 29). v2.10
+    // item 9: credited mainnets (a deploy config); a v2.9 row without basis reads as a mention.
+    const full = t.repo.replace('https://github.com/', '');
+    await sql()`
+      INSERT INTO github_repo_facts (full_name, pushed_at, chains, commits_since) VALUES (
+        ${full}, now(),
+        ${sql().json({ arc: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' }, base: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' } })},
+        '{}')`;
+    // v2.9 T12 (G15 M1): Base needs a live product with real users; until the builder says the
+    // repo has users, its row still needs them, so it is not offered.
+    const unsaid = await submit();
+    assert.ok(!unsaid.also_qualifies?.some((x) => x.id === other.id), JSON.stringify(unsaid.also_qualifies));
+    await handlers.tell_earnkit({ repo_facts: [{ repo: full, has_users: true }] }, t.ctx);
+    const r2 = await submit();
+    assert.ok(!r2.also_qualifies?.some((x) => x.id === t.p.id), 'never the entered program itself');
+    const row = r2.also_qualifies?.find((x) => x.id === other.id);
+    assert.ok(row, 'the Base-chain program shows via the cached chains');
+
+    // The wiring matches the pure function exactly, given the same bank, programs and entries.
+    const bank = await readBank(t.inst, projectKey({ repo_url: t.repo, name: 'Tip Jar' }));
+    // The programs this builder can see: every other one is hidden (hideStrays).
+    const programs = (await alsoProgramFacts()).filter((p) => p.id === t.p.id || p.id === other.id);
+    const enteredIds = await enteredProgramIds(t.inst, { repoUrl: t.repo, name: 'Tip Jar' });
+    const args = { enteredProgramId: t.p.id, chains: ['arc', 'base'] as Chain[], programs, bank, answers: COACH_ANSWERS, hasLiveProduct: true, now: new Date() };
+    const expectedRows = alsoQualifies({ ...args, enteredIds });
+    assert.deepEqual(r2.also_qualifies, expectedRows);
+    // confirmSetup's ctx.repoCoins always answers {} (so the token launch flow never sees this
+    // repo as held elsewhere): the same stub makes coinIn null here, not the entered program.
+    // Review fix round 1, item 4: the full joined string (mainText + "\n\n" + the block), not
+    // just the tail, so a regression that glues the sections together would be caught.
+    assert.equal(r2.show_to_builder, `${mainText}\n\n${alsoText(expectedRows)}`);
+
+    // Reusing the bank cuts how much is left (usage_numbers, kind traction, is filled from Arc's).
+    const unbanked = alsoQualifies({ ...args, enteredIds, bank: new Map() }).find((x) => x.id === other.id)!;
+    assert.ok(row!.left < unbanked.left, 'reusing the bank cuts how much is left for the next program');
+
+    // Task 8 carry: confirming Base too (skip, never submitted) still counts as entered; it is
+    // never offered a second time.
+    await handlers.confirm_entry(
+      { program_id: other.id, project: t.project, answers: COACH_ANSWERS, builder_confirmed: true, decision: 'skip' },
+      t.ctx,
+    );
+    const r3 = await submit();
+    assert.ok(!r3.also_qualifies?.some((x) => x.id === other.id), 'already entered (confirmed, unsubmitted): never offered twice');
   }));
 
 // ---- v2.8 Task 12, Part G, Ruling 30 (plan): the outcome question, asked once; the builder's answer.
@@ -1859,8 +1872,8 @@ test('v2.8.1 §B: list_programs takes any chain, a bare date and a non-0x wallet
   const [{ id: inst }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t3b-${stamp}`}) RETURNING id`;
   const ctx = { installationId: inst, roundPools: async () => new Map(), repoCoins: async () => new Map() };
   type Listed = { show_to_builder: string; wallet_note?: string };
+  await hideOthers(inst, [p.id]);
   try {
-    await withOnlyPrograms([p.id], async () => {
     const first = (await handlers.list_programs(
       {
         more: true,
@@ -1881,7 +1894,6 @@ test('v2.8.1 §B: list_programs takes any chain, a bare date and a non-0x wallet
     assert.match(back.show_to_builder, new RegExp(`\\| ${p.title} \\(entered\\) \\|`));
     assert.doesNotMatch(back.show_to_builder, new RegExp(`(start on|keep going on|new for) ${p.title}`));
     assert.ok(!('wallet_note' in back));
-    });
   } finally {
     await sql()`DELETE FROM projects WHERE program_id = ${p.id}`;
     await sql()`DELETE FROM installations WHERE id = ${inst}`;
@@ -3398,12 +3410,13 @@ test('5.4 prepare_submission: the plain-words fix is the agent\'s only; the buil
     assert.match(r.show_to_builder, /One-sentence description/, 'the draft shows');
   }));
 
-test('5.3 (P32) record_submission on an EarnKit campaign refuses an unplain description; nothing recorded', dbTest, async () => {
+test('5.3 (P32) record_submission on an EarnKit campaign refuses an unplain description; nothing recorded', dbTest, async (tc) => {
   const PAY = '0x' + 'a'.repeat(40);
   const f = committedProgram('earnkit-campaign-1-base');
   Object.assign(f, { id: `t5-camp-${process.pid}-${Date.now()}`, status: 'active', starts_at: '2026-09-01T00:00:00Z', ends_at: '2099-01-01T00:00:00Z' });
   Object.assign(f, earnkitTexts(f));
   await upsertProgram(ProgramFile.parse(f));
+  dropAfter(tc, f.id);
   const [{ id }] = await sql()<{ id: number }[]>`
     INSERT INTO installations (token_hash) VALUES (${`t5-camp-${process.pid}-${Date.now()}`}) RETURNING id`;
   const project = { name: 'Tip Jar', description: UNPLAIN, repo_url: 'https://github.com/alice/tipjar-t5', live_url: 'https://tipjar.xyz' };
@@ -4212,7 +4225,7 @@ async function freshSetup(tag: string, tc: TestContext) {
   };
   await upsertProgram(ProgramFile.parse(p));
   const [{ id: inst }] = await sql()<{ id: number }[]>`
-    INSERT INTO installations (token_hash) VALUES (${`t7-${tag}-${stamp}`}) RETURNING id`;
+    INSERT INTO installations (token_hash) VALUES (${`tools-t7-${tag}-${stamp}`}) RETURNING id`;
   const offerAt = async () => (await sql()<{ fresh_offer_at: Date | null }[]>`SELECT fresh_offer_at FROM installations WHERE id = ${inst}`)[0].fresh_offer_at;
   const base = { installationId: inst, roundPools: async () => new Map(), repoCoins: async () => new Map() };
   const starterId = `t7-${tag}-${stamp}-starter`;
@@ -4221,7 +4234,9 @@ async function freshSetup(tag: string, tc: TestContext) {
   const starters = { [starterId]: { ...TESTED_STARTERS['arc-tipjar'], id: starterId, tested_at } } as unknown as typeof TESTED_STARTERS;
   tc.after(async () => {
     await sql()`UPDATE programs SET status = 'closed' WHERE id = ${p.id}`;
-    await sql()`DELETE FROM installations WHERE id = ${inst}`.catch(() => undefined);
+    // Children first (a build records projects on this installation), then the installation.
+    await sql()`DELETE FROM projects WHERE installation_id = ${inst}`;
+    await sql()`DELETE FROM installations WHERE id = ${inst}`;
   });
   return { p, inst, offerAt, base, starterId, starters };
 }
@@ -5513,7 +5528,7 @@ test('10 (T10 notes) a build-path deploy refused for the owner proof asks for a 
 test('7.8 (v2.12.1 T12, replaces v2.12 7.8 and 7.8c) flag on: find has no v2.12 consent or score line; tell hide hides the page; x_handle is accepted and ignored; a shared client\'s page asks get an agent note', dbTest, async () => {
   process.env.EARNKIT_BUILDER_SCORE = 'on';
   try {
-    const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t7-consent-${process.pid}-${Date.now()}`}) RETURNING id`;
+    const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`tools-t7-consent-${process.pid}-${Date.now()}`}) RETURNING id`;
     const ctx = { installationId: id };
     for (let i = 0; i < 2; i++) {
       const r = (await tools.find({}, ctx)) as { show_to_builder: string };
@@ -5528,7 +5543,7 @@ test('7.8 (v2.12.1 T12, replaces v2.12 7.8 and 7.8c) flag on: find has no v2.12 
     await assert.rejects(tools.tell({ x_handle: 'elonmusk' }, ctx), /Pass at least one/);
     const [p] = await sql()<{ x_handle: string | null }[]>`SELECT x_handle FROM builder_profiles WHERE builder_id = ${id}`;
     assert.equal(p.x_handle, null);
-    const [{ id: shared }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, shared_client) VALUES (${`t7-shared-${process.pid}-${Date.now()}`}, true) RETURNING id`;
+    const [{ id: shared }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, shared_client) VALUES (${`tools-t7-shared-${process.pid}-${Date.now()}`}, true) RETURNING id`;
     const r = (await tools.tell({ profile: 'hide' }, { installationId: shared, sharedClient: true })) as { show_to_builder?: string; agent_note?: string };
     assert.equal(r.show_to_builder ?? '', '');
     assert.match(r.agent_note ?? '', /serves many builders/);
@@ -5538,7 +5553,7 @@ test('7.8 (v2.12.1 T12, replaces v2.12 7.8 and 7.8c) flag on: find has no v2.12 
 });
 
 test('7.8b flag off: find has no consent line and makes no profile; tell ignores profile (as an empty tell)', dbTest, async () => {
-  const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t7-off-${process.pid}-${Date.now()}`}) RETURNING id`;
+  const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`tools-t7-off-${process.pid}-${Date.now()}`}) RETURNING id`;
   const ctx = { installationId: id };
   const one = (await tools.find({}, ctx)) as { show_to_builder: string };
   assert.doesNotMatch(one.show_to_builder, /Say hide anytime/);
@@ -5598,6 +5613,7 @@ test('9.4b v2.12 flag off: find has no second line and is the v2.11 reply', dbTe
 async function findCards(env: { EARNKIT_BUILDER_SCORE?: string }, ids: { id: string; title: string }[]) {
   return withScoreFlag(env.EARNKIT_BUILDER_SCORE, async () => {
     const ctx = { installationId: await newInstallation() };
+    await hideOthers(ctx.installationId, ids.map((p) => p.id));
     const r = (await tools.find({ more: true }, ctx)) as { show_to_builder: string; programs: { id: string }[] };
     const listed = new Set(r.programs.map((p) => p.id));
     return ids.filter((p) => listed.has(p.id) && r.show_to_builder.includes(p.title)).map((p) => p.id);
@@ -5613,12 +5629,10 @@ test('9.5 v2.12 find drops programs an agent cannot complete; with the flag off 
   const [row] = await sql()<{ agent_completable: boolean }[]>`SELECT agent_completable FROM programs WHERE id = ${col.id}`;
   assert.equal(row.agent_completable, false, 'programs:sync writes the derivation');
   const both = [{ id: col.id, title: col.title }, { id: arc.id, title: arc.title }];
-  await withOnlyPrograms([col.id, arc.id], async () => {
-    const on = await findCards({ EARNKIT_BUILDER_SCORE: 'on' }, both);
-    assert.deepEqual(on, [arc.id]);
-    const off = await findCards({}, both);
-    assert.deepEqual(off.sort(), [arc.id, col.id].sort());
-  });
+  const on = await findCards({ EARNKIT_BUILDER_SCORE: 'on' }, both);
+  assert.deepEqual(on, [arc.id]);
+  const off = await findCards({}, both);
+  assert.deepEqual(off.sort(), [arc.id, col.id].sort());
 });
 
 /** The confirm line a person with this public score (and held flag) sees, with the flag as given. */

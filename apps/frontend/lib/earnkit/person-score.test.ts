@@ -9,7 +9,9 @@ import type { ReaderDeps } from './source-readers';
 
 process.env.EARNKIT_BUILDER_SCORE = 'on';
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
-const T = 2_100_950_000 + (process.pid % 900) * 20;
+// Task 17: a fresh block of ids each run (not the pid's bucket): builder_scores is append-only, so an
+// earlier run's score rows for a reused id made the cron see the day as already scored.
+const T = 2_100_950_000 + Math.floor(Math.random() * 400_000) * 20;
 const NOW = new Date('2026-10-12T12:00:00Z');
 const DAY = 86_400_000;
 const hex40 = (n: number) => n.toString(16).padStart(40, '0');

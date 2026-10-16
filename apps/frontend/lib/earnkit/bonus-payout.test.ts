@@ -294,7 +294,8 @@ async function cleanup() {
   await sql()`DELETE FROM bonus_ledger WHERE tx_hash LIKE '0xt7%'`;
   await sql()`DELETE FROM bonus_sweeps`;
   await sql()`DELETE FROM bonus_cursor`;
-  await sql()`DELETE FROM installations WHERE token_hash LIKE 't7-%'`;
+  // Only this file's installations (setup's `t7-${id}`): other files run in parallel on the same DB.
+  await sql()`DELETE FROM installations WHERE token_hash IN ${sql()([PID, PID_EMPTY, PID_TEST].map((id) => `t7-${id}`))}`;
   await sql()`DELETE FROM scoring_leases WHERE program_id IN ('bonus-ledger', 'bonus-scoring')`;
 }
 

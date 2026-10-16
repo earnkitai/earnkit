@@ -20,9 +20,12 @@ import { SAFETY_LINES } from './untrusted-text';
 import { kitReplyNote, submitKit, type KitProgram } from './submit-kit';
 import { awardReply, createReply } from './sponsor-rules';
 import { sql } from './db';
+import { dropRunPrograms } from './fixtures/programs-cleanup';
 
 // Tool replies read alerts from the database when DATABASE_URL is set: close the pool.
 after(async () => {
+  // Task 17: this file's programs never outlive the run.
+  if (process.env.DATABASE_URL) await dropRunPrograms();
   if (process.env.DATABASE_URL) await sql().end();
 });
 

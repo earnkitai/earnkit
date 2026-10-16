@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
+import { dropRunPrograms } from './fixtures/programs-cleanup';
 import {
   CODE_TTL_MS,
   CONFIRM_WARNING,
@@ -38,6 +39,8 @@ process.env.EARNKIT_AUTH_SECRET ??= 'github-verify-test-secret';
 
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {
+  // Task 17: this file's programs never outlive the run.
+  if (process.env.DATABASE_URL) await dropRunPrograms(['lbs']);
   if (process.env.DATABASE_URL) await sql().end();
 });
 
