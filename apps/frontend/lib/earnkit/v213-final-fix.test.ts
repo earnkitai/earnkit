@@ -5,6 +5,7 @@ import { randomBytes } from 'node:crypto';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
+import { withEnv } from './fixtures/find';
 import { benchRows, benchCardFacts, parseBenchFilter, profileData } from './bench-data';
 import { chainPools } from './bench-rank';
 import { benchReply, confirmingLine, confirmingSlowLine, type BenchView as View } from './bench-reply';
@@ -133,25 +134,13 @@ test('F2 the lazy pick: nothing Bench-confirmed leaves it unset; a confirmed row
   assert.equal(await pickMainProject(other, sql()), k('proven'));
 });
 
-/** v2.13.1 O1: proofFor's line and sign-in run only with the Bench flag off now (the flag's proof is a branch). */
-async function benchOff<T>(fn: () => Promise<T>): Promise<T> {
-  const was = process.env.EARNKIT_BENCH;
-  delete process.env.EARNKIT_BENCH;
-  try {
-    return await fn();
-  } finally {
-    if (was === undefined) delete process.env.EARNKIT_BENCH;
-    else process.env.EARNKIT_BENCH = was;
-  }
-}
-
 test('F3 the proof names the exact repo the line goes to, and the note tells the agent to use it (flag off; the flag gives none)', dbTest, async () => {
   const id = await installation();
   await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${id}, ${`v213fx-${id}`})`;
   const key = `own${RUN}/app${id}`;
   await setMainProject(id, { name: 'App', what: null, repo: key, live_url: null, package: null, contracts: [] });
   assert.equal(await proofFor(id, id, { canPush: true, now: new Date() }), null, 'flag on: no line to push');
-  const p = await benchOff(() => proofFor(id, id, { canPush: true, now: new Date() }));
+  const p = await withEnv({ EARNKIT_BENCH: undefined }, () => proofFor(id, id, { canPush: true, now: new Date() }));
   assert.ok(p && 'line' in p, JSON.stringify(p));
   assert.equal(p.repo, key);
   assert.equal(p.agent_note, PROOF_NOTE);
@@ -176,7 +165,7 @@ test('F4 an agent that can push gets the sign-in link when the owner is not the 
         await sql()`INSERT INTO url_checks (key, ok, checked_at, note) VALUES (${`ghuser:${owner}`}, true, now(), ${JSON.stringify({ type: o.type, created_at: '2020-01-01T00:00:00Z', public_repos: 2 })})
           ON CONFLICT (key) DO UPDATE SET ok = EXCLUDED.ok, checked_at = EXCLUDED.checked_at, note = EXCLUDED.note`;
       if (o.issuedAgo !== undefined) await sql()`INSERT INTO proof_line_issues (installation_id, repo_key, first_at) VALUES (${id}, ${key}, ${new Date(now.getTime() - o.issuedAgo)})`;
-      return { key, p: await benchOff(() => proofFor(id, id, { canPush: true, now })) };
+      return { key, p: await withEnv({ EARNKIT_BENCH: undefined }, () => proofFor(id, id, { canPush: true, now })) };
     };
     const signIn = (r: Awaited<ReturnType<typeof at>>, why: string) => {
       assert.ok(r.p && 'sign_in' in r.p, `${why}: ${JSON.stringify(r.p)}`);

@@ -20,6 +20,7 @@ import { createVerifyLink, githubVerifyEnabled, lineIssuedAt, repoEverDerived, v
 import { appTokenFor, githubAppEnabled } from './github-app';
 import { markRepoPublic } from './repo-cache';
 import { sharedGroup } from './installations';
+import { benchEnabled } from './builder-score-flag';
 
 export type GateInput = {
   policy: TokenPolicy;
@@ -79,6 +80,12 @@ export type GateDeps = {
    * read here so no caller can forget it; false while sign-in is off (nothing changes then).
    */
   shared?: (installationId: number) => Promise<boolean>;
+  /**
+   * v2.13.1 O1 fix round 1 (ruling a): under the Bench, whether the launching installation's person
+   * proved this repo (lowercase owner/repo) with a proof branch, which stands in for the earnkit.txt
+   * line. Never on a shared client; false with the flag off.
+   */
+  branchProven?: (installationId: number, repoKey: string) => Promise<boolean>;
 };
 
 /**
@@ -142,6 +149,10 @@ const defaults: Omit<Required<GateDeps>, 'appToken' | 'appLink'> = {
   verified: async (projectId, repoKey, login) =>
     githubVerifyEnabled() ? verifiedFor({ projectId, repoKey, login }) : null,
   shared: async (installationId) => githubVerifyEnabled() && (await sharedGroup(installationId)),
+  branchProven: async (installationId, repoKey) =>
+    benchEnabled() &&
+    !(await sharedGroup(installationId).catch(() => true)) &&
+    (await import('./proof-branch')).branchProvenRepo(installationId, `https://github.com/${repoKey}`),
 };
 
 const msg = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -347,7 +358,9 @@ export async function tokenGate(input: GateInput, deps: GateDeps = {}): Promise<
       : null;
   const signedIn = signIn !== null && signIn.wallet !== null && signIn.wallet === input.wallet.toLowerCase();
   const walletChanged = { ok: false as const, reason: WALLET_CHANGED, fixable: true as const, sign_in: 'wallet_changed' as const };
-  if (!signedIn) {
+  // v2.13.1 O1 fix round 1 (ruling a): a repo the person proved with a proof branch needs no line.
+  const branchProven = !signedIn && !shared && (await d.branchProven(input.installationId, repoKey).catch(() => false));
+  if (!signedIn && !branchProven) {
     // Ruling G10: on a shared client (verifiedLogin given) the proof line is the whole agent's, so
     // while sign-in is on it never proves a launch there.
     if (shared && githubVerifyEnabled())

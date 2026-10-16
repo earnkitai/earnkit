@@ -794,8 +794,6 @@ export async function refreshPerson(id: number, o: { now: Date; deadline: number
       // spec "Skip, don't chase": each step fails on its own, so a discovery error never stops the
       // person's own sources being read.
       for (const [step, run] of [
-        // v2.13.1 O1: the open proof branch first (it rescores on its own when it confirms).
-        ['proof_branch', async () => void (benchEnabled() && (await (await import('./proof-branch')).checkProofBranch(id, o.now, { ghFetch: deps.ghFetch })))],
         ['discover', () => refreshDiscovery(id, o.now, { deadline: o.deadline, reader: deps })],
         ['read', () => readPersonLive(id, o.now, { deadline: o.deadline, reader: deps })],
       ] as const) {

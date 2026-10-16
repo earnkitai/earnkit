@@ -194,8 +194,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
     UPDATE builder_profiles SET standing_seen = CASE WHEN ${stored === null} THEN COALESCE(standing_seen, '{}'::jsonb) - 'bench_ask'
       ELSE COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json(stored as never)}::jsonb) END
     WHERE builder_id = ${id}`.catch(logged('ask'));
-  // v2.13.1 O1: a repo-key project that isn't confirmed gets the proof branch (issued once; failed after the hour).
-  const branch = project && !project.confirmed ? await proofBranchFor(id, project.key, now, { issue: true }).catch(logged('proof branch')) : null;
+  // v2.13.1 O1: a repo-key project that isn't confirmed gets the proof branch (proof-branch.ts says when).
+  const branch = project && !project.confirmed ? await proofBranchFor(id, project.key, now, { canBuild: o.agentCanBuild }).catch(logged('proof branch')) : null;
   // Final fix I3: "a minute or two" only within the hour of fast checks after the line was issued (keys a branch can't prove).
   const slow = Boolean(project && !project.confirmed && !branch) && !(await confirmingFast(id, now).catch(() => false));
   const view: BenchView = {

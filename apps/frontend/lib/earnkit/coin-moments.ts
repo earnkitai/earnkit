@@ -1,5 +1,5 @@
 import { repoKey } from './answer-bank';
-import { builderScoreEnabled, raisingEnabled } from './builder-score-flag';
+import { benchEnabled, builderScoreEnabled, raisingEnabled } from './builder-score-flag';
 import { isWalletAddress } from './campaigns';
 import { sql } from './db';
 import { shortWallet } from './entry-text';
@@ -62,6 +62,12 @@ export const COIN_NOTE =
 /** coinYes's note: the confirm call that launches it. */
 export const COIN_YES_NOTE =
   'Call confirm with project_id, yes: true, wallet and token exactly as given. The usual token steps follow (the proof line on the repo).';
+/**
+ * v2.13.1 O1 fix round 1 (ruling a): under the Bench the repo was proven by its proof branch, so the
+ * note names no line (the gate takes the branch, token-gate.ts); flag off, today's note.
+ */
+export const COIN_YES_NOTE_BENCH = 'Call confirm with project_id, yes: true, wallet and token exactly as given.';
+export const coinYesNote = (): string => (benchEnabled() ? COIN_YES_NOTE_BENCH : COIN_YES_NOTE);
 
 /** Not shared, a profile, not held (fail strict: no profile is no). */
 async function guards(builderId: number): Promise<boolean> {
@@ -213,7 +219,7 @@ export async function coinYes(
   const given = wallet && isWalletAddress(wallet.trim()) ? wallet.trim().toLowerCase() : null;
   // A launch already tried (a proof line missing, say): the same entry, pair and wallet, never rewritten.
   if (existing && existing.token_status && shown && m.answer === 'yes')
-    return { project_id: existing.id, token: { name: shown.name, symbol: shown.symbol }, wallet: shown.wallet, agent_note: COIN_YES_NOTE };
+    return { project_id: existing.id, token: { name: shown.name, symbol: shown.symbol }, wallet: shown.wallet, agent_note: coinYesNote() };
   /**
    * The line again, and a fresh yes waited for (fix rounds 1 and 2): a wallet the line didn't show,
    * or no saved pair (never one proposed silently). An accepted offer goes back to open, so confirm
@@ -259,7 +265,7 @@ export async function coinYes(
   await noteEvent('coin_answered', () => ({
     type: 'coin_answered', dedupe_key: `coin_answered:${builderId}:${m.project_key.toLowerCase()}`, installation_id: builderId, project_id: projectId, detail: { answer: 'yes', moment: m.moment },
   }));
-  return { project_id: projectId, token: coin, wallet: to, agent_note: COIN_YES_NOTE };
+  return { project_id: projectId, token: coin, wallet: to, agent_note: coinYesNote() };
 }
 
 /** The no to a coin offer: never offered for this project again, and one of the DECLINES_MAX (recordDecline, as the confirm line's skip). */

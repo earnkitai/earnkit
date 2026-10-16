@@ -5024,9 +5024,12 @@ by the builder's own agent, public filters for the capital side, and an optional
   entry). The reply (`bench-reply.ts`, `bench-find.ts benchFind`) has three parts: "Where you stand",
   "Ways to get funded", "How to move up". v2.13.1 O1 (owner ruling): the agent pushes a temporary
   proof branch `earnkit-<code>` (`proof-branch.ts`; no file, no commit; the builder reads one line),
-  checked on find, score, the refresh and the cron; a pass verifies the repo (`proof_branch`) and
-  rescores at once, and the next reply tells the agent to delete the branch. A branch that never shows
-  in the hour gets "I couldn't show <project> is yours..." (no loop). The v2.13 proof line and sign-in
+  checked on find and score (once a minute per code) and the cron; a pass needs the pusher to be the
+  owner of a User's repo (any pusher for an org's), is exclusive (the first holder keeps a repo),
+  verifies the repo (`proof_branch`), records the login and rescores at once, and the next reply tells
+  the agent to delete the branch. One code a day per person; a branch that never shows in the hour gets
+  "I couldn't show <project> is yours..." (no loop). A `proof_branch` repo passes the token gate with no
+  earnkit.txt line (`token-gate.ts branchProven`). The v2.13 proof line and sign-in
   link (`main-project.ts proofFor`) now run only with the flag off. The server
   writes the first ship log entry "Started tracking <name>." (`week-facts.ts startedLine`).
 - **2b, no project.** The reply leads with ideas the builder can earn from (`ideasLine`) and the one yes

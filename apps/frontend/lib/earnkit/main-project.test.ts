@@ -3,6 +3,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { sql } from './db';
+import { withEnv } from './fixtures/find';
 import { benchProject, noteIdentity, projectKeyOf } from './identity-input';
 import { MAIN_PROOF_MIN_MS, PROOF_NOTE, confirming, confirmingFast, fillGithubUser, mainProjectOf, pickMainProject, proofFor, setMainProject } from './main-project';
 import { proofLineCheck } from './discovery';
@@ -10,18 +11,6 @@ import type { ReaderDeps } from './source-readers';
 import { tools } from './tools';
 import { refreshDiscovery } from './person-score';
 import { PROOF_BRANCH_NOTE } from './proof-branch';
-
-/** v2.13.1 O1: proofFor's line runs only with the Bench flag off now (the flag's proof is a branch). */
-async function benchOff<T>(fn: () => Promise<T>): Promise<T> {
-  const was = process.env.EARNKIT_BENCH;
-  delete process.env.EARNKIT_BENCH;
-  try {
-    return await fn();
-  } finally {
-    if (was === undefined) delete process.env.EARNKIT_BENCH;
-    else process.env.EARNKIT_BENCH = was;
-  }
-}
 
 process.env.EARNKIT_BUILDER_SCORE = 'on';
 process.env.EARNKIT_BENCH = 'on';
@@ -95,7 +84,7 @@ test('2.4 the proof line (flag off only; none under the flag): issued for an unc
   await fillGithubUser(id, key, 'someone-else');
   assert.equal((await sql()`SELECT github_user FROM installations WHERE id = ${id}`)[0].github_user, `maya${RUN}`, 'never overwritten');
   assert.equal(await proofFor(id, id, { canPush: true, now: new Date() }), null, 'flag on: no line to push');
-  const p = await benchOff(() => proofFor(id, id, { canPush: true, now: new Date() }));
+  const p = await withEnv({ EARNKIT_BENCH: undefined }, () => proofFor(id, id, { canPush: true, now: new Date() }));
   assert.ok(p && 'line' in p);
   assert.match(p.line, /^token: [0-9a-f]{10,}$/);
   assert.equal(p.file, 'earnkit.txt');
@@ -107,7 +96,7 @@ test('2.4 the proof line (flag off only; none under the flag): issued for an unc
   await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped) VALUES (${id}, ${key}, 'P', 'code', true, false)`;
   assert.equal(await confirming(id), true, 'still Confirming without the repo proof');
   await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES (${id}, 'repo', ${key}, ${key}, 'verified', 'proof_line', 'server')`;
-  assert.equal(await benchOff(() => proofFor(id, id, { canPush: true, now: new Date() })), null);
+  assert.equal(await withEnv({ EARNKIT_BENCH: undefined }, () => proofFor(id, id, { canPush: true, now: new Date() })), null);
   assert.equal(await confirming(id), false);
 });
 

@@ -15,9 +15,10 @@ export type BenchView = {
   project: BenchProject | null; rank: string | null; claimed: boolean; handle: string | null; claimLink: string | null;
   /**
    * v2.13.1 O1: the one project (a repo key) while it isn't confirmed: `checking` (the agent was given
-   * the proof branch) or `failed` (the branch never showed within the hour).
+   * the proof branch), `failed` (the branch never showed within the hour), `needs_agent` (fix round 1,
+   * ruling c: an agent that can't push gets no code) or `taken` (another person holds the repo).
    */
-  branch?: 'checking' | 'failed' | null;
+  branch?: 'checking' | 'failed' | 'needs_agent' | 'taken' | null;
   /** Final fix I3: not confirmed and outside the hour of fast checks (main-project confirmingFast): no "a minute or two". */
   slow?: boolean;
   fund: FundLine[]; ask: BenchAsk | null;
@@ -33,6 +34,10 @@ export const confirmingSlowLine = (name: string) => `${name} joins the Bench onc
 export const checkingBranchLine = (name: string) => `I'll check ${name} is yours with a quick temporary branch on GitHub. It's removed right after.`;
 /** v2.13.1 O1: the branch never showed within the hour (the agent couldn't push): no loop, no proof line. */
 export const cantShowLine = (name: string) => `I couldn't show ${name} is yours. Ask your agent to use a project you can push to.`;
+/** v2.13.1 O1 fix round 1 (ruling c): an agent that can't push gets no proof branch. */
+export const NEEDS_AGENT_LINE = 'Open this project in your coding agent to finish.';
+/** v2.13.1 O1 fix round 1 (authorization ruling): the first confirmed holder keeps a repo. */
+export const takenLine = (name: string) => `${name} is already on the Bench under another account.`;
 export const claimToJoinLine = (name: string, link: string) => `${name} goes on the Bench once you claim your page with X: ${link}`;
 export const CONFIRMED_LINE = (name: string) => `${name} is confirmed as yours.`;
 export function onBenchLine(name: string, rank: string | null, weeks: number): string {
@@ -79,7 +84,11 @@ function standLines(v: BenchView): string[] {
   if (!p) return [NO_PROJECT_LINE];
   if (!p.confirmed) {
     const first =
-      v.branch === 'checking' ? checkingBranchLine(p.name) : v.branch === 'failed' ? cantShowLine(p.name) : v.slow ? confirmingSlowLine(p.name) : confirmingLine(p.name);
+      v.branch === 'checking' ? checkingBranchLine(p.name)
+      : v.branch === 'failed' ? cantShowLine(p.name)
+      : v.branch === 'needs_agent' ? NEEDS_AGENT_LINE
+      : v.branch === 'taken' ? takenLine(p.name)
+      : v.slow ? confirmingSlowLine(p.name) : confirmingLine(p.name);
     return [first, ...(!v.claimed && v.claimLink ? [`Claim your page with X: ${v.claimLink}`] : [])];
   }
   if (!v.claimed) return [v.claimLink ? claimToJoinLine(p.name, v.claimLink) : CONFIRMED_LINE(p.name)];

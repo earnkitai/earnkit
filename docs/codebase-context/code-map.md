@@ -1439,11 +1439,13 @@ apps/frontend/
                                sign-in link: can't push, owner not github_user, an org, or the hour passed;
                                SIGN_IN_OWNER_NOTE; v2.13.1: null under the flag), pickMainProject
                                (Bench-confirmed only, else null)
-    proof-branch.ts            v2.13.1 O1: the proof branch (table proof_branches): proofBranchFor (one code per
-                               person and repo, 1 h, single use; `failed` after the hour), checkProofBranch
-                               (git ref + repo read, no redirects, no fork/template; proof `proof_branch`,
-                               rescore), branchToRemove (the delete note, once), proofBranchStep (cron);
-                               tests: v2131-proof-branch.test.ts
+    proof-branch.ts            v2.13.1 O1: the proof branch (table proof_branches: sha256 + seed, code =
+                               HMAC(secret, seed)): proofBranchFor (open code, else one a day per person, coding
+                               agents only; failed / needs_agent / taken), checkProofBranch (once a minute per
+                               code; ref, repo, pusher: User repo owner only, org any; exclusive; proof
+                               `proof_branch`, login basis `proof_branch`, rescore), branchProvenRepo (the token
+                               gate's stand-in for the line), branchToRemove, proofBranchStep (cron, deadline,
+                               7-day cleanup); tests: v2131-proof-branch.test.ts
     week-facts.ts(+test)       v2.13 T4: WeekFacts, weekFactsFor, factChips, startedLine, upsertWeekFacts,
                                weeklyFactsStep (Mondays from 15:00 UTC)
     update-text.ts(+test)      v2.13 T5: checkUpdate (280 characters, no @, secrets, own links only), notes

@@ -253,8 +253,10 @@ export async function tokenProposalBlock(
   // Ruling 22: outside campaigns the wallet goes to record_submission explicitly.
   if (!program.campaign)
     notes.push("Pass the wallet the builder confirmed (the wallet on the confirm line) as confirm's wallet");
+  // v2.13.1 O1 fix round 1 (ruling a): a repo proven by its proof branch needs no line (the gate takes the branch).
+  const branchProven = Boolean(a.repoUrl) && benchEnabled() && (await (await import('./proof-branch')).branchProvenRepo(a.installationId, a.repoUrl!));
   // Shown only to this agent (prepare_submission's reply): its code is useless to anyone else.
-  const tokenLine = a.repoUrl ? tokenLineFor(a.installationId, a.repoUrl) : null;
+  const tokenLine = a.repoUrl && !branchProven ? tokenLineFor(a.installationId, a.repoUrl) : null;
   const hasBonus = hasBuilderBonus(program);
   // Ruling 25: on a program with a builder bonus, a repo whose coin is entered elsewhere gets no
   // new coin (one per repo) and so no bonus here; the row says so. A failed read never fails this.
@@ -269,7 +271,7 @@ export async function tokenProposalBlock(
   const coinIn = coin && coin.program_id !== program.id ? coin.title : null;
   if (coinIn)
     notes.push(`This repo already has its token, entered in ${coinIn}: don't pass token; this entry gets no new token and no builder bonus`);
-  else notes.push(ownershipLine(tokenLine));
+  else if (!branchProven) notes.push(ownershipLine(tokenLine));
   return {
     proposed: { name: proposal.name, symbol: proposal.symbol, image: a.liveUrl ? 'site' : 'mark' },
     chain: 'base',

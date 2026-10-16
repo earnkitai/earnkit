@@ -1449,16 +1449,20 @@ ALTER TABLE coin_moments DROP CONSTRAINT IF EXISTS coin_moments_moment_check;
 ALTER TABLE coin_moments ADD CONSTRAINT coin_moments_moment_check
   CHECK (moment IN ('built_live','countable','first_five','has_people','streak_five'));
 -- v2.13.1 O1 (owner ruling, proof branch): the one project's proof is a temporary branch
--- earnkit-<code> the agent pushes to the exact repo (no file, no commit). One code per person and
--- repo key at a time, one hour, single use. `told_at`: the agent was told to delete the branch.
+-- earnkit-<code> the agent pushes to the exact repo (no file, no commit). The code is never stored:
+-- it is HMAC(EARNKIT_AUTH_SECRET, seed), and only its sha256 is kept to find it (as claim_codes).
+-- One hour, single use, at most one code a day per person. `checked_at`: GitHub is read at most once
+-- a minute per code. `told_at`: the agent was told to delete the branch. Rows over 7 days old go.
 CREATE TABLE IF NOT EXISTS proof_branches (
-  code        text PRIMARY KEY CHECK (code ~ '^[a-z2-7]{12}$'),
+  code_hash   text PRIMARY KEY CHECK (code_hash ~ '^[0-9a-f]{64}$'),
+  seed        text NOT NULL,
   builder_id  integer NOT NULL,
   repo_key    text NOT NULL,
   issued_at   timestamptz NOT NULL,
   expires_at  timestamptz NOT NULL,
+  checked_at  timestamptz,
   used_at     timestamptz,
   told_at     timestamptz
 );
-CREATE INDEX IF NOT EXISTS proof_branches_person ON proof_branches (builder_id, repo_key, issued_at DESC);
+CREATE INDEX IF NOT EXISTS proof_branches_person ON proof_branches (builder_id, issued_at DESC);
 CREATE INDEX IF NOT EXISTS proof_branches_open ON proof_branches (expires_at) WHERE used_at IS NULL;

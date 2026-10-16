@@ -18,9 +18,8 @@ import { claimThroughX } from './fixtures/claim-x';
 import { resolveHandle } from './profiles';
 import { refreshPerson, REFRESH_BUDGET_MS, rescorePerson } from './person-score';
 import { mainProjectOf } from './main-project';
-import { tokenLineFor } from './token-gate';
 import { benchCardFacts, benchRows, parseBenchFilter, profileData } from './bench-data';
-import { UPDATES_ASK, buildAsk, checkingBranchLine } from './bench-reply';
+import { UPDATES_ASK, buildAsk, checkingBranchLine, takenLine } from './bench-reply';
 import { NOT_CONFIRMED_NOTE, UPDATE_LINES } from './updates';
 import { pillOf } from './raising';
 import { feedWeeks, feedRankStep } from './feed';
@@ -151,17 +150,13 @@ function repo(owner: string, name: string, createdAt: number, homepage: string |
 const RECIPES = repo('maya', 'recipes', NOW.getTime() - 400 * DAY, 'https://recipes.app');
 /** maya's three weeks of commits (this week, last week, the week before). */
 const COMMITS = [NOW.getTime() - 1_000, NOW.getTime() - 7 * DAY, NOW.getTime() - 14 * DAY];
-/** The agent pushes the coin's earnkit.txt line to main, as maya (the token gate's own proof, at launch). */
-function pushLine(r: GhRepo, line: string) {
-  const at = Date.now();
-  const [before, after] = [sha('a'), sha('b')];
-  r.files.set(after, `${line}\n`);
-  r.head = { before, after, at };
-  r.activity.unshift({ activity_type: 'push', ref: 'refs/heads/main', before, after, timestamp: iso(at), actor: { login: r.owner } });
-}
 /** v2.13.1 O1: the agent's temporary proof branch (`owner/repo#branch`), pointing at the current commit. */
 const BRANCHES = new Set<string>();
-const pushBranch = (r: GhRepo, branch: string) => void BRANCHES.add(`${r.owner}/${r.name}#${branch}`);
+function pushBranch(r: GhRepo, branch: string) {
+  BRANCHES.add(`${r.owner}/${r.name}#${branch}`);
+  // GitHub's activity record of the push: the repo's owner created the branch (fix round 1: the pusher is checked).
+  r.activity.unshift({ activity_type: 'branch_creation', ref: `refs/heads/${branch}`, before: sha('0'), after: sha('b'), timestamp: iso(Date.now()), actor: { login: r.owner } });
+}
 /** The starter build's `gh repo create` and first push (v2.11 journey). */
 function firstPush(r: GhRepo, line: string) {
   const at = Date.now();
@@ -212,6 +207,9 @@ function github(u: URL): Response {
     const rest = m[3] ?? '';
     if (rest === '') return json(repoJson(r));
     if (rest === '/activity') return json(r.activity);
+    // maya/recipes has its three weeks of commits (COMMITS); a built repo, its first push.
+    if (rest === '/commits' && r === RECIPES && !r.head)
+      return json([{ sha: sha('d'), parents: [], author: { login: r.owner }, commit: { author: { date: iso(COMMITS[0]) }, committer: { date: iso(COMMITS[0]) } } }]);
     if (rest === '/commits')
       return json(r.head ? [{ sha: r.head.after, parents: [], author: { login: r.owner }, commit: { author: { date: iso(r.head.at) }, committer: { date: iso(r.head.at) } } }] : []);
     if (rest.startsWith('/compare/') && r.head && rest === `/compare/${r.head.before}...${r.head.after}`)
@@ -514,15 +512,15 @@ test('16.1 acceptance 1, with a project: the first reply names it and carries th
   assert.ok((await renderProfile('maya_makes', 'project')).includes('https://recipes.app'));
 });
 
-test('16.1b review focus 3: a second person naming maya/recipes, who never pushed the line, stays Confirming: no Bench, no update', db, async () => {
+test('16.1b review focus 3: a second person naming maya/recipes (already on the Bench under maya) is told so and stays off it: no Bench, no update', db, async () => {
   EVE = await newInstall();
   xUser = { id: 'x-eve', username: 'eve_ships', name: 'Eve', avatar: null };
   const r = await call('find', { identity: { github_login: 'eve', project: { ...RECIPES_PROJECT, name: 'My recipes' } } }, ctx(EVE));
-  assert.equal(r.show_to_builder.split('\n')[1], checkingBranchLine('My recipes'), r.show_to_builder);
+  assert.equal(r.show_to_builder.split('\n')[1], takenLine('My recipes'), r.show_to_builder);
   await claimX(r.claim!.link);
   await advanceRefreshGuard(EVE, 61_000);
   const again = await call('find', {}, ctx(EVE));
-  assert.equal(again.show_to_builder.split('\n')[1], checkingBranchLine('My recipes'), again.show_to_builder);
+  assert.equal(again.show_to_builder.split('\n')[1], takenLine('My recipes'), again.show_to_builder);
   assert.notEqual(again.move_up?.kind, 'updates');
   const update = await call('tell', { update: { text: 'Shipped the fridge photo import.' } }, ctx(EVE));
   assert.equal(update.agent_note, NOT_CONFIRMED_NOTE);
@@ -587,8 +585,7 @@ test('16.5 acceptance 5, raise: the yes launches the coin, the pill shows on the
   assert.doesNotMatch((await call('find', {}, ctx(EVE))).show_to_builder, /raise/i);
   const yes = await call('tell', { coin: { project_key: 'maya/recipes', answer: 'yes', wallet: MAYA.wallet } }, ctx(id));
   assert.ok(yes.project_id, JSON.stringify(yes));
-  // v2.13.1 O1: the Bench proof is a branch now, so the coin's own earnkit.txt line is pushed at launch (the gate's agent note).
-  pushLine(RECIPES, tokenLineFor(id, 'https://github.com/maya/recipes')!);
+  // v2.13.1 O1 fix round 1 (ruling a): the repo's proof branch stands in for the earnkit.txt line: nothing is pushed.
   const launch = await call('confirm', { project_id: yes.project_id, yes: true, wallet: MAYA.wallet }, ctx(id));
   assert.equal(launched.length, 1, JSON.stringify(launch));
   const pill = await pillOf(id);

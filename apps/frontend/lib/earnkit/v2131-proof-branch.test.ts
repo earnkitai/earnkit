@@ -1,21 +1,28 @@
 import './fixtures/no-network-checks';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { sql } from './db';
 import { X_ON, find, install, withEnv } from './fixtures/find';
 import { claimLink } from './claim';
 import { proofFor } from './main-project';
-import { PROOF_BRANCH_NOTE, PROOF_BRANCH_TTL_MS, checkProofBranch, proofBranchStep, removeCommand } from './proof-branch';
-import { benchReply, cantShowLine, checkingBranchLine, type BenchView } from './bench-reply';
+import {
+  PROOF_BRANCH_NOTE, PROOF_BRANCH_RECHECK_MS, PROOF_BRANCH_TTL_MS, branchProvenRepo, checkProofBranch, proofBranchStep, removeCommand,
+} from './proof-branch';
+import { NEEDS_AGENT_LINE, benchReply, cantShowLine, checkingBranchLine, confirmingSlowLine, takenLine, type BenchView } from './bench-reply';
+import { COIN_YES_NOTE, coinYesNote } from './coin-moments';
+import { tokenGate, type GateDeps } from './token-gate';
+import { discoverPerson } from './discovery';
 import type { ReaderDeps } from './source-readers';
 
 /**
- * v2.13.1 O1 (owner ruling, proof branch): while the one project (a GitHub repo) isn't confirmed,
- * find gives the agent a one-hour, single-use branch name to push (no file, no commit) and tells the
- * builder in one line. EarnKit reads the branch on the exact repo with its own token; a pass verifies
- * the repo (`proof_branch`), rescores at once and tells the agent to delete the branch. A branch that
- * never shows gets one plain line. The claim link is a full https URL. Flag off: today's.
+ * v2.13.1 O1 (owner ruling, proof branch; fix round 1 rulings a, b, c and authorization): while the
+ * one project (a GitHub repo) isn't confirmed, find gives a coding agent a one-hour, single-use branch
+ * name to push (no file, no commit) and tells the builder in one line. EarnKit reads the branch on the
+ * exact repo, then who pushed it (a User repo: only its owner; an org's: any member), at most once a
+ * minute. A pass verifies the repo (`proof_branch`, exclusive: the first holder keeps it), records the
+ * pusher's login, rescores at once and tells the agent to delete the branch. Codes are stored hashed.
+ * A branch-proven repo needs no earnkit.txt line for a coin. Flag off: today's.
  */
 
 process.env.EARNKIT_BUILDER_SCORE = 'on';
@@ -29,202 +36,377 @@ after(async () => {
 const RUN = randomBytes(3).toString('hex');
 const ON = { EARNKIT_BUILDER_SCORE: 'on', EARNKIT_BENCH: 'on', EARNKIT_URL: undefined, ...X_ON };
 const NO_MATCH = { matchProjects: async () => ({ checked: 1, scored: 0, fits: [] }) };
+const DAY = 86_400_000;
 let seq = 0;
 const uniq = (p: string) => `${p}${RUN}${++seq}`;
 
-/** A fake GitHub REST API: branches by `owner/repo#branch`, repos' metadata (default: their own, not a fork). */
-function fakeGitHub(o: { branches?: Set<string>; repos?: Record<string, { fork?: boolean; is_template?: boolean; full_name?: string }> } = {}) {
-  const branches = o.branches ?? new Set<string>();
+type RepoMeta = { full_name?: string; fork?: boolean; is_template?: boolean; owner?: { login: string; type: 'User' | 'Organization' } };
+/**
+ * A fake GitHub REST API (keys as GitHub spells them, matched case-insensitively): branches and their
+ * activity per repo, repo metadata (default: its own, a User's, not a fork), and per-repo overrides for
+ * the ref read (a status such as 301, or a ref url naming another repo).
+ */
+function fakeGitHub() {
+  const branches = new Map<string, { actor: string }>(); // `owner/repo#branch` (lowercase) -> who pushed it
+  const repos: Record<string, RepoMeta> = {};
+  const refStatus: Record<string, number> = {};
+  const refUrlRepo: Record<string, string> = {};
   const calls: string[] = [];
   const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
   const f = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
-    calls.push(url.pathname);
+    calls.push(url.pathname + url.search);
     assert.equal(url.host, 'api.github.com');
     assert.equal(init?.redirect, 'manual', 'redirects are refused');
-    const ref = /^\/repos\/([^/]+\/[^/]+)\/git\/ref\/heads\/(.+)$/.exec(url.pathname);
+    const m = /^\/repos\/([^/]+)\/([^/]+)(\/.*)?$/.exec(url.pathname);
+    if (!m) return json(404, {});
+    const key = `${m[1]}/${m[2]}`.toLowerCase();
+    const rest = m[3] ?? '';
+    const ref = /^\/git\/ref\/heads\/(.+)$/.exec(rest);
     if (ref) {
-      const [, key, branch] = ref;
-      return branches.has(`${key}#${branch}`)
-        ? json(200, { ref: `refs/heads/${branch}`, url: `https://api.github.com/repos/${key}/git/refs/heads/${branch}`, object: { sha: 'a'.repeat(40), type: 'commit' } })
+      if (refStatus[key]) return json(refStatus[key], { message: 'Moved Permanently' });
+      const b = branches.get(`${key}#${ref[1]}`);
+      return b
+        ? json(200, { ref: `refs/heads/${ref[1]}`, url: `https://api.github.com/repos/${refUrlRepo[key] ?? `${m[1]}/${m[2]}`}/git/refs/heads/${ref[1]}`, object: { sha: 'a'.repeat(40), type: 'commit' } })
         : json(404, { message: 'Not Found' });
     }
-    const repo = /^\/repos\/([^/]+\/[^/]+)$/.exec(url.pathname);
-    if (repo) return json(200, { full_name: repo[1], fork: false, is_template: false, ...o.repos?.[repo[1]] });
+    if (rest === '/activity') {
+      const want = url.searchParams.get('ref');
+      const list = [...branches.entries()]
+        .filter(([k]) => k.startsWith(`${key}#`) && (!want || want === `refs/heads/${k.split('#')[1]}`))
+        .map(([k, v]) => ({ activity_type: 'branch_creation', ref: `refs/heads/${k.split('#')[1]}`, before: '0'.repeat(40), after: 'a'.repeat(40), timestamp: new Date().toISOString(), actor: { login: v.actor } }));
+      return json(200, list);
+    }
+    if (rest === '') {
+      const meta = repos[key] ?? {};
+      return json(200, { full_name: `${m[1]}/${m[2]}`, fork: false, is_template: false, owner: { login: m[1], type: 'User' }, ...meta });
+    }
     return json(404, {});
   }) as typeof fetch;
-  return { f, branches, calls };
+  /** The agent's push: the branch on `key`, by `actor` (default: the repo's owner). */
+  const push = (key: string, branch: string, actor = key.split('/')[0]) => void branches.set(`${key.toLowerCase()}#${branch}`, { actor });
+  const refReads = () => calls.filter((c) => c.includes('/git/ref/')).length;
+  return { f, push, repos, refStatus, refUrlRepo, calls, refReads };
 }
 
-const named = (key: string) => ({ identity: { github_login: key.split('/')[0], project: { name: 'Recipe planner', what: 'a recipe planner', repo: key } } });
+const named = (repo: string, extra: Record<string, unknown> = {}) => ({
+  identity: { github_login: repo.split('/')[0], project: { name: 'Recipe planner', what: 'a recipe planner', repo } }, ...extra,
+});
+type Proof = { repo?: string; branch?: string; push?: string; remove?: string; agent_note?: string };
+const proofOf = (r: { proof?: unknown }) => (r.proof ?? undefined) as Proof | undefined;
 const source = async (id: number, key: string) => {
   const [s] = await sql()<{ state: string; proof: string | null }[]>`
-    SELECT state, proof FROM builder_sources WHERE builder_id = ${id} AND kind = 'repo' AND lower(ref) = ${key} ORDER BY id LIMIT 1`;
+    SELECT state, proof FROM builder_sources WHERE builder_id = ${id} AND kind = 'repo' AND lower(ref) = ${key.toLowerCase()} ORDER BY id LIMIT 1`;
   return s ? { ...s } : null;
 };
-const codes = (id: number) => sql()<{ code: string; repo_key: string; used_at: Date | null; told_at: Date | null; expires_at: Date; issued_at: Date }[]>`
-  SELECT code, repo_key, used_at, told_at, expires_at, issued_at FROM proof_branches WHERE builder_id = ${id} ORDER BY issued_at`;
+const rows = (id: number) => sql()<{ code_hash: string; repo_key: string; used_at: Date | null; expires_at: Date; issued_at: Date }[]>`
+  SELECT code_hash, repo_key, used_at, expires_at, issued_at FROM proof_branches WHERE builder_id = ${id} ORDER BY issued_at`;
 const ranked = async (id: number) => Boolean((await sql()`SELECT 1 FROM builder_live WHERE builder_id = ${id} AND ranked`)[0]);
 const started = async (id: number, key: string) => Boolean((await sql()`SELECT 1 FROM project_updates WHERE builder_id = ${id} AND lower(project_key) = ${key} AND facts ? 'started'`)[0]);
-/** Moves the person's codes `ms` into the past (issued and expiry). */
+/** Moves the person's codes `ms` into the past (issued, expiry and last check). */
 const age = (id: number, ms: number) => sql()`
-  UPDATE proof_branches SET issued_at = issued_at - ${`${ms} milliseconds`}::interval, expires_at = expires_at - ${`${ms} milliseconds`}::interval WHERE builder_id = ${id}`;
+  UPDATE proof_branches SET issued_at = issued_at - ${`${ms} milliseconds`}::interval, expires_at = expires_at - ${`${ms} milliseconds`}::interval,
+    checked_at = checked_at - ${`${ms} milliseconds`}::interval WHERE builder_id = ${id}`;
+const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
+
+/** A fresh install whose agent named `repo`; its first reply and the branch it was given. */
+async function start(gh: ReturnType<typeof fakeGitHub>, repo: string) {
+  const id = await install();
+  const r = await find(id, named(repo), { ...NO_MATCH, proofBranchFetch: gh.f });
+  return { id, r, branch: proofOf(r)?.branch ?? '' };
+}
+/** The next find, past the once-a-minute check. */
+async function again(gh: ReturnType<typeof fakeGitHub>, id: number) {
+  await sql()`UPDATE proof_branches SET checked_at = checked_at - interval '2 minutes' WHERE builder_id = ${id} AND checked_at IS NOT NULL`;
+  return find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
+}
 
 // ---- Pure
 
-test('O1.1 the lines: checking with a temporary branch (no question), and the plain line when it never showed', () => {
+test('O1.1 the lines: checking (no question), never showed, needs a coding agent, already on the Bench', () => {
   assert.equal(checkingBranchLine('Recipe planner'), "I'll check Recipe planner is yours with a quick temporary branch on GitHub. It's removed right after.");
   assert.equal(cantShowLine('Recipe planner'), "I couldn't show Recipe planner is yours. Ask your agent to use a project you can push to.");
+  assert.equal(NEEDS_AGENT_LINE, 'Open this project in your coding agent to finish.');
+  assert.equal(takenLine('Recipe planner'), 'Recipe planner is already on the Bench under another account.');
   const v: BenchView = {
     project: { key: 'maya/recipes', name: 'Recipe planner', confirmed: false, live: false, weeks: 0 },
     rank: null, claimed: false, handle: null, claimLink: 'https://earnkit.com/claim/abcdefghijkl', fund: [], ask: null, branch: 'checking',
   };
   assert.equal(benchReply(v), ['Where you stand', checkingBranchLine('Recipe planner'), 'Claim your page with X: https://earnkit.com/claim/abcdefghijkl'].join('\n'));
   assert.equal(benchReply({ ...v, branch: 'failed' }).split('\n')[1], cantShowLine('Recipe planner'));
-  for (const b of ['checking', 'failed'] as const) assert.doesNotMatch(benchReply({ ...v, branch: b }), /\?|earnkit\.txt|sign in/i);
+  assert.equal(benchReply({ ...v, branch: 'needs_agent' }).split('\n')[1], NEEDS_AGENT_LINE);
+  assert.equal(benchReply({ ...v, branch: 'taken' }).split('\n')[1], takenLine('Recipe planner'));
+  for (const b of ['checking', 'failed', 'needs_agent', 'taken'] as const) assert.doesNotMatch(benchReply({ ...v, branch: b }), /\?|earnkit\.txt|sign in/i);
 });
 
 // ---- Through find
 
-test('O1.2 a branch on the repo: the first reply has one https link and the branch for the agent; the next find confirms, ranks, starts the log, uses the code and tells the agent to delete it', dbTest, () =>
+test('O1.2 the owner pushes: one https link, the branch for the agent, the code stored hashed; then confirmed, ranked, Started, login recorded, code used, delete note once', dbTest, () =>
   withEnv(ON, async () => {
     const key = `${uniq('maya')}/recipes`;
     const gh = fakeGitHub();
-    const id = await install();
-    const r1 = await find(id, named(key), { ...NO_MATCH, proofBranchFetch: gh.f });
-    const lines = r1.show_to_builder.split('\n');
-    assert.equal(lines[1], checkingBranchLine('Recipe planner'), r1.show_to_builder);
-    assert.match(r1.claim?.link ?? '', /^https:\/\/earnkit\.com\/claim\/[a-z2-7]{12}$/);
-    assert.equal(lines[2], `Claim your page with X: ${r1.claim!.link}`);
-    assert.equal((r1.show_to_builder.match(/https?:\/\//g) ?? []).length, 1, 'the claim link is the only link');
-    const proof = r1.proof as unknown as Record<string, string>;
-    const [c] = await codes(id);
-    assert.match(c.code, /^[a-z2-7]{12}$/);
-    assert.equal(c.repo_key, key);
-    assert.equal(c.expires_at.getTime() - c.issued_at.getTime(), PROOF_BRANCH_TTL_MS);
-    assert.deepEqual(proof, {
-      repo: key, branch: `earnkit-${c.code}`, push: `git push origin HEAD:refs/heads/earnkit-${c.code}`,
-      remove: `git push origin :refs/heads/earnkit-${c.code}`, agent_note: PROOF_BRANCH_NOTE,
+    const { id, r, branch } = await start(gh, key);
+    const lines = r.show_to_builder.split('\n');
+    assert.equal(lines[1], checkingBranchLine('Recipe planner'), r.show_to_builder);
+    assert.match(r.claim?.link ?? '', /^https:\/\/earnkit\.com\/claim\/[a-z2-7]{12}$/);
+    assert.equal(lines[2], `Claim your page with X: ${r.claim!.link}`);
+    assert.equal((r.show_to_builder.match(/https?:\/\//g) ?? []).length, 1, 'the claim link is the only link');
+    const code = branch.replace(/^earnkit-/, '');
+    assert.match(code, /^[a-z2-7]{12}$/);
+    assert.deepEqual(proofOf(r), {
+      repo: key, branch, push: `git push origin HEAD:refs/heads/${branch}`, remove: `git push origin :refs/heads/${branch}`, agent_note: PROOF_BRANCH_NOTE,
     });
+    const [row] = await rows(id);
+    assert.equal(row.code_hash, sha256(code), 'only the hash is stored');
+    assert.equal((await sql()`SELECT 1 FROM proof_branches p WHERE p::text LIKE ${`%${code}%`}`).length, 0, 'the code itself is nowhere in the table');
+    assert.equal(row.expires_at.getTime() - row.issued_at.getTime(), PROOF_BRANCH_TTL_MS);
     assert.equal(await proofFor(id, id, { canPush: true, now: new Date() }), null, 'no line to push under the flag');
-    // Asked again before the push: the same code (a new one only after expiry), nothing confirmed.
-    const r2 = await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
-    assert.equal((r2.proof as unknown as Record<string, string>).branch, `earnkit-${c.code}`);
-    assert.equal((await codes(id)).length, 1);
-    assert.deepEqual(await source(id, key), { state: 'proposed', proof: null });
-    // The agent pushed the branch; the next find checks it.
-    gh.branches.add(`${key}#earnkit-${c.code}`);
-    const r3 = await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
+    // Asked again before the push: the same branch, nothing confirmed.
+    assert.equal(proofOf(await again(gh, id))?.branch, branch);
+    assert.equal((await rows(id)).length, 1);
+    gh.push(key, branch);
+    const r3 = await again(gh, id);
     assert.deepEqual(await source(id, key), { state: 'verified', proof: 'proof_branch' });
     assert.equal(await ranked(id), true, 'rescored at once');
     assert.equal(await started(id, key), true, 'the Started row');
-    assert.ok((await codes(id))[0].used_at, 'the code is used');
-    assert.deepEqual(r3.proof, { remove: removeCommand(c.code), agent_note: `Confirmed. Delete the branch now: ${removeCommand(c.code)}` });
+    assert.ok((await rows(id))[0].used_at, 'the code is used');
+    const [p] = await sql()<{ github_login: string; github_basis: string }[]>`SELECT github_login, github_basis FROM builder_profiles WHERE builder_id = ${id}`;
+    assert.deepEqual({ ...p }, { github_login: key.split('/')[0], github_basis: 'proof_branch' }, 'the pusher is the proven login');
+    assert.deepEqual(r3.proof, { remove: removeCommand(code), agent_note: `Confirmed. Delete the branch now: ${removeCommand(code)}` });
     assert.doesNotMatch(r3.show_to_builder, /temporary branch/);
-    // Told once.
-    assert.equal((await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f })).proof, undefined);
+    assert.equal((await again(gh, id)).proof, undefined, 'told once');
   }),
 );
 
-test('O1.3 a branch on a fork never counts, nor a branch on a main project that is itself a fork', dbTest, () =>
+test('O1.3 never confirmed: a fork (same key), a 301 rename, another full_name, a ref url on another repo, a template', dbTest, () =>
   withEnv(ON, async () => {
+    const cases: [string, (gh: ReturnType<typeof fakeGitHub>, key: string) => void][] = [
+      ['fork', (gh, key) => void (gh.repos[key] = { fork: true })],
+      ['301 rename', (gh, key) => void (gh.refStatus[key] = 301)],
+      ['full_name', (gh, key) => void (gh.repos[key] = { full_name: `someone/${key.split('/')[1]}` })],
+      ['ref url', (gh, key) => void (gh.refUrlRepo[key] = `elsewhere/${key.split('/')[1]}`)],
+      ['template', (gh, key) => void (gh.repos[key] = { is_template: true })],
+    ];
+    for (const [why, set] of cases) {
+      const key = `${uniq('neg')}/recipes`;
+      const gh = fakeGitHub();
+      set(gh, key);
+      const { id, branch } = await start(gh, key);
+      gh.push(key, branch);
+      assert.equal(await checkProofBranch(id, new Date(), { ghFetch: gh.f }), false, why);
+      assert.deepEqual(await source(id, key), { state: 'proposed', proof: null }, why);
+      assert.equal(await ranked(id), false, why);
+      assert.equal((await rows(id))[0].used_at, null, why);
+    }
+    // A branch pushed to a fork's own key never counts for the main repo.
     const key = `${uniq('own')}/recipes`;
     const gh = fakeGitHub();
-    const id = await install();
-    await find(id, named(key), { ...NO_MATCH, proofBranchFetch: gh.f });
-    const [c] = await codes(id);
-    gh.branches.add(`${uniq('forker')}/recipes#earnkit-${c.code}`);
+    const { id, branch } = await start(gh, key);
+    gh.push(`${uniq('forker')}/recipes`, branch);
     assert.equal(await checkProofBranch(id, new Date(), { ghFetch: gh.f }), false);
-    // The main project is a fork: the branch is there, but it is not their own work.
-    const forked = `${uniq('fk')}/recipes`;
-    const gf = fakeGitHub({ repos: { [forked]: { fork: true } } });
-    const id2 = await install();
-    await find(id2, named(forked), { ...NO_MATCH, proofBranchFetch: gf.f });
-    const [c2] = await codes(id2);
-    gf.branches.add(`${forked}#earnkit-${c2.code}`);
-    assert.equal(await checkProofBranch(id2, new Date(), { ghFetch: gf.f }), false);
-    for (const [who, k] of [[id, key], [id2, forked]] as const) {
-      assert.deepEqual(await source(who, k), { state: 'proposed', proof: null });
-      assert.equal(await ranked(who), false);
-      assert.equal((await codes(who))[0].used_at, null);
-    }
   }),
 );
 
-test('O1.4 an expired code never verifies; after the hour the reply has the plain line, no proof and no new code', dbTest, () =>
+test('O1.4 who pushed: a collaborator on a User repo is refused; an org member confirms an org repo; a mixed-case key confirms', dbTest, () =>
+  withEnv(ON, async () => {
+    const user = `${uniq('solo')}/recipes`;
+    const gh = fakeGitHub();
+    const a = await start(gh, user);
+    gh.push(user, a.branch, uniq('collab'));
+    assert.equal(await checkProofBranch(a.id, new Date(), { ghFetch: gh.f }), false, 'a collaborator pushed');
+    assert.deepEqual(await source(a.id, user), { state: 'proposed', proof: null });
+    const org = `${uniq('acme')}/app`;
+    gh.repos[org] = { owner: { login: org.split('/')[0], type: 'Organization' } };
+    const b = await start(gh, org);
+    const member = uniq('member');
+    gh.push(org, b.branch, member);
+    assert.equal(await checkProofBranch(b.id, new Date(), { ghFetch: gh.f }), true, 'an org member pushed');
+    assert.deepEqual(await source(b.id, org), { state: 'verified', proof: 'proof_branch' });
+    assert.equal((await sql()<{ l: string }[]>`SELECT github_login AS l FROM builder_profiles WHERE builder_id = ${b.id}`)[0].l, member);
+    // The agent names "Maya/Recipes"; GitHub spells it the same way back.
+    const owner = uniq('Maya');
+    const mixed = `${owner}/Recipes`;
+    gh.repos[mixed.toLowerCase()] = { full_name: mixed, owner: { login: owner, type: 'User' } };
+    const c = await start(gh, mixed);
+    assert.equal(proofOf(c.r)?.repo, mixed.toLowerCase());
+    gh.push(mixed, c.branch, owner);
+    assert.equal(await checkProofBranch(c.id, new Date(), { ghFetch: gh.f }), true, 'case never matters');
+  }),
+);
+
+test('O1.5 exclusive: a second person on a confirmed repo is refused with a plain line, and their branch never confirms', dbTest, () =>
+  withEnv(ON, async () => {
+    const key = `${uniq('first')}/recipes`;
+    const gh = fakeGitHub();
+    const a = await start(gh, key);
+    const b = await start(gh, key);
+    assert.notEqual(a.branch, b.branch);
+    gh.push(key, a.branch);
+    assert.equal(await checkProofBranch(a.id, new Date(), { ghFetch: gh.f }), true);
+    gh.push(key, b.branch);
+    assert.equal(await checkProofBranch(b.id, new Date(), { ghFetch: gh.f }), false, 'the first holder keeps it');
+    assert.deepEqual(await source(b.id, key), { state: 'proposed', proof: null });
+    const r = await again(gh, b.id);
+    assert.equal(r.show_to_builder.split('\n')[1], takenLine('Recipe planner'), r.show_to_builder);
+    assert.equal(r.proof, undefined);
+    // A third person never gets a code for it.
+    const c = await start(gh, key);
+    assert.equal(c.r.show_to_builder.split('\n')[1], takenLine('Recipe planner'));
+    assert.equal((await rows(c.id)).length, 0);
+  }),
+);
+
+test('O1.6 expired: never verifies, the plain line, no new code within a day; after a day a new code', dbTest, () =>
   withEnv(ON, async () => {
     const key = `${uniq('late')}/recipes`;
     const gh = fakeGitHub();
-    const id = await install();
-    await find(id, named(key), { ...NO_MATCH, proofBranchFetch: gh.f });
-    const [c] = await codes(id);
+    const { id, branch } = await start(gh, key);
     await age(id, PROOF_BRANCH_TTL_MS + 1000);
-    gh.branches.add(`${key}#earnkit-${c.code}`);
+    gh.push(key, branch);
     assert.equal(await checkProofBranch(id, new Date(), { ghFetch: gh.f }), false);
-    const r = await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
+    const r = await again(gh, id);
     assert.equal(r.show_to_builder.split('\n')[1], cantShowLine('Recipe planner'), r.show_to_builder);
     assert.equal(r.proof, undefined);
-    assert.equal((await codes(id)).length, 1, 'no loop: no new code');
-    assert.deepEqual(await source(id, key), { state: 'proposed', proof: null });
+    assert.equal((await rows(id)).length, 1, 'no new code within the day');
+    await age(id, DAY);
+    const next = await again(gh, id);
+    assert.equal(next.show_to_builder.split('\n')[1], checkingBranchLine('Recipe planner'), next.show_to_builder);
+    assert.notEqual(proofOf(next)?.branch, branch);
+    assert.equal((await rows(id)).length, 2);
   }),
 );
 
-test('O1.5 a used code never verifies again', dbTest, () =>
+test('O1.7 one code a day per person across all keys: a new main project the same day gets no code (the slow line)', dbTest, () =>
+  withEnv(ON, async () => {
+    const gh = fakeGitHub();
+    const { id } = await start(gh, `${uniq('one')}/recipes`);
+    const other = `${uniq('two')}/recipes`;
+    await sql()`UPDATE builder_profiles SET main_project_key = ${other} WHERE builder_id = ${id}`;
+    const r = await again(gh, id);
+    assert.equal(r.proof, undefined);
+    assert.equal((await rows(id)).length, 1);
+    assert.equal(r.show_to_builder.split('\n')[1], confirmingSlowLine(other.split('/')[1]), r.show_to_builder);
+  }),
+);
+
+test('O1.8 a used code never verifies again; another person\'s code never confirms this person', dbTest, () =>
   withEnv(ON, async () => {
     const key = `${uniq('used')}/recipes`;
     const gh = fakeGitHub();
-    const id = await install();
-    await find(id, named(key), { ...NO_MATCH, proofBranchFetch: gh.f });
-    const [c] = await codes(id);
-    gh.branches.add(`${key}#earnkit-${c.code}`);
+    const { id, branch } = await start(gh, key);
+    gh.push(key, branch);
     assert.equal(await checkProofBranch(id, new Date(), { ghFetch: gh.f }), true);
-    // The repo's proof taken away (a revoke): the same branch, the same code, proves nothing now.
     await sql()`UPDATE builder_sources SET state = 'proposed', proof = NULL, verified_at = NULL WHERE builder_id = ${id} AND kind = 'repo'`;
-    assert.equal(await checkProofBranch(id, new Date(), { ghFetch: gh.f }), false);
-    assert.deepEqual(await source(id, key), { state: 'proposed', proof: null });
+    await sql()`UPDATE proof_branches SET checked_at = NULL WHERE builder_id = ${id}`;
+    assert.equal(await checkProofBranch(id, new Date(), { ghFetch: gh.f }), false, 'used');
+    // Two people, two codes, one repo nobody holds yet: only the person whose code is on GitHub.
+    const shared = `${uniq('both')}/recipes`;
+    const a = await start(gh, shared);
+    const b = await start(gh, shared);
+    gh.push(shared, a.branch);
+    assert.equal(await checkProofBranch(b.id, new Date(), { ghFetch: gh.f }), false);
+    assert.deepEqual(await source(b.id, shared), { state: 'proposed', proof: null });
   }),
 );
 
-test('O1.6 another person\'s code: a branch made for one person never confirms another naming the same repo', dbTest, () =>
+test('O1.9 at most one GitHub check a minute per person (two finds: one ref read)', dbTest, () =>
   withEnv(ON, async () => {
-    const key = `${uniq('shared')}/recipes`;
     const gh = fakeGitHub();
-    const [a, b] = [await install(), await install()];
-    await find(a, named(key), { ...NO_MATCH, proofBranchFetch: gh.f });
-    await find(b, named(key), { ...NO_MATCH, proofBranchFetch: gh.f });
-    const [ca] = await codes(a);
-    const [cb] = await codes(b);
-    assert.notEqual(ca.code, cb.code);
-    gh.branches.add(`${key}#earnkit-${ca.code}`);
-    assert.equal(await checkProofBranch(b, new Date(), { ghFetch: gh.f }), false);
-    assert.deepEqual(await source(b, key), { state: 'proposed', proof: null });
-    assert.equal(await checkProofBranch(a, new Date(), { ghFetch: gh.f }), true);
-    assert.deepEqual(await source(a, key), { state: 'verified', proof: 'proof_branch' });
+    const { id } = await start(gh, `${uniq('quiet')}/recipes`);
+    const before = gh.refReads();
+    await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
+    await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
+    assert.equal(gh.refReads() - before, 1, 'one read for two finds within a minute');
+    await sql()`UPDATE proof_branches SET checked_at = checked_at - ${`${PROOF_BRANCH_RECHECK_MS + 1000} milliseconds`}::interval WHERE builder_id = ${id}`;
+    await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
+    assert.equal(gh.refReads() - before, 2);
   }),
 );
 
-test('O1.7 the cron step checks open codes with the run\'s budgeted fetch (none: skipped)', dbTest, () =>
+test('O1.10 an agent that can\'t build gets no code and the plain line', dbTest, () =>
+  withEnv(ON, async () => {
+    const gh = fakeGitHub();
+    const id = await install();
+    const r = await find(id, named(`${uniq('chat')}/recipes`, { agent_can_build: false }), { ...NO_MATCH, proofBranchFetch: gh.f });
+    assert.equal(r.show_to_builder.split('\n')[1], NEEDS_AGENT_LINE, r.show_to_builder);
+    assert.equal(r.proof, undefined);
+    assert.equal((await rows(id)).length, 0);
+  }),
+);
+
+test('O1.11 the cron step: checks with the run\'s fetch until its deadline, and clears rows over 7 days old', dbTest, () =>
   withEnv(ON, async () => {
     const key = `${uniq('cron')}/recipes`;
     const gh = fakeGitHub();
+    const { id, branch } = await start(gh, key);
+    gh.push(key, branch);
+    const reader = { ghFetch: gh.f } as ReaderDeps;
+    assert.deepEqual(await proofBranchStep(new Date(), { only: [id], deadline: Date.now() + 5000 }), { checked: 0, confirmed: 0, cleared: 0 }, 'no fetch: skipped');
+    assert.deepEqual(await proofBranchStep(new Date(), { reader, only: [id], deadline: Date.now() - 1 }), { checked: 0, confirmed: 0, cleared: 0 }, 'past the deadline');
+    assert.deepEqual(await proofBranchStep(new Date(), { reader, only: [id], deadline: Date.now() + 5000 }), { checked: 1, confirmed: 1, cleared: 0 });
+    await age(id, 8 * DAY);
+    assert.deepEqual(await proofBranchStep(new Date(), { reader, only: [id], deadline: Date.now() + 5000 }), { checked: 0, confirmed: 0, cleared: 1 });
+    assert.equal((await rows(id)).length, 0);
+  }),
+);
+
+test('O1.12 a coin: a branch-proven repo passes the token gate with no earnkit.txt line, and the coin note names no line; flag off, the line as today', dbTest, () =>
+  withEnv(ON, async () => {
+    const key = `${uniq('coin')}/recipes`;
+    const gh = fakeGitHub();
+    const { id, branch } = await start(gh, key);
+    const deps: GateDeps = {
+      verified: async () => null, shared: async () => false, appToken: async () => null, appLink: async () => null,
+      repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
+      owner: async () => ({ status: 'missing' }) as never, latest: async () => null, screen: async () => {},
+    };
+    const input = { policy: 'encouraged' as const, repoUrl: `https://github.com/${key}`, wallet: `0x${'1a'.repeat(20)}`, symbol: 'RCP', installationId: id };
+    const before = await tokenGate(input, deps);
+    assert.equal(before.ok, false, 'not proven yet: the line as before');
+    gh.push(key, branch);
+    assert.equal(await checkProofBranch(id, new Date(), { ghFetch: gh.f }), true);
+    assert.equal(await branchProvenRepo(id, input.repoUrl), true);
+    assert.deepEqual(await tokenGate(input, deps), { ok: true });
+    assert.doesNotMatch(coinYesNote(), /line|earnkit\.txt/i);
+    await withEnv({ EARNKIT_BENCH: undefined }, async () => {
+      assert.equal((await tokenGate(input, deps)).ok, false, 'flag off: the line is still asked');
+      assert.equal(coinYesNote(), COIN_YES_NOTE);
+    });
+  }),
+);
+
+test('O1.13 discovery never revokes a proof_branch repo, even when a proven login does not own it', dbTest, () =>
+  withEnv({ ...ON, EARNKIT_BENCH: undefined }, async () => {
     const id = await install();
-    await find(id, named(key), { ...NO_MATCH, proofBranchFetch: gh.f });
-    const [c] = await codes(id);
-    gh.branches.add(`${key}#earnkit-${c.code}`);
-    assert.deepEqual(await proofBranchStep(new Date(), { only: [id] }), { checked: 0, confirmed: 0 });
-    assert.deepEqual(await proofBranchStep(new Date(), { reader: { ghFetch: gh.f } as ReaderDeps, only: [id] }), { checked: 1, confirmed: 1 });
+    await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${id}, ${`v2131-${id}`})`;
+    const key = `${uniq('kept')}/recipes`;
+    await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by, verified_at)
+      VALUES (${id}, 'repo', ${key}, ${key}, 'verified', 'proof_branch', 'server', now())`;
+    const login = uniq('zed');
+    // The proven login's owned-repo listing names the repo, owned by someone else: discovery's not_owner path.
+    const reader = new Proxy({}, {
+      get: (_t, k) => {
+        if (k === 'now') return new Date();
+        if (k === 'ghSpent') return () => false;
+        if (k === 'gh') return async (path: string) =>
+          path.startsWith(`/users/${login}/repos`) ? [{ full_name: key, fork: false, is_template: false, owner: { login: key.split('/')[0], type: 'User' } }]
+          : path === `/users/${login}` ? { login, blog: null, twitter_username: null } : [];
+        return async () => [];
+      },
+    }) as ReaderDeps;
+    await discoverPerson(id, { deadline: Date.now() + 10_000, reader, login: async () => ({ login, basis: 'signin' }) });
     assert.deepEqual(await source(id, key), { state: 'verified', proof: 'proof_branch' });
   }),
 );
 
-test('O1.8 flag off: no branch, today\'s claim link', dbTest, () =>
+test('O1.14 flag off: no branch, no GitHub reads, no codes, today\'s claim link', dbTest, () =>
   withEnv({ ...ON, EARNKIT_BENCH: undefined }, async () => {
     const gh = fakeGitHub();
     const id = await install();
     const r = await find(id, named(`${uniq('off')}/recipes`), { ...NO_MATCH, proofBranchFetch: gh.f });
     assert.doesNotMatch(r.show_to_builder, /temporary branch/);
-    assert.equal((r.proof as { branch?: string } | undefined)?.branch, undefined);
-    assert.equal((await codes(id)).length, 0);
+    assert.equal(proofOf(r)?.branch, undefined);
+    assert.equal((await rows(id)).length, 0);
     assert.deepEqual(gh.calls, []);
     assert.match((await claimLink(id)) ?? '', /^earnkit\.com\/claim\/[a-z2-7]{12}$/);
   }),

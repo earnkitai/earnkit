@@ -222,7 +222,7 @@ type Counts = {
   /** v2.12.2: the proof-line check was skipped for lack of time with candidates to check (discoverPerson). */
   proofSkipped?: boolean;
 };
-type Row = { id: number; state: string };
+type Row = { id: number; state: string; proof?: string | null };
 type DiscoverOpts = {
   deadline: number; reader: ReaderDeps; login?: LoginOf; proofLine?: ProofLineCheck;
   /** v2.12.2: skip the proof-line check (never throw) when less than PROOF_LINE_MIN_MS remains. */
@@ -247,7 +247,7 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
   const stateOf = (row: Row) => planned.get(row.id) ?? row.state;
   const propose = async (kind: string, ref: string, key: string): Promise<Row> => {
     if ((await proposeSource({ builder_id: root, kind, ref, project_key: key, proposed_by: 'server' })) !== null) out.proposed++;
-    const [row] = await db<Row[]>`SELECT id::int AS id, state FROM builder_sources WHERE builder_id = ${root} AND kind = ${kind} AND ref = ${ref}`;
+    const [row] = await db<Row[]>`SELECT id::int AS id, state, proof FROM builder_sources WHERE builder_id = ${root} AND kind = ${kind} AND ref = ${ref}`;
     return row;
   };
   // Only a proposed source is verified: a rejected (or revoked) one stays rejected.
@@ -260,7 +260,8 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
     });
   };
   const reject = (row: Row, reason: string) => {
-    if (stateOf(row) === 'rejected') return;
+    // v2.13.1 O1 fix round 1: a repo proven by its own pushed branch is never revoked by discovery.
+    if (stateOf(row) === 'rejected' || row.proof === 'proof_branch') return;
     planned.set(row.id, 'rejected');
     verdicts.push(() => rejectSource(row.id, reason));
   };

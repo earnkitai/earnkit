@@ -77,7 +77,7 @@ export async function ensureProfile(
  * page shows the X name). A login is set once and only if no other profile holds it (one login, one
  * person).
  */
-export type GithubBasis = 'signin' | 'app' | 'proof_line' | 'x_match';
+export type GithubBasis = 'signin' | 'app' | 'proof_line' | 'x_match' | 'proof_branch';
 
 /** v2.12.1: `basis` is how the login was proven, kept as github_basis with the login (a merge reads it). */
 export async function setFallback(builderId: number, f: { github_login?: string; basis?: GithubBasis; wallet?: string }): Promise<void> {
