@@ -4441,9 +4441,18 @@ test('T6 follow-up: find on the real switches with production\'s env offers no b
   assert.ok(!('build_offer' in r));
   // Review M6: byte for byte the reply with no fresh_build on the program at all (the second call
   // each time: the first carries the one-time schedule_daily_check).
-  const withField = JSON.stringify(await find());
-  await sql()`UPDATE programs SET fresh_build = NULL WHERE id = ${p.id}`;
-  assert.equal(JSON.stringify(await find()), withField);
+  // v2.13.1 O3 fix round 1: other files add programs while this runs (the reply's open total moves),
+  // so the pair is read again, up to 3 times, until no outside write fell between the two reads; a
+  // real difference from fresh_build shows in every pair.
+  let withField = '';
+  let without = '';
+  for (let i = 0; i < 3 && (i === 0 || withField !== without); i++) {
+    await sql()`UPDATE programs SET fresh_build = ${sql().json(p.fresh_build as never)} WHERE id = ${p.id}`;
+    withField = JSON.stringify(await find());
+    await sql()`UPDATE programs SET fresh_build = NULL WHERE id = ${p.id}`;
+    without = JSON.stringify(await find());
+  }
+  assert.equal(without, withField);
   const [{ fresh_offer_at }] = await sql()<{ fresh_offer_at: Date | null }[]>`SELECT fresh_offer_at FROM installations WHERE id = ${inst}`;
   assert.equal(fresh_offer_at, null);
 });

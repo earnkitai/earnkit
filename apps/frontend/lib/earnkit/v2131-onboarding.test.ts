@@ -306,13 +306,19 @@ test('O2 fix round 1 (ruling 5): programs:check refuses the reserved id', () => 
 
 test('O2 fix round 1 (item 6): the no-program build\'s events (program_id earnkit-bench) never count as an entry, a program, a fit, the feed, stats or the bonus', dbTest, () =>
   on(async () => {
-    const before = await readStats();
     const id = await install();
     const repo = `${uniq('ev')}/podtips`;
-    for (const type of ['built', 'hosted'] as const)
-      await sql()`INSERT INTO builder_events (type, installation_id, repo_key, program_id, dedupe_key, detail) VALUES (${type}, ${id}, ${repo}, ${BENCH_BUILD_ID}, ${`${type}:o2:${id}`}, '{}'::jsonb)`;
-    const after = await readStats();
-    for (const k of ['programs_open', 'bonus_programs_open'] as const) assert.equal(after[k as keyof typeof after], before[k as keyof typeof before], k);
+    // O3 fix round 1: the stats are read before and after this test's own events inside one
+    // repeatable-read transaction, so rows other files write at the same time are never counted.
+    const now = new Date();
+    const [before, after] = await sql().begin('isolation level repeatable read', async (tx) => {
+      const b = await readStats(now, tx as never);
+      for (const type of ['built', 'hosted'] as const)
+        await tx`INSERT INTO builder_events (type, installation_id, repo_key, program_id, dedupe_key, detail) VALUES (${type}, ${id}, ${repo}, ${BENCH_BUILD_ID}, ${`${type}:o2:${id}`}, '{}'::jsonb)`;
+      return [b, await readStats(now, tx as never)] as const;
+    });
+    assert.equal((await sql()`SELECT 1 FROM builder_events WHERE installation_id = ${id} AND program_id = ${BENCH_BUILD_ID}`).length, 2, 'the events were written');
+    assert.deepEqual(after, before, 'its own events change no stat');
     assert.equal((await sql()`SELECT 1 FROM projects WHERE installation_id = ${id} OR program_id = ${BENCH_BUILD_ID}`).length, 0, 'no entry');
     assert.equal((await sql()`SELECT 1 FROM programs WHERE id = ${BENCH_BUILD_ID}`).length, 0, 'no program');
     assert.ok(!(await listPrograms()).some((p) => p.id === BENCH_BUILD_ID), 'never a fit or an idea');
