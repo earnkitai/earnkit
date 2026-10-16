@@ -10,7 +10,7 @@ import {
   PROOF_BRANCH_NOTE, PROOF_BRANCH_RECHECK_MS, PROOF_BRANCH_TTL_MS, checkProofBranch, coinBranchProof, proofBranchFor, proofBranchStep,
   removeCommand,
 } from './proof-branch';
-import { NEEDS_AGENT_LINE, benchReply, cantShowLine, checkingBranchLine, confirmingSlowLine, takenLine, type BenchView } from './bench-reply';
+import { benchReply, needsAgentLine, cantShowLine, checkingBranchLine, confirmingSlowLine, takenLine, type BenchView } from './bench-reply';
 import { COIN_YES_NOTE, coinYesNote } from './coin-moments';
 import { coinBranchReason, tokenGate, type GateDeps } from './token-gate';
 import { discoverPerson } from './discovery';
@@ -133,8 +133,9 @@ async function again(gh: ReturnType<typeof fakeGitHub>, id: number) {
 
 test('O1.1 the lines: checking (no question), never showed, needs a coding agent, already on the Bench', () => {
   assert.equal(checkingBranchLine('Recipe planner'), "I'll check Recipe planner is yours with a quick temporary branch on GitHub. It's removed right after.");
-  assert.equal(cantShowLine('Recipe planner'), "I couldn't show Recipe planner is yours. Ask your agent to use a project you can push to.");
-  assert.equal(NEEDS_AGENT_LINE, 'Open this project in your coding agent to finish.');
+  // O5 N8, N15: the plain line in the agent's own voice; the coding-agent line names the project.
+  assert.equal(cantShowLine('Recipe planner'), "I couldn't show Recipe planner is yours. It needs a project you can push to.");
+  assert.equal(needsAgentLine('Recipe planner'), 'Open Recipe planner in your coding agent to put it on the Bench.');
   assert.equal(takenLine('Recipe planner'), 'Recipe planner is already on the Bench under another account.');
   const v: BenchView = {
     project: { key: 'maya/recipes', name: 'Recipe planner', confirmed: false, live: false, weeks: 0 },
@@ -142,7 +143,7 @@ test('O1.1 the lines: checking (no question), never showed, needs a coding agent
   };
   assert.equal(benchReply(v), ['Where you stand', checkingBranchLine('Recipe planner'), 'Claim your page with X: https://earnkit.com/claim/abcdefghijkl'].join('\n'));
   assert.equal(benchReply({ ...v, branch: 'failed' }).split('\n')[1], cantShowLine('Recipe planner'));
-  assert.equal(benchReply({ ...v, branch: 'needs_agent' }).split('\n')[1], NEEDS_AGENT_LINE);
+  assert.equal(benchReply({ ...v, branch: 'needs_agent' }).split('\n')[1], needsAgentLine('Recipe planner'));
   assert.equal(benchReply({ ...v, branch: 'taken' }).split('\n')[1], takenLine('Recipe planner'));
   for (const b of ['checking', 'failed', 'needs_agent', 'taken'] as const) assert.doesNotMatch(benchReply({ ...v, branch: b }), /\?|earnkit\.txt|sign in/i);
 });
@@ -183,7 +184,7 @@ test('O1.2 the owner pushes: one https link, the branch for the agent, the code 
     assert.deepEqual({ ...g }, { gh_repo_id: String(idOf(key)), gh_owner: key.split('/')[0], gh_owner_type: 'User' }, 'GitHub\'s repo id and owner are kept with the proof');
     const [p] = await sql()<{ github_login: string; github_basis: string }[]>`SELECT github_login, github_basis FROM builder_profiles WHERE builder_id = ${id}`;
     assert.deepEqual({ ...p }, { github_login: key.split('/')[0], github_basis: 'proof_branch' }, 'the pusher is the proven login');
-    assert.deepEqual(r3.proof, { remove: removeCommand(code), agent_note: `Confirmed. Delete the branch now: ${removeCommand(code)}` });
+    assert.deepEqual(r3.proof, { remove: removeCommand(code), agent_note: `Confirmed. Delete the branch now: ${removeCommand(code)}. Don't show this note.` });
     assert.doesNotMatch(r3.show_to_builder, /temporary branch/);
     assert.equal((await again(gh, id)).proof, undefined, 'told once');
   }),
@@ -390,7 +391,7 @@ test('O1.10 an agent that can\'t build gets no code and the plain line', dbTest,
     const gh = fakeGitHub();
     const id = await install();
     const r = await find(id, named(`${uniq('chat')}/recipes`, { agent_can_build: false }), { ...NO_MATCH, proofBranchFetch: gh.f });
-    assert.equal(r.show_to_builder.split('\n')[1], NEEDS_AGENT_LINE, r.show_to_builder);
+    assert.equal(r.show_to_builder.split('\n')[1], needsAgentLine('Recipe planner'), r.show_to_builder);
     assert.equal(r.proof, undefined);
     assert.equal((await rows(id)).length, 0);
   }),

@@ -5055,6 +5055,23 @@ by the builder's own agent, public filters for the capital side, and an optional
   starter build is proven by its own proof branch, never an earnkit.txt line (`fresh-build.ts benchKit`,
   `token-gate.ts proveRepoByBranch`, `deploy.ts` via `branchProvenOwner`), so it is on the Bench the same
   day; `programs:check` refuses the reserved id `earnkit-bench`.
+- **v2.13.1 O5 (second first-run audit).** The reply never waits on GitHub: under the Bench, find and
+  score wait for the refresh, matching the one project and the proof check at most `reply-wait.ts
+  REPLY_WAIT_MS` (1.5 s; the reads run on and land for the next reply or the cron), so the first find
+  answers in under 3 s on any repo. Before a proof code is issued one cheap `GET /repos/{key}`
+  (`proof-branch.ts probeRepo`, 0.7 s cap): a 404 gives the plain "couldn't show" line at once, a User's
+  repo under another login than the proven or reported one gives "<project> is under someone else's
+  GitHub account." (both ask for a different project, no code), and a public read sets
+  `builder_sources.public_at`, so pages name a public repo at once (never "Private project") until a newer
+  reading says otherwise. `tell proof { pushed: false }` ends the code at once (`pushRefused`). Under the
+  Bench the refresh reads a proposed repo only while it is the one project. A grants yes that finds
+  nothing keeps grants quiet 7 days (`standing_seen.quiet`, `GRANTS_QUIET_MS`) and the next ask is "Want
+  me to suggest one small thing to ship in <project> this week?". A chat-only agent with a project reads
+  "Open <project> in your coding agent to put it on the Bench." and is never asked the weekly-posting yes.
+  No-project ideas only from programs the offered starter can enter, with their own pitch. Copy: the
+  wallet line has a way out, the building line drops the chain and says "your", update replies carry the
+  full page link, the rank phrase only from 5 ranked, the claim page says what the Bench page is, no GitHub
+  sign-in on the done page, "1 builder so far", "Money open now", an empty landing Bench says so.
 - **The weekly update.** One yes (`builder_profiles.updates_on_at`), then the agent's weekly task
   (`schedule_weekly_update` replaces `schedule_daily_check`) calls `tell update { text }`.
 - **Raise.** Optional, through a tokens.fun coin (`raising.ts`).

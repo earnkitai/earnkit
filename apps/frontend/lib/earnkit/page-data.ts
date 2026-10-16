@@ -142,7 +142,9 @@ export async function shownProjects(ids: number[]): Promise<Map<number, ShownPro
     WHERE bp.builder_id IN ${db(ids)}`;
   const cut = new Date(Date.now() - PUBLIC_REPO_DAYS * 86_400_000);
   const repos = await db<{ builder_id: number; ref: string; public: boolean }[]>`
-    SELECT b.builder_id, b.ref, COALESCE(n.ok AND n.signals->'private' = 'false'::jsonb AND n.at >= ${cut}, false) AS public
+    SELECT b.builder_id, b.ref, COALESCE(n.ok AND n.signals->'private' = 'false'::jsonb AND n.at >= ${cut}, false)
+      -- v2.13.1 O5 N4: a cheap read of the repo itself said public, after its newest reading (if any).
+      OR COALESCE(b.public_at >= ${cut} AND b.public_at > COALESCE(n.at, '-infinity'::timestamptz), false) AS public
     FROM builder_sources b
     LEFT JOIN LATERAL (
       SELECT x.ok, x.signals, x.at FROM (

@@ -7,7 +7,8 @@ import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
-import { NO_OFFER_LINE, NO_PROJECT_LINE, OTHER_PROJECT_ASK, POST_UPDATE_ASK, SUGGEST_ASK, UPDATES_ASK_JOINING, benchBuildAsk, buildingNowLine, cantShowLine, grantsAsk, takenLine } from './bench-reply';
+import { NO_OFFER_LINE, NO_PROJECT_LINE, OTHER_PROJECT_ASK, POST_UPDATE_ASK, SUGGEST_ASK, UPDATES_ASK_JOINING, benchBuildAsk, buildingNowLine, cantShowLine, grantsAsk, shipAsk, takenLine } from './bench-reply';
+import { noGrantLine } from './bench-find';
 import { BENCH_BUILD_ID, TWIST_QUESTION } from './fresh-build';
 import { mainProjectOf } from './main-project';
 import { mondayOf } from './weeks';
@@ -257,9 +258,11 @@ test('O2 fix round 1 (ruling 3): every state ends on one question with a yes rou
     const monday = mondayOf(new Date());
     await sql()`INSERT INTO project_updates (builder_id, project_key, week, text, facts) VALUES (${other}, ${key}, ${monday}, 'Not theirs.', '{}'::jsonb)`;
     assert.ok((await find(id, {}, NO_MATCH)).show_to_builder.endsWith(POST_UPDATE_ASK), 'only their own post counts');
-    // O3: their own post this week: never offered again (it would replace it); grants instead.
+    // O3: their own post this week: never offered again (it would replace it); grants instead (O5 N5:
+    // after a grants yes that found nothing, the next step, one small thing to ship).
     await sql()`UPDATE project_updates SET builder_id = ${id} WHERE project_key = ${key} AND week = ${monday}`;
-    assert.ok((await find(id, {}, NO_MATCH)).show_to_builder.endsWith(grantsAsk('Recipe planner')));
+    const next = g.show_to_builder === noGrantLine('Recipe planner') ? shipAsk('Recipe planner') : grantsAsk('Recipe planner');
+    assert.ok((await find(id, {}, NO_MATCH)).show_to_builder.endsWith(next));
     await sql()`DELETE FROM project_updates WHERE project_key = ${key}`;
     // No project, nothing to build: the suggestion; the yes suggests.
     const n = await install();
@@ -288,10 +291,10 @@ test('O2 fix round 1 (ruling 3): every state ends on one question with a yes rou
     assert.equal(tr.lead, undefined);
     assert.notEqual(tr.move_up?.kind, 'enter');
     assert.ok(tr.show_to_builder.endsWith(OTHER_PROJECT_ASK), tr.show_to_builder);
-    // needs_agent (a client that can't push): the updates yes, without "on the Bench".
+    // needs_agent (a client that can't push): O5 N15, never the weekly-posting yes it can't schedule; grants that fit.
     const c = await install();
     const cr = await find(c, { ...named(`${uniq('na')}/recipes`), agent_can_build: false }, NO_MATCH);
-    assert.ok(cr.show_to_builder.endsWith(UPDATES_ASK_JOINING), cr.show_to_builder);
+    assert.ok(cr.show_to_builder.endsWith(grantsAsk('recipes')), cr.show_to_builder);
   }),
 );
 

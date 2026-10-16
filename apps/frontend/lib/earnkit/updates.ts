@@ -4,7 +4,8 @@ import { CONFIRMED_PROOFS } from './confirmed';
 import { HOST_ZONE } from './hosting';
 import { REPO_KEY, mainConfirmed, mainProjectOf } from './main-project';
 import { hit } from './rate-limit';
-import { pageUrl } from './reserved-routes';
+import { siteUrl } from './entry-text';
+import { pagePath } from './reserved-routes';
 import { checkUpdate, type OwnLinks } from './update-text';
 import { weekFactsFor } from './week-facts';
 import { mondayOf, weekOfMonday } from './weeks';
@@ -17,10 +18,16 @@ import { mondayOf, weekOfMonday } from './weeks';
  * the first confirmed owner of a shared repo keeps its ship log (T4 ruling).
  */
 export type Reply = { show_to_builder: string; agent_note?: string; schedule_weekly_update?: string };
+/** v2.13.1 O5 (P3): the weekly task's own "scheduled" call after the yes: nothing new for the builder. */
+export const SCHEDULED_NOTE = "Saved. Nothing to show the builder. Don't show this note.";
+/** v2.13.1 O5 N14 (F15): the page as "Your page:" writes it, a full link from siteUrl(). */
+const pageLink = (handle: string) => `${siteUrl()}${pagePath(handle)}`;
 export const UPDATE_LINES = {
   posted: "Posted this week's update.",
   postedAt: (link: string) => `Posted this week's update: ${link}`,
-  changed: "Changed this week's update.",
+  changed: "Updated this week's post.",
+  /** v2.13.1 O5 (P4): a change says so with the page, as a first post does. */
+  changedAt: (link: string) => `Updated this week's post: ${link}`,
   hidden: 'Hidden from your page.',
   on: "Done. I'll post what you ship here every week.",
   off: "Okay, I've stopped posting updates.",
@@ -87,9 +94,9 @@ export async function postUpdate(builderId: number, text: unknown, now: Date): P
   await noteEvent('update_posted', () => ({
     type: 'update_posted', dedupe_key: `update_posted:${key.toLowerCase()}:${week}`, installation_id: builderId, repo_key: key.toLowerCase(), detail: { week },
   }));
-  if (r.was !== null) return { show_to_builder: UPDATE_LINES.changed };
   const [p] = await sql()<{ handle: string | null }[]>`SELECT x_handle AS handle FROM builder_profiles WHERE builder_id = ${builderId} AND x_user_id IS NOT NULL`;
-  return { show_to_builder: p?.handle ? UPDATE_LINES.postedAt(pageUrl(p.handle)) : UPDATE_LINES.posted };
+  if (r.was !== null) return { show_to_builder: p?.handle ? UPDATE_LINES.changedAt(pageLink(p.handle)) : UPDATE_LINES.changed };
+  return { show_to_builder: p?.handle ? UPDATE_LINES.postedAt(pageLink(p.handle)) : UPDATE_LINES.posted };
 }
 
 export async function hideUpdate(builderId: number, day: unknown): Promise<Reply> {
@@ -117,9 +124,12 @@ export async function setUpdates(builderId: number, u: { on: boolean; scheduled?
       standing_seen = COALESCE(standing_seen, '{}'::jsonb) - 'weekly_note_at' WHERE builder_id = ${builderId}`;
     return { show_to_builder: UPDATE_LINES.off };
   }
-  const [p] = await sql()<{ sched: Date | null }[]>`
-    UPDATE builder_profiles SET updates_on_at = COALESCE(updates_on_at, ${now}),
-      updates_scheduled_at = CASE WHEN ${u.scheduled === true} THEN COALESCE(updates_scheduled_at, ${now}) ELSE updates_scheduled_at END
-    WHERE builder_id = ${builderId} RETURNING updates_scheduled_at AS sched`;
+  const [p] = await sql()<{ sched: Date | null; was_on: boolean }[]>`
+    UPDATE builder_profiles b SET updates_on_at = COALESCE(b.updates_on_at, ${now}),
+      updates_scheduled_at = CASE WHEN ${u.scheduled === true} THEN COALESCE(b.updates_scheduled_at, ${now}) ELSE b.updates_scheduled_at END
+    FROM (SELECT updates_on_at IS NOT NULL AS was_on FROM builder_profiles WHERE builder_id = ${builderId}) old
+    WHERE b.builder_id = ${builderId} RETURNING b.updates_scheduled_at AS sched, old.was_on`;
+  // O5 (P3): the weekly task's own call once posting is already on says nothing new ("Done" was said once).
+  if (u.scheduled === true && p?.was_on) return { show_to_builder: '', agent_note: SCHEDULED_NOTE };
   return { show_to_builder: UPDATE_LINES.on, ...(!p?.sched && { schedule_weekly_update: WEEKLY_UPDATE_NOTE }) };
 }

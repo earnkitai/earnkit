@@ -13,7 +13,7 @@ import type { Tile } from '../../../lib/earnkit/landing';
  * slim card (ProgramCard), sorted by pool (landing.ts byPool). Home: one row with native CSS scroll
  * snap (swipe on mobile; from md, two arrows that move one card and turn off at the ends).
  * /programs: the same cards in a grid (`layout="grid"`, heading h1), no arrows.
- * v2.13 (`bench`, the landing under the flag): the title is "Grants open now" and no card shows
+ * v2.13 (`bench`, the landing under the flag): the title is "Money open now" (O5 P10) and no card shows
  * the builder bonus pill. The row and arrows are CarouselRow, shared with UpdateCarousel.
  */
 export default function ProgramCards({
@@ -39,7 +39,8 @@ export default function ProgramCards({
   const carousel = layout === 'carousel';
   const [asking, setAsking] = useState(false);
   const close = useCallback(() => setAsking(false), []);
-  const title = bench ? 'Grants open now' : 'Open programs';
+  // v2.13.1 O5 (P10): the list includes investments (a16z speedrun), so "Money", not "Grants".
+  const title = bench ? 'Money open now' : 'Open programs';
   // v2.13 R16: no builder bonus pill under the flag (T13 also clears has_bonus at the source).
   const noBonus = bench || !bonus;
   const shown = noBonus ? tiles.map((t) => ({ ...t, has_bonus: false })) : tiles;

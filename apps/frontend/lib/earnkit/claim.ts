@@ -36,6 +36,8 @@ import { pkcePair, xAuthorizeUrl, xOAuth, type XOAuthDeps, type XUser } from './
 export const CLAIM_TEXT = {
   lead: 'Claim your EarnKit page',
   public: 'Your page shows what you shipped, who uses it and what it earned, under your X name.',
+  /** v2.13.1 O5 (P7): under the Bench, what the page is for. */
+  benchPublic: 'Your page puts your project on the Bench and shows what you ship each week, under your X name.',
   warning: 'Only continue if you started this from your own agent. You can hide your page anytime by telling your agent "hide my page".',
   button: 'Continue with X',
   notOpen: 'Sign-in with X is not open yet. Your agent will share the link again when it is.',
@@ -111,13 +113,14 @@ const notFound = () => new Response('Not found', { status: 404 });
  * v2.12.1 T7: the done page. Under the done line, two plain optional links: sign a message with a
  * wallet (/claim/wallet, a 30-minute token for this person) and, while GitHub sign-in is on, Sign in
  * with GitHub (a `claim` link: the login only, through the T5 proven-tie rules). A link that can't be
- * made is left out; the claim itself is already done.
+ * made is left out; the claim itself is already done. Exported for tests.
  */
-async function donePage(handle: string, root: number, headers: Record<string, string>): Promise<Response> {
+export async function claimDonePage(handle: string, root: number, headers: Record<string, string>): Promise<Response> {
   const links: string[] = [];
   const t = upgradeToken(root, new Date());
   if (t) links.push(`<a class="ek-link" href="${escapeHtml(`${siteUrl()}/claim/wallet?t=${encodeURIComponent(t)}`)}">${escapeHtml(CLAIM_TEXT.wallet)}</a>`);
-  if (githubVerifyEnabled()) {
+  // v2.13.1 O5 N11: onboarding needs no GitHub sign-in under the Bench (the proof branch does it).
+  if (githubVerifyEnabled() && !benchEnabled()) {
     const gh = await createVerifyLink({ installationId: root, projectId: null, repoKey: `claim/${root}`, purpose: 'claim' }).catch((err: unknown) => {
       console.error('[claim] github link', err instanceof Error ? err.name : 'error');
       return null;
@@ -173,7 +176,7 @@ export async function claimGet(_request: Request, code: string): Promise<Respons
   if (!(await codeTarget(codeHash))) return claimPage(CLAIM_TEXT.used, 410);
   const csrf = randomBytes(32).toString('base64url');
   const body = shell(
-    `<h1>${escapeHtml(CLAIM_TEXT.lead)}</h1><p class="ek-line">${escapeHtml(CLAIM_TEXT.public)}</p>` +
+    `<h1>${escapeHtml(CLAIM_TEXT.lead)}</h1><p class="ek-line">${escapeHtml(benchEnabled() ? CLAIM_TEXT.benchPublic : CLAIM_TEXT.public)}</p>` +
       `<p class="ek-small">${escapeHtml(CLAIM_TEXT.warning)}</p>` +
       `<div class="ek-actions"><form method="post" action="${escapeHtml(siteUrl())}/claim/${code}">` +
       `<input type="hidden" name="csrf" value="${escapeHtml(csrf)}">` +
@@ -252,7 +255,7 @@ export async function xCallback(request: Request, deps: RouteDeps & { x?: XOAuth
     console.error('[x/callback] bind', err instanceof Error ? err.name : 'error');
     return claimPage(CLAIM_TEXT.failed, 500, clear);
   }
-  if (r.ok) return donePage(r.handle, r.root, clear);
+  if (r.ok) return claimDonePage(r.handle, r.root, clear);
   if (r.reason === 'join_pending') return claimPage(CLAIM_TEXT.joinPending, 200, clear);
   if (r.reason === 'owner_cleared') return claimPage(CLAIM_TEXT.paused, 403, clear);
   return claimPage(CLAIM_TEXT.claimedOther, 409, clear);

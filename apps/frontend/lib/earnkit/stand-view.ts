@@ -47,16 +47,18 @@ export type StandBase = Omit<StandView, 'step' | 'news' | 'earn' | 'fresh'>;
  * first. A reader that ignores its deadline keeps running in the background and its rescore lands
  * for the next reply; this reply uses the last stored numbers.
  */
-export function startRefresh(id: number, o: { now: Date; start: number; reader?: ReaderDeps; minAgeMs?: number }): { within: () => Promise<void> } {
+export function startRefresh(id: number, o: { now: Date; start: number; reader?: ReaderDeps; minAgeMs?: number }): { within: (capMs?: number) => Promise<void> } {
   const deadline = o.start + REFRESH_BUDGET_MS;
   const refresh = refreshPerson(id, { now: o.now, deadline, reader: o.reader, minAgeMs: o.minAgeMs }).catch((err: unknown) => {
     console.error('[stand] refresh', err instanceof Error ? err.name : 'error');
   });
   return {
-    within: async () => {
+    // v2.13.1 O5 N1: `capMs` (the Bench's reply wait) ends the wait sooner; the refresh runs on to its deadline.
+    within: async (capMs?: number) => {
       let timer: ReturnType<typeof setTimeout> | undefined;
+      const until = capMs === undefined ? deadline : Math.min(deadline, o.start + capMs);
       const spent = new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, Math.max(0, deadline - Date.now()));
+        timer = setTimeout(resolve, Math.max(0, until - Date.now()));
       });
       await Promise.race([refresh, spent]);
       clearTimeout(timer);

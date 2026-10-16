@@ -171,14 +171,28 @@ export const TWIST_QUESTION = 'What should it do for you or your users? One line
 /** Owner decision D-D: a statement, not a question, so the reply keeps one question. */
 export const WALLET_ASK = 'Add the wallet that should own it.';
 
-/** The reply to a yes to the fresh lead: the question alone when a wallet is already known (decision 5). Pure. */
-export const twistQuestion = (walletKnown: boolean): string => (walletKnown ? TWIST_QUESTION : `${TWIST_QUESTION} ${WALLET_ASK}`);
+/**
+ * v2.13.1 O5 N7 (F11, controller ruling): under the Bench a builder with no wallet always has a way out.
+ * Every starter deploys a contract (no site-only starter exists), so the way out is one plain line on
+ * getting a free wallet; still a statement, so the reply keeps one question.
+ */
+export const BENCH_WALLET_ASK = "Add the wallet that should own it. If you don't have one, I'll help you make a free one on your computer.";
+
+/** The reply to a yes to the fresh lead: the question alone when a wallet is already known (decision 5). `bench`: O5 N7's wallet line. Pure. */
+export const twistQuestion = (walletKnown: boolean, bench = false): string =>
+  walletKnown ? TWIST_QUESTION : `${TWIST_QUESTION} ${bench ? BENCH_WALLET_ASK : WALLET_ASK}`;
 
 /** v2.11 T8 (plan 8.5): a shared client never gets the build path (Ruling S6). No question, no tool name. */
 export const BUILD_CHAT_ONLY = "I can't build from here. To have it built and deployed for you, add EarnKit to a coding agent.";
 
 /** spec 3: on a pass, the builder's one line before the agent builds. */
 export const buildingLine = (name: string, what: string, forWhom: string) => `Building ${name}: ${what} ${forWhom}. I'll be back with the live link.`;
+/**
+ * v2.13.1 O5 N12: under the Bench the line is in the agent's voice: the starter's "what" without its
+ * chain ("a USDC tip page"), and the builder's own "my" or "our" said back as "your". Pure.
+ */
+export const benchBuildingLine = (name: string, s: Starter, forWhom: string) =>
+  buildingLine(name, s.what.replace(new RegExp(` on ${CHAIN_NAMES[s.chain]}$`), ''), forWhom.replace(/\b(my|our)\b/gi, (w) => (w[0] === w[0].toUpperCase() ? 'Your' : 'your')));
 
 /**
  * Accounts 0 to 9 of the default test mnemonic that anvil and Hardhat use. Their keys are public, so

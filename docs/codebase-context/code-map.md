@@ -1458,7 +1458,12 @@ apps/frontend/
                                v2131-onboarding.test.ts (O2: B1, B2, B4, B6, page link, last line, coin);
                                O2 fix round 1: controlProvenMain (coin: proof_line/github_signin only, one
                                repo read, not held), PROOF_BRANCH_MAX_PER_DAY 5, closed_at + closedRemoveNote,
-                               branchProvenOwner (a build's deploy proof under the Bench)
+                               branchProvenOwner (a build's deploy proof under the Bench); O5: probeRepo +
+                               knownUnprovable (one cheap repo read before a code: 404 -> failed, a User repo
+                               under another login -> foreign; public -> builder_sources.public_at), pushRefused
+                               (tell proof { pushed: false }), PROOF_BRANCH_NOTE says what to do while checking
+    reply-wait.ts              v2.13.1 O5 N1: REPLY_WAIT_MS (1.5 s), settleWithin, inTime/ReplyLate: the Bench
+                               reply never waits longer on the refresh, matching or the proof check
     week-facts.ts(+test)       v2.13 T4: WeekFacts, weekFactsFor, factChips, startedLine, upsertWeekFacts,
                                weeklyFactsStep (Mondays from 15:00 UTC)
     update-text.ts(+test)      v2.13 T5: checkUpdate (280 characters, no @, secrets, own links only), notes
@@ -1471,7 +1476,9 @@ apps/frontend/
     bench-rank.ts(+test)       v2.13 T7: benchPool (listed ranked + benchConfirmedSql), chainPools, rankLines (Top P% and per-chain lines; rank.ts has benchRank,
                                CHAIN_CHIP_MIN, BENCH_CHAINS)
     bench-reply.ts(+test)      v2.13 T8: the reply's three headings, lines and ask kinds
-    bench-find.ts(+test)       v2.13 T8/T9: benchFind, benchScore, benchAsked, benchMoveUp, coinAskBench
+    bench-find.ts(+test)       v2.13 T8/T9: benchFind, benchScore, benchAsked, benchMoveUp, coinAskBench;
+                               v2.13.1 O5: quiet asks (GRANTS_QUIET_MS), ideaFitsOffer, SHIP_NOTE;
+                               tests: v2131-o5.test.ts (N1 to N16, P1 to P10)
     raising.ts(+test)          v2.13 T9: raisingCoin, setRaising, pillOf, raiseAsk (projects.raising_at); all off
                                unless EARNKIT_RAISING (builder-score-flag.ts raisingEnabled)
     bench-data.ts(+test)       v2.13 T10/T11: parseBenchFilter, benchRows (safe names, pill in the same read),

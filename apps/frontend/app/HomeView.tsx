@@ -15,7 +15,7 @@ import type { Landing } from '../lib/earnkit/landing';
  * footer. `landing` is null when the read failed (Ruling 21 (plan)): the hero renders without its
  * stats line and the cards are skipped.
  * v2.13 (`landing.bench`, set only under the flag): the Bench hero, the Bench's top 10, this week's
- * updates (when there are any), Grants open now (no bonus pill), the new How it works, backed by.
+ * updates (when there are any), Money open now (no bonus pill), the new How it works, backed by.
  * It lives outside page.tsx because a page file may only export Next's own fields.
  */
 export default function HomeView({ landing }: { landing: Landing | null }) {

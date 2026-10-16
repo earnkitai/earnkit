@@ -9,6 +9,7 @@ import { recordShown } from './match-loop';
 import { markFreshOffer, readBuild, type StoredBuild } from './installations';
 import { benchConfirmedSql, confirmingFast } from './main-project';
 import { branchToRemove, checkProofBranch, proofBranchFor, type BranchState } from './proof-branch';
+import { REPLY_WAIT_MS, settleWithin } from './reply-wait';
 import { rankLines, type RankLines } from './bench-rank';
 import { WEEKLY_UPDATE_NOTE, setUpdates } from './updates';
 import { mondayOf } from './weeks';
@@ -56,7 +57,16 @@ export type Seen = StandSeen & {
   bench_ask?: { kind: BenchAskKind; key: string | null; program_id?: string };
   raise_asked?: Record<string, string>;
   weekly_note_at?: string;
+  /** O5 N5: asks kept away for GRANTS_QUIET_MS after a yes that found nothing (step key -> when). */
+  quiet?: Record<string, string>;
 };
+/** O5 N5: a grants yes that found nothing keeps the grants ask away this long (the next step is asked instead). */
+export const GRANTS_QUIET_MS = 7 * 86_400_000;
+/** O5 N5: the step keys quiet at `now` (benchStepKey, as `declined`). Pure. */
+export const quietNow = (seen: Seen, now: number): string[] =>
+  Object.entries(seen.quiet && typeof seen.quiet === 'object' ? seen.quiet : {})
+    .filter(([, at]) => typeof at === 'string' && now - Date.parse(at) < GRANTS_QUIET_MS)
+    .map(([k]) => k);
 type Reply = Record<string, unknown>;
 
 /** The one project's builder_projects row, as the Bench sees it (confirmed: benchConfirmedSql). */
@@ -91,6 +101,13 @@ const withNoProgram = (program: (FreshPick & { canBuild: boolean }) | null, fres
 };
 /** v2.13.1 O2 (B1): an idea for a builder with no project never needs a live product or a repo. Pure. */
 export const noProjectIdea = (c: Card) => c.needs_repo === false && c.tag !== NEEDS_LIVE_PRODUCT;
+/**
+ * v2.13.1 O5 N6 (P5): an idea for a builder with no project, beside a build offer: only a program the
+ * offered starter can enter (its chain, or any chain), and only with the program's own pitch (never a
+ * made-up "a small app"). Pure.
+ */
+export const ideaFitsOffer = (c: Card, starter: Starter | null) =>
+  noProjectIdea(c) && Boolean(c.pitch?.for) && (!starter || c.any_chain === true || (c.chains ?? []).some((ch) => ch === starter.chain));
 /** v2.13.1 O2: a program shown for a project fits it: its chain (or any chain), and a live product only when it is live. Pure. */
 export const fitsProject = (c: Card, p: { chains: string[]; live: boolean }) =>
   (c.any_chain === true || (c.chains ?? []).some((ch) => p.chains.includes(ch))) && (c.tag !== NEEDS_LIVE_PRODUCT || p.live);
@@ -186,6 +203,8 @@ type ViewIn = {
   held: boolean;
   agentCanBuild: boolean; due: string[];
   coinDeps?: { check?: TickerCheck };
+  /** O5 N2, N4: the fetch for the one cheap read of the repo before a proof code is issued. */
+  ghFetch?: typeof fetch;
 };
 
 /**
@@ -206,7 +225,9 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
       : null;
   // v2.13.1 O1: a repo-key project that isn't confirmed gets the proof branch (proof-branch.ts says when).
   // O2: read before the ask, so a project being checked is asked the next Bench step (the updates yes).
-  const branch = project && !project.confirmed && !building ? await proofBranchFor(id, project.key, now, { canBuild: o.agentCanBuild }).catch(logged('proof branch')) : null;
+  const branch = project && !project.confirmed && !building
+    ? await proofBranchFor(id, project.key, now, { canBuild: o.agentCanBuild, ghFetch: o.ghFetch }).catch(logged('proof branch'))
+    : null;
   // O2 fix round 1 (ruling 3): a repo another person holds is never offered a program for it.
   const taken = branch?.kind === 'taken';
   let fund: FundLine[] = [];
@@ -220,8 +241,12 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
   } else {
     const first = pick?.card ?? null;
     // v2.13.1 O2 (B1): never an idea that needs a live product or a repo for a builder with no project.
-    const other = biggestPick(o.cards.filter(noProjectIdea), now, o.skip, first?.id ?? null);
-    fund = [first, other].filter((c): c is Card => Boolean(c)).map((c) => ({ kind: 'idea', who: c.pitch?.who ?? c.title, prize: earnPrize(c), for: c.pitch?.for ?? 'a small app' }));
+    // O5 N6: beside a build offer, only a program its starter can enter, with its own pitch.
+    const other = biggestPick(o.cards.filter((c) => ideaFitsOffer(c, pick?.starter ?? null)), now, o.skip, first?.id ?? null);
+    const forOf = (c: Card) => c.pitch?.for ?? (c === first && pick ? benchOffer(pick.starter) : null);
+    fund = [first, other]
+      .filter((c): c is Card => Boolean(c && forOf(c)))
+      .map((c) => ({ kind: 'idea', who: c.pitch?.who ?? c.title, prize: earnPrize(c), for: forOf(c)! }));
   }
   let ask: BenchAsk | null = null;
   if (!o.held && !building) {
@@ -233,13 +258,16 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
       : null;
     const enter: BenchAsk | null = project && o.fits[0] && !taken ? { kind: 'enter', project_key: project.key, program_id: o.fits[0].program_id, line: enterAsk(o.fits[0].title) } : null;
     const web = project ? read.base.projects.some((x) => x.key.toLowerCase() === project.key.toLowerCase() && x.web) : false;
-    const declined = declinedNow(read.seen, now.getTime());
+    // O5 N5: a grants yes that found nothing keeps grants quiet a week, as a no keeps an ask away.
+    const declined = [...declinedNow(read.seen, now.getTime()), ...quietNow(read.seen, now.getTime())];
     const asks = {
       project, canHost: Boolean(project && hostFor(o.agentCanBuild)(project.key) && web), updatesOn: read.updatesOn,
-      postedThisWeek: read.postedThisWeek, scheduled: read.scheduled, build, declined,
-      // O2 fix round 1 (ruling 3): needs_agent is asked the updates yes too; failed and taken, a different project.
-      joining: Boolean(project && !project.confirmed && (!branch || branch.kind === 'checking' || branch.kind === 'needs_agent')),
-      other: branch?.kind === 'failed' || taken,
+      postedThisWeek: read.postedThisWeek, scheduled: read.scheduled, build, declined, claimed: read.base.claimed,
+      // O2 fix round 1 (ruling 3): failed and taken, a different project. O5 N15: a chat-only agent
+      // (needs_agent) can't schedule weekly posts, so it is never asked the updates yes. O5 N2: a
+      // repo under someone else's account, a different project.
+      joining: Boolean(project && !project.confirmed && (!branch || branch.kind === 'checking')),
+      other: branch?.kind === 'failed' || taken || branch?.kind === 'foreign',
     };
     // The coin is offered (and its moment recorded) only when no earlier ask in the order applies.
     const before = chooseAsk({ ...asks, coin: null, enter: null, fallback: false });
@@ -296,7 +324,9 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   const id = ctx.installationId;
   const now = a.first.now;
   // v2.13.1 O1: the open proof branch is checked first, so this reply already shows the confirmation.
-  await checkProofBranch(id, now, { ghFetch: ctx.proofBranchFetch ?? ctx.readerDeps?.ghFetch });
+  // O5 N1: never longer than REPLY_WAIT_MS (a slower check lands for the next reply).
+  const ghFetch = ctx.proofBranchFetch ?? ctx.readerDeps?.ghFetch;
+  await settleWithin(checkProofBranch(id, now, { ghFetch }), REPLY_WAIT_MS);
   const read = await benchRead(id, now, ctx.freshDeps);
   const m = { cards: a.cards, repos: a.repos, entries: a.myEntries, now };
   const entered = enteredIds(m);
@@ -325,13 +355,14 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   const name = a.project && projectKeyOf(a.project).toLowerCase() === main ? a.project.name : null;
   const { view, ask, fields, branch } = await benchView({
     id, now, read, name, fits, cards: a.cards, skip, pick, held: held || Boolean(submit), agentCanBuild: a.agentCanBuild, due,
-    coinDeps: { check: ctx.tokenDeps?.check },
+    coinDeps: { check: ctx.tokenDeps?.check }, ghFetch,
   });
   // O2 fix round 1 (ruling 2): a code closed by a project change is told alongside the new one (remove_branch).
   const told = await branchToRemove(id, now).catch(logged('proof branch told'));
   const proof = branch?.kind === 'checking' ? branch.proof : told;
   const removeOld = branch?.kind === 'checking' ? told : null;
   const asks = held || Boolean(submit) || Boolean(ask);
+  const lead = Boolean((fits[0] && !submit && branch?.kind !== 'taken') || submit);
   const news = read.profiled ? await takeNews(id, read.seen, read.base, now, !asks).catch(logged('news')) : null;
   const opener = newsOpener(a.alerts.lines, news ? [news] : []);
   if (pick?.canBuild) await markFreshOffer(id, now).catch(logged('fresh offer'));
@@ -351,7 +382,8 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
       WHERE builder_id = ${id}`.catch(logged('weekly note'));
   return {
     show_to_builder: [opener, benchReply(view), a.pickup?.question].filter(Boolean).join('\n\n'),
-    note: ['Show show_to_builder to the builder exactly as written.', EARN_NOTE].join(' '),
+    // O5 (P8): the earn note names lead.program_id, so only with a lead.
+    note: ['Show show_to_builder to the builder exactly as written.', lead ? EARN_NOTE : null].filter(Boolean).join(' '),
     ...fields,
     ...(fits[0] && !submit && branch?.kind !== 'taken' && { lead: { program_id: fits[0].program_id, repo: fits[0].repo } }),
     ...(submit && { lead: { program_id: submit.card.id, step: 'submit', ...(submit.entry.id !== undefined && { project_id: submit.entry.id }) } }),
@@ -373,8 +405,10 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'fres
   const made = await ensureProfile(id, now);
   if (!made) return null;
   if (made.created) await enqueueDiscovery(id, 'first_find');
-  await startRefresh(id, { now, start: Date.now(), reader: o.reader }).within();
-  await checkProofBranch(id, now, { ghFetch: ctx.proofBranchFetch ?? o.reader?.ghFetch });
+  // O5 N1: the refresh and the proof check run on, but the reply waits for them at most REPLY_WAIT_MS.
+  const refresh = startRefresh(id, { now, start: Date.now(), reader: o.reader });
+  const ghFetch = ctx.proofBranchFetch ?? o.reader?.ghFetch;
+  await Promise.all([refresh.within(REPLY_WAIT_MS), settleWithin(checkProofBranch(id, now, { ghFetch }), REPLY_WAIT_MS)]);
   const read = await benchRead(id, now, ctx.freshDeps);
   const [programs, entries, memory] = await Promise.all([listPrograms().catch(() => []), openEntries(id).catch(() => []), readMemory(id).catch(() => null)]);
   const cards = (programs as (Card & { agent_completable?: boolean; earnkit_campaign?: boolean; starts_at: Date | null; opened_at: Date | null })[])
@@ -390,7 +424,7 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'fres
   const pick = !main && !read.building ? withNoProgram(picked && fresh ? { ...picked, canBuild: fresh.canBuild } : null, fresh, now) : null;
   const { view, fields, branch } = await benchView({
     id, now, read, name: null, fits, cards: shown, skip: new Set([...entered, ...hidden]), pick, held: Boolean(o.hold),
-    agentCanBuild: fresh?.canBuild ?? false, due: [], coinDeps: { check: ctx.tokenDeps?.check },
+    agentCanBuild: fresh?.canBuild ?? false, due: [], coinDeps: { check: ctx.tokenDeps?.check }, ghFetch,
   });
   // O2 fix round 1 (ruling 2): a code closed by a project change is told alongside the new one (remove_branch).
   const told = await branchToRemove(id, now).catch(logged('proof branch told'));
@@ -468,7 +502,8 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId'>, m: {
     case 'grants':
       return asked.key ? grantsYes(id, asked.key, now) : okay;
     case 'suggest':
-      return suggestYes(now);
+      // O5 N5: with a project, one small thing to ship in it; without, ideas to start from.
+      return asked.key ? { show_to_builder: '', agent_note: SHIP_NOTE } : suggestYes(now);
     case 'other_project':
       return { show_to_builder: '', agent_note: OTHER_PROJECT_NOTE };
     default:
@@ -482,7 +517,11 @@ export const OTHER_PROJECT_NOTE =
 export const GRANTS_NOTE = "Show show_to_builder as written. A yes to one of them: call find with program_id for its guide. Don't show this note.";
 export const SUGGEST_NOTE =
   "Show show_to_builder as written. If they pick one, build it with them in a new folder of their own, then call find with identity.project: it. Don't show this note.";
-export const noGrantLine = (name: string) => `No open grant fits ${name} right now.`;
+/** O5 N5: the yes to "Want me to suggest one small thing to ship in <project> this week?". */
+export const SHIP_NOTE =
+  "Look at the project in this folder (git log, open issues, the README) and suggest one small thing to ship this week, in one short line, then ask if they want you to build it now. Don't show this note.";
+/** O5 N5: no grant fits now; the grants ask stays away a week (GRANTS_QUIET_MS). */
+export const noGrantLine = (name: string) => `No open grant fits ${name} right now. I'll look again next week.`;
 /** When no open program has curated ideas. */
 export const SMALL_IDEAS = ['A tip jar for your readers or listeners', 'A guestbook for your site', 'A simple poll your friends can vote in'];
 
@@ -499,7 +538,14 @@ async function grantsYes(id: number, key: string, now: Date): Promise<Reply> {
   const name = row?.name ?? key.split('/').pop() ?? key;
   const fit = { chains: row?.chains ?? [], live: row?.live ?? false };
   const cards = (await openCards(now)).filter((c) => fitsProject(c, fit)).slice(0, 3);
-  if (cards.length === 0) return { show_to_builder: noGrantLine(name) };
+  if (cards.length === 0) {
+    // O5 N5: never the same question again right away: grants stay quiet for GRANTS_QUIET_MS.
+    await sql()`
+      UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{quiet}',
+        COALESCE(standing_seen->'quiet', '{}'::jsonb) || jsonb_build_object(${benchStepKey('grants', key)}::text, ${now.toISOString()}::text))
+      WHERE builder_id = ${id}`.catch(logged('grants quiet'));
+    return { show_to_builder: noGrantLine(name) };
+  }
   const lines = cards.map((c) => {
     const when = earnWhen(c);
     return `${c.title} pays ${earnPrize(c)}; ${when === 'open all year' ? "it's open all year" : `it ${when}`}.`;

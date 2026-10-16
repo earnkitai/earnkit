@@ -7,7 +7,9 @@ import BenchRowItem from './BenchRowItem';
 import { Chip, FILTER_RAISING, FILTER_WEEKLY } from './FilterChip';
 
 export const BENCH_TITLE = 'The Bench';
-export const benchLine = (n: number) => `${n.toLocaleString('en-US')} ${n === 1 ? 'builder' : 'builders'} who ship, ranked by what they shipped and who uses it.`;
+/** v2.13.1 O5 (P1): one builder reads "1 builder so far" (never "1 builder who ship"). */
+export const benchLine = (n: number) =>
+  n === 1 ? '1 builder so far, ranked by what they shipped and who uses it.' : `${n.toLocaleString('en-US')} builders who ship, ranked by what they shipped and who uses it.`;
 export const BENCH_EMPTY = 'No one here yet.';
 export { FILTER_RAISING, FILTER_WEEKLY };
 

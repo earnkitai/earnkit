@@ -872,7 +872,10 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
     SELECT b.id::int AS id, b.builder_id, b.kind, b.ref, b.state, b.last_read_day::text AS last_read_day
     FROM builder_sources b LEFT JOIN source_live l ON l.source_id = b.id
     WHERE b.builder_id = ${id}
-      AND ((b.state = 'verified' AND b.kind <> 'merged_pr') OR (b.state = 'proposed' AND b.kind IN ('repo', 'site', 'package_npm', 'package_pypi'))
+      AND ((b.state = 'verified' AND b.kind <> 'merged_pr') OR (b.state = 'proposed' AND b.kind IN ('repo', 'site', 'package_npm', 'package_pypi')
+          -- v2.13.1 O5 N4: under the Bench a proposed repo is read only while it is the one project (never a replaced one).
+          AND (NOT ${benchEnabled()} OR b.kind <> 'repo' OR EXISTS (SELECT 1 FROM builder_profiles f WHERE f.builder_id = b.builder_id
+            AND lower(f.main_project_key) = lower(b.project_key))))
         -- v2.12.1 T9: a proposed contract on a chain EarnKit reads, at most once a day, to see whether
         -- it has past users to count (shown as a step, never scored) and who created it.
         OR (b.state = 'proposed' AND b.kind = 'contract' AND b.ref ~ '^(base|arc):'

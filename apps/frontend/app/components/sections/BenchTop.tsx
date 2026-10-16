@@ -8,6 +8,8 @@ import { CHAIN_LABEL, type BenchChain } from '../../../lib/earnkit/rank';
 
 export const BENCH_TOP_TITLE = 'The Bench';
 export const SEE_BENCH = 'See the Bench';
+/** v2.13.1 O5 N16: the landing's Bench at go-live, with nobody ranked yet. */
+export const BENCH_TOP_EMPTY = 'Nobody on the Bench yet. Add EarnKit to your agent and be first.';
 const TOP = 10;
 
 /**
@@ -32,12 +34,14 @@ export default function BenchTop({ rows, chips, raising }: { rows: BenchRow[]; c
           ))}
           {raising && <Chip href={filterHref({ chain: null, raising: true, weekly: false })}>{FILTER_RAISING}</Chip>}
         </nav>
-        {rows.length > 0 && (
+        {rows.length > 0 ? (
           <ol className="mt-6 md:-mx-4 md:mt-8">
             {rows.slice(0, TOP).map((r) => (
               <BenchRowItem key={r.handle} r={r} />
             ))}
           </ol>
+        ) : (
+          <p className="mt-6 max-w-2xl font-funnel-sans text-base font-light text-ek-blue-light md:text-lg">{BENCH_TOP_EMPTY}</p>
         )}
         <Link
           href="/bench"

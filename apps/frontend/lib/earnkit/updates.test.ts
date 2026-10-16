@@ -38,7 +38,7 @@ const rows = async (key: string) => sql()<{ week: string; text: string | null; h
 test('5.5 a post lands on this week\'s row with the facts EarnKit checked, and one update_posted event', dbTest, async () => {
   const { id, key } = await person({ handle: `maya_${RUN}` });
   const r = await postUpdate(id, 'Added fridge photo import.', new Date('2026-10-14T10:00:00Z'));
-  assert.equal(r.show_to_builder, UPDATE_LINES.postedAt(`earnkit.com/maya_${RUN}`));
+  assert.equal(r.show_to_builder, UPDATE_LINES.postedAt(`https://earnkit.com/maya_${RUN}`));
   assert.deepEqual((await rows(key)).map((x) => [x.week, x.text]), [['2026-10-12', 'Added fridge photo import.']]);
   assert.equal((await sql()`SELECT 1 FROM builder_events WHERE dedupe_key = ${`update_posted:${key}:2026-W42`}`).length, 1);
 });

@@ -15,10 +15,12 @@ export type BenchView = {
   project: BenchProject | null; rank: string | null; claimed: boolean; handle: string | null; claimLink: string | null;
   /**
    * v2.13.1 O1: the one project (a repo key) while it isn't confirmed: `checking` (the agent was given
-   * the proof branch), `failed` (the branch never showed within the hour), `needs_agent` (fix round 1,
-   * ruling c: an agent that can't push gets no code) or `taken` (another person holds the repo).
+   * the proof branch), `failed` (the branch never showed within the hour, the agent said the push was
+   * refused, or EarnKit can't read the repo: O5 N2), `needs_agent` (fix round 1, ruling c: an agent that
+   * can't push gets no code), `taken` (another person holds the repo) or `foreign` (O5 N2: a User's repo
+   * whose owner isn't the login the agent reported, so no push of theirs can prove it).
    */
-  branch?: 'checking' | 'failed' | 'needs_agent' | 'taken' | null;
+  branch?: 'checking' | 'failed' | 'needs_agent' | 'taken' | 'foreign' | null;
   /** Final fix I3: not confirmed and outside the hour of fast checks (main-project confirmingFast): no "a minute or two". */
   slow?: boolean;
   fund: FundLine[]; ask: BenchAsk | null;
@@ -45,10 +47,12 @@ export const confirmingLine = (name: string) => `${name} joins the Bench as soon
 export const confirmingSlowLine = (name: string) => `${name} joins the Bench once I've confirmed it's yours. I check again every day.`;
 /** v2.13.1 O1: the proof branch, told to the builder in one line (no question). */
 export const checkingBranchLine = (name: string) => `I'll check ${name} is yours with a quick temporary branch on GitHub. It's removed right after.`;
-/** v2.13.1 O1: the branch never showed within the hour (the agent couldn't push): no loop, no proof line. */
-export const cantShowLine = (name: string) => `I couldn't show ${name} is yours. Ask your agent to use a project you can push to.`;
-/** v2.13.1 O1 fix round 1 (ruling c): an agent that can't push gets no proof branch. */
-export const NEEDS_AGENT_LINE = 'Open this project in your coding agent to finish.';
+/** v2.13.1 O1: the branch never showed within the hour (the agent couldn't push): no loop, no proof line. O5 N8: the agent's own voice. */
+export const cantShowLine = (name: string) => `I couldn't show ${name} is yours. It needs a project you can push to.`;
+/** v2.13.1 O5 N2: a User's repo under another GitHub account than the one the agent reported. */
+export const foreignLine = (name: string) => `${name} is under someone else's GitHub account.`;
+/** v2.13.1 O1 fix round 1 (ruling c): an agent that can't push gets no proof branch. O5 N15: names the project and why. */
+export const needsAgentLine = (name: string) => `Open ${name} in your coding agent to put it on the Bench.`;
 /** v2.13.1 O1 fix round 1 (authorization ruling): the first confirmed holder keeps a repo. */
 export const takenLine = (name: string) => `${name} is already on the Bench under another account.`;
 export const claimToJoinLine = (name: string, link: string) => `${name} goes on the Bench once you claim your page with X: ${link}`;
@@ -70,6 +74,8 @@ export const POST_UPDATE_ASK = "Want me to post this week's update?";
 export const UPDATES_ASK_JOINING = 'Want me to post what you ship here every week?';
 /** v2.13.1 O2 fix round 1 (ruling 3): a confirmed project with nothing pending and updates off. */
 export const grantsAsk = (name: string) => `Want me to find grants that fit ${name}?`;
+/** v2.13.1 O5 N5: a project with nothing pending once grants found none (or were declined): one small thing to ship. */
+export const shipAsk = (name: string) => `Want me to suggest one small thing to ship in ${name} this week?`;
 /** v2.13.1 O2 fix round 1 (ruling 3): no project and nothing EarnKit can build here. */
 export const SUGGEST_ASK = 'Want me to suggest something small you could build this week?';
 /** v2.13.1 O2 fix round 1 (ruling 3): the branch never showed, or another person holds the repo. */
@@ -100,6 +106,8 @@ export function chooseAsk(o: {
   other?: boolean;
   /** O2 fix round 1: false leaves out the last fallback (the coin step asks first whether anything earlier applies). */
   fallback?: boolean;
+  /** O5 N13: claimed with X (absent: claimed). Until then the updates yes never says "on the Bench". */
+  claimed?: boolean;
 }): BenchAsk | null {
   const p = o.project;
   if (!p) {
@@ -110,7 +118,7 @@ export function chooseAsk(o: {
   if (o.other && !p.confirmed) return off('other_project') ? null : { kind: 'other_project', project_key: p.key, line: OTHER_PROJECT_ASK };
   if (!p.live && o.canHost && !off('go_live')) return { kind: 'go_live', project_key: p.key, line: goLiveAsk(p.name) };
   if ((p.confirmed || o.joining) && !o.updatesOn && !off('updates'))
-    return { kind: 'updates', project_key: p.key, line: p.confirmed ? UPDATES_ASK : UPDATES_ASK_JOINING };
+    return { kind: 'updates', project_key: p.key, line: p.confirmed && o.claimed !== false ? UPDATES_ASK : UPDATES_ASK_JOINING };
   if (p.confirmed && o.updatesOn && !o.postedThisWeek && !o.scheduled && !off('post_update')) return { kind: 'post_update', project_key: p.key, line: POST_UPDATE_ASK };
   if (o.coin) return o.coin;
   if (o.enter && !off('enter')) return o.enter;
@@ -118,7 +126,9 @@ export function chooseAsk(o: {
   // v2.13.1 O3: never offer this week's update once it is posted (a second post replaces it).
   if (o.fallback === false) return null;
   if (p.confirmed && o.updatesOn && !o.postedThisWeek && !off('post_update')) return { kind: 'post_update', project_key: p.key, line: POST_UPDATE_ASK };
-  return off('grants') ? null : { kind: 'grants', project_key: p.key, line: grantsAsk(p.name) };
+  if (!off('grants')) return { kind: 'grants', project_key: p.key, line: grantsAsk(p.name) };
+  // O5 N5: grants found none lately (or were declined): one small thing to ship this week.
+  return off('suggest') ? null : { kind: 'suggest', project_key: p.key, line: shipAsk(p.name) };
 }
 
 function standLines(v: BenchView): string[] {
@@ -132,8 +142,9 @@ function standLines(v: BenchView): string[] {
     const first =
       v.branch === 'checking' ? checkingBranchLine(p.name)
       : v.branch === 'failed' ? cantShowLine(p.name)
-      : v.branch === 'needs_agent' ? NEEDS_AGENT_LINE
+      : v.branch === 'needs_agent' ? needsAgentLine(p.name)
       : v.branch === 'taken' ? takenLine(p.name)
+      : v.branch === 'foreign' ? foreignLine(p.name)
       : v.slow ? confirmingSlowLine(p.name) : confirmingLine(p.name);
     return [first, ...claim, ...page];
   }

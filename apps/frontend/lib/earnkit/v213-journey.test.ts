@@ -524,7 +524,7 @@ test('16.1 acceptance 1, with a project: the first reply names it and carries th
   assert.match(r2.show_to_builder, /^Recipe planner is on the Bench(: [^,]+)?, 3 weeks shipping\.$/m, r2.show_to_builder);
   assert.ok(r2.show_to_builder.endsWith(UPDATES_ASK), r2.show_to_builder);
   assert.equal(r2.claim, undefined, 'claimed: no claim link');
-  assert.equal(r2.proof?.agent_note, `Confirmed. Delete the branch now: git push origin :refs/heads/${branch}`);
+  assert.equal(r2.proof?.agent_note, `Confirmed. Delete the branch now: git push origin :refs/heads/${branch}. Don't show this note.`);
   const page = await renderProfile('maya_makes', 'log');
   assert.match(page, /src="https:\/\/pbs\.twimg\.com\/profile_images\/1\/m_400x400\.jpg"/);
   assert.ok(page.includes('Started tracking Recipe planner.'), page);
@@ -573,7 +573,7 @@ test('16.3 acceptance 3, the weekly update: yes, then "post this week\'s update 
   assert.equal(yes.show_to_builder, UPDATE_LINES.on);
   assert.ok(yes.schedule_weekly_update);
   const posted = await call('tell', { update: { text: 'Added fridge photo import, so it plans a week of meals from a picture.' } }, ctx(id));
-  assert.equal(posted.show_to_builder, UPDATE_LINES.postedAt('earnkit.com/maya_makes'));
+  assert.equal(posted.show_to_builder, UPDATE_LINES.postedAt('https://earnkit.com/maya_makes'));
   const log = await renderProfile('maya_makes', 'log');
   assert.match(log, /data-shape="long"[\s\S]*Added fridge photo import[\s\S]*commit/, log);
   assert.doesNotMatch(log, /written by an agent/i);

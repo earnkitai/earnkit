@@ -102,7 +102,7 @@ import {
 import { RAW_CAP, canonicalBuilderUrl, cleanProject, quoted } from './untrusted-text';
 import { pagesLinkOf } from './pages-link';
 import { proveRepo, proveRepoByBranch, repoSignedIn, tokenLineFor, type ProvenRepo } from './token-gate';
-import { branchToRemove, checkProofBranch, proofBranchFor } from './proof-branch';
+import { PUSH_DONE_NOTE, PUSH_REFUSED_NOTE, branchToRemove, checkProofBranch, proofBranchFor, pushRefused } from './proof-branch';
 import { READY_TO_SUBMIT, confirmDecision, confirmOffer, proofLineWaiting, signInLine, walletQuestion, NO_TOKEN_HERE, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
 import { HOST_LINES, HOST_ZONE, UPLOAD_NOTE, hostSignInLine, issueUpload, liveLine, refreshSiteExpiry } from './hosting';
 import { r2Enabled } from './r2';
@@ -114,6 +114,7 @@ import {
   buildCheck,
   buildFix,
   buildKit,
+  benchBuildingLine,
   buildingLine,
   freshPick,
   publicTestWallet,
@@ -149,6 +150,7 @@ import { enqueueDiscovery, localGitInput } from './discovery';
 import { benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
 import { CONFIRMING_REFRESH_MS, REPO_KEY, confirmingFast, dropMainProject, fillGithubUser, mainProjectOf, setMainProject } from './main-project';
 import { benchAsked, benchFind, benchMoveUp } from './bench-find';
+import { REPLY_WAIT_MS, ReplyLate, inTime } from './reply-wait';
 import { setRaising } from './raising';
 import { SEND_LINK_NOTE, scoreReply } from './score-tool';
 import { EARN_NOTE, MOVE_UP_NOTE, chooseStep, placeBuild, newsOpener, stepKey, whereYouStand, type EarnLine, type MoveUp, type StandView } from './where-you-stand';
@@ -1337,7 +1339,7 @@ export const handlers = {
     // v2.12.1 T8 (spec 2): the person's own public data is re-read inside this call, within its
     // budget, in parallel with the reads below (stand-view.ts startRefresh). Never fails the tool.
     const start = Date.now();
-    const refresh: { started: { within: () => Promise<void> } | null } = { started: null };
+    const refresh: { started: { within: (capMs?: number) => Promise<void> } | null } = { started: null };
     if (scoring)
       await (async () => {
         const now = new Date();
@@ -1438,7 +1440,7 @@ export const handlers = {
           // v2.12 spec 7: odds from the person's verified users and money, when their public score has them.
           ...(profiled ? { verified: (k: string) => verifiedProject(ctx.installationId, k) } : {}),
         };
-        const matched = await (ctx.matchProjects ?? matchProjects)(
+        const matching = (ctx.matchProjects ?? matchProjects)(
           MatchProjectsInput.parse({
             github_user: matchUser,
             repos: repoList,
@@ -1448,6 +1450,9 @@ export const handlers = {
           }),
           matchDeps,
         );
+        // v2.13.1 O5 N1: under the Bench the reply waits for matching at most REPLY_WAIT_MS from the
+        // start of the call (ReplyLate: no fits this reply; the repo's facts are cached for the next).
+        const matched = bench ? await inTime<Awaited<typeof matching>>(matching, start + REPLY_WAIT_MS - Date.now()) : await matching;
         // v2.10 item 7b: with the App on, the first repo EarnKit can't see gets its "allow read
         // access" link (an `app` nonce, R8); the reply shows only that one.
         const [first, ...restUnseen] = matched.unseen ?? [];
@@ -1483,7 +1488,8 @@ export const handlers = {
           }
         }
       } catch (err) {
-        if (quiet && matchUser) console.error('[list_programs] reported login matching', err instanceof Error ? err.name : 'error');
+        if (err instanceof ReplyLate) yourRepos = null;
+        else if (quiet && matchUser) console.error('[list_programs] reported login matching', err instanceof Error ? err.name : 'error');
         else if (err instanceof GitHubError || err instanceof RateLimitError)
           yourRepos = { error: err.message };
         else console.error('[list_programs] matching failed:', err);
@@ -1583,7 +1589,8 @@ export const handlers = {
     // the v2.11 tables, now without v2.12's second line and consent line. Flag off: everything below
     // is v2.11, byte for byte.
     if (scoring && profiled && !more) {
-      await refresh.started?.within();
+      // v2.13.1 O5 N1: under the Bench the reply waits for the refresh at most REPLY_WAIT_MS (it runs on).
+      await refresh.started?.within(benchEnabled() ? REPLY_WAIT_MS : undefined);
       const shownCards = withPools.filter((c) => !hide.has(c.id));
       if (!benchEnabled())
         return standFind(ctx, {
@@ -2833,7 +2840,8 @@ async function buildStart(programId: string, ctx: ToolContext) {
   await saveBuild(ctx.installationId, { program_id: programId, starter_id: pick.starter.id, started_at: new Date().toISOString() });
   return {
     program_id: programId,
-    show_to_builder: twistQuestion(known !== null),
+    // v2.13.1 O5 N7: under the Bench the wallet line has a way out for a builder with none.
+    show_to_builder: twistQuestion(known !== null, benchEnabled()),
     build: { program_id: programId, starter_id: pick.starter.id, step: 'twist' },
     agent_note: twistNote(known !== null),
   };
@@ -2906,7 +2914,8 @@ async function buildTwist(b: z.infer<typeof BuildTwist>, ctx: ToolContext) {
   const branch = bench && next.repo_url ? await buildBranch(ctx, next.repo_url) : null;
   return {
     program_id: next.program_id,
-    show_to_builder: shownBefore ? '' : buildingLine(next.name!, pick.starter.what, next.for_whom!),
+    // v2.13.1 O5 N12: under the Bench, no chain name and the builder's "my" said back as "your".
+    show_to_builder: shownBefore ? '' : bench ? benchBuildingLine(next.name!, pick.starter, next.for_whom!) : buildingLine(next.name!, pick.starter.what, next.for_whom!),
     build: { program_id: next.program_id, starter_id: pick.starter.id, step: 'build' },
     kit: buildKit(
       pick.starter, next.repo_url && !bench ? tokenLineFor(ctx.installationId, next.repo_url) : null, { ...fields, wallet }, Boolean(next.repo_url),
@@ -2933,7 +2942,7 @@ async function buildBranch(ctx: ToolContext, repoUrl: string, o: { deploy?: bool
   const gh = githubRepo(repoUrl);
   if (!gh) return { note: BUILD_BRANCH_WAIT_NOTE };
   // v2.13.1 O3: at the deploy step a code that expired during the build gets a fresh one (within the daily cap).
-  const state = await proofBranchFor(ctx.installationId, `${gh.owner}/${gh.repo}`, new Date(), { canBuild: true, buildDeploy: o.deploy }).catch(() => null);
+  const state = await proofBranchFor(ctx.installationId, `${gh.owner}/${gh.repo}`, new Date(), { canBuild: true, buildDeploy: o.deploy, newRepo: true }).catch(() => null);
   if (state?.kind === 'checking') return { proof: { branch: state.proof.branch, push: state.proof.push, remove: state.proof.remove } };
   return { note: state?.kind === 'taken' ? BUILD_BRANCH_TAKEN_NOTE : BUILD_BRANCH_WAIT_NOTE };
 }
@@ -3453,6 +3462,8 @@ export const TellToolInput = z
     // v2.13: this week's update (or hide one week), and the weekly-posting yes. Flag off: not listed in the MCP schema.
     update: z.object({ text: z.string().max(2000).optional(), hide: z.string().max(20).optional() }).strict().optional(),
     updates: z.object({ on: z.boolean(), scheduled: z.boolean().optional() }).strict().optional(),
+    // v2.13.1 O5 N2: the agent's push of the proof branch (false: GitHub refused it). Flag off: not listed in the MCP schema.
+    proof: z.object({ pushed: z.boolean() }).strict().optional(),
     // Read by tell_earnkit (builder-memory.ts TellInput).
     program_status: z.unknown().optional(),
     repo_facts: z.unknown().optional(),
@@ -3915,12 +3926,12 @@ export const tools = {
   tell: async (input: unknown, ctx: ToolContext) => {
     // v2.12.1 T8: x_handle is no longer taken with the flag on (the page's handle is the X claim's);
     // it is ignored, as with the flag off (v2.11).
-    const { pickup, submitted, signed_in, profile, x_handle, card, move_up, coin, update, updates, ...rest } = TellToolInput.parse(input ?? {});
+    const { pickup, submitted, signed_in, profile, x_handle, card, move_up, coin, update, updates, proof, ...rest } = TellToolInput.parse(input ?? {});
     void x_handle;
     const statements = defined(rest);
     const replies: Reply[] = [];
     // v2.12 spec 8: "hide" and "show". v2.12.1 T8: the card and the move-up answers. Flag off: ignored (v2.11).
-    if (builderScoreEnabled() && ctx.sharedClient && (profile || card || move_up || coin || update || updates))
+    if (builderScoreEnabled() && ctx.sharedClient && (profile || card || move_up || coin || update || updates || proof))
       replies.push({ show_to_builder: '', agent_note: SHARED_PROFILE_NOTE });
     else if (builderScoreEnabled()) {
       if (profile) replies.push({ show_to_builder: await setHidden(ctx.installationId, profile === 'hide') });
@@ -3943,6 +3954,12 @@ export const tools = {
         if (update?.hide !== undefined) replies.push(await hideUpdate(ctx.installationId, update.hide));
         if (updates) replies.push(await setUpdates(ctx.installationId, updates, now));
       }
+      // v2.13.1 O5 N2: a refused push ends the proof branch's wait at once (the next find says it plainly).
+      if (benchEnabled() && proof)
+        replies.push({
+          show_to_builder: '',
+          agent_note: !proof.pushed && (await pushRefused(ctx.installationId, new Date()).catch(() => false)) ? PUSH_REFUSED_NOTE : PUSH_DONE_NOTE,
+        });
     }
     // v2.13.1 O2 (B6): "not mine" on the one project, while it isn't Bench-confirmed, clears it. Fix
     // round 1 (minor): only for input tell_earnkit's own schema (TellInput) accepts.

@@ -102,6 +102,9 @@ export const OWNERSHIP_FOR_TOKEN =
   "(prepare's token_line once it knows the repo, or token.agent_note on gate_failed). Write and push it yourself; " +
   'never ask the builder to edit files. It is bound to you and the repo. One token per repo.';
 
+/** v2.13.1 O5 N9: under the Bench a token's repo is proven by the proof branch EarnKit asks for (never an earnkit.txt line). */
+export const OWNERSHIP_FOR_TOKEN_BENCH = 'A token needs a repo proven yours; EarnKit gives you the proof step when it needs one.';
+
 /**
  * v2.10 item 4: find's description (list_programs and get_program). Exported for tests. T4's
  * local_repos sentence is carried forward (Pre-flight P21).
@@ -155,7 +158,7 @@ const prepareDescription = (campaignOpen: boolean, buildOn: boolean) =>
   // v2.11 T8: the build path starts from find's build_offer; named only with the build field (review M2).
   (buildOn ? 'build: a build_offer yes. ' : '') +
   (campaignOpen ? 'EarnKit campaigns: one Token row (a token on Base), then confirm is the entry. ' : '') +
-  OWNERSHIP_FOR_TOKEN;
+  (benchEnabled() ? OWNERSHIP_FOR_TOKEN_BENCH : OWNERSHIP_FOR_TOKEN);
 
 /** v2.10 item 4 (R15): confirm's description (confirm_entry, launch_token and the entry write of record_submission). */
 const confirmDescription = (campaignOpen: boolean) =>
@@ -576,6 +579,12 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
                         .strict()
                         .optional()
                         .describe('Weekly posting on or off'),
+                      // v2.13.1 O5 N2: a refused push of the proof branch ends its wait at once.
+                      proof: z
+                        .object({ pushed: z.boolean().describe('false when GitHub refused the push of proof.push') })
+                        .strict()
+                        .optional()
+                        .describe('The proof branch push, when it was refused'),
                     }
                   : {}),
               }

@@ -433,7 +433,7 @@ test('12.1b (v2.13.1 O3) EARNKIT_RAISING off: the hero and How it works never me
 
 test('12.2 the sections in order: hero, the Bench top 10, this week on the Bench, grants open now, how it works, backed by', () => {
   const h = page({ ...LANDING_FIXTURE, bench: { rows: Array.from({ length: 12 }, (_, i) => ({ ...ROW, handle: `b${i}`, rank: i + 1 })), chips: ['base'], cards: [CARD], raising: true } });
-  const at = [BENCH_HERO_TITLE, BENCH_TOP_TITLE, CAROUSEL_TITLE, 'Grants open now', BENCH_HOW_TITLE, 'Backed by'].map((s) => h.indexOf(s));
+  const at = [BENCH_HERO_TITLE, BENCH_TOP_TITLE, CAROUSEL_TITLE, 'Money open now', BENCH_HOW_TITLE, 'Backed by'].map((s) => h.indexOf(s));
   assert.ok(at.every((i, k) => i >= 0 && (k === 0 || i > at[k - 1])), at.join(','));
   assert.equal((h.match(/data-row=/g) ?? []).length, 10, 'the top 10');
   assert.match(h, new RegExp(`href="/bench"[^>]*>${SEE_BENCH}`));
@@ -450,7 +450,7 @@ test('12.3 the square card: photo, @handle, project, the first line of the updat
   assert.ok(h.includes('@maya_makes') && h.includes('Recipe planner'));
   // No updates this week: no carousel (the Bench and the grants still show).
   const none = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], chips: [], cards: [], raising: true } });
-  assert.ok(!none.includes(CAROUSEL_TITLE) && none.includes(BENCH_TOP_TITLE) && none.includes('Grants open now'));
+  assert.ok(!none.includes(CAROUSEL_TITLE) && none.includes(BENCH_TOP_TITLE) && none.includes('Money open now'));
 });
 
 test('12.4 flag off: today\'s landing page (review focus 4)', () => {

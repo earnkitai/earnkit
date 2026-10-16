@@ -1475,3 +1475,7 @@ ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS gh_owner_type text;
 -- may get a new code at once (the 5-a-day cap still holds), and the agent is told once to delete any
 -- branch it pushed. Additive.
 ALTER TABLE proof_branches ADD COLUMN IF NOT EXISTS closed_at timestamptz;
+-- v2.13.1 O5 N4: when a cheap read of the repo itself (GitHub's /repos/{key}, at the switch or the
+-- branch check) last said it is public. The page names a repo by it until a newer reading says
+-- otherwise, so a public repo never shows as "Private project" while its full read waits. Additive.
+ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS public_at timestamptz;
