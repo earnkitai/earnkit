@@ -6,6 +6,6 @@
  * list (plan S9): those rows show as not yet confirmed. Pure.
  */
 export const CONFIRMED_PROOFS: ReadonlySet<string> = new Set([
-  'github_signin', 'proof_line', 'repo_owner', 'repo_link', 'deployer', 'deploy_wallet', 'wallet_signed', 'earnkit_hosted', 'x_match',
+  'github_signin', 'proof_line', 'repo_owner', 'repo_link', 'deployer', 'deploy_wallet', 'wallet_signed', 'earnkit_hosted', 'x_match', 'proof_branch',
 ]);
 export const isConfirmedProof = (p: string | null | undefined): boolean => p != null && CONFIRMED_PROOFS.has(p);

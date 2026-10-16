@@ -750,5 +750,16 @@ await db`INSERT INTO github_verify_nonces (nonce_hash, installation_id, repo_key
 const claimRerun = await db.unsafe(now).then(() => true, () => false);
 ok(claimRerun, "v2.12.1: the schema runs again over a 'claim' sign-in link");
 
+// v2.13.1 O1: the proof branch table, and a 'proof_branch' source survives the next schema run.
+const pb = await db<{ column_name: string }[]>`
+  SELECT column_name FROM information_schema.columns WHERE table_name = 'proof_branches' ORDER BY column_name`;
+ok(JSON.stringify(pb.map((c) => c.column_name)) === '["builder_id","code","expires_at","issued_at","repo_key","told_at","used_at"]',
+  'proof_branches has code, builder_id, repo_key, issued_at, expires_at, used_at and told_at');
+const badCode = await db`INSERT INTO proof_branches (code, builder_id, repo_key, issued_at, expires_at) VALUES ('NOT-A-CODE', 1, 'a/b', now(), now())`.then(() => false, () => true);
+ok(badCode, 'proof_branches refuses a code that is not 12 base32 characters');
+await db`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES (-131, 'repo', 'pb-check/x', 'pb-check/x', 'verified', 'proof_branch', 'server')`;
+const pbRerun = await db.unsafe(now).then(() => true, () => false);
+ok(pbRerun, "v2.13.1: the schema runs again over a 'proof_branch' source");
+
 await db.end();
 console.log(`db check: ${checks} checks passed`);

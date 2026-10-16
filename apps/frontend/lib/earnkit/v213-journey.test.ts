@@ -18,8 +18,9 @@ import { claimThroughX } from './fixtures/claim-x';
 import { resolveHandle } from './profiles';
 import { refreshPerson, REFRESH_BUDGET_MS, rescorePerson } from './person-score';
 import { mainProjectOf } from './main-project';
+import { tokenLineFor } from './token-gate';
 import { benchCardFacts, benchRows, parseBenchFilter, profileData } from './bench-data';
-import { UPDATES_ASK, buildAsk, confirmingLine } from './bench-reply';
+import { UPDATES_ASK, buildAsk, checkingBranchLine } from './bench-reply';
 import { NOT_CONFIRMED_NOTE, UPDATE_LINES } from './updates';
 import { pillOf } from './raising';
 import { feedWeeks, feedRankStep } from './feed';
@@ -47,8 +48,8 @@ import { GET as llms } from '../../app/llms.txt/route';
  * v2.13 T16 (spec "Acceptance test" 1 to 7, as the runbook walks them): one person with a project,
  * one without, the weekly update, the Bench filters, the raise, the landing page and no builder
  * bonus, through the real flag-on code paths (EARNKIT_BUILDER_SCORE and EARNKIT_BENCH on): find,
- * prepare, confirm and tell as an agent calls them, the claim with X, the proof line pushed by the
- * repo's owner, the refresh, the rescore, the weekly facts and feed rank steps, and the pages'
+ * prepare, confirm and tell as an agent calls them, the claim with X, the proof branch pushed by the
+ * repo's agent (v2.13.1 O1), the refresh, the rescore, the weekly facts and feed rank steps, and the pages'
  * data and views. Plus Review Focus 3 (a claimant of the same repo who never pushed the line never
  * reaches the Bench, the feed or the raise ask) and Review Focus 4 (flag off: the find heading,
  * /bench and /feed a 404).
@@ -127,8 +128,8 @@ const sha = (c: string) => c.repeat(40);
 
 /**
  * GitHub as the builders' agents leave it. maya/recipes is 400 days old, live at its homepage, with
- * a commit in each of the last three ISO weeks; `pushLine` is the agent's push of earnkit.txt (one
- * commit on main, by maya). maya2/tipjar is made and pushed by the starter build (a new repo: its
+ * a commit in each of the last three ISO weeks; `pushBranch` is the agent's temporary proof branch
+ * (v2.13.1 O1). maya2/tipjar is made and pushed by the starter build (a new repo: its
  * first push is a branch creation).
  */
 type GhRepo = {
@@ -150,7 +151,7 @@ function repo(owner: string, name: string, createdAt: number, homepage: string |
 const RECIPES = repo('maya', 'recipes', NOW.getTime() - 400 * DAY, 'https://recipes.app');
 /** maya's three weeks of commits (this week, last week, the week before). */
 const COMMITS = [NOW.getTime() - 1_000, NOW.getTime() - 7 * DAY, NOW.getTime() - 14 * DAY];
-/** The agent pushes the proof line to main, as maya. */
+/** The agent pushes the coin's earnkit.txt line to main, as maya (the token gate's own proof, at launch). */
 function pushLine(r: GhRepo, line: string) {
   const at = Date.now();
   const [before, after] = [sha('a'), sha('b')];
@@ -158,6 +159,9 @@ function pushLine(r: GhRepo, line: string) {
   r.head = { before, after, at };
   r.activity.unshift({ activity_type: 'push', ref: 'refs/heads/main', before, after, timestamp: iso(at), actor: { login: r.owner } });
 }
+/** v2.13.1 O1: the agent's temporary proof branch (`owner/repo#branch`), pointing at the current commit. */
+const BRANCHES = new Set<string>();
+const pushBranch = (r: GhRepo, branch: string) => void BRANCHES.add(`${r.owner}/${r.name}#${branch}`);
 /** The starter build's `gh repo create` and first push (v2.11 journey). */
 function firstPush(r: GhRepo, line: string) {
   const at = Date.now();
@@ -213,6 +217,11 @@ function github(u: URL): Response {
     if (rest.startsWith('/compare/') && r.head && rest === `/compare/${r.head.before}...${r.head.after}`)
       return json({ status: 'ahead', total_commits: 1, commits: [{ sha: r.head.after, parents: [{ sha: r.head.before }], commit: { committer: { date: iso(r.head.at) } } }] });
     if (rest === '/branches') return json([{ name: 'main' }]);
+    const ref = rest.match(/^\/git\/ref\/heads\/(.+)$/);
+    if (ref)
+      return BRANCHES.has(`${r.owner}/${r.name}#${ref[1]}`)
+        ? json({ ref: `refs/heads/${ref[1]}`, url: `https://api.github.com/repos/${r.owner}/${r.name}/git/refs/heads/${ref[1]}`, object: { sha: sha('b'), type: 'commit' } })
+        : notFound();
     if (rest === '/contents/earnkit.txt') {
       const text = r.head && r.files.get(r.head.after);
       return text ? new Response(text) : notFound();
@@ -360,7 +369,7 @@ after(async () => {
 // ---- Helpers -----------------------------------------------------------------------------------
 
 type Reply = {
-  show_to_builder: string; agent_note?: string; claim?: { link: string }; proof?: { line?: string };
+  show_to_builder: string; agent_note?: string; claim?: { link: string }; proof?: { line?: string; branch?: string; remove?: string; agent_note?: string };
   move_up?: { kind: string; project_key: string | null }; build_offer?: { program_id: string }; schedule_weekly_update?: string;
   kit?: { proof_line?: string | null }; project_id?: number;
 };
@@ -480,24 +489,25 @@ const RECIPES_PROJECT = { name: 'Recipe planner', what: 'a recipe planner', repo
 
 // ---- The journey -------------------------------------------------------------------------------
 
-test('16.1 acceptance 1, with a project: the first reply names it and carries the claim link and the proof; after X and the proof line it is on the Bench; the page shows the photo, the Started card and the Project tab', db, async () => {
+test('16.1 acceptance 1, with a project: the first reply names it and carries the claim link and the proof; after X and the proof branch it is on the Bench; the page shows the photo, the Started card and the Project tab', db, async () => {
   const id = await newInstall();
   MAYA.id = id;
   const r1 = await call('find', { identity: { github_login: 'maya', project: RECIPES_PROJECT } }, ctx(id));
   assert.equal(r1.show_to_builder.split('\n')[0], 'Where you stand', r1.show_to_builder);
-  assert.equal(r1.show_to_builder.split('\n')[1], confirmingLine('Recipe planner'), r1.show_to_builder);
-  assert.match(r1.claim?.link ?? '', /^earnkit\.com\/claim\/[a-z2-7]{12}$/);
+  assert.equal(r1.show_to_builder.split('\n')[1], checkingBranchLine('Recipe planner'), r1.show_to_builder);
+  assert.match(r1.claim?.link ?? '', /^https:\/\/earnkit\.com\/claim\/[a-z2-7]{12}$/);
   assert.ok(r1.show_to_builder.includes(`Claim your page with X: ${r1.claim!.link}`));
-  const line = r1.proof?.line;
-  assert.match(line ?? '', /^token: [0-9a-f]{10,}$/, JSON.stringify(r1.proof));
+  const branch = r1.proof?.branch;
+  assert.match(branch ?? '', /^earnkit-[a-z2-7]{12}$/, JSON.stringify(r1.proof));
   await claimX(r1.claim!.link);
-  // The agent pushed the line in the same turn; the next reply (the refresh may run after 60 s while confirming, B4).
-  pushLine(RECIPES, line!);
+  // v2.13.1 O1: the agent pushed the temporary branch in the same turn; the next find checks it.
+  pushBranch(RECIPES, branch!);
   await advanceRefreshGuard(id, 61_000);
   const r2 = await call('find', {}, ctx(id));
   assert.match(r2.show_to_builder, /^Recipe planner is on the Bench(: [^,]+)?, 3 weeks shipping\.$/m, r2.show_to_builder);
   assert.ok(r2.show_to_builder.endsWith(UPDATES_ASK), r2.show_to_builder);
   assert.equal(r2.claim, undefined, 'claimed: no claim link');
+  assert.equal(r2.proof?.agent_note, `Confirmed. Delete the branch now: git push origin :refs/heads/${branch}`);
   const page = await renderProfile('maya_makes', 'log');
   assert.match(page, /src="https:\/\/pbs\.twimg\.com\/profile_images\/1\/m_400x400\.jpg"/);
   assert.ok(page.includes('Started tracking Recipe planner.'), page);
@@ -508,11 +518,11 @@ test('16.1b review focus 3: a second person naming maya/recipes, who never pushe
   EVE = await newInstall();
   xUser = { id: 'x-eve', username: 'eve_ships', name: 'Eve', avatar: null };
   const r = await call('find', { identity: { github_login: 'eve', project: { ...RECIPES_PROJECT, name: 'My recipes' } } }, ctx(EVE));
-  assert.equal(r.show_to_builder.split('\n')[1], confirmingLine('My recipes'), r.show_to_builder);
+  assert.equal(r.show_to_builder.split('\n')[1], checkingBranchLine('My recipes'), r.show_to_builder);
   await claimX(r.claim!.link);
   await advanceRefreshGuard(EVE, 61_000);
   const again = await call('find', {}, ctx(EVE));
-  assert.equal(again.show_to_builder.split('\n')[1], confirmingLine('My recipes'), again.show_to_builder);
+  assert.equal(again.show_to_builder.split('\n')[1], checkingBranchLine('My recipes'), again.show_to_builder);
   assert.notEqual(again.move_up?.kind, 'updates');
   const update = await call('tell', { update: { text: 'Shipped the fridge photo import.' } }, ctx(EVE));
   assert.equal(update.agent_note, NOT_CONFIRMED_NOTE);
@@ -577,6 +587,8 @@ test('16.5 acceptance 5, raise: the yes launches the coin, the pill shows on the
   assert.doesNotMatch((await call('find', {}, ctx(EVE))).show_to_builder, /raise/i);
   const yes = await call('tell', { coin: { project_key: 'maya/recipes', answer: 'yes', wallet: MAYA.wallet } }, ctx(id));
   assert.ok(yes.project_id, JSON.stringify(yes));
+  // v2.13.1 O1: the Bench proof is a branch now, so the coin's own earnkit.txt line is pushed at launch (the gate's agent note).
+  pushLine(RECIPES, tokenLineFor(id, 'https://github.com/maya/recipes')!);
   const launch = await call('confirm', { project_id: yes.project_id, yes: true, wallet: MAYA.wallet }, ctx(id));
   assert.equal(launched.length, 1, JSON.stringify(launch));
   const pill = await pillOf(id);

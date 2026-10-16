@@ -1,3 +1,4 @@
+import { benchEnabled } from './builder-score-flag';
 import { sql, type Db } from './db';
 import { CONFIRMED_PROOFS } from './confirmed';
 import { createVerifyLink, githubUser, githubVerifyEnabled, noteLineIssued } from './github-verify';
@@ -125,6 +126,8 @@ async function lineCantConfirm(installationId: number, key: string, now: Date): 
  * line goes to (final fix I2). With sign-in off, the line stays the way.
  */
 export async function proofFor(installationId: number, builderId: number, o: { canPush: boolean; now: Date }): Promise<MainProof | null> {
+  // v2.13.1 O1: under the Bench flag the agent never pushes a line; the proof is a branch (proof-branch.ts).
+  if (benchEnabled()) return null;
   const key = (await mainProjectOf(builderId))?.toLowerCase() ?? null;
   if (!key || !REPO_KEY.test(key) || (await mainConfirmed(builderId))) return null;
   const url = `https://github.com/${key}`;

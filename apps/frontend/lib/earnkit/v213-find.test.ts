@@ -11,7 +11,7 @@ import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, dropAvalanche, dropPrograms, find, fitsFor, install, person, withEnv } from './fixtures/find';
 import type { Starter } from './starters';
-import { UPDATES_ASK, buildAsk, confirmingLine } from './bench-reply';
+import { UPDATES_ASK, buildAsk, checkingBranchLine } from './bench-reply';
 
 /**
  * v2.13 T8: find and score under the Bench flag through the real tools: the three parts (where you
@@ -49,15 +49,15 @@ async function arcCopy() {
   await upsertProgram(ProgramFile.parse(p));
 }
 
-test('8.6 a fresh install with identity.project: the project named, Confirming, the claim link, the proof in the same turn', dbTest, () =>
+test('8.6 a fresh install with identity.project: the project named, Confirming (v2.13.1: the proof branch), the https claim link, the proof in the same turn', dbTest, () =>
   benchOn(async () => {
     const id = await install();
     const r = await find(id, { identity: { github_login: `mayav${RUN}`, project: { name: 'Recipe planner', what: 'a recipe planner', repo: `mayav${RUN}/recipes` } } }, { matchProjects: async () => ({ checked: 1, scored: 0, fits: [] }) });
     const lines = r.show_to_builder.split('\n');
     assert.equal(lines[0], 'Where you stand');
-    assert.equal(lines[1], confirmingLine('Recipe planner'));
-    assert.match(lines[2], /^Claim your page with X: earnkit\.com\/claim\//);
-    assert.match(r.proof?.line ?? '', /^token: /);
+    assert.equal(lines[1], checkingBranchLine('Recipe planner'));
+    assert.match(lines[2], /^Claim your page with X: https:\/\/earnkit\.com\/claim\//);
+    assert.match((r.proof as { branch?: string } | undefined)?.branch ?? '', /^earnkit-[a-z2-7]{12}$/);
     assert.equal(r.schedule_daily_check, undefined, 'B18: no daily check under the flag');
   }),
 );

@@ -3,7 +3,7 @@ process.env.EARNKIT_BENCH = 'on';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  NO_PROJECT_LINE, POST_UPDATE_ASK, UPDATES_ASK, benchReply, buildAsk, chooseAsk, confirmingLine, enterAsk, goLiveAsk, onBenchLine, type BenchAsk, type BenchView,
+  NO_PROJECT_LINE, POST_UPDATE_ASK, UPDATES_ASK, benchReply, buildAsk, cantShowLine, checkingBranchLine, chooseAsk, confirmingLine, enterAsk, goLiveAsk, onBenchLine, type BenchAsk, type BenchView,
 } from './bench-reply';
 
 const RECIPE = { key: 'maya/recipes', name: 'Recipe planner', confirmed: true, live: true, weeks: 6 };
@@ -30,8 +30,9 @@ test('8.2 spec 2a while confirming, and with the X claim still to do', () => {
   assert.equal(confirmingLine('Recipe planner'), "Recipe planner joins the Bench as soon as I've confirmed it's yours (a minute or two).");
   const v: BenchView = { project: { ...RECIPE, confirmed: false }, rank: null, claimed: false, handle: null, claimLink: 'earnkit.com/claim/abcdefghijkl', fund: [], ask: null };
   assert.equal(benchReply(v), ['Where you stand', confirmingLine('Recipe planner'), 'Claim your page with X: earnkit.com/claim/abcdefghijkl'].join('\n'));
-  const signIn = benchReply({ ...v, proofLink: 'https://earnkit.com/github/start?c=x' });
-  assert.match(signIn, /^Where you stand\nRecipe planner joins the Bench as soon as you show it's yours: https:\/\/earnkit\.com\/github\/start\?c=x$/m);
+  // v2.13.1 O1: the proof branch, then (never showed in the hour) the plain line.
+  assert.equal(benchReply({ ...v, branch: 'checking' }).split('\n')[1], checkingBranchLine('Recipe planner'));
+  assert.equal(benchReply({ ...v, branch: 'failed' }).split('\n')[1], cantShowLine('Recipe planner'));
   const unclaimed = benchReply({ ...v, project: RECIPE });
   assert.match(unclaimed, /Recipe planner goes on the Bench once you claim your page with X: earnkit\.com\/claim\/abcdefghijkl$/m);
 });

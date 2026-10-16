@@ -1437,7 +1437,13 @@ apps/frontend/
                                benchConfirmedSql (repo key needs a confirmed repo proof), CONFIRMING_WINDOW_MS
                                (1 h fast refresh), PROOF_NOTE (names proof.repo), proofFor (the line, or the
                                sign-in link: can't push, owner not github_user, an org, or the hour passed;
-                               SIGN_IN_OWNER_NOTE), pickMainProject (Bench-confirmed only, else null)
+                               SIGN_IN_OWNER_NOTE; v2.13.1: null under the flag), pickMainProject
+                               (Bench-confirmed only, else null)
+    proof-branch.ts            v2.13.1 O1: the proof branch (table proof_branches): proofBranchFor (one code per
+                               person and repo, 1 h, single use; `failed` after the hour), checkProofBranch
+                               (git ref + repo read, no redirects, no fork/template; proof `proof_branch`,
+                               rescore), branchToRemove (the delete note, once), proofBranchStep (cron);
+                               tests: v2131-proof-branch.test.ts
     week-facts.ts(+test)       v2.13 T4: WeekFacts, weekFactsFor, factChips, startedLine, upsertWeekFacts,
                                weeklyFactsStep (Mondays from 15:00 UTC)
     update-text.ts(+test)      v2.13 T5: checkUpdate (280 characters, no @, secrets, own links only), notes

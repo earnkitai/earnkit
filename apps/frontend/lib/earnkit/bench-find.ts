@@ -7,7 +7,8 @@ import { openEntries } from './projects';
 import { hiddenIds, hiddenPrograms, readMemory } from './builder-memory';
 import { recordShown } from './match-loop';
 import { markFreshOffer } from './installations';
-import { benchConfirmedSql, confirmingFast, proofFor } from './main-project';
+import { benchConfirmedSql, confirmingFast } from './main-project';
+import { branchToRemove, checkProofBranch, proofBranchFor, type BranchState } from './proof-branch';
 import { rankLines, type RankLines } from './bench-rank';
 import { WEEKLY_UPDATE_NOTE, setUpdates } from './updates';
 import { mondayOf } from './weeks';
@@ -143,7 +144,7 @@ type ViewIn = {
   pick: (FreshPick & { canBuild: boolean }) | null;
   /** The reply already asks something (a join, an outcome question, a submission): no ask. */
   held: boolean;
-  agentCanBuild: boolean; due: string[]; proofLink: string | null;
+  agentCanBuild: boolean; due: string[];
   coinDeps?: { check?: TickerCheck };
 };
 
@@ -152,7 +153,7 @@ type ViewIn = {
  * ways to get funded, the one question (chooseAsk), stored for its yes, and the fields every Bench
  * reply carries: move_up, claim, rank_lines, streak.
  */
-async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | null; fields: Reply }> {
+async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | null; fields: Reply; branch: BranchState }> {
   const { id, now, read } = o;
   const row = read.row;
   const project: BenchProject | null = row
@@ -193,11 +194,13 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
     UPDATE builder_profiles SET standing_seen = CASE WHEN ${stored === null} THEN COALESCE(standing_seen, '{}'::jsonb) - 'bench_ask'
       ELSE COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json(stored as never)}::jsonb) END
     WHERE builder_id = ${id}`.catch(logged('ask'));
-  // Final fix I3: "a minute or two" only within the hour of fast checks after the line was issued.
-  const slow = Boolean(project && !project.confirmed && !o.proofLink) && !(await confirmingFast(id, now).catch(() => false));
+  // v2.13.1 O1: a repo-key project that isn't confirmed gets the proof branch (issued once; failed after the hour).
+  const branch = project && !project.confirmed ? await proofBranchFor(id, project.key, now, { issue: true }).catch(logged('proof branch')) : null;
+  // Final fix I3: "a minute or two" only within the hour of fast checks after the line was issued (keys a branch can't prove).
+  const slow = Boolean(project && !project.confirmed && !branch) && !(await confirmingFast(id, now).catch(() => false));
   const view: BenchView = {
     project, rank: read.ranks.phrase, claimed: read.base.claimed, handle: read.base.handle, claimLink: read.base.claimLink,
-    proofLink: o.proofLink, slow, fund, ask, due: o.due,
+    branch: branch?.kind ?? null, slow, fund, ask, due: o.due,
   };
   // A raise ask is answered through move_up (benchMoveUp: setRaising), as every Bench ask but the coin offer.
   const note = ask?.kind === 'coin' ? COIN_NOTE : BENCH_MOVE_UP_NOTE;
@@ -207,7 +210,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
     rank_lines: [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x)),
     streak: row?.streak ?? 0,
   };
-  return { view, ask, fields };
+  return { view, ask, fields, branch };
 }
 
 /** What find hands benchFind: standFind's arguments, plus the project the agent named. */
@@ -233,8 +236,9 @@ export type BenchFindArgs = {
 export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Reply> {
   const id = ctx.installationId;
   const now = a.first.now;
+  // v2.13.1 O1: the open proof branch is checked first, so this reply already shows the confirmation.
+  await checkProofBranch(id, now, { ghFetch: ctx.proofBranchFetch ?? ctx.readerDeps?.ghFetch });
   const read = await benchRead(id, now, ctx.freshDeps);
-  const proof = await proofFor(id, id, { canPush: a.agentCanBuild, now }).catch(logged('proof'));
   const m = { cards: a.cards, repos: a.repos, entries: a.myEntries, now };
   const entered = enteredIds(m);
   const main = read.main?.toLowerCase() ?? null;
@@ -256,10 +260,11 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
       }).pick ??
       null);
   const name = a.project && projectKeyOf(a.project).toLowerCase() === main ? a.project.name : null;
-  const { view, ask, fields } = await benchView({
+  const { view, ask, fields, branch } = await benchView({
     id, now, read, name, fits, cards: a.cards, skip, pick, held: held || Boolean(submit), agentCanBuild: a.agentCanBuild, due,
-    proofLink: proof && 'sign_in' in proof ? proof.sign_in : null, coinDeps: { check: ctx.tokenDeps?.check },
+    coinDeps: { check: ctx.tokenDeps?.check },
   });
+  const proof = branch?.kind === 'checking' ? branch.proof : await branchToRemove(id, now).catch(logged('proof branch told'));
   const asks = held || Boolean(submit) || Boolean(ask);
   const news = read.profiled ? await takeNews(id, read.seen, read.base, now, !asks).catch(logged('news')) : null;
   const opener = newsOpener(a.alerts.lines, news ? [news] : []);
@@ -296,12 +301,13 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
  * (stand-view.ts scoreEarn), else the open-all-year program; no project, the build. One
  * score_viewed event a minute (v2.12). Null without a profile (score-tool.ts answers that).
  */
-export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'freshDeps' | 'tokenDeps'>, now: Date, o: { hold?: boolean; reader?: ReaderDeps; fresh?: FreshOn } = {}): Promise<Reply | null> {
+export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'freshDeps' | 'tokenDeps' | 'proofBranchFetch'>, now: Date, o: { hold?: boolean; reader?: ReaderDeps; fresh?: FreshOn } = {}): Promise<Reply | null> {
   const id = ctx.installationId;
   const made = await ensureProfile(id, now);
   if (!made) return null;
   if (made.created) await enqueueDiscovery(id, 'first_find');
   await startRefresh(id, { now, start: Date.now(), reader: o.reader }).within();
+  await checkProofBranch(id, now, { ghFetch: ctx.proofBranchFetch ?? o.reader?.ghFetch });
   const read = await benchRead(id, now, ctx.freshDeps);
   const [programs, entries, memory] = await Promise.all([listPrograms().catch(() => []), openEntries(id).catch(() => []), readMemory(id).catch(() => null)]);
   const cards = (programs as (Card & { agent_completable?: boolean; earnkit_campaign?: boolean; starts_at: Date | null; opened_at: Date | null })[])
@@ -315,10 +321,11 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'fres
   const fresh = o.fresh;
   const picked = !main && fresh ? freshPick(shown, now, { hidden, entered, deployOn: fresh.deployOn, hostOn: fresh.hostOn, starters: fresh.starters }) : undefined;
   const pick = picked && fresh ? { ...picked, canBuild: fresh.canBuild } : null;
-  const { view, fields } = await benchView({
+  const { view, fields, branch } = await benchView({
     id, now, read, name: null, fits, cards: shown, skip: new Set([...entered, ...hidden]), pick, held: Boolean(o.hold),
-    agentCanBuild: fresh?.canBuild ?? false, due: [], proofLink: null, coinDeps: { check: ctx.tokenDeps?.check },
+    agentCanBuild: fresh?.canBuild ?? false, due: [], coinDeps: { check: ctx.tokenDeps?.check },
   });
+  const proof = branch?.kind === 'checking' ? branch.proof : await branchToRemove(id, now).catch(logged('proof branch told'));
   await noteEvent('score_viewed', () => ({
     type: 'score_viewed',
     dedupe_key: `score_viewed:${id}:${Math.floor(now.getTime() / 60_000)}`,
@@ -330,6 +337,7 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'fres
     ...fields,
     ...(fits[0] && { lead: { program_id: fits[0].program_id }, note: EARN_NOTE }),
     ...(pick && { build_offer: { program_id: pick.card.id, starter_id: pick.starter.id, can_build: pick.canBuild } }),
+    ...(proof && { proof }),
   };
 }
 

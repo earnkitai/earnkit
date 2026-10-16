@@ -1347,7 +1347,7 @@ ALTER TABLE builder_sources ADD CONSTRAINT builder_sources_kind_check
   CHECK (kind IN ('repo','site','package_npm','package_pypi','contract','merged_pr','coin'));
 ALTER TABLE builder_sources DROP CONSTRAINT IF EXISTS builder_sources_proof_check;
 ALTER TABLE builder_sources ADD CONSTRAINT builder_sources_proof_check
-  CHECK (proof IN ('github_signin','proof_line','repo_owner','deployer','deploy_wallet','earnkit_txt','dns_txt','repo_link','x_match','wallet_signed','earnkit_hosted'));
+  CHECK (proof IN ('github_signin','proof_line','repo_owner','deployer','deploy_wallet','earnkit_txt','dns_txt','repo_link','x_match','wallet_signed','earnkit_hosted','proof_branch'));
 ALTER TABLE github_verify_nonces DROP CONSTRAINT IF EXISTS github_verify_nonces_purpose_check;
 ALTER TABLE github_verify_nonces ADD CONSTRAINT github_verify_nonces_purpose_check CHECK (purpose IN ('entry', 'pickup', 'host', 'app', 'claim'));
 ALTER TABLE builder_events DROP CONSTRAINT IF EXISTS builder_events_type_check;
@@ -1448,3 +1448,17 @@ ALTER TABLE programs ADD COLUMN IF NOT EXISTS pitch jsonb;
 ALTER TABLE coin_moments DROP CONSTRAINT IF EXISTS coin_moments_moment_check;
 ALTER TABLE coin_moments ADD CONSTRAINT coin_moments_moment_check
   CHECK (moment IN ('built_live','countable','first_five','has_people','streak_five'));
+-- v2.13.1 O1 (owner ruling, proof branch): the one project's proof is a temporary branch
+-- earnkit-<code> the agent pushes to the exact repo (no file, no commit). One code per person and
+-- repo key at a time, one hour, single use. `told_at`: the agent was told to delete the branch.
+CREATE TABLE IF NOT EXISTS proof_branches (
+  code        text PRIMARY KEY CHECK (code ~ '^[a-z2-7]{12}$'),
+  builder_id  integer NOT NULL,
+  repo_key    text NOT NULL,
+  issued_at   timestamptz NOT NULL,
+  expires_at  timestamptz NOT NULL,
+  used_at     timestamptz,
+  told_at     timestamptz
+);
+CREATE INDEX IF NOT EXISTS proof_branches_person ON proof_branches (builder_id, repo_key, issued_at DESC);
+CREATE INDEX IF NOT EXISTS proof_branches_open ON proof_branches (expires_at) WHERE used_at IS NULL;

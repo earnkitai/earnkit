@@ -5022,10 +5022,12 @@ by the builder's own agent, public filters for the capital side, and an optional
 
 - **2a, a project.** `find` takes `identity.project` (one; an older agent's `projects[]` keeps its first
   entry). The reply (`bench-reply.ts`, `bench-find.ts benchFind`) has three parts: "Where you stand",
-  "Ways to get funded", "How to move up". The agent commits the proof line in the same turn
-  (`main-project.ts PROOF_NOTE`; `proof.repo` names the exact owner/repo the line goes to), or the
-  reply carries the sign-in link when it cannot push, or when a pushed line can't confirm the repo
-  (final fix I3, see "One project and its proof"). The server
+  "Ways to get funded", "How to move up". v2.13.1 O1 (owner ruling): the agent pushes a temporary
+  proof branch `earnkit-<code>` (`proof-branch.ts`; no file, no commit; the builder reads one line),
+  checked on find, score, the refresh and the cron; a pass verifies the repo (`proof_branch`) and
+  rescores at once, and the next reply tells the agent to delete the branch. A branch that never shows
+  in the hour gets "I couldn't show <project> is yours..." (no loop). The v2.13 proof line and sign-in
+  link (`main-project.ts proofFor`) now run only with the flag off. The server
   writes the first ship log entry "Started tracking <name>." (`week-facts.ts startedLine`).
 - **2b, no project.** The reply leads with ideas the builder can earn from (`ideasLine`) and the one yes
   builds a starter that is the project (v2.11 flow).

@@ -77,7 +77,8 @@ export async function claimLink(builderId: number): Promise<string | null> {
   const code = claimCode(builderId);
   if (!code) return null;
   await sql()`INSERT INTO claim_codes (code_hash, builder_id) VALUES (${sha256(code)}, ${builderId}) ON CONFLICT (code_hash) DO NOTHING`;
-  return `earnkit.com/claim/${code}`;
+  // v2.13.1 O1 (B2): under the Bench flag a full https link from siteUrl(); flag off, today's.
+  return benchEnabled() ? `${siteUrl()}/claim/${code}` : `earnkit.com/claim/${code}`;
 }
 
 /**

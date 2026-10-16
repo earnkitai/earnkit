@@ -19,7 +19,7 @@ export const SEND_LINK_NOTE = 'When the builder sends a link to something they m
 /** The score tool's one line on an agent serving many builders (plan R2): nothing is read or written. */
 export const SCORE_SHARED = 'Open EarnKit in your own coding agent to see your score.';
 
-type Ctx = { installationId: number; ownInstallationId?: number; sharedClient?: boolean; freshDeps?: ToolContext['freshDeps']; tokenDeps?: ToolContext['tokenDeps'] };
+type Ctx = { installationId: number; ownInstallationId?: number; sharedClient?: boolean; freshDeps?: ToolContext['freshDeps']; tokenDeps?: ToolContext['tokenDeps']; proofBranchFetch?: ToolContext['proofBranchFetch'] };
 
 /** v2.12.1 T8: the score tool's reply: where the person stands, one way to earn and the one step up. */
 export type StandScoreReply = {

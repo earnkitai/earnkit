@@ -118,6 +118,8 @@ const NAMED_COLUMNS: [string, string][] = [
   ['contract_deploys', 'repo_key'],
   // v2.11 T9 R4: when an installation was first shown a repo's earnkit.txt line.
   ['proof_line_issues', 'repo_key'],
+  // v2.13.1 O1: the repo a proof branch was issued for.
+  ['proof_branches', 'repo_key'],
   ['hosted_sites', 'repo_key'],
   ['hosted_sites', 'slug'],
   ['host_deploys', 'repo_key'],

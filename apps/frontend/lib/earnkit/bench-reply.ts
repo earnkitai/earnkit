@@ -13,8 +13,11 @@ export type FundLine =
 export type BenchProject = { key: string; name: string; confirmed: boolean; live: boolean; weeks: number };
 export type BenchView = {
   project: BenchProject | null; rank: string | null; claimed: boolean; handle: string | null; claimLink: string | null;
-  /** GitHub sign-in when the agent can't push the proof line (plan B3). */
-  proofLink?: string | null;
+  /**
+   * v2.13.1 O1: the one project (a repo key) while it isn't confirmed: `checking` (the agent was given
+   * the proof branch) or `failed` (the branch never showed within the hour).
+   */
+  branch?: 'checking' | 'failed' | null;
   /** Final fix I3: not confirmed and outside the hour of fast checks (main-project confirmingFast): no "a minute or two". */
   slow?: boolean;
   fund: FundLine[]; ask: BenchAsk | null;
@@ -26,7 +29,10 @@ export const NO_PROJECT_LINE = "You're not on the Bench yet. Pick something to b
 export const confirmingLine = (name: string) => `${name} joins the Bench as soon as I've confirmed it's yours (a minute or two).`;
 /** Final fix I3: outside the hour of fast checks, no time is promised. */
 export const confirmingSlowLine = (name: string) => `${name} joins the Bench once I've confirmed it's yours. I check again every day.`;
-export const showItsYoursLine = (name: string, link: string) => `${name} joins the Bench as soon as you show it's yours: ${link}`;
+/** v2.13.1 O1: the proof branch, told to the builder in one line (no question). */
+export const checkingBranchLine = (name: string) => `I'll check ${name} is yours with a quick temporary branch on GitHub. It's removed right after.`;
+/** v2.13.1 O1: the branch never showed within the hour (the agent couldn't push): no loop, no proof line. */
+export const cantShowLine = (name: string) => `I couldn't show ${name} is yours. Ask your agent to use a project you can push to.`;
 export const claimToJoinLine = (name: string, link: string) => `${name} goes on the Bench once you claim your page with X: ${link}`;
 export const CONFIRMED_LINE = (name: string) => `${name} is confirmed as yours.`;
 export function onBenchLine(name: string, rank: string | null, weeks: number): string {
@@ -72,7 +78,8 @@ function standLines(v: BenchView): string[] {
   const p = v.project;
   if (!p) return [NO_PROJECT_LINE];
   if (!p.confirmed) {
-    const first = v.proofLink ? showItsYoursLine(p.name, v.proofLink) : v.slow ? confirmingSlowLine(p.name) : confirmingLine(p.name);
+    const first =
+      v.branch === 'checking' ? checkingBranchLine(p.name) : v.branch === 'failed' ? cantShowLine(p.name) : v.slow ? confirmingSlowLine(p.name) : confirmingLine(p.name);
     return [first, ...(!v.claimed && v.claimLink ? [`Claim your page with X: ${v.claimLink}`] : [])];
   }
   if (!v.claimed) return [v.claimLink ? claimToJoinLine(p.name, v.claimLink) : CONFIRMED_LINE(p.name)];

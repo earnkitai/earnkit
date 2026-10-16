@@ -9,6 +9,19 @@ import { proofLineCheck } from './discovery';
 import type { ReaderDeps } from './source-readers';
 import { tools } from './tools';
 import { refreshDiscovery } from './person-score';
+import { PROOF_BRANCH_NOTE } from './proof-branch';
+
+/** v2.13.1 O1: proofFor's line runs only with the Bench flag off now (the flag's proof is a branch). */
+async function benchOff<T>(fn: () => Promise<T>): Promise<T> {
+  const was = process.env.EARNKIT_BENCH;
+  delete process.env.EARNKIT_BENCH;
+  try {
+    return await fn();
+  } finally {
+    if (was === undefined) delete process.env.EARNKIT_BENCH;
+    else process.env.EARNKIT_BENCH = was;
+  }
+}
 
 process.env.EARNKIT_BUILDER_SCORE = 'on';
 process.env.EARNKIT_BENCH = 'on';
@@ -53,14 +66,15 @@ test('2.3 under the flag find records the one project: its sources only, propose
   const offline = new Proxy({}, { get: (_t, k) => (k === 'now' ? new Date() : k === 'ghSpent' ? () => false : async () => { throw new Error('offline'); }) }) as ReaderDeps;
   const ctx = { installationId: id, readerDeps: offline, matchProjects: async () => ({ checked: 0, scored: 0, fits: [] }) } as never;
   const identity = { github_login: `maya${RUN}`, projects: [{ name: 'A', repo: `maya${RUN}/a`, live_url: 'https://a.example.com' }, { name: 'B', repo: `maya${RUN}/b` }] };
-  const r = (await tools.find({ identity }, ctx)) as { proof?: { file?: string; line?: string; agent_note: string } };
+  const r = (await tools.find({ identity }, ctx)) as { proof?: { branch?: string; push?: string; agent_note: string } };
   assert.equal(await mainProjectOf(id), `maya${RUN}/a`);
   const rows = await sql()<{ ref: string; state: string }[]>`SELECT ref, state FROM builder_sources WHERE builder_id = ${id} ORDER BY ref`;
   assert.deepEqual(rows.map((x) => x.ref), ['https://a.example.com', `maya${RUN}/a`]);
   assert.ok(rows.every((x) => x.state === 'proposed'), 'an agent report never confirms');
-  assert.equal(r.proof?.file, 'earnkit.txt');
-  assert.match(r.proof?.line ?? '', /^token: [0-9a-f]{10,}$/);
-  assert.equal(r.proof?.agent_note, PROOF_NOTE);
+  // v2.13.1 O1: the proof is a temporary branch for the agent to push (no line, no file).
+  assert.match(r.proof?.branch ?? '', /^earnkit-[a-z2-7]{12}$/);
+  assert.equal(r.proof?.push, `git push origin HEAD:refs/heads/${r.proof?.branch}`);
+  assert.equal(r.proof?.agent_note, PROOF_BRANCH_NOTE);
   assert.equal((await sql()`SELECT github_user FROM installations WHERE id = ${id}`)[0].github_user, `maya${RUN}`);
   // A different project sent later never replaces the one project (review focus 3).
   await tools.find({ identity: { github_login: `maya${RUN}`, project: { name: 'C', repo: `maya${RUN}/c` } } }, ctx);
@@ -72,7 +86,7 @@ test('2.3 under the flag find records the one project: its sources only, propose
   assert.ok(stored.projects.some((x) => x.repo === `maya${RUN}/c`), 'kept in identity');
 });
 
-test('2.4 the proof line: issued for an unconfirmed repo, recorded, github_user filled with the owner; none once confirmed', dbTest, async () => {
+test('2.4 the proof line (flag off only; none under the flag): issued for an unconfirmed repo, recorded, github_user filled with the owner; none once confirmed', dbTest, async () => {
   const id = await person();
   const key = `maya${RUN}/proof`;
   await setMainProject(id, { name: 'P', what: null, repo: key, live_url: null, package: null, contracts: [] });
@@ -80,7 +94,8 @@ test('2.4 the proof line: issued for an unconfirmed repo, recorded, github_user 
   assert.equal((await sql()`SELECT github_user FROM installations WHERE id = ${id}`)[0].github_user, `maya${RUN}`);
   await fillGithubUser(id, key, 'someone-else');
   assert.equal((await sql()`SELECT github_user FROM installations WHERE id = ${id}`)[0].github_user, `maya${RUN}`, 'never overwritten');
-  const p = await proofFor(id, id, { canPush: true, now: new Date() });
+  assert.equal(await proofFor(id, id, { canPush: true, now: new Date() }), null, 'flag on: no line to push');
+  const p = await benchOff(() => proofFor(id, id, { canPush: true, now: new Date() }));
   assert.ok(p && 'line' in p);
   assert.match(p.line, /^token: [0-9a-f]{10,}$/);
   assert.equal(p.file, 'earnkit.txt');
@@ -92,7 +107,7 @@ test('2.4 the proof line: issued for an unconfirmed repo, recorded, github_user 
   await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped) VALUES (${id}, ${key}, 'P', 'code', true, false)`;
   assert.equal(await confirming(id), true, 'still Confirming without the repo proof');
   await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES (${id}, 'repo', ${key}, ${key}, 'verified', 'proof_line', 'server')`;
-  assert.equal(await proofFor(id, id, { canPush: true, now: new Date() }), null);
+  assert.equal(await benchOff(() => proofFor(id, id, { canPush: true, now: new Date() })), null);
   assert.equal(await confirming(id), false);
 });
 
