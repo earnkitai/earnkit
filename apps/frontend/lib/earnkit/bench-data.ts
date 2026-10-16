@@ -153,7 +153,9 @@ export function logCards(rows: { week: string; text: string | null; facts: WeekF
     // The Raising chip once, on the newest card (the header carries the pill).
     if (r.text || hasFacts(facts)) {
       const chips = factChips(facts, { raising: out.length === 0 ? raising : null });
-      const start = facts.started ? [STARTED_CHIP, ...startedChips(facts.started)] : [];
+      // O3 fix round 1: one live chip on a start week that went live ("Went live", not also "Live").
+      const own = facts.started ? startedChips(facts.started).filter((c) => !(c === 'Live' && facts.went_live)) : [];
+      const start = facts.started ? [STARTED_CHIP, ...own] : [];
       out.push({ week: r.week, text: r.text, chips: [...new Set([...start.slice(0, 1), ...chips, ...start.slice(1)])] });
     } else if (facts.started) out.push({ week: r.week, text: null, chips: startedChips(facts.started), started: startedLine(name) });
   }

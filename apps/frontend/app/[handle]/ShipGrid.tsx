@@ -1,9 +1,12 @@
 import type { ProfileData } from '../../lib/earnkit/bench-data';
 import { mondayOfWeek, weekLabel } from '../../lib/earnkit/weeks';
 
-/** Beside the grid: how many of its weeks shipped. Pure. */
+/**
+ * Beside the grid: how many of its weeks had code shipped. v2.13.1 O3 fix round 1 (controller
+ * ruling): "Code in", never "Shipped", so it never contradicts the score part "Shipped". Pure.
+ */
 export const shippedWords = (n: number, of = 52): string =>
-  `Shipped ${n} of the last ${of} weeks`;
+  `Code in ${n} of the last ${of} weeks`;
 
 /**
  * v2.13 spec "Shipping grid": 52 squares, one per ISO week, oldest first; filled for a week that

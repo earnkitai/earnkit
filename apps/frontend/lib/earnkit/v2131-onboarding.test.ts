@@ -10,6 +10,7 @@ import { X_ON, avalanche, dropAvalanche, find, fitsFor, install, person, withEnv
 import { NO_OFFER_LINE, NO_PROJECT_LINE, OTHER_PROJECT_ASK, POST_UPDATE_ASK, SUGGEST_ASK, UPDATES_ASK_JOINING, benchBuildAsk, buildingNowLine, cantShowLine, grantsAsk, takenLine } from './bench-reply';
 import { BENCH_BUILD_ID, TWIST_QUESTION } from './fresh-build';
 import { mainProjectOf } from './main-project';
+import { mondayOf } from './weeks';
 import { coinBranchProof } from './proof-branch';
 import { reservedIdProblem } from './program-file';
 import { readStats } from './stats';
@@ -251,6 +252,15 @@ test('O2 fix round 1 (ruling 3): every state ends on one question with a yes rou
     // Posting on and done this week: the week's update.
     await sql()`UPDATE builder_profiles SET updates_on_at = now(), updates_scheduled_at = now() WHERE builder_id = ${id}`;
     assert.ok((await find(id, {}, NO_MATCH)).show_to_builder.endsWith(POST_UPDATE_ASK));
+    // O3 fix round 1: another person's row for the same key this week is not this person's post.
+    const other = await install();
+    const monday = mondayOf(new Date());
+    await sql()`INSERT INTO project_updates (builder_id, project_key, week, text, facts) VALUES (${other}, ${key}, ${monday}, 'Not theirs.', '{}'::jsonb)`;
+    assert.ok((await find(id, {}, NO_MATCH)).show_to_builder.endsWith(POST_UPDATE_ASK), 'only their own post counts');
+    // O3: their own post this week: never offered again (it would replace it); grants instead.
+    await sql()`UPDATE project_updates SET builder_id = ${id} WHERE project_key = ${key} AND week = ${monday}`;
+    assert.ok((await find(id, {}, NO_MATCH)).show_to_builder.endsWith(grantsAsk('Recipe planner')));
+    await sql()`DELETE FROM project_updates WHERE project_key = ${key}`;
     // No project, nothing to build: the suggestion; the yes suggests.
     const n = await install();
     const s0 = await find(n, { agent_can_build: true }, { freshDeps: { ...OWN_FRESH, deployOn: () => false } });

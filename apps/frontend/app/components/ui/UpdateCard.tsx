@@ -11,6 +11,15 @@ export type UpdateCardData = {
 
 
 /**
+ * O3 fix round 1 (insurance for rows stored before O4): a link is made only of an href that is its
+ * own parsed URL and has no "." or ".." path segment; anything else stays plain text.
+ */
+function linkable(href: string): boolean {
+  if (!URL.canParse(href) || new URL(href).href !== href) return false;
+  return !href.replace(/^https:\/\/[^/?#]*/, '').split(/[?#]/)[0].split('/').some((x) => x === '.' || x === '..');
+}
+
+/**
  * The update as plain React text (escaped). Only a full https href that update-text stored
  * (own links only) becomes an <a>; no markdown, no HTML, no auto-linking of anything else.
  */
@@ -20,6 +29,7 @@ function Body({ text }: { text: string }) {
   // A full https link in the strict alphabet update-text stores own links in (and checks on the way out).
   for (const m of text.matchAll(RENDERED_LINK)) {
     const href = m[0].replace(RENDERED_TRAILING, '');
+    if (!linkable(href)) continue;
     if (m.index > at) out.push(text.slice(at, m.index));
     out.push(<a key={m.index} href={href} rel="nofollow noopener ugc" className="underline underline-offset-2">{href.replace(/^https:\/\//, '')}</a>);
     at = m.index + href.length;

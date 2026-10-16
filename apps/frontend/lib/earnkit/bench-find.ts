@@ -126,7 +126,7 @@ async function benchRead(id: number, now: Date, fresh: ToolContext['freshDeps'])
         FROM builder_projects b WHERE b.builder_id = ${id} AND lower(b.project_key) = lower(${main})`.catch(() => [])
     : [];
   const [week] = main
-    ? await sql()`SELECT 1 FROM project_updates WHERE lower(project_key) = lower(${main}) AND week = ${mondayOf(now)} AND text IS NOT NULL`.catch(() => [])
+    ? await sql()`SELECT 1 FROM project_updates WHERE builder_id = ${id} AND lower(project_key) = lower(${main}) AND week = ${mondayOf(now)} AND text IS NOT NULL`.catch(() => [])
     : [];
   const ranks = await rankLines(id).catch(() => NO_RANK);
   const building = buildInProgress(await readBuild(id).catch(() => null), now, fresh?.starters);

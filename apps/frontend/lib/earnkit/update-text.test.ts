@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { RENDERED_LINK } from './update-links';
 import { UPDATE_EMPTY_NOTE, UPDATE_LINK_NOTE, UPDATE_MENTION_NOTE, UPDATE_NUMBER_NOTE, UPDATE_SECRET_NOTE, checkUpdate, updateLongNote } from './update-text';
 
 const OWN = { sites: ['https://recipes.app'], repo: 'maya/recipes' };
@@ -93,8 +94,8 @@ test('5.4b mentions and long numbers are refused with their own note, not the li
 test('5.9 (v2.13.1 O4) a hidden character can\'t join an unchecked tail onto an own link (parser differential)', () => {
   const own = { sites: ['https://own.site'], repo: 'alice/app' };
   const check = (raw: string) => checkUpdate(raw, own);
-  // The renderer's link rule: every link the stored text would show must be one EarnKit checked.
-  const RENDERED = /https:\/\/[A-Za-z0-9.-]+(?:\/[A-Za-z0-9._~\-/?=&#+]*)?/g;
+  // The renderer's link rule (the one UpdateCard uses): every link the stored text would show must be one EarnKit checked.
+  const RENDERED = RENDERED_LINK;
   const safe = (r: ReturnType<typeof check>, raw: string) => {
     if (!r.ok) return assert.equal(r.note, UPDATE_LINK_NOTE, raw);
     for (const [m] of r.text.matchAll(RENDERED)) {

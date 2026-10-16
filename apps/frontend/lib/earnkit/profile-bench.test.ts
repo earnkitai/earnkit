@@ -8,6 +8,7 @@ import { profileData, type ProfileData } from './bench-data';
 import { DATA } from './fixtures/profile-data';
 import BenchProfileView, { BENCH_SOURCES_LINE, LOG_EMPTY, TAB_LOG, TAB_PROJECT, confirmingCardLine, streakWords } from '../../app/[handle]/BenchProfileView';
 import Avatar from '../../app/[handle]/Avatar';
+import UpdateCard from '../../app/components/ui/UpdateCard';
 
 /** v2.13 T11 (spec "Profile", R10, R11, R12): the page at earnkit.com/<x-handle> under the Bench flag. */
 
@@ -156,7 +157,7 @@ test('11.8 (v2.13.1 O3) a one project not yet confirmed by its repo: one calm ca
   assert.equal(confirmingCardLine('Maya Chen', 'Recipe planner'), 'Maya Chen is getting Recipe planner on the Bench.');
   assert.doesNotMatch(h, /Claimed\./);
   assert.doesNotMatch(h, /data-week=/, 'no grid');
-  assert.doesNotMatch(h, /Shipped \d+ of/, 'no grid title, no score parts');
+  assert.doesNotMatch(h, /Code in \d+ of|Shipped \d+ of/, 'no grid title, no score parts');
   assert.doesNotMatch(h, /of 100/, 'no ring');
   assert.doesNotMatch(h, /confirmed as theirs/, 'one neutral line: the owner is not detected');
   assert.ok(h.includes(LOG_EMPTY));
@@ -166,7 +167,7 @@ test('11.8b (v2.13.1 O3) Confirming hides the ring and the grid even when a scor
   const d: ProfileData = { ...DATA, project: { ...DATA.project!, confirmed: false } };
   const h = html(React.createElement(BenchProfileView, { data: d, tab: 'log' }));
   assert.ok(h.includes(confirmingCardLine('Maya Chen', 'Recipe planner')));
-  for (const re of [/data-week=/, /Shipped \d+ of/, /6 weeks in a row/, /Added fridge photo import/]) assert.doesNotMatch(h, re);
+  for (const re of [/data-week=/, /Code in \d+ of/, /Shipped \d+ of/, /6 weeks in a row/, /Added fridge photo import/]) assert.doesNotMatch(h, re);
   // Once confirmed: the full profile as built in v2.13.
   const full = html(React.createElement(BenchProfileView, { data: DATA, tab: 'log' }));
   assert.ok(!full.includes(confirmingCardLine('Maya Chen', 'Recipe planner')));
@@ -247,4 +248,31 @@ test('11.18 (v2.13.1 O3) the grid counts a week with an update and commits, even
   const d = (await profileData(id, new Date('2026-10-14T00:00:00Z')))!;
   assert.deepEqual(d.grid.filter((g) => g.on).map((g) => g.week), ['2026-W42'], 'the week with commits counts; a week with only words does not');
   assert.deepEqual(d.log.map((c) => [c.week, c.chips]), [['2026-10-12', ['Started tracking', '4 commits']], ['2026-10-05', []]]);
+});
+
+test('11.19 (O3 fix round 1) the grid says "Code in N of the last 52 weeks", never "Shipped", so it never contradicts the score part', async () => {
+  const { shippedWords } = await import('../../app/[handle]/ShipGrid');
+  assert.equal(shippedWords(9), 'Code in 9 of the last 52 weeks');
+  const h = html(React.createElement(BenchProfileView, { data: DATA, tab: 'log' }));
+  assert.ok(h.includes('Code in 6 of the last 52 weeks'), 'caption');
+  assert.match(h, /aria-label="Code in 6 of the last 52 weeks"/);
+  assert.doesNotMatch(h, /Shipped \d+ of the last/);
+});
+
+test('11.20 (O3 fix round 1) a start week that went live shows one live chip, not "Went live" and "Live"', async () => {
+  const { logCards } = await import('./bench-data');
+  const [c] = logCards([{ week: '2026-10-12', text: 'Launched.', facts: { went_live: true, started: { live: true, weeks: 1, people: 0 } } }], 'Recipe planner', null);
+  assert.deepEqual(c.chips, ['Started tracking', 'Went live', '1 week shipping']);
+});
+
+test('11.21 (O3 fix round 1) the card links an href only when it is its own parsed URL with no dot segment (a pre-O4 stored row)', () => {
+  const card = (text: string) => html(React.createElement(UpdateCard, { card: { week: '2026-10-12', text, chips: [] }, shape: 'long', showPerson: false }));
+  const old = card('Shipped https://github.com/alice/app/../../mallory/evil today');
+  assert.doesNotMatch(old, /<a /, old);
+  assert.ok(old.includes('https://github.com/alice/app/../../mallory/evil'), 'shown as plain text');
+  for (const t of ['See https://github.com/alice/app/./x now', 'See https://Own.site/x now', 'See https://github.com/alice/app/../x now'])
+    assert.doesNotMatch(card(t), /<a /, t);
+  const ok = card('Code: https://github.com/alice/app/pull/3.');
+  assert.match(ok, /<a href="https:\/\/github\.com\/alice\/app\/pull\/3"/);
+  assert.match(card('Live at https://recipes.app/.'), /<a href="https:\/\/recipes\.app\/"/, 'trailing punctuation is not a dot segment');
 });

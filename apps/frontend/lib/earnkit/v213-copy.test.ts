@@ -84,6 +84,9 @@ test('11.11 the profile\'s words pass the v2.13 rule on both tabs; chain names o
     ...factChips({ went_live: true, won: [{ title: 'Base Builder Grants' }], users_up: { n: 31 }, earned: { usd: 120 }, shipped_code: { n: 12 }, streak: { w: 6 } }, { raising: 'RECIPE' }),
   ];
   for (const t of texts) assert.deepEqual(bannedInBench(t, EXEMPT), [], t);
+  // O3 fix round 1 (controller ruling): the grid says "Code in", never "Shipped" (the score part's word).
+  assert.equal(shippedWords(9), 'Code in 9 of the last 52 weeks');
+  assert.equal(shippedWords(1), 'Code in 1 of the last 52 weeks');
   const exempt = ['Maya Chen', 'Recipe planner', '$RECIPE', 'Base Builder Grants', 'Avalanche Team1 Mini Grants', 'https://recipes.app', 'https://github.com/maya/recipes', ...Object.values(CHAIN_LABEL)];
   for (const tab of ['log', 'project'] as const) {
     const page = pageWords(React.createElement(BenchProfileView, { data: DATA, tab }));
