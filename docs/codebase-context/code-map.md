@@ -1462,6 +1462,9 @@ apps/frontend/
                                knownUnprovable (one cheap repo read before a code: 404 -> failed, a User repo
                                under another login -> foreign; public -> builder_sources.public_at), pushRefused
                                (tell proof { pushed: false }), PROOF_BRANCH_NOTE says what to do while checking
+                               fix round 1: copy (fork/template) and unseen (404) verdicts, probe outside the
+                               lock, kept a day (standing_seen.repo_probe); bench-find keepBenchMatch /
+                               keptBenchMatch (standing_seen.bench_match, 1 h) for a match cut by the wait
     reply-wait.ts              v2.13.1 O5 N1: REPLY_WAIT_MS (1.5 s), settleWithin, inTime/ReplyLate: the Bench
                                reply never waits longer on the refresh, matching or the proof check
     week-facts.ts(+test)       v2.13 T4: WeekFacts, weekFactsFor, factChips, startedLine, upsertWeekFacts,

@@ -261,7 +261,7 @@ test('O2 fix round 1 (ruling 3): every state ends on one question with a yes rou
     // O3: their own post this week: never offered again (it would replace it); grants instead (O5 N5:
     // after a grants yes that found nothing, the next step, one small thing to ship).
     await sql()`UPDATE project_updates SET builder_id = ${id} WHERE project_key = ${key} AND week = ${monday}`;
-    const next = g.show_to_builder === noGrantLine('Recipe planner') ? shipAsk('Recipe planner') : grantsAsk('Recipe planner');
+    const next = g.show_to_builder.startsWith(noGrantLine('Recipe planner')) ? shipAsk('Recipe planner') : grantsAsk('Recipe planner');
     assert.ok((await find(id, {}, NO_MATCH)).show_to_builder.endsWith(next));
     await sql()`DELETE FROM project_updates WHERE project_key = ${key}`;
     // No project, nothing to build: the suggestion; the yes suggests.

@@ -1,5 +1,5 @@
 import { createHash, createHmac, randomBytes } from 'node:crypto';
-import { cantShowLine, foreignLine, takenLine } from './bench-reply';
+import { cantSeeLine, cantShowLine, copyLine, foreignLine, takenLine } from './bench-reply';
 import { CONFIRMED_PROOFS } from './confirmed';
 import { sql, type Db } from './db';
 import { noteEvent } from './events';
@@ -31,8 +31,9 @@ import { defaultReaderDeps, type ReaderDeps } from './source-readers';
  * - On a pass: the code is used, the repo source verified with `proof_branch`, the pusher recorded
  *   as the person's proven GitHub login (github_basis `proof_branch`), the person rescored at once;
  *   the next reply tells the agent to delete the branch, once.
- * - O5 N2: before a code is issued, one cheap read of the repo (REPO_PROBE_MS): a repo EarnKit's token
- *   can't read, or a User's repo under another login, gets the plain line at once and no code; the agent
+ * - O5 N2: before a code is issued, one cheap read of the repo (REPO_PROBE_MS, outside any lock, its
+ *   verdict kept a day): a repo EarnKit's token can't read, a fork or template, or a User's repo under
+ *   another login, gets its plain line at once and no code; the agent
  *   reports a refused push with tell proof { pushed: false } (pushRefused), which ends the code at once.
  * Only under EARNKIT_BENCH (the callers are the Bench's find and score, and the cron's step).
  */
@@ -87,6 +88,10 @@ export type BranchState =
   | { kind: 'taken' }
   /** O5 N2: a User's repo whose owner is not the login the person proved or the agent reported. */
   | { kind: 'foreign' }
+  /** O5 fix round 1: a fork or a template (only original work goes on the Bench). */
+  | { kind: 'copy' }
+  /** O5 fix round 1: EarnKit's token can't read the repo (404: private, or gone). */
+  | { kind: 'unseen' }
   | null;
 
 const proofOf = (key: string, code: string): ProofBranch => ({
@@ -114,7 +119,9 @@ export async function heldByOther(builderId: number, key: string, db: Db = sql()
 
 /** O5 N1, N2: the reply waits at most this long for the one cheap read of the repo; slower is "unknown". */
 export const REPO_PROBE_MS = 700;
-type Probe = { kind: 'read'; private: boolean | null; owner: string; ownerType: string | null } | { kind: 'missing' } | { kind: 'unknown' };
+type Probe =
+  | { kind: 'read'; private: boolean | null; owner: string; ownerType: string | null }
+  | { kind: 'missing' } | { kind: 'copy' } | { kind: 'unknown' };
 /**
  * O5 N2, N4: one read of `GET /repos/{key}` (EarnKit's token, redirects refused), cut at REPO_PROBE_MS:
  * the repo as GitHub shows it, `missing` (404: private to EarnKit's token, or gone), else `unknown` (slow,
@@ -140,6 +147,7 @@ async function probeRepo(key: string, f: typeof fetch): Promise<Probe> {
     const owner = obj(repo?.owner);
     const login = typeof owner?.login === 'string' ? owner.login.toLowerCase() : null;
     if (typeof repo?.full_name !== 'string' || repo.full_name.toLowerCase() !== key || login !== key.split('/')[0]) return { kind: 'unknown' };
+    if (repo.fork !== false || repo.is_template === true) return { kind: 'copy' };
     return { kind: 'read', private: typeof repo.private === 'boolean' ? repo.private : null, owner: login, ownerType: typeof owner?.type === 'string' ? owner.type : null };
   })().catch((): Probe => ({ kind: 'unknown' }));
   const out = await Promise.race([read, late]);
@@ -152,22 +160,39 @@ async function markPublic(builderId: number, key: string, now: Date, db: Db = sq
   await db`UPDATE builder_sources SET public_at = ${now} WHERE builder_id = ${builderId} AND kind = 'repo' AND state <> 'rejected' AND ${refKey(db)} = ${key}`;
 }
 
+/** O5 fix round 1: a probe's verdict is remembered this long per person and key (standing_seen.repo_probe). */
+export const REPO_PROBE_KEEP_MS = 24 * 60 * 60_000;
+type Kept = Exclude<Probe, { kind: 'unknown' }> & { at: string };
+
 /**
- * O5 N2: before a code is issued, what one cheap read of the repo already shows: `failed` when EarnKit's
- * token can't read it (no branch on it could ever be read), `foreign` when it is a User's repo and the
- * person's proven GitHub login (else the one the agent reported) is someone else (only the owner's push
- * confirms a User's repo). A public read also marks the source public at once (N4). Null: nothing known,
- * so the code is issued as before (a slow or failed read never blocks it).
+ * O5 N2 (and fix round 1): before a code is issued, what one cheap read of the repo already shows:
+ * `unseen` when EarnKit's token can't read it (no branch on it could ever be read), `copy` for a fork or a
+ * template, `foreign` when it is a User's repo and the person's proven GitHub login (else the one the agent
+ * reported) is someone else (only the owner's push confirms a User's repo). A public read marks the source
+ * public at once (N4). The verdict is kept REPO_PROBE_KEEP_MS (`fresh`: a coin launch reads again); the
+ * login is compared on every call. Runs outside any transaction. Null: nothing known, so the code is
+ * issued as before (a slow or failed read never blocks it, and is never kept).
  */
-async function knownUnprovable(builderId: number, key: string, now: Date, f: typeof fetch | undefined, db: Db): Promise<BranchState> {
-  const probe = await probeRepo(key, f ?? defaultReaderDeps(now, Date.now() + REPO_PROBE_MS).ghFetch ?? fetch);
-  if (probe.kind === 'missing') return { kind: 'failed' };
-  if (probe.kind !== 'read') return null;
-  if (probe.private === false) await markPublic(builderId, key, now, db);
-  if (probe.ownerType !== 'User') return null;
-  const [p] = await db<{ login: string | null }[]>`
-    SELECT lower(COALESCE(github_login, reported_github)) AS login FROM builder_profiles WHERE builder_id = ${builderId}`;
-  return p?.login && LOGIN.test(p.login) && p.login !== probe.owner ? { kind: 'foreign' } : null;
+async function knownUnprovable(builderId: number, key: string, now: Date, f: typeof fetch | undefined, o: { fresh: boolean }): Promise<BranchState> {
+  const db = sql();
+  const [row] = await db<{ kept: Kept | null; login: string | null }[]>`
+    SELECT standing_seen->'repo_probe'->(${key}::text) AS kept, lower(COALESCE(github_login, reported_github)) AS login FROM builder_profiles WHERE builder_id = ${builderId}`;
+  const kept = row?.kept && typeof row.kept === 'object' && typeof row.kept.at === 'string' && now.getTime() - Date.parse(row.kept.at) < REPO_PROBE_KEEP_MS ? row.kept : null;
+  let probe: Probe | Kept | null = o.fresh ? null : kept;
+  if (!probe) {
+    probe = await probeRepo(key, f ?? defaultReaderDeps(now, Date.now() + REPO_PROBE_MS).ghFetch ?? fetch);
+    if (probe.kind === 'read' && probe.private === false) await markPublic(builderId, key, now, db);
+    if (probe.kind !== 'unknown')
+      await db`
+        UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{repo_probe}',
+          COALESCE(standing_seen->'repo_probe', '{}'::jsonb) || jsonb_build_object(${key}::text, ${db.json({ ...probe, at: now.toISOString() } as never)}::jsonb))
+        WHERE builder_id = ${builderId}`;
+  }
+  if (probe.kind === 'missing') return { kind: 'unseen' };
+  if (probe.kind === 'copy') return { kind: 'copy' };
+  if (probe.kind !== 'read' || probe.ownerType !== 'User') return null;
+  const login = row?.login ?? null;
+  return login && LOGIN.test(login) && login !== probe.owner ? { kind: 'foreign' } : null;
 }
 
 /**
@@ -211,29 +236,40 @@ export async function proofBranchFor(
   const secret = process.env.EARNKIT_AUTH_SECRET;
   if (!REPO_KEY.test(k) || !secret) return null;
   if (await heldByOther(builderId, k)) return { kind: 'taken' };
-  return sql().begin(async (tx) => {
-    // Per person: the once-a-day cap spans every key.
-    await tx`SELECT pg_advisory_xact_lock(hashtext(${`proof_branch:${builderId}`}))`;
-    const [last] = await tx<{ seed: string; expires_at: Date; used_at: Date | null; closed_at: Date | null; issued_at: Date }[]>`
-      SELECT seed, expires_at, used_at, closed_at, issued_at FROM proof_branches WHERE builder_id = ${builderId} AND repo_key = ${k} ORDER BY issued_at DESC LIMIT 1`;
+  type Last = { seed: string; expires_at: Date; used_at: Date | null; closed_at: Date | null; issued_at: Date };
+  const lastOf = async (db: Db) =>
+    (await db<Last[]>`
+      SELECT seed, expires_at, used_at, closed_at, issued_at FROM proof_branches WHERE builder_id = ${builderId} AND repo_key = ${k} ORDER BY issued_at DESC LIMIT 1`)[0];
+  const dayAgo = new Date(now.getTime() - PROOF_BRANCH_ISSUE_GAP_MS);
+  // A code that expired unused (the branch never showed, or O5 N2 the agent said the push was refused):
+  // no loop, the plain line for a day. O2 fix round 1 (ruling 2): a code closed because the one project
+  // changed doesn't count. `undefined`: a new code may be issued.
+  const settled = (last: Last | undefined): BranchState | undefined => {
     // A used code confirmed the repo; only a coin launch's fresh proof (fix round 2) asks again.
     if (last?.used_at && !o.reproof) return null;
     if (last && !last.used_at && last.expires_at > now) {
       const code = codeOf(last.seed, secret);
-      return code ? { kind: 'checking' as const, proof: proofOf(k, code) } : null;
+      return code ? { kind: 'checking', proof: proofOf(k, code) } : null;
     }
-    const dayAgo = new Date(now.getTime() - PROOF_BRANCH_ISSUE_GAP_MS);
-    // A code that expired unused (the branch never showed, or O5 N2 the agent said the push was
-    // refused): no loop, the plain line for a day.
-    // O2 fix round 1 (ruling 2): a code closed because the one project changed doesn't count.
-    const failed = Boolean(last && !last.used_at && !last.closed_at);
-    if (failed && !o.buildDeploy && last!.issued_at > dayAgo) return { kind: 'failed' as const };
-    // O5 N2: what EarnKit can know at once, from one cheap read of the repo (never a wait of an hour).
-    const known = o.newRepo ? null : await knownUnprovable(builderId, k, now, o.ghFetch, tx);
-    if (known) return known;
-    if (!o.canBuild) return { kind: 'needs_agent' as const };
+    if (last && !last.used_at && !last.closed_at && !o.buildDeploy && last.issued_at > dayAgo) return { kind: 'failed' };
+    return undefined;
+  };
+  const before = settled(await lastOf(sql()));
+  if (before !== undefined) return before;
+  // O5 N2: what EarnKit can know at once, from one cheap read of the repo (never a wait of an hour).
+  // O5 fix round 1: read outside the transaction and its lock, and remembered a day per key.
+  const known = o.newRepo ? null : await knownUnprovable(builderId, k, now, o.ghFetch, { fresh: o.reproof === true });
+  if (known) return known;
+  if (!o.canBuild) return { kind: 'needs_agent' };
+  return sql().begin(async (tx) => {
+    // Per person: the once-a-day cap spans every key.
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${`proof_branch:${builderId}`}))`;
+    const last = await lastOf(tx);
+    const now2 = settled(last);
+    if (now2 !== undefined) return now2;
     const [{ n }] = await tx<{ n: number }[]>`
       SELECT count(*)::int AS n FROM proof_branches WHERE builder_id = ${builderId} AND issued_at > ${dayAgo}`;
+    const failed = Boolean(last && !last.used_at && !last.closed_at);
     if (n >= PROOF_BRANCH_MAX_PER_DAY) return failed ? { kind: 'failed' as const } : null;
     const seed = randomBytes(16).toString('base64url');
     const code = codeOf(seed, secret)!;
@@ -484,7 +520,13 @@ export async function coinBranchProof(builderId: number, repoKey: string, now: D
   if (await checkProofBranch(builderId, now, { ghFetch: f, key })) return { ok: true };
   const state = await proofBranchFor(builderId, key, now, { canBuild: true, reproof: true, ghFetch: f }).catch(() => null);
   if (state?.kind === 'checking') return { proof: state.proof };
-  return { line: state?.kind === 'taken' ? takenLine(name) : state?.kind === 'foreign' ? foreignLine(name) : cantShowLine(name) };
+  return {
+    line: state?.kind === 'taken' ? takenLine(name)
+      : state?.kind === 'foreign' ? foreignLine(name)
+      : state?.kind === 'copy' ? copyLine(name)
+      : state?.kind === 'unseen' ? cantSeeLine(name)
+      : cantShowLine(name),
+  };
 }
 
 /** v2.13.1 O2 fix round 1 (ruling 2): a code closed because the one project changed. */

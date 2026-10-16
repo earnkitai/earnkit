@@ -149,7 +149,7 @@ import { hideUpdate, postUpdate, setUpdates } from './updates';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
 import { CONFIRMING_REFRESH_MS, REPO_KEY, confirmingFast, dropMainProject, fillGithubUser, mainProjectOf, setMainProject } from './main-project';
-import { benchAsked, benchFind, benchMoveUp } from './bench-find';
+import { benchAsked, benchFind, benchMoveUp, keepBenchMatch, keptBenchMatch } from './bench-find';
 import { REPLY_WAIT_MS, ReplyLate, inTime } from './reply-wait';
 import { setRaising } from './raising';
 import { SEND_LINK_NOTE, scoreReply } from './score-tool';
@@ -1339,7 +1339,7 @@ export const handlers = {
     // v2.12.1 T8 (spec 2): the person's own public data is re-read inside this call, within its
     // budget, in parallel with the reads below (stand-view.ts startRefresh). Never fails the tool.
     const start = Date.now();
-    const refresh: { started: { within: (capMs?: number) => Promise<void> } | null } = { started: null };
+    const refresh: { started: { within: (capMs?: number) => Promise<void> } | null; proofCheck?: Promise<boolean> } = { started: null };
     if (scoring)
       await (async () => {
         const now = new Date();
@@ -1358,6 +1358,9 @@ export const handlers = {
           // B4: the refresh may check the proof every minute in the hour after the line was issued.
           const fast = await confirmingFast(ctx.installationId, now);
           refresh.started = startRefresh(ctx.installationId, { now, start, reader: ctx.readerDeps, ...(fast && { minAgeMs: CONFIRMING_REFRESH_MS }) });
+          // v2.13.1 O5 fix round 1: the open proof branch's check starts now, beside the refresh and
+          // matching, so the three share one REPLY_WAIT_MS (benchFind waits only what is left of it).
+          refresh.proofCheck = checkProofBranch(ctx.installationId, now, { ghFetch: ctx.proofBranchFetch ?? ctx.readerDeps?.ghFetch });
           await enqueueDiscovery(ctx.installationId, 'first_find');
           return;
         }
@@ -1452,7 +1455,21 @@ export const handlers = {
         );
         // v2.13.1 O5 N1: under the Bench the reply waits for matching at most REPLY_WAIT_MS from the
         // start of the call (ReplyLate: no fits this reply; the repo's facts are cached for the next).
-        const matched = bench ? await inTime<Awaited<typeof matching>>(matching, start + REPLY_WAIT_MS - Date.now()) : await matching;
+        // O5 fix round 1: every finished match of the one project is kept, so a reply cut short shows the
+        // last one (under an hour old); a late GitHubError or RateLimitError is logged once.
+        const mainKey = bench ? (repoList?.[0] ?? null) : null;
+        if (mainKey) void matching.then((m) => keepBenchMatch(ctx.installationId, mainKey, m, new Date()), () => undefined);
+        const lateError = (err: unknown) => {
+          if (err instanceof GitHubError || err instanceof RateLimitError) console.error('[list_programs] late matching', err.name);
+        };
+        type Matched = Awaited<typeof matching>;
+        const matched: Matched = bench
+          ? await inTime<Matched>(matching, start + REPLY_WAIT_MS - Date.now(), lateError).catch(async (err: unknown) => {
+              const kept = err instanceof ReplyLate && mainKey ? await keptBenchMatch(ctx.installationId, mainKey, new Date()) : null;
+              if (kept) return kept as Matched;
+              throw err;
+            })
+          : await matching;
         // v2.10 item 7b: with the App on, the first repo EarnKit can't see gets its "allow read
         // access" link (an `app` nonce, R8); the reply shows only that one.
         const [first, ...restUnseen] = matched.unseen ?? [];
@@ -1598,7 +1615,9 @@ export const handlers = {
           alerts, agentCanBuild: agent_can_build, walletNote, programs, hide,
         });
       // v2.13 T8: the Bench's three parts (bench-find.ts), with what standFind's reply also carries.
-      const r = await benchFind(ctx, { first, cards: shownCards, repos: yourRepos, myEntries, pickup, ask, alerts, agentCanBuild: agent_can_build, hide, project });
+      const r = await benchFind(ctx, {
+        start, proofCheck: refresh.proofCheck, first, cards: shownCards, repos: yourRepos, myEntries, pickup, ask, alerts, agentCanBuild: agent_can_build, hide, project,
+      });
       const offer = r.build_offer as { program_id: string; starter_id: string; can_build: boolean } | undefined;
       return {
         ...r,

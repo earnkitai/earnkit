@@ -8,9 +8,9 @@ import { sql } from './db';
 import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
-import { X_ON, avalanche, dropAvalanche, find, install, person, withEnv } from './fixtures/find';
+import { X_ON, avalanche, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
 import {
-  OTHER_PROJECT_ASK, UPDATES_ASK_JOINING, benchBuildAsk, benchReply, cantShowLine, checkingBranchLine, foreignLine, grantsAsk, needsAgentLine, shipAsk, type BenchView,
+  OTHER_PROJECT_ASK, UPDATES_ASK_JOINING, benchBuildAsk, benchReply, cantSeeLine, cantShowLine, copyLine, checkingBranchLine, foreignLine, grantsAsk, needsAgentLine, shipAsk, type BenchView,
 } from './bench-reply';
 import { GRANTS_QUIET_MS, noGrantLine } from './bench-find';
 import { BENCH_BUILD_ID, BENCH_WALLET_ASK, TWIST_QUESTION, WALLET_ASK, twistQuestion } from './fresh-build';
@@ -54,6 +54,7 @@ const named = (repo: string, login = repo.split('/')[0]) => ({ agent_can_build: 
 const links = (t: string) => t.match(/https?:\/\/\S+/g) ?? [];
 const questions = (t: string) => (t.match(/\?/g) ?? []).length;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const openCodes = (id: number) => sql()`SELECT 1 FROM proof_branches WHERE builder_id = ${id} AND used_at IS NULL AND expires_at > now()`;
 const codes = (id: number) => sql()<{ repo_key: string }[]>`SELECT repo_key FROM proof_branches WHERE builder_id = ${id}`;
 type R = { show_to_builder: string; agent_note?: string; proof?: unknown; move_up?: { kind: string }; note?: string; kit?: unknown };
 
@@ -118,6 +119,13 @@ test('O5 N1 (F16) the first find and score answer in under 3 s while GitHub has 
       assert.equal(r.show_to_builder.split('\n')[1], checkingBranchLine('next.js'), r.show_to_builder);
       assert.equal(links(r.show_to_builder).length, 1);
       assert.ok(r.show_to_builder.endsWith('?'));
+      // O5 fix round 1: a find with an open code (its check waits on GitHub too) stays under 3 s.
+      assert.ok(r.proof, 'a code is open');
+      const t2 = Date.now();
+      const r2 = await find(id, {});
+      assert.ok(Date.now() - t2 < 3000, `the find with an open code took ${Date.now() - t2} ms`);
+      assert.ok(gh.calls.some((c) => c.includes('/git/ref/heads/earnkit-')), 'the proof check started');
+      assert.equal(r2.show_to_builder.split('\n')[1], checkingBranchLine('next.js'));
       const t1 = Date.now();
       const s = (await tools.score({}, { installationId: id } as never)) as R;
       assert.ok(Date.now() - t1 < 3000, `score took ${Date.now() - t1} ms`);
@@ -158,12 +166,14 @@ test('O5 N2 a User repo under another login: no code, the plain line and a diffe
   }),
 );
 
-test('O5 N2 a repo EarnKit cannot read (404): the plain line at once, no code; GitHub slow or down: the branch as before', dbTest, () =>
+test('O5 N2 a repo EarnKit cannot read (404): "EarnKit can\'t see" at once, no code; GitHub slow or down: the branch as before', dbTest, () =>
   on(async () => {
     const key = `${uniq('maya')}/secret`;
     const id = await install();
     const r = await find(id, named(key), { ...NO_MATCH, proofBranchFetch: repoFake({}, { [key]: 404 }).f });
-    assert.equal(r.show_to_builder.split('\n')[1], cantShowLine('secret'), r.show_to_builder);
+    // O5 fix round 1: a 404 is often the builder's own private repo: never the push line.
+    assert.equal(r.show_to_builder.split('\n')[1], cantSeeLine('secret'), r.show_to_builder);
+    assert.equal(cantSeeLine('secret'), "EarnKit can't see secret. Use a public project.");
     assert.ok(r.show_to_builder.endsWith(OTHER_PROJECT_ASK));
     assert.equal((await codes(id)).length, 0);
     const down = `${uniq('maya')}/recipes`;
@@ -176,8 +186,9 @@ test('O5 N2 a repo EarnKit cannot read (404): the plain line at once, no code; G
 test('O5 N2 a refused push: tell proof { pushed: false } ends the wait at once with the plain line and a different project', dbTest, () =>
   on(async () => {
     const key = `${uniq('vercel')}/next.js`;
+    const org = `${uniq('vercel')}/next.js`;
     const id = await install();
-    const gh = repoFake({ [key]: { owner: { login: key.split('/')[0], type: 'Organization' } } });
+    const gh = repoFake({ [key]: { owner: { login: key.split('/')[0], type: 'Organization' } }, [org]: { owner: { login: org.split('/')[0], type: 'Organization' } } });
     const r = await find(id, named(key, uniq('ravi')), { ...NO_MATCH, proofBranchFetch: gh.f });
     assert.ok(r.proof, 'the branch was given');
     const t = (await tools.tell({ proof: { pushed: false } }, { installationId: id } as never)) as R;
@@ -187,11 +198,49 @@ test('O5 N2 a refused push: tell proof { pushed: false } ends the wait at once w
     assert.equal(next.show_to_builder.split('\n')[1], cantShowLine('next.js'), next.show_to_builder);
     assert.ok(next.show_to_builder.endsWith(OTHER_PROJECT_ASK));
     assert.equal(next.proof, undefined);
-    // Flag off: tell takes no proof (parse error, as any unknown key).
-    await withEnv({ ...ON, EARNKIT_BENCH: undefined }, async () => {
-      const off = (await tools.tell({ proof: { pushed: false } }, { installationId: id } as never).catch(() => ({ show_to_builder: '' }))) as R;
-      assert.notEqual(off.agent_note ?? '', t.agent_note, 'nothing is ended with the flag off');
-    });
+    // Flag off: tell drops proof; no open code is ended.
+    {
+      const o2 = await install();
+      await find(o2, named(org, uniq('ravi')), { ...NO_MATCH, proofBranchFetch: gh.f });
+      assert.equal((await openCodes(o2)).length, 1);
+      await withEnv({ EARNKIT_BENCH: undefined }, () => tools.tell({ proof: { pushed: false } }, { installationId: o2 } as never).catch(() => null));
+      assert.equal((await openCodes(o2)).length, 1, 'flag off: proof is dropped, no code is ended');
+    }
+  }),
+);
+
+test('O5 fix round 1: a fork or template gets no code and the copy line; each verdict is remembered a day (no GitHub read per find); a chat agent too', dbTest, () =>
+  on(async () => {
+    const fork = `${uniq('maya')}/forked`;
+    const gf = repoFake({ [fork]: { fork: true } });
+    const f = await install();
+    const rf = await find(f, named(fork), { ...NO_MATCH, proofBranchFetch: gf.f });
+    assert.equal(rf.show_to_builder.split('\n')[1], copyLine('forked'), rf.show_to_builder);
+    assert.equal(copyLine('forked'), 'forked is a copy of another repo. Use your own project.');
+    assert.ok(rf.show_to_builder.endsWith(OTHER_PROJECT_ASK));
+    assert.equal((await codes(f)).length, 0);
+    const tpl = `${uniq('maya')}/tpl`;
+    const t = await install();
+    const rt = await find(t, named(tpl), { ...NO_MATCH, proofBranchFetch: repoFake({ [tpl]: { is_template: true } }).f });
+    assert.equal(rt.show_to_builder.split('\n')[1], copyLine('tpl'));
+    // Remembered: the next finds read GitHub no more.
+    const reads = () => gf.reads.filter((x) => x === `/repos/${fork}`).length;
+    assert.equal(reads(), 1);
+    await find(f, {}, { ...NO_MATCH, proofBranchFetch: gf.f });
+    assert.equal(reads(), 1, `the copy verdict is remembered: ${gf.reads.join(' ')}`);
+    for (const [kind, k, extra, fake] of [
+      ['foreign', `${uniq('torvalds')}/linux`, { login: uniq('octocat') }, (k: string) => repoFake()],
+      ['404', `${uniq('maya')}/private`, {}, (k: string) => repoFake({}, { [k]: 404 })],
+      ['needs_agent', `${uniq('maya')}/chat`, { chat: true }, () => repoFake()],
+    ] as const) {
+      const gh = fake(k);
+      const id = await install();
+      const input = { ...named(k, (extra as { login?: string }).login), ...((extra as { chat?: boolean }).chat && { agent_can_build: false }) };
+      await find(id, input, { ...NO_MATCH, proofBranchFetch: gh.f });
+      await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
+      await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
+      assert.equal(gh.reads.filter((x) => x === `/repos/${k}`).length, 1, `${kind}: one read a day`);
+    }
   }),
 );
 
@@ -257,7 +306,12 @@ test('O5 N5 a grants yes that finds nothing: the next reply asks the next step, 
     const r = await find(id, {}, NO_MATCH);
     assert.ok(r.show_to_builder.endsWith(grantsAsk('Hello-World')), r.show_to_builder);
     const g = (await tools.tell({ move_up: { kind: 'grants', project_key: key, answer: 'yes' } }, { installationId: id } as never)) as R;
-    assert.equal(g.show_to_builder, noGrantLine('Hello-World'));
+    // O5 fix round 1 (ruling): a tell reply the builder sees ends on one question too: the next ask.
+    assert.equal(g.show_to_builder, `${noGrantLine('Hello-World')}\n${shipAsk('Hello-World')}`);
+    assert.equal(questions(g.show_to_builder), 1);
+    assert.equal(g.move_up?.kind, 'suggest');
+    // The quiet survives find's own bookkeeping of what the builder was shown (takeNews).
+    for (let i = 0; i < 2; i++) assert.ok((await find(id, {}, NO_MATCH)).show_to_builder.endsWith(shipAsk('Hello-World')), `find ${i}`);
     const s = (await tools.score({}, { installationId: id } as never)) as R;
     assert.ok(s.show_to_builder.endsWith(shipAsk('Hello-World')), s.show_to_builder);
     assert.equal(questions(s.show_to_builder), 1);
@@ -410,3 +464,21 @@ test('O5 N16, P1, P10 the landing Bench with nobody on it says so; "1 builder so
   assert.ok(cards.includes('Money open now'), cards);
   assert.ok(!cards.includes('Grants open now'));
 });
+
+// ---- O5 fix round 1, item 6: a late match is remembered for the next reply ---------------------------
+
+test('O5 fix round 1: matching cut by the reply wait still lands: the next reply shows Ways to get funded for a big repo', dbTest, () =>
+  on(async () => {
+    const ava = await avalanche();
+    const key = `${uniq('big')}/monorepo`;
+    const slow = { matchProjects: async () => { await sleep(2500); return { checked: 1, scored: 1, fits: fitsFor(ava.id, key) }; } };
+    const id = await install();
+    const r1 = await find(id, named(key), { ...slow, proofBranchFetch: repoFake().f });
+    assert.doesNotMatch(r1.show_to_builder, /Ways to get funded/, 'the first reply did not wait');
+    await sleep(1500);
+    const r2 = await find(id, {}, { ...slow, proofBranchFetch: repoFake().f });
+    assert.match(r2.show_to_builder, /Ways to get funded/, r2.show_to_builder);
+    assert.ok(r2.show_to_builder.includes(ava.title), r2.show_to_builder);
+    await sleep(1200);
+  }),
+);

@@ -18,9 +18,10 @@ export type BenchView = {
    * the proof branch), `failed` (the branch never showed within the hour, the agent said the push was
    * refused, or EarnKit can't read the repo: O5 N2), `needs_agent` (fix round 1, ruling c: an agent that
    * can't push gets no code), `taken` (another person holds the repo) or `foreign` (O5 N2: a User's repo
-   * whose owner isn't the login the agent reported, so no push of theirs can prove it).
+   * whose owner isn't the login the agent reported, so no push of theirs can prove it); O5 fix round 1:
+   * `copy` (a fork or a template) or `unseen` (EarnKit's token can't read it: 404).
    */
-  branch?: 'checking' | 'failed' | 'needs_agent' | 'taken' | 'foreign' | null;
+  branch?: 'checking' | 'failed' | 'needs_agent' | 'taken' | 'foreign' | 'copy' | 'unseen' | null;
   /** Final fix I3: not confirmed and outside the hour of fast checks (main-project confirmingFast): no "a minute or two". */
   slow?: boolean;
   fund: FundLine[]; ask: BenchAsk | null;
@@ -51,6 +52,10 @@ export const checkingBranchLine = (name: string) => `I'll check ${name} is yours
 export const cantShowLine = (name: string) => `I couldn't show ${name} is yours. It needs a project you can push to.`;
 /** v2.13.1 O5 N2: a User's repo under another GitHub account than the one the agent reported. */
 export const foreignLine = (name: string) => `${name} is under someone else's GitHub account.`;
+/** v2.13.1 O5 fix round 1 (ruling): a fork or a template is never the builder's own work. */
+export const copyLine = (name: string) => `${name} is a copy of another repo. Use your own project.`;
+/** v2.13.1 O5 fix round 1: GitHub answers 404 to EarnKit (often the builder's own private repo), so no push can help. */
+export const cantSeeLine = (name: string) => `EarnKit can't see ${name}. Use a public project.`;
 /** v2.13.1 O1 fix round 1 (ruling c): an agent that can't push gets no proof branch. O5 N15: names the project and why. */
 export const needsAgentLine = (name: string) => `Open ${name} in your coding agent to put it on the Bench.`;
 /** v2.13.1 O1 fix round 1 (authorization ruling): the first confirmed holder keeps a repo. */
@@ -145,6 +150,8 @@ function standLines(v: BenchView): string[] {
       : v.branch === 'needs_agent' ? needsAgentLine(p.name)
       : v.branch === 'taken' ? takenLine(p.name)
       : v.branch === 'foreign' ? foreignLine(p.name)
+      : v.branch === 'copy' ? copyLine(p.name)
+      : v.branch === 'unseen' ? cantSeeLine(p.name)
       : v.slow ? confirmingSlowLine(p.name) : confirmingLine(p.name);
     return [first, ...claim, ...page];
   }

@@ -26,7 +26,7 @@ import {
   biggestPick, declinedNow, earnPrize, earnWhen, hostFor, moneyFallback, rollingPick, scoreEarn, showable, standBase, startRefresh, takeNews,
   type Seen as StandSeen, type StandBase,
 } from './stand-view';
-import { enteredIds, freshLead, layout, qualifies, submitStep, submitStepLine, type Card, type FirstMessage, type FreshOn, type YourRepos } from './present';
+import { enteredIds, freshLead, layout, qualifies, submitStep, submitStepLine, type Card, type FirstMessage, type FreshOn, type RepoFit, type YourRepos } from './present';
 import type { ReaderDeps } from './source-readers';
 import type { TickerCheck } from './token-proposal';
 import { projectKeyOf, type IdentityProject } from './identity-input';
@@ -267,7 +267,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
       // (needs_agent) can't schedule weekly posts, so it is never asked the updates yes. O5 N2: a
       // repo under someone else's account, a different project.
       joining: Boolean(project && !project.confirmed && (!branch || branch.kind === 'checking')),
-      other: branch?.kind === 'failed' || taken || branch?.kind === 'foreign',
+      other: taken || ['failed', 'foreign', 'copy', 'unseen'].includes(branch?.kind ?? ''),
     };
     // The coin is offered (and its moment recorded) only when no earlier ask in the order applies.
     const before = chooseAsk({ ...asks, coin: null, enter: null, fallback: false });
@@ -300,8 +300,34 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
   return { view, ask, fields, branch };
 }
 
+/** O5 fix round 1: a match of the one project is kept this long for a reply that can't wait for it. */
+export const BENCH_MATCH_KEEP_MS = 60 * 60_000;
+type KeptMatch = { checked: number; scored?: number; fits: RepoFit[] };
+/**
+ * O5 fix round 1 (N1): the one project's last match (standing_seen.bench_match), written whenever a match
+ * finishes, in time or after the reply, so the next reply shows its ways to get funded even when matching
+ * a big repo again is cut by the reply's wait. Never throws.
+ */
+export async function keepBenchMatch(id: number, key: string, m: KeptMatch, now: Date): Promise<void> {
+  const kept = { key: key.toLowerCase(), at: now.toISOString(), checked: m.checked, scored: m.scored ?? 0, fits: m.fits };
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_match', ${sql().json(kept as never)}::jsonb)
+    WHERE builder_id = ${id}`.catch(logged('keep match'));
+}
+/** The kept match of `key`, under BENCH_MATCH_KEEP_MS old, or null. Never throws. */
+export async function keptBenchMatch(id: number, key: string, now: Date): Promise<KeptMatch | null> {
+  const [r] = await sql()<{ m: { key?: string; at?: string; checked?: number; scored?: number; fits?: unknown } | null }[]>`
+    SELECT standing_seen->'bench_match' AS m FROM builder_profiles WHERE builder_id = ${id}`.catch(() => []);
+  const m = r?.m;
+  if (!m || m.key !== key.toLowerCase() || typeof m.at !== 'string' || now.getTime() - Date.parse(m.at) >= BENCH_MATCH_KEEP_MS || !Array.isArray(m.fits)) return null;
+  return { checked: m.checked ?? 0, scored: m.scored ?? 0, fits: m.fits as KeptMatch['fits'] };
+}
+
 /** What find hands benchFind: standFind's arguments, plus the project the agent named. */
 export type BenchFindArgs = {
+  /** O5 fix round 1: when the call started (Date.now()); every wait ends by start + REPLY_WAIT_MS. */
+  start?: number;
+  /** O5 fix round 1: the proof check, started with the refresh so it shares the reply's wait. */
+  proofCheck?: Promise<boolean>;
   first: FirstMessage;
   cards: FirstMessage['cards'];
   repos: YourRepos | null;
@@ -326,7 +352,8 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   // v2.13.1 O1: the open proof branch is checked first, so this reply already shows the confirmation.
   // O5 N1: never longer than REPLY_WAIT_MS (a slower check lands for the next reply).
   const ghFetch = ctx.proofBranchFetch ?? ctx.readerDeps?.ghFetch;
-  await settleWithin(checkProofBranch(id, now, { ghFetch }), REPLY_WAIT_MS);
+  // O5 fix round 1: only the time left of the reply's wait, never a fresh one.
+  await settleWithin(a.proofCheck ?? checkProofBranch(id, now, { ghFetch }), (a.start ?? Date.now()) + REPLY_WAIT_MS - Date.now());
   const read = await benchRead(id, now, ctx.freshDeps);
   const m = { cards: a.cards, repos: a.repos, entries: a.myEntries, now };
   const entered = enteredIds(m);
@@ -406,9 +433,10 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'fres
   if (!made) return null;
   if (made.created) await enqueueDiscovery(id, 'first_find');
   // O5 N1: the refresh and the proof check run on, but the reply waits for them at most REPLY_WAIT_MS.
-  const refresh = startRefresh(id, { now, start: Date.now(), reader: o.reader });
+  const start = Date.now();
+  const refresh = startRefresh(id, { now, start, reader: o.reader });
   const ghFetch = ctx.proofBranchFetch ?? o.reader?.ghFetch;
-  await Promise.all([refresh.within(REPLY_WAIT_MS), settleWithin(checkProofBranch(id, now, { ghFetch }), REPLY_WAIT_MS)]);
+  await Promise.all([refresh.within(REPLY_WAIT_MS), settleWithin(checkProofBranch(id, now, { ghFetch }), start + REPLY_WAIT_MS - Date.now())]);
   const read = await benchRead(id, now, ctx.freshDeps);
   const [programs, entries, memory] = await Promise.all([listPrograms().catch(() => []), openEntries(id).catch(() => []), readMemory(id).catch(() => null)]);
   const cards = (programs as (Card & { agent_completable?: boolean; earnkit_campaign?: boolean; starts_at: Date | null; opened_at: Date | null })[])
@@ -544,7 +572,22 @@ async function grantsYes(id: number, key: string, now: Date): Promise<Reply> {
       UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{quiet}',
         COALESCE(standing_seen->'quiet', '{}'::jsonb) || jsonb_build_object(${benchStepKey('grants', key)}::text, ${now.toISOString()}::text))
       WHERE builder_id = ${id}`.catch(logged('grants quiet'));
-    return { show_to_builder: noGrantLine(name) };
+    // O5 fix round 1 (ruling): a reply the builder sees ends on one question: the next step, asked and
+    // stored as every Bench ask is (its yes goes to tell move_up).
+    const read = await benchRead(id, now, undefined);
+    const next = chooseAsk({
+      project: { key, name, confirmed: true, live: fit.live, weeks: read.row?.weeks ?? 0 }, canHost: false, updatesOn: read.updatesOn,
+      postedThisWeek: read.postedThisWeek, scheduled: read.scheduled, coin: null, build: null, enter: null, claimed: read.base.claimed,
+      declined: [...declinedNow(read.seen, now.getTime()), ...quietNow(read.seen, now.getTime()), benchStepKey('grants', key)],
+    });
+    if (!next) return { show_to_builder: noGrantLine(name) };
+    await sql()`
+      UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json({ kind: next.kind, key: next.project_key } as never)}::jsonb)
+      WHERE builder_id = ${id}`.catch(logged('ask'));
+    return {
+      show_to_builder: `${noGrantLine(name)}\n${next.line}`,
+      move_up: { kind: next.kind, project_key: next.project_key, agent_note: BENCH_MOVE_UP_NOTE },
+    };
   }
   const lines = cards.map((c) => {
     const when = earnWhen(c);

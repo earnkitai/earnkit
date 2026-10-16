@@ -34,12 +34,16 @@ export class ReplyLate extends Error {
 
 /**
  * `p`'s value when it settles within `ms` (its own error when it fails in time), else ReplyLate. Pure
- * timing: `p` is never cancelled.
+ * timing: `p` is never cancelled. `onLateError`: called once with a failure that comes after the wait.
  */
-export async function inTime<T>(p: Promise<T>, ms: number): Promise<T> {
+export async function inTime<T>(p: Promise<T>, ms: number, onLateError?: (err: unknown) => void): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new ReplyLate()), Math.max(0, ms));
+    timer = setTimeout(() => {
+      // O5 fix round 1: a failure after the reply went out is reported once (it reaches no one else).
+      p.catch((err: unknown) => onLateError?.(err));
+      reject(new ReplyLate());
+    }, Math.max(0, ms));
   });
   p.catch(() => undefined);
   try {

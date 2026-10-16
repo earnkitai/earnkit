@@ -10,7 +10,7 @@ import {
   PROOF_BRANCH_NOTE, PROOF_BRANCH_RECHECK_MS, PROOF_BRANCH_TTL_MS, checkProofBranch, coinBranchProof, proofBranchFor, proofBranchStep,
   removeCommand,
 } from './proof-branch';
-import { benchReply, needsAgentLine, cantShowLine, checkingBranchLine, confirmingSlowLine, takenLine, type BenchView } from './bench-reply';
+import { OTHER_PROJECT_ASK, benchReply, copyLine, needsAgentLine, cantShowLine, checkingBranchLine, confirmingSlowLine, takenLine, type BenchView } from './bench-reply';
 import { COIN_YES_NOTE, coinYesNote } from './coin-moments';
 import { coinBranchReason, tokenGate, type GateDeps } from './token-gate';
 import { discoverPerson } from './discovery';
@@ -203,7 +203,15 @@ test('O1.3 never confirmed: a fork (same key), a 301 rename, another full_name, 
       const key = `${uniq('neg')}/recipes`;
       const gh = fakeGitHub();
       set(gh, key);
-      const { id, branch } = await start(gh, key);
+      const { id, r, branch } = await start(gh, key);
+      // O5 fix round 1 (ruling): a fork or a template is known at issue time: no code, the plain line.
+      if (why === 'fork' || why === 'template') {
+        assert.equal(r.show_to_builder.split('\n')[1], copyLine('Recipe planner'), why);
+        assert.ok(r.show_to_builder.endsWith(OTHER_PROJECT_ASK), why);
+        assert.equal(r.proof, undefined, why);
+        assert.equal((await rows(id)).length, 0, `${why}: no code`);
+        continue;
+      }
       gh.push(key, branch);
       assert.equal(await checkProofBranch(id, new Date(), { ghFetch: gh.f }), false, why);
       assert.deepEqual(await source(id, key), { state: 'proposed', proof: null }, why);
@@ -465,16 +473,18 @@ test('O1.12b the coin gate asks for a fresh proof branch (never a line) when the
       assert.ok(!g.ok && g.fixable, why);
       const reason = !g.ok ? g.reason : '';
       const note = !g.ok ? (g.agent_note ?? '') : '';
-      assert.equal(reason, coinBranchReason(key.split('/')[1]), why);
+      if (why !== 'now a fork') assert.equal(reason, coinBranchReason(key.split('/')[1]), why);
       assert.doesNotMatch(`${reason} ${note}`, /earnkit\.txt|proof line|token:/i, why);
+      // O5 fix round 1: a repo that is now a fork is known at the launch-time read: the plain line, no branch.
+      if (why === 'now a fork') {
+        assert.equal(reason, copyLine(key.split('/')[1]), why);
+        assert.doesNotMatch(note, /refs\/heads\/earnkit-/, why);
+        continue;
+      }
       const branch = /refs\/heads\/(earnkit-[a-z2-7]{12})/.exec(note)?.[1];
       assert.ok(branch, `${why}: ${note}`);
       gh.push(key, branch!);
       const after = await tokenGate(coinInput(id, key), gateDeps(gh));
-      if (why === 'now a fork') {
-        assert.equal(after.ok, false, 'a fork never passes');
-        continue;
-      }
       assert.deepEqual(after, { ok: true }, why);
       const [v] = await sql()<{ fresh: boolean; gh_repo_id: string }[]>`
         SELECT verified_at > now() - interval '1 minute' AS fresh, gh_repo_id::text FROM builder_sources WHERE builder_id = ${id} AND proof = 'proof_branch'`;
