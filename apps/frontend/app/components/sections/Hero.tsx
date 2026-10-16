@@ -12,6 +12,8 @@ export const HERO_SUBTITLE = 'Find live programs. EarnKit matches your projects 
 /** v2.13 spec "Landing page" 1: the words under the flag (no eyebrow, no bonus pill). */
 export const BENCH_HERO_TITLE = 'Ship every week. Get funded.';
 export const BENCH_HERO_SUBTITLE = 'Add EarnKit to your AI agent. It puts your project on the Bench, posts what you ship, and finds you grants and a way to raise.';
+/** v2.13.1 O3: with EARNKIT_RAISING off, the subtitle doesn't mention raising. */
+export const BENCH_HERO_SUBTITLE_NO_RAISE = 'Add EarnKit to your AI agent. It puts your project on the Bench, posts what you ship, and finds you grants.';
 
 /**
  * v2.8 Part A: the "Agents only" pill (Ruling C3), the title, the subtitle, the builder bonus pill (to How you earn, step 3), the
@@ -19,9 +21,9 @@ export const BENCH_HERO_SUBTITLE = 'Add EarnKit to your AI agent. It puts your p
  * "Builders using EarnKit won $X" line under it once an announced win exists. Nothing
  * else: the pool figure heads the Open programs section, next to the cards it adds up.
  * v2.13 (`bench`): the Bench title and subtitle, no eyebrow and no bonus pill; the buttons and the
- * stats lines stay.
+ * stats lines stay. v2.13.1 O3 (`raising` false: EARNKIT_RAISING off): the subtitle without raising.
  */
-export default function Hero({ statsLine = null, wonLine = null, bench = false }: { statsLine?: string | null; wonLine?: string | null; bench?: boolean }) {
+export default function Hero({ statsLine = null, wonLine = null, bench = false, raising = true }: { statsLine?: string | null; wonLine?: string | null; bench?: boolean; raising?: boolean }) {
   const [open, setOpen] = useState(false);
   const [installOpen, setInstallOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
@@ -58,7 +60,7 @@ export default function Hero({ statsLine = null, wonLine = null, bench = false }
         </h1>
 
         <p className={`mt-6 ${bench ? 'max-w-[44ch]' : 'max-w-[36ch]'} text-balance font-funnel-sans text-lg font-light text-ek-blue-light [text-shadow:0_0_16px_rgba(2,5,44,0.95)] md:text-xl`}>
-          {bench ? BENCH_HERO_SUBTITLE : HERO_SUBTITLE}
+          {bench ? (raising ? BENCH_HERO_SUBTITLE : BENCH_HERO_SUBTITLE_NO_RAISE) : HERO_SUBTITLE}
         </p>
 
         {!bench && <BonusPill size="lg" href="#how-you-earn-3" className="mt-8" />}

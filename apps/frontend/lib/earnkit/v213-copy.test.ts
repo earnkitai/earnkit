@@ -71,13 +71,13 @@ test('10.7 the Bench\'s words pass the v2.13 rule; its chips may name a chain (c
 });
 
 test('11.11 the profile\'s words pass the v2.13 rule on both tabs; chain names only in rank lines and logos (copy rules)', async () => {
-  const { default: BenchProfileView, BENCH_SOURCES_LINE, CONFIRMING_LINE, LOG_EMPTY, TAB_LOG, TAB_PROJECT, streakWords } = await import('../../app/[handle]/BenchProfileView');
+  const { default: BenchProfileView, BENCH_SOURCES_LINE, LOG_EMPTY, TAB_LOG, TAB_PROJECT, confirmingCardLine, streakWords } = await import('../../app/[handle]/BenchProfileView');
   const { shippedWords } = await import('../../app/[handle]/ShipGrid');
   const { factChips, startedChips, startedLine } = await import('./week-facts');
   const { DATA } = await import('./fixtures/profile-data');
   const { benchShareText } = await import('./bench-data');
   const texts = [
-    TAB_LOG, TAB_PROJECT, BENCH_SOURCES_LINE, LOG_EMPTY, CONFIRMING_LINE, streakWords(6)!, streakWords(1)!, shippedWords(9), shippedWords(1),
+    TAB_LOG, TAB_PROJECT, BENCH_SOURCES_LINE, LOG_EMPTY, confirmingCardLine('Maya Chen', 'Recipe planner'), streakWords(6)!, streakWords(1)!, shippedWords(9), shippedWords(1),
     benchShareText({ handle: 'maya_makes', bench: 'Top 4% on the Bench', project: null, streak: 0 }), benchShareText({ handle: 'maya_makes', bench: '#2 of 18 on the Bench', project: null, streak: 0 }),
     benchShareText({ handle: 'maya_makes', bench: null, project: 'Recipe planner', streak: 6 }), benchShareText({ handle: 'maya_makes', bench: null, project: null, streak: 0 }),
     startedLine('Recipe planner'), ...startedChips({ live: true, weeks: 3, people: 31 }), ...startedChips({ live: false, weeks: 1, people: 1 }),
@@ -88,18 +88,21 @@ test('11.11 the profile\'s words pass the v2.13 rule on both tabs; chain names o
   for (const tab of ['log', 'project'] as const) {
     const page = pageWords(React.createElement(BenchProfileView, { data: DATA, tab }));
     assert.deepEqual(bannedInBench(page, exempt), [], page);
+    // v2.13.1 O3: the Confirming page too.
+    const confirming = pageWords(React.createElement(BenchProfileView, { data: { ...DATA, project: { ...DATA.project!, confirmed: false } }, tab }));
+    assert.deepEqual(bannedInBench(confirming, exempt), [], confirming);
   }
 });
 
 test('12.7 the landing page\'s words pass the v2.13 rule (copy rules)', async () => {
   const { default: HomeView } = await import('../../app/HomeView');
   const { homeFixture } = await import('./fixtures/landing');
-  const { BENCH_HERO_SUBTITLE, BENCH_HERO_TITLE } = await import('../../app/components/sections/Hero');
+  const { BENCH_HERO_SUBTITLE, BENCH_HERO_SUBTITLE_NO_RAISE, BENCH_HERO_TITLE } = await import('../../app/components/sections/Hero');
   const { BENCH_TOP_TITLE, SEE_BENCH } = await import('../../app/components/sections/BenchTop');
   const { CAROUSEL_TITLE, SEE_ALL_UPDATES } = await import('../../app/components/sections/UpdateCarousel');
-  const { BENCH_HOW_TITLE, BENCH_STEPS } = await import('../../app/components/sections/BenchHowItWorks');
+  const { BENCH_HOW_TITLE, BENCH_STEPS, BENCH_STEPS_NO_RAISE } = await import('../../app/components/sections/BenchHowItWorks');
   const { BENCH_FOOTER_TAGLINE } = await import('./footer-links');
-  for (const t of [BENCH_HERO_TITLE, BENCH_HERO_SUBTITLE, BENCH_TOP_TITLE, SEE_BENCH, CAROUSEL_TITLE, SEE_ALL_UPDATES, 'Grants open now', BENCH_HOW_TITLE, ...BENCH_STEPS, BENCH_FOOTER_TAGLINE])
+  for (const t of [BENCH_HERO_TITLE, BENCH_HERO_SUBTITLE, BENCH_HERO_SUBTITLE_NO_RAISE, ...BENCH_STEPS_NO_RAISE, BENCH_TOP_TITLE, SEE_BENCH, CAROUSEL_TITLE, SEE_ALL_UPDATES, 'Grants open now', BENCH_HOW_TITLE, ...BENCH_STEPS, BENCH_FOOTER_TAGLINE])
     assert.deepEqual(bannedInBench(t, EXEMPT), [], t);
   const row = { rank: 1, line: 'Top 1%', handle: 'maya_makes', name: 'Maya Chen', avatar: null, raising: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
   const card = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import. It plans a week.', chips: ['Went live', '+31 people'], pinned: false };

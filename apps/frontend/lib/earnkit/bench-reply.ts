@@ -90,7 +90,8 @@ export const benchStepKey = (kind: BenchAskKind, key: string | null) => `${kind}
  * for 30 days (`declined`, benchStepKey). v2.13.1 O2: the updates yes is also the next step while the
  * project is joining (`joining`), without "on the Bench". Fix round 1 (ruling 3), every reply ends on one
  * question: no project and nothing to build, the suggestion; a project that can't join (`other`), a
- * different project; nothing pending, the week's update (posting on) or grants that fit. Pure.
+ * different project; nothing pending, the week's update (posting on, not yet posted this week) or
+ * grants that fit. Pure.
  */
 export function chooseAsk(o: {
   project: BenchProject | null; canHost: boolean; updatesOn: boolean; postedThisWeek: boolean; scheduled: boolean;
@@ -114,8 +115,9 @@ export function chooseAsk(o: {
   if (o.coin) return o.coin;
   if (o.enter && !off('enter')) return o.enter;
   // O2 fix round 1 (ruling 3): nothing pending: the week's update when posting is on, else grants that fit.
+  // v2.13.1 O3: never offer this week's update once it is posted (a second post replaces it).
   if (o.fallback === false) return null;
-  if (p.confirmed && o.updatesOn && !off('post_update')) return { kind: 'post_update', project_key: p.key, line: POST_UPDATE_ASK };
+  if (p.confirmed && o.updatesOn && !o.postedThisWeek && !off('post_update')) return { kind: 'post_update', project_key: p.key, line: POST_UPDATE_ASK };
   return off('grants') ? null : { kind: 'grants', project_key: p.key, line: grantsAsk(p.name) };
 }
 

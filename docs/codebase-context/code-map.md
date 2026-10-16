@@ -70,11 +70,14 @@ apps/frontend/
                                long cards
   app/[handle]/{BenchProfileView,ProjectTab,ScoreParts,ShipGrid}.tsx  v2.13 T11: the Bench profile (photo,
                                rank lines, score parts, 52-week grid, Ship log tab, ?tab=project); Avatar falls
-                               back to the initial; card-response and page.tsx branch under the flag
+                               back to the initial; card-response and page.tsx branch under the flag;
+                               v2.13.1 O3: while Confirming one calm card (confirmingCardLine) instead of ring
+                               and grid, Project tab shows name and what only
   app/components/sections/{BenchTop,UpdateCarousel,CarouselRow,BenchHowItWorks}.tsx  v2.13 T12: the landing's
                                Bench top 10, update carousel, shared carousel row, three steps; HomeView, Hero,
                                ProgramCards, Footer, Header, BackedBy branch under the flag (no bonus pill,
-                               sentence-case labels)
+                               sentence-case labels); v2.13.1 O3: with EARNKIT_RAISING off the hero and steps
+                               drop raising (BENCH_HERO_SUBTITLE_NO_RAISE, BENCH_STEPS_NO_RAISE)
   app/components/ui/{ChainLogo,RaisingPill,UpdateCard}.tsx  v2.13: chain logo chips, the Raising pill, the
                                long and square update cards
   public/images/chains/{base,arc,robinhood}.svg  v2.13: chain logos (arc and robinhood are monograms until
@@ -1443,7 +1446,8 @@ apps/frontend/
                                repo_facts not_mine on the unconfirmed one project)
     proof-branch.ts            v2.13.1 O1: the proof branch (table proof_branches: sha256 + seed, code =
                                HMAC(secret, seed)): proofBranchFor (open code, else one a day per person, coding
-                               agents only; failed / needs_agent / taken), checkProofBranch (once a minute per
+                               agents only; failed / needs_agent / taken; v2.13.1 O3 `buildDeploy`: a starter
+                               build's deploy gets a fresh code after an expiry, within the 5-a-day cap), checkProofBranch (once a minute per
                                code; ref, repo, pusher: User repo owner only, org any; exclusive; proof
                                `proof_branch` with gh_repo_id/gh_owner, login basis `proof_branch`, rescore),
                                heldByOther (group roots; discovery asks it too), coinBranchProof (the token
@@ -1469,7 +1473,8 @@ apps/frontend/
     raising.ts(+test)          v2.13 T9: raisingCoin, setRaising, pillOf, raiseAsk (projects.raising_at); all off
                                unless EARNKIT_RAISING (builder-score-flag.ts raisingEnabled)
     bench-data.ts(+test)       v2.13 T10/T11: parseBenchFilter, benchRows (safe names, pill in the same read),
-                               profile and project tab data, logCards
+                               profile and project tab data, logCards (v2.13.1 O3: the start is a "Started
+                               tracking" chip on its week's card), gridWeeks (ship weeks + weeks with checked commits)
     v213-final-fix.test.ts     v2.13 final fix wave: private names, lazy pick, proof repo and sign-in, the
                                Bench gate, the update limit, EARNKIT_RAISING off and on
     llms/{v212,v213}.txt       v2.13: the two /llms.txt bodies (flag off / on)

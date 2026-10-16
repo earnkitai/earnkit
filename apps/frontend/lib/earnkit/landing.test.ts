@@ -17,10 +17,10 @@ import HomeView from '../../app/HomeView';
 import Footer from '../../app/components/common/Footer';
 import { homeFixture as LANDING_FIXTURE } from './fixtures/landing';
 import { BENCH_FOOTER_TAGLINE, FOOTER_TAGLINE } from './footer-links';
-import { BENCH_HERO_SUBTITLE, BENCH_HERO_TITLE, HERO_TITLE } from '../../app/components/sections/Hero';
+import { BENCH_HERO_SUBTITLE, BENCH_HERO_SUBTITLE_NO_RAISE, BENCH_HERO_TITLE, HERO_TITLE } from '../../app/components/sections/Hero';
 import { BENCH_TOP_TITLE, SEE_BENCH } from '../../app/components/sections/BenchTop';
 import { CAROUSEL_TITLE } from '../../app/components/sections/UpdateCarousel';
-import { BENCH_HOW_TITLE, BENCH_STEPS } from '../../app/components/sections/BenchHowItWorks';
+import { BENCH_HOW_TITLE, BENCH_STEPS, BENCH_STEPS_NO_RAISE } from '../../app/components/sections/BenchHowItWorks';
 
 // The components are compiled with the classic JSX runtime here (as feed.test.ts).
 (globalThis as { React?: typeof React }).React = React;
@@ -417,6 +417,18 @@ test('12.1 the hero, word for word, and its one button', () => {
   assert.ok(h.includes(BENCH_HERO_TITLE) && h.includes(BENCH_HERO_SUBTITLE) && h.includes('Add to your agent'));
   assert.ok(!h.includes('Agents only'), 'no all-caps eyebrow under the flag');
   assert.ok(!/Builder bonus/i.test(h), 'R16');
+});
+
+test('12.1b (v2.13.1 O3) EARNKIT_RAISING off: the hero and How it works never mention raising; on: as built', () => {
+  assert.equal(BENCH_HERO_SUBTITLE_NO_RAISE, 'Add EarnKit to your AI agent. It puts your project on the Bench, posts what you ship, and finds you grants.');
+  assert.deepEqual(BENCH_STEPS_NO_RAISE, ['Add EarnKit to your agent and connect X.', 'Your project goes on the Bench and your agent posts what you ship each week.', 'Get funded: grants that fit.']);
+  const off = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], chips: ['base'], cards: [CARD], raising: false } });
+  assert.ok(off.includes(BENCH_HERO_SUBTITLE_NO_RAISE) && !off.includes(BENCH_HERO_SUBTITLE), 'the raise-free subtitle');
+  for (const s of BENCH_STEPS_NO_RAISE) assert.ok(off.includes(s), s);
+  assert.doesNotMatch(off, /\braise\b|raising|your own coin/i);
+  const on = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], chips: ['base'], cards: [CARD], raising: true } });
+  assert.ok(on.includes(BENCH_HERO_SUBTITLE) && !on.includes(BENCH_HERO_SUBTITLE_NO_RAISE));
+  for (const s of BENCH_STEPS) assert.ok(on.includes(s), s);
 });
 
 test('12.2 the sections in order: hero, the Bench top 10, this week on the Bench, grants open now, how it works, backed by', () => {

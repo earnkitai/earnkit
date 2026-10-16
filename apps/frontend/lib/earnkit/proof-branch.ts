@@ -99,8 +99,20 @@ export async function heldByOther(builderId: number, key: string, db: Db = sql()
  * The proof branch for `key` (the person's one project, not confirmed), as the module comment says:
  * the open code; else, for an agent that can build and with no code issued to the person in the last
  * day, a new one; else `failed` (this key's last code expired unused) or null (wait for the day).
+ * `buildDeploy`: no day's wait after an expired code (the 5-a-day cap still holds).
  */
-export async function proofBranchFor(builderId: number, key: string, now: Date, o: { canBuild: boolean; reproof?: boolean }): Promise<BranchState> {
+export async function proofBranchFor(
+  builderId: number, key: string, now: Date,
+  o: {
+    canBuild: boolean; reproof?: boolean;
+    /**
+     * v2.13.1 O3: a starter build's deploy step. Its code may have expired while the agent was building,
+     * so an expired unused code gets a fresh one at once (still within PROOF_BRANCH_MAX_PER_DAY), never
+     * the day's `failed` lockout that find gives.
+     */
+    buildDeploy?: boolean;
+  },
+): Promise<BranchState> {
   const k = key.toLowerCase();
   const secret = process.env.EARNKIT_AUTH_SECRET;
   if (!REPO_KEY.test(k) || !secret) return null;
@@ -121,7 +133,7 @@ export async function proofBranchFor(builderId: number, key: string, now: Date, 
     // A code that expired unused (the branch never showed): no loop, the plain line for a day.
     // O2 fix round 1 (ruling 2): a code closed because the one project changed doesn't count.
     const failed = Boolean(last && !last.used_at && !last.closed_at);
-    if (failed && last!.issued_at > dayAgo) return { kind: 'failed' as const };
+    if (failed && !o.buildDeploy && last!.issued_at > dayAgo) return { kind: 'failed' as const };
     const [{ n }] = await tx<{ n: number }[]>`
       SELECT count(*)::int AS n FROM proof_branches WHERE builder_id = ${builderId} AND issued_at > ${dayAgo}`;
     if (n >= PROOF_BRANCH_MAX_PER_DAY) return failed ? { kind: 'failed' as const } : null;

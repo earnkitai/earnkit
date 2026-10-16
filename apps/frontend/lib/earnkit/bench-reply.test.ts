@@ -136,7 +136,10 @@ test('O2.9 a project being checked is asked the next Bench step (the updates yes
 test('O2 fix round 1 (ruling 3): every reply ends with one question, in each state', () => {
   const base = { canHost: false, updatesOn: true, postedThisWeek: true, scheduled: true, coin: null, build: null, enter: null, declined: [] as string[] };
   // A confirmed project with nothing pending: the week's update when posting is on, else grants that fit.
-  assert.deepEqual(chooseAsk({ ...base, project: RECIPE }), { kind: 'post_update', project_key: 'maya/recipes', line: POST_UPDATE_ASK });
+  // v2.13.1 O3 (carried from O2's review): this week's update already posted: never offer to post it (that would overwrite it).
+  assert.deepEqual(chooseAsk({ ...base, project: RECIPE }), { kind: 'grants', project_key: 'maya/recipes', line: grantsAsk('Recipe planner') });
+  assert.deepEqual(chooseAsk({ ...base, project: RECIPE, postedThisWeek: false }), { kind: 'post_update', project_key: 'maya/recipes', line: POST_UPDATE_ASK }, 'scheduled but not posted yet');
+  assert.equal(chooseAsk({ ...base, project: RECIPE, postedThisWeek: false, declined: ['post_update:maya/recipes'] })?.kind, 'grants');
   assert.deepEqual(chooseAsk({ ...base, project: RECIPE, updatesOn: false, declined: ['updates:maya/recipes'] }), { kind: 'grants', project_key: 'maya/recipes', line: grantsAsk('Recipe planner') });
   assert.equal(grantsAsk('Recipe planner'), 'Want me to find grants that fit Recipe planner?');
   // The coin step still comes first when nothing earlier applies (the fallback is left out for that check).

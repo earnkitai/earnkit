@@ -2929,10 +2929,11 @@ export const BUILD_BRANCH_TAKEN_NOTE = "That repo is already on the Bench under 
 export const BUILD_BRANCH_WAIT_NOTE = "EarnKit can't check the repo right now, so it can't deploy. Don't deploy; tell the builder in one short line to try again later.";
 
 /** v2.13.1 O2 fix round 1: the proof branch for a build's new repo (the agent can build: it is building). */
-async function buildBranch(ctx: ToolContext, repoUrl: string): Promise<{ proof: { branch: string; push: string; remove: string } } | { note: string }> {
+async function buildBranch(ctx: ToolContext, repoUrl: string, o: { deploy?: boolean } = {}): Promise<{ proof: { branch: string; push: string; remove: string } } | { note: string }> {
   const gh = githubRepo(repoUrl);
   if (!gh) return { note: BUILD_BRANCH_WAIT_NOTE };
-  const state = await proofBranchFor(ctx.installationId, `${gh.owner}/${gh.repo}`, new Date(), { canBuild: true }).catch(() => null);
+  // v2.13.1 O3: at the deploy step a code that expired during the build gets a fresh one (within the daily cap).
+  const state = await proofBranchFor(ctx.installationId, `${gh.owner}/${gh.repo}`, new Date(), { canBuild: true, buildDeploy: o.deploy }).catch(() => null);
   if (state?.kind === 'checking') return { proof: { branch: state.proof.branch, push: state.proof.push, remove: state.proof.remove } };
   return { note: state?.kind === 'taken' ? BUILD_BRANCH_TAKEN_NOTE : BUILD_BRANCH_WAIT_NOTE };
 }
@@ -2946,7 +2947,7 @@ async function buildProofByBranch(ctx: ToolContext, repo: string, repoKey: strin
   await checkProofBranch(ctx.installationId, now, { key: repoKey, ghFetch: ctx.proofBranchFetch ?? ctx.readerDeps?.ghFetch });
   const proven = await proveRepoByBranch({ installationId: ctx.installationId, repoUrl: repo });
   if (proven) return { proven };
-  const b = await buildBranch(ctx, repo);
+  const b = await buildBranch(ctx, repo, { deploy: true });
   return { reply: 'proof' in b ? { ...buildRefusal(buildBranchNote(b.proof.push)), proof: b.proof } : buildRefusal(b.note) };
 }
 

@@ -141,7 +141,7 @@ type GhRepo = {
   head: { before: string; after: string; at: number } | null;
 };
 const GITHUB = new Map<string, GhRepo>();
-const ACCOUNTS = new Set(['maya', 'maya2', 'eve']);
+const ACCOUNTS = new Set(['maya', 'maya2', 'maya3', 'eve']);
 function repo(owner: string, name: string, createdAt: number, homepage: string | null): GhRepo {
   const r: GhRepo = { owner, name, createdAt, homepage, activity: [], files: new Map(), head: null };
   GITHUB.set(`${owner}/${name}`, r);
@@ -455,7 +455,8 @@ async function seedBaseBuilders(n: number): Promise<string> {
 }
 
 /** The starter build of the v2.11 journey (13.1 to 13.4 with the fakes), repo maya2/tipjar, through its deploy. */
-async function runStarterBuild(id: number, programId: string): Promise<void> {
+async function runStarterBuild(id: number, programId: string, o: { owner?: string; expire?: boolean } = {}): Promise<void> {
+  const owner = o.owner ?? 'maya2';
   const deployDeps: DeployDeps = { chain: (c) => (c === 'arc' ? fakeArc(() => MAYA2_WALLET) : null), usdPerNative: async () => 1 };
   const c = ctx(id, { ownInstallationId: id, deployDeps });
   const twist = { twist: 'tips for my podcast listeners', name: 'PodTips', description: 'Podcast listeners tip the show in USDC on Arc.', feature: 'Each tip can carry a question.', for_whom: 'for your podcast listeners' };
@@ -463,20 +464,32 @@ async function runStarterBuild(id: number, programId: string): Promise<void> {
     await call('prepare', { program_id: programId, build: { start: true, program_id: programId } }, c);
     const kit = await call('prepare', { program_id: programId, build: { program_id: programId, ...twist, wallet: MAYA2_WALLET } }, c);
     assert.ok(kit.kit, JSON.stringify(kit));
-    const tipjar = repo('maya2', 'tipjar', Date.now() - 2 * 60_000, null);
-    const repoUrl = 'https://github.com/maya2/tipjar';
+    const tipjar = repo(owner, 'tipjar', Date.now() - 2 * 60_000, null);
+    const repoUrl = `https://github.com/${owner}/tipjar`;
     const withRepo = await call('prepare', { program_id: programId, build: { program_id: programId, ...twist, wallet: MAYA2_WALLET, repo_url: repoUrl } }, c);
     // v2.13.1 O2 fix round 1 (fresh-build ruling): under the Bench the kit carries a proof branch, never a line.
     assert.equal(withRepo.kit?.proof_line, null, JSON.stringify(withRepo));
     const branch = withRepo.kit?.proof_branch?.branch;
     assert.match(branch ?? '', /^earnkit-[a-z2-7]{12}$/, JSON.stringify(withRepo));
     firstPush(tipjar, '');
-    pushBranch(tipjar, branch!);
     const deploy = { chain: 'arc', bytecode: ARC_TIPJAR_BYTECODE, abi: TIPJAR_ABI, constructor_args: [MAYA2_WALLET, 'PodTips', '1000000'], owner_wallet: MAYA2_WALLET };
-    const shipped = await call('prepare', { program_id: programId, project: { name: 'PodTips', description: twist.description, repo_url: repoUrl }, deploy, host: true, build: { program_id: programId } }, c);
+    const ship = () => call('prepare', { program_id: programId, project: { name: 'PodTips', description: twist.description, repo_url: repoUrl }, deploy, host: true, build: { program_id: programId } }, c);
+    let pushed = branch!;
+    if (o.expire) {
+      // v2.13.1 O3 (carried from O2's review): the build took longer than the code's hour, so its branch was never pushed in time.
+      await sql()`UPDATE proof_branches SET issued_at = issued_at - interval '2 hours', expires_at = expires_at - interval '2 hours' WHERE builder_id = ${id}`;
+      const refused = await ship();
+      const fresh = (refused as { proof?: { branch?: string; push?: string } }).proof;
+      assert.match(fresh?.branch ?? '', /^earnkit-[a-z2-7]{12}$/, JSON.stringify(refused));
+      assert.notEqual(fresh!.branch, branch, 'a fresh code at the deploy step, not a 24 h lockout');
+      assert.ok(refused.agent_note?.includes(fresh!.push!), refused.agent_note);
+      pushed = fresh!.branch!;
+    }
+    pushBranch(tipjar, pushed);
+    const shipped = await ship();
     assert.equal((shipped as { deploy?: { address?: string } }).deploy?.address, ARC_CONTRACT, JSON.stringify(shipped));
     // The branch proved it: the build is on the Bench the same day, and the agent is told to delete the branch.
-    assert.ok(shipped.agent_note?.includes(`git push origin :refs/heads/${branch}`), shipped.agent_note);
+    assert.ok(shipped.agent_note?.includes(`git push origin :refs/heads/${pushed}`), shipped.agent_note);
     assert.equal(await mainConfirmed(id), true, 'the build is Bench-confirmed');
   });
 }
@@ -544,6 +557,14 @@ test('16.2 acceptance 2, without a project: ways to get funded and one build off
   assert.ok(yes.agent_note?.includes(`build: { start: true, program_id: '${r.build_offer!.program_id}' }`), JSON.stringify(yes));
   await runStarterBuild(id, r.build_offer!.program_id);
   assert.equal(await mainProjectOf(id), 'maya2/tipjar');
+});
+
+test('16.2b (v2.13.1 O3) a starter build whose proof code expired before the deploy gets a fresh code at the deploy step, then deploys', db, async () => {
+  const id = await newInstall();
+  const r = await call('find', { agent_can_build: true, github_user: 'maya3' }, ctx(id));
+  assert.equal(r.move_up?.kind, 'build', r.show_to_builder);
+  await runStarterBuild(id, r.build_offer!.program_id, { owner: 'maya3', expire: true });
+  assert.equal(await mainProjectOf(id), 'maya3/tipjar');
 });
 
 test('16.3 acceptance 3, the weekly update: yes, then "post this week\'s update now": a long card with chips; after the week is ranked it reaches /feed', db, async () => {

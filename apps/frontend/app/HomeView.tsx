@@ -71,7 +71,7 @@ export default function HomeView({ landing }: { landing: Landing | null }) {
         </div>
 
         <div className="relative flex min-h-[88vh] w-full flex-col items-center justify-center px-6 py-16 md:min-h-[calc(var(--vh,1vh)*100-12vh)] md:px-12">
-          <Hero statsLine={landing?.stats_line ?? null} wonLine={landing?.won_line ?? null} bench={bench !== null} />
+          <Hero statsLine={landing?.stats_line ?? null} wonLine={landing?.won_line ?? null} bench={bench !== null} raising={bench?.raising ?? true} />
         </div>
       </section>
 
@@ -81,7 +81,7 @@ export default function HomeView({ landing }: { landing: Landing | null }) {
           <BenchTop rows={bench.rows} chips={bench.chips} raising={bench.raising} />
           {bench.cards.length > 0 && <UpdateCarousel cards={bench.cards} />}
           {landing && landing.tiles.length > 0 && <ProgramCards tiles={landing.tiles} figure={landing.open_text} bench />}
-          <BenchHowItWorks />
+          <BenchHowItWorks raising={bench.raising} />
           <BackedBy bench />
         </div>
       ) : (

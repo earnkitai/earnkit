@@ -5181,6 +5181,11 @@ you're raising with $X?"). The launch now stores `projects.coin_tx` and `coin_ch
 - The profile `app/[handle]/BenchProfileView.tsx`: photo, rank lines, score parts (`ScoreParts`), the
   52-week grid (`ShipGrid`), tabs as links (Ship log default, `?tab=project` = `ProjectTab`). The card
   (OG) shows photo, name, "Top N% on the Bench", project, streak; it never names a confirming project.
+  v2.13.1 O3: while the one project is Confirming, one neutral card ("<Name> is getting <project> on the
+  Bench.") replaces the ring and the grid, and the Project tab shows only the name and what it is. The
+  Started fact merges into its week's card as a "Started tracking" chip; the grid also counts any shown
+  week whose facts carry checked commits (`gridWeeks`), so the card and its square agree.
+- With `EARNKIT_RAISING` off the landing hero subtitle and How it works drop raising (v2.13.1 O3).
 - The landing (`HomeView`): hero "Ship every week. Get funded.", `BenchTop`, `UpdateCarousel`, grants,
   `BenchHowItWorks`, Backed by. The landing cache key names `EARNKIT_BENCH` and `EARNKIT_RAISING`
   (`landing-cache.ts landingCacheKey`, final fix M4). `/llms.txt` is a route (`lib/earnkit/llms/v213.txt` under the flag,

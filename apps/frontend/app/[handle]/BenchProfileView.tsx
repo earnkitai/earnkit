@@ -18,8 +18,12 @@ export const TAB_PROJECT = 'Project';
 export const BENCH_SOURCES_LINE =
   'Facts come from public data EarnKit checks: GitHub, the live site, packages and public transactions.';
 export const LOG_EMPTY = 'Updates show here every week.';
-export const CONFIRMING_LINE =
-  "This project shows here once it's confirmed as theirs.";
+/**
+ * v2.13.1 O3: the one calm card while the one project is Confirming. Pages are public and the owner
+ * can't be told from a visitor, so one neutral line for everyone.
+ */
+export const confirmingCardLine = (name: string, project: string) =>
+  `${name} is getting ${project} on the Bench.`;
 export { streakWords };
 
 /** The photo in its orange to purple ring. */
@@ -98,6 +102,26 @@ export function BenchProfileSkeleton({
   );
 }
 
+/**
+ * v2.13.1 O3: while the one project is Confirming, this card stands in for the score ring and the
+ * shipping grid (no "Shipped 0" before anything could count). A soft pulse says it is under way.
+ */
+function ConfirmingCard({ line }: { line: string }) {
+  return (
+    <div className="mt-8 border-t border-ek-blue-soft/10 pt-8 md:mt-10 md:pt-10">
+      <div className="flex items-start gap-4 rounded-[28px] bg-ek-navy px-6 py-5 md:items-center md:px-8 md:py-6">
+        <span aria-hidden="true" className="relative mt-2 flex h-2.5 w-2.5 shrink-0 md:mt-0">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-ek-score-orange/60 motion-reduce:animate-none" />
+          <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-ek-score-orange" />
+        </span>
+        <p className="min-w-0 break-words font-funnel-display text-lg font-medium leading-snug text-ek-white md:text-2xl">
+          {line}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 const TAB =
   'inline-flex h-10 items-center rounded-full px-5 font-funnel-sans text-[15px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ek-blue-soft';
 const TAB_ON = 'bg-ek-blue-light text-ek-navy-deep';
@@ -107,7 +131,9 @@ const TAB_OFF = 'text-ek-blue-light hover:bg-ek-navy hover:text-ek-white';
  * v2.13 spec "Profile" (R10, R11, R12): the header (photo, name, @handle, the Raising pill, the
  * Bench line then each chain's line with its logo), the score with its four parts, the 52-week
  * shipping grid with the streak, then two tabs as plain links: the Ship log (default; long cards,
- * newest first, the Started card last) and the Project. A quiet sources line at the end. Pure.
+ * newest first, the Started card last) and the Project. A quiet sources line at the end.
+ * v2.13.1 O3: while the one project is Confirming, one calm card in place of the score and the grid,
+ * and an empty Ship log. Pure.
  */
 export default function BenchProfileView({
   data,
@@ -149,6 +175,9 @@ export default function BenchProfileView({
             </p>
           ) : null}
 
+          {confirming ? (
+            <ConfirmingCard line={confirmingCardLine(d.name, d.project!.name)} />
+          ) : (
           <div className="mt-8 grid gap-8 border-t border-ek-blue-soft/10 pt-8 md:mt-10 md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] md:gap-12 md:pt-10">
             {d.score !== null ? (
               <div className="flex min-w-0 items-center gap-6">
@@ -183,6 +212,7 @@ export default function BenchProfileView({
               <ShipGrid grid={d.grid} />
             </div>
           </div>
+          )}
         </div>
       </Panel>
 
@@ -208,12 +238,8 @@ export default function BenchProfileView({
         </nav>
         <div className="mt-6 md:mt-8">
           {tab === 'project' ? (
-            <ProjectTab project={d.project} confirming={CONFIRMING_LINE} />
-          ) : confirming ? (
-            <p className="font-funnel-sans text-base font-light text-ek-blue-light">
-              {CONFIRMING_LINE}
-            </p>
-          ) : d.log.length === 0 ? (
+            <ProjectTab project={d.project} />
+          ) : confirming || d.log.length === 0 ? (
             <p className="font-funnel-sans text-base font-light text-ek-blue-light">
               {LOG_EMPTY}
             </p>

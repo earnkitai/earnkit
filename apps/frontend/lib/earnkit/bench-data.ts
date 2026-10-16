@@ -15,7 +15,7 @@ import { MAX_V2 } from './score-v2';
 import { earnPrize, earnWhen, showable } from './stand-view';
 import { shownUrl } from './untrusted-text';
 import { factChips, hasFacts, startedChips, startedLine, type WeekFacts } from './week-facts';
-import { last52 } from './weeks';
+import { last52, weekOfMonday } from './weeks';
 
 /** v2.13 spec "The Bench": its rows and its URL filters (R9). */
 export type BenchFilter = { chain: BenchChain | null; raising: boolean; weekly: boolean };
@@ -137,20 +137,41 @@ export const streakWords = (n: number): string | null => (n >= 1 ? `${n} ${n ===
 /** The first letter of the handle, as Avatar draws it. Pure. */
 export const initialsOf = (handle: string) => handle.replace(/^_+/, '').charAt(0).toUpperCase() || '?';
 
+/** v2.13.1 O3: the chip a week's card carries when tracking started that week. */
+export const STARTED_CHIP = 'Started tracking';
+
 /**
  * The Ship log, newest first: a week with text or facts is a card (chips alone when there is no
- * text); the week with facts.started also gives the Started card, right after it (the oldest card).
- * Hidden weeks never. Pure.
+ * text). The week with facts.started: v2.13.1 O3, when it has a card, the start is a chip on it
+ * ("Started tracking" first, then the start's own chips), never a second card under the same week
+ * heading; with no card that week, the Started card. Hidden weeks never. Pure.
  */
 export function logCards(rows: { week: string; text: string | null; facts: WeekFacts }[], name: string, raising: string | null): ProfileCard[] {
   const out: ProfileCard[] = [];
   for (const r of rows) {
     const facts = r.facts ?? {};
     // The Raising chip once, on the newest card (the header carries the pill).
-    if (r.text || hasFacts(facts)) out.push({ week: r.week, text: r.text, chips: factChips(facts, { raising: out.length === 0 ? raising : null }) });
-    if (facts.started) out.push({ week: r.week, text: null, chips: startedChips(facts.started), started: startedLine(name) });
+    if (r.text || hasFacts(facts)) {
+      const chips = factChips(facts, { raising: out.length === 0 ? raising : null });
+      const start = facts.started ? [STARTED_CHIP, ...startedChips(facts.started)] : [];
+      out.push({ week: r.week, text: r.text, chips: [...new Set([...start.slice(0, 1), ...chips, ...start.slice(1)])] });
+    } else if (facts.started) out.push({ week: r.week, text: null, chips: startedChips(facts.started), started: startedLine(name) });
   }
   return out;
+}
+
+/**
+ * v2.13.1 O3: the grid's shipping weeks: the rescored ship weeks, plus every shown week whose row
+ * EarnKit checked commits for (facts.shipped_code), so a card with commits always has its square
+ * filled, even before the next rescore. Pure.
+ */
+export function gridWeeks(shipWeeks: string[], rows: { week: string; facts: WeekFacts }[]): Set<string> {
+  const weeks = new Set(shipWeeks);
+  for (const r of rows) {
+    const w = (r.facts?.shipped_code?.n ?? 0) > 0 ? weekOfMonday(r.week) : null;
+    if (w) weeks.add(w);
+  }
+  return weeks;
 }
 
 /**
@@ -226,7 +247,7 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
         SELECT week::text AS week, text, facts FROM project_updates
         WHERE builder_id = ${builderId} AND lower(project_key) = lower(${p.main}) AND NOT hidden ORDER BY week DESC LIMIT ${LOG_MAX}`
     : [];
-  const weeks = new Set(confirmed ? b.ship_weeks : []);
+  const weeks = confirmed ? gridWeeks(b.ship_weeks, updates) : new Set<string>();
   const measured = confirmed && !shown.held;
   const coin = confirmed ? await raisingCoin(builderId) : null;
   const repoKey = norm(p.main);

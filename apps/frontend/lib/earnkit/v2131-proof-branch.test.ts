@@ -323,6 +323,34 @@ test('O1.7 (O2 fix round 1, ruling 2) at most 5 new codes per person per rolling
   }),
 );
 
+test('O3.4b (carried from O2\'s review) a starter build\'s deploy step: a code that expired unused gets a fresh one at once, within the 5-a-day cap; find keeps the day\'s plain line', dbTest, () =>
+  withEnv(ON, async () => {
+    const key = `${uniq('build')}/tipjar`;
+    const gh = fakeGitHub();
+    const { id, branch } = await start(gh, key);
+    await age(id, PROOF_BRANCH_TTL_MS + 1000);
+    assert.deepEqual(await proofBranchFor(id, key, new Date(), { canBuild: true }), { kind: 'failed' }, 'find: no new code within the day');
+    const fresh = await proofBranchFor(id, key, new Date(), { canBuild: true, buildDeploy: true });
+    assert.equal(fresh?.kind, 'checking', JSON.stringify(fresh));
+    const next = fresh?.kind === 'checking' ? fresh.proof.branch : '';
+    assert.match(next, /^earnkit-[a-z2-7]{12}$/);
+    assert.notEqual(next, branch);
+    assert.equal((await rows(id)).length, 2);
+    // The fresh code is the open one now: the same code again, not a third.
+    const same = await proofBranchFor(id, key, new Date(), { canBuild: true, buildDeploy: true });
+    assert.equal(same?.kind === 'checking' ? same.proof.branch : '', next);
+    // The cap still holds: with 5 codes in the day, an expired one gets the plain failure, never a sixth code.
+    for (let i = 0; i < 3; i++) {
+      await age(id, PROOF_BRANCH_TTL_MS + 1000);
+      assert.equal((await proofBranchFor(id, key, new Date(), { canBuild: true, buildDeploy: true }))?.kind, 'checking');
+    }
+    assert.equal((await rows(id)).length, 5);
+    await age(id, PROOF_BRANCH_TTL_MS + 1000);
+    assert.deepEqual(await proofBranchFor(id, key, new Date(), { canBuild: true, buildDeploy: true }), { kind: 'failed' });
+    assert.equal((await rows(id)).length, 5);
+  }),
+);
+
 test('O1.8 a used code never verifies again; another person\'s code never confirms this person', dbTest, () =>
   withEnv(ON, async () => {
     const key = `${uniq('used')}/recipes`;

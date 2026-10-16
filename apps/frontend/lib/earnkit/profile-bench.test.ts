@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
 import { profileData, type ProfileData } from './bench-data';
 import { DATA } from './fixtures/profile-data';
-import BenchProfileView, { BENCH_SOURCES_LINE, CONFIRMING_LINE, LOG_EMPTY, TAB_LOG, TAB_PROJECT, streakWords } from '../../app/[handle]/BenchProfileView';
+import BenchProfileView, { BENCH_SOURCES_LINE, LOG_EMPTY, TAB_LOG, TAB_PROJECT, confirmingCardLine, streakWords } from '../../app/[handle]/BenchProfileView';
 import Avatar from '../../app/[handle]/Avatar';
 
 /** v2.13 T11 (spec "Profile", R10, R11, R12): the page at earnkit.com/<x-handle> under the Bench flag. */
@@ -125,14 +125,15 @@ test('11.6 profileData reads the page from stored rows: hidden updates never, th
   assert.equal(d.project?.confirmed, true);
 });
 
-test('11.6b the Started card is the oldest when a week has both; a repo that does not read as public is never named or linked', dbTest, async () => {
+test('11.6b (v2.13.1 O3) a week with an update and the start is one card with a Started tracking chip; a repo that does not read as public is never named or linked', dbTest, async () => {
   const key = `pr${RUN}/fresh`;
   const id = await person(key);
   await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped) VALUES (${id}, ${key}, 'Fresh app', 'app', true, true)`;
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, text, facts) VALUES
     (${id}, ${key}, '2026-10-12', 'First week.', ${sql().json({ shipped_code: { n: 1 }, started: { live: false, weeks: 0, people: 0 } } as never)})`;
   const d = (await profileData(id, new Date('2026-10-14T00:00:00Z')))!;
-  assert.deepEqual(d.log.map((c) => [c.week, c.text, c.started ?? null]), [['2026-10-12', 'First week.', null], ['2026-10-12', null, 'Started tracking Private project.']]);
+  // v2.13.1 O3: the Started card merges into its week's card as a chip (never two cards with one week heading).
+  assert.deepEqual(d.log.map((c) => [c.week, c.text, c.started ?? null, c.chips]), [['2026-10-12', 'First week.', null, ['Started tracking', '1 commit']]]);
   assert.equal(d.project?.name, 'Private project', 'v2.12.1 shownProjects: no public reading, not the agent\'s own name');
   assert.equal(d.project?.repo, null);
   assert.equal(d.score, null, 'no rank line: never a bare ring');
@@ -140,7 +141,7 @@ test('11.6b the Started card is the oldest when a week has both; a repo that doe
   assert.equal(d.streak, 0);
 });
 
-test('11.8 a one project not yet confirmed by its repo shows the confirming line instead of the log, and no numbers', dbTest, async () => {
+test('11.8 (v2.13.1 O3) a one project not yet confirmed by its repo: one calm card for everyone, no ring, no grid, no log, no numbers', dbTest, async () => {
   const key = `pr${RUN}/notmine`;
   const id = await person(key, { proof: false });
   await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, people, money_usd) VALUES (${id}, ${key}, 'Not mine', 'app', true, true, 40, 500)`;
@@ -151,8 +152,25 @@ test('11.8 a one project not yet confirmed by its repo shows the confirming line
   assert.equal(d.project?.people, null);
   assert.equal(d.project?.money, null);
   const h = html(React.createElement(BenchProfileView, { data: d, tab: 'log' }));
-  assert.ok(h.includes(CONFIRMING_LINE));
+  assert.ok(h.includes(confirmingCardLine('Maya Chen', 'Private project')), h);
+  assert.equal(confirmingCardLine('Maya Chen', 'Recipe planner'), 'Maya Chen is getting Recipe planner on the Bench.');
   assert.doesNotMatch(h, /Claimed\./);
+  assert.doesNotMatch(h, /data-week=/, 'no grid');
+  assert.doesNotMatch(h, /Shipped \d+ of/, 'no grid title, no score parts');
+  assert.doesNotMatch(h, /of 100/, 'no ring');
+  assert.doesNotMatch(h, /confirmed as theirs/, 'one neutral line: the owner is not detected');
+  assert.ok(h.includes(LOG_EMPTY));
+});
+
+test('11.8b (v2.13.1 O3) Confirming hides the ring and the grid even when a score and shipping weeks exist', () => {
+  const d: ProfileData = { ...DATA, project: { ...DATA.project!, confirmed: false } };
+  const h = html(React.createElement(BenchProfileView, { data: d, tab: 'log' }));
+  assert.ok(h.includes(confirmingCardLine('Maya Chen', 'Recipe planner')));
+  for (const re of [/data-week=/, /Shipped \d+ of/, /6 weeks in a row/, /Added fridge photo import/]) assert.doesNotMatch(h, re);
+  // Once confirmed: the full profile as built in v2.13.
+  const full = html(React.createElement(BenchProfileView, { data: DATA, tab: 'log' }));
+  assert.ok(!full.includes(confirmingCardLine('Maya Chen', 'Recipe planner')));
+  assert.equal((full.match(/data-week=/g) ?? []).length, 52);
 });
 
 test('11.9 the grid titles each square with its week\'s Monday (week keys go through mondayOfWeek)', () => {
@@ -188,10 +206,12 @@ test('11.14 (fix round 1) the share post\'s words: the Bench line, else the conf
   assert.equal(benchShareText({ handle: 'maya_makes', bench: null, project: null, streak: 0 }), '@maya_makes on EarnKit.');
 });
 
-test('11.15 (fix round 1) the Project tab of a project not yet confirmed: its name and the line, no links, no numbers', () => {
+test('11.15 (fix round 1, v2.13.1 O3) the Project tab of a project not yet confirmed: its name and what it is, plainly; no links, no numbers', () => {
   const h = html(React.createElement(BenchProfileView, { data: { ...DATA, project: { ...DATA.project!, confirmed: false } }, tab: 'project' }));
-  assert.ok(h.includes('Recipe planner') && h.includes(CONFIRMING_LINE));
-  for (const s of ['https://recipes.app', 'https://github.com/maya/recipes', 'Live site', '31 people use it', 'Won Base Builder Grants', 'Ways to get funded', 'a recipe planner'])
+  const tab = h.slice(h.indexOf('aria-label="Tabs"'));
+  assert.ok(tab.includes('Recipe planner') && tab.includes('a recipe planner'), tab);
+  assert.doesNotMatch(h, /confirmed as theirs/);
+  for (const s of ['https://recipes.app', 'https://github.com/maya/recipes', 'Live site', '31 people use it', 'Won Base Builder Grants', 'Ways to get funded'])
     assert.ok(!h.includes(s), s);
 });
 
@@ -199,4 +219,32 @@ test('11.16 (fix round 1) Avatar remembers which photo failed: a new src gets it
   const src = (await import('node:fs')).readFileSync(new URL('../../app/[handle]/Avatar.tsx', import.meta.url), 'utf8');
   assert.match(src, /failedSrc === src/);
   assert.match(src, /onError=\{\(\) => setFailedSrc\(src\)\}/);
+});
+
+test('11.17 (v2.13.1 O3) logCards: the start merges into its week\'s card as a chip; a week with only the start keeps its Started card', async () => {
+  const { logCards } = await import('./bench-data');
+  const cards = logCards([
+    { week: '2026-10-12', text: 'Shipped the parser.', facts: { shipped_code: { n: 3 }, started: { live: true, weeks: 2, people: 0 } } },
+    { week: '2026-10-05', text: null, facts: { started: { live: false, weeks: 0, people: 0 } } },
+  ], 'Recipe planner', null);
+  assert.deepEqual(cards, [
+    { week: '2026-10-12', text: 'Shipped the parser.', chips: ['Started tracking', '3 commits', 'Live', '2 weeks shipping'] },
+    { week: '2026-10-05', text: null, chips: [], started: 'Started tracking Recipe planner.' },
+  ]);
+  // Never two cards under one week heading.
+  assert.equal(new Set(cards.map((c) => c.week)).size, cards.length);
+  const h = html(React.createElement(BenchProfileView, { data: { ...DATA, log: cards }, tab: 'log' }));
+  assert.equal((h.match(/Week of Oct 12/g) ?? []).length - (h.match(/title="Week of Oct 12"/g) ?? []).length, 1, 'one card heading for the week');
+});
+
+test('11.18 (v2.13.1 O3) the grid counts a week with an update and commits, even before the next rescore', dbTest, async () => {
+  const key = `pr${RUN}/agree`;
+  const id = await person(key, { named: 'Agree app' });
+  await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, streak, ship_weeks) VALUES (${id}, ${key}, 'Agree app', 'app', true, true, 0, ${[]})`;
+  await sql()`INSERT INTO project_updates (builder_id, project_key, week, text, facts) VALUES
+    (${id}, ${key}, '2026-10-12', 'Shipped a new onboarding flow.', ${sql().json({ shipped_code: { n: 4 }, started: { live: false, weeks: 0, people: 0 } } as never)}),
+    (${id}, ${key}, '2026-10-05', 'Planned the next step.', '{}'::jsonb)`;
+  const d = (await profileData(id, new Date('2026-10-14T00:00:00Z')))!;
+  assert.deepEqual(d.grid.filter((g) => g.on).map((g) => g.week), ['2026-W42'], 'the week with commits counts; a week with only words does not');
+  assert.deepEqual(d.log.map((c) => [c.week, c.chips]), [['2026-10-12', ['Started tracking', '4 commits']], ['2026-10-05', []]]);
 });

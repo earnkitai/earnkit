@@ -52,15 +52,13 @@ function Stat({
 /**
  * v2.13 spec "Project tab": the name, what it is, the live link and the code, its chain logos,
  * people using it and money, the coin with its tokens.fun link, programs entered and won, then
- * "Ways to get funded". `confirming`: the line shown in place of the numbers until the project is
- * confirmed. Pure.
+ * "Ways to get funded". v2.13.1 O3: until the project is confirmed, its name and what it is, plainly.
+ * Pure.
  */
 export default function ProjectTab({
   project,
-  confirming,
 }: {
   project: ProjectTabData | null;
-  confirming: string;
 }) {
   if (!project)
     return (
@@ -69,16 +67,19 @@ export default function ProjectTab({
       </p>
     );
   const p = project;
-  // Fix round 1: until it's confirmed (it may be someone else's repo), only its name and the line; no links.
+  // Fix round 1: until it's confirmed (it may be someone else's repo), no links and no numbers.
+  // v2.13.1 O3: its name and what it is, plainly.
   if (!p.confirmed)
     return (
       <div>
         <h2 className="min-w-0 break-words font-funnel-display text-2xl font-medium leading-tight text-ek-white md:text-[2rem]">
           {p.name}
         </h2>
-        <p className="mt-3 font-funnel-sans text-base font-light text-ek-blue-soft">
-          {confirming}
-        </p>
+        {p.what ? (
+          <p className="mt-2 max-w-2xl break-words font-funnel-sans text-base font-light leading-relaxed text-ek-blue-light md:text-lg">
+            {p.what}
+          </p>
+        ) : null}
       </div>
     );
   const stats = p.people !== null || p.money !== null || p.coin !== null;
