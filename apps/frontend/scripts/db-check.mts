@@ -769,6 +769,16 @@ ok(mb.length === 1, 'v2.13.4 R7: claim_codes.minted_by');
 const pjc = await db<{ column_name: string }[]>`
   SELECT column_name FROM information_schema.columns WHERE table_name = 'pending_joins' AND column_name IN ('target_root', 'joiner_stamp', 'target_stamp')`;
 ok(pjc.length === 3, 'v2.13.4: pending_joins binds its consent (target_root, joiner_stamp, target_stamp)');
+// v2.13.4 (final review): every table keyed by an installation or a person is classified for the R1 join.
+const { JOIN_TABLES } = await import('../lib/earnkit/page-joins');
+const keyed = await db<{ k: string }[]>`
+  SELECT table_name || '.' || column_name AS k FROM information_schema.columns
+  WHERE table_schema = 'public' AND column_name IN ('installation_id', 'builder_id', 'posted_by', 'minted_by')
+  UNION SELECT conrelid::regclass::text || '.' || a.attname FROM pg_constraint c JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+  WHERE c.contype = 'f' AND c.confrelid = 'installations'::regclass`;
+const listed = new Set(JOIN_TABLES.map((t) => `${t.table}.${t.column}`));
+const unlisted = keyed.map((r) => r.k).filter((k) => !listed.has(k));
+ok(unlisted.length === 0, `v2.13.4: every installation- or person-keyed table is in page-joins.ts JOIN_TABLES${unlisted.length ? ` (missing: ${unlisted.join(', ')})` : ''}`);
 const badCode = await db`INSERT INTO proof_branches (code_hash, seed, builder_id, repo_key, issued_at, expires_at) VALUES ('abcdefghijkl', 's', 1, 'a/b', now(), now())`.then(() => false, () => true);
 ok(badCode, 'proof_branches keeps only a sha256 (a plain code is refused)');
 await db`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES (-131, 'repo', 'pb-check/x', 'pb-check/x', 'verified', 'proof_branch', 'server')`;

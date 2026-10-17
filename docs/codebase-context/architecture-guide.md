@@ -5393,7 +5393,7 @@ Brief: `.superpowers/sdd/v2.13.3/brief.md`, plus owner rulings A, B, C sent the 
 
 Brief: `.superpowers/sdd/v2.13.4/brief.md` (the owner's spec, verbatim, and controller rulings R1 to R5). Everything sits
 under `EARNKIT_BENCH`; flag off (and score-only) is unchanged. Tests: `v2134-onboarding.test.ts` (the owner's acceptance
-test a to g, the security review S.a to S.f, R6.1, R7.0 to R7.5, R8.1 to R8.8, R9.1, C.1, C.2, K.1 to K.4 and E.1). Runbook: sections 8, 9 and 10.
+test a to g, the security review S.a to S.f, R6.1, R7.0 to R7.5, R8.1 to R8.8, R9.1, C.1, C.2, K.1 to K.4, E.1, R10.1, REG.1 and REG.2). Runbook: sections 8, 9 and 10.
 
 - **The flow.** a. First find: where you stand, ways to get funded, then one question, the X claim
   (`bench-reply.ts claimAsk`: "Claim your page with X (it's your name and photo on the Bench): <link>" and "Want me to put
@@ -5493,6 +5493,18 @@ test a to g, the security review S.a to S.f, R6.1, R7.0 to R7.5, R8.1 to R8.8, R
   changed or is over a day old, so I dropped it."). So a yes given before the joining side gained data or a member,
   before an R1 join or detach, or before a re-root is never replayed. Rows without stamps (from before) are void.
   Re-asking with changed facts replaces the row and clears both yeses.
+- **R10 and the final review (supersedes the X parts of R8 and the consent binding's X use).** Under the Bench there
+  is NO X two-agent yes: `joinOnProvenTie({ x_user_id })` asks no one and `pendingRow` never returns an X tie. A
+  non-empty agent on the claim page reads "This agent already has its own data, so it can't join your page.
+  Reconnect EarnKit in this agent (a fresh connection) and sign in with X again." (409), at sign-in and again at the
+  click; nothing is linked, merged or asked. GitHub-login ties keep their two-agent yes (with the consent binding
+  above). The emptiness check and the R9 deletes are built from `page-joins.ts JOIN_TABLES`, which classifies every
+  table keyed by an installation or person as `blocks` (with an optional `when`), `discard` or `stays`; hosted sites,
+  contract deploys, open hosting uploads and proof lines now block too, and the harmless leftovers (answers, program
+  status, repo facts, match log, declines, join asks, derived scores, slugs, open X sign-ins) are deleted at the join.
+  `db-check.mts` and test REG.1 fail on any keyed table missing from it. The shared-client and owner-clear checks
+  run inside `attachFresh`'s locked transaction. Discovery applies its verdicts under the `page_join` lock and only
+  while the person is still its own root.
 - **The R7 write audit (on probation).**
 
   | Write | Where | On probation |

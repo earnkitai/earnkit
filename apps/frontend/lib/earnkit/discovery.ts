@@ -1,4 +1,5 @@
 import { benchEnabled, builderScoreEnabled } from './builder-score-flag';
+import { lockPageJoin } from './page-joins';
 import { sql, type Db } from './db';
 import {
   CLUE_PATHS,
@@ -493,8 +494,15 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
     }
   }
   // v2.12.1 S9: no merged-PR clue (4) and no earnkit.txt site check (6); existing rows stay, not confirmed.
-  // Every read is done: now the verdicts.
-  for (const v of verdicts) await v();
+  // Every read is done: now the verdicts. v2.13.4 (final review): under the page_join lock (the R1 join and
+  // its notice answers take it), and only while `root` is still a group's root (an installation attached to
+  // a page meanwhile writes nothing here).
+  await sql().begin(async (tx) => {
+    await lockPageJoin(tx, root);
+    const [r] = await tx<{ root: number }[]>`SELECT COALESCE(builder_id, id) AS root FROM installations WHERE id = ${root}`;
+    if (r && r.root !== root) return;
+    for (const v of verdicts) await v();
+  });
 }
 
 /**

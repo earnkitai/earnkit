@@ -55,8 +55,8 @@ export const CLAIM_TEXT = {
   /** v2.13.4 R6 (1): what is joining: "This agent: Claude Desktop, connected 3 minutes ago." */
   joinAgent: (name: string | null, ago: string) => `This agent: ${name ?? 'an agent'}, connected ${ago}.`,
   linked: 'This agent is on your page now',
-  /** v2.13.4 R8: an installation that isn't fresh and empty never gets the one click. */
-  needsYes: 'This agent already has its own data, so your other agent needs to say yes.',
+  /** v2.13.4 R8, R10: an installation that isn't fresh and empty can't join; a fresh connection can (self-serve). */
+  needsFresh: "This agent already has its own data, so it can't join your page. Reconnect EarnKit in this agent (a fresh connection) and sign in with X again.",
   cantJoin: "This page can't take another agent.",
   /** Final fix wave: an X account whose page the owner took down (x_owner_clears). */
   paused: "This X account can't claim a page right now.",
@@ -273,12 +273,10 @@ export async function xCallback(request: Request, deps: RouteDeps & { x?: XOAuth
   }
   if (r.ok) return claimDonePage(r.handle, r.root, clear);
   if (r.reason === 'held') {
-    // v2.13.4 R8: the one click only for a fresh, empty installation (the reconnect case). Anything else
-    // gets the strong-proof two-agent yes, said plainly here.
-    if (!(await freshAndEmpty(target))) {
-      await joinOnProvenTie(target, { x_user_id: user.id }).catch((err: unknown) => console.error('[x/callback] join', err instanceof Error ? err.name : 'error'));
-      return claimPage(CLAIM_TEXT.needsYes, 200, clear);
-    }
+    // v2.13.4 R8, R10: the one click only for a fresh, empty installation (the reconnect case). Under the
+    // Bench there is no X two-agent yes: anything else is told to reconnect (a fresh connection); nothing is
+    // linked, merged or asked.
+    if (!(await freshAndEmpty(target))) return claimPage(CLAIM_TEXT.needsFresh, 409, clear);
     // v2.13.4 (R1): the same page offers one button; the claim cookie stays for that one POST.
     const offer = await joinOffer({ joiner: target, holder: r.target, user, csrfHash: row.csrf_hash, codeHash: row.code_hash }).catch((err: unknown) => {
       console.error('[x/callback] offer', err instanceof Error ? err.name : 'error');
@@ -430,23 +428,20 @@ export async function claimJoinPost(request: Request, deps: RouteDeps = {}): Pro
   try {
     const joiner = await codeTarget(row.code_hash);
     if (!joiner || (await rootOf(joiner)) !== (await rootOf(row.builder_id))) return claimPage(CLAIM_TEXT.used, 410, clear);
-    const [holder] = await sql()<{ builder_id: number; blocked: boolean }[]>`
-      SELECT builder_id, EXISTS (SELECT 1 FROM x_owner_clears c WHERE c.x_user_id = p.x_user_id) AS blocked FROM builder_profiles p WHERE x_user_id = ${row.x_user_id}`;
+    const [holder] = await sql()<{ builder_id: number }[]>`SELECT builder_id FROM builder_profiles WHERE x_user_id = ${row.x_user_id}`;
     if (!holder || (await rootOf(holder.builder_id)) !== (await rootOf(row.target))) return claimPage(CLAIM_TEXT.used, 410, clear);
-    if (holder.blocked) return claimPage(CLAIM_TEXT.paused, 403, clear);
-    const from = await rootOf(row.builder_id);
     const to = await rootOf(holder.builder_id);
-    if ((await sharedGroup(from)) || (await sharedGroup(to))) return claimPage(CLAIM_TEXT.cantJoin, 409, clear);
-    // R8: still a single, fresh, empty installation at the click (else the two-agent yes).
-    if (from !== row.builder_id || !(await freshAndEmpty(row.builder_id))) {
-      await joinOnProvenTie(row.builder_id, { x_user_id: row.x_user_id }).catch(() => 0);
-      return claimPage(CLAIM_TEXT.needsYes, 409, clear);
-    }
-    // R8 (with R7 item 3): the X check, the link of this installation alone and the join row, in one
-    // transaction; nothing of the installation is merged into the page.
+    // R8, R10 and the final review: in ONE locked transaction (attachFresh): the page still holds this X
+    // account, not cleared by the owner, no shared client on either side, the installation still its own
+    // root and fresh and empty; then it alone is attached and the join row written. Nothing is merged.
     const at = new Date().toISOString();
     const joined = await attachFresh({ installation: row.builder_id, page: to, xUserId: row.x_user_id, now: new Date(at) });
-    if (!joined) return claimPage(CLAIM_TEXT.used, 410, clear);
+    if ('fail' in joined)
+      return joined.fail === 'not_empty' ? claimPage(CLAIM_TEXT.needsFresh, 409, clear)
+        : joined.fail === 'shared' ? claimPage(CLAIM_TEXT.cantJoin, 409, clear)
+        : joined.fail === 'paused' ? claimPage(CLAIM_TEXT.paused, 403, clear)
+        : claimPage(CLAIM_TEXT.used, 410, clear);
+    const from = row.builder_id;
     const root = to;
     const members = [{ id: row.builder_id }];
     const [h] = await sql()<{ x_handle: string | null }[]>`SELECT x_handle FROM builder_profiles WHERE builder_id = ${root}`;

@@ -513,6 +513,8 @@ export async function joinOnProvenTie(installationId: number, tie: ProvenTie): P
   // reach that stranger's group, which the binding rule forbids ("an agent-reported login or wallet
   // never merges anyone"). Until a deploy wallet is proven, it asks no one; deploy.ts does not call this.
   if ('deploy_wallet' in tie && !DEPLOY_WALLET_TIES) return 0;
+  // v2.13.4 R10: under the Bench there is no X two-agent yes (GitHub-login ties keep theirs).
+  if ('x_user_id' in tie && benchEnabled()) return 0;
   const root = await rootOf(installationId);
   const db = sql();
   const rows =
@@ -556,8 +558,8 @@ type PendingRow = { installation_id: number; target: number; tie: JoinTie; side:
 /**
  * The oldest pending join this group has not answered yet: as its target (it already held the tie) or
  * as the joining side (its installation proved a tie another group holds). Groups are read through
- * their current roots; a join whose two sides are already one person is skipped. v2.13.4 R8: the X tie's
- * two-agent yes is the path for every installation that isn't fresh and empty (claim.ts).
+ * their current roots; a join whose two sides are already one person is skipped. v2.13.4 R10: under the
+ * Bench an X tie is never asked (the claim page's one click for a fresh connection is the only X join).
  */
 async function pendingRow(root: number, db: Db = sql()): Promise<PendingRow | null> {
   const [row] = await db<PendingRow[]>`
@@ -570,6 +572,8 @@ async function pendingRow(root: number, db: Db = sql()): Promise<PendingRow | nu
     JOIN installations i ON i.id = j.installation_id
     WHERE COALESCE(t.builder_id, t.id) <> COALESCE(i.builder_id, i.id)
       AND (NOT ${benchEnabled()} OR j.created_at > now() - interval '24 hours')
+      -- v2.13.4 R10: under the Bench there is no X two-agent yes (an X tie is never asked or answered).
+      AND (j.tie <> 'x_user_id' OR NOT ${benchEnabled()})
       AND ((COALESCE(t.builder_id, t.id) = ${root} AND j.target_yes IS NULL)
         OR (COALESCE(i.builder_id, i.id) = ${root} AND j.joiner_yes IS NULL))
     ORDER BY j.created_at, j.installation_id LIMIT 1`;

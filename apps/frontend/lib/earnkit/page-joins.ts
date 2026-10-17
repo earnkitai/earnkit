@@ -37,38 +37,90 @@ export const PROBATION_LINES = {
 
 /**
  * TOCTOU (scan): every check here and the write it guards run in ONE transaction under the page's
- * advisory lock (`page_join:<current root>`), with the installation and join rows locked FOR UPDATE.
- * An installation row FOR UPDATE also blocks every insert that references it (wallets, verify links,
- * verifications, entries, token offers all carry a foreign key to installations), and the proof-branch
- * lock (`proof_branch:<id>`) blocks a source being confirmed for it meanwhile.
+ * advisory lock (`page_join:<current root>`, which discovery's write step takes too), with the installation
+ * and join rows locked FOR UPDATE. The installation row FOR UPDATE blocks a concurrent insert into every
+ * table that references installations by foreign key (wallets, verify links, verifications, entries, token
+ * offers, hosted sites, deploys, upload tokens, among others: see JOIN_TABLES); tables keyed by builder_id
+ * without a foreign key (sources, person wallets, coin moments) are covered by the proof-branch lock
+ * (`proof_branch:<id>`) and discovery's page lock for confirmations, and by the emptiness check running
+ * inside the same locked transaction.
  */
 const lockPage = (tx: Db, root: number) => tx`SELECT pg_advisory_xact_lock(hashtext(${`page_join:${root}`}))`;
+export const lockPageJoin = lockPage;
 const rootIn = async (db: Db, id: number) => (await db<{ root: number }[]>`SELECT COALESCE(builder_id, id) AS root FROM installations WHERE id = ${id}`)[0]?.root ?? null;
 
 /**
- * R8, R9: the one-click join attaches only a fresh, empty installation (the reconnect case): a single
- * installation (its own root, no other members), no VERIFIED source, no GitHub verification and no open
- * verify link, no wallet (person_wallets, installation_wallets, payout_wallet), no entries or coins
- * (projects), coin moments or token offers, and no X claim. R9: what its agent only reported (proposed
- * sources, the identity report, reported_github, its own unclaimed claim code) never counts: it is
- * discarded at the join and re-reported later under probation. Anything else gets the two-agent yes.
- * A failed read is not empty.
+ * Final review: every table keyed by an installation or a person (a column installation_id, builder_id,
+ * posted_by or minted_by, or a foreign key to installations), and what an R1 one-click join does with the
+ * newcomer's rows in it:
+ * - `blocks`: a row (matching `when`, if given) means the newcomer is not fresh and empty: no one click;
+ * - `discard`: its rows are deleted at the join (what its agent only reported, caches, leftovers), never
+ *   merged; a `blocks` entry with `when` discards its other rows;
+ * - `stays`: left as is (an append-only log, or a column that names an installation without being its data).
+ * freshAndEmpty and attachFresh are built from it; db-check.mts and REG.1 fail on any table not listed.
+ * Table and column names are constants (never input).
+ */
+export type JoinRule = 'blocks' | 'discard' | 'stays';
+export const JOIN_TABLES: readonly { table: string; column: string; rule: JoinRule; when?: string; why: string }[] = [
+  { table: 'installations', column: 'builder_id', rule: 'blocks', why: 'another installation in its group' },
+  { table: 'builder_sources', column: 'builder_id', rule: 'blocks', when: "state = 'verified'", why: 'a confirmed source; proposed ones are only reported (R9)' },
+  { table: 'github_verifications', column: 'installation_id', rule: 'blocks', why: 'a proven GitHub login' },
+  { table: 'github_verify_nonces', column: 'installation_id', rule: 'blocks', when: 'used_at IS NULL AND expires_at > now()', why: 'an open verify link' },
+  { table: 'person_wallets', column: 'builder_id', rule: 'blocks', why: 'a signed wallet' },
+  { table: 'installation_wallets', column: 'installation_id', rule: 'blocks', why: 'a wallet' },
+  { table: 'projects', column: 'installation_id', rule: 'blocks', why: 'entries and coins' },
+  { table: 'coin_moments', column: 'builder_id', rule: 'blocks', why: 'a coin offered' },
+  { table: 'token_offers', column: 'installation_id', rule: 'blocks', why: 'a token offered' },
+  { table: 'hosted_sites', column: 'installation_id', rule: 'blocks', why: 'a hosted site' },
+  { table: 'contract_deploys', column: 'installation_id', rule: 'blocks', why: 'a contract deploy' },
+  { table: 'host_upload_tokens', column: 'installation_id', rule: 'blocks', when: 'expires_at > now()', why: 'an open hosting upload' },
+  { table: 'proof_line_issues', column: 'installation_id', rule: 'blocks', why: 'a proof line issued for a repo' },
+  { table: 'proof_branches', column: 'builder_id', rule: 'blocks', when: 'used_at IS NOT NULL', why: 'a proof branch that passed; open codes are discarded' },
+  { table: 'project_updates', column: 'builder_id', rule: 'blocks', why: 'its own ship log' },
+  { table: 'bonus_payouts', column: 'installation_id', rule: 'blocks', why: 'money' },
+  { table: 'sponsor_campaigns', column: 'installation_id', rule: 'blocks', why: 'a sponsor campaign' },
+  { table: 'digest_subscriptions', column: 'installation_id', rule: 'blocks', why: 'an email subscription' },
+  { table: 'login_contest_rulings', column: 'builder_id', rule: 'blocks', why: "an owner's ruling" },
+  { table: 'x_owner_clears', column: 'builder_id', rule: 'blocks', why: "an owner's clear" },
+  { table: 'builder_profiles', column: 'builder_id', rule: 'blocks', when: 'x_user_id IS NOT NULL', why: 'an X claim; an unclaimed profile is discarded (R9)' },
+  { table: 'answer_bank', column: 'installation_id', rule: 'discard', why: 'answers its agent typed' },
+  { table: 'builder_program_status', column: 'installation_id', rule: 'discard', why: 'its program progress' },
+  { table: 'builder_repo_facts', column: 'installation_id', rule: 'discard', why: 'a matcher cache' },
+  { table: 'match_shown', column: 'installation_id', rule: 'discard', why: 'what matching showed it' },
+  { table: 'token_declines', column: 'installation_id', rule: 'discard', why: 'a declined token' },
+  { table: 'pending_joins', column: 'installation_id', rule: 'discard', why: 'its join asks' },
+  { table: 'builder_live', column: 'builder_id', rule: 'discard', why: 'a derived score' },
+  { table: 'builder_projects', column: 'builder_id', rule: 'discard', why: 'derived projects' },
+  { table: 'builder_ranks', column: 'builder_id', rule: 'discard', why: 'a derived rank' },
+  { table: 'builder_scores', column: 'builder_id', rule: 'discard', why: 'a derived score' },
+  { table: 'score_releases', column: 'builder_id', rule: 'discard', why: 'a derived score release' },
+  { table: 'claim_codes', column: 'builder_id', rule: 'discard', why: 'its own unclaimed claim code (R9)' },
+  { table: 'discovery_queue', column: 'builder_id', rule: 'discard', why: 'its discovery queue row' },
+  { table: 'profile_slug_history', column: 'builder_id', rule: 'discard', why: 'its unclaimed internal slugs' },
+  { table: 'x_join_offers', column: 'builder_id', rule: 'discard', why: 'its other join offers' },
+  { table: 'x_oauth_states', column: 'builder_id', rule: 'discard', why: 'its open X sign-ins' },
+  { table: 'builder_events', column: 'installation_id', rule: 'stays', why: 'the append-only event log' },
+  { table: 'claim_codes', column: 'minted_by', rule: 'stays', why: 'names who asked for a link, not its data' },
+  { table: 'project_updates', column: 'posted_by', rule: 'stays', why: 'names who posted, not its data' },
+];
+
+/**
+ * R8, R9, final review (I-1): the one-click join attaches only a fresh, empty installation (the reconnect
+ * case): its own root with no payout wallet, and no `blocks` row in JOIN_TABLES (another member, a confirmed
+ * source, a verification or open verify link, any wallet, entries or coins, coin moments, token offers, a
+ * hosted site, a deploy, an open upload, a proof line, a passed proof branch, its own ship log, money, an X
+ * claim, ...). What its agent only reported (proposed sources, the identity report, reported_github, its own
+ * unclaimed claim code) never counts and is discarded at the join (R9). Anything else can't join by one
+ * click (R10: under the Bench there is no X two-agent yes; a fresh connection is the way). A failed read is
+ * not empty.
  */
 export async function freshAndEmpty(id: number, db: Db = sql()): Promise<boolean> {
-  const [r] = await db<{ empty: boolean }[]>`
-    SELECT (i.builder_id IS NULL AND i.payout_wallet IS NULL
-      AND NOT EXISTS (SELECT 1 FROM installations m WHERE m.builder_id = ${id})
-      AND NOT EXISTS (SELECT 1 FROM builder_sources s WHERE s.builder_id = ${id} AND s.state = 'verified')
-      AND NOT EXISTS (SELECT 1 FROM github_verifications v WHERE v.installation_id = ${id})
-      AND NOT EXISTS (SELECT 1 FROM github_verify_nonces n WHERE n.installation_id = ${id} AND n.used_at IS NULL AND n.expires_at > now())
-      AND NOT EXISTS (SELECT 1 FROM person_wallets w WHERE w.builder_id = ${id})
-      AND NOT EXISTS (SELECT 1 FROM installation_wallets w WHERE w.installation_id = ${id})
-      AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.installation_id = ${id})
-      AND NOT EXISTS (SELECT 1 FROM coin_moments c WHERE c.builder_id = ${id})
-      AND NOT EXISTS (SELECT 1 FROM token_offers t WHERE t.installation_id = ${id})
-      AND NOT EXISTS (SELECT 1 FROM builder_profiles b WHERE b.builder_id = ${id} AND b.x_user_id IS NOT NULL)) AS empty
-    FROM installations i WHERE i.id = ${id}`.catch(() => []);
-  return r?.empty === true;
+  const blocks = JOIN_TABLES.filter((t) => t.rule === 'blocks')
+    .map((t) => `NOT EXISTS (SELECT 1 FROM ${t.table} WHERE ${t.column} = $1${t.when ? ` AND (${t.when})` : ''})`);
+  const r = await db
+    .unsafe<{ empty: boolean }[]>(`SELECT (i.builder_id IS NULL AND i.payout_wallet IS NULL AND ${blocks.join(' AND ')}) AS empty FROM installations i WHERE i.id = $1`, [id])
+    .catch(() => []);
+  return r[0]?.empty === true;
 }
 
 /**
@@ -78,26 +130,29 @@ export async function freshAndEmpty(id: number, db: Db = sql()): Promise<boolean
  * (nothing merged), and the join is recorded with the page's installations at this moment (`eligible`).
  * Null when any check fails (nothing written).
  */
-export async function attachFresh(o: { installation: number; page: number; xUserId: string; now: Date }): Promise<{ id: number } | null> {
+export type AttachResult = { id: number } | { fail: 'gone' | 'not_empty' | 'shared' | 'paused' };
+export async function attachFresh(o: { installation: number; page: number; xUserId: string; now: Date }): Promise<AttachResult> {
   return sql().begin(async (tx) => {
     await lockPage(tx, o.page);
-    const [me] = await tx<{ builder_id: number | null }[]>`SELECT builder_id FROM installations WHERE id = ${o.installation} FOR UPDATE`;
-    if (!me || me.builder_id !== null) return null;
+    const [me] = await tx<{ builder_id: number | null; shared: boolean }[]>`SELECT builder_id, shared_client AS shared FROM installations WHERE id = ${o.installation} FOR UPDATE`;
+    if (!me || me.builder_id !== null) return { fail: 'gone' as const };
     await tx`SELECT pg_advisory_xact_lock(hashtext(${`proof_branch:${o.installation}`}))`;
     const [p] = await tx<{ x: string | null }[]>`SELECT x_user_id AS x FROM builder_profiles WHERE builder_id = ${o.page} FOR UPDATE`;
-    if (p?.x !== o.xUserId || (await rootIn(tx, o.page)) !== o.page) return null;
-    if (!(await freshAndEmpty(o.installation, tx))) return null;
+    if (p?.x !== o.xUserId || (await rootIn(tx, o.page)) !== o.page) return { fail: 'gone' as const };
+    // Final review (minor): the shared-client and owner-clear checks are inside the locked transaction too.
+    const [g] = await tx<{ shared: boolean | null }[]>`SELECT bool_or(shared_client) AS shared FROM installations WHERE COALESCE(builder_id, id) = ${o.page}`;
+    if (me.shared || g?.shared) return { fail: 'shared' as const };
+    const [cleared] = await tx`SELECT 1 FROM x_owner_clears WHERE x_user_id = ${o.xUserId}`;
+    if (cleared) return { fail: 'paused' as const };
+    if (!(await freshAndEmpty(o.installation, tx))) return { fail: 'not_empty' as const };
     const eligible = (await tx<{ id: number }[]>`SELECT id FROM installations WHERE COALESCE(builder_id, id) = ${o.page} ORDER BY id FOR UPDATE`).map((r) => r.id);
-    if (eligible.includes(o.installation)) return null;
+    if (eligible.includes(o.installation)) return { fail: 'gone' as const };
     await tx`UPDATE installations SET builder_id = ${o.page} WHERE id = ${o.installation}`;
-    // R9: its agent's reports (proposed sources, identity, reported login, claim code, open proof codes)
-    // and its empty person rows are discarded; nothing is merged into the page.
-    await tx`DELETE FROM builder_live WHERE builder_id = ${o.installation}`;
-    await tx`DELETE FROM builder_projects WHERE builder_id = ${o.installation}`;
-    await tx`DELETE FROM claim_codes WHERE builder_id = ${o.installation}`;
-    await tx`DELETE FROM builder_sources WHERE builder_id = ${o.installation}`;
-    await tx`DELETE FROM proof_branches WHERE builder_id = ${o.installation} AND used_at IS NULL`;
-    await tx`DELETE FROM discovery_queue WHERE builder_id = ${o.installation}`;
+    // R9 and the registry: every `discard` row, and a `blocks` table's other rows (it had none that block),
+    // are deleted; nothing is merged into the page. The profile goes last.
+    for (const t of JOIN_TABLES)
+      if ((t.rule === 'discard' || (t.rule === 'blocks' && t.when)) && t.table !== 'builder_profiles')
+        await tx.unsafe(`DELETE FROM ${t.table} WHERE ${t.column} = $1`, [o.installation]);
     await tx`DELETE FROM builder_profiles WHERE builder_id = ${o.installation}`;
     const [r] = await tx<{ id: number }[]>`
       INSERT INTO page_joins (root, from_root, members, eligible, x_user_id, joined_at)
