@@ -5388,3 +5388,65 @@ Brief: `.superpowers/sdd/v2.13.3/brief.md`, plus owner rulings A, B, C sent the 
   install ask. (M4) `github-app.ts repoInstallation`: `appTokenFor` mints for the installation GitHub names for the
   repo (`GET /repos/{owner}/{repo}/installation`), the stored id only a hint; none: no token. (M5) `needsPicks` also
   names programs with no known award, without a dollar figure (`needsLine` with a null prize).
+
+## v2.13.4 Value after the X claim and nothing else (2026-10-17)
+
+Brief: `.superpowers/sdd/v2.13.4/brief.md` (the owner's spec, verbatim, and controller rulings R1 to R5). Everything sits
+under `EARNKIT_BENCH`; flag off (and score-only) is unchanged. Tests: `v2134-onboarding.test.ts` (the owner's acceptance
+test a to g, plus the security review S.a to S.f). Runbook: sections 8, 9 and 10.
+
+- **The flow.** a. First find: where you stand, ways to get funded, then one question, the X claim
+  (`bench-reply.ts claimAsk`: "Claim your page with X (it's your name and photo on the Bench): <link>" and "Want me to put
+  <Project> on the Bench once that's done?", or "Want me to find money you can win once that's done?" with no project or one
+  that can't join). Ask kind `claim` (`CLAIM_NOTE`, its yes `CLAIM_YES_NOTE`; a no keeps it away 30 days like every ask).
+  b. The claim page makes the page from X, or joins this agent to the X's existing page on one click (R1, below).
+  c. Next find: "Your page: ..." (or once, "Linked to your page: ..."), then one question: the read-only App install for a
+  private or org repo (`installAppAsk`: "<Project> is private, so I can't count it yet. Install the read-only EarnKit app on
+  it (one click): <link>" then "Want me to count it once that's done?"), else the Bench's own next step (the proof branch runs
+  for a public repo, said in one line). d. Installed: the next find gives the proof branch through the installation token;
+  the find after the agent's push shows "<Project> is on the Bench", then one way to move up.
+- **One question, last; one link (spec 2, 5, R4).** Unclaimed, the claim is the ask: the claim link is never a stand line
+  (only beside a build in progress, which asks nothing) and never shows with another question (a pending join, an outcome
+  question, a submission hold the reply: no claim link at all; `showsClaimLink` follows the ask). Beside the install link the
+  page is named without https (`pageUrl`: "earnkit.com/<handle>"), so the reply has one link. `UPDATES_ASK`, `buildAsk`,
+  `benchBuildAsk` and `goLiveAsk` now end on their question.
+- **R1, the one-click join.** Under the Bench `bindX` answers `held` (with the holder's root) for an X user id another group
+  holds and sets up no pending join. `xCallback` stores one offer (`x_join_offers`: hashes of a 32-byte token and of the
+  claim cookie's csrf, the claim code's hash, the X user id, handle, name and photo; 15 minutes) and shows "This X account
+  already has an EarnKit page.", "Only continue if your own agent gave you this link." and one button "Add this agent to your
+  page earnkit.com/<handle>" (the claim cookie is kept for that one POST). `claimJoinPost` (`app/claim/join/route.ts`, POST
+  only): Origin, the token, this browser's claim cookie (by the offer's code hash), used once (DELETE ... RETURNING), then
+  checked again: the code still names the joining person (unclaimed), the X user id is still on the holder's page, not
+  cleared by the owner, no shared client on either side. `linkInstallations` joins the groups at once (no other agent is
+  asked); when the joining group is the older one (the root), the X claim is bound to the root again so the page keeps its
+  handle. It writes `standing_seen.linked` (by installation id; `bench-find.ts takeLinked` reads it once: "Linked to your
+  page: ...") and a `page_joined` event (`events.ts`, both `builder_events` CHECK lists). The old cross-agent yes stays only
+  for GitHub-login ties; an X pending join from before is skipped under the Bench (`identity.ts pendingRow`).
+- **Security review (coordinator, after an automated scan of `claim.ts`).** The scan flagged account linking in `claim.ts`;
+  the risk is the v2.12.1 "phishing join": a claim link forwarded to a victim attaching the sender's agent to the victim's
+  page. Covered: no path joins without the click in the browser that signed in with X (S.a: not `bindX`, not the callback,
+  not an old X pending join); the click is POST only, cookie bound, Origin checked, single use, 15 minutes (S.b: a GET or a
+  prefetch of `/claim/join` is a 404; a forwarded token without the cookie, another claim's cookie, another site or no Origin
+  are 403; a replay or an expired offer 410); identity is the X user id, never the handle (S.c); a shared client never joins
+  (S.d); an installation that got its own claim since the offer, or holds another X account, is never moved (S.e); the join
+  is in the event log (S.f).
+- **R2, one page per person.** A reconnect is a new installation: the builder signs in with X once and R1 joins it, so the
+  page never splits; `bindX` never binds an X user id another page holds. A reported GitHub login or wallet still merges
+  nothing.
+- **R3, a live link (`live-check.ts`).** The live link the agent reported for the one project (`bench-find.ts reportedLive`
+  over the stored identity) is checked: https only, never a placeholder host (`placeholder.ts`; EarnKit's own site counts for
+  EarnKit's own `earnkitai/*` repos), a 2xx HTML page through `safe-fetch.ts safeProbePage` (public addresses, one same-site
+  redirect, 64 KB, never an error page) that is not parked or "coming soon" (`parkedPage`). Kept in
+  `standing_seen.live_check` a day (a failure an hour; a check running under 30 s is not repeated); the reply waits for it at
+  most what is left of `REPLY_WAIT_MS`, at least 300 ms. It sets the view's `live` (wording, `fitsProject`, no go-live ask,
+  `fundNeeds(c, has)` drops "once it's live" and, for a repo, "once its code is on GitHub") and the display name; it never
+  touches the score or a site source. `takeNews` keeps `live_check` and `linked`.
+- **Display name (spec 3).** `bench-reply.ts displayName`: a name that is only the repo's own lowercase name shows as the
+  live site's title spells it (its first part, plain letters, the same name only), else title-cased ("earnkit" -> "Earnkit",
+  "tip-jar" -> "Tip Jar"); a name the agent gave stays. Replies only; pages keep the I1 private-name rule.
+- **R5.** `stand-view.ts rollingPick(..., { unknownPrize: true })` (the Bench) names an open-all-year program with no known
+  award ("<title> is open all year."); a 0 award never. The background-launch tests in `tools.test.ts` wait for the release
+  (`releasedBg`) instead of sleeping 900 ms. `v2133-owner-test.test.ts` R1 uses a key with no digit run (its random key could
+  hold 7 digits, which the update text rule refuses first).
+- **Schema.** `x_join_offers` (new); `page_joined` in both `builder_events_type_check` lists.
+

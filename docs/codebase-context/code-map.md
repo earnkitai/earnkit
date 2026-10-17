@@ -1410,6 +1410,8 @@ apps/frontend/
                                clanker-base-launch.json (a real Base receipt, from tokens.fun),
                                bonus-db-lock.ts (test-only advisory lock for the bonus test files),
                                fake-github-branch.ts (v2.13.2: fakeGitHub, idOf: the proof branch fake API),
+                               private-github.ts (v2.13.4: APP, TOKEN, privateGitHub, installApp: the App on, a private org repo),
+                               find.ts claimX (v2.13.4: claim a test person with X before testing what follows the claim),
                                program-file.ts (committedProgram: a programs/*.json without its
                                id-bound logo, for tests that clone files under test ids),
                                programs-cleanup.ts (v2.13 T17: dropPrograms; dropRunPrograms, which each
@@ -1497,8 +1499,11 @@ apps/frontend/
     bench-rank.ts(+test)       v2.13 T7: benchPool (listed ranked + benchConfirmedSql), chainPools, rankLines (Top P% and per-chain lines; rank.ts has benchRank,
                                CHAIN_CHIP_MIN, BENCH_CHAINS)
     bench-reply.ts(+test)      v2.13 T8: the reply's three headings, lines and ask kinds
-                               v2.13.3: NO_PROJECT_LINE, START_ASK, startBuildAsk, claimLine, needsLine, appCantSeeLine, installAppAsk, installAfterClaimAsk; kinds start, install_app; chooseAsk: entry, then community round, first.
+                               v2.13.3: NO_PROJECT_LINE, START_ASK, startBuildAsk, claimLine, needsLine, installAppAsk; kinds start, install_app; chooseAsk: entry, then community round, first.
+                               v2.13.4: claimAsk/claimAskLine/claimQuestion (kind claim), privateLine, installAppAsk (owner's copy, question last),
+                               linkedLine, displayName (site spelling or title case), the asks end on their question (R4)
     bench-find.ts(+test)       v2.13 T8/T9: benchFind, benchScore, benchAsked, benchMoveUp, coinAskBench;
+                               v2.13.4: CLAIM_NOTE, CLAIM_YES_NOTE, fundNeeds(c, has), reportedLive, liveOf, takeLinked;
                                v2.13.1 O5: quiet asks (GRANTS_QUIET_MS), ideaFitsOffer, SHIP_NOTE;
                                tests: v2131-o5.test.ts (N1 to N16, P1 to P10)
                                v2.13.3: fundNeeds, needsPicks (NEEDS_MAX 2), START_NOTE, START_YES_NOTE, INSTALL_APP_NOTE, INSTALL_APP_YES_NOTE; no generic starter.
@@ -1568,7 +1573,10 @@ apps/frontend/
     login-contests.ts          v2.12.1 T5/T6: contestants, loginStands, settleLogin, loginContests, ruleContest
     x-oauth.ts(+test)          v2.12.1 T6: X_SCOPES, pkcePair, xAuthorizeUrl, xUserFrom, xOAuth (token + /2/users/me)
     claim.ts(+test)            v2.12.1 T6/T7: CLAIM_TEXT, claimCode (S13), claimLink, claimGet, claimPost,
-                               xCallback, bindX (join_pending when another group holds the X id)
+                               xCallback, bindX (join_pending when another group holds the X id; under the Bench 'held')
+                               v2.13.4 R1: joinOffer, joinPage, claimJoinPost (POST /claim/join: the one-click join,
+                               x_join_offers, cookie + Origin + one use + 15 min; page_joined event; standing_seen.linked)
+    live-check.ts              v2.13.4 R3: liveDefaults, parkedPage, checkLive, liveSite (standing_seen.live_check, a day)
     wallet-proof.ts(+test)     v2.12.1 T7: upgradeToken/upgradeOf (30 min), WALLET_TEXT, walletMessage,
                                proveWallet (EIP-191, once per signature), walletGet, walletPost,
                                walletOtherMethod (405); every non-200 answer carries WALLET_FRAME_CSP
