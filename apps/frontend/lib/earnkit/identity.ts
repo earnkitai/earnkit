@@ -1,7 +1,8 @@
 import { archiveFlag, benchEnabled, builderScoreEnabled } from './builder-score-flag';
 import { openR1Join } from './page-joins';
 import { githubRepo, normalizeRepoUrl } from './campaigns';
-import { sql } from './db';
+import { sql, type Db } from './db';
+import type postgres from 'postgres';
 import { sharedGroup } from './installations';
 import { profileChanged } from './profile-cache';
 import { mergeProfiles } from './profiles';
@@ -380,8 +381,16 @@ export async function answerPickup(own: number, yes: boolean, deps: PickupDeps =
  * Returns the group's entry count. Exported for tests.
  */
 export async function linkInstallations(own: number, roots: number[]): Promise<number> {
+  const r = await sql().begin((tx) => linkInTx(tx, own, roots));
+  // After commit, so a render can't cache the pre-merge profile (v2.12 T10 review).
+  if (r.moved) profileChanged();
+  return r.n;
+}
+
+/** linkInstallations inside a caller's transaction (v2.13.4: answerJoin checks and links in one). */
+async function linkInTx(tx: postgres.TransactionSql, own: number, roots: number[]): Promise<{ n: number; moved: boolean }> {
   let profilesMoved = false;
-  const n = await sql().begin(async (tx) => {
+  const n = await (async () => {
     const [mine] = await tx<{ root: number }[]>`
       SELECT COALESCE(builder_id, id) AS root FROM installations WHERE id = ${own} FOR UPDATE`;
     const all = [...new Set([mine.root, ...roots])].sort((a, b) => a - b);
@@ -448,10 +457,8 @@ export async function linkInstallations(own: number, roots: number[]): Promise<n
     const [{ n }] = await tx<{ n: number }[]>`
       SELECT count(*)::int AS n FROM projects WHERE installation_id = ${root}`;
     return n;
-  });
-  // After commit, so a render can't cache the pre-merge profile (v2.12 T10 review).
-  if (profilesMoved) profileChanged();
-  return n;
+  })();
+  return { n, moved: profilesMoved };
 }
 
 export type ProvenTie = { x_user_id: string } | { github_login: string } | { deploy_wallet: string };
@@ -479,6 +486,8 @@ export const JOIN_TEXT = {
   waitingHere: 'Okay. This agent joins once your other agent says yes too.',
   declined: 'Okay. That agent stays apart from your page.',
   declinedHere: 'Okay. This agent stays apart from your page.',
+  /** v2.13.4: the consent no longer matches what it was given for (changed, or over a day old). */
+  expired: 'That request changed or is over a day old, so I dropped it.\nWant me to show where you stand now?',
   /** v2.13.4 R8: a new agent's notice on the page is still open. */
   refused: 'First answer the question about the new agent on your page.\nWant me to show it now?',
 } as const;
@@ -528,9 +537,15 @@ export async function joinOnProvenTie(installationId: number, tie: ProvenTie): P
     if (asked.includes(r) || (await sharedGroup(r))) continue;
     const theirs = await xOf(r);
     if (mine && theirs && mine !== theirs) continue; // two X accounts: two people
+    // v2.13.4: the consent is bound to this joining installation, the page's root at ask time and both
+    // sides' facts then (joinStamp); a stale row is replaced by a fresh ask.
+    const [js, ts] = [await joinStamp(db, root, 'joiner'), await joinStamp(db, r, 'target')];
     await db`
-      INSERT INTO pending_joins (installation_id, target, tie) VALUES (${installationId}, ${r}, ${kind})
-      ON CONFLICT (installation_id, target) DO NOTHING`;
+      INSERT INTO pending_joins (installation_id, target, tie, target_root, joiner_stamp, target_stamp) VALUES (${installationId}, ${r}, ${kind}, ${r}, ${js}, ${ts})
+      ON CONFLICT (installation_id, target) DO UPDATE SET tie = EXCLUDED.tie, target_root = EXCLUDED.target_root, joiner_stamp = EXCLUDED.joiner_stamp,
+        target_stamp = EXCLUDED.target_stamp, created_at = now(), target_yes = NULL, joiner_yes = NULL, target_asked_at = NULL, joiner_asked_at = NULL
+      WHERE pending_joins.joiner_stamp IS DISTINCT FROM EXCLUDED.joiner_stamp OR pending_joins.target_stamp IS DISTINCT FROM EXCLUDED.target_stamp
+        OR pending_joins.created_at < now() - interval '24 hours'`;
     asked.push(r);
   }
   return asked.length;
@@ -544,8 +559,8 @@ type PendingRow = { installation_id: number; target: number; tie: JoinTie; side:
  * their current roots; a join whose two sides are already one person is skipped. v2.13.4 R8: the X tie's
  * two-agent yes is the path for every installation that isn't fresh and empty (claim.ts).
  */
-async function pendingRow(root: number): Promise<PendingRow | null> {
-  const [row] = await sql()<PendingRow[]>`
+async function pendingRow(root: number, db: Db = sql()): Promise<PendingRow | null> {
+  const [row] = await db<PendingRow[]>`
     SELECT j.installation_id, j.target, j.tie,
       CASE WHEN COALESCE(t.builder_id, t.id) = ${root} AND j.target_yes IS NULL THEN 'target' ELSE 'joiner' END AS side,
       CASE WHEN COALESCE(t.builder_id, t.id) = ${root} AND j.target_yes IS NULL THEN j.target_asked_at IS NOT NULL
@@ -554,6 +569,7 @@ async function pendingRow(root: number): Promise<PendingRow | null> {
     JOIN installations t ON t.id = j.target
     JOIN installations i ON i.id = j.installation_id
     WHERE COALESCE(t.builder_id, t.id) <> COALESCE(i.builder_id, i.id)
+      AND (NOT ${benchEnabled()} OR j.created_at > now() - interval '24 hours')
       AND ((COALESCE(t.builder_id, t.id) = ${root} AND j.target_yes IS NULL)
         OR (COALESCE(i.builder_id, i.id) = ${root} AND j.joiner_yes IS NULL))
     ORDER BY j.created_at, j.installation_id LIMIT 1`;
@@ -585,35 +601,84 @@ export async function askJoin(installationId: number): Promise<{ question: strin
  * once both groups said yes, the joining installation's group joins the target's (the older group
  * keeps its page; hidden or held if either was); never a shared group, never two X accounts.
  */
-export async function answerJoin(installationId: number, yes: boolean): Promise<'linked' | 'waiting' | 'declined' | 'none' | 'refused'> {
+export async function answerJoin(installationId: number, yes: boolean): Promise<'linked' | 'waiting' | 'declined' | 'none' | 'refused' | 'expired'> {
   if (!builderScoreEnabled()) return 'none';
-  const row = await pendingRow(await rootOf(installationId));
-  if (!row) return 'none';
-  const key = sql()`installation_id = ${row.installation_id} AND target = ${row.target}`;
-  if (!yes) {
-    await sql()`DELETE FROM pending_joins WHERE ${key}`;
-    return 'declined';
-  }
-  // v2.13.4 R8 (5): no tie-join links onto a page whose R1 join notice isn't answered yet by every eligible
-  // installation: that page's yes is not recorded (asked again later), and a link is never made while either
-  // side has one open.
-  const open = async () => benchEnabled() && ((await openR1Join(row.installation_id)) || (await openR1Join(row.target)));
-  if (await open()) {
-    const mine = row.side === 'target' ? row.target : row.installation_id;
-    if (await openR1Join(mine)) return 'refused';
-  }
-  const [both] = await sql()<{ both: boolean }[]>`
-    UPDATE pending_joins SET ${row.side === 'target' ? sql()`target_yes = true` : sql()`joiner_yes = true`}
-    WHERE ${key} RETURNING (target_yes AND joiner_yes) IS TRUE AS both`;
-  if (!both?.both) return 'waiting';
-  if (await open()) {
-    // Undo this side's yes so the join is asked again once the notice is answered.
-    await sql()`UPDATE pending_joins SET ${row.side === 'target' ? sql()`target_yes = NULL, target_asked_at = NULL` : sql()`joiner_yes = NULL, joiner_asked_at = NULL`} WHERE ${key}`;
-    return 'refused';
-  }
-  const [joiner, target] = [await rootOf(row.installation_id), await rootOf(row.target)];
-  await sql()`DELETE FROM pending_joins WHERE ${key}`;
-  if ((await sharedGroup(joiner)) || (await sharedGroup(target))) return 'none';
-  await linkInstallations(row.installation_id, [target]);
-  return (await rootOf(row.installation_id)) === (await rootOf(row.target)) ? 'linked' : 'none';
+  const out = await sql().begin(async (tx) => {
+    const row = await pendingRow(await rootOf(installationId), tx);
+    if (!row) return { r: 'none' as const };
+    const key = tx`installation_id = ${row.installation_id} AND target = ${row.target}`;
+    // One transaction (v2.13.4): both groups' page locks (the R1 join and detach take them too), in id
+    // order, then the row itself; every check below and the link see the same state.
+    const roots = [await rootOf(row.installation_id), await rootOf(row.target)].sort((a, b) => a - b);
+    for (const r of roots) await tx`SELECT pg_advisory_xact_lock(hashtext(${`page_join:${r}`}))`;
+    const [p] = await tx<{ target_root: number | null; joiner_stamp: string | null; target_stamp: string | null; fresh: boolean }[]>`
+      SELECT target_root, joiner_stamp, target_stamp, created_at > now() - interval '24 hours' AS fresh FROM pending_joins WHERE ${key} FOR UPDATE`;
+    if (!p) return { r: 'none' as const };
+    if (!yes) {
+      await tx`DELETE FROM pending_joins WHERE ${key}`;
+      return { r: 'declined' as const };
+    }
+    if (benchEnabled()) {
+      // v2.13.4: a consent is used only for the facts it was given for: the same joining installation and
+      // page root, under 24 hours, and neither side changed since (the joining side gained no data or
+      // member; the page didn't re-root and had no R1 join or detach). Else it is dropped.
+      const [jr, tr] = [await rootIn(tx, row.installation_id), await rootIn(tx, row.target)];
+      const stale = !p.fresh || p.target_root === null || tr !== p.target_root
+        || p.joiner_stamp !== (await joinStamp(tx, jr, 'joiner')) || p.target_stamp !== (await joinStamp(tx, tr, 'target'));
+      if (stale) {
+        await tx`DELETE FROM pending_joins WHERE ${key}`;
+        return { r: 'expired' as const };
+      }
+      // v2.13.4 R8 (5): no tie-join onto a page whose R1 join notice isn't answered yet by every eligible
+      // installation: that page's own yes is not recorded, and a link is never made while either side has one.
+      const mine = row.side === 'target' ? row.target : row.installation_id;
+      if (await openR1Join(mine)) return { r: 'refused' as const };
+    }
+    const [both] = await tx<{ both: boolean }[]>`
+      UPDATE pending_joins SET ${row.side === 'target' ? tx`target_yes = true` : tx`joiner_yes = true`}
+      WHERE ${key} RETURNING (target_yes AND joiner_yes) IS TRUE AS both`;
+    if (!both?.both) return { r: 'waiting' as const };
+    if (benchEnabled() && ((await openR1Join(row.installation_id)) || (await openR1Join(row.target)))) {
+      await tx`UPDATE pending_joins SET ${row.side === 'target' ? tx`target_yes = NULL, target_asked_at = NULL` : tx`joiner_yes = NULL, joiner_asked_at = NULL`} WHERE ${key}`;
+      return { r: 'refused' as const };
+    }
+    await tx`DELETE FROM pending_joins WHERE ${key}`;
+    if ((await sharedGroup(roots[0])) || (await sharedGroup(roots[1]))) return { r: 'none' as const };
+    const linked = await linkInTx(tx, row.installation_id, [await rootOf(row.target)]);
+    const [a] = await tx<{ same: boolean }[]>`
+      SELECT (SELECT COALESCE(builder_id, id) FROM installations WHERE id = ${row.installation_id}) = (SELECT COALESCE(builder_id, id) FROM installations WHERE id = ${row.target}) AS same`;
+    return { r: a?.same ? ('linked' as const) : ('none' as const), moved: linked.moved };
+  });
+  if ('moved' in out && out.moved) profileChanged();
+  return out.r;
+}
+
+const rootIn = async (db: Db, id: number) => (await db<{ root: number }[]>`SELECT COALESCE(builder_id, id) AS root FROM installations WHERE id = ${id}`)[0]?.root ?? null;
+
+/**
+ * v2.13.4: what a pending join's consent was given for. `joiner`: the group's installations, verified
+ * sources, GitHub verifications, wallets, payout wallets, entries, token offers, coin moments and X claim
+ * (any change voids the yes). `target`: the page's root, its installations and its R1 joins and detaches.
+ */
+async function joinStamp(db: Db, root: number | null, side: 'joiner' | 'target'): Promise<string | null> {
+  if (root === null) return null;
+  const grp = db`SELECT id FROM installations WHERE COALESCE(builder_id, id) = ${root}`;
+  const [r] = side === 'target'
+    ? await db<{ s: string }[]>`
+        SELECT md5(concat_ws('|', ${root}::text,
+          (SELECT string_agg(id::text, ',' ORDER BY id) FROM installations WHERE COALESCE(builder_id, id) = ${root}),
+          (SELECT string_agg(id::text || ':' || (detached_at IS NOT NULL)::text, ',' ORDER BY id) FROM page_joins WHERE root = ${root}))) AS s`
+    : await db<{ s: string }[]>`
+        SELECT md5(concat_ws('|', ${root}::text,
+          (SELECT string_agg(id::text || ':' || coalesce(payout_wallet, ''), ',' ORDER BY id) FROM installations WHERE COALESCE(builder_id, id) = ${root}),
+          (SELECT count(*) FROM builder_sources WHERE builder_id = ${root} AND state = 'verified'),
+          (SELECT count(*) FROM github_verifications WHERE installation_id IN (${grp})),
+          (SELECT count(*) FROM github_verify_nonces WHERE installation_id IN (${grp}) AND used_at IS NULL),
+          (SELECT count(*) FROM installation_wallets WHERE installation_id IN (${grp})),
+          (SELECT count(*) FROM person_wallets WHERE builder_id = ${root}),
+          (SELECT count(*) FROM projects WHERE installation_id IN (${grp})),
+          (SELECT count(*) FROM token_offers WHERE installation_id IN (${grp})),
+          (SELECT count(*) FROM coin_moments WHERE builder_id = ${root}),
+          (SELECT x_user_id FROM builder_profiles WHERE builder_id = ${root}))) AS s`;
+  return r?.s ?? null;
 }

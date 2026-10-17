@@ -447,8 +447,11 @@ test('S.a no path links an installation to an existing X page without the R1 cli
     assert.deepEqual(await bindX(joiner, user, new Date()), { ok: false, reason: 'held', target: await rootOf(holder) });
     assert.notEqual(await rootOf(joiner), await rootOf(holder));
     // R8: the X two-agent yes (for an installation that isn't empty) needs both agents: one yes links nothing.
-    await sql()`INSERT INTO pending_joins (installation_id, target, tie) VALUES (${joiner}, ${await rootOf(holder)}, 'x_user_id') ON CONFLICT DO NOTHING`;
+    await joinOnProvenTie(joiner, { x_user_id: user.id });
     assert.equal(await answerJoin(joiner, true), 'waiting');
+    // A consent row not bound to its facts (no stamps) is void.
+    await sql()`UPDATE pending_joins SET joiner_stamp = NULL WHERE installation_id = ${joiner}`;
+    assert.equal(await answerJoin(holder, true), 'expired');
     assert.notEqual(await rootOf(joiner), await rootOf(holder));
   }));
 
@@ -996,4 +999,79 @@ test('C.2 the emptiness check and the link are one locked step: data the newcome
     assert.notEqual((await click).status, 200);
     assert.notEqual(await rootOf(t.cand), t.holder);
     assert.equal((await sql()`SELECT 1 FROM page_joins WHERE ${t.cand}::int = ANY(members)`).length, 0);
+  }));
+
+// ---- Stale consent (scan on identity.ts): a pending join's yes is bound to what it was given for ----
+
+/** A page and a non-empty installation that asked to join it with the same X (the two-agent yes). */
+async function tieAsk() {
+  const t = await pageAndCandidate((c) => sql()`INSERT INTO installation_wallets (installation_id, wallet) VALUES (${c}, ${`0x${randomBytes(20).toString('hex')}`})`);
+  assert.ok(await pendingJoinOf(t.cand), 'asked');
+  return t;
+}
+
+test('K.1 both yeses on unchanged facts link (the strong path still works)', dbTest, () =>
+  on(async () => {
+    const t = await tieAsk();
+    assert.equal(await answerJoin(t.cand, true), 'waiting');
+    assert.equal(await answerJoin(t.holder, true), 'linked');
+    assert.equal(await rootOf(t.cand), t.holder);
+  }));
+
+test('K.2 the consent expires after 24 hours', dbTest, () =>
+  on(async () => {
+    const t = await tieAsk();
+    await answerJoin(t.cand, true);
+    await sql()`UPDATE pending_joins SET created_at = created_at - interval '25 hours' WHERE installation_id = ${t.cand}`;
+    assert.equal(await answerJoin(t.holder, true), 'none', 'no longer asked');
+    assert.notEqual(await rootOf(t.cand), t.holder);
+  }));
+
+test('K.3 void when the joining side gained data or a member after the ask', dbTest, () =>
+  on(async () => {
+    const t = await tieAsk();
+    await answerJoin(t.cand, true);
+    await sql()`INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose) VALUES (${`${uniq('k3')}/r`}, ${uniq('k3')}, ${t.cand}, now() - interval '2 years', 3, 'claim')`;
+    assert.equal(await answerJoin(t.holder, true), 'expired');
+    assert.notEqual(await rootOf(t.cand), t.holder);
+    const u = await tieAsk();
+    await answerJoin(u.cand, true);
+    const m = await install();
+    await sql()`UPDATE installations SET builder_id = ${u.cand} WHERE id = ${m}`;
+    assert.equal(await answerJoin(u.holder, true), 'expired');
+    assert.notEqual(await rootOf(u.cand), u.holder);
+  }));
+
+test('K.4 void when the page re-rooted, or had an R1 join or detach after the ask (no replay)', dbTest, () =>
+  on(async () => {
+    const t = await tieAsk();
+    await answerJoin(t.cand, true);
+    // An R1 join onto the page after the ask (a fresh installation, one click), then the owner answers it.
+    const fresh = await install();
+    const rf = await find(fresh, {}, NO_MATCH);
+    const [h] = await sql()<{ handle: string }[]>`SELECT x_handle AS handle FROM builder_profiles WHERE builder_id = ${t.holder}`;
+    const sf = await signIn(rf.claim!.link, { id: `x${t.holder}`, username: h.handle, name: 'Maya', avatar: null });
+    assert.equal((await confirmJoin(offerOf(sf.body)!, sf.cookie)).status, 200);
+    await answer({ holder: t.holder }, t.holder, (await noticeFind({ holder: t.holder }, t.holder)).move_up!.project_key!, 'no');
+    assert.equal(await answerJoin(t.holder, true), 'expired');
+    assert.notEqual(await rootOf(t.cand), t.holder);
+    // Re-rooted page.
+    const v = await tieAsk();
+    await answerJoin(v.cand, true);
+    const older = await install();
+    await sql()`UPDATE installations SET builder_id = ${older} WHERE id = ${v.holder} OR builder_id = ${v.holder}`;
+    await sql()`UPDATE builder_profiles SET builder_id = ${older} WHERE builder_id = ${v.holder}`;
+    assert.notEqual(await answerJoin(older, true), 'linked');
+    assert.notEqual(await rootOf(v.cand), older);
+  }));
+
+test('E.1 (scan on page-joins.ts) eligibility needs the join-time snapshot AND still being on the page', dbTest, () =>
+  on(async () => {
+    const second = await install();
+    const j = await joinedPage({ extra: second });
+    const pk = (await noticeFind(j, second)).move_up!.project_key!;
+    await sql()`UPDATE installations SET builder_id = NULL WHERE id = ${second}`; // it left the page
+    const r = await answer(j, second, pk, 'yes');
+    assert.ok(!r.show_to_builder.startsWith('Done.'), r.show_to_builder);
+    assert.equal(await rootOf(j.joiner), j.holder);
   }));

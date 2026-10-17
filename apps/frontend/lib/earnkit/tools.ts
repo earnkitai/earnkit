@@ -2593,6 +2593,7 @@ export const handlers = {
       if (r === 'waiting') return { show_to_builder: here ? JOIN_TEXT.waitingHere : JOIN_TEXT.waiting };
       if (r === 'declined') return { show_to_builder: here ? JOIN_TEXT.declinedHere : JOIN_TEXT.declined };
       if (r === 'refused') return { show_to_builder: JOIN_TEXT.refused, agent_note: 'On a yes, call find. Don\'t show this note.' };
+      if (r === 'expired') return { show_to_builder: JOIN_TEXT.expired, agent_note: 'On a yes, call find. Don\'t show this note.' };
     }
     if (answer === null)
       return { show_to_builder: PICKUP_TEXT.unclear, agent_note: 'Ask the builder, then pass answer "yes" or "no".' };

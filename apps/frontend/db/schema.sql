@@ -1543,3 +1543,8 @@ ALTER TABLE page_joins ADD COLUMN IF NOT EXISTS eligible integer[] NOT NULL DEFA
 ALTER TABLE project_updates ADD COLUMN IF NOT EXISTS posted_by integer;
 -- v2.13.4 R7: the installation that last asked for the claim link (the R1 page names it). Additive.
 ALTER TABLE claim_codes ADD COLUMN IF NOT EXISTS minted_by integer;
+-- v2.13.4 (scan: stale consent): a pending join's yes is bound to the page's root at ask time and to both
+-- sides' facts then (identity.ts joinStamp); it is used only while they still match, under 24 hours.
+ALTER TABLE pending_joins ADD COLUMN IF NOT EXISTS target_root integer;
+ALTER TABLE pending_joins ADD COLUMN IF NOT EXISTS joiner_stamp text;
+ALTER TABLE pending_joins ADD COLUMN IF NOT EXISTS target_stamp text;

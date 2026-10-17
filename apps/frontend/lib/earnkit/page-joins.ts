@@ -1,4 +1,4 @@
-import { sql } from './db';
+import { sql, type Db } from './db';
 import { noteEvent } from './events';
 import { profileChanged } from './profile-cache';
 
@@ -36,17 +36,29 @@ export const PROBATION_LINES = {
 } as const;
 
 /**
- * R8: the one-click join attaches only a fresh, empty installation (the reconnect case): a single
- * installation (its own root, no other members), no verified or proposed sources, no GitHub verification
- * and no open verify link, no wallet (person_wallets, installation_wallets, payout_wallet), no entries or
- * coins (projects), coin moments or token offers, and no X claim. Anything else gets the two-agent yes.
+ * TOCTOU (scan): every check here and the write it guards run in ONE transaction under the page's
+ * advisory lock (`page_join:<current root>`), with the installation and join rows locked FOR UPDATE.
+ * An installation row FOR UPDATE also blocks every insert that references it (wallets, verify links,
+ * verifications, entries, token offers all carry a foreign key to installations), and the proof-branch
+ * lock (`proof_branch:<id>`) blocks a source being confirmed for it meanwhile.
+ */
+const lockPage = (tx: Db, root: number) => tx`SELECT pg_advisory_xact_lock(hashtext(${`page_join:${root}`}))`;
+const rootIn = async (db: Db, id: number) => (await db<{ root: number }[]>`SELECT COALESCE(builder_id, id) AS root FROM installations WHERE id = ${id}`)[0]?.root ?? null;
+
+/**
+ * R8, R9: the one-click join attaches only a fresh, empty installation (the reconnect case): a single
+ * installation (its own root, no other members), no VERIFIED source, no GitHub verification and no open
+ * verify link, no wallet (person_wallets, installation_wallets, payout_wallet), no entries or coins
+ * (projects), coin moments or token offers, and no X claim. R9: what its agent only reported (proposed
+ * sources, the identity report, reported_github, its own unclaimed claim code) never counts: it is
+ * discarded at the join and re-reported later under probation. Anything else gets the two-agent yes.
  * A failed read is not empty.
  */
-export async function freshAndEmpty(id: number): Promise<boolean> {
-  const [r] = await sql()<{ empty: boolean }[]>`
+export async function freshAndEmpty(id: number, db: Db = sql()): Promise<boolean> {
+  const [r] = await db<{ empty: boolean }[]>`
     SELECT (i.builder_id IS NULL AND i.payout_wallet IS NULL
       AND NOT EXISTS (SELECT 1 FROM installations m WHERE m.builder_id = ${id})
-      AND NOT EXISTS (SELECT 1 FROM builder_sources s WHERE s.builder_id = ${id} AND s.state IN ('verified', 'proposed'))
+      AND NOT EXISTS (SELECT 1 FROM builder_sources s WHERE s.builder_id = ${id} AND s.state = 'verified')
       AND NOT EXISTS (SELECT 1 FROM github_verifications v WHERE v.installation_id = ${id})
       AND NOT EXISTS (SELECT 1 FROM github_verify_nonces n WHERE n.installation_id = ${id} AND n.used_at IS NULL AND n.expires_at > now())
       AND NOT EXISTS (SELECT 1 FROM person_wallets w WHERE w.builder_id = ${id})
@@ -60,28 +72,32 @@ export async function freshAndEmpty(id: number): Promise<boolean> {
 }
 
 /**
- * R8 (with R7 item 3): the R1 join in ONE transaction: the page still holds this X account, the
- * installation is still fresh and empty, then it alone is attached to the page (its own empty profile
- * rows are dropped, nothing of it merged) and the join is recorded with the page's installations at
- * this moment (`eligible`). Null when any check fails (nothing written).
+ * R8, R9 (with R7 item 3): the R1 join in ONE locked transaction: the page's lock, the installation's row
+ * and proof-branch lock; then the page still holds this X account and the installation is still fresh and
+ * empty (checked under the locks); then it alone is attached, what its agent only reported is discarded
+ * (nothing merged), and the join is recorded with the page's installations at this moment (`eligible`).
+ * Null when any check fails (nothing written).
  */
 export async function attachFresh(o: { installation: number; page: number; xUserId: string; now: Date }): Promise<{ id: number } | null> {
   return sql().begin(async (tx) => {
-    const [p] = await tx<{ x: string | null }[]>`SELECT x_user_id AS x FROM builder_profiles WHERE builder_id = ${o.page} FOR UPDATE`;
-    if (p?.x !== o.xUserId) return null;
+    await lockPage(tx, o.page);
     const [me] = await tx<{ builder_id: number | null }[]>`SELECT builder_id FROM installations WHERE id = ${o.installation} FOR UPDATE`;
     if (!me || me.builder_id !== null) return null;
-    const eligible = (await tx<{ id: number }[]>`SELECT id FROM installations WHERE COALESCE(builder_id, id) = ${o.page} ORDER BY id`).map((r) => r.id);
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${`proof_branch:${o.installation}`}))`;
+    const [p] = await tx<{ x: string | null }[]>`SELECT x_user_id AS x FROM builder_profiles WHERE builder_id = ${o.page} FOR UPDATE`;
+    if (p?.x !== o.xUserId || (await rootIn(tx, o.page)) !== o.page) return null;
+    if (!(await freshAndEmpty(o.installation, tx))) return null;
+    const eligible = (await tx<{ id: number }[]>`SELECT id FROM installations WHERE COALESCE(builder_id, id) = ${o.page} ORDER BY id FOR UPDATE`).map((r) => r.id);
     if (eligible.includes(o.installation)) return null;
-    const moved = await tx`
-      UPDATE installations SET builder_id = ${o.page}
-      WHERE id = ${o.installation} AND builder_id IS NULL AND NOT EXISTS (SELECT 1 FROM installations m WHERE m.builder_id = ${o.installation}) RETURNING id`;
-    if (!moved.length) return null;
-    // Its own empty person rows (made by its first find) are dropped; nothing is merged into the page.
+    await tx`UPDATE installations SET builder_id = ${o.page} WHERE id = ${o.installation}`;
+    // R9: its agent's reports (proposed sources, identity, reported login, claim code, open proof codes)
+    // and its empty person rows are discarded; nothing is merged into the page.
     await tx`DELETE FROM builder_live WHERE builder_id = ${o.installation}`;
     await tx`DELETE FROM builder_projects WHERE builder_id = ${o.installation}`;
     await tx`DELETE FROM claim_codes WHERE builder_id = ${o.installation}`;
     await tx`DELETE FROM builder_sources WHERE builder_id = ${o.installation}`;
+    await tx`DELETE FROM proof_branches WHERE builder_id = ${o.installation} AND used_at IS NULL`;
+    await tx`DELETE FROM discovery_queue WHERE builder_id = ${o.installation}`;
     await tx`DELETE FROM builder_profiles WHERE builder_id = ${o.installation}`;
     const [r] = await tx<{ id: number }[]>`
       INSERT INTO page_joins (root, from_root, members, eligible, x_user_id, joined_at)
@@ -90,27 +106,26 @@ export async function attachFresh(o: { installation: number; page: number; xUser
   });
 }
 
-const rootOfSql = (id: number) => sql()<{ root: number }[]>`SELECT COALESCE(builder_id, id) AS root FROM installations WHERE id = ${id}`;
-
 /**
  * R8 item 5: page `root` (any installation of it) has an R1 join whose notice some eligible installation
- * still on the page hasn't answered: no tie-join (answerJoin) links anything onto it until then.
+ * still on the page hasn't answered: no tie-join (answerJoin) links anything onto it until then. A failed
+ * read counts as open.
  */
 export async function openR1Join(root: number): Promise<boolean> {
-  const [page] = await rootOfSql(root);
-  if (!page) return true;
+  const page = await rootIn(sql(), root).catch(() => null);
+  if (page === null) return true;
   const [r] = await sql()`
     SELECT 1 FROM page_joins j JOIN installations r ON r.id = j.root
-    WHERE COALESCE(r.builder_id, r.id) = ${page.root} AND j.detached_at IS NULL
+    WHERE COALESCE(r.builder_id, r.id) = ${page} AND j.detached_at IS NULL
       AND EXISTS (SELECT 1 FROM unnest(j.eligible) e JOIN installations i ON i.id = e
-                  WHERE COALESCE(i.builder_id, i.id) = ${page.root} AND NOT (j.answers ? e::text))
+                  WHERE COALESCE(i.builder_id, i.id) = ${page} AND NOT (j.answers ? e::text))
     LIMIT 1`.catch(() => [1]);
   return Boolean(r);
 }
 
 /** R7: `own` joined a page by R1 less than PROBATION_MS ago and is still attached. */
-export async function onProbation(own: number, now: Date = new Date()): Promise<boolean> {
-  const [r] = await sql()`
+export async function onProbation(own: number, now: Date = new Date(), db: Db = sql()): Promise<boolean> {
+  const [r] = await db`
     SELECT 1 FROM page_joins j JOIN installations i ON i.id = ${own}
     WHERE ${own}::int = ANY(j.members) AND j.detached_at IS NULL AND j.joined_at > ${new Date(now.getTime() - PROBATION_MS)}
       AND COALESCE(i.builder_id, i.id) <> ${own} LIMIT 1`;
@@ -118,81 +133,73 @@ export async function onProbation(own: number, now: Date = new Date()): Promise<
 }
 
 type JoinRow = { id: number; root: number; from_root: number; members: number[]; eligible: number[]; joined_at: Date; answers: Record<string, string>; detached_at: Date | null };
+const JOIN_COLS = (db: Db) => db`j.id::int AS id, j.root, j.from_root, j.members, j.eligible, j.joined_at, j.answers, j.detached_at`;
 
 /**
- * I-2: `own` may answer join `j`: it is on that page now (the page's current root), it is not one of the
- * join's members, and it is not a member of any still-attached join of the page with the same or a later id
- * (so a later newcomer never answers for an earlier one). Not on probation itself.
+ * I-2, R8: `own` may answer join `j`: in the eligible snapshot, on the page now (its CURRENT root), not a
+ * member, not a member of a still-attached join of the page with the same or a later id, not on probation.
  */
-async function eligibleFor(j: JoinRow, own: number): Promise<boolean> {
-  // R8: only an installation that was on the page when it joined (the snapshot), still on it now (the
-  // page's CURRENT root, whatever it re-rooted to), never a member, never on probation.
+async function eligibleFor(db: Db, j: JoinRow, own: number): Promise<boolean> {
   if (j.detached_at || j.members.includes(own) || !j.eligible.includes(own)) return false;
-  const [[mine], [page]] = await Promise.all([rootOfSql(own), rootOfSql(j.root)]);
-  if (!mine || !page || mine.root !== page.root) return false;
-  const [later] = await sql()`
+  const [mine, page] = [await rootIn(db, own), await rootIn(db, j.root)];
+  if (mine === null || page === null || mine !== page) return false;
+  const [later] = await db`
     SELECT 1 FROM page_joins j JOIN installations r ON r.id = j.root
-    WHERE COALESCE(r.builder_id, r.id) = ${page.root} AND j.detached_at IS NULL AND j.id >= ${j.id} AND ${own}::int = ANY(j.members) LIMIT 1`;
+    WHERE COALESCE(r.builder_id, r.id) = ${page} AND j.detached_at IS NULL AND j.id >= ${j.id} AND ${own}::int = ANY(j.members) LIMIT 1`;
   if (later) return false;
-  return !(await onProbation(own));
+  return !(await onProbation(own, new Date(), db));
 }
 
 /** The oldest join of page `root` that `own` may answer and hasn't (I-1): re-shown on every reply until answered. */
 export async function pendingNotice(root: number, own: number): Promise<{ id: number; line: string } | null> {
-  const [page] = await rootOfSql(root);
-  if (!page) return null;
+  const db = sql();
+  const page = await rootIn(db, root);
+  if (page === null) return null;
   // R8: matched on the page's current root, filtered in SQL (eligible snapshot, unanswered) before any limit.
-  const rows = await sql()<JoinRow[]>`
-    SELECT j.id::int AS id, j.root, j.from_root, j.members, j.eligible, j.joined_at, j.answers, j.detached_at
-    FROM page_joins j JOIN installations r ON r.id = j.root
-    WHERE COALESCE(r.builder_id, r.id) = ${page.root} AND j.detached_at IS NULL
+  const rows = await db<JoinRow[]>`
+    SELECT ${JOIN_COLS(db)} FROM page_joins j JOIN installations r ON r.id = j.root
+    WHERE COALESCE(r.builder_id, r.id) = ${page} AND j.detached_at IS NULL
       AND ${own}::int = ANY(j.eligible) AND NOT (j.answers ? ${String(own)})
     ORDER BY j.id`;
-  for (const j of rows) if (await eligibleFor(j, own)) return { id: j.id, line: joinNoticeLine(j.joined_at) };
+  for (const j of rows) if (await eligibleFor(db, j, own)) return { id: j.id, line: joinNoticeLine(j.joined_at) };
   return null;
 }
 
 export type NoticeAnswer = 'detached' | 'kept' | 'not_allowed' | 'none';
 
 /**
- * I-1: installation `own`'s yes or no to join `joinId`'s notice. Eligibility is checked on both. A no is
- * recorded for `own` only. A yes detaches the members at once (detachJoin).
+ * I-1: installation `own`'s yes or no to join `joinId`'s notice, in ONE transaction under the page's lock
+ * and the join row's lock: eligibility (on a yes and on a no), the answer, and on a yes the detach. Two
+ * answers at once: the second waits, then sees the join detached ('none').
  */
 export async function answerNotice(joinId: number, own: number, yes: boolean, now: Date = new Date()): Promise<NoticeAnswer> {
-  const [j] = await sql()<JoinRow[]>`
-    SELECT id::int AS id, root, from_root, members, eligible, joined_at, answers, detached_at FROM page_joins WHERE id = ${joinId}`;
-  if (!j) return 'none';
-  if (j.detached_at) return 'none';
-  if (!(await eligibleFor(j, own))) return 'not_allowed';
-  await sql()`UPDATE page_joins SET answers = answers || jsonb_build_object(${String(own)}::text, ${yes ? 'yes' : 'no'}::text) WHERE id = ${joinId}`;
-  if (!yes) return 'kept';
-  return (await detachJoin(joinId, own, now)) ? 'detached' : 'none';
-}
-
-/**
- * Moves the join's members back to their own former group (from_root becomes a root again, the others point
- * to it), matched on the page's current root so a no-op is never reported as done, and hides their updates
- * since the join. True when something was detached.
- */
-async function detachJoin(joinId: number, by: number, now: Date): Promise<boolean> {
   const out = await sql().begin(async (tx) => {
-    const [j] = await tx<JoinRow[]>`
-      SELECT id::int AS id, root, from_root, members, eligible, joined_at, answers, detached_at FROM page_joins WHERE id = ${joinId} FOR UPDATE`;
-    if (!j || j.detached_at) return null;
-    const [page] = await tx<{ root: number }[]>`SELECT COALESCE(builder_id, id) AS root FROM installations WHERE id = ${j.root}`;
-    if (!page) return null;
+    const [peek] = await tx<{ root: number }[]>`SELECT root FROM page_joins WHERE id = ${joinId}`;
+    if (!peek) return { r: 'none' as const };
+    const page = await rootIn(tx, peek.root);
+    if (page === null) return { r: 'none' as const };
+    await lockPage(tx, page);
+    const [j] = await tx<JoinRow[]>`SELECT ${JOIN_COLS(tx)} FROM page_joins j WHERE j.id = ${joinId} FOR UPDATE`;
+    if (!j || j.detached_at) return { r: 'none' as const };
+    if ((await rootIn(tx, j.root)) !== page) return { r: 'none' as const }; // re-rooted meanwhile: ask again
+    if (!(await eligibleFor(tx, j, own))) return { r: 'not_allowed' as const };
+    await tx`UPDATE page_joins SET answers = answers || jsonb_build_object(${String(own)}::text, ${yes ? 'yes' : 'no'}::text) WHERE id = ${joinId}`;
+    if (!yes) return { r: 'kept' as const };
+    // Detach: the members back to their own former group (from_root a root again, the others pointing to
+    // it), locked and matched on the page's current root (a no-op is never "Done"); their updates hidden.
+    await tx`SELECT id FROM installations WHERE id = ANY(${j.members}::int[]) FOR UPDATE`;
     const moved = await tx<{ id: number }[]>`
       UPDATE installations SET builder_id = CASE WHEN id = ${j.from_root} THEN NULL ELSE ${j.from_root}::int END
-      WHERE id = ANY(${j.members}::int[]) AND builder_id = ${page.root} RETURNING id`;
-    if (!moved.length) return null;
-    await tx`UPDATE project_updates SET hidden = true WHERE builder_id = ${page.root} AND posted_by = ANY(${j.members}::int[]) AND created_at >= ${j.joined_at}`;
-    await tx`UPDATE page_joins SET detached_at = ${now}, detached_by = ${by} WHERE id = ${joinId}`;
-    return { root: page.root, members: j.members };
+      WHERE id = ANY(${j.members}::int[]) AND builder_id = ${page} RETURNING id`;
+    if (!moved.length) return { r: 'none' as const };
+    await tx`UPDATE project_updates SET hidden = true WHERE builder_id = ${page} AND posted_by = ANY(${j.members}::int[]) AND created_at >= ${j.joined_at}`;
+    await tx`UPDATE page_joins SET detached_at = ${now}, detached_by = ${own} WHERE id = ${joinId}`;
+    return { r: 'detached' as const, page, members: j.members };
   });
-  if (!out) return false;
+  if (out.r !== 'detached') return out.r;
   await noteEvent('page_detached', () => ({
-    type: 'page_detached', dedupe_key: `page_detached:${joinId}`, installation_id: out.root, detail: { join: joinId, members: out.members, by },
+    type: 'page_detached', dedupe_key: `page_detached:${joinId}`, installation_id: out.page, detail: { join: joinId, members: out.members, by: own },
   }));
   profileChanged();
-  return true;
+  return 'detached';
 }

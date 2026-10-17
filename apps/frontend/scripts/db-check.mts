@@ -766,6 +766,9 @@ const [pj] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM page_joins
 ok(pj.n === 1, 'v2.13.4 R6 to R8: page_joins rows (answers, the eligible snapshot) survive the schema running again');
 const mb = await db<{ column_name: string }[]>`SELECT column_name FROM information_schema.columns WHERE table_name = 'claim_codes' AND column_name = 'minted_by'`;
 ok(mb.length === 1, 'v2.13.4 R7: claim_codes.minted_by');
+const pjc = await db<{ column_name: string }[]>`
+  SELECT column_name FROM information_schema.columns WHERE table_name = 'pending_joins' AND column_name IN ('target_root', 'joiner_stamp', 'target_stamp')`;
+ok(pjc.length === 3, 'v2.13.4: pending_joins binds its consent (target_root, joiner_stamp, target_stamp)');
 const badCode = await db`INSERT INTO proof_branches (code_hash, seed, builder_id, repo_key, issued_at, expires_at) VALUES ('abcdefghijkl', 's', 1, 'a/b', now(), now())`.then(() => false, () => true);
 ok(badCode, 'proof_branches keeps only a sha256 (a plain code is refused)');
 await db`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES (-131, 'repo', 'pb-check/x', 'pb-check/x', 'verified', 'proof_branch', 'server')`;

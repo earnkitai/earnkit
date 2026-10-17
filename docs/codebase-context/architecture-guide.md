@@ -5393,7 +5393,7 @@ Brief: `.superpowers/sdd/v2.13.3/brief.md`, plus owner rulings A, B, C sent the 
 
 Brief: `.superpowers/sdd/v2.13.4/brief.md` (the owner's spec, verbatim, and controller rulings R1 to R5). Everything sits
 under `EARNKIT_BENCH`; flag off (and score-only) is unchanged. Tests: `v2134-onboarding.test.ts` (the owner's acceptance
-test a to g, the security review S.a to S.f, R6.1, R7.0 to R7.5 and R8.1 to R8.8). Runbook: sections 8, 9 and 10.
+test a to g, the security review S.a to S.f, R6.1, R7.0 to R7.5, R8.1 to R8.8, R9.1, C.1, C.2, K.1 to K.4 and E.1). Runbook: sections 8, 9 and 10.
 
 - **The flow.** a. First find: where you stand, ways to get funded, then one question, the X claim
   (`bench-reply.ts claimAsk`: "Claim your page with X (it's your name and photo on the Bench): <link>" and "Want me to put
@@ -5472,6 +5472,27 @@ test a to g, the security review S.a to S.f, R6.1, R7.0 to R7.5 and R8.1 to R8.8
   verify link is minted in find, no fit repos or kept match are written, and update posts count against the
   installation's own daily limit (`updatePostProbation:<own>`). A probation tell with an update and a refused part is
   one reply: what was done, then the refusal's line and its one question.
+- **R9 (what a reconnect's agent reports never blocks the one click).** `freshAndEmpty` ignores what the agent
+  only reported: proposed sources, the identity report, `reported_github`, its own unclaimed claim code (and its
+  unused proof codes). `attachFresh` discards them at the join (deleted, never merged); the agent re-reports
+  under probation (a project that is the page's main project is no change). A VERIFIED source, a verification, an
+  open verify link, any wallet or payout wallet, entries, coins, coin moments, token offers or another member still
+  make it non-empty.
+- **Locks (scan: TOCTOU in page-joins.ts).** Each check and its write is one transaction under the page's advisory
+  lock (`page_join:<current root>`): `attachFresh` (also the installation row FOR UPDATE, which blocks every insert
+  that references it by foreign key, the `proof_branch:<id>` lock, the page profile FOR UPDATE; the emptiness
+  check and the join row are inside), and `answerNotice` (the join row FOR UPDATE; eligibility, the answer and the
+  detach together; a second concurrent answer waits and finds it detached). `answerJoin` takes both groups'
+  `page_join` locks in id order and links inside the same transaction (`linkInTx`). Tests C.1 (two concurrent
+  yeses: one detach) and C.2 (a wallet written while the click waits: refused).
+- **Consent binding (scan: stale consent in identity.ts).** A pending join (the two-agent yes) stores the page's
+  root at ask time and two stamps (`joinStamp`): the joining group's facts (installations, payout wallets, verified
+  sources, verifications, open verify links, wallets, entries, token offers, coin moments, X claim) and the page's
+  (root, installations, R1 joins and detaches). `answerJoin` re-checks inside its transaction: under 24 hours
+  (older rows are not even asked), the same root, both stamps unchanged; else the row is dropped ("That request
+  changed or is over a day old, so I dropped it."). So a yes given before the joining side gained data or a member,
+  before an R1 join or detach, or before a re-root is never replayed. Rows without stamps (from before) are void.
+  Re-asking with changed facts replaces the row and clears both yeses.
 - **The R7 write audit (on probation).**
 
   | Write | Where | On probation |
@@ -5512,7 +5533,8 @@ test a to g, the security review S.a to S.f, R6.1, R7.0 to R7.5 and R8.1 to R8.8
   award ("<title> is open all year."); a 0 award never. The background-launch tests in `tools.test.ts` wait for the release
   (`releasedBg`) instead of sleeping 900 ms. `v2133-owner-test.test.ts` R1 uses a key with no digit run (its random key could
   hold 7 digits, which the update text rule refuses first).
-- **Schema.** `x_join_offers`, `page_joins` (new; `eligible` added in R8); `installations.client_name`, `project_updates.posted_by`,
+- **Schema.** `x_join_offers`, `page_joins` (new; `eligible` added in R8); `pending_joins.target_root`,
+  `joiner_stamp`, `target_stamp`; `installations.client_name`, `project_updates.posted_by`,
   `claim_codes.minted_by` (additive); `page_joined` and `page_detached` in both
   `builder_events_type_check` lists. `db:check` covers them.
 
