@@ -3,13 +3,18 @@ import { Panel } from '../components/common/Panel';
 import ChainLogo from '../components/ui/ChainLogo';
 import { filterHref, type BenchFilter, type BenchRow } from '../../lib/earnkit/bench-data';
 import { CHAIN_LABEL, type BenchChain } from '../../lib/earnkit/rank';
+import { BENCH_TOP_EMPTY } from '../components/sections/BenchTop';
 import BenchRowItem from './BenchRowItem';
 import { Chip, FILTER_RAISING, FILTER_WEEKLY } from './FilterChip';
 
 export const BENCH_TITLE = 'The Bench';
-/** v2.13.1 O5 (P1): one builder reads "1 builder so far" (never "1 builder who ship"). */
+/**
+ * v2.13.2 (3): nobody ranked reads as the landing's empty Bench (BENCH_TOP_EMPTY), one reads "1 builder
+ * who ships", more "N builders who ship". Pure.
+ */
 export const benchLine = (n: number) =>
-  n === 1 ? '1 builder so far, ranked by what they shipped and who uses it.' : `${n.toLocaleString('en-US')} builders who ship, ranked by what they shipped and who uses it.`;
+  n <= 0 ? BENCH_TOP_EMPTY
+  : `${n.toLocaleString('en-US')} ${n === 1 ? 'builder who ships' : 'builders who ship'}, ranked by what they shipped and who uses it.`;
 export const BENCH_EMPTY = 'No one here yet.';
 export { FILTER_RAISING, FILTER_WEEKLY };
 

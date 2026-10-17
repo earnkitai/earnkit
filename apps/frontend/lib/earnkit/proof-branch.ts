@@ -7,6 +7,7 @@ import { repoEverDerived } from './github-verify';
 import { REPO_KEY, benchConfirmedSql, mainProjectOf } from './main-project';
 import { profileChanged } from './profile-cache';
 import { setFallback } from './profiles';
+import { hit } from './rate-limit';
 import { defaultReaderDeps, type ReaderDeps } from './source-readers';
 
 /**
@@ -46,6 +47,16 @@ export const PROOF_BRANCH_ISSUE_GAP_MS = 24 * 60 * 60_000;
 export const PROOF_BRANCH_MAX_PER_DAY = 5;
 /** Fix round 1: the cron clears used or expired codes issued longer ago than this. */
 export const PROOF_BRANCH_KEEP_MS = 7 * 24 * 60 * 60_000;
+/**
+ * v2.13.2 (1): an Organization's repo confirmed by a proof branch is confirmed for this long after
+ * `verified_at` (any member's push confirms it, and the pusher may since have lost push access). A
+ * User's repo (only its owner's push confirms it) never expires.
+ */
+export const ORG_PROOF_MAX_AGE_MS = 90 * 24 * 60 * 60_000;
+/** v2.13.2 (1): at most this many expired org proofs are returned to proposed per run. */
+export const ORG_PROOF_PER_RUN = 100;
+/** v2.13.2 (1): the reject_reason note on a repo source whose org proof expired (state 'proposed'). */
+export const STALE = 'stale';
 
 const BASE32 = 'abcdefghijklmnopqrstuvwxyz234567';
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -82,7 +93,8 @@ export type ProofBranch = { repo: string; branch: string; push: string; remove: 
  * Null: nothing to say about a branch (not a repo key, the code was used, or no code may be issued yet).
  */
 export type BranchState =
-  | { kind: 'checking'; proof: ProofBranch }
+  /** v2.13.2 (1): `again`, the repo's org proof expired (STALE): the reply says it's time to show it's still theirs. */
+  | { kind: 'checking'; proof: ProofBranch; again?: true }
   | { kind: 'failed' }
   | { kind: 'needs_agent' }
   | { kind: 'taken' }
@@ -244,15 +256,19 @@ export async function proofBranchFor(
     (await db<Last[]>`
       SELECT seed, expires_at, used_at, closed_at, issued_at FROM proof_branches WHERE builder_id = ${builderId} AND repo_key = ${k} ORDER BY issued_at DESC LIMIT 1`)[0];
   const dayAgo = new Date(now.getTime() - PROOF_BRANCH_ISSUE_GAP_MS);
+  // v2.13.2 (1): the repo's org proof expired (expireOrgProofs): a used code no longer settles it.
+  const [stale] = await sql()`
+    SELECT 1 FROM builder_sources WHERE builder_id = ${builderId} AND kind = 'repo' AND state = 'proposed' AND reject_reason = ${STALE} AND ${refKey(sql())} = ${k} LIMIT 1`;
+  const again = stale ? ({ again: true } as const) : {};
   // A code that expired unused (the branch never showed, or O5 N2 the agent said the push was refused):
   // no loop, the plain line for a day. O2 fix round 1 (ruling 2): a code closed because the one project
   // changed doesn't count. `undefined`: a new code may be issued.
   const settled = (last: Last | undefined): BranchState | undefined => {
     // A used code confirmed the repo; only a coin launch's fresh proof (fix round 2) asks again.
-    if (last?.used_at && !o.reproof) return null;
+    if (last?.used_at && !o.reproof && !stale) return null;
     if (last && !last.used_at && last.expires_at > now) {
       const code = codeOf(last.seed, secret);
-      return code ? { kind: 'checking', proof: proofOf(k, code) } : null;
+      return code ? { kind: 'checking', proof: proofOf(k, code), ...again } : null;
     }
     if (last && !last.used_at && !last.closed_at && !o.buildDeploy && last.issued_at > dayAgo) return { kind: 'failed' };
     return undefined;
@@ -279,7 +295,7 @@ export async function proofBranchFor(
     await tx`
       INSERT INTO proof_branches (code_hash, seed, builder_id, repo_key, issued_at, expires_at)
       VALUES (${sha256(code)}, ${seed}, ${builderId}, ${k}, ${now}, ${new Date(now.getTime() + PROOF_BRANCH_TTL_MS)})`;
-    return { kind: 'checking' as const, proof: proofOf(k, code) };
+    return { kind: 'checking' as const, proof: proofOf(k, code), ...again };
   });
 }
 
@@ -580,4 +596,40 @@ export async function proofBranchStep(
     DELETE FROM proof_branches
     WHERE issued_at < ${new Date(now.getTime() - PROOF_BRANCH_KEEP_MS)} AND (used_at IS NOT NULL OR expires_at <= ${now}) ${only}`;
   return { checked, confirmed, cleared: gone.count };
+}
+
+/**
+ * v2.13.2 (1): every Organization-owned repo source confirmed by a proof branch over
+ * ORG_PROOF_MAX_AGE_MS ago (at most `limit`, oldest first) goes back to 'proposed' with the note STALE,
+ * and its person is rescored at once (off the Bench until re-proven). The proof stays 'proof_branch', so
+ * discovery's not_owner verdict still never rejects it; find then issues a fresh proof branch
+ * (proofBranchFor: `again`). A pass of that branch verifies it again and clears the note. User-owned
+ * repos never expire.
+ */
+export async function expireOrgProofs(now: Date, o: { only?: number[]; limit?: number } = {}): Promise<{ expired: number }> {
+  const db = sql();
+  const only = o.only ? db`AND builder_id IN ${db(o.only.length ? o.only : [-1])}` : db``;
+  const gone = await db<{ builder_id: number }[]>`
+    UPDATE builder_sources SET state = 'proposed', reject_reason = ${STALE}
+    WHERE id IN (
+      SELECT id FROM builder_sources
+      WHERE kind = 'repo' AND state = 'verified' AND proof = 'proof_branch' AND gh_owner_type = 'Organization'
+        AND verified_at <= ${new Date(now.getTime() - ORG_PROOF_MAX_AGE_MS)} ${only}
+      ORDER BY verified_at, id LIMIT ${o.limit ?? ORG_PROOF_PER_RUN})
+      AND state = 'verified'
+    RETURNING builder_id::int AS builder_id`;
+  const people = [...new Set(gone.map((g) => g.builder_id))];
+  const { rescorePerson } = await import('./person-score');
+  for (const id of people) await rescorePerson(id, now);
+  if (people.length) profileChanged();
+  return { expired: gone.length };
+}
+
+/**
+ * v2.13.2 (1): the cron's daily expiry step (the hourly run, the first run of each UTC day; a run for
+ * `only` people runs for them and leaves the day's run alone). Bounded by ORG_PROOF_PER_RUN.
+ */
+export async function orgProofExpiryStep(now: Date, o: { only?: number[] } = {}): Promise<{ step: 'skipped' } | { expired: number }> {
+  if (!o.only && !(await hit(`orgProofExpiry:${now.toISOString().slice(0, 10)}`, 1, 86_400, now)).allowed) return { step: 'skipped' };
+  return expireOrgProofs(now, { only: o.only });
 }

@@ -459,10 +459,11 @@ test('O5 N11, P7 the claim page says what the Bench page is; the done page offer
 (globalThis as { React?: typeof React }).React = React;
 const html = (el: React.ReactElement) => renderToStaticMarkup(el).replace(/&#x27;/g, "'");
 
-test('O5 N16, P1, P10 the landing Bench with nobody on it says so; "1 builder so far"; the money heading includes investments', () => {
+test('O5 N16, P1, P10 the landing Bench with nobody on it says so; "1 builder who ships"; the money heading includes investments', () => {
   assert.ok(html(React.createElement(BenchTop, { rows: [], chips: [], raising: false })).includes(BENCH_TOP_EMPTY));
   assert.equal(BENCH_TOP_EMPTY, 'Nobody on the Bench yet. Add EarnKit to your agent and be first.');
-  assert.equal(benchLine(1), '1 builder so far, ranked by what they shipped and who uses it.');
+  // v2.13.2 (3): "1 builder who ships" (v2132-followups.test.ts covers 0, 1 and many).
+  assert.equal(benchLine(1), '1 builder who ships, ranked by what they shipped and who uses it.');
   assert.equal(benchLine(2), '2 builders who ship, ranked by what they shipped and who uses it.');
   const cards = html(React.createElement(ProgramCards, { tiles: [], bench: true }));
   assert.ok(cards.includes('Money open now'), cards);

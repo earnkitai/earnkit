@@ -285,7 +285,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
   const slow = Boolean(project && !project.confirmed && !branch) && !(await confirmingFast(id, now).catch(() => false));
   const view: BenchView = {
     project, rank: read.ranks.phrase, claimed: read.base.claimed, handle: read.base.handle, claimLink: read.base.claimLink,
-    branch: branch?.kind ?? null, slow, fund, ask, due: building ? [] : o.due,
+    branch: branch?.kind === 'checking' && branch.again ? 'recheck' : branch?.kind ?? null, slow, fund, ask, due: building ? [] : o.due,
     building: building ? building.name : null,
     page: read.base.claimed && read.base.handle ? `${siteUrl()}${pagePath(read.base.handle)}` : null,
   };

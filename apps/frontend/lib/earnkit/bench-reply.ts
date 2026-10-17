@@ -19,9 +19,10 @@ export type BenchView = {
    * refused, or EarnKit can't read the repo: O5 N2), `needs_agent` (fix round 1, ruling c: an agent that
    * can't push gets no code), `taken` (another person holds the repo) or `foreign` (O5 N2: a User's repo
    * whose owner isn't the login the agent reported, so no push of theirs can prove it); O5 fix round 1:
-   * `copy` (a fork or a template) or `unseen` (EarnKit's token can't read it: 404).
+   * `copy` (a fork or a template) or `unseen` (EarnKit's token can't read it: 404). v2.13.2 (1): `recheck`
+   * (checking, after an org repo's proof expired).
    */
-  branch?: 'checking' | 'failed' | 'needs_agent' | 'taken' | 'foreign' | 'copy' | 'unseen' | null;
+  branch?: 'checking' | 'recheck' | 'failed' | 'needs_agent' | 'taken' | 'foreign' | 'copy' | 'unseen' | null;
   /** Final fix I3: not confirmed and outside the hour of fast checks (main-project confirmingFast): no "a minute or two". */
   slow?: boolean;
   fund: FundLine[]; ask: BenchAsk | null;
@@ -48,6 +49,8 @@ export const confirmingLine = (name: string) => `${name} joins the Bench as soon
 export const confirmingSlowLine = (name: string) => `${name} joins the Bench once I've confirmed it's yours. I check again every day.`;
 /** v2.13.1 O1: the proof branch, told to the builder in one line (no question). */
 export const checkingBranchLine = (name: string) => `I'll check ${name} is yours with a quick temporary branch on GitHub. It's removed right after.`;
+/** v2.13.2 (1): an org repo's proof expired after 90 days; a fresh branch is checking (no question). */
+export const stillYoursLine = (name: string) => `Time to show ${name} is still yours: I'll check with a quick temporary branch on GitHub.`;
 /** v2.13.1 O1: the branch never showed within the hour (the agent couldn't push): no loop, no proof line. O5 N8: the agent's own voice. */
 export const cantShowLine = (name: string) => `I couldn't show ${name} is yours. It needs a project you can push to.`;
 /** v2.13.1 O5 N2: a User's repo under another GitHub account than the one the agent reported. */
@@ -148,6 +151,7 @@ function standLines(v: BenchView): string[] {
   if (!p.confirmed) {
     const first =
       v.branch === 'checking' ? checkingBranchLine(p.name)
+      : v.branch === 'recheck' ? stillYoursLine(p.name)
       : v.branch === 'failed' ? cantShowLine(p.name)
       : v.branch === 'needs_agent' ? needsAgentLine(p.name)
       : v.branch === 'taken' ? takenLine(p.name)
