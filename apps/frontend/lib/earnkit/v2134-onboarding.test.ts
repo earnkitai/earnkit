@@ -19,6 +19,8 @@ import {
 import { CLAIM_NOTE, displayName, fundNeeds } from './bench-find';
 import { checkLive, liveDefaults, parkedPage } from './live-check';
 import { pageUrl } from './reserved-routes';
+import { benchIdentity, identityInput } from './identity-input';
+import { localGitInput } from './discovery';
 import type { XOAuthDeps, XUser } from './x-oauth';
 
 /**
@@ -1124,4 +1126,31 @@ test('REG.2 the one click deletes the newcomer\'s harmless leftovers too (answer
     assert.equal((await confirmJoin(tok!, t.s.cookie)).status, 200);
     for (const table of ['answer_bank', 'token_declines', 'builder_program_status'])
       assert.equal((await sql().unsafe(`SELECT 1 FROM ${table} WHERE installation_id = $1`, [t.cand])).length, 0, table);
+  }));
+
+// ---- Production follow-up: the old fields' local_repos entry carries its live link and name ------
+
+test('P.1 old fields with local_repos[{ remote, live_url }]: the entry fills identity.project, so the site names it "EarnKit" and nothing says "once it\'s live", on the first and second find', dbTest, () =>
+  on(async () => {
+    const was = liveDefaults.probe;
+    liveDefaults.probe = async () => '<html><head><title>EarnKit | Where agents earn</title></head><body>Builders ship and get funded.</body></html>';
+    try {
+      const id = await install();
+      const gh = fakeGitHub();
+      gh.repos['earnkitai/earnkit'] = { owner: { login: 'earnkitai', type: 'Organization' } };
+      const input = { github_user: 'jenil04', repos: ['earnkitai/earnkit'], local_repos: [{ remote: 'https://github.com/earnkitai/earnkit', live_url: 'https://earnkit.com' }] };
+      for (const n of [1, 2]) {
+        const r = await find(id, input, { ...NO_MATCH, proofBranchFetch: gh.f });
+        assert.match(r.show_to_builder, /\bEarnKit\b/, `find ${n}: ${r.show_to_builder}`);
+        assert.doesNotMatch(r.show_to_builder, /\bEarnkit\b/, `find ${n}`);
+        assert.doesNotMatch(r.show_to_builder, /once it's live|once your app is live/, `find ${n}: ${r.show_to_builder}`);
+      }
+      const [p] = await sql()<{ identity: { projects?: { repo: string | null; live_url: string | null }[] } }[]>`SELECT identity FROM builder_profiles WHERE builder_id = ${id}`;
+      assert.deepEqual(p.identity.projects?.map((x) => [x.repo, x.live_url]), [['earnkitai/earnkit', 'https://earnkit.com']]);
+      // The pure mapping: remote (or url, or repo) names the entry; its name fills the project's name.
+      const m = benchIdentity({ identity: identityInput({}), project: null, local_git: localGitInput(undefined), repos: ['a/b'], local_repos: [{ name: 'My App', remote: 'git@github.com:a/b.git', live_url: 'https://b.app' }] });
+      assert.deepEqual(m.project && [m.project.name, m.project.repo, m.project.live_url], ['My App', 'a/b', 'https://b.app']);
+    } finally {
+      liveDefaults.probe = was;
+    }
   }));
