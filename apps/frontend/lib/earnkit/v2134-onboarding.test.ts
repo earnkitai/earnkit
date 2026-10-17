@@ -810,7 +810,7 @@ test('R8.1 a fresh, empty installation joins with one click; the link carries no
     assert.equal((await sql()`SELECT 1 FROM builder_profiles WHERE builder_id = ${j.joiner}`).length, 0, 'its empty profile is not merged, just dropped');
   }));
 
-test('R8.2 not fresh or empty: a wallet, a payout wallet, a verification, an open verify nonce, a source, an entry, a coin offer or another member: no one click; the two-agent yes; nothing reaches the page', dbTest, () =>
+test('R8.2 not fresh or empty: a wallet, a payout wallet, a verification, an open verify nonce, a verified source, an entry, a coin offer or another member: no one click; the two-agent yes; nothing reaches the page', dbTest, () =>
   on(async () => {
     const cases: [string, (c: number) => Promise<unknown>][] = [
       ['wallet', (c) => sql()`INSERT INTO installation_wallets (installation_id, wallet) VALUES (${c}, ${W('a')})`],
@@ -818,7 +818,7 @@ test('R8.2 not fresh or empty: a wallet, a payout wallet, a verification, an ope
       ['payout wallet', (c) => sql()`UPDATE installations SET payout_wallet = ${W('b')} WHERE id = ${c}`],
       ['verification', (c) => sql()`INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose) VALUES (${`${uniq('v')}/r`}, ${uniq('gh')}, ${c}, now() - interval '2 years', 3, 'claim')`],
       ['open nonce', (c) => sql()`INSERT INTO github_verify_nonces (nonce_hash, installation_id, repo_key, purpose, expires_at) VALUES (${randomBytes(32).toString('hex')}, ${c}, ${`${uniq('n')}/r`}, 'app', now() + interval '1 hour')`],
-      ['source', (c) => sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proposed_by) VALUES (${c}, 'repo', ${`${uniq('s')}/r`}, ${`${uniq('s')}/r`}, 'proposed', 'agent')`],
+      ['verified source', (c) => sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by, verified_at) VALUES (${c}, 'repo', ${`${uniq('s')}/r`}, ${`${uniq('s')}/r`}, 'verified', 'proof_line', 'agent', now())`],
       ['entry', (c) => sql()`INSERT INTO projects (program_id, name, installation_id) VALUES ('earnkit-coin', 'Thing', ${c})`],
       ['token offer', (c) => sql()`INSERT INTO token_offers (installation_id, program_id, entry_key, offered_name, offered_ticker) VALUES (${c}, 'earnkit-coin', 'k', 'Thing', 'THING')`],
       ['coin moment', (c) => sql()`INSERT INTO coin_moments (builder_id, project_key, moment) VALUES (${c}, 'a/b', 'countable')`],
@@ -928,4 +928,72 @@ test('R8.8 one probation tell with an update and a refused part: one reply, one 
     const r = await tell({ update: { text: 'Added the fridge photo import.' }, profile: 'hide' }, asJoiner(j));
     endsOnOne(r.show_to_builder, 'combined');
     assert.ok(r.show_to_builder.includes(PROBATION_LINES.write.split('\n')[0]), r.show_to_builder);
+  }));
+
+// ---- R9: agent-reported, unproven data never blocks the one click; it is discarded at the join ----
+
+test('R9.1 a realistic reconnect (the first find reports the repo and a GitHub login) gets the one click; nothing it reported is merged; the next find shows "Linked to your page" with the page\'s project', dbTest, () =>
+  on(async () => {
+    const login = uniq('jenil').toLowerCase();
+    const key = `${uniq('earnkitai')}/earnkit`;
+    const handle = uniq('r9h').slice(0, 15);
+    const holder = await person({ main: key, claimed: handle, projects: [{ key, name: 'Earnkit', confirmed: true }] });
+    const [before] = await sql()<{ identity: unknown; reported: string | null; n: number }[]>`
+      SELECT identity, reported_github AS reported, (SELECT count(*)::int FROM builder_sources WHERE builder_id = ${holder}) AS n FROM builder_profiles WHERE builder_id = ${holder}`;
+    const cand = await install();
+    const gh = fakeGitHub();
+    gh.repos[key] = { owner: { login: key.split('/')[0], type: 'Organization' } };
+    const r = await find(cand, { agent_can_build: true, github_user: login, local_repos: [{ name: 'earnkit', url: `https://github.com/${key}` }] }, { ...NO_MATCH, proofBranchFetch: gh.f });
+    const [rep] = await sql()<{ n: number; reported: string | null }[]>`
+      SELECT (SELECT count(*)::int FROM builder_sources WHERE builder_id = ${cand} AND state = 'proposed') AS n, reported_github AS reported FROM builder_profiles WHERE builder_id = ${cand}`;
+    assert.ok(rep.n > 0 && rep.reported === login, 'the agent reported a project and a login');
+    const s = await signIn(r.claim!.link, { id: `x${holder}`, username: handle, name: 'Maya', avatar: null });
+    const t = offerOf(s.body);
+    assert.ok(t, `the one click: ${s.body}`);
+    assert.equal((await confirmJoin(t!, s.cookie)).status, 200);
+    assert.equal(await rootOf(cand), holder);
+    const [after] = await sql()<{ identity: unknown; reported: string | null; n: number }[]>`
+      SELECT identity, reported_github AS reported, (SELECT count(*)::int FROM builder_sources WHERE builder_id = ${holder}) AS n FROM builder_profiles WHERE builder_id = ${holder}`;
+    assert.deepEqual(after, before, 'nothing it reported reached the page');
+    assert.equal((await sql()`SELECT 1 FROM builder_sources WHERE builder_id = ${cand}`).length, 0, 'its reports are discarded');
+    assert.equal((await sql()`SELECT 1 FROM claim_codes WHERE builder_id = ${cand}`).length, 0);
+    const f = await findAs(cand, { agent_can_build: true, github_user: login, local_repos: [{ name: 'earnkit', url: `https://github.com/${key}` }] }, { proofBranchFetch: gh.f });
+    assert.match(f.show_to_builder, /Linked to your page: /, f.show_to_builder);
+    assert.match(f.show_to_builder, /^Earnkit is on the Bench/m, f.show_to_builder);
+    assert.doesNotMatch(f.show_to_builder, /can't change your project/, 'the same project is no change');
+  }));
+
+// ---- TOCTOU (scan): each check and its write in one transaction, with locks --------------------
+
+test('C.1 two concurrent yeses to the same notice: exactly one detaches', dbTest, () =>
+  on(async () => {
+    const second = await install();
+    const j = await joinedPage({ extra: second });
+    const pk = (await noticeFind(j, j.holder)).move_up!.project_key!;
+    const [a, b] = await Promise.all([answer(j, j.holder, pk, 'yes'), answer(j, second, pk, 'yes')]);
+    const done = [a, b].filter((r) => r.show_to_builder.startsWith('Done.'));
+    assert.equal(done.length, 1, `${a.show_to_builder}\n---\n${b.show_to_builder}`);
+    const [{ n }] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_events WHERE type = 'page_detached' AND installation_id = ${j.holder}`;
+    assert.ok(n <= 1);
+  }));
+
+test('C.2 the emptiness check and the link are one locked step: data the newcomer gains while the click waits refuses the join', dbTest, () =>
+  on(async () => {
+    const t = await pageAndCandidate(async () => undefined);
+    const tok = offerOf(t.s.body)!;
+    let release!: () => void;
+    const hold = new Promise<void>((r) => (release = r));
+    // Another transaction gives the newcomer a wallet and holds it open while the click runs.
+    const writer = sql().begin(async (tx) => {
+      await tx`INSERT INTO installation_wallets (installation_id, wallet) VALUES (${t.cand}, ${W('d')})`;
+      await hold;
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    const click = confirmJoin(tok, t.s.cookie);
+    await new Promise((r) => setTimeout(r, 150));
+    release();
+    await writer;
+    assert.notEqual((await click).status, 200);
+    assert.notEqual(await rootOf(t.cand), t.holder);
+    assert.equal((await sql()`SELECT 1 FROM page_joins WHERE ${t.cand}::int = ANY(members)`).length, 0);
   }));
