@@ -783,7 +783,7 @@ test('R7.5 (item 8) a newcomer on probation can\'t pull a third installation ont
     assert.ok(r.show_to_builder.startsWith(PROBATION_LINES.write.split('\n')[0]), r.show_to_builder);
     endsOnOne(r.show_to_builder, 'pickup');
     assert.notEqual(await rootOf(third), j.holder, 'not pulled onto the page');
-    assert.ok(await pendingJoinOf(third), 'still waiting for the owner');
+    assert.ok(await pendingJoinOf(j.holder), 'still waiting for the owner');
     // The owner's own yes still works.
     await tell({ pickup: 'yes' }, asHolder(j));
     assert.equal(await rootOf(third), j.holder);

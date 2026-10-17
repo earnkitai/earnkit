@@ -149,7 +149,7 @@ import { hideUpdate, postUpdate, setUpdates } from './updates';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { benchIdentity, benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
 import { CONFIRMING_REFRESH_MS, REPO_KEY, confirmingFast, dropMainProject, fillGithubUser, mainProjectOf, setMainProject } from './main-project';
-import { benchAsked, benchFind, benchMoveUp, keepBenchMatch, keptBenchMatch } from './bench-find';
+import { BENCH_MOVE_UP_NOTE, benchAsked, benchFind, benchMoveUp, keepBenchMatch, keptBenchMatch } from './bench-find';
 import { REPLY_WAIT_MS, ReplyLate, inTime } from './reply-wait';
 import { setRaising } from './raising';
 import { SEND_LINK_NOTE, scoreReply } from './score-tool';
@@ -164,7 +164,7 @@ import { verifiedProject } from './builder-score';
 import { COIN_NOTE, COIN_PROGRAM, builtLiveAnswer, coinLine, coinNo, coinOfferable, coinOpen, coinPitchAllowed, coinYes, offerCoin, showBuiltLive } from './coin-moments';
 import { sql } from './db';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
-import { NEW_AGENT_LINES, newlyJoined } from './page-joins';
+import { PROBATION_LINES, onProbation } from './page-joins';
 import { JOIN_TEXT, answerJoin, joinQuestion, answerPickup, askJoin, offerPickup, pendingJoinOf, type PickupDeps } from './identity';
 import type { FieldKind } from './program-file';
 import type { ProgramRow } from './programs';
@@ -219,7 +219,25 @@ export type ToolContext = {
   readerDeps?: ReaderDeps;
   /** v2.13.1 O1: test injection only: the proof branch's GitHub reads (proof-branch.ts checkProofBranch). */
   proofBranchFetch?: typeof fetch;
+  /**
+   * v2.13.4 R7: the caller's own installation joined this page by R1 under 24 hours ago: it may only post
+   * updates (page-joins.ts). Set by the builder tools (withProbation); never by the MCP route.
+   */
+  probation?: boolean;
 };
+
+/** v2.13.4 R7: the context with `probation` filled (Bench only). Never throws (a failed read is not probation). */
+export async function withProbation(ctx: ToolContext): Promise<ToolContext> {
+  if (!benchEnabled() || ctx.probation !== undefined) return ctx;
+  const own = ctx.ownInstallationId ?? ctx.installationId;
+  return { ...ctx, probation: own !== ctx.installationId && (await onProbation(own).catch(() => false)) };
+}
+
+/** v2.13.4 R7: a write refused on probation: one line, then one question whose yes is this week's update. */
+async function probationReply(ctx: ToolContext, kind: 'main' | 'write'): Promise<Reply> {
+  const main = await mainProjectOf(ctx.installationId).catch(() => null);
+  return { show_to_builder: PROBATION_LINES[kind], ...(main && { move_up: { kind: 'post_update', project_key: main, agent_note: BENCH_MOVE_UP_NOTE } }) };
+}
 
 /**
  * v2.11 T7: the no-repo lead's switches. Deploys on a chain need the deployer key, the chain in
@@ -1322,7 +1340,8 @@ export const handlers = {
     // call's details are saved. Never fails the tool.
     // Fix rounds 1, 2: in its place, each group of a pending join (another agent proved its GitHub or
     // X) sees that one yes first, once (identity.ts askJoin).
-    const join = scoring
+    // v2.13.4 R7: on probation, find writes nothing to the page (no join answered, no identity, no proof).
+    const join = scoring && !ctx.probation
       ? await askJoin(ctx.installationId).catch((err: unknown) => {
           console.error('[list_programs] join', err instanceof Error ? err.name : 'error');
           return null;
@@ -1343,12 +1362,12 @@ export const handlers = {
             return null;
           })
         : null;
-    if (wallet) await rememberWallets(ctx.installationId, [wallet]);
+    if (wallet && !ctx.probation) await rememberWallets(ctx.installationId, [wallet]);
     // v2.12 spec 1, 3: the public profile (made on the first find; named by the first remembered
     // wallet until a login is proven) and its clues. Never fails the tool and never waits on a read.
     // A shared group gets none (R2).
     let profiled = false as boolean;
-    /** v2.13.4 R6 (4): this newly joined agent named another project; it stays and the reply says why. */
+    /** v2.13.4 R7: this agent on probation named another project; it stays and the reply says why. */
     let holdMain = false as boolean;
     // v2.12.1 T8 (spec 2): the person's own public data is re-read inside this call, within its
     // budget, in parallel with the reads below (stand-view.ts startRefresh). Never fails the tool.
@@ -1361,15 +1380,20 @@ export const handlers = {
         if (!made) return;
         profiled = true;
         if (made.created || wallet) await setFallback(ctx.installationId, {});
+        if (benchEnabled() && ctx.probation) {
+          // v2.13.4 R7: a newcomer on probation reads the page as it is: no main project, identity or
+          // proof writes, no proof check. Naming another project is refused in one line (the reply's ask
+          // is this week's update).
+          const current = await mainProjectOf(ctx.installationId);
+          if (project && (!current || current.toLowerCase() !== projectKeyOf(project).toLowerCase())) holdMain = true;
+          refresh.started = startRefresh(ctx.installationId, { now, start, reader: ctx.readerDeps });
+          return;
+        }
         if (benchEnabled()) {
           // v2.13 R1: the one project only; only its sources proposed and github_user filled (B3).
           // v2.13.1 O2 (B6): a different project replaces it until it is Bench-confirmed; after that it is
           // set once (B2) and a different project is stored in identity only.
-          // v2.13.4 R6 (4): a newly joined agent can't change the main project (a page with none may get one).
-          const current = project ? await mainProjectOf(ctx.installationId) : null;
-          const differs = Boolean(project && current && current.toLowerCase() !== projectKeyOf(project).toLowerCase());
-          if (differs && (await newlyJoined(ctx.ownInstallationId ?? ctx.installationId))) holdMain = true;
-          const main = project && !holdMain ? await setMainProject(ctx.installationId, project) : null;
+          const main = project ? await setMainProject(ctx.installationId, project) : null;
           const isMain = Boolean(project && main && main.key.toLowerCase() === projectKeyOf(project).toLowerCase());
           if (isMain && project?.repo) await fillGithubUser(ctx.installationId, project.repo, identity.github_login);
           await noteIdentity(ctx.installationId, { ...identity, projects: project ? [project] : [] }, now, { propose: isMain });
@@ -1389,7 +1413,7 @@ export const handlers = {
     // v2.9 B9, Rulings G6, G7, G9: on a shared client, the GitHub-verified login of the pasted code.
     const login = await sharedLogin(ctx, signed_in, 'list_programs');
     const [memory, openPrograms, campaigns, told] = await Promise.all([
-      checkPrograms(ctx.installationId, { github_user, repos, local_repos }),
+      checkPrograms(ctx.installationId, ctx.probation ? {} : { github_user, repos, local_repos }),
       listPrograms(),
       earnkitCampaignRows(ctx.installationId),
       // v2.9 A3: what the builder told EarnKit, read once per call (G6: a shared client's verified login's).
@@ -1560,7 +1584,7 @@ export const handlers = {
     );
     // EarnKit wins come from the alerts engine (shown once); sponsor wins from here, placed right
     // after them (money first). Read last, so nothing after it can throw away the news.
-    const alerts = own
+    const alerts = own && !ctx.probation
       ? await alertsFor(ctx.installationId, { offer: true, otherWins: entries.wins })
       : { lines: [] as string[], scheduleNote: null };
 
@@ -1600,7 +1624,7 @@ export const handlers = {
       wonUsd: await wonSource.read(),
       // v2.10 item 15 (R12, Pre-flight P19): after "Your entries"; the same entries (a shared
       // client's only for its verified login, none without one).
-      deadline: await takeDeadlineLine(ctx.installationId, myEntries),
+      deadline: ctx.probation ? null : await takeDeadlineLine(ctx.installationId, myEntries),
       more: more === true,
       // v2.11 T7: the no-repo lead's switches; off (no pick) unless deploys and hosting are on.
       fresh: freshSwitches(ctx, agent_can_build),
@@ -1610,7 +1634,7 @@ export const handlers = {
     // question. Never fails the tool (the entry is then asked on a later call). v2.10 Ruling H10
     // (I3): one question per reply, pickup first, then this one, then the lead's: with a pickup it
     // waits (not read, so not marked asked).
-    const ask = pickup || (!own && !loginEntries?.length) ? null : await outcomeToAsk(ctx.installationId, undefined, loginEntries ?? undefined).catch((err: unknown) => {
+    const ask = pickup || ctx.probation || (!own && !loginEntries?.length) ? null : await outcomeToAsk(ctx.installationId, undefined, loginEntries ?? undefined).catch((err: unknown) => {
       console.error('[list_programs] outcome ask', err instanceof Error ? err.name : 'error');
       return null;
     });
@@ -1635,7 +1659,7 @@ export const handlers = {
       // v2.13 T8: the Bench's three parts (bench-find.ts), with what standFind's reply also carries.
       const r = await benchFind(ctx, {
         start, proofCheck: refresh.proofCheck, first, cards: shownCards, repos: yourRepos, myEntries, pickup, ask, alerts, agentCanBuild: agent_can_build, hide, project,
-        notice: holdMain ? NEW_AGENT_LINES.main : null,
+        notice: holdMain ? PROBATION_LINES.main.split('\n')[0] : null,
       });
       const offer = r.build_offer as { program_id: string; starter_id: string; can_build: boolean } | undefined;
       return {
@@ -3530,10 +3554,7 @@ async function coinAnswer(ctx: ToolContext, c: { project_key: string; answer: 'y
     return { show_to_builder: COUNT_LINES.noted };
   }
   if (c.wallet !== undefined && !isWalletAddress(c.wallet.trim())) return { show_to_builder: '', agent_note: COIN_WALLET_NOTE };
-  // v2.13.4 R6 (4): an agent that joined the page by R1 less than a day ago can't open a community round.
-  const own = ctx.ownInstallationId ?? id;
-  if (benchEnabled() && (await newlyJoined(own))) return { show_to_builder: NEW_AGENT_LINES.coin };
-  const r = await coinYes(id, c.project_key, c.wallet ?? null, { check: ctx.tokenDeps?.check, own });
+  const r = await coinYes(id, c.project_key, c.wallet ?? null, { check: ctx.tokenDeps?.check });
   return 'project_id' in r ? { show_to_builder: '', ...r } : r;
 }
 
@@ -3842,7 +3863,8 @@ export const withoutBonusLine = (text: string) =>
 /** The agent tools (v2.10 item 4): the MCP server forwards each call here; each dispatches to `handlers`. */
 export const tools = {
   // What can I earn (list_programs), or one program and its guide (get_program).
-  find: async (input: unknown, ctx: ToolContext) => {
+  find: async (input: unknown, ctx0: ToolContext) => {
+    const ctx = await withProbation(ctx0);
     const { program_id, repo, ...parsed } = FindInput.parse(input ?? {});
     // v2.13.3 (1): local_repos as the agent sent it (list_programs reads it again), so a live link the
     // matcher drops (a placeholder host such as earnkit.com) still reaches the Bench's identity.
@@ -3868,7 +3890,10 @@ export const tools = {
   // so the reply's contract check sees it (item 13: "goes straight into the A5 check") and never says
   // "No contract found" next to the deployed line. The program is read first, so an unknown one
   // spends nothing; a draft that fails after a deploy still returns the deploy.
-  prepare: async (input: unknown, ctx: ToolContext) => {
+  prepare: async (input: unknown, ctx0: ToolContext) => {
+    // v2.13.4 R7: entries, builds, deploys and hosting are writes a newcomer on probation can't make.
+    const ctx = await withProbation(ctx0);
+    if (ctx.probation) return probationReply(ctx, 'write');
     // v2.11 T8: the build path (plan S7).
     let join: BuildJoin | undefined;
     if (input && typeof input === 'object' && 'build' in input) {
@@ -3907,7 +3932,10 @@ export const tools = {
   },
 
   // R15: the builder's yes (or skip the token) to the confirm line; or an entry's token (project_id).
-  confirm: async (input: unknown, ctx: ToolContext) => {
+  confirm: async (input: unknown, ctx0: ToolContext) => {
+    // v2.13.4 R7: entries and every coin launch are writes a newcomer on probation can't make.
+    const ctx = await withProbation(ctx0);
+    if (ctx.probation) return probationReply(ctx, 'write');
     const c = ConfirmInput.parse(input);
     const tokenEdits = c.token ?? {};
     const image = defined({ image_data: c.image_data, image_url: c.image_url, builder_x: c.builder_x });
@@ -3968,12 +3996,26 @@ export const tools = {
   },
 
   // R16: what the builder said: pickup, then "I submitted", then statements; replies joined.
-  tell: async (input: unknown, ctx: ToolContext) => {
+  tell: async (input: unknown, ctx0: ToolContext) => {
     // v2.12.1 T8: x_handle is no longer taken with the flag on (the page's handle is the X claim's);
     // it is ignored, as with the flag off (v2.11).
+    const ctx = await withProbation(ctx0);
     const { pickup, submitted, signed_in, profile, x_handle, card, move_up, coin, update, updates, proof, ...rest } = TellToolInput.parse(input ?? {});
     void x_handle;
     const statements = defined(rest);
+    // v2.13.4 R7: on probation the only write is posting an update (updates.ts refuses one over another
+    // installation's); a move_up answer goes to benchMoveUp, which allows only the week's update. Every
+    // other part is refused in one line and one question (not_mine: the project line).
+    if (ctx.probation) {
+      const out: Reply[] = [];
+      if (update?.text !== undefined) out.push(await postUpdate(ctx.installationId, update.text, new Date(), ctx.ownInstallationId ?? ctx.installationId, { probation: true }));
+      if (move_up) out.push(await benchMoveUp(ctx, move_up)); // never the coin or go-live yes (moveUpAnswer)
+      const facts = TellInput.safeParse(defined({ ...statements, signed_in }));
+      const notMine = facts.success && (facts.data.repo_facts ?? []).some((f) => f.not_mine === true);
+      const refused = Boolean(pickup !== undefined || submitted || profile || card || coin || updates || proof || update?.hide !== undefined || Object.keys(statements).length > 0);
+      if (refused || out.length === 0) out.push(await probationReply(ctx, notMine ? 'main' : 'write'));
+      return joinReplies(out);
+    }
     const replies: Reply[] = [];
     // v2.12 spec 8: "hide" and "show". v2.12.1 T8: the card and the move-up answers. Flag off: ignored (v2.11).
     if (builderScoreEnabled() && ctx.sharedClient && (profile || card || move_up || coin || update || updates || proof))
@@ -3987,9 +4029,7 @@ export const tools = {
       if (coin)
         replies.push(
           coin.raising !== undefined && raisingEnabled()
-            ? coin.raising && (await newlyJoined(ctx.ownInstallationId ?? ctx.installationId))
-              ? { show_to_builder: NEW_AGENT_LINES.coin }
-              : await setRaising(ctx.installationId, coin.raising)
+            ? await setRaising(ctx.installationId, coin.raising)
             : coin.answer && coin.project_key
               ? await coinAnswer(ctx, { project_key: coin.project_key, answer: coin.answer, wallet: coin.wallet })
               : { show_to_builder: COUNT_LINES.noted },
@@ -4013,11 +4053,6 @@ export const tools = {
     const facts = benchEnabled() && !ctx.sharedClient && statements.repo_facts !== undefined ? TellInput.safeParse(defined({ ...statements, signed_in })) : null;
     for (const f of facts?.success ? (facts.data.repo_facts ?? []) : [])
       if (f.not_mine === true) {
-        // v2.13.4 R6 (4): a newly joined agent can't change the main project.
-        if (await newlyJoined(ctx.ownInstallationId ?? ctx.installationId)) {
-          replies.push({ show_to_builder: NEW_AGENT_LINES.main });
-          continue;
-        }
         await dropMainProject(ctx.installationId, saidKey(f.repo)).catch((err: unknown) =>
           console.error('[tell] not mine', err instanceof Error ? err.name : 'error'),
         );
@@ -4030,10 +4065,11 @@ export const tools = {
   },
 
   // v2.12 spec 7: the builder's score (registered in mcp.ts only while EARNKIT_BUILDER_SCORE=on).
-  score: async (_input: unknown, ctx: ToolContext) => {
+  score: async (_input: unknown, ctx0: ToolContext) => {
     // v2.12.1 fix rounds 1, 2: a pending join's one yes is asked once (pick_up, answered through tell).
     // T8: it is the reply's one question, last; the step up waits a reply.
-    const join = builderScoreEnabled() && !ctx.sharedClient ? await askJoin(ctx.installationId) : null;
+    const ctx = await withProbation(ctx0);
+    const join = builderScoreEnabled() && !ctx.sharedClient && !ctx.probation ? await askJoin(ctx.installationId) : null;
     const scored = await scoreReply(ctx, new Date(), { hold: Boolean(join), reader: ctx.readerDeps, fresh: freshSwitches(ctx, true) });
     // v2.13.1 O2: under the Bench, build_offer carries no note (move_up is the one route).
     const offer = scored.build_offer;

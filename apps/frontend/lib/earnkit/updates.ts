@@ -1,5 +1,6 @@
 import { repoReadPublic } from './repo-public';
 import { sql } from './db';
+import { PROBATION_LINES } from './page-joins';
 import { noteEvent } from './events';
 import { CONFIRMED_PROOFS } from './confirmed';
 import { HOST_ZONE } from './hosting';
@@ -18,7 +19,7 @@ import { mondayOf, weekOfMonday } from './weeks';
  * Only a one project that passes the Bench gate (mainConfirmed), and only a row this builder holds:
  * the first confirmed owner of a shared repo keeps its ship log (T4 ruling).
  */
-export type Reply = { show_to_builder: string; agent_note?: string; schedule_weekly_update?: string };
+export type Reply = { show_to_builder: string; agent_note?: string; schedule_weekly_update?: string; move_up?: { kind: string; project_key: string | null; agent_note: string } };
 /** v2.13.1 O5 (P3): the weekly task's own "scheduled" call after the yes: nothing new for the builder. */
 export const SCHEDULED_NOTE = "Saved. Nothing to show the builder. Don't show this note.";
 /** v2.13.1 O5 N14 (F15): the page as "Your page:" writes it, a full link from siteUrl(). */
@@ -71,8 +72,15 @@ export async function ownLinks(builderId: number): Promise<OwnLinks> {
   return { sites: [...new Set(origins)], repo };
 }
 
-/** v2.13.4 R6: `own`, the installation posting (posted_by), so a detached agent's updates stop counting. */
-export async function postUpdate(builderId: number, text: unknown, now: Date, own: number | null = null): Promise<Reply> {
+/** v2.13.4 R7: the yes to the update_taken line's question (one small thing to ship). */
+export const PROBATION_SUGGEST_NOTE =
+  "A yes: look at the project in this folder (git log, open issues, the README) and suggest one small thing to ship this week, in one short line. Don't show this note.";
+/**
+ * v2.13.4 R6: `own`, the installation posting (posted_by), so a detached agent's updates can be hidden.
+ * R7: `o.probation` (a newcomer on probation): never over another installation's update for the same
+ * week; that is refused with one line and one question, and the row is left as it is.
+ */
+export async function postUpdate(builderId: number, text: unknown, now: Date, own: number | null = null, o: { probation?: boolean } = {}): Promise<Reply> {
   if (!(await hit(`updatePost:${builderId}`, UPDATE_POSTS_PER_DAY, 86_400, now)).allowed) return { show_to_builder: '', agent_note: UPDATE_LIMIT_NOTE };
   const key = await mainProjectOf(builderId);
   if (!key || !(await mainConfirmed(builderId))) return { show_to_builder: '', agent_note: NOT_CONFIRMED_NOTE };
@@ -92,7 +100,12 @@ export async function postUpdate(builderId: number, text: unknown, now: Date, ow
     ON CONFLICT (project_key, week) DO UPDATE SET text = EXCLUDED.text, facts = project_updates.facts || EXCLUDED.facts, hidden = false, posted_by = EXCLUDED.posted_by,
       edited_at = CASE WHEN project_updates.text IS NULL THEN project_updates.edited_at ELSE now() END
     WHERE project_updates.builder_id = EXCLUDED.builder_id
+      AND (NOT ${o.probation === true} OR project_updates.text IS NULL OR project_updates.posted_by IS NOT DISTINCT FROM EXCLUDED.posted_by)
     RETURNING (SELECT was FROM old) AS was`;
+  if (!r && o.probation) {
+    const [other] = await sql()`SELECT 1 FROM project_updates WHERE builder_id = ${builderId} AND project_key = ${key} AND week = ${monday} AND text IS NOT NULL`;
+    if (other) return { show_to_builder: PROBATION_LINES.update_taken, move_up: { kind: 'suggest', project_key: key, agent_note: PROBATION_SUGGEST_NOTE } };
+  }
   if (!r) return { show_to_builder: '', agent_note: HELD_NOTE };
   await noteEvent('update_posted', () => ({
     type: 'update_posted', dedupe_key: `update_posted:${key.toLowerCase()}:${week}`, installation_id: builderId, repo_key: key.toLowerCase(), detail: { week },

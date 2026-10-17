@@ -80,7 +80,7 @@ export function claimCode(builderId: number, secret = process.env.EARNKIT_AUTH_S
 }
 
 /** The reply's claim link, or null: X off, a shared group, no profile, or claimed with a handle. Stores only the code's hash. */
-export async function claimLink(builderId: number): Promise<string | null> {
+export async function claimLink(builderId: number, mintedBy: number = builderId): Promise<string | null> {
   if (!builderScoreEnabled() || !xSignInEnabled() || (await sharedGroup(builderId))) return null;
   const [p] = await sql()<{ x_user_id: string | null; x_handle: string | null; blocked: boolean }[]>`
     SELECT x_user_id, x_handle, EXISTS (SELECT 1 FROM x_owner_clears c WHERE c.x_user_id = p.x_user_id) AS blocked
@@ -90,7 +90,9 @@ export async function claimLink(builderId: number): Promise<string | null> {
   if (!p || (p.x_user_id && p.x_handle) || p.blocked) return null;
   const code = claimCode(builderId);
   if (!code) return null;
-  await sql()`INSERT INTO claim_codes (code_hash, builder_id) VALUES (${sha256(code)}, ${builderId}) ON CONFLICT (code_hash) DO NOTHING`;
+  // v2.13.4 R7: the installation that last asked for the link (the R1 page names it), not the group root.
+  await sql()`INSERT INTO claim_codes (code_hash, builder_id, minted_by) VALUES (${sha256(code)}, ${builderId}, ${mintedBy})
+    ON CONFLICT (code_hash) DO UPDATE SET minted_by = EXCLUDED.minted_by`;
   // v2.13.1 O1 (B2): under the Bench flag a full https link from siteUrl(); flag off, today's.
   return benchEnabled() ? `${siteUrl()}/claim/${code}` : `earnkit.com/claim/${code}`;
 }
@@ -274,7 +276,10 @@ export async function xCallback(request: Request, deps: RouteDeps & { x?: XOAuth
       console.error('[x/callback] offer', err instanceof Error ? err.name : 'error');
       return null;
     });
-    const [agent] = await sql()<{ name: string | null; at: Date }[]>`SELECT client_name AS name, created_at AS at FROM installations WHERE id = ${target}`;
+    // R7: the installation that minted this claim link (claim_codes.minted_by), else the group root.
+    const [agent] = await sql()<{ name: string | null; at: Date }[]>`
+      SELECT i.client_name AS name, i.created_at AS at FROM installations i
+      WHERE i.id = COALESCE((SELECT minted_by FROM claim_codes WHERE code_hash = ${row.code_hash}), ${target})`;
     return offer ? joinPage(user.username, offer, agent ?? null) : claimPage(CLAIM_TEXT.failed, 500, clear);
   }
   if (r.reason === 'join_pending') return claimPage(CLAIM_TEXT.joinPending, 200, clear);
@@ -429,22 +434,14 @@ export async function claimJoinPost(request: Request, deps: RouteDeps = {}): Pro
     await linkInstallations(row.builder_id, [to], { root: to });
     const root = await rootOf(row.builder_id);
     if (root !== (await rootOf(to))) return claimPage(CLAIM_TEXT.claimedOther, 409, clear);
-    // The page keeps its X claim: when the joining group is the older one (the root), the claim moves to it.
-    const user: XUser = { id: row.x_user_id, username: row.x_handle, name: row.x_name ?? row.x_handle, avatar: row.x_avatar_url };
-    const [p] = await sql()<{ x_user_id: string | null }[]>`SELECT x_user_id FROM builder_profiles WHERE builder_id = ${root}`;
-    let handle = row.x_handle;
-    if (p?.x_user_id !== row.x_user_id) {
-      const bound = await bindX(root, user, new Date());
-      if (!bound.ok) return claimPage(CLAIM_TEXT.failed, 500, clear);
-      handle = bound.handle;
-    } else {
-      const [h] = await sql()<{ x_handle: string | null }[]>`SELECT x_handle FROM builder_profiles WHERE builder_id = ${root}`;
-      handle = h?.x_handle ?? handle;
-    }
+    // The page's own group is the root (R6), so its profile keeps the X claim and the handle.
+    const [h] = await sql()<{ x_user_id: string | null; x_handle: string | null }[]>`SELECT x_user_id, x_handle FROM builder_profiles WHERE builder_id = ${root}`;
+    if (h?.x_user_id !== row.x_user_id) return claimPage(CLAIM_TEXT.failed, 500, clear);
+    const handle = h.x_handle ?? row.x_handle;
     const at = new Date().toISOString();
     const linked = Object.fromEntries(members.map((m) => [String(m.id), at]));
     // R6 (2): the page's other agents are told once and may detach it.
-    await recordJoin(root, members.map((m) => m.id), row.x_user_id, new Date(at));
+    await recordJoin({ root, from, members: members.map((m) => m.id), xUserId: row.x_user_id, now: new Date(at) });
     await sql()`
       UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
         || jsonb_build_object('linked', COALESCE(standing_seen->'linked', '{}'::jsonb) || ${sql().json(linked as never)}::jsonb)

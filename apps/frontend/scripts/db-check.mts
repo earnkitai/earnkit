@@ -753,17 +753,19 @@ ok(claimRerun, "v2.12.1: the schema runs again over a 'claim' sign-in link");
 // v2.13.1 O1: the proof branch table, and a 'proof_branch' source survives the next schema run.
 const pb = await db<{ column_name: string }[]>`
   SELECT column_name FROM information_schema.columns WHERE table_name = 'proof_branches' ORDER BY column_name`;
-ok(JSON.stringify(pb.map((c) => c.column_name)) === '["asked_by","builder_id","checked_at","closed_at","code_hash","expires_at","issued_at","repo_key","seed","told_at","used_at"]',
-  'proof_branches has code_hash, seed, builder_id, repo_key, issued_at, expires_at, checked_at, used_at, told_at, closed_at and (v2.13.4 R6) asked_by (no code column)');
+ok(JSON.stringify(pb.map((c) => c.column_name)) === '["builder_id","checked_at","closed_at","code_hash","expires_at","issued_at","repo_key","seed","told_at","used_at"]',
+  'proof_branches has code_hash, seed, builder_id, repo_key, issued_at, expires_at, checked_at, used_at, told_at and closed_at (no code column)');
 // v2.13.4 R1, R6: the join offer keeps only hashes; page_joins, and the attribution columns, survive a rerun.
 const xo = await db<{ column_name: string }[]>`
   SELECT column_name FROM information_schema.columns WHERE table_name = 'x_join_offers' ORDER BY column_name`;
 ok(!xo.some((c) => ['offer', 'token', 'csrf', 'code'].includes(c.column_name)) && xo.some((c) => c.column_name === 'offer_hash'),
   'v2.13.4: x_join_offers keeps the offer and csrf only as hashes');
-await db`INSERT INTO page_joins (root, members, x_user_id) VALUES (1, '{2}', 'x1')`;
+await db`INSERT INTO page_joins (root, from_root, members, x_user_id, answers) VALUES (1, 2, '{2}', 'x1', '{"1": "no"}'::jsonb)`;
 await db.unsafe(now);
 const [pj] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM page_joins`;
-ok(pj.n === 1, 'v2.13.4 R6: page_joins rows survive the schema running again');
+ok(pj.n === 1, 'v2.13.4 R6, R7: page_joins rows (with their answers) survive the schema running again');
+const mb = await db<{ column_name: string }[]>`SELECT column_name FROM information_schema.columns WHERE table_name = 'claim_codes' AND column_name = 'minted_by'`;
+ok(mb.length === 1, 'v2.13.4 R7: claim_codes.minted_by');
 const badCode = await db`INSERT INTO proof_branches (code_hash, seed, builder_id, repo_key, issued_at, expires_at) VALUES ('abcdefghijkl', 's', 1, 'a/b', now(), now())`.then(() => false, () => true);
 ok(badCode, 'proof_branches keeps only a sha256 (a plain code is refused)');
 await db`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES (-131, 'repo', 'pb-check/x', 'pb-check/x', 'verified', 'proof_branch', 'server')`;

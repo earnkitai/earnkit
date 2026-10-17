@@ -5393,7 +5393,7 @@ Brief: `.superpowers/sdd/v2.13.3/brief.md`, plus owner rulings A, B, C sent the 
 
 Brief: `.superpowers/sdd/v2.13.4/brief.md` (the owner's spec, verbatim, and controller rulings R1 to R5). Everything sits
 under `EARNKIT_BENCH`; flag off (and score-only) is unchanged. Tests: `v2134-onboarding.test.ts` (the owner's acceptance
-test a to g, the security review S.a to S.f, and R6.1 to R6.4). Runbook: sections 8, 9 and 10.
+test a to g, the security review S.a to S.f, R6.1, and R7.0 to R7.5). Runbook: sections 8, 9 and 10.
 
 - **The flow.** a. First find: where you stand, ways to get funded, then one question, the X claim
   (`bench-reply.ts claimAsk`: "Claim your page with X (it's your name and photo on the Bench): <link>" and "Want me to put
@@ -5430,23 +5430,52 @@ test a to g, the security review S.a to S.f, and R6.1 to R6.4). Runbook: section
   are 403; a replay or an expired offer 410); identity is the X user id, never the handle (S.c); a shared client never joins
   (S.d); an installation that got its own claim since the offer, or holds another X account, is never moved (S.e); the join
   is in the event log (S.f).
-- **R6 (controller ruling, answering a second scan: the R1 join is weaker than the two-agent yes it replaced).**
-  (1) The R1 page names what is joining: "This agent: <client name>, connected <3 minutes ago>." The name is the
-  client's dynamic-registration `client_name`, cleaned (`oauth.ts clientNameOf`: letters, digits, a few marks, 40
-  characters), carried in the signed client id (`cn`) and stored at the token exchange (`installations.client_name`);
-  "an agent" when none. (2) `page-joins.ts`: every R1 join is a `page_joins` row (root, members, joined_at, seen). The
-  R1 join keeps the page's group as the root (`linkInstallations(..., { root })`), so the members can be detached. Every
-  other installation of that page that existed before the join is told once, on its next find or score, as the reply's
-  question (`joinNotice`, ask kind `remove_agent`, key `join:<id>`): "A new agent was added to your page on <date>. Not
-  you? Want me to remove it?" (3) Its yes (`benchMoveUp`, only from an installation that was on the page before the join;
-  a member's own yes is refused) runs `detachJoin`: the members leave the group (their next find makes a fresh, unclaimed
-  profile), their updates since the join are hidden (`project_updates.posted_by`), their open proof codes are closed and a
-  repo their code confirmed since the join goes back to proposed with a rescore (`proof_branches.asked_by`), a community
-  round they opened that hasn't started launching is deleted (`projects.opened_by`, `token_claimed_at IS NULL`), and a
-  `page_detached` event is logged. A no: "Okay. It stays on your page." (4) For `NEW_AGENT_HOLD_MS` (24 h) a member
-  can't open a community round (coin yes, `coin { raising: true }`, the raise ask: `NEW_AGENT_LINES.coin`) or change the
-  main project (find's `identity.project` naming another key, `repo_facts not_mine`: `NEW_AGENT_LINES.main`, the main
-  project stays); it can post updates.
+- **R6 and R7 (controller rulings, answering two scans: the R1 join is weaker than the two-agent yes it
+  replaced; R7 replaces R6 item 4 and simplifies revocation).** `page-joins.ts`.
+  (1) The R1 page names the installation that minted the claim link (`claim_codes.minted_by`, the last asker;
+  `claimLink(builderId, mintedBy)` via `standBase(id, { own })`): "This agent: <client name>, connected <when>."
+  The name is the client's self-chosen dynamic-registration `client_name`, cleaned (`oauth.ts clientNameOf`),
+  carried in the signed client id (`cn`) and stored at the token exchange (`installations.client_name`); a hint,
+  never proof. (2) Every R1 join is a `page_joins` row (page root, the joining group's own `from_root`, members,
+  joined_at, `answers`). The R1 join keeps the page's group as the root (`linkInstallations(..., { root })`).
+  (3) PROBATION (R7): for `PROBATION_MS` (24 h) from joined_at a member (`onProbation`; `tools.ts withProbation`
+  sets `ctx.probation` for find, prepare, confirm, tell and score) may only post updates, and never over
+  another installation's update for the same week (`updates.ts postUpdate(..., { probation })`: the row is left,
+  `PROBATION_LINES.update_taken`). Every other write is refused with one line and one question
+  (`PROBATION_LINES.main` / `.write`, the question "Want me to post this week's update instead?"): see the audit
+  table below. (4) THE NOTICE (I-1, I-2): each installation eligible for a join is asked, on every find and score
+  until it answers, "A new agent was added to your page on <date>. If that wasn't you, want me to remove it?"
+  (`pendingNotice`, ask kind `remove_agent`, key `join:<id>`), even while its reply is held (computed outside
+  the held guard; the held question waits). It is never stored in the shared `bench_ask`; the answer is routed
+  by `ctx.ownInstallationId` (`benchMoveUp` -> `answerNotice`), which checks eligibility on a yes and on a no:
+  on the page now (current root), not a member of this join, not a member of any still-attached join with the
+  same or a later id (join order, never created_at), not on probation. A no is recorded for that installation
+  only. (5) DETACH: a yes moves the members back to their own former group (`from_root` a root again, the others
+  pointing to it), matched on the page's current root (a no-op is "Nothing to change: ..."), hides their
+  updates since the join, logs `page_detached`, and says "Done. That agent is off your page, and its updates
+  since it joined are hidden." then "Want me to show where you stand now?".
+- **The R7 write audit (on probation).**
+
+  | Write | Where | On probation |
+  |---|---|---|
+  | main project from identity.project, the old fields (benchIdentity), local_repos | `tools.ts list_programs` | gated: not written; naming another project shows the project line |
+  | identity notes, reported login, fallback handle, remembered wallets and repos | `noteIdentity`, `fillGithubUser`, `setFallback`, `rememberWallets`, `checkPrograms` | gated: not written |
+  | proof-branch code issuance and checks, "delete the branch" told | `benchView proofBranchFor`, `checkProofBranch`, `branchToRemove` (find, score) | gated: none |
+  | App install link | `benchView createVerifyLink` | gated: none (App verification needs a link only the page's own agents get) |
+  | main project clear | `tell repo_facts not_mine` | gated: the project line |
+  | starter build, deploy, hosting, entries | `tools.prepare` (prepareBuild, deployStep, prepare_submission) | gated: refused |
+  | entries' confirm, launch_token, confirmToken, a coin by project_id | `tools.confirm` | gated: refused |
+  | coin yes, community round on/off, raise yes, go-live yes | `tell coin`, `tell move_up` (benchMoveUp only allows the week's update or a suggestion) | gated: refused |
+  | hide/show page, card, updates on/off, hide an update, proof pushed, pickup (answerJoin, item 8), "I submitted", tell_earnkit statements | `tools.tell` | gated: refused |
+  | pending join question, outcome question, deadline and alert markers, news, fresh-offer metric, match-shown log, weekly note | find and score bookkeeping | not asked or not written |
+  | post an update | `updates.ts postUpdate` | allowed, never over another installation's update for the week |
+  | the live link check cache, the "Linked" note, the profile row if missing | `live-check.ts`, `takeLinked`, `ensureProfile` | allowed: a cache of stored data, its own note, a no-op on a claimed page |
+- **Scans after R7 (coordinator).** "Control regression in coin-moments.ts / proof-branch.ts": most likely the
+  R6 attribution columns added then removed (`opened_by`, `asked_by`). Both files are back to v2.13.3 apart from
+  `installAppAsk`'s display name; every coin rule (confirmed main project, I1 public read, shown wallet, one offer
+  per project) and every proof-branch rule (caps, exclusivity, pusher, App binding) is unchanged and still covered
+  by the v2.13.1 to v2.13.3 tests. "Missing authorization in bench-find.ts": the remove_agent answer; it is checked
+  by `answerNotice` (eligibility on yes and no) and tested in R7.2.
 - **R2, one page per person.** A reconnect is a new installation: the builder signs in with X once and R1 joins it, so the
   page never splits; `bindX` never binds an X user id another page holds. A reported GitHub login or wallet still merges
   nothing.
@@ -5466,6 +5495,6 @@ test a to g, the security review S.a to S.f, and R6.1 to R6.4). Runbook: section
   (`releasedBg`) instead of sleeping 900 ms. `v2133-owner-test.test.ts` R1 uses a key with no digit run (its random key could
   hold 7 digits, which the update text rule refuses first).
 - **Schema.** `x_join_offers`, `page_joins` (new); `installations.client_name`, `project_updates.posted_by`,
-  `proof_branches.asked_by`, `projects.opened_by` (additive); `page_joined` and `page_detached` in both
+  `claim_codes.minted_by` (additive); `page_joined` and `page_detached` in both
   `builder_events_type_check` lists. `db:check` covers them.
 

@@ -119,7 +119,7 @@ export const hostFor = (agentCanBuild: boolean) => (key: string) => REPO_KEY.tes
  * The person's view without programs or a step: their standing (Task 4), their projects (shipped
  * first, then people, then newest), and the claim link while they have no page. Null without a profile.
  */
-export async function standBase(id: number, o: { fresh?: TipSwitches } = {}): Promise<{ base: StandBase; seen: Seen; created_at: Date; page_ready_shown_at: Date | null } | null> {
+export async function standBase(id: number, o: { fresh?: TipSwitches; own?: number } = {}): Promise<{ base: StandBase; seen: Seen; created_at: Date; page_ready_shown_at: Date | null } | null> {
   const [p] = await sql()<{ standing_seen: unknown; created_at: Date; page_ready_shown_at: Date | null }[]>`
     SELECT standing_seen, created_at, page_ready_shown_at FROM builder_profiles WHERE builder_id = ${id}`;
   if (!p) return null;
@@ -182,7 +182,7 @@ export async function standBase(id: number, o: { fresh?: TipSwitches } = {}): Pr
     confirmed: r.confirmed,
   }));
   const claimed = s.claimed && Boolean(s.handle);
-  const link = claimed ? null : await claimLink(id).catch((err: unknown) => {
+  const link = claimed ? null : await claimLink(id, o.own ?? id).catch((err: unknown) => {
     console.error('[stand] claim link', err instanceof Error ? err.name : 'error');
     return null;
   });
