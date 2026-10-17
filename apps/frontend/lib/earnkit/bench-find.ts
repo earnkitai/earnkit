@@ -141,7 +141,8 @@ export function fundNeeds(c: Card): Extract<FundLine, { kind: 'needs' }> {
   const needs = chain
     ? `${chain}${live ? ", once it's live" : repo ? ', once its code is on GitHub' : ''}`
     : live ? 'once your app is live' : repo ? 'once your code is on GitHub' : 'for any app';
-  return { kind: 'needs', title: c.title, prize: earnPrize(c), needs };
+  // v2.13.3 review (M5): a program with no known award is named without a dollar figure.
+  return { kind: 'needs', title: c.title, prize: (c.max_award_usd ?? 0) > 0 ? earnPrize(c) : null, needs };
 }
 /** v2.13.3 (2): at most this many programs are named for a builder with no confirmed project. */
 export const NEEDS_MAX = 2;
@@ -153,7 +154,7 @@ export function needsPicks(cards: Card[], now: Date, skip: Set<string>, n: numbe
   if (n <= 0) return [];
   const on = (c: Card) => (c.any_chain === true || (c.chains ?? []).some((ch) => chains.includes(ch)) ? 0 : 1);
   return cards
-    .filter((c) => showable(c, now, skip) && (c.max_award_usd ?? 0) > 0)
+    .filter((c) => showable(c, now, skip))
     .sort((a, b) => on(a) - on(b) || byPrize(a, b))
     .slice(0, n)
     .map(fundNeeds);

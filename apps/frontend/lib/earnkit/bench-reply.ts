@@ -11,7 +11,7 @@ export type FundLine =
   | { kind: 'idea'; who: string; prize: string; for: string }
   | { kind: 'rolling'; title: string; prize: string }
   /** v2.13.3 (2): an open program and what it needs, in plain words (never a fit claimed). */
-  | { kind: 'needs'; title: string; prize: string; needs: string };
+  | { kind: 'needs'; title: string; prize: string | null; needs: string };
 export type BenchProject = { key: string; name: string; confirmed: boolean; live: boolean; weeks: number };
 export type BenchView = {
   project: BenchProject | null; rank: string | null; claimed: boolean; handle: string | null; claimLink: string | null;
@@ -49,8 +49,9 @@ export const NO_OFFER_LINE = NO_PROJECT_LINE;
  * compete (startBuildAsk); otherwise this line is the last line.
  */
 export const START_ASK = "I'll put your work on the Bench and find money it can win. What's your GitHub, or a link to something you've made?";
-/** Ruling A: the build, aimed at one open program (its owner-set starter), as part of the same last question. */
-export const startBuildAsk = (offer: string, program: string) => `${START_ASK} Or want me to build ${offer} for ${program}?`;
+/** Ruling A: the build, aimed at one open program (its owner-set starter), inside the same one question. */
+export const startBuildAsk = (offer: string, program: string) =>
+  `I'll put your work on the Bench and find money it can win. What's your GitHub, a link to something you've made, or should I build ${offer} for ${program}?`;
 /** v2.13.3 (4): the X claim, a line (never a second ask). */
 export const claimLine = (link: string) => `Your page: claim it with X at ${link}`;
 /** v2.13.1 O2 (B4): a build is in progress: the whole stand part, no ask. */
@@ -99,7 +100,7 @@ export const fitsLine = (title: string, prize: string, name: string, when: strin
 export const ideasLine = (ideas: { who: string; prize: string; for: string }[]) => ideas.map((i) => `${i.who} pays ${i.prize} for ${i.for}.`).join(' ');
 export const rollingFundLine = (title: string, prize: string) => `${title} pays ${prize}; it's open all year.`;
 /** v2.13.3 (2): "Base Builder Grants: up to $5K for a Base app, once it's live." */
-export const needsLine = (title: string, prize: string, needs: string) => `${title}: ${prize} ${needs}.`;
+export const needsLine = (title: string, prize: string | null, needs: string) => `${title}: ${prize ? `${prize} ` : ''}${needs}.`;
 export const UPDATES_ASK = 'Want me to post what you ship here every week? It keeps your streak going on the Bench.';
 export const POST_UPDATE_ASK = "Want me to post this week's update?";
 /** v2.13.1 O2 fix round 1: the updates yes before the project is confirmed (it isn't on the Bench yet). */

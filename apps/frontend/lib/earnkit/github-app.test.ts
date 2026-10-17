@@ -220,9 +220,10 @@ test('4.9c on a shared client the App page shows the one-time code (G9); appToke
     const res = await appSetup(setupAt(`installation_id=77&state=${encodeURIComponent(nonce)}`, `${csrfCookieName(nonce)}=K1`), { ...limit, fetch });
     assert.match(await res.text(), /Paste this code to your agent: [A-Z2-7]{4}-[A-Z2-7]{4}-[A-Z2-7]{2}/);
     const calls: Call[] = [];
-    const tokenFetch = fakeGitHub(appApi({ account: 'alice', repos: [f.repoKey] }), calls);
+    // v2.13.3 review M4: the installation is looked up by repo before the mint.
+    const tokenFetch = fakeGitHub({ ...appApi({ account: 'alice', repos: [f.repoKey] }), [`GET /repos/${f.repoKey}/installation`]: json({ id: 77 }) }, calls);
     assert.equal(await appTokenFor({ installationId: f.inst, login: 'alice', repoKey: f.repoKey }, { fetch: tokenFetch }), 'ghs_secret_token');
-    assert.deepEqual(calls.map((c) => c.body), [{ repositories: [f.repoKey.split('/')[1]], permissions: { contents: 'read', metadata: 'read' } }]);
+    assert.deepEqual(calls.filter((c) => c.method === 'POST').map((c) => c.body), [{ repositories: [f.repoKey.split('/')[1]], permissions: { contents: 'read', metadata: 'read' } }]);
     assert.equal(await appTokenFor({ installationId: f.inst, login: 'bob', repoKey: f.repoKey }, { fetch: tokenFetch }), null, 'another caller');
     assert.equal(await appTokenFor({ installationId: f.inst, login: null, repoKey: f.repoKey }, { fetch: tokenFetch }), null, 'no caller');
     assert.equal(await appTokenFor({ installationId: f.inst, repoKey: 'alice/other' }, { fetch: tokenFetch }), null, 'another repo');

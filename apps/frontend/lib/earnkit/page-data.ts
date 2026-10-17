@@ -1,3 +1,4 @@
+import { PUBLIC_REPO_DAYS } from './repo-public'; // a repo is named only while read public this recently
 import { cache } from 'react';
 import { sql } from './db';
 import { listedRanked, standingOf } from './person-score';
@@ -72,8 +73,6 @@ export type PageHead = { handle: string; name: string; avatar: string | null; to
 /** The page shows at most this many projects (25 tracked, then the rest as not tracked). */
 const CARDS_MAX = 50;
 const PRIVATE_NAME = 'Private project';
-/** A repo is named only while its newest reading is at most this old (profile-data.ts PUBLIC_REPO_DAYS). */
-const PUBLIC_REPO_DAYS = 7;
 const WALLET = /\b0x[0-9a-f]{40}\b/i;
 /** A project or entry key compared: no scheme, no github.com/, no www., no trailing slash, lowercase. */
 export const norm = (k: string) => k.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^(www\.)?github\.com\//, '').replace(/^www\./, '').replace(/\/+$/, '');

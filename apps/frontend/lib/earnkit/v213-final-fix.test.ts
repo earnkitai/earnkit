@@ -272,7 +272,8 @@ test('F10 raising off: no raise ask, no raise line (the coin moment is v2.12.1\'
   const coin = { name: 'Recipe planner', symbol: 'RECIPE' };
   await withRaising(false, async () => {
     assert.equal(await raiseAsk(p.id, p.key, {}), null);
-    assert.equal(coinLine('has_people', 'Recipe planner', null, coin), "Recipe planner has people using it. Want to launch a coin, $RECIPE (Recipe planner), for it? You'd get 40% of its trading fees.");
+    // v2.13.3 review: under the Bench the question is last.
+    assert.equal(coinLine('has_people', 'Recipe planner', null, coin), 'Recipe planner has people using it. A coin pays you 40% of its trading fees. Want to launch a coin, $RECIPE (Recipe planner), for it?');
     assert.deepEqual(await setRaising(p.id, true), { show_to_builder: 'Okay.' });
     const [row] = await sql()<{ raising: boolean }[]>`SELECT raising_at IS NOT NULL AS raising FROM projects WHERE installation_id = ${p.id}`;
     assert.equal(row.raising, false);

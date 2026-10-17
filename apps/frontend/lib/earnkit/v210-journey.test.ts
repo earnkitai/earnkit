@@ -218,6 +218,13 @@ function github(u: URL, init?: RequestInit): Response {
     return code && GITHUB.oauthCodes.has(code) ? json({ access_token: `gho_${code}` }) : json({ error: 'bad_verification_code' });
   }
   // The App's own API (a JWT signed with the generated key).
+  // v2.13.3 review M4: the installation GitHub names for a repo (asked before every mint).
+  const ri = p.match(/^\/repos\/([^/]+)\/([^/]+)\/installation$/);
+  if (ri && auth?.startsWith('Bearer ey')) {
+    const full = `${ri[1]}/${ri[2]}`.toLowerCase();
+    const hit = [...GITHUB.installs.entries()].find(([, i]) => i.repos.some((r) => r.toLowerCase() === full));
+    return hit ? json({ id: hit[0] }) : notFound();
+  }
   let m = p.match(/^\/app\/installations\/(\d+)(\/access_tokens)?$/);
   if (m) {
     const inst = GITHUB.installs.get(Number(m[1]));

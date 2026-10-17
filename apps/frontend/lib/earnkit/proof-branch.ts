@@ -1,10 +1,10 @@
 import { createHash, createHmac, randomBytes } from 'node:crypto';
-import { cantSeeLine, cantShowLine, copyLine, foreignLine, takenLine } from './bench-reply';
+import { cantSeeLine, cantShowLine, copyLine, foreignLine, installAppAsk, takenLine } from './bench-reply';
 import { CONFIRMED_PROOFS } from './confirmed';
 import { sql, type Db } from './db';
 import { noteEvent } from './events';
 import { appTokenFor, githubAppEnabled } from './github-app';
-import { repoEverDerived } from './github-verify';
+import { createVerifyLink, repoEverDerived } from './github-verify';
 import { REPO_KEY, benchConfirmedSql, mainProjectOf } from './main-project';
 import { profileChanged } from './profile-cache';
 import { setFallback } from './profiles';
@@ -145,6 +145,18 @@ async function appBearer(builderId: number, key: string, f: typeof fetch): Promi
   if (!githubAppEnabled()) return null;
   return appTokenFor({ installationId: builderId, repoKey: key }, { fetch: f }).catch(() => null);
 }
+/** v2.13.3 review M1: `p`'s answer if it comes within `ms`, else null (it runs on; nothing waits for it). Never throws. */
+async function within<T>(p: Promise<T>, ms: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), ms);
+  });
+  try {
+    return await Promise.race([p.catch(() => null), late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 /** GitHub REST headers: the installation token when given (v2.13.3), else EarnKit's own token. */
 const ghHeaders = (bearer: string | null = null) => {
   const token = bearer ?? process.env.GITHUB_TOKEN?.trim();
@@ -161,13 +173,13 @@ type Probe =
  * the repo as GitHub shows it, `missing` (404: private to EarnKit's token, or gone), else `unknown` (slow,
  * down, renamed, rate-limited). Never throws.
  */
-async function probeRepo(key: string, f: typeof fetch, bearer: string | null = null): Promise<Probe> {
+async function probeRepo(key: string, f: typeof fetch, bearer: string | null = null, ms = REPO_PROBE_MS): Promise<Probe> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<Probe>((resolve) => {
-    timer = setTimeout(() => resolve({ kind: 'unknown' }), REPO_PROBE_MS);
+    timer = setTimeout(() => resolve({ kind: 'unknown' }), ms);
   });
   const read = (async (): Promise<Probe> => {
-    const res = await f(`https://api.github.com/repos/${key}`, { redirect: 'manual', signal: AbortSignal.timeout(REPO_PROBE_MS), headers: ghHeaders(bearer) });
+    const res = await f(`https://api.github.com/repos/${key}`, { redirect: 'manual', signal: AbortSignal.timeout(ms), headers: ghHeaders(bearer) });
     if (res.status !== 200) {
       await res.body?.cancel().catch(() => {});
       return res.status === 404 ? { kind: 'missing' } : { kind: 'unknown' };
@@ -209,20 +221,38 @@ async function knownUnprovable(builderId: number, key: string, now: Date, f: typ
   const kept = row?.kept && typeof row.kept === 'object' && typeof row.kept.at === 'string' && now.getTime() - Date.parse(row.kept.at) < REPO_PROBE_KEEP_MS ? row.kept : null;
   let probe: Probe | Kept | null = o.fresh ? null : kept;
   const fetchFn = f ?? defaultReaderDeps(now, Date.now() + REPO_PROBE_MS).ghFetch ?? fetch;
-  // v2.13.3 (5): a repo EarnKit's token can't see is read again with the App's token, when this person
-  // installed the App on it (a kept "missing" from before the install never stands in the way).
-  const bearer = !probe || probe.kind === 'missing' ? await appBearer(builderId, key, fetchFn) : null;
-  if (!probe || bearer) {
-    probe = await probeRepo(key, fetchFn, bearer);
-    if (probe.kind === 'read' && probe.private === false) await markPublic(builderId, key, now, db);
-    if (probe.kind !== 'unknown')
+  const keep = async (p: Probe) => {
+    if (p.kind === 'read' && p.private === false) await markPublic(builderId, key, now, db);
+    if (p.kind !== 'unknown')
       // O5 fix round 2: kept reads older than REPO_PROBE_KEEP_MS are dropped on every write.
       await db`
         UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{repo_probe}',
           COALESCE((SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(standing_seen->'repo_probe') e
             WHERE (e.value->>'at') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' AND (e.value->>'at')::timestamptz > ${new Date(now.getTime() - REPO_PROBE_KEEP_MS)}), '{}'::jsonb)
-            || jsonb_build_object(${key}::text, ${db.json({ ...probe, at: now.toISOString() } as never)}::jsonb))
+            || jsonb_build_object(${key}::text, ${db.json({ ...p, at: now.toISOString() } as never)}::jsonb))
         WHERE builder_id = ${builderId}`;
+  };
+  if (!probe) {
+    probe = await probeRepo(key, fetchFn);
+    await keep(probe);
+  }
+  // v2.13.3 (5): a repo EarnKit's token can't see is read again with the App's token, when this person
+  // installed the App on it (a kept "missing" from before the install never stands in the way). Review M1:
+  // the mint and that read share one REPO_PROBE_MS window on the reply path; slower, the repo stays unseen
+  // for this reply (nothing is kept from it) and the next reply tries again.
+  if (probe.kind === 'missing' && githubAppEnabled()) {
+    const until = Date.now() + REPO_PROBE_MS;
+    const viaApp = await within(
+      (async () => {
+        const bearer = await appBearer(builderId, key, fetchFn);
+        return bearer ? probeRepo(key, fetchFn, bearer, Math.max(1, until - Date.now())) : null;
+      })(),
+      REPO_PROBE_MS,
+    );
+    if (viaApp && viaApp.kind !== 'unknown') {
+      probe = viaApp;
+      await keep(viaApp);
+    }
   }
   if (probe.kind === 'missing') return { kind: 'unseen' };
   if (probe.kind === 'copy') return { kind: 'copy' };
@@ -466,7 +496,8 @@ async function freshBranchProof(builderId: number, key: string, now: Date, f: ty
         AND COALESCE((SELECT COALESCE(i.builder_id, i.id) FROM installations i WHERE i.id = s.builder_id), s.builder_id) = ${rootSql(db, builderId)}
       ORDER BY s.verified_at DESC LIMIT 1`;
     if (!p) return false;
-    const read = await readRepo(key, f);
+    // v2.13.3 review: a private repo installed with the App is read with its token (no re-push loop).
+    const read = await readRepo(key, f, await appBearer(builderId, key, f));
     if (!read || String(read.id) !== p.gh_repo_id) return false;
     return p.gh_owner_type !== 'User' || read.owner === p.gh_owner;
   } catch (err) {
@@ -496,7 +527,7 @@ async function controlProvenMain(builderId: number, key: string, f: typeof fetch
       WHERE p.builder_id = ${rootSql(db, builderId)} AND lower(p.main_project_key) = ${key} AND ${benchConfirmedSql(db)}
       ORDER BY s.verified_at DESC NULLS LAST LIMIT 1`;
     if (!r || (await heldByOther(builderId, key))) return false;
-    const read = await readRepo(key, f);
+    const read = await readRepo(key, f, await appBearer(builderId, key, f));
     if (!read) return false;
     if (r.gh_repo_id !== null && r.gh_repo_id !== String(read.id)) return false;
     return !(r.gh_owner_type === 'User' && r.gh_owner && r.gh_owner !== read.owner);
@@ -557,6 +588,11 @@ export async function coinBranchProof(builderId: number, repoKey: string, now: D
   if (await checkProofBranch(builderId, now, { ghFetch: f, key })) return { ok: true };
   const state = await proofBranchFor(builderId, key, now, { canBuild: true, reproof: true, ghFetch: f }).catch(() => null);
   if (state?.kind === 'checking') return { proof: state.proof };
+  // v2.13.3 review M2: with the App on, a repo EarnKit can't see gets the install ask (its link the one link).
+  if (state?.kind === 'unseen' && githubAppEnabled()) {
+    const link = await createVerifyLink({ installationId: builderId, projectId: null, repoKey: key, purpose: 'app' }, now).catch(() => null);
+    if (link) return { line: installAppAsk(name, link) };
+  }
   return {
     line: state?.kind === 'taken' ? takenLine(name)
       : state?.kind === 'foreign' ? foreignLine(name)

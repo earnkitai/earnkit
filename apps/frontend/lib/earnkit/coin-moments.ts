@@ -9,6 +9,7 @@ import { COIN_PROGRAM } from './policy-constants';
 import { DECLINES_MAX, declines, offerIdentity, offerKey, readShownOffer, recordDecline, saveOffer } from './token-offers';
 import { proposeToken, tokensFunTickerCheck, type TickerCheck } from './token-proposal';
 import { tokenLaunchesAvailable } from './tokens';
+import { repoReadPublic } from './repo-public';
 
 /**
  * v2.12.1 spec 3b: the token is offered as that reply's one yes only at these moments: built
@@ -26,10 +27,12 @@ export type Coin = { name: string; symbol: string };
 // the yes's reply asks for it (coinYes: COIN_WALLET_ASK), never this line.
 const fees = (wallet: string | null) =>
   wallet ? `You'd get 40% of its trading fees, paid to ${shortWallet(wallet.toLowerCase())}.` : "You'd get 40% of its trading fees.";
+/** v2.13.3 review: under the Bench the fees come first and the question last ("one question, last"). */
+const coinFees = (wallet: string | null) => `A coin pays you 40% of its trading fees${wallet ? `, paid to ${shortWallet(wallet.toLowerCase())}` : ''}.`;
 
 /** v2.13 spec "4. Optional: raise" (owner ruling B, v2.13.3: "a community round"): the coin is named before the yes; the wallet is shown when known (plan B13). Pure. */
 export const raiseLine = (name: string, symbol: string, wallet: string | null) =>
-  `Want to open a community round for ${name}? I'll launch $${symbol} on tokens.fun and you get 40% of its trading fees${wallet ? `, paid to ${shortWallet(wallet.toLowerCase())}` : ''}.`;
+  `I'll launch $${symbol} on tokens.fun and you get 40% of its trading fees${wallet ? `, paid to ${shortWallet(wallet.toLowerCase())}` : ''}. Want to open a community round for ${name}?`;
 
 /**
  * The offer line for a moment: the coin that launches named (fix round 1, ruling 5: v2.8.1 A2, the
@@ -42,6 +45,13 @@ export function coinLine(moment: Moment, name: string, wallet: string | null, co
   // final fix: only with EARNKIT_RAISING on, else v2.12.1's coin line.
   if (raisingEnabled() && moment !== 'built_live' && coin) return raiseLine(name, coin.symbol, wallet);
   const a = coin ? `a coin, $${coin.symbol} (${coin.name}),` : 'a coin';
+  // v2.13.3 review: under the Bench one question, last; flag off, today's lines byte for byte.
+  if (benchEnabled()) {
+    if (moment === 'built_live') return `It's live, and your entry is ready either way. ${coinFees(wallet)} Want to launch ${a} for it?`;
+    if (moment === 'first_five') return `5 people have used ${name}. ${coinFees(wallet)} Want to launch ${a} for it?`;
+    if (moment === 'countable' || moment === 'streak_five') return `${coinFees(wallet)} Want to launch ${a} for ${name}?`;
+    return `${name} has people using it. ${coinFees(wallet)} Want to launch ${a} for it?`;
+  }
   if (moment === 'built_live') return `It's live. Want to launch ${a} for it? ${fees(wallet)} Your entry is ready either way.`;
   if (moment === 'first_five') return `5 people have used ${name}. Want to launch ${a} for it? ${fees(wallet)}`;
   if (moment === 'countable' || moment === 'streak_five') return `Want to launch ${a} for ${name}? ${fees(wallet)}`;
@@ -122,8 +132,14 @@ export async function coinAllowed(builderId: number, projectKey: string): Promis
  */
 export async function coinOfferable(builderId: number, projectKey: string): Promise<boolean> {
   if (!(await coinAllowed(builderId, projectKey))) return false;
-  return (await confirmedLinks(builderId, projectKey)).repo_url !== null;
+  const { repo_url } = await confirmedLinks(builderId, projectKey);
+  if (repo_url === null) return false;
+  // v2.13.3 review (I1): under the Bench, never for a repo not read public (the coin and its tokens.fun page
+  // would name it).
+  return !benchEnabled() || (await repoReadPublic(builderId, repoOfUrl(repo_url)));
 }
+/** A confirmed repo link as its key (owner/repo, lowercase). Pure. */
+const repoOfUrl = (u: string) => u.trim().toLowerCase().replace(/^(https?:\/\/)?(www\.)?github\.com\//, '').replace(/(\.git)?\/*$/, '');
 
 /** The wallet a coin's fees go to unless the builder names another: a proven one, else the group's first remembered one. */
 export async function coinWallet(builderId: number): Promise<string | null> {
@@ -242,6 +258,21 @@ export async function coinYes(
   const to = given ?? m.wallet;
   if (!to) return { show_to_builder: COIN_WALLET_ASK };
   if (!m.wallet) await sql()`UPDATE coin_moments SET wallet = ${to} WHERE builder_id = ${builderId} AND project_key = ${m.project_key}`;
+  // v2.13.3 review (I1): a repo no longer read public (it went private after the offer): the coin, if made,
+  // carries only the page's safe name and no repo link, so nothing on tokens.fun names the repo.
+  if (!existing && benchEnabled() && links.repo_url && !(await repoReadPublic(builderId, repoOfUrl(links.repo_url)))) {
+    const safe = (await (await import('./page-data')).safeNames([builderId]))(builderId, m.project_key);
+    const pair = await proposeToken(safe, deps.check ?? tokensFunTickerCheck, undefined);
+    const hidden: Coin = { name: pair.name, symbol: pair.symbol };
+    const [{ id }] = await sql()<{ id: number }[]>`
+      INSERT INTO projects (program_id, name, repo_url, live_url, installation_id, creator_wallet, confirmed_at, confirm_choice)
+      VALUES (${COIN_PROGRAM}, ${safe}, ${null}, ${links.live_url}, ${builderId}, ${to}, now(), 'go') RETURNING id`;
+    await saveOffer(builderId, COIN_PROGRAM, offerKey(null, safe), hidden, false, to);
+    await sql()`
+      UPDATE coin_moments SET answer = 'yes', answered_at = COALESCE(answered_at, now()), project_id = ${id}
+      WHERE builder_id = ${builderId} AND project_key = ${m.project_key}`;
+    return { project_id: id, token: hidden, wallet: to, agent_note: coinYesNote() };
+  }
   const projectId = existing
     ? existing.id
     : (

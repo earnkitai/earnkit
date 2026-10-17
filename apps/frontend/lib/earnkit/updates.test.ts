@@ -95,6 +95,9 @@ test('5.7c a week another builder holds for a shared repo is refused and left al
 
 test('5.7d own links: confirmed sites, the hosted site and the confirmed repo only; never the project link or a registry (fix round 1, review 5)', dbTest, async () => {
   const { id, key } = await person();
+  // v2.13.3 review (I1): the repo link only while the repo was read public.
+  assert.deepEqual(await ownLinks(id), { sites: [], repo: null });
+  await sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${id} AND kind = 'repo'`;
   // builder_projects.link is https://recipes.app, but no site source proves it.
   assert.deepEqual(await ownLinks(id), { sites: [], repo: key });
   const now = new Date('2026-10-14T10:00:00Z');

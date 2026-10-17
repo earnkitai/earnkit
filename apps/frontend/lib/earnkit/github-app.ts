@@ -144,10 +144,29 @@ export async function appTokenFor(
   try {
     const row = await appProofRow(a);
     if (!row) return null;
-    return await installationToken(Number(row.gid), a.repoKey.split('/')[1], deps);
+    // v2.13.3 review M4: the installation is the one GitHub names for the repo now (the stored setup-URL id is
+    // only a hint: the App may have been reinstalled). None listed: fail closed. The mint itself still names
+    // only this repo, so a token never reaches another.
+    const id = await repoInstallation(a.repoKey, deps);
+    if (id === null) return null;
+    return await installationToken(id, a.repoKey.split('/')[1], deps);
   } catch (err) {
     console.error('[github-app] token', err instanceof Error ? err.name : 'error');
     return null;
+  }
+}
+
+/**
+ * v2.13.3 review M4: the App's installation on `repoKey`, as GitHub answers `GET /repos/{owner}/{repo}/installation`
+ * with the App's JWT; null when GitHub lists none (404) or the answer has no id. Other failures throw.
+ */
+export async function repoInstallation(repoKey: string, deps: AppDeps = {}): Promise<number | null> {
+  try {
+    const out = await ghApp<{ id?: unknown }>(deps.fetch ?? fetch, `/repos/${repoKey.toLowerCase()}/installation`, appJwt(deps.now));
+    return typeof out.id === 'number' && Number.isSafeInteger(out.id) && out.id > 0 ? out.id : null;
+  } catch (err) {
+    if (err instanceof GitHubError && err.status === 404) return null;
+    throw err;
   }
 }
 

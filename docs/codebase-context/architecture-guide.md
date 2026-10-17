@@ -5377,3 +5377,14 @@ Brief: `.superpowers/sdd/v2.13.3/brief.md`, plus owner rulings A, B, C sent the 
 - **Owner go-live:** the five App env vars (`GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY`,
   `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`): set on Railway 2026-10-17 (slug `earnkitai`, App ID 5355247).
   The community round line and pill still wait on `EARNKIT_RAISING` (the lawyer step).
+- **Review fix round.** (I1) `repo-public.ts repoReadPublic` (page-data's PUBLIC_REPO_DAYS test, shared): the ship
+  log's repo link (`updates.ts ownLinks`) and a community-round offer (`coin-moments.ts coinOfferable`, Bench only)
+  need the repo read public; a coin yes for a repo gone private (`coinYes`) uses the page's safe name, a ticker from it
+  and no repo link. `freshBranchProof` and `controlProvenMain` read with the App token. One question, last: under the
+  Bench `raiseLine` and `coinLine` end on their question ("A coin pays you 40%... Want to launch...?"); flag off,
+  today's lines; `startBuildAsk` is one question ("What's your GitHub, a link to something you've made, or should I
+  build <offer> for <program>?"). (M1) `knownUnprovable` mints the App token and re-reads within one REPO_PROBE_MS
+  window (`within`); slower, the repo stays unseen this reply. (M2) `coinBranchProof` with the App on gives the
+  install ask. (M4) `github-app.ts repoInstallation`: `appTokenFor` mints for the installation GitHub names for the
+  repo (`GET /repos/{owner}/{repo}/installation`), the stored id only a hint; none: no token. (M5) `needsPicks` also
+  names programs with no known award, without a dollar figure (`needsLine` with a null prize).

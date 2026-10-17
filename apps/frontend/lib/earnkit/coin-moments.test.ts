@@ -554,7 +554,7 @@ test('9.7 under the flag every coin moment but built_live says the raise line; f
   try {
     for (const m of ['countable', 'first_five', 'has_people', 'streak_five'] as const)
       assert.equal(coinLine(m, 'Recipe planner', null, coin), raiseLine('Recipe planner', 'RECIPE', null));
-    assert.match(coinLine('built_live', 'Recipe planner', null, coin), /^It's live\./);
+    assert.match(coinLine('built_live', 'Recipe planner', null, coin), /^It's live\b/);
   } finally {
     delete process.env.EARNKIT_BENCH;
     delete process.env.EARNKIT_RAISING;
@@ -565,6 +565,9 @@ test('9.7b five weeks in a row is a coin moment (once); the yes sets raising_at 
   const id = await claimed('streak_dev');
   const key = `lee/streak${randomBytes(3).toString('hex')}`;
   await usedProject(id, key, 'Tip Jar', 0);
+  // v2.13.3 review (I1): a community round only for a repo read public.
+  const markPublic = () => sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${id} AND kind = 'repo'`;
+  await markPublic();
   process.env.EARNKIT_BENCH = 'on';
   process.env.EARNKIT_RAISING = 'on';
   try {
@@ -573,9 +576,10 @@ test('9.7b five weeks in a row is a coin moment (once); the yes sets raising_at 
     // v2.13.3 owner ruling A: four weeks and no people is no moment, but nothing fits, so a community round (countable), once.
     const other = `lee/four${randomBytes(3).toString('hex')}`;
     await usedProject(id, other, 'Four Weeks', 0);
+    await markPublic();
     const four = await coinAskBench(id, { ...p, key: other, name: 'Four Weeks', streak: 4 }, {}, noCheck);
     assert.equal(four?.kind, 'coin');
-    assert.match(four?.line ?? '', /^Want to open a community round for Four Weeks\?/);
+    assert.match(four?.line ?? '', /Want to open a community round for Four Weeks\?$/);
     const [c] = await sql()<{ moment: string }[]>`SELECT moment FROM coin_moments WHERE builder_id = ${id} AND project_key = ${other}`;
     assert.equal(c.moment, 'countable');
     const ask = await coinAskBench(id, p, {}, noCheck);

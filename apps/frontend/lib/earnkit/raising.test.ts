@@ -40,9 +40,9 @@ const confirm = async (id: number, key: string) => {
 };
 
 test('9.1 the raise line names the coin before the yes, as the spec writes it; the wallet is shown when known (B13)', () => {
-  assert.equal(raiseLine('Recipe planner', 'RECIPE', null), "Want to open a community round for Recipe planner? I'll launch $RECIPE on tokens.fun and you get 40% of its trading fees.");
+  assert.equal(raiseLine('Recipe planner', 'RECIPE', null), "I'll launch $RECIPE on tokens.fun and you get 40% of its trading fees. Want to open a community round for Recipe planner?");
   assert.equal(raiseLine('Recipe planner', 'RECIPE', '0x12ab000000000000000000000000000000009f3e'),
-    "Want to open a community round for Recipe planner? I'll launch $RECIPE on tokens.fun and you get 40% of its trading fees, paid to 0x12ab…9f3e.");
+    "I'll launch $RECIPE on tokens.fun and you get 40% of its trading fees, paid to 0x12ab…9f3e. Want to open a community round for Recipe planner?");
   assert.equal(showRaisingLine('RECIPE'), 'Want to show your community round with $RECIPE on your page?');
 });
 

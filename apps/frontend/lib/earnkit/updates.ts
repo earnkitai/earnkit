@@ -1,3 +1,4 @@
+import { repoReadPublic } from './repo-public';
 import { sql } from './db';
 import { noteEvent } from './events';
 import { CONFIRMED_PROOFS } from './confirmed';
@@ -65,7 +66,8 @@ export async function ownLinks(builderId: number): Promise<OwnLinks> {
     .map((r) => (URL.canParse(r) ? r : `https://${r}`))
     .filter((r) => URL.canParse(r) && new URL(r).protocol === 'https:')
     .map((r) => new URL(r).origin);
-  const repo = REPO_KEY.test(key.toLowerCase()) && (await mainConfirmed(builderId)) ? key.toLowerCase() : null;
+  // v2.13.3 review (I1): never a private repo's link (an App-confirmed one): only while it was read public.
+  const repo = REPO_KEY.test(key.toLowerCase()) && (await mainConfirmed(builderId)) && (await repoReadPublic(builderId, key)) ? key.toLowerCase() : null;
   return { sites: [...new Set(origins)], repo };
 }
 

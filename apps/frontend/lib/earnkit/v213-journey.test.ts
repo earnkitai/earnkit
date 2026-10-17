@@ -520,10 +520,12 @@ test('16.1 acceptance 1, with a project: the first reply names it and carries th
   // v2.13.1 O1: the agent pushed the temporary branch in the same turn; the next find checks it.
   pushBranch(RECIPES, branch!);
   await advanceRefreshGuard(id, 61_000);
+  // v2.13.3 review (I1): the community round needs the repo read public (the cheap read's public_at).
+  await sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${id} AND kind = 'repo'`;
   const r2 = await call('find', {}, ctx(id));
   assert.match(r2.show_to_builder, /^Recipe planner is on the Bench(: [^,]+)?, 3 weeks shipping\.$/m, r2.show_to_builder);
   // v2.13.3 owner ruling A: nothing fits, so the confirmed project is offered a community round (once).
-  assert.match(r2.show_to_builder, /Want to open a community round for Recipe planner\? I'll launch \$\w+ on tokens\.fun and you get 40% of its trading fees\.$/, r2.show_to_builder);
+  assert.match(r2.show_to_builder, /I'll launch \$\w+ on tokens\.fun and you get 40% of its trading fees\. Want to open a community round for Recipe planner\?$/, r2.show_to_builder);
   assert.equal(r2.move_up?.kind, 'coin');
   MAYA.offer = r2.show_to_builder;
   assert.equal(r2.claim, undefined, 'claimed: no claim link');
