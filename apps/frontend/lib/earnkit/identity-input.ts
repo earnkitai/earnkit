@@ -138,7 +138,16 @@ export function benchIdentity(a: {
     });
     const repo = list(a.repos == null ? [] : Array.isArray(a.repos) ? a.repos : [a.repos], 30).map(repoOf).find((r): r is string => r !== null)
       ?? locals.find((l) => l.repo)?.repo ?? a.local_git.remotes[0] ?? null;
-    const entry = repo ? locals.find((l) => l.repo === repo) : undefined;
+    // v2.13.4 (production): the MCP schema may strip an entry's repo key, leaving { live_url } (or { name,
+    // live_url }). Such an entry gives the repo its live link only when it is the only local repo, or its name
+    // is the repo's name; an entry naming another repo never does.
+    const repoName = repo?.split('/')[1]?.toLowerCase() ?? null;
+    const unnamed = locals.filter((l) => !l.repo && l.live);
+    const entry = repo
+      ? (locals.find((l) => l.repo === repo)
+        ?? (locals.length === 1 && unnamed.length === 1 ? unnamed[0] : undefined)
+        ?? unnamed.find((l) => repoName !== null && l.name.toLowerCase() === repoName))
+      : undefined;
     const live = entry?.live ?? liveOf(a.live_url) ?? a.local_git.live_urls[0] ?? null;
     const p = a.project;
     if (!p) {
@@ -147,7 +156,7 @@ export function benchIdentity(a: {
     }
     const sameRepo = !p.repo || !repo || p.repo === repo;
     // v2.13.4 (production): the matching local_repos entry fills a missing live link (same repo only).
-    const own = locals.find((l) => l.repo && l.repo === (p.repo ?? repo));
+    const own = locals.find((l) => l.repo && l.repo === (p.repo ?? repo)) ?? (p.repo === repo || !p.repo ? entry : undefined);
     const filled = { ...p, repo: p.repo ?? repo, live_url: p.live_url ?? own?.live ?? (sameRepo ? live : null) };
     return { identity, project: filled.repo === p.repo && filled.live_url === p.live_url ? p : filled };
   } catch {

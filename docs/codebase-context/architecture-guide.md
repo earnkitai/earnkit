@@ -5334,9 +5334,11 @@ Brief: `.superpowers/sdd/v2.13.3/brief.md`, plus owner rulings A, B, C sent the 
   the raw `local_repos` on, so a live link the matcher drops as a placeholder (earnkit.com) still reaches identity. Find's
   MCP schema under the Bench lists `live_url` and says the older fields are older; `FIND_DESCRIPTION_BENCH` asks for
   `identity.github_login` "(not github_user or repos)".
-- **1b (v2.13.4, production).** A `local_repos` entry names its repo by `url`, `remote` or `repo`; the matching
-  entry's live link (and name) fills the project when identity doesn't carry them, so the old fields reach the live
-  check and the display name as identity.project does (test P.1).
+- **1b (v2.13.4, production).** A `local_repos` entry names its repo by `url`, `remote` or `repo` (under the Bench
+  the MCP find schema keeps `remote` and `repo`, which the SDK would otherwise strip; flag off the schema is byte for
+  byte the same, test P.3). The matching entry's live link (and name) fills the project when identity doesn't carry
+  them. An entry left with no repo key gives its live link only when it is the only local repo or carries the repo's
+  name; an entry naming another repo never does. P.1 runs the production shape through the real MCP layer.
 - **2. "Ways to get funded" always shows** (never while a build is in progress, never for a repo another person holds:
   O2 ruling 3). With no project or one not yet confirmed, up to `NEEDS_MAX` (2) programs in all; for a confirmed project
   with nothing to name, the same. `bench-find.ts needsPicks` (open, showable, a prize; the project's chains first, then

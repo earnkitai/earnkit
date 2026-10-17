@@ -387,6 +387,11 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
                   .unknown()
                   .optional()
                   .describe("The repo's GitHub link, if the local remote is on GitHub"),
+                // v2.13.4 (production): under the Bench, an agent's `remote` or `repo` is kept (the SDK strips
+                // unknown keys), so the old fields' entry still names its repo. Flag off: unchanged.
+                ...(benchEnabled()
+                  ? { remote: z.unknown().optional().describe("Or the repo's git remote"), repo: z.unknown().optional().describe("Or the repo as 'owner/repo'") }
+                  : {}),
               }),
             ),
           ))
