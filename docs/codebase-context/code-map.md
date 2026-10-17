@@ -1482,6 +1482,7 @@ apps/frontend/
                                proofBranchFor's checking `again` (bench-reply stillYoursLine, view 'recheck');
                                a stale source is never re-verified by discovery (discovery.ts, sources.ts verifySource);
                                tests v2132-followups.test.ts (fakeGitHub in fixtures/fake-github-branch.ts)
+                               v2.13.3: appBearer (the App's per-call installation token for a repo this person installed it on) on the probe and the branch check.
     reply-wait.ts              v2.13.1 O5 N1: REPLY_WAIT_MS (1.5 s), settleWithin, inTime/ReplyLate: the Bench
                                reply never waits longer on the refresh, matching or the proof check
     week-facts.ts(+test)       v2.13 T4: WeekFacts, weekFactsFor, factChips, startedLine, upsertWeekFacts,
@@ -1496,9 +1497,11 @@ apps/frontend/
     bench-rank.ts(+test)       v2.13 T7: benchPool (listed ranked + benchConfirmedSql), chainPools, rankLines (Top P% and per-chain lines; rank.ts has benchRank,
                                CHAIN_CHIP_MIN, BENCH_CHAINS)
     bench-reply.ts(+test)      v2.13 T8: the reply's three headings, lines and ask kinds
+                               v2.13.3: NO_PROJECT_LINE, START_ASK, startBuildAsk, claimLine, needsLine, appCantSeeLine, installAppAsk, installAfterClaimAsk; kinds start, install_app; chooseAsk: entry, then community round, first.
     bench-find.ts(+test)       v2.13 T8/T9: benchFind, benchScore, benchAsked, benchMoveUp, coinAskBench;
                                v2.13.1 O5: quiet asks (GRANTS_QUIET_MS), ideaFitsOffer, SHIP_NOTE;
                                tests: v2131-o5.test.ts (N1 to N16, P1 to P10)
+                               v2.13.3: fundNeeds, needsPicks (NEEDS_MAX 2), START_NOTE, START_YES_NOTE, INSTALL_APP_NOTE, INSTALL_APP_YES_NOTE; no generic starter.
     raising.ts(+test)          v2.13 T9: raisingCoin, setRaising, pillOf, raiseAsk (projects.raising_at); all off
                                unless EARNKIT_RAISING (builder-score-flag.ts raisingEnabled)
     bench-data.ts(+test)       v2.13 T10/T11: parseBenchFilter, benchRows (safe names, pill in the same read),
@@ -1548,6 +1551,7 @@ apps/frontend/
                                top half only; then "top N% of people building with AI" for N <= 50), topPercentOf
     person-github.ts(+test)    v2.12.1 T3: PERSON_GITHUB_QUERY (one GraphQL query a person), reposQuery
                                (aliased by name, REPOS_MAX 25), readPersonGithub, readGithubRepos
+                               v2.13.3: readAppRepos (a repo EarnKit's token can't read, through the App, keyed by source id).
     read-usage.ts(+test)       v2.12.1 T3: FREE_LIMITS, countingDeps, flushReadUsage (read_usage per provider/day)
     person-score.ts(+test)     v2.12.1 T4: personInputsV2, rescorePerson (builder_live, pending holds, the
                                25-project cap TRACKED_MAX), listedRanked (the one ranked population),
@@ -1560,6 +1564,7 @@ apps/frontend/
     identity-input.ts(+test)   v2.12.1 T5: identityInput (find's identity, lenient), mergeIdentity (reports
                                merge by project, never wiped), noteIdentity (proposes agent sources, at
                                most 25 projects; remembers wallets, never proof)
+                               v2.13.3: benchIdentity (github_user, repos, local remotes, a live link fill identity under the Bench).
     login-contests.ts          v2.12.1 T5/T6: contestants, loginStands, settleLogin, loginContests, ruleContest
     x-oauth.ts(+test)          v2.12.1 T6: X_SCOPES, pkcePair, xAuthorizeUrl, xUserFrom, xOAuth (token + /2/users/me)
     claim.ts(+test)            v2.12.1 T6/T7: CLAIM_TEXT, claimCode (S13), claimLink, claimGet, claimPost,

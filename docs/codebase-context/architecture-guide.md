@@ -5320,3 +5320,60 @@ unchanged (no new cron step, the v2.5 stats formula, `/bench` a 404).
   `startedChips`, `benchRank`'s "#1 of 1 builder", `streakWords`; the chips carry no counts; the feed's empty
   line is `FEED_EMPTY`). Fix round 1 (concern 4): with nobody ranked (`count` 0) `/bench` shows that empty line
   once and no rows panel; a filtered view with no rows (others ranked) keeps "No one here yet." (`BENCH_EMPTY`).
+
+## v2.13.3 The owner's own production test (2026-10-17)
+
+Brief: `.superpowers/sdd/v2.13.3/brief.md`, plus owner rulings A, B, C sent the same day. Everything sits under
+`EARNKIT_BENCH`; flag off is unchanged. Tests: `v2133-owner-test.test.ts`. Runbook: section 8 and "Before you start" step 6.
+
+- **1. The older find fields are never dropped.** `identity-input.ts benchIdentity` (called by `tools.ts
+  listProgramsInput` only under the Bench) fills what identity doesn't carry: `github_user` is `identity.github_login`;
+  the first repo (`repos`, else a `local_repos` url, else `local_git` remotes) is the project's repo, named by its
+  `local_repos` entry, with that entry's live link (else a top-level `live_url`, else `local_git`'s first). An
+  `identity.project` wins; its missing repo is filled, its missing live link only from the same repo. `tools.find` passes
+  the raw `local_repos` on, so a live link the matcher drops as a placeholder (earnkit.com) still reaches identity. Find's
+  MCP schema under the Bench lists `live_url` and says the older fields are older; `FIND_DESCRIPTION_BENCH` asks for
+  `identity.github_login` "(not github_user or repos)".
+- **2. "Ways to get funded" always shows** (never while a build is in progress, never for a repo another person holds:
+  O2 ruling 3). With no project or one not yet confirmed, up to `NEEDS_MAX` (2) programs in all; for a confirmed project
+  with nothing to name, the same. `bench-find.ts needsPicks` (open, showable, a prize; the project's chains first, then
+  the biggest prize) and `fundNeeds`: what each needs in plain words ("for a Base app, once it's live", "for an
+  Avalanche app", "once your code is on GitHub", "for any app"). Rendered by `bench-reply.ts needsLine`
+  ("<title>: <prize> <needs>."), after the fits and the ideas. Never says it fits.
+- **3 and ruling A, no project.** `NO_PROJECT_LINE` is "You're not on the Bench yet." The last line is `START_ASK`
+  ("Send me your GitHub or a link to something you've made and I'll put it on the Bench and find money it can win.",
+  ask kind `start`, its yes `START_YES_NOTE`). Never the generic starter with no program: `withNoProgram` returns only a
+  program's own fresh build (program file `fresh_build`, the owner's call that the starter competes there); then the ask
+  is `startBuildAsk(offer, program)` (kind `build`, its yes the v2.11 build for that program). Both carry `START_NOTE`:
+  a GitHub login or a link goes to find with identity. The reserved `earnkit-bench` build still runs if started, but
+  find never offers it.
+- **Ruling A, a project.** `chooseAsk`: a different project (can't join) first, then the best fit's entry, then a
+  community round (the coin), then go live, updates, the week's post, the fallbacks. `benchView` asks `coinAskBench`
+  whenever nothing before it is an entry, a different project or the install ask. `coinAskBench` offers a confirmed
+  project with no moment yet a community round once (moment `countable`), so a project with nothing that fits gets one.
+- **4. The claim link is a line:** `claimLine` "Your page: claim it with X at <link>".
+- **5. Private and org repos (the read-only GitHub App).** When the one project's repo probes 404 and
+  `githubAppEnabled()`: the view's branch is `private` ("EarnKit can't see <project> yet."); claimed, the ask is
+  `install_app` with `installAppAsk(name, link)` (the v2.10 App proof link, `createVerifyLink` purpose `app`: the sign-in
+  hop, then the install), the reply's one link (no page link beside it); unclaimed, the X claim is the one link and the
+  ask is `installAfterClaimAsk`. Its notes: `INSTALL_APP_NOTE`, `INSTALL_APP_YES_NOTE`. App off: `cantSeeLine` "I can't
+  see <project>. EarnKit can only see public repos right now." and a different project. Once installed
+  (`github_verifications via = 'app'` for this installation and repo): `proof-branch.ts appBearer` mints the
+  installation token per call (`appTokenFor`, through the caller's budgeted fetch) and it replaces EarnKit's token on
+  that repo's reads: the probe (a kept "missing" is read again), the ref, the repo and the activity. The branch, pusher
+  and repo rules are unchanged, so the App confirms nothing by itself. Readings: `person-github.ts readAppRepos` reads a
+  repo EarnKit's token couldn't (one GraphQL call with the installation token, and an org's contributors), keyed by
+  source id so one person's installation never reads into another's source; called by `sources.ts` (Bench path) and
+  `person-score.ts readPersonLive` (Bench only). Tokens are never stored or logged. Pages keep the I1 rule: a private
+  repo reads "Private project" unless the builder's own agent named it.
+- **Ruling B, "community round".** Builder text never says raise or raising: the pill "Community round $X"
+  (`RaisingPill`, the share card), the chip (`FILTER_RAISING`), the week chip, `raiseLine` ("Want to open a community
+  round for <project>? I'll launch $X on tokens.fun and you get 40% of its trading fees."), `showRaisingLine`,
+  `RAISE_LINES`, the hero and How it works, tell's description, `/llms.txt`. Internal names (`raising_at`,
+  `EARNKIT_RAISING`, `{ raising }`) stay. `fixtures/banned-words.ts BENCH_EXTRA` bans raise, raising and fundraise;
+  `BENCH_PITCH_ALLOWED` allows the needs lines' chain phrases and the App-off line.
+- **Ruling C (reported to the owner).** Only one tested starter exists (`arc-tipjar`), set as the fresh build of Arc
+  Microgrants, which closed 2026-10-15; so today no open program offers a build.
+- **Owner go-live:** the five App env vars (`GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY`,
+  `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`): set on Railway 2026-10-17 (slug `earnkitai`, App ID 5355247).
+  The community round line and pill still wait on `EARNKIT_RAISING` (the lawyer step).
