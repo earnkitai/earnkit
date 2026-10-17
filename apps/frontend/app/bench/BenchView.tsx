@@ -51,6 +51,8 @@ export default function BenchView({ rows, count, chips, filter, raising }: { row
           </nav>
         </div>
       </Panel>
+      {/* v2.13.2 fix 1: nobody ranked: the header's empty line is the only one; a filtered view with no rows keeps BENCH_EMPTY. */}
+      {count > 0 && (
       <Panel className="mt-4 py-4 md:py-8" label="Builders">
         {rows.length === 0 ? (
           <p className="py-6 font-funnel-sans text-base font-light text-ek-blue-light">{BENCH_EMPTY}</p>
@@ -62,6 +64,7 @@ export default function BenchView({ rows, count, chips, filter, raising }: { row
           </ol>
         )}
       </Panel>
+      )}
       <Footer />
     </div>
   );

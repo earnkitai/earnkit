@@ -66,7 +66,8 @@ apps/frontend/
   app/bench/{page.tsx,BenchView.tsx,BenchRowItem.tsx,FilterChip.tsx,bench-load.ts}  v2.13 T10: /bench (404
                                flag off), the Bench: top 100, chain/raising/weekly filters as URL links, 16
                                cached variants (unstable_cache, 60 s, PROFILE_TAG); /leaderboard is a 307 to it;
-                               v2.13.2: benchLine says BENCH_TOP_EMPTY at 0, "1 builder who ships", "N builders who ship"
+                               v2.13.2: benchLine says BENCH_TOP_EMPTY at 0, "1 builder who ships", "N builders who ship";
+                               no rows panel at count 0 (BENCH_EMPTY only for a filtered view with no rows)
   app/feed/{page.tsx,FeedView.tsx}  v2.13 T6/T12: /feed (404 flag off), the finished weeks' best updates as
                                long cards
   app/[handle]/{BenchProfileView,ProjectTab,ScoreParts,ShipGrid}.tsx  v2.13 T11: the Bench profile (photo,
@@ -1476,6 +1477,7 @@ apps/frontend/
                                proof_branch source back to proposed, reject_reason STALE 'stale', rescored),
                                orgProofExpiryStep (cron step proof_expiry, once a UTC day, ORG_PROOF_PER_RUN),
                                proofBranchFor's checking `again` (bench-reply stillYoursLine, view 'recheck');
+                               a stale source is never re-verified by discovery (discovery.ts, sources.ts verifySource);
                                tests v2132-followups.test.ts (fakeGitHub in fixtures/fake-github-branch.ts)
     reply-wait.ts              v2.13.1 O5 N1: REPLY_WAIT_MS (1.5 s), settleWithin, inTime/ReplyLate: the Bench
                                reply never waits longer on the refresh, matching or the proof check

@@ -115,7 +115,9 @@ test('10.4 the row: photo, name, @handle, pill, chain logos with the name as alt
   assert.match(link(on, '/bench?raising=1'), /aria-pressed="true"/, 'Base is on: its chip turns it off');
   assert.match(link(on, '/bench?chain=base'), /aria-pressed="true"/, 'Raising is on: its chip turns it off');
   assert.match(link(on, '/bench?chain=base&amp;raising=1&amp;weekly=1'), /aria-pressed="false"/);
-  assert.ok(renderToStaticMarkup(React.createElement(BenchView, { rows: [], count: 0, chips: [], filter: { chain: 'base', raising: false, weekly: false }, raising: true })).includes(BENCH_EMPTY));
+  // v2.13.2 fix 1: a filtered view with no rows (others ranked) says BENCH_EMPTY; nobody ranked, only the header's empty line.
+  assert.ok(renderToStaticMarkup(React.createElement(BenchView, { rows: [], count: 3, chips: [], filter: { chain: 'base', raising: false, weekly: false }, raising: true })).includes(BENCH_EMPTY));
+  assert.ok(!renderToStaticMarkup(React.createElement(BenchView, { rows: [], count: 0, chips: [], filter: { chain: 'base', raising: false, weekly: false }, raising: true })).includes(BENCH_EMPTY));
 });
 
 test('10.5 /leaderboard redirects to /bench under the flag (a temporary redirect, so turning the flag off never sticks)', () => {

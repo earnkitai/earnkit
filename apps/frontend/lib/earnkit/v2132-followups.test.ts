@@ -7,7 +7,13 @@ import { X_ON, find, install, withEnv } from './fixtures/find';
 import { fakeGitHub } from './fixtures/fake-github-branch';
 import { ORG_PROOF_MAX_AGE_MS, checkProofBranch, expireOrgProofs } from './proof-branch';
 import { benchReply, stillYoursLine, type BenchView } from './bench-reply';
-import { benchLine } from '../../app/bench/BenchView';
+import * as React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import BenchPage, { BENCH_EMPTY, benchLine } from '../../app/bench/BenchView';
+import { BENCH_TOP_EMPTY } from '../../app/components/sections/BenchTop';
+import { discoverPerson } from './discovery';
+import type { ReaderDeps } from './source-readers';
+import { idOf } from './fixtures/fake-github-branch';
 
 /**
  * v2.13.2 follow-ups. 1: an Organization's repo confirmed by a proof branch expires 90 days after it
@@ -120,4 +126,57 @@ test('v2.13.2 3: the Bench header says nobody, one builder, or many', () => {
   assert.equal(benchLine(1), '1 builder who ships, ranked by what they shipped and who uses it.');
   assert.equal(benchLine(2), '2 builders who ship, ranked by what they shipped and who uses it.');
   assert.equal(benchLine(1200), '1,200 builders who ship, ranked by what they shipped and who uses it.');
+});
+
+// ---- Fix round 1
+
+test('v2.13.2 fix 1 (concern 3): a stale org repo comes back only through a fresh proof branch, never through discovery (top contributor)', dbTest, () =>
+  withEnv(ON, async () => {
+    const gh = fakeGitHub();
+    const org = `${uniq('acme')}/app`;
+    const owner = org.split('/')[0];
+    gh.repos[org] = { owner: { login: owner, type: 'Organization' } };
+    const member = uniq('member');
+    const id = await confirmed(gh, org, member);
+    await verifiedAgo(id, 91);
+    assert.deepEqual(await expireOrgProofs(new Date(), { only: [id] }), { expired: 1 });
+    // GitHub says the person is the org repo's top contributor (discovery's repo_owner rule for org repos).
+    const reader = new Proxy({}, {
+      get: (_t, k) => {
+        if (k === 'now') return new Date();
+        if (k === 'ghSpent') return () => false;
+        if (k === 'gh') return async (path: string) =>
+          path === `/repos/${org}` ? { id: idOf(org), full_name: org, fork: false, is_template: false, owner: { login: owner, type: 'Organization' } }
+          : path.startsWith(`/repos/${org}/contributors`) ? [{ login: member }]
+          : path === `/users/${member}` ? { login: member, blog: null, twitter_username: null } : [];
+        return async () => [];
+      },
+    }) as ReaderDeps;
+    await discoverPerson(id, { deadline: Date.now() + 10_000, reader, login: async () => ({ login: member, basis: 'proof_branch' as never }) });
+    assert.deepEqual(await source(id, org), { state: 'proposed', proof: 'proof_branch', reject_reason: 'stale' }, 'discovery never re-verifies a stale source');
+    assert.equal(await ranked(id), false);
+    // A fresh proof branch brings it back.
+    await recheckable(id);
+    const r = await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
+    gh.push(org, branchOf(r), member);
+    assert.equal(await checkProofBranch(id, new Date(), { ghFetch: gh.f }), true);
+    assert.deepEqual(await source(id, org), { state: 'verified', proof: 'proof_branch', reject_reason: null });
+  }),
+);
+
+(globalThis as { React?: typeof React }).React = React;
+const page = (count: number, rows = 0, chain: 'base' | null = null) =>
+  renderToStaticMarkup(React.createElement(BenchPage, {
+    rows: Array.from({ length: rows }, (_, i) => ({ rank: i + 1, line: null, handle: `h${i}`, name: `H${i}`, avatar: null, raising: null, chains: [], project: 'P', best: 'Building' })),
+    count, chips: [], filter: { chain, raising: false, weekly: false }, raising: false,
+  })).replace(/&#x27;/g, "'");
+
+test('v2.13.2 fix 1 (concern 4): nobody ranked: the empty line once; a filtered view with no rows keeps "No one here yet."', () => {
+  const empty = page(0);
+  assert.equal(empty.split(BENCH_TOP_EMPTY).length - 1, 1, 'the empty line once');
+  assert.ok(!empty.includes(BENCH_EMPTY), 'no second empty line');
+  const filtered = page(5, 0, 'base');
+  assert.ok(filtered.includes(BENCH_EMPTY));
+  assert.ok(filtered.includes('5 builders who ship'));
+  assert.ok(!page(1, 1).includes(BENCH_EMPTY));
 });

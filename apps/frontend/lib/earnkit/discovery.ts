@@ -21,7 +21,7 @@ import { loginStands } from './login-contests';
 import { clearXHandle, releaseLogin, setFallback } from './profiles';
 import { GitHubBudgetStop, isBudgetStop, readContractOrigin, soft, type ReaderDeps, type RepoSignals } from './source-readers';
 import { claimContract, proposeSource, rejectSource, repoOwned, verifySource, type Proof } from './sources';
-import { heldByOther } from './proof-branch';
+import { STALE, heldByOther } from './proof-branch';
 import { proofLineOwner } from './token-gate';
 import { readGithubUser, readOwnedRepos, readPersonGithub, type PersonGithub } from './person-github';
 
@@ -223,7 +223,7 @@ type Counts = {
   /** v2.12.2: the proof-line check was skipped for lack of time with candidates to check (discoverPerson). */
   proofSkipped?: boolean;
 };
-type Row = { id: number; state: string; proof?: string | null; gh_repo_id?: string | null };
+type Row = { id: number; state: string; proof?: string | null; gh_repo_id?: string | null; reject_reason?: string | null };
 type DiscoverOpts = {
   deadline: number; reader: ReaderDeps; login?: LoginOf; proofLine?: ProofLineCheck;
   /** v2.12.2: skip the proof-line check (never throw) when less than PROOF_LINE_MIN_MS remains. */
@@ -248,12 +248,13 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
   const stateOf = (row: Row) => planned.get(row.id) ?? row.state;
   const propose = async (kind: string, ref: string, key: string): Promise<Row> => {
     if ((await proposeSource({ builder_id: root, kind, ref, project_key: key, proposed_by: 'server' })) !== null) out.proposed++;
-    const [row] = await db<Row[]>`SELECT id::int AS id, state, proof, gh_repo_id::text AS gh_repo_id FROM builder_sources WHERE builder_id = ${root} AND kind = ${kind} AND ref = ${ref}`;
+    const [row] = await db<Row[]>`SELECT id::int AS id, state, proof, gh_repo_id::text AS gh_repo_id, reject_reason FROM builder_sources WHERE builder_id = ${root} AND kind = ${kind} AND ref = ${ref}`;
     return row;
   };
-  // Only a proposed source is verified: a rejected (or revoked) one stays rejected.
+  // Only a proposed source is verified: a rejected (or revoked) one stays rejected. v2.13.2 fix 1: a
+  // stale one (an org repo's expired proof branch) comes back only through a fresh proof branch.
   const verify = (row: Row, proof: Proof) => {
-    if (stateOf(row) !== 'proposed') return;
+    if (stateOf(row) !== 'proposed' || row.reject_reason === STALE) return;
     planned.set(row.id, 'verified');
     verdicts.push(async () => {
       await verifySource(row.id, proof);
@@ -398,6 +399,8 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
       else if (!repoOwned(signals, L, c.top, ever)) reject(row, fork || template || ever ? 'derived' : 'not_owner');
       // v2.13.1 O1 fix round 2: never a repo another person already holds (the first holder keeps it).
       else if (stateOf(row) === 'proposed' && (await heldByOther(root, key))) continue;
+      // v2.13.2 fix 1: a stale repo is neither verified nor scanned for clues until a fresh proof branch.
+      else if (row.reject_reason === STALE) continue;
       else if (stateOf(row) !== 'rejected') {
         verify(row, 'repo_owner');
         scan.push({ key, meta: c.meta });

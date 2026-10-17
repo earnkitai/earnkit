@@ -61,7 +61,10 @@ export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
   programs_open: 'programs open',
   bonus_programs_open: 'programs with a builder bonus',
   coins_launched: 'tokens launched',
-  fees_to_safe_eth: 'fees to the Safe (v2.5 tokens)',
+  // v2.13.2 fix 1: under the Bench the stat covers both fee splits (statsFrom); flag off, the v2.5 label.
+  get fees_to_safe_eth() {
+    return benchEnabled() ? 'fees to the EarnKit Safe (ETH)' : 'fees to the Safe (v2.5 tokens)';
+  },
   bonus_paid_eth: 'builder bonus paid (ETH)',
   bonus_pools_eth: 'builder bonus pools open (ETH)',
   installs: 'installs',

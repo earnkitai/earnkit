@@ -108,7 +108,9 @@ export async function verifySource(id: number, proof: Proof, deployer: string | 
   const [row] = await sql()<{ builder_id: number; kind: string }[]>`
     UPDATE builder_sources SET state = 'verified', proof = ${proof}, verified_at = now(), reject_reason = NULL,
       deployer = COALESCE(${deployer?.toLowerCase() ?? null}::text, deployer)
-    WHERE id = ${id} AND state = 'proposed' RETURNING builder_id, kind`;
+    -- v2.13.2 fix 1: a stale source (an org repo's expired proof branch) comes back only through a
+    -- fresh proof branch (proof-branch.ts checkProofBranch), never through any discovery clue.
+    WHERE id = ${id} AND state = 'proposed' AND reject_reason IS DISTINCT FROM 'stale' RETURNING builder_id, kind`;
   if (row) await noteEvent('source_verified', () => ({ type: 'source_verified', dedupe_key: `source_verified:${id}`, installation_id: row.builder_id, detail: { source_id: id, kind: row.kind, proof } }));
 }
 

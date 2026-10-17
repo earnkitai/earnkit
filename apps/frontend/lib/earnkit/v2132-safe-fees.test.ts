@@ -4,7 +4,7 @@ import { encodeAbiParameters, encodeEventTopics, keccak256, type Hex } from 'vie
 import { BASE_BONUS, CLAIMED_REWARDS, CONFIRMATIONS, STORE_TOKENS, indexSafeFees, type BonusRpc, type RawLog } from './bonus-ledger';
 import { sql } from './db';
 import { holdBonusDbLock } from './fixtures/bonus-db-lock';
-import { readStats, statsFrom } from './stats';
+import { STATS_LABELS, readStats, statsFrom } from './stats';
 
 /**
  * v2.13.2 (2): `fees_to_safe_eth` counts the Safe's actual share of both splits under the Bench: the
@@ -210,4 +210,9 @@ test('v2.13.2 2: indexSafeFees books the Safe\'s own deposits from EarnKit coins
   } finally {
     await clean();
   }
+});
+
+test('v2.13.2 fix 1 (concern 5): under the Bench the fees_to_safe_eth label names both splits; flag off unchanged', async () => {
+  await withBench(true, () => assert.equal(STATS_LABELS.fees_to_safe_eth, 'fees to the EarnKit Safe (ETH)'));
+  await withBench(false, () => assert.equal(STATS_LABELS.fees_to_safe_eth, 'fees to the Safe (v2.5 tokens)'));
 });

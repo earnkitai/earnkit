@@ -5283,7 +5283,10 @@ unchanged (no new cron step, the v2.5 stats formula, `/bench` a 404).
   people runs for them without using the day's window. `proofBranchFor` treats a stale source as unconfirmed
   even after a used code and marks its checking state `again`; the reply (`bench-find.ts` view `'recheck'`)
   says "Time to show <project> is still yours: I'll check with a quick temporary branch on GitHub." A pass
-  verifies the repo again and clears the note. User-owned repos (owner = pusher) never expire.
+  verifies the repo again and clears the note. User-owned repos (owner = pusher) never expire. Fix round 1
+  (concern 3): a stale source comes back ONLY through a fresh proof branch: discovery never verifies it
+  (`discovery.ts verify` and the candidate loop skip `reject_reason = 'stale'`, so no repo_owner top-contributor
+  verdict and no clue scan) and `sources.ts verifySource` refuses it in SQL; only `checkProofBranch` writes it back.
 - **The Safe's revenue stat.** `fees_to_safe_eth` (`stats.ts`) used to be the indexed bonus deposits x 30/20,
   which only sees v2.5's 4-slot coins. Under the Bench the bonus ledger also indexes the Safe's own FeeLocker
   deposits from EarnKit coins into `safe_fees` (`bonus-ledger.ts indexSafeFees`, step `safe_index` right
@@ -5295,10 +5298,14 @@ unchanged (no new cron step, the v2.5 stats formula, `/bench` a 404).
   tokens.fun coins at once, so it can't be split by coin. The stat under the flag: indexed Safe deposits
   (`safe_fees_wei`) + 1.5x only the bonus deposits whose transaction has no indexed Safe deposit of the same
   coin (`bonus_unmatched_wei`; history before the Safe index) + bonus money booked to the Safe. Test
-  installations' coins never count. `/api/stats` keeps its keys and types; no field was added.
+  installations' coins never count. `/api/stats` keeps its keys and types; no field was added. No owner step
+  for the start block: the fallback to `BONUS_INDEX_START_BLOCK` predates every 3-slot coin (coordinator
+  ruling). Under the flag `STATS_LABELS.fees_to_safe_eth` is "fees to the EarnKit Safe (ETH)" (a getter on
+  the flag); flag off it stays "fees to the Safe (v2.5 tokens)".
 - **The Bench header counts.** `app/bench/BenchView.tsx benchLine`: 0 is the landing's empty line ("Nobody on
   the Bench yet. Add EarnKit to your agent and be first.", `BENCH_TOP_EMPTY`), 1 is "1 builder who ships, ranked
   by what they shipped and who uses it.", more "N builders who ship, ...". The other count phrases on `/bench`,
   the landing, the chips and the feed were checked for 0 and 1 and already read right (`bestFact`, `factChips`,
   `startedChips`, `benchRank`'s "#1 of 1 builder", `streakWords`; the chips carry no counts; the feed's empty
-  line is `FEED_EMPTY`).
+  line is `FEED_EMPTY`). Fix round 1 (concern 4): with nobody ranked (`count` 0) `/bench` shows that empty line
+  once and no rows panel; a filtered view with no rows (others ranked) keeps "No one here yet." (`BENCH_EMPTY`).
