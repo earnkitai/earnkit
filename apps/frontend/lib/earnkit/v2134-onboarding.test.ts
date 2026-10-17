@@ -197,12 +197,7 @@ test('a.3 under the Bench an X tie never sets up a cross-agent yes; flag off (sc
     assert.equal(r.ok, false);
     assert.equal(await pendingJoinOf(a), null);
     assert.equal(await pendingJoinOf(b), null);
-    // An X pending join from before v2.13.4 is never asked under the Bench.
-    await sql()`INSERT INTO pending_joins (installation_id, target, tie) VALUES (${b}, ${await rootOf(a)}, 'x_user_id') ON CONFLICT DO NOTHING`;
-    const rb = await findAs(b);
-    assert.doesNotMatch(rb.show_to_builder, /Your X is already on an EarnKit page/);
-    assert.equal(await pendingJoinOf(b), null);
-    await withEnv({ EARNKIT_BENCH: undefined }, async () => assert.notEqual(await pendingJoinOf(b), null));
+    // v2.13.4 R8: the strong-proof two-agent yes stays for an installation that isn't fresh and empty (R8.2).
   }));
 
 // ---- b. After the claim, never a claim link again -------------------------------------------------
@@ -616,9 +611,19 @@ test('R7.0 the R1 page names the installation that minted the claim link (not th
     await sql()`UPDATE installations SET client_name = 'Root Client' WHERE id = ${a}`;
     await sql()`UPDATE installations SET client_name = 'Cursor' WHERE id = ${b}`;
     const r = await find(a, {}, { ownInstallationId: b, ...NO_MATCH });
+    const code = r.claim!.link.split('/').pop()!;
+    const [c] = await sql()<{ minted_by: number }[]>`SELECT minted_by FROM claim_codes WHERE code_hash = ${createHash('sha256').update(code).digest('hex')}`;
+    assert.equal(c.minted_by, b, 'the installation that asked for the link');
+    // v2.13.4 R8: a group of two is never offered the one click.
     const s2 = await signIn(r.claim!.link, { id: `x${holder}`, username: handle, name: 'Maya', avatar: null });
-    assert.ok(s2.body.includes(CLAIM_TEXT.joinAgent('Cursor', 'just now')), s2.body);
-    assert.ok(!s2.body.includes('Root Client'));
+    assert.equal(offerOf(s2.body), null);
+    assert.ok(s2.body.includes(CLAIM_TEXT.needsYes), s2.body);
+    // A fresh, empty installation's page names it (the minting installation is the installation itself).
+    const lone = await install();
+    await sql()`UPDATE installations SET client_name = 'Cursor' WHERE id = ${lone}`;
+    const rl = await find(lone, {}, NO_MATCH);
+    const sl = await signIn(rl.claim!.link, { id: `x${holder}`, username: handle, name: 'Maya', avatar: null });
+    assert.ok(sl.body.includes(CLAIM_TEXT.joinAgent('Cursor', 'just now')), sl.body);
   }));
 
 test('R7.1 the notice is per installation: re-shown until that installation answers, even while its reply is held; one question', dbTest, () =>
@@ -682,18 +687,10 @@ test('R7.2 the newcomer can never answer or clear the notice (yes or no); eligib
 
 test('R7.3 a yes from an eligible installation detaches the newcomer back to its own former group and hides its updates; the line says so; a no-op is never "Done"', dbTest, () =>
   withEnv({ ...ON, EARNKIT_EVENT_LOG: 'on' }, async () => {
-    // The joining side is a group of two installations (root + member).
-    const key = `${uniq('r7d')}/recipes`;
-    const handle = uniq('r7d').slice(0, 15);
-    const holder = await person({ main: key, claimed: handle, projects: [{ key, name: 'Recipe planner', confirmed: true }] });
-    const a = await install();
-    const b = await install();
-    await find(a, {}, NO_MATCH);
-    await linkInstallations(b, [a]);
-    const r = await find(a, {}, { ownInstallationId: a, ...NO_MATCH });
-    const s2 = await signIn(r.claim!.link, { id: `x${holder}`, username: handle, name: 'Maya', avatar: null });
-    assert.equal((await confirmJoin(offerOf(s2.body)!, s2.cookie)).status, 200);
-    assert.equal(await rootOf(b), holder);
+    // v2.13.4 R8: the joining side is a single fresh installation.
+    const jp = await joinedPage();
+    const { holder } = jp;
+    const a = jp.joiner;
     const j = { holder, joiner: a };
     const posted = await tell({ update: { text: 'Added the fridge photo import.' } }, asJoiner(j));
     assert.ok(posted.show_to_builder.length > 0, JSON.stringify(posted));
@@ -702,8 +699,7 @@ test('R7.3 a yes from an eligible installation detaches the newcomer back to its
     assert.ok(yes.show_to_builder.startsWith(DETACH_LINES.done), yes.show_to_builder);
     assert.equal(DETACH_LINES.done, "Done. That agent is off your page, and its updates since it joined are hidden.");
     endsOnOne(yes.show_to_builder, 'detach');
-    assert.equal(await rootOf(a), a, 'its own former root again');
-    assert.equal(await rootOf(b), a, 'its group is whole again, not scattered');
+    assert.equal(await rootOf(a), a, 'its own again');
     const [u] = await sql()<{ hidden: boolean }[]>`SELECT hidden FROM project_updates WHERE builder_id = ${holder} AND posted_by = ${a}`;
     assert.equal(u.hidden, true);
     const [e] = await sql()`SELECT 1 FROM builder_events WHERE type = 'page_detached' AND installation_id = ${holder}`;
@@ -787,4 +783,149 @@ test('R7.5 (item 8) a newcomer on probation can\'t pull a third installation ont
     // The owner's own yes still works.
     await tell({ pickup: 'yes' }, asHolder(j));
     assert.equal(await rootOf(third), j.holder);
+  }));
+
+// ---- R8: the one click attaches only a fresh, empty installation ---------------------------------
+
+/** A page claimed with X user `x<id>`, and the claim page as a candidate installation reaches it after Sign in with X. */
+async function pageAndCandidate(prep: (cand: number) => Promise<unknown>) {
+  const key = `${uniq('r8')}/recipes`;
+  const handle = uniq('r8h').slice(0, 15);
+  const holder = await person({ main: key, claimed: handle, projects: [{ key, name: 'Recipe planner', confirmed: true }] });
+  const cand = await install();
+  const r = await find(cand, {}, NO_MATCH);
+  await prep(cand);
+  const s = await signIn(r.claim!.link, { id: `x${holder}`, username: handle, name: 'Maya', avatar: null });
+  return { holder, cand, key, s };
+}
+const W = (c: string) => `0x${c.repeat(40)}`;
+
+test('R8.1 a fresh, empty installation joins with one click; the link carries none of its data and is recorded with the eligible installations', dbTest, () =>
+  on(async () => {
+    const j = await joinedPage();
+    const [row] = await sql()<{ members: number[]; eligible: number[]; from_root: number }[]>`SELECT members, eligible, from_root FROM page_joins WHERE root = ${j.holder} ORDER BY id DESC LIMIT 1`;
+    assert.deepEqual(row.members, [j.joiner]);
+    assert.deepEqual(row.eligible, [j.holder]);
+    assert.equal(row.from_root, j.joiner);
+    assert.equal((await sql()`SELECT 1 FROM builder_profiles WHERE builder_id = ${j.joiner}`).length, 0, 'its empty profile is not merged, just dropped');
+  }));
+
+test('R8.2 not fresh or empty: a wallet, a payout wallet, a verification, an open verify nonce, a source, an entry, a coin offer or another member: no one click; the two-agent yes; nothing reaches the page', dbTest, () =>
+  on(async () => {
+    const cases: [string, (c: number) => Promise<unknown>][] = [
+      ['wallet', (c) => sql()`INSERT INTO installation_wallets (installation_id, wallet) VALUES (${c}, ${W('a')})`],
+      ['person wallet', (c) => sql()`INSERT INTO person_wallets (wallet, builder_id) VALUES (${`0x${randomBytes(20).toString('hex')}`}, ${c})`],
+      ['payout wallet', (c) => sql()`UPDATE installations SET payout_wallet = ${W('b')} WHERE id = ${c}`],
+      ['verification', (c) => sql()`INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose) VALUES (${`${uniq('v')}/r`}, ${uniq('gh')}, ${c}, now() - interval '2 years', 3, 'claim')`],
+      ['open nonce', (c) => sql()`INSERT INTO github_verify_nonces (nonce_hash, installation_id, repo_key, purpose, expires_at) VALUES (${randomBytes(32).toString('hex')}, ${c}, ${`${uniq('n')}/r`}, 'app', now() + interval '1 hour')`],
+      ['source', (c) => sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proposed_by) VALUES (${c}, 'repo', ${`${uniq('s')}/r`}, ${`${uniq('s')}/r`}, 'proposed', 'agent')`],
+      ['entry', (c) => sql()`INSERT INTO projects (program_id, name, installation_id) VALUES ('earnkit-coin', 'Thing', ${c})`],
+      ['token offer', (c) => sql()`INSERT INTO token_offers (installation_id, program_id, entry_key, offered_name, offered_ticker) VALUES (${c}, 'earnkit-coin', 'k', 'Thing', 'THING')`],
+      ['coin moment', (c) => sql()`INSERT INTO coin_moments (builder_id, project_key, moment) VALUES (${c}, 'a/b', 'countable')`],
+      ['another member', async (c) => { const m = await install(); await sql()`UPDATE installations SET builder_id = ${c} WHERE id = ${m}`; }],
+    ];
+    for (const [what, prep] of cases) {
+      const t = await pageAndCandidate(prep);
+      assert.equal(offerOf(t.s.body), null, `${what}: no one-click offer`);
+      assert.ok(t.s.body.includes(CLAIM_TEXT.needsYes), `${what}: ${t.s.body}`);
+      assert.notEqual(await rootOf(t.cand), t.holder, `${what}: not joined`);
+      assert.ok(await pendingJoinOf(t.cand), `${what}: the two-agent yes is set up`);
+      // Nothing of the candidate's reached the page.
+      const [n] = await sql()<{ n: number }[]>`
+        SELECT ((SELECT count(*) FROM github_verifications WHERE installation_id = ${t.holder})
+          + (SELECT count(*) FROM installation_wallets WHERE installation_id = ${t.holder})
+          + (SELECT count(*) FROM person_wallets WHERE builder_id = ${t.holder})
+          + (SELECT count(*) FROM builder_sources WHERE builder_id = ${t.holder} AND proposed_by = 'agent' AND ref <> ${t.key})
+          + (SELECT count(*) FROM token_offers WHERE installation_id = ${t.holder}))::int AS n`;
+      assert.equal(n.n, 0, `${what}: nothing on the page`);
+      const [p] = await sql()<{ payout: string | null }[]>`SELECT payout_wallet AS payout FROM installations WHERE id = ${t.holder}`;
+      assert.equal(p.payout, null);
+    }
+  }));
+
+test('R8.3 the offer re-checks at the click: an installation that got data after the offer is refused', dbTest, () =>
+  on(async () => {
+    const t = await pageAndCandidate(async () => undefined);
+    const tok = offerOf(t.s.body)!;
+    assert.ok(tok);
+    await sql()`INSERT INTO installation_wallets (installation_id, wallet) VALUES (${t.cand}, ${W('c')})`;
+    assert.notEqual((await confirmJoin(tok, t.s.cookie)).status, 200);
+    assert.notEqual(await rootOf(t.cand), t.holder);
+    assert.equal((await sql()`SELECT 1 FROM page_joins WHERE ${t.cand}::int = ANY(members)`).length, 0, 'no join row without a link, nor a link without one');
+  }));
+
+test('R8.4 the old route is closed: an installation with a GitHub verification is never merged by the one click, so a later GitHub tie never reaches the page', dbTest, () =>
+  on(async () => {
+    const login = uniq('atk').toLowerCase();
+    const t = await pageAndCandidate((c) => sql()`INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose) VALUES (${`${login}/r`}, ${login}, ${c}, now() - interval '2 years', 3, 'claim')`);
+    assert.equal(offerOf(t.s.body), null);
+    const third = await install();
+    await find(third, {}, NO_MATCH);
+    await joinOnProvenTie(third, { github_login: login });
+    const [pj] = await sql()<{ target: number }[]>`SELECT target FROM pending_joins WHERE installation_id = ${third}`;
+    assert.notEqual(await rootOf(pj.target), t.holder, 'the tie points at the attacker, never the page');
+  }));
+
+test('R8.5 a GitHub tie-join onto a page with an unanswered R1 join is refused until every eligible installation answers', dbTest, () =>
+  on(async () => {
+    const j = await joinedPage();
+    const login = uniq('r8t').toLowerCase();
+    await sql()`UPDATE builder_profiles SET github_login = ${login}, github_basis = 'signin' WHERE builder_id = ${j.holder}`;
+    const third = await install();
+    await find(third, {}, NO_MATCH);
+    await joinOnProvenTie(third, { github_login: login });
+    await answerJoin(third, true);
+    assert.equal(await answerJoin(j.holder, true), 'refused');
+    assert.notEqual(await rootOf(third), j.holder);
+    // Once the owner answers the notice, the tie-join goes through.
+    const pk = (await noticeFind(j, j.holder)).move_up!.project_key!;
+    await answer(j, j.holder, pk, 'no');
+    assert.equal(await answerJoin(j.holder, true), 'linked');
+    assert.equal(await rootOf(third), j.holder);
+  }));
+
+test('R8.6 the notice follows the page\'s current root and the eligible snapshot; an installation added later is never eligible', dbTest, () =>
+  on(async () => {
+    const j = await joinedPage();
+    // A later installation of the page (after the join) is not in the snapshot.
+    const late = await install();
+    await sql()`UPDATE installations SET builder_id = ${j.holder} WHERE id = ${late}`;
+    assert.doesNotMatch((await noticeFind(j, late)).show_to_builder, /A new agent was added/);
+    const pk = (await noticeFind(j, j.holder)).move_up!.project_key!;
+    assert.ok(!(await answer(j, late, pk, 'yes')).show_to_builder.startsWith('Done.'));
+    // The page re-roots under an older group: the notice still shows for the eligible installation.
+    const older = await install();
+    await sql()`UPDATE installations SET builder_id = ${older} WHERE id = ${j.holder} OR builder_id = ${j.holder}`;
+    await sql()`UPDATE builder_profiles SET builder_id = ${older} WHERE builder_id = ${j.holder}`;
+    const f = await find(older, {}, { ownInstallationId: j.holder, ...NO_MATCH });
+    assert.match(f.show_to_builder, NOTICE, f.show_to_builder);
+  }));
+
+test('R8.7 probation fails closed, mints no App link, keeps no match, and counts update posts per installation', dbTest, () =>
+  withEnv({ ...ON, ...APP }, async () => {
+    const { withProbation } = await import('./tools');
+    const j = await joinedPage();
+    // A failed read is probation (an id the database can't even read).
+    const ctx = await withProbation({ installationId: j.holder, ownInstallationId: 2 ** 40 } as never);
+    assert.equal((ctx as { probation?: boolean }).probation, true);
+    // No App verify nonce minted on probation (a private repo matched or reported).
+    const n0 = (await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM github_verify_nonces WHERE installation_id = ${j.holder}`)[0].n;
+    const unseen = { matchProjects: async () => ({ checked: 1, scored: 0, fits: [], unseen: [{ name: 'secret', full_name: `${uniq('p')}/secret` }] }) };
+    await find(j.holder, { agent_can_build: true }, { ownInstallationId: j.joiner, ...unseen });
+    assert.equal((await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM github_verify_nonces WHERE installation_id = ${j.holder}`)[0].n, n0);
+    const [m] = await sql()<{ m: unknown }[]>`SELECT standing_seen->'bench_match' AS m FROM builder_profiles WHERE builder_id = ${j.holder}`;
+    assert.equal(m.m, null, 'no kept match written');
+    // The page's daily posts are not used up by a probationer.
+    await sql()`DELETE FROM rate_windows WHERE key LIKE ${`updatePost:${j.holder}%`}`;
+    for (let i = 0; i < 25; i++) await tools.tell({ update: { text: `Shipped part ${i} of the import.` } }, asJoiner(j));
+    const owner = await tools.tell({ update: { text: 'Shipped the owner part.' } }, asHolder(j)) as { show_to_builder: string; agent_note?: string };
+    assert.doesNotMatch(String(owner.agent_note ?? ''), /limit|too many|tomorrow/i, JSON.stringify(owner));
+  }));
+
+test('R8.8 one probation tell with an update and a refused part: one reply, one question, last', dbTest, () =>
+  on(async () => {
+    const j = await joinedPage();
+    const r = await tell({ update: { text: 'Added the fridge photo import.' }, profile: 'hide' }, asJoiner(j));
+    endsOnOne(r.show_to_builder, 'combined');
+    assert.ok(r.show_to_builder.includes(PROBATION_LINES.write.split('\n')[0]), r.show_to_builder);
   }));
