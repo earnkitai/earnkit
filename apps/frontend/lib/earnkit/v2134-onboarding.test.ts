@@ -19,6 +19,9 @@ import {
 import { CLAIM_NOTE, displayName, fundNeeds } from './bench-find';
 import { checkLive, liveDefaults, parkedPage } from './live-check';
 import { pageUrl } from './reserved-routes';
+import { createMcpServer } from './mcp';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { benchIdentity, identityInput } from './identity-input';
 import { localGitInput } from './discovery';
 import type { XOAuthDeps, XUser } from './x-oauth';
@@ -1130,27 +1133,58 @@ test('REG.2 the one click deletes the newcomer\'s harmless leftovers too (answer
 
 // ---- Production follow-up: the old fields' local_repos entry carries its live link and name ------
 
-test('P.1 old fields with local_repos[{ remote, live_url }]: the entry fills identity.project, so the site names it "EarnKit" and nothing says "once it\'s live", on the first and second find', dbTest, () =>
+test('P.1 through the real MCP layer (the find tool\'s input schema): old fields with local_repos[{ remote, live_url }] name the project "EarnKit" and nothing says "once it\'s live", on the first and second find', dbTest, () =>
   on(async () => {
     const was = liveDefaults.probe;
     liveDefaults.probe = async () => '<html><head><title>EarnKit | Where agents earn</title></head><body>Builders ship and get funded.</body></html>';
+    const id = await install();
+    const gh = fakeGitHub();
+    gh.repos['earnkitai/earnkit'] = { owner: { login: 'earnkitai', type: 'Organization' } };
+    const server = createMcpServer({ installationId: id, ...NO_MATCH, proofBranchFetch: gh.f } as never);
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'p1', version: '0' });
+    await Promise.all([server.connect(a), client.connect(b)]);
     try {
-      const id = await install();
-      const gh = fakeGitHub();
-      gh.repos['earnkitai/earnkit'] = { owner: { login: 'earnkitai', type: 'Organization' } };
-      const input = { github_user: 'jenil04', repos: ['earnkitai/earnkit'], local_repos: [{ remote: 'https://github.com/earnkitai/earnkit', live_url: 'https://earnkit.com' }] };
+      const args = { github_user: 'jenil04', repos: ['earnkitai/earnkit'], local_repos: [{ remote: 'https://github.com/earnkitai/earnkit', live_url: 'https://earnkit.com' }] };
       for (const n of [1, 2]) {
-        const r = await find(id, input, { ...NO_MATCH, proofBranchFetch: gh.f });
+        const res = (await client.callTool({ name: 'find', arguments: args })) as { content: { text: string }[]; isError?: boolean };
+        assert.ok(!res.isError, res.content[0]?.text);
+        const r = JSON.parse(res.content[0].text) as { show_to_builder: string };
         assert.match(r.show_to_builder, /\bEarnKit\b/, `find ${n}: ${r.show_to_builder}`);
         assert.doesNotMatch(r.show_to_builder, /\bEarnkit\b/, `find ${n}`);
         assert.doesNotMatch(r.show_to_builder, /once it's live|once your app is live/, `find ${n}: ${r.show_to_builder}`);
       }
       const [p] = await sql()<{ identity: { projects?: { repo: string | null; live_url: string | null }[] } }[]>`SELECT identity FROM builder_profiles WHERE builder_id = ${id}`;
       assert.deepEqual(p.identity.projects?.map((x) => [x.repo, x.live_url]), [['earnkitai/earnkit', 'https://earnkit.com']]);
-      // The pure mapping: remote (or url, or repo) names the entry; its name fills the project's name.
-      const m = benchIdentity({ identity: identityInput({}), project: null, local_git: localGitInput(undefined), repos: ['a/b'], local_repos: [{ name: 'My App', remote: 'git@github.com:a/b.git', live_url: 'https://b.app' }] });
-      assert.deepEqual(m.project && [m.project.name, m.project.repo, m.project.live_url], ['My App', 'a/b', 'https://b.app']);
     } finally {
+      await client.close();
       liveDefaults.probe = was;
     }
   }));
+
+test('P.2 the mapping (pure): an entry\'s live link is used when it names the repo (url, remote, repo), or has no repo and is the only entry or carries the repo\'s name; never from an entry naming another repo', () => {
+  const map = (local_repos: unknown) =>
+    benchIdentity({ identity: identityInput({}), project: null, local_git: localGitInput(undefined), repos: ['a/b'], local_repos }).project;
+  assert.deepEqual([map([{ name: 'My App', remote: 'git@github.com:a/b.git', live_url: 'https://b.app' }])?.name, map([{ remote: 'a/b', live_url: 'https://b.app' }])?.live_url], ['My App', 'https://b.app']);
+  assert.equal(map([{ live_url: 'https://b.app' }])?.live_url, 'https://b.app', 'the only entry, no repo named');
+  assert.equal(map([{ name: 'other', live_url: 'https://o.app' }, { name: 'B', live_url: 'https://b.app' }])?.live_url, 'https://b.app', 'by name');
+  assert.equal(map([{ name: 'x', live_url: 'https://x.app' }, { name: 'y', live_url: 'https://y.app' }])?.live_url, null, 'ambiguous: none');
+  assert.equal(map([{ url: 'https://github.com/c/d', live_url: 'https://d.app' }])?.live_url, null, 'never another repo\'s link');
+});
+
+test('P.3 flag off: the registered find input schema is byte for byte the same as before (score off and on)', async () => {
+  const { createHash } = await import('node:crypto');
+  const BEFORE = { off: '8e320cdb23addf10597862899cda73d89664337f15942f090b26d205d4c3dec7', on: 'e1df22a1cb00fc7a47f35ec5a597593b7c4b91af59d128d9f7114f4b60c761be' };
+  await withEnv({ EARNKIT_BENCH: undefined, EARNKIT_BUILDER_SCORE: undefined }, async () => {
+    for (const score of ['off', 'on'] as const) {
+      if (score === 'on') process.env.EARNKIT_BUILDER_SCORE = 'on';
+      const server = createMcpServer({ installationId: 1 });
+      const [a, b] = InMemoryTransport.createLinkedPair();
+      const client = new Client({ name: 'p3', version: '0' });
+      await Promise.all([server.connect(a), client.connect(b)]);
+      const find = (await client.listTools()).tools.find((t) => t.name === 'find')!;
+      await client.close();
+      assert.equal(createHash('sha256').update(JSON.stringify(find.inputSchema)).digest('hex'), BEFORE[score], score);
+    }
+  });
+});
