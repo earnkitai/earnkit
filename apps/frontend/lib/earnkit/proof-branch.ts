@@ -57,6 +57,11 @@ export const ORG_PROOF_MAX_AGE_MS = 90 * 24 * 60 * 60_000;
 export const ORG_PROOF_PER_RUN = 100;
 /** v2.13.2 (1): the reject_reason note on a repo source whose org proof expired (state 'proposed'). */
 export const STALE = 'stale';
+/**
+ * v2.13.2 review: the note on a still-verified source whose expiry was rolled back because its person's
+ * rescore failed: the next run takes it last, so it never blocks anyone (cleared when it expires or is re-proven).
+ */
+export const STALE_RETRY = 'stale_retry';
 
 const BASE32 = 'abcdefghijklmnopqrstuvwxyz234567';
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -606,7 +611,9 @@ export async function proofBranchStep(
  * (proofBranchFor: `again`). A pass of that branch verifies it again and clears the note. User-owned
  * repos never expire. Review M1: one person at a time (their rows, then their rescore), stopping at
  * `deadline`: the rest stay verified for the next run. A rescore that fails puts that person's rows back
- * to verified and throws. `done`: every expired row was handled (none left over at `limit` or the deadline).
+ * to verified (noted STALE_RETRY, so the next run takes them last), is logged by class name, and the run
+ * goes on with the next person. `done`: every expired row was handled (none failed, none left over at
+ * `limit` or the deadline).
  */
 export async function expireOrgProofs(
   now: Date,
@@ -620,12 +627,13 @@ export async function expireOrgProofs(
     SELECT id::int AS id, builder_id::int AS builder_id FROM builder_sources
     WHERE kind = 'repo' AND state = 'verified' AND proof = 'proof_branch' AND gh_owner_type = 'Organization'
       AND verified_at <= ${cutoff} ${only}
-    ORDER BY verified_at, id LIMIT ${limit + 1}`;
+    ORDER BY (reject_reason IS NOT DISTINCT FROM ${STALE_RETRY}), verified_at, id LIMIT ${limit + 1}`;
   const rows = due.slice(0, limit);
   const people = [...new Set(rows.map((r) => r.builder_id))];
   const rescore = o.rescore ?? (async (id: number, at: Date) => (await import('./person-score')).rescorePerson(id, at));
   let expired = 0;
   let cut = false;
+  let failed = false;
   for (const person of people) {
     if (Date.now() >= (o.deadline ?? Infinity)) {
       cut = true;
@@ -639,13 +647,15 @@ export async function expireOrgProofs(
     try {
       await rescore(person, now);
     } catch (err) {
-      await db`UPDATE builder_sources SET state = 'verified', reject_reason = NULL WHERE id IN ${db(gone.map((g) => g.id))} AND state = 'proposed' AND reject_reason = ${STALE}`;
-      throw err;
+      console.error('[proof-branch] org proof expiry rescore', err instanceof Error ? err.name : 'error');
+      failed = true;
+      await db`UPDATE builder_sources SET state = 'verified', reject_reason = ${STALE_RETRY} WHERE id IN ${db(gone.map((g) => g.id))} AND state = 'proposed' AND reject_reason = ${STALE}`;
+      continue;
     }
     expired += gone.length;
   }
   if (expired) profileChanged();
-  return { expired, done: !cut && due.length <= limit };
+  return { expired, done: !cut && !failed && due.length <= limit };
 }
 
 /** v2.13.2 (1): the expiry's daily slot key. */

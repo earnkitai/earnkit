@@ -595,7 +595,12 @@ export async function safeIndexStep(d: BonusDeps & { rpc: BonusRpc; chain: Bonus
     safe_index = 'failed';
     ok = false;
   }
-  return { safe_index, safe_index_failures: await countIndexRun(ok, SAFE_CURSOR) };
+  // A DB hiccup counting the run never throws out of the ledger.
+  const safe_index_failures = await countIndexRun(ok, SAFE_CURSOR).catch((err: unknown) => {
+    console.error('[bonus] safe_index count', err instanceof Error ? err.name : 'error');
+    return null;
+  });
+  return { safe_index, safe_index_failures };
 }
 
 /** A claim's or collect's result when the payout wallet can't pay its gas (the cron waits on the owner). */

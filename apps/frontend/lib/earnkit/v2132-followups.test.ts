@@ -182,7 +182,7 @@ test('v2.13.2 fix 1 (concern 4): nobody ranked: the empty line once; a filtered 
 
 // ---- Review round (M1)
 
-test('v2.13.2 review 2 (M1): the expiry stops at the deadline (leftovers stay for the next run); a failed rescore puts the row back', dbTest, () =>
+test('v2.13.2 review 2 (M1): the expiry stops at the deadline (leftovers stay for the next run); a failed rescore puts the row back and is logged', dbTest, () =>
   withEnv(ON, async () => {
     const gh = fakeGitHub();
     const org = `${uniq('acme')}/app`;
@@ -192,9 +192,15 @@ test('v2.13.2 review 2 (M1): the expiry stops at the deadline (leftovers stay fo
     // Past the deadline: nothing done, not done.
     assert.deepEqual(await expireOrgProofs(new Date(), { only: [id], deadline: Date.now() - 1 }), { expired: 0, done: false });
     assert.equal((await source(id, org))?.state, 'verified');
-    // A rescore that fails: the error surfaces and the row is verified again (picked up next run).
-    await assert.rejects(expireOrgProofs(new Date(), { only: [id], rescore: async () => { throw new Error('rescore down'); } }), /rescore down/);
-    assert.deepEqual(await source(id, org), { state: 'verified', proof: 'proof_branch', reject_reason: null });
+    // A rescore that fails: logged, the row is verified again (picked up next run), not done.
+    const err = console.error;
+    console.error = () => {};
+    try {
+      assert.deepEqual(await expireOrgProofs(new Date(), { only: [id], rescore: async () => { throw new Error('rescore down'); } }), { expired: 0, done: false });
+    } finally {
+      console.error = err;
+    }
+    assert.equal((await source(id, org))?.state, 'verified');
     // Then a run that completes.
     assert.deepEqual(await expireOrgProofs(new Date(), { only: [id] }), { expired: 1, done: true });
     assert.equal((await source(id, org))?.reject_reason, 'stale');
@@ -222,3 +228,50 @@ test('v2.13.2 review 2 (M1): the day\'s slot is taken only after a run that fini
     await sql()`DELETE FROM rate_windows WHERE key = ${key}`;
   }
 });
+
+test('v2.13.2 review 3: a person whose rescore keeps failing never blocks the people behind them; they are retried last', dbTest, () =>
+  withEnv(ON, async () => {
+    const gh = fakeGitHub();
+    const orgOf = () => {
+      const org = `${uniq('acme')}/app`;
+      gh.repos[org] = { owner: { login: org.split('/')[0], type: 'Organization' } };
+      return org;
+    };
+    const [oa, ob, oc, od] = [orgOf(), orgOf(), orgOf(), orgOf()];
+    const a = await confirmed(gh, oa, uniq('m'));
+    const b = await confirmed(gh, ob, uniq('m'));
+    const c = await confirmed(gh, oc, uniq('m'));
+    // A is the oldest, so it comes first.
+    await verifiedAgo(a, 95);
+    await verifiedAgo(b, 92);
+    await verifiedAgo(c, 91);
+    const calls: number[] = [];
+    const failA = async (id: number) => {
+      calls.push(id);
+      if (id === a) throw new Error('rescore down');
+    };
+    const logged: unknown[] = [];
+    const err = console.error;
+    console.error = (...x: unknown[]) => void logged.push(x);
+    try {
+      assert.deepEqual(await expireOrgProofs(new Date(), { only: [a, b, c], rescore: failA }), { expired: 2, done: false });
+      assert.deepEqual(calls, [a, b, c]);
+      assert.equal((await source(a, oa))?.state, 'verified', 'A rolled back');
+      assert.equal((await source(b, ob))?.reject_reason, 'stale');
+      assert.equal((await source(c, oc))?.reject_reason, 'stale');
+      assert.ok(logged.some((x) => JSON.stringify(x).includes('Error')) && !logged.some((x) => JSON.stringify(x).includes('rescore down')), 'logged by class name');
+      // Next run: D (newer than A) is handled before A, who just failed.
+      const d = await confirmed(gh, od, uniq('m'));
+      await verifiedAgo(d, 91);
+      calls.length = 0;
+      assert.deepEqual(await expireOrgProofs(new Date(), { only: [a, d], rescore: failA }), { expired: 1, done: false });
+      assert.deepEqual(calls, [d, a]);
+    } finally {
+      console.error = err;
+    }
+    // A's rescore works again: A expires, the run is done.
+    assert.deepEqual(await expireOrgProofs(new Date(), { only: [a] }), { expired: 1, done: true });
+    assert.deepEqual(await source(a, oa), { state: 'proposed', proof: 'proof_branch', reject_reason: 'stale' });
+    assert.equal(await ranked(a), false);
+  }),
+);

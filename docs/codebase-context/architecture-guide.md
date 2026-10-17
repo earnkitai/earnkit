@@ -5282,7 +5282,10 @@ unchanged (no new cron step, the v2.5 stats formula, `/bench` a 404).
   `ORG_PROOF_PER_RUN` (100) a run, one person at a time (their rows, then their rescore), stopping at the cron's
   deadline; the `orgProofExpiry:<day>` rate window is taken only after a run that handled every expired row
   (review M1), so an error, the deadline or the bound leaves it open and the next hourly run carries on; a
-  failed rescore puts that person's rows back to verified. A run for `only` people runs for them without the
+  failed rescore puts that person's rows back to verified with the note `stale_retry` (`STALE_RETRY`), is logged
+  by class name, and the run goes on with the next person (`done: false`); the next run takes `stale_retry`
+  rows last, so one person whose rescore keeps failing never blocks anyone. `safeIndexStep` catches its own
+  failure count write, so it never throws out of the ledger. A run for `only` people runs for them without the
   day's window. `proofBranchFor` treats a stale source as unconfirmed
   even after a used code and marks its checking state `again`; the reply (`bench-find.ts` view `'recheck'`)
   says "Time to show <project> is still yours: I'll check with a quick temporary branch on GitHub." A pass
