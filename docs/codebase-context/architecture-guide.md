@@ -5266,3 +5266,39 @@ sticks in a browser; v2.12.1's 308s are unchanged.
    `EARNKIT_RAISING=on` on the frontend service and redeploy (runbook section 5).
 
 Done: `X_CLIENT_ID` and `X_CLIENT_SECRET` (2026-10-15).
+
+## v2.13.2 Follow-ups (three small fixes)
+
+Brief: `.superpowers/sdd/v2.13.2/brief.md`. Everything sits under `EARNKIT_BENCH` as v2.13 does; flag off is
+unchanged (no new cron step, the v2.5 stats formula, `/bench` a 404).
+
+- **Org-repo proof expiry (security).** A repo confirmed by a proof branch on an Organization's repo
+  (`builder_sources.gh_owner_type = 'Organization'`; any member's push confirms it) stays confirmed
+  `proof-branch.ts ORG_PROOF_MAX_AGE_MS` (90 days) after `verified_at`. `expireOrgProofs` returns older ones to
+  `'proposed'` with `reject_reason = 'stale'` (`STALE`) and rescores the person at once, so they leave the Bench
+  (the Bench reads `benchConfirmedSql` live). The proof stays `proof_branch`, so discovery's not_owner exemption
+  (unchanged, not_owner only) still keeps the row out of `rejected` and the re-proof open. The cron step
+  `proof_expiry` (`builder-score.ts runScoreSteps`, after `proof_branch`) runs `orgProofExpiryStep`: once a UTC
+  day through the `orgProofExpiry:<day>` rate window, at most `ORG_PROOF_PER_RUN` (100) a run; a run for `only`
+  people runs for them without using the day's window. `proofBranchFor` treats a stale source as unconfirmed
+  even after a used code and marks its checking state `again`; the reply (`bench-find.ts` view `'recheck'`)
+  says "Time to show <project> is still yours: I'll check with a quick temporary branch on GitHub." A pass
+  verifies the repo again and clears the note. User-owned repos (owner = pusher) never expire.
+- **The Safe's revenue stat.** `fees_to_safe_eth` (`stats.ts`) used to be the indexed bonus deposits x 30/20,
+  which only sees v2.5's 4-slot coins. Under the Bench the bonus ledger also indexes the Safe's own FeeLocker
+  deposits from EarnKit coins into `safe_fees` (`bonus-ledger.ts indexSafeFees`, step `safe_index` right
+  after `index`; cursor `bonus_cursor` id `'safe'`; with no cursor it starts at `SAFE_INDEX_START_BLOCK`, else
+  `BONUS_INDEX_START_BLOCK`, else 2 days back). It reads the range's StoreTokens (feeOwner = Safe) and the
+  lockers' ClaimedRewards with two getLogs (`BonusRpc.ownerLogs`) and attributes each deposit as the bonus
+  index does (`bonusDeposits`), so it needs no receipt reads; a coin EarnKit didn't launch is never stored
+  (the Safe is tokens.fun's treasury for every coin). `fee_claims` stays an ops log: a Safe claim pays all
+  tokens.fun coins at once, so it can't be split by coin. The stat under the flag: indexed Safe deposits
+  (`safe_fees_wei`) + 1.5x only the bonus deposits whose transaction has no indexed Safe deposit of the same
+  coin (`bonus_unmatched_wei`; history before the Safe index) + bonus money booked to the Safe. Test
+  installations' coins never count. `/api/stats` keeps its keys and types; no field was added.
+- **The Bench header counts.** `app/bench/BenchView.tsx benchLine`: 0 is the landing's empty line ("Nobody on
+  the Bench yet. Add EarnKit to your agent and be first.", `BENCH_TOP_EMPTY`), 1 is "1 builder who ships, ranked
+  by what they shipped and who uses it.", more "N builders who ship, ...". The other count phrases on `/bench`,
+  the landing, the chips and the feed were checked for 0 and 1 and already read right (`bestFact`, `factChips`,
+  `startedChips`, `benchRank`'s "#1 of 1 builder", `streakWords`; the chips carry no counts; the feed's empty
+  line is `FEED_EMPTY`).

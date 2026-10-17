@@ -65,7 +65,8 @@ apps/frontend/
                                "The Bench" section) with it on
   app/bench/{page.tsx,BenchView.tsx,BenchRowItem.tsx,FilterChip.tsx,bench-load.ts}  v2.13 T10: /bench (404
                                flag off), the Bench: top 100, chain/raising/weekly filters as URL links, 16
-                               cached variants (unstable_cache, 60 s, PROFILE_TAG); /leaderboard is a 307 to it
+                               cached variants (unstable_cache, 60 s, PROFILE_TAG); /leaderboard is a 307 to it;
+                               v2.13.2: benchLine says BENCH_TOP_EMPTY at 0, "1 builder who ships", "N builders who ship"
   app/feed/{page.tsx,FeedView.tsx}  v2.13 T6/T12: /feed (404 flag off), the finished weeks' best updates as
                                long cards
   app/[handle]/{BenchProfileView,ProjectTab,ScoreParts,ShipGrid}.tsx  v2.13 T11: the Bench profile (photo,
@@ -1269,7 +1270,10 @@ apps/frontend/
                                indexedThrough, roundsCovered, sendCall (run nonce floor, I5),
                                runBonusLedger (the cron step; v2.9: `gas` check first; a malformed key is a skip, Ruling 19;
                                one `nonces` floor per run; `rounds` hook after the claims, before
-                               the sweep)
+                               the sweep); v2.13.2: indexSafeFees (step safe_index, Bench flag only: the
+                               Safe's own deposits from EarnKit coins into safe_fees, cursor 'safe',
+                               BonusRpc.ownerLogs = StoreTokens + ClaimedRewards, no receipt reads;
+                               test v2132-safe-fees.test.ts)
     bonus-payout.ts(+test,     v2.5 Task 7: BONUS_SPLIT_BPS, splitPool, placesFor, freezeRound,
       +anvil.test)             bonusPayoutStore (bonus_payouts), roundRows, advanceRounds (freeze,
                                review, claim-before-pay (a pending claim is CLAIM_PENDING, not a
@@ -1332,7 +1336,9 @@ apps/frontend/
                                builder_bonus AND campaign IS NULL, bonusOn's SQL twin),
                                coins_launched (token_status launched), fees_to_safe_eth (v2.5-split coins
                                only, accrued: 1.5x real indexed bonus deposits of EarnKit coins (M5),
-                               never round-rest: rows, + bonus money routed to the Safe),
+                               never round-rest: rows, + bonus money routed to the Safe; v2.13.2 under
+                               the Bench: safe_fees_wei + 1.5x bonus_unmatched_wei + bonus money to the
+                               Safe, so 3-slot coins count and nothing twice),
                                bonus_paid_eth, installs; STATS_LABELS for jenil.ai; v2.6 Ruling 6/16
                                (plan): installs, coins_launched, the bonus_deposits_wei coin
                                subquery and (final review M2) bonus_to_safe_wei's coin rows all
@@ -1400,6 +1406,7 @@ apps/frontend/
     fixtures/                  test-guard.ts (the `--import` preload above; no network, no vendor keys),
                                clanker-base-launch.json (a real Base receipt, from tokens.fun),
                                bonus-db-lock.ts (test-only advisory lock for the bonus test files),
+                               fake-github-branch.ts (v2.13.2: fakeGitHub, idOf: the proof branch fake API),
                                program-file.ts (committedProgram: a programs/*.json without its
                                id-bound logo, for tests that clone files under test ids),
                                programs-cleanup.ts (v2.13 T17: dropPrograms; dropRunPrograms, which each
@@ -1464,7 +1471,12 @@ apps/frontend/
                                (tell proof { pushed: false }), PROOF_BRANCH_NOTE says what to do while checking
                                fix round 1: copy (fork/template) and unseen (404) verdicts, probe outside the
                                lock, kept a day (standing_seen.repo_probe); bench-find keepBenchMatch /
-                               keptBenchMatch (standing_seen.bench_match, 1 h) for a match cut by the wait
+                               keptBenchMatch (standing_seen.bench_match, 1 h) for a match cut by the wait;
+                               v2.13.2: ORG_PROOF_MAX_AGE_MS (90 days), expireOrgProofs (an Organization's
+                               proof_branch source back to proposed, reject_reason STALE 'stale', rescored),
+                               orgProofExpiryStep (cron step proof_expiry, once a UTC day, ORG_PROOF_PER_RUN),
+                               proofBranchFor's checking `again` (bench-reply stillYoursLine, view 'recheck');
+                               tests v2132-followups.test.ts (fakeGitHub in fixtures/fake-github-branch.ts)
     reply-wait.ts              v2.13.1 O5 N1: REPLY_WAIT_MS (1.5 s), settleWithin, inTime/ReplyLate: the Bench
                                reply never waits longer on the refresh, matching or the proof check
     week-facts.ts(+test)       v2.13 T4: WeekFacts, weekFactsFor, factChips, startedLine, upsertWeekFacts,
