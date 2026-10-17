@@ -133,7 +133,8 @@ export function benchIdentity(a: {
     const identity = login === a.identity.github_login ? a.identity : { ...a.identity, github_login: login };
     const locals = (a.local_repos == null ? [] : Array.isArray(a.local_repos) ? a.local_repos : [a.local_repos]).slice(0, 20).map((x) => {
       const r = typeof x === 'string' ? { name: x } : o(x);
-      return { name: s(r.name, 40), repo: repoOf(r.url), live: liveOf(r.live_url) };
+      // v2.13.4 (production): an entry names its repo by `url`, `remote` or `repo` (agents send each).
+      return { name: s(r.name, 40), repo: repoOf(r.url) ?? repoOf(r.remote) ?? repoOf(r.repo), live: liveOf(r.live_url) };
     });
     const repo = list(a.repos == null ? [] : Array.isArray(a.repos) ? a.repos : [a.repos], 30).map(repoOf).find((r): r is string => r !== null)
       ?? locals.find((l) => l.repo)?.repo ?? a.local_git.remotes[0] ?? null;
@@ -145,7 +146,9 @@ export function benchIdentity(a: {
       return { identity, project: made };
     }
     const sameRepo = !p.repo || !repo || p.repo === repo;
-    const filled = { ...p, repo: p.repo ?? repo, live_url: p.live_url ?? (sameRepo ? live : null) };
+    // v2.13.4 (production): the matching local_repos entry fills a missing live link (same repo only).
+    const own = locals.find((l) => l.repo && l.repo === (p.repo ?? repo));
+    const filled = { ...p, repo: p.repo ?? repo, live_url: p.live_url ?? own?.live ?? (sameRepo ? live : null) };
     return { identity, project: filled.repo === p.repo && filled.live_url === p.live_url ? p : filled };
   } catch {
     return { identity: a.identity, project: a.project };
