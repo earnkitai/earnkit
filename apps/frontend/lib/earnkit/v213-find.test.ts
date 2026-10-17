@@ -11,7 +11,7 @@ import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, dropAvalanche, dropPrograms, find, fitsFor, install, person, withEnv } from './fixtures/find';
 import type { Starter } from './starters';
-import { UPDATES_ASK, buildAsk, checkingBranchLine } from './bench-reply';
+import { UPDATES_ASK, checkingBranchLine, startBuildAsk } from './bench-reply';
 
 /**
  * v2.13 T8: find and score under the Bench flag through the real tools: the three parts (where you
@@ -56,7 +56,7 @@ test('8.6 a fresh install with identity.project: the project named, Confirming (
     const lines = r.show_to_builder.split('\n');
     assert.equal(lines[0], 'Where you stand');
     assert.equal(lines[1], checkingBranchLine('Recipe planner'));
-    assert.match(lines[2], /^Claim your page with X: https:\/\/earnkit\.com\/claim\//);
+    assert.match(lines[2], /^Your page: claim it with X at https:\/\/earnkit\.com\/claim\//);
     assert.match((r.proof as { branch?: string } | undefined)?.branch ?? '', /^earnkit-[a-z2-7]{12}$/);
     assert.equal(r.schedule_daily_check, undefined, 'B18: no daily check under the flag');
   }),
@@ -69,8 +69,13 @@ test('8.7 a confirmed, claimed, ranked project: the spec 2a reply, and the updat
     const r = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(p.id, `mayaf${RUN}/recipes`) }) });
     assert.match(r.show_to_builder, /^Recipe planner is on the Bench(: (top \d+(\.\d)?% of builders|#\d+ of \d+ builders?))?, 6 weeks shipping\.$/m);
     assert.match(r.show_to_builder, new RegExp(`^${esc(p.title)} pays up to \\$10K and fits Recipe planner; it's open all year\\.$`, 'm'));
-    assert.ok(r.show_to_builder.endsWith(UPDATES_ASK));
-    assert.equal(r.move_up?.kind, 'updates');
+    // v2.13.3 owner ruling A: the best fit's entry is asked first; a no to it, then the updates yes.
+    assert.ok(r.show_to_builder.endsWith(`Want me to prepare an entry for ${p.title}?`), r.show_to_builder);
+    assert.equal(r.move_up?.kind, 'enter');
+    await tools.tell({ move_up: { kind: 'enter', project_key: `mayaf${RUN}/recipes`, answer: 'no' } }, { installationId: id } as never);
+    const r2 = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(p.id, `mayaf${RUN}/recipes`) }) });
+    assert.ok(r2.show_to_builder.endsWith(UPDATES_ASK), r2.show_to_builder);
+    assert.equal(r2.move_up?.kind, 'updates');
     const yes = (await tools.tell({ move_up: { kind: 'updates', project_key: `mayaf${RUN}/recipes`, answer: 'yes' } }, { installationId: id } as never)) as { show_to_builder: string; schedule_weekly_update?: string };
     assert.equal(yes.show_to_builder, "Done. I'll post what you ship here every week.");
     assert.ok(yes.schedule_weekly_update);
@@ -86,15 +91,16 @@ test('8.7 a confirmed, claimed, ranked project: the spec 2a reply, and the updat
   }),
 );
 
-test('8.8 no project: ideas first, one build offer (spec 2b); its yes starts the build', dbTest, () =>
+test('8.8 no project: ideas first, one build offer aimed at the program (spec 2b, v2.13.3 ruling A); its yes starts the build', dbTest, () =>
   benchOn(async () => {
     await arcCopy();
     try {
       const id = await install();
       const r = await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH });
-      assert.match(r.show_to_builder, /^You're not on the Bench yet\. Pick something to build and you're on it today\.$/m);
+      assert.match(r.show_to_builder, /^You're not on the Bench yet\.$/m);
       assert.match(r.show_to_builder, /^Ways to get funded\n.+ pays .+ for .+\.$/m);
-      assert.ok(r.show_to_builder.endsWith(buildAsk('a tip jar on Arc')));
+      const [{ title }] = await sql()<{ title: string }[]>`SELECT title FROM programs WHERE id = ${ARC_ID}`;
+      assert.ok(r.show_to_builder.endsWith(startBuildAsk('a tip jar on Arc', title)), r.show_to_builder);
       assert.equal(r.build_offer?.program_id, ARC_ID, 'the pick is this run\'s own program');
       assert.deepEqual(r.move_up && { kind: r.move_up.kind, project_key: r.move_up.project_key }, { kind: 'build', project_key: null });
       // The yes starts the v2.11 build path for the program the ask named.
@@ -136,18 +142,18 @@ test('8.11 the yes is answered as asked: another kind is "Okay." and changes not
     const id = await person({ main: key, claimed: `mn${RUN}`, projects: [{ key, name: 'Recipe planner', confirmed: true }] });
     const match = { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(p.id, key) }) };
     const r = await find(id, {}, match);
-    assert.equal(r.move_up?.kind, 'updates');
+    // v2.13.3 owner ruling A: the program's entry first.
+    assert.deepEqual(r.move_up && { kind: r.move_up.kind, project_key: r.move_up.project_key }, { kind: 'enter', project_key: key });
+    assert.ok(r.show_to_builder.endsWith(`Want me to prepare an entry for ${p.title}?`), r.show_to_builder);
     const tell = (m: Record<string, unknown>) => tools.tell({ move_up: m }, { installationId: id } as never) as Promise<{ show_to_builder: string }>;
-    assert.equal((await tell({ kind: 'post_update', project_key: key, answer: 'yes' })).show_to_builder, 'Okay.');
-    assert.equal((await tell({ kind: 'updates', project_key: 'someone/else', answer: 'yes' })).show_to_builder, 'Okay.');
+    assert.equal((await tell({ kind: 'updates', project_key: key, answer: 'yes' })).show_to_builder, 'Okay.');
+    assert.equal((await tell({ kind: 'enter', project_key: 'someone/else', answer: 'yes' })).show_to_builder, 'Okay.');
     const [{ on }] = await sql()<{ on: Date | null }[]>`SELECT updates_on_at AS on FROM builder_profiles WHERE builder_id = ${id}`;
     assert.equal(on, null, 'nothing turned on');
-    assert.equal((await tell({ kind: 'updates', project_key: key, answer: 'no' })).show_to_builder, 'Okay.');
-    // The next ask in the order: the program's entry.
+    assert.equal((await tell({ kind: 'enter', project_key: key, answer: 'no' })).show_to_builder, 'Okay.');
+    // The next ask in the order: the updates yes.
     const again = await find(id, {}, match);
-    assert.deepEqual(again.move_up && { kind: again.move_up.kind, project_key: again.move_up.project_key }, { kind: 'enter', project_key: key });
-    assert.ok(again.show_to_builder.endsWith(`Want me to prepare an entry for ${p.title}?`), again.show_to_builder);
-    const enter = (await tell({ kind: 'enter', project_key: key, answer: 'yes' })) as { show_to_builder: string; lead?: { program_id: string } };
-    assert.deepEqual(enter.lead, { program_id: p.id });
+    assert.deepEqual(again.move_up && { kind: again.move_up.kind, project_key: again.move_up.project_key }, { kind: 'updates', project_key: key });
+    assert.equal(((await tell({ kind: 'updates', project_key: key, answer: 'yes' })) as { show_to_builder: string }).show_to_builder, "Done. I'll post what you ship here every week.");
   }),
 );

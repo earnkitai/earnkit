@@ -100,6 +100,58 @@ export function benchProject(identity: unknown): IdentityProject | null {
   return Array.isArray(i.projects) && i.projects.length > 0 ? projectOf(i.projects[0]) : null;
 }
 
+/** A live link as an agent gives it ("earnkit.com" or "https://earnkit.com/app"): its public https origin, or null. Pure. */
+const liveOf = (v: unknown): string | null => {
+  if (typeof v !== 'string') return null;
+  const t = v.trim();
+  if (!t || t.length > 300) return null;
+  return publicHttpsOrigin(/^[a-z][a-z0-9+.-]*:\/\//i.test(t) ? t : `https://${t}`);
+};
+/** find's github_user as an agent gives it ("@octocat", "github.com/octocat"), lowercase, or null. Pure. */
+const loginOf = (v: unknown): string | null => {
+  if (typeof v !== 'string' || v.length > 200) return null;
+  const t = v.trim().replace(/^@/, '').replace(/^(?:https?:\/\/)?(?:www\.)?github\.com\//i, '').replace(/\/.*$/, '').toLowerCase();
+  return LOGIN.test(t) ? t : null;
+};
+
+/**
+ * v2.13.3 (1, the owner's production test): an agent that sends the GitHub login and the repo through
+ * find's older fields (github_user, repos, local_repos, local_git, a live_url) is never silently
+ * dropped under the Bench. They fill what identity doesn't carry: github_user is identity.github_login;
+ * the first repo (repos, else a local_repos url, else local_git's remotes) is the project's repo, named
+ * by its local_repos entry (else the repo's name), with that entry's live link (else the top-level
+ * live_url, else local_git's first live link). identity.project wins: its missing repo is filled, and
+ * its missing live link only when the repo is the same (or it had none). Unchanged when there is
+ * nothing to fill. Pure.
+ */
+export function benchIdentity(a: {
+  identity: Identity; project: IdentityProject | null; local_git: LocalGit;
+  github_user?: unknown; repos?: unknown; local_repos?: unknown; live_url?: unknown;
+}): { identity: Identity; project: IdentityProject | null } {
+  try {
+    const login = a.identity.github_login ?? loginOf(a.github_user);
+    const identity = login === a.identity.github_login ? a.identity : { ...a.identity, github_login: login };
+    const locals = (a.local_repos == null ? [] : Array.isArray(a.local_repos) ? a.local_repos : [a.local_repos]).slice(0, 20).map((x) => {
+      const r = typeof x === 'string' ? { name: x } : o(x);
+      return { name: s(r.name, 40), repo: repoOf(r.url), live: liveOf(r.live_url) };
+    });
+    const repo = list(a.repos == null ? [] : Array.isArray(a.repos) ? a.repos : [a.repos], 30).map(repoOf).find((r): r is string => r !== null)
+      ?? locals.find((l) => l.repo)?.repo ?? a.local_git.remotes[0] ?? null;
+    const entry = repo ? locals.find((l) => l.repo === repo) : undefined;
+    const live = entry?.live ?? liveOf(a.live_url) ?? a.local_git.live_urls[0] ?? null;
+    const p = a.project;
+    if (!p) {
+      const made = repo || live ? projectOf({ name: entry?.name || undefined, repo, live_url: live }) : null;
+      return { identity, project: made };
+    }
+    const sameRepo = !p.repo || !repo || p.repo === repo;
+    const filled = { ...p, repo: p.repo ?? repo, live_url: p.live_url ?? (sameRepo ? live : null) };
+    return { identity, project: filled.repo === p.repo && filled.live_url === p.live_url ? p : filled };
+  } catch {
+    return { identity: a.identity, project: a.project };
+  }
+}
+
 /** The sources one reported project proposes (kind, ref), under its project key. Pure. */
 function projectSources(p: IdentityProject): { key: string; sources: { kind: string; ref: string }[] } {
   const sources: { kind: string; ref: string }[] = [];

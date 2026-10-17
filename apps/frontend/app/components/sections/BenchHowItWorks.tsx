@@ -4,7 +4,7 @@ export const BENCH_HOW_TITLE = 'How it works';
 export const BENCH_STEPS = [
   'Add EarnKit to your agent and connect X.',
   'Your project goes on the Bench and your agent posts what you ship each week.',
-  'Get funded: grants that fit, or raise with your own coin.',
+  'Get funded: grants that fit, or a community round with your own coin.',
 ];
 /** v2.13.1 O3: with EARNKIT_RAISING off, the steps don't mention raising. */
 export const BENCH_STEPS_NO_RAISE = [...BENCH_STEPS.slice(0, 2), 'Get funded: grants that fit.'];

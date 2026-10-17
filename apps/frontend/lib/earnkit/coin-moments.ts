@@ -27,9 +27,9 @@ export type Coin = { name: string; symbol: string };
 const fees = (wallet: string | null) =>
   wallet ? `You'd get 40% of its trading fees, paid to ${shortWallet(wallet.toLowerCase())}.` : "You'd get 40% of its trading fees.";
 
-/** v2.13 spec "4. Optional: raise": the coin is named before the yes; the wallet is shown when known (plan B13). Pure. */
+/** v2.13 spec "4. Optional: raise" (owner ruling B, v2.13.3: "a community round"): the coin is named before the yes; the wallet is shown when known (plan B13). Pure. */
 export const raiseLine = (name: string, symbol: string, wallet: string | null) =>
-  `Want to raise for ${name}? I'll launch $${symbol} on tokens.fun and you get 40% of its trading fees${wallet ? `, paid to ${shortWallet(wallet.toLowerCase())}` : ''}.`;
+  `Want to open a community round for ${name}? I'll launch $${symbol} on tokens.fun and you get 40% of its trading fees${wallet ? `, paid to ${shortWallet(wallet.toLowerCase())}` : ''}.`;
 
 /**
  * The offer line for a moment: the coin that launches named (fix round 1, ruling 5: v2.8.1 A2, the

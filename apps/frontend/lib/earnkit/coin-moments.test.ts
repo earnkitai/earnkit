@@ -570,7 +570,14 @@ test('9.7b five weeks in a row is a coin moment (once); the yes sets raising_at 
   try {
     const { coinAskBench } = await import('./bench-find');
     const p = { key, name: 'Tip Jar', confirmed: true, live: true, weeks: 5, people: 0, has_coin: false, streak: 5, shipped: true };
-    assert.equal(await coinAskBench(id, { ...p, streak: 4 }, {}, noCheck), null, 'four weeks, no people: no moment');
+    // v2.13.3 owner ruling A: four weeks and no people is no moment, but nothing fits, so a community round (countable), once.
+    const other = `lee/four${randomBytes(3).toString('hex')}`;
+    await usedProject(id, other, 'Four Weeks', 0);
+    const four = await coinAskBench(id, { ...p, key: other, name: 'Four Weeks', streak: 4 }, {}, noCheck);
+    assert.equal(four?.kind, 'coin');
+    assert.match(four?.line ?? '', /^Want to open a community round for Four Weeks\?/);
+    const [c] = await sql()<{ moment: string }[]>`SELECT moment FROM coin_moments WHERE builder_id = ${id} AND project_key = ${other}`;
+    assert.equal(c.moment, 'countable');
     const ask = await coinAskBench(id, p, {}, noCheck);
     assert.equal(ask?.kind, 'coin');
     const [m] = await sql()<{ moment: string }[]>`SELECT moment FROM coin_moments WHERE builder_id = ${id} AND project_key = ${key}`;

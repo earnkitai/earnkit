@@ -7,7 +7,7 @@ import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
-import { NO_OFFER_LINE, NO_PROJECT_LINE, OTHER_PROJECT_ASK, POST_UPDATE_ASK, SUGGEST_ASK, UPDATES_ASK_JOINING, benchBuildAsk, buildingNowLine, cantShowLine, grantsAsk, shipAsk, takenLine } from './bench-reply';
+import { NO_OFFER_LINE, NO_PROJECT_LINE, OTHER_PROJECT_ASK, POST_UPDATE_ASK, START_ASK, UPDATES_ASK_JOINING, buildingNowLine, cantShowLine, grantsAsk, shipAsk, takenLine } from './bench-reply';
 import { noGrantLine } from './bench-find';
 import { BENCH_BUILD_ID, TWIST_QUESTION } from './fresh-build';
 import { mainProjectOf } from './main-project';
@@ -58,17 +58,15 @@ test('O2.1 B1, B2, B4, item 7: no project and no program to build for: the start
     const r = await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH });
     const lines = r.show_to_builder.split('\n');
     assert.equal(lines[1], NO_PROJECT_LINE);
-    assert.match(lines[2], /^Claim your page with X: https:\/\/earnkit\.com\/claim\/[a-z0-9]+$/);
+    assert.match(lines[2], /^Your page: claim it with X at https:\/\/earnkit\.com\/claim\/[a-z0-9]+$/);
     assert.equal(links(r.show_to_builder).length, 1, 'the claim link is the only link');
-    assert.ok(r.show_to_builder.endsWith(benchBuildAsk('a tip jar')), r.show_to_builder);
-    assert.deepEqual(r.build_offer, { program_id: BENCH_BUILD_ID, starter_id: STARTER_ID }, 'no agent_note under the flag');
-    assert.equal(r.move_up?.kind, 'build');
+    // v2.13.3 owner ruling A: never the generic tip jar; existing work first. The reserved build still runs when started.
+    assert.ok(r.show_to_builder.endsWith(START_ASK), r.show_to_builder);
+    assert.equal(r.build_offer, undefined);
+    assert.equal(r.move_up?.kind, 'start');
     const sc = (await tools.score({}, ctx)) as R;
-    assert.ok(sc.show_to_builder.endsWith(benchBuildAsk('a tip jar')));
-    assert.equal(sc.build_offer?.agent_note, undefined);
-    // The yes: the build path for the reserved id; one question first.
-    const yes = (await tools.tell({ move_up: { kind: 'build', project_key: null, answer: 'yes' } }, ctx)) as R;
-    assert.ok(yes.agent_note?.includes(`program_id: '${BENCH_BUILD_ID}'`), yes.agent_note);
+    assert.ok(sc.show_to_builder.endsWith(START_ASK), sc.show_to_builder);
+    assert.equal(sc.build_offer, undefined);
     const start = (await tools.prepare({ program_id: BENCH_BUILD_ID, build: { start: true, program_id: BENCH_BUILD_ID } }, ctx)) as R;
     assert.ok(start.show_to_builder.startsWith(TWIST_QUESTION), start.show_to_builder);
     // B4 at the twist step: no build offer again.
@@ -123,10 +121,13 @@ test('O2.1c no project, nothing EarnKit can build (deploys off): no "Pick someth
     const id = await install();
     const r = await find(id, { agent_can_build: true }, { freshDeps: { ...OWN_FRESH, deployOn: () => false } });
     assert.doesNotMatch(r.show_to_builder, /Pick something to build/);
-    assert.match(r.show_to_builder, /^You're not on the Bench yet\. Tell me what you'd like to build and I'll help you start\.$/m);
-    assert.match(r.show_to_builder, /^Claim your page with X: https:\/\/earnkit\.com\/claim\//m);
+    // v2.13.3 (3), ruling A: the stand line alone, then existing work and money it can win.
+    assert.match(r.show_to_builder, /^You're not on the Bench yet\.$/m);
+    assert.ok(r.show_to_builder.endsWith(START_ASK), r.show_to_builder);
+    assert.match(r.show_to_builder, /^Your page: claim it with X at https:\/\/earnkit\.com\/claim\//m);
     assert.equal(r.build_offer, undefined);
-    assert.doesNotMatch(r.show_to_builder, /Circle|needs a live/);
+    // An open program may be named with what it needs (v2.13.3 (2)), never the raw tag.
+    assert.doesNotMatch(r.show_to_builder, /needs a live/);
   }),
 );
 
@@ -186,8 +187,9 @@ test('O2.9 the last line is one question that fits: no open-all-year grant for a
     const ava = await avalanche();
     const id = await install();
     const r = await find(id, named(`${uniq('maya')}/hello`), NO_MATCH);
-    assert.ok(!r.show_to_builder.includes(ava.title), 'a chain grant that does not fit the project is never shown');
-    assert.doesNotMatch(r.show_to_builder, /Ways to get funded/);
+    // v2.13.3 (2): a chain grant is named only with what it needs ("for an Avalanche app"), never as a fit.
+    assert.ok(!r.show_to_builder.includes(`${ava.title} pays`), 'a chain grant that does not fit the project is never claimed');
+    assert.match(r.show_to_builder, /^Ways to get funded$/m);
     assert.ok(r.show_to_builder.endsWith(UPDATES_ASK_JOINING), r.show_to_builder);
     assert.doesNotMatch(r.show_to_builder, /How to move up\n.*on the Bench/, 'not on the Bench yet');
     assert.equal(r.move_up?.kind, 'updates');
@@ -264,12 +266,12 @@ test('O2 fix round 1 (ruling 3): every state ends on one question with a yes rou
     const next = g.show_to_builder.startsWith(noGrantLine('Recipe planner')) ? shipAsk('Recipe planner') : grantsAsk('Recipe planner');
     assert.ok((await find(id, {}, NO_MATCH)).show_to_builder.endsWith(next));
     await sql()`DELETE FROM project_updates WHERE project_key = ${key}`;
-    // No project, nothing to build: the suggestion; the yes suggests.
+    // No project, nothing to build: v2.13.3 ruling A, existing work; the yes asks the agent for it.
     const n = await install();
     const s0 = await find(n, { agent_can_build: true }, { freshDeps: { ...OWN_FRESH, deployOn: () => false } });
-    assert.ok(s0.show_to_builder.includes(NO_OFFER_LINE) && s0.show_to_builder.endsWith(SUGGEST_ASK), s0.show_to_builder);
-    const sy = await tell(n, { kind: 'suggest', project_key: null, answer: 'yes' });
-    assert.match(sy.show_to_builder, /^A few small things you could build this week:\n- /);
+    assert.ok(s0.show_to_builder.includes(NO_OFFER_LINE) && s0.show_to_builder.endsWith(START_ASK), s0.show_to_builder);
+    const sy = await tell(n, { kind: 'start', project_key: null, answer: 'yes' });
+    assert.match(sy.agent_note ?? '', /identity/);
     // Failed (the branch never showed in the hour): a different project; the yes asks the agent for it.
     const f = await install();
     const fk = `${uniq('fl')}/recipes`;

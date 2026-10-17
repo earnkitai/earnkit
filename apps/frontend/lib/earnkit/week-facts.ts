@@ -28,7 +28,7 @@ export function factChips(f: WeekFacts, o: { raising?: string | null } = {}): st
   if (f.earned && f.earned.usd >= 1) out.push(`${money(f.earned.usd)} earned`);
   if (f.shipped_code && f.shipped_code.n > 0) out.push(plural(f.shipped_code.n, 'commit', 'commits'));
   if (f.streak && f.streak.w >= 2) out.push(`${f.streak.w} weeks in a row`);
-  if (o.raising) out.push(`Raising $${o.raising}`);
+  if (o.raising) out.push(`Community round $${o.raising}`);
   return out;
 }
 export const startedLine = (name: string) => `Started tracking ${name}.`;

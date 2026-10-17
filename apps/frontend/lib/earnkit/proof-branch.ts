@@ -3,6 +3,7 @@ import { cantSeeLine, cantShowLine, copyLine, foreignLine, takenLine } from './b
 import { CONFIRMED_PROOFS } from './confirmed';
 import { sql, type Db } from './db';
 import { noteEvent } from './events';
+import { appTokenFor, githubAppEnabled } from './github-app';
 import { repoEverDerived } from './github-verify';
 import { REPO_KEY, benchConfirmedSql, mainProjectOf } from './main-project';
 import { profileChanged } from './profile-cache';
@@ -134,6 +135,22 @@ export async function heldByOther(builderId: number, key: string, db: Db = sql()
   return Boolean(r);
 }
 
+/**
+ * v2.13.3 (5): the read-only GitHub App's installation token for exactly `key`, when THIS person (their
+ * installation, github_verifications via 'app') installed it on that repo; else null (the App is off, no
+ * such proof, or GitHub refused). Minted per call through `f` (the caller's budgeted fetch), never stored
+ * or logged: it only replaces EarnKit's own token on reads of that repo. Never throws.
+ */
+async function appBearer(builderId: number, key: string, f: typeof fetch): Promise<string | null> {
+  if (!githubAppEnabled()) return null;
+  return appTokenFor({ installationId: builderId, repoKey: key }, { fetch: f }).catch(() => null);
+}
+/** GitHub REST headers: the installation token when given (v2.13.3), else EarnKit's own token. */
+const ghHeaders = (bearer: string | null = null) => {
+  const token = bearer ?? process.env.GITHUB_TOKEN?.trim();
+  return { Accept: 'application/vnd.github+json', 'User-Agent': 'EarnKit', 'X-GitHub-Api-Version': '2022-11-28', ...(token && { Authorization: `Bearer ${token}` }) };
+};
+
 /** O5 N1, N2: the reply waits at most this long for the one cheap read of the repo; slower is "unknown". */
 export const REPO_PROBE_MS = 700;
 type Probe =
@@ -144,18 +161,13 @@ type Probe =
  * the repo as GitHub shows it, `missing` (404: private to EarnKit's token, or gone), else `unknown` (slow,
  * down, renamed, rate-limited). Never throws.
  */
-async function probeRepo(key: string, f: typeof fetch): Promise<Probe> {
+async function probeRepo(key: string, f: typeof fetch, bearer: string | null = null): Promise<Probe> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<Probe>((resolve) => {
     timer = setTimeout(() => resolve({ kind: 'unknown' }), REPO_PROBE_MS);
   });
   const read = (async (): Promise<Probe> => {
-    const token = process.env.GITHUB_TOKEN?.trim();
-    const res = await f(`https://api.github.com/repos/${key}`, {
-      redirect: 'manual',
-      signal: AbortSignal.timeout(REPO_PROBE_MS),
-      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'EarnKit', 'X-GitHub-Api-Version': '2022-11-28', ...(token && { Authorization: `Bearer ${token}` }) },
-    });
+    const res = await f(`https://api.github.com/repos/${key}`, { redirect: 'manual', signal: AbortSignal.timeout(REPO_PROBE_MS), headers: ghHeaders(bearer) });
     if (res.status !== 200) {
       await res.body?.cancel().catch(() => {});
       return res.status === 404 ? { kind: 'missing' } : { kind: 'unknown' };
@@ -196,8 +208,12 @@ async function knownUnprovable(builderId: number, key: string, now: Date, f: typ
     SELECT standing_seen->'repo_probe'->(${key}::text) AS kept, lower(COALESCE(github_login, reported_github)) AS login FROM builder_profiles WHERE builder_id = ${builderId}`;
   const kept = row?.kept && typeof row.kept === 'object' && typeof row.kept.at === 'string' && now.getTime() - Date.parse(row.kept.at) < REPO_PROBE_KEEP_MS ? row.kept : null;
   let probe: Probe | Kept | null = o.fresh ? null : kept;
-  if (!probe) {
-    probe = await probeRepo(key, f ?? defaultReaderDeps(now, Date.now() + REPO_PROBE_MS).ghFetch ?? fetch);
+  const fetchFn = f ?? defaultReaderDeps(now, Date.now() + REPO_PROBE_MS).ghFetch ?? fetch;
+  // v2.13.3 (5): a repo EarnKit's token can't see is read again with the App's token, when this person
+  // installed the App on it (a kept "missing" from before the install never stands in the way).
+  const bearer = !probe || probe.kind === 'missing' ? await appBearer(builderId, key, fetchFn) : null;
+  if (!probe || bearer) {
+    probe = await probeRepo(key, fetchFn, bearer);
     if (probe.kind === 'read' && probe.private === false) await markPublic(builderId, key, now, db);
     if (probe.kind !== 'unknown')
       // O5 fix round 2: kept reads older than REPO_PROBE_KEEP_MS are dropped on every write.
@@ -309,13 +325,8 @@ const TIMEOUT_MS = 10_000;
 export const PROOF_BRANCH_COIN_MAX_AGE_MS = 30 * 24 * 60 * 60_000;
 
 /** One GitHub REST read of `/repos/{key}{path}` (EarnKit's token, redirects refused): the JSON, or null on anything but a 200. */
-async function ghRead(key: string, path: string, f: typeof fetch): Promise<unknown> {
-  const token = process.env.GITHUB_TOKEN?.trim();
-  const res = await f(`https://api.github.com/repos/${key}${path}`, {
-    redirect: 'manual',
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'EarnKit', 'X-GitHub-Api-Version': '2022-11-28', ...(token && { Authorization: `Bearer ${token}` }) },
-  });
+async function ghRead(key: string, path: string, f: typeof fetch, bearer: string | null = null): Promise<unknown> {
+  const res = await f(`https://api.github.com/repos/${key}${path}`, { redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT_MS), headers: ghHeaders(bearer) });
   if (res.status !== 200) {
     await res.body?.cancel().catch(() => {});
     return null;
@@ -327,8 +338,8 @@ const LOGIN = /^[A-Za-z0-9-]{1,39}$/;
 
 /** What GitHub says about exactly `key` when it is the person's own work (discovery's rule): its numeric id and owner; else null. */
 type RepoRead = { id: number; owner: string; ownerType: 'User' | 'Organization'; private: boolean | null };
-async function readRepo(key: string, f: typeof fetch): Promise<RepoRead | null> {
-  const repo = obj(await ghRead(key, '', f));
+async function readRepo(key: string, f: typeof fetch, bearer: string | null = null): Promise<RepoRead | null> {
+  const repo = obj(await ghRead(key, '', f, bearer));
   if (typeof repo?.full_name !== 'string' || repo.full_name.toLowerCase() !== key) return null;
   if (typeof repo.id !== 'number' || !Number.isSafeInteger(repo.id)) return null;
   if (await repoEverDerived(key, repo.fork !== false || repo.is_template === true)) return null;
@@ -346,16 +357,16 @@ async function readRepo(key: string, f: typeof fetch): Promise<RepoRead | null> 
  * (fix round 2: one with no readable actor refuses); an Organization's, its creator (the
  * branch_creation entry, never a later push). Never throws.
  */
-async function branchPusher(key: string, code: string, f: typeof fetch): Promise<(RepoRead & { login: string }) | null> {
+async function branchPusher(key: string, code: string, f: typeof fetch, bearer: string | null = null): Promise<(RepoRead & { login: string }) | null> {
   try {
     const branch = branchOf(code);
     const full = `refs/heads/${branch}`;
-    const ref = obj(await ghRead(key, `/git/ref/heads/${branch}`, f));
+    const ref = obj(await ghRead(key, `/git/ref/heads/${branch}`, f, bearer));
     if (ref?.ref !== full) return null;
     if (typeof ref.url !== 'string' || !ref.url.toLowerCase().startsWith(`https://api.github.com/repos/${key}/git/refs/heads/`)) return null;
-    const repo = await readRepo(key, f);
+    const repo = await readRepo(key, f, bearer);
     if (!repo) return null;
-    const activity = await ghRead(key, `/activity?ref=${encodeURIComponent(full)}&per_page=100`, f);
+    const activity = await ghRead(key, `/activity?ref=${encodeURIComponent(full)}&per_page=100`, f, bearer);
     const entries = (Array.isArray(activity) ? activity : []).map(obj).filter((a): a is Record<string, unknown> => a?.ref === full);
     const actorOf = (a: Record<string, unknown>) => {
       const l = obj(a.actor)?.login;
@@ -396,7 +407,9 @@ export async function checkProofBranch(builderId: number, now: Date, o: { ghFetc
     const code = open ? codeOf(open.seed) : null;
     if (!open || !code || (await heldByOther(builderId, key))) return false;
     const f = o.ghFetch ?? defaultReaderDeps(now, Date.now() + TIMEOUT_MS).ghFetch ?? fetch;
-    const read = await branchPusher(key, code, f);
+    // v2.13.3 (5): a private or org repo this person installed the App on is read with its per-call token
+    // (the same branch, pusher and repo rules: the App never confirms anything by itself).
+    const read = await branchPusher(key, code, f, await appBearer(builderId, key, f));
     if (!read) return false;
     const sourceId = await sql().begin(async (tx) => {
       // Per repo: two people's checks of one repo never both confirm it.

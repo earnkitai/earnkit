@@ -40,10 +40,10 @@ const confirm = async (id: number, key: string) => {
 };
 
 test('9.1 the raise line names the coin before the yes, as the spec writes it; the wallet is shown when known (B13)', () => {
-  assert.equal(raiseLine('Recipe planner', 'RECIPE', null), "Want to raise for Recipe planner? I'll launch $RECIPE on tokens.fun and you get 40% of its trading fees.");
+  assert.equal(raiseLine('Recipe planner', 'RECIPE', null), "Want to open a community round for Recipe planner? I'll launch $RECIPE on tokens.fun and you get 40% of its trading fees.");
   assert.equal(raiseLine('Recipe planner', 'RECIPE', '0x12ab000000000000000000000000000000009f3e'),
-    "Want to raise for Recipe planner? I'll launch $RECIPE on tokens.fun and you get 40% of its trading fees, paid to 0x12ab…9f3e.");
-  assert.equal(showRaisingLine('RECIPE'), "Want to show you're raising with $RECIPE?");
+    "Want to open a community round for Recipe planner? I'll launch $RECIPE on tokens.fun and you get 40% of its trading fees, paid to 0x12ab…9f3e.");
+  assert.equal(showRaisingLine('RECIPE'), 'Want to show your community round with $RECIPE on your page?');
 });
 
 test('9.2 a coin launched before v2.13 does not show the pill until the builder says yes; stop raising removes it, the coin stays', dbTest, async () => {

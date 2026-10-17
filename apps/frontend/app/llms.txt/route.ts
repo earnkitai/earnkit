@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 
 /** Final fix (controller ruling): with EARNKIT_RAISING off, the Bench's text names no raising. Pure. */
 const withoutRaising = (text: string) =>
-  text.replace('with chain, raising and weekly filters.', 'with chain and weekly filters.').replace('- Raising through a tokens.fun coin:', '- A tokens.fun coin for the project:');
+  text.replace('with chain, community round and weekly filters.', 'with chain and weekly filters.').replace('- A community round through a tokens.fun coin:', '- A tokens.fun coin for the project:');
 
 /**
  * v2.13: /llms.txt, what agents read about EarnKit. Today's text (lib/earnkit/llms/v212.txt, the

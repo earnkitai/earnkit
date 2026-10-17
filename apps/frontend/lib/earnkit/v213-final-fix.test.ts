@@ -250,7 +250,7 @@ test('F9 raising off: no pill on the Bench, the profile or the card, no filter; 
     assert.equal((await benchRows({ chain: null, raising: true, weekly: false }, { only })).rows.length, 1);
     const d = (await profileData(p.id, new Date('2026-10-14T00:00:00Z'), { only }))!;
     assert.equal(d.raising, null);
-    assert.ok(!JSON.stringify(d.log).includes('Raising'), 'no Raising chip on the update cards');
+    assert.ok(!JSON.stringify(d.log).includes('Community round'), 'no Community round chip on the update cards');
     assert.equal((await benchCardFacts(p.id))!.raising, null);
   });
   await withRaising(true, async () => {
@@ -297,12 +297,15 @@ test('F11 raising off: the Bench, the landing top 10, tell\'s description and ll
     assert.equal(toolDescriptions(false).tell, TELL_DESCRIPTION_BENCH_NO_RAISING);
     assert.ok(!TELL_DESCRIPTION_BENCH_NO_RAISING.includes('raising'));
     const text = await (await llms()).text();
-    assert.ok(!/raising/i.test(text), 'llms.txt');
+    assert.ok(!/raising|community round/i.test(text), 'llms.txt');
     assert.ok(text.includes('with chain and weekly filters.'));
     assert.ok(text.includes('- A tokens.fun coin for the project: 40% of trading fees to the builder.'));
   });
   await withRaising(true, async () => {
     assert.equal(toolDescriptions(false).tell, TELL_DESCRIPTION_BENCH);
-    assert.match(await (await llms()).text(), /chain, raising and weekly filters/);
+    // Owner ruling B (v2.13.3): "community round", never raise or raising.
+    const text = await (await llms()).text();
+    assert.match(text, /chain, community round and weekly filters/);
+    assert.doesNotMatch(text, /\braise\b|\braising\b/i);
   });
 });

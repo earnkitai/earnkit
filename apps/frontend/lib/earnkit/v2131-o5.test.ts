@@ -10,7 +10,7 @@ import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
 import {
-  GRANTS_LATER_ASK, OTHER_PROJECT_ASK, UPDATES_ASK_JOINING, benchBuildAsk, benchReply, cantSeeLine, cantShowLine, copyLine, checkingBranchLine, foreignLine, grantsAsk, needsAgentLine, shipAsk, type BenchView,
+  GRANTS_LATER_ASK, OTHER_PROJECT_ASK, START_ASK, UPDATES_ASK_JOINING, benchBuildAsk, benchReply, cantSeeLine, cantShowLine, copyLine, checkingBranchLine, foreignLine, grantsAsk, needsAgentLine, shipAsk, type BenchView,
 } from './bench-reply';
 import { GRANTS_QUIET_MS, noGrantLine } from './bench-find';
 import { GitHubError } from './match-projects';
@@ -177,7 +177,8 @@ test('O5 N2 a repo EarnKit cannot read (404): "EarnKit can\'t see" at once, no c
     const r = await find(id, named(key), { ...NO_MATCH, proofBranchFetch: repoFake({}, { [key]: 404 }).f });
     // O5 fix round 1: a 404 is often the builder's own private repo: never the push line.
     assert.equal(r.show_to_builder.split('\n')[1], cantSeeLine('secret'), r.show_to_builder);
-    assert.equal(cantSeeLine('secret'), "EarnKit can't see secret. Use a public project.");
+    // v2.13.3 (5): with the read-only App off, said honestly.
+    assert.equal(cantSeeLine('secret'), "I can't see secret. EarnKit can only see public repos right now.");
     assert.ok(r.show_to_builder.endsWith(OTHER_PROJECT_ASK));
     assert.equal((await codes(id)).length, 0);
     const down = `${uniq('maya')}/recipes`;
@@ -328,19 +329,20 @@ test('O5 N5 a grants yes that finds nothing: the next reply asks the next step, 
 
 // ---- N6: the money line matches the build offer ----------------------------------------------------
 
-test('O5 N6 (P5) no project: never a grant the offered starter can\'t enter, never "a small app"', dbTest, () =>
+test('O5 N6 (P5) no project: never a grant claimed for a build that can\'t enter it, never "a small app"; v2.13.3 ruling A: never the generic tip jar', dbTest, () =>
   on(async () => {
     const ava = await avalanche();
     const id = await install();
     const r = await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH });
-    assert.ok(!r.show_to_builder.includes(ava.title), r.show_to_builder);
-    assert.doesNotMatch(r.show_to_builder, /a small app/);
-    assert.ok(r.show_to_builder.endsWith(benchBuildAsk('a tip jar')), r.show_to_builder);
-    assert.equal(questions(r.show_to_builder), 1);
-    // A chat-only agent with the same build offer: the same rule.
+    // v2.13.3 (2): an open program may be named with what it needs, never as an idea it pays for.
+    assert.ok(!r.show_to_builder.includes(`${ava.title} pays`), r.show_to_builder);
+    assert.doesNotMatch(r.show_to_builder, /a small app|tip jar/);
+    assert.ok(r.show_to_builder.endsWith(START_ASK), r.show_to_builder);
+    assert.equal(r.build_offer, undefined);
+    // A chat-only agent: the same rule.
     const c = await install();
     const rc = await find(c, { agent_can_build: false }, { freshDeps: { ...OWN_FRESH, canBuild: false } });
-    assert.ok(!rc.show_to_builder.includes(ava.title), rc.show_to_builder);
+    assert.ok(!rc.show_to_builder.includes(`${ava.title} pays`), rc.show_to_builder);
   }),
 );
 
@@ -479,11 +481,12 @@ test('O5 fix round 1: matching cut by the reply wait still lands: the next reply
     const slow = { matchProjects: async () => { await sleep(2500); return { checked: 1, scored: 1, fits: fitsFor(ava.id, key) }; } };
     const id = await install();
     const r1 = await find(id, named(key), { ...slow, proofBranchFetch: repoFake().f });
-    assert.doesNotMatch(r1.show_to_builder, /Ways to get funded/, 'the first reply did not wait');
+    // v2.13.3 (2): the money section always shows; the first reply just has no fit yet.
+    assert.doesNotMatch(r1.show_to_builder, /and fits monorepo/, 'the first reply did not wait');
     await sleep(1500);
     const r2 = await find(id, {}, { ...slow, proofBranchFetch: repoFake().f });
     assert.match(r2.show_to_builder, /Ways to get funded/, r2.show_to_builder);
-    assert.ok(r2.show_to_builder.includes(ava.title), r2.show_to_builder);
+    assert.ok(r2.show_to_builder.includes(`${ava.title} pays up to $10K and fits monorepo`), r2.show_to_builder);
     await sleep(1200);
   }),
 );

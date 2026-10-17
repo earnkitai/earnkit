@@ -412,7 +412,7 @@ const withBench = <T>(on: boolean, fn: () => T): T => {
 
 test('12.1 the hero, word for word, and its one button', () => {
   assert.equal(BENCH_HERO_TITLE, 'Ship every week. Get funded.');
-  assert.equal(BENCH_HERO_SUBTITLE, 'Add EarnKit to your AI agent. It puts your project on the Bench, posts what you ship, and finds you grants and a way to raise.');
+  assert.equal(BENCH_HERO_SUBTITLE, 'Add EarnKit to your AI agent. It puts your project on the Bench, posts what you ship, and finds you grants and a community round.');
   const h = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], chips: ['base'], cards: [CARD], raising: true } });
   assert.ok(h.includes(BENCH_HERO_TITLE) && h.includes(BENCH_HERO_SUBTITLE) && h.includes('Add to your agent'));
   assert.ok(!h.includes('Agents only'), 'no all-caps eyebrow under the flag');

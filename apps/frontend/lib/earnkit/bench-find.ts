@@ -26,14 +26,17 @@ import {
   biggestPick, declinedNow, earnPrize, earnWhen, hostFor, moneyFallback, rollingPick, scoreEarn, showable, standBase, startRefresh, takeNews,
   type Seen as StandSeen, type StandBase,
 } from './stand-view';
-import { enteredIds, freshLead, layout, qualifies, submitStep, submitStepLine, type Card, type FirstMessage, type FreshOn, type RepoFit, type YourRepos } from './present';
+import { byPrize, enteredIds, freshLead, layout, qualifies, submitStep, submitStepLine, type Card, type FirstMessage, type FreshOn, type RepoFit, type YourRepos } from './present';
 import type { ReaderDeps } from './source-readers';
 import type { TickerCheck } from './token-proposal';
 import { projectKeyOf, type IdentityProject } from './identity-input';
 import type { ToolContext } from './tools';
+import { CHAIN_NAMES, type Chain } from './chains';
+import { githubAppEnabled } from './github-app';
+import { createVerifyLink } from './github-verify';
 import {
-  GRANTS_LATER_ASK, POST_UPDATE_ASK, UPDATES_ASK, UPDATES_ASK_JOINING, benchBuildAsk, benchReply, benchStepKey, buildAsk, chooseAsk, enterAsk, showsClaimLink,
-  type BenchAsk, type BenchAskKind, type BenchProject, type BenchView, type FundLine,
+  GRANTS_LATER_ASK, POST_UPDATE_ASK, UPDATES_ASK, UPDATES_ASK_JOINING, benchReply, benchStepKey, chooseAsk, enterAsk, installAfterClaimAsk, installAppAsk, startBuildAsk,
+  showsClaimLink, type BenchAsk, type BenchAskKind, type BenchProject, type BenchView, type FundLine,
 } from './bench-reply';
 
 /**
@@ -48,6 +51,17 @@ export const BENCH_MOVE_UP_NOTE = 'A yes or no to the last line: call tell with 
 export const UPDATES_NOTE = BENCH_MOVE_UP_NOTE;
 export const POST_UPDATE_NOTE = "Write this week's update now: one plain paragraph from git log for the week and what you deployed, at most 280 characters, links only to the live site or the repo. Call tell with update: { text }. Don't show this note.";
 export const ENTER_NOTE = "Prepare it: call prepare with program_id as given. Don't show this note.";
+/**
+ * v2.13.3 (3): the no-project ask offers both, so its note routes both: existing work goes to find with
+ * identity, a yes (or "build something") to move_up.
+ */
+export const START_NOTE =
+  "If the builder sends their GitHub login or a link to something they've made, call find with identity: { github_login, project: { name, repo or live_url } }. " +
+  "A yes or 'build something': call tell with move_up: { kind, project_key, answer: 'yes' } (as given here); a no: answer 'no'. Don't show this note.";
+/** v2.13.3 (5): the install ask (the link in the reply, or after the X claim, in the next reply). */
+export const INSTALL_APP_NOTE =
+  "The builder installs EarnKit (read-only) on the repo from the link in show_to_builder; if there is no link yet, it comes in the next find once their page is claimed. " +
+  "A yes or no: call tell with move_up: { kind, project_key, answer } (as given here). Once they installed it, call find again, which checks the repo. Don't show this note.";
 /** The yes to the build ask: the v2.11 build path, started for the program the ask named. */
 export const buildYesNote = (programId: string) =>
   `Call prepare with build: { start: true, program_id: '${programId}' } and program_id: '${programId}' at the top. EarnKit then asks the builder one question before any work starts. Don't show this note.`;
@@ -94,11 +108,9 @@ export function buildInProgress(b: StoredBuild | null, now: Date, starters: Reco
  * EarnKit can't deploy or host any tested starter.
  */
 export type BenchPick = { card: Card | null; starter: Starter; canBuild: boolean };
-const withNoProgram = (program: (FreshPick & { canBuild: boolean }) | null, fresh: FreshOn | undefined, now: Date): BenchPick | null => {
-  if (program) return program;
-  const starter = fresh ? benchStarter(now, fresh) : undefined;
-  return starter && fresh ? { card: null, starter, canBuild: fresh.canBuild } : null;
-};
+// Owner ruling A (v2.13.3): never the generic starter with no program (the tip jar): only a program's own
+// fresh build, whose owner-set starter (program file fresh_build) is the one that can compete in it.
+const withNoProgram = (program: (FreshPick & { canBuild: boolean }) | null, _fresh: FreshOn | undefined, _now: Date): BenchPick | null => program;
 /** v2.13.1 O2 (B1): an idea for a builder with no project never needs a live product or a repo. Pure. */
 export const noProjectIdea = (c: Card) => c.needs_repo === false && c.tag !== NEEDS_LIVE_PRODUCT;
 /**
@@ -111,6 +123,41 @@ export const ideaFitsOffer = (c: Card, starter: Starter | null) =>
 /** v2.13.1 O2: a program shown for a project fits it: its chain (or any chain), and a live product only when it is live. Pure. */
 export const fitsProject = (c: Card, p: { chains: string[]; live: boolean }) =>
   (c.any_chain === true || (c.chains ?? []).some((ch) => p.chains.includes(ch))) && (c.tag !== NEEDS_LIVE_PRODUCT || p.live);
+
+/** "a Base app", "an Avalanche app", "an app on Base, Tempo or Robinhood Chain". Pure. */
+const chainApp = (chains: readonly string[]) => {
+  const names = chains.map((c) => (Object.hasOwn(CHAIN_NAMES, c) ? CHAIN_NAMES[c as Chain] : c));
+  if (names.length === 1) return `${/^[aeiou]/i.test(names[0]) ? 'an' : 'a'} ${names[0]} app`;
+  return `an app on ${names.slice(0, -1).join(', ')} or ${names.at(-1)}`;
+};
+/**
+ * v2.13.3 (2): an open program and what it needs, in plain words: its chain when it needs one ("for an
+ * Avalanche app"), a live product ("once it's live"), code on GitHub, else any app. Never says it fits. Pure.
+ */
+export function fundNeeds(c: Card): Extract<FundLine, { kind: 'needs' }> {
+  const chain = c.any_chain !== true && (c.chains ?? []).length > 0 ? `for ${chainApp(c.chains!)}` : null;
+  const live = c.tag === NEEDS_LIVE_PRODUCT;
+  const repo = !live && c.needs_repo === true;
+  const needs = chain
+    ? `${chain}${live ? ", once it's live" : repo ? ', once its code is on GitHub' : ''}`
+    : live ? 'once your app is live' : repo ? 'once your code is on GitHub' : 'for any app';
+  return { kind: 'needs', title: c.title, prize: earnPrize(c), needs };
+}
+/** v2.13.3 (2): at most this many programs are named for a builder with no confirmed project. */
+export const NEEDS_MAX = 2;
+/**
+ * v2.13.3 (2): open programs to name with what they need (fundNeeds), `n` at most, none already named:
+ * those on the project's chains (or any chain) first, then the biggest prize. Pure.
+ */
+export function needsPicks(cards: Card[], now: Date, skip: Set<string>, n: number, chains: string[] = []): Extract<FundLine, { kind: 'needs' }>[] {
+  if (n <= 0) return [];
+  const on = (c: Card) => (c.any_chain === true || (c.chains ?? []).some((ch) => chains.includes(ch)) ? 0 : 1);
+  return cards
+    .filter((c) => showable(c, now, skip) && (c.max_award_usd ?? 0) > 0)
+    .sort((a, b) => on(a) - on(b) || byPrize(a, b))
+    .slice(0, n)
+    .map(fundNeeds);
+}
 
 type BenchRead = {
   base: StandBase; seen: Seen; main: string | null; row: MainRow | null;
@@ -177,12 +224,17 @@ export async function coinAskBench(
     await markRaiseAsked(id, p.key, new Date());
     return raise;
   }
-  if (!p.shipped || p.has_coin || coin) return null;
-  if (p.streak >= 5) {
+  if (p.has_coin || coin) return null;
+  if (p.shipped && p.streak >= 5) {
     const offer = await offerCoin(id, p.key, 'streak_five', deps);
     if (offer) return { kind: 'coin', project_key: p.key, line: offer.line };
   }
-  if (p.people <= 0) return null;
+  if (!p.shipped || p.people <= 0) {
+    // Owner ruling A (v2.13.3): with nothing that fits, a confirmed project is offered a community round
+    // (the coin) once, with no moment to wait for.
+    const offer = await offerCoin(id, p.key, 'countable', deps);
+    return offer ? { kind: 'coin', project_key: p.key, line: offer.line } : null;
+  }
   const was = seen.people?.[p.key];
   const moment = was !== undefined && was < 5 && p.people >= 5 ? 'first_five' : 'has_people';
   const offer = await offerCoin(id, p.key, moment, deps);
@@ -231,30 +283,43 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
   // O2 fix round 1 (ruling 3): a repo another person holds is never offered a program for it.
   const taken = branch?.kind === 'taken';
   let fund: FundLine[] = [];
-  if (building || taken) fund = [];
+  /** v2.13.3 (2): the programs named so far (never named twice). */
+  const named = new Set<string>();
+  if (building) fund = [];
+  else if (taken) fund = [];
   else if (project) {
     fund = o.fits.slice(0, 3).map((f) => ({ kind: 'fits', title: f.title, prize: f.prize, when: f.when }));
     // v2.13.1 O2: the open-all-year program only when it fits the project (its chain or any chain; a live product only when live).
     const fit = { chains: row?.chains ?? [], live: project.live };
     const rolling = fund.length === 0 && o.due.length === 0 ? rollingPick(o.cards.filter((c) => fitsProject(c, fit)), now, o.skip) : undefined;
     if (rolling) fund = [{ kind: 'rolling', title: rolling.title, prize: earnPrize(rolling) }];
+    for (const f of o.fits.slice(0, 3)) named.add(f.program_id);
+    if (rolling) named.add(rolling.id);
   } else {
     const first = pick?.card ?? null;
     // v2.13.1 O2 (B1): never an idea that needs a live product or a repo for a builder with no project.
     // O5 N6: beside a build offer, only a program its starter can enter, with its own pitch.
     const other = biggestPick(o.cards.filter((c) => ideaFitsOffer(c, pick?.starter ?? null)), now, o.skip, first?.id ?? null);
     const forOf = (c: Card) => c.pitch?.for ?? (c === first && pick ? benchOffer(pick.starter) : null);
-    fund = [first, other]
-      .filter((c): c is Card => Boolean(c && forOf(c)))
-      .map((c) => ({ kind: 'idea', who: c.pitch?.who ?? c.title, prize: earnPrize(c), for: forOf(c)! }));
+    const ideas = [first, other].filter((c): c is Card => Boolean(c && forOf(c)));
+    for (const c of ideas) named.add(c.id);
+    fund = ideas.map((c) => ({ kind: 'idea', who: c.pitch?.who ?? c.title, prize: earnPrize(c), for: forOf(c)! }));
+  }
+  // v2.13.3 (2): "Ways to get funded" always shows (it's the hook): with no project or one not yet
+  // confirmed, up to NEEDS_MAX open programs in all, each with what it needs; for a confirmed one with
+  // nothing to name, the same. Never a fit claimed; never while a build is in progress.
+  // A repo another person holds names no program at all (O2 fix round 1, ruling 3).
+  if (!building && !taken) {
+    const room = !project || !project.confirmed ? NEEDS_MAX - fund.length : fund.length === 0 && o.due.length === 0 ? NEEDS_MAX : 0;
+    fund = [...fund, ...needsPicks(o.cards, now, new Set([...o.skip, ...named]), room, row?.chains ?? [])];
   }
   let ask: BenchAsk | null = null;
+  const appOn = githubAppEnabled();
   if (!o.held && !building) {
     // Only a client that builds is asked to build (a chat-only one sees the ideas).
-    const build: BenchAsk | null = !project && pick?.canBuild
-      ? pick.card
-        ? { kind: 'build', project_key: null, program_id: pick.card.id, line: buildAsk(pick.starter.offer) }
-        : { kind: 'build', project_key: null, program_id: BENCH_BUILD_ID, line: benchBuildAsk(benchOffer(pick.starter)) }
+    // v2.13.3 (3), ruling A: the no-project ask leads with existing work; the build only for a specific program.
+    const build: BenchAsk | null = !project && pick?.canBuild && pick.card
+      ? { kind: 'build', project_key: null, program_id: pick.card.id, line: startBuildAsk(pick.starter.offer, pick.card.title) }
       : null;
     const enter: BenchAsk | null = project && o.fits[0] && !taken ? { kind: 'enter', project_key: project.key, program_id: o.fits[0].program_id, line: enterAsk(o.fits[0].title) } : null;
     const web = project ? read.base.projects.some((x) => x.key.toLowerCase() === project.key.toLowerCase() && x.web) : false;
@@ -269,12 +334,23 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
       joining: Boolean(project && !project.confirmed && (!branch || branch.kind === 'checking')),
       other: taken || ['failed', 'foreign', 'copy', 'unseen'].includes(branch?.kind ?? ''),
     };
-    // The coin is offered (and its moment recorded) only when no earlier ask in the order applies.
-    const before = chooseAsk({ ...asks, coin: null, enter: null, fallback: false });
-    const coin = !before && project && row
+    // v2.13.3 (5): a repo EarnKit can't see, with the read-only App on: the install ask (claimed: its link
+    // is the reply's one link; unclaimed: the X claim is, and the install link comes next reply).
+    const install = appOn && project && branch?.kind === 'unseen' && !declined.includes(benchStepKey('install_app', project.key))
+      ? read.base.claimed
+        ? await createVerifyLink({ installationId: id, projectId: null, repoKey: project.key, purpose: 'app' }, now)
+            .then((link): BenchAsk => ({ kind: 'install_app', project_key: project.key, line: installAppAsk(project.name, link) }))
+            .catch(logged('app link'))
+        : read.base.claimLink ? { kind: 'install_app' as const, project_key: project.key, line: installAfterClaimAsk(project.name) } : null
+      : null;
+    // Owner ruling A: the best fit's entry, else a community round (the coin), come before the Bench's own
+    // steps. The coin is offered (and its moment recorded) only when nothing earlier applies.
+    const before = install ?? chooseAsk({ ...asks, coin: null, enter, fallback: false });
+    const coinFirst = !before || ['go_live', 'updates', 'post_update'].includes(before.kind);
+    const coin = coinFirst && project && row
       ? await coinAskBench(id, { ...project, people: row.people, has_coin: row.has_coin, streak: row.streak, shipped: row.shipped }, read.seen, o.coinDeps).catch(logged('coin'))
       : null;
-    ask = before ?? chooseAsk({ ...asks, coin, enter });
+    ask = coin ?? before ?? chooseAsk({ ...asks, coin: null, enter });
   }
   const stored = ask ? { kind: ask.kind, key: ask.project_key, ...(ask.program_id && { program_id: ask.program_id }) } : null;
   await sql()`
@@ -285,12 +361,17 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
   const slow = Boolean(project && !project.confirmed && !branch) && !(await confirmingFast(id, now).catch(() => false));
   const view: BenchView = {
     project, rank: read.ranks.phrase, claimed: read.base.claimed, handle: read.base.handle, claimLink: read.base.claimLink,
-    branch: branch?.kind === 'checking' && branch.again ? 'recheck' : branch?.kind ?? null, slow, fund, ask, due: building ? [] : o.due,
+    branch: branch?.kind === 'checking' && branch.again ? 'recheck' : branch?.kind === 'unseen' && appOn ? 'private' : branch?.kind ?? null,
+    slow, fund, ask, due: building ? [] : o.due,
     building: building ? building.name : null,
     page: read.base.claimed && read.base.handle ? `${siteUrl()}${pagePath(read.base.handle)}` : null,
   };
   // A raise ask is answered through move_up (benchMoveUp: setRaising), as every Bench ask but the coin offer.
-  const note = ask?.kind === 'coin' ? COIN_NOTE : BENCH_MOVE_UP_NOTE;
+  const note = ask?.kind === 'coin' ? COIN_NOTE
+    : ask?.kind === 'install_app' ? INSTALL_APP_NOTE
+    // v2.13.3 (3): the no-project ask: existing work goes to find with identity.
+    : !project && (ask?.kind === 'build' || ask?.kind === 'start') ? START_NOTE
+    : BENCH_MOVE_UP_NOTE;
   const fields: Reply = {
     ...(ask && { move_up: { kind: ask.kind, project_key: ask.project_key, agent_note: note } }),
     ...(showsClaimLink(view) && read.base.claimLink && { claim: { link: read.base.claimLink } }),
@@ -507,7 +588,7 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId'>, m: {
   }
   // Fix round 1: answered once. The ask is cleared before the yes runs, so a retried yes is "Okay.".
   // (go_live and coin yeses stay in tools.ts: go_live's yes is sent again with live_url by design.)
-  if (['updates', 'post_update', 'build', 'enter', 'raise', 'grants', 'suggest', 'other_project', 'grants_later'].includes(asked.kind)) {
+  if (['updates', 'post_update', 'build', 'enter', 'raise', 'grants', 'suggest', 'other_project', 'grants_later', 'install_app', 'start'].includes(asked.kind)) {
     const [taken] = await sql()`
       UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask'
       WHERE builder_id = ${id} AND standing_seen->'bench_ask' = ${sql().json(asked as never)}::jsonb RETURNING 1`.catch((err: unknown) => {
@@ -534,6 +615,12 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId'>, m: {
       return asked.key ? { show_to_builder: '', agent_note: SHIP_NOTE } : suggestYes(now);
     case 'other_project':
       return { show_to_builder: '', agent_note: OTHER_PROJECT_NOTE };
+    case 'start':
+      // Ruling A: their work, not a build: ask for it, then find with identity.
+      return { show_to_builder: '', agent_note: START_YES_NOTE };
+    case 'install_app':
+      // v2.13.3 (5): the link does the work; the next find checks the repo through the App.
+      return { show_to_builder: '', agent_note: INSTALL_APP_YES_NOTE };
     case 'grants_later':
       // O5 fix round 2: grants stay quiet a week from now; then the grants ask comes back.
       if (asked.key) await keepGrantsQuiet(id, asked.key, now);
@@ -543,6 +630,12 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId'>, m: {
   }
 }
 
+/** Owner ruling A (v2.13.3): the yes to "Send me your GitHub or a link...". */
+export const START_YES_NOTE =
+  "Ask the builder in one short question for their GitHub login or a link to something they've made, then call find with identity: { github_login, project: { name, repo or live_url } }. Don't show this note.";
+/** v2.13.3 (5): the yes to the install ask. */
+export const INSTALL_APP_YES_NOTE =
+  "Once the builder has installed EarnKit on the repo from the link (after claiming their page, if the link hasn't come yet), call find again. Don't show this note.";
 /** v2.13.1 O2 fix round 1 (ruling 3): the yes routes of the last-line fallbacks. */
 export const OTHER_PROJECT_NOTE =
   "Ask the builder in one short question which project is theirs (a repo under their own GitHub account), then call find with identity.project: that project. Don't show this note.";

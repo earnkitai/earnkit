@@ -39,7 +39,7 @@ const html = (el: React.ReactElement) => renderToStaticMarkup(el).replace(/&#x27
 
 test('11.1 the header: photo, name, @handle, pill, the Bench line then each chain line with its logo', () => {
   const h = html(React.createElement(BenchProfileView, { data: DATA, tab: 'log' }));
-  for (const s of ['Maya Chen', '@maya_makes', 'Raising $RECIPE', 'Top 4% on the Bench', 'Top 1% on Base']) assert.ok(h.includes(s), s);
+  for (const s of ['Maya Chen', '@maya_makes', 'Community round $RECIPE', 'Top 4% on the Bench', 'Top 1% on Base']) assert.ok(h.includes(s), s);
   assert.ok(h.indexOf('Top 4% on the Bench') < h.indexOf('Top 1% on Base'));
   assert.match(h, /alt="Base"/);
 });
@@ -183,20 +183,20 @@ test('11.10 a new profile: no ring without a rank line, no raising, no chain lin
   const fresh: ProfileData = { ...DATA, raising: null, bench: null, chainLines: [], score: null, streak: 0, log: [DATA.log[2]], project: { ...DATA.project!, coin: null, programs: [], funds: [], people: null, money: null } };
   const h = html(React.createElement(BenchProfileView, { data: fresh, tab: 'log' }));
   assert.doesNotMatch(h, /Score \d+ of 100/);
-  assert.doesNotMatch(h, /Raising/);
+  assert.doesNotMatch(h, /Raising|Community round/);
   assert.doesNotMatch(h, /in a row/);
   assert.ok(h.includes('Started tracking Recipe planner.'));
   const none = html(React.createElement(BenchProfileView, { data: { ...fresh, project: null, log: [] }, tab: 'project' }));
   assert.doesNotMatch(none, /Ways to get funded/);
 });
 
-test('11.12 the Raising chip shows once, on the newest card (the header carries the pill)', async () => {
+test('11.12 the Community round chip shows once, on the newest card (the header carries the pill)', async () => {
   const { logCards } = await import('./bench-data');
   const cards = logCards([
     { week: '2026-10-12', text: 'A', facts: { shipped_code: { n: 1 } } },
     { week: '2026-10-05', text: 'B', facts: { shipped_code: { n: 2 } } },
   ], 'Recipe planner', 'RECIPE');
-  assert.deepEqual(cards.map((c) => c.chips), [['1 commit', 'Raising $RECIPE'], ['2 commits']]);
+  assert.deepEqual(cards.map((c) => c.chips), [['1 commit', 'Community round $RECIPE'], ['2 commits']]);
 });
 
 test('11.14 (fix round 1) the share post\'s words: the Bench line, else the confirmed project and streak, else the page', async () => {

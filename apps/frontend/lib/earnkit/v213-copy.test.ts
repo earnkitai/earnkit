@@ -50,9 +50,9 @@ test('7.6 the rule: chain names only inside a rank line, "percentile", "signal",
   assert.ok(BENCH_ALLOWED.every((r) => r.global), 'every allowance strips every match');
 });
 
-test('9.9 the pill says "Raising $RECIPE" and links to the coin\'s tokens.fun page, nothing else', () => {
+test('9.9 the pill says "Community round $RECIPE" (owner ruling B, v2.13.3) and links to the coin\'s tokens.fun page, nothing else', () => {
   const h = renderToStaticMarkup(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/coin/0xabc', size: 'sm' }));
-  assert.equal(pageWords(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/coin/0xabc' })).trim(), 'Raising $RECIPE');
+  assert.equal(pageWords(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/coin/0xabc' })).trim(), 'Community round $RECIPE');
   assert.match(h, /^<a href="https:\/\/tokens\.fun\/coin\/0xabc" target="_blank" rel="noopener noreferrer"/);
 });
 

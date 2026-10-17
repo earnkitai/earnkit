@@ -141,7 +141,7 @@ export const FIND_DESCRIPTION_SCORE = findDescription(
  * note is followed (the proof line is in proof.agent_note). Under 800 characters (mcp.test.ts 2.8).
  */
 export const FIND_DESCRIPTION_BENCH =
-  'Where the builder stands and how to get funded. Pass identity.project: the project in this folder (name and what from the README, repo from git remote, live_url), one, never a list; never ask. ' +
+  'Where the builder stands and how to get funded. Pass identity.project: the project in this folder (name and what from the README, repo from git remote, live_url), one, never a list, and identity.github_login (not github_user or repos); never ask. ' +
   'Follow every agent_note. A yes or no to the last line goes to tell move_up. program_id: one program and its guide. ' +
   SAFETY_TEXT;
 
@@ -195,13 +195,13 @@ export const TELL_DESCRIPTION_SCORE = TELL_DESCRIPTION.replace(
 export const TELL_DESCRIPTION_BENCH =
   "What the builder told you; call it only with what they said. submitted: { program_id, external_submission_url? } once they say they submitted on the program's site; a shared agent adds project_id. " +
   'update: { text } posts this week\'s update (your weekly task writes it from git log and deploys); { hide: "YYYY-MM-DD" } hides that week\'s. ' +
-  'updates: { on } when they say yes to weekly posting or stop posting updates. coin: their coin answer, or { raising } when they say they\'re raising or stop. ' +
+  'updates: { on } when they say yes to weekly posting or stop posting updates. coin: their coin answer, or { raising } when they open a community round or close it. ' +
   'move_up: their answer to the last line, with its kind and project_key. pickup, profile (hide or show), card (yes or skip): their answers. ' +
   'program_status: applied, not_interested, won, placed or lost. repo_facts and weekly_email: what they said. Results they report stay private.';
 
 /** Final fix (controller ruling): EARNKIT_RAISING off under the Bench: coin takes no { raising }. */
 export const TELL_DESCRIPTION_BENCH_NO_RAISING = TELL_DESCRIPTION_BENCH.replace(
-  "coin: their coin answer, or { raising } when they say they're raising or stop. ",
+  'coin: their coin answer, or { raising } when they open a community round or close it. ',
   'coin: their coin answer. ',
 );
 
@@ -346,7 +346,8 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
         github_user: z
           .unknown()
           .optional()
-          .describe("The builder's GitHub username"),
+          // v2.13.3 (1): still read under the Bench (it fills identity.github_login), but not the way to send it.
+          .describe(benchEnabled() ? 'Older field: send identity.github_login instead' : "The builder's GitHub username"),
         // v2.8.1 §B6 (fix round 1): anything; a wallet that isn't 0x is ignored with wallet_note.
         wallet: z
           .unknown()
@@ -355,7 +356,9 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
         repos: z
           .unknown()
           .optional()
-          .describe('Or specific "owner/repo" or github.com links (a list)'),
+          .describe(benchEnabled() ? 'Older field: send identity.project instead' : 'Or specific "owner/repo" or github.com links (a list)'),
+        // v2.13.3 (1): an older agent's live link, read under the Bench as identity.project.live_url (never dropped).
+        ...(benchEnabled() ? { live_url: z.unknown().optional().describe('Older field: send identity.project.live_url instead') } : {}),
         // v2.8.1 §B6 (fix round 1): lenient here, so no report fails the call; tools.ts list_programs
         // (match-projects.ts LocalReposInput) reads what it can, drops the rest and keeps the limits
         // (20 repos, 20 chains each, 100-character names, 300-character links).
@@ -549,11 +552,11 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
                         project_key: z.string().max(300).optional().describe("The coin offer's project_key (move_up.project_key or coin.project_key)"),
                         answer: z.enum(['yes', 'no']).optional(),
                         wallet: z.string().max(100).optional().describe('The 0x address they gave for the fees, if they gave one'),
-                        raising: z.boolean().optional().describe("true when they say they're raising, false when they say stop raising"),
+                        raising: z.boolean().optional().describe('true when they open a community round, false when they close it'),
                       })
                       .strict()
                       .optional()
-                      .describe('Their answer to a coin offer, or raising')
+                      .describe('Their answer to a coin offer, or a community round')
                   : z
                       .object({
                         project_key: z.string().max(300).describe("The coin offer's project_key (move_up.project_key or coin.project_key)"),

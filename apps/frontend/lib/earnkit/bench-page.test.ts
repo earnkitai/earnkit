@@ -102,7 +102,7 @@ test('10.3 chain, raising and weekly filter the rows; ranks are the whole Bench\
 test('10.4 the row: photo, name, @handle, pill, chain logos with the name as alt and tooltip, project, best fact, "Top N%" on the right', () => {
   const row = { rank: 2, line: 'Top 4% on the Bench', handle: 'maya_makes', name: 'Maya Chen', avatar: null, raising: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
   const html = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 25, chips: ['base'], filter: { chain: null, raising: false, weekly: false }, raising: true }));
-  for (const s of [BENCH_TITLE, 'Maya Chen', '@maya_makes', 'Raising $RECIPE', 'Recipe planner', '31 people this week', 'Top 4%', FILTER_RAISING, FILTER_WEEKLY])
+  for (const s of [BENCH_TITLE, 'Maya Chen', '@maya_makes', 'Community round $RECIPE', 'Recipe planner', '31 people this week', 'Top 4%', FILTER_RAISING, FILTER_WEEKLY])
     assert.ok(html.includes(s), s);
   assert.match(html, /<img[^>]+alt="Base"[^>]+title="Base"|<img[^>]+title="Base"[^>]+alt="Base"/);
   assert.match(html, /href="\/bench\?chain=base"/);

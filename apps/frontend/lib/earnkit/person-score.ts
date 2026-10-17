@@ -9,7 +9,7 @@ import { sql, type Db } from './db';
 import { discoverPerson } from './discovery';
 import { MAIN_PROOF_MIN_MS, REPO_KEY, confirmingFast, mainProjectOf, pickMainProject } from './main-project';
 import { noteEvent } from './events';
-import { REPOS_MAX, readGithubRepos, readPersonGithub, type PersonRepo } from './person-github';
+import { REPOS_MAX, readAppRepos, readGithubRepos, readPersonGithub, type PersonRepo } from './person-github';
 import { BENCH_CHAINS, type BenchChain, type Standing } from './rank';
 import { COIN_PROGRAM } from './policy-constants';
 import { LIMITS, hit } from './rate-limit';
@@ -943,16 +943,27 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
       });
       if (!go) return done();
     }
+    // v2.13.3 (5): under the Bench, a repo EarnKit's token couldn't read, through the read-only App when
+    // this person installed it on that repo (a per-call token, never kept).
+    const viaApp = new Map<number, PersonRepo>();
+    if (benchEnabled())
+      for (const s of repos.filter((x) => asked.has(x.id) && !found.has(x.ref.toLowerCase()))) {
+        const go = await attempt([s], async () => {
+          for (const [k, r] of await readAppRepos([s], o.reader)) viaApp.set(k, r);
+        });
+        if (!go) return done();
+      }
     for (const s of repos) {
       if (!asked.has(s.id)) continue; // a spent budget or a failed call (already written)
-      const r = found.get(s.ref.toLowerCase());
+      const app = found.has(s.ref.toLowerCase()) ? undefined : viaApp.get(s.id);
+      const r = found.get(s.ref.toLowerCase()) ?? app;
       if (!r) {
         await put(s, { ok: false });
         continue;
       }
       const prev = (await previousSignals(s.id)) as Partial<RepoSignals> | null;
-      // An organization's contributors (the top-contributor rule) come from the daily read.
-      const contributors = r.owner_type === 'Organization' ? list<Who>(prev?.contributors) : r.contributors;
+      // An organization's contributors (the top-contributor rule) come from the daily read (v2.13.3: or the App's read).
+      const contributors = r.owner_type === 'Organization' && !app ? list<Who>(prev?.contributors) : r.contributors;
       await put(s, { ok: true, signals: { ...r, contributors, commit_weeks: withPastWeeks(r.commit_weeks, prev, now), commit_counts: withPastCounts(r.commit_counts ?? {}, prev, now) } });
     }
   }

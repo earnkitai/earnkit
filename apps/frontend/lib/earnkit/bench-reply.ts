@@ -4,12 +4,14 @@
  * name and the starter's offer are names (plan B12). Pure.
  */
 export const BENCH_HEADS = { stand: 'Where you stand', fund: 'Ways to get funded', up: 'How to move up' } as const;
-export type BenchAskKind = 'build' | 'go_live' | 'updates' | 'post_update' | 'coin' | 'raise' | 'enter' | 'grants' | 'suggest' | 'other_project' | 'grants_later';
+export type BenchAskKind = 'build' | 'go_live' | 'updates' | 'post_update' | 'coin' | 'raise' | 'enter' | 'grants' | 'suggest' | 'other_project' | 'grants_later' | 'install_app' | 'start';
 export type BenchAsk = { kind: BenchAskKind; project_key: string | null; line: string; program_id?: string };
 export type FundLine =
   | { kind: 'fits'; title: string; prize: string; when: string }
   | { kind: 'idea'; who: string; prize: string; for: string }
-  | { kind: 'rolling'; title: string; prize: string };
+  | { kind: 'rolling'; title: string; prize: string }
+  /** v2.13.3 (2): an open program and what it needs, in plain words (never a fit claimed). */
+  | { kind: 'needs'; title: string; prize: string; needs: string };
 export type BenchProject = { key: string; name: string; confirmed: boolean; live: boolean; weeks: number };
 export type BenchView = {
   project: BenchProject | null; rank: string | null; claimed: boolean; handle: string | null; claimLink: string | null;
@@ -20,9 +22,10 @@ export type BenchView = {
    * can't push gets no code), `taken` (another person holds the repo) or `foreign` (O5 N2: a User's repo
    * whose owner isn't the login the agent reported, so no push of theirs can prove it); O5 fix round 1:
    * `copy` (a fork or a template) or `unseen` (EarnKit's token can't read it: 404). v2.13.2 (1): `recheck`
-   * (checking, after an org repo's proof expired).
+   * (checking, after an org repo's proof expired). v2.13.3 (5): `private` (unseen, and the read-only GitHub
+   * App is on: the install ask replaces the different-project one).
    */
-  branch?: 'checking' | 'recheck' | 'failed' | 'needs_agent' | 'taken' | 'foreign' | 'copy' | 'unseen' | null;
+  branch?: 'checking' | 'recheck' | 'failed' | 'needs_agent' | 'taken' | 'foreign' | 'copy' | 'unseen' | 'private' | null;
   /** Final fix I3: not confirmed and outside the hour of fast checks (main-project confirmingFast): no "a minute or two". */
   slow?: boolean;
   fund: FundLine[]; ask: BenchAsk | null;
@@ -37,9 +40,20 @@ export type BenchView = {
   due?: string[];
 };
 
-export const NO_PROJECT_LINE = "You're not on the Bench yet. Pick something to build and you're on it today.";
-/** v2.13.1 O2 (B1): no project and no build to offer: never "Pick something to build" without the offer. */
-export const NO_OFFER_LINE = "You're not on the Bench yet. Tell me what you'd like to build and I'll help you start.";
+/** v2.13.3 (3): no project: the stand line, with or without a build to offer (the ask leads with existing work). */
+export const NO_PROJECT_LINE = "You're not on the Bench yet.";
+export const NO_OFFER_LINE = NO_PROJECT_LINE;
+/**
+ * v2.13.3 (3) and owner ruling A (2026-10-17): no project: existing work first, and money it can win.
+ * Never the generic tip jar: a build is offered only for a specific open program whose starter can
+ * compete (startBuildAsk); otherwise this line is the last line.
+ */
+export const START_ASK = "Send me your GitHub or a link to something you've made and I'll put it on the Bench and find money it can win.";
+/** Ruling A: the build, aimed at one open program (its owner-set starter), offered beside existing work. */
+export const startBuildAsk = (offer: string, program: string) =>
+  `Send me your GitHub or a link to something you've made and I'll put it on the Bench. Or want me to build ${offer} for ${program}?`;
+/** v2.13.3 (4): the X claim, a line (never a second ask). */
+export const claimLine = (link: string) => `Your page: claim it with X at ${link}`;
 /** v2.13.1 O2 (B4): a build is in progress: the whole stand part, no ask. */
 export const buildingNowLine = (name: string) => `Building ${name}. I'll be back with the live link.`;
 /** v2.13.1 O2: once claimed, the page link after the stand line. */
@@ -57,8 +71,17 @@ export const cantShowLine = (name: string) => `I couldn't show ${name} is yours.
 export const foreignLine = (name: string) => `${name} is under someone else's GitHub account.`;
 /** v2.13.1 O5 fix round 1 (ruling): a fork or a template is never the builder's own work. */
 export const copyLine = (name: string) => `${name} is a copy of another repo. Use your own project.`;
-/** v2.13.1 O5 fix round 1: GitHub answers 404 to EarnKit (often the builder's own private repo), so no push can help. */
-export const cantSeeLine = (name: string) => `EarnKit can't see ${name}. Use a public project.`;
+/**
+ * v2.13.1 O5 fix round 1: GitHub answers 404 to EarnKit (often the builder's own private repo), so no push can help.
+ * v2.13.3 (5): with the read-only GitHub App off, said honestly in one line.
+ */
+export const cantSeeLine = (name: string) => `I can't see ${name}. EarnKit can only see public repos right now.`;
+/** v2.13.3 (5): the App is on: the repo is private or unseen, until EarnKit is installed on it. */
+export const appCantSeeLine = (name: string) => `EarnKit can't see ${name} yet.`;
+/** v2.13.3 (5), the owner's words: the install link (the App proof link: sign-in hop, then install) is the reply's one link. */
+export const installAppAsk = (name: string, link: string) => `Want me to add ${name}? Install EarnKit on it (read-only) here: ${link}`;
+/** v2.13.3 (5): unclaimed, the X claim is the one link; the install link comes in the next reply. */
+export const installAfterClaimAsk = (name: string) => `Want me to add ${name} after you claim your page?`;
 /** v2.13.1 O1 fix round 1 (ruling c): an agent that can't push gets no proof branch. O5 N15: names the project and why. */
 export const needsAgentLine = (name: string) => `Open ${name} in your coding agent to put it on the Bench.`;
 /** v2.13.1 O1 fix round 1 (authorization ruling): the first confirmed holder keeps a repo. */
@@ -76,6 +99,8 @@ export const fitsLine = (title: string, prize: string, name: string, when: strin
   `${title} pays ${prize} and fits ${name}; ${when === 'open all year' ? "it's open all year" : `it ${when}`}.`;
 export const ideasLine = (ideas: { who: string; prize: string; for: string }[]) => ideas.map((i) => `${i.who} pays ${i.prize} for ${i.for}.`).join(' ');
 export const rollingFundLine = (title: string, prize: string) => `${title} pays ${prize}; it's open all year.`;
+/** v2.13.3 (2): "Base Builder Grants: up to $5K for a Base app, once it's live." */
+export const needsLine = (title: string, prize: string, needs: string) => `${title}: ${prize} ${needs}.`;
 export const UPDATES_ASK = 'Want me to post what you ship here every week? It keeps your streak going on the Bench.';
 export const POST_UPDATE_ASK = "Want me to post this week's update?";
 /** v2.13.1 O2 fix round 1: the updates yes before the project is confirmed (it isn't on the Bench yet). */
@@ -121,17 +146,20 @@ export function chooseAsk(o: {
 }): BenchAsk | null {
   const p = o.project;
   if (!p) {
+    // v2.13.3 (3), ruling A: the build (only for a program its starter can compete in), else existing work.
     if (o.build) return o.build;
-    return o.declined.includes(benchStepKey('suggest', null)) ? null : { kind: 'suggest', project_key: null, line: SUGGEST_ASK };
+    return o.declined.includes(benchStepKey('start', null)) ? null : { kind: 'start', project_key: null, line: START_ASK };
   }
   const off = (k: BenchAskKind) => o.declined.includes(benchStepKey(k, p.key));
   if (o.other && !p.confirmed) return off('other_project') ? null : { kind: 'other_project', project_key: p.key, line: OTHER_PROJECT_ASK };
+  // Owner ruling A (v2.13.3): a project is tied to something it can win: the best-fitting program's entry,
+  // else a community round (the coin, once the project is confirmed); only then the Bench's own steps.
+  if (o.enter && !off('enter')) return o.enter;
+  if (o.coin) return o.coin;
   if (!p.live && o.canHost && !off('go_live')) return { kind: 'go_live', project_key: p.key, line: goLiveAsk(p.name) };
   if ((p.confirmed || o.joining) && !o.updatesOn && !off('updates'))
     return { kind: 'updates', project_key: p.key, line: p.confirmed && o.claimed !== false ? UPDATES_ASK : UPDATES_ASK_JOINING };
   if (p.confirmed && o.updatesOn && !o.postedThisWeek && !o.scheduled && !off('post_update')) return { kind: 'post_update', project_key: p.key, line: POST_UPDATE_ASK };
-  if (o.coin) return o.coin;
-  if (o.enter && !off('enter')) return o.enter;
   // O2 fix round 1 (ruling 3): nothing pending: the week's update when posting is on, else grants that fit.
   // v2.13.1 O3: never offer this week's update once it is posted (a second post replaces it).
   if (o.fallback === false) return null;
@@ -142,12 +170,13 @@ export function chooseAsk(o: {
 }
 
 function standLines(v: BenchView): string[] {
-  const claim = !v.claimed && v.claimLink ? [`Claim your page with X: ${v.claimLink}`] : [];
-  const page = v.claimed && v.handle && v.page ? [pageLine(v.page)] : [];
+  const claim = !v.claimed && v.claimLink ? [claimLine(v.claimLink)] : [];
+  // v2.13.3 (5): one link a reply: the install ask carries the App link, so no page link beside it.
+  const page = v.claimed && v.handle && v.page && v.ask?.kind !== 'install_app' ? [pageLine(v.page)] : [];
   if (v.building) return [buildingNowLine(v.building), ...claim, ...page];
   const p = v.project;
   // v2.13.1 O2 (B1, B2): "Pick something" only with the build offer that follows; the claim link either way.
-  if (!p) return [v.ask?.kind === 'build' ? NO_PROJECT_LINE : NO_OFFER_LINE, ...claim, ...page];
+  if (!p) return [NO_PROJECT_LINE, ...claim, ...page];
   if (!p.confirmed) {
     const first =
       v.branch === 'checking' ? checkingBranchLine(p.name)
@@ -158,6 +187,7 @@ function standLines(v: BenchView): string[] {
       : v.branch === 'foreign' ? foreignLine(p.name)
       : v.branch === 'copy' ? copyLine(p.name)
       : v.branch === 'unseen' ? cantSeeLine(p.name)
+      : v.branch === 'private' ? appCantSeeLine(p.name)
       : v.slow ? confirmingSlowLine(p.name) : confirmingLine(p.name);
     return [first, ...claim, ...page];
   }
@@ -172,7 +202,9 @@ function fundLines(v: BenchView): string[] {
   const ideas = v.fund.filter((f): f is Extract<FundLine, { kind: 'idea' }> => f.kind === 'idea');
   const rest = v.fund.flatMap((f) =>
     f.kind === 'fits' ? [fitsLine(f.title, f.prize, name, f.when)] : f.kind === 'rolling' ? [rollingFundLine(f.title, f.prize)] : []).slice(0, 3);
-  return [...(v.due ?? []), ...rest, ...(ideas.length ? [ideasLine(ideas.slice(0, 2))] : [])];
+  // v2.13.3 (2): what each other open program needs comes last (the programs that fit, and the ideas, first).
+  const needs = v.fund.flatMap((f) => (f.kind === 'needs' ? [needsLine(f.title, f.prize, f.needs)] : [])).slice(0, 3);
+  return [...(v.due ?? []), ...rest, ...(ideas.length ? [ideasLine(ideas.slice(0, 2))] : []), ...needs];
 }
 export function benchReply(v: BenchView): string {
   const parts = [[BENCH_HEADS.stand, ...standLines(v)]];

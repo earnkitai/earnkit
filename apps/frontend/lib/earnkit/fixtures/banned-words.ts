@@ -21,13 +21,19 @@ export function bannedIn(text: string, exempt: string[]): string[] {
 export const BENCH_PITCH_ALLOWED: RegExp[] = [
   /\b(?:Base|Arc|Robinhood Chain)(?= pays up to \$\d[\d,.]*[KkMm]? for )/g, // strips the \"who\" name only; the tail is still checked
   /\b[Aa] tip jar on (?:Base|Arc|Robinhood Chain)\b/g,
+  // v2.13.3 (2): what a program needs names its chain ("for a Base app", "for an app on Base, Tempo or Robinhood Chain").
+  /\bfor an? (?:Base|Arc|Tempo|Monad|Robinhood Chain|Avalanche) app\b/g,
+  /\bfor an app on (?:(?:Base|Arc|Tempo|Monad|Robinhood Chain|Avalanche)(?:, | or )?)+/g,
+  // v2.13.3 (5): the owner's honest line while the read-only GitHub App is off.
+  /EarnKit can only see public repos right now\./g,
 ];
 export const BENCH_ALLOWED: RegExp[] = [
   /(?<![\w#])(?:[Tt]op \d+(?:\.\d)?%|#\d+ of \d+(?: builders?)?) on (?:Base|Arc|Robinhood Chain)\b/g,
   /\b\d[\d,]* commits?\b/g,
   ...BENCH_PITCH_ALLOWED,
 ];
-export const BENCH_EXTRA: RegExp[] = [/\bsignals?\b/i, /written by/i, /\bbonus\b/i];
+/** Owner ruling B (v2.13.3): "community round", never raise, raising or fundraise, in builder text under the Bench. */
+export const BENCH_EXTRA: RegExp[] = [/\bsignals?\b/i, /written by/i, /\bbonus\b/i, /\braise\b/i, /\braising\b/i, /\bfundrais/i];
 export function bannedInBench(text: string, exempt: string[]): string[] {
   let t = text;
   for (const r of BENCH_ALLOWED) t = t.replace(r, ' ');

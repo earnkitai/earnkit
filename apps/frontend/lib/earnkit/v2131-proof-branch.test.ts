@@ -86,7 +86,7 @@ test('O1.1 the lines: checking (no question), never showed, needs a coding agent
     project: { key: 'maya/recipes', name: 'Recipe planner', confirmed: false, live: false, weeks: 0 },
     rank: null, claimed: false, handle: null, claimLink: 'https://earnkit.com/claim/abcdefghijkl', fund: [], ask: null, branch: 'checking',
   };
-  assert.equal(benchReply(v), ['Where you stand', checkingBranchLine('Recipe planner'), 'Claim your page with X: https://earnkit.com/claim/abcdefghijkl'].join('\n'));
+  assert.equal(benchReply(v), ['Where you stand', checkingBranchLine('Recipe planner'), 'Your page: claim it with X at https://earnkit.com/claim/abcdefghijkl'].join('\n'));
   assert.equal(benchReply({ ...v, branch: 'failed' }).split('\n')[1], cantShowLine('Recipe planner'));
   assert.equal(benchReply({ ...v, branch: 'needs_agent' }).split('\n')[1], needsAgentLine('Recipe planner'));
   assert.equal(benchReply({ ...v, branch: 'taken' }).split('\n')[1], takenLine('Recipe planner'));
@@ -103,7 +103,7 @@ test('O1.2 the owner pushes: one https link, the branch for the agent, the code 
     const lines = r.show_to_builder.split('\n');
     assert.equal(lines[1], checkingBranchLine('Recipe planner'), r.show_to_builder);
     assert.match(r.claim?.link ?? '', /^https:\/\/earnkit\.com\/claim\/[a-z2-7]{12}$/);
-    assert.equal(lines[2], `Claim your page with X: ${r.claim!.link}`);
+    assert.equal(lines[2], `Your page: claim it with X at ${r.claim!.link}`);
     assert.equal((r.show_to_builder.match(/https?:\/\//g) ?? []).length, 1, 'the claim link is the only link');
     const code = branch.replace(/^earnkit-/, '');
     assert.match(code, /^[a-z2-7]{12}$/);

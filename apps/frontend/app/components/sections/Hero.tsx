@@ -11,7 +11,7 @@ export const HERO_TITLE = 'Earn rewards for building';
 export const HERO_SUBTITLE = 'Find live programs. EarnKit matches your projects and helps you win.';
 /** v2.13 spec "Landing page" 1: the words under the flag (no eyebrow, no bonus pill). */
 export const BENCH_HERO_TITLE = 'Ship every week. Get funded.';
-export const BENCH_HERO_SUBTITLE = 'Add EarnKit to your AI agent. It puts your project on the Bench, posts what you ship, and finds you grants and a way to raise.';
+export const BENCH_HERO_SUBTITLE = 'Add EarnKit to your AI agent. It puts your project on the Bench, posts what you ship, and finds you grants and a community round.';
 /** v2.13.1 O3: with EARNKIT_RAISING off, the subtitle doesn't mention raising. */
 export const BENCH_HERO_SUBTITLE_NO_RAISE = 'Add EarnKit to your AI agent. It puts your project on the Bench, posts what you ship, and finds you grants.';
 

@@ -180,3 +180,58 @@ export async function readGithubUser(login: string, d: ReaderDeps): Promise<Pers
   if (!LOGIN.test(login)) throw new Error('not a GitHub login');
   return personGithubFrom(await d.ghGraphql(GITHUB_USER_QUERY, { login }), d.now);
 }
+
+/**
+ * v2.13.3 (5): the repos EarnKit's own token can't read (private, or an org's it can't see), each read
+ * with the read-only GitHub App's installation token for exactly that repo, minted per call for the
+ * person whose source it is (github-app.ts appTokenFor: only their own App proof of that repo). Never
+ * stored or logged. One GraphQL call each (reposQuery), and an organization's contributors (one REST
+ * call, for the top-contributor rule) with the same token. Keyed by source id, so one person's
+ * installation never reads into another's source. Only under the Bench, with the App on and a fetch;
+ * a repo without a token is absent. A failed read throws (the caller writes a failed reading).
+ */
+export async function readAppRepos(items: { id: number; builder_id: number; ref: string }[], d: ReaderDeps): Promise<Map<number, PersonRepo>> {
+  const out = new Map<number, PersonRepo>();
+  const f = d.ghFetch;
+  if (!f || items.length === 0) return out;
+  const { appTokenFor, githubAppEnabled } = await import('./github-app');
+  if (!githubAppEnabled()) return out;
+  const { graphqlUsable } = await import('./source-readers');
+  for (const s of items) {
+    const key = s.ref.toLowerCase();
+    if (!REPO.test(key)) continue;
+    const token = await appTokenFor({ installationId: s.builder_id, repoKey: key }, { fetch: f });
+    if (!token) continue;
+    const headers = { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'earnkit', Authorization: `Bearer ${token}` };
+    const [o, n] = key.split('/');
+    const res = await f('https://api.github.com/graphql', {
+      method: 'POST', headers, redirect: 'error', signal: AbortSignal.timeout(15_000),
+      body: JSON.stringify({ query: reposQuery(1), variables: { since: since(d.now), o0: o, n0: n } }),
+    });
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => {});
+      throw new Error(`GitHub GraphQL returned ${res.status}`);
+    }
+    const body = (await res.json()) as unknown;
+    if (!graphqlUsable(body)) throw new Error('GitHub GraphQL answered errors');
+    const r = repoFrom(obj(obj(body).data).r0, d.now);
+    if (!r || r.key !== key) continue;
+    let contributors = r.contributors;
+    if (r.owner_type === 'Organization') {
+      const c = await f(`https://api.github.com/repos/${key}/contributors?per_page=100`, {
+        redirect: 'manual', signal: AbortSignal.timeout(15_000),
+        headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'earnkit', 'X-GitHub-Api-Version': '2022-11-28', Authorization: `Bearer ${token}` },
+      });
+      if (!c.ok) {
+        await c.body?.cancel().catch(() => {});
+        throw new Error(`GitHub contributors returned ${c.status}`);
+      }
+      contributors = arr(await c.json()).flatMap((x) => {
+        const l = str(obj(x).login);
+        return l ? [{ id: `gh:${l.toLowerCase()}`, at: d.now.toISOString() }] : [];
+      });
+    }
+    out.set(s.id, { ...r, key, contributors });
+  }
+  return out;
+}

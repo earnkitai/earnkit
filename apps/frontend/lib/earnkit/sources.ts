@@ -3,7 +3,7 @@ import { sql, type Db } from './db';
 import { profileCodesIn } from './discovery-clues';
 import { noteEvent } from './events';
 import { benchEnabled } from './builder-score-flag';
-import { REPOS_MAX, readGithubRepos, readPersonGithub, type PersonRepo } from './person-github';
+import { REPOS_MAX, readAppRepos, readGithubRepos, readPersonGithub, type PersonRepo } from './person-github';
 import { countingDeps, flushReadUsage } from './read-usage';
 import { NPM_BULK_MAX, isBudgetStop, isoWeek, readCoin, readContract, readNpm, readNpmBulk, readPypi, readRepo, readSite, type PackageSignals, type PrSignals, type ReaderDeps, type RepoSignals } from './source-readers';
 
@@ -411,7 +411,8 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
   };
 
   /** The tail shared by both paths: a repo's reading written (not found: failed unless stalled or settled). Returns false when the deadline cut it. */
-  const writeRepo = async (s: Due, r: PersonRepo | undefined): Promise<boolean> => {
+  /** v2.13.3 (5): `viaApp`: read with the App's token, its contributors already read with it. */
+  const writeRepo = async (s: Due, r: PersonRepo | undefined, viaApp = false): Promise<boolean> => {
     if (settled.has(s.id)) return true;
     if (!r) {
       // Unread because the budget ran out is not unknown to GitHub: no reading, it stays due.
@@ -420,7 +421,7 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
     }
     return attempt([s], async () => {
       const contributors =
-        r.owner_type === 'Organization'
+        r.owner_type === 'Organization' && !viaApp
           ? (await o.reader.gh<{ login?: unknown }[]>(`/repos/${r.key}/contributors?per_page=100`))
               .flatMap((c) => (typeof c?.login === 'string' ? [{ id: `gh:${c.login.toLowerCase()}`, at: now.toISOString() }] : []))
           : r.contributors;
@@ -449,7 +450,19 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
       });
       if (!go) return { read, failed };
     }
-    for (const s of named) if (!(await writeRepo(s, found.get(s.ref.toLowerCase())))) return { read, failed };
+    // v2.13.3 (5): what EarnKit's token couldn't read (private, or an org's it can't see), through the
+    // read-only App when that source's person installed it on the repo (a per-call token, never kept).
+    const unread = named.filter((s) => !found.has(s.ref.toLowerCase()) && !settled.has(s.id) && !stalled.has(s.id));
+    const viaApp = new Map<number, PersonRepo>();
+    for (const s of unread) {
+      if (Date.now() >= o.deadline) return { read, failed };
+      const go = await attempt([s], async () => {
+        for (const [id, r] of await readAppRepos([s], o.reader)) viaApp.set(id, r);
+      });
+      if (!go) return { read, failed };
+    }
+    for (const s of named)
+      if (!(await writeRepo(s, found.get(s.ref.toLowerCase()) ?? viaApp.get(s.id), !found.has(s.ref.toLowerCase()) && viaApp.has(s.id)))) return { read, failed };
   } else {
     const people = new Map<number, Due[]>();
     for (const s of due) if (s.kind === 'repo') people.set(s.builder_id, [...(people.get(s.builder_id) ?? []), s]);

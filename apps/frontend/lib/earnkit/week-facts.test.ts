@@ -61,7 +61,7 @@ async function person(id: number, key: string, counts: Record<string, number>, o
 test('4.1 the chips, in the order the card shows them, in plain words', () => {
   assert.deepEqual(
     factChips({ shipped_code: { n: 12 }, went_live: true, users_up: { n: 31 }, earned: { usd: 120 }, won: [{ title: 'Base Builder Grants' }], streak: { w: 6 } }, { raising: 'RECIPE' }),
-    ['Went live', 'Won Base Builder Grants', '+31 people', '$120 earned', '12 commits', '6 weeks in a row', 'Raising $RECIPE'],
+    ['Went live', 'Won Base Builder Grants', '+31 people', '$120 earned', '12 commits', '6 weeks in a row', 'Community round $RECIPE'],
   );
   assert.deepEqual(factChips({ shipped_code: { n: 1 }, users_up: { n: 1 } }), ['+1 person', '1 commit']);
   assert.deepEqual(factChips({ streak: { w: 1 } }), [], 'a streak of one is not a chip');

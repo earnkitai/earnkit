@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   OTHER_PROJECT_ASK, SUGGEST_ASK, UPDATES_ASK_JOINING, grantsAsk,
-  NO_OFFER_LINE, benchBuildAsk, buildingNowLine, pageLine, showsClaimLink,
+  NO_OFFER_LINE, START_ASK, benchBuildAsk, buildingNowLine, pageLine, showsClaimLink,
   NO_PROJECT_LINE, POST_UPDATE_ASK, UPDATES_ASK, benchReply, buildAsk, cantShowLine, checkingBranchLine, chooseAsk, confirmingLine, enterAsk, goLiveAsk, onBenchLine, type BenchAsk, type BenchView,
 } from './bench-reply';
 
@@ -31,7 +31,7 @@ test('8.1 spec 2a, word for word', () => {
 test('8.2 spec 2a while confirming, and with the X claim still to do', () => {
   assert.equal(confirmingLine('Recipe planner'), "Recipe planner joins the Bench as soon as I've confirmed it's yours (a minute or two).");
   const v: BenchView = { project: { ...RECIPE, confirmed: false }, rank: null, claimed: false, handle: null, claimLink: 'earnkit.com/claim/abcdefghijkl', fund: [], ask: null };
-  assert.equal(benchReply(v), ['Where you stand', confirmingLine('Recipe planner'), 'Claim your page with X: earnkit.com/claim/abcdefghijkl'].join('\n'));
+  assert.equal(benchReply(v), ['Where you stand', confirmingLine('Recipe planner'), 'Your page: claim it with X at earnkit.com/claim/abcdefghijkl'].join('\n'));
   // v2.13.1 O1: the proof branch, then (never showed in the hour) the plain line.
   assert.equal(benchReply({ ...v, branch: 'checking' }).split('\n')[1], checkingBranchLine('Recipe planner'));
   assert.equal(benchReply({ ...v, branch: 'failed' }).split('\n')[1], cantShowLine('Recipe planner'));
@@ -47,7 +47,7 @@ test('8.3 spec 2b, word for word', () => {
   };
   assert.equal(benchReply(v), [
     'Where you stand',
-    "You're not on the Bench yet. Pick something to build and you're on it today.",
+    "You're not on the Bench yet.",
     '',
     'Ways to get funded',
     'Arc pays up to $10K for payment apps. Base pays up to $5K for a live app.',
@@ -55,7 +55,8 @@ test('8.3 spec 2b, word for word', () => {
     'How to move up',
     "Want me to build a tip jar on Arc and put it online? It takes a few minutes and I'll ask you one or two things.",
   ].join('\n'));
-  assert.equal(NO_PROJECT_LINE, "You're not on the Bench yet. Pick something to build and you're on it today.");
+  // v2.13.3 (3): the stand line alone; the ask leads with existing work (bench-find).
+  assert.equal(NO_PROJECT_LINE, "You're not on the Bench yet.");
 });
 
 test('8.4 the stand line without a rank, without weeks, with one week', () => {
@@ -71,16 +72,18 @@ test('8.5 the last line asks the first that applies, in the spec\'s order', () =
   const enter: BenchAsk = { kind: 'enter', project_key: 'k', program_id: 'p', line: enterAsk('Base Builder Grants') };
   const base = { project: RECIPE, canHost: true, updatesOn: true, postedThisWeek: true, scheduled: true, coin, build, enter, declined: [] as string[] };
   assert.equal(chooseAsk({ ...base, project: null })?.kind, 'build', '1. no project');
-  assert.equal(chooseAsk({ ...base, project: null, build: null })?.kind, 'suggest', 'O2 fix round 1: nothing to build, the suggestion');
-  assert.deepEqual(chooseAsk({ ...base, project: { ...RECIPE, live: false } }), { kind: 'go_live', project_key: 'maya/recipes', line: goLiveAsk('Recipe planner') }, '2. not live');
-  assert.equal(chooseAsk({ ...base, project: { ...RECIPE, live: false }, canHost: false })?.kind, 'coin', 'not live but nothing can host it');
-  assert.deepEqual(chooseAsk({ ...base, updatesOn: false }), { kind: 'updates', project_key: 'maya/recipes', line: UPDATES_ASK }, '3. updates not on');
-  assert.equal(chooseAsk({ ...base, updatesOn: false, project: { ...RECIPE, confirmed: false } })?.kind, 'coin', 'asked only once confirmed');
-  assert.deepEqual(chooseAsk({ ...base, postedThisWeek: false, scheduled: false }), { kind: 'post_update', project_key: 'maya/recipes', line: POST_UPDATE_ASK }, '4.');
-  assert.equal(chooseAsk({ ...base, postedThisWeek: false, scheduled: true })?.kind, 'coin', 'an agent that schedules is not asked');
-  assert.equal(chooseAsk(base)?.kind, 'coin', '5. a coin moment');
-  assert.equal(chooseAsk({ ...base, coin: null })?.kind, 'enter', '6. the best program');
-  assert.equal(chooseAsk({ ...base, updatesOn: false, declined: ['updates:maya/recipes'] })?.kind, 'coin', 'a no keeps it away 30 days');
+  assert.equal(chooseAsk({ ...base, project: null, build: null })?.kind, 'start', 'v2.13.3 ruling A: nothing to build, existing work');
+  // v2.13.3 owner ruling A: the best fit's entry, else a community round (the coin), before the Bench's own steps.
+  assert.equal(chooseAsk({ ...base, project: { ...RECIPE, live: false } })?.kind, 'enter', 'A: the best fit first');
+  assert.equal(chooseAsk({ ...base, project: { ...RECIPE, live: false }, enter: null })?.kind, 'coin', 'A: else a community round');
+  const none = { ...base, coin: null, enter: null };
+  assert.deepEqual(chooseAsk({ ...none, project: { ...RECIPE, live: false } }), { kind: 'go_live', project_key: 'maya/recipes', line: goLiveAsk('Recipe planner') }, '2. not live');
+  assert.deepEqual(chooseAsk({ ...none, updatesOn: false }), { kind: 'updates', project_key: 'maya/recipes', line: UPDATES_ASK }, '3. updates not on');
+  assert.equal(chooseAsk({ ...none, updatesOn: false, project: { ...RECIPE, confirmed: false } })?.kind, 'grants', 'asked only once confirmed');
+  assert.deepEqual(chooseAsk({ ...none, postedThisWeek: false, scheduled: false }), { kind: 'post_update', project_key: 'maya/recipes', line: POST_UPDATE_ASK }, '4.');
+  assert.equal(chooseAsk({ ...none, postedThisWeek: true, scheduled: true })?.kind, 'grants', 'nothing pending: the fallback');
+  assert.equal(chooseAsk({ ...base, enter: null, updatesOn: false, declined: ['updates:maya/recipes'] })?.kind, 'coin');
+  assert.equal(chooseAsk({ ...base, declined: ['enter:maya/recipes'] })?.kind, 'coin', 'a no keeps the entry away 30 days');
 });
 
 // ---- v2.13.1 O2
@@ -97,7 +100,7 @@ test('O2.1 B1: "Pick something to build" only with the offer that follows; the s
 test('O2.2 B2: the claim link shows on every reply while unclaimed, project or not', () => {
   const link = 'https://earnkit.com/claim/abcdefghijkl';
   const v: BenchView = { project: null, rank: null, claimed: false, handle: null, claimLink: link, fund: [], ask: null };
-  assert.equal(benchReply(v).split('\n')[2], `Claim your page with X: ${link}`);
+  assert.equal(benchReply(v).split('\n')[2], `Your page: claim it with X at ${link}`);
   assert.equal(showsClaimLink(v), true);
   assert.equal(showsClaimLink({ ...v, claimed: true }), false);
   assert.equal((benchReply(v).match(/https:\/\//g) ?? []).length, 1, 'the only link');
@@ -144,10 +147,11 @@ test('O2 fix round 1 (ruling 3): every reply ends with one question, in each sta
   assert.equal(grantsAsk('Recipe planner'), 'Want me to find grants that fit Recipe planner?');
   // The coin step still comes first when nothing earlier applies (the fallback is left out for that check).
   assert.equal(chooseAsk({ ...base, project: RECIPE, fallback: false }), null);
-  // No project and nothing to build: the suggestion, after NO_OFFER_LINE.
+  // No project and nothing to build: v2.13.3 ruling A, existing work and money it can win (the owner's line, no question mark).
   const none = chooseAsk({ ...base, project: null });
-  assert.deepEqual(none, { kind: 'suggest', project_key: null, line: SUGGEST_ASK });
-  assert.equal(benchReply({ project: null, rank: null, claimed: true, handle: 'm', claimLink: null, fund: [], ask: none }), ['Where you stand', NO_OFFER_LINE, '', 'How to move up', SUGGEST_ASK].join('\n'));
+  assert.deepEqual(none, { kind: 'start', project_key: null, line: START_ASK });
+  assert.equal(benchReply({ project: null, rank: null, claimed: true, handle: 'm', claimLink: null, fund: [], ask: none }), ['Where you stand', NO_OFFER_LINE, '', 'How to move up', START_ASK].join('\n'));
+  assert.equal(SUGGEST_ASK, 'Want me to suggest something small you could build this week?');
   // The branch never showed, or another person holds it: a different project (never an entry).
   const p = { ...RECIPE, confirmed: false };
   const enter: BenchAsk = { kind: 'enter', project_key: 'maya/recipes', program_id: 'p', line: enterAsk('X') };

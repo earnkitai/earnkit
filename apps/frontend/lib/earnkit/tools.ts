@@ -147,7 +147,7 @@ import { noteEvent } from './events';
 import { benchEnabled, builderScoreEnabled, raisingEnabled } from './builder-score-flag';
 import { hideUpdate, postUpdate, setUpdates } from './updates';
 import { enqueueDiscovery, localGitInput } from './discovery';
-import { benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
+import { benchIdentity, benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
 import { CONFIRMING_REFRESH_MS, REPO_KEY, confirmingFast, dropMainProject, fillGithubUser, mainProjectOf, setMainProject } from './main-project';
 import { benchAsked, benchFind, benchMoveUp, keepBenchMatch, keptBenchMatch } from './bench-find';
 import { REPLY_WAIT_MS, ReplyLate, inTime } from './reply-wait';
@@ -771,6 +771,8 @@ const ListProgramsInput = z
     signed_in: z.unknown().optional(),
     // v2.10 item 2: "show more": today's tables instead of the one lead line.
     more: z.boolean().optional(),
+    // v2.13.3 (1): an older agent's live link for its project; read only under the Bench (benchIdentity).
+    live_url: z.unknown().optional(),
   })
   .strict();
 
@@ -795,10 +797,20 @@ export const WALLET_IGNORED =
  * (match-projects.ts ReportedRepoInput) or a wallet that isn't 0x (dropped, with a note). Exported for tests.
  */
 export function listProgramsInput(input: unknown) {
-  const { wallet, agent_can_build, github_user, repos, signed_in, local_git, identity, ...rest } = ListProgramsInput.parse(input ?? {});
+  const { wallet, agent_can_build, github_user, repos, signed_in, local_git, identity, live_url, ...rest } = ListProgramsInput.parse(input ?? {});
   const repoList = reportedRepos(repos);
-  const given = typeof wallet === 'string' && wallet.trim() !== '' ? wallet.trim() : null;
-  const valid = given && /^0x[0-9a-fA-F]{40}$/.test(given) ? given : null;
+  const localGit = localGitInput(local_git);
+  const given = identityInput(identity, localGit);
+  // v2.13 spec "2a": the one project the agent is in (identity.project, else an old agent's first).
+  // v2.13.3 (1): under the Bench the older fields fill what identity doesn't carry (never dropped).
+  const bench = benchEnabled()
+    ? benchIdentity({
+        identity: given, project: benchProject(identity), local_git: localGit, github_user, repos, live_url,
+        local_repos: (input as { local_repos?: unknown } | null)?.local_repos,
+      })
+    : { identity: given, project: benchProject(identity) };
+  const walletGiven = typeof wallet === 'string' && wallet.trim() !== '' ? wallet.trim() : null;
+  const valid = walletGiven && /^0x[0-9a-fA-F]{40}$/.test(walletGiven) ? walletGiven : null;
   return {
     ...rest,
     agent_can_build: canBuild(agent_can_build),
@@ -806,10 +818,9 @@ export function listProgramsInput(input: unknown) {
     repos: repoList.length ? repoList : undefined,
     wallet: valid ?? undefined, walletNote: wallet != null && wallet !== '' && !valid ? WALLET_IGNORED : null,
     signed_in: typeof signed_in === 'string' ? signed_in : undefined,
-    local_git: localGitInput(local_git),
-    identity: identityInput(identity, localGitInput(local_git)),
-    // v2.13 spec "2a": the one project the agent is in (identity.project, else an old agent's first).
-    project: benchProject(identity) };
+    local_git: localGit,
+    identity: bench.identity,
+    project: bench.project };
 }
 
 /**
@@ -3821,7 +3832,11 @@ export const withoutBonusLine = (text: string) =>
 export const tools = {
   // What can I earn (list_programs), or one program and its guide (get_program).
   find: async (input: unknown, ctx: ToolContext) => {
-    const { program_id, repo, ...rest } = FindInput.parse(input ?? {});
+    const { program_id, repo, ...parsed } = FindInput.parse(input ?? {});
+    // v2.13.3 (1): local_repos as the agent sent it (list_programs reads it again), so a live link the
+    // matcher drops (a placeholder host such as earnkit.com) still reaches the Bench's identity.
+    const raw = (input as { local_repos?: unknown } | null)?.local_repos;
+    const rest = raw === undefined ? parsed : { ...parsed, local_repos: raw as typeof parsed.local_repos };
     if (program_id === undefined)
       return handlers.list_programs(repo !== undefined && rest.repos === undefined ? { ...rest, repos: [repo] } : rest, ctx);
     const r = (await handlers.get_program(defined({ program_id, repo }), ctx)) as Reply & { guide?: { text?: string }; eligibility?: unknown };

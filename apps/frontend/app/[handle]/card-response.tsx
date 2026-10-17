@@ -107,7 +107,7 @@ function CardPhoto({ avatar, handle }: { avatar: string | null; handle: string }
 
 /**
  * v2.13 spec "Card (OG image)": the photo, the name, "Top 4% on the Bench" (else nothing), the
- * project's name and the streak, and "Raising $X" while the pill shows. Pure.
+ * project's name and the streak, and "Community round $X" while the pill shows. Pure.
  */
 export function benchCard(f: BenchCardFacts, avatar: string | null, font: boolean) {
   const streak = streakWords(f.streak);
@@ -139,7 +139,7 @@ export function benchCard(f: BenchCardFacts, avatar: string | null, font: boolea
           </div>
         </div>
         {f.raising ? (
-          <div style={{ display: 'flex', padding: '12px 26px', borderRadius: 40, border: `3px solid ${ORANGE}`, color: ORANGE, fontSize: 30, fontWeight: 700 }}>Raising ${f.raising}</div>
+          <div style={{ display: 'flex', padding: '12px 26px', borderRadius: 40, border: `3px solid ${ORANGE}`, color: ORANGE, fontSize: 30, fontWeight: 700 }}>Community round ${f.raising}</div>
         ) : null}
       </div>
       <div style={{ display: 'flex', fontSize: size, fontWeight: 700, lineHeight: 1.04, letterSpacing: -size / 36, maxWidth: 1048 }}>{big}</div>

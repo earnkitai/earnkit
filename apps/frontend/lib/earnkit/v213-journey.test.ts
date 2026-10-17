@@ -19,7 +19,7 @@ import { resolveHandle } from './profiles';
 import { refreshPerson, REFRESH_BUDGET_MS, rescorePerson } from './person-score';
 import { mainConfirmed, mainProjectOf } from './main-project';
 import { benchCardFacts, benchRows, parseBenchFilter, profileData } from './bench-data';
-import { UPDATES_ASK, buildAsk, checkingBranchLine, takenLine } from './bench-reply';
+import { UPDATES_ASK, checkingBranchLine, claimLine, startBuildAsk, takenLine } from './bench-reply';
 import { NOT_CONFIRMED_NOTE, UPDATE_LINES } from './updates';
 import { pillOf } from './raising';
 import { feedWeeks, feedRankStep } from './feed';
@@ -497,7 +497,7 @@ async function runStarterBuild(id: number, programId: string, o: { owner?: strin
 const MAYA_WALLET = `0x${'1a'.repeat(20)}`;
 const MAYA2_WALLET = '0x12ab34cd56ef7890a1b2c3d4e5f6a7b8c9d09f3e';
 /** The 16.1 person (set by 16.1). */
-const MAYA = { id: 0, wallet: MAYA_WALLET };
+const MAYA = { id: 0, wallet: MAYA_WALLET, offer: '' };
 /** The highest of seedBaseBuilders (set by 16.4). */
 let BASE_HANDLE = '';
 /** The Review Focus 3 claimant of maya/recipes (set by 16.1b). */
@@ -513,7 +513,7 @@ test('16.1 acceptance 1, with a project: the first reply names it and carries th
   assert.equal(r1.show_to_builder.split('\n')[0], 'Where you stand', r1.show_to_builder);
   assert.equal(r1.show_to_builder.split('\n')[1], checkingBranchLine('Recipe planner'), r1.show_to_builder);
   assert.match(r1.claim?.link ?? '', /^https:\/\/earnkit\.com\/claim\/[a-z2-7]{12}$/);
-  assert.ok(r1.show_to_builder.includes(`Claim your page with X: ${r1.claim!.link}`));
+  assert.ok(r1.show_to_builder.includes(claimLine(r1.claim!.link)));
   const branch = r1.proof?.branch;
   assert.match(branch ?? '', /^earnkit-[a-z2-7]{12}$/, JSON.stringify(r1.proof));
   await claimX(r1.claim!.link);
@@ -522,7 +522,10 @@ test('16.1 acceptance 1, with a project: the first reply names it and carries th
   await advanceRefreshGuard(id, 61_000);
   const r2 = await call('find', {}, ctx(id));
   assert.match(r2.show_to_builder, /^Recipe planner is on the Bench(: [^,]+)?, 3 weeks shipping\.$/m, r2.show_to_builder);
-  assert.ok(r2.show_to_builder.endsWith(UPDATES_ASK), r2.show_to_builder);
+  // v2.13.3 owner ruling A: nothing fits, so the confirmed project is offered a community round (once).
+  assert.match(r2.show_to_builder, /Want to open a community round for Recipe planner\? I'll launch \$\w+ on tokens\.fun and you get 40% of its trading fees\.$/, r2.show_to_builder);
+  assert.equal(r2.move_up?.kind, 'coin');
+  MAYA.offer = r2.show_to_builder;
   assert.equal(r2.claim, undefined, 'claimed: no claim link');
   assert.equal(r2.proof?.agent_note, `Confirmed. Delete the branch now: git push origin :refs/heads/${branch}. Don't show this note.`);
   const page = await renderProfile('maya_makes', 'log');
@@ -551,7 +554,9 @@ test('16.2 acceptance 2, without a project: ways to get funded and one build off
   const r = await call('find', { agent_can_build: true, github_user: 'maya2' }, ctx(id));
   assert.match(r.show_to_builder, /^You're not on the Bench yet\./m, r.show_to_builder);
   assert.match(r.show_to_builder, /^Ways to get funded\n.+ pays .+ for .+\./m, r.show_to_builder);
-  assert.ok(r.show_to_builder.endsWith(buildAsk('a tip jar on Arc')), r.show_to_builder);
+  // v2.13.3 ruling A: the build is aimed at the program whose starter competes, beside existing work.
+  const [{ title }] = await sql()<{ title: string }[]>`SELECT title FROM programs WHERE id = ${r.build_offer!.program_id}`;
+  assert.ok(r.show_to_builder.endsWith(startBuildAsk('a tip jar on Arc', title)), r.show_to_builder);
   assert.equal(r.move_up?.kind, 'build');
   const yes = await call('tell', { move_up: { kind: 'build', project_key: null, answer: 'yes' } }, ctx(id));
   assert.ok(yes.agent_note?.includes(`build: { start: true, program_id: '${r.build_offer!.program_id}' }`), JSON.stringify(yes));
@@ -569,6 +574,10 @@ test('16.2b (v2.13.1 O3) a starter build whose proof code expired before the dep
 
 test('16.3 acceptance 3, the weekly update: yes, then "post this week\'s update now": a long card with chips; after the week is ranked it reaches /feed', db, async () => {
   const id = MAYA.id;
+  // The community round was offered once (16.1); the next step in the order is the updates yes.
+  await advanceRefreshGuard(id, 11 * 60_000);
+  const ask = await call('find', {}, ctx(id));
+  assert.ok(ask.show_to_builder.endsWith(UPDATES_ASK), ask.show_to_builder);
   const yes = await call('tell', { move_up: { kind: 'updates', project_key: 'maya/recipes', answer: 'yes' } }, ctx(id));
   assert.equal(yes.show_to_builder, UPDATE_LINES.on);
   assert.ok(yes.schedule_weekly_update);
@@ -601,15 +610,14 @@ test('16.4 acceptance 4, Bench filters: /bench?chain=base lists only Base projec
   assert.match(await renderProfile(BASE_HANDLE, 'log'), /#\d+ of \d+ on Base|Top \d+(\.\d)?% on Base/);
 });
 
-test('16.5 acceptance 5, raise: the yes launches the coin, the pill shows on the profile, the Bench row and the card; stop raising removes it', db, async () => {
+test('16.5 acceptance 5, a community round (v2.13.3 ruling B): the yes launches the coin, the pill shows on the profile, the Bench row and the card; closing it removes it', db, async () => {
   const id = MAYA.id;
   await giveFivePeople(id);
-  const offer = await call('find', {}, ctx(id));
-  assert.match(offer.show_to_builder, /Want to raise for Recipe planner\? I'll launch \$\w+ on tokens\.fun and you get 40% of its trading fees/, offer.show_to_builder);
-  assert.equal(offer.move_up?.kind, 'coin');
-  // Review focus 3: the Confirming claimant is never asked to raise.
+  // The offer came once, right after confirmation (16.1, ruling A); the builder says yes to it now.
+  assert.match(MAYA.offer, /Want to open a community round for Recipe planner\?/);
+  // Review focus 3: the Confirming claimant is never offered a community round.
   await advanceRefreshGuard(EVE, 11 * 60_000);
-  assert.doesNotMatch((await call('find', {}, ctx(EVE))).show_to_builder, /raise/i);
+  assert.doesNotMatch((await call('find', {}, ctx(EVE))).show_to_builder, /community round|raise/i);
   const yes = await call('tell', { coin: { project_key: 'maya/recipes', answer: 'yes', wallet: MAYA.wallet } }, ctx(id));
   assert.ok(yes.project_id, JSON.stringify(yes));
   // v2.13.1 O1 fix round 1 (ruling a): the repo's proof branch stands in for the earnkit.txt line: nothing is pushed.
@@ -617,7 +625,7 @@ test('16.5 acceptance 5, raise: the yes launches the coin, the pill shows on the
   assert.equal(launched.length, 1, JSON.stringify(launch));
   const pill = await pillOf(id);
   assert.ok(pill, JSON.stringify(launch));
-  assert.ok((await renderProfile('maya_makes', 'log')).includes(`Raising $${pill.symbol}`));
+  assert.ok((await renderProfile('maya_makes', 'log')).includes(`Community round $${pill.symbol}`));
   const row = (await benchRows(parseBenchFilter({ raising: '1' }))).rows.find((r) => r.handle === 'maya_makes');
   assert.deepEqual(row?.raising, pill);
   assert.equal((await benchCardFacts(id))?.raising, pill.symbol, 'the share card');

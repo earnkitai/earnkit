@@ -13,11 +13,12 @@ import type { BenchAsk } from './bench-reply';
  * setRaising do nothing while EARNKIT_RAISING is off (final fix, controller ruling).
  */
 export const RAISE_LINES = {
-  on: (symbol: string) => `Done. Your page shows you're raising with $${symbol}.`,
-  off: "Okay, your page no longer says you're raising. Your coin stays.",
+  on: (symbol: string) => `Done. Your page shows your community round with $${symbol}.`,
+  off: "Okay, your page no longer shows a community round. Your coin stays.",
   notLaunched: "Your coin isn't live yet. It shows once it is.",
 } as const;
-export const showRaisingLine = (symbol: string) => `Want to show you're raising with $${symbol}?`;
+/** Owner ruling B (v2.13.3): "community round", never "raise" or "raising", in builder text. */
+export const showRaisingLine = (symbol: string) => `Want to show your community round with $${symbol} on your page?`;
 
 export type RaisingCoin = { project_id: number; symbol: string; url: string; status: string | null; raising: boolean };
 
