@@ -1,4 +1,5 @@
 import { archiveFlag, benchEnabled, builderScoreEnabled } from './builder-score-flag';
+import { openR1Join } from './page-joins';
 import { githubRepo, normalizeRepoUrl } from './campaigns';
 import { sql } from './db';
 import { sharedGroup } from './installations';
@@ -378,15 +379,12 @@ export async function answerPickup(own: number, yes: boolean, deps: PickupDeps =
  * stays). The root's memory keeps its own values, filling gaps from the others. One transaction.
  * Returns the group's entry count. Exported for tests.
  */
-export async function linkInstallations(own: number, roots: number[], o: { root?: number } = {}): Promise<number> {
+export async function linkInstallations(own: number, roots: number[]): Promise<number> {
   let profilesMoved = false;
   const n = await sql().begin(async (tx) => {
     const [mine] = await tx<{ root: number }[]>`
       SELECT COALESCE(builder_id, id) AS root FROM installations WHERE id = ${own} FOR UPDATE`;
-    const sorted = [...new Set([mine.root, ...roots])].sort((a, b) => a - b);
-    // v2.13.4 R6: an R1 join keeps the page's own group as the root (o.root), whichever is older, so the
-    // joined installations are always members and can be detached again.
-    const all = o.root !== undefined && sorted.includes(o.root) ? [o.root, ...sorted.filter((r) => r !== o.root)] : sorted;
+    const all = [...new Set([mine.root, ...roots])].sort((a, b) => a - b);
     const [root, ...others] = all;
     for (const other of others) {
       // v2.12.1 spec "Identity": two people claimed with different X accounts are never one person,
@@ -481,6 +479,8 @@ export const JOIN_TEXT = {
   waitingHere: 'Okay. This agent joins once your other agent says yes too.',
   declined: 'Okay. That agent stays apart from your page.',
   declinedHere: 'Okay. This agent stays apart from your page.',
+  /** v2.13.4 R8: a new agent's notice on the page is still open. */
+  refused: 'First answer the question about the new agent on your page.\nWant me to show it now?',
 } as const;
 
 /**
@@ -541,9 +541,8 @@ type PendingRow = { installation_id: number; target: number; tie: JoinTie; side:
 /**
  * The oldest pending join this group has not answered yet: as its target (it already held the tie) or
  * as the joining side (its installation proved a tie another group holds). Groups are read through
- * their current roots; a join whose two sides are already one person is skipped. v2.13.4 (R1): under
- * the Bench an X tie is never asked across agents (the claim page's one button joins instead), so an X
- * pending join left from before is skipped.
+ * their current roots; a join whose two sides are already one person is skipped. v2.13.4 R8: the X tie's
+ * two-agent yes is the path for every installation that isn't fresh and empty (claim.ts).
  */
 async function pendingRow(root: number): Promise<PendingRow | null> {
   const [row] = await sql()<PendingRow[]>`
@@ -555,7 +554,6 @@ async function pendingRow(root: number): Promise<PendingRow | null> {
     JOIN installations t ON t.id = j.target
     JOIN installations i ON i.id = j.installation_id
     WHERE COALESCE(t.builder_id, t.id) <> COALESCE(i.builder_id, i.id)
-      AND (j.tie <> 'x_user_id' OR NOT ${benchEnabled()})
       AND ((COALESCE(t.builder_id, t.id) = ${root} AND j.target_yes IS NULL)
         OR (COALESCE(i.builder_id, i.id) = ${root} AND j.joiner_yes IS NULL))
     ORDER BY j.created_at, j.installation_id LIMIT 1`;
@@ -587,7 +585,7 @@ export async function askJoin(installationId: number): Promise<{ question: strin
  * once both groups said yes, the joining installation's group joins the target's (the older group
  * keeps its page; hidden or held if either was); never a shared group, never two X accounts.
  */
-export async function answerJoin(installationId: number, yes: boolean): Promise<'linked' | 'waiting' | 'declined' | 'none'> {
+export async function answerJoin(installationId: number, yes: boolean): Promise<'linked' | 'waiting' | 'declined' | 'none' | 'refused'> {
   if (!builderScoreEnabled()) return 'none';
   const row = await pendingRow(await rootOf(installationId));
   if (!row) return 'none';
@@ -596,10 +594,23 @@ export async function answerJoin(installationId: number, yes: boolean): Promise<
     await sql()`DELETE FROM pending_joins WHERE ${key}`;
     return 'declined';
   }
+  // v2.13.4 R8 (5): no tie-join links onto a page whose R1 join notice isn't answered yet by every eligible
+  // installation: that page's yes is not recorded (asked again later), and a link is never made while either
+  // side has one open.
+  const open = async () => benchEnabled() && ((await openR1Join(row.installation_id)) || (await openR1Join(row.target)));
+  if (await open()) {
+    const mine = row.side === 'target' ? row.target : row.installation_id;
+    if (await openR1Join(mine)) return 'refused';
+  }
   const [both] = await sql()<{ both: boolean }[]>`
     UPDATE pending_joins SET ${row.side === 'target' ? sql()`target_yes = true` : sql()`joiner_yes = true`}
     WHERE ${key} RETURNING (target_yes AND joiner_yes) IS TRUE AS both`;
   if (!both?.both) return 'waiting';
+  if (await open()) {
+    // Undo this side's yes so the join is asked again once the notice is answered.
+    await sql()`UPDATE pending_joins SET ${row.side === 'target' ? sql()`target_yes = NULL, target_asked_at = NULL` : sql()`joiner_yes = NULL, joiner_asked_at = NULL`} WHERE ${key}`;
+    return 'refused';
+  }
   const [joiner, target] = [await rootOf(row.installation_id), await rootOf(row.target)];
   await sql()`DELETE FROM pending_joins WHERE ${key}`;
   if ((await sharedGroup(joiner)) || (await sharedGroup(target))) return 'none';

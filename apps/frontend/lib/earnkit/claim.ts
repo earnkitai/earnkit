@@ -5,8 +5,8 @@ import { enqueueDiscovery } from './discovery';
 import { siteUrl } from './entry-text';
 import { noteEvent } from './events';
 import { cookieValue, createVerifyLink, githubVerifyEnabled } from './github-verify';
-import { joinOnProvenTie, linkInstallations, rootOf } from './identity';
-import { recordJoin } from './page-joins';
+import { joinOnProvenTie, rootOf } from './identity';
+import { attachFresh, freshAndEmpty } from './page-joins';
 import { sharedGroup } from './installations';
 import { profileChanged } from './profile-cache';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
@@ -55,6 +55,8 @@ export const CLAIM_TEXT = {
   /** v2.13.4 R6 (1): what is joining: "This agent: Claude Desktop, connected 3 minutes ago." */
   joinAgent: (name: string | null, ago: string) => `This agent: ${name ?? 'an agent'}, connected ${ago}.`,
   linked: 'This agent is on your page now',
+  /** v2.13.4 R8: an installation that isn't fresh and empty never gets the one click. */
+  needsYes: 'This agent already has its own data, so your other agent needs to say yes.',
   cantJoin: "This page can't take another agent.",
   /** Final fix wave: an X account whose page the owner took down (x_owner_clears). */
   paused: "This X account can't claim a page right now.",
@@ -271,6 +273,12 @@ export async function xCallback(request: Request, deps: RouteDeps & { x?: XOAuth
   }
   if (r.ok) return claimDonePage(r.handle, r.root, clear);
   if (r.reason === 'held') {
+    // v2.13.4 R8: the one click only for a fresh, empty installation (the reconnect case). Anything else
+    // gets the strong-proof two-agent yes, said plainly here.
+    if (!(await freshAndEmpty(target))) {
+      await joinOnProvenTie(target, { x_user_id: user.id }).catch((err: unknown) => console.error('[x/callback] join', err instanceof Error ? err.name : 'error'));
+      return claimPage(CLAIM_TEXT.needsYes, 200, clear);
+    }
     // v2.13.4 (R1): the same page offers one button; the claim cookie stays for that one POST.
     const offer = await joinOffer({ joiner: target, holder: r.target, user, csrfHash: row.csrf_hash, codeHash: row.code_hash }).catch((err: unknown) => {
       console.error('[x/callback] offer', err instanceof Error ? err.name : 'error');
@@ -429,19 +437,21 @@ export async function claimJoinPost(request: Request, deps: RouteDeps = {}): Pro
     const from = await rootOf(row.builder_id);
     const to = await rootOf(holder.builder_id);
     if ((await sharedGroup(from)) || (await sharedGroup(to))) return claimPage(CLAIM_TEXT.cantJoin, 409, clear);
-    const members = await sql()<{ id: number }[]>`SELECT id FROM installations WHERE COALESCE(builder_id, id) = ${from}`;
-    // R6: the page's own group stays the root, so the joined installations can be detached again.
-    await linkInstallations(row.builder_id, [to], { root: to });
-    const root = await rootOf(row.builder_id);
-    if (root !== (await rootOf(to))) return claimPage(CLAIM_TEXT.claimedOther, 409, clear);
-    // The page's own group is the root (R6), so its profile keeps the X claim and the handle.
-    const [h] = await sql()<{ x_user_id: string | null; x_handle: string | null }[]>`SELECT x_user_id, x_handle FROM builder_profiles WHERE builder_id = ${root}`;
-    if (h?.x_user_id !== row.x_user_id) return claimPage(CLAIM_TEXT.failed, 500, clear);
-    const handle = h.x_handle ?? row.x_handle;
+    // R8: still a single, fresh, empty installation at the click (else the two-agent yes).
+    if (from !== row.builder_id || !(await freshAndEmpty(row.builder_id))) {
+      await joinOnProvenTie(row.builder_id, { x_user_id: row.x_user_id }).catch(() => 0);
+      return claimPage(CLAIM_TEXT.needsYes, 409, clear);
+    }
+    // R8 (with R7 item 3): the X check, the link of this installation alone and the join row, in one
+    // transaction; nothing of the installation is merged into the page.
     const at = new Date().toISOString();
+    const joined = await attachFresh({ installation: row.builder_id, page: to, xUserId: row.x_user_id, now: new Date(at) });
+    if (!joined) return claimPage(CLAIM_TEXT.used, 410, clear);
+    const root = to;
+    const members = [{ id: row.builder_id }];
+    const [h] = await sql()<{ x_handle: string | null }[]>`SELECT x_handle FROM builder_profiles WHERE builder_id = ${root}`;
+    const handle = h?.x_handle ?? row.x_handle;
     const linked = Object.fromEntries(members.map((m) => [String(m.id), at]));
-    // R6 (2): the page's other agents are told once and may detach it.
-    await recordJoin({ root, from, members: members.map((m) => m.id), xUserId: row.x_user_id, now: new Date(at) });
     await sql()`
       UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
         || jsonb_build_object('linked', COALESCE(standing_seen->'linked', '{}'::jsonb) || ${sql().json(linked as never)}::jsonb)
@@ -451,6 +461,7 @@ export async function claimJoinPost(request: Request, deps: RouteDeps = {}): Pro
       type: 'page_joined', dedupe_key: `page_joined:${root}:${from}`, installation_id: root,
       detail: { from, joined: members.map((m) => m.id), via: 'x_claim_page' },
     }));
+    profileChanged();
     return claimDonePage(handle, root, clear, CLAIM_TEXT.linked);
   } catch (err) {
     console.error('[claim/join]', err instanceof Error ? err.name : 'error');

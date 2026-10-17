@@ -446,10 +446,9 @@ test('S.a no path links an installation to an existing X page without the R1 cli
     assert.notEqual(await rootOf(joiner), await rootOf(holder), 'the sign-in alone joins nothing');
     assert.deepEqual(await bindX(joiner, user, new Date()), { ok: false, reason: 'held', target: await rootOf(holder) });
     assert.notEqual(await rootOf(joiner), await rootOf(holder));
-    // An old X pending join (both yeses) never merges under the Bench.
-    await sql()`INSERT INTO pending_joins (installation_id, target, tie, target_yes, joiner_yes) VALUES (${joiner}, ${await rootOf(holder)}, 'x_user_id', true, null) ON CONFLICT DO NOTHING`;
-    assert.equal(await answerJoin(joiner, true), 'none');
-    assert.equal(await answerJoin(holder, true), 'none');
+    // R8: the X two-agent yes (for an installation that isn't empty) needs both agents: one yes links nothing.
+    await sql()`INSERT INTO pending_joins (installation_id, target, tie) VALUES (${joiner}, ${await rootOf(holder)}, 'x_user_id') ON CONFLICT DO NOTHING`;
+    assert.equal(await answerJoin(joiner, true), 'waiting');
     assert.notEqual(await rootOf(joiner), await rootOf(holder));
   }));
 
@@ -556,10 +555,12 @@ test('e.4 the live check: placeholder hosts are never live, except EarnKit\'s ow
 // ---- R6 (controller ruling, answering a scan: the R1 join is weaker than the two-agent yes) --------
 
 /** A page with a confirmed main project (claimed with X user `x<id>`), and a new installation joined to it by R1. */
-async function joinedPage(o: { clientName?: string } = {}) {
+async function joinedPage(o: { clientName?: string; extra?: number } = {}) {
   const key = `${uniq('r6')}/recipes`;
   const handle = uniq('r6h').slice(0, 15);
   const holder = await person({ main: key, claimed: handle, projects: [{ key, name: 'Recipe planner', confirmed: true }] });
+  // A second installation already on the page before the join (eligible too).
+  if (o.extra !== undefined) await sql()`UPDATE installations SET builder_id = ${holder} WHERE id = ${o.extra}`;
   const joiner = await install();
   if (o.clientName) await sql()`UPDATE installations SET client_name = ${o.clientName} WHERE id = ${joiner}`;
   const r = await find(joiner, {}, NO_MATCH);
@@ -650,10 +651,8 @@ test('R7.1 the notice is per installation: re-shown until that installation answ
     assert.match(held.show_to_builder, NOTICE, held.show_to_builder);
     endsOnOne(held.show_to_builder, 'held');
     // A second earlier installation of the page sees it too, separately.
-    const j2 = await joinedPage();
     const second = await install();
-    await linkInstallations(second, [j2.holder]);
-    await sql()`UPDATE page_joins SET joined_at = now() WHERE root = ${j2.holder}`; // the join came after both
+    const j2 = await joinedPage({ extra: second });
     await answer(j2, j2.holder, (await noticeFind(j2, j2.holder)).move_up!.project_key!, 'no');
     assert.doesNotMatch((await noticeFind(j2, j2.holder)).show_to_builder, /A new agent was added/, 'answered: not again for it');
     assert.match((await noticeFind(j2, second)).show_to_builder, NOTICE, 'still asked of the other installation');
@@ -780,7 +779,8 @@ test('R7.5 (item 8) a newcomer on probation can\'t pull a third installation ont
     endsOnOne(r.show_to_builder, 'pickup');
     assert.notEqual(await rootOf(third), j.holder, 'not pulled onto the page');
     assert.ok(await pendingJoinOf(j.holder), 'still waiting for the owner');
-    // The owner's own yes still works.
+    // The owner's own yes still works, once it has answered the notice about the new agent (R8).
+    await answer(j, j.holder, (await noticeFind(j, j.holder)).move_up!.project_key!, 'no');
     await tell({ pickup: 'yes' }, asHolder(j));
     assert.equal(await rootOf(third), j.holder);
   }));

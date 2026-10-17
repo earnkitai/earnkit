@@ -760,10 +760,10 @@ const xo = await db<{ column_name: string }[]>`
   SELECT column_name FROM information_schema.columns WHERE table_name = 'x_join_offers' ORDER BY column_name`;
 ok(!xo.some((c) => ['offer', 'token', 'csrf', 'code'].includes(c.column_name)) && xo.some((c) => c.column_name === 'offer_hash'),
   'v2.13.4: x_join_offers keeps the offer and csrf only as hashes');
-await db`INSERT INTO page_joins (root, from_root, members, x_user_id, answers) VALUES (1, 2, '{2}', 'x1', '{"1": "no"}'::jsonb)`;
+await db`INSERT INTO page_joins (root, from_root, members, eligible, x_user_id, answers) VALUES (1, 2, '{2}', '{1}', 'x1', '{"1": "no"}'::jsonb)`;
 await db.unsafe(now);
 const [pj] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM page_joins`;
-ok(pj.n === 1, 'v2.13.4 R6, R7: page_joins rows (with their answers) survive the schema running again');
+ok(pj.n === 1, 'v2.13.4 R6 to R8: page_joins rows (answers, the eligible snapshot) survive the schema running again');
 const mb = await db<{ column_name: string }[]>`SELECT column_name FROM information_schema.columns WHERE table_name = 'claim_codes' AND column_name = 'minted_by'`;
 ok(mb.length === 1, 'v2.13.4 R7: claim_codes.minted_by');
 const badCode = await db`INSERT INTO proof_branches (code_hash, seed, builder_id, repo_key, issued_at, expires_at) VALUES ('abcdefghijkl', 's', 1, 'a/b', now(), now())`.then(() => false, () => true);

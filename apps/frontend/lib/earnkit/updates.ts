@@ -81,7 +81,9 @@ export const PROBATION_SUGGEST_NOTE =
  * week; that is refused with one line and one question, and the row is left as it is.
  */
 export async function postUpdate(builderId: number, text: unknown, now: Date, own: number | null = null, o: { probation?: boolean } = {}): Promise<Reply> {
-  if (!(await hit(`updatePost:${builderId}`, UPDATE_POSTS_PER_DAY, 86_400, now)).allowed) return { show_to_builder: '', agent_note: UPDATE_LIMIT_NOTE };
+  // v2.13.4 R8 (6): a newcomer on probation counts against its own daily limit, never the page's.
+  const limitKey = o.probation ? `updatePostProbation:${own ?? builderId}` : `updatePost:${builderId}`;
+  if (!(await hit(limitKey, UPDATE_POSTS_PER_DAY, 86_400, now)).allowed) return { show_to_builder: '', agent_note: UPDATE_LIMIT_NOTE };
   const key = await mainProjectOf(builderId);
   if (!key || !(await mainConfirmed(builderId))) return { show_to_builder: '', agent_note: NOT_CONFIRMED_NOTE };
   const checked = checkUpdate(text, await ownLinks(builderId));

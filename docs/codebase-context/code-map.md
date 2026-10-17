@@ -1577,7 +1577,7 @@ apps/frontend/
                                v2.13.4 R1: joinOffer, joinPage (R6: names the agent, agoText), claimJoinPost (POST /claim/join: the one-click join,
                                x_join_offers, cookie + Origin + one use + 15 min; page_joined event; standing_seen.linked)
     live-check.ts              v2.13.4 R3: liveDefaults, parkedPage, checkLive, liveSite (standing_seen.live_check, a day)
-    page-joins.ts              v2.13.4 R6/R7: recordJoin, onProbation (24 h, PROBATION_LINES), pendingNotice (per installation,
+    page-joins.ts              v2.13.4 R6 to R8: freshAndEmpty, attachFresh (one transaction), openR1Join, onProbation (24 h, PROBATION_LINES), pendingNotice (per installation,
                                until answered), answerNotice (eligibility by join order, yes and no), detach to from_root,
                                joinNoticeLine, DETACH_LINES
     wallet-proof.ts(+test)     v2.12.1 T7: upgradeToken/upgradeOf (30 min), WALLET_TEXT, walletMessage,

@@ -1532,10 +1532,12 @@ CREATE TABLE IF NOT EXISTS page_joins (
   x_user_id   text NOT NULL,
   joined_at   timestamptz NOT NULL DEFAULT now(),
   answers     jsonb NOT NULL DEFAULT '{}'::jsonb,
+  eligible    integer[] NOT NULL DEFAULT '{}',          -- R8: the page's installations at join time (who may answer)
   detached_at timestamptz,
   detached_by integer
 );
 CREATE INDEX IF NOT EXISTS page_joins_root ON page_joins (root) WHERE detached_at IS NULL;
+ALTER TABLE page_joins ADD COLUMN IF NOT EXISTS eligible integer[] NOT NULL DEFAULT '{}';
 -- v2.13.4 R6: which installation posted an update, so a detached agent's updates can be hidden and a
 -- probationary agent never overwrites another installation's update. Additive.
 ALTER TABLE project_updates ADD COLUMN IF NOT EXISTS posted_by integer;

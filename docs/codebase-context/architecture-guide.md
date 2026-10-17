@@ -5393,7 +5393,7 @@ Brief: `.superpowers/sdd/v2.13.3/brief.md`, plus owner rulings A, B, C sent the 
 
 Brief: `.superpowers/sdd/v2.13.4/brief.md` (the owner's spec, verbatim, and controller rulings R1 to R5). Everything sits
 under `EARNKIT_BENCH`; flag off (and score-only) is unchanged. Tests: `v2134-onboarding.test.ts` (the owner's acceptance
-test a to g, the security review S.a to S.f, R6.1, and R7.0 to R7.5). Runbook: sections 8, 9 and 10.
+test a to g, the security review S.a to S.f, R6.1, R7.0 to R7.5 and R8.1 to R8.8). Runbook: sections 8, 9 and 10.
 
 - **The flow.** a. First find: where you stand, ways to get funded, then one question, the X claim
   (`bench-reply.ts claimAsk`: "Claim your page with X (it's your name and photo on the Bench): <link>" and "Want me to put
@@ -5454,6 +5454,24 @@ test a to g, the security review S.a to S.f, R6.1, and R7.0 to R7.5). Runbook: s
   pointing to it), matched on the page's current root (a no-op is "Nothing to change: ..."), hides their
   updates since the join, logs `page_detached`, and says "Done. That agent is off your page, and its updates
   since it joined are hidden." then "Want me to show where you stand now?".
+- **R8 (root cause of the R7 re-review: an R1 join merged the newcomer's whole group into the page).** The
+  one click attaches ONLY a fresh, empty installation (`page-joins.ts freshAndEmpty`, the reconnect case): a single
+  installation (its own root, no members), no verified or proposed sources, no GitHub verification and no open
+  verify link, no wallet (person_wallets, installation_wallets, payout_wallet), no projects (entries, coins), coin
+  moments or token offers, no X claim. Anything else gets the strong-proof two-agent yes (`joinOnProvenTie` with the
+  X user id; the X tie is asked again under the Bench) and the claim page says "This agent already has its own data,
+  so your other agent needs to say yes." The check runs at sign-in and again at the click. `attachFresh` does the
+  join in one transaction: the page still holds the X user id, the installation is still its own root, it alone is
+  attached (`installations.builder_id`), its own empty person rows are dropped (nothing is merged; no
+  `linkInstallations`), and the `page_joins` row is written with `eligible`, the page's installations at that
+  moment. Eligibility to answer the notice: in `eligible`, on the page's CURRENT root now, not a member, not a member
+  of a same-or-later attached join, not on probation; `pendingNotice` filters in SQL on the current root before any
+  limit. A tie-join (`answerJoin`) is refused while either side's page has an R1 join whose notice an eligible
+  installation still on it hasn't answered (`openR1Join`): that page's yes isn't recorded, and a link with both yeses
+  undoes the last yes. Probation fails closed (`withProbation`: a failed read is probation). On probation no App
+  verify link is minted in find, no fit repos or kept match are written, and update posts count against the
+  installation's own daily limit (`updatePostProbation:<own>`). A probation tell with an update and a refused part is
+  one reply: what was done, then the refusal's line and its one question.
 - **The R7 write audit (on probation).**
 
   | Write | Where | On probation |
@@ -5494,7 +5512,7 @@ test a to g, the security review S.a to S.f, R6.1, and R7.0 to R7.5). Runbook: s
   award ("<title> is open all year."); a 0 award never. The background-launch tests in `tools.test.ts` wait for the release
   (`releasedBg`) instead of sleeping 900 ms. `v2133-owner-test.test.ts` R1 uses a key with no digit run (its random key could
   hold 7 digits, which the update text rule refuses first).
-- **Schema.** `x_join_offers`, `page_joins` (new); `installations.client_name`, `project_updates.posted_by`,
+- **Schema.** `x_join_offers`, `page_joins` (new; `eligible` added in R8); `installations.client_name`, `project_updates.posted_by`,
   `claim_codes.minted_by` (additive); `page_joined` and `page_detached` in both
   `builder_events_type_check` lists. `db:check` covers them.
 

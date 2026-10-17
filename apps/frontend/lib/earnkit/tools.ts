@@ -226,11 +226,12 @@ export type ToolContext = {
   probation?: boolean;
 };
 
-/** v2.13.4 R7: the context with `probation` filled (Bench only). Never throws (a failed read is not probation). */
+/** v2.13.4 R7: the context with `probation` filled (Bench only). Never throws (R8: a failed read is probation). */
 export async function withProbation(ctx: ToolContext): Promise<ToolContext> {
   if (!benchEnabled() || ctx.probation !== undefined) return ctx;
   const own = ctx.ownInstallationId ?? ctx.installationId;
-  return { ...ctx, probation: own !== ctx.installationId && (await onProbation(own).catch(() => false)) };
+  // v2.13.4 R8 (2): fails CLOSED: a failed read counts as probation.
+  return { ...ctx, probation: own !== ctx.installationId && (await onProbation(own).catch(() => true)) };
 }
 
 /** v2.13.4 R7: a write refused on probation: one line, then one question whose yes is this week's update. */
@@ -1500,7 +1501,7 @@ export const handlers = {
         // O5 fix round 1: every finished match of the one project is kept, so a reply cut short shows the
         // last one (under an hour old); a late GitHubError or RateLimitError is logged once.
         const mainKey = bench ? (repoList?.[0] ?? null) : null;
-        if (mainKey) void matching.then((m) => keepBenchMatch(ctx.installationId, mainKey, m, new Date()), () => undefined);
+        if (mainKey && !ctx.probation) void matching.then((m) => keepBenchMatch(ctx.installationId, mainKey, m, new Date()), () => undefined);
         const lateError = (err: unknown) => {
           if (err instanceof GitHubError || err instanceof RateLimitError) console.error('[list_programs] late matching', err.name);
         };
@@ -1516,7 +1517,7 @@ export const handlers = {
         // access" link (an `app` nonce, R8); the reply shows only that one.
         const [first, ...restUnseen] = matched.unseen ?? [];
         const link =
-          appOn && first
+          appOn && first && !ctx.probation // v2.13.4 R8 (6): no App verify link on probation
             ? await createVerifyLink({ installationId: ctx.installationId, projectId: null, repoKey: first.full_name, purpose: 'app' }).catch(
                 (err: unknown) => {
                   console.error('[list_programs] app link', err instanceof Error ? err.name : 'error');
@@ -1528,7 +1529,7 @@ export const handlers = {
         // Final fix I2 (ledger c1): with the App on and no can't-see link in the reply (one link, one
         // ask), the first private repo matched from the local view with no App proof yet gets the link
         // on its own line, once.
-        if (appOn && !first && matched.fromLocal?.length) {
+        if (appOn && !first && matched.fromLocal?.length && !ctx.probation) {
           let localLink: { full_name: string; link: string } | null = null;
           for (const l of matched.fromLocal) {
             if (await hasAppProof({ installationId: ctx.installationId, login: appLogin, repoKey: l.full_name })) continue;
@@ -1562,7 +1563,7 @@ export const handlers = {
     // v2.9 A7: the builder's best owned repos that fit something, for new program alerts (no GitHub
     // call there). Never fails the tool; a failed match leaves the last ones. Ruling G7: not on a
     // shared client (one installation serves many builders, and its alerts are off).
-    if (own && yourRepos && 'fits' in yourRepos) {
+    if (own && !ctx.probation && yourRepos && 'fits' in yourRepos) {
       const fitRepos = yourRepos.fits
         .map((f) => fitRepoOf(f, (f.key && told.repos.get(f.key)) || null))
         .filter((r): r is FitRepo => r !== null);
@@ -2591,6 +2592,7 @@ export const handlers = {
       if (r === 'linked') return { show_to_builder: here ? JOIN_TEXT.linkedHere : JOIN_TEXT.linked, agent_note: 'Call find again to show their page.' };
       if (r === 'waiting') return { show_to_builder: here ? JOIN_TEXT.waitingHere : JOIN_TEXT.waiting };
       if (r === 'declined') return { show_to_builder: here ? JOIN_TEXT.declinedHere : JOIN_TEXT.declined };
+      if (r === 'refused') return { show_to_builder: JOIN_TEXT.refused, agent_note: 'On a yes, call find. Don\'t show this note.' };
     }
     if (answer === null)
       return { show_to_builder: PICKUP_TEXT.unclear, agent_note: 'Ask the builder, then pass answer "yes" or "no".' };
@@ -4013,8 +4015,13 @@ export const tools = {
       const facts = TellInput.safeParse(defined({ ...statements, signed_in }));
       const notMine = facts.success && (facts.data.repo_facts ?? []).some((f) => f.not_mine === true);
       const refused = Boolean(pickup !== undefined || submitted || profile || card || coin || updates || proof || update?.hide !== undefined || Object.keys(statements).length > 0);
-      if (refused || out.length === 0) out.push(await probationReply(ctx, notMine ? 'main' : 'write'));
-      return joinReplies(out);
+      if (!refused && out.length > 0) return joinReplies(out);
+      // R8 (8): one reply, one question, last: what was done (each reply's first line, its question
+      // dropped), then the refusal's line and question.
+      const refusal = await probationReply(ctx, notMine ? 'main' : 'write');
+      const done = out.map((r) => String(r.show_to_builder ?? '').split('\n').filter((l) => l && !l.includes('?')).join('\n')).filter(Boolean);
+      const notes = out.map((r) => r.agent_note).filter((n): n is string => typeof n === 'string' && n.length > 0);
+      return { ...refusal, show_to_builder: [...done, refusal.show_to_builder].join('\n'), ...(notes.length && { agent_note: notes.join(' ') }) };
     }
     const replies: Reply[] = [];
     // v2.12 spec 8: "hide" and "show". v2.12.1 T8: the card and the move-up answers. Flag off: ignored (v2.11).
