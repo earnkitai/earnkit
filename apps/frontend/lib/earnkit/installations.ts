@@ -112,18 +112,21 @@ export async function installationExists(token: string, clientKey?: string) {
  * installation per OAuth client: a new token for a known client replaces its token (the old one
  * stops working), so entries, wins and memory carry over. Idempotent for replayed codes.
  */
-export async function saveInstallation(token: string, clientKey?: string, shared = false) {
+export async function saveInstallation(token: string, clientKey?: string, shared = false, clientName: string | null = null) {
   // v2.8.1 §E17: `shared` (a hosted agent client) is kept once set: a re-authorization never clears it.
+  // v2.13.4 R6: the client's registered name (cleaned), kept for the R1 claim page.
   if (!clientKey) {
     await sql()`
-      INSERT INTO installations (token_hash, shared_client) VALUES (${hash(token)}, ${shared})
-      ON CONFLICT (token_hash) DO UPDATE SET shared_client = installations.shared_client OR EXCLUDED.shared_client`;
+      INSERT INTO installations (token_hash, shared_client, client_name) VALUES (${hash(token)}, ${shared}, ${clientName})
+      ON CONFLICT (token_hash) DO UPDATE SET shared_client = installations.shared_client OR EXCLUDED.shared_client,
+        client_name = COALESCE(EXCLUDED.client_name, installations.client_name)`;
     return;
   }
   await sql()`
-    INSERT INTO installations (token_hash, client_key, shared_client) VALUES (${hash(token)}, ${clientKey}, ${shared})
+    INSERT INTO installations (token_hash, client_key, shared_client, client_name) VALUES (${hash(token)}, ${clientKey}, ${shared}, ${clientName})
     ON CONFLICT (client_key) WHERE client_key IS NOT NULL
-    DO UPDATE SET token_hash = EXCLUDED.token_hash, shared_client = installations.shared_client OR EXCLUDED.shared_client`;
+    DO UPDATE SET token_hash = EXCLUDED.token_hash, shared_client = installations.shared_client OR EXCLUDED.shared_client,
+      client_name = COALESCE(EXCLUDED.client_name, installations.client_name)`;
 }
 
 /**

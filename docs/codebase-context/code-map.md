@@ -1574,9 +1574,12 @@ apps/frontend/
     x-oauth.ts(+test)          v2.12.1 T6: X_SCOPES, pkcePair, xAuthorizeUrl, xUserFrom, xOAuth (token + /2/users/me)
     claim.ts(+test)            v2.12.1 T6/T7: CLAIM_TEXT, claimCode (S13), claimLink, claimGet, claimPost,
                                xCallback, bindX (join_pending when another group holds the X id; under the Bench 'held')
-                               v2.13.4 R1: joinOffer, joinPage, claimJoinPost (POST /claim/join: the one-click join,
+                               v2.13.4 R1: joinOffer, joinPage (R6: names the agent, agoText), claimJoinPost (POST /claim/join: the one-click join,
                                x_join_offers, cookie + Origin + one use + 15 min; page_joined event; standing_seen.linked)
     live-check.ts              v2.13.4 R3: liveDefaults, parkedPage, checkLive, liveSite (standing_seen.live_check, a day)
+    page-joins.ts              v2.13.4 R6: recordJoin, joinNotice (once per join, ask kind remove_agent), newlyJoined (24 h),
+                               detachJoin (members out, updates hidden, codes closed, pending round removed, page_detached),
+                               joinNoticeLine, DETACH_LINES, NEW_AGENT_LINES
     wallet-proof.ts(+test)     v2.12.1 T7: upgradeToken/upgradeOf (30 min), WALLET_TEXT, walletMessage,
                                proveWallet (EIP-191, once per signature), walletGet, walletPost,
                                walletOtherMethod (405); every non-200 answer carries WALLET_FRAME_CSP

@@ -6,6 +6,7 @@ import { siteUrl } from './entry-text';
 import { noteEvent } from './events';
 import { cookieValue, createVerifyLink, githubVerifyEnabled } from './github-verify';
 import { joinOnProvenTie, linkInstallations, rootOf } from './identity';
+import { recordJoin } from './page-joins';
 import { sharedGroup } from './installations';
 import { profileChanged } from './profile-cache';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
@@ -51,6 +52,8 @@ export const CLAIM_TEXT = {
   joinLead: 'This X account already has an EarnKit page.',
   joinWarning: 'Only continue if your own agent gave you this link.',
   joinButton: (handle: string) => `Add this agent to your page ${pageUrl(handle)}`,
+  /** v2.13.4 R6 (1): what is joining: "This agent: Claude Desktop, connected 3 minutes ago." */
+  joinAgent: (name: string | null, ago: string) => `This agent: ${name ?? 'an agent'}, connected ${ago}.`,
   linked: 'This agent is on your page now',
   cantJoin: "This page can't take another agent.",
   /** Final fix wave: an X account whose page the owner took down (x_owner_clears). */
@@ -271,7 +274,8 @@ export async function xCallback(request: Request, deps: RouteDeps & { x?: XOAuth
       console.error('[x/callback] offer', err instanceof Error ? err.name : 'error');
       return null;
     });
-    return offer ? joinPage(user.username, offer) : claimPage(CLAIM_TEXT.failed, 500, clear);
+    const [agent] = await sql()<{ name: string | null; at: Date }[]>`SELECT client_name AS name, created_at AS at FROM installations WHERE id = ${target}`;
+    return offer ? joinPage(user.username, offer, agent ?? null) : claimPage(CLAIM_TEXT.failed, 500, clear);
   }
   if (r.reason === 'join_pending') return claimPage(CLAIM_TEXT.joinPending, 200, clear);
   if (r.reason === 'owner_cleared') return claimPage(CLAIM_TEXT.paused, 403, clear);
@@ -363,9 +367,18 @@ async function joinOffer(o: { joiner: number; holder: number; user: XUser; csrfH
 }
 
 /** The R1 page: what this X has, the warning, then one button (POST /claim/join). Same-origin, so the POST carries Origin. */
-function joinPage(handle: string, offer: string): Response {
+/** "just now", "3 minutes ago", "2 hours ago", "4 days ago". Pure; exported for tests. */
+export function agoText(at: Date, now: Date = new Date()): string {
+  const m = Math.floor((now.getTime() - at.getTime()) / 60_000);
+  if (m < 1) return 'just now';
+  const [n, unit] = m < 60 ? [m, 'minute'] : m < 48 * 60 ? [Math.floor(m / 60), 'hour'] : [Math.floor(m / 1440), 'day'];
+  return `${n} ${unit}${n === 1 ? '' : 's'} ago`;
+}
+
+function joinPage(handle: string, offer: string, agent: { name: string | null; at: Date } | null): Response {
+  const who = agent ? `<p class="ek-line">${escapeHtml(CLAIM_TEXT.joinAgent(agent.name, agoText(agent.at)))}</p>` : '';
   const body = shell(
-    `<h1>${escapeHtml(CLAIM_TEXT.joinLead)}</h1><p class="ek-small">${escapeHtml(CLAIM_TEXT.joinWarning)}</p>` +
+    `<h1>${escapeHtml(CLAIM_TEXT.joinLead)}</h1>${who}<p class="ek-small">${escapeHtml(CLAIM_TEXT.joinWarning)}</p>` +
       `<div class="ek-actions"><form method="post" action="${escapeHtml(siteUrl())}/claim/join">` +
       `<input type="hidden" name="t" value="${escapeHtml(offer)}">` +
       `<button class="ek-btn" type="submit"><span>${escapeHtml(CLAIM_TEXT.joinButton(handle))}</span></button></form></div>`,
@@ -412,7 +425,8 @@ export async function claimJoinPost(request: Request, deps: RouteDeps = {}): Pro
     const to = await rootOf(holder.builder_id);
     if ((await sharedGroup(from)) || (await sharedGroup(to))) return claimPage(CLAIM_TEXT.cantJoin, 409, clear);
     const members = await sql()<{ id: number }[]>`SELECT id FROM installations WHERE COALESCE(builder_id, id) = ${from}`;
-    await linkInstallations(row.builder_id, [to]);
+    // R6: the page's own group stays the root, so the joined installations can be detached again.
+    await linkInstallations(row.builder_id, [to], { root: to });
     const root = await rootOf(row.builder_id);
     if (root !== (await rootOf(to))) return claimPage(CLAIM_TEXT.claimedOther, 409, clear);
     // The page keeps its X claim: when the joining group is the older one (the root), the claim moves to it.
@@ -429,6 +443,8 @@ export async function claimJoinPost(request: Request, deps: RouteDeps = {}): Pro
     }
     const at = new Date().toISOString();
     const linked = Object.fromEntries(members.map((m) => [String(m.id), at]));
+    // R6 (2): the page's other agents are told once and may detach it.
+    await recordJoin(root, members.map((m) => m.id), row.x_user_id, new Date(at));
     await sql()`
       UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
         || jsonb_build_object('linked', COALESCE(standing_seen->'linked', '{}'::jsonb) || ${sql().json(linked as never)}::jsonb)

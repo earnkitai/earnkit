@@ -294,6 +294,8 @@ export async function proofBranchFor(
     buildDeploy?: boolean;
     /** O5 N2, N4: the fetch for the one cheap read of the repo before a code is issued (absent: EarnKit's own, budgeted). */
     ghFetch?: typeof fetch;
+    /** v2.13.4 R6: the installation asking (proof_branches.asked_by), so a detached agent's codes stop counting. */
+    own?: number;
     /** O5 N2: a starter build's own new repo (the agent just created and pushed it): no read first. */
     newRepo?: boolean;
   },
@@ -344,8 +346,8 @@ export async function proofBranchFor(
     const seed = randomBytes(16).toString('base64url');
     const code = codeOf(seed, secret)!;
     await tx`
-      INSERT INTO proof_branches (code_hash, seed, builder_id, repo_key, issued_at, expires_at)
-      VALUES (${sha256(code)}, ${seed}, ${builderId}, ${k}, ${now}, ${new Date(now.getTime() + PROOF_BRANCH_TTL_MS)})`;
+      INSERT INTO proof_branches (code_hash, seed, builder_id, repo_key, issued_at, expires_at, asked_by)
+      VALUES (${sha256(code)}, ${seed}, ${builderId}, ${k}, ${now}, ${new Date(now.getTime() + PROOF_BRANCH_TTL_MS)}, ${o.own ?? null})`;
     return { kind: 'checking' as const, proof: proofOf(k, code), ...again };
   });
 }

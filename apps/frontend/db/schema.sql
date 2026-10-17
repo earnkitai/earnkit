@@ -1200,8 +1200,8 @@ ALTER TABLE builder_events ADD CONSTRAINT builder_events_type_check CHECK (type 
   'coin_offered','coin_answered','page_ready_shown','news_shown',
   -- v2.13: in every re-add, or a rerun fails on v2.13 rows before the later re-add (schema-rerun.test.ts).
   'shipped_code','went_live','users_up','update_posted','update_hidden','raising_on','raising_off',
-  -- v2.13.4 (R1): an agent joined a page from the claim page's one button.
-  'page_joined'));
+  -- v2.13.4 (R1, R6): an agent joined a page from the claim page's one button; one was detached again.
+  'page_joined','page_detached'));
 -- v2.12 T7 review: the consent line is marked shown as the reply goes out (shown once, never lost).
 ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS consent_shown_at timestamptz;
 -- v2.12 T7 review: an X handle claim refused because another profile shows it (GitHub's
@@ -1361,8 +1361,8 @@ ALTER TABLE builder_events ADD CONSTRAINT builder_events_type_check CHECK (type 
   'coin_offered','coin_answered','page_ready_shown','news_shown',
   -- v2.13: in every re-add, or a rerun fails on v2.13 rows before the later re-add (schema-rerun.test.ts).
   'shipped_code','went_live','users_up','update_posted','update_hidden','raising_on','raising_off',
-  -- v2.13.4 (R1): an agent joined a page from the claim page's one button.
-  'page_joined'));
+  -- v2.13.4 (R1, R6): an agent joined a page from the claim page's one button; one was detached again.
+  'page_joined','page_detached'));
 -- Spec S7 (plan): the internal program a coin-only entry belongs to. Closed, so nothing lists it.
 INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work, token_policy, builder_bonus, agent_completable)
 VALUES ('earnkit-coin', 'EarnKit', 'Your coin', 'A coin for a project the builder already has (v2.12.1 step 3b).',
@@ -1516,3 +1516,26 @@ CREATE TABLE IF NOT EXISTS x_join_offers (
   code_hash    text NOT NULL,
   expires_at   timestamptz NOT NULL
 );
+
+-- v2.13.4 R6: the R1 page names the joining agent: its client name as registered (dynamic client
+-- registration's client_name, cleaned), kept on the installation. Additive.
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS client_name text;
+-- v2.13.4 R6: every R1 join, so the page's other agents are told once ("A new agent was added to your
+-- page on <date>. Not you? Want me to remove it?") and any of them can detach it; `members` are the
+-- installations that joined, `seen` the installations already told.
+CREATE TABLE IF NOT EXISTS page_joins (
+  id          bigserial PRIMARY KEY,
+  root        integer NOT NULL,                       -- the page's group root (it kept its page)
+  members     integer[] NOT NULL,                     -- the installations that joined
+  x_user_id   text NOT NULL,
+  joined_at   timestamptz NOT NULL DEFAULT now(),
+  seen        integer[] NOT NULL DEFAULT '{}',
+  detached_at timestamptz,
+  detached_by integer
+);
+CREATE INDEX IF NOT EXISTS page_joins_root ON page_joins (root) WHERE detached_at IS NULL;
+-- v2.13.4 R6: which installation posted an update, asked for a proof code, or opened a community
+-- round, so a detached agent's own work stops counting for the page. Additive.
+ALTER TABLE project_updates ADD COLUMN IF NOT EXISTS posted_by integer;
+ALTER TABLE proof_branches ADD COLUMN IF NOT EXISTS asked_by integer;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS opened_by integer;

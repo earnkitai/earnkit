@@ -39,6 +39,7 @@ import {
   showsClaimLink, type BenchAsk, type BenchAskKind, type BenchProject, type BenchView, type FundLine,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
+import { DETACH_LINES, NEW_AGENT_LINES, detachJoin, joinNotice, newlyJoined } from './page-joins';
 import { displayName } from './bench-reply';
 export { displayName };
 
@@ -308,6 +309,8 @@ type ViewIn = {
   live?: LiveSite | null;
   /** v2.13.4 (R1): this agent joined the page from the claim page since its last reply. */
   linked?: boolean;
+  /** v2.13.4 R6: the caller's own installation (the join notice; who asked for a proof code). */
+  own?: number;
 };
 
 /**
@@ -332,7 +335,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
   // v2.13.1 O1: a repo-key project that isn't confirmed gets the proof branch (proof-branch.ts says when).
   // O2: read before the ask, so a project being checked is asked the next Bench step (the updates yes).
   const branch = project && !project.confirmed && !building
-    ? await proofBranchFor(id, project.key, now, { canBuild: o.agentCanBuild, ghFetch: o.ghFetch }).catch(logged('proof branch'))
+    ? await proofBranchFor(id, project.key, now, { canBuild: o.agentCanBuild, ghFetch: o.ghFetch, own: o.own }).catch(logged('proof branch'))
     : null;
   // O2 fix round 1 (ruling 3): a repo another person holds is never offered a program for it.
   const taken = branch?.kind === 'taken';
@@ -412,6 +415,10 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
       ? await coinAskBench(id, { ...project, people: row.people, has_coin: row.has_coin, streak: row.streak, shipped: row.shipped }, read.seen, o.coinDeps).catch(logged('coin'))
       : null;
     ask = coin ?? before ?? chooseAsk({ ...asks, coin: null, enter });
+    // v2.13.4 R6 (2): a new agent joined this page by R1: the page's other agents are told once, as the
+    // reply's question, before anything else.
+    const notice = o.own !== undefined && read.base.claimed ? await joinNotice(id, o.own).catch(logged('join notice')) : null;
+    if (notice) ask = { kind: 'remove_agent', project_key: `join:${notice.id}`, line: notice.line };
   }
   const stored = ask ? { kind: ask.kind, key: ask.project_key, ...(ask.program_id && { program_id: ask.program_id }) } : null;
   await sql()`
@@ -482,6 +489,8 @@ export type BenchFindArgs = {
   agentCanBuild: boolean;
   hide: Set<string>;
   project: IdentityProject | null;
+  /** v2.13.4 R6 (4): a plain line first (a newly joined agent's project change was refused). */
+  notice?: string | null;
 };
 
 /**
@@ -528,7 +537,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   const name = a.project && projectKeyOf(a.project).toLowerCase() === main ? a.project.name : null;
   const { view, ask, fields, branch } = await benchView({
     id, now, read, name, fits, cards: a.cards, skip, pick, held: held || Boolean(submit), agentCanBuild: a.agentCanBuild, due,
-    coinDeps: { check: ctx.tokenDeps?.check }, ghFetch, live, linked,
+    coinDeps: { check: ctx.tokenDeps?.check }, ghFetch, live, linked, own: ctx.ownInstallationId ?? id,
   });
   // O2 fix round 1 (ruling 2): a code closed by a project change is told alongside the new one (remove_branch).
   const told = await branchToRemove(id, now).catch(logged('proof branch told'));
@@ -554,7 +563,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
       UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('weekly_note_at', ${now.toISOString()}::text)
       WHERE builder_id = ${id}`.catch(logged('weekly note'));
   return {
-    show_to_builder: [opener, benchReply(view), a.pickup?.question].filter(Boolean).join('\n\n'),
+    show_to_builder: [a.notice, opener, benchReply(view), a.pickup?.question].filter(Boolean).join('\n\n'),
     // O5 (P8): the earn note names lead.program_id, so only with a lead.
     note: ['Show show_to_builder to the builder exactly as written.', lead ? EARN_NOTE : null].filter(Boolean).join(' '),
     ...fields,
@@ -600,7 +609,7 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
   const pick = !main && !read.building ? withNoProgram(picked && fresh ? { ...picked, canBuild: fresh.canBuild } : null, fresh, now) : null;
   const { view, fields, branch } = await benchView({
     id, now, read, name: null, fits, cards: shown, skip: new Set([...entered, ...hidden]), pick, held: Boolean(o.hold),
-    agentCanBuild: fresh?.canBuild ?? false, due: [], coinDeps: { check: ctx.tokenDeps?.check }, ghFetch, live, linked,
+    agentCanBuild: fresh?.canBuild ?? false, due: [], coinDeps: { check: ctx.tokenDeps?.check }, ghFetch, live, linked, own: ctx.ownInstallationId ?? id,
   });
   // O2 fix round 1 (ruling 2): a code closed by a project change is told alongside the new one (remove_branch).
   const told = await branchToRemove(id, now).catch(logged('proof branch told'));
@@ -640,12 +649,17 @@ export async function benchAsked(id: number, m: { kind?: string; project_key?: s
  * and coin yeses stay there). Only the ask stored with the last reply is answered; anything else is
  * "Okay." with nothing changed. A no keeps that ask away 30 days (DECLINE_MS).
  */
-export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId'>, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no'; live_url?: string }): Promise<Reply> {
+export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId'>, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no'; live_url?: string }): Promise<Reply> {
   const id = ctx.installationId;
   const now = new Date();
   const okay = { show_to_builder: COUNT_LINES.noted };
   const asked = await benchAsked(id, m);
   if (!asked) return okay;
+  if (m.answer === 'no' && asked.kind === 'remove_agent') {
+    // R6: a no to the join notice keeps the agent (the notice was shown once; nothing is stored).
+    await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id}`.catch(logged('ask'));
+    return { show_to_builder: DETACH_LINES.kept };
+  }
   if (m.answer === 'no') {
     await sql()`
       UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{declined}',
@@ -655,7 +669,7 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId'>, m: {
   }
   // Fix round 1: answered once. The ask is cleared before the yes runs, so a retried yes is "Okay.".
   // (go_live and coin yeses stay in tools.ts: go_live's yes is sent again with live_url by design.)
-  if (['updates', 'post_update', 'build', 'enter', 'raise', 'grants', 'suggest', 'other_project', 'grants_later', 'install_app', 'start', 'claim'].includes(asked.kind)) {
+  if (['updates', 'post_update', 'build', 'enter', 'raise', 'grants', 'suggest', 'other_project', 'grants_later', 'install_app', 'start', 'claim', 'remove_agent'].includes(asked.kind)) {
     const [taken] = await sql()`
       UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask'
       WHERE builder_id = ${id} AND standing_seen->'bench_ask' = ${sql().json(asked as never)}::jsonb RETURNING 1`.catch((err: unknown) => {
@@ -674,6 +688,8 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId'>, m: {
     case 'enter':
       return asked.program_id ? { show_to_builder: '', lead: { program_id: asked.program_id }, agent_note: ENTER_NOTE } : okay;
     case 'raise':
+      // v2.13.4 R6 (4): a newly joined agent can't open a community round.
+      if (await newlyJoined(ctx.ownInstallationId ?? id, now)) return { show_to_builder: NEW_AGENT_LINES.coin };
       return setRaising(id, true);
     case 'grants':
       return asked.key ? grantsYes(id, asked.key, now) : okay;
@@ -691,6 +707,13 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId'>, m: {
     case 'claim':
       // v2.13.4 (spec 2): the link does the work; the next find shows the page.
       return { show_to_builder: '', agent_note: CLAIM_YES_NOTE };
+    case 'remove_agent': {
+      // v2.13.4 R6 (3): detached at once, by an installation that was on the page before the join.
+      const join = Number(/^join:(\d+)$/.exec(asked.key ?? '')?.[1]);
+      if (!Number.isSafeInteger(join)) return okay;
+      const r = await detachJoin(join, ctx.ownInstallationId ?? id, now);
+      return r === 'detached' ? { show_to_builder: DETACH_LINES.done } : okay;
+    }
     case 'grants_later':
       // O5 fix round 2: grants stay quiet a week from now; then the grants ask comes back.
       if (asked.key) await keepGrantsQuiet(id, asked.key, now);

@@ -6,7 +6,10 @@ import { sql } from './db';
 import { tools } from './tools';
 import { CLAIM_TEXT, bindX, claimGet, claimJoinPost, claimPost, xCallback } from './claim';
 import { answerJoin, joinOnProvenTie, pendingJoinOf, rootOf } from './identity';
-import { X_ON, dropAvalanche, find, install, withEnv, type Found } from './fixtures/find';
+import { X_ON, dropAvalanche, find, install, person, withEnv, type Found } from './fixtures/find';
+import { DETACH_LINES, NEW_AGENT_LINES, joinNoticeLine } from './page-joins';
+import { clientNameOf } from './oauth';
+import { agoText } from './claim';
 import { fakeGitHub } from './fixtures/fake-github-branch';
 import { APP, installApp, privateGitHub } from './fixtures/private-github';
 import {
@@ -553,3 +556,120 @@ test('e.4 the live check: placeholder hosts are never live, except EarnKit\'s ow
     liveDefaults.probe = was;
   }
 });
+
+// ---- R6 (controller ruling, answering a scan: the R1 join is weaker than the two-agent yes) --------
+
+/** A page with a confirmed main project (claimed with X user `x<id>`), and a new installation joined to it by R1. */
+async function joinedPage(o: { clientName?: string } = {}) {
+  const key = `${uniq('r6')}/recipes`;
+  const handle = uniq('r6h').slice(0, 15);
+  const holder = await person({ main: key, claimed: handle, projects: [{ key, name: 'Recipe planner', confirmed: true }] });
+  const joiner = await install();
+  if (o.clientName) await sql()`UPDATE installations SET client_name = ${o.clientName} WHERE id = ${joiner}`;
+  const r = await find(joiner, {}, NO_MATCH);
+  const s = await signIn(r.claim!.link, { id: `x${holder}`, username: handle, name: 'Maya', avatar: null });
+  const t = offerOf(s.body)!;
+  assert.ok(t, s.body);
+  const page = s.body;
+  assert.equal((await confirmJoin(t, s.cookie)).status, 200);
+  assert.equal(await rootOf(joiner), holder);
+  return { key, handle, holder, joiner, page };
+}
+const asJoiner = (j: { holder: number; joiner: number }) => ({ installationId: j.holder, ownInstallationId: j.joiner }) as never;
+const asHolder = (j: { holder: number }) => ({ installationId: j.holder, ownInstallationId: j.holder }) as never;
+
+test('R6.1 the R1 page names what is joining: the agent\'s registered client name and when it connected', dbTest, () =>
+  on(async () => {
+    const j = await joinedPage({ clientName: 'Claude Desktop' });
+    assert.ok(j.page.includes(CLAIM_TEXT.joinAgent('Claude Desktop', 'just now')), j.page);
+    assert.equal(CLAIM_TEXT.joinAgent('Claude Desktop', '3 minutes ago'), 'This agent: Claude Desktop, connected 3 minutes ago.');
+    const now = new Date();
+    assert.equal(agoText(new Date(now.getTime() - 3 * 60_000), now), '3 minutes ago');
+    assert.equal(agoText(new Date(now.getTime() - 60 * 60_000), now), '1 hour ago');
+    assert.equal(agoText(new Date(now.getTime() - 3 * 86_400_000), now), '3 days ago');
+    assert.equal(clientNameOf('  Claude\u0000 Desktop <script>  '), 'Claude Desktop script');
+    assert.equal(clientNameOf(42), null);
+    assert.equal(clientNameOf('x'.repeat(80))?.length, 40);
+  }));
+
+test('R6.2 after an R1 join every other agent already on the page is told once, as its last line; the joined agent and a newer one are not', dbTest, () =>
+  on(async () => {
+    const j = await joinedPage();
+    const [{ at }] = await sql()<{ at: Date }[]>`SELECT joined_at AS at FROM page_joins WHERE root = ${j.holder} ORDER BY id DESC LIMIT 1`;
+    const f = await find(j.holder, {}, { ownInstallationId: j.holder, ...NO_MATCH });
+    assert.equal(f.show_to_builder.split('\n').at(-1), joinNoticeLine(at), f.show_to_builder);
+    assert.equal(joinNoticeLine(new Date('2026-10-17T12:00:00Z')), 'A new agent was added to your page on Oct 17. Not you? Want me to remove it?');
+    assert.equal(f.move_up?.kind, 'remove_agent');
+    assert.doesNotMatch((await find(j.holder, {}, { ownInstallationId: j.holder, ...NO_MATCH })).show_to_builder, /A new agent was added/, 'once');
+    assert.doesNotMatch((await findAs(j.joiner)).show_to_builder, /A new agent was added/, 'not the joined agent');
+    // Score shows it too (a second holder installation that hasn't seen it).
+    const j2 = await joinedPage();
+    const s = (await tools.score({}, asHolder(j2))) as Found;
+    assert.match(s.show_to_builder, /A new agent was added to your page on \w+ \d+\. Not you\? Want me to remove it\?$/);
+  }));
+
+test('R6.3 a yes from an agent already on the page detaches the new one at once: its own unclaimed state, its updates, proof codes and pending community round no longer count; logged', dbTest, () =>
+  withEnv({ ...ON, EARNKIT_EVENT_LOG: 'on' }, async () => {
+    const j = await joinedPage();
+    // What the joined agent did after the join.
+    const posted = (await tools.tell({ update: { text: 'Added the fridge photo import.' } }, asJoiner(j))) as { show_to_builder: string };
+    assert.ok(posted.show_to_builder.length > 0, JSON.stringify(posted));
+    const open = randomBytes(32).toString('hex');
+    const used = randomBytes(32).toString('hex');
+    await sql()`INSERT INTO proof_branches (code_hash, seed, builder_id, repo_key, issued_at, expires_at, asked_by) VALUES
+      (${open}, 's', ${j.holder}, ${`${uniq('o')}/other`}, now(), now() + interval '1 hour', ${j.joiner}),
+      (${used}, 's', ${j.holder}, ${j.key}, now(), now() + interval '1 hour', ${j.joiner})`;
+    await sql()`UPDATE proof_branches SET used_at = now() WHERE code_hash = ${used}`;
+    await sql()`UPDATE builder_sources SET proof = 'proof_branch', verified_at = now() WHERE builder_id = ${j.holder} AND kind = 'repo'`;
+    const [coin] = await sql()<{ id: number }[]>`
+      INSERT INTO projects (program_id, name, installation_id, opened_by, confirmed_at, confirm_choice) VALUES ('earnkit-coin', 'Recipe planner', ${j.holder}, ${j.joiner}, now(), 'go') RETURNING id`;
+    // The joined agent can't remove itself (only an agent that was there before).
+    const f = await find(j.holder, {}, { ownInstallationId: j.holder, ...NO_MATCH });
+    const pk = f.move_up!.project_key;
+    const self = (await tools.tell({ move_up: { kind: 'remove_agent', project_key: pk, answer: 'yes' } }, asJoiner(j))) as { show_to_builder: string };
+    assert.notEqual(self.show_to_builder, DETACH_LINES.done);
+    assert.equal(await rootOf(j.joiner), j.holder);
+    // The holder says yes.
+    await find(j.holder, {}, { ownInstallationId: j.holder, ...NO_MATCH }); // the notice was used once; ask it again by hand
+    await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('bench_ask', jsonb_build_object('kind', 'remove_agent', 'key', ${pk}::text)) WHERE builder_id = ${j.holder}`;
+    const yes = (await tools.tell({ move_up: { kind: 'remove_agent', project_key: pk, answer: 'yes' } }, asHolder(j))) as { show_to_builder: string };
+    assert.equal(yes.show_to_builder, DETACH_LINES.done);
+    assert.equal(await rootOf(j.joiner), j.joiner, 'its own again');
+    const [u] = await sql()<{ hidden: boolean }[]>`SELECT hidden FROM project_updates WHERE builder_id = ${j.holder} AND posted_by = ${j.joiner}`;
+    assert.equal(u.hidden, true, 'its update no longer counts');
+    const [c1] = await sql()<{ closed: boolean }[]>`SELECT closed_at IS NOT NULL AS closed FROM proof_branches WHERE code_hash = ${open}`;
+    assert.equal(c1.closed, true, 'its open code is closed');
+    const [src] = await sql()<{ state: string }[]>`SELECT state FROM builder_sources WHERE builder_id = ${j.holder} AND kind = 'repo'`;
+    assert.equal(src.state, 'proposed', 'a repo its code confirmed is unconfirmed');
+    assert.equal((await sql()`SELECT 1 FROM projects WHERE id = ${coin.id}`).length, 0, 'its pending community round is gone');
+    const [e] = await sql()<{ detail: { by: number } }[]>`SELECT detail FROM builder_events WHERE type = 'page_detached' AND installation_id = ${j.holder}`;
+    assert.equal(e?.detail.by, j.holder);
+    // Its next find: unclaimed, X first again.
+    const back = await find(j.joiner, {}, NO_MATCH);
+    assert.ok(back.claim?.link, back.show_to_builder);
+    // A second yes changes nothing.
+    await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('bench_ask', jsonb_build_object('kind', 'remove_agent', 'key', ${pk}::text)) WHERE builder_id = ${j.holder}`;
+    assert.notEqual(((await tools.tell({ move_up: { kind: 'remove_agent', project_key: pk, answer: 'yes' } }, asHolder(j))) as { show_to_builder: string }).show_to_builder, DETACH_LINES.done);
+  }));
+
+test('R6.4 for 24 hours a newly joined agent can\'t open a community round or change the main project; it can post updates', dbTest, () =>
+  withEnv({ ...ON, EARNKIT_RAISING: 'on' }, async () => {
+    const j = await joinedPage();
+    const c = (await tools.tell({ coin: { project_key: j.key, answer: 'yes', wallet: `0x${'2b'.repeat(20)}` } }, asJoiner(j))) as { show_to_builder: string };
+    assert.equal(c.show_to_builder, NEW_AGENT_LINES.coin);
+    const r = (await tools.tell({ coin: { raising: true } }, asJoiner(j))) as { show_to_builder: string };
+    assert.equal(r.show_to_builder, NEW_AGENT_LINES.coin);
+    const other = `${uniq('r6o')}/thing`;
+    const f = await findAs(j.joiner, { agent_can_build: true, identity: { github_login: other.split('/')[0], project: { name: 'Thing', repo: other } } });
+    assert.ok(f.show_to_builder.startsWith(NEW_AGENT_LINES.main), f.show_to_builder);
+    const [p] = await sql()<{ main: string }[]>`SELECT main_project_key AS main FROM builder_profiles WHERE builder_id = ${j.holder}`;
+    assert.equal(p.main, j.key, 'the main project stays');
+    const nm = (await tools.tell({ repo_facts: [{ repo: j.key, not_mine: true }] }, asJoiner(j))) as { show_to_builder: string };
+    assert.ok(nm.show_to_builder.includes(NEW_AGENT_LINES.main), nm.show_to_builder);
+    const posted = (await tools.tell({ update: { text: 'Shipped the import.' } }, asJoiner(j))) as { show_to_builder: string; agent_note?: string };
+    assert.ok(posted.show_to_builder.length > 0, JSON.stringify(posted));
+    // The holder's own agent isn't held; after a day the joined agent isn't either.
+    assert.notEqual(((await tools.tell({ coin: { raising: true } }, asHolder(j))) as { show_to_builder: string }).show_to_builder, NEW_AGENT_LINES.coin);
+    await sql()`UPDATE page_joins SET joined_at = joined_at - interval '25 hours' WHERE root = ${j.holder}`;
+    assert.notEqual(((await tools.tell({ coin: { raising: true } }, asJoiner(j))) as { show_to_builder: string }).show_to_builder, NEW_AGENT_LINES.coin);
+  }));

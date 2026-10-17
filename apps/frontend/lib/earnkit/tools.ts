@@ -164,6 +164,7 @@ import { verifiedProject } from './builder-score';
 import { COIN_NOTE, COIN_PROGRAM, builtLiveAnswer, coinLine, coinNo, coinOfferable, coinOpen, coinPitchAllowed, coinYes, offerCoin, showBuiltLive } from './coin-moments';
 import { sql } from './db';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
+import { NEW_AGENT_LINES, newlyJoined } from './page-joins';
 import { JOIN_TEXT, answerJoin, joinQuestion, answerPickup, askJoin, offerPickup, pendingJoinOf, type PickupDeps } from './identity';
 import type { FieldKind } from './program-file';
 import type { ProgramRow } from './programs';
@@ -1347,6 +1348,8 @@ export const handlers = {
     // wallet until a login is proven) and its clues. Never fails the tool and never waits on a read.
     // A shared group gets none (R2).
     let profiled = false as boolean;
+    /** v2.13.4 R6 (4): this newly joined agent named another project; it stays and the reply says why. */
+    let holdMain = false as boolean;
     // v2.12.1 T8 (spec 2): the person's own public data is re-read inside this call, within its
     // budget, in parallel with the reads below (stand-view.ts startRefresh). Never fails the tool.
     const start = Date.now();
@@ -1362,7 +1365,11 @@ export const handlers = {
           // v2.13 R1: the one project only; only its sources proposed and github_user filled (B3).
           // v2.13.1 O2 (B6): a different project replaces it until it is Bench-confirmed; after that it is
           // set once (B2) and a different project is stored in identity only.
-          const main = project ? await setMainProject(ctx.installationId, project) : null;
+          // v2.13.4 R6 (4): a newly joined agent can't change the main project (a page with none may get one).
+          const current = project ? await mainProjectOf(ctx.installationId) : null;
+          const differs = Boolean(project && current && current.toLowerCase() !== projectKeyOf(project).toLowerCase());
+          if (differs && (await newlyJoined(ctx.ownInstallationId ?? ctx.installationId))) holdMain = true;
+          const main = project && !holdMain ? await setMainProject(ctx.installationId, project) : null;
           const isMain = Boolean(project && main && main.key.toLowerCase() === projectKeyOf(project).toLowerCase());
           if (isMain && project?.repo) await fillGithubUser(ctx.installationId, project.repo, identity.github_login);
           await noteIdentity(ctx.installationId, { ...identity, projects: project ? [project] : [] }, now, { propose: isMain });
@@ -1628,6 +1635,7 @@ export const handlers = {
       // v2.13 T8: the Bench's three parts (bench-find.ts), with what standFind's reply also carries.
       const r = await benchFind(ctx, {
         start, proofCheck: refresh.proofCheck, first, cards: shownCards, repos: yourRepos, myEntries, pickup, ask, alerts, agentCanBuild: agent_can_build, hide, project,
+        notice: holdMain ? NEW_AGENT_LINES.main : null,
       });
       const offer = r.build_offer as { program_id: string; starter_id: string; can_build: boolean } | undefined;
       return {
@@ -3522,7 +3530,10 @@ async function coinAnswer(ctx: ToolContext, c: { project_key: string; answer: 'y
     return { show_to_builder: COUNT_LINES.noted };
   }
   if (c.wallet !== undefined && !isWalletAddress(c.wallet.trim())) return { show_to_builder: '', agent_note: COIN_WALLET_NOTE };
-  const r = await coinYes(id, c.project_key, c.wallet ?? null, { check: ctx.tokenDeps?.check });
+  // v2.13.4 R6 (4): an agent that joined the page by R1 less than a day ago can't open a community round.
+  const own = ctx.ownInstallationId ?? id;
+  if (benchEnabled() && (await newlyJoined(own))) return { show_to_builder: NEW_AGENT_LINES.coin };
+  const r = await coinYes(id, c.project_key, c.wallet ?? null, { check: ctx.tokenDeps?.check, own });
   return 'project_id' in r ? { show_to_builder: '', ...r } : r;
 }
 
@@ -3976,7 +3987,9 @@ export const tools = {
       if (coin)
         replies.push(
           coin.raising !== undefined && raisingEnabled()
-            ? await setRaising(ctx.installationId, coin.raising)
+            ? coin.raising && (await newlyJoined(ctx.ownInstallationId ?? ctx.installationId))
+              ? { show_to_builder: NEW_AGENT_LINES.coin }
+              : await setRaising(ctx.installationId, coin.raising)
             : coin.answer && coin.project_key
               ? await coinAnswer(ctx, { project_key: coin.project_key, answer: coin.answer, wallet: coin.wallet })
               : { show_to_builder: COUNT_LINES.noted },
@@ -3984,7 +3997,7 @@ export const tools = {
       // v2.13 spec 3: the ship log (ctx.installationId is already the group root).
       if (benchEnabled() && (update || updates)) {
         const now = new Date();
-        if (update?.text !== undefined) replies.push(await postUpdate(ctx.installationId, update.text, now));
+        if (update?.text !== undefined) replies.push(await postUpdate(ctx.installationId, update.text, now, ctx.ownInstallationId ?? ctx.installationId));
         if (update?.hide !== undefined) replies.push(await hideUpdate(ctx.installationId, update.hide));
         if (updates) replies.push(await setUpdates(ctx.installationId, updates, now));
       }
@@ -3999,10 +4012,16 @@ export const tools = {
     // round 1 (minor): only for input tell_earnkit's own schema (TellInput) accepts.
     const facts = benchEnabled() && !ctx.sharedClient && statements.repo_facts !== undefined ? TellInput.safeParse(defined({ ...statements, signed_in })) : null;
     for (const f of facts?.success ? (facts.data.repo_facts ?? []) : [])
-      if (f.not_mine === true)
+      if (f.not_mine === true) {
+        // v2.13.4 R6 (4): a newly joined agent can't change the main project.
+        if (await newlyJoined(ctx.ownInstallationId ?? ctx.installationId)) {
+          replies.push({ show_to_builder: NEW_AGENT_LINES.main });
+          continue;
+        }
         await dropMainProject(ctx.installationId, saidKey(f.repo)).catch((err: unknown) =>
           console.error('[tell] not mine', err instanceof Error ? err.name : 'error'),
         );
+      }
     if (pickup !== undefined) replies.push((await handlers.pick_up_entries({ answer: pickup }, ctx)) as Reply);
     if (submitted) replies.push((await markSubmitted(submitted, signed_in, ctx)) as Reply);
     if (Object.keys(statements).length > 0 || replies.length === 0)

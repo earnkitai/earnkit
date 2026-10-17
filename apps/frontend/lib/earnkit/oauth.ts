@@ -89,7 +89,18 @@ export function isAllowedRedirectUri(uri: string) {
  * client registered as a hosted agent (v2.8.1 §E17, isSharedClient), so its client name, which the id
  * doesn't carry, still counts at the token exchange.
  */
-type ClientPayload = { r: string[]; n?: string; s?: 1 };
+/** v2.13.4 R6: `cn`, the client's registered name, cleaned (clientNameOf), so the R1 page can name the agent. */
+type ClientPayload = { r: string[]; n?: string; s?: 1; cn?: string };
+
+/**
+ * v2.13.4 R6: a registered client name as the claim page may show it: letters, digits, spaces and a few
+ * marks, at most 40 characters; anything else is dropped. Null when nothing is left. Pure.
+ */
+export function clientNameOf(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const t = v.normalize('NFKC').replace(/[^\p{L}\p{N} .,'&()+-]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 40).trim();
+  return t || null;
+}
 
 /**
  * v2.8.1 §E17: hosted agents, whose servers register and exchange tokens for many users, so one
@@ -205,6 +216,7 @@ export function registerClient(metadata: {
       r: uris,
       n: randomBytes(16).toString('base64url'),
       ...(isSharedClient(metadata) && { s: 1 as const }),
+      ...(clientNameOf(metadata.client_name) && { cn: clientNameOf(metadata.client_name)! }),
     } satisfies ClientPayload),
     client_id_issued_at: Math.floor(Date.now() / 1000),
     redirect_uris: uris,
@@ -284,6 +296,8 @@ export function exchangeCode(form: URLSearchParams): {
   limitKey: string;
   /** v2.9 T12 (G0): the client's redirect host when it is a known hosted service (hostedRedirectHost). */
   hostedHost: string | null;
+  /** v2.13.4 R6: the client's registered name (clientNameOf), or null. */
+  clientName: string | null;
 } {
   if (form.get('grant_type') !== 'authorization_code') {
     throw new OAuthError(
@@ -320,6 +334,7 @@ export function exchangeCode(form: URLSearchParams): {
     shared: client?.s === 1 || isSharedClient({ redirect_uris: uris }),
     limitKey: registrationLimitKey(payload.c),
     hostedHost: hostedRedirectHost(uris),
+    clientName: clientNameOf(client?.cn),
   };
 }
 

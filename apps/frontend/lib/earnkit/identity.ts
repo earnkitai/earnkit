@@ -378,12 +378,15 @@ export async function answerPickup(own: number, yes: boolean, deps: PickupDeps =
  * stays). The root's memory keeps its own values, filling gaps from the others. One transaction.
  * Returns the group's entry count. Exported for tests.
  */
-export async function linkInstallations(own: number, roots: number[]): Promise<number> {
+export async function linkInstallations(own: number, roots: number[], o: { root?: number } = {}): Promise<number> {
   let profilesMoved = false;
   const n = await sql().begin(async (tx) => {
     const [mine] = await tx<{ root: number }[]>`
       SELECT COALESCE(builder_id, id) AS root FROM installations WHERE id = ${own} FOR UPDATE`;
-    const all = [...new Set([mine.root, ...roots])].sort((a, b) => a - b);
+    const sorted = [...new Set([mine.root, ...roots])].sort((a, b) => a - b);
+    // v2.13.4 R6: an R1 join keeps the page's own group as the root (o.root), whichever is older, so the
+    // joined installations are always members and can be detached again.
+    const all = o.root !== undefined && sorted.includes(o.root) ? [o.root, ...sorted.filter((r) => r !== o.root)] : sorted;
     const [root, ...others] = all;
     for (const other of others) {
       // v2.12.1 spec "Identity": two people claimed with different X accounts are never one person,

@@ -37,7 +37,7 @@ async function ipFloor(name: 'installHour' | 'oauthRegister', ip: string, what: 
 
 export async function tokenPost(request: Request) {
   try {
-    const { token, clientKey, shared, limitKey, hostedHost } = exchangeCode(await readParams(request));
+    const { token, clientKey, shared, limitKey, hostedHost, clientName } = exchangeCode(await readParams(request));
     // Only a client's first token counts (v2.2 §5): a replayed code, or re-authorizing a known
     // client (v2.4 §5), is free. v2.8.1 §E17, Ruling F11: 500 a day per registration (client id; a
     // hosted agent's users each register their own), and 50 an hour per IP as the abuse floor
@@ -57,7 +57,7 @@ export async function tokenPost(request: Request) {
         throw err;
       }
     }
-    await saveInstallation(token, clientKey, shared);
+    await saveInstallation(token, clientKey, shared, clientName);
     return json({ access_token: token, token_type: 'Bearer' });
   } catch (err) {
     if (err instanceof RateLimitError)

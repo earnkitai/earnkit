@@ -71,7 +71,8 @@ export async function ownLinks(builderId: number): Promise<OwnLinks> {
   return { sites: [...new Set(origins)], repo };
 }
 
-export async function postUpdate(builderId: number, text: unknown, now: Date): Promise<Reply> {
+/** v2.13.4 R6: `own`, the installation posting (posted_by), so a detached agent's updates stop counting. */
+export async function postUpdate(builderId: number, text: unknown, now: Date, own: number | null = null): Promise<Reply> {
   if (!(await hit(`updatePost:${builderId}`, UPDATE_POSTS_PER_DAY, 86_400, now)).allowed) return { show_to_builder: '', agent_note: UPDATE_LIMIT_NOTE };
   const key = await mainProjectOf(builderId);
   if (!key || !(await mainConfirmed(builderId))) return { show_to_builder: '', agent_note: NOT_CONFIRMED_NOTE };
@@ -87,8 +88,8 @@ export async function postUpdate(builderId: number, text: unknown, now: Date): P
   // Another builder's row (a shared repo) is left alone: the WHERE skips it and nothing returns.
   const [r] = await sql()<{ was: string | null }[]>`
     WITH old AS (SELECT text AS was FROM project_updates WHERE project_key = ${key} AND week = ${monday})
-    INSERT INTO project_updates (builder_id, project_key, week, text, facts) VALUES (${builderId}, ${key}, ${monday}, ${checked.text}, ${sql().json(facts as never)})
-    ON CONFLICT (project_key, week) DO UPDATE SET text = EXCLUDED.text, facts = project_updates.facts || EXCLUDED.facts, hidden = false,
+    INSERT INTO project_updates (builder_id, project_key, week, text, facts, posted_by) VALUES (${builderId}, ${key}, ${monday}, ${checked.text}, ${sql().json(facts as never)}, ${own})
+    ON CONFLICT (project_key, week) DO UPDATE SET text = EXCLUDED.text, facts = project_updates.facts || EXCLUDED.facts, hidden = false, posted_by = EXCLUDED.posted_by,
       edited_at = CASE WHEN project_updates.text IS NULL THEN project_updates.edited_at ELSE now() END
     WHERE project_updates.builder_id = EXCLUDED.builder_id
     RETURNING (SELECT was FROM old) AS was`;

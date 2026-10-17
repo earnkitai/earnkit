@@ -5393,7 +5393,7 @@ Brief: `.superpowers/sdd/v2.13.3/brief.md`, plus owner rulings A, B, C sent the 
 
 Brief: `.superpowers/sdd/v2.13.4/brief.md` (the owner's spec, verbatim, and controller rulings R1 to R5). Everything sits
 under `EARNKIT_BENCH`; flag off (and score-only) is unchanged. Tests: `v2134-onboarding.test.ts` (the owner's acceptance
-test a to g, plus the security review S.a to S.f). Runbook: sections 8, 9 and 10.
+test a to g, the security review S.a to S.f, and R6.1 to R6.4). Runbook: sections 8, 9 and 10.
 
 - **The flow.** a. First find: where you stand, ways to get funded, then one question, the X claim
   (`bench-reply.ts claimAsk`: "Claim your page with X (it's your name and photo on the Bench): <link>" and "Want me to put
@@ -5430,6 +5430,23 @@ test a to g, plus the security review S.a to S.f). Runbook: sections 8, 9 and 10
   are 403; a replay or an expired offer 410); identity is the X user id, never the handle (S.c); a shared client never joins
   (S.d); an installation that got its own claim since the offer, or holds another X account, is never moved (S.e); the join
   is in the event log (S.f).
+- **R6 (controller ruling, answering a second scan: the R1 join is weaker than the two-agent yes it replaced).**
+  (1) The R1 page names what is joining: "This agent: <client name>, connected <3 minutes ago>." The name is the
+  client's dynamic-registration `client_name`, cleaned (`oauth.ts clientNameOf`: letters, digits, a few marks, 40
+  characters), carried in the signed client id (`cn`) and stored at the token exchange (`installations.client_name`);
+  "an agent" when none. (2) `page-joins.ts`: every R1 join is a `page_joins` row (root, members, joined_at, seen). The
+  R1 join keeps the page's group as the root (`linkInstallations(..., { root })`), so the members can be detached. Every
+  other installation of that page that existed before the join is told once, on its next find or score, as the reply's
+  question (`joinNotice`, ask kind `remove_agent`, key `join:<id>`): "A new agent was added to your page on <date>. Not
+  you? Want me to remove it?" (3) Its yes (`benchMoveUp`, only from an installation that was on the page before the join;
+  a member's own yes is refused) runs `detachJoin`: the members leave the group (their next find makes a fresh, unclaimed
+  profile), their updates since the join are hidden (`project_updates.posted_by`), their open proof codes are closed and a
+  repo their code confirmed since the join goes back to proposed with a rescore (`proof_branches.asked_by`), a community
+  round they opened that hasn't started launching is deleted (`projects.opened_by`, `token_claimed_at IS NULL`), and a
+  `page_detached` event is logged. A no: "Okay. It stays on your page." (4) For `NEW_AGENT_HOLD_MS` (24 h) a member
+  can't open a community round (coin yes, `coin { raising: true }`, the raise ask: `NEW_AGENT_LINES.coin`) or change the
+  main project (find's `identity.project` naming another key, `repo_facts not_mine`: `NEW_AGENT_LINES.main`, the main
+  project stays); it can post updates.
 - **R2, one page per person.** A reconnect is a new installation: the builder signs in with X once and R1 joins it, so the
   page never splits; `bindX` never binds an X user id another page holds. A reported GitHub login or wallet still merges
   nothing.
@@ -5448,5 +5465,7 @@ test a to g, plus the security review S.a to S.f). Runbook: sections 8, 9 and 10
   award ("<title> is open all year."); a 0 award never. The background-launch tests in `tools.test.ts` wait for the release
   (`releasedBg`) instead of sleeping 900 ms. `v2133-owner-test.test.ts` R1 uses a key with no digit run (its random key could
   hold 7 digits, which the update text rule refuses first).
-- **Schema.** `x_join_offers` (new); `page_joined` in both `builder_events_type_check` lists.
+- **Schema.** `x_join_offers`, `page_joins` (new); `installations.client_name`, `project_updates.posted_by`,
+  `proof_branches.asked_by`, `projects.opened_by` (additive); `page_joined` and `page_detached` in both
+  `builder_events_type_check` lists. `db:check` covers them.
 
