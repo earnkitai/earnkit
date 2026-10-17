@@ -244,7 +244,7 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
   const db = sql();
   const members = (await db<{ id: number }[]>`SELECT id FROM installations WHERE COALESCE(builder_id, id) = ${root}`).map((m) => m.id);
   const group = members.length ? members : [-1];
-  const verdicts: (() => Promise<void>)[] = [];
+  const verdicts: ((tx: Db) => Promise<void>)[] = [];
   const planned = new Map<number, string>();
   const stateOf = (row: Row) => planned.get(row.id) ?? row.state;
   const propose = async (kind: string, ref: string, key: string): Promise<Row> => {
@@ -257,8 +257,8 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
   const verify = (row: Row, proof: Proof) => {
     if (stateOf(row) !== 'proposed' || row.reject_reason === STALE) return;
     planned.set(row.id, 'verified');
-    verdicts.push(async () => {
-      await verifySource(row.id, proof);
+    verdicts.push(async (tx) => {
+      await verifySource(row.id, proof, null, tx);
       out.verified++;
     });
   };
@@ -267,7 +267,7 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
     // not_owner verdict (a push proves more than a login); a repo now derived, or re-created, goes.
     if (stateOf(row) === 'rejected' || (row.proof === 'proof_branch' && reason === 'not_owner')) return;
     planned.set(row.id, 'rejected');
-    verdicts.push(() => rejectSource(row.id, reason));
+    verdicts.push((tx) => rejectSource(row.id, reason, tx));
   };
   // Post-push audit: a token's creator_wallet and a deploy's owner_wallet are typed by the agent, so
   // they never prove anything. v2.12.1 T7: a wallet is proven only by a signature bound to this person
@@ -290,11 +290,11 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
     const earnkitDeployed = ours.has(ref);
     // EarnKit's own deploys need no onchain read (the deployer is EarnKit's, never the person's).
     const origin = earnkitDeployed ? { deployer: null, created_at: null } : await soft(readContractOrigin(ref, d), { deployer: null, created_at: null });
-    verdicts.push(async () => {
+    verdicts.push(async (tx) => {
       const r = await claimContract(row.id, root, ref, {
         deployer: origin.deployer, created_at: origin.created_at, earnkitDeployed,
         repo: facts.clue ? { deployer: facts.clue.deployer, created_at: facts.repoCreated ?? null } : null,
-      }, proven);
+      }, proven, tx);
       if ('proof' in r) out.verified++;
     });
   };
@@ -314,7 +314,7 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
   const read0 = person as PersonGithub | null;
   if (!proof && read0) {
     const [held] = await db`SELECT 1 FROM builder_profiles WHERE builder_id = ${root} AND github_basis = 'x_match' AND lower(github_login) = ${read0.login}`;
-    if (held) verdicts.push(async () => void (await releaseLogin(root, read0.login)));
+    if (held) verdicts.push(async (tx) => void (await releaseLogin(root, read0.login, tx)));
   }
   if (proof) {
     // One login, one person: a login another profile already holds names no one here, and once a
@@ -336,7 +336,7 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
     read = { user, clues: githubProfileClues(user ?? {}) };
     if (!(await loginStands(root, L, read.clues.twitter ?? null))) {
       // A login this profile shows but no longer stands for goes (with what it confirmed).
-      verdicts.push(async () => void (await releaseLogin(root, L)));
+      verdicts.push(async (tx) => void (await releaseLogin(root, L, tx)));
       proof = null;
     }
   }
@@ -344,16 +344,16 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
     const L = proof.login.toLowerCase();
     const basis = proof.basis;
     const { user, clues } = read;
-    verdicts.unshift(async () => {
-      await setFallback(root, { github_login: L, basis });
+    verdicts.unshift(async (tx) => {
+      await setFallback(root, { github_login: L, basis }, tx);
       // The latest GitHub read replaces the prefill (twitter_username is self-declared, so it can be
       // withdrawn); a shown X handle GitHub no longer lists is cleared (the slug falls back, the old
       // one redirects).
       if (!user || typeof user !== 'object') return; // no profile read: nothing to refresh
-      const [p] = await db<{ x_handle: string | null }[]>`
+      const [p] = await tx<{ x_handle: string | null }[]>`
         UPDATE builder_profiles SET twitter_prefill = ${clues.twitter ?? null}, updated_at = now()
         WHERE builder_id = ${root} AND github_login = ${L} RETURNING x_handle`;
-      if (p?.x_handle && p.x_handle.toLowerCase() !== clues.twitter?.toLowerCase()) await clearXHandle(root, 'github');
+      if (p?.x_handle && p.x_handle.toLowerCase() !== clues.twitter?.toLowerCase()) await clearXHandle(root, 'github', tx);
     });
     // Clue 2: own repos, and org repos where they are the top contributor.
     const candidates = new Map<string, { meta: ListedRepo; top: boolean }>();
@@ -494,14 +494,16 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
     }
   }
   // v2.12.1 S9: no merged-PR clue (4) and no earnkit.txt site check (6); existing rows stay, not confirmed.
-  // Every read is done: now the verdicts. v2.13.4 (final review): under the page_join lock (the R1 join and
-  // its notice answers take it), and only while `root` is still a group's root (an installation attached to
-  // a page meanwhile writes nothing here).
+  // Every read is done: now the verdicts. v2.13.4 (final review): in one transaction holding this
+  // person's own root lock (`page_join:<root>`, which an R1 join onto a page never takes for the newcomer),
+  // only while `root` is still a group's root (an installation attached to a page meanwhile writes nothing),
+  // and every verdict write on this same transaction's connection (never a second pooled connection while
+  // the lock is held, so concurrent discoveries can't exhaust the pool).
   await sql().begin(async (tx) => {
     await lockPageJoin(tx, root);
     const [r] = await tx<{ root: number }[]>`SELECT COALESCE(builder_id, id) AS root FROM installations WHERE id = ${root}`;
     if (r && r.root !== root) return;
-    for (const v of verdicts) await v();
+    for (const v of verdicts) await v(tx);
   });
 }
 

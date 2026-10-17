@@ -5503,8 +5503,10 @@ test a to g, the security review S.a to S.f, R6.1, R7.0 to R7.5, R8.1 to R8.8, R
   contract deploys, open hosting uploads and proof lines now block too, and the harmless leftovers (answers, program
   status, repo facts, match log, declines, join asks, derived scores, slugs, open X sign-ins) are deleted at the join.
   `db-check.mts` and test REG.1 fail on any keyed table missing from it. The shared-client and owner-clear checks
-  run inside `attachFresh`'s locked transaction. Discovery applies its verdicts under the `page_join` lock and only
-  while the person is still its own root.
+  run inside `attachFresh`'s locked transaction. Discovery applies its verdicts in one transaction holding its OWN
+  root's `page_join` lock, only while the person is still its own root, and every verdict write runs on that same
+  transaction (`db.ts inTx`: `verifySource`, `rejectSource`, `claimContract`, `releaseLogin`, `setFallback`,
+  `clearXHandle` take an optional transaction), so it never holds one pooled connection while waiting on another.
 - **The R7 write audit (on probation).**
 
   | Write | Where | On probation |

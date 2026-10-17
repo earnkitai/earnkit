@@ -1,5 +1,5 @@
 import { ScoreDeadline } from './campaigns';
-import { sql, type Db } from './db';
+import { inTx, sql, type Db } from './db';
 import { profileCodesIn } from './discovery-clues';
 import { noteEvent } from './events';
 import { benchEnabled } from './builder-score-flag';
@@ -104,8 +104,8 @@ export async function proposeSource(s: { builder_id: number; kind: string; ref: 
  * `deployer` (a contract's onchain deployer) is kept so another person's repo_link by it is refused.
  * Only a proposed source is verified: a rejected or revoked one stays rejected.
  */
-export async function verifySource(id: number, proof: Proof, deployer: string | null = null): Promise<void> {
-  const [row] = await sql()<{ builder_id: number; kind: string }[]>`
+export async function verifySource(id: number, proof: Proof, deployer: string | null = null, db: Db = sql()): Promise<void> {
+  const [row] = await db<{ builder_id: number; kind: string }[]>`
     UPDATE builder_sources SET state = 'verified', proof = ${proof}, verified_at = now(), reject_reason = NULL,
       deployer = COALESCE(${deployer?.toLowerCase() ?? null}::text, deployer)
     -- v2.13.2 fix 1: a stale source (an org repo's expired proof branch) comes back only through a
@@ -126,8 +126,8 @@ export async function proveLinkedSite(id: number): Promise<void> {
 }
 
 /** Refuses a proposed source, or revokes a verified one (it stops being read and scored). */
-export async function rejectSource(id: number, reason: string): Promise<void> {
-  const [row] = await sql()<{ builder_id: number }[]>`
+export async function rejectSource(id: number, reason: string, db: Db = sql()): Promise<void> {
+  const [row] = await db<{ builder_id: number }[]>`
     UPDATE builder_sources SET state = 'rejected', reject_reason = ${reason} WHERE id = ${id} AND state <> 'rejected' RETURNING builder_id`;
   if (row) await noteEvent('source_rejected', () => ({ type: 'source_rejected', dedupe_key: `source_rejected:${id}:${reason}`, installation_id: row.builder_id, detail: { source_id: id, reason } }));
 }
@@ -205,9 +205,10 @@ export async function claimContract(
   ref: string,
   facts: Omit<ContractFacts, 'contractTaken' | 'deployerTaken'>,
   provenWallets: ReadonlySet<string>,
+  db?: Db,
 ): Promise<{ proof: Proof } | { reject: string }> {
   const deployer = facts.deployer?.toLowerCase() ?? null;
-  const { result, changed } = await sql().begin(async (tx) => {
+  const { result, changed } = await inTx(db, async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtext(${`v212:contract:${ref.toLowerCase()}`}))`;
     if (deployer) await tx`SELECT pg_advisory_xact_lock(hashtext(${`v212:deployer:${deployer}`}))`;
     const conflicts = await contractConflicts(builderId, ref, deployer, tx);

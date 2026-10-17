@@ -37,13 +37,14 @@ export const PROBATION_LINES = {
 
 /**
  * TOCTOU (scan): every check here and the write it guards run in ONE transaction under the page's
- * advisory lock (`page_join:<current root>`, which discovery's write step takes too), with the installation
- * and join rows locked FOR UPDATE. The installation row FOR UPDATE blocks a concurrent insert into every
- * table that references installations by foreign key (wallets, verify links, verifications, entries, token
- * offers, hosted sites, deploys, upload tokens, among others: see JOIN_TABLES); tables keyed by builder_id
- * without a foreign key (sources, person wallets, coin moments) are covered by the proof-branch lock
- * (`proof_branch:<id>`) and discovery's page lock for confirmations, and by the emptiness check running
- * inside the same locked transaction.
+ * advisory lock (`page_join:<current root>`), with the installation and join rows locked FOR UPDATE.
+ * The installation row FOR UPDATE blocks a concurrent insert into every table that references
+ * installations by foreign key (wallets, verify links, verifications, entries, token offers, hosted
+ * sites, deploys, upload tokens, among others: see JOIN_TABLES). For tables keyed by builder_id without a
+ * foreign key (sources, person wallets, coin moments), the protection is that the emptiness check and the
+ * deletes run in that same transaction, the proof-branch lock (`proof_branch:<id>`), and discovery's own
+ * check: discovery locks its OWN root (`page_join:<its root>`, not the page) and writes its verdicts only
+ * while that root is still a root, so nothing it confirms lands on an installation attached meanwhile.
  */
 const lockPage = (tx: Db, root: number) => tx`SELECT pg_advisory_xact_lock(hashtext(${`page_join:${root}`}))`;
 export const lockPageJoin = lockPage;

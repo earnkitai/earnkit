@@ -1,7 +1,7 @@
 import { randomInt } from 'node:crypto';
 import type postgres from 'postgres';
 import { builderScoreEnabled } from './builder-score-flag';
-import { sql, type Db } from './db';
+import { inTx, sql, type Db } from './db';
 import { shortWallet } from './entry-text';
 import { noteEvent } from './events';
 import { sharedGroup } from './installations';
@@ -80,8 +80,8 @@ export async function ensureProfile(
 export type GithubBasis = 'signin' | 'app' | 'proof_line' | 'x_match' | 'proof_branch';
 
 /** v2.12.1: `basis` is how the login was proven, kept as github_basis with the login (a merge reads it). */
-export async function setFallback(builderId: number, f: { github_login?: string; basis?: GithubBasis; wallet?: string }): Promise<void> {
-  const changed = await sql().begin(async (tx) => {
+export async function setFallback(builderId: number, f: { github_login?: string; basis?: GithubBasis; wallet?: string }, db?: Db): Promise<void> {
+  const changed = await inTx(db, async (tx) => {
     const [p] = await tx<Profile[]>`SELECT ${tx(COLUMNS)} FROM builder_profiles WHERE builder_id = ${builderId} FOR UPDATE`;
     if (!p) return false;
     let login = p.github_login;
@@ -112,8 +112,8 @@ export async function setFallback(builderId: number, f: { github_login?: string;
  * (sign-in, repo owner, proof line, repo link) goes back to not yet confirmed (proposed: shown, never
  * scored). True when something changed.
  */
-export async function releaseLogin(builderId: number, login: string): Promise<boolean> {
-  const done = await sql().begin(async (tx) => {
+export async function releaseLogin(builderId: number, login: string, db?: Db): Promise<boolean> {
+  const done = await inTx(db, async (tx) => {
     const [p] = await tx<(Profile & { x_user_id: string | null })[]>`
       SELECT ${tx(COLUMNS)}, x_user_id FROM builder_profiles WHERE builder_id = ${builderId} AND lower(github_login) = ${login.toLowerCase()} FOR UPDATE`;
     if (!p) return false;
@@ -149,8 +149,8 @@ export async function setHidden(builderId: number, hidden: boolean): Promise<str
  * discovery; never a claimed one) or one the owner cleared (by 'owner', app/admin/scores). With no
  * handle the page is gone (resolveHandle and resolveSlug need one). True when a handle was cleared.
  */
-export async function clearXHandle(builderId: number, by: 'github' | 'owner'): Promise<boolean> {
-  const cleared = await sql().begin(async (tx) => {
+export async function clearXHandle(builderId: number, by: 'github' | 'owner', db?: Db): Promise<boolean> {
+  const cleared = await inTx(db, async (tx) => {
     const [p] = await tx<(Profile & { x_user_id: string | null })[]>`
       SELECT ${tx(COLUMNS)}, x_user_id FROM builder_profiles WHERE builder_id = ${builderId} FOR UPDATE`;
     if (!p?.x_handle) return null;
