@@ -50,6 +50,8 @@ export { moneyText, openMoneyUsd, type OpenMoneyRow } from './pool';
 /**
  * How jenil.ai should label each stat (T9 note): `fees_to_safe_eth` counts only coins launched
  * with the v2.5 split, from the start of the bonus index, so it is never "all Safe revenue".
+ * v2.13.2 (2): under the Bench flag it also counts v2.13's 3-slot coins (statsFrom); the key, its
+ * type and this label are unchanged (still EarnKit coins only, never all Safe revenue).
  */
 export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
   open_money_usd: 'open money: top prize per open program (USD)',
@@ -92,6 +94,10 @@ type Row = {
   bonus_programs_open: number;
   coins_launched: number;
   bonus_deposits_wei: string | null;
+  /** v2.13.2 (2): of bonus_deposits_wei, the deposits whose transaction has no indexed Safe deposit of the same coin (safe_fees). */
+  bonus_unmatched_wei?: string | null;
+  /** v2.13.2 (2): the Safe's own indexed FeeLocker deposits from EarnKit coins, both splits (safe_fees). */
+  safe_fees_wei?: string | null;
   bonus_to_safe_wei: string | null;
   bonus_paid_wei: string | null;
   bonus_pools_wei: string | null;
@@ -110,11 +116,19 @@ type Row = {
  * EarnKit coins (M5: never a deposit from a coin EarnKit didn't launch); plus
  * the builder bonus money routed to the Safe (after a program ends, programs without public
  * submissions, empty rounds, a paid round's unclaimed places). It is not all-time Safe revenue.
- * Pure but for the Bench flag (bonus_programs_open).
+ * v2.13.2 (2), under the Bench flag: the Safe's actual share of both splits. The Safe's own indexed
+ * deposits from EarnKit coins (`safe_fees`: v2.5 coins' 30%, v2.13 coins' 50%, from the Safe index's
+ * start), plus 1.5x only the bonus deposits whose transaction has no indexed Safe deposit of that coin
+ * (so a v2.5 coin's Safe share counts once, indexed or estimated, never both), plus the bonus money
+ * routed to the Safe as before. Flag off: the v2.5 formula above, unchanged.
+ * Pure but for the Bench flag (bonus_programs_open, fees_to_safe_eth).
  */
 export function statsFrom(r: Row, now = new Date()): PublicStats {
-  const big = (v: string | null) => BigInt(v ?? '0');
-  const safeWei = (big(r.bonus_deposits_wei) * BigInt(FEE_SPLIT_BPS.earnkit)) / BigInt(FEE_SPLIT_BPS.bonus) + big(r.bonus_to_safe_wei);
+  const big = (v: string | null | undefined) => BigInt(v ?? '0');
+  const estimate = (wei: bigint) => (wei * BigInt(FEE_SPLIT_BPS.earnkit)) / BigInt(FEE_SPLIT_BPS.bonus);
+  const safeWei = benchEnabled()
+    ? big(r.safe_fees_wei) + estimate(big(r.bonus_unmatched_wei)) + big(r.bonus_to_safe_wei)
+    : estimate(big(r.bonus_deposits_wei)) + big(r.bonus_to_safe_wei);
   const pools = poolTotal((r.pool_rows ?? []).map((p) => statedPool(p.pool_usd, p.reward)));
   const date = (v: string | null) => (v ? new Date(v) : null);
   const openUsd = Math.round(
@@ -182,6 +196,17 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
         WHERE tx_hash ~ '^0x[0-9a-f]{64}$'
           AND coin IN (SELECT coin_address FROM projects
             WHERE coin_address IS NOT NULL AND NOT COALESCE(installation_id = ANY(${ids}::int[]), false)))::text AS bonus_deposits_wei,
+      -- v2.13.2 (2): the same deposits less those whose transaction's Safe deposit of the same coin is
+      -- indexed (safe_fees counts that one), so a v2.5 coin's Safe share is counted once.
+      (SELECT sum(l.amount_wei) FROM bonus_ledger l
+        WHERE l.tx_hash ~ '^0x[0-9a-f]{64}$'
+          AND l.coin IN (SELECT coin_address FROM projects
+            WHERE coin_address IS NOT NULL AND NOT COALESCE(installation_id = ANY(${ids}::int[]), false))
+          AND NOT EXISTS (SELECT 1 FROM safe_fees f WHERE f.tx_hash = l.tx_hash AND f.coin = l.coin))::text AS bonus_unmatched_wei,
+      -- v2.13.2 (2): the Safe's own deposits from EarnKit coins, both splits, never a test installation's coin.
+      (SELECT sum(f.amount_wei) FROM safe_fees f
+        WHERE f.coin IN (SELECT coin_address FROM projects
+          WHERE coin_address IS NOT NULL AND NOT COALESCE(installation_id = ANY(${ids}::int[]), false)))::text AS safe_fees_wei,
       -- Final review M2: never a test installation's coin (synthetic round-rest rows have no coin).
       (SELECT sum(amount_wei) FROM bonus_ledger WHERE destination = 'safe'
         AND NOT (coin IS NOT NULL AND coin IN (SELECT coin_address FROM projects

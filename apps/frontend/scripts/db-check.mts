@@ -761,5 +761,16 @@ await db`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state,
 const pbRerun = await db.unsafe(now).then(() => true, () => false);
 ok(pbRerun, "v2.13.1: the schema runs again over a 'proof_branch' source");
 
+// v2.13.2 (1, 2): a stale (expired org) proof_branch source and a Safe deposit survive the schema running again;
+// a negative Safe deposit is refused.
+await db`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, reject_reason, proposed_by) VALUES (-132, 'repo', 'pb-check/stale', 'pb-check/stale', 'proposed', 'proof_branch', 'stale', 'server')`;
+await db`INSERT INTO safe_fees (tx_hash, log_index, coin, amount_wei, block_time) VALUES ('0xsf1', 0, '0xc0', 30, now())`;
+const badSafe = await db`INSERT INTO safe_fees (tx_hash, log_index, coin, amount_wei, block_time) VALUES ('0xsf2', 0, '0xc0', -1, now())`.then(() => false, () => true);
+ok(badSafe, 'safe_fees refuses a negative amount');
+await db.unsafe(now);
+const [safeRows] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM safe_fees`;
+const [staleRows] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_sources WHERE reject_reason = 'stale' AND state = 'proposed'`;
+ok(safeRows.n === 1 && staleRows.n === 1, "v2.13.2: safe_fees rows and a 'stale' proof_branch source survive the schema running again");
+
 await db.end();
 console.log(`db check: ${checks} checks passed`);

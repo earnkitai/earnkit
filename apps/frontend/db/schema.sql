@@ -1479,3 +1479,19 @@ ALTER TABLE proof_branches ADD COLUMN IF NOT EXISTS closed_at timestamptz;
 -- branch check) last said it is public. The page names a repo by it until a newer reading says
 -- otherwise, so a public repo never shows as "Private project" while its full read waits. Additive.
 ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS public_at timestamptz;
+
+-- v2.13.2 (2): the Safe's own WETH deposits in Clanker's FeeLocker from EarnKit coins (both splits:
+-- v2.5's 4 slots and v2.13's 3), indexed by the bonus ledger under the Bench flag (bonus-ledger.ts
+-- indexSafeFees; its cursor is bonus_cursor 'safe'). Accrued, never claimed; /api/stats reads it for
+-- fees_to_safe_eth. A deposit is attributed to its coin as the bonus index does (bonusDeposits).
+CREATE TABLE IF NOT EXISTS safe_fees (
+  tx_hash      text NOT NULL,                          -- lowercase
+  log_index    integer NOT NULL,
+  coin         text NOT NULL,                          -- lowercase, an EarnKit coin when booked
+  amount_wei   numeric NOT NULL CHECK (amount_wei >= 0),
+  block_number bigint,
+  block_time   timestamptz NOT NULL,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (tx_hash, log_index)
+);
+CREATE INDEX IF NOT EXISTS safe_fees_coin ON safe_fees (coin, tx_hash);

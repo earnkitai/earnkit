@@ -38,6 +38,7 @@ import {
 } from './payout';
 import { GAS_WALLET_MIN_WEI_DEFAULT, MINI_FEE_RECIPIENT, isEarnkitSplit } from './policy-constants';
 import { BASE_MAINNET } from './sanctions';
+import { benchEnabled } from './builder-score-flag';
 import { withScoringLock } from './scoring-lock';
 
 /**
@@ -149,6 +150,12 @@ export type BonusRpc = PayoutRpc & {
   rewardInfo: (locker: Hex, coin: Hex) => Promise<{ recipients: string[]; bps: number[] }>;
   /** v2.9 D17: the ETH balance of `address` (wei). */
   ethBalance: (address: Hex) => Promise<bigint>;
+  /**
+   * v2.13.2 (2): in `from..to`, the FeeLocker's StoreTokens logs with feeOwner = `owner` and token = WETH,
+   * and every lockers' ClaimedRewards log (what attributes a deposit to its coin, bonusDeposits), each
+   * with its transaction and block. Absent: indexSafeFees is skipped.
+   */
+  ownerLogs?: (from: bigint, to: bigint, owner: Hex) => Promise<(RawLog & { txHash: Hex; blockNumber: bigint })[]>;
 };
 
 /**
@@ -207,6 +214,15 @@ export function bonusRpc(url = process.env.BASE_RPC_URL, chain: BonusChain = BAS
       return { recipients: r.rewardRecipients.map(lower), bps: r.rewardBps.map(Number) };
     },
     ethBalance: (address) => c.getBalance({ address }),
+    ownerLogs: async (fromBlock, toBlock, owner) => {
+      const [stores, claims] = await Promise.all([
+        c.getLogs({ address: chain.feeLocker, event: STORE_TOKENS, args: { feeOwner: owner, token: chain.weth }, fromBlock, toBlock }),
+        c.getLogs({ address: chain.lockers, event: CLAIMED_REWARDS, fromBlock, toBlock }),
+      ]);
+      return [...stores, ...claims].map((l) => ({
+        address: l.address, topics: l.topics, data: l.data, logIndex: l.logIndex!, txHash: l.transactionHash!, blockNumber: l.blockNumber!,
+      }));
+    },
   };
 }
 
@@ -474,6 +490,72 @@ export async function indexDeposits(wallet: Hex, d: BonusDeps & { rpc: BonusRpc;
     },
   });
   return { from, to: head, next: scan.next, ...counts, receipts, ...(scan.rateLimited && { rateLimited: true }), ...(scan.outOfTime && { outOfTime: true }) };
+}
+
+/** v2.13.2 (2): the Safe index's own cursor in bonus_cursor (the bonus index's is CURSOR). */
+const SAFE_CURSOR = 'safe';
+
+/**
+ * v2.13.2 (2): indexes the Safe's own WETH deposits from EarnKit coins (both splits: v2.5's 4-slot coins'
+ * 30% and v2.13's 3-slot coins' 50%) into `safe_fees`, from its cursor up to CONFIRMATIONS behind the
+ * head, so /api/stats counts the Safe's real share (stats.ts). A deposit is attributed to its coin as
+ * the bonus index does (bonusDeposits, over the range's StoreTokens and ClaimedRewards logs: no receipt
+ * reads); a deposit from a coin EarnKit didn't launch (any other tokens.fun coin) is never stored.
+ * Booking is idempotent on (tx_hash, log_index); a range is booked completely before the cursor passes
+ * it. With no cursor: `d.startBlock`, else SAFE_INDEX_START_BLOCK, else BONUS_INDEX_START_BLOCK, else
+ * FIRST_LOOKBACK blocks back. Run by runBonusLedger under the Bench flag only.
+ */
+export async function indexSafeFees(d: BonusDeps & { rpc: BonusRpc; chain: BonusChain }) {
+  const read = d.rpc.ownerLogs;
+  if (!read) return { skipped: 'no reader' as const };
+  const head = (await d.rpc.blockNumber()) - CONFIRMATIONS;
+  const [cur] = await sql()<{ block: string | null }[]>`SELECT block::text AS block FROM bonus_cursor WHERE id = ${SAFE_CURSOR}`;
+  const env = [process.env.SAFE_INDEX_START_BLOCK, process.env.BONUS_INDEX_START_BLOCK].map((v) => v?.trim()).find((v) => v && /^\d+$/.test(v));
+  const from = cur?.block != null
+    ? BigInt(cur.block) + 1n
+    : (d.startBlock ?? (env ? BigInt(env) : head > FIRST_LOOKBACK ? head - FIRST_LOOKBACK : 0n));
+  let booked = 0;
+  if (from > head) return { from, to: head, next: from, booked };
+  const safe = lower(d.chain.safe) as Hex;
+  const times = new Map<bigint, Date>();
+  const time = async (b: bigint) => {
+    if (!times.has(b)) times.set(b, await d.rpc.blockTime(b));
+    return times.get(b)!;
+  };
+  const scan = await scanForward({
+    from,
+    to: head,
+    maxCalls: d.maxCalls,
+    deadline: toDeadline(d),
+    sleep: d.sleep,
+    onRange: async (lo, hi) => {
+      const byTx = new Map<string, { block: bigint; logs: RawLog[] }>();
+      for (const l of await read(lo, hi, safe)) {
+        const t = byTx.get(lower(l.txHash)) ?? { block: l.blockNumber, logs: [] };
+        t.logs.push({ address: l.address, topics: l.topics, data: l.data, logIndex: l.logIndex });
+        byTx.set(lower(l.txHash), t);
+      }
+      const found = [...byTx].flatMap(([hash, t]) => bonusDeposits(t.logs, safe, d.chain).map((x) => ({ hash, block: t.block, ...x })));
+      const coins = [...new Set(found.map((x) => x.coin).filter((c): c is string => c !== null))];
+      const ours = coins.length
+        ? new Set((await sql()<{ coin: string }[]>`SELECT lower(coin_address) AS coin FROM projects WHERE lower(coin_address) IN ${sql()(coins)}`).map((r) => r.coin))
+        : new Set<string>();
+      for (const x of found) {
+        if (!x.coin || !ours.has(x.coin)) continue;
+        const at = await time(x.block);
+        const ins = await sql()`
+          INSERT INTO safe_fees (tx_hash, log_index, coin, amount_wei, block_number, block_time)
+          VALUES (${x.hash}, ${x.logIndex}, ${x.coin}, ${x.amount.toString()}, ${x.block.toString()}, ${at})
+          ON CONFLICT DO NOTHING RETURNING 1`;
+        booked += ins.length;
+      }
+      await sql()`
+        INSERT INTO bonus_cursor (id, block) VALUES (${SAFE_CURSOR}, ${hi.toString()})
+        ON CONFLICT (id) DO UPDATE SET block = EXCLUDED.block, updated_at = now()
+        WHERE bonus_cursor.block IS NULL OR bonus_cursor.block < EXCLUDED.block`;
+    },
+  });
+  return { from, to: head, next: scan.next, booked, ...(scan.rateLimited && { rateLimited: true }), ...(scan.outOfTime && { outOfTime: true }) };
 }
 
 /** A claim's or collect's result when the payout wallet can't pay its gas (the cron waits on the owner). */
@@ -1025,6 +1107,8 @@ export async function runBonusLedger(deps: BonusDeps = {}) {
     };
     await step('index', () => indexDeposits(account.address, d));
     out.index_failures = await countIndexRun(out.index !== 'failed');
+    // v2.13.2 (2): the Safe's own deposits from EarnKit coins (both splits), for /api/stats. Flag off: no step.
+    if (benchEnabled()) await step('safe_index', () => indexSafeFees(d));
     // I5: one nonce floor for the run, seeded once from the stored, unmined sends.
     d.nonces.next = Math.max(d.nonces.next, ...(await openStoredSends(account)).map((o) => o.nonce + 1));
     // Stored sends first, so a new claim or collect never takes their nonce (fix round 1, I2).
