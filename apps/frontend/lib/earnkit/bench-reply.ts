@@ -48,10 +48,9 @@ export const NO_OFFER_LINE = NO_PROJECT_LINE;
  * Never the generic tip jar: a build is offered only for a specific open program whose starter can
  * compete (startBuildAsk); otherwise this line is the last line.
  */
-export const START_ASK = "Send me your GitHub or a link to something you've made and I'll put it on the Bench and find money it can win.";
-/** Ruling A: the build, aimed at one open program (its owner-set starter), offered beside existing work. */
-export const startBuildAsk = (offer: string, program: string) =>
-  `Send me your GitHub or a link to something you've made and I'll put it on the Bench. Or want me to build ${offer} for ${program}?`;
+export const START_ASK = "I'll put your work on the Bench and find money it can win. What's your GitHub, or a link to something you've made?";
+/** Ruling A: the build, aimed at one open program (its owner-set starter), as part of the same last question. */
+export const startBuildAsk = (offer: string, program: string) => `${START_ASK} Or want me to build ${offer} for ${program}?`;
 /** v2.13.3 (4): the X claim, a line (never a second ask). */
 export const claimLine = (link: string) => `Your page: claim it with X at ${link}`;
 /** v2.13.1 O2 (B4): a build is in progress: the whole stand part, no ask. */
@@ -78,8 +77,8 @@ export const copyLine = (name: string) => `${name} is a copy of another repo. Us
 export const cantSeeLine = (name: string) => `I can't see ${name}. EarnKit can only see public repos right now.`;
 /** v2.13.3 (5): the App is on: the repo is private or unseen, until EarnKit is installed on it. */
 export const appCantSeeLine = (name: string) => `EarnKit can't see ${name} yet.`;
-/** v2.13.3 (5), the owner's words: the install link (the App proof link: sign-in hop, then install) is the reply's one link. */
-export const installAppAsk = (name: string, link: string) => `Want me to add ${name}? Install EarnKit on it (read-only) here: ${link}`;
+/** v2.13.3 (5): the install link (the App proof link: sign-in hop, then install) is the reply's one link; the question is last. */
+export const installAppAsk = (name: string, link: string) => `Install EarnKit on ${name} (read-only) here: ${link}. Want me to add it once that's done?`;
 /** v2.13.3 (5): unclaimed, the X claim is the one link; the install link comes in the next reply. */
 export const installAfterClaimAsk = (name: string) => `Want me to add ${name} after you claim your page?`;
 /** v2.13.1 O1 fix round 1 (ruling c): an agent that can't push gets no proof branch. O5 N15: names the project and why. */

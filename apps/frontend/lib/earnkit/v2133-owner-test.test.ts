@@ -58,7 +58,7 @@ const uniq = (p: string) => `${p}${RUN}${++seq}`;
 const ON = { EARNKIT_BUILDER_SCORE: 'on', EARNKIT_BENCH: 'on', EARNKIT_URL: undefined, ...X_ON };
 const on = <T>(fn: () => Promise<T>) => withEnv(ON, fn);
 const NO_MATCH = { matchProjects: async () => ({ checked: 1, scored: 0, fits: [] }) };
-const links = (t: string) => t.match(/https?:\/\/\S+/g) ?? [];
+const links = (t: string) => (t.match(/https?:\/\/\S+/g) ?? []).map((l) => l.replace(/[.,]$/, ''));
 const questions = (t: string) => (t.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length;
 const STARTER_ID = `v2133-tip-${RUN}`;
 const OWN_FRESH = { deployOn: () => true, hostOn: true, canBuild: true, starters: { [STARTER_ID]: { ...TESTED_STARTERS['arc-tipjar'], id: STARTER_ID } } };
@@ -190,13 +190,18 @@ test('2.2 no project and a project not yet confirmed: up to 2 open programs with
 test('3.1 no project (ruling A): "You\'re not on the Bench yet." and existing work first; never the generic tip jar; a build only aimed at a program whose starter competes', dbTest, () =>
   on(async () => {
     assert.equal(NO_PROJECT_LINE, "You're not on the Bench yet.");
-    assert.equal(START_ASK, "Send me your GitHub or a link to something you've made and I'll put it on the Bench and find money it can win.");
+    // Coordinator ruling (v2.13.3): one question, last.
+    assert.equal(START_ASK, "I'll put your work on the Bench and find money it can win. What's your GitHub, or a link to something you've made?");
+    assert.equal(startBuildAsk('a tip jar on Arc', 'Arc Microgrants'),
+      "I'll put your work on the Bench and find money it can win. What's your GitHub, or a link to something you've made? Or want me to build a tip jar on Arc for Arc Microgrants?");
     // No program with a starter that can compete open: the line, no build offer, money shown.
     const id = await install();
     const r = await find(id, { agent_can_build: true }, { ...NO_MATCH, freshDeps: OWN_FRESH });
     const lines = r.show_to_builder.split('\n');
     assert.equal(lines[1], NO_PROJECT_LINE, r.show_to_builder);
     assert.equal(lines.at(-1), START_ASK);
+    assert.equal(questions(r.show_to_builder), 1);
+    assert.ok(r.show_to_builder.endsWith('?'));
     assert.doesNotMatch(r.show_to_builder, /tip jar/i);
     assert.equal(r.build_offer, undefined);
     assert.match(r.show_to_builder, new RegExp(`^${BENCH_HEADS.fund}$`, 'm'));
@@ -217,7 +222,9 @@ test('3.1 no project (ruling A): "You\'re not on the Bench yet." and existing wo
       const b = await install();
       const rb = await find(b, { agent_can_build: true }, { ...NO_MATCH, freshDeps: OWN_FRESH });
       assert.equal(rb.show_to_builder.split('\n').at(-1), startBuildAsk('a tip jar on Arc', arc.title), rb.show_to_builder);
-      assert.equal(questions(rb.show_to_builder), 1);
+      // The build option is part of the same last question.
+      assert.ok(rb.show_to_builder.endsWith('?'));
+      assert.equal(rb.show_to_builder.split('\n').filter((l) => l.includes('?')).length, 1, 'one line asks');
       assert.equal(rb.move_up?.kind, 'build');
       assert.equal(rb.move_up?.agent_note, START_NOTE);
       const by = (await tools.tell({ move_up: { kind: 'build', project_key: null, answer: 'yes' } }, { installationId: b } as never)) as { agent_note?: string };
@@ -331,6 +338,8 @@ test('5.2 App on, a private org repo: unclaimed, the X claim first (no App link)
       assert.equal(r1.show_to_builder.split('\n')[2], claimLine(r1.claim!.link));
       assert.equal(links(r1.show_to_builder).length, 1, r1.show_to_builder);
       assert.equal(r1.show_to_builder.split('\n').at(-1), installAfterClaimAsk('earnkit'));
+      assert.equal(questions(r1.show_to_builder), 1);
+      assert.ok(r1.show_to_builder.endsWith('?'));
       assert.equal(r1.move_up?.kind, 'install_app');
       assert.equal(r1.move_up?.agent_note, INSTALL_APP_NOTE);
       assert.equal(r1.proof, undefined);
@@ -341,8 +350,9 @@ test('5.2 App on, a private org repo: unclaimed, the X claim first (no App link)
       assert.equal(ls.length, 1, r2.show_to_builder);
       assert.match(ls[0], /^https:\/\/earnkit\.com\/github\/verify\?n=/);
       assert.equal(r2.show_to_builder.split('\n').at(-1), installAppAsk('earnkit', ls[0]));
-      assert.equal(installAppAsk('Recipe planner', 'L'), 'Want me to add Recipe planner? Install EarnKit on it (read-only) here: L');
+      assert.equal(installAppAsk('Recipe planner', 'L'), "Install EarnKit on Recipe planner (read-only) here: L. Want me to add it once that's done?");
       assert.equal(questions(r2.show_to_builder), 1);
+      assert.ok(r2.show_to_builder.endsWith('?'), 'the question is last');
       assert.equal(r2.proof, undefined, 'no branch before the App can read the repo');
       // Installed: the next find reads the repo with the per-call token and gives the branch.
       await installApp(id, key, login);
@@ -399,7 +409,7 @@ test('5.3 App on, but the proof is another person\'s: their installation never r
     const r = await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
     assert.equal(r.proof, undefined, r.show_to_builder);
     assert.equal(gh.minted.length, 0, 'no token for a proof that is not this person\'s');
-    assert.match(r.show_to_builder, /Install EarnKit on it \(read-only\)/);
+    assert.match(r.show_to_builder, /Install EarnKit on earnkit \(read-only\) here: /);
   }));
 
 // ---- Owner rulings A and B (2026-10-17) ----------------------------------------------------------

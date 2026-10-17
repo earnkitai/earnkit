@@ -5341,10 +5341,10 @@ Brief: `.superpowers/sdd/v2.13.3/brief.md`, plus owner rulings A, B, C sent the 
   Avalanche app", "once your code is on GitHub", "for any app"). Rendered by `bench-reply.ts needsLine`
   ("<title>: <prize> <needs>."), after the fits and the ideas. Never says it fits.
 - **3 and ruling A, no project.** `NO_PROJECT_LINE` is "You're not on the Bench yet." The last line is `START_ASK`
-  ("Send me your GitHub or a link to something you've made and I'll put it on the Bench and find money it can win.",
+  ("I'll put your work on the Bench and find money it can win. What's your GitHub, or a link to something you've made?",
   ask kind `start`, its yes `START_YES_NOTE`). Never the generic starter with no program: `withNoProgram` returns only a
   program's own fresh build (program file `fresh_build`, the owner's call that the starter competes there); then the ask
-  is `startBuildAsk(offer, program)` (kind `build`, its yes the v2.11 build for that program). Both carry `START_NOTE`:
+  is `startBuildAsk(offer, program)` (START_ASK plus "Or want me to build <offer> for <program>?", kind `build`, its yes the v2.11 build for that program). Both carry `START_NOTE`:
   a GitHub login or a link goes to find with identity. The reserved `earnkit-bench` build still runs if started, but
   find never offers it.
 - **Ruling A, a project.** `chooseAsk`: a different project (can't join) first, then the best fit's entry, then a
@@ -5354,7 +5354,7 @@ Brief: `.superpowers/sdd/v2.13.3/brief.md`, plus owner rulings A, B, C sent the 
 - **4. The claim link is a line:** `claimLine` "Your page: claim it with X at <link>".
 - **5. Private and org repos (the read-only GitHub App).** When the one project's repo probes 404 and
   `githubAppEnabled()`: the view's branch is `private` ("EarnKit can't see <project> yet."); claimed, the ask is
-  `install_app` with `installAppAsk(name, link)` (the v2.10 App proof link, `createVerifyLink` purpose `app`: the sign-in
+  `install_app` with `installAppAsk(name, link)` ("Install EarnKit on <project> (read-only) here: <link>. Want me to add it once that's done?": the question last; the v2.10 App proof link, `createVerifyLink` purpose `app`: the sign-in
   hop, then the install), the reply's one link (no page link beside it); unclaimed, the X claim is the one link and the
   ask is `installAfterClaimAsk`. Its notes: `INSTALL_APP_NOTE`, `INSTALL_APP_YES_NOTE`. App off: `cantSeeLine` "I can't
   see <project>. EarnKit can only see public repos right now." and a different project. Once installed
