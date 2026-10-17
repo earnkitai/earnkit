@@ -152,11 +152,18 @@ export type BonusRpc = PayoutRpc & {
   ethBalance: (address: Hex) => Promise<bigint>;
   /**
    * v2.13.2 (2): in `from..to`, the FeeLocker's StoreTokens logs with feeOwner = `owner` and token = WETH,
-   * and every lockers' ClaimedRewards log (what attributes a deposit to its coin, bonusDeposits), each
-   * with its transaction and block. Absent: indexSafeFees is skipped.
+   * each with its transaction and block. Absent: indexSafeFees is skipped.
    */
-  ownerLogs?: (from: bigint, to: bigint, owner: Hex) => Promise<(RawLog & { txHash: Hex; blockNumber: bigint })[]>;
+  safeStoreLogs?: (from: bigint, to: bigint, owner: Hex) => Promise<TxLog[]>;
+  /**
+   * v2.13.2 review 1a: every locker's ClaimedRewards log in `from..to` (what attributes a deposit to its
+   * coin, bonusDeposits; never filtered by coin, since attribution needs every claim in the tx). Read
+   * only across the blocks of a range's Safe deposits.
+   */
+  claimLogs?: (from: bigint, to: bigint) => Promise<TxLog[]>;
 };
+/** v2.13.2: a raw log with its transaction and block. */
+export type TxLog = RawLog & { txHash: Hex; blockNumber: bigint };
 
 /**
  * Whether a failed eth_call is the contract reverting (viem's revert errors anywhere in the cause
@@ -170,6 +177,11 @@ export function isRevert(err: unknown): boolean {
   }
   return /execution reverted|\brevert(ed)?\b/i.test(err instanceof Error ? err.message : String(err));
 }
+
+/** A viem log as a TxLog. */
+const txLog = (l: { address: string; topics: readonly string[]; data: string; logIndex: number | null; transactionHash: Hex | null; blockNumber: bigint | null }): TxLog => ({
+  address: l.address, topics: l.topics, data: l.data, logIndex: l.logIndex!, txHash: l.transactionHash!, blockNumber: l.blockNumber!,
+});
 
 /** Base over BASE_RPC_URL (the public RPC by default). */
 export function bonusRpc(url = process.env.BASE_RPC_URL, chain: BonusChain = BASE_BONUS): BonusRpc {
@@ -214,15 +226,9 @@ export function bonusRpc(url = process.env.BASE_RPC_URL, chain: BonusChain = BAS
       return { recipients: r.rewardRecipients.map(lower), bps: r.rewardBps.map(Number) };
     },
     ethBalance: (address) => c.getBalance({ address }),
-    ownerLogs: async (fromBlock, toBlock, owner) => {
-      const [stores, claims] = await Promise.all([
-        c.getLogs({ address: chain.feeLocker, event: STORE_TOKENS, args: { feeOwner: owner, token: chain.weth }, fromBlock, toBlock }),
-        c.getLogs({ address: chain.lockers, event: CLAIMED_REWARDS, fromBlock, toBlock }),
-      ]);
-      return [...stores, ...claims].map((l) => ({
-        address: l.address, topics: l.topics, data: l.data, logIndex: l.logIndex!, txHash: l.transactionHash!, blockNumber: l.blockNumber!,
-      }));
-    },
+    safeStoreLogs: async (fromBlock, toBlock, owner) =>
+      (await c.getLogs({ address: chain.feeLocker, event: STORE_TOKENS, args: { feeOwner: owner, token: chain.weth }, fromBlock, toBlock })).map(txLog),
+    claimLogs: async (fromBlock, toBlock) => (await c.getLogs({ address: chain.lockers, event: CLAIMED_REWARDS, fromBlock, toBlock })).map(txLog),
   };
 }
 
@@ -503,11 +509,12 @@ const SAFE_CURSOR = 'safe';
  * reads); a deposit from a coin EarnKit didn't launch (any other tokens.fun coin) is never stored.
  * Booking is idempotent on (tx_hash, log_index); a range is booked completely before the cursor passes
  * it. With no cursor: `d.startBlock`, else SAFE_INDEX_START_BLOCK, else BONUS_INDEX_START_BLOCK, else
- * FIRST_LOOKBACK blocks back. Run by runBonusLedger under the Bench flag only.
+ * FIRST_LOOKBACK blocks back. Run by runBonusLedger under the Bench flag only, through safeIndexStep.
  */
 export async function indexSafeFees(d: BonusDeps & { rpc: BonusRpc; chain: BonusChain }) {
-  const read = d.rpc.ownerLogs;
-  if (!read) return { skipped: 'no reader' as const };
+  const readStores = d.rpc.safeStoreLogs;
+  const readClaims = d.rpc.claimLogs;
+  if (!readStores || !readClaims) return { skipped: 'no reader' as const };
   const head = (await d.rpc.blockNumber()) - CONFIRMATIONS;
   const [cur] = await sql()<{ block: string | null }[]>`SELECT block::text AS block FROM bonus_cursor WHERE id = ${SAFE_CURSOR}`;
   const env = [process.env.SAFE_INDEX_START_BLOCK, process.env.BONUS_INDEX_START_BLOCK].map((v) => v?.trim()).find((v) => v && /^\d+$/.test(v));
@@ -529,11 +536,20 @@ export async function indexSafeFees(d: BonusDeps & { rpc: BonusRpc; chain: Bonus
     deadline: toDeadline(d),
     sleep: d.sleep,
     onRange: async (lo, hi) => {
+      // Review 1a: the Safe's deposits first; the claims only when there are some, only across their blocks.
+      const stores = await readStores(lo, hi, safe);
       const byTx = new Map<string, { block: bigint; logs: RawLog[] }>();
-      for (const l of await read(lo, hi, safe)) {
-        const t = byTx.get(lower(l.txHash)) ?? { block: l.blockNumber, logs: [] };
-        t.logs.push({ address: l.address, topics: l.topics, data: l.data, logIndex: l.logIndex });
-        byTx.set(lower(l.txHash), t);
+      const add = (l: TxLog) => {
+        const t = byTx.get(lower(l.txHash));
+        if (t) t.logs.push({ address: l.address, topics: l.topics, data: l.data, logIndex: l.logIndex });
+      };
+      for (const l of stores) if (!byTx.has(lower(l.txHash))) byTx.set(lower(l.txHash), { block: l.blockNumber, logs: [] });
+      stores.forEach(add);
+      if (stores.length) {
+        const blocks = stores.map((l) => l.blockNumber);
+        const min = blocks.reduce((a, b) => (b < a ? b : a));
+        const max = blocks.reduce((a, b) => (b > a ? b : a));
+        (await readClaims(min, max)).forEach(add);
       }
       const found = [...byTx].flatMap(([hash, t]) => bonusDeposits(t.logs, safe, d.chain).map((x) => ({ hash, block: t.block, ...x })));
       const coins = [...new Set(found.map((x) => x.coin).filter((c): c is string => c !== null))];
@@ -556,6 +572,30 @@ export async function indexSafeFees(d: BonusDeps & { rpc: BonusRpc; chain: Bonus
     },
   });
   return { from, to: head, next: scan.next, booked, ...(scan.rateLimited && { rateLimited: true }), ...(scan.outOfTime && { outOfTime: true }) };
+}
+
+/** v2.13.2 review 1b: the Safe index's own time slice per run, ms (never the money steps' time). */
+export const SAFE_INDEX_MS = 30_000;
+/** v2.13.2 review 1b: the Safe index's ranges per run (each one or two getLogs). */
+export const SAFE_INDEX_CALLS_PER_RUN = 10;
+
+/**
+ * v2.13.2 review 1b, M3: the ledger's last step (after claim_others): indexSafeFees within its own slice
+ * (SAFE_INDEX_MS, `safeIndexMs`, never past the run's deadline) and SAFE_INDEX_CALLS_PER_RUN ranges;
+ * failures in a row are counted on the 'safe' cursor row (`safe_index_failures`), and
+ * INDEX_FAILED_RUNS of them make the cron wait on the owner (cron.ts bonusWaitsOnOwner), as the bonus index.
+ */
+export async function safeIndexStep(d: BonusDeps & { rpc: BonusRpc; chain: BonusChain; safeIndexMs?: number }) {
+  let safe_index: unknown;
+  let ok = true;
+  try {
+    safe_index = await indexSafeFees({ ...d, deadline: Math.min(toDeadline(d), Date.now() + (d.safeIndexMs ?? SAFE_INDEX_MS)), maxCalls: SAFE_INDEX_CALLS_PER_RUN });
+  } catch (err) {
+    console.error('[bonus] safe_index', err);
+    safe_index = 'failed';
+    ok = false;
+  }
+  return { safe_index, safe_index_failures: await countIndexRun(ok, SAFE_CURSOR) };
 }
 
 /** A claim's or collect's result when the payout wallet can't pay its gas (the cron waits on the owner). */
@@ -1053,9 +1093,9 @@ export async function sweepToSafe(account: LocalAccount, d: BonusDeps & { rpc: B
 }
 
 /** Index steps failing in a row (reset by one that completes); stored on the cursor row. */
-async function countIndexRun(ok: boolean) {
+async function countIndexRun(ok: boolean, id: string = CURSOR) {
   const [r] = await sql()<{ index_failures: number }[]>`
-    INSERT INTO bonus_cursor (id, block, index_failures) VALUES (${CURSOR}, NULL, ${ok ? 0 : 1})
+    INSERT INTO bonus_cursor (id, block, index_failures) VALUES (${id}, NULL, ${ok ? 0 : 1})
     ON CONFLICT (id) DO UPDATE SET index_failures = ${ok ? 0 : sql()`bonus_cursor.index_failures + 1`}
     RETURNING index_failures`;
   return r.index_failures;
@@ -1107,8 +1147,6 @@ export async function runBonusLedger(deps: BonusDeps = {}) {
     };
     await step('index', () => indexDeposits(account.address, d));
     out.index_failures = await countIndexRun(out.index !== 'failed');
-    // v2.13.2 (2): the Safe's own deposits from EarnKit coins (both splits), for /api/stats. Flag off: no step.
-    if (benchEnabled()) await step('safe_index', () => indexSafeFees(d));
     // I5: one nonce floor for the run, seeded once from the stored, unmined sends.
     d.nonces.next = Math.max(d.nonces.next, ...(await openStoredSends(account)).map((o) => o.nonce + 1));
     // Stored sends first, so a new claim or collect never takes their nonce (fix round 1, I2).
@@ -1126,6 +1164,9 @@ export async function runBonusLedger(deps: BonusDeps = {}) {
     // never take time from the bonus payouts or the sweep; only when no stored send waits.
     if (settled) await step('claim_others', () => claimForOthers(account, d));
     else out.claim_others = 'waiting on a stored send';
+    // v2.13.2 (2), review 1c: the Safe's own deposits from EarnKit coins (both splits), for /api/stats,
+    // last, in its own slice, so the money steps always run first. Flag off: no step.
+    if (benchEnabled()) Object.assign(out, await safeIndexStep(d));
     return out;
   }, leaseMs);
   return r === 'busy' ? { skipped: 'busy' } : r;

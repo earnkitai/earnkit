@@ -7,7 +7,7 @@ import { repoEverDerived } from './github-verify';
 import { REPO_KEY, benchConfirmedSql, mainProjectOf } from './main-project';
 import { profileChanged } from './profile-cache';
 import { setFallback } from './profiles';
-import { hit } from './rate-limit';
+import { hit, windowStart } from './rate-limit';
 import { defaultReaderDeps, type ReaderDeps } from './source-readers';
 
 /**
@@ -604,32 +604,69 @@ export async function proofBranchStep(
  * and its person is rescored at once (off the Bench until re-proven). The proof stays 'proof_branch', so
  * discovery's not_owner verdict still never rejects it; find then issues a fresh proof branch
  * (proofBranchFor: `again`). A pass of that branch verifies it again and clears the note. User-owned
- * repos never expire.
+ * repos never expire. Review M1: one person at a time (their rows, then their rescore), stopping at
+ * `deadline`: the rest stay verified for the next run. A rescore that fails puts that person's rows back
+ * to verified and throws. `done`: every expired row was handled (none left over at `limit` or the deadline).
  */
-export async function expireOrgProofs(now: Date, o: { only?: number[]; limit?: number } = {}): Promise<{ expired: number }> {
+export async function expireOrgProofs(
+  now: Date,
+  o: { only?: number[]; limit?: number; deadline?: number; rescore?: (id: number, now: Date) => Promise<unknown> } = {},
+): Promise<{ expired: number; done: boolean }> {
   const db = sql();
   const only = o.only ? db`AND builder_id IN ${db(o.only.length ? o.only : [-1])}` : db``;
-  const gone = await db<{ builder_id: number }[]>`
-    UPDATE builder_sources SET state = 'proposed', reject_reason = ${STALE}
-    WHERE id IN (
-      SELECT id FROM builder_sources
-      WHERE kind = 'repo' AND state = 'verified' AND proof = 'proof_branch' AND gh_owner_type = 'Organization'
-        AND verified_at <= ${new Date(now.getTime() - ORG_PROOF_MAX_AGE_MS)} ${only}
-      ORDER BY verified_at, id LIMIT ${o.limit ?? ORG_PROOF_PER_RUN})
-      AND state = 'verified'
-    RETURNING builder_id::int AS builder_id`;
-  const people = [...new Set(gone.map((g) => g.builder_id))];
-  const { rescorePerson } = await import('./person-score');
-  for (const id of people) await rescorePerson(id, now);
-  if (people.length) profileChanged();
-  return { expired: gone.length };
+  const limit = o.limit ?? ORG_PROOF_PER_RUN;
+  const cutoff = new Date(now.getTime() - ORG_PROOF_MAX_AGE_MS);
+  const due = await db<{ id: number; builder_id: number }[]>`
+    SELECT id::int AS id, builder_id::int AS builder_id FROM builder_sources
+    WHERE kind = 'repo' AND state = 'verified' AND proof = 'proof_branch' AND gh_owner_type = 'Organization'
+      AND verified_at <= ${cutoff} ${only}
+    ORDER BY verified_at, id LIMIT ${limit + 1}`;
+  const rows = due.slice(0, limit);
+  const people = [...new Set(rows.map((r) => r.builder_id))];
+  const rescore = o.rescore ?? (async (id: number, at: Date) => (await import('./person-score')).rescorePerson(id, at));
+  let expired = 0;
+  let cut = false;
+  for (const person of people) {
+    if (Date.now() >= (o.deadline ?? Infinity)) {
+      cut = true;
+      break;
+    }
+    const ids = rows.filter((r) => r.builder_id === person).map((r) => r.id);
+    const gone = await db<{ id: number }[]>`
+      UPDATE builder_sources SET state = 'proposed', reject_reason = ${STALE}
+      WHERE id IN ${db(ids)} AND state = 'verified' AND verified_at <= ${cutoff} RETURNING id::int AS id`;
+    if (!gone.length) continue;
+    try {
+      await rescore(person, now);
+    } catch (err) {
+      await db`UPDATE builder_sources SET state = 'verified', reject_reason = NULL WHERE id IN ${db(gone.map((g) => g.id))} AND state = 'proposed' AND reject_reason = ${STALE}`;
+      throw err;
+    }
+    expired += gone.length;
+  }
+  if (expired) profileChanged();
+  return { expired, done: !cut && due.length <= limit };
 }
 
+/** v2.13.2 (1): the expiry's daily slot key. */
+const expiryKey = (now: Date) => `orgProofExpiry:${now.toISOString().slice(0, 10)}`;
+
 /**
- * v2.13.2 (1): the cron's daily expiry step (the hourly run, the first run of each UTC day; a run for
- * `only` people runs for them and leaves the day's run alone). Bounded by ORG_PROOF_PER_RUN.
+ * v2.13.2 (1): the cron's daily expiry step (the hourly run, until one run of the UTC day finishes; a run
+ * for `only` people runs for them and leaves the day alone). Review M1: the day's slot is taken only after
+ * a run that handled every expired row and its rescore; an error, the deadline or the per-run bound
+ * leaves it open, so the next hourly run carries on. `expire`: tests only.
  */
-export async function orgProofExpiryStep(now: Date, o: { only?: number[] } = {}): Promise<{ step: 'skipped' } | { expired: number }> {
-  if (!o.only && !(await hit(`orgProofExpiry:${now.toISOString().slice(0, 10)}`, 1, 86_400, now)).allowed) return { step: 'skipped' };
-  return expireOrgProofs(now, { only: o.only });
+export async function orgProofExpiryStep(
+  now: Date,
+  o: { only?: number[]; deadline?: number; expire?: typeof expireOrgProofs } = {},
+): Promise<{ step: 'skipped' } | { expired: number; done: boolean }> {
+  const expire = o.expire ?? expireOrgProofs;
+  if (o.only) return expire(now, { only: o.only, deadline: o.deadline });
+  const db = sql();
+  const [taken] = await db`SELECT 1 FROM rate_windows WHERE key = ${expiryKey(now)} AND window_start = ${windowStart(now, 86_400_000)} AND count >= 1`;
+  if (taken) return { step: 'skipped' };
+  const r = await expire(now, { deadline: o.deadline });
+  if (r.done) await hit(expiryKey(now), 1, 86_400, now);
+  return r;
 }

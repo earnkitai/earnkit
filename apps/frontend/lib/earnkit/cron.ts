@@ -538,7 +538,7 @@ export async function deployerGas(now: Date, deps: Pick<DeployDeps, 'chain' | 'u
 
 /**
  * Whether the bonus ledger's run waits on the owner (the cron answers 503): its sweep's note does
- * (needsOwner), its index failed INDEX_FAILED_RUNS runs in a row, or (v2.9 D17) the payout wallet is
+ * (needsOwner), its index (or, v2.13.2, its Safe index) failed INDEX_FAILED_RUNS runs in a row, or (v2.9 D17) the payout wallet is
  * low on ETH for gas, or a claim (its own or a creator's or MINI's) or collect result says it needs
  * ETH for gas. Pure.
  */
@@ -548,6 +548,8 @@ export function bonusWaitsOnOwner(bonus: Record<string, unknown> | undefined) {
   return (
     needsOwner((bonus?.sweep as { result?: string } | undefined)?.result) ||
     Number(bonus?.index_failures ?? 0) >= INDEX_FAILED_RUNS ||
+    // v2.13.2 review M3: the Safe index (Bench flag) failing as many runs in a row.
+    Number(bonus?.safe_index_failures ?? 0) >= INDEX_FAILED_RUNS ||
     (bonus?.gas as { low?: boolean } | undefined)?.low === true ||
     gasOut(bonus?.claim) ||
     gasOut(bonus?.claim_others) ||

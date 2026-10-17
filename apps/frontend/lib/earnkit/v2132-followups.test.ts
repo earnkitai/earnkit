@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { sql } from './db';
 import { X_ON, find, install, withEnv } from './fixtures/find';
-import { fakeGitHub } from './fixtures/fake-github-branch';
-import { ORG_PROOF_MAX_AGE_MS, checkProofBranch, expireOrgProofs } from './proof-branch';
+import { fakeGitHub, idOf } from './fixtures/fake-github-branch';
+import { ORG_PROOF_MAX_AGE_MS, checkProofBranch, expireOrgProofs, orgProofExpiryStep } from './proof-branch';
 import { benchReply, stillYoursLine, type BenchView } from './bench-reply';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -13,7 +13,6 @@ import BenchPage, { BENCH_EMPTY, benchLine } from '../../app/bench/BenchView';
 import { BENCH_TOP_EMPTY } from '../../app/components/sections/BenchTop';
 import { discoverPerson } from './discovery';
 import type { ReaderDeps } from './source-readers';
-import { idOf } from './fixtures/fake-github-branch';
 
 /**
  * v2.13.2 follow-ups. 1: an Organization's repo confirmed by a proof branch expires 90 days after it
@@ -79,16 +78,16 @@ test('v2.13.2 1: an org proof at 89 days stays; at 91 days it is proposed (stale
     gh.repos[org] = { owner: { login: org.split('/')[0], type: 'Organization' } };
     const id = await confirmed(gh, org, uniq('member'));
     await verifiedAgo(id, 89);
-    assert.deepEqual(await expireOrgProofs(new Date(), { only: [id] }), { expired: 0 });
+    assert.deepEqual(await expireOrgProofs(new Date(), { only: [id] }), { expired: 0, done: true });
     assert.deepEqual(await source(id, org), { state: 'verified', proof: 'proof_branch', reject_reason: null });
     assert.equal(await ranked(id), true);
 
     await verifiedAgo(id, 91);
-    assert.deepEqual(await expireOrgProofs(new Date(), { only: [id] }), { expired: 1 });
+    assert.deepEqual(await expireOrgProofs(new Date(), { only: [id] }), { expired: 1, done: true });
     assert.deepEqual(await source(id, org), { state: 'proposed', proof: 'proof_branch', reject_reason: 'stale' });
     assert.equal(await ranked(id), false, 'rescored at once: off the Bench');
     // Run again: nothing more to do.
-    assert.deepEqual(await expireOrgProofs(new Date(), { only: [id] }), { expired: 0 });
+    assert.deepEqual(await expireOrgProofs(new Date(), { only: [id] }), { expired: 0, done: true });
 
     // find issues a fresh proof branch, with the still-yours line.
     await recheckable(id);
@@ -113,7 +112,7 @@ test('v2.13.2 1: a user-owned proof at 200 days stays', dbTest, () =>
     const key = `${uniq('maya')}/recipes`;
     const id = await confirmed(gh, key);
     await verifiedAgo(id, 200);
-    assert.deepEqual(await expireOrgProofs(new Date(), { only: [id] }), { expired: 0 });
+    assert.deepEqual(await expireOrgProofs(new Date(), { only: [id] }), { expired: 0, done: true });
     assert.deepEqual(await source(id, key), { state: 'verified', proof: 'proof_branch', reject_reason: null });
     assert.equal(await ranked(id), true);
   }),
@@ -139,7 +138,7 @@ test('v2.13.2 fix 1 (concern 3): a stale org repo comes back only through a fres
     const member = uniq('member');
     const id = await confirmed(gh, org, member);
     await verifiedAgo(id, 91);
-    assert.deepEqual(await expireOrgProofs(new Date(), { only: [id] }), { expired: 1 });
+    assert.deepEqual(await expireOrgProofs(new Date(), { only: [id] }), { expired: 1, done: true });
     // GitHub says the person is the org repo's top contributor (discovery's repo_owner rule for org repos).
     const reader = new Proxy({}, {
       get: (_t, k) => {
@@ -179,4 +178,47 @@ test('v2.13.2 fix 1 (concern 4): nobody ranked: the empty line once; a filtered 
   assert.ok(filtered.includes(BENCH_EMPTY));
   assert.ok(filtered.includes('5 builders who ship'));
   assert.ok(!page(1, 1).includes(BENCH_EMPTY));
+});
+
+// ---- Review round (M1)
+
+test('v2.13.2 review 2 (M1): the expiry stops at the deadline (leftovers stay for the next run); a failed rescore puts the row back', dbTest, () =>
+  withEnv(ON, async () => {
+    const gh = fakeGitHub();
+    const org = `${uniq('acme')}/app`;
+    gh.repos[org] = { owner: { login: org.split('/')[0], type: 'Organization' } };
+    const id = await confirmed(gh, org, uniq('member'));
+    await verifiedAgo(id, 91);
+    // Past the deadline: nothing done, not done.
+    assert.deepEqual(await expireOrgProofs(new Date(), { only: [id], deadline: Date.now() - 1 }), { expired: 0, done: false });
+    assert.equal((await source(id, org))?.state, 'verified');
+    // A rescore that fails: the error surfaces and the row is verified again (picked up next run).
+    await assert.rejects(expireOrgProofs(new Date(), { only: [id], rescore: async () => { throw new Error('rescore down'); } }), /rescore down/);
+    assert.deepEqual(await source(id, org), { state: 'verified', proof: 'proof_branch', reject_reason: null });
+    // Then a run that completes.
+    assert.deepEqual(await expireOrgProofs(new Date(), { only: [id] }), { expired: 1, done: true });
+    assert.equal((await source(id, org))?.reject_reason, 'stale');
+  }),
+);
+
+test('v2.13.2 review 2 (M1): the day\'s slot is taken only after a run that finished; an error or a cut run retries next run', dbTest, async () => {
+  const now = new Date(Date.UTC(2099, 0, Number.parseInt(RUN.slice(0, 2), 16) % 28 + 1, 12));
+  const key = `orgProofExpiry:${now.toISOString().slice(0, 10)}`;
+  await sql()`DELETE FROM rate_windows WHERE key = ${key}`;
+  let calls = 0;
+  const step = (r: { expired: number; done: boolean } | Error) =>
+    orgProofExpiryStep(now, { deadline: Date.now() + 5_000, expire: async () => {
+      calls++;
+      if (r instanceof Error) throw r;
+      return r;
+    } });
+  try {
+    await assert.rejects(step(new Error('db down')), /db down/);
+    assert.deepEqual(await step({ expired: 100, done: false }), { expired: 100, done: false });
+    assert.deepEqual(await step({ expired: 3, done: true }), { expired: 3, done: true });
+    assert.deepEqual(await step({ expired: 9, done: true }), { step: 'skipped' });
+    assert.equal(calls, 3, 'the day is done after the run that finished');
+  } finally {
+    await sql()`DELETE FROM rate_windows WHERE key = ${key}`;
+  }
 });

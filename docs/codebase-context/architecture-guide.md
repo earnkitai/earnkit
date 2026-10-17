@@ -5278,9 +5278,12 @@ unchanged (no new cron step, the v2.5 stats formula, `/bench` a 404).
   `'proposed'` with `reject_reason = 'stale'` (`STALE`) and rescores the person at once, so they leave the Bench
   (the Bench reads `benchConfirmedSql` live). The proof stays `proof_branch`, so discovery's not_owner exemption
   (unchanged, not_owner only) still keeps the row out of `rejected` and the re-proof open. The cron step
-  `proof_expiry` (`builder-score.ts runScoreSteps`, after `proof_branch`) runs `orgProofExpiryStep`: once a UTC
-  day through the `orgProofExpiry:<day>` rate window, at most `ORG_PROOF_PER_RUN` (100) a run; a run for `only`
-  people runs for them without using the day's window. `proofBranchFor` treats a stale source as unconfirmed
+  `proof_expiry` (`builder-score.ts runScoreSteps`, after `proof_branch`) runs `orgProofExpiryStep`: at most
+  `ORG_PROOF_PER_RUN` (100) a run, one person at a time (their rows, then their rescore), stopping at the cron's
+  deadline; the `orgProofExpiry:<day>` rate window is taken only after a run that handled every expired row
+  (review M1), so an error, the deadline or the bound leaves it open and the next hourly run carries on; a
+  failed rescore puts that person's rows back to verified. A run for `only` people runs for them without the
+  day's window. `proofBranchFor` treats a stale source as unconfirmed
   even after a used code and marks its checking state `again`; the reply (`bench-find.ts` view `'recheck'`)
   says "Time to show <project> is still yours: I'll check with a quick temporary branch on GitHub." A pass
   verifies the repo again and clears the note. User-owned repos (owner = pusher) never expire. Fix round 1
@@ -5289,11 +5292,16 @@ unchanged (no new cron step, the v2.5 stats formula, `/bench` a 404).
   verdict and no clue scan) and `sources.ts verifySource` refuses it in SQL; only `checkProofBranch` writes it back.
 - **The Safe's revenue stat.** `fees_to_safe_eth` (`stats.ts`) used to be the indexed bonus deposits x 30/20,
   which only sees v2.5's 4-slot coins. Under the Bench the bonus ledger also indexes the Safe's own FeeLocker
-  deposits from EarnKit coins into `safe_fees` (`bonus-ledger.ts indexSafeFees`, step `safe_index` right
-  after `index`; cursor `bonus_cursor` id `'safe'`; with no cursor it starts at `SAFE_INDEX_START_BLOCK`, else
-  `BONUS_INDEX_START_BLOCK`, else 2 days back). It reads the range's StoreTokens (feeOwner = Safe) and the
-  lockers' ClaimedRewards with two getLogs (`BonusRpc.ownerLogs`) and attributes each deposit as the bonus
-  index does (`bonusDeposits`), so it needs no receipt reads; a coin EarnKit didn't launch is never stored
+  deposits from EarnKit coins into `safe_fees` (`bonus-ledger.ts indexSafeFees`; cursor `bonus_cursor` id
+  `'safe'`; with no cursor it starts at `SAFE_INDEX_START_BLOCK`, else `BONUS_INDEX_START_BLOCK`, else 2 days
+  back). Review round: it is the ledger's last step (`safeIndexStep`, step `safe_index` after `claim_others`,
+  so the money steps always run first), in its own slice (`SAFE_INDEX_MS` 30 s, never past the run's deadline)
+  and at most `SAFE_INDEX_CALLS_PER_RUN` (10) ranges a run. Per range it reads the Safe's WETH StoreTokens
+  first (`BonusRpc.safeStoreLogs`) and only when there are some, the lockers' ClaimedRewards across just those
+  deposits' blocks (`BonusRpc.claimLogs`, never filtered by coin: attribution needs every claim in the tx); it
+  attributes each deposit as the bonus index does (`bonusDeposits`), so it needs no receipt reads. Failures
+  in a row are counted on the 'safe' cursor row (`safe_index_failures`); `INDEX_FAILED_RUNS` of them make the
+  cron wait on the owner (`cron.ts bonusWaitsOnOwner`), as the bonus index; a coin EarnKit didn't launch is never stored
   (the Safe is tokens.fun's treasury for every coin). `fee_claims` stays an ops log: a Safe claim pays all
   tokens.fun coins at once, so it can't be split by coin. The stat under the flag: indexed Safe deposits
   (`safe_fees_wei`) + 1.5x only the bonus deposits whose transaction has no indexed Safe deposit of the same

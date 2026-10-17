@@ -339,7 +339,7 @@ export async function runScoreSteps(now: Date, sliceEnd: number, deps: ScoreCron
   // v2.13.1 O1: open proof branches (at most an hour each), checked with the run's GitHub budget. Flag off: no step.
   if (benchEnabled()) await step('proof_branch', () => proofBranchStep(now, { reader, only: deps.only, deadline: sliceEnd }));
   // v2.13.2 (1): org repos' proof branches expire after 90 days (daily, bounded). Flag off: no step.
-  if (benchEnabled()) await step('proof_expiry', () => orgProofExpiryStep(now, { only: deps.only }));
+  if (benchEnabled()) await step('proof_expiry', () => orgProofExpiryStep(now, { only: deps.only, deadline: sliceEnd }));
   await step('discover', () => discover(now, { deadline: sliceEnd, reader, login: deps.login, only: deps.only }));
   await step('read', () => readSources(now, { deadline: sliceEnd, reader, only: deps.only }));
   await step('score', () => scorePeopleV2(now, { deadline: sliceEnd, only: deps.only }));

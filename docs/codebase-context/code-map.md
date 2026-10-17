@@ -1271,9 +1271,11 @@ apps/frontend/
                                indexedThrough, roundsCovered, sendCall (run nonce floor, I5),
                                runBonusLedger (the cron step; v2.9: `gas` check first; a malformed key is a skip, Ruling 19;
                                one `nonces` floor per run; `rounds` hook after the claims, before
-                               the sweep); v2.13.2: indexSafeFees (step safe_index, Bench flag only: the
-                               Safe's own deposits from EarnKit coins into safe_fees, cursor 'safe',
-                               BonusRpc.ownerLogs = StoreTokens + ClaimedRewards, no receipt reads;
+                               the sweep); v2.13.2: indexSafeFees + safeIndexStep (step safe_index, last,
+                               Bench flag only, SAFE_INDEX_MS 30 s slice, SAFE_INDEX_CALLS_PER_RUN 10: the
+                               Safe's own deposits from EarnKit coins into safe_fees, cursor 'safe';
+                               BonusRpc.safeStoreLogs first, claimLogs only across their blocks, no
+                               receipt reads; safe_index_failures -> cron bonusWaitsOnOwner;
                                test v2132-safe-fees.test.ts)
     bonus-payout.ts(+test,     v2.5 Task 7: BONUS_SPLIT_BPS, splitPool, placesFor, freezeRound,
       +anvil.test)             bonusPayoutStore (bonus_payouts), roundRows, advanceRounds (freeze,
@@ -1475,7 +1477,8 @@ apps/frontend/
                                keptBenchMatch (standing_seen.bench_match, 1 h) for a match cut by the wait;
                                v2.13.2: ORG_PROOF_MAX_AGE_MS (90 days), expireOrgProofs (an Organization's
                                proof_branch source back to proposed, reject_reason STALE 'stale', rescored),
-                               orgProofExpiryStep (cron step proof_expiry, once a UTC day, ORG_PROOF_PER_RUN),
+                               orgProofExpiryStep (cron step proof_expiry, ORG_PROOF_PER_RUN, the deadline; the
+                               day's slot taken only after a finished run),
                                proofBranchFor's checking `again` (bench-reply stillYoursLine, view 'recheck');
                                a stale source is never re-verified by discovery (discovery.ts, sources.ts verifySource);
                                tests v2132-followups.test.ts (fakeGitHub in fixtures/fake-github-branch.ts)
