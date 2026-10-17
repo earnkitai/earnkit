@@ -335,7 +335,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
   // v2.13.1 O1: a repo-key project that isn't confirmed gets the proof branch (proof-branch.ts says when).
   // O2: read before the ask, so a project being checked is asked the next Bench step (the updates yes).
   const branch = project && !project.confirmed && !building
-    ? await proofBranchFor(id, project.key, now, { canBuild: o.agentCanBuild, ghFetch: o.ghFetch, own: o.own }).catch(logged('proof branch'))
+    ? await proofBranchFor(id, project.key, now, { canBuild: o.agentCanBuild, ghFetch: o.ghFetch }).catch(logged('proof branch'))
     : null;
   // O2 fix round 1 (ruling 3): a repo another person holds is never offered a program for it.
   const taken = branch?.kind === 'taken';

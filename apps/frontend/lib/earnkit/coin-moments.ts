@@ -215,7 +215,7 @@ export async function coinYes(
   builderId: number,
   projectKey: string,
   wallet: string | null,
-  deps: { check?: TickerCheck; own?: number } = {},
+  deps: { check?: TickerCheck } = {},
 ): Promise<{ project_id: number; token: Coin; wallet: string | null; agent_note: string } | { show_to_builder: string; agent_note?: string }> {
   if (!(await guards(builderId))) return { show_to_builder: NOTED };
   const m = await momentOf(builderId, projectKey);
@@ -265,8 +265,8 @@ export async function coinYes(
     const pair = await proposeToken(safe, deps.check ?? tokensFunTickerCheck, undefined);
     const hidden: Coin = { name: pair.name, symbol: pair.symbol };
     const [{ id }] = await sql()<{ id: number }[]>`
-      INSERT INTO projects (program_id, name, repo_url, live_url, installation_id, creator_wallet, confirmed_at, confirm_choice, opened_by)
-      VALUES (${COIN_PROGRAM}, ${safe}, ${null}, ${links.live_url}, ${builderId}, ${to}, now(), 'go', ${deps.own ?? null}) RETURNING id`;
+      INSERT INTO projects (program_id, name, repo_url, live_url, installation_id, creator_wallet, confirmed_at, confirm_choice)
+      VALUES (${COIN_PROGRAM}, ${safe}, ${null}, ${links.live_url}, ${builderId}, ${to}, now(), 'go') RETURNING id`;
     await saveOffer(builderId, COIN_PROGRAM, offerKey(null, safe), hidden, false, to);
     await sql()`
       UPDATE coin_moments SET answer = 'yes', answered_at = COALESCE(answered_at, now()), project_id = ${id}
@@ -277,8 +277,8 @@ export async function coinYes(
     ? existing.id
     : (
         await sql()<{ id: number }[]>`
-          INSERT INTO projects (program_id, name, repo_url, live_url, installation_id, creator_wallet, confirmed_at, confirm_choice, opened_by)
-          VALUES (${COIN_PROGRAM}, ${p.name}, ${links.repo_url}, ${links.live_url}, ${builderId}, ${to}, now(), 'go', ${deps.own ?? null}) RETURNING id`
+          INSERT INTO projects (program_id, name, repo_url, live_url, installation_id, creator_wallet, confirmed_at, confirm_choice)
+          VALUES (${COIN_PROGRAM}, ${p.name}, ${links.repo_url}, ${links.live_url}, ${builderId}, ${to}, now(), 'go') RETURNING id`
       )[0].id;
   if (existing) await sql()`UPDATE projects SET creator_wallet = ${to} WHERE id = ${projectId} AND token_url IS NULL`;
   // v2.13 spec "4. Optional: raise": the yes is the raise; the pill shows once the coin is launched.

@@ -1520,22 +1520,24 @@ CREATE TABLE IF NOT EXISTS x_join_offers (
 -- v2.13.4 R6: the R1 page names the joining agent: its client name as registered (dynamic client
 -- registration's client_name, cleaned), kept on the installation. Additive.
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS client_name text;
--- v2.13.4 R6: every R1 join, so the page's other agents are told once ("A new agent was added to your
--- page on <date>. Not you? Want me to remove it?") and any of them can detach it; `members` are the
--- installations that joined, `seen` the installations already told.
+-- v2.13.4 R6, R7: every R1 join. The page's other installations are asked, each until it answers
+-- (`answers`: installation id -> 'yes' | 'no'), "A new agent was added to your page on <date>. If that
+-- wasn't you, want me to remove it?"; a yes detaches the joined installations back to their own group
+-- (`from_root`). For 24 hours from joined_at the members are on probation: they may only post updates.
 CREATE TABLE IF NOT EXISTS page_joins (
   id          bigserial PRIMARY KEY,
-  root        integer NOT NULL,                       -- the page's group root (it kept its page)
+  root        integer NOT NULL,                       -- the page's group root when it joined
+  from_root   integer NOT NULL,                       -- the joining group's own root before the join
   members     integer[] NOT NULL,                     -- the installations that joined
   x_user_id   text NOT NULL,
   joined_at   timestamptz NOT NULL DEFAULT now(),
-  seen        integer[] NOT NULL DEFAULT '{}',
+  answers     jsonb NOT NULL DEFAULT '{}'::jsonb,
   detached_at timestamptz,
   detached_by integer
 );
 CREATE INDEX IF NOT EXISTS page_joins_root ON page_joins (root) WHERE detached_at IS NULL;
--- v2.13.4 R6: which installation posted an update, asked for a proof code, or opened a community
--- round, so a detached agent's own work stops counting for the page. Additive.
+-- v2.13.4 R6: which installation posted an update, so a detached agent's updates can be hidden and a
+-- probationary agent never overwrites another installation's update. Additive.
 ALTER TABLE project_updates ADD COLUMN IF NOT EXISTS posted_by integer;
-ALTER TABLE proof_branches ADD COLUMN IF NOT EXISTS asked_by integer;
-ALTER TABLE projects ADD COLUMN IF NOT EXISTS opened_by integer;
+-- v2.13.4 R7: the installation that last asked for the claim link (the R1 page names it). Additive.
+ALTER TABLE claim_codes ADD COLUMN IF NOT EXISTS minted_by integer;
