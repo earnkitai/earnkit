@@ -20,6 +20,33 @@ export function inTx<T>(db: Db | undefined, fn: (tx: postgres.TransactionSql) =>
   return sql().begin(fn) as Promise<T>;
 }
 
+/**
+ * v2.13.4: side effects that must wait for a caller's transaction to COMMIT (cache invalidation, events
+ * written on another connection). A caller that runs writes in its own transaction registers it with
+ * `deferUntilCommit`; helpers then call `afterCommit(db, fn)`, which queues `fn` on that transaction (run
+ * by the caller after its commit, dropped on rollback) or runs it at once when `db` is not one.
+ */
+const deferred = new WeakMap<object, (() => unknown)[]>();
+export async function withDeferred<T>(fn: (tx: postgres.TransactionSql) => Promise<T>): Promise<T> {
+  let queue: (() => unknown)[] = [];
+  const out = await sql().begin(async (tx) => {
+    queue = [];
+    deferred.set(tx, queue);
+    return fn(tx);
+  });
+  // Committed: now the deferred effects, each on its own (a failing one never undoes the commit).
+  for (const f of queue) await Promise.resolve().then(f).catch((err: unknown) => console.error('[db] after commit', err instanceof Error ? err.name : 'error'));
+  return out as T;
+}
+export function afterCommit(db: Db | undefined, fn: () => unknown): unknown {
+  const queue = db ? deferred.get(db) : undefined;
+  if (queue) {
+    queue.push(fn);
+    return undefined;
+  }
+  return fn();
+}
+
 /** One shared connection pool (survives Next.js dev reloads). */
 export function sql() {
   globalForDb.earnkitSql ??= connect();

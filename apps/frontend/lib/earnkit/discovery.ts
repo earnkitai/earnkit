@@ -1,6 +1,6 @@
 import { benchEnabled, builderScoreEnabled } from './builder-score-flag';
 import { lockPageJoin } from './page-joins';
-import { sql, type Db } from './db';
+import { sql, withDeferred, type Db } from './db';
 import {
   CLUE_PATHS,
   cnameSite,
@@ -499,12 +499,21 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
   // only while `root` is still a group's root (an installation attached to a page meanwhile writes nothing),
   // and every verdict write on this same transaction's connection (never a second pooled connection while
   // the lock is held, so concurrent discoveries can't exhaust the pool).
-  await sql().begin(async (tx) => {
-    await lockPageJoin(tx, root);
-    const [r] = await tx<{ root: number }[]>`SELECT COALESCE(builder_id, id) AS root FROM installations WHERE id = ${root}`;
-    if (r && r.root !== root) return;
-    for (const v of verdicts) await v(tx);
-  });
+  // Their cache invalidations and events run only after the commit (db.ts withDeferred), and the success
+  // counts reach `out` only then: a rolled-back discovery records nothing and stays queued (discover and
+  // discoverPerson mark the queue done only when this returns).
+  const verifiedBefore = out.verified;
+  try {
+    await withDeferred(async (tx) => {
+      await lockPageJoin(tx, root);
+      const [r] = await tx<{ root: number }[]>`SELECT COALESCE(builder_id, id) AS root FROM installations WHERE id = ${root}`;
+      if (r && r.root !== root) return;
+      for (const v of verdicts) await v(tx);
+    });
+  } catch (err) {
+    out.verified = verifiedBefore;
+    throw err;
+  }
 }
 
 /**

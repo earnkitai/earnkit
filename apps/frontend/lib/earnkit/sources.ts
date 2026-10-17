@@ -1,5 +1,5 @@
 import { ScoreDeadline } from './campaigns';
-import { inTx, sql, type Db } from './db';
+import { afterCommit, inTx, sql, type Db } from './db';
 import { profileCodesIn } from './discovery-clues';
 import { noteEvent } from './events';
 import { benchEnabled } from './builder-score-flag';
@@ -111,7 +111,7 @@ export async function verifySource(id: number, proof: Proof, deployer: string | 
     -- v2.13.2 fix 1: a stale source (an org repo's expired proof branch) comes back only through a
     -- fresh proof branch (proof-branch.ts checkProofBranch), never through any discovery clue.
     WHERE id = ${id} AND state = 'proposed' AND reject_reason IS DISTINCT FROM 'stale' RETURNING builder_id, kind`;
-  if (row) await noteEvent('source_verified', () => ({ type: 'source_verified', dedupe_key: `source_verified:${id}`, installation_id: row.builder_id, detail: { source_id: id, kind: row.kind, proof } }));
+  if (row) await afterCommit(db, () => noteEvent('source_verified', () => ({ type: 'source_verified', dedupe_key: `source_verified:${id}`, installation_id: row.builder_id, detail: { source_id: id, kind: row.kind, proof } })));
 }
 
 /**
@@ -129,7 +129,7 @@ export async function proveLinkedSite(id: number): Promise<void> {
 export async function rejectSource(id: number, reason: string, db: Db = sql()): Promise<void> {
   const [row] = await db<{ builder_id: number }[]>`
     UPDATE builder_sources SET state = 'rejected', reject_reason = ${reason} WHERE id = ${id} AND state <> 'rejected' RETURNING builder_id`;
-  if (row) await noteEvent('source_rejected', () => ({ type: 'source_rejected', dedupe_key: `source_rejected:${id}:${reason}`, installation_id: row.builder_id, detail: { source_id: id, reason } }));
+  if (row) await afterCommit(db, () => noteEvent('source_rejected', () => ({ type: 'source_rejected', dedupe_key: `source_rejected:${id}:${reason}`, installation_id: row.builder_id, detail: { source_id: id, reason } })));
 }
 
 /**
@@ -225,9 +225,9 @@ export async function claimContract(
     return { result, changed: rows.length > 0 };
   });
   if (changed && 'proof' in result)
-    await noteEvent('source_verified', () => ({ type: 'source_verified', dedupe_key: `source_verified:${id}`, installation_id: builderId, detail: { source_id: id, kind: 'contract', proof: result.proof } }));
+    await afterCommit(db, () => noteEvent('source_verified', () => ({ type: 'source_verified', dedupe_key: `source_verified:${id}`, installation_id: builderId, detail: { source_id: id, kind: 'contract', proof: result.proof } })));
   if (changed && 'reject' in result)
-    await noteEvent('source_rejected', () => ({ type: 'source_rejected', dedupe_key: `source_rejected:${id}:${result.reject}`, installation_id: builderId, detail: { source_id: id, reason: result.reject } }));
+    await afterCommit(db, () => noteEvent('source_rejected', () => ({ type: 'source_rejected', dedupe_key: `source_rejected:${id}:${result.reject}`, installation_id: builderId, detail: { source_id: id, reason: result.reject } })));
   return result;
 }
 

@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
 import { bindX } from './claim';
-import { discoverPerson, enqueueClue, enqueueDiscovery, localGitInput, provenLogin } from './discovery';
+import { discover, discoverPerson, enqueueClue, enqueueDiscovery, localGitInput, provenLogin } from './discovery';
 import { rememberWallets } from './installations';
 import { rescorePerson, standingOf } from './person-score';
 import type { ReaderDeps } from './source-readers';
@@ -174,4 +174,62 @@ test('7.4 a contract a signed wallet created is confirmed on the next discovery'
   const none: string[] = [];
   await discoverPerson(other, { deadline: Date.now() + 5000, reader: { ...reader, walletCreations: async (w: string) => (none.push(w), []) } });
   assert.deepEqual(none, []);
+}));
+
+// ---- v2.13.4: verdicts on one transaction; effects only after its commit (scan on f2e7d33c) --------
+
+test('D.1 afterCommit inside withDeferred runs only after the commit, and never on a rollback', dbTest, async () => {
+  const { afterCommit, withDeferred } = await import('./db');
+  const ran: string[] = [];
+  await withDeferred(async (tx) => {
+    afterCommit(tx, () => ran.push('later'));
+    assert.deepEqual(ran, [], 'not inside the open transaction');
+  });
+  assert.deepEqual(ran, ['later']);
+  await assert.rejects(withDeferred(async (tx) => {
+    afterCommit(tx, () => ran.push('never'));
+    throw new Error('boom');
+  }));
+  assert.deepEqual(ran, ['later'], 'dropped on rollback');
+  // With no deferring transaction it runs at once (every other caller's behaviour).
+  afterCommit(undefined, () => ran.push('now'));
+  assert.deepEqual(ran, ['later', 'now']);
+});
+
+test('D.2 a verdict that throws rolls the person back: still queued (done_at NULL), nothing verified, no success counted, no event', dbTest, () => withScore(async () => {
+  const id = await claimed(`dr${randomBytes(4).toString('hex')}`);
+  const [wallet, contract, second] = [randomAddress(), randomAddress(), randomAddress()];
+  await sql()`INSERT INTO person_wallets (wallet, builder_id) VALUES (${wallet}, ${id})`;
+  await sql()`INSERT INTO discovery_queue (builder_id, reason) VALUES (${id}, 'wallet') ON CONFLICT (builder_id) DO UPDATE SET done_at = NULL`;
+  // Two verdicts: the first succeeds, the second throws, so the first's event and count must not survive.
+  const reader = {
+    ...fakeReader(),
+    walletCreations: async () => [{ address: contract, created_at: '2026-09-01T00:00:00Z' }, { address: second, created_at: '2026-09-01T00:00:00Z' }],
+    contractOrigin: async () => ({ deployer: wallet, created_at: '2026-09-01T00:00:00Z' }),
+  };
+  // Every verdict write for this person fails (a trigger only on its rows).
+  const fn = `v2134_fail_${id}`;
+  await sql().unsafe(`CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.builder_id = ${id} AND NEW.state = 'verified' AND NEW.ref = 'base:${second}' THEN RAISE EXCEPTION 'verdict failed'; END IF; RETURN NEW; END $$`);
+  await sql().unsafe(`CREATE TRIGGER ${fn} BEFORE UPDATE ON builder_sources FOR EACH ROW EXECUTE FUNCTION ${fn}()`);
+  const was = process.env.EARNKIT_EVENT_LOG;
+  process.env.EARNKIT_EVENT_LOG = 'on';
+  try {
+    const out = await discover(NOW, { deadline: Date.now() + 5000, reader, only: [id] });
+    assert.equal(out.verified, 0, 'no success counted');
+    assert.equal(out.people, 0);
+    const [q] = await sql()<{ done: boolean }[]>`SELECT done_at IS NOT NULL AS done FROM discovery_queue WHERE builder_id = ${id}`;
+    assert.equal(q.done, false, 'still queued, retried next run');
+    const states = await sql()<{ state: string }[]>`SELECT state FROM builder_sources WHERE builder_id = ${id} AND kind = 'contract'`;
+    assert.deepEqual(states.map((x) => x.state), ['proposed', 'proposed'], 'the first verdict rolled back with the second');
+    assert.equal((await sql()`SELECT 1 FROM builder_events WHERE installation_id = ${id} AND type = 'source_verified'`).length, 0, 'no event for what rolled back');
+  } finally {
+    if (was === undefined) delete process.env.EARNKIT_EVENT_LOG;
+    else process.env.EARNKIT_EVENT_LOG = was;
+    await sql().unsafe(`DROP TRIGGER IF EXISTS ${fn} ON builder_sources; DROP FUNCTION IF EXISTS ${fn}()`);
+  }
+  // Once the write works again, the next run verifies it and marks the person done.
+  const again = await discover(NOW, { deadline: Date.now() + 5000, reader, only: [id] });
+  assert.equal(again.verified, 2);
+  const [q2] = await sql()<{ done: boolean }[]>`SELECT done_at IS NOT NULL AS done FROM discovery_queue WHERE builder_id = ${id}`;
+  assert.equal(q2.done, true);
 }));

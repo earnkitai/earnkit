@@ -5507,6 +5507,11 @@ test a to g, the security review S.a to S.f, R6.1, R7.0 to R7.5, R8.1 to R8.8, R
   root's `page_join` lock, only while the person is still its own root, and every verdict write runs on that same
   transaction (`db.ts inTx`: `verifySource`, `rejectSource`, `claimContract`, `releaseLogin`, `setFallback`,
   `clearXHandle` take an optional transaction), so it never holds one pooled connection while waiting on another.
+  Their side effects wait for the commit: discovery runs the transaction through `db.ts withDeferred`, and the
+  helpers call `afterCommit(db, ...)` for `profileChanged` and their events, which are queued on that transaction,
+  run after it commits and dropped on a rollback (with no deferring transaction they run at once, as before). A
+  rolled-back discovery restores its `verified` count, records no event and stays queued (`discover` and
+  `discoverPerson` mark the queue done only after `discoverOne` returns); tests D.1 and D.2.
 - **The R7 write audit (on probation).**
 
   | Write | Where | On probation |

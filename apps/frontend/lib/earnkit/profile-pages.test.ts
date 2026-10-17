@@ -48,7 +48,8 @@ test('10.8 (v2.12.1 T6) the pages read live: /<handle> and /b/<name> are dynamic
   const profiles = readFileSync(join(import.meta.dirname, 'profiles.ts'), 'utf8');
   for (const fn of ['setHidden', 'clearXHandle']) {
     const body = profiles.slice(profiles.indexOf(`export async function ${fn}(`)).split('\nexport ')[0];
-    assert.match(body, /profileChanged\(\)/, fn);
+    // v2.13.4: a caller's transaction may defer it until its commit (afterCommit).
+    assert.match(body, /profileChanged\(\)|afterCommit\(db, profileChanged\)/, fn);
   }
   const claim = readFileSync(join(import.meta.dirname, 'claim.ts'), 'utf8');
   const bind = claim.slice(claim.indexOf('export async function bindX(')).split('\nexport ')[0];

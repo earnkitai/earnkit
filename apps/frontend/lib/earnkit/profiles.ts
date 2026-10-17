@@ -1,7 +1,7 @@
 import { randomInt } from 'node:crypto';
 import type postgres from 'postgres';
 import { builderScoreEnabled } from './builder-score-flag';
-import { inTx, sql, type Db } from './db';
+import { afterCommit, inTx, sql, type Db } from './db';
 import { shortWallet } from './entry-text';
 import { noteEvent } from './events';
 import { sharedGroup } from './installations';
@@ -102,7 +102,7 @@ export async function setFallback(builderId: number, f: { github_login?: string;
     // is the X handle). A new login changes what the page shows: the cached page must follow.
     return login !== p.github_login;
   });
-  if (changed) profileChanged();
+  if (changed) await afterCommit(db, profileChanged);
 }
 
 /**
@@ -128,7 +128,7 @@ export async function releaseLogin(builderId: number, login: string, db?: Db): P
     await tx`UPDATE builder_live SET read_at = NULL WHERE builder_id = ${builderId}`;
     return true;
   });
-  if (done) profileChanged();
+  if (done) await afterCommit(db, profileChanged);
   return done;
 }
 
@@ -166,10 +166,11 @@ export async function clearXHandle(builderId: number, by: 'github' | 'owner', db
     return p.x_handle.toLowerCase();
   });
   if (!cleared) return false;
-  profileChanged();
-  await noteEvent('x_cleared', () => ({
+  // v2.13.4: after the caller's transaction commits (discovery), never inside it.
+  await afterCommit(db, profileChanged);
+  await afterCommit(db, () => noteEvent('x_cleared', () => ({
     type: 'x_cleared', dedupe_key: `x_cleared:${builderId}:${cleared}:${Date.now()}`, installation_id: builderId, detail: { by },
-  }));
+  })));
   return true;
 }
 
