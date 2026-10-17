@@ -7,7 +7,7 @@ import { tools } from './tools';
 import { CLAIM_TEXT, bindX, claimGet, claimJoinPost, claimPost, xCallback } from './claim';
 import { answerJoin, joinOnProvenTie, pendingJoinOf, rootOf } from './identity';
 import { X_ON, dropAvalanche, find, install, person, withEnv, type Found } from './fixtures/find';
-import { DETACH_LINES, PROBATION_LINES, joinNoticeLine } from './page-joins';
+import { DETACH_LINES, JOIN_TABLES, PROBATION_LINES, joinNoticeLine } from './page-joins';
 import { linkInstallations } from './identity';
 import { clientNameOf } from './oauth';
 import { agoText } from './claim';
@@ -446,12 +446,10 @@ test('S.a no path links an installation to an existing X page without the R1 cli
     assert.notEqual(await rootOf(joiner), await rootOf(holder), 'the sign-in alone joins nothing');
     assert.deepEqual(await bindX(joiner, user, new Date()), { ok: false, reason: 'held', target: await rootOf(holder) });
     assert.notEqual(await rootOf(joiner), await rootOf(holder));
-    // R8: the X two-agent yes (for an installation that isn't empty) needs both agents: one yes links nothing.
-    await joinOnProvenTie(joiner, { x_user_id: user.id });
-    assert.equal(await answerJoin(joiner, true), 'waiting');
-    // A consent row not bound to its facts (no stamps) is void.
-    await sql()`UPDATE pending_joins SET joiner_stamp = NULL WHERE installation_id = ${joiner}`;
-    assert.equal(await answerJoin(holder, true), 'expired');
+    // R10: under the Bench there is no X two-agent yes at all.
+    assert.equal(await joinOnProvenTie(joiner, { x_user_id: user.id }), 0);
+    assert.equal(await answerJoin(joiner, true), 'none');
+    assert.equal(await answerJoin(holder, true), 'none');
     assert.notEqual(await rootOf(joiner), await rootOf(holder));
   }));
 
@@ -621,7 +619,7 @@ test('R7.0 the R1 page names the installation that minted the claim link (not th
     // v2.13.4 R8: a group of two is never offered the one click.
     const s2 = await signIn(r.claim!.link, { id: `x${holder}`, username: handle, name: 'Maya', avatar: null });
     assert.equal(offerOf(s2.body), null);
-    assert.ok(s2.body.includes(CLAIM_TEXT.needsYes), s2.body);
+    assert.ok(s2.body.includes(CLAIM_TEXT.needsFresh.replace(/"/g, '&quot;')), s2.body);
     // A fresh, empty installation's page names it (the minting installation is the installation itself).
     const lone = await install();
     await sql()`UPDATE installations SET client_name = 'Cursor' WHERE id = ${lone}`;
@@ -813,7 +811,7 @@ test('R8.1 a fresh, empty installation joins with one click; the link carries no
     assert.equal((await sql()`SELECT 1 FROM builder_profiles WHERE builder_id = ${j.joiner}`).length, 0, 'its empty profile is not merged, just dropped');
   }));
 
-test('R8.2 not fresh or empty: a wallet, a payout wallet, a verification, an open verify nonce, a verified source, an entry, a coin offer or another member: no one click; the two-agent yes; nothing reaches the page', dbTest, () =>
+test('R8.2 not fresh or empty: a wallet, a payout wallet, a verification, an open verify nonce, a verified source, an entry, a coin offer, another member, a hosted site, a contract deploy, a host upload token or a proof line: no one click, a fresh connection instead (R10); nothing reaches the page', dbTest, () =>
   on(async () => {
     const cases: [string, (c: number) => Promise<unknown>][] = [
       ['wallet', (c) => sql()`INSERT INTO installation_wallets (installation_id, wallet) VALUES (${c}, ${W('a')})`],
@@ -826,13 +824,18 @@ test('R8.2 not fresh or empty: a wallet, a payout wallet, a verification, an ope
       ['token offer', (c) => sql()`INSERT INTO token_offers (installation_id, program_id, entry_key, offered_name, offered_ticker) VALUES (${c}, 'earnkit-coin', 'k', 'Thing', 'THING')`],
       ['coin moment', (c) => sql()`INSERT INTO coin_moments (builder_id, project_key, moment) VALUES (${c}, 'a/b', 'countable')`],
       ['another member', async (c) => { const m = await install(); await sql()`UPDATE installations SET builder_id = ${c} WHERE id = ${m}`; }],
+      // I-1: no projects row, but a hosted site, a deploy, an upload token or a proof line.
+      ['hosted site', (c) => sql()`INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status) VALUES (${uniq('site')}, 'x', ${`${uniq('h')}/r`}, ${c}, 1, 1, 'live')`],
+      ['contract deploy', (c) => sql()`INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, status, cost_micro_usd) VALUES (${c}, ${uniq('bk')}, ${`${uniq('d')}/r`}, 'arc', ${`0x${randomBytes(32).toString('hex')}`}, 'deployed', 1)`],
+      ['host upload token', (c) => sql()`INSERT INTO host_upload_tokens (token_hash, installation_id, login, repo_key, slug, project, expires_at) VALUES (${randomBytes(32).toString('hex')}, ${c}, 'x', ${`${uniq('u')}/r`}, ${uniq('s')}, 'P', now() + interval '1 hour')`],
+      ['proof line', (c) => sql()`INSERT INTO proof_line_issues (installation_id, repo_key, first_at) VALUES (${c}, ${`${uniq('pl')}/r`}, now())`],
     ];
     for (const [what, prep] of cases) {
       const t = await pageAndCandidate(prep);
       assert.equal(offerOf(t.s.body), null, `${what}: no one-click offer`);
-      assert.ok(t.s.body.includes(CLAIM_TEXT.needsYes), `${what}: ${t.s.body}`);
+      assert.ok(t.s.body.includes(CLAIM_TEXT.needsFresh), `${what}: ${t.s.body}`);
       assert.notEqual(await rootOf(t.cand), t.holder, `${what}: not joined`);
-      assert.ok(await pendingJoinOf(t.cand), `${what}: the two-agent yes is set up`);
+      assert.equal(await pendingJoinOf(t.cand), null, `${what}: R10, no X two-agent yes`);
       // Nothing of the candidate's reached the page.
       const [n] = await sql()<{ n: number }[]>`
         SELECT ((SELECT count(*) FROM github_verifications WHERE installation_id = ${t.holder})
@@ -1005,7 +1008,11 @@ test('C.2 the emptiness check and the link are one locked step: data the newcome
 
 /** A page and a non-empty installation that asked to join it with the same X (the two-agent yes). */
 async function tieAsk() {
+  // R10: the two-agent yes is the GitHub-login tie (unchanged since v2.13.3); the X tie is gone under the Bench.
   const t = await pageAndCandidate((c) => sql()`INSERT INTO installation_wallets (installation_id, wallet) VALUES (${c}, ${`0x${randomBytes(20).toString('hex')}`})`);
+  const login = uniq('kt').toLowerCase();
+  await sql()`UPDATE builder_profiles SET github_login = ${login}, github_basis = 'signin' WHERE builder_id = ${t.holder}`;
+  assert.equal(await joinOnProvenTie(t.cand, { github_login: login }), 1);
   assert.ok(await pendingJoinOf(t.cand), 'asked');
   return t;
 }
@@ -1074,4 +1081,47 @@ test('E.1 (scan on page-joins.ts) eligibility needs the join-time snapshot AND s
     const r = await answer(j, second, pk, 'yes');
     assert.ok(!r.show_to_builder.startsWith('Done.'), r.show_to_builder);
     assert.equal(await rootOf(j.joiner), j.holder);
+  }));
+
+// ---- R10 and the table registry (final review) ---------------------------------------------------
+
+test('R10.1 the review\'s exploit: a non-empty attacker agent, the victim\'s X sign-in, both yeses: nothing is linked or merged', dbTest, () =>
+  on(async () => {
+    const t = await pageAndCandidate((c) => sql()`INSERT INTO installation_wallets (installation_id, wallet) VALUES (${c}, ${`0x${randomBytes(20).toString('hex')}`})`);
+    assert.equal(CLAIM_TEXT.needsFresh, "This agent already has its own data, so it can't join your page. Reconnect EarnKit in this agent (a fresh connection) and sign in with X again.");
+    assert.ok(t.s.body.includes(CLAIM_TEXT.needsFresh), t.s.body);
+    assert.equal(offerOf(t.s.body), null);
+    assert.equal(await pendingJoinOf(t.cand), null);
+    assert.equal(await pendingJoinOf(t.holder), null);
+    assert.equal(await answerJoin(t.cand, true), 'none');
+    assert.equal(await answerJoin(t.holder, true), 'none');
+    assert.notEqual(await rootOf(t.cand), t.holder);
+    const [n] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM installation_wallets WHERE installation_id = ${t.holder}`;
+    assert.equal(n.n, 0);
+  }));
+
+test('REG.1 every table keyed by an installation or person (installation_id, builder_id, posted_by, minted_by, or an FK to installations) is in the join registry', dbTest, async () => {
+  const cols = await sql()<{ k: string }[]>`
+    SELECT table_name || '.' || column_name AS k FROM information_schema.columns
+    WHERE table_schema = 'public' AND column_name IN ('installation_id', 'builder_id', 'posted_by', 'minted_by')
+    UNION SELECT conrelid::regclass::text || '.' || a.attname FROM pg_constraint c JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+    WHERE c.contype = 'f' AND c.confrelid = 'installations'::regclass`;
+  const known = new Set(JOIN_TABLES.map((t) => `${t.table}.${t.column}`));
+  const missing = cols.map((c) => c.k).filter((k) => !known.has(k));
+  assert.deepEqual(missing, [], 'unclassified tables');
+  for (const t of JOIN_TABLES) assert.ok(['blocks', 'discard', 'stays'].includes(t.rule), t.table);
+});
+
+test('REG.2 the one click deletes the newcomer\'s harmless leftovers too (answers, match log, declines, program status)', dbTest, () =>
+  on(async () => {
+    const t = await pageAndCandidate(async (c) => {
+      await sql()`INSERT INTO answer_bank (installation_id, project_key, kind, answer, program_id) VALUES (${c}, 'a/b', 'pitch', 'x', 'earnkit-coin')`;
+      await sql()`INSERT INTO token_declines (installation_id, repo_key) VALUES (${c}, 'a/b')`;
+      await sql()`INSERT INTO builder_program_status (installation_id, program_id, status) VALUES (${c}, 'earnkit-coin', 'working')`.catch(() => undefined);
+    });
+    const tok = offerOf(t.s.body);
+    assert.ok(tok, t.s.body);
+    assert.equal((await confirmJoin(tok!, t.s.cookie)).status, 200);
+    for (const table of ['answer_bank', 'token_declines', 'builder_program_status'])
+      assert.equal((await sql().unsafe(`SELECT 1 FROM ${table} WHERE installation_id = $1`, [t.cand])).length, 0, table);
   }));
