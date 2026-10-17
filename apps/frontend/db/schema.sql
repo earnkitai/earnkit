@@ -1495,3 +1495,20 @@ CREATE TABLE IF NOT EXISTS safe_fees (
   PRIMARY KEY (tx_hash, log_index)
 );
 CREATE INDEX IF NOT EXISTS safe_fees_coin ON safe_fees (coin, tx_hash);
+
+-- v2.13.4 R1: after X sign-in on the claim page, an X account that already has a page is offered one
+-- button on the same page ("Add this agent to your page ..."). This holds that one offer: one use, 15
+-- minutes, bound to the browser that signed in (the claim cookie's csrf hash) and to its claim code.
+-- Only hashes of the offer token and csrf are kept; X's own token is never stored.
+CREATE TABLE IF NOT EXISTS x_join_offers (
+  offer_hash   text PRIMARY KEY,
+  builder_id   integer NOT NULL,                        -- the installation the claim code named (the joining side)
+  target       integer NOT NULL,                        -- the group root whose page holds this X account
+  x_user_id    text NOT NULL,
+  x_handle     text NOT NULL,
+  x_name       text,
+  x_avatar_url text,
+  csrf_hash    text NOT NULL,
+  code_hash    text NOT NULL,
+  expires_at   timestamptz NOT NULL
+);
