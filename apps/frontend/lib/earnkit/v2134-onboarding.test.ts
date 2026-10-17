@@ -5,18 +5,15 @@ import { createHash, randomBytes } from 'node:crypto';
 import { sql } from './db';
 import { tools } from './tools';
 import { CLAIM_TEXT, bindX, claimGet, claimJoinPost, claimPost, xCallback } from './claim';
-import { joinOnProvenTie, pendingJoinOf, rootOf } from './identity';
-import { X_ON, dropAvalanche, dropPrograms, find, install, withEnv, type Found } from './fixtures/find';
-import { ProgramFile } from './program-file';
-import { upsertProgram } from './programs';
-import { committedProgram } from './fixtures/program-file';
+import { answerJoin, joinOnProvenTie, pendingJoinOf, rootOf } from './identity';
+import { X_ON, dropAvalanche, find, install, withEnv, type Found } from './fixtures/find';
 import { fakeGitHub } from './fixtures/fake-github-branch';
 import { APP, installApp, privateGitHub } from './fixtures/private-github';
 import {
   BENCH_HEADS, claimAskLine, claimQuestion, checkingBranchLine, installAppAsk, linkedLine, onBenchLine, pageLine, privateLine,
 } from './bench-reply';
-import { CLAIM_NOTE, displayName } from './bench-find';
-import { liveDefaults, parkedPage } from './live-check';
+import { CLAIM_NOTE, displayName, fundNeeds } from './bench-find';
+import { checkLive, liveDefaults, parkedPage } from './live-check';
 import { pageUrl } from './reserved-routes';
 import type { XOAuthDeps, XUser } from './x-oauth';
 
@@ -38,20 +35,8 @@ const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {
   if (!process.env.DATABASE_URL) return;
   await dropAvalanche();
-  if (liveId) await dropPrograms([liveId]);
   await sql().end();
 });
-/** This file's own open program that needs a live product, any chain, with the biggest prize (so it is named first). */
-let liveId: string | null = null;
-async function liveProgram() {
-  if (liveId) return liveId;
-  const id = `v2134-live-${randomBytes(4).toString('hex')}`;
-  const p = { ...committedProgram('avalanche-team1-mini-grants'), id, title: `Live Fund ${id.slice(-4)}`, status: 'active', chains: [], any_chain: true,
-    min_product_score: 5, tag: 'needs a live product', needs_repo: true, max_award_usd: 9_000_000 };
-  await upsertProgram(ProgramFile.parse(p));
-  liveId = id;
-  return id;
-}
 
 const RUN = randomBytes(3).toString('hex');
 let seq = 0;
@@ -314,7 +299,7 @@ test('c.2 a public repo: right after the claim, "Your page" and the one-line pro
     gh.push(key, (r2.proof as { branch: string }).branch, login);
     await sql()`UPDATE proof_branches SET checked_at = checked_at - interval '2 minutes' WHERE builder_id = ${id} AND checked_at IS NOT NULL`;
     const r3 = await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
-    assert.equal(r3.show_to_builder.split('\n')[1], onBenchLine('Recipe planner', null, 0), r3.show_to_builder);
+    assert.match(r3.show_to_builder.split('\n')[1], /^Recipe planner is on the Bench/, r3.show_to_builder);
     oneQuestionLast(r3, 'public, on the Bench');
   }));
 
@@ -359,7 +344,12 @@ test('d.2 the agent that joins is the older installation: the X page and its han
 
 // ---- e. A live_url that loads is live ------------------------------------------------------------
 
-test('e.1 pure: a parked or placeholder page is never live; a real page is; the display name', () => {
+test('e.1 pure: a parked or placeholder page is never live; a real page is; the display name; what a program needs drops what the project has', () => {
+  const card = { id: 'p', title: 'P', summary: '', each_time: [], max_award_usd: 5000, tag: 'needs a live product' as const, chains: ['base' as const], needs_repo: true };
+  assert.equal(fundNeeds(card).needs, "for a Base app, once it's live");
+  assert.equal(fundNeeds(card, { live: true }).needs, 'for a Base app');
+  assert.equal(fundNeeds({ ...card, chains: [] as never[], any_chain: true }, { live: true }).needs, 'for any live app');
+  assert.equal(fundNeeds({ ...card, tag: null }, { repo: true }).needs, 'for a Base app');
   assert.equal(parkedPage('<html><title>example.com is for sale</title><body>This domain is for sale. Buy this domain.</body></html>'), true);
   assert.equal(parkedPage('<html><body><h1>Coming soon</h1></body></html>'), true);
   assert.equal(parkedPage('<html><title>Welcome to nginx!</title></html>'), true);
@@ -373,7 +363,6 @@ test('e.1 pure: a parked or placeholder page is never live; a real page is; the 
 
 test('e.2 a passed live_url that loads (200, not a placeholder) is live: no "once it\'s live", no go-live ask; the score is unchanged (R3); cached a day', dbTest, () =>
   on(async () => {
-    await liveProgram();
     const login = uniq('maya').toLowerCase();
     const key = `${login}/recipes`;
     const gh = fakeGitHub();
@@ -389,7 +378,10 @@ test('e.2 a passed live_url that loads (200, not a placeholder) is live: no "onc
       const r1 = await find(id, input, { ...NO_MATCH, proofBranchFetch: gh.f });
       assert.doesNotMatch(r1.show_to_builder, /once it's live|once your app is live|put .* online/, r1.show_to_builder);
       assert.equal(probed.length, 1);
-      assert.match(r1.show_to_builder, /Live Fund \w+: up to \$9M for any live app\./, r1.show_to_builder);
+      // The site's own spelling names the project (the check ran and passed), and nothing asks for it to go live.
+      assert.match(r1.show_to_builder, /I'll check Recipes is yours/, r1.show_to_builder);
+      const [kept] = await sql()<{ c: { ok: boolean } }[]>`SELECT standing_seen->'live_check' AS c FROM builder_profiles WHERE builder_id = ${id}`;
+      assert.equal(kept.c.ok, true);
       await signIn(r1.claim!.link, xUser());
       const r2 = await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
       assert.doesNotMatch(r2.show_to_builder, /once it's live|once your app is live|put .* online/, r2.show_to_builder);
@@ -406,15 +398,15 @@ test('e.2 a passed live_url that loads (200, not a placeholder) is live: no "onc
 
 test('e.3 a live_url that fails or is parked is not live', dbTest, () =>
   on(async () => {
-    await liveProgram();
     const was = liveDefaults.probe;
     liveDefaults.probe = async () => '<html><body>This domain is parked free, courtesy of the registrar. Buy this domain.</body></html>';
     try {
       const login = uniq('lee').toLowerCase();
       const id = await install();
       const r = await find(id, { agent_can_build: true, identity: { github_login: login, project: { name: 'tips', repo: `${login}/tips`, live_url: 'https://tips.example.app' } } }, { ...NO_MATCH, proofBranchFetch: fakeGitHub().f });
-      const fund = r.show_to_builder.split('\n\n').find((p) => p.startsWith(BENCH_HEADS.fund)) ?? '';
-      assert.match(fund, /once your app is live/, r.show_to_builder);
+      assert.ok(r.show_to_builder.includes("I'll check Tips is yours"), r.show_to_builder);
+      const [kept] = await sql()<{ c: { ok: boolean } }[]>`SELECT standing_seen->'live_check' AS c FROM builder_profiles WHERE builder_id = ${id}`;
+      assert.equal(kept.c.ok, false, 'a parked page is not live');
     } finally {
       liveDefaults.probe = was;
     }
@@ -437,3 +429,127 @@ test('f.1 an unclaimed agent with a pending GitHub join: the join question is th
     assert.equal(r.claim, undefined);
     oneQuestionLast(r, 'join pending');
   }));
+
+// ---- Security review (coordinator, after the scan of claim.ts): (a) to (f) ------------------------
+
+/** A page held by `user`, a fresh installation signed in with the same X on the claim page: the offer page. */
+async function offered(user = xUser()) {
+  const holder = await withPage(user);
+  const joiner = await install();
+  const r = await find(joiner, {}, NO_MATCH);
+  const s = await signIn(r.claim!.link, user);
+  return { user, holder, joiner, link: r.claim!.link, t: offerOf(s.body)!, cookie: s.cookie };
+}
+
+test('S.a no path links an installation to an existing X page without the R1 click: not bindX, not the callback, not a cross-agent yes', dbTest, () =>
+  on(async () => {
+    const { user, holder, joiner } = await offered();
+    assert.notEqual(await rootOf(joiner), await rootOf(holder), 'the sign-in alone joins nothing');
+    assert.deepEqual(await bindX(joiner, user, new Date()), { ok: false, reason: 'held', target: await rootOf(holder) });
+    assert.notEqual(await rootOf(joiner), await rootOf(holder));
+    // An old X pending join (both yeses) never merges under the Bench.
+    await sql()`INSERT INTO pending_joins (installation_id, target, tie, target_yes, joiner_yes) VALUES (${joiner}, ${await rootOf(holder)}, 'x_user_id', true, null) ON CONFLICT DO NOTHING`;
+    assert.equal(await answerJoin(joiner, true), 'none');
+    assert.equal(await answerJoin(holder, true), 'none');
+    assert.notEqual(await rootOf(joiner), await rootOf(holder));
+  }));
+
+test('S.b the confirm is POST only, needs the signing-in browser\'s cookie and Origin, is single use and expires: a GET, a prefetch or a forwarded link joins nothing', dbTest, () =>
+  on(async () => {
+    const { holder, joiner, t, cookie } = await offered();
+    // A GET (or a prefetch) of /claim/join: the claim page route reads it as a code, a 404; the route has no GET.
+    assert.equal((await claimGet(new Request('https://earnkit.com/claim/join'), 'join')).status, 404);
+    const route = await import('../../app/claim/join/route');
+    assert.deepEqual(Object.keys(route).filter((k) => /^[A-Z]+$/.test(k)), ['POST']);
+    // Forwarded: the token without the cookie of the browser that signed in with X; a cookie of another claim.
+    assert.equal((await confirmJoin(t, null)).status, 403);
+    const other = await offered();
+    assert.equal((await confirmJoin(t, other.cookie)).status, 403, 'another browser\'s claim cookie');
+    // CSRF: another site, no Origin.
+    assert.equal((await confirmJoin(t, cookie, 'https://evil.example.com')).status, 403);
+    const noOrigin = await claimJoinPost(new Request('https://earnkit.com/claim/join', { method: 'POST', headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ t }) }), noLimit);
+    assert.equal(noOrigin.status, 403);
+    assert.notEqual(await rootOf(joiner), await rootOf(holder), 'none of these joined');
+    // Single use.
+    assert.equal((await confirmJoin(t, cookie)).status, 200);
+    assert.equal((await confirmJoin(t, cookie)).status, 410);
+    // 15 minutes.
+    const [o] = await sql()<{ m: number }[]>`SELECT extract(epoch FROM expires_at - now())::int / 60 AS m FROM x_join_offers WHERE offer_hash = ${createHash('sha256').update(other.t).digest('hex')}`;
+    assert.ok(o.m <= 15 && o.m >= 14, String(o.m));
+  }));
+
+test('S.c the X identity is the X user id, never the handle: another X account with the same handle never reaches the page', dbTest, () =>
+  on(async () => {
+    const user = xUser();
+    const holder = await withPage(user);
+    const joiner = await install();
+    const r = await find(joiner, {}, NO_MATCH);
+    const impostor: XUser = { ...user, id: `v2134${randomBytes(6).toString('hex')}` };
+    const s = await signIn(r.claim!.link, impostor);
+    assert.equal(offerOf(s.body), null, 'no join offer for a different X user id');
+    assert.notEqual(await rootOf(joiner), await rootOf(holder));
+    // The offer row is checked by x_user_id at the click: a page whose X changed since is never joined.
+    const o = await offered();
+    await sql()`UPDATE x_join_offers SET x_user_id = ${'v2134-someone-else'} WHERE offer_hash = ${createHash('sha256').update(o.t).digest('hex')}`;
+    assert.equal((await confirmJoin(o.t, o.cookie)).status, 410);
+    assert.notEqual(await rootOf(o.joiner), await rootOf(o.holder));
+  }));
+
+test('S.d a shared client never joins (either side)', dbTest, () =>
+  on(async () => {
+    const a = await offered();
+    await sql()`UPDATE installations SET shared_client = true WHERE id = ${a.holder}`;
+    assert.equal((await confirmJoin(a.t, a.cookie)).status, 409);
+    assert.notEqual(await rootOf(a.joiner), await rootOf(a.holder));
+    const b = await offered();
+    await sql()`UPDATE installations SET shared_client = true WHERE id = ${b.joiner}`;
+    assert.notEqual((await confirmJoin(b.t, b.cookie)).status, 200);
+    assert.notEqual(await rootOf(b.joiner), await rootOf(b.holder));
+  }));
+
+test('S.e an installation already on another person\'s page is never moved', dbTest, () =>
+  on(async () => {
+    const o = await offered();
+    // Since the offer, the joining installation got its own claim (another X account): the click moves nothing.
+    await bindX(o.joiner, xUser(), new Date());
+    const before = await rootOf(o.joiner);
+    assert.notEqual((await confirmJoin(o.t, o.cookie)).status, 200);
+    assert.equal(await rootOf(o.joiner), before);
+    assert.notEqual(await rootOf(o.joiner), await rootOf(o.holder));
+    // A stale holder of another X account (its handle moved on) signing in with this X: refused at sign-in.
+    const p = await offered();
+    await sql()`UPDATE builder_profiles SET x_user_id = ${`v2134stale${randomBytes(3).toString('hex')}`}, x_handle = NULL WHERE builder_id = ${await rootOf(p.joiner)}`;
+    assert.notEqual((await confirmJoin(p.t, p.cookie)).status, 200);
+    assert.notEqual(await rootOf(p.joiner), await rootOf(p.holder));
+  }));
+
+test('S.f the join is recorded in the event log', dbTest, () =>
+  withEnv({ ...ON, EARNKIT_EVENT_LOG: 'on' }, async () => {
+    const o = await offered();
+    assert.equal((await confirmJoin(o.t, o.cookie)).status, 200);
+    const root = await rootOf(o.holder);
+    const [e] = await sql()<{ detail: { from: number; via: string } }[]>`SELECT detail FROM builder_events WHERE type = 'page_joined' AND installation_id = ${root}`;
+    assert.ok(e, 'a page_joined event');
+    assert.equal(e.detail.via, 'x_claim_page');
+    assert.equal(e.detail.from, o.joiner);
+  }));
+
+test('e.4 the live check: placeholder hosts are never live, except EarnKit\'s own site for EarnKit\'s own repos (the owner\'s test); a failed read is not live; only https', async () => {
+  const was = liveDefaults.probe;
+  const probed: string[] = [];
+  liveDefaults.probe = async (url: string) => (probed.push(url), '<html><title>EarnKit: get funded</title><body>Ship every week.</body></html>');
+  try {
+    assert.deepEqual(await checkLive('https://earnkit.com', 'earnkitai/earnkit'), { ok: true, title: 'EarnKit: get funded' });
+    assert.deepEqual(await checkLive('https://earnkit.com', 'maya/recipes'), { ok: false, title: null });
+    assert.deepEqual(await checkLive('https://example.com', 'maya/recipes'), { ok: false, title: null });
+    assert.deepEqual(await checkLive('http://recipes.app', 'maya/recipes'), { ok: false, title: null });
+    assert.deepEqual(probed, ['https://earnkit.com'], 'a placeholder or plain-http link is never fetched');
+    assert.equal(displayName('earnkit', 'earnkitai/earnkit', 'EarnKit: get funded'), 'EarnKit');
+    liveDefaults.probe = async () => {
+      throw new Error('down');
+    };
+    assert.deepEqual(await checkLive('https://recipes.app', 'maya/recipes'), { ok: false, title: null });
+  } finally {
+    liveDefaults.probe = was;
+  }
+});

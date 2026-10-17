@@ -35,9 +35,12 @@ import { CHAIN_NAMES, type Chain } from './chains';
 import { githubAppEnabled } from './github-app';
 import { createVerifyLink } from './github-verify';
 import {
-  GRANTS_LATER_ASK, POST_UPDATE_ASK, UPDATES_ASK, UPDATES_ASK_JOINING, benchReply, benchStepKey, chooseAsk, enterAsk, installAfterClaimAsk, installAppAsk, startBuildAsk,
+  GRANTS_LATER_ASK, POST_UPDATE_ASK, UPDATES_ASK, UPDATES_ASK_JOINING, benchReply, benchStepKey, chooseAsk, claimAsk, enterAsk, installAppAsk, startBuildAsk,
   showsClaimLink, type BenchAsk, type BenchAskKind, type BenchProject, type BenchView, type FundLine,
 } from './bench-reply';
+import { liveSite, type LiveSite } from './live-check';
+import { displayName } from './bench-reply';
+export { displayName };
 
 /**
  * v2.13 T8 (spec "2a", "2b", "5. Ways to get funded", "The last line"): the reads and writes behind
@@ -62,6 +65,12 @@ export const START_NOTE =
 export const INSTALL_APP_NOTE =
   "The builder installs EarnKit (read-only) on the repo from the link in show_to_builder; if there is no link yet, it comes in the next find once their page is claimed. " +
   "A yes or no: call tell with move_up: { kind, project_key, answer } (as given here). Once they installed it, call find again, which checks the repo. Don't show this note.";
+/** v2.13.4 (spec 2): the claim ask (the claim link in show_to_builder, then one yes or no). */
+export const CLAIM_NOTE =
+  "The builder claims their page with X from the link in show_to_builder. A yes or no: call tell with move_up: { kind, project_key, answer } (as given here). " +
+  "Once they say they've signed in, call find again. Don't show this note.";
+/** v2.13.4: the yes to the claim ask. */
+export const CLAIM_YES_NOTE = "Once the builder has signed in with X from the link, call find again. Don't show this note.";
 /** The yes to the build ask: the v2.11 build path, started for the program the ask named. */
 export const buildYesNote = (programId: string) =>
   `Call prepare with build: { start: true, program_id: '${programId}' } and program_id: '${programId}' at the top. EarnKit then asks the builder one question before any work starts. Don't show this note.`;
@@ -134,13 +143,15 @@ const chainApp = (chains: readonly string[]) => {
  * v2.13.3 (2): an open program and what it needs, in plain words: its chain when it needs one ("for an
  * Avalanche app"), a live product ("once it's live"), code on GitHub, else any app. Never says it fits. Pure.
  */
-export function fundNeeds(c: Card): Extract<FundLine, { kind: 'needs' }> {
+export function fundNeeds(c: Card, has: { live?: boolean; repo?: boolean } = {}): Extract<FundLine, { kind: 'needs' }> {
   const chain = c.any_chain !== true && (c.chains ?? []).length > 0 ? `for ${chainApp(c.chains!)}` : null;
-  const live = c.tag === NEEDS_LIVE_PRODUCT;
-  const repo = !live && c.needs_repo === true;
+  const needsLive = c.tag === NEEDS_LIVE_PRODUCT;
+  // v2.13.4 (spec 4): what the project already has is never asked for ("once it's live" for a live app).
+  const live = needsLive && !has.live;
+  const repo = !needsLive && c.needs_repo === true && !has.repo;
   const needs = chain
     ? `${chain}${live ? ", once it's live" : repo ? ', once its code is on GitHub' : ''}`
-    : live ? 'once your app is live' : repo ? 'once your code is on GitHub' : 'for any app';
+    : live ? 'once your app is live' : repo ? 'once your code is on GitHub' : needsLive ? 'for any live app' : 'for any app';
   // v2.13.3 review (M5): a program with no known award is named without a dollar figure.
   return { kind: 'needs', title: c.title, prize: (c.max_award_usd ?? 0) > 0 ? earnPrize(c) : null, needs };
 }
@@ -150,14 +161,16 @@ export const NEEDS_MAX = 2;
  * v2.13.3 (2): open programs to name with what they need (fundNeeds), `n` at most, none already named:
  * those on the project's chains (or any chain) first, then the biggest prize. Pure.
  */
-export function needsPicks(cards: Card[], now: Date, skip: Set<string>, n: number, chains: string[] = []): Extract<FundLine, { kind: 'needs' }>[] {
+export function needsPicks(
+  cards: Card[], now: Date, skip: Set<string>, n: number, chains: string[] = [], has: { live?: boolean; repo?: boolean } = {},
+): Extract<FundLine, { kind: 'needs' }>[] {
   if (n <= 0) return [];
   const on = (c: Card) => (c.any_chain === true || (c.chains ?? []).some((ch) => chains.includes(ch)) ? 0 : 1);
   return cards
     .filter((c) => showable(c, now, skip))
     .sort((a, b) => on(a) - on(b) || byPrize(a, b))
     .slice(0, n)
-    .map(fundNeeds);
+    .map((c) => fundNeeds(c, has));
 }
 
 type BenchRead = {
@@ -167,6 +180,8 @@ type BenchRead = {
   building: { name: string } | null;
   /** standBase answered (a profile exists): news is read only then. */
   profiled: boolean;
+  /** v2.13.4 (spec 4): the live link the agent reported for the one project (identity), if any. */
+  liveUrl: string | null;
 };
 const EMPTY_BASE: StandBase = { standing: { ranked: false, rank: 0, total: 0 }, claimed: false, handle: null, claimLink: null, projects: [] };
 const NO_RANK: RankLines = { bench: null, phrase: null, chains: [] };
@@ -177,8 +192,8 @@ const logged = (where: string) => (err: unknown) => {
 
 async function benchRead(id: number, now: Date, fresh: ToolContext['freshDeps']): Promise<BenchRead> {
   const stand = await standBase(id, { fresh }).catch(logged('stand'));
-  const [p] = await sql()<{ main: string | null; on: Date | null; sched: Date | null; seen: unknown }[]>`
-    SELECT main_project_key AS main, updates_on_at AS on, updates_scheduled_at AS sched, standing_seen AS seen FROM builder_profiles WHERE builder_id = ${id}`.catch(
+  const [p] = await sql()<{ main: string | null; on: Date | null; sched: Date | null; seen: unknown; identity: unknown }[]>`
+    SELECT main_project_key AS main, updates_on_at AS on, updates_scheduled_at AS sched, standing_seen AS seen, identity FROM builder_profiles WHERE builder_id = ${id}`.catch(
     () => [],
   );
   const main = p?.main ?? null;
@@ -200,7 +215,38 @@ async function benchRead(id: number, now: Date, fresh: ToolContext['freshDeps'])
   return {
     base: stand?.base ?? EMPTY_BASE, seen, main, row: row ?? null, ranks, profiled: stand !== null,
     updatesOn: Boolean(p?.on), scheduled: Boolean(p?.sched), postedThisWeek: Boolean(week), building,
+    liveUrl: main ? reportedLive(p?.identity, main) : null,
   };
+}
+
+/** The live link the stored identity names for project `key` (its repo, live link or package), or null. Pure. */
+export function reportedLive(identity: unknown, key: string): string | null {
+  const projects = identity && typeof identity === 'object' && Array.isArray((identity as { projects?: unknown }).projects)
+    ? ((identity as { projects: unknown[] }).projects as Record<string, unknown>[])
+    : [];
+  const k = key.toLowerCase();
+  const p = projects.find((x) => x && typeof x === 'object' && [x.repo, x.live_url, x.package].some((v) => typeof v === 'string' && v.toLowerCase() === k));
+  return p && typeof p.live_url === 'string' && /^https:\/\//i.test(p.live_url) ? p.live_url : null;
+}
+
+/** v2.13.4 (spec 4): the live check never holds a reply long; it gets what is left of the wait, at least this. */
+const LIVE_WAIT_MIN_MS = 300;
+/** The one project's live link, checked within `ms` (else null; the check lands for the next reply). Never throws. */
+async function liveOf(id: number, read: BenchRead, now: Date, ms: number): Promise<LiveSite | null> {
+  if (!read.liveUrl || !read.main) return null;
+  return (await settleWithin(liveSite(id, read.liveUrl, now, read.main).catch(logged('live check')), Math.max(LIVE_WAIT_MIN_MS, ms))) ?? null;
+}
+
+/**
+ * v2.13.4 (R1): whether this agent (its own installation) joined the page from the claim page since its
+ * last reply (standing_seen.linked, written by claim.ts claimJoinPost). Read once: it is cleared here.
+ */
+async function takeLinked(id: number, own: number, seen: Seen): Promise<boolean> {
+  const linked = (seen as { linked?: Record<string, unknown> }).linked;
+  if (!linked || typeof linked !== 'object' || !Object.hasOwn(linked, String(own))) return false;
+  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, '{linked}', (standing_seen->'linked') - ${String(own)}::text)
+    WHERE builder_id = ${id}`.catch(logged('linked'));
+  return true;
 }
 
 /**
@@ -258,6 +304,10 @@ type ViewIn = {
   coinDeps?: { check?: TickerCheck };
   /** O5 N2, N4: the fetch for the one cheap read of the repo before a proof code is issued. */
   ghFetch?: typeof fetch;
+  /** v2.13.4 (spec 4, R3): the one project's live link, checked (wording and program fit only). */
+  live?: LiveSite | null;
+  /** v2.13.4 (R1): this agent joined the page from the claim page since its last reply. */
+  linked?: boolean;
 };
 
 /**
@@ -271,10 +321,13 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
   // v2.13.1 O2 (B4): while a build is in progress the reply says so, and asks and offers nothing.
   const building = read.building;
   const pick = building ? null : o.pick;
+  // v2.13.4: a live link that loads counts as live for wording and fit (R3), and names the project as its site does.
+  const siteLive = o.live?.ok === true;
+  const title = o.live?.ok ? o.live.title : null;
   const project: BenchProject | null = row
-    ? { key: row.key, name: row.name, confirmed: row.confirmed, live: (row.shipped && row.kind === 'app') || row.site, weeks: row.weeks }
+    ? { key: row.key, name: displayName(row.name, row.key, title), confirmed: row.confirmed, live: (row.shipped && row.kind === 'app') || row.site || siteLive, weeks: row.weeks }
     : read.main
-      ? { key: read.main, name: o.name ?? read.main.split('/').pop() ?? read.main, confirmed: false, live: false, weeks: 0 }
+      ? { key: read.main, name: displayName(o.name ?? read.main.split('/').pop() ?? read.main, read.main, title), confirmed: false, live: siteLive, weeks: 0 }
       : null;
   // v2.13.1 O1: a repo-key project that isn't confirmed gets the proof branch (proof-branch.ts says when).
   // O2: read before the ask, so a project being checked is asked the next Bench step (the updates yes).
@@ -292,8 +345,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
     fund = o.fits.slice(0, 3).map((f) => ({ kind: 'fits', title: f.title, prize: f.prize, when: f.when }));
     // v2.13.1 O2: the open-all-year program only when it fits the project (its chain or any chain; a live product only when live).
     const fit = { chains: row?.chains ?? [], live: project.live };
-    const rolling = fund.length === 0 && o.due.length === 0 ? rollingPick(o.cards.filter((c) => fitsProject(c, fit)), now, o.skip) : undefined;
-    if (rolling) fund = [{ kind: 'rolling', title: rolling.title, prize: earnPrize(rolling) }];
+    const rolling = fund.length === 0 && o.due.length === 0 ? rollingPick(o.cards.filter((c) => fitsProject(c, fit)), now, o.skip, { unknownPrize: true }) : undefined;
+    if (rolling) fund = [{ kind: 'rolling', title: rolling.title, prize: (rolling.max_award_usd ?? 0) > 0 ? earnPrize(rolling) : null }];
     for (const f of o.fits.slice(0, 3)) named.add(f.program_id);
     if (rolling) named.add(rolling.id);
   } else {
@@ -312,7 +365,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
   // A repo another person holds names no program at all (O2 fix round 1, ruling 3).
   if (!building && !taken) {
     const room = !project || !project.confirmed ? NEEDS_MAX - fund.length : fund.length === 0 && o.due.length === 0 ? NEEDS_MAX : 0;
-    fund = [...fund, ...needsPicks(o.cards, now, new Set([...o.skip, ...named]), room, row?.chains ?? [])];
+    const has = { live: project?.live ?? false, repo: Boolean(project && /^[^/:]+\/[^/]+$/.test(project.key)) };
+    fund = [...fund, ...needsPicks(o.cards, now, new Set([...o.skip, ...named]), room, row?.chains ?? [], has)];
   }
   let ask: BenchAsk | null = null;
   const appOn = githubAppEnabled();
@@ -335,18 +389,24 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
       joining: Boolean(project && !project.confirmed && (!branch || branch.kind === 'checking')),
       other: taken || ['failed', 'foreign', 'copy', 'unseen'].includes(branch?.kind ?? ''),
     };
-    // v2.13.3 (5): a repo EarnKit can't see, with the read-only App on: the install ask (claimed: its link
-    // is the reply's one link; unclaimed: the X claim is, and the install link comes next reply).
-    const install = appOn && project && branch?.kind === 'unseen' && !declined.includes(benchStepKey('install_app', project.key))
-      ? read.base.claimed
-        ? await createVerifyLink({ installationId: id, projectId: null, repoKey: project.key, purpose: 'app' }, now)
-            .then((link): BenchAsk => ({ kind: 'install_app', project_key: project.key, line: installAppAsk(project.name, link) }))
-            .catch(logged('app link'))
-        : read.base.claimLink ? { kind: 'install_app' as const, project_key: project.key, line: installAfterClaimAsk(project.name) } : null
+    // v2.13.4 (spec 2): unclaimed, X comes first and is the reply's one question (asked until claimed or
+    // declined). The project it names is one the claim puts on the Bench (none that can't join).
+    const claim: BenchAsk | null = !read.base.claimed && read.base.claimLink && !declined.includes(benchStepKey('claim', null))
+      ? {
+          kind: 'claim', project_key: null,
+          line: claimAsk(read.base.claimLink, project && (!asks.other || (appOn && branch?.kind === 'unseen')) ? project.name : null),
+        }
+      : null;
+    // v2.13.3 (5), v2.13.4 (spec 3): a repo EarnKit can't see, with the read-only App on: the install link in
+    // one line, right after the claim (the reply's one link).
+    const install = !claim && appOn && project && branch?.kind === 'unseen' && !declined.includes(benchStepKey('install_app', project.key))
+      ? await createVerifyLink({ installationId: id, projectId: null, repoKey: project.key, purpose: 'app' }, now)
+          .then((link): BenchAsk => ({ kind: 'install_app', project_key: project.key, line: installAppAsk(project.name, link) }))
+          .catch(logged('app link'))
       : null;
     // Owner ruling A: the best fit's entry, else a community round (the coin), come before the Bench's own
     // steps. The coin is offered (and its moment recorded) only when nothing earlier applies.
-    const before = install ?? chooseAsk({ ...asks, coin: null, enter, fallback: false });
+    const before = claim ?? install ?? chooseAsk({ ...asks, coin: null, enter, fallback: false });
     const coinFirst = !before || ['go_live', 'updates', 'post_update'].includes(before.kind);
     const coin = coinFirst && project && row
       ? await coinAskBench(id, { ...project, people: row.people, has_coin: row.has_coin, streak: row.streak, shipped: row.shipped }, read.seen, o.coinDeps).catch(logged('coin'))
@@ -366,10 +426,12 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
     slow, fund, ask, due: building ? [] : o.due,
     building: building ? building.name : null,
     page: read.base.claimed && read.base.handle ? `${siteUrl()}${pagePath(read.base.handle)}` : null,
+    linked: Boolean(o.linked && read.base.claimed),
   };
   // A raise ask is answered through move_up (benchMoveUp: setRaising), as every Bench ask but the coin offer.
   const note = ask?.kind === 'coin' ? COIN_NOTE
     : ask?.kind === 'install_app' ? INSTALL_APP_NOTE
+    : ask?.kind === 'claim' ? CLAIM_NOTE
     // v2.13.3 (3): the no-project ask: existing work goes to find with identity.
     : !project && (ask?.kind === 'build' || ask?.kind === 'start') ? START_NOTE
     : BENCH_MOVE_UP_NOTE;
@@ -437,6 +499,8 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   // O5 fix round 1: only the time left of the reply's wait, never a fresh one.
   await settleWithin(a.proofCheck ?? checkProofBranch(id, now, { ghFetch }), (a.start ?? Date.now()) + REPLY_WAIT_MS - Date.now());
   const read = await benchRead(id, now, ctx.freshDeps);
+  const live = await liveOf(id, read, now, (a.start ?? Date.now()) + REPLY_WAIT_MS - Date.now());
+  const linked = await takeLinked(id, ctx.ownInstallationId ?? id, read.seen);
   const m = { cards: a.cards, repos: a.repos, entries: a.myEntries, now };
   const entered = enteredIds(m);
   const main = read.main?.toLowerCase() ?? null;
@@ -464,7 +528,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   const name = a.project && projectKeyOf(a.project).toLowerCase() === main ? a.project.name : null;
   const { view, ask, fields, branch } = await benchView({
     id, now, read, name, fits, cards: a.cards, skip, pick, held: held || Boolean(submit), agentCanBuild: a.agentCanBuild, due,
-    coinDeps: { check: ctx.tokenDeps?.check }, ghFetch,
+    coinDeps: { check: ctx.tokenDeps?.check }, ghFetch, live, linked,
   });
   // O2 fix round 1 (ruling 2): a code closed by a project change is told alongside the new one (remove_branch).
   const told = await branchToRemove(id, now).catch(logged('proof branch told'));
@@ -509,7 +573,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
  * (stand-view.ts scoreEarn), else the open-all-year program; no project, the build. One
  * score_viewed event a minute (v2.12). Null without a profile (score-tool.ts answers that).
  */
-export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'freshDeps' | 'tokenDeps' | 'proofBranchFetch'>, now: Date, o: { hold?: boolean; reader?: ReaderDeps; fresh?: FreshOn } = {}): Promise<Reply | null> {
+export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId' | 'freshDeps' | 'tokenDeps' | 'proofBranchFetch'>, now: Date, o: { hold?: boolean; reader?: ReaderDeps; fresh?: FreshOn } = {}): Promise<Reply | null> {
   const id = ctx.installationId;
   const made = await ensureProfile(id, now);
   if (!made) return null;
@@ -520,6 +584,8 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'fres
   const ghFetch = ctx.proofBranchFetch ?? o.reader?.ghFetch;
   await Promise.all([refresh.within(REPLY_WAIT_MS), settleWithin(checkProofBranch(id, now, { ghFetch }), start + REPLY_WAIT_MS - Date.now())]);
   const read = await benchRead(id, now, ctx.freshDeps);
+  const live = await liveOf(id, read, now, start + REPLY_WAIT_MS - Date.now());
+  const linked = await takeLinked(id, ctx.ownInstallationId ?? id, read.seen);
   const [programs, entries, memory] = await Promise.all([listPrograms().catch(() => []), openEntries(id).catch(() => []), readMemory(id).catch(() => null)]);
   const cards = (programs as (Card & { agent_completable?: boolean; earnkit_campaign?: boolean; starts_at: Date | null; opened_at: Date | null })[])
     .filter((p) => p.agent_completable !== false && !p.earnkit_campaign);
@@ -534,7 +600,7 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'fres
   const pick = !main && !read.building ? withNoProgram(picked && fresh ? { ...picked, canBuild: fresh.canBuild } : null, fresh, now) : null;
   const { view, fields, branch } = await benchView({
     id, now, read, name: null, fits, cards: shown, skip: new Set([...entered, ...hidden]), pick, held: Boolean(o.hold),
-    agentCanBuild: fresh?.canBuild ?? false, due: [], coinDeps: { check: ctx.tokenDeps?.check }, ghFetch,
+    agentCanBuild: fresh?.canBuild ?? false, due: [], coinDeps: { check: ctx.tokenDeps?.check }, ghFetch, live, linked,
   });
   // O2 fix round 1 (ruling 2): a code closed by a project change is told alongside the new one (remove_branch).
   const told = await branchToRemove(id, now).catch(logged('proof branch told'));
@@ -589,7 +655,7 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId'>, m: {
   }
   // Fix round 1: answered once. The ask is cleared before the yes runs, so a retried yes is "Okay.".
   // (go_live and coin yeses stay in tools.ts: go_live's yes is sent again with live_url by design.)
-  if (['updates', 'post_update', 'build', 'enter', 'raise', 'grants', 'suggest', 'other_project', 'grants_later', 'install_app', 'start'].includes(asked.kind)) {
+  if (['updates', 'post_update', 'build', 'enter', 'raise', 'grants', 'suggest', 'other_project', 'grants_later', 'install_app', 'start', 'claim'].includes(asked.kind)) {
     const [taken] = await sql()`
       UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask'
       WHERE builder_id = ${id} AND standing_seen->'bench_ask' = ${sql().json(asked as never)}::jsonb RETURNING 1`.catch((err: unknown) => {
@@ -622,6 +688,9 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId'>, m: {
     case 'install_app':
       // v2.13.3 (5): the link does the work; the next find checks the repo through the App.
       return { show_to_builder: '', agent_note: INSTALL_APP_YES_NOTE };
+    case 'claim':
+      // v2.13.4 (spec 2): the link does the work; the next find shows the page.
+      return { show_to_builder: '', agent_note: CLAIM_YES_NOTE };
     case 'grants_later':
       // O5 fix round 2: grants stay quiet a week from now; then the grants ask comes back.
       if (asked.key) await keepGrantsQuiet(id, asked.key, now);

@@ -467,6 +467,14 @@ export async function safeProbe(
   url: string,
   deps: { resolve?: Resolver; transport?: Transport; timeoutMs?: number } = {},
 ): Promise<void> {
+  await safeProbePage(url, deps);
+}
+
+/** v2.13.4 (R3): safeProbe, returning the first 64 KB of the page it read ('' when it isn't HTML). */
+export async function safeProbePage(
+  url: string,
+  deps: { resolve?: Resolver; transport?: Transport; timeoutMs?: number } = {},
+): Promise<string> {
   const opts = { ...deps, probe: true, userAgent: LINKCHECK_UA };
   let page: string;
   try {
@@ -480,4 +488,5 @@ export async function safeProbe(
   }
   const phrase = errorPageText(page);
   if (phrase) throw new ErrorPageError(phrase);
+  return page;
 }

@@ -10,7 +10,7 @@ import {
   PROOF_BRANCH_NOTE, PROOF_BRANCH_RECHECK_MS, PROOF_BRANCH_TTL_MS, checkProofBranch, coinBranchProof, proofBranchFor, proofBranchStep,
   removeCommand,
 } from './proof-branch';
-import { OTHER_PROJECT_ASK, benchReply, copyLine, needsAgentLine, cantShowLine, checkingBranchLine, confirmingSlowLine, takenLine, type BenchView } from './bench-reply';
+import { benchReply, claimAsk, copyLine, needsAgentLine, cantShowLine, checkingBranchLine, confirmingSlowLine, takenLine, type BenchView } from './bench-reply';
 import { COIN_YES_NOTE, coinYesNote } from './coin-moments';
 import { coinBranchReason, tokenGate, type GateDeps } from './token-gate';
 import { discoverPerson } from './discovery';
@@ -86,7 +86,8 @@ test('O1.1 the lines: checking (no question), never showed, needs a coding agent
     project: { key: 'maya/recipes', name: 'Recipe planner', confirmed: false, live: false, weeks: 0 },
     rank: null, claimed: false, handle: null, claimLink: 'https://earnkit.com/claim/abcdefghijkl', fund: [], ask: null, branch: 'checking',
   };
-  assert.equal(benchReply(v), ['Where you stand', checkingBranchLine('Recipe planner'), 'Your page: claim it with X at https://earnkit.com/claim/abcdefghijkl'].join('\n'));
+  // v2.13.4: the claim link is only the claim ask's (none here).
+  assert.equal(benchReply(v), ['Where you stand', checkingBranchLine('Recipe planner')].join('\n'));
   assert.equal(benchReply({ ...v, branch: 'failed' }).split('\n')[1], cantShowLine('Recipe planner'));
   assert.equal(benchReply({ ...v, branch: 'needs_agent' }).split('\n')[1], needsAgentLine('Recipe planner'));
   assert.equal(benchReply({ ...v, branch: 'taken' }).split('\n')[1], takenLine('Recipe planner'));
@@ -103,7 +104,8 @@ test('O1.2 the owner pushes: one https link, the branch for the agent, the code 
     const lines = r.show_to_builder.split('\n');
     assert.equal(lines[1], checkingBranchLine('Recipe planner'), r.show_to_builder);
     assert.match(r.claim?.link ?? '', /^https:\/\/earnkit\.com\/claim\/[a-z2-7]{12}$/);
-    assert.equal(lines[2], `Your page: claim it with X at ${r.claim!.link}`);
+    // v2.13.4 (spec 2): the X claim is the one ask, last.
+    assert.ok(r.show_to_builder.endsWith(claimAsk(r.claim!.link, 'Recipe planner')), r.show_to_builder);
     assert.equal((r.show_to_builder.match(/https?:\/\//g) ?? []).length, 1, 'the claim link is the only link');
     const code = branch.replace(/^earnkit-/, '');
     assert.match(code, /^[a-z2-7]{12}$/);
@@ -152,7 +154,8 @@ test('O1.3 never confirmed: a fork (same key), a 301 rename, another full_name, 
       // O5 fix round 1 (ruling): a fork or a template is known at issue time: no code, the plain line.
       if (why === 'fork' || why === 'template') {
         assert.equal(r.show_to_builder.split('\n')[1], copyLine('Recipe planner'), why);
-        assert.ok(r.show_to_builder.endsWith(OTHER_PROJECT_ASK), why);
+        // v2.13.4: unclaimed, X comes first (naming no project that can't join).
+        assert.ok(r.show_to_builder.endsWith(claimAsk(r.claim!.link, null)), why);
         assert.equal(r.proof, undefined, why);
         assert.equal((await rows(id)).length, 0, `${why}: no code`);
         continue;

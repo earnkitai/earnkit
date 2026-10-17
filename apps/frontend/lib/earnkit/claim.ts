@@ -5,7 +5,7 @@ import { enqueueDiscovery } from './discovery';
 import { siteUrl } from './entry-text';
 import { noteEvent } from './events';
 import { cookieValue, createVerifyLink, githubVerifyEnabled } from './github-verify';
-import { joinOnProvenTie, rootOf } from './identity';
+import { joinOnProvenTie, linkInstallations, rootOf } from './identity';
 import { sharedGroup } from './installations';
 import { profileChanged } from './profile-cache';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
@@ -29,7 +29,10 @@ import { pkcePair, xAuthorizeUrl, xOAuth, type XOAuthDeps, type XUser } from './
  *   nowhere; nothing reaches X before that. X's token is used for one read of /2/users/me and never
  *   stored or logged. Every link and redirect comes from siteUrl(), never the request.
  * - The claim is a proven tie (T5): an X account another person already holds is never merged at
- *   once; both groups' agents are asked (identity.ts joinOnProvenTie).
+ *   once; both groups' agents are asked (identity.ts joinOnProvenTie). v2.13.4 (R1, under the Bench):
+ *   instead, the same page offers one button ("Add this agent to your page ...", with "Only continue if
+ *   your own agent gave you this link."): the click (POST /claim/join, this browser's cookie, Origin, a
+ *   one-use 15-minute offer) joins at once; no other agent is asked (claimJoinPost).
  * Flag off: every route is a 404. X unset: no claim link anywhere, and the page says sign-in is not
  * open yet.
  */
@@ -44,6 +47,12 @@ export const CLAIM_TEXT = {
   used: 'This page is already claimed.',
   claimedOther: 'This page is already claimed by another X account.',
   joinPending: 'This X account already has an EarnKit page. Your agents will each ask you once to add this agent to it.',
+  /** v2.13.4 (R1): the X account already has a page: one button joins this agent to it. */
+  joinLead: 'This X account already has an EarnKit page.',
+  joinWarning: 'Only continue if your own agent gave you this link.',
+  joinButton: (handle: string) => `Add this agent to your page ${pageUrl(handle)}`,
+  linked: 'This agent is on your page now',
+  cantJoin: "This page can't take another agent.",
   /** Final fix wave: an X account whose page the owner took down (x_owner_clears). */
   paused: "This X account can't claim a page right now.",
   failed: "Sign-in didn't finish. Open the link from your agent again.",
@@ -115,7 +124,7 @@ const notFound = () => new Response('Not found', { status: 404 });
  * with GitHub (a `claim` link: the login only, through the T5 proven-tie rules). A link that can't be
  * made is left out; the claim itself is already done. Exported for tests.
  */
-export async function claimDonePage(handle: string, root: number, headers: Record<string, string>): Promise<Response> {
+export async function claimDonePage(handle: string, root: number, headers: Record<string, string>, heading: string = CLAIM_TEXT.done): Promise<Response> {
   const links: string[] = [];
   const t = upgradeToken(root, new Date());
   if (t) links.push(`<a class="ek-link" href="${escapeHtml(`${siteUrl()}/claim/wallet?t=${encodeURIComponent(t)}`)}">${escapeHtml(CLAIM_TEXT.wallet)}</a>`);
@@ -128,7 +137,7 @@ export async function claimDonePage(handle: string, root: number, headers: Recor
     if (gh) links.push(`<a class="ek-link" href="${escapeHtml(gh)}">${escapeHtml(CLAIM_TEXT.github)}</a>`);
   }
   const body = shell(
-    `<h1>${escapeHtml(CLAIM_TEXT.done)}</h1><p class="ek-url">${escapeHtml(pageUrl(handle))}</p>` +
+    `<h1>${escapeHtml(heading)}</h1><p class="ek-url">${escapeHtml(pageUrl(handle))}</p>` +
       `<div class="ek-actions"><a class="ek-btn" href="${escapeHtml(`${siteUrl()}${pagePath(handle)}`)}">${escapeHtml(CLAIM_TEXT.see)}</a></div>` +
       (links.length ? `<ul class="ek-links">${links.map((l) => `<li>${l}</li>`).join('')}</ul>` : ''),
   );
@@ -229,10 +238,10 @@ export async function xCallback(request: Request, deps: RouteDeps & { x?: XOAuth
   const code = q.get('code') ?? '';
   const cookies = claimCookies(request);
   if (!/^[A-Za-z0-9_-]{43}$/.test(state) || cookies.length === 0) return claimPage(CLAIM_TEXT.failed, 403);
-  const [row] = await sql()<{ builder_id: number; code_verifier: string; code_hash: string | null }[]>`
+  const [row] = await sql()<{ builder_id: number; code_verifier: string; code_hash: string | null; csrf_hash: string }[]>`
     DELETE FROM x_oauth_states
     WHERE state_hash = ${sha256(state)} AND expires_at > now() AND csrf_hash IN ${sql()(cookies.map(sha256))}
-    RETURNING builder_id, code_verifier, code_hash`;
+    RETURNING builder_id, code_verifier, code_hash, csrf_hash`;
   if (!row?.code_hash) return claimPage(CLAIM_TEXT.failed, 403);
   const clear = { 'Set-Cookie': clearCookie(row.code_hash) };
   if (!code || code.length > 1000) return claimPage(CLAIM_TEXT.failed, 400, clear);
@@ -256,12 +265,24 @@ export async function xCallback(request: Request, deps: RouteDeps & { x?: XOAuth
     return claimPage(CLAIM_TEXT.failed, 500, clear);
   }
   if (r.ok) return claimDonePage(r.handle, r.root, clear);
+  if (r.reason === 'held') {
+    // v2.13.4 (R1): the same page offers one button; the claim cookie stays for that one POST.
+    const offer = await joinOffer({ joiner: target, holder: r.target, user, csrfHash: row.csrf_hash, codeHash: row.code_hash }).catch((err: unknown) => {
+      console.error('[x/callback] offer', err instanceof Error ? err.name : 'error');
+      return null;
+    });
+    return offer ? joinPage(user.username, offer) : claimPage(CLAIM_TEXT.failed, 500, clear);
+  }
   if (r.reason === 'join_pending') return claimPage(CLAIM_TEXT.joinPending, 200, clear);
   if (r.reason === 'owner_cleared') return claimPage(CLAIM_TEXT.paused, 403, clear);
   return claimPage(CLAIM_TEXT.claimedOther, 409, clear);
 }
 
-export type BindResult = { ok: true; handle: string; root: number } | { ok: false; reason: 'claimed_by_other' | 'join_pending' | 'owner_cleared' };
+export type BindResult =
+  | { ok: true; handle: string; root: number }
+  | { ok: false; reason: 'claimed_by_other' | 'join_pending' | 'owner_cleared' }
+  /** v2.13.4 (R1, under the Bench): the X account is on another group's page (`target`, its root); nothing is bound or asked. */
+  | { ok: false; reason: 'held'; target: number };
 
 /**
  * The X claim on `builderId`'s person (its group root). One X account per person, one person per X
@@ -284,7 +305,9 @@ export async function bindX(builderId: number, user: XUser, now: Date): Promise<
     const [cleared] = await tx`SELECT 1 FROM x_owner_clears WHERE x_user_id = ${user.id}`;
     if (cleared) return { ok: false as const, reason: 'owner_cleared' as const };
     if (p.x_user_id && p.x_user_id !== user.id) return { ok: false as const, reason: 'claimed_by_other' as const };
-    const [held] = await tx`SELECT 1 FROM builder_profiles WHERE x_user_id = ${user.id} AND builder_id <> ${root}`;
+    const [held] = await tx<{ builder_id: number }[]>`SELECT builder_id FROM builder_profiles WHERE x_user_id = ${user.id} AND builder_id <> ${root}`;
+    // v2.13.4 (R1): under the Bench the claim page offers the one-click join instead of a cross-agent yes.
+    if (held && benchEnabled()) return { ok: false as const, reason: 'held' as const, target: held.builder_id };
     if (held) return { ok: false as const, reason: 'join_pending' as const };
     // Review Focus 2: X says this handle is this account's now. A stale holder is cleared (hidden
     // until they sign in again); no history row may send this handle anywhere else; an unclaimed
@@ -321,4 +344,103 @@ export async function bindX(builderId: number, user: XUser, now: Date): Promise<
   await enqueueDiscovery(root, 'signin'); // T7: the X field match is checked on the next read
   profileChanged();
   return { ok: true, handle: out.handle, root };
+}
+
+// ---- v2.13.4 (R1): the one-click join on the claim page -------------------------------------------
+
+/**
+ * Stores the one offer (only the hash of its 32 random bytes) for this browser (the claim cookie's csrf
+ * hash) and claim code, 15 minutes; returns the token the page's form carries.
+ */
+async function joinOffer(o: { joiner: number; holder: number; user: XUser; csrfHash: string; codeHash: string }): Promise<string> {
+  const t = randomBytes(32).toString('base64url');
+  await sql()`DELETE FROM x_join_offers WHERE expires_at < now()`;
+  await sql()`
+    INSERT INTO x_join_offers (offer_hash, builder_id, target, x_user_id, x_handle, x_name, x_avatar_url, csrf_hash, code_hash, expires_at)
+    VALUES (${sha256(t)}, ${o.joiner}, ${o.holder}, ${o.user.id}, ${o.user.username}, ${o.user.name}, ${o.user.avatar}, ${o.csrfHash}, ${o.codeHash},
+      ${new Date(Date.now() + STATE_TTL_MS)})`;
+  return t;
+}
+
+/** The R1 page: what this X has, the warning, then one button (POST /claim/join). Same-origin, so the POST carries Origin. */
+function joinPage(handle: string, offer: string): Response {
+  const body = shell(
+    `<h1>${escapeHtml(CLAIM_TEXT.joinLead)}</h1><p class="ek-small">${escapeHtml(CLAIM_TEXT.joinWarning)}</p>` +
+      `<div class="ek-actions"><form method="post" action="${escapeHtml(siteUrl())}/claim/join">` +
+      `<input type="hidden" name="t" value="${escapeHtml(offer)}">` +
+      `<button class="ek-btn" type="submit"><span>${escapeHtml(CLAIM_TEXT.joinButton(handle))}</span></button></form></div>`,
+  );
+  return new Response(body, { status: 200, headers: { ...PAGE_HEADERS, 'Referrer-Policy': 'same-origin' } });
+}
+
+type OfferRow = {
+  builder_id: number; target: number; x_user_id: string; x_handle: string; x_name: string | null; x_avatar_url: string | null; csrf_hash: string; code_hash: string;
+};
+
+/**
+ * POST /claim/join (R1's button): Origin, an unexpired offer, and the claim cookie of the browser that
+ * signed in with X (only its hash was kept). Used once. Then, checked again now: the claim code still
+ * names the joining person, the X account is still on the holder's page, not cleared by the owner, no
+ * shared client on either side. The joining installation's group joins the holder's at once (no other
+ * agent is asked); the page keeps its X claim and handle whichever group is older. The joining agent's
+ * next reply says "Linked to your page: ..." (standing_seen.linked, by installation).
+ */
+export async function claimJoinPost(request: Request, deps: RouteDeps = {}): Promise<Response> {
+  if (!builderScoreEnabled() || !benchEnabled()) return notFound();
+  if (!xSignInEnabled()) return claimPage(CLAIM_TEXT.notOpen, 503);
+  const busy = await limited(request, deps);
+  if (busy) return busy;
+  if (request.headers.get('origin') !== new URL(siteUrl()).origin) return claimPage(CLAIM_TEXT.failed, 403);
+  const form = await request.formData().catch(() => null);
+  const t = String(form?.get('t') ?? '');
+  if (!/^[A-Za-z0-9_-]{43}$/.test(t)) return claimPage(CLAIM_TEXT.failed, 400);
+  const [found] = await sql()<OfferRow[]>`SELECT * FROM x_join_offers WHERE offer_hash = ${sha256(t)} AND expires_at > now()`;
+  if (!found) return claimPage(CLAIM_TEXT.used, 410);
+  const cookie = cookieValue(request, cookieName(found.code_hash));
+  if (!cookie || !sameSecret(sha256(cookie), found.csrf_hash)) return claimPage(CLAIM_TEXT.failed, 403);
+  const [row] = await sql()<OfferRow[]>`DELETE FROM x_join_offers WHERE offer_hash = ${sha256(t)} AND expires_at > now() RETURNING *`;
+  const clear = { 'Set-Cookie': clearCookie(found.code_hash) };
+  if (!row) return claimPage(CLAIM_TEXT.used, 410, clear);
+  try {
+    const joiner = await codeTarget(row.code_hash);
+    if (!joiner || (await rootOf(joiner)) !== (await rootOf(row.builder_id))) return claimPage(CLAIM_TEXT.used, 410, clear);
+    const [holder] = await sql()<{ builder_id: number; blocked: boolean }[]>`
+      SELECT builder_id, EXISTS (SELECT 1 FROM x_owner_clears c WHERE c.x_user_id = p.x_user_id) AS blocked FROM builder_profiles p WHERE x_user_id = ${row.x_user_id}`;
+    if (!holder || (await rootOf(holder.builder_id)) !== (await rootOf(row.target))) return claimPage(CLAIM_TEXT.used, 410, clear);
+    if (holder.blocked) return claimPage(CLAIM_TEXT.paused, 403, clear);
+    const from = await rootOf(row.builder_id);
+    const to = await rootOf(holder.builder_id);
+    if ((await sharedGroup(from)) || (await sharedGroup(to))) return claimPage(CLAIM_TEXT.cantJoin, 409, clear);
+    const members = await sql()<{ id: number }[]>`SELECT id FROM installations WHERE COALESCE(builder_id, id) = ${from}`;
+    await linkInstallations(row.builder_id, [to]);
+    const root = await rootOf(row.builder_id);
+    if (root !== (await rootOf(to))) return claimPage(CLAIM_TEXT.claimedOther, 409, clear);
+    // The page keeps its X claim: when the joining group is the older one (the root), the claim moves to it.
+    const user: XUser = { id: row.x_user_id, username: row.x_handle, name: row.x_name ?? row.x_handle, avatar: row.x_avatar_url };
+    const [p] = await sql()<{ x_user_id: string | null }[]>`SELECT x_user_id FROM builder_profiles WHERE builder_id = ${root}`;
+    let handle = row.x_handle;
+    if (p?.x_user_id !== row.x_user_id) {
+      const bound = await bindX(root, user, new Date());
+      if (!bound.ok) return claimPage(CLAIM_TEXT.failed, 500, clear);
+      handle = bound.handle;
+    } else {
+      const [h] = await sql()<{ x_handle: string | null }[]>`SELECT x_handle FROM builder_profiles WHERE builder_id = ${root}`;
+      handle = h?.x_handle ?? handle;
+    }
+    const at = new Date().toISOString();
+    const linked = Object.fromEntries(members.map((m) => [String(m.id), at]));
+    await sql()`
+      UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
+        || jsonb_build_object('linked', COALESCE(standing_seen->'linked', '{}'::jsonb) || ${sql().json(linked as never)}::jsonb)
+      WHERE builder_id = ${root}`;
+    // The event log: who joined which page, on what proof (the X user id, never the handle).
+    await noteEvent('page_joined', () => ({
+      type: 'page_joined', dedupe_key: `page_joined:${root}:${from}`, installation_id: root,
+      detail: { from, joined: members.map((m) => m.id), via: 'x_claim_page' },
+    }));
+    return claimDonePage(handle, root, clear, CLAIM_TEXT.linked);
+  } catch (err) {
+    console.error('[claim/join]', err instanceof Error ? err.name : 'error');
+    return claimPage(CLAIM_TEXT.failed, 500, clear);
+  }
 }

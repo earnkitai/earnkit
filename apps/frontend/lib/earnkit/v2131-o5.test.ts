@@ -8,9 +8,9 @@ import { sql } from './db';
 import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
-import { X_ON, avalanche, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
+import { X_ON, avalanche, claimX, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
 import {
-  GRANTS_LATER_ASK, OTHER_PROJECT_ASK, START_ASK, UPDATES_ASK_JOINING, benchBuildAsk, benchReply, cantSeeLine, cantShowLine, copyLine, checkingBranchLine, foreignLine, grantsAsk, needsAgentLine, shipAsk, type BenchView,
+  GRANTS_LATER_ASK, OTHER_PROJECT_ASK, claimQuestion, START_ASK, UPDATES_ASK_JOINING, benchBuildAsk, benchReply, cantSeeLine, cantShowLine, copyLine, checkingBranchLine, foreignLine, grantsAsk, needsAgentLine, shipAsk, type BenchView,
 } from './bench-reply';
 import { GRANTS_QUIET_MS, noGrantLine } from './bench-find';
 import { GitHubError } from './match-projects';
@@ -120,7 +120,7 @@ test('O5 N1 (F16) the first find and score answer in under 3 s while GitHub has 
       assert.ok(ms < 3000, `the first find took ${ms} ms`);
       assert.ok(gh.calls.length > 0, 'GitHub reads were started');
       assert.equal(gh.answered(), 0, 'none had answered when the reply went out');
-      assert.equal(r.show_to_builder.split('\n')[1], checkingBranchLine('next.js'), r.show_to_builder);
+      assert.equal(r.show_to_builder.split('\n')[1], checkingBranchLine('Next.js'), r.show_to_builder);
       assert.equal(links(r.show_to_builder).length, 1);
       assert.ok(r.show_to_builder.endsWith('?'));
       // O5 fix round 1: a find with an open code (its check waits on GitHub too) stays under 3 s.
@@ -129,11 +129,11 @@ test('O5 N1 (F16) the first find and score answer in under 3 s while GitHub has 
       const r2 = await find(id, {});
       assert.ok(Date.now() - t2 < 3000, `the find with an open code took ${Date.now() - t2} ms`);
       assert.ok(gh.calls.some((c) => c.includes('/git/ref/heads/earnkit-')), 'the proof check started');
-      assert.equal(r2.show_to_builder.split('\n')[1], checkingBranchLine('next.js'));
+      assert.equal(r2.show_to_builder.split('\n')[1], checkingBranchLine('Next.js'));
       const t1 = Date.now();
       const s = (await tools.score({}, { installationId: id } as never)) as R;
       assert.ok(Date.now() - t1 < 3000, `score took ${Date.now() - t1} ms`);
-      assert.equal(s.show_to_builder.split('\n')[1], checkingBranchLine('next.js'));
+      assert.equal(s.show_to_builder.split('\n')[1], checkingBranchLine('Next.js'));
     } finally {
       gh.release();
       globalThis.fetch = was;
@@ -150,23 +150,23 @@ test('O5 N2 a User repo under another login: no code, the plain line and a diffe
     const gh = repoFake();
     const id = await install();
     const r = await find(id, named(key, uniq('octocat')), { ...NO_MATCH, proofBranchFetch: gh.f });
-    assert.equal(r.show_to_builder.split('\n')[1], foreignLine('linux'), r.show_to_builder);
-    assert.ok(r.show_to_builder.endsWith(OTHER_PROJECT_ASK), r.show_to_builder);
+    assert.equal(r.show_to_builder.split('\n')[1], foreignLine('Linux'), r.show_to_builder);
+    assert.ok(r.show_to_builder.endsWith(claimQuestion(null)), r.show_to_builder);
     assert.equal(r.proof, undefined, 'no branch to push');
     assert.equal((await codes(id)).length, 0, 'no code issued');
-    assert.equal(r.move_up?.kind, 'other_project');
+    assert.equal(r.move_up?.kind, 'claim', 'v2.13.4: X first');
     // An organization's repo: any member may push, so the branch is given.
     const org = `${uniq('vercel')}/next.js`;
     const o = await install();
     const og = repoFake({ [org]: { owner: { login: org.split('/')[0], type: 'Organization' } } });
     const ro = await find(o, named(org, uniq('ravi')), { ...NO_MATCH, proofBranchFetch: og.f });
-    assert.equal(ro.show_to_builder.split('\n')[1], checkingBranchLine('next.js'), ro.show_to_builder);
+    assert.equal(ro.show_to_builder.split('\n')[1], checkingBranchLine('Next.js'), ro.show_to_builder);
     assert.ok(ro.proof);
     // Their own repo (the login is the owner): the branch as before.
     const own = `${uniq('maya')}/recipes`;
     const m = await install();
     const rm = await find(m, named(own), { ...NO_MATCH, proofBranchFetch: repoFake().f });
-    assert.equal(rm.show_to_builder.split('\n')[1], checkingBranchLine('recipes'));
+    assert.equal(rm.show_to_builder.split('\n')[1], checkingBranchLine('Recipes'));
   }),
 );
 
@@ -176,15 +176,15 @@ test('O5 N2 a repo EarnKit cannot read (404): "EarnKit can\'t see" at once, no c
     const id = await install();
     const r = await find(id, named(key), { ...NO_MATCH, proofBranchFetch: repoFake({}, { [key]: 404 }).f });
     // O5 fix round 1: a 404 is often the builder's own private repo: never the push line.
-    assert.equal(r.show_to_builder.split('\n')[1], cantSeeLine('secret'), r.show_to_builder);
+    assert.equal(r.show_to_builder.split('\n')[1], cantSeeLine('Secret'), r.show_to_builder);
     // v2.13.3 (5): with the read-only App off, said honestly.
     assert.equal(cantSeeLine('secret'), "I can't see secret. EarnKit can only see public repos right now.");
-    assert.ok(r.show_to_builder.endsWith(OTHER_PROJECT_ASK));
+    assert.ok(r.show_to_builder.endsWith(claimQuestion(null)));
     assert.equal((await codes(id)).length, 0);
     const down = `${uniq('maya')}/recipes`;
     const d = await install();
     const rd = await find(d, named(down), { ...NO_MATCH, proofBranchFetch: (async () => { throw new Error('down'); }) as typeof fetch });
-    assert.equal(rd.show_to_builder.split('\n')[1], checkingBranchLine('recipes'), 'unknown: the branch is still given');
+    assert.equal(rd.show_to_builder.split('\n')[1], checkingBranchLine('Recipes'), 'unknown: the branch is still given');
   }),
 );
 
@@ -200,8 +200,8 @@ test('O5 N2 a refused push: tell proof { pushed: false } ends the wait at once w
     assert.equal(t.show_to_builder, '');
     assert.match(t.agent_note ?? '', /call find/i);
     const next = await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
-    assert.equal(next.show_to_builder.split('\n')[1], cantShowLine('next.js'), next.show_to_builder);
-    assert.ok(next.show_to_builder.endsWith(OTHER_PROJECT_ASK));
+    assert.equal(next.show_to_builder.split('\n')[1], cantShowLine('Next.js'), next.show_to_builder);
+    assert.ok(next.show_to_builder.endsWith(claimQuestion(null)));
     assert.equal(next.proof, undefined);
     // Flag off: tell drops proof; no open code is ended.
     {
@@ -220,14 +220,14 @@ test('O5 fix round 1: a fork or template gets no code and the copy line; each ve
     const gf = repoFake({ [fork]: { fork: true } });
     const f = await install();
     const rf = await find(f, named(fork), { ...NO_MATCH, proofBranchFetch: gf.f });
-    assert.equal(rf.show_to_builder.split('\n')[1], copyLine('forked'), rf.show_to_builder);
+    assert.equal(rf.show_to_builder.split('\n')[1], copyLine('Forked'), rf.show_to_builder);
     assert.equal(copyLine('forked'), 'forked is a copy of another repo. Use your own project.');
-    assert.ok(rf.show_to_builder.endsWith(OTHER_PROJECT_ASK));
+    assert.ok(rf.show_to_builder.endsWith(claimQuestion(null)));
     assert.equal((await codes(f)).length, 0);
     const tpl = `${uniq('maya')}/tpl`;
     const t = await install();
     const rt = await find(t, named(tpl), { ...NO_MATCH, proofBranchFetch: repoFake({ [tpl]: { is_template: true } }).f });
-    assert.equal(rt.show_to_builder.split('\n')[1], copyLine('tpl'));
+    assert.equal(rt.show_to_builder.split('\n')[1], copyLine('Tpl'));
     // Remembered: the next finds read GitHub no more.
     const reads = () => gf.reads.filter((x) => x === `/repos/${fork}`).length;
     assert.equal(reads(), 1);
@@ -337,8 +337,12 @@ test('O5 N6 (P5) no project: never a grant claimed for a build that can\'t enter
     // v2.13.3 (2): an open program may be named with what it needs, never as an idea it pays for.
     assert.ok(!r.show_to_builder.includes(`${ava.title} pays`), r.show_to_builder);
     assert.doesNotMatch(r.show_to_builder, /a small app|tip jar/);
-    assert.ok(r.show_to_builder.endsWith(START_ASK), r.show_to_builder);
-    assert.equal(r.build_offer, undefined);
+    // v2.13.4 (spec 2): X first; once claimed, existing work.
+    assert.ok(r.show_to_builder.endsWith(claimQuestion(null)), r.show_to_builder);
+    await claimX(id);
+    const r1 = await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH });
+    assert.ok(r1.show_to_builder.endsWith(START_ASK), r1.show_to_builder);
+    assert.equal(r1.build_offer, undefined);
     // A chat-only agent: the same rule.
     const c = await install();
     const rc = await find(c, { agent_can_build: false }, { freshDeps: { ...OWN_FRESH, canBuild: false } });
@@ -376,7 +380,8 @@ test('O5 N7 (F11), N12 the twist asks for a wallet with a way out (one question)
 test('O5 N13 confirmed but not claimed: the updates yes never says "on the Bench" yet', dbTest, () =>
   on(async () => {
     const key = `${uniq('nc')}/hello-world`;
-    const id = await person({ main: key, projects: [{ key, name: 'Hello-World', confirmed: true }] });
+    // v2.13.4: unclaimed, the claim is the ask; with it declined, the next ask still never says "on the Bench".
+    const id = await person({ main: key, seen: { declined: { 'claim:*': new Date().toISOString() } }, projects: [{ key, name: 'Hello-World', confirmed: true }] });
     const r = await find(id, {}, NO_MATCH);
     assert.ok(r.show_to_builder.endsWith(UPDATES_ASK_JOINING), r.show_to_builder);
   }),
@@ -387,7 +392,7 @@ test('O5 N15 a chat-only agent with a project: "Open <project> in your coding ag
     const key = `${uniq('ch')}/earny`;
     const id = await install();
     const r = await find(id, { ...named(key), agent_can_build: false }, NO_MATCH);
-    assert.equal(r.show_to_builder.split('\n')[1], needsAgentLine('earny'), r.show_to_builder);
+    assert.equal(r.show_to_builder.split('\n')[1], needsAgentLine('Earny'), r.show_to_builder);
     assert.equal(needsAgentLine('earny'), 'Open earny in your coding agent to put it on the Bench.');
     assert.notEqual(r.move_up?.kind, 'updates');
     assert.ok(r.show_to_builder.endsWith('?'), r.show_to_builder);
@@ -482,11 +487,11 @@ test('O5 fix round 1: matching cut by the reply wait still lands: the next reply
     const id = await install();
     const r1 = await find(id, named(key), { ...slow, proofBranchFetch: repoFake().f });
     // v2.13.3 (2): the money section always shows; the first reply just has no fit yet.
-    assert.doesNotMatch(r1.show_to_builder, /and fits monorepo/, 'the first reply did not wait');
+    assert.doesNotMatch(r1.show_to_builder, /and fits Monorepo/, 'the first reply did not wait');
     await sleep(1500);
     const r2 = await find(id, {}, { ...slow, proofBranchFetch: repoFake().f });
     assert.match(r2.show_to_builder, /Ways to get funded/, r2.show_to_builder);
-    assert.ok(r2.show_to_builder.includes(`${ava.title} pays up to $10K and fits monorepo`), r2.show_to_builder);
+    assert.ok(r2.show_to_builder.includes(`${ava.title} pays up to $10K and fits Monorepo`), r2.show_to_builder);
     await sleep(1200);
   }),
 );

@@ -234,7 +234,8 @@ export async function takeNews(id: number, seen: Seen, base: StandBase, now: Dat
           -- v2.13.1 O5: the quiet asks.
           'quiet', standing_seen->'quiet'))
           -- v2.13.1 O5 fix round 2: the kept repo reads and match, unstripped (their nulls are values).
-          || (SELECT COALESCE(jsonb_object_agg(k, standing_seen->k), '{}'::jsonb) FROM unnest(ARRAY['repo_probe', 'bench_match']) k WHERE standing_seen ? k),
+          -- v2.13.4: the live link check and the claim page's join note.
+          || (SELECT COALESCE(jsonb_object_agg(k, standing_seen->k), '{}'::jsonb) FROM unnest(ARRAY['repo_probe', 'bench_match', 'live_check', 'linked']) k WHERE standing_seen ? k),
         card_moments = CASE WHEN ${card}::text IS NULL THEN card_moments ELSE card_moments || jsonb_build_object('latest', ${card}::text) END
       WHERE builder_id = ${id}`;
   };
@@ -311,9 +312,15 @@ export const showable = (c: Card & { agent_completable?: boolean; earnkit_campai
   !c.sponsored && !c.earnkit_campaign && !c.investment && c.agent_completable !== false && !skip.has(c.id) &&
   openCurated(c as Parameters<typeof openCurated>[0], now);
 
-/** The open-all-year program to name when nothing fits (byLazy first), or undefined. Pure. */
-export const rollingPick = (cards: Card[], now: Date, skip: Set<string>): Card | undefined =>
-  cards.filter((c) => showable(c, now, skip) && closeDayOf(c) === null && (c.max_award_usd ?? 0) > 0).sort(byLazy)[0];
+/**
+ * The open-all-year program to name when nothing fits (byLazy first), or undefined. v2.13.4 (R5, the
+ * v2.13.3 deferred): `o.unknownPrize` (the Bench) also names a program with no known award (null), as
+ * needsPicks does; a program whose award is 0 never. Pure.
+ */
+export const rollingPick = (cards: Card[], now: Date, skip: Set<string>, o: { unknownPrize?: boolean } = {}): Card | undefined =>
+  cards
+    .filter((c) => showable(c, now, skip) && closeDayOf(c) === null && ((c.max_award_usd ?? 0) > 0 || (o.unknownPrize === true && c.max_award_usd == null)))
+    .sort(byLazy)[0];
 
 /** v2.13 (spec "2b"): the biggest-prize program a person could still be shown, other than `not`. Pure. */
 export const biggestPick = (cards: Card[], now: Date, skip: Set<string>, not: string | null): Card | undefined =>

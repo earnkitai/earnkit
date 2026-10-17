@@ -6,8 +6,8 @@ import { sql } from './db';
 import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
-import { X_ON, avalanche, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
-import { NO_OFFER_LINE, NO_PROJECT_LINE, OTHER_PROJECT_ASK, POST_UPDATE_ASK, START_ASK, UPDATES_ASK_JOINING, buildingNowLine, cantShowLine, grantsAsk, shipAsk, takenLine } from './bench-reply';
+import { X_ON, avalanche, claimX, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
+import { claimAsk, claimQuestion, NO_OFFER_LINE, NO_PROJECT_LINE, OTHER_PROJECT_ASK, POST_UPDATE_ASK, START_ASK, UPDATES_ASK_JOINING, buildingNowLine, cantShowLine, grantsAsk, shipAsk, takenLine } from './bench-reply';
 import { noGrantLine } from './bench-find';
 import { BENCH_BUILD_ID, TWIST_QUESTION } from './fresh-build';
 import { mainProjectOf } from './main-project';
@@ -55,11 +55,14 @@ test('O2.1 B1, B2, B4, item 7: no project and no program to build for: the start
   on(async () => {
     const id = await install();
     const ctx = { installationId: id, freshDeps: OWN_FRESH } as never;
+    const r0 = await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH });
+    assert.equal(r0.show_to_builder.split('\n')[1], NO_PROJECT_LINE);
+    // v2.13.4 (spec 2): X first, as the one ask (its link the only link); then existing work.
+    assert.ok(r0.show_to_builder.endsWith(claimAsk(r0.claim!.link, null)), r0.show_to_builder);
+    assert.equal(links(r0.show_to_builder).length, 1, 'the claim link is the only link');
+    assert.equal(r0.move_up?.kind, 'claim');
+    await claimX(id);
     const r = await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH });
-    const lines = r.show_to_builder.split('\n');
-    assert.equal(lines[1], NO_PROJECT_LINE);
-    assert.match(lines[2], /^Your page: claim it with X at https:\/\/earnkit\.com\/claim\/[a-z0-9]+$/);
-    assert.equal(links(r.show_to_builder).length, 1, 'the claim link is the only link');
     // v2.13.3 owner ruling A: never the generic tip jar; existing work first. The reserved build still runs when started.
     assert.ok(r.show_to_builder.endsWith(START_ASK), r.show_to_builder);
     assert.equal(r.build_offer, undefined);
@@ -123,8 +126,9 @@ test('O2.1c no project, nothing EarnKit can build (deploys off): no "Pick someth
     assert.doesNotMatch(r.show_to_builder, /Pick something to build/);
     // v2.13.3 (3), ruling A: the stand line alone, then existing work and money it can win.
     assert.match(r.show_to_builder, /^You're not on the Bench yet\.$/m);
-    assert.ok(r.show_to_builder.endsWith(START_ASK), r.show_to_builder);
-    assert.match(r.show_to_builder, /^Your page: claim it with X at https:\/\/earnkit\.com\/claim\//m);
+    // v2.13.4: unclaimed, the X claim is the one ask.
+    assert.ok(r.show_to_builder.endsWith(claimQuestion(null)), r.show_to_builder);
+    assert.match(r.claim?.link ?? '', /^https:\/\/earnkit\.com\/claim\//);
     assert.equal(r.build_offer, undefined);
     // An open program may be named with what it needs (v2.13.3 (2)), never the raw tag.
     assert.doesNotMatch(r.show_to_builder, /needs a live/);
@@ -149,7 +153,7 @@ test('O2.4 B6: a newer project replaces an unconfirmed one (its open code cleare
     assert.match(rm?.remove ?? '', /^git push origin :refs\/heads\/earnkit-[a-z2-7]{12}$/);
     assert.match(rm?.agent_note ?? '', /project changed/);
     assert.equal((await find(id, named(b), NO_MATCH) as unknown as { remove_branch?: unknown }).remove_branch, undefined, 'told once');
-    assert.match(r.show_to_builder, /recipes/);
+    assert.match(r.show_to_builder, /Recipes/);
     // not_mine on the current one clears it; the next project the agent names is the one.
     await tools.tell({ repo_facts: [{ repo: b, not_mine: true }] }, { installationId: id } as never);
     assert.equal(await mainProjectOf(id), null);
@@ -186,6 +190,7 @@ test('O2.9 the last line is one question that fits: no open-all-year grant for a
   on(async () => {
     const ava = await avalanche();
     const id = await install();
+    await claimX(id); // v2.13.4: the asks after the X claim
     const r = await find(id, named(`${uniq('maya')}/hello`), NO_MATCH);
     // v2.13.3 (2): a chain grant is named only with what it needs ("for an Avalanche app"), never as a fit.
     assert.ok(!r.show_to_builder.includes(`${ava.title} pays`), 'a chain grant that does not fit the project is never claimed');
@@ -268,17 +273,19 @@ test('O2 fix round 1 (ruling 3): every state ends on one question with a yes rou
     await sql()`DELETE FROM project_updates WHERE project_key = ${key}`;
     // No project, nothing to build: v2.13.3 ruling A, existing work; the yes asks the agent for it.
     const n = await install();
+    await claimX(n); // v2.13.4: the asks after the X claim
     const s0 = await find(n, { agent_can_build: true }, { freshDeps: { ...OWN_FRESH, deployOn: () => false } });
     assert.ok(s0.show_to_builder.includes(NO_OFFER_LINE) && s0.show_to_builder.endsWith(START_ASK), s0.show_to_builder);
     const sy = await tell(n, { kind: 'start', project_key: null, answer: 'yes' });
     assert.match(sy.agent_note ?? '', /identity/);
     // Failed (the branch never showed in the hour): a different project; the yes asks the agent for it.
     const f = await install();
+    await claimX(f);
     const fk = `${uniq('fl')}/recipes`;
     await find(f, named(fk), NO_MATCH);
     await sql()`UPDATE proof_branches SET issued_at = issued_at - interval '2 hours', expires_at = expires_at - interval '2 hours' WHERE builder_id = ${f}`;
     const fr = await find(f, {}, NO_MATCH);
-    assert.equal(fr.show_to_builder.split('\n')[1], cantShowLine('recipes'), fr.show_to_builder);
+    assert.equal(fr.show_to_builder.split('\n')[1], cantShowLine('Recipes'), fr.show_to_builder);
     assert.ok(fr.show_to_builder.endsWith(OTHER_PROJECT_ASK), fr.show_to_builder);
     const fy = await tell(f, { kind: 'other_project', project_key: fk, answer: 'yes' });
     assert.match(fy.agent_note ?? '', /identity\.project/);
@@ -287,16 +294,18 @@ test('O2 fix round 1 (ruling 3): every state ends on one question with a yes rou
     const held = `${uniq('tk')}/recipes`;
     await person({ main: held, claimed: uniq('t1'), projects: [{ key: held, name: 'Recipe planner', confirmed: true }] });
     const t = await install();
+    await claimX(t);
     const tr = await find(t, named(held), { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(ava.id, held) }) });
-    assert.equal(tr.show_to_builder.split('\n')[1], takenLine('recipes'), tr.show_to_builder);
+    assert.equal(tr.show_to_builder.split('\n')[1], takenLine('Recipes'), tr.show_to_builder);
     assert.ok(!tr.show_to_builder.includes(ava.title), 'no program for a held repo');
     assert.equal(tr.lead, undefined);
     assert.notEqual(tr.move_up?.kind, 'enter');
     assert.ok(tr.show_to_builder.endsWith(OTHER_PROJECT_ASK), tr.show_to_builder);
     // needs_agent (a client that can't push): O5 N15, never the weekly-posting yes it can't schedule; grants that fit.
     const c = await install();
+    await claimX(c);
     const cr = await find(c, { ...named(`${uniq('na')}/recipes`), agent_can_build: false }, NO_MATCH);
-    assert.ok(cr.show_to_builder.endsWith(grantsAsk('recipes')), cr.show_to_builder);
+    assert.ok(cr.show_to_builder.endsWith(grantsAsk('Recipes')), cr.show_to_builder);
   }),
 );
 

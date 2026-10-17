@@ -105,3 +105,17 @@ export type Found = {
 };
 export const find = (id: number, input: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) =>
   tools.find(input, { installationId: id, ...extra } as never) as Promise<Found>;
+
+/**
+ * v2.13.4: under the Bench an unclaimed person's one ask is the X claim; a test about what comes after
+ * it claims first (a unique X account, as the claim page's sign-in binds it).
+ */
+export async function claimX(id: number): Promise<string> {
+  const { bindX } = await import('../claim');
+  const { ensureProfile } = await import('../profiles');
+  await ensureProfile(id, new Date());
+  const tag = randomBytes(5).toString('hex');
+  const r = await bindX(id, { id: `fx${tag}`, username: `fx_${tag}`, name: 'Builder', avatar: null }, new Date());
+  if (!r.ok) throw new Error(`claimX: ${r.reason}`);
+  return r.handle;
+}

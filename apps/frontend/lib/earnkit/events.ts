@@ -30,6 +30,8 @@ export const EVENT_TYPES = [
   'coin_offered', 'coin_answered', 'page_ready_shown', 'news_shown',
   // v2.13: dated shipping facts (one per project and ISO week), the weekly update, raising.
   'shipped_code', 'went_live', 'users_up', 'update_posted', 'update_hidden', 'raising_on', 'raising_off',
+  // v2.13.4 (R1): an agent joined a page from the claim page's one button.
+  'page_joined',
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 export const LOGIN_BASES = ['signin', 'app', 'proof_line', 'repo_owner', 'x_match'] as const;

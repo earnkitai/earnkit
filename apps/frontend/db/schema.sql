@@ -1199,7 +1199,9 @@ ALTER TABLE builder_events ADD CONSTRAINT builder_events_type_check CHECK (type 
   'identity_given','page_claimed','x_renamed','wallet_proven','refreshed','use_tracked','builder_code_issued',
   'coin_offered','coin_answered','page_ready_shown','news_shown',
   -- v2.13: in every re-add, or a rerun fails on v2.13 rows before the later re-add (schema-rerun.test.ts).
-  'shipped_code','went_live','users_up','update_posted','update_hidden','raising_on','raising_off'));
+  'shipped_code','went_live','users_up','update_posted','update_hidden','raising_on','raising_off',
+  -- v2.13.4 (R1): an agent joined a page from the claim page's one button.
+  'page_joined'));
 -- v2.12 T7 review: the consent line is marked shown as the reply goes out (shown once, never lost).
 ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS consent_shown_at timestamptz;
 -- v2.12 T7 review: an X handle claim refused because another profile shows it (GitHub's
@@ -1358,7 +1360,9 @@ ALTER TABLE builder_events ADD CONSTRAINT builder_events_type_check CHECK (type 
   'identity_given','page_claimed','x_renamed','wallet_proven','refreshed','use_tracked','builder_code_issued',
   'coin_offered','coin_answered','page_ready_shown','news_shown',
   -- v2.13: in every re-add, or a rerun fails on v2.13 rows before the later re-add (schema-rerun.test.ts).
-  'shipped_code','went_live','users_up','update_posted','update_hidden','raising_on','raising_off'));
+  'shipped_code','went_live','users_up','update_posted','update_hidden','raising_on','raising_off',
+  -- v2.13.4 (R1): an agent joined a page from the claim page's one button.
+  'page_joined'));
 -- Spec S7 (plan): the internal program a coin-only entry belongs to. Closed, so nothing lists it.
 INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work, token_policy, builder_bonus, agent_completable)
 VALUES ('earnkit-coin', 'EarnKit', 'Your coin', 'A coin for a project the builder already has (v2.12.1 step 3b).',

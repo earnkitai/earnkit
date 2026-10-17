@@ -19,7 +19,7 @@ import { resolveHandle } from './profiles';
 import { refreshPerson, REFRESH_BUDGET_MS, rescorePerson } from './person-score';
 import { mainConfirmed, mainProjectOf } from './main-project';
 import { benchCardFacts, benchRows, parseBenchFilter, profileData } from './bench-data';
-import { UPDATES_ASK, checkingBranchLine, claimLine, startBuildAsk, takenLine } from './bench-reply';
+import { UPDATES_ASK, checkingBranchLine, claimAsk, startBuildAsk, takenLine } from './bench-reply';
 import { NOT_CONFIRMED_NOTE, UPDATE_LINES } from './updates';
 import { pillOf } from './raising';
 import { feedWeeks, feedRankStep } from './feed';
@@ -513,7 +513,8 @@ test('16.1 acceptance 1, with a project: the first reply names it and carries th
   assert.equal(r1.show_to_builder.split('\n')[0], 'Where you stand', r1.show_to_builder);
   assert.equal(r1.show_to_builder.split('\n')[1], checkingBranchLine('Recipe planner'), r1.show_to_builder);
   assert.match(r1.claim?.link ?? '', /^https:\/\/earnkit\.com\/claim\/[a-z2-7]{12}$/);
-  assert.ok(r1.show_to_builder.includes(claimLine(r1.claim!.link)));
+  // v2.13.4 (spec 2): the X claim is the one ask, last.
+  assert.ok(r1.show_to_builder.endsWith(claimAsk(r1.claim!.link, 'Recipe planner')), r1.show_to_builder);
   const branch = r1.proof?.branch;
   assert.match(branch ?? '', /^earnkit-[a-z2-7]{12}$/, JSON.stringify(r1.proof));
   await claimX(r1.claim!.link);
@@ -553,6 +554,11 @@ test('16.1b review focus 3: a second person naming maya/recipes (already on the 
 
 test('16.2 acceptance 2, without a project: ways to get funded and one build offer; the build becomes the one project', db, async () => {
   const id = await newInstall();
+  // v2.13.4 (spec 2): X first; the build offer once claimed.
+  const r0 = await call('find', { agent_can_build: true, github_user: 'maya2' }, ctx(id));
+  assert.ok(r0.show_to_builder.endsWith(claimAsk(r0.claim!.link, null)), r0.show_to_builder);
+  xUser = { id: 'x-maya2', username: 'maya2_builds', name: 'Maya Two', avatar: null };
+  await claimX(r0.claim!.link);
   const r = await call('find', { agent_can_build: true, github_user: 'maya2' }, ctx(id));
   assert.match(r.show_to_builder, /^You're not on the Bench yet\./m, r.show_to_builder);
   assert.match(r.show_to_builder, /^Ways to get funded\n.+ pays .+ for .+\./m, r.show_to_builder);
@@ -568,6 +574,9 @@ test('16.2 acceptance 2, without a project: ways to get funded and one build off
 
 test('16.2b (v2.13.1 O3) a starter build whose proof code expired before the deploy gets a fresh code at the deploy step, then deploys', db, async () => {
   const id = await newInstall();
+  const r0 = await call('find', { agent_can_build: true, github_user: 'maya3' }, ctx(id));
+  xUser = { id: 'x-maya3', username: 'maya3_builds', name: 'Maya Three', avatar: null };
+  await claimX(r0.claim!.link);
   const r = await call('find', { agent_can_build: true, github_user: 'maya3' }, ctx(id));
   assert.equal(r.move_up?.kind, 'build', r.show_to_builder);
   await runStarterBuild(id, r.build_offer!.program_id, { owner: 'maya3', expire: true });

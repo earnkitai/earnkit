@@ -2151,6 +2151,21 @@ test('v2.8.1 §A4: EarnKit allows 10 launches per wallet per UTC day; the 11th s
   await sql()`DELETE FROM rate_windows WHERE key LIKE ${`%${wallet}`} OR key LIKE 'tokenLaunch:9001%' OR key LIKE 'tokenLaunch:9000%'`;
 });
 
+/**
+ * v2.13.4 (R5, the v2.13.3 deferred flaky test): waits until the background launch made both posts and
+ * released the claim (token_released_at), up to 10 s, instead of sleeping a fixed 900 ms.
+ */
+async function releasedBg(t: { posts: unknown[]; row: () => Promise<{ id: number }> }) {
+  const until = Date.now() + 10_000;
+  for (;;) {
+    const { id } = await t.row();
+    const [r] = await sql()<{ at: Date | null }[]>`SELECT token_released_at AS at FROM projects WHERE id = ${id}`;
+    if (t.posts.length >= 2 && r?.at) return;
+    if (Date.now() > until) throw new Error(`the background launch did not release (posts ${t.posts.length})`);
+    await new Promise((res) => setTimeout(res, 20));
+  }
+}
+
 test('v2.8.1 fix round 1: a release after the "launching" reply is read by the check-back, never relaunched; a new "go" relaunches', dbTest, () =>
   withLaunchEnv(
     async () => {
@@ -2159,8 +2174,8 @@ test('v2.8.1 fix round 1: a release after the "launching" reply is read by the c
       try {
         const r = (await handlers.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as LaunchReply;
         assert.equal(r.show_to_builder, LAUNCHING);
-        // Both 503s and the release happen in the background.
-        await new Promise((res) => setTimeout(res, 900));
+        // Both 503s and the release happen in the background (v2.13.4 R5: waited for, never a fixed sleep).
+        await releasedBg(t);
         const row = await t.row();
         assert.equal(row.token_url, null);
         assert.equal(t.posts.length, 2);
@@ -2186,7 +2201,7 @@ test('v2.8.1 fix round 1: without check_back, a same-arguments call within 2 min
       const t = await launchSetup('bg-unseen', [busy, busy, OK()]);
       try {
         await handlers.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx);
-        await new Promise((res) => setTimeout(res, 900));
+        await releasedBg(t);
         const same = (await handlers.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as LaunchReply;
         assert.ok(same.show_to_builder.startsWith("Your token didn't launch yet; say go to try again.\n\n"), same.show_to_builder);
         assert.equal(t.posts.length, 2, 'deploy called exactly twice');

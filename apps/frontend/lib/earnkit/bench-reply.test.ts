@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   OTHER_PROJECT_ASK, SUGGEST_ASK, UPDATES_ASK_JOINING, grantsAsk,
-  NO_OFFER_LINE, START_ASK, benchBuildAsk, buildingNowLine, pageLine, showsClaimLink,
+  NO_OFFER_LINE, START_ASK, benchBuildAsk, buildingNowLine, pageLine, showsClaimLink, CONFIRMED_LINE, claimAsk, claimAskLine, claimQuestion,
   NO_PROJECT_LINE, POST_UPDATE_ASK, UPDATES_ASK, benchReply, buildAsk, cantShowLine, checkingBranchLine, chooseAsk, confirmingLine, enterAsk, goLiveAsk, onBenchLine, type BenchAsk, type BenchView,
 } from './bench-reply';
 
@@ -24,19 +24,25 @@ test('8.1 spec 2a, word for word', () => {
     "Avalanche Team1 Mini Grants pays up to $10K and fits Recipe planner; it's open all year.",
     '',
     'How to move up',
-    'Want me to post what you ship here every week? It keeps your streak going on the Bench.',
+    'Want me to post what you ship here every week, to keep your streak going on the Bench?',
   ].join('\n'));
 });
 
 test('8.2 spec 2a while confirming, and with the X claim still to do', () => {
   assert.equal(confirmingLine('Recipe planner'), "Recipe planner joins the Bench as soon as I've confirmed it's yours (a minute or two).");
-  const v: BenchView = { project: { ...RECIPE, confirmed: false }, rank: null, claimed: false, handle: null, claimLink: 'earnkit.com/claim/abcdefghijkl', fund: [], ask: null };
-  assert.equal(benchReply(v), ['Where you stand', confirmingLine('Recipe planner'), 'Your page: claim it with X at earnkit.com/claim/abcdefghijkl'].join('\n'));
+  const link = 'earnkit.com/claim/abcdefghijkl';
+  const claim = { kind: 'claim' as const, project_key: null, line: claimAsk(link, 'Recipe planner') };
+  const v: BenchView = { project: { ...RECIPE, confirmed: false }, rank: null, claimed: false, handle: null, claimLink: link, fund: [], ask: claim };
+  // v2.13.4 (spec 2): the X claim is the one ask, last: the link, then one yes or no.
+  assert.equal(benchReply(v), ['Where you stand', confirmingLine('Recipe planner'), '', 'How to move up', claimAskLine(link), claimQuestion('Recipe planner')].join('\n'));
   // v2.13.1 O1: the proof branch, then (never showed in the hour) the plain line.
   assert.equal(benchReply({ ...v, branch: 'checking' }).split('\n')[1], checkingBranchLine('Recipe planner'));
   assert.equal(benchReply({ ...v, branch: 'failed' }).split('\n')[1], cantShowLine('Recipe planner'));
   const unclaimed = benchReply({ ...v, project: RECIPE });
-  assert.match(unclaimed, /Recipe planner goes on the Bench once you claim your page with X: earnkit\.com\/claim\/abcdefghijkl$/m);
+  assert.equal(unclaimed.split('\n')[1], CONFIRMED_LINE('Recipe planner'));
+  assert.ok(unclaimed.endsWith(claimAsk(link, 'Recipe planner')));
+  // No claim ask (a held question, or declined): no claim link at all.
+  assert.doesNotMatch(benchReply({ ...v, ask: null }), /claim/);
 });
 
 test('8.3 spec 2b, word for word', () => {
@@ -53,7 +59,7 @@ test('8.3 spec 2b, word for word', () => {
     'Arc pays up to $10K for payment apps. Base pays up to $5K for a live app.',
     '',
     'How to move up',
-    "Want me to build a tip jar on Arc and put it online? It takes a few minutes and I'll ask you one or two things.",
+    "It takes a few minutes and I'll ask you one or two things. Want me to build a tip jar on Arc and put it online?",
   ].join('\n'));
   // v2.13.3 (3): the stand line alone; the ask leads with existing work (bench-find).
   assert.equal(NO_PROJECT_LINE, "You're not on the Bench yet.");
@@ -92,16 +98,17 @@ test('O2.1 B1: "Pick something to build" only with the offer that follows; the s
   const none: BenchView = { project: null, rank: null, claimed: true, handle: 'maya', claimLink: null, fund: [], ask: null };
   assert.equal(benchReply(none), ['Where you stand', NO_OFFER_LINE].join('\n'));
   assert.doesNotMatch(benchReply(none), /Pick something/);
-  assert.equal(benchBuildAsk('a tip jar'), "Want me to build a tip jar and put it online? You'll be on the Bench today.");
+  assert.equal(benchBuildAsk('a tip jar'), "Want me to build a tip jar and put it online, so you're on the Bench today?");
   const offer = benchReply({ ...none, ask: { kind: 'build', project_key: null, program_id: 'earnkit-bench', line: benchBuildAsk('a tip jar') } });
   assert.equal(offer, ['Where you stand', NO_PROJECT_LINE, '', 'How to move up', benchBuildAsk('a tip jar')].join('\n'));
 });
 
-test('O2.2 B2: the claim link shows on every reply while unclaimed, project or not', () => {
+test('O2.2 B2 (v2.13.4: the claim is the ask): the claim link shows only as the one ask while unclaimed, project or not', () => {
   const link = 'https://earnkit.com/claim/abcdefghijkl';
-  const v: BenchView = { project: null, rank: null, claimed: false, handle: null, claimLink: link, fund: [], ask: null };
-  assert.equal(benchReply(v).split('\n')[2], `Your page: claim it with X at ${link}`);
+  const v: BenchView = { project: null, rank: null, claimed: false, handle: null, claimLink: link, fund: [], ask: { kind: 'claim', project_key: null, line: claimAsk(link, null) } };
+  assert.deepEqual(benchReply(v).split('\n').slice(-2), [claimAskLine(link), claimQuestion(null)]);
   assert.equal(showsClaimLink(v), true);
+  assert.equal(showsClaimLink({ ...v, ask: null }), false);
   assert.equal(showsClaimLink({ ...v, claimed: true }), false);
   assert.equal((benchReply(v).match(/https:\/\//g) ?? []).length, 1, 'the only link');
 });
@@ -125,7 +132,7 @@ test('O2.5 once claimed, the page link right after the stand line', () => {
 
 test('O2.8 honest build copy: never "you won\'t have to do anything"', () => {
   for (const line of [buildAsk('a tip jar on Arc'), goLiveAsk('Recipe planner'), benchBuildAsk('a tip jar')]) assert.doesNotMatch(line, /won't have to do anything/);
-  assert.equal(buildAsk('a tip jar on Arc'), "Want me to build a tip jar on Arc and put it online? It takes a few minutes and I'll ask you one or two things.");
+  assert.equal(buildAsk('a tip jar on Arc'), "It takes a few minutes and I'll ask you one or two things. Want me to build a tip jar on Arc and put it online?");
 });
 
 test('O2.9 a project being checked is asked the next Bench step (the updates yes), never a grant last', () => {

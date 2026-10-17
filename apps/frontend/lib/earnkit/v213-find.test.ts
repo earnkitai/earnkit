@@ -9,9 +9,9 @@ import { committedProgram } from './fixtures/program-file';
 import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
-import { X_ON, avalanche, dropAvalanche, dropPrograms, find, fitsFor, install, person, withEnv } from './fixtures/find';
+import { X_ON, avalanche, claimX, dropAvalanche, dropPrograms, find, fitsFor, install, person, withEnv } from './fixtures/find';
 import type { Starter } from './starters';
-import { UPDATES_ASK, checkingBranchLine, startBuildAsk } from './bench-reply';
+import { UPDATES_ASK, checkingBranchLine, claimAsk, startBuildAsk } from './bench-reply';
 
 /**
  * v2.13 T8: find and score under the Bench flag through the real tools: the three parts (where you
@@ -56,7 +56,9 @@ test('8.6 a fresh install with identity.project: the project named, Confirming (
     const lines = r.show_to_builder.split('\n');
     assert.equal(lines[0], 'Where you stand');
     assert.equal(lines[1], checkingBranchLine('Recipe planner'));
-    assert.match(lines[2], /^Your page: claim it with X at https:\/\/earnkit\.com\/claim\//);
+    // v2.13.4 (spec 2): the https claim link is the one ask, last.
+    assert.match(r.claim?.link ?? '', /^https:\/\/earnkit\.com\/claim\//);
+    assert.ok(r.show_to_builder.endsWith(claimAsk(r.claim!.link, 'Recipe planner')), r.show_to_builder);
     assert.match((r.proof as { branch?: string } | undefined)?.branch ?? '', /^earnkit-[a-z2-7]{12}$/);
     assert.equal(r.schedule_daily_check, undefined, 'B18: no daily check under the flag');
   }),
@@ -96,6 +98,10 @@ test('8.8 no project: ideas first, one build offer aimed at the program (spec 2b
     await arcCopy();
     try {
       const id = await install();
+      // v2.13.4 (spec 2): unclaimed, the X claim is the one ask; the build offer comes once claimed.
+      const r0 = await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH });
+      assert.ok(r0.show_to_builder.endsWith(claimAsk(r0.claim!.link, null)), r0.show_to_builder);
+      await claimX(id);
       const r = await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH });
       assert.match(r.show_to_builder, /^You're not on the Bench yet\.$/m);
       assert.match(r.show_to_builder, /^Ways to get funded\n.+ pays .+ for .+\.$/m);

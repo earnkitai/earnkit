@@ -1,5 +1,5 @@
 import { createHash, createHmac, randomBytes } from 'node:crypto';
-import { cantSeeLine, cantShowLine, copyLine, foreignLine, installAppAsk, takenLine } from './bench-reply';
+import { cantSeeLine, cantShowLine, copyLine, displayName, foreignLine, installAppAsk, takenLine } from './bench-reply';
 import { CONFIRMED_PROOFS } from './confirmed';
 import { sql, type Db } from './db';
 import { noteEvent } from './events';
@@ -591,7 +591,7 @@ export async function coinBranchProof(builderId: number, repoKey: string, now: D
   // v2.13.3 review M2: with the App on, a repo EarnKit can't see gets the install ask (its link the one link).
   if (state?.kind === 'unseen' && githubAppEnabled()) {
     const link = await createVerifyLink({ installationId: builderId, projectId: null, repoKey: key, purpose: 'app' }, now).catch(() => null);
-    if (link) return { line: installAppAsk(name, link) };
+    if (link) return { line: installAppAsk(displayName(name, key, null), link) };
   }
   return {
     line: state?.kind === 'taken' ? takenLine(name)

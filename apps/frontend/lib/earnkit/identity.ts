@@ -1,4 +1,4 @@
-import { archiveFlag, builderScoreEnabled } from './builder-score-flag';
+import { archiveFlag, benchEnabled, builderScoreEnabled } from './builder-score-flag';
 import { githubRepo, normalizeRepoUrl } from './campaigns';
 import { sql } from './db';
 import { sharedGroup } from './installations';
@@ -538,7 +538,9 @@ type PendingRow = { installation_id: number; target: number; tie: JoinTie; side:
 /**
  * The oldest pending join this group has not answered yet: as its target (it already held the tie) or
  * as the joining side (its installation proved a tie another group holds). Groups are read through
- * their current roots; a join whose two sides are already one person is skipped.
+ * their current roots; a join whose two sides are already one person is skipped. v2.13.4 (R1): under
+ * the Bench an X tie is never asked across agents (the claim page's one button joins instead), so an X
+ * pending join left from before is skipped.
  */
 async function pendingRow(root: number): Promise<PendingRow | null> {
   const [row] = await sql()<PendingRow[]>`
@@ -550,6 +552,7 @@ async function pendingRow(root: number): Promise<PendingRow | null> {
     JOIN installations t ON t.id = j.target
     JOIN installations i ON i.id = j.installation_id
     WHERE COALESCE(t.builder_id, t.id) <> COALESCE(i.builder_id, i.id)
+      AND (j.tie <> 'x_user_id' OR NOT ${benchEnabled()})
       AND ((COALESCE(t.builder_id, t.id) = ${root} AND j.target_yes IS NULL)
         OR (COALESCE(i.builder_id, i.id) = ${root} AND j.joiner_yes IS NULL))
     ORDER BY j.created_at, j.installation_id LIMIT 1`;
