@@ -11,7 +11,6 @@ import {
   LAUNCHING,
   LAUNCH_STUCK,
   STILL_CHECKING_LAUNCH,
-  NON_BASE_NO_BONUS,
   SKIPPED_ENTRY,
   LaunchTokenInput,
   TECHNICAL_TERMS,
@@ -114,7 +113,8 @@ test('tokenProposalBlock: the proposal and the agent note; v2.10 item 5: no buil
   assert.match(b.note, /Pass the wallet the builder confirmed \(the wallet on the confirm line\) as confirm's wallet\./);
   // v2.6: never a wallet line for a coin. Off a shared client (the Bench) no earnkit.txt line either:
   // the repo is proven by its proof branch at the launch (the shared-client line is the case below).
-  assert.doesNotMatch(b.note, /payout_wallet:|earnkit\.txt|token: /);
+  assert.doesNotMatch(b.note, /payout_wallet:/);
+  if (process.env.DATABASE_URL) assert.doesNotMatch(b.note, /earnkit\.txt|token: /); // no database: sharedGroup fails closed (shared)
 });
 
 test("tokenProposalBlock: on a shared client, with the repo known, this agent's own token line", async () => {
