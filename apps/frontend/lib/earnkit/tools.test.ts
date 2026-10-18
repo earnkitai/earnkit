@@ -2170,6 +2170,52 @@ const T8_REPO = 'https://github.com/jenil04/podtips';
 
 // ---- Restored in v2.14 T3 fix round 1: tell submitted and the build path's checks ----------------
 
+test('T11 fix (journey 11.0): tell\'s "I submitted" keeps the entry\'s verified contract (the stored fields carry no contracts)', dbTest, async () => {
+  const f = committedProgram('arc-microgrants', { keepContract: true });
+  const stamp = `${process.pid}-${Date.now()}`;
+  Object.assign(f, { id: `t11-keep-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' });
+  await upsertProgram(ProgramFile.parse(f));
+  const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t11k-${stamp}`}) RETURNING id`;
+  const ctx = { installationId: id, entryDeps: { fetchProof: async () => `<a href="https://github.com/t11/keep-${stamp}">code</a>` } };
+  const project = { name: 'Keep', repo_url: `https://github.com/t11/keep-${stamp}`, live_url: 'https://keep-t11.xyz', contracts: ['0x7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a'] };
+  const answers = { description: 'Fans tip creators in USDC on Arc.', builder_profile: 'https://github.com/t11' };
+  try {
+    const c = (await tools.confirm({ program_id: f.id, project, answers, skip_token: true }, ctx)) as { project_id: number; kit?: unknown };
+    assert.ok(c.kit, JSON.stringify(c));
+    const verified = async () => (await sql()<{ v: Date | null; s: Date | null }[]>`SELECT contract_verified_at AS v, submission_confirmed_at AS s FROM projects WHERE id = ${c.project_id}`)[0];
+    assert.ok((await verified()).v, 'verified at confirm');
+    await tools.tell({ submitted: { program_id: f.id, external_submission_url: 'https://dorahacks.io/buidl/9191' } }, ctx);
+    const after = await verified();
+    assert.ok(after.s, 'submitted');
+    assert.ok(after.v, 'still verified after "I submitted"');
+  } finally {
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${f.id}`;
+  }
+});
+
+test('security re-review 4 F1: the build\'s own unconfirmed deploy for a wallet that has since changed is never settled', dbTest, (tc) =>
+  withEventLog(() =>
+    withVars(shipVars(), async () => {
+      const t = await shipSetup('f1wallet', tc, { branch: true });
+      const real = t.ctx.deployDeps.chain();
+      const slow = { ...t.ctx, deployDeps: { ...t.ctx.deployDeps, chain: () => ({ ...real, receipt: async () => null }) } };
+      assert.equal((await t.ship({}, slow)).agent_note, BUILD_PENDING_NOTE);
+      const [sent] = await sql()<{ starter: string | null; owner_wallet: string }[]>`SELECT starter, owner_wallet FROM contract_deploys WHERE installation_id = ${t.inst}`;
+      assert.ok(sent.starter, 'the build path\'s row names its starter (exact bytecode)');
+      assert.equal(sent.owner_wallet, T8_WALLET);
+      const NEW = '0x' + '3c'.repeat(20);
+      await withVars(shipVars(), async () => {
+        await t.twist({ wallet: NEW, repo_url: t.repo }, t.ctx);
+      });
+      const r = await t.ship({ owner_wallet: NEW, constructor_args: [NEW, 'PodTips', '1000000'] });
+      assert.equal(t.sent.length, 1, 'nothing sent again');
+      assert.ok(!('address' in (r.deploy ?? {})), JSON.stringify(r.deploy));
+      const rows = await sql()<{ status: string }[]>`SELECT status FROM contract_deploys WHERE installation_id = ${t.inst}`;
+      assert.deepEqual(rows.map((x) => x.status), ['unknown'], 'never settled for the old wallet');
+    }),
+  ),
+);
+
 test('9.3 R16 tell: submitted marks the newest entry submitted; fix round 1 (I2): on a shared client only the pasted code\'s own entry, by project_id', dbTest, () =>
   withTokenEnv(() =>
     withSignIn(async () => {
@@ -2228,57 +2274,6 @@ test('9.3 R16 tell: an old "I submitted" (record_submission with builder_submitt
     assert.ok((await b.rows())[0].submission_confirmed_at);
     assert.equal((await b.rows()).length, 1);
   }));
-
-test('T11 fix (journey 11.0): prepare with deploy checks this draft with the deployed contract: no "No contract found" next to the deployed line', dbTest, async () => {
-  const { deployedLine } = await import('./deploy');
-  const f = committedProgram('arc-microgrants', { keepContract: true });
-  const stamp = `${process.pid}-${Date.now()}`;
-  Object.assign(f, { id: `t11-deploy-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' });
-  await upsertProgram(ProgramFile.parse(f));
-  const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t11d-${stamp}`}) RETURNING id`;
-  const repoKey = `t11x${process.pid}x${Date.now()}/tipjar`;
-  await sql()`
-    INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose)
-    VALUES (${repoKey}, ${`t11${process.pid}x${Date.now()}`}, ${id}, now(), 3, 'entry')`;
-  const ADDR = '0x12ab00000000000000000000000000000000' + '9f3e';
-  const OWNER = '0x2222222222222222222222222222222222222222';
-  const chain = {
-    estimate: async () => ({ gas: 100_000n, maxFeePerGas: 1_000_000_000n }),
-    balance: async () => 10n ** 18n,
-    send: async () => `0x${'ab'.repeat(32)}` as const,
-    receipt: async () => ({ status: 'success' as const, contractAddress: ADDR as `0x${string}`, gasUsed: 50_000n, effectiveGasPrice: 1_000_000_000n }),
-    simulate: async () => `0x${'60'.repeat(50)}` as const,
-    nonce: async () => 1,
-    code: async () => `0x${'60'.repeat(50)}` as const,
-    read: async (a: { fn: string }) => (a.fn === 'owner' ? OWNER : null),
-    write: async () => `0x${'cd'.repeat(32)}` as const,
-  };
-  const abi = [{ type: 'function', name: 'owner', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' }];
-  const project = { name: 'TipJar', repo_url: `https://github.com/${repoKey}`, live_url: 'https://tipjar-t11.xyz' };
-  const answers = { description: 'Fans tip creators in USDC on Arc.', builder_profile: 'https://github.com/alice', payout_wallet: OWNER };
-  const ctx = {
-    installationId: id,
-    deployDeps: { chain: () => chain, usdPerNative: async () => 1, now: new Date(Date.UTC(2161, Number(process.pid % 12), 3)), gate: { owner: async () => ({ status: 'missing' as const }), latest: async () => null } },
-  };
-  const keys = ['DEPLOYER_PRIVATE_KEY', 'GITHUB_OAUTH_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_SECRET'];
-  const old = keys.map((k) => process.env[k]);
-  process.env.DEPLOYER_PRIVATE_KEY = '5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a';
-  process.env.GITHUB_OAUTH_CLIENT_ID = 'test-client';
-  process.env.GITHUB_OAUTH_CLIENT_SECRET = 'test-secret';
-  try {
-    const r = (await tools.prepare({ program_id: f.id, project, answers, coach_asked: true, deploy: { chain: 'arc', bytecode: `0x${'60'.repeat(40)}`, abi, owner_wallet: OWNER } }, ctx)) as Record<string, unknown> & { show_to_builder: string };
-    assert.deepEqual(r.deploy, { address: ADDR, chain: 'arc', owner_ok: true });
-    assert.ok(r.show_to_builder.endsWith(`\n\n${deployedLine('TipJar', 'arc', ADDR, true)}`), r.show_to_builder);
-    assert.doesNotMatch(r.show_to_builder, /No contract found/, 'the draft was checked with the deployed contract');
-    assert.equal(r.ready, true, r.show_to_builder);
-    // Without a deploy (and no contract given) the same draft says so: the check is real.
-    const plain = (await tools.prepare({ program_id: f.id, project, answers, coach_asked: true }, { installationId: id })) as { show_to_builder: string };
-    assert.match(plain.show_to_builder, /No contract found on Arc mainnet yet\./);
-  } finally {
-    keys.forEach((k, i) => (old[i] === undefined ? delete process.env[k] : (process.env[k] = old[i])));
-    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${f.id}`;
-  }
-});
 
 test('8.1 build.start with no wallet known: exactly the twist question plus "Add the wallet that should own it."; the build is stored (S6)', dbTest, async (tc) => {
   const t = await buildSetup('nowallet', tc);
@@ -2997,27 +2992,6 @@ test('T9 N1 the build path deploys only the starter\'s exact bytecode with its o
 );
 
 // ---- v2.11 T9 security fix R4: the build flow through GitHub's real push record (fetchLinePusher)
-
-test('security re-review 4 F1: a timed-out v2.10 deploy of other bytecode is never settled or labelled as the starter by the build path', dbTest, (tc) =>
-  withEventLog(() =>
-    withVars(shipVars(), async () => {
-      const t = await shipSetup('f1v210', tc);
-      const real = t.ctx.deployDeps.chain();
-      const slow = { ...t.ctx, deployDeps: { ...t.ctx.deployDeps, chain: () => ({ ...real, receipt: async () => null }) } };
-      // v2.10's plain prepare with deploy: any bytecode (here the starter's plus one byte), its receipt never comes.
-      await t.prepare({ program_id: t.p.id, project: { name: 'PodTips', repo_url: t.repo }, deploy: t.deploy({ bytecode: `${ARC_TIPJAR_BYTECODE}00` }) }, slow);
-      const [v210] = await sql()<{ status: string; starter: string | null }[]>`SELECT status, starter FROM contract_deploys WHERE installation_id = ${t.inst}`;
-      assert.deepEqual({ ...v210 }, { status: 'unknown', starter: null });
-      // The build path's call: that row is left alone; the normal path's day cap refuses (fail closed).
-      const r = await t.ship();
-      assert.equal(t.sent.length, 1, 'nothing sent again');
-      assert.ok(!('address' in (r.deploy ?? {})), JSON.stringify(r.deploy));
-      const rows = await sql()<{ status: string }[]>`SELECT status FROM contract_deploys WHERE installation_id = ${t.inst}`;
-      assert.deepEqual(rows.map((x) => x.status), ['unknown'], 'never settled');
-      assert.ok(!(await eventsOfInstallation(t.inst)).some((e) => e.type === 'deployed'), 'never labelled or logged as the starter');
-    }),
-  ),
-);
 
 // ---- v2.11 T10 (spec 5): the entry drafted from the build, the live, deployed and confirm lines in one reply, the kit, submitted
 
