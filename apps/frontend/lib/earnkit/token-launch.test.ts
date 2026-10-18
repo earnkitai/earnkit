@@ -1,11 +1,12 @@
 import './fixtures/no-network-checks';
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 process.env.EARNKIT_AUTH_SECRET = 'launch-test-secret';
 import assert from 'node:assert/strict';
 import type { ProgramRow } from './programs';
 import { LaunchError, type TokenOutcome } from './tokens';
 import { RecordSubmissionInput } from './projects';
 import { tokenLineFor } from './token-gate';
+import { sql } from './db';
 import {
   LAUNCHING,
   LAUNCH_STUCK,
@@ -22,6 +23,11 @@ import {
   type FlowProject,
   type TokenFlowDeps,
 } from './token-launch';
+
+// The launch reads sharedGroup (the proof branch) from the database when one is set: close the pool after.
+after(async () => {
+  if (process.env.DATABASE_URL) await sql().end();
+});
 
 test('decideToken', () => {
   const base = { policy: 'encouraged' as const, choice: undefined, confirmed: true, existingTokenUrl: null, proposal: { name: 'Chain Kits', symbol: 'CKIT' }, wallet: '0xW' };
