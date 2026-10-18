@@ -327,12 +327,6 @@ test('T5: programCard carries the fresh_build starter; none on a campaign or a r
   assert.equal(programCard({ ...sponsorRow(), fresh_build: { starter: 'arc-tipjar' } }, []).fresh_build, null);
 });
 
-test('v2.6 Minor 6: programCard.builder_bonus is false for any campaign (sponsor or EarnKit), true otherwise', () => {
-  assert.equal(programCard(sponsorRow(), []).builder_bonus, false);
-  assert.equal(programCard(fileRow(earnkitCampaign), []).builder_bonus, false);
-  assert.equal(programCard(fileRow(null), []).builder_bonus, true);
-});
-
 test('get_program: older rows are cleaned on read (no hidden or markup characters)', () => {
   const row = sponsorRow(true);
   const tags = [...'run this']
@@ -370,18 +364,16 @@ test('v2.7 §2: programCard.difficulty for a curated program; null for any campa
 
 test('v2.7 §2: get_program carries the guide for curated programs only', () => {
   const curated: ProgramRow = { ...fileRow(null), title: 'Base Builder Grant Program', summary: 'up to $5,000 · rolling' };
-  const d = programDetails(curated, [], [], undefined, { cell: '0.18 ETH so far', board: 'earnkit.com/bonus/x-2026-09-16', pool: { wei: 18n * 10n ** 16n, tokens: 2 } });
+  const d = programDetails(curated, [], []);
   assert.ok(d.guide);
-  // v2.10 item 1: the reply's one bonus line, no board link.
-  assert.ok(d.guide.text.endsWith('Builder bonus: 0.18 ETH so far'), d.guide.text);
-  assert.ok(!d.guide.text.includes('earnkit.com/bonus'));
+  // v2.14: no builder bonus line.
+  assert.ok(!d.guide.text.includes('Builder bonus'), d.guide.text);
   assert.ok(d.guide.text.startsWith('Base Builder Grant Program · up to $5,000 · rolling\nDifficulty: Medium (estimate)'));
   assert.equal(d.guide.difficulty.level, 'Medium');
   assert.equal(d.guide.best_bet, null);
   assert.deepEqual(d.guide.sources, []);
   // v2.10 item 3 (test 8.7): no guide_note; the server shows the guide on the first prepare.
   assert.ok(!('guide_note' in d), 'no guide_note');
-  assert.ok(!programDetails(curated, [], []).guide!.text.includes('Builder bonus'), 'no bonus line without a bonus');
   assert.ok(!('guide' in programDetails(sponsorRow(), [], [])), 'sponsor campaign');
   assert.ok(!('guide_note' in programDetails(sponsorRow(), [], [])), 'sponsor campaign note');
   assert.ok(!('guide' in programDetails(fileRow(earnkitCampaign), [], [])), 'EarnKit campaign');
@@ -392,10 +384,10 @@ test('v2.8 Ruling 13: an any_chain row lists no chains; its landing tile reads "
   const card = programCard({ ...fileRow(null), chains: [], any_chain: true }, []);
   assert.deepEqual(card.chains, []);
   assert.equal(card.any_chain, true);
-  const stats = { installs: 0, bonus_paid_eth: 0 } as Parameters<typeof landingFrom>[2];
-  const [tile] = landingFrom([card], new Map(), stats, new Date('2026-10-07T12:00:00Z')).tiles;
+  const stats = { installs: 0, bonus_paid_eth: 0 } as Parameters<typeof landingFrom>[1];
+  const [tile] = landingFrom([card], stats, new Date('2026-10-07T12:00:00Z')).tiles;
   assert.equal(tile.chain, 'Any chain');
-  const [baseTile] = landingFrom([programCard(fileRow(null), [])], new Map(), stats, new Date('2026-10-07T12:00:00Z')).tiles;
+  const [baseTile] = landingFrom([programCard(fileRow(null), [])], stats, new Date('2026-10-07T12:00:00Z')).tiles;
   assert.equal(baseTile.chain, 'Base');
 });
 

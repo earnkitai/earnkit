@@ -17,7 +17,6 @@ import {
   type MatchDeps,
 } from './match-projects';
 import { KNOWN_TOKEN_ADDRESSES, SIGNAL_WORDS, UNCHECKED_NOTE, type ProgramFacts } from './match';
-import { FIND_DESCRIPTION } from './mcp';
 import { presentFirstMessage } from './present';
 
 /** Stubs global fetch with GitHub answers by path (query kept); records every path asked. */
@@ -434,7 +433,6 @@ test('G3.3 a local repo without last_commit_at counts as active; the instruction
     checkDeps({ probeOk: true }).deps,
   );
   assert.ok(old.fits[0].product.missing.includes('active'));
-  assert.match(FIND_DESCRIPTION, /last_commit_at/);
 });
 
 test('G3.4 a repo the builder names skips the 365-day rule; a named fork or template is still dropped', async () => {

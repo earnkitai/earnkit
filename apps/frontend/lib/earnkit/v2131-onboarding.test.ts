@@ -7,16 +7,12 @@ import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, claimX, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
-import { claimAsk, claimQuestion, NO_OFFER_LINE, NO_PROJECT_LINE, OTHER_PROJECT_ASK, POST_UPDATE_ASK, START_ASK, UPDATES_ASK_JOINING, buildingNowLine, cantShowLine, grantsAsk, shipAsk, takenLine } from './bench-reply';
+import { claimQuestion, NO_OFFER_LINE, OTHER_PROJECT_ASK, POST_UPDATE_ASK, START_ASK, UPDATES_ASK_JOINING, buildingNowLine, cantShowLine, grantsAsk, shipAsk, takenLine } from './bench-reply';
 import { noGrantLine } from './bench-find';
-import { BENCH_BUILD_ID, TWIST_QUESTION } from './fresh-build';
 import { mainProjectOf } from './main-project';
 import { mondayOf } from './weeks';
 import { coinBranchProof } from './proof-branch';
-import { reservedIdProblem } from './program-file';
-import { readStats } from './stats';
-import { listPrograms } from './programs';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
@@ -45,77 +41,8 @@ const NO_MATCH = { matchProjects: async () => ({ checked: 1, scored: 0, fits: []
 const STARTER_ID = `o2-tip-${RUN}`;
 const OWN_FRESH = { deployOn: () => true, hostOn: true, canBuild: true, starters: { [STARTER_ID]: { ...TESTED_STARTERS['arc-tipjar'], id: STARTER_ID } } };
 const named = (repo: string) => ({ agent_can_build: true, identity: { github_login: repo.split('/')[0], project: { name: repo.split('/')[1], what: 'a thing', repo } } });
-const links = (t: string) => t.match(/https?:\/\/\S+/g) ?? [];
 const openCodes = (id: number) => sql()<{ repo_key: string }[]>`SELECT repo_key FROM proof_branches WHERE builder_id = ${id} AND used_at IS NULL AND closed_at IS NULL AND expires_at > now()`;
 type R = { show_to_builder: string; agent_note?: string; build_offer?: Record<string, unknown>; move_up?: { kind: string }; kit?: unknown };
-
-test('O2.1 B1, B2, B4, item 7: no project and no program to build for: the starter build with no program, the claim link, no note on build_offer; the yes builds, hosts and sets the one project, entering nothing; mid-build only "Building"', dbTest, () =>
-  on(async () => {
-    const id = await install();
-    const ctx = { installationId: id, freshDeps: OWN_FRESH } as never;
-    const r0 = await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH });
-    assert.equal(r0.show_to_builder.split('\n')[1], NO_PROJECT_LINE);
-    // v2.13.4 (spec 2): X first, as the one ask (its link the only link); then existing work.
-    assert.ok(r0.show_to_builder.endsWith(claimAsk(r0.claim!.link, null)), r0.show_to_builder);
-    assert.equal(links(r0.show_to_builder).length, 1, 'the claim link is the only link');
-    assert.equal(r0.move_up?.kind, 'claim');
-    await claimX(id);
-    const r = await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH });
-    // v2.13.3 owner ruling A: never the generic tip jar; existing work first. The reserved build still runs when started.
-    assert.ok(r.show_to_builder.endsWith(START_ASK), r.show_to_builder);
-    assert.equal(r.build_offer, undefined);
-    assert.equal(r.move_up?.kind, 'start');
-    const sc = (await tools.score({}, ctx)) as R;
-    assert.ok(sc.show_to_builder.endsWith(START_ASK), sc.show_to_builder);
-    assert.equal(sc.build_offer, undefined);
-    const start = (await tools.prepare({ program_id: BENCH_BUILD_ID, build: { start: true, program_id: BENCH_BUILD_ID } }, ctx)) as R;
-    assert.ok(start.show_to_builder.startsWith(TWIST_QUESTION), start.show_to_builder);
-    // B4 at the twist step: no build offer again.
-    const mid0 = await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH });
-    assert.equal(mid0.build_offer, undefined);
-    assert.equal(mid0.move_up, undefined);
-    const repo = `${uniq('podder')}/podtips`;
-    const twist = (await tools.prepare({
-      program_id: BENCH_BUILD_ID,
-      build: {
-        program_id: BENCH_BUILD_ID, twist: 'tips for my podcast listeners', name: 'Podcast Tips', description: 'USDC tips for my podcast listeners.',
-        feature: 'Listeners leave a note for the next podcast episode.', for_whom: 'for your podcast listeners', wallet: `0x${'1a'.repeat(20)}`,
-        repo_url: `https://github.com/${repo}`,
-      },
-    }, ctx)) as R;
-    assert.match(twist.show_to_builder, /^Building Podcast Tips: /);
-    assert.ok(twist.kit);
-    // B4: mid-build, find and score say only "Building", ask nothing, offer nothing.
-    for (const mid of [await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH }), (await tools.score({}, ctx)) as R]) {
-      assert.equal(mid.show_to_builder.split('\n')[1], buildingNowLine('Podcast Tips'));
-      assert.doesNotMatch(mid.show_to_builder, /Want me|Ways to get funded|How to move up/);
-      assert.equal(mid.move_up, undefined);
-      assert.equal(mid.build_offer, undefined);
-    }
-    // The deploy set the one project (as buildShip does); the live link ends the build, entering no program.
-    const slug = uniq('podtips');
-    await sql()`INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, status, cost_micro_usd, address, owner_ok)
-      VALUES (${id}, ${`o2-${id}`}, ${repo}, 'arc', ${`0x${'ab'.repeat(32)}`}, 'deployed', 1, ${`0x${'cd'.repeat(20)}`}, true)`;
-    await sql()`INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status) VALUES (${slug}, ${repo.split('/')[0]}, ${repo}, ${id}, 1, 1, 'live')`;
-    await sql()`UPDATE builder_profiles SET main_project_key = ${repo} WHERE builder_id = ${id}`;
-    const done = (await tools.prepare({ program_id: BENCH_BUILD_ID, project: { name: 'Podcast Tips', repo_url: `https://github.com/${repo}`, live_url: `https://${slug}.earnkit.com/` }, build: { program_id: BENCH_BUILD_ID } }, ctx)) as R;
-    assert.match(done.show_to_builder, new RegExp(`^Podcast Tips is live: .*${slug}`), done.show_to_builder);
-    assert.doesNotMatch(done.show_to_builder, /entry|Want me to prepare/i);
-    assert.equal((await sql()`SELECT 1 FROM projects WHERE installation_id = ${id}`).length, 0, 'no program entered');
-    const after = await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH, ...NO_MATCH });
-    assert.doesNotMatch(after.show_to_builder, /^Building/m);
-    assert.equal(await mainProjectOf(id), repo);
-  }),
-);
-
-test('O2.1b flag off: the reserved build id is refused (no program by that name)', dbTest, () =>
-  withEnv({ ...ON, EARNKIT_BENCH: undefined }, async () => {
-    const id = await install();
-    const r = (await tools.prepare({ program_id: BENCH_BUILD_ID, build: { start: true, program_id: BENCH_BUILD_ID } }, { installationId: id, freshDeps: OWN_FRESH } as never)) as R;
-    assert.equal(r.show_to_builder, '');
-    assert.match(r.agent_note ?? '', /can't start a build/);
-  }),
-);
 
 test('O2.1c no project, nothing EarnKit can build (deploys off): no "Pick something", no question pointing nowhere, the claim link', dbTest, () =>
   on(async () => {
@@ -304,60 +231,5 @@ test('O2 fix round 1 (ruling 3): every state ends on one question with a yes rou
     await claimX(c);
     const cr = await find(c, { ...named(`${uniq('na')}/recipes`), agent_can_build: false }, NO_MATCH);
     assert.ok(cr.show_to_builder.endsWith(grantsAsk('Recipes')), cr.show_to_builder);
-  }),
-);
-
-test('O2 fix round 1 (ruling 5): programs:check refuses the reserved id', () => {
-  assert.equal(reservedIdProblem({ id: 'earnkit-bench' }), 'id: "earnkit-bench" is reserved for the Bench\'s starter build with no program');
-  assert.equal(reservedIdProblem({ id: 'EarnKit-Bench' }) !== null, true);
-  assert.equal(reservedIdProblem({ id: 'arc-microgrants' }), null);
-  const src = readFileSync(join(import.meta.dirname, '..', '..', 'scripts', 'programs-sync.mts'), 'utf8');
-  assert.ok(src.indexOf('reservedIdProblem(result.data)') > 0 && src.indexOf('reservedIdProblem(result.data)') < src.indexOf('process.exit(1)'), 'a problem before the exit');
-  assert.ok(!readdirSync(join(import.meta.dirname, '..', '..', '..', '..', 'programs')).includes('earnkit-bench.json'));
-});
-
-test('O2 fix round 1 (item 6): the no-program build\'s events (program_id earnkit-bench) never count as an entry, a program, a fit, the feed, stats or the bonus', dbTest, () =>
-  on(async () => {
-    const id = await install();
-    const repo = `${uniq('ev')}/podtips`;
-    // O3 fix round 1: the stats are read before and after this test's own events inside one
-    // repeatable-read transaction, so rows other files write at the same time are never counted.
-    const now = new Date();
-    const [before, after] = await sql().begin('isolation level repeatable read', async (tx) => {
-      const b = await readStats(now, tx as never);
-      for (const type of ['built', 'hosted'] as const)
-        await tx`INSERT INTO builder_events (type, installation_id, repo_key, program_id, dedupe_key, detail) VALUES (${type}, ${id}, ${repo}, ${BENCH_BUILD_ID}, ${`${type}:o2:${id}`}, '{}'::jsonb)`;
-      return [b, await readStats(now, tx as never)] as const;
-    });
-    assert.equal((await sql()`SELECT 1 FROM builder_events WHERE installation_id = ${id} AND program_id = ${BENCH_BUILD_ID}`).length, 2, 'the events were written');
-    assert.deepEqual(after, before, 'its own events change no stat');
-    assert.equal((await sql()`SELECT 1 FROM projects WHERE installation_id = ${id} OR program_id = ${BENCH_BUILD_ID}`).length, 0, 'no entry');
-    assert.equal((await sql()`SELECT 1 FROM programs WHERE id = ${BENCH_BUILD_ID}`).length, 0, 'no program');
-    assert.ok(!(await listPrograms()).some((p) => p.id === BENCH_BUILD_ID), 'never a fit or an idea');
-    assert.equal((await sql()`SELECT 1 FROM bonus_ledger WHERE program_id = ${BENCH_BUILD_ID}`.catch(() => [])).length, 0, 'no bonus');
-    assert.equal((await sql()`SELECT 1 FROM feed_cards WHERE builder_id = ${id}`.catch(() => [])).length, 0, 'no feed card');
-  }),
-);
-
-test('O2 fix round 1 (minors): the twist step says "Building your tip jar"; invalid repo_facts clear nothing; flag off writes no done_at', dbTest, () =>
-  on(async () => {
-    const id = await install();
-    const ctx = { installationId: id, freshDeps: OWN_FRESH } as never;
-    await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH });
-    await tools.tell({ move_up: { kind: 'build', project_key: null, answer: 'yes' } }, ctx);
-    await tools.prepare({ program_id: BENCH_BUILD_ID, build: { start: true, program_id: BENCH_BUILD_ID } }, ctx);
-    const mid = await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH });
-    assert.equal(mid.show_to_builder.split('\n')[1], buildingNowLine('your tip jar'));
-    // not_mine inside input tell's schema refuses changes nothing.
-    const k = `${uniq('inv')}/recipes`;
-    const p = await install();
-    await find(p, named(k), NO_MATCH);
-    await tools.tell({ repo_facts: [{ repo: k, not_mine: true, bogus: 1 }] }, { installationId: p } as never).catch(() => null);
-    assert.equal(await mainProjectOf(p), k);
-    // Flag off: the live link writes no done_at.
-    await withEnv({ EARNKIT_BENCH: undefined }, async () => {
-      const src = readFileSync(join(import.meta.dirname, 'tools.ts'), 'utf8');
-      assert.match(src, /if \(live && benchEnabled\(\)\) await saveBuild\(ctx\.installationId, \{ \.\.\.stored, done_at/);
-    });
   }),
 );

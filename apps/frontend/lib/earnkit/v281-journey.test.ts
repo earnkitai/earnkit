@@ -309,7 +309,7 @@ const speedrunOffer = /Want me to (start on|build something new for) a16z speedr
 
 /** v2.10 item 3: the first prepare for a program starts with its guide; returns what follows it. */
 async function afterGuide(programId: string, text: string) {
-  const g = guideText(programGuide(await getProgramRow(programId), null));
+  const g = guideText(programGuide(await getProgramRow(programId)));
   assert.ok(text.startsWith(`${g}\n\n`), text);
   return text.slice(g.length + 2);
 }

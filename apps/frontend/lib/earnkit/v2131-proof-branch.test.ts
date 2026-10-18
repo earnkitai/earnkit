@@ -5,13 +5,12 @@ import { createHash, randomBytes } from 'node:crypto';
 import { sql } from './db';
 import { X_ON, find, install, withEnv } from './fixtures/find';
 import { claimLink } from './claim';
-import { proofFor } from './main-project';
 import {
   PROOF_BRANCH_NOTE, PROOF_BRANCH_RECHECK_MS, PROOF_BRANCH_TTL_MS, checkProofBranch, coinBranchProof, proofBranchFor, proofBranchStep,
   removeCommand,
 } from './proof-branch';
 import { benchReply, claimAsk, copyLine, needsAgentLine, cantShowLine, checkingBranchLine, confirmingSlowLine, takenLine, type BenchView } from './bench-reply';
-import { COIN_YES_NOTE, coinYesNote } from './coin-moments';
+import { COIN_YES_NOTE } from './coin-moments';
 import { coinBranchReason, tokenGate, type GateDeps } from './token-gate';
 import { discoverPerson } from './discovery';
 import type { ReaderDeps } from './source-readers';
@@ -114,7 +113,6 @@ test('O1.2 the owner pushes: one https link, the branch for the agent, the code 
     assert.equal(row.code_hash, sha256(code), 'only the hash is stored');
     assert.equal((await sql()`SELECT 1 FROM proof_branches p WHERE p::text LIKE ${`%${code}%`}`).length, 0, 'the code itself is nowhere in the table');
     assert.equal(row.expires_at.getTime() - row.issued_at.getTime(), PROOF_BRANCH_TTL_MS);
-    assert.equal(await proofFor(id, id, { canPush: true, now: new Date() }), null, 'no line to push under the flag');
     // Asked again before the push: the same branch, nothing confirmed.
     assert.equal(proofOf(await again(gh, id))?.branch, branch);
     assert.equal((await rows(id)).length, 1);
@@ -383,7 +381,7 @@ async function proven(gh: ReturnType<typeof fakeGitHub>, key: string) {
   return s;
 }
 
-test('O1.12 a coin: a fresh branch proof whose repo still reads the same passes the gate with no line; the coin note names no line; flag off, the line as today', dbTest, () =>
+test('O1.12 a coin: a fresh branch proof whose repo still reads the same passes the gate with no line; the coin note names no line', dbTest, () =>
   withEnv(ON, async () => {
     const key = `${uniq('coin')}/recipes`;
     const gh = fakeGitHub();
@@ -391,12 +389,7 @@ test('O1.12 a coin: a fresh branch proof whose repo still reads the same passes 
     const reads = gh.calls.length;
     assert.deepEqual(await tokenGate(coinInput(id, key), gateDeps(gh)), { ok: true });
     assert.deepEqual(gh.calls.slice(reads), [`/repos/${key}`], 'one launch-time read of the repo');
-    assert.doesNotMatch(coinYesNote(), /line|earnkit\.txt/i);
-    await withEnv({ EARNKIT_BENCH: undefined }, async () => {
-      const off = await tokenGate(coinInput(id, key), { ...gateDeps(gh), branchProof: undefined });
-      assert.equal(off.ok, false, 'flag off: the line is still asked');
-      assert.equal(coinYesNote(), COIN_YES_NOTE);
-    });
+    assert.doesNotMatch(COIN_YES_NOTE, /line|earnkit\.txt/i);
   }),
 );
 

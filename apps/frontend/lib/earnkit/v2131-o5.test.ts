@@ -17,11 +17,12 @@ import { GitHubError } from './match-projects';
 import { RateLimitError } from './rate-limit';
 import { mondayOf } from './weeks';
 import { takeNews } from './stand-view';
-import { BENCH_BUILD_ID, BENCH_WALLET_ASK, TWIST_QUESTION, WALLET_ASK, twistQuestion } from './fresh-build';
+import { TWIST_QUESTION, WALLET_ASK, buildingLine, twistQuestion } from './fresh-build';
+import { STARTERS } from './starters';
 import { PROOF_BRANCH_NOTE, REPO_PROBE_KEEP_MS, removeNote } from './proof-branch';
 import { readPersonLive, rescorePerson } from './person-score';
 import { safeNames } from './page-data';
-import { EARN_NOTE } from './where-you-stand';
+import { EARN_NOTE } from './stand-text';
 import { toolDescriptions } from './mcp';
 import { CLAIM_TEXT, claimDonePage, claimGet, claimLink } from './claim';
 import { UPDATE_LINES } from './updates';
@@ -56,7 +57,6 @@ const named = (repo: string, login = repo.split('/')[0]) => ({ agent_can_build: 
 const links = (t: string) => t.match(/https?:\/\/\S+/g) ?? [];
 const questions = (t: string) => (t.match(/\?/g) ?? []).length;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const openCodes = (id: number) => sql()`SELECT 1 FROM proof_branches WHERE builder_id = ${id} AND used_at IS NULL AND expires_at > now()`;
 const codes = (id: number) => sql()<{ repo_key: string }[]>`SELECT repo_key FROM proof_branches WHERE builder_id = ${id}`;
 type R = { show_to_builder: string; agent_note?: string; proof?: unknown; move_up?: { kind: string }; note?: string; kit?: unknown };
 
@@ -201,14 +201,6 @@ test('O5 N2 a refused push: tell proof { pushed: false } ends the wait at once w
     assert.equal(next.show_to_builder.split('\n')[1], cantShowLine('Next.js'), next.show_to_builder);
     assert.ok(next.show_to_builder.endsWith(claimQuestion(null)));
     assert.equal(next.proof, undefined);
-    // Flag off: tell drops proof; no open code is ended.
-    {
-      const o2 = await install();
-      await find(o2, named(org, uniq('ravi')), { ...NO_MATCH, proofBranchFetch: gh.f });
-      assert.equal((await openCodes(o2)).length, 1);
-      await withEnv({ EARNKIT_BENCH: undefined }, () => tools.tell({ proof: { pushed: false } }, { installationId: o2 } as never).catch(() => null));
-      assert.equal((await openCodes(o2)).length, 1, 'flag off: proof is dropped, no code is ended');
-    }
   }),
 );
 
@@ -350,28 +342,12 @@ test('O5 N6 (P5) no project: never a grant claimed for a build that can\'t enter
 
 // ---- N7, N12: the wallet question has a way out; the building line in the builder's words ----------
 
-test('O5 N7 (F11), N12 the twist asks for a wallet with a way out (one question); the building line drops the chain and says "your"', dbTest, () =>
-  on(async () => {
-    assert.equal(twistQuestion(false), `${TWIST_QUESTION} ${WALLET_ASK}`, 'flag off: today\'s');
-    assert.equal(twistQuestion(false, true), `${TWIST_QUESTION} ${BENCH_WALLET_ASK}`);
-    assert.equal(questions(twistQuestion(false, true)), 1);
-    assert.match(BENCH_WALLET_ASK, /free/);
-    const id = await install();
-    const ctx = { installationId: id, freshDeps: OWN_FRESH } as never;
-    await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH });
-    await tools.tell({ move_up: { kind: 'build', project_key: null, answer: 'yes' } }, ctx);
-    const start = (await tools.prepare({ program_id: BENCH_BUILD_ID, build: { start: true, program_id: BENCH_BUILD_ID } }, ctx)) as R;
-    assert.equal(start.show_to_builder, `${TWIST_QUESTION} ${BENCH_WALLET_ASK}`);
-    const twist = (await tools.prepare({
-      program_id: BENCH_BUILD_ID,
-      build: {
-        program_id: BENCH_BUILD_ID, twist: 'tips for my podcast listeners', name: 'Podcast Tips', description: 'USDC tips for my podcast listeners.',
-        feature: 'Listeners leave a note for the next podcast episode.', for_whom: 'for my podcast listeners', wallet: `0x${'1a'.repeat(20)}`,
-      },
-    }, ctx)) as R;
-    assert.equal(twist.show_to_builder, "Building Podcast Tips: a USDC tip page for your podcast listeners. I'll be back with the live link.");
-  }),
-);
+test('O5 N7 (F11), N12 the twist asks for a wallet with a way out (one question); the building line drops the chain and says "your"', () => {
+  assert.equal(twistQuestion(false), `${TWIST_QUESTION} ${WALLET_ASK}`);
+  assert.equal(questions(twistQuestion(false)), 1);
+  assert.match(WALLET_ASK, /free/);
+  assert.equal(buildingLine('Podcast Tips', STARTERS['arc-tipjar'], 'for my podcast listeners'), "Building Podcast Tips: a USDC tip page for your podcast listeners. I'll be back with the live link.");
+});
 
 // ---- N13, N15, P2, P8 ----------------------------------------------------------------------------
 
@@ -434,13 +410,12 @@ test('O5 N14 (F15), P3, P4 the update replies carry the full page link; the sche
 
 // ---- N9, N11, P7: what the agent and the claim pages say ---------------------------------------------
 
-test('O5 N9 under the Bench, prepare\'s description never teaches the earnkit.txt line; flag off, today\'s', () =>
+test('O5 N9 prepare\'s description never teaches the earnkit.txt line', () =>
   withEnv(ON, async () => {
     const bench = toolDescriptions(true, true).prepare;
     assert.doesNotMatch(bench, /earnkit\.txt|token: <code>/);
     assert.match(bench, /A token needs a repo proven yours; EarnKit gives you the proof step when it needs one\./);
     assert.ok(bench.length < 800, `${bench.length}`);
-    await withEnv({ EARNKIT_BENCH: undefined }, async () => assert.match(toolDescriptions(true, true).prepare, /earnkit\.txt/));
   }),
 );
 
@@ -451,14 +426,11 @@ test('O5 N11, P7 the claim page says what the Bench page is; the done page offer
     const link = await claimLink(id);
     const code = link!.split('/').pop()!;
     const page = await (await claimGet(new Request(`https://earnkit.com/claim/${code}`), code)).text();
-    assert.ok(page.includes(CLAIM_TEXT.benchPublic), page);
-    assert.equal(CLAIM_TEXT.benchPublic, 'Your page puts your project on the Bench and shows what you ship each week, under your X name.');
+    assert.ok(page.includes(CLAIM_TEXT.public), page);
+    assert.equal(CLAIM_TEXT.public, 'Your page puts your project on the Bench and shows what you ship each week, under your X name.');
     const done = await (await claimDonePage('maya_makes', id, {})).text();
-    assert.ok(!done.includes(CLAIM_TEXT.github), 'no GitHub sign-in');
+    assert.ok(!done.includes('Sign in with GitHub'), 'no GitHub sign-in');
     assert.ok(done.includes(CLAIM_TEXT.wallet));
-    await withEnv({ EARNKIT_BENCH: undefined }, async () => {
-      assert.ok((await (await claimDonePage('maya_makes', id, {})).text()).includes(CLAIM_TEXT.github), 'flag off: today\'s');
-    });
   }),
 );
 

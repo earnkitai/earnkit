@@ -129,7 +129,6 @@ test('a.1 a fresh agent signing in with an X that already has a page: the same p
     // R1: the button and its line, before anything is joined; never "your agents will each ask you".
     assert.ok(body.includes(CLAIM_TEXT.joinButton(user.username).replace(/"/g, '&quot;')), body);
     assert.ok(body.includes(CLAIM_TEXT.joinWarning), body);
-    assert.ok(!body.includes(CLAIM_TEXT.joinPending));
     assert.doesNotMatch(body, /<script/);
     assert.equal(page.headers.get('cache-control'), 'no-store');
     assert.notEqual(await rootOf(fresh), await rootOf(first), 'nothing joins before the click');
@@ -449,8 +448,7 @@ test('S.a no path links an installation to an existing X page without the R1 cli
     assert.notEqual(await rootOf(joiner), await rootOf(holder), 'the sign-in alone joins nothing');
     assert.deepEqual(await bindX(joiner, user, new Date()), { ok: false, reason: 'held', target: await rootOf(holder) });
     assert.notEqual(await rootOf(joiner), await rootOf(holder));
-    // R10: under the Bench there is no X two-agent yes at all.
-    assert.equal(await joinOnProvenTie(joiner, { x_user_id: user.id }), 0);
+    // R10: there is no X two-agent yes at all (joinOnProvenTie takes no X tie).
     assert.equal(await answerJoin(joiner, true), 'none');
     assert.equal(await answerJoin(holder, true), 'none');
     assert.notEqual(await rootOf(joiner), await rootOf(holder));

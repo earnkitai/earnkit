@@ -77,38 +77,13 @@ export const prizeOf = (c: { summary: string; investment?: boolean }) => {
 
 /**
  * "Oct 14, 11:59 PM ET" from the summary's "closes Oct 14, 11:59 PM ET" (v2.8.1 §C15: the program's
- * own time zone), "rolling", else ends_at as deadlineLabel shows it. Ruling 29: roundEndLabel gives a
- * round ending at the deadline the same text. Pure; exported for tests.
+ * own time zone), "rolling", else ends_at as deadlineLabel shows it. Pure; exported for tests.
  */
 export function endsOf(c: { summary: string; ends_at?: Date | null }) {
   const closes = summaryCloses(c.summary);
   if (closes) return closes;
   if (c.summary.split(' · ').slice(1).includes('rolling')) return 'rolling';
   return c.ends_at ? deadlineLabel(c.ends_at) : 'rolling';
-}
-
-/**
- * Ruling 29: a round's end as the builder sees it everywhere, the same text as the first message
- * (present.ts endsOf). A window ending at the program's deadline takes the summary's "closes Oct 14,
- * 11:59 PM ET" (the program's real local deadline, v2.8.1 §C15), else deadlineLabel, as the first
- * message does. Any other round (a rolling program's month, ending 00:00 UTC, exclusive) shows its
- * last day ("Oct 31" for a month ending Nov 1). Pure.
- */
-export function roundEndLabel(program: { summary: string; ends_at: Date | null }, ends: Date) {
-  const closes = summaryCloses(program.summary);
-  if (program.ends_at && closes) {
-    if (program.ends_at.getTime() === ends.getTime()) return closes;
-    // Re-review Minor 1: a stored window whose program deadline later moved keeps the same local
-    // clock time: shift its UTC day the way the summary's local day differs from the deadline's.
-    const day = closesDay(closes);
-    const sameClock = (program.ends_at.getTime() - ends.getTime()) % DAY_MS === 0;
-    if (sameClock)
-      for (const shift of [0, -1, 1])
-        if (shortDate(new Date(program.ends_at.getTime() + shift * DAY_MS)) === day)
-          return `${shortDate(new Date(ends.getTime() + shift * DAY_MS))}${closes.slice(day.length)}`;
-  }
-  if (program.ends_at && program.ends_at.getTime() === ends.getTime()) return closes ?? deadlineLabel(ends);
-  return deadlineDay(ends);
 }
 
 /**

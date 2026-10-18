@@ -21,7 +21,6 @@ import { noteLineIssued, verifyCallback, verifyConfirm, verifyStart } from './gi
 import { appSetup } from './github-app';
 import { deployedLine, type DeployChain, type DeployDeps } from './deploy';
 import { getProjectPage } from './leaderboard';
-import { bonusBoard } from './bonus-board';
 import { POST as mcpPost } from '../../app/mcp/route';
 import { saveInstallation } from './installations';
 
@@ -714,11 +713,7 @@ test('11.1 Claude Code, a private repo and the App: the private line and one lea
     // The public pages show the project, never the private repo.
     // /p/<id> is a campaign entry's page; this entry's is a 404, so it shows nothing.
     assert.equal(await getProjectPage(c.project_id as number), null);
-    const roundKey = (sub.bonus_round as { key: string } | undefined)?.key;
-    assert.ok(roundKey, JSON.stringify(sub));
-    const board = await bonusBoard(roundKey!);
-    assert.ok(board && JSON.stringify(board).includes('TipJar'), JSON.stringify(board));
-    assert.doesNotMatch(JSON.stringify(board), /alice\/tipjar/i);
+    assert.doesNotMatch(JSON.stringify(sub), /alice\/tipjar/i);
     assert.equal(forty(J), 1, dump(J));
   }),
 );

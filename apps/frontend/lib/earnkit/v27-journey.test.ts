@@ -88,7 +88,7 @@ after(async () => {
 
 /** v2.10 item 3: the first prepare for a program starts with its guide; returns what follows it. */
 async function afterGuide(programId: string, text: string) {
-  const g = guideText(programGuide(await getProgramRow(programId), null));
+  const g = guideText(programGuide(await getProgramRow(programId)));
   assert.ok(text.startsWith(`${g}\n\n`), text);
   return text.slice(g.length + 2);
 }
@@ -117,9 +117,6 @@ test('v2.7 journey: what can I earn, the guide, then the token step', dbTest, as
     { agent_can_build: true, more: true },
     {
       installationId: id,
-      // v2.8 Ruling C4: Easy programs sort first, so Arc (Easy) is always in the first table.
-      // Ruling H8: the line is the offered program's pool (the no-repo offer here may be Arc or Avalanche).
-      roundPools: async (ids) => new Map(ids.map((p) => [p, { wei: 6n * 10n ** 17n, tokens: 2 }] as const)),
     },
   )) as { show_to_builder: string };
   const first = list.show_to_builder;

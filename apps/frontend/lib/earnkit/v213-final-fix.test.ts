@@ -5,12 +5,11 @@ import { randomBytes } from 'node:crypto';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
-import { withEnv } from './fixtures/find';
 import { benchRows, benchCardFacts, parseBenchFilter, profileData } from './bench-data';
 import { chainPools } from './bench-rank';
 import { benchReply, confirmingLine, confirmingSlowLine, type BenchView as View } from './bench-reply';
 import { carouselCards, feedWeeks, rankFeed } from './feed';
-import { PROOF_NOTE, SIGN_IN_OWNER_NOTE, mainProjectOf, pickMainProject, proofFor, setMainProject } from './main-project';
+import { mainProjectOf, pickMainProject, setMainProject } from './main-project';
 import { RAISE_LINES, pillOf, raiseAsk, setRaising } from './raising';
 import { coinLine, raiseLine } from './coin-moments';
 import { UPDATE_LIMIT_NOTE, UPDATE_POSTS_PER_DAY, postUpdate } from './updates';
@@ -132,61 +131,7 @@ test('F2 the lazy pick: nothing Bench-confirmed leaves it unset; a confirmed row
   assert.equal(await pickMainProject(other, sql()), k('proven'));
 });
 
-test('F3 the proof names the exact repo the line goes to, and the note tells the agent to use it (flag off; the flag gives none)', dbTest, async () => {
-  const id = await installation();
-  await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${id}, ${`v213fx-${id}`})`;
-  const key = `own${RUN}/app${id}`;
-  await setMainProject(id, { name: 'App', what: null, repo: key, live_url: null, package: null, contracts: [] });
-  assert.equal(await proofFor(id, id, { canPush: true, now: new Date() }), null, 'flag on: no line to push');
-  const p = await withEnv({ EARNKIT_BENCH: undefined }, () => proofFor(id, id, { canPush: true, now: new Date() }));
-  assert.ok(p && 'line' in p, JSON.stringify(p));
-  assert.equal(p.repo, key);
-  assert.equal(p.agent_note, PROOF_NOTE);
-  assert.match(PROOF_NOTE, /proof\.repo/);
-});
-
-// ---- I3: a line that can't confirm the repo gets the sign-in link; no "a minute or two" forever ---
-
-test('F4 an agent that can push gets the sign-in link when the owner is not the builder\'s login, an organization, or the hour passed', dbTest, async () => {
-  const saved = { id: process.env.GITHUB_OAUTH_CLIENT_ID, secret: process.env.GITHUB_OAUTH_CLIENT_SECRET };
-  process.env.GITHUB_OAUTH_CLIENT_ID = 'fake-client';
-  process.env.GITHUB_OAUTH_CLIENT_SECRET = 'fake-secret';
-  try {
-    const now = new Date();
-    const at = async (owner: string, githubUser: string | null, o: { issuedAgo?: number; type?: 'User' | 'Organization' } = {}) => {
-      const id = await installation();
-      await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${id}, ${`v213fx-${id}`})`;
-      const key = `${owner}/app${id}`;
-      await setMainProject(id, { name: 'App', what: null, repo: key, live_url: null, package: null, contracts: [] });
-      await sql()`UPDATE installations SET github_user = ${githubUser} WHERE id = ${id}`;
-      if (o.type)
-        await sql()`INSERT INTO url_checks (key, ok, checked_at, note) VALUES (${`ghuser:${owner}`}, true, now(), ${JSON.stringify({ type: o.type, created_at: '2020-01-01T00:00:00Z', public_repos: 2 })})
-          ON CONFLICT (key) DO UPDATE SET ok = EXCLUDED.ok, checked_at = EXCLUDED.checked_at, note = EXCLUDED.note`;
-      if (o.issuedAgo !== undefined) await sql()`INSERT INTO proof_line_issues (installation_id, repo_key, first_at) VALUES (${id}, ${key}, ${new Date(now.getTime() - o.issuedAgo)})`;
-      return { key, p: await withEnv({ EARNKIT_BENCH: undefined }, () => proofFor(id, id, { canPush: true, now })) };
-    };
-    const signIn = (r: Awaited<ReturnType<typeof at>>, why: string) => {
-      assert.ok(r.p && 'sign_in' in r.p, `${why}: ${JSON.stringify(r.p)}`);
-      assert.match(r.p.sign_in, /\/github\/verify\?n=/);
-      assert.equal(r.p.agent_note, SIGN_IN_OWNER_NOTE);
-      assert.equal(r.p.repo, r.key);
-    };
-    signIn(await at(`team${RUN}`, `maya${RUN}`, { type: 'User' }), 'reported login is not the owner');
-    signIn(await at(`team${RUN}`, null, { type: 'User' }), 'no login matches the owner');
-    signIn(await at(`org${RUN}`, `org${RUN}`, { type: 'Organization' }), 'an organization owns it');
-    signIn(await at(`late${RUN}`, `late${RUN}`, { type: 'User', issuedAgo: 2 * 3_600_000 }), 'the hour passed');
-    const fresh = await at(`maya${RUN}`, `maya${RUN}`, { type: 'User', issuedAgo: 5 * 60_000 });
-    assert.ok(fresh.p && 'line' in fresh.p, 'the owner\'s own repo within the hour: the line');
-    // With sign-in off there is no link: the line stays the way.
-    delete process.env.GITHUB_OAUTH_CLIENT_ID;
-    const off = await at(`org2${RUN}`, `org2${RUN}`, { type: 'Organization' });
-    assert.ok(off.p && 'line' in off.p);
-  } finally {
-    for (const [k, v] of [['GITHUB_OAUTH_CLIENT_ID', saved.id], ['GITHUB_OAUTH_CLIENT_SECRET', saved.secret]] as const)
-      if (v === undefined) delete process.env[k];
-      else process.env[k] = v;
-  }
-});
+// ---- I3: no "a minute or two" forever ---
 
 test('F5 outside the hour of fast checks the reply promises no time; plain words, no em dash', () => {
   const v: View = { project: { key: 'a/b', name: 'Recipe planner', confirmed: false, live: false, weeks: 0 }, rank: null, claimed: true, handle: 'maya', claimLink: null, fund: [], ask: null };
@@ -228,12 +173,11 @@ test('F7 tell update: at most 20 posts a person a day, then a plain note', dbTes
   assert.ok(!UPDATE_LIMIT_NOTE.includes('—'));
 });
 
-// ---- EARNKIT_RAISING: off under the Bench, no raising anywhere; on, everything as built -----------
+// ---- EARNKIT_RAISING: off, no raising anywhere; on, everything as built -----------
 
-test('F8 the flag: on only with the Bench and EARNKIT_RAISING=on', () => {
-  assert.equal(raisingEnabled({ EARNKIT_BENCH: 'on' }), false);
+test('F8 the flag: on only with EARNKIT_RAISING=on (v2.14: the Bench is always on)', () => {
+  assert.equal(raisingEnabled({}), false);
   assert.equal(raisingEnabled({ EARNKIT_RAISING: 'on' }), true);
-  assert.equal(raisingEnabled({ EARNKIT_RAISING: 'on' }), false);
   assert.equal(raisingEnabled({ EARNKIT_RAISING: 'yes' }), false);
 });
 
