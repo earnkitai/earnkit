@@ -6,12 +6,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { escrowConfig, escrowConfigProblem } from './escrow';
 import { FIND_DESCRIPTION_BENCH, TELL_DESCRIPTION_BENCH, TELL_DESCRIPTION_BENCH_NO_RAISING, SERVER_INSTRUCTIONS, errorSummary, TOOL_DESCRIPTIONS, createMcpServer, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { handlers } from './tools';
-import { OLD_TOOL_NAMES, aliasCall, withOlderNames } from './aliases';
-
-/** v2.10.1 B5: a reply object's agent strings in a stale client's words (aliases.ts forOldClient, minus the note). */
-const oldWords = (v: unknown, used: string): unknown =>
-  typeof v === 'string' ? withOlderNames(v, used) : Array.isArray(v) ? v.map((x) => oldWords(x, used)) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, /^show_to_|^question$/.test(k) ? x : oldWords(x, used)])) : v;
-
+import { aliasCall } from './aliases';
 import { SAFETY_LINES } from './untrusted-text';
 import { kitReplyNote, submitKit, type KitProgram } from './submit-kit';
 import { awardReply, createReply } from './sponsor-rules';
@@ -53,13 +48,6 @@ async function listed(env: Record<string, string | undefined>, opts?: { campaign
       else process.env[k] = v;
   }
 }
-
-const toolNames = async (env: Record<string, string | undefined>) =>
-  (await listed(env)).tools.map((t) => t.name).sort();
-
-// v2.10 item 4: the 4 builder tools (find, prepare, confirm, tell); the 8 v2.9 names are aliases only.
-const FOUR = ['confirm', 'find', 'prepare', 'tell'];
-const oldNameRe = new RegExp(`\\b(${OLD_TOOL_NAMES.join('|')})\\b`);
 
 test('escrow config problems are readable, never a TypeError', () => {
   assert.match(
@@ -351,8 +339,6 @@ test('v2.8.1 §C15: an unexpected error is logged on the server with an id; the 
   }
 });
 
-const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
-
 test('v2.8.1 §C15: the safety line no longer forbids making a repo public; it says a token needs one', () => {
   const line = SAFETY_LINES.find((l) => l.startsWith('Entering a program never needs'))!;
   assert.doesNotMatch(line, /visibility/);
@@ -455,9 +441,6 @@ test('v2.11 T8: prepare lists build only while deploys are on (with deploy); an 
   }
 });
 
-/** v2.12.2's identity field words, byte for byte (the flag off). */
-const IDENTITY_WORDS_V2122 =
-  "What you can already see; fill it yourself, never ask the builder: { github_login (gh auth status), projects: [{ name, what: a few plain words like 'a tip jar', repo, live_url, package, contracts: ['base:0x..'] }], wallets }";
 const identityWords = (t: { inputSchema: { properties?: Record<string, object> } }) =>
   (t.inputSchema.properties?.identity as { description?: string } | undefined)?.description;
 

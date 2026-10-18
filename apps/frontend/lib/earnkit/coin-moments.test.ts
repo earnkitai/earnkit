@@ -7,9 +7,7 @@ import { bindX } from './claim';
 import { EVENT_LOG_FLAG } from './events';
 import { COIN_NOTE, COIN_PROGRAM, coinAllowed, coinLine, coinPitchAllowed, coinYes, offerCoin, raiseLine, showBuiltLive } from './coin-moments';
 import { offerKey, readShownOffer, recordDecline } from './token-offers';
-import { tokenLineFor } from './token-gate';
 import { tools } from './tools';
-import type { TokenFlowDeps } from './token-launch';
 
 /**
  * v2.12.1 T10 (spec 3b): the coin is offered as the reply's one yes only at its moments, at most
@@ -26,7 +24,6 @@ after(async () => {
   if (process.env.DATABASE_URL) await sql().end();
 });
 const NOW = new Date();
-const DAY = 86_400_000;
 const noCheck = { check: async () => true };
 
 async function profile(): Promise<number> {
@@ -81,41 +78,6 @@ test('10.4b the build entry\'s moment is recorded once and stays open through it
   assert.equal(await coinPitchAllowed(held, entry), false);
 });
 
-/** A fake token flow: the gate passes (the line is the repo's), the deploy records what tokens.ts would. */
-function tokenDeps(id: number, repo: string) {
-  const calls = { deploy: 0, wallets: [] as string[] };
-  const deps = {
-    available: () => true,
-    limit: async () => {},
-    check: async () => true,
-    gate: {
-      repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
-      owner: async () => ({ status: 'ok' as const, text: tokenLineFor(id, repo)! }),
-      screen: async () => {},
-    },
-    deploy: async (d: { projectId: number; name: string; symbol: string; creatorWallet: string }) => {
-      calls.deploy++;
-      calls.wallets.push(d.creatorWallet);
-      const url = `https://tokens.fun/coin/0x${randomBytes(20).toString('hex')}`;
-      await sql()`UPDATE projects SET token_url = ${url}, token_status = 'launched', coin_launched_at = now(), token_name = ${d.name}, token_symbol = ${d.symbol} WHERE id = ${d.projectId}`;
-      return { status: 'launched' as const, name: d.name, symbol: d.symbol, tokens_fun: url };
-    },
-  } as unknown as TokenFlowDeps;
-  return { calls, deps };
-}
-
-async function mcpClient(installationId: number) {
-  const { createMcpServer } = await import('./mcp');
-  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
-  const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
-  const server = createMcpServer({ installationId });
-  const [a, b] = InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: 't10', version: '0' });
-  await Promise.all([server.connect(a), client.connect(b)]);
-  return client;
-}
-const textOf = (r: unknown) => JSON.parse(((r as { content: { text: string }[] }).content[0]).text) as Record<string, unknown>;
-
 /** A person as Task 4's rescore leaves them (refreshed just now), with their projects. */
 async function person(projects: { key: string; name: string; people: number }[], seen: Record<string, unknown> = {}): Promise<number> {
   const id = await profile();
@@ -168,22 +130,6 @@ test('F5 the build moment is recorded only when its line is shown (a pitch check
 });
 
 // ---- Fix round 2 -------------------------------------------------------------------------------
-
-async function coinSetup(tag: string) {
-  const id = await claimed(tag);
-  const repo = `https://github.com/lee/${tag}${randomBytes(3).toString('hex')}`;
-  const key = repo.replace('https://github.com/', '');
-  await usedProject(id, key, 'Tip Jar', 9, { repo_url: repo });
-  // person_wallets.wallet is unique across people: a fresh one per run.
-  const W = '0xaaaa' + randomBytes(16).toString('hex') + 'aaaa';
-  await sql()`INSERT INTO person_wallets (wallet, builder_id) VALUES (${W}, ${id})`;
-  const t = tokenDeps(id, repo);
-  const ctx = { installationId: id, tokenDeps: t.deps } as never;
-  assert.ok(await offerCoin(id, key, 'has_people'));
-  type Yes = { show_to_builder: string; project_id?: number; token?: { name: string; symbol: string }; wallet?: string; agent_note?: string };
-  const yes = (wallet?: string) => tools.tell({ coin: { project_key: key, answer: 'yes', ...(wallet && { wallet }) } }, ctx) as Promise<Yes>;
-  return { id, repo, key, W, ctx, calls: t.calls, yes };
-}
 
 test('9.7 every coin moment but built_live says the raise line', () => {
   // Final fix: the raise line is EARNKIT_RAISING's (v213-final-fix F10: off keeps the v2.12.1 line).

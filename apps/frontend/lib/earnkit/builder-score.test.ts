@@ -195,7 +195,6 @@ function fakeReader(gh: Record<string, unknown>, over: Partial<ReaderDeps> = {})
     ...over,
   };
 }
-const b64 = (s: string) => ({ content: Buffer.from(s).toString('base64'), encoding: 'base64' });
 type Src = { kind: string; ref: string; state: string; proof: string | null; reject_reason: string | null; project_key: string; deployer: string | null };
 const sourcesOf = async (id: number) => {
   const rows = await sql()<Src[]>`SELECT kind, ref, state, proof, reject_reason, project_key, deployer FROM builder_sources WHERE builder_id = ${id} ORDER BY id`;

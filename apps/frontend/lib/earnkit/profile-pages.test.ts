@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as React from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
 import { SCORE_COLORS } from '../../app/[handle]/ScoreRing';
 import { sql } from './db';
 
@@ -13,8 +12,6 @@ import { sql } from './db';
  * leaderboard.test.ts and card-route.test.ts.
  */
 (globalThis as { React?: typeof React }).React = React;
-const html = (el: React.ReactElement) => renderToStaticMarkup(el);
-const text = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/&#x27;|&#39;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ');
 
 test('10.5 the ring\'s accents are 4.5:1 or more on the panel navy (plan R17); the ring uses both', () => {
   const ring = readFileSync(join(import.meta.dirname, '../../app/[handle]/ScoreRing.tsx'), 'utf8');
@@ -60,10 +57,8 @@ test('10.8 (v2.12.1 T6) the pages read live: /<handle> and /b/<name> are dynamic
   assert.match(cache, /revalidateTag\(PROFILE_TAG, \{ expire: 0 \}\)/);
 });
 
-const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 // builder_scores and source_readings are append-only: this run's people are fresh ids.
 const T = 2_143_000_000 + Math.floor(Math.random() * 200_000) * 20;
-const NOW = new Date('2026-10-12T12:00:00Z');
 after(async () => {
   if (!process.env.DATABASE_URL) return;
   await sql()`DELETE FROM builder_sources WHERE builder_id BETWEEN ${T} AND ${T + 19}`;
@@ -76,9 +71,6 @@ after(async () => {
   await sql()`DELETE FROM repo_public_reads WHERE repo_key LIKE ${`github.com/lee${T}/%`}`;
   await sql().end();
 });
-const profile = (id: number, o: { slug?: string } = {}) =>
-  sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${id}, ${o.slug ?? `s${id}`})`;
-
 test('11.5 (v2.12.1 T12) /b/<name>/card.png and /b/<name>/share: a reserved handle through the page\'s own handlers; a claimed v2.12 slug moves to the page\'s; else 404', () => {
   const card = readFileSync(join(import.meta.dirname, '../../app/b/[slug]/card.png/route.tsx'), 'utf8');
   const share = readFileSync(join(import.meta.dirname, '../../app/b/[slug]/share/route.ts'), 'utf8');
@@ -97,21 +89,6 @@ test('11.5 (v2.12.1 T12) /b/<name>/card.png and /b/<name>/share: a reserved hand
   const config = readFileSync(join(import.meta.dirname, '../../next.config.ts'), 'utf8');
   assert.match(config, /source: '\/b\/:slug\/card\.png',\s*headers: \[\{ key: 'Content-Security-Policy', value: IMAGE_CSP \}\]/);
 });
-
-/** What a page did: rendered (its element), a 404, or a redirect ("308 /to"). Next's notFound and redirects throw. */
-async function outcome(run: () => unknown): Promise<React.ReactElement | 404 | string> {
-  try {
-    return (await run()) as React.ReactElement;
-  } catch (e) {
-    const d = String((e as { digest?: unknown }).digest ?? '');
-    if (d.startsWith('NEXT_HTTP_ERROR_FALLBACK;404')) return 404;
-    const m = /^NEXT_REDIRECT;[^;]*;([^;]*);(\d+);/.exec(d);
-    if (m) return `${m[2]} ${m[1]}`;
-    throw e;
-  }
-}
-const handlePage = async (handle: string) => (await import('../../app/[handle]/page')).default({ params: Promise.resolve({ handle }) });
-const bPage = async (slug: string) => (await import('../../app/b/[slug]/page')).default({ params: Promise.resolve({ slug }) });
 
 test('11.10 the card at /<handle>/card.png has the image policy, as /b/<name>/card.png', () => {
   const config = readFileSync(join(import.meta.dirname, '../../next.config.ts'), 'utf8');

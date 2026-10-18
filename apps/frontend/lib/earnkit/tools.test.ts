@@ -19,11 +19,11 @@ import { enteredProgramIds, hasProgramEntry } from './projects';
 import { setSanctionsOracle } from './sanctions';
 import { tokenLineFor } from './token-gate';
 import type { DeployDeps } from './deploy';
-import { freshLead, presentFirstMessage, type RepoFit } from './present';
+import { freshLead, presentFirstMessage } from './present';
 import { launchLimit, type TokenFlowDeps } from './token-launch';
 import { offerKey, saveOffer } from './token-offers';
 import { proposeToken } from './token-proposal';
-import { LaunchError, deployToken } from './tokens';
+import { LaunchError } from './tokens';
 import { wonSource } from './stats';
 import { EMAIL_NOTE, EMAIL_ON, EMAIL_QUESTION, EMAIL_SHARED_NOTE, EMAIL_SIGN_IN, emailQuestionFor } from './digest';
 import { completeVerify, createVerifyLink, formatCode } from './github-verify';
@@ -36,8 +36,6 @@ import { ARC_TIPJAR_BYTECODE } from './fixtures/arc-tipjar-artifact';
 import { eventsByKey, eventsOfInstallation, withEventLog } from './fixtures/events';
 import { alsoQualifies, alsoText, type AlsoRow } from './also-qualifies';
 import type { Chain } from './match';
-
-const REF = `0x${'a'.repeat(64)}`;
 
 // ---- v2.8.1 §B6: list_programs' input never fails on what an agent reports ----
 test('v2.8.1 §B6: a wallet that is not 0x is ignored with a note; a 0x one is kept', () => {
@@ -109,17 +107,6 @@ async function hideOthers(installationId: number, keep: string[]): Promise<void>
     SELECT ${installationId}, '', id, 'not_interested' FROM programs
     WHERE status = 'active' AND source = 'file' AND campaign IS NULL AND id NOT IN ${sql()(keep)}
     ON CONFLICT (installation_id, login, program_id) DO NOTHING`;
-}
-
-/**
- * v2.8 Task 11 review fix round 1, item 4: a bare `startsWith(prefix)` also passes a reply that
- * glues more text onto `prefix` with no separator (or the wrong one). Anchors the match: `actual`
- * must be exactly `prefix`, or `prefix` followed by exactly "\n\n" and then anything (the
- * "Also qualifies" block's join). Exported-shaped for the tests below; not a general matcher.
- */
-function assertEntered(actual: string, prefix: string, message?: string) {
-  const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  assert.match(actual, new RegExp(`^${escaped}(\\n\\n|$)`), message ?? actual);
 }
 
 test('v2.4 §2: a failed entry uses none of the daily 20; a recorded one uses one', dbTest, async (tc) => {
@@ -623,89 +610,6 @@ test('12 list_programs: a new fitting program shows exactly once (the alert), ne
   }
 });
 
-// ---------------------------------------------------------------------------------------------
-// v2.8.1 §A (token launch never stuck, limits, timeouts): the real deployToken (claim, outcome,
-// release, one retry) against a mocked tokens.fun, through confirm_entry. DB only; no network.
-type LaunchReply = {
-  show_to_builder: string;
-  project_id?: number;
-  token?: { status: string; note?: string; launching?: boolean; agent_note?: string };
-  kit?: unknown;
-  agent_note?: string;
-};
-
-/** One tokens.fun answer: a status and a JSON body (or a delay before it). */
-type Answer = { status: number; body: unknown; headers?: Record<string, string>; delayMs?: number };
-
-async function launchSetup(tag: string, answers: Answer[]) {
-  const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  const arc = committedProgram('arc-microgrants');
-  const p = { ...arc, id: `t281-${tag}-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' };
-  await upsertProgram(ProgramFile.parse(p));
-  const [{ id: inst }] = await sql()<{ id: number }[]>`
-    INSERT INTO installations (token_hash) VALUES (${`t281-${tag}-${stamp}`}) RETURNING id`;
-  const repo = `https://github.com/alice/t281-${tag}-${stamp}`;
-  const posts: unknown[] = [];
-  const queue = [...answers];
-  const fakeFetch = (async (_url: string, init: { body: string }) => {
-    posts.push(JSON.parse(init.body));
-    const a = queue.shift() ?? { status: 500, body: { error: 'no more answers' } };
-    if (a.delayMs) await new Promise((r) => setTimeout(r, a.delayMs));
-    return new Response(JSON.stringify(a.body), { status: a.status, headers: { 'content-type': 'application/json', ...a.headers } });
-  }) as unknown as typeof fetch;
-  const tokenDeps: TokenFlowDeps = {
-    available: () => true,
-    limit: async () => {},
-    check: async () => true,
-    gate: {
-      repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null, defaultBranch: 'main' }),
-      owner: async () => ({ status: 'ok', text: tokenLineFor(inst, repo)! }),
-      screen: async () => {},
-    },
-    deploy: (a) => deployToken(a, { fetch: fakeFetch, sleep: async () => {} }),
-  };
-  const ctx = { installationId: inst, tokenDeps };
-  await saveOffer(inst, p.id, offerKey(repo, 'Tip Jar'), { name: 'Tip Jar', symbol: 'TIPJAR' });
-  const input = {
-    program_id: p.id,
-    project: { name: 'Tip Jar', repo_url: repo, live_url: 'https://tipjar.xyz' },
-    answers: { description: 'Tips for creators on Arc', builder_profile: 'https://github.com/alice' },
-  };
-  const row = async () =>
-    (
-      await sql()<{ id: number; token_url: string | null; token_status: string | null; token_note: string | null; token_claimed_at: Date | null }[]>`
-        SELECT id, token_url, token_status, token_note, token_claimed_at FROM projects WHERE installation_id = ${inst}`
-    )[0];
-  const done = async () => {
-    await sql()`DELETE FROM projects WHERE installation_id = ${inst}`;
-    await sql()`DELETE FROM installations WHERE id = ${inst}`;
-    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${p.id}`;
-  };
-  return { ctx, input, posts, queue, row, done };
-}
-
-async function withLaunchEnv<T>(fn: () => Promise<T>, env: Record<string, string> = {}) {
-  const keys = ['TOKENSFUN_DEPLOY_API_KEY', 'EARNKIT_AUTH_SECRET', ...Object.keys(env)];
-  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
-  process.env.TOKENSFUN_DEPLOY_API_KEY = 'test-key';
-  process.env.EARNKIT_AUTH_SECRET ||= 't281-secret';
-  Object.assign(process.env, env);
-  try {
-    return await fn();
-  } finally {
-    for (const [k, v] of Object.entries(saved)) {
-      if (v === undefined) delete process.env[k];
-      else process.env[k] = v;
-    }
-  }
-}
-
-const OK = (addr = '0x' + 'ab'.repeat(20)) => ({
-  status: 200,
-  body: { success: true, tokenAddress: addr, txHash: '0x' + '12'.repeat(32), urls: { tokensfun: `https://tokens.fun/coin/${addr}` } },
-});
-const PENDING_TX = { status: 503, body: { error: 'Pending transactions detected. Try again in a few minutes.', pendingCount: 1 } };
-
 test('v2.8.1 §A4: EarnKit allows 10 launches per wallet per UTC day; the 11th says when to retry', dbTest, async () => {
   const wallet = '0x' + Math.random().toString(16).slice(2).padEnd(40, '7').slice(0, 40);
   await sql()`DELETE FROM rate_windows WHERE key LIKE ${`tokenLaunch%`} AND key LIKE ${`%${wallet}`}`;
@@ -718,21 +622,6 @@ test('v2.8.1 §A4: EarnKit allows 10 launches per wallet per UTC day; the 11th s
   });
   await sql()`DELETE FROM rate_windows WHERE key LIKE ${`%${wallet}`} OR key LIKE 'tokenLaunch:9001%' OR key LIKE 'tokenLaunch:9000%'`;
 });
-
-/**
- * v2.13.4 (R5, the v2.13.3 deferred flaky test): waits until the background launch made both posts and
- * released the claim (token_released_at), up to 10 s, instead of sleeping a fixed 900 ms.
- */
-async function releasedBg(t: { posts: unknown[]; row: () => Promise<{ id: number }> }) {
-  const until = Date.now() + 10_000;
-  for (;;) {
-    const { id } = await t.row();
-    const [r] = await sql()<{ at: Date | null }[]>`SELECT token_released_at AS at FROM projects WHERE id = ${id}`;
-    if (t.posts.length >= 2 && r?.at) return;
-    if (Date.now() > until) throw new Error(`the background launch did not release (posts ${t.posts.length})`);
-    await new Promise((res) => setTimeout(res, 20));
-  }
-}
 
 // ---- v2.8.1 §E17: hosted agent installs (shared_client).
 
@@ -1040,9 +929,6 @@ async function signInAs(installationId: number, projectId: number | null, repoUr
   assert.ok(out.ok);
   return (out as { code?: string }).code ? formatCode((out as { code: string }).code) : null;
 }
-const noProofLine = (t: Awaited<ReturnType<typeof confirmSetup>>) =>
-  ({ ...t.ctx, tokenDeps: { ...t.ctx.tokenDeps, gate: { ...t.ctx.tokenDeps.gate, owner: async () => ({ status: 'missing' as const }) } } as TokenFlowDeps });
-
 test("G6/G7/G9: on a shared client, memory and entries follow the pasted code; a claimed GitHub user gets nothing", dbTest, () =>
   withSignIn(async () => {
     const s = await sharedInstall('g9mem');
@@ -1131,31 +1017,6 @@ test("G10 (fix round 2): on Grok Bot, user B's record_submission never launches 
   ));
 
 // ---- v2.10 items 5 and 15: the token pitched once, at confirm; the deadline line in replies
-
-type ListReply = { show_to_builder: string; token_offer?: unknown };
-
-/** confirmSetup plus list_programs matching the entry's repo as an owned, product-tier, quick Arc fit. */
-async function offerSetup(tag: string) {
-  const t = await confirmSetup(tag, { noOffer: true });
-  const fit: RepoFit = {
-    repo: 'tipjar',
-    repo_url: t.repo,
-    verdicts: [{ program_id: t.p.id, program: t.p.id, status: 'likely', missing: [], effort: 'hours', note: '' }],
-    key: t.repo.replace('https://github.com/', ''),
-    product: { score: 6, tier: 'product', missing: [], traction: 8, odds: 'good' },
-    live_verified: true,
-  };
-  const ctx = { ...t.ctx, matchProjects: async () => ({ checked: 1, scored: 1, fits: [fit] }) };
-  const list = async (c: typeof ctx = ctx) =>
-    (await handlers.list_programs({ more: true, local_repos: [{ name: 'tipjar', chains: ['arc'] }] }, c)) as ListReply;
-  return { ...t, ctx, list };
-}
-
-/** Every builder-facing text of a reply (show_to_builder, notes, the sign-in line). */
-const builderText = (r: unknown) => {
-  const o = r as { show_to_builder?: string; note?: string; sign_in_line?: string; token?: { note?: string } };
-  return [o.show_to_builder, o.note, o.sign_in_line, o.token?.note].filter((x): x is string => typeof x === 'string').join('\n');
-};
 
 /** Another copy of the setup's program (same installation and repo), titled `title`. */
 async function extraProgram(t: Awaited<ReturnType<typeof confirmSetup>>, suffix: string, title: string) {
@@ -1919,12 +1780,8 @@ test('3.5 a shared client\'s tell submitted that is only noted writes no event',
 
 // ---- v2.11 T7 (spec 1): find's no-repo lead, build_offer and fresh_offer_at ----
 
-const T7_CONTEXT = /^\$[\d.,]+[KM]?\+? in prizes is open right now across \d+ programs?\.$/;
-const T7_LEAD = 'T7 Tip Grants pays 500 USDC and closes tomorrow. A USDC tip page on Arc takes about an hour. Want me to build it?';
-const T7_PLAN = 'T7 Tip Grants pays 500 USDC and closes tomorrow. A coding agent builds the USDC tip page in about an hour. Want the plan?';
 /** v2.10's no-repo line, the reply whenever there is no fresh pick. */
 const T7_V210 = /^(\$[\d.,]+[KM]?\+?|Money) is open\. Want the 3 easiest\?$/;
-type T7Found = { show_to_builder: string; build_offer?: { program_id: string; starter_id: string; agent_note: string }; lead?: unknown; note: string };
 
 /**
  * An Arc copy tagged for the fresh build (fixture only), closing in 36 hours ("closes tomorrow"), and
@@ -2061,7 +1918,6 @@ const T8_POD = {
   feature: 'Each tip can carry a question for the podcast to answer on air.',
   for_whom: 'for your podcast listeners',
 };
-const T8_REPO = 'https://github.com/jenil04/podtips';
 
 /** A pickable program (freshSetup) with deploys and hosting on, plus prepare and the stored build. */
 async function buildSetup(tag: string, tc: TestContext) {
@@ -2355,37 +2211,6 @@ test('T9 N1 the build path deploys only the starter\'s exact bytecode with its o
 
 // ---- v2.11 T9 security fix R4: the build flow through GitHub's real push record (fetchLinePusher)
 
-/**
- * GitHub as the build flow leaves it, read through the real fetchLinePusher: the agent degits the
- * starter into a new folder, commits once locally (one root commit, a minute before the repo
- * exists), creates the repo under the builder's account and pushes main: the repo's first event, a
- * branch creation a minute after its creation. `o` bends one part for each R4 attack.
- */
-function buildFlowGitHub(o: { repo?: Record<string, unknown>; commits?: unknown[]; activity?: (login: string, now: number) => unknown[]; compare?: unknown } = {}) {
-  return (inst: number, login: string): PusherFn => async (r, hasLine, issuedAt) => {
-    const { fetchLinePusher } = await import('./ownership');
-    const now = Date.now();
-    const iso = (ms: number) => new Date(ms).toISOString();
-    const HEAD = 'c'.repeat(40);
-    const line = `${tokenLineFor(inst, `https://github.com/${r.owner}/${r.repo}`)}\n`;
-    const api = (url: string) => {
-      const p = new URL(url).pathname;
-      if (p.endsWith('/activity'))
-        return Response.json(o.activity ? o.activity(login, now) : [{ activity_type: 'branch_creation', ref: 'refs/heads/main', before: '0'.repeat(40), after: HEAD, timestamp: iso(now), actor: { login } }]);
-      if (p === `/repos/${r.owner}/${r.repo}`) return Response.json({ fork: false, template_repository: null, created_at: iso(now - 60_000), ...o.repo });
-      if (p.endsWith('/commits')) return Response.json(o.commits ?? [{ parents: [], commit: { committer: { date: iso(now - 120_000) } } }]);
-      if (p.includes('/compare/')) return Response.json(o.compare ?? { status: 'ahead', total_commits: 0, commits: [] });
-      return new Response('', { status: 404 });
-    };
-    const { repoEverDerived } = await import('./github-verify');
-    return fetchLinePusher(r, hasLine, issuedAt, {
-      everDerived: repoEverDerived, // as token-gate.ts proofLineOwner passes it (final fix M6)
-      fetch: (async (url: string) => api(url)) as unknown as typeof fetch,
-      raw: async (url) => (url.includes(`/${HEAD}/`) ? { status: 'ok', text: line } : { status: 'missing' }),
-    });
-  };
-}
-
 test('security re-review 4 F1: a timed-out v2.10 deploy of other bytecode is never settled or labelled as the starter by the build path', dbTest, (tc) =>
   withEventLog(() =>
     withVars(shipVars(), async () => {
@@ -2408,58 +2233,6 @@ test('security re-review 4 F1: a timed-out v2.10 deploy of other bytecode is nev
 );
 
 // ---- v2.11 T10 (spec 5): the entry drafted from the build, the live, deployed and confirm lines in one reply, the kit, submitted
-
-type JoinedReply = ShipReply & {
-  ready?: boolean;
-  questions?: unknown;
-  entry?: { project: Record<string, unknown>; answers: Record<string, string> };
-  token?: { proposed: { name: string; symbol: string } };
-  shown_wallet?: string;
-};
-
-/**
- * A shipped build (shipSetup) whose agent also launches tokens: tokens.fun is a fake that records the
- * creator wallet, the gate reads this agent's line in the repo. `live()` deploys and uploads the site
- * to EarnKit hosting and returns its link; `joined(live_url)` is the call after the live link.
- */
-async function joinSetup(tag: string, tc: TestContext, o: Parameters<typeof shipSetup>[2] = {}) {
-  const t = await shipSetup(`t10-${tag}`, tc, o);
-  const launched: string[] = [];
-  const tokenDeps = {
-    available: () => true,
-    limit: async () => {},
-    check: async () => true,
-    gate: {
-      repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
-      owner: async () => ({ status: 'ok' as const, text: tokenLineFor(t.inst, t.repo)! }),
-      screen: async () => {},
-    },
-    deploy: async (d: { projectId: number; name: string; symbol: string; creatorWallet: string }) => {
-      launched.push(d.creatorWallet.toLowerCase());
-      const url = `https://tokens.fun/coin/0x${randomBytes(20).toString('hex')}`;
-      await sql()`UPDATE projects SET token_url = ${url}, token_status = 'launched', coin_address = ${'0x' + randomBytes(20).toString('hex')},
-        coin_launched_at = now(), token_name = ${d.name}, token_symbol = ${d.symbol} WHERE id = ${d.projectId}`;
-      return { status: 'launched' as const, name: d.name, symbol: d.symbol, tokens_fun: url };
-    },
-  } as unknown as TokenFlowDeps;
-  const ctx = { ...t.ctx, tokenDeps };
-  const live = async () => {
-    const { deploySite } = await import('./hosting');
-    const r = await t.ship({}, ctx);
-    const token = new URL(String(r.host?.upload_url)).searchParams.get('t')!;
-    const r2 = { put: async () => {}, list: async () => [], del: async () => {}, copy: async () => {} };
-    const zip = (await import('fflate')).zipSync({ 'index.html': new TextEncoder().encode('<!doctype html><html><body>PodTips</body></html>') });
-    const up = await deploySite(token, zip, { r2 });
-    tc.after(() => sql()`UPDATE hosted_sites SET status = 'ended' WHERE repo_key = ${t.repoKey}`.then(() => undefined));
-    return { deployReply: r, upload: up.body as { show_to_builder: string; url: string } };
-  };
-  const joined = (live_url: string, c: object = ctx) => t.ship(null, c, { live_url }) as Promise<JoinedReply>;
-  const confirm = (input: object) => tools.confirm({ program_id: t.p.id, ...input }, ctx as never) as Promise<Confirmed>;
-  return { ...t, ctx, launched, live, joined, confirm };
-}
-
-const T10_CONFIRM = (symbol: string) =>
-  `Yes submits your entry and launches $${symbol} (PodTips): 40% of its fees to you, plus the builder bonus. Wallet: 0x12ab…9f3e. yes / skip the token`;
 
 test('7.8 (v2.12.1 T12, replaces v2.12 7.8 and 7.8c) flag on: find has no v2.12 consent or score line; tell hide hides the page; x_handle is accepted and ignored; a shared client\'s page asks get an agent note', dbTest, async () => {
   const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`tools-t7-consent-${process.pid}-${Date.now()}`}) RETURNING id`;

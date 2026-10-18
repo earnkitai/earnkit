@@ -172,8 +172,6 @@ function ctxFor(id: number, o: { repo?: (owner: string, repo: string) => Promise
   };
 }
 type Ctx = ReturnType<typeof ctxFor> & { ownInstallationId?: number; sharedClient?: boolean; matchProjects?: unknown };
-/** GitHub matching for a stated GitHub user (never the network). */
-const noMatching = { matchProjects: async () => ({ checked: 0, fits: [] }) };
 
 // ---- The recorder ------------------------------------------------------------------------------
 
@@ -201,102 +199,8 @@ const dump = (journey: string) => said.filter((s) => s.journey === journey).map(
 
 // ---- Drafts ------------------------------------------------------------------------------------
 
-const W = '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3';
 const GROK = { browser: false, can_push: false };
-const CC = { browser: true, can_push: true };
-const DRAFT: Record<string, string> = {
-  description: 'TipJar lets fans tip creators in USDC; 120 creators received 900 tips in the first month.',
-  builder_profile: 'https://github.com/alice',
-  full_name: 'Alice Doe',
-  email: 'alice@example.com',
-  x_handle: '@alice',
-  telegram: '@alice',
-  project_name_description: 'TipJar: tips for creators in USDC.',
-  founding_team: 'Alice, solo builder; shipped two payment apps.',
-  demo_loom: 'https://loom.com/share/abc',
-  contract_address: '0x1111111111111111111111111111111111111111',
-  usage_numbers: '120 creators got 900 tips in the first month.',
-  revenue: '1% fee on each tip.',
-  gtm_plan: 'Recurring tips by March; 500 creators by June.',
-  builder_code: 'bc_tipjar',
-  primary_challenge: 'User acquisition',
-  credits: 'None',
-  project_name: 'TipJar',
-  one_sentence_description: 'Tips for creators in USDC.',
-  requested_amount_usd: '5000',
-  summary: 'TipJar lets fans tip creators in USDC on Avalanche C-Chain; 120 creators in month one.',
-  milestones: 'M1 recurring tips (Dec 2026); M2 500 creators (Feb 2027).',
-  why_grant: 'Live product with 120 users, solo builder shipping weekly.',
-  x_profile: '@alice',
-  project_url: 'https://tipjar.xyz',
-};
-/** What the agent drafts plus what the builder answers, for every field of the program's form. */
-function answersFor(programId: string, over: Record<string, string> = {}) {
-  const p = JSON.parse(readFileSync(join(PROGRAMS_DIR, `${programId}.json`), 'utf8')) as {
-    submission_requirements: { key: string; type: string; options?: string[] }[];
-  };
-  const a: Record<string, string> = {};
-  for (const r of p.submission_requirements) {
-    if (r.type === 'choice' && r.options) a[r.key] = r.options[0];
-    else if (DRAFT[r.key]) a[r.key] = DRAFT[r.key];
-  }
-  return { ...a, ...over };
-}
 
-/**
- * One entry, the way the audit's driver ran it: the pick (the coach's questions), the answers (the
- * draft and the offer), the builder's word on the offer, and "I submitted".
- */
-async function entry(o: {
-  journey: string;
-  ctx: Ctx;
-  program: string;
-  project: Record<string, string | string[]>;
-  agent: typeof CC;
-  decision?: 'go' | 'skip';
-  /** The wallet the builder gives in the coach round; null: none. */
-  wallet?: string | null;
-  token?: { name: string; symbol: string };
-  answers?: Record<string, string>;
-  record?: boolean;
-}) {
-  const { journey, ctx, program, project, agent } = o;
-  const q = await call(journey, `${program} questions`, 'prepare_submission', { program_id: program, project, agent }, ctx);
-  const answers = { ...(o.answers ?? answersFor(program)), ...(o.wallet !== null && { payout_wallet: o.wallet ?? W }) };
-  const d = (await call(journey, `${program} draft`, 'prepare_submission', { program_id: program, project, agent, answers, coach_asked: true }, ctx)) as Reply & {
-    ready: boolean;
-    shown_wallet?: string;
-  };
-  if (!d.ready) return { q, d, answers };
-  const wallet = o.wallet === null ? undefined : d.shown_wallet;
-  const c = await call(
-    journey,
-    `${program} ${o.decision ?? 'go'}`,
-    'confirm_entry',
-    { program_id: program, project, answers, builder_confirmed: true, decision: o.decision ?? 'go', ...(wallet && { wallet }), ...(o.token && { token: o.token }), agent },
-    ctx,
-  );
-  let rec: Reply | null = null;
-  if (o.record !== false && c.kit)
-    rec = await call(
-      journey,
-      `${program} record`,
-      'record_submission',
-      {
-        program_id: program,
-        project,
-        submission_data: answers,
-        builder_submitted: true,
-        ...((c.kit as { proof?: { kind?: string } }).proof?.kind === 'entry_link' && { external_submission_url: 'https://dorahacks.io/buidl/31337' }),
-        ...(wallet && { payout_wallet: wallet }),
-      },
-      ctx,
-    );
-  return { q, d, c, rec, answers };
-}
-
-const NO_BONUS_NOTE = /no builder bonus:|don't add to it/;
-const BONUS_NOTE = /builder bonus (rides|counts|is in)/gi;
 const speedrunOffer = /Want me to (start on|build something new for) a16z speedrun/;
 
 // ---- The journeys ------------------------------------------------------------------------------

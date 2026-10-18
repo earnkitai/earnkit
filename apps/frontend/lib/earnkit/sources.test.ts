@@ -11,10 +11,6 @@ function fakeReader(): ReaderDeps {
   };
   return { gh: no, ghGraphql: no, probe: no, fetchText: no, json: no, baseTxs: no, tokenTransfers: no, contractOrigin: no, arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, walletCreations: no, now: new Date('2026-10-14T10:00:00Z') };
 }
-/** The person query's answer: these repos, bare. */
-const graphBody = (login: string, keys: string[]) => ({
-  data: { user: { login, twitterUsername: null, websiteUrl: null, repositories: { nodes: keys.map((k) => ({ nameWithOwner: k, isFork: false, isTemplate: false, stargazers: { edges: [] }, forks: { nodes: [] }, defaultBranchRef: null })) } } },
-});
 
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 const ID = 2_100_002_000 + (process.pid % 1000);

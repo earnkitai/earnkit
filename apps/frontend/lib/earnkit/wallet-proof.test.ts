@@ -21,7 +21,6 @@ const KEY = generatePrivateKey();
 const NOW = new Date('2026-10-14T10:00:00Z');
 const viemVerify = (a: { address: string; message: string; signature: string }) =>
   verifyMessage({ address: a.address as `0x${string}`, message: a.message, signature: a.signature as `0x${string}` });
-const noLimit = { limit: async () => {} };
 
 /** A fresh installation with a profile, claimed with a fresh X id as `handle` (bindX clears it from any other profile). */
 async function claimed(handle: string): Promise<number> {
@@ -30,9 +29,6 @@ async function claimed(handle: string): Promise<number> {
   const r = await bindX(id, { id: `t7w${randomBytes(6).toString('hex')}`, username: handle, name: handle, avatar: null }, NOW);
   assert.equal(r.ok, true);
   return id;
-}
-async function withScore<T>(fn: () => Promise<T>): Promise<T> {
-  return fn();
 }
 
 test('7.1 an upgrade token names one person for 30 minutes', () => {

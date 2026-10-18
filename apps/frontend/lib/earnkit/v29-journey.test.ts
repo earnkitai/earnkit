@@ -4,8 +4,6 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import postgres from 'postgres';
-import { keccak256, type Hex } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
 import { sql } from './db';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
@@ -14,19 +12,9 @@ import { tokenLineFor } from './token-gate';
 import { deployToken } from './tokens';
 import { type TokenFlowDeps } from './token-launch';
 import { checkDefaults } from './verify';
-import { verifyCallback, verifyConfirm, verifyStart } from './github-verify';
-import { BASE_BONUS, type BonusRpc } from './bonus-ledger';
-import { MINI_FEE_RECIPIENT } from './policy';
 import type { FetchResult } from './ownership';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { strToU8, zipSync } from 'fflate';
-import { hostUploadPost } from './hosting';
-import type { R2 } from './r2';
-import { handle as workerHandle } from '../../../../infra/host-worker/src/route';
-import {
-  type Mailer,
-} from './digest';
 import { readStats } from './stats';
 import { readLanding } from './landing';
 import { listPrograms } from './programs';
@@ -135,27 +123,9 @@ after(async () => {
 
 // ---- The outside world -------------------------------------------------------------------------
 
-const NOW = Date.now();
-const daysAgo = (n: number) => new Date(NOW - n * 86_400_000).toISOString();
 const README = `# TipJar\n\n${'Fans tip creators in USDC on Arc; payouts settle in seconds. '.repeat(40)}`;
 
 type GhRepo = Record<string, unknown> & { name: string; full_name: string; html_url: string };
-const ghRepo = (owner: string, name: string, extra: Record<string, unknown> = {}): GhRepo => ({
-  name,
-  full_name: `${owner}/${name}`,
-  html_url: `https://github.com/${owner}/${name}`,
-  homepage: null,
-  default_branch: 'main',
-  created_at: daysAgo(120),
-  pushed_at: daysAgo(2),
-  fork: false,
-  archived: false,
-  is_template: false,
-  owner: { login: owner },
-  description: null,
-  topics: [],
-  ...extra,
-});
 
 /** GitHub as each journey's builder has it: their repos by owner, and every repo by full name. */
 const GITHUB = {
@@ -168,10 +138,6 @@ const GITHUB = {
   /** When a login's GitHub account was made (the hosting gate); 2019 by default. */
   accountCreated: new Map<string, string>(),
 };
-function addRepos(owner: string, repos: GhRepo[]) {
-  GITHUB.users.set(owner, [...(GITHUB.users.get(owner) ?? []), ...repos]);
-  for (const r of repos) GITHUB.repos.set(r.full_name.toLowerCase(), r);
-}
 
 /** The link probe: these hosts don't load. */
 const DOWN = new Set<string>();
@@ -299,55 +265,6 @@ function ctxFor(id: number, o: { shared?: boolean } = {}) {
 }
 type Ctx = ReturnType<typeof ctxFor>;
 
-async function withSignIn<T>(fn: () => Promise<T>): Promise<T> {
-  process.env.GITHUB_OAUTH_CLIENT_ID = 'v29-client';
-  process.env.GITHUB_OAUTH_CLIENT_SECRET = 'v29-secret';
-  try {
-    return await fn();
-  } finally {
-    delete process.env.GITHUB_OAUTH_CLIENT_ID;
-    delete process.env.GITHUB_OAUTH_CLIENT_SECRET;
-  }
-}
-
-/**
- * The builder opens the sign-in link in a browser, confirms, and GitHub sends them back: the real
- * routes (GET confirm page, POST to GitHub, the callback), GitHub's endpoints mocked. Returns the
- * page's last line (on a shared client, the code to paste).
- */
-async function browserSignIn(link: string, login: string): Promise<string> {
-  const ip = { 'x-forwarded-for': '203.0.113.9' };
-  const page = await verifyStart(new Request(link, { headers: ip }));
-  assert.equal(page.status, 200, await page.clone().text());
-  const html = await page.text();
-  const cookie = page.headers.get('set-cookie')!.split(';')[0];
-  const form = new URLSearchParams({
-    n: html.match(/name="n" value="([^"]+)"/)![1],
-    csrf: html.match(/name="csrf" value="([^"]+)"/)![1],
-  });
-  const toGitHub = await verifyConfirm(
-    new Request('https://earnkit.com/github/verify', {
-      method: 'POST',
-      headers: { ...ip, cookie, origin: 'https://earnkit.com', 'content-type': 'application/x-www-form-urlencoded' },
-      body: form,
-    }),
-  );
-  assert.equal(toGitHub.status, 303);
-  const authorize = new URL(toGitHub.headers.get('location')!);
-  assert.equal(authorize.host, 'github.com');
-  assert.equal(authorize.searchParams.get('scope'), null, 'no scopes requested');
-  // GitHub: the builder approves as `login`; GitHub redirects back with a code and the state.
-  const code = `c${Math.random().toString(36).slice(2)}`;
-  GITHUB.oauthCodes.set(code, login);
-  const back = new URL(authorize.searchParams.get('redirect_uri')!);
-  back.searchParams.set('code', code);
-  back.searchParams.set('state', authorize.searchParams.get('state')!);
-  const done = await verifyCallback(new Request(back, { headers: { ...ip, cookie } }));
-  const text = (await done.text()).replace(/<[^>]+>/g, '\n').trim();
-  assert.equal(done.status, 200, text);
-  return text.split('\n').filter(Boolean).pop()!;
-}
-
 /** The expected log lines (a failed probe, the alerts' and the cron's soft WETH price read) are kept out of the output. */
 const logError = console.error;
 console.error = (...a: unknown[]) => {
@@ -392,130 +309,12 @@ async function call(journey: string, label: string, tool: keyof typeof handlers 
   assert.ok(ms < MAX_REPLY_MS, `${journey} ${label}: replied in ${ms} ms`);
   return reply;
 }
-const forty = (journey: string) => said.filter((s) => s.journey === journey).reduce((n, s) => n + (s.text.match(/40%/g)?.length ?? 0), 0);
-const dump = (journey: string) => said.filter((s) => s.journey === journey).map((s) => `[${s.label}]\n${s.text}`).join('\n\n');
-const rowOf = (text: string, title: string) => text.split('\n').find((l) => l.startsWith(`| ${title}`));
-
-const W = '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3';
-const CC = { browser: true, can_push: true };
-const GROK = { browser: false, can_push: false };
-const ARC_CONTRACT = '0x7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a';
-
-/** What the agent drafts for a program's form, plus the builder's answers. */
-const DRAFT: Record<string, string> = {
-  description: 'TipJar lets fans tip creators in USDC on Arc; 120 creators received 900 tips in the first month.',
-  builder_profile: 'https://github.com/alice',
-  full_name: 'Alice Doe',
-  email: 'alice@tipjar.xyz',
-  x_handle: '@alice',
-  telegram: '@alice',
-  project_name: 'TipJar',
-  project_name_description: 'TipJar: tips for creators in USDC.',
-  one_sentence_description: 'Tips for creators in USDC.',
-  summary: 'TipJar lets fans tip creators in USDC on Arc; 120 creators in month one.',
-  x_profile: '@alice',
-};
-function answersFor(programId: string, over: Record<string, string> = {}) {
-  const p = JSON.parse(readFileSync(join(PROGRAMS_DIR, `${programId}.json`), 'utf8')) as {
-    submission_requirements: { key: string; type: string; options?: string[] }[];
-  };
-  const a: Record<string, string> = {};
-  for (const r of p.submission_requirements) {
-    if (r.type === 'choice' && r.options) a[r.key] = r.options[0];
-    else if (DRAFT[r.key]) a[r.key] = DRAFT[r.key];
-  }
-  return { ...a, ...over };
-}
 
 // ---- The journeys ------------------------------------------------------------------------------
 
-const W2 = '0x2222222222222222222222222222222222222abc';
-/** A public GitHub TipJar on Arc mainnet (homepage, an Arc config naming its contract), as Grok Bot's builders have it. */
-function publicTipJar(owner: string) {
-  if (GITHUB.repos.has(`${owner}/tipjar`)) return;
-  addRepos(owner, [ghRepo(owner, 'TipJar', { homepage: `https://tipjar-${owner}.xyz`, description: 'Tips for creators in USDC' })]);
-  const contract = `0x${Buffer.from(owner).toString('hex').padEnd(40, '4').slice(0, 40)}`;
-  GITHUB.configs.set(`${owner}/tipjar`, `networks: { arc: { url: 'https://rpc.mainnet.arc.io', chainId: 5042 } } // TipJar at ${contract}`);
-}
-
 // ---- Part 2: hosting, the weekly email, the won line, one money figure, /terms ----------------
 
-/** R2, in memory (the bucket under hosting.ts and, through bucketOf, the Worker). */
-function memR2() {
-  const objects = new Map<string, Uint8Array>();
-  const r2: R2 = {
-    put: async (key, body) => void objects.set(key, body),
-    list: async (prefix) => [...objects.keys()].filter((k) => k.startsWith(prefix)),
-    del: async (keys) => keys.forEach((k) => objects.delete(k)),
-    copy: async (from, to) => {
-      const o = objects.get(from);
-      if (!o) throw new Error('no such key');
-      objects.set(to, o);
-    },
-  };
-  return { r2, objects };
-}
-const SITES = memR2();
-const R2_ENV = { R2_ACCOUNT_ID: 'v29-acct', R2_ACCESS_KEY_ID: 'v29-key', R2_SECRET_ACCESS_KEY: 'v29-r2-secret', R2_BUCKET: 'earnkit-sites' };
-
-async function withEnv<T>(vars: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> {
-  const old = Object.fromEntries(Object.keys(vars).map((k) => [k, process.env[k]]));
-  for (const [k, v] of Object.entries(vars)) if (v === undefined) delete process.env[k];
-  else process.env[k] = v;
-  try {
-    return await fn();
-  } finally {
-    for (const [k, v] of Object.entries(old)) if (v === undefined) delete process.env[k];
-    else process.env[k] = v;
-  }
-}
-const ADMIN = 'v29-journey-admin-secret-0123456789abcdef';
-const hostingOn = <T>(fn: () => Promise<T>) => withSignIn(() => withEnv({ ...R2_ENV, ADMIN_VETO_SECRET: ADMIN }, fn));
-
-/** The builder's agent POSTs the zip to the upload URL; the reply is recorded like a tool reply. */
-async function upload(journey: string, label: string, url: string, body: Uint8Array | ReadableStream<Uint8Array>) {
-  const started = Date.now();
-  const res = await hostUploadPost(
-    new Request(url, { method: 'POST', headers: { 'content-type': 'application/zip' }, body, duplex: 'half' } as RequestInit),
-    { r2: SITES.r2 },
-  );
-  const reply = (await res.json()) as Reply;
-  const ms = Date.now() - started;
-  said.push({ journey, label, text: reply.show_to_builder ?? '', ms, reply, agentText: JSON.stringify(reply) });
-  return { status: res.status, reply };
-}
-
-/** The Worker, as Cloudflare runs it, over the same in-memory bucket (no edge cache). */
-async function visit(url: string): Promise<{ status: number; text: string; headers: Headers }> {
-  const bucket = {
-    get: async (key: string) => {
-      const o = SITES.objects.get(key);
-      return o ? { body: new Response(o).body!, size: o.length } : null;
-    },
-  };
-  const cache = { match: async () => undefined, put: async () => {} };
-  const res = await workerHandle(new Request(url), { BUCKET: bucket, ZONE: 'earnkit.com' }, cache, () => {});
-  return { status: res.status, text: await res.text(), headers: res.headers };
-}
-
-const site = (body: string) =>
-  zipSync({ 'index.html': strToU8(`<!doctype html><html><head><title>TipJar</title></head><body>${body}</body></html>`), 'app.js': strToU8('console.log(1)') });
-
-/** Resend, recorded. */
-const mails: Parameters<Mailer>[0][] = [];
-const mailer: Mailer = async (m) => void mails.push(m);
 /** The Monday 14:05 UTC `weeks` weeks after the one following `from` (the email's send hour). */
-/**
- * The first Monday 14:05 UTC after `from` (plus `weeks`). v2.11 final fix wave: on a Monday before
- * 14:05 that is today, not a week on, so a win announced now is inside the digest's 7 days whatever
- * the weekday the suite runs on (the old rule failed 12.10 every Monday).
- */
-function monday(from: Date, weeks = 0): Date {
-  const d = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate(), 14, 5));
-  while (d <= from || d.getUTCDay() !== 1) d.setUTCDate(d.getUTCDate() + 1);
-  d.setUTCDate(d.getUTCDate() + 7 * weeks);
-  return d;
-}
 
 test('12.9 one money figure: the landing, /api/stats and the first reply say the same top-prize total', dbTest, async () => {
   const J = '12.9';
@@ -542,43 +341,3 @@ test('12.11 /terms: the old legal paths 301 to their section; every link EarnKit
   assert.deepEqual(legal.map((l) => l.href), ['/terms']);
   for (const s of said) assert.doesNotMatch(s.agentText, /earnkit\.com\/(policy|risk-disclosure|sponsor-terms)\b/, `${s.journey} ${s.label}`);
 });
-
-/** The chain under the cron's claims: every EarnKit token's split names its creator and MINI; fees wait for each. */
-function claimsChain(creators: Map<string, string>, available: Map<string, bigint>) {
-  const C = BASE_BONUS;
-  const sent: Hex[] = [];
-  const mined = new Set<Hex>();
-  const bonus = account.address.toLowerCase();
-  const rpc: BonusRpc = {
-    getChainId: async () => 8453,
-    nonce: async () => sent.length,
-    finalizedNonce: async () => sent.length,
-    fees: async () => ({ maxFeePerGas: 1_000_000n, maxPriorityFeePerGas: 1n }),
-    estimateGas: async () => 50_000n,
-    receipt: async (h) => (mined.has(h) ? { status: 'success' as const } : null),
-    transaction: async (h) => sent.some((r) => keccak256(r) === h),
-    finalReceipt: async () => true,
-    broadcast: async (raw) => {
-      if (sent.includes(raw)) return 'known';
-      sent.push(raw);
-      mined.add(keccak256(raw));
-      return 'sent';
-    },
-    waitFor: async (h) => (mined.has(h) ? { status: 'success' as const } : null),
-    balanceOf: async () => 0n,
-    blockNumber: async () => 10_000n,
-    storeLogs: async () => [],
-    receiptLogs: async () => ({ blockNumber: 0n, logs: [] }),
-    blockTime: async () => new Date(),
-    availableFees: async (owner) => available.get(owner.toLowerCase()) ?? 0n,
-    canCollect: async () => false,
-    rewardRecipients: async () => [bonus],
-    rewardInfo: async (locker, coin) =>
-      locker.toLowerCase() === C.lockers[0].toLowerCase() && creators.has(coin.toLowerCase())
-        ? { recipients: [C.safe, creators.get(coin.toLowerCase())!, MINI_FEE_RECIPIENT.toLowerCase(), bonus], bps: [3000, 4000, 1000, 2000] }
-        : { recipients: [], bps: [] },
-    ethBalance: async () => 10n ** 18n,
-  };
-  return { rpc, sent };
-}
-const account = privateKeyToAccount(`0x${'5'.repeat(64)}`);
