@@ -804,7 +804,9 @@ export async function recordSubmission(
           installationId,
           programId: program.id,
           repoUrl: repo_url ?? null,
-          wallet: entry?.payoutWallet ?? null,
+          // The wallet the builder gave with this entry, when it is kept. v2.14 T3 fix round 1: this was the
+          // builder bonus's wallet, so with the bonus off (the Bench) no entered event carried one.
+          wallet: entry?.payoutWallet ?? (deps.keepWallet !== false ? lastWallet : null),
         });
       await submittedEvent({
         projectId: res.project_id,
