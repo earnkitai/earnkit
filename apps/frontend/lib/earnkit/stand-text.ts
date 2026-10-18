@@ -138,9 +138,6 @@ export function newsOpener(alerts: string[], news: string[]): string | null {
   return parts.length ? `Since you last checked: ${parts.join(' ')}` : null;
 }
 
-export const pageReadyLine = (link: string) => `Your EarnKit page is ready. Claim it with X: ${link}`;
-/** The yes to a `confirm` step: the re-issued link, which lasts 30 minutes (never a period after it). */
-export const confirmLinkLine = (link: string) => `Open this to show it's yours. It works for 30 minutes: ${link}`;
 export const EARN_NOTE = 'If the builder picks a program, prepare it with lead.program_id (call prepare). Programs are named, not asked: the reply has one question, the last line.';
 /** The plain answer when a yes or no changes nothing (v2.12.1 make-countable.ts COUNT_LINES.noted). */
 export const NOTED_LINE = 'Okay.';

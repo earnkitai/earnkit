@@ -1,15 +1,13 @@
 import { PUBLIC_REPO_DAYS } from './repo-public'; // a repo is named only while read public this recently
 import { cache } from 'react';
 import { sql } from './db';
-import { listedRanked, standingOf } from './person-score';
+import { standingOf } from './person-score';
 import { COIN_PROGRAM } from './policy-constants';
 import { rankWords } from './rank';
 import { pagePath } from './reserved-routes';
-import { shownUrl } from './untrusted-text';
 
 /**
- * v2.12.1 spec "Profile", "Card and leaderboard": what the page at earnkit.com/<x-handle>, its share
- * card and the leaderboard show. Every public sentence is here (one place for the copy review).
+ * v2.12.1 spec "Profile", "Card": what the page at earnkit.com/<x-handle> and its share card show. Every public sentence is here (one place for the copy review).
  * Public facts only: a project's people and money only when confirmed and not waiting for a review,
  * a repo's name only while its newest reading says public and is under a week old, never a wallet
  * as the name, hidden people never.
@@ -22,31 +20,12 @@ export function money(n: number): string {
   return `$${Math.round(n)}`;
 }
 
-export const SOURCES_LINE =
-  'Numbers come from public data EarnKit can check: GitHub, live sites, package downloads, public transactions and EarnKit itself. Projects marked not yet confirmed are shown but do not count.';
-export const NOT_CONFIRMED = 'Not yet confirmed';
-export const NOT_TRACKED = 'Not tracked right now';
-/** T11 fix round 1: when no card is confirmed, one quiet line instead of a label on each. */
-export const NONE_CONFIRMED = "None of these are confirmed yet, so they don't count toward a rank.";
 export const NOTHING_YET = 'Projects show here once they are live.';
-export const BOARD_TITLE = 'Builders on EarnKit';
-export const boardLine = (n: number) => `${n.toLocaleString('en-US')} ${n === 1 ? 'builder' : 'builders'}, ranked by what they shipped and who uses it.`;
 export const topLine = (name: string, n: number, noun: string) => `${name} has shipped ${n} ${noun} with AI.`;
 export const buildingLine = (name: string) => `${name} is building with AI.`;
 export const peopleLine = (k: number) => (k === 0 ? null : `${k} of them ${k === 1 ? 'has people using it' : 'have people using them'}.`);
 export const peopleUse = (n: number) => `${n.toLocaleString('en-US')} ${n === 1 ? 'person uses' : 'people use'}`;
 
-export function cardHeadline(h: { moment: 'shipped' | 'people' | 'rank' | null; shipped: number; noun: string; best: { name: string; people: number } | null; rank: string | null }): string {
-  if (h.moment === 'people' && h.best && h.best.people > 0) return `${peopleUse(h.best.people)} ${h.best.name}`;
-  if (h.moment === 'rank' && h.rank) return h.rank;
-  if (h.shipped <= 0) return 'Building with AI';
-  return `Shipped ${h.shipped} ${h.noun} with AI`;
-}
-
-/** The X intent for the share link: the card's headline and the page; nothing else. Pure. */
-export function shareIntent(handle: string, headline: string): string {
-  return shareIntentText(handle, `${headline} on EarnKit.`);
-}
 /** v2.13: the X intent with the post's whole text (benchShareText) and the page. Pure. */
 export function shareIntentText(handle: string, text: string): string {
   const u = new URL('https://x.com/intent/post');
@@ -64,14 +43,8 @@ export function avatarUrl(raw: string | null | undefined): string | null {
   return u.toString();
 }
 
-export type PageCard = {
-  key: string; name: string; what: string | null; link: string | null; people: number | null; money: string | null;
-  programs: { title: string; won: boolean }[]; confirmed: boolean; tracked: boolean;
-};
 export type PageHead = { handle: string; name: string; avatar: string | null; topLine: string; rank: string | null; peopleLine: string | null; score: number | null };
 
-/** The page shows at most this many projects (25 tracked, then the rest as not tracked). */
-const CARDS_MAX = 50;
 const PRIVATE_NAME = 'Private project';
 const WALLET = /\b0x[0-9a-f]{40}\b/i;
 /** A project or entry key compared: no scheme, no github.com/, no www., no trailing slash, lowercase. */
@@ -211,68 +184,5 @@ const programsOf = (entries: Awaited<ReturnType<typeof programEntries>>, key: st
     if (e.keys.some((x) => x && norm(x) === k)) programs.set(e.title, (programs.get(e.title) ?? false) || e.won);
   return [...programs].map(([title, won]) => ({ title, won })).sort((a, b) => Number(b.won) - Number(a.won));
 };
-/** v2.13 T11: the programs the person's project `key` entered and won, as pageCards reads them. */
+/** v2.13 T11: the programs the person's project `key` entered and won. */
 export const projectPrograms = async (builderId: number, key: string) => programsOf(await programEntries(builderId), key);
-
-export async function pageCards(builderId: number): Promise<PageCard[]> {
-  const list = ((await shownProjects([builderId])).get(builderId) ?? []).slice(0, CARDS_MAX);
-  if (list.length === 0) return [];
-  const entries = await programEntries(builderId);
-  return list.map((r, i) => {
-    const measured = r.confirmed && !r.held;
-    return {
-      // Public markup: never a key that could name a private repo.
-      key: r.safeName === PRIVATE_NAME ? `project-${i + 1}` : `project-${i + 1}-${r.safeName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
-      name: r.safeName,
-      what: r.safeWhat,
-      link: shownUrl(r.link),
-      people: measured && r.people > 0 ? r.people : null,
-      money: measured && r.money_usd > 1 ? money(r.money_usd) : null,
-      programs: programsOf(entries, r.key),
-      confirmed: r.confirmed,
-      tracked: r.tracked,
-    };
-  });
-}
-
-/** The card's best project: the confirmed one most people use (none while held). */
-export async function bestProject(builderId: number): Promise<{ name: string; people: number } | null> {
-  const top = ((await shownProjects([builderId])).get(builderId) ?? []).filter((p) => p.confirmed && !p.held && p.people > 0).sort((a, b) => b.people - a.people)[0];
-  return top ? { name: top.safeName, people: top.people } : null;
-}
-
-// ---- The leaderboard -------------------------------------------------------------------------------
-
-export type BoardRow = { rank: number; handle: string; avatar: string | null; best: string };
-/** The board lists at most this many people (one page, no paging). */
-export const BOARD_MAX = 100;
-
-/**
- * spec "Leaderboard": the listed ranked people (person-score.ts listedRanked: claimed with X, shown,
- * not held) by score. `rank` is their rank in that one population, the same number as their reply,
- * page and card (T11 fix round 1), so the board has no gaps and `count` is the last rank's
- * population. `best` is the most-used project in plain words, else what they shipped. `only`
- * limits the population (tests: the shared DB holds other files' people).
- */
-export async function boardRows(limit: number = BOARD_MAX, o: { only?: number[] } = {}): Promise<{ rows: BoardRow[]; count: number }> {
-  const db = sql();
-  const n = Math.max(1, Math.min(BOARD_MAX, Math.floor(limit)));
-  const listed = await db<{ builder_id: number; handle: string; avatar: string | null; rank: number; count: number; shipped: number; apps: boolean }[]>`
-    WITH ranked AS (
-      SELECT x.builder_id, x.score, rank() OVER (ORDER BY x.score DESC)::int AS rank, count(*) OVER ()::int AS count FROM ${listedRanked(db, o.only)} x)
-    SELECT r.builder_id, p.x_handle AS handle, p.x_avatar_url AS avatar, r.rank, r.count,
-      (SELECT count(*)::int FROM builder_projects b WHERE b.builder_id = r.builder_id AND b.shipped) AS shipped,
-      COALESCE((SELECT bool_and(b.kind = 'app') FROM builder_projects b WHERE b.builder_id = r.builder_id AND b.shipped), false) AS apps
-    FROM ranked r JOIN builder_profiles p USING (builder_id)
-    ORDER BY r.score DESC, lower(p.x_handle) LIMIT ${n}`;
-  const projects = await shownProjects(listed.map((r) => r.builder_id));
-  const rows = listed.map((r) => {
-    const top = (projects.get(r.builder_id) ?? []).filter((p) => p.confirmed && !p.held && p.people > 0).sort((a, b) => b.people - a.people)[0];
-    const noun = r.apps ? (r.shipped === 1 ? 'app' : 'apps') : r.shipped === 1 ? 'project' : 'projects';
-    const best = top
-      ? cardHeadline({ moment: 'people', shipped: r.shipped, noun, best: { name: top.safeName, people: top.people }, rank: null })
-      : cardHeadline({ moment: 'shipped', shipped: r.shipped, noun, best: null, rank: null });
-    return { rank: r.rank, handle: r.handle, avatar: avatarUrl(r.avatar), best };
-  });
-  return { rows, count: listed[0]?.count ?? 0 };
-}

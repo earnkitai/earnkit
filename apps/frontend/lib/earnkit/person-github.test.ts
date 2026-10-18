@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PERSON_GITHUB_QUERY, REPOS_MAX, personGithubFrom, readGithubRepos, readGithubUser, readPersonGithub, reposQuery } from './person-github';
+import { PERSON_GITHUB_QUERY, REPOS_MAX, personGithubFrom, readGithubRepos, readGithubUser, reposQuery } from './person-github';
 import { graphqlUsable } from './source-readers';
 
 const NOW = new Date('2026-10-14T00:00:00Z');
@@ -35,11 +35,6 @@ test('3.2 forks, templates and repos made from a template are marked derived', (
 test('3.3 an unknown user or a malformed answer reads as null, never throws', async () => {
   assert.equal(personGithubFrom({ data: { user: null } }, NOW), null);
   assert.equal(personGithubFrom('nonsense', NOW), null);
-  let calls = 0;
-  const d = { ghGraphql: async (q: string, v: Record<string, unknown>) => { calls++; assert.equal(q, PERSON_GITHUB_QUERY); assert.equal(v.login, 'lee'); return body([repo({})]); }, now: NOW } as never;
-  assert.ok(await readPersonGithub('lee', d));
-  assert.equal(calls, 1);
-  await assert.rejects(readPersonGithub('bad login!', d), /not a GitHub login/);
 });
 
 test('3.9 the person query reads the newest 100 repos; others by name, names as variables, up to 25 a call', async () => {

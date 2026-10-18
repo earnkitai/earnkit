@@ -33,8 +33,6 @@ export type LocalGit = { emails: string[]; remotes: string[]; live_urls: string[
 
 /** How many queued people one cron run's discover step reads (Task 6). */
 export const DISCOVER_PER_RUN = 20;
-/** v2.12.2: an unproven reported login's newest owned repos proposed per person (the 25-project cap). */
-export const REPORTED_REPOS_MAX = 25;
 
 /** At most `scan` entries are looked at; strings only, trimmed, non-empty. */
 const strings = (v: unknown, scan: number): string[] =>

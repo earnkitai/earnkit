@@ -3,9 +3,9 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { sql } from './db';
-import { withEnv } from './fixtures/find';
 import { benchProject, noteIdentity, projectKeyOf } from './identity-input';
-import { MAIN_PROOF_MIN_MS, PROOF_NOTE, confirming, confirmingFast, fillGithubUser, mainProjectOf, pickMainProject, proofFor, setMainProject } from './main-project';
+import { MAIN_PROOF_MIN_MS, confirming, confirmingFast, fillGithubUser, mainProjectOf, pickMainProject, setMainProject } from './main-project';
+import { noteLineIssued } from './github-verify';
 import { proofLineCheck } from './discovery';
 import type { ReaderDeps } from './source-readers';
 import { tools } from './tools';
@@ -52,7 +52,7 @@ test('2.2 the project is set once it is confirmed; before that a different proje
 // Preflight F17: through the real find (tools.ts list_programs), an old agent's two projects: only
 // the first is the one project, only its sources are proposed, never verified, and its proof line is
 // in the same reply.
-test('2.3 under the flag find records the one project: its sources only, proposed, and the proof line in the reply', dbTest, async () => {
+test('2.3 find records the one project: its sources only, proposed, and the proof line in the reply', dbTest, async () => {
   const id = await person();
   // Every read fails (offline); the GitHub budget is never spent. No program matching leaves the process.
   const offline = new Proxy({}, { get: (_t, k) => (k === 'now' ? new Date() : k === 'ghSpent' ? () => false : async () => { throw new Error('offline'); }) }) as ReaderDeps;
@@ -75,7 +75,7 @@ test('2.3 under the flag find records the one project: its sources only, propose
   assert.ok(later.some((x) => x.ref === `maya${RUN}/c`), 'the new one project is proposed');
 });
 
-test('2.4 the proof line (flag off only; none under the flag): issued for an unconfirmed repo, recorded, github_user filled with the owner; none once confirmed', dbTest, async () => {
+test('2.4 github_user is filled with the repo owner, never overwritten; a confirmed row alone is not the repo\'s proof', dbTest, async () => {
   const id = await person();
   const key = `maya${RUN}/proof`;
   await setMainProject(id, { name: 'P', what: null, repo: key, live_url: null, package: null, contracts: [] });
@@ -83,20 +83,13 @@ test('2.4 the proof line (flag off only; none under the flag): issued for an unc
   assert.equal((await sql()`SELECT github_user FROM installations WHERE id = ${id}`)[0].github_user, `maya${RUN}`);
   await fillGithubUser(id, key, 'someone-else');
   assert.equal((await sql()`SELECT github_user FROM installations WHERE id = ${id}`)[0].github_user, `maya${RUN}`, 'never overwritten');
-  assert.equal(await proofFor(id, id, { canPush: true, now: new Date() }), null, 'flag on: no line to push');
-  const p = await withEnv({ EARNKIT_BENCH: undefined }, () => proofFor(id, id, { canPush: true, now: new Date() }));
-  assert.ok(p && 'line' in p);
-  assert.match(p.line, /^token: [0-9a-f]{10,}$/);
-  assert.equal(p.file, 'earnkit.txt');
-  assert.equal(p.agent_note, PROOF_NOTE);
+  // A line issued for the repo (an older agent's earnkit.txt line): Confirming while it isn't proven.
+  await noteLineIssued(id, `https://github.com/${key}`);
   assert.equal(await confirming(id), true);
-  const [issued] = await sql()`SELECT 1 FROM proof_line_issues WHERE installation_id = ${id} AND repo_key = ${key}`;
-  assert.ok(issued, 'commits after this moment count (v2.11 R4 b)');
   // T4 fix round 1 (ruling): a confirmed row alone (a coin or an entry naming the repo) is not the repo's proof.
   await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped) VALUES (${id}, ${key}, 'P', 'code', true, false)`;
   assert.equal(await confirming(id), true, 'still Confirming without the repo proof');
   await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES (${id}, 'repo', ${key}, ${key}, 'verified', 'proof_line', 'server')`;
-  assert.equal(await withEnv({ EARNKIT_BENCH: undefined }, () => proofFor(id, id, { canPush: true, now: new Date() })), null);
   assert.equal(await confirming(id), false);
 });
 

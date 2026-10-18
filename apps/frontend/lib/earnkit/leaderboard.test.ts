@@ -1,16 +1,9 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import * as React from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
-import LeaderboardView from '../../app/leaderboard/LeaderboardView';
 import { campaignRow, earnkitCampaignRows } from './leaderboard';
 import type { CampaignConfig } from './campaigns';
 import { sql } from './db';
-import { BOARD_MAX, boardRows, type BoardRow } from './page-data';
 
-(globalThis as { React?: typeof React }).React = React;
 
 const campaign: CampaignConfig = {
   kind: 'earnkit',
@@ -52,91 +45,8 @@ test('I1: the cutoff is the last payable pick (min score, vetoes, one prize per 
 });
 
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
-const dbTest = db;
-// v2.12.1 T11: this run's board people (fresh ids; builder_live rows count in every rank).
-const B = 2_129_000_000 + Math.floor(Math.random() * 300_000) * 20;
 after(async () => {
-  if (!process.env.DATABASE_URL) return;
-  const ids = Array.from({ length: 20 }, (_, i) => B + i);
-  for (const t of ['builder_projects', 'builder_live', 'builder_profiles']) await sql()`DELETE FROM ${sql()(t)} WHERE builder_id IN ${sql()(ids)}`;
-  await sql().end();
-});
-
-const ROWS: BoardRow[] = Array.from({ length: 25 }, (_, i) => ({ rank: i + 1, handle: `lee${i}`, avatar: i ? null : 'https://pbs.twimg.com/a_400x400.jpg', best: `${140 - i} people use app${i}` }));
-const text = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ');
-
-test('11.5 the leaderboard is one list of ranked people with a confirmed X; no filters, no capitals', dbTest, async () => {
-  const { rows } = await boardRows();
-  for (const r of rows) assert.ok(r.handle && r.rank >= 1);
-  const html = renderToStaticMarkup(React.createElement(LeaderboardView, { rows: ROWS, count: 25 }));
-  // The page body (the shared site footer is not this page's; T11 fix round 1).
-  assert.doesNotMatch(html.split('<footer')[0], /Filters|aria-label="Chain"|uppercase|Top \d+%/);
-  assert.match(html, /25 builders/);
-});
-
-test('11.5b the board: one ordered list linking each page (reserved handles at /b/), the best project in plain words', () => {
-  const rows = [...ROWS.slice(0, 2), { rank: 7, handle: 'terms', avatar: null, best: 'Shipped 3 apps with AI' }];
-  const h = renderToStaticMarkup(React.createElement(LeaderboardView, { rows, count: 3 }));
-  const main = h.split('<footer')[0];
-  assert.equal((main.match(/<li data-row=/g) ?? []).length, 3);
-  assert.match(main, /<ol/);
-  assert.match(main, /href="\/lee0"/);
-  assert.match(main, /href="\/b\/terms"/);
-  assert.match(text(main), /#1 @lee0 140 people use app0/);
-  assert.match(text(main), /#7 T @terms Shipped 3 apps with AI/, 'the letter is the picture of a person without one (aria-hidden)');
-  assert.match(text(main), /Builders on EarnKit 3 builders, ranked by what they shipped and who uses it\./);
-  assert.match(main, /<img src="https:\/\/pbs\.twimg\.com\/a_400x400\.jpg" alt=""/);
-  assert.doesNotMatch(main, /tracking-\[|—|\p{Extended_Pictographic}/u);
-  assert.doesNotMatch(text(main), /Builder 0|\bscore\b|outcome/i);
-  assert.match(text(renderToStaticMarkup(React.createElement(LeaderboardView, { rows: [], count: 0 })).split('<footer')[0]), /No one is ranked yet\./);
-});
-
-test('11.5c the page ignores every query parameter, reads one cached board per 10 minutes, and is a 404 with the flag off', () => {
-  const page = readFileSync(join(import.meta.dirname, '../../app/leaderboard/page.tsx'), 'utf8');
-  assert.doesNotMatch(page, /searchParams/);
-  assert.match(page, /if \(!builderScoreEnabled\(\)\) notFound\(\)/);
-  const load = readFileSync(join(import.meta.dirname, '../../app/leaderboard/leaderboard-load.ts'), 'utf8');
-  assert.match(load, /unstable_cache\(async \(\) => boardRows\(\), \[[^\]]+\], \{ revalidate: 600, tags: \[PROFILE_TAG\] \}\)/);
-  assert.equal(BOARD_MAX, 100);
-});
-
-test('11.5d boardRows: claimed, shown and not held only; ranks within that one population, no gaps; the best project or what they shipped', dbTest, async () => {
-  const person = async (i: number, score: number, o: { claimed?: boolean; hidden?: boolean; held?: boolean } = {}) => {
-    const id = B + i;
-    const claimed = o.claimed ?? true;
-    await sql()`INSERT INTO builder_profiles (builder_id, slug, x_user_id, x_handle, hidden, held) VALUES
-      (${id}, ${`lb${id}`}, ${claimed ? `8${id}` : null}, ${claimed ? `b${id}`.slice(0, 15) : null}, ${o.hidden ?? false}, ${o.held ?? false})`;
-    await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at)
-      VALUES (${id}, ${score}, '{}'::jsonb, true, 1, 0, 'v2', 'v2', now())`;
-    return id;
-  };
-  const top = await person(0, 100);
-  await person(1, 100, { claimed: false });
-  await person(2, 100, { hidden: true });
-  await person(3, 100, { held: true });
-  const second = await person(4, 99);
-  // Claimed, but X gave the handle to someone else (bindX cleared it): outside the population.
-  const cleared = await person(5, 100);
-  await sql()`UPDATE builder_profiles SET x_handle = NULL WHERE builder_id = ${cleared}`;
-  await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, people) VALUES
-    (${top}, 'https://tokens.fun', 'tokens.fun', 'app', true, true, 140), (${top}, 'https://b.example', 'B', 'app', true, true, 3),
-    (${second}, 'https://a.example', 'A', 'app', false, true, 0), (${second}, 'k2', 'K', 'package', false, true, 0)`;
-  const only = Array.from({ length: 6 }, (_, i) => B + i);
-  const { rows, count } = await boardRows(BOARD_MAX, { only });
-  const mine = rows.filter((r) => r.handle.startsWith('b') && [top, second].some((x) => r.handle === `b${x}`.slice(0, 15)));
-  assert.deepEqual(mine.map((r) => [r.handle, r.best]), [[`b${top}`.slice(0, 15), '140 people use tokens.fun'], [`b${second}`.slice(0, 15), 'Shipped 2 projects with AI']]);
-  assert.equal(mine[0].rank, rows[0].rank);
-  // T11 fix round 1: one population (listed people only), so the board has no gaps: each rank is the
-  // row's place, or the rank of the tie above it.
-  for (const [i, r] of rows.entries()) assert.ok(r.rank === i + 1 || (i > 0 && r.rank === rows[i - 1].rank), `${i} ${r.rank}`);
-  if (rows.length === count) assert.ok(rows[rows.length - 1].rank <= count);
-  assert.ok(count >= 2);
-  // The page, the card and the replies say the same number (standingOf over the same population).
-  const { standingOf } = await import('./person-score');
-  assert.deepEqual(await standingOf(second, { only }).then((x) => [x.rank, x.total]), [mine[1].rank, count]);
-  assert.deepEqual(rows.map((r) => r.rank), [1, 2]);
-  assert.equal(count, 2);
-  assert.ok(!rows.some((r) => [B + 1, B + 2, B + 3].some((x) => r.handle === `b${x}`.slice(0, 15))));
+  if (process.env.DATABASE_URL) await sql().end();
 });
 
 test('earnkitCampaignRows: an ended entry made elsewhere with a wallet this agent owns (any case) is "yours"', db, async () => {
