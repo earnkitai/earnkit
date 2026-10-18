@@ -1201,7 +1201,9 @@ ALTER TABLE builder_events ADD CONSTRAINT builder_events_type_check CHECK (type 
   -- v2.13: in every re-add, or a rerun fails on v2.13 rows before the later re-add (schema-rerun.test.ts).
   'shipped_code','went_live','users_up','update_posted','update_hidden','raising_on','raising_off',
   -- v2.13.4 (R1, R6): an agent joined a page from the claim page's one button; one was detached again.
-  'page_joined','page_detached'));
+  'page_joined','page_detached',
+  -- v2.14 (T5, S2): an installation bound to an X account by the fallback link's paste code.
+  'signed_in_by_code'));
 -- v2.12 T7 review: the consent line is marked shown as the reply goes out (shown once, never lost).
 ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS consent_shown_at timestamptz;
 -- v2.12 T7 review: an X handle claim refused because another profile shows it (GitHub's
@@ -1362,7 +1364,9 @@ ALTER TABLE builder_events ADD CONSTRAINT builder_events_type_check CHECK (type 
   -- v2.13: in every re-add, or a rerun fails on v2.13 rows before the later re-add (schema-rerun.test.ts).
   'shipped_code','went_live','users_up','update_posted','update_hidden','raising_on','raising_off',
   -- v2.13.4 (R1, R6): an agent joined a page from the claim page's one button; one was detached again.
-  'page_joined','page_detached'));
+  'page_joined','page_detached',
+  -- v2.14 (T5, S2): an installation bound to an X account by the fallback link's paste code.
+  'signed_in_by_code'));
 -- Spec S7 (plan): the internal program a coin-only entry belongs to. Closed, so nothing lists it.
 INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work, token_policy, builder_bonus, agent_completable)
 VALUES ('earnkit-coin', 'EarnKit', 'Your coin', 'A coin for a project the builder already has (v2.12.1 step 3b).',
@@ -1582,6 +1586,7 @@ CREATE TABLE IF NOT EXISTS x_signin_links (
   used_at          timestamptz
 );
 CREATE INDEX IF NOT EXISTS x_signin_links_installation ON x_signin_links (installation_id, expires_at DESC);
+CREATE INDEX IF NOT EXISTS x_signin_links_paste ON x_signin_links (paste_hash) WHERE paste_hash IS NOT NULL;
 -- v2.14 bind:start
 -- Migration (spec 1): every installation of a claimed page (its group) is bound to that X account. Shared
 -- clients never are; unclaimed groups stay anonymous until they sign in. Fills only NULLs: a rerun is a no-op.

@@ -14,6 +14,7 @@ import { RateLimitError, clientIp, enforce } from './rate-limit';
 import { pagePath, pageUrl } from './reserved-routes';
 import { X_ICON, brandShell } from './brand-page';
 import { upgradeToken } from './wallet-proof';
+import { agoText } from './x-link';
 import { pkcePair, xAuthorizeUrl, xOAuth, type XOAuthDeps, type XUser } from './x-oauth';
 
 /**
@@ -375,14 +376,6 @@ async function joinOffer(o: { joiner: number; holder: number; user: XUser; csrfH
 }
 
 /** The R1 page: what this X has, the warning, then one button (POST /claim/join). Same-origin, so the POST carries Origin. */
-/** "just now", "3 minutes ago", "2 hours ago", "4 days ago". Pure; exported for tests. */
-export function agoText(at: Date, now: Date = new Date()): string {
-  const m = Math.floor((now.getTime() - at.getTime()) / 60_000);
-  if (m < 1) return 'just now';
-  const [n, unit] = m < 60 ? [m, 'minute'] : m < 48 * 60 ? [Math.floor(m / 60), 'hour'] : [Math.floor(m / 1440), 'day'];
-  return `${n} ${unit}${n === 1 ? '' : 's'} ago`;
-}
-
 function joinPage(handle: string, offer: string, agent: { name: string | null; at: Date } | null): Response {
   const who = agent ? `<p class="ek-line">${escapeHtml(CLAIM_TEXT.joinAgent(agent.name, agoText(agent.at)))}</p>` : '';
   const body = shell(

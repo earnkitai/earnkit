@@ -335,6 +335,8 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
             'false if you cannot write code, deploy, and use a web browser in this session (default true)',
           ),
         signed_in: SIGNED_IN,
+        // v2.14 T5 (A6): the fallback sign-in link's paste-back code; find binds with it before anything else.
+        sign_in_code: z.string().max(40).optional().describe('The code the builder pasted after signing in with X from your sign-in link'),
         // v2.10 item 2: "show more".
         more: z.boolean().optional().describe('true for the full tables, only when the builder asks to see more or says yes to "Want the 3 easiest?" (never for a yes to the lead)'),
         program_id: z.string().optional().describe("One program's details; for a curated program show_to_builder is its guide"),

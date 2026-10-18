@@ -32,6 +32,8 @@ export const EVENT_TYPES = [
   'shipped_code', 'went_live', 'users_up', 'update_posted', 'update_hidden', 'raising_on', 'raising_off',
   // v2.13.4 (R1, R6): an agent joined a page from the claim page's one button; one was detached again.
   'page_joined', 'page_detached',
+  // v2.14 (T5, S2): an installation bound to an X account by the fallback link's paste code.
+  'signed_in_by_code',
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 export const LOGIN_BASES = ['signin', 'app', 'proof_line', 'repo_owner', 'x_match'] as const;

@@ -10,7 +10,7 @@ import { X_ON, dropAvalanche, find, install, person, withEnv, type Found } from 
 import { DETACH_LINES, JOIN_TABLES, PROBATION_LINES, joinNoticeLine } from './page-joins';
 import { linkInstallations } from './identity';
 import { clientNameOf } from './oauth';
-import { agoText } from './claim';
+import { agoText } from './x-link';
 import { fakeGitHub } from './fixtures/fake-github-branch';
 import { APP, installApp, privateGitHub } from './fixtures/private-github';
 import {

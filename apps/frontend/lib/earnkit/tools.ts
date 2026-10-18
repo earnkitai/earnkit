@@ -159,6 +159,7 @@ import { JOIN_TEXT, answerJoin, joinQuestion, askJoin, pendingJoinOf } from './i
 import type { FieldKind } from './program-file';
 import type { ProgramRow } from './programs';
 import { RateLimitError, enforce } from './rate-limit';
+import { SIGN_IN_NOTES, bindFromPaste } from './x-link';
 import { LAUNCHING, NOT_LAUNCHED_YET, REPO_HAS_TOKEN, launchClaimedAt, repoCoinPrograms, tokenLaunchesAvailable, type TokenOutcome } from './tokens';
 
 /** Who is calling: the installation behind the MCP connection. */
@@ -3499,29 +3500,46 @@ async function buildWalletAgain(c: ConfirmArgs & { program_id: string; wallet: s
 export const withoutBonusLine = (text: string) =>
   text.split('\n\n').filter((s) => !s.startsWith('Builder bonus:')).join('\n\n');
 
+/** find without the paste code: list_programs, or one program and its guide (get_program). */
+async function findReply(input: unknown, ctx0: ToolContext): Promise<Reply> {
+  const ctx = await withProbation(ctx0);
+  const { program_id, repo, ...parsed } = FindInput.parse(input ?? {});
+  // v2.13.3 (1): local_repos as the agent sent it (list_programs reads it again), so a live link the
+  // matcher drops (a placeholder host such as earnkit.com) still reaches the Bench's identity.
+  const raw = (input as { local_repos?: unknown } | null)?.local_repos;
+  const rest = raw === undefined ? parsed : { ...parsed, local_repos: raw as typeof parsed.local_repos };
+  if (program_id === undefined)
+    return handlers.list_programs(repo !== undefined && rest.repos === undefined ? { ...rest, repos: [repo] } : rest, ctx);
+  const r = (await handlers.get_program(defined({ program_id, repo }), ctx)) as Reply & { guide?: { text?: string }; eligibility?: unknown };
+  let guide = r.guide?.text;
+  if (!guide) return r;
+  // v2.12 final review (T9), v2.12.1 T10: no builder bonus line where no token is pitched (funded by
+  // a token). A guide is a program's, read before any entry: never the build's moment (nothing is recorded).
+  if (!(await coinPitchAllowed(ctx.installationId, { program_id, build: false }).catch(() => false))) {
+    guide = withoutBonusLine(guide);
+    r.guide = { ...r.guide, text: guide };
+  }
+  const line = repo ? eligibilityLine(repo, r.eligibility) : null;
+  return { ...r, show_to_builder: line ? `${guide}\n\n${line}` : guide };
+}
+
 /** The agent tools (v2.10 item 4): the MCP server forwards each call here; each dispatches to `handlers`. */
 export const tools = {
   // What can I earn (list_programs), or one program and its guide (get_program).
   find: async (input: unknown, ctx0: ToolContext) => {
-    const ctx = await withProbation(ctx0);
-    const { program_id, repo, ...parsed } = FindInput.parse(input ?? {});
-    // v2.13.3 (1): local_repos as the agent sent it (list_programs reads it again), so a live link the
-    // matcher drops (a placeholder host such as earnkit.com) still reaches the Bench's identity.
-    const raw = (input as { local_repos?: unknown } | null)?.local_repos;
-    const rest = raw === undefined ? parsed : { ...parsed, local_repos: raw as typeof parsed.local_repos };
-    if (program_id === undefined)
-      return handlers.list_programs(repo !== undefined && rest.repos === undefined ? { ...rest, repos: [repo] } : rest, ctx);
-    const r = (await handlers.get_program(defined({ program_id, repo }), ctx)) as Reply & { guide?: { text?: string }; eligibility?: unknown };
-    let guide = r.guide?.text;
-    if (!guide) return r;
-    // v2.12 final review (T9), v2.12.1 T10: no builder bonus line where no token is pitched (funded by
-    // a token). A guide is a program's, read before any entry: never the build's moment (nothing is recorded).
-    if (!(await coinPitchAllowed(ctx.installationId, { program_id, build: false }).catch(() => false))) {
-      guide = withoutBonusLine(guide);
-      r.guide = { ...r.guide, text: guide };
+    // v2.14 T5 (A6): the fallback link's paste code binds this installation first, so this reply is already the
+    // person's. A shared client's is never read (it serves many builders; no person binding).
+    const { sign_in_code, ...unsigned } = (input ?? {}) as Record<string, unknown>;
+    input = unsigned;
+    let signInNote: string | null = null;
+    if (sign_in_code !== undefined && !ctx0.sharedClient) {
+      const own = ctx0.ownInstallationId ?? ctx0.installationId;
+      const b = await bindFromPaste(own, sign_in_code, new Date());
+      if (b.ok) ctx0 = { ...ctx0, installationId: b.root, ownInstallationId: own, probation: undefined };
+      signInNote = b.ok ? SIGN_IN_NOTES.bound : SIGN_IN_NOTES.bad;
     }
-    const line = repo ? eligibilityLine(repo, r.eligibility) : null;
-    return { ...r, show_to_builder: line ? `${guide}\n\n${line}` : guide };
+    const reply = await findReply(input, ctx0);
+    return signInNote ? { ...reply, sign_in_note: signInNote } : reply;
   },
 
   // v2.10 item 13: with `deploy`, EarnKit deploys the builder's contract after the prepare step.

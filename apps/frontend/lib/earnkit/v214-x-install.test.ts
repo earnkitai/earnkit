@@ -247,6 +247,8 @@ test('4.14 no merge: an installation with data signing in with an X that has a p
   const m = (await connectInstallation(mt))!;
   assert.notEqual(m.id, page.caller.id, 'its old member does not become the page');
   assert.equal(m.x, null);
+  // T5 ruling: the members of an installation that binds are detached (each its own anonymous root).
+  assert.equal(m.id, member, 'its old member is its own root now');
 });
 
 test('4.15 S5: two X accounts racing for one installation: one binds, the other is refused', db, async () => {

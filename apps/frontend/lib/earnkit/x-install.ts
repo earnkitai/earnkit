@@ -113,7 +113,10 @@ export async function xSignInCallback(request: Request, deps: CallbackDeps = {})
   }
   const [cleared] = await sql()`SELECT 1 FROM x_owner_clears WHERE x_user_id = ${user.id}`;
   if (cleared) return signinPage(SIGNIN_TEXT.paused, 403, clear);
-  if (row.purpose !== 'install' || !row.oauth) return signinPage(SIGNIN_TEXT.failed, 400, clear); // 'link' rows: T5
+  // v2.14 T5: the fallback link's sign-in shows a paste code; nothing is bound until the agent sends it back.
+  if (row.purpose === 'link' && row.installation_id !== null)
+    return (await import('./x-link')).linkSignedIn(row.installation_id, user, clear, new Date());
+  if (row.purpose !== 'install' || !row.oauth) return signinPage(SIGNIN_TEXT.failed, 400, clear);
   let to: URL;
   try {
     to = issueCode(row.oauth, user, publicOrigin(request));
@@ -138,12 +141,14 @@ class AttachRefused extends Error {
  * v2.14 spec 1: binds installation `own` to X account `user` (A3), in ONE transaction (preflight S5):
  * the `x_attach:<id>`, `x_user:<id>` and `x_handle:<h>` locks, the installation row FOR UPDATE, the checks (never an
  * installation bound to another X account, never a shared group, never an X account the owner cleared),
- * then the person:
- * - the page that holds the X user id: `own` alone is attached to it (builder_id). The no-merge ruling
- *   (supersedes A7): nothing of `own` (its data, its old group's members) is ever merged into the page;
- *   it stays behind. Only a fresh installation's own unclaimed profile row is removed (S10);
- * - else a page made from the X profile on `own`'s group root (ensureProfile, then bindX's writes: handle,
- *   name, photo).
+ * then the person. `own` is always bound ALONE (the no-merge ruling, supersedes A7; T5 ruling):
+ * - `own` a root with members, and not already this X's page: the members are detached first (builder_id
+ *   NULL, each its own anonymous root; nothing deleted), so none of them becomes the person through `own`;
+ * - the page that holds the X user id: `own` alone is attached to it (builder_id). Nothing of `own` (its
+ *   data, its old group) is ever merged into the page; it stays behind. Only a fresh installation's own
+ *   unclaimed profile row is removed (S10, owner-approved);
+ * - else a page made from the X profile on `own` itself (a member of another root leaves it first:
+ *   builder_id cleared; ensureProfile, then bindX's writes: handle, name, photo).
  * The X id is written on the installation LAST, and the transaction aborts unless that touches its row; a
  * bindX refusal rolls everything back, so the installation stays unbound. Idempotent.
  */
@@ -169,19 +174,24 @@ export async function attachToX(own: number, user: XUser, now: Date): Promise<At
       if (me.shared || g?.shared) throw new AttachRefused('shared');
       let root: number;
       let created = false;
+      // Read before the members are detached below: an installation that had members is never fresh.
+      const [f] = await tx<{ fresh: boolean }[]>`
+        SELECT NOT EXISTS (SELECT 1 FROM installations m WHERE m.builder_id = ${own})
+          AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.installation_id = ${own})
+          AND NOT EXISTS (SELECT 1 FROM builder_sources s WHERE s.builder_id = ${own})
+          AND NOT EXISTS (SELECT 1 FROM builder_projects b WHERE b.builder_id = ${own}) AS fresh`;
+      // T5 ruling: `own`'s old members never come along (unless `own` is already this X's page).
+      if (!held || held.root !== own) await tx`UPDATE installations SET builder_id = NULL WHERE builder_id = ${own}`;
       if (held) {
         root = held.root;
         if (mine !== root) {
-          const [f] = await tx<{ fresh: boolean }[]>`
-            SELECT NOT EXISTS (SELECT 1 FROM installations m WHERE m.builder_id = ${own})
-              AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.installation_id = ${own})
-              AND NOT EXISTS (SELECT 1 FROM builder_sources s WHERE s.builder_id = ${own})
-              AND NOT EXISTS (SELECT 1 FROM builder_projects b WHERE b.builder_id = ${own}) AS fresh`;
           await tx`UPDATE installations SET builder_id = ${root} WHERE id = ${own}`;
           if (f.fresh) await tx`DELETE FROM builder_profiles WHERE builder_id = ${own} AND x_user_id IS NULL`;
         }
       } else {
-        root = mine;
+        // T5 ruling: no page for this X yet: the page is made on `own` alone (a member leaves its old root first).
+        if (me.builder_id !== null) await tx`UPDATE installations SET builder_id = NULL WHERE id = ${own}`;
+        root = own;
         created = (await ensureProfile(root, now, { db: tx }))?.created ?? false;
       }
       // The X profile's handle, name and photo, refreshed at every sign-in (v2.13 B14).
