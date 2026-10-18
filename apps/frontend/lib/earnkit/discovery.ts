@@ -83,7 +83,7 @@ export async function enqueueDiscovery(builderId: number, reason: 'first_find' |
 
 /**
  * spec 3: a new clue (a wallet remembered at deploy, a GitHub sign-in) queues the person's discovery
- * again. Only with EARNKIT_BUILDER_SCORE=on, only for a person who already has a profile (their
+ * again. Only for a person who already has a profile (their
  * first find queues them), never for a shared group. Never throws: the caller's step goes on.
  */
 export async function enqueueClue(installationId: number, reason: 'wallet' | 'signin'): Promise<boolean> {

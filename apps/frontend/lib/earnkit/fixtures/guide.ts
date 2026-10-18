@@ -1,5 +1,5 @@
 import { guideSourceList, programGuide, type GuideFacts } from '../guide';
-import { bonusAmount, type GuidePage } from '../landing';
+import type { GuidePage } from '../landing';
 
 /**
  * Test only: guide pages for public-pages and copy-review. The full one is guide.test.ts's Arc
@@ -27,18 +27,13 @@ export const arcFacts: Facts = {
   focus: { areas: ['Stablecoin payments', 'FX', 'Agentic commerce'], source_url: 'https://www.arc.io/blog/focus' },
   best_bet: 'A USDC payout tool with a live mainnet demo',
 };
-const BONUS = { cell: '0.18 ETH so far', board: 'earnkit.com/bonus/arc-microgrants-2026-09-16' };
-
-const page = (facts: Facts, bonus: typeof BONUS | null, o: Partial<GuidePage> = {}): GuidePage => {
-  const guide = programGuide(facts, bonus, GUIDE_NOW);
+const page = (facts: Facts, o: Partial<GuidePage> = {}): GuidePage => {
+  const guide = programGuide(facts, GUIDE_NOW);
   return {
     guide,
     title: facts.title,
     logo: null,
     open: facts.status === 'active',
-    board_path: bonus ? '/bonus/arc-microgrants-2026-09-16' : null,
-    has_bonus: bonus !== null,
-    bonus_amount: bonus ? bonusAmount(bonus.cell) : null,
     any_chain: false,
     source_url: facts.source_url,
     sources: guideSourceList(facts, [{ label: 'program page', url: facts.source_url }]),
@@ -47,20 +42,19 @@ const page = (facts: Facts, bonus: typeof BONUS | null, o: Partial<GuidePage> = 
   };
 };
 
-/** Every part: what won last time, what Arc wants now, the best bet, the builder bonus. */
-export const fullGuide = page(arcFacts, BONUS, { logo: '/programs/arc-microgrants.svg' });
+/** Every part: what won last time, what Arc wants now, the best bet. */
+export const fullGuide = page(arcFacts, { logo: '/programs/arc-microgrants.svg' });
 /** No past round with themes: no "What won" part. */
-export const partialGuide = page({ ...arcFacts, past_rounds: [] }, BONUS);
-/** No guide facts and no bonus (today's programs until Task 8): the header and the actions only. */
+export const partialGuide = page({ ...arcFacts, past_rounds: [] });
+/** No guide facts (today's programs until Task 8): the header and the actions only. */
 export const emptyGuide = page(
   {
     ...arcFacts, title: 'Circle Developer Grants', summary: 'milestone-based USDC grants · rolling', ends_at: null,
     source_url: 'https://www.circle.com/grant', past_rounds: [], focus: null, best_bet: null,
   },
-  null,
 );
 /** Ruling 22 (plan): a closed program still renders, header "· closed", no "Ask your agent". */
-export const closedGuide = page({ ...arcFacts, status: 'closed' }, null);
+export const closedGuide = page({ ...arcFacts, status: 'closed' });
 /**
  * Ruling C2/C3: what every real program shows after Task 8: a predecessor round (not own), so
  * "What won before" and a basis naming the round.
@@ -70,5 +64,4 @@ export const predecessorGuide = page(
     ...arcFacts,
     past_rounds: [{ ...arcFacts.past_rounds[0], own: undefined, label: "Arc's HackMoney 2026 track" }],
   },
-  BONUS,
 );

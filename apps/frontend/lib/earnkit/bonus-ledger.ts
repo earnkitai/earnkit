@@ -431,7 +431,7 @@ const SAFE_CURSOR = 'safe';
  * reads); a deposit from a coin EarnKit didn't launch (any other tokens.fun coin) is never stored.
  * Booking is idempotent on (tx_hash, log_index); a range is booked completely before the cursor passes
  * it. With no cursor: `d.startBlock`, else SAFE_INDEX_START_BLOCK, else BONUS_INDEX_START_BLOCK, else
- * FIRST_LOOKBACK blocks back. Run by runBonusLedger under the Bench flag only, through safeIndexStep.
+ * FIRST_LOOKBACK blocks back. Run by runBonusLedger, through safeIndexStep.
  */
 export async function indexSafeFees(d: BonusDeps & { rpc: BonusRpc; chain: BonusChain }) {
   const readStores = d.rpc.safeStoreLogs;

@@ -1,16 +1,15 @@
 import Link from 'next/link';
 import ProgramLogo from './ProgramLogo';
-import BonusPill from '../ui/BonusPill';
 import type { Tile } from '../../../lib/earnkit/landing';
 import { NO_CELL } from '../../../lib/earnkit/no-cell';
 
-/** `ek-chip` marks the card's chips (days left, difficulty) apart from the bonus pill. */
+/** `ek-chip` marks the card's chips (days left, difficulty). */
 const CHIP = 'ek-chip inline-flex h-7 items-center rounded-full bg-ek-navy-deep px-3 font-funnel-sans text-xs font-medium text-ek-blue-light';
 
 /**
  * v2.8 Ruling 21 (plan): one slim card. Logo and name, the big line (the pool, else the per-winner
  * amount), the per-winner line when it differs, then the days-left chip, the difficulty chip (the
- * level word only; none for NO_CELL) and the builder bonus pill. The whole card is one link to its
+ * level word only; none for NO_CELL). The whole card is one link to its
  * guide; there are no buttons.
  */
 export default function ProgramCard({ tile: t }: { tile: Tile }) {
@@ -32,7 +31,6 @@ export default function ProgramCard({ tile: t }: { tile: Tile }) {
         <span className={CHIP}>{t.days_left}</span>
         {/* NO_CELL: no difficulty, no chip. no-cell.ts has no imports, so this stays client-safe. */}
         {t.difficulty !== NO_CELL && <span className={CHIP}>{t.difficulty}</span>}
-        {t.has_bonus && <BonusPill size="sm" amount={t.bonus_amount} />}
       </div>
     </Link>
   );

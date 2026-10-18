@@ -49,7 +49,7 @@ export { moneyText, openMoneyUsd, type OpenMoneyRow } from './pool';
 /**
  * How jenil.ai should label each stat (T9 note): `fees_to_safe_eth` counts only coins launched
  * with the v2.5 split, from the start of the bonus index, so it is never "all Safe revenue".
- * v2.13.2 (2): under the Bench flag it also counts v2.13's 3-slot coins (statsFrom); the key, its
+ * v2.13.2 (2): it also counts v2.13's 3-slot coins (statsFrom); the key, its
  * type and this label are unchanged (still EarnKit coins only, never all Safe revenue).
  */
 export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
@@ -116,12 +116,11 @@ type Row = {
  * EarnKit coins (M5: never a deposit from a coin EarnKit didn't launch); plus
  * the builder bonus money routed to the Safe (after a program ends, programs without public
  * submissions, empty rounds, a paid round's unclaimed places). It is not all-time Safe revenue.
- * v2.13.2 (2), under the Bench flag: the Safe's actual share of both splits. The Safe's own indexed
+ * v2.13.2 (2): the Safe's actual share of both splits. The Safe's own indexed
  * deposits from EarnKit coins (`safe_fees`: v2.5 coins' 30%, v2.13 coins' 50%, from the Safe index's
  * start), plus 1.5x only the bonus deposits whose transaction has no indexed Safe deposit of that coin
  * (so a v2.5 coin's Safe share counts once, indexed or estimated, never both), plus the bonus money
- * routed to the Safe as before. Flag off: the v2.5 formula above, unchanged.
- * Pure but for the Bench flag (bonus_programs_open, fees_to_safe_eth).
+ * routed to the Safe as before. Pure.
  */
 export function statsFrom(r: Row, now = new Date()): PublicStats {
   const big = (v: string | null | undefined) => BigInt(v ?? '0');

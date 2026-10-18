@@ -237,10 +237,8 @@ async function refreshStaleFees(now: Date, deadline: number, refresh: (wallets: 
  * The daily jobs (v2.4 §3, §4), idempotent: for every active EarnKit campaign not yet paid out
  * (and one closed after it ended or after its review opened), one lifecycle step under the campaign's lease (a second concurrent call gets 'busy');
  * one campaign's failure never stops the others; then the token-fee refresh for creator wallets
- * whose cached fees are over 6 h old; between them, the builder bonus: traction scoring
- * (traction.ts scoreOpenRounds), then the ledger (bonus-ledger.ts) with the rounds' freeze,
- * review and WETH payouts (bonus-payout.ts). v2.13 R16: under the Bench flag only the ledger runs
- * (claims and the sweep; no scoring, rounds, proof re-check or `bonus:` lines).
+ * whose cached fees are over 6 h old; between them, the fee ledger (bonus-ledger.ts: claims, the
+ * sweep and the Safe index; v2.14: no builder bonus, so no scoring, rounds or proof re-check).
  * `needs_owner` lists the campaigns whose payout waits on the
  * owner (cronPost answers 503 for them). `now` is injectable for the e2e (production: the real
  * time); `only` limits the run to these program ids (tests and the e2e).

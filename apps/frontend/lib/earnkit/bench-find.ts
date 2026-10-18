@@ -43,7 +43,7 @@ export { displayName };
 
 /**
  * v2.13 T8 (spec "2a", "2b", "5. Ways to get funded", "The last line"): the reads and writes behind
- * find's and score's three parts under the Bench flag (bench-reply.ts is pure). Both build one view
+ * find's and score's three parts (bench-reply.ts is pure). Both build one view
  * (benchView): the one project as the Bench sees it, its rank, the ways to get funded and the one
  * question; the question asked is stored (standing_seen.bench_ask) so a yes is answered as asked,
  * never by the agent's kind. Never throws on its own reads: each falls back as standFind's do.
@@ -482,7 +482,7 @@ export type BenchFindArgs = {
 };
 
 /**
- * find under the Bench flag: the three v2.13 parts, the one project's proof in the same turn (plan
+ * find: the three v2.13 parts, the one project's proof in the same turn (plan
  * B3), news since the last look, and the weekly-task note once more while posting is on and not
  * scheduled (B18). tools.ts adds what standFind's reply also carries (pick_up, ask_outcome, matches,
  * programs, working_on, wallet_note) and the build_offer's note. Never a daily-check note.

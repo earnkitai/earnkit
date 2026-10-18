@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import { notFound, permanentRedirect } from 'next/navigation';
-import { builderScoreEnabled } from '../../../lib/earnkit/builder-score-flag';
 import { resolveSlug } from '../../../lib/earnkit/profiles';
 import { isReserved, pagePath } from '../../../lib/earnkit/reserved-routes';
 import { HandleView, handleMetadata, tabOf } from '../../[handle]/handle-view';
@@ -11,16 +10,15 @@ export const dynamic = 'force-dynamic';
 /** A reserved handle's page carries the same title and card as any other (its card is /b/<handle>/card.png). */
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
-  return builderScoreEnabled() && isReserved(slug) ? handleMetadata(slug) : {};
+  return isReserved(slug) ? handleMetadata(slug) : {};
 }
 
 /**
  * v2.12.1 spec "Identity": "A handle equal to a site route is served at /b/<handle>." Any other name
  * here is a v2.12 slug (or a handle): a person who claimed their page with X moves to /<handle>
- * (308); an unclaimed or hidden one has no public page (404). Flag off: 404.
+ * (308); an unclaimed or hidden one has no public page (404).
  */
 export default async function ProfilePage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams?: Promise<Record<string, string | string[] | undefined>> }) {
-  if (!builderScoreEnabled()) notFound();
   const { slug } = await params;
   if (isReserved(slug)) return HandleView({ handle: slug, path: `/b/${slug}`, tab: tabOf(await searchParams) });
   const r = await resolveSlug(slug);

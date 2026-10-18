@@ -40,7 +40,7 @@ export const raiseLine = (name: string, symbol: string, wallet: string | null) =
  * (ruling 6). One question. Pure.
  */
 export function coinLine(moment: Moment, name: string, wallet: string | null, coin: Coin | null = null): string {
-  // v2.13: under the Bench flag every project moment is the raise line (built_live keeps its own);
+  // v2.13: every project moment is the raise line (built_live keeps its own);
   // final fix: only with EARNKIT_RAISING on, else v2.12.1's coin line.
   if (raisingEnabled() && moment !== 'built_live' && coin) return raiseLine(name, coin.symbol, wallet);
   const a = coin ? `a coin, $${coin.symbol} (${coin.name}),` : 'a coin';
@@ -312,7 +312,7 @@ export async function coinOpen(builderId: number, projectKey: string): Promise<b
 }
 
 /**
- * Whether this entry's confirm may pitch (and launch) a token. Flag off: always (v2.11). The coin
+ * Whether this entry's confirm may pitch (and launch) a token. The coin
  * program's own entry (fix round 1, item 2): only for the person's guards (not shared, not held)
  * and an offer they said yes to that names this entry. The build path's entry (`build`: the
  * installation's build names this program and repo): its built_live moment, open (shown and not

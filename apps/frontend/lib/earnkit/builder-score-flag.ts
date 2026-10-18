@@ -1,5 +1,5 @@
 /**
- * The switches that remain. v2.14 retired EARNKIT_BUILDER_SCORE and EARNKIT_BENCH (the Bench is the
+ * The switches that remain. v2.14 retired the builder-score and Bench switches (the Bench is the
  * product). Import-free, so pages, the MCP route and pure modules can read them. Off unless exactly "on".
  */
 export type ArchiveName = 'SPONSOR_CAMPAIGNS' | 'STARTER_REGISTRY' | 'PROGRAM_LEADERBOARDS' | 'TOOL_ALIASES';

@@ -13,8 +13,7 @@ import type { Tile } from '../../../lib/earnkit/landing';
  * slim card (ProgramCard), sorted by pool (landing.ts byPool). Home: one row with native CSS scroll
  * snap (swipe on mobile; from md, two arrows that move one card and turn off at the ends).
  * /programs: the same cards in a grid (`layout="grid"`, heading h1), no arrows.
- * v2.13 (`bench`, the landing under the flag): the title is "Money open now" (O5 P10) and no card shows
- * the builder bonus pill. The row and arrows are CarouselRow, shared with UpdateCarousel.
+ * v2.13 (`bench`, the landing): the title is "Money open now" (O5 P10). The row and arrows are CarouselRow, shared with UpdateCarousel.
  */
 export default function ProgramCards({
   tiles,
@@ -22,7 +21,6 @@ export default function ProgramCards({
   heading = 'h2',
   layout = 'carousel',
   bench = false,
-  bonus = true,
 }: {
   tiles: Tile[];
   /** The one money figure ("$1.1M+", landing.open_text), shown under the title; null hides the line. */
@@ -30,10 +28,8 @@ export default function ProgramCards({
   /** v2.7 /programs: the cards are the page, so their heading is its h1. */
   heading?: 'h1' | 'h2';
   layout?: 'carousel' | 'grid';
-  /** v2.13: the landing under the flag. */
+  /** v2.13: the landing (its title). */
   bench?: boolean;
-  /** v2.13 R16: false under the Bench flag (/programs): no builder bonus pill on a card or in the install modal. */
-  bonus?: boolean;
 }) {
   const Heading = heading;
   const carousel = layout === 'carousel';
@@ -41,9 +37,7 @@ export default function ProgramCards({
   const close = useCallback(() => setAsking(false), []);
   // v2.13.1 O5 (P10): the list includes investments (a16z speedrun), so "Money", not "Grants".
   const title = bench ? 'Money open now' : 'Open programs';
-  // v2.13 R16: no builder bonus pill under the flag (T13 also clears has_bonus at the source).
-  const noBonus = bench || !bonus;
-  const shown = noBonus ? tiles.map((t) => ({ ...t, has_bonus: false })) : tiles;
+  const shown = tiles;
 
   const head = (
     <div>
@@ -84,7 +78,7 @@ export default function ProgramCards({
         </>
       )}
 
-      {asking && <AddToAgent onClose={close} bench={noBonus} />}
+      {asking && <AddToAgent onClose={close} />}
     </Panel>
   );
 }

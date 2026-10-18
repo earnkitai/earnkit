@@ -81,9 +81,9 @@ export type GateDeps = {
    */
   shared?: (installationId: number) => Promise<boolean>;
   /**
-   * v2.13.1 O1 fix rounds 1 and 2 (rulings): under the Bench the repo (lowercase owner/repo) is proven
+   * v2.13.1 O1 fix rounds 1 and 2 (rulings): the repo (lowercase owner/repo) is proven
    * by a proof branch, never an earnkit.txt line (proof-branch.ts coinBranchProof): the proof stands,
-   * a branch for the agent to push, or a plain line. Null: flag off or a shared client (today's gate).
+   * a branch for the agent to push, or a plain line. Null: a shared client (today's gate).
    */
   branchProof?: (installationId: number, repoKey: string) => Promise<CoinBranchProof | null>;
 };

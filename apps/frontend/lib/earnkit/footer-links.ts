@@ -20,9 +20,7 @@ export const JENIL_X = 'https://x.com/jenilt';
 /** The footer's contact email (Ruling 22, plan). */
 export const CONTACT_EMAIL = 'mailto:j@earnkit.com';
 
-/** Ruling 22 (plan): the tagline under the wordmark, on the left of the footer card. */
-export const FOOTER_TAGLINE = 'Earn rewards for building';
-/** v2.13 (controller ruling): the tagline under the flag, the landing hero's title. */
+/** Ruling 22 (plan), v2.13 (controller ruling): the tagline under the wordmark, the landing hero's title. */
 export const BENCH_FOOTER_TAGLINE = 'Ship every week. Get funded.';
 
 /**

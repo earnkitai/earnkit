@@ -90,7 +90,7 @@ for (const w of starterAgeWarnings(parsed.flatMap(({ result }) => (result.succes
 if (invalid.length > 0 || fileProblems.length > 0 || outcomeProblems > 0) process.exit(1);
 
 // v2.12 spec 9: what programs.agent_completable gets (the file's override, else the derivation);
-// with EARNKIT_BUILDER_SCORE on, find leaves out the programs an agent can't complete.
+// find leaves out the programs an agent can't complete.
 const notCompletable = parsed.filter(({ result }) => result.success && !agentCompletableOf(result.data)).map(({ f }) => f);
 console.log(`Agent-completable: ${parsed.length - notCompletable.length} of ${parsed.length}${notCompletable.length ? ` (not: ${notCompletable.join(', ')})` : ''}`);
 

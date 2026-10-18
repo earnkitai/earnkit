@@ -256,9 +256,8 @@ export async function resolveHandle(raw: string, now = new Date()): Promise<{ bu
  * 'merged'). The root's profile (the older group) wins (v2.12.1 fix round 1; else the other's, re-keyed),
  * filling gaps with the other's login, its v2.12 X handle and history (cleared before set, so the
  * one-login index holds); hidden or held if either was. The losing slug redirects to the root. The merged-away id's rank is
- * dropped (its scores stay as history and no longer count). With EARNKIT_BUILDER_SCORE on and a
- * profile on either side, the person is rediscovered with both groups' clues. Flag off, no profile
- * and no source exist, so nothing is written.
+ * dropped (its scores stay as history and no longer count). With a profile on either side, the person
+ * is rediscovered with both groups' clues.
  */
 /** True when a profile was re-keyed or merged (its page changes): the caller calls profileChanged() after commit. */
 export async function mergeProfiles(tx: postgres.TransactionSql, root: number, other: number): Promise<boolean> {

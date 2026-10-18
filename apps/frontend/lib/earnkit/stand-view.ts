@@ -22,7 +22,7 @@ import { readFitRepos } from './installations';
 /**
  * v2.12.1 T8: the reads and writes behind the three-part reply (where-you-stand.ts is pure): the
  * on-demand refresh within its budget, the person's view, the news since they last looked, the
- * one-time "Your page is ready", and the yes to a `confirm` step. Builder score flag on only;
+ * one-time "Your page is ready";
  * callers check it.
  */
 
@@ -226,7 +226,7 @@ export async function takeNews(id: number, seen: Seen, base: StandBase, now: Dat
     };
     await sql()`
       UPDATE builder_profiles SET standing_seen = ${sql().json(next as never)}::jsonb || jsonb_strip_nulls(jsonb_build_object('declined', standing_seen->'declined',
-          -- v2.13 (bench-find.ts): what the Bench reply asked and noted is kept too (absent with the flag off).
+          -- v2.13 (bench-find.ts): what the Bench reply asked and noted is kept too 
           'bench_ask', standing_seen->'bench_ask', 'weekly_note_at', standing_seen->'weekly_note_at', 'raise_asked', standing_seen->'raise_asked',
           -- v2.13.1 O5: the quiet asks.
           'quiet', standing_seen->'quiet'))

@@ -210,7 +210,7 @@ async function fundLines(builderId: number, key: string, now: Date): Promise<str
 }
 
 /**
- * The page at earnkit.com/<x-handle> under the Bench flag, from stored rows only. Null without a
+ * The page at earnkit.com/<x-handle>, from stored rows only. Null without a
  * claimed profile. The one project's facts only while the Bench counts it confirmed (the repo's own
  * proof, benchConfirmedSql); people and money also never while the person is held for a review; a
  * repo is named and linked only while it reads public (page-data shownProjects). The ring only
@@ -275,7 +275,7 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
   };
 }
 
-/** v2.13 spec "Card (OG image)": what the share card shows under the Bench flag. */
+/** v2.13 spec "Card (OG image)": what the share card shows. */
 export type BenchCardFacts = { handle: string; name: string; avatar: string | null; bench: string | null; project: string | null; streak: number; raising: string | null };
 
 /**
@@ -305,7 +305,7 @@ export async function benchCardFacts(builderId: number): Promise<BenchCardFacts 
 }
 
 /**
- * The share post's words under the Bench flag, matching the card: the Bench line, else the confirmed
+ * The share post's words, matching the card: the Bench line, else the confirmed
  * project and its streak, else the person's page. Pure.
  */
 export function benchShareText(f: Pick<BenchCardFacts, 'handle' | 'bench' | 'project' | 'streak'>): string {

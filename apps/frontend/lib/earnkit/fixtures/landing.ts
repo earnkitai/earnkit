@@ -17,8 +17,6 @@ const tile = (id: string, title: string, usd: number, o: Partial<Tile> = {}): Ti
   pool_usd: null,
   difficulty: 'Medium',
   days_left: '8 days left',
-  has_bonus: true,
-  bonus_amount: '0.42 ETH',
   logo: null,
   ...o,
 });
@@ -30,12 +28,12 @@ export const homeFixture: Landing = {
     tile('monad-metropolis', 'Monad Metropolis', 25000, { chain: 'Monad', prize: '$250K+ in prizes', prize_note: 'up to $25,000 per winner', pool_usd: 250000, difficulty: 'Hard', days_left: 'ends today' }),
     tile('circle-developer-grants', 'Circle Developer Grants', 100000, { chain: 'Arc', days_left: 'rolling', prize: '$200K in grants', prize_note: '$5K–$100K per grant', pool_usd: 200000 }),
     tile('arc-microgrants', 'Arc Microgrants', 500, { logo: '/programs/arc-microgrants.svg', chain: 'Arc', prize: '10,000 USDC pool', prize_note: '500 USDC per grant', pool_usd: 10000 }),
-    tile('base-builder-grants', 'Base Builder Grant Program', 5000, { prize: 'up to $5,000 per grant', days_left: 'rolling', bonus_amount: null }),
-    tile('p6', 'Program Six', 0, { difficulty: NO_CELL, has_bonus: false, bonus_amount: null }),
+    tile('base-builder-grants', 'Base Builder Grant Program', 5000, { prize: 'up to $5,000 per grant', days_left: 'rolling' }),
+    tile('p6', 'Program Six', 0, { difficulty: NO_CELL }),
     tile('p7', 'Program Seven', 0),
   ],
   stats_line: '120 agents earning',
   won_line: null,
-  // v2.13: the Bench sections are off (flag off); landing.test.ts 12.x passes its own.
+  // landingFrom alone has no Bench parts; landing.test.ts 12.x passes its own.
   bench: null,
 };

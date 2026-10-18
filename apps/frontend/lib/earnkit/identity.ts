@@ -98,8 +98,7 @@ async function linkInTx(tx: postgres.TransactionSql, own: number, roots: number[
           alert_state = COALESCE(o.alert_state, '{}'::jsonb) || COALESCE(r.alert_state, '{}'::jsonb)
         FROM installations o WHERE r.id = ${root} AND o.id = ${other}`;
       await tx`UPDATE installations SET builder_id = ${root} WHERE id = ${other} OR builder_id = ${other}`;
-      // v2.12 plan R3: the two people's profiles, sources and slugs become one (nothing exists, so
-      // nothing is written, while EARNKIT_BUILDER_SCORE is off).
+      // v2.12 plan R3: the two people's profiles, sources and slugs become one.
       if (await mergeProfiles(tx, root, other)) profilesMoved = true;
     }
     const [{ n }] = await tx<{ n: number }[]>`

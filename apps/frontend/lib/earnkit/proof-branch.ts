@@ -37,7 +37,7 @@ import { defaultReaderDeps, type ReaderDeps } from './source-readers';
  *   verdict kept a day): a repo EarnKit's token can't read, a fork or template, or a User's repo under
  *   another login, gets its plain line at once and no code; the agent
  *   reports a refused push with tell proof { pushed: false } (pushRefused), which ends the code at once.
- * Only under EARNKIT_BENCH (the callers are the Bench's find and score, and the cron's step).
+ * The callers are the Bench's find and score, and the cron's step.
  */
 export const PROOF_BRANCH_TTL_MS = 60 * 60_000;
 /** Fix round 1: GitHub is read for a code at most this often. */

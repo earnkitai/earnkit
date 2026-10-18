@@ -409,7 +409,7 @@ export function programCard(
     fresh_build: p.campaign ? null : (p.fresh_build ?? null),
     // v2.11 T7: the fresh pick ranks more winners per round first (fresh-build.ts freshPick).
     winners_per_round: p.winners_per_round ?? null,
-    // v2.12 spec 9: false only when an agent can't complete an entry (find drops it with the score flag on).
+    // v2.12 spec 9: false only when an agent can't complete an entry (find drops it).
     agent_completable: p.agent_completable !== false,
     // v2.13 (plan B12): the no-project reply's pitch; never on a campaign.
     pitch: p.campaign ? null : (p.pitch ?? null),
@@ -748,7 +748,7 @@ export async function upsertProgram(
       results: p.results ? tx.json(p.results) : null,
       // v2.11 T5: the file is the source of truth, so a removed field clears the column.
       fresh_build: p.fresh_build ? tx.json(p.fresh_build) : null,
-      // v2.12 spec 9: the file's override, else the derivation (find drops false with the score flag on).
+      // v2.12 spec 9: the file's override, else the derivation (find drops false).
       agent_completable: agentCompletableOf(p),
       // v2.13: the file is the source of truth (a removed pitch clears the column).
       pitch: p.pitch ? tx.json(p.pitch) : null,

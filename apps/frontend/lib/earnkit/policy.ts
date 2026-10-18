@@ -95,9 +95,7 @@ export const RECORDS_REMOVAL_AFTER = [
 ];
 
 /**
- * v2.12 spec 8, v2.12.1 T12: /terms#builder-profiles, in plain words. NEEDS THE OWNER'S LAWYER
- * REVIEW before EARNKIT_BUILDER_SCORE goes on (owner setup step 4; the section shows only with the
- * flag on, app/terms/page.tsx). Each point matches the code: the page is public only after the X
+ * v2.12 spec 8, v2.12.1 T12: /terms#builder-profiles, in plain words (app/terms/page.tsx). Each point matches the code: the page is public only after the X
  * claim (claim.ts bindX; profiles.ts resolveHandle); it shows the X name and picture, projects,
  * people and money when measured, programs entered and won (page-data.ts); the readers read only
  * cheap public data and EarnKit's own records and never add anything to a site (person-github.ts,

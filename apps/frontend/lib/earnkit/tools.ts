@@ -731,7 +731,7 @@ const ListProgramsInput = z
     // accepted (folded into identity), no longer listed.
     local_git: z.unknown().optional(),
     // v2.12.1 spec "1. Connect": what the agent can already see, read leniently by identity-input.ts
-    // identityInput; never refused, a clue only (never proof, never a merge). Ignored with the flag off.
+    // identityInput; never refused, a clue only (never proof, never a merge).
     identity: z.unknown().optional(),
     // v2.8.1 §B6: anything else than a 0x address is ignored with WALLET_IGNORED, never an error.
     wallet: z.unknown().optional(),
@@ -1594,7 +1594,7 @@ export const handlers = {
     const repoUrl = known.project?.repo_url ?? known.answers?.repo_url;
     // The proposed token; its creator wallet is the entry's payout wallet when there is one.
     // No token block on a closed program (v2.4 §6, audit C22).
-    // v2.12.1 T10 (spec 3b): with the score flag on, a token only where it is pitched (campaigns aside).
+    // v2.12.1 T10 (spec 3b): a token only where it is pitched (campaigns aside).
     const belowScore = open && prep.ready && !program.campaign ? !(await tokenPitch(ctx, program_id, repoUrl)) : false;
     const token = open && prep.ready && !belowScore
       ? await tokenProposalBlock({
@@ -1881,7 +1881,7 @@ export const handlers = {
     // Ruling G12: whose token declines count (a shared client: the pasted code's login, else none).
     const declinedBy = declineLogin(ctx, ctx.sharedClient ? await sharedLogin(ctx, i.signed_in, 'confirm_entry') : undefined);
     const facts = await offerFacts(program, repoUrl, ctx, declinedBy);
-    // v2.12.1 T10 (spec 3b): with the score flag on, no token unless it is pitched here: a yes records only.
+    // v2.12.1 T10 (spec 3b): no token unless it is pitched here: a yes records only.
     const belowScore = !(await tokenPitch(ctx, program.id, repoUrl));
     const decision = confirmDecision({
       confirmed: i.builder_confirmed === true,
@@ -2366,9 +2366,7 @@ export const handlers = {
     // v2.10 item 4: the v2.9 first reply's offer path is gone (no reply makes that offer since item 5);
     // an old launch_token call with an offer reaches confirm through its alias (aliases.ts).
     if (parsed.offer) throw new EntryError(OFFER_GONE);
-    // v2.12.1 T10: no new token where none is pitched (tokenPitch; campaigns aside). T12 fix round 1:
-    // flag off too, where only an earnkit-coin entry (made while it was on) is held; every real
-    // program's entry launches as in v2.11.
+    // v2.12.1 T10: no new token where none is pitched (tokenPitch; campaigns aside).
     if (parsed.project_id !== undefined && !parsed.check_back && (await tokenHeld(ctx, parsed.project_id)))
       return withAlerts(ctx, { status: 'skipped', project_id: parsed.project_id, note: NO_TOKEN_HERE, show_to_builder: NO_TOKEN_HERE }, parsed.signed_in);
     const out = await launchToken(
@@ -3153,7 +3151,7 @@ export const TellToolInput = z
       .strict()
       .optional(),
     pickup: z.enum(['yes', 'no']).optional(),
-    // v2.12 spec 8 (EARNKIT_BUILDER_SCORE on): "hide" or "show".
+    // v2.12 spec 8: "hide" or "show".
     profile: z.enum(['hide', 'show']).optional(),
     // v2.12.1 T12: kept and ignored. v2.12's tell took the X handle the builder confirmed; an agent
     // that kept that schema (the flag was on briefly in production) must not get a parse error.
@@ -3172,7 +3170,7 @@ export const TellToolInput = z
       .strict()
       .optional(),
     // v2.12.1 T10 (spec 3b): the builder's yes or no to a coin offer, with the wallet they gave.
-    // v2.13 T9: or { raising } (Bench flag only; the MCP schema lists it only then).
+    // v2.13 T9: or { raising } (the MCP schema lists it only while EARNKIT_RAISING is on).
     coin: z
       .object({
         project_key: z.string().max(300).optional(),
@@ -3183,10 +3181,10 @@ export const TellToolInput = z
       .strict()
       .refine((c) => c.answer !== undefined || c.raising !== undefined, { message: 'Pass answer, or raising.' })
       .optional(),
-    // v2.13: this week's update (or hide one week), and the weekly-posting yes. Flag off: not listed in the MCP schema.
+    // v2.13: this week's update (or hide one week), and the weekly-posting yes.
     update: z.object({ text: z.string().max(2000).optional(), hide: z.string().max(20).optional() }).strict().optional(),
     updates: z.object({ on: z.boolean(), scheduled: z.boolean().optional() }).strict().optional(),
-    // v2.13.1 O5 N2: the agent's push of the proof branch (false: GitHub refused it). Flag off: not listed in the MCP schema.
+    // v2.13.1 O5 N2: the agent's push of the proof branch (false: GitHub refused it).
     proof: z.object({ pushed: z.boolean() }).strict().optional(),
     // Read by tell_earnkit (builder-memory.ts TellInput).
     program_status: z.unknown().optional(),
@@ -3640,7 +3638,7 @@ export const tools = {
   // R16: what the builder said: pickup, then "I submitted", then statements; replies joined.
   tell: async (input: unknown, ctx0: ToolContext) => {
     // v2.12.1 T8: x_handle is no longer taken with the flag on (the page's handle is the X claim's);
-    // it is ignored, as with the flag off (v2.11).
+    // it is ignored.
     const ctx = await withProbation(ctx0);
     const { pickup, submitted, signed_in, profile, x_handle, card, move_up, coin, update, updates, proof, ...rest } = TellToolInput.parse(input ?? {});
     void x_handle;
