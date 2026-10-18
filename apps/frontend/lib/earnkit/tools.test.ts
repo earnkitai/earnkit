@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { after, test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
-import { BUILD_COIN_NOTE, BUILD_NO_LIVE_NOTE, BUILD_PENDING_NOTE, BUILD_WALLET_NOTE, NOTED_FOR_NOW, eligibilityLine, freshSwitches, withoutTokenLine, withoutBonusLine, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
+import { BUILD_COIN_NOTE, BUILD_NO_LIVE_NOTE, BUILD_PENDING_NOTE, BUILD_WALLET_NOTE, CONFIRM_SHARED_NOTE, NOTED_FOR_NOW, eligibilityLine, freshSwitches, withoutTokenLine, withoutBonusLine, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
 import { aliasCall } from './aliases';
 import { reportedGithubUser, reportedRepos } from './match-projects';
 import { sql } from './db';
@@ -3207,3 +3207,30 @@ test('4.A7/A8 (Ruling G7) on a shared client list_programs keeps no fit repos an
     await sql()`UPDATE programs SET status = 'closed' WHERE id = ${pid}`;
   }
 });
+
+// v2.14 T3 fix round 1: the shared-client rule for entries (no token on the Bench).
+test('fix round 2 (I-b, G7, G9): on a shared client, confirm by project_id acts only for the pasted code\'s own entry; B can\'t change A\'s links', dbTest, () =>
+  withTokenEnv(() =>
+    withSignIn(async () => {
+      const t = await confirmSetup('t9ib');
+      const a = (await tools.confirm({ ...t.input, yes: true, wallet: W8 }, t.ctx)) as Confirmed;
+      // The Bench: a program entry records with no token (coin-moments.ts coinPitchAllowed).
+      assert.equal(typeof a.project_id, 'number');
+      await sql()`UPDATE installations SET shared_client = true WHERE id = ${t.inst}`;
+      const shared = { ...t.ctx, sharedClient: true };
+      const codeA = await signInAs(t.inst, a.project_id!, t.repo, 'alice');
+      const codeB = await signInAs(t.inst, null, `https://github.com/bob/t9ib-${Date.now()}`, 'bob');
+      const liveOf = async () => (await sql()<{ live_url: string | null }[]>`SELECT live_url FROM projects WHERE id = ${a.project_id!}`)[0].live_url;
+      const before = await liveOf();
+      for (const extra of [{}, { signed_in: codeB! }, { signed_in: 'alice' }])
+        for (const ask of [{ check: true }, { yes: true }]) {
+          const r = (await tools.confirm({ project_id: a.project_id, project: { live_url: 'https://evil.example' }, ...ask, ...extra }, shared)) as Record<string, unknown>;
+          assert.deepEqual(r, { show_to_builder: NOTED_FOR_NOW, agent_note: CONFIRM_SHARED_NOTE }, JSON.stringify({ ask, extra }));
+        }
+      assert.equal(await liveOf(), before);
+      // Alice's own code acts for her entry (never the shared note); nothing launches.
+      const mine = (await tools.confirm({ project_id: a.project_id, check: true, signed_in: codeA! }, shared)) as Record<string, unknown>;
+      assert.notDeepEqual(mine, { show_to_builder: NOTED_FOR_NOW, agent_note: CONFIRM_SHARED_NOTE }, JSON.stringify(mine));
+      assert.equal(t.calls.deploy, 0);
+    }),
+  ));
