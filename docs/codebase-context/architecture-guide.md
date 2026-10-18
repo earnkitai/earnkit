@@ -5591,9 +5591,17 @@ five tools are always listed, `/leaderboard` is a permanent redirect to `/bench`
   (`BENCH_BUILD_ID`, `benchStarter`, `benchOffer`, `reservedIdProblem`), `llms/v212.txt`, `v2121-prod-check`.
 - **Kept on purpose.** Every table and column (no destructive migration, CHECK lists unchanged),
   `traction.ts`, `veto.ts`, `bonusLive` and the alerts' bonus-wallet lines (the ledger still needs them),
-  `main-project.ts fillGithubUser` (the Bench find calls it).
-- **Tests.** Flag-off parity tests were deleted (a test that also failed on the v2.13.4 base with both
-  flags on); no test sets or reads either flag, and `fixtures/test-guard.ts` no longer clears them.
+  `main-project.ts fillGithubUser` (the Bench find calls it), `ToolContext.repoCoins` (one token per repo).
+  Left for Task 9: `mcp.ts`'s `build_offer` text in prepare's description and `alerts.ts`'s /bonus links.
+- **Tests.** A test was deleted only when the behaviour it checks is gone in production (flag-off views
+  and replies, the builder bonus, the pickup, find's build offer, program entries' token offers); tests whose
+  setup alone was flag-off were rewritten for the Bench (fix round 1): the coin path (`coin-moments.test.ts`),
+  the build path on a proof-branch `shipSetup({ branch: true })`, the token-launch flow (the earnkit.txt line
+  as the shared-client path, `branchProof` for the Bench), the joins, the wallet page, scoring on a named,
+  proven one project. No test sets or reads either flag, and `fixtures/test-guard.ts` no longer clears them.
+- **Bugs fixed in fix round 1** (both lived inside the bonus branch, so the Bench never ran them):
+  `projects.ts recordSubmission` stamps `submission_confirmed_at` on `builder_submitted: true`, and the
+  `entered` event carries the wallet the builder gave.
   `v27-journey`, `v28-journey` and `v210-journey.test.ts` went whole (every case was flag-off parity);
   find's build offer tests were rewritten to A18 (no build offer; `prepare { build }` still starts a starter).
 - **Owner step.** The two env vars can be removed from Railway after deploy; nothing reads them.
