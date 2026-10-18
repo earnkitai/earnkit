@@ -114,7 +114,11 @@ test('5.12 Ruling 7: every cookie EarnKit sets is __Host- (source scan of app/ a
   // v2.10 item 7b: the App's setup URL only clears the sign-in's cookie, through github-verify's clearCsrf.
   // v2.12.1 T6: the X claim (claim.ts) sets its own per-code __Host- cookie, as the GitHub sign-in does.
   // v2.14 T4: the install's X sign-in (x-install.ts) sets its own per-state __Host-eki- cookie.
-  assert.deepEqual(setting.map((p) => p.slice(root.length + 1)).sort(), ['lib/earnkit/claim.ts', 'lib/earnkit/github-app.ts', 'lib/earnkit/github-verify.ts', 'lib/earnkit/x-install.ts']);
+  // v2.14 T5: the fallback link's page (x-link.ts) passes on only the cookie x-install.ts newSignin built.
+  assert.deepEqual(setting.map((p) => p.slice(root.length + 1)).sort(), ['lib/earnkit/claim.ts', 'lib/earnkit/github-app.ts', 'lib/earnkit/github-verify.ts', 'lib/earnkit/x-install.ts', 'lib/earnkit/x-link.ts']);
+  const link = readFileSync(setting.find((p) => p.endsWith('x-link.ts'))!, 'utf8');
+  assert.deepEqual([...link.matchAll(/'Set-Cookie':\s*([^ ,}]+)/g)].map((m) => m[1]), ['cookie']);
+  assert.match(link, /const \{ to, cookie \} = await newSignin\(/);
   const install = readFileSync(setting.find((p) => p.endsWith('x-install.ts'))!, 'utf8');
   const installCookies = [...install.matchAll(/`\$\{signinCookie\(h\)\}=([^`]*)`/g)];
   assert.equal(installCookies.length, 2, 'set and clear');
