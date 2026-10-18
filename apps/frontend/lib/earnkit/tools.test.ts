@@ -366,8 +366,10 @@ test('v2.5 §1: list_programs reads the builder bonus pools once, only where ent
   // its own paragraph above it), which would make the end-anchored assertions below meaningless.
   // Close them for the duration of this test, then reopen (best effort; same pattern as the
   // neighboring "Ruling 11 (plan) fix round 1" test).
+  // v2.14 T2: every other open program too (a freshly synced database has open programs that need no
+  // repo, e.g. avalanche-team1-mini-grants, and the close would name one); the file has its own database.
   const stray = await sql()<{ id: string }[]>`
-    SELECT id FROM programs WHERE status = 'active' AND campaign->>'kind' = 'earnkit'`;
+    SELECT id FROM programs WHERE status = 'active'`;
   if (stray.length) await sql()`UPDATE programs SET status = 'closed' WHERE id IN ${sql()(stray.map((s) => s.id))}`;
   try {
     await upsertProgram(ProgramFile.parse(proof));

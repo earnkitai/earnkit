@@ -11,6 +11,7 @@
  * The one opt-in network test (`LINK_CHECK=1`, footer-links.test.ts) keeps the real network.
  */
 import { createRequire, syncBuiltinESMExports } from 'node:module';
+import { perFileDatabase } from './test-db';
 const CLEARED = [
   'TOKENSFUN_DEPLOY_API_KEY',
   'RESEND_API_KEY',
@@ -46,6 +47,8 @@ const CLEARED = [
   'EARNKIT_RAISING',
 ];
 for (const name of CLEARED) delete process.env[name];
+// v2.14 T2: one database per test file (fixtures/test-db.ts); a no-op outside a test-runner child.
+perFileDatabase();
 
 const LOCAL = new Set(['localhost', '127.0.0.1', '[::1]']);
 for (const url of [process.env.BONUS_ANVIL_URL]) {
