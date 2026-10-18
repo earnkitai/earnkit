@@ -16,8 +16,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import HomeView from '../../app/HomeView';
 import Footer from '../../app/components/common/Footer';
 import { homeFixture as LANDING_FIXTURE } from './fixtures/landing';
-import { BENCH_FOOTER_TAGLINE, FOOTER_TAGLINE } from './footer-links';
-import { BENCH_HERO_SUBTITLE, BENCH_HERO_SUBTITLE_NO_RAISE, BENCH_HERO_TITLE, HERO_TITLE } from '../../app/components/sections/Hero';
+import { BENCH_FOOTER_TAGLINE } from './footer-links';
+import { BENCH_HERO_SUBTITLE, BENCH_HERO_SUBTITLE_NO_RAISE, BENCH_HERO_TITLE } from '../../app/components/sections/Hero';
 import { BENCH_TOP_TITLE, SEE_BENCH } from '../../app/components/sections/BenchTop';
 import { CAROUSEL_TITLE } from '../../app/components/sections/UpdateCarousel';
 import { BENCH_HOW_TITLE, BENCH_STEPS, BENCH_STEPS_NO_RAISE } from '../../app/components/sections/BenchHowItWorks';
@@ -129,7 +129,6 @@ test('v2.7.1: a pool is the big line, "up to $X per winner" under it; unknown am
   const circle: Card = { ...base, id: 'circle-developer-grants', title: 'Circle Developer Grants', summary: 'milestone-based USDC grants · rolling', max_award_usd: null };
   const l = landingFrom(
     [pooled(monad, 250000, '$250K+ in prizes', true), pooled(arc, 10000, '10,000 USDC pool'), base, circle, sponsored, campaign],
-    new Map(),
     stats(),
     now,
   );
@@ -246,8 +245,6 @@ test('readGuidePage: a curated program\'s guide, plain JSON (unstable_cache seri
   assert.equal(page.open, true);
   assert.equal(page.source_url, 'https://community.arc.io/public/events/arc-microgrants-f8tijfjhyq');
   assert.match(page.guide.header, /^Arc Microgrants · 500 USDC × 20 grants · ends Oct 14, 11:59 PM ET$/);
-  assert.equal(page.board_path, '/bonus/arc-microgrants-2026-09-16');
-  assert.equal(page.guide.bonus?.board.endsWith(page.board_path!), true);
   assert.equal(page.ecosystem, page.guide.wants?.ecosystem ?? 'Arc');
   assert.deepEqual(page.sources[0], { label: 'program page', url: page.source_url });
   assert.ok((await readGuideIds()).includes('arc-microgrants'));
@@ -261,7 +258,6 @@ test('readGuidePage: a closed curated program still has a page, not open', dbTes
     assert.ok(page);
     assert.equal(page.open, false);
     assert.match(page.guide.header, /· closed$/);
-    assert.equal(page.board_path, null);
     // Fix round 1: the gate's id set keeps closed curated programs (old links keep working).
     assert.ok((await readGuideIds()).includes(f.id));
   } finally {
@@ -357,31 +353,10 @@ test('10.11 the won line: absent at 0 (never "$0"); "Builders using EarnKit won 
   assert.equal(wonLine(1_234_567), 'Builders using EarnKit won $1,234,567');
 });
 
-// ---- v2.13 Task 12: the landing page under the flag (spec "Landing page", R15).
+// ---- v2.13 Task 12: the landing page (spec "Landing page", R15).
 const page = (landing: Parameters<typeof HomeView>[0]['landing']) => renderToStaticMarkup(React.createElement(HomeView, { landing })).replace(/&#x27;/g, "'");
 const ROW = { rank: 1, line: 'Top 1%', handle: 'maya_makes', name: 'Maya Chen', avatar: null, raising: null, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
 const CARD = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import. It plans a week.', chips: ['Went live', '+31 people', '12 commits'], pinned: false };
-/** Runs `fn` with EARNKIT_BENCH set to `on` (true) or unset (false), and restores both flags after. */
-const withBench = <T>(on: boolean, fn: () => T): T => {
-  const prev = { score: process.env.EARNKIT_BUILDER_SCORE, bench: process.env.EARNKIT_BENCH };
-  if (on) process.env.EARNKIT_BENCH = 'on';
-  else delete process.env.EARNKIT_BENCH;
-  const restore = () => {
-    for (const [k, v] of [['EARNKIT_BUILDER_SCORE', prev.score], ['EARNKIT_BENCH', prev.bench]] as const) {
-      if (v === undefined) delete process.env[k];
-      else process.env[k] = v;
-    }
-  };
-  try {
-    const out = fn();
-    if (out instanceof Promise) return out.finally(restore) as T;
-    restore();
-    return out;
-  } catch (e) {
-    restore();
-    throw e;
-  }
-};
 
 test('12.1 the hero, word for word, and its one button', () => {
   assert.equal(BENCH_HERO_TITLE, 'Ship every week. Get funded.');
@@ -426,36 +401,29 @@ test('12.3 the square card: photo, @handle, project, the first line of the updat
   assert.ok(!none.includes(CAROUSEL_TITLE) && none.includes(BENCH_TOP_TITLE) && none.includes('Money open now'));
 });
 
-test('12.5 the footer tagline: "Ship every week. Get funded." under the flag, today\'s without it', () => {
+test('12.5 the footer tagline: "Ship every week. Get funded."', () => {
   assert.equal(BENCH_FOOTER_TAGLINE, 'Ship every week. Get funded.');
-  assert.equal(FOOTER_TAGLINE, 'Earn rewards for building');
-  const on = withBench(true, () => renderToStaticMarkup(React.createElement(Footer)));
-  assert.ok(on.includes(`>${BENCH_FOOTER_TAGLINE}<`) && !on.includes(FOOTER_TAGLINE));
-  const off = withBench(false, () => renderToStaticMarkup(React.createElement(Footer)));
-  assert.ok(off.includes(`>${FOOTER_TAGLINE}<`) && !off.includes(BENCH_FOOTER_TAGLINE));
+  assert.ok(renderToStaticMarkup(React.createElement(Footer)).includes(`>${BENCH_FOOTER_TAGLINE}<`));
 });
 
-test('12.6 readLanding: the Bench (at most 10 rows, its chips, the carousel cards) under the flag, null without it; plain JSON', dbTest, async () => {
-  const on = await withBench(true, () => readLanding(now));
+test('12.6 readLanding: the Bench (at most 10 rows, its chips, the carousel cards); plain JSON', dbTest, async () => {
+  const on = await readLanding(now);
   assert.ok(on.bench);
   assert.ok(Array.isArray(on.bench.rows) && on.bench.rows.length <= 10);
   assert.ok(Array.isArray(on.bench.chips) && Array.isArray(on.bench.cards) && on.bench.cards.length <= 12);
   assert.deepEqual(Object.keys(on.bench).sort(), ['cards', 'chips', 'raising', 'rows']);
   assert.deepEqual(JSON.parse(JSON.stringify(on)), on, 'unstable_cache serializes it');
-  const off = await withBench(false, () => readLanding(now));
-  assert.equal(off.bench, null);
 });
 
-test('12.8 no all-caps labels under the flag: "Backed by" and the footer column titles are sentence case; flag off unchanged', () => {
+test('12.8 no all-caps labels: "Backed by" and the footer column titles are sentence case', () => {
   const caps = (h: string, text: string) => new RegExp(`<(?:p|h3) class="[^"]*\\buppercase\\b[^"]*">\\s*${text}\\s*<`).test(h);
-  const bench = { rows: [ROW], chips: [], cards: [CARD], raising: true };
-  const on = withBench(true, () => page({ ...LANDING_FIXTURE, bench }));
-  const off = withBench(false, () => page({ ...LANDING_FIXTURE, bench: null }));
+  const on = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], chips: [], cards: [CARD], raising: true } });
+  const fallback = page({ ...LANDING_FIXTURE, bench: null });
   for (const t of ['Backed by', 'Product', 'Resources', 'Legal', 'Contact']) {
-    assert.ok(on.includes(`>${t}<`) && !caps(on, t), `flag on: ${t}`);
-    assert.ok(caps(off, t), `flag off: ${t}`);
+    assert.ok(on.includes(`>${t}<`) && !caps(on, t), t);
+    assert.ok(!caps(fallback, t), `no Bench data: ${t}`);
   }
-  assert.doesNotMatch(on.split('<footer')[1], /\buppercase\b/, 'the footer under the flag');
+  assert.doesNotMatch(on.split('<footer')[1], /\buppercase\b/, 'the footer');
 });
 
 test('12.9 the landing\'s Bench parts never import the /bench page module (BenchView pulls in its Footer)', () => {

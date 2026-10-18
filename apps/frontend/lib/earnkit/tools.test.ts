@@ -20,7 +20,6 @@ import { enteredProgramIds, hasProgramEntry } from './projects';
 import { setSanctionsOracle } from './sanctions';
 import { tokenCode, tokenLineFor } from './token-gate';
 import type { DeployDeps } from './deploy';
-import { REPO_HELD } from './entry-text';
 import { endsOf, freshLead, presentFirstMessage, type RepoFit } from './present';
 import { LAUNCHING, LAUNCH_STUCK, SKIPPED_ENTRY, launchLimit, tickerTakenNote, type TokenFlowDeps } from './token-launch';
 import { offerKey, readOffer, saveOffer } from './token-offers';

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { escrowConfig, escrowConfigProblem } from './escrow';
-import { FIND_DESCRIPTION, FIND_DESCRIPTION_BENCH, FIND_DESCRIPTION_SCORE, SCORE_DESCRIPTION, TELL_DESCRIPTION, TELL_DESCRIPTION_BENCH, TELL_DESCRIPTION_BENCH_NO_RAISING, TELL_DESCRIPTION_SCORE, OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, errorSummary, TOOL_DESCRIPTIONS, createMcpServer, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
+import { FIND_DESCRIPTION_BENCH, SCORE_DESCRIPTION, TELL_DESCRIPTION_BENCH, TELL_DESCRIPTION_BENCH_NO_RAISING, SERVER_INSTRUCTIONS, errorSummary, TOOL_DESCRIPTIONS, createMcpServer, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { handlers } from './tools';
 import { OLD_TOOL_NAMES, STALE_TOOLS_NOTE, aliasCall, withOlderNames } from './aliases';
 
