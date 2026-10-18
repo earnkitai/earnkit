@@ -2168,6 +2168,41 @@ async function shipSetup(
 
 const T8_REPO = 'https://github.com/jenil04/podtips';
 
+// ---- Restored in v2.14 T3 fix round 1: one token per repo (ToolContext.repoCoins is still the seam) ----
+
+test('8.9 Ruling 5: a repo whose token is entered in Arc: no offer, "go" records with no launch and returns the kit', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('elsewhere');
+    const ctx = { ...t.ctx, repoCoins: async (keys: string[]) => new Map(keys.map((k) => [k, { program_id: 'arc-microgrants', title: 'Arc Microgrants' }] as const)) };
+    const offer = (await handlers.confirm_entry(t.input, ctx)) as Confirmed;
+    // v2.8.1 §C13: no bonus note in the offer or the confirmation; Also qualifies says it once.
+    assert.equal(offer.show_to_builder, 'Ready to submit?');
+    assert.ok(!('shown_wallet' in offer));
+    const prep = (await handlers.prepare_submission(t.input, ctx)) as { show_to_builder: string };
+    assert.ok(prep.show_to_builder.endsWith('\n\nReady to submit?'), prep.show_to_builder);
+    assert.doesNotMatch(prep.show_to_builder, /builder bonus/i);
+    const r = (await handlers.confirm_entry({ ...t.input, ...go, wallet: W8 }, ctx)) as Confirmed;
+    assert.equal(t.calls.gate + t.calls.deploy, 0);
+    assert.ok(r.kit);
+    assert.ok(r.show_to_builder.startsWith('Ready for '), r.show_to_builder);
+  }));
+
+test('v2.10 item 1: a repo whose token rides on another entry: no "rides on" or "moves to" sentence in the reply; the token note is plain', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('rollnote');
+    const ctx = {
+      ...t.ctx,
+      repoCoins: async (keys: string[]) => new Map(keys.map((k) => [k, { program_id: 'arc-microgrants', title: 'Arc Microgrants' }] as const)),
+    };
+    await handlers.confirm_entry({ ...t.input, ...go, wallet: W8 }, ctx);
+    const rec = (await handlers.record_submission(
+      { program_id: t.p.id, project: t.project, submission_data: t.answers, builder_submitted: true },
+      ctx,
+    )) as { show_to_builder: string; token?: { note?: string } };
+    assert.doesNotMatch(rec.show_to_builder, /rides on|moves to your next entry/);
+    assert.equal(rec.token?.note, 'This repo already has a token.');
+  }));
+
 // ---- Restored in v2.14 T3 fix round 1: tell submitted and the build path's checks ----------------
 
 test('T11 fix (journey 11.0): tell\'s "I submitted" keeps the entry\'s verified contract (the stored fields carry no contracts)', dbTest, async () => {
