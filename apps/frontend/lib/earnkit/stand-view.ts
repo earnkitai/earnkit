@@ -1,8 +1,6 @@
 import { claimLink } from './claim';
 import { sql } from './db';
-import { siteUrl } from './entry-text';
 import { noteEvent } from './events';
-import { createVerifyLink, githubVerifyEnabled } from './github-verify';
 import { REFRESH_BUDGET_MS, refreshPerson, standingOf, trackingHeld } from './person-score';
 import { personCode } from './attribution';
 import { emptyMemory, hiddenIds, hiddenPrograms, readMemory } from './builder-memory';
@@ -12,8 +10,7 @@ import { rpcFor } from './verify';
 import { r2Enabled } from './r2';
 import type { Standing } from './rank';
 import type { ReaderDeps } from './source-readers';
-import { upgradeToken } from './wallet-proof';
-import { chooseStep, paymentStepFits, stepKey, confirmLinkLine, pageReadyLine, plainWhat, rollingLine, standingNews, usersMoneyLine, type EarnLine, type MoveUp, type StandProject, type StandView } from './stand-text';
+import { paymentStepFits, stepKey, pageReadyLine, plainWhat, rollingLine, standingNews, usersMoneyLine, type EarnLine, type StandProject, type StandView } from './stand-text';
 import { closeDayOf, prizeOf } from './entry-text';
 import { freshPick, type FreshPick } from './fresh-build';
 import { byPrize, type Card, type FreshOn } from './present';
@@ -270,32 +267,6 @@ export async function takePageReady(
   return pageReadyLine(o.link);
 }
 
-/**
- * The yes to a `confirm` step (T7 carry): the claim page's upgrade links last 30 minutes, so the
- * reply makes a new one. A contract or coin is shown to be theirs with a wallet signature; other
- * work with GitHub sign-in while it is on (else the wallet). Unclaimed: the claim link first.
- */
-export async function confirmYes(id: number, now: Date): Promise<{ show_to_builder: string; agent_note?: string }> {
-  const v = await standBase(id);
-  if (!v) return { show_to_builder: '', agent_note: 'There is nothing to confirm yet.' };
-  if (!v.base.claimed)
-    return v.base.claimLink ? { show_to_builder: `Claim your page with X first: ${v.base.claimLink}` } : { show_to_builder: '', agent_note: 'There is no page to confirm yet.' };
-  const [onchain] = await sql()`
-    SELECT 1 FROM builder_projects WHERE builder_id = ${id} AND shipped AND NOT confirmed AND (kind IN ('contract','coin') OR untracked_contract IS NOT NULL) LIMIT 1`;
-  const wallet = () => {
-    const t = upgradeToken(id, now);
-    return t ? `${siteUrl()}/claim/wallet?t=${encodeURIComponent(t)}` : null;
-  };
-  let link: string | null = null;
-  if (!onchain && githubVerifyEnabled())
-    link = await createVerifyLink({ installationId: id, projectId: null, repoKey: `claim/${id}`, purpose: 'claim' }).catch((err: unknown) => {
-      console.error('[stand] github link', err instanceof Error ? err.name : 'error');
-      return null;
-    });
-  link ??= wallet();
-  return link ? { show_to_builder: confirmLinkLine(link) } : { show_to_builder: '', agent_note: 'No link can be made right now. Ask again later.' };
-}
-
 // ---- Fix round 1: every reply has a way to earn -------------------------------------------------
 
 /** An earn line's prize: "up to $10K" from the per-winner award, else the summary's prize. Pure. */
@@ -392,13 +363,3 @@ export async function scoreEarn(
   return { earn: [], ...moneyFallback(o) };
 }
 
-/**
- * Fix round 1: the person's step as the server sees it now, for a yes or no to "How to move up"
- * (the agent's kind is never trusted). Coins wait for T10; hosting is judged as for an agent that
- * builds. Null without a profile or a step.
- */
-export async function currentStep(id: number, o: { fresh?: TipSwitches } = {}): Promise<MoveUp | null> {
-  const v = await standBase(id, o);
-  if (!v) return null;
-  return chooseStep({ ...v.base, earn: [], fresh: null }, { coin: () => false, build: null, host: hostFor(true) });
-}

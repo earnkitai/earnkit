@@ -6,7 +6,6 @@ import {
   entryFieldProblems,
   givenWallet,
   githubRepo,
-  isWalletAddress,
   normalizeLiveUrl,
   normalizeRepoUrl,
   sameRepoEntry,
@@ -30,11 +29,9 @@ import {
   SanctionsError,
   screenWallet,
 } from './sanctions';
-import type { ProofOutcome } from './submission-proof';
 import { PROOF_LINE_PREFIX, SIGN_IN_FIRST, WALLET_CHANGED } from './token-gate';
 import { ProjectInfo, prepareSubmission, type KnownInfo } from './submission';
 import type { SubmissionRequirement } from './program-file';
-import { CLANKER_ADDRESSES } from './traction';
 import { ENTRIES_PER_CAMPAIGN } from './rate-limit';
 import { COIN_PROGRAM } from './policy-constants';
 import {
@@ -194,8 +191,6 @@ export type EntryDeps = {
   deployer?: DeployerLookup;
   repoFacts?: RepoFactsLookup;
   fetchFile?: OwnershipFetcher;
-  /** v2.5 §3: fetches a program's submission proof page (proofProblem); defaults to safeFetchText. */
-  fetchProof?: (url: string) => Promise<string>;
 };
 
 /**
@@ -374,106 +369,6 @@ export function completeAt(
 ): Date | null {
   if (previous) return previous;
   return prepareSubmission(requirements, known).ready ? now : null;
-}
-
-/**
- * Ruling 13a/16: an external entry's contracts that verify like a v2.4 entry AND are proven
- * controlled by the submitter: `deployer_signature` (over the v2.4 entry message for the list as
- * submitted) must recover to each contract's deployer, whether that is `wallet` or the agent's
- * wallet; naming a public wallet in earnkit.txt is never enough. checkOwnership still requires the
- * repo's earnkit.txt to name `wallet`. Each contract is checked on its own, so one bad contract
- * drops only itself; Clanker/Uniswap contracts are never accepted. Never throws: returns the
- * verified contracts, their deployers and a note on what was dropped and what to sign.
- */
-export async function verifiedBonusContracts(
-  programId: string,
-  repoUrl: string | undefined,
-  wallet: string | undefined,
-  given: string[],
-  signature: string | undefined,
-  deps: EntryDeps = {},
-): Promise<{ contracts: string[]; deployers: string[]; note: string | null }> {
-  const none = (note: string) => ({ contracts: [], deployers: [], note: `Contracts not counted for the builder bonus: ${note}` });
-  const asked = [...new Set(given.map((c) => c.trim().toLowerCase()))];
-  const bad = asked.filter((c) => !/^0x[0-9a-f]{40}$/.test(c));
-  if (bad.length) return none(`${bad.join(', ')} ${bad.length === 1 ? "isn't a" : "aren't"} Base contract address${bad.length === 1 ? '' : 'es'}.`);
-  const never = asked.filter((c) => CLANKER_ADDRESSES.includes(c));
-  const candidates = asked.filter((c) => !never.includes(c));
-  const notes: string[] = [];
-  if (never.length)
-    notes.push(
-      `${never.join(', ')}: token launch or Uniswap contracts never count as yours; leave them out of contracts` +
-        (signature ? ' and sign the list without them next time.' : '.'),
-    );
-  if (!candidates.length) return { contracts: [], deployers: [], note: notes.length ? `Contracts not counted for the builder bonus: ${notes.join(' ')}` : null };
-  if (!repoUrl) return none('they need the project\'s public GitHub repo_url.');
-  if (!wallet || !isWalletAddress(wallet)) return none('pass payout_wallet, the builder\'s Base wallet that deployed them (or signed for them).');
-  const w = wallet.toLowerCase();
-  const toSign = `sign exactly "${entryMessage(programId, normalizeRepoUrl(repoUrl), w, candidates)}" with the wallet that deployed them and pass it as deployer_signature.`;
-  // Ruling 16: a contract counts only with its deployer's signature.
-  if (!signature) return { contracts: [], deployers: [], note: `Contracts not counted for the builder bonus: ${[...notes, `To count them, ${toSign}`].join(' ')}` };
-  // The signature covers the contract list exactly as the agent submitted it (Ruling 15).
-  const signer = await entrySigner(programId, repoUrl, w, asked, signature);
-  if (!signer)
-    return {
-      contracts: [],
-      deployers: [],
-      note: `Contracts not counted for the builder bonus: ${[...notes, `deployer_signature is not a valid signature; ${toSign}`].join(' ')}`,
-    };
-  const contracts: string[] = [];
-  const deployers = new Set<string>();
-  for (const c of candidates) {
-    try {
-      const proof = await checkOwnership(
-        { repoUrl, payoutWallet: w, contracts: [c], signer },
-        { deployer: deps.deployer, repoFacts: deps.repoFacts, fetchFile: deps.fetchFile },
-      );
-      const d = proof.deployers[c];
-      if (d !== signer) {
-        notes.push(`Contract ${c} was deployed by ${d ?? 'an unknown wallet'}, not by the wallet that signed deployer_signature (${signer}).`);
-        continue;
-      }
-      contracts.push(c);
-      deployers.add(d);
-    } catch (err) {
-      if (!(err instanceof EntryError)) {
-        console.error('[bonus contracts] check failed:', err);
-        notes.push(`${c}: EarnKit couldn't check it right now.`);
-      } else notes.push(...err.problems.map((p) => p.replace(/^contracts: /, '')));
-    }
-  }
-  if (contracts.length < candidates.length) notes.push(`Each contract counts with its deployer's signature: ${toSign}`);
-  return {
-    contracts,
-    deployers: [...deployers],
-    note: notes.length ? `Contracts not counted for the builder bonus: ${[...new Set(notes)].join(' ')}` : null,
-  };
-}
-
-/**
- * v2.6 §3, Rulings 4, 5 and 15 (plan): how an entry's submission counts for the builder bonus, and
- * the agent-facing note when it doesn't (yet).
- * - A program with a public entry page (`hasPattern`) needs its link: the page checked out counts
- *   (`page`); a page that can't be fetched counts on the builder's confirmation, flagged
- *   (`unverified_page`); a page that loaded without the entry's link never counts, confirmed or not.
- * - A program without one counts on the builder's confirmation (`confirmed`).
- * Pure.
- */
-export function submissionBasis(a: {
-  hasPattern: boolean;
-  outcome: ProofOutcome | null;
-  confirmed: boolean;
-}): { basis: 'page' | 'unverified_page' | 'confirmed' | null; note: string | null } {
-  const confirm = 'Call tell with submitted once the builder confirms the entry is submitted on the program site.';
-  if (!a.hasPattern)
-    return a.confirmed ? { basis: 'confirmed', note: null } : { basis: null, note: `Builder bonus not available yet: ${confirm}` };
-  if (!a.outcome)
-    return { basis: null, note: 'No external_submission_url was given; the builder bonus needs the link to this entry on the program site.' };
-  if (a.outcome.kind === 'ok') return { basis: 'page', note: null };
-  if (a.outcome.kind === 'refused') return { basis: null, note: `Builder bonus not available yet: ${a.outcome.problem}` };
-  return a.confirmed
-    ? { basis: 'unverified_page', note: null }
-    : { basis: null, note: `Builder bonus not available yet: ${a.outcome.problem} ${confirm}` };
 }
 
 type OwnEntry = {

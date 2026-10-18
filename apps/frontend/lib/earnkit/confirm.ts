@@ -5,12 +5,11 @@ export { SKIP_TOKEN };
 /**
  * v2.8 Part C, Rulings 4, 5, 7 and 31 (plan): the confirmation step. v2.10 item 5: the token is
  * pitched once, here, as one line inside the single yes ("Yes submits your entry and launches
- * $TIP (Tip Jar): 40% of its fees to you, plus the builder bonus. yes / skip the token"); "skip the
+ * $TIP (Tip Jar): 40% of its fees to you. yes / skip the token"); "skip the
  * token" submits without one. Pure: the offer text and the decision only.
  */
 
 export type OfferInput = {
-  hasBonus: boolean;
   /** v2.6 Ruling 25: the program this repo's token is entered in, or null. */
   coinIn: string | null;
   canPush: boolean;
@@ -56,28 +55,25 @@ export const NO_TOKEN_HERE = 'No token for this entry.';
  * Review Minor 5: after a "yes" that came without the wallet it showed, the question about the
  * wallet shown (short), so the builder confirms it in one word. Pure.
  */
-export const walletQuestion = (wallet: string, hasBonus: boolean) =>
-  `Use ${shortWallet(wallet.toLowerCase())} for ${hasBonus ? 'fees and any bonus' : 'fees'}, or tell me another?`;
+export const walletQuestion = (wallet: string) => `Use ${shortWallet(wallet.toLowerCase())} for fees, or tell me another?`;
 
 /** Review Minor 8: confirm_entry's builder line when a fixable problem has no note. */
 export const TOKEN_ERROR_CONFIRM = 'EarnKit hit an error launching the token; say go to try again.';
 
 /**
  * v2.10 item 5: the one pitch, inside the single yes, once per entry flow: "Yes submits your entry
- * and launches $TIP (Tip Jar): 40% of its fees to you, plus the builder bonus. Wallet: 0x12ab…9f3e.
- * yes / skip the token". Without a bonus, no ", plus the builder bonus"; `again` (said once
- * already) drops the earnings part. The wallet is shown short when known (on a shared client only
+ * and launches $TIP (Tip Jar): 40% of its fees to you. Wallet: 0x12ab…9f3e. yes / skip the token".
+ * `again` (said once already) drops the earnings part. The wallet is shown short when known (on a shared client only
  * one given in this flow, G13), else asked in the same line. Pure.
  */
 export function confirmLine(a: {
   proposal: { name: string; symbol: string } | null;
-  hasBonus: boolean;
   wallet: string | null;
   walletKnown: boolean;
   again?: boolean;
 }): string {
   const what = a.proposal ? `$${a.proposal.symbol} (${a.proposal.name})` : 'your token';
-  const why = a.again ? '' : `: 40% of its fees to you${a.hasBonus ? ', plus the builder bonus' : ''}`;
+  const why = a.again ? '' : ': 40% of its fees to you';
   const answer = a.walletKnown
     ? `${a.wallet ? `Wallet: ${shortWallet(a.wallet.toLowerCase())}. ` : ''}yes / ${SKIP_TOKEN}`
     : `Say yes with your wallet address / ${SKIP_TOKEN}`;
@@ -94,7 +90,7 @@ export function confirmOffer(a: OfferInput): string {
   if (a.belowScore) return READY_TO_SUBMIT;
   if (a.tokensOff) return READY_TO_SUBMIT;
   if (!a.canPush && !a.signIn) return `${CANT_PUSH}\n${READY_TO_SUBMIT}`;
-  return confirmLine({ proposal: a.proposal ?? null, hasBonus: a.hasBonus, wallet: a.wallet, walletKnown: a.wallet !== null, again: a.again });
+  return confirmLine({ proposal: a.proposal ?? null, wallet: a.wallet, walletKnown: a.wallet !== null, again: a.again });
 }
 
 export type ConfirmDecision =

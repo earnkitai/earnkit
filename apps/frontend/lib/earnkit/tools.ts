@@ -18,8 +18,8 @@ import {
 } from './projects';
 import { EntryError, githubRepo, givenWallet, isWalletAddress, normalizeRepoUrl, presentYourEntries } from './campaigns';
 import { signToEnter } from './entry-proof';
-import { confirmTable, enteredText, noCoinYet, prizeOf, todoOf, type EnteredText } from './entry-text';
-import { proposeToken, repoNameOf, titleCase, tokensFunTickerCheck, type TickerCheck } from './token-proposal';
+import { NO_COIN_YET, confirmTable, enteredText, todoOf, type EnteredText } from './entry-text';
+import { proposeToken, repoNameOf, titleCase, tokensFunTickerCheck } from './token-proposal';
 import { DECLINES_MAX, declines, firstReplyShown, offerIdentity, offerKey, readOffer, readShownOffer, recordDecline, saveOffer, type Offered } from './token-offers';
 import { earnkitCampaignRows, yourCampaignEntries } from './leaderboard';
 import {
@@ -57,16 +57,11 @@ import {
 } from './match-projects';
 import { alsoQualifies, alsoText, type AlsoRow } from './also-qualifies';
 import {
-  bonusLine,
-  bonusProgramIds,
   closesInDays,
   enterableWithoutRepo,
   layout,
   leadRow,
-  qualifies,
-  enteredIds,
   submitStep,
-  submitStepLine,
   usersAsk,
   presentFirstMessage,
   programUpdates,
@@ -100,7 +95,7 @@ import {
 } from './token-launch';
 import { RAW_CAP, canonicalBuilderUrl, cleanProject, quoted } from './untrusted-text';
 import { pagesLinkOf } from './pages-link';
-import { proveRepo, proveRepoByBranch, repoSignedIn, tokenLineFor, type ProvenRepo } from './token-gate';
+import { proveRepoByBranch, repoSignedIn, tokenLineFor, type ProvenRepo } from './token-gate';
 import { PUSH_DONE_NOTE, PUSH_REFUSED_NOTE, branchToRemove, checkProofBranch, proofBranchFor, pushRefused } from './proof-branch';
 import { READY_TO_SUBMIT, confirmDecision, confirmOffer, proofLineWaiting, signInLine, walletQuestion, NO_TOKEN_HERE, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
 import { HOST_LINES, HOST_ZONE, UPLOAD_NOTE, hostSignInLine, issueUpload, liveLine, refreshSiteExpiry } from './hosting';
@@ -149,19 +144,18 @@ import { BENCH_MOVE_UP_NOTE, benchAsked, benchFind, benchMoveUp, keepBenchMatch,
 import { REPLY_WAIT_MS, ReplyLate, inTime } from './reply-wait';
 import { setRaising } from './raising';
 import { scoreReply } from './score-tool';
-import { EARN_NOTE, newsOpener, stepKey, type EarnLine, type MoveUp, type StandView } from './stand-text';
-import { confirmYes, earnPrize, earnWhen, hostFor, moneyFallback, standBase, startRefresh, takeNews, takePageReady, type Seen } from './stand-view';
-import { COUNT_LINES, moveUpNo, moveUpYes, stepFor } from './make-countable';
+import { NOTED_LINE } from './stand-text';
+import { startRefresh } from './stand-view';
 import { attributionFor, chainOf } from './attribution';
 import type { ReaderDeps } from './source-readers';
 import { SKIPPED_LINE, cardYes } from './share';
 import { SHARED_PROFILE_NOTE, ensureProfile, setFallback, setHidden } from './profiles';
 import { verifiedProject } from './builder-score';
-import { COIN_NOTE, COIN_PROGRAM, builtLiveAnswer, coinLine, coinNo, coinOfferable, coinOpen, coinPitchAllowed, coinYes, offerCoin, showBuiltLive } from './coin-moments';
+import { builtLiveAnswer, coinLine, coinNo, coinOpen, coinPitchAllowed, coinYes, showBuiltLive } from './coin-moments';
 import { sql } from './db';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
 import { PROBATION_LINES, onProbation } from './page-joins';
-import { JOIN_TEXT, answerJoin, joinQuestion, askJoin, offerPickup, pendingJoinOf, type PickupDeps } from './identity';
+import { JOIN_TEXT, answerJoin, joinQuestion, askJoin, pendingJoinOf } from './identity';
 import type { FieldKind } from './program-file';
 import type { ProgramRow } from './programs';
 import { RateLimitError, enforce } from './rate-limit';
@@ -183,17 +177,10 @@ export type ToolContext = {
    * (github-verify.ts callerLogin), set by the tool that reads it; never set by the MCP route.
    */
   verifiedLogin?: string | null;
-  /** Test injection only: the pickup's proof line reads. */
-  pickupDeps?: PickupDeps;
   /** Test and e2e injection only; never set by the MCP route. */
   tokenDeps?: TokenFlowDeps;
   /** Test and e2e injection only; never set by the MCP route. */
   entryDeps?: EntryDeps;
-  /**
-   * Test seam: the open rounds' builder bonus pools and token counts, by program id (null: the
-   * program's round froze); defaults to bonus-rounds.ts roundPools.
-   */
-  roundPools?: (programIds: string[]) => Promise<Map<string, RoundPool | null>>;
   /** Ruling 25: the program each normalized repo's coin is entered in; defaults to repoCoinPrograms. */
   repoCoins?: (repoKeys: string[]) => Promise<Map<string, { program_id: string; title: string }>>;
   /** Test and e2e injection only; never set by the MCP route. */
@@ -315,38 +302,6 @@ const walletMemory = (ctx: ToolContext) => (ctx.sharedClient ? Promise.resolve(n
  */
 const entryWallet = (ctx: ToolContext, k: Parameters<typeof ownEntryWallet>[0]) =>
   ctx.sharedClient ? Promise.resolve(null) : ownEntryWallet(k);
-
-/**
- * The open rounds' builder bonus pools so far and their token counts, by program id, in one grouped
- * read (Ruling 3; the bonus ledger; v2.10 item 1).
- */
-export const roundPools = (programIds: string[]): Promise<Map<string, RoundPool | null>> => readRoundPools(programIds);
-
-/** One batched pool read per reply; it never fails the tool: on any error, no pools. */
-async function poolsOf(read: (ids: string[]) => Promise<Map<string, RoundPool | null>>, ids: string[]) {
-  if (ids.length === 0) return new Map<string, RoundPool | null>();
-  try {
-    return await read(ids);
-  } catch (err) {
-    console.error('[list_programs] builder bonus pools:', err);
-    return new Map<string, RoundPool | null>();
-  }
-}
-
-/** Ruling 25: one read of where the builder's matched repos already have a coin; never fails the tool. */
-async function repoCoinsOf(
-  read: (keys: string[]) => Promise<Map<string, { program_id: string; title: string }>>,
-  repos: YourRepos | null,
-) {
-  const keys = repos && 'fits' in repos ? [...new Set(repos.fits.flatMap((f) => (f.repo_url ? [normalizeRepoUrl(f.repo_url)] : [])))] : [];
-  if (keys.length === 0) return new Map<string, { program_id: string; title: string }>();
-  try {
-    return await read(keys);
-  } catch (err) {
-    console.error('[list_programs] repo coins:', err);
-    return new Map<string, { program_id: string; title: string }>();
-  }
-}
 
 /** v2.9 A2: repos shown per program in `matches`; an any_chain program (a16z) shows one. */
 const MATCHES_PER_PROGRAM = 3;
@@ -473,7 +428,6 @@ async function offerFacts(
     ? await firstReplyShown(ctx.installationId, program.id, offerKey(repoUrl, '')).catch(() => false)
     : false;
   return {
-    hasBonus: hasBuilderBonus(program),
     coinIn,
     tokenHere,
     /** v2.9 B10 (Pre-flight P21): a token offer was skipped once: the next one is said without "40%". */
@@ -736,8 +690,7 @@ export const COACH_NOTES = { COACH_NOTE, QUESTIONS_NOTE, DRAFT_NOTE, AGENT_FIXES
  * v2.8.1 §C11: whether the coach's round asks for the wallet: only when this entry would get a
  * token (a repo, an agent that can push, tokens on for the program and available, the repo's
  * token not entered elsewhere) and no wallet is known: none given, none on this entry, none
- * remembered. Returns what the question says (the builder bonus or not), or null. A failed read
- * never fails the tool (no wallet question).
+ * remembered. A failed read never fails the tool (no wallet question).
  */
 async function walletToAsk(
   program: ProgramRow,
@@ -747,23 +700,23 @@ async function walletToAsk(
   remembered: string | null,
   name: string | undefined,
   ctx: ToolContext,
-): Promise<{ hasBonus: boolean } | null> {
-  if (program.campaign || !repoUrl || !canPush || given || remembered) return null;
+): Promise<boolean> {
+  if (program.campaign || !repoUrl || !canPush || given || remembered) return false;
   try {
     // v2.12.1 T10 (spec 3b): the wallet is asked only for the token's fees and bonus: only where the token is pitched.
-    if (!(await tokenPitch(ctx, program.id, repoUrl))) return null;
+    if (!(await tokenPitch(ctx, program.id, repoUrl))) return false;
     const facts = await offerFacts(program, repoUrl, ctx);
-    if (facts.coinIn || facts.policyOff || !facts.available || facts.declinedOut || facts.tokenHere) return null;
+    if (facts.coinIn || facts.policyOff || !facts.available || facts.declinedOut || facts.tokenHere) return false;
     const stored = await entryWallet(ctx, {
       programId: program.id,
       installationId: ctx.installationId,
       repoUrl,
       name: name?.trim() || titleCase(repoNameOf(repoUrl) ?? ''),
     });
-    return stored ? null : { hasBonus: facts.hasBonus };
+    return !stored;
   } catch (err) {
     console.error('[coach] wallet ask', err instanceof Error ? err.name : 'error');
-    return null;
+    return false;
   }
 }
 
@@ -1096,9 +1049,6 @@ async function withAlerts<T extends object>(ctx: Pick<ToolContext, 'installation
 /** v2.9 B10: the builder line when the builder said skip to a token launch (confirm with project_id and skip_token). */
 export const NO_TOKEN_FOR_NOW = 'No token for now.';
 
-/** v2.12.1 T10: what the first reply's bonus line is checked as: a program entry (never the coin program's, never a build's). */
-const FIRST_REPLY_ENTRY = 'first-reply-program-entry';
-
 /** v2.10 item 4: launch_token's offer, called directly (the alias routes it to confirm). */
 const OFFER_GONE = 'Pass project_id: the token is offered once, at confirmation (call confirm with program_id, project and answers).';
 
@@ -1408,7 +1358,6 @@ export const handlers = {
       : { lines: [] as string[], scheduleNote: null };
 
     const withPools = cards;
-    const repoCoins = await repoCoinsOf(ctx.repoCoins ?? repoCoinPrograms, yourRepos);
     // v2.8.1 §B9: "Your entries" and the "entered" marks; never fails the tool (none on an error).
     const myEntries = !own && !loginEntries?.length ? [] : await openEntries(ctx.installationId, loginEntries ?? undefined).catch((err: unknown) => {
       console.error('[list_programs] entries', err instanceof Error ? err.name : 'error');
@@ -1426,7 +1375,6 @@ export const handlers = {
       agentCanBuild: agent_can_build,
       sponsorEntries: entries.section,
       now: new Date(),
-      repoCoins,
       entries: myEntries,
       hidden,
       // v2.9 E20: "Builders using EarnKit won $X" (announced prizes only), absent at 0.
@@ -1602,7 +1550,7 @@ export const handlers = {
       open && curated && (ctx.sharedClient ? !coach_asked : added && !(await hasProgramEntry(ctx.installationId, program_id)));
     // The guide's parts: what won, what it wants, best bet. No bonus line here: the confirm line says
     // the bonus when this entry can earn it (a repo's token entered elsewhere can't).
-    const guide = firstPrepare && !join ? guideText(programGuide(program, null)) : null;
+    const guide = firstPrepare && !join ? guideText(programGuide(program)) : null;
     const lead = join ? join.lead.join('\n') : null;
     const withGuide = <T extends { show_to_builder: string }>(r: T): T =>
       guide ? { ...r, show_to_builder: `${guide}\n\n${r.show_to_builder}` } : r;
@@ -1733,7 +1681,7 @@ export const handlers = {
       judging: (program.judging?.criteria ?? []).map((c) => c.text),
       from_bank: banked?.from_bank ?? {},
     };
-    const coachQuestions = (wallet: { hasBonus: boolean } | null) =>
+    const coachQuestions = (wallet: boolean) =>
       questionsFor({
         reqs: program.submission_requirements,
         answers: values,
@@ -1743,11 +1691,11 @@ export const handlers = {
         wallet,
         shared: ctx.sharedClient,
       });
-    let questions = open && !coach_asked ? coachQuestions(null) : [];
+    let questions = open && !coach_asked ? coachQuestions(false) : [];
     // v2.8.1 §C11: with a round to ask anyway, the wallet is asked in it, so the confirmation is a
     // single yes; only when this entry would get a token and no wallet is known (given, this entry's
     // own, or remembered). The answer comes back as answers.payout_wallet (the wallet given).
-    const askWallet = questions.length > 0 ? await walletToAsk(program, repoUrl, agent?.can_push !== false || githubVerifyEnabled(), given, remembered, known.project?.name, ctx) : null;
+    const askWallet = questions.length > 0 ? await walletToAsk(program, repoUrl, agent?.can_push !== false || githubVerifyEnabled(), given, remembered, known.project?.name, ctx) : false;
     if (askWallet) questions = coachQuestions(askWallet);
     const intro = coachIntro(program.title, questions);
     // v2.8.1 T7 (audit J1): a builder with no repo who picks a program that needs one hears it with
@@ -1795,7 +1743,6 @@ export const handlers = {
       await rememberOffer(ctx, program.id, shownKey, shownPair, offerWallet ?? null);
     const offer = facts
       ? confirmOffer({
-          hasBonus: facts.hasBonus,
           coinIn: facts.coinIn,
           canPush,
           signIn,
@@ -1967,7 +1914,7 @@ export const handlers = {
       return {
         show_to_builder:
           (proposal?.taken ? `$${proposal.taken} is taken. ` : '') +
-          confirmOffer({ hasBonus: facts.hasBonus, coinIn: facts.coinIn, canPush, signIn, wallet, tokensOff, belowScore, proposal: pair, again: Boolean(proposal?.taken) || shown !== null || facts.declinedOnce || facts.firstShown }),
+          confirmOffer({ coinIn: facts.coinIn, canPush, signIn, wallet, tokensOff, belowScore, proposal: pair, again: Boolean(proposal?.taken) || shown !== null || facts.declinedOnce || facts.firstShown }),
         ...(offersToken && wallet && { shown_wallet: wallet }),
         ...(pair && { token: { proposed: pair } }),
         agent_note:
@@ -2041,7 +1988,7 @@ export const handlers = {
         (await entryWallet(ctx, { programId: program.id, installationId: ctx.installationId, repoUrl, name: i.project.name })) ??
         (await walletMemory(ctx));
       await rememberOffer(ctx, program.id, offerKey(repoUrl, i.project.name), proposal, wallet ?? null);
-      const offer = confirmOffer({ hasBonus: facts.hasBonus, coinIn: null, canPush, signIn, wallet, proposal, belowScore, again: again || facts.declinedOnce || facts.firstShown });
+      const offer = confirmOffer({ coinIn: null, canPush, signIn, wallet, proposal, belowScore, again: again || facts.declinedOnce || facts.firstShown });
       return {
         project_id: projectId,
         token: { status: 'skipped' as const, fixable: true, proposed: proposal },
@@ -2157,7 +2104,7 @@ export const handlers = {
           token,
           show_to_builder: token.no_wallet
             ? remembered
-              ? walletQuestion(remembered, facts.hasBonus)
+              ? walletQuestion(remembered)
               : NO_WALLET_HINT
             : token.note || TOKEN_ERROR_CONFIRM,
           ...(token.no_wallet && remembered && { shown_wallet: remembered }),
@@ -2178,7 +2125,7 @@ export const handlers = {
       };
 
     // v2.12 spec 7 (R22): under the pitch score the token was never offered, so nothing is said about it.
-    const skipLine = belowScore ? '' : facts.hasBonus ? 'No token, no builder bonus.' : 'No token.';
+    const skipLine = belowScore ? '' : 'No token.';
     const first =
       decision.kind === 'skip' && !entry.token_url
         ? skipLine
@@ -2314,8 +2261,8 @@ export const handlers = {
       return withAlerts(ctx, await askEmail({ ...result, show_to_builder: result.show_to_builder, token }), parsed.signed_in);
     // v2.6 §3: outside campaigns, the reply the builder sees: the coin.
     const tokenOut = token.no_wallet
-      ? // Ruling 31's split here too: plain note, the instruction (noCoinYet) for the agent.
-        { ...token, note: 'No token yet: no wallet was given.', agent_note: noCoinYet(null) }
+      ? // Ruling 31's split here too: plain note, the instruction (NO_COIN_YET) for the agent.
+        { ...token, note: 'No token yet: no wallet was given.', agent_note: NO_COIN_YET }
       : token;
     // Skipped: the builder said no, the program has no coins, or (Ruling 25) the repo has its coin.
     const skipped =
@@ -3266,7 +3213,7 @@ async function coinAnswer(ctx: ToolContext, c: { project_key: string; answer: 'y
   const id = ctx.installationId;
   if (c.answer === 'no') {
     await coinNo(id, c.project_key);
-    return { show_to_builder: COUNT_LINES.noted };
+    return { show_to_builder: NOTED_LINE };
   }
   if (c.wallet !== undefined && !isWalletAddress(c.wallet.trim())) return { show_to_builder: '', agent_note: COIN_WALLET_NOTE };
   const r = await coinYes(id, c.project_key, c.wallet ?? null, { check: ctx.tokenDeps?.check });
@@ -3311,7 +3258,7 @@ async function goLiveYes(ctx: ToolContext, key: string, liveUrl: string | undefi
   const id = ctx.installationId;
   const [p] = await sql()<{ name: string }[]>`SELECT name FROM builder_projects WHERE builder_id = ${id} AND project_key = ${key}`;
   const gh = githubRepo(`https://github.com/${key}`);
-  if (!p || !gh) return { show_to_builder: COUNT_LINES.noted };
+  if (!p || !gh) return { show_to_builder: NOTED_LINE };
   const repoKey = `${gh.owner}/${gh.repo}`;
   if (liveUrl !== undefined) {
     const link = pagesLinkOf(repoKey, liveUrl.trim());
@@ -3347,12 +3294,11 @@ async function goLiveYes(ctx: ToolContext, key: string, liveUrl: string | undefi
  * (stand-view.ts currentStep); the agent's kind is never trusted, and a yes to a step that is no
  * longer the current one (or another project's) changes nothing. A no keeps that step away for 30
  * days. `confirm` re-issues the link that shows the work is theirs (confirmYes); `go_live` puts the
- * app online (goLiveYes); count_past, tag_future and payment are make-countable.ts's; a coin offer
- * (kind coin, still open) is coinAnswer's.
+ * app online (goLiveYes); a coin offer (kind coin, still open) is coinAnswer's; every other answer
+ * is bench-find.ts benchMoveUp's.
  */
 async function moveUpAnswer(ctx: ToolContext, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no'; live_url?: string }): Promise<Reply> {
   const id = ctx.installationId;
-  const now = new Date();
   // T10: a coin offer is answered as offered (the offer's own moment, which may not be chooseStep's
   // step now: a countable or first-5 reply); coinOpen means EarnKit made it and it is unanswered.
   if (m.kind === 'coin' && m.project_key && (await coinOpen(id, m.project_key))) return coinAnswer(ctx, { project_key: m.project_key, answer: m.answer });
@@ -3733,7 +3679,7 @@ export const tools = {
             ? await setRaising(ctx.installationId, coin.raising)
             : coin.answer && coin.project_key
               ? await coinAnswer(ctx, { project_key: coin.project_key, answer: coin.answer, wallet: coin.wallet })
-              : { show_to_builder: COUNT_LINES.noted },
+              : { show_to_builder: NOTED_LINE },
         );
       // v2.13 spec 3: the ship log (ctx.installationId is already the group root).
       if (update || updates) {

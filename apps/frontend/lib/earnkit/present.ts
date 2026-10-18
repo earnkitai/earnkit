@@ -1,4 +1,4 @@
-import { normalizeRepoUrl, usd } from './campaigns';
+import { usd } from './campaigns';
 import { NO_CELL } from './no-cell';
 import { closeDayOf, endsOf, prizeOf } from './entry-text';
 import { shortDate } from './dates';

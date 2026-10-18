@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ZodError, z } from 'zod';
-import { benchEnabled, builderScoreEnabled, raisingEnabled } from './builder-score-flag';
+import { raisingEnabled } from './builder-score-flag';
 import { CHAINS } from './match';
 import { GitHubError } from './match-projects';
 import { NotFoundError } from './programs';
@@ -96,45 +96,8 @@ const TELL_CHAIN = z.union([
   z.object({ chain: z.union([z.string(), z.number()]), mainnet: z.union([z.boolean(), z.string()]).optional() }),
 ]);
 
-/** v2.6 §3: what a token needs in the repo; exported for tests. v2.10 item 4: names the new tools. */
-export const OWNERSHIP_FOR_TOKEN =
-  'A token needs earnkit.txt at the repo root with the line "token: <code>": the exact line EarnKit gives you ' +
-  "(prepare's token_line once it knows the repo, or token.agent_note on gate_failed). Write and push it yourself; " +
-  'never ask the builder to edit files. It is bound to you and the repo. One token per repo.';
-
-/** v2.13.1 O5 N9: under the Bench a token's repo is proven by the proof branch EarnKit asks for (never an earnkit.txt line). */
+/** v2.13.1 O5 N9: a token's repo is proven by the proof branch EarnKit asks for (never an earnkit.txt line). */
 export const OWNERSHIP_FOR_TOKEN_BENCH = 'A token needs a repo proven yours; EarnKit gives you the proof step when it needs one.';
-
-/**
- * v2.10 item 4: find's description (list_programs and get_program). Exported for tests. T4's
- * local_repos sentence is carried forward (Pre-flight P21).
- */
-const FIND_LEAD = 'What can I earn? Pass local_repos: repos the builder wrote, from local git remotes. ';
-const FIND_YES = 'A yes to the reply prepares lead.program_id; more: true only when they ask for more. ';
-const findDescription = (lead: string, yes: string) =>
-  lead +
-  // v2.10 item 7: a private repo is matched from this report (GitHub won't show it). v2.10.1 fix
-  // round 1 (C1): plus the builder's own commit count.
-  'For private repos, report: name, chains, contracts, live link, last_commit_at, my_commits_90d. ' +
-  yes +
-  // v2.11 T7: the no-repo lead's yes starts the build path (prepare with build).
-  'build_offer: follow its agent_note. ' +
-  'program_id: one program and its guide; repo: whether it fits. ' +
-  SAFETY_TEXT;
-
-/** v2.11's find description, byte for byte (the flag off). */
-export const FIND_DESCRIPTION = findDescription(FIND_LEAD, FIND_YES);
-/**
- * v2.12 spec 3 (EARNKIT_BUILDER_SCORE on): v2.11's text leaves 4 characters under 800, so the yes
- * sentence is shortened to make room; the local_repos clause is kept. v2.12.1 spec "1. Connect":
- * identity replaces local_git, filled by the agent and never asked of the builder (the brief's
- * 'Also pass identity; never ask for it.' with 'more: true only on request.' measured 807, so both
- * sentences are a few words shorter).
- */
-export const FIND_DESCRIPTION_SCORE = findDescription(
-  FIND_LEAD + 'Pass identity; never ask for it. ',
-  'A yes prepares lead.program_id; more: true if asked. ',
-);
 
 /**
  * v2.13 spec "Tools": find takes the one project the agent is in (identity.project) and every agent
@@ -145,7 +108,7 @@ export const FIND_DESCRIPTION_BENCH =
   'Follow every agent_note. A yes or no to the last line goes to tell move_up. program_id: one program and its guide. ' +
   SAFETY_TEXT;
 
-/** v2.13: find's identity field under the flag: the one project, never a list. */
+/** v2.13: find's identity field: the one project, never a list. */
 const BENCH_IDENTITY_WORDS =
   "Fill it yourself, never ask the builder: { github_login (gh auth status), project: the project in this folder { name, what: a few plain words like 'a recipe planner' (README or package file), repo: git remote, live_url: README, package homepage or deploy config }, wallets }. One project, never a list.";
 
@@ -158,7 +121,7 @@ const prepareDescription = (campaignOpen: boolean, buildOn: boolean) =>
   // v2.11 T8: the build path starts from find's build_offer; named only with the build field (review M2).
   (buildOn ? 'build: a build_offer yes. ' : '') +
   (campaignOpen ? 'EarnKit campaigns: one Token row (a token on Base), then confirm is the entry. ' : '') +
-  (benchEnabled() ? OWNERSHIP_FOR_TOKEN_BENCH : OWNERSHIP_FOR_TOKEN);
+  OWNERSHIP_FOR_TOKEN_BENCH;
 
 /** v2.10 item 4 (R15): confirm's description (confirm_entry, launch_token and the entry write of record_submission). */
 const confirmDescription = (campaignOpen: boolean) =>
@@ -170,27 +133,9 @@ const confirmDescription = (campaignOpen: boolean) =>
   (campaignOpen ? 'EarnKit campaigns: this is the entry (contracts, deployer_signature). ' : '') +
   'Then follow agent_note.';
 
-/** v2.10 item 4 (R16): tell's description (tell_earnkit, pick_up_entries and record_submission's "I submitted"). Exported for the copy review. */
-export const TELL_DESCRIPTION =
-  'What the builder told you; call it only with what they said. submitted: { program_id, external_submission_url? } once they say they submitted ' +
-  "on the program's site (ask \"Did you submit on <program site>?\", and for the entry link when the site gives each entry a page); " +
-  'a shared agent adds project_id. pickup: "yes" or "no" to the pick-up question. ' +
-  'program_status: applied, not_interested, or their result (won, placed, lost, with ask_outcome\'s project_id). ' +
-  'repo_facts: mainnet_chains, testnet_chains, live_url, has_users, not_mine. weekly_email: their answer. ' +
-  'Results they report stay private and never count.';
-
 /**
- * v2.12 spec 7, 8 (EARNKIT_BUILDER_SCORE on): tell also takes the page's hide or show and the card
- * answer. v2.12.1 T8: and the yes or no to "How to move up"; no X handle (the X claim sets it).
- */
-export const TELL_DESCRIPTION_SCORE = TELL_DESCRIPTION.replace(
-  'pickup: "yes" or "no" to the pick-up question. ',
-  'pickup: "yes" or "no" to the pick-up question. profile: "hide" or "show" when they say so. card: "yes" or "skip" to the card question. move_up: their answer to the last line, with its kind and project_key. coin: their coin answer. ',
-);
-
-/**
- * v2.13 (EARNKIT_BENCH on): tell also takes this week's update (or a week to hide) and the weekly
- * posting yes, and coin { raising } (T9); under 800 characters (mcp.test.ts 5.11).
+ * v2.10 item 4 (R16), v2.13: tell's description: also this week's update (or a week to hide) and the
+ * weekly posting yes, and coin { raising } (T9); under 800 characters (mcp.test.ts 5.11).
  */
 export const TELL_DESCRIPTION_BENCH =
   "What the builder told you; call it only with what they said. submitted: { program_id, external_submission_url? } once they say they submitted on the program's site; a shared agent adds project_id. " +
@@ -199,13 +144,13 @@ export const TELL_DESCRIPTION_BENCH =
   'move_up: their answer to the last line, with its kind and project_key. pickup, profile (hide or show), card (yes or skip): their answers. ' +
   'program_status: applied, not_interested, won, placed or lost. repo_facts and weekly_email: what they said. Results they report stay private.';
 
-/** Final fix (controller ruling): EARNKIT_RAISING off under the Bench: coin takes no { raising }. */
+/** Final fix (controller ruling): EARNKIT_RAISING off: coin takes no { raising }. */
 export const TELL_DESCRIPTION_BENCH_NO_RAISING = TELL_DESCRIPTION_BENCH.replace(
   'coin: their coin answer, or { raising } when they open a community round or close it. ',
   'coin: their coin answer. ',
 );
 
-/** v2.12.1 T8: score's description (registered only while EARNKIT_BUILDER_SCORE=on). */
+/** v2.12.1 T8: score's description. */
 export const SCORE_DESCRIPTION =
   "Where the builder stands: what they shipped, their rank when it reads well, their page, and the one step up. Call it when they ask how they're doing. " +
   'Show show_to_builder as written; a yes or no to its last line goes to tell move_up (with move_up.kind and project_key). ' +
@@ -218,10 +163,10 @@ export const SCORE_DESCRIPTION =
  */
 export function toolDescriptions(campaignOpen: boolean, buildOn: boolean = deployEnabled() && deployChains().length > 0) {
   return {
-    find: benchEnabled() ? FIND_DESCRIPTION_BENCH : builderScoreEnabled() ? FIND_DESCRIPTION_SCORE : FIND_DESCRIPTION,
+    find: FIND_DESCRIPTION_BENCH,
     prepare: prepareDescription(campaignOpen, buildOn),
     confirm: confirmDescription(campaignOpen),
-    tell: benchEnabled() ? (raisingEnabled() ? TELL_DESCRIPTION_BENCH : TELL_DESCRIPTION_BENCH_NO_RAISING) : builderScoreEnabled() ? TELL_DESCRIPTION_SCORE : TELL_DESCRIPTION,
+    tell: raisingEnabled() ? TELL_DESCRIPTION_BENCH : TELL_DESCRIPTION_BENCH_NO_RAISING,
     score: SCORE_DESCRIPTION,
   };
 }
@@ -240,13 +185,9 @@ const deployerSignatureDescription = (campaignOpen: boolean) =>
     : `For \`contracts\` deployed by a wallet other than the entry's wallet: that wallet's signature (personal_sign) of ${ENTRY_LINE}. It binds this program, repo, payout wallet and contract set.`;
 
 /**
- * v2.7 §4: the MCP server's instructions, agent-facing. v2.10 item 4: around the 4 tools, under 800
- * characters with the safety lines; T7's token sentence carried forward (Pre-flight P21). v2.8
- * Ruling 23: the campaign sentence only while an EarnKit campaign is open. Pure.
- */
-/**
- * v2.13.1 O2 (EARNKIT_BENCH on): the Bench's flow, not the v2.10 entry-and-token one (the agent must
- * never read a yes to "post updates" or "build a tip jar" as a token launch). Under 800 characters.
+ * v2.7 §4, v2.13.1 O2: the MCP server's instructions, agent-facing: the Bench's flow, not the v2.10
+ * entry-and-token one (the agent must never read a yes to "post updates" as a token launch). Under
+ * 800 characters with the safety lines.
  */
 export const BENCH_INSTRUCTION_LINES = [
   'Call find first. Show show_to_builder exactly as written and follow every agent_note.',
@@ -255,26 +196,12 @@ export const BENCH_INSTRUCTION_LINES = [
   'Never name tools, fields or files to the builder, or invent personal details.',
 ];
 
-export function serverInstructions(campaignOpen: boolean) {
-  if (benchEnabled()) return [...BENCH_INSTRUCTION_LINES, ...SAFETY_LINES].join('\n');
-  return [
-    // v2.12 spec 7: the score sentence only while the score tool is listed; the first line is
-    // shortened then (as find's description was) so the instructions stay under 800 characters.
-    ...(builderScoreEnabled()
-      ? ["Call find, prepare until ready, confirm on the builder's yes, then tell once they submitted.", "Call score when they ask how they're doing."]
-      : ["Call find, then prepare until ready, then confirm on the builder's yes, then tell once they submitted."]),
-    'Show show_to_builder as written; since_you_last_checked first.',
-    'Yes submits the entry and launches the token; skip the token submits without one.',
-    // Fix round 1 (controller ruling): with the builder score on, no campaign sentence (campaigns
-    // are archived then, D5), so the instructions stay under 800 characters.
-    ...(campaignOpen && !builderScoreEnabled() ? ['EarnKit campaigns: confirm is the entry.'] : []),
-    'Never name tools, fields or files to the builder, or invent personal details.',
-    ...SAFETY_LINES,
-  ].join('\n');
+export function serverInstructions() {
+  return [...BENCH_INSTRUCTION_LINES, ...SAFETY_LINES].join('\n');
 }
 
-/** Every instruction with its campaign sentence; exported for the copy-review test. */
-export const SERVER_INSTRUCTIONS = serverInstructions(true);
+/** The instructions; exported for the copy-review test. */
+export const SERVER_INSTRUCTIONS = serverInstructions();
 
 /** v2.9 B9 (Ruling G9): the sign-in code, on the tools that read who the builder is. */
 const SIGNED_IN = z
@@ -333,7 +260,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
     { name: 'earnkit', version: '2.10.1' },
     // MCP sends instructions once, in the initialize response. The route builds a server per
     // request (stateless), so each session's initialize carries the campaignOpen read for it.
-    { instructions: serverInstructions(campaignOpen) },
+    { instructions: serverInstructions() },
   );
 
   // v2.10 item 4: list_programs and get_program. Read-only.
@@ -346,8 +273,8 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
         github_user: z
           .unknown()
           .optional()
-          // v2.13.3 (1): still read under the Bench (it fills identity.github_login), but not the way to send it.
-          .describe(benchEnabled() ? 'Older field: send identity.github_login instead' : "The builder's GitHub username"),
+          // v2.13.3 (1), v2.14 A24: still read (it fills identity.github_login), but not the way to send it.
+          .describe('Older field: send identity.github_login instead'),
         // v2.8.1 §B6 (fix round 1): anything; a wallet that isn't 0x is ignored with wallet_note.
         wallet: z
           .unknown()
@@ -356,9 +283,9 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
         repos: z
           .unknown()
           .optional()
-          .describe(benchEnabled() ? 'Older field: send identity.project instead' : 'Or specific "owner/repo" or github.com links (a list)'),
-        // v2.13.3 (1): an older agent's live link, read under the Bench as identity.project.live_url (never dropped).
-        ...(benchEnabled() ? { live_url: z.unknown().optional().describe('Older field: send identity.project.live_url instead') } : {}),
+          .describe('Older field: send identity.project instead'),
+        // v2.13.3 (1): an older agent's live link, read as identity.project.live_url (never dropped).
+        live_url: z.unknown().optional().describe('Older field: send identity.project.live_url instead'),
         // v2.8.1 §B6 (fix round 1): lenient here, so no report fails the call; tools.ts list_programs
         // (match-projects.ts LocalReposInput) reads what it can, drops the rest and keeps the limits
         // (20 repos, 20 chains each, 100-character names, 300-character links).
@@ -387,11 +314,10 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
                   .unknown()
                   .optional()
                   .describe("The repo's GitHub link, if the local remote is on GitHub"),
-                // v2.13.4 (production): under the Bench, an agent's `remote` or `repo` is kept (the SDK strips
-                // unknown keys), so the old fields' entry still names its repo. Flag off: unchanged.
-                ...(benchEnabled()
-                  ? { remote: z.unknown().optional().describe("Or the repo's git remote"), repo: z.unknown().optional().describe("Or the repo as 'owner/repo'") }
-                  : {}),
+                // v2.13.4 (production): an agent's `remote` or `repo` is kept (the SDK strips unknown keys), so
+                // the old fields' entry still names its repo.
+                remote: z.unknown().optional().describe("Or the repo's git remote"),
+                repo: z.unknown().optional().describe("Or the repo as 'owner/repo'"),
               }),
             ),
           ))
@@ -399,20 +325,9 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           .describe(
             'Private or local repos you can see. For private repos, report local_repos facts: name, chains, contracts, live link, last commit. EarnKit never needs their code.',
           ),
-        // v2.12.1 spec "1. Connect": what the agent can already see, listed only with the flag on (it
-        // replaces v2.12's local_git, still accepted). Read leniently (identity-input.ts identityInput).
-        ...(builderScoreEnabled()
-          ? {
-              identity: z
-                .unknown()
-                .optional()
-                .describe(
-                  benchEnabled()
-                    ? BENCH_IDENTITY_WORDS
-                    : "What you can already see; fill it yourself, never ask the builder: { github_login (gh auth status), projects: [{ name, what: a few plain words like 'a tip jar', repo, live_url, package, contracts: ['base:0x..'] }], wallets }",
-                ),
-            }
-          : {}),
+        // v2.12.1 spec "1. Connect": what the agent can already see (it replaces v2.12's local_git, still
+        // accepted). Read leniently (identity-input.ts identityInput).
+        identity: z.unknown().optional().describe(BENCH_IDENTITY_WORDS),
         agent_can_build: z
           .unknown()
           .optional()
@@ -455,8 +370,8 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
         // v2.10 item 13: EarnKit deploys the builder's contract (Arc or Base), the builder as owner.
         // Final fix M4: advertised only while deploys are on (as sponsor_campaign with escrow).
         ...(deployEnabled() && deployChains().length > 0 && { deploy: DEPLOY_SCHEMA, build: BUILD_SCHEMA }),
-        // v2.12.1 T9: the tip jar from a move-up yes (deploy only, no entry draft). Flag off: not listed.
-        ...(builderScoreEnabled() && deployEnabled() && deployChains().length > 0 && {
+        // v2.12.1 T9: the tip jar from a move-up yes (deploy only, no entry draft).
+        ...(deployEnabled() && deployChains().length > 0 && {
           tips: z.literal(true).optional().describe('true only for the tip jar a move_up yes asked for: deploy alone, never an entry'),
         }),
       },
@@ -496,13 +411,8 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
             .array(z.string())
             .max(5)
             .optional()
-            .describe(
-              // v2.13 R16: under the Bench flag, only the first sentence (no builder bonus).
-              benchEnabled()
-                ? `${campaignOpen ? 'EarnKit campaigns, and other programs (optional)' : 'Optional'}: the project's Base contracts (up to 5).`
-                : `${campaignOpen ? 'EarnKit campaigns, and other programs (optional)' : 'Optional'}: the project's Base contracts (up to 5). ` +
-                    "Their real users count toward the builder bonus once verified: deployed by the entry's wallet (or by the wallet that signed deployer_signature), with earnkit.txt naming it.",
-            ),
+            // v2.13 R16: no builder bonus sentence.
+            .describe(`${campaignOpen ? 'EarnKit campaigns, and other programs (optional)' : 'Optional'}: the project's Base contracts (up to 5).`),
           deployer_signature: z.string().optional().describe(deployerSignatureDescription(campaignOpen)),
           submitted: z
             .object({ external_submission_url: z.string().optional() })
@@ -534,69 +444,60 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
             .strict()
             .optional(),
           pickup: z.enum(['yes', 'no']).optional().describe("The builder's answer to the pick-up question"),
-          // v2.12 spec 7, 8: listed only with the flag on.
-          ...(builderScoreEnabled()
-            ? {
-                profile: z.enum(['hide', 'show']).optional().describe('hide or show their public page, when they say so'),
-                card: z.enum(['yes', 'skip']).optional().describe('Their answer to "Want a card to share it?"'),
-                move_up: z
-                  .object({
-                    kind: z.string().max(20).optional().describe("find's or score's move_up.kind"),
-                    project_key: z.string().max(300).nullable().optional().describe("find's or score's move_up.project_key"),
-                    answer: z.enum(['yes', 'no']),
-                    live_url: z.string().max(300).optional().describe("Only when a go_live note asks: the app's GitHub Pages link once it loads"),
-                  })
-                  .strict()
-                  .optional()
-                  .describe('Their answer to the How to move up line'),
-                // v2.13 T9 (F20): under the Bench flag with EARNKIT_RAISING on, coin also takes raising;
-                // otherwise byte for byte v2.12.2.
-                coin: raisingEnabled()
-                  ? z
-                      .object({
-                        project_key: z.string().max(300).optional().describe("The coin offer's project_key (move_up.project_key or coin.project_key)"),
-                        answer: z.enum(['yes', 'no']).optional(),
-                        wallet: z.string().max(100).optional().describe('The 0x address they gave for the fees, if they gave one'),
-                        raising: z.boolean().optional().describe('true when they open a community round, false when they close it'),
-                      })
-                      .strict()
-                      .optional()
-                      .describe('Their answer to a coin offer, or a community round')
-                  : z
-                      .object({
-                        project_key: z.string().max(300).describe("The coin offer's project_key (move_up.project_key or coin.project_key)"),
-                        answer: z.enum(['yes', 'no']),
-                        wallet: z.string().max(100).optional().describe('The 0x address they gave for the fees, if they gave one'),
-                      })
-                      .strict()
-                      .optional()
-                      .describe('Their answer to a coin offer'),
-                // v2.13: listed only with the Bench flag on.
-                ...(benchEnabled()
-                  ? {
-                      update: z
-                        .object({
-                          text: z.string().max(2000).optional().describe("This week's update: one plain paragraph, at most 280 characters"),
-                          hide: z.string().max(20).optional().describe('YYYY-MM-DD, any day of the week to hide'),
-                        })
-                        .strict()
-                        .optional()
-                        .describe("This week's update, or the week to hide"),
-                      updates: z
-                        .object({ on: z.boolean(), scheduled: z.boolean().optional().describe('true once your weekly task is scheduled') })
-                        .strict()
-                        .optional()
-                        .describe('Weekly posting on or off'),
-                      // v2.13.1 O5 N2: a refused push of the proof branch ends its wait at once.
-                      proof: z
-                        .object({ pushed: z.boolean().describe('false when GitHub refused the push of proof.push') })
-                        .strict()
-                        .optional()
-                        .describe('The proof branch push, when it was refused'),
-                    }
-                  : {}),
-              }
-            : {}),
+          // v2.12 spec 7, 8.
+          profile: z.enum(['hide', 'show']).optional().describe('hide or show their public page, when they say so'),
+          card: z.enum(['yes', 'skip']).optional().describe('Their answer to "Want a card to share it?"'),
+          move_up: z
+            .object({
+              kind: z.string().max(20).optional().describe("find's or score's move_up.kind"),
+              project_key: z.string().max(300).nullable().optional().describe("find's or score's move_up.project_key"),
+              answer: z.enum(['yes', 'no']),
+              live_url: z.string().max(300).optional().describe("Only when a go_live note asks: the app's GitHub Pages link once it loads"),
+            })
+            .strict()
+            .optional()
+            .describe('Their answer to the How to move up line'),
+          // v2.13 T9 (F20): with EARNKIT_RAISING on, coin also takes raising; otherwise byte for byte v2.12.2.
+          coin: raisingEnabled()
+            ? z
+                .object({
+                  project_key: z.string().max(300).optional().describe("The coin offer's project_key (move_up.project_key or coin.project_key)"),
+                  answer: z.enum(['yes', 'no']).optional(),
+                  wallet: z.string().max(100).optional().describe('The 0x address they gave for the fees, if they gave one'),
+                  raising: z.boolean().optional().describe('true when they open a community round, false when they close it'),
+                })
+                .strict()
+                .optional()
+                .describe('Their answer to a coin offer, or a community round')
+            : z
+                .object({
+                  project_key: z.string().max(300).describe("The coin offer's project_key (move_up.project_key or coin.project_key)"),
+                  answer: z.enum(['yes', 'no']),
+                  wallet: z.string().max(100).optional().describe('The 0x address they gave for the fees, if they gave one'),
+                })
+                .strict()
+                .optional()
+                .describe('Their answer to a coin offer'),
+          // v2.13: the ship log and the proof branch.
+          update: z
+            .object({
+              text: z.string().max(2000).optional().describe("This week's update: one plain paragraph, at most 280 characters"),
+              hide: z.string().max(20).optional().describe('YYYY-MM-DD, any day of the week to hide'),
+            })
+            .strict()
+            .optional()
+            .describe("This week's update, or the week to hide"),
+          updates: z
+            .object({ on: z.boolean(), scheduled: z.boolean().optional().describe('true once your weekly task is scheduled') })
+            .strict()
+            .optional()
+            .describe('Weekly posting on or off'),
+          // v2.13.1 O5 N2: a refused push of the proof branch ends its wait at once.
+          proof: z
+            .object({ pushed: z.boolean().describe('false when GitHub refused the push of proof.push') })
+            .strict()
+            .optional()
+            .describe('The proof branch push, when it was refused'),
           program_status: z
             .array(
               z
@@ -640,17 +541,16 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
     (input) => run(ctx, 'tell', input),
   );
 
-  // v2.12 spec 7: the 5th tool, only with the builder score on (off: the 4 v2.11 tools, byte for byte).
-  if (builderScoreEnabled())
-    server.registerTool(
-      'score',
-      {
-        description: descriptions.score,
-        inputSchema: {},
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-      },
-      (input) => run(ctx, 'score', input),
-    );
+  // v2.12 spec 7: the 5th tool.
+  server.registerTool(
+    'score',
+    {
+      description: descriptions.score,
+      inputSchema: {},
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    (input) => run(ctx, 'score', input),
+  );
 
   return server;
 }

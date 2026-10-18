@@ -23,7 +23,7 @@ import { GitHubBudgetStop, isBudgetStop, readContractOrigin, soft, type ReaderDe
 import { claimContract, proposeSource, rejectSource, repoOwned, verifySource, type Proof } from './sources';
 import { STALE, heldByOther } from './proof-branch';
 import { proofLineOwner } from './token-gate';
-import { readGithubUser, readOwnedRepos, readPersonGithub, type PersonGithub } from './person-github';
+import { readGithubUser, type PersonGithub } from './person-github';
 
 /**
  * v2.12 spec 3: finding a person's past work. `find` never waits on it: it records the agent's

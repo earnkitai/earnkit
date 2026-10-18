@@ -1,11 +1,5 @@
-import { BONUS_SPLIT_BPS } from './bonus-payout';
-import { benchEnabled } from './builder-score-flag';
-import { WEIGHTS } from './traction';
-
 /**
- * The facts the public policy (/terms#policy, v2.5 §4, v2.9 F22) states. The ranking weights and payout split
- * are imported from the code that applies them (traction.ts WEIGHTS, bonus-payout.ts
- * BONUS_SPLIT_BPS). The fee split is NOT: tokens.fun applies it (its EarnKit reward recipients,
+ * The facts the public policy (/terms#policy, v2.5 §4, v2.9 F22) states. The fee split is NOT applied here: tokens.fun applies it (its EarnKit reward recipients,
  * branch earnkit-fee-split), so FEE_SPLIT_BPS here is a copy that must be changed with it.
  */
 
@@ -16,8 +10,7 @@ export const FEE_SPLIT_BPS_V213 = { project: 4000, buyback: 1000, earnkit: 5000 
 
 /**
  * v2.9 D16, D17 (Ruling 17): the MINI fallback fee recipient and the payout wallet's gas floor. They
- * live in a leaf module because bonus-ledger.ts reads them, and this file imports bonus-payout.ts and
- * traction.ts, which import bonus-ledger.ts (an import cycle).
+ * live in a leaf module because bonus-ledger.ts reads them.
  */
 export { GAS_WALLET_MIN_WEI_DEFAULT, MINI_FEE_RECIPIENT } from './policy-constants';
 
@@ -31,25 +24,16 @@ export const CONTACT_EMAIL = 'j@earnkit.com';
 
 const pct = (bps: number) => `${bps / 100}%`;
 
-export const FEE_ROWS: [string, string][] = [
-  ['Your project', pct(FEE_SPLIT_BPS.project)],
-  ['MINI buyback', pct(FEE_SPLIT_BPS.buyback)],
-  ['Builder bonus', pct(FEE_SPLIT_BPS.bonus)],
-  ['EarnKit', pct(FEE_SPLIT_BPS.earnkit)],
-];
-
-/** The terms' fee table: today's four rows, or v2.13's three under the Bench flag (no builder bonus). */
+/** The terms' fee table: v2.13's three rows (no builder bonus). */
 export function feeTable(): [string, string][] {
-  if (benchEnabled())
-    return [
-      ['Your project', pct(FEE_SPLIT_BPS_V213.project)],
-      ['MINI buyback', pct(FEE_SPLIT_BPS_V213.buyback)],
-      ['EarnKit', pct(FEE_SPLIT_BPS_V213.earnkit)],
-    ];
-  return FEE_ROWS;
+  return [
+    ['Your project', pct(FEE_SPLIT_BPS_V213.project)],
+    ['MINI buyback', pct(FEE_SPLIT_BPS_V213.buyback)],
+    ['EarnKit', pct(FEE_SPLIT_BPS_V213.earnkit)],
+  ];
 }
 
-/** v2.13: under the Bench flag, the line after the fee table (coins keep the split they launched with). */
+/** v2.13: the line after the fee table (coins keep the split they launched with). */
 export const SPLIT_KEPT_V213 = 'Coins launched before this change keep the split they launched with.';
 
 /**
@@ -57,21 +41,6 @@ export const SPLIT_KEPT_V213 = 'Coins launched before this change keep the split
  * is the 10%; the split itself is unchanged).
  */
 export const MINI_LINE = "10% buys MINI, EarnKit's token";
-
-/** The traction signals and their weights (traction.ts WEIGHTS). Trading volume is never one. */
-export const SIGNAL_ROWS: [string, number][] = [
-  ['Real onchain users of your contracts', WEIGHTS.users],
-  ['Live product that loads (daily checks)', WEIGHTS.live],
-  ['Shipping: commit days and contributors', WEIGHTS.shipping],
-  ['New repo interest: stars and forks from real accounts, capped', WEIGHTS.interest],
-  ['Token holders, capped', WEIGHTS.holders],
-];
-
-/** The round pool's split by place (bonus-payout.ts BONUS_SPLIT_BPS). */
-export const PLACE_ROWS: [string, string][] = BONUS_SPLIT_BPS.map((bps, i) => [
-  `${i + 1}${['st', 'nd', 'rd'][i] ?? 'th'}`,
-  pct(bps),
-]);
 
 /**
  * v2.11 T12 (spec 9): /terms "What EarnKit records". Every line is checked against what the code

@@ -1,5 +1,4 @@
 import { rankWords, type Standing } from './rank';
-import { pageUrl } from './reserved-routes';
 
 /**
  * The Bench's shared reply text and types (v2.14: what stayed of v2.12.1's where-you-stand.ts once
@@ -60,18 +59,9 @@ export type StandView = {
 };
 
 const ARTICLE = /^(a|an|the|my)\s+/i;
-/** "a tip jar" as a list item; the name when no words were given. */
-const listed = (p: StandProject) => p.what ?? p.name;
 /** "Your tip jar" from the few words; a name stays exactly as the builder wrote it ("tokens.fun", never capitalized). */
 const yours = (p: StandProject) => (p.what ? `Your ${p.what.replace(ARTICLE, '')}` : p.name);
-/** "your tip jar" inside a sentence; the name as written. */
-const yoursIn = (p: StandProject) => (p.what ? `your ${p.what.replace(ARTICLE, '')}` : p.name);
-const andList = (xs: string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 const sentenceStart = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-const nounOf = (ps: StandProject[]) => {
-  const apps = ps.every((p) => p.app);
-  return ps.length === 1 ? (apps ? 'app' : 'project') : apps ? 'apps' : 'projects';
-};
 
 const PAY = /\b(tip|donat|pay|shop|store|ticket|book|course|member|support|fund|sell|order|subscri)/i;
 /** Plan S14: a payment side fits only apps whose own words are about money changing hands. Pure. */
@@ -152,3 +142,5 @@ export const pageReadyLine = (link: string) => `Your EarnKit page is ready. Clai
 /** The yes to a `confirm` step: the re-issued link, which lasts 30 minutes (never a period after it). */
 export const confirmLinkLine = (link: string) => `Open this to show it's yours. It works for 30 minutes: ${link}`;
 export const EARN_NOTE = 'If the builder picks a program, prepare it with lead.program_id (call prepare). Programs are named, not asked: the reply has one question, the last line.';
+/** The plain answer when a yes or no changes nothing (v2.12.1 make-countable.ts COUNT_LINES.noted). */
+export const NOTED_LINE = 'Okay.';

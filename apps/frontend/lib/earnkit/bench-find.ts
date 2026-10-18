@@ -19,8 +19,7 @@ import { NEEDS_LIVE_PRODUCT } from './guide';
 import { siteUrl } from './entry-text';
 import { pagePath } from './reserved-routes';
 import { STARTERS, type Starter } from './starters';
-import { EARN_NOTE, newsOpener } from './stand-text';
-import { COUNT_LINES } from './make-countable';
+import { EARN_NOTE, NOTED_LINE, newsOpener } from './stand-text';
 import {
   biggestPick, declinedNow, earnPrize, earnWhen, hostFor, rollingPick, scoreEarn, showable, standBase, startRefresh, takeNews,
   type Seen as StandSeen, type StandBase,
@@ -627,7 +626,7 @@ export async function benchAsked(id: number, m: { kind?: string; project_key?: s
 export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId' | 'probation'>, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no'; live_url?: string }): Promise<Reply> {
   const id = ctx.installationId;
   const now = new Date();
-  const okay = { show_to_builder: COUNT_LINES.noted };
+  const okay = { show_to_builder: NOTED_LINE };
   // v2.13.4 I-1: the join notice is answered by the caller's own installation, on the join row, never through
   // the page's stored ask; page-joins.ts answerNotice checks it may answer (I-2) on a yes and on a no.
   if (m.kind === 'remove_agent') {
