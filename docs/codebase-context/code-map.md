@@ -1410,6 +1410,7 @@ apps/frontend/
                                test-db.ts + test-db-template/create/drop.mjs (v2.14 T2: each test file runs in its own
                                ek_t_<hash>_<pid> database copied from this worktree's ek_test_template_<key>; databases
                                are tagged per worktree and only this worktree's dead leftovers are ever dropped),
+                               Needs Postgres 15+ (STRATEGY FILE_COPY) and a local server (localhost, 127.0.0.1 or ::1 only),
                                mcp-call.ts (v2.14 T2: mcpCall / mcpListTools, tools/call through the real MCP server),
                                clanker-base-launch.json (a real Base receipt, from tokens.fun),
                                bonus-db-lock.ts (test-only advisory lock for the bonus test files),

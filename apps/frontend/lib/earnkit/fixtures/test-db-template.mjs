@@ -3,10 +3,13 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import postgres from 'postgres';
+import { assertLocalPostgres } from './local-postgres.mjs';
+
+export { assertLocalPostgres };
 
 const FRONTEND = join(import.meta.dirname, '..', '..', '..');
 const ROOT = join(FRONTEND, '..', '..');
-export const TEMPLATE_DB = 'ek_test_template';
+const TEMPLATE_DB = 'ek_test_template';
 const hash = (s) => createHash('sha256').update(s).digest('hex');
 /**
  * D13: the test server is shared by every worktree. Each worktree gets its own template
@@ -41,6 +44,7 @@ const alive = (pid) => {
  * advisory lock, so concurrent first files wait for one build.
  */
 export async function buildTemplate(adminUrl, { fresh = false, ifMissing = false } = {}) {
+  assertLocalPostgres(adminUrl);
   const schema = readFileSync(join(FRONTEND, 'db', 'schema.sql'), 'utf8');
   const templateTag = `${TAG} ${hash(schema).slice(0, 12)}`;
   const admin = postgres(adminUrl, { max: 1, onnotice: () => {} });

@@ -1,7 +1,8 @@
 import postgres from 'postgres';
-import { TAG, TEST_DB_NAME, tagOf } from './test-db-template.mjs';
+import { TAG, assertLocalPostgres, TEST_DB_NAME, tagOf } from './test-db-template.mjs';
 
 const [, , adminUrl, name] = process.argv;
+assertLocalPostgres(adminUrl);
 if (TEST_DB_NAME.test(name ?? '')) {
   const admin = postgres(adminUrl, { max: 1, onnotice: () => {} });
   try {

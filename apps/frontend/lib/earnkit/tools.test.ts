@@ -368,6 +368,7 @@ test('v2.5 §1: list_programs reads the builder bonus pools once, only where ent
   // neighboring "Ruling 11 (plan) fix round 1" test).
   // v2.14 T2: every other open program too (a freshly synced database has open programs that need no
   // repo, e.g. avalanche-team1-mini-grants, and the close would name one); the file has its own database.
+  // This close/reopen relies on the per-file database (test-guard): no other file sees it.
   const stray = await sql()<{ id: string }[]>`
     SELECT id FROM programs WHERE status = 'active'`;
   if (stray.length) await sql()`UPDATE programs SET status = 'closed' WHERE id IN ${sql()(stray.map((s) => s.id))}`;

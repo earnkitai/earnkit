@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
 import { join } from 'node:path';
+import { assertLocalPostgres } from './local-postgres.mjs';
 
 /**
  * v2.14 spec 6: one database per test file, so files never race. In a node:test child process (the runner
@@ -11,7 +12,7 @@ import { join } from 'node:path';
  * and only this worktree's databases whose process is gone are ever cleaned up, so another worktree's run on
  * the same server is never touched.
  */
-export const TEMPLATE_DB = 'ek_test_template';
+export { isLocalPostgres, assertLocalPostgres } from './local-postgres.mjs';
 export const testDbName = (file: string, pid: number) => `ek_t_${createHash('sha256').update(file).digest('hex').slice(0, 10)}_${pid}`;
 export function withDatabase(url: string, db: string): string {
   const u = new URL(url);
@@ -22,6 +23,7 @@ export function perFileDatabase(env: NodeJS.ProcessEnv = process.env, argv: stri
   const url = env.DATABASE_URL;
   const file = argv[1] ?? '';
   if (!url || env.EK_TEST_DB || !env.NODE_TEST_CONTEXT?.startsWith('child') || !/\.test\.ts$/.test(file)) return null;
+  assertLocalPostgres(url);
   const name = testDbName(file, process.pid);
   const here = import.meta.dirname;
   execFileSync(process.execPath, [join(here, 'test-db-create.mjs'), url, name], { stdio: 'inherit' });

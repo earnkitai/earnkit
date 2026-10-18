@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
-import { TEMPLATE_DB, testDbName, withDatabase } from './fixtures/test-db';
+import { assertLocalPostgres, isLocalPostgres, testDbName, withDatabase } from './fixtures/test-db';
 import { mcpCall, mcpListTools } from './fixtures/mcp-call';
 import { saveInstallation, connectInstallation } from './installations';
 
@@ -16,7 +16,6 @@ test('2.1 a test file gets a stable, distinct database name', () => {
   assert.equal(testDbName('/x/a.test.ts', 41), a);
   assert.notEqual(testDbName('/x/b.test.ts', 41), a);
   assert.notEqual(testDbName('/x/a.test.ts', 42), a);
-  assert.equal(TEMPLATE_DB, 'ek_test_template');
 });
 
 test('2.2 withDatabase swaps only the database', () => {
@@ -24,6 +23,15 @@ test('2.2 withDatabase swaps only the database', () => {
     withDatabase('postgres://postgres@127.0.0.1:55442/postgres?sslmode=disable', 'ek_t_0123456789_7'),
     'postgres://postgres@127.0.0.1:55442/ek_t_0123456789_7?sslmode=disable',
   );
+});
+
+test('2.2b per-file databases refuse a remote Postgres', () => {
+  for (const u of ['postgres://u:p@db.neon.tech/x', 'postgres://u:p@10.0.0.5:5432/x', 'postgres://u:p@localhost.evil.com/x', 'postgres:///x?host=db.neon.tech', 'not a url'])
+    assert.equal(isLocalPostgres(u), false, u);
+  assert.throws(() => assertLocalPostgres('postgres://u:p@db.neon.tech/x'), /only run against a local Postgres/);
+  for (const u of ['postgres://u@localhost:5432/x', 'postgres://u@127.0.0.1:55442/postgres', 'postgres://u@[::1]:5432/x', 'postgres:///x?host=/var/run/postgresql'])
+    assert.equal(isLocalPostgres(u), true, u);
+  assert.doesNotThrow(() => assertLocalPostgres('postgres://u@localhost/x'));
 });
 
 test('2.3 this file runs in its own database, with the schema and the programs', db, async () => {
@@ -45,6 +53,14 @@ test('2.4 mcpCall goes through tools/call: the schema runs before the handler', 
   assert.equal(typeof r.reply?.show_to_builder, 'string');
   const bad = await mcpCall(ctx, 'confirm', { yes: 'not-a-boolean' });
   assert.equal(bad.isError, true);
+  assert.match(bad.text, /invalid|yes|expected/i, `the schema's validation message, got: ${bad.text}`);
+  // find's schema is a plain object: an unknown key is stripped, not an error.
+  const stripped = await mcpCall(ctx, 'find', { not_a_real_key: 1 });
+  assert.equal(stripped.isError, false, stripped.text);
+  // confirm's schema is .strict(): an unknown key is a validation error naming the key.
+  const strict = await mcpCall(ctx, 'confirm', { not_a_real_key: 1 });
+  assert.equal(strict.isError, true);
+  assert.match(strict.text, /not_a_real_key|unrecognized|invalid/i, strict.text);
 });
 
 test('2.5 mcpListTools lists the five tools', async () => {
