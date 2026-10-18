@@ -19,7 +19,7 @@ import { enteredProgramIds, hasProgramEntry } from './projects';
 import { setSanctionsOracle } from './sanctions';
 import { tokenLineFor } from './token-gate';
 import type { DeployDeps } from './deploy';
-import { freshLead, presentFirstMessage } from './present';
+import { freshLead, presentFirstMessage, type RepoFit } from './present';
 import { launchLimit, type TokenFlowDeps } from './token-launch';
 import { fakeGitHub } from './fixtures/fake-github-branch';
 import { offerKey, saveOffer } from './token-offers';
@@ -3169,3 +3169,41 @@ test('10.13b the build path: no to the coin enters without one and counts as a d
     assert.equal(m.answer, 'no');
   }),
 );
+
+// v2.14 T3 fix round 1: the v2.11 repo matcher's privacy rule, still live on a shared client (the Bench has
+// no repo matching off one).
+test('4.A7/A8 (Ruling G7) on a shared client list_programs keeps no fit repos and records no row shown', dbTest, async () => {
+  const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const arc = committedProgram('arc-microgrants');
+  const pid = `t4-arc-${stamp}`;
+  await upsertProgram(ProgramFile.parse({ ...arc, id: pid, title: `Arc T4 ${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' }));
+  const facts = (name: string) => ({
+    name, url: `https://github.com/alice/${name}`, homepage: 'https://tipjar.xyz', created_at: '2026-01-01T00:00:00Z',
+    chains: { arc: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' as const } }, commits_in_window: {}, live_verified: true,
+  });
+  const fit = (name: string, score: number, missing: ('owned' | 'readme')[] = []): RepoFit => ({
+    ...scoredFit(name, score, pid),
+    key: `alice/${name}`,
+    product: { score, tier: score >= 5 ? 'product' : 'project', missing },
+    live_verified: true,
+    facts: facts(name),
+  });
+  const fits = [fit('tipjar', 6), fit('other', 6, ['owned']), fit('side', 4)];
+  const ctxOf = (id: number, sharedClient = false) => ({
+    installationId: id, sharedClient,
+    matchProjects: async () => ({ checked: 3, scored: 3, fits }),
+  });
+  const [{ id: shared }] = await sql()<{ id: number }[]>`
+    INSERT INTO installations (token_hash, shared_client) VALUES (${`t4-shared-${stamp}`}, true) RETURNING id`;
+  try {
+    // Ruling G7: a shared client keeps no fit repos (its alerts are off) and records nothing shown.
+    await handlers.list_programs({ more: true, local_repos: [{ name: 'tipjar', chains: ['arc'] }] }, ctxOf(shared, true));
+    const [s] = await sql()<{ fit_repos: unknown[] }[]>`SELECT fit_repos FROM installations WHERE id = ${shared}`;
+    assert.deepEqual(s.fit_repos, []);
+    const [{ n }] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM match_shown WHERE installation_id = ${shared}`;
+    assert.equal(n, 0);
+  } finally {
+    await sql()`DELETE FROM installations WHERE id = ${shared}`;
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${pid}`;
+  }
+});
