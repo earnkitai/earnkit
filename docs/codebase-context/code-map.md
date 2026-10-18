@@ -1407,6 +1407,10 @@ apps/frontend/
                                never `flagged`, so never needs_owner or a 503)
     test-guard.test.ts         Part 2 final review I3: the preloaded guard clears vendor keys, fetch is local only
     fixtures/                  test-guard.ts (the `--import` preload above; no network, no vendor keys),
+                               test-db.ts + test-db-template/create/drop.mjs (v2.14 T2: each test file runs in its own
+                               ek_t_<hash>_<pid> database copied from this worktree's ek_test_template_<key>; databases
+                               are tagged per worktree and only this worktree's dead leftovers are ever dropped),
+                               mcp-call.ts (v2.14 T2: mcpCall / mcpListTools, tools/call through the real MCP server),
                                clanker-base-launch.json (a real Base receipt, from tokens.fun),
                                bonus-db-lock.ts (test-only advisory lock for the bonus test files),
                                fake-github-branch.ts (v2.13.2: fakeGitHub, idOf: the proof branch fake API),
@@ -1787,7 +1791,8 @@ Root commands: `pnpm programs:check` (validate program files, logo files, and a 
 required submission item), `pnpm test` (v2.9 T12: runs `pnpm host:typecheck` first, P42; Part 2 final review I3: it and
 `token:e2e`, `campaign:e2e` and `sponsor:e2e` preload `lib/earnkit/fixtures/test-guard.ts`, which
 clears the tokens.fun, Resend, R2 and GitHub OAuth keys and makes `fetch` throw for any host but
-localhost, 127.0.0.1, ::1 and `BONUS_ANVIL_URL`; `LINK_CHECK=1` keeps the real fetch),
+localhost, 127.0.0.1, ::1 and `BONUS_ANVIL_URL`; `LINK_CHECK=1` keeps the real fetch; v2.14 T2: it first rebuilds
+this worktree's test template, and the guard gives every test file its own database),
 `pnpm campaign --help`, `pnpm campaign scores-link` (v2.12: the owner's /admin/scores link), `pnpm campaign golive|rank|payout|veto-link <slug>` (EarnKit's own
 campaigns; payout is a dry run only, the cron pays), `pnpm campaign fallback propose|execute|veto <ref>`, `refund <ref>` (sponsor
 campaigns; dry run without `--execute`; `OPERATOR_PRIVATE_KEY`, the veto `GUARDIAN_PRIVATE_KEY`;
