@@ -31,8 +31,7 @@ const CLEARED = [
   'DEPLOY_CHAINS',
   // v2.11 Task 2: the builder event log (a test that needs it on sets it).
   'EARNKIT_EVENT_LOG',
-  // v2.12: the builder score and the four archive flags (a test that needs one on sets it).
-  'EARNKIT_BUILDER_SCORE',
+  // v2.12: the four archive flags (a test that needs one on sets it).
   'EARNKIT_SPONSOR_CAMPAIGNS',
   'EARNKIT_STARTER_REGISTRY',
   'EARNKIT_PROGRAM_LEADERBOARDS',
@@ -41,9 +40,7 @@ const CLEARED = [
   'X_CLIENT_ID',
   'X_CLIENT_SECRET',
   'EARNKIT_BASE_AGENT_CODES',
-  // v2.13: the Bench (a test that needs it on sets it, with EARNKIT_BUILDER_SCORE).
-  'EARNKIT_BENCH',
-  // v2.13 final fix: the Raising pill and asks (a test that needs it on sets it, with the Bench flags).
+  // v2.13 final fix: the Raising pill and asks (a test that needs it on sets it).
   'EARNKIT_RAISING',
 ];
 for (const name of CLEARED) delete process.env[name];

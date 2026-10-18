@@ -7,8 +7,6 @@ import { HELD_NOTE, HIDE_DATE_NOTE, HIDE_NONE_NOTE, NOT_CONFIRMED_NOTE, UPDATE_L
 import { UPDATE_LINK_NOTE } from './update-text';
 import { tools } from './tools';
 
-process.env.EARNKIT_BUILDER_SCORE = 'on';
-process.env.EARNKIT_BENCH = 'on';
 process.env[EVENT_LOG_FLAG] = 'on';
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => { if (process.env.DATABASE_URL) await sql().end(); });

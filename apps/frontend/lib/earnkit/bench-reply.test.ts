@@ -1,5 +1,3 @@
-process.env.EARNKIT_BUILDER_SCORE = 'on';
-process.env.EARNKIT_BENCH = 'on';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {

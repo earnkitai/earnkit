@@ -7,8 +7,6 @@ import { readSources, withPastCounts } from './sources';
 import { discover } from './discovery';
 import type { ReaderDeps } from './source-readers';
 
-process.env.EARNKIT_BUILDER_SCORE = 'on';
-process.env.EARNKIT_BENCH = 'on';
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => { if (process.env.DATABASE_URL) await sql().end(); });
 const NOW = new Date();
@@ -112,11 +110,9 @@ test('3.5 flag off: the refresh still reads a person\'s own repos through the pe
     }
     return inner<R>(q, v);
   };
-  delete process.env.EARNKIT_BENCH;
   try {
     await readPersonLive(id, NOW, { deadline: Date.now() + 10_000, reader: d });
     assert.deepEqual(queries, [PERSON_GITHUB_QUERY]);
   } finally {
-    process.env.EARNKIT_BENCH = 'on';
   }
 });

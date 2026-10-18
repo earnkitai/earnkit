@@ -12,7 +12,6 @@ import {
 
 /** v2.12.1 T11: the page's words and data (page-data.ts) and its pure views. */
 
-process.env.EARNKIT_BUILDER_SCORE = 'on';
 (globalThis as { React?: typeof React }).React = React;
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
 const text = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/&#x27;|&#39;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ');

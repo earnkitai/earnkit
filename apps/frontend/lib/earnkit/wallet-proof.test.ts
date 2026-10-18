@@ -33,7 +33,6 @@ async function claimed(handle: string): Promise<number> {
 }
 async function withScore<T>(fn: () => Promise<T>): Promise<T> {
   const old = process.env.EARNKIT_BUILDER_SCORE;
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
   try {
     return await fn();
   } finally {

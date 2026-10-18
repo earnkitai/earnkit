@@ -12,8 +12,6 @@ import { tools } from './tools';
 import { refreshDiscovery } from './person-score';
 import { PROOF_BRANCH_NOTE } from './proof-branch';
 
-process.env.EARNKIT_BUILDER_SCORE = 'on';
-process.env.EARNKIT_BENCH = 'on';
 process.env.EARNKIT_AUTH_SECRET ||= 'v213-main-secret';
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => { if (process.env.DATABASE_URL) await sql().end(); });

@@ -868,7 +868,6 @@ test('12.1 v2.11 /terms "What EarnKit records": login and how it was checked, wa
 
 const withScoreFlag = <T,>(fn: () => T): T => {
   const was = process.env.EARNKIT_BUILDER_SCORE;
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
   try {
     return fn();
   } finally {
@@ -878,7 +877,6 @@ const withScoreFlag = <T,>(fn: () => T): T => {
 };
 
 test('final I1: flag off, /terms is v2.11: no builder-profiles section, nav link or description words', () => {
-  delete process.env.EARNKIT_BUILDER_SCORE;
   const h = html(React.createElement(TermsPage));
   assert.doesNotMatch(h, /builder-profiles/);
   assert.doesNotMatch(text(h), /Builder profiles/);

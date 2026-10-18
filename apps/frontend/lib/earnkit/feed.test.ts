@@ -8,8 +8,6 @@ import { CAROUSEL_MAX, FEED_WEEK_MAX, carouselCards, feedRankStep, feedWeeks, po
 import FeedView, { FEED_TITLE } from '../../app/feed/FeedView';
 import UpdateCard from '../../app/components/ui/UpdateCard';
 
-process.env.EARNKIT_BUILDER_SCORE = 'on';
-process.env.EARNKIT_BENCH = 'on';
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => { if (process.env.DATABASE_URL) await sql().end(); });
 (globalThis as { React?: typeof React }).React = React;

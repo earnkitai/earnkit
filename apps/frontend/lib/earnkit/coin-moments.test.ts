@@ -21,7 +21,6 @@ import type { TokenFlowDeps } from './token-launch';
  * client or a held profile; the yes makes a coin entry that confirm launches. DB-gated; no network.
  */
 
-process.env.EARNKIT_BUILDER_SCORE = 'on';
 // coinAllowed needs tokenLaunchesAvailable(); test-guard clears the key.
 process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
 process.env.EARNKIT_AUTH_SECRET ||= 'v2121-t10-secret';
@@ -148,11 +147,9 @@ test('10.4 with the flag on, a program entry\'s confirm never pitches a token; t
   assert.equal(await coinPitchAllowed(id, { program_id: 'arc-microgrants', build: true }), true);
   // Fix round 2: a coin entry is only ever checked by its project_id (an accepted offer names it).
   assert.equal(await coinPitchAllowed(id, { program_id: 'earnkit-coin', build: false }), false);
-  delete process.env.EARNKIT_BUILDER_SCORE;
   try {
     assert.equal(await coinPitchAllowed(id, { program_id: 'arc-microgrants', build: false }), true); // v2.11
   } finally {
-    process.env.EARNKIT_BUILDER_SCORE = 'on';
   }
 });
 
@@ -276,14 +273,12 @@ test('10.6 tell coin reaches the coin answer through the MCP schema; flag off do
   }
   const [m] = await sql()`SELECT answer FROM coin_moments WHERE builder_id = ${id}`;
   assert.equal(m.answer, 'no', 'the answer arrived (stripped, nothing would change)');
-  delete process.env.EARNKIT_BUILDER_SCORE;
   try {
     const off = await mcpClient(id);
     const { tools: listed } = await off.listTools();
     await off.close();
     assert.ok(!('coin' in (listed.find((t) => t.name === 'tell')!.inputSchema.properties as Record<string, unknown>)));
   } finally {
-    process.env.EARNKIT_BUILDER_SCORE = 'on';
   }
 });
 
@@ -353,14 +348,12 @@ test('10.9 a coin entry never shows in "Your entries", the entered programs or a
 test('10.10 flag off: no coin is ever offered, and tell coin changes nothing (v2.11)', dbTest, async () => {
   const id = await claimed('off_dev');
   await usedProject(id, 'k', 'K', 9);
-  delete process.env.EARNKIT_BUILDER_SCORE;
   try {
     assert.equal(await coinAllowed(id, 'k'), false);
     assert.equal(await offerCoin(id, 'k', 'has_people'), null);
     // Ignored, as move_up is with the flag off (the MCP schema doesn't list it, so no agent sends it).
     await assert.rejects(tools.tell({ coin: { project_key: 'k', answer: 'yes' } }, { installationId: id } as never), /Pass at least one/);
   } finally {
-    process.env.EARNKIT_BUILDER_SCORE = 'on';
   }
   assert.equal((await sql()`SELECT 1 FROM coin_moments WHERE builder_id = ${id}`).length, 0);
 });
@@ -528,7 +521,6 @@ test('T12 fix 1: flag off, a coin entry made while it was on is never confirmed 
   const ctx = { installationId: id, tokenDeps: deps, roundPools: async () => new Map(), repoCoins: async () => new Map() } as never;
   await offerCoin(id, key, 'has_people');
   const yes = (await tools.tell({ coin: { project_key: key, answer: 'yes', wallet: W } }, ctx)) as { project_id: number; token: { name: string; symbol: string } };
-  delete process.env.EARNKIT_BUILDER_SCORE;
   try {
     const r = (await tools.confirm({ project_id: yes.project_id, yes: true, wallet: W, token: yes.token }, ctx)) as { status: string };
     assert.notEqual(r.status, 'launched', JSON.stringify(r));
@@ -539,24 +531,19 @@ test('T12 fix 1: flag off, a coin entry made while it was on is never confirmed 
     const [p] = await sql()<{ token_status: string | null }[]>`SELECT token_status FROM projects WHERE id = ${yes.project_id}`;
     assert.notEqual(p.token_status, 'launched');
   } finally {
-    process.env.EARNKIT_BUILDER_SCORE = 'on';
   }
 });
 
 test('9.7 under the flag every coin moment but built_live says the raise line; flag off the v2.12.1 lines stay', () => {
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
   // Final fix: the raise line is EARNKIT_RAISING's (v213-final-fix F10: off keeps the v2.12.1 line).
   process.env.EARNKIT_RAISING = 'on';
   const coin = { name: 'Recipe planner', symbol: 'RECIPE' };
-  delete process.env.EARNKIT_BENCH;
   assert.equal(coinLine('has_people', 'Recipe planner', null, coin), "Recipe planner has people using it. Want to launch a coin, $RECIPE (Recipe planner), for it? You'd get 40% of its trading fees.");
-  process.env.EARNKIT_BENCH = 'on';
   try {
     for (const m of ['countable', 'first_five', 'has_people', 'streak_five'] as const)
       assert.equal(coinLine(m, 'Recipe planner', null, coin), raiseLine('Recipe planner', 'RECIPE', null));
     assert.match(coinLine('built_live', 'Recipe planner', null, coin), /^It's live\b/);
   } finally {
-    delete process.env.EARNKIT_BENCH;
     delete process.env.EARNKIT_RAISING;
   }
 });
@@ -568,7 +555,6 @@ test('9.7b five weeks in a row is a coin moment (once); the yes sets raising_at 
   // v2.13.3 review (I1): a community round only for a repo read public.
   const markPublic = () => sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${id} AND kind = 'repo'`;
   await markPublic();
-  process.env.EARNKIT_BENCH = 'on';
   process.env.EARNKIT_RAISING = 'on';
   try {
     const { coinAskBench } = await import('./bench-find');
@@ -595,7 +581,6 @@ test('9.7b five weeks in a row is a coin moment (once); the yes sets raising_at 
     assert.equal(x.raising, true);
     assert.equal((await sql()`SELECT 1 FROM builder_events WHERE installation_id = ${id} AND type = 'raising_on'`).length, 1);
   } finally {
-    delete process.env.EARNKIT_BENCH;
     delete process.env.EARNKIT_RAISING;
   }
 });

@@ -25,7 +25,6 @@ after(async () => {
 test('11.11 (v2.12.1 T12) /b/<v2.12 slug>/card.png: unclaimed or hidden is a no-store 404, claimed moves to the page\'s card (308), an old slug too; flag off 404', dbTest, async () => {
   const { sql, setHidden, ensureProfile, GET } = await load();
   const was = process.env.EARNKIT_BUILDER_SCORE;
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
   const get = (slug: string) => GET(new Request(`http://x/b/${slug}/card.png`), { params: Promise.resolve({ slug }) });
   const id = 2_140_000_000 + Math.floor(Math.random() * 7_000_000);
   try {
@@ -50,7 +49,6 @@ test('11.11 (v2.12.1 T12) /b/<v2.12 slug>/card.png: unclaimed or hidden is a no-
     await sql()`UPDATE builder_profiles SET slug = ${`cardn${id}`} WHERE builder_id = ${id}`;
     await sql()`INSERT INTO profile_slug_history (old_slug, builder_id) VALUES (${slug}, ${id})`;
     assert.equal((await get(slug)).headers.get('location'), `/${handle}/card.png`);
-    delete process.env.EARNKIT_BUILDER_SCORE;
     assert.equal((await get(`cardn${id}`)).status, 404, 'flag off');
   } finally {
     await sql()`DELETE FROM profile_slug_history WHERE builder_id = ${id}`;
@@ -75,7 +73,6 @@ const loadV2121 = async () => ({
 test('11.6 /<handle>/card.png: a PNG for a claimed page, the headline of the latest moment; hidden or unclaimed a no-store 404; another case a 308; flag off 404', dbTest, async () => {
   const { sql, CARD_CACHE, card, bCard } = await loadV2121();
   const was = process.env.EARNKIT_BUILDER_SCORE;
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
   const id = 2_146_000_000 + Math.floor(Math.random() * 400_000);
   const handle = `Cd${id}`.slice(0, 15);
   const get = (h: string) => card(new Request(`http://x/${h}/card.png`), { params: Promise.resolve({ handle: h }) });
@@ -111,7 +108,6 @@ test('11.6 /<handle>/card.png: a PNG for a claimed page, the headline of the lat
     } finally {
       await sql()`DELETE FROM builder_profiles WHERE builder_id = ${rid}`;
     }
-    delete process.env.EARNKIT_BUILDER_SCORE;
     assert.equal((await get(handle)).status, 404, 'flag off');
   } finally {
     await sql()`DELETE FROM builder_projects WHERE builder_id = ${id}`;
@@ -124,7 +120,6 @@ test('11.6 /<handle>/card.png: a PNG for a claimed page, the headline of the lat
 test('11.7 /<handle>/share: a 302 to the X intent with the headline and the page; never a target from the request', dbTest, async () => {
   const { sql, share } = await loadV2121();
   const was = process.env.EARNKIT_BUILDER_SCORE;
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
   const id = 2_146_500_000 + Math.floor(Math.random() * 400_000);
   const handle = `Sh${id}`.slice(0, 15);
   try {
@@ -176,8 +171,6 @@ test('11.13 (v2.13 fix round 1) under the Bench flag: the card and the share pos
   const { sql, share, card } = await loadV2121();
   const { benchCardFacts } = await import('./bench-data');
   const was = { score: process.env.EARNKIT_BUILDER_SCORE, bench: process.env.EARNKIT_BENCH };
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
-  process.env.EARNKIT_BENCH = 'on';
   const id = 2_146_500_000 + Math.floor(Math.random() * 400_000);
   const handle = `Bc${id}`.slice(0, 15);
   const key = `bc${id}/notmine`;
@@ -199,7 +192,6 @@ test('11.13 (v2.13 fix round 1) under the Bench flag: the card and the share pos
     assert.equal((await benchCardFacts(id))!.project, 'Not Mine App');
     assert.equal(await text(), 'Shipping Not Mine App, 3 weeks in a row, on EarnKit.');
     // Flag off: the v2.12.1 headline.
-    delete process.env.EARNKIT_BENCH;
     assert.equal(await text(), 'Shipped 1 app with AI on EarnKit.');
   } finally {
     await sql()`DELETE FROM builder_sources WHERE builder_id = ${id}`;

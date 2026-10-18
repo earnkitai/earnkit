@@ -129,13 +129,10 @@ test('13.8 no builder-visible bonus text under the flag: replies, landing, progr
   const { fullGuide } = await import('./fixtures/guide');
   const { toolDescriptions, serverInstructions } = await import('./mcp');
   const score = process.env.EARNKIT_BUILDER_SCORE;
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
   const bonusWords = /builder bonus|bonus pool|\bbonus\b/i;
   // Flag off: the guide's pill and the install modal's pill are today's (the switch is what hides them).
-  delete process.env.EARNKIT_BENCH;
   assert.match(renderToStaticMarkup(React.createElement(GuideView, { page: fullGuide })), /Builder bonus/);
   assert.match(renderToStaticMarkup(React.createElement(AddToAgent, { onClose: () => {} })), /Builder bonus/);
-  process.env.EARNKIT_BENCH = 'on';
   try {
     const pages = [
       renderToStaticMarkup(React.createElement(HomeView, { landing: { ...homeFixture, bench: { rows: [], chips: [], cards: [], raising: true } } })),
@@ -149,7 +146,6 @@ test('13.8 no builder-visible bonus text under the flag: replies, landing, progr
     ];
     for (const p of pages) assert.doesNotMatch(p, bonusWords, p.slice(0, 200));
   } finally {
-    delete process.env.EARNKIT_BENCH;
     if (score === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
     else process.env.EARNKIT_BUILDER_SCORE = score;
   }

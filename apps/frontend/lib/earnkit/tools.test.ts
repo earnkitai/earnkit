@@ -5553,7 +5553,6 @@ test('10 (T10 notes) a build-path deploy refused for the owner proof asks for a 
 );
 
 test('7.8 (v2.12.1 T12, replaces v2.12 7.8 and 7.8c) flag on: find has no v2.12 consent or score line; tell hide hides the page; x_handle is accepted and ignored; a shared client\'s page asks get an agent note', dbTest, async () => {
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
   try {
     const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`tools-t7-consent-${process.pid}-${Date.now()}`}) RETURNING id`;
     const ctx = { installationId: id };
@@ -5575,7 +5574,6 @@ test('7.8 (v2.12.1 T12, replaces v2.12 7.8 and 7.8c) flag on: find has no v2.12 
     assert.equal(r.show_to_builder ?? '', '');
     assert.match(r.agent_note ?? '', /serves many builders/);
   } finally {
-    delete process.env.EARNKIT_BUILDER_SCORE;
   }
 });
 

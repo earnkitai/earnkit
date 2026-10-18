@@ -117,7 +117,6 @@ const bPage = async (slug: string) => (await import('../../app/b/[slug]/page')).
 
 test('6.16 flag off: /claim/<code>, /x/callback, /<handle> and /b/<name> are all 404', async () => {
   const was = process.env.EARNKIT_BUILDER_SCORE;
-  delete process.env.EARNKIT_BUILDER_SCORE;
   try {
     const claim = await import('../../app/claim/[code]/route');
     const cb = await import('../../app/x/callback/route');
@@ -135,7 +134,6 @@ test('6.16 flag off: /claim/<code>, /x/callback, /<handle> and /b/<name> are all
 
 test('6.17 /b/<v2.12 slug>: unclaimed is a 404, claimed is a 308 to /<handle>; /<handle> shows the top line; reserved handles live at /b/', dbTest, async () => {
   const was = process.env.EARNKIT_BUILDER_SCORE;
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
   try {
     const { bindX } = await import('./claim');
     const [a, b] = [T + 11, T + 12];
@@ -175,7 +173,6 @@ test('6.17 /b/<v2.12 slug>: unclaimed is a 404, claimed is a 308 to /<handle>; /
 
 test('11.9 (v2.12.1 T11) the page at /<handle>: the full profile; unclaimed none, hidden 404, /Lee 308 to /lee, a reserved handle at /b/ and /terms stays the terms page', dbTest, async () => {
   const was = process.env.EARNKIT_BUILDER_SCORE;
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
   try {
     const { bindX } = await import('./claim');
     const [a, b, r] = [T + 14, T + 15, T + 16];

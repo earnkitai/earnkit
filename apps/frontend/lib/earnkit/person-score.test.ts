@@ -7,7 +7,6 @@ import { PAGE_REFRESH_MS, pageViewRefresh, rescorePerson, refreshPerson, scorePe
 import { LIMITS, windowStart } from './rate-limit';
 import type { ReaderDeps } from './source-readers';
 
-process.env.EARNKIT_BUILDER_SCORE = 'on';
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 // Task 17: a fresh block of ids each run (not the pid's bucket): builder_scores is append-only, so an
 // earlier run's score rows for a reused id made the cron see the day as already scored.
@@ -295,7 +294,6 @@ test('4.8 a tagged call marks the project tagged; junk in a reading never makes 
 test('4.9 flag off: a refresh reads and writes nothing', dbTest, async () => {
   const id = T + 10;
   await person(id, {});
-  delete process.env.EARNKIT_BUILDER_SCORE;
   try {
     let reads = 0;
     const reader = { ...fakeReader(), probe: async () => (reads++, { status: 200 }) };
@@ -303,7 +301,6 @@ test('4.9 flag off: a refresh reads and writes nothing', dbTest, async () => {
     assert.equal(reads, 0);
     assert.equal((await sql()`SELECT 1 FROM builder_live WHERE builder_id = ${id}`).length, 0);
   } finally {
-    process.env.EARNKIT_BUILDER_SCORE = 'on';
   }
 });
 

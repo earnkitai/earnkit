@@ -12,8 +12,6 @@ import UpdateCard from '../../app/components/ui/UpdateCard';
 
 /** v2.13 T11 (spec "Profile", R10, R11, R12): the page at earnkit.com/<x-handle> under the Bench flag. */
 
-process.env.EARNKIT_BUILDER_SCORE = 'on';
-process.env.EARNKIT_BENCH = 'on';
 // The components are compiled with the classic JSX runtime here (as feed.test.ts).
 (globalThis as { React?: typeof React }).React = React;
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };

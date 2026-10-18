@@ -27,8 +27,6 @@ import { join } from 'node:path';
  * coin gate for any confirmed main project.
  */
 
-process.env.EARNKIT_BUILDER_SCORE = 'on';
-process.env.EARNKIT_BENCH = 'on';
 process.env.EARNKIT_AUTH_SECRET ||= 'v2131-onboarding-secret';
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {
@@ -40,7 +38,7 @@ after(async () => {
 const RUN = randomBytes(3).toString('hex');
 let seq = 0;
 const uniq = (p: string) => `${p}${RUN}${++seq}`;
-const ON = { EARNKIT_BUILDER_SCORE: 'on', EARNKIT_BENCH: 'on', EARNKIT_URL: undefined, [EVENT_LOG_FLAG]: 'on', ...X_ON };
+const ON = { EARNKIT_URL: undefined, [EVENT_LOG_FLAG]: 'on', ...X_ON };
 const on = <T>(fn: () => Promise<T>) => withEnv(ON, fn);
 const NO_MATCH = { matchProjects: async () => ({ checked: 1, scored: 0, fits: [] }) };
 /** Only this file's starter (no program names it), so no program qualifies for a fresh build: the build with no program. */

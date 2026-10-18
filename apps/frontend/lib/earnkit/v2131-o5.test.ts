@@ -36,8 +36,6 @@ import type { ReaderDeps } from './source-readers';
  * P8, P10): the last friction and polish of onboarding, through the real tools under the Bench flag.
  */
 
-process.env.EARNKIT_BUILDER_SCORE = 'on';
-process.env.EARNKIT_BENCH = 'on';
 process.env.EARNKIT_AUTH_SECRET ||= 'v2131-o5-secret';
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {
@@ -49,7 +47,7 @@ after(async () => {
 const RUN = randomBytes(3).toString('hex');
 let seq = 0;
 const uniq = (p: string) => `${p}${RUN}${++seq}`;
-const ON = { EARNKIT_BUILDER_SCORE: 'on', EARNKIT_BENCH: 'on', EARNKIT_URL: undefined, [EVENT_LOG_FLAG]: 'on', ...X_ON };
+const ON = { EARNKIT_URL: undefined, [EVENT_LOG_FLAG]: 'on', ...X_ON };
 const on = <T>(fn: () => Promise<T>) => withEnv(ON, fn);
 const NO_MATCH = { matchProjects: async () => ({ checked: 1, scored: 0, fits: [] }) };
 const STARTER_ID = `o5-tip-${RUN}`;

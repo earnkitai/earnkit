@@ -24,8 +24,6 @@ import { GET as llms } from '../../app/llms.txt/route';
  * v2.13 final fix wave (final-review.md I1, I2, I3, M1, M2, M4, M7 and the EARNKIT_RAISING ruling).
  * Every row this file writes carries a per-run key and goes in `after`.
  */
-process.env.EARNKIT_BUILDER_SCORE = 'on';
-process.env.EARNKIT_BENCH = 'on';
 process.env.EARNKIT_AUTH_SECRET ||= 'v213-final-fix-secret';
 (globalThis as { React?: typeof React }).React = React;
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
@@ -233,10 +231,10 @@ test('F7 tell update: at most 20 posts a person a day, then a plain note', dbTes
 // ---- EARNKIT_RAISING: off under the Bench, no raising anywhere; on, everything as built -----------
 
 test('F8 the flag: on only with the Bench and EARNKIT_RAISING=on', () => {
-  assert.equal(raisingEnabled({ EARNKIT_BUILDER_SCORE: 'on', EARNKIT_BENCH: 'on' }), false);
-  assert.equal(raisingEnabled({ EARNKIT_BUILDER_SCORE: 'on', EARNKIT_BENCH: 'on', EARNKIT_RAISING: 'on' }), true);
-  assert.equal(raisingEnabled({ EARNKIT_BUILDER_SCORE: 'on', EARNKIT_RAISING: 'on' }), false);
-  assert.equal(raisingEnabled({ EARNKIT_BUILDER_SCORE: 'on', EARNKIT_BENCH: 'on', EARNKIT_RAISING: 'yes' }), false);
+  assert.equal(raisingEnabled({ EARNKIT_BENCH: 'on' }), false);
+  assert.equal(raisingEnabled({ EARNKIT_RAISING: 'on' }), true);
+  assert.equal(raisingEnabled({ EARNKIT_RAISING: 'on' }), false);
+  assert.equal(raisingEnabled({ EARNKIT_RAISING: 'yes' }), false);
 });
 
 test('F9 raising off: no pill on the Bench, the profile or the card, no filter; on: the pill as pillOf gives it', dbTest, async () => {

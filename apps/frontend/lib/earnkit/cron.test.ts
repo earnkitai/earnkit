@@ -639,7 +639,6 @@ function fakeReader(): ReaderDeps {
 test('6.9 v2.12: with the flag off runCron has no builder_score key; on, the four step results come back and a failing read fails soft', db, async () => {
   const off = await runCron({ only: ['none'], deps: { refreshFees: async () => 0 } });
   assert.equal('builder_score' in off, false);
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
   try {
     const slow = { ...fakeReader(), probe: async () => { await new Promise((r) => setTimeout(r, 50)); throw new Error('timeout'); } };
     const on = await runCron({ only: ['none'], budgetMs: 2_000, deps: { refreshFees: async () => 0, builderScore: { reader: slow, only: [] } } });
@@ -649,7 +648,6 @@ test('6.9 v2.12: with the flag off runCron has no builder_score key; on, the fou
     // Without its deps, a run limited to other programs (tests, the e2e) skips the steps.
     assert.equal('builder_score' in (await runCron({ only: ['none'], deps: { refreshFees: async () => 0 } })), false);
   } finally {
-    delete process.env.EARNKIT_BUILDER_SCORE;
   }
 });
 
@@ -660,33 +658,27 @@ test('6.9b needs_owner lists every current hold (quietly), not only the ones thi
   // Already scored (and held) today: this run scores no one.
   await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held)
     VALUES (${id}, ${today}, 80, 0, '{}', '{}', 'v1', 'v1-launch', true)`;
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
   try {
     const on = await runCron({ only: ['none'], budgetMs: 5_000, deps: { refreshFees: async () => 0, builderScore: { reader: fakeReader(), only: [id] } } });
     assert.deepEqual((on.builder_score!.score as { held: number[] }).held, []);
     assert.ok(on.needs_owner.includes(`score-hold:${id}:quiet`), String(on.needs_owner));
     assert.deepEqual(on.needs_owner.filter((k: string) => !k.endsWith(':quiet')), []);
   } finally {
-    delete process.env.EARNKIT_BUILDER_SCORE;
     await sql()`DELETE FROM builder_profiles WHERE builder_id = ${id}`;
   }
 });
 
 test('4.8 the weekly step exists only under the flag (flag off: the v2.12.2 steps, nothing else)', db, async () => {
   const score = process.env.EARNKIT_BUILDER_SCORE;
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
   const sliceEnd = Date.now() + 5_000;
   const noReads = new Proxy({}, { get: (_t, k) => (k === 'now' ? new Date() : async () => { throw new Error('no reads'); }) }) as never;
-  delete process.env.EARNKIT_BENCH;
   try {
     const off = await runScoreSteps(new Date('2026-10-19T15:30:00Z'), sliceEnd, { only: [], reader: noReads });
     assert.deepEqual(Object.keys(off), ['discover', 'read', 'score', 'empty']);
-    process.env.EARNKIT_BENCH = 'on';
     const on = await runScoreSteps(new Date('2026-10-19T15:30:00Z'), sliceEnd, { only: [], reader: noReads });
     // v2.13.1 O1: open proof branches are checked first (an hour each at most). v2.13.2 (1): then org proofs expire.
     assert.deepEqual(Object.keys(on), ['proof_branch', 'proof_expiry', 'discover', 'read', 'score', 'empty', 'weekly', 'feed']);
   } finally {
-    delete process.env.EARNKIT_BENCH;
     if (score === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
     else process.env.EARNKIT_BUILDER_SCORE = score;
   }
@@ -694,7 +686,6 @@ test('4.8 the weekly step exists only under the flag (flag off: the v2.12.2 step
 
 test('13.7 under the flag the cron runs the ledger without rounds, no traction scoring, no proof re-check, no bonus: line; flag off: all of them', db, async () => {
   const score = process.env.EARNKIT_BUILDER_SCORE;
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
   // The ledger's recording fake: whether the cron handed it the rounds step; its result names a round waiting on the owner.
   const ledgerCalls: { rounds: boolean }[] = [];
   const ledger = async (d: { rounds?: unknown }) => {
@@ -706,9 +697,7 @@ test('13.7 under the flag the cron runs the ledger without rounds, no traction s
   const traction = { only: ['t13-no-such-round'], score: async () => { traced.push('score'); return []; } };
   const proofRecheck = { fetchText: async () => { throw new Error('no reads'); } };
   const run = () => runCron({ now: new Date(), budgetMs: 5_000, deps: { bonus: {}, ledger, traction, proofRecheck, refreshFees: async () => 0 }, only: [] });
-  delete process.env.EARNKIT_BENCH;
   try {
-    process.env.EARNKIT_BENCH = 'on';
     const on = await run();
     assert.deepEqual(ledgerCalls, [{ rounds: false }], 'the ledger runs (fee claims, the sweep), without the rounds step');
     assert.equal((on as { bonus_scoring?: unknown }).bonus_scoring, undefined, 'no traction scoring');
@@ -717,14 +706,12 @@ test('13.7 under the flag the cron runs the ledger without rounds, no traction s
     assert.deepEqual(traced, []);
 
     // Flag off (production): the rounds step is handed over, scoring runs, a round waiting on the owner is listed.
-    delete process.env.EARNKIT_BENCH;
     ledgerCalls.length = 0;
     const off = await runCron({ now: new Date(), budgetMs: 5_000, deps: { bonus: {}, ledger, traction, refreshFees: async () => 0 }, only: [] });
     assert.deepEqual(ledgerCalls, [{ rounds: true }]);
     assert.notEqual((off as { bonus_scoring?: unknown }).bonus_scoring, undefined, 'traction scoring ran');
     assert.ok(off.needs_owner.includes('bonus:t13-round'), off.needs_owner.join());
   } finally {
-    delete process.env.EARNKIT_BENCH;
     if (score === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
     else process.env.EARNKIT_BUILDER_SCORE = score;
   }

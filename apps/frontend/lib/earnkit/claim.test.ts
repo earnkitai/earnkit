@@ -8,7 +8,6 @@ import { answerJoin, pendingJoinOf, rootOf } from './identity';
 import { connectInstallation, saveInstallation } from './installations';
 import type { XOAuthDeps, XUser } from './x-oauth';
 
-process.env.EARNKIT_BUILDER_SCORE = 'on';
 process.env.EARNKIT_AUTH_SECRET ??= 'claim-test-secret';
 process.env.X_CLIENT_ID = 'cid';
 process.env.X_CLIENT_SECRET = 'sec';
@@ -205,7 +204,6 @@ test('6.9 the claim page says what becomes public and how to hide it before the 
     assert.equal((await claimPost(new Request(`https://earnkit.com/claim/${code}`, { method: 'POST' }), code, noLimit)).status, 404);
     assert.equal((await xCallback(new Request('https://earnkit.com/x/callback?code=c&state=s'), { x: failX(), limit: noLimit.limit })).status, 404);
   } finally {
-    process.env.EARNKIT_BUILDER_SCORE = 'on';
   }
 });
 
@@ -379,7 +377,6 @@ test('6.31 (final fix wave) a GitHub clear never blocks a claim (only the owner\
 
 test('11.7 bindX writes the new picture at every sign-in and keeps the stored one when X sends none (B14)', dbTest, async () => {
   const { claimedPerson } = await import('./fixtures/claimed-person');
-  process.env.EARNKIT_BENCH = 'on';
   try {
     // As the file's first-claim case: claim with avatar A, then the same X user signs in again with avatar B, then with none.
     const { root, user } = await claimedPerson({ avatar: 'https://pbs.twimg.com/a_400x400.jpg' });
@@ -388,7 +385,6 @@ test('11.7 bindX writes the new picture at every sign-in and keeps the stored on
     await bindX(root, { ...user, avatar: null }, new Date());
     assert.equal((await sql()`SELECT x_avatar_url FROM builder_profiles WHERE builder_id = ${root}`)[0].x_avatar_url, 'https://pbs.twimg.com/b_400x400.jpg');
   } finally {
-    delete process.env.EARNKIT_BENCH;
   }
   // F9: flag off is production: X sending no picture clears it, as today.
   const { root, user } = await claimedPerson({ avatar: 'https://pbs.twimg.com/c_400x400.jpg' });

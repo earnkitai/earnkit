@@ -46,8 +46,6 @@ import type { ReaderDeps } from './source-readers';
  */
 
 (globalThis as { React?: typeof React }).React = React; // the components' JSX under tsx
-process.env.EARNKIT_BUILDER_SCORE = 'on';
-process.env.EARNKIT_BENCH = 'on';
 process.env.EARNKIT_AUTH_SECRET ||= 'v2133-secret';
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {
@@ -59,7 +57,7 @@ after(async () => {
 const RUN = randomBytes(3).toString('hex');
 let seq = 0;
 const uniq = (p: string) => `${p}${RUN}${++seq}`;
-const ON = { EARNKIT_BUILDER_SCORE: 'on', EARNKIT_BENCH: 'on', EARNKIT_URL: undefined, ...X_ON };
+const ON = { EARNKIT_URL: undefined, ...X_ON };
 const on = <T>(fn: () => Promise<T>) => withEnv(ON, fn);
 const NO_MATCH = { matchProjects: async () => ({ checked: 1, scored: 0, fits: [] }) };
 const links = (t: string) => (t.match(/https?:\/\/\S+/g) ?? []).map((l) => l.replace(/[.,]$/, ''));

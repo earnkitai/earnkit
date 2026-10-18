@@ -66,7 +66,6 @@ test('4.15 a new clue queues the person again: a wallet not seen before (remembe
   // Flag off: v2.11, nothing is queued.
   await rememberWallets(id, [w1]);
   assert.equal(await queued(), null);
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
   try {
     assert.equal(await enqueueClue(id, 'wallet'), false, 'no profile yet: the first find queues them');
     await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${id}, ${`c${id}`})`;
@@ -81,7 +80,6 @@ test('4.15 a new clue queues the person again: a wallet not seen before (remembe
     const s = await queued();
     assert.deepEqual([s!.reason, s!.done_at], ['signin', null]);
   } finally {
-    delete process.env.EARNKIT_BUILDER_SCORE;
   }
 });
 
@@ -119,7 +117,6 @@ async function claimed(handle: string): Promise<number> {
 }
 async function withScore<T>(fn: () => Promise<T>): Promise<T> {
   const old = process.env.EARNKIT_BUILDER_SCORE;
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
   try {
     return await fn();
   } finally {

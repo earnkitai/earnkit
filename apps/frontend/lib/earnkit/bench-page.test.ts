@@ -11,8 +11,6 @@ import BenchView, { BENCH_EMPTY, BENCH_TITLE, FILTER_RAISING, FILTER_WEEKLY } fr
 
 /** v2.13 T10 (spec "The Bench", R4, R9, R14): the rows, the URL filters, the /leaderboard redirect. */
 
-process.env.EARNKIT_BUILDER_SCORE = 'on';
-process.env.EARNKIT_BENCH = 'on';
 // Final fix: the raising filter and pill are behind EARNKIT_RAISING; these cases are the flag on (v213-final-fix F9, F11: off).
 process.env.EARNKIT_RAISING = 'on';
 // The components are compiled with the classic JSX runtime here (as feed.test.ts).

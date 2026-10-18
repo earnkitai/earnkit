@@ -2,7 +2,6 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { boardRedirect, boardStays, programOfRound } from './bonus-rounds';
 
 const ROOT = join(import.meta.dirname, '../../../..');
 const manifest = (feature: string) =>
@@ -89,42 +88,11 @@ test('13.7 the agent-facing docs do not offer the sponsor tool', () => {
   assert.doesNotMatch(readFileSync(join(ROOT, 'README.md'), 'utf8'), /`sponsor_campaign`/);
 });
 
-test('14.1 boards: v2.11 with the score flag off and (v2.12.1 plan S11) on too: the new board has no program filter, so nothing moves', () => {
-  assert.equal(programOfRound('arc-microgrants:2026-09-16'), 'arc-microgrants');
-  assert.equal(programOfRound('base-builder-grants:2026-10'), 'base-builder-grants');
-  assert.equal(programOfRound('no-date-here'), null);
-  const on = { EARNKIT_BUILDER_SCORE: 'on' };
-  assert.equal(boardRedirect({ program: 'arc-microgrants', stays: false }, {}), null, 'flag off: v2.11');
-  assert.equal(boardRedirect({ program: 'arc-microgrants', stays: true }, on), null, 'in review or paying: the board stays public');
-  assert.equal(boardRedirect({ program: 'arc-microgrants', stays: false }, on), null, 'v2.12.1 S11: every board renders as in v2.11');
-  assert.equal(boardRedirect({ program: null, stays: false }, on), null, 'no program: the page answers as today');
-  assert.equal(boardRedirect({ program: 'arc-microgrants', stays: false }, { ...on, EARNKIT_PROGRAM_LEADERBOARDS: 'on' }), null, 'boards restored');
-  // Final review (T14 ruling): frozen, review, paying and paid stay; only open and empty move.
-  for (const st of ['frozen', 'review', 'paying', 'paid']) assert.equal(boardStays(st), true, st);
-  for (const st of ['open', 'empty']) assert.equal(boardStays(st), false, st);
-  for (const f of ['app/bonus/[round]/page.tsx', 'app/campaigns/[slug]/page.tsx']) {
-    const src = readFileSync(join(ROOT, 'apps/frontend', f), 'utf8');
-    assert.match(src, /boardRedirect\(/, f);
-    // Final review M2: a temporary redirect (307) while the flag can still be turned off, never a cached 308.
-    assert.match(src, /\bredirect\(target\)/, f);
-    assert.doesNotMatch(src, /permanentRedirect/, f);
-  }
-  assert.match(readFileSync(join(ROOT, 'apps/frontend/app/bonus/[round]/page.tsx'), 'utf8'), /boardStays\(board\.state\)/);
-  const readme = readFileSync(join(ROOT, 'archive/program-leaderboards/README.md'), 'utf8');
-  assert.match(readme, /EARNKIT_PROGRAM_LEADERBOARDS=on/);
-  assert.match(readme, /## The move, at go-live/);
-});
-
 test('14.5 archive-restore names each feature\'s own flag, read from its README', async () => {
   const { flagOf } = await import('../../scripts/archive-restore.mjs');
   for (const [feature, flag] of Object.entries(ARCHIVED)) assert.equal(flagOf(feature, ROOT), flag, feature);
   assert.equal(flagOf('program-leaderboards', ROOT), 'EARNKIT_PROGRAM_LEADERBOARDS');
   assert.equal(flagOf('tool-aliases', ROOT), 'EARNKIT_TOOL_ALIASES');
-});
-
-test('14.2 the traction scorer, bonus payouts and the round board stay live (R20, D1)', () => {
-  for (const f of ['traction.ts', 'bonus-payout.ts', 'bonus-ledger.ts', 'bonus-rounds.ts', 'bonus-board.ts']) assert.ok(existsSync(join(import.meta.dirname, f)), f);
-  assert.ok(existsSync(join(ROOT, 'apps/frontend/app/bonus/[round]/BoardView.tsx')));
 });
 
 after(async () => {

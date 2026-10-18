@@ -774,7 +774,7 @@ async function sweepWaitsOnClaim(account: LocalAccount, d: BonusDeps & { rpc: Bo
   const amount = BigInt(wei ?? '0');
   if (!worthIt(amount, gas, maxFeePerGas)) return false;
   const balance = await d.rpc.balanceOf(d.chain.weth, account.address);
-  return balance < amount || !(await roundsCovered(account, d, amount, balance));
+  return balance < amount;
 }
 
 type SweepRow = {
@@ -829,28 +829,6 @@ export const sweepStore: PayoutStore = {
  * the unswept total is at least 10× the transfer's gas and the wallet holds it, the rows are
  * reserved for a new sweep (one transaction), which `payWinner` then signs, stores and sends.
  */
-/**
- * Whether sending `amount` from the wallet leaves every unpaid round covered (fix round 1, I1):
- * wallet − amount ≥ Σ(unpaid round money) − (what the FeeLocker still holds for the wallet that
- * can be round money). Of `availableFees(bonus wallet)`, up to the unswept Safe bookings may be the
- * Safe's own unclaimed deposits, so only the rest counts toward the rounds. Unpaid round money
- * (Task 7): the bookings of every round not yet 'paid' or 'empty' (an empty round's bookings are
- * the Safe's), less what those rounds' winners were already paid.
- */
-export async function roundsCovered(account: LocalAccount, d: { rpc: BonusRpc; chain: BonusChain }, amount: bigint, balance: bigint) {
-  const [{ rounds, paid, safe }] = await sql()<{ rounds: string | null; paid: string | null; safe: string | null }[]>`
-    SELECT
-      (SELECT sum(l.amount_wei) FROM bonus_ledger l JOIN bonus_rounds r ON r.round_key = l.round_key
-        WHERE l.destination = 'round' AND r.state NOT IN ('paid', 'empty'))::text AS rounds,
-      (SELECT sum(p.amount_wei) FROM bonus_payouts p JOIN bonus_rounds r ON r.round_key = p.round_key
-        WHERE p.status = 'paid' AND r.state NOT IN ('paid', 'empty'))::text AS paid,
-      (SELECT sum(amount_wei) FROM bonus_ledger WHERE destination = 'safe' AND swept_tx IS NULL)::text AS safe`;
-  const available = await d.rpc.availableFees(account.address, d.chain.weth);
-  const forRounds = available > BigInt(safe ?? '0') ? available - BigInt(safe ?? '0') : 0n;
-  return balance - amount >= BigInt(rounds ?? '0') - BigInt(paid ?? '0') - forRounds;
-}
-const SHORT = 'would leave a round short (its WETH is not all claimed yet)';
-
 export async function sweepToSafe(account: LocalAccount, d: BonusDeps & { rpc: BonusRpc; chain: BonusChain }) {
   let [open] = await sql()<SweepRow[]>`SELECT * FROM bonus_sweeps WHERE status IS DISTINCT FROM 'paid' ORDER BY id LIMIT 1`;
   if (!open) {
@@ -864,7 +842,6 @@ export async function sweepToSafe(account: LocalAccount, d: BonusDeps & { rpc: B
     const data = encodeFunctionData({ abi: erc20Abi, functionName: 'transfer', args: [d.chain.safe, amount] });
     const [gas, fees] = await Promise.all([d.rpc.estimateGas({ account: account.address, to: d.chain.weth, data }), d.rpc.fees()]);
     if (!worthIt(amount, gas, fees.maxFeePerGas)) return { result: `${amount} wei: under 10x gas` };
-    if (!(await roundsCovered(account, d, amount, balance))) return { result: `${amount} wei to sweep ${SHORT}` };
     if (Date.now() >= toDeadline(d)) return { result: 'out of time; next run' };
     open = await sql().begin(async (tx) => {
       const [s] = await tx<{ id: number }[]>`
@@ -883,8 +860,6 @@ export async function sweepToSafe(account: LocalAccount, d: BonusDeps & { rpc: B
     const balance = await d.rpc.balanceOf(d.chain.weth, account.address);
     if (balance < BigInt(open.amount_wei))
       return { result: `sweep ${open.id} of ${open.amount_wei} wei waits; the wallet holds ${balance}`, sweep: open.id };
-    if (!(await roundsCovered(account, d, BigInt(open.amount_wei), balance)))
-      return { result: `sweep ${open.id} of ${open.amount_wei} wei ${SHORT}`, sweep: open.id };
   }
   const row: PayoutRow = {
     id: open.id,

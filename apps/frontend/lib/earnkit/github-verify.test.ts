@@ -668,7 +668,6 @@ test('3.8 loginBasisFor on a shared client: only the caller\'s own sign-in or th
 
 test('7.6 a claim sign-in proves the login with no repo read, never stands in for a repo, and joins on the tie only after both yeses', db, async () => {
   const old = process.env.EARNKIT_BUILDER_SCORE;
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
   try {
     await withEnv(ON, async () => {
       const tag = `cl${process.pid}${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;

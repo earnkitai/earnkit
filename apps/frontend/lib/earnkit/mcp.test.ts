@@ -93,7 +93,6 @@ test('4.14 v2.12, 5 v2.12.1: flag off, find is v2.11 (no local_git or identity, 
   assert.equal(off.description, FIND_DESCRIPTION);
   assert.ok(FIND_DESCRIPTION.startsWith('What can I earn? Pass local_repos: repos the builder wrote, from local git remotes. For private repos, report: name, chains, contracts, live link, last_commit_at, my_commits_90d. A yes to the reply prepares lead.program_id; more: true only when they ask for more. build_offer: follow its agent_note. program_id: one program and its guide; repo: whether it fits. '));
   assert.doesNotMatch(FIND_DESCRIPTION, /local_git/);
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
   try {
     const on = (await listed({})).tools.find((t) => t.name === 'find')!;
     assert.ok('identity' in (on.inputSchema.properties ?? {}));
@@ -104,7 +103,6 @@ test('4.14 v2.12, 5 v2.12.1: flag off, find is v2.11 (no local_git or identity, 
     assert.match(FIND_DESCRIPTION_SCORE, /never ask for it/);
     assert.match(on.description!, /repos the builder wrote/);
   } finally {
-    delete process.env.EARNKIT_BUILDER_SCORE;
   }
 });
 
@@ -112,7 +110,6 @@ test('7.12 v2.12, v2.12.1 T8: flag off, tell is v2.11 (no profile, card, move_up
   const off = (await listed({})).tools.find((t) => t.name === 'tell')!;
   for (const k of ['profile', 'x_handle', 'card', 'move_up']) assert.ok(!(k in (off.inputSchema.properties ?? {})), k);
   assert.equal(off.description, TELL_DESCRIPTION);
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
   try {
     const on = (await listed({})).tools.find((t) => t.name === 'tell')!;
     for (const k of ['profile', 'card', 'move_up']) assert.ok(k in (on.inputSchema.properties ?? {}), k);
@@ -122,14 +119,12 @@ test('7.12 v2.12, v2.12.1 T8: flag off, tell is v2.11 (no profile, card, move_up
     assert.match(on.description!, /profile: "hide" or "show" when they say so\. card: "yes" or "skip" to the card question\. move_up: their answer to the last line/);
     assert.doesNotMatch(on.description!, /x_handle/);
   } finally {
-    delete process.env.EARNKIT_BUILDER_SCORE;
   }
 });
 
 test('8.6 v2.12: score is listed only with the flag on, its description under 800 characters', async () => {
   assert.deepEqual(await toolNames({}), FOUR);
   assert.doesNotMatch((await listed({})).instructions, /\bscore\b/);
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
   try {
     assert.deepEqual(await toolNames({}), [...FOUR, 'score'].sort());
     const { tools, instructions } = await listed({});
@@ -143,7 +138,6 @@ test('8.6 v2.12: score is listed only with the flag on, its description under 80
     assert.ok(serverInstructions(true).length <= 800, String(serverInstructions(true).length));
     assert.doesNotMatch(serverInstructions(true), /EarnKit campaign/);
   } finally {
-    delete process.env.EARNKIT_BUILDER_SCORE;
   }
   assert.ok(TOOL_DESCRIPTIONS.score.length < 800, String(TOOL_DESCRIPTIONS.score.length));
   assert.doesNotMatch(TOOL_DESCRIPTIONS.score, /—/);
@@ -725,8 +719,6 @@ const identityWords = (t: { inputSchema: { properties?: Record<string, object> }
 test('2.7 flag off: find\'s description and identity field are byte for byte v2.12.2\'s', async () => {
   const saved = process.env.EARNKIT_BENCH;
   const savedScore = process.env.EARNKIT_BUILDER_SCORE;
-  delete process.env.EARNKIT_BENCH;
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
   try {
     assert.equal(toolDescriptions(false).find, FIND_DESCRIPTION_SCORE);
     const off = (await listed({})).tools.find((t) => t.name === 'find')!;
@@ -741,8 +733,6 @@ test('2.7 flag off: find\'s description and identity field are byte for byte v2.
 });
 
 test('2.8 flag on: find asks for identity.project (one, never a list) and stays under 800 characters', async () => {
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
-  process.env.EARNKIT_BENCH = 'on';
   try {
     const d = toolDescriptions(false).find;
     assert.equal(d, FIND_DESCRIPTION_BENCH);
@@ -754,17 +744,12 @@ test('2.8 flag on: find asks for identity.project (one, never a list) and stays 
     assert.match(identityWords(on) ?? '', /project: the project in this folder/);
     assert.match(identityWords(on) ?? '', /One project, never a list\.$/);
   } finally {
-    delete process.env.EARNKIT_BENCH;
-    delete process.env.EARNKIT_BUILDER_SCORE;
   }
 });
 
 test('5.11 flag on: tell lists update and updates and stays under 800 characters; flag off: byte for byte v2.12.2', () => {
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
-  delete process.env.EARNKIT_BENCH;
   try {
     assert.equal(toolDescriptions(false).tell, TELL_DESCRIPTION_SCORE);
-    process.env.EARNKIT_BENCH = 'on';
     // Final fix: EARNKIT_RAISING off, coin takes no { raising } (the description names none).
     assert.equal(toolDescriptions(false).tell, TELL_DESCRIPTION_BENCH_NO_RAISING);
     assert.ok(!TELL_DESCRIPTION_BENCH_NO_RAISING.includes('raising'));
@@ -777,8 +762,6 @@ test('5.11 flag on: tell lists update and updates and stays under 800 characters
     assert.ok(!TELL_DESCRIPTION_SCORE.includes('raising'));
   } finally {
     delete process.env.EARNKIT_RAISING;
-    delete process.env.EARNKIT_BENCH;
-    delete process.env.EARNKIT_BUILDER_SCORE;
   }
 });
 
@@ -787,7 +770,6 @@ test('5.12 flag off: the registered tell input schema is byte for byte the one b
   // sha256 of JSON.stringify(tell.inputSchema), taken from mcp.ts before Task 5 (score off, score on).
   const BEFORE = { off: '273e03cf26598f86a2f880818133ec687780af9e35ad9aa8951103860e4b9698', on: 'd5e44c8470bcd030483406eca659289d1dd77a3f6bd263f522e906588def6cb2' };
   const saved = { bench: process.env.EARNKIT_BENCH, score: process.env.EARNKIT_BUILDER_SCORE };
-  delete process.env.EARNKIT_BENCH;
   try {
     for (const score of ['off', 'on'] as const) {
       if (score === 'on') process.env.EARNKIT_BUILDER_SCORE = 'on';
@@ -796,7 +778,6 @@ test('5.12 flag off: the registered tell input schema is byte for byte the one b
       assert.equal(createHash('sha256').update(JSON.stringify(tell.inputSchema)).digest('hex'), BEFORE[score], score);
       assert.ok(!('update' in (tell.inputSchema.properties ?? {})) && !('updates' in (tell.inputSchema.properties ?? {})));
     }
-    process.env.EARNKIT_BENCH = 'on';
     // Final fix: EARNKIT_RAISING off, coin is v2.12.2's (no raising; project_key and answer required).
     const noRaise = (await listed({})).tools.find((t) => t.name === 'tell')!;
     assert.ok('update' in (noRaise.inputSchema.properties ?? {}) && 'updates' in (noRaise.inputSchema.properties ?? {}));
@@ -821,8 +802,6 @@ test('5.12 flag off: the registered tell input schema is byte for byte the one b
 
 test('O2.6 flag on: the Bench branch of the server instructions (under 800), no old entry-and-token flow; find names move_up, not build_offer\'s note; flag off byte for byte', async () => {
   const off = serverInstructions(false);
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
-  process.env.EARNKIT_BENCH = 'on';
   try {
     const on = serverInstructions(false);
     assert.ok(on.length < 800, String(on.length));
@@ -835,8 +814,6 @@ test('O2.6 flag on: the Bench branch of the server instructions (under 800), no 
     assert.match(FIND_DESCRIPTION_BENCH, /A yes or no to the last line goes to tell move_up\./);
     assert.ok(FIND_DESCRIPTION_BENCH.length < 800);
   } finally {
-    delete process.env.EARNKIT_BENCH;
-    delete process.env.EARNKIT_BUILDER_SCORE;
   }
   assert.equal(serverInstructions(false), off);
   assert.ok(off.includes('Yes submits the entry and launches the token'));

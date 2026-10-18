@@ -9,7 +9,6 @@ import {
   CLAIMED_REWARDS,
   CONFIRMATIONS,
   FEE_LOCKER_ABI,
-  LOCKER_ABI,
   STORE_TOKENS,
   bonusDeposits,
   bookDeposit,
@@ -18,7 +17,6 @@ import {
   claimFees,
   claimForOthers,
   claimOwners,
-  collectNearEnd,
   feeRecipients,
   gasMinWei,
   indexDeposits,
@@ -33,7 +31,6 @@ import {
   type RawLog,
 } from './bonus-ledger';
 import { sql } from './db';
-import { bonusEntryProgram, roundPoolsWei } from './bonus-rounds';
 import { holdBonusDbLock } from './fixtures/bonus-db-lock';
 import { deployToken } from './tokens';
 import { BONUS_WALLET_UNSET, cronPost, runCron } from './cron';
@@ -292,7 +289,7 @@ const rows = () =>
     SELECT tx_hash, log_index, coin, round_key, destination, amount_wei, swept_tx FROM bonus_ledger ORDER BY block_number, log_index`;
 const quiet = () => {};
 
-test('index: books by coin and block time to the round or the Safe; idempotent; resumes from the cursor', db, async () => {
+test('index: books every deposit to the Safe (v2.14: no builder bonus); idempotent; resumes from the cursor', db, async () => {
   try {
     await setup();
     const f = fakeChain({ head: 9_000n + CONFIRMATIONS });
@@ -316,18 +313,17 @@ test('index: books by coin and block time to the round or the Safe; idempotent; 
 
     const got = (await rows()).map((r) => [r.tx_hash, r.log_index, r.coin, r.round_key, r.destination, r.amount_wei]);
     assert.deepEqual(got, [
-      [t1, 2, COIN_A, ROUND, 'round', '20'],
-      [t1, 4, COIN_B, null, 'safe', '200'], // its program opted out (builder_bonus = false)
+      [t1, 2, COIN_A, null, 'safe', '20'],
+      [t1, 4, COIN_B, null, 'safe', '200'],
       [t2, 7, '0xdead00000000000000000000000000000000dead', null, 'safe', '5'],
       [t3, 2, null, null, 'safe', '6'],
-      [t4, 1, COIN_A, ROUND, 'round', '40'],
+      [t4, 1, COIN_A, null, 'safe', '40'],
     ]);
-    assert.equal(lines.length, 3, 'every Safe booking is logged');
+    assert.equal(lines.length, 5, 'every Safe booking is logged');
     assert.match(lines.join('\n'), /not an EarnKit coin/);
     assert.match(lines.join('\n'), /no ClaimedRewards/);
-    const [round] = await sql()<{ state: string; starts_at: Date; ends_at: Date }[]>`SELECT state, starts_at, ends_at FROM bonus_rounds WHERE round_key = ${ROUND}`;
-    assert.equal(round.state, 'open');
-    assert.equal(round.ends_at.toISOString(), '2026-10-08T00:00:00.000Z');
+    assert.match(lines.join('\n'), /builder bonus off/);
+    assert.equal((await sql()`SELECT 1 FROM bonus_rounds WHERE round_key = ${ROUND}`).length, 0, 'no round is made');
 
     // A rerun from the start books nothing twice and reads no receipt again.
     await sql()`DELETE FROM bonus_cursor`;
@@ -344,7 +340,7 @@ test('index: books by coin and block time to the round or the Safe; idempotent; 
   }
 });
 
-test('booking: a deposit after the program end goes to the Safe; the same (tx, logIndex) twice is one row; a frozen round takes nothing', db, async () => {
+test('booking: a deposit goes to the Safe; the same (tx, logIndex) twice is one row', db, async () => {
   try {
     await setup();
     const dep = { txHash: '0xt4booking', logIndex: 3, amount: 10n, coin: COIN_A, blockNumber: 1n };
@@ -358,13 +354,8 @@ test('booking: a deposit after the program end goes to the Safe; the same (tx, l
     const mine = (await rows()).filter((r) => r.tx_hash === '0xt4booking');
     assert.equal(mine.length, 1);
     assert.equal(mine[0].destination, 'safe', 'the first booking stands');
-
-    assert.equal((await bookDeposit({ ...dep, logIndex: 4, blockTime: new Date('2026-10-02T00:00:00Z') }, quiet)).destination, 'round');
-    await sql()`UPDATE bonus_rounds SET state = 'frozen' WHERE round_key = ${ROUND}`;
-    const lines: string[] = [];
-    const late = await bookDeposit({ ...dep, logIndex: 5, blockTime: new Date('2026-10-07T23:00:00Z') }, (l) => lines.push(l));
-    assert.equal(late.destination, 'safe');
-    assert.match(lines[0], /is frozen/);
+    // Inside the program's window too (v2.14: no builder bonus round to book to).
+    assert.equal((await bookDeposit({ ...dep, logIndex: 4, blockTime: new Date('2026-10-02T00:00:00Z') }, quiet)).destination, 'safe');
   } finally {
     await cleanup();
   }
@@ -403,12 +394,12 @@ test('sweep: only the Safe bookings, once, at >= 10x gas; stored before broadcas
     const book = (i: number, amount: bigint, coin: string | null, at: string) =>
       bookDeposit({ txHash: `0xt4sweep${i}`, logIndex: 0, amount, coin, blockNumber: BigInt(i), blockTime: new Date(at) }, quiet);
     await book(1, 3n * cost, null, '2026-10-02T00:00:00Z'); // Safe
-    await book(2, 99n * cost, COIN_A, '2026-10-02T00:00:00Z'); // round: never swept
+    await book(2, 2n * cost, COIN_A, '2026-10-02T00:00:00Z'); // v2.14: an EarnKit coin's deposit is the Safe's too
     const f = fakeChain({ balance: 10n ** 18n });
 
     assert.match((await sweepToSafe(ACCOUNT, { rpc: f.rpc, chain: C })).result, /under 10x gas/);
     assert.equal(f.state.sent.length, 0);
-    await book(3, 7n * cost, COIN_A, '2026-10-09T00:00:00Z'); // after the end: Safe; total now 10x
+    await book(3, 5n * cost, COIN_A, '2026-10-09T00:00:00Z'); // total now 10x
 
     // The wallet doesn't hold it yet (unclaimed): wait.
     f.state.balance = 10n * cost - 1n;
@@ -431,57 +422,11 @@ test('sweep: only the Safe bookings, once, at >= 10x gas; stored before broadcas
     const swept = (await rows()).filter((x) => x.tx_hash.startsWith('0xt4sweep'));
     assert.deepEqual(swept.map((x) => [x.tx_hash, x.swept_tx]), [
       ['0xt4sweep1', stored.tx_hash],
-      ['0xt4sweep2', null],
+      ['0xt4sweep2', stored.tx_hash],
       ['0xt4sweep3', stored.tx_hash],
     ]);
     // Idempotent: nothing left, nothing sent.
     assert.equal((await sweepToSafe(ACCOUNT, { rpc: f.rpc, chain: C })).result, 'nothing to sweep');
-    assert.equal(f.state.sent.length, 1);
-  } finally {
-    await cleanup();
-  }
-});
-
-test('collect: only an EarnKit coin in its round last 24h, quiet for 12h, through the locker that simulates, paying the bonus wallet', db, async () => {
-  const ends = new Date('2026-10-08T00:00:00Z');
-  try {
-    await setup(ends);
-    const f = fakeChain();
-    const at = (h: number) => new Date(ends.getTime() - h * 3_600_000);
-    let traded = true;
-    const asked: string[] = [];
-    const active = async (coin: string, since: Date) => {
-      asked.push(`${coin}@${since.toISOString()}`);
-      return traded;
-    };
-    const run = (now: Date) => collectNearEnd(ACCOUNT, { rpc: f.rpc, chain: C, now, active });
-
-    assert.deepEqual(await run(at(25)), [], 'not in the last 24 h');
-    // COIN_B's program opted out (builder_bonus = false): never collected.
-    await bookDeposit({ txHash: '0xt4collect', logIndex: 0, amount: 1n, coin: COIN_A, blockNumber: 1n, blockTime: at(14) }, quiet);
-    assert.deepEqual(await run(at(10)), [], 'a deposit seen 4 h earlier');
-    const out = await run(at(1));
-    assert.equal(out.length, 1);
-    assert.match(out[0].result, /^collect success/);
-    const tx = parseTransaction(f.state.sent[0]);
-    assert.equal(tx.to?.toLowerCase(), NEW_LOCKER, 'the locker that simulated');
-    assert.deepEqual(decodeFunctionData({ abi: LOCKER_ABI, data: tx.data! }).args.map((a) => String(a).toLowerCase()), [COIN_A]);
-    assert.deepEqual(await run(at(0.5)), [], 'EarnKit collected it 30 min earlier');
-    assert.equal(asked.at(-1), `${COIN_A}@${new Date(at(1).getTime() - 86_400_000).toISOString()}`, 'transfers in the last 24 h');
-
-    // A coin with no transfers in 24 h has no new fees: no transaction (fix round 1, a).
-    await sql()`UPDATE projects SET coin_collected_at = NULL WHERE coin_address = ${COIN_A}`;
-    traded = false;
-    assert.deepEqual(await run(at(1)), [{ coin: COIN_A, result: 'no transfers in 24 h' }]);
-    assert.equal(f.state.sent.length, 1);
-    traded = true;
-
-    // A coin only the legacy locker holds, whose split doesn't pay the bonus wallet: no transaction.
-    await sql()`UPDATE projects SET coin_collected_at = NULL WHERE coin_address = ${COIN_A}`;
-    await sql()`DELETE FROM bonus_ledger WHERE tx_hash = '0xt4collect'`;
-    f.state.collectable = new Set([`${OLD_LOCKER}:${COIN_A}`]);
-    f.state.recipients = [C.safe];
-    assert.deepEqual(await run(at(1)), [{ coin: COIN_A, result: 'its fees do not pay the bonus wallet' }]);
     assert.equal(f.state.sent.length, 1);
   } finally {
     await cleanup();
@@ -496,10 +441,12 @@ test('runBonusLedger: skipped without the payout key or off Base mainnet; runs e
     assert.deepEqual(await runBonusLedger({ account: null }), { skipped: "The payout wallet isn't set up yet (CAMPAIGN_PAYOUT_PRIVATE_KEY); nothing was sent." });
     const off = { ...f.rpc, getChainId: async () => 84532 };
     assert.match(String((await runBonusLedger({ account: ACCOUNT, rpc: off })).skipped), /not Base mainnet/);
-    const r = (await runBonusLedger({ account: ACCOUNT, rpc: f.rpc, startBlock: 1_000n, now: new Date('2026-10-02T00:00:00Z'), log: quiet, active: async () => true })) as Record<string, unknown>;
-    assert.equal((r.index as { round: number }).round, 1);
-    assert.ok(Array.isArray(r.collect) && Array.isArray(r.claim));
-    assert.deepEqual(r.sweep, { result: 'nothing to sweep' });
+    const r = (await runBonusLedger({ account: ACCOUNT, rpc: f.rpc, startBlock: 1_000n, now: new Date('2026-10-02T00:00:00Z'), log: quiet })) as Record<string, unknown>;
+    assert.deepEqual(r.index && { round: (r.index as { round: number }).round, safe: (r.index as { safe: number }).safe }, { round: 0, safe: 1 });
+    assert.ok(Array.isArray(r.claim));
+    assert.equal(r.collect, undefined, 'v2.14: no collect step (no builder bonus round to fill)');
+    // v2.14: the coin's 5 wei is the Safe's, waiting for the claim to reach the wallet.
+    assert.match((r.sweep as { result: string }).result, /^5 wei to sweep/);
     // A run already holding the lease: a second call is 'busy' and touches nothing.
     await sql()`INSERT INTO scoring_leases (program_id, until) VALUES ('bonus-ledger', now() + interval '5 minutes')`;
     assert.deepEqual(await runBonusLedger({ account: ACCOUNT, rpc: f.rpc, log: quiet }), { skipped: 'busy' });
@@ -511,7 +458,7 @@ test('runBonusLedger: skipped without the payout key or off Base mainnet; runs e
     try {
       const r2 = (await runBonusLedger({ account: ACCOUNT, rpc: broken, now: new Date('2026-10-02T00:00:00Z'), log: quiet })) as Record<string, unknown>;
       assert.equal(r2.index, 'failed');
-      assert.deepEqual(r2.sweep, { result: 'nothing to sweep' });
+      assert.match((r2.sweep as { result: string }).result, /^5 wei to sweep/);
     } finally {
       console.error = err;
     }
@@ -555,44 +502,10 @@ test('runCron runs the bonus ledger step (with its deps under `only`) and report
       only: ['t4-ledger-none'],
       deps: { refreshFees: async () => 0, bonus: { account: ACCOUNT, rpc: f.rpc, chain: C, startBlock: 1_000n, log: quiet } },
     });
-    assert.equal((out.bonus as { index: { round: number } }).index.round, 1);
+    assert.equal((out.bonus as { index: { safe: number } }).index.safe, 1);
     assert.deepEqual(out.needs_owner, []);
     const without = await runCron({ now: new Date('2026-10-02T00:00:00Z'), only: ['t4-ledger-none'], deps: { refreshFees: async () => 0 } });
     assert.equal(without.bonus, undefined, 'tests without bonus deps never reach a chain');
-  } finally {
-    await cleanup();
-  }
-});
-
-test('I1: the sweep never spends claimed round WETH while the Safe deposit is still unclaimed', db, async () => {
-  try {
-    await setup();
-    const cost = 50_000n * 1_000_000n;
-    const book = (i: number, amount: bigint, coin: string | null) =>
-      bookDeposit({ txHash: `0xt4short${i}`, logIndex: 0, amount, coin, blockNumber: BigInt(i), blockTime: new Date('2026-10-02T00:00:00Z') }, quiet);
-    const R = 50n * cost;
-    const S = 20n * cost;
-    await book(1, R, COIN_A); // round: claimed, in the wallet
-    await book(2, S, null); // Safe: still in the FeeLocker, below the claim gate
-    const f = fakeChain({ balance: R, available: { [BONUS]: S } });
-    const r = await sweepToSafe(ACCOUNT, { rpc: f.rpc, chain: C });
-    assert.match(r.result, /would leave a round short/);
-    assert.equal(f.state.sent.length, 0, 'no transfer');
-    assert.equal((await sql()`SELECT 1 FROM bonus_sweeps`).length, 0, 'nothing reserved');
-
-    // Once the Safe deposit is claimed too, the sweep goes, leaving exactly the round in the wallet.
-    f.state.balance = R + S;
-    f.state.available[BONUS] = 0n;
-    assert.equal((await sweepToSafe(ACCOUNT, { rpc: f.rpc, chain: C })).status, 'paid');
-    // A paid round no longer needs covering.
-    await sql()`UPDATE bonus_rounds SET state = 'paid' WHERE round_key = ${ROUND}`;
-    await book(3, 10n * cost, null);
-    f.state.balance = 10n * cost;
-    assert.equal((await sweepToSafe(ACCOUNT, { rpc: f.rpc, chain: C })).status, 'paid');
-    // (f) No reservation past the deadline.
-    await book(4, 10n * cost, null);
-    assert.match((await sweepToSafe(ACCOUNT, { rpc: f.rpc, chain: C, deadline: Date.now() - 1 })).result, /out of time/);
-    assert.equal((await sql()`SELECT 1 FROM bonus_ledger WHERE tx_hash = '0xt4short4' AND sweep_id IS NOT NULL`).length, 0);
   } finally {
     await cleanup();
   }
@@ -655,11 +568,11 @@ test('(b) receipt reads are capped per run; the cursor stops where it got to and
     f.add(500n, [store(1, BONUS, 1n), claimed(2, COIN_A)]);
     f.add(600n, [store(1, BONUS, 2n), claimed(2, COIN_A)]);
     const r1 = await indexDeposits(ACCOUNT.address, { rpc: f.rpc, chain: C, startBlock: 0n, maxReceipts: 1, log: quiet });
-    assert.equal(r1.round, 1);
+    assert.equal(r1.safe, 1);
     assert.equal((r1 as { outOfTime?: boolean }).outOfTime, true);
     assert.equal(await indexedThrough(), null, 'the cursor did not pass the unbooked deposit');
     const r2 = await indexDeposits(ACCOUNT.address, { rpc: f.rpc, chain: C, startBlock: 0n, maxReceipts: 1, log: quiet });
-    assert.equal(r2.round, 1);
+    assert.equal(r2.safe, 1);
     assert.equal((await indexedThrough())?.block, 1_000n);
     assert.equal(f.state.receiptReads, 2, 'the booked transaction is not read again');
   } finally {
@@ -777,59 +690,6 @@ test('Rulings 19, 20: a missing or malformed payout key waits on the owner (503)
   }
 });
 
-test('I2 / Ruling 21: a deposit in an extended window is booked to the same round, whose end follows the program', db, async () => {
-  try {
-    await setup(new Date('2026-10-08T00:00:00Z'));
-    const book = (i: number, at: string) =>
-      bookDeposit({ txHash: `0xt4ext${i}`, logIndex: 0, amount: 5n, coin: COIN_A, blockNumber: BigInt(i), blockTime: new Date(at) }, quiet);
-    assert.deepEqual(await book(1, '2026-10-02T00:00:00Z'), { destination: 'round', roundKey: ROUND, inserted: true });
-    // The organizer extends the program by 12 days.
-    await sql()`UPDATE programs SET ends_at = '2026-10-20T00:00:00Z' WHERE id = ${PROG}`;
-    assert.deepEqual(await book(2, '2026-10-10T00:00:00Z'), { destination: 'round', roundKey: ROUND, inserted: true });
-    const [r] = await sql()<{ ends_at: Date }[]>`SELECT ends_at FROM bonus_rounds WHERE round_key = ${ROUND}`;
-    assert.equal(r.ends_at.toISOString(), '2026-10-20T00:00:00.000Z');
-    // Once frozen, the round never moves: a later extension books to the Safe.
-    await sql()`UPDATE bonus_rounds SET state = 'review' WHERE round_key = ${ROUND}`;
-    await sql()`UPDATE programs SET ends_at = '2026-10-30T00:00:00Z' WHERE id = ${PROG}`;
-    assert.equal((await book(3, '2026-10-25T00:00:00Z')).destination, 'safe');
-    const [r2] = await sql()<{ ends_at: Date }[]>`SELECT ends_at FROM bonus_rounds WHERE round_key = ${ROUND}`;
-    assert.equal(r2.ends_at.toISOString(), '2026-10-20T00:00:00.000Z');
-    // A re-run cohort (a new start day) is a new round.
-    await sql()`UPDATE programs SET starts_at = '2026-11-01T00:00:00Z', ends_at = '2026-11-20T00:00:00Z' WHERE id = ${PROG}`;
-    assert.deepEqual(await book(4, '2026-11-02T00:00:00Z'), { destination: 'round', roundKey: `${PROG}:2026-11-01`, inserted: true });
-  } finally {
-    await cleanup();
-  }
-});
-
-test('Review Focus 5 / v2.6 Ruling 7: builder_bonus = false on a program with an open round sends new deposits to the Safe, logged', db, async () => {
-  try {
-    await setup();
-    // 1. Book deposit A for a coin of an active program at a time inside its round.
-    const a = await bookDeposit(
-      { txHash: '0xt4bbonusa', logIndex: 0, amount: 11n, coin: COIN_A, blockNumber: 1n, blockTime: new Date('2026-10-02T00:00:00Z') },
-      quiet,
-    );
-    assert.deepEqual(a, { destination: 'round', roundKey: ROUND, inserted: true });
-    // 2. The program opts out.
-    await sql()`UPDATE programs SET builder_bonus = false WHERE id = ${PROG}`;
-    // 3. Book deposit B (another tx hash): the Safe, logged with "builder bonus off".
-    const lines: string[] = [];
-    const b = await bookDeposit(
-      { txHash: '0xt4bbonusb', logIndex: 0, amount: 7n, coin: COIN_A, blockNumber: 2n, blockTime: new Date('2026-10-03T00:00:00Z') },
-      (l) => lines.push(l),
-    );
-    assert.deepEqual(b, { destination: 'safe', roundKey: null, inserted: true });
-    assert.match(lines.join('\n'), /builder bonus off/);
-    // 4. The round row is still 'open', and roundPoolsWei still maps to A's amount only.
-    const [round] = await sql()<{ state: string }[]>`SELECT state FROM bonus_rounds WHERE round_key = ${ROUND}`;
-    assert.equal(round.state, 'open');
-    assert.deepEqual(await roundPoolsWei([PROG], { now: new Date('2026-10-03T00:00:00Z') }), new Map([[PROG, 11n]]));
-  } finally {
-    await cleanup();
-  }
-});
-
 test('I5: a pending claim, then the sweep in the same run, signs the next nonce even when the RPC still says the old one', db, async () => {
   try {
     await setup();
@@ -878,22 +738,6 @@ test('task-10-review M7: only a revert means "this locker does not hold the coin
   assert.equal(isRevert(down), false);
   assert.equal(isRevert(new Error('execution reverted')), true);
   assert.equal(isRevert(new Error('fetch failed')), false);
-  if (!process.env.DATABASE_URL) return;
-  const ends = new Date('2026-10-08T00:00:00Z');
-  const err = console.error;
-  console.error = () => {};
-  try {
-    await setup(ends);
-    const f = fakeChain();
-    const rpc = { ...f.rpc, canCollect: async () => { throw down; } };
-    const out = await collectNearEnd(ACCOUNT, { rpc, chain: C, now: new Date(ends.getTime() - 3_600_000), active: async () => true });
-    assert.deepEqual(out, [{ coin: COIN_A, result: 'failed' }]);
-    const [p] = await sql()<{ coin_collected_at: Date | null }[]>`SELECT coin_collected_at FROM projects WHERE coin_address = ${COIN_A}`;
-    assert.equal(p.coin_collected_at, null, 'retried next run, not in 12 h');
-  } finally {
-    console.error = err;
-    await cleanup();
-  }
 });
 
 test('Ruling 24 / M9: a non-Base launch records no coin address (no builder bonus slot); the launch is recorded', db, async () => {
@@ -919,201 +763,6 @@ test('Ruling 24 / M9: a non-Base launch records no coin address (no builder bonu
     else process.env.TOKENSFUN_DEPLOY_API_KEY = key;
     await cleanup();
     await sql()`DELETE FROM installations WHERE token_hash = 't4-rh'`;
-  }
-});
-
-// ---- v2.8.1 §D (option B): the builder bonus follows the repo to its next open entry ----
-
-const REPO = 'github.com/t5-rollover/app';
-const R2 = 't4-ledger-r2';
-const R3 = 't4-ledger-r3';
-const ROUND2 = `${R2}:2026-10-05`;
-const ROUND3 = `${R3}:2026-10-05`;
-/**
- * The home program (PROG, Oct 1 to Oct 8) holds the repo's token (COIN_A). R2 (Oct 5 to Oct 20) and
- * R3 (Oct 5 to Oct 30) each get an entry of the same repo, without a token of its own (one token
- * per repo), submitted and complete on Oct 6 unless `o` says otherwise.
- */
-async function rolloverSetup(o: { r2?: { proof?: string | null; complete?: string | null; skip?: boolean }; r3?: boolean } = {}) {
-  await setup();
-  await sql()`UPDATE projects SET token_url = 'https://tokens.fun/coin/a', token_repo_key = ${REPO}, bonus_repo_key = ${REPO}
-    WHERE coin_address = ${COIN_A}`;
-  for (const [id, ends] of [[R2, '2026-10-20T00:00:00Z'], [R3, '2026-10-30T00:00:00Z']] as const)
-    await sql()`
-      INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary,
-        status, existing_work, starts_at, ends_at)
-      VALUES (${id}, 'X', ${id}, 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed',
-        '2026-10-05T00:00:00Z', ${ends})`;
-  const r2 = o.r2 ?? {};
-  await sql()`
-    INSERT INTO projects (program_id, name, bonus_repo_key, submission_proof_ok_at, complete_at, confirm_choice)
-    VALUES (${R2}, 't5 r2', ${REPO}, ${r2.proof === undefined ? '2026-10-06T00:00:00Z' : r2.proof},
-      ${r2.complete === undefined ? '2026-10-06T00:00:00Z' : r2.complete}, ${r2.skip ? 'skip' : 'go'})`;
-  if (o.r3 !== false)
-    await sql()`
-      INSERT INTO projects (program_id, name, bonus_repo_key, submission_proof_ok_at, complete_at, confirm_choice)
-      VALUES (${R3}, 't5 r3', ${REPO}, '2026-10-06T00:00:00Z', '2026-10-06T00:00:00Z', 'go')`;
-}
-const bookAt = (id: string, at: string, log: (l: string) => void = quiet) =>
-  bookDeposit({ txHash: `0xt5roll${id}`, logIndex: 0, amount: 9n, coin: COIN_A, blockNumber: 1n, blockTime: new Date(at) }, log);
-
-test('v2.8.1 §D: a deposit after round 1 ends books to the repo\'s open round 2 (the earliest open one); before the end it stays home', db, async () => {
-  try {
-    await rolloverSetup();
-    assert.deepEqual(await bookAt('home', '2026-10-07T00:00:00Z'), { destination: 'round', roundKey: ROUND, inserted: true });
-    // After Oct 8: R2 ends first, so it takes the deposit (R3 is open too).
-    assert.deepEqual(await bookAt('after', '2026-10-10T00:00:00Z'), { destination: 'round', roundKey: ROUND2, inserted: true });
-    const [r] = await sql()<{ state: string; program_id: string; ends_at: Date }[]>`SELECT state, program_id, ends_at FROM bonus_rounds WHERE round_key = ${ROUND2}`;
-    assert.deepEqual([r.state, r.program_id, r.ends_at.toISOString()], ['open', R2, '2026-10-20T00:00:00.000Z']);
-    // After R2 ends, R3 is the next open entry.
-    assert.deepEqual(await bookAt('later', '2026-10-25T00:00:00Z'), { destination: 'round', roundKey: ROUND3, inserted: true });
-    // A program that closed (status) rolls over too, inside its old window.
-    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${PROG}`;
-    assert.equal((await bookAt('closed', '2026-10-07T12:00:00Z')).roundKey, ROUND2);
-  } finally {
-    await cleanup();
-  }
-});
-
-test('v2.8.1 §D: with no open entry of the repo, the deposit goes to the Safe, logged; an opted-out program never rolls', db, async () => {
-  try {
-    await rolloverSetup({ r3: false });
-    const lines: string[] = [];
-    // After R2 ends there is no open entry left.
-    assert.deepEqual(await bookAt('none', '2026-10-25T00:00:00Z', (l) => lines.push(l)), { destination: 'safe', roundKey: null, inserted: true });
-    assert.match(lines.join('\n'), /no open round; no open entry of its repo to roll over to/);
-    // No repo key on the token: nothing to follow.
-    await sql()`UPDATE projects SET token_repo_key = NULL WHERE coin_address = ${COIN_A}`;
-    assert.equal((await bookAt('norepo', '2026-10-10T00:00:00Z')).destination, 'safe');
-    await sql()`UPDATE projects SET token_repo_key = ${REPO} WHERE coin_address = ${COIN_A}`;
-    // The token's program opted out of the builder bonus: the Safe, as before (no rollover).
-    await sql()`UPDATE programs SET builder_bonus = false WHERE id = ${PROG}`;
-    assert.equal((await bookAt('optout', '2026-10-10T00:00:00Z')).destination, 'safe');
-    await sql()`UPDATE programs SET builder_bonus = true WHERE id = ${PROG}`;
-    // A target program without the builder bonus, or a campaign, is never a target.
-    await sql()`UPDATE programs SET builder_bonus = false WHERE id = ${R2}`;
-    assert.equal((await bookAt('r2off', '2026-10-10T00:00:00Z')).destination, 'safe');
-    assert.equal(await sql()`SELECT 1 FROM bonus_rounds WHERE program_id = ${R2}`.then((r) => r.length), 0, 'no round row is made');
-  } finally {
-    await cleanup();
-  }
-});
-
-test('v2.8.1 §D: frozen rounds and past bookings are never touched; a frozen target is passed over', db, async () => {
-  try {
-    await rolloverSetup();
-    await bookAt('a', '2026-10-07T00:00:00Z'); // home round
-    await bookAt('b', '2026-10-10T00:00:00Z'); // R2
-    const before = await rows();
-    // R2 freezes (its program file then moves its end): it takes nothing more and its window stays.
-    await sql()`UPDATE bonus_rounds SET state = 'frozen' WHERE round_key = ${ROUND2}`;
-    await sql()`UPDATE programs SET ends_at = '2026-10-22T00:00:00Z' WHERE id = ${R2}`;
-    assert.equal((await bookAt('c', '2026-10-11T00:00:00Z')).roundKey, ROUND3, 'the next open entry takes it');
-    const [r2] = await sql()<{ state: string; ends_at: Date }[]>`SELECT state, ends_at FROM bonus_rounds WHERE round_key = ${ROUND2}`;
-    assert.deepEqual([r2.state, r2.ends_at.toISOString()], ['frozen', '2026-10-20T00:00:00.000Z']);
-    // A paid round too.
-    await sql()`UPDATE bonus_rounds SET state = 'paid' WHERE round_key = ${ROUND3}`;
-    assert.equal((await bookAt('d', '2026-10-12T00:00:00Z')).destination, 'safe');
-    // Every earlier booking is exactly as it was.
-    const after = await rows();
-    for (const b of before) assert.deepEqual(after.find((x) => x.tx_hash === b.tx_hash), b);
-    // The home round frozen inside its window rolls over too (a later extension of the home program).
-    await sql()`UPDATE bonus_rounds SET state = 'frozen' WHERE round_key = ${ROUND}`;
-    await sql()`UPDATE bonus_rounds SET state = 'open' WHERE round_key = ${ROUND3}`;
-    await sql()`UPDATE programs SET ends_at = '2026-10-15T00:00:00Z' WHERE id = ${PROG}`;
-    assert.equal((await bookAt('e', '2026-10-12T00:00:00Z')).roundKey, ROUND3);
-  } finally {
-    await cleanup();
-  }
-});
-
-test('v2.8.1 §D: an entry not submitted, not complete, skipped, or only submitted after the deposit is never the target', db, async () => {
-  const cases: [string, Parameters<typeof rolloverSetup>[0]][] = [
-    ['not submitted', { r2: { proof: null } }],
-    ['not complete', { r2: { complete: null } }],
-    ['skipped', { r2: { skip: true } }],
-    ['submitted after the deposit', { r2: { proof: '2026-10-11T00:00:00Z' } }],
-    ['complete after the deposit', { r2: { complete: '2026-10-11T00:00:00Z' } }],
-  ];
-  try {
-    for (const [name, o] of cases) {
-      await rolloverSetup({ ...o, r3: false });
-      assert.equal((await bookAt(name.replace(/ /g, ''), '2026-10-10T00:00:00Z')).destination, 'safe', name);
-    }
-    // With R3's complete entry present, R3 takes it instead of R2's incomplete one.
-    await rolloverSetup({ r2: { complete: null } });
-    assert.equal((await bookAt('r3', '2026-10-10T00:00:00Z')).roundKey, ROUND3);
-  } finally {
-    await cleanup();
-  }
-});
-
-test('v2.8.1 §D: re-indexing is idempotent: the same rows, no deposit moved, even after the target round froze', db, async () => {
-  try {
-    await rolloverSetup();
-    const f = fakeChain({ head: 40_000n + CONFIRMATIONS });
-    // One block a minute from Oct 1: block 8,000 is Oct 6 13:20 (home round), 13,000 is Oct 10 00:40 (after it).
-    const t1 = f.add(8_000n, [store(1, BONUS, 20n), claimed(2, COIN_A)]);
-    const t2 = f.add(13_000n, [store(1, BONUS, 30n), claimed(2, COIN_A)]);
-    await indexDeposits(ACCOUNT.address, { rpc: f.rpc, chain: C, startBlock: 7_000n, log: quiet });
-    const first = (await rows()).map((r) => [r.tx_hash, r.round_key, r.destination, r.amount_wei]);
-    assert.deepEqual(first, [
-      [t1, ROUND, 'round', '20'],
-      [t2, ROUND2, 'round', '30'],
-    ]);
-    // R2 freezes; a re-index from the start books nothing new and moves nothing.
-    await sql()`UPDATE bonus_rounds SET state = 'frozen' WHERE round_key = ${ROUND2}`;
-    await sql()`DELETE FROM bonus_cursor`;
-    await indexDeposits(ACCOUNT.address, { rpc: f.rpc, chain: C, startBlock: 7_000n, log: quiet });
-    assert.deepEqual((await rows()).map((r) => [r.tx_hash, r.round_key, r.destination, r.amount_wei]), first);
-    // bookDeposit itself answers the stored booking for a repeat.
-    const again = await bookDeposit({ txHash: t2, logIndex: 1, amount: 30n, coin: COIN_A, blockNumber: 13_000n, blockTime: f.timeOf(13_000n) }, quiet);
-    assert.deepEqual(again, { destination: 'round', roundKey: ROUND2, inserted: false });
-  } finally {
-    await cleanup();
-  }
-});
-
-test('v2.8.1 §D: bonusEntryProgram names the program whose round the token fees book to, after rollover too', db, async () => {
-  try {
-    await rolloverSetup({ r3: false });
-    const at = (s: string) => bonusEntryProgram(REPO, new Date(s));
-    assert.deepEqual(await at('2026-10-07T00:00:00Z'), { program_id: PROG, title: PROG });
-    assert.deepEqual(await at('2026-10-10T00:00:00Z'), { program_id: R2, title: R2 });
-    // R2 froze: no open entry left, so the fees go to the Safe (null).
-    await bookAt('x', '2026-10-10T00:00:00Z');
-    await sql()`UPDATE bonus_rounds SET state = 'frozen' WHERE round_key = ${ROUND2}`;
-    assert.equal(await at('2026-10-11T00:00:00Z'), null);
-    // No token on the repo: undefined (the caller keeps its own name).
-    assert.equal(await bonusEntryProgram('github.com/t5-rollover/none', new Date('2026-10-10T00:00:00Z')), undefined);
-    // A program without the builder bonus never rolls: undefined.
-    await sql()`UPDATE programs SET builder_bonus = false WHERE id = ${PROG}`;
-    assert.equal(await at('2026-10-10T00:00:00Z'), undefined);
-  } finally {
-    await cleanup();
-  }
-});
-
-test('v2.8.1 §D: the near-end collect follows the round a coin rolled into (its last 24 h), never the ended home round', db, async () => {
-  try {
-    await rolloverSetup({ r3: false });
-    const f = fakeChain();
-    const run = (now: string) => collectNearEnd(ACCOUNT, { rpc: f.rpc, chain: C, now: new Date(now), active: async () => true });
-    // Home ended Oct 8; the fees roll to R2 (ends Oct 20). Mid-R2: nothing to collect.
-    assert.deepEqual(await run('2026-10-12T00:00:00Z'), []);
-    // R2's last 24 h: EarnKit collects the coin itself.
-    const out = await run('2026-10-19T12:00:00Z');
-    assert.equal(out.length, 1, JSON.stringify(out));
-    assert.equal(out[0].coin, COIN_A);
-    assert.match(out[0].result, /^collect success/);
-    // A frozen rolled-to round, or no open entry: no collect.
-    await sql()`UPDATE projects SET coin_collected_at = NULL WHERE coin_address = ${COIN_A}`;
-    await sql()`INSERT INTO bonus_rounds (round_key, program_id, starts_at, ends_at, state)
-      VALUES (${ROUND2}, ${R2}, '2026-10-05T00:00:00Z', '2026-10-20T00:00:00Z', 'frozen')
-      ON CONFLICT (round_key) DO UPDATE SET state = 'frozen'`;
-    assert.deepEqual(await run('2026-10-19T13:00:00Z'), []);
-  } finally {
-    await cleanup();
   }
 });
 
@@ -1347,7 +996,7 @@ test('9.7 gasMinWei: GAS_WALLET_MIN_WEI, else 0.002 ETH; a malformed value is th
   assert.ok(!lines[0].includes('abc'));
 });
 
-test('9.8 (fix round 1) the creator and MINI step runs after the payouts and the sweep, in its own slice: a slow one never starves them', db, async () => {
+test('9.8 (fix round 1) the creator and MINI step runs after the sweep, in its own slice: a slow one never starves them', db, async () => {
   try {
     await t9cleanup();
     await setup();
@@ -1376,16 +1025,11 @@ test('9.8 (fix round 1) the creator and MINI step runs after the payouts and the
       log: quiet,
       othersMs: 300,
       deadline: Date.now() + 60_000,
-      rounds: async () => {
-        order.push('rounds');
-        return 'ran';
-      },
-    })) as { claim: { role: string; result: string }[]; rounds: unknown; sweep: { result: string }; claim_others: { owner: string; role: string; result: string }[] };
-    // EarnKit's own claims came first, before any recipient read or third-party claim; then the rounds and the sweep.
-    assert.deepEqual(order.slice(0, 3), ['bonus', 'safe', 'rounds']);
+    })) as { claim: { role: string; result: string }[]; sweep: { result: string }; claim_others: { owner: string; role: string; result: string }[] };
+    // EarnKit's own claims came first, before any recipient read or third-party claim; then the sweep.
+    assert.deepEqual(order.slice(0, 2), ['bonus', 'safe']);
     assert.deepEqual(r.claim.map((c) => c.role), ['bonus', 'safe']);
     assert.ok(r.claim.every((c) => c.result.startsWith('claim success')));
-    assert.equal(r.rounds, 'ran');
     assert.deepEqual(r.sweep, { result: 'nothing to sweep' });
     // The slow step stopped at its slice: MINI first, the rest carried over to the next run.
     assert.equal(r.claim_others[0].role, 'mini');

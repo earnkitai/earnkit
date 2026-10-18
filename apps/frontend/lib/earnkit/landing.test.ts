@@ -390,7 +390,6 @@ const CARD = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, pro
 /** Runs `fn` with EARNKIT_BENCH set to `on` (true) or unset (false), and restores both flags after. */
 const withBench = <T>(on: boolean, fn: () => T): T => {
   const prev = { score: process.env.EARNKIT_BUILDER_SCORE, bench: process.env.EARNKIT_BENCH };
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
   if (on) process.env.EARNKIT_BENCH = 'on';
   else delete process.env.EARNKIT_BENCH;
   const restore = () => {

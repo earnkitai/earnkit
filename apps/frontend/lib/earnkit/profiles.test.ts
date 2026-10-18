@@ -108,11 +108,9 @@ test('7.9 merge, the other has a login and a v2.12 X handle: the root keeps its 
   await sql()`UPDATE builder_profiles SET x_handle = ${`Mx${T % 1000}`} WHERE builder_id = ${other}`; // written by v2.12's setXHandle
   await setHidden(root, true);
   await sql()`INSERT INTO builder_ranks (builder_id, score, percentile, computed_at) VALUES (${other}, 40, 50, now())`;
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
   try {
     await sql().begin((tx) => mergeProfiles(tx, root, other));
   } finally {
-    delete process.env.EARNKIT_BUILDER_SCORE;
   }
   const p = (await profileOf(root))!;
   assert.deepEqual([p.github_login, p.x_handle, p.slug, p.hidden], [`mx${T}`, `Mx${T % 1000}`, rootSlug, true], 'login and handle kept; hidden stays hidden');
@@ -140,11 +138,9 @@ test('7.10 merge, the root wins: the other\'s login moves to it (no unique clash
 test('7.11 merge with no profile on either side writes nothing', dbTest, async () => {
   const [root, other] = [T + 11, T + 12];
   await fresh(root, other);
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
   try {
     await sql().begin((tx) => mergeProfiles(tx, root, other));
   } finally {
-    delete process.env.EARNKIT_BUILDER_SCORE;
   }
   const [q] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM discovery_queue WHERE builder_id IN (${root}, ${other})`;
   assert.equal(q.n, 0);

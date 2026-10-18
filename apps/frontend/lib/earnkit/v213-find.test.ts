@@ -19,8 +19,6 @@ import { UPDATES_ASK, checkingBranchLine, claimAsk, startBuildAsk } from './benc
  * the same turn, the weekly-posting yes; flag off is v2.12.2's reply.
  */
 
-process.env.EARNKIT_BUILDER_SCORE = 'on';
-process.env.EARNKIT_BENCH = 'on';
 process.env.EARNKIT_AUTH_SECRET ||= 'v213-find-secret';
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {
@@ -33,7 +31,7 @@ after(async () => {
 const RUN = randomBytes(3).toString('hex');
 /** A string as a literal inside a RegExp. */
 const esc = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const benchOn = <T>(fn: () => Promise<T>) => withEnv({ EARNKIT_BUILDER_SCORE: 'on', EARNKIT_BENCH: 'on', [EVENT_LOG_FLAG]: 'on', ...X_ON }, fn);
+const benchOn = <T>(fn: () => Promise<T>) => withEnv({ [EVENT_LOG_FLAG]: 'on', ...X_ON }, fn);
 
 /**
  * 8.8's own world (fix round 1): a copy of Arc Microgrants closing in 3 days whose fresh build is a
@@ -120,7 +118,7 @@ test('8.8 no project: ideas first, one build offer aimed at the program (spec 2b
 );
 
 test('8.9 flag off: the v2.12.2 reply ("Ways to earn right now"), no proof, no rank lines (review focus 4)', dbTest, () =>
-  withEnv({ EARNKIT_BUILDER_SCORE: 'on', EARNKIT_BENCH: undefined, [EVENT_LOG_FLAG]: 'on', ...X_ON }, async () => {
+  withEnv({ EARNKIT_BENCH: undefined, [EVENT_LOG_FLAG]: 'on', ...X_ON }, async () => {
     const id = await install();
     const r = await find(id, { identity: { projects: [{ name: 'TipJar', what: 'a tip jar', repo: `leeoff${RUN}/tipjar` }] } }, { matchProjects: async () => ({ checked: 1, scored: 0, fits: [] }) });
     assert.ok(!r.show_to_builder.includes('Ways to get funded'));

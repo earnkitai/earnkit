@@ -567,7 +567,6 @@ const NOW = new Date('2026-10-14T12:00:00Z');
 /** Runs `fn` with EARNKIT_BUILDER_SCORE and the event log on (the file's other cases run with them off). */
 async function scoreOn<T>(fn: () => Promise<T>): Promise<T> {
   const was = { score: process.env.EARNKIT_BUILDER_SCORE, log: process.env.EARNKIT_EVENT_LOG };
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
   process.env.EARNKIT_EVENT_LOG = 'on';
   try {
     return await fn();

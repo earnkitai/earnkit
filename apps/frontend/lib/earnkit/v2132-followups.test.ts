@@ -20,8 +20,6 @@ import type { ReaderDeps } from './source-readers';
  * 3: the empty Bench header and its singular. (2, the Safe's revenue stat: v2132-safe-fees.test.ts.)
  */
 
-process.env.EARNKIT_BUILDER_SCORE = 'on';
-process.env.EARNKIT_BENCH = 'on';
 process.env.EARNKIT_AUTH_SECRET ||= 'v2132-branch-secret';
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {
@@ -29,7 +27,7 @@ after(async () => {
 });
 
 const RUN = randomBytes(3).toString('hex');
-const ON = { EARNKIT_BUILDER_SCORE: 'on', EARNKIT_BENCH: 'on', EARNKIT_URL: undefined, ...X_ON };
+const ON = { EARNKIT_URL: undefined, ...X_ON };
 const NO_MATCH = { matchProjects: async () => ({ checked: 1, scored: 0, fits: [] }) };
 const DAY = 86_400_000;
 let seq = 0;
