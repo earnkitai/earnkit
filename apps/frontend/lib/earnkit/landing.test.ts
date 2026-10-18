@@ -2,7 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { bonusAmount, byPool, INSTALLS_SHOWN_FROM, landingFrom, readGuideIds, readGuidePage, readLanding, statsLine } from './landing';
+import { byPool, INSTALLS_SHOWN_FROM, landingFrom, readGuideIds, readGuidePage, readLanding, statsLine } from './landing';
 import { ProgramFile } from './program-file';
 import { getProgramRow, poolFacts, upsertProgram } from './programs';
 import { sql } from './db';
@@ -53,7 +53,6 @@ const arc: Card = {
   each_time: [],
   ends_at: new Date('2026-10-15T03:59:00Z'),
   max_award_usd: 500,
-  builder_bonus: true,
   difficulty: medium,
   logo: 'programs/arc-microgrants.svg',
   chains: ['arc'],
@@ -66,7 +65,6 @@ const base: Card = {
   each_time: [],
   ends_at: null,
   max_award_usd: 5000,
-  builder_bonus: true,
   difficulty: { level: 'Hard', estimate: false, rated: false, basis: '20 of ~160 entries won last round' },
   logo: null,
   chains: ['base'],
@@ -79,26 +77,23 @@ const monad: Card = {
   each_time: [],
   ends_at: new Date('2026-10-20T23:59:00Z'),
   max_award_usd: 25000,
-  builder_bonus: false,
   difficulty: null,
   logo: null,
   chains: ['monad', 'base', 'robinhood'],
 };
-const sponsored: Card = { ...arc, id: 'acme-campaign', title: 'Acme', max_award_usd: 90000, sponsored: true, builder_bonus: false };
-const campaign: Card = { ...arc, id: 'earnkit-campaign-1-base', title: 'EarnKit Campaign #1', max_award_usd: 80000, earnkit_campaign: true, builder_bonus: false };
+const sponsored: Card = { ...arc, id: 'acme-campaign', title: 'Acme', max_award_usd: 90000, sponsored: true };
+const campaign: Card = { ...arc, id: 'earnkit-campaign-1-base', title: 'EarnKit Campaign #1', max_award_usd: 80000, earnkit_campaign: true };
 
 test('v2.7 §1: tiles are curated programs sorted by prize; plain JSON (Review Focus 2)', () => {
-  const l = landingFrom([monad, arc, sponsored, campaign, base], new Map([['arc-microgrants', 42n * 10n ** 16n]]), stats(), now);
+  const l = landingFrom([monad, arc, sponsored, campaign, base], stats(), now);
   assert.deepEqual(l.tiles.map((t) => t.id), ['monad-metropolis', 'base-builder-grants', 'arc-microgrants']);
   const arcTile = l.tiles.find((t) => t.id === 'arc-microgrants')!;
-  assert.equal(arcTile.has_bonus, true);
-  assert.equal(arcTile.bonus_amount, '0.42 ETH');
   assert.equal(arcTile.days_left, '9 days left'); // Oct 15 03:59 UTC is 9 UTC days after Oct 6
   assert.deepEqual(JSON.parse(JSON.stringify(l)), l);
 });
 
 test('v2.7.1: each tile field; no pool means the per-winner amount is the big line', () => {
-  const l = landingFrom([monad, arc, base], new Map([['base-builder-grants', null]]), stats(), now);
+  const l = landingFrom([monad, arc, base], stats(), now);
   const [m, b, a] = l.tiles;
   assert.deepEqual(m, {
     id: 'monad-metropolis',
@@ -110,17 +105,11 @@ test('v2.7.1: each tile field; no pool means the per-winner amount is the big li
     pool_usd: null,
     difficulty: NO_CELL,
     days_left: '14 days left',
-    has_bonus: false, // opted out
-    bonus_amount: null,
     logo: null,
   });
   assert.equal(b.days_left, 'rolling');
-  assert.equal(b.difficulty, 'Hard');
-  assert.equal(b.has_bonus, false); // its round froze (I2)
-  assert.equal(b.bonus_amount, null);
-  assert.equal(a.difficulty, 'Medium'); // v2.8 Ruling 21: the level word only; the guide keeps "(estimate)"
-  assert.equal(a.has_bonus, true); // no pool read yet: the pill still shows
-  assert.equal(a.bonus_amount, null); // never "0 ETH"
+  assert.equal(b.difficulty, 'Hard'); // its round froze (I2)
+  assert.equal(a.difficulty, 'Medium'); // v2.8 Ruling 21: the level word only; the guide keeps "(estimate)" // no pool read yet: the pill still shows // never "0 ETH"
   assert.equal(a.logo, '/programs/arc-microgrants.svg');
   assert.equal(b.prize, 'up to $5,000 per grant'); // review #1: a grant program
   assert.equal(l.open_text, '$30.5K'); // v2.9 F21: the top prizes (Monad, Arc, Base), never the sponsor's or the campaign's
@@ -128,9 +117,9 @@ test('v2.7.1: each tile field; no pool means the per-winner amount is the big li
 
 test('v2.8 Ruling 20, 21 (plan): every open curated program is a tile (no cap); the difficulty is the level word only', () => {
   const many = Array.from({ length: 9 }, (_, i): Card => ({ ...arc, id: `p${i}`, title: `P${i}`, max_award_usd: 1000 + i }));
-  const l = landingFrom([...many, sponsored, campaign], new Map(), stats(), now);
+  const l = landingFrom([...many, sponsored, campaign], stats(), now);
   assert.equal(l.tiles.length, 9);
-  const hard = landingFrom([{ ...base, difficulty: { level: 'Hard', estimate: true, rated: false, basis: 'a16z publishes no acceptance figures' } }], new Map(), stats(), now);
+  const hard = landingFrom([{ ...base, difficulty: { level: 'Hard', estimate: true, rated: false, basis: 'a16z publishes no acceptance figures' } }], stats(), now);
   assert.equal(hard.tiles[0].difficulty, 'Hard');
   assert.ok(!('ends' in hard.tiles[0]), 'days_left replaces ends');
 });
@@ -151,7 +140,7 @@ test('v2.7.1: a pool is the big line, "up to $X per winner" under it; unknown am
   assert.deepEqual([t('circle-developer-grants').prize, t('circle-developer-grants').prize_note], ['milestone-based USDC grants', null]);
   // v2.9 F21: the top prizes, never the pools; the sponsor and EarnKit campaigns never count.
   assert.equal(l.open_text, '$30.5K');
-  assert.equal(landingFrom([pooled(arc, 10000, '10,000 USDC pool')], new Map(), stats(), now).open_text, '$500');
+  assert.equal(landingFrom([pooled(arc, 10000, '10,000 USDC pool')], stats(), now).open_text, '$500');
 });
 
 test('v2.9 F21: the real program files: the top prizes add up to "$160.5K open right now"', () => {
@@ -160,7 +149,7 @@ test('v2.9 F21: the real program files: the top prizes add up to "$160.5K open r
     const f = ProgramFile.parse(committedProgram(id));
     return { ...arc, id, title: f.title, reward: f.reward, max_award_usd: f.max_award_usd ?? null, min_award_usd: f.min_award_usd ?? null, ends_at: null, ...poolFacts({ ...f, pool_usd: f.pool_usd == null ? null : String(f.pool_usd), campaign: null }) };
   });
-  const l = landingFrom(cards, new Map(), stats(), now);
+  const l = landingFrom(cards, stats(), now);
   assert.equal(l.open_text, '$160.5K');
   const t = (id: string) => l.tiles.find((x) => x.id === id)!;
   assert.equal(t('colosseum-worlds-fair').prize, '$840K in prizes');
@@ -193,27 +182,13 @@ test('v2.7.1 fix: byPool orders pools first by size, then the rest by per-winner
   assert.deepEqual(sorted, ['big-pool', 'same-pool-sooner', 'same-pool-later', 'small-pool', 'no-pool-big-award', 'nothing']);
 });
 
-test('v2.7.1: the stats line shows only from 100 installs or once bonus is paid', () => {
+test('v2.7.1: the stats line shows only from 100 installs (v2.14: never the builder bonus)', () => {
   assert.equal(INSTALLS_SHOWN_FROM, 100);
   assert.equal(statsLine(stats({ installs: 99, bonus_pools_eth: 2 })), null);
   assert.equal(statsLine(stats({ installs: 100 })), '100 agents earning');
-  assert.equal(statsLine(stats({ installs: 312, bonus_paid_eth: 0.42 })), '312 agents earning · 0.42 ETH builder bonus paid');
-  assert.equal(statsLine(stats({ bonus_paid_eth: 1.13 })), '1.13 ETH builder bonus paid');
-  // Fix round 1, Important 3: float flooring never shows a cent less than the 6-decimal amount.
-  assert.equal(statsLine(stats({ bonus_paid_eth: 0.29 })), '0.29 ETH builder bonus paid');
-  assert.equal(statsLine(stats({ bonus_paid_eth: 0.299999 })), '0.29 ETH builder bonus paid');
-  assert.equal(statsLine(stats({ bonus_paid_eth: 0.004 })), 'under 0.01 ETH builder bonus paid');
+  assert.equal(statsLine(stats({ installs: 312, bonus_paid_eth: 0.42 })), '312 agents earning');
+  assert.equal(statsLine(stats({ bonus_paid_eth: 1.13 })), null);
   assert.equal(statsLine(stats({ installs: 1234 })), '1,234 agents earning');
-});
-
-test('v2.8 Ruling 19 (plan): the bonus pill amount', () => {
-  assert.equal(bonusAmount('new pool'), null);
-  assert.equal(bonusAmount(NO_CELL), null);
-  assert.equal(bonusAmount('0.42 ETH so far'), '0.42 ETH');
-  assert.equal(bonusAmount('under 0.01 ETH so far'), '<0.01 ETH');
-  // An opted-out program's pool never shows; a program with the bonus shows its own.
-  const l = landingFrom([monad, arc], new Map([['monad-metropolis', 10n ** 18n], ['arc-microgrants', 2n * 10n ** 17n]]), stats(), now);
-  assert.deepEqual(l.tiles.map((t) => [t.id, t.bonus_amount]), [['monad-metropolis', null], ['arc-microgrants', '0.20 ETH']]);
 });
 
 test('Review Focus 1: an unreachable database rejects; never empty data that would read "$0 open"', async () => {
@@ -340,7 +315,7 @@ test('v2.9 F21: the landing figure is moneyText(openMoneyUsd) of the same cards,
   const pooledMonad = { ...monad, pool_usd: 840000, pool_plus: true };
   const pooledArc = { ...arc, pool_usd: 10000 };
   const cards = [pooledMonad, pooledArc, sponsored, campaign, base];
-  const l = landingFrom(cards, new Map(), stats(), now);
+  const l = landingFrom(cards, stats(), now);
   assert.equal(l.open_text, moneyText(openMoneyUsd(cards, now)));
   assert.equal(l.open_text, '$30.5K');
   const first = presentFirstMessage({
@@ -361,24 +336,23 @@ test('v2.8 Ruling C5: an investment program reads "up to $1M investment", never 
     max_award_usd: 1_000_000,
     reward: 'Up to $1M in funding and $10M+ in credits',
     investment: true,
-    builder_bonus: true,
     difficulty: { level: 'Hard', estimate: false, rated: false, basis: 'x' },
     logo: null,
     chains: [],
     any_chain: true,
   };
-  const [tile] = landingFrom([speedrun], new Map(), stats(), now).tiles;
+  const [tile] = landingFrom([speedrun], stats(), now).tiles;
   assert.equal(tile.prize, 'up to $1M investment');
   assert.equal(tile.prize_note, null);
   assert.doesNotMatch(JSON.stringify(tile), /per winner/);
   // Without the flag, the same card is a prize.
-  const [prize] = landingFrom([{ ...speedrun, investment: false }], new Map(), stats(), now).tiles;
+  const [prize] = landingFrom([{ ...speedrun, investment: false }], stats(), now).tiles;
   assert.equal(prize.prize, 'up to $1,000,000 per winner');
 });
 
 test('10.11 the won line: absent at 0 (never "$0"); "Builders using EarnKit won $12,500" from announced wins', () => {
-  assert.equal(landingFrom([arc], new Map(), stats(), now).won_line, null);
-  assert.equal(landingFrom([arc], new Map(), stats({ builders_won_usd: 12_500 }), now).won_line, 'Builders using EarnKit won $12,500');
+  assert.equal(landingFrom([arc], stats(), now).won_line, null);
+  assert.equal(landingFrom([arc], stats({ builders_won_usd: 12_500 }), now).won_line, 'Builders using EarnKit won $12,500');
   assert.equal(wonLine(0), null);
   assert.equal(wonLine(1_234_567), 'Builders using EarnKit won $1,234,567');
 });
@@ -450,14 +424,6 @@ test('12.3 the square card: photo, @handle, project, the first line of the updat
   // No updates this week: no carousel (the Bench and the grants still show).
   const none = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], chips: [], cards: [], raising: true } });
   assert.ok(!none.includes(CAROUSEL_TITLE) && none.includes(BENCH_TOP_TITLE) && none.includes('Money open now'));
-});
-
-test('12.4 flag off: today\'s landing page (review focus 4)', () => {
-  const h = withBench(false, () => page({ ...LANDING_FIXTURE, bench: null }));
-  assert.ok(h.includes(HERO_TITLE) && h.includes('Agents only') && h.includes('Open programs') && h.includes('How you earn'));
-  assert.ok(!h.includes(BENCH_TOP_TITLE));
-  assert.ok(h.includes('Builder bonus'), 'the hero pill and the card pills stay');
-  assert.ok(h.includes(`>${FOOTER_TAGLINE}<`) && !h.includes(BENCH_FOOTER_TAGLINE));
 });
 
 test('12.5 the footer tagline: "Ship every week. Get funded." under the flag, today\'s without it', () => {
