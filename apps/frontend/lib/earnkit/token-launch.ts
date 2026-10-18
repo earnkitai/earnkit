@@ -3,8 +3,6 @@ import { isWalletAddress, normalizeLiveUrl, normalizeRepoUrl } from './campaigns
 import { sql } from './db';
 import { rememberWallet, sharedGroup } from './installations';
 import { OWNERSHIP_FILE } from './ownership';
-import { bonusOn } from './bonus-rounds';
-import { benchEnabled } from './builder-score-flag';
 import type { Chain } from './chains';
 import type { SubmissionRequirement, TokenPolicy } from './program-file';
 import { answersOf } from './projects';
@@ -38,7 +36,6 @@ import {
   TOKENS_UNAVAILABLE,
   decodeImage,
   deployToken,
-  repoCoinPrograms,
   repoHasTokenNote,
   repoTokenUrl,
   setTokenStatus,
@@ -91,22 +88,7 @@ export type TokenBlock = {
   creator_wallet: string | null;
   policy: 'encouraged' | 'allowed';
   note: string;
-  /** v2.6 Ruling 7: bonusOn, active, not opted out, not a campaign (hasBuilderBonus). */
-  has_bonus: boolean;
-  /**
-   * Ruling 25: the program this repo's coin is already entered in (one coin per repo), on a
-   * program with a builder bonus: no new coin and no builder bonus here. Null otherwise.
-   */
-  repo_coin_program: string | null;
 };
-
-/**
- * Whether a program's entries can earn the builder bonus (v2.6 §4, Ruling 7 (plan)): `bonusOn`,
- * same name kept for callers. `submission_proof` now only decides how a submission is checked,
- * never whether the program has a bonus.
- */
-export const hasBuilderBonus = (program: Pick<ProgramRow, 'status' | 'builder_bonus' | 'campaign'>) =>
-  bonusOn(program);
 
 /**
  * Ruling 31: `note` is plain builder text (never a tool, field or file name); `agent_note`, when
@@ -236,8 +218,6 @@ export async function tokenProposalBlock(
   deps: {
     check?: TickerCheck;
     available?: () => boolean;
-    /** The program a normalized repo's coin is entered in (default tokens.ts repoCoinPrograms). */
-    repoCoin?: (repoKey: string) => Promise<{ program_id: string; title: string } | null>;
   } = {},
 ): Promise<TokenBlock | null> {
   const { program } = a;
@@ -253,38 +233,19 @@ export async function tokenProposalBlock(
   // Ruling 22: outside campaigns the wallet goes to record_submission explicitly.
   if (!program.campaign)
     notes.push("Pass the wallet the builder confirmed (the wallet on the confirm line) as confirm's wallet");
-  // v2.13.1 O1 fix rounds 1 and 2 (rulings): under the Bench (off a shared client) the gate takes a proof branch, never a line.
-  const branchProven = benchEnabled() && !(await sharedGroup(a.installationId).catch(() => true));
+  // v2.13.1 O1 fix rounds 1 and 2 (rulings): off a shared client the gate takes a proof branch, never a line.
+  const branchProven = !(await sharedGroup(a.installationId).catch(() => true));
   // Shown only to this agent (prepare_submission's reply): its code is useless to anyone else.
   const tokenLine = a.repoUrl && !branchProven ? tokenLineFor(a.installationId, a.repoUrl) : null;
-  const hasBonus = hasBuilderBonus(program);
-  // Ruling 25: on a program with a builder bonus, a repo whose coin is entered elsewhere gets no
-  // new coin (one per repo) and so no bonus here; the row says so. A failed read never fails this.
-  const coin =
-    hasBonus && a.repoUrl
-      ? await (deps.repoCoin ?? defaultRepoCoin)(normalizeRepoUrl(a.repoUrl)).catch((err: unknown) => {
-          console.error('[token] repo coin lookup', err);
-          return null;
-        })
-      : null;
-  // A coin entered in this same program is this repo's own (Ruling 13b covers a second entry).
-  const coinIn = coin && coin.program_id !== program.id ? coin.title : null;
-  if (coinIn)
-    notes.push(`This repo already has its token, entered in ${coinIn}: don't pass token; this entry gets no new token and no builder bonus`);
-  else if (!branchProven) notes.push(ownershipLine(tokenLine));
+  if (!branchProven) notes.push(ownershipLine(tokenLine));
   return {
     proposed: { name: proposal.name, symbol: proposal.symbol, image: a.liveUrl ? 'site' : 'mark' },
     chain: 'base',
     creator_wallet: a.creatorWallet,
     policy: program.token_policy,
-    has_bonus: hasBonus,
-    repo_coin_program: coinIn,
     note: notes.map((n) => (/[.!?]$/.test(n.trim()) ? n.trim() : `${n.trim()}.`)).join(' '),
   };
 }
-
-/** The program a normalized repo's coin is entered in, from the database. */
-const defaultRepoCoin = async (repoKey: string) => (await repoCoinPrograms([repoKey])).get(repoKey) ?? null;
 
 /** What the flow reads about a project and its program. */
 export type FlowProject = {
@@ -311,8 +272,6 @@ export type FlowProject = {
   token_released_at?: Date | null;
   installation_id: number | null;
   token_policy: TokenPolicy;
-  /** The program has a builder bonus (hasBuilderBonus), for launch_token's non-Base note. */
-  has_bonus?: boolean;
   /** v2.8 Ruling 3 (plan): the builder's answer at the confirmation step; 'skip' launches nothing. */
   confirm_choice?: 'go' | 'skip' | null;
   /**
@@ -421,7 +380,6 @@ const dbStore: FlowStore = {
     const [row] = await sql()<(FlowProject & StoredChecks)[]>`
       SELECT p.id, p.name, p.repo_url, p.live_url, p.repo_private, p.payout_wallet, p.creator_wallet, p.token_url, p.token_name,
         p.token_symbol, p.token_claimed_at, p.token_note, p.token_status, p.token_released_at, p.installation_id, pr.token_policy, p.confirm_choice,
-        (pr.status = 'active' AND pr.builder_bonus AND pr.campaign IS NULL) AS has_bonus,
         pr.submission_requirements AS requirements, (pr.campaign IS NOT NULL) AS campaign,
         p.description, p.demo_url,
         (SELECT s.submission_data FROM submissions s WHERE s.project_id = p.id ORDER BY s.id DESC LIMIT 1) AS submission_data,
@@ -430,8 +388,6 @@ const dbStore: FlowStore = {
       WHERE p.id = ${projectId}`;
     if (!row) return null;
     const { live_verified_at, contract_verified_at, needs_contract, ...project } = row;
-    // v2.13 R16: the SQL above is bonusOn's twin, so it takes bonusOn's Bench switch too (no non-Base bonus note).
-    if (benchEnabled()) project.has_bonus = false;
     return withStoredChecks(project, { live_verified_at, contract_verified_at, needs_contract });
   },
   setStatus: setTokenStatus,
@@ -1148,11 +1104,5 @@ export async function launchToken(
     progress,
     deadline,
   );
-  if (out.launching || out.note === STILL_CHECKING_LAUNCH) return out;
-  // The builder bonus counts Base coins only (Ruling 24): a coin launched on another chain never implies it.
-  if (out.status === 'launched' && chain !== 'base' && project.has_bonus) return { ...out, note: [out.note, NON_BASE_NO_BONUS].filter(Boolean).join(' ') };
   return out;
 }
-
-/** launch_token's note for a coin on another chain, on a program with a builder bonus (Ruling 24). */
-export const NON_BASE_NO_BONUS = 'No builder bonus for this token: the builder bonus counts Base tokens only.';

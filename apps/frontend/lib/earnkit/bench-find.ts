@@ -6,7 +6,7 @@ import { listPrograms } from './programs';
 import { openEntries } from './projects';
 import { hiddenIds, hiddenPrograms, readMemory } from './builder-memory';
 import { recordShown } from './match-loop';
-import { markFreshOffer, readBuild, type StoredBuild } from './installations';
+import { readBuild, type StoredBuild } from './installations';
 import { benchConfirmedSql, confirmingFast } from './main-project';
 import { branchToRemove, checkProofBranch, proofBranchFor, type BranchState } from './proof-branch';
 import { REPLY_WAIT_MS, settleWithin } from './reply-wait';
@@ -15,7 +15,6 @@ import { WEEKLY_UPDATE_NOTE, setUpdates } from './updates';
 import { mondayOf } from './weeks';
 import { COIN_NOTE, offerCoin } from './coin-moments';
 import { markRaiseAsked, raiseAsk, raisingCoin, setRaising } from './raising';
-import { BENCH_BUILD_ID, benchOffer, benchStarter, freshPick, type FreshPick } from './fresh-build';
 import { NEEDS_LIVE_PRODUCT } from './guide';
 import { siteUrl } from './entry-text';
 import { pagePath } from './reserved-routes';
@@ -23,10 +22,10 @@ import { STARTERS, type Starter } from './starters';
 import { EARN_NOTE, newsOpener } from './stand-text';
 import { COUNT_LINES } from './make-countable';
 import {
-  biggestPick, declinedNow, earnPrize, earnWhen, hostFor, moneyFallback, rollingPick, scoreEarn, showable, standBase, startRefresh, takeNews,
+  biggestPick, declinedNow, earnPrize, earnWhen, hostFor, rollingPick, scoreEarn, showable, standBase, startRefresh, takeNews,
   type Seen as StandSeen, type StandBase,
 } from './stand-view';
-import { byPrize, enteredIds, freshLead, layout, qualifies, submitStep, submitStepLine, type Card, type FirstMessage, type FreshOn, type RepoFit, type YourRepos } from './present';
+import { byPrize, enteredIds, layout, qualifies, submitStep, submitStepLine, type Card, type FirstMessage, type FreshOn, type RepoFit, type YourRepos } from './present';
 import type { ReaderDeps } from './source-readers';
 import type { TickerCheck } from './token-proposal';
 import { projectKeyOf, type IdentityProject } from './identity-input';
@@ -35,7 +34,7 @@ import { CHAIN_NAMES, type Chain } from './chains';
 import { githubAppEnabled } from './github-app';
 import { createVerifyLink } from './github-verify';
 import {
-  GRANTS_LATER_ASK, POST_UPDATE_ASK, SUGGEST_ASK, UPDATES_ASK, UPDATES_ASK_JOINING, benchReply, benchStepKey, chooseAsk, claimAsk, enterAsk, installAppAsk, startBuildAsk,
+  GRANTS_LATER_ASK, POST_UPDATE_ASK, SUGGEST_ASK, UPDATES_ASK, UPDATES_ASK_JOINING, benchReply, benchStepKey, chooseAsk, claimAsk, enterAsk, installAppAsk,
   showsClaimLink, type BenchAsk, type BenchAskKind, type BenchProject, type BenchView, type FundLine,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
@@ -111,27 +110,16 @@ export function buildInProgress(b: StoredBuild | null, now: Date, starters: Reco
   if (b.name) return { name: b.name };
   // Fix round 1 (minor): before the twist, "Building your tip jar" (the starter's offer, no chain).
   const s = Object.hasOwn(starters, b.starter_id) ? starters[b.starter_id] : undefined;
-  return { name: `your ${s ? benchOffer(s).replace(/^an? /, '') : 'app'}` };
+  return { name: `your ${s ? s.offer.replace(new RegExp(` on ${CHAIN_NAMES[s.chain]}$`), '').replace(/^an? /, '') : 'app'}` };
 }
 
-/**
- * v2.13.1 O2 (B1): what a builder with no project is offered: a program's fresh build when one
- * qualifies (card set), else the starter build with no program (card null, BENCH_BUILD_ID). Null when
- * EarnKit can't deploy or host any tested starter.
- */
-export type BenchPick = { card: Card | null; starter: Starter; canBuild: boolean };
-// Owner ruling A (v2.13.3): never the generic starter with no program (the tip jar): only a program's own
-// fresh build, whose owner-set starter (program file fresh_build) is the one that can compete in it.
-const withNoProgram = (program: (FreshPick & { canBuild: boolean }) | null, _fresh: FreshOn | undefined, _now: Date): BenchPick | null => program;
 /** v2.13.1 O2 (B1): an idea for a builder with no project never needs a live product or a repo. Pure. */
 export const noProjectIdea = (c: Card) => c.needs_repo === false && c.tag !== NEEDS_LIVE_PRODUCT;
 /**
- * v2.13.1 O5 N6 (P5): an idea for a builder with no project, beside a build offer: only a program the
- * offered starter can enter (its chain, or any chain), and only with the program's own pitch (never a
- * made-up "a small app"). Pure.
+ * v2.13.1 O5 N6 (P5): an idea for a builder with no project: only with the program's own pitch (never
+ * a made-up "a small app"). v2.14 A18: find offers no build, so no starter narrows it. Pure.
  */
-export const ideaFitsOffer = (c: Card, starter: Starter | null) =>
-  noProjectIdea(c) && Boolean(c.pitch?.for) && (!starter || c.any_chain === true || (c.chains ?? []).some((ch) => ch === starter.chain));
+export const ideaFitsOffer = (c: Card) => noProjectIdea(c) && Boolean(c.pitch?.for);
 /** v2.13.1 O2: a program shown for a project fits it: its chain (or any chain), and a live product only when it is live. Pure. */
 export const fitsProject = (c: Card, p: { chains: string[]; live: boolean }) =>
   (c.any_chain === true || (c.chains ?? []).some((ch) => p.chains.includes(ch))) && (c.tag !== NEEDS_LIVE_PRODUCT || p.live);
@@ -300,8 +288,6 @@ type ViewIn = {
   /** Programs the one project qualifies for (at most 3 are shown). */
   fits: Fit[];
   cards: Card[]; skip: Set<string>;
-  /** No project: the build pick (v2.13.1 O2: a program's, else the starter with no program). */
-  pick: BenchPick | null;
   /** The reply already asks something (a join, an outcome question, a submission): no ask. */
   held: boolean;
   agentCanBuild: boolean; due: string[];
@@ -328,7 +314,6 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
   const row = read.row;
   // v2.13.1 O2 (B4): while a build is in progress the reply says so, and asks and offers nothing.
   const building = read.building;
-  const pick = building ? null : o.pick;
   // v2.13.4: a live link that loads counts as live for wording and fit (R3), and names the project as its site does.
   const siteLive = o.live?.ok === true;
   const title = o.live?.ok ? o.live.title : null;
@@ -358,14 +343,11 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
     for (const f of o.fits.slice(0, 3)) named.add(f.program_id);
     if (rolling) named.add(rolling.id);
   } else {
-    const first = pick?.card ?? null;
     // v2.13.1 O2 (B1): never an idea that needs a live product or a repo for a builder with no project.
-    // O5 N6: beside a build offer, only a program its starter can enter, with its own pitch.
-    const other = biggestPick(o.cards.filter((c) => ideaFitsOffer(c, pick?.starter ?? null)), now, o.skip, first?.id ?? null);
-    const forOf = (c: Card) => c.pitch?.for ?? (c === first && pick ? benchOffer(pick.starter) : null);
-    const ideas = [first, other].filter((c): c is Card => Boolean(c && forOf(c)));
-    for (const c of ideas) named.add(c.id);
-    fund = ideas.map((c) => ({ kind: 'idea', who: c.pitch?.who ?? c.title, prize: earnPrize(c), for: forOf(c)! }));
+    // O5 N6: only a program with its own pitch. v2.14 A18: no build is offered beside it.
+    const idea = biggestPick(o.cards.filter((c) => ideaFitsOffer(c)), now, o.skip, null);
+    if (idea) named.add(idea.id);
+    fund = idea ? [{ kind: 'idea', who: idea.pitch?.who ?? idea.title, prize: earnPrize(idea), for: idea.pitch!.for! }] : [];
   }
   // v2.13.3 (2): "Ways to get funded" always shows (it's the hook): with no project or one not yet
   // confirmed, up to NEEDS_MAX open programs in all, each with what it needs; for a confirmed one with
@@ -379,11 +361,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
   let ask: BenchAsk | null = null;
   const appOn = githubAppEnabled();
   if (!o.held && !building) {
-    // Only a client that builds is asked to build (a chat-only one sees the ideas).
-    // v2.13.3 (3), ruling A: the no-project ask leads with existing work; the build only for a specific program.
-    const build: BenchAsk | null = !project && pick?.canBuild && pick.card
-      ? { kind: 'build', project_key: null, program_id: pick.card.id, line: startBuildAsk(pick.starter.offer, pick.card.title) }
-      : null;
+    // v2.14 A18: find offers no build (the no-project ask leads with existing work).
+    const build: BenchAsk | null = null;
     const enter: BenchAsk | null = project && o.fits[0] && !taken ? { kind: 'enter', project_key: project.key, program_id: o.fits[0].program_id, line: enterAsk(o.fits[0].title) } : null;
     const web = project ? read.base.projects.some((x) => x.key.toLowerCase() === project.key.toLowerCase() && x.web) : false;
     // O5 N5: a grants yes that found nothing keeps grants quiet a week, as a no keeps an ask away.
@@ -533,21 +512,9 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   const submit = held ? undefined : submitStep(m);
   const due = [...(a.first.deadline ? [a.first.deadline] : []), ...(submit ? [submitStepLine(submit)] : [])];
   const skip = new Set([...entered, ...a.hide]);
-  const pick = read.main || read.building
-    ? null
-    : withNoProgram(
-        freshLead({ ...a.first, holdQuestion: held || Boolean(submit) }) ??
-          moneyFallback({
-            cards: a.cards, entered, hidden: a.hide, now, projects: [], fresh: a.first.fresh,
-            repoTrouble: Boolean(a.repos && ('error' in a.repos || a.repos.unseen?.length)),
-          }).pick ??
-          null,
-        a.first.fresh,
-        now,
-      );
   const name = a.project && projectKeyOf(a.project).toLowerCase() === main ? a.project.name : null;
   const { view, ask, fields, branch } = await benchView({
-    id, now, read, name, fits, cards: a.cards, skip, pick, held: held || Boolean(submit), agentCanBuild: a.agentCanBuild, due,
+    id, now, read, name, fits, cards: a.cards, skip, held: held || Boolean(submit), agentCanBuild: a.agentCanBuild, due,
     coinDeps: { check: ctx.tokenDeps?.check }, ghFetch, live, linked, own: ctx.ownInstallationId ?? id, probation: ctx.probation === true,
   });
   // O2 fix round 1 (ruling 2): a code closed by a project change is told alongside the new one (remove_branch).
@@ -558,7 +525,6 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   const lead = Boolean((fits[0] && !submit && branch?.kind !== 'taken') || submit);
   const news = read.profiled && !ctx.probation ? await takeNews(id, read.seen, read.base, now, !asks).catch(logged('news')) : null;
   const opener = newsOpener(a.alerts.lines, news ? [news] : []);
-  if (pick?.canBuild && !ctx.probation) await markFreshOffer(id, now).catch(logged('fresh offer'));
   if (!ctx.probation) await recordShown(
     id,
     rows.flatMap((r) =>
@@ -581,7 +547,6 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
     ...fields,
     ...(fits[0] && !submit && branch?.kind !== 'taken' && { lead: { program_id: fits[0].program_id, repo: fits[0].repo } }),
     ...(submit && { lead: { program_id: submit.card.id, step: 'submit', ...(submit.entry.id !== undefined && { project_id: submit.entry.id }) } }),
-    ...(pick && { build_offer: { program_id: pick.card?.id ?? BENCH_BUILD_ID, starter_id: pick.starter.id, can_build: pick.canBuild } }),
     ...(proof && { proof }),
     ...(removeOld && { remove_branch: removeOld }),
     ...(weekly && { schedule_weekly_update: WEEKLY_UPDATE_NOTE }),
@@ -589,9 +554,9 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
 }
 
 /**
- * score under the Bench flag: the profile (and a discovery run) on the first call, the refresh within
+ * score on the Bench: the profile (and a discovery run) on the first call, the refresh within
  * its budget, then find's view without a matcher: the one project's fits from what find last saw
- * (stand-view.ts scoreEarn), else the open-all-year program; no project, the build. One
+ * (stand-view.ts scoreEarn), else the open-all-year program. One
  * score_viewed event a minute (v2.12). Null without a profile (score-tool.ts answers that).
  */
 export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId' | 'freshDeps' | 'tokenDeps' | 'proofBranchFetch' | 'probation'>, now: Date, o: { hold?: boolean; reader?: ReaderDeps; fresh?: FreshOn } = {}): Promise<Reply | null> {
@@ -617,10 +582,8 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
   const money = main ? await scoreEarn(id, { cards: shown, entered, hidden, now, projects: read.base.projects }) : { earn: [] };
   const fits: Fit[] = money.earn.filter((e) => e.project.toLowerCase() === main).map((e) => ({ program_id: e.program_id, title: e.title, prize: e.prize, when: e.when }));
   const fresh = o.fresh;
-  const picked = !main && !read.building && fresh ? freshPick(shown, now, { hidden, entered, deployOn: fresh.deployOn, hostOn: fresh.hostOn, starters: fresh.starters }) : undefined;
-  const pick = !main && !read.building ? withNoProgram(picked && fresh ? { ...picked, canBuild: fresh.canBuild } : null, fresh, now) : null;
   const { view, fields, branch } = await benchView({
-    id, now, read, name: null, fits, cards: shown, skip: new Set([...entered, ...hidden]), pick, held: Boolean(o.hold),
+    id, now, read, name: null, fits, cards: shown, skip: new Set([...entered, ...hidden]), held: Boolean(o.hold),
     agentCanBuild: fresh?.canBuild ?? false, due: [], coinDeps: { check: ctx.tokenDeps?.check }, ghFetch, live, linked, own: ctx.ownInstallationId ?? id,
     probation: ctx.probation === true,
   });
@@ -638,7 +601,6 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
     show_to_builder: benchReply(view),
     ...fields,
     ...(fits[0] && branch?.kind !== 'taken' && { lead: { program_id: fits[0].program_id }, note: EARN_NOTE }),
-    ...(pick && { build_offer: { program_id: pick.card?.id ?? BENCH_BUILD_ID, starter_id: pick.starter.id, can_build: pick.canBuild } }),
     ...(proof && { proof }),
     ...(removeOld && { remove_branch: removeOld }),
   };

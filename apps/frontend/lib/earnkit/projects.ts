@@ -1,6 +1,5 @@
 import type postgres from 'postgres';
 import { z } from 'zod';
-import { bonusEntryProgram, bonusOn, roundFor } from './bonus-rounds';
 import { sql } from './db';
 import {
   EntryError,
@@ -17,8 +16,7 @@ import { formatDeadline } from './dates';
 import { entryMessage, entrySigner } from './entry-proof';
 import { eventRepoKey, noteEvent, proofLink } from './events';
 import { loginBasisFor } from './github-verify';
-import { bonusRidesOn, enteredTable, repoCoinNote, roundEndLabel, siteUrl } from './entry-text';
-import { testInstallationIds } from './installations';
+import { enteredTable, siteUrl } from './entry-text';
 import {
   checkOwnership,
   type DeployerLookup,
@@ -32,12 +30,11 @@ import {
   SanctionsError,
   screenWallet,
 } from './sanctions';
-import { proofCheck, type ProofOutcome } from './submission-proof';
-import { repoCoinPrograms } from './tokens';
+import type { ProofOutcome } from './submission-proof';
 import { PROOF_LINE_PREFIX, SIGN_IN_FIRST, WALLET_CHANGED } from './token-gate';
 import { ProjectInfo, prepareSubmission, type KnownInfo } from './submission';
 import type { SubmissionRequirement } from './program-file';
-import { CLANKER_ADDRESSES, coinSql } from './traction';
+import { CLANKER_ADDRESSES } from './traction';
 import { ENTRIES_PER_CAMPAIGN } from './rate-limit';
 import { COIN_PROGRAM } from './policy-constants';
 import {
@@ -621,10 +618,6 @@ export async function openEntries(installationId: number, onlyIds?: number[]): P
   ];
 }
 
-/** A program's submission site as builder text ("dorahacks.io"), or null. Pure. */
-const siteOf = (url: string | null | undefined) =>
-  url && URL.canParse(url) ? new URL(url).hostname.replace(/^www\./, '') : null;
-
 /**
  * v2.11 T3: a new entry row (record_submission or the confirmation step): its `entered` event, with
  * the entry page as proof. The wallet only when the builder gave one with this entry and it is kept.
@@ -734,126 +727,13 @@ export async function recordSubmission(
   // project again in this program (same normalized repo, or the same name without a repo) updates
   // its entry instead of adding a second one, so a late confirmation lands on the row with the coin.
   const sameEntryKey = { programId: program.id, installationId, repoUrl: repo_url ?? null, name };
-  const existing = program.campaign ? null : await ownEntry(sql(), sameEntryKey);
 
-  // v2.6 §3: how this entry's submission counts for the builder bonus (submissionBasis). With a
-  // public submission page (a submission_proof pattern) EarnKit checks the external URL; without
-  // one, the builder's confirmation counts. A failure never fails the submission: it's recorded
-  // either way, just not (yet) bonus-eligible, with a note telling the agent what to fix. The cron
-  // re-checks a page daily while the round is open (submission-proof.ts recheckSubmissionProofs).
-  let submissionProofUrl: string | null = existing?.submission_proof_url ?? null;
-  // An existing entry keeps what it has unless the bonus check below runs (e.g. the program closed).
-  let submissionProofOkAt: Date | null = existing?.submission_proof_ok_at ?? null;
-  let submissionProofCheckedAt: Date | null = null;
-  let submissionBasisValue = (existing?.submission_basis ?? null) as 'page' | 'unverified_page' | 'confirmed' | null;
-  let submissionConfirmedAt: Date | null = existing?.submission_confirmed_at ?? null;
-  let bonusNote: string | null = null;
-  // Builder text when the entry doesn't count yet (I3): what joins the builder bonus.
-  let bonusJoin: { kind: 'confirm' | 'page' | 'link'; site: string; missing?: 'live site' } | null = null;
-  if (bonusOn(program)) {
-    const now = new Date();
-    if (input.builder_submitted === true) submissionConfirmedAt ??= now;
-    let outcome: ProofOutcome | null = null;
-    if (program.submission_proof) {
-      submissionProofUrl = input.external_submission_url ?? existing?.submission_proof_url ?? null;
-      // Already counting on this same page: kept as it is, no fetch (a transient failure now must
-      // never undo it; the daily re-check owns unverified pages).
-      const countsOnPage =
-        existing !== null &&
-        existing.submission_proof_ok_at !== null &&
-        existing.submission_basis !== 'unverified_page' &&
-        existing.submission_basis !== 'confirmed' &&
-        existing.submission_proof_url === submissionProofUrl;
-      if (countsOnPage) outcome = { kind: 'ok' };
-      else if (submissionProofUrl) {
-        outcome = await proofCheck(program, submissionProofUrl, repo_url, live_url, { fetchText: deps.fetchProof });
-        submissionProofCheckedAt = now;
-      }
-    }
-    // I2: a page that loaded without the entry's link disproves the confirmation (N2: only a page
-    // that was actually read; a refused link never loaded anything).
-    if (outcome?.kind === 'refused' && outcome.loaded) submissionConfirmedAt = null;
-    const counted = submissionBasis({
-      hasPattern: program.submission_proof !== null,
-      outcome,
-      confirmed: submissionConfirmedAt !== null,
-    });
-    if (counted.basis) {
-      submissionBasisValue = counted.basis;
-      submissionProofOkAt = existing?.submission_proof_ok_at ?? now;
-    } else {
-      submissionBasisValue = null;
-      submissionProofOkAt = null;
-      bonusJoin = {
-        // Ruling 24: a public entry page with no link given asks for the link.
-        // N2: 'page' only for a page that loaded without the entry's link (naming what to add); a
-        // link that isn't one checkable entry page asks for the link again.
-        kind: !program.submission_proof
-          ? 'confirm'
-          : !submissionProofUrl || (outcome?.kind === 'refused' && !outcome.loaded)
-            ? 'link'
-            : outcome?.kind === 'refused'
-              ? 'page'
-              : 'confirm',
-        ...(outcome?.kind === 'refused' && outcome.loaded && !repo_url && { missing: 'live site' as const }),
-        site: program.submission_proof?.host ?? siteOf(program.submission_url) ?? program.title,
-      };
-    }
-    bonusNote = counted.note;
-  }
-
-  // Ruling 13a: an external entry's own contracts, verified, for the builder bonus's users signal.
-  let bonusContracts: string[] | null = null;
-  let bonusDeployers: string[] | null = null;
-  let bonusWallet: string | null = null;
-  const notes: string[] = bonusNote ? [bonusNote] : [];
-  if (bonusOn(program)) {
-    if (input.payout_wallet && isWalletAddress(input.payout_wallet) && deps.keepWallet !== false)
-      bonusWallet = input.payout_wallet.toLowerCase();
-    if (input.contracts?.length) {
-      const v = await verifiedBonusContracts(program.id, repo_url, input.payout_wallet, input.contracts, input.deployer_signature, deps);
-      if (v.contracts.length) {
-        bonusContracts = v.contracts;
-        bonusDeployers = v.deployers;
-      }
-      if (v.note) notes.push(v.note);
-    }
-  }
-  // Ruling 13b: one bonus-eligible entry per normalized repo per program, the earliest.
+  // v2.14: there is no builder bonus, so an entry's submission basis is never judged here (an existing
+  // entry keeps what it has). The repo key old entries were matched on (kept for the stored rows).
   const bonusRepoKey = (!program.campaign && repo_url && normalizeRepoUrl(repo_url)) || null;
-  // Ruling 25: one coin per repo (v2.3). A repo whose coin is already entered in a program gets no
-  // new coin here, so no builder bonus: said now, not discovered at launch.
-  let coinElsewhere = false;
-  // Final review M1: the repo's coin is already on an entry in this same program (Ruling 13b's case).
-  let coinHere = false;
-  // The program the repo's token is entered in, when it is another one (its note is made after the
-  // entry commits, v2.8.1 §D T5 fix round 1).
-  let tokenHome: { program_id: string; title: string } | null = null;
-  if (bonusRepoKey && bonusOn(program)) {
-    const coin = (await repoCoinPrograms([bonusRepoKey]).catch(() => new Map<string, { program_id: string; title: string }>())).get(bonusRepoKey);
-    // Ruling 25 is about another program: a coin in this same program is Ruling 13b's case.
-    if (coin && coin.program_id !== program.id) {
-      coinElsewhere = true;
-      tokenHome = coin;
-    } else if (coin) coinHere = true;
-  }
-  // v2.6 §3: the round this entry's coin would enter, for the after-submission reply (null with
-  // no bonus, no open round, or Ruling 25).
-  const openRound = bonusOn(program) && !coinElsewhere ? roundFor(program, new Date()) : null;
   // Ruling 10 (plan): outside campaigns, a valid wallet named here is this installation's last
   // wallet, prefilled next time (campaign entries remember their proven payout wallet below).
   const lastWallet = entryWallet?.toLowerCase() ?? null;
-  // M12: the entry-time notes judge earlier entries by the eligibility rule of the round open now
-  // (traction.ts eligibleSql: coin, proof and, v2.8 Ruling 2 (plan), a complete entry before the
-  // round's end, never skipped), like scoring does.
-  const roundNow = roundFor(program, new Date());
-  const roundEnd = roundNow?.ends ?? null;
-  // The token's launch time is coinSql's (an own coin before the end, or the carried one's).
-  const beforeEnd = (tx: postgres.TransactionSql, a: 'p') =>
-    roundEnd
-      ? tx`AND ${tx(a)}.submission_proof_ok_at < ${roundEnd} AND ${tx(a)}.submitted_at < ${roundEnd} AND ${tx(a)}.complete_at < ${roundEnd}`
-      : tx``;
-
   // Campaign entries store the normalized repo; a unique index on (program_id, repo_key) backs
   // the check below at the database level.
   const repoKey = (entry && repo_url && normalizeRepoUrl(repo_url)) || null;
@@ -877,8 +757,6 @@ export async function recordSubmission(
   );
   const checked = verifiedAt(deps.verified, new Date());
 
-  // M1: set in the transaction when another entry of this repo holds its coin or bonus here.
-  let repoHeld = false;
   return sql()
     .begin(async (tx) => {
       if (entry) {
@@ -922,59 +800,9 @@ export async function recordSubmission(
       }
       // The daily limit counts recorded entries only (v2.4 §2): checks that failed above cost nothing.
       if (!own) await deps.charge?.();
-      if (bonusRepoKey && bonusOn(program)) {
-        // Only an earlier ELIGIBLE entry (coin and proof) holds the repo (Ruling 15): a squatter's
-        // row or the builder's own failed attempt never blocks (traction.ts eligibleSql). v2.6
-        // Ruling 6 (plan), fix round 1: an owner test installation's entry never blocks either,
-        // the same exclusion eligibleSql applies for its own `q`.
-        // v2.8.1 §D: an earlier entry holds the repo on its own token or on the repo's token
-        // carried from an ended program (traction.ts coinSql, the booking rule).
-        const [earlier] = await tx<{ id: number }[]>`
-          SELECT p.id FROM projects p WHERE p.program_id = ${program.id} AND p.bonus_repo_key = ${bonusRepoKey}
-            AND p.id <> ${existing?.id ?? 0}
-            AND ${coinSql('p', roundEnd ?? new Date(), roundNow?.key ?? null)} AND p.submission_proof_ok_at IS NOT NULL ${beforeEnd(tx, 'p')}
-            AND p.complete_at IS NOT NULL AND p.confirm_choice IS DISTINCT FROM 'skip'
-            AND NOT COALESCE(p.installation_id = ANY(${testInstallationIds()}::int[]), false)
-          ORDER BY p.submitted_at, p.id LIMIT 1`;
-        if (earlier)
-          notes.push(
-            `Not eligible for the builder bonus: entry #${earlier.id} already holds this repo in this program, and only the earliest eligible entry of a repo is.`,
-          );
-        // M1: the repo's one coin is on another entry here (this row's own coin, or its launch in
-        // flight, is not "another"), so this entry can get no coin and no builder bonus.
-        else if (coinHere && !own?.earnkit_coin)
-          notes.push('Not eligible for the builder bonus: another entry of this repo in this program has its token (one token per repo).');
-        repoHeld = Boolean(earlier) || (coinHere && !own?.earnkit_coin);
-      }
-      if (bonusContracts && bonusOn(program)) {
-        // A contract backs only one eligible entry per program, the earliest (Ruling 15; scoring
-        // drops it from later entries, traction.ts ownContracts).
-        const held = await tx<{ id: number; contracts: string[] }[]>`
-          SELECT p.id, p.contracts FROM projects p
-          WHERE p.program_id = ${program.id} AND p.contracts && ${bonusContracts}::text[]
-            AND p.id <> ${existing?.id ?? 0}
-            AND ${coinSql('p', roundEnd ?? new Date(), roundNow?.key ?? null)} AND p.submission_proof_ok_at IS NOT NULL ${beforeEnd(tx, 'p')}
-            AND p.complete_at IS NOT NULL AND p.confirm_choice IS DISTINCT FROM 'skip'
-          ORDER BY p.submitted_at, p.id`;
-        const taken = bonusContracts
-          .map((c) => ({ c, by: held.find((h) => h.contracts.map((x) => x.toLowerCase()).includes(c)) }))
-          .filter((x) => x.by);
-        if (taken.length)
-          notes.push(
-            `Not counted for this entry: ${taken.map((x) => `${x.c} already backs entry #${x.by!.id}`).join('; ')} (a contract counts for one entry per program).`,
-          );
-      }
       const [project] = own
         ? await tx<{ id: number; submitted_at: Date }[]>`
           UPDATE projects SET
-            submission_proof_url = ${submissionProofUrl},
-            submission_proof_ok_at = ${submissionProofOkAt},
-            submission_basis = ${submissionBasisValue},
-            submission_confirmed_at = ${submissionConfirmedAt},
-            submission_proof_checked_at = COALESCE(${submissionProofCheckedAt}, submission_proof_checked_at),
-            contracts = COALESCE(${bonusContracts}::text[], contracts),
-            deployers = COALESCE(${bonusDeployers}::text[], deployers),
-            creator_wallet = CASE WHEN token_url IS NULL AND ${bonusWallet}::text IS NOT NULL THEN ${bonusWallet} ELSE creator_wallet END,
             complete_at = COALESCE(complete_at, ${completeNow}),
             live_verified_at = CASE WHEN ${checked !== null} THEN ${checked?.live_verified_at ?? null}::timestamptz ELSE live_verified_at END,
             contract_verified_at = COALESCE(${checked?.contract_verified_at ?? null}::timestamptz, contract_verified_at)
@@ -994,15 +822,9 @@ export async function recordSubmission(
         live_key: liveKey,
         repo_created_at: proof?.repo_created_at ?? null,
         repo_pushed_at: proof?.repo_pushed_at ?? null,
-        contracts: entry?.contracts ?? bonusContracts,
-        deployers: deployers ?? bonusDeployers,
+        contracts: entry?.contracts ?? null,
+        deployers: deployers ?? null,
         bonus_repo_key: bonusRepoKey,
-        ...(bonusWallet && { creator_wallet: bonusWallet }),
-        submission_proof_url: submissionProofUrl,
-        submission_proof_ok_at: submissionProofOkAt,
-        submission_proof_checked_at: submissionProofCheckedAt,
-        submission_basis: submissionBasisValue,
-        submission_confirmed_at: submissionConfirmedAt,
         complete_at: completeNow,
         ...checked,
       })} RETURNING id, submitted_at`;
@@ -1029,19 +851,10 @@ export async function recordSubmission(
         ...(own && { updated: true as const, coin_url: own.earnkit_coin ? own.token_url : null }),
         // v2.8 Ruling 1 (plan): the entry passed the confirmation step; its token was decided there.
         ...(own?.confirm_choice && { confirm_choice: own.confirm_choice }),
-        bonus_join: bonusJoin,
         submitted_at: project.submitted_at.toISOString(),
         program_title: program.title,
         // For record_submission's reply: a program without coins skips the coin line (M3).
         token_policy: program.token_policy,
-        // Ruling 29: `ends_label` is the round's end as the first message shows it. M1: a held repo
-        // has no round to join (and says so, `repo_held`).
-        bonus_round:
-          openRound && !repoHeld
-            ? { key: openRound.key, ends_at: openRound.ends.toISOString(), ends_label: roundEndLabel(program, openRound.ends) }
-            : null,
-        ...(repoHeld && { repo_held: true as const }),
-        ...(notes.length && { bonus_note: notes.join(' ') }),
         ...(entry &&
           program.campaign && {
             campaign_entry:
@@ -1090,7 +903,7 @@ export async function recordSubmission(
           installationId,
           programId: program.id,
           repoUrl: repo_url ?? null,
-          wallet: entry?.payoutWallet ?? bonusWallet,
+          wallet: entry?.payoutWallet ?? null,
         });
       await submittedEvent({
         projectId: res.project_id,
@@ -1101,24 +914,6 @@ export async function recordSubmission(
         said: input.builder_submitted === true,
       });
       return res;
-    })
-    .then(async (res) => {
-      if (!tokenHome || !bonusRepoKey) return res;
-      // v2.8.1 §D, T5 fix round 1: read after the entry commits, so the rollover rule sees this
-      // entry, and the note agrees with record_submission's builder text and token note (tools.ts
-      // bonusNoteTitle reads the same bonusEntryProgram). It names the round the token's fees book
-      // to now: rolled over, "rides on your <program> entry" (never when another entry already
-      // holds the repo in this program, Minor 4); else the token's own program.
-      const booked = await bonusEntryProgram(bonusRepoKey).catch(() => undefined);
-      let note: string | null;
-      if (booked && booked.program_id !== tokenHome.program_id)
-        note = booked.program_id === program.id && repoHeld ? null : bonusRidesOn(booked.title);
-      else {
-        const line = repoCoinNote(tokenHome.title);
-        note = `${line[0].toUpperCase()}${line.slice(1)}.`;
-      }
-      const bonusNote = [note, 'bonus_note' in res ? res.bonus_note : undefined].filter(Boolean).join(' ');
-      return { ...res, ...(bonusNote && { bonus_note: bonusNote }) };
     });
 }
 

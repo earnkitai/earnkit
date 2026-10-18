@@ -1,12 +1,11 @@
 import { normalizeRepoUrl, usd } from './campaigns';
 import { NO_CELL } from './no-cell';
-import { closeDayOf, endsOf, prizeOf, repoCoinNote } from './entry-text';
+import { closeDayOf, endsOf, prizeOf } from './entry-text';
 import { shortDate } from './dates';
 import { CHAIN_NAMES, EFFORT_ORDER, NOT_REAL_YET, hasRealUse, oddsRank, rowOdds, type Chain, type Effort, type Odds, type Product, type RepoFacts, type Verdict } from './match';
 import { NEEDS_LIVE_PRODUCT, difficultyLabel, levelRank, rowDifficulty, type Difficulty, type Level } from './guide';
 import { moneyText, openMoneyUsd, wonLine } from './pool';
 import { CANT_SEE_LINE, PRIVATE_LOCAL_LINE } from './match-projects';
-import type { RoundPool } from './bonus-rounds';
 import { contextLine, freshLeadLine, freshPick, type FreshPick } from './fresh-build';
 import type { Starter, StarterChain } from './starters';
 import { COIN_PROGRAM } from './policy-constants';
@@ -20,8 +19,7 @@ export { endsOf } from './entry-text';
  * ready-made result gets shown as written. Order, always: "Since you last checked", "EarnKit
  * matches you to $X in prizes" with what the builder's repos fit, open EarnKit campaigns (none
  * while Campaign #1 is closed), other open programs (at most 5), ideas when the builder has no
- * repo, sponsor campaigns (never first), program updates, then the one builder bonus line
- * (v2.10 item 1) and one offer. v2.10 item 2: that body is "show more" (FirstMessage.more); the
+ * repo, sponsor campaigns (never first), program updates, then one offer. v2.10 item 2: that body is "show more" (FirstMessage.more); the
  * default first reply is news, "Your entries", the deadline line, then one lead line (leadLine).
  */
 export type Card = {
@@ -67,14 +65,6 @@ export type Card = {
   ideas?: string[];
   /** Set when entries are public pages EarnKit can check: how the submission is checked, never whether it has a bonus (Ruling 7 (plan)). */
   submission_proof?: object | null;
-  /** Ruling 7 (plan): false only when the program file opts out (`builder_bonus: false`); every other active, non-campaign program has a bonus. */
-  builder_bonus?: boolean;
-  /** The open round's builder bonus pool so far (bonus-rounds.ts roundPools), or null when none. */
-  bonus_pool_wei?: bigint | null;
-  /** v2.10 item 1: the tokens launched in the open round so far (bonus-rounds.ts roundPools). */
-  bonus_tokens?: number;
-  /** The program's current round exists but isn't open any more (it froze): no bonus to win (I2). */
-  bonus_closed?: boolean;
   /** v2.7 §2 (guide.ts difficultyOf): the program's difficulty; null for any campaign. */
   difficulty?: Difficulty | null;
   /** An EarnKit campaign (programs.ts programCard): its own table, never a program card. */
@@ -153,12 +143,6 @@ export type FirstMessage = {
   sponsorEntries: string | null;
   now: Date;
   /**
-   * Ruling 25: the program each of the builder's repos already has its coin entered in, by
-   * normalized repo (tokens.ts repoCoinPrograms). One coin per repo: another program's row for
-   * that repo shows no builder bonus.
-   */
-  repoCoins?: Map<string, { program_id: string; title: string }>;
-  /**
    * v2.8.1 §B9 (projects.ts openEntries): the builder's entries in open programs, newest first. They
    * open the message ("Your entries"), mark their programs "entered", and are never offered again.
    */
@@ -185,11 +169,6 @@ export type FirstMessage = {
    * closing offer (more). The lead waits for a later reply.
    */
   holdQuestion?: boolean;
-  /**
-   * v2.12 final review (T9): the person is under the token pitch score (score flag on): no builder
-   * bonus line (the bonus is funded by a token, which is never mentioned to them). Unset: v2.11.
-   */
-  noBonus?: boolean;
   /**
    * v2.9 E20 (stats.ts builders_won_usd): the announced prizes EarnKit builders won. Above 0, "Builders
    * using EarnKit won $X." follows the headline once; 0 or unset, no line (never "$0").
@@ -232,69 +211,12 @@ export const eth = (wei: bigint) => {
   return `${cents / 100n}.${(cents % 100n).toString().padStart(2, '0')}`;
 };
 
-/** v2.8 Ruling 16 (plan): an empty table cell (no bonus, no difficulty). Never an em dash. */
+/** v2.8 Ruling 16 (plan): an empty table cell (no difficulty). Never an em dash. */
 export { NO_CELL };
-
-/**
- * The builder bonus cell: the open round's pool in ETH (WETH); "new pool" while the round has
- * nothing yet; NO_CELL when the program opted out of the builder bonus (Ruling 7 (plan)), or when
- * the program's round has already frozen (I2). Pure; exported for tests.
- */
-export function bonusCell(c: Pick<Card, 'builder_bonus' | 'bonus_pool_wei' | 'bonus_closed'>) {
-  if (c.builder_bonus === false || c.bonus_closed) return NO_CELL;
-  const wei = c.bonus_pool_wei ?? 0n;
-  if (wei <= 0n) return 'new pool';
-  return wei < 10n ** 16n ? 'under 0.01 ETH so far' : `${eth(wei)} ETH so far`;
-}
 
 /** The Difficulty cell (v2.7 §3, Ruling 12 (plan)): the label only, or NO_CELL with none. Pure. */
 export function difficultyCell(c: Pick<Card, 'difficulty'>): string {
   return c.difficulty ? difficultyLabel(c.difficulty) : NO_CELL;
-}
-
-/**
- * Places paid per builder bonus round: mirrors bonus-payout.ts BONUS_PLACES (= BONUS_SPLIT_BPS
- * .length), kept local so present.ts stays pure (bonus-payout.ts pulls in db and viem); pinned to
- * it by a test.
- */
-export const BONUS_TOP = 10;
-
-/**
- * v2.10 item 1, Rulings H8 and H9: the one builder bonus line, at most once per reply. The pool holds
- * any value (rolled-over ETH included): "Builder bonus: 0.18 ETH so far" ("under 0.01 ETH so far"
- * below 0.01). An empty pool with tokens in the round: "Builder bonus: 3 tokens in, fees coming"
- * ("1 token in"). No token at all: "Builder bonus: no tokens yet, so yours would be first". Null
- * when the round froze (I2). Pure.
- */
-export function bonusLine(pool: RoundPool | null | undefined): string | null {
-  if (pool === null) return null;
-  if (!pool || pool.wei <= 0n)
-    return pool && pool.tokens > 0
-      ? `Builder bonus: ${pool.tokens} token${pool.tokens === 1 ? '' : 's'} in, fees coming`
-      : 'Builder bonus: no tokens yet, so yours would be first';
-  return `Builder bonus: ${pool.wei < 10n ** 16n ? 'under 0.01' : eth(pool.wei)} ETH so far`;
-}
-
-/**
- * Ruling H8: the first message's bonus line is the pool of the program the closing offer names, or
- * null when the offer names none, or that program has no bonus (opted out, a frozen round, an EarnKit
- * campaign or sponsor, or the offered repo's token is entered elsewhere, final review M4). Pure.
- */
-function offeredBonusLine(byId: Map<string, Card>, close: Offer): string | null {
-  const card = close.programId && close.programId !== close.noBonusId ? byId.get(close.programId) : undefined;
-  if (!card || card.sponsored || bonusCell(card) === NO_CELL) return null;
-  return bonusLine({ wei: card.bonus_pool_wei ?? 0n, tokens: card.bonus_tokens ?? 0 });
-}
-
-/**
- * Ruling 25: a matched row whose repo already has its coin entered in another program can't earn
- * this program's builder bonus (one coin per repo). v2.8.1 §C13: no longer shown in the row; it
- * only moves the closing bonus sentence apart from the offer (final review M4). Null otherwise. Pure.
- */
-function repoCoinElsewhere(m: Pick<FirstMessage, 'repoCoins'>, card: Card, repoUrl: string | null) {
-  if (card.builder_bonus === false || !repoUrl || !m.repoCoins) return null;
-  const coin = m.repoCoins.get(normalizeRepoUrl(repoUrl));
-  return coin && coin.program_id !== card.id ? repoCoinNote(coin.title) : null;
 }
 
 /** Ideas per program in the ideas list (fix round 1, ruling 3). */
@@ -622,8 +544,7 @@ export const qualifies = (r: Fit) => r.odds === 'good' && !r.card.investment && 
 /**
  * What the first message shows: the programs the builder's repos fit (each curated program once,
  * under the repo that fits it best, by prize per winner), and the other curated programs shown
- * (at most 5) plus how many more. Shared with list_programs, so the bonus pools are read once and
- * only for programs on screen. Pure; exported for tests.
+ * (at most 5) plus how many more. Shared with list_programs. Pure; exported for tests.
  */
 export function layout(m: Pick<FirstMessage, 'cards' | 'repos' | 'entries'>, done = enteredIds(m)) {
   const byId = new Map(m.cards.map((c) => [c.id, c]));
@@ -677,19 +598,6 @@ export function layout(m: Pick<FirstMessage, 'cards' | 'repos' | 'entries'>, don
  */
 export const leadRow = (m: Pick<FirstMessage, 'cards' | 'repos' | 'entries'>, entered = enteredIds(m)): Fit | undefined =>
   layout(m, entered).rows.find((r) => qualifies(r) && !r.card.sponsored && !entered.has(r.card.id));
-
-/**
- * The programs whose pool is read (one grouped read): those on screen with a builder bonus, then
- * (Ruling H8) every other curated one with a bonus, since the closing offer can name a program off
- * screen (the no-repo pick, "keep going", build something new) and its line is that program's pool.
- * Pure.
- */
-export const bonusProgramIds = (m: Pick<FirstMessage, 'cards' | 'repos'>) => {
-  const { rows, shown } = layout(m);
-  const onScreen = [...rows.map((r) => r.card), ...shown].filter((c) => c.builder_bonus !== false).map((c) => c.id);
-  const rest = m.cards.filter((c) => !c.sponsored && c.builder_bonus !== false && !onScreen.includes(c.id)).map((c) => c.id);
-  return [...onScreen, ...rest];
-};
 
 /**
  * v2.9 F21: the no-repo headline, "$1.1M+ in prizes open right now." with the site's figure
@@ -893,7 +801,6 @@ export function presentFirstMessage(given: FirstMessage): string {
         table(
           ['Program', 'Prize', 'Difficulty', 'Ends', 'Your repo'],
           rows.map(({ card, repo, v, row, odds, low_reason }) => {
-            // v2.8.1 §C13: no "(no builder bonus: …)" per row; the bonus note is said once, in Also qualifies.
             return [
               programCell(card, entered, false),
               prizeOf(card),
@@ -960,11 +867,8 @@ export function presentFirstMessage(given: FirstMessage): string {
   // After the tables, so the reply never starts with it: news, not an alert (I7).
   if (m.updates?.length) sections.push(`Updates: ${m.updates.join('; ')}.`);
 
-  // v2.10 item 1, Ruling H8: one plain builder bonus line (the offered program's pool), then the one
-  // closing offer.
+  // The one closing offer.
   const close = offer(m, byId, rows, ideas.length > 0, entered);
-  const bonus = m.noBonus ? null : offeredBonusLine(byId, close);
-  if (bonus) sections.push(bonus);
   if (!given.holdQuestion) sections.push(close.text);
   return done();
 }
@@ -975,7 +879,6 @@ const isEasy = (c: Card) => c.difficulty?.level === 'Easy';
 const buildNew = (c: Card): Offer => ({
   text: `Want me to build something new for ${c.title} (${prizeOf(c)})?${needsForms(c) ? needsText(c) : ''}`,
   campaign: false,
-  programId: c.id,
 });
 
 /** v2.8.1 §B7, Ruling F5; v2.9 A4: the fit to offer: good odds first (v2.10 item 6), then the easiest row, then the top prize, then the quicker fit. Pure. */
@@ -1005,17 +908,10 @@ const noRepoPick = (cards: Card[]): Card | undefined =>
 export const enterableWithoutRepo = (cards: (Card & { earnkit_campaign?: unknown })[], exceptId?: string): Card | undefined =>
   noRepoPick(cards.filter((c) => c.id !== exceptId && !c.sponsored && !c.earnkit_campaign && !c.investment));
 
-/**
- * One closing offer (offer's text), and whether it's an EarnKit campaign entry (Ruling 10 (plan)).
- * `noBonusId` (final review M4): the offered program, when its row carries Ruling 25's "no builder
- * bonus" note, so the entry offered can't earn the bonus.
- */
+/** One closing offer (offer's text), and whether it's an EarnKit campaign entry (Ruling 10 (plan)). */
 type Offer = {
   text: string;
   campaign: boolean;
-  noBonusId?: string;
-  /** Ruling H8: the curated program the offer names (its pool is the reply's bonus line). */
-  programId?: string;
 };
 
 /**
@@ -1036,9 +932,6 @@ function offer(
 ): Offer {
   // v2.8.1 §B7, §B9: never an investment (it shows only in the table), never a program entered.
   const offerable = (c: Card) => !c.sponsored && !c.investment && !entered.has(c.id);
-  // M4: the program offered, when its matched row says the repo's token is entered elsewhere.
-  const noBonus = (r: Fit | undefined) =>
-    r && repoCoinElsewhere(m, r.card, r.repo_url) ? { noBonusId: r.card.id } : {};
   // v2.8.1 §B7, Ruling F5: a fit for the builder's repo always comes first (Easy first, then the
   // top prize); building something new is offered only when no repo fits.
   const pick = bestFit(rows.filter((r) => offerable(r.card)));
@@ -1046,45 +939,29 @@ function offer(
   // v2.10 Ruling H1 (c1): the same pick as the "No repo yet?" line (noRepoPick).
   const asTheyAre = noMatch(m.repos) ? noRepoPick(m.cards.filter(offerable)) : undefined;
   // v2.10.1 B1: an entry not submitted yet comes before any new start: submitting it is all that's
-  // left (no bonus line: its token is already decided).
+  // left.
   const step = submitStep(m);
   if (step) return { text: submitStepLine(step), campaign: false };
   if (!m.agentCanBuild) {
     const named = pick ? `${pick.card.title} with ${pick.repo}` : asTheyAre?.title;
-    const namedId = pick ? pick.card.id : asTheyAre?.id;
-    return {
-      text: named ? `Want me to start on ${named}? ${CHAT_ONLY}` : CHAT_ONLY,
-      campaign: false,
-      ...(namedId && { programId: namedId }),
-      ...noBonus(pick),
-    };
+    return { text: named ? `Want me to start on ${named}? ${CHAT_ONLY}` : CHAT_ONLY, campaign: false };
   }
   const titleOf = (id: string): Offer | undefined => {
     const c = byId.get(id);
-    if (c) return c.sponsored ? undefined : { text: c.title, campaign: false, programId: c.id };
+    if (c) return c.sponsored ? undefined : { text: c.title, campaign: false };
     const camp = m.campaigns.find((r) => r.id === id && r.open);
     return camp ? { text: camp.title, campaign: true } : undefined;
   };
   const resumeId = m.workingOn.find((id) => !entered.has(id) && titleOf(id));
   const resume = resumeId && titleOf(resumeId);
   if (resume)
-    return {
-      text: `Want me to keep going on ${resume.text}?`,
-      campaign: resume.campaign,
-      ...(resume.programId && { programId: resume.programId }),
-      ...noBonus(rows.find((r) => r.card.id === resumeId)),
-    };
+    return { text: `Want me to keep going on ${resume.text}?`, campaign: resume.campaign };
   const campaign = [...m.campaigns].sort(byCampaignPrize).find((r) => r.open && r.you === null);
   if (campaign) return { text: `Want me to build your entry for the ${usd(campaign.prize_usd_each)}?`, campaign: true };
   if (pick)
-    return {
-      text: `Want me to start on ${pick.card.title} with ${pick.repo}?${needsForms(pick.card) ? needsText(pick.card) : ''}`,
-      campaign: false,
-      programId: pick.card.id,
-      ...noBonus(pick),
-    };
+    return { text: `Want me to start on ${pick.card.title} with ${pick.repo}?${needsForms(pick.card) ? needsText(pick.card) : ''}`, campaign: false };
   if (asTheyAre)
-    return { text: `Want me to start on ${asTheyAre.title}?${needsForms(asTheyAre) ? needsText(asTheyAre) : ''}`, campaign: false, programId: asTheyAre.id };
+    return { text: `Want me to start on ${asTheyAre.title}?${needsForms(asTheyAre) ? needsText(asTheyAre) : ''}`, campaign: false };
   if (ideasShown) return { text: "Pick one and I'll start.", campaign: false };
   const curated = m.cards.filter((c) => !c.sponsored);
   const fresh = curated.filter(offerable);
