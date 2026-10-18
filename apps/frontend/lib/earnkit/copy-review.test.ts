@@ -1,5 +1,4 @@
 import './fixtures/no-network-checks';
-import { pageWords } from './fixtures/page-words';
 import {
   EMAIL_NOTE, EMAIL_OFF, EMAIL_ON, EMAIL_QUESTION, EMAIL_SHARED_NOTE, EMAIL_SIGN_IN, EMAIL_UNAVAILABLE, UNSUB_BAD, UNSUB_CONFIRM, UNSUB_DONE, WHICH_EMAIL,
   digestBody, emailQuestionFor,
@@ -17,28 +16,26 @@ import {
   confirmTable,
   enteredTable,
   enteredText,
-  noCoinYet,
+  NO_COIN_YET,
   notReadyTokenNote,
   tokenRow,
 } from './entry-text';
 import { SCORE_SHARED } from './score-tool';
 import { POST_LINE, SKIPPED_LINE, claimFirstLine } from './share';
-import { EARN_NOTE, HEADS, MOVE_UP_NOTE, SEND_LINK_LINE, chooseStep, confirmLinkLine, newsOpener, pageReadyLine, rollingLine, standingNews, usersMoneyLine, whereYouStand, type StandProject, type StandView } from './where-you-stand';
-import { BUILD_COIN_NOTE, COIN_WALLET_NOTE, GO_LIVE_LINES, GO_LIVE_NOT_YET_NOTE, buildStepLine, goLiveLineNote, goLivePagesNote, goLiveSignInNote, goLiveUploadNote, goLiveWrongLinkNote } from './tools';
-import { COUNT_LINES, NO_LINE_NOTE, TAG_NOTE, TIPS_NOTE } from './make-countable';
-import { COIN_LAUNCHING, COIN_LIVE, COIN_NOTE, COIN_WALLET_ASK, COIN_YES_NOTE, coinLine } from './coin-moments';
+import { EARN_NOTE, rollingLine, standingNews, usersMoneyLine, type StandProject } from './stand-text';
+import { GO_LIVE_LINES, GO_LIVE_NOT_YET_NOTE, goLiveLineNote, goLivePagesNote, goLiveSignInNote, goLiveUploadNote, goLiveWrongLinkNote } from './tools';
+import { COIN_LAUNCHING, COIN_LIVE, COIN_WALLET_ASK, coinLine } from './coin-moments';
 import { ATTRIBUTION_RULE } from './fresh-build';
-import { SEND_LINK_NOTE } from './score-tool';
 import { HIDDEN_LINE, NO_PROFILE_LINE, SHARED_PROFILE_NOTE, SHOWN_LINE } from './profiles';
-import { OWNERSHIP_FOR_TOKEN, SCORE_DESCRIPTION, SERVER_INSTRUCTIONS, TELL_DESCRIPTION, TELL_DESCRIPTION_SCORE, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
-import { bonusLine, presentFirstMessage, skippedLine, submitStepLine, type Card, type FirstMessage } from './present';
+import { OWNERSHIP_FOR_TOKEN_BENCH, SCORE_DESCRIPTION, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
+import { presentFirstMessage, skippedLine, submitStepLine, type Card, type FirstMessage } from './present';
 import { SKIP_REASONS } from './match-projects';
-import { BUILD_ENTRY_NOTE, BUILD_NO_LIVE_NOTE, BUILD_HOLD_NOTE, BUILD_OWNER_NOTE, BUILD_WALLET_NOTE, BUILD_PENDING_NOTE, pagesLiveLine, BUILD_DEPLOYS_OFF_NOTE, BUILD_NOT_READY, BUILD_PAGES_NOTE, BUILD_UPLOAD_NOTE, buildChainNote, buildOwnerNote, buildProofNote, BUILD_NOT_STARTED, BUILD_SHARED_NOTE, KIT_NOTE, WALLET_NEEDED_NOTE, buildRefused, twistNote, BUILD_NOTE, PLAN_NOTE, ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, CONFIRM_SHARED_NOTE, PROJECT_REOFFER_NOTE, SUBMITTED_AGAIN_NOTE, SUBMITTED_SHARED_NOTE, BUILD_ENTRY_NO_TOKEN_NOTE, handlers } from './tools';
+import { BUILD_ENTRY_NOTE, BUILD_NO_LIVE_NOTE, BUILD_HOLD_NOTE, BUILD_OWNER_NOTE, BUILD_WALLET_NOTE, BUILD_PENDING_NOTE, pagesLiveLine, BUILD_DEPLOYS_OFF_NOTE, BUILD_NOT_READY, BUILD_PAGES_NOTE, BUILD_UPLOAD_NOTE, buildChainNote, buildOwnerNote, buildProofNote, BUILD_NOT_STARTED, BUILD_SHARED_NOTE, WALLET_NEEDED_NOTE, buildRefused, twistNote, BUILD_NOTE, PLAN_NOTE, ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, CONFIRM_SHARED_NOTE, PROJECT_REOFFER_NOTE, SUBMITTED_AGAIN_NOTE, SUBMITTED_SHARED_NOTE, BUILD_ENTRY_NO_TOKEN_NOTE, handlers } from './tools';
 import { outcomeQuestion } from './outcomes';
 import { DEFAULT_GUIDANCE, PLAIN_FIX, PLAIN_LENGTH_FIX, PLAIN_NOTE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, walletAsk } from './coach';
 import { alsoText } from './also-qualifies';
 import type { SubmissionRequirement } from './program-file';
-import { SIGN_IN_FIRST, WALLET_CHANGED, ownerProblem, tokenGate, tokenLineFor, type GateDeps, type GateInput } from './token-gate';
+import { SIGN_IN_FIRST, WALLET_CHANGED, ownerProblem, tokenGate, type GateDeps, type GateInput } from './token-gate';
 import {
   CANT_PUSH,
   NEEDS_REPO,
@@ -55,37 +52,24 @@ import {
 import { CONFIRM_WARNING, VERIFY_PAGE, codeLine, confirmPage } from './github-verify';
 import { AGENT_FILL_STEPS, continuesLine, kitReplyNote, submitKit, type KitProgram } from './submit-kit';
 import {
-  confirmToken,
   decideToken,
-  launchToken,
   NEEDS_SYMBOL_AGENT,
   NO_WALLET_AGENT,
   SKIPPED_ENTRY,
-  TECHNICAL_TERMS,
   notReadyAgentNote,
   AGENT_LIMITED,
   STILL_CHECKING,
   STILL_CHECKING_LAUNCH,
   WALLET_LIMITED,
-  type FlowProject,
-  type TokenFlowDeps,
 } from './token-launch';
 import {
   LAUNCHING,
   LAUNCHING_AGENT,
   LAUNCH_STUCK,
   launchStuckAgent,
-  LINKS_CHANGED,
   NOT_LAUNCHED_YET,
-  STATE_CHANGED,
-  LaunchError,
-  repoHasTokenNote,
-  TOKENS_UNAVAILABLE,
   walletLimitNote,
-  type TokenOutcome,
 } from './tokens';
-import { RateLimitError } from './rate-limit';
-import { openRows, type OpenEntry } from './bonus-board';
 import { STATS_LABELS, moneyText, openMoneyUsd, statsFrom, wonLine } from './stats';
 import {
   CAPPED_READ_SUFFIX,
@@ -121,13 +105,8 @@ import { bannedIn } from './fixtures/banned-words';
 import { humanStrings, humanTextFiles } from './human-text';
 import { CLAIM_TEXT } from './claim';
 import { WALLET_TEXT } from './wallet-proof';
-import { NONE_CONFIRMED, NOTHING_YET, NOT_CONFIRMED, NOT_TRACKED, SOURCES_LINE, boardLine, cardHeadline, type BoardRow, type PageCard, type PageHead } from './page-data';
-import HandleProfileView from '../../app/[handle]/ProfileView';
-import ProjectCards from '../../app/[handle]/ProjectCards';
-import LeaderboardView from '../../app/leaderboard/LeaderboardView';
+import { NOTHING_YET } from './page-data';
 import SponsorTermsSection from '../../app/terms/sections/SponsorTermsSection';
-import BoardView from '../../app/bonus/[round]/BoardView';
-import type { Board } from './bonus-board';
 import HomeView from '../../app/HomeView';
 import GuideView, { Unavailable } from '../../app/programs/[id]/GuideView';
 import ProgramCards from '../../app/components/sections/ProgramCards';
@@ -135,10 +114,7 @@ import { closedGuide, emptyGuide, fullGuide, predecessorGuide } from './fixtures
 import { homeFixture } from './fixtures/landing';
 import Header from '../../app/components/common/Header';
 import AddToAgent from '../../app/components/sections/AddToAgent';
-import { HERO_EYEBROW, HERO_SUBTITLE, HERO_TITLE } from '../../app/components/sections/Hero';
-import { HOW_TITLE, STEPS } from '../../app/components/sections/HowItWorks';
 import { landingFrom, statsLine } from './landing';
-import { bonusPillLabel } from '../../app/components/ui/BonusPill';
 import { eachLine, poolLine } from './pool';
 import { STARTERS } from './starters';
 import { BUILD_CHAT_ONLY, buildCheck, buildKit, buildingLine, contextLine, freshLeadLine, freshPick, twistQuestion } from './fresh-build';
@@ -293,38 +269,17 @@ const shortReplies: [string, string][] = [
 ];
 
 // ---- tokenRow, enteredText, noCoinYet: every branch.
-const tokenRows = [tokenRow('TIPJAR', true), tokenRow('TIPJAR', false, null, 'Tip Jar'), tokenRow('TIPJAR', true, 'Arc Microgrants')];
-const round = { line: bonusLine({ wei: 18n * 10n ** 16n, tokens: 3 })! };
+const tokenRows = [tokenRow('TIPJAR'), tokenRow('TIPJAR', 'Tip Jar')];
 const enteredTexts = [
-  enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'launched', url: 'https://tokens.fun/coin/0xabc' }, bonus: round }),
-  enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'no_wallet' }, bonus: round }),
-  enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'no_wallet' }, bonus: null }),
-  enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'pending' }, bonus: null }),
-  enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'skipped' }, bonus: null }),
-  enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'other' }, bonus: null }),
-  enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'other' }, bonus: round }),
+  enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'launched', url: 'https://tokens.fun/coin/0xabc' } }),
+  enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'no_wallet' } }),
+  enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'pending' } }),
+  enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'skipped' } }),
+  enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'other' } }),
   // C7: a token waiting on missing items.
-  enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'other', needs: 'a live link on Arc mainnet' }, bonus: null }),
-  enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'other', needs: 'a live link on Arc mainnet' }, bonus: round }),
-  enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'other' }, bonus: { ...round, join: { kind: 'confirm', site: 'dorahacks.io' } } }),
-  enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'no_wallet' }, bonus: null, repoHeld: true }),
-  enteredText({
-    programTitle: 'Arc Microgrants',
-    coin: { status: 'launched', url: 'https://tokens.fun/coin/0xabc' },
-    bonus: { ...round, join: { kind: 'confirm', site: 'dorahacks.io' } },
-  }),
-  enteredText({
-    programTitle: 'Arc Microgrants',
-    coin: { status: 'launched', url: 'https://tokens.fun/coin/0xabc' },
-    bonus: { ...round, join: { kind: 'page', site: 'dorahacks.io', missing: 'live site' } },
-  }),
-  enteredText({
-    programTitle: 'Arc Microgrants',
-    coin: { status: 'launched', url: 'https://tokens.fun/coin/0xabc' },
-    bonus: { ...round, join: { kind: 'link', site: 'dorahacks.io' } },
-  }),
+  enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'other', needs: 'a live link on Arc mainnet' } }),
 ];
-const noCoinYets = [noCoinYet('Oct 14'), noCoinYet(null)];
+const noCoinYets = [NO_COIN_YET];
 
 // ---- The prepare_submission confirm screen (I2): confirmTable, where the coin row and wallet
 // line actually appear; and the campaign enteredTable.
@@ -342,27 +297,22 @@ const confirmTables = [
   // Non-campaign, with a remembered wallet.
   confirmTable({
     project: 'Tip Jar', programTitle: 'Arc Microgrants', campaign: null, prize: '500 USDC × 20 grants', endsAt: null,
-    payoutWallet: null, token: { symbol: 'TIPJAR', wallet: BONUS_WALLET, hasBonus: true, remembered: true },
+    payoutWallet: null, token: { symbol: 'TIPJAR', wallet: BONUS_WALLET, remembered: true },
   }),
   // Non-campaign, with a given (not remembered) wallet.
   confirmTable({
     project: 'Tip Jar', programTitle: 'Arc Microgrants', campaign: null, prize: '500 USDC × 20 grants', endsAt: null,
-    payoutWallet: null, token: { symbol: 'TIPJAR', wallet: BONUS_WALLET, hasBonus: true },
+    payoutWallet: null, token: { symbol: 'TIPJAR', wallet: BONUS_WALLET },
   }),
   // Non-campaign, no wallet yet.
   confirmTable({
     project: 'Tip Jar', programTitle: 'Arc Microgrants', campaign: null, prize: '500 USDC × 20 grants', endsAt: null,
-    payoutWallet: null, token: { symbol: 'TIPJAR', hasBonus: true },
+    payoutWallet: null, token: { symbol: 'TIPJAR' },
   }),
   // v2.7 Ruling 15 (plan): not ready; what's missing leads, no token row or wallet.
   confirmTable({
     project: 'Tip Jar', programTitle: 'Arc Microgrants', campaign: null, prize: '500 USDC × 20 grants', endsAt: null,
-    payoutWallet: null, missing: ['Live deployment on Arc mainnet'], token: { symbol: 'TIPJAR', wallet: BONUS_WALLET, hasBonus: true },
-  }),
-  // Non-campaign, Ruling 25 (repo's coin already entered elsewhere).
-  confirmTable({
-    project: 'Tip Jar', programTitle: 'Arc Microgrants', campaign: null, prize: '500 USDC × 20 grants', endsAt: null,
-    payoutWallet: null, token: { symbol: 'TIPJAR', hasBonus: true, coinIn: 'Base Builder Grant Program' },
+    payoutWallet: null, missing: ['Live deployment on Arc mainnet'], token: { symbol: 'TIPJAR', wallet: BONUS_WALLET },
   }),
   // One EarnKit campaign (v2.4's Token row, not the v2.6 Coin row).
   confirmTable({
@@ -506,48 +456,6 @@ function gatherDecideTokenAgentNotes(): [string, string][] {
   return out;
 }
 
-// ---- v2.7 T6/T7 carry: bonus-board rows (with a no-token entry) and the two /bonus/<round> board
-// renders (open and paid), the same fixtures public-pages.test.ts verifies.
-const openEntryBase = (id: number, o: Partial<OpenEntry> = {}): OpenEntry => ({
-  id, name: `P${id}`, repo_url: `https://github.com/a/p${id}`, live_url: null, coin: true, proof: true, pattern: true,
-  complete: true, skipped: false, eligible: true, test: false, rank: null, score: null, submitted_at: new Date('2026-10-01T00:00:00Z'), ...o,
-});
-const openEntryRows = openRows([
-  openEntryBase(1),
-  openEntryBase(2, { coin: false, eligible: false }),
-  // v2.8 Rulings 2-3 (plan): an incomplete entry, and one entered with "skip".
-  openEntryBase(3, { complete: false, eligible: false }),
-  openEntryBase(4, { skipped: true, eligible: false }),
-]);
-
-const boardFixture = (o: Partial<Board> = {}): Board => ({
-  round: 'base-builder-grants:2026-10',
-  title: 'Base Builder Grants',
-  state: 'open',
-  ends_at: new Date('2026-11-01T00:00:00Z'),
-  ends_label: 'Oct 31',
-  review_until: null,
-  pool: '0.42',
-  days_left: 26,
-  removed: 0,
-  rows: [
-    { rank: 1, name: 'Tipjar', repo_url: 'https://github.com/a/tipjar', live_url: 'https://tipjar.app', score: '81.5', eligible: true, note: 'Yes', amount: null, tx: null },
-    { rank: null, name: 'Splitly', repo_url: null, live_url: null, score: null, eligible: false, note: 'No: no token', amount: null, tx: null },
-  ],
-  ...o,
-});
-// Cut at the shared Footer, same as the policy page above: this scan is for the board's own
-// copy, not every page's site-wide footer (its "©" is Extended_Pictographic, not an emoji we add).
-const boardText = (b: Board) =>
-  renderToStaticMarkup(React.createElement(BoardView, { board: b }))
-    .split('<footer')[0]
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&#x27;|&#39;/g, "'")
-    .replace(/&amp;/g, '&')
-    .replace(/\s+/g, ' ');
-const openBoardText = boardText(boardFixture());
-const paidBoardText = boardText(boardFixture({ state: 'paid', review_until: null }));
-
 // ---- v2.7 §1: the homepage, with its live parts and without them (a failed read). Cut at the
 // shared Footer like the pages above (its "©" is Extended_Pictographic, not an emoji we add).
 const pageText = (el: React.ReactElement) =>
@@ -570,10 +478,7 @@ const guideTexts: [string, string][] = [
   ['/programs (unavailable)', pageText(React.createElement(Unavailable, { text: 'Programs are unavailable right now.' }))],
 ];
 
-// ---- v2.7.1: the simpler landing and the builder bonus, front and center: every new string.
-const bonusCard = (wei: bigint | null): Card => ({
-  id: 'p', title: 'P', summary: 's', tag: null, each_time: [], builder_bonus: true, bonus_pool_wei: wei,
-});
+// ---- v2.7.1: the simpler landing: every new string.
 const v271Texts: [string, string][] = [
   ['header', pageText(React.createElement(Header))],
   ['install modal', pageText(React.createElement(AddToAgent, { onClose: () => {} }))],
@@ -584,17 +489,10 @@ const v271Texts: [string, string][] = [
   ['eachLine grant', eachLine({ title: 'Base Builder Grant Program', reward: 'Up to $5,000 in grants', max_award_usd: 5000, min_award_usd: null })!],
   ['eachLine winner', eachLine({ title: 'Hackathon', reward: '$30,000 grand prize', max_award_usd: 30000, min_award_usd: null })!],
   ['statsLine', statsLine({ open_money_usd: 0, open_money_text: null, open_pools_usd: 0, open_pools_plus: false, programs_open: 5, bonus_programs_open: 4, coins_launched: 3, fees_to_safe_eth: 0, bonus_paid_eth: 0.42, bonus_pools_eth: 1, installs: 312, labelled_entries: 0, entries_won: 0, builders_won_usd: 0 })!],
-  ['bonusPillLabel', bonusPillLabel()],
-  ['bonusPillLabel amount', bonusPillLabel('0.42 ETH')],
-  ['bonusPillLabel tiny', bonusPillLabel('<0.01 ETH')],
   ['poolLine prizes', poolLine(250000, { plus: true, usdc: false }, 'Monad Metropolis Hackathon')],
   ['poolLine grants', poolLine(200000, { plus: false, usdc: false }, 'Circle Developer Grants')],
   ['poolLine USDC', poolLine(10000, { plus: false, usdc: true }, 'Arc Microgrants')],
   ['moneyText', `${moneyText(1_170_500)} open right now`],
-  ['bonusLine (pooled)', bonusLine({ wei: 6n * 10n ** 17n, tokens: 2 })!],
-  ['bonusLine (first)', bonusLine({ wei: 0n, tokens: 0 })!],
-  ['bonusLine (tiny)', bonusLine({ wei: 10n ** 15n, tokens: 1 })!],
-  ['presentFirstMessage (pooled)', presentFirstMessage(msg({ cards: [{ ...bonusCard(6n * 10n ** 17n), bonus_tokens: 2 }] }))],
 ];
 
 // ---- v2.7 §4 fix round 1 (Important #2): app/campaigns/[slug]/page.tsx's own human-facing text,
@@ -632,12 +530,10 @@ const campaignPageTexts: [string, string][] = [
 
 // v2.8 Task 8: every confirmation offer variant, and the kit's builder text.
 const OFFER_WALLET = '0xAb12000000000000000000000000000000000123';
-const offerBase = { hasBonus: true, coinIn: null, canPush: true, wallet: OFFER_WALLET };
+const offerBase = { coinIn: null, canPush: true, wallet: OFFER_WALLET };
 const confirmTexts: [string, string][] = [
   ['confirmOffer: a wallet', confirmOffer(offerBase)],
   ['confirmOffer: no wallet', confirmOffer({ ...offerBase, wallet: null })],
-  ['confirmOffer: no bonus', confirmOffer({ ...offerBase, hasBonus: false })],
-  ['confirmOffer: no bonus, no wallet', confirmOffer({ ...offerBase, hasBonus: false, wallet: null })],
   ['confirmOffer: again', confirmOffer({ ...offerBase, proposal: { name: 'TipJar', symbol: 'TIP' }, again: true })],
   ['confirmOffer: token elsewhere', confirmOffer({ ...offerBase, coinIn: 'Arc Microgrants' })],
   ["confirmOffer: can't push", confirmOffer({ ...offerBase, canPush: false })],
@@ -647,12 +543,11 @@ const confirmTexts: [string, string][] = [
   ['READY_TO_SUBMIT', READY_TO_SUBMIT],
   ['NEEDS_REPO', NEEDS_REPO],
   ['NO_TOKEN_HERE', NO_TOKEN_HERE],
-  ['walletQuestion', walletQuestion(OFFER_WALLET, true)],
-  ['walletQuestion: no bonus', walletQuestion(OFFER_WALLET, false)],
+  ['walletQuestion', walletQuestion(OFFER_WALLET)],
   ['TOKEN_ERROR_CONFIRM', TOKEN_ERROR_CONFIRM],
   // v2.8.1 §A: the launch's builder lines.
   ['confirmOffer: with the proposal', confirmOffer({ ...offerBase, proposal: { name: 'TipJar', symbol: 'TIP' } })],
-  ['confirmLine: no bonus', confirmLine({ proposal: { name: 'TipJar', symbol: 'TIP' }, hasBonus: false, wallet: null, walletKnown: false })],
+  ['confirmLine: no bonus', confirmLine({ proposal: { name: 'TipJar', symbol: 'TIP' }, wallet: null, walletKnown: false })],
   ['proofLineWaiting', proofLineWaiting('main')],
   ['proofLineWaiting: no branch', proofLineWaiting(null)],
   ['NOT_LAUNCHED_YET', NOT_LAUNCHED_YET],
@@ -665,15 +560,14 @@ const confirmTexts: [string, string][] = [
   ['walletLimitNote', walletLimitNote(new Date('2026-10-08T14:20:00Z'))],
   ['walletLimitNote: no time', walletLimitNote(null)],
   // v2.8.1 §C: the wallet in the coach round, the speedrun kit's next step, the plain error.
-  ['walletAsk', walletAsk(true)],
-  ['walletAsk: no bonus', walletAsk(false)],
+  ['walletAsk', walletAsk()],
   [
     'coachIntro: the wallet joined to contact',
     coachIntro('Base Builder Grants', questionsFor({
       reqs: [{ key: 'email', label: 'Email', kind: 'contact', type: 'email', required: true, from: 'builder' }],
       answers: {},
       first: true,
-      wallet: { hasBonus: true },
+      wallet: true,
     }))!,
   ],
   [
@@ -1007,54 +901,18 @@ function buildFixTexts(): [string, string][] {
   return cases.map((c, i): [string, string] => [`buildCheck fix ${i}`, buildCheck({ ...ok, ...c }, s)!]);
 }
 
-// v2.12.1 T8: the three-part reply, its steps, the news and page-ready lines, the card answers.
+// v2.12.1 T8: the news line, the money lines and the card answers (v2.14: the three-part reply and its steps are gone).
 const sp = (o: Partial<StandProject> & { key: string; name: string }): StandProject => ({
   what: null, shipped: true, people: 0, has_coin: false, sends_tx: false, tagged: false, untracked_contract: null, untracked_people: 0, certain: false, app: true, ...o,
 });
-const standBaseView: Omit<StandView, 'step' | 'news'> = {
-  standing: { ranked: true, rank: 3, total: 40 }, claimed: false, handle: null, claimLink: 'earnkit.com/claim/abcdefghijkl',
-  projects: [sp({ key: 'r', name: 'Recipes', what: 'a recipe planner' }), sp({ key: 't', name: 'TipJar', what: 'a tip jar', sends_tx: true })],
-  earn: [{ program_id: 'p', project: 't', title: 'Arc Microgrants', prize: 'up to $500', when: 'closes Oct 14' }], fresh: null,
-};
-const noCoin = { coin: () => false, build: null };
-const stepLines = (projects: StandProject[], o: Partial<Omit<StandView, 'step' | 'news'>> = {}, host?: (k: string) => boolean) =>
-  chooseStep({ ...standBaseView, ...o, projects }, { ...noCoin, host })?.line ?? '';
 export const v2121Texts: [string, string][] = [
-  ['whereYouStand target', whereYouStand({ ...standBaseView, step: chooseStep(standBaseView, noCoin), news: null })],
-  ['whereYouStand claimed', whereYouStand({ ...standBaseView, claimed: true, handle: 'lee', claimLink: null, step: null, news: null })],
-  ['whereYouStand none live', whereYouStand({ ...standBaseView, earn: [], projects: standBaseView.projects.map((p) => ({ ...p, shipped: false })), step: null, news: null })],
-  ['whereYouStand nothing', whereYouStand({ ...standBaseView, projects: [], earn: [], fresh: { title: 'Arc Microgrants', prize: '500 USDC' }, step: chooseStep({ ...standBaseView, projects: [] }, noCoin), news: null })],
-  ['step count_past certain', stepLines([sp({ key: 'k', name: 'Keep', untracked_contract: 'base:0x1', untracked_people: 3, certain: true })])],
-  ['step count_past uncertain', stepLines([sp({ key: 'k', name: 'Keep', untracked_contract: 'base:0x1', untracked_people: 3 })])],
-  ['step confirm one', stepLines([sp({ key: 'k', name: 'Keep', what: 'a tip jar', confirmed: false })], { claimed: true, handle: 'lee' })],
-  ['step confirm many', stepLines([sp({ key: 'k', name: 'K', confirmed: false }), sp({ key: 'j', name: 'J', confirmed: false })], { claimed: true, handle: 'lee' })],
-  ['step tag_future plain', stepLines([sp({ key: 'g', name: 'Game', what: 'a puzzle game', sends_tx: true })])],
-  ['step payment', stepLines([sp({ key: 's', name: 'Shop', what: 'a coffee shop site' })])],
-  ['step go_live', stepLines([sp({ key: 'a/b', name: 'B', what: 'a budget tracker', shipped: false })], {}, () => true)],
-  // v2.12.2: only code on GitHub (a reported login's repos, not yet confirmed), and its one yes.
-  ['whereYouStand on GitHub', whereYouStand({ ...standBaseView, earn: [], projects: [sp({ key: 'o/hello-world', name: 'Hello-World', what: 'My first repository on GitHub!', shipped: false, app: false, code: true }), sp({ key: 'o/spoon-knife', name: 'Spoon-Knife', shipped: false, app: false, code: true })], step: null, news: null })],
-  ['step go_live code', stepLines([sp({ key: 'o/hello-world', name: 'Hello-World', what: 'My first repository on GitHub!', shipped: false, app: false, code: true }), sp({ key: 'o/spoon-knife', name: 'Spoon-Knife', shipped: false, app: false, code: true, web: true })], {}, () => true)],
-  ['buildStepLine', buildStepLine('Arc Microgrants', '500 USDC', true)],
-  ['buildStepLine chat', buildStepLine('Arc Microgrants', '500 USDC', false)],
   ['standingNews people', standingNews({ rank: 5, people: { t: 1 }, at: '2026-10-10T00:00:00Z' }, { standing: { ranked: true, rank: 3, total: 40 }, projects: [{ key: 't', name: 'TipJar', people: 13 }] }, new Date('2026-10-14T00:00:00Z'), true)!.line],
   ['standingNews top', standingNews({ rank: 40, at: '2026-09-01T00:00:00Z' }, { standing: { ranked: true, rank: 12, total: 120 }, projects: [] }, new Date('2026-10-14T00:00:00Z'), false)!.line],
-  ['newsOpener page ready', newsOpener([], [pageReadyLine('earnkit.com/claim/abcdefghijkl')])!],
-  ['confirmLinkLine', confirmLinkLine('https://earnkit.com/claim/wallet?t=1.2.x')],
   ['usersMoneyLine', usersMoneyLine(sp({ key: 'r', name: 'Recipes', what: 'a recipe planner' }), 'lee/recipes', 'Arc Microgrants', 'up to $500')],
   ['rollingLine', rollingLine('Arc Microgrants', 'up to $500', true)],
   ['rollingLine no projects', rollingLine('Arc Microgrants', 'up to $500', false)],
   ['POST_LINE', POST_LINE('lee')],
   ['claimFirstLine', claimFirstLine('earnkit.com/claim/abcdefghijkl')],
-  // v2.12.1 T9: the reply after each yes.
-  ['COUNT_LINES.done', COUNT_LINES.done(140, 'TipJar', "You're now #3 of 40.")],
-  ['COUNT_LINES.done one', COUNT_LINES.done(1, 'TipJar', null)],
-  ['COUNT_LINES.done review', COUNT_LINES.done(140, 'TipJar', COUNT_LINES.review)],
-  ['COUNT_LINES.added', COUNT_LINES.added],
-  ['COUNT_LINES.tapLink', COUNT_LINES.tapLink('https://earnkit.com/claim/wallet?t=1.2.x')],
-  ['COUNT_LINES.tips', COUNT_LINES.tips],
-  ['COUNT_LINES.cantTips', COUNT_LINES.cantTips],
-  ['COUNT_LINES.claimFirst', COUNT_LINES.claimFirst('earnkit.com/claim/abcdefghijkl')],
-  ['COUNT_LINES.noted', COUNT_LINES.noted],
   ['GO_LIVE_LINES.onIt', GO_LIVE_LINES.onIt],
   ['GO_LIVE_LINES.cant', GO_LIVE_LINES.cant('TipJar')],
 ];
@@ -1073,13 +931,6 @@ const v2121CoinTexts: [string, string][] = [
   ['COIN_LIVE', COIN_LIVE],
   ['COIN_LAUNCHING', COIN_LAUNCHING],
 ];
-const v2121CoinNotes: [string, string][] = [
-  ['COIN_NOTE', COIN_NOTE],
-  ['COIN_YES_NOTE', COIN_YES_NOTE],
-  ['COIN_WALLET_NOTE', COIN_WALLET_NOTE],
-  ['BUILD_COIN_NOTE', BUILD_COIN_NOTE],
-];
-const v2121CoinStep = chooseStep({ ...standBaseView, projects: [sp({ key: 'b', name: 'Busy', people: 9, tagged: true })] }, { coin: () => true, build: null })!.line;
 
 const builderFacing: [string, string][] = [
   ...v29Part1Texts,
@@ -1090,7 +941,7 @@ const builderFacing: [string, string][] = [
   // v2.11 T8: the twist question (with and without the wallet ask), the building line, the shared reply.
   ['twistQuestion(true)', twistQuestion(true)],
   ['twistQuestion(false)', twistQuestion(false)],
-  ['buildingLine', buildingLine('PodTips', STARTERS['arc-tipjar'].what, 'for your podcast listeners')],
+  ['buildingLine', buildingLine('PodTips', STARTERS['arc-tipjar'], 'for your podcast listeners')],
   ['BUILD_CHAT_ONLY', BUILD_CHAT_ONLY],
   // v2.11 T10: the live line for a GitHub Pages site (the EarnKit-hosted one is v2.9's liveLine).
   ['pagesLiveLine', pagesLiveLine('PodTips', 'https://jenil04.github.io/podtips/')],
@@ -1123,19 +974,10 @@ const builderFacing: [string, string][] = [
   ...alertLinesDropped.map((s, i): [string, string] => [`alertLines dropped[${i}]`, s]),
   ['WALLET_INVALID', WALLET_INVALID],
   ['policy page', policyText],
-  ...openEntryRows.map((r, i): [string, string] => [`openRows[${i}].note`, r.note]),
-  ['/bonus/<round> open', openBoardText],
-  ['/bonus/<round> paid', paidBoardText],
   ['home page (live)', homeText(homeFixture)],
   ['home page (read failed)', homeText(null)],
   ...guideTexts,
   ...v271Texts,
-  // v2.8 Task 2: the hero and How you earn.
-  ['HERO_EYEBROW', HERO_EYEBROW],
-  ['HERO_TITLE', HERO_TITLE],
-  ['HERO_SUBTITLE', HERO_SUBTITLE],
-  ['HOW_TITLE', HOW_TITLE],
-  ...STEPS.flatMap((s, i): [string, string][] => [[`STEPS[${i}].title`, s.title], [`STEPS[${i}].body`, s.body]]),
   ...Object.entries(STATS_LABELS).map(([k, v]): [string, string] => [`STATS_LABELS.${k}`, v]),
   // v2.9 Task 8: hosting.
   ['liveLine', liveLine('TipJar', 'tipjar-alice')],
@@ -1187,9 +1029,6 @@ const builderFacing: [string, string][] = [
 const agentFacing: [string, string][] = [
   ['BUILD_NOTE', BUILD_NOTE],
   // v2.12.1 T9: the notes after a move-up yes, and the build kit's attribution rule.
-  ['TAG_NOTE', TAG_NOTE],
-  ['TIPS_NOTE', TIPS_NOTE],
-  ['NO_LINE_NOTE', NO_LINE_NOTE],
   ['ATTRIBUTION_RULE', ATTRIBUTION_RULE],
   ['goLiveUploadNote', goLiveUploadNote()],
   ['goLiveLineNote', goLiveLineNote('lee/tipjar', 'token: 0123456789abcdef')],
@@ -1204,7 +1043,6 @@ const agentFacing: [string, string][] = [
   ['BUILD_NOT_STARTED', BUILD_NOT_STARTED],
   ['buildRefused', buildRefused('arc-microgrants')],
   ['WALLET_NEEDED_NOTE', WALLET_NEEDED_NOTE],
-  ['KIT_NOTE', KIT_NOTE],
   ...buildFixTexts(),
   // v2.11 T9: the deploy-and-host call's notes.
   ['BUILD_NOT_READY', BUILD_NOT_READY],
@@ -1222,20 +1060,20 @@ const agentFacing: [string, string][] = [
   ['BUILD_WALLET_NOTE', BUILD_WALLET_NOTE],
   ['BUILD_PENDING_NOTE', BUILD_PENDING_NOTE],
   ['BUILD_NO_LIVE_NOTE', BUILD_NO_LIVE_NOTE],
-  ...buildKit(STARTERS['arc-tipjar'], 'token: 0123456789abcdef', {
+  ...buildKit(STARTERS['arc-tipjar'], {
     twist: 'tips for my podcast listeners',
     name: 'PodTips',
     description: 'Podcast listeners tip the show in USDC on Arc.',
     feature: 'Each tip can carry a question for the podcast.',
     for_whom: 'for your podcast listeners',
     wallet: '0x12ab34cd56ef7890a1b2c3d4e5f6a7b8c9d09f3e',
-  }).order.map((t, i): [string, string] => [`buildKit.order[${i}]`, t]),
+  }, { proof: null }).order.map((t, i): [string, string] => [`buildKit.order[${i}]`, t]),
   ['PLAN_NOTE', PLAN_NOTE],
   ['LAUNCHING_AGENT', LAUNCHING_AGENT],
   ['launchStuckAgent', launchStuckAgent('No answer from tokens.fun.')],
   ['SERVER_INSTRUCTIONS', SERVER_INSTRUCTIONS],
-  ['serverInstructions(false)', serverInstructions(false)],
-  ['OWNERSHIP_FOR_TOKEN', OWNERSHIP_FOR_TOKEN],
+  ['serverInstructions()', serverInstructions()],
+  ['OWNERSHIP_FOR_TOKEN_BENCH', OWNERSHIP_FOR_TOKEN_BENCH],
   ...Object.entries(TOOL_DESCRIPTIONS).map(([name, d]): [string, string] => [`TOOL_DESCRIPTIONS.${name}`, d]),
   // v2.8 Ruling 23 (plan): the descriptions while no EarnKit campaign is open.
   ...Object.entries(toolDescriptions(false)).map(([name, d]): [string, string] => [`toolDescriptions(false).${name}`, d]),
@@ -1266,16 +1104,12 @@ const agentFacing: [string, string][] = [
   ['SIGN_IN_OR_NOTE', SIGN_IN_OR_NOTE],
   ['SIGN_IN_CODE_NOTE', SIGN_IN_CODE_NOTE],
   ['CANT_PUSH_SIGN_IN_NOTE', CANT_PUSH_SIGN_IN_NOTE],
-  ['TELL_DESCRIPTION', TELL_DESCRIPTION],
-  // The tell description with the page fields, the shared-client note and the score tool's description.
-  ['TELL_DESCRIPTION_SCORE', TELL_DESCRIPTION_SCORE],
+  // The shared-client note and the score tool's description.
   ['SHARED_PROFILE_NOTE', SHARED_PROFILE_NOTE],
   ['SCORE_DESCRIPTION', SCORE_DESCRIPTION],
   ['SKIPPED_LINE', SKIPPED_LINE],
   // v2.12.1 T8: the move-up, earn and link notes.
-  ['MOVE_UP_NOTE', MOVE_UP_NOTE],
   ['EARN_NOTE', EARN_NOTE],
-  ['SEND_LINK_NOTE', SEND_LINK_NOTE],
   ['BUILD_ENTRY_NO_TOKEN_NOTE', BUILD_ENTRY_NO_TOKEN_NOTE],
   ['STORAGE_NOTE', STORAGE_NOTE],
   ['UPLOAD_NOTE', UPLOAD_NOTE],
@@ -1283,7 +1117,6 @@ const agentFacing: [string, string][] = [
   ['EMAIL_NOTE', EMAIL_NOTE],
   ['EMAIL_SHARED_NOTE', EMAIL_SHARED_NOTE],
   // v2.7 fix round 1 (Minor 6): llms.txt is what agents read about EarnKit.
-  ['llms.txt', readFileSync(join(import.meta.dirname, 'llms/v212.txt'), 'utf8')],
   // v2.13: the Bench's llms.txt (served under the flag, app/llms.txt/route.ts).
   ['llms.txt (v2.13)', readFileSync(join(import.meta.dirname, 'llms/v213.txt'), 'utf8')],
 ];
@@ -1328,15 +1161,6 @@ test('v2.7 fix round 1 (Important #1): no implied affiliation, except the carved
     const stripped = text.replace(carveOut, '');
     assert.doesNotMatch(stripped, /\b(partner|official|endorsed by|sponsored by)\b/i, label);
   }
-});
-
-test('v2.7 §4: "coin" never appears in human-facing text', async () => {
-  const all = [...builderFacing, ...agentFacing, ...(await gatherGateReasons()), ...(await gatherGateAgentNotes())];
-  // Minor 4 (Task 10): a program form's own option, quoted verbatim in a kit, is exempt.
-  // v2.12.1 T10: tell's coin field (the 3b coin offer's answer, spec copy) is named in its description.
-  const coinField = (label: string, text: string) => (label === 'TELL_DESCRIPTION_SCORE' ? text.replace(' coin: their coin answer.', '') : text);
-  // v2.13 (T13 brief): the Bench's llms.txt names the coin ("The coin", "a tokens.fun coin"); every other rule still reads it.
-  for (const [label, text] of all.filter(([label]) => label !== 'llms.txt (v2.13)')) assert.deepEqual(coinWords(coinField(label, label.startsWith('submitKit') ? withoutFormOptions(text) : text)), [], label);
 });
 
 test('v2.7 §3: never "Clanker" in builder or agent text, or on /policy', async () => {
@@ -1392,191 +1216,6 @@ test('v2.6 §3 copy review: "You could" shows only with no repo and no GitHub us
 
 test('v2.6 §3 copy review: the with-repo hook keeps "qualify"', () => {
   assert.match(withRepos, /you qualify for/);
-});
-
-// ---- Ruling 31: every launch_token note is plain builder text. launchToken runs over an in-memory
-// store through every branch it can end in; `note` must never name a tool, field or file (the
-// agent's instructions live in agent_note).
-async function gatherLaunchNotes(): Promise<[string, TokenOutcome][]> {
-  const W = '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3';
-  const REPO = 'https://github.com/acme/kit';
-  const run = async (
-    label: string,
-    p: Partial<FlowProject> = {},
-    input: Record<string, unknown> = {},
-    extra: Partial<TokenFlowDeps> = {},
-    gate: Partial<GateDeps> = {},
-    repoToken: string | null = null,
-  ): Promise<[string, TokenOutcome]> => {
-    const project: FlowProject = {
-      id: 7, name: 'Chain Kits', repo_url: REPO, live_url: 'https://kit.acme.dev', payout_wallet: null,
-      creator_wallet: null, token_url: null, token_name: 'Chain Kits', token_symbol: 'CHAIN', installation_id: 1,
-      token_policy: 'encouraged', ...p,
-    };
-    const deps: TokenFlowDeps = {
-      available: () => true,
-      limit: async () => {},
-      check: async () => true,
-      gate: {
-        repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
-        owner: async () => ({ status: 'ok', text: tokenLineFor(1, REPO)! }),
-        latest: async () => null,
-        screen: async () => {},
-        ...gate,
-      },
-      deploy: async (a) => ({ status: 'launched', name: a.name, symbol: a.symbol, tokens_fun: 'https://tokens.fun/coin/0xT' }),
-      store: {
-        load: async () => project,
-        setStatus: async () => {},
-        repoToken: async () => repoToken,
-        updateLinks: async () => {},
-        saveCreatorWallet: async () => {},
-        markComplete: async () => {},
-      },
-      ...extra,
-    };
-    const out = await launchToken({ project_id: 7, builder_confirmed: true, chain: 'base', creator_wallet: W, ...input } as never, 1, deps);
-    return [`launch note: ${label}`, out];
-  };
-  const deployed = (o: TokenOutcome) => ({ deploy: async () => o });
-  return Promise.all([
-    run('launched'),
-    run('launched on another chain, bonus program', { has_bonus: true }, { chain: 'robinhood' }),
-    run('no wallet', {}, { creator_wallet: undefined }),
-    run('policy off', { token_policy: 'off' }),
-    run('existing token', { token_url: 'https://tokens.fun/coin/0x1' }),
-    run('launch pending', { token_url: 'pending' }),
-    run('refused ticker', {}, { symbol: 'USDC' }),
-    run('bad ticker shape', {}, { symbol: 'K-1' }),
-    run('brand name', {}, { name: 'Coinbase Kit' }),
-    run('no proposal', { token_name: null, token_symbol: null, name: '' }),
-    run('campaign repo change', { payout_wallet: W }, { repo_url: 'https://github.com/acme/other' }),
-    run('recorded repo change', {}, { repo_url: 'https://github.com/acme/other' }),
-    run('bad live link', {}, { live_url: 'ftp://x.dev' }),
-    run('bad repo link', { repo_url: null }, { repo_url: 'http://github.com/acme/kit' }),
-    run('bad X handle', {}, { builder_x: 'not a handle!' }),
-    run('bad image', {}, { image_data: 'data:text/plain;base64,aGk=' }),
-    run('repo has a token', {}, {}, {}, {}, 'https://tokens.fun/coin/0x2'),
-    run('repo launch pending', {}, {}, {}, {}, 'pending'),
-    run('gate: proof line missing', {}, {}, {}, { owner: async () => ({ status: 'missing' }) }),
-    run('gate: proof line unreadable', {}, {}, {}, { owner: async () => ({ status: 'error', message: 'GitHub said 502' }) }),
-    run('gate: no commits', {}, {}, {}, { repo: async () => ({ fork: false, hasCommits: false, aheadOfParent: null }) }),
-    run('gate: no repo', { repo_url: null }),
-    run('daily limit', {}, {}, { limit: async () => { throw new RateLimitError('This agent has launched 3 tokens today, the daily limit.', 60); } }),
-    run('launches off', {}, {}, { available: () => false }),
-    run('deploy: not this agent', {}, {}, { deploy: async () => { throw new LaunchError('No project 7 recorded by you. Call record_submission first.'); } }),
-    run('deploy: links changed', {}, {}, deployed({ status: 'failed', note: LINKS_CHANGED })),
-    run('deploy: state changed', {}, {}, deployed({ status: 'failed', note: STATE_CHANGED })),
-    run('deploy: repo claimed meanwhile', {}, {}, deployed({ status: 'failed', note: repoHasTokenNote('pending') })),
-    run('deploy: unavailable', {}, {}, deployed({ status: 'skipped', note: TOKENS_UNAVAILABLE })),
-  ]);
-}
-
-test('Ruling 31: every launch_token note is plain builder text; technical detail only in agent_note', async () => {
-  const notes = await gatherLaunchNotes();
-  assert.ok(notes.length >= 25, `expected a wide scan, got ${notes.length}`);
-  const fieldPrefix = /^(name|symbol|token|creator_wallet|repo_url|live_url|image_data|builder_x):/;
-  for (const [label, out] of notes) {
-    const note = out.note ?? '';
-    if (out.status !== 'launched') assert.ok(note.trim().length > 0, `${label}: has a note`);
-    assert.doesNotMatch(note, TECHNICAL_TERMS, label);
-    assert.doesNotMatch(note, toolNameRe, label);
-    assert.doesNotMatch(note, fieldPrefix, label);
-    assert.doesNotMatch(note, editFileRe, label);
-    assert.doesNotMatch(note, /\p{Extended_Pictographic}|vault/iu, label);
-  }
-  // The instructions are not lost: the no-wallet and proof-line cases carry them for the agent.
-  const byLabel = new Map(notes);
-  assert.match(byLabel.get('launch note: no wallet')!.agent_note ?? '', /call confirm with project_id, yes: true and that wallet\./);
-  assert.match(byLabel.get('launch note: gate: proof line missing')!.agent_note ?? '', /earnkit\.txt/);
-  assert.match(byLabel.get('launch note: recorded repo change')!.agent_note ?? '', /^repo_url:/);
-});
-
-// ---- v2.8 Task 8: confirm_entry's token notes. A fixable note is what the builder sees with no
-// kit, so it must be plain words and say "go" (the confirmation), never "launch the token"; the agent
-// note names confirm_entry, never launch_token.
-async function gatherConfirmNotes(): Promise<[string, TokenOutcome][]> {
-  const W = '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3';
-  const REPO = 'https://github.com/acme/kit';
-  const run = async (
-    label: string,
-    o: { wallet?: string | null; token?: { name?: string; symbol?: string } } = {},
-    extra: Partial<TokenFlowDeps> = {},
-    gate: Partial<GateDeps> = {},
-    repoToken: string | null = null,
-  ): Promise<[string, TokenOutcome]> => {
-    const project: FlowProject = {
-      id: 8, name: 'Chain Kits', repo_url: REPO, live_url: null, payout_wallet: null, creator_wallet: null, token_url: null,
-      token_name: null, token_symbol: null, installation_id: 1, token_policy: 'encouraged', confirm_choice: 'go',
-    };
-    const deps: TokenFlowDeps = {
-      available: () => true,
-      limit: async () => {},
-      check: async () => true,
-      gate: {
-        repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
-        owner: async () => ({ status: 'ok', text: tokenLineFor(1, REPO)! }),
-        latest: async () => null,
-        screen: async () => {},
-        ...gate,
-      },
-      deploy: async (a) => ({ status: 'launched', name: a.name, symbol: a.symbol, tokens_fun: 'https://tokens.fun/coin/0xT' }),
-      store: {
-        load: async () => project,
-        setStatus: async () => {},
-        repoToken: async () => repoToken,
-        updateLinks: async () => {},
-        saveCreatorWallet: async () => {},
-        markComplete: async () => {},
-      },
-      ...extra,
-    };
-    const out = await confirmToken({ projectId: 8, installationId: 1, wallet: o.wallet === undefined ? W : o.wallet, token: o.token }, deps);
-    return [`confirm note: ${label}`, out];
-  };
-  return Promise.all([
-    run('launched'),
-    run('no wallet', { wallet: null }),
-    run('taken ticker', { token: { symbol: 'TAKEN' } }, { check: async (s: string) => s !== 'TAKEN' }),
-    run('refused ticker', { token: { symbol: 'USDC' } }),
-    run('bad ticker shape', { token: { symbol: 'K-1' } }),
-    run('brand name', { token: { name: 'Coinbase Kit' } }),
-    run('gate: proof line missing', {}, {}, { owner: async () => ({ status: 'missing' }) }),
-    run('gate: proof line unreadable', {}, {}, { owner: async () => ({ status: 'error', message: 'GitHub said 502' }) }),
-    run('gate: repo read failed', {}, {}, { repo: async () => { throw new Error('GitHub said 502'); } }),
-    run('gate: private repo', {}, {}, { repo: async () => { throw new Error('not found'); } }),
-    run('gate: no commits', {}, {}, { repo: async () => ({ fork: false, hasCommits: false, aheadOfParent: null }) }),
-    run('gate: wallet screen', {}, {}, { screen: async () => { throw new Error("This wallet can't receive token fees on EarnKit."); } }),
-    run('repo has a token', {}, {}, {}, 'https://tokens.fun/coin/0x2'),
-    run('daily limit', {}, { limit: async () => { throw new RateLimitError('This agent has launched 3 tokens today, the daily limit.', 60); } }),
-    run('deploy refused', {}, { deploy: async () => ({ status: 'failed', note: 'tokens.fun refused the launch.' }) }),
-  ]);
-}
-
-test('v2.8 Task 8: confirm notes are plain builder words; fixable ones say "go" and point the agent at confirm_entry', async () => {
-  const notes = await gatherConfirmNotes();
-  const byLabel = new Map(notes);
-  for (const [label, out] of notes) {
-    const note = out.note ?? '';
-    if (out.status !== 'launched') assert.ok(note.trim().length > 0, `${label}: has a note`);
-    assert.doesNotMatch(note, TECHNICAL_TERMS, label);
-    assert.doesNotMatch(note, toolNameRe, label);
-    assert.doesNotMatch(note, editFileRe, label);
-    assert.doesNotMatch(note, /\p{Extended_Pictographic}|vault|clanker|—/iu, label);
-    assert.deepEqual(coinWords(note), [], label);
-    assert.deepEqual(coinWords(out.agent_note ?? ''), [], label);
-    if (out.fixable) {
-      assert.doesNotMatch(note, /launch the token/, label);
-      assert.doesNotMatch(out.agent_note ?? '', /launch_token/, label);
-    }
-  }
-  const fixable = (l: string) => byLabel.get(`confirm note: ${l}`)!.fixable === true;
-  for (const l of ['no wallet', 'taken ticker', 'refused ticker', 'bad ticker shape', 'brand name', 'gate: proof line missing', 'gate: proof line unreadable', 'gate: repo read failed', 'gate: wallet screen'])
-    assert.ok(fixable(l), l);
-  for (const l of ['launched', 'gate: private repo', 'gate: no commits', 'repo has a token', 'daily limit', 'deploy refused'])
-    assert.ok(!fixable(l), l);
-  assert.equal(byLabel.get('confirm note: gate: proof line missing')!.note, 'I need to add a short proof line to your repo first, then say go.');
-  assert.match(byLabel.get('confirm note: gate: proof line missing')!.agent_note ?? '', /earnkit\.txt.*Then call confirm again with yes: true\./);
 });
 
 test('v2.8 Task 9: the coach screens are short: at most 3 numbered questions and one bullet, 25 words each, at most 3 fixes', () => {
@@ -1664,7 +1303,7 @@ test('11.3 (F21): one money figure on the landing, /programs, the no-repo first 
   const fig = moneyText(openMoneyUsd(cards, now));
   assert.equal(fig, '$5.5K');
   const zero = { open_money_usd: 0, open_money_text: null, open_pools_usd: 0, open_pools_plus: false, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, fees_to_safe_eth: 0, bonus_paid_eth: 0, bonus_pools_eth: 0, installs: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: 0 };
-  const landing = landingFrom(cards, new Map(), zero, now);
+  const landing = landingFrom(cards, zero, now);
   assert.equal(landing.open_text, fig);
   assert.ok(pageText(React.createElement(ProgramCards, { tiles: landing.tiles, heading: 'h1', figure: landing.open_text })).includes(`${fig} open right now`));
   assert.ok(presentFirstMessage(msg({ cards, now })).startsWith(`${fig} in prizes open right now.`));
@@ -1692,20 +1331,10 @@ test('final fix I3: the Pages note publishes site_dir as the root of a gh-pages 
   for (const note of [BUILD_PAGES_NOTE, BUILD_HOLD_NOTE]) assert.match(note, /15 minutes/, 'final fix I2: the fallback');
 });
 
-test('v2.12.1 T10: the coin notes for the agent: no emoji, no em dash, never a builder edit; the coin is offered, never launched before the yes', () => {
-  for (const [label, text] of v2121CoinNotes) {
-    assert.doesNotMatch(text, /\u2014|\p{Extended_Pictographic}/u, label);
-    assert.doesNotMatch(text, editFileRe, label);
-  }
-  assert.match(COIN_NOTE, /Never launch anything before that yes/);
-  // The spec's own words, verbatim (wallet shown before the yes).
-  assert.equal(coinLine('built_live', 'X', null, { name: 'Tip Jar', symbol: 'TIP' }).split('?')[0], "It's live. Want to launch a coin, $TIP (Tip Jar), for it");
-});
-
 test('v2.12.1 T8 copy rule: plain sentences, sentence case, no jargon, no period after a link, one question at most', () => {
   const names = ['Arc Microgrants', 'TipJar', 'Keep', 'Recipes'];
   const banned = /\b(outcome|percentile|verified source|contract|wallet address|builder code|repo|commit|onchain|base|arc|monad|tempo|ethereum|robinhood chain)\b/i;
-  for (const [label, text] of [...v2121Texts, ['coin step', v2121CoinStep] as [string, string], ...v2121CoinTexts]) {
+  for (const [label, text] of [...v2121Texts, ...v2121CoinTexts]) {
     assert.ok(text.length > 0, label);
     const unnamed = names.reduce((t, n) => t.split(n).join('Name'), text);
     assert.doesNotMatch(unnamed, banned, label);
@@ -1720,61 +1349,22 @@ test('v2.12.1 T8 copy rule: plain sentences, sentence case, no jargon, no period
 
 // ---- v2.12.1 T12: the banned-word review over every builder-facing and public string.
 
-const EXAMPLE_TARGET: StandView = { ...standBaseView, standing: { ranked: false, rank: 0, total: 0 }, step: chooseStep(standBaseView, noCoin), news: null };
-const EXAMPLE_TRACTION: StandView = {
-  ...standBaseView, claimed: true, handle: 'lee', claimLink: null,
-  projects: [sp({ key: 'f', name: 'tokens.fun', what: 'a coin launcher', people: 140, untracked_contract: 'base:0x1', untracked_people: 30, certain: true }), ...standBaseView.projects],
-  step: chooseStep({ ...standBaseView, projects: [sp({ key: 'f', name: 'tokens.fun', people: 140, untracked_contract: 'base:0x1', untracked_people: 30, certain: true })] }, noCoin), news: null,
-};
-const EXAMPLE_NOTHING: StandView = { ...standBaseView, projects: [], earn: [], fresh: { title: 'Arc Microgrants', prize: '500 USDC' }, step: chooseStep({ ...standBaseView, projects: [] }, noCoin), news: null };
-/** One line per MoveUp kind (chooseStep's own fixtures, plus the build and link lines it places). */
-const ALL_STEP_LINES: string[] = [
-  stepLines([sp({ key: 'k', name: 'Keep', untracked_contract: 'base:0x1', untracked_people: 3, certain: true })]), // count_past
-  stepLines([sp({ key: 'k', name: 'Keep', untracked_contract: 'base:0x1', untracked_people: 3 })]), // count_past, one tap
-  stepLines([sp({ key: 'k', name: 'Keep', what: 'a tip jar', confirmed: false })], { claimed: true, handle: 'lee' }), // confirm
-  stepLines([sp({ key: 'g', name: 'Game', what: 'a puzzle game', sends_tx: true })]), // tag_future
-  v2121CoinStep, // coin
-  stepLines([sp({ key: 's', name: 'Shop', what: 'a coffee shop site' })]), // payment
-  stepLines([sp({ key: 'a/b', name: 'B', what: 'a budget tracker', shipped: false })], {}, () => true), // go_live
-  SEND_LINK_LINE, // send_link
-  buildStepLine('Arc Microgrants', '500 USDC', true), // build
-];
 const PREV = { rank: 5, people: { t: 1 }, at: '2026-10-10T00:00:00Z' };
 const NOW_STANDING = { standing: { ranked: true, rank: 3, total: 40 }, projects: [{ key: 't', name: 'TipJar', people: 13 }] };
 const AT = new Date('2026-10-14T00:00:00Z');
-const HEAD: PageHead = { handle: 'lee_builds', name: 'Lee', avatar: null, topLine: 'Lee has shipped 3 apps with AI.', rank: '#3 of 40 builders on EarnKit', peopleLine: '2 of them have people using them.', score: 41 };
-const CARDS: PageCard[] = [
-  { key: 't', name: 'TipJar', what: 'Tips for your stream', link: 'https://tipjar.app', people: 140, money: '$1.2k', programs: [{ title: 'Arc Microgrants', won: true }], confirmed: true, tracked: true },
-  { key: 'r', name: 'Recipes', what: null, link: null, people: null, money: null, programs: [], confirmed: false, tracked: true },
-  { key: 'o', name: 'Old', what: null, link: null, people: null, money: null, programs: [], confirmed: true, tracked: false },
-];
-const ROWS: BoardRow[] = [
-  { rank: 1, handle: 'lee_builds', avatar: null, best: '140 people use TipJar' },
-  { rank: 2, handle: 'maya', avatar: null, best: 'Shipped Recipes' },
-];
 test('12.1 v2.12.1 builder and public text never uses a banned word', () => {
   const exempt = ['Avalanche Team1 mini grants', 'Arc Microgrants', 'tokens.fun', 'TipJar', 'Tip Jar', '$TIP', 'EarnKit', 'AI'];
   const texts = [
-    ...Object.values(HEADS),
-    whereYouStand(EXAMPLE_TARGET), whereYouStand(EXAMPLE_TRACTION), whereYouStand(EXAMPLE_NOTHING),
-    ...ALL_STEP_LINES, pageReadyLine('earnkit.com/claim/abcdefghijkl'),
     standingNews(PREV, NOW_STANDING, AT, true)!.line,
     ...Object.values(CLAIM_TEXT).map((v) => (typeof v === 'function' ? (v as (h: string) => string)('lee') : v)),
     ...Object.values(WALLET_TEXT),
-    ...Object.values(COUNT_LINES).map((v) => (typeof v === 'function' ? (v as (...a: never[]) => string)(...(['x', 'x', 'x'] as never[])) : v)),
     ...(['built_live', 'countable', 'first_five', 'has_people'] as const).map((m) => coinLine(m, 'TipJar', null)),
     // With a real coin: its $TICKER and name are names (exempt below), the wallet shown short.
     ...(['built_live', 'countable', 'first_five', 'has_people'] as const).map((m) => coinLine(m, 'TipJar', '0x12ab000000000000000000000000000000009f3e', { name: 'Tip Jar', symbol: 'TIP' })),
     // The share card's own literal words (card-response.tsx), as the scanner reads them.
     ...humanStrings('apps/frontend/app/[handle]/card-response.tsx', readFileSync(join(import.meta.dirname, '../../app/[handle]/card-response.tsx'), 'utf8'))
       .map((x) => x.text).filter((x) => /[a-z]{3,} [a-z]/i.test(x) && !/[{}();=]|https?:|\/\/|^[\w-]+:/.test(x)),
-    SOURCES_LINE, NOT_CONFIRMED, NOT_TRACKED, NONE_CONFIRMED, NOTHING_YET, boardLine(25),
-    cardHeadline({ moment: 'people', shipped: 3, noun: 'apps', best: { name: 'TipJar', people: 5 }, rank: null }),
-    cardHeadline({ moment: 'shipped', shipped: 3, noun: 'apps', best: null, rank: null }),
-    cardHeadline({ moment: 'rank', shipped: 3, noun: 'apps', best: null, rank: '#3 of 40 builders on EarnKit' }),
-    pageWords(React.createElement(HandleProfileView, { head: HEAD, cards: CARDS })),
-    pageWords(React.createElement(ProjectCards, { cards: CARDS.map((c) => ({ ...c, confirmed: false })) })),
-    pageWords(React.createElement(LeaderboardView, { rows: ROWS, count: 25 })),
+    NOTHING_YET,
     HIDDEN_LINE, SHOWN_LINE('lee'), SHOWN_LINE(null), NO_PROFILE_LINE,
     ...PROFILES_POINTS,
   ];

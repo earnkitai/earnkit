@@ -84,7 +84,7 @@ test('13.6 flag off: pnpm campaign refund and fallback refuse in one line; other
 });
 
 test('13.7 the agent-facing docs do not offer the sponsor tool', () => {
-  assert.doesNotMatch(readFileSync(join(ROOT, 'apps/frontend/lib/earnkit/llms/v212.txt'), 'utf8'), /sponsor_campaign/);
+  assert.doesNotMatch(readFileSync(join(ROOT, 'apps/frontend/lib/earnkit/llms/v213.txt'), 'utf8'), /sponsor_campaign/);
   assert.doesNotMatch(readFileSync(join(ROOT, 'README.md'), 'utf8'), /`sponsor_campaign`/);
 });
 

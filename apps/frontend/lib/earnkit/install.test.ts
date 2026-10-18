@@ -16,7 +16,7 @@ import { logoFileProblem } from './program-file';
 const FRONTEND = join(import.meta.dirname, '../..');
 const PUBLIC = join(FRONTEND, 'public');
 const html = renderToStaticMarkup(React.createElement(AddToAgent, { onClose: () => {} }));
-const llms = readFileSync(join(import.meta.dirname, 'llms/v212.txt'), 'utf8');
+const llms = readFileSync(join(import.meta.dirname, 'llms/v213.txt'), 'utf8');
 const readme = readFileSync(join(FRONTEND, '../../README.md'), 'utf8');
 const byName = (name: string) => AGENTS.find((a) => a.name === name)!;
 
@@ -104,21 +104,4 @@ test('no editor tab anywhere: the modal, llms.txt, the README, app/ and lib/', (
   // The old catch-all tab is gone too; the link box above the tabs serves any other agent.
   assert.doesNotMatch(html, /Other agents|mcp-remote/);
   assert.ok(html.includes('https://earnkit.com/mcp'));
-});
-
-test('llms.txt: the token is not optional, the builder bonus, the starting phrase, both commands, no campaigns section', () => {
-  for (const m of llms.matchAll(/optional/g)) {
-    const near = llms.slice(Math.max(0, m.index - 40), m.index + 'optional'.length + 40);
-    assert.ok(!near.includes('token'), near);
-  }
-  assert.ok(llms.includes('builder bonus'));
-  assert.ok(llms.includes('What can I earn?'));
-  assert.ok(llms.includes(CLAUDE_CODE));
-  assert.ok(llms.includes('Then type /mcp, pick earnkit, approve.'));
-  assert.ok(llms.includes(CODEX));
-  assert.ok(llms.includes('codex mcp login earnkit'));
-  assert.ok(llms.includes('Any other MCP client: add https://earnkit.com/mcp as a remote server'));
-  assert.ok(llms.includes('the builder earns 40% of its trading'));
-  assert.ok(!llms.includes('EarnKit also runs its own campaigns'));
-  assert.ok(!llms.includes('## EarnKit campaigns'));
 });
