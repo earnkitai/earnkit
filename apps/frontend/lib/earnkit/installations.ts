@@ -111,21 +111,25 @@ export async function installationExists(token: string, clientKey?: string) {
  * installation per OAuth client: a new token for a known client replaces its token (the old one
  * stops working), so entries, wins and memory carry over. Idempotent for replayed codes.
  */
-export async function saveInstallation(token: string, clientKey?: string, shared = false, clientName: string | null = null) {
+export async function saveInstallation(token: string, clientKey?: string, shared = false, clientName: string | null = null): Promise<number> {
   // v2.8.1 §E17: `shared` (a hosted agent client) is kept once set: a re-authorization never clears it.
   // v2.13.4 R6: the client's registered name (cleaned), kept for the R1 claim page.
+  // v2.14: returns the installation's id (the token exchange binds it to the signed-in X account).
   if (!clientKey) {
-    await sql()`
+    const [r] = await sql()<{ id: number }[]>`
       INSERT INTO installations (token_hash, shared_client, client_name) VALUES (${hash(token)}, ${shared}, ${clientName})
       ON CONFLICT (token_hash) DO UPDATE SET shared_client = installations.shared_client OR EXCLUDED.shared_client,
-        client_name = COALESCE(EXCLUDED.client_name, installations.client_name)`;
-    return;
+        client_name = COALESCE(EXCLUDED.client_name, installations.client_name)
+      RETURNING id`;
+    return r.id;
   }
-  await sql()`
+  const [r] = await sql()<{ id: number }[]>`
     INSERT INTO installations (token_hash, client_key, shared_client, client_name) VALUES (${hash(token)}, ${clientKey}, ${shared}, ${clientName})
     ON CONFLICT (client_key) WHERE client_key IS NOT NULL
     DO UPDATE SET token_hash = EXCLUDED.token_hash, shared_client = installations.shared_client OR EXCLUDED.shared_client,
-      client_name = COALESCE(EXCLUDED.client_name, installations.client_name)`;
+      client_name = COALESCE(EXCLUDED.client_name, installations.client_name)
+    RETURNING id`;
+  return r.id;
 }
 
 /**
@@ -233,6 +237,8 @@ export type Caller = {
   own: number;
   /** v2.8.1 §E17: an installation in the token's group came from a hosted agent client. */
   shared: boolean;
+  /** v2.14: the X account this token is bound to, or null (anonymous, a shared client). */
+  x: string | null;
 };
 
 /**
@@ -241,14 +247,17 @@ export type Caller = {
  * the group's.
  */
 export async function connectInstallation(token: string): Promise<Caller | null> {
+  // v2.14 A3: the person is the page that holds the token's X account; else the group's root, as before.
   // Final fix wave (C2): `shared` is the group's: true when any installation linked with this one
   // came from a hosted agent client, not only the token's own (as sharedGroup, which launchLimit reads).
-  const [row] = await sql()<{ id: number; own: number; shared: boolean }[]>`
+  const [row] = await sql()<{ id: number; own: number; shared: boolean; x: string | null }[]>`
     WITH t AS (
       UPDATE installations SET last_seen_at = now()
-      WHERE token_hash = ${hash(token)} RETURNING COALESCE(builder_id, id) AS id, id AS own, shared_client)
-    SELECT t.id, t.own, (t.shared_client OR EXISTS (
-      SELECT 1 FROM installations s WHERE (s.id = t.id OR s.builder_id = t.id) AND s.shared_client)) AS shared
+      WHERE token_hash = ${hash(token)} RETURNING id, builder_id, shared_client, x_user_id)
+    SELECT COALESCE((SELECT p.builder_id FROM builder_profiles p WHERE p.x_user_id = t.x_user_id), t.builder_id, t.id) AS id,
+      t.id AS own, t.x_user_id AS x,
+      (t.shared_client OR EXISTS (SELECT 1 FROM installations s
+        WHERE (s.id = COALESCE(t.builder_id, t.id) OR s.builder_id = COALESCE(t.builder_id, t.id)) AND s.shared_client)) AS shared
     FROM t`;
   return row ?? null;
 }

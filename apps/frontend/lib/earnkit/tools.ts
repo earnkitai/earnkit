@@ -177,6 +177,8 @@ export type ToolContext = {
    * (github-verify.ts callerLogin), set by the tool that reads it; never set by the MCP route.
    */
   verifiedLogin?: string | null;
+  /** v2.14: the token's X account (Caller.x); set by the MCP route only, never from agent input. Informative. */
+  xUserId?: string | null;
   /** Test and e2e injection only; never set by the MCP route. */
   tokenDeps?: TokenFlowDeps;
   /** Test and e2e injection only; never set by the MCP route. */

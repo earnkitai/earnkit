@@ -52,20 +52,22 @@ async function firstWallet(db: Db, builderId: number): Promise<string | null> {
 export async function ensureProfile(
   builderId: number,
   at: Date,
-  o: { rand?: (n: number) => number } = {},
+  o: { rand?: (n: number) => number; db?: Db } = {},
 ): Promise<{ profile: Profile; created: boolean } | null> {
+  // v2.14: `db`, a caller's transaction (attachToX makes the page in the same one that binds it).
+  const db = o.db ?? sql();
   if (await sharedGroup(builderId)) return null;
-  const existing = await profileOf(builderId);
+  const existing = await profileOf(builderId, db);
   if (existing) return { profile: existing, created: false };
   for (let tries = 0; tries < 5; tries++) {
     // Never another person's old slug: a live slug wins over history, so it would take over their redirect.
     const slug = randomSlug(o.rand);
-    const [row] = await sql()<Profile[]>`
+    const [row] = await db<Profile[]>`
       INSERT INTO builder_profiles (builder_id, slug, first_find_at)
       SELECT ${builderId}, ${slug}, ${at} WHERE NOT EXISTS (SELECT 1 FROM profile_slug_history WHERE old_slug = ${slug})
-      ON CONFLICT DO NOTHING RETURNING ${sql()(COLUMNS)}`;
+      ON CONFLICT DO NOTHING RETURNING ${db(COLUMNS)}`;
     if (row) return { profile: row, created: true };
-    const again = await profileOf(builderId);
+    const again = await profileOf(builderId, db);
     if (again) return { profile: again, created: false };
   }
   throw new Error('no free slug');

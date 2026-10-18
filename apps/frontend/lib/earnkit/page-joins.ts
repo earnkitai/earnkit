@@ -100,6 +100,8 @@ export const JOIN_TABLES: readonly { table: string; column: string; rule: JoinRu
   { table: 'profile_slug_history', column: 'builder_id', rule: 'discard', why: 'its unclaimed internal slugs' },
   { table: 'x_join_offers', column: 'builder_id', rule: 'discard', why: 'its other join offers' },
   { table: 'x_oauth_states', column: 'builder_id', rule: 'discard', why: 'its open X sign-ins' },
+  { table: 'x_signins', column: 'installation_id', rule: 'discard', why: 'its open v2.14 X sign-ins' },
+  { table: 'x_signin_links', column: 'installation_id', rule: 'discard', why: 'its v2.14 sign-in links' },
   { table: 'builder_events', column: 'installation_id', rule: 'stays', why: 'the append-only event log' },
   { table: 'claim_codes', column: 'minted_by', rule: 'stays', why: 'names who asked for a link, not its data' },
   { table: 'project_updates', column: 'posted_by', rule: 'stays', why: 'names who posted, not its data' },

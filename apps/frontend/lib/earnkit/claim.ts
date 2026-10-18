@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { xSignInEnabled } from './builder-score-flag';
+import type postgres from 'postgres';
 import { sql } from './db';
 import { enqueueDiscovery } from './discovery';
 import { siteUrl } from './entry-text';
@@ -295,51 +296,66 @@ export type BindResult =
  */
 export async function bindX(builderId: number, user: XUser, now: Date): Promise<BindResult> {
   const root = await rootOf(builderId);
-  const h = user.username.toLowerCase();
-  const out = await sql().begin(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock(hashtext(${`x_user:${user.id}`}))`;
-    await tx`SELECT pg_advisory_xact_lock(hashtext(${`x_handle:${h}`}))`;
-    const [p] = await tx<{ x_user_id: string | null; x_handle: string | null; slug: string }[]>`
-      SELECT x_user_id, x_handle, slug FROM builder_profiles WHERE builder_id = ${root} FOR UPDATE`;
-    if (!p) throw new Error('no profile');
-    // Final fix wave: an X account the owner cleared binds nowhere until the owner releases it.
-    const [cleared] = await tx`SELECT 1 FROM x_owner_clears WHERE x_user_id = ${user.id}`;
-    if (cleared) return { ok: false as const, reason: 'owner_cleared' as const };
-    if (p.x_user_id && p.x_user_id !== user.id) return { ok: false as const, reason: 'claimed_by_other' as const };
-    const [held] = await tx<{ builder_id: number }[]>`SELECT builder_id FROM builder_profiles WHERE x_user_id = ${user.id} AND builder_id <> ${root}`;
-    // v2.13.4 (R1): the claim page offers the one-click join instead of a cross-agent yes.
-    if (held) return { ok: false as const, reason: 'held' as const, target: held.builder_id };
-    // Review Focus 2: X says this handle is this account's now. A stale holder is cleared (hidden
-    // until they sign in again); no history row may send this handle anywhere else; an unclaimed
-    // v2.12 profile whose internal slug equals it moves to a random one.
-    await tx`UPDATE builder_profiles SET x_handle = NULL, slug = 'b-' || substr(md5(random()::text), 1, 8), updated_at = now()
-      WHERE builder_id <> ${root} AND (lower(x_handle) = ${h} OR slug = ${h})`;
-    await tx`DELETE FROM profile_slug_history WHERE old_slug = ${h}`;
-    const renamed = p.x_user_id !== null && p.x_handle !== null && p.x_handle.toLowerCase() !== h;
-    if (renamed)
-      await tx`
-        INSERT INTO profile_slug_history (old_slug, builder_id, moved_at, handle_rename) VALUES (${p.x_handle!.toLowerCase()}, ${root}, ${now}, true)
-        ON CONFLICT (old_slug) DO UPDATE SET builder_id = EXCLUDED.builder_id, moved_at = EXCLUDED.moved_at, handle_rename = true`;
-    // slug's CHECK wants a leading letter or digit; an X handle may start with '_' (then the old slug stays).
-    const slug = /^[a-z0-9]/.test(h) ? h : p.slug;
-    if (slug !== p.slug)
-      await tx`INSERT INTO profile_slug_history (old_slug, builder_id, moved_at) VALUES (${p.slug}, ${root}, ${now}) ON CONFLICT (old_slug) DO NOTHING`;
-    // v2.13 R12 (B14, F9): the picture is refreshed at every sign-in; X sending none keeps the stored one.
-    const keep = user.avatar === null;
-    await tx`
-      UPDATE builder_profiles SET x_user_id = ${user.id}, x_handle = ${user.username}, x_name = ${user.name}, x_avatar_url = ${keep ? tx`x_avatar_url` : user.avatar},
-        claimed_at = COALESCE(claimed_at, ${now}), slug = ${slug}, updated_at = now()
-      WHERE builder_id = ${root}`;
-    await tx`DELETE FROM claim_codes WHERE builder_id = ${root}`;
-    await tx`UPDATE builder_live SET read_at = NULL WHERE builder_id = ${root}`;
-    return { ok: true as const, handle: user.username, renamed, first: p.x_user_id === null };
-  });
+  const out = await sql().begin((tx) => bindXIn(tx, root, user, now));
   if (!out.ok) return out;
+  await afterBind(root, user, out);
+  return { ok: true, handle: out.handle, root };
+}
+
+/** What bindXIn did, for afterBind (its events and caches, after the commit). */
+export type BoundX = { ok: true; handle: string; renamed: boolean; first: boolean };
+
+/**
+ * bindX's checks and writes on group root `root`, inside the caller's transaction (v2.14: attachToX binds the
+ * installation and its page in one). Takes the `x_user:<id>` and `x_handle:<h>` locks.
+ */
+export async function bindXIn(tx: postgres.TransactionSql, root: number, user: XUser, now: Date): Promise<BoundX | Exclude<BindResult, { ok: true }>> {
+  const h = user.username.toLowerCase();
+  await tx`SELECT pg_advisory_xact_lock(hashtext(${`x_user:${user.id}`}))`;
+  await tx`SELECT pg_advisory_xact_lock(hashtext(${`x_handle:${h}`}))`;
+  const [p] = await tx<{ x_user_id: string | null; x_handle: string | null; slug: string }[]>`
+    SELECT x_user_id, x_handle, slug FROM builder_profiles WHERE builder_id = ${root} FOR UPDATE`;
+  if (!p) throw new Error('no profile');
+  // Final fix wave: an X account the owner cleared binds nowhere until the owner releases it.
+  const [cleared] = await tx`SELECT 1 FROM x_owner_clears WHERE x_user_id = ${user.id}`;
+  if (cleared) return { ok: false as const, reason: 'owner_cleared' as const };
+  if (p.x_user_id && p.x_user_id !== user.id) return { ok: false as const, reason: 'claimed_by_other' as const };
+  const [held] = await tx<{ builder_id: number }[]>`SELECT builder_id FROM builder_profiles WHERE x_user_id = ${user.id} AND builder_id <> ${root}`;
+  // v2.13.4 (R1): the claim page offers the one-click join instead of a cross-agent yes.
+  if (held) return { ok: false as const, reason: 'held' as const, target: held.builder_id };
+  // Review Focus 2: X says this handle is this account's now. A stale holder is cleared (hidden
+  // until they sign in again); no history row may send this handle anywhere else; an unclaimed
+  // v2.12 profile whose internal slug equals it moves to a random one.
+  await tx`UPDATE builder_profiles SET x_handle = NULL, slug = 'b-' || substr(md5(random()::text), 1, 8), updated_at = now()
+    WHERE builder_id <> ${root} AND (lower(x_handle) = ${h} OR slug = ${h})`;
+  await tx`DELETE FROM profile_slug_history WHERE old_slug = ${h}`;
+  const renamed = p.x_user_id !== null && p.x_handle !== null && p.x_handle.toLowerCase() !== h;
+  if (renamed)
+    await tx`
+      INSERT INTO profile_slug_history (old_slug, builder_id, moved_at, handle_rename) VALUES (${p.x_handle!.toLowerCase()}, ${root}, ${now}, true)
+      ON CONFLICT (old_slug) DO UPDATE SET builder_id = EXCLUDED.builder_id, moved_at = EXCLUDED.moved_at, handle_rename = true`;
+  // slug's CHECK wants a leading letter or digit; an X handle may start with '_' (then the old slug stays).
+  const slug = /^[a-z0-9]/.test(h) ? h : p.slug;
+  if (slug !== p.slug)
+    await tx`INSERT INTO profile_slug_history (old_slug, builder_id, moved_at) VALUES (${p.slug}, ${root}, ${now}) ON CONFLICT (old_slug) DO NOTHING`;
+  // v2.13 R12 (B14, F9): the picture is refreshed at every sign-in; X sending none keeps the stored one.
+  const keep = user.avatar === null;
+  await tx`
+    UPDATE builder_profiles SET x_user_id = ${user.id}, x_handle = ${user.username}, x_name = ${user.name}, x_avatar_url = ${keep ? tx`x_avatar_url` : user.avatar},
+      claimed_at = COALESCE(claimed_at, ${now}), slug = ${slug}, updated_at = now()
+    WHERE builder_id = ${root}`;
+  await tx`DELETE FROM claim_codes WHERE builder_id = ${root}`;
+  await tx`UPDATE builder_live SET read_at = NULL WHERE builder_id = ${root}`;
+  return { ok: true as const, handle: user.username, renamed, first: p.x_user_id === null };
+}
+
+/** bindX's effects once its transaction committed: the claim or rename event, discovery, the profile cache. */
+export async function afterBind(root: number, user: XUser, out: BoundX): Promise<void> {
+  const h = user.username.toLowerCase();
   const type = out.first ? 'page_claimed' : out.renamed ? 'x_renamed' : null;
   if (type) await noteEvent(type, () => ({ type, dedupe_key: `${type}:${root}:${h}`, installation_id: root }));
   await enqueueDiscovery(root, 'signin'); // T7: the X field match is checked on the next read
   profileChanged();
-  return { ok: true, handle: out.handle, root };
 }
 
 // ---- v2.13.4 (R1): the one-click join on the claim page -------------------------------------------

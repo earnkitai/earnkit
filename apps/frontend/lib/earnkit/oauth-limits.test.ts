@@ -11,6 +11,8 @@ import {
 import { LIMITS, REGISTER_HOST_WARN, windowStart } from './rate-limit';
 
 process.env.EARNKIT_AUTH_SECRET ??= 'test-secret';
+// v2.14: the authorize redirect carries RFC 9207's iss, the public origin (EARNKIT_URL).
+process.env.EARNKIT_URL ??= 'https://earnkit.com';
 
 // The T6 review probe minted 1000 installations from one client registration. Through the real
 // routes, one IP now gets 50 new installations an hour (v2.8.1 §E17: the abuse floor); replays of a

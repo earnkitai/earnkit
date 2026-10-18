@@ -94,9 +94,9 @@ async function handle(request: Request) {
     return false;
   });
   // v2.8.1 §E17/E18: the tools act as the group's root; the pickup offer reads the token's own
-  // installation, and the hosted-agent rules (sharedClient) the whole group's.
+  // installation, and the hosted-agent rules (sharedClient) the whole group's. v2.14: the token's X account.
   await createMcpServer(
-    { installationId: caller.id, ownInstallationId: caller.own, sharedClient: caller.shared },
+    { installationId: caller.id, ownInstallationId: caller.own, sharedClient: caller.shared, xUserId: caller.x },
     { campaignOpen },
   ).connect(transport);
   const aliased = await withAliases(request);

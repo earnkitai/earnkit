@@ -1548,3 +1548,45 @@ ALTER TABLE claim_codes ADD COLUMN IF NOT EXISTS minted_by integer;
 ALTER TABLE pending_joins ADD COLUMN IF NOT EXISTS target_root integer;
 ALTER TABLE pending_joins ADD COLUMN IF NOT EXISTS joiner_stamp text;
 ALTER TABLE pending_joins ADD COLUMN IF NOT EXISTS target_stamp text;
+-- v2.14 One account (spec 1): X is the account, at install. The token's installation is bound to the X user
+-- id at the token exchange (from the signed code, never from agent input); the person is the page holding it.
+-- installations.x_user_id is written only at the token exchange or by the paste code (x-install.ts
+-- attachToX), and by the v2.14 bind migration below; cleared by events-redact.
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS x_user_id text;
+CREATE INDEX IF NOT EXISTS installations_x_user ON installations (x_user_id) WHERE x_user_id IS NOT NULL;
+-- One pending X sign-in: the install's authorize request (oauth: client_id, redirect_uri, state,
+-- code_challenge) or a fallback link's (installation_id, T5). One use, 15 minutes, bound to the browser that
+-- started it (sha256 of its __Host-eki- cookie). X's own token is never stored.
+CREATE TABLE IF NOT EXISTS x_signins (
+  state_hash      text PRIMARY KEY CHECK (state_hash ~ '^[0-9a-f]{64}$'),
+  purpose         text NOT NULL CHECK (purpose IN ('install', 'link')),
+  oauth           jsonb,
+  installation_id integer,
+  code_verifier   text NOT NULL,
+  csrf_hash       text NOT NULL,
+  expires_at      timestamptz NOT NULL
+);
+-- The fallback sign-in link (T5): the link code is derived from `seed` with the secret; only its hash and the paste code's hash are looked up.
+CREATE TABLE IF NOT EXISTS x_signin_links (
+  link_hash        text PRIMARY KEY CHECK (link_hash ~ '^[0-9a-f]{64}$'),
+  seed             text,                               -- the link code is HMAC(EARNKIT_AUTH_SECRET, seed): shown again, never stored
+  installation_id  integer NOT NULL,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  expires_at       timestamptz NOT NULL,
+  x_user_id        text,
+  x_handle         text,
+  x_name           text,
+  x_avatar_url     text,
+  paste_hash       text,
+  paste_expires_at timestamptz,
+  used_at          timestamptz
+);
+CREATE INDEX IF NOT EXISTS x_signin_links_installation ON x_signin_links (installation_id, expires_at DESC);
+-- v2.14 bind:start
+-- Migration (spec 1): every installation of a claimed page (its group) is bound to that X account. Shared
+-- clients never are; unclaimed groups stay anonymous until they sign in. Fills only NULLs: a rerun is a no-op.
+UPDATE installations i SET x_user_id = p.x_user_id
+FROM builder_profiles p
+WHERE p.builder_id = COALESCE(i.builder_id, i.id) AND p.x_user_id IS NOT NULL AND p.x_handle IS NOT NULL
+  AND i.x_user_id IS NULL AND NOT i.shared_client;
+-- v2.14 bind:end
