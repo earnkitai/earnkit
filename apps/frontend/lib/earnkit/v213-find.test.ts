@@ -7,6 +7,8 @@ import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { committedProgram } from './fixtures/program-file';
 import { tools } from './tools';
+import { bindX } from './claim';
+import { mcpCall } from './fixtures/mcp-call';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, claimX, dropAvalanche, dropPrograms, find, fitsFor, install, person, withEnv } from './fixtures/find';
@@ -144,3 +146,43 @@ test('8.11 the yes is answered as asked: another kind is "Okay." and changes not
     assert.equal(((await tell({ kind: 'updates', project_key: key, answer: 'yes' })) as { show_to_builder: string }).show_to_builder, "Done. I'll post what you ship here every week.");
   }),
 );
+
+// ---- Restored from v2121-find.test.ts in v2.14 T3 fix round 1: the live privacy and MCP-schema rules ----
+
+test('8.21 a shared client never sees the view: find is the v2.11 short reply, and move_up gets an agent note', dbTest, () =>
+  benchOn(async () => {
+    const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, shared_client) VALUES (${`v213-find-s-${randomBytes(6).toString('hex')}`}, true) RETURNING id`;
+    const r = await find(id, {}, { sharedClient: true });
+    assert.doesNotMatch(r.show_to_builder, /Where you stand/);
+    const t = (await tools.tell({ move_up: { answer: 'yes' } }, { installationId: id, sharedClient: true } as never)) as { show_to_builder?: string; agent_note?: string };
+    assert.equal(t.show_to_builder ?? '', '');
+    assert.match(t.agent_note ?? '', /serves many builders/);
+  }),
+);
+
+test('8.25 (final fix wave) find.identity reaches the handler through the MCP schema: the login and the project are stored', dbTest, () =>
+  benchOn(async () => {
+    const id = await person({ projects: [] });
+    const r = await mcpCall({ installationId: id }, 'find', {
+      identity: { github_login: 'lee', project: { name: 'TipJar', what: 'a tip jar', live_url: 'https://tip.example.com' } },
+    });
+    assert.equal(r.isError, false, r.text);
+    assert.match(String(r.reply?.show_to_builder), /^Where you stand\n/m);
+    const [p] = await sql()<{ reported_github: string | null; identity: { projects?: { name: string; what: string | null }[] } | null }[]>`
+      SELECT reported_github, identity FROM builder_profiles WHERE builder_id = ${id}`;
+    assert.equal(p.reported_github, 'lee');
+    assert.deepEqual(p.identity?.projects?.map((x) => [x.name, x.what]), [['TipJar', 'a tip jar']]);
+  }),
+);
+
+test('8.26 (final fix wave) tell.card reaches the card handler through the MCP schema: the share link for a claimed page', dbTest, () =>
+  benchOn(async () => {
+    const id = await person({ projects: [{ key: 'lee/notes', name: 'Notes', what: 'a notes app', confirmed: true, people: 14 }] });
+    const handle = `v213c${randomBytes(3).toString('hex')}`;
+    assert.equal((await bindX(id, { id: `v213c${randomBytes(6).toString('hex')}`, username: handle, name: handle, avatar: null }, new Date())).ok, true);
+    const r = await mcpCall({ installationId: id }, 'tell', { card: 'yes' });
+    assert.equal(r.isError, false, r.text);
+    assert.equal(r.reply?.show_to_builder, `Post it: https://earnkit.com/${handle}/share`);
+  }),
+);
+
