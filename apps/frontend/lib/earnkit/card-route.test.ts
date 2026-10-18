@@ -160,3 +160,27 @@ test('11.13 (v2.13 fix round 1) the card and the share post never name a confirm
     await sql()`DELETE FROM builder_profiles WHERE builder_id = ${id}`;
   }
 });
+
+// ---- Restored in v2.14 T3 fix round 1 ----
+
+test('11.7 /<handle>/share: a 302 to the X intent with the headline and the page; never a target from the request', dbTest, async () => {
+  const { sql, share } = await loadV2121();
+  const id = 2_146_500_000 + Math.floor(Math.random() * 400_000);
+  const handle = `Sh${id}`.slice(0, 15);
+  try {
+    await sql()`INSERT INTO builder_profiles (builder_id, slug, x_user_id, x_handle, card_moments) VALUES
+      (${id}, ${`sh${id}`}, ${`6${id}`}, ${handle}, '{"latest": "people"}'::jsonb)`;
+    await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, people) VALUES
+      (${id}, 'https://tokens.example', 'tokens.example', 'app', true, true, 140), (${id}, 'k2', 'Two', 'app', false, true, 0)`;
+    const res = await share(new Request(`http://x/${handle}/share?next=https://evil.example`), { params: Promise.resolve({ handle }) });
+    assert.equal(res.status, 302);
+    const u = new URL(res.headers.get('location')!);
+    assert.equal(u.origin, 'https://x.com');
+    assert.equal(u.searchParams.get('text'), `@${handle} on EarnKit.`, 'the Bench headline (no confirmed project here), never the request');
+    assert.equal(u.searchParams.get('url'), `https://earnkit.com/${handle}`);
+    assert.doesNotMatch(res.headers.get('location')!, /evil/);
+  } finally {
+    await sql()`DELETE FROM builder_projects WHERE builder_id = ${id}`;
+    await sql()`DELETE FROM builder_profiles WHERE builder_id = ${id}`;
+  }
+});

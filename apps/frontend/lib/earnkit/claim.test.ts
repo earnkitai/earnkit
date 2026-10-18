@@ -354,3 +354,16 @@ test('11.7 bindX writes the new picture at every sign-in and keeps the stored on
   await bindX(root, { ...user, avatar: null }, new Date());
   assert.equal((await sql()`SELECT x_avatar_url FROM builder_profiles WHERE builder_id = ${root}`)[0].x_avatar_url, 'https://pbs.twimg.com/b_400x400.jpg');
 });
+
+// ---- Restored in v2.14 T3 fix round 1 ----
+
+test('6.8 the same X account claimed from a second installation never merges at once: the first page keeps it', dbTest, async () => {
+  const [a, b] = [await profiled(), await profiled()];
+  await bindX(a, { id: X('777'), username: H('one_page'), name: 'O', avatar: null }, NOW);
+  const r = await bindX(b, { id: X('777'), username: H('one_page'), name: 'O', avatar: null }, NOW);
+  // The Bench: the X account is held by the first page (its join is v2.13.4's R1 offer, v2134-onboarding.test.ts).
+  assert.deepEqual(r, { ok: false, reason: 'held', target: a });
+  assert.notEqual(await rootOf(a), await rootOf(b), 'never a direct merge');
+  const [pb] = await sql()`SELECT x_user_id FROM builder_profiles WHERE builder_id = ${b}`;
+  assert.equal(pb.x_user_id, null, 'the X account stays on the first page');
+});
