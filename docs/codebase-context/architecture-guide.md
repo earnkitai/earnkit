@@ -5641,7 +5641,9 @@ that X user id.
   the installation row FOR UPDATE; refuses `other_x` (bound to another X), `owner_cleared`, `shared` (its group
   or the page's). If a page holds the X: the installation alone gets `builder_id = page root` (no merge: its
   data and any old members stay behind; a fresh one's own unclaimed profile row is removed). Else a page is made
-  on its group root (`ensureProfile` in the transaction) and `claim.ts bindXIn` writes handle, name, photo.
+  on the installation itself (T5 ruling: a member of another root has its `builder_id` cleared first;
+  `ensureProfile` in the transaction). In both cases, unless the installation already is this X's page, its own
+  members are detached first (`builder_id` NULL, each its own anonymous root, nothing deleted) and `claim.ts bindXIn` writes handle, name, photo.
   `installations.x_user_id` is set last, aborting unless exactly its row changed; any refusal rolls back
   everything. `afterBind` (events, discovery, profile cache) runs after commit. `bindX` is now
   `bindXIn` + `afterBind` in its own transaction.
@@ -5654,3 +5656,32 @@ that X user id.
   non-shared installation of a claimed page (x_handle set) and fills only NULLs, so the per-deploy rerun is a no-op.
 - **Owner checks.** `docs/design-docs-and-implementation-plans/v2.14-client-preflight.md` check 6: which
   ChatGPT callback is registered. Production needs `EARNKIT_URL` (the authorize redirect now carries `iss`).
+
+## v2.14 One account: the fallback sign-in link (Task 5, 2026-10-19)
+
+Brief: `.superpowers/sdd/v2.14-one-account-plan/task-5-brief.md`; controller rulings: no merge (any bind attaches
+the installation alone), S2, S10, D1, D2. For agent clients that can't do OAuth sign-in (or pre-v2.14 tokens).
+
+- **The link.** `x-link.ts signInLink(own, now)`: null when X is off, the installation is shared (or its group is)
+  or already bound. The link code is `HMAC(EARNKIT_AUTH_SECRET, "signin:v1:" + seed)` (16 bytes, base64url, 22
+  chars); `x_signin_links` keeps the seed and `sha256(code)` only, so the database alone can't rebuild a link.
+  An open link with an hour or more left is shown again; else a new one (24 hours). Expired rows older than a
+  day are deleted on mint (one-use secrets).
+- **The page.** `GET /signin/<code>` (`app/signin/[code]/route.ts`, `'signin'` reserved): an open, unused link of an
+  unbound, non-shared installation shows "This link is for an agent that calls itself "<client_name>", connected
+  <ago>." (the name is the client's own DCR claim, escaped), "Only continue if your own agent gave you this link."
+  and one Continue with X (`x-install.ts newSignin` purpose 'link': the same cookie-bound, one-use `x_signins` state
+  as at install). Anything else is 410.
+- **The callback.** `xSignInCallback`'s 'link' branch calls `linkSignedIn`: the X user and `sha256` of a fresh
+  paste code (12 chars of `ABCDEFGHJKMNPQRSTUVWXYZ23456789` via `crypto.randomInt`, about 59 bits) go on the
+  installation's newest open link, 15 minutes. Nothing is bound. The page shows "Signed in as @handle.", the code
+  as `XXXX-XXXX-XXXX` and (S2) "Anyone you give this code to can act as your EarnKit page. Paste it only into the
+  agent you are using right now."
+- **The bind.** `find { sign_in_code }` (mcp.ts: string, at most 40) is read before anything else in
+  `tools.find` (the rest is `findReply`); a shared client's is ignored. `bindFromPaste` claims the row in one
+  `UPDATE ... used_at IS NULL ... RETURNING` keyed by the code's hash AND `installation_id = own` (a forwarded
+  link's code is useless to any other agent), then `attachToX` (so `other_x`, owner-cleared and shared refusals
+  hold; a refused code is still used up). Success logs `signed_in_by_code` (installation, page root; never the
+  code) and the reply carries `sign_in_note` (`SIGN_IN_NOTES.bound` or `.bad`) and is already the person's page.
+- **No merge.** A fallback agent's rows written before the paste (proposed sources, answers) stay on its old
+  installation; the page's project is the one that counts (5.7). Members of a binding root are detached (5.9).

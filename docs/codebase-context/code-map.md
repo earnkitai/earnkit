@@ -249,7 +249,8 @@ apps/frontend/
                                named in both forms (forOldClient), with tools_note
   app/oauth/{register,authorize,token}/   OAuth for MCP clients (v2.14 T4: authorize signs in with X,
                                x-install.ts; authorize/route.ts calls authorizeGet(request) only)
-  app/x/callback/route.ts      v2.14 T4: xSignInCallback (install sign-in) first, else claim.ts xCallback
+  app/x/callback/route.ts      v2.14 T4: xSignInCallback (install sign-in; T5: a link sign-in shows the paste code) first, else claim.ts xCallback
+  app/signin/[code]/route.ts   v2.14 T5: the fallback sign-in link's page (x-link.ts signinGet)
   app/github/verify/(route, callback/route)  v2.9 B9: the sign-in link (GET confirm page, POST to GitHub) and
                                              GitHub's callback; re-export github-verify.ts handlers
   app/github/verify/app/route.ts  v2.10 item 7b: the read-only GitHub App's setup URL (github-app.ts appSetup);
@@ -1465,11 +1466,18 @@ apps/frontend/
                                newSignin (x_signins row + __Host-eki- cookie), startInstallSignIn (straight to X or
                                the page naming the host), xSignInCallback (cookie-bound, one use, /2/users/me once,
                                code with x), attachToX (one tx: row lock, checks, attach alone or page from X,
-                               bindXIn, x_user_id last)
+                               bindXIn, x_user_id last; T5: always the installation alone: a root's members detached
+                               first, a member leaves its old root when no page holds the X)
+    x-link.ts                  v2.14 T5 (tests: v214-signin-link.test.ts): the fallback link. LINK_TTL_MS, PASTE_TTL_MS,
+                               LINK_TEXT, SIGN_IN_NOTES, signInLink (HMAC(seed) code, hash kept, reused while open),
+                               signinGet (GET /signin/<code>), linkSignedIn (callback 'link' branch: paste code hash,
+                               15 min), pasteCode/formatPaste/normalizePaste, bindFromPaste (minting installation
+                               only, one use, attachToX, signed_in_by_code event), agoText (moved from claim.ts);
+                               tools.ts find reads sign_in_code first (findReply is the rest of find)
     claim.ts(+test)            v2.12.1 T6/T7: CLAIM_TEXT, claimCode (S13), claimLink, claimGet, claimPost,
                                xCallback, bindX (join_pending when another group holds the X id; under the Bench 'held');
                                v2.14 T4: bindX = bindXIn (in a caller's tx) + afterBind (events, discovery, cache)
-                               v2.13.4 R1: joinOffer, joinPage (R6: names the agent, agoText), claimJoinPost (POST /claim/join: the one-click join,
+                               v2.13.4 R1: joinOffer, joinPage (R6: names the agent, x-link.ts agoText), claimJoinPost (POST /claim/join: the one-click join,
                                x_join_offers, cookie + Origin + one use + 15 min; page_joined event; standing_seen.linked)
     live-check.ts              v2.13.4 R3: liveDefaults, parkedPage, checkLive, liveSite (standing_seen.live_check, a day)
     page-joins.ts              v2.13.4 R6 to R10: JOIN_TABLES (blocks/discard/stays registry), freshAndEmpty, attachFresh (one locked transaction), openR1Join, onProbation (24 h, PROBATION_LINES), pendingNotice (per installation,
