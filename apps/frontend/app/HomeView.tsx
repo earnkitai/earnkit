@@ -7,6 +7,7 @@ import BenchTop from './components/sections/BenchTop';
 import UpdateCarousel from './components/sections/UpdateCarousel';
 import ProgramCards from './components/sections/ProgramCards';
 import type { Landing } from '../lib/earnkit/landing';
+import { raisingEnabled } from '../lib/earnkit/builder-score-flag';
 
 /**
  * The homepage (v2.7 §1, v2.8 Part A, v2.13): the Bench hero with the one-line stats, the Bench's top
@@ -68,7 +69,7 @@ export default function HomeView({ landing }: { landing: Landing | null }) {
         </div>
 
         <div className="relative flex min-h-[88vh] w-full flex-col items-center justify-center px-6 py-16 md:min-h-[calc(var(--vh,1vh)*100-12vh)] md:px-12">
-          <Hero statsLine={landing?.stats_line ?? null} wonLine={landing?.won_line ?? null} raising={bench?.raising ?? false} />
+          <Hero statsLine={landing?.stats_line ?? null} wonLine={landing?.won_line ?? null} raising={bench?.raising ?? raisingEnabled()} />
         </div>
       </section>
 
@@ -77,7 +78,7 @@ export default function HomeView({ landing }: { landing: Landing | null }) {
         {bench && <BenchTop rows={bench.rows} chips={bench.chips} raising={bench.raising} />}
         {bench && bench.cards.length > 0 && <UpdateCarousel cards={bench.cards} />}
         {landing && landing.tiles.length > 0 && <ProgramCards tiles={landing.tiles} figure={landing.open_text} bench />}
-        <BenchHowItWorks raising={bench?.raising ?? false} />
+        <BenchHowItWorks raising={bench?.raising ?? raisingEnabled()} />
         <BackedBy />
       </div>
 

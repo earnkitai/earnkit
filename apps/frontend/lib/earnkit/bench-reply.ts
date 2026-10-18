@@ -141,7 +141,7 @@ export const enterAsk = (title: string) => `Want me to prepare an entry for ${ti
 export const benchStepKey = (kind: BenchAskKind, key: string | null) => `${kind}:${key ?? '*'}`;
 
 /**
- * spec "The last line: one question, in this order": 1. no project: the build; 2. not live and
+ * spec "The last line: one question, in this order": 1. no project: existing work (v2.14 A18: never a build); 2. not live and
  * EarnKit can put it online; 3. confirmed, posting not on; 4. posting on, nothing posted this week
  * and no scheduled task; 5. a coin moment; 6. the best program's entry. A no keeps that ask away
  * for 30 days (`declined`, benchStepKey). v2.13.1 O2: the updates yes is also the next step while the
@@ -152,7 +152,7 @@ export const benchStepKey = (kind: BenchAskKind, key: string | null) => `${kind}
  */
 export function chooseAsk(o: {
   project: BenchProject | null; canHost: boolean; updatesOn: boolean; postedThisWeek: boolean; scheduled: boolean;
-  coin: BenchAsk | null; build: BenchAsk | null; enter: BenchAsk | null; declined: string[]; joining?: boolean;
+  coin: BenchAsk | null; enter: BenchAsk | null; declined: string[]; joining?: boolean;
   /** O2 fix round 1: the project can't join (its branch never showed, or another person holds it). */
   other?: boolean;
   /** O2 fix round 1: false leaves out the last fallback (the coin step asks first whether anything earlier applies). */
@@ -162,8 +162,7 @@ export function chooseAsk(o: {
 }): BenchAsk | null {
   const p = o.project;
   if (!p) {
-    // v2.13.3 (3), ruling A: the build (only for a program its starter can compete in), else existing work.
-    if (o.build) return o.build;
+    // v2.13.3 (3), ruling A: existing work (v2.14 A18: find offers no build).
     return o.declined.includes(benchStepKey('start', null)) ? null : { kind: 'start', project_key: null, line: START_ASK };
   }
   const off = (k: BenchAskKind) => o.declined.includes(benchStepKey(k, p.key));

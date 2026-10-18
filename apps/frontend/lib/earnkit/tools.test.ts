@@ -2176,7 +2176,7 @@ test('T11 fix (journey 11.0): tell\'s "I submitted" keeps the entry\'s verified 
   Object.assign(f, { id: `t11-keep-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' });
   await upsertProgram(ProgramFile.parse(f));
   const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t11k-${stamp}`}) RETURNING id`;
-  const ctx = { installationId: id, entryDeps: { fetchProof: async () => `<a href="https://github.com/t11/keep-${stamp}">code</a>` } };
+  const ctx = { installationId: id };
   const project = { name: 'Keep', repo_url: `https://github.com/t11/keep-${stamp}`, live_url: 'https://keep-t11.xyz', contracts: ['0x7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a'] };
   const answers = { description: 'Fans tip creators in USDC on Arc.', builder_profile: 'https://github.com/t11' };
   try {

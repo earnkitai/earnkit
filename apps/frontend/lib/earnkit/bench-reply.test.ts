@@ -72,11 +72,9 @@ test('8.4 the stand line without a rank, without weeks, with one week', () => {
 
 test('8.5 the last line asks the first that applies, in the spec\'s order', () => {
   const coin: BenchAsk = { kind: 'coin', project_key: 'k', line: 'raise?' };
-  const build: BenchAsk = { kind: 'build', project_key: null, line: buildAsk('a tip jar on Arc') };
   const enter: BenchAsk = { kind: 'enter', project_key: 'k', program_id: 'p', line: enterAsk('Base Builder Grants') };
-  const base = { project: RECIPE, canHost: true, updatesOn: true, postedThisWeek: true, scheduled: true, coin, build, enter, declined: [] as string[] };
-  assert.equal(chooseAsk({ ...base, project: null })?.kind, 'build', '1. no project');
-  assert.equal(chooseAsk({ ...base, project: null, build: null })?.kind, 'start', 'v2.13.3 ruling A: nothing to build, existing work');
+  const base = { project: RECIPE, canHost: true, updatesOn: true, postedThisWeek: true, scheduled: true, coin, enter, declined: [] as string[] };
+  assert.equal(chooseAsk({ ...base, project: null })?.kind, 'start', '1. no project: existing work (v2.14 A18: never a build)');
   // v2.13.3 owner ruling A: the best fit's entry, else a community round (the coin), before the Bench's own steps.
   assert.equal(chooseAsk({ ...base, project: { ...RECIPE, live: false } })?.kind, 'enter', 'A: the best fit first');
   assert.equal(chooseAsk({ ...base, project: { ...RECIPE, live: false }, enter: null })?.kind, 'coin', 'A: else a community round');
@@ -134,7 +132,7 @@ test('O2.8 honest build copy: never "you won\'t have to do anything"', () => {
 });
 
 test('O2.9 a project being checked is asked the next Bench step (the updates yes), never a grant last', () => {
-  const base = { canHost: false, updatesOn: false, postedThisWeek: false, scheduled: false, coin: null, build: null, enter: null, declined: [] as string[] };
+  const base = { canHost: false, updatesOn: false, postedThisWeek: false, scheduled: false, coin: null, enter: null, declined: [] as string[] };
   const p = { ...RECIPE, confirmed: false };
   assert.equal(chooseAsk({ ...base, project: p })?.kind, 'grants', 'not joining: the fallback, never nothing');
   assert.deepEqual(chooseAsk({ ...base, project: p, joining: true }), { kind: 'updates', project_key: 'maya/recipes', line: UPDATES_ASK_JOINING });
@@ -142,7 +140,7 @@ test('O2.9 a project being checked is asked the next Bench step (the updates yes
 });
 
 test('O2 fix round 1 (ruling 3): every reply ends with one question, in each state', () => {
-  const base = { canHost: false, updatesOn: true, postedThisWeek: true, scheduled: true, coin: null, build: null, enter: null, declined: [] as string[] };
+  const base = { canHost: false, updatesOn: true, postedThisWeek: true, scheduled: true, coin: null, enter: null, declined: [] as string[] };
   // A confirmed project with nothing pending: the week's update when posting is on, else grants that fit.
   // v2.13.1 O3 (carried from O2's review): this week's update already posted: never offer to post it (that would overwrite it).
   assert.deepEqual(chooseAsk({ ...base, project: RECIPE }), { kind: 'grants', project_key: 'maya/recipes', line: grantsAsk('Recipe planner') });

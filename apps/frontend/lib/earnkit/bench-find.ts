@@ -360,15 +360,13 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
   let ask: BenchAsk | null = null;
   const appOn = githubAppEnabled();
   if (!o.held && !building) {
-    // v2.14 A18: find offers no build (the no-project ask leads with existing work).
-    const build: BenchAsk | null = null;
     const enter: BenchAsk | null = project && o.fits[0] && !taken ? { kind: 'enter', project_key: project.key, program_id: o.fits[0].program_id, line: enterAsk(o.fits[0].title) } : null;
     const web = project ? read.base.projects.some((x) => x.key.toLowerCase() === project.key.toLowerCase() && x.web) : false;
     // O5 N5: a grants yes that found nothing keeps grants quiet a week, as a no keeps an ask away.
     const declined = [...declinedNow(read.seen, now.getTime()), ...quietNow(read.seen, now.getTime())];
     const asks = {
       project, canHost: Boolean(project && hostFor(o.agentCanBuild)(project.key) && web), updatesOn: read.updatesOn,
-      postedThisWeek: read.postedThisWeek, scheduled: read.scheduled, build, declined, claimed: read.base.claimed,
+      postedThisWeek: read.postedThisWeek, scheduled: read.scheduled, declined, claimed: read.base.claimed,
       // O2 fix round 1 (ruling 3): failed and taken, a different project. O5 N15: a chat-only agent
       // (needs_agent) can't schedule weekly posts, so it is never asked the updates yes. O5 N2: a
       // repo under someone else's account, a different project.
@@ -742,7 +740,7 @@ async function grantsYes(id: number, key: string, now: Date): Promise<Reply> {
   const declined = declinedNow(read.seen, now.getTime());
   const next = chooseAsk({
     project: { key, name, confirmed: true, live: fit.live, weeks: read.row?.weeks ?? 0 }, canHost: false, updatesOn: read.updatesOn,
-    postedThisWeek: read.postedThisWeek, scheduled: read.scheduled, coin: null, build: null, enter: null, claimed: read.base.claimed,
+    postedThisWeek: read.postedThisWeek, scheduled: read.scheduled, coin: null, enter: null, claimed: read.base.claimed,
     declined: [...declined, ...quietNow(read.seen, now.getTime()), benchStepKey('grants', key)],
   });
   // O5 fix round 2: nothing left in the order: posting, the week's post, else checking again next week

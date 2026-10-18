@@ -379,12 +379,12 @@ export async function runCron(
     .map((c) => c.id as string);
   // A bonus sweep that can't be proven dead or sent waits on the owner, like a stuck payout.
   // So does an index step that failed INDEX_FAILED_RUNS runs in a row (deposits would go unbooked).
-  // v2.9 D17: so does a payout wallet low on ETH for gas, or a claim or collect it couldn't pay gas for.
+  // v2.9 D17: so does a payout wallet low on ETH for gas, or a claim it couldn't pay gas for.
   if (bonusWaitsOnOwner(bonus)) needs_owner.push('bonus-ledger');
-  // Rulings 19 and 20: the ledger (and so the rounds step) was skipped for want of a usable payout
-  // key (missing or malformed) or of Base mainnet while the bonus can earn: an active program with
-  // a builder bonus, an EarnKit coin, or an ended unpaid round. Nothing is indexed, claimed or
-  // paid until the owner acts, so it waits on the owner. A failed check counts as yes (never silent).
+  // Rulings 19 and 20: the ledger was skipped for want of a usable payout key (missing or malformed)
+  // or of Base mainnet while there are fees to index (bonusLive: an EarnKit coin; the program and round
+  // clauses read v2.13 rows only). Nothing is indexed, claimed or swept to the Safe until the owner acts,
+  // so it waits on the owner. A failed check counts as yes (never silent).
   const skipped = bonus?.skipped;
   if (skipped === NO_PAYOUT_KEY || skipped === NOT_MAINNET) {
     const live = await bonusLive(now).catch((err: unknown) => {
@@ -482,8 +482,8 @@ export async function deployerGas(now: Date, deps: Pick<DeployDeps, 'chain' | 'u
 /**
  * Whether the bonus ledger's run waits on the owner (the cron answers 503): its sweep's note does
  * (needsOwner), its index (or, v2.13.2, its Safe index) failed INDEX_FAILED_RUNS runs in a row, or (v2.9 D17) the payout wallet is
- * low on ETH for gas, or a claim (its own or a creator's or MINI's) or collect result says it needs
- * ETH for gas. Pure.
+ * low on ETH for gas, or a claim result (its own or a creator's or MINI's) says it needs ETH for gas
+ * (v2.14: the near-end collect is gone). Pure.
  */
 export function bonusWaitsOnOwner(bonus: Record<string, unknown> | undefined) {
   const gasOut = (results: unknown) =>
