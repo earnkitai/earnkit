@@ -651,6 +651,10 @@ export async function recordSubmission(
     new Date(),
   );
   const checked = verifiedAt(deps.verified, new Date());
+  // The builder's own "I submitted" (only `true` counts) stamps the entry once, so it stops being asked
+  // about. v2.14 T3 fix round 1: this stamp lived inside the builder bonus branch, so with the bonus
+  // off (the Bench) an entry was never marked submitted.
+  const saidSubmitted = input.builder_submitted === true ? new Date() : null;
 
   return sql()
     .begin(async (tx) => {
@@ -698,6 +702,7 @@ export async function recordSubmission(
       const [project] = own
         ? await tx<{ id: number; submitted_at: Date }[]>`
           UPDATE projects SET
+            submission_confirmed_at = COALESCE(submission_confirmed_at, ${saidSubmitted}::timestamptz),
             complete_at = COALESCE(complete_at, ${completeNow}),
             live_verified_at = CASE WHEN ${checked !== null} THEN ${checked?.live_verified_at ?? null}::timestamptz ELSE live_verified_at END,
             contract_verified_at = COALESCE(${checked?.contract_verified_at ?? null}::timestamptz, contract_verified_at)
@@ -720,6 +725,7 @@ export async function recordSubmission(
         contracts: entry?.contracts ?? null,
         deployers: deployers ?? null,
         bonus_repo_key: bonusRepoKey,
+        submission_confirmed_at: saidSubmitted,
         complete_at: completeNow,
         ...checked,
       })} RETURNING id, submitted_at`;
