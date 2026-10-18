@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { after, test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
-import { BUILD_COIN_NOTE, BUILD_PENDING_NOTE, BUILD_WALLET_NOTE, eligibilityLine, freshSwitches, withoutTokenLine, withoutBonusLine, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
+import { BUILD_COIN_NOTE, BUILD_NO_LIVE_NOTE, BUILD_PENDING_NOTE, BUILD_WALLET_NOTE, NOTED_FOR_NOW, eligibilityLine, freshSwitches, withoutTokenLine, withoutBonusLine, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
 import { aliasCall } from './aliases';
 import { reportedGithubUser, reportedRepos } from './match-projects';
 import { sql } from './db';
@@ -14,7 +14,7 @@ import { PLAIN_FIX, PLAIN_NOTE, coachIntro, questionsFor } from './coach';
 import { projectKey, readBank } from './answer-bank';
 import { alsoProgramFacts, getProgramRow, upsertProgram } from './programs';
 import { guideText, programGuide } from './guide';
-import { saveBuild, setWorkingOn } from './installations';
+import { rememberWallet, saveBuild, setWorkingOn } from './installations';
 import { enteredProgramIds, hasProgramEntry } from './projects';
 import { setSanctionsOracle } from './sanctions';
 import { tokenLineFor } from './token-gate';
@@ -2165,6 +2165,388 @@ async function shipSetup(
     ) as Promise<ShipReply>;
   return { ...t, ctx, login, repo, repoKey, sent, reads, probes, ship, deploy, gh };
 }
+
+const T8_REPO = 'https://github.com/jenil04/podtips';
+
+// ---- Restored in v2.14 T3 fix round 1: tell submitted and the build path's checks ----------------
+
+test('9.3 R16 tell: submitted marks the newest entry submitted; fix round 1 (I2): on a shared client only the pasted code\'s own entry, by project_id', dbTest, () =>
+  withTokenEnv(() =>
+    withSignIn(async () => {
+      const t = await confirmSetup('t9tell');
+      const first = (await tools.confirm({ ...t.input, yes: true, wallet: W8 }, t.ctx)) as Confirmed;
+      assert.ok(first.kit, JSON.stringify(first));
+      await sql()`UPDATE installations SET shared_client = true WHERE id = ${t.inst}`;
+      const unmarked = async () => assert.equal((await t.rows())[0].submission_confirmed_at, null);
+      await unmarked();
+      const shared = { ...t.ctx, sharedClient: true };
+      const isNoted = (r: unknown) => {
+        const n = r as { show_to_builder: string; agent_note: string; project_id?: number; token?: unknown };
+        assert.equal(n.show_to_builder, NOTED_FOR_NOW);
+        assert.match(n.agent_note, /pass signed_in .* and the entry's project_id/);
+        // Nothing of the entry is read back either (name, token, bonus line).
+        assert.deepEqual(Object.keys(n).sort(), ['agent_note', 'show_to_builder']);
+      };
+      // Shared: no project_id; a project_id without a code; another builder's code; a typed login. Nothing written or read.
+      isNoted(await tools.tell({ submitted: { program_id: t.p.id } }, shared));
+      isNoted(await tools.tell({ submitted: { program_id: t.p.id, project_id: first.project_id } }, shared));
+      const codeB = await signInAs(t.inst, null, `https://github.com/bob/t9-${Date.now()}`, 'bob');
+      for (const signed_in of [codeB!, 'alice'])
+        isNoted(await tools.tell({ submitted: { program_id: t.p.id, project_id: first.project_id } as never, signed_in }, shared));
+      // An old call's own project (P15c) on a shared client: noted too, never written by repo key.
+      isNoted(await tools.tell({ submitted: { program_id: t.p.id, project: t.project, submission_data: t.answers }, signed_in: codeB! }, shared));
+      await unmarked();
+      // Alice's own code and her entry's project_id: that entry.
+      const codeA = await signInAs(t.inst, first.project_id!, t.repo, 'alice');
+      const mine = (await tools.tell({ submitted: { program_id: t.p.id, project_id: first.project_id }, signed_in: codeA! }, shared)) as { project_id: number };
+      assert.equal(mine.project_id, first.project_id);
+      assert.ok((await t.rows())[0].submission_confirmed_at, 'submission_confirmed_at set');
+      // Not shared: the newest entry in that program, its saved answers; never a second row.
+      const told = (await tools.tell({ submitted: { program_id: t.p.id } }, t.ctx)) as { show_to_builder: string; project_id: number };
+      assert.equal(told.project_id, first.project_id);
+      assert.equal((await t.rows()).length, 1, 'the same entry, never a second one');
+      // Another installation's entry is not found.
+      const other = await confirmSetup('t9tell2');
+      await assert.rejects(tools.tell({ submitted: { program_id: t.p.id, project_id: first.project_id } }, other.ctx), /No entry/);
+      // No entry yet in that program: confirm first.
+      await assert.rejects(tools.tell({ submitted: { program_id: other.p.id } }, other.ctx), /call confirm first/);
+    }),
+  ));
+
+test('9.3 R16 tell: an old "I submitted" (record_submission with builder_submitted) aliased to tell gives record_submission\'s reply', dbTest, () =>
+  withTokenEnv(async () => {
+    const a = await confirmSetup('t9suba');
+    const b = await confirmSetup('t9subb');
+    await handlers.confirm_entry({ ...a.input, ...go, wallet: W8 }, a.ctx);
+    await tools.confirm({ ...b.input, yes: true, wallet: W8 }, b.ctx);
+    const args = (t: typeof a) => ({ program_id: t.p.id, project: t.project, submission_data: t.answers, builder_submitted: true });
+    const old = await handlers.record_submission(args(a), a.ctx);
+    const next = aliasCall('record_submission', args(b))!;
+    assert.equal(next.name, 'tell');
+    const fresh = await tools.tell(next.args, b.ctx);
+    assert.equal(same(b, fresh), same(a, old));
+    assert.ok((await b.rows())[0].submission_confirmed_at);
+    assert.equal((await b.rows()).length, 1);
+  }));
+
+test('T11 fix (journey 11.0): prepare with deploy checks this draft with the deployed contract: no "No contract found" next to the deployed line', dbTest, async () => {
+  const { deployedLine } = await import('./deploy');
+  const f = committedProgram('arc-microgrants', { keepContract: true });
+  const stamp = `${process.pid}-${Date.now()}`;
+  Object.assign(f, { id: `t11-deploy-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' });
+  await upsertProgram(ProgramFile.parse(f));
+  const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t11d-${stamp}`}) RETURNING id`;
+  const repoKey = `t11x${process.pid}x${Date.now()}/tipjar`;
+  await sql()`
+    INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose)
+    VALUES (${repoKey}, ${`t11${process.pid}x${Date.now()}`}, ${id}, now(), 3, 'entry')`;
+  const ADDR = '0x12ab00000000000000000000000000000000' + '9f3e';
+  const OWNER = '0x2222222222222222222222222222222222222222';
+  const chain = {
+    estimate: async () => ({ gas: 100_000n, maxFeePerGas: 1_000_000_000n }),
+    balance: async () => 10n ** 18n,
+    send: async () => `0x${'ab'.repeat(32)}` as const,
+    receipt: async () => ({ status: 'success' as const, contractAddress: ADDR as `0x${string}`, gasUsed: 50_000n, effectiveGasPrice: 1_000_000_000n }),
+    simulate: async () => `0x${'60'.repeat(50)}` as const,
+    nonce: async () => 1,
+    code: async () => `0x${'60'.repeat(50)}` as const,
+    read: async (a: { fn: string }) => (a.fn === 'owner' ? OWNER : null),
+    write: async () => `0x${'cd'.repeat(32)}` as const,
+  };
+  const abi = [{ type: 'function', name: 'owner', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' }];
+  const project = { name: 'TipJar', repo_url: `https://github.com/${repoKey}`, live_url: 'https://tipjar-t11.xyz' };
+  const answers = { description: 'Fans tip creators in USDC on Arc.', builder_profile: 'https://github.com/alice', payout_wallet: OWNER };
+  const ctx = {
+    installationId: id,
+    deployDeps: { chain: () => chain, usdPerNative: async () => 1, now: new Date(Date.UTC(2161, Number(process.pid % 12), 3)), gate: { owner: async () => ({ status: 'missing' as const }), latest: async () => null } },
+  };
+  const keys = ['DEPLOYER_PRIVATE_KEY', 'GITHUB_OAUTH_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_SECRET'];
+  const old = keys.map((k) => process.env[k]);
+  process.env.DEPLOYER_PRIVATE_KEY = '5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a';
+  process.env.GITHUB_OAUTH_CLIENT_ID = 'test-client';
+  process.env.GITHUB_OAUTH_CLIENT_SECRET = 'test-secret';
+  try {
+    const r = (await tools.prepare({ program_id: f.id, project, answers, coach_asked: true, deploy: { chain: 'arc', bytecode: `0x${'60'.repeat(40)}`, abi, owner_wallet: OWNER } }, ctx)) as Record<string, unknown> & { show_to_builder: string };
+    assert.deepEqual(r.deploy, { address: ADDR, chain: 'arc', owner_ok: true });
+    assert.ok(r.show_to_builder.endsWith(`\n\n${deployedLine('TipJar', 'arc', ADDR, true)}`), r.show_to_builder);
+    assert.doesNotMatch(r.show_to_builder, /No contract found/, 'the draft was checked with the deployed contract');
+    assert.equal(r.ready, true, r.show_to_builder);
+    // Without a deploy (and no contract given) the same draft says so: the check is real.
+    const plain = (await tools.prepare({ program_id: f.id, project, answers, coach_asked: true }, { installationId: id })) as { show_to_builder: string };
+    assert.match(plain.show_to_builder, /No contract found on Arc mainnet yet\./);
+  } finally {
+    keys.forEach((k, i) => (old[i] === undefined ? delete process.env[k] : (process.env[k] = old[i])));
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${f.id}`;
+  }
+});
+
+test('8.1 build.start with no wallet known: exactly the twist question plus "Add the wallet that should own it."; the build is stored (S6)', dbTest, async (tc) => {
+  const t = await buildSetup('nowallet', tc);
+  const r = await t.start();
+  assert.equal(r.show_to_builder, twistQuestion(false));
+  assert.equal(
+    r.show_to_builder,
+    'What should it do for you or your users? One line is enough, like "tips for my podcast listeners". Add the wallet that should own it. If you don\'t have one, I\'ll help you make a free one on your computer.',
+  );
+  assert.match(r.agent_note ?? '', /wallet \(the one they give; never make one up/);
+  atMostOneQuestion(r, '8.1');
+  const { build } = await t.stored();
+  assert.equal(build?.program_id, t.p.id);
+  assert.equal(build?.starter_id, t.starterId);
+  assert.ok(typeof build?.started_at === 'string');
+  assert.ok(!('wallet' in (build ?? {})));
+  // A direct call without the top-level program_id is the same (S7's shape).
+  assert.equal((await t.prepare({ build: { start: true, program_id: t.p.id } })).show_to_builder, twistQuestion(false));
+});
+
+test('8.1 build.start with a remembered wallet (not shared): the question alone, never asked twice', dbTest, async (tc) => {
+  const t = await buildSetup('remembered', tc);
+  await rememberWallet(t.inst, T8_WALLET);
+  const r = await t.start();
+  assert.equal(r.show_to_builder, twistQuestion(true));
+  assert.equal(r.show_to_builder, 'What should it do for you or your users? One line is enough, like "tips for my podcast listeners".');
+  assert.doesNotMatch(r.agent_note ?? '', /Ask .*wallet/);
+  // The twist without a wallet uses the remembered one.
+  const b = await t.twist();
+  assert.equal(b.show_to_builder, "Building PodTips: a USDC tip page for your podcast listeners. I'll be back with the live link.");
+  assert.equal(b.kit?.owner_wallet, T8_WALLET);
+  assert.equal((await t.stored()).build?.wallet, T8_WALLET);
+});
+
+test('8.2 the twist with a wallet: the building line and the kit (degit path, proof branch for the repo); the wallet is remembered off a shared client', dbTest, async (tc) => {
+  const t = await buildSetup('twist', tc);
+  const secret = process.env.EARNKIT_AUTH_SECRET;
+  process.env.EARNKIT_AUTH_SECRET = 'test-secret-t8';
+  tc.after(() => {
+    if (secret === undefined) delete process.env.EARNKIT_AUTH_SECRET;
+    else process.env.EARNKIT_AUTH_SECRET = secret;
+  });
+  await t.start();
+  const r = await t.twist({ wallet: T8_WALLET, repo_url: T8_REPO });
+  assert.equal(r.show_to_builder, "Building PodTips: a USDC tip page for your podcast listeners. I'll be back with the live link.");
+  atMostOneQuestion(r, '8.2');
+  assert.equal(r.kit?.degit, 'npx degit earnkitai/chain-kits/arc/tipjar <project>');
+  assert.deepEqual(r.kit?.twist_slots, { name: 'PodTips', description: T8_POD.description, feature: T8_POD.feature });
+  // The Bench: the repo is proven by its proof branch (no earnkit.txt line).
+  assert.equal(r.kit?.proof_line, null);
+  assert.match((r.kit as { proof_branch?: { branch: string } } | undefined)?.proof_branch?.branch ?? '', /^earnkit-[a-z2-7]{12}$/);
+  assert.equal(r.kit?.owner_wallet, T8_WALLET);
+  assert.deepEqual(r.build, { program_id: t.p.id, starter_id: t.starterId, step: 'build' });
+  const s = await t.stored();
+  assert.equal(s.payout_wallet, T8_WALLET, 'remembered');
+  assert.equal(s.build?.wallet, T8_WALLET);
+  assert.equal(s.build?.twist, T8_POD.twist);
+  assert.equal(s.build?.name, 'PodTips');
+  assert.equal(s.build?.description, T8_POD.description);
+  assert.equal(s.build?.feature, T8_POD.feature);
+  assert.equal(s.build?.repo_url, T8_REPO);
+  // Sent again unchanged (the agent adding nothing new): the builder already saw the building line.
+  const again = await t.twist({ wallet: T8_WALLET, repo_url: T8_REPO });
+  assert.equal(again.show_to_builder, '');
+  assert.equal((again.kit as { proof_branch?: { branch: string } } | undefined)?.proof_branch?.branch, (r.kit as { proof_branch?: { branch: string } } | undefined)?.proof_branch?.branch, 'the same open code');
+  // The next build's twist question needs no wallet: never asked twice.
+  assert.equal((await t.start()).show_to_builder, twistQuestion(true));
+});
+
+test('8.2 the twist before the repo exists: the kit says to send build.repo_url for the proof branch, and that call shows the builder nothing new', dbTest, async (tc) => {
+  const t = await buildSetup('norepo', tc);
+  const secret = process.env.EARNKIT_AUTH_SECRET;
+  process.env.EARNKIT_AUTH_SECRET = 'test-secret-t8';
+  tc.after(() => {
+    if (secret === undefined) delete process.env.EARNKIT_AUTH_SECRET;
+    else process.env.EARNKIT_AUTH_SECRET = secret;
+  });
+  await t.start();
+  const r = await t.twist({ wallet: T8_WALLET });
+  assert.match(r.show_to_builder, /^Building PodTips/);
+  // No repo yet: no proof branch; the kit's order says to send build.repo_url for it.
+  assert.equal((r.kit as { proof_branch?: unknown } | undefined)?.proof_branch, undefined);
+  assert.ok(r.kit?.order.some((o) => /build\.repo_url/.test(o)), JSON.stringify(r.kit?.order));
+  const later = await t.twist({ wallet: T8_WALLET, repo_url: T8_REPO });
+  assert.equal(later.show_to_builder, '');
+  assert.match((later.kit as { proof_branch?: { branch: string } } | undefined)?.proof_branch?.branch ?? '', /^earnkit-[a-z2-7]{12}$/);
+  // A repo under EarnKit's own org is the kit, never the builder's.
+  refusedQuietly(await t.twist({ wallet: T8_WALLET, repo_url: 'https://github.com/earnkitai/chain-kits' }), /^Fix build\.repo_url/);
+});
+
+test('9.3 the build mark with deploy and host: true deploys once (owner and constructor_args[0] the build wallet), holds the deployed line for the joined reply (T10), issues the upload URL with no click, and writes built then deployed', dbTest, (tc) =>
+  withEventLog(() =>
+    withVars(shipVars(), async () => {
+      const { deployedLine } = await import('./deploy');
+      const { deploySite, liveLine } = await import('./hosting');
+      const t = await shipSetup('ship', tc, { branch: true });
+      const r = await t.ship();
+      assert.equal(t.sent.length, 1, 'exactly one deploy');
+      const { decodeDeployData } = await import('viem');
+      const decoded = decodeDeployData({ abi: T9_ABI as never, bytecode: ARC_TIPJAR_BYTECODE, data: t.sent[0] as `0x${string}` });
+      assert.equal(String((decoded.args as unknown[])[0]).toLowerCase(), T8_WALLET, 'constructor_args[0] is the build wallet');
+      assert.equal(deployedLine('PodTips', 'arc', T9_ADDR, true), "PodTips is deployed on Arc: 0x0000…11ce. You're the owner.");
+      // T10 (spec 5): the deployed line waits for the reply after the live link.
+      assert.equal(r.show_to_builder, '');
+      assert.deepEqual(r.deploy, { address: T9_ADDR, chain: 'arc', owner_ok: true });
+      assert.match(String(r.host?.upload_url), /\/api\/host\/upload\?t=[A-Za-z0-9_-]{43}$/);
+      assert.ok(!('sign_in_url' in (r.host ?? {})), 'no sign-in click');
+      assert.match(r.agent_note ?? '', /POST it to host\.upload_url/);
+      assert.deepEqual(r.build, { program_id: t.p.id, starter_id: t.starterId, step: 'host' });
+      atMostOneQuestion(r, '9.3');
+      assert.ok(!JSON.stringify(r.show_to_builder).includes(String(r.host?.upload_url)), 'the upload URL is never builder text');
+      // The Bench: the proof branch proved the build; the deploy's own gate read the repo once, never again for hosting.
+      assert.deepEqual(t.reads, [t.repoKey]);
+      const [tok] = await sql()<{ basis: string; login: string }[]>`SELECT basis, login FROM host_upload_tokens WHERE installation_id = ${t.inst}`;
+      assert.deepEqual({ ...tok }, { basis: 'proof_line', login: t.login });
+      const events = await buildEventsOf(t.inst);
+      assert.deepEqual(events.map((e) => e.type), ['built', 'deployed']);
+      const [built, deployed] = events;
+      assert.equal(built.dedupe_key, `built:${t.inst}:${t.repoKey}:${t.p.id}`);
+      assert.equal(built.proof_url, t.repo);
+      assert.equal(built.program_id, t.p.id);
+      assert.equal(built.wallet, T8_WALLET);
+      assert.deepEqual([built.github_login, built.login_basis], [t.login, 'proof_line']);
+      assert.deepEqual(built.detail, { starter: t.starterId, twist: T8_POD.twist });
+      // T9 M3, N1: the starter's exact bytecode, so the deployed event names the starter.
+      assert.equal(deployed.wallet, T8_WALLET);
+      assert.equal(deployed.chain, 'arc');
+      assert.deepEqual([deployed.github_login, deployed.login_basis], [t.login, 'proof_line']);
+      assert.equal(deployed.detail.starter, t.starterId);
+      assert.equal(deployed.detail.address, T9_ADDR);
+      // 9.6: the upload's own reply is v2.9's liveLine, and it writes hosted once.
+      const token = new URL(String(r.host?.upload_url)).searchParams.get('t')!;
+      const r2 = { put: async () => {}, list: async () => [], del: async () => {}, copy: async () => {} };
+      const zip = (await import('fflate')).zipSync({ 'index.html': new TextEncoder().encode('<!doctype html><html><body>PodTips</body></html>') });
+      const up = await deploySite(token, zip, { r2 });
+      assert.equal(up.body.show_to_builder, liveLine('PodTips', `podtips-${t.login}`));
+      assert.equal(up.body.show_to_builder, `PodTips is live: podtips-${t.login}.earnkit.com`);
+      const after = await buildEventsOf(t.inst);
+      assert.deepEqual(after.map((e) => [e.type, e.login_basis]), [['built', 'proof_line'], ['deployed', 'proof_line'], ['hosted', 'proof_line']]);
+      // A rerun of the same call writes no second built (one per repo and program).
+      await t.ship();
+      assert.equal((await buildEventsOf(t.inst)).filter((e) => e.type === 'built').length, 1);
+      await sql()`UPDATE hosted_sites SET status = 'ended' WHERE repo_key = ${t.repoKey}`;
+    }),
+  ),
+);
+
+test('9.4 v2.10.3 DEPLOY_CHAINS=base: the Arc build\'s deploy is refused as deployStep refuses it ("Deploys on Arc are off right now."); nothing deployed, read, hosted or logged; no chain left is the plain off line', dbTest, (tc) =>
+  withEventLog(async () => {
+    const { DEPLOY_LINES, deployOffLine, deployOffNote } = await import('./deploy');
+    const t = await shipSetup('chains', tc, { branch: true });
+    const real = { ...t.ctx, freshDeps: { ...t.ctx.freshDeps, deployOn: undefined } };
+    for (const [label, c] of [['the real switches', real], ['a deploy switch left on', t.ctx]] as const) {
+      const r = await withVars({ ...shipVars(), DEPLOY_CHAINS: 'base' }, () => t.ship({}, c));
+      assert.equal(r.show_to_builder, 'Deploys on Arc are off right now.', label);
+      assert.equal(r.show_to_builder, deployOffLine('arc'), label);
+      assert.deepEqual(r.deploy, { unavailable: deployOffLine('arc') }, label);
+      assert.equal(r.agent_note, deployOffNote('arc'), label);
+      assert.ok(!('host' in r), `${label}: no host block`);
+      atMostOneQuestion(r, label);
+    }
+    const none = await withVars({ ...shipVars(), DEPLOY_CHAINS: 'nope' }, () => t.ship({}, real));
+    assert.equal(none.show_to_builder, DEPLOY_LINES.off, 'no chain left: the plain off line');
+    assert.deepEqual(none.deploy, { unavailable: DEPLOY_LINES.off });
+    assert.equal(t.sent.length, 0);
+    assert.deepEqual(t.reads, [], 'no proof read');
+    assert.equal((await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM host_upload_tokens WHERE installation_id = ${t.inst}`)[0].n, 0);
+    assert.deepEqual(await eventsOfInstallation(t.inst), []);
+    // Not vacuous: Arc listed, the same build deploys.
+    const on = await withVars({ ...shipVars(), DEPLOY_CHAINS: 'arc' }, () => t.ship({}, real));
+    assert.equal(t.sent.length, 1, 'DEPLOY_CHAINS=arc deploys');
+    assert.deepEqual(on.deploy, { address: T9_ADDR, chain: 'arc', owner_ok: true });
+    await sql()`UPDATE hosted_sites SET status = 'ended' WHERE repo_key = ${t.repoKey}`;
+  }),
+);
+
+test('9.x (review T8 M5) the mark fails closed: an owner or constructor_args[0] that is not the build wallet, the wrong chain, no proof branch, no checked build, or a shared client: an agent note, nothing deployed or logged', dbTest, (tc) =>
+  withEventLog(() =>
+    withVars(shipVars(), async () => {
+      const t = await shipSetup('m5', tc, { branch: true });
+      const OTHER = '0x2222222222222222222222222222222222222222';
+      const cases: [string, Record<string, unknown>, RegExp][] = [
+        ['another owner_wallet', { owner_wallet: OTHER }, /^deploy\.owner_wallet must be the build's wallet/],
+        ['another constructor_args[0]', { constructor_args: [OTHER, 'PodTips', '1000000'] }, /^deploy\.constructor_args\[0\] must be the build's wallet/],
+        ['no constructor_args', { constructor_args: undefined }, /^deploy\.constructor_args must be exactly 3 values/],
+        ['the wrong chain', { chain: 'base' }, /^deploy\.chain must be 'arc'/],
+      ];
+      for (const [label, d, re] of cases) {
+        const r = await t.ship(d);
+        refusedQuietly(r, re, label);
+        if (label !== 'the wrong chain' && label !== 'no constructor_args') assert.ok((r.agent_note ?? '').includes(T8_WALLET), `${label}: names the build wallet`);
+      }
+      // An owner_wallet in other case is the same wallet.
+      const upper = await t.ship({ owner_wallet: T8_WALLET.toUpperCase().replace('0X', '0x') });
+      assert.deepEqual(upper.deploy, { address: T9_ADDR, chain: 'arc', owner_ok: true });
+      assert.equal(t.sent.length, 1, 'only the matching call deployed');
+
+      // The Bench: no proof branch pushed yet, so no deploy: the agent is told to push it first.
+      const noLine = await shipSetup('m5line', tc);
+      const nl = await noLine.ship();
+      refusedQuietly(nl, /^Push the proof branch first: git push origin HEAD:refs\/heads\/earnkit-[a-z2-7]{12}/);
+      assert.equal(noLine.sent.length, 0);
+      assert.deepEqual(await buildEventsOf(noLine.inst), []);
+
+      const fresh = await buildSetup('t9-notready', tc);
+      await withVars(shipVars(), () => fresh.start());
+      refusedQuietly(
+        await fresh.prepare({ program_id: fresh.p.id, project: { name: 'PodTips', repo_url: t.repo }, deploy: t.deploy(), host: true, build: { program_id: fresh.p.id } }),
+        /^Call prepare with the build fields/,
+        'started but no checked twist',
+      );
+      const shared = await t.ship({}, { ...t.ctx, sharedClient: true });
+      assert.equal(shared.show_to_builder, BUILD_CHAT_ONLY);
+      assert.equal(t.sent.length, 1, 'nothing more deployed');
+      for (const r of [nl, shared]) atMostOneQuestion(r);
+      assert.deepEqual((await buildEventsOf(t.inst)).map((e) => e.type), ['built', 'deployed']);
+    }),
+  ),
+);
+
+test('security re-review 4 F1: a timed-out v2.10 deploy of other bytecode is never settled or labelled as the starter by the build path', dbTest, (tc) =>
+  withEventLog(() =>
+    withVars(shipVars(), async () => {
+      const t = await shipSetup('f1v210', tc, { branch: true });
+      const real = t.ctx.deployDeps.chain();
+      const slow = { ...t.ctx, deployDeps: { ...t.ctx.deployDeps, chain: () => ({ ...real, receipt: async () => null }) } };
+      // v2.10's plain prepare with deploy: any bytecode (here the starter's plus one byte), its receipt never comes.
+      await t.prepare({ program_id: t.p.id, project: { name: 'PodTips', repo_url: t.repo }, deploy: t.deploy({ bytecode: `${ARC_TIPJAR_BYTECODE}00` }) }, slow);
+      const [v210] = await sql()<{ status: string; starter: string | null }[]>`SELECT status, starter FROM contract_deploys WHERE installation_id = ${t.inst}`;
+      assert.deepEqual({ ...v210 }, { status: 'unknown', starter: null });
+      // The build path's call: that row is left alone; the normal path's day cap refuses (fail closed).
+      const r = await t.ship();
+      assert.equal(t.sent.length, 1, 'nothing sent again');
+      assert.ok(!('address' in (r.deploy ?? {})), JSON.stringify(r.deploy));
+      const rows = await sql()<{ status: string }[]>`SELECT status FROM contract_deploys WHERE installation_id = ${t.inst}`;
+      assert.deepEqual(rows.map((x) => x.status), ['unknown'], 'never settled');
+      assert.ok(!(await eventsOfInstallation(t.inst)).some((e) => e.type === 'deployed'), 'never labelled or logged as the starter');
+    }),
+  ),
+);
+
+test('final fix I2: the site never goes up: 15 minutes on, prepare with build and no live_url says the deployed line and one question, nothing invented', dbTest, (tc) =>
+  withEventLog(() =>
+    withTokenEnv(() =>
+      withVars(shipVars({ r2: false }), async () => {
+        const t = await joinSetup('nolive', tc, { hostOn: false });
+        const r = await t.ship({}, t.ctx);
+        assert.equal(r.show_to_builder, '');
+        assert.match(r.agent_note ?? '', /If the site isn't live within 15 minutes, call prepare with program_id, project \{ name, repo_url \} and build: \{ program_id \}, without live_url/);
+        assert.match(r.agent_note ?? '', /If it doesn't load within 15 minutes, make that call without live_url/);
+        // Exactly the call the notes name.
+        const j = (await t.prepare({ program_id: t.p.id, project: { name: 'PodTips', repo_url: t.repo }, build: { program_id: t.p.id } }, t.ctx)) as JoinedReply;
+        const lines = j.show_to_builder.split('\n');
+        assert.equal(lines[0], "PodTips is deployed on Arc: 0x0000…11ce. You're the owner.");
+        assert.doesNotMatch(j.show_to_builder, /is live/);
+        // The usual draft reply after the deployed line: "Before you submit: a live link on Arc mainnet." and the
+        // entry table. At most one question (in fact none: the missing link is a statement, never invented).
+        assert.equal(lines[2], 'Before you submit: a live link on Arc mainnet.');
+        atMostOneQuestion(j, 'I2');
+        assert.equal(j.ready, false);
+        assert.ok(String(j.agent_note).endsWith(BUILD_NO_LIVE_NOTE), 'the agent hears the entry waits for the live link');
+        assert.ok(!('live_url' in (j.entry?.project ?? {})), 'no live link invented');
+        assert.deepEqual((await buildEventsOf(t.inst)).map((e) => e.type), ['built', 'deployed'], 'no hosted event');
+      }),
+    ),
+  ),
+);
+
 
 // ---- Restored in v2.14 T3 fix round 1: the build path's live safety rules -----------------------
 
