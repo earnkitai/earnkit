@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
-import { registerClient } from './oauth';
+import { redirectClass, registerClient } from './oauth';
 import { authorizeGet, tokenPost } from './oauth-routes';
 import { SIGNIN_TEXT, attachToX, xSignInCallback } from './x-install';
 import { connectInstallation, saveInstallation } from './installations';
@@ -270,4 +270,46 @@ test('4.16 a shared installation is never bound', db, async () => {
   const own = (await connectInstallation(t))!.own;
   assert.deepEqual(await attachToX(own, person('kai'), new Date()), { ok: false, reason: 'shared' });
   assert.equal((await connectInstallation(t))!.x, null);
+});
+
+test('4.17 S6 fix 1: only known agent app schemes skip the warning page; a browser trampoline or unknown scheme sees the full URI', db, async () => {
+  for (const uri of ['microsoft-edge:https://evil.example/cb', 'x-safari-https://evil.example/cb', 'googlechromes://evil.example/cb', 'firefox:https://evil.example/cb', 'web+ek://evil.example/cb', 'someunknownapp://cb']) {
+    assert.equal(redirectClass(uri).cls, 'other', uri);
+    const page = await authorizeGet(authorizeReq(clientFor(uri, 'Some Agent'), uri), noLimit);
+    assert.equal(page.status, 200, uri);
+    const html = await page.text();
+    assert.ok(html.includes(SIGNIN_TEXT.warning), uri);
+    assert.ok(html.includes(SIGNIN_TEXT.sendsTo(uri).replace(/&/g, '&amp;')), `${uri}: the full redirect is shown`);
+  }
+  for (const uri of ['cursor://anysphere.cursor-mcp/oauth/callback', 'vscode://vscode.github-authentication/did-authenticate', 'vscode-insiders://x/cb', 'windsurf://x/cb', 'claude://claude.ai/cb']) {
+    assert.equal(redirectClass(uri).cls, 'app', uri);
+    assert.equal((await authorizeGet(authorizeReq(clientFor(uri, 'Cursor'), uri), noLimit)).status, 302, uri);
+  }
+  // Minor 4: the page names the host with its port.
+  const ported = 'https://agent.example.org:8443/cb';
+  assert.deepEqual(redirectClass(ported), { cls: 'other', host: 'agent.example.org:8443' });
+  const html = await (await authorizeGet(authorizeReq(clientFor(ported, 'Some Agent'), ported), noLimit)).text();
+  assert.ok(html.includes(SIGNIN_TEXT.forHost('agent.example.org:8443')));
+  // Escaped: a redirect with markup characters never becomes markup.
+  const odd = 'https://agent.example.org/cb?a="><b>x</b>';
+  const oddHtml = await (await authorizeGet(authorizeReq(clientFor(odd, 'Some Agent'), odd), noLimit)).text();
+  assert.ok(!oddHtml.includes('"><b>x</b>'));
+});
+
+test('4.18 fix 1: an attach refused at the token exchange issues no token (invalid_grant)', db, async () => {
+  const late = person('lou');
+  const id = clientFor();
+  const { back } = await toCallback(id, late);
+  assert.equal(back.status, 302);
+  const code = new URL(back.headers.get('location')!).searchParams.get('code')!;
+  // The owner clears the X account between the callback and the token exchange.
+  await sql()`INSERT INTO x_owner_clears (x_user_id, builder_id) VALUES (${late.id}, 0) ON CONFLICT DO NOTHING`;
+  const res = await exchange(id, code);
+  assert.equal(res.status, 400);
+  const body = (await res.json()) as { error: string; access_token?: string };
+  assert.equal(body.error, 'invalid_grant');
+  assert.equal(body.access_token, undefined);
+  const [n] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM installations WHERE x_user_id = ${late.id}`;
+  assert.equal(n.n, 0, 'nothing bound');
+  assert.equal((await exchange(id, code)).status, 400, 'a replay is refused too');
 });

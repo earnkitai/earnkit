@@ -15,13 +15,15 @@ import { pkcePair, xAuthorizeUrl, xOAuth, type XOAuthDeps, type XUser } from './
  * random bytes, only its hash kept, bound to this browser by a __Host-eki- cookie (HttpOnly, Secure, Lax, 15
  * minutes) and used once. The callback reads /2/users/me once (X's token is never stored or logged) and sends
  * the client its code, which carries the X user in its signed payload; the token exchange binds it
- * (attachToX). A4 and the S6 ruling: a loopback redirect, an app scheme or one of the exact documented agent
- * callbacks (oauth.ts AGENT_REDIRECT_URIS) go straight to X; any other redirect first sees one page naming
- * its host.
+ * (attachToX). A4 and the S6 ruling: a loopback redirect, a known agent app scheme (oauth.ts
+ * AGENT_APP_SCHEMES) or one of the exact documented agent callbacks (AGENT_REDIRECT_URIS) go straight to X;
+ * any other redirect first sees one page naming its host and showing the full redirect URI.
  */
 export const SIGNIN_TEXT = {
   lead: 'Sign in to EarnKit',
   forHost: (host: string) => `You're connecting EarnKit to ${host}.`,
+  /** S6 fix round 1: the full registered redirect, shown on every warning page. */
+  sendsTo: (uri: string) => `After X, you go back to: ${uri}`,
   warning: 'Only continue if you started this from your own agent.',
   button: 'Continue with X',
   failed: "Sign-in didn't finish. Connect EarnKit from your agent again.",
@@ -62,6 +64,7 @@ export async function startInstallSignIn(c: CheckedAuthorize, now = new Date()):
     return new Response(null, { status: 302, headers: { Location: to, 'Set-Cookie': cookie, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' } });
   const body = brandShell(
     `<h1>${escapeHtml(SIGNIN_TEXT.lead)}</h1><p class="ek-line">${escapeHtml(SIGNIN_TEXT.forHost(c.host ?? 'an app'))}</p>` +
+      `<p class="ek-small" style="overflow-wrap:anywhere">${escapeHtml(SIGNIN_TEXT.sendsTo(c.req.redirect_uri))}</p>` +
       `<p class="ek-small">${escapeHtml(SIGNIN_TEXT.warning)}</p>` +
       `<div class="ek-actions"><a class="ek-btn" href="${escapeHtml(to)}">${X_ICON}<span>${escapeHtml(SIGNIN_TEXT.button)}</span></a></div>`,
   );

@@ -504,7 +504,7 @@ apps/frontend/
                                earnkit.txt reads at one an hour (N2), the duplicate with the token stays (N3)
     oauth-routes.ts(+limits test) register + token + authorize handlers (app/oauth/* re-export them);
                                v2.14 T4: authorizeGet(request, deps?) (X on and not servesMany: startInstallSignIn;
-                               else the anonymous code with iss); tokenPost binds an X-signed token (attachToX);
+                               else the anonymous code with iss); tokenPost binds an X-signed token (attachToX; refused: invalid_grant, no token);
                                logLimited; ipFloor (Ruling G25): a known hosted service's redirect
                                host gets the 500/hour per-IP floor (refuses), everyone else 50/hour
     oauth.ts(+.test.ts)        stateless OAuth: register (v2.4: a random nonce in every client id;
@@ -512,7 +512,7 @@ apps/frontend/
                                HOSTED_REDIRECT_HOSTS, hostedRedirectHost (v2.9 T12), clientLimitKey, registrationLimitKey,
                                authorize, code -> token (+ shared, limitKey), metadata, clientKeyOf;
                                v2.14 T4: checkAuthorize, issueCode(req, x, iss) (x in the signed code),
-                               redirectClass (AGENT_REDIRECT_URIS exact, loopback, app, other), servesMany
+                               redirectClass (AGENT_REDIRECT_URIS exact, loopback, AGENT_APP_SCHEMES app, other), servesMany
                                (MANY_USER_HOSTS), exchangeCode's x + per-X client key, RFC 9207 iss flag;
                                publicOrigin = EARNKIT_URL (production throws without it; no Host
                                fallback)

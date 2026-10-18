@@ -96,7 +96,9 @@ test('no editor tab anywhere: the modal, llms.txt, the README, app/ and lib/', (
     ['install modal', html],
     ['llms.txt', llms],
     ['README.md', readme],
-    ...files.map((f): [string, string] => [f, readFileSync(f, 'utf8')]),
+    // v2.14 T4 fix round 1: oauth.ts AGENT_APP_SCHEMES lists editor URL schemes an OAuth redirect may use
+    // (a security allowlist, not an install tab); only that one line is left out of the scan.
+    ...files.map((f): [string, string] => [f, readFileSync(f, 'utf8').replace(/^export const AGENT_APP_SCHEMES = .*$/m, '')]),
   ];
   for (const [label, text] of all)
     for (const word of ['VS Code', 'vscode', '.vscode'])

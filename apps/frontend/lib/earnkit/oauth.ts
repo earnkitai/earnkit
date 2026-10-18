@@ -251,17 +251,26 @@ export type RedirectClass = 'loopback' | 'app' | 'agent_host' | 'other';
 export type CheckedAuthorize = { req: PendingAuthorize; redirectClass: RedirectClass; host: string | null; many: boolean; clientName: string | null };
 
 /**
+ * v2.14 S6 (fix round 1): the custom schemes of known agent apps (the editors and Claude listed below). Only
+ * these count as `app`: the OS hands the code to that app on the builder's own machine. Any other scheme
+ * (browser trampolines such as microsoft-edge:, x-safari-https:, googlechromes:, firefox:, opera*, web+*,
+ * intent:, or anything unknown) can reopen an attacker's https page, so it is `other`.
+ */
+export const AGENT_APP_SCHEMES = ['cursor', 'vscode', 'vscode-insiders', 'windsurf', 'claude'] as const;
+
+/**
  * Where a registered redirect sends the code (isAllowedRedirectUri allows http only on loopback, any
- * port): loopback and app schemes land on the builder's own machine; `agent_host` only for an exact
- * AGENT_REDIRECT_URIS entry (the string as registered, so no query, port or case variant); every other
- * https redirect is `other`. Pure.
+ * port). Only loopback (`loopback`) and an AGENT_APP_SCHEMES scheme (`app`) land on the builder's own
+ * machine; `agent_host` only for an exact AGENT_REDIRECT_URIS entry (the string as registered, so no query,
+ * port or case variant); every other redirect, https or any other scheme, is `other` and sees the warning
+ * page first. `host`: the https host with its port (u.host), else null. Pure.
  */
 export function redirectClass(uri: string): { cls: RedirectClass; host: string | null } {
   const u = new URL(uri);
   if (u.protocol === 'http:') return { cls: 'loopback', host: null };
-  if (u.protocol !== 'https:') return { cls: 'app', host: null };
-  const host = u.hostname.toLowerCase().replace(/\.$/, '');
-  return { cls: (AGENT_REDIRECT_URIS as readonly string[]).includes(uri) ? 'agent_host' : 'other', host };
+  if (u.protocol !== 'https:')
+    return { cls: (AGENT_APP_SCHEMES as readonly string[]).includes(u.protocol.slice(0, -1).toLowerCase()) ? 'app' : 'other', host: null };
+  return { cls: (AGENT_REDIRECT_URIS as readonly string[]).includes(uri) ? 'agent_host' : 'other', host: u.host };
 }
 
 /** v2.14 A1: one registration serving many builders (by its name, or a hosted bot's redirect host). Pure. */

@@ -5622,8 +5622,10 @@ that X user id.
   sha256 of a 32-byte state, sha256 of a csrf held in a `__Host-eki-<16 hex>` cookie, 15 minutes) and goes to X.
   `redirectClass` decides whether a page naming the host comes first: only the three exact documented callbacks
   (`AGENT_REDIRECT_URIS`: claude.ai, chatgpt.com connector_platform_oauth_redirect, www.cursor.com), loopback
-  (any port) and app schemes go straight; every other redirect sees "You're connecting EarnKit to <host>. Only
-  continue if you started this from your own agent." (S6: a forwarded authorize URL is the phishing vector).
+  (any port) and the known agent app schemes (`AGENT_APP_SCHEMES`: cursor, vscode, vscode-insiders, windsurf,
+  claude) go straight; every other redirect, including browser-trampoline and unknown schemes, sees "You're
+  connecting EarnKit to <host:port>." with the full redirect URI and "Only continue if you started this from your
+  own agent." (S6: a forwarded authorize URL is the phishing vector).
 - **Callback.** `app/x/callback/route.ts` tries `xSignInCallback` first (null when the state is not an
   `x_signins` row; the v2.12.1 claim flow then handles it until T7). The row is deleted only with this browser's
   cookie (else 403 before any X call), X's token is used for one `/2/users/me` and never stored, an owner-cleared
@@ -5633,7 +5635,8 @@ that X user id.
 - **Token.** `exchangeCode` returns `x` (ignored for a servesMany client); the installation key is per
   registration AND X account (`clientKeyOf(client_id + "\nx:" + id)`, A2), so another X on the same registration
   is another installation; `shared` is false for an X-signed token (A1). `saveInstallation` returns the id, and
-  `tokenPost` calls `attachToX`; a refusal is logged and leaves the token anonymous (fail closed).
+  `tokenPost` calls `attachToX`; a refusal answers `invalid_grant` (400) and issues no token (fix round 1; the
+  saved row's token is never returned, so it is unusable).
 - **attachToX (one transaction, S5).** Locks `x_attach:<id>`, `x_user:<id>`, `x_handle:<h>` (bindX's order),
   the installation row FOR UPDATE; refuses `other_x` (bound to another X), `owner_cleared`, `shared` (its group
   or the page's). If a page holds the X: the installation alone gets `builder_id = page root` (no merge: its
