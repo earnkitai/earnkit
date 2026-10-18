@@ -247,7 +247,9 @@ apps/frontend/
                                "[mcp] alias <old> -> <new>" (names only); imports lib/earnkit relatively (tests load it);
                                v2.10.1 B5 (fix round 1 I3): forOldNames answers an old-name call as plain JSON, each tool
                                named in both forms (forOldClient), with tools_note
-  app/oauth/{register,authorize,token}/   anonymous OAuth for MCP clients
+  app/oauth/{register,authorize,token}/   OAuth for MCP clients (v2.14 T4: authorize signs in with X,
+                               x-install.ts; authorize/route.ts calls authorizeGet(request) only)
+  app/x/callback/route.ts      v2.14 T4: xSignInCallback (install sign-in) first, else claim.ts xCallback
   app/github/verify/(route, callback/route)  v2.9 B9: the sign-in link (GET confirm page, POST to GitHub) and
                                              GitHub's callback; re-export github-verify.ts handlers
   app/github/verify/app/route.ts  v2.10 item 7b: the read-only GitHub App's setup URL (github-app.ts appSetup);
@@ -492,7 +494,8 @@ apps/frontend/
                                comma-separated ids, malformed parts dropped with one console.warn per
                                distinct value naming positions only, never the text;
                                v2.8.1 §E: connectInstallation (the group root to act as, the token's
-                               own id, shared_client), sharedGroup, saveInstallation(..., shared)
+                               own id, shared_client; v2.14 T4: x = the bound X id, id = the page holding it first), sharedGroup,
+                               saveInstallation(..., shared) (v2.14: returns the id)
     identity.ts(+test)         v2.8.1 §E18: findEarlier / offerPickup ("Pick up your N earlier
                                entries?" from what this call states), answerPickup (yes needs this
                                agent's proof line in an earlier entry's repo), linkInstallations
@@ -500,12 +503,17 @@ apps/frontend/
                                provedRepos picks the proof repo a group proved (N1), pickup.read caps
                                earnkit.txt reads at one an hour (N2), the duplicate with the token stays (N3)
     oauth-routes.ts(+limits test) register + token + authorize handlers (app/oauth/* re-export them);
+                               v2.14 T4: authorizeGet(request, deps?) (X on and not servesMany: startInstallSignIn;
+                               else the anonymous code with iss); tokenPost binds an X-signed token (attachToX);
                                logLimited; ipFloor (Ruling G25): a known hosted service's redirect
                                host gets the 500/hour per-IP floor (refuses), everyone else 50/hour
     oauth.ts(+.test.ts)        stateless OAuth: register (v2.4: a random nonce in every client id;
                                v2.8.1: s=1 for hosted clients), isSharedClient, HOSTED_CLIENT_NAMES,
                                HOSTED_REDIRECT_HOSTS, hostedRedirectHost (v2.9 T12), clientLimitKey, registrationLimitKey,
                                authorize, code -> token (+ shared, limitKey), metadata, clientKeyOf;
+                               v2.14 T4: checkAuthorize, issueCode(req, x, iss) (x in the signed code),
+                               redirectClass (AGENT_REDIRECT_URIS exact, loopback, app, other), servesMany
+                               (MANY_USER_HOSTS), exchangeCode's x + per-X client key, RFC 9207 iss flag;
                                publicOrigin = EARNKIT_URL (production throws without it; no Host
                                fallback)
     mcp.ts(+test)              v2.12: registers find, prepare, confirm, tell, score (always since v2.14 T3,
@@ -1453,8 +1461,14 @@ apps/frontend/
                                v2.13.3: benchIdentity (github_user, repos, local remotes, a live link fill identity under the Bench).
     login-contests.ts          v2.12.1 T5/T6: contestants, loginStands, settleLogin, loginContests, ruleContest
     x-oauth.ts(+test)          v2.12.1 T6: X_SCOPES, pkcePair, xAuthorizeUrl, xUserFrom, xOAuth (token + /2/users/me)
+    x-install.ts               v2.14 T4 (tests: v214-x-install.test.ts): SIGNIN_TEXT, signinCookie, signinPage,
+                               newSignin (x_signins row + __Host-eki- cookie), startInstallSignIn (straight to X or
+                               the page naming the host), xSignInCallback (cookie-bound, one use, /2/users/me once,
+                               code with x), attachToX (one tx: row lock, checks, attach alone or page from X,
+                               bindXIn, x_user_id last)
     claim.ts(+test)            v2.12.1 T6/T7: CLAIM_TEXT, claimCode (S13), claimLink, claimGet, claimPost,
-                               xCallback, bindX (join_pending when another group holds the X id; under the Bench 'held')
+                               xCallback, bindX (join_pending when another group holds the X id; under the Bench 'held');
+                               v2.14 T4: bindX = bindXIn (in a caller's tx) + afterBind (events, discovery, cache)
                                v2.13.4 R1: joinOffer, joinPage (R6: names the agent, agoText), claimJoinPost (POST /claim/join: the one-click join,
                                x_join_offers, cookie + Origin + one use + 15 min; page_joined event; standing_seen.linked)
     live-check.ts              v2.13.4 R3: liveDefaults, parkedPage, checkLive, liveSite (standing_seen.live_check, a day)

@@ -107,8 +107,10 @@ sponsor funds an escrow and picks winners; EarnKit's score is shown as a guide o
 agent (Grok Bot, Muse, Claude, Cursor…) ──HTTPS──> /mcp
   first connect: 401 + WWW-Authenticate -> /.well-known/oauth-protected-resource/mcp
     -> /.well-known/oauth-authorization-server -> POST /oauth/register
-    -> GET /oauth/authorize (approves instantly, no account) -> POST /oauth/token
-    -> token = installation row; the client stores the token
+    -> GET /oauth/authorize (v2.14: Sign in with X; x-install.ts) -> X -> GET /x/callback
+    -> the client's redirect with a code carrying the X user (signed) -> POST /oauth/token
+    -> token = installation row, bound to the X account (attachToX); the client stores the token
+    (a client serving many builders, or X unset: approved at once, anonymous, as before v2.14)
   then: Bearer token -> /mcp (old tool names rewritten: aliases.ts) -> lib/earnkit/mcp.ts
         -> lib/earnkit/tools.ts (find, prepare, confirm, tell -> handlers) -> Postgres
 stdio-only clients: npx mcp-remote https://earnkit.com/mcp
@@ -5605,3 +5607,47 @@ five tools are always listed, `/leaderboard` is a permanent redirect to `/bench`
   `v27-journey`, `v28-journey` and `v210-journey.test.ts` went whole (every case was flag-off parity);
   find's build offer tests were rewritten to A18 (no build offer; `prepare { build }` still starts a starter).
 - **Owner step.** The two env vars can be removed from Railway after deploy; nothing reads them.
+
+## v2.14 One account: Sign in with X at install (Task 4, 2026-10-19)
+
+Brief: `.superpowers/sdd/v2.14-one-account-plan/task-4-brief.md`; controller rulings S5, S6 (refined), D10 and
+"no merge" (A7 superseded). Person = X account: every token signed in with the same X acts as the page holding
+that X user id.
+
+- **Authorize.** `oauth-routes.ts authorizeGet` runs `oauth.ts checkAuthorize` (unknown client or unregistered
+  redirect: our 400 page, never a redirect). X unset (`xSignInEnabled`) or a client serving many builders
+  (`servesMany`: a hosted bot's name, or a redirect under grok.com, x.ai, x.com, meta.ai) gets the anonymous
+  code at once (`issueCode(req, null, iss)`). Otherwise `x-install.ts startInstallSignIn` stores the request in
+  `x_signins` (purpose 'install', the client's state and PKCE challenge in `oauth`, EarnKit's own PKCE verifier,
+  sha256 of a 32-byte state, sha256 of a csrf held in a `__Host-eki-<16 hex>` cookie, 15 minutes) and goes to X.
+  `redirectClass` decides whether a page naming the host comes first: only the three exact documented callbacks
+  (`AGENT_REDIRECT_URIS`: claude.ai, chatgpt.com connector_platform_oauth_redirect, www.cursor.com), loopback
+  (any port) and app schemes go straight; every other redirect sees "You're connecting EarnKit to <host>. Only
+  continue if you started this from your own agent." (S6: a forwarded authorize URL is the phishing vector).
+- **Callback.** `app/x/callback/route.ts` tries `xSignInCallback` first (null when the state is not an
+  `x_signins` row; the v2.12.1 claim flow then handles it until T7). The row is deleted only with this browser's
+  cookie (else 403 before any X call), X's token is used for one `/2/users/me` and never stored, an owner-cleared
+  X gets 403, and the client's registered redirect gets a code with `x` (id, username, name, avatar) inside the
+  HMAC-signed payload plus RFC 9207 `iss` (metadata says `authorization_response_iss_parameter_supported`).
+  Rate limit `xSignIn` 30/hour per IP.
+- **Token.** `exchangeCode` returns `x` (ignored for a servesMany client); the installation key is per
+  registration AND X account (`clientKeyOf(client_id + "\nx:" + id)`, A2), so another X on the same registration
+  is another installation; `shared` is false for an X-signed token (A1). `saveInstallation` returns the id, and
+  `tokenPost` calls `attachToX`; a refusal is logged and leaves the token anonymous (fail closed).
+- **attachToX (one transaction, S5).** Locks `x_attach:<id>`, `x_user:<id>`, `x_handle:<h>` (bindX's order),
+  the installation row FOR UPDATE; refuses `other_x` (bound to another X), `owner_cleared`, `shared` (its group
+  or the page's). If a page holds the X: the installation alone gets `builder_id = page root` (no merge: its
+  data and any old members stay behind; a fresh one's own unclaimed profile row is removed). Else a page is made
+  on its group root (`ensureProfile` in the transaction) and `claim.ts bindXIn` writes handle, name, photo.
+  `installations.x_user_id` is set last, aborting unless exactly its row changed; any refusal rolls back
+  everything. `afterBind` (events, discovery, profile cache) runs after commit. `bindX` is now
+  `bindXIn` + `afterBind` in its own transaction.
+- **Who is the caller.** `connectInstallation` returns the page holding the token's `x_user_id` first, then
+  `builder_id`, then itself; `Caller.x` and `ToolContext.xUserId` carry the X id (set by the MCP route only).
+  `installations.x_user_id` is written only at the token exchange or by the paste code (T5), and by the v2.14
+  bind migration; cleared by events-redact (`scripts/events-redact.mts --login` unbinds the person's installations).
+- **Schema.** `installations.x_user_id` (+ partial index), `x_signins`, `x_signin_links` (used from T5), both in
+  `page-joins.ts JOIN_TABLES` as `discard`. The bind migration between `-- v2.14 bind:start/end` binds every
+  non-shared installation of a claimed page (x_handle set) and fills only NULLs, so the per-deploy rerun is a no-op.
+- **Owner checks.** `docs/design-docs-and-implementation-plans/v2.14-client-preflight.md` check 6: which
+  ChatGPT callback is registered. Production needs `EARNKIT_URL` (the authorize redirect now carries `iss`).

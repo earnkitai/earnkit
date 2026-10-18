@@ -49,7 +49,12 @@ test('10.8 (v2.12.1 T6) the pages read live: /<handle> and /b/<name> are dynamic
   }
   const claim = readFileSync(join(import.meta.dirname, 'claim.ts'), 'utf8');
   const bind = claim.slice(claim.indexOf('export async function bindX(')).split('\nexport ')[0];
-  assert.match(bind, /profileChanged\(\)/, 'bindX');
+  // v2.14 T4: bindX (and attachToX) run afterBind once the transaction committed; afterBind expires the cache.
+  assert.match(bind, /await afterBind\(/, 'bindX');
+  const after = claim.slice(claim.indexOf('export async function afterBind(')).split('\nexport ')[0];
+  assert.match(after, /profileChanged\(\)/, 'afterBind');
+  const install = readFileSync(join(import.meta.dirname, 'x-install.ts'), 'utf8');
+  assert.match(install.slice(install.indexOf('export async function attachToX(')), /await afterBind\(/, 'attachToX');
   // v2.12.1 T12: the v2.12 page (ProfileView, profile-load, profile-data) is gone; /b/ serves reserved handles only.
   for (const gone of ['../../app/b/[slug]/ProfileView.tsx', '../../app/b/[slug]/profile-load.ts', 'profile-data.ts'])
     assert.equal(existsSync(join(import.meta.dirname, gone)), false, gone);
