@@ -35,7 +35,7 @@ import { outcomeQuestion } from './outcomes';
 import { DEFAULT_GUIDANCE, PLAIN_FIX, PLAIN_LENGTH_FIX, PLAIN_NOTE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, walletAsk } from './coach';
 import { alsoText } from './also-qualifies';
 import type { SubmissionRequirement } from './program-file';
-import { SIGN_IN_FIRST, WALLET_CHANGED, ownerProblem, tokenGate, type GateDeps, type GateInput } from './token-gate';
+import { SIGN_IN_FIRST, WALLET_CHANGED, ownerProblem, tokenGate, tokenLineFor, type GateDeps, type GateInput } from './token-gate';
 import {
   CANT_PUSH,
   NEEDS_REPO,
@@ -53,23 +53,34 @@ import { CONFIRM_WARNING, VERIFY_PAGE, codeLine, confirmPage } from './github-ve
 import { AGENT_FILL_STEPS, continuesLine, kitReplyNote, submitKit, type KitProgram } from './submit-kit';
 import {
   decideToken,
+  launchToken,
   NEEDS_SYMBOL_AGENT,
   NO_WALLET_AGENT,
   SKIPPED_ENTRY,
+  TECHNICAL_TERMS,
   notReadyAgentNote,
   AGENT_LIMITED,
   STILL_CHECKING,
   STILL_CHECKING_LAUNCH,
   WALLET_LIMITED,
+  type FlowProject,
+  type TokenFlowDeps,
 } from './token-launch';
 import {
   LAUNCHING,
   LAUNCHING_AGENT,
   LAUNCH_STUCK,
   launchStuckAgent,
+  LINKS_CHANGED,
   NOT_LAUNCHED_YET,
+  STATE_CHANGED,
+  LaunchError,
+  repoHasTokenNote,
+  TOKENS_UNAVAILABLE,
   walletLimitNote,
+  type TokenOutcome,
 } from './tokens';
+import { RateLimitError } from './rate-limit';
 import { STATS_LABELS, moneyText, openMoneyUsd, statsFrom, wonLine } from './stats';
 import {
   CAPPED_READ_SUFFIX,
@@ -1382,4 +1393,104 @@ test('12.2 no v2.12 builder line is left: no score out of 100, no "Top N% of bui
   for (const f of src)
     for (const { text } of humanStrings(f, readFileSync(join(ROOT, f), 'utf8')))
       assert.doesNotMatch(text, /Top \d+% of builders|Top \$?\{?\w*\}?% of builders|Say hide anytime|earnkit\.com\/b\/|Builder score|Verified builder|\/100\b/, `${f}: ${text}`);
+});
+
+// ---- Ruling 31: every launch_token note is plain builder text. launchToken runs over an in-memory
+// store through every branch it can end in; `note` must never name a tool, field or file (the
+// agent's instructions live in agent_note).
+async function gatherLaunchNotes(): Promise<[string, TokenOutcome][]> {
+  const W = '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3';
+  const REPO = 'https://github.com/acme/kit';
+  const run = async (
+    label: string,
+    p: Partial<FlowProject> = {},
+    input: Record<string, unknown> = {},
+    extra: Partial<TokenFlowDeps> = {},
+    gate: Partial<GateDeps> = {},
+    repoToken: string | null = null,
+  ): Promise<[string, TokenOutcome]> => {
+    const project: FlowProject = {
+      id: 7, name: 'Chain Kits', repo_url: REPO, live_url: 'https://kit.acme.dev', payout_wallet: null,
+      creator_wallet: null, token_url: null, token_name: 'Chain Kits', token_symbol: 'CHAIN', installation_id: 1,
+      token_policy: 'encouraged', ...p,
+    };
+    const deps: TokenFlowDeps = {
+      available: () => true,
+      limit: async () => {},
+      check: async () => true,
+      gate: {
+        repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
+        owner: async () => ({ status: 'ok', text: tokenLineFor(1, REPO)! }),
+        latest: async () => null,
+        // No proof branch (null): the earnkit.txt line, as on a shared client; the Bench's branch notes are proof-branch.ts's.
+        branchProof: async () => null,
+        screen: async () => {},
+        ...gate,
+      },
+      deploy: async (a) => ({ status: 'launched', name: a.name, symbol: a.symbol, tokens_fun: 'https://tokens.fun/coin/0xT' }),
+      store: {
+        load: async () => project,
+        setStatus: async () => {},
+        repoToken: async () => repoToken,
+        updateLinks: async () => {},
+        saveCreatorWallet: async () => {},
+        markComplete: async () => {},
+      },
+      ...extra,
+    };
+    const out = await launchToken({ project_id: 7, builder_confirmed: true, chain: 'base', creator_wallet: W, ...input } as never, 1, deps);
+    return [`launch note: ${label}`, out];
+  };
+  const deployed = (o: TokenOutcome) => ({ deploy: async () => o });
+  return Promise.all([
+    run('launched'),
+    run('launched on another chain', {}, { chain: 'robinhood' }),
+    run('no wallet', {}, { creator_wallet: undefined }),
+    run('policy off', { token_policy: 'off' }),
+    run('existing token', { token_url: 'https://tokens.fun/coin/0x1' }),
+    run('launch pending', { token_url: 'pending' }),
+    run('refused ticker', {}, { symbol: 'USDC' }),
+    run('bad ticker shape', {}, { symbol: 'K-1' }),
+    run('brand name', {}, { name: 'Coinbase Kit' }),
+    run('no proposal', { token_name: null, token_symbol: null, name: '' }),
+    run('campaign repo change', { payout_wallet: W }, { repo_url: 'https://github.com/acme/other' }),
+    run('recorded repo change', {}, { repo_url: 'https://github.com/acme/other' }),
+    run('bad live link', {}, { live_url: 'ftp://x.dev' }),
+    run('bad repo link', { repo_url: null }, { repo_url: 'http://github.com/acme/kit' }),
+    run('bad X handle', {}, { builder_x: 'not a handle!' }),
+    run('bad image', {}, { image_data: 'data:text/plain;base64,aGk=' }),
+    run('repo has a token', {}, {}, {}, {}, 'https://tokens.fun/coin/0x2'),
+    run('repo launch pending', {}, {}, {}, {}, 'pending'),
+    run('gate: proof line missing', {}, {}, {}, { owner: async () => ({ status: 'missing' }) }),
+    run('gate: proof line unreadable', {}, {}, {}, { owner: async () => ({ status: 'error', message: 'GitHub said 502' }) }),
+    run('gate: no commits', {}, {}, {}, { repo: async () => ({ fork: false, hasCommits: false, aheadOfParent: null }) }),
+    run('gate: no repo', { repo_url: null }),
+    run('daily limit', {}, {}, { limit: async () => { throw new RateLimitError('This agent has launched 3 tokens today, the daily limit.', 60); } }),
+    run('launches off', {}, {}, { available: () => false }),
+    run('deploy: not this agent', {}, {}, { deploy: async () => { throw new LaunchError('No project 7 recorded by you. Call record_submission first.'); } }),
+    run('deploy: links changed', {}, {}, deployed({ status: 'failed', note: LINKS_CHANGED })),
+    run('deploy: state changed', {}, {}, deployed({ status: 'failed', note: STATE_CHANGED })),
+    run('deploy: repo claimed meanwhile', {}, {}, deployed({ status: 'failed', note: repoHasTokenNote('pending') })),
+    run('deploy: unavailable', {}, {}, deployed({ status: 'skipped', note: TOKENS_UNAVAILABLE })),
+  ]);
+}
+
+test('Ruling 31: every launch_token note is plain builder text; technical detail only in agent_note', async () => {
+  const notes = await gatherLaunchNotes();
+  assert.ok(notes.length >= 25, `expected a wide scan, got ${notes.length}`);
+  const fieldPrefix = /^(name|symbol|token|creator_wallet|repo_url|live_url|image_data|builder_x):/;
+  for (const [label, out] of notes) {
+    const note = out.note ?? '';
+    if (out.status !== 'launched') assert.ok(note.trim().length > 0, `${label}: has a note`);
+    assert.doesNotMatch(note, TECHNICAL_TERMS, label);
+    assert.doesNotMatch(note, toolNameRe, label);
+    assert.doesNotMatch(note, fieldPrefix, label);
+    assert.doesNotMatch(note, editFileRe, label);
+    assert.doesNotMatch(note, /\p{Extended_Pictographic}|vault/iu, label);
+  }
+  // The instructions are not lost: the no-wallet and proof-line cases carry them for the agent.
+  const byLabel = new Map(notes);
+  assert.match(byLabel.get('launch note: no wallet')!.agent_note ?? '', /call confirm with project_id, yes: true and that wallet\./);
+  assert.match(byLabel.get('launch note: gate: proof line missing')!.agent_note ?? '', /earnkit\.txt/);
+  assert.match(byLabel.get('launch note: recorded repo change')!.agent_note ?? '', /^repo_url:/);
 });
