@@ -303,3 +303,20 @@ test('v2.8.1 §E17: clientLimitKey: the https redirect host, else the registrati
   assert.equal(clientLimitKey(['http://127.0.0.1:1455/auth/callback']), null);
   assert.equal(clientLimitKey(['cursor://anysphere.cursor-retrieval/oauth/callback'], 'cid'), `client:${clientKeyOf('cid')}`);
 });
+
+test('1.1 preflight: every redirect URI the five clients document registers', () => {
+  const uris = [
+    'https://claude.ai/api/mcp/auth_callback',
+    'http://localhost:51234/callback',
+    'http://127.0.0.1:51234/callback',
+    'http://localhost:8787/callback',
+    'https://www.cursor.com/agents/mcp/oauth/callback',
+    'cursor://anysphere.cursor-mcp/oauth/callback',
+    'https://chatgpt.com/connector_platform_oauth_redirect',
+    'https://chatgpt.com/connector/oauth/AbC123xyz',
+  ];
+  for (const u of uris) {
+    assert.equal(isAllowedRedirectUri(u), true, u);
+    assert.ok(registerClient({ redirect_uris: [u], client_name: 'preflight' }).client_id, u);
+  }
+});
