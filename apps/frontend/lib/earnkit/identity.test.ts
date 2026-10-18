@@ -3,14 +3,13 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { sql } from './db';
 import { dropRunPrograms } from './fixtures/programs-cleanup';
-import { JOIN_QUESTIONS, JOIN_QUESTIONS_JOINER, answerJoin, answerPickup, coveredRoots, findEarlier, joinOnProvenTie, linkInstallations, offerPickup, pendingJoinOf, pickupQuestion, rootOf, statedUsers } from './identity';
+import { JOIN_QUESTIONS, JOIN_QUESTIONS_JOINER, answerJoin, joinOnProvenTie, linkInstallations, pendingJoinOf, rootOf } from './identity';
 import { dueSources } from './sources';
 import { loginContests, loginStands, ruleContest } from './login-contests';
 import { identityInput, noteIdentity } from './identity-input';
 import { ensureProfile } from './profiles';
 import { connectInstallation, saveInstallation, sharedGroup } from './installations';
 import { readBank } from './answer-bank';
-import { tokenLineFor } from './token-gate';
 import { PICKUP_TEXT, yesNo, handlers, tools } from './tools';
 import { TECHNICAL_TERMS } from './token-launch';
 
@@ -25,16 +24,6 @@ after(async () => {
 
 // ---- Pure
 
-test('v2.8.1 §E18: the pickup question names the count', () => {
-  assert.equal(pickupQuestion(2), 'Pick up your 2 earlier entries?');
-  assert.equal(pickupQuestion(1), 'Pick up your earlier entry?');
-});
-
-test('v2.8.1 §E18: stated GitHub users are validated, lowercased, deduped, at most 5', () => {
-  assert.deepEqual(statedUsers({ github_users: ['Alice', 'alice', null, undefined, 'bad user', "x'; drop", 'b-o-b'] }), ['alice', 'b-o-b']);
-  assert.equal(statedUsers({ github_users: ['a', 'b', 'c', 'd', 'e', 'f'] }).length, 5);
-});
-
 test('v2.8.1 §E18: yes and no in the forms agents pass them', () => {
   for (const y of [true, 1, 'yes', 'Yes.', ' y ', 'sure', 'OK']) assert.equal(yesNo(y), true, String(y));
   for (const n of [false, 0, 'no', 'No!', 'nope', 'not now']) assert.equal(yesNo(n), false, String(n));
@@ -47,17 +36,6 @@ test('v2.8.1 §E18: pickup copy: no em dashes, no tool or file names, never "coi
     assert.doesNotMatch(t, TECHNICAL_TERMS, k);
     assert.doesNotMatch(t, /pick_up_entries|\bcoin/i, k);
   }
-});
-
-test('final fix wave (C1): the proof covers only groups with an entry in that repo (normalized)', () => {
-  const entries = [
-    { root: 5, repo_url: 'https://github.com/Alice/TipJar/' },
-    { root: 3, repo_url: 'https://github.com/mallory/x' },
-    { root: 9, repo_url: null },
-    { root: 2, repo_url: 'git+https://www.github.com/alice/tipjar' },
-  ];
-  assert.deepEqual(coveredRoots(entries, 'https://github.com/alice/tipjar'), [2, 5]);
-  assert.deepEqual(coveredRoots(entries, 'https://github.com/nobody/none'), []);
 });
 
 // ---- With the database
@@ -81,169 +59,6 @@ async function entry(installationId: number, repo: string | null, o: { wallet?: 
     VALUES (${programId}, 'Tip Jar', ${installationId}, ${repo}, ${o.wallet ?? null}) RETURNING id`;
   return row.id;
 }
-const fileWith = (text: string) => ({ owner: async () => ({ status: 'ok' as const, text }), latest: async () => null });
-const missing = { owner: async () => ({ status: 'missing' as const }), latest: async () => null };
-/** Ruling F13: the repo's earnkit.txt holding these installations' own lines for `repo`. */
-const linesOf = (repo: string, ...ids: number[]) => fileWith(ids.map((id) => tokenLineFor(id, repo)).join('\n') + '\n');
-
-test('v2.8.1 §E18: a new install naming the same GitHub user is offered its earlier entries; yes + proof links them', db, async () => {
-  const user = `ghu${randomBytes(4).toString('hex')}`;
-  const repo = `https://github.com/${user}/tipjar`;
-  const old = await install({ github_user: user });
-  await entry(old.id, repo);
-  await entry(old.id, `https://github.com/${user}/other`);
-  await sql()`INSERT INTO answer_bank (installation_id, project_key, kind, answer, program_id) VALUES (${old.id}, ${'github.com/' + user + '/tipjar'}, 'team', 'Alice and Bob', 'p')`;
-  await sql()`UPDATE installations SET alert_state = '{"top": {"1": true}}' WHERE id = ${old.id}`;
-
-  const fresh = await install();
-  // Nothing stated: no offer.
-  assert.equal(await offerPickup(fresh.id, {}), null);
-  // The GitHub user stated now (any case).
-  const other = `https://github.com/${user}/other`;
-  // Ruling F13: the earlier group's own line is in the repo the proof goes in.
-  const offer = await offerPickup(fresh.id, { github_users: [user.toUpperCase()] }, linesOf(other, old.id));
-  assert.deepEqual(offer, { question: 'Pick up your 2 earlier entries?', entries: 2 });
-  // Asked once: the next call doesn't repeat it (the answer still works).
-  assert.equal(await offerPickup(fresh.id, { github_users: [user] }, linesOf(other, old.id)), null);
-
-  // Yes without the proof line: nothing linked; the agent is told what to push.
-  const needs = await answerPickup(fresh.id, true, missing);
-  assert.equal(needs.status, 'needs_proof');
-  // The proof goes in the newest earlier entry's repo.
-  assert.deepEqual(needs, { status: 'needs_proof', repo: `github.com/${user}/other`, line: tokenLineFor(fresh.id, `https://github.com/${user}/other`), unreadable: false });
-  assert.equal((await connectInstallation(fresh.token))!.id, fresh.id, 'not linked yet');
-  // Another agent's line (the old installation's own code) proves nothing for this one.
-  assert.equal((await answerPickup(fresh.id, true, fileWith(tokenLineFor(old.id, repo)!))).status, 'needs_proof');
-
-  // With this agent's line: linked.
-  // This agent's line alone: the earlier group hasn't proven the repo itself (F13), so nothing links.
-  assert.deepEqual(await answerPickup(fresh.id, true, linesOf(other, fresh.id)), { status: 'none' });
-  await sql()`UPDATE installations SET pickup = ${sql().json({ offered: [old.id], repo: other, entries: 2 })} WHERE id = ${fresh.id}`;
-  const done = await answerPickup(fresh.id, true, fileWith(`payout_wallet: 0x${'1'.repeat(40)}\n${tokenLineFor(fresh.id, other)}\n${tokenLineFor(old.id, other)}\n`));
-  assert.deepEqual(done, { status: 'linked', entries: 2 });
-  // The new token now acts as the earlier installation: entries, bank and alerts carry over.
-  const caller = (await connectInstallation(fresh.token))!;
-  assert.deepEqual({ id: caller.id, own: caller.own }, { id: old.id, own: fresh.id });
-  assert.equal((await readBank(caller.id, `github.com/${user}/tipjar`)).get('team'), 'Alice and Bob');
-  const [st] = await sql()<{ alert_state: unknown }[]>`SELECT alert_state FROM installations WHERE id = ${caller.id}`;
-  assert.deepEqual(st.alert_state, { top: { '1': true } });
-  // The old agent still works, as the same builder.
-  assert.equal((await connectInstallation(old.token))!.id, old.id);
-  // Never offered again once linked.
-  assert.equal(await offerPickup(fresh.id, { github_users: [user] }, linesOf(other, old.id)), null);
-});
-
-test('v2.8.1 §E18: a no is remembered; nothing links and it is not asked again', db, async () => {
-  const user = `ghn${randomBytes(4).toString('hex')}`;
-  const old = await install();
-  await entry(old.id, `https://github.com/${user}/app`);
-  const fresh = await install();
-  const proof = linesOf(`https://github.com/${user}/app`, old.id);
-  assert.ok(await offerPickup(fresh.id, { github_users: [user] }, proof), 'matched by the repo owner of an earlier entry');
-  assert.deepEqual(await answerPickup(fresh.id, false), { status: 'declined' });
-  assert.equal(await offerPickup(fresh.id, { github_users: [user] }, proof), null);
-  assert.deepEqual(await answerPickup(fresh.id, true, fileWith('')), { status: 'none' });
-  assert.equal((await connectInstallation(fresh.token))!.id, fresh.id);
-});
-
-test('v2.8.1 §E18: a wallet stated now matches; earlier entries without a GitHub repo get no offer (nothing to prove)', db, async () => {
-  const wallet = `0x${randomBytes(20).toString('hex')}`;
-  const old = await install({ wallet });
-  await entry(old.id, 'https://gitlab.com/someone/app');
-  const fresh = await install();
-  assert.equal(await offerPickup(fresh.id, { wallet }), null);
-  const ghRepo = `https://github.com/w${randomBytes(3).toString('hex')}/app`;
-  await entry(old.id, ghRepo);
-  // Ruling F13: not until the earlier group has proven the repo itself.
-  assert.equal(await offerPickup(fresh.id, { wallet }, missing), null);
-  // G0 N2: the repo is read again only after an hour (the line was added since).
-  await sql()`UPDATE installations SET pickup = pickup - 'read' WHERE id = ${fresh.id}`;
-  assert.deepEqual(await offerPickup(fresh.id, { wallet: wallet.toUpperCase().replace('0X', '0x') }, linesOf(ghRepo, old.id)), { question: 'Pick up your 2 earlier entries?', entries: 2 });
-  // An installation that never entered has nothing to pick up.
-  const empty = await install({ wallet: `0x${randomBytes(20).toString('hex')}` });
-  void empty;
-  assert.equal(await findEarlier(fresh.id, { wallet: `0x${randomBytes(20).toString('hex')}` }), null);
-});
-
-test('final fix wave (C2): a hosted install is never offered a pickup, from memory or from what it states', db, async () => {
-  const user = `ghs${randomBytes(4).toString('hex')}`;
-  const old = await install();
-  await entry(old.id, `https://github.com/${user}/app`);
-  // A shared registration that remembers another user's GitHub name from an earlier call.
-  const shared = await install({ shared: true, github_user: user });
-  const tools_ = handlers as unknown as { list_programs: (i: unknown, c: unknown) => Promise<{ pick_up?: unknown; show_to_builder: string }> };
-  const ctx = { installationId: shared.id, ownInstallationId: shared.id, sharedClient: true, matchProjects: async () => ({ fits: [] }), roundPools: async () => new Map(), repoCoins: async () => new Map() };
-  const r = await tools_.list_programs({}, ctx);
-  assert.ok(!('pick_up' in r), 'no offer from remembered state');
-  assert.doesNotMatch(r.show_to_builder, /Pick up/);
-  // Stated in this exchange: still no offer on a hosted agent.
-  const s = await tools_.list_programs({ github_user: user }, ctx);
-  assert.ok(!('pick_up' in s));
-  assert.doesNotMatch(s.show_to_builder, /Pick up/);
-  assert.equal(await offerPickup(shared.id, { github_users: [user] }), null);
-  // A stale offer on a hosted install never links, even with the proof line.
-  await sql()`UPDATE installations SET pickup = ${sql().json({ offered: [old.id], repo: `https://github.com/${user}/app`, entries: 1 })} WHERE id = ${shared.id}`;
-  assert.deepEqual(await answerPickup(shared.id, true, fileWith(tokenLineFor(shared.id, `https://github.com/${user}/app`)!)), { status: 'none' });
-  assert.equal((await connectInstallation(shared.token))!.id, shared.id);
-});
-
-test('final fix wave (C2): a group holding a hosted install is never matched, offered or linked', db, async () => {
-  const user = `ghh${randomBytes(4).toString('hex')}`;
-  const repo = `https://github.com/${user}/app`;
-  // The builder's one entry made through a hosted agent (Grok Bot).
-  const hosted = await install({ shared: true });
-  await entry(hosted.id, repo);
-  const fresh = await install();
-  assert.equal(await findEarlier(fresh.id, { github_users: [user] }), null);
-  assert.equal(await offerPickup(fresh.id, { github_users: [user] }, linesOf(repo, hosted.id)), null);
-  // A hosted member inside an otherwise plain group hides the whole group.
-  const plain = await install();
-  await entry(plain.id, repo);
-  assert.ok(await findEarlier(fresh.id, { github_users: [user] }));
-  const member = await install({ shared: true });
-  await sql()`UPDATE installations SET builder_id = ${plain.id} WHERE id = ${member.id}`;
-  assert.equal(await findEarlier(fresh.id, { github_users: [user] }), null);
-  // An offer made before the group turned hosted never links it.
-  await sql()`UPDATE installations SET builder_id = NULL WHERE id = ${member.id}`;
-  assert.ok(await offerPickup(fresh.id, { github_users: [user] }, linesOf(repo, plain.id)));
-  await sql()`UPDATE installations SET builder_id = ${plain.id} WHERE id = ${member.id}`;
-  assert.deepEqual(await answerPickup(fresh.id, true, linesOf(repo, fresh.id, plain.id)), { status: 'none' });
-  assert.equal((await connectInstallation(fresh.token))!.id, fresh.id);
-  // The tools read sharedClient from the group: the plain token linked with a hosted member is hosted.
-  assert.equal((await connectInstallation(plain.token))!.shared, true);
-  assert.equal((await connectInstallation(fresh.token))!.shared, false);
-});
-
-test('final fix wave (C1): only the groups the proof covers link; the question counts only their entries', db, async () => {
-  const user = `ghc${randomBytes(4).toString('hex')}`;
-  const repo = `https://github.com/${user}/tipjar`;
-  // Alice's earlier install: one entry in her repo.
-  const alice = await install({ github_user: user });
-  await entry(alice.id, repo);
-  // Mallory's install claims Alice's GitHub user and enters two programs from another repo.
-  const mallory = await install({ github_user: user });
-  await entry(mallory.id, 'https://github.com/mallory-x/other');
-  await entry(mallory.id, 'https://github.com/mallory-x/other2');
-  const fresh = await install();
-  const found = await findEarlier(fresh.id, { github_users: [user] });
-  assert.deepEqual(found, { roots: [alice.id], entries: 1, repo, counts: { [alice.id]: 1 } });
-  assert.deepEqual(await offerPickup(fresh.id, { github_users: [user] }, linesOf(repo, alice.id)), { question: 'Pick up your earlier entry?', entries: 1 });
-  const done = await answerPickup(fresh.id, true, linesOf(repo, fresh.id, alice.id));
-  assert.deepEqual(done, { status: 'linked', entries: 1 });
-  assert.equal((await connectInstallation(fresh.token))!.id, alice.id);
-  // Mallory stays outside the group.
-  assert.equal((await connectInstallation(mallory.token))!.id, mallory.id);
-  const [m] = await sql()<{ builder_id: number | null }[]>`SELECT builder_id FROM installations WHERE id = ${mallory.id}`;
-  assert.equal(m.builder_id, null);
-  // A stale offer naming an uncovered group links only the covered ones.
-  const other = await install();
-  const third = await install({ github_user: user });
-  await entry(third.id, 'https://github.com/someone-else/x');
-  await sql()`UPDATE installations SET pickup = ${sql().json({ offered: [third.id, alice.id], repo, entries: 2 })} WHERE id = ${other.id}`;
-  assert.deepEqual(await answerPickup(other.id, true, linesOf(repo, other.id, alice.id)), { status: 'linked', entries: 1 });
-  assert.equal((await connectInstallation(third.token))!.id, third.id);
-  assert.equal((await connectInstallation(other.token))!.id, alice.id);
-});
 
 test('final fix wave (M3): linking keeps the earlier-submitted entry per program and repo; no duplicates', db, async () => {
   const a = await install();
@@ -300,205 +115,13 @@ test('v2.8.1 §E17: the per-agent launch floor is the shared one when the group 
   assert.equal(await sharedGroup(Math.min(plain.id, hosted.id)), true);
 });
 
-test('v2.8.1 §E18: the pick_up_entries tool: what to push, then picked up; builder text names no tool or file', db, async () => {
-  const user = `ght${randomBytes(4).toString('hex')}`;
-  const old = await install();
-  await entry(old.id, `https://github.com/${user}/app`);
-  const fresh = await install();
-  type Reply = { show_to_builder: string; agent_note?: string; entries?: number };
-  const pick = handlers.pick_up_entries as (i: unknown, c: unknown) => Promise<Reply>;
-  const ctx = (deps: unknown) => ({ installationId: fresh.id, ownInstallationId: fresh.id, pickupDeps: deps });
-  assert.equal((await pick({ answer: 'yes' }, ctx(missing))).show_to_builder, PICKUP_TEXT.none, 'nothing offered yet');
-  await offerPickup(fresh.id, { github_users: [user] }, linesOf(`https://github.com/${user}/app`, old.id));
-  assert.equal((await pick({ answer: 'maybe' }, ctx(missing))).show_to_builder, PICKUP_TEXT.unclear);
-  const line = tokenLineFor(fresh.id, `https://github.com/${user}/app`)!;
-  const needs = await pick({ answer: 'yes' }, ctx(missing));
-  assert.equal(needs.show_to_builder, PICKUP_TEXT.proof);
-  assert.ok(needs.agent_note?.includes(`"${line}"`) && needs.agent_note.includes(`github.com/${user}/app`), needs.agent_note);
-  const down = await pick({ answer: true }, ctx({ owner: async () => ({ status: 'error', message: 'x' }), latest: async () => null }));
-  assert.equal(down.show_to_builder, PICKUP_TEXT.unreadable);
-  // Pushed to a feature branch: the latest pushed branch proves it too.
-  const done = await pick({ answer: 'Yes' }, ctx({ owner: async () => ({ status: 'missing' }), latest: async () => ({ branch: 'feat', file: { status: 'ok', text: `${line}\n${tokenLineFor(old.id, `https://github.com/${user}/app`)}` } }) }));
-  assert.deepEqual({ text: done.show_to_builder, entries: done.entries }, { text: PICKUP_TEXT.linked, entries: 1 });
-  assert.equal((await connectInstallation(fresh.token))!.id, old.id);
-});
+// ---- v2.9 T12 (Ruling G0): the v2.8.1 deferred minors
 
-test('Ruling F13: a stranger who plants an entry on Alice\'s exact repo is never counted or linked', db, async () => {
-  const user = `ghf${randomBytes(4).toString('hex')}`;
-  const repo = `https://github.com/${user}/tipjar`;
-  // Alice's earlier install: her entry on the repo, its token launched (she proved the repo then).
-  const alice = await install({ github_user: user });
-  const aliceEntry = await entry(alice.id, repo);
-  await sql()`
-    UPDATE projects SET token_url = 'https://tokens.fun/coin/0xf13', token_status = 'launched', token_repo_key = ${repo.replace('https://', '')}
-    WHERE id = ${aliceEntry}`;
-  // The stranger names Alice's GitHub user and plants two entries on her exact repo, never proven.
-  const stranger = await install({ github_user: user });
-  await entry(stranger.id, repo);
-  await entry(stranger.id, repo);
-  const fresh = await install();
-  // Both groups name the repo; only Alice's proved it. The question counts only her entry.
-  assert.deepEqual((await findEarlier(fresh.id, { github_users: [user] }))!.roots, [alice.id, stranger.id]);
-  assert.deepEqual(await offerPickup(fresh.id, { github_users: [user] }, linesOf(repo, fresh.id)), { question: 'Pick up your earlier entry?', entries: 1 });
-  // Alice proves and says yes: only her group links.
-  assert.deepEqual(await answerPickup(fresh.id, true, linesOf(repo, fresh.id)), { status: 'linked', entries: 1 });
-  assert.equal((await connectInstallation(fresh.token))!.id, alice.id);
-  assert.equal((await connectInstallation(stranger.token))!.id, stranger.id, 'the stranger is never linked');
-  const [st] = await sql()<{ builder_id: number | null }[]>`SELECT builder_id FROM installations WHERE id = ${stranger.id}`;
-  assert.equal(st.builder_id, null);
-  // A stale offer naming the stranger's group links nothing of it either.
-  const other = await install();
-  await sql()`UPDATE installations SET pickup = ${sql().json({ offered: [stranger.id], repo, entries: 2 })} WHERE id = ${other.id}`;
-  assert.deepEqual(await answerPickup(other.id, true, linesOf(repo, other.id)), { status: 'none' });
-  assert.equal((await connectInstallation(stranger.token))!.id, stranger.id);
-  // Only an unproven group names the repo: no offer at all.
-  const user2 = `ghg${randomBytes(4).toString('hex')}`;
-  const lone = await install({ github_user: user2 });
-  await entry(lone.id, `https://github.com/${user2}/app`);
-  const fresh2 = await install();
-  assert.equal(await offerPickup(fresh2.id, { github_users: [user2] }, linesOf(`https://github.com/${user2}/app`, fresh2.id)), null);
-});
-
-// ---- v2.9 B9: identity linking accepts a GitHub sign-in (Pre-flight P8)
-
-async function withSignIn<T>(fn: () => Promise<T>): Promise<T> {
-  const old = [process.env.GITHUB_OAUTH_CLIENT_ID, process.env.GITHUB_OAUTH_CLIENT_SECRET];
-  process.env.GITHUB_OAUTH_CLIENT_ID = 'test-client';
-  process.env.GITHUB_OAUTH_CLIENT_SECRET = 'test-secret';
-  try {
-    return await fn();
-  } finally {
-    if (old[0] === undefined) delete process.env.GITHUB_OAUTH_CLIENT_ID;
-    else process.env.GITHUB_OAUTH_CLIENT_ID = old[0];
-    if (old[1] === undefined) delete process.env.GITHUB_OAUTH_CLIENT_SECRET;
-    else process.env.GITHUB_OAUTH_CLIENT_SECRET = old[1];
-  }
-}
-const signedIn = (installationId: number, repoKey: string, purpose: 'entry' | 'pickup', at: Date) =>
-  sql()`INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, verified_at, purpose)
-    VALUES (${repoKey}, 'alice', ${installationId}, '2020-01-01', 3, ${at}, ${purpose})`;
-
-test('5.11 v2.9 B9: answerPickup yes passes with a pickup sign-in of the offer\'s repo made after the offer; the reply carries the link until then', db, () =>
-  withSignIn(async () => {
-    const user = `ghv${randomBytes(4).toString('hex')}`;
-    const repo = `https://github.com/${user}/tipjar`;
-    const key = `${user}/tipjar`;
-    const old = await install({ github_user: user });
-    await entry(old.id, repo);
-    const fresh = await install();
-    const before = new Date(Date.now() - 60_000);
-    assert.ok(await offerPickup(fresh.id, { github_users: [user] }, linesOf(repo, old.id)));
-    const [{ pickup }] = await sql()<{ pickup: { at?: string } }[]>`SELECT pickup FROM installations WHERE id = ${fresh.id}`;
-    assert.ok(pickup.at && !Number.isNaN(Date.parse(pickup.at)), 'the offer keeps when it was made');
-    // No sign-in yet: the proof line, and the sign-in link.
-    const needs = await answerPickup(fresh.id, true, linesOf(repo, old.id));
-    assert.equal(needs.status, 'needs_proof');
-    assert.match((needs as { sign_in?: string }).sign_in ?? '', /^https:\/\/earnkit\.com\/github\/verify\?n=[A-Za-z0-9_-]{43}$/);
-    // A sign-in from before the offer, or for another purpose, doesn't count.
-    await signedIn(fresh.id, key, 'pickup', before);
-    await signedIn(fresh.id, key, 'entry', new Date());
-    assert.equal((await answerPickup(fresh.id, true, linesOf(repo, old.id))).status, 'needs_proof');
-    // A pickup sign-in after the offer: linked, with no proof line of this agent.
-    await signedIn(fresh.id, key, 'pickup', new Date());
-    assert.deepEqual(await answerPickup(fresh.id, true, linesOf(repo, old.id)), { status: 'linked', entries: 1 });
-  }));
-
-test('P8: an earlier group that signed in with GitHub for the repo counts as having proven it (F13)', db, () =>
-  withSignIn(async () => {
-    const user = `ghw${randomBytes(4).toString('hex')}`;
-    const repo = `https://github.com/${user}/tipjar`;
-    const old = await install({ github_user: user });
-    await entry(old.id, repo);
-    const fresh = await install();
-    // No lines in the repo at all: unproven, never offered.
-    assert.equal(await offerPickup(fresh.id, { github_users: [user] }, fileWith('')), null);
-    await signedIn(old.id, `${user}/tipjar`, 'entry', new Date());
-    assert.deepEqual(await offerPickup(fresh.id, { github_users: [user] }, fileWith('')), { question: 'Pick up your earlier entry?', entries: 1 });
-    await signedIn(fresh.id, `${user}/tipjar`, 'pickup', new Date(Date.now() + 1000));
-    assert.deepEqual(await answerPickup(fresh.id, true, fileWith('')), { status: 'linked', entries: 1 });
-  }));
-
-test('P8, C2: a hosted group never picks up, signed in or not', db, () =>
-  withSignIn(async () => {
-    const user = `ghx${randomBytes(4).toString('hex')}`;
-    const shared = await install({ shared: true });
-    await sql()`UPDATE installations SET pickup = ${sql().json({ offered: [shared.id + 1], repo: `https://github.com/${user}/app`, entries: 1, at: new Date(0).toISOString() })} WHERE id = ${shared.id}`;
-    await signedIn(shared.id, `${user}/app`, 'pickup', new Date());
-    assert.deepEqual(await answerPickup(shared.id, true, fileWith('')), { status: 'none' });
-  }));
-
-// ---- v2.9 T12 (Ruling G0): the v2.8.1 deferred minors N1, N2, N3
-
-/** earnkit.txt reads, counted: the proof codes come from `text`. */
-function countedFile(text: string) {
-  const reads = { n: 0 };
-  return { reads, deps: { owner: async () => (reads.n++, { status: 'ok' as const, text }), latest: async () => null } };
-}
 const launchedOn = (projectId: number, repo: string) =>
   sql()`
     UPDATE projects SET token_url = ${`https://tokens.fun/coin/0x${randomBytes(20).toString('hex')}`}, token_status = 'launched',
       token_repo_key = ${repo.replace('https://', '').toLowerCase()}
     WHERE id = ${projectId}`;
-
-test('G0 N1: a newer entry planted on another of Alice\'s repos never blocks her honest pickup', db, async () => {
-  const user = `ghn${randomBytes(4).toString('hex')}`;
-  const tipjar = `https://github.com/${user}/tipjar`;
-  // Alice's earlier install: her entry on tipjar, its token launched (proven).
-  const alice = await install({ github_user: user });
-  await launchedOn(await entry(alice.id, tipjar), tipjar);
-  // A stranger then names another of her repos: the newest entry, never proven.
-  const stranger = await install();
-  await entry(stranger.id, `https://github.com/${user}/new-thing`);
-  const fresh = await install();
-  const found = (await findEarlier(fresh.id, { github_users: [user] }))!;
-  assert.equal(found.repo, tipjar, 'the proof goes in the repo a matched group proved');
-  assert.deepEqual(found.roots, [alice.id]);
-  assert.deepEqual(await offerPickup(fresh.id, { github_users: [user] }, missing), { question: 'Pick up your earlier entry?', entries: 1 });
-  assert.deepEqual(await answerPickup(fresh.id, true, linesOf(tipjar, fresh.id)), { status: 'linked', entries: 1 });
-  assert.equal((await connectInstallation(fresh.token))!.id, alice.id);
-  assert.equal((await connectInstallation(stranger.token))!.id, stranger.id, 'the stranger is never linked');
-});
-
-test('G0 N1: Alice\'s own newest repo unproven, an older one proven: the offer uses the proven one', db, async () => {
-  const user = `gho${randomBytes(4).toString('hex')}`;
-  const old = `https://github.com/${user}/old-app`;
-  const alice = await install({ github_user: user });
-  await launchedOn(await entry(alice.id, old), old);
-  await entry(alice.id, `https://github.com/${user}/newest`);
-  const fresh = await install();
-  assert.equal((await findEarlier(fresh.id, { github_users: [user] }))!.repo, old);
-  assert.deepEqual(await offerPickup(fresh.id, { github_users: [user] }, missing), { question: 'Pick up your 2 earlier entries?', entries: 2 });
-});
-
-test('G0 N2: list_programs reads earnkit.txt only when it can change the offer: never once asked, never when tokens prove it, at most once an hour otherwise', db, async () => {
-  // Proven by a launched token: no read at all.
-  const u1 = `ghp${randomBytes(4).toString('hex')}`;
-  const r1 = `https://github.com/${u1}/app`;
-  const a1 = await install({ github_user: u1 });
-  await launchedOn(await entry(a1.id, r1), r1);
-  const f1 = await install();
-  const c1 = countedFile('');
-  assert.ok(await offerPickup(f1.id, { github_users: [u1] }, c1.deps));
-  assert.equal(c1.reads.n, 0, 'a launched token proves it without a read');
-  // Asked already: no read on the next calls.
-  assert.equal(await offerPickup(f1.id, { github_users: [u1] }, c1.deps), null);
-  assert.equal(c1.reads.n, 0);
-
-  // Unproven: one read, then none on repeated calls within the hour.
-  const u2 = `ghq${randomBytes(4).toString('hex')}`;
-  const r2 = `https://github.com/${u2}/app`;
-  const a2 = await install({ github_user: u2 });
-  await entry(a2.id, r2);
-  const f2 = await install();
-  const c2 = countedFile('');
-  for (let i = 0; i < 3; i++) assert.equal(await offerPickup(f2.id, { github_users: [u2] }, c2.deps), null);
-  assert.equal(c2.reads.n, 1, 'one read an hour for a group that has not proven the repo');
-  // An hour later it reads again, and the group's line now counts.
-  await sql()`UPDATE installations SET pickup = jsonb_set(pickup, '{read,at}', to_jsonb(${new Date(Date.now() - 3_601_000).toISOString()}::text)) WHERE id = ${f2.id}`;
-  const c3 = countedFile(tokenLineFor(a2.id, r2)! + '\n');
-  assert.deepEqual(await offerPickup(f2.id, { github_users: [u2] }, c3.deps), { question: 'Pick up your earlier entry?', entries: 1 });
-  assert.equal(c3.reads.n, 1);
-});
 
 test('G0 N3: linking keeps the duplicate that holds the repo\'s token in the group, even when it was submitted later', db, async () => {
   const a = await install();
@@ -519,46 +142,6 @@ test('G0 N3: linking keeps the duplicate that holds the repo\'s token in the gro
   const owner = async (id: number) => (await sql()<{ i: number }[]>`SELECT installation_id AS i FROM projects WHERE id = ${id}`)[0].i;
   assert.equal(await owner(laterWithToken), a.id, 'the entry with the token stays in the group\'s entries');
   assert.equal(await owner(earlier), b.id);
-});
-
-test('Ruling H10 (I3): one question per reply: with a pickup, the reply asks only it; no lead question, no outcome ask; the lead comes on the next reply', db, async () => {
-  const { upsertProgram } = await import('./programs');
-  const { ProgramFile } = await import('./program-file');
-  const { committedProgram } = await import('./fixtures/program-file');
-  const user = `ghq${randomBytes(4).toString('hex')}`;
-  const repo = `https://github.com/${user}/app`;
-  const old = await install();
-  await entry(old.id, repo);
-  const fresh = await install();
-  const arc = { ...committedProgram('arc-microgrants'), id: `idt-lead-${stamp()}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' };
-  await upsertProgram(ProgramFile.parse(arc));
-  const GOOD = { score: 6, tier: 'product' as const, missing: [], traction: 8, odds: 'good' as const, low_reason: null };
-  const fits = [{ repo: 'TipJar', repo_url: repo, verdicts: [{ program_id: arc.id, program: arc.id, status: 'likely' as const, missing: [], effort: 'none' as const, note: null }], product: GOOD }];
-  type Listed = { show_to_builder: string; pick_up?: { question: string }; lead?: { program_id: string; repo: string }; ask_outcome?: unknown };
-  const list = handlers.list_programs as (i: unknown, c: unknown) => Promise<Listed>;
-  const ctx = {
-    installationId: fresh.id, ownInstallationId: fresh.id, pickupDeps: linesOf(repo, old.id),
-    matchProjects: async () => ({ checked: 1, scored: 1, fits }), roundPools: async () => new Map(), repoCoins: async () => new Map(),
-  };
-  try {
-    const first = await list({ github_user: user }, ctx);
-    assert.ok(first.pick_up, 'the pickup is offered');
-    assert.ok(first.show_to_builder.startsWith(first.pick_up!.question), first.show_to_builder);
-    assert.equal(first.show_to_builder.split('?').length - 1, 1, `exactly one question: ${first.show_to_builder}`);
-    assert.doesNotMatch(first.show_to_builder, /Want me to finish it|Want the 3 easiest/);
-    assert.ok(!('lead' in first) && !('ask_outcome' in first));
-    // The pickup was asked; the next reply asks the lead's question, with lead.program_id.
-    const next = await list({ github_user: user }, ctx);
-    assert.ok(!next.pick_up);
-    assert.match(next.show_to_builder, /Your TipJar can win 500 USDC on Arc by Oct 14\. Want me to finish it\?$/);
-    assert.equal(next.show_to_builder.split('?').length - 1, 1);
-    assert.deepEqual(next.lead, { program_id: arc.id, repo: 'TipJar' });
-    // "show more": the tables carry no lead field (their close is the offer).
-    const more = await list({ github_user: user, more: true }, ctx);
-    assert.ok(!('lead' in more));
-  } finally {
-    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${arc.id}`;
-  }
 });
 
 // ---- v2.12.1 Task 5: the identity input and merges on proven ties only
@@ -652,17 +235,11 @@ test('5.4 (fix rounds 1, 2) a GitHub login another group already proved asks bot
     assert.deepEqual({ ...p }, { slug: older, x_user_id: null, x_handle: null, github_login: login });
   }));
 
-test('5.4b a GitHub sign-in: the first one for a login proves it with no question; a second group\'s is a pending join, never a merge; flag off nothing', db, async () => {
+test('5.4b a GitHub sign-in: the first one for a login proves it with no question; a second group\'s is a pending join, never a merge', db, async () => {
   const { saveVerification } = await import('./github-verify');
   const login = `sv-${stamp()}`.slice(0, 39);
   const user = { login, created_at: new Date('2020-01-01'), public_repos: 3 };
   const row = (installation_id: number) => ({ installation_id, project_id: null, repo_key: `${login}/r`, purpose: 'entry' as const, wallet: null, symbol: null });
-  const [a, b] = [await person(), await person()];
-  await saveVerification(row(a), user, NOW);
-  await saveVerification(row(b), user, NOW);
-  assert.notEqual(await rootOf(a), await rootOf(b));
-  const [none] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM pending_joins WHERE installation_id IN (${a}, ${b}) OR target IN (${a}, ${b})`;
-  assert.equal(none.n, 0, 'flag off: no pending join');
   await scoreOn(async () => {
     const [c, d] = [await person(), await person()];
     const l2 = `${login}-2`.slice(0, 39);
@@ -733,8 +310,8 @@ test('5.13 (round 2 addendum) a merge keeps hide and held from either side: hide
       await ensureProfile(b, NOW);
       const [{ slug }] = await sql()<{ slug: string }[]>`SELECT slug FROM builder_profiles WHERE builder_id = ${a}`;
       await sql()`UPDATE builder_profiles SET held = true, hidden = true WHERE builder_id = ${side === 'root' ? a : b}`;
-      await sql()`INSERT INTO pending_joins (installation_id, target, tie, target_yes, joiner_yes) VALUES (${b}, ${a}, 'github_login', true, null)`;
-      assert.equal(await answerJoin(b, true), 'linked');
+      // The merge itself (answerJoin's link after both yeses; its consent checks are 5.12's and v2134-onboarding's).
+      await linkInstallations(b, [a]);
       const [p] = await sql()`SELECT slug, held, hidden FROM builder_profiles WHERE builder_id = ${await rootOf(a)}`;
       assert.deepEqual({ ...p }, { slug, held: true, hidden: true }, side);
     }
@@ -841,7 +418,7 @@ test('5.6 a login proven only by the X field match never joins anyone', db, () =
     assert.equal(await joinOnProvenTie(a, { github_login: `zed-${b}` }), 0);
   }));
 
-test('5.7 a shared client never joins, and the flag off joins no one', db, async () => {
+test('5.7 a shared client never joins', db, async () => {
   const login = `sh-${stamp()}`.slice(0, 39);
   const a = (await install({ shared: true })).id;
   const b = await person();
@@ -850,9 +427,6 @@ test('5.7 a shared client never joins, and the flag off joins no one', db, async
     await sql()`UPDATE builder_profiles SET github_login = ${login}, github_basis = 'signin' WHERE builder_id = ${b}`;
     assert.equal(await joinOnProvenTie(a, { github_login: login }), 0);
   });
-  const c = await person();
-  assert.equal(await joinOnProvenTie(c, { github_login: login }), 0);
-  assert.notEqual(await rootOf(c), await rootOf(b));
 });
 
 test('5.8 merging moves claim codes and proven wallets, drops the loser\'s live score and projects, and re-reads the root', db, () =>
@@ -893,12 +467,12 @@ test('5.9 linking never merges two people with different X accounts (pickup or a
     assert.notEqual(await rootOf(a), await rootOf(b));
   }));
 
-test('5.10 flag on, find takes identity and never offers a pickup; flag off, identity is ignored', db, async () => {
+test('5.10 find takes identity and never offers a pickup', db, async () => {
   const repo = `https://github.com/pk${process.pid}${Date.now()}/tipjar`;
   const owner = repo.split('/')[3];
   const earlier = await install({ github_user: owner });
   await entry(earlier.id, repo);
-  const ctx = (id: number) => ({ installationId: id, ownInstallationId: id, sharedClient: false, pickupDeps: linesOf(repo, earlier.id) }) as never;
+  const ctx = (id: number) => ({ installationId: id, ownInstallationId: id, sharedClient: false }) as never;
   const on = await install();
   await scoreOn(async () => {
     const out = (await handlers.list_programs({ github_user: owner, identity: { github_login: owner, projects: [{ name: 'TipJar', what: 'a tip jar', repo }] } }, ctx(on.id))) as Record<string, unknown>;
@@ -906,11 +480,6 @@ test('5.10 flag on, find takes identity and never offers a pickup; flag off, ide
     const [p] = await sql()`SELECT reported_github FROM builder_profiles WHERE builder_id = ${on.id}`;
     assert.equal(p.reported_github, owner);
   });
-  const off = await install();
-  const before = await handlers.list_programs({ github_user: owner }, ctx(off.id));
-  assert.match(JSON.stringify(before), /Pick up/);
-  const [none] = await sql()`SELECT count(*)::int AS n FROM builder_profiles WHERE builder_id = ${off.id}`;
-  assert.equal(none.n, 0);
 });
 
 test('5.11 a deploy wallet the agent typed joins no one (held for the owner\'s ruling: it is agent-reported)', db, () =>
@@ -1018,20 +587,6 @@ test('5.19 the admin page lists contested logins with a confirm button per group
   const page = await readFile(new URL('../../app/admin/scores/page.tsx', import.meta.url), 'utf8');
   assert.match(page, /loginContests\(\)/);
   assert.match(page, /name="action" value="rule_login"/);
-});
-
-test('5.20 every merge path needs both yeses: with the flag on, a v2.9 pickup yes never links', db, async () => {
-  const repo = `https://github.com/pz${process.pid}${Date.now()}/tipjar`;
-  const earlier = await install({ github_user: repo.split('/')[3] });
-  await entry(earlier.id, repo);
-  const later = await install();
-  const offered = await offerPickup(later.id, { github_users: [repo.split('/')[3]] }, linesOf(repo, earlier.id));
-  assert.ok(offered);
-  await scoreOn(async () => {
-    const r = await answerPickup(later.id, true, linesOf(repo, earlier.id, later.id));
-    assert.equal(r.status, 'none');
-    assert.notEqual(await rootOf(later.id), await rootOf(earlier.id));
-  });
 });
 
 // ---- v2.12.1 Task 6 carries (binding): the X claim against contested logins, dormant installs, the joiner's question

@@ -4,27 +4,23 @@ import { CANT_PUSH, READY_TO_SUBMIT, SKIP_TOKEN, confirmDecision, confirmLine, c
 
 const W = '0x12Ab' + '0'.repeat(32) + '9F3E';
 const TIP = { name: 'Tip Jar', symbol: 'TIP' };
-const base = { hasBonus: true, coinIn: null, canPush: true, wallet: W, proposal: TIP };
+const base = { coinIn: null, canPush: true, wallet: W, proposal: TIP };
 
 test('7.4 v2.10 item 5: the offer is the one confirm line, the wallet short', () => {
   assert.equal(
     confirmOffer(base),
-    'Yes submits your entry and launches $TIP (Tip Jar): 40% of its fees to you, plus the builder bonus. Wallet: 0x12ab…9f3e. yes / skip the token',
-  );
-  assert.equal(
-    confirmOffer({ ...base, hasBonus: false }),
     'Yes submits your entry and launches $TIP (Tip Jar): 40% of its fees to you. Wallet: 0x12ab…9f3e. yes / skip the token',
   );
   assert.equal(
     confirmOffer({ ...base, wallet: null }),
-    'Yes submits your entry and launches $TIP (Tip Jar): 40% of its fees to you, plus the builder bonus. Say yes with your wallet address / skip the token',
+    'Yes submits your entry and launches $TIP (Tip Jar): 40% of its fees to you. Say yes with your wallet address / skip the token',
   );
   assert.equal(
     confirmOffer({ ...base, wallet: null, proposal: { name: 'Tip Jar', symbol: 'NEW' }, again: true }),
     'Yes submits your entry and launches $NEW (Tip Jar). Say yes with your wallet address / skip the token',
   );
   assert.equal(
-    confirmLine({ proposal: { name: 'Tip Jar', symbol: 'NEW' }, hasBonus: true, wallet: null, walletKnown: true, again: true }),
+    confirmLine({ proposal: { name: 'Tip Jar', symbol: 'NEW' }, wallet: null, walletKnown: true, again: true }),
     'Yes submits your entry and launches $NEW (Tip Jar). yes / skip the token',
   );
   assert.equal(SKIP_TOKEN, 'skip the token');
@@ -33,7 +29,7 @@ test('7.4 v2.10 item 5: the offer is the one confirm line, the wallet short', ()
 });
 
 test('7.5 v2.10 item 5: one line, no fine print; a token elsewhere or tokens off: Ready to submit?', () => {
-  for (const o of [base, { ...base, hasBonus: false }, { ...base, wallet: null }, { ...base, again: true }, { ...base, signIn: true, canPush: false }]) {
+  for (const o of [base, { ...base, wallet: null }, { ...base, again: true }, { ...base, signIn: true, canPush: false }]) {
     const t = confirmOffer(o);
     assert.ok(!t.includes('\n'), t);
     assert.doesNotMatch(t, /WETH|gas|tokens\.fun|Terms|Risks/, t);
@@ -91,15 +87,15 @@ test('5.9 v2.9 B9: with sign-in on, an agent that can\'t push gets sign_in (neve
     signInLine('TipJar', 'TIP', 'https://earnkit.com/github/verify?n=x'),
     'One click to prove TipJar is yours, then $TIP launches: https://earnkit.com/github/verify?n=x',
   );
-  const offer = { hasBonus: true, coinIn: null, canPush: false, wallet: null, proposal: { name: 'TipJar', symbol: 'TIP' } };
+  const offer = { coinIn: null, canPush: false, wallet: null, proposal: { name: 'TipJar', symbol: 'TIP' } };
   assert.equal(confirmOffer(offer), `${CANT_PUSH}\nReady to submit?`, 'off: as before');
   const on = confirmOffer({ ...offer, signIn: true });
   assert.doesNotMatch(on, /Claude Code|Cursor/);
-  assert.match(on, /^Yes submits your entry and launches \$TIP \(TipJar\): 40% of its fees to you, plus the builder bonus\./);
+  assert.match(on, /^Yes submits your entry and launches \$TIP \(TipJar\): 40% of its fees to you\./);
 });
 
 test('9.3, v2.12.1 T10: where no token is pitched (belowScore) the confirm line never mentions a token, and a yes records only', () => {
-  const offer = { hasBonus: true, coinIn: null, canPush: true, wallet: '0x' + '1'.repeat(40), proposal: { name: 'Tip Jar', symbol: 'TIP' } };
+  const offer = { coinIn: null, canPush: true, wallet: '0x' + '1'.repeat(40), proposal: { name: 'Tip Jar', symbol: 'TIP' } };
   assert.equal(confirmOffer({ ...offer, belowScore: true }), READY_TO_SUBMIT);
   assert.equal(confirmOffer({ ...offer, canPush: false, belowScore: true }), READY_TO_SUBMIT, 'no "open this in Claude Code" token line either');
   assert.match(confirmOffer(offer), /launches \$TIP/);

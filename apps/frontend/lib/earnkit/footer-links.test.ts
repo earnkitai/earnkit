@@ -5,7 +5,7 @@ import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import Footer from '../../app/components/common/Footer';
 import { Wordmark } from '../../app/components/ui/Logo';
-import { EXTERNAL_ALLOW, FOOTER_COLUMNS, FOOTER_TAGLINE, appRoutes, footerLinkProblems, type FooterColumn } from './footer-links';
+import { EXTERNAL_ALLOW, FOOTER_COLUMNS, BENCH_FOOTER_TAGLINE, appRoutes, footerLinkProblems, type FooterColumn } from './footer-links';
 
 // The test runner compiles JSX with the classic runtime (no tsconfig at the repo root; see
 // public-pages.test.ts).
@@ -47,7 +47,7 @@ test('Footer: renders exactly the FOOTER_COLUMNS hrefs plus the logo link, the t
   const hrefs = new Set([...h.matchAll(/href="([^"]+)"/g)].map((m) => m[1]));
   const expected = new Set(['/', ...FOOTER_COLUMNS.flatMap((c) => c.links.map((l) => l.href))]);
   assert.deepEqual(hrefs, expected);
-  assert.ok(h.includes(FOOTER_TAGLINE));
+  assert.ok(h.includes(BENCH_FOOTER_TAGLINE));
   // v2.8.1 (owner): the faded wordmark is the navbar's logo (the same SVG: mark and "EarnKit"), not text.
   const faded = /<div aria-hidden="true" data-footer-wordmark=""[^>]*>(<svg[\s\S]*?<\/svg>)<\/div>/.exec(h);
   assert.ok(faded, 'the faded wordmark is an SVG');

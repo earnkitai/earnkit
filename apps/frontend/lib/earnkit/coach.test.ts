@@ -556,27 +556,27 @@ test("9.11 fixesLine: numbered builder fixes, never the agent's; null for none",
 test('v2.8.1 §C11: the wallet joins the round: with contact, its own item, or the last one; never a round of its own', () => {
   const contact = [req('email', 'contact', { label: 'Email' })];
   // Joined to the contact item (personal details), with the no-wallet hint while it fits.
-  const joined = questionsFor({ reqs: contact, answers: {}, first: true, wallet: { hasBonus: true } });
+  const joined = questionsFor({ reqs: contact, answers: {}, first: true, wallet: true });
   assert.equal(joined.length, 1);
   assert.deepEqual(joined[0].keys, ['email', WALLET_KEY]);
-  assert.equal(joined[0].text, "Your email? And the wallet for your token's fees and any bonus (0x…)? No wallet yet? Make one at keys.coinbase.com.");
+  assert.equal(joined[0].text, "Your email? And the wallet for your token's fees (0x…)? No wallet yet? Make one at keys.coinbase.com.");
   // No contact item: its own numbered item while there is room.
   const prose = [req('traction', 'traction')];
-  const own = questionsFor({ reqs: prose, answers: {}, first: true, wallet: { hasBonus: false } });
+  const own = questionsFor({ reqs: prose, answers: {}, first: true, wallet: true });
   assert.deepEqual(own.map((q) => q.keys), [['traction'], [WALLET_KEY]]);
-  assert.equal(own[1].text, `${walletAsk(false)} No wallet yet? Make one at keys.coinbase.com.`);
+  assert.equal(own[1].text, `${walletAsk()} No wallet yet? Make one at keys.coinbase.com.`);
   assert.equal(coachIntro('P', own), "P: 2 quick questions, then I'll write your application.\n1. Who has used it so far?\n2. The wallet for your token's fees (0x…)? No wallet yet? Make one at keys.coinbase.com.");
   // A later program's single question becomes two short bullets.
-  const later = questionsFor({ reqs: prose, answers: {}, first: false, wallet: { hasBonus: true } });
+  const later = questionsFor({ reqs: prose, answers: {}, first: false, wallet: true });
   assert.ok(later.length === 2 && later.every((q) => q.bullet));
   // No questions at all: no round just for the wallet (the offer's wallet line asks it).
-  assert.deepEqual(questionsFor({ reqs: prose, answers: { traction: '120 users' }, first: true, wallet: { hasBonus: true } }), []);
+  assert.deepEqual(questionsFor({ reqs: prose, answers: { traction: '120 users' }, first: true, wallet: true }), []);
   // Every committed program, first and later: still at most 4 items of at most 25 words, the wallet asked once.
   const dir = join(import.meta.dirname, '../../../../programs');
   for (const f of readdirSync(dir).filter((x) => x.endsWith('.json'))) {
     const p = ProgramFile.parse(JSON.parse(readFileSync(join(dir, f), 'utf8')));
     for (const first of [true, false]) {
-      const q = questionsFor({ reqs: p.submission_requirements, answers: {}, first, project: 'A Long Project Name', wallet: { hasBonus: true } });
+      const q = questionsFor({ reqs: p.submission_requirements, answers: {}, first, project: 'A Long Project Name', wallet: true });
       if (q.length === 0) continue;
       assert.ok(q.length <= MAX_BULLETS, f);
       assert.equal(q.filter((x) => x.keys.includes(WALLET_KEY)).length, 1, f);
@@ -643,7 +643,7 @@ test('6.10 v2.9 B11: questionsFor never asks an optional field, even empty and b
     req('why', 'why_you', { required: false }),
   ];
   for (const first of [true, false])
-    assert.deepEqual(questionsFor({ reqs: optional, answers: {}, first, wallet: null }), [], `first: ${first}`);
+    assert.deepEqual(questionsFor({ reqs: optional, answers: {}, first, wallet: false }), [], `first: ${first}`);
   // Required ones next to them: only the required field is asked.
   const asked = questionsFor({ reqs: [...optional, req('use', 'use_of_funds', { from: 'builder' })], answers: {}, first: true });
   assert.deepEqual(asked.flatMap((q) => q.keys), ['use']);

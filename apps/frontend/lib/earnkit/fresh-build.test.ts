@@ -275,7 +275,7 @@ const POD = {
 test('8.1 twistQuestion: the spec\'s two exact strings; the wallet sentence is a statement, so one question either way', () => {
   const q = 'What should it do for you or your users? One line is enough, like "tips for my podcast listeners".';
   assert.equal(twistQuestion(true), q);
-  assert.equal(twistQuestion(false), `${q} Add the wallet that should own it.`);
+  assert.equal(twistQuestion(false), `${q} Add the wallet that should own it. If you don't have one, I'll help you make a free one on your computer.`);
   for (const t of [twistQuestion(true), twistQuestion(false)]) {
     oneQuestion(t);
     plainCopy(t);
@@ -284,10 +284,10 @@ test('8.1 twistQuestion: the spec\'s two exact strings; the wallet sentence is a
 
 test('8.2 buildingLine: "Building <name>: <what> <for whom>. I\'ll be back with the live link."', () => {
   assert.equal(
-    buildingLine('PodTips', TIPJAR.what, 'for your podcast listeners'),
-    "Building PodTips: a USDC tip page on Arc for your podcast listeners. I'll be back with the live link.",
+    buildingLine('PodTips', TIPJAR, 'for my podcast listeners'),
+    "Building PodTips: a USDC tip page for your podcast listeners. I'll be back with the live link.",
   );
-  const line = buildingLine(POD.name, TIPJAR.what, POD.for_whom);
+  const line = buildingLine(POD.name, TIPJAR, POD.for_whom);
   assert.doesNotMatch(line, /\?/);
   plainCopy(line);
 });
@@ -364,32 +364,6 @@ test('8.3 the public test wallets are anvil and Hardhat accounts 0 to 9 (the sta
   assert.ok(!publicTestWallet(WALLET));
 });
 
-test('8.2 buildKit: the degit path, the twist slots, the proof line, the artifact shape and the rules, for the agent only', () => {
-  const kit = buildKit(TIPJAR, 'token: 0123456789abcdef', { ...POD, wallet: WALLET });
-  assert.equal(kit.degit, 'npx degit earnkitai/chain-kits/arc/tipjar <project>');
-  assert.deepEqual(kit.twist_slots, { name: POD.name, description: POD.description, feature: POD.feature });
-  assert.equal(kit.owner_wallet, WALLET);
-  assert.equal(kit.proof_file, 'earnkit.txt');
-  assert.equal(kit.proof_line, 'token: 0123456789abcdef');
-  assert.match(kit.artifact_shape, /chain: 'arc'.*bytecode.*abi.*constructor_args.*owner_wallet/);
-  assert.match(kit.artifact_shape, /constructor_args\[0\] is the owner/);
-  const rules = kit.rules.join(' ');
-  assert.match(rules, /public/);
-  assert.match(rules, /builder's own GitHub account/);
-  assert.match(rules, /not a fork/);
-  assert.match(rules, /no keys or secrets/i);
-  assert.match(rules, /Never show the builder/);
-  // No repo yet: the proof line comes when build.repo_url is sent.
-  const early = buildKit(TIPJAR, null, { ...POD, wallet: WALLET });
-  assert.equal(early.proof_line, null);
-  assert.match(early.proof_line_note!, /build\.repo_url/);
-  // Review M4: repo_url sent and still no line (no signing secret): never send the agent round again.
-  const noSecret = buildKit(TIPJAR, null, { ...POD, wallet: WALLET }, true);
-  assert.equal(noSecret.proof_line, null);
-  assert.doesNotMatch(noSecret.proof_line_note!, /repo_url/);
-  assert.match(noSecret.proof_line_note!, /can't make the earnkit\.txt line/);
-});
-
 test('8.5 BUILD_CHAT_ONLY: "I can\'t build from here", no question, no tool or product name', () => {
   assert.match(BUILD_CHAT_ONLY, /^I can't build from here\./);
   assert.doesNotMatch(BUILD_CHAT_ONLY, /\?/);
@@ -397,27 +371,12 @@ test('8.5 BUILD_CHAT_ONLY: "I can\'t build from here", no question, no tool or p
   plainCopy(BUILD_CHAT_ONLY);
 });
 
-test('10 (T10 notes) buildKit orders the push for the owner proof: github_user to find first, then create the repo, commit and push at once; never a force push', () => {
-  const kit = buildKit(TIPJAR, 'token: 0123456789abcdef', { ...POD, wallet: WALLET });
-  const at = (re: RegExp) => kit.order.findIndex((s) => re.test(s));
-  const user = at(/^Call find with github_user/);
-  const create = at(/^Create the public repo/);
-  const commit = at(/^Commit /);
-  const push = at(/^Push /);
-  assert.ok(user === 0 && user < create && create < commit && commit < push, kit.order.join(' | '));
-  assert.match(kit.order[user], /never guess/);
-  assert.match(kit.order[push], /within 10 minutes of creating the repo/);
-  assert.match(kit.order[push], /never a force push/);
-  assert.match(kit.steps, /in the order below/);
-  for (const s of kit.order) assert.doesNotMatch(s, /\u2014/, 'no em dash');
-});
-
 test('9.12 (v2.12.1 T9) buildKit with an attribution line carries it and one rule for the agent; without one, the v2.11 kit', () => {
   const line = { codes: ['ek_x', 'earnkit'], data_suffix: '0xabc' };
-  const kit = buildKit(TIPJAR, null, { ...POD, wallet: WALLET }, false, line);
+  const kit = buildKit(TIPJAR, { ...POD, wallet: WALLET }, { proof: null }, line);
   assert.deepEqual(kit.attribution, line);
   assert.ok(kit.rules.some((r) => r.includes('data_suffix')));
-  const plain = buildKit(TIPJAR, null, { ...POD, wallet: WALLET });
+  const plain = buildKit(TIPJAR, { ...POD, wallet: WALLET }, { proof: null });
   assert.ok(!('attribution' in plain));
   assert.ok(!plain.rules.some((r) => r.includes('data_suffix')));
   assert.deepEqual(kit.rules.slice(0, -1), plain.rules);

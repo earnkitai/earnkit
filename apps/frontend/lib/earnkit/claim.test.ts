@@ -4,7 +4,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { sql } from './db';
 import { CLAIM_TEXT, bindX, claimCode, claimGet, claimLink, claimPost, xCallback } from './claim';
 import { clearXHandle, releaseXClear, resolveHandle, resolveSlug, ensureProfile } from './profiles';
-import { answerJoin, pendingJoinOf, rootOf } from './identity';
+import { pendingJoinOf, rootOf } from './identity';
 import { connectInstallation, saveInstallation } from './installations';
 import type { XOAuthDeps, XUser } from './x-oauth';
 
@@ -77,7 +77,7 @@ test('6.3 the claim link is off without X, the same link every time, and gone on
   process.env.X_CLIENT_ID = 'cid';
   process.env.X_CLIENT_SECRET = 'sec';
   const a = await claimLink(id);
-  assert.match(a!, /^earnkit\.com\/claim\/[a-z2-7]{12}$/);
+  assert.match(a!, /^https:\/\/earnkit\.com\/claim\/[a-z2-7]{12}$/);
   assert.equal(await claimLink(id), a);
   assert.equal(claimCode(id), a!.split('/').pop());
   assert.equal(claimCode(id, ''), null);
@@ -114,7 +114,7 @@ test('6.5 X down at the callback: nothing is bound, the page says so, the same l
   assert.match(await r.text(), new RegExp(CLAIM_TEXT.failed));
   const [p] = await sql()`SELECT x_user_id FROM builder_profiles WHERE builder_id = ${id}`;
   assert.equal(p.x_user_id, null);
-  assert.equal(await claimLink(id), `earnkit.com/claim/${code}`);
+  assert.equal(await claimLink(id), `https://earnkit.com/claim/${code}`);
   const ok = await runClaim(code, fakeX({ id: X('2221'), username: H('retry_x'), name: 'R', avatar: null }));
   assert.equal(ok.status, 200);
 });
@@ -144,28 +144,7 @@ test('6.7 reserved handles live under /b/; case redirects; a rename redirects 90
   assert.equal(await resolveHandle('bad handle!'), null);
 });
 
-test('6.8 the same X account claimed from a second installation never merges at once: both agents say yes, then one person', dbTest, async () => {
-  const [a, b] = [await profiled(), await profiled()];
-  await bindX(a, { id: X('777'), username: H('one_page'), name: 'O', avatar: null }, NOW);
-  const r = await bindX(b, { id: X('777'), username: H('one_page'), name: 'O', avatar: null }, NOW);
-  assert.deepEqual(r, { ok: false, reason: 'join_pending' });
-  assert.notEqual(await rootOf(a), await rootOf(b), 'never a direct merge');
-  assert.deepEqual(await pendingJoinOf(a), { installation_id: b, tie: 'x_user_id', side: 'target' });
-  assert.deepEqual(await pendingJoinOf(b), { installation_id: b, tie: 'x_user_id', side: 'joiner' });
-  const [pb] = await sql()`SELECT x_user_id FROM builder_profiles WHERE builder_id = ${b}`;
-  assert.equal(pb.x_user_id, null, 'the X account stays on the first page');
-  assert.equal(await answerJoin(b, true), 'waiting');
-  assert.equal(await answerJoin(a, true), 'linked');
-  assert.equal(await rootOf(a), await rootOf(b));
-  // Through the callback, the page says what happens next.
-  const [c, d] = [await profiled(), await profiled()];
-  await bindX(c, { id: X('778'), username: H('two_page'), name: 'T', avatar: null }, NOW);
-  const page = await runClaim(await codeOf(d), fakeX({ id: X('778'), username: H('two_page'), name: 'T', avatar: null }));
-  assert.equal(page.status, 200);
-  assert.match(await page.text(), new RegExp(CLAIM_TEXT.joinPending));
-});
-
-test('6.9 the claim page says what becomes public and how to hide it before the button; X off is a plain page; flag off is a 404', dbTest, async () => {
+test('6.9 the claim page says what becomes public and how to hide it before the button; X off is a plain page', dbTest, async () => {
   const id = await profiled();
   const code = await codeOf(id);
   const get = await claimGet(new Request(`https://earnkit.com/claim/${code}`), code);
@@ -197,13 +176,6 @@ test('6.9 the claim page says what becomes public and how to hide it before the 
     assert.equal((await xCallback(new Request('https://earnkit.com/x/callback?code=c&state=s'), { x: failX(), limit: noLimit.limit })).status, 503);
   } finally {
     process.env.X_CLIENT_SECRET = 'sec';
-  }
-  process.env.EARNKIT_BUILDER_SCORE = 'off';
-  try {
-    assert.equal((await claimGet(new Request(`https://earnkit.com/claim/${code}`), code)).status, 404);
-    assert.equal((await claimPost(new Request(`https://earnkit.com/claim/${code}`, { method: 'POST' }), code, noLimit)).status, 404);
-    assert.equal((await xCallback(new Request('https://earnkit.com/x/callback?code=c&state=s'), { x: failX(), limit: noLimit.limit })).status, 404);
-  } finally {
   }
 });
 
@@ -259,7 +231,7 @@ test('6.10 OAuth binding: a cross-site POST, a wrong csrf, a missing cookie or a
   const s4 = new URL(p4.headers.get('location')!).searchParams.get('state')!;
   const denied = await xCallback(new Request(`https://earnkit.com/x/callback?error=access_denied&state=${encodeURIComponent(s4)}`, { headers: { cookie: c4 } }), { x, limit: noLimit.limit });
   assert.equal(denied.status, 400);
-  assert.equal(await claimLink(late), `earnkit.com/claim/${lateCode}`);
+  assert.equal(await claimLink(late), `https://earnkit.com/claim/${lateCode}`);
 });
 
 test('6.11 resolveSlug (/b/<v2.12 slug>, its card and share link) means claimed: an unclaimed page is never public', dbTest, async () => {
@@ -300,7 +272,7 @@ test('6.19 (fix round 1) a stale holder (its handle moved to someone else) can c
   await bindX(a, { id: X('1313'), username: H('moved'), name: 'A', avatar: null }, NOW);
   await bindX(b, { id: X('1414'), username: H('moved'), name: 'B', avatar: null }, NOW);
   const link = await claimLink(a);
-  assert.match(link ?? '', /^earnkit\.com\/claim\/[a-z2-7]{12}$/);
+  assert.match(link ?? '', /^https:\/\/earnkit\.com\/claim\/[a-z2-7]{12}$/);
   const r = await runClaim(link!.split('/').pop()!, fakeX({ id: X('1313'), username: H('newhandle'), name: 'A', avatar: null }));
   assert.equal(r.status, 200);
   assert.deepEqual(await resolveHandle(H('newhandle')), { builderId: a, handle: H('newhandle') });
@@ -317,7 +289,7 @@ test('6.20 (fix round 1) a bind that throws is a plain 500 page and the cookie i
   assert.equal(p.x_user_id, null);
 });
 
-test('7.7 the done page offers the two optional upgrades as plain links; GitHub only while its sign-in is on', dbTest, async () => {
+test('7.7 the done page offers the wallet upgrade as a plain link; never GitHub sign-in (v2.13.1 O5 N11), even while it is on', dbTest, async () => {
   const gh = { id: process.env.GITHUB_OAUTH_CLIENT_ID, secret: process.env.GITHUB_OAUTH_CLIENT_SECRET };
   try {
     delete process.env.GITHUB_OAUTH_CLIENT_ID;
@@ -331,10 +303,8 @@ test('7.7 the done page offers the two optional upgrades as plain links; GitHub 
     const b = await profiled();
     const on = await (await runClaim(await codeOf(b), fakeX({ id: X('772'), username: H('up_b'), name: 'B', avatar: null }))).text();
     assert.match(on, new RegExp(`<p class="ek-url">earnkit\\.com/${H('up_b')}</p>`));
-    assert.match(on, /<a class="ek-link" href="https:\/\/earnkit\.com\/github\/verify\?n=[A-Za-z0-9_-]{43}">Sign in with GitHub \(optional\)<\/a>/);
-    const [n] = await sql()<{ purpose: string; repo_key: string; installation_id: number }[]>`
-      SELECT purpose, repo_key, installation_id FROM github_verify_nonces WHERE installation_id = ${b} AND purpose = 'claim'`;
-    assert.deepEqual({ ...n }, { purpose: 'claim', repo_key: `claim/${b}`, installation_id: b });
+    assert.doesNotMatch(on, /Sign in with GitHub/);
+    assert.equal((await sql()`SELECT 1 FROM github_verify_nonces WHERE installation_id = ${b} AND purpose = 'claim'`).length, 0);
     assert.doesNotMatch(on, /—/);
   } finally {
     for (const [k, v] of [['GITHUB_OAUTH_CLIENT_ID', gh.id], ['GITHUB_OAUTH_CLIENT_SECRET', gh.secret]] as const)
@@ -362,7 +332,7 @@ test('6.30 (final fix wave) the owner\'s clear sticks: the same X account can\'t
   // The owner releases it: the same X account claims again.
   assert.equal(await releaseXClear(a), true);
   const link = await claimLink(a);
-  assert.match(link ?? '', /^earnkit\.com\/claim\/[a-z2-7]{12}$/);
+  assert.match(link ?? '', /^https:\/\/earnkit\.com\/claim\/[a-z2-7]{12}$/);
   const r = await runClaim(link!.split('/').pop()!, fakeX(user));
   assert.equal(r.status, 200);
   assert.deepEqual(await resolveHandle(H('cleared')), { builderId: a, handle: H('cleared') });
@@ -386,8 +356,4 @@ test('11.7 bindX writes the new picture at every sign-in and keeps the stored on
     assert.equal((await sql()`SELECT x_avatar_url FROM builder_profiles WHERE builder_id = ${root}`)[0].x_avatar_url, 'https://pbs.twimg.com/b_400x400.jpg');
   } finally {
   }
-  // F9: flag off is production: X sending no picture clears it, as today.
-  const { root, user } = await claimedPerson({ avatar: 'https://pbs.twimg.com/c_400x400.jpg' });
-  await bindX(root, { ...user, avatar: null }, new Date());
-  assert.equal((await sql()`SELECT x_avatar_url FROM builder_profiles WHERE builder_id = ${root}`)[0].x_avatar_url, null);
 });
