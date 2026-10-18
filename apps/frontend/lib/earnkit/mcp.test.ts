@@ -6,7 +6,12 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { escrowConfig, escrowConfigProblem } from './escrow';
 import { FIND_DESCRIPTION_BENCH, TELL_DESCRIPTION_BENCH, TELL_DESCRIPTION_BENCH_NO_RAISING, SERVER_INSTRUCTIONS, errorSummary, TOOL_DESCRIPTIONS, createMcpServer, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { handlers } from './tools';
-import { aliasCall } from './aliases';
+import { OLD_TOOL_NAMES, STALE_TOOLS_NOTE, aliasCall, withOlderNames } from './aliases';
+import { POST } from '../../app/mcp/route';
+import { saveInstallation } from './installations';
+import { upsertProgram } from './programs';
+import { ProgramFile } from './program-file';
+import { committedProgram } from './fixtures/program-file';
 import { SAFETY_LINES } from './untrusted-text';
 import { kitReplyNote, submitKit, type KitProgram } from './submit-kit';
 import { awardReply, createReply } from './sponsor-rules';
@@ -484,4 +489,134 @@ test('O2.6 the server instructions (under 800), no old entry-and-token flow; fin
     assert.match(FIND_DESCRIPTION_BENCH, /A yes or no to the last line goes to tell move_up\./);
     assert.ok(FIND_DESCRIPTION_BENCH.length < 800);
   }
+});
+
+// ---- Restored in v2.14 T3 fix round 1: the tool list's live rules (five tools, no old name, the alias route) ----
+const toolNames = async (env: Record<string, string | undefined>) =>
+  (await listed(env)).tools.map((t) => t.name).sort();
+
+// v2.10 item 4, v2.14: the 5 builder tools (find, prepare, confirm, tell, score); the 8 v2.9 names are aliases only.
+const FIVE = ['confirm', 'find', 'prepare', 'score', 'tell'];
+const oldNameRe = new RegExp(`\\b(${OLD_TOOL_NAMES.join('|')})\\b`);
+/** v2.10.1 B5: a reply object's agent strings in a stale client's words (aliases.ts forOldClient, minus the note). */
+const oldWords = (v: unknown, used: string): unknown =>
+  typeof v === 'string' ? withOlderNames(v, used) : Array.isArray(v) ? v.map((x) => oldWords(x, used)) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, /^show_to_|^question$/.test(k) ? x : oldWords(x, used)])) : v;
+const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
+
+test('9.1 without escrow config the server offers exactly the 4 builder tools; no old name is listed', async () => {
+  const { tools } = await listed({});
+  assert.deepEqual(tools.map((t) => t.name).sort(), FIVE);
+  for (const t of tools) assert.ok(!(OLD_TOOL_NAMES as readonly string[]).includes(t.name), t.name);
+});
+
+test('an invalid ESCROW_CHAIN leaves the 4 builder tools', async () => {
+  assert.deepEqual(
+    await toolNames({
+      ESCROW_FACTORY_ADDRESS: FACTORY,
+      ESCROW_CHAIN: 'mainnet',
+    }),
+    FIVE,
+  );
+});
+
+test('9.1 v2.12: a configured escrow adds nothing (sponsor campaigns are archived); still the 4 builder tools and no old name', async () => {
+  assert.deepEqual(await toolNames({ ESCROW_FACTORY_ADDRESS: FACTORY, ESCROW_CHAIN: 'base-sepolia' }), FIVE);
+  assert.deepEqual(await toolNames({ ESCROW_FACTORY_ADDRESS: FACTORY }), FIVE);
+});
+
+test('9.2 the instructions and each of the 5 descriptions: under 800 characters, no old tool name, no em dash', async () => {
+  for (const open of [true, false]) {
+    const texts: [string, string][] = [
+      ['serverInstructions()', serverInstructions()],
+      ...Object.entries(toolDescriptions(open)).map(([k, v]): [string, string] => [`${k} (${open})`, v]),
+    ];
+    for (const [label, text] of texts) {
+      assert.ok(text.length < 800, `${label}: ${text.length}`);
+      assert.doesNotMatch(text, oldNameRe, label);
+      assert.doesNotMatch(text, /—/, label);
+    }
+  }
+  // The registered text is the same text.
+  const { tools, instructions } = await listed({ ESCROW_FACTORY_ADDRESS: FACTORY });
+  assert.equal(instructions, serverInstructions());
+  for (const t of tools) {
+    assert.equal(t.description, toolDescriptions(false)[t.name as keyof ReturnType<typeof toolDescriptions>], t.name);
+    assert.doesNotMatch(JSON.stringify(t.inputSchema), oldNameRe, t.name);
+  }
+});
+
+test('3.9, R16: tell writes and find stays read-only; tell takes submitted, pickup (still accepted) and the v2.9 statements; no description names report_outcome', async () => {
+  const { tools } = await listed({});
+  assert.equal(tools.length, 5);
+  assert.equal(tools.find((t) => t.name === 'find')!.annotations?.readOnlyHint, true);
+  assert.ok(!tools.some((t) => t.name === 'report_outcome'));
+  const tell = tools.find((t) => t.name === 'tell')!;
+  assert.equal(tell.annotations?.readOnlyHint, false);
+  const props = Object.keys((tell.inputSchema as { properties: object }).properties);
+  for (const k of ['pickup', 'program_status', 'repo_facts', 'signed_in', 'submitted', 'weekly_email']) assert.ok(props.includes(k), k);
+  assert.match(tell.description!, /call it only with what they said/);
+  for (const t of tools) {
+    assert.ok(t.description!.length < 800, `${t.name}: ${t.description!.length} characters`);
+    assert.doesNotMatch(t.description ?? '', /report_outcome|token_offer/, t.name);
+  }
+  for (const d of Object.values(TOOL_DESCRIPTIONS)) assert.doesNotMatch(d, /report_outcome/);
+});
+
+test('9.7 (Review Focus 2) the route: an old get_program call returns what find with program_id returns; the log names the alias, never an argument', dbTest, async () => {
+  const stamp = `${process.pid}-${Date.now()}`;
+  const program = { ...committedProgram('arc-microgrants'), id: `t9-route-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' };
+  await upsertProgram(ProgramFile.parse(program));
+  const token = `t9-route-token-${stamp}`;
+  await saveInstallation(token);
+  const post = (id: number, name: string, args: object) => {
+    const body = JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: args } });
+    // A client's content-length is for the body it sent, not the rewritten one.
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'content-length': String(body.length) };
+    return POST(new Request('https://earnkit.test/mcp', { method: 'POST', headers, body }));
+  };
+  // v2.10.1 B5: an old-name call is answered as a stream whose first event is tools/list_changed.
+  const events = async (r: Response) =>
+    (await r.text())
+      .split('\n')
+      .filter((l) => l.startsWith('data: '))
+      .map((l) => JSON.parse(l.slice('data: '.length)) as Record<string, unknown>);
+  const reply = async (r: Response) => {
+    const body = (/event-stream/.test(r.headers.get('content-type') ?? '') ? (await events(r)).at(-1) : await r.json()) as { result?: { content: { text: string }[]; isError?: boolean }; error?: unknown };
+    assert.ok(body.result, JSON.stringify(body));
+    assert.notEqual(body.result.isError, true, body.result.content[0].text);
+    // Alerts are said once per check, so the first reply may open with them: compared without.
+    const rest = JSON.parse(body.result.content[0].text) as Record<string, unknown>;
+    delete rest.since_you_last_checked;
+    return rest;
+  };
+  const logs: string[] = [];
+  const log = console.log;
+  console.log = (...a: unknown[]) => void logs.push(a.map(String).join(' '));
+  try {
+    const freshRes = await post(1, 'find', { program_id: program.id });
+    assert.match(freshRes.headers.get('content-type') ?? '', /application\/json/, 'a new-name call is plain JSON');
+    const fresh = await reply(freshRes);
+    const oldRes = await post(2, 'get_program', { program_id: program.id });
+    // v2.10.1 fix round 1 (I3): plain JSON, as before (no list_changed stream).
+    assert.match(oldRes.headers.get('content-type') ?? '', /application\/json/);
+    const old = await reply(oldRes);
+    // v2.10.1 B5: the same reply, each tool named in both forms, plus the refresh note.
+    assert.equal(old.tools_note, STALE_TOOLS_NOTE);
+    delete old.tools_note;
+    assert.deepEqual(old, oldWords(fresh, 'get_program'));
+    assert.match(String(fresh.show_to_builder), /^Arc Microgrants/);
+    assert.equal(old.show_to_builder, fresh.show_to_builder);
+    // tools/list through the route: the 4 tools only, whichever names the client called.
+    const list = await POST(new Request('https://earnkit.test/mcp', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/list', params: {} }),
+    }));
+    const names = ((await list.json()) as { result: { tools: { name: string }[] } }).result.tools.map((t) => t.name).sort();
+    assert.deepEqual(names, FIVE);
+  } finally {
+    console.log = log;
+  }
+  assert.deepEqual(logs.filter((l) => l.startsWith('[mcp] alias')), ['[mcp] alias get_program -> find']);
+  for (const l of logs) assert.ok(!l.includes(program.id), l);
 });
