@@ -667,47 +667,41 @@ test('3.8 loginBasisFor on a shared client: only the caller\'s own sign-in or th
 });
 
 test('7.6 a claim sign-in proves the login with no repo read, never stands in for a repo, and joins on the tie only after both yeses', db, async () => {
-  const old = process.env.EARNKIT_BUILDER_SCORE;
-  try {
-    await withEnv(ON, async () => {
-      const tag = `cl${process.pid}${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
-      const login = tag.toLowerCase();
-      const mk = async (n: string) => {
-        const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`${tag}-${n}`}) RETURNING id`;
-        await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${id}, ${`t7g-${id}`})`;
-        return id;
-      };
-      const [first, second] = [await mk('a'), await mk('b')];
-      // The first group already proved the login (a sign-in for one of its repos).
-      await sql()`
-        INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose)
-        VALUES (${`${login}/app`}, ${login}, ${first}, now(), 3, 'pickup')`;
-      const link = await createVerifyLink({ installationId: second, projectId: null, repoKey: `claim/${second}`, purpose: 'claim' });
-      const nonce = new URL(link).searchParams.get('n')!;
-      const limit = { limit: async () => {} };
-      const page = await verifyStart(new Request(`https://earnkit.com/github/verify?n=${nonce}`), limit);
-      const html = await page.text();
-      assert.ok(html.includes(CLAIM_CONFIRM_LEAD));
-      assert.doesNotMatch(html, /Repo:|claim\//, 'no repo line on a claim sign-in');
-      const calls: string[] = [];
-      const noRepo: GitHubOAuthDeps = { ...github(login.toUpperCase(), null, calls), repoPerms: async () => { throw new Error('no repo read on a claim'); } };
-      const out = await completeVerify('code', nonce, noRepo);
-      assert.equal(out.ok, true);
-      assert.deepEqual(calls, ['exchange', 'user']);
-      const rows = await sql()<{ purpose: string; login: string }[]>`SELECT purpose, login FROM github_verifications WHERE installation_id = ${second}`;
-      assert.deepEqual(rows.map((r) => ({ ...r })), [{ purpose: 'claim', login }]);
-      // Never a repo proof: a repo named like the claim key is not verified by it.
-      assert.equal(await verifiedFor({ installationId: second, repoKey: `claim/${second}` }), null);
-      assert.equal(await loginBasisFor(second, `claim/${second}`), null);
-      // The T5 rules: a pending join, then one person after both groups say yes.
-      assert.notEqual(await rootOf(second), await rootOf(first));
-      assert.ok(await pendingJoinOf(second));
-      assert.equal(await answerJoin(first, true), 'waiting');
-      assert.equal(await answerJoin(second, true), 'linked');
-      assert.equal(await rootOf(second), await rootOf(first));
-    });
-  } finally {
-    if (old === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
-    else process.env.EARNKIT_BUILDER_SCORE = old;
-  }
+  await withEnv(ON, async () => {
+    const tag = `cl${process.pid}${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
+    const login = tag.toLowerCase();
+    const mk = async (n: string) => {
+      const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`${tag}-${n}`}) RETURNING id`;
+      await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${id}, ${`t7g-${id}`})`;
+      return id;
+    };
+    const [first, second] = [await mk('a'), await mk('b')];
+    // The first group already proved the login (a sign-in for one of its repos).
+    await sql()`
+      INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose)
+      VALUES (${`${login}/app`}, ${login}, ${first}, now(), 3, 'pickup')`;
+    const link = await createVerifyLink({ installationId: second, projectId: null, repoKey: `claim/${second}`, purpose: 'claim' });
+    const nonce = new URL(link).searchParams.get('n')!;
+    const limit = { limit: async () => {} };
+    const page = await verifyStart(new Request(`https://earnkit.com/github/verify?n=${nonce}`), limit);
+    const html = await page.text();
+    assert.ok(html.includes(CLAIM_CONFIRM_LEAD));
+    assert.doesNotMatch(html, /Repo:|claim\//, 'no repo line on a claim sign-in');
+    const calls: string[] = [];
+    const noRepo: GitHubOAuthDeps = { ...github(login.toUpperCase(), null, calls), repoPerms: async () => { throw new Error('no repo read on a claim'); } };
+    const out = await completeVerify('code', nonce, noRepo);
+    assert.equal(out.ok, true);
+    assert.deepEqual(calls, ['exchange', 'user']);
+    const rows = await sql()<{ purpose: string; login: string }[]>`SELECT purpose, login FROM github_verifications WHERE installation_id = ${second}`;
+    assert.deepEqual(rows.map((r) => ({ ...r })), [{ purpose: 'claim', login }]);
+    // Never a repo proof: a repo named like the claim key is not verified by it.
+    assert.equal(await verifiedFor({ installationId: second, repoKey: `claim/${second}` }), null);
+    assert.equal(await loginBasisFor(second, `claim/${second}`), null);
+    // The T5 rules: a pending join, then one person after both groups say yes.
+    assert.notEqual(await rootOf(second), await rootOf(first));
+    assert.ok(await pendingJoinOf(second));
+    assert.equal(await answerJoin(first, true), 'waiting');
+    assert.equal(await answerJoin(second, true), 'linked');
+    assert.equal(await rootOf(second), await rootOf(first));
+  });
 });

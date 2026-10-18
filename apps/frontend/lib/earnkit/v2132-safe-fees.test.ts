@@ -29,52 +29,30 @@ const emptyRow = {
   bonus_deposits_wei: null, bonus_to_safe_wei: null, bonus_paid_wei: null, bonus_pools_wei: null, installs: 0,
   labelled_entries: 0, entries_won: 0, builders_won_usd: null,
 };
-async function withBench<T>(on: boolean, fn: () => Promise<T> | T): Promise<T> {
-  const prev = [process.env.EARNKIT_BUILDER_SCORE, process.env.EARNKIT_BENCH];
-  if (on) process.env.EARNKIT_BUILDER_SCORE = process.env.EARNKIT_BENCH = 'on';
-  else delete process.env.EARNKIT_BENCH;
-  try {
-    return await fn();
-  } finally {
-    if (prev[0] === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
-    else process.env.EARNKIT_BUILDER_SCORE = prev[0];
-    if (prev[1] === undefined) delete process.env.EARNKIT_BENCH;
-    else process.env.EARNKIT_BENCH = prev[1];
-  }
-}
 
 // ---- statsFrom (pure)
 
-test('v2.13.2 2: a 4-slot coin: the Safe got 1.5x its bonus deposits (estimate) or its indexed deposit, never both', () =>
-  withBench(true, () => {
-    // 2 ETH of bonus deposits with no indexed Safe deposit: 3 ETH.
-    assert.equal(statsFrom({ ...emptyRow, bonus_deposits_wei: (2n * E18).toString(), bonus_unmatched_wei: (2n * E18).toString() }).fees_to_safe_eth, 3);
-    // The same deposits with the Safe's own deposits indexed (3 ETH): counted once, as indexed.
-    assert.equal(statsFrom({ ...emptyRow, bonus_deposits_wei: (2n * E18).toString(), bonus_unmatched_wei: '0', safe_fees_wei: (3n * E18).toString() }).fees_to_safe_eth, 3);
-  }));
+test('v2.13.2 2: a 4-slot coin: the Safe got 1.5x its bonus deposits (estimate) or its indexed deposit, never both', () => {
+  // 2 ETH of bonus deposits with no indexed Safe deposit: 3 ETH.
+  assert.equal(statsFrom({ ...emptyRow, bonus_deposits_wei: (2n * E18).toString(), bonus_unmatched_wei: (2n * E18).toString() }).fees_to_safe_eth, 3);
+  // The same deposits with the Safe's own deposits indexed (3 ETH): counted once, as indexed.
+  assert.equal(statsFrom({ ...emptyRow, bonus_deposits_wei: (2n * E18).toString(), bonus_unmatched_wei: '0', safe_fees_wei: (3n * E18).toString() }).fees_to_safe_eth, 3);
+});
 
-test('v2.13.2 2: a 3-slot coin: the Safe\'s indexed 50% share counts (it has no bonus slot)', () =>
-  withBench(true, () => {
-    assert.equal(statsFrom({ ...emptyRow, safe_fees_wei: (5n * E18).toString() }).fees_to_safe_eth, 5);
-  }));
+test('v2.13.2 2: a 3-slot coin: the Safe\'s indexed 50% share counts (it has no bonus slot)', () => {
+  assert.equal(statsFrom({ ...emptyRow, safe_fees_wei: (5n * E18).toString() }).fees_to_safe_eth, 5);
+});
 
-test('v2.13.2 2: both: the 4-slot estimate, the indexed Safe deposits and the bonus money booked to the Safe add up', () =>
-  withBench(true, () => {
-    const row = {
-      ...emptyRow,
-      bonus_deposits_wei: (3n * E18).toString(), // 2 matched + 1 unmatched
-      bonus_unmatched_wei: E18.toString(),
-      safe_fees_wei: (8n * E18).toString(), // 3 from the 4-slot coin, 5 from the 3-slot coin
-      bonus_to_safe_wei: (E18 / 2n).toString(),
-    };
-    assert.equal(statsFrom(row).fees_to_safe_eth, 1.5 + 8 + 0.5);
-  }));
-
-test('v2.13.2 2: flag off: the v2.5 formula, unchanged (1.5x every bonus deposit, the Safe index unread)', () =>
-  withBench(false, () => {
-    const row = { ...emptyRow, bonus_deposits_wei: (2n * E18).toString(), bonus_unmatched_wei: '0', safe_fees_wei: (9n * E18).toString(), bonus_to_safe_wei: (E18 / 2n).toString() };
-    assert.equal(statsFrom(row).fees_to_safe_eth, 3.5);
-  }));
+test('v2.13.2 2: both: the 4-slot estimate, the indexed Safe deposits and the bonus money booked to the Safe add up', () => {
+  const row = {
+    ...emptyRow,
+    bonus_deposits_wei: (3n * E18).toString(), // 2 matched + 1 unmatched
+    bonus_unmatched_wei: E18.toString(),
+    safe_fees_wei: (8n * E18).toString(), // 3 from the 4-slot coin, 5 from the 3-slot coin
+    bonus_to_safe_wei: (E18 / 2n).toString(),
+  };
+  assert.equal(statsFrom(row).fees_to_safe_eth, 1.5 + 8 + 0.5);
+});
 
 // ---- readStats (DB)
 
@@ -98,7 +76,7 @@ test('v2.13.2 2: readStats: a 4-slot coin (matched and not), a 3-slot coin, neve
           (${tag}, 'four', 'launched', 'https://tokens.fun/a', ${c4}, NULL),
           (${tag}, 'three', 'launched', 'https://tokens.fun/b', ${c3}, NULL),
           (${tag}, 'test', 'launched', 'https://tokens.fun/c', ${cTest}, ${testInst.id})`;
-      const read = async () => ({ on: await withBench(true, () => readStats(new Date(), tx)), off: await withBench(false, () => readStats(new Date(), tx)) });
+      const read = () => readStats(new Date(), tx);
       const before = await read();
       // 4-slot coin: two bonus deposits booked to the Safe (Bench: no rounds); the first one's Safe deposit is indexed.
       await tx`
@@ -112,11 +90,9 @@ test('v2.13.2 2: readStats: a 4-slot coin (matched and not), a 3-slot coin, neve
           (${h(4)}, 0, ${cTest}, ${(7n * E18).toString()}, now()),
           (${h(5)}, 0, '0x00000000000000000000000000000000000000ff', ${(11n * E18).toString()}, now())`;
       const after = await read();
-      const d = (k: 'on' | 'off') => Math.round((after[k].fees_to_safe_eth - before[k].fees_to_safe_eth) * 1e6) / 1e6;
-      // On: indexed 3 (4-slot, matched: not 3 + 3) + 1.5 (the unmatched 1 ETH) + 5 (3-slot) + 3 booked to the Safe.
-      assert.equal(d('on'), 3 + 1.5 + 5 + 3);
-      // Off: the v2.5 formula: 1.5 x 3 + 3.
-      assert.equal(d('off'), 4.5 + 3);
+      const d = Math.round((after.fees_to_safe_eth - before.fees_to_safe_eth) * 1e6) / 1e6;
+      // Indexed 3 (4-slot, matched: not 3 + 3) + 1.5 (the unmatched 1 ETH) + 5 (3-slot) + 3 booked to the Safe.
+      assert.equal(d, 3 + 1.5 + 5 + 3);
       throw Rollback;
     });
   } catch (err) {
@@ -300,7 +276,6 @@ test('v2.13.2 review 3 (M3): safe_index failing INDEX_FAILED_RUNS runs in a row 
   }
 });
 
-test('v2.13.2 fix 1 (concern 5): under the Bench the fees_to_safe_eth label names both splits; flag off unchanged', async () => {
-  await withBench(true, () => assert.equal(STATS_LABELS.fees_to_safe_eth, 'fees to the EarnKit Safe (ETH)'));
-  await withBench(false, () => assert.equal(STATS_LABELS.fees_to_safe_eth, 'fees to the Safe (v2.5 tokens)'));
+test('v2.13.2 fix 1 (concern 5): the fees_to_safe_eth label names both splits', () => {
+  assert.equal(STATS_LABELS.fees_to_safe_eth, 'fees to the EarnKit Safe (ETH)');
 });

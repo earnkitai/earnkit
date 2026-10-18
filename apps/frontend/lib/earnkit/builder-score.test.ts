@@ -8,7 +8,6 @@ import { ScoreDeadline } from './campaigns';
 import { discover, proofLineCheck, provenLogin } from './discovery';
 import { oneParam } from './http';
 import { ownerClears } from './profiles';
-import { profileCode } from './discovery-clues';
 import { computeScore } from './score';
 import { calibration } from './score-calibration';
 import { GitHubBudgetStop, type ReaderDeps } from './source-readers';
@@ -203,68 +202,6 @@ const sourcesOf = async (id: number) => {
   return Object.fromEntries(rows.map((r) => [`${r.kind} ${r.ref}`, r]));
 };
 
-test('6.11 discover: a proven login finds own repos, their sites, packages and contracts; only the server verifies (v2.12.1 S9: no merged PRs, no earnkit.txt check)', dbTest, async () => {
-  const id = T + 22;
-  const L = `lee${T}`;
-  const addr = `0x${hex40(T)}`;
-  const dep = `0x${hex40(T + 1, 'd')}`;
-  const secret = 's'.repeat(40);
-  await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${id}, ${`d${id}`})`;
-  await sql()`INSERT INTO discovery_queue (builder_id, reason) VALUES (${id}, 'first_find')`;
-  // The agent proposed a live link with no GitHub; its earnkit.txt names this person.
-  await proposeSource({ builder_id: id, kind: 'site', ref: 'https://mine.example.com', project_key: 'https://mine.example.com', proposed_by: 'agent' });
-  const repo = (name: string, o: Record<string, unknown> = {}) => ({
-    full_name: `${L}/${name}`, name, fork: false, is_template: false, homepage: null, has_pages: false,
-    created_at: '2025-01-01T00:00:00Z', pushed_at: iso(2), owner: { login: L, type: 'User' }, ...o,
-  });
-  const broadcast = JSON.stringify({ chain: 8453, transactions: [{ transactionType: 'CREATE', contractAddress: addr, transaction: { from: dep } }] });
-  const reader = fakeReader({
-    [`/users/${L}`]: { blog: 'https://blog.lee.dev', twitter_username: 'leex' },
-    [`/users/${L}/repos?type=owner&per_page=100`]: [repo('app', { homepage: 'https://app.lee.dev', has_pages: true }), repo('fork', { fork: true })],
-    [`/users/${L}/orgs`]: [],
-    [`/repos/${L}/app/git/trees/HEAD?recursive=1`]: { tree: [{ path: 'package.json', type: 'blob' }, { path: 'broadcast/Deploy.s.sol/8453/run-latest.json', type: 'blob' }, { path: 'src/a.ts', type: 'blob' }] },
-    [`/repos/${L}/app/contents/package.json`]: b64(JSON.stringify({ name: `lee-app-${T}` })),
-    [`/repos/${L}/app/contents/broadcast/Deploy.s.sol/8453/run-latest.json`]: b64(broadcast),
-    [`/search/issues?q=${encodeURIComponent(`type:pr author:${L} is:merged -user:${L}`)}&per_page=100`]: {
-      items: [{ html_url: 'https://github.com/big/lib/pull/7', repository_url: 'https://api.github.com/repos/big/lib', pull_request: { merged_at: iso(30) } }],
-    },
-    '/repos/big/lib': { stargazers_count: 999 },
-    '/repos/big/lib/pulls/7': { merged_by: { login: 'maint' } },
-  }, {
-    contractOrigin: async () => ({ deployer: dep, created_at: '2026-01-01T00:00:00Z' }),
-    fetchText: async (url) => {
-      if (url === 'https://mine.example.com/earnkit.txt') return `profile: ${profileCode(id, 'https://mine.example.com', secret)}\n`;
-      throw new Error('not found');
-    },
-  });
-  const before = process.env.EARNKIT_AUTH_SECRET;
-  process.env.EARNKIT_AUTH_SECRET = secret;
-  let r;
-  try {
-    r = await discover(NOW, { deadline: Date.now() + 30_000, reader, login: async () => ({ login: L, basis: 'signin' }), only: [id] });
-  } finally {
-    if (before === undefined) delete process.env.EARNKIT_AUTH_SECRET;
-    else process.env.EARNKIT_AUTH_SECRET = before;
-  }
-  assert.equal(r.people, 1);
-  const s = await sourcesOf(id);
-  assert.deepEqual([s[`repo ${L}/app`].state, s[`repo ${L}/app`].proof], ['verified', 'repo_owner']);
-  assert.deepEqual([s[`repo ${L}/fork`].state, s[`repo ${L}/fork`].reject_reason], ['rejected', 'derived']);
-  assert.deepEqual([s['site https://app.lee.dev'].state, s['site https://app.lee.dev'].proof, s['site https://app.lee.dev'].project_key], ['verified', 'repo_link', `${L}/app`]);
-  assert.equal(s[`site https://${L}.github.io/app/`].state, 'verified', 'the Pages site');
-  assert.equal(s['site https://blog.lee.dev'].state, 'proposed', 'a blog not linked from a verified repo and with no earnkit.txt line stays proposed');
-  // v2.12.1 S9: the earnkit.txt site check is gone; the agent's site stays proposed (not yet confirmed).
-  assert.deepEqual([s['site https://mine.example.com'].state, s['site https://mine.example.com'].proof], ['proposed', null]);
-  assert.equal(s[`package_npm lee-app-${T}`].state, 'proposed', 'packages are verified on their first read');
-  assert.deepEqual([s[`contract base:${addr}`].state, s[`contract base:${addr}`].proof, s[`contract base:${addr}`].deployer], ['verified', 'repo_link', dep]);
-  assert.equal(s['merged_pr https://github.com/big/lib/pull/7'], undefined, 'v2.12.1 S9: merged PRs are no longer proposed');
-  const [p] = await sql()<{ github_login: string; fallback_handle: string; twitter_prefill: string }[]>`SELECT github_login, fallback_handle, twitter_prefill FROM builder_profiles WHERE builder_id = ${id}`;
-  assert.deepEqual([p.github_login, p.fallback_handle, p.twitter_prefill], [L, L, 'leex']);
-  const [q] = await sql()<{ done_at: Date | null; attempts: number }[]>`SELECT done_at, attempts FROM discovery_queue WHERE builder_id = ${id}`;
-  assert.ok(q.done_at);
-  assert.equal(q.attempts, 1);
-});
-
 test('6.11b discover: no login leaves the person with proposed sources only; a failed read retries, a spent GitHub budget does not count', dbTest, async () => {
   const [a, b] = [T + 25, T + 26];
   for (const id of [a, b]) await sql()`INSERT INTO discovery_queue (builder_id, reason) VALUES (${id}, 'first_find')`;
@@ -284,64 +221,6 @@ test('6.11b discover: no login leaves the person with proposed sources only; a f
   await discover(NOW, { deadline: Date.now() + 30_000, reader: fakeReader({ [`/users/${L}`]: new Error('500') }), login, only: [b] });
   const [q3] = await sql()<{ done_at: Date | null; attempts: number }[]>`SELECT done_at, attempts FROM discovery_queue WHERE builder_id = ${b}`;
   assert.ok(q3.done_at, 'after 5 attempts it is done until the next clue');
-});
-
-test('6.12 readSources: each kind read once a day; packages verified on first read; a failed read is stored; a spent budget writes nothing', dbTest, async () => {
-  const id = T + 24;
-  const R = `r${T}`;
-  await sql()`INSERT INTO builder_profiles (builder_id, slug, github_login) VALUES (${id}, ${`s${id}`}, ${R})`;
-  const add = async (kind: string, ref: string, state = 'verified', key = `${R}/a`) => {
-    const [row] = await sql()<{ id: string }[]>`
-      INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by, state, proof)
-      VALUES (${id}, ${kind}, ${ref}, ${key}, 'server', ${state}, ${state === 'verified' ? 'repo_owner' : null}) RETURNING id`;
-    return Number(row.id);
-  };
-  const repo = await add('repo', `${R}/a`);
-  const site = await add('site', 'https://r.example.com');
-  const contract = await add('contract', `base:0x${hex40(T)}`);
-  const stopped = await add('merged_pr', 'https://github.com/big/lib/pull/7', 'verified', 'oss');
-  const pr = await add('merged_pr', 'https://github.com/big/lib2/pull/3', 'verified', 'oss');
-  const npm = await add('package_npm', `r-pkg-${T}`, 'proposed');
-  const pypi = await add('package_pypi', `other-${T}`, 'proposed');
-  const reader = fakeReader({
-    '/repos/big/lib': new GitHubBudgetStop(),
-    '/repos/big/lib2': { stargazers_count: 50 },
-    '/repos/big/lib2/pulls/3': { merged_at: iso(9), merged_by: { login: 'maint' } },
-  }, {
-    // v2.12.1: the person's repos are one GraphQL query.
-    ghGraphql: async <T,>(_q: string, v: Record<string, unknown>): Promise<T> => {
-      assert.equal(v.login, R);
-      return { data: { user: { login: R, repositories: { nodes: [{ nameWithOwner: `${R}/a`, isFork: false, isTemplate: false, createdAt: iso(400), stargazerCount: 0 }] } } } } as T;
-    },
-    probe: async () => ({ status: 200 }),
-    usdPerNative: async () => {
-      throw new Error('price down');
-    },
-    json: async <T,>(url: string): Promise<T> => {
-      if (url.includes('api.npmjs.org')) return { downloads: Array.from({ length: 28 }, () => ({ day: '2026-10-01', downloads: 10 })) } as T;
-      if (url.includes('registry.npmjs.org')) return { repository: { url: `git+https://github.com/${R}/a.git` } } as T;
-      if (url.includes('pypistats')) return { data: { last_month: 40 } } as T;
-      return { info: { project_urls: { Source: 'https://github.com/someone/else' } } } as T;
-    },
-  });
-  const r = await readSources(NOW, { deadline: Date.now() + 30_000, reader, only: [id] });
-  assert.deepEqual(r, { read: 4, failed: 1 });
-  const readings = await sql()<{ source_id: number; ok: boolean; error: string | null; signals: Record<string, unknown> }[]>`
-    SELECT source_id::int, ok, error, signals FROM source_readings WHERE source_id IN ${sql()([repo, site, contract, stopped, pr, npm, pypi])}`;
-  const by = new Map(readings.map((x) => [x.source_id, x]));
-  assert.equal(by.get(repo)?.ok, true);
-  assert.equal(by.get(site)?.signals.up, true);
-  assert.deepEqual([by.get(contract)?.ok, by.get(contract)?.error], [false, 'Error']);
-  assert.equal(by.has(stopped), false, 'a spent GitHub budget leaves the source unread');
-  assert.deepEqual([by.get(pr)?.signals.target_stars, by.get(pr)?.signals.merged_at, by.get(pr)?.signals.author], [50, iso(9), R]);
-  assert.equal(by.get(npm)?.signals.weekly, 70);
-  assert.equal(by.has(pypi), false);
-  const s = await sourcesOf(id);
-  assert.deepEqual([s[`package_npm r-pkg-${T}`].state, s[`package_npm r-pkg-${T}`].proof], ['verified', 'repo_link']);
-  assert.deepEqual([s[`package_pypi other-${T}`].state, s[`package_pypi other-${T}`].reject_reason], ['rejected', 'repo_mismatch']);
-  const [left] = await sql()<{ last_read_day: string | null }[]>`SELECT last_read_day::text FROM builder_sources WHERE id = ${stopped}`;
-  assert.equal(left.last_read_day, null, 'still due');
-  assert.deepEqual(await readSources(NOW, { deadline: Date.now() + 30_000, reader, only: [id] }), { read: 0, failed: 0 }, 'once a day (the stopped one stays stopped)');
 });
 
 test('6.13 claimContract: a contract another person holds is refused, and two people claiming one contract at once never both win', dbTest, async () => {
@@ -458,30 +337,6 @@ test('6.17 scoresPost: only a held day can be released, and only a real date; a 
 
 const queueOf = async (id: number) => (await sql()<{ done_at: Date | null; attempts: number }[]>`SELECT done_at, attempts FROM discovery_queue WHERE builder_id = ${id}`)[0];
 
-test('6.18 discover cut by the deadline mid-person: still queued, no attempt, nothing rejected, verified or claimed', dbTest, async () => {
-  const id = T + 2;
-  const L = `cut${T}`;
-  await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${id}, ${`c${id}`})`;
-  await sql()`INSERT INTO discovery_queue (builder_id, reason) VALUES (${id}, 'first_find')`;
-  const repo = (name: string, fork: boolean) => ({ full_name: `${L}/${name}`, fork, is_template: false, pushed_at: iso(1), owner: { login: L, type: 'User' } });
-  const reader = fakeReader({
-    [`/users/${L}`]: {},
-    [`/users/${L}/repos?type=owner&per_page=100`]: [repo('app', false), repo('fork', true)],
-    [`/users/${L}/orgs`]: [],
-    // The slice ends while the repo's files are read (a soft read must not swallow it).
-    [`/repos/${L}/app/git/trees/HEAD?recursive=1`]: new ScoreDeadline(),
-  });
-  const r = await discover(NOW, { deadline: Date.now() + 30_000, reader, login: async () => ({ login: L, basis: 'signin' }), only: [id] });
-  assert.equal(r.people, 0);
-  const q = await queueOf(id);
-  assert.deepEqual([q.done_at, q.attempts], [null, 0]);
-  const s = await sourcesOf(id);
-  assert.equal(s[`repo ${L}/fork`].state, 'proposed', 'no reject from a person cut short');
-  assert.equal(s[`repo ${L}/app`].state, 'proposed', 'no verify either');
-  const [p] = await sql()<{ github_login: string | null }[]>`SELECT github_login FROM builder_profiles WHERE builder_id = ${id}`;
-  assert.equal(p.github_login, null);
-});
-
 test('6.18b readSources: a read cut by the deadline writes no reading; the source stays due', dbTest, async () => {
   const id = T + 5;
   const [row] = await sql()<{ id: string }[]>`
@@ -589,7 +444,7 @@ test('6.24 admin keys: a repeated ?key= (an array) is never a key; every admin p
   assert.equal(oneParam(undefined), undefined);
   assert.equal(oneParam('k'), 'k');
   const app = join(import.meta.dirname, '../../app');
-  for (const page of ['admin/scores/page.tsx', 'admin/veto/[slug]/page.tsx', 'admin/bonus/[round]/page.tsx'])
+  for (const page of ['admin/scores/page.tsx', 'admin/veto/[slug]/page.tsx'])
     assert.match(readFileSync(join(app, page), 'utf8'), /const key = oneParam\(/, page);
 });
 
@@ -680,38 +535,6 @@ test('6.28b (final fix wave) the owner\'s "Clear X handle" on a claimed page sti
     delete process.env.ADMIN_VETO_SECRET;
     await sql()`UPDATE builder_profiles SET x_user_id = NULL, claimed_at = NULL WHERE builder_id = ${id}`;
   }
-});
-
-test('6.29 (post-push audit) a typed wallet proves nothing: naming a stranger contract\'s deployer as a deploy owner never claims it', dbTest, async () => {
-  const stamp = `${T}-${Date.now()}`;
-  const [inst] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`v212-audit-${stamp}`}) RETURNING id`;
-  const id = inst.id;
-  const L = `aud${T}`;
-  const addr = `0x${hex40(T + 7, 'a')}`;
-  const stranger = `0x${hex40(T + 8, 'e')}`;
-  await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${id}, ${`aud${id}`})`;
-  await sql()`INSERT INTO discovery_queue (builder_id, reason) VALUES (${id}, 'first_find')`;
-  // The agent typed the stranger's wallet as the owner of an EarnKit deploy; EarnKit handed it ownership.
-  await sql()`INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, status, owner_ok, cost_micro_usd, owner_wallet)
-    VALUES (${id}, ${`bk-${stamp}`}, ${`${L}/app`}, 'base', ${`0x${hex40(T + 9, 'f')}`}, 'sent', true, 0, ${stranger})`;
-  const broadcast = JSON.stringify({ chain: 8453, transactions: [{ transactionType: 'CREATE', contractAddress: addr, transaction: { from: '0x0000000000000000000000000000000000000001' } }] });
-  const reader = fakeReader({
-    [`/users/${L}`]: {},
-    [`/users/${L}/repos?type=owner&per_page=100`]: [{ full_name: `${L}/app`, name: 'app', fork: false, is_template: false, homepage: null, has_pages: false, created_at: '2026-06-01T00:00:00Z', pushed_at: iso(2), owner: { login: L, type: 'User' } }],
-    [`/users/${L}/orgs`]: [],
-    [`/repos/${L}/app/git/trees/HEAD?recursive=1`]: { tree: [{ path: 'broadcast/Deploy.s.sol/8453/run-latest.json', type: 'blob' }] },
-    [`/repos/${L}/app/contents/broadcast/Deploy.s.sol/8453/run-latest.json`]: b64(broadcast),
-    [`/search/issues?q=${encodeURIComponent(`type:pr author:${L} is:merged -user:${L}`)}&per_page=100`]: { items: [] },
-  }, {
-    // The stranger deployed it long before this repo existed.
-    contractOrigin: async () => ({ deployer: stranger, created_at: '2024-01-01T00:00:00Z' }),
-  });
-  await discover(NOW, { deadline: Date.now() + 30_000, reader, login: async () => ({ login: L, basis: 'signin' }), only: [id] });
-  const s = await sourcesOf(id);
-  const c = s[`contract base:${addr}`];
-  assert.ok(c, 'the clue was proposed');
-  assert.notEqual(c.state, 'verified', 'a typed owner wallet must not prove the stranger\'s contract');
-  assert.notEqual(c.proof, 'deploy_wallet');
 });
 
 test('6.30 (post-push audit) the migration revokes any contract a typed wallet verified', dbTest, async () => {

@@ -4,7 +4,6 @@ import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import { sql } from './db';
 import { X_ON, find, install, withEnv } from './fixtures/find';
-import { claimLink } from './claim';
 import {
   PROOF_BRANCH_NOTE, PROOF_BRANCH_RECHECK_MS, PROOF_BRANCH_TTL_MS, checkProofBranch, coinBranchProof, proofBranchFor, proofBranchStep,
   removeCommand,
@@ -12,7 +11,6 @@ import {
 import { benchReply, claimAsk, copyLine, needsAgentLine, cantShowLine, checkingBranchLine, confirmingSlowLine, takenLine, type BenchView } from './bench-reply';
 import { COIN_YES_NOTE } from './coin-moments';
 import { coinBranchReason, tokenGate, type GateDeps } from './token-gate';
-import { discoverPerson } from './discovery';
 import type { ReaderDeps } from './source-readers';
 import { fakeGitHub, idOf } from './fixtures/fake-github-branch';
 
@@ -432,59 +430,6 @@ test('O1.12b the coin gate asks for a fresh proof branch (never a line) when the
   }),
 );
 
-test('O1.13 discovery: a proof_branch repo survives only the not_owner reject; a repo now derived or with a new GitHub id is revoked', dbTest, () =>
-  withEnv({ ...ON, EARNKIT_BENCH: undefined }, async () => {
-    const run = async (listing: Record<string, unknown>) => {
-      const id = await install();
-      await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${id}, ${`v2131-${id}`})`;
-      const key = `${uniq('kept')}/recipes`;
-      await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by, verified_at, gh_repo_id, gh_owner, gh_owner_type)
-        VALUES (${id}, 'repo', ${key}, ${key}, 'verified', 'proof_branch', 'server', now(), ${idOf(key)}, ${key.split('/')[0]}, 'User')`;
-      const login = uniq('zed');
-      // The proven login's owned-repo listing names the repo, owned by someone else.
-      const reader = new Proxy({}, {
-        get: (_t, k) => {
-          if (k === 'now') return new Date();
-          if (k === 'ghSpent') return () => false;
-          if (k === 'gh') return async (path: string) =>
-            path.startsWith(`/users/${login}/repos`) ? [{ id: idOf(key), full_name: key, fork: false, is_template: false, owner: { login: key.split('/')[0], type: 'User' }, ...listing }]
-            : path === `/users/${login}` ? { login, blog: null, twitter_username: null } : [];
-          return async () => [];
-        },
-      }) as ReaderDeps;
-      await discoverPerson(id, { deadline: Date.now() + 10_000, reader, login: async () => ({ login, basis: 'signin' }) });
-      return source(id, key);
-    };
-    assert.deepEqual(await run({}), { state: 'verified', proof: 'proof_branch' }, 'not_owner: kept');
-    assert.equal((await run({ fork: true }))?.state, 'rejected', 'now a fork: revoked');
-    assert.equal((await run({ id: 1 }))?.state, 'rejected', 'a new GitHub id: revoked');
-  }),
-);
-
-test('O1.15 discovery never verifies (repo_owner) a repo another person already holds', dbTest, () =>
-  withEnv({ ...ON, EARNKIT_BENCH: undefined }, async () => {
-    const login = uniq('owner');
-    const key = `${login}/recipes`;
-    const holder = await install();
-    await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by, verified_at)
-      VALUES (${holder}, 'repo', ${key}, ${key}, 'verified', 'proof_branch', 'server', now())`;
-    const id = await install();
-    await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${id}, ${`v2131-${id}`})`;
-    const reader = new Proxy({}, {
-      get: (_t, k) => {
-        if (k === 'now') return new Date();
-        if (k === 'ghSpent') return () => false;
-        if (k === 'gh') return async (path: string) =>
-          path.startsWith(`/users/${login}/repos`) ? [{ id: idOf(key), full_name: key, fork: false, is_template: false, owner: { login, type: 'User' } }]
-          : path === `/users/${login}` ? { login, blog: null, twitter_username: null } : [];
-        return async () => [];
-      },
-    }) as ReaderDeps;
-    await discoverPerson(id, { deadline: Date.now() + 10_000, reader, login: async () => ({ login, basis: 'signin' }) });
-    assert.notEqual((await source(id, key))?.state, 'verified', 'the first holder keeps it');
-  }),
-);
-
 test('O1.16 a person\'s own linked installation never reads as another account', dbTest, () =>
   withEnv(ON, async () => {
     const key = `${uniq('mine')}/recipes`;
@@ -497,18 +442,5 @@ test('O1.16 a person\'s own linked installation never reads as another account',
     assert.notEqual(state?.kind, 'taken');
     const stranger = await install();
     assert.equal((await proofBranchFor(stranger, key, new Date(), { canBuild: true }))?.kind, 'taken');
-  }),
-);
-
-test('O1.14 flag off: no branch, no GitHub reads, no codes, today\'s claim link', dbTest, () =>
-  withEnv({ ...ON, EARNKIT_BENCH: undefined }, async () => {
-    const gh = fakeGitHub();
-    const id = await install();
-    const r = await find(id, named(`${uniq('off')}/recipes`), { ...NO_MATCH, proofBranchFetch: gh.f });
-    assert.doesNotMatch(r.show_to_builder, /temporary branch/);
-    assert.equal(proofOf(r)?.branch, undefined);
-    assert.equal((await rows(id)).length, 0);
-    assert.deepEqual(gh.calls, []);
-    assert.match((await claimLink(id)) ?? '', /^earnkit\.com\/claim\/[a-z2-7]{12}$/);
   }),
 );

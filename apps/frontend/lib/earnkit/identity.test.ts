@@ -147,15 +147,13 @@ test('G0 N3: linking keeps the duplicate that holds the repo\'s token in the gro
 // ---- v2.12.1 Task 5: the identity input and merges on proven ties only
 
 const NOW = new Date('2026-10-14T12:00:00Z');
-/** Runs `fn` with EARNKIT_BUILDER_SCORE and the event log on (the file's other cases run with them off). */
+/** Runs `fn` with the event log on (the file's other cases run with it off). */
 async function scoreOn<T>(fn: () => Promise<T>): Promise<T> {
-  const was = { score: process.env.EARNKIT_BUILDER_SCORE, log: process.env.EARNKIT_EVENT_LOG };
+  const was = { log: process.env.EARNKIT_EVENT_LOG };
   process.env.EARNKIT_EVENT_LOG = 'on';
   try {
     return await fn();
   } finally {
-    if (was.score === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
-    else process.env.EARNKIT_BUILDER_SCORE = was.score;
     if (was.log === undefined) delete process.env.EARNKIT_EVENT_LOG;
     else process.env.EARNKIT_EVENT_LOG = was.log;
   }

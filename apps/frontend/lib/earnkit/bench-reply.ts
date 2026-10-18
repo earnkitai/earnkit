@@ -50,13 +50,9 @@ export const NO_PROJECT_LINE = "You're not on the Bench yet.";
 export const NO_OFFER_LINE = NO_PROJECT_LINE;
 /**
  * v2.13.3 (3) and owner ruling A (2026-10-17): no project: existing work first, and money it can win.
- * Never the generic tip jar: a build is offered only for a specific open program whose starter can
- * compete (startBuildAsk); otherwise this line is the last line.
+ * v2.14 A18: find offers no build, so this line is the last line.
  */
 export const START_ASK = "I'll put your work on the Bench and find money it can win. What's your GitHub, or a link to something you've made?";
-/** Ruling A: the build, aimed at one open program (its owner-set starter), inside the same one question. */
-export const startBuildAsk = (offer: string, program: string) =>
-  `I'll put your work on the Bench and find money it can win. What's your GitHub, a link to something you've made, or should I build ${offer} for ${program}?`;
 /** v2.13.3 (4): the X claim, a line (v2.13.4: only beside a build in progress, which asks nothing). */
 export const claimLine = (link: string) => `Your page: claim it with X at ${link}`;
 /**

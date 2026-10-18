@@ -347,13 +347,10 @@ test('6.31 (final fix wave) a GitHub clear never blocks a claim (only the owner\
 
 test('11.7 bindX writes the new picture at every sign-in and keeps the stored one when X sends none (B14)', dbTest, async () => {
   const { claimedPerson } = await import('./fixtures/claimed-person');
-  try {
-    // As the file's first-claim case: claim with avatar A, then the same X user signs in again with avatar B, then with none.
-    const { root, user } = await claimedPerson({ avatar: 'https://pbs.twimg.com/a_400x400.jpg' });
-    await bindX(root, { ...user, avatar: 'https://pbs.twimg.com/b_400x400.jpg' }, new Date());
-    assert.equal((await sql()`SELECT x_avatar_url FROM builder_profiles WHERE builder_id = ${root}`)[0].x_avatar_url, 'https://pbs.twimg.com/b_400x400.jpg');
-    await bindX(root, { ...user, avatar: null }, new Date());
-    assert.equal((await sql()`SELECT x_avatar_url FROM builder_profiles WHERE builder_id = ${root}`)[0].x_avatar_url, 'https://pbs.twimg.com/b_400x400.jpg');
-  } finally {
-  }
+  // As the file's first-claim case: claim with avatar A, then the same X user signs in again with avatar B, then with none.
+  const { root, user } = await claimedPerson({ avatar: 'https://pbs.twimg.com/a_400x400.jpg' });
+  await bindX(root, { ...user, avatar: 'https://pbs.twimg.com/b_400x400.jpg' }, new Date());
+  assert.equal((await sql()`SELECT x_avatar_url FROM builder_profiles WHERE builder_id = ${root}`)[0].x_avatar_url, 'https://pbs.twimg.com/b_400x400.jpg');
+  await bindX(root, { ...user, avatar: null }, new Date());
+  assert.equal((await sql()`SELECT x_avatar_url FROM builder_profiles WHERE builder_id = ${root}`)[0].x_avatar_url, 'https://pbs.twimg.com/b_400x400.jpg');
 });

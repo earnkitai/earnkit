@@ -637,17 +637,14 @@ function fakeReader(): ReaderDeps {
 test('6.9 v2.12: runCron runs the builder score steps only with their deps under `only`; the step results come back and a failing read fails soft', db, async () => {
   const off = await runCron({ only: ['none'], deps: { refreshFees: async () => 0 } });
   assert.equal('builder_score' in off, false);
-  try {
-    const slow = { ...fakeReader(), probe: async () => { await new Promise((r) => setTimeout(r, 50)); throw new Error('timeout'); } };
-    const on = await runCron({ only: ['none'], budgetMs: 2_000, deps: { refreshFees: async () => 0, builderScore: { reader: slow, only: [] } } });
-    // v2.12.1: no ranks step (the rank is read live from builder_live). v2.13.1 O1: open proof branches
-    // are checked first (an hour each at most). v2.13.2 (1): then org proofs expire.
-    assert.deepEqual(Object.keys(on.builder_score!), ['proof_branch', 'proof_expiry', 'discover', 'read', 'score', 'empty', 'weekly', 'feed']);
-    assert.deepEqual(on.needs_owner.filter((k: string) => !k.endsWith(':quiet')), []);
-    // Without its deps, a run limited to other programs (tests, the e2e) skips the steps.
-    assert.equal('builder_score' in (await runCron({ only: ['none'], deps: { refreshFees: async () => 0 } })), false);
-  } finally {
-  }
+  const slow = { ...fakeReader(), probe: async () => { await new Promise((r) => setTimeout(r, 50)); throw new Error('timeout'); } };
+  const on = await runCron({ only: ['none'], budgetMs: 2_000, deps: { refreshFees: async () => 0, builderScore: { reader: slow, only: [] } } });
+  // v2.12.1: no ranks step (the rank is read live from builder_live). v2.13.1 O1: open proof branches
+  // are checked first (an hour each at most). v2.13.2 (1): then org proofs expire.
+  assert.deepEqual(Object.keys(on.builder_score!), ['proof_branch', 'proof_expiry', 'discover', 'read', 'score', 'empty', 'weekly', 'feed']);
+  assert.deepEqual(on.needs_owner.filter((k: string) => !k.endsWith(':quiet')), []);
+  // Without its deps, a run limited to other programs (tests, the e2e) skips the steps.
+  assert.equal('builder_score' in (await runCron({ only: ['none'], deps: { refreshFees: async () => 0 } })), false);
 });
 
 test('6.9b needs_owner lists every current hold (quietly), not only the ones this run made', db, async () => {

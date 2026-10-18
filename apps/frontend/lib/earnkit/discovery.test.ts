@@ -66,27 +66,24 @@ test('4.15 a new clue queues the person again: a wallet not seen before (remembe
   // Flag off: v2.11, nothing is queued.
   await rememberWallets(id, [w1]);
   assert.equal(await queued(), null);
-  try {
-    assert.equal(await enqueueClue(id, 'wallet'), false, 'no profile yet: the first find queues them');
-    await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${id}, ${`c${id}`})`;
-    await sql()`INSERT INTO discovery_queue (builder_id, reason, done_at) VALUES (${id}, 'first_find', now())`;
-    await rememberWallets(id, [w1, w2]);
-    const w = await queued();
-    assert.deepEqual([w!.reason, w!.done_at], ['wallet', null], 'a new wallet is a new clue');
-    await sql()`UPDATE discovery_queue SET done_at = now() WHERE builder_id = ${id}`;
-    await rememberWallets(id, [w2]);
-    assert.notEqual((await queued())!.done_at, null, 'a wallet already remembered is no new clue');
-    assert.equal(await enqueueClue(id, 'signin'), true);
-    const s = await queued();
-    assert.deepEqual([s!.reason, s!.done_at], ['signin', null]);
-  } finally {
-  }
+  assert.equal(await enqueueClue(id, 'wallet'), false, 'no profile yet: the first find queues them');
+  await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${id}, ${`c${id}`})`;
+  await sql()`INSERT INTO discovery_queue (builder_id, reason, done_at) VALUES (${id}, 'first_find', now())`;
+  await rememberWallets(id, [w1, w2]);
+  const w = await queued();
+  assert.deepEqual([w!.reason, w!.done_at], ['wallet', null], 'a new wallet is a new clue');
+  await sql()`UPDATE discovery_queue SET done_at = now() WHERE builder_id = ${id}`;
+  await rememberWallets(id, [w2]);
+  assert.notEqual((await queued())!.done_at, null, 'a wallet already remembered is no new clue');
+  assert.equal(await enqueueClue(id, 'signin'), true);
+  const s = await queued();
+  assert.deepEqual([s!.reason, s!.done_at], ['signin', null]);
 });
 
-test('4.16 the wiring: rememberWallets and saveVerification queue their clue, behind the flag', () => {
+test('4.16 the wiring: rememberWallets and saveVerification queue their clue', () => {
   const src = (f: string) => readFileSync(join(import.meta.dirname, f), 'utf8');
-  assert.match(src('installations.ts'), /RETURNING wallet[\s\S]{0,300}builderScoreEnabled\(\)[\s\S]{0,120}enqueueClue\(installationId, 'wallet'\)/);
-  assert.match(src('github-verify.ts'), /INSERT INTO github_verifications[\s\S]{0,900}builderScoreEnabled\(\)[\s\S]{0,120}enqueueClue\(row\.installation_id, 'signin'\)/);
+  assert.match(src('installations.ts'), /RETURNING wallet[\s\S]{0,300}enqueueClue\(installationId, 'wallet'\)/);
+  assert.match(src('github-verify.ts'), /INSERT INTO github_verifications[\s\S]{0,900}enqueueClue\(row\.installation_id, 'signin'\)/);
 });
 
 // ---- v2.12.1 Task 7: confirmed vs not yet confirmed.
@@ -116,13 +113,7 @@ async function claimed(handle: string): Promise<number> {
   return id;
 }
 async function withScore<T>(fn: () => Promise<T>): Promise<T> {
-  const old = process.env.EARNKIT_BUILDER_SCORE;
-  try {
-    return await fn();
-  } finally {
-    if (old === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
-    else process.env.EARNKIT_BUILDER_SCORE = old;
-  }
+  return fn();
 }
 
 test('7.2 the X field match proves the reported login; any other reported login stays not yet confirmed', dbTest, () => withScore(async () => {

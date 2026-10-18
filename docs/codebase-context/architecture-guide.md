@@ -3458,8 +3458,8 @@ the map; the detail lives in the sections it names.
 - **4 tools (item 4).** `find`, `prepare`, `confirm`, `tell` (`tools.ts tools`) dispatch to the v2.9
   `handlers`; the table and the alias map are in "The 4 builder tools and the 30-day aliases". Old
   names are rewritten in `app/mcp/route.ts` until `ALIASES_UNTIL` (2026-11-09T00:00Z) and logged as
-  `[mcp] alias <old> -> <new>`; `tools/list` shows only the 4 (v2.12: plus `score` with
-  `EARNKIT_BUILDER_SCORE=on`; `sponsor_campaign` is archived and never listed).
+  `[mcp] alias <old> -> <new>`; `tools/list` shows only the 4 (v2.12: plus `score`, always
+  since v2.14; `sponsor_campaign` is archived and never listed).
 - **The first reply and `more` (item 2).** One line each for news, "Your entries", the deadline
   line and the private/can't-see lines, then one lead line with its question ("Your TipJar can win
   500 USDC on Arc by Oct 14. Want me to finish it?"). `find { more: true }` renders the v2.9 tables.
@@ -3572,7 +3572,7 @@ real `deployToken`) and the deployer's chain (`DeployChain`). Nothing else may t
 
 ## The 4 builder tools and the 30-day aliases (v2.10 item 4, R15 to R17, Task 9)
 
-The server lists 4 builder tools, plus `score` with `EARNKIT_BUILDER_SCORE=on` (v2.12; until v2.12,
+The server lists 5 builder tools, `score` included (v2.12; always since v2.14; until v2.12,
 `sponsor_campaign` once the escrow was configured, now archived). Each is a
 thin dispatcher in `tools.ts tools` over the v2.9 functions, which live on unchanged in
 `tools.ts handlers` (only their agent notes now name the new tools). Most of this guide still names
@@ -4356,7 +4356,7 @@ Spec: `docs/design-docs-and-implementation-plans/v2.12-builder-score.md`; plan:
 `v2.12-builder-score-plan.md` (its plan rulings R1 to R26 and owner rulings D1 to D7 are cited
 below). Every person who installs gets a public profile at `earnkit.com/b/<slug>` with a 0 to 100
 score and a percentile computed only from verified outcomes (people who used what they shipped).
-All of it sits behind one flag, `EARNKIT_BUILDER_SCORE=on` (`builder-score-flag.ts
+All of it sat behind one flag (retired in v2.14, see "v2.14 One account: retired switches"), `EARNKIT_BUILDER_SCORE=on` (`builder-score-flag.ts
 builderScoreEnabled`; default off, cleared by `fixtures/test-guard.ts`). Off: no profile is made,
 no cron step runs, `/b/*` and `/leaderboard` are 404, `score` is not listed, and `find`, `confirm`
 and odds are v2.11 byte for byte, and `/terms` has no builder-profiles section (it renders, with
@@ -5173,7 +5173,7 @@ contract, an EarnKit deploy, a launched coin or a program entry naming it. "Perc
 ### Raising
 
 **Its own switch (final fix, controller ruling): `EARNKIT_RAISING=on`** (`builder-score-flag.ts
-raisingEnabled` = `benchEnabled()` and `EARNKIT_RAISING === 'on'`; off by default, cleared by
+raisingEnabled` = `EARNKIT_RAISING === 'on'` (v2.14: the Bench is always on); off by default, cleared by
 `fixtures/test-guard.ts`). Off under the Bench: `pillOf` is null (no pill on the profile, the Bench, the
 card, the landing; no Raising chip on update cards), `raiseAsk` and `setRaising` do nothing, coin moments
 say v2.12.1's coin line (`coinLine`) and a coin yes does not set `raising_at`, the "Raising" filter chip
@@ -5207,13 +5207,14 @@ you're raising with $X?"). The launch now stores `projects.coin_tx` and `coin_ch
   week whose facts carry checked commits (`gridWeeks`), so the card and its square agree.
 - With `EARNKIT_RAISING` off the landing hero subtitle and How it works drop raising (v2.13.1 O3).
 - The landing (`HomeView`): hero "Ship every week. Get funded.", `BenchTop`, `UpdateCarousel`, grants,
-  `BenchHowItWorks`, Backed by. The landing cache key names `EARNKIT_BENCH` and `EARNKIT_RAISING`
-  (`landing-cache.ts landingCacheKey`, final fix M4). `/llms.txt` is a route (`lib/earnkit/llms/v213.txt` under the flag,
-  `v212.txt` off). Chain logos: `public/images/chains/{base,arc,robinhood}.svg`.
+  `BenchHowItWorks`, Backed by. The landing cache key names `EARNKIT_RAISING` (v2.14: `landing-v214`, `-raising` when on)
+  (`landing-cache.ts landingCacheKey`, final fix M4). `/llms.txt` is a route (`lib/earnkit/llms/v213.txt`; v2.14 deleted
+  `v212.txt`). Chain logos: `public/images/chains/{base,arc,robinhood}.svg`.
 
 
 ### The builder bonus (T13, B16, R16)
 
+- v2.14 retired the flag and deleted this path (see "v2.14 One account: retired switches").
 - `bonus-rounds.ts bonusOn` is false under `benchEnabled()`, so every card, guide, reply line, round and
   `bookingFor` target follows: every bonus deposit books to the Safe. Nothing is deleted while the flag
   can go off (plan B16); the removal list for when the flag is retired is the comment above `bonusOn`.
@@ -5565,3 +5566,34 @@ test a to g, the security review S.a to S.f, R6.1, R7.0 to R7.5, R8.1 to R8.8, R
   `claim_codes.minted_by` (additive); `page_joined` and `page_detached` in both
   `builder_events_type_check` lists. `db:check` covers them.
 
+## v2.14 One account: retired switches (Task 3, 2026-10-18)
+
+Brief: `.superpowers/sdd/v2.14-one-account-plan/task-3-brief.md`. `EARNKIT_BUILDER_SCORE` and `EARNKIT_BENCH`
+were on in production for good, so v2.14 retired both and deleted every path they hid. `builder-score-flag.ts`
+keeps `archiveFlag`, `xSignInEnabled`, `RAISING_FLAG` and `raisingEnabled` (`EARNKIT_RAISING === 'on'` alone,
+still the legal switch, off by default). `flags-retired.test.ts` holds it: no source reads either name, the
+five tools are always listed, `/leaderboard` is a permanent redirect to `/bench`.
+
+- **Always on now.** The Bench find, tell and score paths (`benchFind`, `benchMoveUp`, `benchScore`), the Bench
+  descriptions in `mcp.ts`, every cron score step (`runScoreSteps`: proof branch, proof expiry, weekly, feed),
+  the Safe fee index (`safeIndexStep`), the Bench landing, profile (`BenchProfileView`), card and pages, the
+  coin pitch gate (`coinPitchAllowed`), main-project scope in `person-score.ts`, the 24 h pending-join window and
+  the R1 checks in `identity.ts`.
+- **Deleted.** The builder bonus payout side: `bonus-rounds.ts`, `bonus-board.ts`, `bonus-payout.ts`, `/bonus/*`,
+  `/admin/bonus/*`, `BonusPill`, the bonus cells and lines in `present.ts`, `entry-text.ts`, `guide.ts`,
+  `landing.ts`, `policy.ts` and `PolicySection`, the bonus submission basis in `projects.ts`, `submission-proof.ts`
+  and its daily re-check, traction scoring in cron. `bonus-ledger.ts` keeps indexing, claiming and sweeping, and
+  `bookDeposit` always books to the Safe (`round_key` NULL, reason logged); `lockRound`, `rolloverRound`,
+  `collectNearEnd` and the `rounds` hook are gone. The v2.12/v2.12.1 flag-off surfaces: `ProfileView`,
+  `ProjectCards`, `LeaderboardView` and its loader, `HowItWorks`, `where-you-stand.ts` (its kept parts are
+  `stand-text.ts`), `make-countable.ts`, the pickup subsystem in `identity.ts`, the owned-repo and org discovery
+  (`readPersonGithub`, `readOwnedRepos`, the login pass in `sources.ts`), the Bench build offer
+  (`BENCH_BUILD_ID`, `benchStarter`, `benchOffer`, `reservedIdProblem`), `llms/v212.txt`, `v2121-prod-check`.
+- **Kept on purpose.** Every table and column (no destructive migration, CHECK lists unchanged),
+  `traction.ts`, `veto.ts`, `bonusLive` and the alerts' bonus-wallet lines (the ledger still needs them),
+  `main-project.ts fillGithubUser` (the Bench find calls it).
+- **Tests.** Flag-off parity tests were deleted (a test that also failed on the v2.13.4 base with both
+  flags on); no test sets or reads either flag, and `fixtures/test-guard.ts` no longer clears them.
+  `v27-journey`, `v28-journey` and `v210-journey.test.ts` went whole (every case was flag-off parity);
+  find's build offer tests were rewritten to A18 (no build offer; `prepare { build }` still starts a starter).
+- **Owner step.** The two env vars can be removed from Railway after deploy; nothing reads them.

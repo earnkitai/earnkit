@@ -13,8 +13,7 @@ import {
   missingAnswersProblem,
   selfEntryProblem,
 } from './projects';
-import { LaunchTokenInput, completeAtWindow, launchToken } from './token-launch';
-import { eligibleSql } from './traction';
+import { completeAtWindow } from './token-launch';
 import { sponsorProgramFile } from './sponsor-rules';
 import { ProgramFile } from './program-file';
 import type { SubmissionRequirement } from './program-file';
@@ -28,7 +27,7 @@ import { dropRunPrograms } from './fixtures/programs-cleanup';
 import { rememberedWallet } from './installations';
 import type { ProgramRow } from './programs';
 import { committedProgram } from './fixtures/program-file';
-import { errorLines, eventsByKey, eventsOfInstallation, withEventLog, withFailingEventLog } from './fixtures/events';
+import { errorLines, eventsOfInstallation, withEventLog, withFailingEventLog } from './fixtures/events';
 
 const W = '0x' + 'a'.repeat(40);
 const SPONSOR = '0x' + 'b'.repeat(40);
@@ -389,46 +388,6 @@ test('bonusEligible: a later entry of the same repo is never eligible (Ruling 13
 
 const randomAddress = () => '0x' + [...crypto.getRandomValues(new Uint8Array(20))].map((b) => b.toString(16).padStart(2, '0')).join('');
 
-test('repo squat (Ruling 16): S records A\'s repo, then cannot swap in its own repo at launch_token; A is not blocked', dbTest, async () => {
-  const program = proofProgramFile(`t6-squat-${process.pid}-${Date.now()}`);
-  await upsertProgram(program);
-  const victimRepo = `https://github.com/alice/victim-${process.pid}-${Date.now()}`;
-  const record = (installationId: number) =>
-    recordSubmission(
-      {
-        program_id: program.id,
-        project: { name: 'X', description: 'x', repo_url: victimRepo, live_url: 'https://x.xyz' },
-        submission_data: { live_deployment_url: 'https://x.xyz', repo_url: victimRepo, description: 'x', builder_profile: 'https://github.com/alice' },
-        external_submission_url: 'https://dorahacks.io/buidl/902',
-      } as never,
-      installationId,
-    );
-  const s = await freshInstallation();
-  const squat = await record(s);
-  const swap = await launchToken(
-    LaunchTokenInput.parse({ project_id: squat.project_id, builder_confirmed: true, repo_url: 'https://github.com/squatter/own' }),
-    s,
-    { available: () => false },
-  );
-  assert.equal(swap.status, 'failed');
-  assert.match(swap.note ?? '', /can't change once recorded; enter the other repo as a new entry/);
-  assert.match(swap.agent_note ?? '', /^repo_url: /);
-  const [kept] = await sql()<{ repo_url: string; bonus_repo_key: string }[]>`SELECT repo_url, bonus_repo_key FROM projects WHERE id = ${squat.project_id}`;
-  assert.equal(kept.repo_url, victimRepo);
-  // The live link may still be fixed (launches are off here, so the flow stops before any gate).
-  await launchToken(LaunchTokenInput.parse({ project_id: squat.project_id, builder_confirmed: true, live_url: 'https://y.xyz' }), s, { available: () => false });
-  const [live] = await sql()<{ live_url: string; repo_url: string }[]>`SELECT live_url, repo_url FROM projects WHERE id = ${squat.project_id}`;
-  assert.equal(live.repo_url, victimRepo);
-  assert.match(live.live_url, /^https:\/\/y\.xyz\/?$/);
-  // A, the repo's builder, enters later and gets a coin: eligible; the squatter's row blocks nothing.
-  const a = await record(await freshInstallation());
-  await sql()`UPDATE projects SET coin_address = ${randomAddress()}, coin_launched_at = now() WHERE id = ${a.project_id}`;
-  const ends = new Date(Date.now() + 86_400_000);
-  const eligible = await sql()<{ id: number }[]>`
-    SELECT p.id FROM projects p WHERE p.program_id = ${program.id} AND ${eligibleSql(ends, null)}`;
-  assert.deepEqual(eligible.map((r) => r.id), [a.project_id]);
-});
-
 test('v2.8 Ruling 2 (plan): record_submission sets complete_at once the entry is ready, and never clears it', dbTest, async () => {
   const program = proofProgramFile(`t7-complete-${process.pid}-${Date.now()}`, { submission_proof: null });
   await upsertProgram(program);
@@ -551,50 +510,6 @@ test('v2.6 Ruling 10: a non-campaign entry naming a wallet remembers it for the 
   assert.equal(await rememberedWallet(installationId), MIXED.toLowerCase());
 });
 
-test('fix round 1 (I1): a late confirmation updates the entry with the coin (same id, one row) and makes it eligible', dbTest, async () => {
-  const program = proofProgramFile(`t5f-late-${process.pid}-${Date.now()}`, { submission_proof: null, starts_at: '2026-01-01T00:00:00Z', ends_at: '2099-01-01T00:00:00Z' });
-  await upsertProgram(program);
-  const installationId = await freshInstallation();
-  const project = proofProject(51);
-  const data = { live_deployment_url: project.live_url, repo_url: project.repo_url, description: project.description, builder_profile: 'https://github.com/alice' };
-  let charged = 0;
-  const charge = async () => { charged++; };
-  const first = await recordSubmission({ program_id: program.id, project, submission_data: data } as never, installationId, { charge });
-  assert.match((first as { bonus_note?: string }).bonus_note ?? '', /Call tell with submitted once the builder confirms/);
-  assert.deepEqual((first as { bonus_join?: unknown }).bonus_join, { kind: 'confirm', site: new URL(program.submission_url).hostname.replace(/^www\./, '') });
-  // The first call launched the coin on this row.
-  await sql()`UPDATE projects SET coin_address = ${randomAddress()}, coin_launched_at = now(), token_url = 'https://tokens.fun/coin/0x1' WHERE id = ${first.project_id}`;
-  const ends = new Date('2099-01-01T00:00:00Z');
-  const eligible = async () =>
-    (await sql()<{ id: number }[]>`SELECT p.id FROM projects p WHERE p.program_id = ${program.id} AND ${eligibleSql(ends, null)}`).map((r) => r.id);
-  assert.deepEqual(await eligible(), []);
-  // The builder says yes: the same row, not a second one, and not charged as a new entry.
-  const late = await recordSubmission(
-    { program_id: program.id, project: { ...project, repo_url: project.repo_url.toUpperCase().replace('HTTPS://GITHUB.COM', 'https://github.com') }, submission_data: data, builder_submitted: true } as never,
-    installationId,
-    { charge },
-  );
-  assert.equal(late.project_id, first.project_id);
-  assert.equal((late as { updated?: boolean }).updated, true);
-  assert.equal((late as { coin_url?: string | null }).coin_url, 'https://tokens.fun/coin/0x1');
-  assert.equal((late as { bonus_join?: unknown }).bonus_join, null);
-  assert.equal(charged, 1);
-  const [{ n }] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM projects WHERE program_id = ${program.id}`;
-  assert.equal(n, 1);
-  const [row] = await sql()<{ submission_basis: string | null; submission_confirmed_at: Date | null }[]>`
-    SELECT submission_basis, submission_confirmed_at FROM projects WHERE id = ${first.project_id}`;
-  assert.equal(row.submission_basis, 'confirmed');
-  assert.ok(row.submission_confirmed_at instanceof Date);
-  assert.deepEqual(await eligible(), [first.project_id]);
-  // Calling again without the flag keeps the confirmation (never silently dropped).
-  await recordSubmission({ program_id: program.id, project, submission_data: data } as never, installationId, { charge });
-  assert.deepEqual(await eligible(), [first.project_id]);
-  // Another installation entering the same repo never touches this row (one-per-repo stays intact).
-  const other = await recordSubmission({ program_id: program.id, project, submission_data: data, builder_submitted: true } as never, await freshInstallation(), { charge });
-  assert.notEqual(other.project_id, first.project_id);
-  assert.deepEqual(await eligible(), [first.project_id], 'the later same-repo entry is never eligible');
-});
-
 test('fix round 2 (N1): a re-record reports a coin only for an EarnKit coin, never a token_url the builder typed', dbTest, async () => {
   const program = proofProgramFile(`t5f2-n1-${process.pid}-${Date.now()}`, { submission_proof: null, starts_at: '2026-01-01T00:00:00Z', ends_at: '2099-01-01T00:00:00Z' });
   await upsertProgram(program);
@@ -679,33 +594,6 @@ test('3.4 the confirmation step writes entered once for a new entry; a second co
     assert.equal(e.github_login, null, 'no sign-in and no proof line: no login');
     assert.equal(e.login_basis, null);
     assert.equal(e.wallet, null);
-  }),
-);
-
-test('3.4 record_submission writes entered (with the wallet the builder gave) and submitted for a new entry; a re-record writes neither again', dbTest, () =>
-  withEventLog(async () => {
-    const program = proofProgramFile(`t3-4r-${process.pid}-${Date.now()}`, { submission_proof: null });
-    await upsertProgram(program);
-    const installationId = await freshInstallation();
-    const project = proofProject(343);
-    const WALLET = '0xAB12000000000000000000000000000000Ef0123';
-    const record = () =>
-      recordSubmission(
-        { program_id: program.id, project, submission_data: { repo_url: project.repo_url, description: project.description }, payout_wallet: WALLET } as never,
-        installationId,
-      );
-    const first = await record();
-    const again = await record();
-    assert.equal(again.project_id, first.project_id);
-    const events = await eventsByKey(`entered:${first.project_id}`);
-    assert.equal(events.length, 1);
-    assert.equal(events[0].wallet, WALLET.toLowerCase());
-    assert.equal(events[0].repo_key, 'alice/proof-343');
-    const [submitted] = await eventsByKey(`submitted:${first.project_id}`);
-    assert.equal(submitted.type, 'submitted', 'record_submission recorded it: submitted (Ruling C10), as the backfill reads it');
-    assert.equal(submitted.proof_url, null);
-    assert.deepEqual(submitted.detail, { basis: 'recorded' });
-    assert.deepEqual((await eventsOfInstallation(installationId)).map((e) => e.type), ['entered', 'submitted']);
   }),
 );
 

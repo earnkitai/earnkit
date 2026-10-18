@@ -96,23 +96,3 @@ test('3.4 discovery under the flag never lists every repo or org of a proven log
   const [src] = await sql()<{ state: string; proof: string | null }[]>`SELECT state, proof FROM builder_sources WHERE builder_id = ${id} AND ref = ${`${login}/main`}`;
   assert.deepEqual(src, { state: 'verified', proof: 'repo_owner' });
 });
-
-test('3.5 flag off: the refresh still reads a person\'s own repos through the person query (parity)', dbTest, async () => {
-  const id = T + 5;
-  await personWithRepos(id, `dan${T}`, 2);
-  const queries: string[] = [];
-  const d = reader(queries);
-  const inner = d.ghGraphql;
-  d.ghGraphql = async <R>(q: string, v: Record<string, unknown>) => {
-    if (q === PERSON_GITHUB_QUERY) {
-      queries.push(q);
-      return { data: { user: { login: `dan${T}`, twitterUsername: null, websiteUrl: null, repositories: { nodes: [node(`dan${T}/r0`), node(`dan${T}/r1`)] } } } } as R;
-    }
-    return inner<R>(q, v);
-  };
-  try {
-    await readPersonLive(id, NOW, { deadline: Date.now() + 10_000, reader: d });
-    assert.deepEqual(queries, [PERSON_GITHUB_QUERY]);
-  } finally {
-  }
-});

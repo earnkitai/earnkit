@@ -18,7 +18,7 @@ import { BENCH_HERO_SUBTITLE } from '../../app/components/sections/Hero';
 import { BENCH_STEPS } from '../../app/components/sections/BenchHowItWorks';
 import { fakeGitHub } from './fixtures/fake-github-branch';
 import {
-  BENCH_HEADS, NO_PROJECT_LINE, OTHER_PROJECT_ASK, START_ASK, privateLine, startBuildAsk, benchReply, cantSeeLine, checkingBranchLine,
+  BENCH_HEADS, NO_PROJECT_LINE, OTHER_PROJECT_ASK, START_ASK, privateLine, benchReply, cantSeeLine, checkingBranchLine,
   benchStepKey, chooseAsk, claimAsk, claimLine, enterAsk, installAppAsk, needsLine, type BenchView,
 } from './bench-reply';
 import { INSTALL_APP_NOTE, START_NOTE, START_YES_NOTE, coinAskBench, fundNeeds, needsPicks } from './bench-find';
@@ -39,7 +39,7 @@ import type { Card } from './present';
 import type { ReaderDeps } from './source-readers';
 
 /**
- * v2.13.3, the owner's own production test (2026-10-17), all under EARNKIT_BENCH: (1) the older find
+ * v2.13.3, the owner's own production test (2026-10-17), all on the Bench: (1) the older find
  * fields (github_user, repos, local remotes, a live link) fill the Bench's identity instead of being
  * dropped; (2) "Ways to get funded" always shows; (3) the no-project reply leads with existing work;
  * (4) the claim link reads as a line; (5) private and org repos through the read-only GitHub App.
@@ -101,13 +101,6 @@ test('1.1 pure: github_user, the first repo (else local remotes) and a live link
     // The pure mapping itself (benchIdentity), unchanged when there is nothing to fill.
     const plain = identityInput({}, localGitInput(undefined));
     assert.deepEqual(benchIdentity({ identity: plain, project: benchProject({}), local_git: localGitInput(undefined) }), { identity: plain, project: null });
-  }));
-
-test('1.2 flag off (Bench off): the older fields fill nothing (today\'s)', () =>
-  withEnv({ ...ON, EARNKIT_BENCH: undefined }, async () => {
-    const i = listProgramsInput({ github_user: 'jenil04', repos: ['earnkitai/earnkit'] });
-    assert.equal(i.identity.github_login, null);
-    assert.equal(i.project, null);
   }));
 
 test('1.3 the tester\'s shape (github_user + repos + a live link): identity and reported_github are stored, the repo is the one project and the proof flow runs to confirmed', dbTest, () =>
@@ -189,13 +182,11 @@ test('2.2 no project and a project not yet confirmed: up to 2 open programs with
 
 // ---- 3. No project: lead with existing work ------------------------------------------------------
 
-test('3.1 no project (ruling A): "You\'re not on the Bench yet." and existing work first; never the generic tip jar; a build only aimed at a program whose starter competes', dbTest, () =>
+test('3.1 no project (ruling A): "You\'re not on the Bench yet." and existing work first; never a build (v2.14 A18)', dbTest, () =>
   on(async () => {
     assert.equal(NO_PROJECT_LINE, "You're not on the Bench yet.");
     // Coordinator ruling (v2.13.3): one question, last.
     assert.equal(START_ASK, "I'll put your work on the Bench and find money it can win. What's your GitHub, or a link to something you've made?");
-    assert.equal(startBuildAsk('a tip jar on Arc', 'Arc Microgrants'),
-      "I'll put your work on the Bench and find money it can win. What's your GitHub, a link to something you've made, or should I build a tip jar on Arc for Arc Microgrants?");
     // No program with a starter that can compete open: the line, no build offer, money shown.
     const id = await install();
     await claimFx(id); // v2.13.4: unclaimed, X is the one ask; this is what follows it
@@ -219,21 +210,17 @@ test('3.1 no project (ruling A): "You\'re not on the Bench yet." and existing wo
     const rc = await find(c, { agent_can_build: false }, NO_MATCH);
     assert.equal(rc.show_to_builder.split('\n')[1], NO_PROJECT_LINE);
     assert.equal(rc.show_to_builder.split('\n').at(-1), START_ASK);
-    // An open program with its own starter: the build aimed at it, beside existing work; one question.
+    // v2.14 A18: an open program with its own starter changes nothing: no build offered in find.
     const arc = { ...committedProgram('arc-microgrants'), id: `v2133-arc-${RUN}`, status: 'active', ends_at: new Date(Date.now() + 3 * 86_400_000).toISOString(), fresh_build: { starter: STARTER_ID } };
     await upsertProgram(ProgramFile.parse(arc));
     try {
       const b = await install();
       await claimFx(b);
       const rb = await find(b, { agent_can_build: true }, { ...NO_MATCH, freshDeps: OWN_FRESH });
-      assert.equal(rb.show_to_builder.split('\n').at(-1), startBuildAsk('a tip jar on Arc', arc.title), rb.show_to_builder);
-      // The build option is part of the same last question.
-      assert.ok(rb.show_to_builder.endsWith('?'));
+      assert.equal(rb.show_to_builder.split('\n').at(-1), START_ASK, rb.show_to_builder);
       assert.equal(questions(rb.show_to_builder), 1, 'one question mark in the whole reply (links stripped)');
-      assert.equal(rb.move_up?.kind, 'build');
-      assert.equal(rb.move_up?.agent_note, START_NOTE);
-      const by = (await tools.tell({ move_up: { kind: 'build', project_key: null, answer: 'yes' } }, { installationId: b } as never)) as { agent_note?: string };
-      assert.match(by.agent_note ?? '', new RegExp(`build: \\{ start: true, program_id: '${arc.id}'`));
+      assert.equal(rb.build_offer, undefined);
+      assert.equal(rb.move_up?.kind, 'start');
     } finally {
       await dropPrograms([arc.id]);
     }

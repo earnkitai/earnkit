@@ -35,7 +35,6 @@ test('footer: links the terms page', () => {
   assert.match(html(React.createElement(Footer)), /href="\/terms"/);
 });
 
-
 // ---- v2.7 §1: the homepage (HomeView is the pure render; app/page.tsx does the cached read).
 const home = (landing: Landing | null) => html(React.createElement(HomeView, { landing }));
 
@@ -458,15 +457,7 @@ test('12.1 v2.11 /terms "What EarnKit records": login and how it was checked, wa
   assert.doesNotMatch(t, /\p{Emoji_Presentation}|\bcoin\b|vault/iu);
 });
 
-const withScoreFlag = <T,>(fn: () => T): T => {
-  const was = process.env.EARNKIT_BUILDER_SCORE;
-  try {
-    return fn();
-  } finally {
-    if (was === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
-    else process.env.EARNKIT_BUILDER_SCORE = was;
-  }
-};
+const withScoreFlag = <T,>(fn: () => T): T => fn();
 
 test('v2.12.1 T12: the terms say the page is public only after the X claim, what is read, confirmed vs not, joins and hide; no v2.12 slug or earnkit.txt words', () => {
   const t = withScoreFlag(() => text(html(React.createElement(TermsPage))));

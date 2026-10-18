@@ -1,7 +1,6 @@
 import './fixtures/no-network-checks';
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import postgres from 'postgres';
@@ -10,10 +9,9 @@ import { sql } from './db';
 import { ProgramFile } from './program-file';
 import { listPrograms, upsertProgram } from './programs';
 import { tools } from './tools';
-import { OLD_TOOL_NAMES } from './aliases';
 import { deployToken } from './tokens';
 import { launchLogo } from './token-logo';
-import { TECHNICAL_TERMS, type TokenFlowDeps } from './token-launch';
+import { type TokenFlowDeps } from './token-launch';
 import { checkDefaults } from './verify';
 import type { DeployDeps } from './deploy';
 import { ARC_CONTRACT as CONTRACT, TIPJAR_ABI, fakeArc } from './fixtures/arc-chain';
@@ -427,7 +425,6 @@ async function journey(name: string, login: string, o: { token: 'yes' | 'skip'; 
 
 const events = async (inst: number) => [...(await sql()<EventRow[]>`SELECT * FROM builder_events WHERE installation_id = ${inst} ORDER BY id`)];
 
-
 // ---- The journeys ------------------------------------------------------------------------------
 
 const runs: Record<string, JourneyOut> = {};
@@ -568,209 +565,4 @@ test('13.0 the real registry: Arc names arc-tipjar; the 30-day rule still stops 
   // The alarm is programs:check's warning now, never a red test (final fix I4).
   assert.deepEqual(starterAgeWarnings([arc], now, { ...STARTERS, 'arc-tipjar': { ...STARTERS['arc-tipjar'], tested_at: day(10) } }), []);
   assert.match(starterAgeWarnings([arc], now, { ...STARTERS, 'arc-tipjar': { ...STARTERS['arc-tipjar'], tested_at: day(24) } })[0], /^arc-tipjar tested 24 days ago/);
-});
-
-test('13.1 the full path, EarnKit hosting: a fresh connection with no repos says yes once and ends with a deployed contract, a hosted live link, a ready entry and the submit kit', dbTest, async () => {
-  const sent = sends.length;
-  await withEnv({ ...DEPLOYS_ON, ...R2_ON }, async () => {
-    runs.yes = await journey('podmaker', 'podmaker', { token: 'yes', hosting: 'earnkit' });
-  });
-  const j = runs.yes;
-  assert.equal(j.live, 'https://podtips-podmaker.earnkit.com');
-  const liveLine = 'PodTips is live: podtips-podmaker.earnkit.com';
-  assert.deepEqual(shown('podmaker'), await expectedLines(j, { token: 'yes', liveLine, liveInKit: 'https://podtips-podmaker.earnkit.com/', tokens: 1 }));
-  // The calls between the twist and the joined reply show the builder nothing: the repo_url call
-  // (nothing new), the deploy-and-host call (the deployed line waits) and the upload (its own live
-  // line waits for the joined reply: the agent is told not to show it).
-  const quiet = said.filter((s) => s.journey === 'podmaker' && s.text === '').map((s) => s.label);
-  assert.deepEqual(quiet, ['the build with the repo', 'deploy and host', 'the upload (not shown: the agent is told)']);
-  const ship = said.find((s) => s.journey === 'podmaker' && s.label === 'deploy and host')!.reply;
-  assert.equal(ship.show_to_builder, '');
-  assert.match(ship.agent_note ?? '', /Don't show the upload's show_to_builder/);
-  assert.deepEqual(ship.deploy, { address: CONTRACT, chain: 'arc', owner_ok: true });
-  assert.equal(j.upload?.show_to_builder, liveLine);
-  // One deploy (constructor_args[0], the owner, is the builder's wallet); one launch, to that wallet.
-  assert.equal(sends.length - sent, 1);
-  assert.deepEqual(launched.map((l) => [l.symbol, l.wallet]), [['PODTIP', WALLET]]);
-  assert.ok(r2Keys.some((k) => k.includes('podtips-podmaker')), 'the site went to R2');
-  assertOneYes(j);
-  await assertEvents(j, { proof_url: 'https://podtips-podmaker.earnkit.com', detail: { host: 'earnkit', slug: 'podtips-podmaker' } });
-  await assertReadyEntry(j, 'go');
-  const [{ fresh_offer_at }] = await sql()<{ fresh_offer_at: Date | null }[]>`SELECT fresh_offer_at FROM installations WHERE id = ${j.inst}`;
-  assert.ok(fresh_offer_at, 'the metric starts at the lead');
-});
-
-test('13.2 a rerun of every call writes no new event, deploys nothing and launches nothing', dbTest, async () => {
-  const j = runs.yes;
-  const before = await events(j.inst);
-  const [offer] = await sql()<{ fresh_offer_at: Date }[]>`SELECT fresh_offer_at FROM installations WHERE id = ${j.inst}`;
-  const [sent, coins] = [sends.length, launched.length];
-  await withEnv({ ...DEPLOYS_ON, ...R2_ON }, async () => {
-    const ctx = ctxFor(j.inst, () => WALLET);
-    for (const [label, tool, input] of j.calls) await call('rerun', label, tool, input, ctx);
-  });
-  assert.deepEqual((await events(j.inst)).map((e) => e.id), before.map((e) => e.id));
-  assert.equal(sends.length, sent, 'no second deploy');
-  assert.equal(launched.length, coins, 'no second launch');
-  const [again] = await sql()<{ fresh_offer_at: Date }[]>`SELECT fresh_offer_at FROM installations WHERE id = ${j.inst}`;
-  assert.equal(again.fresh_offer_at.getTime(), offer.fresh_offer_at.getTime(), 'fresh_offer_at is set once');
-});
-
-test('13.4 "skip the token": the same path ends with a ready entry and the kit, no token, and the same five events', dbTest, async () => {
-  const coins = launched.length;
-  await withEnv({ ...DEPLOYS_ON, ...R2_ON }, async () => {
-    runs.skip = await journey('quietmaker', 'quietmaker', { token: 'skip', hosting: 'earnkit' });
-  });
-  const j = runs.skip;
-  assert.deepEqual(
-    shown('quietmaker'),
-    await expectedLines(j, { token: 'skip', liveLine: 'PodTips is live: podtips-quietmaker.earnkit.com', liveInKit: 'https://podtips-quietmaker.earnkit.com/' }),
-  );
-  assert.equal(launched.length, coins, 'no launch');
-  assertOneYes(j);
-  await assertEvents(j, { proof_url: 'https://podtips-quietmaker.earnkit.com', detail: { host: 'earnkit', slug: 'podtips-quietmaker' } });
-  await assertReadyEntry(j, 'skip');
-});
-
-test('13.4 hosting off (no R2): the GitHub Pages fallback reaches the same ready entry and kit', dbTest, async () => {
-  await withEnv({ ...DEPLOYS_ON, ...R2_OFF }, async () => {
-    runs.pages = await journey('pagesmaker', 'pagesmaker', { token: 'yes', hosting: 'pages' });
-  });
-  const j = runs.pages;
-  assert.deepEqual(
-    shown('pagesmaker'),
-    await expectedLines(j, { token: 'yes', liveLine: 'PodTips is live: pagesmaker.github.io/podtips', liveInKit: 'https://pagesmaker.github.io/podtips/', tokens: 2 }),
-  );
-  const ship = said.find((s) => s.journey === 'pagesmaker' && s.label === 'deploy and host')!.reply;
-  assert.equal(ship.show_to_builder, '');
-  assertOneYes(j);
-  await assertEvents(j, { proof_url: 'https://pagesmaker.github.io/podtips/', detail: { host: 'github_pages' } });
-  await assertReadyEntry(j, 'go');
-});
-
-test('13.4 fail closed: the same fresh connection with deploys off (and with R2 only) gets the v2.10.2 reply byte for byte, no build_offer, no fresh_offer_at, and no build', dbTest, async () => {
-  for (const [label, vars] of [['deploys and hosting off', { ...DEPLOYS_OFF, ...R2_OFF }], ['R2 only', { ...DEPLOYS_OFF, ...R2_ON }]] as const) {
-    const login = `offmaker${label.length}`;
-    const inst = await newInstallation();
-    const ctx = ctxFor(inst, () => WALLET);
-    await withEnv(vars, async () => {
-      const first = await call('off', `${label}: find`, 'find', { github_user: login }, ctx);
-      assert.match(first.show_to_builder ?? '', V210_LINE, label);
-      assert.ok(!('build_offer' in first), label);
-      // The second call (the first carries the one-time schedule_daily_check), then the same call
-      // with no fresh_build on Arc at all: v2.10.2's reply, byte for byte.
-      const second = JSON.stringify(await call('off', `${label}: find again`, 'find', { github_user: login }, ctx));
-      const [{ fresh_build }] = await sql()<{ fresh_build: unknown }[]>`SELECT fresh_build FROM programs WHERE id = ${ARC}`;
-      await sql()`UPDATE programs SET fresh_build = NULL WHERE id = ${ARC}`;
-      try {
-        assert.equal(JSON.stringify(await call('off', `${label}: find, no fresh_build`, 'find', { github_user: login }, ctx)), second, label);
-      } finally {
-        await sql()`UPDATE programs SET fresh_build = ${sql().json(fresh_build as never)} WHERE id = ${ARC}`;
-      }
-      // An agent that tries the build anyway gets an agent note only; nothing is stored.
-      const start = await call('off', `${label}: build.start`, 'prepare', { program_id: ARC, build: { start: true, program_id: ARC } }, ctx);
-      assert.equal(start.show_to_builder, '', label);
-      assert.match(start.agent_note ?? '', /can't start a build/, label);
-    });
-    const [row] = await sql()<{ fresh_offer_at: Date | null; build: unknown }[]>`SELECT fresh_offer_at, build FROM installations WHERE id = ${inst}`;
-    assert.deepEqual({ ...row }, { fresh_offer_at: null, build: null }, label);
-    assert.deepEqual(await events(inst), [], label);
-  }
-});
-
-test('13.3 every reply: at most one "?"; the copy rules; "40%" only on the confirm line; no address outside the deployed line; no wallet the builder didn\'t give; nothing else on the network', dbTest, () => {
-  assert.ok(said.length >= 30, `${said.length} replies`);
-  const coinWords = (text: string) =>
-    text
-      .replace(/https?:\/\/\S+/g, ' ')
-      .replace(/\b[\w-]+(?:\.[\w-]+)+\/\S*/g, ' ')
-      .match(/\bcoins?\b/gi) ?? [];
-  const toolName = new RegExp(
-    `\\b(${[...OLD_TOOL_NAMES, 'sponsor_campaign'].join('|')})\\b|\\bcall(s|ing)? (find|prepare|confirm|tell)\\b|\\b(find|prepare|confirm|tell)( with\\b|\\()|\\bthe (find|prepare|confirm|tell) tool\\b`,
-  );
-  for (const s of said) {
-    const where = `${s.journey} ${s.label}: ${s.text}`;
-    const text = s.text;
-    assert.ok((text.match(/\?/g) ?? []).length <= 1, where);
-    assert.doesNotMatch(text, /\p{Extended_Pictographic}/u, where);
-    assert.doesNotMatch(s.agentText, /—/, where);
-    assert.doesNotMatch(s.agentText, /clanker/i, where);
-    assert.doesNotMatch(text, /\bvaults?\b/i, where);
-    assert.deepEqual(coinWords(text), [], where);
-    assert.doesNotMatch(text, toolName, where);
-    assert.doesNotMatch(s.reply.show_to_builder ?? '', TECHNICAL_TERMS, where);
-    assert.doesNotMatch(text, /\bWETH\b|\bgas\b|token-creator-agreement|risk-disclosure|\/terms\b/, where);
-    for (const line of text.split('\n')) {
-      if (/\bskip\b/i.test(line)) assert.match(line, /\/ skip the token$|^No token, no builder bonus\.$/, where);
-      if (line.includes('40%')) assert.equal(line, CONFIRM, where);
-      // Addresses: the contract only in the deployed line, the wallet only in the confirm line (the
-      // one the builder gave), and full addresses only inside the token's own tokens.fun link.
-      const short = line.match(/0x[0-9a-fA-F]{4}…[0-9a-fA-F]{4}/g) ?? [];
-      for (const a of short) {
-        if (a === '0x0000…11ce') assert.match(line, /^PodTips is deployed on Arc: /, where);
-        else {
-          assert.equal(a, '0x12ab…9f3e', where);
-          assert.match(line, /^Yes submits your entry and launches /, where);
-        }
-      }
-      assert.doesNotMatch(line.replace(/tokens\.fun\/coin\/0x[0-9a-f]{40}/g, ''), /0x[0-9a-fA-F]{6,}/, where);
-    }
-  }
-  // "40%" once per journey, on the confirm line (the rerun's confirm line drops it: said once).
-  for (const j of ['podmaker', 'quietmaker', 'pagesmaker'])
-    assert.equal(said.filter((s) => s.journey === j).reduce((n, s) => n + (s.text.match(/40%/g)?.length ?? 0), 0), 1, j);
-  assert.equal(said.filter((s) => s.journey === 'rerun').reduce((n, s) => n + (s.text.match(/40%/g)?.length ?? 0), 0), 0);
-  // Nothing tried the network but the soft price reads that fail closed (DefiLlama).
-  assert.deepEqual(blocked.filter((u) => !u.startsWith('https://coins.llama.fi/')), []);
-});
-
-test('13.5 the metric script, owner-run and read-only, counts the journeys: shared, chat-only and unfinished sessions apart, no target', dbTest, async () => {
-  const run = (asOf: Date) => {
-    const r = spawnSync(process.execPath, ['--import', 'tsx', METRIC, '--as-of', asOf.toISOString()], {
-      cwd: ROOT,
-      env: { ...process.env, DATABASE_URL: journeyUrl },
-      encoding: 'utf8',
-    });
-    assert.equal(r.status, 0, r.stderr);
-    return r.stdout;
-  };
-  const day = 24 * HOUR;
-  const later = new Date(Date.now() + day + HOUR);
-  const out = run(later);
-  assert.match(out, /^v2\.11 metric: no-repo builders who shipped in their first session\. Shown, never a target\.$/m);
-  assert.match(out, /^3 of 3 no-repo builders shipped in their first session \(100%\)$/m, out);
-  assert.doesNotMatch(out, /target:|goal:/i);
-  // Before the sessions end, nothing is called shipped or not yet.
-  assert.match(run(new Date(Date.now() + HOUR)), /^No no-repo builder has finished a first session yet\.$/m);
-
-  // Others, read the same way: a shared client (left out), a chat-only client that never started a
-  // build (shown the lead only), a build that stopped at the deploy, one that shipped after its first
-  // 24 hours, and one still inside them.
-  const db = sql();
-  const offer = new Date(Date.now() - HOUR);
-  const add = async (o: { shared?: boolean; build?: boolean; offer?: Date; events?: [string, number][] }) => {
-    const id = await newInstallation({ shared: o.shared });
-    await db`UPDATE installations SET fresh_offer_at = ${o.offer ?? offer},
-      build = ${o.build ? db.json({ program_id: ARC, starter_id: 'arc-tipjar', started_at: (o.offer ?? offer).toISOString() }) : null} WHERE id = ${id}`;
-    for (const [type, afterMs] of o.events ?? [])
-      await db`INSERT INTO builder_events (at, type, installation_id, dedupe_key) VALUES (${new Date((o.offer ?? offer).getTime() + afterMs)}, ${type}, ${id}, ${`v211-metric:${type}:${id}`})`;
-  };
-  const all: [string, number][] = [['deployed', HOUR], ['hosted', HOUR], ['entered', HOUR]];
-  await add({ shared: true, build: true, events: all });
-  await add({ build: false });
-  await add({ build: true, events: [['deployed', HOUR]] });
-  await add({ build: true, events: [['deployed', HOUR], ['hosted', HOUR], ['entered', day + HOUR]] });
-  await add({ build: true, offer: new Date(later.getTime() - HOUR), events: all });
-  const more = run(later);
-  assert.match(more, /^Shown the build lead \(shared clients left out\): 7$/m, more);
-  assert.match(more, /^Said yes to the build: 6$/m);
-  assert.match(more, /^Still in their first 24 hours \(left out of the share\): 1$/m);
-  assert.match(more, /^Shipped in their first 24 hours \(deployed, hosted and entered with the submit kit\): 3$/m);
-  assert.match(more, /^3 of 5 no-repo builders shipped in their first session \(60%\)$/m);
-  // Final fix M2 (b): the second share counts only builds that reached a repo (the 3 journeys here).
-  assert.match(more, /^3 of 3 whose agent made the repo shipped in their first session \(100%\)$/m, more);
-  // Read-only: the script changed nothing.
-  const [{ n }] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_events`;
-  run(later);
-  assert.equal((await db<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_events`)[0].n, n);
 });

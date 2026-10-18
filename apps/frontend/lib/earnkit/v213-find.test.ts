@@ -11,7 +11,7 @@ import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, claimX, dropAvalanche, dropPrograms, find, fitsFor, install, person, withEnv } from './fixtures/find';
 import type { Starter } from './starters';
-import { UPDATES_ASK, checkingBranchLine, claimAsk, startBuildAsk } from './bench-reply';
+import { START_ASK, UPDATES_ASK, checkingBranchLine, claimAsk } from './bench-reply';
 
 /**
  * v2.13 T8: find and score under the Bench flag through the real tools: the three parts (where you
@@ -91,41 +91,24 @@ test('8.7 a confirmed, claimed, ranked project: the spec 2a reply, and the updat
   }),
 );
 
-test('8.8 no project: ideas first, one build offer aimed at the program (spec 2b, v2.13.3 ruling A); its yes starts the build', dbTest, () =>
+test('8.8 no project: ideas first and existing work; no build offer (v2.14 A18)', dbTest, () =>
   benchOn(async () => {
     await arcCopy();
     try {
       const id = await install();
-      // v2.13.4 (spec 2): unclaimed, the X claim is the one ask; the build offer comes once claimed.
+      // v2.13.4 (spec 2): unclaimed, the X claim is the one ask.
       const r0 = await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH });
       assert.ok(r0.show_to_builder.endsWith(claimAsk(r0.claim!.link, null)), r0.show_to_builder);
       await claimX(id);
       const r = await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH });
       assert.match(r.show_to_builder, /^You're not on the Bench yet\.$/m);
-      assert.match(r.show_to_builder, /^Ways to get funded\n.+ pays .+ for .+\.$/m);
-      const [{ title }] = await sql()<{ title: string }[]>`SELECT title FROM programs WHERE id = ${ARC_ID}`;
-      assert.ok(r.show_to_builder.endsWith(startBuildAsk('a tip jar on Arc', title)), r.show_to_builder);
-      assert.equal(r.build_offer?.program_id, ARC_ID, 'the pick is this run\'s own program');
-      assert.deepEqual(r.move_up && { kind: r.move_up.kind, project_key: r.move_up.project_key }, { kind: 'build', project_key: null });
-      // The yes starts the v2.11 build path for the program the ask named.
-      const yes = (await tools.tell({ move_up: { kind: 'build', project_key: null, answer: 'yes' } }, { installationId: id } as never)) as { show_to_builder: string; agent_note?: string };
-      assert.equal(yes.show_to_builder, '');
-      assert.ok(yes.agent_note?.includes(`build: { start: true, program_id: '${r.build_offer!.program_id}' }`), yes.agent_note);
+      assert.match(r.show_to_builder, /^Ways to get funded\n/m);
+      assert.ok(r.show_to_builder.endsWith(START_ASK), r.show_to_builder);
+      assert.equal(r.build_offer, undefined);
+      assert.equal(r.move_up?.kind, 'start');
     } finally {
       await dropPrograms([ARC_ID]);
     }
-  }),
-);
-
-test('8.9 flag off: the v2.12.2 reply ("Ways to earn right now"), no proof, no rank lines (review focus 4)', dbTest, () =>
-  withEnv({ EARNKIT_BENCH: undefined, [EVENT_LOG_FLAG]: 'on', ...X_ON }, async () => {
-    const id = await install();
-    const r = await find(id, { identity: { projects: [{ name: 'TipJar', what: 'a tip jar', repo: `leeoff${RUN}/tipjar` }] } }, { matchProjects: async () => ({ checked: 1, scored: 0, fits: [] }) });
-    assert.ok(!r.show_to_builder.includes('Ways to get funded'));
-    assert.ok(!r.show_to_builder.includes('Bench'));
-    assert.match(r.show_to_builder, /^Ways to earn right now$/m);
-    assert.equal(r.proof, undefined);
-    assert.equal(r.rank_lines, undefined);
   }),
 );
 

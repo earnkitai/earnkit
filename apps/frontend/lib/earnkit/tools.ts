@@ -1408,11 +1408,8 @@ export const handlers = {
         start, proofCheck: refresh.proofCheck, first, cards: shownCards, repos: yourRepos, myEntries, pickup, ask, alerts, agentCanBuild: agent_can_build, hide, project,
         notice: holdMain ? PROBATION_LINES.main.split('\n')[0] : null,
       });
-      const offer = r.build_offer as { program_id: string; starter_id: string; can_build: boolean } | undefined;
       return {
         ...r,
-        // v2.13.1 O2: no separate note under the Bench (move_up is the one route for the yes).
-        ...(offer && { build_offer: { program_id: offer.program_id, starter_id: offer.starter_id } }),
         ...(pickup && { pick_up: { question: pickup.question, agent_note: PICKUP_NOTE } }),
         ...(walletNote && { wallet_note: walletNote }),
         ...(ask && { ask_outcome: { project_id: ask.project_id, program_id: ask.program_id, question: outcomeQuestion(ask.name, ask.program_title), agent_note: ASK_OUTCOME_NOTE } }),

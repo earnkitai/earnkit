@@ -71,15 +71,9 @@ test('9.4 the raise ask for an old coin comes once per project', dbTest, async (
   assert.equal(await raiseAsk(id, key, {}), null, 'already raising');
 });
 
-test('9.5 tell coin { raising } through the tool turns raising on; flag off it is ignored', dbTest, async () => {
+test('9.5 tell coin { raising } through the tool turns raising on', dbTest, async () => {
   const { id } = await withCoin();
   const { tools } = await import('./tools');
-  try {
-    const off = (await tools.tell({ coin: { raising: true } }, { installationId: id } as never)) as { show_to_builder: string };
-    assert.equal(off.show_to_builder, 'Okay.');
-    assert.equal((await raisingCoin(id))?.raising, false, 'flag off: nothing changed');
-  } finally {
-  }
   const on = (await tools.tell({ coin: { raising: true } }, { installationId: id } as never)) as { show_to_builder: string };
   assert.equal(on.show_to_builder, RAISE_LINES.on('RECIPE'));
   assert.equal((await raisingCoin(id))?.raising, true);

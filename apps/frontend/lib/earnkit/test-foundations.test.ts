@@ -64,12 +64,8 @@ test('2.4 mcpCall goes through tools/call: the schema runs before the handler', 
 });
 
 test('2.5 mcpListTools lists the five tools', async () => {
-  // Until T3 removes the flag, score registers only with EARNKIT_BUILDER_SCORE=on; T3 deletes this env line.
-  try {
-    const names = (await mcpListTools({ installationId: 1 })).map((t) => t.name).sort();
-    assert.deepEqual(names, ['confirm', 'find', 'prepare', 'score', 'tell']);
-  } finally {
-  }
+  const names = (await mcpListTools({ installationId: 1 })).map((t) => t.name).sort();
+  assert.deepEqual(names, ['confirm', 'find', 'prepare', 'score', 'tell']);
 });
 
 test('2.6 every v214 agent-input test goes through mcpCall, never a handler alone', () => {

@@ -19,7 +19,7 @@ import { resolveHandle } from './profiles';
 import { refreshPerson, REFRESH_BUDGET_MS, rescorePerson } from './person-score';
 import { mainConfirmed, mainProjectOf } from './main-project';
 import { benchCardFacts, benchRows, parseBenchFilter, profileData } from './bench-data';
-import { UPDATES_ASK, checkingBranchLine, claimAsk, startBuildAsk, takenLine } from './bench-reply';
+import { UPDATES_ASK, checkingBranchLine, claimAsk, takenLine } from './bench-reply';
 import { NOT_CONFIRMED_NOTE, UPDATE_LINES } from './updates';
 import { pillOf } from './raising';
 import { feedWeeks, feedRankStep } from './feed';
@@ -46,7 +46,7 @@ import { GET as llms } from '../../app/llms.txt/route';
 /**
  * v2.13 T16 (spec "Acceptance test" 1 to 7, as the runbook walks them): one person with a project,
  * one without, the weekly update, the Bench filters, the raise, the landing page and no builder
- * bonus, through the real flag-on code paths (EARNKIT_BUILDER_SCORE and EARNKIT_BENCH on): find,
+ * bonus, through the real code paths: find,
  * prepare, confirm and tell as an agent calls them, the claim with X, the proof branch pushed by the
  * repo's agent (v2.13.1 O1), the refresh, the rescore, the weekly facts and feed rank steps, and the pages'
  * data and views. Plus Review Focus 3 (a claimant of the same repo who never pushed the line never
@@ -93,8 +93,6 @@ const html = (el: React.ReactElement) => renderToStaticMarkup(el);
 const DEPLOYER_KEY = '9a1c1b2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b';
 const savedEnv: Record<string, string | undefined> = {};
 const ENV: Record<string, string | undefined> = {
-  EARNKIT_BUILDER_SCORE: 'on',
-  EARNKIT_BENCH: 'on',
   // Final fix: the raise path (16.5) runs as built, with EARNKIT_RAISING on.
   EARNKIT_RAISING: 'on',
   [EVENT_LOG_FLAG]: 'on',
@@ -251,7 +249,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 }) as typeof fetch;
 
 /** Every GraphQL query sent (16.8: never the person query). */
-const graphqlSent: { query: string; bench: boolean }[] = [];
+const graphqlSent: string[] = [];
 /** maya's tracked contract on Base, and its callers (none until 16.5 gives five). */
 const CONTRACT = `0x${randomBytes(20).toString('hex')}`;
 let callers: { timestamp: string; status: string; from: { hash: string }; value: string }[] = [];
@@ -266,7 +264,7 @@ const FAKE_READER: ReaderDeps = {
     return new Date();
   },
   ghGraphql: async <T,>(q: string, v: Record<string, unknown>) => {
-    graphqlSent.push({ query: q, bench: process.env.EARNKIT_BENCH === 'on' });
+    graphqlSent.push(q);
     if (typeof v.login === 'string') {
       const login = v.login.toLowerCase();
       return { data: { user: ACCOUNTS.has(login) ? { login, twitterUsername: null, websiteUrl: null, repositories: { nodes: [] } } : null } } as T;
@@ -552,23 +550,20 @@ test('16.1b review focus 3: a second person naming maya/recipes (already on the 
   assert.ok(!(await benchRows(parseBenchFilter({}))).rows.some((x) => x.handle === 'eve_ships'));
 });
 
-test('16.2 acceptance 2, without a project: ways to get funded and one build offer; the build becomes the one project', db, async () => {
+test('16.2 acceptance 2, without a project: ways to get funded and no build offer (v2.14 A18); a starter build from the program guide becomes the one project', db, async () => {
   const id = await newInstall();
-  // v2.13.4 (spec 2): X first; the build offer once claimed.
+  // v2.13.4 (spec 2): X first.
   const r0 = await call('find', { agent_can_build: true, github_user: 'maya2' }, ctx(id));
   assert.ok(r0.show_to_builder.endsWith(claimAsk(r0.claim!.link, null)), r0.show_to_builder);
   xUser = { id: 'x-maya2', username: 'maya2_builds', name: 'Maya Two', avatar: null };
   await claimX(r0.claim!.link);
   const r = await call('find', { agent_can_build: true, github_user: 'maya2' }, ctx(id));
   assert.match(r.show_to_builder, /^You're not on the Bench yet\./m, r.show_to_builder);
-  assert.match(r.show_to_builder, /^Ways to get funded\n.+ pays .+ for .+\./m, r.show_to_builder);
-  // v2.13.3 ruling A: the build is aimed at the program whose starter competes, beside existing work.
-  const [{ title }] = await sql()<{ title: string }[]>`SELECT title FROM programs WHERE id = ${r.build_offer!.program_id}`;
-  assert.ok(r.show_to_builder.endsWith(startBuildAsk('a tip jar on Arc', title)), r.show_to_builder);
-  assert.equal(r.move_up?.kind, 'build');
-  const yes = await call('tell', { move_up: { kind: 'build', project_key: null, answer: 'yes' } }, ctx(id));
-  assert.ok(yes.agent_note?.includes(`build: { start: true, program_id: '${r.build_offer!.program_id}' }`), JSON.stringify(yes));
-  await runStarterBuild(id, r.build_offer!.program_id);
+  assert.match(r.show_to_builder, /^Ways to get funded\n/m, r.show_to_builder);
+  // v2.14 A18: find offers no build; prepare { build } stays for a program guide that names a starter.
+  assert.equal((r as { build_offer?: unknown }).build_offer, undefined);
+  assert.notEqual(r.move_up?.kind, 'build');
+  await runStarterBuild(id, 'arc-microgrants');
   assert.equal(await mainProjectOf(id), 'maya2/tipjar');
 });
 
@@ -577,9 +572,7 @@ test('16.2b (v2.13.1 O3) a starter build whose proof code expired before the dep
   const r0 = await call('find', { agent_can_build: true, github_user: 'maya3' }, ctx(id));
   xUser = { id: 'x-maya3', username: 'maya3_builds', name: 'Maya Three', avatar: null };
   await claimX(r0.claim!.link);
-  const r = await call('find', { agent_can_build: true, github_user: 'maya3' }, ctx(id));
-  assert.equal(r.move_up?.kind, 'build', r.show_to_builder);
-  await runStarterBuild(id, r.build_offer!.program_id, { owner: 'maya3', expire: true });
+  await runStarterBuild(id, 'arc-microgrants', { owner: 'maya3', expire: true });
   assert.equal(await mainProjectOf(id), 'maya3/tipjar');
 });
 
@@ -674,23 +667,9 @@ type Resolve = (spec: string, context: unknown, next: (spec: string, context: un
   resolve: (spec, context, next) => next(spec.startsWith('@/') ? join(FRONTEND, spec.slice(2)) : spec, context),
 });
 
-test('16.7b review focus 4, flag off: the find heading is today\'s, /bench and /feed are a 404', db, () =>
-  withEnv({ EARNKIT_BENCH: undefined }, async () => {
-    const id = await newInstall();
-    const r = await call('find', { identity: { github_login: 'off', project: { name: 'Off', repo: 'https://github.com/off/app' } } }, ctx(id));
-    assert.match(r.show_to_builder, /^Ways to earn right now$/m, r.show_to_builder);
-    assert.doesNotMatch(r.show_to_builder, /Bench|Ways to get funded/);
-    for (const page of [await import('../../app/bench/page'), await import('../../app/feed/page')])
-      await assert.rejects(
-        async () => (page.default as (p: unknown) => Promise<unknown>)({ searchParams: Promise.resolve({}) }),
-        (err: { digest?: string }) => /404/.test(String(err.digest)),
-      );
-  }),
-);
-
-test('16.8 no network: every outside read went through a fake, and no person query was sent under the flag', db, () => {
+test('16.8 no network: every outside read went through a fake, and no person query was sent', db, () => {
   assert.deepEqual(blocked, []);
-  const bench = graphqlSent.filter((q) => q.bench).map((q) => q.query);
+  const bench = graphqlSent;
   assert.ok(bench.length > 0);
   assert.ok(!bench.some((q) => q === PERSON_GITHUB_QUERY || q === OWNED_REPOS_QUERY));
 });

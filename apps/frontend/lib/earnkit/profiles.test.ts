@@ -108,10 +108,7 @@ test('7.9 merge, the other has a login and a v2.12 X handle: the root keeps its 
   await sql()`UPDATE builder_profiles SET x_handle = ${`Mx${T % 1000}`} WHERE builder_id = ${other}`; // written by v2.12's setXHandle
   await setHidden(root, true);
   await sql()`INSERT INTO builder_ranks (builder_id, score, percentile, computed_at) VALUES (${other}, 40, 50, now())`;
-  try {
-    await sql().begin((tx) => mergeProfiles(tx, root, other));
-  } finally {
-  }
+  await sql().begin((tx) => mergeProfiles(tx, root, other));
   const p = (await profileOf(root))!;
   assert.deepEqual([p.github_login, p.x_handle, p.slug, p.hidden], [`mx${T}`, `Mx${T % 1000}`, rootSlug, true], 'login and handle kept; hidden stays hidden');
   assert.equal(await profileOf(other), null);
@@ -132,16 +129,13 @@ test('7.10 merge, the root wins: the other\'s login moves to it (no unique clash
   const p = (await profileOf(root))!;
   assert.deepEqual([p.github_login, p.fallback_handle, p.slug], [`ml${T}`, `ml${T}`, rootSlug]);
   const [q] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM discovery_queue WHERE builder_id = ${root}`;
-  assert.equal(q.n, 0, 'flag off: no queue write');
+  assert.equal(q.n, 1, 'the merged person is queued for discovery');
 });
 
 test('7.11 merge with no profile on either side writes nothing', dbTest, async () => {
   const [root, other] = [T + 11, T + 12];
   await fresh(root, other);
-  try {
-    await sql().begin((tx) => mergeProfiles(tx, root, other));
-  } finally {
-  }
+  await sql().begin((tx) => mergeProfiles(tx, root, other));
   const [q] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM discovery_queue WHERE builder_id IN (${root}, ${other})`;
   assert.equal(q.n, 0);
   assert.equal(await profileOf(root), null);

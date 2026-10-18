@@ -14,7 +14,14 @@ import { agoText } from './claim';
 import { fakeGitHub } from './fixtures/fake-github-branch';
 import { APP, installApp, privateGitHub } from './fixtures/private-github';
 import {
-  BENCH_HEADS, claimAskLine, claimQuestion, checkingBranchLine, installAppAsk, linkedLine, onBenchLine, pageLine, privateLine,
+  BENCH_HEADS,
+  claimAskLine,
+  claimQuestion,
+  checkingBranchLine,
+  installAppAsk,
+  linkedLine,
+  pageLine,
+  privateLine,
 } from './bench-reply';
 import { CLAIM_NOTE, displayName, fundNeeds } from './bench-find';
 import { checkLive, liveDefaults, parkedPage } from './live-check';
@@ -28,7 +35,7 @@ import type { XOAuthDeps, XUser } from './x-oauth';
 
 /**
  * v2.13.4, the owner's spec (2026-10-17): a builder gets value after the X claim and nothing else. The
- * owner's acceptance test a to g, under EARNKIT_BENCH, with controller rulings R1 to R5:
+ * owner's acceptance test a to g, on the Bench, with controller rulings R1 to R5:
  * a. a fresh agent signing in with an X that already has a page joins it on one click on the claim page
  *    (R1), never another agent's approval; b. after the claim no reply shows a claim link; c. a private
  *    org repo gets the App install link in one line right after the claim, and is on the Bench in the same
@@ -1166,21 +1173,4 @@ test('P.2 the mapping (pure): an entry\'s live link is used when it names the re
   assert.equal(map([{ name: 'other', live_url: 'https://o.app' }, { name: 'B', live_url: 'https://b.app' }])?.live_url, 'https://b.app', 'by name');
   assert.equal(map([{ name: 'x', live_url: 'https://x.app' }, { name: 'y', live_url: 'https://y.app' }])?.live_url, null, 'ambiguous: none');
   assert.equal(map([{ url: 'https://github.com/c/d', live_url: 'https://d.app' }])?.live_url, null, 'never another repo\'s link');
-});
-
-test('P.3 flag off: the registered find input schema is byte for byte the same as before (score off and on)', async () => {
-  const { createHash } = await import('node:crypto');
-  const BEFORE = { off: '8e320cdb23addf10597862899cda73d89664337f15942f090b26d205d4c3dec7', on: 'e1df22a1cb00fc7a47f35ec5a597593b7c4b91af59d128d9f7114f4b60c761be' };
-  await withEnv({ EARNKIT_BENCH: undefined, EARNKIT_BUILDER_SCORE: undefined }, async () => {
-    for (const score of ['off', 'on'] as const) {
-      if (score === 'on') process.env.EARNKIT_BUILDER_SCORE = 'on';
-      const server = createMcpServer({ installationId: 1 });
-      const [a, b] = InMemoryTransport.createLinkedPair();
-      const client = new Client({ name: 'p3', version: '0' });
-      await Promise.all([server.connect(a), client.connect(b)]);
-      const find = (await client.listTools()).tools.find((t) => t.name === 'find')!;
-      await client.close();
-      assert.equal(createHash('sha256').update(JSON.stringify(find.inputSchema)).digest('hex'), BEFORE[score], score);
-    }
-  });
 });
