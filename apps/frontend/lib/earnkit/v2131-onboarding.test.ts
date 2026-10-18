@@ -7,13 +7,11 @@ import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, claimX, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
-import { claimQuestion, NO_OFFER_LINE, OTHER_PROJECT_ASK, POST_UPDATE_ASK, START_ASK, UPDATES_ASK_JOINING, buildingNowLine, cantShowLine, grantsAsk, shipAsk, takenLine } from './bench-reply';
+import { claimQuestion, NO_OFFER_LINE, OTHER_PROJECT_ASK, POST_UPDATE_ASK, START_ASK, UPDATES_ASK_JOINING, cantShowLine, grantsAsk, shipAsk, takenLine } from './bench-reply';
 import { noGrantLine } from './bench-find';
 import { mainProjectOf } from './main-project';
 import { mondayOf } from './weeks';
 import { coinBranchProof } from './proof-branch';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 
 /**
  * v2.13.1 O2: the reply-side fixes of the first-run audit, through the real tools under the Bench
