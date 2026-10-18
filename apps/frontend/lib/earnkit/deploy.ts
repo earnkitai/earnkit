@@ -31,7 +31,6 @@ import { llamaPrice } from './prices';
 import { RateLimitError, enforce } from './rate-limit';
 import { proofLineOwner, repoOwnershipPasses, repoSignedIn, type OwnershipDeps } from './token-gate';
 import { markDeployed, rpcFor } from './verify';
-import { benchEnabled } from './builder-score-flag';
 
 /**
  * v2.10 item 13: EarnKit deploys the builder's own compiled contract on Arc or Base from its own
@@ -498,7 +497,7 @@ export async function deployForBuilder(
   if (bad) return refused(bad);
   if (!isAddress(a.builderWallet, { strict: false })) return refused(DEPLOY_LINES.failed);
   // v2.13.1 O2 fix round 1 (fresh-build ruling): under the Bench a build's proof branch proves the repo (no line).
-  const branchOwner = !a.shared && benchEnabled() ? await (await import('./proof-branch')).branchProvenOwner(a.installationId, a.repoKey, now) : null;
+  const branchOwner = !a.shared ? await (await import('./proof-branch')).branchProvenOwner(a.installationId, a.repoKey, now) : null;
   const owns =
     branchOwner !== null ||
     (await repoOwnershipPasses(

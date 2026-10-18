@@ -153,7 +153,7 @@ import { BENCH_MOVE_UP_NOTE, benchAsked, benchFind, benchMoveUp, keepBenchMatch,
 import { REPLY_WAIT_MS, ReplyLate, inTime } from './reply-wait';
 import { setRaising } from './raising';
 import { SEND_LINK_NOTE, scoreReply } from './score-tool';
-import { EARN_NOTE, MOVE_UP_NOTE, chooseStep, placeBuild, newsOpener, stepKey, whereYouStand, type EarnLine, type MoveUp, type StandView } from './where-you-stand';
+import { EARN_NOTE, MOVE_UP_NOTE, chooseStep, placeBuild, newsOpener, stepKey, whereYouStand, type EarnLine, type MoveUp, type StandView } from './stand-text';
 import { confirmYes, earnPrize, earnWhen, hostFor, moneyFallback, standBase, startRefresh, takeNews, takePageReady, type Seen } from './stand-view';
 import { COUNT_LINES, moveUpNo, moveUpYes, stepFor } from './make-countable';
 import { attributionFor, chainOf } from './attribution';
@@ -165,7 +165,7 @@ import { COIN_NOTE, COIN_PROGRAM, builtLiveAnswer, coinLine, coinNo, coinOfferab
 import { sql } from './db';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
 import { PROBATION_LINES, onProbation } from './page-joins';
-import { JOIN_TEXT, answerJoin, joinQuestion, answerPickup, askJoin, offerPickup, pendingJoinOf, type PickupDeps } from './identity';
+import { JOIN_TEXT, answerJoin, joinQuestion, askJoin, offerPickup, pendingJoinOf, type PickupDeps } from './identity';
 import type { FieldKind } from './program-file';
 import type { ProgramRow } from './programs';
 import { RateLimitError, enforce } from './rate-limit';
@@ -2582,8 +2582,8 @@ export const handlers = {
   // v2.8.1 §E18: the builder's yes or no to list_programs' "Pick up your N earlier entries?".
   pick_up_entries: async (input: unknown, ctx: ToolContext) => {
     const answer = yesNo((input as { answer?: unknown } | null)?.answer);
-    // v2.12.1 fix round 1: with the score flag on, the same yes answers a pending join first.
-    const join = builderScoreEnabled() && !ctx.sharedClient ? await pendingJoinOf(ctx.installationId) : null;
+    // v2.12.1 fix round 1: the same yes answers a pending join first.
+    const join = !ctx.sharedClient ? await pendingJoinOf(ctx.installationId) : null;
     if (join && answer === null)
       return { show_to_builder: joinQuestion(join.tie, join.side), agent_note: 'Ask the builder, then call tell with pickup: "yes" or "no".' };
     if (join && answer !== null) {
@@ -2597,27 +2597,8 @@ export const handlers = {
     }
     if (answer === null)
       return { show_to_builder: PICKUP_TEXT.unclear, agent_note: 'Ask the builder, then pass answer "yes" or "no".' };
-    const r = await answerPickup(ctx.ownInstallationId ?? ctx.installationId, answer, ctx.pickupDeps);
-    if (r.status === 'linked')
-      return {
-        show_to_builder: PICKUP_TEXT.linked,
-        entries: r.entries,
-        agent_note: 'Call find again to show their entries.',
-      };
-    if (r.status === 'declined') return { show_to_builder: PICKUP_TEXT.declined };
-    if (r.status === 'none') return { show_to_builder: PICKUP_TEXT.none };
-    if (r.unreadable)
-      return { show_to_builder: PICKUP_TEXT.unreadable, agent_note: 'Call tell with pickup: "yes" again in a minute.' };
-    return {
-      show_to_builder: r.sign_in ? `${PICKUP_TEXT.proof}\n${PICKUP_TEXT.signIn} ${r.sign_in}` : PICKUP_TEXT.proof,
-      ...(r.sign_in && { sign_in: r.sign_in }),
-      agent_note:
-        `Write the line "${r.line}" to earnkit.txt at the root of ${r.repo} (keep any lines already there) and push it ` +
-        'yourself, to any branch; never ask the builder to edit files. Then call tell with pickup: "yes" again. ' +
-        (r.sign_in
-          ? 'If you can\'t push, the builder signs in with the link instead; when they say they signed in, call tell with pickup: "yes" again.'
-          : "If you can't push, give the builder the line and where it goes."),
-    };
+    // v2.12.1 fix round 2: people join only through a pending join both groups said yes to (above).
+    return { show_to_builder: PICKUP_TEXT.none };
   },
 
   // v2.9 A3: what the builder told EarnKit (programs: applied, not interested, their own outcomes;
@@ -3134,7 +3115,7 @@ export const BUILD_ENTRY_NO_TOKEN_NOTE =
   'project: entry.project, answers: entry.answers and yes: true.';
 
 export { githubPagesOwner, pagesLinkOf } from './pages-link';
-export { buildStepLine } from './where-you-stand';
+export { buildStepLine } from './stand-text';
 
 /**
  * Plan S11: the `built` event, once per installation, repo and program

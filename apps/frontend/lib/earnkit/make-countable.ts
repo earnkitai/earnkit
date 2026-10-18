@@ -11,7 +11,7 @@ import { defaultReaderDeps, readContractOrigin, soft, type ReaderDeps } from './
 import { claimContract, contractConflicts, contractOwnership, type ContractFacts } from './sources';
 import { currentStep, tipsPick } from './stand-view';
 import { upgradeToken } from './wallet-proof';
-import { stepKey, type MoveUp } from './where-you-stand';
+import { stepKey, type MoveUp } from './stand-text';
 
 /**
  * v2.12.1 spec 3: "One yes, and the agent does the work, then reports in one line." The yes and no

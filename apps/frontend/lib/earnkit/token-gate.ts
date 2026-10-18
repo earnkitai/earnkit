@@ -20,7 +20,6 @@ import { createVerifyLink, githubVerifyEnabled, lineIssuedAt, repoEverDerived, v
 import { appTokenFor, githubAppEnabled } from './github-app';
 import { markRepoPublic } from './repo-cache';
 import { sharedGroup } from './installations';
-import { benchEnabled } from './builder-score-flag';
 import type { CoinBranchProof, ProofBranch } from './proof-branch';
 
 export type GateInput = {
@@ -151,7 +150,7 @@ const defaults: Omit<Required<GateDeps>, 'appToken' | 'appLink'> = {
     githubVerifyEnabled() ? verifiedFor({ projectId, repoKey, login }) : null,
   shared: async (installationId) => githubVerifyEnabled() && (await sharedGroup(installationId)),
   branchProof: async (installationId, repoKey) =>
-    benchEnabled() && !(await sharedGroup(installationId).catch(() => true))
+    !(await sharedGroup(installationId).catch(() => true))
       ? (await import('./proof-branch')).coinBranchProof(installationId, repoKey, new Date())
       : null,
 };
@@ -452,7 +451,7 @@ export type ProvenRepo = { readonly installationId: number; readonly repoKey: st
  */
 export async function proveRepoByBranch(a: { installationId: number; repoUrl: string }): Promise<ProvenRepo | null> {
   const gh = githubRepo(a.repoUrl);
-  if (!gh || !benchEnabled() || (await sharedGroup(a.installationId).catch(() => true))) return null;
+  if (!gh || (await sharedGroup(a.installationId).catch(() => true))) return null;
   const repoKey = `${gh.owner}/${gh.repo}`.toLowerCase();
   const owner = await (await import('./proof-branch')).branchProvenOwner(a.installationId, repoKey, new Date());
   return owner ? ({ installationId: a.installationId, repoKey, lineOwner: owner } as ProvenRepo) : null;

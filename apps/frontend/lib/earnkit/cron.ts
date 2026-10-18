@@ -1,5 +1,4 @@
 import { INDEX_FAILED_RUNS, NEEDS_GAS, runBonusLedger, type BonusDeps } from './bonus-ledger';
-import { advanceRounds } from './bonus-payout';
 import { sql } from './db';
 import { FINAL_GRACE_MS, REVIEW_MS, type CampaignConfig, type EarnKitCampaign } from './campaigns';
 import { scoreCampaignEntries, type ScoreDeps, type ScoreRow } from './campaign-score';
@@ -8,7 +7,6 @@ import { digestEnabled, sendDigests, type Mailer } from './digest';
 import { usageChecks, type UsageDeps } from './events';
 import { cleanDeploys, expireSites, sitesInReview } from './hosting';
 import { bearerMatches, json } from './http';
-import { benchEnabled, builderScoreEnabled } from './builder-score-flag';
 import { heldPeople, runScoreSteps, scoreSliceEnd, type ScoreCronDeps } from './builder-score';
 import { xHandleConflicts } from './profiles';
 import {
@@ -34,8 +32,6 @@ import { DEPLOY_CAPS, deployChains, deployEnabled, deployerAddress, nativeUsd, v
 import { sweepPublicReads } from './repo-cache';
 import { sweepRateWindows } from './rate-limit';
 import { withScoringLock } from './scoring-lock';
-import { recheckSubmissionProofs } from './submission-proof';
-import { scoreOpenRounds, type TractionDeps } from './traction';
 import type { Candidate, RunState } from './winners';
 
 /** Work per cron call; the hourly run picks up the rest. */
@@ -86,12 +82,6 @@ export type CronDeps = {
   bonus?: BonusDeps;
   /** v2.13: the ledger itself (tests record what the cron hands it; default bonus-ledger.ts runBonusLedger). */
   ledger?: (deps: BonusDeps) => Promise<Record<string, unknown>>;
-  /** The daily submission-proof re-check's fetch (v2.5 §3, Ruling 11). */
-  proofRecheck?: { fetchText?: (url: string) => Promise<string> };
-  /** The builder bonus traction scoring's reads (v2.5 §3; `only`: these round keys). */
-  traction?: TractionDeps & Pick<NonNullable<Parameters<typeof scoreOpenRounds>[0]>, 'only' | 'score'>;
-  /** The builder bonus payout's sanctions screen (default: the v2.4 screen); `only`: these round keys. */
-  rounds?: { listed?: (wallet: string) => Promise<boolean>; only?: string[] };
   /** v2.8.1 §A1: the projects whose launch claim is older than 10 minutes (default tokens.ts stuckLaunches). */
   stuckLaunches?: (now: Date) => Promise<number[]>;
   /** v2.9 C13: the hosted sites' R2 (default: r2.ts r2Client); with `only`, the step runs only when given. */
@@ -286,54 +276,20 @@ export async function runCron(
       });
     }
   }
-  // v2.5 builder bonus traction (Task 7 carry): every run scores the open rounds (each entry is
-  // read at most once a day; after a round's end, its final reads), with at most half the budget
-  // left so the ledger and payouts below always get time. Under its own lease.
-  // v2.13 R16 (plan B16): under the Bench flag there is no builder bonus, so no scoring, no rounds
-  // and no proof re-check; the ledger still runs (fee claims for the Safe, creators and MINI, the sweep).
-  const bench = benchEnabled();
-  let bonusScoring: unknown;
-  const scoringStalled: string[] = [];
-  if (!bench && (!opts.only || deps.traction)) {
-    try {
-      const half = Math.min(deadline, Date.now() + (deadline - Date.now()) / 2);
-      const r = await withScoringLock(
-        'bonus-scoring',
-        () => scoreOpenRounds({ now, deadline: half, ...deps.traction, needsOwner: scoringStalled }),
-        (opts.budgetMs ?? CRON_BUDGET_MS) + 60_000,
-      );
-      bonusScoring = r === 'busy' ? { step: 'busy' } : r;
-    } catch (err) {
-      console.error('[cron] bonus scoring', err);
-      bonusScoring = { step: 'error', note: STEP_FAILED };
-    }
-  }
-  // v2.5 builder bonus ledger: index, collect near a round's end, claim, the rounds (freeze, review,
-  // pay: bonus-payout.ts), sweep to the Safe. After the campaigns' scoring and payouts, before the
-  // fee refresh. Runs with `only` (tests, the e2e) only when its deps are given.
+  // The fee ledger (bonus-ledger.ts): index, claim, sweep to the Safe, the creator and MINI claims and
+  // the Safe index (v2.14: no builder bonus, so no rounds). After the campaigns' scoring and payouts,
+  // before the fee refresh. Runs with `only` (tests, the e2e) only when its deps are given.
   let bonus: Record<string, unknown> | undefined;
   if (!opts.only || deps.bonus) {
     try {
       bonus = await (deps.ledger ?? runBonusLedger)({
         now,
         deadline,
-        // The ledger's own state (followOnly, the run's nonce floor) always wins over test deps (M14).
-        ...(bench ? {} : { rounds: (account, d) => advanceRounds(account, { ...deps.rounds, ...d }) }),
         ...deps.bonus,
       });
     } catch (err) {
       console.error('[cron] bonus', err);
       bonus = { step: 'error', note: STEP_FAILED };
-    }
-  }
-  // v2.5 §3, Ruling 11: the daily re-check of a submission proof that hasn't passed yet, until its
-  // program's round ends. Same `only`/deps gating as the bonus ledger step.
-  let proofRecheck: { checked: number; passed: number } | undefined;
-  if (!bench && (!opts.only || deps.proofRecheck)) {
-    try {
-      proofRecheck = await recheckSubmissionProofs(now, deadline, deps.proofRecheck);
-    } catch (err) {
-      console.error('[cron] proof-recheck', err);
     }
   }
   let fees = 0;
@@ -402,11 +358,11 @@ export async function runCron(
     }
   }
   // v2.12 spec 6: the builder score's four steps (discover and read, score, ranks, the empty-profile
-  // check), with at most 40% of what remains (no new schedule). Only with EARNKIT_BUILDER_SCORE=on.
+  // check), with at most 40% of what remains (no new schedule).
   // A hold waits on the owner quietly (listed, never a 503).
   const needs_owner_extra: string[] = [];
   let builderScore: Record<string, unknown> | undefined;
-  if (builderScoreEnabled() && (!opts.only || deps.builderScore)) {
+  if (!opts.only || deps.builderScore) {
     try {
       builderScore = await runScoreSteps(now, scoreSliceEnd(Date.now(), deadline), deps.builderScore);
       // Every current hold, not only this run's: a hold waits until the owner releases it.
@@ -427,15 +383,6 @@ export async function runCron(
   // So does an index step that failed INDEX_FAILED_RUNS runs in a row (deposits would go unbooked).
   // v2.9 D17: so does a payout wallet low on ETH for gas, or a claim or collect it couldn't pay gas for.
   if (bonusWaitsOnOwner(bonus)) needs_owner.push('bonus-ledger');
-  // A builder bonus round waiting on the owner: a pay note that does, failed pay steps in a row, or
-  // flagged entries in its review (bonus-payout.ts advanceRounds).
-  // v2.13: none under the Bench flag (no rounds, no scoring).
-  if (!bench) {
-    const rounds = bonus?.rounds as { needs_owner?: string[] } | undefined;
-    for (const key of rounds?.needs_owner ?? []) needs_owner.push(`bonus:${key}`);
-    // Ruling 23: an ended round whose final scoring failed (once per round).
-    for (const key of scoringStalled) if (!needs_owner.includes(`bonus:${key}`)) needs_owner.push(`bonus:${key}`);
-  }
   // Rulings 19 and 20: the ledger (and so the rounds step) was skipped for want of a usable payout
   // key (missing or malformed) or of Base mainnet while the bonus can earn: an active program with
   // a builder bonus, an EarnKit coin, or an ended unpaid round. Nothing is indexed, claimed or
@@ -476,9 +423,7 @@ export async function runCron(
     now: now.toISOString(),
     campaigns,
     ...(stuck.length > 0 && { stuck_launches: stuck }),
-    ...(bonusScoring !== undefined && { bonus_scoring: bonusScoring }),
     ...(bonus && { bonus }),
-    ...(proofRecheck && { proof_recheck: proofRecheck }),
     fee_wallets: fees,
     ...(hosting && { hosting }),
     ...(digest && { digest }),
@@ -548,12 +493,11 @@ export function bonusWaitsOnOwner(bonus: Record<string, unknown> | undefined) {
   return (
     needsOwner((bonus?.sweep as { result?: string } | undefined)?.result) ||
     Number(bonus?.index_failures ?? 0) >= INDEX_FAILED_RUNS ||
-    // v2.13.2 review M3: the Safe index (Bench flag) failing as many runs in a row.
+    // v2.13.2 review M3: the Safe index failing as many runs in a row.
     Number(bonus?.safe_index_failures ?? 0) >= INDEX_FAILED_RUNS ||
     (bonus?.gas as { low?: boolean } | undefined)?.low === true ||
     gasOut(bonus?.claim) ||
-    gasOut(bonus?.claim_others) ||
-    gasOut(bonus?.collect)
+    gasOut(bonus?.claim_others)
   );
 }
 

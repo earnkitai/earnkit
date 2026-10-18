@@ -1,4 +1,3 @@
-import { benchEnabled, builderScoreEnabled } from './builder-score-flag';
 import { lockPageJoin } from './page-joins';
 import { sql, withDeferred, type Db } from './db';
 import {
@@ -88,7 +87,6 @@ export async function enqueueDiscovery(builderId: number, reason: 'first_find' |
  * first find queues them), never for a shared group. Never throws: the caller's step goes on.
  */
 export async function enqueueClue(installationId: number, reason: 'wallet' | 'signin'): Promise<boolean> {
-  if (!builderScoreEnabled()) return false;
   try {
     const [p] = await sql()<{ root: number }[]>`
       SELECT p.builder_id AS root FROM installations i
@@ -211,7 +209,7 @@ export async function provenLogin(
     SELECT x_handle, lower(reported_github) AS reported FROM builder_profiles WHERE builder_id = ${builderId} AND x_user_id IS NOT NULL`;
   if (!p?.x_handle || !p.reported || !GITHUB_LOGIN.test(p.reported)) return null;
   // A failed read proves nothing this time (a spent budget or the deadline still stops the run).
-  const person = await soft((benchEnabled() ? readGithubUser : readPersonGithub)(p.reported, o.reader), null);
+  const person = await soft(readGithubUser(p.reported, o.reader), null);
   if (!person || person.login !== p.reported) return null;
   o.person?.(person);
   const twitter = person.twitter?.replace(/^@/, '').toLowerCase();
@@ -357,25 +355,11 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
     });
     // Clue 2: own repos, and org repos where they are the top contributor.
     const candidates = new Map<string, { meta: ListedRepo; top: boolean }>();
-    // v2.13 (R2, "Cost"): under the flag no owned-repo or org listing; the main project (an agent remote) is checked below.
-    if (!benchEnabled())
-      for (const r of await d.gh<ListedRepo[]>(`/users/${L}/repos?type=owner&per_page=100`)) {
-        const key = r?.full_name?.toLowerCase();
-        if (key) candidates.set(key, { meta: r, top: false });
-      }
+    // v2.13 (R2, "Cost"): no owned-repo or org listing; the main project (an agent remote) is checked below.
     const topOf = async (key: string) => {
       const c = await soft(d.gh<{ login?: string }[]>(`/repos/${key}/contributors?per_page=1`), []);
       return Array.isArray(c) && c[0]?.login?.toLowerCase() === L;
     };
-    const orgs = benchEnabled() ? [] : await soft(d.gh<{ login?: string }[]>(`/users/${L}/orgs`), []);
-    for (const org of (Array.isArray(orgs) ? orgs : []).slice(0, DISCOVER_CAPS.orgs)) {
-      if (!org?.login || !/^[A-Za-z0-9-]{1,39}$/.test(org.login)) continue;
-      const repos = await soft(d.gh<ListedRepo[]>(`/orgs/${org.login}/repos?per_page=100&sort=pushed`), []);
-      for (const r of (Array.isArray(repos) ? repos : []).filter((x) => !x?.fork && !x?.is_template).slice(0, DISCOVER_CAPS.orgRepos)) {
-        const key = r.full_name?.toLowerCase();
-        if (key && REPO_KEY.test(key) && !candidates.has(key) && (await topOf(key))) candidates.set(key, { meta: r, top: true });
-      }
-    }
     // The agent's remotes (R4: clues only) are checked against the proven login.
     const remotes = await db<{ ref: string }[]>`
       SELECT ref FROM builder_sources WHERE builder_id = ${root} AND kind = 'repo' AND state = 'proposed' ORDER BY (proposed_by = 'agent') DESC, id LIMIT ${DISCOVER_CAPS.remotes}`;
@@ -460,37 +444,6 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
     if (clues.site) {
       const blog = publicHttpsOrigin(clues.site);
       if (blog) await propose('site', blog, blog);
-    }
-  }
-  // v2.12.2: no proven login, but the agent reported one: that login's own public repos (not forks or
-  // templates, newest pushed first, at most REPORTED_REPOS_MAX) and the homepages they link are shown
-  // as theirs, not yet confirmed (spec "Not yet confirmed: anything else the agent reported. Shown,
-  // never scored."). Proposed only: never verified, never a merge; proving the login later verifies
-  // these same rows (Clue 2). A login another profile has proven is skipped. One GraphQL call (the X
-  // field check's read when there was one), only within the budget and before the deadline.
-  if (!proof && !benchEnabled()) {
-    const [r] = await db<{ reported: string | null }[]>`SELECT lower(reported_github) AS reported FROM builder_profiles WHERE builder_id = ${root}`;
-    const L = r?.reported && GITHUB_LOGIN.test(r.reported) ? r.reported : null;
-    const [taken] = L ? await db`SELECT 1 FROM builder_profiles WHERE lower(github_login) = ${L} AND builder_id <> ${root}` : [];
-    // The read itself stops on a spent budget or the deadline (budgeted ghGraphql; soft rethrows both).
-    if (L && !taken && Date.now() < o.deadline) {
-      const known = person as PersonGithub | null;
-      // The light listing (about 1 s): the full person read can take the refresh's whole 8 s.
-      const gh = known && known.login === L ? known : await soft(readOwnedRepos(L, REPORTED_REPOS_MAX, d), null);
-      const own = [...(gh?.repos.values() ?? [])]
-        .filter((x) => !x.derived && x.private !== true && x.owner === L)
-        .sort((a, b) => (b.pushed_at ?? '').localeCompare(a.pushed_at ?? ''))
-        .slice(0, REPORTED_REPOS_MAX);
-      let homes = 0;
-      for (const x of own) {
-        await propose('repo', x.key, x.key);
-        const home = homepageOrigin(x.homepage);
-        const site = home && publicHttpsOrigin(home);
-        if (site && homes < DISCOVER_CAPS.sites) {
-          homes++;
-          await propose('site', site, x.key);
-        }
-      }
     }
   }
   // v2.12.1 S9: no merged-PR clue (4) and no earnkit.txt site check (6); existing rows stay, not confirmed.

@@ -11,7 +11,7 @@ import { hostFor, scoreEarn, standBase, startRefresh } from './stand-view';
 import { openEntries } from './projects';
 import { hiddenIds, hiddenPrograms, readMemory } from './builder-memory';
 import type { Card, FreshOn } from './present';
-import { EARN_NOTE, MOVE_UP_NOTE, chooseStep, placeBuild, whereYouStand, type MoveUp } from './where-you-stand';
+import { EARN_NOTE, MOVE_UP_NOTE, chooseStep, placeBuild, whereYouStand, type MoveUp } from './stand-text';
 
 /** v2.12.1 T8: the agent's note when the step asks for a link (find says the same). */
 export const SEND_LINK_NOTE = 'When the builder sends a link to something they made, pass it to find in identity.projects (live_url or repo).';

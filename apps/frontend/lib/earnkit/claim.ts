@@ -1,11 +1,11 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { benchEnabled, builderScoreEnabled, xSignInEnabled } from './builder-score-flag';
+import { xSignInEnabled } from './builder-score-flag';
 import { sql } from './db';
 import { enqueueDiscovery } from './discovery';
 import { siteUrl } from './entry-text';
 import { noteEvent } from './events';
-import { cookieValue, createVerifyLink, githubVerifyEnabled } from './github-verify';
-import { joinOnProvenTie, rootOf } from './identity';
+import { cookieValue } from './github-verify';
+import { rootOf } from './identity';
 import { attachFresh, freshAndEmpty } from './page-joins';
 import { sharedGroup } from './installations';
 import { profileChanged } from './profile-cache';
@@ -29,25 +29,22 @@ import { pkcePair, xAuthorizeUrl, xOAuth, type XOAuthDeps, type XUser } from './
  *   only when this browser holds the cookie it was made for, so a forwarded X sign-in finishes
  *   nowhere; nothing reaches X before that. X's token is used for one read of /2/users/me and never
  *   stored or logged. Every link and redirect comes from siteUrl(), never the request.
- * - The claim is a proven tie (T5): an X account another person already holds is never merged at
- *   once; both groups' agents are asked (identity.ts joinOnProvenTie). v2.13.4 (R1, under the Bench):
- *   instead, the same page offers one button ("Add this agent to your page ...", with "Only continue if
+ * - An X account another person already holds is never merged at once. v2.13.4 (R1): the same page
+ *   offers one button ("Add this agent to your page ...", with "Only continue if
  *   your own agent gave you this link."): the click (POST /claim/join, this browser's cookie, Origin, a
  *   one-use 15-minute offer) joins at once; no other agent is asked (claimJoinPost).
- * Flag off: every route is a 404. X unset: no claim link anywhere, and the page says sign-in is not
+ * X unset: no claim link anywhere, and the page says sign-in is not
  * open yet.
  */
 export const CLAIM_TEXT = {
   lead: 'Claim your EarnKit page',
-  public: 'Your page shows what you shipped, who uses it and what it earned, under your X name.',
-  /** v2.13.1 O5 (P7): under the Bench, what the page is for. */
-  benchPublic: 'Your page puts your project on the Bench and shows what you ship each week, under your X name.',
+  /** v2.13.1 O5 (P7): what the page is for. */
+  public: 'Your page puts your project on the Bench and shows what you ship each week, under your X name.',
   warning: 'Only continue if you started this from your own agent. You can hide your page anytime by telling your agent "hide my page".',
   button: 'Continue with X',
   notOpen: 'Sign-in with X is not open yet. Your agent will share the link again when it is.',
   used: 'This page is already claimed.',
   claimedOther: 'This page is already claimed by another X account.',
-  joinPending: 'This X account already has an EarnKit page. Your agents will each ask you once to add this agent to it.',
   /** v2.13.4 (R1): the X account already has a page: one button joins this agent to it. */
   joinLead: 'This X account already has an EarnKit page.',
   joinWarning: 'Only continue if your own agent gave you this link.',
@@ -64,9 +61,8 @@ export const CLAIM_TEXT = {
   busy: 'Too many sign-ins from here. Try again in an hour.',
   done: 'Your page is live',
   see: 'See your page',
-  /** v2.12.1 T7: the two optional upgrades under the done line (plain links, never a required step). */
+  /** v2.12.1 T7: the optional upgrade under the done line (a plain link, never a required step). */
   wallet: 'Show a wallet is yours (optional)',
-  github: 'Sign in with GitHub (optional)',
 } as const;
 
 const STATE_TTL_MS = 15 * 60_000;
@@ -83,7 +79,7 @@ export function claimCode(builderId: number, secret = process.env.EARNKIT_AUTH_S
 
 /** The reply's claim link, or null: X off, a shared group, no profile, or claimed with a handle. Stores only the code's hash. */
 export async function claimLink(builderId: number, mintedBy: number = builderId): Promise<string | null> {
-  if (!builderScoreEnabled() || !xSignInEnabled() || (await sharedGroup(builderId))) return null;
+  if (!xSignInEnabled() || (await sharedGroup(builderId))) return null;
   const [p] = await sql()<{ x_user_id: string | null; x_handle: string | null; blocked: boolean }[]>`
     SELECT x_user_id, x_handle, EXISTS (SELECT 1 FROM x_owner_clears c WHERE c.x_user_id = p.x_user_id) AS blocked
     FROM builder_profiles p WHERE builder_id = ${builderId}`;
@@ -95,8 +91,8 @@ export async function claimLink(builderId: number, mintedBy: number = builderId)
   // v2.13.4 R7: the installation that last asked for the link (the R1 page names it), not the group root.
   await sql()`INSERT INTO claim_codes (code_hash, builder_id, minted_by) VALUES (${sha256(code)}, ${builderId}, ${mintedBy})
     ON CONFLICT (code_hash) DO UPDATE SET minted_by = EXCLUDED.minted_by`;
-  // v2.13.1 O1 (B2): under the Bench flag a full https link from siteUrl(); flag off, today's.
-  return benchEnabled() ? `${siteUrl()}/claim/${code}` : `earnkit.com/claim/${code}`;
+  // v2.13.1 O1 (B2): a full https link from siteUrl().
+  return `${siteUrl()}/claim/${code}`;
 }
 
 /**
@@ -135,14 +131,7 @@ export async function claimDonePage(handle: string, root: number, headers: Recor
   const links: string[] = [];
   const t = upgradeToken(root, new Date());
   if (t) links.push(`<a class="ek-link" href="${escapeHtml(`${siteUrl()}/claim/wallet?t=${encodeURIComponent(t)}`)}">${escapeHtml(CLAIM_TEXT.wallet)}</a>`);
-  // v2.13.1 O5 N11: onboarding needs no GitHub sign-in under the Bench (the proof branch does it).
-  if (githubVerifyEnabled() && !benchEnabled()) {
-    const gh = await createVerifyLink({ installationId: root, projectId: null, repoKey: `claim/${root}`, purpose: 'claim' }).catch((err: unknown) => {
-      console.error('[claim] github link', err instanceof Error ? err.name : 'error');
-      return null;
-    });
-    if (gh) links.push(`<a class="ek-link" href="${escapeHtml(gh)}">${escapeHtml(CLAIM_TEXT.github)}</a>`);
-  }
+  // v2.13.1 O5 N11: onboarding needs no GitHub sign-in (the proof branch does it).
   const body = shell(
     `<h1>${escapeHtml(heading)}</h1><p class="ek-url">${escapeHtml(pageUrl(handle))}</p>` +
       `<div class="ek-actions"><a class="ek-btn" href="${escapeHtml(`${siteUrl()}${pagePath(handle)}`)}">${escapeHtml(CLAIM_TEXT.see)}</a></div>` +
@@ -186,13 +175,13 @@ async function limited(request: Request, deps: RouteDeps): Promise<Response | nu
 
 /** GET /claim/<code>: what becomes public, how to hide it, the warning, then one POST button (sets this code's cookie). */
 export async function claimGet(_request: Request, code: string): Promise<Response> {
-  if (!builderScoreEnabled() || !CODE.test(code)) return notFound();
+  if (!CODE.test(code)) return notFound();
   if (!xSignInEnabled()) return claimPage(CLAIM_TEXT.notOpen, 200);
   const codeHash = sha256(code);
   if (!(await codeTarget(codeHash))) return claimPage(CLAIM_TEXT.used, 410);
   const csrf = randomBytes(32).toString('base64url');
   const body = shell(
-    `<h1>${escapeHtml(CLAIM_TEXT.lead)}</h1><p class="ek-line">${escapeHtml(benchEnabled() ? CLAIM_TEXT.benchPublic : CLAIM_TEXT.public)}</p>` +
+    `<h1>${escapeHtml(CLAIM_TEXT.lead)}</h1><p class="ek-line">${escapeHtml(CLAIM_TEXT.public)}</p>` +
       `<p class="ek-small">${escapeHtml(CLAIM_TEXT.warning)}</p>` +
       `<div class="ek-actions"><form method="post" action="${escapeHtml(siteUrl())}/claim/${code}">` +
       `<input type="hidden" name="csrf" value="${escapeHtml(csrf)}">` +
@@ -204,7 +193,6 @@ export async function claimGet(_request: Request, code: string): Promise<Respons
 
 /** POST /claim/<code> (the button): Origin and this browser's csrf, an unclaimed person, then 303 to X with PKCE. */
 export async function claimPost(request: Request, code: string, deps: RouteDeps = {}): Promise<Response> {
-  if (!builderScoreEnabled()) return notFound();
   if (!xSignInEnabled()) return claimPage(CLAIM_TEXT.notOpen, 503);
   const busy = await limited(request, deps);
   if (busy) return busy;
@@ -236,7 +224,6 @@ export async function claimPost(request: Request, code: string, deps: RouteDeps 
  * works. Then bindX: done (200), already claimed by another X account (409), or a pending join (200).
  */
 export async function xCallback(request: Request, deps: RouteDeps & { x?: XOAuthDeps } = {}): Promise<Response> {
-  if (!builderScoreEnabled()) return notFound();
   if (!xSignInEnabled()) return claimPage(CLAIM_TEXT.notOpen, 503);
   const busy = await limited(request, deps);
   if (busy) return busy;
@@ -288,22 +275,21 @@ export async function xCallback(request: Request, deps: RouteDeps & { x?: XOAuth
       WHERE i.id = COALESCE((SELECT minted_by FROM claim_codes WHERE code_hash = ${row.code_hash}), ${target})`;
     return offer ? joinPage(user.username, offer, agent ?? null) : claimPage(CLAIM_TEXT.failed, 500, clear);
   }
-  if (r.reason === 'join_pending') return claimPage(CLAIM_TEXT.joinPending, 200, clear);
   if (r.reason === 'owner_cleared') return claimPage(CLAIM_TEXT.paused, 403, clear);
   return claimPage(CLAIM_TEXT.claimedOther, 409, clear);
 }
 
 export type BindResult =
   | { ok: true; handle: string; root: number }
-  | { ok: false; reason: 'claimed_by_other' | 'join_pending' | 'owner_cleared' }
-  /** v2.13.4 (R1, under the Bench): the X account is on another group's page (`target`, its root); nothing is bound or asked. */
+  | { ok: false; reason: 'claimed_by_other' | 'owner_cleared' }
+  /** v2.13.4 (R1): the X account is on another group's page (`target`, its root); nothing is bound or asked. */
   | { ok: false; reason: 'held'; target: number };
 
 /**
  * The X claim on `builderId`'s person (its group root). One X account per person, one person per X
  * account: a person claimed with another X account is refused ('claimed_by_other'); an X account
- * another person already holds is a proven tie (T5 ruling): nothing is bound and both groups' agents
- * are asked once (joinOnProvenTie), never a direct merge ('join_pending'). Else the X id, handle,
+ * another person already holds is on that page ('held': the claim page offers the one-click join,
+ * v2.13.4 R1); nothing is bound. Else the X id, handle,
  * name and picture are written; the page moves to the handle, the old handle (a rename) redirects
  * for HANDLE_REDIRECT_DAYS, and the old slug follows the person.
  */
@@ -321,9 +307,8 @@ export async function bindX(builderId: number, user: XUser, now: Date): Promise<
     if (cleared) return { ok: false as const, reason: 'owner_cleared' as const };
     if (p.x_user_id && p.x_user_id !== user.id) return { ok: false as const, reason: 'claimed_by_other' as const };
     const [held] = await tx<{ builder_id: number }[]>`SELECT builder_id FROM builder_profiles WHERE x_user_id = ${user.id} AND builder_id <> ${root}`;
-    // v2.13.4 (R1): under the Bench the claim page offers the one-click join instead of a cross-agent yes.
-    if (held && benchEnabled()) return { ok: false as const, reason: 'held' as const, target: held.builder_id };
-    if (held) return { ok: false as const, reason: 'join_pending' as const };
+    // v2.13.4 (R1): the claim page offers the one-click join instead of a cross-agent yes.
+    if (held) return { ok: false as const, reason: 'held' as const, target: held.builder_id };
     // Review Focus 2: X says this handle is this account's now. A stale holder is cleared (hidden
     // until they sign in again); no history row may send this handle anywhere else; an unclaimed
     // v2.12 profile whose internal slug equals it moves to a random one.
@@ -339,8 +324,8 @@ export async function bindX(builderId: number, user: XUser, now: Date): Promise<
     const slug = /^[a-z0-9]/.test(h) ? h : p.slug;
     if (slug !== p.slug)
       await tx`INSERT INTO profile_slug_history (old_slug, builder_id, moved_at) VALUES (${p.slug}, ${root}, ${now}) ON CONFLICT (old_slug) DO NOTHING`;
-    // v2.13 R12 (B14, F9): the picture is refreshed at every sign-in; under the Bench flag X sending none keeps the stored one.
-    const keep = benchEnabled() && user.avatar === null;
+    // v2.13 R12 (B14, F9): the picture is refreshed at every sign-in; X sending none keeps the stored one.
+    const keep = user.avatar === null;
     await tx`
       UPDATE builder_profiles SET x_user_id = ${user.id}, x_handle = ${user.username}, x_name = ${user.name}, x_avatar_url = ${keep ? tx`x_avatar_url` : user.avatar},
         claimed_at = COALESCE(claimed_at, ${now}), slug = ${slug}, updated_at = now()
@@ -349,11 +334,7 @@ export async function bindX(builderId: number, user: XUser, now: Date): Promise<
     await tx`UPDATE builder_live SET read_at = NULL WHERE builder_id = ${root}`;
     return { ok: true as const, handle: user.username, renamed, first: p.x_user_id === null };
   });
-  if (!out.ok) {
-    // The proven tie (T5): the holding group and this one each say yes before they are one person.
-    if (out.reason === 'join_pending') await joinOnProvenTie(root, { x_user_id: user.id });
-    return out;
-  }
+  if (!out.ok) return out;
   const type = out.first ? 'page_claimed' : out.renamed ? 'x_renamed' : null;
   if (type) await noteEvent(type, () => ({ type, dedupe_key: `${type}:${root}:${h}`, installation_id: root }));
   await enqueueDiscovery(root, 'signin'); // T7: the X field match is checked on the next read
@@ -410,7 +391,6 @@ type OfferRow = {
  * next reply says "Linked to your page: ..." (standing_seen.linked, by installation).
  */
 export async function claimJoinPost(request: Request, deps: RouteDeps = {}): Promise<Response> {
-  if (!builderScoreEnabled() || !benchEnabled()) return notFound();
   if (!xSignInEnabled()) return claimPage(CLAIM_TEXT.notOpen, 503);
   const busy = await limited(request, deps);
   if (busy) return busy;

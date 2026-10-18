@@ -20,7 +20,7 @@ import { NEEDS_LIVE_PRODUCT } from './guide';
 import { siteUrl } from './entry-text';
 import { pagePath } from './reserved-routes';
 import { STARTERS, type Starter } from './starters';
-import { EARN_NOTE, newsOpener } from './where-you-stand';
+import { EARN_NOTE, newsOpener } from './stand-text';
 import { COUNT_LINES } from './make-countable';
 import {
   biggestPick, declinedNow, earnPrize, earnWhen, hostFor, moneyFallback, rollingPick, scoreEarn, showable, standBase, startRefresh, takeNews,

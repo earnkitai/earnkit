@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import type { ReportedRepo } from './match';
 import type { FitRepo } from './alerts';
 import { isWalletAddress, normalizeRepoUrl } from './campaigns';
-import { builderScoreEnabled } from './builder-score-flag';
 import { sql } from './db';
 
 const hash = (token: string) =>
@@ -149,7 +148,7 @@ export async function rememberWallets(
     INSERT INTO installation_wallets ${sql()(list.map((wallet) => ({ installation_id: installationId, wallet })))}
     ON CONFLICT DO NOTHING RETURNING wallet`;
   // v2.12 spec 3: a wallet not seen before (given at deploy, or with an entry) is a new discovery clue.
-  if (added.length > 0 && builderScoreEnabled()) await (await import('./discovery')).enqueueClue(installationId, 'wallet');
+  if (added.length > 0) await (await import('./discovery')).enqueueClue(installationId, 'wallet');
 }
 
 /** The wallets this installation has used (lowercase). */

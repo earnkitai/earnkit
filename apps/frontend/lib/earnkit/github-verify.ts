@@ -1,6 +1,5 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { githubRepo } from './campaigns';
-import { builderScoreEnabled } from './builder-score-flag';
 import { sql } from './db';
 import { sharedGroup } from './installations';
 import { siteUrl } from './entry-text';
@@ -282,19 +281,17 @@ export async function saveVerification(
       ${paste && sha256(paste)}, ${paste && new Date(now.getTime() + CODE_TTL_MS)},
       ${app ? null : row.wallet}, ${app ? null : row.symbol}, ${app ? 'app' : 'oauth'}, ${app?.githubInstallationId ?? null})`;
   // v2.12 spec 3: a GitHub sign-in (or App verification) is a new discovery clue.
-  if (builderScoreEnabled()) await (await import('./discovery')).enqueueClue(row.installation_id, 'signin');
+  await (await import('./discovery')).enqueueClue(row.installation_id, 'signin');
   // v2.12.1 spec "Identity": a sign-in proves the login, so installations signed in as it are one
   // person (never a shared client; never two X accounts). A failed join never fails the sign-in.
   // Fix rounds 1, 2: it never merges by itself (a pending join both groups must say yes to), and a
   // login two unlinked groups prove is contested (login-contests.ts settleLogin).
-  if (builderScoreEnabled()) {
-    await (await import('./identity'))
-      .joinOnProvenTie(row.installation_id, { github_login: user.login })
-      .catch((err: unknown) => console.error('[github-verify] join', err instanceof Error ? err.name : 'error'));
-    await (await import('./login-contests'))
-      .settleLogin(user.login)
-      .catch((err: unknown) => console.error('[github-verify] contest', err instanceof Error ? err.name : 'error'));
-  }
+  await (await import('./identity'))
+    .joinOnProvenTie(row.installation_id, { github_login: user.login })
+    .catch((err: unknown) => console.error('[github-verify] join', err instanceof Error ? err.name : 'error'));
+  await (await import('./login-contests'))
+    .settleLogin(user.login)
+    .catch((err: unknown) => console.error('[github-verify] contest', err instanceof Error ? err.name : 'error'));
   return paste;
 }
 

@@ -1,5 +1,5 @@
 import { repoKey } from './answer-bank';
-import { benchEnabled, builderScoreEnabled, raisingEnabled } from './builder-score-flag';
+import { raisingEnabled } from './builder-score-flag';
 import { isWalletAddress } from './campaigns';
 import { sql } from './db';
 import { shortWallet } from './entry-text';
@@ -23,11 +23,10 @@ export { COIN_PROGRAM };
 export type Moment = 'built_live' | 'countable' | 'first_five' | 'has_people' | 'streak_five';
 export type Coin = { name: string; symbol: string };
 
-// Final fix wave: the line asks one thing, the yes. A known wallet is a statement; with none known,
-// the yes's reply asks for it (coinYes: COIN_WALLET_ASK), never this line.
-const fees = (wallet: string | null) =>
-  wallet ? `You'd get 40% of its trading fees, paid to ${shortWallet(wallet.toLowerCase())}.` : "You'd get 40% of its trading fees.";
-/** v2.13.3 review: under the Bench the fees come first and the question last ("one question, last"). */
+/**
+ * v2.13.3 review: the fees come first and the question last ("one question, last"). A known wallet is
+ * a statement; with none known, the yes's reply asks for it (coinYes: COIN_WALLET_ASK).
+ */
 const coinFees = (wallet: string | null) => `A coin pays you 40% of its trading fees${wallet ? `, paid to ${shortWallet(wallet.toLowerCase())}` : ''}.`;
 
 /** v2.13 spec "4. Optional: raise" (owner ruling B, v2.13.3: "a community round"): the coin is named before the yes; the wallet is shown when known (plan B13). Pure. */
@@ -45,17 +44,11 @@ export function coinLine(moment: Moment, name: string, wallet: string | null, co
   // final fix: only with EARNKIT_RAISING on, else v2.12.1's coin line.
   if (raisingEnabled() && moment !== 'built_live' && coin) return raiseLine(name, coin.symbol, wallet);
   const a = coin ? `a coin, $${coin.symbol} (${coin.name}),` : 'a coin';
-  // v2.13.3 review: under the Bench one question, last; flag off, today's lines byte for byte.
-  if (benchEnabled()) {
-    if (moment === 'built_live') return `It's live, and your entry is ready either way. ${coinFees(wallet)} Want to launch ${a} for it?`;
-    if (moment === 'first_five') return `5 people have used ${name}. ${coinFees(wallet)} Want to launch ${a} for it?`;
-    if (moment === 'countable' || moment === 'streak_five') return `${coinFees(wallet)} Want to launch ${a} for ${name}?`;
-    return `${name} has people using it. ${coinFees(wallet)} Want to launch ${a} for it?`;
-  }
-  if (moment === 'built_live') return `It's live. Want to launch ${a} for it? ${fees(wallet)} Your entry is ready either way.`;
-  if (moment === 'first_five') return `5 people have used ${name}. Want to launch ${a} for it? ${fees(wallet)}`;
-  if (moment === 'countable' || moment === 'streak_five') return `Want to launch ${a} for ${name}? ${fees(wallet)}`;
-  return `${name} has people using it. Want to launch ${a} for it? ${fees(wallet)}`;
+  // v2.13.3 review: one question, last.
+  if (moment === 'built_live') return `It's live, and your entry is ready either way. ${coinFees(wallet)} Want to launch ${a} for it?`;
+  if (moment === 'first_five') return `5 people have used ${name}. ${coinFees(wallet)} Want to launch ${a} for it?`;
+  if (moment === 'countable' || moment === 'streak_five') return `${coinFees(wallet)} Want to launch ${a} for ${name}?`;
+  return `${name} has people using it. ${coinFees(wallet)} Want to launch ${a} for it?`;
 }
 
 /** The builder's line when a coin yes came without a wallet and none was shown. */
@@ -69,19 +62,15 @@ export const COIN_LAUNCHING = 'Your coin is launching.';
 export const COIN_NOTE =
   "The last line offers a coin. When the builder says yes, call tell with coin: { project_key, answer: 'yes' } (add wallet: the address they gave, if they gave one); " +
   "when they say no, answer: 'no'. Never launch anything before that yes.";
-/** coinYes's note: the confirm call that launches it. */
-export const COIN_YES_NOTE =
-  'Call confirm with project_id, yes: true, wallet and token exactly as given. The usual token steps follow (the proof line on the repo).';
 /**
- * v2.13.1 O1 fix round 1 (ruling a): under the Bench the repo was proven by its proof branch, so the
- * note names no line (the gate takes the branch, token-gate.ts); flag off, today's note.
+ * coinYes's note: the confirm call that launches it. v2.13.1 O1 fix round 1 (ruling a): the repo was
+ * proven by its proof branch, so the note names no line (the gate takes the branch, token-gate.ts).
  */
-export const COIN_YES_NOTE_BENCH = 'Call confirm with project_id, yes: true, wallet and token exactly as given.';
-export const coinYesNote = (): string => (benchEnabled() ? COIN_YES_NOTE_BENCH : COIN_YES_NOTE);
+export const COIN_YES_NOTE = 'Call confirm with project_id, yes: true, wallet and token exactly as given.';
 
 /** Not shared, a profile, not held (fail strict: no profile is no). */
 async function guards(builderId: number): Promise<boolean> {
-  if (!builderScoreEnabled() || (await sharedGroup(builderId))) return false;
+  if (await sharedGroup(builderId)) return false;
   const [p] = await sql()<{ held: boolean }[]>`SELECT held FROM builder_profiles WHERE builder_id = ${builderId}`;
   return Boolean(p) && !p.held;
 }
@@ -100,14 +89,14 @@ async function confirmedLinks(builderId: number, projectKey: string): Promise<{ 
 const REPO_KEY = /^[a-z0-9-]+\/[a-z0-9._-]+$/i;
 
 /**
- * Whether a coin may be offered for this project now: the flag on, launches available, not a
+ * Whether a coin may be offered for this project now: launches available, not a
  * shared group, a profile that isn't held, never offered for this project before, the project has
  * no coin (none on its page, none launched through EarnKit for it), fewer than DECLINES_MAX coin
  * offers declined, and (fix round 1, item 4) fewer than DECLINES_MAX skips of the confirm line's
  * token offer for its repo (token_declines, the existing rule).
  */
 export async function coinAllowed(builderId: number, projectKey: string): Promise<boolean> {
-  if (!builderScoreEnabled() || !tokenLaunchesAvailable() || (await sharedGroup(builderId))) return false;
+  if (!tokenLaunchesAvailable() || (await sharedGroup(builderId))) return false;
   const [r] = await sql()<{ ok: boolean }[]>`
     SELECT NOT p.held
       AND NOT EXISTS (SELECT 1 FROM coin_moments m WHERE m.builder_id = ${builderId} AND lower(m.project_key) = lower(${projectKey}))
@@ -134,9 +123,8 @@ export async function coinOfferable(builderId: number, projectKey: string): Prom
   if (!(await coinAllowed(builderId, projectKey))) return false;
   const { repo_url } = await confirmedLinks(builderId, projectKey);
   if (repo_url === null) return false;
-  // v2.13.3 review (I1): under the Bench, never for a repo not read public (the coin and its tokens.fun page
-  // would name it).
-  return !benchEnabled() || (await repoReadPublic(builderId, repoOfUrl(repo_url)));
+  // v2.13.3 review (I1): never for a repo not read public (the coin and its tokens.fun page would name it).
+  return (await repoReadPublic(builderId, repoOfUrl(repo_url)));
 }
 /** A confirmed repo link as its key (owner/repo, lowercase). Pure. */
 const repoOfUrl = (u: string) => u.trim().toLowerCase().replace(/^(https?:\/\/)?(www\.)?github\.com\//, '').replace(/(\.git)?\/*$/, '');
@@ -194,7 +182,6 @@ export async function offerCoin(
  * live reply), with the wallet the line shows. Never twice.
  */
 export async function showBuiltLive(builderId: number, projectKey: string, wallet: string | null): Promise<void> {
-  if (!builderScoreEnabled()) return;
   await claimMoment(builderId, projectKey, 'built_live', wallet);
 }
 
@@ -235,7 +222,7 @@ export async function coinYes(
   const given = wallet && isWalletAddress(wallet.trim()) ? wallet.trim().toLowerCase() : null;
   // A launch already tried (a proof line missing, say): the same entry, pair and wallet, never rewritten.
   if (existing && existing.token_status && shown && m.answer === 'yes')
-    return { project_id: existing.id, token: { name: shown.name, symbol: shown.symbol }, wallet: shown.wallet, agent_note: coinYesNote() };
+    return { project_id: existing.id, token: { name: shown.name, symbol: shown.symbol }, wallet: shown.wallet, agent_note: COIN_YES_NOTE };
   /**
    * The line again, and a fresh yes waited for (fix rounds 1 and 2): a wallet the line didn't show,
    * or no saved pair (never one proposed silently). An accepted offer goes back to open, so confirm
@@ -260,7 +247,7 @@ export async function coinYes(
   if (!m.wallet) await sql()`UPDATE coin_moments SET wallet = ${to} WHERE builder_id = ${builderId} AND project_key = ${m.project_key}`;
   // v2.13.3 review (I1): a repo no longer read public (it went private after the offer): the coin, if made,
   // carries only the page's safe name and no repo link, so nothing on tokens.fun names the repo.
-  if (!existing && benchEnabled() && links.repo_url && !(await repoReadPublic(builderId, repoOfUrl(links.repo_url)))) {
+  if (!existing && links.repo_url && !(await repoReadPublic(builderId, repoOfUrl(links.repo_url)))) {
     const safe = (await (await import('./page-data')).safeNames([builderId]))(builderId, m.project_key);
     const pair = await proposeToken(safe, deps.check ?? tokensFunTickerCheck, undefined);
     const hidden: Coin = { name: pair.name, symbol: pair.symbol };
@@ -271,7 +258,7 @@ export async function coinYes(
     await sql()`
       UPDATE coin_moments SET answer = 'yes', answered_at = COALESCE(answered_at, now()), project_id = ${id}
       WHERE builder_id = ${builderId} AND project_key = ${m.project_key}`;
-    return { project_id: id, token: hidden, wallet: to, agent_note: coinYesNote() };
+    return { project_id: id, token: hidden, wallet: to, agent_note: COIN_YES_NOTE };
   }
   const projectId = existing
     ? existing.id
@@ -296,7 +283,7 @@ export async function coinYes(
   await noteEvent('coin_answered', () => ({
     type: 'coin_answered', dedupe_key: `coin_answered:${builderId}:${m.project_key.toLowerCase()}`, installation_id: builderId, project_id: projectId, detail: { answer: 'yes', moment: m.moment },
   }));
-  return { project_id: projectId, token: coin, wallet: to, agent_note: coinYesNote() };
+  return { project_id: projectId, token: coin, wallet: to, agent_note: COIN_YES_NOTE };
 }
 
 /** The no to a coin offer: never offered for this project again, and one of the DECLINES_MAX (recordDecline, as the confirm line's skip). */
@@ -337,7 +324,6 @@ export async function coinPitchAllowed(
   builderId: number,
   entry: { program_id: string; build: boolean; project_key?: string; project_id?: number },
 ): Promise<boolean> {
-  if (!builderScoreEnabled()) return true;
   if (entry.program_id === COIN_PROGRAM) {
     if (!(await guards(builderId))) return false;
     // Fix round 2: a coin entry is checked only by its project_id (an accepted offer names it).
@@ -357,7 +343,6 @@ export async function coinPitchAllowed(
  * recorded once, as coinYes and coinNo record theirs (a no counts toward DECLINES_MAX).
  */
 export async function builtLiveAnswer(builderId: number, projectKey: string, answer: 'yes' | 'no', projectId?: number): Promise<void> {
-  if (!builderScoreEnabled()) return;
   const m = await momentOf(builderId, projectKey);
   if (!m || m.moment !== 'built_live' || m.answer !== null) return;
   const updated = await sql()`

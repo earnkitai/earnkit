@@ -1,7 +1,6 @@
 import { sql, type Db } from './db';
 import { testInstallationIds } from './installations';
 import { FEE_SPLIT_BPS } from './policy';
-import { benchEnabled } from './builder-score-flag';
 import { moneyText, openMoneyUsd, poolTotal, statedPool } from './pool';
 
 /**
@@ -61,10 +60,8 @@ export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
   programs_open: 'programs open',
   bonus_programs_open: 'programs with a builder bonus',
   coins_launched: 'tokens launched',
-  // v2.13.2 fix 1: under the Bench the stat covers both fee splits (statsFrom); flag off, the v2.5 label.
-  get fees_to_safe_eth() {
-    return benchEnabled() ? 'fees to the EarnKit Safe (ETH)' : 'fees to the Safe (v2.5 tokens)';
-  },
+  // v2.13.2 fix 1: the stat covers both fee splits (statsFrom).
+  fees_to_safe_eth: 'fees to the EarnKit Safe (ETH)',
   bonus_paid_eth: 'builder bonus paid (ETH)',
   bonus_pools_eth: 'builder bonus pools open (ETH)',
   installs: 'installs',
@@ -129,9 +126,7 @@ type Row = {
 export function statsFrom(r: Row, now = new Date()): PublicStats {
   const big = (v: string | null | undefined) => BigInt(v ?? '0');
   const estimate = (wei: bigint) => (wei * BigInt(FEE_SPLIT_BPS.earnkit)) / BigInt(FEE_SPLIT_BPS.bonus);
-  const safeWei = benchEnabled()
-    ? big(r.safe_fees_wei) + estimate(big(r.bonus_unmatched_wei)) + big(r.bonus_to_safe_wei)
-    : estimate(big(r.bonus_deposits_wei)) + big(r.bonus_to_safe_wei);
+  const safeWei = big(r.safe_fees_wei) + estimate(big(r.bonus_unmatched_wei)) + big(r.bonus_to_safe_wei);
   const pools = poolTotal((r.pool_rows ?? []).map((p) => statedPool(p.pool_usd, p.reward)));
   const date = (v: string | null) => (v ? new Date(v) : null);
   const openUsd = Math.round(
@@ -146,8 +141,8 @@ export function statsFrom(r: Row, now = new Date()): PublicStats {
     open_pools_usd: Math.round(pools.usd),
     open_pools_plus: pools.plus,
     programs_open: Number(r.programs_open),
-    // v2.13 R16: no program has the builder bonus under the Bench flag (bonusOn); the key stays for jenil.ai.
-    bonus_programs_open: benchEnabled() ? 0 : Number(r.bonus_programs_open),
+    // v2.14: there is no builder bonus; the key stays for jenil.ai.
+    bonus_programs_open: 0,
     coins_launched: Number(r.coins_launched),
     fees_to_safe_eth: weiToEth(safeWei),
     bonus_paid_eth: weiToEth(big(r.bonus_paid_wei)),

@@ -1,29 +1,14 @@
 /**
- * v2.12: the verified builder score's one switch, and the archive flags (spec 9). Import-free, so
- * pages, the MCP route and pure modules can read them. Off unless exactly "on".
+ * The switches that remain. v2.14 retired EARNKIT_BUILDER_SCORE and EARNKIT_BENCH (the Bench is the
+ * product). Import-free, so pages, the MCP route and pure modules can read them. Off unless exactly "on".
  */
-export const BUILDER_SCORE_FLAG = 'EARNKIT_BUILDER_SCORE';
-export const builderScoreEnabled = (env: Record<string, string | undefined> = process.env) => env[BUILDER_SCORE_FLAG] === 'on';
-
 export type ArchiveName = 'SPONSOR_CAMPAIGNS' | 'STARTER_REGISTRY' | 'PROGRAM_LEADERBOARDS' | 'TOOL_ALIASES';
 export const archiveFlag = (name: ArchiveName, env: Record<string, string | undefined> = process.env) => env[`EARNKIT_${name}`] === 'on';
 
-/** v2.12.1: Sign in with X is on only with both OAuth 2.0 client values set (graceful when unset). */
+/** Sign in with X is on only with both OAuth 2.0 client values set (graceful when unset). */
 export const xSignInEnabled = (env: Record<string, string | undefined> = process.env) =>
   Boolean(env.X_CLIENT_ID?.trim() && env.X_CLIENT_SECRET?.trim());
 
-/**
- * v2.13 The Bench: one switch on top of the score flag (plan B1). Off unless both are exactly "on";
- * off is production as it is (v2.12.2 with EARNKIT_BUILDER_SCORE=on).
- */
-export const BENCH_FLAG = 'EARNKIT_BENCH';
-export const benchEnabled = (env: Record<string, string | undefined> = process.env) => builderScoreEnabled(env) && env[BENCH_FLAG] === 'on';
-
-/**
- * v2.13 final fix (controller ruling): the Raising pill and the raise asks, a separate go-live step
- * after the lawyer. Off unless the Bench is on and EARNKIT_RAISING is exactly "on". Off under the
- * Bench: no pill, no raise ask or raise line (the coin moments keep v2.12.1's coin line), no raising
- * filter or chip, and tell coin takes no { raising }.
- */
+/** The community round's pill and asks: the legal switch (spec 5: "EARNKIT_RAISING stays"). */
 export const RAISING_FLAG = 'EARNKIT_RAISING';
-export const raisingEnabled = (env: Record<string, string | undefined> = process.env) => benchEnabled(env) && env[RAISING_FLAG] === 'on';
+export const raisingEnabled = (env: Record<string, string | undefined> = process.env) => env[RAISING_FLAG] === 'on';

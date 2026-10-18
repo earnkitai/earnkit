@@ -1,4 +1,4 @@
-import { archiveFlag, benchEnabled, builderScoreEnabled } from './builder-score-flag';
+import { archiveFlag } from './builder-score-flag';
 import { openR1Join } from './page-joins';
 import { githubRepo, normalizeRepoUrl } from './campaigns';
 import { sql, type Db } from './db';
@@ -308,70 +308,6 @@ const defaults: Required<PickupDeps> = {
     process.env.EARNKIT_OWNERSHIP_BASE_URL ? Promise.resolve(null) : fetchOwnershipLatestBranch(r, undefined),
 };
 
-export type PickupResult =
-  | { status: 'linked'; entries: number }
-  | { status: 'declined' }
-  | { status: 'none' }
-  | { status: 'needs_proof'; repo: string; line: string; unreadable: boolean; sign_in?: string };
-
-/**
- * The builder's answer to the pickup offer. No: remembered, nothing changes. Yes: the earlier groups
- * are linked once this agent's proof line is in the offer's repo (default branch or the latest
- * pushed branch); until then, what to push. `own` is the calling installation, never its root.
- */
-export async function answerPickup(own: number, yes: boolean, deps: PickupDeps = {}): Promise<PickupResult> {
-  // v2.12.1 fix round 2: with the score flag on, people join only through a pending join both groups
-  // said yes to (answerJoin); an offer made before the flag went on never links.
-  if (builderScoreEnabled()) return { status: 'none' };
-  const [row] = await sql()<{ pickup: PickupState | null }[]>`SELECT pickup FROM installations WHERE id = ${own}`;
-  const state = row?.pickup ?? {};
-  const offered = state.offered ?? [];
-  if (offered.length === 0 || !state.repo) return { status: 'none' };
-  // C2: a hosted agent's group never links (it can't have been offered; checked again here).
-  if (await sharedGroup(await rootOf(own))) return { status: 'none' };
-  if (!yes) {
-    const declined = [...new Set([...(state.declined ?? []), ...offered])];
-    await sql()`UPDATE installations SET pickup = ${sql().json({ declined })} WHERE id = ${own}`;
-    return { status: 'declined' };
-  }
-  const gh = githubRepo(state.repo);
-  const code = tokenCode(own, state.repo);
-  if (!gh || !code) return { status: 'none' };
-  const key = `${gh.owner}/${gh.repo}`.toLowerCase();
-  // v2.9 B9 (P8): this installation's GitHub sign-in for the offer's repo, made after the offer,
-  // stands in for its proof line.
-  const signedIn =
-    githubVerifyEnabled() &&
-    state.at !== undefined &&
-    (await verifiedFor({ installationId: own, repoKey: key, since: new Date(state.at), purpose: 'pickup' })) !== null;
-  const file = await repoCodes(state.repo, deps);
-  if (!signedIn && !file.codes.some((c) => same(c, code))) {
-    const signIn = githubVerifyEnabled()
-      ? await createVerifyLink({ installationId: own, projectId: null, repoKey: key, purpose: 'pickup' })
-      : null;
-    return {
-      status: 'needs_proof',
-      repo: `github.com/${gh.owner}/${gh.repo}`,
-      line: `token: ${code}`,
-      unreadable: file.unreadable,
-      ...(signIn && { sign_in: signIn }),
-    };
-  }
-  // C1, C2: link only the offered groups the proof covers now (an entry in the proven repo) and that
-  // hold no hosted installation; read again, so a group that changed since the offer is left out.
-  const mine = await rootOf(own);
-  const current = [...new Set(offered.map(Number).filter(Number.isInteger))];
-  const covered = current.length === 0 ? [] : coveredRoots(await groupEntries(current), state.repo);
-  // Ruling F13: and that proved the repo themselves (a launched token, or their own line now).
-  const roots = await provenRoots(covered, state.repo, file.codes);
-  const safe: number[] = [];
-  for (const r of roots) if (r !== mine && (await rootOf(r)) === r && !(await sharedGroup(r))) safe.push(r);
-  await sql()`UPDATE installations SET pickup = ${sql().json({ declined: state.declined ?? [] })} WHERE id = ${own}`;
-  if (safe.length === 0) return { status: 'none' };
-  const entries = await linkInstallations(own, safe);
-  return { status: 'linked', entries };
-}
-
 /**
  * Links `own`'s group and the groups rooted at `roots` into one: the smallest root stays, every other
  * installation points to it (builder_id), and the other roots' rows move to it (entries, keeping the
@@ -461,7 +397,7 @@ async function linkInTx(tx: postgres.TransactionSql, own: number, roots: number[
   return { n, moved: profilesMoved };
 }
 
-export type ProvenTie = { x_user_id: string } | { github_login: string } | { deploy_wallet: string };
+export type ProvenTie = { github_login: string } | { deploy_wallet: string };
 /** Off until the owner rules that a deploy wallet is proven (see joinOnProvenTie). */
 const DEPLOY_WALLET_TIES = false as boolean;
 
@@ -497,30 +433,27 @@ export const JOIN_TEXT = {
  * X account (immutable X user id), the same proven GitHub login (sign-in or proof line), or the
  * same EarnKit deploy wallet. An agent-reported login or wallet never merges anyone." A login
  * proven only by the X field match (github_basis 'x_match') never joins. Two people claimed with
- * different X accounts are never joined. Shared clients never join. Flag off: nothing.
+ * different X accounts are never joined. Shared clients never join. v2.13.4 R10: there is no X
+ * two-agent yes (the claim page's one-click join is the only X join).
  *
  * Fix round 1 (controller ruling): a sign-in link can be completed by whoever it was sent to, so a
  * proof on this installation never merges it into a group that already holds the tie. Each such
  * group gets a pending join instead. Fix round 2: it joins only after a yes from both groups' agents
  * (answerJoin), each asked once (askJoin); either no deletes it. With no other
  * group holding it, the tie simply proves it here (nothing to join). Returns how many groups were
- * asked. T6 (the X claim) calls this with { x_user_id } before writing the claim.
+ * asked.
  */
 export async function joinOnProvenTie(installationId: number, tie: ProvenTie): Promise<number> {
-  if (!builderScoreEnabled() || (await sharedGroup(installationId))) return 0;
+  if (await sharedGroup(installationId)) return 0;
   // Held for the owner's ruling: a deploy's owner_wallet is the wallet the agent typed (deploy.ts:
   // "a wallet is only named"), so a tie on it would let anyone who deploys to a stranger's wallet
   // reach that stranger's group, which the binding rule forbids ("an agent-reported login or wallet
   // never merges anyone"). Until a deploy wallet is proven, it asks no one; deploy.ts does not call this.
   if ('deploy_wallet' in tie && !DEPLOY_WALLET_TIES) return 0;
-  // v2.13.4 R10: under the Bench there is no X two-agent yes (GitHub-login ties keep theirs).
-  if ('x_user_id' in tie && benchEnabled()) return 0;
   const root = await rootOf(installationId);
   const db = sql();
   const rows =
-    'x_user_id' in tie
-      ? await db<{ r: number }[]>`SELECT builder_id AS r FROM builder_profiles WHERE x_user_id = ${tie.x_user_id} AND builder_id <> ${root}`
-      : 'github_login' in tie
+    'github_login' in tie
         ? await db<{ r: number }[]>`
             SELECT DISTINCT COALESCE(i.builder_id, i.id) AS r FROM github_verifications v JOIN installations i ON i.id = v.installation_id
             WHERE lower(v.login) = ${tie.github_login.toLowerCase()} AND COALESCE(i.builder_id, i.id) <> ${root}
@@ -530,7 +463,7 @@ export async function joinOnProvenTie(installationId: number, tie: ProvenTie): P
         : await db<{ r: number }[]>`
             SELECT DISTINCT COALESCE(i.builder_id, i.id) AS r FROM contract_deploys d JOIN installations i ON i.id = d.installation_id
             WHERE lower(d.owner_wallet) = ${tie.deploy_wallet.toLowerCase()} AND d.status = 'deployed' AND COALESCE(i.builder_id, i.id) <> ${root}`;
-  const kind: JoinTie = 'x_user_id' in tie ? 'x_user_id' : 'github_login';
+  const kind: JoinTie = 'github_login';
   const xOf = async (id: number) =>
     (await db<{ x: string | null }[]>`SELECT x_user_id AS x FROM builder_profiles WHERE builder_id = ${id}`)[0]?.x ?? null;
   const mine = await xOf(root);
@@ -571,9 +504,9 @@ async function pendingRow(root: number, db: Db = sql()): Promise<PendingRow | nu
     JOIN installations t ON t.id = j.target
     JOIN installations i ON i.id = j.installation_id
     WHERE COALESCE(t.builder_id, t.id) <> COALESCE(i.builder_id, i.id)
-      AND (NOT ${benchEnabled()} OR j.created_at > now() - interval '24 hours')
-      -- v2.13.4 R10: under the Bench there is no X two-agent yes (an X tie is never asked or answered).
-      AND (j.tie <> 'x_user_id' OR NOT ${benchEnabled()})
+      AND j.created_at > now() - interval '24 hours'
+      -- v2.13.4 R10: there is no X two-agent yes (an X tie is never asked or answered).
+      AND j.tie <> 'x_user_id'
       AND ((COALESCE(t.builder_id, t.id) = ${root} AND j.target_yes IS NULL)
         OR (COALESCE(i.builder_id, i.id) = ${root} AND j.joiner_yes IS NULL))
     ORDER BY j.created_at, j.installation_id LIMIT 1`;
@@ -591,7 +524,6 @@ export async function pendingJoinOf(installationId: number): Promise<{ installat
  * score reply); the answer, through tell, still works later.
  */
 export async function askJoin(installationId: number): Promise<{ question: string } | null> {
-  if (!builderScoreEnabled()) return null;
   const row = await pendingRow(await rootOf(installationId));
   if (!row || row.asked) return null;
   if (row.side === 'target')
@@ -606,7 +538,6 @@ export async function askJoin(installationId: number): Promise<{ question: strin
  * keeps its page; hidden or held if either was); never a shared group, never two X accounts.
  */
 export async function answerJoin(installationId: number, yes: boolean): Promise<'linked' | 'waiting' | 'declined' | 'none' | 'refused' | 'expired'> {
-  if (!builderScoreEnabled()) return 'none';
   const out = await sql().begin(async (tx) => {
     const row = await pendingRow(await rootOf(installationId), tx);
     if (!row) return { r: 'none' as const };
@@ -622,27 +553,25 @@ export async function answerJoin(installationId: number, yes: boolean): Promise<
       await tx`DELETE FROM pending_joins WHERE ${key}`;
       return { r: 'declined' as const };
     }
-    if (benchEnabled()) {
-      // v2.13.4: a consent is used only for the facts it was given for: the same joining installation and
-      // page root, under 24 hours, and neither side changed since (the joining side gained no data or
-      // member; the page didn't re-root and had no R1 join or detach). Else it is dropped.
-      const [jr, tr] = [await rootIn(tx, row.installation_id), await rootIn(tx, row.target)];
-      const stale = !p.fresh || p.target_root === null || tr !== p.target_root
-        || p.joiner_stamp !== (await joinStamp(tx, jr, 'joiner')) || p.target_stamp !== (await joinStamp(tx, tr, 'target'));
-      if (stale) {
-        await tx`DELETE FROM pending_joins WHERE ${key}`;
-        return { r: 'expired' as const };
-      }
-      // v2.13.4 R8 (5): no tie-join onto a page whose R1 join notice isn't answered yet by every eligible
-      // installation: that page's own yes is not recorded, and a link is never made while either side has one.
-      const mine = row.side === 'target' ? row.target : row.installation_id;
-      if (await openR1Join(mine)) return { r: 'refused' as const };
+    // v2.13.4: a consent is used only for the facts it was given for: the same joining installation and
+    // page root, under 24 hours, and neither side changed since (the joining side gained no data or
+    // member; the page didn't re-root and had no R1 join or detach). Else it is dropped.
+    const [jr, tr] = [await rootIn(tx, row.installation_id), await rootIn(tx, row.target)];
+    const stale = !p.fresh || p.target_root === null || tr !== p.target_root
+      || p.joiner_stamp !== (await joinStamp(tx, jr, 'joiner')) || p.target_stamp !== (await joinStamp(tx, tr, 'target'));
+    if (stale) {
+      await tx`DELETE FROM pending_joins WHERE ${key}`;
+      return { r: 'expired' as const };
     }
+    // v2.13.4 R8 (5): no tie-join onto a page whose R1 join notice isn't answered yet by every eligible
+    // installation: that page's own yes is not recorded, and a link is never made while either side has one.
+    const mine = row.side === 'target' ? row.target : row.installation_id;
+    if (await openR1Join(mine)) return { r: 'refused' as const };
     const [both] = await tx<{ both: boolean }[]>`
       UPDATE pending_joins SET ${row.side === 'target' ? tx`target_yes = true` : tx`joiner_yes = true`}
       WHERE ${key} RETURNING (target_yes AND joiner_yes) IS TRUE AS both`;
     if (!both?.both) return { r: 'waiting' as const };
-    if (benchEnabled() && ((await openR1Join(row.installation_id)) || (await openR1Join(row.target)))) {
+    if ((await openR1Join(row.installation_id)) || (await openR1Join(row.target))) {
       await tx`UPDATE pending_joins SET ${row.side === 'target' ? tx`target_yes = NULL, target_asked_at = NULL` : tx`joiner_yes = NULL, joiner_asked_at = NULL`} WHERE ${key}`;
       return { r: 'refused' as const };
     }

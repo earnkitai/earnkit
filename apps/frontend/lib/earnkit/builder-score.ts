@@ -1,5 +1,4 @@
 import { countProject, moneyOf, ringWeights, type ActorFacts, type Touch } from './anti-farming';
-import { benchEnabled } from './builder-score-flag';
 import { sql, type Db } from './db';
 import { discover, type LoginOf } from './discovery';
 import { ownPagesSite } from './discovery-clues';
@@ -336,18 +335,18 @@ export async function runScoreSteps(now: Date, sliceEnd: number, deps: ScoreCron
       out[name] = { step: 'error' };
     }
   };
-  // v2.13.1 O1: open proof branches (at most an hour each), checked with the run's GitHub budget. Flag off: no step.
-  if (benchEnabled()) await step('proof_branch', () => proofBranchStep(now, { reader, only: deps.only, deadline: sliceEnd }));
-  // v2.13.2 (1): org repos' proof branches expire after 90 days (daily, bounded). Flag off: no step.
-  if (benchEnabled()) await step('proof_expiry', () => orgProofExpiryStep(now, { only: deps.only, deadline: sliceEnd }));
+  // v2.13.1 O1: open proof branches (at most an hour each), checked with the run's GitHub budget.
+  await step('proof_branch', () => proofBranchStep(now, { reader, only: deps.only, deadline: sliceEnd }));
+  // v2.13.2 (1): org repos' proof branches expire after 90 days (daily, bounded).
+  await step('proof_expiry', () => orgProofExpiryStep(now, { only: deps.only, deadline: sliceEnd }));
   await step('discover', () => discover(now, { deadline: sliceEnd, reader, login: deps.login, only: deps.only }));
   await step('read', () => readSources(now, { deadline: sliceEnd, reader, only: deps.only }));
   await step('score', () => scorePeopleV2(now, { deadline: sliceEnd, only: deps.only }));
   await step('empty', () => profileEmpty(now, { only: deps.only }));
-  // v2.13 spec "Cost": the weekly facts (Mondays from 15:00 UTC, after the digest). Flag off: no step.
-  if (benchEnabled()) await step('weekly', () => weeklyFactsStep(now, { deadline: sliceEnd, only: deps.only }));
-  // v2.13 spec "Cost": the feed rank, once a day (F11: from 15:00 UTC, after the weekly step). Flag off: no step.
-  if (benchEnabled()) await step('feed', () => feedRankStep(now));
+  // v2.13 spec "Cost": the weekly facts (Mondays from 15:00 UTC, after the digest).
+  await step('weekly', () => weeklyFactsStep(now, { deadline: sliceEnd, only: deps.only }));
+  // v2.13 spec "Cost": the feed rank, once a day (F11: from 15:00 UTC, after the weekly step).
+  await step('feed', () => feedRankStep(now));
   return out;
 }
 

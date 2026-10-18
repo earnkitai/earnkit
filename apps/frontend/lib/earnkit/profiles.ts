@@ -1,6 +1,5 @@
 import { randomInt } from 'node:crypto';
 import type postgres from 'postgres';
-import { builderScoreEnabled } from './builder-score-flag';
 import { afterCommit, inTx, sql, type Db } from './db';
 import { shortWallet } from './entry-text';
 import { noteEvent } from './events';
@@ -298,12 +297,12 @@ export async function mergeProfiles(tx: postgres.TransactionSql, root: number, o
   await tx`UPDATE profile_slug_history SET builder_id = ${root} WHERE builder_id = ${other}`;
   await tx`DELETE FROM builder_ranks WHERE builder_id = ${other}`;
   if (!o) {
-    if (r && builderScoreEnabled()) await requeue(tx, root);
+    if (r) await requeue(tx, root);
     return false;
   }
   if (!r) {
     await tx`UPDATE builder_profiles SET builder_id = ${root}, updated_at = now() WHERE builder_id = ${other}`;
-    if (builderScoreEnabled()) await requeue(tx, root);
+    await requeue(tx, root);
     return true;
   }
   // v2.12.1 fix round 1 (controller ruling): the older group (the root: its earliest installation)
@@ -348,7 +347,7 @@ export async function mergeProfiles(tx: postgres.TransactionSql, root: number, o
   await tx`DELETE FROM builder_profiles WHERE builder_id = ${lose.builder_id}`;
   if (win.builder_id !== root) await tx`UPDATE builder_profiles SET builder_id = ${root} WHERE builder_id = ${win.builder_id}`;
   await tx`UPDATE builder_profiles SET ${tx(merged)}, updated_at = now() WHERE builder_id = ${root}`;
-  if (builderScoreEnabled()) await requeue(tx, root);
+  await requeue(tx, root);
   return true;
 }
 

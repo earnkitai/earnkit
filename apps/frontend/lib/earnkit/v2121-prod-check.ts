@@ -1,5 +1,5 @@
 import { bannedIn } from './fixtures/banned-words';
-import { HEADS } from './where-you-stand';
+import { HEADS } from './stand-text';
 
 /**
  * v2.12.1 acceptance runbook, pure checks (scripts/v2121-prod-check.mts runs them against production,

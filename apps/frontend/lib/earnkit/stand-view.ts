@@ -13,7 +13,7 @@ import { r2Enabled } from './r2';
 import type { Standing } from './rank';
 import type { ReaderDeps } from './source-readers';
 import { upgradeToken } from './wallet-proof';
-import { chooseStep, paymentStepFits, stepKey, confirmLinkLine, pageReadyLine, plainWhat, rollingLine, standingNews, usersMoneyLine, type EarnLine, type MoveUp, type StandProject, type StandView } from './where-you-stand';
+import { chooseStep, paymentStepFits, stepKey, confirmLinkLine, pageReadyLine, plainWhat, rollingLine, standingNews, usersMoneyLine, type EarnLine, type MoveUp, type StandProject, type StandView } from './stand-text';
 import { closeDayOf, prizeOf } from './entry-text';
 import { freshPick, type FreshPick } from './fresh-build';
 import { byPrize, type Card, type FreshOn } from './present';
