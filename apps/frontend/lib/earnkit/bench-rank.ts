@@ -24,15 +24,14 @@ export async function chainPools(o: { only?: number[] } = {}): Promise<Record<Be
   return out;
 }
 
-/** v2.13.1 O5 (P2): the reply's rank phrase from this many ranked people. */
-export const BENCH_PHRASE_MIN = 5;
 export type RankLines = { bench: string | null; phrase: string | null; chains: { chain: BenchChain; label: string; line: string }[] };
 
 export async function rankLines(builderId: number, o: { only?: number[] } = {}): Promise<RankLines> {
   const s = await standingOf(builderId, o);
   const words = benchRank(s);
-  // v2.13.1 O5 (P2): the reply names a rank only from BENCH_PHRASE_MIN ranked ("#1 of 1 builder" says nothing).
-  const out: RankLines = { bench: words?.short ?? null, phrase: s.total >= BENCH_PHRASE_MIN ? (words?.phrase ?? null) : null, chains: [] };
+  // v2.13.4 (owner, reversing v2.13.1 O5 P2): the reply names the Bench rank by the spec's rule alone ("#N of
+  // M" under 20 ranked, top half only; "Top P%" from 20), from 1 ranked: "#1 of 1 builder" shows.
+  const out: RankLines = { bench: words?.short ?? null, phrase: words?.phrase ?? null, chains: [] };
   if (!s.ranked) return out;
   const [me] = await sql()<{ chains: string[]; score: number }[]>`
     SELECT b.chains, l.score FROM builder_profiles p JOIN builder_projects b ON b.builder_id = p.builder_id AND lower(b.project_key) = lower(p.main_project_key)

@@ -5070,7 +5070,7 @@ by the builder's own agent, public filters for the capital side, and an optional
   "Open <project> in your coding agent to put it on the Bench." and is never asked the weekly-posting yes.
   No-project ideas only from programs the offered starter can enter, with their own pitch. Copy: the
   wallet line has a way out, the building line drops the chain and says "your", update replies carry the
-  full page link, the rank phrase only from 5 ranked, the claim page says what the Bench page is, no GitHub
+  full page link, the rank phrase only from 5 ranked (reversed in v2.13.4: shown from 1 ranked by the spec's rule), the claim page says what the Bench page is, no GitHub
   sign-in on the done page, "1 builder so far", "Money open now", an empty landing Bench says so.
 - **The weekly update.** One yes (`builder_profiles.updates_on_at`), then the agent's weekly task
   (`schedule_weekly_update` replaces `schedule_daily_check`) calls `tell update { text }`.
@@ -5334,6 +5334,9 @@ Brief: `.superpowers/sdd/v2.13.3/brief.md`, plus owner rulings A, B, C sent the 
   the raw `local_repos` on, so a live link the matcher drops as a placeholder (earnkit.com) still reaches identity. Find's
   MCP schema under the Bench lists `live_url` and says the older fields are older; `FIND_DESCRIPTION_BENCH` asks for
   `identity.github_login` "(not github_user or repos)".
+- **The Bench rank in the reply (v2.13.4, owner, reversing v2.13.1 O5 P2).** `bench-rank.ts rankLines` gives the
+  phrase by the spec's rule alone ("#N of M" under 20 ranked, top half only; "Top P%" from 20), from 1 ranked, so a
+  confirmed project's stand line reads "EarnKit is on the Bench: #1 of 1 builder." (`BENCH_PHRASE_MIN` is gone).
 - **1b (v2.13.4, production).** A `local_repos` entry names its repo by `url`, `remote` or `repo` (under the Bench
   the MCP find schema keeps `remote` and `repo`, which the SDK would otherwise strip; flag off the schema is byte for
   byte the same, test P.3). The matching entry's live link (and name) fills the project when identity doesn't carry
