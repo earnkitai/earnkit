@@ -14,13 +14,13 @@ import {
 
 test('X handle in any common form becomes a profile URL', () => {
   for (const v of [
-    'earnkit_ai',
-    '@earnkit_ai',
-    'https://x.com/earnkit_ai',
-    'https://twitter.com/earnkit_ai/',
-    'x.com/earnkit_ai?s=20'.replace(/^/, 'https://'),
+    'earnkitai',
+    '@earnkitai',
+    'https://x.com/earnkitai',
+    'https://twitter.com/earnkitai/',
+    'x.com/earnkitai?s=20'.replace(/^/, 'https://'),
   ]) {
-    assert.equal(xProfileUrl(v), 'https://x.com/earnkit_ai');
+    assert.equal(xProfileUrl(v), 'https://x.com/earnkitai');
   }
 });
 
