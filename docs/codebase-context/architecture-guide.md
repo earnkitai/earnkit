@@ -5771,7 +5771,7 @@ v2.14's `proven` and `shipping` are one `ranked` state). The copy lives in one t
 | State | When | Stand line | The one link | The one question |
 |---|---|---|---|---|
 | `signed_out` | not bound to X and a sign-in link can be made | "You're not on the Bench yet." | the sign-in link | "Sign in with X to get your page (one click): <link>" + "Want me to put your work on the Bench once you're in?" |
-| `no_project` | signed in, no one project | the same + "Your page: https://..." | the page | "What's your GitHub, or a link to something you've made?" |
+| `no_project` | signed in, no one project | the same + "Your page: earnkit.com/..." | the repo picker's install link (launch ready L2) | "Install the read-only EarnKit app on the repo you want ranked (one click): <link>" + "Want me to rank it once that's done?" (App off: "What's your GitHub, or a link to something you've made?", the page the link) |
 | `not_counted` | a project not confirmed | "<Project> isn't counted yet." | the App install link | "Install the read-only EarnKit app on it (one click): <link>" + "Want me to count it once that's done?" |
 | `ranked` | the one project confirmed | the score line "<Project>: Shipping 72 · #3 of 40 builders this week." and the why | the page | the statement "Ship this week to climb." (R8; never an entry, coin, community round or going live) |
 
@@ -6356,3 +6356,49 @@ Design doc: `docs/design-docs-and-implementation-plans/launch-ready.md` (rulings
     newest good reading, preferring one of the current reader (`REPO_READER`).
   - `rescorePerson` returns `changed`: true only when the public row moved (score, rank, or a hold starting or
     ending). A builder who stays held expires no cache on every refresh.
+
+## Launch ready (Task 2): the repo picker on install (L2)
+
+Design doc: `docs/design-docs-and-implementation-plans/launch-ready.md` (ruling L2). Tests: `repo-picker.test.ts`
+(through `mcpCall`, the fake GitHub and the real setup URL).
+
+- **The reply.** A signed-in builder with no one project (`no_project`) is never asked for a GitHub URL. The one step
+  is "Install the read-only EarnKit app on the repo you want ranked (one click): <link>" then "Want me to rank it
+  once that's done?" (`bench-reply.ts STATE_COPY.no_project.ask`, kind `pick_repo`, `PICK_REPO_NOTE`; the yes is
+  `PICK_REPO_YES_NOTE`). The page is named beside it without https (A14). Only while the link can't be made (the App
+  off) is the old question asked (`noApp()`, kind `start`). Naming a repo still works (find's `identity.project`:
+  `not_counted` with that repo's own install link). The copy rule lets "on the repo you want ranked" through
+  (`fixtures/banned-words.ts`, the owner's line).
+- **The link.** `repo-proof.ts pickLink` is `createVerifyLink` with `repoKey: null`, stored as
+  `github-verify.ts PICK_REPOS` (`'*'`, never a real key: no schema change). Everything else is the App link's: an
+  `app` nonce, refused without the person's page (S7), the confirm page and its `__Host-ekv-` cookie, 15 minutes,
+  single use, the GitHub sign-in hop naming the installer, then GitHub's install page (`installUrl`), whose own
+  picker chooses the repos. The confirm page says "This connects your repos to earnkit.com/<handle>. Only continue
+  if that is your page." (`appPickDestination`), with "Repos: The ones you pick on GitHub".
+- **The setup URL** (`github-app.ts appSetup` -> `pickSetup` for a `PICK_REPOS` nonce, after the same cookie,
+  installation id and `takeNonce` checks). `pickedRepos`: the installation (its account), one installation token for
+  the list (`installationToken(id, null)`: metadata read), `GET /installation/repositories` (pages of 100, at most
+  `PICK_LIST_MAX` = 100), newest `pushed_at` first; a repo passes R8 as `appProof` does for one: the installation is
+  the installer's own account and the repo is on it, or the installer is the repo's admin (checked until
+  `PICK_PROVE_MAX` = 20 passed). Each passing repo gets its `via = 'app'` verification (appProofLive reads it) and
+  `proveOne` (every proveByApp rule: GitHub names this installation, a fork or template is `derived`, `repo_hold:<key>`
+  then the person's and source locks, another person's App hold is `taken`, a non-App hold replaced), within
+  `PICK_BUDGET_MS` (15 s). With no one project yet, the most recently pushed proven repo becomes it
+  (`setMainProject`); one that exists is kept. Then `connectProven` once: replaced people rescored, the events, one
+  connect read of every proven repo with the installation token, the rescore, R13's 3-week backfill for the one
+  project (the hourly catch-up finishes the rest).
+- **The setup page** (`PICK_PAGE`): "Done. EarnKit now ranks github.com/<repo>. Tell your agent which repo to rank
+  instead." (the one project was set); "Done. N repos are connected. Go back to your agent and say go." (kept);
+  refusals (403): nothing picked, not the installer's (`notYours`), none could count (forks, templates, taken).
+- **proveByApp split.** `proveByApp` = `proveOne` (the checks and the S8 transaction, returning `Proven`) +
+  `connectProven` (the connect read, rescore and backfill). A single repo's proof behaves as before.
+- **Switching (tell `main_project`).** `setMainProject` stays set once after confirmation (find's `identity.project`
+  is the folder the agent is in, so it must not move a confirmed project). `tell { main_project: "owner/repo" }`
+  (`bench-find.ts rankAnswer`, `main-project.ts rankRepo`) moves the one project, even a confirmed one, only to a
+  repo this person proved with the App (a verified `github_app` source of their own), then rescores: "EarnKit now
+  ranks github.com/<repo>.". Another repo is not changed to; the reply offers the picker link ("... isn't connected
+  yet. Install the read-only EarnKit app on it (one click): <link>") and the agent calls tell again after the install.
+  The tell description names it ("main_project: owner/repo to rank instead."), still under 800 characters.
+- **Limits.** At most 100 listed and 20 proven per setup, newest push first; the rest (and any past the 15 s
+  budget) are not proven at that setup (owner question: raise the caps if builders pick more). GitHub's "Redirect on update" must stay on, so an
+  installation that already exists (the builder adds repos to it) reaches the setup URL too.

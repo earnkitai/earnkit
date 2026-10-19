@@ -1095,6 +1095,9 @@ apps/frontend/
                                v2.11 T3: loginBasisFor (a step's login and login_basis: signin, app, proof_line only for
                                the builder's own User account; shared clients only the caller's or the entry's sign-in),
                                githubUser (S9: GET /users/<login>, cached 24 h in url_checks ghuser:<login>)
+                               Launch ready L2: PICK_REPOS ('*', the repo picker's repo_key); createVerifyLink repoKey null
+                               makes it (same S7 page handle, cookie, expiry, single use); confirmPage for it: APP_PICK_LEAD,
+                               APP_PICK_REPOS, appPickDestination ("This connects your repos to earnkit.com/<handle>.")
     github-app.ts(+test)       v2.10 item 7b: the optional read-only GitHub App. githubAppEnabled (GITHUB_APP_ID,
                                GITHUB_APP_SLUG, a PEM GITHUB_APP_PRIVATE_KEY, and the v2.9 sign-in on, P17), appJwt
                                (RS256, iat now-60 s, 10 min), installationToken (POST access_tokens: one repo, contents
@@ -1102,6 +1105,11 @@ apps/frontend/
                                admin), appTokenFor (a via='app' proof scoped like verifiedFor, then a fresh token;
                                null when off), installUrl, APP_PAGE, appSetup (the setup URL handler; v2.14 T6: then
                                repo-proof.ts proveByApp for the person's root)
+                               Launch ready L2: installationToken(id, null) (the installation's repo list, metadata read);
+                               pickedRepos (GET /installation/repositories, PICK_LIST_MAX 100, newest push first; own account
+                               or admin, R8; stops at PICK_PROVE_MAX 20); pickSetup (appSetup for a PICK_REPOS nonce: a
+                               verification + repo-proof.ts proveOne per repo within PICK_BUDGET_MS, the newest proven repo
+                               becomes the one project when there is none, then connectProven); PICK_PAGE (the setup page lines)
     builder-memory.ts(+test)   v2.9 A3: TellInput (strict; program_status, repo_facts; v2.9 E19 weekly_email
                                { answer yes/no, email? }, which alone is enough), BuilderMemory, MemoryKey
                                (memoryKey: own installation login '', a shared client null),
@@ -1367,7 +1375,9 @@ apps/frontend/
                                SIGN_IN_OWNER_NOTE; v2.13.1: null under the flag), pickMainProject
                                (Bench-confirmed only, else null); v2.13.1 O2: setMainProject replaces an
                                unconfirmed one (old key's open proof code cleared), dropMainProject (tell
-                               repo_facts not_mine on the unconfirmed one project)
+                               repo_facts not_mine on the unconfirmed one project); launch ready L2: rankRepo (tell
+                               main_project: the one project moves, even a confirmed one, only to a repo this person proved
+                               with the App)
     repo-proof.ts              v2.14 T6 (spec 2): the App as the only proof (the proof-branch module and its test were
                                deleted; proof_branches and proof_line_issues stay, unused). APP_PROOF 'github_app', APP_REMOVED,
                                APP_CHECK_PER_RUN 50, APP_CHECK_EVERY_MS 1 day, APP_PROOF_FRESH_MS (a day + 2 h);
@@ -1387,7 +1397,10 @@ apps/frontend/
                                a proof older than APP_PROOF_FRESH_MS use it; v2.14 final fix: no login option, sharedAppProven
                                gone: a shared client has no proof), REPLACED_BY_APP (an App proof replaces another person's non-App hold;
                                heldByOther counts App holds only).
-                               tests: v214-app-proof.test.ts (fixtures fake-github.ts, app-install.ts)
+                               Launch ready L2: proveByApp = proveOne (the checks and the one transaction; returns Proven) +
+                               connectProven (replaced people rescored, events, one connect read of every proven row,
+                               rescore, backfill for first proofs; one REFRESH_BUDGET_MS); pickLink (the repo picker's link).
+                               tests: v214-app-proof.test.ts, repo-picker.test.ts (fixtures fake-github.ts, app-install.ts)
     v214-journey.test.ts       v2.14 T12: acceptance 1 to 5 end to end on fake X and GitHub (fetch throws; every fake call routed)
     v214-removed.test.ts       v2.14 T7: the claim page, join route and join modules gone (wallet page stays), the tables
                                kept, tell takes no pickup, bindX never asks, the S4 detach migration, a refused re-auth keeps
@@ -1431,7 +1444,9 @@ apps/frontend/
                                "Ship this week to climb.", kind ship); benchReply: stand line (+ the why, "Your page"),
                                "Ways to get funded" always (R12: at most 3 fits, fitsLine "<title>: <award>, <closes
                                Oct 30 | rolling>. <why>"), one next step last, exactly one https link (the action link,
-                               else the page; none when there is no page, X off). Kinds sign_in, start, install_app,
+                               else the page; none when there is no page, X off). Launch ready L2: no_project asks the
+                               repo picker (STATE_COPY.no_project.ask(link), kind pick_repo; noApp() and kind start only
+                               while the App link can't be made). Kinds sign_in, start, pick_repo, install_app,
                                other_project, repo_behind, ship, suggest (app_off). Keeps needsLine, ideasLine,
                                displayName. R10: rankedState (ranked only); bench-find gates rank_lines, view.rank and
                                the move-up news on it. Copy says "the leaderboard" (R9). No coin, token or community round.
@@ -1449,11 +1464,15 @@ apps/frontend/
                                sign-in question wins; find skips outcomeToAsk until the bind; a failed mint asks to retry). "Signed in as @<handle>." once on the
                                first reply after an X bind (installations.x_signed_in_unseen; takeSignedIn clears it only with a
                                handle; signedOutNow reads a DB error as signed out, final fix 11, 12). benchMoveUp: taken-once
-                               kinds incl. sign_in (SIGN_IN_YES_NOTE), repo_behind (REPO_BEHIND_NOTE), ship (SHIP_NOTE);
+                               kinds incl. sign_in (SIGN_IN_YES_NOTE), repo_behind (REPO_BEHIND_NOTE), ship (SHIP_NOTE), pick_repo (PICK_REPO_YES_NOTE);
                                retired kinds (OLD_ASKS: enter, coin, raise, go_live, build, grants) are "Okay."; no grants ask,
                                no build-in-progress view. v2.13.4: fundNeeds(c, has), reportedLive, liveOf;
                                needsPicks (NEEDS_MAX 2), START_NOTE, INSTALL_APP_NOTE, BENCH_OUTCOME_NOTE, SHIP_NOTE.
-                               tests v214-replies.test.ts (through mcpCall), v2131-o5.test.ts, v2133-owner-test.test.ts
+                               Launch ready L2: no_project carries repo-proof.ts pickLink (PICK_REPO_NOTE); rankAnswer (tell
+                               main_project: main-project.ts rankRepo, rescore; else the picker link), RANK_LINES,
+                               RANK_SET_NOTE, RANK_INSTALL_NOTE.
+                               tests v214-replies.test.ts (through mcpCall), v2131-o5.test.ts, v2133-owner-test.test.ts,
+                               repo-picker.test.ts
     raising.ts(+test)          v2.13 T9: raisingCoin, setRaising, pillOf, showRaisingLine (projects.raising_at); all off
                                unless EARNKIT_RAISING (builder-score-flag.ts raisingEnabled)
     bench-data.ts(+test)       v2.13 T10/T11: parseBenchFilter, benchRows (safe names, pill in the same read),
