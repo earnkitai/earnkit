@@ -22,8 +22,9 @@ import {
 } from './entry-text';
 import { SCORE_SHARED } from './score-tool';
 import { POST_LINE, SKIPPED_LINE, signInFirstLine } from './share';
-import { EARN_NOTE, rollingLine, standingNews, usersMoneyLine, type StandProject } from './stand-text';
-import { GO_LIVE_LINES, GO_LIVE_NOT_YET_NOTE, goLivePagesNote, goLiveSignInNote, goLiveUploadNote, goLiveWrongLinkNote } from './tools';
+import { EARN_NOTE, standingNews } from './stand-text';
+import { SHIP_STEP, fitsLine, noFitLine } from './bench-reply';
+import { RAISE_NOTE, SHIP_STEP_NOTE, TOKEN_NOT_YET, tokenHasCoin, tokenUnavailable } from './bench-find';
 import { COIN_LAUNCHING, COIN_LIVE, COIN_WALLET_ASK, coinLine } from './coin-moments';
 import { ATTRIBUTION_RULE } from './fresh-build';
 import { HIDDEN_LINE, NO_PROFILE_LINE, SHARED_PROFILE_NOTE, SHOWN_LINE } from './profiles';
@@ -858,20 +859,19 @@ function buildFixTexts(): [string, string][] {
   return cases.map((c, i): [string, string] => [`buildCheck fix ${i}`, buildCheck({ ...ok, ...c }, s)!]);
 }
 
-// v2.12.1 T8: the news line, the money lines and the card answers (v2.14: the three-part reply and its steps are gone).
-const sp = (o: Partial<StandProject> & { key: string; name: string }): StandProject => ({
-  what: null, shipped: true, people: 0, has_coin: false, sends_tx: false, tagged: false, untracked_contract: null, untracked_people: 0, certain: false, app: true, ...o,
-});
+// v2.12.1 T8: the news line, the money lines and the card answers (v2.14: the three-part reply and its steps are gone;
+// R8, R12: the ranked step, the fit line and the token-ask answers).
 export const v2121Texts: [string, string][] = [
   ['standingNews card', standingNews({ rank: 5, at: '2026-10-10T00:00:00Z' }, { standing: { ranked: true, rank: 3, total: 19 } }, new Date('2026-10-14T00:00:00Z'), true)!.line],
   ['standingNews top', standingNews({ rank: 40, at: '2026-09-01T00:00:00Z' }, { standing: { ranked: true, rank: 12, total: 120 } }, new Date('2026-10-14T00:00:00Z'), false)!.line],
-  ['usersMoneyLine', usersMoneyLine(sp({ key: 'r', name: 'Recipes', what: 'a recipe planner' }), 'lee/recipes', 'Arc Microgrants', 'up to $500')],
-  ['rollingLine', rollingLine('Arc Microgrants', 'up to $500', true)],
-  ['rollingLine no projects', rollingLine('Arc Microgrants', 'up to $500', false)],
+  ['SHIP_STEP', SHIP_STEP],
+  ['fitsLine', fitsLine('Recipe Grants', 'up to $5K', 'closes Oct 30', 'It takes any chain and your app is live.')],
+  ['noFitLine', noFitLine('Recipes')],
+  ['TOKEN_NOT_YET', TOKEN_NOT_YET],
+  ['tokenUnavailable', tokenUnavailable('Recipes')],
+  ['tokenHasCoin', tokenHasCoin('Recipes')],
   ['POST_LINE', POST_LINE('lee')],
   ['signInFirstLine', signInFirstLine('https://earnkit.com/signin/abcdefghijklmnopqrstuv')],
-  ['GO_LIVE_LINES.onIt', GO_LIVE_LINES.onIt],
-  ['GO_LIVE_LINES.cant', GO_LIVE_LINES.cant('TipJar')],
 ];
 /** The coin step (spec 3b's words: T10 owns the coin wording rule), checked by the v2.12.1 test only. */
 /**
@@ -987,11 +987,8 @@ const agentFacing: [string, string][] = [
   ['BUILD_NOTE', BUILD_NOTE],
   // v2.12.1 T9: the notes after a move-up yes, and the build kit's attribution rule.
   ['ATTRIBUTION_RULE', ATTRIBUTION_RULE],
-  ['goLiveUploadNote', goLiveUploadNote()],
-  ['goLiveSignInNote', goLiveSignInNote('lee/tipjar')],
-  ['goLivePagesNote', goLivePagesNote('lee/tipjar')],
-  ['GO_LIVE_NOT_YET_NOTE', GO_LIVE_NOT_YET_NOTE],
-  ['goLiveWrongLinkNote', goLiveWrongLinkNote('lee/tipjar')],
+  ['SHIP_STEP_NOTE', SHIP_STEP_NOTE],
+  ['RAISE_NOTE', RAISE_NOTE],
   // v2.11 T8: the build path's notes and every build fix.
   ['twistNote(true)', twistNote(true)],
   ['twistNote(false)', twistNote(false)],

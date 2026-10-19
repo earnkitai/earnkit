@@ -2,15 +2,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { bannedInBench } from './fixtures/banned-words';
 import {
-  NOT_ON_BENCH, STATE_COPY, VARIANT_COPY, benchReply, nextStepAsk, replyState, stateAsk, type BenchProject, type BenchView,
+  NOT_ON_BENCH, SHIP_STEP, STATE_COPY, VARIANT_COPY, benchReply, noFitLine, replyState, stateAsk, type BenchProject, type BenchView,
 } from './bench-reply';
 
 process.env.EARNKIT_URL = 'https://earnkit.com';
 const P: BenchProject = { key: 'maya/recipes', name: 'Recipes', confirmed: true, live: true, weeks: 3 };
 const fund = [{ kind: 'needs' as const, title: 'Base Builder Grants', prize: 'up to $5K', needs: 'for a Base app' }];
 const view = (v: Partial<BenchView>): BenchView => {
-  const base: BenchView = { state: 'proven', variant: null, project: P, rank: '#1 of 1 builder this week', streak: 0, score: 14, originality: null, why: 'Code in 1 of the last 12 weeks, 1 of the last 4. Ship code next week to add up to 14 points.', handle: 'maya_makes', link: null, fund, due: [], ask: { kind: 'suggest', project_key: P.key, line: 'Want me to suggest one small thing to ship in Recipes this week?' }, held: null, ...v };
-  return { ...base, ask: stateAsk(base) ?? base.ask };
+  const base: BenchView = { state: 'ranked', variant: null, project: P, rank: '#1 of 1 builder this week', score: 14, originality: null, why: 'Code in 1 of the last 12 weeks, 1 of the last 4. Ship code next week to add up to 14 points.', handle: 'maya_makes', link: null, fund, due: [], ask: { kind: 'suggest', project_key: P.key, line: 'Want me to suggest one small thing to ship in Recipes this week?' }, held: null, ...v };
+  return { ...base, ask: stateAsk(base) };
 };
 const links = (s: string) => s.match(/https?:\/\/\S+/g) ?? [];
 const oneLinkOneQuestion = (s: string) => {
@@ -18,16 +18,21 @@ const oneLinkOneQuestion = (s: string) => {
   assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, 1, s);
   assert.ok(s.trimEnd().endsWith('?'), s);
 };
+/** R8, R10: the ranked reply's one next step is the statement "Ship this week to climb." (no question at all). */
+const oneLinkShipStep = (s: string) => {
+  assert.equal(links(s).length, 1, s);
+  assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, 0, s);
+  assert.ok(s.trimEnd().endsWith(`How to move up\n${SHIP_STEP}`), s);
+};
 
-test('9.1 which state', () => {
-  assert.equal(replyState({ signedIn: false, project: P, counted: true, streak: 9 }), 'signed_out');
-  assert.equal(replyState({ signedIn: true, project: null, counted: false, streak: 0 }), 'no_project');
-  assert.equal(replyState({ signedIn: true, project: { ...P, confirmed: false }, counted: false, streak: 0 }), 'not_counted');
-  assert.equal(replyState({ signedIn: true, project: P, counted: true, streak: 1 }), 'proven');
-  assert.equal(replyState({ signedIn: true, project: P, counted: true, streak: 2 }), 'shipping');
+test('9.1 which state (R16a: four states; proven and shipping are one, ranked)', () => {
+  assert.equal(replyState({ signedIn: false, project: P, counted: true }), 'signed_out');
+  assert.equal(replyState({ signedIn: true, project: null, counted: false }), 'no_project');
+  assert.equal(replyState({ signedIn: true, project: { ...P, confirmed: false }, counted: false }), 'not_counted');
+  assert.equal(replyState({ signedIn: true, project: P, counted: true }), 'ranked');
 });
 
-test('9.2 the five replies, word for word', () => {
+test('9.2 the four replies, word for word', () => {
   const out = benchReply(view({ state: 'signed_out', project: null, handle: null, link: 'https://earnkit.com/signin/AAAAAAAAAAAAAAAAAAAAAA' }));
   assert.equal(out, [
     'Where you stand', NOT_ON_BENCH, '',
@@ -43,13 +48,18 @@ test('9.2 the five replies, word for word', () => {
   assert.ok(unc.includes("Recipes isn't counted yet.\nYour page: earnkit.com/maya_makes"));
   assert.ok(unc.endsWith("Install the read-only EarnKit app on it (one click): https://earnkit.com/github/verify?n=abc\nWant me to count it once that's done?"));
   oneLinkOneQuestion(unc);
-  const proven = benchReply(view({ state: 'proven' }));
-  assert.ok(proven.includes('Recipes: Shipping 14 · #1 of 1 builder this week.\nCode in 1 of the last 12 weeks, 1 of the last 4. Ship code next week to add up to 14 points.\nYour page: https://earnkit.com/maya_makes'));
-  oneLinkOneQuestion(proven);
-  const ship = benchReply(view({ state: 'shipping', streak: 3 }));
-  assert.ok(ship.includes('Recipes: Shipping 14 · #1 of 1 builder this week. 3 weeks in a row.\nCode in 1 of the last 12 weeks, 1 of the last 4. Ship code next week to add up to 14 points.'));
-  oneLinkOneQuestion(ship);
-  assert.ok(benchReply(view({ state: 'proven', rank: null })).includes('Recipes: Shipping 14.\n'));
+  const fits = [{ kind: 'fits' as const, title: 'Base Builder Grants', prize: 'up to $5K', when: 'rolling', why: 'You deployed on Base and your app is live.' }];
+  const ranked = benchReply(view({ state: 'ranked', fund: fits }));
+  assert.equal(ranked, [
+    'Where you stand',
+    'Recipes: Shipping 14 · #1 of 1 builder this week.',
+    'Code in 1 of the last 12 weeks, 1 of the last 4. Ship code next week to add up to 14 points.',
+    'Your page: https://earnkit.com/maya_makes', '',
+    'Ways to get funded', 'Base Builder Grants: up to $5K, rolling. You deployed on Base and your app is live.', '',
+    'How to move up', 'Ship this week to climb.',
+  ].join('\n'));
+  oneLinkShipStep(ranked);
+  assert.ok(benchReply(view({ state: 'ranked', rank: null })).includes('Recipes: Shipping 14.\n'));
   // The why sentence is a statement under the ranked stand line only; never in another state.
   assert.ok(!benchReply(view({ state: 'not_counted', project: { ...P, confirmed: false }, link: 'https://x' })).includes('Code in'));
 });
@@ -69,29 +79,27 @@ test('9.3 variants of not counted: taken, copy, a link only, the App off', () =>
   }
 });
 
-test('9.4 money always shows; with nothing open it says so', () => {
-  assert.match(benchReply(view({ state: 'proven', fund: [] })), /Ways to get funded\nNo program is open right now\. I'll look again next week\./);
+test('9.4 money always shows; with nothing open it says so (R12: a ranked project with no fit says that)', () => {
+  assert.match(benchReply(view({ state: 'no_project', project: null, fund: [] })), /Ways to get funded\nNo program is open right now\. I'll look again next week\./);
+  assert.ok(benchReply(view({ state: 'ranked', fund: [] })).includes(`Ways to get funded\n${noFitLine('Recipes')}`));
 });
 
-test('9.5 a held question replaces the state question (still one)', () => {
-  const out = benchReply(view({ state: 'proven', held: 'Did Recipes win anything in Base Builder Grants?' }));
+test('9.5 a held question replaces the state step (still one)', () => {
+  const out = benchReply(view({ state: 'ranked', held: 'Did Recipes win anything in Base Builder Grants?' }));
   assert.ok(out.endsWith('Did Recipes win anything in Base Builder Grants?'));
   oneLinkOneQuestion(out);
 });
 
-test('9.6 the next step: the best fit, then a community round, then online, then one small thing (never kept away)', () => {
-  const enter = { kind: 'enter' as const, project_key: P.key, program_id: 'base', line: 'Want me to prepare an entry for Base Builder Grants?' };
-  const coin = { kind: 'coin' as const, project_key: P.key, line: 'Want to open a community round for Recipes? I\'ll launch $RCP on tokens.fun and you get 40% of its trading fees.' };
-  assert.equal(nextStepAsk({ project: P, enter, coin, canHost: true, declined: [] }), enter);
-  assert.equal(nextStepAsk({ project: P, enter, coin, canHost: true, declined: ['enter:maya/recipes'] }), coin);
-  assert.equal(nextStepAsk({ project: { ...P, live: false }, enter: null, coin: null, canHost: true, declined: [] }).kind, 'go_live');
-  assert.equal(nextStepAsk({ project: P, enter: null, coin: null, canHost: false, declined: ['suggest:maya/recipes'] }).kind, 'suggest');
+test('9.6 R8: the ranked next step is always "Ship this week to climb." (never an entry, a coin or going live)', () => {
+  for (const project of [P, { ...P, live: false }]) assert.deepEqual(stateAsk({ state: 'ranked', variant: null, project, link: null }), { kind: 'ship', project_key: P.key, line: SHIP_STEP });
+  const out = benchReply(view({ state: 'ranked', project: { ...P, live: false } }));
+  assert.doesNotMatch(out, /coin|token|community round|prepare an entry|online/i);
 });
 
 test('9.7 the copy table: plain words, no em dash, no raise', () => {
   const lines = [
     STATE_COPY.signed_out.stand(), STATE_COPY.signed_out.ask('https://x'), STATE_COPY.signed_out.retry(), STATE_COPY.no_project.ask(), STATE_COPY.not_counted.stand('A'),
-    STATE_COPY.not_counted.ask('https://x'), STATE_COPY.proven.stand('A', 10, '#1 of 2 builders this week'), STATE_COPY.shipping.stand('A', 10, null, 4),
+    STATE_COPY.not_counted.ask('https://x'), STATE_COPY.ranked.stand('A', 10, '#1 of 2 builders this week'), STATE_COPY.ranked.ask(),
     ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('A'), v.ask('A')]),
   ];
   for (const l of lines) {

@@ -289,38 +289,41 @@ test('10.6 tell coin reaches the coin answer through the MCP schema', dbTest, as
   assert.equal(m.answer, 'no', 'the answer arrived (stripped, nothing would change)');
 });
 
-test('10.7 find: a project with people and no bigger step gets the coin as the one yes, once; the wallet is in the line', dbTest, async () => {
+test('10.7 R8: find never offers a coin (the step is to ship); asked about a token (tell token), the coin line with the wallet, once offered, shown again while open', dbTest, async () => {
   const id = await person([{ key: 'lee/notes', name: 'Notes', people: 7 }]);
   const W = '0x' + randomBytes(20).toString('hex');
   await sql()`INSERT INTO installation_wallets (installation_id, wallet) VALUES (${id}, ${W})`;
   const r = await find(id);
-  assert.match(r.show_to_builder, new RegExp(`How to move up\\nNotes has people using it\\. A coin pays you 40% of its trading fees, paid to ${W.slice(0, 6)}…${W.slice(-4)}\\. Want to launch a coin, \\$[A-Z0-9]+ \\([^)]+\\), for it\\?$`), r.show_to_builder);
-  assert.equal(r.move_up?.kind, 'coin');
-  assert.equal(r.move_up?.project_key, 'lee/notes');
-  assert.match(r.move_up!.agent_note, /tell with coin/);
-  assert.ok((r.show_to_builder.match(/\?/g) ?? []).length <= 1);
-  // At most once per project: the next find never offers it again.
-  const two = await find(id);
-  assert.doesNotMatch(two.show_to_builder, /coin/);
+  assert.match(r.show_to_builder, /How to move up\nShip this week to climb\.$/, r.show_to_builder);
+  assert.doesNotMatch(r.show_to_builder, /coin|token|community round/i);
+  assert.equal(r.move_up?.kind, 'ship');
+  const { tools } = await import('./tools');
+  const asked = (await tools.tell({ token: 'ask' }, { installationId: id, tokenDeps: { check: async () => true } } as never)) as { show_to_builder: string; coin?: { project_key: string }; agent_note?: string };
+  assert.match(asked.show_to_builder, new RegExp(`^A coin pays you 40% of its trading fees, paid to ${W.slice(0, 6)}…${W.slice(-4)}\\. Want to launch a coin, \\$[A-Z0-9]+ \\([^)]+\\), for Notes\\?$`), asked.show_to_builder);
+  assert.deepEqual(asked.coin, { project_key: 'lee/notes' });
+  assert.match(String(asked.agent_note), /tell with coin/);
+  const again = (await tools.tell({ token: 'ask' }, { installationId: id, tokenDeps: { check: async () => true } } as never)) as { show_to_builder: string };
+  assert.equal(again.show_to_builder, asked.show_to_builder, 'asked again while open: the same coin and wallet');
   const [{ n }] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_events WHERE type = 'coin_offered' AND installation_id = ${id}`;
   assert.equal(n, 1);
+  // The next find still never offers it.
+  assert.doesNotMatch((await find(id)).show_to_builder, /coin/i);
 });
 
-test('10.8 find: a project\'s first 5 people offer the coin in place of the step; no people news', dbTest, async () => {
+test('10.8 R8: a project\'s first 5 people are no coin moment in find (no people news either); without the launch key, asking says not available', dbTest, async () => {
   const seen = { people: { 'lee/five': 2 }, at: new Date(NOW.getTime() - 3 * DAY).toISOString() };
   const id = await person([{ key: 'lee/five', name: 'Five', people: 6 }], seen);
   const r = await find(id);
   // Scoring and clarity: people are not scored, so new people are no longer news.
   assert.doesNotMatch(r.show_to_builder, /new people used|Since you last checked/, r.show_to_builder);
-  assert.match(r.show_to_builder, /How to move up\n5 people have used Five\. A coin pays you 40% of its trading fees\. Want to launch a coin, \$[A-Z0-9]+ \([^)]+\), for it\?$/, r.show_to_builder);
-  const [m] = await sql()`SELECT moment FROM coin_moments WHERE builder_id = ${id}`;
-  assert.equal(m.moment, 'first_five');
-  // Without the launch key (production before tokens are on): no coin anywhere, the v2.12.1 step as before.
+  assert.doesNotMatch(r.show_to_builder, /coin/i);
+  assert.equal((await sql()`SELECT 1 FROM coin_moments WHERE builder_id = ${id}`).length, 0, 'no moment used up');
+  // Without the launch key (production before tokens are on): no coin anywhere, even when asked.
   const key = process.env.TOKENSFUN_DEPLOY_API_KEY;
   delete process.env.TOKENSFUN_DEPLOY_API_KEY;
   try {
-    const plain = await person([{ key: 'lee/p', name: 'P', people: 6 }], seen);
-    assert.doesNotMatch((await find(plain)).show_to_builder, /coin/);
+    const { tokenAsk, tokenUnavailable } = await import('./bench-find');
+    assert.deepEqual(await tokenAsk(id), { show_to_builder: tokenUnavailable('Five') });
   } finally {
     process.env.TOKENSFUN_DEPLOY_API_KEY = key;
   }
@@ -506,33 +509,21 @@ test('9.7 every coin moment but built_live says the raise line', () => {
   }
 });
 
-test('9.7b five weeks in a row is a coin moment (once); the yes sets raising_at and logs raising_on', dbTest, async () => {
+test('9.7b R8: a coin offered when the builder asks (countable, once); shown again while open; the yes sets raising_at and logs raising_on', dbTest, async () => {
   const id = await claimed('streak_dev');
   const key = `lee/streak${randomBytes(3).toString('hex')}`;
   await usedProject(id, key, 'Tip Jar', 0);
-  // v2.13.3 review (I1): a community round only for a repo read public.
-  const markPublic = () => sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${id} AND kind = 'repo'`;
-  await markPublic();
   process.env.EARNKIT_RAISING = 'on';
   try {
-    const { coinAskBench } = await import('./bench-find');
-    const p = { key, name: 'Tip Jar', confirmed: true, live: true, weeks: 5, people: 0, has_coin: false, streak: 5, shipped: true };
-    // v2.13.3 owner ruling A: four weeks and no people is no moment, but nothing fits, so a community round (countable), once.
-    const other = `lee/four${randomBytes(3).toString('hex')}`;
-    await usedProject(id, other, 'Four Weeks', 0);
-    await markPublic();
-    const four = await coinAskBench(id, { ...p, key: other, name: 'Four Weeks', streak: 4 }, {}, noCheck);
-    assert.equal(four?.kind, 'coin');
-    assert.match(four?.line ?? '', /Want to open a community round for Four Weeks\?$/);
-    const [c] = await sql()<{ moment: string }[]>`SELECT moment FROM coin_moments WHERE builder_id = ${id} AND project_key = ${other}`;
-    assert.equal(c.moment, 'countable');
-    const ask = await coinAskBench(id, p, {}, noCheck);
-    assert.equal(ask?.kind, 'coin');
+    const { offerCoin, openCoinLine } = await import('./coin-moments');
+    const ask = await offerCoin(id, key, 'countable', noCheck);
+    assert.ok(ask);
     const [m] = await sql()<{ moment: string }[]>`SELECT moment FROM coin_moments WHERE builder_id = ${id} AND project_key = ${key}`;
-    assert.equal(m.moment, 'streak_five');
+    assert.equal(m.moment, 'countable');
     const shown = await readShownOffer(id, COIN_PROGRAM, offerKey(repoFor(key), 'Tip Jar'));
-    assert.equal(ask?.line, raiseLine('Tip Jar', shown!.symbol, null));
-    assert.equal(await coinAskBench(id, p, {}, noCheck), null, 'once per project');
+    assert.equal(ask.line, raiseLine('Tip Jar', shown!.symbol, null));
+    assert.equal(await offerCoin(id, key, 'countable', noCheck), null, 'once per project');
+    assert.equal((await openCoinLine(id, key, noCheck))?.line, ask.line, 'asked again while open: the same line');
     const yes = await coinYes(id, key, `0x${'d'.repeat(40)}`, noCheck);
     assert.ok('project_id' in yes, JSON.stringify(yes));
     const [x] = await sql()<{ raising: boolean }[]>`SELECT raising_at IS NOT NULL AS raising FROM projects WHERE id = ${yes.project_id}`;

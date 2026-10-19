@@ -283,8 +283,9 @@ test('11.1 openMoneyUsd: the top prize of every open curated program, summed; mo
   // P20: a fixed now, so the test never breaks when a program closes.
   const now = new Date('2026-10-08T00:00:00Z');
   const rows = catalogueRows();
-  assert.equal(openMoneyUsd(rows, now), 1170500); // Campaign #1 is closed
-  assert.equal(moneyText(1170500), '$1.1M+');
+  // Campaign #1 is closed; scoring and clarity R12 closed Arc Microgrants, Colosseum and Monad Metropolis too.
+  assert.equal(openMoneyUsd(rows, now), 1115000);
+  assert.equal(moneyText(1115000), '$1.1M+');
   assert.equal(moneyText(1_000_000), '$1M');
   assert.equal(moneyText(0), null);
   const open = { max_award_usd: 1000, status: 'active', ends_at: null, starts_at: null };
@@ -298,7 +299,7 @@ test('11.1 openMoneyUsd: the top prize of every open curated program, summed; mo
   // P19: an open EarnKit campaign never counts, as a DB row (campaign) or a card (earnkit_campaign).
   assert.equal(openMoneyUsd([{ ...open, campaign: { prize_usd: 100 } }], now), 0);
   assert.equal(openMoneyUsd([{ ...open, earnkit_campaign: { slug: 'c1' } }], now), 0);
-  assert.equal(openMoneyUsd([...rows, { ...open, earnkit_campaign: { slug: 'c1' } }], now), 1170500);
+  assert.equal(openMoneyUsd([...rows, { ...open, earnkit_campaign: { slug: 'c1' } }], now), 1115000);
   // A program without a stated top prize counts 0.
   assert.equal(openMoneyUsd([{ ...open, max_award_usd: null }], now), 0);
 });
@@ -311,7 +312,7 @@ test('11.2 /api/stats: open_money_usd and open_money_text; open_pools_* stay, de
   const now = new Date('2026-10-08T00:00:00Z');
   const s = statsFrom({ ...emptyRow, open_rows: catalogueRows().map((r) => ({ ...r, starts_at: r.starts_at?.toISOString() ?? null, ends_at: r.ends_at?.toISOString() ?? null })) }, now);
   assert.deepEqual(Object.keys(s), [...STATS_KEYS]);
-  assert.equal(s.open_money_usd, 1170500);
+  assert.equal(s.open_money_usd, 1115000);
   assert.equal(s.open_money_text, '$1.1M+');
   assert.equal(statsFrom(emptyRow, now).open_money_text, null);
 });

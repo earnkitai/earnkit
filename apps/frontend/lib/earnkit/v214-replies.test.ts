@@ -31,8 +31,10 @@ const RANK = ': Shipping \\d+ · (#\\d+ of \\d+ builders?|Top \\d+(\\.\\d)?% of 
 function rule(reply: Record<string, unknown> | null) {
   const s = String(reply?.show_to_builder ?? '');
   assert.equal(links(s).length, 1, s);
-  assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, 1, s);
-  assert.ok(s.trimEnd().endsWith('?'), s);
+  // R8: a ranked reply ends on the one statement "Ship this week to climb." (no question); every other on one question.
+  const ranked = s.trimEnd().endsWith('How to move up\nShip this week to climb.');
+  assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, ranked ? 0 : 1, s);
+  assert.ok(ranked || s.trimEnd().endsWith('?'), s);
   assert.match(s, /Ways to get funded/);
   return s;
 }
@@ -74,7 +76,7 @@ test('9.10 state 3, a project without the App: the install link; then state 4 on
   assert.match(four, new RegExp(`Kit${RANK}\\.`));
 });
 
-test('9.11 state 5, shipping weekly: the streak in the stand line', db, async () => {
+test('9.11 R16a: shipping weekly is the ranked state; the streak lives in the score (the reply carries it, the stand line does not)', db, async () => {
   const a = await agent({ x: 'cy' });
   const key = `cy${RUN}/app`;
   await mcpCall(a.ctx, 'find', { identity: { project: { name: 'App', repo: `https://github.com/${key}` } } });
@@ -83,8 +85,11 @@ test('9.11 state 5, shipping weekly: the streak in the stand line', db, async ()
   // The streak and the weeks it counts, so a rescore during the call keeps it.
   const weeks = [14, 7, 0].map((d) => isoWeekOf(new Date(Date.now() - d * 86_400_000)));
   await sql()`UPDATE builder_projects SET streak = 3, ship_weeks = ${weeks}::text[] WHERE builder_id = ${a.id} AND lower(project_key) = ${key}`;
-  const s = rule((await mcpCall(a.ctx, 'score', {})).reply);
-  assert.match(s, new RegExp(`App${RANK}\\. 3 weeks in a row\\.`));
+  const reply = (await mcpCall(a.ctx, 'score', {})).reply;
+  const s = rule(reply);
+  assert.match(s, new RegExp(`App${RANK}\\.\n`));
+  assert.doesNotMatch(s, /weeks in a row/);
+  assert.equal(reply?.streak, 3);
 });
 
 const noLimit = { limit: async () => {} };

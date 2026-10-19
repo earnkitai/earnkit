@@ -539,10 +539,14 @@ test('16.1 acceptance 1, with a project: the first reply names it (v2.14 T7: no 
   await sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${id} AND kind = 'repo'`;
   const r2 = await call('find', {}, ctx(id));
   assert.match(r2.show_to_builder, /^Recipe planner: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders) this week\.( \d+ weeks in a row\.)?$/m, r2.show_to_builder);
-  // v2.13.3 owner ruling A: nothing fits, so the confirmed project is offered a community round (once).
-  assert.match(r2.show_to_builder, /I'll launch \$\w+ on tokens\.fun and you get 40% of its trading fees\. Want to open a community round for Recipe planner\?$/, r2.show_to_builder);
-  assert.equal(r2.move_up?.kind, 'coin');
-  MAYA.offer = r2.show_to_builder;
+  // R8 (supersedes owner ruling A): find never offers a community round; the step is to ship.
+  assert.ok(r2.show_to_builder.endsWith('How to move up\nShip this week to climb.'), r2.show_to_builder);
+  assert.doesNotMatch(r2.show_to_builder, /community round|coin|token/i);
+  assert.equal(r2.move_up?.kind, 'ship');
+  // Only when the builder asks about a token (tell token, through the MCP schema) is the community round offered.
+  const asked = await call('tell', { token: 'ask' }, ctx(id));
+  assert.match(asked.show_to_builder, /^I'll launch \$\w+ on tokens\.fun and you get 40% of its trading fees\. Want to open a community round for Recipe planner\?$/, asked.show_to_builder);
+  MAYA.offer = asked.show_to_builder;
   assert.equal(r2.claim, undefined, 'no claim link');
   const page = await renderProfile('maya_makes', 'log');
   assert.match(page, /src="https:\/\/pbs\.twimg\.com\/profile_images\/1\/m_400x400\.jpg"/);
@@ -621,7 +625,7 @@ test('16.4 acceptance 4, Bench filters: /bench?chain=base lists only Base projec
 test('16.5 acceptance 5, a community round (v2.13.3 ruling B): the yes launches the coin, the pill shows on the profile, the Bench row and the card; closing it removes it', db, async () => {
   const id = MAYA.id;
   await giveFivePeople(id);
-  // The offer came once, right after confirmation (16.1, ruling A); the builder says yes to it now.
+  // The offer came when the builder asked about a token (16.1, R8); the builder says yes to it now.
   assert.match(MAYA.offer, /Want to open a community round for Recipe planner\?/);
   // Review focus 3: the Confirming claimant is never offered a community round.
   await advanceRefreshGuard(EVE, 11 * 60_000);

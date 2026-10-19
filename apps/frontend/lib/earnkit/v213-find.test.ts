@@ -72,11 +72,12 @@ test('8.7 a confirmed, claimed, ranked project: the spec 2a reply; v2.14 spec 3:
     const id = await person({ main: `mayaf${RUN}/recipes`, claimed: `mf${RUN}`, ranked: true, score: 60, projects: [{ key: `mayaf${RUN}/recipes`, name: 'Recipe planner', confirmed: true, weeks_shipping: 6 }] });
     const r = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(p.id, `mayaf${RUN}/recipes`) }) });
     assert.match(r.show_to_builder, /^Recipe planner: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders) this week\.$/m);
-    assert.match(r.show_to_builder, new RegExp(`^${esc(p.title)} pays up to \\$10K and fits Recipe planner; it's open all year\\.$`, 'm'));
-    // v2.13.3 owner ruling A: the best fit's entry is asked first; a no to it, then the next step (never the updates yes).
-    assert.ok(r.show_to_builder.endsWith(`Want me to prepare an entry for ${p.title}?`), r.show_to_builder);
-    assert.equal(r.move_up?.kind, 'enter');
-    await tools.tell({ move_up: { kind: 'enter', project_key: `mayaf${RUN}/recipes`, answer: 'no' } }, { installationId: id } as never);
+    // R12: the fit with its award, deadline and why (the fixture's match has no repo facts: the plain why).
+    assert.match(r.show_to_builder, new RegExp(`^${esc(p.title)}: up to \\$10K, rolling\\. It fits your project\\.$`, 'm'));
+    // R8: the one next step is to ship (owner ruling A's entry ask is gone); a no to it, then the same step (never the updates yes).
+    assert.ok(r.show_to_builder.endsWith('How to move up\nShip this week to climb.'), r.show_to_builder);
+    assert.equal(r.move_up?.kind, 'ship');
+    await tools.tell({ move_up: { kind: 'ship', project_key: `mayaf${RUN}/recipes`, answer: 'no' } }, { installationId: id } as never);
     const r2 = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(p.id, `mayaf${RUN}/recipes`) }) });
     assert.notEqual(r2.move_up?.kind, 'updates');
     assert.doesNotMatch(r2.show_to_builder, /post what you ship|this week's update/);
@@ -119,25 +120,29 @@ test('8.10 score under the flag: the same three parts, with rank_lines and the s
   }),
 );
 
-test('8.11 the yes is answered as asked: another kind is "Okay." and changes nothing; a no keeps that ask away 30 days', dbTest, () =>
+test('8.11 the yes is answered as asked (R8: the ship step): another kind is "Okay." and changes nothing; answered once', dbTest, () =>
   benchOn(async () => {
     const p = await avalanche();
     const key = `mayan${RUN}/recipes`;
     const id = await person({ main: key, claimed: `mn${RUN}`, projects: [{ key, name: 'Recipe planner', confirmed: true }] });
     const match = { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(p.id, key) }) };
     const r = await find(id, {}, match);
-    // v2.13.3 owner ruling A: the program's entry first.
-    assert.deepEqual(r.move_up && { kind: r.move_up.kind, project_key: r.move_up.project_key }, { kind: 'enter', project_key: key });
-    assert.ok(r.show_to_builder.endsWith(`Want me to prepare an entry for ${p.title}?`), r.show_to_builder);
-    const tell = (m: Record<string, unknown>) => tools.tell({ move_up: m }, { installationId: id } as never) as Promise<{ show_to_builder: string }>;
+    // R8: the ranked step, to ship.
+    assert.deepEqual(r.move_up && { kind: r.move_up.kind, project_key: r.move_up.project_key }, { kind: 'ship', project_key: key });
+    assert.ok(r.show_to_builder.endsWith('Ship this week to climb.'), r.show_to_builder);
+    const tell = (m: Record<string, unknown>) => tools.tell({ move_up: m }, { installationId: id } as never) as Promise<{ show_to_builder: string; agent_note?: string }>;
     assert.equal((await tell({ kind: 'updates', project_key: key, answer: 'yes' })).show_to_builder, 'Okay.');
-    assert.equal((await tell({ kind: 'enter', project_key: 'someone/else', answer: 'yes' })).show_to_builder, 'Okay.');
+    assert.equal((await tell({ kind: 'ship', project_key: 'someone/else', answer: 'yes' })).show_to_builder, 'Okay.');
+    assert.equal((await tell({ kind: 'enter', project_key: key, answer: 'yes' })).show_to_builder, 'Okay.', 'another kind');
     const [{ on }] = await sql()<{ on: Date | null }[]>`SELECT ship_titles_at AS on FROM builder_profiles WHERE builder_id = ${id}`;
     assert.equal(on, null, 'nothing turned on');
-    assert.equal((await tell({ kind: 'enter', project_key: key, answer: 'no' })).show_to_builder, 'Okay.');
-    // The next ask in the order (v2.14 spec 3: never the updates yes), answered as asked.
+    // The yes as asked: one small, real thing to ship from the repo.
+    const yes = await tell({ kind: 'ship', project_key: key, answer: 'yes' });
+    assert.match(String(yes.agent_note), /suggest one small thing to ship this week/);
+    assert.equal((await tell({ kind: 'ship', project_key: key, answer: 'yes' })).show_to_builder, 'Okay.', 'answered once');
+    // The next reply asks the same step (never the updates yes).
     const again = await find(id, {}, match);
-    assert.ok(again.move_up && again.move_up.kind !== 'updates' && again.move_up.kind !== 'enter', JSON.stringify(again.move_up));
+    assert.equal(again.move_up?.kind, 'ship');
   }),
 );
 

@@ -94,8 +94,10 @@ function rule(r: McpResult): string {
   const [bare] = bareLinks(s);
   if (bare) assert.ok(!links(s)[0]!.includes(bare), `the page is not linked twice: ${s}`);
   assert.match(s, /Ways to get funded/);
-  assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, 1, s);
-  assert.ok(s.trimEnd().endsWith('?'), s);
+  // R8: a ranked reply ends on the one statement "Ship this week to climb." (no question); every other on one question.
+  const ranked = s.trimEnd().endsWith('How to move up\nShip this week to climb.');
+  assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, ranked ? 0 : 1, s);
+  assert.ok(ranked || s.trimEnd().endsWith('?'), s);
   assert.doesNotMatch(s, /raise|fundrais/i, s);
   assert.equal(r.reply?.schedule_weekly_update, undefined, 'nobody is asked to schedule anything');
   return s;

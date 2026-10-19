@@ -7,7 +7,7 @@ import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, claimX, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
-import { NOT_ON_BENCH, OTHER_PROJECT_ASK, STATE_COPY, VARIANT_COPY, shipAsk } from './bench-reply';
+import { NOT_ON_BENCH, OTHER_PROJECT_ASK, SHIP_STEP, STATE_COPY, VARIANT_COPY } from './bench-reply';
 import { mainProjectOf } from './main-project';
 
 /**
@@ -115,18 +115,17 @@ test('O2.9 the last line is one question that fits: no open-all-year grant for a
   }),
 );
 
-test('O2 fix round 1 (ruling 3): every state ends on one question with a yes route: grants, the suggestion, a different project (taken never offers an entry)', dbTest, () =>
+test('O2 fix round 1 (ruling 3), R8: every state ends on one next step with a yes route: ship this week, the suggestion, a different project (taken never offers an entry)', dbTest, () =>
   on(async () => {
     const tell = (id: number, m: Record<string, unknown>) => tools.tell({ move_up: m }, { installationId: id } as never) as Promise<R>;
     const lastQ = (t: string) => t.split('\n').filter((l) => l.includes('?'));
-    // Confirmed, nothing pending: the community round once (ruling A), then one small thing to ship (v2.14 A16).
+    // Confirmed, nothing pending (R8): "Ship this week to climb.", a statement whose yes is one small thing to ship.
     const key = `${uniq('gr')}/recipes`;
     const id = await person({ main: key, claimed: uniq('gr'), projects: [{ key, name: 'Recipe planner', confirmed: true }] });
-    await find(id, {}, NO_MATCH);
     const r = await find(id, {}, NO_MATCH);
-    assert.ok(r.show_to_builder.endsWith(shipAsk('Recipe planner')), r.show_to_builder);
-    assert.equal(lastQ(r.show_to_builder).length, 1);
-    const g = await tell(id, { kind: 'suggest', project_key: key, answer: 'yes' });
+    assert.ok(r.show_to_builder.endsWith(SHIP_STEP), r.show_to_builder);
+    assert.equal(lastQ(r.show_to_builder).length, 0);
+    const g = await tell(id, { kind: 'ship', project_key: key, answer: 'yes' });
     assert.match(g.agent_note ?? '', /one small thing/);
     // No project, nothing to build: v2.13.3 ruling A, existing work; the yes asks the agent for it.
     const n = await install();

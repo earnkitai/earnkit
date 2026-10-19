@@ -12,7 +12,7 @@ import { appEnv, installApp } from './fixtures/app-install';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { benchCardFacts, benchRows, filterHref, profileData } from './bench-data';
-import { STATE_COPY, VARIANT_COPY, NOT_ON_BENCH } from './bench-reply';
+import { SHIP_STEP, STATE_COPY, VARIANT_COPY, NOT_ON_BENCH } from './bench-reply';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
 import { FORMULA_V2 } from './score-v2';
 import { rankSplit } from './rank';
@@ -51,14 +51,21 @@ async function agent(o: { x?: string } = {}) {
 /** The status lines a reply can carry (bench-reply.ts STATE_COPY and VARIANT_COPY). */
 const STATUS = /not on the leaderboard yet|isn't counted yet|is already on the leaderboard|is a copy of someone else's project|: Shipping \d+|is counted\. Its Shipping score/g;
 const RANKED = /#[\d,]+ of [\d,]+ builders?|Top [\d.]+% of builders/;
-/** R10: exactly one status line and one next step (the "How to move up" part holds one question). */
+/**
+ * R10: exactly one status line and one next step: the "How to move up" part holds one question, or (R8, ranked)
+ * the one statement "Ship this week to climb." and no question at all.
+ */
 function oneStatusOneStep(reply: Record<string, unknown> | null): string {
   const s = String(reply?.show_to_builder ?? '');
   assert.equal((s.match(STATUS) ?? []).length, 1, `one status line: ${s}`);
   const up = s.split('\n\n').find((p) => p.startsWith('How to move up'));
   assert.ok(up, s);
-  assert.equal((up!.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, 1, `one next step: ${s}`);
-  assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, 1, `one question in all: ${s}`);
+  const questions = (s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length;
+  if (up === `How to move up\n${SHIP_STEP}`) assert.equal(questions, 0, `a statement, no question: ${s}`);
+  else {
+    assert.equal((up!.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, 1, `one next step: ${s}`);
+    assert.equal(questions, 1, `one question in all: ${s}`);
+  }
   return s;
 }
 

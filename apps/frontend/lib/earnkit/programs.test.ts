@@ -410,7 +410,8 @@ test('5.2 programs:sync stores fresh_build and listPrograms cards (find\'s cards
   const plain = `t5-plain-${process.pid}`;
   // Rolling, so the clone stays open whatever day the suite runs. The committed Arc file names
   // arc-tipjar (T6 follow-up), so the plain clone drops it.
-  const arc = { ...committedProgram('arc-microgrants'), ends_at: null, fresh_build: undefined };
+  // R12 closed the committed Arc file: the clones are active.
+  const arc = { ...committedProgram('arc-microgrants'), ends_at: null, status: 'active', fresh_build: undefined };
   try {
     await upsertProgram(ProgramFile.parse({ ...arc, id, fresh_build: { starter: 'arc-tipjar' } }));
     await upsertProgram(ProgramFile.parse({ ...arc, id: plain }));

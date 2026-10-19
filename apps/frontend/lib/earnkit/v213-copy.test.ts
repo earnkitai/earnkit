@@ -11,8 +11,9 @@ import { raiseLine } from './coin-moments';
 import { RAISE_LINES, showRaisingLine } from './raising';
 import RaisingPill from '../../app/components/ui/RaisingPill';
 import {
-  NOT_ON_BENCH, STATE_COPY, VARIANT_COPY, enterAsk, fitsLine, goLiveAsk, ideasLine,
+  NOT_ON_BENCH, STATE_COPY, VARIANT_COPY, fitsLine, ideasLine, noFitLine,
 } from './bench-reply';
+import { fitWhy } from './bench-find';
 
 // The components are compiled with the classic JSX runtime here (as feed.test.ts).
 (globalThis as { React?: typeof React }).React = React;
@@ -24,9 +25,17 @@ export const TEXTS: string[] = [
   ...[s(18, 100), s(3, 1000), s(10, 19), s(70, 100)].flatMap((x) => [rankLine(x)!, scoreLine(62, rankLine(x))]),
   ...(['base', 'arc', 'robinhood'] as const).flatMap((chain) => [rankLine(s(1, 100), { chain })!, rankLine(s(2, 12), { chain })!]),
   // T8: the reply's lines. The 2b lines name a funder and the starter's offer through the BENCH_PITCH_ALLOWED hook (plan B12).
-  // v2.14 T9: the five states' copy (STATE_COPY, VARIANT_COPY).
-  NOT_ON_BENCH, STATE_COPY.not_counted.stand('Recipe planner'), STATE_COPY.shipping.stand('Recipe planner', 62, 'Top 18% of builders this week', 6),
-  goLiveAsk('Recipe planner'), enterAsk('Base Builder Grants'), fitsLine('Avalanche Team1 Mini Grants', 'up to $10K', 'Recipe planner', 'open all year'),
+  // v2.14 T9, R16a: the four states' copy (STATE_COPY, VARIANT_COPY). R12: a fit line with its deadline and why, each why the matcher can give.
+  NOT_ON_BENCH, STATE_COPY.not_counted.stand('Recipe planner'), STATE_COPY.ranked.stand('Recipe planner', 62, 'Top 18% of builders this week'), STATE_COPY.ranked.ask(),
+  noFitLine('Recipe planner'),
+  ...([
+    { chains: { base: { mainnet: true, testnet: false, evidence: 'x', basis: 'deployed' } }, live: true },
+    { chains: { arc: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' } }, live: false },
+    { chains: { monad: { mainnet: false, testnet: true, evidence: 'x', basis: 'mention' } }, live: false },
+    { chains: { robinhood: { mainnet: true, testnet: false, evidence: 'x', basis: 'deployed' } }, live: true },
+  ] as const).map((repo) => fitsLine('Avalanche Team1 Mini Grants', 'up to $10K', 'rolling',
+    fitWhy({ chains: ['base', 'arc', 'monad', 'robinhood'], any_chain: false, tag: 'needs a live product' }, repo))),
+  fitsLine('Base Builder Grants', 'up to $5K', 'closes Oct 30', fitWhy({ chains: [], any_chain: true, tag: null }, { chains: {}, live: false })),
   STATE_COPY.signed_out.ask('https://earnkit.com/signin/x'), STATE_COPY.no_project.ask(), STATE_COPY.not_counted.ask('https://earnkit.com/github/verify?n=x'),
   ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('Recipe planner'), v.ask('Recipe planner')]),
   ideasLine([{ who: 'Arc', prize: 'up to $10K', for: 'payment apps' }, { who: 'Base', prize: 'up to $5K', for: 'a live app' }]),

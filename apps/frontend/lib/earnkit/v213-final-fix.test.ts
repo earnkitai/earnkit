@@ -9,7 +9,8 @@ import { benchRows, benchCardFacts, parseBenchFilter, profileData } from './benc
 import { chainPools } from './bench-rank';
 import { carouselCards, feedWeeks, rankFeed } from './feed';
 import { mainProjectOf, pickMainProject, setMainProject } from './main-project';
-import { RAISE_LINES, pillOf, raiseAsk, setRaising } from './raising';
+import { RAISE_LINES, pillOf, setRaising, showRaisingLine } from './raising';
+import { tokenAsk } from './bench-find';
 import { coinLine, raiseLine } from './coin-moments';
 import { UPDATE_LIMIT_NOTE, UPDATE_POSTS_PER_DAY, postUpdate } from './updates';
 import { raisingEnabled } from './builder-score-flag';
@@ -198,7 +199,8 @@ test('F10 raising off: no raise ask, no raise line (the coin moment is v2.12.1\'
     VALUES ('earnkit-coin', 'Recipe planner', ${`https://github.com/${p.key}`}, ${`github.com/${p.key}`}, ${p.id}, 'RECIPE', 'launched', ${`https://tokens.fun/c/${p.id}`})`;
   const coin = { name: 'Recipe planner', symbol: 'RECIPE' };
   await withRaising(false, async () => {
-    assert.equal(await raiseAsk(p.id, p.key, {}), null);
+    // R8: asked about a token, a launched coin is just live (no community-round line while EARNKIT_RAISING is off).
+    assert.equal((await tokenAsk(p.id)).show_to_builder, 'Your coin is already live.');
     // v2.13.3 review: under the Bench the question is last.
     assert.equal(coinLine('has_people', 'Recipe planner', null, coin), 'Recipe planner has people using it. A coin pays you 40% of its trading fees. Want to launch a coin, $RECIPE (Recipe planner), for it?');
     assert.deepEqual(await setRaising(p.id, true), { show_to_builder: 'Okay.' });
@@ -206,7 +208,7 @@ test('F10 raising off: no raise ask, no raise line (the coin moment is v2.12.1\'
     assert.equal(row.raising, false);
   });
   await withRaising(true, async () => {
-    assert.ok(await raiseAsk(p.id, p.key, {}));
+    assert.equal((await tokenAsk(p.id)).show_to_builder, showRaisingLine('RECIPE'));
     assert.equal(coinLine('has_people', 'Recipe planner', null, coin), raiseLine('Recipe planner', 'RECIPE', null));
     assert.deepEqual(await setRaising(p.id, true), { show_to_builder: RAISE_LINES.on('RECIPE') });
   });
