@@ -317,7 +317,7 @@ export async function heldPeople(only?: number[]): Promise<number[]> {
   return rows.map((r) => r.builder_id);
 }
 
-/** `embed`: Originality's embedder (default: the local model, originality.ts localEmbed); tests pass a fake. */
+/** `embed`: Originality's embedder (default: a child process, originality.ts workerEmbed); tests pass a fake. */
 export type ScoreCronDeps = { reader?: ReaderDeps; login?: LoginOf; only?: number[]; embed?: Embed };
 
 /**

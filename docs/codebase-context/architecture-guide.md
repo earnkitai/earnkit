@@ -5977,13 +5977,19 @@ Spec: R3 of `docs/design-docs-and-implementation-plans/scoring-and-clarity.md`, 
   client, `repo-proof.ts appClient`; at most 64 KB decoded, cut to 4,000 characters before any pattern runs, then
   markdown stripped with patterns that never backtrack across lines; a 200 KB pathological input strips in milliseconds). MiniLM reads about 512 tokens, so the
   description goes first. The model is `Xenova/all-MiniLM-L6-v2`, quantized (q8), through `@huggingface/transformers`
-  (`localEmbed`): mean pooling, normalized, 384 numbers. It loads once per process on first use, after a one-time
+  (in the worker, see fix round 2): mean pooling, normalized, 384 numbers. It loads in the child process, after a one-time
   download of about 23 MB from Hugging Face into `EARNKIT_MODEL_DIR` (default `<os tmpdir>/earnkit-models`). There is no
-  API key and no paid service. `next.config.ts serverExternalPackages` keeps it out of the bundle (native onnxruntime).
-  Fix round 1: the model is released after every step (`releaseModel` disposes the pipeline; the files stay on disk),
-  and every embed, the load included, is raced against the run's deadline (`boundedEmbed`, `EmbedDeadline`). Each new
-  vector is written as soon as it exists; one project's failure is logged and the others continue; past the deadline
-  nothing more is written or stamped, so the project is due again next hour. A 404 README (`appClient`'s `on404`) is ''
+  API key and no paid service.
+  Fix round 2: the model never loads in the web process. `workerEmbed` spawns `lib/earnkit/embed-worker.mjs` (plain
+  ESM, no app imports) with `process.execPath`, once a step, for every changed text plus the known ideas not yet cached:
+  texts as JSON on stdin, vectors as JSON on stdout, then it exits. The worker embeds in batches of 4 (one big batch
+  pads every text to 512 tokens and peaked at 2.5 GB; batches of 4 peak at about 440 MB for about a second). The child
+  gets only PATH, HOME, temp and proxy variables and EARNKIT_MODEL_DIR, never the app's secrets. It is killed (SIGKILL)
+  at the run's deadline (`EmbedDeadline`); a nonzero exit or bad output rejects, and nothing is written or stamped, so
+  the projects are due again next hour. The script is found from `process.cwd()` (`next start` runs in apps/frontend;
+  tests run from the repo root) or `EARNKIT_EMBED_WORKER`; `next start` is not standalone, so the file and
+  node_modules are on disk (the build's trace lists it too). Each project is written as soon as the vectors are back;
+  one write failure is logged and the others continue. `boundedEmbed` still bounds an injected embedder. A 404 README (`appClient`'s `on404`) is ''
   and re-embeds from the description alone; a failed read is null and keeps the vector. The repo-root `.npmrc` sets
   `onnxruntime-node-install=skip` (read by its postinstall as `npm_config_onnxruntime_node_install`), so a linux x64
   install never downloads the CUDA binaries from NuGet.
@@ -6014,5 +6020,5 @@ Spec: R3 of `docs/design-docs-and-implementation-plans/scoring-and-clarity.md`, 
 - **Tests.** `originality.test.ts` covers the pure formula, the text and the nearest list. It runs the step with a fake
   embedder through the real App connect: a later near copy lowers the earlier project, the same text is not embedded
   again, a description change is due at once, and a failed README read keeps the vector. It also covers privacy and the
-  profile and reply lines. The test guard sets `EARNKIT_EMBED_OFF=1`, so no test loads the model. The one real-model
+  profile and reply lines. The test guard sets `EARNKIT_EMBED_OFF=1`, so no test spawns the model worker (O7d runs fake worker scripts). The one real-model
   test runs only with `EARNKIT_MODEL_TEST=1`, which also lifts the network guard for the download.

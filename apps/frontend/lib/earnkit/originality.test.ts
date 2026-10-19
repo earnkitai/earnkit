@@ -1,6 +1,9 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
@@ -15,7 +18,7 @@ import { profileData } from './bench-data';
 import { DATA } from './fixtures/profile-data';
 import BenchProfileView from '../../app/[handle]/BenchProfileView';
 import {
-  DIMS, README_CHARS, README_MAX_BYTES, cosine, localEmbed, nearestOf, originalityOf, originalityStep, originalityText, readOriginality, readReadme, releaseModel, boundedEmbed, EmbedDeadline, stripMarkdown, textHash,
+  DIMS, README_CHARS, README_MAX_BYTES, cosine, workerEmbed, workerScript, nearestOf, originalityOf, originalityStep, originalityText, readOriginality, readReadme, boundedEmbed, EmbedDeadline, stripMarkdown, textHash,
   type Embed,
 } from './originality';
 
@@ -116,8 +119,9 @@ test('O3 the nearest list leaves out the builder\'s own projects and itself; ide
   assert.equal(nearestOf([1, 0], { key: 'x', builder_id: 9 }, []).max, 0);
 });
 
-test('O4 the local model never loads in a test unless opted in', { skip: process.env.EARNKIT_MODEL_TEST === '1' && 'model test on' }, async () => {
-  await assert.rejects(localEmbed(['x']), /embedding is off/);
+test('O4 the model worker never runs in a test unless opted in', { skip: process.env.EARNKIT_MODEL_TEST === '1' && 'model test on' }, async () => {
+  await assert.rejects(workerEmbed({ deadline: far() })(['x']), /embedding is off/);
+  assert.ok(existsSync(workerScript()), workerScript());
 });
 
 test('O5 profile: "Originality 72" is one small line under the Shipping ring, no second ring', () => {
@@ -267,7 +271,7 @@ test('O7 the due query: a changed description is due at once; the same one is no
   }
 });
 
-test('O7b fix round 1: a hung model load is cut at the deadline (nothing stamped, due next hour); one failed embed never loses the others', db, async () => {
+test('O7b fix rounds 1 and 2: a hung embed is cut at the deadline (nothing stamped, due next hour); a failed embed writes nothing and the next run retries', db, async () => {
   const k1 = `hal${RUN}/one`;
   const k2 = `ivy${RUN}/two`;
   const gh = fakeGitHub({
@@ -281,36 +285,60 @@ test('O7b fix round 1: a hung model load is cut at the deadline (nothing stamped
   const t0 = Date.now();
   const r = await originalityStep(NOW, { deadline: Date.now() + 300, only: [p1.id, p2.id], ghFetch: gh, embed: hung });
   assert.ok(Date.now() - t0 < 2000, `returned in ${Date.now() - t0} ms`);
-  assert.deepEqual(r, { checked: 1, embedded: 0, updated: 0 });
+  assert.deepEqual(r, { checked: 2, embedded: 0, updated: 0 });
   assert.equal(await rowOf(k1), undefined, 'nothing stamped');
   assert.equal(await rowOf(k2), undefined);
-  // The first embed throws, the second works: the second's vector is written, the first is due again.
+  // The step's one embed call (one child process) fails: nothing is written, both stay due.
+  const boom: Embed = async () => { throw new Error('onnx: boom'); };
+  assert.deepEqual(await originalityStep(NOW, { deadline: far(), only: [p1.id, p2.id], ghFetch: gh, embed: boom }), { checked: 2, embedded: 0, updated: 0 });
+  assert.equal(await rowOf(k1), undefined);
+  // The next run embeds both in one call (the ideas, cached by now or not, ride along).
   const good = fakeEmbed();
-  let first = true;
-  const flaky: Embed = async (texts) => {
-    if (first) {
-      first = false;
-      throw new Error('onnx: boom');
-    }
-    return good(texts);
-  };
-  const r2 = await originalityStep(NOW, { deadline: far(), only: [p1.id, p2.id], ghFetch: gh, embed: flaky });
-  assert.equal((r2 as { checked: number }).checked, 2);
-  assert.equal((r2 as { embedded: number }).embedded, 1);
-  const rows = [await rowOf(k1), await rowOf(k2)];
-  assert.equal(rows.filter((x) => x?.originality != null).length, 1, JSON.stringify(rows));
-  // The next run picks up the one that failed.
-  const r3 = await originalityStep(NOW, { deadline: far(), only: [p1.id, p2.id], ghFetch: gh, embed: fakeEmbed() });
-  assert.equal((r3 as { embedded: number }).embedded, 1);
+  const r3 = await originalityStep(NOW, { deadline: far(), only: [p1.id, p2.id], ghFetch: gh, embed: good });
+  assert.equal((r3 as { embedded: number }).embedded, 2);
+  assert.equal(good.calls.length, 1, 'one embed call a step');
   assert.ok((await rowOf(k1))!.originality != null && (await rowOf(k2))!.originality != null);
 });
 
-test('O7c fix round 1: boundedEmbed rejects at the deadline; releaseModel is safe with no model loaded', async () => {
+test('O7c fix round 1: boundedEmbed rejects at the deadline', async () => {
   await assert.rejects(boundedEmbed(() => new Promise(() => {}), Date.now() + 20)(['x']), EmbedDeadline);
   await assert.rejects(boundedEmbed(fakeEmbed(), Date.now() - 1)(['x']), EmbedDeadline);
   assert.equal((await boundedEmbed(fakeEmbed(), Date.now() + 1000)(['abcd']))[0].length, DIMS);
-  releaseModel();
-  releaseModel();
+});
+
+test('O7d fix round 2: the worker process: output parsed, killed at the deadline, a nonzero exit or bad output rejects', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ek-embed-'));
+  const script = (name: string, body: string) => {
+    const f = join(dir, name);
+    writeFileSync(f, body);
+    return f;
+  };
+  // Echoes one 384-number vector per text read from stdin; also writes its pid so the test can see it is gone.
+  const echo = script('echo.mjs', `let s='';for await (const c of process.stdin) s+=c;const t=JSON.parse(s);
+process.stdout.write(JSON.stringify(t.map((x)=>Array.from({length:${DIMS}},(_, i)=>i===x.length%${DIMS}?1:0))));`);
+  const hang = script('hang.mjs', `import { writeFileSync } from 'node:fs';writeFileSync(${JSON.stringify(join(dir, 'pid'))}, String(process.pid));setInterval(()=>{},1000);`);
+  const fail = script('fail.mjs', 'process.exit(3);');
+  const junk = script('junk.mjs', "process.stdout.write('[1,2');");
+  const off = process.env.EARNKIT_EMBED_OFF;
+  delete process.env.EARNKIT_EMBED_OFF;
+  try {
+    const v = await workerEmbed({ deadline: far(), script: echo })(['ab', 'abc']);
+    assert.equal(v.length, 2);
+    assert.equal(v[0].length, DIMS);
+    assert.equal(v[1][3], 1);
+    const t0 = Date.now();
+    await assert.rejects(workerEmbed({ deadline: Date.now() + 400, script: hang })(['x']), EmbedDeadline);
+    assert.ok(Date.now() - t0 < 2000);
+    const pid = Number(readFileSync(join(dir, 'pid'), 'utf8'));
+    await new Promise((r) => setTimeout(r, 100));
+    assert.throws(() => process.kill(pid, 0), /ESRCH/, 'the child was killed');
+    await assert.rejects(workerEmbed({ deadline: far(), script: fail })(['x']), /exited 3/);
+    await assert.rejects(workerEmbed({ deadline: far(), script: junk })(['x']));
+    await assert.rejects(workerEmbed({ deadline: Date.now() - 1, script: echo })(['x']), EmbedDeadline);
+  } finally {
+    if (off !== undefined) process.env.EARNKIT_EMBED_OFF = off;
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('O8 privacy: a private README is never stored as text; the nearest list names other projects by key only', db, async () => {
@@ -355,7 +383,9 @@ test('O9 shown: the profile and the score reply carry "Originality N" once compu
 });
 
 test('O10 opt-in (EARNKIT_MODEL_TEST=1): the real model scores two near-identical texts closer than two unrelated ones', { skip: process.env.EARNKIT_MODEL_TEST !== '1' && 'set EARNKIT_MODEL_TEST=1' }, async () => {
-  const [a, b, c] = await localEmbed([
+  // The real path: one child process running embed-worker.mjs (the model loads there, never here).
+  const rss = process.memoryUsage().rss;
+  const [a, b, c] = await workerEmbed({ deadline: Date.now() + 5 * 60_000 })([
     'A todo list app to track your daily tasks and reminders.',
     'A simple to-do app for tracking daily tasks with reminders.',
     'Satellite telemetry decoder for amateur radio operators.',
@@ -363,5 +393,6 @@ test('O10 opt-in (EARNKIT_MODEL_TEST=1): the real model scores two near-identica
   assert.equal(a.length, DIMS);
   assert.ok(cosine(a, b) > cosine(a, c) + 0.3, `${cosine(a, b)} vs ${cosine(a, c)}`);
   assert.ok(originalityOf(cosine(a, b)) < originalityOf(cosine(a, c)));
-  releaseModel();
+  const grew = (process.memoryUsage().rss - rss) / 1e6;
+  assert.ok(grew < 60, `the parent grew ${grew.toFixed(0)} MB`);
 });

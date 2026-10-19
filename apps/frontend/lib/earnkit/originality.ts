@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { tmpdir } from 'node:os';
+import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import knownIdeas from '../../../../programs/ideas/known-ideas.json';
 import { sql } from './db';
@@ -103,36 +104,64 @@ export function nearestOf(vec: number[], self: { key: string; builder_id: number
   return { max: scored[0]?.similarity ?? 0, nearest: scored.slice(0, NEAREST) };
 }
 
-type Pipe = ((texts: string[], o: object) => Promise<{ tolist(): number[][] }>) & { dispose?: () => Promise<unknown> };
-let model: Promise<Pipe> | null = null;
-/**
- * The local model (transformers.js, quantized MiniLM: mean pooling, normalized, 384 numbers), loaded on first use in a
- * step and released after it (releaseModel), so it is never resident between hourly runs. Its files are downloaded once
- * from Hugging Face into EARNKIT_MODEL_DIR (default: the OS temp dir) and stay cached on disk.
- * EARNKIT_EMBED_OFF=1 refuses (tests set it, so no test downloads the model by accident).
- */
-export const localEmbed: Embed = async (texts) => {
-  if (process.env.EARNKIT_EMBED_OFF === '1') throw new Error('embedding is off');
-  model ??= (async () => {
-    const t = await import('@huggingface/transformers');
-    t.env.cacheDir = process.env.EARNKIT_MODEL_DIR || join(tmpdir(), 'earnkit-models');
-    return (await t.pipeline('feature-extraction', MODEL, { dtype: 'q8' })) as never;
-  })().catch((err: unknown) => {
-    model = null;
-    throw err;
-  });
-  const out = await (await model)(texts, { pooling: 'mean', normalize: true });
-  return out.tolist();
-};
+/** The worker script (embed-worker.mjs): EARNKIT_EMBED_WORKER, else found from the app's directory (`next start` runs
+ * in apps/frontend; tests run from the repo root). Plain files on disk, never bundled. */
+export function workerScript(): string {
+  const env = process.env.EARNKIT_EMBED_WORKER;
+  if (env) return env;
+  const candidates = [join(process.cwd(), 'lib', 'earnkit', 'embed-worker.mjs'), join(process.cwd(), 'apps', 'frontend', 'lib', 'earnkit', 'embed-worker.mjs')];
+  return candidates.find((c) => existsSync(c)) ?? candidates[0];
+}
+
+const CHILD_ENV = ['PATH', 'HOME', 'TMPDIR', 'TEMP', 'TMP', 'EARNKIT_MODEL_DIR', 'HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'https_proxy', 'http_proxy', 'no_proxy'];
+const childEnv = () => Object.fromEntries(CHILD_ENV.flatMap((k) => (process.env[k] ? [[k, process.env[k]!]] : [])));
 
 /**
- * Frees the local model (its ONNX session) after a step; the files stay on disk. A load still pending (cut by the
- * deadline) is disposed when it lands, never awaited.
+ * The real embedder (fix round 2): one short-lived child process (embed-worker.mjs) a call, texts as JSON on stdin,
+ * vectors as JSON on stdout. The model (transformers.js, quantized MiniLM, 384 numbers) loads only in the child, so the
+ * web process never holds it; its files stay cached in EARNKIT_MODEL_DIR. The child is killed at `deadline`
+ * (EmbedDeadline); a nonzero exit or bad output rejects. EARNKIT_EMBED_OFF=1 refuses (tests set it).
  */
-export function releaseModel(): void {
-  const m = model;
-  model = null;
-  m?.then((p) => p.dispose?.()).catch(() => {});
+export function workerEmbed(o: { deadline: number; script?: string }): Embed {
+  return (texts) =>
+    new Promise<number[][]>((resolve, reject) => {
+      if (process.env.EARNKIT_EMBED_OFF === '1') return reject(new Error('embedding is off'));
+      const left = o.deadline - Date.now();
+      if (left <= 0) return reject(new EmbedDeadline());
+      const child = spawn(process.execPath, [o.script ?? workerScript()], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        // Only what the model needs: never the app's secrets (DATABASE_URL, keys) in a process running a third-party library.
+        env: { ...childEnv(), EARNKIT_EMBED_MODEL: MODEL } as unknown as NodeJS.ProcessEnv,
+      });
+      const out: Buffer[] = [];
+      let done = false;
+      const finish = (err: Error | null, value?: number[][]) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        if (err) reject(err);
+        else resolve(value!);
+      };
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL');
+        finish(new EmbedDeadline());
+      }, left);
+      child.stdout.on('data', (c: Buffer) => out.push(c));
+      child.stderr.resume();
+      child.on('error', (err) => finish(err));
+      child.on('close', (code) => {
+        if (code !== 0) return finish(new Error(`embed worker exited ${code}`));
+        try {
+          const v = JSON.parse(Buffer.concat(out).toString('utf8')) as unknown;
+          if (!Array.isArray(v) || v.length !== texts.length) throw new Error('embed worker: wrong count');
+          finish(null, v as number[][]);
+        } catch (err) {
+          finish(err instanceof Error ? err : new Error('embed worker: bad output'));
+        }
+      });
+      child.stdin.on('error', () => {});
+      child.stdin.end(JSON.stringify(texts));
+    });
 }
 
 /** Thrown when the run's deadline passes during a model load or an embed. */
@@ -157,23 +186,13 @@ export function boundedEmbed(embed: Embed, deadline: number): Embed {
 
 const ideaList = (): string[] => [...new Set((knownIdeas as { ideas: string[] }).ideas.map((x) => x.trim()).filter(Boolean))];
 
-/** The known ideas' vectors: cached rows by text hash, the missing ones embedded once and stored. */
-async function ideaVectors(embed: Embed): Promise<{ title: string; vec: number[] }[]> {
+/** The known ideas, their cached vectors (by text hash), and the ones still to embed. */
+async function ideaRows(): Promise<{ ideas: { title: string; hash: string }[]; have: Map<string, number[]> }> {
   const db = sql();
   const ideas = ideaList().map((title) => ({ title, hash: textHash(title) }));
   const rows = await db<{ text_hash: string; embedding: number[] }[]>`
     SELECT text_hash, embedding FROM known_idea_embeddings WHERE text_hash IN ${db(ideas.map((i) => i.hash))}`;
-  const have = new Map(rows.map((r) => [r.text_hash, r.embedding.map(Number)]));
-  const missing = ideas.filter((i) => !have.has(i.hash));
-  if (missing.length) {
-    const vecs = await embed(missing.map((i) => i.title));
-    for (const [n, i] of missing.entries()) {
-      have.set(i.hash, vecs[n]);
-      await db`INSERT INTO known_idea_embeddings (text_hash, idea, embedding) VALUES (${i.hash}, ${i.title}, ${vecs[n]}::real[])
-        ON CONFLICT (text_hash) DO NOTHING`;
-    }
-  }
-  return ideas.map((i) => ({ title: i.title, vec: have.get(i.hash)! }));
+  return { ideas, have: new Map(rows.map((r) => [r.text_hash, r.embedding.map(Number)])) };
 }
 
 /**
@@ -201,7 +220,8 @@ type Due = {
  * `deadline` allows. Each one's README is read with its installation token; the text is embedded only when its hash
  * changed. Each new vector is written at once with its Originality, and every other project it now enters the nearest
  * list of is rescored (so an earlier project's Originality drops when a close one arrives, and rises when it moves away).
- * One project's failure never stops the others; past the deadline nothing more is written (due again next hour).
+ * One project's failure never stops the others; past the deadline nothing more is written (due again next hour). The
+ * embedding runs in one child process a step (workerEmbed), so the web process never loads the model.
  */
 export async function originalityStep(
   now: Date,
@@ -240,43 +260,60 @@ export async function originalityStep(
     ORDER BY (e.project_key IS NULL) DESC, e.checked_at NULLS FIRST, d.id
     LIMIT ${ORIGINALITY_PER_RUN}`;
   if (due.length === 0) return { checked: 0, embedded: 0, updated: 0 };
-  // Fix round 1: every embed (the model load included) is bounded by the deadline, and the model is released after the
-  // step, so it is never resident between runs.
-  const embed = boundedEmbed(o.embed ?? localEmbed, o.deadline);
+  // Fix round 2: one embed call a step (one child process): the READMEs are read first, then every text that changed
+  // and every known idea not yet cached are embedded together, then each project is written. Every embed is bounded by
+  // the deadline (the real one kills its child there).
+  const embed = boundedEmbed(o.embed ?? workerEmbed({ deadline: o.deadline }), o.deadline);
   const ghFetch = o.ghFetch ?? fetch;
-  let ideas: { title: string; vec: number[] }[] | null = null;
+  const plan: { d: Due; text: string; hash: string }[] = [];
   let checked = 0;
+  for (const d of due) {
+    if (Date.now() >= o.deadline) break;
+    checked++;
+    try {
+      const p = await prepareOne(d, now, ghFetch);
+      if (p) plan.push({ d, ...p });
+    } catch (err) {
+      console.error('[originality] project', err instanceof Error ? err.name : 'error');
+    }
+  }
+  if (plan.length === 0 || Date.now() >= o.deadline) return { checked, embedded: 0, updated: 0 };
+  const { ideas, have } = await ideaRows();
+  const missing = ideas.filter((i) => !have.has(i.hash));
+  let vecs: number[][];
+  try {
+    vecs = await embed([...missing.map((i) => i.title), ...plan.map((p) => p.text)]);
+    if (!vecs.every((v) => Array.isArray(v) && v.length === DIMS)) throw new Error('embedding: wrong size');
+  } catch (err) {
+    // Nothing was stamped for these projects: they are due again next hour.
+    console.error('[originality] embed', err instanceof Error ? err.name : 'error');
+    return { checked, embedded: 0, updated: 0 };
+  }
+  for (const [n, i] of missing.entries()) {
+    have.set(i.hash, vecs[n]);
+    await db`INSERT INTO known_idea_embeddings (text_hash, idea, embedding) VALUES (${i.hash}, ${i.title}, ${vecs[n]}::real[])
+      ON CONFLICT (text_hash) DO NOTHING`;
+  }
+  const ideaVecs = ideas.map((i) => ({ title: i.title, vec: have.get(i.hash)! }));
   let embedded = 0;
   let updated = 0;
-  try {
-    for (const d of due) {
-      if (Date.now() >= o.deadline) break;
-      checked++;
-      try {
-        const c = await checkOne(d, now, embed, ghFetch);
-        if (!c) continue;
-        // Written as it goes: a later failure never loses this vector. Past the deadline nothing is written or
-        // stamped, so the project is due again next hour.
-        if (Date.now() >= o.deadline) break;
-        ideas ??= await ideaVectors(embed);
-        if (Date.now() >= o.deadline) break;
-        embedded++;
-        updated += await rescoreOriginality(d.key, c, ideas, now);
-      } catch (err) {
-        if (err instanceof EmbedDeadline) break;
-        console.error('[originality] project', err instanceof Error ? err.name : 'error');
-      }
+  for (const [n, p] of plan.entries()) {
+    // Past the deadline nothing more is written: the rest are due again next hour.
+    if (Date.now() >= o.deadline) break;
+    try {
+      updated += await rescoreOriginality(p.d.key, { id: p.d.id, vec: vecs[missing.length + n], text_hash: p.hash, desc_hash: p.d.desc_hash }, ideaVecs, now);
+      embedded++;
+    } catch (err) {
+      console.error('[originality] write', err instanceof Error ? err.name : 'error');
     }
-  } finally {
-    releaseModel();
   }
   return { checked, embedded, updated };
 }
 
 type Changed = { id: number; vec: number[]; text_hash: string; desc_hash: string };
 
-/** One due project: its README read and its text embedded when the hash changed (the vector), else stamped (null). */
-async function checkOne(d: Due, now: Date, embed: Embed, ghFetch: typeof fetch): Promise<Changed | null> {
+/** One due project: its README read; its text and hash when they need a new vector, else stamped (null). */
+async function prepareOne(d: Due, now: Date, ghFetch: typeof fetch): Promise<{ text: string; hash: string } | null> {
   const db = sql();
   // Another builder's row for the same repo: theirs is dropped (a derived cache), and this one starts fresh.
   if (d.owner !== null && d.owner !== d.id) await db`DELETE FROM project_embeddings WHERE project_key = ${d.key} AND builder_id = ${d.owner}`;
@@ -297,9 +334,7 @@ async function checkOne(d: Due, now: Date, embed: Embed, ghFetch: typeof fetch):
     await stamp(owned ? d.desc_hash : null);
     return null;
   }
-  const [vec] = await embed([text]);
-  if (!Array.isArray(vec) || vec.length !== DIMS) throw new Error('embedding: wrong size');
-  return { id: d.id, vec, text_hash: hash, desc_hash: d.desc_hash };
+  return { text, hash };
 }
 
 /**
