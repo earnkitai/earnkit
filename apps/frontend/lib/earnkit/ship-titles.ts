@@ -16,16 +16,27 @@ const DROP = [
   /^(chore|build|ci)\((release|deps|deps-dev)\)!?:/i,
   /^(release|bump(s|ed)?|version)\b.*\d/i,
   /\bbump(s|ed)? (the )?version\b/i,
+  // Fix round 1: dependency bumps say nothing shipped (also after a conventional prefix: "chore: bump deps").
+  /^(bump|update|upgrade)s?\s+(deps|dependencies)\b/i,
 ];
+/** Fix round 1: a squash merge's "(#12)" suffix, so the commit and its PR read as one title. */
+const SQUASH = /\s*\(#\d+\)$/;
+/** Fix round 1: at most TITLE_MAX code points (never half an emoji), "..." at the cut. Pure. */
+const cap = (t: string): string => {
+  const cps = [...t];
+  return cps.length > TITLE_MAX ? `${cps.slice(0, TITLE_MAX - 3).join('').trimEnd()}...` : t;
+};
+/** Fix round 1: the duplicate key: NFKC, lower case, letters and digits of any script. Pure. */
+const dedupeKey = (t: string) => t.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 const PREFIX = /^(feat|fix|chore|docs|refactor|perf|style|test|build|ci)(\([^)]*\))?!?:\s*/i;
 
 export function cleanTitle(raw: string): string | null {
-  const first = (raw.split(/\r?\n/)[0] ?? '').replace(/\s+/g, ' ').trim();
+  const first = (raw.split(/\r?\n/)[0] ?? '').replace(/\s+/g, ' ').trim().replace(SQUASH, '');
   if (!first || DROP.some((r) => r.test(first))) return null;
   let t = first.replace(PREFIX, '').trim();
   if (t.length < 3 || DROP.some((r) => r.test(t))) return null;
   t = t[0].toUpperCase() + t.slice(1);
-  return t.length > TITLE_MAX ? `${t.slice(0, TITLE_MAX - 3).trimEnd()}...` : t;
+  return cap(t);
 }
 
 export function shipTitles(items: RawTitle[], own: OwnLinks): string[] {
@@ -37,12 +48,19 @@ export function shipTitles(items: RawTitle[], own: OwnLinks): string[] {
     if (i.bot || i.merge) continue;
     const t = cleanTitle(i.title);
     if (!t) continue;
-    const k = t.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-    if (seen.has(k)) continue;
+    const k = dedupeKey(t);
+    if (!k || seen.has(k)) continue;
     const checked = checkUpdate(t, own);
     if (!checked.ok) continue;
+    // Fix round 1: the stored text (checkUpdate's normalisation may lengthen it) is capped too, and checked again.
+    let text = checked.text;
+    if (cap(text) !== text) {
+      const again = checkUpdate(cap(text), own);
+      if (!again.ok || [...again.text].length > TITLE_MAX) continue;
+      text = again.text;
+    }
     seen.add(k);
-    out.push(checked.text);
+    out.push(text);
     if (out.length === TITLES_MAX) break;
   }
   return out;

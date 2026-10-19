@@ -20,6 +20,7 @@ test('8.1 cleanTitle drops merges, wip and version bumps; strips prefixes; trims
 test('8.2 shipTitles: PRs first, newest first, bots and merges out, duplicates once, at most 3', () => {
   const items = [
     c('Add the shopping list', { source: 'pr' }),
+    c('Add the shopping list (#12)'),
     c('Bump deps', { bot: true }),
     c('add the shopping list'),
     c('Merge stuff', { merge: true }),
@@ -55,4 +56,15 @@ test('8.11 titlesShown (S9): public always; private only while on, never naming 
   assert.ok(namesRepo('Rename HushProj module', 'nora/hush-proj'), 'run together');
   assert.ok(!namesRepo('Add the app shell', 'nora/apps'), 'a word inside another is not the name');
   assert.deepEqual(titlesShown(null, { hiddenRepo: false, titlesOn: true, repoKey: 'a/b' }), []);
+});
+
+test('8.12 fix round 1: squash suffix, any-script duplicates, code-point cap, dependency bumps', () => {
+  assert.equal(cleanTitle('feat: add the shopping list (#12)'), 'Add the shopping list');
+  assert.deepEqual(shipTitles([c('添加购物清单'), c('修复计时器')], own), ['添加购物清单', '修复计时器'], 'two Chinese titles: both kept');
+  assert.deepEqual(shipTitles([c('添加购物清单'), c('添加购物清单')], own), ['添加购物清单'], 'the same one twice: once');
+  const t = cleanTitle(`Add ${'x'.repeat(72)}🎉🎉🎉 done`)!;
+  assert.ok([...t].length <= 80 && t.endsWith('...'), t);
+  assert.doesNotMatch(t, /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/, 'never half an emoji');
+  for (const s of shipTitles([c(`Ship ${'é'.repeat(90)}`)], own)) assert.ok([...s].length <= 80);
+  for (const x of ['chore: bump deps', 'Update dependencies', 'Upgrade deps to latest', 'bumps dependencies']) assert.equal(cleanTitle(x), null, x);
 });
