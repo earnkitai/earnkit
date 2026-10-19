@@ -37,6 +37,8 @@ const stats = (o: Partial<PublicStats> = {}): PublicStats => ({
   bonus_paid_eth: 0,
   bonus_pools_eth: 0,
   installs: 12,
+  installs_used: 0,
+  builders: 0,
   labelled_entries: 0,
   entries_won: 0,
   builders_won_usd: 0,
