@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { createHash, createHmac } from 'node:crypto';
 import {
   OAuthError,
-  authorize,
   HOSTED_REDIRECT_HOSTS,
   clientKeyOf,
   clientLimitKey,
@@ -23,6 +22,14 @@ import {
 
 process.env.EARNKIT_AUTH_SECRET = 'test-secret';
 
+/**
+ * v2.14 final fix: oauth.ts no longer exports authorize(); this is exactly what the authorize route (oauth-routes.ts
+ * authorizeGet) does for a client with X off or serving many builders: checkAuthorize, then issueCode with no X user.
+ */
+const authorize = (params: URLSearchParams, issuer?: string): URL => {
+  const c = checkAuthorize(params);
+  return 'error' in c ? c.error : issueCode(c.req, null, issuer);
+};
 const verifier = 'a-long-random-verifier-string-for-pkce-0123456789';
 const challenge = createHash('sha256').update(verifier).digest('base64url');
 const redirect = 'https://grok.com/connectors/callback';

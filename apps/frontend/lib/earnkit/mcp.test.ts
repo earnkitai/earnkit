@@ -304,13 +304,15 @@ test('v2.8 Part C, R15: confirm is registered, strict, takes yes, skip_token, ch
   assert.match(confirm.description!, /yes: true when they say yes \(the entry is submitted and the token launches\) or skip_token: true when they say skip the token/);
   assert.match(confirm.description!, /The submit kit is only in this reply\./);
   const props = confirm.inputSchema.properties as Record<string, unknown>;
-  for (const k of ['program_id', 'project_id', 'project', 'answers', 'yes', 'skip_token', 'check', 'token', 'wallet', 'agent', 'signed_in', 'image_data', 'image_url', 'builder_x', 'contracts', 'deployer_signature'])
+  for (const k of ['program_id', 'project_id', 'project', 'answers', 'yes', 'skip_token', 'check', 'token', 'wallet', 'agent', 'image_data', 'image_url', 'builder_x', 'contracts', 'deployer_signature'])
     assert.ok(k in props, k);
   for (const gone of ['decision', 'builder_confirmed', 'check_back', 'creator_wallet', 'offer']) assert.ok(!(gone in props), gone);
+  // v2.14 final fix: an older agent's sign-in code is still accepted (confirm is strict), and only said to be ignored.
+  assert.deepEqual(props.signed_in, { description: 'Not used any more; ignored.' });
   const prep = tools.find((t) => t.name === 'prepare')!.inputSchema.properties as Record<string, unknown>;
   assert.ok('agent' in prep);
-  // v2.10 item 15: a shared client's builder passes the sign-in code so their deadline line shows.
-  assert.ok('signed_in' in prep);
+  // v2.14 final fix: the shared client's GitHub sign-in code is gone (Ruling T6-2).
+  assert.ok(!('signed_in' in prep));
 });
 
 test('v2.8.1 §C15: an unexpected error is logged on the server with an id; the agent sees a plain message with that id, never the raw error', async () => {
@@ -553,7 +555,8 @@ test('3.9, R16: tell writes and find stays read-only; tell takes submitted and t
   const tell = tools.find((t) => t.name === 'tell')!;
   assert.equal(tell.annotations?.readOnlyHint, false);
   const props = Object.keys((tell.inputSchema as { properties: object }).properties);
-  for (const k of ['program_status', 'repo_facts', 'signed_in', 'submitted', 'weekly_email']) assert.ok(props.includes(k), k);
+  for (const k of ['program_status', 'repo_facts', 'submitted', 'weekly_email']) assert.ok(props.includes(k), k);
+  assert.ok(props.includes('signed_in'), 'v2.14 final fix: an older agent\'s signed_in is accepted (strict schema) and ignored');
   assert.ok(!props.includes('pickup'), 'v2.14 T7: no pickup');
   assert.match(tell.description!, /call it only with what they said/);
   for (const t of tools) {

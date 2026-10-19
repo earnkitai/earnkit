@@ -41,7 +41,7 @@ async function agent(o: { x?: string } = {}) {
   if (o.x) assert.ok((await attachToX(own, { id: `98${RUN}${o.x.length}${o.x.charCodeAt(0)}`, username: `${o.x}${RUN}`.slice(0, 15), name: o.x, avatar: null }, new Date())).ok);
   const c = (await connectInstallation(t))!;
   // Fix round 1 (minor 4): repo matching stubbed, so nothing reaches for GitHub.
-  return { id: c.id, token: t, ctx: { installationId: c.id, ownInstallationId: c.own, sharedClient: false, xUserId: c.x, matchProjects: NO_MATCH } };
+  return { id: c.id, token: t, ctx: { installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: NO_MATCH } };
 }
 
 test('9.8 state 1, not signed in: the sign-in link and its question', db, async () => {
@@ -131,7 +131,7 @@ test('9.13 D14: the link score shows is minted for the calling installation; its
   assert.match(first, new RegExp(`Your page: https://earnkit\\.com/${handle}`, 'i'));
   // Once: the next reply goes straight to where they stand.
   const c = (await connectInstallation(String(a.token)))!;
-  const next = rule((await mcpCall({ ...a.ctx, installationId: c.id, xUserId: c.x }, 'find', {})).reply);
+  const next = rule((await mcpCall({ ...a.ctx, installationId: c.id }, 'find', {})).reply);
   assert.ok(next.startsWith('Where you stand'), next);
 });
 

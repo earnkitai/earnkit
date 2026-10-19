@@ -189,13 +189,13 @@ export type LiveHold = 'held' | 'gone' | 'unknown';
 /**
  * T6 fix round 1: does this person's App proof of `key` hold right now. GitHub must name an installation for the
  * repo (none: gone), it must be one this person proved through the setup URL (github_verifications via 'app' on
- * their group `root`, `login` when given; another account's install: gone), and when the repo's account is not
+ * their group `root`; another account's install: gone), and when the repo's account is not
  * the prover's own (an Organization's, or an owner other than the proving login) the prover must still be the
  * repo's admin (read with a per-call installation token; anything but admin: gone). A redirect (a renamed or
  * transferred repo, fix round 2) is gone; another GitHub error is `unknown` (the caller decides: the daily check tries again, an action refuses). The token is never kept.
  */
 export async function appProofLive(
-  a: { root: number; key: string; login?: string | null; ownerType?: string | null },
+  a: { root: number; key: string; ownerType?: string | null },
   deps: AppDeps = {},
   db: Db = sql(),
 ): Promise<LiveHold> {
@@ -212,7 +212,6 @@ export async function appProofLive(
   const [v] = await db<{ login: string }[]>`
     SELECT lower(v.login) AS login FROM github_verifications v JOIN installations i ON i.id = v.installation_id
     WHERE COALESCE(i.builder_id, i.id) = ${a.root} AND v.via = 'app' AND v.repo_key = ${key} AND v.github_installation_id = ${inst}
-      ${a.login ? db`AND v.login = ${a.login.toLowerCase()}` : db``}
     ORDER BY v.verified_at DESC, v.id DESC LIMIT 1`;
   if (!v) return 'gone';
   const owner = key.split('/')[0];
@@ -263,29 +262,6 @@ export async function recheckAppSource(
     }
   }
   return r;
-}
-
-/**
- * T6 fix round 1: the shared-client coin gate (Ruling G10): the caller's own verified `login` holds an App proof
- * of `key` on this installation's group right now (appProofLive with the login). Fails closed: a database error,
- * a GitHub error, an uninstalled App or another account's install is false.
- */
-export async function sharedAppProven(installationId: number, repoKey: string, login: string, deps: AppDeps = {}, db: Db = sql()): Promise<boolean> {
-  try {
-    const [r] = await db<{ root: number }[]>`SELECT COALESCE(builder_id, id) AS root FROM installations WHERE id = ${installationId}`;
-    const root = r?.root ?? installationId;
-    // Fix round 2: the group must hold the repo (a verified github_app source of its group), not only a verification
-    // row (a second org admin whose proveByApp was `taken` has one).
-    const [held] = await db`
-      SELECT 1 FROM builder_sources s JOIN installations i ON i.id = s.builder_id
-      WHERE COALESCE(i.builder_id, i.id) = ${root} AND s.kind = 'repo' AND s.state = 'verified' AND s.proof = ${APP_PROOF}
-        AND regexp_replace(lower(trim(s.ref)), '^(https?://)?(www[.])?github[.]com/', '') = ${repoKey.toLowerCase()} LIMIT 1`;
-    if (!held) return false;
-    return (await appProofLive({ root, key: repoKey, login }, deps, db)) === 'held';
-  } catch (err) {
-    console.error('[repo-proof] shared proof', err instanceof Error ? err.name : 'error');
-    return false;
-  }
 }
 
 /** The reply's install link (the v2.10 App link: sign-in hop, then install), or null while the App is off (or the person has no page). */

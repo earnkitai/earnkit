@@ -6,7 +6,7 @@ import { appTokenFor } from './github-app';
 import { markRepoPublic } from './repo-cache';
 import { sharedGroup } from './installations';
 import { rootOf } from './identity';
-import { installLink, repoProof, sharedAppProven } from './repo-proof';
+import { installLink, repoProof } from './repo-proof';
 
 export type GateInput = {
   policy: TokenPolicy;
@@ -19,11 +19,6 @@ export type GateInput = {
   installationId: number;
   /** The entry launching. */
   projectId?: number;
-  /**
-   * Rulings G8, G9: whose App proof counts. Undefined (not a shared client): the person's own proven repo.
-   * On a shared client: only this login's (the caller's, from its pasted code); null: none.
-   */
-  verifiedLogin?: string | null;
 };
 export type GateDeps = {
   /**
@@ -47,8 +42,8 @@ export type GateDeps = {
   shared?: (installationId: number) => Promise<boolean>;
   /**
    * v2.14 spec 2: whether the repo (lowercase owner/repo) is proven by the read-only App (or verified before
-   * v2.14). `login`: undefined off a shared client (the person's repoProof); null: a shared client with no
-   * verified caller (none); a login: only that login's App proof (Ruling G10). Fails closed.
+   * v2.14). `login`: undefined off a shared client (the person's repoProof); null: a shared client, which has no
+   * person and so no proof (Ruling T6-2). Fails closed.
    */
   appProven?: (installationId: number, repoKey: string, login: string | null | undefined) => Promise<boolean>;
 };
@@ -73,12 +68,8 @@ const defaults: Required<Pick<GateDeps, 'repo' | 'screen' | 'shared' | 'appProve
   },
   screen: (wallet) => screenWallet(wallet, BASE_MAINNET, "This wallet can't receive token fees on EarnKit."),
   shared: (installationId) => sharedGroup(installationId),
-  appProven: async (installationId, repoKey, login) => {
-    if (login === null) return false;
-    // T6 fix round 1: a shared client's caller, checked live (never the stored row alone), failing closed.
-    if (login !== undefined) return sharedAppProven(installationId, repoKey, login);
-    return (await repoProof(await rootOf(installationId), repoKey, undefined, { forAction: true })).ok;
-  },
+  appProven: async (installationId, repoKey, login) =>
+    login === undefined && (await repoProof(await rootOf(installationId), repoKey, undefined, { forAction: true })).ok,
 };
 
 const msg = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -110,13 +101,13 @@ export async function tokenGate(input: GateInput, deps: GateDeps = {}): Promise<
   const gh = input.repoUrl ? githubRepo(input.repoUrl) : null;
   if (!gh || !input.repoUrl)
     return { ok: false, reason: `A token needs the project's GitHub repo. Share its link, then ${SAY}.` };
-  // Ruling G10 (fix round 2): a shared client is known here too (a caller that passed no login gets none:
-  // only the caller's own App proof counts there). A failed read fails closed.
-  let who: { shared: boolean; login: string | null | undefined } | null = null;
+  // Ruling G10 (fix round 2), T6-2: a shared client is known here too and has no person, so no App proof
+  // counts there (login null). A failed read fails closed.
+  let who: { shared: boolean; login: null | undefined } | null = null;
   const whoIs = async () => {
     if (who) return who;
-    const shared = input.verifiedLogin !== undefined || (await d.shared(input.installationId).catch(() => true));
-    who = { shared, login: shared ? (input.verifiedLogin ?? null) : undefined };
+    const shared = await d.shared(input.installationId).catch(() => true);
+    who = { shared, login: shared ? null : undefined };
     return who;
   };
   const repoKey = `${gh.owner}/${gh.repo}`.toLowerCase();
@@ -156,7 +147,7 @@ export async function tokenGate(input: GateInput, deps: GateDeps = {}): Promise<
   const noCode = codeProblem(facts);
   if (noCode) return { ok: false, reason: noCode };
   // v2.14 spec 2: the App is the only proof. Off a shared client: this person's App-proven (or kept) repo.
-  // On a shared client (Ruling G10): only the caller's own verified login's App proof.
+  // A shared client (Ruling T6-2): none.
   const { login } = await whoIs();
   const proven = await d.appProven(input.installationId, repoKey, login).catch(() => false);
   if (!proven) return installAsk();

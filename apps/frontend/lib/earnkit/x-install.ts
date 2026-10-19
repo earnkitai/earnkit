@@ -273,6 +273,8 @@ export type BindResult = { ok: true; handle: string; root: number } | { ok: fals
  * HANDLE_REDIRECT_DAYS, and the old slug follows the person. Nobody is ever asked: attachToX resolves an X account
  * another page holds before it writes (under its `x_attach` lock), so this only binds the page's own root. An X account
  * already on another page is refused by the database (builder_profiles_x_user), never merged.
+ * Test-only (v2.14 final fix): production binds through attachToX (bindXIn in its transaction); the test fixtures
+ * (fixtures/claimed-person.ts, fixtures/find.ts) and older tests claim a page with this.
  */
 export async function bindX(builderId: number, user: XUser, now: Date): Promise<BindResult> {
   const root = await rootOf(builderId);

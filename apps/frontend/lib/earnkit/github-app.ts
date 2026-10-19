@@ -4,7 +4,6 @@ import { GitHubError } from './match-projects';
 import {
   VERIFY_PAGE,
   clearCsrf,
-  codeLine,
   cookieValue,
   csrfCookieName,
   githubVerifyEnabled,
@@ -216,8 +215,8 @@ export const APP_PAGE = {
  * GET /github/verify/app?installation_id=&state= (the App's setup URL). Refuses, before the nonce is
  * used, a missing browser cookie (the confirm page's, Ruling G8) or an installation id that isn't a
  * number. Then consumes the nonce (an `app` nonce whose OAuth hop stored a login, Pre-flight P3),
- * checks the proof (R8), and writes the `via = 'app'` verification. On a shared client the page shows
- * the one-time code (Ruling G9). Never logs the nonce, a token or the key.
+ * checks the proof (R8), and writes the `via = 'app'` verification. No paste code (v2.14 final fix: a shared
+ * client never gets an App link, Ruling T6-2). Never logs the nonce, a token or the key.
  */
 export async function appSetup(request: Request, deps: AppDeps & RouteDeps = {}): Promise<Response> {
   if (!githubAppEnabled()) return new Response('Not found', { status: 404 });
@@ -237,7 +236,7 @@ export async function appSetup(request: Request, deps: AppDeps & RouteDeps = {})
   try {
     const proof = await appProof({ installationId, login: row.login, repoKey: row.repo_key }, deps);
     if (!proof.ok) return verifyPage(proof.reason === 'not_listed' ? APP_PAGE.notListed : APP_PAGE.notYours, 403, clear);
-    const paste = await saveVerification(
+    await saveVerification(
       row,
       { login: row.login, created_at: row.account_created_at, public_repos: row.public_repos ?? 0 },
       now,
@@ -249,7 +248,7 @@ export async function appSetup(request: Request, deps: AppDeps & RouteDeps = {})
     await (await import('./repo-proof'))
       .proveByApp({ builderId, repoKey: row.repo_key, githubInstallationId: installationId }, deps)
       .catch((err: unknown) => console.error('[github-app] prove', err instanceof Error ? err.name : 'error'));
-    return verifyPage(paste ? codeLine(paste) : VERIFY_PAGE.done, 200, clear);
+    return verifyPage(VERIFY_PAGE.done, 200, clear);
   } catch (err) {
     console.error('[github-app] setup', err instanceof Error ? err.name : 'error');
     return verifyPage(VERIFY_PAGE.failed, 502, clear);

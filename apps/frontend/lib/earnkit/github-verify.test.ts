@@ -8,10 +8,7 @@ import {
   APP_CONFIRM_ONLY_YOURS,
   VERIFY_PAGE,
   VERIFY_TTL_MS,
-  codeLine,
   csrfCookieName,
-  formatCode,
-  normalizeCode,
   verifyConfirm,
   completeVerify,
   createVerifyLink,
@@ -124,14 +121,10 @@ test('G8: a missing or mismatched cookie is refused before the nonce is used or 
   });
 });
 
-test('G9: the code is 10 base32 characters, shown as ABCD-EFGH-JK, read in any case with dashes', () => {
-  assert.equal(formatCode('ABCDEFGHJK'), 'ABCD-EFGH-JK');
-  assert.equal(normalizeCode('abcd-efgh-jk'), 'ABCDEFGHJK');
-  assert.equal(normalizeCode(' ABCD EFGH JK '), 'ABCDEFGHJK');
-  assert.equal(normalizeCode('ABCD-EFGH'), null);
-  assert.equal(normalizeCode('ABCD-EFGH-J1'), null, '1 is not base32');
-  assert.equal(normalizeCode(undefined), null);
-  assert.equal(codeLine('ABCDEFGHJK'), 'Done. Paste this code to your agent: ABCD-EFGH-JK');
+test('v2.14 final fix: the shared client\'s paste code is gone (no code helpers, no callerLogin)', () => {
+  const src = readFileSync(join(import.meta.dirname, 'github-verify.ts'), 'utf8');
+  assert.doesNotMatch(src, /export (const|function|async function) (codeLine|formatCode|normalizeCode|callerLogin)\b/);
+  assert.doesNotMatch(src, /newCode\(\)/);
 });
 
 // ---- With the database

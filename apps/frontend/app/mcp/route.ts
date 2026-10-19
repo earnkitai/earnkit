@@ -96,7 +96,7 @@ async function handle(request: Request) {
   // v2.8.1 §E17/E18: the tools act as the group's root; ownInstallationId is the token's own installation,
   // and the hosted-agent rules (sharedClient) the whole group's. v2.14: the token's X account.
   await createMcpServer(
-    { installationId: caller.id, ownInstallationId: caller.own, sharedClient: caller.shared, xUserId: caller.x },
+    { installationId: caller.id, ownInstallationId: caller.own, sharedClient: caller.shared },
     { campaignOpen },
   ).connect(transport);
   const aliased = await withAliases(request);

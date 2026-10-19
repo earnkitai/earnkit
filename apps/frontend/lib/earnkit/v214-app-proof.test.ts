@@ -8,7 +8,7 @@ import { connectInstallation, saveInstallation } from './installations';
 import { mcpCall } from './fixtures/mcp-call';
 import { fakeGitHub } from './fixtures/fake-github';
 import { appEnv, installApp } from './fixtures/app-install';
-import { APP_REMOVED, appCheckStep, installLink, proveByApp, repoProof, sharedAppProven } from './repo-proof';
+import { APP_REMOVED, appCheckStep, installLink, proveByApp, repoProof } from './repo-proof';
 import { attachToX } from './x-install';
 import { readSources } from './sources';
 import { defaultReaderDeps } from './source-readers';
@@ -35,7 +35,7 @@ async function personWith(key: string, handle: string) {
   // Fix round 1: no matcher or reader leaves the process (find's matching and refresh are faked).
   const no = async () => { throw new Error('offline'); };
   const readerDeps = new Proxy({}, { get: (_t, k) => (k === 'now' ? new Date() : k === 'ghSpent' ? () => false : k === 'ghFetch' ? undefined : no) });
-  const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, xUserId: c.x, matchProjects: async () => ({ checked: 0, scored: 0, fits: [] }), readerDeps } as never;
+  const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: async () => ({ checked: 0, scored: 0, fits: [] }), readerDeps } as never;
   await mcpCall(ctx, 'find', { identity: { project: { name: key.split('/')[1], repo: `https://github.com/${key}` } } });
   return { id: c.id, ctx };
 }
@@ -264,7 +264,7 @@ test('6.18 fix round 1 (ruling): an action on an App proof older than a day chec
   assert.deepEqual(s, { state: 'proposed', reject_reason: APP_REMOVED });
 });
 
-test('6.19 fix round 1: the shared-client coin gate checks the caller\'s App proof live and fails closed', db, async () => {
+test('6.19 T6-2, final fix: a shared client never passes the coin gate, even when its group holds a fresh App source', db, async () => {
   const t = `ek_app_sh_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, true, 'Grok');
   const c = (await connectInstallation(t))!;
@@ -272,27 +272,17 @@ test('6.19 fix round 1: the shared-client coin gate checks the caller\'s App pro
   await sql()`
     INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose, via, github_installation_id)
     VALUES (${key}, ${`fay${RUN}`}, ${c.id}, now(), 3, 'app', 'app', 92)`;
-  const gh = fakeGitHub({ [key]: { id: 9040, owner: `fay${RUN}`, installation: 92 } });
-  // Fix round 2: a verification alone is not enough; the group must hold the repo.
-  assert.equal(await sharedAppProven(c.id, key, `fay${RUN}`, { fetch: gh }), false, 'no held source');
   await sql()`
     INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by, state, proof, verified_at, gh_owner, gh_owner_type, app_checked_at)
     VALUES (${c.id}, 'repo', ${key}, ${key}, 'server', 'verified', 'github_app', now(), ${`fay${RUN}`}, 'User', now())`;
-  assert.equal(await sharedAppProven(c.id, key, `fay${RUN}`, { fetch: gh }), true);
-  assert.equal(await sharedAppProven(c.id, key, `gus${RUN}`, { fetch: gh }), false, 'another caller');
-  gh.repos[key].installation = 93;
-  assert.equal(await sharedAppProven(c.id, key, `fay${RUN}`, { fetch: gh }), false, "another account's reinstall");
-  gh.repos[key].installation = null;
-  assert.equal(await sharedAppProven(c.id, key, `fay${RUN}`, { fetch: gh }), false, 'uninstalled');
-  gh.repos[key].installation = 92;
-  const err = console.error;
-  console.error = () => {};
-  try {
-    const broken = (() => { throw new Error('db down'); }) as unknown as Parameters<typeof sharedAppProven>[4];
-    assert.equal(await sharedAppProven(c.id, key, `fay${RUN}`, { fetch: gh }, broken), false, 'a database error');
-  } finally {
-    console.error = err;
-  }
+  // The real shared read and the real appProven: no person, no proof (no install link either: no page).
+  const r = await tokenGate(
+    { policy: 'allowed', installationId: c.id, repoUrl: `https://github.com/${key}`, wallet: `0x${'1'.repeat(40)}`, symbol: 'FAY' },
+    { repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null, defaultBranch: 'main', public: true }), screen: async () => {}, appLink: async () => null },
+  );
+  assert.equal(r.ok, false);
+  assert.match((r as { reason: string }).reason, /read-only EarnKit app/);
+  assert.equal(await proveRepo({ installationId: c.id, repoUrl: `https://github.com/${key}` }), null, 'no action proof either');
 });
 
 test('6.20 fix round 1 (ruling): an App proof replaces another person\'s discovery-derived hold; another person\'s App hold still gives taken', db, async () => {
@@ -357,5 +347,30 @@ test('6.23 fix round 2: a second org admin whose App proof was taken is refused 
     INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose, via, github_installation_id)
     VALUES (${key}, ${`max${RUN}`}, ${c.id}, now(), 3, 'app', 'app', 97)`;
   assert.deepEqual(await proveByApp({ builderId: c.id, repoKey: key, githubInstallationId: 97 }, { fetch: gh }), { ok: false, why: 'none' });
-  assert.equal(await sharedAppProven(c.id, key, `max${RUN}`, { fetch: gh }), false);
+  assert.equal(await proveRepo({ installationId: c.id, repoUrl: `https://github.com/${key}` }), null);
+});
+
+test('6.24 final fix 7: a caller with no page is never sent to createVerifyLink for an unseen repo, and no error is logged', db, async () => {
+  const t = `ek_app_nolink_${RUN}_${Math.random().toString(36).slice(2)}`;
+  await saveInstallation(t, undefined, false, 'Claude Code');
+  const c = (await connectInstallation(t))!;
+  let matched = 0;
+  const no = async () => { throw new Error('offline'); };
+  const readerDeps = new Proxy({}, { get: (_t, k) => (k === 'now' ? new Date() : k === 'ghSpent' ? () => false : k === 'ghFetch' ? undefined : no) });
+  const ctx = {
+    installationId: c.id, ownInstallationId: c.own, sharedClient: false, readerDeps,
+    matchProjects: async () => ((matched++), { checked: 1, scored: 0, fits: [], unseen: [{ name: 'secret', full_name: `nolink${RUN}/secret` }] }),
+  } as never;
+  const logged: string[] = [];
+  const err = console.error;
+  console.error = (...a: unknown[]) => { logged.push(a.map(String).join(' ')); };
+  try {
+    await mcpCall(ctx, 'find', { repos: [`https://github.com/nolink${RUN}/secret`] });
+  } finally {
+    console.error = err;
+  }
+  assert.ok(matched > 0, 'matching ran');
+  assert.deepEqual(logged.filter((l) => l.includes('app link')), []);
+  const [{ n }] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM github_verify_nonces WHERE installation_id = ${c.id}`;
+  assert.equal(n, 0);
 });

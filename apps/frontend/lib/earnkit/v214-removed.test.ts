@@ -183,6 +183,9 @@ test('7.6 a re-authorization refused at the token exchange keeps the old token w
 
 test('7.7 final fix: the terms, llms.txt and every MCP description describe v2.14 (no claim, no earnkit.txt, no GitHub sign-in proof)', async () => {
   const BANNED = [/claim/i, /earnkit\.txt/i, /sign in with github/i, /signing in with github/i, /proof branch/i, /only public data/i, /signed_in/];
+  // confirm and tell still accept an older agent's signed_in (strict schemas), described only as ignored.
+  const schemaText = (schema: unknown) =>
+    JSON.stringify(schema).replace(/"signed_in":\{"description":"Not used any more; ignored\."\}/g, '"old":{}');
   const tools = await mcpListTools({ installationId: 1 });
   assert.equal(tools.length, 5);
   const texts: [string, string][] = [
@@ -191,7 +194,7 @@ test('7.7 final fix: the terms, llms.txt and every MCP description describe v2.1
     ['llms/v213.txt', readFileSync(join(import.meta.dirname, 'llms/v213.txt'), 'utf8')],
     ['SERVER_INSTRUCTIONS', SERVER_INSTRUCTIONS],
     // Each tool's description and its whole input schema (every field's describe()).
-    ...tools.map((t): [string, string] => [t.name, `${t.description ?? ''}\n${JSON.stringify(t.inputSchema)}`]),
+    ...tools.map((t): [string, string] => [t.name, `${t.description ?? ''}\n${schemaText(t.inputSchema)}`]),
   ];
   for (const [label, text] of texts) for (const re of BANNED) assert.doesNotMatch(text, re, label);
   // What the terms do say: X at install, the App as the only proof, no merge, titles hidden not deleted.
@@ -209,4 +212,19 @@ test('7.8 final fix: the bonus round admin is gone; bonusLive reads only coins (
   const live = cron.slice(cron.indexOf('export async function bonusLive'), cron.indexOf('/** A pay step that threw'));
   assert.match(live, /coin_address IS NOT NULL/);
   assert.doesNotMatch(live, /builder_bonus|bonus_rounds/);
+});
+
+test('7.9 final fix (T6-2): an older agent\'s signed_in is accepted and ignored; a shared client keeps nothing', db, async () => {
+  const t = `ek_rm_sh_${RUN}_${Math.random().toString(36).slice(2)}`;
+  await saveInstallation(t, undefined, true, 'Grok');
+  const c = (await connectInstallation(t))!;
+  const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: true };
+  const told = await mcpCall(ctx, 'tell', { signed_in: 'ABCD-EFGH-JK', repo_facts: [{ repo: 'tipjar', not_mine: true }] });
+  assert.equal(told.isError, false, told.text);
+  assert.equal(told.reply?.show_to_builder, 'Noted for now.');
+  const [n] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_repo_facts WHERE installation_id = ${c.id}`;
+  assert.equal(n.n, 0);
+  // confirm (strict too): the old key is not a validation error (the call fails later, on the unknown program).
+  const conf = await mcpCall(ctx, 'confirm', { signed_in: 'ABCD-EFGH-JK', project_id: 1, check: true });
+  assert.doesNotMatch(conf.text, /signed_in|Unrecognized|validation/i, conf.text);
 });

@@ -119,14 +119,14 @@ test('4.11 with the App\'s token a private repo passes the code check; the App p
   assert.match((unproven as { reason: string }).reason, /read-only EarnKit app/);
 });
 
-test('G10: on a shared client only the caller\'s own verified login\'s App proof counts', async () => {
+test('G10, T6-2: a shared client has no person, so no App proof counts there; off it, the person\'s own', async () => {
   const asked: (string | null | undefined)[] = [];
-  const d: Partial<GateDeps> = { appProven: async (_i, _k, login) => (asked.push(login), login === 'alice') };
-  assert.equal((await tokenGate({ ...input, verifiedLogin: 'alice' }, { ...ok, ...d })).ok, true);
-  assert.equal((await tokenGate({ ...input, verifiedLogin: null }, { ...ok, ...d })).ok, false);
-  // A shared group with no login passed: none (null), never the agent-wide proof.
+  const d: Partial<GateDeps> = { appProven: async (_i, _k, login) => (asked.push(login), login !== null) };
+  // A shared group: none (null), never the agent-wide proof.
   assert.equal((await tokenGate(input, { ...ok, ...d, shared: async () => true })).ok, false);
+  // A failed shared read fails closed.
+  assert.equal((await tokenGate(input, { ...ok, ...d, shared: async () => { throw new Error('db'); } })).ok, false);
   // Off a shared client: the person's own proof (undefined login).
-  assert.equal((await tokenGate(input, { ...ok, ...d, appProven: async (_i, _k, login) => (asked.push(login), login === undefined) })).ok, true);
-  assert.deepEqual(asked, ['alice', null, null, undefined]);
+  assert.equal((await tokenGate(input, { ...ok, ...d })).ok, true);
+  assert.deepEqual(asked, [null, null, undefined]);
 });

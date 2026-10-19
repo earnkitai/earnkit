@@ -73,14 +73,14 @@ export function aliasCall(name: string, a: Args, now = new Date()): AliasedCall 
     case 'confirm_entry':
       return {
         name: 'confirm',
-        args: { ...pick(a, ['program_id', 'project', 'answers', 'token', 'wallet', 'agent', 'signed_in']), ...go, ...skip, ...check },
+        args: { ...pick(a, ['program_id', 'project', 'answers', 'token', 'wallet', 'agent']), ...go, ...skip, ...check },
       };
     case 'launch_token': {
       const o = a.offer as { program_id?: unknown; repo_url?: unknown; project_name?: unknown } | undefined;
       const links = pick(a, ['live_url', 'repo_url']);
       const base = {
         ...(a.name !== undefined || a.symbol !== undefined ? { token: pick(a, ['name', 'symbol']) } : {}),
-        ...pick(a, ['signed_in', 'image_data', 'image_url', 'builder_x', 'agent']),
+        ...pick(a, ['image_data', 'image_url', 'builder_x', 'agent']),
         ...(a.creator_wallet !== undefined && { wallet: a.creator_wallet }),
         ...go,
         ...skip,
@@ -100,7 +100,6 @@ export function aliasCall(name: string, a: Args, now = new Date()): AliasedCall 
           name: 'tell',
           args: {
             submitted: pick(a, ['program_id', 'external_submission_url', 'project', 'submission_data']),
-            ...pick(a, ['signed_in']),
           },
         };
       const t = a.token && typeof a.token === 'object' ? (a.token as Args) : null;
@@ -109,7 +108,7 @@ export function aliasCall(name: string, a: Args, now = new Date()): AliasedCall 
       return {
         name: 'confirm',
         args: {
-          ...pick(a, ['program_id', 'project', 'contracts', 'deployer_signature', 'signed_in']),
+          ...pick(a, ['program_id', 'project', 'contracts', 'deployer_signature']),
           answers: answersOf(a.submission_data),
           ...(t && (t.name !== undefined || t.symbol !== undefined) && { token: pick(t, ['name', 'symbol']) }),
           ...(t && pick(t, ['image_url', 'image_data', 'builder_x'])),

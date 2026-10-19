@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { after, test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
-import { BUILD_COIN_NOTE, BUILD_NO_LIVE_NOTE, BUILD_PENDING_NOTE, BUILD_WALLET_NOTE, CONFIRM_SHARED_NOTE, NOTED_FOR_NOW, eligibilityLine, freshSwitches, withoutTokenLine, withoutBonusLine, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
+import { BUILD_COIN_NOTE, BUILD_NO_LIVE_NOTE, BUILD_PENDING_NOTE, BUILD_WALLET_NOTE, CONFIRM_SHARED_NOTE, NOTED_FOR_NOW, SUBMITTED_SHARED_NOTE, eligibilityLine, freshSwitches, withoutTokenLine, withoutBonusLine, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
 import { aliasCall } from './aliases';
 import { reportedGithubUser, reportedRepos } from './match-projects';
 import { sql } from './db';
@@ -24,8 +24,8 @@ import { offerKey, saveOffer } from './token-offers';
 import { proposeToken } from './token-proposal';
 import { LaunchError } from './tokens';
 import { wonSource } from './stats';
-import { EMAIL_NOTE, EMAIL_ON, EMAIL_QUESTION, EMAIL_SHARED_NOTE, EMAIL_SIGN_IN, emailQuestionFor } from './digest';
-import { formatCode, saveVerification } from './github-verify';
+import { EMAIL_NOTE, EMAIL_ON, EMAIL_QUESTION, EMAIL_SIGN_IN, emailQuestionFor } from './digest';
+import { saveVerification } from './github-verify';
 import { committedProgram } from './fixtures/program-file';
 import { dropPrograms, dropRunPrograms } from './fixtures/find';
 import { TESTED_STARTERS, fileCards } from './fixtures/fresh-build';
@@ -918,18 +918,17 @@ async function withSignIn<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 /**
- * A passed sign-in for this entry and repo as `login`, as stored before v2.14 (v2.14 spec 2 makes no new ones;
- * the rows still scope a shared client's caller); its code on a shared client.
+ * A passed sign-in for this entry and repo as `login`, as stored before v2.14 (v2.14 spec 2 makes no new ones,
+ * and the final fix removed the shared client's paste code: such a row never names a shared caller).
  */
 async function signInAs(installationId: number, projectId: number | null, repoUrl: string, login: string, wallet: string = W8) {
   const repoKey = repoUrl.replace(/^https:\/\/github\.com\//, '').toLowerCase();
-  const code = await saveVerification(
+  await saveVerification(
     { installation_id: installationId, project_id: projectId, repo_key: repoKey, purpose: projectId ? 'entry' : 'pickup', wallet, symbol: null },
     { login, created_at: new Date('2020-01-01T00:00:00Z'), public_repos: 3 }, new Date(),
   );
-  return code ? formatCode(code) : null;
 }
-test("G6/G7/G9: on a shared client, memory and entries follow the pasted code; a claimed GitHub user gets nothing", dbTest, () =>
+test("G6/G7, v2.14 final fix: on a shared client nothing is kept or shown, even with a pre-v2.14 sign-in row; a claimed GitHub user gets nothing", dbTest, () =>
   withSignIn(async () => {
     const s = await sharedInstall('g9mem');
     const repo = `https://github.com/alice/g9-${s.stamp}`;
@@ -937,49 +936,33 @@ test("G6/G7/G9: on a shared client, memory and entries follow the pasted code; a
       INSERT INTO projects (program_id, name, installation_id, repo_url) VALUES (${s.programId}, 'AliceApp', ${s.id}, ${repo}) RETURNING id`;
     await sql()`INSERT INTO projects (program_id, name, installation_id) VALUES (${s.programId}, 'SecretB', ${s.id})`;
     try {
-      const codeA = (await signInAs(s.id, entry, repo, 'alice'))!;
-      const codeB = (await signInAs(s.id, null, `https://github.com/bob/b-${s.stamp}`, 'bob'))!;
+      await signInAs(s.id, entry, repo, 'alice');
+      const [row] = await sql()<{ code_hash: string | null }[]>`SELECT code_hash FROM github_verifications WHERE installation_id = ${s.id}`;
+      assert.equal(row.code_hash, null, 'no paste code is made on a shared client');
       type Told = { show_to_builder?: string; saved: string[] };
-      // With the code: kept under alice, and nothing to show the builder.
       const told = (await handlers.tell_earnkit(
-        { program_status: [{ program_id: s.programId, status: 'not_interested' }], repo_facts: [{ repo: 'tipjar', not_mine: true }], signed_in: codeA },
+        { program_status: [{ program_id: s.programId, status: 'not_interested' }], repo_facts: [{ repo: 'tipjar', not_mine: true }] },
         s.ctx(),
       )) as Told;
-      assert.equal(told.show_to_builder, undefined);
-      assert.equal(told.saved.length, 2);
-      const rows = await sql()<{ login: string }[]>`
+      assert.equal(told.show_to_builder, 'Noted for now.');
+      const rows = await sql()`
         SELECT login FROM builder_program_status WHERE installation_id = ${s.id}
         UNION ALL SELECT login FROM builder_repo_facts WHERE installation_id = ${s.id}`;
-      assert.deepEqual(rows.map((r) => r.login), ['alice', 'alice']);
+      assert.equal(rows.length, 0);
       const said = () => (s.calls.at(-1) as { said?: Record<string, unknown> }).said;
       const local = { local_repos: [{ name: 'tipjar', chains: ['arc'] }] };
-      // Claiming alice's GitHub user without the code: nothing of hers.
+      // Claiming alice's GitHub user: nothing of hers.
       const claim = (await handlers.list_programs({ more: true, ...local, github_user: 'alice' }, s.ctx())) as G7Listed;
       assert.equal(said(), undefined, 'her statements are not applied');
-      assert.doesNotMatch(claim.show_to_builder, /Your entries|AliceApp/);
+      assert.doesNotMatch(claim.show_to_builder, /Your entries|AliceApp|SecretB/);
       assert.ok(!('ask_outcome' in claim));
-      // B's code: B's (empty) memory, never A's.
-      const b = (await handlers.list_programs({ more: true, ...local, signed_in: codeB }, s.ctx())) as G7Listed;
-      assert.equal(said(), undefined);
-      assert.doesNotMatch(b.show_to_builder, /AliceApp|SecretB/);
-      assert.ok(!('ask_outcome' in b));
-      // A's code: her memory, her entry only, her outcome question.
-      const a = (await handlers.list_programs({ more: true, ...local, signed_in: codeA }, s.ctx())) as G7Listed & { ask_outcome?: { project_id: number } };
-      assert.deepEqual(said(), { 'name:tipjar': { mainnet: [], testnet: [], live_url: null, has_users: null, not_mine: true } });
-      assert.match(a.show_to_builder, /Your entries: .*AliceApp/);
-      assert.doesNotMatch(a.show_to_builder, /SecretB/);
-      assert.equal(a.ask_outcome?.project_id, entry);
-      // An expired code: nothing.
-      await sql()`UPDATE github_verifications SET code_expires_at = now() - interval '1 second' WHERE installation_id = ${s.id} AND login = 'alice'`;
-      const late = (await handlers.tell_earnkit({ program_status: [{ program_id: s.programId, status: 'not_interested' }], signed_in: codeA }, s.ctx())) as Told;
-      assert.equal(late.show_to_builder, 'Noted for now.');
     } finally {
       await sql()`DELETE FROM github_verifications WHERE installation_id = ${s.id}`;
       await s.cleanup();
     }
   }));
 
-test("G10 (fix round 2): on Grok Bot, user B's record_submission never launches on A's proven repo; no wallet is kept on the entry; A's code launches", dbTest, () =>
+test("G10 (fix round 2), T6-2: on Grok Bot a record_submission never launches, even with a pre-v2.14 sign-in row; no wallet is kept on the entry", dbTest, () =>
   withTokenEnv(() =>
     withSignIn(async () => {
       const t = await confirmSetup('g10rec');
@@ -987,7 +970,7 @@ test("G10 (fix round 2): on Grok Bot, user B's record_submission never launches 
       // The repo carries the agent's own proof line (A pushed it): confirmSetup's default reader.
       const ctx = { ...t.ctx, sharedClient: true };
       const WB = '0x3333333333333333333333333333333333333333';
-      const rec = (wallet: string, signed_in?: string) =>
+      const rec = (wallet: string) =>
         handlers.record_submission(
           {
             program_id: t.p.id,
@@ -996,7 +979,6 @@ test("G10 (fix round 2): on Grok Bot, user B's record_submission never launches 
             payout_wallet: wallet,
             token: { name: t.offered.name, symbol: t.offered.symbol },
             builder_confirmed: true,
-            ...(signed_in && { signed_in }),
           },
           ctx,
         ) as Promise<{ project_id: number; token?: { status: string } }>;
@@ -1005,14 +987,11 @@ test("G10 (fix round 2): on Grok Bot, user B's record_submission never launches 
       assert.equal(t.calls.deploy, 0);
       const [row] = await sql()<{ creator_wallet: string | null }[]>`SELECT creator_wallet FROM projects WHERE id = ${b.project_id}`;
       assert.equal(row.creator_wallet, null, 'B\'s wallet is not kept on the entry');
-      // A signs in for this entry (with W8); B, without A's code, still gets nothing.
-      const codeA = await signInAs(t.inst, b.project_id, t.repo, 'alice');
+      // A pre-v2.14 sign-in for this entry (with W8) names no shared caller: still nothing.
+      await signInAs(t.inst, b.project_id, t.repo, 'alice');
       assert.notEqual((await rec(WB)).token?.status, 'launched');
-      assert.notEqual((await rec(W8)).token?.status, 'launched', 'the right wallet but no code');
+      assert.notEqual((await rec(W8)).token?.status, 'launched', 'the right wallet, still no person');
       assert.equal(t.calls.deploy, 0);
-      // A, with the code and the wallet the sign-in was made for: launched.
-      assert.equal((await rec(W8, codeA!)).token?.status, 'launched');
-      assert.deepEqual(t.calls.wallets, [W8]);
     }),
   ));
 
@@ -1025,7 +1004,7 @@ async function extraProgram(t: Awaited<ReturnType<typeof confirmSetup>>, suffix:
   return p;
 }
 
-test('7.9 v2.10 item 15 (Review Focus 5): the deadline line starts prepare_submission\'s reply; never on a shared client without a code; with one, only that login\'s entries', dbTest, () =>
+test('7.9 v2.10 item 15 (Review Focus 5): the deadline line starts prepare_submission\'s reply; never on a shared client', dbTest, () =>
   withTokenEnv(() =>
     withSignIn(async () => {
       const t = await confirmSetup('t7dead');
@@ -1049,13 +1028,10 @@ test('7.9 v2.10 item 15 (Review Focus 5): the deadline line starts prepare_submi
       await reset();
       const shared = { ...t.ctx, sharedClient: true };
       assert.doesNotMatch(await prep(shared), /closes (today|tomorrow|in \d days)/);
-      // Shared, alice's code for the Arc entry only: Arc's line, never Soon Grants'.
+      // A pre-v2.14 sign-in row for the Arc entry names no shared caller: still nothing.
       await sql()`UPDATE installations SET shared_client = true WHERE id = ${t.inst}`;
-      const code = await signInAs(t.inst, a.project_id!, t.repo, 'alice');
-      assert.ok(code);
-      const signed = await prep(shared, { signed_in: code });
-      assert.ok(signed.startsWith("Arc Microgrants closes in 2 days; your entry isn't submitted.\n\n"), signed);
-      assert.doesNotMatch(signed, /Soon Grants closes/);
+      await signInAs(t.inst, a.project_id!, t.repo, 'alice');
+      assert.doesNotMatch(await prep(shared), /closes (today|tomorrow|in \d days)/);
     }),
   ));
 
@@ -1174,14 +1150,14 @@ test('10.9 the first recorded entry asks once; a plain yes uses that entry\'s em
     }),
   ));
 
-test('10.9, Ruling G21: a hosted agent asks once per signed-in login, never without a code; each login changes only its own subscription', dbTest, () =>
+test('10.9, Ruling G21, v2.14 final fix: a hosted agent never asks and never saves the weekly email', dbTest, () =>
   withTokenEnv(() =>
     withSignIn(() =>
       withResend(async () => {
         const s = await confirmSetup('email-shared', { extra: [EMAIL_FIELD] });
         await sql()`UPDATE installations SET shared_client = true WHERE id = ${s.inst}`;
         const sctx = { ...s.ctx, sharedClient: true };
-        // No code: no question, and a weekly_email answer changes nothing.
+        await signInAs(s.inst, null, s.repo, 'alice');
         const none = (await handlers.confirm_entry({ ...s.input, answers: { ...s.answers, email: 'bob@example.com' }, ...skip }, sctx)) as Confirmed;
         assert.ok(none.kit);
         assert.ok(!none.show_to_builder.includes('by email'));
@@ -1189,52 +1165,11 @@ test('10.9, Ruling G21: a hosted agent asks once per signed-in login, never with
           const r = (await handlers.tell_earnkit({ weekly_email: w }, sctx)) as { show_to_builder: string; saved: string[]; agent_note: string };
           assert.equal(r.show_to_builder, EMAIL_SIGN_IN);
           assert.deepEqual(r.saved, []);
-          assert.match(r.agent_note, /signed_in/);
+          assert.doesNotMatch(r.agent_note, /signed_in/);
         }
         assert.equal(await subscription(s.inst), null);
-        const subs = async () =>
-          (await sql()<{ login: string; email: string | null; opted: boolean }[]>`
-            SELECT login, email, opted_in_at IS NOT NULL AS opted FROM digest_subscriptions WHERE installation_id = ${s.inst} ORDER BY login`).map((r) => ({ ...r }));
-
-        // Alice signs in: her entry's typed address is named; her plain yes uses it.
-        const codeA = (await signInAs(s.inst, null, s.repo, 'alice'))!;
-        const projA = { ...s.project, name: 'Tip Jar A', repo_url: `${s.repo}-a` };
-        const a = (await handlers.confirm_entry({ ...s.input, project: projA, answers: { ...s.answers, email: 'alice@example.com' }, signed_in: codeA, ...skip }, sctx)) as Confirmed;
-        assert.ok(a.show_to_builder.endsWith(`\n\n${emailQuestionFor('alice@example.com')}`), a.show_to_builder);
-        assert.ok(a.agent_note!.endsWith(`${EMAIL_NOTE} ${EMAIL_SHARED_NOTE}`));
-        const again = (await handlers.confirm_entry({ ...s.input, project: { ...projA, name: 'Tip Jar A2', repo_url: `${s.repo}-a2` }, answers: { ...s.answers, email: 'alice@example.com' }, signed_in: codeA, ...skip }, sctx)) as Confirmed;
-        assert.ok(!again.show_to_builder.includes('by email'), 'once per login');
-        assert.equal(((await handlers.tell_earnkit({ weekly_email: { answer: 'yes' }, signed_in: codeA }, sctx)) as { show_to_builder: string }).show_to_builder, EMAIL_ON);
-
-        // Bob signs in on the same agent: asked too (his own login), his own subscription.
-        const codeB = (await signInAs(s.inst, null, s.repo, 'bob'))!;
-        const b = (await handlers.confirm_entry({ ...s.input, project: { ...s.project, name: 'Tip Jar B', repo_url: `${s.repo}-b` }, answers: { ...s.answers, email: 'bob@example.com' }, signed_in: codeB, ...skip }, sctx)) as Confirmed;
-        assert.ok(b.show_to_builder.endsWith(`\n\n${emailQuestionFor('bob@example.com')}`));
-        await handlers.tell_earnkit({ weekly_email: { answer: 'yes' }, signed_in: codeB }, sctx);
-        assert.deepEqual(await subs(), [
-          { login: 'alice', email: 'alice@example.com', opted: true },
-          { login: 'bob', email: 'bob@example.com', opted: true },
-        ]);
-        // Bob's "no" (and a yes with another address) never touches Alice's.
-        await handlers.tell_earnkit({ weekly_email: { answer: 'no' }, signed_in: codeB }, sctx);
-        await handlers.tell_earnkit({ weekly_email: { answer: 'yes', email: 'mallory@example.com' }, signed_in: codeB }, sctx);
-        assert.deepEqual(await subs(), [
-          { login: 'alice', email: 'alice@example.com', opted: true },
-          { login: 'bob', email: 'mallory@example.com', opted: true },
-        ]);
-
-        // record_submission (P16): an address the answer bank already holds for this project is
-        // never named on a hosted agent (it may be another builder's).
-        const codeC = (await signInAs(s.inst, null, s.repo, 'carol'))!;
-        const projC = { name: 'Tip Jar C', repo_url: `${s.repo}-c`, live_url: 'https://tipjar.xyz' };
-        await sql()`INSERT INTO answer_bank (installation_id, project_key, kind, answer, program_id)
-          VALUES (${s.inst}, ${projectKey(projC)}, 'contact', ${JSON.stringify({ email: 'dave@example.com' })}, ${s.p.id})`;
-        const rec = (await handlers.record_submission(
-          { program_id: s.p.id, project: projC, submission_data: { ...s.answers, email: 'dave@example.com' }, token: 'skip', signed_in: codeC },
-          sctx,
-        )) as { show_to_builder: string; agent_note?: string };
-        assert.ok(rec.show_to_builder.endsWith(`\n\n${EMAIL_QUESTION}`), rec.show_to_builder);
-        assert.ok(!rec.show_to_builder.includes('dave@example.com'));
+        const [n] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM digest_subscriptions WHERE installation_id = ${s.inst}`;
+        assert.equal(n.n, 0);
       }),
     ),
   ));
@@ -1625,30 +1560,24 @@ test('fix round 2 (N6): prepare with deploy refuses when the installation login 
   }
 });
 
-test('final fix M3: on a shared client, prepare with deploy refuses while sign-in is off, and when the caller login read fails', dbTest, async () => {
+test('final fix M3, v2.14 T6-2: on a shared client, prepare with deploy refuses, sign-in off or on (no person, no proof)', dbTest, async () => {
   const { DEPLOY_LINES } = await import('./deploy');
   const f = committedProgram('arc-microgrants');
   const stamp = `${process.pid}-${Date.now()}`;
   Object.assign(f, { id: `t10-m3-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' });
   await upsertProgram(ProgramFile.parse(f));
   const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t10m3-${stamp}`}) RETURNING id`;
-  let chainCalls = 0;
-  let loginReads = 0;
+  const chainCalls = { n: 0 };
   const call = {
     program_id: f.id,
     project: { name: 'TipJar', repo_url: 'https://github.com/alice/tipjar' },
-    signed_in: 'ABCD-EFGH',
     deploy: { chain: 'base', bytecode: '0x6060', abi: [], owner_wallet: '0x2222222222222222222222222222222222222222' },
   };
   const ctx = {
     installationId: id,
     sharedClient: true,
     deployDeps: {
-      chain: () => ((chainCalls++), null),
-      callerLogin: async () => {
-        loginReads++;
-        throw new Error('db down');
-      },
+      chain: () => ((chainCalls.n++), null),
     },
   };
   const keys = ['DEPLOYER_PRIVATE_KEY', 'GITHUB_OAUTH_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_SECRET'];
@@ -1661,16 +1590,13 @@ test('final fix M3: on a shared client, prepare with deploy refuses while sign-i
     const off = (await tools.prepare(call, ctx)) as { deploy: unknown; show_to_builder: string };
     assert.deepEqual(off.deploy, { unavailable: DEPLOY_LINES.off });
     assert.ok(off.show_to_builder.endsWith(DEPLOY_LINES.off), off.show_to_builder);
-    assert.equal(loginReads, 0);
-    // Sign-in on, the caller login read fails: refused (N6), never a deploy keyed by the repo.
+    // Sign-in on: still refused (a shared client has no person, so no repo proof), never a deploy keyed by the repo.
     process.env.GITHUB_OAUTH_CLIENT_ID = 'test-client';
     process.env.GITHUB_OAUTH_CLIENT_SECRET = 'test-secret';
-    const errLog = console.error;
-    console.error = () => {};
-    const failed = (await tools.prepare(call, ctx).finally(() => (console.error = errLog))) as { deploy: unknown; show_to_builder: string };
-    assert.deepEqual(failed.deploy, { unavailable: DEPLOY_LINES.lowBalance });
-    assert.equal(loginReads, 1);
-    assert.equal(chainCalls, 0, 'nothing reached the deploy');
+    const on = (await tools.prepare(call, ctx)) as { deploy: Record<string, unknown> };
+    assert.ok(!('address' in (on.deploy ?? {})), JSON.stringify(on.deploy));
+    const rows = await sql()`SELECT 1 FROM contract_deploys WHERE installation_id = ${id}`;
+    assert.equal(rows.length, 0, 'nothing reached the deploy');
   } finally {
     keys.forEach((k, i) => (old[i] === undefined ? delete process.env[k] : (process.env[k] = old[i])));
     await sql()`UPDATE programs SET status = 'closed' WHERE id = ${f.id}`;
@@ -1733,7 +1659,7 @@ test('T11 fix (journey 11.0): prepare with deploy checks this draft with the dep
 
 // ---- v2.11 T3: the entered and submitted events through the tools
 
-test('3.4, 3.5 confirm yes writes entered once; tell submitted writes submitted with the link once; a shared caller is named by its own sign-in', dbTest, () =>
+test('3.4, 3.5 confirm yes writes entered once; tell submitted writes submitted with the link once', dbTest, () =>
   withEventLog(() =>
     withTokenEnv(() =>
       withSignIn(async () => {
@@ -1756,18 +1682,6 @@ test('3.4, 3.5 confirm yes writes entered once; tell submitted writes submitted 
         assert.equal(e.installation_id, t.inst);
         assert.deepEqual(e.detail, { basis: 'link' });
         assert.deepEqual((await eventsOfInstallation(t.inst)).map((x) => x.type).sort(), ['entered', 'submitted']);
-
-        // A shared client: the caller's own sign-in for this entry names the login.
-        const s = await confirmSetup('t3tells');
-        const mine = (await tools.confirm({ ...s.input, yes: true, wallet: W8 }, s.ctx)) as Confirmed;
-        await sql()`UPDATE installations SET shared_client = true WHERE id = ${s.inst}`;
-        const code = await signInAs(s.inst, mine.project_id!, s.repo, 'alice');
-        await tools.tell({ submitted: { program_id: s.p.id, project_id: mine.project_id }, signed_in: code! }, { ...s.ctx, sharedClient: true });
-        const [shared] = await eventsByKey(`submitted:${mine.project_id}`);
-        assert.equal(shared.github_login, 'alice');
-        assert.equal(shared.login_basis, 'signin');
-        assert.equal(shared.proof_url, null);
-        assert.deepEqual(shared.detail, { basis: 'builder_said' });
       }),
     ),
   ),
@@ -2243,7 +2157,7 @@ test('security re-review 4 F1: the build\'s own unconfirmed deploy for a wallet 
   ),
 );
 
-test('9.3 R16 tell: submitted marks the newest entry submitted; fix round 1 (I2): on a shared client only the pasted code\'s own entry, by project_id', dbTest, () =>
+test('9.3 R16 tell: submitted marks the newest entry submitted; fix round 1 (I2), v2.14 final fix: on a shared client it is only noted', dbTest, () =>
   withTokenEnv(() =>
     withSignIn(async () => {
       const t = await confirmSetup('t9tell');
@@ -2256,24 +2170,19 @@ test('9.3 R16 tell: submitted marks the newest entry submitted; fix round 1 (I2)
       const isNoted = (r: unknown) => {
         const n = r as { show_to_builder: string; agent_note: string; project_id?: number; token?: unknown };
         assert.equal(n.show_to_builder, NOTED_FOR_NOW);
-        assert.match(n.agent_note, /pass signed_in .* and the entry's project_id/);
+        assert.equal(n.agent_note, SUBMITTED_SHARED_NOTE);
+        assert.doesNotMatch(n.agent_note, /signed_in/);
         // Nothing of the entry is read back either (name, token, bonus line).
         assert.deepEqual(Object.keys(n).sort(), ['agent_note', 'show_to_builder']);
       };
-      // Shared: no project_id; a project_id without a code; another builder's code; a typed login. Nothing written or read.
+      // Shared: no project_id; a project_id; even with a pre-v2.14 sign-in row for the entry. Nothing written or read.
       isNoted(await tools.tell({ submitted: { program_id: t.p.id } }, shared));
       isNoted(await tools.tell({ submitted: { program_id: t.p.id, project_id: first.project_id } }, shared));
-      const codeB = await signInAs(t.inst, null, `https://github.com/bob/t9-${Date.now()}`, 'bob');
-      for (const signed_in of [codeB!, 'alice'])
-        isNoted(await tools.tell({ submitted: { program_id: t.p.id, project_id: first.project_id } as never, signed_in }, shared));
+      await signInAs(t.inst, first.project_id!, t.repo, 'alice');
+      isNoted(await tools.tell({ submitted: { program_id: t.p.id, project_id: first.project_id } }, shared));
       // An old call's own project (P15c) on a shared client: noted too, never written by repo key.
-      isNoted(await tools.tell({ submitted: { program_id: t.p.id, project: t.project, submission_data: t.answers }, signed_in: codeB! }, shared));
+      isNoted(await tools.tell({ submitted: { program_id: t.p.id, project: t.project, submission_data: t.answers } }, shared));
       await unmarked();
-      // Alice's own code and her entry's project_id: that entry.
-      const codeA = await signInAs(t.inst, first.project_id!, t.repo, 'alice');
-      const mine = (await tools.tell({ submitted: { program_id: t.p.id, project_id: first.project_id }, signed_in: codeA! }, shared)) as { project_id: number };
-      assert.equal(mine.project_id, first.project_id);
-      assert.ok((await t.rows())[0].submission_confirmed_at, 'submission_confirmed_at set');
       // Not shared: the newest entry in that program, its saved answers; never a second row.
       const told = (await tools.tell({ submitted: { program_id: t.p.id } }, t.ctx)) as { show_to_builder: string; project_id: number };
       assert.equal(told.project_id, first.project_id);
@@ -3205,7 +3114,7 @@ test('4.A7/A8 (Ruling G7) on a shared client list_programs keeps no fit repos an
 });
 
 // v2.14 T3 fix round 1: the shared-client rule for entries (no token on the Bench).
-test('fix round 2 (I-b, G7, G9): on a shared client, confirm by project_id acts only for the pasted code\'s own entry; B can\'t change A\'s links', dbTest, () =>
+test('fix round 2 (I-b, G7, G9), v2.14 final fix: on a shared client, confirm by project_id is only noted; no one can change the entry\'s links', dbTest, () =>
   withTokenEnv(() =>
     withSignIn(async () => {
       const t = await confirmSetup('t9ib');
@@ -3214,19 +3123,15 @@ test('fix round 2 (I-b, G7, G9): on a shared client, confirm by project_id acts 
       assert.equal(typeof a.project_id, 'number');
       await sql()`UPDATE installations SET shared_client = true WHERE id = ${t.inst}`;
       const shared = { ...t.ctx, sharedClient: true };
-      const codeA = await signInAs(t.inst, a.project_id!, t.repo, 'alice');
-      const codeB = await signInAs(t.inst, null, `https://github.com/bob/t9ib-${Date.now()}`, 'bob');
+      // A pre-v2.14 sign-in row for the entry names no shared caller.
+      await signInAs(t.inst, a.project_id!, t.repo, 'alice');
       const liveOf = async () => (await sql()<{ live_url: string | null }[]>`SELECT live_url FROM projects WHERE id = ${a.project_id!}`)[0].live_url;
       const before = await liveOf();
-      for (const extra of [{}, { signed_in: codeB! }, { signed_in: 'alice' }])
-        for (const ask of [{ check: true }, { yes: true }]) {
-          const r = (await tools.confirm({ project_id: a.project_id, project: { live_url: 'https://evil.example' }, ...ask, ...extra }, shared)) as Record<string, unknown>;
-          assert.deepEqual(r, { show_to_builder: NOTED_FOR_NOW, agent_note: CONFIRM_SHARED_NOTE }, JSON.stringify({ ask, extra }));
-        }
+      for (const ask of [{ check: true }, { yes: true }]) {
+        const r = (await tools.confirm({ project_id: a.project_id, project: { live_url: 'https://evil.example' }, ...ask }, shared)) as Record<string, unknown>;
+        assert.deepEqual(r, { show_to_builder: NOTED_FOR_NOW, agent_note: CONFIRM_SHARED_NOTE }, JSON.stringify(ask));
+      }
       assert.equal(await liveOf(), before);
-      // Alice's own code acts for her entry (never the shared note); nothing launches.
-      const mine = (await tools.confirm({ project_id: a.project_id, check: true, signed_in: codeA! }, shared)) as Record<string, unknown>;
-      assert.notDeepEqual(mine, { show_to_builder: NOTED_FOR_NOW, agent_note: CONFIRM_SHARED_NOTE }, JSON.stringify(mine));
       assert.equal(t.calls.deploy, 0);
     }),
   ));

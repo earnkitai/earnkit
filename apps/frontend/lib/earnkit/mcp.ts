@@ -50,9 +50,16 @@ const AGENT = z
 export const unexpectedErrorText = (id: string) =>
   `EarnKit hit an unexpected error. Try again in a minute. If it keeps happening, tell the EarnKit team error id ${id}.`;
 
+/** v2.14 final fix: an older agent's sign-in code (OLD_CODE) is dropped before the handler's strict input. Pure. */
+const withoutOldCode = (input: unknown): unknown => {
+  if (!input || typeof input !== 'object' || Array.isArray(input) || !('signed_in' in input)) return input;
+  const { signed_in: _old, ...rest } = input as Record<string, unknown>;
+  return rest;
+};
+
 async function run(ctx: ToolContext, tool: ToolName, input: unknown = {}) {
   try {
-    const result = await tools[tool](input, ctx);
+    const result = await tools[tool](withoutOldCode(input), ctx);
     return {
       content: [{ type: 'text' as const, text: JSON.stringify(result) }],
     };
@@ -204,12 +211,12 @@ export function serverInstructions() {
 /** The instructions; exported for the copy-review test. */
 export const SERVER_INSTRUCTIONS = serverInstructions();
 
-/** v2.9 B9 (Ruling G9): the sign-in code, on the tools that read who the builder is. */
-const SIGNED_IN = z
-  .string()
-  .max(40)
-  .optional()
-  .describe('The code the builder pasted after signing in with GitHub (shared agents only), if they gave one');
+/**
+ * v2.14 final fix (T6-2): the shared client's GitHub sign-in code is gone. confirm and tell are strict, so an older
+ * agent still sending its code would get a validation error: the key is accepted there and dropped by the
+ * handler's input (find and prepare already strip unknown keys).
+ */
+const OLD_CODE = z.unknown().optional().describe('Not used any more; ignored.');
 const CHECK =
   'true only when checking back after "Your token is launching": it reads the result and never starts a launch';
 
@@ -335,7 +342,6 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           .describe(
             'false if you cannot write code, deploy, and use a web browser in this session (default true)',
           ),
-        signed_in: SIGNED_IN,
         // v2.14 T5 (A6): the fallback sign-in link's paste-back code; find binds with it before anything else.
         sign_in_code: z.string().max(40).optional().describe('The code the builder pasted after signing in with X from your sign-in link'),
         // v2.10 item 2: "show more".
@@ -369,7 +375,6 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           .boolean()
           .optional()
           .describe('true when the builder has no live link and the project builds to static files: EarnKit hosts it (see host in the reply)'),
-        signed_in: SIGNED_IN,
         // v2.10 item 13: EarnKit deploys the builder's contract (Arc or Base), the builder as owner.
         // Final fix M4: advertised only while deploys are on (as sponsor_campaign with escrow).
         ...(deployEnabled() && deployChains().length > 0 && { deploy: DEPLOY_SCHEMA, build: BUILD_SCHEMA }),
@@ -406,7 +411,6 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
             .describe('Only when the builder changed the proposed token'),
           wallet: z.string().optional().describe('The wallet the builder confirmed: shown_wallet, or the one they named instead'),
           agent: AGENT.optional(),
-          signed_in: SIGNED_IN,
           image_url: z.string().optional().describe('https URL of the token image'),
           image_data: z.string().optional().describe('Or the image you generated, as a data URL (PNG/JPEG/WebP/GIF, up to 1 MB). EarnKit hosts it.'),
           builder_x: z.string().optional().describe("The builder's X handle or profile URL"),
@@ -422,6 +426,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
             .strict()
             .optional()
             .describe("Only when the builder already submitted on the program's site: the entry is recorded as submitted"),
+          signed_in: OLD_CODE,
         })
         .strict(),
     },
@@ -534,7 +539,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
             })
             .strict()
             .optional(),
-          signed_in: SIGNED_IN,
+          signed_in: OLD_CODE,
         })
         .strict(),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },

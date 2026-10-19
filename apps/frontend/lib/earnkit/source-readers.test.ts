@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { GH_RATE_FLOOR, GH_RUN_CAP, GitHubBudgetStop, READ_CAPS, budgetedGh, defaultReaderDeps, isBudgetStop, isoWeek, pep503, probeSite, readContract, readContractOrigin, readCoin, readMergedPrs, readNpm, readNpmBulk, readPypi, readRepo, readSite, walletCreationsFrom, type ReaderDeps } from './source-readers';
-import { CONTRACT_REFUSALS, contractOwned, contractOwnership, packageOwned, repoOwned, siteOwnedByText } from './sources';
+import { CONTRACT_REFUSALS, contractOwned, contractOwnership, packageOwned, siteOwnedByText } from './sources';
 import type { Resolver, Transport } from './safe-fetch';
 
 const NOW = new Date('2026-10-12T12:00:00Z');
@@ -124,17 +124,6 @@ test('final I2 readMergedPrs: PRs into the person\'s own orgs never count', asyn
   };
   const prs = await readMergedPrs('lee', { ...base, gh }, ['ACME']);
   assert.deepEqual(prs.map((p) => p.target), ['other/r']);
-});
-
-test('5.8 ownership: own non-fork, non-template, never derived; an org repo only as top contributor', () => {
-  const r = { owner: 'lee', owner_type: 'User', created_at: null, fork: false, template: false, stargazers: [], forkers: [], issue_authors: [], contributors: [], commit_weeks: [], partial: false };
-  assert.equal(repoOwned(r, 'lee', false, false), true);
-  assert.equal(repoOwned({ ...r, fork: true }, 'lee', false, false), false);
-  assert.equal(repoOwned({ ...r, template: true }, 'lee', false, false), false);
-  assert.equal(repoOwned(r, 'lee', false, true), false, 'repoEverDerived');
-  assert.equal(repoOwned({ ...r, owner: 'acme', owner_type: 'Organization' }, 'lee', true, false), true);
-  assert.equal(repoOwned({ ...r, owner: 'ann', owner_type: 'User' }, 'lee', true, false), false, 'a personal repo of someone else, even as top contributor');
-  assert.equal(repoOwned({ ...r, owner: 'acme' }, 'lee', false, false), false);
 });
 
 test('5.9 ownership: a package needs its metadata repo to be a verified repo; a site needs the profile code', () => {

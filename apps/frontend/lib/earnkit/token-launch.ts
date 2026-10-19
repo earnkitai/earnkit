@@ -495,8 +495,8 @@ async function runTokenFlow(
     givenWallet?: string | null;
     /** v2.8.1 fix round 1: the agent checking back after "launching": a read, never a launch. */
     checkBack?: boolean;
-    /** Rulings G8, G9: whose GitHub sign-in proves the repo (token-gate.ts GateInput.verifiedLogin). */
-    verifiedLogin?: string | null;
+    /** v2.14 final fix: the caller is a shared client (the gate finds that itself; this only delays keeping the wallet). */
+    sharedClient?: boolean;
   },
   deps: TokenFlowDeps,
   progress: Progress = { deploying: false },
@@ -574,7 +574,7 @@ async function runTokenFlow(
   const keep = choice?.creator_wallet ?? a.givenWallet ?? (decision.action === 'launch' ? wallet : null);
   // v2.9 B9 (fix round 2): on a shared client the entry may be another builder's, so the wallet is
   // kept only once the gate passed for this caller.
-  const sharedCaller = a.verifiedLogin !== undefined;
+  const sharedCaller = a.sharedClient === true;
   const saveWallet = async () => {
     if (keep && !project.token_url && keep.toLowerCase() !== project.creator_wallet)
       await store.saveCreatorWallet(project.id, a.installationId, keep);
@@ -647,7 +647,6 @@ async function runTokenFlow(
       symbol,
       installationId: a.installationId,
       projectId: project.id,
-      verifiedLogin: a.verifiedLogin,
     },
     deps.gate,
   );
@@ -744,8 +743,8 @@ export async function tokenAfterSubmission(
     givenWallet?: string | null;
     /** v2.8.1 fix round 1: a check-back reads, never launches. */
     checkBack?: boolean;
-    /** Rulings G9, G10: whose GitHub sign-in proves the repo (undefined: not a shared client). */
-    verifiedLogin?: string | null;
+    /** The caller is a shared client (runTokenFlow sharedClient). */
+    sharedClient?: boolean;
   },
   deps: TokenFlowDeps = {},
   progress?: Progress,
@@ -778,7 +777,7 @@ export async function tokenAfterSubmission(
       chain: 'base',
       givenWallet: a.givenWallet,
       checkBack: a.checkBack,
-      verifiedLogin: a.verifiedLogin,
+      sharedClient: a.sharedClient,
     },
     deps,
     progress,
@@ -888,8 +887,8 @@ export async function confirmToken(
     deadline?: number;
     /** v2.8.1 fix round 1: a check-back reads, never launches. */
     checkBack?: boolean;
-    /** Rulings G8, G9: whose GitHub sign-in proves the repo (undefined: not a shared client). */
-    verifiedLogin?: string | null;
+    /** The caller is a shared client (runTokenFlow sharedClient). */
+    sharedClient?: boolean;
   },
   deps: TokenFlowDeps = {},
 ): Promise<TokenOutcome> {
@@ -916,7 +915,7 @@ export async function confirmToken(
       }
       return await runTokenFlow(
         project,
-        { mode: 'confirm', installationId: a.installationId, choice: parsed.data, confirmed: true, chain: 'base', checkBack: a.checkBack, verifiedLogin: a.verifiedLogin },
+        { mode: 'confirm', installationId: a.installationId, choice: parsed.data, confirmed: true, chain: 'base', checkBack: a.checkBack, sharedClient: a.sharedClient },
         deps,
         progress,
       );
@@ -989,8 +988,6 @@ export const LaunchTokenInput = TokenChoice.extend({
   repo_url: z.string().optional(),
   /** v2.8.1 fix round 1: checking back after "launching": a read, never a launch. */
   check_back: z.boolean().optional(),
-  /** v2.9 B9 (Ruling G9): the code a shared client's builder pasted after signing in with GitHub. */
-  signed_in: z.string().max(40).optional(),
   /** v2.9 B10: the first reply's token offer (list_programs token_offer): a draft entry is made for it. */
   offer: z
     .object({ program_id: z.string().min(1), repo_url: z.string().min(1).max(500), project_name: z.string().trim().min(1).max(200) })
@@ -999,7 +996,7 @@ export const LaunchTokenInput = TokenChoice.extend({
   /** v2.9 B10: the builder's answer to that offer: 'go' launches, 'skip' records a decline. */
   decision: z.enum(['go', 'skip']).default('go'),
   /**
-   * v2.9 B10: what the agent can do (can_push: false, the builder signs in with GitHub instead). The
+   * v2.9 B10: what the agent can do (can_push; v2.14: the read-only App proves the repo either way). The
    * same shape every other tool takes (T12 journey 12.1: an agent passing its usual { browser,
    * can_push } got a ZodError on the yes).
    */
@@ -1025,10 +1022,10 @@ export async function launchToken(
   deps: TokenFlowDeps = {},
   /** v2.8.1 §A5: past this time (ms since epoch) the reply is "launching" and the flow runs on. */
   deadline?: number,
-  /** Rulings G8, G9: whose GitHub sign-in proves the repo (undefined: not a shared client). */
-  verifiedLogin?: string | null,
+  /** The caller is a shared client (runTokenFlow sharedClient). */
+  sharedClient?: boolean,
 ): Promise<TokenOutcome> {
-  const { project_id, builder_confirmed: _c, chain, live_url, repo_url, check_back, signed_in: _s, offer: _o, decision: _d, agent: _a, ...choice } = input;
+  const { project_id, builder_confirmed: _c, chain, live_url, repo_url, check_back, offer: _o, decision: _d, agent: _a, ...choice } = input;
   // v2.9 B10: an offer is made into an entry by the launch_token tool first (tools.ts launchFromOffer).
   if (project_id === undefined) throw new LaunchError('Pass project_id.');
   const store = deps.store ?? dbStore;
@@ -1071,7 +1068,7 @@ export async function launchToken(
   if (entryMissing(project).length === 0) await store.markComplete(project.id);
   const progress: Progress = { deploying: false };
   const out = await withinReply(
-    runTokenFlow(project, { mode: 'launch', installationId, choice, confirmed: true, chain, checkBack: check_back === true, verifiedLogin }, deps, progress),
+    runTokenFlow(project, { mode: 'launch', installationId, choice, confirmed: true, chain, checkBack: check_back === true, sharedClient }, deps, progress),
     progress,
     deadline,
   );

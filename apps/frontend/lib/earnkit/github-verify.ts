@@ -22,12 +22,11 @@ import { RateLimitError, clientIp, enforce } from './rate-limit';
  * - Links and the redirect come from siteUrl() (EARNKIT_URL), never from the request Host (P47).
  * - Off unless GITHUB_OAUTH_CLIENT_ID and GITHUB_OAUTH_CLIENT_SECRET are both set.
  * - Rows from before v2.14 (entry, pickup, host and claim sign-ins) stay as history: verifiedFor,
- *   callerLogin, loginBasisFor and verifiedEntryIds still read them; no new one is made.
+ *   loginBasisFor and verifiedEntryIds still read them; no new one is made. v2.14 final fix: the shared
+ *   client's pasted sign-in code (signed_in, callerLogin) is gone with the GitHub sign-in that made it.
  */
 
 export const VERIFY_TTL_MS = 15 * 60_000;
-/** Ruling G9: how long the sign-in code a shared client's builder pastes stays valid. */
-export const CODE_TTL_MS = 24 * 60 * 60_000;
 
 /** What the builder reads in the browser after the callback. */
 export const VERIFY_PAGE = {
@@ -47,19 +46,6 @@ export function githubVerifyEnabled(env: Record<string, string | undefined> = pr
 }
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
-
-const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-/** Ruling G9: 10 random base32 characters (32 divides 256, so unbiased). */
-const newCode = () => [...randomBytes(10)].map((b) => BASE32[b % 32]).join('');
-/** "ABCDEFGHJK" as the builder reads it: "ABCD-EFGH-JK". Pure. */
-export const formatCode = (code: string) => `${code.slice(0, 4)}-${code.slice(4, 8)}-${code.slice(8)}`;
-/** A pasted code, any case, dashes or spaces; null unless it is 10 base32 characters. Pure. */
-export function normalizeCode(input: string | null | undefined): string | null {
-  const c = (input ?? '').toUpperCase().replace(/[^A-Z2-7]/g, '');
-  return c.length === 10 ? c : null;
-}
-/** Ruling G9: the success page on a shared client. Pure. */
-export const codeLine = (code: string) => `Done. Paste this code to your agent: ${formatCode(code)}`;
 
 /**
  * v2.10 item 7b (R8): `app` is the read-only GitHub App's link (github-app.ts): no launch rides on it (R9).
@@ -252,27 +238,24 @@ export const githubOAuth: GitHubOAuthDeps = {
 };
 
 /**
- * A passed check's github_verifications row, for the nonce's own repo and entry. Ruling G9: on a
- * shared (hosted) client the builder gets a one-time code to paste to the agent (returned; only its
- * sha256 is kept), which is how later calls there know who they are from. v2.10 item 7b: `app` is a
- * read-only GitHub App proof (`via = 'app'`, its installation id); it never carries a wallet (R9).
+ * A passed check's github_verifications row, for the nonce's own repo and entry. v2.10 item 7b: `app` is a
+ * read-only GitHub App proof (`via = 'app'`, its installation id); it never carries a wallet (R9). v2.14 final
+ * fix: no paste code is made (a shared client never gets an App link, Ruling T6-2); code_hash stays NULL.
  */
 export async function saveVerification(
   row: Pick<NonceRow, 'installation_id' | 'project_id' | 'repo_key' | 'purpose' | 'wallet' | 'symbol'>,
   user: { login: string; created_at: Date; public_repos: number },
   now: Date,
   app?: { githubInstallationId: number },
-): Promise<string | null> {
-  const paste = (await sharedGroup(row.installation_id)) ? newCode() : null;
+): Promise<void> {
   await sql()`
     INSERT INTO github_verifications (repo_key, login, installation_id, project_id, account_created_at, public_repos, verified_at, purpose,
       code_hash, code_expires_at, wallet, symbol, via, github_installation_id)
     VALUES (${row.repo_key}, ${user.login.toLowerCase()}, ${row.installation_id}, ${row.project_id},
       ${user.created_at}, ${user.public_repos}, ${now}, ${row.purpose},
-      ${paste && sha256(paste)}, ${paste && new Date(now.getTime() + CODE_TTL_MS)},
+      NULL, NULL,
       ${app ? null : row.wallet}, ${app ? null : row.symbol}, ${app ? 'app' : 'oauth'}, ${app?.githubInstallationId ?? null})`;
   // v2.14 spec 1: X is the account: a GitHub login joins no one and contests nothing (the App proves the repo).
-  return paste;
 }
 
 /**
@@ -323,7 +306,7 @@ export async function completeVerify(
   nonce: string,
   deps: GitHubOAuthDeps = githubOAuth,
   now = new Date(),
-): Promise<{ ok: true; repoKey: string; code?: string; install?: string; line?: string } | { ok: false; reason: string }> {
+): Promise<{ ok: true; repoKey: string; install?: string; line?: string } | { ok: false; reason: string }> {
   if ((await noncePurpose(nonce, now)) === 'app') return appSignIn(code, nonce, deps, now);
   return { ok: false, reason: VERIFY_PAGE.expired };
 }
@@ -386,22 +369,6 @@ export async function offerVerification(a: { installationId: number; repoKey: st
 /** Ruling G13 (I2): binds that sign-in to the draft entry made once the gate passed (once only). */
 export async function claimOfferVerification(id: number, projectId: number): Promise<void> {
   await sql()`UPDATE github_verifications SET project_id = ${projectId} WHERE id = ${id} AND project_id IS NULL`;
-}
-
-/**
- * Rulings G6, G7, G9: on a shared (hosted) client, the GitHub login this call is from: the login of
- * the sign-in whose one-time code the builder pasted (`signed_in`), on this installation, within 24
- * hours. Nothing anyone can claim (a GitHub user, an entry, a repo) names it. Null without a valid
- * code. The caller decides it only runs on shared clients.
- */
-export async function callerLogin(installationId: number, signedIn: string | null | undefined, now = new Date()): Promise<string | null> {
-  const code = normalizeCode(signedIn);
-  if (!code) return null;
-  const [row] = await sql()<{ login: string }[]>`
-    SELECT login FROM github_verifications
-    WHERE installation_id = ${installationId} AND code_hash = ${sha256(code)} AND code_expires_at > ${now}
-    ORDER BY verified_at DESC LIMIT 1`;
-  return row?.login ?? null;
 }
 
 /**
@@ -686,6 +653,6 @@ export async function verifyCallback(
       status: 303,
       headers: { Location: out.install, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' },
     });
-  if (out.ok) return verifyPage(out.code ? codeLine(out.code) : (out.line ?? VERIFY_PAGE.done), 200, clear);
+  if (out.ok) return verifyPage(out.line ?? VERIFY_PAGE.done, 200, clear);
   return verifyPage(out.reason, out.reason === VERIFY_PAGE.expired ? 410 : 403, clear);
 }

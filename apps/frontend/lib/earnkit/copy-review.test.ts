@@ -1,6 +1,6 @@
 import './fixtures/no-network-checks';
 import {
-  EMAIL_NOTE, EMAIL_OFF, EMAIL_ON, EMAIL_QUESTION, EMAIL_SHARED_NOTE, EMAIL_SIGN_IN, EMAIL_UNAVAILABLE, UNSUB_BAD, UNSUB_CONFIRM, UNSUB_DONE, WHICH_EMAIL,
+  EMAIL_NOTE, EMAIL_OFF, EMAIL_ON, EMAIL_QUESTION, EMAIL_SIGN_IN, EMAIL_UNAVAILABLE, UNSUB_BAD, UNSUB_CONFIRM, UNSUB_DONE, WHICH_EMAIL,
   digestBody, emailQuestionFor,
 } from './digest';
 import { HOST_FULL, HOST_LINES, HOST_REVIEW, STORAGE_NOTE, UPLOAD_NOTE, hostSignInLine, liveLine, withBadge } from './hosting';
@@ -30,7 +30,7 @@ import { HIDDEN_LINE, NO_PROFILE_LINE, SHARED_PROFILE_NOTE, SHOWN_LINE } from '.
 import { OWNERSHIP_FOR_TOKEN, SCORE_DESCRIPTION, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { presentFirstMessage, skippedLine, submitStepLine, type Card, type FirstMessage } from './present';
 import { SKIP_REASONS } from './match-projects';
-import { BUILD_ENTRY_NOTE, BUILD_NO_LIVE_NOTE, BUILD_HOLD_NOTE, BUILD_WALLET_NOTE, BUILD_PENDING_NOTE, pagesLiveLine, BUILD_DEPLOYS_OFF_NOTE, BUILD_NOT_READY, BUILD_PAGES_NOTE, BUILD_UPLOAD_NOTE, buildChainNote, buildOwnerNote, BUILD_NOT_STARTED, BUILD_SHARED_NOTE, WALLET_NEEDED_NOTE, buildRefused, twistNote, BUILD_NOTE, PLAN_NOTE, ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, CONFIRM_SHARED_NOTE, PROJECT_REOFFER_NOTE, SUBMITTED_AGAIN_NOTE, SUBMITTED_SHARED_NOTE, BUILD_ENTRY_NO_TOKEN_NOTE, handlers } from './tools';
+import { BUILD_ENTRY_NOTE, BUILD_NO_LIVE_NOTE, BUILD_HOLD_NOTE, BUILD_WALLET_NOTE, BUILD_PENDING_NOTE, pagesLiveLine, BUILD_DEPLOYS_OFF_NOTE, BUILD_NOT_READY, BUILD_PAGES_NOTE, BUILD_UPLOAD_NOTE, buildChainNote, buildOwnerNote, BUILD_NOT_STARTED, BUILD_SHARED_NOTE, WALLET_NEEDED_NOTE, buildRefused, twistNote, BUILD_NOTE, PLAN_NOTE, ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, SIGN_IN_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, CONFIRM_SHARED_NOTE, PROJECT_REOFFER_NOTE, SUBMITTED_AGAIN_NOTE, SUBMITTED_SHARED_NOTE, BUILD_ENTRY_NO_TOKEN_NOTE, handlers } from './tools';
 import { outcomeQuestion } from './outcomes';
 import { DEFAULT_GUIDANCE, PLAIN_FIX, PLAIN_LENGTH_FIX, PLAIN_NOTE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, walletAsk } from './coach';
 import { alsoText } from './also-qualifies';
@@ -47,7 +47,7 @@ import {
   confirmLine,
   confirmOffer,
 } from './confirm';
-import { APP_CONFIRM_ONLY_YOURS, VERIFY_PAGE, codeLine, confirmPage } from './github-verify';
+import { APP_CONFIRM_ONLY_YOURS, VERIFY_PAGE, confirmPage } from './github-verify';
 import { AGENT_FILL_STEPS, continuesLine, kitReplyNote, submitKit, type KitProgram } from './submit-kit';
 import {
   decideToken,
@@ -757,7 +757,6 @@ const appliedOutsideText = presentFirstMessage({
 const signInTexts: [string, string][] = [
   ...Object.entries(VERIFY_PAGE).map(([k, v]): [string, string] => [`VERIFY_PAGE.${k}`, v]),
   ['APP_CONFIRM_ONLY_YOURS', APP_CONFIRM_ONLY_YOURS],
-  ['codeLine', codeLine('ABCDEFGHJK')],
   ['confirmPage', confirmPage({ repo_key: 'alice/tipjar', handle: 'alice' }, 'n', 'c').replace(/<[^>]+>/g, ' ')],
 ];
 
@@ -1055,7 +1054,6 @@ const agentFacing: [string, string][] = [
   ['SUBMITTED_AGAIN_NOTE', SUBMITTED_AGAIN_NOTE],
   ['SUBMITTED_SHARED_NOTE', SUBMITTED_SHARED_NOTE],
   ['SIGN_IN_NOTE', SIGN_IN_NOTE],
-  ['SIGN_IN_CODE_NOTE', SIGN_IN_CODE_NOTE],
   // The shared-client note and the score tool's description.
   ['SHARED_PROFILE_NOTE', SHARED_PROFILE_NOTE],
   ['SCORE_DESCRIPTION', SCORE_DESCRIPTION],
@@ -1067,7 +1065,6 @@ const agentFacing: [string, string][] = [
   ['UPLOAD_NOTE', UPLOAD_NOTE],
   ['HOST_SIGN_IN_NOTE', HOST_SIGN_IN_NOTE],
   ['EMAIL_NOTE', EMAIL_NOTE],
-  ['EMAIL_SHARED_NOTE', EMAIL_SHARED_NOTE],
   // v2.7 fix round 1 (Minor 6): llms.txt is what agents read about EarnKit.
   // v2.13: the Bench's llms.txt (served under the flag, app/llms.txt/route.ts).
   ['llms.txt (v2.13)', readFileSync(join(import.meta.dirname, 'llms/v213.txt'), 'utf8')],

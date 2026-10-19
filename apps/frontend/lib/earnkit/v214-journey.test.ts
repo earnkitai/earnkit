@@ -94,7 +94,7 @@ function rule(r: McpResult): string {
   return s;
 }
 const ctxOf = (c: { id: number; own: number; shared: boolean; x: string | null }): ToolContext =>
-  ({ installationId: c.id, ownInstallationId: c.own, sharedClient: c.shared, xUserId: c.x, matchProjects: NO_MATCH, readerDeps }) as never;
+  ({ installationId: c.id, ownInstallationId: c.own, sharedClient: c.shared, matchProjects: NO_MATCH, readerDeps }) as never;
 
 /** "Add EarnKit to an agent" with X at install: register, authorize (to X), the callback, the token. */
 async function addEarnKit(redirect: string, name: string, user: XUser) {

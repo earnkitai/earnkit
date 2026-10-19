@@ -32,7 +32,7 @@ const person = (n: string): XUser => ({ id: `91${RUN}${[...n].map((c) => c.charC
 const clientFor = (redirect = LOOPBACK, name = 'Claude Code') => registerClient({ redirect_uris: [redirect], client_name: name }).client_id;
 const authorizeReq = (clientId: string, redirect = LOOPBACK, extra: Record<string, string> = {}) =>
   new Request(`https://earnkit.com/oauth/authorize?${new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: redirect, state: 'client-state-1', code_challenge: CHALLENGE, code_challenge_method: 'S256', ...extra })}`);
-const ctxOf = (c: { id: number; own: number; shared: boolean; x: string | null }) => ({ installationId: c.id, ownInstallationId: c.own, sharedClient: c.shared, xUserId: c.x });
+const ctxOf = (c: { id: number; own: number; shared: boolean; x: string | null }) => ({ installationId: c.id, ownInstallationId: c.own, sharedClient: c.shared });
 
 /** authorize (302 to X with the cookie) then X back to the callback, as a browser carries them. */
 async function toCallback(clientId: string, user: XUser, o: { redirect?: string; cookie?: string | null } = {}) {

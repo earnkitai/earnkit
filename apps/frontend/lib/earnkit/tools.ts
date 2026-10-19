@@ -40,7 +40,7 @@ import { recordShown, saveEntryScore } from './match-loop';
 import { repoKey, repoKey as saidKeyOf } from './answer-bank';
 import { outcomeQuestion, outcomeToAsk } from './outcomes';
 import { wonSource } from './stats';
-import { EMAIL_SHARED_NOTE, EMAIL_SIGN_IN, WHICH_EMAIL, askWeeklyEmail, cleanEmail, entryEmail, saveWeeklyEmail } from './digest';
+import { WHICH_EMAIL, askWeeklyEmail, cleanEmail, entryEmail, saveWeeklyEmail } from './digest';
 import { TellInput, emptyMemory, hiddenIds, hiddenPrograms, memoryKey, readMemory, saidKey, tell, type BuilderMemory, type MemoryKey, type SaidRepo } from './builder-memory';
 import { fitRepoOf, newProgramOf, openCuratedRows, repoCanWin, sinceLine, sinceYouLastChecked, takeDeadlineLine, type DeadlineEntry, type FitRepo } from './alerts';
 import {
@@ -112,7 +112,7 @@ import {
   type BuildFields,
   type FreshPick,
 } from './fresh-build';
-import { callerLogin, createVerifyLink, githubVerifyEnabled, installationLogin, loginBasisFor, verifiedEntryIds } from './github-verify';
+import { createVerifyLink, githubVerifyEnabled, installationLogin, loginBasisFor, pageHandle } from './github-verify';
 import { appTokenFor, githubAppEnabled, hasAppProof } from './github-app';
 import { kitReplyNote, submitKit, type SubmitKit } from './submit-kit';
 import {
@@ -170,13 +170,6 @@ export type ToolContext = {
    * only after a yes/no that names them, and the remembered wallet is never suggested.
    */
   sharedClient?: boolean;
-  /**
-   * v2.9 B9, Rulings G6/G7: on a shared client, the GitHub-verified login this call is from
-   * (github-verify.ts callerLogin), set by the tool that reads it; never set by the MCP route.
-   */
-  verifiedLogin?: string | null;
-  /** v2.14: the token's X account (Caller.x); set by the MCP route only, never from agent input. Informative. */
-  xUserId?: string | null;
   /** Test and e2e injection only; never set by the MCP route. */
   tokenDeps?: TokenFlowDeps;
   /** Test and e2e injection only; never set by the MCP route. */
@@ -353,8 +346,6 @@ const PrepareSubmissionInput = ProgramId.extend({
    * reply's `host` carries the sign-in link, an upload URL, or why not.
    */
   host: z.boolean().optional(),
-  /** v2.10 item 15 (Ruling G9): the code a shared client's builder pasted, so their deadline line shows. */
-  signed_in: z.string().max(40).optional(),
 }).strict();
 
 /** v2.8 Ruling 1 (plan): the confirmation step's input. */
@@ -370,8 +361,6 @@ const ConfirmEntryInput = z
     agent: AgentInput.optional(),
     /** v2.8.1 fix round 1: checking back after "launching": a read, never a launch. */
     check_back: z.boolean().optional(),
-    /** v2.9 B9 (Ruling G9): the code a shared client's builder pasted after signing in with GitHub. */
-    signed_in: z.string().max(40).optional(),
   })
   .strict();
 
@@ -421,12 +410,10 @@ async function offerFacts(
 }
 
 /**
- * Ruling G12: the builder a token decline belongs to: '' off shared clients; on a shared client the
- * verified login of the pasted code (memoryKey), else null: nothing is recorded or read, so one
- * user's skips never stop another's offer.
+ * Ruling G12: the builder a token decline belongs to: '' off shared clients; on a shared client null
+ * (memoryKey): nothing is recorded or read, so one user's skips never stop another's offer.
  */
-const declineLogin = (ctx: ToolContext, verifiedLogin?: string | null): string | null =>
-  memoryKey({ ...ctx, verifiedLogin: verifiedLogin ?? ctx.verifiedLogin })?.login ?? null;
+const declineLogin = (ctx: ToolContext): string | null => memoryKey(ctx)?.login ?? null;
 
 /**
  * Ruling G12: records a skip once per offer shown (offerIdentity), for this builder (declineLogin);
@@ -713,8 +700,6 @@ const ListProgramsInput = z
     identity: z.unknown().optional(),
     // v2.8.1 §B6: anything else than a 0x address is ignored with WALLET_IGNORED, never an error.
     wallet: z.unknown().optional(),
-    // v2.9 B9 (Ruling G9): the code a shared client's builder pasted after signing in; never refused.
-    signed_in: z.unknown().optional(),
     // v2.10 item 2: "show more": today's tables instead of the one lead line.
     more: z.boolean().optional(),
     // v2.13.3 (1): an older agent's live link for its project; read only under the Bench (benchIdentity).
@@ -744,7 +729,7 @@ export const WALLET_IGNORED =
  * caller is a shared client. Exported for tests.
  */
 export function listProgramsInput(input: unknown, o: { shared?: boolean } = {}) {
-  const { wallet, agent_can_build, github_user, repos, signed_in, local_git, identity, live_url, ...rest } = ListProgramsInput.parse(input ?? {});
+  const { wallet, agent_can_build, github_user, repos, local_git, identity, live_url, ...rest } = ListProgramsInput.parse(input ?? {});
   const repoList = reportedRepos(repos);
   const localGit = localGitInput(local_git);
   const given = identityInput(identity, localGit);
@@ -765,7 +750,6 @@ export function listProgramsInput(input: unknown, o: { shared?: boolean } = {}) 
     github_user: reportedGithubUser(github_user),
     repos: repoList.length ? repoList : undefined,
     wallet: valid ?? undefined, walletNote: wallet != null && wallet !== '' && !valid ? WALLET_IGNORED : null,
-    signed_in: typeof signed_in === 'string' ? signed_in : undefined,
     local_git: localGit,
     identity: bench.identity,
     project: bench.project };
@@ -812,10 +796,6 @@ export const OUTCOME_SAVED_NOTE = "Saved as the builder's own report. It never s
 /** v2.9 B9: confirm_entry's note with the sign-in line (spec wording). */
 export const SIGN_IN_NOTE =
   'Show the line. When the builder says they signed in, call confirm again with yes: true.';
-/** v2.9 B9 (Ruling G9): on a shared client the sign-in page gives the builder a code for the agent. */
-export const SIGN_IN_CODE_NOTE =
-  'The page gives the builder a code: pass it as signed_in on this and later calls (find, prepare, confirm, tell). ' +
-  'It acts as the builder for 24 hours: never repeat it in your replies.';
 /** v2.9 C12: the agent's note with the hosting sign-in line. */
 export const HOST_SIGN_IN_NOTE =
   'Show host.show_to_builder. When the builder says they signed in, call prepare again with host: true for the upload URL.';
@@ -870,8 +850,8 @@ export const TELL_SHARED_NOTE =
  */
 /**
  * v2.9 E19, Ruling 13 (Pre-flight P16): the weekly email question, added to the reply of a call that
- * recorded an entry, once per installation and only while the email is on. Ruling G21: on a shared
- * client once per verified login (the pasted `signed_in` code), and never without one. `email`: the
+ * recorded an entry, once per installation and only while the email is on. Ruling G21: never on a shared
+ * client (v2.14 final fix: no login can be verified there any more). `email`: the
  * entry's email answer; on a shared client only one this builder typed in this entry (never a saved
  * one the coach offered back, `reused`), so the question names it. Never fails the tool.
  */
@@ -880,11 +860,9 @@ async function withEmailQuestion<T extends { show_to_builder: string; agent_note
   reply: T,
   email: string | null,
   reused: boolean,
-  signedIn: string | undefined,
 ): Promise<T> {
   const shared = Boolean(ctx.sharedClient);
-  const login = shared ? await sharedLogin(ctx, signedIn, 'weekly email') : null;
-  const q = await askWeeklyEmail(ctx.installationId, { shared, email: shared && reused ? null : email, login });
+  const q = await askWeeklyEmail(ctx.installationId, { shared, email: shared && reused ? null : email, login: null });
   if (!q) return reply;
   return {
     ...reply,
@@ -928,47 +906,18 @@ async function alertsFor(
 /**
  * Ruling G7: whether this call may show what the installation remembers (entries, standings,
  * alerts, the outcome question, remembered repos). Never on a shared client, where one hosted
- * installation serves many builders (a GitHub-verified login there sees only its own entries, see
- * sharedLogin). Entries are still recorded.
+ * installation serves many builders. Entries are still recorded.
  */
 const remembers = (ctx: Pick<ToolContext, 'sharedClient'>) => !ctx.sharedClient;
 
 /**
  * v2.10 fix round 1 (I2): who reads a cached App-read repo row: this installation, and on a shared
- * client only the caller's verified login (none without one).
+ * client no one (null: it has no verified caller).
  */
-const appViewer = (ctx: Pick<ToolContext, 'installationId' | 'sharedClient' | 'verifiedLogin'>) => ({
+const appViewer = (ctx: Pick<ToolContext, 'installationId' | 'sharedClient'>) => ({
   installationId: ctx.installationId,
-  login: ctx.sharedClient ? (ctx.verifiedLogin ?? null) : undefined,
+  login: ctx.sharedClient ? null : undefined,
 });
-
-/**
- * v2.9 B9, Rulings G6, G7, G9: on a shared client with GitHub sign-in on, the verified login of the
- * code the builder pasted (`signed_in`, callerLogin), else null. Never fails the tool.
- */
-async function sharedLogin(ctx: Pick<ToolContext, 'installationId' | 'sharedClient'>, signedIn: string | undefined, where: string): Promise<string | null> {
-  if (!ctx.sharedClient || !githubVerifyEnabled() || !signedIn) return null;
-  return callerLogin(ctx.installationId, signedIn).catch((err: unknown) => {
-    console.error(`[${where}] verified login`, err instanceof Error ? err.name : 'error');
-    return null;
-  });
-}
-
-/**
- * v2.10 item 15 (Ruling G7, Review Focus 5): a shared client's entries for the deadline line: only
- * the ones the verified login signed in for; none without a login. Never fails the tool.
- */
-async function loginDeadlineEntries(installationId: number, login: string | null): Promise<DeadlineEntry[]> {
-  if (!login) return [];
-  try {
-    const ids = await verifiedEntryIds(installationId, login);
-    if (ids.length === 0) return [];
-    return (await openEntries(installationId, ids)).map((e) => ({ id: e.id, title: e.title, ends_at: e.ends_at, submitted: e.submitted }));
-  } catch (err) {
-    console.error('[deadline] login entries', err instanceof Error ? err.name : 'error');
-    return [];
-  }
-}
 
 /**
  * v2.10 item 15 (R12): the deadline line, first in show_to_builder (once per entry per UTC day).
@@ -984,14 +933,10 @@ async function withDeadline<T extends object>(installationId: number, result: T,
 /**
  * v2.4 §4: a builder tool's reply opens with "Since you last checked" when there's news (Ruling G7:
  * not on a shared client). v2.10 item 15: show_to_builder starts with the deadline line, from the
- * entries the alerts already read; on a shared client only for the entries of the login the pasted
- * code (`signedIn`) verified, and none without one.
+ * entries the alerts already read; none on a shared client (no verified caller there).
  */
-async function withAlerts<T extends object>(ctx: Pick<ToolContext, 'installationId' | 'sharedClient'>, result: T, signedIn?: string) {
-  if (!remembers(ctx)) {
-    const login = await sharedLogin(ctx, signedIn, 'deadline');
-    return withDeadline(ctx.installationId, result, await loginDeadlineEntries(ctx.installationId, login));
-  }
+async function withAlerts<T extends object>(ctx: Pick<ToolContext, 'installationId' | 'sharedClient'>, result: T) {
+  if (!remembers(ctx)) return result;
   const a = await alertsFor(ctx.installationId);
   const line = sinceLine(a.lines);
   return withDeadline(ctx.installationId, { ...(line && { since_you_last_checked: line }), ...result }, a.entries);
@@ -1074,7 +1019,7 @@ export const handlers = {
   // One answer to "what can I earn?": the builder's projects first, then what's worth building,
   // opening with what changed since their last check.
   list_programs: async (input: unknown, ctx: ToolContext) => {
-    const { agent_can_build, github_user, repos, local_repos, wallet, walletNote, signed_in, more, identity, project } = listProgramsInput(input, { shared: Boolean(ctx.sharedClient) });
+    const { agent_can_build, github_user, repos, local_repos, wallet, walletNote, more, identity, project } = listProgramsInput(input, { shared: Boolean(ctx.sharedClient) });
     // v2.14: an installation joins a page only by signing in with its X (x-install.ts attachToX), so find
     // never asks anyone to join and what the agent reports is only a clue. A shared client has no page (R2).
     const scoring = !ctx.sharedClient;
@@ -1104,14 +1049,12 @@ export const handlers = {
         refresh.started = startRefresh(ctx.installationId, { now, start, reader: ctx.readerDeps });
         await enqueueDiscovery(ctx.installationId, 'first_find');
       })().catch((err: unknown) => console.error('[list_programs] profile', err instanceof Error ? err.name : 'error'));
-    // v2.9 B9, Rulings G6, G7, G9: on a shared client, the GitHub-verified login of the pasted code.
-    const login = await sharedLogin(ctx, signed_in, 'list_programs');
     const [memory, openPrograms, campaigns, told] = await Promise.all([
       checkPrograms(ctx.installationId, { github_user, repos, local_repos }),
       listPrograms(),
       earnkitCampaignRows(ctx.installationId),
-      // v2.9 A3: what the builder told EarnKit, read once per call (G6: a shared client's verified login's).
-      memoryOf(memoryKey({ ...ctx, verifiedLogin: login }), 'list_programs'),
+      // v2.9 A3: what the builder told EarnKit, read once per call (G6: none on a shared client).
+      memoryOf(memoryKey(ctx), 'list_programs'),
     ]);
     // v2.12 spec 9 (R21): only programs an agent can complete for the builder.
     const programs = openPrograms.filter((p) => p.agent_completable !== false);
@@ -1120,15 +1063,13 @@ export const handlers = {
     const { lastCheck } = memory;
     // Ruling G7: a shared client shows nothing the installation remembers (another builder's).
     const own = remembers(ctx);
-    // v2.9 B9 (G7): a verified login there sees only the entries it signed in for.
-    const loginEntries = !own && login ? await verifiedEntryIds(ctx.installationId, login).catch(() => []) : null;
     const workingOn = own ? memory.working_on : [];
-    // Remembered from an earlier call when not given now (G7: a verified login is its own GitHub user).
+    // Remembered from an earlier call when not given now (G7: never on a shared client).
     // v2.12.2: else the login the agent reported (identity), so a program can
     // be tied to one of their repos (a fit only: it confirms nothing).
     const reported = scoring && own && !github_user && !repos?.length && !memory.github_user ? identity.github_login : null;
     const user =
-      github_user ?? (repos?.length ? undefined : own ? (memory.github_user ?? reported ?? undefined) : (login ?? undefined));
+      github_user ?? (repos?.length ? undefined : own ? (memory.github_user ?? reported ?? undefined) : undefined);
     // v2.12.2: matching that only rides on the reported login (the agent asked for nothing) is quiet:
     // its failure is never shown, and it counts as "repos given" only when it found some.
     const quiet = reported !== null && user === reported;
@@ -1171,9 +1112,9 @@ export const handlers = {
         if (matchUser || repoList?.length)
           await enforce('githubMatching', ctx.installationId, GITHUB_LIMITED);
         // v2.10 item 7b (R9): a named repo GitHub won't show is read through the read-only App when
-        // this builder proved it there (G7, G10: on a shared client only the caller's own proof).
+        // this builder proved it there (G7, G10: on a shared client none, null: no verified caller).
         const appOn = githubAppEnabled();
-        const appLogin = ctx.sharedClient ? login : undefined;
+        const appLogin = ctx.sharedClient ? null : undefined;
         const matchDeps: Pick<MatchDeps, 'appToken' | 'verified'> = {
           ...(appOn ? { appToken: (n: string) => appTokenFor({ installationId: ctx.installationId, login: appLogin, repoKey: n.toLowerCase() }) } : {}),
           // v2.12 spec 7: odds from the person's verified users and money, when their public score has them.
@@ -1209,8 +1150,11 @@ export const handlers = {
         // v2.10 item 7b: with the App on, the first repo EarnKit can't see gets its "allow read
         // access" link (an `app` nonce, R8); the reply shows only that one.
         const [first, ...restUnseen] = matched.unseen ?? [];
+        // Final fix 7 (preflight S7): an App link needs the person's page, so a caller with no handle (anonymous
+        // or shared) is never sent to createVerifyLink, which would refuse and log an expected case as an error.
+        const linkable = appOn && (first || matched.fromLocal?.length) ? Boolean(await pageHandle(ctx.installationId)) : false;
         const link =
-          appOn && first
+          linkable && first
             ? await createVerifyLink({ installationId: ctx.installationId, projectId: null, repoKey: first.full_name, purpose: 'app' }).catch(
                 (err: unknown) => {
                   console.error('[list_programs] app link', err instanceof Error ? err.name : 'error');
@@ -1222,7 +1166,7 @@ export const handlers = {
         // Final fix I2 (ledger c1): with the App on and no can't-see link in the reply (one link, one
         // ask), the first private repo matched from the local view with no App proof yet gets the link
         // on its own line, once.
-        if (appOn && !first && matched.fromLocal?.length) {
+        if (linkable && !first && matched.fromLocal?.length) {
           let localLink: { full_name: string; link: string } | null = null;
           for (const l of matched.fromLocal) {
             if (await hasAppProof({ installationId: ctx.installationId, login: appLogin, repoKey: l.full_name })) continue;
@@ -1266,11 +1210,7 @@ export const handlers = {
     }
 
     // The builder's campaign entries: rank (or the sponsor campaign's state), prize once paid.
-    const yourEntries = own
-      ? await yourCampaignEntries(ctx.installationId)
-      : loginEntries?.length
-        ? await yourCampaignEntries(ctx.installationId, loginEntries)
-        : [];
+    const yourEntries = own ? await yourCampaignEntries(ctx.installationId) : [];
     // EarnKit campaign standings are in the campaigns table; only sponsor entries get a section.
     const entries = presentYourEntries(
       yourEntries.filter((e) => e.campaign.kind === 'sponsor'),
@@ -1284,7 +1224,7 @@ export const handlers = {
 
     const withPools = cards;
     // v2.8.1 §B9: "Your entries" and the "entered" marks; never fails the tool (none on an error).
-    const myEntries = !own && !loginEntries?.length ? [] : await openEntries(ctx.installationId, loginEntries ?? undefined).catch((err: unknown) => {
+    const myEntries = !own ? [] : await openEntries(ctx.installationId).catch((err: unknown) => {
       console.error('[list_programs] entries', err instanceof Error ? err.name : 'error');
       return [];
     });
@@ -1320,7 +1260,7 @@ export const handlers = {
     const signedOut = scoring && profiled && !more
       ? await signedOutNow(ctx.installationId, ctx.ownInstallationId ?? ctx.installationId).catch(() => false)
       : false;
-    const ask = signedOut || (!own && !loginEntries?.length) ? null : await outcomeToAsk(ctx.installationId, undefined, loginEntries ?? undefined).catch((err: unknown) => {
+    const ask = signedOut || !own ? null : await outcomeToAsk(ctx.installationId).catch((err: unknown) => {
       console.error('[list_programs] outcome ask', err instanceof Error ? err.name : 'error');
       return null;
     });
@@ -1457,7 +1397,7 @@ export const handlers = {
   // v2.11 T10: `join` (the build path only, from prepare): the live and deployed lines go before the
   // confirm line in one reply, with the build's wallet; no guide (the builder said yes to the lead).
   prepare_submission: async (input: unknown, ctx: ToolContext, join?: BuildJoin) => {
-    const { program_id, agent, coach_asked, host, signed_in, ...known } = PrepareSubmissionInput.parse(input);
+    const { program_id, agent, coach_asked, host, ...known } = PrepareSubmissionInput.parse(input);
     const program = await getProgramRow(program_id);
     const hosting = host ? await hostBlock(ctx, known.project?.repo_url ?? known.answers?.repo_url, known.project?.name) : null;
     // Campaign entries reach the sponsor: check the name and description now, as record_submission will.
@@ -1583,7 +1523,7 @@ export const handlers = {
         }),
         ...(token && { token }),
         ...(hosting && { host: hosting }),
-      }, signed_in);
+      });
 
     // v2.8 Part D, Ruling 26 (plan): the coach. Every answer so far (the agent's draft, the bank and
     // the project info); then at most 3 questions (1 once the project has banked answers) for what
@@ -1633,7 +1573,7 @@ export const handlers = {
         missing: checkedPrep.missing,
         agent_note: askWallet ? `${QUESTIONS_NOTE} ${WALLET_ANSWER_NOTE}` : QUESTIONS_NOTE,
         ...(hosting && { host: hosting }),
-      }), signed_in);
+      }));
 
     // v2.8 Part C, Ruling 4 (plan): other programs. Once ready, the draft, the check's fixes and the
     // confirmation offer (the builder bonus comes with a token) close the screen; the kit comes only
@@ -1748,7 +1688,7 @@ export const handlers = {
       ...(notes.length > 0 && { agent_note: notes.join(' ') }),
       ...(join && { entry: { project: known.project ?? {}, answers: known.answers ?? {} } }),
       ...(hosting && { host: hosting }),
-    }), signed_in);
+    }));
   },
 
   // v2.8 Part C, Rulings 1, 4, 5 and 7 (plan): the confirmation step. Without the builder's yes it
@@ -1792,8 +1732,8 @@ export const handlers = {
     const canPush = i.agent?.can_push !== false;
     // v2.14 spec 2: the read-only App proves the repo, so with it on an agent that can't push still offers and launches the token.
     const signIn = githubAppEnabled();
-    // Ruling G12: whose token declines count (a shared client: the pasted code's login, else none).
-    const declinedBy = declineLogin(ctx, ctx.sharedClient ? await sharedLogin(ctx, i.signed_in, 'confirm_entry') : undefined);
+    // Ruling G12: whose token declines count (a shared client: none).
+    const declinedBy = declineLogin(ctx);
     const facts = await offerFacts(program, repoUrl, ctx, declinedBy);
     // v2.12.1 T10 (spec 3b): no token unless it is pitched here: a yes records only.
     const belowScore = !(await tokenPitch(ctx, program.id, repoUrl));
@@ -1943,8 +1883,7 @@ export const handlers = {
           wallet: given,
           deadline,
           checkBack: i.check_back === true,
-          // Rulings G8, G9: on a shared client only the sign-in of the code this builder pasted counts.
-          verifiedLogin: ctx.sharedClient ? await sharedLogin(ctx, i.signed_in, 'confirm_entry') : undefined,
+          sharedClient: Boolean(ctx.sharedClient),
         },
         ctx.tokenDeps,
       );
@@ -2018,7 +1957,6 @@ export const handlers = {
       },
       email,
       Object.values(banked.suggested).some((v) => cleanEmail(v) === email),
-      i.signed_in,
     );
   },
 
@@ -2103,8 +2041,7 @@ export const handlers = {
         // read here (the agent echoes prepare_submission's shown_wallet). None: no coin yet.
         givenWallet: 'campaign_entry' in result ? null : (parsed.payout_wallet?.trim() || null),
         checkBack: parsed.check_back === true,
-        // Rulings G9, G10: on a shared client only the sign-in of the code this builder pasted counts.
-        verifiedLogin: ctx.sharedClient ? await sharedLogin(ctx, parsed.signed_in, 'record_submission') : undefined,
+        sharedClient: Boolean(ctx.sharedClient),
       },
       ctx.tokenDeps,
       deadline,
@@ -2118,11 +2055,11 @@ export const handlers = {
       const reused =
         Boolean(ctx.sharedClient && email) &&
         (await bankedEmail(ctx.installationId, projectKey({ repo_url: parsed.project.repo_url ?? submitted.repo_url, name: parsed.project.name }))) === email;
-      return withEmailQuestion(ctx, reply, email, reused, parsed.signed_in);
+      return withEmailQuestion(ctx, reply, email, reused);
     };
     // Campaign entries carry their own table (enteredTable).
     if ('show_to_builder' in result && result.show_to_builder)
-      return withAlerts(ctx, await askEmail({ ...result, show_to_builder: result.show_to_builder, token }), parsed.signed_in);
+      return withAlerts(ctx, await askEmail({ ...result, show_to_builder: result.show_to_builder, token }));
     // v2.6 §3: outside campaigns, the reply the builder sees: the coin.
     const tokenOut = token.no_wallet
       ? // Ruling 31's split here too: plain note, the instruction (NO_COIN_YET) for the agent.
@@ -2164,7 +2101,6 @@ export const handlers = {
         show_to_builder,
         ...(also?.rows.length && { also_qualifies: also.rows }),
       }),
-      parsed.signed_in,
     );
   },
 
@@ -2172,26 +2108,21 @@ export const handlers = {
   // repos: chains, live link, users, not theirs). It replaced report_outcome; list_programs stays read-only.
   // Ruling G6: on a shared client nothing about programs or repos is kept (memoryKey null).
   tell_earnkit: async (input: unknown, ctx: ToolContext) => {
-    // v2.9 B9 (G6, G9): on a shared client, statements are kept only under the verified login of
-    // the code the builder pasted.
     const told = TellInput.safeParse(input);
     const weekly = told.success ? told.data.weekly_email : undefined;
     // v2.9 E19 (Ruling 13): the weekly email answer alone stores no program or repo statement.
     const onlyEmail = weekly !== undefined && !told.data?.program_status?.length && !told.data?.repo_facts?.length;
-    const login = told.success ? await sharedLogin(ctx, told.data.signed_in, 'tell_earnkit') : null;
-    const key = memoryKey({ ...ctx, verifiedLogin: login });
+    const key = memoryKey(ctx);
     const { saved, outcomes } = onlyEmail
       ? { saved: [] as string[], outcomes: 0 }
       : await tell(ctx.installationId, input as Parameters<typeof tell>[1], undefined, key);
-    // Ruling G21: only the caller's own subscription (a shared client's verified login; none without a code).
-    const mail = weekly ? await saveWeeklyEmail(ctx.installationId, weekly, { shared: Boolean(ctx.sharedClient), login }) : null;
+    // Ruling G21: only the caller's own subscription (none on a shared client).
+    const mail = weekly ? await saveWeeklyEmail(ctx.installationId, weekly, { shared: Boolean(ctx.sharedClient), login: null }) : null;
     if (mail?.saved) saved.push(`weekly email: ${weekly!.answer === 'yes' ? 'on' : 'off'}`);
     const mailNote =
       mail?.show_to_builder === WHICH_EMAIL
         ? "Ask the builder which email to use, then call tell again with weekly_email: { answer: 'yes', email }."
-        : mail?.show_to_builder === EMAIL_SIGN_IN
-          ? EMAIL_SHARED_NOTE
-          : null;
+        : null;
     const show = [!onlyEmail && key === null ? NOTED_FOR_NOW : null, mail?.show_to_builder ?? null].filter(Boolean).join(' ');
     const note = onlyEmail ? 'Show show_to_builder.' : key === null ? TELL_SHARED_NOTE : TELL_SAVED_NOTE;
     return {
@@ -2208,22 +2139,17 @@ export const handlers = {
     if (parsed.offer) throw new EntryError(OFFER_GONE);
     // v2.12.1 T10: no new token where none is pitched (tokenPitch; campaigns aside).
     if (parsed.project_id !== undefined && !parsed.check_back && (await tokenHeld(ctx, parsed.project_id)))
-      return withAlerts(ctx, { status: 'skipped', project_id: parsed.project_id, note: NO_TOKEN_HERE, show_to_builder: NO_TOKEN_HERE }, parsed.signed_in);
+      return withAlerts(ctx, { status: 'skipped', project_id: parsed.project_id, note: NO_TOKEN_HERE, show_to_builder: NO_TOKEN_HERE });
     const out = await launchToken(
       parsed,
       ctx.installationId,
       ctx.tokenDeps,
       // v2.8.1 §A5: the reply comes within 50 s; a deploy still running then answers "launching".
       Date.now() + launchReplyMs(),
-      // Rulings G8, G9: on a shared client only the sign-in of the code this builder pasted counts.
-      ctx.sharedClient ? await sharedLogin(ctx, parsed.signed_in, 'launch_token') : undefined,
+      Boolean(ctx.sharedClient),
     );
     // v2.14 spec 2: an unproven repo's reason carries the App's install link (token-gate.ts appInstallReason).
-    return withAlerts(
-      ctx,
-      out,
-      parsed.signed_in,
-    );
+    return withAlerts(ctx, out);
   },
 } satisfies Record<
   string,
@@ -2276,7 +2202,7 @@ export const deployWalletLine = (name: string) => `Send me the wallet that shoul
  */
 async function deployStep(
   d: z.infer<typeof DeployField>,
-  prep: { project?: { name?: string; repo_url?: string }; answers?: Record<string, string>; signed_in?: string },
+  prep: { project?: { name?: string; repo_url?: string }; answers?: Record<string, string> },
   ctx: ToolContext,
   /**
    * v2.11 T9: the build path's starter (the deployed event names it only for its own bytecode) and its
@@ -2314,13 +2240,11 @@ async function deployStep(
       agent_note: 'That wallet is a public test account (anvil or Hardhat): anyone can spend from it. Pass deploy.owner_wallet with the builder\'s own wallet.',
     };
   }
-  // Fix round 1 (I6): a shared client's caller login; else the installation's verified login (limits only).
+  // Fix round 1 (I6): the installation's verified login (limits only); a shared client has none (v2.14 final fix:
+  // its pasted sign-in code is gone, and deployForBuilder refuses it: no person, no proof).
   let login: string | null;
   try {
-    // Final fix M3: callerLogin directly (sharedLogin swallows a failed read), so N6 holds here too.
-    login = shared
-      ? await (ctx.deployDeps?.callerLogin ?? callerLogin)(ctx.installationId, prep.signed_in)
-      : await (ctx.deployDeps?.installationLogin ?? installationLogin)(ctx.installationId);
+    login = shared ? null : await (ctx.deployDeps?.installationLogin ?? installationLogin)(ctx.installationId);
   } catch (err) {
     // Fix round 2 (N6): no login read, no deploy (never a fresh per-installation key).
     console.error('[prepare] deploy login', err instanceof Error ? err.name : 'error');
@@ -2915,7 +2839,6 @@ export const ConfirmInput = z
     token: z.object({ name: z.string().max(200).optional(), symbol: z.string().max(20).optional() }).strict().optional(),
     wallet: z.string().optional(),
     agent: AgentInput.optional(),
-    signed_in: z.string().max(40).optional(),
     image_data: z.string().optional(),
     image_url: z.string().optional(),
     builder_x: z.string().optional(),
@@ -2982,7 +2905,6 @@ export const TellToolInput = z
     program_status: z.unknown().optional(),
     repo_facts: z.unknown().optional(),
     weekly_email: z.unknown().optional(),
-    signed_in: z.string().max(40).optional(),
   })
   .strict();
 
@@ -3103,24 +3025,15 @@ export function eligibilityLine(repo: string, e: unknown): string | null {
   return null;
 }
 
-/** R16: a shared client's "I submitted" without the entry's project_id: nothing is written. */
+/** R16: a shared client's "I submitted": nothing is written (v2.14 final fix: no caller can be verified there). */
 export const SUBMITTED_SHARED_NOTE =
-  "Nothing saved: this agent serves many builders, so pass signed_in (the code from the builder's GitHub sign-in) and the entry's project_id (from confirm's reply) with submitted.";
+  "Nothing saved: this agent serves many builders, so EarnKit can't tell whose entry this is. The builder can mark it submitted on the program's site.";
 
 /** tell's `submitted` (R16): the entry and its saved answers, then record_submission with builder_submitted. */
-async function markSubmitted(s: NonNullable<z.infer<typeof TellToolInput>['submitted']>, signedIn: string | undefined, ctx: ToolContext) {
-  const done = defined({ external_submission_url: s.external_submission_url, builder_submitted: true, signed_in: signedIn });
-  const noted = { show_to_builder: NOTED_FOR_NOW, agent_note: SUBMITTED_SHARED_NOTE };
-  // Rulings G7, G9 (fix round 1, I2): on a shared client only an entry the pasted code's verified
-  // login signed in for, named by its project_id; anything else is noted and nothing is written or read.
-  if (ctx.sharedClient) {
-    const login = s.project_id === undefined ? null : await sharedLogin(ctx, signedIn, 'tell');
-    const ids = login ? await verifiedEntryIds(ctx.installationId, login).catch(() => [] as number[]) : [];
-    if (!ids.includes(s.project_id!)) return noted;
-    const entry = await submittedEntry(ctx.installationId, s.program_id, s.project_id, ids);
-    if (!entry) return noted;
-    return handlers.record_submission({ program_id: s.program_id, project: entry.project, submission_data: entry.answers, ...done }, ctx);
-  }
+async function markSubmitted(s: NonNullable<z.infer<typeof TellToolInput>['submitted']>, ctx: ToolContext) {
+  const done = defined({ external_submission_url: s.external_submission_url, builder_submitted: true });
+  // Rulings G7, G9 (fix round 1, I2): on a shared client nothing is written or read (no verified caller).
+  if (ctx.sharedClient) return { show_to_builder: NOTED_FOR_NOW, agent_note: SUBMITTED_SHARED_NOTE };
   // Pre-flight P15: an old call's own project and answers (record_submission finds or makes its entry).
   if (s.project_id === undefined && s.project)
     return handlers.record_submission({ program_id: s.program_id, project: s.project, submission_data: s.submission_data ?? {}, ...done }, ctx);
@@ -3156,9 +3069,9 @@ export function withoutTokenLine(text: unknown): unknown {
 
 type ConfirmArgs = z.infer<typeof ConfirmInput>;
 
-/** Fix round 2 (I-b): a shared client's confirm by project_id without the entry's verified login. */
+/** Fix round 2 (I-b): a shared client's confirm by project_id (v2.14 final fix: no caller can be verified there). */
 export const CONFIRM_SHARED_NOTE =
-  "Nothing done: this agent serves many builders, so pass signed_in (the code from the builder's GitHub sign-in) with this entry's project_id.";
+  "Nothing done: this agent serves many builders, so EarnKit can't tell whose entry this is.";
 
 /** Fix round 2 (I-a): the agent's note when a launch by project_id was not what the confirm line showed. */
 export const PROJECT_REOFFER_NOTE =
@@ -3167,20 +3080,15 @@ export const PROJECT_REOFFER_NOTE =
 
 /**
  * v2.10 item 4, fix round 2: `confirm` with `project_id` (v2.9 launch_token).
- * - I-b (Rulings G7, G9): on a shared client only an entry the pasted code's verified login signed in
- *   for; anything else is noted, and nothing of the entry is changed (links, completeness) or read
- *   (its token status).
+ * - I-b (Rulings G7, G9): on a shared client it is noted, and nothing of the entry is changed (links,
+ *   completeness) or read (its token status).
  * - I-a (Ruling G13, §A2): a launch takes exactly the name, ticker and wallet the entry's confirm line
  *   showed (token_offers); another pair or wallet, or none shown, is the confirm line again and
  *   nothing launches. A check, an entry with its token (or pending), a skipped entry (refused by
  *   launch_token) and a dormant EarnKit campaign entry (v2.9 one step) go straight to launch_token.
  */
 async function confirmByProjectId(c: ConfirmArgs & { project_id: number }, ctx: ToolContext) {
-  if (ctx.sharedClient) {
-    const login = await sharedLogin(ctx, c.signed_in, 'confirm');
-    const ids = login ? await verifiedEntryIds(ctx.installationId, login).catch(() => [] as number[]) : [];
-    if (!ids.includes(c.project_id)) return { show_to_builder: NOTED_FOR_NOW, agent_note: CONFIRM_SHARED_NOTE };
-  }
+  if (ctx.sharedClient) return { show_to_builder: NOTED_FOR_NOW, agent_note: CONFIRM_SHARED_NOTE };
   if (c.skip_token) return { status: 'skipped', note: NO_TOKEN_FOR_NOW, show_to_builder: NO_TOKEN_FOR_NOW };
   const image = defined({ image_data: c.image_data, image_url: c.image_url, builder_x: c.builder_x });
   const launch = (pair: { name?: string; symbol?: string }) =>
@@ -3195,7 +3103,6 @@ async function confirmByProjectId(c: ConfirmArgs & { project_id: number }, ctx: 
         live_url: c.project?.live_url,
         repo_url: c.project?.repo_url,
         agent: c.agent,
-        signed_in: c.signed_in,
       }),
       ctx,
     );
@@ -3215,7 +3122,6 @@ async function confirmByProjectId(c: ConfirmArgs & { project_id: number }, ctx: 
         answers: answersOf(saved?.answers ?? {}),
         wallet: c.wallet,
         agent: c.agent,
-        signed_in: c.signed_in,
         builder_confirmed: true,
         decision: 'go' as const,
       }),
@@ -3241,7 +3147,6 @@ async function confirmByProjectId(c: ConfirmArgs & { project_id: number }, ctx: 
       token: c.token,
       wallet: c.wallet,
       agent: c.agent,
-      signed_in: c.signed_in,
     }),
     ctx,
   )) as Reply;
@@ -3270,7 +3175,7 @@ async function buildWalletAgain(c: ConfirmArgs & { program_id: string; wallet: s
   const shown = await readShownOffer(ctx.installationId, c.program_id, offerKey(repoUrl, name)).catch(() => null);
   if (shown?.wallet && shown.wallet === c.wallet.trim().toLowerCase()) return null;
   const offer = (await handlers.confirm_entry(
-    defined({ program_id: c.program_id, project: c.project, answers: c.answers, token: c.token, wallet: c.wallet, agent: c.agent, signed_in: c.signed_in }),
+    defined({ program_id: c.program_id, project: c.project, answers: c.answers, token: c.token, wallet: c.wallet, agent: c.agent }),
     ctx,
   )) as Reply;
   return { ...offer, agent_note: BUILD_WALLET_NOTE };
@@ -3384,7 +3289,6 @@ export const tools = {
           contracts: c.contracts,
           deployer_signature: c.deployer_signature,
           check_back: c.check || undefined,
-          signed_in: c.signed_in,
           ...(c.submitted && { builder_submitted: true, external_submission_url: c.submitted.external_submission_url }),
         }),
         ctx,
@@ -3403,7 +3307,6 @@ export const tools = {
         token: c.token,
         wallet: c.wallet,
         agent: c.agent,
-        signed_in: c.signed_in,
         builder_confirmed: c.yes || c.skip_token ? true : undefined,
         decision: c.skip_token ? 'skip' : c.yes ? 'go' : undefined,
         check_back: c.check || undefined,
@@ -3418,7 +3321,7 @@ export const tools = {
     // to send it again.
     if (!('kit' in confirmed) || typeof confirmed.project_id !== 'number')
       return { ...confirmed, agent_note: [confirmed.agent_note, SUBMITTED_AGAIN_NOTE].filter(Boolean).join(' ') };
-    const marked = (await markSubmitted({ program_id: c.program_id, project_id: confirmed.project_id, external_submission_url: c.submitted.external_submission_url }, c.signed_in, ctx)) as Reply;
+    const marked = (await markSubmitted({ program_id: c.program_id, project_id: confirmed.project_id, external_submission_url: c.submitted.external_submission_url }, ctx)) as Reply;
     // The confirmation's reply (its kit and token) wins; the submitted mark adds its lines, without a
     // second token line (the confirmation's said it).
     const joined = joinReplies([confirmed, { ...marked, show_to_builder: withoutTokenLine(marked.show_to_builder) }]);
@@ -3429,7 +3332,7 @@ export const tools = {
   tell: async (input: unknown, ctx: ToolContext) => {
     // v2.12.1 T8: x_handle is no longer taken with the flag on (the page's handle is the X claim's);
     // it is ignored.
-    const { submitted, signed_in, profile, x_handle, card, move_up, coin, update, updates, ...rest } = TellToolInput.parse(input ?? {});
+    const { submitted, profile, x_handle, card, move_up, coin, update, updates, ...rest } = TellToolInput.parse(input ?? {});
     void x_handle;
     const statements = defined(rest);
     const replies: Reply[] = [];
@@ -3460,16 +3363,16 @@ export const tools = {
     }
     // v2.13.1 O2 (B6): "not mine" on the one project, while it isn't Bench-confirmed, clears it. Fix
     // round 1 (minor): only for input tell_earnkit's own schema (TellInput) accepts.
-    const facts = !ctx.sharedClient && statements.repo_facts !== undefined ? TellInput.safeParse(defined({ ...statements, signed_in })) : null;
+    const facts = !ctx.sharedClient && statements.repo_facts !== undefined ? TellInput.safeParse(defined({ ...statements })) : null;
     for (const f of facts?.success ? (facts.data.repo_facts ?? []) : [])
       if (f.not_mine === true) {
         await dropMainProject(ctx.installationId, saidKey(f.repo)).catch((err: unknown) =>
           console.error('[tell] not mine', err instanceof Error ? err.name : 'error'),
         );
       }
-    if (submitted) replies.push((await markSubmitted(submitted, signed_in, ctx)) as Reply);
+    if (submitted) replies.push((await markSubmitted(submitted, ctx)) as Reply);
     if (Object.keys(statements).length > 0 || replies.length === 0)
-      replies.push((await handlers.tell_earnkit(defined({ ...statements, signed_in }), ctx)) as Reply);
+      replies.push((await handlers.tell_earnkit(defined({ ...statements }), ctx)) as Reply);
     return joinReplies(replies);
   },
 

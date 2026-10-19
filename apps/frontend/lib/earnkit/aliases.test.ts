@@ -40,7 +40,8 @@ test('9.4 record_submission: builder_submitted is tell.submitted; builder_confir
     aliasCall('record_submission', { program_id, project, submission_data: { ...answers, chains: ['base', 'arc'], none: null }, builder_confirmed: true, payout_wallet: W, contracts: ['0xab'], signed_in: 'CODE' }, NOW),
     {
       name: 'confirm',
-      args: { program_id, project, contracts: ['0xab'], signed_in: 'CODE', answers: { ...answers, chains: 'base, arc' }, wallet: W, yes: true },
+      // v2.14 final fix: an old agent's signed_in is dropped (the shared client's sign-in code is gone).
+      args: { program_id, project, contracts: ['0xab'], answers: { ...answers, chains: 'base, arc' }, wallet: W, yes: true },
     },
   );
   // token 'skip' (fix round 1, I3; P15a): without builder_confirmed it is only the confirm line, never a

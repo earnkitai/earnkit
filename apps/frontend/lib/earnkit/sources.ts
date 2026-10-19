@@ -4,17 +4,13 @@ import { profileCodesIn } from './discovery-clues';
 import { noteEvent } from './events';
 import { REPOS_MAX, readAppRepos, readGithubRepos, type PersonRepo } from './person-github';
 import { countingDeps, flushReadUsage } from './read-usage';
-import { NPM_BULK_MAX, isBudgetStop, isoWeek, readCoin, readContract, readNpm, readNpmBulk, readPypi, readRepo, readSite, type PackageSignals, type PrSignals, type ReaderDeps, type RepoSignals } from './source-readers';
+import { NPM_BULK_MAX, isBudgetStop, isoWeek, readCoin, readContract, readNpm, readNpmBulk, readPypi, readRepo, readSite, type PackageSignals, type PrSignals, type ReaderDeps } from './source-readers';
 
 /** spec 6: at most this many sources are read a run (oldest first). */
 export const READS_PER_RUN = 200;
 
 /** v2.12 spec 2: a person's sources and their daily readings. Only the server verifies (owner rule 1). */
 export type Proof = 'github_signin' | 'proof_line' | 'repo_owner' | 'deployer' | 'deploy_wallet' | 'earnkit_txt' | 'dns_txt' | 'repo_link' | 'proof_branch' | 'github_app';
-
-/** Their own non-fork, non-template, never-derived repo; someone else's only when it is an organization's and they are its top contributor. */
-export const repoOwned = (s: RepoSignals, login: string, topContributor: boolean, everDerived: boolean) =>
-  !s.fork && !s.template && !everDerived && (s.owner === login.toLowerCase() || (topContributor && s.owner_type === 'Organization'));
 
 const repoKeyOf = (url: string | null) => url?.replace(/^https:\/\/github\.com\//, '').toLowerCase() ?? null;
 export const packageOwned = (p: PackageSignals, verifiedRepos: ReadonlySet<string>) => {

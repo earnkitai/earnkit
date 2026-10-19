@@ -322,12 +322,6 @@ export function issueCode(req: PendingAuthorize, x: XUser | null, issuer?: strin
   return back;
 }
 
-/** The anonymous approval (shared clients, X off): checkAuthorize then a code with no X user. */
-export function authorize(params: URLSearchParams, issuer?: string): URL {
-  const c = checkAuthorize(params);
-  return 'error' in c ? c.error : issueCode(c.req, null, issuer);
-}
-
 /**
  * Exchanges a code for the installation token and its client's key. The token is derived from the
  * code, so replaying a code yields the same token; the client key makes re-authorizing the same
