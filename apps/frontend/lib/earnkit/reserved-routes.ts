@@ -5,8 +5,8 @@
  * top-level route fails the suite until it is added here. Pure, import-free.
  */
 export const RESERVED_ROUTES: ReadonlySet<string> = new Set([
-  // app/ directories (components and lib have no page but are kept out of the handle space too)
-  '.well-known', 'admin', 'api', 'b', 'bench', 'bonus', 'campaigns', 'claim', 'components', 'feed', 'github', 'leaderboard', 'lib', 'mcp', 'oauth', 'p', 'programs', 'signin', 'terms', 'x',
+  // app/ directories (components, fonts and lib have no page but are kept out of the handle space too)
+  '.well-known', 'admin', 'api', 'b', 'bench', 'bonus', 'campaigns', 'claim', 'components', 'feed', 'fonts', 'github', 'leaderboard', 'lib', 'mcp', 'oauth', 'p', 'programs', 'signin', 'terms', 'x',
   // app/ file routes and Next metadata names
   'favicon', 'sitemap', 'robots', 'manifest', 'icon', 'apple-icon', 'opengraph-image', 'twitter-image', '_next',
   // public/ (extension dropped)

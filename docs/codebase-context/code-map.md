@@ -1756,3 +1756,7 @@ under `EARNKIT_RAISING` (`moveUpAnswer` goes to `benchMoveUp`); `builder-score.t
 both fee splits; `app/llms.txt/route.ts` replaces `public/llms.txt`; `schema.sql` adds
 `builder_profiles.main_project_key/updates_on_at`, `project_updates`, `builder_projects.chains/streak/
 weeks_shipping`, `projects.raising_at/coin_tx/coin_chain_id`, `programs.pitch` and the new event types.
+
+v2.14 T10: `app/layout.tsx` loads Funnel Display and Funnel Sans through `next/font/local` from `app/fonts/*.woff2`
+(SIL OFL 1.1, `app/fonts/OFL.txt`), same `--font-funnel-display`/`--font-funnel-sans` variables; no Google fetch at
+build. `fonts` is in `reserved-routes.ts` (the folder has no page).
