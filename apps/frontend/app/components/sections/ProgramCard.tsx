@@ -29,7 +29,8 @@ export default function ProgramCard({ tile: t }: { tile: Tile }) {
       {t.prize_note && <p className="mt-1 font-funnel-sans text-sm text-ek-muted">{t.prize_note}</p>}
 
       <div className="mt-auto flex flex-wrap items-center gap-2 pt-6">
-        <span className={CHIP}>{t.days_left}</span>
+        {/* Launch ready L10: chips start with a capital, as the difficulty chip does ("Rolling", "12 days left"). */}
+        <span className={CHIP}>{t.days_left.charAt(0).toUpperCase() + t.days_left.slice(1)}</span>
         {/* NO_CELL: no difficulty, no chip. no-cell.ts has no imports, so this stays client-safe. */}
         {t.difficulty !== NO_CELL && <span className={CHIP}>{t.difficulty}</span>}
       </div>

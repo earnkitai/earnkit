@@ -42,7 +42,7 @@ test('Codex: codex mcp add with the EarnKit URL, then log in', () => {
   assert.ok(cx.code?.startsWith('codex mcp add earnkit'), cx.code);
   assert.ok(cx.code?.includes('https://earnkit.com/mcp'));
   assert.equal(cx.code, CODEX);
-  assert.equal(cx.after, 'Then run codex mcp login earnkit.');
+  assert.equal(cx.after, 'Then sign in:');
   // Fix round 1: the login command can be copied too.
   assert.equal(cx.afterCode, 'codex mcp login earnkit');
   const src = readFileSync(join(FRONTEND, 'app/components/sections/AddToAgent.tsx'), 'utf8');

@@ -28,14 +28,18 @@ export default function BenchRowItem({ r }: { r: BenchRow }) {
           >
             {r.name}
           </Link>
-          {/* Phone: the @handle on its own line; beside the name from sm. */}
-          {r.name !== `@${r.handle}` && <span className="w-full min-w-0 font-funnel-sans text-sm text-ek-muted [overflow-wrap:break-word] sm:w-auto">@{r.handle}</span>}
-          {r.chains.length > 0 && (
-            // Above the row's link, so each logo's tooltip shows.
-            <span className="relative z-10 inline-flex items-center gap-1">
-              {r.chains.map((c) => (
-                <ChainLogo key={c} chain={c} size={18} />
-              ))}
+          {/* Phone: the @handle and chain logos on their own line; beside the name from sm (launch ready L10: one line, not two). */}
+          {(r.name !== `@${r.handle}` || r.chains.length > 0) && (
+            <span className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
+              {r.name !== `@${r.handle}` && <span className="min-w-0 font-funnel-sans text-sm text-ek-muted [overflow-wrap:break-word]">@{r.handle}</span>}
+              {r.chains.length > 0 && (
+                // Above the row's link, so each logo's tooltip shows.
+                <span className="relative z-10 inline-flex shrink-0 items-center gap-1">
+                  {r.chains.map((c) => (
+                    <ChainLogo key={c} chain={c} size={18} />
+                  ))}
+                </span>
+              )}
             </span>
           )}
           {r.raising && (
@@ -44,11 +48,11 @@ export default function BenchRowItem({ r }: { r: BenchRow }) {
             </span>
           )}
         </div>
-        {/* Phone: the project and its best fact on two lines; one line from sm. R11: never cut, long names wrap. */}
+        {/* The project and its best fact on one line (wrapping at spaces). R11: never cut, long names wrap. */}
         <p className="mt-1 font-funnel-sans text-sm text-ek-muted [overflow-wrap:break-word]">
-          <span className="block text-ek-body sm:inline">{r.project}</span>
-          <span aria-hidden="true" className="hidden px-1.5 text-ek-muted sm:inline">·</span>
-          <span className="block sm:inline">{r.best}</span>
+          <span className="text-ek-body">{r.project}</span>
+          <span aria-hidden="true" className="px-1.5 text-ek-muted">·</span>
+          <span>{r.best}</span>
         </p>
       </div>
       {/* R17: the Shipping points, one compact column. */}

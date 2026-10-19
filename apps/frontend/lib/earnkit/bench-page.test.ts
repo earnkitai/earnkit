@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
 import { WEEKLY_STREAK, benchRows, bestFact, filterHref, parseBenchFilter } from './bench-data';
 import { pillOf } from './raising';
-import BenchView, { BENCH_EMPTY, BENCH_TITLE, FILTER_WEEKLY } from '../../app/leaderboard/BenchView';
+import BenchView, { BENCH_EMPTY, BENCH_SHOW_ALL, BENCH_TITLE, FILTER_WEEKLY } from '../../app/leaderboard/BenchView';
 
 /** v2.13 T10 (spec "The Bench", R4, R9, R14): the rows, the URL filters, the /leaderboard redirect. */
 
@@ -115,6 +115,9 @@ test('10.4 the row: photo, name, @handle, pill, chain logos with the name as alt
   const off = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 25, chips: ['base'], filter: { chain: 'base', weekly: false } }));
   assert.match(link(off, '/leaderboard?chain=base&amp;weekly=1'), /aria-pressed="false"/);
   // v2.13.2 fix 1: a filtered view with no rows (others ranked) says BENCH_EMPTY; nobody ranked, only the header's empty line.
-  assert.ok(renderToStaticMarkup(React.createElement(BenchView, { rows: [], count: 3, chips: [], filter: { chain: 'base', weekly: false } })).includes(BENCH_EMPTY));
+  const filtered = renderToStaticMarkup(React.createElement(BenchView, { rows: [], count: 3, chips: [], filter: { chain: 'base', weekly: false } }));
+  assert.ok(filtered.includes(BENCH_EMPTY));
+  // Launch ready L10: the way back from an empty filter is one link to everyone.
+  assert.ok(filtered.includes(`href="/leaderboard">${BENCH_SHOW_ALL}</a>`), filtered);
   assert.ok(!renderToStaticMarkup(React.createElement(BenchView, { rows: [], count: 0, chips: [], filter: { chain: 'base', weekly: false } })).includes(BENCH_EMPTY));
 });

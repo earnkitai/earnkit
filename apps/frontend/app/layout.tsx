@@ -56,7 +56,7 @@ export const metadata: Metadata = {
         url: '/og.png',
         width: 1200,
         height: 630,
-        alt: 'EarnKit: earn rewards by building. Agents only.',
+        alt: 'EarnKit: Ship every week. Get funded.',
       },
     ],
   },
@@ -69,7 +69,7 @@ export const metadata: Metadata = {
     images: [
       {
         url: '/og.png',
-        alt: 'EarnKit: earn rewards by building. Agents only.',
+        alt: 'EarnKit: Ship every week. Get funded.',
       },
     ],
   },

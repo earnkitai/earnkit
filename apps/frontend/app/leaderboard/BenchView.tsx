@@ -1,4 +1,6 @@
+import Link from 'next/link';
 import Footer from '../components/common/Footer';
+import { BTN_SECONDARY } from '../components/common/Button';
 import { COLUMN, H1, LEDE, Panel } from '../components/common/Panel';
 import ChainLogo from '../components/ui/ChainLogo';
 import { filterHref, type BenchFilter, type BenchRow } from '../../lib/earnkit/bench-data';
@@ -9,7 +11,8 @@ import { Chip, FILTER_WEEKLY } from './FilterChip';
 
 export const BENCH_TITLE = 'Leaderboard';
 export { benchLine };
-export const BENCH_EMPTY = 'No one here yet.';
+export const BENCH_EMPTY = 'No builder matches this filter yet.';
+export const BENCH_SHOW_ALL = 'Show everyone';
 export { FILTER_WEEKLY };
 
 /**
@@ -41,7 +44,13 @@ export default function BenchView({ rows, count, chips, filter }: { rows: BenchR
         {count > 0 && (
           <Panel className="mt-6 py-2 md:mt-8 md:py-4" label="Builders">
             {rows.length === 0 ? (
-              <p className="py-6 font-funnel-sans text-base text-ek-body">{BENCH_EMPTY}</p>
+              // Launch ready L10: only a filter can empty a ranked board, so the way back is one tap.
+              <div className="flex flex-wrap items-center justify-between gap-3 py-6">
+                <p className="font-funnel-sans text-base text-ek-body">{BENCH_EMPTY}</p>
+                <Link href={filterHref({ chain: null, weekly: false })} className={BTN_SECONDARY}>
+                  {BENCH_SHOW_ALL}
+                </Link>
+              </div>
             ) : (
               <ol className="md:-mx-4">
                 {rows.map((r) => (
