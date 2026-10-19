@@ -26,16 +26,14 @@ export const confirmingCardLine = (name: string, project: string) =>
   `${name} is getting ${project} on the Bench.`;
 export { streakWords };
 
-/** The photo in its orange to purple ring. */
+/** The photo, plain: a hairline ring, nothing else. */
 function Photo({ src, handle }: { src: string | null; handle: string }) {
   return (
-    <span className="inline-flex shrink-0 rounded-full bg-gradient-to-br from-ek-score-orange to-ek-score-purple p-[5px]">
-      <Avatar
-        src={src}
-        handle={handle}
-        className="h-16 w-16 text-2xl ring-2 ring-ek-navy-deep md:h-20 md:w-20 md:text-3xl"
-      />
-    </span>
+    <Avatar
+      src={src}
+      handle={handle}
+      className="h-14 w-14 text-xl md:h-16 md:w-16 md:text-2xl"
+    />
   );
 }
 
@@ -43,11 +41,11 @@ function Photo({ src, handle }: { src: string | null; handle: string }) {
 function Who({ name, handle }: { name: string; handle: string }) {
   return (
     <div className="min-w-0 flex-1">
-      <h1 className="truncate font-funnel-display text-2xl font-medium leading-tight tracking-tight text-ek-white md:text-4xl">
+      <h1 className="truncate font-funnel-display text-2xl font-medium leading-tight tracking-tight text-ek-white md:text-3xl">
         {name}
       </h1>
       {name !== `@${handle}` ? (
-        <p className="mt-0.5 truncate font-funnel-sans text-base text-ek-blue-soft md:text-lg">
+        <p className="mt-0.5 truncate font-funnel-sans text-base text-ek-blue-soft">
           @{handle}
         </p>
       ) : null}
@@ -55,19 +53,51 @@ function Who({ name, handle }: { name: string; handle: string }) {
   );
 }
 
-/** The panel's soft purple and orange light. */
-function Glow() {
+/** "Top 4% on the Bench" as its number and its words; any other line whole. Pure. */
+export const rankSplit = (
+  line: string,
+): { lead: string; rest: string | null } => {
+  const m = /^(Top [\d.]+%|#\d+ of \d+) (on .+)$/.exec(line);
+  return m ? { lead: m[1], rest: m[2] } : { lead: line, rest: null };
+};
+
+/** The rank, large: the percentile (or "#3 of 12") as the number, then each chain's line. */
+function Rank({
+  line,
+  chains,
+}: {
+  line: string;
+  chains: ProfileData['chainLines'];
+}) {
+  const { lead, rest } = rankSplit(line);
   return (
-    <>
-      <div
+    <div className="min-w-0">
+      <p className="sr-only">{line}</p>
+      <p
         aria-hidden="true"
-        className="pointer-events-none absolute -right-40 -top-48 h-[28rem] w-[28rem] rounded-full bg-ek-score-purple/[0.10] blur-3xl"
-      />
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute -bottom-56 -left-32 h-[24rem] w-[24rem] rounded-full bg-ek-score-orange/[0.06] blur-3xl"
-      />
-    </>
+        className="font-funnel-display text-4xl font-medium leading-none tracking-tight text-ek-white tabular-nums md:text-7xl"
+      >
+        {lead}
+      </p>
+      {rest ? (
+        <p
+          aria-hidden="true"
+          className="mt-3 font-funnel-sans text-base text-ek-blue-soft md:text-lg"
+        >
+          {rest}
+        </p>
+      ) : null}
+      {chains.length > 0 ? (
+        <ul className="mt-5 flex flex-wrap gap-x-5 gap-y-2 font-funnel-sans text-sm text-ek-blue-light md:text-base">
+          {chains.map((c) => (
+            <li key={c.chain} className="inline-flex items-center gap-2">
+              <ChainLogo chain={c.chain} size={18} />
+              <span>{c.line}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 
@@ -78,22 +108,19 @@ export function BenchProfileSkeleton({
   head: Pick<PageHead, 'name' | 'handle' | 'avatar'>;
 }) {
   const bar =
-    'block rounded-full bg-ek-navy animate-pulse motion-reduce:animate-none';
+    'block rounded-full bg-ek-blue-soft/10 animate-pulse motion-reduce:animate-none';
   return (
     <div className="w-full pt-4" aria-busy="true">
-      <Panel className="relative overflow-hidden py-8 md:py-14" label="Profile">
-        <Glow />
-        <div className="relative">
-          <div className="flex min-w-0 items-center gap-x-5">
-            <Photo src={head.avatar} handle={head.handle} />
-            <Who name={head.name} handle={head.handle} />
-          </div>
-          <span className={`${bar} mt-6 h-5 w-48`} />
-          <div className="mt-8 grid gap-8 border-t border-ek-blue-soft/10 pt-8 md:mt-10 md:grid-cols-2 md:gap-12 md:pt-10">
-            <span className={`${bar} h-28 w-full !rounded-[28px]`} />
-            <span className={`${bar} h-28 w-full !rounded-[28px]`} />
-          </div>
+      <Panel className="py-8 md:py-14" label="Profile">
+        <div className="flex min-w-0 items-center gap-x-4">
+          <Photo src={head.avatar} handle={head.handle} />
+          <Who name={head.name} handle={head.handle} />
         </div>
+        <div className="mt-8 flex items-center gap-8 border-t border-ek-blue-soft/10 pt-8 md:mt-10 md:gap-12 md:pt-10">
+          <span className={`${bar} h-36 w-36 shrink-0 md:h-48 md:w-48`} />
+          <span className={`${bar} h-14 w-48`} />
+        </div>
+        <span className={`${bar} mt-8 h-40 w-full !rounded-[28px]`} />
       </Panel>
       <Panel className="mt-4 py-6 md:py-10" label={TAB_LOG}>
         <span className={`${bar} h-28 w-full !rounded-[28px]`} />
@@ -109,10 +136,13 @@ export function BenchProfileSkeleton({
 function ConfirmingCard({ line }: { line: string }) {
   return (
     <div className="mt-8 border-t border-ek-blue-soft/10 pt-8 md:mt-10 md:pt-10">
-      <div className="flex items-start gap-4 rounded-[28px] bg-ek-navy px-6 py-5 md:items-center md:px-8 md:py-6">
-        <span aria-hidden="true" className="relative mt-2 flex h-2.5 w-2.5 shrink-0 md:mt-0">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-ek-score-orange/60 motion-reduce:animate-none" />
-          <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-ek-score-orange" />
+      <div className="flex items-start gap-4 rounded-[28px] border border-ek-blue-soft/10 px-6 py-5 md:items-center md:px-8 md:py-6">
+        <span
+          aria-hidden="true"
+          className="relative mt-2 flex h-2.5 w-2.5 shrink-0 md:mt-0"
+        >
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-ek-blue-bright/50 motion-reduce:animate-none" />
+          <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-ek-blue-bright" />
         </span>
         <p className="min-w-0 break-words font-funnel-display text-lg font-medium leading-snug text-ek-white md:text-2xl">
           {line}
@@ -125,11 +155,13 @@ function ConfirmingCard({ line }: { line: string }) {
 const TAB =
   'inline-flex h-10 items-center rounded-full px-5 font-funnel-sans text-[15px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ek-blue-soft';
 const TAB_ON = 'bg-ek-blue-light text-ek-navy-deep';
-const TAB_OFF = 'text-ek-blue-light hover:bg-ek-navy hover:text-ek-white';
+const TAB_OFF =
+  'text-ek-blue-light hover:bg-ek-blue-soft/10 hover:text-ek-white';
 
 /**
- * v2.13 spec "Profile" (R10, R11, R12): the header (photo, name, @handle, the Raising pill, the
- * Bench line then each chain's line with its logo), the score with its four parts, the 52-week
+ * v2.13 spec "Profile" (R10, R11, R12), profile-whoop layout: the header (photo, name, @handle, the
+ * Raising pill), the score ring beside the rank (the percentile large, then each chain's line with
+ * its logo), the four parts as rings, each in its own color (score-colors.ts), the 52-week
  * shipping grid with the streak, then two tabs as plain links: the Ship log (default; long cards,
  * newest first, the Started card last) and the Project. A quiet sources line at the end.
  * v2.13.1 O3: while the one project is Confirming, one calm card in place of the score and the grid,
@@ -148,72 +180,72 @@ export default function BenchProfileView({
   const confirming = d.project !== null && !d.project.confirmed;
   return (
     <div className="w-full pt-4">
-      <Panel className="relative overflow-hidden py-8 md:py-14" label="Profile">
-        <Glow />
-        <div className="relative">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-5 gap-y-4">
-            <Photo src={d.avatar} handle={d.handle} />
-            <Who name={d.name} handle={d.handle} />
-            {d.raising ? (
-              <div className="w-full sm:ml-auto sm:w-auto">
-                <RaisingPill symbol={d.raising.symbol} url={d.raising.url} />
+      <Panel className="py-8 md:py-14" label="Profile">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-4">
+          <Photo src={d.avatar} handle={d.handle} />
+          <Who name={d.name} handle={d.handle} />
+          {d.raising ? (
+            <div className="w-full sm:ml-auto sm:w-auto">
+              <RaisingPill symbol={d.raising.symbol} url={d.raising.url} />
+            </div>
+          ) : null}
+        </div>
+
+        {confirming ? (
+          <>
+            {d.bench ? (
+              <div className="mt-8 border-t border-ek-blue-soft/10 pt-8 md:mt-10 md:pt-10">
+                <Rank line={d.bench} chains={d.chainLines} />
               </div>
             ) : null}
-          </div>
-          {d.bench ? (
-            <p className="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 font-funnel-sans text-base text-ek-white md:mt-6 md:text-lg">
-              <span className="font-medium">{d.bench}</span>
-              {d.chainLines.map((c) => (
-                <span key={c.chain} className="inline-flex items-center gap-2">
-                  <span aria-hidden="true" className="text-ek-blue-soft/60">
-                    ·
-                  </span>
-                  <ChainLogo chain={c.chain} size={20} />
-                  <span>{c.line}</span>
-                </span>
-              ))}
-            </p>
-          ) : null}
-
-          {confirming ? (
-            <ConfirmingCard line={confirmingCardLine(d.name, d.project!.name)} />
-          ) : (
-          <div className="mt-8 grid gap-8 border-t border-ek-blue-soft/10 pt-8 md:mt-10 md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] md:gap-12 md:pt-10">
+            <ConfirmingCard
+              line={confirmingCardLine(d.name, d.project!.name)}
+            />
+          </>
+        ) : (
+          <>
+            {d.bench || d.score !== null ? (
+              <div className="mt-8 flex items-center gap-6 border-t border-ek-blue-soft/10 pt-8 md:mt-10 md:gap-14 md:pt-10">
+                {d.score !== null ? (
+                  <ScoreRing
+                    score={d.score}
+                    stroke={7}
+                    className="h-32 w-32 md:h-52 md:w-52"
+                    numberClassName="text-[2.5rem] md:text-[4.25rem]"
+                  />
+                ) : null}
+                {d.bench ? <Rank line={d.bench} chains={d.chainLines} /> : null}
+              </div>
+            ) : null}
             {d.score !== null ? (
-              <div className="flex min-w-0 items-center gap-6">
-                <ScoreRing
-                  score={d.score}
-                  className="h-[6.5rem] w-[6.5rem] md:h-32 md:w-32"
-                  numberClassName="text-[2rem] md:text-[2.5rem]"
-                />
+              <div className="mt-8 md:mt-10">
                 <ScoreParts parts={d.parts} />
               </div>
             ) : null}
-            <div
-              className={`min-w-0 ${d.score === null ? 'md:col-span-2' : ''}`}
-            >
-              <div className="mb-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                <p className="font-funnel-display text-xl font-medium text-ek-white md:text-2xl">
-                  {streak ??
-                    shippedWords(
-                      d.grid.filter((g) => g.on).length,
-                      d.grid.length,
-                    )}
-                </p>
-                {streak ? (
-                  <p className="font-funnel-sans text-sm text-ek-blue-soft">
-                    {shippedWords(
-                      d.grid.filter((g) => g.on).length,
-                      d.grid.length,
-                    )}
+            <div className="mt-8 border-t border-ek-blue-soft/10 pt-8 md:mt-10 md:pt-10">
+              <div className="max-w-3xl">
+                <div className="mb-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                  <p className="font-funnel-display text-xl font-medium text-ek-white md:text-2xl">
+                    {streak ??
+                      shippedWords(
+                        d.grid.filter((g) => g.on).length,
+                        d.grid.length,
+                      )}
                   </p>
-                ) : null}
+                  {streak ? (
+                    <p className="font-funnel-sans text-sm text-ek-blue-soft">
+                      {shippedWords(
+                        d.grid.filter((g) => g.on).length,
+                        d.grid.length,
+                      )}
+                    </p>
+                  ) : null}
+                </div>
+                <ShipGrid grid={d.grid} />
               </div>
-              <ShipGrid grid={d.grid} />
             </div>
-          </div>
-          )}
-        </div>
+          </>
+        )}
       </Panel>
 
       <Panel

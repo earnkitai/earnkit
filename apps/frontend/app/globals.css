@@ -213,3 +213,19 @@ html {
     background-color: #0a0917;
   }
 }
+
+/* profile-whoop: a score ring's arc draws in once (ScoreRing). The global reduced-motion rule above
+   cuts it to an instant; this one also removes it outright. */
+@keyframes ek-arc-in {
+  from {
+    stroke-dashoffset: 100;
+  }
+}
+.ek-arc {
+  animation: ek-arc-in 900ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ek-arc {
+    animation: none;
+  }
+}

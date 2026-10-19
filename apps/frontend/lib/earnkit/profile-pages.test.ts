@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { SCORE_COLORS } from '../../app/[handle]/ScoreRing';
+import { PART_COLORS, SCORE_COLORS } from '../../app/[handle]/score-colors';
 import { sql } from './db';
 
 /**
@@ -16,20 +16,19 @@ import { sql } from './db';
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
 const text = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/&#x27;|&#39;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ');
 
-test('10.5 the ring\'s accents are 4.5:1 or more on the panel navy (plan R17); the ring uses both', () => {
+test('10.5 (profile-whoop) each score keeps one distinct color, 4.5:1 or more on the panel navy; the ring has no gradient', () => {
   const ring = readFileSync(join(import.meta.dirname, '../../app/[handle]/ScoreRing.tsx'), 'utf8');
-  assert.match(ring, /SCORE_COLORS\.from/);
-  assert.match(ring, /SCORE_COLORS\.to/);
+  assert.doesNotMatch(ring, /Gradient|drop-shadow/);
   const lum = (hex: string) => {
     const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
     return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
   };
   const ratio = (a: string, b: string) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05);
-  assert.ok(ratio(SCORE_COLORS.from, SCORE_COLORS.panel) >= 4.5);
-  assert.ok(ratio(SCORE_COLORS.to, SCORE_COLORS.panel) >= 4.5);
+  const colors = [...Object.values(PART_COLORS), SCORE_COLORS.total];
+  assert.equal(new Set(colors).size, colors.length, 'distinct');
+  for (const c of colors) assert.ok(ratio(c, SCORE_COLORS.panel) >= 4.5, c);
   const tw = readFileSync(join(import.meta.dirname, '../../tailwind.config.ts'), 'utf8');
-  assert.match(tw, /'ek-score-orange': '#FF7A1A'/);
-  assert.match(tw, /'ek-score-purple': '#9B6BFF'/);
+  for (const c of Object.values(PART_COLORS)) assert.ok(tw.toUpperCase().includes(`'${c.toUpperCase()}'`), `${c} is a brand token`);
 });
 
 test('10.8 (v2.12.1 T6) the pages read live: /<handle> and /b/<name> are dynamic, nothing with the flag off; hide and show expire the cache', () => {

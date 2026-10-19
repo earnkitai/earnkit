@@ -1,5 +1,6 @@
 import type { ProfileData } from '../../lib/earnkit/bench-data';
 import { mondayOfWeek, weekLabel } from '../../lib/earnkit/weeks';
+import { PART_COLORS } from './score-colors';
 
 /**
  * Beside the grid: how many of its weeks had code shipped. v2.13.1 O3 fix round 1 (controller
@@ -10,7 +11,7 @@ export const shippedWords = (n: number, of = 52): string =>
 
 /**
  * v2.13 spec "Shipping grid": 52 squares, one per ISO week, oldest first; filled for a week that
- * shipped. 13 by 4 on a phone, 26 by 2 from md. Each square's tooltip is its week ("Week of Oct 12":
+ * shipped, in Consistency's color (profile-whoop). 13 by 4 on a phone, 26 by 2 from md. Each square's tooltip is its week ("Week of Oct 12":
  * the key goes through mondayOfWeek first, F21). Pure.
  */
 export default function ShipGrid({ grid }: { grid: ProfileData['grid'] }) {
@@ -30,7 +31,10 @@ export default function ShipGrid({ grid }: { grid: ProfileData['grid'] }) {
               data-week={g.week}
               data-on={g.on}
               title={monday ? weekLabel(monday) : undefined}
-              className={`block aspect-square rounded-[4px] ${g.on ? 'bg-ek-score-orange shadow-[0_0_8px_rgba(255,122,26,0.35)]' : 'bg-ek-navy'}`}
+              className={`block aspect-square rounded-[3px] ${g.on ? '' : 'bg-ek-blue-soft/10'}`}
+              style={
+                g.on ? { backgroundColor: PART_COLORS.Consistency } : undefined
+              }
             />
           );
         })}
