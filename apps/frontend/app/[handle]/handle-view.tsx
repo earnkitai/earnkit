@@ -13,7 +13,7 @@ import { pagePath } from '../../lib/earnkit/reserved-routes';
 import { profileData } from '../../lib/earnkit/bench-data';
 import { rankLines } from '../../lib/earnkit/bench-rank';
 import BenchProfileView, { BenchProfileSkeleton } from './BenchProfileView';
-import ProfileTopBar from './ProfileTopBar';
+import SlimTopBar from '../components/common/SlimTopBar';
 
 export type ProfileTab = 'log' | 'project';
 /** `?tab=project`, else the Ship log (the default, the plain URL). Pure. */
@@ -56,7 +56,7 @@ export async function HandleView({
   // profile-whoop v2: the near-black page with its own slim top bar (data-ek-premium: globals.css).
   return (
     <div data-ek-premium="" className="ek-premium">
-      <ProfileTopBar />
+      <SlimTopBar />
       <Suspense
         fallback={<BenchProfileSkeleton head={await pageHead(r.builderId)} />}
       >

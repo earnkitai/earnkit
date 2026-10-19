@@ -37,7 +37,7 @@ test('10.5 (profile-whoop v2) each score keeps one hue family; every text color 
   assert.match(css, /body:has\(\[data-ek-premium\]\) \[data-ek-header\] \{\s*display: none;/);
   const view = readFileSync(join(import.meta.dirname, '../../app/[handle]/handle-view.tsx'), 'utf8');
   assert.match(view, /data-ek-premium/);
-  assert.match(view, /<ProfileTopBar \/>/);
+  assert.match(view, /<SlimTopBar \/>/);
 });
 
 test('10.8 (v2.12.1 T6) the pages read live: /<handle> and /b/<name> are dynamic; hide and show expire the cache', () => {

@@ -276,7 +276,7 @@ test('G8, S7: the link shows a confirm page (repo, the page it is added to, warn
   assert.equal(page.status, 200);
   assert.equal(page.headers.get('location'), null, 'never a redirect');
   const html = await page.text();
-  assert.match(html, new RegExp(`Repo: github\\.com/${f.repoKey}`));
+  assert.match(html.replace(/<[^>]+>/g, ''), new RegExp(`Repo:github\\.com/${f.repoKey}`));
   assert.ok(html.includes(`This adds github.com/${f.repoKey} to earnkit.com/${f.handle}.`), html);
   assert.ok(html.includes(APP_CONFIRM_ONLY_YOURS));
   assert.match(html, /<form method="post" action="https:\/\/earnkit\.com\/github\/verify">/, 'siteUrl, never the request host');

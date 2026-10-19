@@ -38,3 +38,9 @@ Earned are raw-traction parts.
 
 Screenshots: `docs/screenshots/profile-whoop/`, headless Chrome against `next dev` with the fixture
 `lib/earnkit/fixtures/profile-data.ts` (avatar and Raising pill off) and reduced motion.
+
+## v2.1: feed and sign-in pages
+
+- **/feed** gets the profile's premium dark treatment: the slim top bar (`app/components/common/SlimTopBar.tsx`, shared with the profile), near-black page, dark gradient cards with a faint border, a 2px left accent and an avatar ring in the card's score hue (from its chips: Shipped, Used, Earned, Consistency), the week label in that hue, white titles, chips tinted in their own hue, a small decorative hue key, and an empty-state card linking to the Bench. No uppercase labels (the feed spec forbids all-caps). No data or scoring changes.
+- **/github/verify and every page on `brandShell`** (the X sign-in at `/signin/<code>`, the X install page, claim and wallet pages): the navy shell becomes the same near-black look: a slim top bar (wordmark plus Bench, Feed, Docs), one centered dark gradient card, a white primary button. The GitHub confirm page was fully unstyled; it now shows a GitHub mark, a "Connect GitHub" title, the repo and the page it is added to as chips, a set-apart "Read only. EarnKit never changes your code." line, and a primary "Continue with GitHub" button with the GitHub icon. Same form, same fields, same copy apart from splitting the read-only sentence out of the lead.
+- Contrast: body text #C9CDD4, muted #9BA1AC and the cyan note #A5F3FC all clear 4.5:1 on #111318/#17191F.

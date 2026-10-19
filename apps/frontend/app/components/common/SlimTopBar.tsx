@@ -1,17 +1,17 @@
 import Link from 'next/link';
-import InstallButton from '../components/common/InstallButton';
-import { Wordmark } from '../components/ui/Logo';
-import { DOCS } from '../lib/links';
+import InstallButton from './InstallButton';
+import { Wordmark } from '../ui/Logo';
+import { DOCS } from '../../lib/links';
 
 const LINK =
   'inline-flex min-h-11 items-center px-2 font-funnel-sans text-[13px] font-medium text-[#9BA1AC] transition-colors hover:text-[#F5F6F8] md:min-h-0';
 
 /**
- * profile-whoop v2: the profile's slim top bar (48px, 56px from md) in place of the site header
+ * profile-whoop v2: the slim top bar of the premium pages (the profile, the feed) (48px, 56px from md) in place of the site header
  * (globals.css hides that header on a page that carries data-ek-premium): the small wordmark, quiet
  * links, a small "Add to your agent" button, a hairline under it. Same near-black as the page.
  */
-export default function ProfileTopBar() {
+export default function SlimTopBar() {
   return (
     <div className="sticky top-0 z-40 border-b border-white/[0.06] bg-[#0B0B0F]/90 backdrop-blur supports-[backdrop-filter]:bg-[#0B0B0F]/75">
       <nav

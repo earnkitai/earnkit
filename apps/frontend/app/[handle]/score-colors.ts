@@ -38,3 +38,19 @@ export const PART_WORDS: Record<PartLabel, string> = {
   Earned: 'Fees and prizes your project has earned.',
   Consistency: 'Weeks with shipped code, recent weeks counting most.',
 };
+
+/**
+ * profile-whoop v2 (the feed): which score a fact chip speaks to, so the premium pages tint it in
+ * that score's hue. A ship (live, commits) is Shipped; people are Used; money and wins are Earned;
+ * streaks and weeks are Consistency; anything else (the Community round chip) stays neutral. Pure.
+ */
+export function chipHue(chip: string): PartLabel | null {
+  if (/^(Went live|Live)$|\bcommits?$/.test(chip)) return 'Shipped';
+  if (/^\+\d[\d,]* (person|people)$|\b(person uses|people use) it$/.test(chip)) return 'Used';
+  if (/ earned$|^Won /.test(chip)) return 'Earned';
+  if (/\bweeks? in a row$|\bweeks? shipping$|^Started tracking$/.test(chip)) return 'Consistency';
+  return null;
+}
+
+/** A card's one accent: the hue of its first chip that has one (none: neutral). Pure. */
+export const cardHue = (chips: string[]): PartLabel | null => chips.map(chipHue).find((h) => h !== null) ?? null;

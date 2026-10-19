@@ -1,3 +1,4 @@
+import { GITHUB_ICON, brandShell } from './brand-page';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { sql } from './db';
 import { sharedGroup } from './installations';
@@ -502,7 +503,10 @@ export async function nonceDetails(nonce: string, now = new Date()): Promise<{ r
 }
 
 /** v2.10 item 7b: the confirm page's first line on an App link. */
-export const APP_CONFIRM_LEAD = 'Sign in with GitHub, then let EarnKit read this repo. Read only: EarnKit never changes your code.';
+export const APP_CONFIRM_LEAD = 'Sign in with GitHub, then let EarnKit read this repo.';
+/** The confirm page's read-only line, set apart so it can't be missed. */
+export const APP_CONFIRM_READ_ONLY = 'EarnKit never changes your code.';
+export const APP_CONFIRM_TITLE = 'Connect GitHub';
 /** Preflight S7: the App link names the page the repo is added to (a forwarded link adds the repo to someone else's page). */
 export const appConfirmDestination = (repoKey: string, handle: string) => `This adds github.com/${repoKey} to ${pageUrl(handle)}.`;
 export const APP_CONFIRM_ONLY_YOURS = 'Only continue if that is your page.';
@@ -512,14 +516,12 @@ const escapeHtml = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
 const PAGE_HEADERS = { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' };
-const html = (body: string) =>
-  '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
-  '<title>EarnKit</title></head><body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem">' +
-  `${body}</body></html>`;
+/** v2 premium: the same dark shell as the claim, sign-in and wallet pages (brand-page.ts). */
+const html = (body: string) => brandShell(body);
 
 /** The tiny page the builder sees. No script, nothing cached. Pure. */
 export function verifyPage(line: string, status = 200, headers: Record<string, string> = {}): Response {
-  return new Response(html(`<p>${escapeHtml(line)}</p>`), { status, headers: { ...PAGE_HEADERS, ...headers } });
+  return new Response(html(`<p class="ek-line ek-first">${escapeHtml(line)}</p>`), { status, headers: { ...PAGE_HEADERS, ...headers } });
 }
 
 /**
@@ -551,11 +553,15 @@ const sameSecret = (a: string, b: string) => {
  */
 export function confirmPage(d: { repo_key: string; handle: string }, nonce: string, csrf: string): string {
   return html(
-    `<p>${escapeHtml(APP_CONFIRM_LEAD)}</p><ul><li>Repo: github.com/${escapeHtml(d.repo_key)}</li></ul>` +
-      `<p>${escapeHtml(appConfirmDestination(d.repo_key, d.handle))}</p><p>${escapeHtml(APP_CONFIRM_ONLY_YOURS)}</p>` +
-      `<form method="post" action="${escapeHtml(siteUrl())}/github/verify">` +
+    `<span class="ek-mark" aria-hidden="true">${GITHUB_ICON}</span>` +
+      `<h1>${escapeHtml(APP_CONFIRM_TITLE)}</h1><p class="ek-line">${escapeHtml(APP_CONFIRM_LEAD)}</p>` +
+      `<dl class="ek-rows"><div class="ek-row"><dt class="ek-k">Repo<span class="ek-sr">:</span></dt><dd><span class="ek-chip">${GITHUB_ICON}github.com/${escapeHtml(d.repo_key)}</span></dd></div>` +
+      `<div class="ek-row"><dt class="ek-k">Page<span class="ek-sr">:</span></dt><dd><span class="ek-chip">${escapeHtml(pageUrl(d.handle))}</span></dd></div></dl>` +
+      `<p class="ek-note"><strong>Read only.</strong> ${escapeHtml(APP_CONFIRM_READ_ONLY)}</p>` +
+      `<p class="ek-small">${escapeHtml(appConfirmDestination(d.repo_key, d.handle))} ${escapeHtml(APP_CONFIRM_ONLY_YOURS)}</p>` +
+      `<div class="ek-actions"><form method="post" action="${escapeHtml(siteUrl())}/github/verify">` +
       `<input type="hidden" name="n" value="${escapeHtml(nonce)}"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}">` +
-      '<button type="submit">Continue with GitHub</button></form>',
+      `<button class="ek-btn" type="submit">${GITHUB_ICON}Continue with GitHub</button></form></div>`,
   );
 }
 
