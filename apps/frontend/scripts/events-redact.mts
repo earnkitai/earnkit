@@ -237,7 +237,7 @@ try {
         // NOT NULL and the page's URL).
         await tx`
           UPDATE builder_profiles SET x_user_id = NULL, x_name = NULL, x_avatar_url = NULL, reported_github = NULL,
-            base_builder_code = NULL, main_project_key = NULL, updates_on_at = NULL, updates_scheduled_at = NULL, identity = '{}'::jsonb, github_basis = NULL, ring = '{}'::jsonb,
+            base_builder_code = NULL, main_project_key = NULL, updates_on_at = NULL, updates_scheduled_at = NULL, ship_titles_at = NULL, identity = '{}'::jsonb, github_basis = NULL, ring = '{}'::jsonb,
             x_handle = CASE WHEN lower(x_handle) = ${login} THEN NULL ELSE x_handle END,
             fallback_handle = CASE WHEN lower(fallback_handle) = ${login} THEN NULL ELSE fallback_handle END
           WHERE builder_id = ANY(${ids})`;
