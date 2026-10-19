@@ -37,15 +37,27 @@ export async function linkInstallations(own: number, roots: number[]): Promise<n
 
 /**
  * linkInstallations inside a caller's transaction (v2.13.4: answerJoin checks and links in one).
- * Lock order (v2.14 T5 fix round 1): advisory locks first, then installation rows. Here: `own`'s row only.
- * x-install.ts attachToX: `x_attach`, `x_user`, `x_handle` advisory locks, then `own` and its members' rows in
- * id order (one SELECT ... ORDER BY id FOR UPDATE), then profile rows.
+ * Lock order (v2.14 T5 fix round 2), the same everywhere a group changes: advisory locks first (attachToX:
+ * `x_attach`, `x_user`, `x_handle`; then `page_join:<root>` sorted, as answerJoin and page-joins.ts attachFresh),
+ * then installation rows in id order in ONE `SELECT ... ORDER BY id FOR UPDATE`, then profile rows. Here: every
+ * affected installation (`own`, each root and their members) is locked in one id-ordered statement before any
+ * update; the roots are read unlocked first and read again under the lock until they hold still.
  */
 async function linkInTx(tx: postgres.TransactionSql, own: number, roots: number[]): Promise<{ n: number; moved: boolean }> {
   let profilesMoved = false;
   const n = await (async () => {
-    const [mine] = await tx<{ root: number }[]>`
-      SELECT COALESCE(builder_id, id) AS root FROM installations WHERE id = ${own} FOR UPDATE`;
+    const rootNow = async () => (await tx<{ root: number }[]>`SELECT COALESCE(builder_id, id) AS root FROM installations WHERE id = ${own}`)[0];
+    let mine = await rootNow();
+    for (let i = 0; ; i++) {
+      const ids = [...new Set([own, mine.root, ...roots])];
+      await tx`SELECT id FROM installations WHERE id = ANY(${ids}::int[]) OR builder_id = ANY(${ids}::int[]) ORDER BY id FOR UPDATE`;
+      const again = await rootNow();
+      if (again.root === mine.root || i >= 2) {
+        mine = again;
+        break;
+      }
+      mine = again;
+    }
     const all = [...new Set([mine.root, ...roots])].sort((a, b) => a - b);
     const [root, ...others] = all;
     for (const other of others) {

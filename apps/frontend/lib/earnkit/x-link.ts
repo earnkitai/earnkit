@@ -155,11 +155,13 @@ export async function bindFromPaste(own: number, raw: unknown, now: Date): Promi
   try {
     r = await attachToX(own, user, now);
   } catch (err) {
+    // Fix round 2 (C): only the attach transaction throws here (attachToX logs its after-commit steps and returns
+    // ok), so the bind did not happen: the code is given back.
     await sql()`UPDATE x_signin_links SET used_at = NULL WHERE link_hash = ${row.link_hash} AND used_at = ${now}`.catch(() => undefined);
     throw err;
   }
   if (!r.ok) return { ok: false };
-  // S2: a page bound by a pasted code is logged (the installation, the page; never the code).
+  // S2: a page bound by a pasted code is logged (the installation, the page; never the code). noteEvent never throws.
   await noteEvent('signed_in_by_code', () => ({ type: 'signed_in_by_code', dedupe_key: `signed_in_by_code:${own}:${r.root}`, installation_id: own, detail: { root: r.root } }));
   return { ok: true, root: r.root, handle: r.handle };
 }

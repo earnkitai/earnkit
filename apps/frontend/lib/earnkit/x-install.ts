@@ -155,6 +155,27 @@ class AttachRefused extends Error {
  * bindX refusal rolls everything back, so the installation stays unbound. Idempotent.
  */
 export async function attachToX(own: number, user: XUser, now: Date): Promise<AttachResult> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await attachOnce(own, user, now);
+    } catch (err) {
+      // Fix round 2 (B): the group or the page moved between the unlocked read and the locks; read again.
+      if (err instanceof StaleRead && attempt < 3) continue;
+      throw err;
+    }
+  }
+}
+
+/** Thrown inside attachOnce's transaction when a root read before the locks changed under them. */
+class StaleRead extends Error {}
+
+/**
+ * One attempt. Lock order (fix round 2; see identity.ts linkInTx): the advisory locks `x_attach:<id>`, `x_user:<id>`,
+ * `x_handle:<h>` (bindX's order), then `page_join:<root>` for the installation's group root and the X's page root,
+ * sorted (as attachFresh and answerJoin take them), then `own` and its members' installation rows in id order (one
+ * statement), then the profile rows of `own`, its root and the X's page in builder_id order (one statement).
+ */
+async function attachOnce(own: number, user: XUser, now: Date): Promise<AttachResult> {
   let done: { root: number; out: BoundX; created: boolean };
   try {
     done = await sql().begin(async (tx) => {
@@ -162,22 +183,31 @@ export async function attachToX(own: number, user: XUser, now: Date): Promise<At
       await tx`SELECT pg_advisory_xact_lock(hashtext(${`x_user:${user.id}`}))`;
       // bindX's handle lock before any row lock, in bindX's own order, so a concurrent bindX can't deadlock with it.
       await tx`SELECT pg_advisory_xact_lock(hashtext(${`x_handle:${user.username.toLowerCase()}`}))`;
-      // Lock order (fix round 1, beside identity.ts linkInTx): the advisory locks above, then `own` and its members'
-      // installation rows in id order, in one statement, before any other read.
+      // The roots to lock, read before any row lock and checked again under the locks.
+      const [pre] = await tx<{ mine: number; held: number | null }[]>`
+        SELECT COALESCE(i.builder_id, i.id) AS mine, (SELECT p.builder_id FROM builder_profiles p WHERE p.x_user_id = ${user.id}) AS held
+        FROM installations i WHERE i.id = ${own}`;
+      if (!pre) throw new Error('no installation');
+      for (const r of [...new Set([pre.mine, pre.held ?? pre.mine])].sort((a, b) => a - b))
+        await tx`SELECT pg_advisory_xact_lock(hashtext(${`page_join:${r}`}))`;
       await tx`SELECT id FROM installations WHERE id = ${own} OR builder_id = ${own} ORDER BY id FOR UPDATE`;
       const [me] = await tx<{ builder_id: number | null; shared: boolean; x: string | null }[]>`
         SELECT builder_id, shared_client AS shared, x_user_id AS x FROM installations WHERE id = ${own}`;
       if (!me) throw new Error('no installation');
       if (me.x && me.x !== user.id) throw new AttachRefused('other_x');
       const mine = me.builder_id ?? own;
-      // Fix round 1 (1): an installation whose own or group root's page is claimed by another X account belongs to
-      // that person; it never leaves for another X (and never detaches that person's members).
-      const [otherX] = await tx`
-        SELECT 1 FROM builder_profiles WHERE builder_id IN (${own}, ${mine}) AND x_user_id IS NOT NULL AND x_user_id <> ${user.id}`;
-      if (otherX) throw new AttachRefused('other_x');
+      // Fix rounds 1 and 2 (A): the profiles read under their row locks, checked in code. An installation whose own
+      // or group root's page is claimed by another X account belongs to that person; it never leaves for another X
+      // (and never detaches that person's members).
+      const profiles = await tx<{ builder_id: number; x: string | null }[]>`
+        SELECT builder_id, x_user_id AS x FROM builder_profiles
+        WHERE builder_id IN (${own}, ${mine}) OR x_user_id = ${user.id} ORDER BY builder_id FOR UPDATE`;
+      if (profiles.some((p) => (p.builder_id === own || p.builder_id === mine) && p.x !== null && p.x !== user.id)) throw new AttachRefused('other_x');
+      const heldRow = profiles.find((p) => p.x === user.id);
+      const held = heldRow ? { root: heldRow.builder_id } : undefined;
+      if (mine !== pre.mine || (held?.root ?? null) !== pre.held) throw new StaleRead();
       const [cleared] = await tx`SELECT 1 FROM x_owner_clears WHERE x_user_id = ${user.id}`;
       if (cleared) throw new AttachRefused('owner_cleared');
-      const [held] = await tx<{ root: number }[]>`SELECT builder_id AS root FROM builder_profiles WHERE x_user_id = ${user.id} FOR UPDATE`;
       const groups = held ? [mine, held.root] : [mine];
       const [g] = await tx<{ shared: boolean | null }[]>`
         SELECT bool_or(shared_client) AS shared FROM installations WHERE id = ANY(${groups}::int[]) OR builder_id = ANY(${groups}::int[])`;
@@ -216,6 +246,7 @@ export async function attachToX(own: number, user: XUser, now: Date): Promise<At
     if (err instanceof AttachRefused) return { ok: false, reason: err.reason };
     throw err;
   }
-  await afterBind(done.root, user, done.out);
+  // Fix round 2 (C): the bind is committed; a failed after-step (event, discovery, cache) is logged, never a failure.
+  await afterBind(done.root, user, done.out).catch((err: unknown) => console.error('[x attach] afterBind', err instanceof Error ? err.name : 'error'));
   return { ok: true, root: done.root, handle: done.out.handle, created: done.created };
 }

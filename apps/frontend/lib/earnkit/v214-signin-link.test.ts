@@ -320,3 +320,24 @@ test('5.15 fix 7: held case, the installation a member of a third root: it alone
   assert.deepEqual(await xOf(third.own), { x: null, b: null });
   assert.equal((await connectInstallation(sib.token))!.id, third.own);
 });
+
+test('5.16 fix 2 (C): a failed after-step (discovery) once the bind committed: ok, and the code stays used', db, async () => {
+  const c = await install();
+  const tia = person('tia');
+  const { code } = await signInThrough((await signInLink(c.own, NOW))!, tia);
+  const fn = `t5_disc_${RUN}`;
+  await sql().unsafe(`CREATE OR REPLACE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+    IF NEW.builder_id = ${c.own} THEN RAISE EXCEPTION 'injected after'; END IF; RETURN NEW; END $$`);
+  await sql().unsafe(`CREATE TRIGGER ${fn} BEFORE INSERT ON discovery_queue FOR EACH ROW EXECUTE FUNCTION ${fn}()`);
+  let b: Awaited<ReturnType<typeof bindFromPaste>>;
+  try {
+    b = await bindFromPaste(c.own, code, new Date());
+  } finally {
+    await sql().unsafe(`DROP TRIGGER ${fn} ON discovery_queue`);
+    await sql().unsafe(`DROP FUNCTION ${fn}()`);
+  }
+  assert.ok(b.ok);
+  assert.equal((await xOf(c.own)).x, tia.id);
+  const [l] = await sql()<{ used_at: Date | null }[]>`SELECT used_at FROM x_signin_links WHERE installation_id = ${c.own} AND x_user_id IS NOT NULL`;
+  assert.notEqual(l.used_at, null);
+});
