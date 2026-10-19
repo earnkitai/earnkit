@@ -63,7 +63,7 @@ export const AGENTS: Agent[] = [
     icon: '/images/agents/claude-code.svg',
     steps: ['Run this in your terminal:'],
     code: `claude mcp add --transport http --scope user earnkit ${MCP_URL}`,
-    after: 'Then type /mcp, pick earnkit, approve.',
+    after: 'Then open Claude Code, type /mcp, pick earnkit, choose Authenticate.',
   },
   {
     name: 'Cursor',
@@ -81,7 +81,7 @@ export const AGENTS: Agent[] = [
     icon: '/images/agents/codex.svg',
     steps: ['Run this in your terminal:'],
     code: `codex mcp add earnkit --url ${MCP_URL}`,
-    after: 'Then run codex mcp login earnkit and approve.',
+    after: 'Then run codex mcp login earnkit.',
     afterCode: 'codex mcp login earnkit',
   },
   {
