@@ -463,15 +463,15 @@ type HostProof = { login: string; account_created_at: Date; public_repos: number
  * here, at most LIMITS.hostProof times an hour per installation, M5), and the login is the App's installer for
  * this repo (github_verifications via 'app', on the person's group), with the account facts its sign-in hop
  * stored. A repo verified before v2.14 with no App install has no login here: the build path then hosts on
- * GitHub Pages. Null when any of it fails.
+ * GitHub Pages. Null when any of it fails; `busy` over the hourly cap.
  */
-async function appHost(a: { installationId: number; repoKey: string; proven?: ProvenRepo | null }): Promise<HostProof | null> {
+async function appHost(a: { installationId: number; repoKey: string; proven?: ProvenRepo | null }): Promise<HostProof | 'busy' | null> {
   let p = a.proven && a.proven.installationId === a.installationId && a.proven.repoKey === a.repoKey ? a.proven : null;
   if (!p) {
     try {
       await enforce('hostProof', a.installationId, HOST_LINES.unavailable);
     } catch (err) {
-      if (err instanceof RateLimitError) return null;
+      if (err instanceof RateLimitError) return 'busy';
       throw err;
     }
     p = await proveRepo({ installationId: a.installationId, repoUrl: `https://github.com/${a.repoKey}` });
@@ -511,6 +511,7 @@ export async function issueUpload(
   const repoKey = `${gh.owner}/${gh.repo}`.toLowerCase();
   if (await sharedGroup(a.installationId)) return { unavailable: HOST_LINES.unavailable };
   const v = await appHost({ installationId: a.installationId, repoKey, proven: a.proven });
+  if (v === 'busy') return { unavailable: HOST_LINES.unavailable };
   if (!v) {
     const link = await installLink(await rootOf(a.installationId), repoKey, now);
     return link ? { sign_in_url: link } : { unavailable: HOST_LINES.unavailable };

@@ -35,7 +35,8 @@ import {
 import { contentTypeFor } from './host-names';
 import { r2Client, r2Enabled, type R2 } from './r2';
 import { errorLines, eventsOfInstallation, withEventLog, withFailingEventLog } from './fixtures/events';
-import { proveRepo, tokenLineFor } from './token-gate';
+import { proveRepo } from './token-gate';
+import { appEnv } from './fixtures/app-install';
 
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 const R2_ENV = { R2_ACCOUNT_ID: 'acct', R2_ACCESS_KEY_ID: 'AKIDTEST', R2_SECRET_ACCESS_KEY: 'r2-secret-never-logged-0123456789', R2_BUCKET: 'sites' };
@@ -596,31 +597,20 @@ test('8.13 an R2 failure logs the error class only, never the secret key or the 
   }
 });
 
-test('P11: on a shared client the host sign-in is used by one upload URL; elsewhere the install and repo binding holds', db, async () => {
-  const on = { ...R2_ENV, GITHUB_OAUTH_CLIENT_ID: 'id', GITHUB_OAUTH_CLIENT_SECRET: 'secret' };
-  await withEnv(on, async () => {
-    for (const shared of [true, false]) {
-      const login = `hz${stamp()}`;
-      const [{ id }] = await sql()<{ id: number }[]>`
-        INSERT INTO installations (token_hash, shared_client) VALUES (${`hz-p11-${stamp()}`}, ${shared}) RETURNING id`;
-      const repoKey = `${login}/tipjar`;
-      await sql()`
-        INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose)
-        VALUES (${repoKey}, ${login}, ${id}, '2020-01-01', 3, 'host')`;
-      const first = await issueUpload({ installationId: id, repoKey, project: 'TipJar' });
-      assert.ok('upload_url' in first, `${shared}: first`);
-      const second = await issueUpload({ installationId: id, repoKey, project: 'TipJar' });
-      assert.equal('sign_in_url' in second, shared, `${shared}: a second URL needs a new sign-in only on a shared client`);
-      const [t] = await sql()<{ slug: string; login: string }[]>`SELECT slug, login FROM host_upload_tokens WHERE installation_id = ${id} LIMIT 1`;
-      assert.deepEqual(t, { slug: `tipjar-${login}`, login });
-    }
-    // An account under 30 days: a plain reason, no URL.
-    const young = `hz${stamp()}`;
-    const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`hz-young-${stamp()}`}) RETURNING id`;
-    await sql()`
-      INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose)
-      VALUES (${`${young}/app`}, ${young}, ${id}, ${new Date(Date.now() - 29 * 86_400_000)}, 3, 'host')`;
-    assert.deepEqual(await issueUpload({ installationId: id, repoKey: `${young}/app`, project: 'App' }), { unavailable: HOST_LINES.gate });
+test('v2.14: a shared client is never hosted (no person proves a repo there); an App-proven repo issues one URL after another', db, async () => {
+  await withEnv(R2_ENV, async () => {
+    const shared = await appRepo({ shared: true });
+    assert.deepEqual(await issueUpload({ installationId: shared.id, repoKey: shared.repoKey, project: 'TipJar' }), { unavailable: HOST_LINES.unavailable });
+    const t = await appRepo();
+    const first = await issueUpload({ installationId: t.id, repoKey: t.repoKey, project: 'TipJar' });
+    assert.ok('upload_url' in first, JSON.stringify(first));
+    const second = await issueUpload({ installationId: t.id, repoKey: t.repoKey, project: 'TipJar' });
+    assert.ok('upload_url' in second, 'off a shared client the person and repo binding holds');
+    const [tok] = await sql()<{ slug: string; login: string; basis: string }[]>`SELECT slug, login, basis FROM host_upload_tokens WHERE installation_id = ${t.id} LIMIT 1`;
+    assert.deepEqual({ ...tok }, { slug: `tipjar-${t.login}`, login: t.login, basis: 'app' });
+    // An installer's account under 30 days: a plain reason, no URL.
+    const young = await appRepo({ accountDays: 29 });
+    assert.deepEqual(await issueUpload({ installationId: young.id, repoKey: young.repoKey, project: 'App' }), { unavailable: HOST_LINES.gate });
   });
 });
 
@@ -761,14 +751,10 @@ test('I2: a flagged and a clean zip racing on one repo never publish the flagged
 });
 
 test('I2: a new upload link revokes the unused ones for the repo', db, async () => {
-  await withEnv({ ...R2_ENV, GITHUB_OAUTH_CLIENT_ID: 'id', GITHUB_OAUTH_CLIENT_SECRET: 'secret' }, async () => {
-    const login = `hz${stamp()}`;
-    const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`hz-rev-${stamp()}`}) RETURNING id`;
-    await sql()`
-      INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose)
-      VALUES (${`${login}/app`}, ${login}, ${id}, '2020-01-01', 3, 'host')`;
-    const a = await issueUpload({ installationId: id, repoKey: `${login}/app`, project: 'App' });
-    const b = await issueUpload({ installationId: id, repoKey: `${login}/app`, project: 'App' });
+  await withEnv(R2_ENV, async () => {
+    const t = await appRepo();
+    const a = await issueUpload({ installationId: t.id, repoKey: t.repoKey, project: 'App' });
+    const b = await issueUpload({ installationId: t.id, repoKey: t.repoKey, project: 'App' });
     assert.ok('upload_url' in a && 'upload_url' in b);
     const ta = new URL(a.upload_url).searchParams.get('t')!;
     const tb = new URL(b.upload_url).searchParams.get('t')!;
@@ -991,243 +977,131 @@ test('3.6 a failing event write leaves the upload reply identical', db, async ()
   assert.equal((await eventsOfInstallation(u.installationId)).length, 0);
 });
 
-// ---- v2.11 T9 (plan S9, decision 2): hosting with no sign-in click off a shared client
+// ---- v2.14 spec 2: hosting with no click beyond the read-only App's install, off a shared client
 
-/** A cached public GET /users/<login> (github-verify.ts githubUser): no network in tests. */
-async function seedGhUser(login: string, o: { days: number; repos: number; type?: string }) {
-  const note = JSON.stringify({ type: o.type ?? 'User', created_at: new Date(Date.now() - o.days * 86_400_000).toISOString(), public_repos: o.repos });
-  await sql()`
-    INSERT INTO url_checks (key, ok, checked_at, note) VALUES (${`ghuser:${login}`}, true, now(), ${note})
-    ON CONFLICT (key) DO UPDATE SET ok = true, checked_at = now(), note = EXCLUDED.note`;
-}
+appEnv();
 
 /**
- * A non-shared installation whose builder said `login` is theirs, the repo `<login>/podtips`, and
- * the proof reads: this installation's earnkit.txt line in it (`line: false`: none).
+ * A person with a page (preflight S7) whose repo `<login>/podtips` the read-only App proved (`app: false`: not
+ * proven): the `github_app` source and the App verification its setup URL wrote, with the installer's account facts.
  */
-async function proofSetup(o: { shared?: boolean; line?: boolean; githubUser?: string | null; owner?: string; pusher?: string | null } = {}) {
+async function appRepo(o: { shared?: boolean; app?: boolean; accountDays?: number; publicRepos?: number } = {}) {
   const login = `hz${stamp()}`;
-  const owner = o.owner ?? login;
   const [{ id }] = await sql()<{ id: number }[]>`
-    INSERT INTO installations (token_hash, shared_client, github_user)
-    VALUES (${`hz-t9-${stamp()}`}, ${o.shared ?? false}, ${o.githubUser === undefined ? login : o.githubUser}) RETURNING id`;
-  const repoKey = `${owner}/podtips`;
-  const reads: string[] = [];
-  const gate = {
-    owner: async (r: { owner: string; repo: string }) => {
-      reads.push(`${r.owner}/${r.repo}`);
-      return o.line === false ? ({ status: 'missing' as const }) : ({ status: 'ok' as const, text: `${tokenLineFor(id, `https://github.com/${r.owner}/${r.repo}`)}\n` });
-    },
-    latest: async () => null,
-    // T9 security fix I1: who GitHub's push record says added the line (default: the repo owner).
-    pusher: async () => (o.pusher === undefined ? owner : o.pusher),
-  };
-  return { login, owner, id, repoKey, gate, reads };
+    INSERT INTO installations (token_hash, shared_client) VALUES (${`hz-app-${stamp()}`}, ${o.shared ?? false}) RETURNING id`;
+  await sql()`INSERT INTO builder_profiles (builder_id, slug, x_user_id, x_handle) VALUES (${id}, ${`hz-${id}`}, ${`77${id}`}, ${`h${id}`})`;
+  const repoKey = `${login}/podtips`;
+  if (o.app !== false) {
+    await sql()`
+      INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by, state, proof, verified_at, gh_owner, gh_owner_type)
+      VALUES (${id}, 'repo', ${repoKey}, ${repoKey}, 'server', 'verified', 'github_app', now(), ${login}, 'User')`;
+    await sql()`
+      INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose, via, github_installation_id)
+      VALUES (${repoKey}, ${login}, ${id}, ${new Date(Date.now() - (o.accountDays ?? 730) * 86_400_000)}, ${o.publicRepos ?? 5}, 'app', 'app', 4242)`;
+  }
+  return { login, id, repoKey };
 }
 
-/** EARNKIT_AUTH_SECRET makes the proof line (an HMAC under it). */
-const SECRET_ON = { EARNKIT_AUTH_SECRET: process.env.EARNKIT_AUTH_SECRET || 'hosting-t9-secret' };
-const OAUTH_OFF = { GITHUB_OAUTH_CLIENT_ID: undefined, GITHUB_OAUTH_CLIENT_SECRET: undefined };
-
-test('9.1 off a shared client, the proof line plus a public account read (2 years, 5 public repos) issue the upload URL with no sign-in; 10 days old is the gate', db, () =>
-  withEnv({ ...R2_ENV, ...OAUTH_OFF, ...SECRET_ON }, async () => {
-    const t = await proofSetup();
-    await seedGhUser(t.login, { days: 730, repos: 5 });
-    const offer = await issueUpload({ installationId: t.id, repoKey: t.repoKey, project: 'PodTips' }, new Date(), { gate: t.gate });
+test('9.1 v2.14: an App-proven repo issues the upload URL with no sign-in; the installer\'s account is the gate', db, () =>
+  withEnv(R2_ENV, async () => {
+    const t = await appRepo();
+    const offer = await issueUpload({ installationId: t.id, repoKey: t.repoKey, project: 'PodTips' });
     assert.ok('upload_url' in offer, JSON.stringify(offer));
-    assert.ok(!('sign_in_url' in offer));
-    assert.deepEqual(t.reads, [t.repoKey], 'one read of earnkit.txt');
     const [tok] = await sql()<{ login: string; slug: string; basis: string }[]>`
       SELECT login, slug, basis FROM host_upload_tokens WHERE installation_id = ${t.id}`;
-    assert.deepEqual({ ...tok }, { login: t.login, slug: `podtips-${t.login}`, basis: 'proof_line' });
-    // The caller already checked the line this call (the build path): no second read.
-    const again = await proofSetup();
-    await seedGhUser(again.login, { days: 730, repos: 5 });
-    const proven = await proveRepo({ installationId: again.id, repoUrl: `https://github.com/${again.repoKey}` }, again.gate);
-    assert.deepEqual(again.reads, [again.repoKey]);
-    assert.ok('upload_url' in (await issueUpload({ installationId: again.id, repoKey: again.repoKey, project: 'PodTips', proven }, new Date(), { gate: again.gate })));
-    assert.deepEqual(again.reads, [again.repoKey], 'no second read');
+    assert.deepEqual({ ...tok }, { login: t.login, slug: `podtips-${t.login}`, basis: 'app' });
+    // The caller already proved the repo this call (the build path).
+    const again = await appRepo();
+    const proven = await proveRepo({ installationId: again.id, repoUrl: `https://github.com/${again.repoKey}` });
+    assert.ok(proven);
+    assert.ok('upload_url' in (await issueUpload({ installationId: again.id, repoKey: again.repoKey, project: 'PodTips', proven })));
     // Another installation's or repo's proof is never taken as this one's (security fix M1): read again.
-    const third = await proofSetup();
-    await seedGhUser(third.login, { days: 730, repos: 5 });
-    assert.ok('upload_url' in (await issueUpload({ installationId: third.id, repoKey: third.repoKey, project: 'PodTips', proven }, new Date(), { gate: third.gate })));
-    assert.deepEqual(third.reads, [third.repoKey]);
-    // 10 days old: the v2.9 gate's plain reason, no URL.
-    const young = await proofSetup();
-    await seedGhUser(young.login, { days: 10, repos: 5 });
-    assert.deepEqual(await issueUpload({ installationId: young.id, repoKey: young.repoKey, project: 'PodTips' }, new Date(), { gate: young.gate }), { unavailable: HOST_LINES.gate });
-    const empty = await proofSetup();
-    await seedGhUser(empty.login, { days: 730, repos: 0 });
-    assert.deepEqual(await issueUpload({ installationId: empty.id, repoKey: empty.repoKey, project: 'PodTips' }, new Date(), { gate: empty.gate }), { unavailable: HOST_LINES.gate });
+    const other = await appRepo({ app: false });
+    const r = await issueUpload({ installationId: other.id, repoKey: other.repoKey, project: 'PodTips', proven });
+    assert.ok('sign_in_url' in r, JSON.stringify(r));
+    // 10 days old, or no public repo: the v2.9 gate's plain reason, no URL.
+    const young = await appRepo({ accountDays: 10 });
+    assert.deepEqual(await issueUpload({ installationId: young.id, repoKey: young.repoKey, project: 'PodTips' }), { unavailable: HOST_LINES.gate });
+    const empty = await appRepo({ publicRepos: 0 });
+    assert.deepEqual(await issueUpload({ installationId: empty.id, repoKey: empty.repoKey, project: 'PodTips' }), { unavailable: HOST_LINES.gate });
   }),
 );
 
-test('9.1 the proof line never makes an org, someone else\'s repo, an unsaid login or a missing line the builder\'s: no URL (sign-in when it is on)', db, () =>
-  withEnv({ ...R2_ENV, ...OAUTH_OFF, ...SECRET_ON }, async () => {
-    const off = { unavailable: HOST_LINES.unavailable };
-    const org = await proofSetup();
-    await seedGhUser(org.login, { days: 730, repos: 5, type: 'Organization' });
-    assert.deepEqual(await issueUpload({ installationId: org.id, repoKey: org.repoKey, project: 'PodTips' }, new Date(), { gate: org.gate }), off, 'an organization');
-    // The agent can push to bob's repo (its line is there), but the builder said they are someone else.
-    const other = await proofSetup({ owner: `hzbob${stamp()}` });
-    await seedGhUser(other.owner, { days: 730, repos: 5 });
-    assert.deepEqual(await issueUpload({ installationId: other.id, repoKey: other.repoKey, project: 'PodTips' }, new Date(), { gate: other.gate }), off, "someone else's repo");
-    const unsaid = await proofSetup({ githubUser: null });
-    await seedGhUser(unsaid.login, { days: 730, repos: 5 });
-    assert.deepEqual(await issueUpload({ installationId: unsaid.id, repoKey: unsaid.repoKey, project: 'PodTips' }, new Date(), { gate: unsaid.gate }), off, 'no login said');
-    const noLine = await proofSetup({ line: false });
-    await seedGhUser(noLine.login, { days: 730, repos: 5 });
-    assert.deepEqual(await issueUpload({ installationId: noLine.id, repoKey: noLine.repoKey, project: 'PodTips' }, new Date(), { gate: noLine.gate }), off, 'no line');
-    const none = await sql()<{ n: number }[]>`
-      SELECT count(*)::int AS n FROM host_upload_tokens WHERE installation_id IN ${sql()([org.id, other.id, unsaid.id, noLine.id])}`;
-    assert.equal(none[0].n, 0);
-    // With sign-in on, a missing line falls back to the v2.9 sign-in link.
-    await withEnv({ GITHUB_OAUTH_CLIENT_ID: 'id', GITHUB_OAUTH_CLIENT_SECRET: 'secret' }, async () => {
-      const r = await issueUpload({ installationId: noLine.id, repoKey: noLine.repoKey, project: 'PodTips' }, new Date(), { gate: noLine.gate });
-      assert.ok('sign_in_url' in r, JSON.stringify(r));
-    });
-    // R2 off: nothing, whatever the proof.
-    const ok = await proofSetup();
-    await seedGhUser(ok.login, { days: 730, repos: 5 });
-    await withEnv(R2_OFF, async () =>
-      assert.deepEqual(await issueUpload({ installationId: ok.id, repoKey: ok.repoKey, project: 'PodTips' }, new Date(), { gate: ok.gate }), off));
-    assert.deepEqual(ok.reads, [], 'R2 off reads nothing');
-  }),
-);
-
-test('9.2 on a shared client issueUpload is unchanged: the v2.9 sign-in link (sign-in on), never the proof line; off without sign-in', db, () =>
-  withEnv({ ...R2_ENV, ...SECRET_ON, GITHUB_OAUTH_CLIENT_ID: 'id', GITHUB_OAUTH_CLIENT_SECRET: 'secret' }, async () => {
-    const t = await proofSetup({ shared: true });
-    await seedGhUser(t.login, { days: 730, repos: 5 });
-    const r = await issueUpload({ installationId: t.id, repoKey: t.repoKey, project: 'PodTips' }, new Date(), { gate: t.gate });
+test('9.1 v2.14: an unproven repo gets the App install link (one click proves it, then it goes live), never a proof line; R2 off: nothing', db, () =>
+  withEnv(R2_ENV, async () => {
+    const t = await appRepo({ app: false });
+    const r = await issueUpload({ installationId: t.id, repoKey: t.repoKey, project: 'PodTips' });
     assert.ok('sign_in_url' in r, JSON.stringify(r));
     assert.match((r as { sign_in_url: string }).sign_in_url, /\/github\/verify\?n=/);
-    assert.deepEqual(t.reads, [], 'the proof line is never read on a shared client');
-    await withEnv(OAUTH_OFF, async () =>
-      assert.deepEqual(await issueUpload({ installationId: t.id, repoKey: t.repoKey, project: 'PodTips' }, new Date(), { gate: t.gate }), { unavailable: HOST_LINES.unavailable }));
+    const [n] = await sql()<{ purpose: string }[]>`SELECT purpose FROM github_verify_nonces WHERE installation_id = ${t.id}`;
+    assert.equal(n.purpose, 'app');
+    // A repo verified before v2.14 with no App install: no login to host under (GitHub Pages instead).
+    const kept = await appRepo({ app: false });
+    await sql()`
+      INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by, state, proof, verified_at)
+      VALUES (${kept.id}, 'repo', ${kept.repoKey}, ${kept.repoKey}, 'server', 'verified', 'proof_branch', now())`;
+    assert.ok('sign_in_url' in (await issueUpload({ installationId: kept.id, repoKey: kept.repoKey, project: 'PodTips' })));
+    assert.equal((await sql()`SELECT 1 FROM host_upload_tokens WHERE installation_id IN ${sql()([t.id, kept.id])}`).length, 0);
+    const ok = await appRepo();
+    await withEnv(R2_OFF, async () =>
+      assert.deepEqual(await issueUpload({ installationId: ok.id, repoKey: ok.repoKey, project: 'PodTips' }), { unavailable: HOST_LINES.unavailable }));
   }),
 );
 
-test('9.6 a proof-line upload answers with liveLine (v2.9, no new copy), re-reads the public account, and its hosted event carries login_basis proof_line', db, () =>
-  withEnv({ ...R2_ENV, ...OAUTH_OFF, ...SECRET_ON }, () =>
+test('9.6 an App upload answers with liveLine, re-reads its verification, and its hosted event carries login_basis app', db, () =>
+  withEnv(R2_ENV, () =>
     withEventLog(async () => {
-      const t = await proofSetup();
-      await seedGhUser(t.login, { days: 730, repos: 5 });
-      const offer = await issueUpload({ installationId: t.id, repoKey: t.repoKey, project: 'PodTips' }, new Date(), { gate: t.gate });
+      const t = await appRepo();
+      const offer = await issueUpload({ installationId: t.id, repoKey: t.repoKey, project: 'PodTips' });
       assert.ok('upload_url' in offer);
       const token = new URL(offer.upload_url).searchParams.get('t')!;
       const slug = `podtips-${t.login}`;
       const out = await deploySite(token, site(), { r2: fakeR2().r2 });
       assert.deepEqual(out, { status: 200, body: { show_to_builder: liveLine('PodTips', slug), url: `https://${slug}.earnkit.com` } });
-      assert.equal(out.body.show_to_builder, `PodTips is live: ${slug}.earnkit.com`);
       const [d] = await deployIds(slug);
       const [deployRow] = await sql()<{ basis: string }[]>`SELECT basis FROM host_deploys WHERE id = ${d.id}`;
-      assert.equal(deployRow.basis, 'proof_line');
+      assert.equal(deployRow.basis, 'app');
       const events = await eventsOfInstallation(t.id);
       assert.deepEqual(
         events.map((e) => [e.type, e.dedupe_key, e.github_login, e.login_basis, e.proof_url, e.detail]),
-        [['hosted', `hosted:${d.id}`, t.login, 'proof_line', `https://${slug}.earnkit.com`, { host: 'earnkit', slug }]],
+        [['hosted', `hosted:${d.id}`, t.login, 'app', `https://${slug}.earnkit.com`, { host: 'earnkit', slug }]],
       );
-      // The account read again at upload: an account that no longer passes (a cached Organization) is refused.
-      const later = await proofSetup();
-      await seedGhUser(later.login, { days: 730, repos: 5 });
-      const o2 = await issueUpload({ installationId: later.id, repoKey: later.repoKey, project: 'PodTips' }, new Date(), { gate: later.gate });
-      assert.ok('upload_url' in o2);
-      await seedGhUser(later.login, { days: 730, repos: 5, type: 'Organization' });
+      // A legacy proof-line link (v2.11) is refused at upload.
+      const legacy = await upload();
+      await sql()`UPDATE host_upload_tokens SET basis = 'proof_line' WHERE installation_id = ${legacy.installationId}`;
       const f = fakeR2();
-      const refusedUpload = await deploySite(new URL(o2.upload_url).searchParams.get('t')!, site(), { r2: f.r2 });
-      assert.equal(refusedUpload.status, 403);
-      assert.equal(refusedUpload.body.show_to_builder, HOST_LINES.gate);
+      const refusedUpload = await deploySite(legacy.token, site(), { r2: f.r2 });
+      assert.deepEqual([refusedUpload.status, refusedUpload.body.show_to_builder], [403, HOST_LINES.gate]);
       assert.deepEqual(f.calls, [], 'nothing written');
     }),
   ),
 );
 
-test('9.6 a flagged proof-line upload approved by the owner writes its hosted event with the proof_line basis', db, () =>
-  withEnv({ ...R2_ENV, ...OAUTH_OFF, ...SECRET_ON }, () =>
-    withEventLog(async () => {
-      const t = await proofSetup();
-      await seedGhUser(t.login, { days: 730, repos: 5 });
-      const offer = await issueUpload({ installationId: t.id, repoKey: t.repoKey, project: 'PodTips' }, new Date(), { gate: t.gate });
-      assert.ok('upload_url' in offer);
-      const f = fakeR2();
-      const out = await deploySite(new URL(offer.upload_url).searchParams.get('t')!, site(PHISH), { r2: f.r2 });
-      assert.equal(out.body.review, true);
-      const slug = `podtips-${t.login}`;
-      assert.equal(await approveSite(slug, { r2: f.r2 }), true);
-      const [e] = await eventsOfInstallation(t.id);
-      assert.deepEqual([e.type, e.github_login, e.login_basis], ['hosted', t.login, 'proof_line']);
-    }),
-  ),
-);
-
-test('9.1 security fix I1: only the owner\'s own push of the line names the owner; a collaborator push, an org, a fork or a lying github_user host nothing', db, () =>
-  withEnv({ ...R2_ENV, ...OAUTH_OFF, ...SECRET_ON }, async () => {
-    const off = { unavailable: HOST_LINES.unavailable };
-    const issue = (t: Awaited<ReturnType<typeof proofSetup>>) => issueUpload({ installationId: t.id, repoKey: t.repoKey, project: 'PodTips' }, new Date(), { gate: t.gate });
-    const owner = await proofSetup();
-    await seedGhUser(owner.login, { days: 730, repos: 5 });
-    assert.ok('upload_url' in (await issue(owner)), 'the owner pushed it');
-    // Mallory pushed her line to alice's repo and says she is alice.
-    const collab = await proofSetup({ pusher: `hzmal${stamp()}` });
-    await seedGhUser(collab.login, { days: 730, repos: 5 });
-    assert.deepEqual(await issue(collab), off, 'a collaborator push');
-    const unknown = await proofSetup({ pusher: null });
-    await seedGhUser(unknown.login, { days: 730, repos: 5 });
-    assert.deepEqual(await issue(unknown), off, 'no push record');
-    const org = await proofSetup();
-    await seedGhUser(org.login, { days: 730, repos: 5, type: 'Organization' });
-    assert.deepEqual(await issue(org), off, 'an org repo');
-    // A fork under mallory's account of alice's repo, mallory's agent saying it is alice.
-    const alice = `hzali${stamp()}`;
-    const fork = await proofSetup({ owner: `hzfork${stamp()}`, githubUser: alice });
-    await seedGhUser(fork.owner, { days: 730, repos: 5 });
-    await seedGhUser(alice, { days: 730, repos: 5 });
-    assert.deepEqual(await issue(fork), off, 'a fork');
-    const liar = await proofSetup({ githubUser: `hzother${stamp()}` });
-    await seedGhUser(liar.login, { days: 730, repos: 5 });
-    assert.deepEqual(await issue(liar), off, 'a github_user that lies');
-    const none = await sql()<{ n: number }[]>`
-      SELECT count(*)::int AS n FROM host_upload_tokens WHERE installation_id IN ${sql()([collab.id, unknown.id, org.id, fork.id, liar.id])}`;
-    assert.equal(none[0].n, 0, 'no link, no login used');
-  }),
-);
-
-test('9.1 security fix I1: a proof-line link never replaces a site made under another login; M2: the upload re-checks the said login', db, () =>
-  withEnv({ ...R2_ENV, ...OAUTH_OFF, ...SECRET_ON }, async () => {
-    const t = await proofSetup();
-    await seedGhUser(t.login, { days: 730, repos: 5 });
+test('9.1 security fix I1, v2.14: an App link never replaces a site made under another login', db, () =>
+  withEnv(R2_ENV, async () => {
+    const t = await appRepo();
     await sql()`
       INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status)
       VALUES (${`podtips-hzx${stamp()}`}, ${`hzx${stamp()}`}, ${t.repoKey}, ${t.id}, 10, 1, 'live')`;
-    assert.deepEqual(await issueUpload({ installationId: t.id, repoKey: t.repoKey, project: 'PodTips' }, new Date(), { gate: t.gate }), { unavailable: HOST_LINES.repoHasSite });
+    assert.deepEqual(await issueUpload({ installationId: t.id, repoKey: t.repoKey, project: 'PodTips' }), { unavailable: HOST_LINES.repoHasSite });
     await sql()`UPDATE hosted_sites SET status = 'ended' WHERE repo_key = ${t.repoKey}`;
     // The same at upload time: another login's site appeared after the link was issued.
-    const offer = await issueUpload({ installationId: t.id, repoKey: t.repoKey, project: 'PodTips' }, new Date(), { gate: t.gate });
+    const offer = await issueUpload({ installationId: t.id, repoKey: t.repoKey, project: 'PodTips' });
     assert.ok('upload_url' in offer, JSON.stringify(offer));
     await sql()`UPDATE hosted_sites SET status = 'live', login = ${`hzy${stamp()}`} WHERE repo_key = ${t.repoKey}`;
     const f = fakeR2();
     const out = await deploySite(new URL(offer.upload_url).searchParams.get('t')!, site(), { r2: f.r2 });
     assert.deepEqual([out.status, out.body.show_to_builder], [409, HOST_LINES.repoHasSite]);
     assert.deepEqual(f.calls, []);
-    await sql()`UPDATE hosted_sites SET status = 'ended' WHERE repo_key = ${t.repoKey}`;
-    // M2: the builder's said login changed after the link: refused at upload.
-    const m2 = await proofSetup();
-    await seedGhUser(m2.login, { days: 730, repos: 5 });
-    const o2 = await issueUpload({ installationId: m2.id, repoKey: m2.repoKey, project: 'PodTips' }, new Date(), { gate: m2.gate });
-    assert.ok('upload_url' in o2);
-    await sql()`UPDATE installations SET github_user = 'someone-else' WHERE id = ${m2.id}`;
-    const g = fakeR2();
-    const r2 = await deploySite(new URL(o2.upload_url).searchParams.get('t')!, site(), { r2: g.r2 });
-    assert.deepEqual([r2.status, r2.body.show_to_builder], [403, HOST_LINES.gate]);
-    assert.deepEqual(g.calls, []);
   }),
 );
 
-test('9.1 security fix M5: the no-click proof reads GitHub at most 20 times an hour per installation', db, () =>
-  withEnv({ ...R2_ENV, ...OAUTH_OFF, ...SECRET_ON }, async () => {
-    const t = await proofSetup({ line: false });
-    for (let i = 0; i < 25; i++) await issueUpload({ installationId: t.id, repoKey: t.repoKey, project: 'PodTips' }, new Date(), { gate: t.gate });
-    assert.equal(t.reads.length, 20);
+test('9.1 security fix M5: the no-click proof is read at most 20 times an hour per installation', db, () =>
+  withEnv(R2_ENV, async () => {
+    const t = await appRepo({ app: false });
+    const out = [];
+    for (let i = 0; i < 25; i++) out.push(await issueUpload({ installationId: t.id, repoKey: t.repoKey, project: 'PodTips' }));
+    assert.equal(out.filter((r) => 'sign_in_url' in r).length, 20);
+    assert.equal(out.filter((r) => 'unavailable' in r).length, 5);
   }),
 );
