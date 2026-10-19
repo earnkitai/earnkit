@@ -13,7 +13,7 @@ import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, dropAvalanche, dropPrograms, find, fitsFor, install, person, withEnv } from './fixtures/find';
 import type { Starter } from './starters';
-import { START_ASK, UPDATES_ASK, privateLine } from './bench-reply';
+import { START_ASK, privateLine } from './bench-reply';
 
 /**
  * v2.13 T8: find and score under the Bench flag through the real tools: the three parts (where you
@@ -64,32 +64,28 @@ test('8.6 a fresh install with identity.project: the project named, not counted 
   }),
 );
 
-test('8.7 a confirmed, claimed, ranked project: the spec 2a reply, and the updates yes turns posting on with the weekly task', dbTest, () =>
+test('8.7 a confirmed, claimed, ranked project: the spec 2a reply; v2.14 spec 3: no updates yes and no weekly task', dbTest, () =>
   benchOn(async () => {
     const p = await avalanche();
     const id = await person({ main: `mayaf${RUN}/recipes`, claimed: `mf${RUN}`, ranked: true, score: 60, projects: [{ key: `mayaf${RUN}/recipes`, name: 'Recipe planner', confirmed: true, weeks_shipping: 6 }] });
     const r = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(p.id, `mayaf${RUN}/recipes`) }) });
     assert.match(r.show_to_builder, /^Recipe planner is on the Bench(: (top \d+(\.\d)?% of builders|#\d+ of \d+ builders?))?, 6 weeks shipping\.$/m);
     assert.match(r.show_to_builder, new RegExp(`^${esc(p.title)} pays up to \\$10K and fits Recipe planner; it's open all year\\.$`, 'm'));
-    // v2.13.3 owner ruling A: the best fit's entry is asked first; a no to it, then the updates yes.
+    // v2.13.3 owner ruling A: the best fit's entry is asked first; a no to it, then the next step (never the updates yes).
     assert.ok(r.show_to_builder.endsWith(`Want me to prepare an entry for ${p.title}?`), r.show_to_builder);
     assert.equal(r.move_up?.kind, 'enter');
     await tools.tell({ move_up: { kind: 'enter', project_key: `mayaf${RUN}/recipes`, answer: 'no' } }, { installationId: id } as never);
     const r2 = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(p.id, `mayaf${RUN}/recipes`) }) });
-    assert.ok(r2.show_to_builder.endsWith(UPDATES_ASK), r2.show_to_builder);
-    assert.equal(r2.move_up?.kind, 'updates');
-    const yes = (await tools.tell({ move_up: { kind: 'updates', project_key: `mayaf${RUN}/recipes`, answer: 'yes' } }, { installationId: id } as never)) as { show_to_builder: string; schedule_weekly_update?: string };
-    assert.equal(yes.show_to_builder, "Done. I'll post what you ship here every week.");
-    assert.ok(yes.schedule_weekly_update);
-    // Answered once: the same yes again changes nothing.
+    assert.notEqual(r2.move_up?.kind, 'updates');
+    assert.doesNotMatch(r2.show_to_builder, /post what you ship|this week's update/);
+    assert.equal(r2.schedule_weekly_update, undefined);
+    // An older agent's updates yes is "Okay." (never asked), and its updates { on } is answered with the ship log line.
     assert.equal(((await tools.tell({ move_up: { kind: 'updates', project_key: `mayaf${RUN}/recipes`, answer: 'yes' } }, { installationId: id } as never)) as { show_to_builder: string }).show_to_builder, 'Okay.');
-    // B18: the weekly-task note once more on the next find, then not again; posting off and on again: once more.
+    const on = (await tools.tell({ updates: { on: true } }, { installationId: id } as never)) as { show_to_builder: string; schedule_weekly_update?: string };
+    assert.match(on.show_to_builder, /writes itself every Monday/);
+    assert.equal(on.schedule_weekly_update, undefined);
     const match = { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(p.id, `mayaf${RUN}/recipes`) }) };
-    assert.ok((await find(id, {}, match)).schedule_weekly_update);
     assert.equal((await find(id, {}, match)).schedule_weekly_update, undefined);
-    await tools.tell({ updates: { on: false } }, { installationId: id } as never);
-    await tools.tell({ updates: { on: true } }, { installationId: id } as never);
-    assert.ok((await find(id, {}, match)).schedule_weekly_update);
   }),
 );
 
@@ -134,13 +130,12 @@ test('8.11 the yes is answered as asked: another kind is "Okay." and changes not
     const tell = (m: Record<string, unknown>) => tools.tell({ move_up: m }, { installationId: id } as never) as Promise<{ show_to_builder: string }>;
     assert.equal((await tell({ kind: 'updates', project_key: key, answer: 'yes' })).show_to_builder, 'Okay.');
     assert.equal((await tell({ kind: 'enter', project_key: 'someone/else', answer: 'yes' })).show_to_builder, 'Okay.');
-    const [{ on }] = await sql()<{ on: Date | null }[]>`SELECT updates_on_at AS on FROM builder_profiles WHERE builder_id = ${id}`;
+    const [{ on }] = await sql()<{ on: Date | null }[]>`SELECT ship_titles_at AS on FROM builder_profiles WHERE builder_id = ${id}`;
     assert.equal(on, null, 'nothing turned on');
     assert.equal((await tell({ kind: 'enter', project_key: key, answer: 'no' })).show_to_builder, 'Okay.');
-    // The next ask in the order: the updates yes.
+    // The next ask in the order (v2.14 spec 3: never the updates yes), answered as asked.
     const again = await find(id, {}, match);
-    assert.deepEqual(again.move_up && { kind: again.move_up.kind, project_key: again.move_up.project_key }, { kind: 'updates', project_key: key });
-    assert.equal(((await tell({ kind: 'updates', project_key: key, answer: 'yes' })) as { show_to_builder: string }).show_to_builder, "Done. I'll post what you ship here every week.");
+    assert.ok(again.move_up && again.move_up.kind !== 'updates' && again.move_up.kind !== 'enter', JSON.stringify(again.move_up));
   }),
 );
 

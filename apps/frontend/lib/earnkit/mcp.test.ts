@@ -471,7 +471,7 @@ test('5.11 tell lists update and updates and stays under 800 characters', () => 
     assert.equal(d, TELL_DESCRIPTION_BENCH);
     assert.ok(d.length < 800, `${d.length}`);
     // F20: coin { raising } is Task 9's, listed only with EARNKIT_RAISING on.
-    for (const w of ['update: { text }', 'hide', 'updates: { on', 'raising']) assert.ok(d.includes(w), w);
+    for (const w of ['update: { text }', 'hide', 'updates: { titles', 'raising']) assert.ok(d.includes(w), w);
   } finally {
     delete process.env.EARNKIT_RAISING;
   }

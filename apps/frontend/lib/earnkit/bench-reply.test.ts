@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  OTHER_PROJECT_ASK, SUGGEST_ASK, UPDATES_ASK_JOINING, grantsAsk,
+  OTHER_PROJECT_ASK, SUGGEST_ASK, grantsAsk,
   NO_OFFER_LINE, START_ASK, benchBuildAsk, buildingNowLine, pageLine, CONFIRMED_LINE,
-  NO_PROJECT_LINE, POST_UPDATE_ASK, UPDATES_ASK, benchReply, buildAsk, chooseAsk, copyLine, enterAsk, privateLine, takenLine, goLiveAsk, onBenchLine, type BenchAsk, type BenchView,
+  NO_PROJECT_LINE, benchReply, buildAsk, chooseAsk, copyLine, enterAsk, privateLine, takenLine, goLiveAsk, onBenchLine, type BenchAsk, type BenchView,
 } from './bench-reply';
 
 const RECIPE = { key: 'maya/recipes', name: 'Recipe planner', confirmed: true, live: true, weeks: 6 };
@@ -12,7 +12,7 @@ test('8.1 spec 2a, word for word', () => {
   const v: BenchView = {
     project: RECIPE, rank: 'top 18% of builders', claimed: true, handle: 'maya_makes',
     fund: [{ kind: 'fits', title: 'Avalanche Team1 Mini Grants', prize: 'up to $10K', when: 'open all year' }],
-    ask: { kind: 'updates', project_key: 'maya/recipes', line: UPDATES_ASK },
+    ask: { kind: 'grants', project_key: 'maya/recipes', line: grantsAsk('Recipe planner') },
   };
   assert.equal(benchReply(v), [
     'Where you stand',
@@ -22,7 +22,7 @@ test('8.1 spec 2a, word for word', () => {
     "Avalanche Team1 Mini Grants pays up to $10K and fits Recipe planner; it's open all year.",
     '',
     'How to move up',
-    'Want me to post what you ship here every week, to keep your streak going on the Bench?',
+    'Want me to find grants that fit Recipe planner?',
   ].join('\n'));
 });
 
@@ -69,18 +69,17 @@ test('8.4 the stand line without a rank, without weeks, with one week', () => {
 test('8.5 the last line asks the first that applies, in the spec\'s order', () => {
   const coin: BenchAsk = { kind: 'coin', project_key: 'k', line: 'raise?' };
   const enter: BenchAsk = { kind: 'enter', project_key: 'k', program_id: 'p', line: enterAsk('Base Builder Grants') };
-  const base = { project: RECIPE, canHost: true, updatesOn: true, postedThisWeek: true, scheduled: true, coin, enter, declined: [] as string[] };
+  const base = { project: RECIPE, canHost: true, coin, enter, declined: [] as string[] };
   assert.equal(chooseAsk({ ...base, project: null })?.kind, 'start', '1. no project: existing work (v2.14 A18: never a build)');
   // v2.13.3 owner ruling A: the best fit's entry, else a community round (the coin), before the Bench's own steps.
   assert.equal(chooseAsk({ ...base, project: { ...RECIPE, live: false } })?.kind, 'enter', 'A: the best fit first');
   assert.equal(chooseAsk({ ...base, project: { ...RECIPE, live: false }, enter: null })?.kind, 'coin', 'A: else a community round');
   const none = { ...base, coin: null, enter: null };
   assert.deepEqual(chooseAsk({ ...none, project: { ...RECIPE, live: false } }), { kind: 'go_live', project_key: 'maya/recipes', line: goLiveAsk('Recipe planner') }, '2. not live');
-  assert.deepEqual(chooseAsk({ ...none, updatesOn: false }), { kind: 'updates', project_key: 'maya/recipes', line: UPDATES_ASK }, '3. updates not on');
-  assert.equal(chooseAsk({ ...none, updatesOn: false, project: { ...RECIPE, confirmed: false } })?.kind, 'grants', 'asked only once confirmed');
-  assert.deepEqual(chooseAsk({ ...none, postedThisWeek: false, scheduled: false }), { kind: 'post_update', project_key: 'maya/recipes', line: POST_UPDATE_ASK }, '4.');
-  assert.equal(chooseAsk({ ...none, postedThisWeek: true, scheduled: true })?.kind, 'grants', 'nothing pending: the fallback');
-  assert.equal(chooseAsk({ ...base, enter: null, updatesOn: false, declined: ['updates:maya/recipes'] })?.kind, 'coin');
+  // v2.14 spec 3: the ship log writes itself: no posting yes and no week's-post ask, ever.
+  assert.equal(chooseAsk(none)?.kind, 'grants', 'nothing pending: the fallback');
+  assert.equal(chooseAsk({ ...none, project: { ...RECIPE, confirmed: false } })?.kind, 'grants');
+  assert.equal(chooseAsk({ ...base, enter: null })?.kind, 'coin');
   assert.equal(chooseAsk({ ...base, declined: ['enter:maya/recipes'] })?.kind, 'coin', 'a no keeps the entry away 30 days');
 });
 
@@ -117,22 +116,16 @@ test('O2.8 honest build copy: never "you won\'t have to do anything"', () => {
   assert.equal(buildAsk('a tip jar on Arc'), "It takes a few minutes and I'll ask you one or two things. Want me to build a tip jar on Arc and put it online?");
 });
 
-test('O2.9 a project being checked is asked the next Bench step (the updates yes), never a grant last', () => {
-  const base = { canHost: false, updatesOn: false, postedThisWeek: false, scheduled: false, coin: null, enter: null, declined: [] as string[] };
+test('O2.9 a project being checked is asked the fallback, never nothing (v2.14 spec 3: no updates yes)', () => {
+  const base = { canHost: false, coin: null, enter: null, declined: [] as string[] };
   const p = { ...RECIPE, confirmed: false };
-  assert.equal(chooseAsk({ ...base, project: p })?.kind, 'grants', 'not joining: the fallback, never nothing');
-  assert.deepEqual(chooseAsk({ ...base, project: p, joining: true }), { kind: 'updates', project_key: 'maya/recipes', line: UPDATES_ASK_JOINING });
-  assert.equal(chooseAsk({ ...base, project: p, joining: true, updatesOn: true })?.kind, 'grants', 'post_update waits for confirmation');
+  assert.equal(chooseAsk({ ...base, project: p })?.kind, 'grants', 'the fallback, never nothing');
 });
 
 test('O2 fix round 1 (ruling 3): every reply ends with one question, in each state', () => {
-  const base = { canHost: false, updatesOn: true, postedThisWeek: true, scheduled: true, coin: null, enter: null, declined: [] as string[] };
-  // A confirmed project with nothing pending: the week's update when posting is on, else grants that fit.
-  // v2.13.1 O3 (carried from O2's review): this week's update already posted: never offer to post it (that would overwrite it).
+  const base = { canHost: false, coin: null, enter: null, declined: [] as string[] };
+  // A confirmed project with nothing pending: grants that fit.
   assert.deepEqual(chooseAsk({ ...base, project: RECIPE }), { kind: 'grants', project_key: 'maya/recipes', line: grantsAsk('Recipe planner') });
-  assert.deepEqual(chooseAsk({ ...base, project: RECIPE, postedThisWeek: false }), { kind: 'post_update', project_key: 'maya/recipes', line: POST_UPDATE_ASK }, 'scheduled but not posted yet');
-  assert.equal(chooseAsk({ ...base, project: RECIPE, postedThisWeek: false, declined: ['post_update:maya/recipes'] })?.kind, 'grants');
-  assert.deepEqual(chooseAsk({ ...base, project: RECIPE, updatesOn: false, declined: ['updates:maya/recipes'] }), { kind: 'grants', project_key: 'maya/recipes', line: grantsAsk('Recipe planner') });
   assert.equal(grantsAsk('Recipe planner'), 'Want me to find grants that fit Recipe planner?');
   // The coin step still comes first when nothing earlier applies (the fallback is left out for that check).
   assert.equal(chooseAsk({ ...base, project: RECIPE, fallback: false }), null);
@@ -146,7 +139,4 @@ test('O2 fix round 1 (ruling 3): every reply ends with one question, in each sta
   const enter: BenchAsk = { kind: 'enter', project_key: 'maya/recipes', program_id: 'p', line: enterAsk('X') };
   assert.deepEqual(chooseAsk({ ...base, project: p, other: true, enter, canHost: true }), { kind: 'other_project', project_key: 'maya/recipes', line: OTHER_PROJECT_ASK });
   assert.equal(OTHER_PROJECT_ASK, 'Want to use a different project?');
-  // needs_agent is joining: the updates yes, without "on the Bench".
-  assert.deepEqual(chooseAsk({ ...base, project: p, updatesOn: false, joining: true }), { kind: 'updates', project_key: 'maya/recipes', line: UPDATES_ASK_JOINING });
-  assert.doesNotMatch(UPDATES_ASK_JOINING, /Bench/);
 });

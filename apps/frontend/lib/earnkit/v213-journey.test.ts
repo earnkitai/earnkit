@@ -19,7 +19,7 @@ import { resolveHandle } from './profiles';
 import { refreshPerson, REFRESH_BUDGET_MS, rescorePerson } from './person-score';
 import { mainConfirmed, mainProjectOf } from './main-project';
 import { benchCardFacts, benchRows, parseBenchFilter, profileData } from './bench-data';
-import { UPDATES_ASK, privateLine, takenLine } from './bench-reply';
+import { privateLine, takenLine } from './bench-reply';
 import { saveVerification } from './github-verify';
 import { rootOf } from './identity';
 import { proveByApp } from './repo-proof';
@@ -581,15 +581,13 @@ test('16.2 acceptance 2, without a project: ways to get funded and no build offe
   assert.equal(await mainProjectOf(id), 'maya2/tipjar');
 });
 
-test('16.3 acceptance 3, the weekly update: yes, then "post this week\'s update now": a long card with chips; after the week is ranked it reaches /feed', db, async () => {
+test('16.3 acceptance 3, the weekly update: no yes (v2.14 spec 3), the agent\'s line: a long card with chips; after the week is ranked it reaches /feed', db, async () => {
   const id = MAYA.id;
-  // The community round was offered once (16.1); the next step in the order is the updates yes.
+  // The community round was offered once (16.1); v2.14 spec 3: the ship log writes itself, so never the updates yes.
   await advanceRefreshGuard(id, 11 * 60_000);
   const ask = await call('find', {}, ctx(id));
-  assert.ok(ask.show_to_builder.endsWith(UPDATES_ASK), ask.show_to_builder);
-  const yes = await call('tell', { move_up: { kind: 'updates', project_key: 'maya/recipes', answer: 'yes' } }, ctx(id));
-  assert.equal(yes.show_to_builder, UPDATE_LINES.on);
-  assert.ok(yes.schedule_weekly_update);
+  assert.notEqual(ask.move_up?.kind, 'updates');
+  assert.equal(ask.schedule_weekly_update, undefined);
   const posted = await call('tell', { update: { text: 'Added fridge photo import, so it plans a week of meals from a picture.' } }, ctx(id));
   assert.equal(posted.show_to_builder, UPDATE_LINES.postedAt('https://earnkit.com/maya_makes'));
   const log = await renderProfile('maya_makes', 'log');

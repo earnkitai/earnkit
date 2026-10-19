@@ -7,10 +7,9 @@ import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, claimX, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
-import { NO_OFFER_LINE, OTHER_PROJECT_ASK, POST_UPDATE_ASK, START_ASK, UPDATES_ASK_JOINING, grantsAsk, shipAsk, takenLine } from './bench-reply';
+import { NO_OFFER_LINE, OTHER_PROJECT_ASK, START_ASK, grantsAsk, shipAsk, takenLine } from './bench-reply';
 import { noGrantLine } from './bench-find';
 import { mainProjectOf } from './main-project';
-import { mondayOf } from './weeks';
 
 /**
  * v2.13.1 O2: the reply-side fixes of the first-run audit, through the real tools under the Bench
@@ -100,7 +99,7 @@ test('O2.5 once claimed: find and score show "Your page: https://earnkit.com/<ha
   }),
 );
 
-test('O2.9 the last line is one question that fits: no open-all-year grant for another chain, a project being checked is asked the updates yes', dbTest, () =>
+test('O2.9 the last line is one question that fits: no open-all-year grant for another chain, a project being checked is never asked the updates yes (v2.14 spec 3)', dbTest, () =>
   on(async () => {
     const ava = await avalanche();
     const id = await install();
@@ -109,14 +108,14 @@ test('O2.9 the last line is one question that fits: no open-all-year grant for a
     // v2.13.3 (2): a chain grant is named only with what it needs ("for an Avalanche app"), never as a fit.
     assert.ok(!r.show_to_builder.includes(`${ava.title} pays`), 'a chain grant that does not fit the project is never claimed');
     assert.match(r.show_to_builder, /^Ways to get funded$/m);
-    assert.ok(r.show_to_builder.endsWith(UPDATES_ASK_JOINING), r.show_to_builder);
     assert.doesNotMatch(r.show_to_builder, /How to move up\n.*on the Bench/, 'not on the Bench yet');
-    assert.equal(r.move_up?.kind, 'updates');
+    assert.doesNotMatch(r.show_to_builder, /post what you ship/);
+    assert.notEqual(r.move_up?.kind, 'updates');
     assert.equal(r.show_to_builder.split('\n').filter((l) => l.includes('?')).length, 1, 'one question');
   }),
 );
 
-test('O2 fix round 1 (ruling 3): every state ends on one question with a yes route: grants, the suggestion, a different project (taken never offers an entry), the week\'s update', dbTest, () =>
+test('O2 fix round 1 (ruling 3): every state ends on one question with a yes route: grants, the suggestion, a different project (taken never offers an entry)', dbTest, () =>
   on(async () => {
     const tell = (id: number, m: Record<string, unknown>) => tools.tell({ move_up: m }, { installationId: id } as never) as Promise<R>;
     const lastQ = (t: string) => t.split('\n').filter((l) => l.includes('?'));
@@ -128,20 +127,9 @@ test('O2 fix round 1 (ruling 3): every state ends on one question with a yes rou
     assert.equal(lastQ(r.show_to_builder).length, 1);
     const g = await tell(id, { kind: 'grants', project_key: key, answer: 'yes' });
     assert.ok(g.show_to_builder.length > 0, 'the yes answers');
-    // Posting on and done this week: the week's update.
-    await sql()`UPDATE builder_profiles SET updates_on_at = now(), updates_scheduled_at = now() WHERE builder_id = ${id}`;
-    assert.ok((await find(id, {}, NO_MATCH)).show_to_builder.endsWith(POST_UPDATE_ASK));
-    // O3 fix round 1: another person's row for the same key this week is not this person's post.
-    const other = await install();
-    const monday = mondayOf(new Date());
-    await sql()`INSERT INTO project_updates (builder_id, project_key, week, text, facts) VALUES (${other}, ${key}, ${monday}, 'Not theirs.', '{}'::jsonb)`;
-    assert.ok((await find(id, {}, NO_MATCH)).show_to_builder.endsWith(POST_UPDATE_ASK), 'only their own post counts');
-    // O3: their own post this week: never offered again (it would replace it); grants instead (O5 N5:
-    // after a grants yes that found nothing, the next step, one small thing to ship).
-    await sql()`UPDATE project_updates SET builder_id = ${id} WHERE project_key = ${key} AND week = ${monday}`;
+    // v2.14 spec 3: no week's-post ask; after a grants yes that found nothing (O5 N5), one small thing to ship.
     const next = g.show_to_builder.startsWith(noGrantLine('Recipe planner')) ? shipAsk('Recipe planner') : grantsAsk('Recipe planner');
     assert.ok((await find(id, {}, NO_MATCH)).show_to_builder.endsWith(next));
-    await sql()`DELETE FROM project_updates WHERE project_key = ${key}`;
     // No project, nothing to build: v2.13.3 ruling A, existing work; the yes asks the agent for it.
     const n = await install();
     await claimX(n); // v2.13.4: the asks after the X claim

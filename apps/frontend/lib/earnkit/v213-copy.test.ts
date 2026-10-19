@@ -11,7 +11,7 @@ import { raiseLine } from './coin-moments';
 import { RAISE_LINES, showRaisingLine } from './raising';
 import RaisingPill from '../../app/components/ui/RaisingPill';
 import {
-  CONFIRMED_LINE, NO_PROJECT_LINE, POST_UPDATE_ASK, UPDATES_ASK, buildAsk, installAppAsk, privateLine, enterAsk, fitsLine, goLiveAsk, ideasLine, onBenchLine,
+  CONFIRMED_LINE, NO_PROJECT_LINE, buildAsk, installAppAsk, privateLine, enterAsk, fitsLine, goLiveAsk, ideasLine, onBenchLine,
 } from './bench-reply';
 
 // The components are compiled with the classic JSX runtime here (as feed.test.ts).
@@ -24,7 +24,7 @@ export const TEXTS: string[] = [
   ...[s(18, 100), s(3, 1000), s(10, 19)].flatMap((x) => [benchRank(x)!.short, benchRank(x)!.phrase]),
   ...(['base', 'arc', 'robinhood'] as const).flatMap((chain) => [benchRank(s(1, 100), { chain })!.short, benchRank(s(2, 12), { chain })!.short]),
   // T8: the reply's lines. The 2b lines name a funder and the starter's offer through the BENCH_PITCH_ALLOWED hook (plan B12).
-  NO_PROJECT_LINE, privateLine('Recipe planner'), onBenchLine('Recipe planner', 'top 18% of builders', 6), UPDATES_ASK, POST_UPDATE_ASK,
+  NO_PROJECT_LINE, privateLine('Recipe planner'), onBenchLine('Recipe planner', 'top 18% of builders', 6),
   goLiveAsk('Recipe planner'), enterAsk('Base Builder Grants'), fitsLine('Avalanche Team1 Mini Grants', 'up to $10K', 'Recipe planner', 'open all year'),
   CONFIRMED_LINE('Recipe planner'),
   // v2.13.4: the private repo's lines, the install ask and the join line.
@@ -110,7 +110,7 @@ test('12.7 the landing page\'s words pass the v2.13 rule (copy rules)', async ()
   for (const t of [BENCH_HERO_TITLE, BENCH_HERO_SUBTITLE, BENCH_HERO_SUBTITLE_NO_RAISE, ...BENCH_STEPS_NO_RAISE, BENCH_TOP_TITLE, SEE_BENCH, CAROUSEL_TITLE, SEE_ALL_UPDATES, 'Money open now', BENCH_HOW_TITLE, ...BENCH_STEPS, BENCH_FOOTER_TAGLINE])
     assert.deepEqual(bannedInBench(t, EXEMPT), [], t);
   const row = { rank: 1, line: 'Top 1%', handle: 'maya_makes', name: 'Maya Chen', avatar: null, raising: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
-  const card = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import. It plans a week.', chips: ['Went live', '+31 people'], pinned: false };
+  const card = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import. It plans a week.', chips: ['Went live', '+31 people'], titles: [], pinned: false };
   const rows = Array.from({ length: 12 }, (_, i) => ({ ...row, handle: `b${i}`, rank: i + 1 }));
   const page = pageWords(React.createElement(HomeView, { landing: { ...homeFixture, bench: { rows, chips: ['base', 'robinhood', 'arc'], cards: [card], raising: true } } }));
   // Names: the builder, the project, the coin, the programs' titles, the chains on the chips and logos (R14), the investors' logos (Backed by, unchanged).

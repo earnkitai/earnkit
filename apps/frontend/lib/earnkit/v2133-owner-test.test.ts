@@ -395,7 +395,7 @@ test('A.1 pure: a project is asked to enter its best fit first, else a community
   const p = { key: 'maya/recipes', name: 'Recipe planner', confirmed: true, live: false, weeks: 0 };
   const enter = { kind: 'enter' as const, project_key: p.key, program_id: 'x', line: enterAsk('Base Builder Grants') };
   const coin = { kind: 'coin' as const, project_key: p.key, line: raiseLine('Recipe planner', 'RECIPE', null) };
-  const base = { project: p, canHost: true, updatesOn: false, postedThisWeek: false, scheduled: false, build: null, declined: [] as string[], claimed: true };
+  const base = { project: p, canHost: true, declined: [] as string[] };
   assert.equal(chooseAsk({ ...base, coin, enter })?.kind, 'enter');
   assert.equal(chooseAsk({ ...base, coin, enter: null })?.kind, 'coin');
   assert.equal(chooseAsk({ ...base, coin: null, enter: null })?.kind, 'go_live', 'nothing to win yet: the Bench steps as before');

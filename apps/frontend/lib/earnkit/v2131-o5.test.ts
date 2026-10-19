@@ -10,7 +10,7 @@ import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
 import {
-  GRANTS_LATER_ASK, START_ASK, UPDATES_ASK_JOINING, grantsAsk, privateLine, shipAsk,
+  GRANTS_LATER_ASK, START_ASK, grantsAsk, privateLine, shipAsk,
 } from './bench-reply';
 import { GRANTS_QUIET_MS, noGrantLine } from './bench-find';
 import { GitHubError } from './match-projects';
@@ -224,13 +224,14 @@ test('O5 N7 (F11), N12 the twist asks for a wallet with a way out (one question)
 
 // ---- N13, N15, P2, P8 ----------------------------------------------------------------------------
 
-test('O5 N13 confirmed but not claimed: the updates yes never says "on the Bench" yet', dbTest, () =>
+test('O5 N13 confirmed but not claimed: the last line never says "on the Bench" yet (v2.14 spec 3: never an updates yes)', dbTest, () =>
   on(async () => {
     const key = `${uniq('nc')}/hello-world`;
     // Unclaimed (v2.14 T7: no claim ask), the ask never says "on the Bench".
     const id = await person({ main: key, projects: [{ key, name: 'Hello-World', confirmed: true }] });
     const r = await find(id, {}, NO_MATCH);
-    assert.ok(r.show_to_builder.endsWith(UPDATES_ASK_JOINING), r.show_to_builder);
+    assert.doesNotMatch(r.show_to_builder.split('\n').pop()!, /Bench|post what you ship/, r.show_to_builder);
+    assert.notEqual(r.move_up?.kind, 'updates');
   }),
 );
 
@@ -263,16 +264,14 @@ test('O5 P2 (reversed in v2.13.4): the reply names the Bench rank from 1 ranked 
 
 // ---- N14, P3, P4: the updates replies ------------------------------------------------------------
 
-test('O5 N14 (F15), P3, P4 the update replies carry the full page link; the scheduled call shows nothing new; a change says so with the link', dbTest, () =>
+test('O5 N14 (F15), P3, P4 the update replies carry the full page link; an older agent\'s updates { on } gets the ship log line; a change says so with the link', dbTest, () =>
   on(async () => {
     const key = `${uniq('up')}/hello-world`;
     const handle = uniq('up');
     const id = await person({ main: key, claimed: handle, projects: [{ key, name: 'Hello-World', confirmed: true }] });
     const ctx = { installationId: id } as never;
-    const yes = (await tools.tell({ updates: { on: true } }, ctx)) as R;
-    assert.equal(yes.show_to_builder, UPDATE_LINES.on);
-    const again = (await tools.tell({ updates: { on: true, scheduled: true } }, ctx)) as R;
-    assert.equal(again.show_to_builder, '', 'said once');
+    const yes = (await tools.tell({ updates: { on: true, scheduled: true } }, ctx)) as R;
+    assert.equal(yes.show_to_builder, UPDATE_LINES.auto);
     const p = (await tools.tell({ update: { text: 'Shipped a faster onboarding flow this week.' } }, ctx)) as R;
     assert.equal(p.show_to_builder, `Posted this week's update: https://earnkit.com/${handle}`);
     const c = (await tools.tell({ update: { text: 'Shipped a faster onboarding flow and a new page.' } }, ctx)) as R;

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { sql } from './db';
 import { EVENT_LOG_FLAG } from './events';
-import { HELD_NOTE, HIDE_DATE_NOTE, HIDE_NONE_NOTE, NOT_CONFIRMED_NOTE, UPDATE_LINES, WEEKLY_UPDATE_NOTE, hideUpdate, ownLinks, postUpdate, setUpdates } from './updates';
+import { HELD_NOTE, HIDE_DATE_NOTE, HIDE_NONE_NOTE, NOT_CONFIRMED_NOTE, UPDATE_LINES, hideUpdate, ownLinks, postUpdate, setShipTitles } from './updates';
 import { UPDATE_LINK_NOTE } from './update-text';
 import { tools } from './tools';
 
@@ -125,26 +125,23 @@ test('5.8 hide takes any day of the week; a bad date or an empty week is a note 
   assert.deepEqual(await hideUpdate(id, '2025-01-01'), { show_to_builder: '', agent_note: HIDE_NONE_NOTE });
 });
 
-test('5.9 updates on records the yes once and sends the weekly task; scheduled is remembered; off clears both', dbTest, async () => {
+test('5.9 v2.14 spec 3: updates { titles } turns a private repo\'s titles on and off; { on } is answered and changes nothing', dbTest, async () => {
   const { id } = await person();
-  const on = await setUpdates(id, { on: true }, new Date());
-  assert.equal(on.show_to_builder, UPDATE_LINES.on);
-  assert.equal(on.schedule_weekly_update, WEEKLY_UPDATE_NOTE);
-  const sched = await setUpdates(id, { on: true, scheduled: true }, new Date());
-  assert.equal(sched.schedule_weekly_update, undefined);
-  let [p] = await sql()<{ on_at: Date | null; sched: Date | null }[]>`SELECT updates_on_at AS on_at, updates_scheduled_at AS sched FROM builder_profiles WHERE builder_id = ${id}`;
-  assert.ok(p.on_at && p.sched);
-  assert.equal((await setUpdates(id, { on: false }, new Date())).show_to_builder, UPDATE_LINES.off);
-  [p] = await sql()<{ on_at: Date | null; sched: Date | null }[]>`SELECT updates_on_at AS on_at, updates_scheduled_at AS sched FROM builder_profiles WHERE builder_id = ${id}`;
-  assert.deepEqual(p, { on_at: null, sched: null });
+  const at = async () => (await sql()<{ t: Date | null }[]>`SELECT ship_titles_at AS t FROM builder_profiles WHERE builder_id = ${id}`)[0].t;
+  assert.deepEqual(await setShipTitles(id, { titles: true }, new Date()), { show_to_builder: UPDATE_LINES.titlesOn });
+  assert.ok(await at());
+  assert.deepEqual(await setShipTitles(id, { on: true }, new Date()), { show_to_builder: UPDATE_LINES.auto });
+  assert.ok(await at(), 'an older agent\'s { on } changes nothing');
+  assert.deepEqual(await setShipTitles(id, { titles: false }, new Date()), { show_to_builder: UPDATE_LINES.titlesOff });
+  assert.equal(await at(), null);
 });
 
 test('5.10 through the tool: tell update and updates under the flag; a shared client gets the shared note', dbTest, async () => {
   const { id, key } = await person();
   const r = (await tools.tell({ update: { text: 'Shipped search.' }, updates: { on: true } }, { installationId: id } as never)) as { show_to_builder: string; schedule_weekly_update?: string };
   assert.match(r.show_to_builder, /Posted this week's update\./);
-  assert.match(r.show_to_builder, /I'll post what you ship here every week\./);
-  assert.equal(r.schedule_weekly_update, WEEKLY_UPDATE_NOTE);
+  assert.match(r.show_to_builder, /writes itself every Monday/);
+  assert.equal(r.schedule_weekly_update, undefined);
   assert.equal((await rows(key)).length, 1);
   const shared = (await tools.tell({ update: { text: 'x' } }, { installationId: id, sharedClient: true } as never)) as { agent_note?: string };
   assert.ok(shared.agent_note);
