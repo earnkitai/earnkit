@@ -8,6 +8,8 @@ import type { PageHead } from '../../lib/earnkit/page-data';
 import { rankSplit } from '../../lib/earnkit/rank';
 import { pagePath } from '../../lib/earnkit/reserved-routes';
 import Avatar from './Avatar';
+import BadgeCopy from './BadgeCopy';
+import { badgeMarkdown } from '../../lib/earnkit/badge';
 import ProjectTab from './ProjectTab';
 import ScoreRing from './ScoreRing';
 import { COLUMN, SURFACE } from '../components/common/Panel';
@@ -297,6 +299,7 @@ export default function BenchProfileView({
         <p className="mt-4 max-w-3xl font-funnel-sans text-xs leading-relaxed text-ek-muted md:text-sm">
           {BENCH_SOURCES_LINE}
         </p>
+        <BadgeCopy markdown={badgeMarkdown(d.handle)} />
       </section>
     </div>
     <Footer />
