@@ -120,6 +120,32 @@ export async function upsertWeekFacts(builderId: number, projectKey: string, mon
 }
 
 /**
+ * v2.14 spec 3 (A11): the week's cleaned titles of the person's App-proven repo `key`, read with its installation
+ * token (repo-proof.ts appClient); [] for any other repo. A repo that doesn't read public (repo-public.ts) is read
+ * only once the builder turned titles on; fix round 1: else one GET /repos/{key} through the same client checks it,
+ * and a public answer stamps builder_sources.public_at. At most 3 GitHub calls (plus the token). Only called for a
+ * week with shipped code (weeklyFactsStep).
+ */
+export async function weekTitles(id: number, key: string, monday: string, now: Date, ghFetch: typeof fetch): Promise<string[]> {
+  const db = sql();
+  const k = key.toLowerCase();
+  const [app] = await db<{ id: number; titles_on: boolean }[]>`
+    SELECT s.id::int AS id, (p.ship_titles_at IS NOT NULL) AS titles_on FROM builder_sources s JOIN builder_profiles p ON p.builder_id = s.builder_id
+    WHERE s.builder_id = ${id} AND s.kind = 'repo' AND s.state = 'verified' AND s.proof = ${APP_PROOF}
+      AND regexp_replace(lower(trim(s.ref)), '^(https?://)?(www[.])?github[.]com/', '') = ${k}`;
+  if (!app) return [];
+  const get = await appClient(id, k, ghFetch);
+  if (!get) return [];
+  if (!app.titles_on && !(await repoReadPublic(id, k, now))) {
+    const meta = await get<{ private?: unknown }>(`/repos/${k}`);
+    if (meta?.private !== false) return [];
+    await db`UPDATE builder_sources SET public_at = ${now} WHERE id = ${app.id}`;
+  }
+  // updates.ts imports this file: ownLinks is loaded when called.
+  return shipTitles(await readWeekTitles(get, k, monday), await (await import('./updates')).ownLinks(id));
+}
+
+/**
  * spec "Cost": Mondays, after the digest (from 15:00 UTC), the finished week's facts for every
  * confirmed one project not done yet (facts.checked), WEEKLY_PER_RUN a run while `deadline` allows;
  * then one dated event per fact and project and week (dedupe key `<type>:<project_key>:<week>`).
@@ -148,17 +174,13 @@ export async function weeklyFactsStep(now: Date, o: { deadline: number; only?: n
     if (Date.now() >= o.deadline) break;
     const f = await weekFactsFor(id, monday, now);
     people++;
-    // v2.14 spec 3 (A11): titles only for an App-proven repo, read with its installation token; a private
-    // repo's only once the builder turned titles on (otherwise not even read). At most 2 GitHub reads.
+    // v2.14 spec 3 (A11): the week's titles (weekTitles). Fix round 1: a failure there never stops the facts.
     let titles: string[] = [];
-    const [app] = await db<{ titles_on: boolean }[]>`
-      SELECT (p.ship_titles_at IS NOT NULL) AS titles_on FROM builder_sources s JOIN builder_profiles p ON p.builder_id = s.builder_id
-      WHERE s.builder_id = ${id} AND s.kind = 'repo' AND s.state = 'verified' AND s.proof = ${APP_PROOF}
-        AND regexp_replace(lower(trim(s.ref)), '^(https?://)?(www[.])?github[.]com/', '') = ${key.toLowerCase()}`;
-    if (app && o.ghFetch && (app.titles_on || (await repoReadPublic(id, key, now)))) {
-      const get = await appClient(id, key, o.ghFetch).catch(() => null);
-      if (get) titles = shipTitles(await readWeekTitles(get, key.toLowerCase(), monday).catch(() => []), await (await import('./updates')).ownLinks(id)); // updates.ts imports this file
-    }
+    if (f.shipped_code && o.ghFetch)
+      titles = await weekTitles(id, key, monday, now, o.ghFetch).catch((err: unknown) => {
+        console.error('[weekly] titles', err instanceof Error ? err.name : 'error');
+        return [];
+      });
     // Another builder's row for the key and week: nothing written, no events.
     if (!(await upsertWeekFacts(id, key, monday, { ...f, checked: true }, titles))) continue;
     rows++;

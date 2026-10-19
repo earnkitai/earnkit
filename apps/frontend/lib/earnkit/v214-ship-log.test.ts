@@ -8,6 +8,7 @@ import { connectInstallation, saveInstallation } from './installations';
 import { feedWeeks } from './feed';
 import { profileData } from './bench-data';
 import { weeklyFactsStep } from './week-facts';
+import { weekOfMonday } from './weeks';
 import { attachToX } from './x-install';
 
 appEnv();
@@ -27,16 +28,26 @@ const commits = (): FakeCommit[] => [
   { sha: 'f', message: 'Old work', date: '2026-10-05T09:00:00Z', login: 'maya' },
 ];
 
-async function provenPerson(handle: string, key: string, priv: boolean, extra: FakeCommit[] = []) {
+let nextX = 0;
+/**
+ * An App-proven person. Fix round 1: each gets its own X id (a counter); `shipped` (default) gives the week a
+ * shipped_code fact (a good live reading with the week's commit count), since titles are read only for such a week.
+ */
+async function provenPerson(handle: string, key: string, priv: boolean, extra: FakeCommit[] = [], o: { shipped?: boolean } = {}) {
   const t = `ek_log_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false);
   const own = (await connectInstallation(t))!.own;
-  assert.ok((await attachToX(own, { id: `96${RUN}${handle.length}${handle.charCodeAt(0)}`, username: `${handle}${RUN}`.slice(0, 15), name: handle, avatar: null }, new Date())).ok);
+  assert.ok((await attachToX(own, { id: `96${RUN}${++nextX}`, username: `${handle}${RUN}`.slice(0, 15), name: handle, avatar: null }, new Date())).ok);
   const c = (await connectInstallation(t))!;
   const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false };
   await mcpCall(ctx, 'find', { identity: { project: { name: key.split('/')[1], repo: `https://github.com/${key}` } } });
   const gh = fakeGitHub({ [key]: { id: Number(`7${RUN}`) + handle.length, owner: `${handle}${RUN}`, installation: 90 + handle.length, private: priv, commits: [...commits(), ...extra], pulls: [] } });
   await installApp({ builderId: c.id, repoKey: key, login: `${handle}${RUN}`, gh });
+  if (o.shipped !== false)
+    await sql()`INSERT INTO source_live (source_id, signals, ok, read_at)
+      SELECT id, ${sql().json({ commit_counts: { [weekOfMonday(WEEK)!]: 5 }, private: priv } as never)}, true, now() FROM builder_sources
+      WHERE builder_id = ${c.id} AND kind = 'repo' AND lower(ref) LIKE ${`%${key.toLowerCase()}`}
+      ON CONFLICT (source_id) DO UPDATE SET signals = EXCLUDED.signals, ok = true, read_at = EXCLUDED.read_at`;
   return { id: c.id, ctx, gh };
 }
 const row = async (id: number) =>
@@ -91,7 +102,7 @@ const feedTitles = async (id: number) => (await feedWeeks(MONDAY_RUN, { only: [i
 const profileTitles = async (id: number) => (await profileData(id, MONDAY_RUN, { only: [id] }))?.log.find((c) => c.week === WEEK)?.titles;
 
 test('8.9 S9: a private repo\'s titles show while titles are on (never one naming the repo); off hides stored ones at once, nothing deleted', db, async () => {
-  const key = `rosa${RUN}/hushproj`; // a handle whose X id (length, first letter) no other test shares
+  const key = `rosa${RUN}/hushproj`;
   const p = await provenPerson('rosa', key, true, [{ sha: 'h', message: 'Ship hushproj dark mode', date: '2026-10-16T10:00:00Z', login: 'rosa' }]);
   await mcpCall(p.ctx, 'tell', { updates: { titles: true } });
   await weeklyFactsStep(MONDAY_RUN, { deadline: Date.now() + 20_000, only: [p.id], ghFetch: p.gh });
@@ -104,7 +115,6 @@ test('8.9 S9: a private repo\'s titles show while titles are on (never one namin
   const off = await mcpCall(p.ctx, 'tell', { updates: { titles: false } });
   assert.match(String(off.reply?.show_to_builder), /only the facts/);
   assert.deepEqual(await feedTitles(p.id), [], 'off: hidden from the feed');
-  // A week with nothing else to show (no checked facts here) has no card at all once its titles are hidden.
   assert.deepEqual((await profileTitles(p.id)) ?? [], [], 'off: hidden from the profile');
   assert.equal((await row(p.id)).titles.length, 3, 'nothing deleted');
 });
@@ -117,4 +127,45 @@ test('8.10 S9: a public repo\'s titles always show, titles on or not', db, async
   assert.deepEqual(await profileTitles(p.id), ['Fix the timer', 'Add the shopping list']);
   await mcpCall(p.ctx, 'tell', { updates: { titles: false } });
   assert.deepEqual(await feedTitles(p.id), ['Fix the timer', 'Add the shopping list']);
+});
+
+const facts = async (id: number) => (await row(id))?.facts ?? null;
+
+test('8.13 fix round 1: a week with no shipped code reads no titles (facts still written)', db, async () => {
+  const p = await provenPerson('quin', `quin${RUN}/quiet`, false, [], { shipped: false });
+  p.gh.calls.length = 0;
+  await weeklyFactsStep(MONDAY_RUN, { deadline: Date.now() + 20_000, only: [p.id], ghFetch: p.gh });
+  assert.equal((await facts(p.id))?.checked, true);
+  assert.deepEqual((await row(p.id)).titles, []);
+  assert.equal(p.gh.calls.length, 0, 'not one GitHub call');
+});
+
+test('8.14 fix round 1: an error in the title block never stops the week\'s facts', db, async () => {
+  const key = `tara${RUN}/boom`;
+  const p = await provenPerson('tara', key, false);
+  // A fetch that throws outright (not a rejected promise) on the week's commits.
+  const boom = ((input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).includes('/commits')) throw new Error('boom');
+    return p.gh(input, init);
+  }) as typeof fetch;
+  await weeklyFactsStep(MONDAY_RUN, { deadline: Date.now() + 20_000, only: [p.id], ghFetch: boom });
+  const r = await row(p.id);
+  assert.equal(r.facts.checked, true);
+  assert.deepEqual(r.facts.shipped_code, { n: 5 });
+  assert.deepEqual(r.titles, []);
+});
+
+test('8.15 fix round 1: a public repo not read public lately is checked with one GET /repos through the App client, then read', db, async () => {
+  const key = `uma${RUN}/sunny`;
+  const p = await provenPerson('uma', key, false);
+  // No public evidence: no public_at, and the newest reading says nothing about privacy.
+  await sql()`UPDATE builder_sources SET public_at = NULL WHERE builder_id = ${p.id} AND kind = 'repo'`;
+  await sql()`UPDATE source_live l SET signals = l.signals - 'private' FROM builder_sources s WHERE s.id = l.source_id AND s.builder_id = ${p.id}`;
+  p.gh.calls.length = 0;
+  await weeklyFactsStep(MONDAY_RUN, { deadline: Date.now() + 20_000, only: [p.id], ghFetch: p.gh });
+  assert.equal(p.gh.calls.filter((c) => c.path === `/repos/${key.toLowerCase()}`).length, 1, 'one visibility call');
+  assert.ok(p.gh.calls.filter((c) => c.path === `/repos/${key.toLowerCase()}`).every((c) => /ghs_fake_/.test(c.auth ?? '')), 'with the installation token');
+  assert.deepEqual((await row(p.id)).titles, ['Fix the timer', 'Add the shopping list']);
+  const [s] = await sql()<{ at: Date | null }[]>`SELECT public_at AS at FROM builder_sources WHERE builder_id = ${p.id} AND kind = 'repo'`;
+  assert.ok(s.at, 'public_at stamped');
 });
