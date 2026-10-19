@@ -97,6 +97,18 @@ const date = (s: unknown): Date | null => {
 const newest = (...ds: (Date | null | undefined)[]): Date | null =>
   ds.reduce<Date | null>((m, d) => (d && Number.isFinite(d.getTime()) && (!m || d > m) ? d : m), null);
 const WEEK = /^(\d{4})-W(\d{2})$/;
+/**
+ * The commit weeks one repo reading counts, by the anti-backdating rules: never a week before the repo's
+ * created_at (rule 2), and an unverified reading (pushes_checked false, fix round 3) only its last 4 weeks.
+ * personInputsV2 and the ship-log backfill (week-facts.ts backfillWeeks) both use it. Pure.
+ */
+export function countedCommitWeeks(g: { commit_weeks?: unknown; created_at?: unknown; pushes_checked?: unknown }, now: Date): string[] {
+  const created = date(g.created_at);
+  const born = created ? isoWeekOf(created) : null;
+  const unverified = g.pushes_checked === false ? isoWeekOf(new Date(now.getTime() - 3 * WEEK_MS)) : null;
+  return list<unknown>(g.commit_weeks).filter((wk): wk is string =>
+    typeof wk === 'string' && WEEK.test(wk) && (!born || wk >= born) && (!unverified || wk >= unverified));
+}
 /** The last moment of an ISO week ('2026-W40'), never after `now`; null for a malformed week. Pure. */
 export function weekEnd(week: string, now: Date): Date | null {
   const m = WEEK.exec(week);
@@ -393,16 +405,11 @@ export async function personInputsV2(
         if (g.owner_type === 'Organization') for (const w of list<Who>(g.contributors)) if (typeof w?.id === 'string') projSelf.add(w.id.toLowerCase());
         for (const w of list<Who>(g.stargazers)) add(s.id, 'stargazer', 'star', w);
         for (const w of list<Who>(g.forkers)) add(s.id, 'forker', 'fork', w);
-        // Fix round 2 (anti-backdating rule 2): no commit week before the repo existed on GitHub.
-        const created = date(g.created_at);
-        const born = created ? isoWeekOf(created) : null;
-        // Fix round 3: a reading whose push check failed counts only its last 4 weeks until GitHub's record backs it.
-        const unverified = (g as { pushes_checked?: unknown }).pushes_checked === false ? isoWeekOf(new Date(now.getTime() - 3 * WEEK_MS)) : null;
-        for (const wk of list<unknown>(g.commit_weeks))
-          if (typeof wk === 'string' && WEEK.test(wk) && (!born || wk >= born) && (!unverified || wk >= unverified)) {
-            ship.add(wk);
-            if (inScope) input.commitWeeks.push(wk);
-          }
+        // Fix rounds 2 and 3 (anti-backdating): no week before the repo existed; an unverified reading, its last 4 weeks.
+        for (const wk of countedCommitWeeks(g, now)) {
+          ship.add(wk);
+          if (inScope) input.commitWeeks.push(wk);
+        }
       } else if (s.kind === 'site') {
         hasSite = true;
         const up = last && (last.signals as Partial<SiteSignals>).up === true;

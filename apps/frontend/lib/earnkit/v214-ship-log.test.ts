@@ -44,6 +44,8 @@ async function provenPerson(handle: string, key: string, priv: boolean, extra: F
   await mcpCall(ctx, 'find', { identity: { project: { name: key.split('/')[1], repo: `https://github.com/${key}` } } });
   const gh = fakeGitHub({ [key]: { id: Number(`7${RUN}`) + handle.length, owner: `${handle}${RUN}`, installation: 90 + handle.length, private: priv, commits: [...commits(), ...extra], pulls: [] } });
   await installApp({ builderId: c.id, repoKey: key, login: `${handle}${RUN}`, gh });
+  // R13: the connect backfills the last 3 finished weeks (real dates); these tests drive the weekly step alone.
+  await sql()`DELETE FROM project_updates WHERE builder_id = ${c.id} AND facts ? 'checked'`;
   // The App connect already read the repo (R5); the week's count is set here either way (none: not shipped).
   await sql()`INSERT INTO source_live (source_id, signals, ok, read_at)
       SELECT id, ${sql().json({ commit_counts: o.shipped !== false ? { [weekOfMonday(WEEK)!]: 5 } : {}, private: priv } as never)}, true, now() FROM builder_sources

@@ -144,6 +144,7 @@ export async function proveByApp(a: { builderId: number; repoKey: string; github
   if ((await repoInstallation(key, deps).catch(() => null)) !== a.githubInstallationId) return { ok: false, why: 'none' };
   const isPrivate = meta.private !== false;
   const replaced: number[] = [];
+  let firstProof = false;
   const out = await sql().begin(async (tx): Promise<RepoProof> => {
     await tx`SELECT pg_advisory_xact_lock(hashtext(${`repo_hold:${key}`}))`;
     // The person's lock before the source lock (the global order, identity.ts lockPerson).
@@ -166,6 +167,9 @@ export async function proveByApp(a: { builderId: number; repoKey: string; github
       await tx`UPDATE builder_sources SET state = 'proposed', reject_reason = ${REPLACED_BY_APP} WHERE id = ${o.id} AND state = 'verified'`;
       replaced.push(o.builder_id);
     }
+    // R13: the first App proof of this repo for this builder (a re-prove after a removal keeps proof github_app).
+    const [prior] = await tx<{ proof: string | null }[]>`SELECT proof FROM builder_sources WHERE id = ${row.id}`;
+    firstProof = prior?.proof !== APP_PROOF;
     // The App is the strongest proof: it verifies a proposed, rejected or stale row alike.
     await tx`
       UPDATE builder_sources SET state = 'verified', proof = ${APP_PROOF}, verified_at = ${now}, reject_reason = NULL, app_checked_at = ${now},
@@ -184,16 +188,23 @@ export async function proveByApp(a: { builderId: number; repoKey: string; github
   // Fail soft: a failed read writes nothing (an earlier good reading still counts) and leaves the proof standing;
   // the next refresh or daily read reads it.
   const scoring = await import('./person-score');
+  const deadline = Date.now() + scoring.REFRESH_BUDGET_MS;
+  let ghFetch: typeof fetch | undefined;
   try {
     const { defaultReaderDeps } = await import('./source-readers');
-    const deadline = Date.now() + scoring.REFRESH_BUDGET_MS;
     const reader = defaultReaderDeps(now, deadline);
-    const ghFetch = budgetedFetch(deps.fetch ?? reader.ghFetch ?? fetch, deadline);
+    ghFetch = budgetedFetch(deps.fetch ?? reader.ghFetch ?? fetch, deadline);
     await scoring.readPersonLive(a.builderId, now, { deadline, reader: { ...reader, ghFetch }, only: [row.id], soft: true });
   } catch (err) {
     console.error('[repo-proof] read', err instanceof Error ? err.name : 'error');
   }
   await scoring.rescorePerson(a.builderId, now).catch((err: unknown) => console.error('[repo-proof] rescore', err instanceof Error ? err.name : 'error'));
+  // R13: on the first proof, the ship log's last 3 finished weeks from the reading just taken, within what is left
+  // of the connect budget (titles only while it lasts, each call aborted at the deadline). The hourly catch-up
+  // (week-facts.ts backfillStep) finishes whatever this leaves.
+  if (firstProof)
+    await (await import('./week-facts')).backfillOnConnect(a.builderId, key, now, { deadline, ghFetch })
+      .catch((err: unknown) => console.error('[repo-proof] backfill', err instanceof Error ? err.name : 'error'));
   profileChanged();
   return out;
 }

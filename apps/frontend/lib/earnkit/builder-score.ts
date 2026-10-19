@@ -15,7 +15,7 @@ import { vetoKey } from './veto';
 import { feedRankStep } from './feed'; // feed imports person-score: functions only, called after load
 import { appCheckStep, orgProofExpiryStep } from './repo-proof';
 import { originalityStep, type Embed } from './originality';
-import { weeklyFactsStep } from './week-facts'; // week-facts imports person-score, which imports this file: functions only, called after load
+import { backfillStep, weeklyFactsStep } from './week-facts'; // week-facts imports person-score, which imports this file: functions only, called after load
 
 /**
  * v2.12 spec 4 to 6: the builder score's cron steps (discover, readSources, score, profileEmpty;
@@ -349,6 +349,8 @@ export async function runScoreSteps(now: Date, sliceEnd: number, deps: ScoreCron
   await step('originality', () => originalityStep(now, { deadline: sliceEnd, only: deps.only, ghFetch: reader.ghFetch, embed: deps.embed }));
   // v2.13 spec "Cost": the weekly facts (Mondays from 15:00 UTC, after the digest).
   await step('weekly', () => weeklyFactsStep(now, { deadline: sliceEnd, only: deps.only, ghFetch: reader.ghFetch }));
+  // R13: the backfill's catch-up (App-proven projects missing their last 3 finished weeks or their titles; bounded).
+  await step('backfill', () => backfillStep(now, { deadline: sliceEnd, only: deps.only, ghFetch: reader.ghFetch }));
   // v2.13 spec "Cost": the feed rank, once a day (F11: from 15:00 UTC, after the weekly step).
   await step('feed', () => feedRankStep(now));
   return out;
