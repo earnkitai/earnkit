@@ -76,7 +76,7 @@ const defaults: Required<Pick<GateDeps, 'repo' | 'screen' | 'shared' | 'appProve
   appProven: async (installationId, repoKey, login) => {
     if (login === null) return false;
     if (login !== undefined) return hasAppProof({ installationId, login, repoKey });
-    return (await repoProof(await rootOf(installationId), repoKey)).ok;
+    return (await repoProof(await rootOf(installationId), repoKey, undefined, { forAction: true })).ok;
   },
 };
 
@@ -172,17 +172,17 @@ const defaultAppLink = (input: GateInput) => async (repoKey: string) => installL
 
 declare const provenRepo: unique symbol;
 /**
- * v2.14: a repo this person proved (repo-proof.ts repoProof: the App, or a source verified before v2.14), as a
- * value only proveRepo makes, so a caller can't pass a bare "already checked" flag. `owner` is the repo's
+ * v2.14: a repo this person proved with the read-only App, confirmed by GitHub within a day (repo-proof.ts
+ * repoProof `forAction`: a source verified before v2.14 counts on the Bench, never for an action), as a value only proveRepo makes, so a caller can't pass a bare "already checked" flag. `owner` is the repo's
  * GitHub owner (lowercase).
  */
 export type ProvenRepo = { readonly installationId: number; readonly repoKey: string; readonly owner: string; readonly [provenRepo]: true };
 
-/** v2.14: a repo this person proved (repoProof), as a value only this makes; never on a shared client. Fails closed. */
+/** v2.14: a repo this person proved with the App (repoProof forAction), as a value only this makes; never on a shared client. Fails closed. */
 export async function proveRepo(a: { installationId: number; repoUrl: string }): Promise<ProvenRepo | null> {
   const gh = githubRepo(a.repoUrl);
   if (!gh || (await sharedGroup(a.installationId).catch(() => true))) return null;
   const repoKey = `${gh.owner}/${gh.repo}`.toLowerCase();
-  const p = await repoProof(await rootOf(a.installationId), repoKey).catch(() => null);
+  const p = await repoProof(await rootOf(a.installationId), repoKey, undefined, { forAction: true }).catch(() => null);
   return p?.ok ? ({ installationId: a.installationId, repoKey, owner: p.owner } as ProvenRepo) : null;
 }

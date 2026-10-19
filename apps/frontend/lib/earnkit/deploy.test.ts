@@ -235,8 +235,8 @@ let seq = 0;
  */
 const proofRow = async (installationId: number, repoKey: string, login = 'alice') => {
   await sql()`
-    INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by, state, proof, verified_at, gh_owner, gh_owner_type)
-    VALUES (${installationId}, 'repo', ${repoKey}, ${repoKey}, 'server', 'verified', 'github_app', now(), ${repoKey.split('/')[0].toLowerCase()}, 'User')
+    INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by, state, proof, verified_at, gh_owner, gh_owner_type, app_checked_at)
+    VALUES (${installationId}, 'repo', ${repoKey}, ${repoKey}, 'server', 'verified', 'github_app', now(), ${repoKey.split('/')[0].toLowerCase()}, 'User', now())
     ON CONFLICT (builder_id, kind, ref) DO NOTHING`;
   await sql()`
     INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose, via)
@@ -492,7 +492,7 @@ test('10.5 v2.14: a shared client deploys nothing (no person proves a repo there
   }),
 );
 
-test('10.5 v2.14: an App-proven repo deploys; the row keeps its owner as the cap key; a repo verified before v2.14 still deploys', dbTest, () =>
+test('10.5 v2.14: an App-proven repo deploys; the row keeps its owner as the cap key; a repo verified before v2.14, or an App proof GitHub has not confirmed in a day, does not', dbTest, () =>
   withDeployer(async () => {
     const s = await ownerSetup();
     const out = await deployForBuilder(call(s), deps(fakeChain().chain));
@@ -504,7 +504,11 @@ test('10.5 v2.14: an App-proven repo deploys; the row keeps its owner as the cap
     await sql()`
       INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by, state, proof, verified_at)
       VALUES (${kept.installationId}, 'repo', ${kept.repoKey}, ${kept.repoKey}, 'server', 'verified', 'proof_branch', now())`;
-    assert.equal((await deployForBuilder(call(kept), deps(fakeChain().chain))).status, 'deployed');
+    assert.equal((await deployForBuilder(call(kept), deps(fakeChain().chain))).show_to_builder, DEPLOY_LINES.notYours, 'kept: counted on the Bench, never a deploy');
+    await nextWallet();
+    const stale = await ownerSetup();
+    await sql()`UPDATE builder_sources SET app_checked_at = now() - interval '27 hours' WHERE builder_id = ${stale.installationId}`;
+    assert.equal((await deployForBuilder(call(stale), deps(fakeChain().chain))).show_to_builder, DEPLOY_LINES.notYours, 'stale App proof');
   }),
 );
 
@@ -1090,7 +1094,7 @@ test('T9 I3/R2/R3/N2: the caps hold per proven owner login and per repo (looser)
     const f = await ownerSetup({ owner, name: 'two' });
     assert.equal((await run(e, W(2))).status, 'deployed');
     assert.deepEqual(await run(f, W(3)), { status: 'refused', show_to_builder: DEPLOY_LINES.limit }, 'one owner');
-    // N2, v2.14: one repo, another installation that holds it (a row kept from before v2.14): the repo's owner
+    // N2, v2.14: one repo, another installation that holds it too (rows written directly): the repo's owner
     // keys a cap (ProvenRepo.owner), so a second deploy that day on that chain is limited.
     const a = await setup();
     const more = await setup({ proof: false });

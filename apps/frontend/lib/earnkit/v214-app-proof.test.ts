@@ -12,7 +12,7 @@ import { APP_REMOVED, appCheckStep, installLink, proveByApp, repoProof } from '.
 import { attachToX } from './x-install';
 import { readSources } from './sources';
 import { defaultReaderDeps } from './source-readers';
-import { tokenGate } from './token-gate';
+import { proveRepo, tokenGate } from './token-gate';
 
 appEnv();
 process.env.X_CLIENT_ID = 'cid';
@@ -182,4 +182,45 @@ test('6.13 S8: two people completing the App on one repo at once: only one holds
   const [{ n }] = await sql()<{ n: number }[]>`
     SELECT count(*)::int AS n FROM builder_sources WHERE kind = 'repo' AND state = 'verified' AND lower(ref) = ${key}`;
   assert.equal(n, 1);
+});
+
+test('6.14 T6 security review: an action (coin, deploy, host) takes only an App proof GitHub confirmed within a day; a kept proof counts on the Bench only', db, async () => {
+  const key = `abe${RUN}/kept`;
+  const p = await personWith(key, 'abe');
+  await sql()`UPDATE builder_sources SET state = 'verified', proof = 'repo_owner', verified_at = now() WHERE builder_id = ${p.id} AND kind = 'repo' AND lower(ref) = ${key}`;
+  assert.equal((await repoProof(p.id, key)).ok, true, 'counted on the Bench');
+  assert.deepEqual(await repoProof(p.id, key, undefined, { forAction: true }), { ok: false, why: 'none' });
+  assert.equal(await proveRepo({ installationId: p.id, repoUrl: `https://github.com/${key}` }), null);
+  const gate = (k: string) => tokenGate(
+    { policy: 'allowed', installationId: p.id, repoUrl: `https://github.com/${k}`, wallet: `0x${'1'.repeat(40)}`, symbol: 'ABE' },
+    { repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null, defaultBranch: 'main', public: true }), screen: async () => {}, shared: async () => false, appLink: async () => 'https://earnkit.com/github/verify?n=x' },
+  );
+  assert.equal((await gate(key)).ok, false, 'a kept proof never launches a coin');
+  // An App proof: an action passes while GitHub confirmed it within a day; then the install link again.
+  const app = `abf${RUN}/app`;
+  const q = await personWith(app, 'abf');
+  assert.equal(((await installApp({ builderId: q.id, repoKey: app, login: `abf${RUN}`, gh: fakeGitHub({ [app]: { id: 9020, owner: `abf${RUN}`, installation: 86 } }) })) as { ok: boolean }).ok, true);
+  assert.ok(await proveRepo({ installationId: q.id, repoUrl: `https://github.com/${app}` }));
+  await sql()`UPDATE builder_sources SET app_checked_at = now() - interval '27 hours' WHERE builder_id = ${q.id}`;
+  assert.equal(await proveRepo({ installationId: q.id, repoUrl: `https://github.com/${app}` }), null, 'stale');
+  assert.equal((await repoProof(q.id, app)).ok, true, 'still counted until the daily check says otherwise');
+});
+
+test('6.15 T6 security review: the daily check demotes a repo whose installation is not one this person proved (another account\'s install)', db, async () => {
+  const key = `bea${RUN}/swap`;
+  const p = await personWith(key, 'bea');
+  const gh = fakeGitHub({ [key]: { id: 9021, owner: `bea${RUN}`, installation: 87 } });
+  await installApp({ builderId: p.id, repoKey: key, login: `bea${RUN}`, gh });
+  gh.repos[key].installation = 99; // uninstalled, then installed again by someone else outside EarnKit's link
+  assert.deepEqual(await appCheckStep(new Date(Date.now() + 25 * 3_600_000), { deadline: Date.now() + 10_000, only: [p.id], fetch: gh }), { checked: 1, removed: 1 });
+  const [s] = await sql()<{ state: string; reject_reason: string }[]>`SELECT state, reject_reason FROM builder_sources WHERE builder_id = ${p.id} AND lower(ref) = ${key}`;
+  assert.deepEqual(s, { state: 'proposed', reject_reason: APP_REMOVED });
+});
+
+test('6.16 T6 security review: proveByApp verifies nothing unless GitHub names this very installation for the repo', db, async () => {
+  const key = `cal${RUN}/other`;
+  const p = await personWith(key, 'cal');
+  const gh = fakeGitHub({ [key]: { id: 9022, owner: `cal${RUN}`, installation: 88 } });
+  assert.deepEqual(await proveByApp({ builderId: p.id, repoKey: key, githubInstallationId: 89 }, { fetch: gh }), { ok: false, why: 'none' });
+  assert.deepEqual(await repoProof(p.id, key), { ok: false, why: 'none' });
 });

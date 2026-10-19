@@ -2119,9 +2119,9 @@ async function shipSetup(
   if (o.app) {
     // The builder installed the read-only App on the new repo (github-app.ts appSetup, repo-proof.ts proveByApp).
     await sql()`
-      INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by, state, proof, verified_at, gh_owner, gh_owner_type)
-      VALUES (${t.inst}, 'repo', ${repoKey}, ${repoKey}, 'server', 'verified', 'github_app', now(), ${login}, 'User')
-      ON CONFLICT (builder_id, kind, ref) DO UPDATE SET state = 'verified', proof = 'github_app', verified_at = now(), gh_owner = EXCLUDED.gh_owner, gh_owner_type = 'User'`;
+      INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by, state, proof, verified_at, gh_owner, gh_owner_type, app_checked_at)
+      VALUES (${t.inst}, 'repo', ${repoKey}, ${repoKey}, 'server', 'verified', 'github_app', now(), ${login}, 'User', now())
+      ON CONFLICT (builder_id, kind, ref) DO UPDATE SET state = 'verified', proof = 'github_app', verified_at = now(), gh_owner = EXCLUDED.gh_owner, gh_owner_type = 'User', app_checked_at = now()`;
     await sql()`
       INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose, via)
       VALUES (${repoKey}, ${login}, ${t.inst}, ${new Date(Date.now() - (o.days ?? 730) * 86_400_000)}, 5, 'app', 'app')`;

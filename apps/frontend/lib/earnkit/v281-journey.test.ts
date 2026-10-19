@@ -9,7 +9,6 @@ import { ProgramFile } from './program-file';
 import { getProgramRow, upsertProgram } from './programs';
 import { guideText, programGuide } from './guide';
 import { handlers } from './tools';
-import { tokenLineFor } from './token-gate';
 import { deployToken } from './tokens';
 import { type TokenFlowDeps } from './token-launch';
 import type { FetchResult } from './ownership';
@@ -140,7 +139,9 @@ const OWNERS = new Set<number>();
 const earnkitTxt = async (r: { owner: string; repo: string }): Promise<FetchResult> => {
   if (r.repo.includes('nopush')) return { status: 'missing' };
   const url = `https://github.com/${r.owner}/${r.repo}`;
-  return { status: 'ok', text: [...OWNERS].map((id) => tokenLineFor(id, url)).join('\n') + '\n' };
+  // v2.14 spec 2: no proof line any more (the App proves a repo); a pickup reads none.
+  void url;
+  return { status: 'missing' };
 };
 
 type RepoCode = { fork: boolean; hasCommits: boolean; aheadOfParent: number | null };
@@ -160,7 +161,7 @@ function ctxFor(id: number, o: { repo?: (owner: string, repo: string) => Promise
     available: () => true,
     limit: async () => {},
     check: async (symbol) => !TAKEN.has(symbol),
-    gate: { repo: o.repo ?? goodRepo, owner: earnkitTxt, latest: async () => null, screen: async () => {} },
+    gate: { repo: o.repo ?? goodRepo, appProven: async (_i: number, k: string) => !k.includes('nopush'), screen: async () => {} },
     deploy: (a) => deployToken(a, { fetch: tokensFun(o.delayMs), sleep: async () => {} }),
   };
   return {

@@ -993,8 +993,8 @@ async function appRepo(o: { shared?: boolean; app?: boolean; accountDays?: numbe
   const repoKey = `${login}/podtips`;
   if (o.app !== false) {
     await sql()`
-      INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by, state, proof, verified_at, gh_owner, gh_owner_type)
-      VALUES (${id}, 'repo', ${repoKey}, ${repoKey}, 'server', 'verified', 'github_app', now(), ${login}, 'User')`;
+      INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by, state, proof, verified_at, gh_owner, gh_owner_type, app_checked_at)
+      VALUES (${id}, 'repo', ${repoKey}, ${repoKey}, 'server', 'verified', 'github_app', now(), ${login}, 'User', now())`;
     await sql()`
       INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose, via, github_installation_id)
       VALUES (${repoKey}, ${login}, ${id}, ${new Date(Date.now() - (o.accountDays ?? 730) * 86_400_000)}, ${o.publicRepos ?? 5}, 'app', 'app', 4242)`;

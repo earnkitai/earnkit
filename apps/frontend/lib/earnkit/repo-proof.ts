@@ -19,6 +19,12 @@ export const APP_PROOF = 'github_app';
 export const APP_REMOVED = 'app_removed';
 export const APP_CHECK_PER_RUN = 50;
 export const APP_CHECK_EVERY_MS = 24 * 60 * 60_000;
+/**
+ * T6 security review (stale authorization): an action (a coin, a deploy, a hosted site) trusts an App proof only
+ * while GitHub confirmed the install this recently (proveByApp, or appCheckStep's daily check, run hourly).
+ * Older (the check keeps failing, or the App was removed and the check hasn't run): the install link again.
+ */
+export const APP_PROOF_FRESH_MS = APP_CHECK_EVERY_MS + 2 * 60 * 60_000;
 export type RepoProof = { ok: true; via: 'app' | 'kept'; owner: string; private: boolean } | { ok: false; why: 'none' | 'taken' | 'copy' };
 
 /**
@@ -56,15 +62,27 @@ export async function heldByOther(builderId: number, key: string, db: Db = sql()
   return Boolean(r);
 }
 
-/** Whether `key` is this person's proven repo: by the App, or verified before v2.14 (kept). `builderId`: the person's root. */
-export async function repoProof(builderId: number, repoKey: string, db: Db = sql()): Promise<RepoProof> {
+/**
+ * Whether `key` is this person's proven repo: by the App, or verified before v2.14 (kept: it still counts on the
+ * Bench). `builderId`: the person's root. T6 security review: `forAction` (a coin, a deploy, a hosted site) takes
+ * only an App proof GitHub confirmed within APP_PROOF_FRESH_MS; a kept proof (discovery's repo_owner or x_match,
+ * a proof line or branch, a sign-in, never re-read at the action) or a stale App proof is `none`, so the
+ * install link is asked.
+ */
+export async function repoProof(builderId: number, repoKey: string, db: Db = sql(), o: { forAction?: boolean; now?: Date } = {}): Promise<RepoProof> {
   const key = repoKey.toLowerCase();
-  const [s] = await db<{ state: string; proof: string | null; gh_owner: string | null; reject_reason: string | null }[]>`
-    SELECT state, proof, gh_owner, reject_reason FROM builder_sources
+  const now = o.now ?? new Date();
+  const [s] = await db<{ state: string; proof: string | null; gh_owner: string | null; reject_reason: string | null; app_checked_at: Date | null }[]>`
+    SELECT state, proof, gh_owner, reject_reason, app_checked_at FROM builder_sources
     WHERE builder_id = ${builderId} AND kind = 'repo' AND ${refKey(db)} = ${key}
     ORDER BY (state = 'verified') DESC, id LIMIT 1`;
-  if (s?.state === 'verified' && s.proof && CONFIRMED_PROOFS.has(s.proof))
-    return { ok: true, via: s.proof === APP_PROOF ? 'app' : 'kept', owner: s.gh_owner ?? key.split('/')[0], private: !(await repoReadPublic(builderId, key, new Date(), db)) };
+  if (s?.state === 'verified' && s.proof && CONFIRMED_PROOFS.has(s.proof)) {
+    const app = s.proof === APP_PROOF;
+    const fresh = app && s.app_checked_at !== null && now.getTime() - s.app_checked_at.getTime() <= APP_PROOF_FRESH_MS;
+    if (!o.forAction || fresh)
+      return { ok: true, via: app ? 'app' : 'kept', owner: s.gh_owner ?? key.split('/')[0], private: !(await repoReadPublic(builderId, key, now, db)) };
+    return { ok: false, why: 'none' };
+  }
   if (s?.reject_reason === 'derived') return { ok: false, why: 'copy' };
   if (await heldByOther(builderId, key, db)) return { ok: false, why: 'taken' };
   return { ok: false, why: 'none' };
@@ -110,6 +128,9 @@ export async function proveByApp(a: { builderId: number; repoKey: string; github
     await rejectSource(row.id, 'derived');
     return { ok: false, why: 'copy' };
   }
+  // T6 security review (defence in depth): GitHub names this very installation for the repo now (appSetup's
+  // appProof checked the installation lists it and the installer owns or administers it).
+  if ((await repoInstallation(key, deps).catch(() => null)) !== a.githubInstallationId) return { ok: false, why: 'none' };
   const isPrivate = meta.private !== false;
   const out = await sql().begin(async (tx): Promise<RepoProof> => {
     await tx`SELECT pg_advisory_xact_lock(hashtext(${`repo_hold:${key}`}))`;
@@ -159,7 +180,8 @@ export async function appClient(builderId: number, repoKey: string, f: typeof fe
 
 /**
  * A8: each run, up to APP_CHECK_PER_RUN `github_app` sources not checked in a day: GitHub still names an App
- * installation for the repo, or the source goes back to proposed (APP_REMOVED) and the person is rescored at
+ * installation for the repo and it is one this person proved (removed from the repo, uninstalled, or another
+ * account's install: none), or the source goes back to proposed (APP_REMOVED) and the person is rescored at
  * once, so it leaves the Bench (which reads benchConfirmedSql live). A GitHub answer other than 404 changes
  * nothing (tried again next run).
  */
@@ -179,7 +201,13 @@ export async function appCheckStep(now: Date, o: { deadline: number; only?: numb
     const inst = await repoInstallation(s.key, { fetch: o.fetch, now }).catch(() => undefined);
     if (inst === undefined) continue; // GitHub didn't answer: try again next run
     checked++;
-    if (inst !== null) {
+    // T6 security review (stale authorization): the installation GitHub names must be one this person proved
+    // through the setup URL (github_verifications via 'app', their group). Another admin's install, or one made
+    // outside EarnKit's link, is not this person's proof: back to proposed, re-proven through the link.
+    const [mine] = inst === null ? [] : await db`
+      SELECT 1 FROM github_verifications v JOIN installations i ON i.id = v.installation_id
+      WHERE COALESCE(i.builder_id, i.id) = ${s.builder_id} AND v.via = 'app' AND v.repo_key = ${s.key} AND v.github_installation_id = ${inst} LIMIT 1`;
+    if (mine) {
       await db`UPDATE builder_sources SET app_checked_at = ${now} WHERE id = ${s.id}`;
       continue;
     }

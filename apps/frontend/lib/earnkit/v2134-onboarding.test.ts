@@ -12,12 +12,13 @@ import { linkInstallations } from './identity';
 import { clientNameOf } from './oauth';
 import { agoText } from './x-link';
 import { fakeGitHub } from './fixtures/fake-github-branch';
+import { fakeGitHub as fakeAppGitHub } from './fixtures/fake-github';
+import { proveByApp } from './repo-proof';
 import { APP, installApp, privateGitHub } from './fixtures/private-github';
 import {
   BENCH_HEADS,
   claimAskLine,
   claimQuestion,
-  checkingBranchLine,
   installAppAsk,
   linkedLine,
   pageLine,
@@ -246,7 +247,7 @@ test('c.1 a private org repo (700+ commits): first find asks only for X; right a
     const id = await install();
     const input = { agent_can_build: true, github_user: login, local_repos: [{ name: 'earnkit', url: `https://github.com/${key}` }] };
     // a. Where you stand (the project's display name, never "EarnKit can't see earnkit"), then only X.
-    const r1 = await find(id, input, { ...NO_MATCH, proofBranchFetch: gh.f });
+    const r1 = await find(id, input, NO_MATCH);
     assert.equal(r1.show_to_builder.split('\n')[1], privateLine('Earnkit'), r1.show_to_builder);
     assert.doesNotMatch(r1.show_to_builder, /can't see/);
     assert.ok(r1.show_to_builder.endsWith(`${claimAskLine(r1.claim!.link)}\n${claimQuestion('Earnkit')}`), r1.show_to_builder);
@@ -256,7 +257,7 @@ test('c.1 a private org repo (700+ commits): first find asks only for X; right a
     const user = xUser();
     await signIn(r1.claim!.link, user);
     // c. Right after the claim: "Your page", then the install link in one line, the question last.
-    const r2 = await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
+    const r2 = await find(id, {}, NO_MATCH);
     noClaim(r2, 'after the claim');
     const ls = links(r2.show_to_builder);
     assert.equal(ls.length, 1, r2.show_to_builder);
@@ -264,21 +265,13 @@ test('c.1 a private org repo (700+ commits): first find asks only for X; right a
     assert.ok(r2.show_to_builder.includes(pageLine(pageUrl(user.username))), r2.show_to_builder);
     const up = r2.show_to_builder.split('\n\n').at(-1)!;
     assert.equal(up, `${BENCH_HEADS.up}\n${installAppAsk('Earnkit', ls[0])}`);
-    assert.equal(installAppAsk('Earnkit', 'L'), "Earnkit is private, so I can't count it yet. Install the read-only EarnKit app on it (one click): L\nWant me to count it once that's done?");
+    assert.equal(installAppAsk('Earnkit', 'L'), "Earnkit isn't counted yet. Install the read-only EarnKit app on it (one click): L\nWant me to count it once that's done?");
     assert.equal(r2.move_up?.kind, 'install_app');
     oneQuestionLast(r2, 'install ask');
-    // d. Installed: the next find counts it (the branch is checked with the installation token) ...
+    // d. Installed: the setup URL proves it with the installation token (repo-proof.ts proveByApp), so the next find shows it on the Bench.
     await installApp(id, key, login);
-    const r3 = await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
-    assert.equal(r3.show_to_builder.split('\n')[1], checkingBranchLine('Earnkit'), r3.show_to_builder);
-    noClaim(r3, 'installed');
-    oneQuestionLast(r3, 'installed');
-    const branch = (r3.proof as { branch: string } | undefined)?.branch;
-    assert.ok(branch);
-    gh.push(key, branch!, login);
-    await sql()`UPDATE proof_branches SET checked_at = checked_at - interval '2 minutes' WHERE builder_id = ${id} AND checked_at IS NOT NULL`;
-    // ... and the find after the agent's push shows it on the Bench, followed by one way to move up.
-    const r4 = await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
+    assert.equal((await proveByApp({ builderId: await rootOf(id), repoKey: key, githubInstallationId: 77 }, { fetch: gh.f })).ok, true);
+    const r4 = await find(id, {}, NO_MATCH);
     assert.match(r4.show_to_builder.split('\n')[1], /^Earnkit is on the Bench/, r4.show_to_builder);
     noClaim(r4, 'on the Bench');
     oneQuestionLast(r4, 'on the Bench');
@@ -286,27 +279,26 @@ test('c.1 a private org repo (700+ commits): first find asks only for X; right a
     assert.equal(s.state, 'verified');
   }));
 
-test('c.2 a public repo: right after the claim, "Your page" and the one-line proof; never an install link', dbTest, () =>
-  on(async () => {
+test('c.2 v2.14: a public repo is proven the same way: right after the claim, "Your page" and the install link; installed, on the Bench', dbTest, () =>
+  withEnv({ ...ON, ...APP }, async () => {
     const login = uniq('maya').toLowerCase();
     const key = `${login}/recipes`;
-    const gh = fakeGitHub();
     const id = await install();
-    const r1 = await find(id, { agent_can_build: true, identity: { github_login: login, project: { name: 'Recipe planner', repo: key } } }, { ...NO_MATCH, proofBranchFetch: gh.f });
-    assert.equal(r1.show_to_builder.split('\n')[1], checkingBranchLine('Recipe planner'), r1.show_to_builder);
+    const r1 = await find(id, { agent_can_build: true, identity: { github_login: login, project: { name: 'Recipe planner', repo: key } } }, NO_MATCH);
+    assert.equal(r1.show_to_builder.split('\n')[1], privateLine('Recipe planner'), r1.show_to_builder);
     assert.ok(r1.show_to_builder.endsWith(`${claimAskLine(r1.claim!.link)}\n${claimQuestion('Recipe planner')}`), r1.show_to_builder);
     oneQuestionLast(r1, 'public, unclaimed');
     const user = xUser();
     await signIn(r1.claim!.link, user);
-    const r2 = await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
+    const r2 = await find(id, {}, NO_MATCH);
     noClaim(r2, 'public, claimed');
-    assert.equal(r2.show_to_builder.split('\n')[1], checkingBranchLine('Recipe planner'));
-    assert.ok(r2.show_to_builder.includes(pageLine(`https://earnkit.com/${user.username}`)), r2.show_to_builder);
-    assert.doesNotMatch(r2.show_to_builder, /Install|github\/verify/);
+    assert.match(r2.show_to_builder, /github\/verify\?n=/);
+    assert.equal(r2.move_up?.kind, 'install_app');
     oneQuestionLast(r2, 'public, claimed');
-    gh.push(key, (r2.proof as { branch: string }).branch, login);
-    await sql()`UPDATE proof_branches SET checked_at = checked_at - interval '2 minutes' WHERE builder_id = ${id} AND checked_at IS NOT NULL`;
-    const r3 = await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
+    await installApp(id, key, login);
+    const gh = fakeAppGitHub({ [key]: { id: 9101, owner: login, installation: 77 } });
+    assert.equal((await proveByApp({ builderId: await rootOf(id), repoKey: key, githubInstallationId: 77 }, { fetch: gh })).ok, true);
+    const r3 = await find(id, {}, NO_MATCH);
     assert.match(r3.show_to_builder.split('\n')[1], /^Recipe planner is on the Bench/, r3.show_to_builder);
     oneQuestionLast(r3, 'public, on the Bench');
   }));
@@ -383,7 +375,7 @@ test('e.2 a passed live_url that loads (200, not a placeholder) is live: no "onc
     try {
       const id = await install();
       const input = { agent_can_build: true, identity: { github_login: login, project: { name: 'recipes', repo: key, live_url: 'https://recipes.example.app' } } };
-      const r1 = await find(id, input, { ...NO_MATCH, proofBranchFetch: gh.f });
+      const r1 = await find(id, input, NO_MATCH);
       assert.doesNotMatch(r1.show_to_builder, /once it's live|once your app is live|put .* online/, r1.show_to_builder);
       assert.equal(probed.length, 1);
       // The site's own spelling names the project (the check ran and passed), and nothing asks for it to go live.
@@ -391,7 +383,7 @@ test('e.2 a passed live_url that loads (200, not a placeholder) is live: no "onc
       const [kept] = await sql()<{ c: { ok: boolean } }[]>`SELECT standing_seen->'live_check' AS c FROM builder_profiles WHERE builder_id = ${id}`;
       assert.equal(kept.c.ok, true);
       await signIn(r1.claim!.link, xUser());
-      const r2 = await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
+      const r2 = await find(id, {}, NO_MATCH);
       assert.doesNotMatch(r2.show_to_builder, /once it's live|once your app is live|put .* online/, r2.show_to_builder);
       assert.equal(probed.length, 1, 'cached a day');
       // R3: wording and program fit only: nothing in the score says shipped or live.
@@ -957,7 +949,7 @@ test('R9.1 a realistic reconnect (the first find reports the repo and a GitHub l
     const cand = await install();
     const gh = fakeGitHub();
     gh.repos[key] = { owner: { login: key.split('/')[0], type: 'Organization' } };
-    const r = await find(cand, { agent_can_build: true, github_user: login, local_repos: [{ name: 'earnkit', url: `https://github.com/${key}` }] }, { ...NO_MATCH, proofBranchFetch: gh.f });
+    const r = await find(cand, { agent_can_build: true, github_user: login, local_repos: [{ name: 'earnkit', url: `https://github.com/${key}` }] }, NO_MATCH);
     const [rep] = await sql()<{ n: number; reported: string | null }[]>`
       SELECT (SELECT count(*)::int FROM builder_sources WHERE builder_id = ${cand} AND state = 'proposed') AS n, reported_github AS reported FROM builder_profiles WHERE builder_id = ${cand}`;
     assert.ok(rep.n > 0 && rep.reported === login, 'the agent reported a project and a login');
