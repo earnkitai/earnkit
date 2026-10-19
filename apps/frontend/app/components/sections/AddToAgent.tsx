@@ -256,7 +256,7 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
           {agent.code && (
             <div className="mt-3 flex items-start gap-3 rounded-2xl bg-ek-page/70 py-2 pl-4 pr-2">
               <pre className="min-w-0 flex-1 whitespace-pre-wrap py-1.5 font-mono text-sm text-ek-text">
-                {agent.code}
+                <Command text={agent.code} />
               </pre>
               <CopyButton
                 text={agent.code}
@@ -268,7 +268,7 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
           {agent.afterCode && (
             <div className="mt-3 flex items-start gap-3 rounded-2xl bg-ek-page/70 py-2 pl-4 pr-2">
               <pre className="min-w-0 flex-1 whitespace-pre-wrap py-1.5 font-mono text-sm text-ek-text">
-                {agent.afterCode}
+                <Command text={agent.afterCode} />
               </pre>
               <CopyButton text={agent.afterCode} label={`Copy the ${agent.name} login`} />
             </div>
@@ -285,4 +285,18 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
     </div>
   );
   return typeof document === 'undefined' ? dialog : createPortal(dialog, document.body);
+}
+
+/** A shell command that wraps only between words: a flag like --transport never splits at its hyphens. */
+function Command({ text }: { text: string }) {
+  return (
+    <>
+      {text.split(' ').map((word, i) => (
+        <span key={i}>
+          {i > 0 && ' '}
+          <span className="whitespace-nowrap">{word}</span>
+        </span>
+      ))}
+    </>
+  );
 }
