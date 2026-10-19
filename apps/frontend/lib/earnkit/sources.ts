@@ -4,7 +4,7 @@ import { profileCodesIn } from './discovery-clues';
 import { noteEvent } from './events';
 import { REPOS_MAX, readAppRepos, readGithubRepos, type PersonRepo } from './person-github';
 import { countingDeps, flushReadUsage } from './read-usage';
-import { NPM_BULK_MAX, isBudgetStop, isoWeek, readNpm, readNpmBulk, readPypi, readSite, type PackageSignals, type ReaderDeps } from './source-readers';
+import { NPM_BULK_MAX, isBudgetStop, isoWeek, readError, readNpm, readNpmBulk, readPypi, readSite, type PackageSignals, type ReaderDeps } from './source-readers';
 
 /** spec 6: at most this many sources are read a run (oldest first). */
 export const READS_PER_RUN = 200;
@@ -445,7 +445,7 @@ export async function previousRepoSignals(id: number, r?: { owner?: unknown; cre
  * sources due today, never read first, then the oldest. v2.12.1 "Scale": a person's repos under
  * their login are read by one GraphQL query (person-github.ts; others by name, REPOS_MAX a call), unscoped
  * npm packages in bulk (NPM_BULK_MAX a call); no contract, coin or merged PR reads (R16b). A read that throws is one
- * failed reading for the day (its error class only; spec "skip, don't chase": never retried that
+ * failed reading for the day (its error class and message; spec "skip, don't chase": never retried that
  * day, the last good number stays); a spent GitHub budget or the deadline writes nothing, so the
  * source stays due. Every outside read is counted per provider into read_usage.
  */
@@ -485,6 +485,7 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
       if (err instanceof ScoreDeadline) return { read, failed };
       if (isBudgetStop(err)) continue;
       // Not a reading (it isn't verified): tried again tomorrow.
+      console.error('[read] proposed package failed', s.id, readError(err));
       await sql()`UPDATE builder_sources SET last_read_day = ${day} WHERE id = ${s.id} AND state = 'proposed'`;
       failed++;
     }
@@ -513,7 +514,9 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
         for (const s of group) stalled.add(s.id);
         return true;
       }
-      const error = err instanceof Error ? err.name : 'Error';
+      // Prod fix: the class and message (a bare class name hid why every repo read failed).
+      const error = readError(err);
+      console.error('[read] failed', group.map((s) => s.id).join(','), error);
       for (const s of group) await fail(s, error);
     }
     return true;

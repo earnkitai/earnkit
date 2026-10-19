@@ -154,7 +154,8 @@ export async function appTokenFor(
     if (id === null) return null;
     return await installationToken(id, a.repoKey.split('/')[1], deps);
   } catch (err) {
-    console.error('[github-app] token', err instanceof Error ? err.name : 'error');
+    // GitHubError messages carry the status only, never the token or the JWT.
+    console.error('[github-app] token', err instanceof Error ? `${err.name}: ${err.message}` : 'error');
     return null;
   }
 }

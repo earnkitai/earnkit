@@ -13,7 +13,7 @@ import { countingDeps, flushReadUsage } from './read-usage';
 import { LIVE_CALIBRATION_V2, calibrationV2 } from './score-calibration';
 import { FORMULA_V2, SHIPPING_WEEKS, computeScoreV2, type ScoreInput, type Ship } from './score-v2';
 import {
-  defaultReaderDeps, isBudgetStop, readNpm, readNpmBulk, readPypi, type PackageSignals, type ReaderDeps, type RepoSignals, type SiteSignals,
+  defaultReaderDeps, isBudgetStop, readError, readNpm, readNpmBulk, readPypi, type PackageSignals, type ReaderDeps, type RepoSignals, type SiteSignals,
 } from './source-readers';
 import { firstPushes, needsPushCheck, previousRepoSignals, storedCommits } from './sources';
 import { CHAIN_IDS } from './tokens';
@@ -558,7 +558,7 @@ export async function refreshPerson(id: number, o: { now: Date; deadline: number
         try {
           await run();
         } catch (err) {
-          console.error(`[refresh] ${step}`, err instanceof Error ? err.name : 'error');
+          console.error(`[refresh] ${step}`, readError(err));
         }
       }
     } finally {
@@ -658,6 +658,7 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
     } catch (err) {
       if (err instanceof ScoreDeadline) return false;
       if (isBudgetStop(err)) return true;
+      console.error('[refresh] read failed', group.map((s) => s.id).join(','), readError(err));
       for (const s of group) await put(s, { ok: false });
     }
     return true;

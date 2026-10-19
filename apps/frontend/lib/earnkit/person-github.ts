@@ -166,7 +166,7 @@ export async function readAppRepos(items: { id: number; builder_id: number; ref:
   if (!f || items.length === 0) return out;
   const { appTokenFor, githubAppEnabled } = await import('./github-app');
   if (!githubAppEnabled()) return out;
-  const { graphqlUsable } = await import('./source-readers');
+  const { graphqlErrors, graphqlUsable } = await import('./source-readers');
   for (const s of items) {
     const key = s.ref.toLowerCase();
     if (!REPO.test(key)) continue;
@@ -183,7 +183,7 @@ export async function readAppRepos(items: { id: number; builder_id: number; ref:
       throw new Error(`GitHub GraphQL returned ${res.status}`);
     }
     const body = (await res.json()) as unknown;
-    if (!graphqlUsable(body)) throw new Error('GitHub GraphQL answered errors');
+    if (!graphqlUsable(body)) throw new Error(graphqlErrors(body));
     const r = repoFrom(obj(obj(body).data).r0, d.now);
     if (!r || r.key !== key) continue;
     out.set(s.id, { ...r, key });

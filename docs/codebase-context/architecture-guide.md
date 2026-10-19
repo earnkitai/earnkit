@@ -4884,7 +4884,12 @@ repos) plus aliased by-name calls (25 a call) for tracked repos outside it and o
 REST contributors call each). npm downloads in bulk batches of 128 (`readNpmBulk`; scoped names
 keep `readNpm`). Blockscout once per contract per day (since its last daily read). One HEAD per
 site per day. A source that errors writes a failed reading once that day and is not retried; the
-page keeps the last good number. Every read is counted per provider (`read-usage.ts countingDeps`,
+page keeps the last good number. The failed reading's `error` is the error's class and message
+(`source-readers.ts readError`; a refused GraphQL answer names GitHub's type, path and message,
+`graphqlErrors`), and the read logs it as `[read] failed <source ids> <error>`. Hotfix 2026-10-19:
+repo queries never name a field GitHub refuses to EarnKit's fine-grained token or the App's
+installation token (`stargazers`, `forks`): one FORBIDDEN field fails the whole answer
+(`graphqlUsable`), so every repo read failed (`repo-read-forbidden.test.ts`). Every read is counted per provider (`read-usage.ts countingDeps`,
 `read_usage` table) against `FREE_LIMITS`, printed by the metric script. No new schedule: the cron
 slice is `SCORE_SLICE` = 0.4 of the hourly run.
 
