@@ -1600,6 +1600,9 @@ ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS app_tried_at timestamptz;
 -- builder's choice to show a private repo's titles (facts only by default). Additive.
 ALTER TABLE project_updates ADD COLUMN IF NOT EXISTS titles text[] NOT NULL DEFAULT '{}';
 ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS ship_titles_at timestamptz;
+-- v2.14 spec 4 (T4 carried to T9): the first Bench reply after an X bind (at install or by the paste code) starts
+-- with "Signed in as @<handle>.", once, so a builder notices a wrong account. attachToX sets it; the reply clears it.
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS x_signed_in_unseen boolean NOT NULL DEFAULT false;
 -- v2.14 bind:start
 -- Preflight S4 (v2.14 T7): v2.13.4's notices and detach are gone, so a one-click join nobody on the page answered
 -- would otherwise become permanent (and be bound below). First, as answerNotice's detach did: the members of every

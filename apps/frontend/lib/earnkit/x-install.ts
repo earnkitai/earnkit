@@ -242,7 +242,7 @@ async function attachOnce(own: number, user: XUser, now: Date): Promise<AttachRe
       const out = await bindXIn(tx, root, user, now);
       if (!out.ok) throw new AttachRefused(out.reason === 'owner_cleared' ? 'owner_cleared' : 'claimed_by_other');
       const set = await tx`
-        UPDATE installations SET x_user_id = ${user.id} WHERE id = ${own} AND (x_user_id IS NULL OR x_user_id = ${user.id}) RETURNING id`;
+        UPDATE installations SET x_user_id = ${user.id}, x_signed_in_unseen = true WHERE id = ${own} AND (x_user_id IS NULL OR x_user_id = ${user.id}) RETURNING id`;
       if (set.length !== 1) throw new Error('installation not bound');
       return { root, out, created };
     });
