@@ -5750,30 +5750,30 @@ Free: no AI, no new cron, no paid service.
 
 ### 6. Replies
 
-`find` and `score` share `bench-find.ts benchView`, so both answer in the same five states. The copy lives in one
-table, `bench-reply.ts STATE_COPY` (plus `VARIANT_COPY`); `benchReply` is pure.
+`find` and `score` share `bench-find.ts benchView`, so both answer in the same four states (scoring and clarity R16a:
+v2.14's `proven` and `shipping` are one `ranked` state). The copy lives in one table, `bench-reply.ts STATE_COPY`
+(plus `VARIANT_COPY`); `benchReply` is pure. Current wording: "the leaderboard" (R9).
 
 | State | When | Stand line | The one link | The one question |
 |---|---|---|---|---|
 | `signed_out` | not bound to X and a sign-in link can be made | "You're not on the Bench yet." | the sign-in link | "Sign in with X to get your page (one click): <link>" + "Want me to put your work on the Bench once you're in?" |
 | `no_project` | signed in, no one project | the same + "Your page: https://..." | the page | "What's your GitHub, or a link to something you've made?" |
 | `not_counted` | a project not confirmed | "<Project> isn't counted yet." | the App install link | "Install the read-only EarnKit app on it (one click): <link>" + "Want me to count it once that's done?" |
-| `proven` | confirmed, streak under 2 | "<Project> is on the Bench: <rank>." | the page | `nextStepAsk`: the best fit's entry, else a community round, else put it online, else one small thing to ship |
-| `shipping` | confirmed, streak 2 or more | the same + "<n> weeks in a row." | the page | the same order |
+| `ranked` | the one project confirmed | the score line "<Project>: Shipping 72 · #3 of 40 builders this week." and the why | the page | the statement "Ship this week to climb." (R8; never an entry, coin, community round or going live) |
 
 - **Variants (A15).** `taken`, `copy`: "Want to use a different project?"; `no_repo`: "Where does <Project> live on
   GitHub?"; `app_off`: one small thing to ship. A taken project still names the open programs (D6).
 - **Money always shows**, signed out included; with nothing open: "No program is open right now. I'll look again next week."
 - **One link (A14, D5).** The action link is the one https link and the page is named beside it without https;
   otherwise the page is the link. No page to name means no link (a shared client gets zero links).
-- **One question (A16, A17).** States 1 to 3 always ask their fixed question; in 4 and 5 a no keeps an ask away 30
-  days ("one small thing to ship" never). A held question (find's outcome question, else a submission step) replaces
+- **One next step (A16, A17, R8).** States 1 to 3 always ask their fixed question; `ranked` always says "Ship this
+  week to climb." (no question). A coin or community round comes only from `tell { token: 'ask' }`. A held question (find's outcome question, else a submission step) replaces
   the state's question, except signed out, where the sign-in question wins (`signedOutNow`).
 - **Signed in as.** `attachToX` sets `installations.x_signed_in_unseen`; the first Bench reply after it starts with
   "Signed in as @<handle>." and clears it (`takeSignedIn` clears it only with a handle, so a failed read never eats it).
-- **Yeses.** `benchMoveUp` answers `sign_in`, `start`, `install_app`, `other_project`, `repo_behind`, `enter`,
-  `raise`, `suggest`; `go_live` and `coin` stay in tools.ts. Stored `build`, `grants` and `grants_later` asks are
-  answered "Okay.". `build_offer` still uses the v2.11 short reply (shared clients and pre-profile); the rest of A18
+- **Yeses.** `benchMoveUp` answers `sign_in`, `start`, `install_app`, `other_project`, `repo_behind`, `ship`,
+  `suggest`; an open coin offer stays in tools.ts. Stored `build`, `grants`, `grants_later`, `enter`, `coin`, `raise`
+  and `go_live` asks are answered "Okay.". `build_offer` still uses the v2.11 short reply (shared clients and pre-profile); the rest of A18
   is an owner question.
 
 ### 7. Flags
@@ -6150,7 +6150,7 @@ Spec: R6, R9, R10, R11 and R17 of `docs/design-docs-and-implementation-plans/sco
   - `bench-rank.ts rankLines` returns no rank, score line or chain lines unless the one project counts as confirmed
     now (`benchConfirmedSql`, read live). `builder_live.ranked` is only refreshed at a rescore, so before this a
     project whose proof went showed its old rank beside "isn't counted yet" on the profile, the card and the page meta.
-  - `bench-reply.ts rankedState(state)`: only `proven` and `shipping` show a rank. `bench-find.ts benchView` sets
+  - `bench-reply.ts rankedState(state)`: only the ranked state (then `proven` and `shipping`, merged in Task 4) shows a rank. `bench-find.ts benchView` sets
     `rank_lines` to `[]` and `view.rank` to null in every other state (a signed-out or anonymous ranked row once
     carried "#1 of 1" under "You're not on the leaderboard yet.").
   - The move-up news ("Since you last checked: You moved up to ...") shows only when the reply shows a rank. It is
@@ -6199,6 +6199,17 @@ ranking higher.
     openCoinLine`); else `offerCoin(..., 'countable')`. Not confirmed: `TOKEN_NOT_YET`; nothing offerable (launches
     off, declines, a private repo): `tokenUnavailable`. The yes is `tell coin` as before, then `confirm
     { project_id }`; `confirm`, the build path's built_live moment and `launch` are unchanged.
+- **One fit order (fix round 1).** find and score name the same fits in the same order: `present.ts byDeadline`
+  (the soonest `ends_at` first, rolling last, then the bigger `max_award_usd`, then the id). find sorts its qualifying
+  rows with it before taking 3, so `lead` and `recordShown` use those same 3; `scoreFits` sorts with it too.
+- **No coin on the build path (fix round 1).** v2.12.1's built_live moment is gone: `coin-moments.ts coinPitchAllowed`
+  allows only the coin program's own entry (an accepted offer), so a build entry's prepare and confirm never pitch or
+  launch a token (`BUILD_ENTRY_NO_TOKEN_NOTE`, the live reply ends "Ready to submit?"). `showBuiltLive`,
+  `builtLiveAnswer`, `BUILD_COIN_NOTE` and tools.ts `buildEntryKey` were removed. The `built_live` moment type stays for
+  old rows. prepare's description says "the confirm line (no token unless the builder asked for a coin)".
+- **Closed programs keep results tracking.** `outcomes.ts outcomeToAsk` reads `results.expected`, never `status`, and
+  `syncOutcomeFile` labels a closed program's entries; `programs/README.md` says closing keeps the results check until
+  results land (arc-microgrants: results expected 2026-10-21). `outcomes.test.ts` covers it.
 - **Funding matches (R12).** "Ways to get funded" names at most 3 programs the matcher fits, each as `fitsLine`:
   "<title>: <award>, <closes Oct 30 | rolling>. <why>." (`stand-view.ts fundWhen`). The why is `bench-find.ts fitWhy`
   from the matcher's facts: the program's chain where the repo has a deployed contract ("You deployed on Base"), a
@@ -6206,8 +6217,8 @@ ranking higher.
   chain"; and "your app is live" for a program that needs a live product. The words avoid "contract" and "repo" (the
   v2.12.1 copy rule); the chain phrases are allowed in `fixtures/banned-words.ts BENCH_PITCH_ALLOWED`.
   - find: `layout` rows that `qualifies` (good odds) for the one repo, their facts from the match. score:
-    `stand-view.ts scoreFits`, the open programs by award whose `alerts.ts repoCanWin` passes for the one repo as find
-    last matched it (`installations.fit_repos`), at most `FITS_MAX` 3 (it used to name one).
+    `stand-view.ts scoreFits`, the open programs (byDeadline) whose `alerts.ts repoCanWin` passes for the one repo as
+    find last matched it (`installations.fit_repos`), at most `FITS_MAX` 3 (it used to name one).
   - A ranked project gets only fits: no open-all-year pick (`rollingPick` is gone) and no "what it needs" lines;
     with none it says `noFitLine` ("No open program fits Kit yet. I'll look again next week."). Not counted, no project
     and taken keep `needsPicks` and the no-project idea as before.
@@ -6219,10 +6230,14 @@ ranking higher.
   and money-line types and helpers. `person-score.ts trackingHeld`. `week-facts.ts`: the users_up event branch
   (R16b never sets the fact). `score-tool.ts`/`benchScore` no longer take `fresh`, and `benchFind` no `agentCanBuild`.
 - **Carry-overs from Task 3.** `token-proposal.ts tickerCandidates`: a first word over 10 letters gives its first 10
-  ("Recipeplanner" is RECIPEPLAN), never 3-letter initials first. EarnKit's own brand is allowed for a repo owned by
-  an EarnKit org (`earnkit-orgs.ts`, "earnkitai"): `OwnBrand { repoUrl }` on `tickerProblem`, `cleanTokenName`,
-  `proposeToken`, and `token-launch.ts decideToken`/`editsOf`/the stored proposal, so the owner's project proposes and
-  launches $EARNKIT (EarnKit); every other brand, and EARNKIT for anyone else, stays reserved. `untrusted-text.ts
+  ("Recipeplanner" is RECIPEPLAN), never 3-letter initials first. EarnKit's own brand is allowed only on verified
+  ownership (fix round 1): `OwnBrand { ownEarnkit }` on `tickerProblem`, `cleanTokenName`, `tokenNameProblem`,
+  `proposeToken`, and `token-launch.ts decideToken`/`editsOf`/`storedProposal`, default false. `own-brand.ts
+  earnkitOwnRepo(id, repoUrl)` sets it: the repo's owner (campaigns.ts githubRepo, so http://, www. and .git forms
+  read the same) is an EarnKit org (`earnkit-orgs.ts`, "earnkitai") AND the repo is a `github_app`-proven, verified
+  source of this builder. `runTokenFlow` computes it once (`TokenFlowDeps.ownEarnkit` for tests); coin offers
+  (`offerCoin`, `openCoinLine`, `coinYes`) compute it too; prepare's proposal never sets it. A link alone never
+  gives $EARNKIT; every other brand stays reserved. `untrusted-text.ts
   wholeWords` never ends a cut on a comma, dash, colon or the like. `app/bench/page.tsx` redirects (308) to
   `/leaderboard` with the same query string. The stale reserved-ticker comment in `tickerProblem` is fixed.
 - **Tests.** `move-up.test.ts` (through `mcpCall`): the ranked find and score replies (score line, why, at most 3 fit

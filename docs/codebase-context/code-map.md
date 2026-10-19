@@ -566,7 +566,8 @@ apps/frontend/
                                World's Fair file (a starter missing new work is low); journey 11.6. Fix round 1: C1 (Arc
                                submitted: tokens.fun asked, never the starter), I1, M6; journey 11.7 (real program files)
                                Fix round 2: own public tokens.fun and my_commits_90d: 5 asked; the 6-day tipjar never
-    present.ts(+test)          v2.11 T7: FreshOn, FirstMessage.fresh, freshLead (the short reply's no-repo lead when
+    present.ts(+test)          scoring and clarity R12 fix 1: byDeadline (find's and score's one fit order: soonest
+                               ends_at, rolling last, then award, then id). v2.11 T7: FreshOn, FirstMessage.fresh, freshLead (the short reply's no-repo lead when
                                nothing else leads; context line + fresh lead), Card.winners_per_round.
                                v2.10.2 fix round 2: starterRepo/STARTER_DAYS (under 30 days old, or a template or EarnKit
                                starter), usersAsk skips starters and a starter's lead yields to a product's question.
@@ -873,8 +874,10 @@ apps/frontend/
     token-proposal.ts(+test)   v2.3 proposal: cleanTokenName (text + brand rules), tickerProblem
                                (TICKER_SHAPE 3-10 A-Z0-9, TICKER_MAX 10 = tokens.fun's limit; TICKER_RESERVED, brands),
                                tickerCandidates (R11: the whole first word up to 10, a longer one its first 10, else initials), proposeToken
-                               (Task 4: OwnBrand/earnkitRepo: an earnkitai-org repo may use EARNKIT; tickerProblem, cleanTokenName
-                               and token-launch.ts decideToken/editsOf take { repoUrl }),
+                               (Task 4 fix 1: OwnBrand { ownEarnkit }, default false; tickerProblem, cleanTokenName, proposeToken
+                               and token-launch.ts decideToken/editsOf/storedProposal take it; set only by own-brand.ts),
+    own-brand.ts               Task 4 fix 1: earnkitOwnRepo(id, repoUrl): an EarnKit-org repo that is a github_app-proven,
+                               verified source of this builder (else false); the only way to EarnKit's own brand on a token
                                (tokens.fun check-ticker; unreachable -> first clean candidate, noted),
                                monogramFor (12-colour palette); v2.7 Ruling 16: proposeToken(projectName,
                                check, repoUrl) never null — name: project, "<name> Token", repo name (repoNameOf), v2.8.1
@@ -1470,13 +1473,14 @@ apps/frontend/
                                siteShowsUse, scoresAdminKey (v2.12.1 T10: pitchAllowed removed, coin-moments.ts),
                                scoresAdminLink (pnpm campaign scores-link), scoresPost
     coin-moments.ts(+test)     v2.12.1 T10 (spec 3b), R8: the coin offered only when the builder asks (bench-find
-                               tokenAsk, moment countable) or on the build path (built_live); first_five, has_people and
-                               streak_five stay for offers already made. COIN_PROGRAM
+                               tokenAsk, moment countable); built_live (fix 1: the build path no longer pitches),
+                               first_five, has_people and streak_five stay for old rows. coinPitchAllowed: the coin
+                               program's accepted entry only. COIN_PROGRAM
                                (policy-constants.ts), coinLine, coinAllowed, coinWallet, offerCoin (records
                                coin_moments, once per project), openCoinLine (an open offer shown again), coinYes (the coin program's entry + saved offer;
                                confirm by project_id launches it), coinNo (recordDecline), coinOpen,
                                coinPitchAllowed (every token pitch/launch path, via tools.ts tokenPitch),
-                               builtLiveAnswer, COIN_NOTE, COIN_YES_NOTE, COIN_WALLET_ASK
+                               COIN_NOTE, COIN_YES_NOTE, COIN_WALLET_ASK
     profiles.ts(+test)         v2.12 T7, v2.12.1: X_HANDLE, randomSlug (the internal key until the claim),
                                profileOf, ensureProfile (never a shared group), setFallback (login + basis; the
                                slug no longer follows it), releaseLogin, setHidden (HIDDEN_LINE, SHOWN_LINE with

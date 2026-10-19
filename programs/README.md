@@ -212,7 +212,12 @@ passed more than 30 days before the program's `verified_at`. When re-verifying a
 
 ## Weekly re-verification
 
-Once a week, for every active program:
+Once a week, for every active program, and for every closed program whose results haven't landed yet:
+
+Closing a program (`"status": "closed"`, e.g. past its deadline) takes it out of every list and match, but
+keeps its results tracking: step 6 below still runs for it, and EarnKit still asks its builders the results
+question once `results.expected` passes (outcomes.ts outcomeToAsk reads `results`, never `status`), until its
+results land (an outcome file is committed). Keep its `results` block when closing it.
 
 0. Skip and close (`"status": "closed"`) any Optimism program as defined above (only chain OP
    Mainnet, or run by Optimism or the Optimism Collective); never list a new one. Never close a
