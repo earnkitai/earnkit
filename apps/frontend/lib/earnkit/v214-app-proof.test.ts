@@ -240,3 +240,26 @@ test('6.17 fix round 1: the daily check demotes an org repo whose prover is no l
   const [s] = await sql()<{ state: string; reject_reason: string }[]>`SELECT state, reject_reason FROM builder_sources WHERE builder_id = ${p.id} AND lower(ref) = ${key}`;
   assert.deepEqual(s, { state: 'proposed', reject_reason: APP_REMOVED });
 });
+
+test('6.18 fix round 1 (ruling): an action on an App proof older than a day checks GitHub now: held passes and refreshes, gone demotes and refuses, unknown refuses', db, async () => {
+  const key = `eli${RUN}/live`;
+  const p = await personWith(key, 'eli');
+  const gh = fakeGitHub({ [key]: { id: 9031, owner: `eli${RUN}`, installation: 91 } });
+  await installApp({ builderId: p.id, repoKey: key, login: `eli${RUN}`, gh });
+  const age = () => sql()`UPDATE builder_sources SET app_checked_at = now() - interval '27 hours' WHERE builder_id = ${p.id} AND kind = 'repo'`;
+  const checkedAt = async () => (await sql()<{ at: Date }[]>`SELECT app_checked_at AS at FROM builder_sources WHERE builder_id = ${p.id} AND kind = 'repo'`)[0].at;
+  // Held: passes, refreshed.
+  await age();
+  assert.equal((await repoProof(p.id, key, undefined, { forAction: true, fetch: gh })).ok, true);
+  assert.ok(Date.now() - (await checkedAt()).getTime() < 60_000, 'refreshed');
+  // Unknown (GitHub errors): refused, still verified.
+  await age();
+  const down = (async () => new Response('{}', { status: 502 })) as unknown as typeof fetch;
+  assert.deepEqual(await repoProof(p.id, key, undefined, { forAction: true, fetch: down }), { ok: false, why: 'none' });
+  assert.equal((await repoProof(p.id, key)).ok, true, 'still counted');
+  // Gone (uninstalled): demoted and refused.
+  gh.repos[key].installation = null;
+  assert.deepEqual(await repoProof(p.id, key, undefined, { forAction: true, fetch: gh }), { ok: false, why: 'none' });
+  const [s] = await sql()<{ state: string; reject_reason: string }[]>`SELECT state, reject_reason FROM builder_sources WHERE builder_id = ${p.id} AND kind = 'repo'`;
+  assert.deepEqual(s, { state: 'proposed', reject_reason: APP_REMOVED });
+});

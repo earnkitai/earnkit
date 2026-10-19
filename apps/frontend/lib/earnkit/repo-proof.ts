@@ -65,20 +65,24 @@ export async function heldByOther(builderId: number, key: string, db: Db = sql()
 /**
  * Whether `key` is this person's proven repo: by the App, or verified before v2.14 (kept: it still counts on the
  * Bench). `builderId`: the person's root. T6 security review: `forAction` (a coin, a deploy, a hosted site) takes
- * only an App proof GitHub confirmed within APP_PROOF_FRESH_MS; a kept proof (discovery's repo_owner or x_match,
- * a proof line or branch, a sign-in, never re-read at the action) or a stale App proof is `none`, so the
- * install link is asked.
+ * only an App proof: one GitHub confirmed within APP_PROOF_FRESH_MS, else checked now (appProofLive through
+ * `fetch`); a kept proof (discovery's repo_owner or x_match, a proof line or branch, a sign-in, never re-read at
+ * the action), a gone or an unanswered App proof is `none`, so the install link is asked.
  */
-export async function repoProof(builderId: number, repoKey: string, db: Db = sql(), o: { forAction?: boolean; now?: Date } = {}): Promise<RepoProof> {
+export async function repoProof(builderId: number, repoKey: string, db: Db = sql(), o: { forAction?: boolean; now?: Date; fetch?: typeof fetch } = {}): Promise<RepoProof> {
   const key = repoKey.toLowerCase();
   const now = o.now ?? new Date();
-  const [s] = await db<{ state: string; proof: string | null; gh_owner: string | null; reject_reason: string | null; app_checked_at: Date | null }[]>`
-    SELECT state, proof, gh_owner, reject_reason, app_checked_at FROM builder_sources
+  const [s] = await db<{ id: number; state: string; proof: string | null; gh_owner: string | null; gh_owner_type: string | null; reject_reason: string | null; app_checked_at: Date | null }[]>`
+    SELECT id::int AS id, state, proof, gh_owner, gh_owner_type, reject_reason, app_checked_at FROM builder_sources
     WHERE builder_id = ${builderId} AND kind = 'repo' AND ${refKey(db)} = ${key}
     ORDER BY (state = 'verified') DESC, id LIMIT 1`;
   if (s?.state === 'verified' && s.proof && CONFIRMED_PROOFS.has(s.proof)) {
     const app = s.proof === APP_PROOF;
-    const fresh = app && s.app_checked_at !== null && now.getTime() - s.app_checked_at.getTime() <= APP_PROOF_FRESH_MS;
+    let fresh = app && s.app_checked_at !== null && now.getTime() - s.app_checked_at.getTime() <= APP_PROOF_FRESH_MS;
+    // T6 fix round 1 (controller ruling): an older App proof is checked with GitHub now: held passes (and is
+    // refreshed); gone is demoted and refused; unknown (GitHub didn't answer) is refused (fail closed).
+    if (o.forAction && app && !fresh)
+      fresh = (await recheckAppSource({ id: s.id, builder_id: builderId, key, gh_owner_type: s.gh_owner_type }, now, { fetch: o.fetch }).catch(() => 'unknown' as const)) === 'held';
     if (!o.forAction || fresh)
       return { ok: true, via: app ? 'app' : 'kept', owner: s.gh_owner ?? key.split('/')[0], private: !(await repoReadPublic(builderId, key, now, db)) };
     return { ok: false, why: 'none' };
