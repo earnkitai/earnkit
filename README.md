@@ -8,8 +8,8 @@ MCP server URL: **`https://earnkit.com/mcp`**. No account; the agent connects an
 instantly.
 
 - **Grok Bot:** add the URL as an MCP connector.
-- **Claude Code:** `claude mcp add --transport http --scope user earnkit https://earnkit.com/mcp`, then open Claude Code, type `/mcp`, pick earnkit, choose Authenticate.
-- **Cursor:** in `~/.cursor/mcp.json`: `{"mcpServers": {"earnkit": {"url": "https://earnkit.com/mcp"}}}`
+- **Claude Code:** `claude mcp add --transport http --scope user earnkit https://earnkit.com/mcp` (user scope: EarnKit works in every folder), then open Claude Code, type `/mcp`, pick earnkit, choose Authenticate.
+- **Cursor:** the one-click "Add to Cursor" button on earnkit.com, or in `~/.cursor/mcp.json`: `{"mcpServers": {"earnkit": {"url": "https://earnkit.com/mcp"}}}`
 - **Codex:** `codex mcp add earnkit --url https://earnkit.com/mcp`, then `codex mcp login earnkit`.
 - **Muse:** add the URL as a custom integration.
 - **Any other MCP client:** add the URL as a remote server.

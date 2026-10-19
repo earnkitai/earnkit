@@ -107,3 +107,19 @@ test('no editor tab anywhere: the modal, llms.txt, the README, app/ and lib/', (
   assert.doesNotMatch(html, /Other agents|mcp-remote/);
   assert.ok(html.includes('https://earnkit.com/mcp'));
 });
+
+test('launch-ready L1: Claude Code installs at user scope everywhere it is written; Cursor\'s one-click link comes first and carries the EarnKit config', () => {
+  assert.equal(byName('Claude Code').code, CLAUDE_CODE);
+  for (const [label, text] of [['README.md', readme], ['llms.txt', llms]] as const)
+    assert.ok(text.includes(CLAUDE_CODE), label);
+  const cursor = byName('Cursor');
+  const link = new URL(cursor.install!);
+  assert.equal(`${link.protocol}//${link.host}${link.pathname}`, 'cursor://anysphere.cursor-deeplink/mcp/install');
+  assert.equal(link.searchParams.get('name'), 'earnkit');
+  assert.deepEqual(JSON.parse(atob(link.searchParams.get('config')!)), { url: 'https://earnkit.com/mcp' });
+  // Only Cursor documents a one-click install link: no other tab gets one.
+  assert.deepEqual(AGENTS.filter((a) => a.install).map((a) => a.name), ['Cursor']);
+  // In Cursor's tab the button is first, before the manual steps.
+  const src = readFileSync(join(FRONTEND, 'app/components/sections/AddToAgent.tsx'), 'utf8');
+  assert.ok(src.indexOf('{agent.install && (') < src.indexOf('{agent.steps.map('), 'the one-click button renders above the steps');
+});

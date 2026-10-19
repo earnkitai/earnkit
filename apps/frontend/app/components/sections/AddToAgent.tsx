@@ -48,6 +48,10 @@ export type Agent = {
  * Commands: Claude Code per https://code.claude.com/docs/en/mcp (--transport http, --scope user,
  * then /mcp to sign in); Codex per https://developers.openai.com/codex/mcp
  * (codex mcp add <name> --url <url>, then codex mcp login <name>).
+ * Launch-ready L1: Claude Code's line is user scope (EarnKit works in every folder). One-click links only where the
+ * agent documents one: Cursor's MCP install deep link (Cursor docs, "Add to Cursor" links:
+ * cursor://anysphere.cursor-deeplink/mcp/install?name=<name>&config=<base64 of the server's config>), shown first in
+ * its tab. Claude Code, Codex, Grok Bot and Muse document none, so none is made up.
  */
 export const AGENTS: Agent[] = [
   {
@@ -68,7 +72,7 @@ export const AGENTS: Agent[] = [
   {
     name: 'Cursor',
     icon: '/images/agents/cursor.svg',
-    install: `cursor://anysphere.cursor-deeplink/mcp/install?name=earnkit&config=${btoa(JSON.stringify({ url: MCP_URL }))}`,
+    install: `cursor://anysphere.cursor-deeplink/mcp/install?name=earnkit&config=${encodeURIComponent(btoa(JSON.stringify({ url: MCP_URL })))}`,
     steps: ['Or add this to ~/.cursor/mcp.json:'],
     code: JSON.stringify(
       { mcpServers: { earnkit: { url: MCP_URL } } },
