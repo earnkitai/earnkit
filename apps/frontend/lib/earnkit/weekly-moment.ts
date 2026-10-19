@@ -3,8 +3,8 @@ import { LIVE_CALIBRATION_V2 } from './score-calibration';
 import { norm, shareIntentText, shownProjects } from './page-data';
 import { titlesShown } from './ship-titles';
 import { checkUpdate } from './update-text';
-import { rankLine, scoreLine } from './rank';
-import { isoWeekOf, lastFinishedMonday } from './weeks';
+import { isoWeekOf, lastFinishedMonday, mondayOf } from './weeks';
+import { WEEKLY_HOUR_UTC } from './week-facts';
 
 /**
  * Launch ready L6: one weekly moment. Only the builder's own data: their Shipping, rank and checked titles (never
@@ -16,7 +16,8 @@ import { isoWeekOf, lastFinishedMonday } from './weeks';
 const DAY_MS = 86_400_000;
 /** A week's standing as the daily history (builder_scores) left it: its last ranked day. */
 export type WeekStanding = { score: number; rank: number; total: number };
-export type LastWeek = { monday: string; now: WeekStanding; before: WeekStanding | null; titles: string[] };
+/** `checked`: the weekly job has written last week's ship-log row (facts.checked). */
+export type LastWeek = { monday: string; now: WeekStanding; before: WeekStanding | null; titles: string[]; checked: boolean };
 
 /** "+6", "-3", "same". Pure. */
 const scoreDelta = (d: number) => (d === 0 ? 'same' : d > 0 ? `+${d}` : `${d}`);
@@ -24,21 +25,36 @@ const scoreDelta = (d: number) => (d === 0 ? 'same' : d > 0 ? `+${d}` : `${d}`);
 const rankDelta = (before: number, now: number) => (before === now ? 'same' : now < before ? `up ${before - now}` : `down ${now - before}`);
 
 /**
- * "Last week: Shipping 72 (+6), #3 (up 2)." (no week before it: "Last week: Shipping 72, #3."), then the week's
- * titles on one line ("Add dark mode · Fix the login loop"), at most 2. Pure.
+ * "Last week you finished at Shipping 72 (+6), #3 (up 2)." (no week before it: "Last week you finished at Shipping
+ * 72, #3."), then the week's titles on one line ("Add dark mode · Fix the login loop"), at most 2, then the new
+ * week's line (weekly-target.ts weekStartLine), when there is one. Pure.
  */
 export const MOMENT_TITLES_MAX = 2;
-export function momentLines(w: LastWeek): string[] {
+export function momentLines(w: LastWeek, weekStart: string | null = null): string[] {
   const { now, before } = w;
   const head = before
-    ? `Last week: Shipping ${now.score} (${scoreDelta(now.score - before.score)}), #${now.rank} (${rankDelta(before.rank, now.rank)}).`
-    : `Last week: Shipping ${now.score}, #${now.rank}.`;
+    ? `Last week you finished at Shipping ${now.score} (${scoreDelta(now.score - before.score)}), #${now.rank} (${rankDelta(before.rank, now.rank)}).`
+    : `Last week you finished at Shipping ${now.score}, #${now.rank}.`;
   const titles = w.titles.slice(0, MOMENT_TITLES_MAX);
-  return titles.length > 0 ? [head, titles.join(' · ')] : [head];
+  return [head, ...(titles.length > 0 ? [titles.join(' · ')] : []), ...(weekStart ? [weekStart] : [])];
 }
 
-/** The post's text: "Shipped this week on EarnKit: Shipping 72 · #3 of 40 builders this week" (rank.ts's own lines). Pure. */
-export const shareText = (w: WeekStanding) => `Shipped this week on EarnKit: ${scoreLine(w.score, rankLine({ ranked: true, rank: w.rank, total: w.total }))}`;
+/**
+ * Fix round 1: the moment shows once last week's ship log can be in it: the weekly job wrote its row (facts.checked),
+ * or this week's Monday WEEKLY_HOUR_UTC (the job's hour) has passed. Before that, no moment and the week stays
+ * unclaimed. Pure.
+ */
+export function momentReady(checked: boolean, now: Date): boolean {
+  return checked || now.getTime() >= Date.parse(`${mondayOf(now)}T${String(WEEKLY_HOUR_UTC).padStart(2, '0')}:00:00Z`);
+}
+
+/** Fix round 1: a title holding a link or a host name ("acme.com") is never shown in the moment. Pure. */
+const LINKISH = /[a-z][a-z0-9+.-]*:\/\/|\bwww\.|(?:^|[^\p{L}\p{N}@._-])(?:[\p{L}\p{N}-]+\.)+(?:com|net|org|io|dev|app|ai|xyz|co|me|sh|gg|so|fun|site|link|info|tech|cloud|page|ly|to|tv|us|uk|de|eth)\b/iu;
+export const titleHasLink = (t: string) => LINKISH.test(t);
+
+/** The post's text: "My week on EarnKit: Shipping 72 · #3 of 40 builders". Pure. */
+export const shareText = (w: WeekStanding) =>
+  `My week on EarnKit: Shipping ${w.score} · #${w.rank.toLocaleString('en-US')} of ${w.total.toLocaleString('en-US')} ${w.total === 1 ? 'builder' : 'builders'}`;
 /** The X intent link with that text and the profile URL (page-data shareIntentText). Pure. */
 export const shareLink = (handle: string, w: WeekStanding) => shareIntentText(handle, shareText(w));
 export const SHARE_NOTE =
@@ -81,8 +97,8 @@ export async function lastWeekOf(builderId: number, key: string, now: Date): Pro
   if (!cur) return null;
   const before = await weekStanding(builderId, new Date(Date.parse(`${monday}T00:00:00Z`) - 7 * DAY_MS).toISOString().slice(0, 10));
   const db = sql();
-  const [u] = await db<{ titles: string[] }[]>`
-    SELECT titles FROM project_updates WHERE builder_id = ${builderId} AND lower(project_key) = lower(${key}) AND week = ${monday} AND NOT hidden`;
+  const [u] = await db<{ titles: string[]; checked: boolean }[]>`
+    SELECT titles, facts ? 'checked' AS checked FROM project_updates WHERE builder_id = ${builderId} AND lower(project_key) = lower(${key}) AND week = ${monday} AND NOT hidden`;
   let titles: string[] = [];
   if (u && u.titles.length > 0) {
     const [p] = await db<{ titles_on: boolean }[]>`SELECT ship_titles_at IS NOT NULL AS titles_on FROM builder_profiles WHERE builder_id = ${builderId}`;
@@ -94,11 +110,11 @@ export async function lastWeekOf(builderId: number, key: string, now: Date): Pro
       const links = await (await import('./updates')).ownLinks(builderId);
       titles = own.flatMap((t) => {
         const c = checkUpdate(t, links);
-        return c.ok ? [c.text] : [];
+        return c.ok && !titleHasLink(c.text) ? [c.text] : [];
       });
     }
   }
-  return { monday, now: cur, before, titles };
+  return { monday, now: cur, before, titles, checked: u?.checked ?? false };
 }
 
 /** A cheap first look: this installation hasn't been shown `now`'s week yet (so last week is worth reading). Never throws. */
@@ -128,14 +144,44 @@ export async function takeMoment(own: number, now: Date): Promise<boolean> {
 
 /**
  * The yes to the moment's question: last week's ship-log row of `key` approved (facts.approved, approved_at,
- * approved_via 'share'), made when the week has no row yet (such a row shows nowhere: no facts, text or titles).
- * The weekly job's later upsert merges its facts in, keeping these. False when another builder holds the week.
+ * approved_via 'share'). The builder's existing row is matched case-insensitively; with none, one is made (it shows
+ * nowhere: no facts, text or titles). The weekly job's later upsert merges its facts in, keeping these. False when
+ * another builder holds the week.
  */
 export async function approveWeek(builderId: number, key: string, monday: string, now: Date): Promise<boolean> {
-  const facts = { approved: true, approved_at: now.toISOString(), approved_via: 'share' };
+  const facts = sql().json({ approved: true, approved_at: now.toISOString(), approved_via: 'share' });
+  const [had] = await sql()`
+    UPDATE project_updates SET facts = facts || ${facts}::jsonb
+    WHERE builder_id = ${builderId} AND lower(project_key) = lower(${key}) AND week = ${monday} RETURNING 1`;
+  if (had) return true;
   const r = await sql()`
-    INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${builderId}, ${key}, ${monday}, ${sql().json(facts)})
+    INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${builderId}, ${key}, ${monday}, ${facts})
     ON CONFLICT (project_key, week) DO UPDATE SET facts = project_updates.facts || EXCLUDED.facts
     WHERE project_updates.builder_id = EXCLUDED.builder_id RETURNING 1`;
   return r.length > 0;
+}
+
+/**
+ * Fix round 1: the open share offer (standing_seen.share_open = { key, week, shown_week }), kept apart from the stored
+ * ask so other replies that week don't close it. Written when the moment is shown.
+ */
+export type ShareOpen = { key: string; week: string; shown_week: string };
+export async function openShare(builderId: number, o: ShareOpen): Promise<void> {
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('share_open', ${sql().json(o as never)}::jsonb)
+    WHERE builder_id = ${builderId}`.catch((err: unknown) => console.error('[moment] open share', err instanceof Error ? err.name : 'error'));
+}
+/**
+ * The yes or no to the share offer: taken once (one UPDATE removing it, returning what it held), only while `now` is in
+ * the week it was shown and for its project. A yes approves that week (approveWeek). Null: nothing open to answer.
+ */
+export async function answerShare(builderId: number, projectKey: string | null | undefined, answer: 'yes' | 'no', now: Date): Promise<boolean | null> {
+  const [r] = await sql()<{ o: ShareOpen }[]>`
+    UPDATE builder_profiles p SET standing_seen = p.standing_seen - 'share_open'
+    FROM (SELECT standing_seen->'share_open' AS o FROM builder_profiles WHERE builder_id = ${builderId} FOR UPDATE) old
+    WHERE p.builder_id = ${builderId} AND old.o->>'shown_week' = ${isoWeekOf(now)}
+      AND lower(old.o->>'key') = lower(${projectKey ?? ''})
+    RETURNING old.o AS o`;
+  if (!r) return null;
+  if (answer === 'no') return false;
+  return approveWeek(builderId, r.o.key, r.o.week, now);
 }

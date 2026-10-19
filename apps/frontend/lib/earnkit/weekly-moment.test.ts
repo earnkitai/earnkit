@@ -1,4 +1,4 @@
-import { after, test } from 'node:test';
+import { after, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
@@ -16,7 +16,12 @@ import { LIVE_CALIBRATION_V2 } from './score-calibration';
  */
 process.env.EARNKIT_URL = 'https://earnkit.com';
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
+// A fixed clock (Date only; timers stay real): a Wednesday in the past, so the moment's Monday gate is open and the
+// rows the fixtures stamp with the database's now() are newer than it (find's refresh guard skips a re-read).
+const WEDNESDAY = Date.parse('2026-10-14T12:00:00Z');
+mock.timers.enable({ apis: ['Date'], now: WEDNESDAY });
 after(async () => {
+  mock.timers.reset();
   if (process.env.DATABASE_URL) await sql().end();
 });
 const RUN = String(process.pid % 100000);
@@ -55,7 +60,7 @@ async function history(id: number, day: string, score: number) {
 }
 const plusDays = (monday: string, n: number) => new Date(Date.parse(`${monday}T00:00:00Z`) + n * DAY).toISOString().slice(0, 10);
 
-test('L5.4 through find and score: a ranked builder mid-week gets the weekly target as the one next step, naming the builder above; after shipping, done this week', db, async () => {
+test('L5.4 through find and score: a ranked builder mid-week gets the weekly target as the one next step (ranks only); after shipping, done this week', db, async () => {
   await freshBoard();
   // The builder above: code 1 to 4 weeks ago (44), with a hostile X name (text they control). Me: 1 to 3 weeks ago
   // (35); this week would add 13, which passes them.
@@ -104,7 +109,7 @@ test('L5.5 #1 holds; tied at the top holds too', db, async () => {
   assert.equal((await profileData(top.id, new Date()))!.target, 'Ship code this week: +14 points to hold #1.');
 });
 
-test('L6.3 the weekly moment: the first find of the week leads with last week, the share link replaces the step, once a week per installation; a yes approves the week and the stats count it', db, async () => {
+test('L6.3 the weekly moment: the first find of the week leads with last week and the new week\'s line, the share link replaces the step, once a week per installation; a yes after another find still approves the week (matched case-insensitively) and the stats count it', db, async () => {
   await freshBoard();
   const monday = lastFinishedMonday(new Date());
   const before = plusDays(monday, -1); // the Sunday before last week
@@ -121,16 +126,17 @@ test('L6.3 the weekly moment: the first find of the week leads with last week, t
   await history(bo.id, sunday, 40);
   await history(me.id, plusDays(monday, 3), 47);
   await history(me.id, sunday, 50);
-  // Last week's ship log, on a repo that reads public.
+  // Last week's ship log, on a repo that reads public, its row keyed in another case; a title naming a host is dropped.
   await sql()`INSERT INTO source_live (source_id, signals, ok, read_at) SELECT id, '{"private": false}'::jsonb, true, now() FROM builder_sources WHERE builder_id = ${me.id}`;
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts, titles)
-    VALUES (${me.id}, ${me.key}, ${monday}, ${sql().json({ checked: true, shipped_code: { n: 4 } } as never)}, ${['Add dark mode', 'Fix the login loop', 'Tidy the footer']}::text[])`;
+    VALUES (${me.id}, ${me.key.toUpperCase()}, ${monday}, ${sql().json({ checked: true, shipped_code: { n: 4 } } as never)}, ${['Launch on acme.com', 'Add dark mode', 'Fix the login loop']}::text[])`;
 
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
-  const [lead, titles] = s.split('\n');
-  assert.equal(lead, 'Last week: Shipping 50 (+6), #2 (up 1).', s);
-  assert.equal(titles, 'Add dark mode · Fix the login loop');
+  const [lead, titles, week] = s.split('\n');
+  assert.equal(lead, 'Last week you finished at Shipping 50 (+6), #2 (up 1).', s);
+  assert.equal(titles, 'Add dark mode · Fix the login loop', 'no title with a host');
+  assert.equal(week, 'This week starts empty: ship code to add +13 points, 17 behind #1.');
   assert.ok(s.split('\n\n')[1].startsWith('Where you stand'), 'the moment leads, then the usual reply');
   const share = links(s);
   assert.equal(share.length, 1, `one link: ${s}`);
@@ -140,13 +146,16 @@ test('L6.3 the weekly moment: the first find of the week leads with last week, t
   assert.doesNotMatch(s, /Ship code this week/, 'the share offer replaces the target for this one reply');
   const u = new URL(share[0]);
   assert.equal(`${u.origin}${u.pathname}`, 'https://x.com/intent/post');
-  assert.equal(u.searchParams.get('text'), 'Shipped this week on EarnKit: Shipping 50 · #2 of 3 builders this week');
+  assert.equal(u.searchParams.get('text'), 'My week on EarnKit: Shipping 50 · #2 of 3 builders');
   assert.equal(u.searchParams.get('url'), `https://earnkit.com/${me.handle}`);
   const move = f.reply?.move_up as { kind: string; project_key: string; agent_note: string };
   assert.deepEqual([move.kind, move.project_key], ['share', me.key]);
   assert.match(move.agent_note, /tell with move_up/);
   assert.equal((await sql()<{ w: string }[]>`SELECT moment_week AS w FROM installations WHERE id = ${me.id}`)[0].w, isoWeekOf(new Date()));
 
+  // Another reply first (no moment again: once a week per installation), then the yes: still answered.
+  const between = show(await mcpCall(ctx(me.id), 'find', {}));
+  assert.doesNotMatch(between, /Last week|Share your week/, between);
   // The yes approves last week's ship log; answered once.
   const stats0 = await readStats(new Date());
   await sql()`UPDATE builder_sources SET proof = 'github_app' WHERE builder_id = ${me.id}`;
@@ -159,7 +168,7 @@ test('L6.3 the weekly moment: the first find of the week leads with last week, t
   assert.equal(row.facts.approved, true);
   assert.equal(row.facts.approved_via, 'share');
   assert.ok(Math.abs(Date.parse(String(row.facts.approved_at)) - Date.now()) < 60_000);
-  assert.deepEqual([row.facts.checked, (row.facts.shipped_code as { n: number }).n, row.n], [true, 4, 1], 'merged into the week\'s row, its facts kept');
+  assert.deepEqual([row.facts.checked, (row.facts.shipped_code as { n: number }).n, row.n], [true, 4, 1], 'merged into the week\'s row (another case), its facts kept');
   assert.equal(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'yes' } })), 'Okay.', 'answered once');
   const stats1 = await readStats(new Date());
   assert.deepEqual([stats1.activated - stats0.activated, stats1.weekly_active - stats0.weekly_active, stats1.shared - stats0.shared], [1, 1, 1]);
@@ -167,7 +176,7 @@ test('L6.3 the weekly moment: the first find of the week leads with last week, t
   // Once a week per installation: the next find and score don't repeat it.
   for (const tool of ['find', 'score'] as const) {
     const again = show(await mcpCall(ctx(me.id), tool, {}));
-    assert.doesNotMatch(again, /Last week:|Share your week/, `${tool}: ${again}`);
+    assert.doesNotMatch(again, /Last week|Share your week/, `${tool}: ${again}`);
     assert.match(again, /How to move up\nShip code this week: \+\d+ points, \d+ behind #1\.$/, again);
   }
 });
@@ -181,7 +190,7 @@ test('L6.4 the moment through score, once per installation (another agent of the
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts, titles)
     VALUES (${me.id}, ${me.key}, ${monday}, ${sql().json({ checked: true, shipped_code: { n: 1 } } as never)}, ${['Secret launch']}::text[])`;
   const s = show(await mcpCall(ctx(me.id), 'score', {}));
-  assert.ok(s.startsWith('Last week: Shipping 30, #1.\n\nWhere you stand'), s);
+  assert.ok(s.startsWith('Last week you finished at Shipping 30, #1.\nThis week starts empty: ship code to add +14 points to hold #1.\n\nWhere you stand'), s);
   assert.doesNotMatch(s, /Secret launch/);
   assert.match(s, /Share your week on X: https:\/\/x\.com\/intent\/post\?\S+\nDoes last week look right\?$/);
 
@@ -195,13 +204,13 @@ test('L6.4 the moment through score, once per installation (another agent of the
   // A second agent of the same person: its own first reply of the week has the moment, once.
   const [{ id: other }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, builder_id) VALUES (${`wm-other-${RUN}-${Date.now()}`}, ${me.id}) RETURNING id`;
   const [a, b] = await Promise.all([mcpCall(ctx(me.id, other), 'find', {}), mcpCall(ctx(me.id, other), 'find', {})]);
-  assert.equal([show(a), show(b)].filter((t) => t.startsWith('Last week:')).length, 1, 'two replies at once: one moment');
+  assert.equal([show(a), show(b)].filter((t) => t.startsWith('Last week')).length, 1, 'two replies at once: one moment');
 
-  // A no is noted and approves nothing.
+  // That moment opened the offer again; a no closes it and approves nothing.
   await sql()`DELETE FROM project_updates WHERE builder_id = ${me.id}`;
-  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || ${sql().json({ bench_ask: { kind: 'share', key: me.key, week: monday } } as never)}::jsonb WHERE builder_id = ${me.id}`;
   assert.equal(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'no' } })), 'Okay.');
   assert.equal((await sql()`SELECT 1 FROM project_updates WHERE builder_id = ${me.id}`).length, 0);
+  assert.equal(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'yes' } })), 'Okay.', 'closed by the no');
 });
 
 test('L5.6 security: another builder\'s X name or handle (text they control) never reaches find, score, the moment or the share link', db, async () => {
@@ -217,11 +226,35 @@ test('L5.6 security: another builder\'s X name or handle (text they control) nev
     const r = await mcpCall(ctx(me.id), tool, {});
     replies.push(JSON.stringify(r.reply));
   }
-  assert.ok(replies[0].includes('Last week: Shipping 40, #2.'), 'the moment showed');
+  assert.ok(replies[0].includes('Last week you finished at Shipping 40, #2.'), 'the moment showed');
   assert.ok(replies.some((r) => r.includes('Ship code this week: +14 points,') && r.includes('behind #1.')), 'the target showed');
   for (const r of replies) {
     noHostile(r);
     assert.ok(!r.includes('ignore_prev'), r);
   }
   assert.ok(!replies[0].toLowerCase().includes('ignore'), 'nor inside the encoded share link');
+});
+
+test('L6.5 the moment waits for the weekly job: Monday 10:00 UTC with no checked row shows none and leaves the week unclaimed; Monday 16:00 shows it; the offer closes with the week', db, async () => {
+  await freshBoard();
+  mock.timers.setTime(Date.parse('2026-10-05T10:00:00Z')); // a Monday, before the weekly job's hour
+  try {
+    const monday = lastFinishedMonday(new Date());
+    assert.equal(monday, '2026-09-28');
+    const me = await builder('wmmon', 'Mo', [1, 2]);
+    await history(me.id, plusDays(monday, 6), 30);
+    const early = show(await mcpCall(ctx(me.id), 'find', {}));
+    assert.doesNotMatch(early, /Last week|Share your week/, early);
+    assert.match(early, /How to move up\nShip code this week: \+14 points to hold #1\.$/, early);
+    assert.equal((await sql()<{ w: string | null }[]>`SELECT moment_week AS w FROM installations WHERE id = ${me.id}`)[0].w, null, 'the week is not claimed');
+    mock.timers.setTime(Date.parse('2026-10-05T16:00:00Z'));
+    const late = show(await mcpCall(ctx(me.id), 'find', {}));
+    assert.ok(late.startsWith('Last week you finished at Shipping 30, #1.\n'), late);
+    // The next week the offer is closed: a yes is "Okay." and approves nothing.
+    mock.timers.setTime(Date.parse('2026-10-12T16:00:00Z'));
+    assert.equal(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'yes' } })), 'Okay.');
+    assert.equal((await sql()`SELECT 1 FROM project_updates WHERE builder_id = ${me.id}`).length, 0);
+  } finally {
+    mock.timers.setTime(WEDNESDAY);
+  }
 });

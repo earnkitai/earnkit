@@ -38,8 +38,9 @@ import { liveSite, type LiveSite } from './live-check';
 import { scoreWhy, storedShipping } from './score-v2';
 import { readOriginality } from './originality';
 import { displayName } from './bench-reply';
-import { targetFor } from './weekly-target';
-import { APPROVED_LINE, SHARE_NOTE, approveWeek, lastWeekOf, momentDue, momentLines, shareLink, takeMoment } from './weekly-moment';
+import { targetIn, weekStartLine, weeklyTarget, type TargetIn } from './weekly-target';
+import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, momentDue, momentLines, momentReady, openShare, shareLink, takeMoment } from './weekly-moment';
+import { isoWeekOf } from './weeks';
 export { displayName };
 
 /**
@@ -78,8 +79,8 @@ export const signedInLine = (handle: string) => `Signed in as @${handle}.`;
 
 /** What the person was last told (stand-view's Seen) plus the Bench's own: the ask. */
 export type Seen = StandSeen & {
-  /** The stored ask's kind: a BenchAskKind, or a retired one an older reply stored (OLD_ASKS); `week`: the share ask's week (its Monday). */
-  bench_ask?: { kind: BenchAskKind | string; key: string | null; week?: string };
+  /** The stored ask's kind: a BenchAskKind, or a retired one an older reply stored (OLD_ASKS). */
+  bench_ask?: { kind: BenchAskKind | string; key: string | null };
 };
 type Reply = Record<string, unknown>;
 
@@ -340,9 +341,10 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
   const ranked = rankedState(state);
   const handle = read.base.claimed ? read.base.handle : null;
   // Launch ready L5: the ranked state's one next step is the weekly target (ranks only, never another builder's name).
-  const target = ranked ? await targetFor(id, read.parts, now) : null;
+  const aim = ranked ? await targetIn(id, read.parts, now) : null;
+  const target = aim ? weeklyTarget(aim) : null;
   // Launch ready L6: the weekly moment, once a week per installation, never over a held question.
-  const moment = ranked && project && handle && !held ? await weeklyMoment(o.own, id, project.key, handle, now) : null;
+  const moment = ranked && project && handle && !held ? await weeklyMoment(o.own, id, project.key, handle, aim, now) : null;
   const link = state === 'signed_out' ? signIn : state === 'no_project' ? pick : state === 'ranked' ? (moment?.share ?? null) : install;
 
   let fund: FundLine[] = [];
@@ -371,8 +373,9 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
   // R8, L5, L6: each state's one next step; ranked: the share ask (the weekly moment), else the weekly target
   // (never an entry, a coin or going live).
   const finalAsk = stateAsk({ state, variant, project, link, target, share: moment?.share ?? null });
-  // Only the ask shown is answerable: a held question clears the stored one. The share ask keeps its week.
-  const stored = held ? null : { kind: finalAsk.kind, key: finalAsk.project_key, ...(moment && finalAsk.kind === 'share' && { week: moment.week }) };
+  // Only the ask shown is answerable: a held question clears the stored one. (The share offer stays open all week in
+  // standing_seen.share_open, weeklyMoment.)
+  const stored = held ? null : { kind: finalAsk.kind, key: finalAsk.project_key };
   await sql()`
     UPDATE builder_profiles SET standing_seen = CASE WHEN ${stored === null} THEN COALESCE(standing_seen, '{}'::jsonb) - 'bench_ask'
       ELSE COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json(stored as never)}::jsonb) END
@@ -392,15 +395,17 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
 }
 
 /**
- * Launch ready L6: last week's lines and the share link, when this installation hasn't seen this week's moment
- * and the builder had a ranked day last week (else null, and the week stays unclaimed). Claimed only when shown
- * (weekly-moment.ts takeMoment). Never throws.
+ * Launch ready L6: last week's lines, the new week's line and the share link, when this installation hasn't seen this
+ * week's moment, the builder had a ranked day last week, and last week's ship log is ready (momentReady: the weekly
+ * job wrote it, or its Monday hour passed). Else null, and the week stays unclaimed. Claimed only when shown
+ * (takeMoment); the share offer then stays open for the week (openShare). Never throws.
  */
-async function weeklyMoment(own: number, id: number, key: string, handle: string, now: Date): Promise<{ lines: string; share: string; week: string } | null> {
+async function weeklyMoment(own: number, id: number, key: string, handle: string, aim: TargetIn | null, now: Date): Promise<{ lines: string; share: string } | null> {
   if (!(await momentDue(own, now))) return null;
   const last = await lastWeekOf(id, key, now).catch(logged('last week'));
-  if (!last || !(await takeMoment(own, now))) return null;
-  return { lines: momentLines(last).join('\n'), share: shareLink(handle, last.now), week: last.monday };
+  if (!last || !momentReady(last.checked, now) || !(await takeMoment(own, now))) return null;
+  await openShare(id, { key, week: last.monday, shown_week: isoWeekOf(now) });
+  return { lines: momentLines(last, aim ? weekStartLine(aim) : null).join('\n'), share: shareLink(handle, last.now) };
 }
 
 /**
@@ -582,10 +587,10 @@ const RETIRED_ASKS = ['updates', 'post_update'] as const;
  */
 const OLD_ASKS = ['build', 'grants', 'grants_later', 'enter', 'coin', 'raise', 'go_live'] as const;
 /** v2.14 spec 4: the asks answered once (cleared before the yes runs). */
-const TAKEN_ONCE: readonly string[] = ['sign_in', 'start', 'pick_repo', 'install_app', 'other_project', 'repo_behind', 'ship', 'suggest', 'share', ...RETIRED_ASKS, ...OLD_ASKS];
+const TAKEN_ONCE: readonly string[] = ['sign_in', 'start', 'pick_repo', 'install_app', 'other_project', 'repo_behind', 'ship', 'suggest', ...RETIRED_ASKS, ...OLD_ASKS];
 
 /** The ask stored with the last Bench reply, when the agent's answer names it (kind, if given, and project_key). */
-export async function benchAsked(id: number, m: { kind?: string; project_key?: string | null }): Promise<{ kind: string; key: string | null; week?: string } | null> {
+export async function benchAsked(id: number, m: { kind?: string; project_key?: string | null }): Promise<{ kind: string; key: string | null } | null> {
   const [p] = await sql()<{ ask: Seen['bench_ask'] | null }[]>`SELECT standing_seen->'bench_ask' AS ask FROM builder_profiles WHERE builder_id = ${id}`.catch((err: unknown) => {
     logged('asked')(err);
     return [];
@@ -606,6 +611,15 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
   const id = ctx.installationId;
   const now = new Date();
   const okay = { show_to_builder: NOTED_LINE };
+  // Launch ready L6 (fix round 1): the share offer is answerable all week it was shown, once (standing_seen.share_open).
+  if (m.kind === 'share') {
+    const r = await answerShare(id, m.project_key, m.answer, now).catch(logged('answer share'));
+    if (r === true) {
+      await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'kind' = 'share'`.catch(logged('clear share ask'));
+      return { show_to_builder: APPROVED_LINE };
+    }
+    return okay;
+  }
   const asked = await benchAsked(id, m);
   if (!asked) return okay;
   if (m.answer === 'no') {
@@ -643,12 +657,6 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
     case 'ship':
     case 'suggest':
       return asked.key ? { show_to_builder: '', agent_note: SHIP_NOTE } : okay;
-    case 'share': {
-      // Launch ready L6: the yes approves last week's ship log (counted by /api/stats); the post is the builder's own.
-      if (!asked.key || typeof asked.week !== 'string') return okay;
-      const approved = await approveWeek(id, asked.key, asked.week, now).catch(logged('approve week'));
-      return approved ? { show_to_builder: APPROVED_LINE } : okay;
-    }
     default:
       // A retired ask (OLD_ASKS): nothing to do; the next reply asks the state's step.
       return okay;

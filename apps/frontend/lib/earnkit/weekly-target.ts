@@ -58,17 +58,40 @@ export async function poolPlace(builderId: number, o: { only?: number[] } = {}):
 }
 
 /**
- * The weekly target for a ranked builder (`parts`: builder_live.parts), or null when Shipping's raw is missing
- * (the caller keeps its plain step). The same line in replies and on the public page. Never throws (a failed read is null).
+ * Launch ready L6 (fix round 1): the weekly moment's line about the new week, from the same target: "This week starts
+ * empty: ship code to add +14 points, enough to pass #2." / "... to hold #1." / "..., 20 behind #2.". Null once this
+ * week has code or adds nothing (the moment then says nothing about it). No question, no link. Pure.
  */
-export async function targetFor(builderId: number, parts: unknown, now: Date, o: { only?: number[] } = {}): Promise<string | null> {
+export function weekStartLine(t: TargetIn): string | null {
+  const { active, gain } = t.gains;
+  if (active || gain <= 0) return null;
+  const lead = `This week starts empty: ship code to add +${gain} points`;
+  if (t.rank === null) return `${lead}.`;
+  if (!t.above) return `${lead} to hold #${t.rank}.`;
+  if (t.score + gain > t.above.score) return `${lead}, enough to pass #${t.above.rank}.`;
+  return `${lead}, ${t.above.score - t.score} behind #${t.above.rank}.`;
+}
+
+/**
+ * The weekly target's inputs for a ranked builder (`parts`: builder_live.parts), or null when Shipping's raw is
+ * missing or the pool read failed. Never throws.
+ */
+export async function targetIn(builderId: number, parts: unknown, now: Date, o: { only?: number[] } = {}): Promise<TargetIn | null> {
   const gains = weekGains(parts, now);
   if (!gains) return null;
   try {
-    const place = await poolPlace(builderId, o);
-    return weeklyTarget({ gains, ...place });
+    return { gains, ...(await poolPlace(builderId, o)) };
   } catch (err) {
     console.error('[target] place', err instanceof Error ? err.name : 'error');
     return null;
   }
+}
+
+/**
+ * The weekly target line, or null (the caller keeps its plain step). The same line in replies and on the public
+ * page. Never throws.
+ */
+export async function targetFor(builderId: number, parts: unknown, now: Date, o: { only?: number[] } = {}): Promise<string | null> {
+  const t = await targetIn(builderId, parts, now, o);
+  return t ? weeklyTarget(t) : null;
 }

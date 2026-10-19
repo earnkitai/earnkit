@@ -6455,19 +6455,28 @@ simple: one number (Shipping), one target this week, one weekly moment.
   (the caller's own installation's `installations.moment_week` is not this ISO week), then `lastWeekOf` (the
   builder's last ranked, unheld `builder_scores` row of last week, its rank among that day's other ranked, unheld rows
   whose page is listed now; the same for the week before for the deltas; last week's `project_updates.titles` through
-  `titlesShown`, so a private repo's titles only with titles on), then `takeMoment` (`UPDATE installations SET
-  moment_week = <week> WHERE moment_week IS DISTINCT FROM <week> RETURNING 1`: two replies at once show it once). No
-  ranked day last week: no moment and the week stays unclaimed. The lines lead show_to_builder (after "Signed in as"):
-  "Last week: Shipping 50 (+6), #2 (up 1)." ("Shipping 30, #1." with no week before; "(same)" for no change) and up to
-  2 titles joined by " · " (the builder's own commit titles, checked again with `update-text.ts checkUpdate` at read,
-  as when stored). Only the builder's own data is in the moment and the share text. The share link (`shareLink`: `page-data.ts shareIntentText`, `https://x.com/intent/post`
-  with `text` "Shipped this week on EarnKit: Shipping 50 · #2 of 3 builders this week" and `url` the profile; no X
+  `titlesShown`, so a private repo's titles only with titles on), then `momentReady` (fix round 1: last week's row is
+  `facts.checked`, or this week's Monday 15:00 UTC, `WEEKLY_HOUR_UTC`, has passed; before that no moment and the week
+  stays unclaimed, so a Monday-morning reply never uses up a moment without its titles), then `takeMoment` (`UPDATE
+  installations SET moment_week = <week> WHERE moment_week IS DISTINCT FROM <week> RETURNING 1`: two replies at once
+  show it once). No ranked day last week: no moment and the week stays unclaimed. The lines lead show_to_builder
+  (after "Signed in as"): "Last week you finished at Shipping 50 (+6), #2 (up 1)." ("Last week you finished at
+  Shipping 30, #1." with no week before; "(same)" for no change), up to 2 titles joined by " · " (the builder's own
+  commit titles, checked again with `update-text.ts checkUpdate` at read, and dropped when they hold a link or a host
+  name, `titleHasLink`), then the new week's line from the same target (`weekly-target.ts weekStartLine`: "This week
+  starts empty: ship code to add +13 points, 17 behind #1." / "..., enough to pass #2." / "... to hold #1."; none
+  once this week has code). Only the builder's own data is in the moment and the share text. The share link (`shareLink`: `page-data.ts shareIntentText`, `https://x.com/intent/post`
+  with `text` "My week on EarnKit: Shipping 50 · #2 of 3 builders" and `url` the profile; no X
   API, no scope) becomes the ranked reply's one link (the page is then named without https) and its step: "Share your
-  week on X: <link>" + "Does last week look right?" (kind `share`, `SHARE_NOTE`). The stored ask carries the week's
-  Monday (`bench_ask.week`). Per installation: another agent of the same person sees its own moment once.
-- **The yes (L6, L9).** `benchMoveUp` share (taken once): `approveWeek` upserts last week's ship-log row of the one
-  project with `facts.approved = true`, `approved_at`, `approved_via = 'share'` (merged into an existing row; the
-  weekly job's later upsert merges too, so nothing is lost). A row holding only the approval shows nowhere (no facts,
+  week on X: <link>" + "Does last week look right?" (kind `share`, `SHARE_NOTE`). Showing it opens the offer in
+  `standing_seen.share_open = { key, week, shown_week }` (`openShare`), apart from the stored ask, so later replies
+  that week don't close it (`takeNews` keeps the key). Per installation: another agent of the same person sees its own
+  moment once.
+- **The yes (L6, L9).** `benchMoveUp` routes kind `share` to `answerShare` (fix round 1): one UPDATE removes
+  `share_open` and returns it, only while `isoWeekOf(now)` is its `shown_week` and for its project, so it is answered
+  once, any time that week. A yes runs `approveWeek`: the builder's existing row for that week, matched
+  case-insensitively, gets `facts.approved = true`, `approved_at`, `approved_via = 'share'` merged in; with none, one is
+  inserted (the weekly job's later upsert merges too, so nothing is lost). A row holding only the approval shows nowhere (no facts,
   text or titles: `logCards`, the feed's `hasFacts`). "Thanks. Last week is confirmed." A no is the usual decline.
 - **Funnel numbers (L9).** `stats.ts approvedWeek`: activated = claimed + App-proven repo + an approved week;
   weekly_active = the same people with `approved_at` in the last 7 days; shared = approved weeks with
@@ -6479,6 +6488,5 @@ simple: one number (Shipping), one target this week, one weekly moment.
   moment once per installation, deltas, titles public and private, the share link, the yes and its row, two replies at
   once, the stats deltas), `stats.test.ts` (approvals), and the ranked-step tests now use `fixtures/ranked-step.ts`.
 - **Accepted limits.** Last week's rank is read from the daily history (the cron's first run each day); a builder whose
-  row is missing that day is left out of that day's count. A find on Monday before the weekly job (15:00 UTC) has no
-  titles yet, and the moment is not shown again that week. Only the last reply's ask is answerable, so a yes after a
-  later find or score is "Okay." (the next week's moment asks again).
+  row is missing that day is left out of that day's count. `STATS_LABELS.shared` is "weeks confirmed at the weekly
+  share offer": a yes doesn't prove a post.

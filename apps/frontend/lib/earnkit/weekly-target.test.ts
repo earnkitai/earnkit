@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { computeScoreV2, weekGains, type Ship } from './score-v2';
-import { weeklyTarget, type TargetIn } from './weekly-target';
-import { momentLines, shareLink, shareText } from './weekly-moment';
+import { weekStartLine, weeklyTarget, type TargetIn } from './weekly-target';
+import { momentLines, momentReady, shareLink, shareText, titleHasLink, type LastWeek } from './weekly-moment';
 import { isoWeekOf } from './weeks';
 
 /** Launch ready L5 (the weekly target) and L6 (the weekly moment's lines and share link): the pure parts. */
@@ -51,26 +51,53 @@ test('L5.3 boundaries: #1 holds, no one above, already active, gain 0, outside t
   }
 });
 
-test('L6.1 the moment lines: deltas up, down and same; no week before; titles at most 2 on one line', () => {
+test('L6.1 the moment lines: deltas up, down and same; no week before; titles at most 2 on one line; the new week\'s line last', () => {
   const w = (score: number, rank: number) => ({ score, rank, total: 40 });
-  assert.deepEqual(momentLines({ monday: '2026-10-12', now: w(72, 3), before: w(66, 5), titles: ['Add dark mode', 'Fix the login loop', 'Third'] }),
-    ['Last week: Shipping 72 (+6), #3 (up 2).', 'Add dark mode · Fix the login loop']);
-  assert.deepEqual(momentLines({ monday: '2026-10-12', now: w(60, 7), before: w(66, 5), titles: [] }), ['Last week: Shipping 60 (-6), #7 (down 2).']);
-  assert.deepEqual(momentLines({ monday: '2026-10-12', now: w(66, 5), before: w(66, 5), titles: ['One'] }), ['Last week: Shipping 66 (same), #5 (same).', 'One']);
-  assert.deepEqual(momentLines({ monday: '2026-10-12', now: w(14, 1), before: null, titles: [] }), ['Last week: Shipping 14, #1.']);
+  const lw = (o: Partial<LastWeek>): LastWeek => ({ monday: '2026-10-12', now: w(72, 3), before: w(66, 5), titles: [], checked: true, ...o });
+  assert.deepEqual(momentLines(lw({ titles: ['Add dark mode', 'Fix the login loop', 'Third'] }), 'This week starts empty: ship code to add +14 points, enough to pass #2.'),
+    ['Last week you finished at Shipping 72 (+6), #3 (up 2).', 'Add dark mode · Fix the login loop', 'This week starts empty: ship code to add +14 points, enough to pass #2.']);
+  assert.deepEqual(momentLines(lw({ now: w(60, 7) })), ['Last week you finished at Shipping 60 (-6), #7 (down 2).']);
+  assert.deepEqual(momentLines(lw({ now: w(66, 5), titles: ['One'] })), ['Last week you finished at Shipping 66 (same), #5 (same).', 'One']);
+  assert.deepEqual(momentLines(lw({ now: w(14, 1), before: null })), ['Last week you finished at Shipping 14, #1.']);
 });
 
-test('L6.2 the share link: an X intent URL whose text is the score line, and the profile URL, URL-encoded', () => {
+test('L6.1b the new week\'s line from the target: pass, behind, hold #1; nothing once this week has code', () => {
+  const g = { active: false, gain: 14, next: 13 };
+  const t = (o: Partial<TargetIn>) => weekStartLine({ gains: g, score: 50, rank: 3, above: null, ...o });
+  assert.equal(t({ above: { rank: 2, score: 60 } }), 'This week starts empty: ship code to add +14 points, enough to pass #2.');
+  assert.equal(t({ above: { rank: 2, score: 70 } }), 'This week starts empty: ship code to add +14 points, 20 behind #2.');
+  assert.equal(t({ rank: 1 }), 'This week starts empty: ship code to add +14 points to hold #1.');
+  assert.equal(t({ rank: null }), 'This week starts empty: ship code to add +14 points.');
+  assert.equal(t({ gains: { active: true, gain: 14, next: 13 } }), null);
+  assert.equal(t({ gains: { active: false, gain: 0, next: 0 } }), null);
+});
+
+test('L6.1c the moment waits for the ship log: the row checked, or this week\'s Monday 15:00 UTC passed', () => {
+  assert.equal(momentReady(false, new Date('2026-10-12T10:00:00Z')), false, 'Monday 10:00, no checked row');
+  assert.equal(momentReady(true, new Date('2026-10-12T10:00:00Z')), true, 'Monday 10:00, the row checked');
+  assert.equal(momentReady(false, new Date('2026-10-12T15:00:00Z')), true, 'Monday 15:00');
+  assert.equal(momentReady(false, new Date('2026-10-12T16:00:00Z')), true, 'Monday 16:00');
+  assert.equal(momentReady(false, new Date('2026-10-14T01:00:00Z')), true, 'Wednesday');
+});
+
+test('L6.1d a title with a link or a host is never shown in the moment', () => {
+  for (const t of ['See https://evil.example', 'Moved docs to www.acme.io', 'Launch on acme.com', 'Point to evil.xyz now', 'ftp://x'])
+    assert.equal(titleHasLink(t), true, t);
+  // File names, versions and frameworks stay (an @ mention is refused by checkUpdate itself).
+  for (const t of ['Add dark mode', 'Fix README.md typo', 'Bump to v1.2.3', 'Use Next.js 15']) assert.equal(titleHasLink(t), false, t);
+});
+
+test('L6.2 the share link: an X intent URL whose text is the builder\'s own score and rank, and the profile URL, URL-encoded', () => {
   const w = { score: 72, rank: 3, total: 12 };
-  assert.equal(shareText(w), 'Shipped this week on EarnKit: Shipping 72 · #3 of 12 builders this week');
+  assert.equal(shareText(w), 'My week on EarnKit: Shipping 72 · #3 of 12 builders');
   const link = shareLink('maya_makes', w);
   const u = new URL(link);
   assert.equal(`${u.origin}${u.pathname}`, 'https://x.com/intent/post');
-  assert.equal(u.searchParams.get('text'), 'Shipped this week on EarnKit: Shipping 72 · #3 of 12 builders this week');
+  assert.equal(u.searchParams.get('text'), 'My week on EarnKit: Shipping 72 · #3 of 12 builders');
   assert.equal(u.searchParams.get('url'), 'https://earnkit.com/maya_makes');
   assert.ok(!/\s/.test(link), 'no raw spaces');
   assert.equal(link.match(/https:\/\//g)?.length, 1, 'the profile URL is encoded inside it: one https link');
   assert.ok(link.includes('%C2%B7'), 'the middle dot is encoded');
-  // From 20 builders, the rank line is the top percent, as everywhere.
-  assert.equal(shareText({ score: 90, rank: 1, total: 40 }), 'Shipped this week on EarnKit: Shipping 90 · Top 3% of builders this week');
+  assert.equal(shareText({ score: 90, rank: 1, total: 1 }), 'My week on EarnKit: Shipping 90 · #1 of 1 builder');
+  assert.equal(shareText({ score: 40, rank: 1204, total: 3500 }), 'My week on EarnKit: Shipping 40 · #1,204 of 3,500 builders');
 });

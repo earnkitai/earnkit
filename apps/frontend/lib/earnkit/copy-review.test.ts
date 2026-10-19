@@ -24,7 +24,7 @@ import { SCORE_SHARED } from './score-tool';
 import { POST_LINE, SKIPPED_LINE, signInFirstLine } from './share';
 import { EARN_NOTE, standingNews } from './stand-text';
 import { SHIP_STEP, fitsLine, noFitLine, shareAsk } from './bench-reply';
-import { weeklyTarget } from './weekly-target';
+import { weekStartLine, weeklyTarget } from './weekly-target';
 import { APPROVED_LINE, SHARE_NOTE, momentLines, shareText } from './weekly-moment';
 import { RAISE_NOTE, SHIP_STEP_NOTE, TOKEN_NOT_YET, tokenHasCoin, tokenUnavailable } from './bench-find';
 import { COIN_LAUNCHING, COIN_LIVE, COIN_WALLET_ASK, coinLine } from './coin-moments';
@@ -872,7 +872,9 @@ function weeklyCopy(): [string, string][] {
     ['target hold', t({ rank: 1 })],
     ['target unranked', t({ rank: null })],
     ['target done', t({ gains: { active: true, gain: 14, next: 13 } })],
-    ['moment', momentLines({ monday: '2026-10-12', now: w, before: { score: 66, rank: 5, total: 40 }, titles: ['Add dark mode', 'Fix the login loop'] }).join('\n')],
+    ['moment', momentLines({ monday: '2026-10-12', now: w, before: { score: 66, rank: 5, total: 40 }, titles: ['Add dark mode', 'Fix the login loop'], checked: true },
+      weekStartLine({ gains: g, score: 50, rank: 2, above: { rank: 1, score: 60 } })).join('\n')],
+    ['moment first week', momentLines({ monday: '2026-10-12', now: w, before: null, titles: [], checked: true }, weekStartLine({ gains: g, score: 50, rank: 1, above: null })).join('\n')],
     ['shareText', shareText(w)],
     // The real link carries its query; the rule counts question marks in the text, so it is left off here.
     ['shareAsk', shareAsk('https://x.com/intent/post')],

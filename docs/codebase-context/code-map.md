@@ -1482,8 +1482,8 @@ apps/frontend/
                                RANK_SET_NOTE, RANK_INSTALL_NOTE. Launch ready L5, L6: benchView sets the ranked target
                                (weekly-target.ts targetFor, ranks only) and weeklyMoment (momentDue, lastWeekOf, takeMoment:
                                the moment's lines lead find's and score's show_to_builder, after "Signed in as"; the share
-                               link is the ranked link; the stored ask keeps its week); benchMoveUp share yes approves
-                               (approveWeek, APPROVED_LINE), share is taken once; SHARE_NOTE.
+                               link is the ranked link; momentReady gates it; openShare keeps the offer open all week);
+                               benchMoveUp kind share goes to answerShare (once, that week only; APPROVED_LINE); SHARE_NOTE.
                                tests v214-replies.test.ts (through mcpCall), v2131-o5.test.ts, v2133-owner-test.test.ts,
                                repo-picker.test.ts, weekly-moment.test.ts
     raising.ts(+test)          v2.13 T9: raisingCoin, setRaising, pillOf, showRaisingLine (projects.raising_at); all off
@@ -1542,12 +1542,15 @@ apps/frontend/
                                sentence: the weeks with code only, launch ready L5), weekGains (L5: active, gain, next, read
                                as of now's week); R16b removed countUse
     weekly-target.ts(+test)    launch ready L5: weeklyTarget (pure, ranks only, never a name: pass #k / N behind #k / hold #1 /
-                               done this week), poolPlace (benchPool: rank, and the score and rank just above), targetFor (never throws)
-    weekly-moment.ts(+test)    launch ready L6: momentLines ("Last week: Shipping 72 (+6), #3 (up 2)." + up to 2 titles),
+                               done this week), weekStartLine (the moment's "This week starts empty: ..." line), poolPlace
+                               (benchPool: rank, and the score and rank just above), targetIn / targetFor (never throw)
+    weekly-moment.ts(+test)    launch ready L6: momentLines ("Last week you finished at Shipping 72 (+6), #3 (up 2)." + up to 2
+                               titles + weekStartLine), momentReady (row checked or Monday 15:00 UTC passed), titleHasLink,
                                shareText, shareLink (page-data shareIntentText), lastWeekOf (builder_scores' last ranked day
                                of last week and the week before, rank among that day's listed rows; titlesShown, then checkUpdate again),
                                momentDue / takeMoment (installations.moment_week, one UPDATE ... RETURNING), approveWeek
-                               (facts.approved, approved_at, approved_via 'share'; upsert), SHARE_NOTE, APPROVED_LINE;
+                               (facts.approved, approved_at, approved_via 'share'; the existing row matched case-insensitively,
+                               else inserted), openShare / answerShare (standing_seen.share_open), SHARE_NOTE, APPROVED_LINE;
                                weekly-moment.test.ts through mcpCall, weekly-target.test.ts pure;
                                fixtures/ranked-step.ts (RANKED_STEP, endsOnRankedStep) for tests of the ranked step
     embed-worker.mjs           scoring and clarity R3 fix round 2: the child process that loads transformers.js MiniLM q8

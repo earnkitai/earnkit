@@ -74,7 +74,7 @@ export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
   builders: 'builders (one person\'s reinstalls and agents counted once)',
   activated: 'activated builders (claimed page, repo proven by the EarnKit app, a week approved at the weekly moment)',
   weekly_active: 'activated builders who approved a week in the last 7 days',
-  shared: 'weeks approved from the weekly share offer',
+  shared: 'weeks confirmed at the weekly share offer',
   labelled_entries: 'entries with a published result',
   entries_won: 'entries that won',
   builders_won_usd: 'won by EarnKit builders (announced, USD)',
