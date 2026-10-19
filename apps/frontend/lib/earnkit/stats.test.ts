@@ -12,7 +12,7 @@ const E18 = 10n ** 18n;
 
 const emptyRow = {
   open_rows: null, pool_rows: null, programs_open: 0, bonus_programs_open: 0, coins_launched: 0,
-  bonus_deposits_wei: null, bonus_to_safe_wei: null, bonus_paid_wei: null, bonus_pools_wei: null, installs: 0,
+  bonus_deposits_wei: null, bonus_to_safe_wei: null, bonus_paid_wei: null, bonus_pools_wei: null, installs: 0, installs_used: 0, builders: 0,
   labelled_entries: 0, entries_won: 0, builders_won_usd: null,
 };
 
@@ -25,7 +25,7 @@ test('weiToEth: ETH as a number, 6 decimals, rounded down', () => {
 
 test('statsFrom: an empty database reads as zeros', () => {
   const s = statsFrom(emptyRow);
-  assert.deepEqual(Object.values(s), [0, null, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(Object.values(s), [0, null, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 });
 
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
@@ -63,6 +63,8 @@ test('v2.6 Ruling 6/16 (plan): an owner test installation never counts in instal
       return { withoutFlag, withFlag };
     });
     assert.equal(withoutFlag.installs - withFlag.installs, 1);
+    // Pre-launch 2026-10-19: nor in builders (its own group).
+    assert.equal(withoutFlag.builders - withFlag.builders, 1);
     assert.equal(withoutFlag.coins_launched - withFlag.coins_launched, 1);
     assert.equal(Math.round((withoutFlag.fees_to_safe_eth - withFlag.fees_to_safe_eth) * 1e6) / 1e6, 0.4);
     assert.equal(Math.round((withoutFlag.bonus_pools_eth - withFlag.bonus_pools_eth) * 1e6) / 1e6, 0.2);
@@ -74,6 +76,38 @@ test('v2.6 Ruling 6/16 (plan): an owner test installation never counts in instal
     await sql()`DELETE FROM projects WHERE program_id = ${tag}`;
     await sql()`DELETE FROM installations WHERE id = ${inst.id}`;
     await sql()`DELETE FROM programs WHERE id = ${tag}`;
+  }
+});
+
+test('pre-launch 2026-10-19: installs_used counts installations that called find; builders counts a linked reinstall once; test installations count in neither', db, async () => {
+  const tag = `stats-used-${process.pid}-${Date.now()}`;
+  // A builder who installed, ran find, then reinstalled (a new OAuth client, linked by builder_id);
+  // and a bare OAuth install that never called a tool.
+  const [root] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, programs_checked_at) VALUES (${`${tag}-root`}, now()) RETURNING id`;
+  const [again] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, builder_id) VALUES (${`${tag}-again`}, ${root.id}) RETURNING id`;
+  const [bare] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`${tag}-bare`}) RETURNING id`;
+  const prevEnv = process.env.EARNKIT_TEST_INSTALLATIONS;
+  try {
+    const { base, mine, flagged } = await sql().begin('isolation level repeatable read', async (tx) => {
+      process.env.EARNKIT_TEST_INSTALLATIONS = [root.id, again.id, bare.id].join(',');
+      const base = await readStats(new Date(), tx);
+      delete process.env.EARNKIT_TEST_INSTALLATIONS;
+      const mine = await readStats(new Date(), tx);
+      // Only the group's root flagged: the linked reinstall is that builder's too, so builders drops it.
+      process.env.EARNKIT_TEST_INSTALLATIONS = String(root.id);
+      const flagged = await readStats(new Date(), tx);
+      return { base, mine, flagged };
+    });
+    assert.equal(mine.installs - base.installs, 3);
+    assert.equal(mine.installs_used - base.installs_used, 1);
+    assert.equal(mine.builders - base.builders, 2);
+    assert.equal(flagged.builders - base.builders, 1);
+    assert.equal(flagged.installs_used - base.installs_used, 0);
+  } finally {
+    if (prevEnv === undefined) delete process.env.EARNKIT_TEST_INSTALLATIONS;
+    else process.env.EARNKIT_TEST_INSTALLATIONS = prevEnv;
+    await sql()`DELETE FROM installations WHERE id IN (${again.id}, ${bare.id})`;
+    await sql()`DELETE FROM installations WHERE id = ${root.id}`;
   }
 });
 

@@ -1666,7 +1666,7 @@ controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.
   Muse (Meta) shows its logo from muse.ai, `muse.svg` (gradient flattened to one blue, since the
   logo checks refuse `url()`), not a placeholder. The editor tab and "Other agents" are gone (the link box above the tabs serves
   any other client). Claude Code: `claude mcp add --transport http --scope user earnkit
-  https://earnkit.com/mcp`, then "Then type /mcp, pick earnkit, approve."; Codex: `codex mcp add
+  https://earnkit.com/mcp`, then "Then open Claude Code, type /mcp, pick earnkit, choose Authenticate."; Codex: `codex mcp add
   earnkit --url https://earnkit.com/mcp`, then `codex mcp login earnkit`. The pill under the steps
   is `<BonusPill size="sm" />`. `Compatibility.tsx` (unused) is deleted. The MCP route reads
   `leaderboard.ts earnkitCampaignOpen()` (one query, memoized 10 minutes; a failed read logs

@@ -106,7 +106,7 @@ test('6.6 the feed page: long cards, plain words, no "written by", no all-caps l
   const html = renderToStaticMarkup(React.createElement(FeedView, { weeks: [{ monday: '2026-10-12', label: 'Week of Oct 12', cards: [card] }] }));
   for (const s of [FEED_TITLE, 'Week of Oct 12', 'Maya Chen', '@maya_makes', 'Recipe planner', 'Added fridge photo import.', 'Went live', '+31 people', 'Fix the timer', 'Add the shopping list'])
     assert.ok(html.includes(s.replace(/'/g, '&#x27;')), s);
-  assert.doesNotMatch(html, /written by|agent/i);
+  assert.doesNotMatch(html.replace(/<[^>]+>/g, ' '), /written by|agent/i); // text only: the Docs link's anchor is not copy
   assert.match(html, /href="\/maya_makes"/);
   const square = renderToStaticMarkup(React.createElement(UpdateCard, { card, shape: 'square' }));
   assert.match(square, /data-shape="square"/);

@@ -173,7 +173,7 @@ export default function PolicySection() {
             </a>{' '}
             or message{' '}
             <a href={X} target="_blank" rel="noopener noreferrer" className={link}>
-              @earnkit_ai
+              @EarnKitAI
             </a>{' '}
             on X.
           </p>

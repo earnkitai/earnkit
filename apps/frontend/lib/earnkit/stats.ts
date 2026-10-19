@@ -21,6 +21,8 @@ export const STATS_KEYS = [
   'bonus_paid_eth',
   'bonus_pools_eth',
   'installs',
+  'installs_used',
+  'builders',
   'labelled_entries',
   'entries_won',
   'builders_won_usd',
@@ -65,6 +67,8 @@ export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
   bonus_paid_eth: 'builder bonus paid (ETH)',
   bonus_pools_eth: 'builder bonus pools open (ETH)',
   installs: 'installs',
+  installs_used: 'installs that asked what they can earn (find at least once)',
+  builders: 'builders (one person\'s reinstalls and agents counted once)',
   labelled_entries: 'entries with a published result',
   entries_won: 'entries that won',
   builders_won_usd: 'won by EarnKit builders (announced, USD)',
@@ -102,6 +106,10 @@ type Row = {
   bonus_paid_wei: string | null;
   bonus_pools_wei: string | null;
   installs: number;
+  /** Pre-launch 2026-10-19: installations that called find at least once (programs_checked_at set). */
+  installs_used?: number;
+  /** Pre-launch 2026-10-19: distinct builder groups (COALESCE(builder_id, id)): a linked reinstall counts once. */
+  builders?: number;
   labelled_entries: number;
   entries_won: number;
   builders_won_usd: string | null;
@@ -147,6 +155,8 @@ export function statsFrom(r: Row, now = new Date()): PublicStats {
     bonus_paid_eth: weiToEth(big(r.bonus_paid_wei)),
     bonus_pools_eth: weiToEth(big(r.bonus_pools_wei)),
     installs: Number(r.installs),
+    installs_used: Number(r.installs_used ?? 0),
+    builders: Number(r.builders ?? 0),
     labelled_entries: Number(r.labelled_entries),
     entries_won: Number(r.entries_won),
     builders_won_usd: Math.round(Number(r.builders_won_usd ?? 0)),
@@ -216,6 +226,15 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
           AND NOT (l.coin IS NOT NULL AND l.coin IN (SELECT coin_address FROM projects
             WHERE coin_address IS NOT NULL AND installation_id = ANY(${ids}::int[]))))::text AS bonus_pools_wei,
       (SELECT count(*) FROM installations WHERE NOT (id = ANY(${ids}::int[])))::int AS installs,
+      -- Pre-launch 2026-10-19: \`installs\` counts every OAuth token exchange for a new client
+      -- registration, before any tool call (a re-add, a new machine or a scripted OAuth run is a new
+      -- row). These two make the launch numbers trustworthy without changing \`installs\`:
+      -- installs_used, the installations that called find at least once (a real first run); builders,
+      -- distinct builder groups (v2.8.1 §E18 links a reinstall or an agent switch by builder_id).
+      (SELECT count(*) FROM installations
+        WHERE programs_checked_at IS NOT NULL AND NOT (id = ANY(${ids}::int[])))::int AS installs_used,
+      (SELECT count(DISTINCT COALESCE(builder_id, id)) FROM installations
+        WHERE NOT (id = ANY(${ids}::int[])) AND NOT (COALESCE(builder_id, id) = ANY(${ids}::int[])))::int AS builders,
       -- v2.8 Part G, Ruling 30 (plan): announcement-sourced outcomes only (a self-report never
       -- counts), never a test installation's entry. Labelled: distinct entries with an announced
       -- result other than 'unknown' (Ruling C22: a partial list labels the rest 'unknown'). Won:

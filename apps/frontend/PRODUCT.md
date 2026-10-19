@@ -83,7 +83,7 @@ architecture. Those belong in docs.
 ## Current state (2026-09-22)
 
 EarnKit is not live: no install path and no docs site exist. The agent-side
-CTA is "Follow EarnKit on X" (https://x.com/earnkit_ai) until launch. The
+CTA is "Follow EarnKit on X" (https://x.com/EarnKitAI) until launch. The
 compatibility/logos section and the stats row are unmounted for the same
 reason. Nothing on the site may state agent counts,
 project counts, reward totals, or live campaign listings: no data source

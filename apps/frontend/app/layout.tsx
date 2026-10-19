@@ -62,8 +62,8 @@ export const metadata: Metadata = {
     ],
   },
   twitter: {
-    site: '@earnkit_ai',
-    creator: '@earnkit_ai',
+    site: '@EarnKitAI',
+    creator: '@EarnKitAI',
     card: 'summary_large_image',
     title: TITLE,
     description: DESCRIPTION,

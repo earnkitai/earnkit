@@ -10,6 +10,8 @@ import { readStats } from '@/lib/earnkit/stats';
  * `fees_to_safe_eth`: the Safe's fees from EarnKit coins, accrued (stats.ts statsFrom): (v2.13.2) both
  * splits, from the Safe's indexed deposits. `bonus_programs_open`: 0 (v2.14: no builder bonus; the key stays). Owner
  * test installations (EARNKIT_TEST_INSTALLATIONS) never show in `installs` or `coins_launched`.
+ * Pre-launch 2026-10-19: `installs_used` (called find at least once) and `builders` (distinct
+ * builder groups) sit beside `installs`, which counts every new OAuth client's first token.
  * v2.9 F21: `open_money_usd` is the one money figure (stats.ts openMoneyUsd) and `open_money_text`
  * the text every page shows ("$1.1M+"). Ruling G23: `open_pools_usd`/`open_pools_plus` stay,
  * deprecated, so docs.earnkit.com never breaks. v2.8 Part G: `labelled_entries` (entries with
