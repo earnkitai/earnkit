@@ -2,20 +2,15 @@ import { ScoreDeadline } from './campaigns';
 import { afterCommit, inTx, sql, type Db } from './db';
 import { profileCodesIn } from './discovery-clues';
 import { noteEvent } from './events';
-import { benchEnabled } from './builder-score-flag';
-import { REPOS_MAX, readAppRepos, readGithubRepos, readPersonGithub, type PersonRepo } from './person-github';
+import { REPOS_MAX, readAppRepos, readGithubRepos, type PersonRepo } from './person-github';
 import { countingDeps, flushReadUsage } from './read-usage';
-import { NPM_BULK_MAX, isBudgetStop, isoWeek, readCoin, readContract, readNpm, readNpmBulk, readPypi, readRepo, readSite, type PackageSignals, type PrSignals, type ReaderDeps, type RepoSignals } from './source-readers';
+import { NPM_BULK_MAX, isBudgetStop, isoWeek, readCoin, readContract, readNpm, readNpmBulk, readPypi, readRepo, readSite, type PackageSignals, type PrSignals, type ReaderDeps } from './source-readers';
 
 /** spec 6: at most this many sources are read a run (oldest first). */
 export const READS_PER_RUN = 200;
 
 /** v2.12 spec 2: a person's sources and their daily readings. Only the server verifies (owner rule 1). */
-export type Proof = 'github_signin' | 'proof_line' | 'repo_owner' | 'deployer' | 'deploy_wallet' | 'earnkit_txt' | 'dns_txt' | 'repo_link' | 'proof_branch';
-
-/** Their own non-fork, non-template, never-derived repo; someone else's only when it is an organization's and they are its top contributor. */
-export const repoOwned = (s: RepoSignals, login: string, topContributor: boolean, everDerived: boolean) =>
-  !s.fork && !s.template && !everDerived && (s.owner === login.toLowerCase() || (topContributor && s.owner_type === 'Organization'));
+export type Proof = 'github_signin' | 'proof_line' | 'repo_owner' | 'deployer' | 'deploy_wallet' | 'earnkit_txt' | 'dns_txt' | 'repo_link' | 'proof_branch' | 'github_app';
 
 const repoKeyOf = (url: string | null) => url?.replace(/^https:\/\/github\.com\//, '').toLowerCase() ?? null;
 export const packageOwned = (p: PackageSignals, verifiedRepos: ReadonlySet<string>) => {
@@ -108,9 +103,9 @@ export async function verifySource(id: number, proof: Proof, deployer: string | 
   const [row] = await db<{ builder_id: number; kind: string }[]>`
     UPDATE builder_sources SET state = 'verified', proof = ${proof}, verified_at = now(), reject_reason = NULL,
       deployer = COALESCE(${deployer?.toLowerCase() ?? null}::text, deployer)
-    -- v2.13.2 fix 1: a stale source (an org repo's expired proof branch) comes back only through a
-    -- fresh proof branch (proof-branch.ts checkProofBranch), never through any discovery clue.
-    WHERE id = ${id} AND state = 'proposed' AND reject_reason IS DISTINCT FROM 'stale' RETURNING builder_id, kind`;
+    -- v2.13.2 fix 1: a stale source (an org repo's expired proof branch) comes back only through the
+    -- App (v2.14: the re-proof is the read-only GitHub App), never through any discovery clue.
+    WHERE id = ${id} AND state = 'proposed' AND (reject_reason IS DISTINCT FROM 'stale' OR ${proof}::text = 'github_app') RETURNING builder_id, kind`;
   if (row) await afterCommit(db, () => noteEvent('source_verified', () => ({ type: 'source_verified', dedupe_key: `source_verified:${id}`, installation_id: row.builder_id, detail: { source_id: id, kind: row.kind, proof } })));
 }
 
@@ -291,18 +286,9 @@ async function readOne(s: Due, now: Date, d: ReaderDeps): Promise<unknown> {
   }
 }
 
-const LOGIN = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}$/;
 const REPO_REF = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}\/(?!\.\.?$)[a-z0-9._-]{1,100}$/i;
-const ownerOf = (ref: string) => ref.toLowerCase().split('/')[0];
 /** An unscoped npm name (npm's bulk downloads read takes only these; scoped ones keep readNpm). */
 const bulkNpm = (s: Due) => s.kind === 'package_npm' && !s.ref.startsWith('@');
-
-/** The login a person's own repos are read under: the proven login, else the reported one, else none. */
-async function personLogin(builderId: number): Promise<string | null> {
-  const [row] = await sql()<{ login: string | null; reported: string | null }[]>`
-    SELECT lower(github_login) AS login, lower(reported_github) AS reported FROM builder_profiles WHERE builder_id = ${builderId}`;
-  return [row?.login, row?.reported].find((l): l is string => typeof l === 'string' && LOGIN.test(l)) ?? null;
-}
 
 const WEEK = /^\d{4}-W\d{2}$/;
 /** v2.13: a reading's commit counts merged with the previous reading's: the larger per week, last 52 weeks only. Pure. */
@@ -411,7 +397,7 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
     return true;
   };
 
-  /** The tail shared by both paths: a repo's reading written (not found: failed unless stalled or settled). Returns false when the deadline cut it. */
+  /** A repo's reading written (not found: failed unless stalled or settled). Returns false when the deadline cut it. */
   /** v2.13.3 (5): `viaApp`: read with the App's token, its contributors already read with it. */
   const writeRepo = async (s: Due, r: PersonRepo | undefined, viaApp = false): Promise<boolean> => {
     if (settled.has(s.id)) return true;
@@ -431,67 +417,49 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
     });
   };
 
-  // Repos, per person: one GraphQL query for those under the person's login (newest 100 pushed),
-  // then the rest by name, REPOS_MAX a call (one outside the newest 100, an organization's, or all of
-  // them when the person has no login). An organization's repo also reads its contributors (one
-  // REST call), for the top-contributor rule. A repo GitHub does not know is a failed `not_found`.
-  // v2.13: under the flag (Bench) the person query is never asked: one by-name pass across builders.
-  if (benchEnabled()) {
-    // v2.13 (R2, "Cost"): no person query; every due repo by name, REPOS_MAX a call across builders.
-    const repos = due.filter((s) => s.kind === 'repo');
-    for (const s of repos) if (!REPO_REF.test(s.ref)) await fail(s, 'not_a_repo');
-    const named = repos.filter((s) => REPO_REF.test(s.ref));
-    const found = new Map<string, PersonRepo>();
-    for (let i = 0; i < named.length; i += REPOS_MAX) {
-      if (Date.now() >= o.deadline) return { read, failed };
-      const batch = named.slice(i, i + REPOS_MAX);
-      const refs = [...new Set(batch.map((s) => s.ref.toLowerCase()))];
-      const go = await attempt(batch, async () => {
-        for (const [k, r] of await readGithubRepos(refs, o.reader)) found.set(k, r);
-      });
-      if (!go) return { read, failed };
-    }
-    // v2.13.3 (5): what EarnKit's token couldn't read (private, or an org's it can't see), through the
-    // read-only App when that source's person installed it on the repo (a per-call token, never kept).
-    const unread = named.filter((s) => !found.has(s.ref.toLowerCase()) && !settled.has(s.id) && !stalled.has(s.id));
-    const viaApp = new Map<number, PersonRepo>();
-    for (const s of unread) {
-      if (Date.now() >= o.deadline) return { read, failed };
-      const go = await attempt([s], async () => {
-        for (const [id, r] of await readAppRepos([s], o.reader)) viaApp.set(id, r);
-      });
-      if (!go) return { read, failed };
-    }
-    for (const s of named)
-      if (!(await writeRepo(s, found.get(s.ref.toLowerCase()) ?? viaApp.get(s.id), !found.has(s.ref.toLowerCase()) && viaApp.has(s.id)))) return { read, failed };
-  } else {
-    const people = new Map<number, Due[]>();
-    for (const s of due) if (s.kind === 'repo') people.set(s.builder_id, [...(people.get(s.builder_id) ?? []), s]);
-    for (const [builderId, repos] of people) {
-      if (Date.now() >= o.deadline) return { read, failed };
-      const login = await personLogin(builderId);
-      const found = new Map<string, PersonRepo>();
-      const mine = login ? repos.filter((s) => ownerOf(s.ref) === login) : [];
-      if (mine.length > 0) {
-        const go = await attempt(mine, async () => {
-          const person = await readPersonGithub(login!, o.reader);
-          for (const [k, r] of person?.repos ?? []) found.set(k, r);
-        });
-        if (!go) return { read, failed };
-      }
-      // A repo the person query failed on already has its failed reading (settled). A malformed ref
-      // fails alone, so it never fails a by-name batch.
-      for (const s of repos) if (!settled.has(s.id) && !found.has(s.ref.toLowerCase()) && !REPO_REF.test(s.ref)) await fail(s, 'not_a_repo');
-      const rest = repos.filter((s) => !found.has(s.ref.toLowerCase()) && !settled.has(s.id));
-      for (let i = 0; i < rest.length; i += REPOS_MAX) {
-        const batch = rest.slice(i, i + REPOS_MAX);
-        const go = await attempt(batch, async () => {
-          for (const [k, r] of await readGithubRepos(batch.map((s) => s.ref), o.reader)) found.set(k, r);
-        });
-        if (!go) return { read, failed };
-      }
-      for (const s of repos) if (!(await writeRepo(s, found.get(s.ref.toLowerCase())))) return { read, failed };
-    }
+  // Repos: every due repo by name, REPOS_MAX a call across builders (v2.13 R2, "Cost": no person
+  // query). An organization's repo also reads its contributors (one REST call), for the
+  // top-contributor rule. A repo GitHub does not know is a failed `not_found`.
+  const repos = due.filter((s) => s.kind === 'repo');
+  for (const s of repos) if (!REPO_REF.test(s.ref)) await fail(s, 'not_a_repo');
+  const named = repos.filter((s) => REPO_REF.test(s.ref));
+  // v2.14 A10: a repo proven by the read-only App is read with its installation's token first (a per-call token,
+  // never kept); EarnKit's shared token reads by name only what isn't installed.
+  const viaAppIds = new Set(
+    (await sql()<{ id: number }[]>`SELECT id::int AS id FROM builder_sources WHERE id IN ${sql()(named.length ? named.map((s) => s.id) : [-1])} AND proof = 'github_app' AND state = 'verified'`).map((r) => r.id),
+  );
+  const viaApp = new Map<number, PersonRepo>();
+  for (const s of named.filter((x) => viaAppIds.has(x.id))) {
+    if (Date.now() >= o.deadline) return { read, failed };
+    const go = await attempt([s], async () => {
+      for (const [id, r] of await readAppRepos([s], o.reader)) viaApp.set(id, r);
+    });
+    if (!go) return { read, failed };
+  }
+  const byName = named.filter((s) => !viaAppIds.has(s.id));
+  const found = new Map<string, PersonRepo>();
+  for (let i = 0; i < byName.length; i += REPOS_MAX) {
+    if (Date.now() >= o.deadline) return { read, failed };
+    const batch = byName.slice(i, i + REPOS_MAX);
+    const refs = [...new Set(batch.map((s) => s.ref.toLowerCase()))];
+    const go = await attempt(batch, async () => {
+      for (const [k, r] of await readGithubRepos(refs, o.reader)) found.set(k, r);
+    });
+    if (!go) return { read, failed };
+  }
+  // v2.13.3 (5): what EarnKit's token couldn't read (private, or an org's it can't see), through the
+  // read-only App when that source's person installed it on the repo (a per-call token, never kept).
+  const unread = byName.filter((s) => !found.has(s.ref.toLowerCase()) && !settled.has(s.id) && !stalled.has(s.id));
+  for (const s of unread) {
+    if (Date.now() >= o.deadline) return { read, failed };
+    const go = await attempt([s], async () => {
+      for (const [id, r] of await readAppRepos([s], o.reader)) viaApp.set(id, r);
+    });
+    if (!go) return { read, failed };
+  }
+  for (const s of named) {
+    const app = viaAppIds.has(s.id) || !found.has(s.ref.toLowerCase()) ? viaApp.get(s.id) : undefined;
+    if (!(await writeRepo(s, app ?? found.get(s.ref.toLowerCase()), app !== undefined))) return { read, failed };
   }
 
   // Unscoped npm packages, NPM_BULK_MAX names a call (one failing call fails only its own names).

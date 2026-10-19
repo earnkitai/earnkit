@@ -4,6 +4,9 @@ import { benchConfirmedSql } from './main-project';
 import { money } from './page-data';
 import { personInputsV2 } from './person-score';
 import { COIN_PROGRAM } from './policy-constants';
+import { APP_PROOF, appClient } from './repo-proof';
+import { repoReadPublic } from './repo-public';
+import { readWeekTitles, shipTitles } from './ship-titles';
 import { lastFinishedMonday, streakOf, weekOfMonday } from './weeks';
 
 /**
@@ -103,15 +106,43 @@ export async function weekFactsFor(builderId: number, monday: string, now: Date)
 }
 
 /**
- * The week's row for the project: facts merged in, text, pins and hides kept. Another builder's row
- * is left alone. True when a row was written.
+ * The week's row for the project: facts merged in, text, pins and hides kept; v2.14 spec 3: the week's
+ * titles (ship-titles.ts) replace the stored ones only when there are some. Another builder's row is left
+ * alone. True when a row was written.
  */
-export async function upsertWeekFacts(builderId: number, projectKey: string, monday: string, f: WeekFacts): Promise<boolean> {
+export async function upsertWeekFacts(builderId: number, projectKey: string, monday: string, f: WeekFacts, titles: string[] = []): Promise<boolean> {
   const wrote = await sql()`
-    INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${builderId}, ${projectKey}, ${monday}, ${sql().json(f as never)})
-    ON CONFLICT (project_key, week) DO UPDATE SET facts = project_updates.facts || EXCLUDED.facts
+    INSERT INTO project_updates (builder_id, project_key, week, facts, titles) VALUES (${builderId}, ${projectKey}, ${monday}, ${sql().json(f as never)}, ${titles}::text[])
+    ON CONFLICT (project_key, week) DO UPDATE SET facts = project_updates.facts || EXCLUDED.facts,
+      titles = CASE WHEN cardinality(EXCLUDED.titles) > 0 THEN EXCLUDED.titles ELSE project_updates.titles END
     WHERE project_updates.builder_id = EXCLUDED.builder_id RETURNING 1`;
   return wrote.length > 0;
+}
+
+/**
+ * v2.14 spec 3 (A11): the week's cleaned titles of the person's App-proven repo `key`, read with its installation
+ * token (repo-proof.ts appClient); [] for any other repo. A repo that doesn't read public (repo-public.ts) is read
+ * only once the builder turned titles on; fix round 1: else one GET /repos/{key} through the same client checks it,
+ * and a public answer stamps builder_sources.public_at. At most 3 GitHub calls (plus the token). Only called for a
+ * week with shipped code (weeklyFactsStep).
+ */
+export async function weekTitles(id: number, key: string, monday: string, now: Date, ghFetch: typeof fetch): Promise<string[]> {
+  const db = sql();
+  const k = key.toLowerCase();
+  const [app] = await db<{ id: number; titles_on: boolean }[]>`
+    SELECT s.id::int AS id, (p.ship_titles_at IS NOT NULL) AS titles_on FROM builder_sources s JOIN builder_profiles p ON p.builder_id = s.builder_id
+    WHERE s.builder_id = ${id} AND s.kind = 'repo' AND s.state = 'verified' AND s.proof = ${APP_PROOF}
+      AND regexp_replace(lower(trim(s.ref)), '^(https?://)?(www[.])?github[.]com/', '') = ${k}`;
+  if (!app) return [];
+  const get = await appClient(id, k, ghFetch);
+  if (!get) return [];
+  if (!app.titles_on && !(await repoReadPublic(id, k, now))) {
+    const meta = await get<{ private?: unknown }>(`/repos/${k}`);
+    if (meta?.private !== false) return [];
+    await db`UPDATE builder_sources SET public_at = ${now} WHERE id = ${app.id}`;
+  }
+  // updates.ts imports this file: ownLinks is loaded when called.
+  return shipTitles(await readWeekTitles(get, k, monday), await (await import('./updates')).ownLinks(id));
 }
 
 /**
@@ -120,7 +151,7 @@ export async function upsertWeekFacts(builderId: number, projectKey: string, mon
  * then one dated event per fact and project and week (dedupe key `<type>:<project_key>:<week>`).
  * Shared clients never. F2: an unconfirmed one project (perhaps someone else's repo) writes nothing.
  */
-export async function weeklyFactsStep(now: Date, o: { deadline: number; only?: number[] }): Promise<{ step: 'skipped' } | { people: number; rows: number }> {
+export async function weeklyFactsStep(now: Date, o: { deadline: number; only?: number[]; ghFetch?: typeof fetch }): Promise<{ step: 'skipped' } | { people: number; rows: number }> {
   if (now.getUTCDay() !== 1 || now.getUTCHours() < WEEKLY_HOUR_UTC) return { step: 'skipped' };
   const monday = lastFinishedMonday(now);
   const week = weekOfMonday(monday)!;
@@ -143,8 +174,15 @@ export async function weeklyFactsStep(now: Date, o: { deadline: number; only?: n
     if (Date.now() >= o.deadline) break;
     const f = await weekFactsFor(id, monday, now);
     people++;
+    // v2.14 spec 3 (A11): the week's titles (weekTitles). Fix round 1: a failure there never stops the facts.
+    let titles: string[] = [];
+    if (f.shipped_code && o.ghFetch)
+      titles = await weekTitles(id, key, monday, now, o.ghFetch).catch((err: unknown) => {
+        console.error('[weekly] titles', err instanceof Error ? err.name : 'error');
+        return [];
+      });
     // Another builder's row for the key and week: nothing written, no events.
-    if (!(await upsertWeekFacts(id, key, monday, { ...f, checked: true }))) continue;
+    if (!(await upsertWeekFacts(id, key, monday, { ...f, checked: true }, titles))) continue;
     rows++;
     const at = new Date(`${monday}T12:00:00Z`);
     const ev = (type: 'shipped_code' | 'went_live' | 'users_up', detail: Record<string, unknown>) =>

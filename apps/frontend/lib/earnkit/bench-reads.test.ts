@@ -7,8 +7,6 @@ import { readSources, withPastCounts } from './sources';
 import { discover } from './discovery';
 import type { ReaderDeps } from './source-readers';
 
-process.env.EARNKIT_BUILDER_SCORE = 'on';
-process.env.EARNKIT_BENCH = 'on';
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => { if (process.env.DATABASE_URL) await sql().end(); });
 const NOW = new Date();
@@ -78,7 +76,7 @@ test('3.3 the daily read batches 25 repos a call across builders (30 repos of 2 
   assert.ok(!queries.includes(PERSON_GITHUB_QUERY));
 });
 
-test('3.4 discovery under the flag never lists every repo or org of a proven login', dbTest, async () => {
+test('3.4 discovery never lists every repo or org of a proven login, and (v2.14) never verifies a repo from a login', dbTest, async () => {
   const id = T + 4;
   const login = `cat${T}`;
   await personWithRepos(id, login, 0);
@@ -93,30 +91,9 @@ test('3.4 discovery under the flag never lists every repo or org of a proven log
     if (path === `/repos/${login}/main`) return { full_name: `${login}/main`, owner: { login, type: 'User' }, fork: false, is_template: false } as R;
     return (path.includes('/git/trees/') ? {} : []) as R;
   };
-  await discover(NOW, { deadline: Date.now() + 20_000, reader: d, login: async () => ({ login, basis: 'signin' }), only: [id] });
+  await discover(NOW, { deadline: Date.now() + 20_000, reader: d, login: async () => ({ login, basis: 'app' }), only: [id] });
   assert.ok(!paths.some((p) => p.startsWith(`/users/${login}/repos`) || p.endsWith('/orgs')), paths.join(', '));
   const [src] = await sql()<{ state: string; proof: string | null }[]>`SELECT state, proof FROM builder_sources WHERE builder_id = ${id} AND ref = ${`${login}/main`}`;
-  assert.deepEqual(src, { state: 'verified', proof: 'repo_owner' });
-});
-
-test('3.5 flag off: the refresh still reads a person\'s own repos through the person query (parity)', dbTest, async () => {
-  const id = T + 5;
-  await personWithRepos(id, `dan${T}`, 2);
-  const queries: string[] = [];
-  const d = reader(queries);
-  const inner = d.ghGraphql;
-  d.ghGraphql = async <R>(q: string, v: Record<string, unknown>) => {
-    if (q === PERSON_GITHUB_QUERY) {
-      queries.push(q);
-      return { data: { user: { login: `dan${T}`, twitterUsername: null, websiteUrl: null, repositories: { nodes: [node(`dan${T}/r0`), node(`dan${T}/r1`)] } } } } as R;
-    }
-    return inner<R>(q, v);
-  };
-  delete process.env.EARNKIT_BENCH;
-  try {
-    await readPersonLive(id, NOW, { deadline: Date.now() + 10_000, reader: d });
-    assert.deepEqual(queries, [PERSON_GITHUB_QUERY]);
-  } finally {
-    process.env.EARNKIT_BENCH = 'on';
-  }
+  // v2.14 spec 2: only the read-only App proves a repo; a proven login confirms none of its repos.
+  assert.deepEqual(src, { state: 'proposed', proof: null });
 });

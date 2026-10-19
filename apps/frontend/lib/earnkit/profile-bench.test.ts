@@ -12,8 +12,6 @@ import UpdateCard from '../../app/components/ui/UpdateCard';
 
 /** v2.13 T11 (spec "Profile", R10, R11, R12): the page at earnkit.com/<x-handle> under the Bench flag. */
 
-process.env.EARNKIT_BUILDER_SCORE = 'on';
-process.env.EARNKIT_BENCH = 'on';
 // The components are compiled with the classic JSX runtime here (as feed.test.ts).
 (globalThis as { React?: typeof React }).React = React;
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
@@ -63,8 +61,7 @@ test('11.3 the Ship log tab is the default: long cards newest first, chips alone
   assert.ok(order.every((i) => i >= 0) && order[0] < order[1] && order[1] < order[2], order.join(','));
   assert.equal((h.match(/data-shape="long"/g) ?? []).length, 3);
   assert.ok(h.includes(BENCH_SOURCES_LINE));
-  // R6 is about the words a person reads: a link's URL (the footer's Docs, README#connect-an-agent) isn't one.
-  assert.doesNotMatch(h.replace(/<[^>]+>/g, ' '), /written by|agent/i, 'R6');
+  assert.doesNotMatch(h.replace(/<[^>]+>/g, ' '), /written by|agent/i, 'R6'); // text only: the Docs link's #connect-an-agent anchor is not copy
   assert.ok(html(React.createElement(BenchProfileView, { data: { ...DATA, log: [] }, tab: 'log' })).includes(LOG_EMPTY));
 });
 

@@ -2,20 +2,18 @@ import Hero from './components/sections/Hero';
 import { CoinFlat, CoinTiltRight, CoinTiltLeft } from './components/ui/CoinsField';
 import BackedBy from './components/sections/BackedBy';
 import Footer from './components/common/Footer';
-import HowItWorks from './components/sections/HowItWorks';
 import BenchHowItWorks from './components/sections/BenchHowItWorks';
 import BenchTop from './components/sections/BenchTop';
 import UpdateCarousel from './components/sections/UpdateCarousel';
 import ProgramCards from './components/sections/ProgramCards';
 import type { Landing } from '../lib/earnkit/landing';
+import { raisingEnabled } from '../lib/earnkit/builder-score-flag';
 
 /**
- * The homepage (v2.7 §1, v2.8 Part A), pure: the hero with the one-line stats, the open programs
- * (every one, in a carousel), How you earn (#how-you-earn-3 is the hero pill's target), backed by, the
- * footer. `landing` is null when the read failed (Ruling 21 (plan)): the hero renders without its
- * stats line and the cards are skipped.
- * v2.13 (`landing.bench`, set only under the flag): the Bench hero, the Bench's top 10, this week's
- * updates (when there are any), Money open now (no bonus pill), the new How it works, backed by.
+ * The homepage (v2.7 §1, v2.8 Part A, v2.13): the Bench hero with the one-line stats, the Bench's top
+ * 10, this week's updates (when there are any), Money open now, How it works, backed by, the footer.
+ * `landing` is null when the read failed (Ruling 21 (plan)): the hero renders without its stats line
+ * and the live parts are skipped.
  * It lives outside page.tsx because a page file may only export Next's own fields.
  */
 export default function HomeView({ landing }: { landing: Landing | null }) {
@@ -71,26 +69,18 @@ export default function HomeView({ landing }: { landing: Landing | null }) {
         </div>
 
         <div className="relative flex min-h-[88vh] w-full flex-col items-center justify-center px-6 py-16 md:min-h-[calc(var(--vh,1vh)*100-12vh)] md:px-12">
-          <Hero statsLine={landing?.stats_line ?? null} wonLine={landing?.won_line ?? null} bench={bench !== null} raising={bench?.raising ?? true} />
+          <Hero statsLine={landing?.stats_line ?? null} wonLine={landing?.won_line ?? null} raising={bench?.raising ?? raisingEnabled()} />
         </div>
       </section>
 
       {/* Sections stack 16px apart, as on every page; the footer brings its own top margin. */}
-      {bench ? (
-        <div className="flex flex-col gap-4 pt-4">
-          <BenchTop rows={bench.rows} chips={bench.chips} raising={bench.raising} />
-          {bench.cards.length > 0 && <UpdateCarousel cards={bench.cards} />}
-          {landing && landing.tiles.length > 0 && <ProgramCards tiles={landing.tiles} figure={landing.open_text} bench />}
-          <BenchHowItWorks raising={bench.raising} />
-          <BackedBy bench />
-        </div>
-      ) : (
-        <div className="flex flex-col gap-4 pt-4">
-          {landing && landing.tiles.length > 0 && <ProgramCards tiles={landing.tiles} figure={landing.open_text} />}
-          <HowItWorks />
-          <BackedBy />
-        </div>
-      )}
+      <div className="flex flex-col gap-4 pt-4">
+        {bench && <BenchTop rows={bench.rows} chips={bench.chips} raising={bench.raising} />}
+        {bench && bench.cards.length > 0 && <UpdateCarousel cards={bench.cards} />}
+        {landing && landing.tiles.length > 0 && <ProgramCards tiles={landing.tiles} figure={landing.open_text} bench />}
+        <BenchHowItWorks raising={bench?.raising ?? raisingEnabled()} />
+        <BackedBy />
+      </div>
 
       <Footer />
     </div>

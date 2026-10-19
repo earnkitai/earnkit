@@ -13,11 +13,11 @@ const investorLogos = [
   { src: '/images/investors/COOPER_TURLEY.png', alt: 'Cooper Turley' },
 ];
 
-/** v2.13 (`bench`, the landing under the flag): the label is sentence case (no all-caps labels). */
-export default function BackedBy({ bench = false }: { bench?: boolean }) {
+/** v2.13: the label is sentence case (no all-caps labels). */
+export default function BackedBy() {
   return (
     <div className="flex w-full flex-col items-center gap-10 rounded-[40px] bg-ek-navy-deep py-14 md:rounded-[56px] md:py-16">
-      <p className={bench ? 'font-funnel-sans text-base font-medium text-ek-blue-soft' : 'font-funnel-sans text-xs font-medium uppercase tracking-[0.3em] text-ek-blue-soft'}>
+      <p className="font-funnel-sans text-base font-medium text-ek-blue-soft">
         Backed by
       </p>
 

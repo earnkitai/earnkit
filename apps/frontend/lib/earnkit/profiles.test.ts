@@ -2,13 +2,13 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
 import {
-  HIDDEN_LINE, SHOWN_LINE, clearXHandle, xHandleConflicts, ensureProfile, mergeProfiles, profileOf, randomSlug,
+  HIDDEN_LINE, SHOWN_LINE, clearXHandle, xHandleConflicts, ensureProfile, profileOf, randomSlug,
   resolveHandle, resolveSlug, setFallback, setHidden,
 } from './profiles';
 
 /**
  * v2.12.1 T12: the v2.12 slug rules (X, login, wallet), setXHandle and the consent line are gone. A
- * page is public only once claimed with X (claim.ts bindX; here its effect is written directly: the
+ * page is public only once claimed with X (x-install.ts bindX; here its effect is written directly: the
  * X user id, the handle and the slug).
  */
 const shownProfile = ensureProfile;
@@ -75,80 +75,10 @@ test('7.5 hide and show: a hidden page does not resolve (404) but keeps its row;
   assert.deepEqual(await resolveHandle(handle), { builderId: T + 4, handle });
 });
 
-test('7.6 linking merges profiles: one profile, sources moved once, the other slug moves to the root\'s page once claimed', dbTest, async () => {
-  const [root, other] = [T + 5, T + 6];
-  await fresh(root, other);
-  await sql()`DELETE FROM builder_sources WHERE builder_id IN (${root}, ${other})`;
-  await shownProfile(root, new Date());
-  const otherSlug = (await shownProfile(other, new Date()))!.profile.slug;
-  await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by) VALUES
-    (${root}, 'repo', 'lee/a', 'lee/a', 'agent'), (${other}, 'repo', 'lee/a', 'lee/a', 'agent'), (${other}, 'repo', 'lee/b', 'lee/b', 'agent')`;
-  await sql().begin((tx) => mergeProfiles(tx, root, other));
-  const live = await sql()<{ builder_id: number; ref: string; state: string }[]>`
-    SELECT builder_id, ref, state FROM builder_sources WHERE builder_id IN (${root}, ${other}) ORDER BY ref, builder_id`;
-  assert.deepEqual(live.filter((s) => s.state !== 'rejected').map((s) => `${s.builder_id}:${s.ref}`), [`${root}:lee/a`, `${root}:lee/b`]);
-  assert.equal(await profileOf(other), null);
-  assert.equal(await resolveSlug(otherSlug), null, 'no public page before the claim');
-  await claim(root, `Mg${T % 100000}`);
-  assert.equal((await resolveSlug(otherSlug))?.builderId, root);
-});
-
 test('7.7 a shared group never gets a profile', dbTest, async () => {
   const [row] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, shared_client) VALUES (${`v212-shared-${T}-${Date.now()}`}, true) RETURNING id`;
   assert.equal(await shownProfile(row.id, new Date()), null);
   assert.equal(await profileOf(row.id), null);
-});
-
-test('7.9 merge, the other has a login and a v2.12 X handle: the root keeps its page and takes both; hidden stays hidden; the other\'s rank goes', dbTest, async () => {
-  const [root, other] = [T + 7, T + 8];
-  await fresh(root, other);
-  const rootSlug = (await shownProfile(root, new Date()))!.profile.slug;
-  await shownProfile(other, new Date());
-  await setFallback(other, { github_login: `mx${T}` });
-  await sql()`UPDATE builder_profiles SET x_handle = ${`Mx${T % 1000}`} WHERE builder_id = ${other}`; // written by v2.12's setXHandle
-  await setHidden(root, true);
-  await sql()`INSERT INTO builder_ranks (builder_id, score, percentile, computed_at) VALUES (${other}, 40, 50, now())`;
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
-  try {
-    await sql().begin((tx) => mergeProfiles(tx, root, other));
-  } finally {
-    delete process.env.EARNKIT_BUILDER_SCORE;
-  }
-  const p = (await profileOf(root))!;
-  assert.deepEqual([p.github_login, p.x_handle, p.slug, p.hidden], [`mx${T}`, `Mx${T % 1000}`, rootSlug, true], 'login and handle kept; hidden stays hidden');
-  assert.equal(await profileOf(other), null);
-  assert.equal(await resolveHandle(`Mx${T % 1000}`), null, 'a v2.12 handle is never a page without the claim');
-  const [rank] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_ranks WHERE builder_id = ${other}`;
-  assert.equal(rank.n, 0, 'the merged-away id stops counting');
-  const [q] = await sql()<{ reason: string }[]>`SELECT reason FROM discovery_queue WHERE builder_id = ${root}`;
-  assert.equal(q?.reason, 'signin', 'rediscovered with both groups\' clues');
-});
-
-test('7.10 merge, the root wins: the other\'s login moves to it (no unique clash); the slug stays the root\'s', dbTest, async () => {
-  const [root, other] = [T + 9, T + 10];
-  await fresh(root, other);
-  const rootSlug = (await shownProfile(root, new Date()))!.profile.slug;
-  await shownProfile(other, new Date());
-  await setFallback(other, { github_login: `ml${T}` });
-  await sql().begin((tx) => mergeProfiles(tx, root, other));
-  const p = (await profileOf(root))!;
-  assert.deepEqual([p.github_login, p.fallback_handle, p.slug], [`ml${T}`, `ml${T}`, rootSlug]);
-  const [q] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM discovery_queue WHERE builder_id = ${root}`;
-  assert.equal(q.n, 0, 'flag off: no queue write');
-});
-
-test('7.11 merge with no profile on either side writes nothing', dbTest, async () => {
-  const [root, other] = [T + 11, T + 12];
-  await fresh(root, other);
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
-  try {
-    await sql().begin((tx) => mergeProfiles(tx, root, other));
-  } finally {
-    delete process.env.EARNKIT_BUILDER_SCORE;
-  }
-  const [q] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM discovery_queue WHERE builder_id IN (${root}, ${other})`;
-  assert.equal(q.n, 0);
-  assert.equal(await profileOf(root), null);
 });
 
 test('7.13 (v2.12.1: no new writes) the owner still sees a v2.12 X handle conflict while the holder shows the handle', dbTest, async () => {
@@ -194,18 +124,6 @@ test('7.16 with no login, the first remembered wallet (earliest) is the fallback
   assert.deepEqual([p.slug, p.fallback_handle], [slug, `${early.slice(0, 6)}…${early.slice(-4)}`]);
   await sql()`DELETE FROM builder_profiles WHERE builder_id = ${row.id}`;
   await sql()`DELETE FROM profile_slug_history WHERE builder_id = ${row.id}`;
-});
-
-test('7.17 merge: a prefill goes only with the login it came from', dbTest, async () => {
-  const [root, other] = [T + 17, T + 18];
-  await fresh(root, other);
-  await shownProfile(root, new Date());
-  await setFallback(root, { github_login: `pr${T}` });
-  await shownProfile(other, new Date());
-  await sql()`UPDATE builder_profiles SET twitter_prefill = 'stray' WHERE builder_id = ${other}`;
-  await sql().begin((tx) => mergeProfiles(tx, root, other));
-  const p = (await profileOf(root))!;
-  assert.deepEqual([p.github_login, p.twitter_prefill], [`pr${T}`, null]);
 });
 
 test('7.14 a new random slug is never someone else\'s old slug (it would take over their redirect)', dbTest, async () => {

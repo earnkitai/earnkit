@@ -5,10 +5,7 @@ import { escrowLink } from './escrow';
 import type { Chain } from './match';
 import { archiveFlag } from './builder-score-flag';
 import { sql } from './db';
-import { bonusOn, roundFor, roundPools, windowKey } from './bonus-rounds';
-import { boardLink } from './entry-text';
-import { difficultyOf, guideSources, guideText, programGuide, type Difficulty, type GuideBonus } from './guide';
-import { bonusCell } from './present';
+import { difficultyOf, guideSources, guideText, programGuide, type Difficulty } from './guide';
 import {
   agentCompletableOf,
   type DifficultyOverride,
@@ -395,9 +392,6 @@ export function programCard(
     // v2.5 §1: curated build ideas for builders with no repo.
     ideas: p.ideas ?? [],
     submission_proof: p.submission_proof ?? null,
-    // v2.6 §4, Ruling 7 (plan): every card here is an active program (listPrograms' WHERE), so
-    // this is bonusOn minus the status check; false for any campaign, EarnKit or sponsor.
-    builder_bonus: bonusOn({ status: 'active', builder_bonus: p.builder_bonus, campaign: p.campaign }),
     // v2.7 Ruling 1 (plan): the path only; no logo renders a monogram tile instead.
     logo: p.logo?.path ?? null,
     chains: p.chains,
@@ -415,7 +409,7 @@ export function programCard(
     fresh_build: p.campaign ? null : (p.fresh_build ?? null),
     // v2.11 T7: the fresh pick ranks more winners per round first (fresh-build.ts freshPick).
     winners_per_round: p.winners_per_round ?? null,
-    // v2.12 spec 9: false only when an agent can't complete an entry (find drops it with the score flag on).
+    // v2.12 spec 9: false only when an agent can't complete an entry (find drops it).
     agent_completable: p.agent_completable !== false,
     // v2.13 (plan B12): the no-project reply's pitch; never on a campaign.
     pitch: p.campaign ? null : (p.pitch ?? null),
@@ -561,32 +555,7 @@ export async function getProgram(programId: string) {
         track_record: await trackRecord(sponsorRow.sponsor_wallet),
       }
     : undefined;
-  return programDetails(program, tracks, starters, who, await guideBonus(program));
-}
-
-/**
- * v2.7 §2: the guide's builder bonus for a curated program: its open round's pool so far and its
- * board (the public guide page's pill and link), and (v2.10 item 1, Pre-flight P18) the pool with
- * its token count for the reply's bonus line. Null for a campaign, a program without a bonus or an
- * open round, or a frozen round. A failed pool read is logged and gives null; it never fails get_program.
- */
-export async function guideBonus(program: ProgramRow, now = new Date()): Promise<GuideBonus | null> {
-  if (program.source !== 'file' || program.campaign || !bonusOn(program)) return null;
-  const round = roundFor(program, now);
-  if (!round) return null;
-  try {
-    const pools = await roundPools([program.id], { now });
-    const pool = pools.get(program.id);
-    if (pool === null) return null;
-    return {
-      cell: bonusCell({ builder_bonus: true, bonus_pool_wei: pool?.wei ?? null, bonus_closed: false }),
-      board: boardLink(round.key),
-      pool: pool ?? { wei: 0n, tokens: 0 },
-    };
-  } catch (err) {
-    console.error('[get_program] pool', err instanceof Error ? err.message : err);
-    return null;
-  }
+  return programDetails(program, tracks, starters, who);
 }
 
 /**
@@ -595,10 +564,9 @@ export async function guideBonus(program: ProgramRow, now = new Date()): Promise
  */
 function guideBlock(
   program: ProgramRow,
-  bonus: GuideBonus | null,
 ): { guide: { text: string; difficulty: Difficulty; best_bet: string | null; sources: string[] } } | null {
   if (program.source !== 'file' || program.campaign) return null;
-  const g = programGuide(program, bonus);
+  const g = programGuide(program);
   return {
     guide: { text: guideText(g), difficulty: g.difficulty, best_bet: g.best_bet, sources: guideSources(program) },
   };
@@ -611,8 +579,6 @@ export function programDetails(
   starters: StarterRow[],
   /** A sponsor campaign's identity and its wallet's track record. */
   who?: { identity: SponsorIdentity; track_record: TrackRecord },
-  /** v2.7 §2: the builder bonus line of a curated program's guide (getProgram's guideBonus). */
-  bonus: GuideBonus | null = null,
 ) {
   const identity = who?.identity ?? UNVERIFIED;
   const trackName = (id: string | null) =>
@@ -715,7 +681,7 @@ export function programDetails(
       starters_note:
         'Starters are optional ideas. The builder can build anything that meets the requirements.',
     }),
-    ...guideBlock(program, bonus),
+    ...guideBlock(program),
   };
 }
 
@@ -782,7 +748,7 @@ export async function upsertProgram(
       results: p.results ? tx.json(p.results) : null,
       // v2.11 T5: the file is the source of truth, so a removed field clears the column.
       fresh_build: p.fresh_build ? tx.json(p.fresh_build) : null,
-      // v2.12 spec 9: the file's override, else the derivation (find drops false with the score flag on).
+      // v2.12 spec 9: the file's override, else the derivation (find drops false).
       agent_completable: agentCompletableOf(p),
       // v2.13: the file is the source of truth (a removed pitch clears the column).
       pitch: p.pitch ? tx.json(p.pitch) : null,
@@ -800,15 +766,6 @@ export async function upsertProgram(
           WHEN EXCLUDED.status <> 'active' THEN programs.opened_at
           WHEN programs.status = 'active' THEN COALESCE(programs.opened_at, EXCLUDED.opened_at)
           ELSE EXCLUDED.opened_at END`;
-
-    // v2.5 Ruling 21: a windowed program's open builder bonus round follows the file (an extended
-    // or shortened end, a start moved within the same UTC day); a frozen round never changes, and a
-    // new start day is a new round (bonus-rounds.ts windowKey).
-    if (p.starts_at && p.ends_at)
-      await tx`
-        UPDATE bonus_rounds SET starts_at = ${p.starts_at}, ends_at = ${p.ends_at}
-        WHERE program_id = ${p.id} AND state = 'open' AND round_key = ${windowKey(p.id, new Date(p.starts_at))}
-          AND (starts_at, ends_at) IS DISTINCT FROM (${p.starts_at}::timestamptz, ${p.ends_at}::timestamptz)`;
 
     // v2.12 spec 9: the starters table is archived and receives no writes while the flag is off.
     const starterRegistry = archiveFlag('STARTER_REGISTRY');

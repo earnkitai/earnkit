@@ -11,18 +11,24 @@ export type FooterColumn = {
  * EXTERNAL_ALLOW and FOOTER_COLUMNS need them and lib/earnkit never imports from app/ (fix round
  * 1, Important #1; every other app/ constant stays in app/lib/links.ts, which re-exports these).
  */
-/** docs.earnkit.com: for builders and sponsors (v2.7 §5). */
-export const DOCS = 'https://docs.earnkit.com';
-/** The sponsor-facing docs, linked from the footer's Resources column (Ruling 22, plan). */
-export const FOR_SPONSORS = 'https://docs.earnkit.com/for-sponsors';
+/**
+ * "Docs" in the header and footer. Pre-launch fix (2026-10-19): docs.earnkit.com answers
+ * 402 DEPLOYMENT_DISABLED, so the link goes to the public README's install section (the same
+ * steps as the modal) until docs.earnkit.com is serving again; then point it back there.
+ */
+export const DOCS = 'https://github.com/earnkitai/earnkit#connect-an-agent';
+/**
+ * The footer's "For sponsors" (Ruling 22, plan). Pre-launch fix (2026-10-19): it was
+ * docs.earnkit.com/for-sponsors (402 while that site is down) and sponsor campaigns are archived
+ * (v2.12), so it is an email to the owner until the sponsor docs are back.
+ */
+export const FOR_SPONSORS = 'mailto:j@earnkit.com?subject=Sponsoring%20on%20EarnKit';
 /** The owner's personal account, used only for the footer's contact column (Ruling 22, plan). */
 export const JENIL_X = 'https://x.com/jenilt';
 /** The footer's contact email (Ruling 22, plan). */
 export const CONTACT_EMAIL = 'mailto:j@earnkit.com';
 
-/** Ruling 22 (plan): the tagline under the wordmark, on the left of the footer card. */
-export const FOOTER_TAGLINE = 'Earn rewards for building';
-/** v2.13 (controller ruling): the tagline under the flag, the landing hero's title. */
+/** Ruling 22 (plan), v2.13 (controller ruling): the tagline under the wordmark, the landing hero's title. */
 export const BENCH_FOOTER_TAGLINE = 'Ship every week. Get funded.';
 
 /**

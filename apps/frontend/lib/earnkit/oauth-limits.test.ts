@@ -2,7 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import { sql } from './db';
-import { authorize, registerClient, registrationLimitKey } from './oauth';
+import { registerClient, registrationLimitKey } from './oauth';
 import {
   authorizeGet as authorizeRoute,
   registerPost as registerRoute,
@@ -11,6 +11,8 @@ import {
 import { LIMITS, REGISTER_HOST_WARN, windowStart } from './rate-limit';
 
 process.env.EARNKIT_AUTH_SECRET ??= 'test-secret';
+// v2.14: the authorize redirect carries RFC 9207's iss, the public origin (EARNKIT_URL).
+process.env.EARNKIT_URL ??= 'https://earnkit.com';
 
 // The T6 review probe minted 1000 installations from one client registration. Through the real
 // routes, one IP now gets 50 new installations an hour (v2.8.1 §E17: the abuse floor); replays of a
@@ -22,20 +24,14 @@ after(async () => {
 });
 
 const redirect = 'https://agent.example/cb';
-/** A fresh code for `client_id` (authorize's logic, no HTTP), with its verifier. */
-function freshCode(client_id: string, redirectUri = redirect) {
+/** A fresh code for `client_id` through the real authorize route (X off: the anonymous code at once; no rate limit), with its verifier. */
+async function freshCode(client_id: string, redirectUri = redirect) {
   const verifier = randomBytes(32).toString('base64url');
   const challenge = createHash('sha256').update(verifier).digest('base64url');
-  const back = authorize(
-    new URLSearchParams({
-      client_id,
-      redirect_uri: redirectUri,
-      response_type: 'code',
-      code_challenge: challenge,
-      code_challenge_method: 'S256',
-    }),
-  );
-  return { code: new URL(back).searchParams.get('code')!, verifier };
+  const q = new URLSearchParams({ client_id, redirect_uri: redirectUri, response_type: 'code', code_challenge: challenge, code_challenge_method: 'S256' });
+  const back = await authorizeRoute(new Request(`http://localhost/oauth/authorize?${q}`), { limit: async () => {} });
+  assert.equal(back.status, 302);
+  return { code: new URL(back.headers.get('location')!).searchParams.get('code')!, verifier };
 }
 const exchange = (ip: string, c: { code: string; verifier: string }) =>
   tokenRoute(
@@ -65,7 +61,7 @@ test(
       // A redirect host per registration, so only the IP floor applies.
       const uri = `https://agent-${i}-${Date.now()}.example/cb`;
       const { client_id } = registerClient({ redirect_uris: [uri] });
-      const c = freshCode(client_id, uri);
+      const c = await freshCode(client_id, uri);
       first ??= c;
       const res = await exchange(ip, c);
       statuses.push(res.status);
@@ -92,7 +88,7 @@ test(
     // Another address is unaffected.
     const other = await exchange(
       ip.replace(/^198\.18\./, '198.20.'),
-      freshCode(registerClient({ redirect_uris: [redirect] }).client_id),
+      await freshCode(registerClient({ redirect_uris: [redirect] }).client_id),
     );
     assert.equal(other.status, 200);
     await sql()`DELETE FROM rate_windows WHERE key LIKE ${'install%:' + ip + '%'}`;
@@ -124,7 +120,7 @@ test('v2.4: re-authorizing a client is free and keeps its one installation', db,
   const { client_id } = registerClient({ redirect_uris: [redirect] });
   const tokens: string[] = [];
   for (let i = 0; i < 12; i++) {
-    const res = await exchange(ip, freshCode(client_id));
+    const res = await exchange(ip, await freshCode(client_id));
     assert.equal(res.status, 200, 'a known client is never rate limited');
     tokens.push((await res.json()).access_token);
   }
@@ -161,7 +157,7 @@ test("v2.8.1 §E17, Ruling F11: a hosted agent's users are capped neither by its
   // 501st was, and before v2.8.1 the 11th from one IP).
   for (let i = 0; i < 501; i++) {
     const { client_id } = registerClient({ redirect_uris: [uri], client_name: 'Grok' });
-    const res = await exchange(ipFor(i), freshCode(client_id, uri));
+    const res = await exchange(ipFor(i), await freshCode(client_id, uri));
     assert.equal(res.status, 200, `user ${i + 1}: ${res.status === 200 ? '' : (await res.json()).error_description}`);
   }
   // The installations are flagged shared_client.
@@ -176,12 +172,12 @@ test("v2.8.1 §E17, Ruling F11: a hosted agent's users are capped neither by its
   await preload('installClient', registrationLimitKey(client_id), 500, 86_400);
   const warn = console.warn;
   console.warn = () => {};
-  const res = await exchange('198.23.1.1', freshCode(client_id, uri)).finally(() => (console.warn = warn));
+  const res = await exchange('198.23.1.1', await freshCode(client_id, uri)).finally(() => (console.warn = warn));
   assert.equal(res.status, 429);
   assert.ok(Number(res.headers.get('retry-after')) > 0);
   assert.match((await res.json()).error_description, /Too many new EarnKit connections from this agent today\. Try again in/);
   // Another registration under the same host is unaffected.
-  const ok = await exchange('198.23.1.2', freshCode(registerClient({ redirect_uris: [uri], client_name: 'Grok' }).client_id, uri));
+  const ok = await exchange('198.23.1.2', await freshCode(registerClient({ redirect_uris: [uri], client_name: 'Grok' }).client_id, uri));
   assert.equal(ok.status, 200);
   await sql()`DELETE FROM rate_windows WHERE key LIKE ${'install%:' + base + '.%'} OR key LIKE 'install%:198.23.1.%' OR key = ${'installClient:' + registrationLimitKey(client_id)}`;
 });
@@ -253,7 +249,7 @@ test('Ruling G25: a known hosted agent\'s servers get a 500 an hour per-IP floor
       assert.equal(reg.status, 201, `registration ${i + 1}`);
       const { client_id } = (await reg.json()) as { client_id: string };
       clients.push(client_id);
-      const tok = await exchange(ip, freshCode(client_id, uri));
+      const tok = await exchange(ip, await freshCode(client_id, uri));
       assert.equal(tok.status, 200, `install ${i + 1}`);
     }
     // The same address is still refused at 50 for anything else: a desktop agent, an unknown https
@@ -263,8 +259,8 @@ test('Ruling G25: a known hosted agent\'s servers get a 500 an hour per-IP floor
     assert.equal((await register(['https://agent.example/cb'])).status, 429);
     assert.equal((await register(['https://agent.example/cb'], 'Grok')).status, 429);
     const other = registerClient({ redirect_uris: [redirect], client_name: 'Grok' });
-    for (let i = 0; i < 50; i++) assert.equal((await exchange(ip, freshCode(registerClient({ redirect_uris: [redirect] }).client_id))).status, 200, `desktop install ${i + 1}`);
-    assert.equal((await exchange(ip, freshCode(other.client_id))).status, 429);
+    for (let i = 0; i < 50; i++) assert.equal((await exchange(ip, await freshCode(registerClient({ redirect_uris: [redirect] }).client_id))).status, 200, `desktop install ${i + 1}`);
+    assert.equal((await exchange(ip, await freshCode(other.client_id))).status, 429);
     // G25: the hosted host's floor refuses too. 500 hosted registrations from one IP in the hour,
     // then the 501st is refused (and logged with the hosted floor's name).
     for (let i = 60; i < 500; i++) assert.equal((await register([uri])).status, 201, `registration ${i + 1}`);
@@ -277,7 +273,7 @@ test('Ruling G25: a known hosted agent\'s servers get a 500 an hour per-IP floor
     // The install floor for the hosted host: 500 an hour per IP, then refused.
     await preload('installHourHosted', ip, LIMITS.installHourHosted.limit, 3_600);
     const reg = registerClient({ redirect_uris: [uri] });
-    const tok = await exchange(ip, freshCode(reg.client_id, uri));
+    const tok = await exchange(ip, await freshCode(reg.client_id, uri));
     assert.equal(tok.status, 429);
     // The host's daily ceiling still refuses, from a fresh IP.
     await preload('oauthRegisterHost', `host:${host}`, LIMITS.oauthRegisterHost.limit, 86_400);

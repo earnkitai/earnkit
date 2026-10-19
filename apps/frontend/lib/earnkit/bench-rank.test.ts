@@ -4,8 +4,6 @@ import { randomBytes } from 'node:crypto';
 import { sql } from './db';
 import { chainPools, rankLines } from './bench-rank';
 
-process.env.EARNKIT_BUILDER_SCORE = 'on';
-process.env.EARNKIT_BENCH = 'on';
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => { if (process.env.DATABASE_URL) await sql().end(); });
 const RUN = randomBytes(3).toString('hex');

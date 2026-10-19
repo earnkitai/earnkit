@@ -2,8 +2,6 @@ import { endsOf, prizeOf } from './entry-text';
 import { CHAIN_NAMES, effortOf, type Verdict } from './match';
 import type { PastRound } from './program-file';
 import type { ProgramRow } from './programs';
-import type { RoundPool } from './bonus-rounds';
-import { bonusLine } from './present';
 
 /**
  * v2.7 §2: a program's guide (difficulty, what won before, what the ecosystem wants, the best bet,
@@ -208,15 +206,7 @@ export type Guide = {
    */
   rules_wants: string[] | null;
   best_bet: string | null;
-  bonus: GuideBonus | null;
 };
-
-/**
- * The guide's builder bonus (programs.ts guideBonus): `cell` and `board` ("earnkit.com/bonus/<slug>")
- * for the public guide page's pill and link; `pool` (v2.10 item 1, Pre-flight P18) for the reply's
- * one bonus line (present.ts bonusLine).
- */
-export type GuideBonus = { cell: string; board: string; pool?: RoundPool };
 
 /** The round "What won" uses: the newest with themes or examples. */
 const wonRound = (p: Pick<GuideFacts, 'past_rounds'>) =>
@@ -243,7 +233,6 @@ function wonLines(r: PastRound): string[] {
 /** v2.7 §2: the guide for one curated program. Pure. */
 export function programGuide(
   p: GuideFacts & Pick<ProgramRow, 'title' | 'summary' | 'ends_at' | 'status'>,
-  bonus: GuideBonus | null,
   now = new Date(),
 ): Guide {
   const closed = p.status !== 'active' || (p.ends_at !== null && p.ends_at <= now);
@@ -265,7 +254,6 @@ export function programGuide(
       : null,
     rules_wants: !p.focus && p.past_rounds.length === 0 && p.rules.length > 0 ? p.rules.slice(0, 2) : null,
     best_bet: p.best_bet ?? null,
-    bonus,
   };
 }
 
@@ -316,8 +304,7 @@ export function guideSourceList(p: GuideFacts & { source_url?: string }, first: 
 
 /**
  * The guide as builder text: short sections, no paragraphs, empty sections left out (v2.10 item 3:
- * only sourced parts; the first prepare for a program shows it, tools.ts prepare_submission). v2.10 item 1:
- * the bonus section is the one bonus line (bonusLine), no board link (the page and site keep it). Pure.
+ * only sourced parts; the first prepare for a program shows it, tools.ts prepare_submission). Pure.
  */
 export function guideText(g: Guide): string {
   const sections = [
@@ -327,7 +314,6 @@ export function guideText(g: Guide): string {
     // v2.10 item 3: only sourced parts; the rules fallback, one per line.
     !g.wants && g.rules_wants && ['What it wants', ...g.rules_wants.map((r) => `- ${r}`)].join('\n'),
     g.best_bet && `Your best bet\n- ${g.best_bet}`,
-    g.bonus && bonusLine(g.bonus.pool),
   ];
   return sections.filter(Boolean).join('\n\n');
 }

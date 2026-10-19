@@ -293,7 +293,7 @@ export function bankEntries(reqs: SubmissionRequirement[], answers: Record<strin
  */
 export const WALLET_KEY = 'payout_wallet';
 /** v2.8.1 §C11: the wallet question, asked once, in the coach's round. Pure. */
-export const walletAsk = (hasBonus: boolean) => `The wallet for your token's fees${hasBonus ? ' and any bonus' : ''} (0x…)?`;
+export const walletAsk = () => "The wallet for your token's fees (0x…)?";
 const WALLET_HINT = 'No wallet yet? Make one at keys.coinbase.com.';
 
 /** One question. `bullet`: shown as "- text" (C17: a later program's round, or the first program's leftovers). */
@@ -441,14 +441,15 @@ export function questionsFor(a: {
   first: boolean;
   project?: string;
   suggested?: Record<string, string>;
-  wallet?: { hasBonus: boolean } | null;
+  /** v2.8.1 §C11: the wallet is asked in this round. */
+  wallet?: boolean;
   /** On a hosted agent (shared_client): saved contact details are named by kind, never quoted. */
   shared?: boolean;
 }): Question[] {
   const items = baseQuestions(a);
   // A form with its own wallet field (an EarnKit campaign) asks it there, never twice.
   if (!a.wallet || items.length === 0 || a.reqs.some((r) => r.key === WALLET_KEY)) return items;
-  const ask = walletAsk(a.wallet.hasBonus);
+  const ask = walletAsk();
   const fits = (t: string) => t.split(/\s+/).length <= MAX_QUESTION_WORDS;
   const join = (q: Question): Question => {
     const text = `${q.text} And ${lowerFirst(ask)}`;

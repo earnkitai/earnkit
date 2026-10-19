@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { bindX } from '../claim';
+import { bindX } from '../x-install';
 import { connectInstallation, saveInstallation } from '../installations';
 import { ensureProfile } from '../profiles';
 import type { XUser } from '../x-oauth';

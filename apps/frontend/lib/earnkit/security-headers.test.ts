@@ -112,14 +112,20 @@ test('5.12 Ruling 7: every cookie EarnKit sets is __Host- (source scan of app/ a
     /Set-Cookie|cookies\(\)\.set|\.cookies\.set/i.test(readFileSync(p, 'utf8')),
   );
   // v2.10 item 7b: the App's setup URL only clears the sign-in's cookie, through github-verify's clearCsrf.
-  // v2.12.1 T6: the X claim (claim.ts) sets its own per-code __Host- cookie, as the GitHub sign-in does.
-  assert.deepEqual(setting.map((p) => p.slice(root.length + 1)).sort(), ['lib/earnkit/claim.ts', 'lib/earnkit/github-app.ts', 'lib/earnkit/github-verify.ts']);
-  const claim = readFileSync(setting.find((p) => p.endsWith('claim.ts'))!, 'utf8');
-  const claimCookies = [...claim.matchAll(/=>\s*`\$\{cookieName\(codeHash\)\}=([^`]*)`/g)];
-  assert.equal(claimCookies.length, 2, 'set and clear');
-  for (const m of claimCookies) assert.match(m[1], /Path=\/; .*HttpOnly; Secure; SameSite=Lax$/);
-  assert.match(claim, /const cookieName = \(codeHash: string\) => `__Host-ekx-/);
-  setting.sort((a, b) => a.localeCompare(b)).shift();
+  // v2.14 T7: the X claim page (claim.ts) and its cookie are gone.
+  // v2.14 T4: the install's X sign-in (x-install.ts) sets its own per-state __Host-eki- cookie.
+  // v2.14 T5: the fallback link's page (x-link.ts) passes on only the cookie x-install.ts newSignin built.
+  assert.deepEqual(setting.map((p) => p.slice(root.length + 1)).sort(), ['lib/earnkit/github-app.ts', 'lib/earnkit/github-verify.ts', 'lib/earnkit/x-install.ts', 'lib/earnkit/x-link.ts']);
+  const link = readFileSync(setting.find((p) => p.endsWith('x-link.ts'))!, 'utf8');
+  assert.deepEqual([...link.matchAll(/'Set-Cookie':\s*([^ ,}]+)/g)].map((m) => m[1]), ['cookie']);
+  assert.match(link, /const \{ to, cookie \} = await newSignin\(/);
+  const install = readFileSync(setting.find((p) => p.endsWith('x-install.ts'))!, 'utf8');
+  const installCookies = [...install.matchAll(/`\$\{signinCookie\(h\)\}=([^`]*)`/g)];
+  assert.equal(installCookies.length, 2, 'set and clear');
+  for (const m of installCookies) assert.match(m[1], /Path=\/; .*HttpOnly; Secure; SameSite=Lax$/);
+  assert.match(install, /export const signinCookie = \(stateHash: string\) => `__Host-eki-/);
+  setting.sort((a, b) => a.localeCompare(b));
+  setting.pop(); // x-link.ts, checked above (x-install.ts too; github-app.ts and github-verify.ts below)
   const app = readFileSync(setting[0], 'utf8');
   assert.deepEqual([...app.matchAll(/'Set-Cookie': ([^}]+)/g)].map((m) => m[1].trim()), ['clearCsrf(nonce)']);
   assert.doesNotMatch(app, /__Host-|Max-Age|cookies\(\)\.set/);

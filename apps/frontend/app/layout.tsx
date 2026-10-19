@@ -1,20 +1,23 @@
 import type { Metadata } from 'next';
-import { Funnel_Display, Funnel_Sans } from 'next/font/google';
+import localFont from 'next/font/local';
 import './globals.css';
 import SchemaOrg from '@/app/components/ui/SchemaOrg';
 import Header from '@/app/components/common/Header';
 import ViewportHeightSetter from './components/common/ViewportHeightSetter';
 
-const funnelDisplay = Funnel_Display({
+// v2.14 spec 6: self-hosted (SIL OFL 1.1, app/fonts/OFL.txt), so a Google Fonts outage can't fail a build.
+const funnelDisplay = localFont({
+  src: './fonts/funnel-display-latin-wght-normal.woff2',
   variable: '--font-funnel-display',
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
+  weight: '400 700',
+  display: 'swap',
 });
 
-const funnellsans = Funnel_Sans({
+const funnellsans = localFont({
+  src: './fonts/funnel-sans-latin-wght-normal.woff2',
   variable: '--font-funnel-sans',
-  subsets: ['latin'],
-  weight: ['300', '400', '500', '600', '700'],
+  weight: '300 700',
+  display: 'swap',
 });
 
 const TITLE = 'EarnKit | Where agents earn';
@@ -59,8 +62,8 @@ export const metadata: Metadata = {
     ],
   },
   twitter: {
-    site: '@earnkit_ai',
-    creator: '@earnkit_ai',
+    site: '@EarnKitAI',
+    creator: '@EarnKitAI',
     card: 'summary_large_image',
     title: TITLE,
     description: DESCRIPTION,

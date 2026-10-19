@@ -11,7 +11,7 @@ import { raiseLine } from './coin-moments';
 import { RAISE_LINES, showRaisingLine } from './raising';
 import RaisingPill from '../../app/components/ui/RaisingPill';
 import {
-  CONFIRMED_LINE, NO_PROJECT_LINE, POST_UPDATE_ASK, UPDATES_ASK, buildAsk, claimAsk, confirmingLine, installAppAsk, linkedLine, privateLine, enterAsk, fitsLine, goLiveAsk, ideasLine, onBenchLine,
+  NOT_ON_BENCH, STATE_COPY, VARIANT_COPY, enterAsk, fitsLine, goLiveAsk, ideasLine,
 } from './bench-reply';
 
 // The components are compiled with the classic JSX runtime here (as feed.test.ts).
@@ -24,12 +24,12 @@ export const TEXTS: string[] = [
   ...[s(18, 100), s(3, 1000), s(10, 19)].flatMap((x) => [benchRank(x)!.short, benchRank(x)!.phrase]),
   ...(['base', 'arc', 'robinhood'] as const).flatMap((chain) => [benchRank(s(1, 100), { chain })!.short, benchRank(s(2, 12), { chain })!.short]),
   // T8: the reply's lines. The 2b lines name a funder and the starter's offer through the BENCH_PITCH_ALLOWED hook (plan B12).
-  NO_PROJECT_LINE, confirmingLine('Recipe planner'), onBenchLine('Recipe planner', 'top 18% of builders', 6), UPDATES_ASK, POST_UPDATE_ASK,
+  // v2.14 T9: the five states' copy (STATE_COPY, VARIANT_COPY).
+  NOT_ON_BENCH, STATE_COPY.not_counted.stand('Recipe planner'), STATE_COPY.shipping.stand('Recipe planner', 'top 18% of builders', 6),
   goLiveAsk('Recipe planner'), enterAsk('Base Builder Grants'), fitsLine('Avalanche Team1 Mini Grants', 'up to $10K', 'Recipe planner', 'open all year'),
-  claimAsk('earnkit.com/claim/abcdefghijkl', 'Recipe planner'), claimAsk('earnkit.com/claim/abcdefghijkl', null), CONFIRMED_LINE('Recipe planner'),
-  // v2.13.4: the private repo's lines, the install ask and the join line.
-  privateLine('Recipe planner'), installAppAsk('Recipe planner', 'https://earnkit.com/github/verify?n=x'), linkedLine('earnkit.com/maya'),
-  ideasLine([{ who: 'Arc', prize: 'up to $10K', for: 'payment apps' }, { who: 'Base', prize: 'up to $5K', for: 'a live app' }]), buildAsk('a tip jar on Arc'),
+  STATE_COPY.signed_out.ask('https://earnkit.com/signin/x'), STATE_COPY.no_project.ask(), STATE_COPY.not_counted.ask('https://earnkit.com/github/verify?n=x'),
+  ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('Recipe planner'), v.ask('Recipe planner')]),
+  ideasLine([{ who: 'Arc', prize: 'up to $10K', for: 'payment apps' }, { who: 'Base', prize: 'up to $5K', for: 'a live app' }]),
   // T9: the raise lines and the pill's words.
   raiseLine('Recipe planner', 'RECIPE', null), showRaisingLine('RECIPE'), RAISE_LINES.on('RECIPE'), RAISE_LINES.off, RAISE_LINES.notLaunched,
   pageWords(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/coin/0xabc' })),
@@ -110,7 +110,7 @@ test('12.7 the landing page\'s words pass the v2.13 rule (copy rules)', async ()
   for (const t of [BENCH_HERO_TITLE, BENCH_HERO_SUBTITLE, BENCH_HERO_SUBTITLE_NO_RAISE, ...BENCH_STEPS_NO_RAISE, BENCH_TOP_TITLE, SEE_BENCH, CAROUSEL_TITLE, SEE_ALL_UPDATES, 'Money open now', BENCH_HOW_TITLE, ...BENCH_STEPS, BENCH_FOOTER_TAGLINE])
     assert.deepEqual(bannedInBench(t, EXEMPT), [], t);
   const row = { rank: 1, line: 'Top 1%', handle: 'maya_makes', name: 'Maya Chen', avatar: null, raising: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
-  const card = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import. It plans a week.', chips: ['Went live', '+31 people'], pinned: false };
+  const card = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import. It plans a week.', chips: ['Went live', '+31 people'], titles: [], pinned: false };
   const rows = Array.from({ length: 12 }, (_, i) => ({ ...row, handle: `b${i}`, rank: i + 1 }));
   const page = pageWords(React.createElement(HomeView, { landing: { ...homeFixture, bench: { rows, chips: ['base', 'robinhood', 'arc'], cards: [card], raising: true } } }));
   // Names: the builder, the project, the coin, the programs' titles, the chains on the chips and logos (R14), the investors' logos (Backed by, unchanged).
@@ -119,7 +119,7 @@ test('12.7 the landing page\'s words pass the v2.13 rule (copy rules)', async ()
   assert.deepEqual(bannedInBench(page, exempt), [], page);
 });
 
-test('13.8 no builder-visible bonus text under the flag: replies, landing, program pages, guides, the install modal, terms (acceptance 7)', async () => {
+test('13.8 no builder-visible bonus text: replies, landing, program pages, guides, the install modal, terms (acceptance 7)', async () => {
   const { default: HomeView } = await import('../../app/HomeView');
   const { homeFixture } = await import('./fixtures/landing');
   const { default: TermsPage } = await import('../../app/terms/page');
@@ -128,29 +128,15 @@ test('13.8 no builder-visible bonus text under the flag: replies, landing, progr
   const { default: ProgramCards } = await import('../../app/components/sections/ProgramCards');
   const { fullGuide } = await import('./fixtures/guide');
   const { toolDescriptions, serverInstructions } = await import('./mcp');
-  const score = process.env.EARNKIT_BUILDER_SCORE;
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
   const bonusWords = /builder bonus|bonus pool|\bbonus\b/i;
-  // Flag off: the guide's pill and the install modal's pill are today's (the switch is what hides them).
-  delete process.env.EARNKIT_BENCH;
-  assert.match(renderToStaticMarkup(React.createElement(GuideView, { page: fullGuide })), /Builder bonus/);
-  assert.match(renderToStaticMarkup(React.createElement(AddToAgent, { onClose: () => {} })), /Builder bonus/);
-  process.env.EARNKIT_BENCH = 'on';
-  try {
-    const pages = [
-      renderToStaticMarkup(React.createElement(HomeView, { landing: { ...homeFixture, bench: { rows: [], chips: [], cards: [], raising: true } } })),
-      renderToStaticMarkup(React.createElement(TermsPage)),
-      // F3: no `bench` prop; GuideView reads the switch itself.
-      renderToStaticMarkup(React.createElement(GuideView, { page: fullGuide })),
-      renderToStaticMarkup(React.createElement(AddToAgent, { onClose: () => {}, bench: true })),
-      // /programs under the flag: every card without its pill.
-      renderToStaticMarkup(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1', layout: 'grid', bonus: false })),
-      ...Object.values(toolDescriptions(true, true)), serverInstructions(true), serverInstructions(false),
-    ];
-    for (const p of pages) assert.doesNotMatch(p, bonusWords, p.slice(0, 200));
-  } finally {
-    delete process.env.EARNKIT_BENCH;
-    if (score === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
-    else process.env.EARNKIT_BUILDER_SCORE = score;
-  }
+  const pages = [
+    renderToStaticMarkup(React.createElement(HomeView, { landing: { ...homeFixture, bench: { rows: [], chips: [], cards: [], raising: true } } })),
+    renderToStaticMarkup(React.createElement(HomeView, { landing: null })),
+    renderToStaticMarkup(React.createElement(TermsPage)),
+    renderToStaticMarkup(React.createElement(GuideView, { page: fullGuide })),
+    renderToStaticMarkup(React.createElement(AddToAgent, { onClose: () => {} })),
+    renderToStaticMarkup(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1', layout: 'grid' })),
+    ...Object.values(toolDescriptions(true, true)), serverInstructions(),
+  ];
+  for (const p of pages) assert.doesNotMatch(p, bonusWords, p.slice(0, 200));
 });

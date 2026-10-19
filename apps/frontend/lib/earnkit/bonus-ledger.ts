@@ -16,11 +16,8 @@ import {
   toEventSelector,
   type Hex,
 } from 'viem';
-import type postgres from 'postgres';
 import type { LocalAccount } from 'viem/accounts';
 import { base } from 'viem/chains';
-import { bookingFor, currentBonusRound, rollsOver, rolloverPrograms, rolloverRounds, type Round } from './bonus-rounds';
-import { blockscout } from './campaigns';
 import { sql } from './db';
 import { LOG_CHUNK, LOG_CHUNK_MIN, RATE_BACKOFF_MS, logError } from './escrow';
 import {
@@ -38,28 +35,24 @@ import {
 } from './payout';
 import { GAS_WALLET_MIN_WEI_DEFAULT, MINI_FEE_RECIPIENT, isEarnkitSplit } from './policy-constants';
 import { BASE_MAINNET } from './sanctions';
-import { benchEnabled } from './builder-score-flag';
 import { withScoringLock } from './scoring-lock';
 
 /**
- * The builder bonus ledger (v2.5 §3, Ruling 5). The payout wallet (CAMPAIGN_PAYOUT_PRIVATE_KEY) is
- * also the builder bonus wallet: every EarnKit coin's 2000 bps slot pays it, in WETH, through
- * Clanker's FeeLocker. tokens.fun's own cron already calls `collectRewards(coin)` for every coin,
- * so EarnKit doesn't routinely collect. Instead, hourly:
+ * The fee ledger (v2.5 §3, Ruling 5; v2.14: no builder bonus). The payout wallet
+ * (CAMPAIGN_PAYOUT_PRIVATE_KEY) is the old bonus wallet: a v2.5-split EarnKit coin's 2000 bps slot
+ * pays it, in WETH, through Clanker's FeeLocker. tokens.fun's own cron already calls
+ * `collectRewards(coin)` for every coin. Hourly:
  * 1. index: reads the FeeLocker's StoreTokens logs for (bonus wallet, WETH) from a stored block
  *    cursor, attributes each deposit to its coin (from the same transaction's receipt) and books it
- *    to that coin's program's open round at the block's time, or to the Safe;
- * 2. collect: sends `collectRewards(coin)` itself only for an EarnKit coin in its round's last 24 h
- *    with no deposit seen from it in 12 h (so its pending fees count before the round freezes);
- * 3. claim: `claim(bonus wallet, WETH)` and `claim(Safe, WETH)` when worth ≥ 10× their gas;
- * 4. sweep: sends the WETH booked to the Safe, not yet swept, from the bonus wallet to the Safe when
+ *    to the Safe;
+ * 2. claim: `claim(bonus wallet, WETH)` and `claim(Safe, WETH)` when worth ≥ 10× their gas;
+ * 3. sweep: sends the WETH booked to the Safe, not yet swept, from the bonus wallet to the Safe when
  *    worth ≥ 10× its gas (the v2.4 idempotent payout: signed and stored before it is broadcast).
- * 5. claim_others (v2.9 D16): after the rounds and the sweep, in at most OTHERS_CLAIM_MS,
- *    `claim(owner, WETH)` for MINI and each EarnKit token's creator when worth ≥ 10× its gas; the
- *    FeeLocker always pays the owner.
+ * 4. claim_others (v2.9 D16): after the sweep, in at most OTHERS_CLAIM_MS, `claim(owner, WETH)` for
+ *    MINI and each EarnKit token's creator when worth ≥ 10× its gas; the FeeLocker always pays the owner.
+ * 5. the Safe index (v2.13.2): the Safe's own deposits from EarnKit coins, for /api/stats.
  * v2.13: coins launched after tokens.fun's split change have no bonus slot (Safe 50, creator 40,
- * MINI 10), so their fees reach the Safe by its own claim. Under the Bench flag the cron runs this
- * ledger without the rounds step, and bonusOn is false, so every bonus deposit books to the Safe.
+ * MINI 10), so their fees reach the Safe by its own claim.
  */
 
 /** The contracts the ledger reads (lowercase). Injectable for the anvil test. */
@@ -258,13 +251,6 @@ export type BonusDeps = {
   othersMs?: number;
   /** Receipt reads per run (default RECEIPTS_PER_RUN). */
   maxReceipts?: number;
-  /** Whether the coin had token transfers since `since` (default: Base Blockscout). */
-  active?: (coin: Hex, since: Date) => Promise<boolean>;
-  /**
-   * The builder bonus rounds step (Task 7: freeze, review, pay), run under the ledger's lease after
-   * the claims and before the sweep. The cron passes bonus-payout.ts advanceRounds; none: skipped.
-   */
-  rounds?: (account: LocalAccount, d: BonusDeps & { rpc: BonusRpc; chain: BonusChain; followOnly: boolean }) => Promise<unknown>;
 };
 
 /** Blocks behind the head the index stays (no reorg reaches them): tokens.fun's Base setting. */
@@ -277,10 +263,6 @@ export const LOG_CALLS_PER_RUN = 50;
 export const RECEIPTS_PER_RUN = 200;
 /** Index steps failing in a row after which the cron answers 503 (as PAY_FAILED_RUNS). */
 export const INDEX_FAILED_RUNS = 6;
-/** EarnKit collects a coin itself only this close to its round's end... */
-export const COLLECT_WINDOW_MS = 24 * 3_600_000;
-/** ...and only when no deposit from it was seen (and EarnKit didn't collect it) this recently. */
-export const COLLECT_QUIET_MS = 12 * 3_600_000;
 
 const CURSOR = 'weth';
 const toDeadline = (d: BonusDeps) => d.deadline ?? Infinity;
@@ -291,47 +273,9 @@ export async function indexedThrough(): Promise<{ block: bigint; time: Date | nu
   return r?.block != null ? { block: BigInt(r.block), time: r.block_time } : null;
 }
 
-type BonusProgram = { id: string; starts_at: Date | null; ends_at: Date | null; status: string; builder_bonus: boolean | null; campaign: unknown };
-
 /**
- * Takes `round` of `programId` for a booking: creates its row 'open' on its first deposit, moves
- * an open row's window to the program file's (Ruling 21: an extended end keeps the round; a
- * frozen one never changes), and locks it (a freeze never races a deposit). Its state.
- */
-async function lockRound(tx: postgres.TransactionSql, programId: string, round: Round) {
-  await tx`
-    INSERT INTO bonus_rounds (round_key, program_id, starts_at, ends_at)
-    VALUES (${round.key}, ${programId}, ${round.starts}, ${round.ends})
-    ON CONFLICT (round_key) DO UPDATE SET starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at
-    WHERE bonus_rounds.state = 'open'
-      AND (bonus_rounds.starts_at, bonus_rounds.ends_at) IS DISTINCT FROM (EXCLUDED.starts_at, EXCLUDED.ends_at)`;
-  const [r] = await tx<{ state: string }[]>`SELECT state FROM bonus_rounds WHERE round_key = ${round.key} FOR UPDATE`;
-  return r.state;
-}
-
-/**
- * v2.8.1 §D (option B): the round a deposit at `at` rolls over to once its coin's program round is
- * over: the earliest still-open round (rolloverRounds) of another program in which the same repo
- * (the coin's `token_repo_key`) has a submitted, complete entry (rolloverPrograms). A round
- * already frozen or paid is passed over, never touched. Null: the Safe, as before.
- */
-export async function rolloverRound(
-  tx: postgres.TransactionSql,
-  coin: { project: number; program: string; repoKey: string | null },
-  at: Date,
-): Promise<string | null> {
-  const programs = await rolloverPrograms(tx, coin, at);
-  for (const c of rolloverRounds(programs, at)) if ((await lockRound(tx, c.programId, c.round)) === 'open') return c.round.key;
-  return null;
-}
-
-/**
- * Books one deposit, idempotently on (tx_hash, log_index): to the open round of the program its coin
- * was entered in, at the block's time; once that round is over (v2.8.1 §D: the window ended, the
- * program closed, or the round froze), to the repo's next open entry (rolloverRound); else to the
- * Safe (no coin, not an EarnKit coin, no open round, the program opted out or is a campaign),
- * logged. The round row is created 'open' on its first deposit and locked while booking, so a
- * freeze never races a deposit. A deposit already booked is never moved.
+ * Books one deposit, idempotently on (tx_hash, log_index), to the Safe (v2.14: there is no builder
+ * bonus, so every deposit is the Safe's), logged with why. A deposit already booked is never moved.
  */
 export async function bookDeposit(
   dep: { txHash: string; logIndex: number; amount: bigint; coin: string | null; blockNumber: bigint; blockTime: Date },
@@ -342,36 +286,15 @@ export async function bookDeposit(
     const [booked] = await tx<{ round_key: string | null; destination: 'round' | 'safe' }[]>`
       SELECT round_key, destination FROM bonus_ledger WHERE tx_hash = ${lower(dep.txHash)} AND log_index = ${dep.logIndex}`;
     if (booked) return { destination: booked.destination, roundKey: booked.round_key, inserted: false };
-    let roundKey: string | null = null;
     let reason = 'no ClaimedRewards from its locker after it in the transaction';
     if (dep.coin) {
-      const [p] = await tx<(BonusProgram & { project: number; repo_key: string | null })[]>`
-        SELECT g.id, g.starts_at, g.ends_at, g.status, g.builder_bonus, g.campaign, p.id AS project, p.token_repo_key AS repo_key
-        FROM projects p JOIN programs g ON g.id = p.program_id
-        WHERE p.coin_address = ${dep.coin}`;
-      if (!p) reason = `${dep.coin} is not an EarnKit coin`;
-      else {
-        const b = bookingFor(p, dep.blockTime);
-        let over = rollsOver(p, dep.blockTime);
-        if (b.destination === 'safe') reason = `${p.id}: ${b.reason}`;
-        else {
-          const state = await lockRound(tx, p.id, b.round);
-          if (state === 'open') roundKey = b.round.key;
-          else {
-            reason = `round ${b.round.key} is ${state}`;
-            over = true;
-          }
-        }
-        if (!roundKey && over) {
-          roundKey = await rolloverRound(tx, { project: p.project, program: p.id, repoKey: p.repo_key }, dep.blockTime);
-          if (!roundKey) reason += '; no open entry of its repo to roll over to';
-        }
-      }
+      const [p] = await tx<{ id: string }[]>`
+        SELECT g.id FROM projects p JOIN programs g ON g.id = p.program_id WHERE p.coin_address = ${dep.coin}`;
+      reason = p ? `${p.id}: builder bonus off` : `${dep.coin} is not an EarnKit coin`;
     }
-    const destination = roundKey ? 'round' : 'safe';
     const inserted = await tx`
       INSERT INTO bonus_ledger (tx_hash, log_index, coin, round_key, destination, amount_wei, block_number, block_time)
-      VALUES (${lower(dep.txHash)}, ${dep.logIndex}, ${dep.coin}, ${roundKey}, ${destination}, ${dep.amount.toString()},
+      VALUES (${lower(dep.txHash)}, ${dep.logIndex}, ${dep.coin}, NULL, 'safe', ${dep.amount.toString()},
         ${dep.blockNumber.toString()}, ${dep.blockTime})
       ON CONFLICT DO NOTHING RETURNING tx_hash`;
     if (inserted.length === 0) {
@@ -380,9 +303,8 @@ export async function bookDeposit(
         SELECT round_key, destination FROM bonus_ledger WHERE tx_hash = ${lower(dep.txHash)} AND log_index = ${dep.logIndex}`;
       return { destination: stored.destination, roundKey: stored.round_key, inserted: false };
     }
-    if (destination === 'safe')
-      log(`[bonus] ${dep.txHash}:${dep.logIndex} (${dep.amount} wei) booked to the Safe: ${reason}`);
-    return { destination, roundKey, inserted: true };
+    log(`[bonus] ${dep.txHash}:${dep.logIndex} (${dep.amount} wei) booked to the Safe: ${reason}`);
+    return { destination: 'safe', roundKey: null, inserted: true };
   });
 }
 
@@ -509,7 +431,7 @@ const SAFE_CURSOR = 'safe';
  * reads); a deposit from a coin EarnKit didn't launch (any other tokens.fun coin) is never stored.
  * Booking is idempotent on (tx_hash, log_index); a range is booked completely before the cursor passes
  * it. With no cursor: `d.startBlock`, else SAFE_INDEX_START_BLOCK, else BONUS_INDEX_START_BLOCK, else
- * FIRST_LOOKBACK blocks back. Run by runBonusLedger under the Bench flag only, through safeIndexStep.
+ * FIRST_LOOKBACK blocks back. Run by runBonusLedger, through safeIndexStep.
  */
 export async function indexSafeFees(d: BonusDeps & { rpc: BonusRpc; chain: BonusChain }) {
   const readStores = d.rpc.safeStoreLogs;
@@ -683,101 +605,6 @@ export async function sendCall(
   return { hash, status: r?.status ?? ('pending' as const) };
 }
 
-/**
- * Whether Base Blockscout lists a transfer of `coin` at or after `since` (its newest first). An
- * explorer failure counts as active: collecting costs a little gas; skipping could leave a round's
- * fees out of its pool.
- */
-async function tradedSince(coin: Hex, since: Date, deadline: number) {
-  try {
-    const page = await blockscout<{ items?: { timestamp?: string }[] }>(`/api/v2/tokens/${coin}/transfers`, deadline);
-    const newest = page.items?.[0]?.timestamp;
-    return Boolean(newest && new Date(newest) >= since);
-  } catch (err) {
-    console.error('[bonus] transfers of', coin, err);
-    return true;
-  }
-}
-
-/**
- * Step 2 (Ruling 5): EarnKit sends `collectRewards(coin)` itself only for an EarnKit coin whose
- * current round (its program's, or, v2.8.1 §D, the round its fees rolled over to) ends within
- * COLLECT_WINDOW_MS (prefiltered in SQL, newest coins first), and only when no deposit from it was booked, and
- * EarnKit didn't collect it, in the last COLLECT_QUIET_MS. The locker is the first that simulates
- * cleanly (tokens.fun `pickLocker`); a coin whose split doesn't pay the bonus wallet (launched
- * before the v2.5 split) is skipped. Its deposits are booked by the next index run. One coin's
- * failure never stops the others.
- */
-export async function collectNearEnd(account: LocalAccount, d: BonusDeps & { rpc: BonusRpc; chain: BonusChain }) {
-  const now = d.now ?? new Date();
-  const quiet = new Date(now.getTime() - COLLECT_QUIET_MS);
-  const soon = new Date(now.getTime() + COLLECT_WINDOW_MS);
-  // A rolling program's round is the UTC month: it ends soon when the month does.
-  const monthEndsSoon = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1) <= soon.getTime();
-  /** Program `a` has the builder bonus and its round open now ends within COLLECT_WINDOW_MS. */
-  const endsSoon = (a: 'g' | 'x') => {
-    const x = sql()(a);
-    return sql()`(${x}.status = 'active' AND ${x}.builder_bonus AND ${x}.campaign IS NULL
-      AND (${x}.starts_at IS NULL OR ${x}.starts_at <= ${now})
-      AND ((${x}.ends_at IS NOT NULL AND ${x}.starts_at IS NOT NULL AND ${x}.ends_at > ${now} AND ${x}.ends_at <= ${soon})
-        OR (${x}.ends_at IS NULL AND ${monthEndsSoon})))`;
-  };
-  const coins = await sql()<
-    { project: number; coin: Hex; repo_key: string | null; id: string; title: string; starts_at: Date | null; ends_at: Date | null; status: string; builder_bonus: boolean | null; campaign: unknown }[]
-  >`
-    SELECT p.id AS project, p.coin_address AS coin, p.token_repo_key AS repo_key, g.id, g.title, g.starts_at, g.ends_at, g.status, g.builder_bonus, g.campaign
-    FROM projects p JOIN programs g ON g.id = p.program_id
-    WHERE p.coin_address IS NOT NULL AND p.token_status = 'launched'
-      AND (p.coin_collected_at IS NULL OR p.coin_collected_at < ${quiet})
-      AND NOT EXISTS (SELECT 1 FROM bonus_ledger l WHERE l.coin = p.coin_address AND l.block_time >= ${quiet})
-      -- T5 fix round 1: only coins that may have a round ending within the window: their own
-      -- program's, or (v2.8.1 §D) a program where the repo has a submitted, complete entry, so the
-      -- rollover read below stays bounded.
-      AND (${endsSoon('g')} OR EXISTS (
-        SELECT 1 FROM projects e JOIN programs x ON x.id = e.program_id
-        WHERE e.bonus_repo_key = p.token_repo_key AND e.program_id <> p.program_id
-          AND e.submission_proof_ok_at <= ${now} AND e.complete_at <= ${now}
-          AND e.confirm_choice IS DISTINCT FROM 'skip' AND ${endsSoon('x')}))
-    ORDER BY p.id DESC`;
-  const out: { coin: string; result: string }[] = [];
-  const active = d.active ?? ((coin: Hex, since: Date) => tradedSince(coin, since, toDeadline(d)));
-  for (const c of coins) {
-    if (Date.now() >= toDeadline(d)) break;
-    // v2.8.1 §D: the round the coin's fees book to now (currentBonusRound): its own program's while
-    // that round is open, or the round they roll over to (also when the home round froze, Minor 5).
-    const round = (await currentBonusRound(c, now))?.round ?? null;
-    if (!round || round.ends.getTime() - now.getTime() > COLLECT_WINDOW_MS) continue;
-    try {
-      // Only a coin that traded in the last 24 h has new fees worth the gas (fix round 1, a).
-      if (!(await active(c.coin, new Date(now.getTime() - COLLECT_WINDOW_MS)))) {
-        out.push({ coin: c.coin, result: 'no transfers in 24 h' });
-        continue;
-      }
-      let locker: Hex | null = null;
-      // A transport error throws here (before the coin is stamped): 'failed', retried next run.
-      for (const l of d.chain.lockers) if (await d.rpc.canCollect(l, c.coin, account.address)) { locker = l; break; }
-      // Recorded before sending: a crash or a revert waits COLLECT_QUIET_MS instead of resending hourly.
-      await sql()`UPDATE projects SET coin_collected_at = ${now} WHERE id = ${c.project}`;
-      if (!locker) {
-        out.push({ coin: c.coin, result: 'no locker accepts it' });
-        continue;
-      }
-      if (!(await d.rpc.rewardRecipients(locker, c.coin)).includes(lower(account.address))) {
-        out.push({ coin: c.coin, result: 'its fees do not pay the bonus wallet' });
-        continue;
-      }
-      const data = encodeFunctionData({ abi: LOCKER_ABI, functionName: 'collectRewards', args: [c.coin] });
-      const gas = await d.rpc.estimateGas({ account: account.address, to: locker, data });
-      const sent = await sendCall(account, d.rpc, locker, data, gas, toDeadline(d), d.nonces);
-      out.push({ coin: c.coin, result: `collect ${sent.status} ${sent.hash}` });
-    } catch (err) {
-      console.error('[bonus] collect', c.coin, err);
-      out.push({ coin: c.coin, result: outOfGas(err) ? NEEDS_GAS : 'failed' });
-    }
-  }
-  return out;
-}
-
 /** v2.9 D16: who a claim pays. */
 export type ClaimRole = 'bonus' | 'safe' | 'creator' | 'mini';
 
@@ -947,7 +774,7 @@ async function sweepWaitsOnClaim(account: LocalAccount, d: BonusDeps & { rpc: Bo
   const amount = BigInt(wei ?? '0');
   if (!worthIt(amount, gas, maxFeePerGas)) return false;
   const balance = await d.rpc.balanceOf(d.chain.weth, account.address);
-  return balance < amount || !(await roundsCovered(account, d, amount, balance));
+  return balance < amount;
 }
 
 type SweepRow = {
@@ -1002,28 +829,6 @@ export const sweepStore: PayoutStore = {
  * the unswept total is at least 10× the transfer's gas and the wallet holds it, the rows are
  * reserved for a new sweep (one transaction), which `payWinner` then signs, stores and sends.
  */
-/**
- * Whether sending `amount` from the wallet leaves every unpaid round covered (fix round 1, I1):
- * wallet − amount ≥ Σ(unpaid round money) − (what the FeeLocker still holds for the wallet that
- * can be round money). Of `availableFees(bonus wallet)`, up to the unswept Safe bookings may be the
- * Safe's own unclaimed deposits, so only the rest counts toward the rounds. Unpaid round money
- * (Task 7): the bookings of every round not yet 'paid' or 'empty' (an empty round's bookings are
- * the Safe's), less what those rounds' winners were already paid.
- */
-export async function roundsCovered(account: LocalAccount, d: { rpc: BonusRpc; chain: BonusChain }, amount: bigint, balance: bigint) {
-  const [{ rounds, paid, safe }] = await sql()<{ rounds: string | null; paid: string | null; safe: string | null }[]>`
-    SELECT
-      (SELECT sum(l.amount_wei) FROM bonus_ledger l JOIN bonus_rounds r ON r.round_key = l.round_key
-        WHERE l.destination = 'round' AND r.state NOT IN ('paid', 'empty'))::text AS rounds,
-      (SELECT sum(p.amount_wei) FROM bonus_payouts p JOIN bonus_rounds r ON r.round_key = p.round_key
-        WHERE p.status = 'paid' AND r.state NOT IN ('paid', 'empty'))::text AS paid,
-      (SELECT sum(amount_wei) FROM bonus_ledger WHERE destination = 'safe' AND swept_tx IS NULL)::text AS safe`;
-  const available = await d.rpc.availableFees(account.address, d.chain.weth);
-  const forRounds = available > BigInt(safe ?? '0') ? available - BigInt(safe ?? '0') : 0n;
-  return balance - amount >= BigInt(rounds ?? '0') - BigInt(paid ?? '0') - forRounds;
-}
-const SHORT = 'would leave a round short (its WETH is not all claimed yet)';
-
 export async function sweepToSafe(account: LocalAccount, d: BonusDeps & { rpc: BonusRpc; chain: BonusChain }) {
   let [open] = await sql()<SweepRow[]>`SELECT * FROM bonus_sweeps WHERE status IS DISTINCT FROM 'paid' ORDER BY id LIMIT 1`;
   if (!open) {
@@ -1037,7 +842,6 @@ export async function sweepToSafe(account: LocalAccount, d: BonusDeps & { rpc: B
     const data = encodeFunctionData({ abi: erc20Abi, functionName: 'transfer', args: [d.chain.safe, amount] });
     const [gas, fees] = await Promise.all([d.rpc.estimateGas({ account: account.address, to: d.chain.weth, data }), d.rpc.fees()]);
     if (!worthIt(amount, gas, fees.maxFeePerGas)) return { result: `${amount} wei: under 10x gas` };
-    if (!(await roundsCovered(account, d, amount, balance))) return { result: `${amount} wei to sweep ${SHORT}` };
     if (Date.now() >= toDeadline(d)) return { result: 'out of time; next run' };
     open = await sql().begin(async (tx) => {
       const [s] = await tx<{ id: number }[]>`
@@ -1056,8 +860,6 @@ export async function sweepToSafe(account: LocalAccount, d: BonusDeps & { rpc: B
     const balance = await d.rpc.balanceOf(d.chain.weth, account.address);
     if (balance < BigInt(open.amount_wei))
       return { result: `sweep ${open.id} of ${open.amount_wei} wei waits; the wallet holds ${balance}`, sweep: open.id };
-    if (!(await roundsCovered(account, d, BigInt(open.amount_wei), balance)))
-      return { result: `sweep ${open.id} of ${open.amount_wei} wei ${SHORT}`, sweep: open.id };
   }
   const row: PayoutRow = {
     id: open.id,
@@ -1107,7 +909,7 @@ async function countIndexRun(ok: boolean, id: string = CURSOR) {
 }
 
 /**
- * The cron step: index, collect, claim, the rounds (`deps.rounds`), sweep, under one lease (a concurrent run gets 'busy').
+ * The cron step: index, claim, sweep, the creator and MINI claims and the Safe index, under one lease (a concurrent run gets 'busy').
  * v2.9 D17: first the payout wallet's ETH balance (`gas`; under gasMinWei() it is `low`, which the cron escalates).
  * Skipped without a usable CAMPAIGN_PAYOUT_PRIVATE_KEY (missing, or malformed: `problem`) or off
  * Base mainnet; the cron escalates a skip once the bonus can earn (Ruling 20). One step's failure
@@ -1155,23 +957,17 @@ export async function runBonusLedger(deps: BonusDeps = {}) {
     // I5: one nonce floor for the run, seeded once from the stored, unmined sends.
     d.nonces.next = Math.max(d.nonces.next, ...(await openStoredSends(account)).map((o) => o.nonce + 1));
     // Stored sends first, so a new claim or collect never takes their nonce (fix round 1, I2).
-    if (await settleStoredSends(account, rpc)) {
-      await step('collect', () => collectNearEnd(account, d));
-      await step('claim', () => claimFees(account, d));
-    } else out.claim = out.collect = 'waiting on a stored send';
-    // Task 7: rounds freeze, review and pay after the claims (claimed round WETH is there to pay)
-    // and before the sweep (which never takes unpaid round money: roundsCovered).
-    // Fix round 1 (a): with a stored send not rebroadcast, the rounds only follow transfers in flight.
+    if (await settleStoredSends(account, rpc)) await step('claim', () => claimFees(account, d));
+    else out.claim = 'waiting on a stored send';
     const settled = out.claim !== 'waiting on a stored send';
-    if (deps.rounds) await step('rounds', () => deps.rounds!(account, { ...d, followOnly: !settled }));
     await step('sweep', () => sweepToSafe(account, d));
     // v2.9 D16 (fix round 1): creator and MINI claims last, in their own bounded slice, so they
-    // never take time from the bonus payouts or the sweep; only when no stored send waits.
+    // never take time from the sweep; only when no stored send waits.
     if (settled) await step('claim_others', () => claimForOthers(account, d));
     else out.claim_others = 'waiting on a stored send';
     // v2.13.2 (2), review 1c: the Safe's own deposits from EarnKit coins (both splits), for /api/stats,
-    // last, in its own slice, so the money steps always run first. Flag off: no step.
-    if (benchEnabled()) Object.assign(out, await safeIndexStep(d));
+    // last, in its own slice, so the money steps always run first.
+    Object.assign(out, await safeIndexStep(d));
     return out;
   }, leaseMs);
   return r === 'busy' ? { skipped: 'busy' } : r;

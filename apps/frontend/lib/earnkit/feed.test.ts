@@ -8,8 +8,6 @@ import { CAROUSEL_MAX, FEED_WEEK_MAX, carouselCards, feedRankStep, feedWeeks, po
 import FeedView, { FEED_TITLE } from '../../app/feed/FeedView';
 import UpdateCard from '../../app/components/ui/UpdateCard';
 
-process.env.EARNKIT_BUILDER_SCORE = 'on';
-process.env.EARNKIT_BENCH = 'on';
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => { if (process.env.DATABASE_URL) await sql().end(); });
 (globalThis as { React?: typeof React }).React = React;
@@ -104,16 +102,23 @@ test('6.5 a person who is not listed (unclaimed, hidden or held) or a project no
 });
 
 test('6.6 the feed page: long cards, plain words, no "written by", no all-caps labels', () => {
-  const card = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import.', chips: ['Went live', '+31 people'], pinned: false };
+  const card = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import.', titles: ['Fix the timer', 'Add the shopping list'], chips: ['Went live', '+31 people'], pinned: false };
   const html = renderToStaticMarkup(React.createElement(FeedView, { weeks: [{ monday: '2026-10-12', label: 'Week of Oct 12', cards: [card] }] }));
-  for (const s of [FEED_TITLE, 'Week of Oct 12', 'Maya Chen', '@maya_makes', 'Recipe planner', 'Added fridge photo import.', 'Went live', '+31 people'])
+  for (const s of [FEED_TITLE, 'Week of Oct 12', 'Maya Chen', '@maya_makes', 'Recipe planner', 'Added fridge photo import.', 'Went live', '+31 people', 'Fix the timer', 'Add the shopping list'])
     assert.ok(html.includes(s.replace(/'/g, '&#x27;')), s);
-  // R6 is about the words a person reads: a link's URL (the footer's Docs, README#connect-an-agent) isn't one.
-  assert.doesNotMatch(html.replace(/<[^>]+>/g, ' '), /written by|agent/i);
+  assert.doesNotMatch(html.replace(/<[^>]+>/g, ' '), /written by|agent/i); // text only: the Docs link's anchor is not copy
   assert.match(html, /href="\/maya_makes"/);
   const square = renderToStaticMarkup(React.createElement(UpdateCard, { card, shape: 'square' }));
   assert.match(square, /data-shape="square"/);
+  // v2.14 spec 3: the square card has room for one title.
+  assert.ok(square.includes('Fix the timer') && !square.includes('Add the shopping list'));
   assert.equal(renderToStaticMarkup(React.createElement(FeedView, { weeks: [] })).includes('No updates yet'), true);
+});
+
+test('6.7b v2.14 spec 3: a title is plain text, never markup or a link', () => {
+  const html = renderToStaticMarkup(React.createElement(UpdateCard, { card: { week: '2026-10-12', chips: [], text: null, titles: ['<b>x</b> https://evil.example'] }, shape: 'long', showPerson: false }));
+  assert.ok(html.includes('&lt;b&gt;x&lt;/b&gt;'));
+  assert.doesNotMatch(html, /<a /);
 });
 
 test('6.7 the card renders stored text as plain text: markup is escaped, only own https links become links', () => {

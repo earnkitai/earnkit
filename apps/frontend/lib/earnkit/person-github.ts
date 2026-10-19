@@ -137,18 +137,6 @@ export function personGithubFrom(json: unknown, now: Date): PersonGithub | null 
   return { login, twitter: str(user.twitterUsername), website: str(user.websiteUrl), repos };
 }
 
-/** One GraphQL call for `login` (commit days since 52 weeks before `d.now`). */
-export async function readPersonGithub(login: string, d: ReaderDeps): Promise<PersonGithub | null> {
-  if (!LOGIN.test(login)) throw new Error('not a GitHub login');
-  return personGithubFrom(await d.ghGraphql(PERSON_GITHUB_QUERY, { login, since: since(d.now) }), d.now);
-}
-
-/** v2.12.2: one light GraphQL call: `login`'s newest `first` own public repos (OWNED_REPOS_QUERY). */
-export async function readOwnedRepos(login: string, first: number, d: ReaderDeps): Promise<PersonGithub | null> {
-  if (!LOGIN.test(login)) throw new Error('not a GitHub login');
-  return personGithubFrom(await d.ghGraphql(OWNED_REPOS_QUERY, { login, first }), d.now);
-}
-
 /**
  * Up to REPOS_MAX repos by name ('owner/name') in one GraphQL call: a tracked repo outside the person
  * query's newest 100, or an organization's repo. Keyed by the asked name (lowercase); a repo GitHub

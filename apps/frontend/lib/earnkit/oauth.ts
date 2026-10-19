@@ -4,15 +4,17 @@ import {
   randomBytes,
   timingSafeEqual,
 } from 'node:crypto';
+import type { XUser } from './x-oauth';
 
 /**
- * Anonymous OAuth for the hosted MCP endpoint.
+ * OAuth for the hosted MCP endpoint.
  *
  * MCP clients (Grok, Muse, Claude, Cursor, Codex...) connect to remote servers with
- * OAuth 2.1 + PKCE + dynamic client registration. EarnKit has no accounts, so
- * the authorize step approves instantly and the issued token is the
- * installation. Nothing is stored except the installation itself: client ids
- * and codes are signed with EARNKIT_AUTH_SECRET.
+ * OAuth 2.1 + PKCE + dynamic client registration. The issued token is the installation; client ids
+ * and codes are signed with EARNKIT_AUTH_SECRET. v2.14 spec 1: the authorize step signs the person in
+ * with X (x-install.ts) and the code carries the X user in its signed payload, so the token exchange
+ * binds the installation to that X account. A client serving many builders (servesMany), or X not
+ * configured, keeps the v2.4 anonymous approval.
  */
 
 const CODE_TTL_MS = 5 * 60 * 1000;
@@ -184,7 +186,8 @@ export const registrationLimitKey = (clientId: string) => `client:${clientKeyOf(
 export const clientKeyOf = (clientId: string) =>
   createHash('sha256').update(clientId).digest('hex').slice(0, 32);
 
-type CodePayload = { c: string; r: string; ch: string; e: number; n: string };
+/** v2.14: `x`, the X user signed in at the authorize step (id, username, name, avatar), inside the signed code. */
+type CodePayload = { c: string; r: string; ch: string; e: number; n: string; x?: { id: string; u: string; n: string; a: string | null } };
 
 /** RFC 7591 dynamic client registration. The client id carries its redirect URIs. */
 export function registerClient(metadata: {
@@ -230,53 +233,92 @@ export function registerClient(metadata: {
 }
 
 /**
- * Validates an authorize request and returns the redirect URL with a code.
- * Throws with `redirect: false` semantics (invalid_client / invalid_redirect_uri)
- * when the error must not be sent to the redirect URI.
+ * v2.14 A4 and the S6 ruling: the exact documented callbacks of per-user agent hosts, whose OAuth return
+ * lands in the signer's own session (T1 preflight). Only these https redirects go straight to X; any other
+ * (another path, a subdomain, chatgpt.com/connector/oauth/<id>) first sees the page naming its host.
  */
-export function authorize(params: URLSearchParams) {
+export const AGENT_REDIRECT_URIS = [
+  'https://claude.ai/api/mcp/auth_callback',
+  'https://chatgpt.com/connector_platform_oauth_redirect',
+  'https://www.cursor.com/agents/mcp/oauth/callback',
+] as const;
+/** v2.14 A1: hosted agents that serve many builders from one registration: no person binding (spec 1). */
+export const MANY_USER_HOSTS = ['grok.com', 'x.ai', 'x.com', 'meta.ai'] as const;
+const under = (host: string, list: readonly string[]) => list.some((h) => host === h || host.endsWith(`.${h}`));
+
+export type PendingAuthorize = { client_id: string; redirect_uri: string; state: string | null; code_challenge: string };
+export type RedirectClass = 'loopback' | 'app' | 'agent_host' | 'other';
+export type CheckedAuthorize = { req: PendingAuthorize; redirectClass: RedirectClass; host: string | null; many: boolean; clientName: string | null };
+
+/**
+ * v2.14 S6 (fix round 1): the custom schemes of known agent apps (the editors and Claude listed below). Only
+ * these count as `app`: the OS hands the code to that app on the builder's own machine. Any other scheme
+ * (browser trampolines such as microsoft-edge:, x-safari-https:, googlechromes:, firefox:, opera*, web+*,
+ * intent:, or anything unknown) can reopen an attacker's https page, so it is `other`.
+ */
+export const AGENT_APP_SCHEMES = ['cursor', 'vscode', 'vscode-insiders', 'windsurf', 'claude'] as const;
+
+/**
+ * Where a registered redirect sends the code (isAllowedRedirectUri allows http only on loopback, any
+ * port). Only loopback (`loopback`) and an AGENT_APP_SCHEMES scheme (`app`) land on the builder's own
+ * machine; `agent_host` only for an exact AGENT_REDIRECT_URIS entry (the string as registered, so no query,
+ * port or case variant); every other redirect, https or any other scheme, is `other` and sees the warning
+ * page first. `host`: the https host with its port (u.host), else null. Pure.
+ */
+export function redirectClass(uri: string): { cls: RedirectClass; host: string | null } {
+  const u = new URL(uri);
+  if (u.protocol === 'http:') return { cls: 'loopback', host: null };
+  if (u.protocol !== 'https:')
+    return { cls: (AGENT_APP_SCHEMES as readonly string[]).includes(u.protocol.slice(0, -1).toLowerCase()) ? 'app' : 'other', host: null };
+  return { cls: (AGENT_REDIRECT_URIS as readonly string[]).includes(uri) ? 'agent_host' : 'other', host: u.host };
+}
+
+/** v2.14 A1: one registration serving many builders (by its name, or a hosted bot's redirect host). Pure. */
+export function servesMany(c: { r: string[]; cn?: string }): boolean {
+  const words = ` ${(c.cn ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()} `;
+  if (HOSTED_CLIENT_NAMES.some((n) => words.includes(` ${n} `))) return true;
+  return redirectHosts(c.r).some((h) => under(h, MANY_USER_HOSTS));
+}
+
+/**
+ * Validates an authorize request as v2.4 did: an unknown client or an unregistered redirect throws (shown on
+ * our page, never redirected); a request without response_type=code and a PKCE S256 challenge is sent back to
+ * the redirect with invalid_request.
+ */
+export function checkAuthorize(params: URLSearchParams): CheckedAuthorize | { error: URL } {
   const clientId = params.get('client_id') ?? '';
   const redirectUri = params.get('redirect_uri') ?? '';
   const client = verify<ClientPayload>('client', clientId);
-  if (!client)
-    throw new OAuthError(
-      'invalid_client',
-      'Unknown client_id. Register first.',
-    );
-  if (!client.r.includes(redirectUri))
-    throw new OAuthError(
-      'invalid_redirect_uri',
-      'redirect_uri was not registered',
-    );
-
-  const back = new URL(redirectUri);
+  if (!client) throw new OAuthError('invalid_client', 'Unknown client_id. Register first.');
+  if (!client.r.includes(redirectUri)) throw new OAuthError('invalid_redirect_uri', 'redirect_uri was not registered');
   const state = params.get('state');
-  if (state) back.searchParams.set('state', state);
-
   const challenge = params.get('code_challenge');
-  if (
-    params.get('response_type') !== 'code' ||
-    !challenge ||
-    params.get('code_challenge_method') !== 'S256'
-  ) {
+  if (params.get('response_type') !== 'code' || !challenge || params.get('code_challenge_method') !== 'S256') {
+    const back = new URL(redirectUri);
+    if (state) back.searchParams.set('state', state);
     back.searchParams.set('error', 'invalid_request');
-    back.searchParams.set(
-      'error_description',
-      'Requires response_type=code and a PKCE S256 code_challenge',
-    );
-    return back;
+    back.searchParams.set('error_description', 'Requires response_type=code and a PKCE S256 code_challenge');
+    return { error: back };
   }
+  const { cls, host } = redirectClass(redirectUri);
+  return { req: { client_id: clientId, redirect_uri: redirectUri, state, code_challenge: challenge }, redirectClass: cls, host, many: servesMany(client), clientName: clientNameOf(client.cn) };
+}
 
-  back.searchParams.set(
-    'code',
-    sign('code', {
-      c: clientId,
-      r: redirectUri,
-      ch: challenge,
-      e: Date.now() + CODE_TTL_MS,
-      n: randomBytes(12).toString('base64url'),
-    } satisfies CodePayload),
-  );
+/**
+ * The redirect with a code. v2.14: `x` (the signed-in X user) rides in the signed payload, so the token
+ * exchange binds it and nothing else can. The client and redirect are checked again (the request came back
+ * from storage). `issuer`: RFC 9207's iss (A22).
+ */
+export function issueCode(req: PendingAuthorize, x: XUser | null, issuer?: string): URL {
+  const client = verify<ClientPayload>('client', req.client_id);
+  if (!client || !client.r.includes(req.redirect_uri)) throw new OAuthError('invalid_client', 'Unknown client_id. Register first.');
+  const back = new URL(req.redirect_uri);
+  if (req.state) back.searchParams.set('state', req.state);
+  if (issuer) back.searchParams.set('iss', issuer);
+  back.searchParams.set('code', sign('code', {
+    c: req.client_id, r: req.redirect_uri, ch: req.code_challenge, e: Date.now() + CODE_TTL_MS, n: randomBytes(12).toString('base64url'),
+    ...(x && { x: { id: x.id, u: x.username, n: x.name, a: x.avatar } }),
+  } satisfies CodePayload));
   return back;
 }
 
@@ -298,6 +340,8 @@ export function exchangeCode(form: URLSearchParams): {
   hostedHost: string | null;
   /** v2.13.4 R6: the client's registered name (clientNameOf), or null. */
   clientName: string | null;
+  /** v2.14 spec 1: the X user signed in at the authorize step (from the signed code), or null (anonymous). */
+  x: XUser | null;
 } {
   if (form.get('grant_type') !== 'authorization_code') {
     throw new OAuthError(
@@ -323,18 +367,22 @@ export function exchangeCode(form: URLSearchParams): {
   }
 
   const client = verify<ClientPayload>('client', payload.c);
-  const clientKey =
-    typeof client?.n === 'string' && client.n.length > 0
-      ? clientKeyOf(payload.c)
-      : undefined;
+  // A client serving many builders never binds a person (A1), even if a code for it carried an X user.
+  const x: XUser | null = payload.x && /^\d{1,20}$/.test(payload.x.id) && !(client && servesMany(client))
+    ? { id: payload.x.id, username: payload.x.u, name: payload.x.n, avatar: payload.x.a }
+    : null;
+  // v2.14 A2: one installation per registration and X account.
+  const clientKey = typeof client?.n === 'string' && client.n.length > 0 ? clientKeyOf(x ? `${payload.c}\nx:${x.id}` : payload.c) : undefined;
   const uris = client?.r ?? [payload.r];
   return {
     token: `ek_${mac('token', code)}`,
     clientKey,
-    shared: client?.s === 1 || isSharedClient({ redirect_uris: uris }),
+    // v2.14 A1: a token signed in with X is one builder's, whatever the redirect host.
+    shared: x ? false : client?.s === 1 || isSharedClient({ redirect_uris: uris }),
     limitKey: registrationLimitKey(payload.c),
     hostedHost: hostedRedirectHost(uris),
     clientName: clientNameOf(client?.cn),
+    x,
   };
 }
 
@@ -348,6 +396,8 @@ export function authorizationServerMetadata(origin: string) {
     grant_types_supported: ['authorization_code'],
     code_challenge_methods_supported: ['S256'],
     token_endpoint_auth_methods_supported: ['none'],
+    // v2.14 (A22): the authorize redirect carries RFC 9207's iss.
+    authorization_response_iss_parameter_supported: true,
   };
 }
 

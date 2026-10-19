@@ -9,7 +9,7 @@ import type { BenchAsk } from './bench-reply';
  * v2.13 spec "4. Optional: raise" (R8): the one project's coin, the raising flag on it, the pill.
  * A coin launched before v2.13 never turns the pill on by itself: the builder says yes first
  * ("Want to show you're raising with $X?", once per project). "Stop raising" clears the flag; the
- * coin stays. Everything here is reached only under the Bench flag, and the pill, the ask and
+ * coin stays. The pill, the ask and
  * setRaising do nothing while EARNKIT_RAISING is off (final fix, controller ruling).
  */
 export const RAISE_LINES = {

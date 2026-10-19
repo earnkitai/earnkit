@@ -3,9 +3,7 @@ import { PROFILES_ANCHOR, PROFILES_POINTS, PROFILES_TITLE } from '../../../lib/e
 
 /**
  * v2.12 spec 8, v2.12.1 T12: /terms#builder-profiles, laid out as the policy section's "What EarnKit
- * records" (title left, list right). The words live in lib/earnkit/policy.ts (PROFILES_POINTS). Shown
- * only with EARNKIT_BUILDER_SCORE on (app/terms/page.tsx). Needs the owner's lawyer review before the
- * flag goes on.
+ * records" (title left, list right). The words live in lib/earnkit/policy.ts (PROFILES_POINTS).
  */
 export default function ProfilesSection() {
   return (

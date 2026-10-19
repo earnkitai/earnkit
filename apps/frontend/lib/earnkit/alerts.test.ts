@@ -28,7 +28,7 @@ import {
   type BonusWin,
 } from './alerts';
 import { sql } from './db';
-import { boardLink, shortWallet } from './entry-text';
+import { shortWallet } from './entry-text';
 import { rememberWallets } from './installations';
 import { handlers } from './tools';
 
@@ -88,7 +88,7 @@ test('v2.5 Task 8: a builder bonus win shows once, names the program, before oth
   });
   const line = (id: number) =>
     `you were paid a 0.12 ETH builder bonus for Arc Microgrants, sent to ${BONUS_WALLET_SHORT} ` +
-    `(basescan.org/tx/0x${id}) · earnkit.com/bonus/arc-microgrants-2026-09-16`;
+    `(basescan.org/tx/0x${id})`;
   const f: AlertFacts = { ...empty, bonusWins: [win(1, 5)] };
   const r = alertLines({ checkedAt: t(4), state: null, feeAlertedUsd: null }, f);
   assert.deepEqual(r.lines, [line(1)]);
@@ -149,16 +149,16 @@ test('v2.6 §3 fix round 1 (Ruling 25 supersedes P1): alert wording, money first
     entries: [],
   });
   assert.deepEqual(lines, [
-    `you were paid a 0.12 ETH builder bonus for Arc Microgrants, sent to ${BONUS_WALLET_SHORT} (basescan.org/tx/${txHash}) · earnkit.com/bonus/arc-microgrants-2026-09-16`,
+    `you were paid a 0.12 ETH builder bonus for Arc Microgrants, sent to ${BONUS_WALLET_SHORT} (basescan.org/tx/${txHash})`,
     'you have $138 in token fees to claim on tokens.fun',
-    'your entry moved into the top 10 for the builder bonus (Arc Microgrants) · earnkit.com/bonus/arc-microgrants-2026-09-16',
+    'your entry moved into the top 10 for the builder bonus (Arc Microgrants)',
   ]);
   const joined = sinceLine(lines)!;
   assert.equal(
     joined,
-    `Since you last checked: you were paid a 0.12 ETH builder bonus for Arc Microgrants, sent to ${BONUS_WALLET_SHORT} (basescan.org/tx/${txHash}) · earnkit.com/bonus/arc-microgrants-2026-09-16; ` +
+    `Since you last checked: you were paid a 0.12 ETH builder bonus for Arc Microgrants, sent to ${BONUS_WALLET_SHORT} (basescan.org/tx/${txHash}); ` +
       'you have $138 in token fees to claim on tokens.fun; ' +
-      'your entry moved into the top 10 for the builder bonus (Arc Microgrants) · earnkit.com/bonus/arc-microgrants-2026-09-16.',
+      'your entry moved into the top 10 for the builder bonus (Arc Microgrants).',
   );
   // I1's guard: exactly one colon in the joined sentence, right after "checked".
   assert.equal(joined.match(/:/g)!.length, 1);
@@ -177,7 +177,7 @@ test('M2: a second round win of the same entry is news too (seen by payout id, n
     round_key: 'base-grants:2026-10',
   });
   const noWalletLine = (payout: number) =>
-    `you were paid a 0.05 ETH builder bonus for Base Grants (basescan.org/tx/0x${payout}) · earnkit.com/bonus/base-grants-2026-10`;
+    `you were paid a 0.05 ETH builder bonus for Base Grants (basescan.org/tx/0x${payout})`;
   const first = alertLines({ checkedAt: t(1), state: { top: {} }, feeAlertedUsd: null }, { ...empty, bonusWins: [win(1, 2, 'Base Grants')] });
   assert.deepEqual(first.lines, [noWalletLine(1)]);
   // Next month the same entry wins its program's next round: a new payout id, so a new line.
@@ -191,15 +191,14 @@ test('M2: a second round win of the same entry is news too (seen by payout id, n
 
 test('v2.5 Task 8: entering and leaving the builder bonus top 10, only against what was seen; first-ever check is quiet', () => {
   const s = (inTop: boolean) => ({ project_id: 7, program_title: 'Arc Microgrants', inTop, round_key: 'arc-microgrants:2026-09-16' });
-  const board = 'earnkit.com/bonus/arc-microgrants-2026-09-16';
   const prev = { checkedAt: t(1), feeAlertedUsd: null };
   assert.deepEqual(
     alertLines({ ...prev, state: { top: {}, bonusTop: { 7: false } } }, { ...empty, bonusStandings: [s(true)] }).lines,
-    [`your entry moved into the top 10 for the builder bonus (Arc Microgrants) · ${board}`],
+    [`your entry moved into the top 10 for the builder bonus (Arc Microgrants)`],
   );
   assert.deepEqual(
     alertLines({ ...prev, state: { top: {}, bonusTop: { 7: true } } }, { ...empty, bonusStandings: [s(false)] }).lines,
-    [`your entry dropped out of the top 10 for the builder bonus (Arc Microgrants) · ${board}`],
+    [`your entry dropped out of the top 10 for the builder bonus (Arc Microgrants)`],
   );
   assert.deepEqual(
     alertLines({ ...prev, state: { top: {}, bonusTop: { 7: true } } }, { ...empty, bonusStandings: [s(true)] }).lines,
@@ -208,7 +207,7 @@ test('v2.5 Task 8: entering and leaving the builder bonus top 10, only against w
   // First score straight into the top 10 is news; the first-ever check (no state) is quiet.
   assert.deepEqual(
     alertLines({ ...prev, state: { top: {}, bonusTop: {} } }, { ...empty, bonusStandings: [s(true)] }).lines,
-    [`your entry moved into the top 10 for the builder bonus (Arc Microgrants) · ${board}`],
+    [`your entry moved into the top 10 for the builder bonus (Arc Microgrants)`],
   );
   assert.deepEqual(alertLines({ checkedAt: null, state: null, feeAlertedUsd: null }, { ...empty, bonusStandings: [s(true)] }).lines, []);
 });
@@ -372,7 +371,7 @@ test('v2.5 Task 7: paidBonusWins reads the real bonus_payouts rows (paid only); 
       assert.ok(
         r.lines.includes(
           `you were paid a 0.12 ETH builder bonus for ${tag}-ek, sent to ${shortWallet(getAddress(wallet.toLowerCase()))} ` +
-            `(basescan.org/tx/0xpaid) · ${boardLink(roundKey)}`,
+            '(basescan.org/tx/0xpaid)',
         ),
         r.lines.join('; '),
       );
@@ -402,7 +401,7 @@ test('v2.5 Task 8: the builder bonus top 10 tracks bonus_scores, through the sam
       await sql()`UPDATE bonus_scores SET rank = 3 WHERE round_key = ${roundKey} AND project_id = ${pid}`;
       const r = await sinceYouLastChecked(me);
       assert.ok(
-        r.lines.includes(`your entry moved into the top 10 for the builder bonus (${tag}-ek) · ${boardLink(roundKey)}`),
+        r.lines.includes(`your entry moved into the top 10 for the builder bonus (${tag}-ek)`),
         r.lines.join('; '),
       );
       assert.ok(!(await sinceYouLastChecked(me)).lines.some((l) => l.includes('top 10')));

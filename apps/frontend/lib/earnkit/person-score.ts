@@ -2,14 +2,13 @@ import { RULES, countProject, moneyOf, ringWeights, type ActorFacts, type FarmCt
 import { holdReason, publicRow, scoreContext } from './builder-score'; // builder-score imports this file too: functions only, called after load
 import { personCode } from './attribution';
 import { EARNKIT_BUILDER_CODE } from './builder-code';
-import { benchEnabled, builderScoreEnabled } from './builder-score-flag';
 import { ScoreDeadline } from './campaigns';
 import { isConfirmedProof } from './confirmed';
 import { sql, type Db } from './db';
 import { discoverPerson } from './discovery';
-import { MAIN_PROOF_MIN_MS, REPO_KEY, confirmingFast, mainProjectOf, pickMainProject } from './main-project';
+import { REPO_KEY, mainProjectOf, pickMainProject } from './main-project';
 import { noteEvent } from './events';
-import { REPOS_MAX, readAppRepos, readGithubRepos, readPersonGithub, type PersonRepo } from './person-github';
+import { REPOS_MAX, readAppRepos, readGithubRepos, type PersonRepo } from './person-github';
 import { BENCH_CHAINS, type BenchChain, type Standing } from './rank';
 import { COIN_PROGRAM } from './policy-constants';
 import { LIMITS, hit } from './rate-limit';
@@ -224,12 +223,10 @@ export async function personInputsV2(
     SELECT at, lower(repo_key) AS repo_key FROM builder_events
     WHERE installation_id IN ${db(group)} AND type IN ('built', 'deployed', 'hosted') AND at > ${yearAgo}`;
   // v2.13: chains from program entries and launched coins (any chain; coin_address is Base only).
-  // Flag off: neither query runs (production as it is).
-  const bench = benchEnabled();
-  const entries = !bench ? [] : await db<{ repo_key: string | null; chains: string[] | null }[]>`
+  const entries = await db<{ repo_key: string | null; chains: string[] | null }[]>`
     SELECT COALESCE(p.repo_key, p.token_repo_key) AS repo_key, g.chains FROM projects p JOIN programs g ON g.id = p.program_id
     WHERE p.installation_id IN ${db(group)} AND p.program_id <> ${COIN_PROGRAM} AND p.vetoed_at IS NULL`;
-  const launched = !bench ? [] : await db<{ repo_key: string | null; chain_id: number | null; coin: string | null }[]>`
+  const launched = await db<{ repo_key: string | null; chain_id: number | null; coin: string | null }[]>`
     SELECT COALESCE(token_repo_key, repo_key) AS repo_key, coin_chain_id AS chain_id, lower(coin_address) AS coin
     FROM projects WHERE installation_id IN ${db(group)} AND token_status = 'launched'`;
   const wallets = await db<{ wallet: string }[]>`
@@ -613,8 +610,8 @@ export async function trackingHeld(id: number, ref: string, now: Date): Promise<
       await tx`
         UPDATE builder_sources SET state = 'verified', proof = 'deploy_wallet', verified_at = ${now}
         WHERE builder_id = ${id} AND kind = 'contract' AND lower(ref) = ${ref.toLowerCase()} AND state = 'proposed'`;
-      // Under the flag, the same scope as the rescore (rolled back with the rest).
-      const main = benchEnabled() ? ((await mainProjectOf(id, tx)) ?? (await pickMainProject(id, tx))) : null;
+      // The same scope as the rescore (rolled back with the rest).
+      const main = (await mainProjectOf(id, tx)) ?? (await pickMainProject(id, tx));
       const { input, perSource } = await personInputsV2(id, now, undefined, tx, { scope: main });
       const sc = computeScoreV2(input, calibrationV2(), now);
       held = (await holdOf(tx, id, now.toISOString().slice(0, 10), sc, perSource)).reason !== null;
@@ -666,16 +663,15 @@ export async function rescorePerson(id: number, now: Date, ring?: PersonRing): P
     if (cur && cur.computed_at > now && !ring) return { score: cur.score, ranked: cur.ranked, held: false, reason: null, s: null, before: null };
     const at = cur && cur.computed_at > now ? cur.computed_at : now;
     const day = at.toISOString().slice(0, 10);
-    // v2.13 (flag on): the score is the one project's (plan B2: picked once when none was named).
-    const bench = benchEnabled();
-    const main = bench ? ((await mainProjectOf(id, tx)) ?? (await pickMainProject(id, tx))) : null;
+    // v2.13: the score is the one project's (plan B2: picked once when none was named).
+    const main = (await mainProjectOf(id, tx)) ?? (await pickMainProject(id, tx));
     const { input, projects, perSource, ringComputed, checked } = await personInputsV2(id, at, ring, tx, { scope: main });
     const s = computeScoreV2(input, cal, at);
     const mainRow = main ? projects.find((p) => p.key.toLowerCase() === main.toLowerCase()) : undefined;
     // Ranked only once the ring is known: computed by the cron, or no other EarnKit person touched
     // the work (fail strict on ring partners). v2.13 B5: on the Bench as soon as the one project is
-    // confirmed (a repo key: by its own repo proof); flag off: v2.12.1's rule.
-    const ranked = (bench ? Boolean(mainRow?.bench_confirmed) : s.ranked) && ringComputed;
+    // confirmed (a repo key: by its own repo proof).
+    const ranked = Boolean(mainRow?.bench_confirmed) && ringComputed;
     const prevTracked = new Set((await tx<{ project_key: string }[]>`
       SELECT project_key FROM builder_projects WHERE builder_id = ${id} AND tracked`).map((r) => r.project_key));
     const tracked = trackedKeys(projects, at, prevTracked);
@@ -723,7 +719,7 @@ export async function rescorePerson(id: number, now: Date, ring?: PersonRing): P
           last_active_at = EXCLUDED.last_active_at, updated_at = EXCLUDED.updated_at, chains = EXCLUDED.chains,
           streak = EXCLUDED.streak, weeks_shipping = EXCLUDED.weeks_shipping, ship_weeks = EXCLUDED.ship_weeks`;
     // v2.13 B9 (F2): the "Started tracking" row, only for a confirmed one project.
-    if (bench && mainRow?.bench_confirmed)
+    if (mainRow?.bench_confirmed)
       await ensureStartedRow(tx, id, mainRow.key, at, { live: mainRow.shipped && mainRow.kind === 'app', weeks: mainRow.weeks_shipping, people: mainRow.people });
     return { ...out, held: reason !== null, reason, s, before: before?.score ?? null };
   });
@@ -776,7 +772,6 @@ export async function standingOf(id: number, o: { only?: number[] } = {}): Promi
  * page keeps the last good number. `minAgeMs` (a page view: PAGE_REFRESH_MS) replaces REFRESH_MS.
  */
 export async function refreshPerson(id: number, o: { now: Date; deadline: number; reader?: ReaderDeps; minAgeMs?: number }): Promise<{ refreshed: boolean }> {
-  if (!builderScoreEnabled()) return { refreshed: false };
   let claimed = false;
   try {
     const [g] = await sql()<{ shared: boolean | null }[]>`SELECT bool_or(shared_client) AS shared FROM installations WHERE COALESCE(builder_id, id) = ${id}`;
@@ -827,7 +822,6 @@ export const PAGE_REFRESH_MS = DAY_MS;
  * the reads the cron needs. find, score and make-countable keep refreshPerson's 10 minutes. Never throws.
  */
 export async function pageViewRefresh(id: number, o: { now: Date; deadline: number; ip: string; reader?: ReaderDeps }): Promise<{ refreshed: boolean }> {
-  if (!builderScoreEnabled()) return { refreshed: false };
   try {
     const [l] = await sql()<{ read_at: Date | null }[]>`SELECT read_at FROM builder_live WHERE builder_id = ${id}`;
     if (l?.read_at && o.now.getTime() - l.read_at.getTime() < PAGE_REFRESH_MS) return { refreshed: false };
@@ -842,21 +836,14 @@ export async function pageViewRefresh(id: number, o: { now: Date; deadline: numb
 
 /** Discovery inside a refresh: when a clue queued the person, else at most once a REFRESH_DISCOVER_MS (cost). Exported for tests. */
 export async function refreshDiscovery(id: number, now: Date, o: { deadline: number; reader: ReaderDeps }): Promise<void> {
-  // v2.13 plan B4: in the hour after the one project's proof line was issued, check that line on every
-  // refresh (the refresh may run every minute then), with a 4 s floor in place of the cron's 15 s. A
-  // skipped check still goes to the cron (discoverPerson queues 'proof_line').
-  if (benchEnabled() && (await confirmingFast(id, now))) return void (await discoverPerson(id, { ...o, proofLineMinMs: MAIN_PROOF_MIN_MS }));
   const [q] = await sql()<{ done_at: Date | null; reason: string }[]>`SELECT done_at, reason FROM discovery_queue WHERE builder_id = ${id}`;
   if (q?.done_at && now.getTime() - q.done_at.getTime() < REFRESH_DISCOVER_MS) return;
-  // v2.12.2: a proof-line check the refresh had no time for waits for the cron (it has the time).
-  if (q && !q.done_at && q.reason === 'proof_line') return;
   await discoverPerson(id, o);
 }
 
 /** v2.12.1 T9: proposed contracts read for their past users per refresh, at most. */
 export const PROPOSED_CONTRACTS_MAX = 5;
 type LiveDue = { id: number; builder_id: number; kind: string; ref: string; state: string; last_read_day: string | null };
-const LOGIN = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}$/;
 
 /**
  * The refresh's reads: every tracked source of the person not read in the last REFRESH_MS (verified
@@ -873,8 +860,8 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
     FROM builder_sources b LEFT JOIN source_live l ON l.source_id = b.id
     WHERE b.builder_id = ${id}
       AND ((b.state = 'verified' AND b.kind <> 'merged_pr') OR (b.state = 'proposed' AND b.kind IN ('repo', 'site', 'package_npm', 'package_pypi')
-          -- v2.13.1 O5 N4: under the Bench a proposed repo is read only while it is the one project (never a replaced one).
-          AND (NOT ${benchEnabled()} OR b.kind <> 'repo' OR EXISTS (SELECT 1 FROM builder_profiles f WHERE f.builder_id = b.builder_id
+          -- v2.13.1 O5 N4: a proposed repo is read only while it is the one project (never a replaced one).
+          AND (b.kind <> 'repo' OR EXISTS (SELECT 1 FROM builder_profiles f WHERE f.builder_id = b.builder_id
             AND lower(f.main_project_key) = lower(b.project_key))))
         -- v2.12.1 T9: a proposed contract on a chain EarnKit reads, at most once a day, to see whether
         -- it has past users to count (shown as a step, never scored) and who created it.
@@ -917,46 +904,45 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
   const since = (s: LiveDue) => (s.last_read_day ? new Date(`${s.last_read_day}T00:00:00Z`) : new Date(now.getTime() - YEAR_MS));
   const done = () => ({ read, failed });
 
-  // Repos: the person's own under their login in one query, the rest by name (REPOS_MAX a call).
+  // Repos: by name, REPOS_MAX a call (v2.13 R2: no person query).
   const repos = due.filter((s) => s.kind === 'repo');
   if (repos.length > 0) {
-    const [p] = await db<{ login: string | null; reported: string | null }[]>`
-      SELECT lower(github_login) AS login, lower(reported_github) AS reported FROM builder_profiles WHERE builder_id = ${id}`;
-    const login = [p?.login, p?.reported].find((l): l is string => typeof l === 'string' && LOGIN.test(l)) ?? null;
     const found = new Map<string, PersonRepo>();
     const asked = new Set<number>();
-    // v2.13 (R2): under the flag no person query; every repo goes by name below.
-    const mine = login && !benchEnabled() ? repos.filter((s) => s.ref.toLowerCase().split('/')[0] === login) : [];
-    if (mine.length > 0) {
-      const go = await attempt(mine, async () => {
-        for (const [k, r] of (await readPersonGithub(login!, o.reader))?.repos ?? []) found.set(k, r);
-        for (const s of mine) asked.add(s.id);
+    // v2.14 A10: a repo proven by the read-only App is read with its installation's token first (a per-call
+    // token, never kept); EarnKit's shared token reads by name only what isn't installed.
+    const viaApp = new Map<number, PersonRepo>();
+    const viaAppIds = new Set(
+      (await db<{ id: number }[]>`SELECT id::int AS id FROM builder_sources WHERE id IN ${db(repos.map((s) => s.id))} AND proof = 'github_app' AND state = 'verified'`).map((r) => r.id),
+    );
+    for (const s of repos.filter((x) => viaAppIds.has(x.id))) {
+      const go = await attempt([s], async () => {
+        for (const [k, r] of await readAppRepos([s], o.reader)) viaApp.set(k, r);
+        asked.add(s.id);
       });
       if (!go) return done();
     }
-    const rest = repos.filter((s) => !found.has(s.ref.toLowerCase()));
-    for (let i = 0; i < rest.length; i += REPOS_MAX) {
-      const batch = rest.slice(i, i + REPOS_MAX);
+    const byName = repos.filter((s) => !viaAppIds.has(s.id));
+    for (let i = 0; i < byName.length; i += REPOS_MAX) {
+      const batch = byName.slice(i, i + REPOS_MAX);
       const go = await attempt(batch, async () => {
         for (const [k, r] of await readGithubRepos(batch.map((s) => s.ref), o.reader)) found.set(k, r);
         for (const s of batch) asked.add(s.id);
       });
       if (!go) return done();
     }
-    // v2.13.3 (5): under the Bench, a repo EarnKit's token couldn't read, through the read-only App when
-    // this person installed it on that repo (a per-call token, never kept).
-    const viaApp = new Map<number, PersonRepo>();
-    if (benchEnabled())
-      for (const s of repos.filter((x) => asked.has(x.id) && !found.has(x.ref.toLowerCase()))) {
-        const go = await attempt([s], async () => {
-          for (const [k, r] of await readAppRepos([s], o.reader)) viaApp.set(k, r);
-        });
-        if (!go) return done();
-      }
+    // v2.13.3 (5): a repo EarnKit's token couldn't read, through the read-only App when this person
+    // installed it on that repo (a per-call token, never kept).
+    for (const s of byName.filter((x) => asked.has(x.id) && !found.has(x.ref.toLowerCase()))) {
+      const go = await attempt([s], async () => {
+        for (const [k, r] of await readAppRepos([s], o.reader)) viaApp.set(k, r);
+      });
+      if (!go) return done();
+    }
     for (const s of repos) {
       if (!asked.has(s.id)) continue; // a spent budget or a failed call (already written)
-      const app = found.has(s.ref.toLowerCase()) ? undefined : viaApp.get(s.id);
-      const r = found.get(s.ref.toLowerCase()) ?? app;
+      const app = viaAppIds.has(s.id) || !found.has(s.ref.toLowerCase()) ? viaApp.get(s.id) : undefined;
+      const r = app ?? found.get(s.ref.toLowerCase());
       if (!r) {
         await put(s, { ok: false });
         continue;

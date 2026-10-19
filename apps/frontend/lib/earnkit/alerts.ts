@@ -1,7 +1,7 @@
 import { getAddress } from 'viem';
 import { sql, type Db } from './db';
 import { prizeColumn, usd, wonUsdText, type CampaignConfig, type EarnKitCampaign } from './campaigns';
-import { boardLink, prizeOf, shortWallet } from './entry-text';
+import { prizeOf, shortWallet } from './entry-text';
 import { COIN_PROGRAM } from './policy-constants';
 import { cachedFeesUsd, feeAlert } from './fees';
 import { campaignCandidates } from './leaderboard';
@@ -398,7 +398,7 @@ export function alertLines(prev: AlertMemory, f: AlertFacts, otherWins: string[]
   for (const w of shownBonus)
     lines.push(
       `you were paid a ${eth(w.amount_wei)} ETH builder bonus for ${w.program_title}` +
-        `${w.wallet ? `, sent to ${shortWallet(checksummed(w.wallet))}` : ''} (basescan.org/tx/${w.tx_hash}) · ${boardLink(w.round_key)}`,
+        `${w.wallet ? `, sent to ${shortWallet(checksummed(w.wallet))}` : ''} (basescan.org/tx/${w.tx_hash})`,
     );
   lines.push(...otherWins);
   const fee = f.fees ? feeAlert(f.fees.usd, prev.feeAlertedUsd) : { show: false, next: null };
@@ -430,8 +430,7 @@ export function alertLines(prev: AlertMemory, f: AlertFacts, otherWins: string[]
     lines.push(
       (s.inTop
         ? `your entry moved into the top ${BONUS_TOP_N} for the builder bonus (${s.program_title})`
-        : `your entry dropped out of the top ${BONUS_TOP_N} for the builder bonus (${s.program_title})`) +
-        ` · ${boardLink(s.round_key)}`,
+        : `your entry dropped out of the top ${BONUS_TOP_N} for the builder bonus (${s.program_title})`),
     );
   }
   // Rows from before the id lists: campaigns opened by the last check count as seen.

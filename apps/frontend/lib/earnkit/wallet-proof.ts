@@ -1,7 +1,6 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createPublicClient, http } from 'viem';
 import { base } from 'viem/chains';
-import { builderScoreEnabled } from './builder-score-flag';
 import { sql } from './db';
 import { enqueueDiscovery } from './discovery';
 import { siteUrl } from './entry-text';
@@ -115,11 +114,9 @@ const PAGE_HEADERS = { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Contro
 const shell = (inner: string) => brandShell(inner, { fonts: true });
 const linePage = (line: string, status: number) =>
   new Response(shell(`<p class="ek-line ek-first">${escapeHtml(line)}</p>`), { status, headers: PAGE_HEADERS });
-const notFound = () => new Response('Not found', { status: 404, headers: WALLET_FRAME_CSP });
 
-/** Any method but GET and POST on /claim/wallet: 405 (404 with the flag off, as the rest of the route). */
+/** Any method but GET and POST on /claim/wallet: 405. */
 export function walletOtherMethod(): Response {
-  if (!builderScoreEnabled()) return notFound();
   return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET, POST', 'Cache-Control': 'no-store', ...WALLET_FRAME_CSP } });
 }
 
@@ -129,7 +126,6 @@ export function walletOtherMethod(): Response {
  * the browser: WALLET_TEXT.noWallet. Only this page's script runs (a per-response nonce).
  */
 export async function walletGet(request: Request): Promise<Response> {
-  if (!builderScoreEnabled()) return notFound();
   const t = new URL(request.url).searchParams.get('t') ?? '';
   const id = upgradeOf(t, new Date());
   if (id === null) return linePage(WALLET_TEXT.expired, 410);
@@ -170,7 +166,6 @@ const json = (line: string, status = 200) =>
 
 /** POST /claim/wallet ({ t, wallet, signature }): same origin, the xClaim limit, then proveWallet; answers { line }. */
 export async function walletPost(request: Request, deps: RouteDeps = {}): Promise<Response> {
-  if (!builderScoreEnabled()) return notFound();
   if (request.headers.get('origin') !== new URL(siteUrl()).origin) return json(WALLET_TEXT.failed, 403);
   try {
     await (deps.limit ?? ((r: Request) => enforce('xClaim', clientIp(r.headers), WALLET_TEXT.busy)))(request);

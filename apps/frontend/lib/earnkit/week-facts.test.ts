@@ -12,8 +12,6 @@ import { upsertProgram } from './programs';
 import { committedProgram } from './fixtures/program-file';
 import { dropRunPrograms } from './fixtures/programs-cleanup';
 
-process.env.EARNKIT_BUILDER_SCORE = 'on';
-process.env.EARNKIT_BENCH = 'on';
 process.env[EVENT_LOG_FLAG] = 'on';
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {
@@ -323,7 +321,7 @@ test('4.15 a scoped npm package as the one project, confirmed through its packag
   assert.equal((await sql()`SELECT 1 FROM project_updates WHERE builder_id = ${id} AND facts ? 'started'`).length, 1);
 });
 
-test('4.16 downloads of a package outside the one project add nothing to the score under the flag; flag off they count as today', dbTest, async () => {
+test('4.16 downloads of a package outside the one project add nothing to the score', dbTest, async () => {
   const id = T + 14;
   const key = `ivy${T}/main`;
   await person(id, key, { [wk(0)]: 1 });
@@ -334,13 +332,5 @@ test('4.16 downloads of a package outside the one project add nothing to the sco
   assert.deepEqual(scoped.input.packages, []);
   const U = async () => Number((await sql()<{ u: string }[]>`SELECT parts->'used'->'raw'->>'U' AS u FROM builder_live WHERE builder_id = ${id}`)[0].u ?? 0);
   await rescorePerson(id, NOW);
-  const on = await U();
-  delete process.env.EARNKIT_BENCH;
-  try {
-    await rescorePerson(id, new Date(NOW.getTime() + 60_000));
-    assert.ok((await U()) > on, `flag off: the package counts (U ${await U()} > ${on})`);
-  } finally {
-    process.env.EARNKIT_BENCH = 'on';
-  }
-  assert.equal(on, 0, 'flag on: no use from outside the one project');
+  assert.equal(await U(), 0, 'no use from outside the one project');
 });

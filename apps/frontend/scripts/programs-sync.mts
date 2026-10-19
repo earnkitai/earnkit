@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkLogoFile } from '../lib/earnkit/logo-check';
 import { OutcomeFile } from '../lib/earnkit/outcomes';
-import { ProgramFile, agentCompletableOf, freshBuildProblems, reservedIdProblem, needsRepoMissing, requiredWithoutTodo, requirementsWithoutKind, starterAgeWarnings } from '../lib/earnkit/program-file';
+import { ProgramFile, agentCompletableOf, freshBuildProblems, needsRepoMissing, requiredWithoutTodo, requirementsWithoutKind, starterAgeWarnings } from '../lib/earnkit/program-file';
 
 /**
  * pnpm programs:check — validates every programs/*.json.
@@ -48,9 +48,6 @@ for (const { f, result } of parsed) {
     fileProblems.push({ f, problem: 'needs_repo: say whether entering needs a repo or a live product (true or false)' });
   // v2.11 T5 (spec 2): a fresh_build names a known, tested starter on one of the program's chains.
   for (const problem of freshBuildProblems(result.data)) fileProblems.push({ f, problem });
-  // v2.13.1 O2 fix round 1 (ruling 5): the Bench's starter build with no program owns its id.
-  const reserved = reservedIdProblem(result.data);
-  if (reserved) fileProblems.push({ f, problem: reserved });
   const logo = result.data.logo;
   if (!logo) continue;
   const problem = checkLogoFile(logo, publicDir);
@@ -93,7 +90,7 @@ for (const w of starterAgeWarnings(parsed.flatMap(({ result }) => (result.succes
 if (invalid.length > 0 || fileProblems.length > 0 || outcomeProblems > 0) process.exit(1);
 
 // v2.12 spec 9: what programs.agent_completable gets (the file's override, else the derivation);
-// with EARNKIT_BUILDER_SCORE on, find leaves out the programs an agent can't complete.
+// find leaves out the programs an agent can't complete.
 const notCompletable = parsed.filter(({ result }) => result.success && !agentCompletableOf(result.data)).map(({ f }) => f);
 console.log(`Agent-completable: ${parsed.length - notCompletable.length} of ${parsed.length}${notCompletable.length ? ` (not: ${notCompletable.join(', ')})` : ''}`);
 

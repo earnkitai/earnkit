@@ -2,7 +2,7 @@
  * Every outbound destination on the marketing site, in one place.
  * The install path is the homepage's "Add to your agent" modal (AddToAgent).
  */
-export const X = 'https://x.com/earnkit_ai';
+export const X = 'https://x.com/EarnKitAI';
 export const FOLLOW_X = X;
 export const RUN_CAMPAIGN =
   'mailto:j@earnkit.com?subject=Running%20a%20campaign%20on%20EarnKit';

@@ -71,12 +71,16 @@ export const LIMITS = {
    */
   pageRefresh: { limit: 200, windowSeconds: 3_600 },
   pageRefreshIp: { limit: 20, windowSeconds: 3_600 },
-  /** v2.12.1: POST /claim/<code> and /x/callback (Sign in with X), per client IP. */
+  /** v2.12.1: per client IP; since v2.14 T7 only POST /claim/wallet uses it (the claim page and its callback are gone). */
   xClaim: { limit: 30, windowSeconds: 3_600 },
   /** v2.9 final review I2: POST /api/host/upload, per client IP (each read can be 25 MB). */
   hostUpload: { limit: 10, windowSeconds: 3_600 },
   /** GET /oauth/authorize, per client IP. */
   oauthAuthorize: { limit: 60, windowSeconds: 3_600 },
+  /** v2.14: X sign-in returns (install and link), per IP. */
+  xSignIn: { limit: 30, windowSeconds: 3_600 },
+  /** v2.14 T5: GET /signin/<code> (each view of an open link writes one x_signins row), per IP. */
+  signinLink: { limit: 30, windowSeconds: 3_600 },
   /** POST /api/cron, per client IP (v2.4 §8). */
   cron: { limit: 30, windowSeconds: 3_600 },
   /** The owner's review page and POST /api/admin/veto, per client IP (v2.4 §8, ruling 13). */

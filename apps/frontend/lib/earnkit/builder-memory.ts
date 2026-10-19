@@ -54,8 +54,6 @@ export const TellInput = z
   .object({
     program_status: z.array(ProgramStatus).max(ITEMS).optional(),
     repo_facts: z.array(RepoFact).max(ITEMS).optional(),
-    /** v2.9 B9 (Ruling G9): the code a shared client's builder pasted after signing in with GitHub. */
-    signed_in: z.string().max(40).optional(),
     /** v2.9 E19 (Ruling 13): the answer to the weekly email question, and the address if they gave one. */
     weekly_email: z
       .object({
@@ -90,13 +88,12 @@ export type MemoryKey = { installationId: number; login: string };
 
 /**
  * Ruling G6: whose memory a call reads and writes. An installation's own; on a shared (hosted)
- * client, where one installation serves many builders, only the GitHub-verified login the call is
- * from (v2.9 B9: ctx.verifiedLogin, github-verify.ts callerLogin), else none, so nothing one builder
- * says reaches another.
+ * client, where one installation serves many builders, none, so nothing one builder says reaches
+ * another (v2.14 final fix: the pasted GitHub sign-in code that named a login there is gone; rows
+ * stored under a login stay as history).
  */
-export function memoryKey(ctx: { installationId: number; sharedClient?: boolean; verifiedLogin?: string | null }): MemoryKey | null {
-  if (!ctx.sharedClient) return { installationId: ctx.installationId, login: '' };
-  return ctx.verifiedLogin ? { installationId: ctx.installationId, login: ctx.verifiedLogin.toLowerCase() } : null;
+export function memoryKey(ctx: { installationId: number; sharedClient?: boolean }): MemoryKey | null {
+  return ctx.sharedClient ? null : { installationId: ctx.installationId, login: '' };
 }
 
 /** An installation id is its own memory (login ''). Pure. */

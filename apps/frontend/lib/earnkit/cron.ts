@@ -1,5 +1,4 @@
 import { INDEX_FAILED_RUNS, NEEDS_GAS, runBonusLedger, type BonusDeps } from './bonus-ledger';
-import { advanceRounds } from './bonus-payout';
 import { sql } from './db';
 import { FINAL_GRACE_MS, REVIEW_MS, type CampaignConfig, type EarnKitCampaign } from './campaigns';
 import { scoreCampaignEntries, type ScoreDeps, type ScoreRow } from './campaign-score';
@@ -8,7 +7,6 @@ import { digestEnabled, sendDigests, type Mailer } from './digest';
 import { usageChecks, type UsageDeps } from './events';
 import { cleanDeploys, expireSites, sitesInReview } from './hosting';
 import { bearerMatches, json } from './http';
-import { benchEnabled, builderScoreEnabled } from './builder-score-flag';
 import { heldPeople, runScoreSteps, scoreSliceEnd, type ScoreCronDeps } from './builder-score';
 import { xHandleConflicts } from './profiles';
 import {
@@ -31,11 +29,10 @@ import { RateLimitError, clientIp, enforce } from './rate-limit';
 import { stuckLaunches } from './tokens';
 import { sweepVerifyNonces } from './github-verify';
 import { DEPLOY_CAPS, deployChains, deployEnabled, deployerAddress, nativeUsd, viemDeployChain, weiToMicroUsd, type DeployDeps } from './deploy';
+import { githubAppEnabled } from './github-app';
 import { sweepPublicReads } from './repo-cache';
 import { sweepRateWindows } from './rate-limit';
 import { withScoringLock } from './scoring-lock';
-import { recheckSubmissionProofs } from './submission-proof';
-import { scoreOpenRounds, type TractionDeps } from './traction';
 import type { Candidate, RunState } from './winners';
 
 /** Work per cron call; the hourly run picks up the rest. */
@@ -86,12 +83,6 @@ export type CronDeps = {
   bonus?: BonusDeps;
   /** v2.13: the ledger itself (tests record what the cron hands it; default bonus-ledger.ts runBonusLedger). */
   ledger?: (deps: BonusDeps) => Promise<Record<string, unknown>>;
-  /** The daily submission-proof re-check's fetch (v2.5 §3, Ruling 11). */
-  proofRecheck?: { fetchText?: (url: string) => Promise<string> };
-  /** The builder bonus traction scoring's reads (v2.5 §3; `only`: these round keys). */
-  traction?: TractionDeps & Pick<NonNullable<Parameters<typeof scoreOpenRounds>[0]>, 'only' | 'score'>;
-  /** The builder bonus payout's sanctions screen (default: the v2.4 screen); `only`: these round keys. */
-  rounds?: { listed?: (wallet: string) => Promise<boolean>; only?: string[] };
   /** v2.8.1 §A1: the projects whose launch claim is older than 10 minutes (default tokens.ts stuckLaunches). */
   stuckLaunches?: (now: Date) => Promise<number[]>;
   /** v2.9 C13: the hosted sites' R2 (default: r2.ts r2Client); with `only`, the step runs only when given. */
@@ -122,20 +113,18 @@ const openReview = (p: Program, now: Date) => sql()`
 export { PAY_FAILED, PAY_FAILED_RUNS, STEP_FAILED, TERMS_CHANGED };
 /**
  * needs_owner when the bonus ledger can't run (the payout key missing or malformed, or off Base
- * mainnet) while the builder bonus can earn (bonusLive).
+ * mainnet) while there are coin fees to claim (bonusLive).
  */
 export const BONUS_WALLET_UNSET = 'bonus-rounds: payout wallet not configured';
 
 /**
- * Whether the builder bonus can earn money now (Ruling 20; v2.6 Ruling 17 (plan)): an active,
- * non-campaign program (bonusOn's SQL twin: every program has the bonus unless it opted out or is
- * a campaign), an EarnKit coin (coin_address), or an ended round not paid or empty.
+ * Whether there are coin fees to index and claim (Ruling 20; v2.14: the builder bonus program and round
+ * clauses went with the rounds): an EarnKit coin exists (coin_address). bonus-ledger.ts still indexes,
+ * claims and sweeps those fees to the Safe, so a missing payout key with a coin waits on the owner.
  */
-export async function bonusLive(now: Date) {
+export async function bonusLive(_now: Date) {
   const [r] = await sql()<{ live: boolean }[]>`
-    SELECT EXISTS (SELECT 1 FROM programs WHERE status = 'active' AND builder_bonus AND campaign IS NULL)
-      OR EXISTS (SELECT 1 FROM projects WHERE coin_address IS NOT NULL)
-      OR EXISTS (SELECT 1 FROM bonus_rounds WHERE state NOT IN ('paid', 'empty') AND ends_at <= ${now}) AS live`;
+    SELECT EXISTS (SELECT 1 FROM projects WHERE coin_address IS NOT NULL) AS live`;
   return r.live;
 }
 /** A pay step that threw, with how many have failed in a row (campaign_runs.pay_failures). */
@@ -247,10 +236,8 @@ async function refreshStaleFees(now: Date, deadline: number, refresh: (wallets: 
  * The daily jobs (v2.4 §3, §4), idempotent: for every active EarnKit campaign not yet paid out
  * (and one closed after it ended or after its review opened), one lifecycle step under the campaign's lease (a second concurrent call gets 'busy');
  * one campaign's failure never stops the others; then the token-fee refresh for creator wallets
- * whose cached fees are over 6 h old; between them, the builder bonus: traction scoring
- * (traction.ts scoreOpenRounds), then the ledger (bonus-ledger.ts) with the rounds' freeze,
- * review and WETH payouts (bonus-payout.ts). v2.13 R16: under the Bench flag only the ledger runs
- * (claims and the sweep; no scoring, rounds, proof re-check or `bonus:` lines).
+ * whose cached fees are over 6 h old; between them, the fee ledger (bonus-ledger.ts: claims, the
+ * sweep and the Safe index; v2.14: no builder bonus, so no scoring, rounds or proof re-check).
  * `needs_owner` lists the campaigns whose payout waits on the
  * owner (cronPost answers 503 for them). `now` is injectable for the e2e (production: the real
  * time); `only` limits the run to these program ids (tests and the e2e).
@@ -286,54 +273,20 @@ export async function runCron(
       });
     }
   }
-  // v2.5 builder bonus traction (Task 7 carry): every run scores the open rounds (each entry is
-  // read at most once a day; after a round's end, its final reads), with at most half the budget
-  // left so the ledger and payouts below always get time. Under its own lease.
-  // v2.13 R16 (plan B16): under the Bench flag there is no builder bonus, so no scoring, no rounds
-  // and no proof re-check; the ledger still runs (fee claims for the Safe, creators and MINI, the sweep).
-  const bench = benchEnabled();
-  let bonusScoring: unknown;
-  const scoringStalled: string[] = [];
-  if (!bench && (!opts.only || deps.traction)) {
-    try {
-      const half = Math.min(deadline, Date.now() + (deadline - Date.now()) / 2);
-      const r = await withScoringLock(
-        'bonus-scoring',
-        () => scoreOpenRounds({ now, deadline: half, ...deps.traction, needsOwner: scoringStalled }),
-        (opts.budgetMs ?? CRON_BUDGET_MS) + 60_000,
-      );
-      bonusScoring = r === 'busy' ? { step: 'busy' } : r;
-    } catch (err) {
-      console.error('[cron] bonus scoring', err);
-      bonusScoring = { step: 'error', note: STEP_FAILED };
-    }
-  }
-  // v2.5 builder bonus ledger: index, collect near a round's end, claim, the rounds (freeze, review,
-  // pay: bonus-payout.ts), sweep to the Safe. After the campaigns' scoring and payouts, before the
-  // fee refresh. Runs with `only` (tests, the e2e) only when its deps are given.
+  // The fee ledger (bonus-ledger.ts): index, claim, sweep to the Safe, the creator and MINI claims and
+  // the Safe index (v2.14: no builder bonus, so no rounds). After the campaigns' scoring and payouts,
+  // before the fee refresh. Runs with `only` (tests, the e2e) only when its deps are given.
   let bonus: Record<string, unknown> | undefined;
   if (!opts.only || deps.bonus) {
     try {
       bonus = await (deps.ledger ?? runBonusLedger)({
         now,
         deadline,
-        // The ledger's own state (followOnly, the run's nonce floor) always wins over test deps (M14).
-        ...(bench ? {} : { rounds: (account, d) => advanceRounds(account, { ...deps.rounds, ...d }) }),
         ...deps.bonus,
       });
     } catch (err) {
       console.error('[cron] bonus', err);
       bonus = { step: 'error', note: STEP_FAILED };
-    }
-  }
-  // v2.5 §3, Ruling 11: the daily re-check of a submission proof that hasn't passed yet, until its
-  // program's round ends. Same `only`/deps gating as the bonus ledger step.
-  let proofRecheck: { checked: number; passed: number } | undefined;
-  if (!bench && (!opts.only || deps.proofRecheck)) {
-    try {
-      proofRecheck = await recheckSubmissionProofs(now, deadline, deps.proofRecheck);
-    } catch (err) {
-      console.error('[cron] proof-recheck', err);
     }
   }
   let fees = 0;
@@ -402,11 +355,11 @@ export async function runCron(
     }
   }
   // v2.12 spec 6: the builder score's four steps (discover and read, score, ranks, the empty-profile
-  // check), with at most 40% of what remains (no new schedule). Only with EARNKIT_BUILDER_SCORE=on.
+  // check), with at most 40% of what remains (no new schedule).
   // A hold waits on the owner quietly (listed, never a 503).
   const needs_owner_extra: string[] = [];
   let builderScore: Record<string, unknown> | undefined;
-  if (builderScoreEnabled() && (!opts.only || deps.builderScore)) {
+  if (!opts.only || deps.builderScore) {
     try {
       builderScore = await runScoreSteps(now, scoreSliceEnd(Date.now(), deadline), deps.builderScore);
       // Every current hold, not only this run's: a hold waits until the owner releases it.
@@ -425,21 +378,11 @@ export async function runCron(
     .map((c) => c.id as string);
   // A bonus sweep that can't be proven dead or sent waits on the owner, like a stuck payout.
   // So does an index step that failed INDEX_FAILED_RUNS runs in a row (deposits would go unbooked).
-  // v2.9 D17: so does a payout wallet low on ETH for gas, or a claim or collect it couldn't pay gas for.
+  // v2.9 D17: so does a payout wallet low on ETH for gas, or a claim it couldn't pay gas for.
   if (bonusWaitsOnOwner(bonus)) needs_owner.push('bonus-ledger');
-  // A builder bonus round waiting on the owner: a pay note that does, failed pay steps in a row, or
-  // flagged entries in its review (bonus-payout.ts advanceRounds).
-  // v2.13: none under the Bench flag (no rounds, no scoring).
-  if (!bench) {
-    const rounds = bonus?.rounds as { needs_owner?: string[] } | undefined;
-    for (const key of rounds?.needs_owner ?? []) needs_owner.push(`bonus:${key}`);
-    // Ruling 23: an ended round whose final scoring failed (once per round).
-    for (const key of scoringStalled) if (!needs_owner.includes(`bonus:${key}`)) needs_owner.push(`bonus:${key}`);
-  }
-  // Rulings 19 and 20: the ledger (and so the rounds step) was skipped for want of a usable payout
-  // key (missing or malformed) or of Base mainnet while the bonus can earn: an active program with
-  // a builder bonus, an EarnKit coin, or an ended unpaid round. Nothing is indexed, claimed or
-  // paid until the owner acts, so it waits on the owner. A failed check counts as yes (never silent).
+  // Rulings 19 and 20: the ledger was skipped for want of a usable payout key (missing or malformed)
+  // or of Base mainnet while there are fees to index (bonusLive: an EarnKit coin). Nothing is indexed, claimed or swept to the Safe until the owner acts,
+  // so it waits on the owner. A failed check counts as yes (never silent).
   const skipped = bonus?.skipped;
   if (skipped === NO_PAYOUT_KEY || skipped === NOT_MAINNET) {
     const live = await bonusLive(now).catch((err: unknown) => {
@@ -472,13 +415,13 @@ export async function runCron(
   }
   for (const key of deployer?.needs_owner ?? []) needs_owner.push(key);
   needs_owner.push(...needs_owner_extra);
+  // v2.14 final fix 9: X sign-in and the GitHub App are hard prerequisites (full runs only; a scoped test run skips it).
+  if (!opts.only) needs_owner.push(...missingPrerequisites());
   return {
     now: now.toISOString(),
     campaigns,
     ...(stuck.length > 0 && { stuck_launches: stuck }),
-    ...(bonusScoring !== undefined && { bonus_scoring: bonusScoring }),
     ...(bonus && { bonus }),
-    ...(proofRecheck && { proof_recheck: proofRecheck }),
     fee_wallets: fees,
     ...(hosting && { hosting }),
     ...(digest && { digest }),
@@ -488,6 +431,21 @@ export async function runCron(
     ...(builderScore && { builder_score: builderScore }),
     needs_owner,
   };
+}
+
+/**
+ * v2.14 final fix 9: the hard prerequisites. Sign in with X at install (the person is the X account) and the read-only
+ * GitHub App (the only proof) need these; each one unset (or a key that doesn't parse) is a needs_owner line naming
+ * it, `env-missing:<VAR>` or `env-invalid:GITHUB_APP_PRIVATE_KEY`, which alerts (503) until the owner sets it. No new
+ * service: the hourly cron already runs. Pure; exported for tests.
+ */
+export const PREREQ_VARS = ['X_CLIENT_ID', 'X_CLIENT_SECRET', 'GITHUB_APP_ID', 'GITHUB_APP_SLUG', 'GITHUB_APP_PRIVATE_KEY', 'GITHUB_OAUTH_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_SECRET'] as const;
+export function missingPrerequisites(env: Record<string, string | undefined> = process.env): string[] {
+  const missing = PREREQ_VARS.filter((v) => !env[v]?.trim()).map((v) => `env-missing:${v}`);
+  // All App and GitHub sign-in values set, yet the App is off: the private key doesn't parse.
+  const appSet = PREREQ_VARS.slice(2).every((v) => env[v]?.trim());
+  if (appSet && !githubAppEnabled(env)) missing.push('env-invalid:GITHUB_APP_PRIVATE_KEY');
+  return missing;
 }
 
 /**
@@ -539,8 +497,8 @@ export async function deployerGas(now: Date, deps: Pick<DeployDeps, 'chain' | 'u
 /**
  * Whether the bonus ledger's run waits on the owner (the cron answers 503): its sweep's note does
  * (needsOwner), its index (or, v2.13.2, its Safe index) failed INDEX_FAILED_RUNS runs in a row, or (v2.9 D17) the payout wallet is
- * low on ETH for gas, or a claim (its own or a creator's or MINI's) or collect result says it needs
- * ETH for gas. Pure.
+ * low on ETH for gas, or a claim result (its own or a creator's or MINI's) says it needs ETH for gas
+ * (v2.14: the near-end collect is gone). Pure.
  */
 export function bonusWaitsOnOwner(bonus: Record<string, unknown> | undefined) {
   const gasOut = (results: unknown) =>
@@ -548,12 +506,11 @@ export function bonusWaitsOnOwner(bonus: Record<string, unknown> | undefined) {
   return (
     needsOwner((bonus?.sweep as { result?: string } | undefined)?.result) ||
     Number(bonus?.index_failures ?? 0) >= INDEX_FAILED_RUNS ||
-    // v2.13.2 review M3: the Safe index (Bench flag) failing as many runs in a row.
+    // v2.13.2 review M3: the Safe index failing as many runs in a row.
     Number(bonus?.safe_index_failures ?? 0) >= INDEX_FAILED_RUNS ||
     (bonus?.gas as { low?: boolean } | undefined)?.low === true ||
     gasOut(bonus?.claim) ||
-    gasOut(bonus?.claim_others) ||
-    gasOut(bonus?.collect)
+    gasOut(bonus?.claim_others)
   );
 }
 

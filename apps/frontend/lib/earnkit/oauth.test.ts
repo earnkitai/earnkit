@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { createHash, createHmac } from 'node:crypto';
 import {
   OAuthError,
-  authorize,
   HOSTED_REDIRECT_HOSTS,
   clientKeyOf,
   clientLimitKey,
@@ -14,10 +13,23 @@ import {
   isSharedClient,
   originFor,
   registerClient,
+  checkAuthorize,
+  issueCode,
+  redirectClass,
+  servesMany,
+  authorizationServerMetadata,
 } from './oauth';
 
 process.env.EARNKIT_AUTH_SECRET = 'test-secret';
 
+/**
+ * v2.14 final fix: oauth.ts no longer exports authorize(); this is exactly what the authorize route (oauth-routes.ts
+ * authorizeGet) does for a client with X off or serving many builders: checkAuthorize, then issueCode with no X user.
+ */
+const authorize = (params: URLSearchParams, issuer?: string): URL => {
+  const c = checkAuthorize(params);
+  return 'error' in c ? c.error : issueCode(c.req, null, issuer);
+};
 const verifier = 'a-long-random-verifier-string-for-pkce-0123456789';
 const challenge = createHash('sha256').update(verifier).digest('base64url');
 const redirect = 'https://grok.com/connectors/callback';
@@ -302,4 +314,79 @@ test('v2.8.1 §E17: clientLimitKey: the https redirect host, else the registrati
   assert.equal(clientLimitKey(['http://localhost:3334/cb', 'https://agent.example/cb']), 'host:agent.example');
   assert.equal(clientLimitKey(['http://127.0.0.1:1455/auth/callback']), null);
   assert.equal(clientLimitKey(['cursor://anysphere.cursor-retrieval/oauth/callback'], 'cid'), `client:${clientKeyOf('cid')}`);
+});
+
+test('1.1 preflight: every redirect URI the five clients document registers', () => {
+  const uris = [
+    'https://claude.ai/api/mcp/auth_callback',
+    'http://localhost:51234/callback',
+    'http://127.0.0.1:51234/callback',
+    'http://localhost:8787/callback',
+    'https://www.cursor.com/agents/mcp/oauth/callback',
+    'cursor://anysphere.cursor-mcp/oauth/callback',
+    'https://chatgpt.com/connector_platform_oauth_redirect',
+    'https://chatgpt.com/connector/oauth/AbC123xyz',
+  ];
+  for (const u of uris) {
+    assert.equal(isAllowedRedirectUri(u), true, u);
+    assert.ok(registerClient({ redirect_uris: [u], client_name: 'preflight' }).client_id, u);
+  }
+});
+
+test('4.1 redirect classes, who serves many, and the per-X installation key', () => {
+  process.env.EARNKIT_AUTH_SECRET ??= 'oauth-test-secret';
+  assert.deepEqual(redirectClass('http://127.0.0.1:5000/cb'), { cls: 'loopback', host: null });
+  assert.deepEqual(redirectClass('http://localhost:8787/callback'), { cls: 'loopback', host: null });
+  assert.deepEqual(redirectClass('cursor://anysphere.cursor-mcp/oauth/callback'), { cls: 'app', host: null });
+  assert.deepEqual(redirectClass('https://claude.ai/api/mcp/auth_callback'), { cls: 'agent_host', host: 'claude.ai' });
+  assert.deepEqual(redirectClass('https://www.cursor.com/agents/mcp/oauth/callback'), { cls: 'agent_host', host: 'www.cursor.com' });
+  assert.deepEqual(redirectClass('https://chatgpt.com/connector_platform_oauth_redirect'), { cls: 'agent_host', host: 'chatgpt.com' });
+  // S6 (refined): only the three exact documented callbacks skip the warning page.
+  assert.deepEqual(redirectClass('https://chatgpt.com/connector/oauth/abc'), { cls: 'other', host: 'chatgpt.com' });
+  assert.deepEqual(redirectClass('https://claude.ai/other/path'), { cls: 'other', host: 'claude.ai' });
+  assert.deepEqual(redirectClass('https://claude.ai/api/mcp/auth_callback?x=1'), { cls: 'other', host: 'claude.ai' });
+  assert.deepEqual(redirectClass('https://forum.cursor.com/agents/mcp/oauth/callback'), { cls: 'other', host: 'forum.cursor.com' });
+  assert.deepEqual(redirectClass('https://cursor.com/agents/mcp/oauth/callback'), { cls: 'other', host: 'cursor.com' });
+  assert.deepEqual(redirectClass('https://platform.openai.com/cb'), { cls: 'other', host: 'platform.openai.com' });
+  assert.deepEqual(redirectClass('https://evil.example/cb'), { cls: 'other', host: 'evil.example' });
+  assert.deepEqual(redirectClass('https://claude.ai.evil.example/cb'), { cls: 'other', host: 'claude.ai.evil.example' });
+  assert.equal(servesMany({ r: ['https://grok.com/oauth/cb'] }), true);
+  assert.equal(servesMany({ r: ['http://localhost:9/cb'], cn: 'Grok' }), true);
+  assert.equal(servesMany({ r: ['https://claude.ai/api/mcp/auth_callback'] }), false, 'A1: a per-user connector');
+  assert.equal(servesMany({ r: ['https://chatgpt.com/connector_platform_oauth_redirect'] }), false);
+  // A2 and the binding: the code carries the X user, signed; the key is per registration and X account.
+  const redirect = 'http://127.0.0.1:5000/cb';
+  const clientId = registerClient({ redirect_uris: [redirect], client_name: 'Claude Code' }).client_id;
+  const verifier = 'w'.repeat(64);
+  const params = new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: redirect, state: 's1', code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' });
+  const checked = checkAuthorize(params);
+  assert.ok(!('error' in checked));
+  const user = { id: '777', username: 'lee', name: 'Lee', avatar: null };
+  const back = issueCode(checked.req, user, 'https://earnkit.com');
+  assert.equal(back.searchParams.get('state'), 's1');
+  assert.equal(back.searchParams.get('iss'), 'https://earnkit.com');
+  const form = (code: string) => new URLSearchParams({ grant_type: 'authorization_code', code, client_id: clientId, redirect_uri: redirect, code_verifier: verifier });
+  const out = exchangeCode(form(back.searchParams.get('code')!));
+  assert.deepEqual(out.x, user);
+  assert.equal(out.shared, false);
+  assert.equal(out.clientKey, clientKeyOf(`${clientId}\nx:777`));
+  const other = exchangeCode(form(issueCode(checked.req, { ...user, id: '778' }).searchParams.get('code')!));
+  assert.notEqual(other.clientKey, out.clientKey, 'another X account on the same registration is another installation');
+  const anon = exchangeCode(form(issueCode(checked.req, null).searchParams.get('code')!));
+  assert.equal(anon.x, null);
+  assert.equal(anon.clientKey, clientKeyOf(clientId));
+  // A tampered x payload breaks the signature.
+  const [body, sig] = back.searchParams.get('code')!.split('.');
+  const edited = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(body, 'base64url').toString()), x: { id: '1', u: 'victim', n: 'V', a: null } })).toString('base64url');
+  assert.throws(() => exchangeCode(form(`${edited}.${sig}`)), /invalid or expired/);
+  assert.throws(() => checkAuthorize(new URLSearchParams({ ...Object.fromEntries(params), redirect_uri: 'http://127.0.0.1:5001/cb' })), /not registered/);
+  assert.equal(authorizationServerMetadata('https://earnkit.com').authorization_response_iss_parameter_supported, true);
+  // A1: a claude.ai registration is "shared" by today's host rule, but a token signed in with X is one builder's.
+  const claude = 'https://claude.ai/api/mcp/auth_callback';
+  const cid = registerClient({ redirect_uris: [claude], client_name: 'Claude' }).client_id;
+  const cq = checkAuthorize(new URLSearchParams({ ...Object.fromEntries(params), client_id: cid, redirect_uri: claude }));
+  assert.ok(!('error' in cq) && cq.many === false);
+  const cform = (code: string) => new URLSearchParams({ grant_type: 'authorization_code', code, client_id: cid, redirect_uri: claude, code_verifier: verifier });
+  assert.equal(exchangeCode(cform(issueCode(cq.req, user).searchParams.get('code')!)).shared, false);
+  assert.equal(exchangeCode(cform(issueCode(cq.req, null).searchParams.get('code')!)).shared, true, 'anonymous: today\'s rule');
 });

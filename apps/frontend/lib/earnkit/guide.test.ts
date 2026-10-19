@@ -97,10 +97,9 @@ const arc = {
   focus: { areas: ['Stablecoin payments', 'FX', 'Agentic commerce'], source_url: 'https://e/f' },
   best_bet: 'A USDC payout tool with a live mainnet demo',
 };
-const BONUS = { cell: '0.18 ETH so far', board: 'earnkit.com/bonus/arc-microgrants-2026-09-16', pool: { wei: 18n * 10n ** 16n, tokens: 3 } };
 
 test('v2.7 §2: the full guide, exactly', () => {
-  assert.equal(guideText(programGuide(arc, BONUS, NOW)), [
+  assert.equal(guideText(programGuide(arc, NOW)), [
     'Arc Microgrants · 500 USDC × 20 grants · ends Oct 14, 11:59 PM ET',
     'Difficulty: Medium. 20 of ~160 entries won last round.',
     '',
@@ -114,8 +113,6 @@ test('v2.7 §2: the full guide, exactly', () => {
     '',
     'Your best bet',
     '- A USDC payout tool with a live mainnet demo',
-    '',
-    'Builder bonus: 0.18 ETH so far',
   ].join('\n'));
   assert.deepEqual(guideSources(arc), ['https://e/r', 'https://e/x', 'https://e/f']);
 });
@@ -128,7 +125,7 @@ test('Review Focus 5: partial data — no round winners, no why', () => {
       themes: [{ theme: 'USDC payroll and payouts', count: 3 }, { theme: 'Agent wallets paying for APIs', count: 2 }],
       examples: [{ name: 'ArcFlow', what: 'agent payouts in USDC', source_url: 'https://e/a' }],
     }],
-  }, null, NOW);
+  }, NOW);
   assert.deepEqual(g.won?.lines, [
     'USDC payroll and payouts (3 winners)',
     'Agent wallets paying for APIs (2)',
@@ -144,11 +141,11 @@ test('final review M3: themes counted over only the described winners (themes_of
     themes_of: 26,
     themes: [{ theme: 'Prediction markets', count: 4 }, { theme: 'Stablecoin payments', count: 4 }],
   };
-  assert.deepEqual(programGuide({ ...arc, past_rounds: [r] }, null, NOW).won?.lines, ['Prediction markets (4 winners)', 'Stablecoin payments (4)']);
+  assert.deepEqual(programGuide({ ...arc, past_rounds: [r] }, NOW).won?.lines, ['Prediction markets (4 winners)', 'Stablecoin payments (4)']);
   // themes_of equal to winners keeps "of N"; the difficulty still uses every winner.
-  const all = programGuide({ ...arc, past_rounds: [{ ...r, themes_of: 28 }] }, null, NOW);
+  const all = programGuide({ ...arc, past_rounds: [{ ...r, themes_of: 28 }] }, NOW);
   assert.deepEqual(all.won?.lines, ['Prediction markets (4 of 28 winners)', 'Stablecoin payments (4 of 28)']);
-  assert.match(programGuide({ ...arc, past_rounds: [r] }, null, NOW).difficulty.basis, /28 of ~2857/);
+  assert.match(programGuide({ ...arc, past_rounds: [r] }, NOW).difficulty.basis, /28 of ~2857/);
 });
 
 test('final review M3: the committed Colosseum file shows its themes without a denominator', async () => {
@@ -157,29 +154,29 @@ test('final review M3: the committed Colosseum file shows its themes without a d
   const { ProgramFile } = await import('./program-file');
   const raw = readFileSync(join(import.meta.dirname, '../../../../programs/colosseum-worlds-fair.json'), 'utf8');
   const p = ProgramFile.parse(JSON.parse(raw));
-  const text = guideText(programGuide({ ...p, ends_at: p.ends_at ? new Date(p.ends_at) : null } as never, null, NOW));
+  const text = guideText(programGuide({ ...p, ends_at: p.ends_at ? new Date(p.ends_at) : null } as never, NOW));
   assert.match(text, /- Prediction markets \(4 winners\)/);
   assert.doesNotMatch(text, /of 28\)|of 28 winners/);
 });
 
 test('Ruling C3: a predecessor (or older) round reads "What won before"; the newest own round "What won last time"', () => {
-  assert.match(guideText(programGuide(arc, null, NOW)), /\nWhat won last time\n/);
-  const predecessor = programGuide({ ...arc, past_rounds: [{ ...arc.past_rounds[0], own: undefined }] }, null, NOW);
+  assert.match(guideText(programGuide(arc, NOW)), /\nWhat won last time\n/);
+  const predecessor = programGuide({ ...arc, past_rounds: [{ ...arc.past_rounds[0], own: undefined }] }, NOW);
   assert.equal(predecessor.won?.own, false);
   assert.match(guideText(predecessor), /\nWhat won before\n/);
   assert.doesNotMatch(guideText(predecessor), /last (time|round)/);
   // The newest round is own but has no themes: the shown (older) round is not "last time".
-  const older = programGuide({ ...arc, past_rounds: [round(undefined, 20, 'Arc Microgrants R3'), arc.past_rounds[0]] }, null, NOW);
+  const older = programGuide({ ...arc, past_rounds: [round(undefined, 20, 'Arc Microgrants R3'), arc.past_rounds[0]] }, NOW);
   assert.match(guideText(older), /\nWhat won before\n/);
 });
 
 test('Ruling C12: a round that is not own names its event under the heading; each part names its own round', () => {
   // Own newest round: no event line.
-  const own = programGuide(arc, null, NOW);
+  const own = programGuide(arc, NOW);
   assert.equal(own.won?.event, null);
   assert.match(guideText(own), /\nWhat won last time\n- /);
   // A predecessor: the event line follows the heading, before the first item.
-  const p1 = programGuide({ ...arc, past_rounds: [{ ...arc.past_rounds[0], own: undefined, label: 'Base Batches 003' }] }, null, NOW);
+  const p1 = programGuide({ ...arc, past_rounds: [{ ...arc.past_rounds[0], own: undefined, label: 'Base Batches 003' }] }, NOW);
   assert.equal(p1.won?.event, 'in Base Batches 003');
   assert.match(guideText(p1), /\nWhat won before\nin Base Batches 003\n- /);
   // Difficulty from one round, the won section from another: each names its own.
@@ -190,42 +187,42 @@ test('Ruling C12: a round that is not own names its event under the heading; eac
         themes: [{ theme: 'Pay-per-use micropayments', count: 4 }] },
       pre(155, 4, "Arc's tracks at ETHGlobal HackMoney 2026"),
     ],
-  }, null, NOW);
+  }, NOW);
   assert.equal(split.difficulty.basis, "4 of ~155 entries won in Arc's tracks at ETHGlobal HackMoney 2026");
   assert.equal(split.won?.event, "in Arc's tracks at ETHGlobal Cannes 2026");
   const t = guideText(split);
   assert.match(t, /Difficulty: Hard\. 4 of ~155 entries won in Arc's tracks at ETHGlobal HackMoney 2026\.\n/);
   assert.match(t, /\nWhat won before\nin Arc's tracks at ETHGlobal Cannes 2026\n- Pay-per-use micropayments \(4 winners\)/);
   // An own round that isn't the newest is still named (it's not "last time").
-  const older = programGuide({ ...arc, past_rounds: [round(undefined, 20, 'Arc Microgrants R3'), arc.past_rounds[0]] }, null, NOW);
+  const older = programGuide({ ...arc, past_rounds: [round(undefined, 20, 'Arc Microgrants R3'), arc.past_rounds[0]] }, NOW);
   assert.equal(older.won?.event, `in ${arc.past_rounds[0].label}`);
 });
 
 test('empty data: the header and the estimate only, no empty headings, no bonus line', () => {
-  const text = guideText(programGuide({ ...base, title: arc.title, summary: arc.summary, ends_at: arc.ends_at, status: 'active' }, null, NOW));
+  const text = guideText(programGuide({ ...base, title: arc.title, summary: arc.summary, ends_at: arc.ends_at, status: 'active' }, NOW));
   assert.equal(text, 'Arc Microgrants · 500 USDC × 20 grants · ends Oct 14, 11:59 PM ET\nDifficulty: Medium (estimate). No past results yet.');
 });
 
 test('Ruling 7: focus.ecosystem names the heading', () => {
-  const g = programGuide({ ...arc, focus: { ...arc.focus, ecosystem: 'Circle' } }, null, NOW);
+  const g = programGuide({ ...arc, focus: { ...arc.focus, ecosystem: 'Circle' } }, NOW);
   assert.match(guideText(g), /\nWhat Circle wants now\n/);
 });
 
 test('Ruling 9: closed and rolling headers', () => {
-  assert.match(programGuide({ ...arc, status: 'closed' }, null, NOW).header, / · closed$/);
-  assert.match(programGuide(arc, null, new Date('2026-10-16T00:00:00Z')).header, / · closed$/, 'past the deadline');
+  assert.match(programGuide({ ...arc, status: 'closed' }, NOW).header, / · closed$/);
+  assert.match(programGuide(arc, new Date('2026-10-16T00:00:00Z')).header, / · closed$/, 'past the deadline');
   assert.equal(
-    programGuide({ ...base, title: 'Base Builder Grant Program', chains: ['base'], summary: 'up to $5,000 · rolling', ends_at: null, status: 'active' }, null, NOW).header,
+    programGuide({ ...base, title: 'Base Builder Grant Program', chains: ['base'], summary: 'up to $5,000 · rolling', ends_at: null, status: 'active' }, NOW).header,
     'Base Builder Grant Program · up to $5,000 · rolling',
   );
 });
 
 test('builder text: no tool or field names, no "coin", no "Clanker", in every render', () => {
   const renders = [
-    programGuide(arc, BONUS, NOW),
-    programGuide({ ...arc, past_rounds: [{ ...pre(null, null, "Arc's HackMoney 2026 track"), examples: [{ name: 'ArcFlow', what: 'agent payouts', source_url: 'https://e/a' }] }] }, null, NOW),
-    programGuide({ ...arc, past_rounds: [pre(null, 11, 'Rebel in Paradise AI Hackathon')], focus: null, best_bet: null }, BONUS, NOW),
-    programGuide({ ...base, title: arc.title, summary: arc.summary, ends_at: arc.ends_at, status: 'active' }, null, NOW),
+    programGuide(arc, NOW),
+    programGuide({ ...arc, past_rounds: [{ ...pre(null, null, "Arc's HackMoney 2026 track"), examples: [{ name: 'ArcFlow', what: 'agent payouts', source_url: 'https://e/a' }] }] }, NOW),
+    programGuide({ ...arc, past_rounds: [pre(null, 11, 'Rebel in Paradise AI Hackathon')], focus: null, best_bet: null }, NOW),
+    programGuide({ ...base, title: arc.title, summary: arc.summary, ends_at: arc.ends_at, status: 'active' }, NOW),
   ];
   for (const g of renders) assert.doesNotMatch(guideText(g), /\bcoins?\b|clanker|_[a-z]|get_program|guide\.text/i);
 });
@@ -261,7 +258,7 @@ test('Ruling C12 on the committed files: a shown round that is not own is named 
   let named = 0;
   for (const f of readdirSync(dir).filter((f) => f.endsWith('.json'))) {
     const p = ProgramFile.parse(JSON.parse(readFileSync(join(dir, f), 'utf8')));
-    const g = programGuide({ ...p, ends_at: p.ends_at ? new Date(p.ends_at) : null } as never, null, NOW);
+    const g = programGuide({ ...p, ends_at: p.ends_at ? new Date(p.ends_at) : null } as never, NOW);
     if (!g.won) continue;
     const shown = p.past_rounds.find((r) => r.themes?.length || r.examples?.length)!;
     if (shown === p.past_rounds[0] && shown.own) assert.equal(g.won.event, null, f);
@@ -278,7 +275,7 @@ test('Ruling C12 on the committed files: a shown round that is not own is named 
 test('v2.8 Ruling 12: an EarnKit rating reads just "Easy", with no basis, stat or label', () => {
   const rated = { ...arc, difficulty_override: { level: 'Easy' as const, rated_by: 'earnkit' as const, source_url: 'https://e/program' } };
   assert.deepEqual(difficultyOf(rated), { level: 'Easy', estimate: false, rated: true, basis: '' });
-  const text = guideText(programGuide(rated, null, NOW));
+  const text = guideText(programGuide(rated, NOW));
   const line = text.split('\n').find((l) => l.startsWith('Difficulty:'));
   assert.equal(line, 'Difficulty: Easy');
   assert.doesNotMatch(line!, /rated|EarnKit|%|\d/i);
@@ -291,7 +288,7 @@ test('v2.8 Ruling 11: an estimate override shows "Hard (estimate)" and its basis
   const d = difficultyOf({ ...base, difficulty_override: o });
   assert.deepEqual(d, { level: 'Hard', estimate: true, rated: false, basis: 'a16z publishes no acceptance figures' });
   assert.equal(difficultyLabel(d), 'Hard (estimate)');
-  const text = guideText(programGuide({ ...arc, past_rounds: [], focus: null, best_bet: null, difficulty_override: o }, null, NOW));
+  const text = guideText(programGuide({ ...arc, past_rounds: [], focus: null, best_bet: null, difficulty_override: o }, NOW));
   assert.match(text, /^Difficulty: Hard \(estimate\)\. A16z publishes no acceptance figures\.$/m);
 });
 
@@ -386,20 +383,11 @@ test('1.11 Avalanche Team1 Mini Grants is Medium (estimate), never Easy; a row m
   assert.equal(row.level, 'Hard');
 });
 
-test('7.6 v2.10 item 1: guideText ends with the one bonus line, never the board link', () => {
-  const t = guideText(programGuide(arc, BONUS, NOW));
-  assert.ok(t.endsWith('\n\nBuilder bonus: 0.18 ETH so far'), t);
-  assert.doesNotMatch(t, /earnkit\.com\/bonus/);
-  const first = guideText(programGuide(arc, { ...BONUS, pool: { wei: 0n, tokens: 0 } }, NOW));
-  assert.ok(first.endsWith('\n\nBuilder bonus: no tokens yet, so yours would be first'), first);
-  assert.ok(!guideText(programGuide(arc, null, NOW)).includes('Builder bonus'));
-});
-
 // ---- v2.10 item 3: "What it wants" from the rules ----
 
 test('8.7 v2.10 item 3: without past rounds or focus, guideText shows "What it wants" with the first 2 rules; wants stays null (Pre-flight P2)', () => {
   const rules = ['Open application for early-stage builders.', 'For new and established projects.', 'A third rule.'];
-  const g = programGuide({ ...base, rules, title: 'Avalanche', summary: 'up to $10,000 · rolling', ends_at: null, status: 'active' }, null, NOW);
+  const g = programGuide({ ...base, rules, title: 'Avalanche', summary: 'up to $10,000 · rolling', ends_at: null, status: 'active' }, NOW);
   // The public /programs page reads `wants`: unchanged (never "What null wants now").
   assert.equal(g.wants, null);
   assert.deepEqual(g.rules_wants, rules.slice(0, 2));
@@ -408,16 +396,16 @@ test('8.7 v2.10 item 3: without past rounds or focus, guideText shows "What it w
   assert.ok(!text.includes('A third rule'));
   assert.doesNotMatch(text, /What won/);
   // A focus or a past round is sourced: no rules fallback.
-  assert.equal(programGuide({ ...arc, rules }, null, NOW).rules_wants, null);
-  assert.equal(programGuide({ ...arc, focus: null, rules }, null, NOW).rules_wants, null);
-  assert.doesNotMatch(guideText(programGuide({ ...arc, rules }, null, NOW)), /What it wants/);
+  assert.equal(programGuide({ ...arc, rules }, NOW).rules_wants, null);
+  assert.equal(programGuide({ ...arc, focus: null, rules }, NOW).rules_wants, null);
+  assert.doesNotMatch(guideText(programGuide({ ...arc, rules }, NOW)), /What it wants/);
   // No rules: no section.
-  assert.equal(programGuide({ ...base, title: 'A', summary: 'x · rolling', ends_at: null, status: 'active' }, null, NOW).rules_wants, null);
+  assert.equal(programGuide({ ...base, title: 'A', summary: 'x · rolling', ends_at: null, status: 'active' }, NOW).rules_wants, null);
 });
 
 test('8.7 v2.10 item 3: the committed Avalanche file (no focus, no past rounds) shows its first 2 rules', async () => {
   const p = ProgramFile.parse(JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/avalanche-team1-mini-grants.json'), 'utf8')));
-  const g = programGuide({ focus: null, best_bet: null, ...p, ends_at: p.ends_at ? new Date(p.ends_at) : null } as never, null, NOW);
+  const g = programGuide({ focus: null, best_bet: null, ...p, ends_at: p.ends_at ? new Date(p.ends_at) : null } as never, NOW);
   assert.equal(g.wants, null);
   const text = guideText(g);
   assert.ok(text.includes(`What it wants\n- ${p.rules[0]}\n- ${p.rules[1]}`), text);
@@ -428,7 +416,7 @@ test('Ruling H10 (I2): the copy check exempts only the guide\'s quoted program f
   const p = ProgramFile.parse(JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/base-builder-grants.json'), 'utf8')));
   // The Base file keeps its sourced wording; the public guide (wants) says it.
   assert.ok(p.focus?.areas.some((a) => /vaults/.test(a)));
-  const text = guideText(programGuide({ ...p, ends_at: p.ends_at ? new Date(p.ends_at) : null } as never, null, NOW));
+  const text = guideText(programGuide({ ...p, ends_at: p.ends_at ? new Date(p.ends_at) : null } as never, NOW));
   assert.match(text, /vaults/);
   assert.doesNotMatch(withoutQuotedFacts(text), /vault/i);
   // The header, difficulty and best bet are still scanned; EarnKit's own words are never exempt.

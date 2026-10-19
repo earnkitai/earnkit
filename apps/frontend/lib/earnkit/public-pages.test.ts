@@ -5,334 +5,38 @@ import { join } from 'node:path';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import PolicySection from '../../app/terms/sections/PolicySection';
-import TermsPage, { generateMetadata as termsMetadataFor } from '../../app/terms/page';
+import TermsPage from '../../app/terms/page';
 import nextConfig from '../../next.config';
-import { CONTACT_EMAIL, FEE_SPLIT_BPS, MINI_LINE, PROFILES_POINTS, RECORDS_ANCHOR, RECORDS_HREF, RECORD_STEPS } from './policy';
-import BoardView from '../../app/bonus/[round]/BoardView';
+import { CONTACT_EMAIL, PROFILES_POINTS, RECORDS_ANCHOR, RECORDS_HREF, RECORD_STEPS } from './policy';
 import Footer from '../../app/components/common/Footer';
-import type { Board } from './bonus-board';
-import { resolveRoundParam } from './bonus-rounds';
 import HomeView from '../../app/HomeView';
 import Header from '../../app/components/common/Header';
-import { HERO_EYEBROW, HERO_SUBTITLE, HERO_TITLE } from '../../app/components/sections/Hero';
-import { HOW_TITLE, STEPS } from '../../app/components/sections/HowItWorks';
 import { NO_CELL } from './present';
-import BonusPill, { BONUS_PILL_COLORS, BONUS_PILL_TEXT, bonusPillLabel } from '../../app/components/ui/BonusPill';
 import ProgramLogo, { monogram } from '../../app/components/sections/ProgramLogo';
 import AddToAgent, { START_PROMPT } from '../../app/components/sections/AddToAgent';
 import type { Landing } from './landing';
 import { homeFixture } from './fixtures/landing';
-import GuideView, { askPrompt, Unavailable } from '../../app/programs/[id]/GuideView';
+import GuideView, { Unavailable } from '../../app/programs/[id]/GuideView';
 import AskAgent from '../../app/programs/[id]/AskAgent';
 import ProgramCards from '../../app/components/sections/ProgramCards';
 import type { GuidePage } from './landing';
 import { closedGuide, emptyGuide, fullGuide, partialGuide, predecessorGuide } from './fixtures/guide';
 import { gatedGuidePage, guideDescription } from './landing';
 import { shownUrl } from './untrusted-text';
-import { FOOTER_COLUMNS, FOOTER_TAGLINE } from './footer-links';
+import { BENCH_FOOTER_TAGLINE } from './footer-links';
 
 // The test runner compiles JSX with the classic runtime (no tsconfig at the repo root).
 (globalThis as { React?: typeof React }).React = React;
 
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
-const view = (b: Board) => html(React.createElement(BoardView, { board: b }));
 const text = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/\s+/g, ' ');
-
-test('/terms#policy: every section, the fee split and payout tables, the weights, plain words', () => {
-  const h = html(React.createElement(PolicySection));
-  const t = text(h);
-  for (const heading of [
-    'How matching works',
-    'Where token fees go',
-    'The builder bonus',
-    'The token is optional',
-    'No affiliation',
-    'Contact',
-  ])
-    assert.match(h, new RegExp(`<h2[^>]*>${heading}</h2>`), heading);
-  // Fee split, after the launch protocol's 20%.
-  assert.match(t, /The launch protocol keeps 20% of trading fees/);
-  for (const [who, share] of [['Your project', '40%'], ['MINI buyback', '10%'], ['Builder bonus', '20%'], ['EarnKit', '30%']])
-    assert.match(t, new RegExp(`${who} ${share}`), who);
-  // Signals and weights; market cap only breaks ties; never trading volume.
-  for (const w of ['40', '20', '20', '10', '10']) assert.ok(t.includes(` ${w} `));
-  assert.match(t, /Market cap only breaks ties/);
-  assert.match(t, /Trading volume never counts/);
-  // Eligibility, review, payout split in WETH, after the end.
-  assert.match(t, /entry page/);
-  assert.match(t, /earnkit\.txt/);
-  assert.match(t, /48 hours/);
-  assert.match(t, /farmed/);
-  assert.match(t, /WETH/);
-  assert.match(t, /1st 25% 2nd 18% 3rd 14% 4th 11% 5th 9% 6th 7% 7th 6% 8th 4% 9th 3% 10th 3%/);
-  // Where the bonus share goes after a round: the next month for a rolling program; the Safe once
-  // a program ends, and for programs without public submissions.
-  assert.match(t, /monthly round is followed by the next month's round/);
-  assert.match(t, /Once a program ends, its tokens' builder bonus share goes to EarnKit's Safe/);
-  assert.match(t, /So does the share of programs that opted out/);
-  // v2.6 §3-§4: the bonus is on every program unless it opts out; how a submission counts; a token
-  // needs only the token line (no public payout wallet).
-  assert.match(t, /Every program except EarnKit campaigns has a builder bonus unless it opts out\./);
-  assert.match(t, /If EarnKit can't load an entry page, the builder's confirmation counts and is reviewed too\./);
-  assert.ok(
-    t.includes('Programs without public entry pages: the builder confirms the submission; the owner reviews the top 10 before paying.'),
-  );
-  assert.match(t, /Programs with public entry pages: your entry page links your repo or live product\./);
-  assert.match(t, /You can push to the repo: its earnkit\.txt carries the token line your agent adds\./);
-  assert.doesNotMatch(t, /names your payout wallet/);
-  assert.doesNotMatch(h, /submissions aren&apos;t public show/);
-  assert.doesNotMatch(t, /submissions aren't public/);
-  assert.doesNotMatch(t, /round ends go to EarnKit/);
-  // v2.9 B11: the token is optional, said without "skip" (only token offers say it).
-  assert.match(t, /Every entry is offered a token, named after the project\. Turn it down and there's no token\. No token means no builder bonus, nothing else\./);
-  assert.doesNotMatch(t, /\bskip\b/i);
-  assert.match(t, /isn't affiliated with or endorsed by/);
-  assert.match(h, /mailto:j@earnkit\.com/);
-  // The public name is "builder bonus", never "vault"; no emojis.
-  assert.doesNotMatch(t, /vault/i);
-  assert.doesNotMatch(t, /\p{Emoji_Presentation}/u);
-  // The homepage's design system: Funnel type, ek tokens, the panel radius.
-  const page = html(React.createElement(TermsPage));
-  assert.match(page, /<h1 class="[^"]*font-funnel-display/);
-  assert.match(page, /rounded-\[40px\][^"]*md:rounded-\[56px\]/);
-  assert.match(page, /bg-ek-navy-deep/);
-});
 
 test('footer: links the terms page', () => {
   assert.match(html(React.createElement(Footer)), /href="\/terms"/);
 });
 
-const board = (o: Partial<Board> = {}): Board => ({
-  round: 'base-builder-grants:2026-10',
-  title: 'Base Builder Grants',
-  state: 'open',
-  ends_at: new Date('2026-11-01T00:00:00Z'),
-  // Ruling 29: the month's last day, as the first message and the entry reply show it.
-  ends_label: 'Oct 31',
-  review_until: null,
-  pool: '0.42',
-  days_left: 26,
-  removed: 0,
-  rows: [
-    { rank: 1, name: 'Tipjar', repo_url: 'https://github.com/a/tipjar', live_url: 'https://tipjar.app', score: '81.5', eligible: true, note: 'Yes', amount: null, tx: null },
-    { rank: null, name: 'Splitly', repo_url: null, live_url: null, score: null, eligible: false, note: 'No: no token', amount: null, tx: null },
-  ],
-  ...o,
-});
-
-test('/bonus/<round> open: name, disclaimer, pool so far, days left, the rank/project/score/eligible table', () => {
-  const h = view(board());
-  const t = text(h);
-  assert.match(h, /<h1[^>]*>Base Builder Grants<\/h1>/);
-  assert.match(t, /EarnKit isn't affiliated with or endorsed by the organizer\./);
-  assert.match(t, /Pool so far 0\.42 ETH/);
-  assert.match(t, /Days left 26/);
-  assert.match(t, /Ends Oct 31/);
-  assert.match(t, /# Project Score Eligible/);
-  assert.match(t, /1 Tipjar .*81\.5 Yes/);
-  assert.match(t, /– Splitly .*– .*No: no token/);
-  assert.match(h, /href="\/terms#policy"/);
-  assert.match(h, /href="https:\/\/tipjar\.app\/"/);
-  assert.doesNotMatch(t, /vault/i);
-});
-
-test('/bonus/<round> paid: frozen places with amounts, paid rows link their transaction, removals counted', () => {
-  const tx = '0x' + 'c'.repeat(64);
-  const h = view(
-      board({
-        state: 'paid',
-        days_left: 0,
-        removed: 1,
-        rows: [
-          { rank: 1, name: 'Tipjar', repo_url: null, live_url: null, score: '81.5', eligible: true, note: 'Yes', amount: '0.105', tx },
-          { rank: 2, name: 'Mintboard', repo_url: null, live_url: null, score: '60.0', eligible: true, note: 'Yes', amount: '0.0756', tx: null },
-        ],
-      }),
-  );
-  const t = text(h);
-  assert.match(t, /Winners/);
-  assert.match(t, /Pool 0\.42 ETH/);
-  assert.match(h, new RegExp(`href="https://basescan.org/tx/${tx}"`));
-  assert.equal(h.match(/basescan\.org\/tx\//g)?.length, 1);
-  assert.match(t, /0\.105 ETH/);
-  // An ended round says when it ended and where it is, not "0 days left".
-  assert.match(t, /Ended Oct 31/);
-  assert.match(t, /Status Paid/);
-  assert.doesNotMatch(t, /Days left/);
-  assert.match(t, /1 entry was removed in review/);
-  // Every frozen row was eligible at the round's end: no Eligible column that only says "Yes".
-  assert.doesNotMatch(t, /Eligible/);
-});
-
-test('/bonus/<round> review: the top 10 are public until the review closes', () => {
-  const t = text(view(board({ state: 'review', days_left: 0, review_until: new Date('2026-11-03T00:00:00Z') })));
-  assert.match(t, /In review/);
-  assert.match(t, /Nov 3, 2026/);
-  assert.match(t, /48-hour review/);
-});
-
-test('/bonus/<round>: links defend themselves: a javascript: or http: URL renders no link, a bad tx hash no link', () => {
-  const h = view(
-    board({
-      state: 'paid',
-      rows: [
-        { rank: 1, name: 'Evil', repo_url: 'javascript:alert(1)', live_url: 'http://plain.example', score: '1.0', eligible: true, note: 'Yes', amount: '0.1', tx: 'javascript:alert(1)' },
-      ],
-    }),
-  );
-  assert.doesNotMatch(h, /javascript:/);
-  assert.doesNotMatch(h, /href="http:\/\/plain/);
-  assert.doesNotMatch(h, /basescan\.org\/tx/);
-  assert.match(text(h), /Evil/);
-});
-
-test('M1: the public round page answers a malformed round escape with a 404 (notFound), never a 500', () => {
-  const page = readFileSync(join(import.meta.dirname, '../../app/bonus/[round]/page.tsx'), 'utf8');
-  // The page resolves the segment with resolveRoundParam, which answers null for a malformed escape.
-  assert.match(page, /const round = resolveRoundParam\(\(await params\)\.round\);\s*if \(round === null\) notFound\(\);/);
-  assert.doesNotMatch(page, /bonusBoard\(decodeURIComponent/);
-  // The escape that made it throw.
-  assert.throws(() => decodeURIComponent('%E0%A4%A'), URIError);
-  assert.equal(resolveRoundParam('%E0%A4%A'), null);
-});
-
-test('Ruling 12 (plan): the board page resolves the slug and the v2.5 ":" form to the same round', () => {
-  assert.equal(resolveRoundParam('arc-microgrants-2026-09-16'), 'arc-microgrants:2026-09-16');
-  assert.equal(resolveRoundParam('arc-microgrants%3A2026-09-16'), 'arc-microgrants:2026-09-16');
-  assert.equal(resolveRoundParam('arc-microgrants:2026-09-16'), 'arc-microgrants:2026-09-16');
-  const sitemap = readFileSync(join(import.meta.dirname, '../../app/sitemap.ts'), 'utf8');
-  assert.match(sitemap, /\/bonus\/\$\{boardSlug\(r\.round_key\)\}/);
-});
-
 // ---- v2.7 §1: the homepage (HomeView is the pure render; app/page.tsx does the cached read).
 const home = (landing: Landing | null) => html(React.createElement(HomeView, { landing }));
-
-test('v2.7 §1: the full home view', () => {
-  const h = home(homeFixture);
-  const t = text(h);
-  for (const s of [HERO_EYEBROW, HERO_TITLE, HERO_SUBTITLE, `${homeFixture.open_text} open right now`, 'Builder bonus', 'Add to your agent', 'Watch the demo', '120 agents earning'])
-    assert.ok(t.includes(s), s);
-  // v2.8: the hero is the title, the subtitle, the bonus pill and the buttons; the pool figure
-  // heads the Open programs section.
-  const order = [HERO_TITLE, HERO_SUBTITLE, 'Builder bonus', 'Add to your agent', 'Watch the demo', '120 agents earning', 'Open programs', `${homeFixture.open_text} open right now`].map((s) => t.indexOf(s));
-  assert.deepEqual([...order].sort((a, b) => a - b), order);
-  assert.ok(!t.includes('Then ask:'));
-  // v2.8 Ruling 20 (plan): every open program in one carousel row; no "See all".
-  const cards = cardsOf(h);
-  assert.equal(cards.length, homeFixture.tiles.length);
-  assert.doesNotMatch(t, /See all/);
-  // 44px tap targets: the footer links (Ruling 22, plan).
-  for (const name of ['Programs', 'Docs', 'For sponsors', 'Terms', 'j@earnkit.com'])
-    assert.match(h, new RegExp(`class="[^"]*min-h-11[^"]*"[^>]*>${name}</a>`), name);
-  assert.match(h, /aria-label="@jenilt on X"[^>]*class="[^"]*min-h-11[^"]*min-w-11[^"]*"/);
-  // v2.7.1: the pool is the big line, "up to $X per winner" under it; no pool, the per-winner amount.
-  assert.ok(t.includes('$840K in prizes up to $30,000 per winner 8 days left Hard Builder bonus · 0.42 ETH'), t);
-  assert.ok(t.includes('10,000 USDC pool 500 USDC per grant'));
-  assert.ok(t.includes('up to $5,000 per grant rolling'));
-  assert.ok(t.includes('$200K in grants $5K–$100K per grant rolling'));
-  assert.doesNotMatch(t, /per winner rolling|grants? up to \$[\d,]+ per winner/); // review #1: grants never say "per winner"
-  assert.ok(!t.includes('Prize ') && !t.includes('Ends ') && !t.includes('Difficulty '));
-  // The section: no "Open now" eyebrow; review #5: no bonus line under the title (the pills say it).
-  assert.ok(t.includes(`Open programs ${homeFixture.open_text} open right now Ask your agent CW Crypto World`), t);
-  assert.doesNotMatch(t, /Every entry also competes|\(estimate\)/);
-  assert.doesNotMatch(t, /Open now/i);
-  // No stats strip, no duplicate open-money figure.
-  assert.doesNotMatch(t, /Open money|EarnKit in numbers/);
-  assert.equal(t.split('open right now').length, 2);
-  // v2.8: no "Win twice" section; the programs come before How you earn.
-  assert.doesNotMatch(h, /id="builder-bonus"|Win twice/);
-  assert.doesNotMatch(h, /Leaderboards/);
-  assert.ok(t.indexOf('Open programs') < t.indexOf(HOW_TITLE) && t.indexOf(HOW_TITLE) < t.indexOf('Add EarnKit'));
-  // Footer (Ruling 22, plan): the real links only, the tagline, and the faded wordmark.
-  for (const href of [...FOOTER_COLUMNS.flatMap((c) => c.links.map((l) => l.href)), '/'])
-    assert.match(h, new RegExp(`href="${href.replace(/[.+]/g, '\\$&')}"`), href);
-  assert.ok(t.includes(FOOTER_TAGLINE));
-  // v2.8.1 (owner): the faded wordmark is the navbar's logo SVG, not text.
-  assert.match(h, /<div aria-hidden="true" data-footer-wordmark=""[^>]*><svg[^>]*viewBox="0 0 124 23"/);
-  // The design system: Funnel type, navy panels, the panel radius; no emojis, never "coin".
-  assert.match(h, /rounded-\[40px\][^"]*md:rounded-\[56px\]/);
-  assert.match(h, /<h2[^>]*font-funnel-display[^>]*>Open programs<\/h2>/);
-  assert.doesNotMatch(t, /\bcoins?\b/i);
-});
-
-test('Review Focus 1: a failed read renders the headline and the button, without the live parts', () => {
-  const h = home(null);
-  const t = text(h);
-  assert.ok(t.includes(HERO_TITLE));
-  assert.ok(t.includes('Add to your agent'));
-  assert.ok(!t.includes('Then ask:'));
-  assert.ok(!t.includes('open right now'));
-  assert.ok(!t.includes('Ask your agent'));
-  assert.ok(!t.includes('Open programs'));
-  assert.ok(!t.includes('agents earning'));
-  // v2.8: the hero pill needs no read, and never claims an amount or "0 ETH".
-  assert.ok(t.includes(`${HERO_SUBTITLE} Builder bonus Add to your agent Watch the demo`));
-  assert.doesNotMatch(t, /Pools start|in pools so far|\b0 ETH|Win twice/);
-  assert.ok(t.includes(HOW_TITLE) && t.includes(STEPS[2].title)); // How you earn stays
-  assert.match(h, /id="how-you-earn-3"/);
-});
-
-// ---- v2.8 Task 2: the hero, How you earn, no Win twice.
-test('v2.8: the hero is the title, the subtitle, the bonus pill to step 3 and the two buttons', () => {
-  const h = home(homeFixture);
-  const t = text(h);
-  assert.match(h, new RegExp(`<h1[^>]*>${HERO_TITLE}</h1>`));
-  assert.equal(HERO_TITLE, 'Earn rewards for building');
-  assert.equal(HERO_SUBTITLE, 'Find live programs. EarnKit matches your projects and helps you win.');
-  const pill = h.match(/<a[^>]*href="#how-you-earn-3"[^>]*>[\s\S]*?<\/a>/)?.[0] ?? '';
-  assert.equal(text(pill).trim(), 'Builder bonus');
-  assert.match(pill, /h-11/); // size lg
-  const order = [HERO_EYEBROW, HERO_TITLE, HERO_SUBTITLE, 'Builder bonus', 'Add to your agent', 'Watch the demo'].map((s) => t.indexOf(s));
-  assert.ok(order.every((n) => n >= 0), String(order));
-  // Ruling C3: the "Agents only" pill sits right above the h1, in its v2.7 style.
-  assert.equal(HERO_EYEBROW, 'Agents only');
-  assert.match(h, /<p class="[^"]*rounded-full border-2 border-ek-blue-soft\/80[^"]*uppercase[^"]*">Agents only<\/p><h1 class="mt-8 /);
-  assert.deepEqual([...order].sort((a, b) => a - b), order);
-  for (const gone of ['Win twice', 'Find things worth building for', 'on every program']) assert.ok(!t.includes(gone), gone);
-  assert.doesNotMatch(h, /id="builder-bonus"|href="#builder-bonus"/);
-  // Nothing else: from the h1 to the end of the hero section, only these carry text.
-  const afterH1 = h.slice(h.indexOf('</h1>'));
-  const hero = afterH1.slice(0, afterH1.indexOf('</section>'));
-  const bits = [...hero.matchAll(/>([^<]+)</g)].map((m) => text(m[1]).trim()).filter(Boolean);
-  assert.deepEqual(bits, [HERO_SUBTITLE, 'Builder bonus', 'Add to your agent', 'Watch the demo', homeFixture.stats_line]);
-});
-
-test('v2.8: How you earn is a visible h2 with the three steps; step 3 is the pill target', () => {
-  const h = home(homeFixture);
-  assert.equal(HOW_TITLE, 'How you earn');
-  const h2 = h.match(/<h2[^>]*id="how-it-works"[^>]*>([^<]*)<\/h2>/) ?? h.match(/<h2[^>]*>(How you earn)<\/h2>/);
-  assert.ok(h2, 'h2');
-  assert.equal(h2![1], HOW_TITLE);
-  assert.match(h2![0], /id="how-it-works"/);
-  assert.doesNotMatch(h2![0], /sr-only/);
-  assert.deepEqual(STEPS, [
-    { title: 'Add EarnKit', body: 'One link, free.' },
-    { title: 'Ask “What can I earn?”', body: 'Your agent finds programs you qualify for.' },
-    { title: 'Submit and earn', body: "Launch your entry's token to compete for the builder bonus." },
-  ]);
-  const steps = [...h.matchAll(/<li[^>]*id="how-you-earn-(\d)"[^>]*>[\s\S]*?<h3[^>]*>([^<]*)<\/h3>[\s\S]*?<p[^>]*>([^<]*)<\/p>/g)].map((m) => ({
-    n: m[1],
-    title: text(m[2]).trim(),
-    body: text(m[3]).trim(),
-  }));
-  assert.deepEqual(steps, STEPS.map((s, i) => ({ n: String(i + 1), ...s })));
-  assert.match(h, /<li[^>]*id="how-you-earn-3"[^>]*class="[^"]*scroll-mt-4/);
-  assert.doesNotMatch(h, /<li[^>]*id="how-you-earn-[12]"[^>]*class="[^"]*scroll-mt-4/); // step 3 only (the brief)
-});
-
-test('v2.8: a failed read keeps the hero and How you earn, without Open programs', () => {
-  const t = text(home(null));
-  for (const s of [HERO_EYEBROW, HERO_TITLE, HERO_SUBTITLE, 'Builder bonus', 'Add to your agent', 'Watch the demo', HOW_TITLE, ...STEPS.map((s) => s.title)]) assert.ok(t.includes(s), s);
-  assert.ok(!t.includes('Open programs'));
-});
-
-test('v2.8: /terms#policy shows the builder bonus pill in its builder bonus section', () => {
-  const h = html(React.createElement(PolicySection));
-  const sec = h.slice(h.indexOf('id="the-builder-bonus"'));
-  const head = sec.slice(0, sec.indexOf('<h3'));
-  assert.match(head, /<h2[^>]*>The builder bonus<\/h2>/);
-  assert.match(head, /<span[^>]*class="[^"]*rounded-full[^"]*h-9[^"]*"[^>]*>[\s\S]*?<svg[^>]*aria-hidden="true"[\s\S]*?Builder bonus/);
-});
 
 test('Ruling 1 (plan): no logo renders the monogram, never an <img>; a logo is a local <img>', () => {
   const none = html(React.createElement(ProgramLogo, { logo: null, title: 'Arc Microgrants' }));
@@ -349,7 +53,7 @@ test('Ruling 1 (plan): no logo renders the monogram, never an <img>; a logo is a
 test('v2.7.1: the header is Docs and the install, desktop and mobile; the X link is in the footer only', () => {
   const h = html(React.createElement(Header));
   assert.equal((h.match(/<button[^>]*>Add to your agent<\/button>/g) ?? []).length, 2); // desktop and mobile
-  assert.equal((h.match(/<a[^>]*href="https:\/\/docs\.earnkit\.com"[^>]*>Docs<\/a>/g) ?? []).length, 2);
+  assert.equal((h.match(/<a[^>]*href="https:\/\/github\.com\/earnkitai\/earnkit#connect-an-agent"[^>]*>Docs<\/a>/g) ?? []).length, 2);
   assert.doesNotMatch(h, /x\.com\/jenilt/);
   assert.match(html(React.createElement(Footer)), /href="https:\/\/x\.com\/jenilt"/);
 });
@@ -373,14 +77,14 @@ test('v2.7 §1: the install modal asks the starting phrase, or the program\'s ow
   const t = text(html(React.createElement(AddToAgent, { onClose: () => {}, prompt: 'What can I earn on Arc Microgrants?' })));
   assert.ok(t.includes('Then ask your agent: “What can I earn on Arc Microgrants?”'));
   assert.ok(text(html(React.createElement(AddToAgent, { onClose: () => {} }))).includes('Then ask your agent: “What can I earn?”'));
-  // v2.8 Ruling 19 (plan): the builder bonus pill under the steps.
-  assert.ok(t.includes('Builder bonus Then ask your agent'), t);
+  // v2.14: no builder bonus pill.
+  assert.ok(!t.includes('Builder bonus'), t);
 });
 
 test('v2.7: the site description and llms.txt use the starting phrase and name the guides', () => {
   const layout = readFileSync(join(import.meta.dirname, '../../app/layout.tsx'), 'utf8');
   assert.ok(layout.includes('EarnKit gives your AI agent live builder programs with real rewards. Add it to your agent, ask "What can I earn?", build, and submit.'));
-  const llms = readFileSync(join(import.meta.dirname, 'llms/v212.txt'), 'utf8');
+  const llms = readFileSync(join(import.meta.dirname, 'llms/v213.txt'), 'utf8');
   assert.ok(llms.includes('What can I earn?'));
   assert.match(llms, /earnkit\.com\/programs\/<id>/);
   assert.doesNotMatch(llms, /Anything worth building/);
@@ -407,50 +111,6 @@ function elements(node: unknown, out: React.ReactElement[] = []): React.ReactEle
 }
 const asks = (page: GuidePage) =>
   elements(GuideView({ page })).filter((e) => e.type === AskAgent).map((e) => (e.props as { prompt: string }).prompt);
-
-test('v2.7 §2: the full guide page', () => {
-  const h = guideHtml(fullGuide);
-  const t = text(h);
-  assert.match(h, /<h1[^>]*>Arc Microgrants<\/h1>/);
-  assert.match(h, /<img[^>]*src="\/programs\/arc-microgrants.svg"[^>]*alt="Arc Microgrants"/);
-  assert.ok(t.includes('500 USDC × 20 grants · ends Oct 14'));
-  assert.ok(t.includes('Difficulty: Medium. 20 of ~160 entries won last round.'));
-  for (const heading of ['What won last time', 'What Arc wants now', 'Your best bet'])
-    // The won section wraps its list (Ruling C12's event line goes above it when not own).
-    assert.match(h, new RegExp(`<h2[^>]*>${heading}</h2>\\s*(?:<div>\\s*)?<ul`), heading);
-  const items = [...h.matchAll(/<li(?:\s[^>]*)?>([\s\S]*?)<\/li>/g)].map((m) => text(m[1]).trim());
-  for (const line of [
-    'USDC payroll and payouts (3 of 20 winners)',
-    'Agent wallets paying for APIs (2 of 20)',
-    'Example: PayStream, streamed salaries in USDC; cited for live mainnet demo',
-    'Stablecoin payments', 'FX', 'Agentic commerce',
-    'A USDC payout tool with a live mainnet demo',
-  ])
-    assert.ok(items.includes(line), line);
-  // v2.7.1: the builder bonus is a pill beside Difficulty, linking to the leaderboard.
-  assert.ok(t.includes('Difficulty: Medium. 20 of ~160 entries won last round. Builder bonus · 0.18 ETH'));
-  assert.match(h, /<a[^>]*href="\/bonus\/arc-microgrants-2026-09-16"[^>]*>[\s\S]*?Builder bonus · <span[^>]*>0\.18 ETH<\/span>[\s\S]*?<\/a>/);
-  assert.doesNotMatch(t, /leaderboard/);
-  // Sources: labelled by what each backs (fix round 1), each link through shownUrl, host as title.
-  assert.ok(t.includes('Sources: program page · past winners 1 · past winners 2 · priorities'));
-  assert.doesNotMatch(t, /community\.arc\.io|\(2\)/);
-  for (const { url } of fullGuide.sources)
-    assert.match(h, new RegExp(`<a[^>]*href="${shownUrl(url)!.replace(/[.?]/g, '\\$&')}"[^>]*title="${new URL(url).hostname.replace(/\./g, '\\.')}"[^>]*rel="noopener noreferrer"`), url);
-  // Every visible link is https, a local path, or the footer's contact mailto.
-  for (const [, href] of h.matchAll(/href="([^"]+)"/g)) assert.match(href, /^(https:\/\/|\/|mailto:)/, href);
-  // One primary action, with the program's own question; "All programs" goes to the index.
-  assert.ok(t.includes('Ask your agent'));
-  // Twice (fix round 1): under the difficulty line, above the fold, and in the action row.
-  assert.deepEqual(asks(fullGuide), ['What can I earn on Arc Microgrants?', 'What can I earn on Arc Microgrants?']);
-  assert.ok(h.indexOf('Ask your agent') < h.indexOf('What won last time'), 'the first is in the header');
-  assert.equal(askPrompt('Arc Microgrants'), 'What can I earn on Arc Microgrants?');
-  assert.match(h, /<a[^>]*href="\/programs"[^>]*>All programs<\/a>/);
-  // No paragraphs of prose.
-  for (const [, p] of h.matchAll(/<p(?:\s[^>]*)?>([\s\S]*?)<\/p>/g)) // never an svg <path>
-    if (!p.includes(FOOTER_TAGLINE) && !p.includes('All rights reserved'))
-      assert.ok(text(p).trim().length <= 140, text(p));
-  assert.ok(t.includes(FOOTER_TAGLINE), 'the footer');
-});
 
 test('v2.7 §2: a partial guide leaves out the parts it has no data for', () => {
   const h = guideHtml(partialGuide);
@@ -529,7 +189,7 @@ test('/programs: every open program as cards under an h1, or the unavailable lin
   assert.match(page, /layout="grid"/);
   const u = text(html(React.createElement(Unavailable, { text: 'Programs are unavailable right now.' })));
   assert.ok(u.includes('Programs are unavailable right now.'));
-  assert.ok(u.includes(FOOTER_TAGLINE), 'the footer');
+  assert.ok(u.includes(BENCH_FOOTER_TAGLINE), 'the footer');
 });
 
 // ---- v2.8 Task 3: the Open programs carousel and the slim card (Rulings 20, 21 (plan)).
@@ -547,7 +207,7 @@ function programsSection(h: string): string {
 const chipsOf = (card: string) => [...card.matchAll(/<span class="[^"]*\bek-chip\b[^"]*">([^<]*)<\/span>/g)].map((m) => m[1]);
 
 test('3.1 v2.8: the section is the h2, the figure, one "Ask your agent", then a list of whole-card links', () => {
-  const h = home(homeFixture);
+  const h = html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, figure: homeFixture.open_text }));
   const sec = programsSection(h);
   const t = text(sec);
   assert.match(sec, /<h2[^>]*>Open programs<\/h2>/);
@@ -567,10 +227,10 @@ test('3.1 v2.8: the section is the h2, the figure, one "Ask your agent", then a 
   assert.doesNotMatch(h, /See all/);
 });
 
-test('3.2 v2.8: each slim card: logo, title, big line, per-winner line, days left, difficulty word, bonus pill', () => {
+test('3.2 v2.8: each slim card: logo, title, big line, per-winner line, days left, difficulty word; no bonus pill', () => {
   const tiles = [
     ...homeFixture.tiles,
-    { ...homeFixture.tiles[0], id: 'no-bonus', title: 'No Bonus Fest', has_bonus: false, bonus_amount: null, prize_note: null },
+    { ...homeFixture.tiles[0], id: 'no-note', title: 'No Note Fest', prize_note: null },
   ];
   const cards = cardsOf(html(React.createElement(ProgramCards, { tiles })));
   assert.equal(cards.length, tiles.length);
@@ -583,19 +243,15 @@ test('3.2 v2.8: each slim card: logo, title, big line, per-winner line, days lef
     if (tl.prize_note) assert.ok(ct.includes(tl.prize_note), tl.id);
     assert.deepEqual(chipsOf(c), [tl.days_left, ...(tl.difficulty === NO_CELL ? [] : [tl.difficulty])], tl.id);
     assert.doesNotMatch(ct, /\(estimate\)/, tl.id);
-    assert.equal(ct.includes(bonusPillLabel(tl.bonus_amount)), tl.has_bonus, tl.id);
-    assert.equal(ct.includes('Builder bonus'), tl.has_bonus, tl.id);
+    assert.ok(!ct.includes('Builder bonus'), tl.id);
     // The whole card's name: "<title>, <prize>".
     const label = c.match(/<a [^>]*aria-label="([^"]*)"/)?.[1]?.replace(/&#x27;/g, "'");
     assert.equal(label, `${tl.title}, ${tl.prize}`, tl.id);
     assert.doesNotMatch(ct, /\bcoins?\b|\u2014/i, tl.id);
   }
-  // Colosseum: Hard (never "(estimate)"), the amount in the pill; Program Six: no difficulty chip, no pill.
+  // Colosseum: Hard (never "(estimate)"); Program Six: no difficulty chip.
   assert.deepEqual(chipsOf(cards[0]), ['8 days left', 'Hard']);
-  assert.ok(text(cards[0]).includes('Builder bonus · 0.42 ETH'));
   assert.deepEqual(chipsOf(cards[5]), ['8 days left']);
-  assert.ok(!text(cards[5]).includes('Builder bonus'));
-  assert.ok(text(cards[4]).includes('Builder bonus') && !text(cards[4]).includes('Builder bonus ·'), 'no amount, no "0 ETH"');
   assert.deepEqual(chipsOf(cards[1]), ['ends today', 'Hard']);
   assert.deepEqual(chipsOf(cards[2]), ['rolling', 'Medium']);
 });
@@ -612,7 +268,7 @@ test('3.3 v2.8: two arrow buttons (desktop only), a focusable snap scroller, sna
   const ul = sec.match(/<ul[^>]*>/)?.[0] ?? '';
   for (const c of ['snap-x', 'snap-mandatory', 'overflow-x-auto']) assert.match(ul, new RegExp(`class="[^"]*(^|[ "])${c}( |")`), c);
   assert.match(ul, /tabindex="0"/);
-  assert.match(ul, /aria-label="Open programs"/);
+  assert.match(ul, /aria-label="Money open now"/);
   for (const c of cardsOf(sec)) assert.match(c, /<li class="[^"]*\bsnap-start\b/);
 });
 
@@ -626,8 +282,8 @@ test('3.4 v2.8: one tile is one card; both arrows render disabled until mounted'
 test('3.5 v2.8: zero tiles or a failed read render no Open programs section', () => {
   for (const landing of [{ ...homeFixture, tiles: [] }, null]) {
     const h = home(landing);
-    assert.doesNotMatch(h, /aria-label="Open programs"/);
-    assert.ok(!text(h).includes('Open programs'));
+    assert.doesNotMatch(h, /aria-label="Money open now"/);
+    assert.ok(!text(h).includes('Money open now'));
   }
 });
 
@@ -707,51 +363,6 @@ test('fix round 1, Minor 5: every source_url in programs/*.json survives shownUr
   for (const u of urls) assert.notEqual(shownUrl(u), null, u);
 });
 
-test('v2.8 Ruling 19 (plan): the builder bonus pill at sm, md and lg, with and without an amount', () => {
-  const heights = { sm: 'h-7', md: 'h-9', lg: 'h-11' } as const;
-  for (const size of ['sm', 'md', 'lg'] as const) {
-    for (const amount of [undefined, null, '0.42 ETH']) {
-      const h = html(React.createElement(BonusPill, { size, amount }));
-      const want = amount ? 'Builder bonus · 0.42 ETH' : 'Builder bonus';
-      assert.equal(text(h).trim(), want, `${size} ${amount}`);
-      assert.equal(bonusPillLabel(amount), want);
-      assert.match(h, /^<span /, 'no href: a span');
-      assert.match(h, new RegExp(`^<span class="[^"]*\\b${heights[size]}\\b`), size);
-      for (const other of Object.values(heights).filter((x) => x !== heights[size])) assert.doesNotMatch(h, new RegExp(`\\b${other}\\b`), size);
-      assert.match(h, /<svg[^>]*viewBox="0 0 16 16"[^>]*aria-hidden="true"/);
-      assert.match(h, /bg-clip-text text-transparent/);
-      assert.match(h, /padding-box/);
-      assert.match(h, /border-box/);
-    }
-  }
-  const a = html(React.createElement(BonusPill, { size: 'lg', href: '#how-you-earn-3' }));
-  assert.match(a, /^<a [^>]*href="#how-you-earn-3"/);
-  assert.equal(text(a).trim(), BONUS_PILL_TEXT);
-  // Never "0 ETH", never an empty amount.
-  for (const amount of ['0 ETH', '0.00 ETH', '', '  '])
-    assert.equal(text(html(React.createElement(BonusPill, { amount }))).trim(), 'Builder bonus', JSON.stringify(amount));
-  assert.equal(bonusPillLabel('<0.01 ETH'), 'Builder bonus · <0.01 ETH');
-  // Two pills on one page keep distinct gradient ids.
-  const two = html(React.createElement('div', null, React.createElement(BonusPill), React.createElement(BonusPill)));
-  const ids = [...two.matchAll(/<linearGradient id="([^"]+)"/g)].map((m) => m[1]);
-  assert.equal(new Set(ids).size, 2);
-  for (const id of ids) assert.ok(two.includes(`fill="url(#${id})"`), id);
-});
-
-test('v2.8 Ruling 19 (plan): the pill has accessible contrast (each orange stop at least 4.5:1 on the navy fill)', () => {
-  const lum = (hex: string) => {
-    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  };
-  const contrast = (x: string, y: string) => {
-    const [hi, lo] = [lum(x), lum(y)].sort((m, n) => n - m);
-    return (hi + 0.05) / (lo + 0.05);
-  };
-  assert.equal(BONUS_PILL_COLORS.fill, '#0F1839');
-  assert.ok(lum(BONUS_PILL_COLORS.fill) < 0.02, 'a navy fill');
-  for (const stop of [BONUS_PILL_COLORS.from, BONUS_PILL_COLORS.to]) assert.ok(contrast(stop, BONUS_PILL_COLORS.fill) >= 4.5, stop);
-});
-
 test('10.11 the home page: "Builders using EarnKit won $12,500" under the stats line; absent (never "$0") without one', () => {
   const won = 'Builders using EarnKit won $12,500';
   const heroBits = (h: string) => {
@@ -767,26 +378,6 @@ test('10.11 the home page: "Builders using EarnKit won $12,500" under the stats 
 });
 
 // ---- v2.9 Task 11 (F22 to F24): one legal page, quieter navigation, the MINI line.
-
-test('11.4 /terms: the policy, risk disclosure and sponsor terms sections; the fee split then the MINI line', () => {
-  const h = html(React.createElement(TermsPage));
-  const ids = [...h.matchAll(/<h2[^>]*\bid="([^"]+)"/g)].map((m) => m[1]);
-  for (const id of ['policy', 'risk-disclosure', 'sponsor-terms']) assert.ok(ids.includes(id), id);
-  assert.ok(ids.indexOf('policy') < ids.indexOf('risk-disclosure') && ids.indexOf('risk-disclosure') < ids.indexOf('sponsor-terms'), ids.join());
-  assert.equal(MINI_LINE, "10% buys MINI, EarnKit's token");
-  const t = text(h);
-  // The split is unchanged (FEE_SPLIT_BPS), and the MINI line follows its table.
-  assert.deepEqual([FEE_SPLIT_BPS.project, FEE_SPLIT_BPS.earnkit, FEE_SPLIT_BPS.bonus, FEE_SPLIT_BPS.buyback], [4000, 3000, 2000, 1000]);
-  const table = h.indexOf('</table>');
-  assert.ok(table > 0 && h.indexOf("10% buys MINI, EarnKit&#x27;s token") > table, 'the MINI line after the split table');
-  assert.ok(t.includes(`${'MINI buyback'} 10% Builder bonus 20% EarnKit 30%`), t.slice(0, 400));
-  assert.match(t, /Every entry is offered a token, named after the project\. Turn it down and there's no token\. No token means no builder bonus, nothing else\./);
-  const termsMetadata = termsMetadataFor();
-  assert.equal(termsMetadata.title, 'Terms');
-  assert.equal(termsMetadata.alternates?.canonical, 'https://earnkit.com/terms');
-  for (const old of ['policy', 'risk-disclosure', 'sponsor-terms'])
-    assert.ok(!existsSync(join(import.meta.dirname, '../../app', old, 'page.tsx')), `app/${old}/page.tsx is gone`);
-});
 
 test('11.5 next.config redirects: the old legal paths 301 to their /terms anchor', async () => {
   const rules = await nextConfig.redirects!();
@@ -811,8 +402,8 @@ test('11.6 footer: Tokenfi line and the Terms link', () => {
 test('11.7 (F23): builder navigation never links the sponsor pages; the routes are archived (v2.12 spec 9)', () => {
   const navs = [html(React.createElement(Header)), html(React.createElement(Footer)), html(React.createElement(HomeView, { landing: homeFixture })), html(React.createElement(GuideView, { page: fullGuide }))];
   for (const h of navs) assert.doesNotMatch(h, /href="[^"]*\/(fund|award)\b/);
-  assert.doesNotMatch(readFileSync(join(import.meta.dirname, 'llms/v212.txt'), 'utf8'), /earnkit\.com\/(fund|award)\b/);
-  assert.doesNotMatch(readFileSync(join(import.meta.dirname, 'llms/v212.txt'), 'utf8'), /sponsor_campaign/);
+  assert.doesNotMatch(readFileSync(join(import.meta.dirname, 'llms/v213.txt'), 'utf8'), /earnkit\.com\/(fund|award)\b/);
+  assert.doesNotMatch(readFileSync(join(import.meta.dirname, 'llms/v213.txt'), 'utf8'), /sponsor_campaign/);
   for (const r of ['fund/[ref]', 'award/[ref]']) assert.ok(!existsSync(join(import.meta.dirname, '../../app', r, 'page.tsx')), r);
 });
 
@@ -848,9 +439,8 @@ test('12.1 v2.11 /terms "What EarnKit records": login and how it was checked, wa
     "A program result: the program's results page, or your own answer.",
     "A usage check: your contract's use, checked 30 and 90 days after its deploy.",
     'Each step notes the repo, the program and the wallet you gave.',
-    // The bases the code writes: events.ts LOGIN_BASES that loginBasisFor and hosting.ts return
-    // (repo_owner is never written).
-    'It notes your GitHub login only if EarnKit checked it: by GitHub sign-in, the EarnKit GitHub App, or the earnkit.txt line in your repo.',
+    // v2.14: github-verify.ts loginBasisFor returns the App's login, or a sign-in kept from before v2.14.
+    'It notes your GitHub login only if EarnKit checked it with the read-only EarnKit GitHub App, or by a GitHub sign-in from before the App.',
     'EarnKit keeps it to show your builder history. Onchain proofs are public anyway.',
     'EarnKit keeps this history for as long as EarnKit runs, unless you ask to remove your login and wallet.',
     `To remove your GitHub login and wallet from your step history, email ${CONTACT_EMAIL} .`,
@@ -866,35 +456,14 @@ test('12.1 v2.11 /terms "What EarnKit records": login and how it was checked, wa
   assert.doesNotMatch(t, /\p{Emoji_Presentation}|\bcoin\b|vault/iu);
 });
 
-const withScoreFlag = <T,>(fn: () => T): T => {
-  const was = process.env.EARNKIT_BUILDER_SCORE;
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
-  try {
-    return fn();
-  } finally {
-    if (was === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
-    else process.env.EARNKIT_BUILDER_SCORE = was;
-  }
-};
+const withScoreFlag = <T,>(fn: () => T): T => fn();
 
-test('final I1: flag off, /terms is v2.11: no builder-profiles section, nav link or description words', () => {
-  delete process.env.EARNKIT_BUILDER_SCORE;
-  const h = html(React.createElement(TermsPage));
-  assert.doesNotMatch(h, /builder-profiles/);
-  assert.doesNotMatch(text(h), /Builder profiles/);
-  assert.equal(
-    termsMetadataFor().description,
-    'How EarnKit works, where token fees go, the builder bonus, what EarnKit records, the risks, and the sponsor terms.',
-  );
-  assert.match(withScoreFlag(() => termsMetadataFor().description) ?? '', /builder profiles/);
-});
-
-test('v2.12.1 T12: the terms say the page is public only after the X claim, what is read, confirmed vs not, joins and hide; no v2.12 slug or earnkit.txt words', () => {
+test('v2.14 final fix: the terms say the page is made at the X sign-in, what is read, confirmed vs not, same X same page and hide; no v2.12 slug or earnkit.txt words', () => {
   const t = withScoreFlag(() => text(html(React.createElement(TermsPage))));
-  assert.match(t, /public only after you claim it with X/);
+  assert.match(t, /page is made when you sign in with X/);
   assert.match(t, /GitHub, live sites, package downloads, public transactions/);
   assert.match(t, /marked not yet confirmed, and counts for nothing/);
-  assert.match(t, /your agents ask you before the two share one page/);
+  assert.match(t, /same X account uses that same page\. It is added with no question/);
   assert.match(t, /keeps your X user id, handle, name and picture/);
   const section = t.slice(t.indexOf('Builder profiles Your EarnKit page'), t.indexOf(' Risk Risk disclosure'));
   assert.ok(section.length > 100, 'the section is found');
@@ -948,9 +517,8 @@ test('7.12 v2.10 item 5: /p/<id> has one footer line with both token terms links
   assert.doesNotMatch(footer, /\? \(|&&/);
 });
 
-test('4.13 (H6) a private repo matched only from the local copy (App off) shows no URL on /p, /campaigns or /bonus; a public one read within 7 days does', dbTest, async (t) => {
+test('4.13 (H6) a private repo matched only from the local copy (App off) shows no URL on /p or /campaigns; a public one read within 7 days does', dbTest, async (t) => {
   const { sql } = await import('./db');
-  const { bonusBoard } = await import('./bonus-board');
   const { getCampaignBoard, getProjectPage } = await import('./leaderboard');
   const { matchProjects, MatchProjectsInput } = await import('./match-projects');
   t.after(async () => {
@@ -1035,14 +603,6 @@ test('4.13 (H6) a private repo matched only from the local copy (App off) shows 
     const boardJson = JSON.stringify(board);
     assert.ok(!hiddenRepos.some((h) => boardJson.includes(h)), 'no hidden repo on the campaign board');
     assert.ok(boardJson.includes(open));
-    // /bonus/<round>.
-    const month = new Date().toISOString().slice(0, 7);
-    const b = await bonusBoard(`${bonus}:${month}`);
-    assert.ok(b);
-    const shown = view(b);
-    for (const name of ['Hidden Jar', 'Open Jar', 'Stale Jar', 'App Jar']) assert.ok(shown.includes(name), name);
-    assert.ok(!hiddenRepos.some((h) => shown.includes(h)), 'no hidden repo on /bonus');
-    assert.ok(shown.includes(open), 'a public repo read within 7 days is still linked');
   } finally {
     await sql()`DELETE FROM projects WHERE program_id IN (${camp}, ${bonus})`;
     await sql()`DELETE FROM programs WHERE id IN (${camp}, ${bonus})`;

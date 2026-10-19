@@ -1,7 +1,6 @@
 import { sql, type Db } from './db';
 import { testInstallationIds } from './installations';
 import { FEE_SPLIT_BPS } from './policy';
-import { benchEnabled } from './builder-score-flag';
 import { moneyText, openMoneyUsd, poolTotal, statedPool } from './pool';
 
 /**
@@ -22,6 +21,8 @@ export const STATS_KEYS = [
   'bonus_paid_eth',
   'bonus_pools_eth',
   'installs',
+  'installs_used',
+  'builders',
   'labelled_entries',
   'entries_won',
   'builders_won_usd',
@@ -50,7 +51,7 @@ export { moneyText, openMoneyUsd, type OpenMoneyRow } from './pool';
 /**
  * How jenil.ai should label each stat (T9 note): `fees_to_safe_eth` counts only coins launched
  * with the v2.5 split, from the start of the bonus index, so it is never "all Safe revenue".
- * v2.13.2 (2): under the Bench flag it also counts v2.13's 3-slot coins (statsFrom); the key, its
+ * v2.13.2 (2): it also counts v2.13's 3-slot coins (statsFrom); the key, its
  * type and this label are unchanged (still EarnKit coins only, never all Safe revenue).
  */
 export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
@@ -61,13 +62,13 @@ export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
   programs_open: 'programs open',
   bonus_programs_open: 'programs with a builder bonus',
   coins_launched: 'tokens launched',
-  // v2.13.2 fix 1: under the Bench the stat covers both fee splits (statsFrom); flag off, the v2.5 label.
-  get fees_to_safe_eth() {
-    return benchEnabled() ? 'fees to the EarnKit Safe (ETH)' : 'fees to the Safe (v2.5 tokens)';
-  },
+  // v2.13.2 fix 1: the stat covers both fee splits (statsFrom).
+  fees_to_safe_eth: 'fees to the EarnKit Safe (ETH)',
   bonus_paid_eth: 'builder bonus paid (ETH)',
   bonus_pools_eth: 'builder bonus pools open (ETH)',
   installs: 'installs',
+  installs_used: 'installs that asked what they can earn (find at least once)',
+  builders: 'builders (one person\'s reinstalls and agents counted once)',
   labelled_entries: 'entries with a published result',
   entries_won: 'entries that won',
   builders_won_usd: 'won by EarnKit builders (announced, USD)',
@@ -105,6 +106,10 @@ type Row = {
   bonus_paid_wei: string | null;
   bonus_pools_wei: string | null;
   installs: number;
+  /** Pre-launch 2026-10-19: installations that called find at least once (programs_checked_at set). */
+  installs_used?: number;
+  /** Pre-launch 2026-10-19: distinct builder groups (COALESCE(builder_id, id)): a linked reinstall counts once. */
+  builders?: number;
   labelled_entries: number;
   entries_won: number;
   builders_won_usd: string | null;
@@ -119,19 +124,16 @@ type Row = {
  * EarnKit coins (M5: never a deposit from a coin EarnKit didn't launch); plus
  * the builder bonus money routed to the Safe (after a program ends, programs without public
  * submissions, empty rounds, a paid round's unclaimed places). It is not all-time Safe revenue.
- * v2.13.2 (2), under the Bench flag: the Safe's actual share of both splits. The Safe's own indexed
+ * v2.13.2 (2): the Safe's actual share of both splits. The Safe's own indexed
  * deposits from EarnKit coins (`safe_fees`: v2.5 coins' 30%, v2.13 coins' 50%, from the Safe index's
  * start), plus 1.5x only the bonus deposits whose transaction has no indexed Safe deposit of that coin
  * (so a v2.5 coin's Safe share counts once, indexed or estimated, never both), plus the bonus money
- * routed to the Safe as before. Flag off: the v2.5 formula above, unchanged.
- * Pure but for the Bench flag (bonus_programs_open, fees_to_safe_eth).
+ * routed to the Safe as before. Pure.
  */
 export function statsFrom(r: Row, now = new Date()): PublicStats {
   const big = (v: string | null | undefined) => BigInt(v ?? '0');
   const estimate = (wei: bigint) => (wei * BigInt(FEE_SPLIT_BPS.earnkit)) / BigInt(FEE_SPLIT_BPS.bonus);
-  const safeWei = benchEnabled()
-    ? big(r.safe_fees_wei) + estimate(big(r.bonus_unmatched_wei)) + big(r.bonus_to_safe_wei)
-    : estimate(big(r.bonus_deposits_wei)) + big(r.bonus_to_safe_wei);
+  const safeWei = big(r.safe_fees_wei) + estimate(big(r.bonus_unmatched_wei)) + big(r.bonus_to_safe_wei);
   const pools = poolTotal((r.pool_rows ?? []).map((p) => statedPool(p.pool_usd, p.reward)));
   const date = (v: string | null) => (v ? new Date(v) : null);
   const openUsd = Math.round(
@@ -146,13 +148,15 @@ export function statsFrom(r: Row, now = new Date()): PublicStats {
     open_pools_usd: Math.round(pools.usd),
     open_pools_plus: pools.plus,
     programs_open: Number(r.programs_open),
-    // v2.13 R16: no program has the builder bonus under the Bench flag (bonusOn); the key stays for jenil.ai.
-    bonus_programs_open: benchEnabled() ? 0 : Number(r.bonus_programs_open),
+    // v2.14: there is no builder bonus; the key stays for jenil.ai.
+    bonus_programs_open: 0,
     coins_launched: Number(r.coins_launched),
     fees_to_safe_eth: weiToEth(safeWei),
     bonus_paid_eth: weiToEth(big(r.bonus_paid_wei)),
     bonus_pools_eth: weiToEth(big(r.bonus_pools_wei)),
     installs: Number(r.installs),
+    installs_used: Number(r.installs_used ?? 0),
+    builders: Number(r.builders ?? 0),
     labelled_entries: Number(r.labelled_entries),
     entries_won: Number(r.entries_won),
     builders_won_usd: Math.round(Number(r.builders_won_usd ?? 0)),
@@ -222,6 +226,15 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
           AND NOT (l.coin IS NOT NULL AND l.coin IN (SELECT coin_address FROM projects
             WHERE coin_address IS NOT NULL AND installation_id = ANY(${ids}::int[]))))::text AS bonus_pools_wei,
       (SELECT count(*) FROM installations WHERE NOT (id = ANY(${ids}::int[])))::int AS installs,
+      -- Pre-launch 2026-10-19: \`installs\` counts every OAuth token exchange for a new client
+      -- registration, before any tool call (a re-add, a new machine or a scripted OAuth run is a new
+      -- row). These two make the launch numbers trustworthy without changing \`installs\`:
+      -- installs_used, the installations that called find at least once (a real first run); builders,
+      -- distinct builder groups (v2.8.1 §E18 links a reinstall or an agent switch by builder_id).
+      (SELECT count(*) FROM installations
+        WHERE programs_checked_at IS NOT NULL AND NOT (id = ANY(${ids}::int[])))::int AS installs_used,
+      (SELECT count(DISTINCT COALESCE(builder_id, id)) FROM installations
+        WHERE NOT (id = ANY(${ids}::int[])) AND NOT (COALESCE(builder_id, id) = ANY(${ids}::int[])))::int AS builders,
       -- v2.8 Part G, Ruling 30 (plan): announcement-sourced outcomes only (a self-report never
       -- counts), never a test installation's entry. Labelled: distinct entries with an announced
       -- result other than 'unknown' (Ruling C22: a partial list labels the rest 'unknown'). Won:

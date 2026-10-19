@@ -2,16 +2,13 @@ import Link from 'next/link';
 import { Wordmark, Mark } from '../ui/Logo';
 import { DOCS } from '../../lib/links';
 import InstallButton from './InstallButton';
-import { benchEnabled } from '../../../lib/earnkit/builder-score-flag';
 
 /**
  * The site header. v2.7 fix round 1: the persistent call to action is the install ("Add to your
- * agent", the same modal as the hero). v2.7.1: "Docs" (docs.earnkit.com) beside it on every page,
+ * agent", the same modal as the hero). v2.7.1: "Docs" (footer-links DOCS) beside it on every page,
  * desktop and mobile; "Follow on X" lives in the footer only.
  */
 export default function Header() {
-  // v2.13 R16: the install modal shows no builder bonus pill under the Bench flag.
-  const bench = benchEnabled();
   return (
     <>
       {/* Desktop */}
@@ -33,7 +30,7 @@ export default function Header() {
           </a>
         </div>
 
-        <InstallButton bench={bench} className="flex min-h-full min-w-[20%] items-center justify-center rounded-[56px] bg-ek-blue-bright px-8 font-funnel-sans text-xl font-medium text-ek-navy-deep transition-colors hover:bg-ek-blue-soft 2xl:text-[1.2rem]" />
+        <InstallButton className="flex min-h-full min-w-[20%] items-center justify-center rounded-[56px] bg-ek-blue-bright px-8 font-funnel-sans text-xl font-medium text-ek-navy-deep transition-colors hover:bg-ek-blue-soft 2xl:text-[1.2rem]" />
       </header>
 
       {/* Mobile - fixed bottom bar */}
@@ -86,7 +83,7 @@ export default function Header() {
           >
             Docs
           </a>
-          <InstallButton bench={bench} className="min-h-11 flex-shrink-0 rounded-full bg-ek-blue-bright px-5 py-2.5 font-funnel-sans text-base font-medium text-ek-navy-deep transition-colors hover:bg-ek-blue-soft" />
+          <InstallButton className="min-h-11 flex-shrink-0 rounded-full bg-ek-blue-bright px-5 py-2.5 font-funnel-sans text-base font-medium text-ek-navy-deep transition-colors hover:bg-ek-blue-soft" />
         </div>
       </header>
     </>

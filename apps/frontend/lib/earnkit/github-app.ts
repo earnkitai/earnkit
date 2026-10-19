@@ -4,7 +4,6 @@ import { GitHubError } from './match-projects';
 import {
   VERIFY_PAGE,
   clearCsrf,
-  codeLine,
   cookieValue,
   csrfCookieName,
   githubVerifyEnabled,
@@ -28,9 +27,9 @@ import {
  *   (`appSetup`), which needs the same browser cookie, consumes the nonce, and passes when the
  *   installation is the login's own account or the login is the repo's admin, and the installation
  *   lists the repo. A pass is a github_verifications row with `via = 'app'`.
- * - R9, what it grants: read access only. A launch still needs the v2.9 proof (a proof line or a
- *   wallet-bound sign-in, G10, G11); github-verify.ts verifiedFor never returns an App row unless
- *   asked for one (Pre-flight P11).
+ * - v2.14 spec 2: the install is the only proof of a repo. The setup URL verifies the person's repo
+ *   source as `github_app` (repo-proof.ts proveByApp), which the coin gate, builds, hosting and the
+ *   Bench all read; readings of an App-proven repo use its installation token.
  * - The private key is never stored, logged or returned. Installation tokens (1 hour, this repo only,
  *   contents and metadata read) are minted per call and never stored or logged; errors carry the HTTP
  *   status only.
@@ -79,6 +78,9 @@ async function ghApp<T>(f: typeof fetch, path: string, bearer: string, init: { m
       ...(init.body !== undefined && { 'Content-Type': 'application/json' }),
     },
     ...(init.body !== undefined && { body: JSON.stringify(init.body) }),
+    // T6 fix rounds 1, 2: a redirect (a renamed or transferred repo) is never followed: it is a GitHubError with
+    // its 3xx status (repo-proof.ts appProofLive counts it as gone).
+    redirect: 'manual',
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   if (!res.ok) {
@@ -174,11 +176,13 @@ export async function repoInstallation(repoKey: string, deps: AppDeps = {}): Pro
 async function appProofRow(a: { installationId: number; login?: string | null; repoKey: string }) {
   const db = sql();
   const [row] = await db<{ gid: string }[]>`
-    SELECT github_installation_id::text AS gid FROM github_verifications
-    WHERE via = 'app' AND purpose = 'app' AND installation_id = ${a.installationId} AND repo_key = ${a.repoKey.toLowerCase()}
-      AND used_at IS NULL AND github_installation_id IS NOT NULL
-      ${a.login != null ? db`AND login = ${a.login.toLowerCase()}` : db``}
-    ORDER BY verified_at DESC, id DESC LIMIT 1`;
+    SELECT v.github_installation_id::text AS gid FROM github_verifications v JOIN installations i ON i.id = v.installation_id
+    WHERE v.via = 'app' AND v.purpose = 'app' AND v.repo_key = ${a.repoKey.toLowerCase()}
+      -- T6 fix round 1: the person's group (an installation of the group proved it), as repo-proof.ts reads it.
+      AND COALESCE(i.builder_id, i.id) = COALESCE((SELECT COALESCE(g.builder_id, g.id) FROM installations g WHERE g.id = ${a.installationId}), ${a.installationId})
+      AND v.used_at IS NULL AND v.github_installation_id IS NOT NULL
+      ${a.login != null ? db`AND v.login = ${a.login.toLowerCase()}` : db``}
+    ORDER BY v.verified_at DESC, v.id DESC LIMIT 1`;
   return row ?? null;
 }
 
@@ -211,8 +215,8 @@ export const APP_PAGE = {
  * GET /github/verify/app?installation_id=&state= (the App's setup URL). Refuses, before the nonce is
  * used, a missing browser cookie (the confirm page's, Ruling G8) or an installation id that isn't a
  * number. Then consumes the nonce (an `app` nonce whose OAuth hop stored a login, Pre-flight P3),
- * checks the proof (R8), and writes the `via = 'app'` verification. On a shared client the page shows
- * the one-time code (Ruling G9). Never logs the nonce, a token or the key.
+ * checks the proof (R8), and writes the `via = 'app'` verification. No paste code (v2.14 final fix: a shared
+ * client never gets an App link, Ruling T6-2). Never logs the nonce, a token or the key.
  */
 export async function appSetup(request: Request, deps: AppDeps & RouteDeps = {}): Promise<Response> {
   if (!githubAppEnabled()) return new Response('Not found', { status: 404 });
@@ -232,13 +236,19 @@ export async function appSetup(request: Request, deps: AppDeps & RouteDeps = {})
   try {
     const proof = await appProof({ installationId, login: row.login, repoKey: row.repo_key }, deps);
     if (!proof.ok) return verifyPage(proof.reason === 'not_listed' ? APP_PAGE.notListed : APP_PAGE.notYours, 403, clear);
-    const paste = await saveVerification(
+    await saveVerification(
       row,
       { login: row.login, created_at: row.account_created_at, public_repos: row.public_repos ?? 0 },
       now,
       { githubInstallationId: installationId },
     );
-    return verifyPage(paste ? codeLine(paste) : VERIFY_PAGE.done, 200, clear);
+    // v2.14 spec 2 (A8): the install verifies the person's repo source (`github_app`) and rescores them, so the
+    // next reply counts it. The page says done either way; the next reply says what counted.
+    const builderId = await (await import('./identity')).rootOf(row.installation_id);
+    await (await import('./repo-proof'))
+      .proveByApp({ builderId, repoKey: row.repo_key, githubInstallationId: installationId }, deps)
+      .catch((err: unknown) => console.error('[github-app] prove', err instanceof Error ? err.name : 'error'));
+    return verifyPage(VERIFY_PAGE.done, 200, clear);
   } catch (err) {
     console.error('[github-app] setup', err instanceof Error ? err.name : 'error');
     return verifyPage(VERIFY_PAGE.failed, 502, clear);

@@ -3,18 +3,14 @@ import ProgramCards from '../components/sections/ProgramCards';
 import { getLanding } from '../lib/landing-cache';
 import { Unavailable } from './[id]/GuideView';
 import { Panel } from '../components/common/Panel';
-import { benchEnabled } from '../../lib/earnkit/builder-score-flag';
 
 /** v2.7 §1: read server-side, revalidated every 10 minutes. */
 export const revalidate = 600;
 
-/** v2.13 R16: no builder bonus in the description under the Bench flag. */
 export function generateMetadata() {
   return {
     title: 'Open programs · EarnKit',
-    description: benchEnabled()
-      ? 'Every open program EarnKit tracks, by pool: the prize, the deadline and the difficulty.'
-      : 'Every open program EarnKit tracks, by pool: the prize, the deadline, the difficulty and the builder bonus.',
+    description: 'Every open program EarnKit tracks, by pool: the prize, the deadline and the difficulty.',
     alternates: { canonical: 'https://earnkit.com/programs' },
   };
 }
@@ -26,7 +22,7 @@ export default async function ProgramsPage() {
   return (
     <div className="w-full pt-4">
       {landing.tiles.length > 0 ? (
-        <ProgramCards tiles={landing.tiles} heading="h1" figure={landing.open_text} layout="grid" bonus={!benchEnabled()} />
+        <ProgramCards tiles={landing.tiles} heading="h1" figure={landing.open_text} layout="grid" />
       ) : (
         <Panel className="py-12 md:py-16">
           <h1 className="font-funnel-display text-3xl font-medium text-ek-white md:text-5xl">Open programs</h1>

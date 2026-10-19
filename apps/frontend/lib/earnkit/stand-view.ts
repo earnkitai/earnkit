@@ -1,8 +1,6 @@
-import { claimLink } from './claim';
+import { signInLink } from './x-link';
 import { sql } from './db';
-import { siteUrl } from './entry-text';
 import { noteEvent } from './events';
-import { createVerifyLink, githubVerifyEnabled } from './github-verify';
 import { REFRESH_BUDGET_MS, refreshPerson, standingOf, trackingHeld } from './person-score';
 import { personCode } from './attribution';
 import { emptyMemory, hiddenIds, hiddenPrograms, readMemory } from './builder-memory';
@@ -12,8 +10,7 @@ import { rpcFor } from './verify';
 import { r2Enabled } from './r2';
 import type { Standing } from './rank';
 import type { ReaderDeps } from './source-readers';
-import { upgradeToken } from './wallet-proof';
-import { chooseStep, paymentStepFits, stepKey, confirmLinkLine, pageReadyLine, plainWhat, rollingLine, standingNews, usersMoneyLine, type EarnLine, type MoveUp, type StandProject, type StandView } from './where-you-stand';
+import { paymentStepFits, stepKey, plainWhat, rollingLine, standingNews, usersMoneyLine, type EarnLine, type StandProject, type StandView } from './stand-text';
 import { closeDayOf, prizeOf } from './entry-text';
 import { freshPick, type FreshPick } from './fresh-build';
 import { byPrize, type Card, type FreshOn } from './present';
@@ -25,7 +22,7 @@ import { readFitRepos } from './installations';
 /**
  * v2.12.1 T8: the reads and writes behind the three-part reply (where-you-stand.ts is pure): the
  * on-demand refresh within its budget, the person's view, the news since they last looked, the
- * one-time "Your page is ready", and the yes to a `confirm` step. Builder score flag on only;
+ * one-time "Your page is ready";
  * callers check it.
  */
 
@@ -117,7 +114,8 @@ export const hostFor = (agentCanBuild: boolean) => (key: string) => REPO_KEY.tes
 
 /**
  * The person's view without programs or a step: their standing (Task 4), their projects (shipped
- * first, then people, then newest), and the claim link while they have no page. Null without a profile.
+ * first, then people, then newest), and the X sign-in link while they have no page (x-link.ts signInLink, for the
+ * caller's own installation). Null without a profile.
  */
 export async function standBase(id: number, o: { fresh?: TipSwitches; own?: number } = {}): Promise<{ base: StandBase; seen: Seen; created_at: Date; page_ready_shown_at: Date | null } | null> {
   const [p] = await sql()<{ standing_seen: unknown; created_at: Date; page_ready_shown_at: Date | null }[]>`
@@ -182,8 +180,8 @@ export async function standBase(id: number, o: { fresh?: TipSwitches; own?: numb
     confirmed: r.confirmed,
   }));
   const claimed = s.claimed && Boolean(s.handle);
-  const link = claimed ? null : await claimLink(id, o.own ?? id).catch((err: unknown) => {
-    console.error('[stand] claim link', err instanceof Error ? err.name : 'error');
+  const link = claimed ? null : await signInLink(o.own ?? id, new Date()).catch((err: unknown) => {
+    console.error('[stand] sign-in link', err instanceof Error ? err.name : 'error');
     return null;
   });
   const standing: Standing = { ranked: s.ranked, rank: s.rank, total: s.total };
@@ -198,8 +196,8 @@ export async function standBase(id: number, o: { fresh?: TipSwitches; own?: numb
   const past = projects.find((x) => x.shipped && x.untracked_contract && x.untracked_people > 0 && !pastKey(x.key) && (x.provable || canProve));
   if (past?.provable) past.certain = !(await trackingHeld(id, past.untracked_contract!, new Date()));
   // Fix round 1 (ruling 4): a step is offered only when its yes can deliver. `prove`: the one tap to
-  // show work is theirs can be made (claimed: the wallet page needs the secret; unclaimed: the claim
-  // link, X sign-in on). `tag`: the person code can be made. `tips`: a tip jar can be deployed now
+  // show work is theirs can be made (claimed: the wallet page needs the secret; unclaimed: the X
+  // sign-in link, X sign-in on). `tag`: the person code can be made. `tips`: a tip jar can be deployed now
   // (read only when a project could be offered one).
   const tipsWanted = projects.some((x) => x.shipped && x.app && !x.sends_tx && paymentStepFits(`${x.what ?? ''} ${x.name}`));
   const can = {
@@ -208,7 +206,7 @@ export async function standBase(id: number, o: { fresh?: TipSwitches; own?: numb
     tips: tipsWanted ? (await tipsPick(id, new Date(), o.fresh).catch(() => null)) !== null : false,
   };
   return {
-    base: { standing, claimed, handle: claimed ? s.handle : null, claimLink: link, projects, can, ...(declined.length > 0 && { declined }) },
+    base: { standing, claimed, handle: claimed ? s.handle : null, signInLink: link, projects, can, ...(declined.length > 0 && { declined }) },
     seen,
     created_at: p.created_at,
     page_ready_shown_at: p.page_ready_shown_at,
@@ -229,13 +227,13 @@ export async function takeNews(id: number, seen: Seen, base: StandBase, now: Dat
     };
     await sql()`
       UPDATE builder_profiles SET standing_seen = ${sql().json(next as never)}::jsonb || jsonb_strip_nulls(jsonb_build_object('declined', standing_seen->'declined',
-          -- v2.13 (bench-find.ts): what the Bench reply asked and noted is kept too (absent with the flag off).
+          -- v2.13 (bench-find.ts): what the Bench reply asked and noted is kept too 
           'bench_ask', standing_seen->'bench_ask', 'weekly_note_at', standing_seen->'weekly_note_at', 'raise_asked', standing_seen->'raise_asked',
           -- v2.13.1 O5: the quiet asks.
           'quiet', standing_seen->'quiet'))
           -- v2.13.1 O5 fix round 2: the kept repo reads and match, unstripped (their nulls are values).
-          -- v2.13.4: the live link check and the claim page's join note.
-          || (SELECT COALESCE(jsonb_object_agg(k, standing_seen->k), '{}'::jsonb) FROM unnest(ARRAY['repo_probe', 'bench_match', 'live_check', 'linked']) k WHERE standing_seen ? k),
+          -- v2.13.4: the live link check.
+          || (SELECT COALESCE(jsonb_object_agg(k, standing_seen->k), '{}'::jsonb) FROM unnest(ARRAY['repo_probe', 'bench_match', 'live_check']) k WHERE standing_seen ? k),
         card_moments = CASE WHEN ${card}::text IS NULL THEN card_moments ELSE card_moments || jsonb_build_object('latest', ${card}::text) END
       WHERE builder_id = ${id}`;
   };
@@ -250,50 +248,6 @@ export async function takeNews(id: number, seen: Seen, base: StandBase, now: Dat
     type: 'news_shown', dedupe_key: `news_shown:${id}:${now.toISOString()}`, installation_id: id, detail: { card: news.card },
   }));
   return news.line;
-}
-
-/**
- * The one-time "Your EarnKit page is ready" (plan T8 step 6): a person who used find before their
- * profile existed (a v2.11 builder on their first find with the flag on), unclaimed, never shown it,
- * with a claim link and something on the page. Marks it shown. Null otherwise.
- */
-export async function takePageReady(
-  id: number,
-  o: { lastCheck: Date | null; created_at: Date; page_ready_shown_at: Date | null; claimed: boolean; link: string | null; projects: number },
-): Promise<string | null> {
-  // Spec example 3: with nothing found there is no page to claim yet, so nothing is "ready".
-  if (o.lastCheck === null || o.claimed || o.page_ready_shown_at || !o.link || o.projects === 0 || !(o.lastCheck < o.created_at)) return null;
-  const [row] = await sql()`
-    UPDATE builder_profiles SET page_ready_shown_at = now() WHERE builder_id = ${id} AND page_ready_shown_at IS NULL RETURNING 1`;
-  if (!row) return null;
-  await noteEvent('page_ready_shown', () => ({ type: 'page_ready_shown', dedupe_key: `page_ready_shown:${id}`, installation_id: id }));
-  return pageReadyLine(o.link);
-}
-
-/**
- * The yes to a `confirm` step (T7 carry): the claim page's upgrade links last 30 minutes, so the
- * reply makes a new one. A contract or coin is shown to be theirs with a wallet signature; other
- * work with GitHub sign-in while it is on (else the wallet). Unclaimed: the claim link first.
- */
-export async function confirmYes(id: number, now: Date): Promise<{ show_to_builder: string; agent_note?: string }> {
-  const v = await standBase(id);
-  if (!v) return { show_to_builder: '', agent_note: 'There is nothing to confirm yet.' };
-  if (!v.base.claimed)
-    return v.base.claimLink ? { show_to_builder: `Claim your page with X first: ${v.base.claimLink}` } : { show_to_builder: '', agent_note: 'There is no page to confirm yet.' };
-  const [onchain] = await sql()`
-    SELECT 1 FROM builder_projects WHERE builder_id = ${id} AND shipped AND NOT confirmed AND (kind IN ('contract','coin') OR untracked_contract IS NOT NULL) LIMIT 1`;
-  const wallet = () => {
-    const t = upgradeToken(id, now);
-    return t ? `${siteUrl()}/claim/wallet?t=${encodeURIComponent(t)}` : null;
-  };
-  let link: string | null = null;
-  if (!onchain && githubVerifyEnabled())
-    link = await createVerifyLink({ installationId: id, projectId: null, repoKey: `claim/${id}`, purpose: 'claim' }).catch((err: unknown) => {
-      console.error('[stand] github link', err instanceof Error ? err.name : 'error');
-      return null;
-    });
-  link ??= wallet();
-  return link ? { show_to_builder: confirmLinkLine(link) } : { show_to_builder: '', agent_note: 'No link can be made right now. Ask again later.' };
 }
 
 // ---- Fix round 1: every reply has a way to earn -------------------------------------------------
@@ -392,13 +346,3 @@ export async function scoreEarn(
   return { earn: [], ...moneyFallback(o) };
 }
 
-/**
- * Fix round 1: the person's step as the server sees it now, for a yes or no to "How to move up"
- * (the agent's kind is never trusted). Coins wait for T10; hosting is judged as for an agent that
- * builds. Null without a profile or a step.
- */
-export async function currentStep(id: number, o: { fresh?: TipSwitches } = {}): Promise<MoveUp | null> {
-  const v = await standBase(id, o);
-  if (!v) return null;
-  return chooseStep({ ...v.base, earn: [], fresh: null }, { coin: () => false, build: null, host: hostFor(true) });
-}

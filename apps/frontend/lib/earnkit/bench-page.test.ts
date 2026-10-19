@@ -1,7 +1,6 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
@@ -11,8 +10,6 @@ import BenchView, { BENCH_EMPTY, BENCH_TITLE, FILTER_RAISING, FILTER_WEEKLY } fr
 
 /** v2.13 T10 (spec "The Bench", R4, R9, R14): the rows, the URL filters, the /leaderboard redirect. */
 
-process.env.EARNKIT_BUILDER_SCORE = 'on';
-process.env.EARNKIT_BENCH = 'on';
 // Final fix: the raising filter and pill are behind EARNKIT_RAISING; these cases are the flag on (v213-final-fix F9, F11: off).
 process.env.EARNKIT_RAISING = 'on';
 // The components are compiled with the classic JSX runtime here (as feed.test.ts).
@@ -118,24 +115,4 @@ test('10.4 the row: photo, name, @handle, pill, chain logos with the name as alt
   // v2.13.2 fix 1: a filtered view with no rows (others ranked) says BENCH_EMPTY; nobody ranked, only the header's empty line.
   assert.ok(renderToStaticMarkup(React.createElement(BenchView, { rows: [], count: 3, chips: [], filter: { chain: 'base', raising: false, weekly: false }, raising: true })).includes(BENCH_EMPTY));
   assert.ok(!renderToStaticMarkup(React.createElement(BenchView, { rows: [], count: 0, chips: [], filter: { chain: 'base', raising: false, weekly: false }, raising: true })).includes(BENCH_EMPTY));
-});
-
-test('10.5 /leaderboard redirects to /bench under the flag (a temporary redirect, so turning the flag off never sticks)', () => {
-  const src = readFileSync(new URL('../../app/leaderboard/page.tsx', import.meta.url), 'utf8');
-  assert.match(src, /if \(benchEnabled\(\)\) redirect\('\/bench'\)/);
-});
-
-test('10.6 flag off: /bench and /feed are a 404 and /leaderboard is today\'s board (review focus 4)', () => {
-  const page = (p: string) => readFileSync(new URL(`../../app/${p}`, import.meta.url), 'utf8');
-  assert.match(page('bench/page.tsx'), /if \(!benchEnabled\(\)\) notFound\(\)/);
-  assert.match(page('feed/page.tsx'), /if \(!benchEnabled\(\)\) notFound\(\)/);
-  // The leaderboard's only change is the one redirect line under the flag; the rest is today's.
-  const board = page('leaderboard/page.tsx');
-  const body = board.slice(board.indexOf('export default async function LeaderboardPage'));
-  assert.deepEqual(body.split('\n').slice(1, 5).map((l) => l.trim()), [
-    "if (benchEnabled()) redirect('/bench');",
-    'if (!builderScoreEnabled()) notFound();',
-    'const { rows, count } = await cachedBoard();',
-    'return <LeaderboardView rows={rows} count={count} />;',
-  ]);
 });

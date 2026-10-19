@@ -7,6 +7,8 @@ import { weekLabel } from '../../../lib/earnkit/weeks';
 export type UpdateCardData = {
   handle?: string; name?: string; avatar?: string | null; project?: string;
   week: string; text: string | null; chips: string[]; started?: string | null;
+  /** v2.14 spec 3: the week's shipped titles, already filtered (ship-titles.ts titlesShown); plain text. */
+  titles?: string[];
 };
 
 
@@ -47,6 +49,8 @@ export default function UpdateCard({ card, shape, showPerson = true }: { card: U
   const raw = card.started ?? card.text;
   const text = raw && square ? raw.split(/(?<=[.!?])\s/)[0] : raw;
   const chips = square ? card.chips.slice(0, 2) : card.chips;
+  // The square card has room for one title beside its text.
+  const titles = (square ? card.titles?.slice(0, 1) : card.titles) ?? [];
   const handle = card.handle;
   return (
     <article data-shape={shape} className={shell}>
@@ -61,6 +65,7 @@ export default function UpdateCard({ card, shape, showPerson = true }: { card: U
           </div>
         )}
         <p className="font-funnel-sans text-sm text-ek-blue-soft">{weekLabel(card.week)}</p>
+        {titles.length ? <ul className="mt-2 space-y-1">{titles.map((t) => <li key={t} className="font-funnel-sans text-[15px] text-ek-white">{t}</li>)}</ul> : null}
         {text && (
           <p className={`mt-2 font-funnel-sans text-base text-ek-white ${square ? 'line-clamp-3' : ''}`}><Body text={text} /></p>
         )}

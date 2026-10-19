@@ -1,6 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
@@ -206,7 +207,13 @@ test('12.4 --login clears that person\'s page data (dry run says so first), anot
     await db`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped) VALUES (${id}, 'k', 'P', 'app', true, true)`;
     await db`INSERT INTO x_oauth_states (state_hash, builder_id, code_verifier, csrf_hash, expires_at) VALUES (${`st-${login}`}, ${id}, 'v', 'c', now())`;
     await db`INSERT INTO coin_moments (builder_id, project_key, moment) VALUES (${id}, 'k', 'built_live')`;
+    const [inst] = await db<{ id: number }[]>`INSERT INTO installations (token_hash, x_user_id) VALUES (${`th-${login}-${t}`}, ${`xu-${login}`}) RETURNING id`;
+    // v2.14 T7: an X sign-in link of this person's installation (it keeps the X id and handle).
+    await db`INSERT INTO x_signin_links (link_hash, installation_id, expires_at, x_user_id, x_handle)
+      VALUES (${createHash('sha256').update(`lk-${login}-${t}`).digest('hex')}, ${inst.id}, now() + interval '1 day', ${`xu-${login}`}, ${login})`;
   };
+  const links = async (login: string) => (await db`SELECT 1 FROM x_signin_links WHERE x_user_id = ${`xu-${login}`}`).length;
+  const boundTo = async (login: string) => (await db`SELECT 1 FROM installations WHERE x_user_id = ${`xu-${login}`}`).length;
   await seedPerson(idX, X, wallet);
   await seedPerson(idY, Y, `0x${hex(`pz${t}`)}`);
   const profile = async (id: number) =>
@@ -226,12 +233,17 @@ test('12.4 --login clears that person\'s page data (dry run says so first), anot
     assert.doesNotMatch(wOnly.out, /Page data/);
     assert.deepEqual(await count(idX), [1, 1, 1, 1, 1], 'a --wallet-only run deletes nothing');
     assert.equal((await profile(idX)).x_user_id, `xu-${X}`);
+    assert.equal(await boundTo(X), 1);
 
     const r = run('--login', X, '--apply');
     assert.equal(r.code, 0, r.err);
     assert.match(r.out, /Page data cleared or deleted \(page profiles: 1, claim_codes: 1, person_wallets: 1, builder_projects: 1, x_oauth_states: 1, coin_moments: 1, project_updates: 0\)/);
     const px = await profile(idX);
     for (const k of ['x_user_id', 'x_name', 'x_avatar_url', 'reported_github', 'base_builder_code', 'github_basis', 'x_handle', 'fallback_handle']) assert.equal(px[k], null, k);
+    assert.equal(await boundTo(X), 0, 'v2.14: its installations are unbound from the X account');
+    assert.equal(await boundTo(Y), 1, "another person's binding stays");
+    assert.equal(await links(X), 0, 'v2.14 T7: its X sign-in links are deleted');
+    assert.equal(await links(Y), 1, "another person's link stays");
     assert.deepEqual(px.identity, {});
     assert.deepEqual(await count(idX), [0, 0, 0, 0, 0]);
     const py = await profile(idY);

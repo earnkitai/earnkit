@@ -464,6 +464,17 @@ async function cappedJson<T>(res: Response, max: number): Promise<T> {
 type RawGh = <T>(path: string, accept?: string, onResponse?: (res: Response) => void) => Promise<T>;
 
 /**
+ * v2.14 final fix 8: whether a GitHub request carries a GitHub App credential: an installation token (`ghs_`) or the
+ * App's own JWT (`eyJ`), as github-app.ts, repo-proof.ts and person-github.ts send them (`Bearer <credential>`).
+ * EarnKit's GITHUB_TOKEN is never either. Pure; exported for tests.
+ */
+export function appCredential(input: RequestInfo | URL, init?: RequestInit): boolean {
+  const fromInit = init?.headers ? new Headers(init.headers).get('authorization') : null;
+  const auth = fromInit ?? (input instanceof Request ? input.headers.get('authorization') : null);
+  return auth !== null && /^(Bearer|token) (ghs_|eyJ)/.test(auth.trim());
+}
+
+/**
  * `raw` (match-projects.ts gh) with a run budget: once a core response says fewer than `floor`
  * requests are left, or `cap` calls were made this run (GH_RUN_CAP), every later call (and the
  * failing one) throws GitHubBudgetStop. The search API's own small limit (x-ratelimit-resource:
@@ -621,10 +632,14 @@ export function defaultReaderDeps(now: Date, deadline: number): ReaderDeps {
     now,
     ghSpent: github.spent,
     ghFetch: async (input, init) => {
-      if (!github.take()) throw new GitHubBudgetStop();
+      // v2.14 final fix 8: a call with an App credential (an installation token or the App's JWT) spends the
+      // App installation's own rate limit, not EarnKit's GITHUB_TOKEN: it never counts toward GH_RUN_CAP and its
+      // rate headers never stop the run. The steps' own per-run caps and the deadline bound it.
+      const app = appCredential(input, init);
+      if (!app && !github.take()) throw new GitHubBudgetStop();
       tick('github_rest');
       const res = await by(fetch(input, init));
-      github.watch(res);
+      if (!app) github.watch(res);
       return res;
     },
     requests,

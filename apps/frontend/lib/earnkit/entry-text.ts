@@ -1,7 +1,5 @@
 import { payoutBy, prizeUsdEach, usd, type CampaignConfig } from './campaigns';
-import { boardSlug } from './bonus-rounds';
 import { shortDate } from './dates';
-import { benchEnabled } from './builder-score-flag';
 
 /** EarnKit's public origin for links in builder text. */
 export const siteUrl = () => (process.env.EARNKIT_URL ?? 'https://earnkit.com').replace(/\/$/, '');
@@ -34,13 +32,9 @@ export const SKIP_TOKEN = 'skip the token';
 /**
  * The one token row in EarnKit campaigns (v2.4: a default at submission only, entered in one step,
  * so this row is the campaign's confirm line). v2.10 item 5: the confirm line's words, and no
- * footnote (no WETH, gas or terms in replies). Ruling 25: one token per repo; a repo whose token is
- * entered in another program gets that note instead. Pure.
+ * footnote (no WETH, gas or terms in replies). Pure.
  */
-export const tokenRow = (symbol: string, hasBonus = false, coinIn: string | null = null, name?: string | null) => {
-  if (hasBonus && coinIn) return repoCoinNote(coinIn);
-  return `Launches ${tokenLabel(symbol, name)}: 40% of its fees to you${hasBonus ? ', plus the builder bonus' : ''} · or ${SKIP_TOKEN}`;
-};
+export const tokenRow = (symbol: string, name?: string | null) => `Launches ${tokenLabel(symbol, name)}: 40% of its fees to you · or ${SKIP_TOKEN}`;
 
 const DAY_MS = 86_400_000;
 
@@ -83,38 +77,13 @@ export const prizeOf = (c: { summary: string; investment?: boolean }) => {
 
 /**
  * "Oct 14, 11:59 PM ET" from the summary's "closes Oct 14, 11:59 PM ET" (v2.8.1 §C15: the program's
- * own time zone), "rolling", else ends_at as deadlineLabel shows it. Ruling 29: roundEndLabel gives a
- * round ending at the deadline the same text. Pure; exported for tests.
+ * own time zone), "rolling", else ends_at as deadlineLabel shows it. Pure; exported for tests.
  */
 export function endsOf(c: { summary: string; ends_at?: Date | null }) {
   const closes = summaryCloses(c.summary);
   if (closes) return closes;
   if (c.summary.split(' · ').slice(1).includes('rolling')) return 'rolling';
   return c.ends_at ? deadlineLabel(c.ends_at) : 'rolling';
-}
-
-/**
- * Ruling 29: a round's end as the builder sees it everywhere, the same text as the first message
- * (present.ts endsOf). A window ending at the program's deadline takes the summary's "closes Oct 14,
- * 11:59 PM ET" (the program's real local deadline, v2.8.1 §C15), else deadlineLabel, as the first
- * message does. Any other round (a rolling program's month, ending 00:00 UTC, exclusive) shows its
- * last day ("Oct 31" for a month ending Nov 1). Pure.
- */
-export function roundEndLabel(program: { summary: string; ends_at: Date | null }, ends: Date) {
-  const closes = summaryCloses(program.summary);
-  if (program.ends_at && closes) {
-    if (program.ends_at.getTime() === ends.getTime()) return closes;
-    // Re-review Minor 1: a stored window whose program deadline later moved keeps the same local
-    // clock time: shift its UTC day the way the summary's local day differs from the deadline's.
-    const day = closesDay(closes);
-    const sameClock = (program.ends_at.getTime() - ends.getTime()) % DAY_MS === 0;
-    if (sameClock)
-      for (const shift of [0, -1, 1])
-        if (shortDate(new Date(program.ends_at.getTime() + shift * DAY_MS)) === day)
-          return `${shortDate(new Date(ends.getTime() + shift * DAY_MS))}${closes.slice(day.length)}`;
-  }
-  if (program.ends_at && program.ends_at.getTime() === ends.getTime()) return closes ?? deadlineLabel(ends);
-  return deadlineDay(ends);
 }
 
 /**
@@ -137,23 +106,10 @@ export function deadlineLabel(ends: Date) {
 
 /**
  * Ruling 18 (plan), Ruling 22: the AGENT's note for an entry recorded without a wallet (never
- * shown to the builder, who is told to reply with a wallet). `endsLabel` is the open round's end
- * (roundEndLabel; null: no open round or no bonus, so no date). Pure.
+ * shown to the builder, who is told to reply with a wallet).
  */
-export const noCoinYet = (endsLabel: string | null) =>
-  `No token yet: no wallet was given. When the builder replies with a wallet, call confirm with project_id, yes: true and the wallet${endsLabel ? ` by ${endsLabel}` : ''}.`;
+export const NO_COIN_YET = 'No token yet: no wallet was given. When the builder replies with a wallet, call confirm with project_id, yes: true and the wallet.';
 
-/** Final review M1: the one line for an entry whose repo another entry already holds here. */
-export const REPO_HELD = 'Another entry of this repo already holds its token and builder bonus here.';
-/** v2.13 R16: REPO_HELD under the Bench flag (no builder bonus). */
-export const REPO_HELD_BENCH = 'Another entry of this repo already holds its token here.';
-
-/**
- * Ruling 5 (plan), v2.8.1 §C13: the repo's one token is entered in this program, so its builder
- * bonus rides on that entry. v2.10 item 1: never in builder text (one bonus line per reply); only
- * record_submission's bonus_note, for the agent. Pure.
- */
-export const bonusRidesOn = (program: string) => `Your builder bonus rides on your ${program} entry.`;
 
 export type EnteredText = {
   programTitle: string;
@@ -170,44 +126,20 @@ export type EnteredText = {
         note?: string;
       };
   /**
-   * The open round: `line` is its one builder bonus line (present.ts bonusLine; v2.10 item 1, no
-   * board link). Null when the program has no bonus, the round froze, the coin was skipped, the repo
-   * is held (M1), or Ruling 25 applies.
-   */
-  bonus: {
-    line: string;
-    /**
-     * Fix round 1 (I3): set when the entry doesn't count for the builder bonus yet, with what joins
-     * it: the builder's word that it's submitted on `site` ('confirm'), the entry page on `site`
-     * linking the project ('page'; `missing`: 'live site' for an entry without a repo), or (Ruling 24) the link to the entry page on `site` ('link').
-     * Null or absent: it counts.
-     */
-    join?: { kind: 'confirm' | 'page' | 'link'; site: string; missing?: 'live site' } | null;
-  } | null;
-  /** Final review M1: an earlier entry of this repo holds its coin and builder bonus in this program. */
-  repoHeld?: boolean;
-  /**
    * Final review I3: the repo's one token is entered in this other program (Ruling 5 (plan)), so
-   * this entry has none by design. v2.8.1 §C13: no bonus line here; the Also qualifies block (or
-   * the caller, without one) says bonusRidesOn once.
+   * this entry has none by design.
    */
   countsIn?: string | null;
 };
 
 /**
  * record_submission's show_to_builder outside campaigns (v2.6 §3). Builder text: never names a
- * tool (Ruling 22). With no wallet, one line, the round's date once. Pure.
+ * tool (Ruling 22). With no wallet, one line. Pure.
  */
 export function enteredText(a: EnteredText) {
   const entered = `Entered in ${a.programTitle}.`;
-  // M1: no coin and no bonus to offer here; one plain line, never a wallet ask or a bonus line.
-  if (a.repoHeld) return `${entered} ${benchEnabled() ? REPO_HELD_BENCH : REPO_HELD}`;
   if (a.countsIn) return entered;
-  const round = a.bonus?.line ?? null;
-  if (a.coin.status === 'no_wallet')
-    return round
-      ? `${entered} Reply with a wallet to get your token and join the builder bonus.\n${round}`
-      : `${entered} Reply with a wallet to get your token.`;
+  if (a.coin.status === 'no_wallet') return `${entered} Reply with a wallet to get your token.`;
   const coin =
     a.coin.status === 'launched'
       ? // v2.8.1 §F19: no "40%" here; the Yes line said it.
@@ -223,30 +155,10 @@ export function enteredText(a: EnteredText) {
             ? ` Your token isn't launched yet: the entry still needs ${a.coin.needs}.`
             : " Your token isn't launched yet."
           : '';
-  if (!round) return `${entered}${coin}`;
-  const join = a.bonus!.join;
-  // M4: the bonus needs the coin, so a coin not launched yet joins it once it is.
-  if (!join)
-    return a.coin.status === 'other'
-      ? `${entered}${coin.replace(/\.$/, '')}; it joins the builder bonus once it is.\n${round}`
-      : `${entered}${coin}\n${round}`;
-  const line =
-    join.kind === 'page'
-      ? `Add your ${join.missing ?? 'repo'} link to your ${join.site} entry page`
-      : join.kind === 'link'
-        ? `Send me your ${join.site} entry link`
-        : `Tell me once you've submitted on ${join.site}`;
-  // Re-review Minor 2: with the coin still to launch, the step and the coin are two plain sentences.
-  return a.coin.status === 'other'
-    ? `${entered}${coin}\n${line}. With your token launched, that joins the builder bonus.\n${round}`
-    : `${entered}${coin}\n${line} to join the builder bonus.\n${round}`;
+  return `${entered}${coin}`;
 }
 
-/** A round's public leaderboard, as builder text (Ruling 12 (plan)): "earnkit.com/bonus/<slug>". */
-export const boardLink = (roundKey: string) => `${siteUrl().replace(/^https?:\/\//, '')}/bonus/${boardSlug(roundKey)}`;
 
-/** The no-bonus line for an entry whose repo's coin is entered in another program (Ruling 25). Pure. */
-export const repoCoinNote = (programTitle: string) => `no builder bonus: this repo's token is entered in ${programTitle}`;
 
 /**
  * v2.7 §3, Ruling 15 (plan) + C5: the lead line while the entry can't be submitted yet, from the
@@ -323,16 +235,13 @@ export function confirmTable(a: {
   /** A remembered payout wallet to confirm (I8): asked under the table, in full. */
   askWallet?: string | null;
   /**
-   * The token row; `wallet` is the fee wallet (unused in the text since v2.10). `hasBonus`: v2.5
-   * §3. `coinIn`: the program this repo's coin is already entered in (Ruling 25; no new coin).
+   * The token row; `wallet` is the fee wallet (unused in the text since v2.10).
    */
   token: {
     symbol: string;
     /** The proposed token name, shown next to the ticker (fix round 1, Minor 3). */
     name?: string | null;
     wallet?: string | null;
-    hasBonus?: boolean;
-    coinIn?: string | null;
     /** v2.6 Ruling 10: `wallet` is the installation's remembered one (not given in this call). */
     remembered?: boolean;
   } | null;
@@ -353,8 +262,7 @@ export function confirmTable(a: {
   // token row and the wallet line; campaigns keep v2.4's Token row (EarnKit campaigns are entered in
   // one step).
   if (!c || !a.token) return keyTable(rows) + ask;
-  const coinIn = a.token.hasBonus ? (a.token.coinIn ?? null) : null;
-  rows.push(['Token', tokenRow(a.token.symbol, a.token.hasBonus, coinIn, a.token.name)]);
+  rows.push(['Token', tokenRow(a.token.symbol, a.token.name)]);
   // v2.10 item 5: no footnote (no WETH, gas or terms in replies; the terms are on the entry page).
   return keyTable(rows) + ask;
 }

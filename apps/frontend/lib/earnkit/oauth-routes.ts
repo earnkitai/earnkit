@@ -1,7 +1,9 @@
+import { xSignInEnabled } from './builder-score-flag';
 import { json, readParams } from './http';
-import { installationExists, saveInstallation } from './installations';
-import { OAuthError, authorize, clientLimitKey, exchangeCode, hostedRedirectHost, registerClient } from './oauth';
+import { installationExists, saveInstallation, setInstallationToken } from './installations';
+import { OAuthError, checkAuthorize, clientLimitKey, exchangeCode, hostedRedirectHost, issueCode, publicOrigin, registerClient } from './oauth';
 import { LIMITS, REGISTER_HOST_WARN, RateLimitError, clientIp, enforce } from './rate-limit';
+import { attachToX, startInstallSignIn } from './x-install';
 
 // The OAuth register, token and authorize endpoints; app/oauth/{register,token,authorize}/route.ts re-export them.
 const TOO_MANY = 'Too many new EarnKit connections from this address.';
@@ -37,7 +39,7 @@ async function ipFloor(name: 'installHour' | 'oauthRegister', ip: string, what: 
 
 export async function tokenPost(request: Request) {
   try {
-    const { token, clientKey, shared, limitKey, hostedHost, clientName } = exchangeCode(await readParams(request));
+    const { token, clientKey, shared, limitKey, hostedHost, clientName, x } = exchangeCode(await readParams(request));
     // Only a client's first token counts (v2.2 §5): a replayed code, or re-authorizing a known
     // client (v2.4 §5), is free. v2.8.1 §E17, Ruling F11: 500 a day per registration (client id; a
     // hosted agent's users each register their own), and 50 an hour per IP as the abuse floor
@@ -57,7 +59,19 @@ export async function tokenPost(request: Request) {
         throw err;
       }
     }
-    await saveInstallation(token, clientKey, shared, clientName);
+    // v2.14 spec 1: bound to the X account from its first call.
+    // Fix round 1: a refusal issues no token (invalid_grant); the client starts the sign-in again.
+    // T7 (carried from T4 review): a known installation keeps its current token until the bind succeeds, so a
+    // refused re-authorization leaves the token the agent already holds working.
+    const id = await saveInstallation(token, clientKey, shared, clientName, { keepToken: Boolean(x) });
+    if (x) {
+      const bound = await attachToX(id, x, new Date());
+      if (!bound.ok) {
+        console.warn(`[oauth] token refused: not bound to X (${bound.reason})`);
+        throw new OAuthError('invalid_grant', 'This sign-in could not be completed');
+      }
+      await setInstallationToken(id, token);
+    }
     return json({ access_token: token, token_type: 'Bearer' });
   } catch (err) {
     if (err instanceof RateLimitError)
@@ -72,27 +86,27 @@ export async function tokenPost(request: Request) {
   }
 }
 
-/** No accounts: every valid request is approved instantly and sent back with a code. */
-export async function authorizeGet(request: Request) {
+type AuthorizeDeps = { limit?: (request: Request) => Promise<unknown> };
+// 60 an hour per IP (v2.2 §5); each approval is a code that can become an installation.
+const authorizeLimit = (request: Request) => enforce('oauthAuthorize', clientIp(request.headers), 'Too many EarnKit sign-ins from this address.');
+
+/**
+ * v2.14 spec 1: the authorize step signs the person in with X (x-install.ts), then sends the client its code.
+ * A client serving many builders, or X not configured, keeps the anonymous approval (A1, A5).
+ */
+export async function authorizeGet(request: Request, deps: AuthorizeDeps = {}) {
   try {
-    // 60 an hour per IP (v2.2 §5); each approval is a code that can become an installation.
-    await enforce(
-      'oauthAuthorize',
-      clientIp(request.headers),
-      'Too many EarnKit sign-ins from this address.',
-    );
-    return Response.redirect(authorize(new URL(request.url).searchParams), 302);
+    await (deps.limit ?? authorizeLimit)(request);
+    const checked = checkAuthorize(new URL(request.url).searchParams);
+    if ('error' in checked) return Response.redirect(checked.error, 302);
+    const issuer = publicOrigin(request);
+    if (!xSignInEnabled() || checked.many) return Response.redirect(issueCode(checked.req, null, issuer), 302);
+    return await startInstallSignIn(checked);
   } catch (err) {
     if (err instanceof RateLimitError)
-      return new Response(`EarnKit sign-in: ${err.message}`, {
-        status: 429,
-        headers: { 'Retry-After': String(err.retryAfter) },
-      });
+      return new Response(`EarnKit sign-in: ${err.message}`, { status: 429, headers: { 'Retry-After': String(err.retryAfter) } });
     // Unknown client or redirect URI: show the error here, never redirect to an unverified URI.
-    if (err instanceof OAuthError)
-      return new Response(`EarnKit sign-in failed: ${err.message}`, {
-        status: 400,
-      });
+    if (err instanceof OAuthError) return new Response(`EarnKit sign-in failed: ${err.message}`, { status: 400 });
     throw err;
   }
 }

@@ -1,13 +1,10 @@
 import type { ReactNode } from 'react';
 import { Eyebrow, Panel } from '../../components/common/Panel';
-import BonusPill from '../../components/ui/BonusPill';
 import { X } from '../../lib/links';
-import { benchEnabled } from '../../../lib/earnkit/builder-score-flag';
 import {
   CLANKER_CUT_PCT,
   CONTACT_EMAIL,
   MINI_LINE,
-  PLACE_ROWS,
   RECORD_STEPS,
   RECORDS_HISTORY,
   RECORDS_IP,
@@ -22,14 +19,13 @@ import {
   RECORDS_WHY,
   RECORDS_WITH,
   SAFE_ADDRESS,
-  SIGNAL_ROWS,
   SPLIT_KEPT_V213,
   feeTable,
 } from '../../../lib/earnkit/policy';
 
 const link = 'text-ek-white underline underline-offset-4 transition-colors hover:text-ek-blue-soft';
 
-/** `aside` sits beside the heading (v2.8 Ruling 19: the builder bonus pill). */
+/** `aside` sits beside the heading. */
 function Section({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
   const heading = <h2 className="font-funnel-display text-2xl font-medium text-ek-white md:text-3xl">{title}</h2>;
   return (
@@ -50,10 +46,6 @@ function Section({ title, aside, children }: { title: string; aside?: ReactNode;
     </div>
   );
 }
-
-const Sub = ({ children }: { children: ReactNode }) => (
-  <h3 className="pt-4 font-funnel-display text-lg font-medium text-ek-white first:pt-0 md:text-xl">{children}</h3>
-);
 
 const List = ({ items }: { items: ReactNode[] }) => (
   <ul className="list-disc space-y-2 pl-5 marker:text-ek-blue-bright">
@@ -85,15 +77,11 @@ function Table({ head, rows }: { head: [string, string]; rows: [string, string |
 }
 
 /**
- * The public policy (v2.5 §4), /terms#policy since v2.9 F22: matching, the fee split (then the
- * MINI line, F24), the builder bonus (funding, eligibility, ranking, review, payout), the optional
- * token, no affiliation, what EarnKit records (v2.11 T12), contact. Every number comes from lib/earnkit/policy.ts, which reads the
- * constants the code applies.
- * v2.13 R16: under the Bench flag no builder bonus paragraph: v2.13's fee table and its one added
- * line, no bonus section, no bonus sentence in the token or affiliation sections.
+ * The public policy (v2.5 §4), /terms#policy since v2.9 F22: matching, the fee split (v2.13's three
+ * rows, then the MINI line, F24), the optional token, no affiliation, what EarnKit records (v2.11
+ * T12), contact. Every number comes from lib/earnkit/policy.ts, which reads the constants the code applies.
  */
 export default function PolicySection() {
-  const bench = benchEnabled();
   return (
     <>
       <Panel className="mt-4 py-12 md:py-16" label="Policy">
@@ -102,7 +90,7 @@ export default function PolicySection() {
           How EarnKit works
         </h2>
         <p className="mt-4 max-w-2xl font-funnel-sans text-base font-light text-ek-blue-light md:text-lg">
-          {bench ? 'Plain answers on matching and token fees.' : 'Plain answers on matching, token fees and the builder bonus.'}
+          Plain answers on matching and token fees.
         </p>
       </Panel>
 
@@ -138,82 +126,20 @@ export default function PolicySection() {
               {SAFE_ADDRESS}
             </a>
           </p>
-          {bench ? (
-            <p>{SPLIT_KEPT_V213}</p>
-          ) : (
-            <p>Tokens launched before this split keep the split they launched with.
-            </p>
-          )}
+          <p>{SPLIT_KEPT_V213}</p>
         </Section>
 
-        {!bench && (
-          <Section title="The builder bonus" aside={<BonusPill size="md" />}>
-            <Sub>How it&apos;s funded</Sub>
-            <p>
-              The builder bonus share of every token&apos;s fees goes to a pool for the program the project entered.
-              A program with an end date has one round. A rolling program has one round per calendar month (UTC).
-              Every program except EarnKit campaigns has a builder bonus unless it opts out.
-            </p>
-            <Sub>Who can win</Sub>
-            <List
-              items={[
-                'You entered through EarnKit and launched your token through EarnKit.',
-                <>
-                  Programs with public entry pages: your entry page links your repo or live product. Programs without
-                  public entry pages: the builder confirms the submission; the owner reviews the top 10 before paying.
-                  If EarnKit can&apos;t load an entry page, the builder&apos;s confirmation counts and is reviewed too.
-                </>,
-                <>
-                  You can push to the repo: its <code className="text-ek-white">earnkit.txt</code> carries the token line
-                  your agent adds.
-                </>,
-              ]}
-            />
-            <Sub>How entries are ranked</Sub>
-            <p>Real traction inside the round, out of 100. Each signal is ranked within the round, then weighted:</p>
-            <Table head={['Signal', 'Weight']} rows={SIGNAL_ROWS} />
-            <p>Market cap only breaks ties. Trading volume never counts.</p>
-            <Sub>Review</Sub>
-            <p>
-              When a round ends, scores freeze and the top 10 are public for 48 hours. EarnKit removes entries with
-              farmed activity, such as bought users, wash trading or scripted commits. The next entry moves up.
-            </p>
-            <Sub>Payout</Sub>
-            <p>Then the whole pool is paid automatically in WETH on Base, by place:</p>
-            <dl className="grid grid-cols-5 gap-x-2 gap-y-5 py-2">
-              {PLACE_ROWS.map(([place, share]) => (
-                <div key={place}>
-                  <dt className="text-sm text-ek-blue-soft">{place}</dt>
-                  <dd className="mt-1 font-funnel-display text-xl font-medium tabular-nums text-ek-white md:text-2xl">
-                    {share}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-            <p>
-              With fewer than 10 eligible entries, the shares are scaled up over those who qualify. One payout per
-              wallet and per agent each round.
-            </p>
-            <Sub>After the round</Sub>
-            <p>
-              A rolling program&apos;s monthly round is followed by the next month&apos;s round, which gets the fees
-              from then on. Once a program ends, its tokens&apos; builder bonus share goes to EarnKit&apos;s Safe. So does
-              the share of programs that opted out. Nothing rolls over into another program.
-            </p>
-          </Section>
-        )}
 
         <Section title="The token is optional">
           <p>
             Every entry is offered a token, named after the project. Turn it down and there&apos;s no token.
-            {!bench && <> No token means no builder bonus, nothing else.</>}
           </p>
         </Section>
 
         <Section title="No affiliation">
           <p>
             EarnKit lists programs by their factual names. EarnKit isn&apos;t affiliated with or endorsed by any
-            program or its organizer.{!bench && ' The builder bonus is paid by EarnKit from token fees, never by an organizer.'}
+            program or its organizer.
           </p>
         </Section>
 
@@ -247,7 +173,7 @@ export default function PolicySection() {
             </a>{' '}
             or message{' '}
             <a href={X} target="_blank" rel="noopener noreferrer" className={link}>
-              @earnkit_ai
+              @EarnKitAI
             </a>{' '}
             on X.
           </p>

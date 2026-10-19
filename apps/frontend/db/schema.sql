@@ -1201,7 +1201,9 @@ ALTER TABLE builder_events ADD CONSTRAINT builder_events_type_check CHECK (type 
   -- v2.13: in every re-add, or a rerun fails on v2.13 rows before the later re-add (schema-rerun.test.ts).
   'shipped_code','went_live','users_up','update_posted','update_hidden','raising_on','raising_off',
   -- v2.13.4 (R1, R6): an agent joined a page from the claim page's one button; one was detached again.
-  'page_joined','page_detached'));
+  'page_joined','page_detached',
+  -- v2.14 (T5, S2): an installation bound to an X account by the fallback link's paste code.
+  'signed_in_by_code'));
 -- v2.12 T7 review: the consent line is marked shown as the reply goes out (shown once, never lost).
 ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS consent_shown_at timestamptz;
 -- v2.12 T7 review: an X handle claim refused because another profile shows it (GitHub's
@@ -1349,7 +1351,7 @@ ALTER TABLE builder_sources ADD CONSTRAINT builder_sources_kind_check
   CHECK (kind IN ('repo','site','package_npm','package_pypi','contract','merged_pr','coin'));
 ALTER TABLE builder_sources DROP CONSTRAINT IF EXISTS builder_sources_proof_check;
 ALTER TABLE builder_sources ADD CONSTRAINT builder_sources_proof_check
-  CHECK (proof IN ('github_signin','proof_line','repo_owner','deployer','deploy_wallet','earnkit_txt','dns_txt','repo_link','x_match','wallet_signed','earnkit_hosted','proof_branch'));
+  CHECK (proof IN ('github_signin','proof_line','repo_owner','deployer','deploy_wallet','earnkit_txt','dns_txt','repo_link','x_match','wallet_signed','earnkit_hosted','proof_branch','github_app'));
 ALTER TABLE github_verify_nonces DROP CONSTRAINT IF EXISTS github_verify_nonces_purpose_check;
 ALTER TABLE github_verify_nonces ADD CONSTRAINT github_verify_nonces_purpose_check CHECK (purpose IN ('entry', 'pickup', 'host', 'app', 'claim'));
 ALTER TABLE builder_events DROP CONSTRAINT IF EXISTS builder_events_type_check;
@@ -1362,7 +1364,9 @@ ALTER TABLE builder_events ADD CONSTRAINT builder_events_type_check CHECK (type 
   -- v2.13: in every re-add, or a rerun fails on v2.13 rows before the later re-add (schema-rerun.test.ts).
   'shipped_code','went_live','users_up','update_posted','update_hidden','raising_on','raising_off',
   -- v2.13.4 (R1, R6): an agent joined a page from the claim page's one button; one was detached again.
-  'page_joined','page_detached'));
+  'page_joined','page_detached',
+  -- v2.14 (T5, S2): an installation bound to an X account by the fallback link's paste code.
+  'signed_in_by_code'));
 -- Spec S7 (plan): the internal program a coin-only entry belongs to. Closed, so nothing lists it.
 INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work, token_policy, builder_bonus, agent_completable)
 VALUES ('earnkit-coin', 'EarnKit', 'Your coin', 'A coin for a project the builder already has (v2.12.1 step 3b).',
@@ -1548,3 +1552,97 @@ ALTER TABLE claim_codes ADD COLUMN IF NOT EXISTS minted_by integer;
 ALTER TABLE pending_joins ADD COLUMN IF NOT EXISTS target_root integer;
 ALTER TABLE pending_joins ADD COLUMN IF NOT EXISTS joiner_stamp text;
 ALTER TABLE pending_joins ADD COLUMN IF NOT EXISTS target_stamp text;
+-- v2.14 One account (spec 1): X is the account, at install. The token's installation is bound to the X user
+-- id at the token exchange (from the signed code, never from agent input); the person is the page holding it.
+-- installations.x_user_id is written only at the token exchange or by the paste code (x-install.ts
+-- attachToX), and by the v2.14 bind migration below; cleared by events-redact.
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS x_user_id text;
+CREATE INDEX IF NOT EXISTS installations_x_user ON installations (x_user_id) WHERE x_user_id IS NOT NULL;
+-- One pending X sign-in: the install's authorize request (oauth: client_id, redirect_uri, state,
+-- code_challenge) or a fallback link's (installation_id, T5). One use, 15 minutes, bound to the browser that
+-- started it (sha256 of its __Host-eki- cookie). X's own token is never stored.
+CREATE TABLE IF NOT EXISTS x_signins (
+  state_hash      text PRIMARY KEY CHECK (state_hash ~ '^[0-9a-f]{64}$'),
+  purpose         text NOT NULL CHECK (purpose IN ('install', 'link')),
+  oauth           jsonb,
+  installation_id integer,
+  code_verifier   text NOT NULL,
+  csrf_hash       text NOT NULL,
+  expires_at      timestamptz NOT NULL
+);
+-- The fallback sign-in link (T5): the link code is derived from `seed` with the secret; only its hash and the paste code's hash are looked up.
+CREATE TABLE IF NOT EXISTS x_signin_links (
+  link_hash        text PRIMARY KEY CHECK (link_hash ~ '^[0-9a-f]{64}$'),
+  seed             text,                               -- the link code is HMAC(EARNKIT_AUTH_SECRET, seed): shown again, never stored
+  installation_id  integer NOT NULL,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  expires_at       timestamptz NOT NULL,
+  x_user_id        text,
+  x_handle         text,
+  x_name           text,
+  x_avatar_url     text,
+  paste_hash       text,
+  paste_expires_at timestamptz,
+  used_at          timestamptz
+);
+CREATE INDEX IF NOT EXISTS x_signin_links_installation ON x_signin_links (installation_id, expires_at DESC);
+CREATE INDEX IF NOT EXISTS x_signin_links_paste ON x_signin_links (paste_hash) WHERE paste_hash IS NOT NULL;
+-- T5 fix round 1: the expired-row cleanups (newSignin, signInLink) use these; the link a 'link' sign-in opened.
+CREATE INDEX IF NOT EXISTS x_signins_expires ON x_signins (expires_at);
+CREATE INDEX IF NOT EXISTS x_signin_links_expires ON x_signin_links (expires_at);
+ALTER TABLE x_signins ADD COLUMN IF NOT EXISTS link_hash text;
+-- v2.14 (T6, spec 2): the read-only GitHub App is the only proof of a repo (repo-proof.ts): `github_app` sources are
+-- checked once a day (appCheckStep) that GitHub still names an App installation for the repo; this is when.
+ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS app_checked_at timestamptz;
+-- T6 fix round 2: when the daily check last tried (any answer), so unanswered rows go behind the others.
+ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS app_tried_at timestamptz;
+-- v2.14 spec 3: the ship log writes itself: the week's cleaned PR and commit titles (ship-titles.ts), and the
+-- builder's choice to show a private repo's titles (facts only by default). Additive.
+ALTER TABLE project_updates ADD COLUMN IF NOT EXISTS titles text[] NOT NULL DEFAULT '{}';
+ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS ship_titles_at timestamptz;
+-- v2.14 spec 4 (T4 carried to T9): the first Bench reply after an X bind (at install or by the paste code) starts
+-- with "Signed in as @<handle>.", once, so a builder notices a wrong account. attachToX sets it; the reply clears it.
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS x_signed_in_unseen boolean NOT NULL DEFAULT false;
+-- v2.14 bind:start
+-- Preflight S4 (v2.14 T7): v2.13.4's notices and detach are gone, so a one-click join nobody on the page answered
+-- would otherwise become permanent (and be bound below). First, as answerNotice's detach did: the members of every
+-- page_joins row still attached with no answer from an installation that was on the page before it (`eligible`) go
+-- back to their own former group (from_root a root again, the others pointing to it), only while still on that
+-- page and not bound to an X account; the moved ones' updates since the join are hidden; the row is stamped detached. No
+-- deletes; a rerun finds no open row (a no-op). A real owner gets the agent back by signing in with X once.
+WITH open_join AS (
+  SELECT j.id, j.from_root, j.members, j.joined_at, COALESCE(r.builder_id, r.id) AS page
+  FROM page_joins j JOIN installations r ON r.id = j.root
+  WHERE j.detached_at IS NULL AND NOT EXISTS (SELECT 1 FROM unnest(j.eligible) e WHERE j.answers ? e::text)
+), roots AS (
+  UPDATE installations i SET builder_id = NULL
+  FROM open_join o
+  WHERE i.id = o.from_root AND i.id = ANY(o.members) AND i.builder_id = o.page AND i.x_user_id IS NULL
+  RETURNING i.id
+), others AS (
+  -- The other members go back under from_root only when it is a root again (moved above, or already one), so no
+  -- group nests under a non-root.
+  UPDATE installations i SET builder_id = o.from_root
+  FROM open_join o
+  WHERE i.id = ANY(o.members) AND i.id <> o.from_root AND i.builder_id = o.page AND i.x_user_id IS NULL
+    AND (o.from_root IN (SELECT id FROM roots)
+      OR EXISTS (SELECT 1 FROM installations f WHERE f.id = o.from_root AND f.builder_id IS NULL))
+  RETURNING i.id
+), moved AS (
+  SELECT id FROM roots UNION SELECT id FROM others
+), hidden AS (
+  -- Only the updates of installations actually moved off the page.
+  UPDATE project_updates u SET hidden = true
+  FROM open_join o
+  WHERE u.builder_id = o.page AND u.posted_by = ANY(o.members) AND u.posted_by IN (SELECT id FROM moved)
+    AND u.created_at >= o.joined_at
+  RETURNING u.id
+)
+UPDATE page_joins j SET detached_at = now() FROM open_join o WHERE j.id = o.id;
+-- Migration (spec 1): every installation of a claimed page (its group) is bound to that X account. Shared
+-- clients never are; unclaimed groups stay anonymous until they sign in. Fills only NULLs: a rerun is a no-op.
+UPDATE installations i SET x_user_id = p.x_user_id
+FROM builder_profiles p
+WHERE p.builder_id = COALESCE(i.builder_id, i.id) AND p.x_user_id IS NOT NULL AND p.x_handle IS NOT NULL
+  AND i.x_user_id IS NULL AND NOT i.shared_client;
+-- v2.14 bind:end

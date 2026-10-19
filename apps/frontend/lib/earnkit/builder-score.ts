@@ -1,5 +1,4 @@
 import { countProject, moneyOf, ringWeights, type ActorFacts, type Touch } from './anti-farming';
-import { benchEnabled } from './builder-score-flag';
 import { sql, type Db } from './db';
 import { discover, type LoginOf } from './discovery';
 import { ownPagesSite } from './discovery-clues';
@@ -14,7 +13,7 @@ import { readSources } from './sources'; // sources.ts never imports this file (
 import { READ_CAPS, defaultReaderDeps, isoWeek, type ContractSignals, type PackageSignals, type PrSignals, type ReaderDeps, type RepoSignals, type SiteSignals, type Who } from './source-readers';
 import { vetoKey } from './veto';
 import { feedRankStep } from './feed'; // feed imports person-score: functions only, called after load
-import { orgProofExpiryStep, proofBranchStep } from './proof-branch';
+import { appCheckStep, orgProofExpiryStep } from './repo-proof';
 import { weeklyFactsStep } from './week-facts'; // week-facts imports person-score, which imports this file: functions only, called after load
 
 /**
@@ -336,18 +335,18 @@ export async function runScoreSteps(now: Date, sliceEnd: number, deps: ScoreCron
       out[name] = { step: 'error' };
     }
   };
-  // v2.13.1 O1: open proof branches (at most an hour each), checked with the run's GitHub budget. Flag off: no step.
-  if (benchEnabled()) await step('proof_branch', () => proofBranchStep(now, { reader, only: deps.only, deadline: sliceEnd }));
-  // v2.13.2 (1): org repos' proof branches expire after 90 days (daily, bounded). Flag off: no step.
-  if (benchEnabled()) await step('proof_expiry', () => orgProofExpiryStep(now, { only: deps.only, deadline: sliceEnd }));
+  // v2.13.2 (1): org repos' proof branches (before v2.14) expire after 90 days (daily, bounded); the re-proof is the App.
+  await step('proof_expiry', () => orgProofExpiryStep(now, { only: deps.only, deadline: sliceEnd }));
+  // v2.14 A8: an App-proven repo GitHub no longer lists an installation for goes back to proposed (daily per source).
+  await step('app_check', () => appCheckStep(now, { deadline: sliceEnd, only: deps.only, fetch: reader.ghFetch }));
   await step('discover', () => discover(now, { deadline: sliceEnd, reader, login: deps.login, only: deps.only }));
   await step('read', () => readSources(now, { deadline: sliceEnd, reader, only: deps.only }));
   await step('score', () => scorePeopleV2(now, { deadline: sliceEnd, only: deps.only }));
   await step('empty', () => profileEmpty(now, { only: deps.only }));
-  // v2.13 spec "Cost": the weekly facts (Mondays from 15:00 UTC, after the digest). Flag off: no step.
-  if (benchEnabled()) await step('weekly', () => weeklyFactsStep(now, { deadline: sliceEnd, only: deps.only }));
-  // v2.13 spec "Cost": the feed rank, once a day (F11: from 15:00 UTC, after the weekly step). Flag off: no step.
-  if (benchEnabled()) await step('feed', () => feedRankStep(now));
+  // v2.13 spec "Cost": the weekly facts (Mondays from 15:00 UTC, after the digest).
+  await step('weekly', () => weeklyFactsStep(now, { deadline: sliceEnd, only: deps.only, ghFetch: reader.ghFetch }));
+  // v2.13 spec "Cost": the feed rank, once a day (F11: from 15:00 UTC, after the weekly step).
+  await step('feed', () => feedRankStep(now));
   return out;
 }
 
@@ -448,9 +447,6 @@ export async function scoresPost(request: Request, deps: { limit?: (ip: string) 
   } else if (form.get('action') === 'release_x') {
     // Final fix wave: the owner's clear sticks until the owner releases it here.
     if (valid) await releaseXClear(id);
-  } else if (form.get('action') === 'rule_login') {
-    // v2.12.1 T5 fix round 2: a contested GitHub login counts for this group only (login-contests.ts).
-    if (valid) await (await import('./login-contests')).ruleContest(form.get('login') ?? '', id);
   } else if (valid && version) {
     // v2.12.1: release the pending live rescore the owner saw (its `at`), if it is still the pending
     // one; a newer rescore since is refused once (reload shows it), never forever.

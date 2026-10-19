@@ -11,10 +11,6 @@ function fakeReader(): ReaderDeps {
   };
   return { gh: no, ghGraphql: no, probe: no, fetchText: no, json: no, baseTxs: no, tokenTransfers: no, contractOrigin: no, arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, walletCreations: no, now: new Date('2026-10-14T10:00:00Z') };
 }
-/** The person query's answer: these repos, bare. */
-const graphBody = (login: string, keys: string[]) => ({
-  data: { user: { login, twitterUsername: null, websiteUrl: null, repositories: { nodes: keys.map((k) => ({ nameWithOwner: k, isFork: false, isTemplate: false, stargazers: { edges: [] }, forks: { nodes: [] }, defaultBranchRef: null })) } } },
-});
 
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 const ID = 2_100_002_000 + (process.pid % 1000);
@@ -96,21 +92,6 @@ test('3.6 a failing source writes one failed reading for the day and is not read
   assert.equal(rows.length, 1);
 });
 
-test('3.7 every repo source of one person is read by one GraphQL query', dbTest, async () => {
-  const id = ID;
-  const login = `lee-${process.pid}`; // github_login is unique across people: one per run
-  const keys = ['a', 'b', 'c'].map((r) => `${login}/${r}`);
-  await sql()`INSERT INTO builder_profiles (builder_id, slug, github_login) VALUES (${id}, ${`b-t${id}`}, ${login})
-    ON CONFLICT (builder_id) DO UPDATE SET github_login = EXCLUDED.github_login`;
-  for (const r of keys)
-    await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proof, state, proposed_by) VALUES (${id}, 'repo', ${r}, ${r}, 'repo_owner', 'verified', 'server')`;
-  let queries = 0;
-  const reader = { ...fakeReader(), ghGraphql: async () => { queries++; return graphBody(login, keys); }, gh: async () => { throw new Error('no REST per repo'); } } as ReaderDeps;
-  const out = await readSources(new Date('2026-10-14T10:00:00Z'), { deadline: Date.now() + 5000, reader, only: [id] });
-  assert.equal(queries, 1);
-  assert.equal(out.read, 3);
-});
-
 const node = (k: string, o: Record<string, unknown> = {}) => ({ nameWithOwner: k, isFork: false, isTemplate: false, stargazers: { edges: [] }, forks: { nodes: [] }, defaultBranchRef: null, ...o });
 const addRepo = async (ref: string) => {
   const [row] = await sql()<{ id: string }[]>`
@@ -123,49 +104,6 @@ const readingOf = async (id: number) => {
 };
 const setLogin = async (login: string | null) => sql()`INSERT INTO builder_profiles (builder_id, slug, github_login) VALUES (${ID}, ${`b-t${ID}`}, ${login})
     ON CONFLICT (builder_id) DO UPDATE SET github_login = EXCLUDED.github_login, reported_github = NULL`;
-
-test('3.14 a person with 101+ repos: a tracked repo outside the newest 100 is read by name in one more call; not_found only when that is empty too', dbTest, async () => {
-  const login = `lea-${process.pid}`;
-  await setLogin(login);
-  const newest = Array.from({ length: 100 }, (_, i) => `${login}/n${i}`);
-  const old = await addRepo(`${login}/old`);
-  const gone = await addRepo(`${login}/gone`);
-  const listed = await addRepo(newest[7]);
-  const calls: Record<string, unknown>[] = [];
-  const reader = {
-    ...fakeReader(),
-    ghGraphql: async <T,>(_q: string, v: Record<string, unknown>): Promise<T> => {
-      calls.push(v);
-      if (v.login) return graphBody(login, newest) as T;
-      return { data: { r0: node(`${login}/old`, { stargazerCount: 3 }), r1: null } } as T;
-    },
-  } as ReaderDeps;
-  const out = await readSources(new Date('2026-10-14T10:00:00Z'), { deadline: Date.now() + 5000, reader, only: [ID] });
-  assert.equal(calls.length, 2, 'the person query, then one by-name call');
-  assert.deepEqual([calls[1].n0, calls[1].n1], ['old', 'gone']);
-  assert.deepEqual(out, { read: 2, failed: 1 });
-  assert.equal((await readingOf(old)).ok, true);
-  assert.equal((await readingOf(listed)).ok, true);
-  assert.deepEqual([(await readingOf(gone)).ok, (await readingOf(gone)).error], [false, 'not_found']);
-});
-
-test('3.15 commit weeks join the previous good reading (more than 100 commits), the last 52 weeks only', dbTest, async () => {
-  const login = `leb-${process.pid}`;
-  await setLogin(login);
-  const id = await addRepo(`${login}/busy`);
-  await writeReading(id, ID, '2026-10-13', { ok: true, signals: { commit_weeks: ['2025-W30', '2026-W20', '2026-W39'] } });
-  await sql()`UPDATE builder_sources SET last_read_day = '2026-10-13' WHERE id = ${id}`;
-  // The newest 100 commits (hourly) reach back only to W41; W20 and W39 come from the previous reading.
-  const commits = Array.from({ length: 100 }, (_, i) => ({ committedDate: new Date(Date.parse('2026-10-14T09:00:00Z') - i * 3_600_000).toISOString() }));
-  const reader = {
-    ...fakeReader(),
-    ghGraphql: async <T,>(): Promise<T> =>
-      ({ data: { user: { login, repositories: { nodes: [node(`${login}/busy`, { defaultBranchRef: { target: { history: { nodes: commits } } } })] } } } }) as T,
-  } as ReaderDeps;
-  await readSources(new Date('2026-10-14T10:00:00Z'), { deadline: Date.now() + 5000, reader, only: [ID] });
-  const r = await sql()<{ signals: { commit_weeks: string[] } }[]>`SELECT signals FROM source_readings WHERE source_id = ${id} AND day = '2026-10-14'`;
-  assert.deepEqual(r[0].signals.commit_weeks, ['2026-W20', '2026-W39', '2026-W41', '2026-W42'], '2025-W30 is older than 52 weeks');
-});
 
 test('3.16 an org repo is read by name plus one contributors call; no login means no person query', dbTest, async () => {
   await setLogin(null);
@@ -252,4 +190,57 @@ test('3.20 a malformed repo ref fails alone; the valid ones are still read by na
   assert.deepEqual(await readSources(new Date('2026-10-14T10:00:00Z'), { deadline: Date.now() + 5000, reader, only: [ID] }), { read: 1, failed: 1 });
   assert.deepEqual([(await readingOf(bad)).ok, (await readingOf(bad)).error], [false, 'not_a_repo']);
   assert.equal((await readingOf(good)).ok, true);
+});
+
+// ---- Restored in v2.14 T3 fix round 1: the by-name read (the only one since the person query went) ----
+
+/** The by-name query's answer: r<i> for each asked owner/name, null for the ones in `missing`. */
+const byName = (v: Record<string, unknown>, missing: string[], extra: Record<string, Record<string, unknown>> = {}) => {
+  const data: Record<string, unknown> = {};
+  for (let i = 0; v[`o${i}`] !== undefined; i++) {
+    const key = `${v[`o${i}`]}/${v[`n${i}`]}`;
+    data[`r${i}`] = missing.includes(key) ? null : node(key, extra[key] ?? {});
+  }
+  return { data };
+};
+
+test('3.14 every due repo is read by name in one call; not_found only when GitHub has no such repo', dbTest, async () => {
+  const login = `lea-${process.pid}`;
+  await setLogin(login);
+  const old = await addRepo(`${login}/old`);
+  const gone = await addRepo(`${login}/gone`);
+  const listed = await addRepo(`${login}/n7`);
+  const calls: Record<string, unknown>[] = [];
+  const reader = {
+    ...fakeReader(),
+    ghGraphql: async <T,>(_q: string, v: Record<string, unknown>): Promise<T> => {
+      calls.push(v);
+      return byName(v, [`${login}/gone`], { [`${login}/old`]: { stargazerCount: 3 } }) as T;
+    },
+  } as ReaderDeps;
+  const out = await readSources(new Date('2026-10-14T10:00:00Z'), { deadline: Date.now() + 5000, reader, only: [ID] });
+  assert.equal(calls.length, 1, 'one by-name call');
+  assert.ok(!calls.some((c) => 'login' in c), 'no person query');
+  assert.deepEqual(out, { read: 2, failed: 1 });
+  assert.equal((await readingOf(old)).ok, true);
+  assert.equal((await readingOf(listed)).ok, true);
+  assert.deepEqual([(await readingOf(gone)).ok, (await readingOf(gone)).error], [false, 'not_found']);
+});
+
+test('3.15 commit weeks join the previous good reading (more than 100 commits), the last 52 weeks only', dbTest, async () => {
+  const login = `leb-${process.pid}`;
+  await setLogin(login);
+  const id = await addRepo(`${login}/busy`);
+  await writeReading(id, ID, '2026-10-13', { ok: true, signals: { commit_weeks: ['2025-W30', '2026-W20', '2026-W39'] } });
+  await sql()`UPDATE builder_sources SET last_read_day = '2026-10-13' WHERE id = ${id}`;
+  // The newest 100 commits (hourly) reach back only to W41; W20 and W39 come from the previous reading.
+  const commits = Array.from({ length: 100 }, (_, i) => ({ committedDate: new Date(Date.parse('2026-10-14T09:00:00Z') - i * 3_600_000).toISOString() }));
+  const reader = {
+    ...fakeReader(),
+    ghGraphql: async <T,>(_q: string, v: Record<string, unknown>): Promise<T> =>
+      byName(v, [], { [`${login}/busy`]: { defaultBranchRef: { target: { history: { nodes: commits } } } } }) as T,
+  } as ReaderDeps;
+  await readSources(new Date('2026-10-14T10:00:00Z'), { deadline: Date.now() + 5000, reader, only: [ID] });
+  const r = await sql()<{ signals: { commit_weeks: string[] } }[]>`SELECT signals FROM source_readings WHERE source_id = ${id} AND day = '2026-10-14'`;
+  assert.deepEqual(r[0].signals.commit_weeks, ['2026-W20', '2026-W39', '2026-W41', '2026-W42'], '2025-W30 is older than 52 weeks');
 });

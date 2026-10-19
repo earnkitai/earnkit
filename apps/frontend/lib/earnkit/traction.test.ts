@@ -1,6 +1,5 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bookDeposit } from './bonus-ledger';
 import { sql } from './db';
 import { holdBonusDbLock } from './fixtures/bonus-db-lock';
 import { GitHubError } from './match-projects';
@@ -21,7 +20,6 @@ import {
   resolveBonusWallet,
   scoreOpenRounds,
   scoreRound,
-  scoredCoinSql,
   signalsFor,
   type Signals,
   type TractionDeps,
@@ -861,73 +859,5 @@ test('v2.8 Rulings 2-3 (plan): eligibleSql needs a launched token, a complete en
   } finally {
     await sql()`DELETE FROM projects WHERE program_id = ${PID4}`;
     await sql()`DELETE FROM programs WHERE id = ${PID4}`;
-  }
-});
-
-test('v2.8.1 §D, T5 fix round 1: with two open target programs, the carried token is eligible only in the round its fees rolled into; scored on it', db, async () => {
-  const stamp = `${process.pid}-${Date.now()}`;
-  const HOME = `t5-home-${stamp}`;
-  const NEXT = `t5-next-${stamp}`;
-  const NEXT2 = `t5-next2-${stamp}`;
-  const KEY = `github.com/t5-carry/${stamp}`;
-  const COIN = '0x' + 'c5'.repeat(20);
-  const ROUND_NEXT = `${NEXT}:2026-10-05`;
-  const ROUND_NEXT2 = `${NEXT2}:2026-10-05`;
-  const program = (id: string, starts: string, ends: string) => sql()`
-    INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary,
-      status, existing_work, starts_at, ends_at)
-    VALUES (${id}, 'X', ${id}, 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed', ${starts}, ${ends})`;
-  const entry = async (programId: string, name: string, o: { complete?: Date | null; skip?: boolean; at?: Date } = {}) => {
-    const at = o.at ?? d('2026-10-06T00:00:00Z');
-    const [row] = await sql()<{ id: number }[]>`
-      INSERT INTO projects (program_id, name, submission_proof_ok_at, submitted_at, bonus_repo_key, complete_at, confirm_choice)
-      VALUES (${programId}, ${name}, ${at}, ${at}, ${KEY}, ${o.complete === undefined ? at : o.complete}, ${o.skip ? 'skip' : 'go'})
-      RETURNING id`;
-    return row.id;
-  };
-  const eligible = async (programId: string, ends: Date, round: string | null) =>
-    new Set((await sql()<{ id: number }[]>`SELECT p.id FROM projects p WHERE p.program_id = ${programId} AND ${eligibleSql(ends, round)}`).map((r) => r.id));
-  const nextEnds = d('2026-10-20T00:00:00Z');
-  const next2Ends = d('2026-10-31T00:00:00Z');
-  try {
-    await sql()`DELETE FROM bonus_ledger WHERE coin = ${COIN}`;
-    await sql()`UPDATE projects SET coin_address = NULL WHERE coin_address = ${COIN}`;
-    await program(HOME, '2026-10-01T00:00:00Z', '2026-10-10T00:00:00Z');
-    await program(NEXT, '2026-10-05T00:00:00Z', '2026-10-20T00:00:00Z');
-    await program(NEXT2, '2026-10-05T00:00:00Z', '2026-10-31T00:00:00Z');
-    await sql()`
-      INSERT INTO projects (program_id, name, coin_address, coin_launched_at, token_url, token_repo_key, bonus_repo_key,
-        submission_proof_ok_at, complete_at, confirm_choice)
-      VALUES (${HOME}, 't5 home', ${COIN}, '2026-10-02T00:00:00Z', 'https://tokens.fun/coin/x', ${KEY}, ${KEY},
-        '2026-10-02T00:00:00Z', '2026-10-02T00:00:00Z', 'go')`;
-    const next = await entry(NEXT, 'next');
-    await entry(NEXT, 'incomplete', { complete: null });
-    await entry(NEXT, 'skipped', { skip: true });
-    // One per repo: a later entry of the same repo in the same program never counts.
-    await entry(NEXT, 'later', { at: d('2026-10-07T00:00:00Z') });
-    const next2 = await entry(NEXT2, 'next2');
-    // Before any rolled deposit, neither round counts the carried token.
-    assert.deepEqual(await eligible(NEXT, nextEnds, ROUND_NEXT), new Set());
-    // A real booking after home ended: the earliest open round (NEXT) takes it, not NEXT2.
-    const booked = await bookDeposit(
-      { txHash: `0xt5carry${stamp}`, logIndex: 0, amount: 7n, coin: COIN, blockNumber: 1n, blockTime: d('2026-10-12T00:00:00Z') },
-      () => {},
-    );
-    assert.equal(booked.roundKey, ROUND_NEXT);
-    await sql()`INSERT INTO bonus_rounds (round_key, program_id, starts_at, ends_at) VALUES (${ROUND_NEXT2}, ${NEXT2}, '2026-10-05T00:00:00Z', ${next2Ends})`;
-    // Eligible in exactly one of the two open targets: the round its fees rolled into.
-    assert.deepEqual(await eligible(NEXT, nextEnds, ROUND_NEXT), new Set([next]));
-    assert.deepEqual(await eligible(NEXT2, next2Ends, ROUND_NEXT2), new Set());
-    assert.ok(!(await eligible(NEXT2, next2Ends, ROUND_NEXT2)).has(next2));
-    // With no round key only an own token counts.
-    assert.deepEqual(await eligible(NEXT, nextEnds, null), new Set());
-    // Scoring reads the carried token's signals (scoreRound selects scoredCoinSql as coin_address).
-    const [row] = await sql()<{ coin: string }[]>`SELECT ${scoredCoinSql()} AS coin FROM projects p WHERE p.id = ${next}`;
-    assert.equal(row.coin, COIN);
-  } finally {
-    await sql()`DELETE FROM bonus_ledger WHERE coin = ${COIN}`;
-    await sql()`DELETE FROM bonus_rounds WHERE program_id IN (${NEXT}, ${NEXT2})`;
-    await sql()`DELETE FROM projects WHERE program_id IN (${HOME}, ${NEXT}, ${NEXT2})`;
-    await sql()`DELETE FROM programs WHERE id IN (${HOME}, ${NEXT}, ${NEXT2})`;
   }
 });

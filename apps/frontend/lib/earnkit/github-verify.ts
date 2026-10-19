@@ -1,37 +1,32 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { githubRepo } from './campaigns';
-import { builderScoreEnabled } from './builder-score-flag';
 import { sql } from './db';
 import { sharedGroup } from './installations';
 import { siteUrl } from './entry-text';
+import { pageUrl } from './reserved-routes';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
 
 /**
- * v2.9 B9: Sign in with GitHub as ownership proof, so hosted agents (Grok Bot) that can't push to a
- * repo can still launch. A GitHub OAuth App with no scopes (public data only).
+ * v2.9 B9, v2.10 item 7b, v2.14 spec 2: the GitHub sign-in hop in front of the read-only GitHub App
+ * (github-app.ts). v2.14: the GitHub sign-in is no longer a proof of anything by itself; its only use is the
+ * App link's hop, which names the installer for the setup URL (github-app.ts appSetup, repo-proof.ts proveByApp).
  *
  * - The link carries a one-time nonce (32 random bytes, base64url). Only its sha256 is stored, bound
- *   to the installation, the entry (project_id) and the repo, and the purpose (Ruling 5). It expires
- *   after 15 minutes and is consumed once, atomically, by the callback.
- * - Ruling G8: the link never goes straight to GitHub. It shows a confirm page naming the repo, the
- *   token and the fee wallet, with a warning, and sets a per-link `__Host-` cookie (HttpOnly, Secure,
- *   SameSite=Lax, 15 minutes); its button POSTs, and GitHub gets state = `<nonce>.<csrf>`. The
- *   callback refuses a missing or mismatched cookie before it uses the nonce or exchanges the code,
- *   so the sign-in finishes only in the browser that confirmed it.
- * - The callback reads only `code` and `state` (and the cookie). The repo comes from the nonce's
- *   row, never from the request. The scopeless GitHub token is used for at most three reads and is never
- *   stored or logged.
- * - Ownership passes when the login is the repo owner, or GitHub's repo read says the user can push
- *   (or admin) it. Without `permissions` (an org repo a scopeless token can't see), it fails, and the
- *   proof line stays the way (spec B9).
+ *   to the installation (the person's root) and the repo, with purpose `app`. It expires after 15 minutes.
+ * - Ruling G8, preflight S7: the link never goes straight to GitHub. It shows a confirm page naming the repo
+ *   and the earnkit.com page it is added to ("Only continue if that is your page"), and sets a per-link
+ *   `__Host-` cookie (HttpOnly, Secure, SameSite=Lax, 15 minutes); its button POSTs, and GitHub gets state =
+ *   `<nonce>.<csrf>`. The callback refuses a missing or mismatched cookie before it uses the nonce or
+ *   exchanges the code, so the sign-in finishes only in the browser that confirmed it.
+ * - The callback reads only `code` and `state` (and the cookie). The repo comes from the nonce's row, never
+ *   from the request. The scopeless GitHub token is used for one read and is never stored or logged.
  * - Links and the redirect come from siteUrl() (EARNKIT_URL), never from the request Host (P47).
- * - Off, with the old behaviour everywhere, unless GITHUB_OAUTH_CLIENT_ID and
- *   GITHUB_OAUTH_CLIENT_SECRET are both set.
+ * - Off unless GITHUB_OAUTH_CLIENT_ID and GITHUB_OAUTH_CLIENT_SECRET are both set.
+ * - Rows from before v2.14 (entry, pickup, host and claim sign-ins) stay as history: verifiedFor,
+ *   loginBasisFor and verifiedEntryIds still read them; no new one is made. v2.14 final fix: the shared
+ *   client's pasted sign-in code (signed_in, callerLogin) is gone with the GitHub sign-in that made it.
  */
 
 export const VERIFY_TTL_MS = 15 * 60_000;
-/** Ruling G9: how long the sign-in code a shared client's builder pastes stays valid. */
-export const CODE_TTL_MS = 24 * 60 * 60_000;
 
 /** What the builder reads in the browser after the callback. */
 export const VERIFY_PAGE = {
@@ -51,19 +46,6 @@ export function githubVerifyEnabled(env: Record<string, string | undefined> = pr
 }
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
-
-const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-/** Ruling G9: 10 random base32 characters (32 divides 256, so unbiased). */
-const newCode = () => [...randomBytes(10)].map((b) => BASE32[b % 32]).join('');
-/** "ABCDEFGHJK" as the builder reads it: "ABCD-EFGH-JK". Pure. */
-export const formatCode = (code: string) => `${code.slice(0, 4)}-${code.slice(4, 8)}-${code.slice(8)}`;
-/** A pasted code, any case, dashes or spaces; null unless it is 10 base32 characters. Pure. */
-export function normalizeCode(input: string | null | undefined): string | null {
-  const c = (input ?? '').toUpperCase().replace(/[^A-Z2-7]/g, '');
-  return c.length === 10 ? c : null;
-}
-/** Ruling G9: the success page on a shared client. Pure. */
-export const codeLine = (code: string) => `Done. Paste this code to your agent: ${formatCode(code)}`;
 
 /**
  * v2.10 item 7b (R8): `app` is the read-only GitHub App's link (github-app.ts): no launch rides on it (R9).
@@ -101,8 +83,26 @@ export const REUSE_MIN_LEFT_MS = 5 * 60_000;
 export const callbackUrl = () => `${siteUrl()}/github/verify/callback`;
 
 /**
- * A one-time sign-in link for this repo (`owner/repo`, answer-bank.ts repoKey), bound to the
- * installation, the entry (null for pickup) and the purpose: `<site>/github/verify?n=<nonce>`.
+ * v2.14: the earnkit.com/<handle> page of this installation's person (its group root's claimed profile), or
+ * null (no page). Preflight S7: the App confirm page names it. Never throws (a failed read is no page).
+ */
+export async function pageHandle(installationId: number): Promise<string | null> {
+  try {
+    const [p] = await sql()<{ handle: string | null }[]>`
+      SELECT p.x_handle AS handle FROM builder_profiles p
+      WHERE p.builder_id = COALESCE((SELECT COALESCE(i.builder_id, i.id) FROM installations i WHERE i.id = ${installationId}), ${installationId})
+        AND p.x_user_id IS NOT NULL AND p.x_handle IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM installations s WHERE COALESCE(s.builder_id, s.id) = p.builder_id AND s.shared_client)`;
+    return p?.handle ?? null;
+  } catch (err) {
+    console.error('[github-verify] handle', err instanceof Error ? err.name : 'error');
+    return null;
+  }
+}
+
+/**
+ * A one-time App link for this repo (`owner/repo`, answer-bank.ts repoKey), bound to the installation
+ * (the person's root) and the purpose `app`: `<site>/github/verify?n=<nonce>`. v2.14: no other purpose.
  * v2.10 fix round 1 (concern 4): an open link (unused, at least REUSE_MIN_LEFT_MS left, no sign-in
  * started on it) for the same installation, purpose, repo, entry, wallet and ticker is shown again
  * instead of minting a new one. Never on a shared client (each builder there gets their own link).
@@ -119,10 +119,13 @@ export async function createVerifyLink(
   },
   now = new Date(),
 ): Promise<string> {
-  if (a.purpose === 'entry' && !a.wallet) throw new Error('An entry sign-in link needs the fee wallet first.');
+  // v2.14 spec 2: the GitHub sign-in proof is gone; the only link is the read-only App's.
+  if (a.purpose !== 'app') throw new Error('Only the read-only GitHub App link is made.');
   // v2.10 item 7b: no App link while the App is off (github-app.ts; imported here to keep the modules acyclic).
-  if (a.purpose === 'app' && !(await import('./github-app')).githubAppEnabled())
-    throw new Error('The read-only GitHub App is off.');
+  if (!(await import('./github-app')).githubAppEnabled()) throw new Error('The read-only GitHub App is off.');
+  // Preflight S7: the confirm page names the page the repo is added to, so a person with no page (no X handle:
+  // an anonymous installation, or a shared client) gets no link.
+  if (!(await pageHandle(a.installationId))) throw new Error('An App link needs the person\'s page handle first.');
   const secret = process.env.EARNKIT_AUTH_SECRET;
   const repoKey = a.repoKey.toLowerCase();
   const wallet = a.wallet?.toLowerCase() ?? null;
@@ -183,33 +186,6 @@ export async function takeNonce(nonce: string, now = new Date(), o: { purpose?: 
   return row ?? null;
 }
 
-/**
- * launch_token: a sign-in link for this installation's entry, bound to it, its GitHub repo, its fee
- * wallet and ticker (Ruling G11), and the entry's name; null when the entry has no GitHub repo or
- * no wallet yet (the wallet is asked first), or isn't this installation's.
- */
-export async function entryVerifyLink(installationId: number, projectId: number): Promise<{ link: string; name: string } | null> {
-  const [p] = await sql()<{ name: string; repo_url: string | null; wallet: string | null; symbol: string | null }[]>`
-    SELECT name, repo_url, COALESCE(creator_wallet, payout_wallet) AS wallet, token_symbol AS symbol
-    FROM projects WHERE id = ${projectId} AND installation_id = ${installationId}`;
-  const gh = p?.repo_url ? githubRepo(p.repo_url) : null;
-  if (!p || !gh || !p.wallet) return null;
-  const link = await createVerifyLink({
-    installationId, projectId, repoKey: `${gh.owner}/${gh.repo}`, purpose: 'entry', wallet: p.wallet, symbol: p.symbol,
-  });
-  return { link, name: p.name };
-}
-
-/** v2.9 B9: the signed-in login owns the repo, or GitHub says it can push to it. Pure. */
-export function ownershipPasses(
-  login: string,
-  repo: { owner: string; repo: string },
-  perms: { push?: boolean; admin?: boolean } | null,
-): boolean {
-  if (login.toLowerCase() === repo.owner.toLowerCase()) return true;
-  return Boolean(perms?.push || perms?.admin);
-}
-
 export type GitHubOAuthDeps = {
   exchange: (code: string) => Promise<string>;
   user: (token: string) => Promise<{ login: string; created_at: string; public_repos: number }>;
@@ -262,40 +238,24 @@ export const githubOAuth: GitHubOAuthDeps = {
 };
 
 /**
- * A passed check's github_verifications row, for the nonce's own repo and entry. Ruling G9: on a
- * shared (hosted) client the builder gets a one-time code to paste to the agent (returned; only its
- * sha256 is kept), which is how later calls there know who they are from. v2.10 item 7b: `app` is a
- * read-only GitHub App proof (`via = 'app'`, its installation id); it never carries a wallet (R9).
+ * A passed check's github_verifications row, for the nonce's own repo and entry. v2.10 item 7b: `app` is a
+ * read-only GitHub App proof (`via = 'app'`, its installation id); it never carries a wallet (R9). v2.14 final
+ * fix: no paste code is made (a shared client never gets an App link, Ruling T6-2); code_hash stays NULL.
  */
 export async function saveVerification(
   row: Pick<NonceRow, 'installation_id' | 'project_id' | 'repo_key' | 'purpose' | 'wallet' | 'symbol'>,
   user: { login: string; created_at: Date; public_repos: number },
   now: Date,
   app?: { githubInstallationId: number },
-): Promise<string | null> {
-  const paste = (await sharedGroup(row.installation_id)) ? newCode() : null;
+): Promise<void> {
   await sql()`
     INSERT INTO github_verifications (repo_key, login, installation_id, project_id, account_created_at, public_repos, verified_at, purpose,
       code_hash, code_expires_at, wallet, symbol, via, github_installation_id)
     VALUES (${row.repo_key}, ${user.login.toLowerCase()}, ${row.installation_id}, ${row.project_id},
       ${user.created_at}, ${user.public_repos}, ${now}, ${row.purpose},
-      ${paste && sha256(paste)}, ${paste && new Date(now.getTime() + CODE_TTL_MS)},
+      NULL, NULL,
       ${app ? null : row.wallet}, ${app ? null : row.symbol}, ${app ? 'app' : 'oauth'}, ${app?.githubInstallationId ?? null})`;
-  // v2.12 spec 3: a GitHub sign-in (or App verification) is a new discovery clue.
-  if (builderScoreEnabled()) await (await import('./discovery')).enqueueClue(row.installation_id, 'signin');
-  // v2.12.1 spec "Identity": a sign-in proves the login, so installations signed in as it are one
-  // person (never a shared client; never two X accounts). A failed join never fails the sign-in.
-  // Fix rounds 1, 2: it never merges by itself (a pending join both groups must say yes to), and a
-  // login two unlinked groups prove is contested (login-contests.ts settleLogin).
-  if (builderScoreEnabled()) {
-    await (await import('./identity'))
-      .joinOnProvenTie(row.installation_id, { github_login: user.login })
-      .catch((err: unknown) => console.error('[github-verify] join', err instanceof Error ? err.name : 'error'));
-    await (await import('./login-contests'))
-      .settleLogin(user.login)
-      .catch((err: unknown) => console.error('[github-verify] contest', err instanceof Error ? err.name : 'error'));
-  }
-  return paste;
+  // v2.14 spec 1: X is the account: a GitHub login joins no one and contests nothing (the App proves the repo).
 }
 
 /**
@@ -336,40 +296,19 @@ async function noncePurpose(nonce: string, now: Date): Promise<VerifyPurpose | n
 }
 
 /**
- * The callback's work: the nonce first (consumed whatever happens next), then GitHub. Writes a
- * verification for the nonce's own repo and entry only when ownership passes. Never logs the
- * code, the token, the nonce or the secret. v2.10 Pre-flight P3: an `app` nonce branches before
- * the nonce is consumed (appSignIn), and answers with the App's install link.
+ * The callback's work. v2.14 spec 2: only an `app` nonce's OAuth hop is left (appSignIn: the nonce is not
+ * consumed; the login is stored on it and the builder goes on to install the App). Any other stored nonce
+ * (a v2.9 sign-in link made before v2.14) answers "expired", untouched. Never logs the code, the token, the
+ * nonce or the secret.
  */
 export async function completeVerify(
   code: string,
   nonce: string,
   deps: GitHubOAuthDeps = githubOAuth,
   now = new Date(),
-): Promise<{ ok: true; repoKey: string; code?: string; install?: string; line?: string } | { ok: false; reason: string }> {
+): Promise<{ ok: true; repoKey: string; install?: string; line?: string } | { ok: false; reason: string }> {
   if ((await noncePurpose(nonce, now)) === 'app') return appSignIn(code, nonce, deps, now);
-  const row = await takeNonce(nonce, now);
-  if (!row) return { ok: false, reason: VERIFY_PAGE.expired };
-  const [owner, repo] = row.repo_key.split('/');
-  if (!owner || !repo || !code) return { ok: false, reason: VERIFY_PAGE.failed };
-  try {
-    const token = await deps.exchange(code);
-    const user = await deps.user(token);
-    // v2.12.1 T7: a claim sign-in proves the login, not a repo: no repo read (saveVerification joins on the tie).
-    if (row.purpose === 'claim') {
-      await saveVerification(row, { ...user, created_at: new Date(user.created_at) }, now);
-      return { ok: true, repoKey: row.repo_key, line: VERIFY_PAGE.claimDone };
-    }
-    // Only when the login isn't the owner: the repo read (with the user's scopeless token).
-    const perms = user.login.toLowerCase() === owner.toLowerCase() ? null : await deps.repoPerms(token, owner, repo);
-    if (!ownershipPasses(user.login, { owner, repo }, perms))
-      return { ok: false, reason: perms === null ? VERIFY_PAGE.orgRepo : VERIFY_PAGE.notYours };
-    const paste = await saveVerification(row, { ...user, created_at: new Date(user.created_at) }, now);
-    return { ok: true, repoKey: row.repo_key, ...(paste && { code: paste }) };
-  } catch (err) {
-    console.error('[github-verify] callback', err instanceof Error ? err.name : 'error');
-    return { ok: false, reason: VERIFY_PAGE.failed };
-  }
+  return { ok: false, reason: VERIFY_PAGE.expired };
 }
 
 export type Verification = {
@@ -430,44 +369,6 @@ export async function offerVerification(a: { installationId: number; repoKey: st
 /** Ruling G13 (I2): binds that sign-in to the draft entry made once the gate passed (once only). */
 export async function claimOfferVerification(id: number, projectId: number): Promise<void> {
   await sql()`UPDATE github_verifications SET project_id = ${projectId} WHERE id = ${id} AND project_id IS NULL`;
-}
-
-/**
- * Pre-flight P11: a host verification of this installation and repo. On a shared (hosted) client it
- * is single-use and valid for 15 minutes: this consumes it (one atomic update), so another user of
- * the same installation can't reuse it. Elsewhere the installation-plus-repo binding holds.
- */
-export async function takeHostVerification(
-  a: { installationId: number; repoKey: string; shared: boolean },
-  now = new Date(),
-): Promise<Verification | null> {
-  if (!a.shared) return verifiedFor({ installationId: a.installationId, repoKey: a.repoKey });
-  const [row] = await sql()<Verification[]>`
-    UPDATE github_verifications SET used_at = ${now}
-    WHERE id = (
-      SELECT id FROM github_verifications
-      WHERE installation_id = ${a.installationId} AND repo_key = ${a.repoKey.toLowerCase()} AND purpose = 'host'
-        AND used_at IS NULL AND verified_at > ${new Date(now.getTime() - VERIFY_TTL_MS)}
-      ORDER BY verified_at DESC, id DESC LIMIT 1
-      FOR UPDATE SKIP LOCKED)
-    RETURNING login, account_created_at, public_repos, wallet`;
-  return row ?? null;
-}
-
-/**
- * Rulings G6, G7, G9: on a shared (hosted) client, the GitHub login this call is from: the login of
- * the sign-in whose one-time code the builder pasted (`signed_in`), on this installation, within 24
- * hours. Nothing anyone can claim (a GitHub user, an entry, a repo) names it. Null without a valid
- * code. The caller decides it only runs on shared clients.
- */
-export async function callerLogin(installationId: number, signedIn: string | null | undefined, now = new Date()): Promise<string | null> {
-  const code = normalizeCode(signedIn);
-  if (!code) return null;
-  const [row] = await sql()<{ login: string }[]>`
-    SELECT login FROM github_verifications
-    WHERE installation_id = ${installationId} AND code_hash = ${sha256(code)} AND code_expires_at > ${now}
-    ORDER BY verified_at DESC LIMIT 1`;
-  return row?.login ?? null;
 }
 
 /**
@@ -536,47 +437,6 @@ export async function githubUser(login: string, now = new Date()): Promise<GitHu
 }
 
 /**
- * v2.11 T9 security fix (I1): the repo owner as a `proof_line` login, or null. All of: off a shared
- * client; the push that put this installation's earnkit.txt line into the repo was made by the
- * owner (`lineOwner`, GitHub's authenticated push actor: token-gate.ts proofLineOwner); the builder
- * said that login is theirs (`installations.github_user`); and GitHub says it is a User. So a
- * collaborator's push, a lying `github_user`, an organization or a fork never name its owner.
- */
-export async function proofLineLogin(installationId: number, repoKey: string, lineOwner: string | null | undefined): Promise<LoginProof | null> {
-  const [owner, repo, extra] = repoKey.toLowerCase().split('/');
-  if (!owner || !repo || extra !== undefined || lineOwner?.toLowerCase() !== owner) return null;
-  if (await sharedGroup(installationId).catch(() => true)) return null;
-  const [said] = await sql()<{ github_user: string | null }[]>`SELECT github_user FROM installations WHERE id = ${installationId}`;
-  if (said?.github_user?.trim().toLowerCase() !== owner) return null;
-  return (await githubUser(owner))?.type === 'User' ? { login: owner, basis: 'proof_line' } : null;
-}
-
-/**
- * v2.11 T9 security fix R4 (b): EarnKit showed this installation the earnkit.txt line for this repo
- * (prepare's token_line, the build kit, a proof note, the launch note). The first time is kept: a
- * commit dated before it can't be the builder writing that line. Never throws.
- */
-export async function noteLineIssued(installationId: number, repoUrl: string, now = new Date()): Promise<void> {
-  const gh = githubRepo(repoUrl);
-  if (!gh) return;
-  try {
-    await sql()`
-      INSERT INTO proof_line_issues (installation_id, repo_key, first_at)
-      VALUES (${installationId}, ${`${gh.owner}/${gh.repo}`.toLowerCase()}, ${now})
-      ON CONFLICT (installation_id, repo_key) DO NOTHING`;
-  } catch (err) {
-    console.error('[github-verify] line issued', err instanceof Error ? err.name : 'error');
-  }
-}
-
-/** R4 (b): when this installation was first shown the line for `repoKey`, or null. */
-export async function lineIssuedAt(installationId: number, repoKey: string): Promise<Date | null> {
-  const [row] = await sql()<{ first_at: Date }[]>`
-    SELECT first_at FROM proof_line_issues WHERE installation_id = ${installationId} AND repo_key = ${repoKey.toLowerCase()}`;
-  return row?.first_at ?? null;
-}
-
-/**
  * Final fix M6 (T9 N6): whether a repo ever read as a fork or as made from a template. The first
  * reading per repo is kept in url_checks (`ghrepo:<owner/repo>`, ok = never derived), and a later
  * reading that is set marks it for good, so erasing the flag later (the source repo deleted or made
@@ -590,38 +450,18 @@ export async function repoEverDerived(repoKey: string, derivedNow: boolean): Pro
   return row ? !row.ok : derivedNow;
 }
 
-/** v2.11 T9 security fix R3: the account bar a proven owner login must pass (hosting.ts HOST_LIMITS' gate). */
-export const OWNER_GATE = { accountMinDays: 30, minPublicRepos: 1 } as const;
-
-/**
- * v2.11 T9 security fix R3: proofLineLogin's owner login, when the public account read also passes
- * OWNER_GATE (30 days old, a public repo), the bar hosting holds; else null. What a deploy with no
- * sign-in needs, and what its caps are keyed by.
- */
-export async function provenOwnerLogin(installationId: number, repoKey: string, lineOwner: string | null | undefined, now = new Date()): Promise<string | null> {
-  const who = await proofLineLogin(installationId, repoKey, lineOwner);
-  if (!who) return null;
-  const facts = await githubUser(who.login, now);
-  if (!facts || facts.type !== 'User') return null;
-  const days = (now.getTime() - Date.parse(facts.created_at)) / 86_400_000;
-  return days >= OWNER_GATE.accountMinDays && facts.public_repos >= OWNER_GATE.minPublicRepos ? who.login : null;
-}
-
 /**
  * v2.11 T3 (spec 6, "Identity"): the GitHub login behind this installation's step on `repoKey`
  * ("owner/repo"), and its basis, or null (no login is recorded). Never guessed, and never
- * GITHUB_TOKEN's own login:
- * - `signin` or `app`: a passing verification of this repo for this installation (a sign-in wins
- *   over the read-only App). On a shared client only the caller's own (`callerLogin`), or the one
- *   bound to this entry (`projectId`); without either, null.
- * - `proof_line` (T9 security fix I1): off a shared client, proofLineLogin with the line's pusher:
- *   `lineOwner` from the caller (it just read it), else the one a contract EarnKit deployed for this
- *   installation and repo recorded (`contract_deploys.line_owner`). On a shared client never.
+ * GITHUB_TOKEN's own login. v2.14 spec 2: a passing verification of this repo for this installation:
+ * the read-only App's (`app`), or a v2.9 sign-in kept from before v2.14 (`signin`; a sign-in wins over
+ * the App). On a shared client only the caller's own (`callerLogin`), or the one bound to this entry
+ * (`projectId`); without either, null. The proof line no longer names anyone.
  */
 export async function loginBasisFor(
   installationId: number,
   repoKey: string,
-  o: { callerLogin?: string | null; projectId?: number; lineOwner?: string | null } = {},
+  o: { callerLogin?: string | null; projectId?: number } = {},
 ): Promise<LoginProof | null> {
   const [owner, repo, extra] = repoKey.toLowerCase().split('/');
   if (!owner || !repo || extra !== undefined) return null;
@@ -634,16 +474,7 @@ export async function loginBasisFor(
     WHERE installation_id = ${installationId} AND repo_key = ${key} AND purpose <> 'claim'
       ${shared ? (o.callerLogin ? db`AND login = ${o.callerLogin.toLowerCase()}` : db`AND project_id = ${o.projectId!}`) : db``}
     ORDER BY (via = 'app'), verified_at DESC, id DESC LIMIT 1`;
-  if (row) return { login: row.login.toLowerCase(), basis: row.via === 'app' ? 'app' : 'signin' };
-  if (shared) return null;
-  let lineOwner = o.lineOwner;
-  if (lineOwner === undefined || lineOwner === null) {
-    const [deployed] = await db<{ line_owner: string }[]>`
-      SELECT line_owner FROM contract_deploys
-      WHERE installation_id = ${installationId} AND repo_key = ${key} AND line_owner IS NOT NULL ORDER BY id DESC LIMIT 1`;
-    lineOwner = deployed?.line_owner ?? null;
-  }
-  return proofLineLogin(installationId, key, lineOwner);
+  return row ? { login: row.login.toLowerCase(), basis: row.via === 'app' ? 'app' : 'signin' } : null;
 }
 
 /** Ruling G7: the entries of this installation a login verified (a shared client shows only these). */
@@ -657,30 +488,25 @@ export async function verifiedEntryIds(installationId: number, login: string): P
 // ---- The two routes
 
 /**
- * Ruling G8: what the confirm page names before anyone signs in: the repo, and for an entry its
- * token and the wallet its fees go to. Null when the nonce is unusable (used, expired, unknown).
+ * Ruling G8, preflight S7: what the confirm page names before anyone signs in: the repo and the page it is
+ * added to (`handle`: the person's earnkit.com page, pageHandle). Null when the nonce is unusable (used,
+ * expired, unknown).
  */
-export async function nonceDetails(
-  nonce: string,
-  now = new Date(),
-): Promise<{ repo_key: string; purpose: VerifyPurpose; name: string | null; symbol: string | null; wallet: string | null } | null> {
+export async function nonceDetails(nonce: string, now = new Date()): Promise<{ repo_key: string; purpose: VerifyPurpose; handle: string | null } | null> {
   if (!nonce) return null;
-  const [row] = await sql()<{ repo_key: string; purpose: VerifyPurpose; name: string | null; symbol: string | null; wallet: string | null }[]>`
-    SELECT n.repo_key, n.purpose, p.name, n.symbol, n.wallet
-    FROM github_verify_nonces n LEFT JOIN projects p ON p.id = n.project_id
+  const [row] = await sql()<{ repo_key: string; purpose: VerifyPurpose; installation_id: number }[]>`
+    SELECT n.repo_key, n.purpose, n.installation_id FROM github_verify_nonces n
     WHERE n.nonce_hash = ${sha256(nonce)} AND n.used_at IS NULL AND n.expires_at > ${now}`;
-  return row ?? null;
+  if (!row) return null;
+  return { repo_key: row.repo_key, purpose: row.purpose, handle: row.purpose === 'app' ? await pageHandle(row.installation_id) : null };
 }
-
-/** v2.12.1 T7: the confirm page's first line and warning on the claim page's GitHub sign-in (no repo named). */
-export const CLAIM_CONFIRM_LEAD = 'Sign in with GitHub to show this GitHub account is yours. EarnKit then counts the work on it.';
-export const CLAIM_CONFIRM_WARNING = 'This links your GitHub to your EarnKit page. Only continue if you opened this from your own page.';
 
 /** v2.10 item 7b: the confirm page's first line on an App link. */
 export const APP_CONFIRM_LEAD = 'Sign in with GitHub, then let EarnKit read this repo. Read only: EarnKit never changes your code.';
+/** Preflight S7: the App link names the page the repo is added to (a forwarded link adds the repo to someone else's page). */
+export const appConfirmDestination = (repoKey: string, handle: string) => `This adds github.com/${repoKey} to ${pageUrl(handle)}.`;
+export const APP_CONFIRM_ONLY_YOURS = 'Only continue if that is your page.';
 
-/** Ruling G8: the confirm page's warning, above the button. */
-export const CONFIRM_WARNING = 'This links your GitHub to this EarnKit entry. Only continue if you started this from your own agent.';
 
 const escapeHtml = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
@@ -718,29 +544,15 @@ const sameSecret = (a: string, b: string) => {
   return x.length === y.length && x.length > 0 && timingSafeEqual(x, y);
 };
 
-/** The confirm page (Ruling G8): what is being linked, the warning, and one POST button. Pure. */
-export function confirmPage(
-  d: { repo_key: string; purpose: VerifyPurpose; symbol: string | null; wallet: string | null },
-  nonce: string,
-  csrf: string,
-): string {
-  if (d.purpose === 'claim')
-    return html(
-      `<p>${escapeHtml(CLAIM_CONFIRM_LEAD)}</p><p>${escapeHtml(CLAIM_CONFIRM_WARNING)}</p>` +
-        `<form method="post" action="${escapeHtml(siteUrl())}/github/verify">` +
-        `<input type="hidden" name="n" value="${escapeHtml(nonce)}"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}">` +
-        '<button type="submit">Continue with GitHub</button></form>',
-    );
-  const rows = [
-    `<li>Repo: github.com/${escapeHtml(d.repo_key)}</li>`,
-    d.purpose === 'entry' && d.symbol ? `<li>Token: $${escapeHtml(d.symbol)}</li>` : '',
-    // Ruling G11: an entry link always has its wallet (createVerifyLink refuses one without).
-    d.purpose === 'entry' && d.wallet ? `<li>Wallet for fees: ${escapeHtml(d.wallet)}</li>` : '',
-  ].join('');
-  // v2.10 item 7b: an App link signs in, then installs the read-only App on the repo.
-  const lead = d.purpose === 'app' ? APP_CONFIRM_LEAD : 'Sign in with GitHub to prove this repo is yours.';
+/**
+ * The confirm page (Ruling G8): what is being linked, the warning, and one POST button. v2.14 (preflight S7):
+ * only the App link, which names the repo and the page it is added to, then "Only continue if that is your page".
+ * Pure.
+ */
+export function confirmPage(d: { repo_key: string; handle: string }, nonce: string, csrf: string): string {
   return html(
-    `<p>${escapeHtml(lead)}</p><ul>${rows}</ul><p>${escapeHtml(CONFIRM_WARNING)}</p>` +
+    `<p>${escapeHtml(APP_CONFIRM_LEAD)}</p><ul><li>Repo: github.com/${escapeHtml(d.repo_key)}</li></ul>` +
+      `<p>${escapeHtml(appConfirmDestination(d.repo_key, d.handle))}</p><p>${escapeHtml(APP_CONFIRM_ONLY_YOURS)}</p>` +
       `<form method="post" action="${escapeHtml(siteUrl())}/github/verify">` +
       `<input type="hidden" name="n" value="${escapeHtml(nonce)}"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}">` +
       '<button type="submit">Continue with GitHub</button></form>',
@@ -774,11 +586,12 @@ export async function verifyStart(request: Request, deps: RouteDeps = {}): Promi
   if (busy) return busy;
   const nonce = new URL(request.url).searchParams.get('n') ?? '';
   const d = await nonceDetails(nonce);
-  if (!d) return verifyPage(VERIFY_PAGE.expired, 410);
+  // v2.14: only an App link is shown; preflight S7: never without the page it adds the repo to.
+  if (!d || d.purpose !== 'app' || !d.handle) return verifyPage(VERIFY_PAGE.expired, 410);
   const csrf = randomBytes(32).toString('base64url');
   // Review Minor 1: same-origin, never no-referrer, so the button's POST carries a real Origin
   // (under no-referrer a browser sends `Origin: null`, which verifyConfirm refuses).
-  return new Response(confirmPage(d, nonce, csrf), {
+  return new Response(confirmPage({ repo_key: d.repo_key, handle: d.handle }, nonce, csrf), {
     status: 200,
     headers: { ...PAGE_HEADERS, 'Referrer-Policy': 'same-origin', 'Set-Cookie': setCsrf(nonce, csrf) },
   });
@@ -840,6 +653,6 @@ export async function verifyCallback(
       status: 303,
       headers: { Location: out.install, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' },
     });
-  if (out.ok) return verifyPage(out.code ? codeLine(out.code) : (out.line ?? VERIFY_PAGE.done), 200, clear);
+  if (out.ok) return verifyPage(out.line ?? VERIFY_PAGE.done, 200, clear);
   return verifyPage(out.reason, out.reason === VERIFY_PAGE.expired ? 410 : 403, clear);
 }

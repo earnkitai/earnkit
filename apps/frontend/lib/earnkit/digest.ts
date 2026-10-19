@@ -17,10 +17,9 @@ import { testInstallationIds } from './installations';
  * Content (in this order): new programs one of the builder's remembered repos could really win
  * (alerts.ts alertFit, the alert rule), wins by EarnKit builders (announced only), and the builder's
  * own deadlines and decision dates in the coming week. Ruling G21: on a hosted agent (shared_client)
- * one installation serves many builders, so each subscription belongs to a GitHub-verified login (the
- * signed_in code, G9): the question is asked once per login, never without a code, and an answer
- * changes only the caller's own subscription. Such an email has no repo-based lines, and its deadlines
- * are only the entries that login signed in for. Elsewhere one subscription per installation (login '').
+ * one installation serves many builders, so a subscription would need a verified caller; v2.14 final
+ * fix: the pasted GitHub sign-in code that named one is gone, so a hosted agent asks nothing and saves
+ * nothing (older per-login subscriptions keep sending). Elsewhere one subscription per installation (login '').
  */
 
 export const DIGEST_FROM_DEFAULT = 'EarnKit <digest@earnkit.com>';
@@ -38,10 +37,8 @@ export const WHICH_EMAIL = 'Which email should I use?';
 export const EMAIL_ON = 'Done. One email a week, on Mondays.';
 export const EMAIL_OFF = 'No weekly email.';
 export const EMAIL_UNAVAILABLE = 'The weekly email is not available yet.';
-/** Ruling G21: on a hosted agent the weekly email needs the builder's GitHub sign-in code. */
-export const EMAIL_SIGN_IN = 'The weekly email needs your GitHub sign-in on this agent.';
-/** Ruling G21: what the agent passes on a hosted agent. */
-export const EMAIL_SHARED_NOTE = 'Pass signed_in too: the code the sign-in page gave them.';
+/** Ruling G21: a hosted agent has no verified caller, so it can't keep a weekly email. */
+export const EMAIL_SIGN_IN = "The weekly email isn't available on this agent.";
 /** Send failures in a row that stop a run (a Resend outage never burns the day's slots). */
 export const MAX_SEND_FAILURES = 3;
 
@@ -272,7 +269,7 @@ export async function askWeeklyEmail(
       return {
         // Non-shared clients: the entry's email is reused only after the yes, so the question names none.
         question: opts.shared && opts.email ? emailQuestionFor(opts.email) : EMAIL_QUESTION,
-        agent_note: opts.shared ? `${EMAIL_NOTE} ${EMAIL_SHARED_NOTE}` : EMAIL_NOTE,
+        agent_note: EMAIL_NOTE,
       };
     });
   } catch (err) {

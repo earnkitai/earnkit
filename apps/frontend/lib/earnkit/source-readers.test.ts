@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GH_RATE_FLOOR, GH_RUN_CAP, GitHubBudgetStop, READ_CAPS, budgetedGh, defaultReaderDeps, isBudgetStop, isoWeek, pep503, probeSite, readContract, readContractOrigin, readCoin, readMergedPrs, readNpm, readNpmBulk, readPypi, readRepo, readSite, walletCreationsFrom, type ReaderDeps } from './source-readers';
-import { CONTRACT_REFUSALS, contractOwned, contractOwnership, packageOwned, repoOwned, siteOwnedByText } from './sources';
+import { GH_RATE_FLOOR, GH_RUN_CAP, GitHubBudgetStop, READ_CAPS, appCredential, budgetedGh, defaultReaderDeps, isBudgetStop, isoWeek, pep503, probeSite, readContract, readContractOrigin, readCoin, readMergedPrs, readNpm, readNpmBulk, readPypi, readRepo, readSite, walletCreationsFrom, type ReaderDeps } from './source-readers';
+import { CONTRACT_REFUSALS, contractOwned, contractOwnership, packageOwned, siteOwnedByText } from './sources';
 import type { Resolver, Transport } from './safe-fetch';
 
 const NOW = new Date('2026-10-12T12:00:00Z');
@@ -124,17 +124,6 @@ test('final I2 readMergedPrs: PRs into the person\'s own orgs never count', asyn
   };
   const prs = await readMergedPrs('lee', { ...base, gh }, ['ACME']);
   assert.deepEqual(prs.map((p) => p.target), ['other/r']);
-});
-
-test('5.8 ownership: own non-fork, non-template, never derived; an org repo only as top contributor', () => {
-  const r = { owner: 'lee', owner_type: 'User', created_at: null, fork: false, template: false, stargazers: [], forkers: [], issue_authors: [], contributors: [], commit_weeks: [], partial: false };
-  assert.equal(repoOwned(r, 'lee', false, false), true);
-  assert.equal(repoOwned({ ...r, fork: true }, 'lee', false, false), false);
-  assert.equal(repoOwned({ ...r, template: true }, 'lee', false, false), false);
-  assert.equal(repoOwned(r, 'lee', false, true), false, 'repoEverDerived');
-  assert.equal(repoOwned({ ...r, owner: 'acme', owner_type: 'Organization' }, 'lee', true, false), true);
-  assert.equal(repoOwned({ ...r, owner: 'ann', owner_type: 'User' }, 'lee', true, false), false, 'a personal repo of someone else, even as top contributor');
-  assert.equal(repoOwned({ ...r, owner: 'acme' }, 'lee', false, false), false);
 });
 
 test('5.9 ownership: a package needs its metadata repo to be a verified repo; a site needs the profile code', () => {
@@ -457,4 +446,28 @@ test('7.4b walletCreations: only successful contract creations from the wallet, 
   assert.equal(paths[0], `/api/v2/addresses/${W}/transactions?filter=from`);
   assert.equal(paths[1], `/api/v2/addresses/${W}/transactions?filter=from&block_number=9&index=0`);
   await assert.rejects(walletCreationsFrom('nope', page));
+});
+
+test('final fix 8: App-credential reads never count toward GH_RUN_CAP and their rate headers never stop the run', async () => {
+  assert.equal(appCredential('https://api.github.com/graphql', { headers: { Authorization: 'Bearer ghs_abc' } }), true);
+  assert.equal(appCredential('https://api.github.com/app/installations/1/access_tokens', { headers: new Headers({ authorization: 'Bearer eyJhbGciOi.x.y' }) }), true);
+  assert.equal(appCredential(new Request('https://api.github.com/repos/a/b', { headers: { Authorization: 'Bearer ghs_x' } })), true);
+  assert.equal(appCredential('https://api.github.com/repos/a/b', { headers: { Authorization: 'token ghp_shared' } }), false);
+  assert.equal(appCredential('https://api.github.com/repos/a/b'), false);
+  const real = globalThis.fetch;
+  let sent = 0;
+  // Every response says the installation has 3 requests left this hour (under GH_RATE_FLOOR).
+  globalThis.fetch = (async () => ((sent++), new Response('{}', { headers: { 'x-ratelimit-remaining': '3', 'x-ratelimit-resource': 'core' } }))) as typeof fetch;
+  try {
+    const d = defaultReaderDeps(NOW, Date.now() + 60_000);
+    for (let i = 0; i < GH_RUN_CAP + 5; i++) await d.ghFetch!('https://api.github.com/graphql', { method: 'POST', headers: { Authorization: 'Bearer ghs_inst' } });
+    assert.equal(sent, GH_RUN_CAP + 5, 'past the run cap: App reads have their own limit');
+    assert.equal(d.ghSpent!(), false, "one installation's low rate headers never stop the run");
+    // EarnKit's own token still counts and is still watched: the low header stops the run.
+    await d.ghFetch!('https://api.github.com/repos/a/b', { headers: { Authorization: 'token ghp_shared' } });
+    assert.equal(d.ghSpent!(), true);
+    await assert.rejects(d.ghFetch!('https://api.github.com/repos/a/c', {}), GitHubBudgetStop);
+  } finally {
+    globalThis.fetch = real;
+  }
 });

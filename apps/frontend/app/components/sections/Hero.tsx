@@ -3,27 +3,20 @@
 import { useCallback, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import AddToAgent from './AddToAgent';
-import BonusPill from '../ui/BonusPill';
 
-/** v2.8 Part A: the hero's words. Ruling C3: the "Agents only" pill stays above the title. */
-export const HERO_EYEBROW = 'Agents only';
-export const HERO_TITLE = 'Earn rewards for building';
-export const HERO_SUBTITLE = 'Find live programs. EarnKit matches your projects and helps you win.';
-/** v2.13 spec "Landing page" 1: the words under the flag (no eyebrow, no bonus pill). */
+/** v2.13 spec "Landing page" 1: the hero's words (no eyebrow, no bonus pill). */
 export const BENCH_HERO_TITLE = 'Ship every week. Get funded.';
 export const BENCH_HERO_SUBTITLE = 'Add EarnKit to your AI agent. It puts your project on the Bench, posts what you ship, and finds you grants and a community round.';
 /** v2.13.1 O3: with EARNKIT_RAISING off, the subtitle doesn't mention raising. */
 export const BENCH_HERO_SUBTITLE_NO_RAISE = 'Add EarnKit to your AI agent. It puts your project on the Bench, posts what you ship, and finds you grants.';
 
 /**
- * v2.8 Part A: the "Agents only" pill (Ruling C3), the title, the subtitle, the builder bonus pill (to How you earn, step 3), the
- * install and demo buttons, one short stats line once there is something to show, and (v2.9 E20) the
- * "Builders using EarnKit won $X" line under it once an announced win exists. Nothing
- * else: the pool figure heads the Open programs section, next to the cards it adds up.
- * v2.13 (`bench`): the Bench title and subtitle, no eyebrow and no bonus pill; the buttons and the
- * stats lines stay. v2.13.1 O3 (`raising` false: EARNKIT_RAISING off): the subtitle without raising.
+ * v2.8 Part A, v2.13: the Bench title and subtitle, the install and demo buttons, one short stats line
+ * once there is something to show, and (v2.9 E20) the "Builders using EarnKit won $X" line under it
+ * once an announced win exists. v2.13.1 O3 (`raising` false: EARNKIT_RAISING off): the subtitle
+ * without raising.
  */
-export default function Hero({ statsLine = null, wonLine = null, bench = false, raising = true }: { statsLine?: string | null; wonLine?: string | null; bench?: boolean; raising?: boolean }) {
+export default function Hero({ statsLine = null, wonLine = null, raising = false }: { statsLine?: string | null; wonLine?: string | null; raising?: boolean }) {
   const [open, setOpen] = useState(false);
   const [installOpen, setInstallOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
@@ -49,21 +42,13 @@ export default function Hero({ statsLine = null, wonLine = null, bench = false, 
         className="flex w-full flex-col items-center text-center"
         style={{ willChange: 'transform, opacity' }}
       >
-        {!bench && (
-          <p className="inline-flex items-center rounded-full border-2 border-ek-blue-soft/80 bg-[#02052c]/60 px-6 py-2.5 font-funnel-sans text-xs font-semibold uppercase tracking-[0.18em] text-ek-blue-light">
-            {HERO_EYEBROW}
-          </p>
-        )}
-
-        <h1 className={`${bench ? '' : 'mt-8 '}max-w-[16ch] text-balance font-funnel-display text-[2.5rem] font-medium leading-[1.05] tracking-[-0.03em] text-white sm:text-[3.5rem] md:text-[4.5rem] lg:text-[5rem]`}>
-          {bench ? BENCH_HERO_TITLE : HERO_TITLE}
+        <h1 className={`max-w-[16ch] text-balance font-funnel-display text-[2.5rem] font-medium leading-[1.05] tracking-[-0.03em] text-white sm:text-[3.5rem] md:text-[4.5rem] lg:text-[5rem]`}>
+          {BENCH_HERO_TITLE}
         </h1>
 
-        <p className={`mt-6 ${bench ? 'max-w-[44ch]' : 'max-w-[36ch]'} text-balance font-funnel-sans text-lg font-light text-ek-blue-light [text-shadow:0_0_16px_rgba(2,5,44,0.95)] md:text-xl`}>
-          {bench ? (raising ? BENCH_HERO_SUBTITLE : BENCH_HERO_SUBTITLE_NO_RAISE) : HERO_SUBTITLE}
+        <p className={`mt-6 max-w-[44ch] text-balance font-funnel-sans text-lg font-light text-ek-blue-light [text-shadow:0_0_16px_rgba(2,5,44,0.95)] md:text-xl`}>
+          {raising ? BENCH_HERO_SUBTITLE : BENCH_HERO_SUBTITLE_NO_RAISE}
         </p>
-
-        {!bench && <BonusPill size="lg" href="#how-you-earn-3" className="mt-8" />}
 
         <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:gap-4">
           <button
@@ -99,7 +84,7 @@ export default function Hero({ statsLine = null, wonLine = null, bench = false, 
         )}
       </motion.div>
 
-      {installOpen && <AddToAgent onClose={closeInstall} bench={bench} />}
+      {installOpen && <AddToAgent onClose={closeInstall} />}
 
       {open && (
         <div

@@ -40,7 +40,8 @@ test('9.4 record_submission: builder_submitted is tell.submitted; builder_confir
     aliasCall('record_submission', { program_id, project, submission_data: { ...answers, chains: ['base', 'arc'], none: null }, builder_confirmed: true, payout_wallet: W, contracts: ['0xab'], signed_in: 'CODE' }, NOW),
     {
       name: 'confirm',
-      args: { program_id, project, contracts: ['0xab'], signed_in: 'CODE', answers: { ...answers, chains: 'base, arc' }, wallet: W, yes: true },
+      // v2.14 final fix: an old agent's signed_in is dropped (the shared client's sign-in code is gone).
+      args: { program_id, project, contracts: ['0xab'], answers: { ...answers, chains: 'base, arc' }, wallet: W, yes: true },
     },
   );
   // token 'skip' (fix round 1, I3; P15a): without builder_confirmed it is only the confirm line, never a
@@ -89,25 +90,19 @@ test('9.4 launch_token: project_id is confirm with project_id and yes; an offer 
   });
 });
 
-test('9.4 the rest: list_programs, get_program, prepare_submission, tell_earnkit and pick_up_entries; new and unknown names are null', () => {
+test('9.4 the rest: list_programs, get_program, prepare_submission and tell_earnkit; new and unknown names are null (v2.14 T7: pick_up_entries too)', () => {
   assert.deepEqual(aliasCall('list_programs', { repos: ['lee/TipJar'], more: true }, NOW), { name: 'find', args: { repos: ['lee/TipJar'], more: true } });
   assert.deepEqual(aliasCall('get_program', { program_id, repo: 'lee/TipJar' }, NOW), { name: 'find', args: { program_id, repo: 'lee/TipJar' } });
   assert.deepEqual(aliasCall('prepare_submission', { program_id, project, coach_asked: true }, NOW), { name: 'prepare', args: { program_id, project, coach_asked: true } });
   const told = { program_status: [{ program_id, status: 'applied' }] };
   assert.deepEqual(aliasCall('tell_earnkit', told, NOW), { name: 'tell', args: told });
-  assert.deepEqual(aliasCall('pick_up_entries', { answer: 'yes' }, NOW), { name: 'tell', args: { pickup: 'yes' } });
-  assert.deepEqual(aliasCall('pick_up_entries', { answer: ' No ' }, NOW), { name: 'tell', args: { pickup: 'no' } });
-  // Minor 2: every v2.9 form of yes and no (pick_up_entries' yesNo); an unclear one passes as given.
-  for (const yes of ['sure', 'Yeah!', 'ok', true, 1]) assert.deepEqual(aliasCall('pick_up_entries', { answer: yes }, NOW)?.args, { pickup: 'yes' }, String(yes));
-  for (const no of ['nope', 'not now', false, 0]) assert.deepEqual(aliasCall('pick_up_entries', { answer: no }, NOW)?.args, { pickup: 'no' }, String(no));
-  assert.deepEqual(aliasCall('pick_up_entries', { answer: 'maybe' }, NOW)?.args, { pickup: 'maybe' });
-  for (const n of ['find', 'prepare', 'confirm', 'tell', 'sponsor_campaign', 'report_outcome', 'nope'])
+  for (const n of ['find', 'prepare', 'confirm', 'tell', 'sponsor_campaign', 'report_outcome', 'pick_up_entries', 'nope'])
     assert.equal(aliasCall(n, { program_id }, NOW), null, n);
 });
 
 test('9.5 after ALIASES_UNTIL every old name is null (the SDK then answers an unknown tool)', () => {
   assert.equal(ALIASES_UNTIL.toISOString(), '2026-11-09T00:00:00.000Z');
-  assert.deepEqual([...OLD_TOOL_NAMES], ['list_programs', 'get_program', 'prepare_submission', 'confirm_entry', 'record_submission', 'launch_token', 'tell_earnkit', 'pick_up_entries']);
+  assert.deepEqual([...OLD_TOOL_NAMES], ['list_programs', 'get_program', 'prepare_submission', 'confirm_entry', 'record_submission', 'launch_token', 'tell_earnkit']);
   for (const n of OLD_TOOL_NAMES) {
     assert.notEqual(aliasCall(n, { program_id, project, answers, submission_data: {}, project_id: 1 }, new Date(ALIASES_UNTIL.getTime() - 1)), null, n);
     assert.equal(aliasCall(n, { program_id, project, answers, submission_data: {}, project_id: 1 }, ALIASES_UNTIL), null, n);

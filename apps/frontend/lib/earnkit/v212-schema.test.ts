@@ -2,7 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
 import { EVENT_TYPES } from './events';
-import { archiveFlag, builderScoreEnabled } from './builder-score-flag';
+import { archiveFlag } from './builder-score-flag';
 
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {
@@ -15,10 +15,7 @@ const V212_EVENTS = ['source_proposed', 'source_verified', 'source_rejected', 'r
 // fixed key would make every later run of this file fail (below every other v2.12 test's range).
 const freshId = () => 2_000_000_000 + Math.floor(Math.random() * 90_000_000);
 
-test('1.1 the flags are off unless exactly "on"', () => {
-  assert.equal(builderScoreEnabled({}), false);
-  assert.equal(builderScoreEnabled({ EARNKIT_BUILDER_SCORE: 'true' }), false);
-  assert.equal(builderScoreEnabled({ EARNKIT_BUILDER_SCORE: 'on' }), true);
+test('1.1 the archive flags are off unless exactly "on"', () => {
   assert.equal(archiveFlag('SPONSOR_CAMPAIGNS', {}), false);
   assert.equal(archiveFlag('TOOL_ALIASES', { EARNKIT_TOOL_ALIASES: 'on' }), true);
 });

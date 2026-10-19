@@ -16,7 +16,7 @@ import { logoFileProblem } from './program-file';
 const FRONTEND = join(import.meta.dirname, '../..');
 const PUBLIC = join(FRONTEND, 'public');
 const html = renderToStaticMarkup(React.createElement(AddToAgent, { onClose: () => {} }));
-const llms = readFileSync(join(import.meta.dirname, 'llms/v212.txt'), 'utf8');
+const llms = readFileSync(join(import.meta.dirname, 'llms/v213.txt'), 'utf8');
 const readme = readFileSync(join(FRONTEND, '../../README.md'), 'utf8');
 const byName = (name: string) => AGENTS.find((a) => a.name === name)!;
 
@@ -31,10 +31,10 @@ test('the tabs are Grok Bot, Claude Code, Cursor, Codex, Muse; Grok Bot is selec
   assert.equal((html.match(/aria-selected="true"/g) ?? []).length, 1);
 });
 
-test('Claude Code: user scope, then /mcp to approve', () => {
+test('Claude Code: user scope, then /mcp and Authenticate (the menu item Claude Code shows)', () => {
   const cc = byName('Claude Code');
   assert.equal(cc.code, CLAUDE_CODE);
-  assert.equal(cc.after, 'Then type /mcp, pick earnkit, approve.');
+  assert.equal(cc.after, 'Then open Claude Code, type /mcp, pick earnkit, choose Authenticate.');
 });
 
 test('Codex: codex mcp add with the EarnKit URL, then log in', () => {
@@ -42,7 +42,7 @@ test('Codex: codex mcp add with the EarnKit URL, then log in', () => {
   assert.ok(cx.code?.startsWith('codex mcp add earnkit'), cx.code);
   assert.ok(cx.code?.includes('https://earnkit.com/mcp'));
   assert.equal(cx.code, CODEX);
-  assert.equal(cx.after, 'Then run codex mcp login earnkit and approve.');
+  assert.equal(cx.after, 'Then run codex mcp login earnkit.');
   // Fix round 1: the login command can be copied too.
   assert.equal(cx.afterCode, 'codex mcp login earnkit');
   const src = readFileSync(join(FRONTEND, 'app/components/sections/AddToAgent.tsx'), 'utf8');
@@ -96,7 +96,9 @@ test('no editor tab anywhere: the modal, llms.txt, the README, app/ and lib/', (
     ['install modal', html],
     ['llms.txt', llms],
     ['README.md', readme],
-    ...files.map((f): [string, string] => [f, readFileSync(f, 'utf8')]),
+    // v2.14 T4 fix round 1: oauth.ts AGENT_APP_SCHEMES lists editor URL schemes an OAuth redirect may use
+    // (a security allowlist, not an install tab); only that one line is left out of the scan.
+    ...files.map((f): [string, string] => [f, readFileSync(f, 'utf8').replace(/^export const AGENT_APP_SCHEMES = .*$/m, '')]),
   ];
   for (const [label, text] of all)
     for (const word of ['VS Code', 'vscode', '.vscode'])
@@ -104,21 +106,4 @@ test('no editor tab anywhere: the modal, llms.txt, the README, app/ and lib/', (
   // The old catch-all tab is gone too; the link box above the tabs serves any other agent.
   assert.doesNotMatch(html, /Other agents|mcp-remote/);
   assert.ok(html.includes('https://earnkit.com/mcp'));
-});
-
-test('llms.txt: the token is not optional, the builder bonus, the starting phrase, both commands, no campaigns section', () => {
-  for (const m of llms.matchAll(/optional/g)) {
-    const near = llms.slice(Math.max(0, m.index - 40), m.index + 'optional'.length + 40);
-    assert.ok(!near.includes('token'), near);
-  }
-  assert.ok(llms.includes('builder bonus'));
-  assert.ok(llms.includes('What can I earn?'));
-  assert.ok(llms.includes(CLAUDE_CODE));
-  assert.ok(llms.includes('Then type /mcp, pick earnkit, approve.'));
-  assert.ok(llms.includes(CODEX));
-  assert.ok(llms.includes('codex mcp login earnkit'));
-  assert.ok(llms.includes('Any other MCP client: add https://earnkit.com/mcp as a remote server'));
-  assert.ok(llms.includes('the builder earns 40% of its trading'));
-  assert.ok(!llms.includes('EarnKit also runs its own campaigns'));
-  assert.ok(!llms.includes('## EarnKit campaigns'));
 });
