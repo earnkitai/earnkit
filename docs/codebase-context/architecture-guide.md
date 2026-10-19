@@ -6198,7 +6198,7 @@ ranking higher.
     coin { raising: true }`); a coin out or launching says so; an open offer is shown again (`coin-moments.ts
     openCoinLine`); else `offerCoin(..., 'countable')`. Not confirmed: `TOKEN_NOT_YET`; nothing offerable (launches
     off, declines, a private repo): `tokenUnavailable`. The yes is `tell coin` as before, then `confirm
-    { project_id }`; `confirm`, the build path's built_live moment and `launch` are unchanged.
+    { project_id }`; `confirm` and `launch` are unchanged; the build path no longer offers a coin (fix round 1).
 - **One fit order (fix round 1).** find and score name the same fits in the same order: `present.ts byDeadline`
   (the soonest `ends_at` first, rolling last, then the bigger `max_award_usd`, then the id). find sorts its qualifying
   rows with it before taking 3, so `lead` and `recordShown` use those same 3; `scoreFits` sorts with it too.

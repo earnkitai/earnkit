@@ -14,8 +14,7 @@ import { earnkitOwnRepo } from './own-brand';
 
 /**
  * v2.12.1 spec 3b, scoring and clarity R8: the token is offered only when the builder asks about one
- * (bench-find.ts tokenAsk, moment 'countable') or on the build path (built through EarnKit, the reply
- * that confirms the app is live: built_live); never in find's or score's default reply. At most once per
+ * (bench-find.ts tokenAsk, moment 'countable'), never in find's, score's or the build path's default reply. At most once per
  * project; never again after DECLINES_MAX declines; the coin and the wallet shown before the yes; never for
  * shared clients or held profiles. first_five, has_people and streak_five are kept for offers already made.
  */
