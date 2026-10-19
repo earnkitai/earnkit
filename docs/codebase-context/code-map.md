@@ -152,12 +152,13 @@ apps/frontend/
                                /policy, /risk-disclosure, /sponsor-terms 301 here (next.config.ts
                                LEGAL_REDIRECTS, statusCode 301, never permanent: true = 308)
   app/terms/sections/ProfilesSection.tsx  v2.12 T15 (spec 8): /terms#builder-profiles, a Panel laid out as
-                               "What EarnKit records" with policy.ts PROFILES_POINTS as a list (public sources
-                               only plus what the person links; profiles and the leaderboard are public; only
-                               verified use counts; say hide, hidden still counts in ranks; never posts, X only as
-                               GitHub lists it; the name may be the GitHub login and the address a short wallet
-                               form; the agent may propose local repos and live links; may transfer in a merger
-                               or acquisition; removal by email).
+                               "What EarnKit records" with policy.ts PROFILES_POINTS as a list (v2.14 final fix: the page
+                               is made at the X sign-in (install or the one-time link) and public from then on; same X =
+                               same page, no question, nothing merged; the read-only App is the only proof; App repos,
+                               private too, read with short-lived installation tokens never stored; weekly commit and PR
+                               titles, a private repo facts only until titles are on, hidden not deleted when turned off;
+                               only confirmed counts; "hide my page"; X read at each sign-in; merger; removal by email).
+                               RECORDS_WITH: the login only as the App checked it (or a pre-App check).
   app/terms/sections/RiskSection.tsx  Tokenfi Inc.'s risk disclosure (was app/risk-disclosure/page.tsx),
                                text unchanged, restyled onto the site's panel and ek tokens
   app/terms/sections/SponsorTermsSection.tsx  sponsor terms (was app/sponsor-terms/page.tsx; the fund
@@ -332,7 +333,8 @@ apps/frontend/
                                non-campaign programs, with submitted); v2.8 Task 8: startEntry (the entry at confirmation: ownEntry or insert,
                                confirmed_at/complete_at set once, "skip" never on a row with a token;
                                proof_line_missed, Ruling C24: the last "go" stopped at the proof line);
-                               recordSubmission (campaigns: no self-entry, required fields
+                               recordSubmission (v2.14 final fix 10: keepWallet false, a shared client, writes no
+                               installations.payout_wallet or installation_wallets row; campaigns: no self-entry, required fields
                                (missingAnswersProblem), sanctions, ownership proof; one entry per
                                repo and per contract, checked under a per-campaign advisory lock;
                                stores repo_key (unique index projects_campaign_repo_key) and
@@ -510,7 +512,8 @@ apps/frontend/
     oauth.ts(+.test.ts)        stateless OAuth: register (v2.4: a random nonce in every client id;
                                v2.8.1: s=1 for hosted clients), isSharedClient, HOSTED_CLIENT_NAMES,
                                HOSTED_REDIRECT_HOSTS, hostedRedirectHost (v2.9 T12), clientLimitKey, registrationLimitKey,
-                               authorize, code -> token (+ shared, limitKey), metadata, clientKeyOf;
+                               code -> token (+ shared, limitKey), metadata, clientKeyOf (v2.14 final fix: authorize() gone;
+                               the route is authorizeGet, tests compose checkAuthorize + issueCode as it does);
                                v2.14 T4: checkAuthorize, issueCode(req, x, iss) (x in the signed code),
                                redirectClass (AGENT_REDIRECT_URIS exact, loopback, AGENT_APP_SCHEMES app, other), servesMany
                                (MANY_USER_HOSTS), exchangeCode's x + per-X client key, RFC 9207 iss flag;
@@ -792,11 +795,13 @@ apps/frontend/
                                T11 fix: `prepare` with `deploy` deploys first and adds the address to
                                project.contracts before the draft (its contract check sees it).
                                Fix round 2: confirmByProjectId (I-a shown pair and wallet via token-offers.ts
-                               readShownOffer/offered_wallet; I-b shared clients by verifiedEntryIds), projects.ts launchEntry.
+                               readShownOffer/offered_wallet; I-b shared clients: noted, CONFIRM_SHARED_NOTE), projects.ts launchEntry.
                                tool name -> handler + input validation (+ caller's installation);
                                v2.10 items 2, 3: list_programs more (pools only then), lead + LEAD_NOTE, one question (H10); prepare_submission prepends the guide on the first call
-                               v2.10: withAlerts(ctx, result, signedIn?) puts the deadline line first; ToolContext.roundPools;
-                               no firstTokenOffer/token_offer; prepare_submission takes signed_in.
+                               v2.10: withAlerts(ctx, result) puts the deadline line first (none on a shared client); ToolContext.roundPools;
+                               no firstTokenOffer/token_offer. v2.14 final fix: no signed_in anywhere (sharedLogin, SIGN_IN_CODE_NOTE gone);
+                               a shared client keeps no memory, entries, weekly email or wallet (memoryKey null); list_programs asks
+                               createVerifyLink only for a caller with a page (pageHandle).
                                v2.8.1 T7: prepare_submission leads the coach's questions with
                                needsRepoLine when the program needs a repo and none is known ("<X> needs a
                                public repo … No repo yet? <Y> doesn't need one", Y = present.ts
@@ -834,7 +839,7 @@ apps/frontend/
                                wallet, for the agent to echo as record_submission's payout_wallet;
                                record_submission never reads the remembered wallet)
                                v2.10 item 13: PrepareInput.deploy (DeployField, P9 owner_wallet), deployStep (the deployed line, reply.deploy), deployWalletLine.
-                               Final fix M3: deployStep on a shared client needs sign-in on and calls callerLogin directly (DeployDeps.callerLogin seam).
+                               Final fix M3, v2.14 final fix: deployStep on a shared client needs sign-in on and has no login (deployForBuilder refuses: no person, no proof).
                                v2.10.3: deployStep refuses a chain not in DEPLOY_CHAINS first (deployOffLine), before the wallet ask or any read.
                                v2.11 on v2.10.3: freshSwitches' deployOn is deployChainOn (a chain off in DEPLOY_CHAINS is never offered);
                                buildShip refuses a listed-off starter chain the same way (deployOffLine, deployOffNote).
@@ -880,7 +885,7 @@ apps/frontend/
     token-gate.ts(+test)       tokenGate (v2.6 §3, v2.14 T6): policy, a GitHub repo with code (codeProblem over
                                match-projects.ts repoCodeFacts; on "not found" GateDeps.appToken reads it through the
                                App, ok: { private: true }), then the App proof (GateDeps.appProven: off a shared client
-                               repo-proof.ts repoProof forAction; on one, hasAppProof for the caller's own login),
+                               repo-proof.ts repoProof forAction; on one, none: v2.14 final fix removed GateInput.verifiedLogin),
                                else appInstallReason with GateDeps.appLink (repo-proof.ts installLink), then the
                                sanctions screen. proveRepo (branded ProvenRepo { installationId, repoKey, owner }) for
                                builds, deploys and hosting. v2.14 T6 deleted the earnkit.txt token line (tokenCode,
@@ -1061,8 +1066,9 @@ apps/frontend/
                                verifications only (no proof line); verifiedEntryIds kept for shared clients' old entries.
                                (github_verify_nonces, sha256 only, 15 min), peekNonce/takeNonce (atomic, single use),
                                nonceDetails, ownershipPasses, githubOAuth (exchange, user, repoPerms), completeVerify,
-                               verifiedFor, takeHostVerification (P11), callerLogin (G9 sign-in code), verifiedEntryIds,
-                               entryVerifyLink (G11: needs the entry's wallet), VERIFY_PAGE (+ orgRepo), CONFIRM_WARNING, codeLine; route handlers
+                               verifiedFor, takeHostVerification (P11), verifiedEntryIds (v2.14 final fix: callerLogin,
+                               codeLine, formatCode, normalizeCode and the paste code gone; saveVerification returns nothing),
+                               entryVerifyLink (G11: needs the entry's wallet), VERIFY_PAGE (+ orgRepo), CONFIRM_WARNING; route handlers
                                verifyStart (confirm page + __Host- cookie), verifyConfirm (POST, 303 to GitHub),
                                verifyCallback (code + state + cookie only).
                                v2.10 item 7b: purpose 'app' (createVerifyLink refuses it while the App is off, no
@@ -1084,9 +1090,9 @@ apps/frontend/
                                admin), appTokenFor (a via='app' proof scoped like verifiedFor, then a fresh token;
                                null when off), installUrl, APP_PAGE, appSetup (the setup URL handler; v2.14 T6: then
                                repo-proof.ts proveByApp for the person's root)
-    builder-memory.ts(+test)   v2.9 A3: TellInput (strict; program_status, repo_facts, signed_in; v2.9 E19 weekly_email
+    builder-memory.ts(+test)   v2.9 A3: TellInput (strict; program_status, repo_facts; v2.9 E19 weekly_email
                                { answer yes/no, email? }, which alone is enough), BuilderMemory, MemoryKey
-                               (memoryKey: own installation login '', a shared client's verified login, else null),
+                               (memoryKey: own installation login '', a shared client null),
                                SaidRepo, readMemory (builder_program_status, builder_repo_facts),
                                tell (all checks first, then one transaction; outcomes via
                                saveSelfReport, lost = not_selected), roundLabel, hiddenPrograms,
@@ -1160,7 +1166,9 @@ apps/frontend/
                                needs_owner incl. host-review:<slug> (P46), PAY_FAILED_RUNS failed pay steps in a row
                                and bonusWaitsOnOwner (a MANUAL_CHECK or TOP_UP bonus sweep, failed
                                index runs, v2.9 D17 gas low or a claim/collect out of gas); BONUS_WALLET_UNSET when the ledger is
-                               skipped (key missing or malformed, off mainnet) while bonusLive,
+                               skipped (key missing or malformed, off mainnet) while bonusLive (v2.14 final fix: an EarnKit coin exists),
+                               v2.14 final fix: missingPrerequisites / PREREQ_VARS (env-missing:<VAR>, env-invalid:GITHUB_APP_PRIVATE_KEY
+                               on a full run: X sign-in and the GitHub App are hard prerequisites),
                                Rulings 19-20; an ended round's scoring failure once, Ruling 23; v2.8.1
                                token-pending:<id> for a launch claim pending > 10 min, CronDeps.stuckLaunches), cronPost
                                v2.11 Task 11: the usage step after deployerGas (CronDeps.usage; `usage_checks` in the
@@ -1334,7 +1342,8 @@ apps/frontend/
                                readContract (Base Blockscout, Arc logs), readContractOrigin, readMergedPrs (never
                                into own orgs), budgetedGh (GH_RATE_FLOOR, GH_RUN_CAP 1500 calls a run),
                                GitHubBudgetStop, soft, READ_CAPS,
-                               defaultReaderDeps (one per run)
+                               defaultReaderDeps (one per run; v2.14 final fix 8: ghFetch skips the run cap and the rate watch
+                               for appCredential requests, an installation token or the App JWT)
     weeks.ts(+test)            v2.13 T1: ISO weeks (isoWeekOf, mondayOf, lastFinishedMonday, last52, streakOf,
                                weeksShipping)
     main-project.ts(+test)     v2.13 T2: the one project (main_project_key): mainProjectOf, setMainProject,
@@ -1361,8 +1370,8 @@ apps/frontend/
                                STALE, STALE_RETRY, expireOrgProofs, orgProofExpiryStep (re-proof is the App);
                                Fix round 1: appProofLive (an installation this person proved; an org's prover still admin;
                                held / gone / unknown), recheckAppSource (applies it; appCheckStep and repoProof forAction on
-                               a proof older than APP_PROOF_FRESH_MS use it), sharedAppProven (the shared-client coin gate,
-                               fails closed), REPLACED_BY_APP (an App proof replaces another person's non-App hold;
+                               a proof older than APP_PROOF_FRESH_MS use it; v2.14 final fix: no login option, sharedAppProven
+                               gone: a shared client has no proof), REPLACED_BY_APP (an App proof replaces another person's non-App hold;
                                heldByOther counts App holds only).
                                tests: v214-app-proof.test.ts (fixtures fake-github.ts, app-install.ts)
     v214-journey.test.ts       v2.14 T12: acceptance 1 to 5 end to end on fake X and GitHub (fetch throws; every fake call routed)
@@ -1376,7 +1385,8 @@ apps/frontend/
     week-facts.ts(+test)       v2.13 T4: WeekFacts, weekFactsFor, factChips, startedLine, upsertWeekFacts,
                                weeklyFactsStep (Mondays from 15:00 UTC); v2.14 T8: the step reads an App-proven repo's
                                week titles (appClient, ghFetch) and upsertWeekFacts stores them (project_updates.titles)
-    ship-titles.ts(+test)      v2.14 T8: TITLES_MAX 3, TITLE_MAX 80, cleanTitle, shipTitles (checkUpdate on each),
+    ship-titles.ts(+test)      v2.14 T8: TITLES_MAX 3, TITLE_MAX 80, cleanTitle (final fix 13: TITLE_MIN 3 by letter and digit
+                               code points, a Han, kana or Hangul character counting 2), shipTitles (checkUpdate on each),
                                readWeekTitles (2 calls), namesRepo, titlesShown (S9: a private repo's titles show only
                                while builder_profiles.ship_titles_at is set, never naming the repo); week-facts.ts
                                weekTitles calls readWeekTitles; tests ship-titles.test.ts, v214-ship-log.test.ts
@@ -1408,7 +1418,8 @@ apps/frontend/
                                names open programs, D6), the stored ask; a held question (find's outcome question or
                                submission step, A17) replaces the state's, except signed out (signedOutNow: the
                                sign-in question wins; find skips outcomeToAsk until the bind; a failed mint asks to retry). "Signed in as @<handle>." once on the
-                               first reply after an X bind (installations.x_signed_in_unseen). benchMoveUp: taken-once
+                               first reply after an X bind (installations.x_signed_in_unseen; takeSignedIn clears it only with a
+                               handle; signedOutNow reads a DB error as signed out, final fix 11, 12). benchMoveUp: taken-once
                                kinds incl. sign_in (SIGN_IN_YES_NOTE), repo_behind (REPO_BEHIND_NOTE); no grants ask,
                                no build-in-progress view. v2.13.4: fundNeeds(c, has), reportedLive, liveOf;
                                needsPicks (NEEDS_MAX 2), START_NOTE, INSTALL_APP_NOTE, BENCH_OUTCOME_NOTE, SHIP_NOTE.
@@ -1425,7 +1436,7 @@ apps/frontend/
     v213-journey.test.ts       v2.13 T16: acceptance steps 1 to 7 (the runbook) on fakes in its own database,
                                plus Review Focus 3 (a Confirming claimant of the same repo) and 4 (flag off);
                                fixtures/claim-x.ts (claimThroughX), fixtures/arc-chain.ts (fakeArc, TIPJAR_ABI)
-    sources.ts(+test)          v2.12 T5: Proof, repoOwned, packageOwned, siteOwnedByText, contractOwnership
+    sources.ts(+test)          v2.12 T5: Proof (v2.14 final fix: repoOwned gone), packageOwned, siteOwnedByText, contractOwnership
                                (fail strict), contractConflicts, proposeSource, verifySource, proveLinkedSite,
                                rejectSource, dueSources, previousSignals, readSources (READS_PER_RUN 200)
     builder-score.ts(+test)    v2.12 T6, T8, T9: SCORE_SLICE 0.4, scoreSliceEnd, LATE_HOUR_UTC 22, HOLD,
@@ -1522,8 +1533,9 @@ apps/frontend/
     v212-journey.test.ts       v2.12 T15: the end-to-end journey on its own database (see the
                                architecture guide's v2.12 section); v212-schema.test.ts T1's schema checks;
                                archive.test.ts T13/T14's flags-off checks; card-route.test.ts T11
-    veto.ts(+test)             vetoKey, vetoLink, vetoEntry (FOR SHARE on the run), vetoPost, VETO_ERRORS;
-                               v2.5: bonusVetoKey, bonusReviewLink, vetoBonusEntry (bonus_vetoes)
+    veto.ts(+test)             vetoKey, vetoLink, vetoEntry (FOR SHARE on the run), vetoPost, VETO_ERRORS
+                               (v2.14 final fix: the bonus round branch, bonusVetoKey, bonusReviewLink and vetoBonusEntry are gone;
+                               bonus_vetoes stays, unused; no `pnpm campaign bonus-link`)
     escrow.ts                  read-only escrow client: chain/token config (ESCROW_*, validated by
                                escrowConfigProblem/escrowEnabled, which gate the sponsor tool), builds
                                approve/createCampaign/award transactions; chain reads: chainReader

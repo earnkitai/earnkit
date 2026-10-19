@@ -5649,7 +5649,7 @@ Tables and columns all stay (no destructive migration; CHECK lists unchanged). `
   `x_*` locks (or proveByApp's `repo_hold:<key>`), `person:<root>` ascending, `source_proof:<id>`, installation
   rows by id, profile rows.
 - **Who is the caller.** `connectInstallation` returns the page holding the token's `x_user_id` first, then
-  `builder_id`, then itself; `Caller.x` and `ToolContext.xUserId` carry the X id (set by the MCP route only).
+  `builder_id`, then itself; `Caller.x` carries the X id (the final fix removed the unread `ToolContext.xUserId`).
   `events-redact.mts --login` unbinds the person's installations and deletes their `x_signin_links`.
 - **Migration markers.** `-- v2.14 bind:start/end` in `schema.sql`: S4 first moves the members of every one-click join no
   installation answered back to `from_root`, hides their updates since the join and stamps `detached_at` (no
@@ -5701,7 +5701,8 @@ personal or org. Existing verified sources stay verified and keep counting on th
   else checked live (`appProofLive`: GitHub names an installation, it is one this person proved, and for an org
   repo the prover is still admin; held passes, gone or unknown refuses). A pre-v2.14 proof counts on the Bench but
   never launches, deploys or hosts: the install link is asked. A shared client has no person: no App link, no
-  deploy, no hosting, no coin (`sharedAppProven`, live, fail closed). Deploy caps are per repo owner.
+  deploy, no hosting, no coin (the token gate's `login` is null there; the final fix removed `sharedAppProven` and the
+  pasted sign-in code it relied on). Deploy caps are per repo owner.
 - **Staying true.** The cron's `app_check` step (`appCheckStep`, daily per source, 50 a run) uses `appProofLive`
   through `recheckAppSource`: gone demotes (`app_removed`) and rescores at once. The 90-day org expiry stays for old
   `proof_branch` rows; their re-proof is the App.
@@ -5763,7 +5764,7 @@ table, `bench-reply.ts STATE_COPY` (plus `VARIANT_COPY`); `benchReply` is pure.
   days ("one small thing to ship" never). A held question (find's outcome question, else a submission step) replaces
   the state's question, except signed out, where the sign-in question wins (`signedOutNow`).
 - **Signed in as.** `attachToX` sets `installations.x_signed_in_unseen`; the first Bench reply after it starts with
-  "Signed in as @<handle>." and clears it.
+  "Signed in as @<handle>." and clears it (`takeSignedIn` clears it only with a handle, so a failed read never eats it).
 - **Yeses.** `benchMoveUp` answers `sign_in`, `start`, `install_app`, `other_project`, `repo_behind`, `enter`,
   `raise`, `suggest`; `go_live` and `coin` stay in tools.ts. Stored `build`, `grants` and `grants_later` asks are
   answered "Okay.". `build_offer` still uses the v2.11 short reply (shared clients and pre-profile); the rest of A18
@@ -5782,7 +5783,8 @@ source reads either name, the five tools are always listed, `/leaderboard` is a 
   v2.12.1 views (`ProfileView`, `ProjectCards`, `LeaderboardView`, `HowItWorks`, `where-you-stand.ts` whose kept parts
   are `stand-text.ts`), `make-countable.ts`, the pickup subsystem, the Bench build offer and tip-jar starter offer,
   `llms/v212.txt`.
-- **Kept on purpose.** `bonus-ledger.ts` (indexing, claiming, sweeping), `traction.ts`, `veto.ts`, `bonusLive`,
+- **Kept on purpose.** `bonus-ledger.ts` (indexing, claiming, sweeping), `traction.ts`, `veto.ts` (campaign vetoes only
+  after the final fix), `bonusLive` (coins only after the final fix),
   `main-project.ts fillGithubUser`, `ToolContext.repoCoins`.
 - **Bugs found while deleting** (both lived in the bonus branch): `recordSubmission` stamps `submission_confirmed_at`
   on `builder_submitted: true`; the `entered` event carries the wallet.
@@ -5812,10 +5814,10 @@ source reads either name, the five tools are always listed, `/leaderboard` is a 
 | Variable | Needed for |
 |---|---|
 | `EARNKIT_URL` | The authorize redirect (`iss`), every public link |
-| `X_CLIENT_ID`, `X_CLIENT_SECRET` | Sign in with X at install (unset: anonymous install, as before) |
+| `X_CLIENT_ID`, `X_CLIENT_SECRET` | Hard prerequisite: Sign in with X at install (unset: anonymous install, and the cron alerts `env-missing:<VAR>`) |
 | `EARNKIT_AUTH_SECRET` | The fallback link and the signed-out state |
-| `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY` | The only proof; GitHub App "Redirect on update" on |
-| `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | The sign-in hop of the App install |
+| `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY` | Hard prerequisite: the only proof; GitHub App "Redirect on update" on (the cron alerts when unset or the key doesn't parse) |
+| `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | Hard prerequisite: the sign-in hop of the App install |
 | `EARNKIT_RAISING` | Legal switch for "community round" (off) |
 
 Go-live and rollback are in `v2.14-acceptance-runbook.md`. `app/layout.tsx` loads Funnel Display and Funnel Sans
@@ -5827,7 +5829,46 @@ reserved route.
 - A21: `/claim/wallet` is reachable but linked from nowhere. Link it, or leave it.
 - Shared clients (Grok Bot) get no App links and cannot launch coins. Overrule?
 - Whether to turn on CIMD for Claude and ChatGPT (preflight).
+- Confirm D11: pre-v2.14 agents that reconnect start fresh.
 - `build_offer` is still the v2.11 short reply; the rest of A18.
-- Lawyer review of "community round" (`EARNKIT_RAISING`).
+- Lawyer review of "community round" (`EARNKIT_RAISING`), and of the changed terms (`PROFILES_POINTS`).
 - Arc and Robinhood Chain brand SVGs.
 - The human checks of Task 1 (runbook section 0).
+
+### 11. Final fix (whole-branch review)
+
+- **Terms and agent docs.** `policy.ts PROFILES_POINTS` and `RECORDS_WITH` describe v2.14: the page is made at the X
+  sign-in (install, or the one-time link) and public from then on; the same X is the same page (attached with no
+  question, nothing merged); the read-only App is the only proof, and App repos (private too) are read with
+  short-lived installation tokens never stored; commit and PR titles are stored weekly, a private repo shows facts
+  only until titles are on and turning them off hides (never deletes) them; no GitHub login or repo file is proof.
+  `llms/v213.txt` and the MCP descriptions say the same. `v214-removed.test.ts` 7.7 refuses "claim", "earnkit.txt",
+  "Sign in with GitHub", "proof branch", "only public data" and `signed_in` in all of them (the copy-review 12.1 test
+  lets the legal text say "repo" and "commit").
+- **Shared clients (Ruling T6-2).** Shared clients never get an App link, so the pasted GitHub sign-in code was dead:
+  `signed_in` (tool inputs, aliases, TellInput, LaunchTokenInput, record_submission), `tools.ts sharedLogin`,
+  `github-verify.ts callerLogin` and the code helpers (`codeLine`, `formatCode`, `normalizeCode`), the paste code in
+  `saveVerification` and the App setup page, `repo-proof.ts sharedAppProven` (and `appProofLive`'s login option),
+  `token-gate.ts GateInput.verifiedLogin` (token-launch passes `sharedClient` instead, only to delay keeping a
+  wallet), `DeployDeps.callerLogin`, `SIGN_IN_CODE_NOTE` and `EMAIL_SHARED_NOTE` are gone. A shared client keeps no
+  memory, no per-builder entries, deadline line or weekly email (`EMAIL_SIGN_IN`: "The weekly email isn't available
+  on this agent."), and `tell submitted` / `confirm { project_id }` are noted only. confirm and tell are strict, so
+  they still accept an older agent's `signed_in` ("Not used any more; ignored.") and `mcp.ts run` drops it.
+- **Dead bonus admin.** `veto.ts` keeps campaign vetoes only (no `round` branch, `bonusVetoKey`, `bonusReviewLink`,
+  `vetoBonusEntry`); `pnpm campaign bonus-link` is gone; `cron.ts bonusLive` is true only while an EarnKit coin
+  exists (fees to index and claim), so `BONUS_WALLET_UNSET` no longer fires for builder-bonus programs or rounds.
+- **Unused exports.** `sources.ts repoOwned`, `oauth.ts authorize()` (tests compose `checkAuthorize` + `issueCode`
+  as `authorizeGet` does; `oauth-limits.test.ts` uses the route), `ToolContext.xUserId`. `bindX` stays, marked
+  test-only (production binds through `attachToX`).
+- **No App link without a page.** `tools.ts list_programs` checks `pageHandle` once before `createVerifyLink`, so an
+  anonymous caller's unseen repo never logs an expected refusal as an error.
+- **GitHub budget (fix 8).** `source-readers.ts defaultReaderDeps.ghFetch` skips `GH_RUN_CAP` and the rate watch for
+  a request with an App credential (`appCredential`: `Bearer ghs_...` or the App JWT), so App reads spend the
+  installation's own limit and one installation's headers never stop the run.
+- **Hard prerequisites (fix 9).** `cron.ts missingPrerequisites` (`PREREQ_VARS`): each unset X or GitHub App variable
+  is a `needs_owner` line `env-missing:<VAR>` (or `env-invalid:GITHUB_APP_PRIVATE_KEY`), alerting, on a full run.
+- **Parked minors.** `recordSubmission` writes no `payout_wallet` / `installation_wallets` for a shared client
+  (`keepWallet` false); `takeSignedIn` clears only with a handle; `signedOutNow` reads a database error as signed out
+  (the retry question); `ship-titles.ts cleanTitle` counts letter and digit code points (a CJK character 2), so
+  "修复" survives and "ok" does not; the journey's one-link rule counts bare `earnkit.com/...` links and 12.2 checks
+  two distinct own installations.
