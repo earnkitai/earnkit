@@ -7,7 +7,8 @@ import { fakeGitHub, type FakeCommit, type FakeGitHub } from './fixtures/fake-gi
 import { appEnv, installApp } from './fixtures/app-install';
 import { connectInstallation, saveInstallation } from './installations';
 import { logCards } from './bench-data';
-import { backfillMondays, backfillOnConnect, backfillStep, weeklyFactsStep } from './week-facts';
+import { BACKFILL_PER_RUN, BACKFILL_TRIES_A_DAY, backfillMondays, backfillOnConnect, backfillStep, weeklyFactsStep } from './week-facts';
+import { setShipTitles } from './updates';
 import { attachToX } from './x-install';
 
 /**
@@ -179,4 +180,92 @@ test('B5 anti-backdating: no entry for a week before the repo existed; an unveri
     WHERE source_id IN (SELECT id FROM builder_sources WHERE builder_id = ${q.id} AND kind = 'repo')`;
   assert.deepEqual(await backfillStep(cronNow(), { deadline: Date.now() + 20_000, only: [q.id], ghFetch: q.gh }), { people: 1, rows: 3 });
   assert.deepEqual((await rows(q.id)).filter((r) => r.facts.shipped_code).map((r) => r.week), [MONDAYS[0], MONDAYS[1]]);
+});
+
+/** The weekly job's run for MONDAYS[0]: this week's Monday at 15:30 UTC. */
+const weeklyNow = () => new Date(Date.parse(`${MONDAYS[0]}T15:30:00Z`) + 7 * DAY);
+const dropRows = (id: number) => sql()`DELETE FROM project_updates WHERE builder_id = ${id} AND week IN ${sql()(MONDAYS)}`;
+const liveSignals = (id: number, patch: Record<string, unknown>) => sql()`UPDATE source_live SET signals = signals || ${sql().json(patch as never)}
+  WHERE source_id IN (SELECT id FROM builder_sources WHERE builder_id = ${id} AND kind = 'repo')`;
+
+test('F1 fix round 1: one week rule for both paths: the weekly job writes no shipped_code for a week before the repo existed', db, async () => {
+  // Created this week: last week's commits are backdated (pushed, so the reading is verified).
+  const created = new Date(Math.min(Date.now(), Date.parse(`${MONDAYS[0]}T00:00:00Z`) + 7 * DAY + 1000)).toISOString();
+  const key = `tara${RUN}/fresh`;
+  const p = await connect('tara', key, { private: false, created, commits: [on(MONDAYS[0], 1, 'a', 'Backdated')] });
+  assert.equal((await rows(p.id)).find((r) => r.week === MONDAYS[0])?.facts.shipped_code, undefined, 'the backfill');
+  await dropRows(p.id);
+  await weeklyFactsStep(weeklyNow(), { deadline: Date.now() + 20_000, only: [p.id], ghFetch: p.gh });
+  const w = (await rows(p.id)).find((r) => r.week === MONDAYS[0]);
+  assert.equal(w?.facts.checked, true);
+  assert.equal(w?.facts.shipped_code, undefined, 'the weekly job');
+});
+
+test('F2 fix round 1: a week in commit_counts but not in commit_weeks (the stats endpoint lagging) on a verified reading still gets shipped_code', db, async () => {
+  const key = `umar${RUN}/lag`;
+  const p = await connect('umar', key, { private: false, commits: [on(MONDAYS[0], 1, 'a', 'Add a'), on(MONDAYS[1], 1, 'b', 'Add b'), on(MONDAYS[2], 1, 'c', 'Add c')] });
+  await liveSignals(p.id, { commit_weeks: [], pushes_checked: true });
+  await dropRows(p.id);
+  await backfillOnConnect(p.id, key, new Date(), { deadline: Date.now() + 8_000, ghFetch: p.gh });
+  assert.deepEqual((await rows(p.id)).map((r) => (r.facts.shipped_code as { n: number } | undefined)?.n), [1, 1, 1]);
+  await dropRows(p.id);
+  await weeklyFactsStep(weeklyNow(), { deadline: Date.now() + 20_000, only: [p.id], ghFetch: p.gh });
+  assert.deepEqual((await rows(p.id))[0].facts.shipped_code, { n: 1 });
+});
+
+test('F3 fix round 1: titles_read only after a titles call answered: a token that came back null leaves the week for the catch-up', db, async () => {
+  const key = `vera${RUN}/gone`;
+  const p = await connect('vera', key, { private: false, commits: [on(MONDAYS[0], 1, 'a', 'Add a')] });
+  await dropRows(p.id);
+  // GitHub names no installation for the repo now: appTokenFor is null, no titles call is made.
+  const noInstall = ((input: RequestInfo | URL, init?: RequestInit) =>
+    /\/installation$/.test(new URL(String(input)).pathname) ? Promise.resolve(new Response('{}', { status: 404 })) : p.gh(input, init)) as typeof fetch;
+  await backfillOnConnect(p.id, key, new Date(), { deadline: Date.now() + 8_000, ghFetch: noInstall });
+  const w = (await rows(p.id)).find((r) => r.week === MONDAYS[0])!;
+  assert.deepEqual([w.facts.shipped_code, w.titles, w.facts.titles_read], [{ n: 1 }, [], undefined]);
+  assert.deepEqual(await backfillStep(cronNow(), { deadline: Date.now() + 20_000, only: [p.id], ghFetch: p.gh }), { people: 1, rows: 1 });
+  assert.deepEqual((await rows(p.id)).find((r) => r.week === MONDAYS[0])!.titles, ['Add a']);
+});
+
+test('F4 fix round 1: a private repo\'s weeks: turning titles on clears titles_read, so the catch-up reads the titles once', db, async () => {
+  const key = `wade${RUN}/hidden`;
+  const p = await connect('wade', key, { private: true, commits: [on(MONDAYS[0], 1, 'a', 'Add invoices'), on(MONDAYS[1], 1, 'b', 'Add taxes')] });
+  assert.ok((await rows(p.id)).filter((r) => r.facts.shipped_code).every((r) => r.facts.titles_read === true && r.titles.length === 0));
+  await setShipTitles(p.id, { titles: true }, new Date());
+  assert.ok((await rows(p.id)).every((r) => r.facts.titles_read === undefined));
+  assert.deepEqual(await backfillStep(cronNow(), { deadline: Date.now() + 20_000, only: [p.id], ghFetch: p.gh }), { people: 1, rows: 2 });
+  const got = await rows(p.id);
+  assert.deepEqual(got.filter((r) => r.facts.shipped_code).map((r) => r.titles), [['Add invoices'], ['Add taxes']]);
+  assert.deepEqual(await backfillStep(cronNow(), { deadline: Date.now() + 20_000, only: [p.id], ghFetch: p.gh }), { people: 0, rows: 0 });
+});
+
+test('F5 fix round 1: on a Monday before 15:00 UTC the catch-up leaves the newest week to the weekly job', db, async () => {
+  const key = `xena${RUN}/early`;
+  const p = await connect('xena', key, { private: false, commits: [on(MONDAYS[0], 1, 'a', 'Add a'), on(MONDAYS[1], 1, 'b', 'Add b'), on(MONDAYS[2], 1, 'c', 'Add c')] });
+  await dropRows(p.id);
+  const mondayMorning = new Date(Date.parse(`${MONDAYS[0]}T10:00:00Z`) + 7 * DAY);
+  assert.deepEqual(await backfillStep(mondayMorning, { deadline: Date.now() + 20_000, only: [p.id], ghFetch: p.gh }), { people: 1, rows: 2 });
+  assert.deepEqual((await rows(p.id)).map((r) => r.week), [MONDAYS[1], MONDAYS[2]]);
+  const afternoon = new Date(Date.parse(`${MONDAYS[0]}T15:30:00Z`) + 7 * DAY);
+  assert.deepEqual(await backfillStep(afternoon, { deadline: Date.now() + 20_000, only: [p.id], ghFetch: p.gh }), { people: 1, rows: 1 });
+  assert.deepEqual((await rows(p.id)).map((r) => r.week), MONDAYS);
+});
+
+test('F6 fix round 1: the catch-up takes BACKFILL_PER_RUN projects a run and tries one at most BACKFILL_TRIES_A_DAY times a day', db, async () => {
+  const ids: number[] = [];
+  for (let i = 0; i <= BACKFILL_PER_RUN; i++) {
+    const p = await connect(`cap${i}x`, `cap${i}x${RUN}/many`, { private: false, commits: [on(MONDAYS[0], 1, 'a', 'Add a')] });
+    await dropRows(p.id);
+    ids.push(p.id);
+  }
+  const first = await backfillStep(cronNow(), { deadline: Date.now() + 60_000, only: ids });
+  assert.equal(first.people, BACKFILL_PER_RUN);
+  // Titles keep failing (no ghFetch: never read): each try counts; after BACKFILL_TRIES_A_DAY the project rests till tomorrow.
+  const one = [ids[0]];
+  let tries = 1;
+  while (tries < BACKFILL_TRIES_A_DAY) {
+    assert.equal((await backfillStep(cronNow(), { deadline: Date.now() + 20_000, only: one })).people, 1);
+    tries++;
+  }
+  assert.deepEqual(await backfillStep(cronNow(), { deadline: Date.now() + 20_000, only: one }), { people: 0, rows: 0 });
 });

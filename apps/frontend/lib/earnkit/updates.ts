@@ -9,7 +9,7 @@ import { hit } from './rate-limit';
 import { siteUrl } from './entry-text';
 import { pagePath } from './reserved-routes';
 import { checkUpdate, type OwnLinks } from './update-text';
-import { weekFactsFor } from './week-facts';
+import { backfillMondays, weekFactsFor } from './week-facts';
 import { mondayOf, weekOfMonday } from './weeks';
 
 /**
@@ -134,5 +134,10 @@ export async function setShipTitles(builderId: number, u: { titles?: unknown; on
     if (!app) return { show_to_builder: '', agent_note: TITLES_NO_APP_NOTE };
   }
   await sql()`UPDATE builder_profiles SET ship_titles_at = ${u.titles ? now : null} WHERE builder_id = ${builderId}`;
+  // R13 fix round 1: titles on: the backfill weeks' rows that read no titles (a private repo with titles off) are
+  // read once more by the catch-up (week-facts.ts backfillStep).
+  if (u.titles)
+    await sql()`UPDATE project_updates SET facts = facts - 'titles_read'
+      WHERE builder_id = ${builderId} AND week IN ${sql()(backfillMondays(now))} AND cardinality(titles) = 0 AND facts ? 'titles_read'`;
   return { show_to_builder: u.titles ? UPDATE_LINES.titlesOn : UPDATE_LINES.titlesOff };
 }

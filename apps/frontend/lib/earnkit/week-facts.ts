@@ -1,7 +1,7 @@
 import { sql } from './db';
 import { noteEvent } from './events';
 import { benchConfirmedSql } from './main-project';
-import { countedCommitWeeks, personInputsV2 } from './person-score';
+import { personInputsV2, weekCounts } from './person-score';
 import { COIN_PROGRAM } from './policy-constants';
 import { hit, windowStart } from './rate-limit';
 import { APP_PROOF, appClient } from './repo-proof';
@@ -58,15 +58,17 @@ export async function weekFactsFor(builderId: number, monday: string, now: Date)
   const start = new Date(`${monday}T00:00:00Z`);
   const end = new Date(start.getTime() + 7 * DAY);
   const f: WeekFacts = {};
-  // shipped_code: the main repo's newest good reading (live or daily), its count for the week.
-  const [repo] = await db<{ counts: Record<string, number> | null }[]>`
-    SELECT x.signals->'commit_counts' AS counts FROM builder_sources s
+  // shipped_code: the main repo's newest good reading (live or daily), its count for the week. R13 fix round 1: only a
+  // week the reading counts by the anti-backdating floor (person-score.ts weekCounts), for the weekly job and the
+  // backfill alike; from commit_counts, never commit_weeks (GitHub's stats endpoint lags: 202 gives []).
+  const [repo] = await db<{ counts: Record<string, number> | null; created_at: unknown; pushes_checked: unknown }[]>`
+    SELECT x.signals->'commit_counts' AS counts, x.signals->'created_at' AS created_at, x.signals->'pushes_checked' AS pushes_checked FROM builder_sources s
     JOIN LATERAL ((SELECT l.signals, l.read_at AS at FROM source_live l WHERE l.source_id = s.id AND l.ok)
       UNION ALL (SELECT r.signals, r.day::timestamptz AS at FROM source_readings r WHERE r.source_id = s.id AND r.ok ORDER BY r.day DESC LIMIT 1)
       ORDER BY at DESC LIMIT 1) x ON true
     WHERE s.builder_id = ${builderId} AND s.kind = 'repo' AND s.state = 'verified' AND lower(s.project_key) = lower(${p.key})`;
   const n = Number(repo?.counts?.[week] ?? 0);
-  if (n > 0) f.shipped_code = { n };
+  if (n > 0 && weekCounts(repo!, week, now)) f.shipped_code = { n };
   // went_live: the first live moment ever falls in this week, and no week was said to before.
   const [live] = await db<{ first: Date | null; said: boolean }[]>`
     SELECT LEAST(
@@ -149,32 +151,35 @@ export async function weekTitles(id: number, key: string, monday: string, now: D
  * R13: one finished week of the person's one project, as the weekly job writes it: the week's facts
  * (weekFactsFor), its titles when it shipped code (weekTitles), the row (upsertWeekFacts, facts.checked), then one
  * dated event per fact (dedupe key `<type>:<project_key>:<week>`). Shared by the weekly job and the backfill.
- * The backfill's options (the weekly job passes none):
- * - `counted`: the commit weeks the reading counts (person-score.ts countedCommitWeeks); a week outside it gets no
- *   shipped_code (anti-backdating: before the repo existed).
+ The anti-backdating floor is weekFactsFor's (one rule for both). The backfill's options (the weekly job passes none):
  * - `deadline`: titles are fetched only before it (the caller's ghFetch carries the per-call abort).
- * - `mark`: a week with shipped code whose titles read completed (every GitHub answer ok or 404) is stamped
- *   facts.titles_read, so the catch-up never reads it again; a failed or skipped read leaves it for the catch-up.
+ * - `mark`: a week with shipped code whose titles read completed is stamped facts.titles_read, so the catch-up never
+ *   reads it again. Completed: a titles call on the repo answered ok (GET /repos/{key} for the private check, or its
+ *   commits and pulls) and no call failed (an answer other than ok or 404, or a throw). A token or client that came
+ *   back null without such a call, or a failed or skipped read, leaves it for the catch-up.
  * `wrote`: false when another builder's row holds the week (nothing written, no events).
  */
 export async function writeWeek(
   p: { id: number; key: string }, monday: string, now: Date,
-  d: { ghFetch?: typeof fetch; counted?: Set<string>; deadline?: number; mark?: boolean } = {},
+  d: { ghFetch?: typeof fetch; deadline?: number; mark?: boolean } = {},
 ): Promise<{ wrote: boolean; facts: WeekFacts; titled: boolean }> {
   const { id, key } = p;
   const week = weekOfMonday(monday)!;
   const f = await weekFactsFor(id, monday, now);
-  if (d.counted && !d.counted.has(week)) delete f.shipped_code;
   // v2.14 spec 3 (A11): the week's titles (weekTitles). Fix round 1: a failure there never stops the facts.
   let titles: string[] = [];
   let titled = !f.shipped_code;
   if (f.shipped_code && d.ghFetch && (d.deadline === undefined || Date.now() < d.deadline)) {
     const base = d.ghFetch;
     let failed = false;
+    let read = false;
+    const k = key.toLowerCase();
+    const repoPaths = new Set([`/repos/${k}`, `/repos/${k}/commits`, `/repos/${k}/pulls`]);
     const tracked = (async (input: RequestInfo | URL, init?: RequestInit) => {
       try {
         const res = await base(input, init);
         if (!res.ok && res.status !== 404) failed = true;
+        if (res.ok && repoPaths.has(new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url).pathname.toLowerCase())) read = true;
         return res;
       } catch (err) {
         failed = true;
@@ -186,7 +191,7 @@ export async function writeWeek(
       failed = true;
       return [];
     });
-    titled = !failed;
+    titled = read && !failed;
   }
   const facts: WeekFacts = { ...f, checked: true, ...(d.mark && f.shipped_code && titled && { titles_read: true as const }) };
   if (!(await upsertWeekFacts(id, key, monday, facts, titles))) return { wrote: false, facts, titled };
@@ -271,7 +276,6 @@ export async function backfillWeeks(
 ): Promise<{ rows: number; done: boolean }> {
   const reading = await readingOf(p.id, p.key);
   if (!reading || reading.pushes_checked === false) return { rows: 0, done: false };
-  const counted = new Set(countedCommitWeeks(reading, now));
   const mondays = o.mondays ?? backfillMondays(now);
   const have = await sql()<{ week: string; builder_id: number; done: boolean }[]>`
     SELECT week::text AS week, builder_id::int AS builder_id,
@@ -286,7 +290,7 @@ export async function backfillWeeks(
       done = false;
       break;
     }
-    const w = await writeWeek(p, monday, now, { ghFetch: o.ghFetch, counted, deadline: o.deadline, mark: true });
+    const w = await writeWeek(p, monday, now, { ghFetch: o.ghFetch, deadline: o.deadline, mark: true });
     if (w.wrote) rows++;
     if (w.wrote && w.facts.shipped_code && !w.titled) done = false;
   }

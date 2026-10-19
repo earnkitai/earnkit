@@ -6030,9 +6030,10 @@ Spec: R13 of `docs/design-docs-and-implementation-plans/scoring-and-clarity.md`.
 - **One per-week body.** `week-facts.ts writeWeek(project, monday, now, deps)` is what the weekly job did per project:
   `weekFactsFor`, `weekTitles` for a week with shipped code, `upsertWeekFacts` with `facts.checked`, then one dated
   event per fact (dedupe key `<type>:<project_key>:<week>`). `weeklyFactsStep` calls it with `{ ghFetch }` only, so
-  its rows are unchanged. The backfill passes three more options: `counted` (a week outside the reading's counted
-  commit weeks gets no `shipped_code`), `deadline` (titles only before it) and `mark` (a completed titles read is
-  stamped `facts.titles_read`).
+  its rows are unchanged apart from the shared week rule below. The backfill passes two more options: `deadline`
+  (titles only before it) and `mark` (a completed titles read is stamped `facts.titles_read`: a titles call on the
+  repo, GET /repos/{key} or its commits and pulls, answered ok and none failed; a null token with no such call is not
+  completed).
 - **At connect.** `repo-proof.ts proveByApp` notes inside its transaction whether this is the builder's first App proof
   of the source (its proof was not `github_app` before; a re-prove after a removal keeps `github_app`, so it doesn't
   count). After the connect read and the rescore, a first proof calls `backfillOnConnect`, which acts only when the
@@ -6042,9 +6043,12 @@ Spec: R13 of `docs/design-docs-and-implementation-plans/scoring-and-clarity.md`.
   installation lookup and token mint, plus one GET /repos for a repo not read public lately. They are fetched only
   while the budget lasts.
 - **Anti-backdating.** Facts come from the newest good repo reading (`weekFactsFor`'s). Nothing is written while that
-  reading is unverified (`pushes_checked: false`), or when there is no reading at all. A verified reading's weeks pass
-  through `person-score.ts countedCommitWeeks`, the same helper `personInputsV2` uses (creation floor; an unverified
-  reading's last 4 weeks), so a week before the repo existed gets a checked row with no commit fact.
+  reading is unverified (`pushes_checked: false`), or when there is no reading at all. Fix round 1: one week rule for
+  both the weekly job and the backfill, inside `weekFactsFor`: a week gets `shipped_code` from `commit_counts` only
+  when `person-score.ts weekCounts` passes (at or after the repo's creation week; an unverified reading, its last 4
+  weeks; a verified reading's counts are already push-backed by `storedCommits`). It never reads `commit_weeks`
+  membership, since GitHub's stats endpoint can lag (202 gives []). `countedCommitWeeks` (the score) uses the same
+  `weekCounts`. A week before the repo existed gets a checked row with no commit fact.
 - **No commits, no card.** As in the weekly job, a finished week with no commits gets a `{ checked: true }` row and no
   card (`bench-data.ts logCards` shows a week only with text, titles or facts). The Started card is a different week and
   stays.
@@ -6060,7 +6064,8 @@ Spec: R13 of `docs/design-docs-and-implementation-plans/scoring-and-clarity.md`.
   connect or the catch-up again writes no new rows, events or titles.
 - **Private repos.** Titles follow `weekTitles`' existing rule. A private repo with titles off reads no commits or
   pulls (one GET /repos check), so it gets facts only. That read counts as completed, so `titles_read` is set and the
-  catch-up doesn't come back.
+  catch-up doesn't come back. Turning titles on (`updates.ts setShipTitles`) clears `titles_read` on the backfill
+  weeks' rows that have no titles, so the catch-up reads them once.
 - **Tests.** `backfill.test.ts` covers these cases through the real App connect:
   - 3 rows in the weekly job's format: the newest row equals `weeklyFactsStep`'s apart from `titles_read`.
   - A re-prove, the backfill and the catch-up run again: no duplicates.

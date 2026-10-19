@@ -1390,7 +1390,9 @@ apps/frontend/
                                by weeklyFactsStep and the backfill), BACKFILL_WEEKS 3, BACKFILL_PER_RUN 20,
                                BACKFILL_TRIES_A_DAY 3, backfillMondays, backfillWeeks, backfillOnConnect (repo-proof.ts
                                proveByApp, first proof only), backfillStep (cron step backfill, after weekly; facts
-                               titles_read marks a completed titles read); tests backfill.test.ts
+                               titles_read marks a completed titles read); fix round 1: weekFactsFor's shipped_code
+                               passes person-score.ts weekCounts (one floor for both paths), setShipTitles clears
+                               titles_read on the backfill weeks; tests backfill.test.ts
     ship-titles.ts(+test)      v2.14 T8: TITLES_MAX 3, TITLE_MAX 80, cleanTitle (final fix 13: TITLE_MIN 3 by letter and digit
                                code points, a Han, kana or Hangul character counting 2), shipTitles (checkUpdate on each),
                                readWeekTitles (2 calls), namesRepo, titlesShown (S9: a private repo's titles show only

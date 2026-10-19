@@ -98,16 +98,21 @@ const newest = (...ds: (Date | null | undefined)[]): Date | null =>
   ds.reduce<Date | null>((m, d) => (d && Number.isFinite(d.getTime()) && (!m || d > m) ? d : m), null);
 const WEEK = /^(\d{4})-W(\d{2})$/;
 /**
- * The commit weeks one repo reading counts, by the anti-backdating rules: never a week before the repo's
- * created_at (rule 2), and an unverified reading (pushes_checked false, fix round 3) only its last 4 weeks.
- * personInputsV2 and the ship-log backfill (week-facts.ts backfillWeeks) both use it. Pure.
+ * The anti-backdating floor of one repo reading: whether it counts commit week `wk`. Never a week before the repo's
+ * created_at (rule 2); an unverified reading (pushes_checked false, fix round 3) only its last 4 weeks. A verified
+ * reading's commit_weeks and commit_counts are already push-backed (sources.ts storedCommits), so nothing more.
+ * The score (countedCommitWeeks) and the ship log (week-facts.ts weekFactsFor, so the weekly job and the backfill)
+ * share it. Pure.
  */
-export function countedCommitWeeks(g: { commit_weeks?: unknown; created_at?: unknown; pushes_checked?: unknown }, now: Date): string[] {
+export function weekCounts(g: { created_at?: unknown; pushes_checked?: unknown }, wk: string, now: Date): boolean {
+  if (!WEEK.test(wk)) return false;
   const created = date(g.created_at);
-  const born = created ? isoWeekOf(created) : null;
-  const unverified = g.pushes_checked === false ? isoWeekOf(new Date(now.getTime() - 3 * WEEK_MS)) : null;
-  return list<unknown>(g.commit_weeks).filter((wk): wk is string =>
-    typeof wk === 'string' && WEEK.test(wk) && (!born || wk >= born) && (!unverified || wk >= unverified));
+  if (created && wk < isoWeekOf(created)) return false;
+  return g.pushes_checked !== false || wk >= isoWeekOf(new Date(now.getTime() - 3 * WEEK_MS));
+}
+/** The commit weeks one repo reading counts (weekCounts on its commit_weeks). Pure. */
+export function countedCommitWeeks(g: { commit_weeks?: unknown; created_at?: unknown; pushes_checked?: unknown }, now: Date): string[] {
+  return list<unknown>(g.commit_weeks).filter((wk): wk is string => typeof wk === 'string' && weekCounts(g, wk, now));
 }
 /** The last moment of an ISO week ('2026-W40'), never after `now`; null for a malformed week. Pure. */
 export function weekEnd(week: string, now: Date): Date | null {
