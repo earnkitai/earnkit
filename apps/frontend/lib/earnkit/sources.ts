@@ -347,12 +347,6 @@ export function withPastWeeks(weeks: string[], prev: unknown, now: Date): string
   return [...new Set([...fresh, ...(had ?? [])])].filter((w) => w >= floor).sort();
 }
 
-/** Fix round 2 (rule 4): GitHub's push activity a first reading reads, at most this many pages of 100. */
-export const ACTIVITY_PAGES = 2;
-/** Fix round 3: an unverified reading's push check is tried this many times, then the creation floor alone stands. */
-export const PUSH_TRIES = 3;
-/** Fix round 3: with the pages run out, older weeks are judged only when the oldest push seen is at least this old. */
-const FLOOD_MS = 28 * DAY_MS;
 /** The activity types that land commits on a branch. */
 const LANDED = new Set(['push', 'force_push', 'branch_creation', 'pr_merge', 'merge_queue_merge']);
 /** The ISO week after `week` ('2026-W42' -> '2026-W43'). Pure. */
@@ -363,39 +357,46 @@ const nextWeek = (week: string): string | null => {
   const monday = jan4 - ((new Date(jan4).getUTCDay() + 6) % 7) * DAY_MS + (Number(m[2]) - 1) * 7 * DAY_MS;
   return isoWeek(new Date(monday + 7 * DAY_MS));
 };
-type Pushes = { pushes: string[]; covered: boolean };
+/** `covered`: the newest page listed everything. Else `oldest`: the oldest landing GitHub still keeps (null: none read). */
+type Pushes = { pushes: string[]; covered: boolean; oldest?: string | null };
 /**
- * Fix rounds 2 and 3 (rule 4): the weeks GitHub's push record backs: a commit week counts when a push
- * landed that week or the following one. With the pages run out (`covered` false), weeks older than the
- * oldest push seen are kept only when that push is at least 4 weeks old (else a flood of events hid
- * them). Null when the record can't judge (no record, nothing listed, or such a flood). Pure.
+ * Fix rounds 2 to 4 (rule 4): the weeks GitHub's push record backs: a commit week counts when a push
+ * landed that week or the following one. When the newest page did not list everything (`covered` false),
+ * a week older than that page counts only from the week of the oldest landing GitHub keeps (fix round 4:
+ * backdated weeks before the first real push never count, whatever flooded the page). Null when the
+ * record can't judge (no record, no landing listed, or no oldest landing read). Pure.
  */
-export function pushedWeeks(weeks: string[], record: Pushes | null, now: Date): string[] | null {
+export function pushedWeeks(weeks: string[], record: Pushes | null): string[] | null {
   const times = (record?.pushes ?? []).map((t) => Date.parse(t)).filter(Number.isFinite);
   if (!record || times.length === 0) return null;
-  const oldestAt = Math.min(...times);
-  if (!record.covered && now.getTime() - oldestAt < FLOOD_MS) return null;
   const landed = new Set(times.map((t) => isoWeek(new Date(t))));
-  const oldest = isoWeek(new Date(oldestAt));
-  return weeks.filter((w) => landed.has(w) || landed.has(nextWeek(w) ?? '') || (!record.covered && w < oldest));
+  const backed = (w: string) => landed.has(w) || landed.has(nextWeek(w) ?? '');
+  if (record.covered) return weeks.filter(backed);
+  const floorAt = Date.parse(record.oldest ?? '');
+  if (!Number.isFinite(floorAt)) return null;
+  const seen = isoWeek(new Date(Math.min(...times)));
+  const floor = isoWeek(new Date(floorAt));
+  return weeks.filter((w) => backed(w) || (w < seen && w >= floor));
 }
 
+const landings = (rows: { timestamp?: unknown; activity_type?: unknown }[]) =>
+  rows.flatMap((r) => (typeof r?.timestamp === 'string' && typeof r.activity_type === 'string' && LANDED.has(r.activity_type) ? [r.timestamp] : []));
 /**
- * Fix round 2 (rule 4): the push times of `key` from GET /repos/{key}/activity (the endpoint takes one
- * activity_type a call, so the landing types are kept here), up to ACTIVITY_PAGES pages, through `get`
- * (the App's installation client when installed, else EarnKit's reader). Null on any failure.
- * `covered`: whether the last page came back short (the whole list seen).
+ * Fix rounds 2 to 4 (rule 4): the push times of `key` from GET /repos/{key}/activity (the endpoint takes one
+ * activity_type a call, so the landing types are kept here), through `get` (the App's installation client when
+ * installed, else EarnKit's reader). One page of the newest 100; when it is full, one more call
+ * (direction=asc) for the oldest landing GitHub keeps. Null on any failure of the first call.
  */
 export async function readPushes(key: string, get: <T>(path: string) => Promise<T | null>): Promise<Pushes | null> {
-  const pushes: string[] = [];
+  type Row = { timestamp?: unknown; activity_type?: unknown };
   try {
-    for (let page = 1; page <= ACTIVITY_PAGES; page++) {
-      const rows = await get<{ timestamp?: unknown; activity_type?: unknown }[]>(`/repos/${key}/activity?per_page=100&page=${page}`);
-      if (!Array.isArray(rows)) return page === 1 ? null : { pushes, covered: false };
-      for (const r of rows) if (typeof r?.timestamp === 'string' && typeof r.activity_type === 'string' && LANDED.has(r.activity_type)) pushes.push(r.timestamp);
-      if (rows.length < 100) return { pushes, covered: true };
-    }
-    return { pushes, covered: false };
+    const rows = await get<Row[]>(`/repos/${key}/activity?per_page=100`);
+    if (!Array.isArray(rows)) return null;
+    const pushes = landings(rows);
+    if (rows.length < 100) return { pushes, covered: true };
+    const asc = await get<Row[]>(`/repos/${key}/activity?direction=asc&per_page=100`).catch(() => null);
+    const old = (Array.isArray(asc) ? landings(asc) : []).map((t) => Date.parse(t)).filter(Number.isFinite);
+    return { pushes, covered: false, oldest: old.length ? new Date(Math.min(...old)).toISOString() : null };
   } catch {
     return null;
   }
@@ -404,37 +405,32 @@ export async function readPushes(key: string, get: <T>(path: string) => Promise<
 const weekList = (x: unknown) => (Array.isArray(x) ? x.filter((w): w is string => typeof w === 'string' && WEEK.test(w)) : []);
 const countMap = (x: unknown) => (x && typeof x === 'object' && !Array.isArray(x) ? (x as Record<string, number>) : {});
 /**
- * Fix rounds 2 and 3: a repo reading's commit weeks and counts as stored, with its push check.
+ * Fix rounds 2 to 4: a repo reading's commit weeks and counts as stored, with its push check.
  * - After a verified reading: only this week and last week can be new (rule 3); `pushes_checked: true`.
  * - Otherwise (the first reading, or the previous one unverified) the weeks as read, joined with the unverified
  *   previous ones, are judged by GitHub's push record (rule 4): backed weeks only, `pushes_checked: true`.
- * - No judgment (the call failed, listed nothing, was cut by the deadline, or a flood): `pushes_checked: false`
- *   and `push_tries`; the score then counts only its last 4 weeks (never zero) and the next read tries again.
- *   After PUSH_TRIES tries the weeks stand on the creation floor alone (`pushes_checked: true`). Pure.
+ * - No judgment (the call failed, listed nothing, or was cut or skipped by the deadline): `pushes_checked: false`;
+ *   the score then counts only its last 4 weeks (never zero) until a later read verifies it. Pure.
  */
 export function storedCommits(
   r: { commit_weeks: string[]; commit_counts?: Record<string, number> }, prev: unknown, now: Date, pushes: Pushes | null,
-): { commit_weeks: string[]; commit_counts: Record<string, number>; pushes_checked: boolean; push_tries?: number } {
+): { commit_weeks: string[]; commit_counts: Record<string, number>; pushes_checked: boolean } {
   if (!needsPushCheck(prev))
     return { commit_weeks: withPastWeeks(r.commit_weeks, prev, now), commit_counts: withPastCounts(r.commit_counts ?? {}, prev, now), pushes_checked: true };
-  const p = prev as { commit_weeks?: unknown; commit_counts?: unknown; push_tries?: unknown } | null;
+  const p = prev as { commit_weeks?: unknown; commit_counts?: unknown } | null;
   const raw = withPastWeeks([...r.commit_weeks, ...weekList(p?.commit_weeks)], null, now);
   const rawCounts = withPastCounts({ ...countMap(p?.commit_counts), ...(r.commit_counts ?? {}) }, null, now);
-  const backed = pushedWeeks(raw, pushes, now);
-  if (backed) {
-    const keep = new Set(backed);
-    return { commit_weeks: backed, commit_counts: Object.fromEntries(Object.entries(rawCounts).filter(([w]) => keep.has(w))), pushes_checked: true };
-  }
-  const tries = (typeof p?.push_tries === 'number' ? p.push_tries : 0) + 1;
-  if (tries >= PUSH_TRIES) return { commit_weeks: raw, commit_counts: rawCounts, pushes_checked: true };
-  return { commit_weeks: raw, commit_counts: rawCounts, pushes_checked: false, push_tries: tries };
+  const backed = pushedWeeks(raw, pushes);
+  if (!backed) return { commit_weeks: raw, commit_counts: rawCounts, pushes_checked: false };
+  const keep = new Set(backed);
+  return { commit_weeks: backed, commit_counts: Object.fromEntries(Object.entries(rawCounts).filter(([w]) => keep.has(w))), pushes_checked: true };
 }
 
 /**
  * Fix round 2 (rule 4): the push times of a source's repo for its first reading, through the App's installation
  * client when the person installed it on the repo, else EarnKit's reader (public repos). Null on any failure.
  */
-export async function firstPushes(s: { builder_id: number; ref: string }, d: ReaderDeps): Promise<{ pushes: string[]; covered: boolean } | null> {
+export async function firstPushes(s: { builder_id: number; ref: string }, d: ReaderDeps): Promise<Pushes | null> {
   const key = s.ref.toLowerCase().replace(/^(https?:\/\/)?(www\.)?github\.com\//, '');
   try {
     const app = d.ghFetch ? await (await import('./repo-proof')).appClient(s.builder_id, key, d.ghFetch) : null;

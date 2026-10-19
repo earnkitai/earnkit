@@ -9,8 +9,11 @@ export type FakePull = { number: number; title: string; merged_at: string | null
 export type FakeRepo = {
   id: number; owner: string; ownerType?: 'User' | 'Organization'; private?: boolean; fork?: boolean; template?: boolean;
   installation?: number | null; admins?: string[]; commits?: FakeCommit[]; pulls?: FakePull[];
-  /** Fix round 2: the push times GitHub's /activity lists (default: one push at each commit's date); null answers 500. */
-  pushes?: string[] | null; created?: string;
+  /**
+   * Fix rounds 2 and 4: the landings GitHub's /activity lists (default: one push at each commit's date), a time
+   * (a push) or a time with its activity type; null answers 500.
+   */
+  pushes?: (string | { at: string; type: string })[] | null; created?: string;
 };
 /** `routed`: false when no fake route answered (a 404 'fake: not routed'): a test can assert every call was one it fakes (T12 D3). */
 export type FakeGitHub = typeof fetch & { calls: { method: string; path: string; auth: string | null; routed: boolean }[]; repos: Record<string, FakeRepo> };
@@ -78,10 +81,13 @@ export function fakeGitHub(repos: Record<string, FakeRepo>): FakeGitHub {
       const r = repos[m[1].toLowerCase()];
       if (!r || (r.private && r.installation !== inst)) return json(404, {});
       if (r.pushes === null) return json(500, {});
-      const all = [...(r.pushes ?? (r.commits ?? []).map((c) => c.date))].sort().reverse();
+      // Newest first; direction=asc oldest first. Cursor paging (Link header) is not faked: EarnKit reads one page.
+      const all = (r.pushes ?? (r.commits ?? []).map((c) => c.date))
+        .map((x) => (typeof x === 'string' ? { at: x, type: 'push' } : x))
+        .sort((a, b) => b.at.localeCompare(a.at));
+      if (url.searchParams.get('direction') === 'asc') all.reverse();
       const per = Number(url.searchParams.get('per_page') ?? 30);
-      const page = Number(url.searchParams.get('page') ?? 1);
-      return json(200, all.slice((page - 1) * per, page * per).map((timestamp, i) => ({ id: i, timestamp, activity_type: 'push', ref: 'refs/heads/main' })));
+      return json(200, all.slice(0, per).map((x, i) => ({ id: i, timestamp: x.at, activity_type: x.type, ref: 'refs/heads/main' })));
     }
     if ((m = /^\/repos\/([^/]+\/[^/]+)\/pulls$/.exec(p))) {
       const r = repos[m[1].toLowerCase()];

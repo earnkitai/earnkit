@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { PERSON_GITHUB_QUERY, OWNED_REPOS_QUERY } from './person-github';
 import { readPersonLive } from './person-score';
-import { PUSH_TRIES, needsPushCheck, pushedWeeks, readPushes, readSources, storedCommits, withPastCounts, withPastWeeks } from './sources';
+import { needsPushCheck, pushedWeeks, readPushes, readSources, storedCommits, withPastCounts, withPastWeeks } from './sources';
 import { discover } from './discovery';
 import type { ReaderDeps } from './source-readers';
 
@@ -69,52 +69,52 @@ test('3.1b fix round 2 (anti-backdating rule 3): after a good reading, a new rea
   assert.deepEqual(withPastWeeks(['2026-W33'], { private: false }, now), ['2026-W33']);
 });
 
-test('3.1c fix rounds 2 and 3 (rule 4): a reading is verified by GitHub\'s push record; no record, nothing listed or a flood leave it unverified (last 4 weeks), retried up to 3 times', () => {
+test('3.1c fix rounds 2 to 4 (rule 4): a reading is verified by GitHub\'s push record; no record or nothing listed leave it unverified (last 4 weeks) until a later check verifies it', () => {
   const now = new Date('2026-10-14T00:00:00Z'); // 2026-W42
   const weeks = ['2026-W30', '2026-W39', '2026-W40', '2026-W41', '2026-W42'];
-  const rec = (pushes: string[], covered = true) => ({ pushes, covered });
+  const rec = (pushes: string[], covered = true, oldest?: string | null) => ({ pushes, covered, oldest });
   // All pushed on Oct 13 (W42): only W42 and W41 count.
-  assert.deepEqual(pushedWeeks(weeks, rec(['2026-10-13T10:00:00Z']), now), ['2026-W41', '2026-W42']);
-  assert.deepEqual(pushedWeeks(weeks, rec(['2026-10-13T10:00:00Z', '2026-09-30T10:00:00Z']), now), ['2026-W39', '2026-W40', '2026-W41', '2026-W42']);
-  assert.equal(pushedWeeks(weeks, null, now), null, 'the endpoint failed or the deadline cut it');
-  assert.equal(pushedWeeks(weeks, rec([]), now), null, 'nothing listed');
-  // The pages ran out: older weeks are judged only when the oldest push seen is 4+ weeks old (else a flood hid them).
-  assert.equal(pushedWeeks(weeks, rec(['2026-10-13T10:00:00Z', '2026-10-01T00:00:00Z'], false), now), null, 'a flood of recent events');
-  assert.deepEqual(pushedWeeks(weeks, rec(['2026-10-13T10:00:00Z', '2026-09-10T00:00:00Z'], false), now), ['2026-W30', '2026-W41', '2026-W42']);
+  assert.deepEqual(pushedWeeks(weeks, rec(['2026-10-13T10:00:00Z'])), ['2026-W41', '2026-W42']);
+  assert.deepEqual(pushedWeeks(weeks, rec(['2026-10-13T10:00:00Z', '2026-09-30T10:00:00Z'])), ['2026-W39', '2026-W40', '2026-W41', '2026-W42']);
+  assert.equal(pushedWeeks(weeks, null), null, 'the endpoint failed or the deadline cut it');
+  assert.equal(pushedWeeks(weeks, rec([])), null, 'nothing listed');
+  // Fix round 4: the newest page is full: weeks older than it count only from the oldest landing GitHub keeps.
+  assert.deepEqual(pushedWeeks(weeks, rec(['2026-10-13T10:00:00Z', '2026-10-01T00:00:00Z'], false, '2026-10-01T00:00:00Z')), ['2026-W39', '2026-W40', '2026-W41', '2026-W42'], 'a flood: nothing before the first real push');
+  assert.deepEqual(pushedWeeks(weeks, rec(['2026-10-13T10:00:00Z'], false, '2026-10-13T09:00:00Z')), ['2026-W41', '2026-W42'], 'old age of the flood does not lift the floor');
+  assert.deepEqual(pushedWeeks(weeks, rec(['2026-10-13T10:00:00Z', '2026-09-10T00:00:00Z'], false, '2026-07-20T00:00:00Z')), ['2026-W30', '2026-W41', '2026-W42'], 'real old pushes keep the history older than the page');
+  assert.deepEqual(pushedWeeks(weeks, rec(['2026-10-13T10:00:00Z', '2026-09-10T00:00:00Z'], false, '2026-08-01T00:00:00Z')), ['2026-W41', '2026-W42'], 'W30 is before the oldest landing');
+  assert.equal(pushedWeeks(weeks, rec(['2026-10-13T10:00:00Z'], false, null)), null, 'no oldest landing read');
   // storedCommits: verified, then rule 3 only.
   const first = storedCommits({ commit_weeks: weeks, commit_counts: { '2026-W30': 5, '2026-W42': 2 } }, null, now, rec(['2026-10-13T10:00:00Z']));
   assert.deepEqual(first, { commit_weeks: ['2026-W41', '2026-W42'], commit_counts: { '2026-W42': 2 }, pushes_checked: true });
   assert.equal(needsPushCheck(first), false);
   assert.deepEqual(storedCommits({ commit_weeks: weeks }, first, now, null).commit_weeks, ['2026-W41', '2026-W42'], 'no new past weeks after a verified reading');
-  // Unverified: weeks kept as read, tries counted; it is no rule 3 baseline and is checked again.
+  // Unverified: weeks kept as read; it is no rule 3 baseline and is checked again, with no fallback to all weeks.
   const u1 = storedCommits({ commit_weeks: weeks }, null, now, null);
-  assert.deepEqual([u1.pushes_checked, u1.push_tries, u1.commit_weeks], [false, 1, weeks]);
+  assert.deepEqual(u1, { commit_weeks: weeks, commit_counts: {}, pushes_checked: false });
   assert.equal(needsPushCheck(u1), true);
-  const u2 = storedCommits({ commit_weeks: ['2026-W42'] }, u1, now, rec([]));
-  assert.deepEqual([u2.pushes_checked, u2.push_tries, u2.commit_weeks], [false, 2, weeks], 'the earlier unverified weeks are kept');
-  const v = storedCommits({ commit_weeks: ['2026-W42'] }, u2, now, rec(['2026-10-13T10:00:00Z']));
+  let u = u1;
+  for (let i = 0; i < 5; i++) u = storedCommits({ commit_weeks: ['2026-W42'] }, u, now, i % 2 ? null : rec([]));
+  assert.deepEqual([u.pushes_checked, u.commit_weeks], [false, weeks], 'still unverified after many failed checks; the earlier weeks are kept');
+  const v = storedCommits({ commit_weeks: ['2026-W42'] }, u, now, rec(['2026-10-13T10:00:00Z']));
   assert.deepEqual([v.pushes_checked, v.commit_weeks], [true, ['2026-W41', '2026-W42']], 'a later check verifies');
-  // The third failed try gives up: the creation floor alone (all weeks), verified from then on.
-  const u3 = storedCommits({ commit_weeks: weeks }, u2, now, null);
-  assert.deepEqual([u3.pushes_checked, u3.push_tries, u3.commit_weeks], [true, undefined, weeks]);
-  assert.equal(PUSH_TRIES, 3);
 });
 
-test('3.1d fix rounds 2 and 3: readPushes reads at most 2 pages of /activity, landing events only (push, force push, branch creation, merges), null on a failure', async () => {
-  const pages: Record<number, unknown> = {
-    1: Array.from({ length: 100 }, (_, i) => ({ timestamp: `2026-10-${String(1 + (i % 9)).padStart(2, '0')}T00:00:00Z`, activity_type: i === 0 ? 'branch_creation' : 'push' })),
-    2: Array.from({ length: 100 }, () => ({ timestamp: '2026-09-01T00:00:00Z', activity_type: 'pr_merge' })),
-    3: [{ timestamp: '2026-01-01T00:00:00Z', activity_type: 'push' }],
-  };
+test('3.1d fix rounds 2 to 4: readPushes reads one page of /activity, then the oldest landing (direction=asc) when it is full; landing events only; null on a failure', async () => {
+  const full = Array.from({ length: 100 }, (_, i) => ({ timestamp: `2026-10-${String(1 + (i % 9)).padStart(2, '0')}T00:00:00Z`, activity_type: i === 0 ? 'branch_creation' : 'push' }));
+  const asc = [{ timestamp: '2026-01-01T00:00:00Z', activity_type: 'branch_deletion' }, { timestamp: '2026-02-01T00:00:00Z', activity_type: 'pr_merge' }, { timestamp: '2026-03-01T00:00:00Z', activity_type: 'push' }];
   const asked: string[] = [];
   const get = async <T,>(path: string): Promise<T | null> => {
     asked.push(path);
-    return (pages[Number(/[?&]page=(\d+)/.exec(path)![1])] ?? null) as T;
+    return (path.includes('direction=asc') ? asc : full) as T;
   };
   const r = await readPushes('lee/app', get);
-  assert.equal(asked.length, 2, 'two pages at most');
-  assert.equal(r!.pushes.length, 200, 'a branch creation lands commits too (fix round 3)');
-  assert.equal(r!.covered, false);
+  assert.deepEqual(asked, ['/repos/lee/app/activity?per_page=100', '/repos/lee/app/activity?direction=asc&per_page=100']);
+  assert.equal(r!.pushes.length, 100, 'a branch creation lands commits too (fix round 3)');
+  assert.deepEqual([r!.covered, r!.oldest], [false, '2026-02-01T00:00:00.000Z']);
+  // The oldest-landing call fails: no floor (the reading stays unverified).
+  const r2 = await readPushes('lee/app', async <T,>(path: string) => (path.includes('direction=asc') ? null : full) as T);
+  assert.deepEqual([r2!.covered, r2!.oldest], [false, null]);
   assert.deepEqual(await readPushes('lee/app', async () => null), null);
   assert.deepEqual(await readPushes('lee/app', async () => { throw new Error('x'); }), null);
   assert.deepEqual(await readPushes('lee/app', async <T,>() => [{ timestamp: '2026-10-01T00:00:00Z', activity_type: 'push' }, { timestamp: '2026-10-02T00:00:00Z', activity_type: 'branch_deletion' }, { timestamp: '2026-10-03T00:00:00Z' }] as T), { pushes: ['2026-10-01T00:00:00Z'], covered: true });

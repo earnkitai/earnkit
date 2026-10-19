@@ -957,7 +957,7 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
       // An organization's contributors (the top-contributor rule) come from the daily read (v2.13.3: or the App's read).
       const contributors = r.owner_type === 'Organization' && !app ? list<Who>(daily?.contributors) : r.contributors;
       // Fix round 2 (anti-backdating): the newest good reading, daily or live, decides what is new; a first
-      // reading reads GitHub's push times (rule 4, within this read's deadline).
+      // reading reads GitHub's push times (rule 4, within this read's deadline; a read the deadline skips stays unverified).
       const prev = await previousRepoSignals(s.id, r);
       const pushes = needsPushCheck(prev) && Date.now() < o.deadline ? await firstPushes(s, o.reader) : null;
       await put(s, { ok: true, signals: { ...r, contributors, ...storedCommits(r, prev, now, pushes) } });

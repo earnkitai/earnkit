@@ -129,8 +129,8 @@ test('3.16 an org repo is read by name plus one contributors call (and, on a fir
   // Fix round 2 (anti-backdating rule 4): each repo's first reading also reads its push activity, once.
   assert.deepEqual(rest, [
     `/repos/acme-${process.pid}/tool/contributors?per_page=100`,
-    `/repos/acme-${process.pid}/tool/activity?per_page=100&page=1`,
-    `/repos/someone-${process.pid}/app/activity?per_page=100&page=1`,
+    `/repos/acme-${process.pid}/tool/activity?per_page=100`,
+    `/repos/someone-${process.pid}/app/activity?per_page=100`,
   ]);
   assert.deepEqual(((await readingOf(org)).signals.contributors as { id: string }[]).map((c) => c.id), ['gh:lee', 'gh:ann']);
   assert.deepEqual((await readingOf(own)).signals.contributors, []);

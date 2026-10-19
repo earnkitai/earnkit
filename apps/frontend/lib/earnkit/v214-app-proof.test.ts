@@ -6,7 +6,7 @@ import { appSetup } from './github-app';
 import { APP_CONFIRM_ONLY_YOURS, createVerifyLink, csrfCookieName, verifyStart } from './github-verify';
 import { connectInstallation, saveInstallation } from './installations';
 import { mcpCall } from './fixtures/mcp-call';
-import { fakeGitHub } from './fixtures/fake-github';
+import { type FakeGitHub, fakeGitHub } from './fixtures/fake-github';
 import { appEnv, installApp } from './fixtures/app-install';
 import { APP_REMOVED, appCheckStep, budgetedFetch, installLink, proveByApp, repoProof } from './repo-proof';
 import { ScoreDeadline } from './campaigns';
@@ -134,7 +134,7 @@ test('6.2e fix round 2 (anti-backdating rule 4): a first reading keeps only week
   assert.equal(act[0].auth, 'Bearer ghs_fake_93');
 });
 
-test('6.2f fix round 3: an unverified first reading (the push list fails, a flood, the deadline) counts its last 4 weeks, is retried on the next reads, and verifies once GitHub answers', db, async () => {
+test('6.2f fix rounds 3 and 4: an unverified first reading (the push list fails, the deadline) counts its last 4 weeks, is checked again on the next reads, and verifies once GitHub answers', db, async () => {
   const commits = Array.from({ length: 12 }, (_, w) => ({ sha: `b${w}`, message: `old ${w}`, date: ago(w) }));
   const liveOf = async (id: number) => (await sql()<{ score: number; signals: { pushes_checked?: boolean; push_tries?: number } }[]>`
     SELECT l.score, x.signals FROM builder_live l JOIN builder_sources s ON s.builder_id = l.builder_id AND s.kind = 'repo'
@@ -145,14 +145,19 @@ test('6.2f fix round 3: an unverified first reading (the push list fails, a floo
   const gh = fakeGitHub(repos);
   const q = await connected(key, 'iris', gh, 94);
   assert.equal(q.live.score, 48);
-  assert.deepEqual([(await liveOf(q.id)).signals.pushes_checked, (await liveOf(q.id)).signals.push_tries], [false, 1]);
+  assert.deepEqual([(await liveOf(q.id)).signals.pushes_checked, (await liveOf(q.id)).signals.push_tries], [false, undefined]);
   const [{ sid }] = await sql()<{ sid: number }[]>`SELECT id::int AS sid FROM builder_sources WHERE builder_id = ${q.id} AND kind = 'repo'`;
   const reread = async (f: typeof fetch, ms: number) => {
     const deadline = Date.now() + ms;
     await readPersonLive(q.id, new Date(), { deadline, reader: { ...defaultReaderDeps(new Date(), deadline), ghFetch: budgetedFetch(f, deadline) }, only: [sid], soft: true });
     await rescorePerson(q.id, new Date());
   };
-  // The next read: the activity call hangs and is aborted at the deadline (point 5): still unverified, try 2.
+  // Fix round 4: failing again and again never falls back to all weeks.
+  for (let i = 0; i < 3; i++) await reread(gh, 8_000);
+  assert.deepEqual([(await liveOf(q.id)).signals.pushes_checked, (await liveOf(q.id)).score], [false, 48]);
+  const asked = gh.calls.filter((c) => c.path.startsWith(`/repos/${key}/activity`)).length;
+  assert.equal(asked, 4, 'one activity check a read while unverified');
+  // The next read: the activity call hangs and is aborted at the deadline: still unverified.
   repos[key].pushes = [new Date().toISOString()];
   const hangActivity = ((input: RequestInfo | URL, init?: RequestInit) => String(input).includes('/activity')
     ? new Promise((_, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal!.reason)))
@@ -160,18 +165,37 @@ test('6.2f fix round 3: an unverified first reading (the push list fails, a floo
   const t0 = Date.now();
   await reread(hangActivity, 1_500);
   assert.ok(Date.now() - t0 < 5_000, 'the hung page was aborted at the budget');
-  assert.deepEqual([(await liveOf(q.id)).signals.pushes_checked, (await liveOf(q.id)).signals.push_tries, (await liveOf(q.id)).score], [false, 2, 48]);
+  assert.deepEqual([(await liveOf(q.id)).signals.pushes_checked, (await liveOf(q.id)).score], [false, 48]);
   // GitHub answers: every commit was pushed today, so only this week and last week stand (27), verified.
   await reread(gh, 8_000);
   assert.deepEqual([(await liveOf(q.id)).signals.pushes_checked, (await liveOf(q.id)).score], [true, 27]);
+});
 
-  // A flood: 300 push events this week run the pages out before any 4-week-old push: unverified (48).
-  const key3 = `jade${RUN}/flood`;
-  const flood = Array.from({ length: 300 }, (_, i) => new Date(Date.now() - i * 60_000).toISOString());
-  const gh3 = fakeGitHub({ [key3]: { id: 9105, owner: `jade${RUN}`, installation: 95, private: true, commits, pushes: flood } });
-  const f = await connected(key3, 'jade', gh3, 95);
-  assert.equal(f.live.score, 48);
-  assert.equal(gh3.calls.filter((c) => c.path.startsWith(`/repos/${key3}/activity`)).length, 2, 'two pages at most');
+test('6.2g fix round 4: a full activity page is judged from the oldest landing GitHub keeps: backdated weeks under a 200-branch flood never count, even 28+ days later; a busy repo with real old pushes keeps its history', db, async () => {
+  const act = (gh: FakeGitHub, key: string) => gh.calls.filter((c) => c.path.startsWith(`/repos/${key}/activity`)).map((c) => c.path.replace(`/repos/${key}`, ''));
+  // Commits dated 4 to 15 weeks ago, all pushed 30 days ago with 200 new branches; read now.
+  const pushedAt = Date.now() - 30 * 86_400_000;
+  const fake = Array.from({ length: 12 }, (_, i) => ({ sha: `f${i}`, message: `fake ${i}`, date: ago(i + 4) }));
+  const flood = [
+    { at: new Date(pushedAt).toISOString(), type: 'push' },
+    ...Array.from({ length: 200 }, (_, i) => ({ at: new Date(pushedAt + (i + 1) * 1_000).toISOString(), type: 'branch_creation' })),
+  ];
+  const key = `kai${RUN}/flood`;
+  const gh = fakeGitHub({ [key]: { id: 9106, owner: `kai${RUN}`, installation: 100, private: true, commits: fake, pushes: flood } });
+  const p = await connected(key, 'kai', gh, 100);
+  assert.deepEqual(act(gh, key), ['/activity?per_page=100', '/activity?direction=asc&per_page=100']);
+  // Only the push week (4 or 5 weeks ago) and the week before it stand: 2 weeks, nothing older.
+  assert.equal(p.live.parts.shipping?.raw?.weeks, 2);
+  assert.ok(p.live.score <= 20, String(p.live.score));
+
+  // A busy repo: a push every week for 12 weeks, then 200 events this week. The old pushes are kept: 12 weeks (90).
+  const real = Array.from({ length: 12 }, (_, w) => ({ sha: `r${w}`, message: `real ${w}`, date: ago(w) }));
+  const busy = [...real.map((c) => c.date), ...Array.from({ length: 200 }, (_, i) => new Date(Date.now() - (i + 1) * 60_000).toISOString())];
+  const key2 = `lou${RUN}/busy`;
+  const gh2 = fakeGitHub({ [key2]: { id: 9107, owner: `lou${RUN}`, installation: 101, private: true, commits: real, pushes: busy } });
+  const b = await connected(key2, 'lou', gh2, 101);
+  assert.equal(b.live.parts.shipping?.raw?.weeks, 12);
+  assert.equal(b.live.score, 90);
 });
 
 test('6.2d fix round 1: the connect read\'s budget holds on every call: a hung request is aborted at the deadline, none starts after it', async () => {
