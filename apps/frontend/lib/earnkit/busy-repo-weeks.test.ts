@@ -1,7 +1,8 @@
 import { after, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
-import { commitWindows, readGithubRepos, weeklyCommitsFrom, weeklyCommitsQuery } from './person-github';
+import { commitWindows, needsAllWeeks, readGithubRepos, weeklyCommitsFrom, weeklyCommitsQuery } from './person-github';
+import { ScoreDeadline } from './campaigns';
 import { countedCommitWeeks } from './person-score';
 import { computeScoreV2, scoreWhy } from './score-v2';
 import { REPO_READER, needsPushCheck, readSources, storedCommits, writeReading } from './sources';
@@ -62,7 +63,7 @@ function busyGithub(o: { calls?: string[] } = {}): Pick<ReaderDeps, 'ghGraphql' 
 test('hotfix: a busy repo (100 commits are a few days) is read for all 52 weeks, one extra call', async () => {
   const calls: string[] = [];
   const d = { ...busyGithub({ calls }), now: NOW } as ReaderDeps;
-  const r = (await readGithubRepos([KEY], d)).get(KEY.toLowerCase())!;
+  const r = (await readGithubRepos([KEY], d)).repos.get(KEY.toLowerCase())!;
   assert.deepEqual(calls, ['repos', 'weekly']);
   assert.equal(r.commit_counts![weekAgo(1)], 279);
   assert.deepEqual(r.commit_weeks, Object.keys(SHAPE).map((i) => weekAgo(Number(i))).sort());
@@ -76,7 +77,7 @@ test('hotfix: a busy repo (100 commits are a few days) is read for all 52 weeks,
       return { data: { r0: { nameWithOwner: KEY, createdAt: CREATED, defaultBranchRef: { target: { history: { totalCount: 1, nodes: [{ committedDate: at(60_000) }] } } } } } } as T;
     },
   } as unknown as ReaderDeps;
-  assert.deepEqual((await readGithubRepos([KEY], q)).get(KEY.toLowerCase())!.commit_weeks, [weekAgo(0)]);
+  assert.deepEqual((await readGithubRepos([KEY], q)).repos.get(KEY.toLowerCase())!.commit_weeks, [weekAgo(0)]);
   assert.equal(quiet.length, 1);
   // A malformed weekly answer is a failed read, never a short one.
   assert.equal(weeklyCommitsFrom({ data: { repository: null } }, NOW), null);
@@ -85,7 +86,7 @@ test('hotfix: a busy repo (100 commits are a few days) is read for all 52 weeks,
 
 test('hotfix: the busy repo scores its real 12 weeks; the push record, the creation floor and rule 3 still hold', async () => {
   const d = { ...busyGithub(), now: NOW } as ReaderDeps;
-  const r = (await readGithubRepos([KEY], d)).get(KEY.toLowerCase())!;
+  const r = (await readGithubRepos([KEY], d)).repos.get(KEY.toLowerCase())!;
   const { readPushes } = await import('./sources');
   const pushes = await readPushes(KEY.toLowerCase(), (p) => d.gh(p));
   // The short baseline prod stored (one week, verified, no reader version) is re-taken once under rule 4.
@@ -136,4 +137,95 @@ test('hotfix: the daily read corrects a short verified reading of an older reade
   const [r] = await sql()<{ signals: Record<string, unknown> }[]>`SELECT signals FROM source_readings WHERE source_id = ${id} AND day = ${NOW.toISOString().slice(0, 10)}`;
   assert.equal(r.signals.reader, REPO_READER);
   assert.equal(computeScoreV2({ ships: [], commitWeeks: countedCommitWeeks(r.signals, NOW) }, NOW).score, 60);
+});
+
+// ---- Launch-ready: hotfix carry-overs (a) one repo's weekly call fails only that repo, (b) the weekly call runs
+// only when needed, (c) no weekly call starts past the read's deadline. ----
+
+const KEY2 = `acme-${process.pid}/quiet`;
+/** A repo node: `nodes` commits `stepMs` apart from a minute ago, `total` in the 52 weeks. */
+const node = (key: string, nodes: number, stepMs: number, total: number) => ({
+  nameWithOwner: key, isFork: false, isTemplate: false, isPrivate: false, createdAt: CREATED, pushedAt: at(60_000),
+  owner: { __typename: 'User', login: key.split('/')[0] }, parent: null, templateRepository: null,
+  defaultBranchRef: { target: { history: { totalCount: total, nodes: Array.from({ length: nodes }, (_, i) => ({ committedDate: at(60_000 + i * stepMs) })) } } },
+});
+/** GitHub with a busy repo (KEY, newest 100 commits in under 2 days) and a quiet one (KEY2), whose weekly call fails. */
+function twoRepos(calls: string[], o: { weekly?: 'fail' | 'ok' } = {}): Pick<ReaderDeps, 'ghGraphql' | 'gh'> {
+  return {
+    ghGraphql: async <T,>(query: string): Promise<T> => {
+      if (query.includes('w0: history')) {
+        calls.push('weekly');
+        if (o.weekly !== 'ok') throw new Error('GitHub GraphQL returned 502');
+        return busyGithub().ghGraphql<T>(query, { o: KEY.split('/')[0], n: KEY.split('/')[1] });
+      }
+      calls.push('repos');
+      return { data: { r0: node(KEY, 100, 1_500_000, 900), r1: node(KEY2, 3, 86_400_000, 3) } } as T;
+    },
+    gh: async <T,>(): Promise<T> => [] as T,
+  };
+}
+
+test('launch-ready (a): a busy repo whose weekly call fails fails only that repo, never the batch', async () => {
+  const calls: string[] = [];
+  const got = await readGithubRepos([KEY, KEY2], { ...twoRepos(calls), now: NOW } as ReaderDeps);
+  assert.deepEqual(calls, ['repos', 'weekly']);
+  assert.deepEqual([...got.repos.keys()], [KEY2.toLowerCase()]);
+  assert.match(String(got.failed.get(KEY.toLowerCase())), /GitHub GraphQL returned 502/);
+  // The run's deadline or a spent budget still stops the whole read (the sources stay due).
+  const stop = { ...twoRepos([]), now: NOW, ghGraphql: async <T,>(q: string): Promise<T> => {
+    if (q.includes('w0: history')) throw new ScoreDeadline();
+    return twoRepos([]).ghGraphql<T>(q, {});
+  } } as unknown as ReaderDeps;
+  await assert.rejects(readGithubRepos([KEY, KEY2], stop), ScoreDeadline);
+});
+
+test('launch-ready (b): the 52-week call runs only without a verified baseline, or when the commits read miss last week', async () => {
+  const lastMonday = Date.parse(commitWindows(NOW)[1].since);
+  assert.equal(needsAllWeeks({ truncated: false, oldest: null }, NOW, false), false, 'every commit read');
+  assert.equal(needsAllWeeks({ truncated: true, oldest: lastMonday - 1 }, NOW, false), true, 'no baseline: the whole 52 weeks');
+  assert.equal(needsAllWeeks({ truncated: true, oldest: lastMonday - 1 }, NOW, true), false, 'baseline, this and last week read in full');
+  assert.equal(needsAllWeeks({ truncated: true, oldest: lastMonday }, NOW, true), true, 'baseline, but last week may be cut');
+  assert.equal(needsAllWeeks({ truncated: true, oldest: null }, NOW, true), true);
+  // Through the reader: 100 commits 4 hours apart (16 days) with a baseline: one call, the weeks as read.
+  const calls: string[] = [];
+  const wide = {
+    now: NOW,
+    ghGraphql: async <T,>(q: string): Promise<T> => {
+      calls.push(q.includes('w0: history') ? 'weekly' : 'repos');
+      return { data: { r0: node(KEY, 100, 4 * 3_600_000, 900) } } as T;
+    },
+  } as unknown as ReaderDeps;
+  const r = (await readGithubRepos([KEY], wide, { baseline: () => true })).repos.get(KEY.toLowerCase())!;
+  assert.deepEqual(calls, ['repos']);
+  assert.ok(r.commit_counts![weekAgo(1)]! > 0 && r.commit_counts![weekAgo(0)]! > 0);
+  // The busy repo (100 commits in under 2 days) still needs it, baseline or not.
+  const busy: string[] = [];
+  await readGithubRepos([KEY], { ...twoRepos(busy, { weekly: 'ok' }), now: NOW } as ReaderDeps, { baseline: () => true });
+  assert.deepEqual(busy, ['repos', 'weekly']);
+});
+
+test('launch-ready (c): no weekly call starts past the read\'s deadline (ScoreDeadline: the source stays due)', async () => {
+  const calls: string[] = [];
+  const d = { ...twoRepos(calls, { weekly: 'ok' }), now: NOW, deadline: Date.now() - 1 } as ReaderDeps;
+  await assert.rejects(readGithubRepos([KEY, KEY2], d), ScoreDeadline);
+  assert.deepEqual(calls, ['repos'], 'the weekly call never went out');
+});
+
+test('launch-ready (a): the daily read writes the quiet repo\'s reading and one failed reading for the busy repo', dbTest, async () => {
+  const ids: number[] = [];
+  for (const key of [KEY, KEY2]) {
+    const [row] = await sql()<{ id: string }[]>`
+      INSERT INTO builder_sources (builder_id, kind, ref, project_key, proof, state, proposed_by)
+      VALUES (${ID}, 'repo', ${key}, ${key}, 'proof_branch', 'verified', 'server') RETURNING id`;
+    ids.push(Number(row.id));
+  }
+  const no = async (): Promise<never> => {
+    throw new Error('unexpected read');
+  };
+  const reader = { probe: no, fetchText: no, json: no, contractOrigin: no, walletCreations: no, ...twoRepos([]), now: NOW } as ReaderDeps;
+  assert.deepEqual(await readSources(NOW, { deadline: Date.now() + 10_000, reader, only: [ID] }), { read: 1, failed: 1 });
+  const got = await sql()<{ source_id: string; ok: boolean; error: string | null }[]>`
+    SELECT source_id, ok, error FROM source_readings WHERE source_id IN ${sql()(ids)} AND day = ${NOW.toISOString().slice(0, 10)} ORDER BY source_id`;
+  assert.deepEqual(got.map((r) => r.ok), [false, true]);
+  assert.match(got[0].error!, /GitHub GraphQL returned 502/);
 });

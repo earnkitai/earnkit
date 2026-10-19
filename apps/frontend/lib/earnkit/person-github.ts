@@ -1,4 +1,5 @@
-import { isoWeek, type ReaderDeps, type RepoSignals } from './source-readers';
+import { ScoreDeadline } from './campaigns';
+import { isBudgetStop, isoWeek, type ReaderDeps, type RepoSignals } from './source-readers';
 
 /**
  * The fields read for every repo, in the person query and the by-name query: its homepage and commit days
@@ -119,22 +120,42 @@ export function weeklyCommitsFrom(json: unknown, now: Date): Record<string, numb
 }
 
 /**
- * A repo read whose newest 100 commits missed some (history totalCount above the nodes read) gets its whole
- * 52 weeks from weeklyCommitsQuery through `ask` (the reader's GraphQL, EarnKit's token or the App's); a full
- * read is returned as is. A failed weekly read throws (the caller writes a failed reading, never a short one).
+ * Launch-ready (hotfix carry-over): whether a repo read whose newest 100 commits missed some still needs the whole
+ * 52 weeks (weeklyCommitsQuery). Not when the source has a verified baseline of the current reader (`baseline`: rule 3
+ * then takes only this week and last week from a new reading) and the commits read reach back before last week's
+ * Monday, so both those weeks are counted in full. Pure.
  */
-async function withAllWeeks(r: RepoRead, now: Date, ask: (query: string, variables: Record<string, unknown>) => Promise<unknown>): Promise<PersonRepo> {
-  const { truncated, ...repo } = r;
-  if (!truncated) return repo;
-  const [o, n] = repo.key.split('/');
-  const counts = weeklyCommitsFrom(await ask(weeklyCommitsQuery(now), { o, n }), now);
+export function needsAllWeeks(r: { truncated: boolean; oldest: number | null }, now: Date, baseline: boolean): boolean {
+  if (!r.truncated) return false;
+  if (!baseline || r.oldest === null) return true;
+  return r.oldest >= Date.parse(commitWindows(now)[1].since);
+}
+
+/** How a by-name read treats one repo: `baseline` (needsAllWeeks); absent: no baseline, so a short read is completed. */
+export type RepoReadOptions = { baseline?: (key: string) => boolean };
+
+/**
+ * A repo read whose newest 100 commits missed some (history totalCount above the nodes read) gets its whole
+ * 52 weeks from weeklyCommitsQuery through `ask` (the reader's GraphQL, EarnKit's token or the App's) when
+ * needsAllWeeks says so; otherwise it is returned as is. A weekly call never starts past `deadline` (ScoreDeadline:
+ * the source stays due). A failed weekly read throws (the caller writes a failed reading, never a short one).
+ */
+async function withAllWeeks(
+  r: RepoRead, now: Date, ask: (query: string, variables: Record<string, unknown>) => Promise<unknown>, o: { baseline: boolean; deadline?: number },
+): Promise<PersonRepo> {
+  const { truncated, oldest, ...repo } = r;
+  if (!needsAllWeeks({ truncated, oldest }, now, o.baseline)) return repo;
+  if (o.deadline !== undefined && Date.now() >= o.deadline) throw new ScoreDeadline();
+  const [owner, name] = repo.key.split('/');
+  const counts = weeklyCommitsFrom(await ask(weeklyCommitsQuery(now), { o: owner, n: name }), now);
   if (!counts) throw new Error('GitHub answered no weekly commit counts');
   return { ...repo, commit_counts: counts, commit_weeks: Object.keys(counts).sort() };
 }
 
-type RepoRead = PersonRepo & { truncated: boolean };
+/** `truncated`: the newest 100 commits are not all of the 52 weeks'; `oldest`: the oldest commit time read (ms), null when none. */
+type RepoRead = PersonRepo & { truncated: boolean; oldest: number | null };
 
-/** One repo node (REPO_FIELDS) as repo signals, or null when it is malformed. `truncated`: the newest 100 commits are not all of the 52 weeks'. Pure. */
+/** One repo node (REPO_FIELDS) as repo signals, or null when it is malformed (RepoRead's `truncated` and `oldest`). Pure. */
 function repoFrom(raw: unknown, now: Date): RepoRead | null {
   const r = obj(raw);
   const key = str(r.nameWithOwner)?.toLowerCase();
@@ -165,6 +186,7 @@ function repoFrom(raw: unknown, now: Date): RepoRead | null {
     homepage: str(r.homepageUrl), pushed_at: str(r.pushedAt),
     derived: fork || template || obj(r.parent).nameWithOwner !== undefined || obj(r.templateRepository).nameWithOwner !== undefined,
     truncated: typeof total === 'number' && total > nodes.length,
+    oldest: commits.length > 0 ? Math.min(...commits) : null,
   };
 }
 
@@ -177,7 +199,7 @@ export function personGithubFrom(json: unknown, now: Date): PersonGithub | null 
   for (const raw of arr(obj(user.repositories).nodes)) {
     const r = repoFrom(raw, now);
     if (!r) continue;
-    const { truncated: _t, ...repo } = r;
+    const { truncated: _t, oldest: _o, ...repo } = r;
     repos.set(repo.key, repo);
   }
   return { login, twitter: str(user.twitterUsername), website: str(user.websiteUrl), repos };
@@ -185,13 +207,19 @@ export function personGithubFrom(json: unknown, now: Date): PersonGithub | null 
 
 /**
  * Up to REPOS_MAX repos by name ('owner/name') in one GraphQL call: a tracked repo outside the person
- * query's newest 100, or an organization's repo. Keyed by the asked name (lowercase); a repo GitHub
- * does not know, or a malformed name (never sent), is absent.
+ * query's newest 100, or an organization's repo. `repos` is keyed by the asked name (lowercase); a repo GitHub
+ * does not know, or a malformed name (never sent), is absent. Launch-ready (hotfix carry-over): a busy repo's weekly
+ * call that fails puts only that repo in `failed` (its error), never the batch; the run's deadline or a spent budget
+ * still stops the whole read.
  */
-export async function readGithubRepos(keys: string[], d: ReaderDeps): Promise<Map<string, PersonRepo>> {
+export async function readGithubRepos(
+  keys: string[], d: ReaderDeps, opts: RepoReadOptions = {},
+): Promise<{ repos: Map<string, PersonRepo>; failed: Map<string, unknown> }> {
+  const repos = new Map<string, PersonRepo>();
+  const failed = new Map<string, unknown>();
   // A malformed name is never sent (it is absent from the answer); the rest still are.
   const asked = [...new Set(keys.map((k) => k.toLowerCase()))].filter((k) => REPO.test(k));
-  if (asked.length === 0) return new Map();
+  if (asked.length === 0) return { repos, failed };
   if (asked.length > REPOS_MAX) throw new Error('too many repo names');
   const variables: Record<string, unknown> = { since: since(d.now) };
   asked.forEach((k, i) => {
@@ -200,12 +228,17 @@ export async function readGithubRepos(keys: string[], d: ReaderDeps): Promise<Ma
     variables[`n${i}`] = n;
   });
   const data = obj(obj(await d.ghGraphql(reposQuery(asked.length), variables)).data);
-  const out = new Map<string, PersonRepo>();
   for (const [i, k] of asked.entries()) {
     const r = repoFrom(data[`r${i}`], d.now);
-    if (r) out.set(k, await withAllWeeks({ ...r, key: k }, d.now, (q, v) => d.ghGraphql(q, v)));
+    if (!r) continue;
+    try {
+      repos.set(k, await withAllWeeks({ ...r, key: k }, d.now, (q, v) => d.ghGraphql(q, v), { baseline: opts.baseline?.(k) ?? false, deadline: d.deadline }));
+    } catch (err) {
+      if (err instanceof ScoreDeadline || isBudgetStop(err)) throw err;
+      failed.set(k, err);
+    }
   }
-  return out;
+  return { repos, failed };
 }
 
 /** v2.13 (R2): the person's GitHub profile only, for the X field match; no repos (about 0.2 s). */
@@ -223,7 +256,7 @@ export async function readGithubUser(login: string, d: ReaderDeps): Promise<Pers
  * installation never reads into another's source. Only under the Bench, with the App on and a fetch;
  * a repo without a token is absent. A failed read throws (the caller writes a failed reading).
  */
-export async function readAppRepos(items: { id: number; builder_id: number; ref: string }[], d: ReaderDeps): Promise<Map<number, PersonRepo>> {
+export async function readAppRepos(items: { id: number; builder_id: number; ref: string }[], d: ReaderDeps, opts: RepoReadOptions = {}): Promise<Map<number, PersonRepo>> {
   const out = new Map<number, PersonRepo>();
   const f = d.ghFetch;
   if (!f || items.length === 0) return out;
@@ -251,7 +284,7 @@ export async function readAppRepos(items: { id: number; builder_id: number; ref:
     };
     const r = repoFrom(obj(obj(await ask(reposQuery(1), { since: since(d.now), o0: o, n0: n })).data).r0, d.now);
     if (!r || r.key !== key) continue;
-    out.set(s.id, await withAllWeeks({ ...r, key }, d.now, ask));
+    out.set(s.id, await withAllWeeks({ ...r, key }, d.now, ask, { baseline: opts.baseline?.(key) ?? false, deadline: d.deadline }));
   }
   return out;
 }

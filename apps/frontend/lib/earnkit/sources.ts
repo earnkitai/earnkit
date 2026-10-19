@@ -560,10 +560,16 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
     (await sql()<{ id: number }[]>`SELECT id::int AS id FROM builder_sources WHERE id IN ${sql()(named.length ? named.map((s) => s.id) : [-1])} AND proof = 'github_app' AND state = 'verified'`).map((r) => r.id),
   );
   const viaApp = new Map<number, PersonRepo>();
+  // Launch-ready (hotfix carry-over): the refs whose source has a verified baseline of the current reader, so a busy
+  // repo's extra 52-week call runs only when needed (person-github.ts needsAllWeeks).
+  // A ref read once for several sources has a baseline only when every one of them has.
+  const noBaseline = new Set<string>();
+  for (const s of named) if (needsPushCheck(await previousRepoSignals(s.id))) noBaseline.add(s.ref.toLowerCase());
+  const opts = { baseline: (k: string) => !noBaseline.has(k) };
   for (const s of named.filter((x) => viaAppIds.has(x.id))) {
     if (Date.now() >= o.deadline) return { read, failed };
     const go = await attempt([s], async () => {
-      for (const [id, r] of await readAppRepos([s], o.reader)) viaApp.set(id, r);
+      for (const [id, r] of await readAppRepos([s], o.reader, opts)) viaApp.set(id, r);
     });
     if (!go) return { read, failed };
   }
@@ -574,7 +580,15 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
     const batch = byName.slice(i, i + REPOS_MAX);
     const refs = [...new Set(batch.map((s) => s.ref.toLowerCase()))];
     const go = await attempt(batch, async () => {
-      for (const [k, r] of await readGithubRepos(refs, o.reader)) found.set(k, r);
+      const got = await readGithubRepos(refs, o.reader, opts);
+      for (const [k, r] of got.repos) found.set(k, r);
+      // One repo's failed weekly call fails only its own reading.
+      for (const [k, err] of got.failed) {
+        const error = readError(err);
+        const mine = batch.filter((s) => s.ref.toLowerCase() === k);
+        console.error('[read] failed', mine.map((s) => s.id).join(','), error);
+        for (const s of mine) await fail(s, error);
+      }
     });
     if (!go) return { read, failed };
   }
@@ -584,7 +598,7 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
   for (const s of unread) {
     if (Date.now() >= o.deadline) return { read, failed };
     const go = await attempt([s], async () => {
-      for (const [id, r] of await readAppRepos([s], o.reader)) viaApp.set(id, r);
+      for (const [id, r] of await readAppRepos([s], o.reader, opts)) viaApp.set(id, r);
     });
     if (!go) return { read, failed };
   }

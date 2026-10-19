@@ -49,6 +49,11 @@ export type ReaderDeps = {
    */
   walletCreations: (wallet: string) => Promise<{ address: string; created_at: string }[]>;
   now: Date;
+  /**
+   * Epoch ms: the read's deadline (defaultReaderDeps'), so a reader can stop between calls rather than start one past
+   * it (person-github.ts withAllWeeks). Absent (test fakes): never.
+   */
+  deadline?: number;
   /** Whether the run's GitHub budget is spent (budgetedGh); absent: never. */
   ghSpent?: () => boolean;
   /**
@@ -424,6 +429,7 @@ export function defaultReaderDeps(now: Date, deadline: number): ReaderDeps {
     contractOrigin: async (chain, address) => (chain === 'base' ? blockscoutOrigin(address, deadline, () => tick('blockscout')) : { deployer: null, created_at: null }),
     walletCreations: (wallet) => walletCreationsFrom(wallet, (path) => (tick('blockscout'), blockscout<CreationPage>(path, deadline))),
     now,
+    deadline,
     ghSpent: github.spent,
     ghFetch: async (input, init) => {
       // v2.14 final fix 8: a call with an App credential (an installation token or the App's JWT) spends the

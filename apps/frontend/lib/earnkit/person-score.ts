@@ -684,9 +684,15 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
     const viaAppIds = new Set(
       (await db<{ id: number }[]>`SELECT id::int AS id FROM builder_sources WHERE id IN ${db(repos.map((s) => s.id))} AND proof = 'github_app' AND state = 'verified'`).map((r) => r.id),
     );
+    // Launch-ready (hotfix carry-over): the refs whose source has a verified baseline of the current reader, so a
+    // busy repo's extra 52-week call runs only when needed (person-github.ts needsAllWeeks).
+    // A ref read once for several sources has a baseline only when every one of them has.
+    const noBaseline = new Set<string>();
+    for (const s of repos) if (needsPushCheck(await previousRepoSignals(s.id))) noBaseline.add(s.ref.toLowerCase());
+    const opts = { baseline: (k: string) => !noBaseline.has(k) };
     for (const s of repos.filter((x) => viaAppIds.has(x.id))) {
       const go = await attempt([s], async () => {
-        for (const [k, r] of await readAppRepos([s], o.reader)) viaApp.set(k, r);
+        for (const [k, r] of await readAppRepos([s], o.reader, opts)) viaApp.set(k, r);
         asked.add(s.id);
       });
       if (!go) return done();
@@ -695,8 +701,18 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
     for (let i = 0; i < byName.length; i += REPOS_MAX) {
       const batch = byName.slice(i, i + REPOS_MAX);
       const go = await attempt(batch, async () => {
-        for (const [k, r] of await readGithubRepos(batch.map((s) => s.ref), o.reader)) found.set(k, r);
-        for (const s of batch) asked.add(s.id);
+        const got = await readGithubRepos(batch.map((s) => s.ref), o.reader, opts);
+        for (const [k, r] of got.repos) found.set(k, r);
+        for (const s of batch) {
+          const err = got.failed.get(s.ref.toLowerCase());
+          if (err === undefined) {
+            asked.add(s.id);
+            continue;
+          }
+          // One repo's failed weekly call fails only its own reading.
+          console.error('[refresh] read failed', s.id, readError(err));
+          await put(s, { ok: false });
+        }
       });
       if (!go) return done();
     }
@@ -704,7 +720,7 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
     // installed it on that repo (a per-call token, never kept).
     for (const s of byName.filter((x) => asked.has(x.id) && !found.has(x.ref.toLowerCase()))) {
       const go = await attempt([s], async () => {
-        for (const [k, r] of await readAppRepos([s], o.reader)) viaApp.set(k, r);
+        for (const [k, r] of await readAppRepos([s], o.reader, opts)) viaApp.set(k, r);
       });
       if (!go) return done();
     }
