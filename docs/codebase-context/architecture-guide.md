@@ -5906,16 +5906,17 @@ Spec: `docs/design-docs-and-implementation-plans/scoring-and-clarity.md` (R1 to 
      reading (daily or live, `previousRepoSignals`), a new reading may add only this week and last week; older
      weeks keep their stored values.
   3. *Server push times* (`sources.ts storedCommits`, `pushedWeeks`, `readPushes`, `firstPushes`; fix rounds 2 to
-     4): until a source has a verified reading, each reading makes one activity check: GET
+     5): until a source has a verified reading, each reading makes one activity check: GET
      /repos/{o}/{r}/activity?per_page=100 (newest first; the App's installation client when installed, else
-     EarnKit's reader; every call aborted at the connect budget). A past week counts only when a landing event
-     (push, force push, branch creation, PR merge, merge queue merge; the endpoint filters one type a call, so the
-     types are kept client-side) landed that week or the next. When that page is full (100 events), one more call
-     (`direction=asc&per_page=100`) finds the oldest landing GitHub still keeps: weeks older than the page count
-     only from that landing's week on, so backdated weeks before the first real push never count, however many
-     events flood the page and however long after (fix round 4; GitHub documents cursor paging, so EarnKit reads
-     one page each way). The reading is then `pushes_checked: true` and is rule 2's baseline.
-     When EarnKit can't verify (the call failed, listed no landing, the oldest landing could not be read, or the
+     EarnKit's reader; every call aborted at the connect budget). When that page is full (100 events), one more
+     call (`direction=asc&per_page=100`) reads the oldest 100 GitHub keeps (GitHub documents cursor paging, so
+     EarnKit reads one page each way). A past week counts when a landing event (push, force push, branch creation,
+     PR merge, merge queue merge; the endpoint filters one type a call, so the types are kept client-side) on either
+     page is in that week or the next. An unbacked week counts only inside a real gap between two full pages:
+     strictly after the oldest page's newest event and strictly before the newest page's oldest event (fix round 5).
+     So one old retained push plus a flood never admits backdated weeks, while a busy repo whose events outrun both
+     pages keeps its middle weeks. The reading is then `pushes_checked: true` and is rule 2's baseline.
+     When EarnKit can't verify (the call failed, listed no landing, the oldest page could not be read, or the
      deadline cut or skipped the check) the reading is stored `pushes_checked: false`: the score counts only its
      last 4 weeks (never zero), it is no rule 2 baseline, and every later read checks again (one check a read)
      until one verifies it. There is no fallback to all weeks (fix round 4). A rename or a new

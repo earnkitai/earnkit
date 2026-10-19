@@ -1475,7 +1475,7 @@ apps/frontend/
                                sentence), countUse (people and money for builder_projects, not scored; fade, STAR_FORK_CAP)
     sources.ts (fix round 2)   anti-backdating: withPastWeeks/withPastCounts (only this and last week new after a
                                reading), storedCommits (pushes_checked), needsPushCheck, pushedWeeks, readPushes, firstPushes
-                               (/activity until verified: newest page, then the oldest landing when full), previousRepoSignals (rename: repo id, else owner + created_at)
+                               (/activity until verified: newest page, then the oldest page when full; unbacked weeks only in the gap between two full pages), previousRepoSignals (rename: repo id, else owner + created_at)
     rank.ts(+test)             scoring and clarity: rankLine (the one rank phrase: "#N of M builders this week", from 20
                                "Top P% of builders this week" in the top half; chains named), scoreLine ("Shipping 72 ·
                                <rank line>"; thousands separators), benchPercent, BENCH_CHAINS

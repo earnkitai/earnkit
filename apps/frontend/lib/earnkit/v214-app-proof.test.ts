@@ -171,12 +171,13 @@ test('6.2f fix rounds 3 and 4: an unverified first reading (the push list fails,
   assert.deepEqual([(await liveOf(q.id)).signals.pushes_checked, (await liveOf(q.id)).score], [true, 27]);
 });
 
-test('6.2g fix round 4: a full activity page is judged from the oldest landing GitHub keeps: backdated weeks under a 200-branch flood never count, even 28+ days later; a busy repo with real old pushes keeps its history', db, async () => {
+test('6.2g fix rounds 4 and 5: a full activity page: backdated weeks under a 200-branch flood never count, 28+ days later or with one push from a year ago; a busy repo keeps its history; no real gap, backed weeks only', db, async () => {
   const act = (gh: FakeGitHub, key: string) => gh.calls.filter((c) => c.path.startsWith(`/repos/${key}/activity`)).map((c) => c.path.replace(`/repos/${key}`, ''));
-  // Commits dated 4 to 15 weeks ago, all pushed 30 days ago with 200 new branches; read now.
+  // Commits dated 4 to 15 weeks ago, all pushed 30 days ago with 200 new branches, plus one real push a year ago; read now.
   const pushedAt = Date.now() - 30 * 86_400_000;
   const fake = Array.from({ length: 12 }, (_, i) => ({ sha: `f${i}`, message: `fake ${i}`, date: ago(i + 4) }));
   const flood = [
+    { at: ago(52), type: 'push' },
     { at: new Date(pushedAt).toISOString(), type: 'push' },
     ...Array.from({ length: 200 }, (_, i) => ({ at: new Date(pushedAt + (i + 1) * 1_000).toISOString(), type: 'branch_creation' })),
   ];
@@ -184,13 +185,14 @@ test('6.2g fix round 4: a full activity page is judged from the oldest landing G
   const gh = fakeGitHub({ [key]: { id: 9106, owner: `kai${RUN}`, installation: 100, private: true, commits: fake, pushes: flood } });
   const p = await connected(key, 'kai', gh, 100);
   assert.deepEqual(act(gh, key), ['/activity?per_page=100', '/activity?direction=asc&per_page=100']);
-  // Only the push week (4 or 5 weeks ago) and the week before it stand: 2 weeks, nothing older.
+  // Only the push week (4 or 5 weeks ago) and the week before it stand: 2 weeks, not 12.
   assert.equal(p.live.parts.shipping?.raw?.weeks, 2);
   assert.ok(p.live.score <= 20, String(p.live.score));
 
-  // A busy repo: a push every week for 12 weeks, then 200 events this week. The old pushes are kept: 12 weeks (90).
+  // A busy repo: 25 real pushes every week for 12 weeks (300 events). The pages back both ends, the middle is a
+  // real gap between two full pages: 12 weeks (90).
   const real = Array.from({ length: 12 }, (_, w) => ({ sha: `r${w}`, message: `real ${w}`, date: ago(w) }));
-  const busy = [...real.map((c) => c.date), ...Array.from({ length: 200 }, (_, i) => new Date(Date.now() - (i + 1) * 60_000).toISOString())];
+  const busy = Array.from({ length: 300 }, (_, i) => new Date(Date.now() - Math.floor(i / 25) * 7 * 86_400_000 - (i % 25) * 60_000).toISOString());
   const key2 = `lou${RUN}/busy`;
   const gh2 = fakeGitHub({ [key2]: { id: 9107, owner: `lou${RUN}`, installation: 101, private: true, commits: real, pushes: busy } });
   const b = await connected(key2, 'lou', gh2, 101);

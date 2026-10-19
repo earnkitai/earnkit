@@ -357,46 +357,58 @@ const nextWeek = (week: string): string | null => {
   const monday = jan4 - ((new Date(jan4).getUTCDay() + 6) % 7) * DAY_MS + (Number(m[2]) - 1) * 7 * DAY_MS;
   return isoWeek(new Date(monday + 7 * DAY_MS));
 };
-/** `covered`: the newest page listed everything. Else `oldest`: the oldest landing GitHub still keeps (null: none read). */
-type Pushes = { pushes: string[]; covered: boolean; oldest?: string | null };
 /**
- * Fix rounds 2 to 4 (rule 4): the weeks GitHub's push record backs: a commit week counts when a push
- * landed that week or the following one. When the newest page did not list everything (`covered` false),
- * a week older than that page counts only from the week of the oldest landing GitHub keeps (fix round 4:
- * backdated weeks before the first real push never count, whatever flooded the page). Null when the
- * record can't judge (no record, no landing listed, or no oldest landing read). Pure.
+ * `pushes`: the landings on the newest page; `covered`: that page listed everything. Else `seen`: the page's oldest
+ * event, and `asc`: the oldest page (its landings, whether it was full, its newest event; null: not read).
+ */
+type Pushes = {
+  pushes: string[]; covered: boolean; seen?: string | null;
+  asc?: { pushes: string[]; full: boolean; newest: string | null } | null;
+};
+/**
+ * Fix rounds 2 to 5 (rule 4): the weeks GitHub's push record backs: a commit week counts when a landing (on
+ * either page) is in that week or the following one. When the newest page did not list everything, an unbacked
+ * week counts only inside the real gap between two full pages: strictly after the oldest page's newest event
+ * and strictly before the newest page's oldest event (fix round 5: no week is admitted by the floor alone).
+ * Null when the record can't judge (no record, no landing listed, or the oldest page not read). Pure.
  */
 export function pushedWeeks(weeks: string[], record: Pushes | null): string[] | null {
-  const times = (record?.pushes ?? []).map((t) => Date.parse(t)).filter(Number.isFinite);
-  if (!record || times.length === 0) return null;
+  if (!record || (!record.covered && !record.asc)) return null;
+  const times = [...record.pushes, ...(record.asc?.pushes ?? [])].map((t) => Date.parse(t)).filter(Number.isFinite);
+  if (times.length === 0) return null;
   const landed = new Set(times.map((t) => isoWeek(new Date(t))));
   const backed = (w: string) => landed.has(w) || landed.has(nextWeek(w) ?? '');
-  if (record.covered) return weeks.filter(backed);
-  const floorAt = Date.parse(record.oldest ?? '');
-  if (!Number.isFinite(floorAt)) return null;
-  const seen = isoWeek(new Date(Math.min(...times)));
-  const floor = isoWeek(new Date(floorAt));
-  return weeks.filter((w) => backed(w) || (w < seen && w >= floor));
+  const week = (t: string | null | undefined) => (Number.isFinite(Date.parse(t ?? '')) ? isoWeek(new Date(Date.parse(t!))) : null);
+  const after = record.asc?.full ? week(record.asc.newest) : null;
+  const before = week(record.seen);
+  return weeks.filter((w) => backed(w) || (!record.covered && after !== null && before !== null && w > after && w < before));
 }
 
-const landings = (rows: { timestamp?: unknown; activity_type?: unknown }[]) =>
+type Row = { timestamp?: unknown; activity_type?: unknown };
+const landings = (rows: Row[]) =>
   rows.flatMap((r) => (typeof r?.timestamp === 'string' && typeof r.activity_type === 'string' && LANDED.has(r.activity_type) ? [r.timestamp] : []));
+/** The oldest or newest event time on a page (any type), as ISO; null when none. */
+const edge = (rows: Row[], pick: (...n: number[]) => number) => {
+  const t = rows.map((r) => (typeof r?.timestamp === 'string' ? Date.parse(r.timestamp) : NaN)).filter(Number.isFinite);
+  return t.length ? new Date(pick(...t)).toISOString() : null;
+};
 /**
- * Fix rounds 2 to 4 (rule 4): the push times of `key` from GET /repos/{key}/activity (the endpoint takes one
+ * Fix rounds 2 to 5 (rule 4): the push times of `key` from GET /repos/{key}/activity (the endpoint takes one
  * activity_type a call, so the landing types are kept here), through `get` (the App's installation client when
- * installed, else EarnKit's reader). One page of the newest 100; when it is full, one more call
- * (direction=asc) for the oldest landing GitHub keeps. Null on any failure of the first call.
+ * installed, else EarnKit's reader). One page of the newest 100; when it is full, one more call (direction=asc)
+ * for the oldest 100. Null on any failure of the first call.
  */
 export async function readPushes(key: string, get: <T>(path: string) => Promise<T | null>): Promise<Pushes | null> {
-  type Row = { timestamp?: unknown; activity_type?: unknown };
   try {
     const rows = await get<Row[]>(`/repos/${key}/activity?per_page=100`);
     if (!Array.isArray(rows)) return null;
     const pushes = landings(rows);
     if (rows.length < 100) return { pushes, covered: true };
     const asc = await get<Row[]>(`/repos/${key}/activity?direction=asc&per_page=100`).catch(() => null);
-    const old = (Array.isArray(asc) ? landings(asc) : []).map((t) => Date.parse(t)).filter(Number.isFinite);
-    return { pushes, covered: false, oldest: old.length ? new Date(Math.min(...old)).toISOString() : null };
+    return {
+      pushes, covered: false, seen: edge(rows, Math.min),
+      asc: Array.isArray(asc) ? { pushes: landings(asc), full: asc.length >= 100, newest: edge(asc, Math.max) } : null,
+    };
   } catch {
     return null;
   }
@@ -405,7 +417,7 @@ export async function readPushes(key: string, get: <T>(path: string) => Promise<
 const weekList = (x: unknown) => (Array.isArray(x) ? x.filter((w): w is string => typeof w === 'string' && WEEK.test(w)) : []);
 const countMap = (x: unknown) => (x && typeof x === 'object' && !Array.isArray(x) ? (x as Record<string, number>) : {});
 /**
- * Fix rounds 2 to 4: a repo reading's commit weeks and counts as stored, with its push check.
+ * Fix rounds 2 to 5: a repo reading's commit weeks and counts as stored, with its push check.
  * - After a verified reading: only this week and last week can be new (rule 3); `pushes_checked: true`.
  * - Otherwise (the first reading, or the previous one unverified) the weeks as read, joined with the unverified
  *   previous ones, are judged by GitHub's push record (rule 4): backed weeks only, `pushes_checked: true`.
