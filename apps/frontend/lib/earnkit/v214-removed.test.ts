@@ -201,7 +201,7 @@ test('7.7 final fix: the terms, llms.txt and every MCP description describe v2.1
   const terms = PROFILES_POINTS.join(' ');
   for (const must of [/sign in with X/, /same X account uses that same page/, /nothing from another page is merged/, /read-only EarnKit GitHub App/, /only proof/, /private ones too/, /never stores those tokens/, /stored titles stay stored but are hidden/])
     assert.match(terms, must);
-  assert.doesNotMatch(terms, /—|\braise\b|\braising\b/i);
+  assert.doesNotMatch(terms, /\u2014|\braise\b|\braising\b/i);
 });
 
 test('7.8 final fix: the bonus round admin is gone; bonusLive reads only coins (fee claiming), never programs or rounds', () => {
