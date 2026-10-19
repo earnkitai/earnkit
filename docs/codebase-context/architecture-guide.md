@@ -5685,3 +5685,9 @@ the installation alone), S2, S10, D1, D2. For agent clients that can't do OAuth 
   code) and the reply carries `sign_in_note` (`SIGN_IN_NOTES.bound` or `.bad`) and is already the person's page.
 - **No merge.** A fallback agent's rows written before the paste (proposed sources, answers) stay on its old
   installation; the page's project is the one that counts (5.7). Members of a binding root are detached (5.9).
+- **Fix round 1.** `attachToX` locks the installation and its members' rows in id order first (after the
+  advisory locks; order noted beside `identity.ts linkInTx`) and refuses `other_x` when the installation's own
+  or group root's profile holds another X account. `GET /signin/<code>` is limited per IP (`signinLink`, 30/h)
+  before any read or write (429). `x_signins.link_hash` names the link a 'link' sign-in opened, and the X user
+  is written to exactly that link. A thrown error during the bind gives the paste code back (`used_at` NULL);
+  the same code again from the same installation, once bound to that X, is a retry and answers signed in.

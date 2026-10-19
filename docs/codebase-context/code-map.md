@@ -1474,6 +1474,8 @@ apps/frontend/
                                15 min), pasteCode/formatPaste/normalizePaste, bindFromPaste (minting installation
                                only, one use, attachToX, signed_in_by_code event), agoText (moved from claim.ts);
                                tools.ts find reads sign_in_code first (findReply is the rest of find)
+                               fix 1: signinGet rate limit (signinLink), exact link via x_signins.link_hash,
+                               code given back on a thrown error, a bound retry is ok
     claim.ts(+test)            v2.12.1 T6/T7: CLAIM_TEXT, claimCode (S13), claimLink, claimGet, claimPost,
                                xCallback, bindX (join_pending when another group holds the X id; under the Bench 'held');
                                v2.14 T4: bindX = bindXIn (in a caller's tx) + afterBind (events, discovery, cache)
