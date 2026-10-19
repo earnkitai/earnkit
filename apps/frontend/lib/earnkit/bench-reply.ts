@@ -50,6 +50,8 @@ export const STATE_COPY = {
   signed_out: {
     stand: () => NOT_ON_BENCH,
     ask: (link: string) => `Sign in with X to get your page (one click): ${link}\nWant me to put your work on the Bench once you're in?`,
+    /** Fix round 1: the link couldn't be made this time (never read as signed in). */
+    retry: () => "I couldn't make your sign-in link just now. Want me to try again?",
   },
   no_project: {
     stand: () => NOT_ON_BENCH,
@@ -89,11 +91,11 @@ export type BenchView = {
   held: string | null;
 };
 
-/** The fixed question of states 1 to 3 (A16), or null for proven and shipping (nextStepAsk decides). Pure. */
+/** The fixed question of states 1 to 3 (A16; signed out with no link: the retry), or null for proven and shipping (nextStepAsk decides). Pure. */
 export function stateAsk(v: Pick<BenchView, 'state' | 'variant' | 'project' | 'link'>): BenchAsk | null {
   const key = v.project?.key ?? null;
   const name = v.project?.name ?? '';
-  if (v.state === 'signed_out') return v.link ? { kind: 'sign_in', project_key: null, line: STATE_COPY.signed_out.ask(v.link) } : null;
+  if (v.state === 'signed_out') return { kind: 'sign_in', project_key: null, line: v.link ? STATE_COPY.signed_out.ask(v.link) : STATE_COPY.signed_out.retry() };
   if (v.state === 'no_project') return { kind: 'start', project_key: null, line: STATE_COPY.no_project.ask() };
   if (v.state !== 'not_counted') return null;
   if (v.variant === 'taken' || v.variant === 'copy') return { kind: 'other_project', project_key: key, line: VARIANT_COPY[v.variant].ask() };
@@ -130,12 +132,13 @@ function fundLines(v: BenchView): string[] {
 export function benchReply(v: BenchView): string {
   // A14: one https link a reply. Beside the state's action link the page is named without https; a held
   // question (A17) carries no link, so the page is then the link.
-  const linked = Boolean(v.link) && !v.held;
+  const linked = Boolean(v.link) && (!v.held || v.state === 'signed_out');
   const page = v.handle ? `Your page: ${linked && v.state !== 'signed_out' ? pageUrl(v.handle) : `${siteUrl()}${pagePath(v.handle)}`}` : null;
   const stand = [BENCH_HEADS.stand, standLine(v), ...(page && v.state !== 'signed_out' ? [page] : [])];
   const fund = fundLines(v);
   const money = [BENCH_HEADS.fund, ...(fund.length ? fund : [NO_MONEY_LINE])];
-  const up = [BENCH_HEADS.up, v.held ?? v.ask.line];
+  // Fix round 1 (ruling 4): signed out, the sign-in question always wins.
+  const up = [BENCH_HEADS.up, v.state === 'signed_out' ? v.ask.line : (v.held ?? v.ask.line)];
   return [stand, money, up].map((x) => x.join('\n')).join('\n\n');
 }
 

@@ -138,7 +138,7 @@ import { hideUpdate, postUpdate, setShipTitles } from './updates';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { benchIdentity, benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
 import { REPO_KEY, dropMainProject, fillGithubUser, mainProjectOf, setMainProject } from './main-project';
-import { BENCH_OUTCOME_NOTE, benchAsked, benchFind, benchMoveUp, keepBenchMatch, keptBenchMatch } from './bench-find';
+import { BENCH_OUTCOME_NOTE, benchAsked, benchFind, benchMoveUp, keepBenchMatch, keptBenchMatch, signedOutNow } from './bench-find';
 import { REPLY_WAIT_MS, ReplyLate, inTime } from './reply-wait';
 import { setRaising } from './raising';
 import { scoreReply } from './score-tool';
@@ -1315,7 +1315,12 @@ export const handlers = {
     // after every other read (review minor 11), so nothing after marking it asked can lose the
     // question. Never fails the tool (the entry is then asked on a later call). v2.10 Ruling H10
     // (I3): one question per reply: this one, then the lead's.
-    const ask = !own && !loginEntries?.length ? null : await outcomeToAsk(ctx.installationId, undefined, loginEntries ?? undefined).catch((err: unknown) => {
+    // v2.14 T9 fix round 1: signed out, the sign-in question wins; the results question is not used up (outcomeToAsk
+    // marks it asked) until the first reply after the bind.
+    const signedOut = scoring && profiled && !more
+      ? await signedOutNow(ctx.installationId, ctx.ownInstallationId ?? ctx.installationId).catch(() => false)
+      : false;
+    const ask = signedOut || (!own && !loginEntries?.length) ? null : await outcomeToAsk(ctx.installationId, undefined, loginEntries ?? undefined).catch((err: unknown) => {
       console.error('[list_programs] outcome ask', err instanceof Error ? err.name : 'error');
       return null;
     });
@@ -1329,7 +1334,7 @@ export const handlers = {
       const shownCards = withPools.filter((c) => !hide.has(c.id));
       // v2.13 T8: the Bench's three parts (bench-find.ts).
       const r = await benchFind(ctx, {
-        start, first, cards: shownCards, repos: yourRepos, myEntries, ask, alerts, agentCanBuild: agent_can_build, hide, project,
+        start, first, cards: shownCards, repos: yourRepos, myEntries, ask, alerts, agentCanBuild: agent_can_build, hide, project, signedOut,
       });
       return {
         ...r,

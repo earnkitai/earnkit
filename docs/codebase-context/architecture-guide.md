@@ -5876,6 +5876,12 @@ table, `bench-reply.ts STATE_COPY` (plus `VARIANT_COPY` for not-counted cases), 
   pre-v2.14 `build` or `grants` ask is answered "Okay.".
 - **Also.** `setShipTitles` turns titles on only when the main project's own repo is App-proven; the alert lines no
   longer link to the deleted `/bonus/<round>` pages (`entry-text.ts boardLink` removed).
+- **Fix round 1.** Signed out is `bench-find.ts signedOutNow` (X on with the auth secret, no X handle on the page, the
+  caller's installation not bound): the sign-in question always wins over a held one, and find skips `outcomeToAsk`
+  and the submission step while signed out, so the results question is asked on the first reply after the bind. A
+  sign-in link that fails to mint stays signed out with `STATE_COPY.signed_out.retry` (no link), never no_project.
+  `x_signed_in_unseen` is cleared on every Bench reply and the line shows only with a handle. A yes to an old
+  `build`, `grants` or `grants_later` ask clears it ("Okay.").
 - **Schema.** `installations.x_signed_in_unseen boolean NOT NULL DEFAULT false` (idempotent).
 - **Tests.** `reply-states.test.ts` (pure: the five replies word for word, variants, held question, copy rule),
   `v214-replies.test.ts` (through `fixtures/mcp-call.ts`: install, first find, each state; X off with no link; the

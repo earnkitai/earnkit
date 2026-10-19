@@ -8,6 +8,9 @@ import { connectInstallation, saveInstallation } from './installations';
 import { rescorePerson } from './person-score';
 import { isoWeekOf } from './weeks';
 import { attachToX, xSignInCallback } from './x-install';
+import { committedProgram } from './fixtures/program-file';
+import { ProgramFile } from './program-file';
+import { upsertProgram } from './programs';
 import { SIGN_IN_NOTES, signinGet } from './x-link';
 import type { XOAuthDeps, XUser } from './x-oauth';
 
@@ -19,6 +22,7 @@ process.env.EARNKIT_AUTH_SECRET ??= 'replies-test-secret';
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => { if (process.env.DATABASE_URL) await sql().end(); });
 const RUN = String(process.pid % 100000);
+const NO_MATCH = (async () => ({ checked: 1, scored: 0, fits: [] })) as never;
 const links = (s: string) => s.match(/https?:\/\/\S+/g) ?? [];
 /** D12: the rank phrase as 12.3 reads it: "#N of M builders" or a top percent. */
 const RANK = '(: (#\\d+ of \\d+ builders?|[Tt]op \\d+(\\.\\d)?% of builders))?';
@@ -36,7 +40,8 @@ async function agent(o: { x?: string } = {}) {
   const own = (await connectInstallation(t))!.own;
   if (o.x) assert.ok((await attachToX(own, { id: `98${RUN}${o.x.length}${o.x.charCodeAt(0)}`, username: `${o.x}${RUN}`.slice(0, 15), name: o.x, avatar: null }, new Date())).ok);
   const c = (await connectInstallation(t))!;
-  return { id: c.id, token: t, ctx: { installationId: c.id, ownInstallationId: c.own, sharedClient: false, xUserId: c.x } };
+  // Fix round 1 (minor 4): repo matching stubbed, so nothing reaches for GitHub.
+  return { id: c.id, token: t, ctx: { installationId: c.id, ownInstallationId: c.own, sharedClient: false, xUserId: c.x, matchProjects: NO_MATCH } };
 }
 
 test('9.8 state 1, not signed in: the sign-in link and its question', db, async () => {
@@ -135,4 +140,65 @@ test('9.14 the first reply after the sign-in at install names the account, once'
   const first = rule((await mcpCall(a.ctx, 'find', {})).reply);
   assert.match(first.split('\n')[0], new RegExp(`^Signed in as @eve${RUN}\\.$`, 'i'));
   assert.ok(rule((await mcpCall(a.ctx, 'score', {})).reply).startsWith('Where you stand'));
+});
+
+test('9.15 fix round 1: signed out with a results question due: the sign-in question wins and the results question waits for the bind', db, async () => {
+  const a = await agent();
+  const prog = `rep-${RUN}-out`;
+  const p = committedProgram('arc-microgrants');
+  await upsertProgram(ProgramFile.parse({ ...p, id: prog, status: 'active', ends_at: new Date(Date.now() + 20 * 86_400_000).toISOString() }));
+  await sql()`UPDATE programs SET results = '{"expected": "2026-01-01"}'::jsonb WHERE id = ${prog}`;
+  const [{ id: pid }] = await sql()<{ id: number }[]>`INSERT INTO projects (program_id, name, installation_id, submitted_at) VALUES (${prog}, 'Kit', ${a.ctx.ownInstallationId}, now()) RETURNING id`;
+  const out = await mcpCall(a.ctx, 'find', {});
+  const s = rule(out.reply);
+  assert.equal(links(s).length, 1);
+  assert.match(links(s)[0]!, /\/signin\//);
+  assert.ok(s.endsWith("Want me to put your work on the Bench once you're in?"), s);
+  assert.equal(out.reply?.ask_outcome, undefined);
+  const [row] = await sql()<{ at: Date | null }[]>`SELECT outcome_asked_at AS at FROM projects WHERE id = ${pid}`;
+  assert.equal(row.at, null, 'not used up while signed out');
+  const handle = `fio${RUN}`.slice(0, 15);
+  const code = await signInThrough(links(s)[0]!, { id: `97${RUN}6`, username: handle, name: 'Fio', avatar: null });
+  const bound = await mcpCall(a.ctx, 'find', { sign_in_code: code });
+  const first = rule(bound.reply);
+  assert.ok(first.startsWith(`Signed in as @${handle}.`), first);
+  assert.ok(first.endsWith(`Did Kit win anything in ${p.title}?`), first);
+  assert.equal((bound.reply?.ask_outcome as { project_id?: number } | undefined)?.project_id, pid);
+  await sql()`DELETE FROM projects WHERE id = ${pid}`;
+});
+
+test('9.16 fix round 1 (minor 2): a sign-in link that fails to mint is still signed out (a retry question), never "no project"', db, async () => {
+  const a = await agent();
+  await sql().unsafe(`CREATE OR REPLACE FUNCTION rep_fail_link() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+    IF NEW.installation_id = ${Number(a.ctx.ownInstallationId)} THEN RAISE EXCEPTION 'test: mint fails'; END IF; RETURN NEW; END $$`);
+  await sql().unsafe('CREATE TRIGGER rep_fail_link BEFORE INSERT ON x_signin_links FOR EACH ROW EXECUTE FUNCTION rep_fail_link()');
+  const was = console.error;
+  console.error = () => {};
+  try {
+    const r = await mcpCall(a.ctx, 'find', {});
+    const s = String(r.reply?.show_to_builder);
+    assert.match(s, /You're not on the Bench yet\./);
+    assert.equal(links(s).length, 0, s);
+    assert.match(s, /Ways to get funded/);
+    assert.ok(s.endsWith("I couldn't make your sign-in link just now. Want me to try again?"), s);
+    assert.equal((r.reply?.move_up as { kind?: string } | undefined)?.kind, 'sign_in');
+    assert.doesNotMatch(s, /What's your GitHub/);
+  } finally {
+    console.error = was;
+    await sql().unsafe('DROP TRIGGER IF EXISTS rep_fail_link ON x_signin_links');
+  }
+  // Once it can be made again, the link is back.
+  assert.match(String((await mcpCall(a.ctx, 'find', {})).reply?.show_to_builder), /\/signin\/[A-Za-z0-9_-]{22}/);
+});
+
+test('9.17 fix round 1 (minor 1): a yes to an old build or grants ask clears it ("Okay.")', db, async () => {
+  const a = await agent({ x: 'gil' });
+  await mcpCall(a.ctx, 'find', {});
+  for (const kind of ['build', 'grants', 'grants_later']) {
+    await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json({ kind, key: null } as never)}::jsonb) WHERE builder_id = ${a.id}`;
+    const r = await mcpCall(a.ctx, 'tell', { move_up: { kind, project_key: null, answer: 'yes' } });
+    assert.equal(r.reply?.show_to_builder, 'Okay.', kind);
+    const [x] = await sql()<{ ask: unknown }[]>`SELECT standing_seen->'bench_ask' AS ask FROM builder_profiles WHERE builder_id = ${a.id}`;
+    assert.equal(x.ask, null, kind);
+  }
 });

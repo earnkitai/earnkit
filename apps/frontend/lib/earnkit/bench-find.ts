@@ -15,6 +15,7 @@ import { UPDATE_LINES } from './updates';
 import { markRaiseAsked, raiseAsk, raisingCoin, setRaising } from './raising';
 import { NEEDS_LIVE_PRODUCT } from './guide';
 import { signInLink } from './x-link';
+import { xSignInEnabled } from './builder-score-flag';
 import { outcomeQuestion } from './outcomes';
 import { EARN_NOTE, NOTED_LINE, newsOpener } from './stand-text';
 import {
@@ -217,11 +218,27 @@ export async function coinAskBench(
   return offer ? { kind: 'coin', project_key: p.key, line: offer.line } : null;
 }
 
+/**
+ * v2.14 T9 fix round 1: whether this caller is signed out (state 1): X sign-in can be made (X on and the auth
+ * secret set: A5 is only X actually off), the person has no page yet (no X handle), and the caller's own
+ * installation isn't bound to X. Find skips the results question while this holds, so it isn't used up before
+ * the bind. Throws on a database error (callers fall back).
+ */
+export async function signedOutNow(id: number, own: number): Promise<boolean> {
+  if (!xSignInEnabled() || !process.env.EARNKIT_AUTH_SECRET) return false;
+  const [r] = await sql()<{ claimed: boolean; bound: boolean }[]>`
+    SELECT EXISTS (SELECT 1 FROM builder_profiles WHERE builder_id = ${id} AND x_user_id IS NOT NULL AND x_handle IS NOT NULL) AS claimed,
+      EXISTS (SELECT 1 FROM installations WHERE id = ${own} AND (x_user_id IS NOT NULL OR shared_client)) AS bound`;
+  return Boolean(r) && !r.claimed && !r.bound;
+}
+
 type Fit = { program_id: string; repo?: string; title: string; prize: string; when: string };
 type ViewIn = {
   id: number; now: Date; read: BenchRead;
   /** D14: the caller's own installation, the one an X sign-in link is minted for (never the group root). */
   own: number;
+  /** Fix round 1: signedOutNow (state 1: the sign-in question always wins). */
+  signedOut: boolean;
   /** The one project's name before its first rescore wrote a row (identity's, else the repo's). */
   name: string | null;
   /** Programs the one project qualifies for (at most 3 are shown). */
@@ -256,11 +273,13 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   const isRepo = Boolean(project && REPO_KEY.test(project.key.toLowerCase()));
   const proof = project && !project.confirmed && isRepo ? await repoProof(id, project.key).catch(logged('repo proof')) : null;
   const taken = Boolean(proof && !proof.ok && proof.why === 'taken');
-  // D14: the link is the caller's own installation's (standBase minted it for `own`).
-  const signIn = read.base.claimed ? null : (read.base.signInLink ?? (await signInLink(o.own, now).catch(logged('sign-in link'))));
-  // A5: with no way to sign in (X off) the reply goes on as signed in.
+  // D14: the link is the caller's own installation's (standBase minted it for `own`). Fix round 1: a failed
+  // mint is still signed out (a retry question), never read as signed in; A5 is only X actually off.
+  const signIn = o.signedOut ? (read.base.signInLink ?? (await signInLink(o.own, now).catch(logged('sign-in link')))) : null;
   const streak = row?.streak ?? 0;
-  const state = replyState({ signedIn: read.base.claimed || signIn === null, project, counted: Boolean(project?.confirmed), streak });
+  const state = replyState({ signedIn: !o.signedOut, project, counted: Boolean(project?.confirmed), streak });
+  // Fix round 1 (ruling 4): signed out, the sign-in question always wins over a held one.
+  const held = state === 'signed_out' ? null : o.held;
   let variant: Variant = state !== 'not_counted' ? null : taken ? 'taken' : proof && !proof.ok && proof.why === 'copy' ? 'copy' : !isRepo ? 'no_repo' : null;
   const install = state === 'not_counted' && !variant ? await installLink(id, project!.key, now).catch(logged('install link')) : null;
   if (state === 'not_counted' && !variant && !install) variant = 'app_off';
@@ -295,7 +314,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
 
   const declined = declinedNow(read.seen, now.getTime());
   let ask = stateAsk({ state, variant, project, link });
-  if (!ask && project && row && !o.held) {
+  if (!ask && project && row && !held) {
     const enter: BenchAsk | null = o.fits[0] ? { kind: 'enter', project_key: project.key, program_id: o.fits[0].program_id, line: enterAsk(o.fits[0].title) } : null;
     // Owner ruling A: the best fit's entry, else a community round (the coin, its moment recorded only when asked).
     const coin = !enter || declined.includes(benchStepKey('enter', project.key))
@@ -309,19 +328,19 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
     ? { kind: 'suggest', project_key: project.key, line: shipAsk(project.name) }
     : { kind: 'start', project_key: null, line: STATE_COPY.no_project.ask() });
   // Only the ask shown is answerable: a held question clears the stored one.
-  const stored = o.held ? null : { kind: finalAsk.kind, key: finalAsk.project_key, ...(finalAsk.program_id && { program_id: finalAsk.program_id }) };
+  const stored = held ? null : { kind: finalAsk.kind, key: finalAsk.project_key, ...(finalAsk.program_id && { program_id: finalAsk.program_id }) };
   await sql()`
     UPDATE builder_profiles SET standing_seen = CASE WHEN ${stored === null} THEN COALESCE(standing_seen, '{}'::jsonb) - 'bench_ask'
       ELSE COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json(stored as never)}::jsonb) END
     WHERE builder_id = ${id}`.catch(logged('ask'));
   const view: BenchView = {
     state, variant, project, rank: read.ranks.phrase, streak,
-    handle: read.base.claimed ? read.base.handle : null, link, fund, due: o.due, ask: finalAsk, held: o.held,
+    handle: read.base.claimed ? read.base.handle : null, link, fund, due: o.due, ask: finalAsk, held,
   };
   // A raise ask is answered through move_up (benchMoveUp: setRaising), as every Bench ask but the coin offer.
   const note = finalAsk.kind === 'coin' ? COIN_NOTE : finalAsk.kind === 'start' ? START_NOTE : finalAsk.kind === 'install_app' ? INSTALL_APP_NOTE : BENCH_MOVE_UP_NOTE;
   const fields: Reply = {
-    ...(!o.held && { move_up: { kind: finalAsk.kind, project_key: finalAsk.project_key, agent_note: note } }),
+    ...(!held && { move_up: { kind: finalAsk.kind, project_key: finalAsk.project_key, agent_note: note } }),
     rank_lines: [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x)),
     streak,
   };
@@ -334,12 +353,12 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
  * account. Null otherwise. Never throws.
  */
 async function takeSignedIn(own: number, handle: string | null): Promise<string | null> {
-  if (!handle) return null;
+  // Fix round 1: cleared on every Bench reply (shown only with a handle), so it never shows long after the bind.
   const [r] = await sql()`UPDATE installations SET x_signed_in_unseen = false WHERE id = ${own} AND x_signed_in_unseen RETURNING 1`.catch((err: unknown) => {
     logged('signed in')(err);
     return [];
   });
-  return r ? signedInLine(handle) : null;
+  return r && handle ? signedInLine(handle) : null;
 }
 
 /** O5 fix round 1: a match of the one project is kept this long for a reply that can't wait for it. */
@@ -377,6 +396,8 @@ export type BenchFindArgs = {
   agentCanBuild: boolean;
   hide: Set<string>;
   project: IdentityProject | null;
+  /** Fix round 1: tools.ts's signedOutNow (it skipped the results question while signed out). */
+  signedOut?: boolean;
 };
 
 /**
@@ -399,14 +420,16 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
     ? layout(m, entered).rows.filter((r) => qualifies(r) && !r.card.sponsored && !entered.has(r.card.id) && (r.key ?? r.repo).toLowerCase() === main).slice(0, 3)
     : [];
   const fits: Fit[] = rows.map((r) => ({ program_id: r.card.id, repo: r.repo, title: r.card.title, prize: earnPrize(r.card), when: earnWhen(r.card) }));
-  const submit = a.ask ? undefined : submitStep(m);
+  const signedOut = a.signedOut ?? (await signedOutNow(id, own).catch(() => false));
+  // Fix round 1: signed out, the sign-in question wins; the submission step waits for the bind too.
+  const submit = a.ask || signedOut ? undefined : submitStep(m);
   // A17: a results question, else a submission step, is the one question (never a money line).
-  const held = a.ask ? outcomeQuestion(a.ask.name, a.ask.program_title) : submit ? submitStepLine(submit) : null;
+  const held = signedOut ? null : a.ask ? outcomeQuestion(a.ask.name, a.ask.program_title) : submit ? submitStepLine(submit) : null;
   const due = a.first.deadline ? [a.first.deadline] : [];
   const skip = new Set([...entered, ...a.hide]);
   const name = a.project && projectKeyOf(a.project).toLowerCase() === main ? a.project.name : null;
   const { view, fields } = await benchView({
-    id, now, read, own, name, fits, cards: a.cards, skip, held, agentCanBuild: a.agentCanBuild, due,
+    id, now, read, own, signedOut, name, fits, cards: a.cards, skip, held, agentCanBuild: a.agentCanBuild, due,
     coinDeps: { check: ctx.tokenDeps?.check }, live,
   });
   const taken = view.variant === 'taken';
@@ -463,7 +486,7 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
   const fits: Fit[] = money.earn.filter((e) => e.project.toLowerCase() === main).map((e) => ({ program_id: e.program_id, title: e.title, prize: e.prize, when: e.when }));
   const fresh = o.fresh;
   const { view, fields } = await benchView({
-    id, now, read, own, name: null, fits, cards: shown, skip: new Set([...entered, ...hidden]), held: null,
+    id, now, read, own, signedOut: await signedOutNow(id, own).catch(() => false), name: null, fits, cards: shown, skip: new Set([...entered, ...hidden]), held: null,
     agentCanBuild: fresh?.canBuild ?? false, due: [], coinDeps: { check: ctx.tokenDeps?.check }, live,
   });
   await noteEvent('score_viewed', () => ({
@@ -482,8 +505,10 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
 
 /** T8 fix round 1: ask kinds a pre-v2.14 reply may have stored (the updates yes and the week's post). */
 const RETIRED_ASKS = ['updates', 'post_update'] as const;
+/** T9 fix round 1: other pre-v2.14 kinds (the build ask, grants): a yes clears them and is "Okay.". */
+const OLD_ASKS = ['build', 'grants', 'grants_later'] as const;
 /** v2.14 spec 4: the asks answered once (cleared before the yes runs); go_live and coin yeses stay in tools.ts. */
-const TAKEN_ONCE: readonly string[] = ['sign_in', 'start', 'install_app', 'other_project', 'repo_behind', 'enter', 'raise', 'suggest', ...RETIRED_ASKS];
+const TAKEN_ONCE: readonly string[] = ['sign_in', 'start', 'install_app', 'other_project', 'repo_behind', 'enter', 'raise', 'suggest', ...RETIRED_ASKS, ...OLD_ASKS];
 
 /** The ask stored with the last Bench reply, when the agent's answer names it (kind, if given, and project_key). */
 export async function benchAsked(id: number, m: { kind?: string; project_key?: string | null }): Promise<{ kind: BenchAskKind; key: string | null; program_id?: string } | null> {
@@ -554,7 +579,7 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
 
 /** v2.14 signed_out: the yes to "Want me to put your work on the Bench once you're in?". */
 export const SIGN_IN_YES_NOTE =
-  "When the builder has signed in with X from the link, they get a code: call find with sign_in_code set to it. Don't show this note.";
+  "If show_to_builder had no sign-in link, call find again for it. When the builder has signed in with X from the link, they get a code: call find with sign_in_code set to it. Don't show this note.";
 /** v2.14 not_counted, no repo named: the yes to "Where does <project> live on GitHub?" names it. */
 export const REPO_BEHIND_NOTE =
   "Ask the builder in one short question for the GitHub repo behind their project, then call find with identity.project: { name, repo, live_url }. Don't show this note.";

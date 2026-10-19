@@ -88,12 +88,13 @@ test('9.6 the next step: the best fit, then a community round, then online, then
 
 test('9.7 the copy table: plain words, no em dash, no raise', () => {
   const lines = [
-    STATE_COPY.signed_out.stand(), STATE_COPY.signed_out.ask('https://x'), STATE_COPY.no_project.ask(), STATE_COPY.not_counted.stand('A'),
+    STATE_COPY.signed_out.stand(), STATE_COPY.signed_out.ask('https://x'), STATE_COPY.signed_out.retry(), STATE_COPY.no_project.ask(), STATE_COPY.not_counted.stand('A'),
     STATE_COPY.not_counted.ask('https://x'), STATE_COPY.proven.stand('A', '#1 of 2 builders'), STATE_COPY.shipping.stand('A', null, 4),
     ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('A'), v.ask('A')]),
   ];
   for (const l of lines) {
     assert.doesNotMatch(l, /\u2013/, l);
+    assert.doesNotMatch(l, /\u2014/, l);
     assert.deepEqual(bannedInBench(l, ['EarnKit', 'GitHub']), [], l);
   }
 });
@@ -114,5 +115,12 @@ test('9.7c D5: no page to name (X off): the money and one question, no link at a
 test('9.5b a held question in place of the install question: the page is then the one link', () => {
   const out = benchReply(view({ state: 'not_counted', project: { ...P, confirmed: false }, link: 'https://earnkit.com/github/verify?n=abc', held: 'Did Recipes win anything in Base Builder Grants?' }));
   assert.ok(out.includes('Your page: https://earnkit.com/maya_makes'), out);
+  oneLinkOneQuestion(out);
+});
+
+test('9.5c fix round 1: signed out, the sign-in question wins over a held one', () => {
+  const out = benchReply(view({ state: 'signed_out', project: null, handle: null, link: 'https://earnkit.com/signin/AAAAAAAAAAAAAAAAAAAAAA', held: 'Did Recipes win anything in Base Builder Grants?' }));
+  assert.ok(out.endsWith("Want me to put your work on the Bench once you're in?"), out);
+  assert.doesNotMatch(out, /Did Recipes win/);
   oneLinkOneQuestion(out);
 });

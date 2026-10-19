@@ -1405,7 +1405,8 @@ apps/frontend/
                                install link, the sign-in link minted for the caller's own installation, D14), the
                                money (fits, else the open-all-year program, else needsPicks; a taken project still
                                names open programs, D6), the stored ask; a held question (find's outcome question or
-                               submission step, A17) replaces the state's. "Signed in as @<handle>." once on the
+                               submission step, A17) replaces the state's, except signed out (signedOutNow: the
+                               sign-in question wins; find skips outcomeToAsk until the bind; a failed mint asks to retry). "Signed in as @<handle>." once on the
                                first reply after an X bind (installations.x_signed_in_unseen). benchMoveUp: taken-once
                                kinds incl. sign_in (SIGN_IN_YES_NOTE), repo_behind (REPO_BEHIND_NOTE); no grants ask,
                                no build-in-progress view. v2.13.4: fundNeeds(c, has), reportedLive, liveOf;
