@@ -9,6 +9,8 @@ export type FakePull = { number: number; title: string; merged_at: string | null
 export type FakeRepo = {
   id: number; owner: string; ownerType?: 'User' | 'Organization'; private?: boolean; fork?: boolean; template?: boolean;
   installation?: number | null; admins?: string[]; commits?: FakeCommit[]; pulls?: FakePull[];
+  /** Fix round 2: the push times GitHub's /activity lists (default: one push at each commit's date); null answers 500. */
+  pushes?: string[] | null; created?: string;
 };
 /** `routed`: false when no fake route answered (a 404 'fake: not routed'): a test can assert every call was one it fakes (T12 D3). */
 export type FakeGitHub = typeof fetch & { calls: { method: string; path: string; auth: string | null; routed: boolean }[]; repos: Record<string, FakeRepo> };
@@ -35,7 +37,7 @@ export function fakeGitHub(repos: Record<string, FakeRepo>): FakeGitHub {
         const r = repos[key];
         data[`r${k}`] = !r || (r.private && r.installation !== inst) ? null : {
           nameWithOwner: key, owner: { __typename: r.ownerType ?? 'User' }, isPrivate: Boolean(r.private), isFork: Boolean(r.fork), isTemplate: Boolean(r.template),
-          createdAt: '2025-01-01T00:00:00Z', pushedAt: r.commits?.at(-1)?.date ?? null, stargazerCount: 0, forkCount: 0, stargazers: { edges: [] }, forks: { nodes: [] },
+          createdAt: r.created ?? '2025-01-01T00:00:00Z', pushedAt: r.commits?.at(-1)?.date ?? null, stargazerCount: 0, forkCount: 0, stargazers: { edges: [] }, forks: { nodes: [] },
           defaultBranchRef: { target: { history: { nodes: (r.commits ?? []).map((c) => ({ committedDate: c.date })) } } },
         };
       }
@@ -71,6 +73,15 @@ export function fakeGitHub(repos: Record<string, FakeRepo>): FakeGitHub {
       const r = repos[m[1].toLowerCase()];
       if (!r || (r.private && r.installation !== inst)) return json(404, {});
       return json(200, (r.admins ?? [r.owner]).map((login) => ({ login })));
+    }
+    if ((m = /^\/repos\/([^/]+\/[^/]+)\/activity$/.exec(p))) {
+      const r = repos[m[1].toLowerCase()];
+      if (!r || (r.private && r.installation !== inst)) return json(404, {});
+      if (r.pushes === null) return json(500, {});
+      const all = [...(r.pushes ?? (r.commits ?? []).map((c) => c.date))].sort().reverse();
+      const per = Number(url.searchParams.get('per_page') ?? 30);
+      const page = Number(url.searchParams.get('page') ?? 1);
+      return json(200, all.slice((page - 1) * per, page * per).map((timestamp, i) => ({ id: i, timestamp, activity_type: 'push', ref: 'refs/heads/main' })));
     }
     if ((m = /^\/repos\/([^/]+\/[^/]+)\/pulls$/.exec(p))) {
       const r = repos[m[1].toLowerCase()];

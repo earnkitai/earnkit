@@ -14,12 +14,12 @@ import { COIN_PROGRAM } from './policy-constants';
 import { LIMITS, hit } from './rate-limit';
 import { countingDeps, flushReadUsage } from './read-usage';
 import { LIVE_CALIBRATION_V2, calibrationV2 } from './score-calibration';
-import { FORMULA_V2, computeScoreV2, countUse, type ScoreInput, type Ship, type UseInput, type UseTouch } from './score-v2';
+import { FORMULA_V2, SHIPPING_WEEKS, computeScoreV2, countUse, type ScoreInput, type Ship, type UseInput, type UseTouch } from './score-v2';
 import {
   defaultReaderDeps, isBudgetStop, readCoin, readContract, readContractOrigin, readNpm, readNpmBulk, readPypi, soft,
   type ContractSignals, type CoinSignals, type PackageSignals, type ReaderDeps, type RepoSignals, type SiteSignals, type Who,
 } from './source-readers';
-import { previousSignals, withPastCounts, withPastWeeks } from './sources';
+import { firstPushes, previousRepoSignals, previousSignals, storedCommits } from './sources';
 import { CHAIN_IDS } from './tokens';
 import { isoWeekOf, last52, mondayOf, streakOf, weeksShipping } from './weeks';
 
@@ -393,8 +393,11 @@ export async function personInputsV2(
         if (g.owner_type === 'Organization') for (const w of list<Who>(g.contributors)) if (typeof w?.id === 'string') projSelf.add(w.id.toLowerCase());
         for (const w of list<Who>(g.stargazers)) add(s.id, 'stargazer', 'star', w);
         for (const w of list<Who>(g.forkers)) add(s.id, 'forker', 'fork', w);
+        // Fix round 2 (anti-backdating rule 2): no commit week before the repo existed on GitHub.
+        const created = date(g.created_at);
+        const born = created ? isoWeekOf(created) : null;
         for (const wk of list<unknown>(g.commit_weeks))
-          if (typeof wk === 'string' && WEEK.test(wk)) {
+          if (typeof wk === 'string' && WEEK.test(wk) && (!born || wk >= born)) {
             ship.add(wk);
             if (inScope) input.commitWeeks.push(wk);
           }
@@ -574,19 +577,20 @@ export async function personInputsV2(
  * The review hold for a rescore `s` on `day`: the baseline is the newest public score before that
  * day, a public v2 history row or a released live score (a held day the owner never saw is neither).
  */
-async function holdOf(tx: Db, id: number, day: string, score: number, wasRanked: boolean) {
-  // Scoring and clarity: only a ranked baseline of the live calibration counts (Shipping's first day is never
-  // a jump from the four-part score, nor from a day the builder was unranked). The first rescore after the
-  // builder becomes ranked (`wasRanked` false: the App connect, the repo's first reading) is never held. No
-  // source shares: people and money aren't scored.
-  if (!wasRanked) return { before: undefined, reason: null };
+async function holdOf(tx: Db, id: number, day: string, score: number) {
+  // Scoring and clarity: only a ranked baseline of the live calibration from the last 12 weeks counts
+  // (Shipping's first day is never a jump from the four-part score, nor from a day the builder was
+  // unranked, so the first App connect is never held). Losing and regaining the rank (the App removed and
+  // reinstalled) keeps the ranked baseline, so it never skips the hold. No source shares: people and money
+  // aren't scored.
   const cal = calibrationV2().id;
+  const since = new Date(Date.parse(`${day}T00:00:00Z`) - SHIPPING_WEEKS * WEEK_MS).toISOString().slice(0, 10);
   const [before] = await tx<{ score: number }[]>`
     SELECT score FROM (
       SELECT s.day, 0 AS pri, s.score FROM builder_scores s
-      WHERE s.builder_id = ${id} AND s.formula = ${FORMULA_V2} AND s.calibration = ${cal} AND s.ranked AND s.day < ${day}::date AND ${publicRow()}
+      WHERE s.builder_id = ${id} AND s.formula = ${FORMULA_V2} AND s.calibration = ${cal} AND s.ranked AND s.day < ${day}::date AND s.day >= ${since}::date AND ${publicRow()}
       UNION ALL
-      SELECT x.day, 1, x.score FROM score_releases x WHERE x.builder_id = ${id} AND x.score IS NOT NULL AND x.day < ${day}::date
+      SELECT x.day, 1, x.score FROM score_releases x WHERE x.builder_id = ${id} AND x.score IS NOT NULL AND x.day < ${day}::date AND x.day >= ${since}::date
         AND EXISTS (SELECT 1 FROM builder_scores h WHERE h.builder_id = x.builder_id AND h.day = x.day AND h.calibration = ${cal} AND h.ranked)
     ) b ORDER BY day DESC, pri DESC LIMIT 1`;
   return { before, reason: holdReason(before?.score ?? null, score, []) };
@@ -609,8 +613,7 @@ export async function trackingHeld(id: number, ref: string, now: Date): Promise<
       const main = (await mainProjectOf(id, tx)) ?? (await pickMainProject(id, tx));
       const { input } = await personInputsV2(id, now, undefined, tx, { scope: main });
       const sc = computeScoreV2(input, now);
-      const [cur] = await tx<{ ranked: boolean }[]>`SELECT ranked AND calibration = ${LIVE_CALIBRATION_V2} AS ranked FROM builder_live WHERE builder_id = ${id}`;
-      held = (await holdOf(tx, id, now.toISOString().slice(0, 10), sc.score, Boolean(cur?.ranked))).reason !== null;
+      held = (await holdOf(tx, id, now.toISOString().slice(0, 10), sc.score)).reason !== null;
       throw new DryRun();
     });
   } catch (err) {
@@ -650,8 +653,8 @@ export async function rescorePerson(id: number, now: Date, ring?: PersonRing): P
   // baseline, the stored ring) is read under it. A rescore older than the stored one writes nothing.
   const result = await sql().begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(${RESCORE_LOCK}, ${id})`;
-    const [cur] = await tx<{ score: number; ranked: boolean; computed_at: Date; live_cal: boolean }[]>`
-      SELECT score, ranked, computed_at, calibration = ${LIVE_CALIBRATION_V2} AS live_cal FROM builder_live WHERE builder_id = ${id} FOR UPDATE`;
+    const [cur] = await tx<{ score: number; ranked: boolean; computed_at: Date }[]>`
+      SELECT score, ranked, computed_at FROM builder_live WHERE builder_id = ${id} FOR UPDATE`;
     // A newer rescore exists (a refresh during this cron run). Without a ring (an older refresh)
     // nothing is written. The cron's ring is the freshest, so the cron rescores at the newer row's
     // time: same readings, same computed_at (never moves back), the rank, cap and projects rebuilt
@@ -671,7 +674,7 @@ export async function rescorePerson(id: number, now: Date, ring?: PersonRing): P
     const prevTracked = new Set((await tx<{ project_key: string }[]>`
       SELECT project_key FROM builder_projects WHERE builder_id = ${id} AND tracked`).map((r) => r.project_key));
     const tracked = trackedKeys(projects, at, prevTracked);
-    const { before, reason } = await holdOf(tx, id, day, s.score, Boolean(cur?.ranked && cur.live_cal));
+    const { before, reason } = await holdOf(tx, id, day, s.score);
     const people = projects.filter((p) => p.people > 0).length;
     // `at` names this rescore: the owner's release applies it only while it is still the pending one.
     // A cron rescore at a newer row's time is a different rescore, so it carries the run's time too.
@@ -948,10 +951,14 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
         await put(s, { ok: false });
         continue;
       }
-      const prev = (await previousSignals(s.id)) as Partial<RepoSignals> | null;
+      const daily = (await previousSignals(s.id)) as Partial<RepoSignals> | null;
       // An organization's contributors (the top-contributor rule) come from the daily read (v2.13.3: or the App's read).
-      const contributors = r.owner_type === 'Organization' && !app ? list<Who>(prev?.contributors) : r.contributors;
-      await put(s, { ok: true, signals: { ...r, contributors, commit_weeks: withPastWeeks(r.commit_weeks, prev, now), commit_counts: withPastCounts(r.commit_counts ?? {}, prev, now) } });
+      const contributors = r.owner_type === 'Organization' && !app ? list<Who>(daily?.contributors) : r.contributors;
+      // Fix round 2 (anti-backdating): the newest good reading, daily or live, decides what is new; a first
+      // reading reads GitHub's push times (rule 4, within this read's deadline).
+      const prev = await previousRepoSignals(s.id);
+      const pushes = !Array.isArray((prev as { commit_weeks?: unknown } | null)?.commit_weeks) && Date.now() < o.deadline ? await firstPushes(s, o.reader) : null;
+      await put(s, { ok: true, signals: { ...r, contributors, ...storedCommits(r, prev, now, pushes) } });
     }
   }
 

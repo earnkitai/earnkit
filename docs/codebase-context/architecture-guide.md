@@ -5895,9 +5895,22 @@ Spec: `docs/design-docs-and-implementation-plans/scoring-and-clarity.md` (R1 to 
 - **People and money are not scored.** `countUse` (the old Used and Earned counting, ring and anti-farming
   included) still fills `builder_projects.people` and `money_usd`; nothing destructive. The review hold keeps the
   30-point jump only, against a ranked history row (`builder_scores.ranked`, written by the cron) of the live
-  calibration `v2-shipping` (`score-calibration.ts`), so the first Shipping day is never a jump from a four-part
-  score or from a day the builder was unranked; the first rescore after the builder becomes ranked (the live row
-  unranked, or of an older calibration) is never held. The one-source rule no longer applies.
+  calibration `v2-shipping` (`score-calibration.ts`) from the last 12 weeks, so the first Shipping day is never a
+  jump from a four-part score or from a day the builder was unranked (the first App connect is never held), while
+  losing and regaining the rank (the App removed and reinstalled) keeps the ranked baseline and never skips the
+  hold (fix round 2). The one-source rule no longer applies.
+- **Anti-backdating** (fix round 2; commit dates are the committer's to set):
+  1. *Creation floor* (`personInputsV2`): a commit week before the ISO week of the repo's GitHub `created_at`
+     (in every reading) never counts, for the score, the grid or the streak.
+  2. *No new past weeks* (`sources.ts withPastWeeks`, `withPastCounts`): once a source has a previous good
+     reading (daily or live, `previousRepoSignals`), a new reading may add only this week and last week; older
+     weeks keep their stored values.
+  3. *First read, server push times* (`sources.ts storedCommits`, `pushedWeeks`, `readPushes`, `firstPushes`): a
+     source's first reading reads GET /repos/{o}/{r}/activity (the App's installation client when installed, else
+     EarnKit's reader; at most `ACTIVITY_PAGES` 2 pages of 100, inside the connect read's budget) and keeps a commit
+     week only when a push landed that week or the next. When the pages run out first, weeks older than the oldest
+     push seen are kept (can't be judged). If the endpoint fails or lists nothing, the weeks stand (fail soft; the
+     creation floor still applies), so an API error never zeroes a real builder.
 - **Deploy catch-up** (fix round 1): `listedRanked` and `standingOf` count only `builder_live` rows of the live
   calibration, so a four-part row is unranked (and shows no Shipping number) until rescored; `scorePeopleV2` takes
   every live row of an older calibration first, even when today already has a history row, within its deadline.

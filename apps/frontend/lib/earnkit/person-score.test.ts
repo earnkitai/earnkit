@@ -13,7 +13,7 @@ import type { ReaderDeps } from './source-readers';
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 // Task 17: a fresh block of ids each run (not the pid's bucket): builder_scores is append-only, so an
 // earlier run's score rows for a reused id made the cron see the day as already scored.
-const T = 2_100_950_000 + Math.floor(Math.random() * 400_000) * 20;
+const T = 2_100_950_000 + Math.floor(Math.random() * 400_000) * 30;
 const NOW = new Date('2026-10-12T12:00:00Z');
 const DAY = 86_400_000;
 const hex40 = (n: number) => n.toString(16).padStart(40, '0');
@@ -21,14 +21,14 @@ const hex40 = (n: number) => n.toString(16).padStart(40, '0');
 after(async () => {
   if (!process.env.DATABASE_URL) return;
   // builder_live rows of this file never count in another file's rank.
-  await sql()`DELETE FROM builder_live WHERE builder_id BETWEEN ${T} AND ${T + 19}`;
-  await sql()`DELETE FROM score_releases WHERE builder_id BETWEEN ${T} AND ${T + 19}`;
-  await sql()`DELETE FROM builder_projects WHERE builder_id BETWEEN ${T} AND ${T + 19}`;
-  await sql()`DELETE FROM source_live WHERE source_id IN (SELECT id FROM builder_sources WHERE builder_id BETWEEN ${T} AND ${T + 19})`;
-  await sql()`DELETE FROM builder_sources WHERE builder_id BETWEEN ${T} AND ${T + 19}`;
-  await sql()`DELETE FROM builder_profiles WHERE builder_id BETWEEN ${T} AND ${T + 19}`;
-  await sql()`DELETE FROM projects WHERE installation_id BETWEEN ${T} AND ${T + 19}`;
-  await sql()`DELETE FROM installations WHERE id BETWEEN ${T} AND ${T + 19}`;
+  await sql()`DELETE FROM builder_live WHERE builder_id BETWEEN ${T} AND ${T + 29}`;
+  await sql()`DELETE FROM score_releases WHERE builder_id BETWEEN ${T} AND ${T + 29}`;
+  await sql()`DELETE FROM builder_projects WHERE builder_id BETWEEN ${T} AND ${T + 29}`;
+  await sql()`DELETE FROM source_live WHERE source_id IN (SELECT id FROM builder_sources WHERE builder_id BETWEEN ${T} AND ${T + 29})`;
+  await sql()`DELETE FROM builder_sources WHERE builder_id BETWEEN ${T} AND ${T + 29}`;
+  await sql()`DELETE FROM builder_profiles WHERE builder_id BETWEEN ${T} AND ${T + 29}`;
+  await sql()`DELETE FROM projects WHERE installation_id BETWEEN ${T} AND ${T + 29}`;
+  await sql()`DELETE FROM installations WHERE id BETWEEN ${T} AND ${T + 29}`;
   await sql().end();
 });
 
@@ -65,7 +65,7 @@ async function reading(ref: string, signals: unknown, day = new Date(NOW.getTime
   await sql()`
     INSERT INTO source_readings (source_id, day, signals, ok)
     SELECT id, ${day.toISOString().slice(0, 10)}, ${sql().json(signals as never)}, true
-    FROM builder_sources WHERE ref = ${ref} AND builder_id BETWEEN ${T} AND ${T + 19} ORDER BY id DESC LIMIT 1
+    FROM builder_sources WHERE ref = ${ref} AND builder_id BETWEEN ${T} AND ${T + 29} ORDER BY id DESC LIMIT 1
     ON CONFLICT (source_id, day) DO NOTHING`;
 }
 async function hosted(id: number, h: { slug: string; repo_key: string; status: string }) {
@@ -419,6 +419,50 @@ test('4.15e fix round 1: a live row of an older calibration is unranked everywhe
   const [l] = await sql()<{ calibration: string; score: number; ranked: boolean }[]>`SELECT calibration, score, ranked FROM builder_live WHERE builder_id = ${id}`;
   assert.deepEqual({ ...l }, { calibration: 'v2-shipping', score: 100, ranked: true });
   assert.deepEqual(await standingOf(id, { only: [id] }).then((x) => [x.ranked, x.rank, x.total]), [true, 1, 1]);
+});
+
+test('4.15f fix round 2: the App removed and reinstalled after a jump is still held (the ranked baseline stands); a ranked baseline over 12 weeks old is ignored', dbTest, async () => {
+  const id = T + 20;
+  await person(id, { ring: true });
+  const key = `lee/tog${id}`;
+  await sql()`UPDATE builder_profiles SET main_project_key = ${key} WHERE builder_id = ${id}`;
+  await source(id, { kind: 'repo', ref: key, state: 'verified', proof: 'github_app', by: 'server' });
+  const y = new Date(NOW.getTime() - DAY);
+  await reading(key, { owner: 'lee', owner_type: 'User', commit_weeks: [isoWeekOf(y)] }, y);
+  await scorePeopleV2(y, { deadline: Date.now() + 10_000, only: [id] }); // yesterday: 14, ranked, history row
+  // Today a reading with 12 weeks of code (as if backdated past the read rules).
+  await reading(key, { owner: 'lee', owner_type: 'User', commit_weeks: Array.from({ length: 12 }, (_, i) => isoWeekOf(new Date(NOW.getTime() - i * 7 * DAY))) }, NOW);
+  assert.equal((await rescorePerson(id, NOW)).held, true, 'a 76-point jump from a ranked 14');
+  await sql()`UPDATE builder_sources SET state = 'proposed', reject_reason = 'app_removed' WHERE builder_id = ${id}`;
+  assert.equal((await rescorePerson(id, new Date(NOW.getTime() + 60_000))).ranked, false, 'the App removed: unranked');
+  await sql()`UPDATE builder_sources SET state = 'verified', reject_reason = NULL WHERE builder_id = ${id}`;
+  const back = await rescorePerson(id, new Date(NOW.getTime() + 120_000));
+  assert.equal(back.held, true, 'reinstalled: still measured from the ranked 14');
+  // A ranked baseline older than 12 weeks is no baseline.
+  const old = T + 21;
+  await person(old, { ring: true });
+  await fakeBigUse(old);
+  await history(old, 10, new Date(NOW.getTime() - 13 * 7 * DAY));
+  await live(old, { score: 10, ranked: true });
+  assert.equal((await rescorePerson(old, NOW)).held, false);
+});
+
+test('4.15g fix round 2 (anti-backdating rule 2): commit weeks before the repo was created on GitHub never count', dbTest, async () => {
+  const id = T + 22;
+  await person(id, { ring: true });
+  const key = `lee/new${id}`;
+  await sql()`UPDATE builder_profiles SET main_project_key = ${key} WHERE builder_id = ${id}`;
+  await source(id, { kind: 'repo', ref: key, state: 'verified', proof: 'github_app', by: 'server' });
+  // Created 2 weeks ago, yet its history claims 12 weeks of code.
+  await reading(key, {
+    owner: 'lee', owner_type: 'User', created_at: new Date(NOW.getTime() - 14 * DAY).toISOString(),
+    commit_weeks: Array.from({ length: 12 }, (_, i) => isoWeekOf(new Date(NOW.getTime() - i * 7 * DAY))),
+  }, NOW);
+  const r = await rescorePerson(id, NOW);
+  // Only this week and the two before (the week it was created): round(90 x 33 / 78) = 38.
+  assert.deepEqual(r, { score: 38, ranked: true, held: false });
+  const [p] = await sql()<{ ship_weeks: string[] }[]>`SELECT ship_weeks FROM builder_projects WHERE builder_id = ${id}`;
+  assert.equal(p.ship_weeks.length, 3, 'the grid and streak follow the same floor');
 });
 
 test('4.15c the review hold measures a jump only from a history row of the live calibration (the four-part score is never the baseline)', dbTest, async () => {

@@ -119,6 +119,25 @@ test('6.2c R5 fail soft: a reading that fails at connect leaves the proof standi
   assert.equal(gh.calls.filter((c) => c.path === '/graphql').length, 0, 'the 502 went through the wrapper');
 });
 
+test('6.2e fix round 2 (anti-backdating rule 4): a first reading keeps only weeks a push landed in (or right before); if the push list fails, the weeks stand', db, async () => {
+  const commits = Array.from({ length: 12 }, (_, w) => ({ sha: `b${w}`, message: `old ${w}`, date: ago(w) }));
+  // Every backdated commit was pushed today.
+  const key = `hugo${RUN}/back`;
+  const gh = fakeGitHub({ [key]: { id: 9103, owner: `hugo${RUN}`, installation: 93, private: true, commits, pushes: [new Date().toISOString()] } });
+  const p = await connected(key, 'hugo', gh, 93);
+  // This week and last week only: round(90 x (12 + 11) / 78) = 27.
+  assert.equal(p.live.score, 27);
+  assert.equal(p.live.parts.shipping?.raw?.weeks, 2);
+  const act = gh.calls.filter((c) => c.path.startsWith(`/repos/${key}/activity`));
+  assert.equal(act.length, 1, 'one page (short), with the installation token');
+  assert.equal(act[0].auth, 'Bearer ghs_fake_93');
+  // The activity endpoint fails: fall back to the weeks as read (the creation floor still applies).
+  const key2 = `iris${RUN}/soft`;
+  const gh2 = fakeGitHub({ [key2]: { id: 9104, owner: `iris${RUN}`, installation: 94, private: true, commits, pushes: null } });
+  const q = await connected(key2, 'iris', gh2, 94);
+  assert.equal(q.live.score, 90, 'never zeroed by an API error');
+});
+
 test('6.2d fix round 1: the connect read\'s budget holds on every call: a hung request is aborted at the deadline, none starts after it', async () => {
   let seen: AbortSignal | undefined;
   const hang = ((_input: RequestInfo | URL, init?: RequestInit) => new Promise((_, reject) => {

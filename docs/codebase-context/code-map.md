@@ -1473,6 +1473,8 @@ apps/frontend/
                                weeks / 78) + 10 live bonus; parts { shipping }, room for originality), weekMask,
                                shippingOf, storedShipping (old four-part rows read as none), scoreWhy (the why
                                sentence), countUse (people and money for builder_projects, not scored; fade, STAR_FORK_CAP)
+    sources.ts (fix round 2)   anti-backdating: withPastWeeks/withPastCounts (only this and last week new after a
+                               reading), storedCommits, pushedWeeks, readPushes, firstPushes (first read: /activity), previousRepoSignals
     rank.ts(+test)             scoring and clarity: rankLine (the one rank phrase: "#N of M builders this week", from 20
                                "Top P% of builders this week" in the top half; chains named), scoreLine ("Shipping 72 ·
                                <rank line>"; thousands separators), benchPercent, BENCH_CHAINS
