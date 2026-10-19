@@ -7,8 +7,9 @@ import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, claimX, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
-import { NOT_ON_BENCH, OTHER_PROJECT_ASK, SHIP_STEP, STATE_COPY, VARIANT_COPY } from './bench-reply';
+import { NOT_ON_BENCH, OTHER_PROJECT_ASK, STATE_COPY, VARIANT_COPY } from './bench-reply';
 import { mainProjectOf } from './main-project';
+import { endsOnRankedStep } from './fixtures/ranked-step';
 
 /**
  * v2.13.1 O2: the reply-side fixes of the first-run audit, through the real tools under the Bench
@@ -92,7 +93,7 @@ test('O2.5 once claimed: find and score show "Your page: https://earnkit.com/<ha
     const handle = uniq('pg');
     const id = await person({ main: key, claimed: handle, projects: [{ key, name: 'Recipe planner', confirmed: true }] });
     const f = await find(id, {}, NO_MATCH);
-    assert.match(f.show_to_builder.split('\n')[2], /^(No code|Code in) .+ points\.$/, 'the why sentence under the stand line');
+    assert.match(f.show_to_builder.split('\n')[2], /^(No code in the last 12 weeks|Code in \d+ of the last 12 weeks, \d+ of the last 4)\.$/, 'the why sentence under the stand line');
     assert.equal(f.show_to_builder.split('\n')[3], `Your page: https://earnkit.com/${handle}`);
     const s = (await tools.score({}, { installationId: id } as never)) as R;
     assert.equal(s.show_to_builder.split('\n')[3], `Your page: https://earnkit.com/${handle}`);
@@ -123,7 +124,7 @@ test('O2 fix round 1 (ruling 3), R8: every state ends on one next step with a ye
     const key = `${uniq('gr')}/recipes`;
     const id = await person({ main: key, claimed: uniq('gr'), projects: [{ key, name: 'Recipe planner', confirmed: true }] });
     const r = await find(id, {}, NO_MATCH);
-    assert.ok(r.show_to_builder.endsWith(SHIP_STEP), r.show_to_builder);
+    assert.ok(endsOnRankedStep(r.show_to_builder), r.show_to_builder);
     assert.equal(lastQ(r.show_to_builder).length, 0);
     const g = await tell(id, { kind: 'ship', project_key: key, answer: 'yes' });
     assert.match(g.agent_note ?? '', /one small thing/);

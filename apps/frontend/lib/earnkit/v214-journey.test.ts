@@ -21,6 +21,7 @@ import { appEnv } from './fixtures/app-install';
 import BenchProfileView from '../../app/[handle]/BenchProfileView';
 import type { ToolContext } from './tools';
 import type { XOAuthDeps, XUser } from './x-oauth';
+import { endsOnRankedStep } from './fixtures/ranked-step';
 
 /**
  * v2.14 T12: the spec's acceptance 1 to 5 as one brand-new builder lives them, through the real routes
@@ -94,8 +95,8 @@ function rule(r: McpResult): string {
   const [bare] = bareLinks(s);
   if (bare) assert.ok(!links(s)[0]!.includes(bare), `the page is not linked twice: ${s}`);
   assert.match(s, /Ways to get funded/);
-  // R8: a ranked reply ends on the one statement "Ship this week to climb." (no question); every other on one question.
-  const ranked = s.trimEnd().endsWith('How to move up\nShip this week to climb.');
+  // R8, L5: a ranked reply ends on the one statement, the weekly target (no question); every other on one question.
+  const ranked = endsOnRankedStep(s);
   assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, ranked ? 0 : 1, s);
   assert.ok(ranked || s.trimEnd().endsWith('?'), s);
   assert.doesNotMatch(s, /raise|fundrais/i, s);

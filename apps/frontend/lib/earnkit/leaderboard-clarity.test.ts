@@ -12,7 +12,7 @@ import { appEnv, installApp } from './fixtures/app-install';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { benchCardFacts, benchRows, filterHref, profileData } from './bench-data';
-import { SHIP_STEP, STATE_COPY, VARIANT_COPY, NOT_ON_BENCH } from './bench-reply';
+import { STATE_COPY, VARIANT_COPY, NOT_ON_BENCH } from './bench-reply';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
 import { FORMULA_V2 } from './score-v2';
 import { rankSplit } from './rank';
@@ -25,6 +25,7 @@ import { PROFILES_POINTS } from './policy';
 import BenchRowItem from '../../app/leaderboard/BenchRowItem';
 import BenchProfileView from '../../app/[handle]/BenchProfileView';
 import { BENCH_TITLE } from '../../app/leaderboard/BenchView';
+import { endsOnRankedStep } from './fixtures/ranked-step';
 
 /**
  * Scoring and clarity, Task 3: the leaderboard (R9, R17), rank wording (R6), one status line and one
@@ -64,7 +65,7 @@ function oneStatusOneStep(reply: Record<string, unknown> | null): string {
   const up = s.split('\n\n').find((p) => p.startsWith('How to move up'));
   assert.ok(up, s);
   const questions = (s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length;
-  if (up === `How to move up\n${SHIP_STEP}`) assert.equal(questions, 0, `a statement, no question: ${s}`);
+  if (endsOnRankedStep(up!)) assert.equal(questions, 0, `a statement, no question: ${s}`);
   else {
     assert.equal((up!.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, 1, `one next step: ${s}`);
     assert.equal(questions, 1, `one question in all: ${s}`);

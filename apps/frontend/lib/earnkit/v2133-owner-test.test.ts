@@ -35,6 +35,7 @@ import { safeNames } from './page-data';
 import { FIND_DESCRIPTION_BENCH, TELL_DESCRIPTION_BENCH, toolDescriptions } from './mcp';
 import type { Card } from './present';
 import type { ReaderDeps } from './source-readers';
+import { RANKED_STEP } from './fixtures/ranked-step';
 
 /**
  * v2.13.3, the owner's own production test (2026-10-17), all on the Bench: (1) the older find
@@ -142,7 +143,7 @@ test('2.1 pure: what each program needs, in plain words; a chain program names i
   assert.equal(fundNeeds(card({ any_chain: true, needs_repo: true })).needs, 'once your code is on GitHub');
   assert.equal(fundNeeds(card({ any_chain: true, needs_repo: false })).needs, 'for any app');
   assert.equal(fundNeeds(card({ chains: ['base', 'tempo', 'robinhood'], needs_repo: true })).needs, 'for an app on Base, Tempo or Robinhood Chain, once its code is on GitHub');
-  const v: BenchView = { state: 'no_project', variant: null, project: null, rank: null, score: null, why: null, originality: null, handle: null, link: null, due: [], held: null,
+  const v: BenchView = { state: 'no_project', variant: null, project: null, rank: null, score: null, why: null, originality: null, target: null, share: null, handle: null, link: null, due: [], held: null,
     ask: { kind: 'start', project_key: null, line: STATE_COPY.no_project.noApp() },
     fund: [{ kind: 'needs', title: 'Base Builder Grants', prize: 'up to $5K', needs: "for a Base app, once it's live" }] };
   assert.equal(benchReply(v).split('\n').slice(3, 5).join('\n'), "Ways to get funded\nBase Builder Grants: up to $5K for a Base app, once it's live.");
@@ -412,7 +413,7 @@ test('A.2 through find (R8, R12): a project with a fit names it in Ways to get f
     const id = await person({ main: key, claimed: uniq('mf').slice(0, 15), ranked: true, score: 60, projects: [{ key, name: 'Recipe planner', confirmed: true, weeks_shipping: 2 }] });
     const r = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(prog.id, key) }) });
     assert.match(r.show_to_builder, new RegExp(`^${prog.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: up to \\$10K, rolling\\. `, 'm'), r.show_to_builder);
-    assert.equal(r.show_to_builder.split('\n').at(-1), SHIP_STEP);
+    assert.match(r.show_to_builder.split('\n').at(-1)!, RANKED_STEP);
     assert.equal(r.move_up?.kind, 'ship');
   }));
 

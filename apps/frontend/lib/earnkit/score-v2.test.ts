@@ -48,16 +48,14 @@ test('S5 shippingOf never passes 100 or reads a bad mask as points', () => {
   assert.equal(shippingOf(1.5, 0), 0);
 });
 
-test('S6 the why sentence: what an active week adds by the formula (this week, else next week)', () => {
+test('S6 the why sentence: the weeks with code (launch ready L5: what a week adds is the weekly target, weekly-target.test.ts)', () => {
   const why = (ages: number[], ships: Ship[] = []) => scoreWhy(score(ages, ships).parts, NOW);
-  assert.equal(why([]), 'No code in the last 12 weeks. Ship code this week to add up to 14 points.');
-  assert.equal(why([1, 2, 3, 5, 7, 9, 11]), 'Code in 7 of the last 12 weeks, 3 of the last 4. Ship code this week to add up to 14 points.');
-  // This week active: next week with code (27) over next week without (13).
-  assert.equal(why([0]), 'Code in 1 of the last 12 weeks, 1 of the last 4. Ship code next week to add up to 14 points.');
-  // 12 of 12: next week without code drops to 76, with code stays 90.
-  assert.equal(why(all12), 'Code in 12 of the last 12 weeks, 4 of the last 4. Ship code next week to add up to 14 points.');
-  assert.equal(why(all12, [site]), 'Code in 12 of the last 12 weeks, 4 of the last 4. Ship code next week to add up to 14 points.');
-  assert.equal(why([5]), 'Code in 1 of the last 12 weeks, 0 of the last 4. Ship code this week to add up to 14 points.');
+  assert.equal(why([]), 'No code in the last 12 weeks.');
+  assert.equal(why([1, 2, 3, 5, 7, 9, 11]), 'Code in 7 of the last 12 weeks, 3 of the last 4.');
+  assert.equal(why([0]), 'Code in 1 of the last 12 weeks, 1 of the last 4.');
+  assert.equal(why(all12), 'Code in 12 of the last 12 weeks, 4 of the last 4.');
+  assert.equal(why(all12, [site]), 'Code in 12 of the last 12 weeks, 4 of the last 4.');
+  assert.equal(why([5]), 'Code in 1 of the last 12 weeks, 0 of the last 4.');
 });
 
 test('S7 stored parts: an older four-part row (shipped, used, earned, consistency) never breaks a read', () => {
@@ -73,12 +71,12 @@ test('S7 stored parts: an older four-part row (shipped, used, earned, consistenc
 test('S8 the why of a row scored in an earlier week is read as of this week (never last week\'s "this week")', () => {
   const last = computeScoreV2({ ships: [], commitWeeks: weeks(0, 1, 2) }, NOW).parts; // scored with code this week
   const week = 7 * 86_400_000;
-  assert.equal(scoreWhy(last, NOW), 'Code in 3 of the last 12 weeks, 3 of the last 4. Ship code next week to add up to 13 points.');
-  // A week later the row's "this week" is last week: nothing yet this week (35 now, 48 with code).
-  assert.equal(scoreWhy(last, new Date(NOW.getTime() + week)), 'Code in 3 of the last 12 weeks, 3 of the last 4. Ship code this week to add up to 13 points.');
+  assert.equal(scoreWhy(last, NOW), 'Code in 3 of the last 12 weeks, 3 of the last 4.');
+  // A week later the row's "this week" is last week (weekly-target.test.ts L5.1 checks the gains read the same way).
+  assert.equal(scoreWhy(last, new Date(NOW.getTime() + week)), 'Code in 3 of the last 12 weeks, 3 of the last 4.');
   // 11 weeks later only the newest week is still inside the 12; 12 weeks later none is.
-  assert.equal(scoreWhy(last, new Date(NOW.getTime() + 11 * week)), 'Code in 1 of the last 12 weeks, 0 of the last 4. Ship code this week to add up to 14 points.');
-  assert.equal(scoreWhy(last, new Date(NOW.getTime() + 13 * week)), 'No code in the last 12 weeks. Ship code this week to add up to 14 points.');
+  assert.equal(scoreWhy(last, new Date(NOW.getTime() + 11 * week)), 'Code in 1 of the last 12 weeks, 0 of the last 4.');
+  assert.equal(scoreWhy(last, new Date(NOW.getTime() + 13 * week)), 'No code in the last 12 weeks.');
   // A row without its Monday (scored before it was stored) reads as this week's.
   const { monday: _m, ...raw } = last.shipping.raw;
   assert.equal(scoreWhy({ shipping: { ...last.shipping, raw } }, new Date(NOW.getTime() + week)), scoreWhy(last, NOW));

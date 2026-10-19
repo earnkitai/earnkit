@@ -1,0 +1,79 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { computeScoreV2, weekGains, type Ship } from './score-v2';
+import { weeklyTarget, type TargetIn } from './weekly-target';
+import { momentLines, shareLink, shareText } from './weekly-moment';
+import { isoWeekOf } from './weeks';
+
+/** Launch ready L5 (the weekly target) and L6 (the weekly moment's lines and share link): the pure parts. */
+const NOW = new Date('2026-10-21T12:00:00Z'); // a Wednesday
+const WEEK = 7 * 86_400_000;
+const weeksAgo = (ages: number[]) => ages.map((i) => isoWeekOf(new Date(NOW.getTime() - i * WEEK)));
+const parts = (ages: number[], ships: Ship[] = []) => computeScoreV2({ ships, commitWeeks: weeksAgo(ages) }, NOW).parts;
+const site: Ship = { key: 'site:kit.app', kind: 'site' };
+const G = { active: false, gain: 14, next: 13 };
+const t = (o: Partial<TargetIn>): string => weeklyTarget({ gains: G, score: 50, rank: 3, above: null, ...o });
+
+test('L5.1 weekGains: this week not yet active gains what shipping now adds; once active, what it added and what next week adds', () => {
+  assert.deepEqual(weekGains(parts([1, 2, 3, 5, 7, 9, 11]), NOW), { active: false, gain: 14, next: 14 });
+  assert.deepEqual(weekGains(parts([0, 1, 2]), NOW), { active: true, gain: 14, next: 13 });
+  assert.deepEqual(weekGains(parts([]), NOW), { active: false, gain: 14, next: 14 });
+  // Every week active and live: the score is at its cap of 100, and the week still added 14 (90 x 12 / 78).
+  const all = Array.from({ length: 12 }, (_, i) => i);
+  assert.equal(computeScoreV2({ ships: [site], commitWeeks: weeksAgo(all) }, NOW).score, 100);
+  assert.deepEqual(weekGains(parts(all, [site]), NOW), { active: true, gain: 14, next: 14 });
+  // A row scored last week is read as of this week: last week's commits are no longer "this week".
+  assert.equal(weekGains(parts([0]), new Date(NOW.getTime() + WEEK))?.active, false);
+  assert.equal(weekGains({}, NOW), null);
+});
+
+test('L5.2 the target: pass the builder above when this week\'s points beat their score, else how far behind', () => {
+  assert.equal(t({ score: 50, above: { rank: 2, score: 60, name: 'Ana' } }), 'Ship code this week: +14 points, enough to pass Ana for #2.');
+  assert.equal(t({ score: 40, above: { rank: 2, score: 60, name: 'Ana' } }), 'Ship code this week: +14 points, 20 behind #2.');
+  // A tie is not a pass.
+  assert.equal(t({ score: 46, above: { rank: 2, score: 60, name: 'Ana' } }), 'Ship code this week: +14 points, 14 behind #2.');
+  assert.equal(t({ score: 47, above: { rank: 2, score: 60, name: 'Ana' } }), 'Ship code this week: +14 points, enough to pass Ana for #2.');
+  // The public page names only the rank.
+  assert.equal(t({ score: 50, above: { rank: 2, score: 60, name: null } }), 'Ship code this week: +14 points, enough to reach #2.');
+  assert.equal(t({ score: 40, above: { rank: 2, score: 60, name: null } }), 'Ship code this week: +14 points, 20 behind #2.');
+});
+
+test('L5.3 boundaries: #1 holds, no one above, already active, gain 0, outside the pool', () => {
+  assert.equal(t({ rank: 1, above: null }), 'Ship code this week: +14 points to hold #1.');
+  // Tied at the top: no one scores higher, so #1 holds too.
+  assert.equal(t({ rank: 1, above: null, score: 80 }), 'Ship code this week: +14 points to hold #1.');
+  // This week already has code: no question, whatever is above.
+  assert.equal(t({ gains: { active: true, gain: 14, next: 13 }, above: { rank: 1, score: 99, name: 'Ana' } }), 'Done this week: +14. Next week adds up to 13.');
+  assert.equal(t({ gains: { active: true, gain: 0, next: 13 } }), 'Done this week. Next week adds up to 13.');
+  assert.equal(t({ gains: { active: true, gain: 0, next: 0 } }), 'Done this week.');
+  assert.equal(t({ gains: { active: false, gain: 0, next: 0 }, rank: 1 }), 'Ship code this week to hold #1.');
+  assert.equal(t({ gains: { active: false, gain: 0, next: 0 }, rank: null }), 'Ship code this week.');
+  assert.equal(t({ rank: null, above: null }), 'Ship code this week: +14 points.');
+  for (const s of [t({ rank: 1 }), t({ gains: { active: true, gain: 14, next: 13 } })]) {
+    assert.ok(!s.includes('?') && !s.includes('—') && !s.includes('–'), s);
+  }
+});
+
+test('L6.1 the moment lines: deltas up, down and same; no week before; titles at most 2 on one line', () => {
+  const w = (score: number, rank: number) => ({ score, rank, total: 40 });
+  assert.deepEqual(momentLines({ monday: '2026-10-12', now: w(72, 3), before: w(66, 5), titles: ['Add dark mode', 'Fix the login loop', 'Third'] }),
+    ['Last week: Shipping 72 (+6), #3 (up 2).', 'Add dark mode · Fix the login loop']);
+  assert.deepEqual(momentLines({ monday: '2026-10-12', now: w(60, 7), before: w(66, 5), titles: [] }), ['Last week: Shipping 60 (-6), #7 (down 2).']);
+  assert.deepEqual(momentLines({ monday: '2026-10-12', now: w(66, 5), before: w(66, 5), titles: ['One'] }), ['Last week: Shipping 66 (same), #5 (same).', 'One']);
+  assert.deepEqual(momentLines({ monday: '2026-10-12', now: w(14, 1), before: null, titles: [] }), ['Last week: Shipping 14, #1.']);
+});
+
+test('L6.2 the share link: an X intent URL whose text is the score line, and the profile URL, URL-encoded', () => {
+  const w = { score: 72, rank: 3, total: 12 };
+  assert.equal(shareText(w), 'Shipped this week on EarnKit: Shipping 72 · #3 of 12 builders this week');
+  const link = shareLink('maya_makes', w);
+  const u = new URL(link);
+  assert.equal(`${u.origin}${u.pathname}`, 'https://x.com/intent/post');
+  assert.equal(u.searchParams.get('text'), 'Shipped this week on EarnKit: Shipping 72 · #3 of 12 builders this week');
+  assert.equal(u.searchParams.get('url'), 'https://earnkit.com/maya_makes');
+  assert.ok(!/\s/.test(link), 'no raw spaces');
+  assert.equal(link.match(/https:\/\//g)?.length, 1, 'the profile URL is encoded inside it: one https link');
+  assert.ok(link.includes('%C2%B7'), 'the middle dot is encoded');
+  // From 20 builders, the rank line is the top percent, as everywhere.
+  assert.equal(shareText({ score: 90, rank: 1, total: 40 }), 'Shipped this week on EarnKit: Shipping 90 · Top 3% of builders this week');
+});

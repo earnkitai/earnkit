@@ -58,18 +58,20 @@ function Who({ name, handle }: { name: string; handle: string }) {
 export { rankSplit };
 
 /**
- * The rank, large: the percentile (or "#3") as the number, then its words, the why sentence and each
- * chain's line. Screen readers get the one score line (R16c) and the why.
+ * The rank, large: the percentile (or "#3") as the number, then its words, the why sentence, the weekly
+ * target (launch ready L5) and each chain's line. Screen readers get the one score line (R16c) and the why.
  */
 function Rank({
   line,
   scoreLine,
   why,
+  target,
   chains,
 }: {
   line: string;
   scoreLine: string | null;
   why: string | null;
+  target: string | null;
   chains: ProfileData['chainLines'];
 }) {
   const { lead, rest } = rankSplit(line);
@@ -93,6 +95,11 @@ function Rank({
       {why ? (
         <p className="mt-4 max-w-md font-funnel-sans text-sm leading-relaxed text-ek-body md:mt-5 md:text-base">
           {why}
+        </p>
+      ) : null}
+      {target ? (
+        <p className="mt-2 max-w-md font-funnel-sans text-sm font-medium leading-relaxed text-ek-text md:text-base">
+          {target}
         </p>
       ) : null}
       {chains.length > 0 ? (
@@ -235,7 +242,7 @@ export default function BenchProfileView({
                     {d.originality !== null ? <Originality value={d.originality} /> : null}
                   </div>
                 ) : null}
-                {d.bench ? <Rank line={d.bench} scoreLine={d.line} why={d.why} chains={d.chainLines} /> : null}
+                {d.bench ? <Rank line={d.bench} scoreLine={d.line} why={d.why} target={d.target} chains={d.chainLines} /> : null}
               </div>
             ) : null}
             <div className={`mt-3 p-6 md:mt-4 md:p-8 ${SURFACE}`}>

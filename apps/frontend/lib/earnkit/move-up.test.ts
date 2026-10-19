@@ -16,6 +16,7 @@ import { scoreFits } from './stand-view';
 import { fitWhy, tokenUnavailable } from './bench-find';
 import { NOT_ON_BENCH, SHIP_STEP, STATE_COPY, VARIANT_COPY, noFitLine } from './bench-reply';
 import type { RepoFit } from './present';
+import { endsOnRankedStep } from './fixtures/ranked-step';
 
 /**
  * Scoring and clarity, Task 4: four reply states (R16a), moving up by shipping (R8: "Ship this week to climb.",
@@ -118,7 +119,7 @@ test('R8, R12, R16a through find and score: the ranked reply is the score line, 
   assert.equal(fund[0], `${committedProgram('circle-developer-grants').title}: up to $100K, rolling. You deployed on Arc and your app is live.`, s);
   assert.equal(fund.length, 3);
   assert.equal((r.lead as { program_id: string } | undefined)?.program_id, 'circle-developer-grants', 'the lead is the first named');
-  assert.equal(up, `How to move up\n${SHIP_STEP}`);
+  assert.ok(endsOnRankedStep(up), up);
   for (const id of CLOSED) assert.ok(!s.includes(committedProgram(id).title), `${id} is closed: ${s}`);
   assert.doesNotMatch(s, COIN_WORDS, s);
   assert.equal(r.move_up && (r.move_up as { kind: string }).kind, 'ship');
@@ -133,7 +134,7 @@ test('R8, R12, R16a through find and score: the ranked reply is the score line, 
   assert.equal(fits.length, 3, t);
   for (const l of fits) assert.match(l, FIT_LINE, l);
   assert.deepEqual(fits, fund, 'find and score name the same fits in the same order');
-  assert.ok(t.endsWith(`How to move up\n${SHIP_STEP}`), t);
+  assert.ok(endsOnRankedStep(t), t);
   assert.doesNotMatch(t, COIN_WORDS, t);
   for (const id of CLOSED) assert.ok(!t.includes(committedProgram(id).title), id);
 });

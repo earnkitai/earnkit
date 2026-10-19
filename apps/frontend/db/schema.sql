@@ -1673,3 +1673,6 @@ CREATE TABLE IF NOT EXISTS known_idea_embeddings (
   embedding   real[] NOT NULL,
   computed_at timestamptz NOT NULL DEFAULT now()
 );
+-- Launch ready L6: the ISO week ('2026-W43') whose weekly moment this installation was shown (the first find or
+-- score of a new week leads with last week's Shipping and rank). Claimed once per week by one UPDATE ... RETURNING.
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS moment_week text;

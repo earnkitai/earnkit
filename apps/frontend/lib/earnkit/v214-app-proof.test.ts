@@ -102,7 +102,9 @@ test('6.2b R5 scored at connect: right after the App setup, a repo with commits 
   assert.match(text, /^Ships: Shipping 46 · (#\d+ of \d+ builders?|Top [\d.]+% of builders) this week\.$/m, text);
   assert.equal(r.reply?.streak, 3, 'the streak is still in the reply fields');
   // Next week drops week 5's weight: shipping then is 55, not shipping 42.
-  assert.ok(text.includes('Code in 4 of the last 12 weeks, 3 of the last 4. Ship code next week to add up to 13 points.'), text);
+  assert.ok(text.includes('Code in 4 of the last 12 weeks, 3 of the last 4.\n'), text);
+  // L5: this week has code, so the target says so and what next week adds.
+  assert.match(text, /How to move up\nDone this week: \+\d+\. Next week adds up to 13\.$/, text);
 });
 
 test('6.2c R5 fail soft: a reading that fails at connect leaves the proof standing, unranked until a repo reading exists', db, async () => {

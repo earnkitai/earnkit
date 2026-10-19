@@ -90,22 +90,37 @@ export function storedShipping(j: unknown): { points: number; mask: number; mond
   };
 }
 
-/**
- * One plain sentence on why Shipping is what it is, and what raises it: "Code in 7 of the last 12
- * weeks, 3 of the last 4. Ship code this week to add up to 14 points." The points are what an active
- * week adds by the formula: this week while it has no commits yet, else next week (over next week
- * without commits). A row scored in an earlier week is read as of `now`'s week (its mask shifted by the
- * weeks since), so "this week" is never last week's. Null for parts without Shipping's raw. Pure.
- */
-export function scoreWhy(parts: unknown, now: Date): string | null {
+/** The stored mask read as of `now`'s week (shifted by the weeks since it was scored) and its live ships, or null. Pure. */
+function maskNow(parts: unknown, now: Date): { mask: number; liveShips: number } | null {
   const p = storedShipping(parts);
   if (!p) return null;
   const gone = p.monday === null ? 0 : Math.max(0, Math.round((mondayDay(now) - p.monday) / 7));
-  const mask = gone >= SHIPPING_WEEKS ? 0 : (p.mask << gone) & LAST12;
-  const { liveShips } = p;
-  const w12 = bits(mask);
-  const why = w12 === 0 ? 'No code in the last 12 weeks.' : `Code in ${w12} of the last 12 weeks, ${bits(mask & LAST4)} of the last 4.`;
-  if ((mask & 1) === 0) return `${why} Ship code this week to add up to ${shippingOf(mask | 1, liveShips) - shippingOf(mask, liveShips)} points.`;
-  const next = (mask << 1) & LAST12;
-  return `${why} Ship code next week to add up to ${shippingOf(next | 1, liveShips) - shippingOf(next, liveShips)} points.`;
+  return { mask: gone >= SHIPPING_WEEKS ? 0 : (p.mask << gone) & LAST12, liveShips: p.liveShips };
+}
+
+/**
+ * One plain sentence on why Shipping is what it is: "Code in 7 of the last 12 weeks, 3 of the last 4." A row
+ * scored in an earlier week is read as of `now`'s week (its mask shifted by the weeks since), so "this week" is
+ * never last week's. What raises it is the weekly target (weekly-target.ts), shown beside it. Null for parts
+ * without Shipping's raw. Pure.
+ */
+export function scoreWhy(parts: unknown, now: Date): string | null {
+  const m = maskNow(parts, now);
+  if (!m) return null;
+  const w12 = bits(m.mask);
+  return w12 === 0 ? 'No code in the last 12 weeks.' : `Code in ${w12} of the last 12 weeks, ${bits(m.mask & LAST4)} of the last 4.`;
+}
+
+/**
+ * Launch ready L5: what this week is worth by the formula. `active`: this week already has commits. `gain`: the
+ * points this week adds (while not active, what shipping now would add; once active, what it added). `next`: what
+ * next week adds over next week without commits (asked only once this week is done). Null as scoreWhy. Pure.
+ */
+export type WeekGains = { active: boolean; gain: number; next: number };
+export function weekGains(parts: unknown, now: Date): WeekGains | null {
+  const m = maskNow(parts, now);
+  if (!m) return null;
+  const { mask, liveShips } = m;
+  const add = (x: number) => shippingOf(x | 1, liveShips) - shippingOf(x & ~1, liveShips);
+  return { active: (mask & 1) === 1, gain: add(mask), next: add((mask << 1) & LAST12) };
 }

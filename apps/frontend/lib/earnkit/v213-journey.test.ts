@@ -45,6 +45,7 @@ import BenchView from '../../app/leaderboard/BenchView';
 import HomeView from '../../app/HomeView';
 import TermsPage from '../../app/terms/page';
 import { GET as llms } from '../../app/llms.txt/route';
+import { endsOnRankedStep } from './fixtures/ranked-step';
 
 /**
  * v2.13 T16 (spec "Acceptance test" 1 to 7, as the runbook walks them): one person with a project,
@@ -538,7 +539,7 @@ test('16.1 acceptance 1, with a project: the first reply names it (v2.14 T7: no 
   const r2 = await call('find', {}, ctx(id));
   assert.match(r2.show_to_builder, /^Recipe planner: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders) this week\.( \d+ weeks in a row\.)?$/m, r2.show_to_builder);
   // R8 (supersedes owner ruling A): find never offers a community round; the step is to ship.
-  assert.ok(r2.show_to_builder.endsWith('How to move up\nShip this week to climb.'), r2.show_to_builder);
+  assert.ok(endsOnRankedStep(r2.show_to_builder), r2.show_to_builder);
   assert.doesNotMatch(r2.show_to_builder, /community round|coin|token/i);
   assert.equal(r2.move_up?.kind, 'ship');
   // Only when the builder asks about a token (tell token, through the MCP schema) is the community round offered.

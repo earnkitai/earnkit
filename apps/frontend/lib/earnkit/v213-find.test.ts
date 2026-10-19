@@ -14,6 +14,7 @@ import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, dropAvalanche, dropPrograms, find, fitsFor, install, person, withEnv } from './fixtures/find';
 import type { Starter } from './starters';
 import { NOT_ON_BENCH } from './bench-reply';
+import { endsOnRankedStep } from './fixtures/ranked-step';
 
 /**
  * v2.13 T8: find and score under the Bench flag through the real tools: the three parts (where you
@@ -75,7 +76,7 @@ test('8.7 a confirmed, claimed, ranked project: the spec 2a reply; v2.14 spec 3:
     // R12: the fit with its award, deadline and why (the fixture's match has no repo facts: the plain why).
     assert.match(r.show_to_builder, new RegExp(`^${esc(p.title)}: up to \\$10K, rolling\\. It fits your project\\.$`, 'm'));
     // R8: the one next step is to ship (owner ruling A's entry ask is gone); a no to it, then the same step (never the updates yes).
-    assert.ok(r.show_to_builder.endsWith('How to move up\nShip this week to climb.'), r.show_to_builder);
+    assert.ok(endsOnRankedStep(r.show_to_builder), r.show_to_builder);
     assert.equal(r.move_up?.kind, 'ship');
     await tools.tell({ move_up: { kind: 'ship', project_key: `mayaf${RUN}/recipes`, answer: 'no' } }, { installationId: id } as never);
     const r2 = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(p.id, `mayaf${RUN}/recipes`) }) });
@@ -129,7 +130,7 @@ test('8.11 the yes is answered as asked (R8: the ship step): another kind is "Ok
     const r = await find(id, {}, match);
     // R8: the ranked step, to ship.
     assert.deepEqual(r.move_up && { kind: r.move_up.kind, project_key: r.move_up.project_key }, { kind: 'ship', project_key: key });
-    assert.ok(r.show_to_builder.endsWith('Ship this week to climb.'), r.show_to_builder);
+    assert.ok(endsOnRankedStep(r.show_to_builder), r.show_to_builder);
     const tell = (m: Record<string, unknown>) => tools.tell({ move_up: m }, { installationId: id } as never) as Promise<{ show_to_builder: string; agent_note?: string }>;
     assert.equal((await tell({ kind: 'updates', project_key: key, answer: 'yes' })).show_to_builder, 'Okay.');
     assert.equal((await tell({ kind: 'ship', project_key: 'someone/else', answer: 'yes' })).show_to_builder, 'Okay.');

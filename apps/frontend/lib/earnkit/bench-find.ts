@@ -38,6 +38,8 @@ import { liveSite, type LiveSite } from './live-check';
 import { scoreWhy, storedShipping } from './score-v2';
 import { readOriginality } from './originality';
 import { displayName } from './bench-reply';
+import { targetFor } from './weekly-target';
+import { APPROVED_LINE, SHARE_NOTE, approveWeek, lastWeekOf, momentDue, momentLines, shareLink, takeMoment } from './weekly-moment';
 export { displayName };
 
 /**
@@ -76,8 +78,8 @@ export const signedInLine = (handle: string) => `Signed in as @${handle}.`;
 
 /** What the person was last told (stand-view's Seen) plus the Bench's own: the ask. */
 export type Seen = StandSeen & {
-  /** The stored ask's kind: a BenchAskKind, or a retired one an older reply stored (OLD_ASKS). */
-  bench_ask?: { kind: BenchAskKind | string; key: string | null };
+  /** The stored ask's kind: a BenchAskKind, or a retired one an older reply stored (OLD_ASKS); `week`: the share ask's week (its Monday). */
+  bench_ask?: { kind: BenchAskKind | string; key: string | null; week?: string };
 };
 type Reply = Record<string, unknown>;
 
@@ -306,7 +308,7 @@ type ViewIn = {
  * to get funded (always), the one link and the one next step, stored for its yes, and the fields every
  * Bench reply carries: move_up, rank_lines, streak.
  */
-async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }> {
+async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; moment: string | null }> {
   const { id, now, read } = o;
   const row = read.row;
   // v2.13.4: a live link that loads counts as live for wording and fit (R3), and names the project as its site does.
@@ -334,7 +336,14 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   if (state === 'not_counted' && !variant && !install) variant = 'app_off';
   // Launch ready L2: with no project, the repo picker's install link (GitHub's page picks the repos; S7: a page is needed).
   const pick = state === 'no_project' ? await pickLink(id, now).catch(logged('pick link')) : null;
-  const link = state === 'signed_out' ? signIn : state === 'no_project' ? pick : install;
+  // R10: a rank only in the ranked state; never beside "not on the leaderboard" or "isn't counted yet".
+  const ranked = rankedState(state);
+  const handle = read.base.claimed ? read.base.handle : null;
+  // Launch ready L5: the ranked state's one next step is the weekly target (the builder above named: a private reply).
+  const target = ranked ? await targetFor(id, read.parts, now, { names: true }) : null;
+  // Launch ready L6: the weekly moment, once a week per installation, never over a held question.
+  const moment = ranked && project && handle && !held ? await weeklyMoment(o.own, id, project.key, handle, now) : null;
+  const link = state === 'signed_out' ? signIn : state === 'no_project' ? pick : state === 'ranked' ? (moment?.share ?? null) : install;
 
   let fund: FundLine[] = [];
   /** v2.13.3 (2): the programs named so far (never named twice). */
@@ -359,28 +368,39 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   const has = taken ? {} : { live: project?.live ?? false, repo: Boolean(project && /^[^/:]+\/[^/]+$/.test(project.key)) };
   fund = [...fund, ...needsPicks(o.cards, now, new Set([...o.skip, ...named]), room, taken ? [] : (row?.chains ?? []), has)];
 
-  // R8: each state's one next step; ranked: "Ship this week to climb." (never an entry, a coin or going live).
-  const finalAsk = stateAsk({ state, variant, project, link });
-  // Only the ask shown is answerable: a held question clears the stored one.
-  const stored = held ? null : { kind: finalAsk.kind, key: finalAsk.project_key };
+  // R8, L5, L6: each state's one next step; ranked: the share ask (the weekly moment), else the weekly target
+  // (never an entry, a coin or going live).
+  const finalAsk = stateAsk({ state, variant, project, link, target, share: moment?.share ?? null });
+  // Only the ask shown is answerable: a held question clears the stored one. The share ask keeps its week.
+  const stored = held ? null : { kind: finalAsk.kind, key: finalAsk.project_key, ...(moment && finalAsk.kind === 'share' && { week: moment.week }) };
   await sql()`
     UPDATE builder_profiles SET standing_seen = CASE WHEN ${stored === null} THEN COALESCE(standing_seen, '{}'::jsonb) - 'bench_ask'
       ELSE COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json(stored as never)}::jsonb) END
     WHERE builder_id = ${id}`.catch(logged('ask'));
-  // R10: a rank only in the ranked state; never beside "not on the leaderboard" or "isn't counted yet".
-  const ranked = rankedState(state);
   const view: BenchView = {
     state, variant, project, rank: ranked ? read.ranks.bench : null, score: read.score, why: scoreWhy(read.parts, now), originality: read.originality,
-    handle: read.base.claimed ? read.base.handle : null, link, fund, due: o.due, ask: finalAsk, held,
+    target, share: moment?.share ?? null, handle, link, fund, due: o.due, ask: finalAsk, held,
   };
-  const note = finalAsk.kind === 'ship' ? SHIP_STEP_NOTE : finalAsk.kind === 'start' ? START_NOTE : finalAsk.kind === 'pick_repo' ? PICK_REPO_NOTE
+  const note = finalAsk.kind === 'ship' ? SHIP_STEP_NOTE : finalAsk.kind === 'share' ? SHARE_NOTE : finalAsk.kind === 'start' ? START_NOTE : finalAsk.kind === 'pick_repo' ? PICK_REPO_NOTE
     : finalAsk.kind === 'install_app' ? INSTALL_APP_NOTE : BENCH_MOVE_UP_NOTE;
   const fields: Reply = {
     ...(!held && { move_up: { kind: finalAsk.kind, project_key: finalAsk.project_key, agent_note: note } }),
     rank_lines: ranked ? [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x)) : [],
     streak,
   };
-  return { view, fields };
+  return { view, fields, moment: moment?.lines ?? null };
+}
+
+/**
+ * Launch ready L6: last week's lines and the share link, when this installation hasn't seen this week's moment
+ * and the builder had a ranked day last week (else null, and the week stays unclaimed). Claimed only when shown
+ * (weekly-moment.ts takeMoment). Never throws.
+ */
+async function weeklyMoment(own: number, id: number, key: string, handle: string, now: Date): Promise<{ lines: string; share: string; week: string } | null> {
+  if (!(await momentDue(own, now))) return null;
+  const last = await lastWeekOf(id, key, now).catch(logged('last week'));
+  if (!last || !(await takeMoment(own, now))) return null;
+  return { lines: momentLines(last).join('\n'), share: shareLink(handle, last.now), week: last.monday };
 }
 
 /**
@@ -474,7 +494,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   const due = a.first.deadline ? [a.first.deadline] : [];
   const skip = new Set([...entered, ...a.hide]);
   const name = a.project && projectKeyOf(a.project).toLowerCase() === main ? a.project.name : null;
-  const { view, fields } = await benchView({
+  const { view, fields, moment } = await benchView({
     id, now, read, own, signedOut, name, fits, cards: a.cards, skip, held, due, live,
   });
   const taken = view.variant === 'taken';
@@ -494,7 +514,8 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
     ),
   ).catch(logged('match shown'));
   return {
-    show_to_builder: [signedIn, opener, benchReply(view)].filter(Boolean).join('\n\n'),
+    // L6: the weekly moment leads (after the account line, which guards a wrong sign-in).
+    show_to_builder: [signedIn, moment, opener, benchReply(view)].filter(Boolean).join('\n\n'),
     // O5 (P8): the earn note names lead.program_id, so only with a lead.
     note: ['Show show_to_builder to the builder exactly as written.', lead ? EARN_NOTE : null].filter(Boolean).join(' '),
     ...fields,
@@ -534,7 +555,7 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
         program_id: f.card.id, title: f.card.title, prize: earnPrize(f.card), when: fundWhen(f.card), why: fitWhy(f.card, whyFacts(f.repo)),
       }))
     : [];
-  const { view, fields } = await benchView({
+  const { view, fields, moment } = await benchView({
     id, now, read, own, signedOut: await signedOutNow(id, own).catch(() => true), name: null, fits, cards: shown, skip: new Set([...entered, ...hidden]), held: null,
     due: [], live,
   });
@@ -546,7 +567,7 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
   }));
   const signedIn = await takeSignedIn(own, view.handle);
   return {
-    show_to_builder: [signedIn, benchReply(view)].filter(Boolean).join('\n\n'),
+    show_to_builder: [signedIn, moment, benchReply(view)].filter(Boolean).join('\n\n'),
     ...fields,
     ...(fits[0] && view.variant !== 'taken' && { lead: { program_id: fits[0].program_id }, note: EARN_NOTE }),
   };
@@ -561,10 +582,10 @@ const RETIRED_ASKS = ['updates', 'post_update'] as const;
  */
 const OLD_ASKS = ['build', 'grants', 'grants_later', 'enter', 'coin', 'raise', 'go_live'] as const;
 /** v2.14 spec 4: the asks answered once (cleared before the yes runs). */
-const TAKEN_ONCE: readonly string[] = ['sign_in', 'start', 'pick_repo', 'install_app', 'other_project', 'repo_behind', 'ship', 'suggest', ...RETIRED_ASKS, ...OLD_ASKS];
+const TAKEN_ONCE: readonly string[] = ['sign_in', 'start', 'pick_repo', 'install_app', 'other_project', 'repo_behind', 'ship', 'suggest', 'share', ...RETIRED_ASKS, ...OLD_ASKS];
 
 /** The ask stored with the last Bench reply, when the agent's answer names it (kind, if given, and project_key). */
-export async function benchAsked(id: number, m: { kind?: string; project_key?: string | null }): Promise<{ kind: string; key: string | null } | null> {
+export async function benchAsked(id: number, m: { kind?: string; project_key?: string | null }): Promise<{ kind: string; key: string | null; week?: string } | null> {
   const [p] = await sql()<{ ask: Seen['bench_ask'] | null }[]>`SELECT standing_seen->'bench_ask' AS ask FROM builder_profiles WHERE builder_id = ${id}`.catch((err: unknown) => {
     logged('asked')(err);
     return [];
@@ -622,6 +643,12 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
     case 'ship':
     case 'suggest':
       return asked.key ? { show_to_builder: '', agent_note: SHIP_NOTE } : okay;
+    case 'share': {
+      // Launch ready L6: the yes approves last week's ship log (counted by /api/stats); the post is the builder's own.
+      if (!asked.key || typeof asked.week !== 'string') return okay;
+      const approved = await approveWeek(id, asked.key, asked.week, now).catch(logged('approve week'));
+      return approved ? { show_to_builder: APPROVED_LINE } : okay;
+    }
     default:
       // A retired ask (OLD_ASKS): nothing to do; the next reply asks the state's step.
       return okay;
