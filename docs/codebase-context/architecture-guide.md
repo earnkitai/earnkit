@@ -4763,6 +4763,9 @@ behind `EARNKIT_BUILDER_SCORE=on`: **flag off is production (v2.11 replies, no p
 
 ### Identity: X claim, pages, joins
 
+> **v2.14 Task 7:** the claim page, claim codes, proven-tie joins, pickups, login contests and group merges described
+> here are gone (tables kept). The person is the X account; see the v2.14 sections at the end.
+
 - **Sign in with X** (`x-oauth.ts`: OAuth 2.0 PKCE S256, scopes `users.read tweet.read`, one
   `GET /2/users/me` per sign-in, about $0.01; the token is never stored). `claim.ts`: the claim code
   is deterministic per person (S13, `HMAC(EARNKIT_AUTH_SECRET, 'claim:v1:<id>')`, 12 base32 chars;
@@ -5402,6 +5405,10 @@ Brief: `.superpowers/sdd/v2.13.3/brief.md`, plus owner rulings A, B, C sent the 
 
 ## v2.13.4 Value after the X claim and nothing else (2026-10-17)
 
+> **Removed in v2.14 Task 7** (see "v2.14 One account: claims, joins and probation removed" below): the claim ask, the
+> claim page and its one-click join (R1), the join notice and detach (R6), probation (R7), pending joins and the
+> JOIN_TABLES registry. What follows is history; the tables stay.
+
 Brief: `.superpowers/sdd/v2.13.4/brief.md` (the owner's spec, verbatim, and controller rulings R1 to R5). Everything sits
 under `EARNKIT_BENCH`; flag off (and score-only) is unchanged. Tests: `v2134-onboarding.test.ts` (the owner's acceptance
 test a to g, the security review S.a to S.f, R6.1, R7.0 to R7.5, R8.1 to R8.8, R9.1, C.1, C.2, K.1 to K.4, E.1, R10.1, REG.1 and REG.2). Runbook: sections 8, 9 and 10.
@@ -5626,8 +5633,8 @@ that X user id.
   claude) go straight; every other redirect, including browser-trampoline and unknown schemes, sees "You're
   connecting EarnKit to <host:port>." with the full redirect URI and "Only continue if you started this from your
   own agent." (S6: a forwarded authorize URL is the phishing vector).
-- **Callback.** `app/x/callback/route.ts` tries `xSignInCallback` first (null when the state is not an
-  `x_signins` row; the v2.12.1 claim flow then handles it until T7). The row is deleted only with this browser's
+- **Callback.** `app/x/callback/route.ts` runs `xSignInCallback` (null when the state is not an
+  `x_signins` row: 404 since T7 removed the v2.12.1 claim flow). The row is deleted only with this browser's
   cookie (else 403 before any X call), X's token is used for one `/2/users/me` and never stored, an owner-cleared
   X gets 403, and the client's registered redirect gets a code with `x` (id, username, name, avatar) inside the
   HMAC-signed payload plus RFC 9207 `iss` (metadata says `authorization_response_iss_parameter_supported`).
@@ -5643,7 +5650,8 @@ that X user id.
   data and any old members stay behind; a fresh one's own unclaimed profile row is removed). Else a page is made
   on the installation itself (T5 ruling: a member of another root has its `builder_id` cleared first;
   `ensureProfile` in the transaction). In both cases, unless the installation already is this X's page, its own
-  members are detached first (`builder_id` NULL, each its own anonymous root, nothing deleted) and `claim.ts bindXIn` writes handle, name, photo.
+  members are detached first (`builder_id` NULL, each its own anonymous root, nothing deleted) and `bindXIn` (in
+  `x-install.ts` since T7) writes handle, name, photo.
   `installations.x_user_id` is set last, aborting unless exactly its row changed; any refusal rolls back
   everything. `afterBind` (events, discovery, profile cache) runs after commit. `bindX` is now
   `bindXIn` + `afterBind` in its own transaction.
@@ -5651,8 +5659,7 @@ that X user id.
   `builder_id`, then itself; `Caller.x` and `ToolContext.xUserId` carry the X id (set by the MCP route only).
   `installations.x_user_id` is written only at the token exchange or by the paste code (T5), and by the v2.14
   bind migration; cleared by events-redact (`scripts/events-redact.mts --login` unbinds the person's installations).
-- **Schema.** `installations.x_user_id` (+ partial index), `x_signins`, `x_signin_links` (used from T5), both in
-  `page-joins.ts JOIN_TABLES` as `discard`. The bind migration between `-- v2.14 bind:start/end` binds every
+- **Schema.** `installations.x_user_id` (+ partial index), `x_signins`, `x_signin_links` (used from T5). The bind migration between `-- v2.14 bind:start/end` binds every
   non-shared installation of a claimed page (x_handle set) and fills only NULLs, so the per-deploy rerun is a no-op.
 - **Owner checks.** `docs/design-docs-and-implementation-plans/v2.14-client-preflight.md` check 6: which
   ChatGPT callback is registered. Production needs `EARNKIT_URL` (the authorize redirect now carries `iss`).
@@ -5686,7 +5693,7 @@ the installation alone), S2, S10, D1, D2. For agent clients that can't do OAuth 
 - **No merge.** A fallback agent's rows written before the paste (proposed sources, answers) stay on its old
   installation; the page's project is the one that counts (5.7). Members of a binding root are detached (5.9).
 - **Fix round 1.** `attachToX` locks the installation and its members' rows in id order first (after the
-  advisory locks; order noted beside `identity.ts linkInTx`) and refuses `other_x` when the installation's own
+  advisory locks; the global order is documented on `identity.ts lockPerson` since T7) and refuses `other_x` when the installation's own
   or group root's profile holds another X account. `GET /signin/<code>` is limited per IP (`signinLink`, 30/h)
   before any read or write (429). `x_signins.link_hash` names the link a 'link' sign-in opened, and the X user
   is written to exactly that link. A thrown error during the bind gives the paste code back (`used_at` NULL);
@@ -5745,3 +5752,48 @@ links). Existing verified sources stay verified and keep counting on the Bench.
   fail closed).
 - Ruling: an App proof replaces another person's non-App hold (that row goes to proposed, `replaced_by_app`); only an App
   hold gives `taken`.
+
+## v2.14 One account: claims, joins and probation removed (Task 7, 2026-10-19)
+
+Brief: `.superpowers/sdd/v2.14-one-account-plan/task-7-brief.md`; controller rulings: no merge, D9, S4, D11 and the
+global lock order. With Sign in with X at install (T4) and the paste code (T5) the old paths were unreachable.
+
+- **Deleted.** `claim.ts` (the claim page, claim codes, `xCallback`, the R1 one-click join `claimJoinPost`),
+  `page-joins.ts` (JOIN_TABLES, freshAndEmpty, attachFresh, probation, the join notice and detach),
+  `login-contests.ts` (contested logins, `settleLogin`, the admin rulings), `app/claim/[code]` and `app/claim/join`,
+  `fixtures/claim-x.ts` and their tests (`claim.test.ts`, `v2134-onboarding.test.ts`, the join, merge, contest and
+  pickup cases of `identity.test.ts` and `profiles.test.ts`). `identity.ts` lost the proven-tie join
+  (`joinOnProvenTie`, `askJoin`, `answerJoin`, `pendingJoinOf`) and the group merge (`linkInstallations`,
+  `linkInTx`); `profiles.ts` lost `mergeProfiles` and `releaseLogin`. Nothing can merge a group into an X page now.
+  `app/claim/wallet` stays (A21). Tables stay: claim_codes, x_oauth_states, x_join_offers, page_joins, pending_joins,
+  login_contest_rulings (no destructive migration).
+- **bindX moved to `x-install.ts`** with `BindResult` (`claimed_by_other` | `owner_cleared`), `bindXIn`, `BoundX`,
+  `afterBind`. The held and join_pending branches are gone (D9): `attachToX` resolves an X another page holds
+  before it writes; a direct bindX on a held X is refused by the `builder_profiles_x_user` unique index. bindX no
+  longer touches `claim_codes`. `afterBind` drops the profile cache in a `finally` around discovery's enqueue; the
+  after-bind failure log prints the Postgres code and message (`errText`).
+- **Tools.** No `withProbation`, `ToolContext.probation`, join or pickup ask, `pick_up` field, or tell `pickup`
+  (mcp.ts schema and TellToolInput; `pick_up_entries` is no longer an alias). Bench replies carry no claim ask, claim
+  link, "Linked to your page" line or join notice (`bench-reply.ts` kinds `claim` and `remove_agent` gone). Until T9
+  adds the unsigned state, an unsigned install's reply asks the next Bench step and has no sign-in line; the App
+  install link still needs a page handle (S7). `stand-view.ts StandBase.signInLink` (x-link.ts `signInLink` for the
+  caller's own installation) replaces `claimLink`; `share.ts cardYes` answers "Sign in with X first: <link>".
+  `updates.ts postUpdate` has no probation option.
+- **Locks (identity.ts lockPerson).** The advisory lock `person:<root>` replaces `page_join:<root>` everywhere
+  (attachToX for the installation's root and the X's page, sorted; discovery before its verdicts; proveByApp before
+  `source_proof:<id>`). Global order: the `x_*` locks (or proveByApp's `repo_hold:<key>`), `person:<root>` ascending,
+  `source_proof:<id>`, installation rows by id, then profile rows.
+- **Token exchange (carried from T4).** `saveInstallation(..., { keepToken: true })` keeps a known installation's
+  token_hash; `tokenPost` sets the new one (`setInstallationToken`) only after `attachToX` succeeds, so a refused
+  re-authorization never kills the token the agent already holds (v214-removed.test.ts 7.6).
+- **Migration (S4).** In the `-- v2.14 bind:start` block, before the bind UPDATE: every `page_joins` row still
+  attached with no answer from an installation in its `eligible` list has its members moved back to `from_root` (as
+  answerNotice's detach did, only while still on that page and unbound), their updates since the join hidden, and is
+  stamped `detached_at`. No deletes; the rerun on every deploy finds nothing open.
+- **Admin and scripts.** `/admin/scores` lost the contested-logins list and `rule_login`; Clear X handle and Release
+  stay. `db-check.mts` dropped the JOIN_TABLES coverage and pending_joins consent checks (nothing moves rows by table
+  any more) and checks `installations.x_user_id`, `x_signins`, `x_signin_links`, `builder_sources.app_checked_at`.
+  `events-redact.mts --login` also unbinds the person's group (`x_user_id`) and deletes their `x_signin_links` rows.
+- **Known behaviour (D11).** A pre-v2.14 unclaimed agent that reconnects with X becomes a new installation and starts
+  fresh (its old rows stay behind, never merged). Recorded in `v2.14-client-preflight.md` "Known behaviours".
+

@@ -186,16 +186,13 @@ apps/frontend/
   app/b/[slug]/{card.png/route.tsx,share/route.ts}  v2.12.1 T12: thin wrappers: a reserved handle through
                                cardResponse/shareResponse at /b/<handle>; a claimed v2.12 slug 308s to
                                pagePath(handle)/card.png or /share; else 404
-  app/claim/[code]/route.ts    v2.12.1 T6: GET claimGet (what is public, how to hide, one button; cookie +
-                               csrf), POST claimPost (303 to X); force-dynamic
   app/claim/wallet/route.ts    v2.12.1 T7: the optional wallet signature page (walletGet, walletPost; PUT,
                                PATCH, DELETE -> walletOtherMethod 405, frame-ancestors kept)
-  app/x/callback/route.ts      v2.12.1 T6: xCallback (state + this browser's cookie, then X, then bindX)
   app/admin/scores/page.tsx    v2.12 T6 (spec 5): the owner's review of held scores (noindex, ?key= =
                                builder-score.ts scoresAdminKey, link from `pnpm campaign scores-link`; array key
                                404; veto rate limit): each held day's parts and top outcome beside the public
                                score, Release; v2.12.1: pending live rescores (builder_live.pending, released by
-                               version), contested GitHub logins with a per-group rule button; X handle conflicts
+                               version); X handle conflicts (v2.14 T7: the contested-logins list and rule_login are gone)
                                (v2.12 rows only) with Clear X handle; X handles you cleared
                                (x_owner_clears) with Release
   app/api/admin/scores/route.ts  v2.12 T6: POST -> builder-score.ts scoresPost (release a held day as a
@@ -249,7 +246,7 @@ apps/frontend/
                                named in both forms (forOldClient), with tools_note
   app/oauth/{register,authorize,token}/   OAuth for MCP clients (v2.14 T4: authorize signs in with X,
                                x-install.ts; authorize/route.ts calls authorizeGet(request) only)
-  app/x/callback/route.ts      v2.14 T4: xSignInCallback (install sign-in; T5: a link sign-in shows the paste code) first, else claim.ts xCallback
+  app/x/callback/route.ts      v2.14 T4: xSignInCallback (install sign-in; T5: a link sign-in shows the paste code); else 404 (T7: the claim flow is gone)
   app/signin/[code]/route.ts   v2.14 T5: the fallback sign-in link's page (x-link.ts signinGet)
   app/github/verify/(route, callback/route)  v2.9 B9: the sign-in link (GET confirm page, POST to GitHub) and
                                              GitHub's callback; re-export github-verify.ts handlers
@@ -497,16 +494,17 @@ apps/frontend/
                                distinct value naming positions only, never the text;
                                v2.8.1 §E: connectInstallation (the group root to act as, the token's
                                own id, shared_client; v2.14 T4: x = the bound X id, id = the page holding it first), sharedGroup,
-                               saveInstallation(..., shared) (v2.14: returns the id)
-    identity.ts(+test)         v2.8.1 §E18: findEarlier / offerPickup ("Pick up your N earlier
-                               entries?" from what this call states), answerPickup (yes needs this
-                               agent's proof line in an earlier entry's repo), linkInstallations
-                               (installations.builder_id, rows move to the oldest root); v2.9 T12 (G0):
-                               provedRepos picks the proof repo a group proved (N1), pickup.read caps
-                               earnkit.txt reads at one an hour (N2), the duplicate with the token stays (N3)
+                               saveInstallation(..., shared, name, { keepToken }) (v2.14: returns the id; T7 keepToken:
+                               a known client keeps its token_hash), setInstallationToken (T7: after the X bind)
+    identity.ts(+test)         rootOf (installations.builder_id, the group root); v2.14 T7: lockPerson (advisory
+                               `person:<root>`, taken by attachToX, proveByApp and discovery's verdicts) and the global
+                               lock order (x_* / repo_hold, then person:<root> sorted, then source_proof, then
+                               installation rows by id, then profiles). No pickup, no proven-tie or claim-page join,
+                               no group merge (linkInstallations, linkInTx and profiles.ts mergeProfiles deleted).
     oauth-routes.ts(+limits test) register + token + authorize handlers (app/oauth/* re-export them);
                                v2.14 T4: authorizeGet(request, deps?) (X on and not servesMany: startInstallSignIn;
-                               else the anonymous code with iss); tokenPost binds an X-signed token (attachToX; refused: invalid_grant, no token);
+                               else the anonymous code with iss); tokenPost binds an X-signed token (attachToX; refused: invalid_grant, no token;
+                               T7: the new token replaces a known installation's only after the bind, so a refusal keeps the old one);
                                logLimited; ipFloor (Ruling G25): a known hosted service's redirect
                                host gets the 500/hour per-IP floor (refuses), everyone else 50/hour
     oauth.ts(+.test.ts)        stateless OAuth: register (v2.4: a random nonce in every client id;
@@ -756,6 +754,7 @@ apps/frontend/
                                forms, plus STALE_TOOLS_NOTE), aliasedIds (old names by JSON-RPC id); old names accept new args.
                                v2.12 (R23): aliasesOn(now, env) (before ALIASES_UNTIL, or EARNKIT_TOOL_ALIASES=on);
                                yesNo moved to yes-no.ts (re-exported); the move is staged in archive/tool-aliases/.
+                               v2.14 T7: pick_up_entries dropped from OLD_TOOL_NAMES (an unknown tool now).
     tools.ts                   v2.11 T7: find's build_offer (BUILD_NOTE / PLAN_NOTE), freshSwitches (deploys +
                                RPC + R2; ctx.freshDeps in tests), fresh_offer_at on the first build lead.
                                v2.10.2 (v2.11 8a): matchRows ranks by odds (oddsRank), real use, traction, score.
@@ -811,9 +810,9 @@ apps/frontend/
                                memory once (memoryOf), passes `said` to matchProjects and `hidden` to
                                presentFirstMessage, drops hidden programs from matches; Also
                                qualifies reads it too (TELL_SAVED_NOTE);
-                               v2.8.1 §E: ToolContext.ownInstallationId / sharedClient / pickupDeps;
-                               walletMemory (no remembered wallet on a hosted agent); list_programs'
-                               pick_up offer (PICKUP_NOTE); pick_up_entries (yesNo, PICKUP_TEXT);
+                               v2.8.1 §E: ToolContext.ownInstallationId / sharedClient;
+                               walletMemory (no remembered wallet on a hosted agent); v2.14 T7: no pick_up offer,
+                               pick_up_entries, withProbation / ToolContext.probation, join asks or tell pickup;
                                final review: record_submission's tokenElsewhere (I3: "Builder bonus
                                counts in <program>." for a later program's entry), confirm_entry's
                                C24 kit after a second proof-line miss, tokenLine with the ticker (M8);
@@ -1366,6 +1365,9 @@ apps/frontend/
                                fails closed), REPLACED_BY_APP (an App proof replaces another person's non-App hold;
                                heldByOther counts App holds only).
                                tests: v214-app-proof.test.ts (fixtures fake-github.ts, app-install.ts)
+    v214-removed.test.ts       v2.14 T7: the claim page, join route and join modules gone (wallet page stays), the tables
+                               kept, tell takes no pickup, bindX never asks, the S4 detach migration, a refused re-auth keeps
+                               the old token
                                tests v2132-followups.test.ts (fakeGitHub in fixtures/fake-github-branch.ts)
                                v2.13.3: appBearer (the App's per-call installation token for a repo this person installed it on) on the probe and the branch check.
     reply-wait.ts              v2.13.1 O5 N1: REPLY_WAIT_MS (1.5 s), settleWithin, inTime/ReplyLate: the Bench
@@ -1376,19 +1378,22 @@ apps/frontend/
     update-links.ts            v2.13.1 O4: RENDERED_LINK / RENDERED_TRAILING, the card's link rule; update-text
                                re-scans stored text with it (no hidden-character parser differential)
     updates.ts(+test)          v2.13 T5: postUpdate, hideUpdate, setUpdates, ownLinks (tell update / updates);
-                               UPDATE_POSTS_PER_DAY 20 a person (rate window updatePost:<root>)
+                               UPDATE_POSTS_PER_DAY 20 a person (rate window updatePost:<root>); v2.14 T7: no probation
+                               option (posted_by still written)
     feed.ts(+test)             v2.13 T6: pointsOf, feedRankStep (daily, feedRank:<day>), rankFeed, feedWeeks,
                                carouselCards, setFeedFlag (pin/hide)
     bench-rank.ts(+test)       v2.13 T7: benchPool (listed ranked + benchConfirmedSql), chainPools, rankLines (Top P% and per-chain lines; rank.ts has benchRank,
                                CHAIN_CHIP_MIN, BENCH_CHAINS)
     bench-reply.ts(+test)      v2.13 T8: the reply's three headings, lines and ask kinds
                                v2.13.3: NO_PROJECT_LINE, START_ASK, startBuildAsk, claimLine, needsLine, installAppAsk; kinds start, install_app; chooseAsk: entry, then community round, first.
-                               v2.13.4: claimAsk/claimAskLine/claimQuestion (kind claim), privateLine, installAppAsk (owner's copy, question last),
-                               linkedLine, displayName (site spelling or title case), the asks end on their question (R4)
+                               v2.13.4: privateLine, installAppAsk (owner's copy, question last), displayName (site spelling or title
+                               case), the asks end on their question (R4). v2.14 T7: claimLine, claimAsk*, claimQuestion, linkedLine,
+                               showsClaimLink, the claim and remove_agent kinds and BenchView.claimLink/linked are gone
     bench-find.ts(+test)       v2.13 T8/T9: benchFind, benchScore, benchAsked, benchMoveUp, coinAskBench;
                                v2.14 T6: benchView reads repo-proof.ts repoProof (view.branch private / taken / copy),
                                the install ask with installLink; no proof or remove_branch fields, no proof check.
-                               v2.13.4: CLAIM_NOTE, CLAIM_YES_NOTE, fundNeeds(c, has), reportedLive, liveOf, takeLinked;
+                               v2.13.4: fundNeeds(c, has), reportedLive, liveOf (v2.14 T7: no claim ask, CLAIM_NOTE, CLAIM_YES_NOTE,
+                               takeLinked, join notice, remove_agent route or probation branches; T9 adds the unsigned state);
                                v2.13.1 O5: quiet asks (GRANTS_QUIET_MS), ideaFitsOffer, SHIP_NOTE;
                                tests: v2131-o5.test.ts (N1 to N16, P1 to P10)
                                v2.13.3: fundNeeds, needsPicks (NEEDS_MAX 2), START_NOTE, START_YES_NOTE, INSTALL_APP_NOTE, INSTALL_APP_YES_NOTE; no generic starter.
@@ -1429,8 +1434,9 @@ apps/frontend/
                                resolveSlug (claimed only), resolveHandle (HANDLE_REDIRECT_DAYS 90),
                                mergeProfiles (older group keeps its page; hidden/held either side)
     profile-cache.ts           v2.12 T10: PROFILE_TAG, profileChanged() (revalidateTag; no-op outside Next)
-    share.ts                   v2.12.1: CARD_CACHE, SKIPPED_LINE, POST_LINE, claimFirstLine, cardYes (the share
-                               link of a claimed page, else the claim link first); the v2.12 offer is gone (T12)
+    share.ts                   v2.12.1: CARD_CACHE, SKIPPED_LINE, POST_LINE, signInFirstLine (v2.14 T7), cardYes(root, own) (the
+                               share link of a page signed in with X, else "Sign in with X first: <x-link.ts signInLink>"); the
+                               v2.12 offer is gone (T12)
     score-tool.ts(+test)       v2.12.1 T8: scoreReply (where you stand, one way to earn, one step; score_viewed),
                                SCORE_SHARED, SEND_LINK_NOTE (v2.12's reply removed in T12)
     reserved-routes.ts(+test)  v2.12.1 T1: RESERVED_ROUTES (every top-level route; the test fails on a new one),
@@ -1455,31 +1461,25 @@ apps/frontend/
                                merge by project, never wiped), noteIdentity (proposes agent sources, at
                                most 25 projects; remembers wallets, never proof)
                                v2.13.3: benchIdentity (github_user, repos, local remotes, a live link fill identity under the Bench).
-    login-contests.ts          v2.12.1 T5/T6: contestants, loginStands, settleLogin, loginContests, ruleContest
     x-oauth.ts(+test)          v2.12.1 T6: X_SCOPES, pkcePair, xAuthorizeUrl, xUserFrom, xOAuth (token + /2/users/me)
     x-install.ts               v2.14 T4 (tests: v214-x-install.test.ts): SIGNIN_TEXT, signinCookie, signinPage,
                                newSignin (x_signins row + __Host-eki- cookie), startInstallSignIn (straight to X or
                                the page naming the host), xSignInCallback (cookie-bound, one use, /2/users/me once,
                                code with x), attachToX (one tx: row lock, checks, attach alone or page from X,
                                bindXIn, x_user_id last; T5: always the installation alone: a root's members detached
-                               first, a member leaves its old root when no page holds the X)
+                               first, a member leaves its old root when no page holds the X); T7: the X profile writer
+                               moved here from claim.ts: BindResult, bindX (no held or join_pending branch; an X another
+                               page holds is refused by the unique index), BoundX, bindXIn, afterBind (cache dropped in a
+                               finally), errText (pg code + message for logs)
     x-link.ts                  v2.14 T5 (tests: v214-signin-link.test.ts): the fallback link. LINK_TTL_MS, PASTE_TTL_MS,
                                LINK_TEXT, SIGN_IN_NOTES, signInLink (HMAC(seed) code, hash kept, reused while open),
                                signinGet (GET /signin/<code>), linkSignedIn (callback 'link' branch: paste code hash,
                                15 min), pasteCode/formatPaste/normalizePaste, bindFromPaste (minting installation
-                               only, one use, attachToX, signed_in_by_code event), agoText (moved from claim.ts);
+                               only, one use, attachToX, signed_in_by_code event), agoText;
                                tools.ts find reads sign_in_code first (findReply is the rest of find)
                                fix 1: signinGet rate limit (signinLink), exact link via x_signins.link_hash,
                                code given back on a thrown error, a bound retry is ok
-    claim.ts(+test)            v2.12.1 T6/T7: CLAIM_TEXT, claimCode (S13), claimLink, claimGet, claimPost,
-                               xCallback, bindX (join_pending when another group holds the X id; under the Bench 'held');
-                               v2.14 T4: bindX = bindXIn (in a caller's tx) + afterBind (events, discovery, cache)
-                               v2.13.4 R1: joinOffer, joinPage (R6: names the agent, x-link.ts agoText), claimJoinPost (POST /claim/join: the one-click join,
-                               x_join_offers, cookie + Origin + one use + 15 min; page_joined event; standing_seen.linked)
     live-check.ts              v2.13.4 R3: liveDefaults, parkedPage, checkLive, liveSite (standing_seen.live_check, a day)
-    page-joins.ts              v2.13.4 R6 to R10: JOIN_TABLES (blocks/discard/stays registry), freshAndEmpty, attachFresh (one locked transaction), openR1Join, onProbation (24 h, PROBATION_LINES), pendingNotice (per installation,
-                               until answered), answerNotice (eligibility by join order, yes and no), detach to from_root,
-                               joinNoticeLine, DETACH_LINES
     wallet-proof.ts(+test)     v2.12.1 T7: upgradeToken/upgradeOf (30 min), WALLET_TEXT, walletMessage,
                                proveWallet (EIP-191, once per signature), walletGet, walletPost,
                                walletOtherMethod (405); every non-200 answer carries WALLET_FRAME_CSP
@@ -1487,7 +1487,7 @@ apps/frontend/
     stand-text.ts              v2.14 T3 (was where-you-stand.ts): EARN_NOTE, newsOpener, stepKey, MoveUp, StandProject,
                                StandView, plainWhat, rollingLine, standingNews, usersMoneyLine, paymentStepFits,
                                paymentFits, EarnLine, NOTED_LINE
-    stand-view.ts              v2.12.1 T8/T9: startRefresh, standBase, takeNews, takePageReady, confirmYes,
+    stand-view.ts              v2.12.1 T8/T9: startRefresh, standBase (v2.14 T7: base.signInLink = x-link.ts signInLink for the caller's own installation), takeNews, takePageReady, confirmYes,
                                scoreEarn, moneyFallback, tipsPick, hostFor, currentStep, DECLINE_MS 30 days
     attribution.ts(+test)      v2.12.1 T9: personCode (ek_...), attributionSuffix (ERC-8021), baseBuilderCode
                                (EARNKIT_BASE_AGENT_CODES), attributionFor, chainOf
@@ -1540,6 +1540,9 @@ apps/frontend/
                                sponsor wallet, token, factory), sponsorStatus (survives scoring and
                                RPC failures), prepareAward (guarded UPDATE)
   db/schema.sql                the whole schema, idempotent (sponsor_campaigns, projects.prize_*,
+                               v2.14 T7 (bind block, before the bind UPDATE): preflight S4 detaches the members of every
+                               page_joins row still attached with no eligible answer (builder_id back to from_root, their
+                               updates since the join hidden, the row stamped detached; no deletes, a rerun is a no-op);
                                v2.10 item 13: contract_deploys (reservation row, builder_key, tx_hash, status, owner_ok, blocked, cost_micro_usd).
                                v2.11 T3: contract_deploys.owner_wallet, block (nullable), code_differs; submissions_project index.
                                projects.repo_key + its partial unique index, projects.token_* and
@@ -1606,7 +1609,8 @@ apps/frontend/
                                events-redact.mts: v2.11 T12, the owner's redaction of one builder's login
                                and wallet in builder_events (--login/--wallet, dry run unless --apply);
                                lists the main other tables, keys and repo columns holding them, never changes them (lib/earnkit/
-                               events-redact.test.ts runs it as a child process); v2.12: also the profile's login,
+                               events-redact.test.ts runs it as a child process); v2.14 T7: the profile clear also unbinds the
+                               person's installations (x_user_id) and deletes their x_signin_links rows; v2.12: also the profile's login,
                                X handle, fallback, slug and slug history, sources' ref/project_key/deployer
                                v212-metric.mts: v2.12 T15, the empty-profile rate for new installs per UTC day
                                (`<day>: N new, E empty (P%)`; --as-of, --days 14), shown, never a target
@@ -1631,7 +1635,9 @@ apps/frontend/
                                 columns, and (Task 12) results/outcome_asked_at/fit_chains defaults and
                                 entry_outcomes' unique key, CHECKs, re-run survival and cascade;
                                 v2.9 Task 9: fee_recipients NULL on old rows, fee_claims role CHECK and
-                                re-run survival
+                                re-run survival; v2.14 T7: the JOIN_TABLES coverage and pending_joins consent
+                                checks are gone (nothing moves rows by table); checks installations.x_user_id,
+                                x_signins, x_signin_links, builder_sources.app_checked_at instead
     token-e2e.mts               v2.3 token flows through the tools layer against a local Postgres
                                 and a mock tokens.fun on 127.0.0.1 (gate faked via
                                 ToolContext.tokenDeps): default launch, edited ticker, skip, gate
