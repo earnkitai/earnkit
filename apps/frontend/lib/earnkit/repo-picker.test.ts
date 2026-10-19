@@ -2,7 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { sql } from './db';
-import { PICK_PAGE, appSetup } from './github-app';
+import { GITHUB_INSTALLATIONS_URL, PICK_ADMIN_CHECKS, PICK_PAGE, appSetup } from './github-app';
 import { APP_CONFIRM_ONLY_YOURS, PICK_REPOS, createVerifyLink, csrfCookieName, verifyStart } from './github-verify';
 import { connectInstallation, saveInstallation } from './installations';
 import { mcpCall } from './fixtures/mcp-call';
@@ -117,8 +117,10 @@ test('L2.3 two picked repos: both proven, the most recently pushed is the one pr
   const link = await pickerLink(p.ctx);
   const { res, text } = await setup(link, p.login, inst, gh);
   assert.equal(res.status, 200, text);
-  assert.ok(text.includes(PICK_PAGE.ranked(newer)), text);
-  assert.ok(text.includes('Tell your agent which repo to rank instead.'), text);
+  // Fix round 1 (I1, I2): the page names the ranked repo, the page it is on, and the way out.
+  assert.ok(text.includes(`Done. EarnKit now ranks github.com/${newer} on earnkit.com/${p.username}. Tell your agent if you want a different repo ranked.`), text);
+  assert.ok(text.includes(`${PICK_PAGE.remove(true)} <a href="${GITHUB_INSTALLATIONS_URL}"`), text);
+  assert.equal(links(text.replace(/<[^>]+>/g, ' ')).length, 1, 'one link on the page');
   for (const key of [older, newer]) assert.deepEqual(await source(p.id, key), { state: 'verified', proof: 'github_app', reject_reason: null });
   assert.equal(await mainProjectOf(p.id), newer);
   // One verification per picked repo, for this installation (appProofLive reads them).
@@ -169,9 +171,12 @@ test('L2.5 another person\'s App-held repo is taken; their hold stays and the bu
   const { res, text } = await setup(await pickerLink(p.ctx), p.login, inst, gh);
   assert.equal(res.status, 200, text);
   assert.equal((await source(first.id, shared))?.proof, 'github_app', 'the first App holder keeps it');
-  // It passed the ownership check (an admin), so it was proveOne's hold check that refused it.
+  // Fix round 1 (M2): it passed the ownership check (an admin), but proveOne's hold check refused it, so no
+  // verification row is written (appTokenFor could otherwise mint a token for it).
   const [v] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM github_verifications WHERE installation_id = ${p.id} AND repo_key = ${shared} AND via = 'app'`;
-  assert.equal(v.n, 1);
+  assert.equal(v.n, 0);
+  const [o] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM github_verifications WHERE installation_id = ${p.id} AND repo_key = ${other} AND via = 'app'`;
+  assert.equal(o.n, 1);
   assert.notEqual((await source(p.id, shared))?.state, 'verified');
   assert.equal((await source(p.id, other))?.proof, 'github_app');
   assert.equal(await mainProjectOf(p.id), other, 'the newer pushed repo was taken, so the one proven is the one project');
@@ -210,7 +215,7 @@ test('L2.7 the nonce is used once: the setup URL again is expired, and nothing m
   assert.equal(nocookie.status, 403);
 });
 
-test('L2.8 a builder with a one project keeps it; the picked repos are added', db, async () => {
+test('L2.8 fix round 1 (I1): an unconfirmed one project not picked is replaced by the newest picked repo, and the page names it', db, async () => {
   const p = await signedIn('ivy');
   const named = `${p.login}/named`;
   await mcpCall(p.ctx, 'find', { identity: { project: { name: 'Named', repo: `https://github.com/${named}` } } });
@@ -221,12 +226,68 @@ test('L2.8 a builder with a one project keeps it; the picked repos are added', d
   const link = await createVerifyLink({ installationId: p.id, projectId: null, repoKey: null, purpose: 'app' });
   const { res, text } = await setup(link, p.login, inst, gh);
   assert.equal(res.status, 200, text);
-  assert.ok(text.includes(PICK_PAGE.added(1)), text);
-  assert.equal(await mainProjectOf(p.id), named, 'the one project stays');
+  assert.ok(text.includes(PICK_PAGE.ranked(added, p.username)), text);
+  assert.equal(await mainProjectOf(p.id), added, 'the unconfirmed named repo is replaced');
   assert.equal((await source(p.id, added))?.proof, 'github_app');
 });
 
-test('L2.9 tell main_project switches to another App-proven repo, even a confirmed one; an unproven repo gets the picker link', db, async () => {
+test('L2.8b fix round 1 (I1): a confirmed one project stays, and the page names it; a picked one project stays too', db, async () => {
+  const p = await signedIn('ivo');
+  const kept = `${p.login}/kept`;
+  const inst = Number(`68${RUN}`);
+  const newer = `${p.login}/newer`;
+  const gh = fakeGitHub({
+    [kept]: { id: Number(`82${RUN}`), owner: p.login, installation: inst, commits: [ago(20, 'k1')] },
+    [newer]: { id: Number(`83${RUN}`), owner: p.login, installation: inst, commits: [ago(1, 'n1')] },
+  });
+  await mcpCall(p.ctx, 'find', { identity: { project: { name: 'Kept', repo: `https://github.com/${kept}` } } });
+  assert.equal(((await installApp({ builderId: p.id, repoKey: kept, login: p.login, gh })) as { ok?: boolean }).ok, true);
+  assert.match(String((await mcpCall(p.ctx, 'find', {})).reply?.show_to_builder), /^Kept: Shipping /m, 'confirmed');
+  const { res, text } = await setup(await createVerifyLink({ installationId: p.id, projectId: null, repoKey: null, purpose: 'app' }), p.login, inst, gh);
+  assert.equal(res.status, 200, text);
+  assert.equal(await mainProjectOf(p.id), kept, 'one of the picked repos: kept even though another was pushed later');
+  assert.ok(text.includes(PICK_PAGE.ranked(kept, p.username)), text);
+  // Not among the picked repos (only the newer one picked now) and confirmed: still kept and named.
+  const only = fakeGitHub({ [newer]: { id: Number(`83${RUN}`), owner: p.login, installation: inst + 1, commits: [ago(1, 'n1')] } });
+  const again = await setup(await createVerifyLink({ installationId: p.id, projectId: null, repoKey: null, purpose: 'app' }), p.login, inst + 1, only);
+  assert.equal(again.res.status, 200, again.text);
+  assert.equal(await mainProjectOf(p.id), kept);
+  assert.ok(again.text.includes(PICK_PAGE.ranked(kept, p.username)), again.text);
+});
+
+test('L2.10 fix round 1 (M2, M3): a single-repo link writes no verification for a fork; every proof failing at GitHub is the failed page', db, async () => {
+  const p = await signedIn('lea');
+  const fork = `${p.login}/copied`;
+  const inst = Number(`69${RUN}`);
+  const gh = fakeGitHub({ [fork]: { id: Number(`84${RUN}`), owner: p.login, installation: inst, fork: true, commits: [ago(1, 'c1')] } });
+  const one = await setup(await createVerifyLink({ installationId: p.id, projectId: null, repoKey: fork, purpose: 'app' }), p.login, inst, gh);
+  assert.equal(one.res.status, 200);
+  const [v] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM github_verifications WHERE installation_id = ${p.id} AND repo_key = ${fork}`;
+  assert.equal(v.n, 0);
+  // Every per-repo token is refused by GitHub: the failed page (502), never "none could count".
+  const key = `${p.login}/real`;
+  const base = fakeGitHub({ [key]: { id: Number(`85${RUN}`), owner: p.login, installation: inst + 1, commits: [ago(1, 'r1')] } });
+  const down = Object.assign((async (input: RequestInfo | URL, init?: RequestInit) =>
+    /access_tokens$/.test(String(input)) && String(init?.body ?? '').includes('repositories') ? new Response('{}', { status: 500 }) : base(input, init)) as typeof fetch,
+  { calls: base.calls, repos: base.repos }) as FakeGitHub;
+  const failed = await setup(await createVerifyLink({ installationId: p.id, projectId: null, repoKey: null, purpose: 'app' }), p.login, inst + 1, down);
+  assert.equal(failed.res.status, 502, failed.text);
+  assert.equal(await source(p.id, key), null);
+});
+
+test('L2.11 fix round 1 (I3): at most PICK_ADMIN_CHECKS admin checks at one setup', db, async () => {
+  const p = await signedIn('max');
+  const org = `big${RUN}`;
+  const inst = Number(`70${RUN}`);
+  const repos = Object.fromEntries(Array.from({ length: 40 }, (_, k) => [`${org}/r${k}`,
+    { id: Number(`86${RUN}${k}`), owner: org, ownerType: 'Organization' as const, installation: inst, admins: ['nobody'], commits: [ago(k + 1, `c${k}`)] }]));
+  const gh = fakeGitHub(repos);
+  const { res } = await setup(await pickerLink(p.ctx), p.login, inst, gh);
+  assert.equal(res.status, 403);
+  assert.equal(gh.calls.filter((c) => c.path.includes('/collaborators/')).length, PICK_ADMIN_CHECKS);
+});
+
+test('L2.9 tell main_project switches to another App-proven repo, even a confirmed one; an unproven repo gets its own install link', db, async () => {
   const p = await signedIn('jon');
   const a = `${p.login}/alpha`;
   const b = `${p.login}/beta`;
@@ -244,11 +305,13 @@ test('L2.9 tell main_project switches to another App-proven repo, even a confirm
   assert.match(String((await mcpCall(p.ctx, 'find', {})).reply?.show_to_builder), /^Alpha: Shipping /m);
   const same = await mcpCall(p.ctx, 'tell', { main_project: a });
   assert.equal(same.reply?.show_to_builder, `EarnKit already ranks github.com/${a}.`);
-  // A repo this person never proved: nothing changes, and the picker link is offered (one link, one question).
+  // A repo this person never proved: nothing changes, and that repo's own install link is offered (fix round 1, M5).
   const unproven = `${p.login}/gamma`;
   const no = await mcpCall(p.ctx, 'tell', { main_project: unproven });
   const s = String(no.reply?.show_to_builder);
   assert.match(s, new RegExp(`^github\\.com/${unproven} isn't connected yet\\. Install the read-only EarnKit app on it \\(one click\\): https://earnkit\\.com/github/verify\\?n=\\S+\\nWant me to rank it once that's done\\?$`), s);
+  const [n] = await sql()<{ repo_key: string }[]>`SELECT repo_key FROM github_verify_nonces WHERE nonce_hash = ${sha(new URL(links(s)[0]!).searchParams.get('n')!)}`;
+  assert.equal(n.repo_key, unproven);
   assert.equal(await mainProjectOf(p.id), a);
   // Another person's App-proven repo is never this person's to rank.
   const q = await signedIn('kai');

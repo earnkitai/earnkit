@@ -6387,29 +6387,42 @@ Design doc: `docs/design-docs-and-implementation-plans/launch-ready.md` (ruling 
   picker chooses the repos. The confirm page says "This connects your repos to earnkit.com/<handle>. Only continue
   if that is your page." (`appPickDestination`), with "Repos: The ones you pick on GitHub".
 - **The setup URL** (`github-app.ts appSetup` -> `pickSetup` for a `PICK_REPOS` nonce, after the same cookie,
-  installation id and `takeNonce` checks). `pickedRepos`: the installation (its account), one installation token for
-  the list (`installationToken(id, null)`: metadata read), `GET /installation/repositories` (pages of 100, at most
-  `PICK_LIST_MAX` = 100), newest `pushed_at` first; a repo passes R8 as `appProof` does for one: the installation is
-  the installer's own account and the repo is on it, or the installer is the repo's admin (checked until
-  `PICK_PROVE_MAX` = 20 passed). Each passing repo gets its `via = 'app'` verification (appProofLive reads it) and
-  `proveOne` (every proveByApp rule: GitHub names this installation, a fork or template is `derived`, `repo_hold:<key>`
-  then the person's and source locks, another person's App hold is `taken`, a non-App hold replaced), within
-  `PICK_BUDGET_MS` (15 s). With no one project yet, the most recently pushed proven repo becomes it
-  (`setMainProject`); one that exists is kept. Then `connectProven` once: replaced people rescored, the events, one
-  connect read of every proven repo with the installation token, the rescore, R13's 3-week backfill for the one
-  project (the hourly catch-up finishes the rest).
-- **The setup page** (`PICK_PAGE`): "Done. EarnKit now ranks github.com/<repo>. Tell your agent which repo to rank
-  instead." (the one project was set); "Done. N repos are connected. Go back to your agent and say go." (kept);
-  refusals (403): nothing picked, not the installer's (`notYours`), none could count (forks, templates, taken).
+  installation id and `takeNonce` checks). One deadline, `PICK_BUDGET_MS` (25 s) from the top of the handler
+  (fix round 1, I3): every GitHub call of the setup goes through `repo-proof.ts budgetedFetch` with it.
+  `pickedRepos`: the installation (its account), one installation token for the list (`installationToken(id, null)`:
+  metadata read), `GET /installation/repositories` (pages of 100, the first `PICK_LIST_MAX` = 100 listed), newest
+  `pushed_at` first; a repo passes R8 as `appProof` does for one: the installation is the installer's own account and
+  the repo is on it, or the installer is the repo's admin (at most `PICK_ADMIN_CHECKS` = 30 admin checks,
+  `PICK_ADMIN_BATCH` = 5 at a time, until `PICK_PROVE_MAX` = 20 passed). Each passing repo goes through `proveOne`
+  (every proveByApp rule: GitHub names this installation, a fork or template is `derived`, `repo_hold:<key>` then the
+  person's and source locks, another person's App hold is `taken`, a non-App hold replaced); only a proven repo then
+  gets its `via = 'app'` verification (fix round 1, M2: a taken repo or a copy gets none, so `appTokenFor` never mints
+  a token for it; the single-repo path now does the same: `proveOne`, then the verification, then `connectProven`).
+- **The one project (fix round 1, I1).** It stays when it is one of the proven repos. Otherwise `setMainProject` with
+  the newest proven repo: that replaces an unconfirmed one project (a named repo the builder never installed on) and
+  keeps a confirmed one. "Newest" is among the first 100 listed repos. Then `connectProven` once within what is left
+  of the deadline (at most `REFRESH_BUDGET_MS`): replaced people rescored, the events, one connect read of every proven
+  repo with the installation token, the rescore, R13's 3-week backfill for the one project (the hourly catch-up
+  finishes the rest).
+- **The setup page** (`PICK_PAGE`, fix round 1, I1, I2): always names whatever the one project is now and its page:
+  "Done. EarnKit now ranks github.com/<repo> on earnkit.com/<handle>. Tell your agent if you want a different repo
+  ranked.", then "Not your page? Remove the EarnKit app from these repos in your GitHub settings:
+  https://github.com/settings/installations" (the one link; `github-verify.ts pageWith`; the daily `app_check` then
+  takes removed repos off the page). The single-repo success page says the same way out, after "Done. Go back to your
+  agent and say go." and "This adds github.com/<repo> to earnkit.com/<handle>.". Refusals: nothing picked or not the
+  installer's (403), none could count (403: forks, templates, taken), every proof failed at GitHub (502, M3).
 - **proveByApp split.** `proveByApp` = `proveOne` (the checks and the S8 transaction, returning `Proven`) +
-  `connectProven` (the connect read, rescore and backfill). A single repo's proof behaves as before.
+  `connectProven(builderId, proven, deps, { deadline? })` (the connect read, rescore and backfill).
 - **Switching (tell `main_project`).** `setMainProject` stays set once after confirmation (find's `identity.project`
   is the folder the agent is in, so it must not move a confirmed project). `tell { main_project: "owner/repo" }`
   (`bench-find.ts rankAnswer`, `main-project.ts rankRepo`) moves the one project, even a confirmed one, only to a
   repo this person proved with the App (a verified `github_app` source of their own), then rescores: "EarnKit now
-  ranks github.com/<repo>.". Another repo is not changed to; the reply offers the picker link ("... isn't connected
-  yet. Install the read-only EarnKit app on it (one click): <link>") and the agent calls tell again after the install.
-  The tell description names it ("main_project: owner/repo to rank instead."), still under 800 characters.
-- **Limits.** At most 100 listed and 20 proven per setup, newest push first; the rest (and any past the 15 s
-  budget) are not proven at that setup (owner question: raise the caps if builders pick more). GitHub's "Redirect on update" must stay on, so an
-  installation that already exists (the builder adds repos to it) reaches the setup URL too.
+  ranks github.com/<repo>.". The switch counts at once; the new one project's 3-week backfill comes from the hourly
+  catch-up. Switching after a coin or an entry is allowed: entries and coins stay tied to their own repos. A repo not
+  proven is not changed to; the reply offers that repo's own install link (`installLink`, fix round 1, M5: "... isn't
+  connected yet. Install the read-only EarnKit app on it (one click): <link>") and the agent calls tell again after
+  the install. The tell description names it ("main_project: owner/repo to rank instead."), under 800 characters.
+- **Limits.** The first 100 listed repos, at most 30 admin checks and 20 proofs per setup, newest push first; the rest
+  (and any past the deadline) are not proven at that setup (owner question: raise the caps if builders pick more).
+  GitHub's "Redirect on update" must stay on, so an installation that already exists (the builder adds repos to it)
+  reaches the setup URL too.

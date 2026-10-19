@@ -201,10 +201,10 @@ export async function proveOne(a: { builderId: number; repoKey: string; githubIn
  * After proveOne: the people whose non-App hold was replaced are rescored, each proof is logged, then R5 (scored
  * at connect): the proved repos are read once now (the App's installation token, the refresh's reader, which
  * writes commit_weeks and commit_counts), so the rescore has their commit weeks, and R13: on a first proof the
- * one project's last 3 finished weeks are backfilled. All within one REFRESH_BUDGET_MS; fail soft (a failed read
+ * one project's last 3 finished weeks are backfilled. All within one REFRESH_BUDGET_MS (or less: `o.deadline`); fail soft (a failed read
  * writes nothing and leaves the proof standing; the next refresh, daily read or hourly catch-up finishes it).
  */
-export async function connectProven(builderId: number, proven: Proven[], deps: AppDeps = {}): Promise<void> {
+export async function connectProven(builderId: number, proven: Proven[], deps: AppDeps = {}, o: { deadline?: number } = {}): Promise<void> {
   const done = proven.filter((p) => p.out.ok);
   if (!done.length) return;
   const now = deps.now ?? new Date();
@@ -215,13 +215,15 @@ export async function connectProven(builderId: number, proven: Proven[], deps: A
       type: 'source_verified', dedupe_key: `source_verified:${p.rowId}:${now.toISOString()}`, installation_id: builderId, detail: { source_id: p.rowId, kind: 'repo', proof: APP_PROOF },
     }));
   const scoring = await import('./person-score');
-  const deadline = Date.now() + scoring.REFRESH_BUDGET_MS;
+  // Fix round 1 (I3): within what is left of the caller's deadline (the picker's setup), else one REFRESH_BUDGET_MS.
+  const deadline = Math.min(Date.now() + scoring.REFRESH_BUDGET_MS, o.deadline ?? Infinity);
   let ghFetch: typeof fetch | undefined;
   try {
     const { defaultReaderDeps } = await import('./source-readers');
     const reader = defaultReaderDeps(now, deadline);
     ghFetch = budgetedFetch(deps.fetch ?? reader.ghFetch ?? fetch, deadline);
-    await scoring.readPersonLive(builderId, now, { deadline, reader: { ...reader, ghFetch }, only: done.map((p) => p.rowId), soft: true });
+    if (Date.now() < deadline)
+      await scoring.readPersonLive(builderId, now, { deadline, reader: { ...reader, ghFetch }, only: done.map((p) => p.rowId), soft: true });
   } catch (err) {
     console.error('[repo-proof] read', err instanceof Error ? err.name : 'error');
   }

@@ -535,6 +535,17 @@ const PAGE_HEADERS = { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Contro
 /** v2 premium: the same dark shell as the claim, sign-in and wallet pages (brand-page.ts). */
 const html = (body: string) => brandShell(body);
 
+/**
+ * Fix round 1 (I2): the setup's success page: the first line, the others small, then `link`'s line with its one
+ * https link. No script, nothing cached. Pure.
+ */
+export function pageWith(lines: string[], link: { text: string; href: string } | null, status = 200, headers: Record<string, string> = {}): Response {
+  const [first, ...rest] = lines;
+  const body = `<p class="ek-line ek-first">${escapeHtml(first ?? '')}</p>` + rest.map((l) => `<p class="ek-small">${escapeHtml(l)}</p>`).join('') +
+    (link ? `<p class="ek-small">${escapeHtml(link.text)} <a href="${escapeHtml(link.href)}" rel="noopener noreferrer">${escapeHtml(link.href)}</a></p>` : '');
+  return new Response(html(body), { status, headers: { ...PAGE_HEADERS, ...headers } });
+}
+
 /** The tiny page the builder sees. No script, nothing cached. Pure. */
 export function verifyPage(line: string, status = 200, headers: Record<string, string> = {}): Response {
   return new Response(html(`<p class="ek-line ek-first">${escapeHtml(line)}</p>`), { status, headers: { ...PAGE_HEADERS, ...headers } });

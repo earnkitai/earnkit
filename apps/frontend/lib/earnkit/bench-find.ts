@@ -641,7 +641,7 @@ export const RANK_INSTALL_NOTE =
 
 /**
  * Launch ready L2: tell main_project. The one project moves to `repo` when this person proved it with the App
- * (main-project.ts rankRepo), and they are rescored at once; otherwise the repo picker's install link (S7: only
+ * (main-project.ts rankRepo), and they are rescored at once; otherwise that repo's own install link (S7: only
  * with a page) is offered, and nothing changes.
  */
 export async function rankAnswer(ctx: Pick<ToolContext, 'installationId'>, key: string): Promise<Reply> {
@@ -654,7 +654,8 @@ export async function rankAnswer(ctx: Pick<ToolContext, 'installationId'>, key: 
     (await import('./profile-cache')).profileChanged();
     return { show_to_builder: RANK_LINES.set(key), agent_note: RANK_SET_NOTE };
   }
-  const link = REPO_KEY.test(key) ? await pickLink(id, now).catch(logged('pick link')) : null;
+  // Fix round 1 (M5): that repo's own install link (its setup proves exactly it), never the picker's.
+  const link = REPO_KEY.test(key) ? await installLink(id, key, now).catch(logged('install link')) : null;
   return link ? { show_to_builder: RANK_LINES.install(key, link), agent_note: RANK_INSTALL_NOTE } : { show_to_builder: RANK_LINES.notProven(key) };
 }
 

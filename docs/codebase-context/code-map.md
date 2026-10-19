@@ -1098,7 +1098,8 @@ apps/frontend/
                                githubUser (S9: GET /users/<login>, cached 24 h in url_checks ghuser:<login>)
                                Launch ready L2: PICK_REPOS ('*', the repo picker's repo_key); createVerifyLink repoKey null
                                makes it (same S7 page handle, cookie, expiry, single use); confirmPage for it: APP_PICK_LEAD,
-                               APP_PICK_REPOS, appPickDestination ("This connects your repos to earnkit.com/<handle>.")
+                               APP_PICK_REPOS, appPickDestination ("This connects your repos to earnkit.com/<handle>."); pageWith
+                               (fix round 1: a setup success page with its one link)
     github-app.ts(+test)       v2.10 item 7b: the optional read-only GitHub App. githubAppEnabled (GITHUB_APP_ID,
                                GITHUB_APP_SLUG, a PEM GITHUB_APP_PRIVATE_KEY, and the v2.9 sign-in on, P17), appJwt
                                (RS256, iat now-60 s, 10 min), installationToken (POST access_tokens: one repo, contents
@@ -1108,9 +1109,12 @@ apps/frontend/
                                repo-proof.ts proveByApp for the person's root)
                                Launch ready L2: installationToken(id, null) (the installation's repo list, metadata read);
                                pickedRepos (GET /installation/repositories, PICK_LIST_MAX 100, newest push first; own account
-                               or admin, R8; stops at PICK_PROVE_MAX 20); pickSetup (appSetup for a PICK_REPOS nonce: a
-                               verification + repo-proof.ts proveOne per repo within PICK_BUDGET_MS, the newest proven repo
-                               becomes the one project when there is none, then connectProven); PICK_PAGE (the setup page lines)
+                               or admin, R8; PICK_ADMIN_CHECKS 30 in batches of PICK_ADMIN_BATCH 5; stops at PICK_PROVE_MAX 20);
+                               pickSetup (appSetup for a PICK_REPOS nonce, one PICK_BUDGET_MS 25 s deadline through
+                               budgetedFetch: repo-proof.ts proveOne per repo, the verification only for a proven one; the one
+                               project kept when picked, else setMainProject(newest proven); connectProven in what is left);
+                               PICK_PAGE (always names the one project and its page; remove line), GITHUB_INSTALLATIONS_URL;
+                               fix round 1: the single-repo path is proveOne, then the verification, then connectProven
     builder-memory.ts(+test)   v2.9 A3: TellInput (strict; program_status, repo_facts; v2.9 E19 weekly_email
                                { answer yes/no, email? }, which alone is enough), BuilderMemory, MemoryKey
                                (memoryKey: own installation login '', a shared client null),
@@ -1400,7 +1404,7 @@ apps/frontend/
                                heldByOther counts App holds only).
                                Launch ready L2: proveByApp = proveOne (the checks and the one transaction; returns Proven) +
                                connectProven (replaced people rescored, events, one connect read of every proven row,
-                               rescore, backfill for first proofs; one REFRESH_BUDGET_MS); pickLink (the repo picker's link).
+                               rescore, backfill for first proofs; one REFRESH_BUDGET_MS, or less: o.deadline); pickLink (the repo picker's link).
                                tests: v214-app-proof.test.ts, repo-picker.test.ts (fixtures fake-github.ts, app-install.ts)
     v214-journey.test.ts       v2.14 T12: acceptance 1 to 5 end to end on fake X and GitHub (fetch throws; every fake call routed)
     v214-removed.test.ts       v2.14 T7: the claim page, join route and join modules gone (wallet page stays), the tables
@@ -1470,7 +1474,7 @@ apps/frontend/
                                no build-in-progress view. v2.13.4: fundNeeds(c, has), reportedLive, liveOf;
                                needsPicks (NEEDS_MAX 2), START_NOTE, INSTALL_APP_NOTE, BENCH_OUTCOME_NOTE, SHIP_NOTE.
                                Launch ready L2: no_project carries repo-proof.ts pickLink (PICK_REPO_NOTE); rankAnswer (tell
-                               main_project: main-project.ts rankRepo, rescore; else the picker link), RANK_LINES,
+                               main_project: main-project.ts rankRepo, rescore; else that repo's installLink), RANK_LINES,
                                RANK_SET_NOTE, RANK_INSTALL_NOTE.
                                tests v214-replies.test.ts (through mcpCall), v2131-o5.test.ts, v2133-owner-test.test.ts,
                                repo-picker.test.ts
