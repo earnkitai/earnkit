@@ -112,7 +112,7 @@ test('9.13 D14: the link score shows is minted for the calling installation; its
   const a = await agent();
   const s = rule((await mcpCall(a.ctx, 'score', {})).reply);
   assert.match(s, /You're not on the Bench yet\./);
-  const link = links(s)[0];
+  const link = links(s)[0]!;
   assert.match(link, /^https:\/\/earnkit\.com\/signin\/[A-Za-z0-9_-]{22}$/);
   const [row] = await sql()<{ installation_id: number }[]>`SELECT installation_id FROM x_signin_links WHERE link_hash = encode(sha256(${link.split('/').pop()!}::bytea), 'hex')`;
   assert.equal(row.installation_id, a.ctx.ownInstallationId);

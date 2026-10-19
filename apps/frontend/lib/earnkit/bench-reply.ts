@@ -64,8 +64,8 @@ export const STATE_COPY = {
 } as const;
 /** A15: not counted, when the install link can't help. */
 export const VARIANT_COPY = {
-  taken: { stand: (n: string) => `${n} is already on the Bench under another account.`, ask: (_n: string) => OTHER_PROJECT_ASK },
-  copy: { stand: (n: string) => `${n} is a copy of someone else's project. Use your own.`, ask: (_n: string) => OTHER_PROJECT_ASK },
+  taken: { stand: (n: string) => `${n} is already on the Bench under another account.`, ask: () => OTHER_PROJECT_ASK },
+  copy: { stand: (n: string) => `${n} is a copy of someone else's project. Use your own.`, ask: () => OTHER_PROJECT_ASK },
   no_repo: { stand: (n: string) => `${n} isn't counted yet.`, ask: (n: string) => `Where does ${n} live on GitHub?` },
   app_off: { stand: (n: string) => `${n} isn't counted yet.`, ask: (n: string) => shipAsk(n) },
 } as const;
@@ -96,7 +96,7 @@ export function stateAsk(v: Pick<BenchView, 'state' | 'variant' | 'project' | 'l
   if (v.state === 'signed_out') return v.link ? { kind: 'sign_in', project_key: null, line: STATE_COPY.signed_out.ask(v.link) } : null;
   if (v.state === 'no_project') return { kind: 'start', project_key: null, line: STATE_COPY.no_project.ask() };
   if (v.state !== 'not_counted') return null;
-  if (v.variant === 'taken' || v.variant === 'copy') return { kind: 'other_project', project_key: key, line: VARIANT_COPY[v.variant].ask(name) };
+  if (v.variant === 'taken' || v.variant === 'copy') return { kind: 'other_project', project_key: key, line: VARIANT_COPY[v.variant].ask() };
   if (v.variant === 'no_repo') return { kind: 'repo_behind', project_key: key, line: VARIANT_COPY.no_repo.ask(name) };
   if (v.variant === 'app_off' || !v.link) return { kind: 'suggest', project_key: key, line: VARIANT_COPY.app_off.ask(name) };
   return { kind: 'install_app', project_key: key, line: STATE_COPY.not_counted.ask(v.link) };

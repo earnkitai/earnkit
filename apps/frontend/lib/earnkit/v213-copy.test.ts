@@ -11,7 +11,7 @@ import { raiseLine } from './coin-moments';
 import { RAISE_LINES, showRaisingLine } from './raising';
 import RaisingPill from '../../app/components/ui/RaisingPill';
 import {
-  CONFIRMED_LINE, NO_PROJECT_LINE, buildAsk, installAppAsk, privateLine, enterAsk, fitsLine, goLiveAsk, ideasLine, onBenchLine,
+  NOT_ON_BENCH, STATE_COPY, VARIANT_COPY, enterAsk, fitsLine, goLiveAsk, ideasLine,
 } from './bench-reply';
 
 // The components are compiled with the classic JSX runtime here (as feed.test.ts).
@@ -24,12 +24,12 @@ export const TEXTS: string[] = [
   ...[s(18, 100), s(3, 1000), s(10, 19)].flatMap((x) => [benchRank(x)!.short, benchRank(x)!.phrase]),
   ...(['base', 'arc', 'robinhood'] as const).flatMap((chain) => [benchRank(s(1, 100), { chain })!.short, benchRank(s(2, 12), { chain })!.short]),
   // T8: the reply's lines. The 2b lines name a funder and the starter's offer through the BENCH_PITCH_ALLOWED hook (plan B12).
-  NO_PROJECT_LINE, privateLine('Recipe planner'), onBenchLine('Recipe planner', 'top 18% of builders', 6),
+  // v2.14 T9: the five states' copy (STATE_COPY, VARIANT_COPY).
+  NOT_ON_BENCH, STATE_COPY.not_counted.stand('Recipe planner'), STATE_COPY.shipping.stand('Recipe planner', 'top 18% of builders', 6),
   goLiveAsk('Recipe planner'), enterAsk('Base Builder Grants'), fitsLine('Avalanche Team1 Mini Grants', 'up to $10K', 'Recipe planner', 'open all year'),
-  CONFIRMED_LINE('Recipe planner'),
-  // v2.13.4: the private repo's lines, the install ask and the join line.
-  privateLine('Recipe planner'), installAppAsk('Recipe planner', 'https://earnkit.com/github/verify?n=x'),
-  ideasLine([{ who: 'Arc', prize: 'up to $10K', for: 'payment apps' }, { who: 'Base', prize: 'up to $5K', for: 'a live app' }]), buildAsk('a tip jar on Arc'),
+  STATE_COPY.signed_out.ask('https://earnkit.com/signin/x'), STATE_COPY.no_project.ask(), STATE_COPY.not_counted.ask('https://earnkit.com/github/verify?n=x'),
+  ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('Recipe planner'), v.ask('Recipe planner')]),
+  ideasLine([{ who: 'Arc', prize: 'up to $10K', for: 'payment apps' }, { who: 'Base', prize: 'up to $5K', for: 'a live app' }]),
   // T9: the raise lines and the pill's words.
   raiseLine('Recipe planner', 'RECIPE', null), showRaisingLine('RECIPE'), RAISE_LINES.on('RECIPE'), RAISE_LINES.off, RAISE_LINES.notLaunched,
   pageWords(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/coin/0xabc' })),

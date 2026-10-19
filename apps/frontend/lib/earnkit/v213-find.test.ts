@@ -13,7 +13,7 @@ import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, dropAvalanche, dropPrograms, find, fitsFor, install, person, withEnv } from './fixtures/find';
 import type { Starter } from './starters';
-import { START_ASK, privateLine } from './bench-reply';
+import { NOT_ON_BENCH } from './bench-reply';
 
 /**
  * v2.13 T8: find and score under the Bench flag through the real tools: the three parts (where you
@@ -49,14 +49,16 @@ async function arcCopy() {
   await upsertProgram(ProgramFile.parse(p));
 }
 
-test('8.6 a fresh install with identity.project: the project named, not counted yet (v2.14: the App proves it); v2.14 T7: no claim ask', dbTest, () =>
+test('8.6 a fresh install with identity.project: v2.14 T9 signed out: not on the Bench yet, and the sign-in link is the one question', dbTest, () =>
   benchOn(async () => {
     const id = await install();
     const r = await find(id, { identity: { github_login: `mayav${RUN}`, project: { name: 'Recipe planner', what: 'a recipe planner', repo: `mayav${RUN}/recipes` } } }, { matchProjects: async () => ({ checked: 1, scored: 0, fits: [] }) });
     const lines = r.show_to_builder.split('\n');
     assert.equal(lines[0], 'Where you stand');
-    assert.equal(lines[1], privateLine('Recipe planner'));
-    // v2.14 T7: no claim link and no claim ask (T9 adds the unsigned state's sign-in line).
+    assert.equal(lines[1], NOT_ON_BENCH);
+    assert.match(r.show_to_builder, /Sign in with X to get your page \(one click\): https:\/\/\S+\/signin\/[A-Za-z0-9_-]{22}\nWant me to put your work on the Bench once you're in\?$/);
+    assert.equal(r.move_up?.kind, 'sign_in');
+    // v2.14 T7: no claim link and no claim ask.
     assert.equal((r as { claim?: unknown }).claim, undefined);
     assert.doesNotMatch(r.show_to_builder, /claim/i);
     assert.equal(r.proof, undefined, 'v2.14: no proof branch');
@@ -69,7 +71,7 @@ test('8.7 a confirmed, claimed, ranked project: the spec 2a reply; v2.14 spec 3:
     const p = await avalanche();
     const id = await person({ main: `mayaf${RUN}/recipes`, claimed: `mf${RUN}`, ranked: true, score: 60, projects: [{ key: `mayaf${RUN}/recipes`, name: 'Recipe planner', confirmed: true, weeks_shipping: 6 }] });
     const r = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(p.id, `mayaf${RUN}/recipes`) }) });
-    assert.match(r.show_to_builder, /^Recipe planner is on the Bench(: (top \d+(\.\d)?% of builders|#\d+ of \d+ builders?))?, 6 weeks shipping\.$/m);
+    assert.match(r.show_to_builder, /^Recipe planner is on the Bench(: (top \d+(\.\d)?% of builders|#\d+ of \d+ builders?))?\.$/m);
     assert.match(r.show_to_builder, new RegExp(`^${esc(p.title)} pays up to \\$10K and fits Recipe planner; it's open all year\\.$`, 'm'));
     // v2.13.3 owner ruling A: the best fit's entry is asked first; a no to it, then the next step (never the updates yes).
     assert.ok(r.show_to_builder.endsWith(`Want me to prepare an entry for ${p.title}?`), r.show_to_builder);
@@ -89,7 +91,7 @@ test('8.7 a confirmed, claimed, ranked project: the spec 2a reply; v2.14 spec 3:
   }),
 );
 
-test('8.8 no project: ideas first and existing work; no build offer (v2.14 A18)', dbTest, () =>
+test('8.8 no project: ideas first; signed out, the sign-in question; no build offer (v2.14 A18)', dbTest, () =>
   benchOn(async () => {
     await arcCopy();
     try {
@@ -98,9 +100,9 @@ test('8.8 no project: ideas first and existing work; no build offer (v2.14 A18)'
       const r = await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH });
       assert.match(r.show_to_builder, /^You're not on the Bench yet\.$/m);
       assert.match(r.show_to_builder, /^Ways to get funded\n/m);
-      assert.ok(r.show_to_builder.endsWith(START_ASK), r.show_to_builder);
+      assert.ok(r.show_to_builder.endsWith("Want me to put your work on the Bench once you're in?"), r.show_to_builder);
       assert.equal(r.build_offer, undefined);
-      assert.equal(r.move_up?.kind, 'start');
+      assert.equal(r.move_up?.kind, 'sign_in');
     } finally {
       await dropPrograms([ARC_ID]);
     }

@@ -19,7 +19,7 @@ import { resolveHandle } from './profiles';
 import { refreshPerson, REFRESH_BUDGET_MS, rescorePerson } from './person-score';
 import { mainConfirmed, mainProjectOf } from './main-project';
 import { benchCardFacts, benchRows, parseBenchFilter, profileData } from './bench-data';
-import { privateLine, takenLine } from './bench-reply';
+import { NOT_ON_BENCH, VARIANT_COPY } from './bench-reply';
 import { saveVerification } from './github-verify';
 import { rootOf } from './identity';
 import { proveByApp } from './repo-proof';
@@ -528,7 +528,9 @@ test('16.1 acceptance 1, with a project: the first reply names it (v2.14 T7: no 
   MAYA.id = id;
   const r1 = await call('find', { identity: { github_login: 'maya', project: RECIPES_PROJECT } }, ctx(id));
   assert.equal(r1.show_to_builder.split('\n')[0], 'Where you stand', r1.show_to_builder);
-  assert.equal(r1.show_to_builder.split('\n')[1], privateLine('Recipe planner'), r1.show_to_builder);
+  // v2.14 T9: signed out, the sign-in link is the one question.
+  assert.equal(r1.show_to_builder.split('\n')[1], NOT_ON_BENCH, r1.show_to_builder);
+  assert.equal(r1.move_up?.kind, 'sign_in');
   // v2.14 T7: no claim link or claim ask.
   assert.equal(r1.claim, undefined);
   assert.equal(r1.proof, undefined, 'v2.14: no proof branch');
@@ -539,7 +541,7 @@ test('16.1 acceptance 1, with a project: the first reply names it (v2.14 T7: no 
   // v2.13.3 review (I1): the community round needs the repo read public (the cheap read's public_at).
   await sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${id} AND kind = 'repo'`;
   const r2 = await call('find', {}, ctx(id));
-  assert.match(r2.show_to_builder, /^Recipe planner is on the Bench(: [^,]+)?, 3 weeks shipping\.$/m, r2.show_to_builder);
+  assert.match(r2.show_to_builder, /^Recipe planner is on the Bench(: .+?)?\.( \d+ weeks in a row\.)?$/m, r2.show_to_builder);
   // v2.13.3 owner ruling A: nothing fits, so the confirmed project is offered a community round (once).
   assert.match(r2.show_to_builder, /I'll launch \$\w+ on tokens\.fun and you get 40% of its trading fees\. Want to open a community round for Recipe planner\?$/, r2.show_to_builder);
   assert.equal(r2.move_up?.kind, 'coin');
@@ -555,11 +557,13 @@ test('16.1b review focus 3: a second person naming maya/recipes (already on the 
   EVE = await newInstall();
   xUser = { id: 'x-eve', username: 'eve_ships', name: 'Eve', avatar: null };
   const r = await call('find', { identity: { github_login: 'eve', project: { ...RECIPES_PROJECT, name: 'My recipes' } } }, ctx(EVE));
-  assert.equal(r.show_to_builder.split('\n')[1], takenLine('My recipes'), r.show_to_builder);
+  assert.equal(r.show_to_builder.split('\n')[1], NOT_ON_BENCH, r.show_to_builder);
   await signInX(EVE);
   await advanceRefreshGuard(EVE, 61_000);
   const again = await call('find', {}, ctx(EVE));
-  assert.equal(again.show_to_builder.split('\n')[1], takenLine('My recipes'), again.show_to_builder);
+  assert.ok(again.show_to_builder.includes(`Where you stand\n${VARIANT_COPY.taken.stand('My recipes')}\n`), again.show_to_builder);
+  // D6: the open programs are still named.
+  assert.doesNotMatch(again.show_to_builder, /No program is open/);
   assert.notEqual(again.move_up?.kind, 'updates');
   const update = await call('tell', { update: { text: 'Shipped the fridge photo import.' } }, ctx(EVE));
   assert.equal(update.agent_note, NOT_CONFIRMED_NOTE);

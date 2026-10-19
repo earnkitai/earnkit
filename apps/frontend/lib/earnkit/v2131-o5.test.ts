@@ -9,13 +9,9 @@ import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
-import {
-  GRANTS_LATER_ASK, START_ASK, grantsAsk, privateLine, shipAsk,
-} from './bench-reply';
-import { GRANTS_QUIET_MS, noGrantLine } from './bench-find';
+import { NOT_ON_BENCH, STATE_COPY, shipAsk } from './bench-reply';
 import { GitHubError } from './match-projects';
 import { RateLimitError } from './rate-limit';
-import { mondayOf } from './weeks';
 import { TWIST_QUESTION, WALLET_ASK, buildingLine, twistQuestion } from './fresh-build';
 import { STARTERS } from './starters';
 import { readPersonLive, rescorePerson } from './person-score';
@@ -115,19 +111,20 @@ test('O5 N1 (F16) the first find and score answer in under 3 s while GitHub has 
       assert.ok(gh.calls.length > 0, 'GitHub reads were started');
       assert.equal(gh.answered(), 0, 'none had answered when the reply went out');
       // v2.14 spec 2: not counted until the App is installed (no proof branch, no GitHub read for it).
-      assert.equal(r.show_to_builder.split('\n')[1], privateLine('Next.js'), r.show_to_builder);
-      // v2.14 T7: unsigned, no claim link (and no App link: it needs a page).
-      assert.equal(links(r.show_to_builder).length, 0);
+      // v2.14 T9: unsigned: not on the Bench yet, and the sign-in link is the one link (no App link: it needs a page).
+      assert.equal(r.show_to_builder.split('\n')[1], NOT_ON_BENCH, r.show_to_builder);
+      assert.equal(links(r.show_to_builder).length, 1);
+      assert.match(links(r.show_to_builder)[0]!, /\/signin\//);
       assert.ok(r.show_to_builder.endsWith('?'));
       assert.equal(r.proof, undefined);
       const t2 = Date.now();
       const r2 = await find(id, {});
       assert.ok(Date.now() - t2 < 3000, `the second find took ${Date.now() - t2} ms`);
-      assert.equal(r2.show_to_builder.split('\n')[1], privateLine('Next.js'));
+      assert.equal(r2.show_to_builder.split('\n')[1], NOT_ON_BENCH);
       const t1 = Date.now();
       const s = (await tools.score({}, { installationId: id } as never)) as R;
       assert.ok(Date.now() - t1 < 3000, `score took ${Date.now() - t1} ms`);
-      assert.equal(s.show_to_builder.split('\n')[1], privateLine('Next.js'));
+      assert.equal(s.show_to_builder.split('\n')[1], NOT_ON_BENCH);
     } finally {
       gh.release();
       globalThis.fetch = was;
@@ -168,28 +165,23 @@ test('O5 N4 a repo never read public stays unnamed ("Private project"); the refr
   }),
 );
 
-// ---- N5: a grants yes that finds nothing ---------------------------------------------------------
+// ---- N5, v2.14 A16: nothing pending: one small thing to ship, never kept away ------------------------
 
-test('O5 N5 a grants yes that finds nothing: the next reply asks the next step, not grants, for 7 days; then grants again', dbTest, () =>
+test('O5 N5, v2.14 A16: a confirmed project with nothing pending is asked one small thing to ship; a no never silences it', dbTest, () =>
   on(async () => {
     const key = `${uniq('gq')}/hello-world`;
-    const id = await person({ main: key, claimed: uniq('gq'), seen: { declined: { [`updates:${key}`]: new Date().toISOString() } }, projects: [{ key, name: 'Hello-World', confirmed: true }] });
+    const id = await person({ main: key, claimed: uniq('gq'), projects: [{ key, name: 'Hello-World', confirmed: true }] });
+    // The community round is offered once (owner ruling A); then one small thing to ship.
+    await find(id, {}, NO_MATCH);
     const r = await find(id, {}, NO_MATCH);
-    assert.ok(r.show_to_builder.endsWith(grantsAsk('Hello-World')), r.show_to_builder);
-    const g = (await tools.tell({ move_up: { kind: 'grants', project_key: key, answer: 'yes' } }, { installationId: id } as never)) as R;
-    // O5 fix round 1 (ruling): a tell reply the builder sees ends on one question too: the next ask.
-    assert.equal(g.show_to_builder, `${noGrantLine('Hello-World')}\n${shipAsk('Hello-World')}`);
-    assert.equal(questions(g.show_to_builder), 1);
-    assert.equal(g.move_up?.kind, 'suggest');
-    // The quiet survives find's own bookkeeping of what the builder was shown (takeNews).
-    for (let i = 0; i < 2; i++) assert.ok((await find(id, {}, NO_MATCH)).show_to_builder.endsWith(shipAsk('Hello-World')), `find ${i}`);
+    assert.ok(r.show_to_builder.endsWith(shipAsk('Hello-World')), r.show_to_builder);
+    assert.equal(r.move_up?.kind, 'suggest');
+    await tools.tell({ move_up: { kind: 'suggest', project_key: key, answer: 'no' } }, { installationId: id } as never);
     const s = (await tools.score({}, { installationId: id } as never)) as R;
     assert.ok(s.show_to_builder.endsWith(shipAsk('Hello-World')), s.show_to_builder);
-    assert.equal(questions(s.show_to_builder), 1);
+    assert.equal(questions(s.show_to_builder.replace(/https?:\/\/\S+/g, '')), 1);
     const y = (await tools.tell({ move_up: { kind: 'suggest', project_key: key, answer: 'yes' } }, { installationId: id } as never)) as R;
     assert.match(y.agent_note ?? '', /one small thing/);
-    await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, ${['quiet', `grants:${key}`]}::text[], to_jsonb(${new Date(Date.now() - GRANTS_QUIET_MS - 1000).toISOString()}::text)) WHERE builder_id = ${id}`;
-    assert.ok((await find(id, {}, NO_MATCH)).show_to_builder.endsWith(grantsAsk('Hello-World')), 'after 7 days');
   }),
 );
 
@@ -203,8 +195,8 @@ test('O5 N6 (P5) no project: never a grant claimed for a build that can\'t enter
     // v2.13.3 (2): an open program may be named with what it needs, never as an idea it pays for.
     assert.ok(!r.show_to_builder.includes(`${ava.title} pays`), r.show_to_builder);
     assert.doesNotMatch(r.show_to_builder, /a small app|tip jar/);
-    // v2.14 T7: no claim ask first: existing work at once.
-    assert.ok(r.show_to_builder.endsWith(START_ASK), r.show_to_builder);
+    // v2.14 T9: signed out: the sign-in question.
+    assert.ok(r.show_to_builder.endsWith(STATE_COPY.signed_out.ask('x').split('\n')[1]), r.show_to_builder);
     assert.equal(r.build_offer, undefined);
     // A chat-only agent: the same rule.
     const c = await install();
@@ -230,7 +222,10 @@ test('O5 N13 confirmed but not claimed: the last line never says "on the Bench" 
     // Unclaimed (v2.14 T7: no claim ask), the ask never says "on the Bench".
     const id = await person({ main: key, projects: [{ key, name: 'Hello-World', confirmed: true }] });
     const r = await find(id, {}, NO_MATCH);
-    assert.doesNotMatch(r.show_to_builder.split('\n').pop()!, /Bench|post what you ship/, r.show_to_builder);
+    // v2.14 T9: signed out, it is not on the Bench yet (the stand line), and the question is the sign-in.
+    assert.equal(r.show_to_builder.split('\n')[1], NOT_ON_BENCH, r.show_to_builder);
+    assert.doesNotMatch(r.show_to_builder, /is on the Bench|post what you ship/, r.show_to_builder);
+    assert.equal(r.move_up?.kind, 'sign_in');
     assert.notEqual(r.move_up?.kind, 'updates');
   }),
 );
@@ -240,7 +235,7 @@ test('O5 N15, v2.14: a chat-only agent with a project: not counted yet (the App 
     const key = `${uniq('ch')}/earny`;
     const id = await install();
     const r = await find(id, { ...named(key), agent_can_build: false }, NO_MATCH);
-    assert.equal(r.show_to_builder.split('\n')[1], privateLine('Earny'), r.show_to_builder);
+    assert.equal(r.show_to_builder.split('\n')[1], NOT_ON_BENCH, r.show_to_builder);
     assert.notEqual(r.move_up?.kind, 'updates');
     assert.ok(r.show_to_builder.endsWith('?'), r.show_to_builder);
     assert.equal(questions(r.show_to_builder), 1);
@@ -332,28 +327,3 @@ test('O5 fix round 2: GitHubError and RateLimitError carry their class names (ev
   assert.equal(new RateLimitError('Too many.', 60).name, 'RateLimitError');
 });
 
-test('O5 fix round 2: a grants yes that finds nothing always ends on a question: posting, the week\'s post, else "check again next week" (its yes keeps grants quiet)', dbTest, () =>
-  on(async () => {
-    const key = `${uniq('gl')}/hello-world`;
-    const now = new Date().toISOString();
-    const id = await person({ main: key, claimed: uniq('gl'), seen: { declined: { [`suggest:${key}`]: now } }, projects: [{ key, name: 'Hello-World', confirmed: true }] });
-    await sql()`UPDATE builder_profiles SET updates_on_at = now(), updates_scheduled_at = now() WHERE builder_id = ${id}`;
-    await sql()`INSERT INTO project_updates (builder_id, project_key, week, text, facts) VALUES (${id}, ${key}, ${mondayOf(new Date())}, 'Shipped it.', '{}'::jsonb)`;
-    const r = await find(id, {}, NO_MATCH);
-    assert.ok(r.show_to_builder.endsWith(grantsAsk('Hello-World')), r.show_to_builder);
-    const g = (await tools.tell({ move_up: { kind: 'grants', project_key: key, answer: 'yes' } }, { installationId: id } as never)) as R;
-    assert.equal(g.show_to_builder, `${noGrantLine('Hello-World')}\n${GRANTS_LATER_ASK}`);
-    assert.equal(GRANTS_LATER_ASK, 'Want me to check again for grants next week?');
-    assert.equal(g.move_up?.kind, 'grants_later');
-    const y = (await tools.tell({ move_up: { kind: 'grants_later', project_key: key, answer: 'yes' } }, { installationId: id } as never)) as R;
-    assert.ok(y.show_to_builder.length > 0);
-    const [q] = await sql()<{ at: string | null }[]>`SELECT standing_seen->'quiet'->>${`grants:${key}`} AS at FROM builder_profiles WHERE builder_id = ${id}`;
-    assert.ok(q.at && Date.now() - Date.parse(q.at) < 60_000, 'the quiet window is set');
-    // Posting off (declined suggest, nothing else): the weekly-posting ask.
-    const k2 = `${uniq('gl')}/two`;
-    const p2 = await person({ main: k2, claimed: uniq('gm'), seen: { declined: { [`suggest:${k2}`]: now, [`updates:${k2}`]: now } }, projects: [{ key: k2, name: 'Two', confirmed: true }] });
-    await find(p2, {}, NO_MATCH);
-    const g2 = (await tools.tell({ move_up: { kind: 'grants', project_key: k2, answer: 'yes' } }, { installationId: p2 } as never)) as R;
-    assert.equal(questions(g2.show_to_builder), 1, g2.show_to_builder);
-  }),
-);

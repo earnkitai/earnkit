@@ -7,8 +7,7 @@ import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, claimX, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
-import { NO_OFFER_LINE, OTHER_PROJECT_ASK, START_ASK, grantsAsk, shipAsk, takenLine } from './bench-reply';
-import { noGrantLine } from './bench-find';
+import { NOT_ON_BENCH, OTHER_PROJECT_ASK, STATE_COPY, VARIANT_COPY, shipAsk } from './bench-reply';
 import { mainProjectOf } from './main-project';
 
 /**
@@ -46,8 +45,8 @@ test('O2.1c no project, nothing EarnKit can build (deploys off): no "Pick someth
     assert.doesNotMatch(r.show_to_builder, /Pick something to build/);
     // v2.13.3 (3), ruling A: the stand line alone, then existing work and money it can win.
     assert.match(r.show_to_builder, /^You're not on the Bench yet\.$/m);
-    // v2.14 T7: no claim ask: existing work is the one ask.
-    assert.ok(r.show_to_builder.endsWith(START_ASK), r.show_to_builder);
+    // v2.14 T9: signed out: the sign-in link is the one ask.
+    assert.equal(r.move_up?.kind, 'sign_in');
     assert.equal((r as { claim?: unknown }).claim, undefined);
     assert.equal(r.build_offer, undefined);
     // An open program may be named with what it needs (v2.13.3 (2)), never the raw tag.
@@ -67,7 +66,7 @@ test('O2.4 B6: a newer project replaces an unconfirmed one; not_mine clears it; 
     // v2.14 spec 2: no proof branch for either key, so nothing to close or delete.
     assert.equal((r as unknown as { proof?: unknown }).proof, undefined);
     assert.equal((r as unknown as { remove_branch?: unknown }).remove_branch, undefined);
-    assert.match(r.show_to_builder, /Recipes/);
+    assert.equal(r.move_up?.kind, 'sign_in', 'v2.14 T9: signed out, the project is not named yet');
     // not_mine on the current one clears it; the next project the agent names is the one.
     await tools.tell({ repo_facts: [{ repo: b, not_mine: true }] }, { installationId: id } as never);
     assert.equal(await mainProjectOf(id), null);
@@ -119,22 +118,20 @@ test('O2 fix round 1 (ruling 3): every state ends on one question with a yes rou
   on(async () => {
     const tell = (id: number, m: Record<string, unknown>) => tools.tell({ move_up: m }, { installationId: id } as never) as Promise<R>;
     const lastQ = (t: string) => t.split('\n').filter((l) => l.includes('?'));
-    // Confirmed, updates declined, nothing pending: grants that fit; the yes lists them or says none.
+    // Confirmed, nothing pending: the community round once (ruling A), then one small thing to ship (v2.14 A16).
     const key = `${uniq('gr')}/recipes`;
-    const id = await person({ main: key, claimed: uniq('gr'), seen: { declined: { [`updates:${key}`]: new Date().toISOString() } }, projects: [{ key, name: 'Recipe planner', confirmed: true }] });
+    const id = await person({ main: key, claimed: uniq('gr'), projects: [{ key, name: 'Recipe planner', confirmed: true }] });
+    await find(id, {}, NO_MATCH);
     const r = await find(id, {}, NO_MATCH);
-    assert.ok(r.show_to_builder.endsWith(grantsAsk('Recipe planner')), r.show_to_builder);
+    assert.ok(r.show_to_builder.endsWith(shipAsk('Recipe planner')), r.show_to_builder);
     assert.equal(lastQ(r.show_to_builder).length, 1);
-    const g = await tell(id, { kind: 'grants', project_key: key, answer: 'yes' });
-    assert.ok(g.show_to_builder.length > 0, 'the yes answers');
-    // v2.14 spec 3: no week's-post ask; after a grants yes that found nothing (O5 N5), one small thing to ship.
-    const next = g.show_to_builder.startsWith(noGrantLine('Recipe planner')) ? shipAsk('Recipe planner') : grantsAsk('Recipe planner');
-    assert.ok((await find(id, {}, NO_MATCH)).show_to_builder.endsWith(next));
+    const g = await tell(id, { kind: 'suggest', project_key: key, answer: 'yes' });
+    assert.match(g.agent_note ?? '', /one small thing/);
     // No project, nothing to build: v2.13.3 ruling A, existing work; the yes asks the agent for it.
     const n = await install();
     await claimX(n); // v2.13.4: the asks after the X claim
     const s0 = await find(n, { agent_can_build: true }, { freshDeps: { ...OWN_FRESH, deployOn: () => false } });
-    assert.ok(s0.show_to_builder.includes(NO_OFFER_LINE) && s0.show_to_builder.endsWith(START_ASK), s0.show_to_builder);
+    assert.ok(s0.show_to_builder.includes(NOT_ON_BENCH) && s0.show_to_builder.endsWith(STATE_COPY.no_project.ask()), s0.show_to_builder);
     const sy = await tell(n, { kind: 'start', project_key: null, answer: 'yes' });
     assert.match(sy.agent_note ?? '', /identity/);
     // Taken, with a program that fits the held repo: never an entry, never its program, a different project.
@@ -146,15 +143,16 @@ test('O2 fix round 1 (ruling 3): every state ends on one question with a yes rou
     const t = await install();
     await claimX(t);
     const tr = await find(t, named(held), { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(ava.id, held) }) });
-    assert.equal(tr.show_to_builder.split('\n')[1], takenLine('Recipes'), tr.show_to_builder);
-    assert.ok(!tr.show_to_builder.includes(ava.title), 'no program for a held repo');
+    assert.ok(tr.show_to_builder.includes(`Where you stand\n${VARIANT_COPY.taken.stand('Recipes')}\n`), tr.show_to_builder);
+    assert.ok(!tr.show_to_builder.includes(`${ava.title} pays`), 'no program claimed for a held repo');
     assert.equal(tr.lead, undefined);
     assert.notEqual(tr.move_up?.kind, 'enter');
     assert.ok(tr.show_to_builder.endsWith(OTHER_PROJECT_ASK), tr.show_to_builder);
-    // needs_agent (a client that can't push): O5 N15, never the weekly-posting yes it can't schedule; grants that fit.
+    // needs_agent (a client that can't push): O5 N15, never the weekly-posting yes it can't schedule.
     const c = await install();
     await claimX(c);
     const cr = await find(c, { ...named(`${uniq('na')}/recipes`), agent_can_build: false }, NO_MATCH);
-    assert.ok(cr.show_to_builder.endsWith(grantsAsk('Recipes')), cr.show_to_builder);
+    assert.match(cr.show_to_builder, /Recipes isn't counted yet\./, cr.show_to_builder);
+    assert.equal(lastQ(cr.show_to_builder).length, 1);
   }),
 );
