@@ -221,11 +221,17 @@ try {
       // columns, and the rows keyed by its builder_id are deleted (none of them is append-only).
       if (login) {
         const ids = await profileIds(tx);
-        // v2.14: the installations bound to this person's X account are unbound first (they stay anonymous
-        // until they sign in again).
+        // v2.14: the person's installations (the page's group, and any bound to this person's X account) are unbound
+        // first, so a later sign-in starts clean (they stay anonymous until then); their X sign-in links (which keep
+        // the X id, handle, name and picture of a sign-in) are deleted.
+        await tx`
+          DELETE FROM x_signin_links
+          WHERE installation_id IN (SELECT id FROM installations WHERE COALESCE(builder_id, id) = ANY(${ids}))
+            OR x_user_id IN (SELECT x_user_id FROM builder_profiles WHERE builder_id = ANY(${ids}) AND x_user_id IS NOT NULL)`;
         await tx`
           UPDATE installations SET x_user_id = NULL
-          WHERE x_user_id IN (SELECT x_user_id FROM builder_profiles WHERE builder_id = ANY(${ids}) AND x_user_id IS NOT NULL)`;
+          WHERE COALESCE(builder_id, id) = ANY(${ids})
+            OR x_user_id IN (SELECT x_user_id FROM builder_profiles WHERE builder_id = ANY(${ids}) AND x_user_id IS NOT NULL)`;
         // x_handle and fallback_handle are nulled only when they are the login itself (an X handle that is
         // not the login is the person's public name, kept and left to the owner like the slug, which is
         // NOT NULL and the page's URL).

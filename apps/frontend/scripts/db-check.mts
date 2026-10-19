@@ -766,19 +766,15 @@ const [pj] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM page_joins
 ok(pj.n === 1, 'v2.13.4 R6 to R8: page_joins rows (answers, the eligible snapshot) survive the schema running again');
 const mb = await db<{ column_name: string }[]>`SELECT column_name FROM information_schema.columns WHERE table_name = 'claim_codes' AND column_name = 'minted_by'`;
 ok(mb.length === 1, 'v2.13.4 R7: claim_codes.minted_by');
-const pjc = await db<{ column_name: string }[]>`
-  SELECT column_name FROM information_schema.columns WHERE table_name = 'pending_joins' AND column_name IN ('target_root', 'joiner_stamp', 'target_stamp')`;
-ok(pjc.length === 3, 'v2.13.4: pending_joins binds its consent (target_root, joiner_stamp, target_stamp)');
-// v2.13.4 (final review): every table keyed by an installation or a person is classified for the R1 join.
-const { JOIN_TABLES } = await import('../lib/earnkit/page-joins');
-const keyed = await db<{ k: string }[]>`
-  SELECT table_name || '.' || column_name AS k FROM information_schema.columns
-  WHERE table_schema = 'public' AND column_name IN ('installation_id', 'builder_id', 'posted_by', 'minted_by')
-  UNION SELECT conrelid::regclass::text || '.' || a.attname FROM pg_constraint c JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
-  WHERE c.contype = 'f' AND c.confrelid = 'installations'::regclass`;
-const listed = new Set(JOIN_TABLES.map((t) => `${t.table}.${t.column}`));
-const unlisted = keyed.map((r) => r.k).filter((k) => !listed.has(k));
-ok(unlisted.length === 0, `v2.13.4: every installation- or person-keyed table is in page-joins.ts JOIN_TABLES${unlisted.length ? ` (missing: ${unlisted.join(', ')})` : ''}`);
+// v2.14 T7: the R1 join, its notice and pending joins are gone (their tables stay, unused), so the JOIN_TABLES
+// registry and its coverage check went with them: nothing deletes or moves an installation's rows by table any more.
+// The v2.14 account's own columns and tables instead.
+const cols = async (table: string) =>
+  (await db<{ column_name: string }[]>`SELECT column_name FROM information_schema.columns WHERE table_name = ${table}`).map((c) => c.column_name);
+ok((await cols('installations')).includes('x_user_id'), 'v2.14: installations.x_user_id');
+ok((await cols('x_signins')).length > 0, 'v2.14: x_signins');
+ok((await cols('x_signin_links')).length > 0, 'v2.14: x_signin_links');
+ok((await cols('builder_sources')).includes('app_checked_at'), 'v2.14: builder_sources.app_checked_at');
 const badCode = await db`INSERT INTO proof_branches (code_hash, seed, builder_id, repo_key, issued_at, expires_at) VALUES ('abcdefghijkl', 's', 1, 'a/b', now(), now())`.then(() => false, () => true);
 ok(badCode, 'proof_branches keeps only a sha256 (a plain code is refused)');
 await db`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES (-131, 'repo', 'pb-check/x', 'pb-check/x', 'verified', 'proof_branch', 'server')`;

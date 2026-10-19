@@ -1,6 +1,6 @@
 import { xSignInEnabled } from './builder-score-flag';
 import { json, readParams } from './http';
-import { installationExists, saveInstallation } from './installations';
+import { installationExists, saveInstallation, setInstallationToken } from './installations';
 import { OAuthError, checkAuthorize, clientLimitKey, exchangeCode, hostedRedirectHost, issueCode, publicOrigin, registerClient } from './oauth';
 import { LIMITS, REGISTER_HOST_WARN, RateLimitError, clientIp, enforce } from './rate-limit';
 import { attachToX, startInstallSignIn } from './x-install';
@@ -59,15 +59,18 @@ export async function tokenPost(request: Request) {
         throw err;
       }
     }
-    const id = await saveInstallation(token, clientKey, shared, clientName);
     // v2.14 spec 1: bound to the X account from its first call.
     // Fix round 1: a refusal issues no token (invalid_grant); the client starts the sign-in again.
+    // T7 (carried from T4 review): a known installation keeps its current token until the bind succeeds, so a
+    // refused re-authorization leaves the token the agent already holds working.
+    const id = await saveInstallation(token, clientKey, shared, clientName, { keepToken: Boolean(x) });
     if (x) {
       const bound = await attachToX(id, x, new Date());
       if (!bound.ok) {
         console.warn(`[oauth] token refused: not bound to X (${bound.reason})`);
         throw new OAuthError('invalid_grant', 'This sign-in could not be completed');
       }
+      await setInstallationToken(id, token);
     }
     return json({ access_token: token, token_type: 'Bearer' });
   } catch (err) {

@@ -1597,6 +1597,28 @@ ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS app_checked_at timestamptz;
 -- T6 fix round 2: when the daily check last tried (any answer), so unanswered rows go behind the others.
 ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS app_tried_at timestamptz;
 -- v2.14 bind:start
+-- Preflight S4 (v2.14 T7): v2.13.4's notices and detach are gone, so a one-click join nobody on the page answered
+-- would otherwise become permanent (and be bound below). First, as answerNotice's detach did: the members of every
+-- page_joins row still attached with no answer from an installation that was on the page before it (`eligible`) go
+-- back to their own former group (from_root a root again, the others pointing to it), only while still on that
+-- page and not bound to an X account; their updates since the join are hidden; the row is stamped detached. No
+-- deletes; a rerun finds no open row (a no-op). A real owner gets the agent back by signing in with X once.
+WITH open_join AS (
+  SELECT j.id, j.from_root, j.members, j.joined_at, COALESCE(r.builder_id, r.id) AS page
+  FROM page_joins j JOIN installations r ON r.id = j.root
+  WHERE j.detached_at IS NULL AND NOT EXISTS (SELECT 1 FROM unnest(j.eligible) e WHERE j.answers ? e::text)
+), moved AS (
+  UPDATE installations i SET builder_id = CASE WHEN i.id = o.from_root THEN NULL ELSE o.from_root END
+  FROM open_join o
+  WHERE i.id = ANY(o.members) AND i.builder_id = o.page AND i.x_user_id IS NULL
+  RETURNING i.id
+), hidden AS (
+  UPDATE project_updates u SET hidden = true
+  FROM open_join o
+  WHERE u.builder_id = o.page AND u.posted_by = ANY(o.members) AND u.created_at >= o.joined_at
+  RETURNING u.id
+)
+UPDATE page_joins j SET detached_at = now() FROM open_join o WHERE j.id = o.id;
 -- Migration (spec 1): every installation of a claimed page (its group) is bound to that X account. Shared
 -- clients never are; unclaimed groups stay anonymous until they sign in. Fills only NULLs: a rerun is a no-op.
 UPDATE installations i SET x_user_id = p.x_user_id

@@ -111,10 +111,13 @@ export async function installationExists(token: string, clientKey?: string) {
  * installation per OAuth client: a new token for a known client replaces its token (the old one
  * stops working), so entries, wins and memory carry over. Idempotent for replayed codes.
  */
-export async function saveInstallation(token: string, clientKey?: string, shared = false, clientName: string | null = null): Promise<number> {
+export async function saveInstallation(token: string, clientKey?: string, shared = false, clientName: string | null = null, o: { keepToken?: boolean } = {}): Promise<number> {
   // v2.8.1 §E17: `shared` (a hosted agent client) is kept once set: a re-authorization never clears it.
-  // v2.13.4 R6: the client's registered name (cleaned), kept for the R1 claim page.
+  // v2.13.4 R6: the client's registered name (cleaned), kept on the installation.
   // v2.14: returns the installation's id (the token exchange binds it to the signed-in X account).
+  // v2.14 T7 (carried from T4 review): `keepToken`: a known client keeps its current token_hash; the caller sets
+  // the new one with setInstallationToken only once the X bind succeeded, so a refused re-authorization never
+  // kills the token the agent already holds.
   if (!clientKey) {
     const [r] = await sql()<{ id: number }[]>`
       INSERT INTO installations (token_hash, shared_client, client_name) VALUES (${hash(token)}, ${shared}, ${clientName})
@@ -126,10 +129,15 @@ export async function saveInstallation(token: string, clientKey?: string, shared
   const [r] = await sql()<{ id: number }[]>`
     INSERT INTO installations (token_hash, client_key, shared_client, client_name) VALUES (${hash(token)}, ${clientKey}, ${shared}, ${clientName})
     ON CONFLICT (client_key) WHERE client_key IS NOT NULL
-    DO UPDATE SET token_hash = EXCLUDED.token_hash, shared_client = installations.shared_client OR EXCLUDED.shared_client,
+    DO UPDATE SET token_hash = ${o.keepToken ? sql()`installations.token_hash` : sql()`EXCLUDED.token_hash`}, shared_client = installations.shared_client OR EXCLUDED.shared_client,
       client_name = COALESCE(EXCLUDED.client_name, installations.client_name)
     RETURNING id`;
   return r.id;
+}
+
+/** v2.14 T7: installation `id`'s token is now `token` (after saveInstallation's keepToken, once the X bind succeeded). */
+export async function setInstallationToken(id: number, token: string): Promise<void> {
+  await sql()`UPDATE installations SET token_hash = ${hash(token)} WHERE id = ${id}`;
 }
 
 /**
