@@ -1366,6 +1366,7 @@ async function gatherLaunchNotes(): Promise<[string, TokenOutcome][]> {
         repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
         // v2.14 spec 2: the App proved the repo (appProven), unless a case says otherwise.
         appProven: async () => true,
+        shared: async () => false,
         appLink: async () => 'https://earnkit.com/github/verify?n=x',
         screen: async () => {},
         ...gate,

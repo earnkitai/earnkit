@@ -641,7 +641,7 @@ test('6.9 v2.12: runCron runs the builder score steps only with their deps under
   const on = await runCron({ only: ['none'], budgetMs: 2_000, deps: { refreshFees: async () => 0, builderScore: { reader: slow, only: [] } } });
   // v2.12.1: no ranks step (the rank is read live from builder_live). v2.13.1 O1: open proof branches
   // are checked first (an hour each at most). v2.13.2 (1): then org proofs expire.
-  assert.deepEqual(Object.keys(on.builder_score!), ['proof_branch', 'proof_expiry', 'discover', 'read', 'score', 'empty', 'weekly', 'feed']);
+  assert.deepEqual(Object.keys(on.builder_score!), ['proof_expiry', 'app_check', 'discover', 'read', 'score', 'empty', 'weekly', 'feed']);
   assert.deepEqual(on.needs_owner.filter((k: string) => !k.endsWith(':quiet')), []);
   // Without its deps, a run limited to other programs (tests, the e2e) skips the steps.
   assert.equal('builder_score' in (await runCron({ only: ['none'], deps: { refreshFees: async () => 0 } })), false);

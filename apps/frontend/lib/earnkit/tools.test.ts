@@ -25,7 +25,7 @@ import { proposeToken } from './token-proposal';
 import { LaunchError } from './tokens';
 import { wonSource } from './stats';
 import { EMAIL_NOTE, EMAIL_ON, EMAIL_QUESTION, EMAIL_SHARED_NOTE, EMAIL_SIGN_IN, emailQuestionFor } from './digest';
-import { completeVerify, createVerifyLink, formatCode } from './github-verify';
+import { formatCode, saveVerification } from './github-verify';
 import { committedProgram } from './fixtures/program-file';
 import { dropPrograms, dropRunPrograms } from './fixtures/find';
 import { TESTED_STARTERS, fileCards } from './fixtures/fresh-build';
@@ -270,8 +270,8 @@ async function confirmSetup(tag: string, o: { remembered?: string; check?: (s: s
     check: async (s: string) => (o.check ? o.check(s) : true),
     gate: {
       repo: async () => { calls.gate++; return { fork: false, hasCommits: true, aheadOfParent: null }; },
-      // v2.14 spec 2: the read-only App proved the coin's repo.
-      appProven: async () => true,
+      // v2.14 spec 2: the read-only App proved the coin's repo (on a shared client, only for a caller with its code).
+      appProven: async (_i: number, _k: string, login: string | null | undefined) => login !== null,
       screen: async () => {},
     },
     // What the real deploy records (tokens.ts deployToken), so later calls see the row's token.
@@ -917,17 +917,17 @@ async function withSignIn<T>(fn: () => Promise<T>): Promise<T> {
     else process.env.GITHUB_OAUTH_CLIENT_SECRET = old[1];
   }
 }
-/** A passed sign-in for this entry and repo as `login` (the real callback path, GitHub faked); its code on a shared client. */
+/**
+ * A passed sign-in for this entry and repo as `login`, as stored before v2.14 (v2.14 spec 2 makes no new ones;
+ * the rows still scope a shared client's caller); its code on a shared client.
+ */
 async function signInAs(installationId: number, projectId: number | null, repoUrl: string, login: string, wallet: string = W8) {
   const repoKey = repoUrl.replace(/^https:\/\/github\.com\//, '').toLowerCase();
-  const link = await createVerifyLink({ installationId, projectId, repoKey, purpose: projectId ? 'entry' : 'pickup', wallet });
-  const out = await completeVerify('code', new URL(link).searchParams.get('n')!, {
-    exchange: async () => 'gho_x',
-    user: async () => ({ login, created_at: '2020-01-01T00:00:00Z', public_repos: 3 }),
-    repoPerms: async () => ({ push: true }),
-  });
-  assert.ok(out.ok);
-  return (out as { code?: string }).code ? formatCode((out as { code: string }).code) : null;
+  const code = await saveVerification(
+    { installation_id: installationId, project_id: projectId, repo_key: repoKey, purpose: projectId ? 'entry' : 'pickup', wallet, symbol: null },
+    { login, created_at: new Date('2020-01-01T00:00:00Z'), public_repos: 3 }, new Date(),
+  );
+  return code ? formatCode(code) : null;
 }
 test("G6/G7/G9: on a shared client, memory and entries follow the pasted code; a claimed GitHub user gets nothing", dbTest, () =>
   withSignIn(async () => {
@@ -1059,10 +1059,12 @@ test('7.9 v2.10 item 15 (Review Focus 5): the deadline line starts prepare_submi
     }),
   ));
 
-test('8.15 prepare_submission host: true: the sign-in link, then a 15-minute upload URL; never in builder text; off without R2', dbTest, async () => {
+test('8.15 prepare_submission host: true: the App install link, then a 15-minute upload URL; never in builder text; off without R2', dbTest, async () => {
+  const { generateKeyPairSync } = await import('node:crypto');
   const env = {
     R2_ACCOUNT_ID: 'acct', R2_ACCESS_KEY_ID: 'AKID', R2_SECRET_ACCESS_KEY: 's'.repeat(40), R2_BUCKET: 'sites',
-    GITHUB_OAUTH_CLIENT_ID: 'id', GITHUB_OAUTH_CLIENT_SECRET: 'secret',
+    GITHUB_OAUTH_CLIENT_ID: 'id', GITHUB_OAUTH_CLIENT_SECRET: 'secret', GITHUB_APP_ID: '1', GITHUB_APP_SLUG: 'earnkit-read',
+    GITHUB_APP_PRIVATE_KEY: generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
   };
   const old = Object.fromEntries(Object.keys(env).map((k) => [k, process.env[k]]));
   const restore = () => {
@@ -1074,6 +1076,8 @@ test('8.15 prepare_submission host: true: the sign-in link, then a 15-minute upl
   Object.assign(f, { id: `t8-host-${s}`, status: 'closed' });
   await upsertProgram(ProgramFile.parse(f));
   const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t8-host-${s}`}) RETURNING id`;
+  // Preflight S7: an App link needs the person's page.
+  await sql()`INSERT INTO builder_profiles (builder_id, slug, x_user_id, x_handle) VALUES (${id}, ${`t8h-${id}`}, ${`55${id}`}, ${`t8h${id}`})`;
   const login = `hzt${s}`;
   const repo = `https://github.com/${login}/tipjar`;
   const call = () =>
@@ -1089,11 +1093,15 @@ test('8.15 prepare_submission host: true: the sign-in link, then a 15-minute upl
     assert.doesNotMatch(first.host.show_to_builder, toolNames);
     const [nonce] = await sql()<{ purpose: string }[]>`
       SELECT purpose FROM github_verify_nonces WHERE installation_id = ${id} AND repo_key = ${`${login}/tipjar`}`;
-    assert.equal(nonce.purpose, 'host');
+    assert.equal(nonce.purpose, 'app');
 
+    // v2.14 spec 2: the builder installed the App (the setup URL's verification and github_app source).
     await sql()`
-      INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose)
-      VALUES (${`${login}/tipjar`}, ${login}, ${id}, '2020-01-01', 3, 'host')`;
+      INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose, via)
+      VALUES (${`${login}/tipjar`}, ${login}, ${id}, '2020-01-01', 3, 'app', 'app')`;
+    await sql()`
+      INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by, state, proof, verified_at, gh_owner, gh_owner_type, app_checked_at)
+      VALUES (${id}, 'repo', ${`${login}/tipjar`}, ${`${login}/tipjar`}, 'server', 'verified', 'github_app', now(), ${login}, 'User', now())`;
     const before = Date.now();
     const second = await call();
     assert.match(second.host.upload_url, /\/api\/host\/upload\?t=[A-Za-z0-9_-]{43}$/);
@@ -1472,8 +1480,11 @@ test('10.11 prepare with deploy: off without DEPLOYER_PRIVATE_KEY (no chain read
   const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t10-${stamp}`}) RETURNING id`;
   const repoKey = `alice${process.pid}x${Date.now()}/tipjar`;
   await sql()`
-    INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose)
-    VALUES (${repoKey}, ${`alice${process.pid}x${Date.now()}`}, ${id}, now(), 3, 'entry')`; // the day limit is keyed by this login (I6)
+    INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose, via)
+    VALUES (${repoKey}, ${`alice${process.pid}x${Date.now()}`}, ${id}, now(), 3, 'app', 'app')`; // v2.14: the App's installer
+  await sql()`
+    INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by, state, proof, verified_at, gh_owner, gh_owner_type, app_checked_at)
+    VALUES (${id}, 'repo', ${repoKey}, ${repoKey}, 'server', 'verified', 'github_app', now(), ${repoKey.split('/')[0]}, 'User', now())`;
   const ADDR = '0x00000000000000000000000000000000000a11ce';
   const OWNER = '0x2222222222222222222222222222222222222222';
   let reads = 0;
@@ -1496,7 +1507,7 @@ test('10.11 prepare with deploy: off without DEPLOYER_PRIVATE_KEY (no chain read
   };
   const ctx = {
     installationId: id,
-    deployDeps: { chain: () => chain, usdPerNative: async () => 1, now: new Date(Date.UTC(2160, Number(process.pid % 12), 3)), gate: { owner: async () => ({ status: 'missing' as const }), latest: async () => null } },
+    deployDeps: { chain: () => chain, usdPerNative: async () => 1, now: new Date(Date.UTC(2160, Number(process.pid % 12), 3)) },
   };
   const off = (await tools.prepare(call, ctx)) as { deploy: unknown; show_to_builder: string };
   assert.deepEqual(off.deploy, { unavailable: DEPLOY_LINES.off });
@@ -1680,8 +1691,11 @@ test('T11 fix (journey 11.0): prepare with deploy checks this draft with the dep
   const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t11d-${stamp}`}) RETURNING id`;
   const repoKey = `t11x${process.pid}x${Date.now()}/tipjar`;
   await sql()`
-    INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose)
-    VALUES (${repoKey}, ${`t11${process.pid}x${Date.now()}`}, ${id}, now(), 3, 'entry')`;
+    INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose, via)
+    VALUES (${repoKey}, ${`t11${process.pid}x${Date.now()}`}, ${id}, now(), 3, 'app', 'app')`; // v2.14: the App's installer
+  await sql()`
+    INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by, state, proof, verified_at, gh_owner, gh_owner_type, app_checked_at)
+    VALUES (${id}, 'repo', ${repoKey}, ${repoKey}, 'server', 'verified', 'github_app', now(), ${repoKey.split('/')[0]}, 'User', now())`;
   const ADDR = '0x12ab00000000000000000000000000000000' + '9f3e';
   const OWNER = '0x2222222222222222222222222222222222222222';
   const chain = {
@@ -1700,7 +1714,7 @@ test('T11 fix (journey 11.0): prepare with deploy checks this draft with the dep
   const answers = { description: 'Fans tip creators in USDC on Arc.', builder_profile: 'https://github.com/alice', payout_wallet: OWNER };
   const ctx = {
     installationId: id,
-    deployDeps: { chain: () => chain, usdPerNative: async () => 1, now: new Date(Date.UTC(2161, Number(process.pid % 12), 3)), gate: { owner: async () => ({ status: 'missing' as const }), latest: async () => null } },
+    deployDeps: { chain: () => chain, usdPerNative: async () => 1, now: new Date(Date.UTC(2161, Number(process.pid % 12), 3)) },
   };
   const keys = ['DEPLOYER_PRIVATE_KEY', 'GITHUB_OAUTH_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_SECRET'];
   const old = keys.map((k) => process.env[k]);
@@ -2590,8 +2604,8 @@ async function joinSetup(tag: string, tc: TestContext, o: Parameters<typeof ship
     check: async () => true,
     gate: {
       repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
-      // v2.14 spec 2: the read-only App proved the coin's repo.
-      appProven: async () => true,
+      // v2.14 spec 2: the read-only App proved the coin's repo (on a shared client, only for a caller with its code).
+      appProven: async (_i: number, _k: string, login: string | null | undefined) => login !== null,
       screen: async () => {},
     },
     deploy: async (d: { projectId: number; name: string; symbol: string; creatorWallet: string }) => {
@@ -2647,7 +2661,7 @@ test('9.5 hosting off: the deploy runs and the GitHub Pages note goes to the age
       assert.equal(hosted.dedupe_key, `hosted:gh:${t.inst}:${t.repoKey}:${live}`);
       assert.equal(hosted.proof_url, live);
       assert.deepEqual(hosted.detail, { host: 'github_pages' });
-      assert.deepEqual([hosted.github_login, hosted.login_basis], [t.login, 'proof_line']);
+      assert.deepEqual([hosted.github_login, hosted.login_basis], [t.login, 'app']);
       assert.ok(t.probes.includes(live), 'probed');
     }),
   ),

@@ -233,73 +233,6 @@ test('5.4 (fix rounds 1, 2) a GitHub login another group already proved asks bot
     assert.deepEqual({ ...p }, { slug: older, x_user_id: null, x_handle: null, github_login: login });
   }));
 
-test('5.4b a GitHub sign-in: the first one for a login proves it with no question; a second group\'s is a pending join, never a merge', db, async () => {
-  const { saveVerification } = await import('./github-verify');
-  const login = `sv-${stamp()}`.slice(0, 39);
-  const user = { login, created_at: new Date('2020-01-01'), public_repos: 3 };
-  const row = (installation_id: number) => ({ installation_id, project_id: null, repo_key: `${login}/r`, purpose: 'entry' as const, wallet: null, symbol: null });
-  await scoreOn(async () => {
-    const [c, d] = [await person(), await person()];
-    const l2 = `${login}-2`.slice(0, 39);
-    await saveVerification({ ...row(c), repo_key: `${l2}/r` }, { ...user, login: l2 }, NOW);
-    assert.equal(await pendingJoinOf(c), null, 'the first sign-in for a login asks no one');
-    await saveVerification({ ...row(d), repo_key: `${l2}/r` }, { ...user, login: l2 }, NOW);
-    assert.notEqual(await rootOf(c), await rootOf(d));
-    assert.deepEqual(await pendingJoinOf(c), { installation_id: d, tie: 'github_login', side: 'target' });
-  });
-});
-
-test('5.12 phishing: a victim completing a sign-in link made for an attacker\'s agent never merges it; both agents are asked once; a no deletes; both yeses join', db, async () => {
-  const { saveVerification } = await import('./github-verify');
-  await scoreOn(async () => {
-    const login = `vic-${stamp()}`.slice(0, 39);
-    const user = { login, created_at: new Date('2020-01-01'), public_repos: 3 };
-    const victim = await install();
-    const ctxOf = (id: number) => ({ installationId: id, ownInstallationId: id, sharedClient: false }) as never;
-    const signIn = (id: number) => saveVerification({ installation_id: id, project_id: null, repo_key: `${login}/app`, purpose: 'entry', wallet: null, symbol: null }, user, NOW);
-    await handlers.list_programs({}, ctxOf(victim.id));
-    await signIn(victim.id);
-    await sql()`UPDATE builder_profiles SET hidden = true WHERE builder_id = ${victim.id}`;
-    const [{ slug }] = await sql()<{ slug: string }[]>`SELECT slug FROM builder_profiles WHERE builder_id = ${victim.id}`;
-    // The attacker's agent sends the victim its sign-in link; the victim completes it.
-    const attacker = await install();
-    await handlers.list_programs({}, ctxOf(attacker.id));
-    await signIn(attacker.id);
-    assert.notEqual(await rootOf(attacker.id), await rootOf(victim.id), 'no merge');
-    assert.equal((await pendingJoinOf(victim.id))?.side, 'target');
-    assert.equal((await pendingJoinOf(attacker.id))?.side, 'joiner');
-    // Each agent's next find carries the one yes, once. v2.12.1 T8: it is the reply's last line (the
-    // three-part reply has no step up then; the step waits a reply).
-    for (const id of [victim.id, attacker.id]) {
-      const out = (await handlers.list_programs({}, ctxOf(id))) as { show_to_builder: string; pick_up?: { question: string }; move_up?: unknown };
-      // T6 carry: the target is asked about the other agent, the joining agent about itself.
-      const want = id === victim.id ? JOIN_QUESTIONS.github_login : JOIN_QUESTIONS_JOINER.github_login;
-      assert.ok(out.show_to_builder.startsWith('Where you stand\n') && out.show_to_builder.endsWith(`\n\n${want}`), out.show_to_builder);
-      assert.doesNotMatch(out.show_to_builder, /How to move up/);
-      assert.ok(!('move_up' in out));
-      assert.equal(out.pick_up?.question, want);
-      assert.equal((out.show_to_builder.match(/\?/g) ?? []).length, 1, 'one question');
-      const again = JSON.stringify(await handlers.list_programs({}, ctxOf(id)));
-      assert.doesNotMatch(again, /[Aa]nother agent/, 'asked once');
-    }
-    // The attacker says yes: nothing joins. The victim says no: the pending join is gone.
-    assert.match(JSON.stringify(await tools.tell({ pickup: 'yes' }, ctxOf(attacker.id))), /says yes too/);
-    assert.notEqual(await rootOf(attacker.id), await rootOf(victim.id));
-    await tools.tell({ pickup: 'no' }, ctxOf(victim.id));
-    assert.equal(await pendingJoinOf(victim.id), null);
-    assert.equal(await pendingJoinOf(attacker.id), null);
-    assert.notEqual(await rootOf(attacker.id), await rootOf(victim.id));
-    // Asked again later (a new sign-in), both yeses join; the older page stays, hidden stays hidden.
-    await signIn(attacker.id);
-    await tools.tell({ pickup: 'yes' }, ctxOf(attacker.id));
-    assert.match(JSON.stringify(await tools.tell({ pickup: 'yes' }, ctxOf(victim.id))), /on your page now/);
-    const root = await rootOf(victim.id);
-    assert.equal(root, await rootOf(attacker.id));
-    const [p] = await sql()`SELECT slug, hidden FROM builder_profiles WHERE builder_id = ${root}`;
-    assert.deepEqual({ ...p }, { slug, hidden: true });
-  });
-});
-
 test('5.13 (round 2 addendum) a merge keeps hide and held from either side: hide wins, a held score stays under review', db, () =>
   scoreOn(async () => {
     for (const side of ['root', 'other'] as const) {
@@ -516,70 +449,6 @@ const discoverAs = async (root: number, login: string, twitter: string | null) =
   });
 };
 
-test('5.17 reverse phish: the attacker\'s group proved the login first; the victim\'s own later sign-in never merges without both yeses, and the login stands for neither', db, async () => {
-  const { saveVerification } = await import('./github-verify');
-  await scoreOn(async () => {
-    const login = `rv-${stamp()}`.slice(0, 39);
-    const user = { login, created_at: new Date('2020-01-01'), public_repos: 3 };
-    const signIn = (id: number) => saveVerification({ installation_id: id, project_id: null, repo_key: `${login}/app`, purpose: 'entry', wallet: null, symbol: null }, user, NOW);
-    const attacker = await person();
-    await ensureProfile(attacker, NOW);
-    await signIn(attacker); // the victim completed the attacker's link first
-    await discoverAs(attacker, login, 'vicx');
-    await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by, state, proof) VALUES (${attacker}, 'repo', ${`${login}/app`}, ${`${login}/app`}, 'server', 'verified', 'repo_owner')`;
-    const [held] = await sql()`SELECT github_login FROM builder_profiles WHERE builder_id = ${attacker}`;
-    assert.equal(held.github_login, login, 'uncontested: the first proof stands');
-    const victim = await person();
-    await ensureProfile(victim, NOW);
-    await signIn(victim);
-    assert.notEqual(await rootOf(victim), await rootOf(attacker));
-    assert.equal((await pendingJoinOf(attacker))?.side, 'target');
-    assert.equal((await pendingJoinOf(victim))?.side, 'joiner');
-    assert.equal(await answerJoin(attacker, true), 'waiting');
-    assert.notEqual(await rootOf(victim), await rootOf(attacker), 'the holder\'s yes alone never merges');
-    assert.equal(await answerJoin(victim, false), 'declined');
-    assert.notEqual(await rootOf(victim), await rootOf(attacker));
-    // Contested: the attacker's page loses the login and its GitHub work is not yet confirmed.
-    const [a] = await sql()`SELECT github_login, github_basis FROM builder_profiles WHERE builder_id = ${attacker}`;
-    assert.deepEqual({ ...a }, { github_login: null, github_basis: null });
-    const [src] = await sql()`SELECT state, proof FROM builder_sources WHERE builder_id = ${attacker} AND ref = ${`${login}/app`}`;
-    assert.deepEqual({ ...src }, { state: 'proposed', proof: null });
-    assert.equal(await loginStands(attacker, login, 'vicx'), false);
-    assert.equal(await loginStands(victim, login, 'vicx'), false);
-  });
-});
-
-test('5.18 a contested login is confirmed for neither, then for the group whose confirmed X is the one GitHub lists; the admin list shows it and a ruling settles it', db, async () => {
-  const { saveVerification } = await import('./github-verify');
-  await scoreOn(async () => {
-    const login = `ct-${stamp()}`.slice(0, 39);
-    const user = { login, created_at: new Date('2020-01-01'), public_repos: 3 };
-    const signIn = (id: number) => saveVerification({ installation_id: id, project_id: null, repo_key: `${login}/app`, purpose: 'entry', wallet: null, symbol: null }, user, NOW);
-    const [a, b] = [await person(), await person()];
-    for (const id of [a, b]) {
-      await ensureProfile(id, NOW);
-      await signIn(id);
-    }
-    const handle = `cx${b}`.slice(0, 15);
-    for (const id of [a, b]) await discoverAs(id, login, handle);
-    const logins = async () => (await sql()`SELECT builder_id, github_login FROM builder_profiles WHERE builder_id IN (${a}, ${b}) ORDER BY builder_id`).map((r) => r.github_login);
-    assert.deepEqual(await logins(), [null, null], 'contested: confirmed for neither');
-    const listed = (await loginContests()).find((c) => c.login === login);
-    assert.deepEqual(listed?.groups, [a, b].sort((x, y) => x - y));
-    // a claims a different X; b claims the X GitHub lists: b's next discovery confirms the login.
-    await sql()`UPDATE builder_profiles SET x_user_id = ${`5${a}`}, x_handle = ${`ax${a}`.slice(0, 15)}, claimed_at = now() WHERE builder_id = ${a}`;
-    await sql()`UPDATE builder_profiles SET x_user_id = ${`5${b}`}, x_handle = ${handle}, claimed_at = now() WHERE builder_id = ${b}`;
-    for (const id of [a, b]) await discoverAs(id, login, handle);
-    const [pa, pb] = await logins();
-    assert.deepEqual([pa, pb], [null, login]);
-    // The owner rules for a instead: b loses it, a gets it on its next discovery.
-    await ruleContest(login, a);
-    for (const id of [b, a]) await discoverAs(id, login, handle);
-    assert.deepEqual(await logins(), [login, null]);
-    assert.equal((await loginContests()).find((c) => c.login === login)?.ruled, a);
-  });
-});
-
 test('5.19 the admin page lists contested logins with a confirm button per group (POST rule_login)', async () => {
   const { readFile } = await import('node:fs/promises');
   const page = await readFile(new URL('../../app/admin/scores/page.tsx', import.meta.url), 'utf8');
@@ -629,32 +498,6 @@ test('6.14 (fix round 1) a dormant prover still contests: an old install that pr
     assert.deepEqual(await contestants(login), [old, fresh].sort((a, b) => a - b));
     assert.equal(await loginStands(fresh, login, null), false, 'contested: no one stands without a ruling or a matching X claim');
     assert.ok((await loginContests()).some((c) => c.login === login));
-  });
-});
-
-test('6.14b (fix round 1) the stuck case: a dormant group holding the login in its profile is released when another group proves it; a matching X claim then stands', db, async () => {
-  const { saveVerification } = await import('./github-verify');
-  const { bindX } = await import('./claim');
-  await scoreOn(async () => {
-    const login = `st-${stamp()}`.slice(0, 39);
-    const twitter = `tw${process.pid}${Date.now() % 1000}`.slice(0, 15);
-    const user = { login, created_at: new Date('2020-01-01'), public_repos: 3 };
-    const signIn = (id: number) => saveVerification({ installation_id: id, project_id: null, repo_key: `${login}/app`, purpose: 'entry', wallet: null, symbol: null }, user, NOW);
-    const [old, fresh] = [await person(), await person()];
-    await ensureProfile(old, NOW);
-    await signIn(old);
-    await sql()`UPDATE builder_profiles SET github_login = ${login}, github_basis = 'signin' WHERE builder_id = ${old}`;
-    await sql()`UPDATE installations SET last_seen_at = now() - interval '90 days' WHERE id = ${old}`;
-    await ensureProfile(fresh, NOW);
-    await signIn(fresh);
-    const [o] = await sql()`SELECT github_login FROM builder_profiles WHERE builder_id = ${old}`;
-    assert.equal(o.github_login, null, 'the dormant holder no longer stands, so it lets go');
-    assert.equal(await loginStands(fresh, login, twitter), false);
-    await bindX(fresh, { id: `6${fresh}`, username: twitter, name: 'F', avatar: null }, NOW);
-    assert.equal(await loginStands(fresh, login, twitter), true, 'the X GitHub lists, claimed: it stands');
-    await discoverAs(fresh, login, twitter);
-    const [f] = await sql()`SELECT github_login FROM builder_profiles WHERE builder_id = ${fresh}`;
-    assert.equal(f.github_login, login);
   });
 });
 

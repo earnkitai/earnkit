@@ -365,7 +365,6 @@ test('e.2 a passed live_url that loads (200, not a placeholder) is live: no "onc
   on(async () => {
     const login = uniq('maya').toLowerCase();
     const key = `${login}/recipes`;
-    const gh = fakeGitHub();
     const probed: string[] = [];
     const was = liveDefaults.probe;
     liveDefaults.probe = async (url: string) => {
@@ -379,7 +378,7 @@ test('e.2 a passed live_url that loads (200, not a placeholder) is live: no "onc
       assert.doesNotMatch(r1.show_to_builder, /once it's live|once your app is live|put .* online/, r1.show_to_builder);
       assert.equal(probed.length, 1);
       // The site's own spelling names the project (the check ran and passed), and nothing asks for it to go live.
-      assert.match(r1.show_to_builder, /I'll check Recipes is yours/, r1.show_to_builder);
+      assert.match(r1.show_to_builder, /Recipes isn't counted yet/, r1.show_to_builder);
       const [kept] = await sql()<{ c: { ok: boolean } }[]>`SELECT standing_seen->'live_check' AS c FROM builder_profiles WHERE builder_id = ${id}`;
       assert.equal(kept.c.ok, true);
       await signIn(r1.claim!.link, xUser());
@@ -403,8 +402,8 @@ test('e.3 a live_url that fails or is parked is not live', dbTest, () =>
     try {
       const login = uniq('lee').toLowerCase();
       const id = await install();
-      const r = await find(id, { agent_can_build: true, identity: { github_login: login, project: { name: 'tips', repo: `${login}/tips`, live_url: 'https://tips.example.app' } } }, { ...NO_MATCH, proofBranchFetch: fakeGitHub().f });
-      assert.ok(r.show_to_builder.includes("I'll check Tips is yours"), r.show_to_builder);
+      const r = await find(id, { agent_can_build: true, identity: { github_login: login, project: { name: 'tips', repo: `${login}/tips`, live_url: 'https://tips.example.app' } } }, NO_MATCH);
+      assert.ok(r.show_to_builder.includes("Tips isn't counted yet"), r.show_to_builder);
       const [kept] = await sql()<{ c: { ok: boolean } }[]>`SELECT standing_seen->'live_check' AS c FROM builder_profiles WHERE builder_id = ${id}`;
       assert.equal(kept.c.ok, false, 'a parked page is not live');
     } finally {
@@ -963,7 +962,7 @@ test('R9.1 a realistic reconnect (the first find reports the repo and a GitHub l
     assert.deepEqual(after, before, 'nothing it reported reached the page');
     assert.equal((await sql()`SELECT 1 FROM builder_sources WHERE builder_id = ${cand}`).length, 0, 'its reports are discarded');
     assert.equal((await sql()`SELECT 1 FROM claim_codes WHERE builder_id = ${cand}`).length, 0);
-    const f = await findAs(cand, { agent_can_build: true, github_user: login, local_repos: [{ name: 'earnkit', url: `https://github.com/${key}` }] }, { proofBranchFetch: gh.f });
+    const f = await findAs(cand, { agent_can_build: true, github_user: login, local_repos: [{ name: 'earnkit', url: `https://github.com/${key}` }] }, {});
     assert.match(f.show_to_builder, /Linked to your page: /, f.show_to_builder);
     assert.match(f.show_to_builder, /^Earnkit is on the Bench/m, f.show_to_builder);
     assert.doesNotMatch(f.show_to_builder, /can't change your project/, 'the same project is no change');
@@ -1135,7 +1134,7 @@ test('P.1 through the real MCP layer (the find tool\'s input schema): old fields
     const id = await install();
     const gh = fakeGitHub();
     gh.repos['earnkitai/earnkit'] = { owner: { login: 'earnkitai', type: 'Organization' } };
-    const server = createMcpServer({ installationId: id, ...NO_MATCH, proofBranchFetch: gh.f } as never);
+    const server = createMcpServer({ installationId: id, ...NO_MATCH } as never);
     const [a, b] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'p1', version: '0' });
     await Promise.all([server.connect(a), client.connect(b)]);
