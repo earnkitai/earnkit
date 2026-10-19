@@ -5797,3 +5797,37 @@ global lock order. With Sign in with X at install (T4) and the paste code (T5) t
 - **Known behaviour (D11).** A pre-v2.14 unclaimed agent that reconnects with X becomes a new installation and starts
   fresh (its old rows stay behind, never merged). Recorded in `v2.14-client-preflight.md` "Known behaviours".
 
+
+## v2.14 One account: the ship log writes itself (Task 8, 2026-10-19)
+
+Brief: `.superpowers/sdd/v2.14-one-account-plan/task-8-brief.md`; rulings A11, A12 and preflight S9. Free: no AI,
+no new cron, no paid service.
+
+- **Composed every Monday.** `week-facts.ts weeklyFactsStep` (the existing weekly step inside the score cron, now
+  given `ghFetch: reader.ghFetch` by `builder-score.ts`) reads, for each due project whose repo is a verified
+  `github_app` source, the week's commit and merged-PR titles through `repo-proof.ts appClient` (the App's
+  per-call installation token; 2 GitHub calls a project, inside the step's deadline and the reader's GitHub budget).
+  `ship-titles.ts` cleans them (pure): no merges, wip, bot authors, version bumps or duplicates; conventional
+  prefixes stripped; 80 characters; each through `update-text.ts checkUpdate` (links only to the project's own
+  site or repo, no secrets, no @mentions, no 7-digit runs) or dropped; at most 3, PRs first, newest first.
+  `upsertWeekFacts(..., titles)` stores them on `project_updates.titles` (replaced only by a non-empty list).
+- **Private repos: facts only by default.** A repo that doesn't read public (`repo-public.ts repoReadPublic`) is not
+  even read until the builder turns titles on: `tell updates { titles: true }` (`updates.ts setShipTitles` sets
+  `builder_profiles.ship_titles_at`; false clears it). An older agent's `updates { on, scheduled }` gets
+  `UPDATE_LINES.auto` and changes nothing.
+- **Read-time filter (S9, I1).** `ship-titles.ts titlesShown` decides what a card shows: a public repo
+  (page-data `shownProjects`, not `hiddenRepo`) all titles; a hidden repo none unless `ship_titles_at IS NOT NULL`,
+  and never a title naming the repo (`namesRepo`: its name as words, or run together). `feed.ts` (`FeedCard.titles`)
+  and `bench-data.ts profileData` (`ProfileCard.titles`, only when non-empty) apply it; turning titles off hides
+  stored titles at once with no delete. The share card and OG image show no log text. `UpdateCard.tsx` renders
+  titles as plain text (one on the square card).
+- **No asks.** The updates yes, the week's-post ask, the weekly-task note (`WEEKLY_UPDATE_NOTE`, `SCHEDULED_NOTE`,
+  `schedule_weekly_update`, `standing_seen.weekly_note_at`) and the `updates` / `post_update` ask kinds are gone
+  (`bench-reply.ts chooseAsk` takes no `updatesOn`, `postedThisWeek`, `scheduled`, `joining`, `claimed`;
+  `bench-find.ts benchRead` no longer reads `updates_on_at` / `updates_scheduled_at`, which stay as columns).
+  `tell update { text }` stays as the agent's one added line; `{ hide }` still hides a week; the text filter
+  applies to both.
+- **Schema.** `project_updates.titles text[] NOT NULL DEFAULT '{}'`, `builder_profiles.ship_titles_at timestamptz`
+  (idempotent ADD COLUMN IF NOT EXISTS). `events-redact.mts` also clears `ship_titles_at`.
+- **Tests.** `ship-titles.test.ts` (pure), `v214-ship-log.test.ts` (8.5 to 8.10, through the real MCP layer and
+  `fixtures/fake-github.ts`).

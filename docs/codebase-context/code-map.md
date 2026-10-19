@@ -80,7 +80,7 @@ apps/frontend/
                                sentence-case labels); v2.13.1 O3: with EARNKIT_RAISING off the hero and steps
                                drop raising (BENCH_HERO_SUBTITLE_NO_RAISE, BENCH_STEPS_NO_RAISE)
   app/components/ui/{ChainLogo,RaisingPill,UpdateCard}.tsx  v2.13: chain logo chips, the Raising pill, the
-                               long and square update cards
+                               long and square update cards (v2.14 T8: card.titles as plain text, one on the square)
   public/images/chains/{base,arc,robinhood}.svg  v2.13: chain logos (arc and robinhood are monograms until
                                the owner supplies the brand SVGs)
   app/page.tsx                 home (v2.7 §1): revalidate 600; getLanding() then HomeView
@@ -1373,22 +1373,29 @@ apps/frontend/
     reply-wait.ts              v2.13.1 O5 N1: REPLY_WAIT_MS (1.5 s), settleWithin, inTime/ReplyLate: the Bench
                                reply never waits longer on the refresh, matching or the proof check
     week-facts.ts(+test)       v2.13 T4: WeekFacts, weekFactsFor, factChips, startedLine, upsertWeekFacts,
-                               weeklyFactsStep (Mondays from 15:00 UTC)
+                               weeklyFactsStep (Mondays from 15:00 UTC); v2.14 T8: the step reads an App-proven repo's
+                               week titles (appClient, ghFetch) and upsertWeekFacts stores them (project_updates.titles)
+    ship-titles.ts(+test)      v2.14 T8: TITLES_MAX 3, TITLE_MAX 80, cleanTitle, shipTitles (checkUpdate on each),
+                               readWeekTitles (2 calls), namesRepo, titlesShown (S9 read-time filter: private repo
+                               titles only while builder_profiles.ship_titles_at is set, never naming the repo);
+                               tests ship-titles.test.ts, v214-ship-log.test.ts
     update-text.ts(+test)      v2.13 T5: checkUpdate (280 characters, no @, secrets, own links only), notes
     update-links.ts            v2.13.1 O4: RENDERED_LINK / RENDERED_TRAILING, the card's link rule; update-text
                                re-scans stored text with it (no hidden-character parser differential)
-    updates.ts(+test)          v2.13 T5: postUpdate, hideUpdate, setUpdates, ownLinks (tell update / updates);
+    updates.ts(+test)          v2.13 T5: postUpdate, hideUpdate, ownLinks (tell update); v2.14 T8: setShipTitles
+                               (tell updates { titles }), UPDATE_LINES.auto/titlesOn/titlesOff; no setUpdates or weekly-task note;
                                UPDATE_POSTS_PER_DAY 20 a person (rate window updatePost:<root>); v2.14 T7: no probation
                                option (posted_by still written)
     feed.ts(+test)             v2.13 T6: pointsOf, feedRankStep (daily, feedRank:<day>), rankFeed, feedWeeks,
-                               carouselCards, setFeedFlag (pin/hide)
+                               carouselCards, setFeedFlag (pin/hide); v2.14 T8: FeedCard.titles (titlesShown)
     bench-rank.ts(+test)       v2.13 T7: benchPool (listed ranked + benchConfirmedSql), chainPools, rankLines (Top P% and per-chain lines; rank.ts has benchRank,
                                CHAIN_CHIP_MIN, BENCH_CHAINS)
     bench-reply.ts(+test)      v2.13 T8: the reply's three headings, lines and ask kinds
                                v2.13.3: NO_PROJECT_LINE, START_ASK, startBuildAsk, claimLine, needsLine, installAppAsk; kinds start, install_app; chooseAsk: entry, then community round, first.
                                v2.13.4: privateLine, installAppAsk (owner's copy, question last), displayName (site spelling or title
                                case), the asks end on their question (R4). v2.14 T7: claimLine, claimAsk*, claimQuestion, linkedLine,
-                               showsClaimLink, the claim and remove_agent kinds and BenchView.claimLink/linked are gone
+                               showsClaimLink, the claim and remove_agent kinds and BenchView.claimLink/linked are gone.
+                               v2.14 T8: UPDATES_ASK*, POST_UPDATE_ASK and the updates / post_update kinds are gone
     bench-find.ts(+test)       v2.13 T8/T9: benchFind, benchScore, benchAsked, benchMoveUp, coinAskBench;
                                v2.14 T6: benchView reads repo-proof.ts repoProof (view.branch private / taken / copy),
                                the install ask with installLink; no proof or remove_branch fields, no proof check.
@@ -1401,7 +1408,8 @@ apps/frontend/
                                unless EARNKIT_RAISING (builder-score-flag.ts raisingEnabled)
     bench-data.ts(+test)       v2.13 T10/T11: parseBenchFilter, benchRows (safe names, pill in the same read),
                                profile and project tab data, logCards (v2.13.1 O3: the start is a "Started
-                               tracking" chip on its week's card), gridWeeks (ship weeks + weeks with checked commits)
+                               tracking" chip on its week's card), gridWeeks (ship weeks + weeks with checked commits);
+                               v2.14 T8: profile log cards carry titles (titlesShown, S9)
     v213-final-fix.test.ts     v2.13 final fix wave: private names, lazy pick, proof repo and sign-in, the
                                Bench gate, the update limit, EARNKIT_RAISING off and on
     llms/{v212,v213}.txt       v2.13: the two /llms.txt bodies (flag off / on)
