@@ -66,9 +66,8 @@ test('7.3 tools: tell takes no pickup; find never carries pick_up; a second agen
   const on = await mcpCall({ installationId: second.id, ownInstallationId: second.own, sharedClient: false }, 'tell', { updates: { titles: true } });
   assert.equal(on.isError, false, on.text);
   assert.doesNotMatch(on.text, /joined|probation|after a day/i);
-  const [p] = await sql()<{ hidden: boolean; on: Date | null }[]>`SELECT hidden, ship_titles_at AS on FROM builder_profiles WHERE builder_id = ${second.id}`;
+  const [p] = await sql()<{ hidden: boolean }[]>`SELECT hidden FROM builder_profiles WHERE builder_id = ${second.id}`;
   assert.equal(p.hidden, true, 'the hide was written');
-  assert.ok(p.on, 'titles are on (v2.14 T8)');
 });
 
 test('7.4 bindX writes the X profile and never asks anyone (no join_pending, no held)', db, async () => {

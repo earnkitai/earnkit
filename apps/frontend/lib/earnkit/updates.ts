@@ -1,4 +1,5 @@
 import { repoReadPublic } from './repo-public';
+import { APP_PROOF } from './repo-proof';
 import { sql } from './db';
 import { noteEvent } from './events';
 import { CONFIRMED_PROOFS } from './confirmed';
@@ -35,6 +36,8 @@ export const UPDATE_LINES = {
   titlesOff: 'Done. Your weekly log will show only the facts.',
 } as const;
 export const NOT_CONFIRMED_NOTE = "The project isn't counted yet, so there is nothing to add to. Once the read-only EarnKit app is installed on its repo, call find. Don't show this note.";
+/** T8 fix round 1: titles on, with no repo the read-only App proves yet. */
+export const TITLES_NO_APP_NOTE = "The project isn't counted yet, so there are no titles to show. Once the read-only EarnKit app is installed on its repo, call find. Don't show this note.";
 /** F2: a shared repo's week another builder holds (the first confirmed owner keeps the ship log). */
 export const HELD_NOTE = "Another builder already posts this repo's weekly updates, so there is nothing to post here. Don't show this note.";
 /** Final fix M2: at most UPDATE_POSTS_PER_DAY tell update posts per person a day (each reads the week's facts). */
@@ -120,6 +123,11 @@ export async function hideUpdate(builderId: number, day: unknown): Promise<Reply
 /** v2.14 spec 3, A12: titles on or off for the person's log; an older agent's { on } is answered, nothing changes. */
 export async function setShipTitles(builderId: number, u: { titles?: unknown; on?: unknown }, now: Date): Promise<Reply> {
   if (typeof u.titles !== 'boolean') return { show_to_builder: UPDATE_LINES.auto };
+  // T8 fix round 1: titles come only from a repo the read-only App proves; without one, never "Done".
+  if (u.titles) {
+    const [app] = await sql()`SELECT 1 FROM builder_sources WHERE builder_id = ${builderId} AND kind = 'repo' AND state = 'verified' AND proof = ${APP_PROOF} LIMIT 1`;
+    if (!app) return { show_to_builder: '', agent_note: TITLES_NO_APP_NOTE };
+  }
   await sql()`UPDATE builder_profiles SET ship_titles_at = ${u.titles ? now : null} WHERE builder_id = ${builderId}`;
   return { show_to_builder: u.titles ? UPDATE_LINES.titlesOn : UPDATE_LINES.titlesOff };
 }

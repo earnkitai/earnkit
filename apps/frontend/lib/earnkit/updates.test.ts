@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { sql } from './db';
 import { EVENT_LOG_FLAG } from './events';
-import { HELD_NOTE, HIDE_DATE_NOTE, HIDE_NONE_NOTE, NOT_CONFIRMED_NOTE, UPDATE_LINES, hideUpdate, ownLinks, postUpdate, setShipTitles } from './updates';
+import { HELD_NOTE, HIDE_DATE_NOTE, HIDE_NONE_NOTE, NOT_CONFIRMED_NOTE, TITLES_NO_APP_NOTE, UPDATE_LINES, hideUpdate, ownLinks, postUpdate, setShipTitles } from './updates';
 import { UPDATE_LINK_NOTE } from './update-text';
 import { tools } from './tools';
 
@@ -128,6 +128,10 @@ test('5.8 hide takes any day of the week; a bad date or an empty week is a note 
 test('5.9 v2.14 spec 3: updates { titles } turns a private repo\'s titles on and off; { on } is answered and changes nothing', dbTest, async () => {
   const { id } = await person();
   const at = async () => (await sql()<{ t: Date | null }[]>`SELECT ship_titles_at AS t FROM builder_profiles WHERE builder_id = ${id}`)[0].t;
+  // T8 fix round 1: titles on needs a repo the App proves (a proof line is not enough).
+  assert.deepEqual(await setShipTitles(id, { titles: true }, new Date()), { show_to_builder: '', agent_note: TITLES_NO_APP_NOTE });
+  assert.equal(await at(), null);
+  await sql()`UPDATE builder_sources SET proof = 'github_app', app_checked_at = now() WHERE builder_id = ${id} AND kind = 'repo'`;
   assert.deepEqual(await setShipTitles(id, { titles: true }, new Date()), { show_to_builder: UPDATE_LINES.titlesOn });
   assert.ok(await at());
   assert.deepEqual(await setShipTitles(id, { on: true }, new Date()), { show_to_builder: UPDATE_LINES.auto });

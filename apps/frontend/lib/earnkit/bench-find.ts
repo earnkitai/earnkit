@@ -12,6 +12,7 @@ import { installLink, repoProof, type RepoProof } from './repo-proof';
 import { REPLY_WAIT_MS, settleWithin } from './reply-wait';
 import { rankLines, type RankLines } from './bench-rank';
 import { COIN_NOTE, offerCoin } from './coin-moments';
+import { UPDATE_LINES } from './updates';
 import { markRaiseAsked, raiseAsk, raisingCoin, setRaising } from './raising';
 import { NEEDS_LIVE_PRODUCT } from './guide';
 import { siteUrl } from './entry-text';
@@ -505,6 +506,9 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
 }
 
 /** The ask stored with the last Bench reply, when the agent's answer names it (kind, if given, and project_key). */
+/** T8 fix round 1: ask kinds a pre-v2.14 reply may have stored (the updates yes and the week's post). */
+const RETIRED_ASKS = ['updates', 'post_update'] as const;
+
 export async function benchAsked(id: number, m: { kind?: string; project_key?: string | null }): Promise<{ kind: BenchAskKind; key: string | null; program_id?: string } | null> {
   const [p] = await sql()<{ ask: Seen['bench_ask'] | null }[]>`SELECT standing_seen->'bench_ask' AS ask FROM builder_profiles WHERE builder_id = ${id}`.catch((err: unknown) => {
     logged('asked')(err);
@@ -537,7 +541,8 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
   }
   // Fix round 1: answered once. The ask is cleared before the yes runs, so a retried yes is "Okay.".
   // (go_live and coin yeses stay in tools.ts: go_live's yes is sent again with live_url by design.)
-  if (['build', 'enter', 'raise', 'grants', 'suggest', 'other_project', 'grants_later', 'install_app', 'start'].includes(asked.kind)) {
+  // T8 fix round 1: an ask stored before v2.14 ('updates', 'post_update') is taken and answered too.
+  if (['build', 'enter', 'raise', 'grants', 'suggest', 'other_project', 'grants_later', 'install_app', 'start', ...RETIRED_ASKS].includes(asked.kind)) {
     const [taken] = await sql()`
       UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask'
       WHERE builder_id = ${id} AND standing_seen->'bench_ask' = ${sql().json(asked as never)}::jsonb RETURNING 1`.catch((err: unknown) => {
@@ -546,6 +551,8 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
     });
     if (!taken) return okay;
   }
+  // v2.14 spec 3: the ship log writes itself; a yes to a retired posting ask says so.
+  if ((RETIRED_ASKS as readonly string[]).includes(asked.kind)) return { show_to_builder: UPDATE_LINES.auto };
   switch (asked.kind) {
     case 'build':
       return asked.program_id ? { show_to_builder: '', agent_note: buildYesNote(asked.program_id) } : okay;

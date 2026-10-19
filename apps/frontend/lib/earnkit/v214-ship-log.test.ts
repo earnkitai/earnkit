@@ -10,6 +10,7 @@ import { profileData } from './bench-data';
 import { weeklyFactsStep } from './week-facts';
 import { weekOfMonday } from './weeks';
 import { attachToX } from './x-install';
+import { UPDATE_LINES } from './updates';
 
 appEnv();
 process.env.X_CLIENT_ID = 'cid';
@@ -168,4 +169,29 @@ test('8.15 fix round 1: a public repo not read public lately is checked with one
   assert.deepEqual((await row(p.id)).titles, ['Fix the timer', 'Add the shopping list']);
   const [s] = await sql()<{ at: Date | null }[]>`SELECT public_at AS at FROM builder_sources WHERE builder_id = ${p.id} AND kind = 'repo'`;
   assert.ok(s.at, 'public_at stamped');
+});
+
+test('8.16 fix round 1: titles on with no App-proven repo is the not-counted note, never "Done"', db, async () => {
+  const t = `ek_noapp2_${RUN}_${Date.now()}`;
+  await saveInstallation(t, undefined, false);
+  const own = (await connectInstallation(t))!.own;
+  await attachToX(own, { id: `98${RUN}${++nextX}`, username: `vic${RUN}`.slice(0, 15), name: 'Vic', avatar: null }, new Date());
+  const c = (await connectInstallation(t))!;
+  const r = await mcpCall({ installationId: c.id, ownInstallationId: c.own, sharedClient: false }, 'tell', { updates: { titles: true } });
+  assert.equal(r.reply?.show_to_builder, '');
+  assert.match(String(r.reply?.agent_note), /isn't counted yet/);
+  const [p] = await sql()<{ at: Date | null }[]>`SELECT ship_titles_at AS at FROM builder_profiles WHERE builder_id = ${c.id}`;
+  assert.equal(p?.at ?? null, null);
+});
+
+test('8.17 fix round 1: a yes to a pre-v2.14 stored updates or post_update ask gets the ship log line and clears the ask', db, async () => {
+  const p = await provenPerson('wes', `wes${RUN}/old`, false);
+  for (const kind of ['updates', 'post_update']) {
+    const key = `wes${RUN}/old`;
+    await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json({ kind, key } as never)}::jsonb) WHERE builder_id = ${p.id}`;
+    const r = await mcpCall(p.ctx, 'tell', { move_up: { kind, project_key: key, answer: 'yes' } });
+    assert.equal(r.reply?.show_to_builder, UPDATE_LINES.auto, kind);
+    const [s] = await sql()<{ ask: unknown }[]>`SELECT standing_seen->'bench_ask' AS ask FROM builder_profiles WHERE builder_id = ${p.id}`;
+    assert.equal(s.ask, null, `${kind}: cleared`);
+  }
 });
