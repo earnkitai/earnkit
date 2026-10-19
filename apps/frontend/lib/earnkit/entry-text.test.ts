@@ -2,7 +2,6 @@ import './fixtures/no-network-checks';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  boardLink,
   confirmTable,
   enteredTable,
   enteredText,
@@ -143,17 +142,6 @@ test('C7: a token waiting on missing items says what the entry still needs, in p
     "Entered in Arc Microgrants. Your token isn't launched yet: the entry still needs a live link on Arc mainnet.",
   );
   assert.equal(notReadyTokenNote(['a', 'b', 'c', 'd']), 'Not launched: the entry still needs a; b; c; and 1 more.');
-});
-
-test('Ruling 12 (plan): boardLink is the slug link, no scheme', () => {
-  const prev = process.env.EARNKIT_URL;
-  delete process.env.EARNKIT_URL;
-  try {
-    assert.equal(boardLink('arc-microgrants:2026-09-16'), 'earnkit.com/bonus/arc-microgrants-2026-09-16');
-    assert.equal(boardLink('base-builder-grants:2026-10'), 'earnkit.com/bonus/base-builder-grants-2026-10');
-  } finally {
-    if (prev !== undefined) process.env.EARNKIT_URL = prev;
-  }
 });
 
 test('Ruling 29 (final I2), v2.8.1 §C15: a deadline reads in the program\'s own time zone', async () => {

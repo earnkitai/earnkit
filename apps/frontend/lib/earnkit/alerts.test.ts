@@ -28,7 +28,7 @@ import {
   type BonusWin,
 } from './alerts';
 import { sql } from './db';
-import { boardLink, shortWallet } from './entry-text';
+import { shortWallet } from './entry-text';
 import { rememberWallets } from './installations';
 import { handlers } from './tools';
 
@@ -372,7 +372,7 @@ test('v2.5 Task 7: paidBonusWins reads the real bonus_payouts rows (paid only); 
       assert.ok(
         r.lines.includes(
           `you were paid a 0.12 ETH builder bonus for ${tag}-ek, sent to ${shortWallet(getAddress(wallet.toLowerCase()))} ` +
-            `(basescan.org/tx/0xpaid) · ${boardLink(roundKey)}`,
+            '(basescan.org/tx/0xpaid)',
         ),
         r.lines.join('; '),
       );
@@ -402,7 +402,7 @@ test('v2.5 Task 8: the builder bonus top 10 tracks bonus_scores, through the sam
       await sql()`UPDATE bonus_scores SET rank = 3 WHERE round_key = ${roundKey} AND project_id = ${pid}`;
       const r = await sinceYouLastChecked(me);
       assert.ok(
-        r.lines.includes(`your entry moved into the top 10 for the builder bonus (${tag}-ek) · ${boardLink(roundKey)}`),
+        r.lines.includes(`your entry moved into the top 10 for the builder bonus (${tag}-ek)`),
         r.lines.join('; '),
       );
       assert.ok(!(await sinceYouLastChecked(me)).lines.some((l) => l.includes('top 10')));

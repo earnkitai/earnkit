@@ -195,3 +195,13 @@ test('8.17 fix round 1: a yes to a pre-v2.14 stored updates or post_update ask g
     assert.equal(s.ask, null, `${kind}: cleared`);
   }
 });
+
+test('8.18 T9: titles on needs the main project\'s own repo App-proven, not any App-proven repo', db, async () => {
+  const p = await provenPerson('xan', `xan${RUN}/proven`, false);
+  await sql()`UPDATE builder_profiles SET main_project_key = ${`xan${RUN}/other`} WHERE builder_id = ${p.id}`;
+  const r = await mcpCall(p.ctx, 'tell', { updates: { titles: true } });
+  assert.equal(r.reply?.show_to_builder, '');
+  assert.match(String(r.reply?.agent_note), /isn't counted yet/);
+  await sql()`UPDATE builder_profiles SET main_project_key = ${`xan${RUN}/proven`} WHERE builder_id = ${p.id}`;
+  assert.equal((await mcpCall(p.ctx, 'tell', { updates: { titles: true } })).reply?.show_to_builder, UPDATE_LINES.titlesOn);
+});

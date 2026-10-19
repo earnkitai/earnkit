@@ -158,8 +158,6 @@ export function enteredText(a: EnteredText) {
   return `${entered}${coin}`;
 }
 
-/** A round's old public board, as builder text (Ruling 12 (plan)): "earnkit.com/bonus/<slug>" (the key's `:` as `-`). */
-export const boardLink = (roundKey: string) => `${siteUrl().replace(/^https?:\/\//, '')}/bonus/${roundKey.replace(':', '-')}`;
 
 
 /**

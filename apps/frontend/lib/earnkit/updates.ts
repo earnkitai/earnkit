@@ -123,9 +123,14 @@ export async function hideUpdate(builderId: number, day: unknown): Promise<Reply
 /** v2.14 spec 3, A12: titles on or off for the person's log; an older agent's { on } is answered, nothing changes. */
 export async function setShipTitles(builderId: number, u: { titles?: unknown; on?: unknown }, now: Date): Promise<Reply> {
   if (typeof u.titles !== 'boolean') return { show_to_builder: UPDATE_LINES.auto };
-  // T8 fix round 1: titles come only from a repo the read-only App proves; without one, never "Done".
+  // T8 fix round 1, T9: titles come only from the main project's repo, proven by the read-only App; without
+  // that, never "Done" (another App-proven repo isn't the log's).
   if (u.titles) {
-    const [app] = await sql()`SELECT 1 FROM builder_sources WHERE builder_id = ${builderId} AND kind = 'repo' AND state = 'verified' AND proof = ${APP_PROOF} LIMIT 1`;
+    const key = await mainProjectOf(builderId);
+    const [app] = key
+      ? await sql()`SELECT 1 FROM builder_sources WHERE builder_id = ${builderId} AND kind = 'repo' AND state = 'verified' AND proof = ${APP_PROOF}
+          AND regexp_replace(lower(trim(ref)), '^(https?://)?(www[.])?github[.]com/', '') = lower(${key}) LIMIT 1`
+      : [];
     if (!app) return { show_to_builder: '', agent_note: TITLES_NO_APP_NOTE };
   }
   await sql()`UPDATE builder_profiles SET ship_titles_at = ${u.titles ? now : null} WHERE builder_id = ${builderId}`;
