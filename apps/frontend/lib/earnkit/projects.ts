@@ -732,7 +732,9 @@ export async function recordSubmission(
       // v2.4 §5: the installation's wallets (its wins show for them from any connection).
       if (entry)
         await tx`INSERT INTO installation_wallets (installation_id, wallet) VALUES (${installationId}, ${entry.payoutWallet.toLowerCase()}) ON CONFLICT DO NOTHING`;
-      if (lastWallet) {
+      // Final fix 10: never on a shared client (keepWallet false): the wallet may be another builder's, so it is
+      // neither prefilled for the next caller nor added to the installation's wallets.
+      if (lastWallet && deps.keepWallet !== false) {
         await tx`UPDATE installations SET payout_wallet = ${lastWallet} WHERE id = ${installationId}`;
         await tx`INSERT INTO installation_wallets (installation_id, wallet) VALUES (${installationId}, ${lastWallet}) ON CONFLICT DO NOTHING`;
       }

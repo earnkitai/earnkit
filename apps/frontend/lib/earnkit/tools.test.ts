@@ -26,6 +26,7 @@ import { LaunchError } from './tokens';
 import { wonSource } from './stats';
 import { EMAIL_NOTE, EMAIL_ON, EMAIL_QUESTION, EMAIL_SIGN_IN, emailQuestionFor } from './digest';
 import { saveVerification } from './github-verify';
+import { mcpCall } from './fixtures/mcp-call';
 import { committedProgram } from './fixtures/program-file';
 import { dropPrograms, dropRunPrograms } from './fixtures/find';
 import { TESTED_STARTERS, fileCards } from './fixtures/fresh-build';
@@ -992,6 +993,29 @@ test("G10 (fix round 2), T6-2: on Grok Bot a record_submission never launches, e
       assert.notEqual((await rec(WB)).token?.status, 'launched');
       assert.notEqual((await rec(W8)).token?.status, 'launched', 'the right wallet, still no person');
       assert.equal(t.calls.deploy, 0);
+    }),
+  ));
+
+test('final fix 10: on a shared client a confirmed wallet is never remembered, so builder B is never offered A\'s wallet', dbTest, () =>
+  withTokenEnv(() =>
+    withSignIn(async () => {
+      const t = await confirmSetup('kwallet');
+      await sql()`UPDATE installations SET shared_client = true, payout_wallet = NULL WHERE id = ${t.inst}`;
+      const ctx = { ...t.ctx, sharedClient: true };
+      const WA = '0xa11ce0000000000000000000000000000000a11c';
+      // The v2.9 record_submission path (an older agent's alias call): A's entry names A's wallet.
+      await handlers.record_submission(
+        { program_id: t.p.id, project: t.project, submission_data: t.answers, payout_wallet: WA, token: 'skip', builder_confirmed: true },
+        ctx,
+      );
+      const [row] = await sql()<{ payout_wallet: string | null }[]>`SELECT payout_wallet FROM installations WHERE id = ${t.inst}`;
+      assert.equal(row.payout_wallet, null, "A's wallet is not this agent's remembered wallet");
+      const kept = await sql()`SELECT 1 FROM installation_wallets WHERE installation_id = ${t.inst} AND wallet = ${WA}`;
+      assert.equal(kept.length, 0, "A's wallet is not one of this agent's wallets");
+      // Builder B, same hosted agent, another project: never shown A's wallet.
+      const b = await mcpCall(ctx, 'prepare', { program_id: t.p.id, project: { ...t.project, name: 'Bob App', repo_url: `${t.repo}-bob` }, answers: t.answers });
+      assert.equal(b.isError, false, b.text);
+      assert.doesNotMatch(b.text, /a11ce/i);
     }),
   ));
 

@@ -8,6 +8,7 @@ import { connectInstallation, saveInstallation } from './installations';
 import { rescorePerson } from './person-score';
 import { isoWeekOf } from './weeks';
 import { attachToX, xSignInCallback } from './x-install';
+import { signedOutNow, takeSignedIn } from './bench-find';
 import { committedProgram } from './fixtures/program-file';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
@@ -200,5 +201,40 @@ test('9.17 fix round 1 (minor 1): a yes to an old build or grants ask clears it 
     assert.equal(r.reply?.show_to_builder, 'Okay.', kind);
     const [x] = await sql()<{ ask: unknown }[]>`SELECT standing_seen->'bench_ask' AS ask FROM builder_profiles WHERE builder_id = ${a.id}`;
     assert.equal(x.ask, null, kind);
+  }
+});
+
+test('final fix 11: "Signed in as" is cleared only by a reply that can show it (a handle), never by a failed read', db, async () => {
+  const t = `ek_rep_seen_${process.pid}_${Math.random().toString(36).slice(2)}`;
+  await saveInstallation(t, undefined, false, 'Claude Code');
+  const own = (await connectInstallation(t))!.own;
+  await sql()`UPDATE installations SET x_signed_in_unseen = true WHERE id = ${own}`;
+  const unseen = async () => (await sql()<{ u: boolean }[]>`SELECT x_signed_in_unseen AS u FROM installations WHERE id = ${own}`)[0].u;
+  assert.equal(await takeSignedIn(own, null), null);
+  assert.equal(await unseen(), true, 'a reply with no handle (EMPTY_BASE) keeps it');
+  assert.equal(await takeSignedIn(own, 'lee'), 'Signed in as @lee.');
+  assert.equal(await unseen(), false);
+  assert.equal(await takeSignedIn(own, 'lee'), null, 'once');
+});
+
+test('final fix 12: with X on, a failed signed-out read is signed out (the retry question), never signed in', db, async () => {
+  const err = console.error;
+  console.error = () => {};
+  try {
+    // An id past int4 makes the read fail in Postgres.
+    assert.equal(await signedOutNow(2 ** 40, 2 ** 40), true);
+  } finally {
+    console.error = err;
+  }
+  const t = `ek_rep_so_${process.pid}_${Math.random().toString(36).slice(2)}`;
+  await saveInstallation(t, undefined, false, 'Claude Code');
+  const c = (await connectInstallation(t))!;
+  assert.equal(await signedOutNow(c.id, c.own), true, 'not bound, no page: signed out');
+  const x = process.env.X_CLIENT_ID;
+  delete process.env.X_CLIENT_ID;
+  try {
+    assert.equal(await signedOutNow(2 ** 40, 2 ** 40), false, 'X off is never signed out (A5)');
+  } finally {
+    process.env.X_CLIENT_ID = x;
   }
 });

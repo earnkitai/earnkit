@@ -68,3 +68,14 @@ test('8.12 fix round 1: squash suffix, any-script duplicates, code-point cap, de
   for (const s of shipTitles([c(`Ship ${'é'.repeat(90)}`)], own)) assert.ok([...s].length <= 80);
   for (const x of ['chore: bump deps', 'Update dependencies', 'Upgrade deps to latest', 'bumps dependencies']) assert.equal(cleanTitle(x), null, x);
 });
+
+test('final fix 13: the minimum counts letter and digit code points, so a 2-character CJK title survives', () => {
+  assert.equal(cleanTitle('修复'), '修复');
+  assert.equal(cleanTitle('feat: 登录'), '登录');
+  assert.equal(cleanTitle('버그'), '버그');
+  assert.equal(cleanTitle('修'), null, 'one character says too little');
+  for (const short of ['ok', 'v1', '...', '!!', 'a.'] ) assert.equal(cleanTitle(short), null, short);
+  assert.equal(cleanTitle('Fix'), 'Fix');
+  // Two emoji are 4 UTF-16 units but no letters: dropped.
+  assert.equal(cleanTitle('\u{1F680}\u{1F680}'), null);
+});

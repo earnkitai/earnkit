@@ -30,11 +30,21 @@ const cap = (t: string): string => {
 const dedupeKey = (t: string) => t.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 const PREFIX = /^(feat|fix|chore|docs|refactor|perf|style|test|build|ci)(\([^)]*\))?!?:\s*/i;
 
+/**
+ * Final fix 13: how much a title says, counted in letter and digit code points (never UTF-16 units or punctuation);
+ * a Han, kana or Hangul character carries a word, so it counts 2. A title under TITLE_MIN is dropped: "ok" and "v1"
+ * go, a 2-character Chinese or Japanese title ("修复") stays. Pure.
+ */
+const TITLE_MIN = 3;
+const WIDE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
+const titleWeight = (t: string) => [...t].reduce((n, c) => n + (WIDE.test(c) ? 2 : LETTER_OR_DIGIT.test(c) ? 1 : 0), 0);
+
 export function cleanTitle(raw: string): string | null {
   const first = (raw.split(/\r?\n/)[0] ?? '').replace(/\s+/g, ' ').trim().replace(SQUASH, '');
   if (!first || DROP.some((r) => r.test(first))) return null;
   let t = first.replace(PREFIX, '').trim();
-  if (t.length < 3 || DROP.some((r) => r.test(t))) return null;
+  if (titleWeight(t) < TITLE_MIN || DROP.some((r) => r.test(t))) return null;
   t = t[0].toUpperCase() + t.slice(1);
   return cap(t);
 }

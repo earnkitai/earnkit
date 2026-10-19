@@ -1258,7 +1258,7 @@ export const handlers = {
     // v2.14 T9 fix round 1: signed out, the sign-in question wins; the results question is not used up (outcomeToAsk
     // marks it asked) until the first reply after the bind.
     const signedOut = scoring && profiled && !more
-      ? await signedOutNow(ctx.installationId, ctx.ownInstallationId ?? ctx.installationId).catch(() => false)
+      ? await signedOutNow(ctx.installationId, ctx.ownInstallationId ?? ctx.installationId).catch(() => true)
       : false;
     const ask = signedOut || !own ? null : await outcomeToAsk(ctx.installationId).catch((err: unknown) => {
       console.error('[list_programs] outcome ask', err instanceof Error ? err.name : 'error');

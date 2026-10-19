@@ -80,12 +80,18 @@ const readerDeps = new Proxy({}, { get: (_t, k) => (k === 'now' ? new Date() : k
 const NO_MATCH = async () => ({ checked: 0, scored: 0, fits: [] });
 
 const links = (s: string) => s.match(/https?:\/\/\S+/g) ?? [];
+/** Final fix 14: an earnkit.com link written without https (A14: the page named beside the action link). */
+const bareLinks = (s: string) => s.replace(/https?:\/\/\S+/g, ' ').match(/(?<![\w.@/-])(?:www\.)?earnkit\.com\/\S+/g)?.map((l) => l.replace(/[.,;:!?)]+$/, '')) ?? [];
 /** Acceptance 5 on every reply: one https link, the money section, exactly one question and it is last, never "raise". */
 function rule(r: McpResult): string {
   assert.equal(r.isError, false, r.text);
   const s = String(r.reply?.show_to_builder ?? '');
   assert.equal(links(s).length, 1, s);
   assert.ok(links(s).every((l) => l.startsWith('https://')), s);
+  // Final fix 14: bare earnkit.com links count too: at most the page, named once beside the one action link.
+  assert.ok(bareLinks(s).length <= 1, s);
+  assert.ok(links(s).length + bareLinks(s).length <= 2, s);
+  if (bareLinks(s).length) assert.ok(!links(s)[0].includes(bareLinks(s)[0]), `the page is not linked twice: ${s}`);
   assert.match(s, /Ways to get funded/);
   assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, 1, s);
   assert.ok(s.trimEnd().endsWith('?'), s);
@@ -114,7 +120,7 @@ async function addEarnKit(redirect: string, name: string, user: XUser) {
   assert.equal(res.status, 200);
   const c = (await connectInstallation(((await res.json()) as { access_token: string }).access_token))!;
   assert.equal(c.x, user.id);
-  return { id: c.id, ctx: ctxOf(c) };
+  return { id: c.id, own: c.own, ctx: ctxOf(c) };
 }
 let first: Awaited<ReturnType<typeof addEarnKit>>;
 let installLinkSeen = '';
@@ -131,6 +137,9 @@ test('12.1 acceptance 1: the install signs in with X; the first reply names the 
 test('12.2 acceptance 2: a second agent with the same X is the same page, nothing to approve or merge', db, async () => {
   const second = await addEarnKit('https://claude.ai/api/mcp/auth_callback', 'Claude', ME);
   assert.equal(second.id, first.id, 'the same person');
+  // Final fix 14: two installations (each agent its own), one page.
+  assert.notEqual(second.own, first.own, 'a distinct own installation');
+  assert.notEqual(second.ctx.ownInstallationId, first.ctx.ownInstallationId);
   const s = rule(await mcpCall(second.ctx, 'find', {}));
   assert.ok(s.includes(`earnkit.com/${ME.username}`), s);
   assert.doesNotMatch(s, /approve|merge|add this agent|remove it/i);

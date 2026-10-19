@@ -222,14 +222,20 @@ export async function coinAskBench(
  * v2.14 T9 fix round 1: whether this caller is signed out (state 1): X sign-in can be made (X on and the auth
  * secret set: A5 is only X actually off), the person has no page yet (no X handle), and the caller's own
  * installation isn't bound to X. Find skips the results question while this holds, so it isn't used up before
- * the bind. Throws on a database error (callers fall back).
+ * the bind. A database error reads as signed out (final fix 12: the retry question, never a page it may not have).
  */
 export async function signedOutNow(id: number, own: number): Promise<boolean> {
   if (!xSignInEnabled() || !process.env.EARNKIT_AUTH_SECRET) return false;
-  const [r] = await sql()<{ claimed: boolean; bound: boolean }[]>`
-    SELECT EXISTS (SELECT 1 FROM builder_profiles WHERE builder_id = ${id} AND x_user_id IS NOT NULL AND x_handle IS NOT NULL) AS claimed,
-      EXISTS (SELECT 1 FROM installations WHERE id = ${own} AND (x_user_id IS NOT NULL OR shared_client)) AS bound`;
-  return Boolean(r) && !r.claimed && !r.bound;
+  try {
+    const [r] = await sql()<{ claimed: boolean; bound: boolean }[]>`
+      SELECT EXISTS (SELECT 1 FROM builder_profiles WHERE builder_id = ${id} AND x_user_id IS NOT NULL AND x_handle IS NOT NULL) AS claimed,
+        EXISTS (SELECT 1 FROM installations WHERE id = ${own} AND (x_user_id IS NOT NULL OR shared_client)) AS bound`;
+    return Boolean(r) && !r.claimed && !r.bound;
+  } catch (err) {
+    // Final fix 12: with X on, a failed read is signed out (the retry question), never read as signed in.
+    logged('signed out')(err);
+    return true;
+  }
 }
 
 type Fit = { program_id: string; repo?: string; title: string; prize: string; when: string };
@@ -352,13 +358,15 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
  * installation was bound to X (attachToX sets installations.x_signed_in_unseen), so a builder notices a wrong
  * account. Null otherwise. Never throws.
  */
-async function takeSignedIn(own: number, handle: string | null): Promise<string | null> {
-  // Fix round 1: cleared on every Bench reply (shown only with a handle), so it never shows long after the bind.
+export async function takeSignedIn(own: number, handle: string | null): Promise<string | null> {
+  // Final fix 11: cleared only when the line can be shown (a handle), so a reply whose read failed (EMPTY_BASE, no
+  // handle) never eats it; the next reply with the page shows it once.
+  if (!handle) return null;
   const [r] = await sql()`UPDATE installations SET x_signed_in_unseen = false WHERE id = ${own} AND x_signed_in_unseen RETURNING 1`.catch((err: unknown) => {
     logged('signed in')(err);
     return [];
   });
-  return r && handle ? signedInLine(handle) : null;
+  return r ? signedInLine(handle) : null;
 }
 
 /** O5 fix round 1: a match of the one project is kept this long for a reply that can't wait for it. */
@@ -420,7 +428,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
     ? layout(m, entered).rows.filter((r) => qualifies(r) && !r.card.sponsored && !entered.has(r.card.id) && (r.key ?? r.repo).toLowerCase() === main).slice(0, 3)
     : [];
   const fits: Fit[] = rows.map((r) => ({ program_id: r.card.id, repo: r.repo, title: r.card.title, prize: earnPrize(r.card), when: earnWhen(r.card) }));
-  const signedOut = a.signedOut ?? (await signedOutNow(id, own).catch(() => false));
+  const signedOut = a.signedOut ?? (await signedOutNow(id, own).catch(() => true));
   // Fix round 1: signed out, the sign-in question wins; the submission step waits for the bind too.
   const submit = a.ask || signedOut ? undefined : submitStep(m);
   // A17: a results question, else a submission step, is the one question (never a money line).
@@ -486,7 +494,7 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
   const fits: Fit[] = money.earn.filter((e) => e.project.toLowerCase() === main).map((e) => ({ program_id: e.program_id, title: e.title, prize: e.prize, when: e.when }));
   const fresh = o.fresh;
   const { view, fields } = await benchView({
-    id, now, read, own, signedOut: await signedOutNow(id, own).catch(() => false), name: null, fits, cards: shown, skip: new Set([...entered, ...hidden]), held: null,
+    id, now, read, own, signedOut: await signedOutNow(id, own).catch(() => true), name: null, fits, cards: shown, skip: new Set([...entered, ...hidden]), held: null,
     agentCanBuild: fresh?.canBuild ?? false, due: [], coinDeps: { check: ctx.tokenDeps?.check }, live,
   });
   await noteEvent('score_viewed', () => ({
