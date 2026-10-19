@@ -6,7 +6,7 @@ import { listPrograms } from './programs';
 import { openEntries } from './projects';
 import { hiddenIds, hiddenPrograms, readMemory } from './builder-memory';
 import { recordShown } from './match-loop';
-import { REPO_KEY, benchConfirmedSql } from './main-project';
+import { REPO_KEY, benchConfirmedSql, rankRepo } from './main-project';
 import { installLink, pickLink, repoProof } from './repo-proof';
 import { REPLY_WAIT_MS, settleWithin } from './reply-wait';
 import { rankLines, type RankLines } from './bench-rank';
@@ -626,6 +626,36 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
       // A retired ask (OLD_ASKS): nothing to do; the next reply asks the state's step.
       return okay;
   }
+}
+
+/** Launch ready L2: tell main_project's lines (the builder named the repo to rank instead). */
+export const RANK_LINES = {
+  set: (key: string) => `EarnKit now ranks github.com/${key}.`,
+  same: (key: string) => `EarnKit already ranks github.com/${key}.`,
+  notProven: (key: string) => `github.com/${key} isn't connected yet.`,
+  install: (key: string, link: string) => `github.com/${key} isn't connected yet. Install the read-only EarnKit app on it (one click): ${link}\nWant me to rank it once that's done?`,
+} as const;
+export const RANK_SET_NOTE = "Call find to show where they stand now. Don't show this note.";
+export const RANK_INSTALL_NOTE =
+  "Once the builder has installed EarnKit on it from the link, call tell with main_project again. Don't show this note.";
+
+/**
+ * Launch ready L2: tell main_project. The one project moves to `repo` when this person proved it with the App
+ * (main-project.ts rankRepo), and they are rescored at once; otherwise the repo picker's install link (S7: only
+ * with a page) is offered, and nothing changes.
+ */
+export async function rankAnswer(ctx: Pick<ToolContext, 'installationId'>, key: string): Promise<Reply> {
+  const id = ctx.installationId;
+  const now = new Date();
+  const r = await rankRepo(id, key);
+  if (r === 'same') return { show_to_builder: RANK_LINES.same(key) };
+  if (r === 'set') {
+    await (await import('./person-score')).rescorePerson(id, now).catch(logged('rank rescore'));
+    (await import('./profile-cache')).profileChanged();
+    return { show_to_builder: RANK_LINES.set(key), agent_note: RANK_SET_NOTE };
+  }
+  const link = REPO_KEY.test(key) ? await pickLink(id, now).catch(logged('pick link')) : null;
+  return link ? { show_to_builder: RANK_LINES.install(key, link), agent_note: RANK_INSTALL_NOTE } : { show_to_builder: RANK_LINES.notProven(key) };
 }
 
 /** v2.14 signed_out: the yes to "Want me to put your work on the Bench once you're in?". */
