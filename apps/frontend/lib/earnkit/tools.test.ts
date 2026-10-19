@@ -1428,20 +1428,15 @@ test('9.3 find: no program_id is list_programs; program_id shows the curated gui
     await assert.rejects(tools.find({ program_id: t.p.id, nope: 1 }, ctx), /Unrecognized key/);
   }));
 
-test('9.3 tell: pickup is pick_up_entries; statements are tell_earnkit; several at once join their lines in order', dbTest, async () => {
+test('9.3 tell: statements are tell_earnkit; v2.14 T7: no pickup (refused as an unknown key)', dbTest, async () => {
   const [{ id: inst }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t9tell-${process.pid}-${Date.now()}`}) RETURNING id`;
   const ctx = { installationId: inst };
-  assert.deepEqual(await tools.tell({ pickup: 'no' }, ctx), await handlers.pick_up_entries({ answer: 'no' }, ctx));
   const told = { repo_facts: [{ repo: 'alice/tipjar', has_users: true }] };
   const viaOld = (await handlers.tell_earnkit(told, ctx)) as { agent_note: string };
   const viaNew = (await tools.tell(told, ctx)) as { agent_note: string };
   assert.deepEqual(viaNew, viaOld);
   assert.match(viaNew.agent_note, /The next find uses it/);
-  const both = (await tools.tell({ pickup: 'no', weekly_email: { answer: 'no' } }, ctx)) as { show_to_builder: string };
-  const pick = (await handlers.pick_up_entries({ answer: 'no' }, ctx)) as { show_to_builder: string };
-  const mail = (await handlers.tell_earnkit({ weekly_email: { answer: 'no' } }, ctx)) as { show_to_builder?: string };
-  assert.equal(both.show_to_builder, [pick.show_to_builder, mail.show_to_builder].filter(Boolean).join('\n'));
-  await assert.rejects(tools.tell({ pickup: 'maybe' }, ctx), /Invalid option/);
+  await assert.rejects(tools.tell({ pickup: 'no' }, ctx), /Unrecognized key/);
   await assert.rejects(tools.tell({}, ctx), /Pass at least one/);
 });
 

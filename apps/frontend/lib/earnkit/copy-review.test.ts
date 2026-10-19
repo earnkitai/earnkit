@@ -30,7 +30,7 @@ import { HIDDEN_LINE, NO_PROFILE_LINE, SHARED_PROFILE_NOTE, SHOWN_LINE } from '.
 import { OWNERSHIP_FOR_TOKEN, SCORE_DESCRIPTION, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { presentFirstMessage, skippedLine, submitStepLine, type Card, type FirstMessage } from './present';
 import { SKIP_REASONS } from './match-projects';
-import { BUILD_ENTRY_NOTE, BUILD_NO_LIVE_NOTE, BUILD_HOLD_NOTE, BUILD_WALLET_NOTE, BUILD_PENDING_NOTE, pagesLiveLine, BUILD_DEPLOYS_OFF_NOTE, BUILD_NOT_READY, BUILD_PAGES_NOTE, BUILD_UPLOAD_NOTE, buildChainNote, buildOwnerNote, BUILD_NOT_STARTED, BUILD_SHARED_NOTE, WALLET_NEEDED_NOTE, buildRefused, twistNote, BUILD_NOTE, PLAN_NOTE, ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, CONFIRM_SHARED_NOTE, PROJECT_REOFFER_NOTE, SUBMITTED_AGAIN_NOTE, SUBMITTED_SHARED_NOTE, BUILD_ENTRY_NO_TOKEN_NOTE, handlers } from './tools';
+import { BUILD_ENTRY_NOTE, BUILD_NO_LIVE_NOTE, BUILD_HOLD_NOTE, BUILD_WALLET_NOTE, BUILD_PENDING_NOTE, pagesLiveLine, BUILD_DEPLOYS_OFF_NOTE, BUILD_NOT_READY, BUILD_PAGES_NOTE, BUILD_UPLOAD_NOTE, buildChainNote, buildOwnerNote, BUILD_NOT_STARTED, BUILD_SHARED_NOTE, WALLET_NEEDED_NOTE, buildRefused, twistNote, BUILD_NOTE, PLAN_NOTE, ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, CONFIRM_SHARED_NOTE, PROJECT_REOFFER_NOTE, SUBMITTED_AGAIN_NOTE, SUBMITTED_SHARED_NOTE, BUILD_ENTRY_NO_TOKEN_NOTE, handlers } from './tools';
 import { outcomeQuestion } from './outcomes';
 import { DEFAULT_GUIDANCE, PLAIN_FIX, PLAIN_LENGTH_FIX, PLAIN_NOTE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, walletAsk } from './coach';
 import { alsoText } from './also-qualifies';
@@ -111,7 +111,7 @@ import { ENDED_PAGE, TAKEN_DOWN_PAGE } from '../../../../infra/host-worker/src/r
 import { MINI_LINE, PROFILES_POINTS } from './policy';
 import { bannedIn } from './fixtures/banned-words';
 import { humanStrings, humanTextFiles } from './human-text';
-import { CLAIM_TEXT } from './claim';
+import { SIGNIN_TEXT } from './x-install';
 import { WALLET_TEXT } from './wallet-proof';
 import { NOTHING_YET } from './page-data';
 import SponsorTermsSection from '../../app/terms/sections/SponsorTermsSection';
@@ -759,7 +759,6 @@ const signInTexts: [string, string][] = [
   ['APP_CONFIRM_ONLY_YOURS', APP_CONFIRM_ONLY_YOURS],
   ['codeLine', codeLine('ABCDEFGHJK')],
   ['confirmPage', confirmPage({ repo_key: 'alice/tipjar', handle: 'alice' }, 'n', 'c').replace(/<[^>]+>/g, ' ')],
-  ['PICKUP_TEXT.signIn', PICKUP_TEXT.signIn],
 ];
 
 // v2.10 item 4: confirm's line for a skip of an entry's token (the v2.9 offer path is gone).
@@ -1308,7 +1307,7 @@ test('12.1 v2.12.1 builder and public text never uses a banned word', () => {
   const exempt = ['Avalanche Team1 mini grants', 'Arc Microgrants', 'tokens.fun', 'TipJar', 'Tip Jar', '$TIP', 'EarnKit', 'AI'];
   const texts = [
     standingNews(PREV, NOW_STANDING, AT, true)!.line,
-    ...Object.values(CLAIM_TEXT).map((v) => (typeof v === 'function' ? (v as (h: string) => string)('lee') : v)),
+    ...Object.values(SIGNIN_TEXT).map((v) => (typeof v === 'function' ? (v as (h: string) => string)('lee') : v)),
     ...Object.values(WALLET_TEXT),
     ...(['built_live', 'countable', 'first_five', 'has_people'] as const).map((m) => coinLine(m, 'TipJar', null)),
     // With a real coin: its $TICKER and name are names (exempt below), the wallet shown short.

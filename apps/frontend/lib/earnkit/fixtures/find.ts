@@ -98,7 +98,7 @@ export const fitsFor = (programId: string, key = 'lee/tipjar') => [
 ];
 
 export type Found = {
-  programs: { title: string }[]; show_to_builder: string; claim?: { link: string }; move_up?: { kind: string; project_key: string | null; agent_note?: string };
+  programs: { title: string }[]; show_to_builder: string; move_up?: { kind: string; project_key: string | null; agent_note?: string };
   lead?: { program_id: string }; note: string;
   proof?: { line?: string; sign_in?: string }; schedule_daily_check?: string; schedule_weekly_update?: string;
   build_offer?: { program_id: string; starter_id: string }; rank_lines?: string[]; streak?: number;
@@ -107,8 +107,8 @@ export const find = (id: number, input: Record<string, unknown> = {}, extra: Rec
   tools.find(input, { installationId: id, ...extra } as never) as Promise<Found>;
 
 /**
- * v2.13.4: under the Bench an unclaimed person's one ask is the X claim; a test about what comes after
- * it claims first (a unique X account, as the claim page's sign-in binds it).
+ * A person signed in with X (a unique X account, as x-install.ts bindX writes it), for tests of what a page
+ * signed in with X sees.
  */
 export async function claimX(id: number): Promise<string> {
   const { bindX } = await import('../x-install');

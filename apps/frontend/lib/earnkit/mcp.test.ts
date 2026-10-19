@@ -545,7 +545,7 @@ test('9.2 the instructions and each of the 5 descriptions: under 800 characters,
   }
 });
 
-test('3.9, R16: tell writes and find stays read-only; tell takes submitted, pickup (still accepted) and the v2.9 statements; no description names report_outcome', async () => {
+test('3.9, R16: tell writes and find stays read-only; tell takes submitted and the v2.9 statements (v2.14 T7: no pickup); no description names report_outcome', async () => {
   const { tools } = await listed({});
   assert.equal(tools.length, 5);
   assert.equal(tools.find((t) => t.name === 'find')!.annotations?.readOnlyHint, true);
@@ -553,7 +553,8 @@ test('3.9, R16: tell writes and find stays read-only; tell takes submitted, pick
   const tell = tools.find((t) => t.name === 'tell')!;
   assert.equal(tell.annotations?.readOnlyHint, false);
   const props = Object.keys((tell.inputSchema as { properties: object }).properties);
-  for (const k of ['pickup', 'program_status', 'repo_facts', 'signed_in', 'submitted', 'weekly_email']) assert.ok(props.includes(k), k);
+  for (const k of ['program_status', 'repo_facts', 'signed_in', 'submitted', 'weekly_email']) assert.ok(props.includes(k), k);
+  assert.ok(!props.includes('pickup'), 'v2.14 T7: no pickup');
   assert.match(tell.description!, /call it only with what they said/);
   for (const t of tools) {
     assert.ok(t.description!.length < 800, `${t.name}: ${t.description!.length} characters`);

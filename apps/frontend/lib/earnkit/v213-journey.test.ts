@@ -14,12 +14,12 @@ import { upsertProgram } from './programs';
 import { tools } from './tools';
 import { saveInstallation, touchInstallation } from './installations';
 import { EVENT_LOG_FLAG } from './events';
-import { claimThroughX } from './fixtures/claim-x';
+import { attachToX } from './x-install';
 import { resolveHandle } from './profiles';
 import { refreshPerson, REFRESH_BUDGET_MS, rescorePerson } from './person-score';
 import { mainConfirmed, mainProjectOf } from './main-project';
 import { benchCardFacts, benchRows, parseBenchFilter, profileData } from './bench-data';
-import { UPDATES_ASK, claimAsk, privateLine, takenLine } from './bench-reply';
+import { UPDATES_ASK, privateLine, takenLine } from './bench-reply';
 import { saveVerification } from './github-verify';
 import { rootOf } from './identity';
 import { proveByApp } from './repo-proof';
@@ -35,7 +35,6 @@ import { withEnv } from './fixtures/find';
 import { ARC_TIPJAR_BYTECODE } from './fixtures/arc-tipjar-artifact';
 import { ARC_CONTRACT, TIPJAR_ABI, fakeArc } from './fixtures/arc-chain';
 import type { ReaderDeps } from './source-readers';
-import type { XOAuthDeps } from './x-oauth';
 import type { TokenFlowDeps } from './token-launch';
 import type { DeployDeps } from './deploy';
 import type { FreshOn } from './present';
@@ -323,7 +322,6 @@ const ctx = (id: number, extra: Record<string, unknown> = {}) => ({ installation
 
 /** X: the token exchange and /2/users/me, as X answers for the person signing in. */
 let xUser = { id: 'x-maya', username: 'maya_makes', name: 'Maya Chen', avatar: 'https://pbs.twimg.com/profile_images/1/m_400x400.jpg' as string | null };
-const fakeX: XOAuthDeps = { exchange: async () => 'x-token', me: async () => xUser };
 
 // ---- The database ------------------------------------------------------------------------------
 
@@ -380,7 +378,7 @@ after(async () => {
 // ---- Helpers -----------------------------------------------------------------------------------
 
 type Reply = {
-  show_to_builder: string; agent_note?: string; claim?: { link: string }; proof?: unknown;
+  show_to_builder: string; agent_note?: string; claim?: unknown; proof?: unknown;
   move_up?: { kind: string; project_key: string | null }; build_offer?: { program_id: string }; schedule_weekly_update?: string;
   kit?: { proof_line?: string | null; proof_branch?: unknown }; project_id?: number;
 };
@@ -394,10 +392,10 @@ async function newInstall(): Promise<number> {
 const call = async (tool: 'find' | 'prepare' | 'confirm' | 'tell' | 'score', input: unknown, c: unknown) =>
   (await (tools[tool] as (i: unknown, c: unknown) => Promise<unknown>)(input, c)) as Reply;
 
-/** The claim through X (fixtures/claim-x.ts); the person lands on their page. */
-async function claimX(link: string): Promise<void> {
-  const done = await claimThroughX(link, fakeX);
-  assert.equal(done.status, 200, await done.clone().text());
+/** v2.14: the installation signs in with X (x-install.ts attachToX, as the token exchange or the paste code binds it). */
+async function signInX(id: number): Promise<void> {
+  const done = await attachToX(id, xUser, new Date());
+  assert.ok(done.ok, JSON.stringify(done));
 }
 
 /**
@@ -525,17 +523,16 @@ const RECIPES_PROJECT = { name: 'Recipe planner', what: 'a recipe planner', repo
 
 // ---- The journey -------------------------------------------------------------------------------
 
-test('16.1 acceptance 1, with a project: the first reply names it and carries the claim link; after X and the App install it is on the Bench; the page shows the photo, the Started card and the Project tab', db, async () => {
+test('16.1 acceptance 1, with a project: the first reply names it (v2.14 T7: no claim link); after X and the App install it is on the Bench; the page shows the photo, the Started card and the Project tab', db, async () => {
   const id = await newInstall();
   MAYA.id = id;
   const r1 = await call('find', { identity: { github_login: 'maya', project: RECIPES_PROJECT } }, ctx(id));
   assert.equal(r1.show_to_builder.split('\n')[0], 'Where you stand', r1.show_to_builder);
   assert.equal(r1.show_to_builder.split('\n')[1], privateLine('Recipe planner'), r1.show_to_builder);
-  assert.match(r1.claim?.link ?? '', /^https:\/\/earnkit\.com\/claim\/[a-z2-7]{12}$/);
-  // v2.13.4 (spec 2): the X claim is the one ask, last.
-  assert.ok(r1.show_to_builder.endsWith(claimAsk(r1.claim!.link, 'Recipe planner')), r1.show_to_builder);
+  // v2.14 T7: no claim link or claim ask.
+  assert.equal(r1.claim, undefined);
   assert.equal(r1.proof, undefined, 'v2.14: no proof branch');
-  await claimX(r1.claim!.link);
+  await signInX(id);
   // v2.14 spec 2: the builder installs the read-only App on the repo; the setup URL proves it at once.
   await installRepo(id, RECIPES);
   await advanceRefreshGuard(id, 61_000);
@@ -547,7 +544,7 @@ test('16.1 acceptance 1, with a project: the first reply names it and carries th
   assert.match(r2.show_to_builder, /I'll launch \$\w+ on tokens\.fun and you get 40% of its trading fees\. Want to open a community round for Recipe planner\?$/, r2.show_to_builder);
   assert.equal(r2.move_up?.kind, 'coin');
   MAYA.offer = r2.show_to_builder;
-  assert.equal(r2.claim, undefined, 'claimed: no claim link');
+  assert.equal(r2.claim, undefined, 'no claim link');
   const page = await renderProfile('maya_makes', 'log');
   assert.match(page, /src="https:\/\/pbs\.twimg\.com\/profile_images\/1\/m_400x400\.jpg"/);
   assert.ok(page.includes('Started tracking Recipe planner.'), page);
@@ -559,7 +556,7 @@ test('16.1b review focus 3: a second person naming maya/recipes (already on the 
   xUser = { id: 'x-eve', username: 'eve_ships', name: 'Eve', avatar: null };
   const r = await call('find', { identity: { github_login: 'eve', project: { ...RECIPES_PROJECT, name: 'My recipes' } } }, ctx(EVE));
   assert.equal(r.show_to_builder.split('\n')[1], takenLine('My recipes'), r.show_to_builder);
-  await claimX(r.claim!.link);
+  await signInX(EVE);
   await advanceRefreshGuard(EVE, 61_000);
   const again = await call('find', {}, ctx(EVE));
   assert.equal(again.show_to_builder.split('\n')[1], takenLine('My recipes'), again.show_to_builder);
@@ -571,11 +568,9 @@ test('16.1b review focus 3: a second person naming maya/recipes (already on the 
 
 test('16.2 acceptance 2, without a project: ways to get funded and no build offer (v2.14 A18); a starter build from the program guide becomes the one project', db, async () => {
   const id = await newInstall();
-  // v2.13.4 (spec 2): X first.
-  const r0 = await call('find', { agent_can_build: true, github_user: 'maya2' }, ctx(id));
-  assert.ok(r0.show_to_builder.endsWith(claimAsk(r0.claim!.link, null)), r0.show_to_builder);
+  // v2.14: signed in with X at install (attachToX).
   xUser = { id: 'x-maya2', username: 'maya2_builds', name: 'Maya Two', avatar: null };
-  await claimX(r0.claim!.link);
+  await signInX(id);
   const r = await call('find', { agent_can_build: true, github_user: 'maya2' }, ctx(id));
   assert.match(r.show_to_builder, /^You're not on the Bench yet\./m, r.show_to_builder);
   assert.match(r.show_to_builder, /^Ways to get funded\n/m, r.show_to_builder);

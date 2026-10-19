@@ -7,7 +7,7 @@ import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, claimX, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
-import { claimQuestion, NO_OFFER_LINE, OTHER_PROJECT_ASK, POST_UPDATE_ASK, START_ASK, UPDATES_ASK_JOINING, grantsAsk, shipAsk, takenLine } from './bench-reply';
+import { NO_OFFER_LINE, OTHER_PROJECT_ASK, POST_UPDATE_ASK, START_ASK, UPDATES_ASK_JOINING, grantsAsk, shipAsk, takenLine } from './bench-reply';
 import { noGrantLine } from './bench-find';
 import { mainProjectOf } from './main-project';
 import { mondayOf } from './weeks';
@@ -40,16 +40,16 @@ const OWN_FRESH = { deployOn: () => true, hostOn: true, canBuild: true, starters
 const named = (repo: string) => ({ agent_can_build: true, identity: { github_login: repo.split('/')[0], project: { name: repo.split('/')[1], what: 'a thing', repo } } });
 type R = { show_to_builder: string; agent_note?: string; build_offer?: Record<string, unknown>; move_up?: { kind: string }; kit?: unknown };
 
-test('O2.1c no project, nothing EarnKit can build (deploys off): no "Pick something", no question pointing nowhere, the claim link', dbTest, () =>
+test('O2.1c no project, nothing EarnKit can build (deploys off): no "Pick something", no question pointing nowhere (v2.14 T7: no claim link)', dbTest, () =>
   on(async () => {
     const id = await install();
     const r = await find(id, { agent_can_build: true }, { freshDeps: { ...OWN_FRESH, deployOn: () => false } });
     assert.doesNotMatch(r.show_to_builder, /Pick something to build/);
     // v2.13.3 (3), ruling A: the stand line alone, then existing work and money it can win.
     assert.match(r.show_to_builder, /^You're not on the Bench yet\.$/m);
-    // v2.13.4: unclaimed, the X claim is the one ask.
-    assert.ok(r.show_to_builder.endsWith(claimQuestion(null)), r.show_to_builder);
-    assert.match(r.claim?.link ?? '', /^https:\/\/earnkit\.com\/claim\//);
+    // v2.14 T7: no claim ask: existing work is the one ask.
+    assert.ok(r.show_to_builder.endsWith(START_ASK), r.show_to_builder);
+    assert.equal((r as { claim?: unknown }).claim, undefined);
     assert.equal(r.build_offer, undefined);
     // An open program may be named with what it needs (v2.13.3 (2)), never the raw tag.
     assert.doesNotMatch(r.show_to_builder, /needs a live/);

@@ -1,5 +1,4 @@
 import { randomInt } from 'node:crypto';
-import type postgres from 'postgres';
 import { afterCommit, inTx, sql, type Db } from './db';
 import { shortWallet } from './entry-text';
 import { noteEvent } from './events';

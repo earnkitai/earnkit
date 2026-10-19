@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   OTHER_PROJECT_ASK, SUGGEST_ASK, UPDATES_ASK_JOINING, grantsAsk,
-  NO_OFFER_LINE, START_ASK, benchBuildAsk, buildingNowLine, pageLine, showsClaimLink, CONFIRMED_LINE, claimAsk, claimAskLine, claimQuestion,
+  NO_OFFER_LINE, START_ASK, benchBuildAsk, buildingNowLine, pageLine, CONFIRMED_LINE,
   NO_PROJECT_LINE, POST_UPDATE_ASK, UPDATES_ASK, benchReply, buildAsk, chooseAsk, copyLine, enterAsk, privateLine, takenLine, goLiveAsk, onBenchLine, type BenchAsk, type BenchView,
 } from './bench-reply';
 
@@ -10,7 +10,7 @@ const RECIPE = { key: 'maya/recipes', name: 'Recipe planner', confirmed: true, l
 
 test('8.1 spec 2a, word for word', () => {
   const v: BenchView = {
-    project: RECIPE, rank: 'top 18% of builders', claimed: true, handle: 'maya_makes', claimLink: null,
+    project: RECIPE, rank: 'top 18% of builders', claimed: true, handle: 'maya_makes',
     fund: [{ kind: 'fits', title: 'Avalanche Team1 Mini Grants', prize: 'up to $10K', when: 'open all year' }],
     ask: { kind: 'updates', project_key: 'maya/recipes', line: UPDATES_ASK },
   };
@@ -26,27 +26,22 @@ test('8.1 spec 2a, word for word', () => {
   ].join('\n'));
 });
 
-test('8.2 spec 2a not counted yet, and with the X claim still to do', () => {
+test('8.2 spec 2a not counted yet (v2.14 T7: no claim ask)', () => {
   // v2.14 spec 2: a project not counted yet says so (the App's install is how it counts).
   assert.equal(privateLine('Recipe planner'), "Recipe planner isn't counted yet.");
-  const link = 'earnkit.com/claim/abcdefghijkl';
-  const claim = { kind: 'claim' as const, project_key: null, line: claimAsk(link, 'Recipe planner') };
-  const v: BenchView = { project: { ...RECIPE, confirmed: false }, rank: null, claimed: false, handle: null, claimLink: link, fund: [], ask: claim };
-  // v2.13.4 (spec 2): the X claim is the one ask, last: the link, then one yes or no.
-  assert.equal(benchReply(v), ['Where you stand', privateLine('Recipe planner'), '', 'How to move up', claimAskLine(link), claimQuestion('Recipe planner')].join('\n'));
+  const v: BenchView = { project: { ...RECIPE, confirmed: false }, rank: null, claimed: false, handle: null, fund: [], ask: null };
+  assert.equal(benchReply(v), ['Where you stand', privateLine('Recipe planner')].join('\n'));
   assert.equal(benchReply({ ...v, branch: 'private' }).split('\n')[1], privateLine('Recipe planner'));
   assert.equal(benchReply({ ...v, branch: 'taken' }).split('\n')[1], takenLine('Recipe planner'));
   assert.equal(benchReply({ ...v, branch: 'copy' }).split('\n')[1], copyLine('Recipe planner'));
-  const unclaimed = benchReply({ ...v, project: RECIPE });
-  assert.equal(unclaimed.split('\n')[1], CONFIRMED_LINE('Recipe planner'));
-  assert.ok(unclaimed.endsWith(claimAsk(link, 'Recipe planner')));
-  // No claim ask (a held question, or declined): no claim link at all.
-  assert.doesNotMatch(benchReply({ ...v, ask: null }), /claim/);
+  const unsigned = benchReply({ ...v, project: RECIPE });
+  assert.equal(unsigned.split('\n')[1], CONFIRMED_LINE('Recipe planner'));
+  assert.doesNotMatch(unsigned, /claim/i);
 });
 
 test('8.3 spec 2b, word for word', () => {
   const v: BenchView = {
-    project: null, rank: null, claimed: false, handle: null, claimLink: null,
+    project: null, rank: null, claimed: false, handle: null,
     fund: [{ kind: 'idea', who: 'Arc', prize: 'up to $10K', for: 'payment apps' }, { kind: 'idea', who: 'Base', prize: 'up to $5K', for: 'a live app' }],
     ask: { kind: 'build', project_key: null, line: buildAsk('a tip jar on Arc') },
   };
@@ -92,7 +87,7 @@ test('8.5 the last line asks the first that applies, in the spec\'s order', () =
 // ---- v2.13.1 O2
 
 test('O2.1 B1: "Pick something to build" only with the offer that follows; the starter build with no program; no ask, the plain line', () => {
-  const none: BenchView = { project: null, rank: null, claimed: true, handle: 'maya', claimLink: null, fund: [], ask: null };
+  const none: BenchView = { project: null, rank: null, claimed: true, handle: 'maya', fund: [], ask: null };
   assert.equal(benchReply(none), ['Where you stand', NO_OFFER_LINE].join('\n'));
   assert.doesNotMatch(benchReply(none), /Pick something/);
   assert.equal(benchBuildAsk('a tip jar'), "Want me to build a tip jar and put it online, so you're on the Bench today?");
@@ -100,19 +95,9 @@ test('O2.1 B1: "Pick something to build" only with the offer that follows; the s
   assert.equal(offer, ['Where you stand', NO_PROJECT_LINE, '', 'How to move up', benchBuildAsk('a tip jar')].join('\n'));
 });
 
-test('O2.2 B2 (v2.13.4: the claim is the ask): the claim link shows only as the one ask while unclaimed, project or not', () => {
-  const link = 'https://earnkit.com/claim/abcdefghijkl';
-  const v: BenchView = { project: null, rank: null, claimed: false, handle: null, claimLink: link, fund: [], ask: { kind: 'claim', project_key: null, line: claimAsk(link, null) } };
-  assert.deepEqual(benchReply(v).split('\n').slice(-2), [claimAskLine(link), claimQuestion(null)]);
-  assert.equal(showsClaimLink(v), true);
-  assert.equal(showsClaimLink({ ...v, ask: null }), false);
-  assert.equal(showsClaimLink({ ...v, claimed: true }), false);
-  assert.equal((benchReply(v).match(/https:\/\//g) ?? []).length, 1, 'the only link');
-});
-
 test('O2.3 B4: while a build is in progress the reply is only the building line (no funding, no ask)', () => {
   const v: BenchView = {
-    project: null, rank: null, claimed: true, handle: 'maya', claimLink: null, building: 'Podcast Tips',
+    project: null, rank: null, claimed: true, handle: 'maya', building: 'Podcast Tips',
     fund: [{ kind: 'idea', who: 'Arc', prize: 'up to $500', for: 'payment apps' }], ask: { kind: 'build', project_key: null, line: buildAsk('a tip jar on Arc') },
   };
   assert.equal(buildingNowLine('Podcast Tips'), "Building Podcast Tips. I'll be back with the live link.");
@@ -120,7 +105,7 @@ test('O2.3 B4: while a build is in progress the reply is only the building line 
 });
 
 test('O2.5 once claimed, the page link right after the stand line', () => {
-  const v: BenchView = { project: RECIPE, rank: null, claimed: true, handle: 'maya_makes', claimLink: null, page: 'https://earnkit.com/maya_makes', fund: [], ask: null };
+  const v: BenchView = { project: RECIPE, rank: null, claimed: true, handle: 'maya_makes', page: 'https://earnkit.com/maya_makes', fund: [], ask: null };
   assert.deepEqual(benchReply(v).split('\n').slice(1, 3), [onBenchLine('Recipe planner', null, 6), 'Your page: https://earnkit.com/maya_makes']);
   assert.equal(pageLine('https://earnkit.com/x'), 'Your page: https://earnkit.com/x');
   assert.match(benchReply({ ...v, project: { ...RECIPE, confirmed: false }, branch: 'private' }), /^Your page: https:\/\/earnkit\.com\/maya_makes$/m);
@@ -154,7 +139,7 @@ test('O2 fix round 1 (ruling 3): every reply ends with one question, in each sta
   // No project and nothing to build: v2.13.3 ruling A, existing work and money it can win (the owner's line, no question mark).
   const none = chooseAsk({ ...base, project: null });
   assert.deepEqual(none, { kind: 'start', project_key: null, line: START_ASK });
-  assert.equal(benchReply({ project: null, rank: null, claimed: true, handle: 'm', claimLink: null, fund: [], ask: none }), ['Where you stand', NO_OFFER_LINE, '', 'How to move up', START_ASK].join('\n'));
+  assert.equal(benchReply({ project: null, rank: null, claimed: true, handle: 'm', fund: [], ask: none }), ['Where you stand', NO_OFFER_LINE, '', 'How to move up', START_ASK].join('\n'));
   assert.equal(SUGGEST_ASK, 'Want me to suggest something small you could build this week?');
   // The branch never showed, or another person holds it: a different project (never an entry).
   const p = { ...RECIPE, confirmed: false };

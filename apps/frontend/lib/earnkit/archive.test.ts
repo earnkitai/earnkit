@@ -1,6 +1,6 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = join(import.meta.dirname, '../../../..');
@@ -37,8 +37,11 @@ test('13.3 the tables stay, commented, and receive no writes', () => {
   const schema = readFileSync(join(import.meta.dirname, '../../db/schema.sql'), 'utf8');
   for (const t of ['sponsor_campaigns', 'sponsor_verifications', 'chain_checks']) assert.match(schema, new RegExp(`COMMENT ON TABLE ${t} IS 'archived v2.12'`));
   assert.doesNotMatch(schema, /DROP TABLE/i);
-  const identity = readFileSync(join(import.meta.dirname, 'identity.ts'), 'utf8');
-  assert.match(identity, /archiveFlag\('SPONSOR_CAMPAIGNS'\)[\s\S]{0,200}UPDATE sponsor_campaigns/);
+  // v2.14 T7: the group merge that moved sponsor drafts (identity.ts linkInTx, behind the archive flag) is gone;
+  // nothing in lib/ writes the table.
+  const lib = join(import.meta.dirname);
+  for (const f of readdirSync(lib).filter((x) => x.endsWith('.ts') && !x.endsWith('.test.ts')))
+    assert.doesNotMatch(readFileSync(join(lib, f), 'utf8'), /UPDATE sponsor_campaigns/, f);
 });
 
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };

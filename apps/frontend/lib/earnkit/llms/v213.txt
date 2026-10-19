@@ -93,8 +93,7 @@ names still work as hidden aliases of these four.
   an entry's token; check: true reads a token that is still launching
 - tell: what the builder told you: that they submitted on the program's
   site (submitted, with the entry link when the site has one; a hosted agent
-  adds the entry's project_id), their yes or no to picking up entries from
-  an earlier install (pickup), a program they applied to outside EarnKit,
+  adds the entry's project_id), a program they applied to outside EarnKit,
   one they are not interested in, their own result ("Did it win?", find's
   ask_outcome), and per repo the chains it is live on, testnet only, its
   live link, real users, or not theirs. What lowers a match counts at once;

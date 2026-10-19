@@ -1,5 +1,6 @@
 /**
- * v2.10 item 4: the 8 v2.9 tool names, kept as hidden aliases of the 4 new tools for 30 days (R17).
+ * v2.10 item 4: the v2.9 tool names, kept as hidden aliases of the 4 new tools for 30 days (R17). v2.14 T7:
+ * pick_up_entries is gone with the pickup (an unknown tool now).
  * `app/mcp/route.ts` rewrites an old name in a `tools/call` body before the MCP transport sees it,
  * so old names never appear in `tools/list` and each old call reaches the handler its new form does
  * (Review Focus 2). Pure: no database, no network.
@@ -15,7 +16,6 @@ export const OLD_TOOL_NAMES = [
   'record_submission',
   'launch_token',
   'tell_earnkit',
-  'pick_up_entries',
 ] as const;
 
 /** R17: 30 days after the spec's approval, plus one. After it an old name is an unknown tool. The owner may move it. */
@@ -59,12 +59,10 @@ export function aliasCall(name: string, a: Args, now = new Date()): AliasedCall 
   const skip = yes && a.decision === 'skip' && { skip_token: true };
   const check = a.check_back === true && { check: true };
   // v2.10.1 fix round 1 (I3): a reply names tools in both forms with the new argument words, so an old
-  // name called with them (yes, skip_token, check, submitted, pickup) is that new call as given.
-  const newForm = ['yes', 'skip_token', 'check', 'submitted', 'pickup'].some((k) => a[k] !== undefined);
+  // name called with them (yes, skip_token, check, submitted) is that new call as given.
+  const newForm = ['yes', 'skip_token', 'check', 'submitted'].some((k) => a[k] !== undefined);
   if (newForm && ['confirm_entry', 'launch_token', 'record_submission'].includes(name))
     return { name: a.submitted !== undefined && a.yes === undefined && a.skip_token === undefined && a.program_id === undefined ? 'tell' : 'confirm', args: a };
-  // v2.14 T7: there is no pickup any more; an old pick_up_entries call is an empty tell (nothing to pick up).
-  if (name === 'pick_up_entries') return { name: 'tell', args: {} };
   switch (name) {
     case 'list_programs':
       return { name: 'find', args: a };

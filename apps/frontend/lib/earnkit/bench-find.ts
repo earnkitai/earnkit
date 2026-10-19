@@ -32,7 +32,7 @@ import type { ToolContext } from './tools';
 import { CHAIN_NAMES, type Chain } from './chains';
 import { githubAppEnabled } from './github-app';
 import {
-  GRANTS_LATER_ASK, POST_UPDATE_ASK, SUGGEST_ASK, UPDATES_ASK, UPDATES_ASK_JOINING, benchReply, benchStepKey, chooseAsk, enterAsk, installAppAsk,
+  GRANTS_LATER_ASK, POST_UPDATE_ASK, UPDATES_ASK, UPDATES_ASK_JOINING, benchReply, benchStepKey, chooseAsk, enterAsk, installAppAsk,
   type BenchAsk, type BenchAskKind, type BenchProject, type BenchView, type FundLine,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';

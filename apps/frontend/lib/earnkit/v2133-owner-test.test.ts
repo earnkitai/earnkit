@@ -19,7 +19,7 @@ import { BENCH_STEPS } from '../../app/components/sections/BenchHowItWorks';
 import { fakeGitHub } from './fixtures/fake-github-branch';
 import {
   BENCH_HEADS, NO_PROJECT_LINE, START_ASK, privateLine, benchReply,
-  benchStepKey, chooseAsk, claimAsk, claimLine, enterAsk, installAppAsk, needsLine, type BenchView,
+  benchStepKey, chooseAsk, enterAsk, installAppAsk, needsLine, type BenchView,
 } from './bench-reply';
 import { INSTALL_APP_NOTE, START_NOTE, START_YES_NOTE, coinAskBench, fundNeeds, needsPicks } from './bench-find';
 import { ownLinks, postUpdate } from './updates';
@@ -143,7 +143,7 @@ test('2.1 pure: what each program needs, in plain words; a chain program names i
   assert.equal(fundNeeds(card({ any_chain: true, needs_repo: true })).needs, 'once your code is on GitHub');
   assert.equal(fundNeeds(card({ any_chain: true, needs_repo: false })).needs, 'for any app');
   assert.equal(fundNeeds(card({ chains: ['base', 'tempo', 'robinhood'], needs_repo: true })).needs, 'for an app on Base, Tempo or Robinhood Chain, once its code is on GitHub');
-  const v: BenchView = { project: null, rank: null, claimed: true, handle: 'm', claimLink: null, ask: null,
+  const v: BenchView = { project: null, rank: null, claimed: true, handle: 'm', ask: null,
     fund: [{ kind: 'needs', title: 'Base Builder Grants', prize: 'up to $5K', needs: "for a Base app, once it's live" }] };
   assert.equal(benchReply(v).split('\n').slice(3, 5).join('\n'), "Ways to get funded\nBase Builder Grants: up to $5K for a Base app, once it's live.");
 });
@@ -168,7 +168,8 @@ test('2.2 no project and a project not yet confirmed: up to 2 open programs with
     assert.ok(f2, rm.show_to_builder);
     assert.ok(f2!.split('\n').length - 1 <= 2);
     assert.doesNotMatch(f2!, / fits /);
-    assert.equal(links(rm.show_to_builder).length, 1, 'still one link');
+    // v2.14 T7: unsigned, no claim link (and no App link before a page exists).
+    assert.equal(links(rm.show_to_builder).length, 0, 'no link');
   }));
 
 // ---- 3. No project: lead with existing work ------------------------------------------------------
@@ -217,18 +218,16 @@ test('3.1 no project (ruling A): "You\'re not on the Bench yet." and existing wo
     }
   }));
 
-// ---- 4. The claim link is a line -----------------------------------------------------------------
+// ---- 4. (v2.14 T7: the claim link and the claim ask are gone) ----------------------------------------
 
-test('4.1 (v2.13.4: the claim is the one ask) the claim link, then one yes or no, last; one link', dbTest, () =>
+test('4.1 (v2.14 T7) an unsigned install with a project: no claim link, no claim ask; at most one link and one question, last', dbTest, () =>
   on(async () => {
-    const link = 'https://earnkit.com/claim/abcdefghijkl';
-    assert.equal(claimLine(link), `Your page: claim it with X at ${link}`);
     const id = await install();
     const key = `${uniq('maya')}/recipes`;
     const r = await find(id, { agent_can_build: true, identity: { github_login: key.split('/')[0], project: { name: 'Recipe planner', repo: key } } }, NO_MATCH);
-    assert.ok(r.claim?.link);
-    assert.ok(r.show_to_builder.endsWith(claimAsk(r.claim!.link, 'Recipe planner')), r.show_to_builder);
-    assert.equal(links(r.show_to_builder).length, 1);
+    assert.equal((r as { claim?: unknown }).claim, undefined);
+    assert.doesNotMatch(r.show_to_builder, /claim/i);
+    assert.ok(links(r.show_to_builder).length <= 1);
     assert.equal(questions(r.show_to_builder), 1);
     assert.ok(r.show_to_builder.endsWith('?'));
   }));
@@ -302,7 +301,7 @@ test('5.1 v2.14, App off: a repo is not counted yet, with no install link and no
     assert.doesNotMatch(r.show_to_builder, /github\/verify|Install EarnKit/);
   }));
 
-test('5.2 App on, a private org repo: unclaimed, the X claim first (no App link); claimed, the one install link; installed, the setup URL proves it with the installation token and the project confirms and ranks; readings work; no token kept or logged', dbTest, () =>
+test('5.2 App on, a private org repo: unclaimed, no App link (v2.14 T7: no claim ask); claimed, the one install link; installed, the setup URL proves it with the installation token and the project confirms and ranks; readings work; no token kept or logged', dbTest, () =>
   withEnv({ ...ON, ...APP }, async () => {
     const logged: string[] = [];
     const was = { error: console.error, log: console.log, warn: console.warn };
@@ -315,14 +314,13 @@ test('5.2 App on, a private org repo: unclaimed, the X claim first (no App link)
       const key = `${uniq('earnkitai')}/earnkit`;
       const gh = privateGitHub(key);
       const id = await install();
-      // Unclaimed: the claim link is the one link (v2.13.4: the claim is the one ask); the install link comes next reply.
+      // Unclaimed: no App link yet (S7: it names the page) and no claim ask (v2.14 T7); the install link comes once signed in.
       const r1 = await find(id, named(key, login), NO_MATCH);
       assert.equal(r1.show_to_builder.split('\n')[1], privateLine('Earnkit'), r1.show_to_builder);
-      assert.equal(links(r1.show_to_builder).length, 1, r1.show_to_builder);
-      assert.ok(r1.show_to_builder.endsWith(claimAsk(r1.claim!.link, 'Earnkit')), r1.show_to_builder);
+      assert.equal(links(r1.show_to_builder).length, 0, r1.show_to_builder);
       assert.equal(questions(r1.show_to_builder), 1);
       assert.ok(r1.show_to_builder.endsWith('?'));
-      assert.equal(r1.move_up?.kind, 'claim');
+      assert.notEqual(r1.move_up?.kind, 'install_app');
       assert.equal(r1.proof, undefined);
       // Claimed: the install link is the one link (v2.13.4: the page named without https), the question last.
       await claimX(id);

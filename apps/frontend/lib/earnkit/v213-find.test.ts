@@ -11,9 +11,9 @@ import { bindX } from './x-install';
 import { mcpCall } from './fixtures/mcp-call';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
-import { X_ON, avalanche, claimX, dropAvalanche, dropPrograms, find, fitsFor, install, person, withEnv } from './fixtures/find';
+import { X_ON, avalanche, dropAvalanche, dropPrograms, find, fitsFor, install, person, withEnv } from './fixtures/find';
 import type { Starter } from './starters';
-import { START_ASK, UPDATES_ASK, claimAsk, privateLine } from './bench-reply';
+import { START_ASK, UPDATES_ASK, privateLine } from './bench-reply';
 
 /**
  * v2.13 T8: find and score under the Bench flag through the real tools: the three parts (where you
@@ -49,16 +49,16 @@ async function arcCopy() {
   await upsertProgram(ProgramFile.parse(p));
 }
 
-test('8.6 a fresh install with identity.project: the project named, not counted yet (v2.14: the App proves it), the https claim link', dbTest, () =>
+test('8.6 a fresh install with identity.project: the project named, not counted yet (v2.14: the App proves it); v2.14 T7: no claim ask', dbTest, () =>
   benchOn(async () => {
     const id = await install();
     const r = await find(id, { identity: { github_login: `mayav${RUN}`, project: { name: 'Recipe planner', what: 'a recipe planner', repo: `mayav${RUN}/recipes` } } }, { matchProjects: async () => ({ checked: 1, scored: 0, fits: [] }) });
     const lines = r.show_to_builder.split('\n');
     assert.equal(lines[0], 'Where you stand');
     assert.equal(lines[1], privateLine('Recipe planner'));
-    // v2.13.4 (spec 2): the https claim link is the one ask, last.
-    assert.match(r.claim?.link ?? '', /^https:\/\/earnkit\.com\/claim\//);
-    assert.ok(r.show_to_builder.endsWith(claimAsk(r.claim!.link, 'Recipe planner')), r.show_to_builder);
+    // v2.14 T7: no claim link and no claim ask (T9 adds the unsigned state's sign-in line).
+    assert.equal((r as { claim?: unknown }).claim, undefined);
+    assert.doesNotMatch(r.show_to_builder, /claim/i);
     assert.equal(r.proof, undefined, 'v2.14: no proof branch');
     assert.equal(r.schedule_daily_check, undefined, 'B18: no daily check under the flag');
   }),
@@ -98,10 +98,7 @@ test('8.8 no project: ideas first and existing work; no build offer (v2.14 A18)'
     await arcCopy();
     try {
       const id = await install();
-      // v2.13.4 (spec 2): unclaimed, the X claim is the one ask.
-      const r0 = await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH });
-      assert.ok(r0.show_to_builder.endsWith(claimAsk(r0.claim!.link, null)), r0.show_to_builder);
-      await claimX(id);
+      // v2.14 T7: no claim ask first; an unsigned install gets the start ask at once.
       const r = await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH });
       assert.match(r.show_to_builder, /^You're not on the Bench yet\.$/m);
       assert.match(r.show_to_builder, /^Ways to get funded\n/m);

@@ -138,7 +138,7 @@ import { hideUpdate, postUpdate, setUpdates } from './updates';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { benchIdentity, benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
 import { REPO_KEY, dropMainProject, fillGithubUser, mainProjectOf, setMainProject } from './main-project';
-import { BENCH_MOVE_UP_NOTE, benchAsked, benchFind, benchMoveUp, keepBenchMatch, keptBenchMatch } from './bench-find';
+import { benchAsked, benchFind, benchMoveUp, keepBenchMatch, keptBenchMatch } from './bench-find';
 import { REPLY_WAIT_MS, ReplyLate, inTime } from './reply-wait';
 import { setRaising } from './raising';
 import { scoreReply } from './score-tool';

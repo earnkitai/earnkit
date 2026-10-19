@@ -8,9 +8,9 @@ import { sql } from './db';
 import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
-import { X_ON, avalanche, claimX, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
+import { X_ON, avalanche, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
 import {
-  GRANTS_LATER_ASK, claimQuestion, START_ASK, UPDATES_ASK_JOINING, grantsAsk, privateLine, shipAsk,
+  GRANTS_LATER_ASK, START_ASK, UPDATES_ASK_JOINING, grantsAsk, privateLine, shipAsk,
 } from './bench-reply';
 import { GRANTS_QUIET_MS, noGrantLine } from './bench-find';
 import { GitHubError } from './match-projects';
@@ -22,7 +22,6 @@ import { readPersonLive, rescorePerson } from './person-score';
 import { safeNames } from './page-data';
 import { EARN_NOTE } from './stand-text';
 import { toolDescriptions } from './mcp';
-import { CLAIM_TEXT, claimDonePage, claimGet, claimLink } from './claim';
 import { UPDATE_LINES } from './updates';
 import { rankLines } from './bench-rank';
 import { benchLine } from '../../app/bench/BenchView';
@@ -117,7 +116,8 @@ test('O5 N1 (F16) the first find and score answer in under 3 s while GitHub has 
       assert.equal(gh.answered(), 0, 'none had answered when the reply went out');
       // v2.14 spec 2: not counted until the App is installed (no proof branch, no GitHub read for it).
       assert.equal(r.show_to_builder.split('\n')[1], privateLine('Next.js'), r.show_to_builder);
-      assert.equal(links(r.show_to_builder).length, 1);
+      // v2.14 T7: unsigned, no claim link (and no App link: it needs a page).
+      assert.equal(links(r.show_to_builder).length, 0);
       assert.ok(r.show_to_builder.endsWith('?'));
       assert.equal(r.proof, undefined);
       const t2 = Date.now();
@@ -203,12 +203,9 @@ test('O5 N6 (P5) no project: never a grant claimed for a build that can\'t enter
     // v2.13.3 (2): an open program may be named with what it needs, never as an idea it pays for.
     assert.ok(!r.show_to_builder.includes(`${ava.title} pays`), r.show_to_builder);
     assert.doesNotMatch(r.show_to_builder, /a small app|tip jar/);
-    // v2.13.4 (spec 2): X first; once claimed, existing work.
-    assert.ok(r.show_to_builder.endsWith(claimQuestion(null)), r.show_to_builder);
-    await claimX(id);
-    const r1 = await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH });
-    assert.ok(r1.show_to_builder.endsWith(START_ASK), r1.show_to_builder);
-    assert.equal(r1.build_offer, undefined);
+    // v2.14 T7: no claim ask first: existing work at once.
+    assert.ok(r.show_to_builder.endsWith(START_ASK), r.show_to_builder);
+    assert.equal(r.build_offer, undefined);
     // A chat-only agent: the same rule.
     const c = await install();
     const rc = await find(c, { agent_can_build: false }, { freshDeps: { ...OWN_FRESH, canBuild: false } });
@@ -230,8 +227,8 @@ test('O5 N7 (F11), N12 the twist asks for a wallet with a way out (one question)
 test('O5 N13 confirmed but not claimed: the updates yes never says "on the Bench" yet', dbTest, () =>
   on(async () => {
     const key = `${uniq('nc')}/hello-world`;
-    // v2.13.4: unclaimed, the claim is the ask; with it declined, the next ask still never says "on the Bench".
-    const id = await person({ main: key, seen: { declined: { 'claim:*': new Date().toISOString() } }, projects: [{ key, name: 'Hello-World', confirmed: true }] });
+    // Unclaimed (v2.14 T7: no claim ask), the ask never says "on the Bench".
+    const id = await person({ main: key, projects: [{ key, name: 'Hello-World', confirmed: true }] });
     const r = await find(id, {}, NO_MATCH);
     assert.ok(r.show_to_builder.endsWith(UPDATES_ASK_JOINING), r.show_to_builder);
   }),
@@ -283,7 +280,7 @@ test('O5 N14 (F15), P3, P4 the update replies carry the full page link; the sche
   }),
 );
 
-// ---- N9, N11, P7: what the agent and the claim pages say ---------------------------------------------
+// ---- N9: what the agent says (v2.14 T7: the claim pages are gone) ---------------------------------
 
 test('O5 N9 prepare\'s description never teaches the earnkit.txt line', () =>
   withEnv(ON, async () => {
@@ -291,21 +288,6 @@ test('O5 N9 prepare\'s description never teaches the earnkit.txt line', () =>
     assert.doesNotMatch(bench, /earnkit\.txt|token: <code>/);
     assert.match(bench, /A token needs a repo proven yours; EarnKit gives you the install link when it needs one\./);
     assert.ok(bench.length < 800, `${bench.length}`);
-  }),
-);
-
-test('O5 N11, P7 the claim page says what the Bench page is; the done page offers no GitHub sign-in under the Bench', dbTest, () =>
-  withEnv({ ...ON, GITHUB_OAUTH_CLIENT_ID: 'o5-gh', GITHUB_OAUTH_CLIENT_SECRET: 'o5-gh-secret' }, async () => {
-    const id = await install();
-    await find(id, {}, NO_MATCH);
-    const link = await claimLink(id);
-    const code = link!.split('/').pop()!;
-    const page = await (await claimGet(new Request(`https://earnkit.com/claim/${code}`), code)).text();
-    assert.ok(page.includes(CLAIM_TEXT.public), page);
-    assert.equal(CLAIM_TEXT.public, 'Your page puts your project on the Bench and shows what you ship each week, under your X name.');
-    const done = await (await claimDonePage('maya_makes', id, {})).text();
-    assert.ok(!done.includes('Sign in with GitHub'), 'no GitHub sign-in');
-    assert.ok(done.includes(CLAIM_TEXT.wallet));
   }),
 );
 
