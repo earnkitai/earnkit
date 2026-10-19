@@ -3,7 +3,7 @@ import { enqueueDiscovery, publicHttpsOrigin, type LocalGit } from './discovery'
 import { sql } from './db';
 import { noteEvent } from './events';
 import { rememberWallets } from './installations';
-import { plainText } from './untrusted-text';
+import { plainText, wholeWords } from './untrusted-text';
 
 /**
  * v2.12.1 spec "1. Connect": in the first find the agent passes what it can already see, never
@@ -24,10 +24,13 @@ const PYPI = /^pypi:[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9])?$/i;
 const o = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 // plainText keeps letters out of markup ("<b>now</b>" would read "bnow/b"), so tags go first; a dash
 // between words becomes a comma (the copy rule: no em dashes in builder text, and these words are shown).
+// R11: names keep whole words (never cut mid-word).
 const s = (v: unknown, max: number) =>
   typeof v === 'string'
-    ? plainText(v.slice(0, 1000).replace(/<[^>]*>/g, ''), true).replace(/\s*[–—]\s*/g, ', ').replace(/\s+/g, ' ').trim().slice(0, max)
+    ? wholeWords(plainText(v.slice(0, 1000).replace(/<[^>]*>/g, ''), true).replace(/\s*[–—]\s*/g, ', ').replace(/\s+/g, ' ').trim(), max)
     : '';
+/** R11: a project's name keeps up to the project_name limit (untrusted-text TEXT_RULES), whole words. */
+const NAME_MAX = 60;
 const BARE_REPO = /^([a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38})\/((?!\.\.?$)[a-z0-9._-]{1,100})$/i;
 /** A GitHub repo as 'owner/repo' (lowercase): a remote, a github.com link, or the bare 'owner/repo'. */
 const repoOf = (v: unknown): string | null => {
@@ -56,7 +59,7 @@ export function projectOf(raw: unknown): IdentityProject | null {
         .filter((c) => CONTRACT.test(c)),
     ),
   ].slice(0, IDENTITY_CAPS.contracts);
-  const name = s(p.name, 40) || (repo ? repo.split('/')[1] : '') || (live ? new URL(live).hostname : '');
+  const name = s(p.name, NAME_MAX) || (repo ? repo.split('/')[1] : '') || (live ? new URL(live).hostname : '');
   if (!name || (!repo && !live && !pkg && contracts.length === 0)) return null;
   return { name, what: s(p.what, 60) || null, repo, live_url: live, package: pkg, contracts };
 }
@@ -134,7 +137,7 @@ export function benchIdentity(a: {
     const locals = (a.local_repos == null ? [] : Array.isArray(a.local_repos) ? a.local_repos : [a.local_repos]).slice(0, 20).map((x) => {
       const r = typeof x === 'string' ? { name: x } : o(x);
       // v2.13.4 (production): an entry names its repo by `url`, `remote` or `repo` (agents send each).
-      return { name: s(r.name, 40), repo: repoOf(r.url) ?? repoOf(r.remote) ?? repoOf(r.repo), live: liveOf(r.live_url) };
+      return { name: s(r.name, NAME_MAX), repo: repoOf(r.url) ?? repoOf(r.remote) ?? repoOf(r.repo), live: liveOf(r.live_url) };
     });
     const repo = list(a.repos == null ? [] : Array.isArray(a.repos) ? a.repos : [a.repos], 30).map(repoOf).find((r): r is string => r !== null)
       ?? locals.find((l) => l.repo)?.repo ?? a.local_git.remotes[0] ?? null;

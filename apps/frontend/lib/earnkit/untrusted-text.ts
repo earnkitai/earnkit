@@ -401,3 +401,15 @@ export function cleanProject<P extends { name?: string; description?: string }>(
     }),
   };
 }
+
+/**
+ * R11 (names are never cut mid-word): `text` when it fits `max`, else its whole words that fit (a
+ * single word longer than `max` is kept up to `max`, the only cut left). Pure.
+ */
+export function wholeWords(text: string, max: number): string {
+  const t = text.trim();
+  if (t.length <= max) return t;
+  const head = t.slice(0, max + 1);
+  const at = head.lastIndexOf(' ');
+  return (at > 0 ? head.slice(0, at) : t.slice(0, max)).trimEnd();
+}

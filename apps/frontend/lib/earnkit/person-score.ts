@@ -17,6 +17,7 @@ import {
 } from './source-readers';
 import { firstPushes, needsPushCheck, previousRepoSignals, storedCommits } from './sources';
 import { CHAIN_IDS } from './tokens';
+import { wholeWords } from './untrusted-text';
 import { isoWeekOf, last52, mondayOf, streakOf, weeksShipping } from './weeks';
 
 /**
@@ -318,7 +319,7 @@ export async function personInputsV2(
 
     const ident = named(key);
     const repoName = /^[^/:\s]+\/[^/\s]+$/.test(key) ? (ghName ?? key.split('/')[1]) : null;
-    const identName = typeof ident?.name === 'string' && ident.name.trim() ? ident.name.trim().slice(0, 60) : null;
+    const identName = typeof ident?.name === 'string' && ident.name.trim() ? wholeWords(ident.name, 60) : null;
     const identWhat = typeof ident?.what === 'string' && ident.what.trim() ? ident.what.trim().slice(0, 120) : null;
     const slug = hostedHere[0]?.slug;
     projects.push({

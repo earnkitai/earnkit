@@ -387,8 +387,8 @@ test('12.2 the sections in order: hero, the Bench top 10, this week on the Bench
   assert.ok(at.every((i, k) => i >= 0 && (k === 0 || i > at[k - 1])), at.join(','));
   assert.equal((h.match(/data-row=/g) ?? []).length, 10, 'the top 10');
   assert.match(h, new RegExp(`href="/leaderboard"[^>]*>${SEE_BENCH}`));
-  assert.match(h, /href="\/bench\?chain=base"/);
-  assert.match(h, /href="\/bench\?raising=1"/);
+  assert.match(h, /href="\/leaderboard\?chain=base"/);
+  assert.match(h, /href="\/leaderboard\?raising=1"/);
   assert.match(h, /data-shape="square"/);
   for (const s of BENCH_STEPS) assert.ok(h.includes(s), s);
 });
