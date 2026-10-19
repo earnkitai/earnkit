@@ -242,14 +242,14 @@ test('O5 N15, v2.14: a chat-only agent with a project: not counted yet (the App 
   }),
 );
 
-test('O5 P2 (reversed in v2.13.4): the reply names the Bench rank from 1 ranked ("#1 of 1 builder"), in the stand line, plain words; P8 the earn note only with a lead', dbTest, () =>
+test('O5 P2 (reversed in v2.13.4): the reply names the rank from 1 ranked ("#1 of 1 builder this week"), in the stand line with the score (R16c), plain words; P8 the earn note only with a lead', dbTest, () =>
   on(async () => {
     const key = `${uniq('rk')}/hello-world`;
     const id = await person({ main: key, claimed: uniq('rk'), ranked: true, score: 100, projects: [{ key, name: 'Hello-World', confirmed: true }] });
-    assert.equal((await rankLines(id, { only: [id] })).phrase, '#1 of 1 builder');
+    assert.equal((await rankLines(id, { only: [id] })).bench, '#1 of 1 builder this week');
     const r = await find(id, {}, NO_MATCH);
-    // The stand line carries the rank (the spec's rule: "#N of M" under 20 ranked, top half; "Top P%" from 20).
-    assert.match(r.show_to_builder, /^Hello-World is on the Bench: (#1 of \d+ builders?|top [\d.]+% of builders)\.$/m, r.show_to_builder);
+    // The stand line is the score line ("#N of M" under 20 ranked; "Top P%" in the top half from 20).
+    assert.match(r.show_to_builder, /^Hello-World: Shipping 100 · (#\d+ of \d+ builders?|Top [\d.]+% of builders) this week\.$/m, r.show_to_builder);
     assert.equal((r.show_to_builder.match(/https?:\/\//g) ?? []).length, 1, 'no second link');
     assert.equal((r.show_to_builder.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, 1, 'no second question');
     assert.ok(!(r.note ?? '').includes(EARN_NOTE), r.note);

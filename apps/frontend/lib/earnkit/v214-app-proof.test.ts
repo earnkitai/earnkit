@@ -65,7 +65,55 @@ test('6.2 the setup URL proves the repo (github_app), rescoring at once: the nex
   assert.deepEqual({ ...s, public_at: s.public_at === null }, { state: 'verified', proof: 'github_app', gh_repo_id: '9001', gh_owner: `nia${RUN}`, public_at: true });
   assert.deepEqual(await repoProof(p.id, key), { ok: true, via: 'app', owner: `nia${RUN}`, private: true });
   const r = await mcpCall(p.ctx, 'find', {});
-  assert.match(String(r.reply?.show_to_builder), /is on the Bench/);
+  // R4, R16c: read at connect with no commits, it ranks at 0 and the stand line is the score line.
+  assert.match(String(r.reply?.show_to_builder), /^Notes: Shipping 0 · (#\d+ of \d+ builders?|Top [\d.]+% of builders) this week\.$/m);
+});
+
+/** A person who named `key` and installed the App on it through the setup URL (appSetup, proveByApp). */
+async function connected(key: string, handle: string, gh: ReturnType<typeof fakeGitHub>, inst: number) {
+  const p = await personWith(key, handle);
+  const nonce = new URL((await createVerifyLink({ installationId: p.id, projectId: null, repoKey: key, purpose: 'app' }, NOW))).searchParams.get('n')!;
+  await sql()`UPDATE github_verify_nonces SET login = ${`${handle}${RUN}`}, account_created_at = '2020-01-01', public_repos = 3 WHERE nonce_hash = ${sha(nonce)}`;
+  const res = await appSetup(new Request(`https://earnkit.com/github/verify/app?installation_id=${inst}&state=${nonce}`, { headers: { cookie: `${csrfCookieName(nonce)}=x` } }), { fetch: gh, limit: async () => {} });
+  assert.equal(res.status, 200);
+  const [live] = await sql()<{ score: number; ranked: boolean; parts: { shipping?: { raw?: Record<string, number> } } }[]>`SELECT score, ranked, parts FROM builder_live WHERE builder_id = ${p.id}`;
+  return { ...p, live };
+}
+const ago = (weeks: number) => new Date(Date.now() - weeks * 7 * 86_400_000).toISOString();
+
+test('6.2b R5 scored at connect: right after the App setup, a repo with commits has a real Shipping score and a rank', db, async () => {
+  const key = `gwen${RUN}/ships`;
+  const commits = [0, 1, 2, 5].map((w, i) => ({ sha: `c${i}`, message: `change ${i}`, date: ago(w) }));
+  const gh = fakeGitHub({ [key]: { id: 9101, owner: `gwen${RUN}`, installation: 91, private: true, commits } });
+  const p = await connected(key, 'gwen', gh, 91);
+  // Weeks 0, 1, 2 and 5: weights 12 + 11 + 10 + 7 = 40 of 78, so round(90 x 40 / 78) = 46.
+  assert.equal(p.live.score, 46);
+  assert.equal(p.live.ranked, true);
+  assert.equal(p.live.parts.shipping?.raw?.weeks, 4);
+  // One reading, with the installation's token (never EarnKit's shared one).
+  const reads = gh.calls.filter((c) => c.path === '/graphql');
+  assert.equal(reads.length, 1);
+  assert.equal(reads[0].auth, 'Bearer ghs_fake_91');
+  const r = await mcpCall(p.ctx, 'score', {});
+  const text = String(r.reply?.show_to_builder);
+  // A streak of 3 (this week and the two before) is the shipping state: the score line, then the streak.
+  assert.match(text, /^Ships: Shipping 46 · (#\d+ of \d+ builders?|Top [\d.]+% of builders) this week\. 3 weeks in a row\.$/m, text);
+  // Next week drops week 5's weight: shipping then is 55, not shipping 42.
+  assert.ok(text.includes('Code in 4 of the last 12 weeks, 3 of the last 4. Ship code next week to add up to 13 points.'), text);
+});
+
+test('6.2c R5 fail soft: a reading that fails at connect leaves the proof standing, unranked until a repo reading exists', db, async () => {
+  const key = `fynn${RUN}/down`;
+  const repos = { [key]: { id: 9102, owner: `fynn${RUN}`, installation: 92, private: true, commits: [{ sha: 'a', message: 'x', date: ago(0) }] } };
+  const base = fakeGitHub(repos);
+  const gh = Object.assign((async (input: RequestInfo | URL, init?: RequestInit) =>
+    String(input).endsWith('/graphql') ? new Response('{}', { status: 502 }) : base(input, init)) as typeof fetch, { calls: base.calls, repos });
+  const p = await connected(key, 'fynn', gh, 92);
+  assert.deepEqual(await repoProof(p.id, key), { ok: true, via: 'app', owner: `fynn${RUN}`, private: true });
+  assert.equal(p.live.ranked, false, 'R4: no repo reading yet, no rank');
+  assert.equal(p.live.score, 0);
+  const [l] = await sql()<{ ok: boolean }[]>`SELECT l.ok FROM source_live l JOIN builder_sources s ON s.id = l.source_id WHERE s.builder_id = ${p.id} AND s.kind = 'repo'`;
+  assert.equal(l.ok, false, 'the failed read is recorded, so the next refresh reads it again');
 });
 
 test('6.3 the App on a fork is a copy: refused, not verified', db, async () => {

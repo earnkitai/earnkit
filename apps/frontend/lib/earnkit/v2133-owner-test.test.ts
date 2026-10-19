@@ -144,7 +144,7 @@ test('2.1 pure: what each program needs, in plain words; a chain program names i
   assert.equal(fundNeeds(card({ any_chain: true, needs_repo: true })).needs, 'once your code is on GitHub');
   assert.equal(fundNeeds(card({ any_chain: true, needs_repo: false })).needs, 'for any app');
   assert.equal(fundNeeds(card({ chains: ['base', 'tempo', 'robinhood'], needs_repo: true })).needs, 'for an app on Base, Tempo or Robinhood Chain, once its code is on GitHub');
-  const v: BenchView = { state: 'no_project', variant: null, project: null, rank: null, streak: 0, handle: null, link: null, due: [], held: null,
+  const v: BenchView = { state: 'no_project', variant: null, project: null, rank: null, streak: 0, score: null, why: null, handle: null, link: null, due: [], held: null,
     ask: { kind: 'start', project_key: null, line: STATE_COPY.no_project.ask() },
     fund: [{ kind: 'needs', title: 'Base Builder Grants', prize: 'up to $5K', needs: "for a Base app, once it's live" }] };
   assert.equal(benchReply(v).split('\n').slice(3, 5).join('\n'), "Ways to get funded\nBase Builder Grants: up to $5K for a Base app, once it's live.");

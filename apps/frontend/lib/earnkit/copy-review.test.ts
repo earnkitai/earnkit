@@ -863,8 +863,8 @@ const sp = (o: Partial<StandProject> & { key: string; name: string }): StandProj
   what: null, shipped: true, people: 0, has_coin: false, sends_tx: false, tagged: false, untracked_contract: null, untracked_people: 0, certain: false, app: true, ...o,
 });
 export const v2121Texts: [string, string][] = [
-  ['standingNews people', standingNews({ rank: 5, people: { t: 1 }, at: '2026-10-10T00:00:00Z' }, { standing: { ranked: true, rank: 3, total: 40 }, projects: [{ key: 't', name: 'TipJar', people: 13 }] }, new Date('2026-10-14T00:00:00Z'), true)!.line],
-  ['standingNews top', standingNews({ rank: 40, at: '2026-09-01T00:00:00Z' }, { standing: { ranked: true, rank: 12, total: 120 }, projects: [] }, new Date('2026-10-14T00:00:00Z'), false)!.line],
+  ['standingNews card', standingNews({ rank: 5, at: '2026-10-10T00:00:00Z' }, { standing: { ranked: true, rank: 3, total: 19 } }, new Date('2026-10-14T00:00:00Z'), true)!.line],
+  ['standingNews top', standingNews({ rank: 40, at: '2026-09-01T00:00:00Z' }, { standing: { ranked: true, rank: 12, total: 120 } }, new Date('2026-10-14T00:00:00Z'), false)!.line],
   ['usersMoneyLine', usersMoneyLine(sp({ key: 'r', name: 'Recipes', what: 'a recipe planner' }), 'lee/recipes', 'Arc Microgrants', 'up to $500')],
   ['rollingLine', rollingLine('Arc Microgrants', 'up to $500', true)],
   ['rollingLine no projects', rollingLine('Arc Microgrants', 'up to $500', false)],
@@ -1297,8 +1297,8 @@ test('v2.12.1 T8 copy rule: plain sentences, sentence case, no jargon, no period
 
 // ---- v2.12.1 T12: the banned-word review over every builder-facing and public string.
 
-const PREV = { rank: 5, people: { t: 1 }, at: '2026-10-10T00:00:00Z' };
-const NOW_STANDING = { standing: { ranked: true, rank: 3, total: 40 }, projects: [{ key: 't', name: 'TipJar', people: 13 }] };
+const PREV = { rank: 5, at: '2026-10-10T00:00:00Z' };
+const NOW_STANDING = { standing: { ranked: true, rank: 3, total: 40 } };
 const AT = new Date('2026-10-14T00:00:00Z');
 test('12.1 v2.12.1 builder and public text never uses a banned word', () => {
   const exempt = ['Avalanche Team1 mini grants', 'Arc Microgrants', 'tokens.fun', 'TipJar', 'Tip Jar', '$TIP', 'EarnKit', 'AI'];

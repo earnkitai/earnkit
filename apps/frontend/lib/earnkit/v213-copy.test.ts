@@ -4,7 +4,7 @@ import { BENCH_ALLOWED, bannedIn, bannedInBench } from './fixtures/banned-words'
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { pageWords } from './fixtures/page-words';
-import { CHAIN_LABEL, benchRank } from './rank';
+import { CHAIN_LABEL, rankLine, scoreLine } from './rank';
 import { bestFact } from './bench-data';
 import BenchView, { BENCH_EMPTY, BENCH_TITLE, FILTER_RAISING, FILTER_WEEKLY, benchLine } from '../../app/bench/BenchView';
 import { raiseLine } from './coin-moments';
@@ -21,11 +21,11 @@ import {
 const EXEMPT = ['Recipe planner', 'Avalanche Team1 Mini Grants', 'Base Builder Grants', 'EarnKit', 'tokens.fun', '$RECIPE', 'RECIPE'];
 const s = (rank: number, total: number) => ({ ranked: true, rank, total });
 export const TEXTS: string[] = [
-  ...[s(18, 100), s(3, 1000), s(10, 19)].flatMap((x) => [benchRank(x)!.short, benchRank(x)!.phrase]),
-  ...(['base', 'arc', 'robinhood'] as const).flatMap((chain) => [benchRank(s(1, 100), { chain })!.short, benchRank(s(2, 12), { chain })!.short]),
+  ...[s(18, 100), s(3, 1000), s(10, 19), s(70, 100)].flatMap((x) => [rankLine(x)!, scoreLine(62, rankLine(x))]),
+  ...(['base', 'arc', 'robinhood'] as const).flatMap((chain) => [rankLine(s(1, 100), { chain })!, rankLine(s(2, 12), { chain })!]),
   // T8: the reply's lines. The 2b lines name a funder and the starter's offer through the BENCH_PITCH_ALLOWED hook (plan B12).
   // v2.14 T9: the five states' copy (STATE_COPY, VARIANT_COPY).
-  NOT_ON_BENCH, STATE_COPY.not_counted.stand('Recipe planner'), STATE_COPY.shipping.stand('Recipe planner', 'top 18% of builders', 6),
+  NOT_ON_BENCH, STATE_COPY.not_counted.stand('Recipe planner'), STATE_COPY.shipping.stand('Recipe planner', 62, 'Top 18% of builders this week', 6),
   goLiveAsk('Recipe planner'), enterAsk('Base Builder Grants'), fitsLine('Avalanche Team1 Mini Grants', 'up to $10K', 'Recipe planner', 'open all year'),
   STATE_COPY.signed_out.ask('https://earnkit.com/signin/x'), STATE_COPY.no_project.ask(), STATE_COPY.not_counted.ask('https://earnkit.com/github/verify?n=x'),
   ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('Recipe planner'), v.ask('Recipe planner')]),
@@ -80,10 +80,10 @@ test('11.11 the profile\'s words pass the v2.13 rule on both tabs; chain names o
   const { benchShareText } = await import('./bench-data');
   const texts = [
     TAB_LOG, TAB_PROJECT, BENCH_SOURCES_LINE, LOG_EMPTY, confirmingCardLine('Maya Chen', 'Recipe planner'), streakWords(6)!, streakWords(1)!, shippedWords(9), shippedWords(1),
-    benchShareText({ handle: 'maya_makes', bench: 'Top 4% on the Bench', project: null, streak: 0 }), benchShareText({ handle: 'maya_makes', bench: '#2 of 18 on the Bench', project: null, streak: 0 }),
+    benchShareText({ handle: 'maya_makes', bench: 'Shipping 62 · Top 4% of builders this week', project: null, streak: 0 }), benchShareText({ handle: 'maya_makes', bench: 'Shipping 40 · #2 of 18 builders this week', project: null, streak: 0 }),
     benchShareText({ handle: 'maya_makes', bench: null, project: 'Recipe planner', streak: 6 }), benchShareText({ handle: 'maya_makes', bench: null, project: null, streak: 0 }),
     startedLine('Recipe planner'), ...startedChips({ live: true, weeks: 3, people: 31 }), ...startedChips({ live: false, weeks: 1, people: 1 }),
-    ...factChips({ went_live: true, won: [{ title: 'Base Builder Grants' }], users_up: { n: 31 }, earned: { usd: 120 }, shipped_code: { n: 12 }, streak: { w: 6 } }, { raising: 'RECIPE' }),
+    ...factChips({ went_live: true, won: [{ title: 'Base Builder Grants' }], users_up: { n: 31 }, earned: { usd: 120 }, shipped_code: { n: 12 }, streak: { w: 6 } }),
   ];
   for (const t of texts) assert.deepEqual(bannedInBench(t, EXEMPT), [], t);
   // O3 fix round 1 (controller ruling): the grid says "Code in", never "Shipped" (the score part's word).

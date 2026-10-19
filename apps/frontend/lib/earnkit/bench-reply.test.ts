@@ -11,13 +11,15 @@ const RECIPE = { key: 'maya/recipes', name: 'Recipe planner', confirmed: true, l
 
 test('8.1 spec 2a, word for word (v2.14: proven, the page the one link)', () => {
   const v: BenchView = {
-    state: 'proven', variant: null, project: RECIPE, rank: 'top 18% of builders', streak: 1, handle: 'maya_makes', link: null,
+    state: 'proven', variant: null, project: RECIPE, rank: 'Top 18% of builders this week', streak: 1, handle: 'maya_makes', link: null,
+    score: 62, why: 'Code in 7 of the last 12 weeks, 3 of the last 4. Ship code this week to add up to 14 points.',
     fund: [{ kind: 'fits', title: 'Avalanche Team1 Mini Grants', prize: 'up to $10K', when: 'open all year' }], due: [],
     ask: { kind: 'enter', project_key: 'maya/recipes', program_id: 'avax', line: enterAsk('Avalanche Team1 Mini Grants') }, held: null,
   };
   assert.equal(benchReply(v), [
     'Where you stand',
-    'Recipe planner is on the Bench: top 18% of builders.',
+    'Recipe planner: Shipping 62 · Top 18% of builders this week.',
+    'Code in 7 of the last 12 weeks, 3 of the last 4. Ship code this week to add up to 14 points.',
     'Your page: https://earnkit.com/maya_makes',
     '',
     'Ways to get funded',
@@ -28,10 +30,10 @@ test('8.1 spec 2a, word for word (v2.14: proven, the page the one link)', () => 
   ].join('\n'));
 });
 
-test('8.4 the stand line with and without a rank, and with a streak', () => {
-  assert.equal(STATE_COPY.proven.stand('A', null), 'A is on the Bench.');
-  assert.equal(STATE_COPY.proven.stand('A', '#3 of 12 builders'), 'A is on the Bench: #3 of 12 builders.');
-  assert.equal(STATE_COPY.shipping.stand('A', 'top 4% of builders', 5), 'A is on the Bench: top 4% of builders. 5 weeks in a row.');
+test('8.4 the stand line is the score line (R16c), with and without a rank, and with a streak', () => {
+  assert.equal(STATE_COPY.proven.stand('A', 0, null), 'A: Shipping 0.');
+  assert.equal(STATE_COPY.proven.stand('A', 40, '#3 of 12 builders this week'), 'A: Shipping 40 · #3 of 12 builders this week.');
+  assert.equal(STATE_COPY.shipping.stand('A', 72, 'Top 4% of builders this week', 5), 'A: Shipping 72 · Top 4% of builders this week. 5 weeks in a row.');
 });
 
 test('8.5 the last line asks the first that applies, in the spec\'s order', () => {

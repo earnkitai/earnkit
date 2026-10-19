@@ -1,6 +1,7 @@
 /**
  * v2.14: a fake GitHub for the App and the readings: installations, tokens (ghs_fake_<installation>), repos
- * (a private one answers 404 without an installation token), commits and pulls (T8). Records every call
+ * (a private one answers 404 without an installation token), commits and pulls (T8), and the repo reading's
+ * GraphQL query (commit dates as the default branch's history). Records every call
  * with its Authorization header, so a test can see which token read what.
  */
 export type FakeCommit = { sha: string; message: string; date: string; login?: string; type?: 'User' | 'Bot'; parents?: number };
@@ -24,6 +25,22 @@ export function fakeGitHub(repos: Record<string, FakeRepo>): FakeGitHub {
     const p = url.pathname;
     const inst = Number(/ghs_fake_(\d+)/.exec(auth ?? '')?.[1] ?? NaN);
     let m: RegExpExecArray | null;
+    // Scoring and clarity: the repo reading's GraphQL query (person-github.ts reposQuery), one repository per
+    // alias r<k> named by variables o<k>/n<k>; a private repo answers null without its installation token.
+    if (p === '/graphql' && method === 'POST') {
+      const vars = (JSON.parse(String(init?.body ?? '{}')) as { variables?: Record<string, string> }).variables ?? {};
+      const data: Record<string, unknown> = {};
+      for (let k = 0; `o${k}` in vars; k++) {
+        const key = `${vars[`o${k}`]}/${vars[`n${k}`]}`.toLowerCase();
+        const r = repos[key];
+        data[`r${k}`] = !r || (r.private && r.installation !== inst) ? null : {
+          nameWithOwner: key, owner: { __typename: r.ownerType ?? 'User' }, isPrivate: Boolean(r.private), isFork: Boolean(r.fork), isTemplate: Boolean(r.template),
+          createdAt: '2025-01-01T00:00:00Z', pushedAt: r.commits?.at(-1)?.date ?? null, stargazerCount: 0, forkCount: 0, stargazers: { edges: [] }, forks: { nodes: [] },
+          defaultBranchRef: { target: { history: { nodes: (r.commits ?? []).map((c) => ({ committedDate: c.date })) } } },
+        };
+      }
+      return json(200, { data });
+    }
     if ((m = /^\/repos\/([^/]+\/[^/]+)\/installation$/.exec(p))) {
       const r = repos[m[1].toLowerCase()];
       return r?.installation ? json(200, { id: r.installation }) : json(404, {});

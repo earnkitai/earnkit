@@ -844,7 +844,8 @@ type LiveDue = { id: number; builder_id: number; kind: string; ref: string; stat
  * Blockscout walk per contract or coin since its last daily read, one request per site. Each answer
  * goes to source_live (never source_readings: the daily history stays the cron's); a failure is
  * `ok = false` and is not retried. A spent GitHub budget writes nothing; the deadline stops the reads.
- * `only`: just these sources (the App connect reads the one repo it proved, R5).
+ * `only`: just these sources, read now even within REFRESH_MS of their last read (the App connect reads the
+ * one repo it proved, R5: a refresh may have tried it, as a proposed repo, moments before).
  */
 export async function readPersonLive(id: number, now: Date, o: { deadline: number; reader: ReaderDeps; only?: number[] }): Promise<{ read: number; failed: number }> {
   const db = sql();
@@ -860,7 +861,7 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
         -- it has past users to count (shown as a step, never scored) and who created it.
         OR (b.state = 'proposed' AND b.kind = 'contract' AND b.ref ~ '^(base|arc):'
           AND (l.read_at IS NULL OR l.read_at <= ${new Date(now.getTime() - DAY_MS)})))
-      AND (l.read_at IS NULL OR l.read_at <= ${new Date(now.getTime() - REFRESH_MS)})
+      AND (l.read_at IS NULL OR l.read_at <= ${new Date(now.getTime() - REFRESH_MS)} OR ${Boolean(o.only)}::boolean)
       AND NOT EXISTS (SELECT 1 FROM builder_projects p WHERE p.builder_id = b.builder_id AND p.project_key = b.project_key AND NOT p.tracked)
     -- Most recently active first, so a refresh the deadline cuts reads what matters (also before the
     -- first rescore, when no project rows exist yet).

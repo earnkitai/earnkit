@@ -9,7 +9,7 @@ process.env.EARNKIT_URL = 'https://earnkit.com';
 const P: BenchProject = { key: 'maya/recipes', name: 'Recipes', confirmed: true, live: true, weeks: 3 };
 const fund = [{ kind: 'needs' as const, title: 'Base Builder Grants', prize: 'up to $5K', needs: 'for a Base app' }];
 const view = (v: Partial<BenchView>): BenchView => {
-  const base: BenchView = { state: 'proven', variant: null, project: P, rank: '#1 of 1 builder', streak: 0, handle: 'maya_makes', link: null, fund, due: [], ask: { kind: 'suggest', project_key: P.key, line: 'Want me to suggest one small thing to ship in Recipes this week?' }, held: null, ...v };
+  const base: BenchView = { state: 'proven', variant: null, project: P, rank: '#1 of 1 builder this week', streak: 0, score: 14, why: 'Code in 1 of the last 12 weeks, 1 of the last 4. Ship code next week to add up to 14 points.', handle: 'maya_makes', link: null, fund, due: [], ask: { kind: 'suggest', project_key: P.key, line: 'Want me to suggest one small thing to ship in Recipes this week?' }, held: null, ...v };
   return { ...base, ask: stateAsk(base) ?? base.ask };
 };
 const links = (s: string) => s.match(/https?:\/\/\S+/g) ?? [];
@@ -44,12 +44,14 @@ test('9.2 the five replies, word for word', () => {
   assert.ok(unc.endsWith("Install the read-only EarnKit app on it (one click): https://earnkit.com/github/verify?n=abc\nWant me to count it once that's done?"));
   oneLinkOneQuestion(unc);
   const proven = benchReply(view({ state: 'proven' }));
-  assert.ok(proven.includes('Recipes is on the Bench: #1 of 1 builder.\nYour page: https://earnkit.com/maya_makes'));
+  assert.ok(proven.includes('Recipes: Shipping 14 · #1 of 1 builder this week.\nCode in 1 of the last 12 weeks, 1 of the last 4. Ship code next week to add up to 14 points.\nYour page: https://earnkit.com/maya_makes'));
   oneLinkOneQuestion(proven);
   const ship = benchReply(view({ state: 'shipping', streak: 3 }));
-  assert.ok(ship.includes('Recipes is on the Bench: #1 of 1 builder. 3 weeks in a row.'));
+  assert.ok(ship.includes('Recipes: Shipping 14 · #1 of 1 builder this week. 3 weeks in a row.\nCode in 1 of the last 12 weeks, 1 of the last 4. Ship code next week to add up to 14 points.'));
   oneLinkOneQuestion(ship);
-  assert.ok(benchReply(view({ state: 'proven', rank: null })).includes('Recipes is on the Bench.\n'));
+  assert.ok(benchReply(view({ state: 'proven', rank: null })).includes('Recipes: Shipping 14.\n'));
+  // The why sentence is a statement under the ranked stand line only; never in another state.
+  assert.ok(!benchReply(view({ state: 'not_counted', project: { ...P, confirmed: false }, link: 'https://x' })).includes('Code in'));
 });
 
 test('9.3 variants of not counted: taken, copy, a link only, the App off', () => {
@@ -89,7 +91,7 @@ test('9.6 the next step: the best fit, then a community round, then online, then
 test('9.7 the copy table: plain words, no em dash, no raise', () => {
   const lines = [
     STATE_COPY.signed_out.stand(), STATE_COPY.signed_out.ask('https://x'), STATE_COPY.signed_out.retry(), STATE_COPY.no_project.ask(), STATE_COPY.not_counted.stand('A'),
-    STATE_COPY.not_counted.ask('https://x'), STATE_COPY.proven.stand('A', '#1 of 2 builders'), STATE_COPY.shipping.stand('A', null, 4),
+    STATE_COPY.not_counted.ask('https://x'), STATE_COPY.proven.stand('A', 10, '#1 of 2 builders this week'), STATE_COPY.shipping.stand('A', 10, null, 4),
     ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('A'), v.ask('A')]),
   ];
   for (const l of lines) {
