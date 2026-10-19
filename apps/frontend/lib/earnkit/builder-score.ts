@@ -344,7 +344,7 @@ export async function runScoreSteps(now: Date, sliceEnd: number, deps: ScoreCron
   await step('score', () => scorePeopleV2(now, { deadline: sliceEnd, only: deps.only }));
   await step('empty', () => profileEmpty(now, { only: deps.only }));
   // v2.13 spec "Cost": the weekly facts (Mondays from 15:00 UTC, after the digest).
-  await step('weekly', () => weeklyFactsStep(now, { deadline: sliceEnd, only: deps.only }));
+  await step('weekly', () => weeklyFactsStep(now, { deadline: sliceEnd, only: deps.only, ghFetch: reader.ghFetch }));
   // v2.13 spec "Cost": the feed rank, once a day (F11: from 15:00 UTC, after the weekly step).
   await step('feed', () => feedRankStep(now));
   return out;

@@ -6,7 +6,7 @@ import { pageUrl } from './reserved-routes';
  * name and the starter's offer are names (plan B12). Pure.
  */
 export const BENCH_HEADS = { stand: 'Where you stand', fund: 'Ways to get funded', up: 'How to move up' } as const;
-export type BenchAskKind = 'build' | 'go_live' | 'updates' | 'post_update' | 'coin' | 'raise' | 'enter' | 'grants' | 'suggest' | 'other_project' | 'grants_later' | 'install_app' | 'start';
+export type BenchAskKind = 'build' | 'go_live' | 'coin' | 'raise' | 'enter' | 'grants' | 'suggest' | 'other_project' | 'grants_later' | 'install_app' | 'start';
 export type BenchAsk = { kind: BenchAskKind; project_key: string | null; line: string; program_id?: string };
 export type FundLine =
   | { kind: 'fits'; title: string; prize: string; when: string }
@@ -77,12 +77,7 @@ export const ideasLine = (ideas: { who: string; prize: string; for: string }[]) 
 export const rollingFundLine = (title: string, prize: string | null) => (prize ? `${title} pays ${prize}; it's open all year.` : `${title} is open all year.`);
 /** v2.13.3 (2): "Base Builder Grants: up to $5K for a Base app, once it's live." */
 export const needsLine = (title: string, prize: string | null, needs: string) => `${title}: ${prize ? `${prize} ` : ''}${needs}.`;
-/** v2.13.4 (R4): the one question is the last thing said. */
-export const UPDATES_ASK = 'Want me to post what you ship here every week, to keep your streak going on the Bench?';
-export const POST_UPDATE_ASK = "Want me to post this week's update?";
-/** v2.13.1 O2 fix round 1: the updates yes before the project is confirmed (it isn't on the Bench yet). */
-export const UPDATES_ASK_JOINING = 'Want me to post what you ship here every week?';
-/** v2.13.1 O2 fix round 1 (ruling 3): a confirmed project with nothing pending and updates off. */
+/** v2.13.1 O2 fix round 1 (ruling 3): a confirmed project with nothing pending. */
 export const grantsAsk = (name: string) => `Want me to find grants that fit ${name}?`;
 /** v2.13.1 O5 fix round 2: the last fallback after a grants yes that found nothing (its yes keeps grants quiet a week). */
 export const GRANTS_LATER_ASK = 'Want me to check again for grants next week?';
@@ -102,24 +97,20 @@ export const enterAsk = (title: string) => `Want me to prepare an entry for ${ti
 export const benchStepKey = (kind: BenchAskKind, key: string | null) => `${kind}:${key ?? '*'}`;
 
 /**
- * spec "The last line: one question, in this order": 1. no project: existing work (v2.14 A18: never a build); 2. not live and
- * EarnKit can put it online; 3. confirmed, posting not on; 4. posting on, nothing posted this week
- * and no scheduled task; 5. a coin moment; 6. the best program's entry. A no keeps that ask away
- * for 30 days (`declined`, benchStepKey). v2.13.1 O2: the updates yes is also the next step while the
- * project is joining (`joining`), without "on the Bench". Fix round 1 (ruling 3), every reply ends on one
- * question: no project and nothing to build, the suggestion; a project that can't join (`other`), a
- * different project; nothing pending, the week's update (posting on, not yet posted this week) or
- * grants that fit. Pure.
+ * spec "The last line: one question, in this order": 1. no project: existing work (v2.14 A18: never a build); 2. the best
+ * program's entry; 3. a coin moment; 4. not live and EarnKit can put it online. A no keeps that ask away
+ * for 30 days (`declined`, benchStepKey). v2.14 spec 3: the ship log writes itself, so there is no posting
+ * yes and no week's-post ask. Fix round 1 (ruling 3), every reply ends on one question: no project and
+ * nothing to build, the suggestion; a project that can't join (`other`), a different project; nothing
+ * pending, grants that fit. Pure.
  */
 export function chooseAsk(o: {
-  project: BenchProject | null; canHost: boolean; updatesOn: boolean; postedThisWeek: boolean; scheduled: boolean;
-  coin: BenchAsk | null; enter: BenchAsk | null; declined: string[]; joining?: boolean;
+  project: BenchProject | null; canHost: boolean;
+  coin: BenchAsk | null; enter: BenchAsk | null; declined: string[];
   /** O2 fix round 1: the project can't join (its branch never showed, or another person holds it). */
   other?: boolean;
   /** O2 fix round 1: false leaves out the last fallback (the coin step asks first whether anything earlier applies). */
   fallback?: boolean;
-  /** O5 N13: claimed with X (absent: claimed). Until then the updates yes never says "on the Bench". */
-  claimed?: boolean;
 }): BenchAsk | null {
   const p = o.project;
   if (!p) {
@@ -133,13 +124,8 @@ export function chooseAsk(o: {
   if (o.enter && !off('enter')) return o.enter;
   if (o.coin) return o.coin;
   if (!p.live && o.canHost && !off('go_live')) return { kind: 'go_live', project_key: p.key, line: goLiveAsk(p.name) };
-  if ((p.confirmed || o.joining) && !o.updatesOn && !off('updates'))
-    return { kind: 'updates', project_key: p.key, line: p.confirmed && o.claimed !== false ? UPDATES_ASK : UPDATES_ASK_JOINING };
-  if (p.confirmed && o.updatesOn && !o.postedThisWeek && !o.scheduled && !off('post_update')) return { kind: 'post_update', project_key: p.key, line: POST_UPDATE_ASK };
-  // O2 fix round 1 (ruling 3): nothing pending: the week's update when posting is on, else grants that fit.
-  // v2.13.1 O3: never offer this week's update once it is posted (a second post replaces it).
+  // O2 fix round 1 (ruling 3): nothing pending: grants that fit.
   if (o.fallback === false) return null;
-  if (p.confirmed && o.updatesOn && !o.postedThisWeek && !off('post_update')) return { kind: 'post_update', project_key: p.key, line: POST_UPDATE_ASK };
   if (!off('grants')) return { kind: 'grants', project_key: p.key, line: grantsAsk(p.name) };
   // O5 N5: grants found none lately (or were declined): one small thing to ship this week.
   return off('suggest') ? null : { kind: 'suggest', project_key: p.key, line: shipAsk(p.name) };

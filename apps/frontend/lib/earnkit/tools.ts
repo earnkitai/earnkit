@@ -134,7 +134,7 @@ import {
 import { LIVE_FAILED_LINE, addressesFrom, contractMissingLine, entryVerified, liveCheckDetail, liveErrorLine, rpcFor, type CheckDeps, type Verified } from './verify';
 import { noteEvent } from './events';
 import { raisingEnabled } from './builder-score-flag';
-import { hideUpdate, postUpdate, setUpdates } from './updates';
+import { hideUpdate, postUpdate, setShipTitles } from './updates';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { benchIdentity, benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
 import { REPO_KEY, dropMainProject, fillGithubUser, mainProjectOf, setMainProject } from './main-project';
@@ -2970,7 +2970,8 @@ export const TellToolInput = z
       .optional(),
     // v2.13: this week's update (or hide one week), and the weekly-posting yes.
     update: z.object({ text: z.string().max(2000).optional(), hide: z.string().max(20).optional() }).strict().optional(),
-    updates: z.object({ on: z.boolean(), scheduled: z.boolean().optional() }).strict().optional(),
+    // v2.14 spec 3 (A12): titles on or off for a private repo's log; an older agent's { on, scheduled } is answered, nothing changes.
+    updates: z.object({ titles: z.boolean().optional(), on: z.unknown().optional(), scheduled: z.unknown().optional() }).optional(),
     // Read by tell_earnkit (builder-memory.ts TellInput).
     program_status: z.unknown().optional(),
     repo_facts: z.unknown().optional(),
@@ -3130,12 +3131,10 @@ function joinReplies(replies: Reply[]): Reply {
   if (replies.length === 1) return replies[0];
   const shown = replies.map((r) => r.show_to_builder).filter((v): v is string => typeof v === 'string' && v !== '');
   const notes = replies.map((r) => r.agent_note).filter((v): v is string => typeof v === 'string' && v !== '');
-  const schedule = replies.find((r) => typeof r.schedule_weekly_update === 'string')?.schedule_weekly_update;
   return {
     ...Object.assign({}, ...replies),
     ...(shown.length > 0 && { show_to_builder: shown.join('\n') }),
     ...(notes.length > 0 && { agent_note: notes.join(' ') }),
-    ...(schedule !== undefined && { schedule_weekly_update: schedule }),
   };
 }
 
@@ -3450,7 +3449,7 @@ export const tools = {
         const now = new Date();
         if (update?.text !== undefined) replies.push(await postUpdate(ctx.installationId, update.text, now, ctx.ownInstallationId ?? ctx.installationId));
         if (update?.hide !== undefined) replies.push(await hideUpdate(ctx.installationId, update.hide));
-        if (updates) replies.push(await setUpdates(ctx.installationId, updates, now));
+        if (updates) replies.push(await setShipTitles(ctx.installationId, updates, now));
       }
     }
     // v2.13.1 O2 (B6): "not mine" on the one project, while it isn't Bench-confirmed, clears it. Fix

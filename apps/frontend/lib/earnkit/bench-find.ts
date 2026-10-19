@@ -11,8 +11,6 @@ import { REPO_KEY, benchConfirmedSql } from './main-project';
 import { installLink, repoProof, type RepoProof } from './repo-proof';
 import { REPLY_WAIT_MS, settleWithin } from './reply-wait';
 import { rankLines, type RankLines } from './bench-rank';
-import { WEEKLY_UPDATE_NOTE, setUpdates } from './updates';
-import { mondayOf } from './weeks';
 import { COIN_NOTE, offerCoin } from './coin-moments';
 import { markRaiseAsked, raiseAsk, raisingCoin, setRaising } from './raising';
 import { NEEDS_LIVE_PRODUCT } from './guide';
@@ -32,7 +30,7 @@ import type { ToolContext } from './tools';
 import { CHAIN_NAMES, type Chain } from './chains';
 import { githubAppEnabled } from './github-app';
 import {
-  GRANTS_LATER_ASK, POST_UPDATE_ASK, UPDATES_ASK, UPDATES_ASK_JOINING, benchReply, benchStepKey, chooseAsk, enterAsk, installAppAsk,
+  GRANTS_LATER_ASK, benchReply, benchStepKey, chooseAsk, enterAsk, installAppAsk,
   type BenchAsk, type BenchAskKind, type BenchProject, type BenchView, type FundLine,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
@@ -49,7 +47,6 @@ export { displayName };
 
 export const BENCH_MOVE_UP_NOTE = 'A yes or no to the last line: call tell with move_up: { kind, project_key, answer } (kind and project_key as given here). Do the steps it returns yourself; never ask the builder to edit files.';
 export const UPDATES_NOTE = BENCH_MOVE_UP_NOTE;
-export const POST_UPDATE_NOTE = "Write this week's update now: one plain paragraph from git log for the week and what you deployed, at most 280 characters, links only to the live site or the repo. Call tell with update: { text }. Don't show this note.";
 export const ENTER_NOTE = "Prepare it: call prepare with program_id as given. Don't show this note.";
 /**
  * v2.13.3 (3): the no-project ask offers both, so its note routes both: existing work goes to find with
@@ -66,11 +63,10 @@ export const INSTALL_APP_NOTE =
 export const buildYesNote = (programId: string) =>
   `Call prepare with build: { start: true, program_id: '${programId}' } and program_id: '${programId}' at the top. EarnKit then asks the builder one question before any work starts. Don't show this note.`;
 
-/** What the person was last told (stand-view's Seen) plus the Bench's own: the ask, the weekly-task note, T9's raise. */
+/** What the person was last told (stand-view's Seen) plus the Bench's own: the ask, T9's raise. */
 export type Seen = StandSeen & {
   bench_ask?: { kind: BenchAskKind; key: string | null; program_id?: string };
   raise_asked?: Record<string, string>;
-  weekly_note_at?: string;
   /** O5 N5: asks kept away for GRANTS_QUIET_MS after a yes that found nothing (step key -> when). */
   quiet?: Record<string, string>;
 };
@@ -155,7 +151,7 @@ export function needsPicks(
 
 type BenchRead = {
   base: StandBase; seen: Seen; main: string | null; row: MainRow | null;
-  updatesOn: boolean; scheduled: boolean; postedThisWeek: boolean; ranks: RankLines;
+  ranks: RankLines;
   /** v2.13.1 O2 (B4): the build in progress, if any. */
   building: { name: string } | null;
   /** standBase answered (a profile exists): news is read only then. */
@@ -173,8 +169,8 @@ const logged = (where: string) => (err: unknown) => {
 async function benchRead(id: number, now: Date, fresh: ToolContext['freshDeps'], own?: number): Promise<BenchRead> {
   // v2.14: `own` (the caller's own installation) is the one an X sign-in link is for.
   const stand = await standBase(id, { fresh, own }).catch(logged('stand'));
-  const [p] = await sql()<{ main: string | null; on: Date | null; sched: Date | null; seen: unknown; identity: unknown }[]>`
-    SELECT main_project_key AS main, updates_on_at AS on, updates_scheduled_at AS sched, standing_seen AS seen, identity FROM builder_profiles WHERE builder_id = ${id}`.catch(
+  const [p] = await sql()<{ main: string | null; seen: unknown; identity: unknown }[]>`
+    SELECT main_project_key AS main, standing_seen AS seen, identity FROM builder_profiles WHERE builder_id = ${id}`.catch(
     () => [],
   );
   const main = p?.main ?? null;
@@ -186,16 +182,13 @@ async function benchRead(id: number, now: Date, fresh: ToolContext['freshDeps'],
             AND lower(s.project_key) = lower(b.project_key)) AS site
         FROM builder_projects b WHERE b.builder_id = ${id} AND lower(b.project_key) = lower(${main})`.catch(() => [])
     : [];
-  const [week] = main
-    ? await sql()`SELECT 1 FROM project_updates WHERE builder_id = ${id} AND lower(project_key) = lower(${main}) AND week = ${mondayOf(now)} AND text IS NOT NULL`.catch(() => [])
-    : [];
   const ranks = await rankLines(id).catch(() => NO_RANK);
   const building = buildInProgress(await readBuild(id).catch(() => null), now, fresh?.starters);
   // standBase's seen, else the profile's own (the Bench's keys are read from the same column).
   const seen = (stand?.seen ?? (p?.seen && typeof p.seen === 'object' ? p.seen : {})) as Seen;
   return {
     base: stand?.base ?? EMPTY_BASE, seen, main, row: row ?? null, ranks, profiled: stand !== null,
-    updatesOn: Boolean(p?.on), scheduled: Boolean(p?.sched), postedThisWeek: Boolean(week), building,
+    building,
     liveUrl: main ? reportedLive(p?.identity, main) : null,
   };
 }
@@ -336,11 +329,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
     // O5 N5: a grants yes that found nothing keeps grants quiet a week, as a no keeps an ask away.
     const declined = [...declinedNow(read.seen, now.getTime()), ...quietNow(read.seen, now.getTime())];
     const asks = {
-      project, canHost: Boolean(project && hostFor(o.agentCanBuild)(project.key) && web), updatesOn: read.updatesOn,
-      postedThisWeek: read.postedThisWeek, scheduled: read.scheduled, declined, claimed: read.base.claimed,
-      // O2 fix round 1 (ruling 3): taken or a copy, a different project. A project not proven yet is joining
-      // (the updates yes), except for a chat-only agent, which can't schedule weekly posts (O5 N15).
-      joining: Boolean(project && !project.confirmed && (!branch || (branch === 'private' && o.agentCanBuild))),
+      project, canHost: Boolean(project && hostFor(o.agentCanBuild)(project.key) && web), declined,
+      // O2 fix round 1 (ruling 3): taken or a copy, a different project.
       other: branch === 'taken' || branch === 'copy',
     };
     // v2.14 spec 2: a repo not proven yet, with the read-only App on: the install link in one line (the reply's
@@ -352,7 +342,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
     // Owner ruling A: the best fit's entry, else a community round (the coin), come before the Bench's own
     // steps. The coin is offered (and its moment recorded) only when nothing earlier applies.
     const before = install ?? chooseAsk({ ...asks, coin: null, enter, fallback: false });
-    const coinFirst = !before || ['go_live', 'updates', 'post_update'].includes(before.kind);
+    const coinFirst = !before || before.kind === 'go_live';
     const coin = coinFirst && project && row
       ? await coinAskBench(id, { ...project, people: row.people, has_coin: row.has_coin, streak: row.streak, shipped: row.shipped }, read.seen, o.coinDeps).catch(logged('coin'))
       : null;
@@ -422,8 +412,7 @@ export type BenchFindArgs = {
 
 /**
  * find: the three v2.13 parts, the one project's proof in the same turn (plan
- * B3), news since the last look, and the weekly-task note once more while posting is on and not
- * scheduled (B18). tools.ts adds what standFind's reply also carries (ask_outcome, matches,
+ * B3) and news since the last look (v2.14 spec 3: no weekly-task note; the ship log writes itself). tools.ts adds what standFind's reply also carries (ask_outcome, matches,
  * programs, working_on, wallet_note) and the build_offer's note. Never a daily-check note.
  */
 export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Reply> {
@@ -461,12 +450,6 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
         : [],
     ),
   ).catch(logged('match shown'));
-  // B18: the weekly task's note once more while posting is on and the agent hasn't scheduled it.
-  const weekly = read.updatesOn && !read.scheduled && !read.seen.weekly_note_at;
-  if (weekly)
-    await sql()`
-      UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('weekly_note_at', ${now.toISOString()}::text)
-      WHERE builder_id = ${id}`.catch(logged('weekly note'));
   return {
     show_to_builder: [opener, benchReply(view)].filter(Boolean).join('\n\n'),
     // O5 (P8): the earn note names lead.program_id, so only with a lead.
@@ -474,7 +457,6 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
     ...fields,
     ...(fits[0] && !submit && !taken && { lead: { program_id: fits[0].program_id, repo: fits[0].repo } }),
     ...(submit && { lead: { program_id: submit.card.id, step: 'submit', ...(submit.entry.id !== undefined && { project_id: submit.entry.id }) } }),
-    ...(weekly && { schedule_weekly_update: WEEKLY_UPDATE_NOTE }),
   };
 }
 
@@ -555,7 +537,7 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
   }
   // Fix round 1: answered once. The ask is cleared before the yes runs, so a retried yes is "Okay.".
   // (go_live and coin yeses stay in tools.ts: go_live's yes is sent again with live_url by design.)
-  if (['updates', 'post_update', 'build', 'enter', 'raise', 'grants', 'suggest', 'other_project', 'grants_later', 'install_app', 'start'].includes(asked.kind)) {
+  if (['build', 'enter', 'raise', 'grants', 'suggest', 'other_project', 'grants_later', 'install_app', 'start'].includes(asked.kind)) {
     const [taken] = await sql()`
       UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask'
       WHERE builder_id = ${id} AND standing_seen->'bench_ask' = ${sql().json(asked as never)}::jsonb RETURNING 1`.catch((err: unknown) => {
@@ -565,10 +547,6 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
     if (!taken) return okay;
   }
   switch (asked.kind) {
-    case 'updates':
-      return setUpdates(id, { on: true }, now);
-    case 'post_update':
-      return { show_to_builder: '', agent_note: POST_UPDATE_NOTE };
     case 'build':
       return asked.program_id ? { show_to_builder: '', agent_note: buildYesNote(asked.program_id) } : okay;
     case 'enter':
@@ -638,19 +616,12 @@ async function grantsYes(id: number, key: string, now: Date): Promise<Reply> {
   const read = await benchRead(id, now, undefined);
   const declined = declinedNow(read.seen, now.getTime());
   const next = chooseAsk({
-    project: { key, name, confirmed: true, live: fit.live, weeks: read.row?.weeks ?? 0 }, canHost: false, updatesOn: read.updatesOn,
-    postedThisWeek: read.postedThisWeek, scheduled: read.scheduled, coin: null, enter: null, claimed: read.base.claimed,
+    project: { key, name, confirmed: true, live: fit.live, weeks: read.row?.weeks ?? 0 }, canHost: false, coin: null, enter: null,
     declined: [...declined, ...quietNow(read.seen, now.getTime()), benchStepKey('grants', key)],
   });
-  // O5 fix round 2: nothing left in the order: posting, the week's post, else checking again next week
-  // (a no to any of them is still honoured).
-  const off = (k: BenchAskKind) => declined.includes(benchStepKey(k, key));
+  // O5 fix round 2: nothing left in the order: checking again next week (a no is still honoured).
   const ask: BenchAsk | null =
-    next ??
-    (!read.updatesOn && !off('updates') ? { kind: 'updates', project_key: key, line: read.base.claimed ? UPDATES_ASK : UPDATES_ASK_JOINING }
-      : read.updatesOn && !read.postedThisWeek && !off('post_update') ? { kind: 'post_update', project_key: key, line: POST_UPDATE_ASK }
-      : off('grants_later') ? null
-      : { kind: 'grants_later', project_key: key, line: GRANTS_LATER_ASK });
+    next ?? (declined.includes(benchStepKey('grants_later', key)) ? null : { kind: 'grants_later', project_key: key, line: GRANTS_LATER_ASK });
   if (!ask) return { show_to_builder: noGrantLine(name) };
   await sql()`
     UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json({ kind: ask.kind, key: ask.project_key } as never)}::jsonb)

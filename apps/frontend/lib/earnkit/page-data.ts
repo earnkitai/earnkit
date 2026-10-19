@@ -45,7 +45,7 @@ export function avatarUrl(raw: string | null | undefined): string | null {
 
 export type PageHead = { handle: string; name: string; avatar: string | null; topLine: string; rank: string | null; peopleLine: string | null; score: number | null };
 
-const PRIVATE_NAME = 'Private project';
+export const PRIVATE_NAME = 'Private project';
 const WALLET = /\b0x[0-9a-f]{40}\b/i;
 /** A project or entry key compared: no scheme, no github.com/, no www., no trailing slash, lowercase. */
 export const norm = (k: string) => k.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^(www\.)?github\.com\//, '').replace(/^www\./, '').replace(/\/+$/, '');

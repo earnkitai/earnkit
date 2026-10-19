@@ -1596,6 +1596,10 @@ ALTER TABLE x_signins ADD COLUMN IF NOT EXISTS link_hash text;
 ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS app_checked_at timestamptz;
 -- T6 fix round 2: when the daily check last tried (any answer), so unanswered rows go behind the others.
 ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS app_tried_at timestamptz;
+-- v2.14 spec 3: the ship log writes itself: the week's cleaned PR and commit titles (ship-titles.ts), and the
+-- builder's choice to show a private repo's titles (facts only by default). Additive.
+ALTER TABLE project_updates ADD COLUMN IF NOT EXISTS titles text[] NOT NULL DEFAULT '{}';
+ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS ship_titles_at timestamptz;
 -- v2.14 bind:start
 -- Preflight S4 (v2.14 T7): v2.13.4's notices and detach are gone, so a one-click join nobody on the page answered
 -- would otherwise become permanent (and be bound below). First, as answerNotice's detach did: the members of every

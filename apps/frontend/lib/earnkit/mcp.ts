@@ -134,13 +134,14 @@ const confirmDescription = (campaignOpen: boolean) =>
   'Then follow agent_note.';
 
 /**
- * v2.10 item 4 (R16), v2.13: tell's description: also this week's update (or a week to hide) and the
- * weekly posting yes, and coin { raising } (T9); under 800 characters (mcp.test.ts 5.11).
+ * v2.10 item 4 (R16), v2.13: tell's description: also this week's line (or a week to hide), v2.14 spec 3:
+ * a private repo's titles on or off, and coin { raising } (T9); under 800 characters (mcp.test.ts 5.11).
  */
 export const TELL_DESCRIPTION_BENCH =
   "What the builder told you; call it only with what they said. submitted: { program_id, external_submission_url? } once they say they submitted on the program's site; a shared agent adds project_id. " +
-  'update: { text } posts this week\'s update (your weekly task writes it from git log and deploys); { hide: "YYYY-MM-DD" } hides that week\'s. ' +
-  'updates: { on } when they say yes to weekly posting or stop posting updates. coin: their coin answer, or { raising } when they open a community round or close it. ' +
+  'update: { text } adds one plain line to this week\'s log; { hide: "YYYY-MM-DD" } hides that week. ' +
+  'updates: { titles: true } when they want their commit titles on a private repo\'s log (false to hide them). ' +
+  'coin: their coin answer, or { raising } when they open a community round or close it. ' +
   'move_up: their answer to the last line, with its kind and project_key. profile (hide or show), card (yes or skip): their answers. ' +
   'program_status: applied, not_interested, won, placed or lost. repo_facts and weekly_email: what they said. Results they report stay private.';
 
