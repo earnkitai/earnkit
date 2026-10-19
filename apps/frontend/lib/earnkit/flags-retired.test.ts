@@ -49,6 +49,14 @@ test('3.4 R9: /bench is a permanent (308) redirect to /leaderboard', async () =>
   await assert.rejects(async () => Bench(), (e: { digest?: string }) => /NEXT_REDIRECT/.test(String(e.digest)) && /\/leaderboard/.test(String(e.digest)) && /308/.test(String(e.digest)));
 });
 
+test('3.4b R9 (Task 3 carry): the /bench redirect keeps its query string', async () => {
+  const { default: Bench } = await import('../../app/bench/page');
+  await assert.rejects(
+    async () => Bench({ searchParams: Promise.resolve({ chain: 'base', weekly: '1' }) }),
+    (e: { digest?: string }) => String(e.digest).includes('/leaderboard?chain=base&weekly=1') && /308/.test(String(e.digest)),
+  );
+});
+
 test('3.5 with no flag set, find through MCP is the Bench reply and no bonus word', db, async () => {
   const token = `ek_t3_${process.pid}_${Date.now()}`;
   await saveInstallation(token, undefined, false);

@@ -21,6 +21,7 @@ import {
   tickerProblem,
   titleCase,
   tokensFunTickerCheck,
+  type OwnBrand,
   type TickerCheck,
 } from './token-proposal';
 import {
@@ -117,16 +118,16 @@ export function plainProblem(problem: string): { note: string; agent_note: strin
  * The builder's name and ticker edits that pass the rules (cleaned name, uppercased ticker), and
  * the first problem, if any. Pure; exported for tests.
  */
-export function editsOf(choice: Choice): { name?: string; symbol?: string; problem?: string } {
+export function editsOf(choice: Choice, own: OwnBrand = {}): { name?: string; symbol?: string; problem?: string } {
   const out: { name?: string; symbol?: string; problem?: string } = {};
   if (choice.name !== undefined) {
-    const n = cleanTokenName(choice.name);
+    const n = cleanTokenName(choice.name, own);
     if ('problem' in n) out.problem = n.problem;
     else out.name = n.name;
   }
   if (choice.symbol !== undefined) {
     const symbol = choice.symbol.trim().toUpperCase();
-    const issue = tickerProblem(symbol);
+    const issue = tickerProblem(symbol, own);
     if (issue) out.problem ??= issue;
     else out.symbol = symbol;
   }
@@ -149,6 +150,8 @@ export function decideToken(a: {
   wallet: string | null;
   /** record_submission: launch only with the ticker the builder confirmed, passed explicitly. */
   needsSymbol?: boolean;
+  /** The entry's repo: an EarnKit org's repo may use EarnKit's own brand (token-proposal.ts OwnBrand). */
+  repoUrl?: string | null;
 }): Decision {
   if (a.policy === 'off')
     return { action: 'skip', note: "Not launched: this program doesn't allow tokens for entries." };
@@ -164,7 +167,8 @@ export function decideToken(a: {
     };
   const choice = a.choice ?? {};
   if (a.needsSymbol && !choice.symbol?.trim()) return { action: 'skip', note: NEEDS_SYMBOL, agent_note: NEEDS_SYMBOL_AGENT };
-  const edits = editsOf(choice);
+  const own = { repoUrl: a.repoUrl };
+  const edits = editsOf(choice, own);
   if (edits.problem) return { action: 'refuse', ...plainProblem(edits.problem) };
   const rawName = edits.name ?? a.proposal?.name;
   const symbol = edits.symbol ?? a.proposal?.symbol?.trim().toUpperCase();
@@ -174,9 +178,9 @@ export function decideToken(a: {
       note: 'Not launched: EarnKit has no proposed token for this project. Pick a name and a ticker (3 to 10 letters or digits) with the builder.',
       agent_note: 'Pass them as name and symbol.',
     };
-  const name = cleanTokenName(rawName);
+  const name = cleanTokenName(rawName, own);
   if ('problem' in name) return { action: 'refuse', ...plainProblem(name.problem) };
-  const tickerIssue = tickerProblem(symbol);
+  const tickerIssue = tickerProblem(symbol, own);
   if (tickerIssue) return { action: 'refuse', ...plainProblem(tickerIssue) };
   if (!a.wallet) return { action: 'refuse', note: NO_WALLET, agent_note: NO_WALLET_AGENT, code: 'no_wallet' };
   return { action: 'launch', name: name.name, symbol };
@@ -446,8 +450,9 @@ export const launchLimit = async (installationId: number, wallet: string) => {
 
 /** A stored name and ticker that still pass the rules, else null. */
 function storedProposal(p: FlowProject) {
-  if (!p.token_name || !p.token_symbol || tickerProblem(p.token_symbol)) return null;
-  const name = cleanTokenName(p.token_name);
+  const own = { repoUrl: p.repo_url };
+  if (!p.token_name || !p.token_symbol || tickerProblem(p.token_symbol, own)) return null;
+  const name = cleanTokenName(p.token_name, own);
   return 'name' in name ? { name: name.name, symbol: p.token_symbol } : null;
 }
 
@@ -545,7 +550,7 @@ async function runTokenFlow(
       (await proposeToken(project.name, deps.check, project.repo_url ?? undefined));
   const proposal = proposed ? { name: proposed.name, symbol: proposed.symbol } : null;
   // At submission a ticker without a name takes the (cleaned) project name.
-  const projectName = cleanTokenName(project.name);
+  const projectName = cleanTokenName(project.name, { repoUrl: project.repo_url });
   const fallback =
     a.mode === 'submission'
       ? { name: 'name' in projectName ? projectName.name : proposal?.name, symbol: proposal?.symbol }
@@ -568,6 +573,7 @@ async function runTokenFlow(
     proposal: fallback,
     wallet,
     needsSymbol: a.mode === 'submission',
+    repoUrl: project.repo_url,
   });
   // Token retry (v2.4 §6, audit C14): a creator wallet given now, or the one a launch uses, is
   // kept, so launch_token after a gate failure doesn't ask for it again (and fee reads know it).
@@ -589,7 +595,7 @@ async function runTokenFlow(
     if (project.token_url)
       return { status: notNow, note: decision.note, ...(decision.agent_note && { agent_note: decision.agent_note }) };
     // Kept for a later launch_token: the builder's valid edits, else the proposal.
-    const edits = choice ? editsOf(choice) : {};
+    const edits = choice ? editsOf(choice, { repoUrl: project.repo_url }) : {};
     const out = await record(
       notNow,
       decision.note,

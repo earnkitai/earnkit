@@ -21,8 +21,9 @@ test('ticker candidates (R11): the whole first word up to 10 letters, else initi
   assert.deepEqual(tickerCandidates('Chain Kits Bridge').slice(0, 3), ['CHAIN', 'CKB', 'CHAIN2']);
   assert.deepEqual(tickerCandidates('Agentpay').slice(0, 2), ['AGENTPAY', 'AGENTPAY2']);
   assert.equal(tickerCandidates('Agentpay').length, 9); // AGENTPAY + AGENTPAY2..AGENTPAY9
-  assert.deepEqual(tickerCandidates('Recipeplanner').slice(0, 1), [], 'a first word over 10 letters is never cut (no initials for one word)');
-  assert.deepEqual(tickerCandidates('Supercalifragilistic Recipe Planner').slice(0, 2), ['SRP', 'SRP2'], 'over 10 letters: initials');
+  // Task 4 (Task 3 review carry): a first word over 10 letters gives its first 10 letters, never 3-letter initials first.
+  assert.deepEqual(tickerCandidates('Recipeplanner').slice(0, 2), ['RECIPEPLAN', 'RECIPEPLA2'], 'a first word over 10 letters: its first 10');
+  assert.deepEqual(tickerCandidates('Supercalifragilistic Recipe Planner').slice(0, 2), ['SUPERCALIF', 'SRP'], 'over 10 letters: the first 10, then initials');
   assert.deepEqual(tickerCandidates('Recipeplan').slice(0, 2), ['RECIPEPLAN', 'RECIPEPLA2'], '10 letters is whole; its variants stay within 10');
   assert.deepEqual(tickerCandidates('Go Kit').slice(0, 1), ['GOKIT']); // first word too short: letters of the name
   assert.deepEqual(tickerCandidates('🚀🚀'), []);
@@ -35,6 +36,18 @@ test('R11: EarnKit is $EARNKIT in full: reserved as a brand, but refused whole, 
   assert.match(String(tickerProblem('EARNKIT')), /brand/);
   const p = await proposeToken('Recipekit', async () => true);
   assert.deepEqual(p, { name: 'Recipekit', symbol: 'RECIPEKIT' });
+});
+
+test('Task 4 (Task 3 carry): EarnKit\'s own repo (the earnkitai org) gets $EARNKIT; every other repo and brand stays reserved', async () => {
+  const own = { repoUrl: 'https://github.com/earnkitai/earnkit' };
+  assert.equal(tickerProblem('EARNKIT', own), null);
+  assert.equal(tokenNameProblem('EarnKit', own), null);
+  assert.match(String(tickerProblem('BASE', own)), /brand/, 'another brand stays reserved for the owner too');
+  assert.match(String(tickerProblem('EARNKIT', { repoUrl: 'https://github.com/lee/earnkit' })), /brand/);
+  assert.deepEqual(await proposeToken('EarnKit', async () => true, own.repoUrl), { name: 'EarnKit', symbol: 'EARNKIT' });
+  const other = await proposeToken('EarnKit', async () => true, 'https://github.com/lee/earnkit');
+  assert.notEqual(other.symbol, 'EARNKIT');
+  assert.notEqual(other.name, 'EarnKit');
 });
 
 test('R11: a project name over the 50-character limit is never cut into a token name', async () => {

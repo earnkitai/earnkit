@@ -218,6 +218,11 @@ test('R11: names keep whole words: wholeWords, and an over-long identity name ne
   assert.equal(wholeWords('EarnKit', 10), 'EarnKit');
   assert.equal(wholeWords('The Recipe Planner', 14), 'The Recipe');
   assert.equal(wholeWords('Supercalifragilistic', 10), 'Supercalif', 'one word longer than the limit: the only cut');
+  // Task 4 (Task 3 carry): a cut never ends on trailing punctuation.
+  assert.equal(wholeWords('Recipes, meals and more', 10), 'Recipes');
+  assert.equal(wholeWords('Recipes - meals and more', 10), 'Recipes');
+  assert.equal(wholeWords('Recipes: meals and more', 10), 'Recipes');
+  assert.equal(wholeWords('Done, fully.', 20), 'Done, fully.', 'text that fits is kept as it is');
   const long = `${'Recipe Planner '.repeat(5)}Deluxe`;
   const p = projectOf({ name: long, repo: 'https://github.com/a/recipes' });
   assert.ok(p && p.name.length <= 60 && long.startsWith(p.name) && long[p.name.length] === ' ', p?.name);
