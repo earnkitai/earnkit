@@ -8,6 +8,7 @@ import { appEnv, installApp } from './fixtures/app-install';
 import { connectInstallation, saveInstallation } from './installations';
 import { logCards } from './bench-data';
 import { BACKFILL_PER_RUN, BACKFILL_TRIES_A_DAY, backfillMondays, backfillOnConnect, backfillStep, weeklyFactsStep } from './week-facts';
+import { REPO_READER } from './sources';
 import { setShipTitles } from './updates';
 import { attachToX } from './x-install';
 
@@ -268,4 +269,24 @@ test('F6 fix round 1: the catch-up takes BACKFILL_PER_RUN projects a run and tri
     tries++;
   }
   assert.deepEqual(await backfillStep(cronNow(), { deadline: Date.now() + 20_000, only: one }), { people: 0, rows: 0 });
+});
+
+test('hotfix 2026-10-19: weeks written from a short reading (an older reader) are redone once from a current reading; never from an older one', db, async () => {
+  const key = `rhea${RUN}/busy`;
+  const commits = [on(MONDAYS[2], 1, 'a', 'Add the cart'), on(MONDAYS[1], 2, 'b', 'Add search'), on(MONDAYS[0], 1, 'c', 'Ship v2'), on(MONDAYS[0], 3, 'd', 'Add the share card')];
+  const p = await connect('rhea', key, { private: false, commits });
+  assert.ok((await rows(p.id)).every((r) => r.facts.reader === REPO_READER), 'a written week names its reading\'s reader');
+  // What prod holds: the weeks checked from a short reading (no shipped code, no reader), and that reading.
+  await sql()`UPDATE project_updates SET facts = '{"checked": true}'::jsonb, titles = '{}' WHERE builder_id = ${p.id} AND week IN ${sql()(MONDAYS)}`;
+  const srcs = sql()`SELECT id FROM builder_sources WHERE builder_id = ${p.id} AND kind = 'repo'`;
+  await sql()`UPDATE source_live SET signals = signals - 'reader' WHERE source_id IN (${srcs})`;
+  await sql()`UPDATE source_readings SET signals = signals - 'reader' WHERE source_id IN (${srcs})`;
+  assert.deepEqual(await backfillStep(cronNow(), { deadline: Date.now() + 20_000, only: [p.id], ghFetch: p.gh }), { people: 0, rows: 0 }, 'an older reading writes nothing');
+  // The next read is a current one: the catch-up redoes the three weeks once.
+  await sql()`UPDATE source_live SET signals = signals || ${sql().json({ reader: REPO_READER })} WHERE source_id IN (${srcs})`;
+  assert.deepEqual(await backfillStep(cronNow(), { deadline: Date.now() + 20_000, only: [p.id], ghFetch: p.gh }), { people: 1, rows: 3 });
+  const got = await rows(p.id);
+  assert.deepEqual(got.map((r) => (r.facts.shipped_code as { n: number } | undefined)?.n), [2, 1, 1]);
+  assert.ok(got.every((r) => r.facts.reader === REPO_READER));
+  assert.deepEqual(await backfillStep(cronNow(), { deadline: Date.now() + 20_000, only: [p.id], ghFetch: p.gh }), { people: 0, rows: 0 }, 'once');
 });

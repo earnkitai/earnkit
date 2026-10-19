@@ -55,7 +55,7 @@ test('3.1 withPastCounts keeps the larger count per week, drops weeks past 52 an
 
 test('3.1b fix round 2 (anti-backdating rule 3): after a good reading, a new reading adds only this week and last week; older weeks keep their stored values', () => {
   const now = new Date('2026-10-14T00:00:00Z'); // 2026-W42
-  const prev = { commit_weeks: ['2026-W38', '2026-W40'], commit_counts: { '2026-W38': 2, '2026-W40': 1 } };
+  const prev = { commit_weeks: ['2026-W38', '2026-W40'], commit_counts: { '2026-W38': 2, '2026-W40': 1 }, reader: 2 };
   // Backdated: W33..W42 all appear at once; only W41 and W42 are new, W38 and W40 stay as stored.
   const weeks = Array.from({ length: 10 }, (_, i) => `2026-W${33 + i}`);
   assert.deepEqual(withPastWeeks(weeks, prev, now), ['2026-W38', '2026-W40', '2026-W41', '2026-W42']);
@@ -67,6 +67,9 @@ test('3.1b fix round 2 (anti-backdating rule 3): after a good reading, a new rea
   // No previous reading (or one without commit weeks): the reading stands as read.
   assert.deepEqual(withPastWeeks(['2026-W33', '2026-W42'], null, now), ['2026-W33', '2026-W42']);
   assert.deepEqual(withPastWeeks(['2026-W33'], { private: false }, now), ['2026-W33']);
+  // Hotfix 2026-10-19: a reading by an older reader (no `reader`, or below REPO_READER) is no baseline: re-taken once.
+  assert.deepEqual(withPastWeeks(weeks, { ...prev, reader: undefined }, now), weeks);
+  assert.deepEqual(withPastWeeks(weeks, { ...prev, reader: 1 }, now), weeks);
 });
 
 test('3.1c fix rounds 2 to 5 (rule 4): a reading is verified by GitHub\'s push record; no record or nothing listed leave it unverified (last 4 weeks) until a later check verifies it', () => {
@@ -96,12 +99,12 @@ test('3.1c fix rounds 2 to 5 (rule 4): a reading is verified by GitHub\'s push r
   assert.equal(pushedWeeks(weeks, full('2026-10-06T00:00:00Z', null)), null, 'the oldest page not read');
   // storedCommits: verified, then rule 3 only.
   const first = storedCommits({ commit_weeks: weeks, commit_counts: { '2026-W30': 5, '2026-W42': 2 } }, null, now, rec(['2026-10-13T10:00:00Z']));
-  assert.deepEqual(first, { commit_weeks: ['2026-W41', '2026-W42'], commit_counts: { '2026-W42': 2 }, pushes_checked: true });
+  assert.deepEqual(first, { commit_weeks: ['2026-W41', '2026-W42'], commit_counts: { '2026-W42': 2 }, pushes_checked: true, reader: 2 });
   assert.equal(needsPushCheck(first), false);
   assert.deepEqual(storedCommits({ commit_weeks: weeks }, first, now, null).commit_weeks, ['2026-W41', '2026-W42'], 'no new past weeks after a verified reading');
   // Unverified: weeks kept as read; it is no rule 3 baseline and is checked again, with no fallback to all weeks.
   const u1 = storedCommits({ commit_weeks: weeks }, null, now, null);
-  assert.deepEqual(u1, { commit_weeks: weeks, commit_counts: {}, pushes_checked: false });
+  assert.deepEqual(u1, { commit_weeks: weeks, commit_counts: {}, pushes_checked: false, reader: 2 });
   assert.equal(needsPushCheck(u1), true);
   let u = u1;
   for (let i = 0; i < 5; i++) u = storedCommits({ commit_weeks: ['2026-W42'] }, u, now, i % 2 ? null : rec([]));

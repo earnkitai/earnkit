@@ -69,7 +69,8 @@ export async function personFacts(builderId: number, o: { only?: number[] } = {}
   const n = kinds.length;
   const apps = n > 0 && kinds.every((k) => k.kind === 'app');
   const noun = apps ? (n === 1 ? 'app' : 'apps') : n === 1 ? 'project' : 'projects';
-  const rank = rankLine(s);
+  // Hotfix 2026-10-19: a public rank only inside the leaderboard's pool (bench-rank rankLines' rule).
+  const rank = s.listed ? rankLine(s) : null;
   const moment = p.moment === 'rank' ? p.moment : 'shipped';
   return { name: displayName(p.x_name, p.x_handle), handle: p.x_handle, avatar: avatarUrl(p.x_avatar_url), shipped: n, noun, rank, people: s.people, score: s.score, moment };
 }

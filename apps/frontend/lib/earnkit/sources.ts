@@ -253,12 +253,21 @@ const WEEK = /^\d{4}-W\d{2}$/;
 /** The ISO weeks before which a new reading adds nothing once the source has a previous one (this week and last). */
 const recentFloor = (now: Date) => isoWeek(new Date(now.getTime() - 7 * DAY_MS));
 /**
+ * Hotfix 2026-10-19: the repo reader's version, stamped on every stored repo reading (storedCommits). Version 2 reads
+ * all 52 weeks of a busy repo (person-github.ts withAllWeeks); before it, a repo with over 100 commits in the year
+ * kept only its newest 100 (a few days), and rule 3 then froze that short baseline. A reading of an older version is
+ * no baseline, so the next read re-takes it once under rule 4 (GitHub's push record backs every week).
+ */
+export const REPO_READER = 2;
+/**
  * A previous VERIFIED repo reading's weeks (fix round 2, anti-backdating rule 3's baseline): one that carries its
- * commit weeks and whose push check did not fail (fix round 3: `pushes_checked: false` is no baseline).
+ * commit weeks, whose push check did not fail (fix round 3: `pushes_checked: false` is no baseline) and that the
+ * current reader wrote (REPO_READER).
  */
 const prevWeeks = (prev: unknown): Set<string> | null => {
-  const p = prev as { commit_weeks?: unknown; pushes_checked?: unknown } | null;
+  const p = prev as { commit_weeks?: unknown; pushes_checked?: unknown; reader?: unknown } | null;
   if (!Array.isArray(p?.commit_weeks) || p.pushes_checked === false) return null;
+  if (typeof p.reader !== 'number' || p.reader < REPO_READER) return null;
   return new Set(p.commit_weeks.filter((w): w is string => typeof w === 'string' && WEEK.test(w)));
 };
 /** Fix round 3: the reading still needs GitHub's push check (no verified reading before it). */
@@ -378,23 +387,24 @@ const countMap = (x: unknown) => (x && typeof x === 'object' && !Array.isArray(x
 /**
  * Fix rounds 2 to 5: a repo reading's commit weeks and counts as stored, with its push check.
  * - After a verified reading: only this week and last week can be new (rule 3); `pushes_checked: true`.
- * - Otherwise (the first reading, or the previous one unverified) the weeks as read, joined with the unverified
- *   previous ones, are judged by GitHub's push record (rule 4): backed weeks only, `pushes_checked: true`.
+ * - Otherwise (the first reading, the previous one unverified, or written by an older reader: REPO_READER) the weeks
+ *   as read, joined with the previous ones, are judged by GitHub's push record (rule 4): backed weeks only, `pushes_checked: true`.
  * - No judgment (the call failed, listed nothing, or was cut or skipped by the deadline): `pushes_checked: false`;
  *   the score then counts only its last 4 weeks (never zero) until a later read verifies it. Pure.
  */
 export function storedCommits(
   r: { commit_weeks: string[]; commit_counts?: Record<string, number> }, prev: unknown, now: Date, pushes: Pushes | null,
-): { commit_weeks: string[]; commit_counts: Record<string, number>; pushes_checked: boolean } {
+): { commit_weeks: string[]; commit_counts: Record<string, number>; pushes_checked: boolean; reader: number } {
+  const reader = REPO_READER;
   if (!needsPushCheck(prev))
-    return { commit_weeks: withPastWeeks(r.commit_weeks, prev, now), commit_counts: withPastCounts(r.commit_counts ?? {}, prev, now), pushes_checked: true };
+    return { commit_weeks: withPastWeeks(r.commit_weeks, prev, now), commit_counts: withPastCounts(r.commit_counts ?? {}, prev, now), pushes_checked: true, reader };
   const p = prev as { commit_weeks?: unknown; commit_counts?: unknown } | null;
   const raw = withPastWeeks([...r.commit_weeks, ...weekList(p?.commit_weeks)], null, now);
   const rawCounts = withPastCounts({ ...countMap(p?.commit_counts), ...(r.commit_counts ?? {}) }, null, now);
   const backed = pushedWeeks(raw, pushes);
-  if (!backed) return { commit_weeks: raw, commit_counts: rawCounts, pushes_checked: false };
+  if (!backed) return { commit_weeks: raw, commit_counts: rawCounts, pushes_checked: false, reader };
   const keep = new Set(backed);
-  return { commit_weeks: backed, commit_counts: Object.fromEntries(Object.entries(rawCounts).filter(([w]) => keep.has(w))), pushes_checked: true };
+  return { commit_weeks: backed, commit_counts: Object.fromEntries(Object.entries(rawCounts).filter(([w]) => keep.has(w))), pushes_checked: true, reader };
 }
 
 /**
