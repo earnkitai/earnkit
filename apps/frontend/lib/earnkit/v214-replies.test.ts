@@ -49,7 +49,7 @@ async function agent(o: { x?: string } = {}) {
 test('9.8 state 1, not signed in: the sign-in link and its question', db, async () => {
   const a = await agent();
   const s = rule((await mcpCall(a.ctx, 'find', {})).reply);
-  assert.match(s, /You're not on the Bench yet\./);
+  assert.match(s, /You're not on the leaderboard yet\./);
   assert.match(s, /https:\/\/earnkit\.com\/signin\/[A-Za-z0-9_-]{22}/);
   const yes = await mcpCall(a.ctx, 'tell', { move_up: { kind: 'sign_in', project_key: null, answer: 'yes' } });
   assert.match(String(yes.reply?.agent_note), /sign_in_code/);
@@ -118,7 +118,7 @@ test('9.12 D5: X off: a new install is answered as signed in with no page: money
 test('9.13 D14: the link score shows is minted for the calling installation; its code binds through find; that reply names the account first', db, async () => {
   const a = await agent();
   const s = rule((await mcpCall(a.ctx, 'score', {})).reply);
-  assert.match(s, /You're not on the Bench yet\./);
+  assert.match(s, /You're not on the leaderboard yet\./);
   const link = links(s)[0]!;
   assert.match(link, /^https:\/\/earnkit\.com\/signin\/[A-Za-z0-9_-]{22}$/);
   const [row] = await sql()<{ installation_id: number }[]>`SELECT installation_id FROM x_signin_links WHERE link_hash = encode(sha256(${link.split('/').pop()!}::bytea), 'hex')`;
@@ -155,7 +155,7 @@ test('9.15 fix round 1: signed out with a results question due: the sign-in ques
   const s = rule(out.reply);
   assert.equal(links(s).length, 1);
   assert.match(links(s)[0]!, /\/signin\//);
-  assert.ok(s.endsWith("Want me to put your work on the Bench once you're in?"), s);
+  assert.ok(s.endsWith("Want me to put your work on the leaderboard once you're in?"), s);
   assert.equal(out.reply?.ask_outcome, undefined);
   const [row] = await sql()<{ at: Date | null }[]>`SELECT outcome_asked_at AS at FROM projects WHERE id = ${pid}`;
   assert.equal(row.at, null, 'not used up while signed out');
@@ -179,7 +179,7 @@ test('9.16 fix round 1 (minor 2): a sign-in link that fails to mint is still sig
   try {
     const r = await mcpCall(a.ctx, 'find', {});
     const s = String(r.reply?.show_to_builder);
-    assert.match(s, /You're not on the Bench yet\./);
+    assert.match(s, /You're not on the leaderboard yet\./);
     assert.equal(links(s).length, 0, s);
     assert.match(s, /Ways to get funded/);
     assert.ok(s.endsWith("I couldn't make your sign-in link just now. Want me to try again?"), s);

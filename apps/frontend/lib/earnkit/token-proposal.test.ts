@@ -16,13 +16,33 @@ import {
   unbranded,
 } from './token-proposal';
 
-test('ticker candidates: initials for 3+ words, then the first word, then numbered', () => {
-  assert.deepEqual(tickerCandidates('Chain Kits Bridge').slice(0, 3), ['CKB', 'CHAIN', 'CHAIN2']);
-  assert.deepEqual(tickerCandidates('Agentpay').slice(0, 2), ['AGENTP', 'AGENT2']);
-  assert.equal(tickerCandidates('Agentpay').length, 9); // AGENTP + AGENT2..AGENT9
+test('ticker candidates (R11): the whole first word up to 10 letters, else initials, then numbered; never a cut word', () => {
+  assert.equal(tickerCandidates('EarnKit')[0], 'EARNKIT', 'EarnKit gives $EARNKIT, never $EARNKI');
+  assert.deepEqual(tickerCandidates('Chain Kits Bridge').slice(0, 3), ['CHAIN', 'CKB', 'CHAIN2']);
+  assert.deepEqual(tickerCandidates('Agentpay').slice(0, 2), ['AGENTPAY', 'AGENTPAY2']);
+  assert.equal(tickerCandidates('Agentpay').length, 9); // AGENTPAY + AGENTPAY2..AGENTPAY9
+  assert.deepEqual(tickerCandidates('Recipeplanner').slice(0, 1), [], 'a first word over 10 letters is never cut (no initials for one word)');
+  assert.deepEqual(tickerCandidates('Supercalifragilistic Recipe Planner').slice(0, 2), ['SRP', 'SRP2'], 'over 10 letters: initials');
+  assert.deepEqual(tickerCandidates('Recipeplan').slice(0, 2), ['RECIPEPLAN', 'RECIPEPLA2'], '10 letters is whole; its variants stay within 10');
   assert.deepEqual(tickerCandidates('Go Kit').slice(0, 1), ['GOKIT']); // first word too short: letters of the name
   assert.deepEqual(tickerCandidates('🚀🚀'), []);
-  for (const c of tickerCandidates('My Super-Long Project Name 2')) assert.match(c, /^[A-Z0-9]{3,6}$/);
+  for (const c of tickerCandidates('My Super-Long Project Name 2')) assert.match(c, /^[A-Z0-9]{3,10}$/);
+  assert.equal(tickerProblem('RECIPEPLAN'), null, '10 letters pass');
+  assert.match(String(tickerProblem('RECIPEPLANS')), /3 to 10/, '11 do not (tokens.fun allows 10)');
+});
+
+test('R11: EarnKit is $EARNKIT in full: reserved as a brand, but refused whole, never shortened to a cut ticker', async () => {
+  assert.match(String(tickerProblem('EARNKIT')), /brand/);
+  const p = await proposeToken('Recipekit', async () => true);
+  assert.deepEqual(p, { name: 'Recipekit', symbol: 'RECIPEKIT' });
+});
+
+test('R11: a project name over the 50-character limit is never cut into a token name', async () => {
+  const long = 'Recipe planner for busy families who cook every night';
+  const p = await proposeToken(long, async () => true, 'https://github.com/a/recipes');
+  assert.equal(p.name, 'Recipes', 'the repo name, not a cut project name');
+  assert.ok(!nameCandidates(long, null).some((n) => n.endsWith(' Token') && !long.startsWith(n.slice(0, -6))), 'no cut "<name> Token"');
+  assert.equal(nameCandidates(long, null).length, 1);
 });
 
 test('tickers: brand symbols and brand names are refused', () => {
@@ -30,7 +50,7 @@ test('tickers: brand symbols and brand names are refused', () => {
     assert.ok(tickerProblem(s), s);
   assert.equal(tickerProblem('CKB'), null);
   assert.ok(tickerProblem('ab')); // too short
-  assert.ok(tickerProblem('TOOLONG7'));
+  assert.ok(tickerProblem('TOOLONGTICK')); // 11: over tokens.fun's 10
 });
 
 test('v2.7 §4 fix round 1 (Minor): CLANKER is refused with a generic reason, never echoing the word', () => {
@@ -66,13 +86,13 @@ test('proposeToken: skips taken tickers', async () => {
 
 test('proposeToken: an unreachable ticker check still proposes, with a note', async () => {
   const p = await proposeToken('Chain Kits Bridge', async () => null);
-  assert.equal(p.symbol, 'CKB');
+  assert.equal(p.symbol, 'CHAIN');
   assert.match((p as { note: string }).note, /not checked for duplicates/);
 });
 
 test('proposeToken: when an earlier candidate is taken, a later unreachable check proposes that later candidate, not the first (fix round 1, item 1)', async () => {
-  const p = await proposeToken('Chain Kits Bridge', async (s) => (s === 'CKB' ? false : s === 'CHAIN' ? null : true));
-  assert.equal(p.symbol, 'CHAIN');
+  const p = await proposeToken('Chain Kits Bridge', async (s) => (s === 'CHAIN' ? false : s === 'CKB' ? null : true));
+  assert.equal(p.symbol, 'CKB');
   assert.match((p as { note: string }).note, /not checked for duplicates/);
 });
 
@@ -243,14 +263,14 @@ test('C6: every group\'s unnumbered ticker is checked before any numbered varian
   const seen: string[] = [];
   await proposeToken('TipJar', async (sym) => { seen.push(sym); return false; }, 'https://github.com/a/tip-jar');
   assert.deepEqual(seen.slice(0, 3), ['TIPJAR', 'TIP', 'ENTRY']);
-  const free = await proposeToken('Chain Kits Bridge', async (sym) => sym !== 'CKB');
-  assert.equal(free.symbol, 'CHAIN');
+  const free = await proposeToken('Chain Kits Bridge', async (sym) => sym !== 'CHAIN');
+  assert.equal(free.symbol, 'CKB');
 });
 
 test('v2.8.1 §A2: a brand in the project name falls back to its readable words, and the ticker follows ("ArcPay" is $PAY (Pay Token), never $ARCPA2)', async () => {
   const free = async () => true;
   assert.deepEqual(await proposeToken('ArcPay', free, 'https://github.com/alice/arcpay'), { name: 'Pay Token', symbol: 'PAY' });
-  assert.deepEqual(await proposeToken('Base Builder Grants Bot', free), { name: 'Builder Grants Bot', symbol: 'BGB' });
+  assert.deepEqual(await proposeToken('Base Builder Grants Bot', free), { name: 'Builder Grants Bot', symbol: 'BUILDER' });
   // A readable project name is kept as is.
   assert.deepEqual(await proposeToken('TipJar', free), { name: 'TipJar', symbol: 'TIPJAR' });
   assert.equal(unbranded('ArcPay'), 'Pay');
@@ -259,7 +279,7 @@ test('v2.8.1 §A2: a brand in the project name falls back to its readable words,
   assert.equal(unbranded('Base'), null, 'every word a brand: nothing left');
   assert.deepEqual(nameCandidates('ArcPay', 'arcpay'), ['ArcPay', 'ArcPay Token', 'Arcpay', 'Pay Token']);
   // "<TICKER> Token" only when no readable name exists.
-  assert.match((await proposeToken('Base', free)).name, /^[A-Z0-9]{3,6} Token$/);
+  assert.match((await proposeToken('Base', free)).name, /^[A-Z0-9]{3,10} Token$/);
 });
 
 test('v2.8.1 §A5: ticker checks run in parallel batches; the first free candidate in order wins', async () => {

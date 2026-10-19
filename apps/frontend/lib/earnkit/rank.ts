@@ -35,3 +35,11 @@ export function rankLine(s: Standing, o: { chain?: BenchChain } = {}): string | 
  * text, the page meta): "Shipping 72 · #3 of 40 builders this week"; "Shipping 72" without a rank. Pure.
  */
 export const scoreLine = (score: number, rank: string | null) => (rank ? `Shipping ${score} · ${rank}` : `Shipping ${score}`);
+/**
+ * A rank line as its number and its words, for a large number beside smaller words: "Top 4%" and
+ * "of builders this week", "#3" and "of 12 builders this week"; any other line whole. Pure.
+ */
+export const rankSplit = (line: string): { lead: string; rest: string | null } => {
+  const m = /^(Top [\d.]+%|#[\d,]+) (of .+)$/.exec(line);
+  return m ? { lead: m[1], rest: m[2] } : { lead: line, rest: null };
+};

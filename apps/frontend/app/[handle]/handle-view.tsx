@@ -73,7 +73,7 @@ export async function handleMetadata(handle: string): Promise<Metadata> {
   const h = await pageHead(r.builderId);
   const card = `${pagePath(r.handle)}/card.png`;
   const title = `${h.name} on EarnKit`;
-  // v2.13: the Bench line ("Top 4% on the Bench") describes the page; without one, the v2.12.1 top line.
+  // The score line ("Shipping 62 · Top 4% of builders this week") describes the page; without one, the v2.12.1 top line.
   const description = (await rankLines(r.builderId)).line ?? h.topLine;
   return {
     title,

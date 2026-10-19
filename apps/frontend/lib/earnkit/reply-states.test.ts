@@ -32,7 +32,7 @@ test('9.2 the five replies, word for word', () => {
   assert.equal(out, [
     'Where you stand', NOT_ON_BENCH, '',
     'Ways to get funded', 'Base Builder Grants: up to $5K for a Base app.', '',
-    'How to move up', "Sign in with X to get your page (one click): https://earnkit.com/signin/AAAAAAAAAAAAAAAAAAAAAA\nWant me to put your work on the Bench once you're in?",
+    'How to move up', "Sign in with X to get your page (one click): https://earnkit.com/signin/AAAAAAAAAAAAAAAAAAAAAA\nWant me to put your work on the leaderboard once you're in?",
   ].join('\n'));
   oneLinkOneQuestion(out);
   const none = benchReply(view({ state: 'no_project', project: null }));
@@ -57,7 +57,7 @@ test('9.2 the five replies, word for word', () => {
 test('9.3 variants of not counted: taken, copy, a link only, the App off', () => {
   const p = { ...P, confirmed: false };
   for (const [variant, stand, question] of [
-    ['taken', 'Recipes is already on the Bench under another account.', 'Want to use a different project?'],
+    ['taken', 'Recipes is already on the leaderboard under another account.', 'Want to use a different project?'],
     ['copy', "Recipes is a copy of someone else's project. Use your own.", 'Want to use a different project?'],
     ['no_repo', "Recipes isn't counted yet.", 'Where does Recipes live on GitHub?'],
     ['app_off', "Recipes isn't counted yet.", 'Want me to suggest one small thing to ship in Recipes this week?'],
@@ -122,7 +122,7 @@ test('9.5b a held question in place of the install question: the page is then th
 
 test('9.5c fix round 1: signed out, the sign-in question wins over a held one', () => {
   const out = benchReply(view({ state: 'signed_out', project: null, handle: null, link: 'https://earnkit.com/signin/AAAAAAAAAAAAAAAAAAAAAA', held: 'Did Recipes win anything in Base Builder Grants?' }));
-  assert.ok(out.endsWith("Want me to put your work on the Bench once you're in?"), out);
+  assert.ok(out.endsWith("Want me to put your work on the leaderboard once you're in?"), out);
   assert.doesNotMatch(out, /Did Recipes win/);
   oneLinkOneQuestion(out);
 });

@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { pageWords } from './fixtures/page-words';
 import { CHAIN_LABEL, rankLine, scoreLine } from './rank';
 import { bestFact } from './bench-data';
-import BenchView, { BENCH_EMPTY, BENCH_TITLE, FILTER_RAISING, FILTER_WEEKLY, benchLine } from '../../app/bench/BenchView';
+import BenchView, { BENCH_EMPTY, BENCH_TITLE, FILTER_RAISING, FILTER_WEEKLY, benchLine } from '../../app/leaderboard/BenchView';
 import { raiseLine } from './coin-moments';
 import { RAISE_LINES, showRaisingLine } from './raising';
 import RaisingPill from '../../app/components/ui/RaisingPill';
@@ -66,7 +66,7 @@ test('10.7 the Bench\'s words pass the v2.13 rule; its chips may name a chain (c
     { people_week: 0, streak: 0, weeks_shipping: 0, shipped: false },
   ].map(bestFact);
   for (const t of [BENCH_TITLE, benchLine(25), benchLine(1), BENCH_EMPTY, FILTER_RAISING, FILTER_WEEKLY, ...facts]) assert.deepEqual(bannedInBench(t, EXEMPT), [], t);
-  const row = { rank: 2, line: 'Top 4%', handle: 'maya_makes', name: 'Maya Chen', avatar: null, raising: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const, 'robinhood' as const, 'arc' as const], project: 'Recipe planner', best: '31 people this week' };
+  const row = { rank: 2, line: 'Top 4%', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, raising: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const, 'robinhood' as const, 'arc' as const], project: 'Recipe planner', best: '31 people this week' };
   const page = pageWords(React.createElement(BenchView, { rows: [row], count: 25, chips: ['base', 'robinhood', 'arc'], filter: { chain: 'base', raising: true, weekly: false }, raising: true }));
   // Chain names only in the chips and the logos' alt text and tooltips (R14).
   assert.deepEqual(bannedInBench(page, ['Maya Chen', 'Recipe planner', '$RECIPE', ...Object.values(CHAIN_LABEL)]), [], page);
@@ -109,7 +109,7 @@ test('12.7 the landing page\'s words pass the v2.13 rule (copy rules)', async ()
   const { BENCH_FOOTER_TAGLINE } = await import('./footer-links');
   for (const t of [BENCH_HERO_TITLE, BENCH_HERO_SUBTITLE, BENCH_HERO_SUBTITLE_NO_RAISE, ...BENCH_STEPS_NO_RAISE, BENCH_TOP_TITLE, SEE_BENCH, CAROUSEL_TITLE, SEE_ALL_UPDATES, 'Money open now', BENCH_HOW_TITLE, ...BENCH_STEPS, BENCH_FOOTER_TAGLINE])
     assert.deepEqual(bannedInBench(t, EXEMPT), [], t);
-  const row = { rank: 1, line: 'Top 1%', handle: 'maya_makes', name: 'Maya Chen', avatar: null, raising: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
+  const row = { rank: 1, line: 'Top 1%', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, raising: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
   const card = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import. It plans a week.', chips: ['Went live', '+31 people'], titles: [], pinned: false };
   const rows = Array.from({ length: 12 }, (_, i) => ({ ...row, handle: `b${i}`, rank: i + 1 }));
   const page = pageWords(React.createElement(HomeView, { landing: { ...homeFixture, bench: { rows, chips: ['base', 'robinhood', 'arc'], cards: [card], raising: true } } }));

@@ -357,12 +357,12 @@ test('10.11 the won line: absent at 0 (never "$0"); "Builders using EarnKit won 
 
 // ---- v2.13 Task 12: the landing page (spec "Landing page", R15).
 const page = (landing: Parameters<typeof HomeView>[0]['landing']) => renderToStaticMarkup(React.createElement(HomeView, { landing })).replace(/&#x27;/g, "'");
-const ROW = { rank: 1, line: 'Top 1%', handle: 'maya_makes', name: 'Maya Chen', avatar: null, raising: null, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
+const ROW = { rank: 1, line: 'Top 1%', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, raising: null, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
 const CARD = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import. It plans a week.', chips: ['Went live', '+31 people', '12 commits'], titles: [], pinned: false };
 
 test('12.1 the hero, word for word, and its one button', () => {
   assert.equal(BENCH_HERO_TITLE, 'Ship every week. Get funded.');
-  assert.equal(BENCH_HERO_SUBTITLE, 'Add EarnKit to your AI agent. It puts your project on the Bench, posts what you ship, and finds you grants and a community round.');
+  assert.equal(BENCH_HERO_SUBTITLE, 'Add EarnKit to your AI agent. It puts your project on the leaderboard, posts what you ship, and finds you grants and a community round.');
   const h = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], chips: ['base'], cards: [CARD], raising: true } });
   assert.ok(h.includes(BENCH_HERO_TITLE) && h.includes(BENCH_HERO_SUBTITLE) && h.includes('Add to your agent'));
   assert.ok(!h.includes('Agents only'), 'no all-caps eyebrow under the flag');
@@ -370,8 +370,8 @@ test('12.1 the hero, word for word, and its one button', () => {
 });
 
 test('12.1b (v2.13.1 O3) EARNKIT_RAISING off: the hero and How it works never mention raising; on: as built', () => {
-  assert.equal(BENCH_HERO_SUBTITLE_NO_RAISE, 'Add EarnKit to your AI agent. It puts your project on the Bench, posts what you ship, and finds you grants.');
-  assert.deepEqual(BENCH_STEPS_NO_RAISE, ['Add EarnKit to your agent and connect X.', 'Your project goes on the Bench and your agent posts what you ship each week.', 'Get funded: grants that fit.']);
+  assert.equal(BENCH_HERO_SUBTITLE_NO_RAISE, 'Add EarnKit to your AI agent. It puts your project on the leaderboard, posts what you ship, and finds you grants.');
+  assert.deepEqual(BENCH_STEPS_NO_RAISE, ['Add EarnKit to your agent and connect X.', 'Your project goes on the leaderboard and your agent posts what you ship each week.', 'Get funded: grants that fit.']);
   const off = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], chips: ['base'], cards: [CARD], raising: false } });
   assert.ok(off.includes(BENCH_HERO_SUBTITLE_NO_RAISE) && !off.includes(BENCH_HERO_SUBTITLE), 'the raise-free subtitle');
   for (const s of BENCH_STEPS_NO_RAISE) assert.ok(off.includes(s), s);
@@ -386,7 +386,7 @@ test('12.2 the sections in order: hero, the Bench top 10, this week on the Bench
   const at = [BENCH_HERO_TITLE, BENCH_TOP_TITLE, CAROUSEL_TITLE, 'Money open now', BENCH_HOW_TITLE, 'Backed by'].map((s) => h.indexOf(s));
   assert.ok(at.every((i, k) => i >= 0 && (k === 0 || i > at[k - 1])), at.join(','));
   assert.equal((h.match(/data-row=/g) ?? []).length, 10, 'the top 10');
-  assert.match(h, new RegExp(`href="/bench"[^>]*>${SEE_BENCH}`));
+  assert.match(h, new RegExp(`href="/leaderboard"[^>]*>${SEE_BENCH}`));
   assert.match(h, /href="\/bench\?chain=base"/);
   assert.match(h, /href="\/bench\?raising=1"/);
   assert.match(h, /data-shape="square"/);

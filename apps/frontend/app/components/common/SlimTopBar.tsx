@@ -24,8 +24,8 @@ export default function SlimTopBar() {
         >
           <Wordmark className="h-[18px] w-auto md:h-5" />
         </Link>
-        <Link href="/bench" className={`${LINK} hidden sm:inline-flex`}>
-          Bench
+        <Link href="/leaderboard" className={`${LINK} hidden sm:inline-flex`}>
+          Leaderboard
         </Link>
         <Link href="/feed" className={`${LINK} hidden sm:inline-flex`}>
           Feed

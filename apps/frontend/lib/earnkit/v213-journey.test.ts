@@ -41,7 +41,7 @@ import type { DeployDeps } from './deploy';
 import type { FreshOn } from './present';
 import BenchProfileView from '../../app/[handle]/BenchProfileView';
 import type { ProfileTab } from '../../app/[handle]/handle-view';
-import BenchView from '../../app/bench/BenchView';
+import BenchView from '../../app/leaderboard/BenchView';
 import HomeView from '../../app/HomeView';
 import TermsPage from '../../app/terms/page';
 import { GET as llms } from '../../app/llms.txt/route';
@@ -573,7 +573,7 @@ test('16.2 acceptance 2, without a project: ways to get funded and no build offe
   xUser = { id: 'x-maya2', username: 'maya2_builds', name: 'Maya Two', avatar: null };
   await signInX(id);
   const r = await call('find', { agent_can_build: true, github_user: 'maya2' }, ctx(id));
-  assert.match(r.show_to_builder, /^You're not on the Bench yet\./m, r.show_to_builder);
+  assert.match(r.show_to_builder, /^You're not on the leaderboard yet\./m, r.show_to_builder);
   assert.match(r.show_to_builder, /^Ways to get funded\n/m, r.show_to_builder);
   // v2.14 A18: find offers no build; prepare { build } stays for a program guide that names a starter.
   assert.equal((r as { build_offer?: unknown }).build_offer, undefined);
@@ -646,7 +646,7 @@ test('16.5 acceptance 5, a community round (v2.13.3 ruling B): the yes launches 
 test('16.6 acceptance 6, the landing page: the hero, the Bench top 10 and the square cards', db, async () => {
   const landing = await readLanding(nextMonday15(NOW));
   const page = html(React.createElement(HomeView, { landing }));
-  assert.ok(page.includes('Ship every week. Get funded.') && page.includes('The Bench') && page.includes('This week on the Bench'));
+  assert.ok(page.includes('Ship every week. Get funded.') && page.includes('Leaderboard') && page.includes('This week on the leaderboard'));
   assert.ok((landing.bench?.rows.length ?? 0) <= 10);
   assert.match(page, /data-shape="square"/);
   assert.ok(landing.bench?.cards.some((c) => c.handle === 'maya_makes'));

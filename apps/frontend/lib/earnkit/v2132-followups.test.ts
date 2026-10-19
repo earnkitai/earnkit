@@ -10,7 +10,7 @@ import { ORG_PROOF_MAX_AGE_MS, expireOrgProofs, orgProofExpiryStep, proveByApp }
 import { rescorePerson } from './person-score';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import BenchPage, { BENCH_EMPTY, benchLine } from '../../app/bench/BenchView';
+import BenchPage, { BENCH_EMPTY, benchLine } from '../../app/leaderboard/BenchView';
 import { BENCH_TOP_EMPTY } from '../../app/components/sections/BenchTop';
 import { discoverPerson } from './discovery';
 import type { ReaderDeps } from './source-readers';
@@ -112,10 +112,10 @@ test('v2.13.2 1: a user-owned proof at 200 days stays', dbTest, () =>
 // ---- 3. The Bench header's counts
 
 test('v2.13.2 3: the Bench header says nobody, one builder, or many', () => {
-  assert.equal(benchLine(0), 'Nobody on the Bench yet. Add EarnKit to your agent and be first.');
-  assert.equal(benchLine(1), '1 builder who ships, ranked by what they shipped and who uses it.');
-  assert.equal(benchLine(2), '2 builders who ship, ranked by what they shipped and who uses it.');
-  assert.equal(benchLine(1200), '1,200 builders who ship, ranked by what they shipped and who uses it.');
+  assert.equal(benchLine(0), 'Nobody on the leaderboard yet. Add EarnKit to your agent and be first.');
+  assert.equal(benchLine(1), '1 builder who ships, ranked by Shipping points.');
+  assert.equal(benchLine(2), '2 builders who ship, ranked by Shipping points.');
+  assert.equal(benchLine(1200), '1,200 builders who ship, ranked by Shipping points.');
 });
 
 // ---- Fix round 1
@@ -152,7 +152,7 @@ test('v2.13.2 fix 1 (concern 3), v2.14: a stale org repo comes back only through
 (globalThis as { React?: typeof React }).React = React;
 const page = (count: number, rows = 0, chain: 'base' | null = null) =>
   renderToStaticMarkup(React.createElement(BenchPage, {
-    rows: Array.from({ length: rows }, (_, i) => ({ rank: i + 1, line: null, handle: `h${i}`, name: `H${i}`, avatar: null, raising: null, chains: [], project: 'P', best: 'Building' })),
+    rows: Array.from({ length: rows }, (_, i) => ({ rank: i + 1, line: null, points: 10, handle: `h${i}`, name: `H${i}`, avatar: null, raising: null, chains: [], project: 'P', best: 'Building' })),
     count, chips: [], filter: { chain, raising: false, weekly: false }, raising: false,
   })).replace(/&#x27;/g, "'");
 

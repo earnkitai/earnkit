@@ -20,7 +20,7 @@ import { EARN_NOTE } from './stand-text';
 import { toolDescriptions } from './mcp';
 import { UPDATE_LINES } from './updates';
 import { rankLines } from './bench-rank';
-import { benchLine } from '../../app/bench/BenchView';
+import { benchLine } from '../../app/leaderboard/BenchView';
 import BenchTop, { BENCH_TOP_EMPTY } from '../../app/components/sections/BenchTop';
 import ProgramCards from '../../app/components/sections/ProgramCards';
 import type { ReaderDeps } from './source-readers';
@@ -224,7 +224,7 @@ test('O5 N13 confirmed but not claimed: the last line never says "on the Bench" 
     const r = await find(id, {}, NO_MATCH);
     // v2.14 T9: signed out, it is not on the Bench yet (the stand line), and the question is the sign-in.
     assert.equal(r.show_to_builder.split('\n')[1], NOT_ON_BENCH, r.show_to_builder);
-    assert.doesNotMatch(r.show_to_builder, /is on the Bench|post what you ship/, r.show_to_builder);
+    assert.doesNotMatch(r.show_to_builder, /is on the leaderboard|post what you ship/, r.show_to_builder);
     assert.equal(r.move_up?.kind, 'sign_in');
     assert.notEqual(r.move_up?.kind, 'updates');
   }),
@@ -292,10 +292,10 @@ const html = (el: React.ReactElement) => renderToStaticMarkup(el).replace(/&#x27
 
 test('O5 N16, P1, P10 the landing Bench with nobody on it says so; "1 builder who ships"; the money heading includes investments', () => {
   assert.ok(html(React.createElement(BenchTop, { rows: [], chips: [], raising: false })).includes(BENCH_TOP_EMPTY));
-  assert.equal(BENCH_TOP_EMPTY, 'Nobody on the Bench yet. Add EarnKit to your agent and be first.');
+  assert.equal(BENCH_TOP_EMPTY, 'Nobody on the leaderboard yet. Add EarnKit to your agent and be first.');
   // v2.13.2 (3): "1 builder who ships" (v2132-followups.test.ts covers 0, 1 and many).
-  assert.equal(benchLine(1), '1 builder who ships, ranked by what they shipped and who uses it.');
-  assert.equal(benchLine(2), '2 builders who ship, ranked by what they shipped and who uses it.');
+  assert.equal(benchLine(1), '1 builder who ships, ranked by Shipping points.');
+  assert.equal(benchLine(2), '2 builders who ship, ranked by Shipping points.');
   const cards = html(React.createElement(ProgramCards, { tiles: [], bench: true }));
   assert.ok(cards.includes('Money open now'), cards);
   assert.ok(!cards.includes('Grants open now'));

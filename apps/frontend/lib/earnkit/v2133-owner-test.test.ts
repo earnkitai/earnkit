@@ -13,7 +13,7 @@ import { raiseLine } from './coin-moments';
 import { RAISE_LINES, showRaisingLine } from './raising';
 import { bannedInBench } from './fixtures/banned-words';
 import RaisingPill from '../../app/components/ui/RaisingPill';
-import { FILTER_RAISING } from '../../app/bench/FilterChip';
+import { FILTER_RAISING } from '../../app/leaderboard/FilterChip';
 import { BENCH_HERO_SUBTITLE } from '../../app/components/sections/Hero';
 import { BENCH_STEPS } from '../../app/components/sections/BenchHowItWorks';
 import { fakeGitHub } from './fixtures/fake-github-branch';
@@ -177,9 +177,9 @@ test('2.2 no project and a project not yet confirmed: up to 2 open programs with
 
 // ---- 3. No project: lead with existing work ------------------------------------------------------
 
-test('3.1 no project (ruling A): "You\'re not on the Bench yet." and existing work first; never a build (v2.14 A18)', dbTest, () =>
+test('3.1 no project (ruling A): "You\'re not on the leaderboard yet." and existing work first; never a build (v2.14 A18)', dbTest, () =>
   on(async () => {
-    assert.equal(NOT_ON_BENCH, "You're not on the Bench yet.");
+    assert.equal(NOT_ON_BENCH, "You're not on the leaderboard yet.");
     // v2.14 spec 4 (no_project): one question, last.
     assert.equal(STATE_COPY.no_project.ask(), "What's your GitHub, or a link to something you've made?");
     // No program with a starter that can compete open: the line, no build offer, money shown.

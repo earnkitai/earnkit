@@ -21,7 +21,7 @@ export type FundLine =
   | { kind: 'needs'; title: string; prize: string | null; needs: string };
 export type BenchProject = { key: string; name: string; confirmed: boolean; live: boolean; weeks: number };
 
-export const NOT_ON_BENCH = "You're not on the Bench yet.";
+export const NOT_ON_BENCH = "You're not on the leaderboard yet.";
 export const NO_MONEY_LINE = "No program is open right now. I'll look again next week.";
 /** A13: the streak as the chips say it. */
 export const streakWords = (n: number) => `${n} weeks in a row`;
@@ -55,7 +55,7 @@ export const benchStepKey = (kind: BenchAskKind, key: string | null) => `${kind}
 export const STATE_COPY = {
   signed_out: {
     stand: () => NOT_ON_BENCH,
-    ask: (link: string) => `Sign in with X to get your page (one click): ${link}\nWant me to put your work on the Bench once you're in?`,
+    ask: (link: string) => `Sign in with X to get your page (one click): ${link}\nWant me to put your work on the leaderboard once you're in?`,
     /** Fix round 1: the link couldn't be made this time (never read as signed in). */
     retry: () => "I couldn't make your sign-in link just now. Want me to try again?",
   },
@@ -74,7 +74,7 @@ export const STATE_COPY = {
 export const originalityWords = (n: number) => `Originality ${n}.`;
 /** A15: not counted, when the install link can't help. */
 export const VARIANT_COPY = {
-  taken: { stand: (n: string) => `${n} is already on the Bench under another account.`, ask: () => OTHER_PROJECT_ASK },
+  taken: { stand: (n: string) => `${n} is already on the leaderboard under another account.`, ask: () => OTHER_PROJECT_ASK },
   copy: { stand: (n: string) => `${n} is a copy of someone else's project. Use your own.`, ask: () => OTHER_PROJECT_ASK },
   no_repo: { stand: (n: string) => `${n} isn't counted yet.`, ask: (n: string) => `Where does ${n} live on GitHub?` },
   app_off: { stand: (n: string) => `${n} isn't counted yet.`, ask: (n: string) => shipAsk(n) },
@@ -87,6 +87,9 @@ export function replyState(i: { signedIn: boolean; project: BenchProject | null;
   if (!i.counted) return 'not_counted';
   return i.streak >= 2 ? 'shipping' : 'proven';
 }
+
+/** R10: the states that show a rank (the one project counts); the others carry no rank and no rank news. Pure. */
+export const rankedState = (s: ReplyState) => s === 'proven' || s === 'shipping';
 
 export type BenchView = {
   state: ReplyState; variant: Variant; project: BenchProject | null; rank: string | null; streak: number;

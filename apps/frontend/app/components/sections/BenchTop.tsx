@@ -1,15 +1,15 @@
 import Link from 'next/link';
 import { Panel } from '../common/Panel';
 import ChainLogo from '../ui/ChainLogo';
-import BenchRowItem from '../../bench/BenchRowItem';
-import { Chip, FILTER_RAISING } from '../../bench/FilterChip';
+import BenchRowItem from '../../leaderboard/BenchRowItem';
+import { Chip, FILTER_RAISING } from '../../leaderboard/FilterChip';
 import { filterHref, type BenchRow } from '../../../lib/earnkit/bench-data';
 import { CHAIN_LABEL, type BenchChain } from '../../../lib/earnkit/rank';
 
-export const BENCH_TOP_TITLE = 'The Bench';
-export const SEE_BENCH = 'See the Bench';
+export const BENCH_TOP_TITLE = 'Leaderboard';
+export const SEE_BENCH = 'See the leaderboard';
 /** v2.13.1 O5 N16: the landing's Bench at go-live, with nobody ranked yet. */
-export const BENCH_TOP_EMPTY = 'Nobody on the Bench yet. Add EarnKit to your agent and be first.';
+export const BENCH_TOP_EMPTY = 'Nobody on the leaderboard yet. Add EarnKit to your agent and be first.';
 const TOP = 10;
 
 /**
@@ -19,7 +19,7 @@ const TOP = 10;
  */
 export default function BenchTop({ rows, chips, raising }: { rows: BenchRow[]; chips: BenchChain[]; raising: boolean }) {
   return (
-    <Panel id="bench" label={BENCH_TOP_TITLE} className="relative overflow-hidden py-12 md:py-16">
+    <Panel id="leaderboard" label={BENCH_TOP_TITLE} className="relative overflow-hidden py-12 md:py-16">
       <div aria-hidden="true" className="pointer-events-none absolute -right-40 -top-48 h-[28rem] w-[28rem] rounded-full bg-ek-score-purple/[0.09] blur-3xl" />
       <div className="relative">
         <h2 className="font-funnel-display text-3xl font-medium text-ek-white md:text-5xl">{BENCH_TOP_TITLE}</h2>
@@ -44,7 +44,7 @@ export default function BenchTop({ rows, chips, raising }: { rows: BenchRow[]; c
           <p className="mt-6 max-w-2xl font-funnel-sans text-base font-light text-ek-blue-light md:text-lg">{BENCH_TOP_EMPTY}</p>
         )}
         <Link
-          href="/bench"
+          href="/leaderboard"
           className="mt-8 inline-flex min-h-12 items-center justify-center text-nowrap rounded-full bg-ek-blue-bright px-6 font-funnel-sans text-base font-medium text-ek-navy-deep transition-colors hover:bg-ek-blue-soft"
         >
           {SEE_BENCH}

@@ -1,6 +1,6 @@
 import { ImageResponse } from 'next/og';
 import { sql } from '@/lib/earnkit/db';
-import { monogramFor } from '@/lib/earnkit/token-proposal';
+import { TICKER_SHAPE, monogramFor } from '@/lib/earnkit/token-proposal';
 
 /**
  * The default token logo (v2.3 §2): the ticker's first letters on a colour from the project id.
@@ -13,7 +13,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const [row] = await sql()<{ token_symbol: string | null }[]>`
     SELECT token_symbol FROM projects WHERE id = ${id}`;
   // Only a validated ticker is ever drawn; never free text.
-  if (!row?.token_symbol || !/^[A-Z0-9]{3,6}$/.test(row.token_symbol))
+  if (!row?.token_symbol || !TICKER_SHAPE.test(row.token_symbol))
     return new Response('Not found', { status: 404 });
   if (new URL(req.url).searchParams.get('s') !== row.token_symbol)
     return new Response('Not found', { status: 404 });

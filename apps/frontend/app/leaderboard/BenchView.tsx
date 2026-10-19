@@ -7,14 +7,14 @@ import { BENCH_TOP_EMPTY } from '../components/sections/BenchTop';
 import BenchRowItem from './BenchRowItem';
 import { Chip, FILTER_RAISING, FILTER_WEEKLY } from './FilterChip';
 
-export const BENCH_TITLE = 'The Bench';
+export const BENCH_TITLE = 'Leaderboard';
 /**
  * v2.13.2 (3): nobody ranked reads as the landing's empty Bench (BENCH_TOP_EMPTY), one reads "1 builder
  * who ships", more "N builders who ship". Pure.
  */
 export const benchLine = (n: number) =>
   n <= 0 ? BENCH_TOP_EMPTY
-  : `${n.toLocaleString('en-US')} ${n === 1 ? 'builder who ships' : 'builders who ship'}, ranked by what they shipped and who uses it.`;
+  : `${n.toLocaleString('en-US')} ${n === 1 ? 'builder who ships' : 'builders who ship'}, ranked by Shipping points.`;
 export const BENCH_EMPTY = 'No one here yet.';
 export { FILTER_RAISING, FILTER_WEEKLY };
 

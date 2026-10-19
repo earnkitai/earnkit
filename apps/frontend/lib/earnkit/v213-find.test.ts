@@ -56,7 +56,7 @@ test('8.6 a fresh install with identity.project: v2.14 T9 signed out: not on the
     const lines = r.show_to_builder.split('\n');
     assert.equal(lines[0], 'Where you stand');
     assert.equal(lines[1], NOT_ON_BENCH);
-    assert.match(r.show_to_builder, /Sign in with X to get your page \(one click\): https:\/\/\S+\/signin\/[A-Za-z0-9_-]{22}\nWant me to put your work on the Bench once you're in\?$/);
+    assert.match(r.show_to_builder, /Sign in with X to get your page \(one click\): https:\/\/\S+\/signin\/[A-Za-z0-9_-]{22}\nWant me to put your work on the leaderboard once you're in\?$/);
     assert.equal(r.move_up?.kind, 'sign_in');
     // v2.14 T7: no claim link and no claim ask.
     assert.equal((r as { claim?: unknown }).claim, undefined);
@@ -98,9 +98,9 @@ test('8.8 no project: ideas first; signed out, the sign-in question; no build of
       const id = await install();
       // v2.14 T7: no claim ask first; an unsigned install gets the start ask at once.
       const r = await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH });
-      assert.match(r.show_to_builder, /^You're not on the Bench yet\.$/m);
+      assert.match(r.show_to_builder, /^You're not on the leaderboard yet\.$/m);
       assert.match(r.show_to_builder, /^Ways to get funded\n/m);
-      assert.ok(r.show_to_builder.endsWith("Want me to put your work on the Bench once you're in?"), r.show_to_builder);
+      assert.ok(r.show_to_builder.endsWith("Want me to put your work on the leaderboard once you're in?"), r.show_to_builder);
       assert.equal(r.build_offer, undefined);
       assert.equal(r.move_up?.kind, 'sign_in');
     } finally {

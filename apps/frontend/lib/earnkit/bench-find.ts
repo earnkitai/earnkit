@@ -29,7 +29,7 @@ import { projectKeyOf, type IdentityProject } from './identity-input';
 import type { ToolContext } from './tools';
 import { CHAIN_NAMES, type Chain } from './chains';
 import {
-  STATE_COPY, benchReply, benchStepKey, enterAsk, nextStepAsk, replyState, shipAsk, stateAsk,
+  STATE_COPY, benchReply, benchStepKey, enterAsk, nextStepAsk, rankedState, replyState, shipAsk, stateAsk,
   type BenchAsk, type BenchAskKind, type BenchProject, type BenchView, type FundLine, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
@@ -348,15 +348,17 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
     UPDATE builder_profiles SET standing_seen = CASE WHEN ${stored === null} THEN COALESCE(standing_seen, '{}'::jsonb) - 'bench_ask'
       ELSE COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json(stored as never)}::jsonb) END
     WHERE builder_id = ${id}`.catch(logged('ask'));
+  // R10: a rank only in a ranked state (proven or shipping); never beside "not on the leaderboard" or "isn't counted yet".
+  const ranked = rankedState(state);
   const view: BenchView = {
-    state, variant, project, rank: read.ranks.bench, streak, score: read.score, why: scoreWhy(read.parts, now), originality: read.originality,
+    state, variant, project, rank: ranked ? read.ranks.bench : null, streak, score: read.score, why: scoreWhy(read.parts, now), originality: read.originality,
     handle: read.base.claimed ? read.base.handle : null, link, fund, due: o.due, ask: finalAsk, held,
   };
   // A raise ask is answered through move_up (benchMoveUp: setRaising), as every Bench ask but the coin offer.
   const note = finalAsk.kind === 'coin' ? COIN_NOTE : finalAsk.kind === 'start' ? START_NOTE : finalAsk.kind === 'install_app' ? INSTALL_APP_NOTE : BENCH_MOVE_UP_NOTE;
   const fields: Reply = {
     ...(!held && { move_up: { kind: finalAsk.kind, project_key: finalAsk.project_key, agent_note: note } }),
-    rank_lines: [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x)),
+    rank_lines: ranked ? [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x)) : [],
     streak,
   };
   return { view, fields };
@@ -451,8 +453,10 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   });
   const taken = view.variant === 'taken';
   const lead = Boolean((fits[0] && !submit && !taken) || submit);
-  // Every reply asks one question now, so news never carries a card offer of its own.
-  const news = read.profiled ? await takeNews(id, read.seen, read.base, now, false).catch(logged('news')) : null;
+  // Every reply asks one question now, so news never carries a card offer of its own. R10: the news (a move up
+  // the rank) is shown only when the reply itself shows that rank; otherwise it is still recorded, never shown.
+  const recorded = read.profiled ? await takeNews(id, read.seen, read.base, now, false).catch(logged('news')) : null;
+  const news = view.rank ? recorded : null;
   const opener = newsOpener(a.alerts.lines, news ? [news] : []);
   const signedIn = await takeSignedIn(own, view.handle);
   await recordShown(

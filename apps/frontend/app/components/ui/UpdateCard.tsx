@@ -68,8 +68,8 @@ export default function UpdateCard({ card, shape, showPerson = true, showWeek = 
               <Avatar src={card.avatar ?? null} handle={handle} className="h-9 w-9 text-sm" />
             </span>
             <div className="min-w-0 font-funnel-sans text-sm text-ek-blue-light">
-              <p data-ek-name="" className="truncate font-medium text-ek-white">{card.name}</p>
-              <p data-ek-meta="" className="truncate"><a href={pagePath(handle)} className="hover:text-ek-white">@{handle}</a>{card.project ? ` · ${card.project}` : ''}</p>
+              <p data-ek-name="" className="break-words font-medium text-ek-white">{card.name}</p>
+              <p data-ek-meta="" className="break-words"><a href={pagePath(handle)} className="hover:text-ek-white">@{handle}</a>{card.project ? ` · ${card.project}` : ''}</p>
             </div>
           </div>
         )}

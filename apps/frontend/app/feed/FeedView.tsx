@@ -4,8 +4,8 @@ import UpdateCard from '../components/ui/UpdateCard';
 import { SURFACE } from '../[handle]/score-colors';
 import type { FeedCard } from '../../lib/earnkit/feed';
 
-export const FEED_TITLE = 'This week on the Bench';
-export const FEED_LINE = 'The best updates from builders on the Bench, with the facts EarnKit checked.';
+export const FEED_TITLE = 'This week on the leaderboard';
+export const FEED_LINE = 'The best updates from builders on the leaderboard, with the facts EarnKit checked.';
 export const FEED_EMPTY = 'No updates yet. They show here every Monday.';
 
 const COLUMN = 'mx-auto w-full max-w-4xl px-4 md:px-8';
@@ -29,10 +29,10 @@ export default function FeedView({ weeks }: { weeks: { monday: string; label: st
           <div className={`flex flex-col items-start gap-3 px-6 py-10 md:px-10 md:py-14 ${SURFACE}`}>
             <p className="font-funnel-display text-xl font-medium text-[var(--ek-p-text)] md:text-2xl">{FEED_EMPTY}</p>
             <Link
-              href="/bench"
+              href="/leaderboard"
               className="inline-flex h-9 items-center rounded-full border border-[var(--ek-p-border-strong)] bg-[var(--ek-p-chip)] px-4 font-funnel-sans text-sm font-medium text-[var(--ek-p-text)] transition-colors hover:bg-[var(--ek-p-chip-hover)]"
             >
-              See the Bench
+              See the leaderboard
             </Link>
           </div>
         ) : (

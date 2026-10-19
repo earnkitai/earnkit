@@ -6,7 +6,7 @@ import CarouselRow from './CarouselRow';
 import UpdateCard from '../ui/UpdateCard';
 import type { FeedCard } from '../../../lib/earnkit/feed';
 
-export const CAROUSEL_TITLE = 'This week on the Bench';
+export const CAROUSEL_TITLE = 'This week on the leaderboard';
 export const SEE_ALL_UPDATES = 'See all';
 
 /**

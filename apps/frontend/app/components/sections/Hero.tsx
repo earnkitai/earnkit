@@ -6,9 +6,9 @@ import AddToAgent from './AddToAgent';
 
 /** v2.13 spec "Landing page" 1: the hero's words (no eyebrow, no bonus pill). */
 export const BENCH_HERO_TITLE = 'Ship every week. Get funded.';
-export const BENCH_HERO_SUBTITLE = 'Add EarnKit to your AI agent. It puts your project on the Bench, posts what you ship, and finds you grants and a community round.';
+export const BENCH_HERO_SUBTITLE = 'Add EarnKit to your AI agent. It puts your project on the leaderboard, posts what you ship, and finds you grants and a community round.';
 /** v2.13.1 O3: with EARNKIT_RAISING off, the subtitle doesn't mention raising. */
-export const BENCH_HERO_SUBTITLE_NO_RAISE = 'Add EarnKit to your AI agent. It puts your project on the Bench, posts what you ship, and finds you grants.';
+export const BENCH_HERO_SUBTITLE_NO_RAISE = 'Add EarnKit to your AI agent. It puts your project on the leaderboard, posts what you ship, and finds you grants.';
 
 /**
  * v2.8 Part A, v2.13: the Bench title and subtitle, the install and demo buttons, one short stats line

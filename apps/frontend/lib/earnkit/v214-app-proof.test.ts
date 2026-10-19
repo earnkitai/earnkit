@@ -253,7 +253,7 @@ test('6.6 an App removed later sends the repo back to proposed and off the Bench
   assert.deepEqual(r, { checked: 1, removed: 1 });
   const [s] = await sql()<{ state: string; reject_reason: string }[]>`SELECT state, reject_reason FROM builder_sources WHERE builder_id = ${p.id} AND lower(ref) = ${key}`;
   assert.deepEqual(s, { state: 'proposed', reject_reason: APP_REMOVED });
-  assert.doesNotMatch(String((await mcpCall(p.ctx, 'find', {})).reply?.show_to_builder), /is on the Bench/);
+  assert.doesNotMatch(String((await mcpCall(p.ctx, 'find', {})).reply?.show_to_builder), /is on the leaderboard/);
 });
 
 test('6.7 readings: an App-proven repo is read with its installation token, never the shared one', db, async () => {

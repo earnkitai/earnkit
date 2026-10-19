@@ -5,6 +5,7 @@ import RaisingPill from '../components/ui/RaisingPill';
 import UpdateCard from '../components/ui/UpdateCard';
 import { streakWords, type ProfileData } from '../../lib/earnkit/bench-data';
 import type { PageHead } from '../../lib/earnkit/page-data';
+import { rankSplit } from '../../lib/earnkit/rank';
 import { pagePath } from '../../lib/earnkit/reserved-routes';
 import Avatar from './Avatar';
 import ProjectTab from './ProjectTab';
@@ -22,7 +23,7 @@ export const LOG_EMPTY = 'Updates show here every week.';
  * can't be told from a visitor, so one neutral line for everyone.
  */
 export const confirmingCardLine = (name: string, project: string) =>
-  `${name} is getting ${project} on the Bench.`;
+  `${name} is getting ${project} on the leaderboard.`;
 export { streakWords };
 
 /** profile-whoop v2: a small uppercase label with letter-spacing, muted grey. */
@@ -46,11 +47,11 @@ function Photo({ src, handle }: { src: string | null; handle: string }) {
 function Who({ name, handle }: { name: string; handle: string }) {
   return (
     <div className="min-w-0 flex-1">
-      <h1 className="truncate font-funnel-display text-xl font-medium leading-tight tracking-tight text-[var(--ek-p-text)] md:text-2xl">
+      <h1 className="break-words font-funnel-display text-xl font-medium leading-tight tracking-tight text-[var(--ek-p-text)] md:text-2xl">
         {name}
       </h1>
       {name !== `@${handle}` ? (
-        <p className="mt-0.5 truncate font-funnel-sans text-sm text-[var(--ek-p-muted)] md:text-base">
+        <p className="mt-0.5 break-words font-funnel-sans text-sm text-[var(--ek-p-muted)] md:text-base">
           @{handle}
         </p>
       ) : null}
@@ -58,13 +59,7 @@ function Who({ name, handle }: { name: string; handle: string }) {
   );
 }
 
-/** "Top 4% of builders this week" or "#3 of 12 builders this week" as its number and its words; any other line whole. Pure. */
-export const rankSplit = (
-  line: string,
-): { lead: string; rest: string | null } => {
-  const m = /^(Top [\d.]+%|#\d+) (of .+)$/.exec(line);
-  return m ? { lead: m[1], rest: m[2] } : { lead: line, rest: null };
-};
+export { rankSplit };
 
 /**
  * The rank, large: the percentile (or "#3") as the number, then its words, the why sentence and each
@@ -224,16 +219,8 @@ export default function BenchProfileView({
         </div>
 
         {confirming ? (
-          <>
-            {d.bench ? (
-              <div className={`mt-5 p-6 md:mt-6 md:p-10 ${SURFACE}`}>
-                <Rank line={d.bench} scoreLine={d.line} why={null} chains={d.chainLines} />
-              </div>
-            ) : null}
-            <ConfirmingCard
-              line={confirmingCardLine(d.name, d.project!.name)}
-            />
-          </>
+          // R10: never a rank while the project isn't counted yet (rankLines is empty then too).
+          <ConfirmingCard line={confirmingCardLine(d.name, d.project!.name)} />
         ) : (
           <>
             {d.bench || d.score !== null ? (

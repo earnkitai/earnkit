@@ -97,7 +97,7 @@ export function brandShell(inner: string, o: { fonts?: boolean } = {}): string {
     `<meta name="theme-color" content="${T.page}"><meta name="robots" content="noindex"><title>EarnKit</title>` +
     `<style>${o.fonts === false ? '' : fontFaces()}${CSS}</style></head><body>` +
     `<header class="ek-top"><a class="ek-home" href="/"><svg viewBox="0 0 124 23" role="img" aria-label="EarnKit" fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="${WORDMARK_D}" fill="currentColor"/></svg></a>` +
-    `<nav class="ek-nav" aria-label="Site"><a href="/bench">Bench</a><a href="/feed">Feed</a><a href="${DOCS}">Docs</a></nav></header>` +
+    `<nav class="ek-nav" aria-label="Site"><a href="/leaderboard">Leaderboard</a><a href="/feed">Feed</a><a href="${DOCS}">Docs</a></nav></header>` +
     `<div class="ek-wrap"><main class="ek-panel"><span class="ek-accent" aria-hidden="true"></span>${inner}</main></div></body></html>`
   );
 }

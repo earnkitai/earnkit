@@ -30,17 +30,24 @@ export async function chainPools(o: { only?: number[] } = {}): Promise<Record<Be
  */
 export type RankLines = { bench: string | null; line: string | null; chains: { chain: BenchChain; label: string; line: string }[] };
 
+const unranked = (): RankLines => ({ bench: null, line: null, chains: [] });
+
+/**
+ * R10: a rank only while the one project counts as confirmed now (benchConfirmedSql, read live): a stale
+ * builder_live.ranked (set at the last rescore) never shows a rank beside "isn't counted yet", on the
+ * profile, the card, the page meta or a reply.
+ */
 export async function rankLines(builderId: number, o: { only?: number[] } = {}): Promise<RankLines> {
   const s = await standingOf(builderId, o);
-  // Scoring and clarity: every ranked builder sees their rank, from 1 ranked ("#1 of 1 builder this week").
-  const bench = rankLine(s);
-  const out: RankLines = { bench, line: bench ? scoreLine(s.score, bench) : null, chains: [] };
-  if (!s.ranked) return out;
+  if (!s.ranked) return unranked();
   const [me] = await sql()<{ chains: string[]; score: number }[]>`
     SELECT b.chains, l.score FROM builder_profiles p JOIN builder_projects b ON b.builder_id = p.builder_id AND lower(b.project_key) = lower(p.main_project_key)
       AND ${benchConfirmedSql(sql())}
     JOIN builder_live l ON l.builder_id = p.builder_id WHERE p.builder_id = ${builderId}`;
-  if (!me) return out;
+  if (!me) return unranked();
+  // Scoring and clarity: every ranked builder sees their rank, from 1 ranked ("#1 of 1 builder this week").
+  const bench = rankLine(s);
+  const out: RankLines = { bench, line: bench ? scoreLine(s.score, bench) : null, chains: [] };
   const pools = await chainPools(o);
   for (const chain of BENCH_CHAINS) {
     if (!me.chains.includes(chain)) continue;

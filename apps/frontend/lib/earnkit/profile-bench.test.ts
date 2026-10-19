@@ -157,7 +157,7 @@ test('11.8 (v2.13.1 O3) a one project not yet confirmed by its repo: one calm ca
   assert.ok(!('people' in d.project!) && !('money' in d.project!), 'people and money are never on the profile');
   const h = html(React.createElement(BenchProfileView, { data: d, tab: 'log' }));
   assert.ok(h.includes(confirmingCardLine('Maya Chen', 'Private project')), h);
-  assert.equal(confirmingCardLine('Maya Chen', 'Recipe planner'), 'Maya Chen is getting Recipe planner on the Bench.');
+  assert.equal(confirmingCardLine('Maya Chen', 'Recipe planner'), 'Maya Chen is getting Recipe planner on the leaderboard.');
   assert.doesNotMatch(h, /Claimed\./);
   assert.doesNotMatch(h, /data-week=/, 'no grid');
   assert.doesNotMatch(h, /Code in \d+ of|Shipped \d+ of/, 'no grid title, no score parts');

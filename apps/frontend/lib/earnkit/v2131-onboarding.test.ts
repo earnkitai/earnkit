@@ -44,7 +44,7 @@ test('O2.1c no project, nothing EarnKit can build (deploys off): no "Pick someth
     const r = await find(id, { agent_can_build: true }, { freshDeps: { ...OWN_FRESH, deployOn: () => false } });
     assert.doesNotMatch(r.show_to_builder, /Pick something to build/);
     // v2.13.3 (3), ruling A: the stand line alone, then existing work and money it can win.
-    assert.match(r.show_to_builder, /^You're not on the Bench yet\.$/m);
+    assert.match(r.show_to_builder, /^You're not on the leaderboard yet\.$/m);
     // v2.14 T9: signed out: the sign-in link is the one ask.
     assert.equal(r.move_up?.kind, 'sign_in');
     assert.equal((r as { claim?: unknown }).claim, undefined);
@@ -108,7 +108,7 @@ test('O2.9 the last line is one question that fits: no open-all-year grant for a
     // v2.13.3 (2): a chain grant is named only with what it needs ("for an Avalanche app"), never as a fit.
     assert.ok(!r.show_to_builder.includes(`${ava.title} pays`), 'a chain grant that does not fit the project is never claimed');
     assert.match(r.show_to_builder, /^Ways to get funded$/m);
-    assert.doesNotMatch(r.show_to_builder, /How to move up\n.*on the Bench/, 'not on the Bench yet');
+    assert.doesNotMatch(r.show_to_builder, /How to move up\n.*on the leaderboard/, 'not on the Bench yet');
     assert.doesNotMatch(r.show_to_builder, /post what you ship/);
     assert.notEqual(r.move_up?.kind, 'updates');
     assert.equal(r.show_to_builder.split('\n').filter((l) => l.includes('?')).length, 1, 'one question');

@@ -14,7 +14,7 @@ import { coinLine, raiseLine } from './coin-moments';
 import { UPDATE_LIMIT_NOTE, UPDATE_POSTS_PER_DAY, postUpdate } from './updates';
 import { raisingEnabled } from './builder-score-flag';
 import { TELL_DESCRIPTION_BENCH, TELL_DESCRIPTION_BENCH_NO_RAISING, toolDescriptions } from './mcp';
-import BenchView, { FILTER_RAISING } from '../../app/bench/BenchView';
+import BenchView, { FILTER_RAISING } from '../../app/leaderboard/BenchView';
 import BenchTop from '../../app/components/sections/BenchTop';
 import { GET as llms } from '../../app/llms.txt/route';
 
@@ -213,7 +213,7 @@ test('F10 raising off: no raise ask, no raise line (the coin moment is v2.12.1\'
 });
 
 test('F11 raising off: the Bench, the landing top 10, tell\'s description and llms.txt name no raising', async () => {
-  const row = { rank: 1, line: '#1 of 2', handle: 'maya', name: 'Maya', avatar: null, raising: null, chains: [], project: 'Recipe planner', best: 'Live' };
+  const row = { rank: 1, line: '#1 of 2', points: 62, handle: 'maya', name: 'Maya', avatar: null, raising: null, chains: [], project: 'Recipe planner', best: 'Live' };
   const filter = { chain: null, raising: false, weekly: false };
   const off = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 2, chips: [], filter, raising: false }));
   assert.ok(!off.includes(FILTER_RAISING) && !off.includes('raising=1'));

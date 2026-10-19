@@ -171,7 +171,7 @@ export function decideToken(a: {
   if (!rawName || !symbol)
     return {
       action: 'refuse',
-      note: 'Not launched: EarnKit has no proposed token for this project. Pick a name and a ticker (3–6 letters or digits) with the builder.',
+      note: 'Not launched: EarnKit has no proposed token for this project. Pick a name and a ticker (3 to 10 letters or digits) with the builder.',
       agent_note: 'Pass them as name and symbol.',
     };
   const name = cleanTokenName(rawName);

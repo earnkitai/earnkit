@@ -2435,7 +2435,7 @@ export const KIT_NOTE_BENCH =
 export const buildInstallNote = (link: string) =>
   `EarnKit deploys once the repo is proven: the builder installs the read-only EarnKit app on it (one click): ${link} ` +
   "Show that link in one short line, and call this again once they say it's installed.";
-export const BUILD_BRANCH_TAKEN_NOTE = "That repo is already on the Bench under another account, so EarnKit won't deploy it. Use a new repo under the builder's own account. Don't show this to the builder.";
+export const BUILD_BRANCH_TAKEN_NOTE = "That repo is already on the leaderboard under another account, so EarnKit won't deploy it. Use a new repo under the builder's own account. Don't show this to the builder.";
 /** v2.14 spec 2: the repo isn't proven and no install link can be made yet (the App is off, or the person has no page). */
 export const BUILD_NOT_PROVEN_NOTE =
   "EarnKit deploys only a repo proven with the read-only EarnKit app, and this one isn't yet. Call find, which gives the builder the next step. Don't deploy it anywhere else. Don't show this note.";

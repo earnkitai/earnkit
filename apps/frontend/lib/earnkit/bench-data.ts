@@ -42,7 +42,7 @@ export function filterHref(f: BenchFilter): string {
   if (f.raising) p.set('raising', '1');
   if (f.weekly) p.set('weekly', '1');
   const s = p.toString();
-  return s ? `/bench?${s}` : '/bench';
+  return s ? `/leaderboard?${s}` : '/leaderboard';
 }
 
 /** Pure. The project's one best fact in plain words: the streak, then weeks shipping (R16b: never people). */
@@ -52,7 +52,8 @@ export function bestFact(p: { streak: number; weeks_shipping: number; shipped: b
   return p.shipped ? 'Live' : 'Building';
 }
 
-export type BenchRow = { rank: number; line: string | null; handle: string; name: string; avatar: string | null; raising: { symbol: string; url: string } | null; chains: BenchChain[]; project: string; best: string };
+/** R17: `points`, the builder's Shipping score (0 to 100), shown in the leaderboard's points column. */
+export type BenchRow = { rank: number; line: string | null; points: number; handle: string; name: string; avatar: string | null; raising: { symbol: string; url: string } | null; chains: BenchChain[]; project: string; best: string };
 
 /**
  * The Bench: the listed ranked people whose one project counts as confirmed now (bench-rank
@@ -66,11 +67,11 @@ export async function benchRows(f: BenchFilter, o: { limit?: number; only?: numb
   const db = sql();
   const raisingOn = raisingEnabled();
   const byRaising = f.raising && raisingOn;
-  const rows = await db<{ builder_id: number; rank: number; handle: string; x_name: string | null; avatar: string | null; chains: string[]; key: string;
+  const rows = await db<{ builder_id: number; rank: number; points: number; handle: string; x_name: string | null; avatar: string | null; chains: string[]; key: string;
     streak: number; weeks_shipping: number; shipped: boolean; raising: boolean; symbol: string | null; url: string | null }[]>`
     WITH ranked AS (
       SELECT x.builder_id, x.score, rank() OVER (ORDER BY x.score DESC)::int AS rank FROM ${benchPool(o.only)} x)
-    SELECT r.builder_id, r.rank, p.x_handle AS handle, p.x_name, p.x_avatar_url AS avatar, b.chains, b.project_key AS key, b.streak, b.weeks_shipping, b.shipped,
+    SELECT r.builder_id, r.rank, r.score::int AS points, p.x_handle AS handle, p.x_name, p.x_avatar_url AS avatar, b.chains, b.project_key AS key, b.streak, b.weeks_shipping, b.shipped,
       COALESCE(c.token_status = 'launched' AND c.raising_at IS NOT NULL, false) AS raising, c.token_symbol AS symbol, c.token_url AS url
     FROM ranked r JOIN builder_profiles p USING (builder_id)
     JOIN builder_projects b ON b.builder_id = r.builder_id AND lower(b.project_key) = lower(p.main_project_key) AND ${benchConfirmedSql(db)}
@@ -94,6 +95,7 @@ export async function benchRows(f: BenchFilter, o: { limit?: number; only?: numb
     rows: rows.map((r) => ({
       rank: r.rank,
       line: rankLine({ ranked: true, rank: r.rank, total }),
+      points: r.points,
       handle: r.handle,
       name: displayName(r.x_name, r.handle),
       avatar: avatarUrl(r.avatar),
