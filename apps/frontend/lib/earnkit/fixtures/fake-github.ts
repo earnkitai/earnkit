@@ -9,7 +9,8 @@ export type FakeRepo = {
   id: number; owner: string; ownerType?: 'User' | 'Organization'; private?: boolean; fork?: boolean; template?: boolean;
   installation?: number | null; admins?: string[]; commits?: FakeCommit[]; pulls?: FakePull[];
 };
-export type FakeGitHub = typeof fetch & { calls: { method: string; path: string; auth: string | null }[]; repos: Record<string, FakeRepo> };
+/** `routed`: false when no fake route answered (a 404 'fake: not routed'): a test can assert every call was one it fakes (T12 D3). */
+export type FakeGitHub = typeof fetch & { calls: { method: string; path: string; auth: string | null; routed: boolean }[]; repos: Record<string, FakeRepo> };
 
 export function fakeGitHub(repos: Record<string, FakeRepo>): FakeGitHub {
   const calls: FakeGitHub['calls'] = [];
@@ -18,7 +19,8 @@ export function fakeGitHub(repos: Record<string, FakeRepo>): FakeGitHub {
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url);
     const method = init?.method ?? 'GET';
     const auth = new Headers(init?.headers).get('authorization');
-    calls.push({ method, path: url.pathname + url.search, auth });
+    const call = { method, path: url.pathname + url.search, auth, routed: true };
+    calls.push(call);
     const p = url.pathname;
     const inst = Number(/ghs_fake_(\d+)/.exec(auth ?? '')?.[1] ?? NaN);
     let m: RegExpExecArray | null;
@@ -58,6 +60,7 @@ export function fakeGitHub(repos: Record<string, FakeRepo>): FakeGitHub {
       if (!r || (r.private && r.installation !== inst)) return json(404, {});
       return json(200, { id: r.id, full_name: k, private: Boolean(r.private), fork: Boolean(r.fork), is_template: Boolean(r.template), owner: { login: r.owner, type: r.ownerType ?? 'User' } });
     }
+    call.routed = false;
     return json(404, { message: 'fake: not routed' });
   }) as FakeGitHub;
   f.calls = calls;

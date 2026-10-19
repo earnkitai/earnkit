@@ -5796,7 +5796,16 @@ source reads either name, the five tools are always listed, `/leaderboard` is a 
 - Tests that need X set `X_CLIENT_ID=cid`, `X_CLIENT_SECRET=sec`; tests that need the App use `fixtures/app-install.ts
   appEnv()` and `fixtures/fake-github.ts`. No test sets either retired flag.
 - v2.14 files: `v214-x-install`, `v214-signin-link`, `v214-app-proof`, `v214-removed`, `v214-ship-log`,
-  `v214-replies`, `reply-states`, `ship-titles`, `flags-retired`, `fonts`, `schema-rerun`.
+  `v214-replies`, `v214-journey`, `reply-states`, `ship-titles`, `flags-retired`, `fonts`, `schema-rerun`.
+- The journey (Task 12, `v214-journey.test.ts`): acceptance 1 to 5 as one brand-new builder lives them, through the real
+  routes (authorize, the X callback, token, the App setup URL, `/signin/<code>`) and `mcpCall`: Signed in as @handle then
+  no project; the repo named, not counted with the install link; the App on an org repo, on the Bench with a rank and the
+  page; the Monday run puts the week's titles on the rendered profile (bots left out, nothing scheduled); a fallback
+  client goes signed out, the link page, the paste code through find, signed in. Every reply: one https link, the money
+  section, exactly one question and last, never "raise". No network (D3): `globalThis.fetch` throws for the whole file
+  and records each attempt (asserted empty), and `fakeGitHub` records `routed` on every call (asserted all true). Keys,
+  repo and installation ids carry a per-run suffix (D4: `earnkitai<run>/earnkit`). The daily repo reading is the one
+  step faked by a `source_live` row (the reader needs routes the fake doesn't have).
 
 ### 9. Env vars and owner go-live
 

@@ -1365,6 +1365,7 @@ apps/frontend/
                                fails closed), REPLACED_BY_APP (an App proof replaces another person's non-App hold;
                                heldByOther counts App holds only).
                                tests: v214-app-proof.test.ts (fixtures fake-github.ts, app-install.ts)
+    v214-journey.test.ts       v2.14 T12: acceptance 1 to 5 end to end on fake X and GitHub (fetch throws; every fake call routed)
     v214-removed.test.ts       v2.14 T7: the claim page, join route and join modules gone (wallet page stays), the tables
                                kept, tell takes no pickup, bindX never asks, the S4 detach migration, a refused re-auth keeps
                                the old token
