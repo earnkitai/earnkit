@@ -6314,3 +6314,45 @@ ranking higher.
 - `mcp.ts SCORE_DESCRIPTION` names the Shipping score and says every ranked builder sees a rank.
 - `BenchRowItem` has fixed-width points and rank columns (`grid-cols-[auto_minmax(0,1fr)_3.25rem_3rem]`), so rows
   line up from #1 to #100.
+
+## Launch ready (Task 1): installs, the badge, funnel numbers, hotfix carry-overs
+
+Design doc: `docs/design-docs-and-implementation-plans/launch-ready.md` (rulings L1, L3, L8, L9).
+
+- **L1 installs.** Claude Code's line is `claude mcp add --transport http --scope user earnkit https://earnkit.com/mcp`
+  everywhere (the modal `AddToAgent.tsx AGENTS`, README, `llms/v213.txt`), then `/mcp`, pick earnkit, Authenticate.
+  One-click links only where the agent documents one: Cursor's
+  `cursor://anysphere.cursor-deeplink/mcp/install?name=earnkit&config=<url-encoded base64 of {"url": ...}>`, the
+  first thing in its tab. No other agent gets a made-up link.
+- **L3.** The leaderboard's "Community round" chip is gone: `bench-data.ts BenchFilter` is `{ chain, weekly }` (at
+  most 8 variants); an old `?raising=1` link shows the unfiltered board. The coin pill on a row still follows
+  `EARNKIT_RAISING` (the bench cache key still carries it).
+- **L8 README badge.** `GET /badge/<handle>.svg` (`app/badge/[file]/route.ts` over `badge.ts badgeFor`): "EarnKit |
+  Shipping 72 · #3" (or "· Top 4%"), shields-like, navy label, `#579DFF` value, text XML-escaped. The value is the
+  profile header's (`page-data.ts personFacts`): a rank only inside the pool, never a bare score, so outside it
+  "not ranked". Unknown, unclaimed or hidden: a 404 SVG "EarnKit | not found". Another case or a rename serves the
+  same person's badge. `Cache-Control` `public, max-age=3600, s-maxage=3600` (a miss: 600). `IMAGE_CSP` on
+  `/badge/:file` (next.config.ts). `badge` is in `RESERVED_ROUTES`. The profile (`BenchProfileView`, under the
+  sources line, for everyone: the owner can't be told from a visitor on the web) shows "Add the badge to your
+  README", the markdown `[![EarnKit](https://earnkit.com/badge/<h>.svg)](https://earnkit.com/<pagePath>)` and a
+  Copy button (`app/[handle]/BadgeCopy.tsx`, given the markdown so the client never loads `badge.ts`).
+- **L9 funnel numbers** (`stats.ts`, `/api/stats`, cache key `public-stats-l9`), after `builders`:
+  - `activated`: claimed people (`x_user_id`) with a repo source verified by the App (`proof = 'github_app'`) and at
+    least one checked ship-log week with a fact (`factWeek`: `facts.checked` plus code shipped, went live or a win,
+    `hasFacts`' SQL twin). Until the weekly moment's approvals (L6) exist, that stands in for "first approved week".
+  - `weekly_active`: people with such a week that ended in the last 7 days (`week > now - 14 days`).
+  - `shared`: 0, documented, until Task 3 counts share links.
+  - A test installation's group (`EARNKIT_TEST_INSTALLATIONS`) counts in neither.
+- **Hotfix carry-overs (repo reads).**
+  - `person-github.ts readGithubRepos` returns `{ repos, failed }`. A busy repo's 52-week call that fails puts only
+    that repo in `failed` (`sources.ts readAll` writes its failed reading with the message; `person-score.ts
+    readPersonLive` writes a failed live row). The deadline or a spent budget still stops the whole read.
+  - `needsAllWeeks`: the extra call runs only when the source has no verified reader-2 baseline
+    (`needsPushCheck(previousRepoSignals(id))`), or the commits read don't reach before last week's Monday. A ref
+    read once for several sources has a baseline only when every one has.
+  - `ReaderDeps.deadline` (set by `defaultReaderDeps`): no weekly call starts past it (ScoreDeadline, the source
+    stays due).
+  - `week-facts.ts shipReading`, one LATERAL for `weekFactsFor`, `readingOf` and the catch-up's due query: the
+    newest good reading, preferring one of the current reader (`REPO_READER`).
+  - `rescorePerson` returns `changed`: true only when the public row moved (score, rank, or a hold starting or
+    ending). A builder who stays held expires no cache on every refresh.

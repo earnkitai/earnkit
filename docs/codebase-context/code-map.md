@@ -185,6 +185,8 @@ apps/frontend/
                                shareResponse (card_shared once a day, 302 to the X intent); both check the live
                                row (no-store 404, 308 to pagePath)
   app/[handle]/{card.png/route.tsx,share/route.ts}  thin routes over card-response.tsx
+  app/[handle]/BadgeCopy.tsx   launch-ready L8: "Add the badge to your README", the markdown and a Copy button (client)
+  app/badge/[file]/route.ts    launch-ready L8: GET /badge/<handle>.svg over badge.ts badgeFor (1 h cache, 404 SVG)
   app/b/[slug]/page.tsx        v2.12.1: a reserved handle's page (HandleView at /b/<handle>); a claimed person's
                                v2.12 slug (live or old) 308s to /<handle>; else 404
   app/b/[slug]/{card.png/route.tsx,share/route.ts}  v2.12.1 T12: thin wrappers: a reserved handle through
@@ -1242,6 +1244,7 @@ apps/frontend/
                                statedPool (a row's pool), amountStated, isGrant, eachLine ("per grant" /
                                "per winner", "$5K–$100K per grant", "500 USDC per grant")
     stats.ts(+test)            v2.5 Task 9: readStats (one aggregate query) / statsFrom (pure):
+                               launch-ready L9: activated, weekly_active (factWeek, notTest) and shared (0 until L6);
                                open_money_usd (v2.9 F21: openMoneyUsd over the active rows, open_rows) +
                                open_money_text (moneyText), v2.7.1 open_pools_usd + open_pools_plus (deprecated, still served, Ruling G23), programs_open,
                                bonus_programs_open (v2.6 Ruling 16 (plan): open programs with
@@ -1394,6 +1397,7 @@ apps/frontend/
     reply-wait.ts              v2.13.1 O5 N1: REPLY_WAIT_MS (1.5 s), settleWithin, inTime/ReplyLate: the Bench
                                reply never waits longer on the refresh, matching or the proof check
     week-facts.ts(+test)       v2.13 T4: WeekFacts, weekFactsFor (R16b: no users_up or earned), factChips, startedLine, upsertWeekFacts,
+                               launch-ready: shipReading (one LATERAL: the newest good reading, a reader-2 one first),
                                weeklyFactsStep (Mondays from 15:00 UTC); v2.14 T8: the step reads an App-proven repo's
                                week titles (appClient, ghFetch) and upsertWeekFacts stores them (project_updates.titles);
                                scoring and clarity R13: writeWeek (the per-week body: facts, titles, row, events; shared
@@ -1453,6 +1457,7 @@ apps/frontend/
     raising.ts(+test)          v2.13 T9: raisingCoin, setRaising, pillOf, showRaisingLine (projects.raising_at); all off
                                unless EARNKIT_RAISING (builder-score-flag.ts raisingEnabled)
     bench-data.ts(+test)       v2.13 T10/T11: parseBenchFilter, benchRows (safe names, pill in the same read),
+                               launch-ready L3: BenchFilter is { chain, weekly } (no community round filter),
                                profile and project tab data, logCards (v2.13.1 O3: the start is a "Started
                                tracking" chip on its week's card), gridWeeks (ship weeks + weeks with checked commits);
                                v2.14 T8: profile log cards carry titles (titlesShown, S9)
@@ -1522,6 +1527,11 @@ apps/frontend/
                                (aliased by name, REPOS_MAX 25), readPersonGithub, readGithubRepos
                                v2.13.3: readAppRepos (a repo EarnKit's token can't read, through the App, keyed by source id).
                                R16b: REPO_FIELDS has no stars or forks; no org contributors call.
+                               Launch-ready: readGithubRepos returns { repos, failed } (one busy repo's failed weekly
+                               call fails only it); needsAllWeeks (the 52-week call only without a reader-2 baseline or
+                               when last week isn't fully read); no weekly call past ReaderDeps.deadline.
+    badge.ts(+test)            launch-ready L8: badgeSvg, badgeValue (personFacts: rank only in the pool, else "not
+                               ranked"), badgeMarkdown, badgeFor (404 "not found" for unknown, unclaimed, hidden)
     read-usage.ts(+test)       v2.12.1 T3: FREE_LIMITS, countingDeps, flushReadUsage (read_usage per provider/day)
     person-score.ts(+test)     v2.12.1 T4: personInputsV2, rescorePerson (builder_live, pending holds, the
                                25-project cap TRACKED_MAX), listedRanked (the one ranked population),
