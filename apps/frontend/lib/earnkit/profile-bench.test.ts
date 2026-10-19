@@ -63,7 +63,8 @@ test('11.3 the Ship log tab is the default: long cards newest first, chips alone
   assert.ok(order.every((i) => i >= 0) && order[0] < order[1] && order[1] < order[2], order.join(','));
   assert.equal((h.match(/data-shape="long"/g) ?? []).length, 3);
   assert.ok(h.includes(BENCH_SOURCES_LINE));
-  assert.doesNotMatch(h, /written by|agent/i, 'R6');
+  // R6 is about the words a person reads: a link's URL (the footer's Docs, README#connect-an-agent) isn't one.
+  assert.doesNotMatch(h.replace(/<[^>]+>/g, ' '), /written by|agent/i, 'R6');
   assert.ok(html(React.createElement(BenchProfileView, { data: { ...DATA, log: [] }, tab: 'log' })).includes(LOG_EMPTY));
 });
 
