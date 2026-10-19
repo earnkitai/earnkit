@@ -60,11 +60,13 @@ apps/frontend/
                                "sr" mark from speedrun.a16z.com's apple-touch-icon)
   app/llms.txt/route.ts        v2.13: GET /llms.txt, the agent-readable summary (install, "What can I
                                earn?", program guides earnkit.com/programs/<id>, the tools, live numbers
-                               (C9)): lib/earnkit/llms/v213.txt (no builder bonus, "The Bench" section);
+                               (C9)): lib/earnkit/llms/v213.txt (no builder bonus, "The leaderboard" section, earnkit.com/leaderboard);
                                v2.14 T3 deleted v212.txt with the Bench switch
-  app/bench/{page.tsx,BenchView.tsx,BenchRowItem.tsx,FilterChip.tsx,bench-load.ts}  v2.13 T10: /bench (404
-                               flag off), the Bench: top 100, chain/raising/weekly filters as URL links, 16
-                               cached variants (unstable_cache, 60 s, PROFILE_TAG); /leaderboard is a 307 to it;
+  app/leaderboard/{page.tsx,BenchView.tsx,BenchRowItem.tsx,FilterChip.tsx,bench-load.ts}  scoring and clarity T3 (R9):
+                               /leaderboard ("Leaderboard"; moved from app/bench, identifiers kept): top 100, chain/raising/weekly
+                               filters as URL links (filterHref: /leaderboard?...), 16 cached variants (unstable_cache, 60 s,
+                               PROFILE_TAG). BenchRowItem: name and project wrap (R11, no truncate), the Shipping points column
+                               (R17, BenchRow.points) and the rank line split by rank.ts rankSplit (number large, words small);
                                v2.13.2: benchLine says BENCH_TOP_EMPTY at 0, "1 builder who ships", "N builders who ship";
                                no rows panel at count 0 (BENCH_EMPTY only for a filtered view with no rows)
   app/feed/{page.tsx,FeedView.tsx}  v2.13 T6/T12: /feed (404 flag off), the finished weeks' best updates as
@@ -169,7 +171,7 @@ apps/frontend/
                                unverified-page eligibility, the coin's earnkit.txt token line; v2.8: the
                                (v2.14 T3: the builder bonus section is gone);
                                v2.11 T12: "What EarnKit records" (#what-earnkit-records, before Contact)
-  app/leaderboard/page.tsx     v2.14 T3: permanentRedirect('/bench') (the v2.12.1 board, its view and loader deleted)
+  app/bench/page.tsx           scoring and clarity T3 (R9): permanentRedirect('/leaderboard') (308)
   app/[handle]/page.tsx        v2.12.1 T6/T11: earnkit.com/<x-handle> (force-dynamic); HandleView
   app/[handle]/handle-view.tsx  HandleView (resolveHandle: hidden/unclaimed 404, case or a 90-day rename 308 to
                                pagePath) renders BenchProfileView (v2.14 T3: ProfileView and ProjectCards deleted);
@@ -393,7 +395,7 @@ apps/frontend/
                                reject links incl. defanged/IP/confusable-dot/bare domains and HTML
                                entities; single-line fields also @ and 7+ digit runs; TEXT_LIMITS),
                                SponsorUrl, BuilderUrl/canonicalBuilderUrl/builderUrlProblem/
-                               shownUrl (builder links, canonical form), untrusted()
+                               shownUrl (builder links, canonical form), untrusted(); wholeWords (R11: a cap that keeps whole words)
                                (zod), cleanProject
                                (campaign entries), quoted() (sponsor names/titles in EarnKit's
                                sentences), SAFETY_LINES (server instructions + tool descriptions; the fourth
@@ -869,7 +871,8 @@ apps/frontend/
                                with the launch, Base only (M9, Ruling 24); repoCoinPrograms
                                (Ruling 25: the program each repo's coin is entered in)
     token-proposal.ts(+test)   v2.3 proposal: cleanTokenName (text + brand rules), tickerProblem
-                               (3-6 A-Z0-9, TICKER_RESERVED, brands), tickerCandidates, proposeToken
+                               (TICKER_SHAPE 3-10 A-Z0-9, TICKER_MAX 10 = tokens.fun's limit; TICKER_RESERVED, brands),
+                               tickerCandidates (R11: the whole first word up to 10, else initials; never a cut word), proposeToken
                                (tokens.fun check-ticker; unreachable -> first clean candidate, noted),
                                monogramFor (12-colour palette); v2.7 Ruling 16: proposeToken(projectName,
                                check, repoUrl) never null — name: project, "<name> Token", repo name (repoNameOf), v2.8.1
@@ -1408,7 +1411,8 @@ apps/frontend/
     feed.ts(+test)             v2.13 T6: pointsOf (R16b: went live, win, commits, streak only), feedRankStep (daily, feedRank:<day>), rankFeed, feedWeeks,
                                carouselCards, setFeedFlag (pin/hide); v2.14 T8: FeedCard.titles (titlesShown)
     bench-rank.ts(+test)       v2.13 T7: benchPool (listed ranked + benchConfirmedSql), chainPools, rankLines ({ bench: rank line,
-                               line: score line, chains }; chain lines from one ranked project, R16e)
+                               line: score line, chains }; chain lines from one ranked project, R16e; R10: empty unless the one
+                               project counts as confirmed now, so a stale builder_live.ranked never shows a rank)
     bench-reply.ts(+test)      v2.14 T9 (spec 4): the reply as five states, pure. ReplyState (signed_out, no_project,
                                not_counted, proven, shipping), Variant (taken, copy, no_repo, app_off), replyState;
                                STATE_COPY and VARIANT_COPY (the only place the states' copy lives), NOT_ON_BENCH,
@@ -1418,6 +1422,8 @@ apps/frontend/
                                always, one question last, exactly one https link (the action link, else the page;
                                none when there is no page, X off). Kinds sign_in, start, install_app, other_project,
                                repo_behind, enter, coin, raise, go_live, suggest. Keeps fitsLine, needsLine, displayName.
+                               R10: rankedState (proven, shipping): the only states with a rank; bench-find gates
+                               rank_lines, view.rank and the move-up news on it. Copy says "the leaderboard" (R9).
                                tests reply-states.test.ts, bench-reply.test.ts
     bench-find.ts(+test)       v2.13 T8/T9: benchFind, benchScore, benchAsked, benchMoveUp, coinAskBench;
                                v2.14 T9: benchView builds the state (repoProof for taken/copy, installLink for the
@@ -1496,7 +1502,8 @@ apps/frontend/
                                (/activity until verified: newest page, then the oldest page when full; unbacked weeks only in the gap between two full pages), previousRepoSignals (rename: repo id, else owner + created_at)
     rank.ts(+test)             scoring and clarity: rankLine (the one rank phrase: "#N of M builders this week", from 20
                                "Top P% of builders this week" in the top half; chains named), scoreLine ("Shipping 72 ·
-                               <rank line>"; thousands separators), benchPercent, BENCH_CHAINS
+                               <rank line>"; thousands separators), benchPercent, BENCH_CHAINS; rankSplit (lead number and
+                               words, for the profile and the leaderboard rows)
     person-github.ts(+test)    v2.12.1 T3: PERSON_GITHUB_QUERY (one GraphQL query a person), reposQuery
                                (aliased by name, REPOS_MAX 25), readPersonGithub, readGithubRepos
                                v2.13.3: readAppRepos (a repo EarnKit's token can't read, through the App, keyed by source id).
@@ -1516,6 +1523,7 @@ apps/frontend/
                                merge by project, never wiped), noteIdentity (proposes agent sources, at
                                most 25 projects; remembers wallets, never proof)
                                v2.13.3: benchIdentity (github_user, repos, local remotes, a live link fill identity under the Bench).
+                               R11: a project name keeps up to 60 characters (NAME_MAX), whole words (wholeWords), never cut mid-word.
     x-oauth.ts(+test)          v2.12.1 T6: X_SCOPES, pkcePair, xAuthorizeUrl, xUserFrom, xOAuth (token + /2/users/me)
     x-install.ts               v2.14 T4 (tests: v214-x-install.test.ts): SIGNIN_TEXT, signinCookie, signinPage,
                                newSignin (x_signins row + __Host-eki- cookie), startInstallSignIn (straight to X or

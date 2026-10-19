@@ -6126,3 +6126,48 @@ traction or money any more, so EarnKit stops reading and counting them. Program 
 
   These are floors: a busy contract or coin read up to 20 Blockscout pages a day, and an Arc contract up to 200
   senders (two RPC calls each). The push checks happen only until a repo's reading is verified.
+
+## Scoring and clarity (Task 3): The leaderboard and consistent messages
+
+Spec: R6, R9, R10, R11 and R17 of `docs/design-docs-and-implementation-plans/scoring-and-clarity.md`.
+
+- **The leaderboard (R9).** Every user-visible "the Bench" now says "the leaderboard" ("Leaderboard" as a title):
+  the page h1 and metadata, the slim top bar and the brand page nav, the landing (Hero, BenchTop, BenchHowItWorks,
+  UpdateCarousel), the feed ("This week on the leaderboard"), the profile's confirming card, the reply copy
+  (`bench-reply.ts NOT_ON_BENCH`, the sign-in ask, `VARIANT_COPY.taken`), `tools.ts BUILD_BRANCH_TAKEN_NOTE`,
+  `llms/v213.txt` and the terms (`policy.ts`). Internal identifiers (`bench_*`, `benchView`, `BENCH_*`, `BenchRow`,
+  DB columns, test names) stay. `leaderboard-clarity.test.ts` scans `app/` and `lib/` (comments stripped) and fails on
+  the word "Bench" on its own or a `/bench` link.
+- **Routes.** `app/leaderboard/` holds the page (moved from `app/bench/`: page, BenchView, BenchRowItem, FilterChip,
+  bench-load). `app/bench/page.tsx` is `permanentRedirect('/leaderboard')` (308). `filterHref` builds
+  `/leaderboard?...`; the sitemap lists `/leaderboard`. `bench` stays a reserved handle.
+- **Points column (R17).** `BenchRow.points` is the builder's `builder_live.score` (Shipping, 0 to 100).
+  `BenchRowItem` shows it as a compact tabular column ("72" over a small "Shipping") before the rank, and the rank as
+  `rank.ts rankSplit` of the row's `rankLine` (the number large, "of 40 builders this week" small), so the row reads
+  the same rank words as everywhere else (R6). `rankSplit` moved from the profile into `rank.ts` and now reads
+  thousands separators ("#1,204").
+- **No rank unless ranked (R10).**
+  - `bench-rank.ts rankLines` returns no rank, score line or chain lines unless the one project counts as confirmed
+    now (`benchConfirmedSql`, read live). `builder_live.ranked` is only refreshed at a rescore, so before this a
+    project whose proof went showed its old rank beside "isn't counted yet" on the profile, the card and the page meta.
+  - `bench-reply.ts rankedState(state)`: only `proven` and `shipping` show a rank. `bench-find.ts benchView` sets
+    `rank_lines` to `[]` and `view.rank` to null in every other state (a signed-out or anonymous ranked row once
+    carried "#1 of 1" under "You're not on the leaderboard yet.").
+  - The move-up news ("Since you last checked: You moved up to ...") shows only when the reply shows a rank. It is
+    still taken and recorded otherwise, so it never comes back later as stale news.
+  - The profile's confirming card never shows a rank beside it.
+  - Each reply has one status line and one next step (one question). `leaderboard-clarity.test.ts` checks every reply
+    it makes through `mcpCall`.
+- **Names never cut (R11).**
+  - Tickers: `token-proposal.ts TICKER_SHAPE` is `^[A-Z0-9]{3,10}$`. `TICKER_MAX` 10 is tokens.fun's own limit ("Token
+    symbol must be 10 characters or less"), the longest a launch accepts. Nothing else in the code (no DB CHECK, no
+    contract) limits the length. `tickerCandidates` gives the whole first word when it is 3 to 10 letters ("EarnKit"
+    gives EARNKIT), else the initials of 3+ words, then numbered variants (the first 9 letters plus a digit).
+    `initialsCandidates` caps at 10. The token-image route uses `TICKER_SHAPE`, and the launch note says "3 to 10".
+    EARNKIT itself stays reserved as a brand (refused whole, never shortened).
+  - Token names: `proposeToken` no longer cuts the project name to 50. An over-long name fails `cleanTokenName` and
+    the next candidate is used; "<name> Token" is offered only when it fits.
+  - Project names: identity names keep up to 60 characters (`identity-input.ts NAME_MAX`, was 40) and whole words
+    (`untrusted-text.ts wholeWords`). `person-score.ts` uses the same rule for the stored name.
+  - CSS: `truncate` is gone from names and projects in leaderboard rows, update cards and the profile header; they
+    wrap (`break-words`). The square carousel's update text keeps its 3-line clamp, since it is body text, not a name.
