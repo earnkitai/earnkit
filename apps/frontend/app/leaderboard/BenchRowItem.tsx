@@ -10,13 +10,14 @@ import { pagePath } from '../../lib/earnkit/reserved-routes';
  * (linking their page, the whole row is the hit area, at least 44px), the pill and chain logos, the project and its
  * best fact, then the Shipping points (R17) and the rank. R18 fix 1 (supersedes R6 for rows): the rank is "#N"
  * alone; the page's header line says what it is out of, and the full rank line is read to screen readers.
+ * Final follow-ups 4: the points and rank columns have fixed widths (tabular digits), so they line up at any rank (#1 to #100).
  * R11: names are never cut; long ones wrap at spaces (a single over-long word breaks only when it must).
  */
 export default function BenchRowItem({ r }: { r: BenchRow }) {
   return (
     <li
       data-row={r.handle}
-      className="relative grid min-h-11 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-x-3 border-t border-ek-line py-4 transition-colors first:border-t-0 hover:bg-ek-chip md:gap-x-5 md:rounded-2xl md:border-t-0 md:px-4 md:py-3"
+      className="relative grid min-h-11 grid-cols-[auto_minmax(0,1fr)_3.25rem_3rem] items-center gap-x-3 border-t border-ek-line py-4 transition-colors first:border-t-0 hover:bg-ek-chip md:gap-x-5 md:rounded-2xl md:border-t-0 md:px-4 md:py-3"
     >
       <Avatar src={r.avatar} handle={r.handle} className="h-11 w-11 text-base" />
       <div className="min-w-0">

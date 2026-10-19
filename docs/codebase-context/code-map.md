@@ -1417,7 +1417,7 @@ apps/frontend/
                                option (posted_by still written)
     feed.ts(+test)             v2.13 T6: pointsOf (R16b: went live, win, commits, streak only), feedRankStep (daily, feedRank:<day>), rankFeed, feedWeeks,
                                carouselCards, setFeedFlag (pin/hide); v2.14 T8: FeedCard.titles (titlesShown)
-    bench-rank.ts(+test)       v2.13 T7: benchPool (listed ranked + benchConfirmedSql), chainPools, rankLines ({ bench: rank line,
+    bench-rank.ts(+test)       v2.13 T7: benchPool (re-export from person-score), chainPools, rankLines ({ bench: rank line,
                                line: score line, chains }; chain lines from one ranked project, R16e; R10: empty unless the one
                                project counts as confirmed now, so a stale builder_live.ranked never shows a rank)
     bench-reply.ts(+test)      v2.14 T9, scoring and clarity R16a: the reply as four states, pure. ReplyState (signed_out,
@@ -1525,7 +1525,8 @@ apps/frontend/
     read-usage.ts(+test)       v2.12.1 T3: FREE_LIMITS, countingDeps, flushReadUsage (read_usage per provider/day)
     person-score.ts(+test)     v2.12.1 T4: personInputsV2, rescorePerson (builder_live, pending holds, the
                                25-project cap TRACKED_MAX), listedRanked (the one ranked population),
-                               standingOf, refreshPerson (REFRESH_MS 10 min, REFRESH_BUDGET_MS 8 s),
+                               benchPool (listed ranked + benchConfirmedSql: the leaderboard's pool),
+                               standingOf (ranks over benchPool), streak = commit weeks in a row, refreshPerson (REFRESH_MS 10 min, REFRESH_BUDGET_MS 8 s),
                                pageViewRefresh (page views: PAGE_REFRESH_MS a day, LIMITS.pageRefresh
                                200/h global, pageRefreshIp 20/h per IP),
                                readPersonLive (source_live; R16b: repos, sites, packages only), scorePeopleV2

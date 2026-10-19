@@ -104,6 +104,22 @@ test('4.3 the rescore scores the one project, stores its streak, weeks shipping,
   assert.equal((await sql()`SELECT 1 FROM project_updates WHERE builder_id = ${id} AND facts ? 'started'`).length, 1, 'never twice');
 });
 
+test('Final follow-ups 1: the stored streak is commit weeks in a row (the grid), never a deploy week', dbTest, async () => {
+  const id = T + 9;
+  const key = `streak${T}/app`;
+  // Commits last week and three weeks ago; EarnKit deploys this week and two weeks ago fill the gaps in ship weeks.
+  await person(id, key, { [wk(7)]: 2, [wk(21)]: 1 });
+  for (const [n, ago] of [[1, 0], [2, 14]] as const)
+    await sql()`INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, address, status, cost_micro_usd, created_at)
+      VALUES (${id}, ${`k${id}`}, ${key}, 'base', ${`0x${String(n).repeat(64)}`}, ${`0x${String(n).repeat(40)}`}, 'deployed', 1, ${new Date(NOW.getTime() - ago * DAY)})`;
+  await rescorePerson(id, NOW);
+  const [p] = await sql()<{ streak: number; ship_weeks: string[]; commit_weeks: string[] }[]>`
+    SELECT streak, ship_weeks, commit_weeks FROM builder_projects WHERE builder_id = ${id} AND project_key = ${key}`;
+  assert.deepEqual(new Set(p.ship_weeks), new Set([wk(0), wk(7), wk(14), wk(21)]), 'four ship weeks in a row');
+  assert.deepEqual(new Set(p.commit_weeks), new Set([wk(7), wk(21)]));
+  assert.equal(p.streak, 1, 'one commit week in a row, so "Shipping every week" (4) never shows it');
+});
+
 test('4.4 an unconfirmed main project is not ranked, though another confirmed project would have been (B5)', dbTest, async () => {
   const id = T + 2;
   await person(id, `nope${T}/theirs`, { [wk(0)]: 1 }, { confirmed: false, other: `https://mine${T}.example.com` });

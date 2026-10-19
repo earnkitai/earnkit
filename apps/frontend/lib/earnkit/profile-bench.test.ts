@@ -144,7 +144,8 @@ test('11.6b (v2.13.1 O3) a week with an update and the start is one card with a 
   assert.equal(d.project?.repo, null);
   assert.equal(d.score, null, 'no rank line: never a bare ring');
   assert.equal(d.bench, null);
-  assert.equal(d.streak, 0);
+  // Final follow-ups 1: the streak is the grid's (this week's checked commits fill its square): one week in a row.
+  assert.equal(d.streak, 1);
 });
 
 test('11.8 (v2.13.1 O3) a one project not yet confirmed by its repo: one calm card for everyone, no ring, no grid, no log, no numbers', dbTest, async () => {

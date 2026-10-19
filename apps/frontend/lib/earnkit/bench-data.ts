@@ -16,11 +16,11 @@ import { earnPrize, earnWhen, showable } from './stand-view';
 import { titlesShown } from './ship-titles';
 import { shownUrl } from './untrusted-text';
 import { factChips, hasFacts, startedChips, startedLine, type WeekFacts } from './week-facts';
-import { last52, weekOfMonday } from './weeks';
+import { last52, streakOf, weekOfMonday } from './weeks';
 
 /** v2.13 spec "The Bench": its rows and its URL filters (R9). */
 export type BenchFilter = { chain: BenchChain | null; raising: boolean; weekly: boolean };
-/** "Shipping every week": a streak of at least this many weeks. */
+/** "Shipping every week": a streak (commit weeks in a row, builder_projects.streak) of at least this many weeks. */
 export const WEEKLY_STREAK = 4;
 export const BENCH_MAX = 100;
 
@@ -249,8 +249,8 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
   };
   const empty = { ...base, grid: last52(now).map((week) => ({ week, on: false })), streak: 0, log: [], project: null };
   if (!p.main) return empty;
-  const [b] = await db<{ chains: string[]; streak: number; commit_weeks: string[]; confirmed: boolean }[]>`
-    SELECT b.chains, b.streak, b.commit_weeks, ${benchConfirmedSql(db)} AS confirmed FROM builder_projects b
+  const [b] = await db<{ chains: string[]; commit_weeks: string[]; confirmed: boolean }[]>`
+    SELECT b.chains, b.commit_weeks, ${benchConfirmedSql(db)} AS confirmed FROM builder_projects b
     WHERE b.builder_id = ${builderId} AND lower(b.project_key) = lower(${p.main})`;
   const shown = ((await shownProjects([builderId])).get(builderId) ?? []).find((r) => norm(r.key) === norm(p.main!));
   if (!b || !shown) return empty;
@@ -270,7 +270,8 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
   return {
     ...base,
     grid: last52(now).map((week) => ({ week, on: weeks.has(week) })),
-    streak: confirmed ? b.streak : 0,
+    // Final follow-ups 1: the streak is read off the grid's own weeks, so the header never contradicts it.
+    streak: confirmed ? streakOf(weeks, now) : 0,
     log: logCards(updates, name),
     project: {
       name,

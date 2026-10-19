@@ -6281,8 +6281,22 @@ ranking higher.
   from `Landing['bench'].count` (every ranked builder). The landing cache key moved to `landing-r18`.
 - The profile grid reads `builder_projects.commit_weeks` (new column, written by `rescorePerson` from the counted
   repo commit weeks, the same floor as the score) plus checked `shipped_code` weeks (`bench-data.ts gridWeeks`);
-  `ship_weeks` (commits, deploys, sites) still drives the streak and week facts.
+  `ship_weeks` (commits, deploys, sites) still drives the week facts' streak chip (the stored streak is commit
+  weeks since the final follow-ups, below).
 - Colors: #46's `PART_COLORS` (score-colors.ts) stay as the profile's accent palette (owner); UpdateCard's chip dot
   reads them. THEME gained `brand` (#579DFF), the primary button in React and brand-page.ts; Tailwind keeps only
   `ek-blue-bright`, `ek-blue-soft`, `ek-score-orange` and the page tokens (plus `ek-glass` for the header).
   framer-motion removed. `apps/frontend/DESIGN.md` rewritten for R18.
+
+### Final follow-ups
+
+- Streak vs grid: `builder_projects.streak` is `streakOf(commit weeks)` (the counted repo commit weeks, same
+  anti-backdating rule as the score and the grid), so the leaderboard's "Shipping every week" filter (streak 4+),
+  the card and the reply read commit weeks. The profile's "N weeks in a row" is `streakOf` over the grid's own
+  weeks (`bench-data.ts profileData`), so the header never contradicts the grid.
+- One rank pool: `benchPool` moved to `person-score.ts` (re-exported from `bench-rank.ts`); `standingOf` ranks and
+  counts over it (listed, ranked, the one project confirmed now), so every "#N of M" matches the leaderboard
+  header's "M builders this week". A ranked person outside the pool is still counted in for their own reply.
+- `mcp.ts SCORE_DESCRIPTION` names the Shipping score and says every ranked builder sees a rank.
+- `BenchRowItem` has fixed-width points and rank columns (`grid-cols-[auto_minmax(0,1fr)_3.25rem_3rem]`), so rows
+  line up from #1 to #100.

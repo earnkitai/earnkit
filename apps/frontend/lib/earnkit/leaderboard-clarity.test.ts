@@ -16,6 +16,9 @@ import { SHIP_STEP, STATE_COPY, VARIANT_COPY, NOT_ON_BENCH } from './bench-reply
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
 import { FORMULA_V2 } from './score-v2';
 import { rankSplit } from './rank';
+import { rankLines } from './bench-rank';
+import { standingOf } from './person-score';
+import { isoWeekOf } from './weeks';
 import { wholeWords } from './untrusted-text';
 import { projectOf } from './identity-input';
 import { PROFILES_POINTS } from './policy';
@@ -138,6 +141,8 @@ test('R17, R18 fix 1, R11: a leaderboard row shows the Shipping points, "#N" (th
   assert.match(html, /aria-hidden="true"[^>]*>#3<\/span><span class="sr-only">#3 of 12 builders this week<\/span>/);
   assert.equal(html.replace(/<span class="sr-only">[^<]*<\/span>/g, '').includes('builders this week'), false, 'no rank words on screen');
   assert.doesNotMatch(html, /max-w-\[/, 'the rank column is never squeezed');
+  // Final follow-ups 4: fixed-width points and rank columns (not auto), so every row lines up at #1 and #100.
+  assert.match(html, /grid-cols-\[auto_minmax\(0,1fr\)_[\d.]+rem_[\d.]+rem\]/);
   assert.ok(html.includes(name) && html.includes(project), 'names whole');
   assert.doesNotMatch(html, /\btruncate\b|text-ellipsis|line-clamp/, 'never cut: long names wrap');
   assert.deepEqual(rankSplit('#1,204 of 3,500 builders this week'), { lead: '#1,204', rest: 'of 3,500 builders this week' });
@@ -151,6 +156,34 @@ test('R17: benchRows gives each row its Shipping points (builder_live.score) and
   assert.equal(rows.length, 1);
   assert.equal(rows[0].points, 72);
   assert.equal(rows[0].line, '#1 of 1 builder this week');
+});
+
+// ---- Final follow-ups 1 and 2: the streak is the grid's, and one rank pool ----------------------
+
+test('Final follow-ups 1: the profile streak is read off the grid (commit weeks), never a stale stored streak', db, async () => {
+  const a = await rankedBuilder('stk', 'Streak', 'streak', 7103);
+  const now = new Date();
+  const wk = (ago: number) => isoWeekOf(new Date(now.getTime() - ago * 7 * 86_400_000));
+  await sql()`UPDATE builder_projects SET commit_weeks = ${[wk(1), wk(2), wk(4)]}, streak = 9 WHERE builder_id = ${a.id} AND lower(project_key) = ${a.key}`;
+  const d = (await profileData(a.id, now))!;
+  const on = d.grid.filter((g) => g.on).map((g) => g.week);
+  assert.ok([wk(1), wk(2), wk(4)].every((w) => on.includes(w)), 'the grid shows the commit weeks');
+  assert.equal(d.streak, 2, 'two filled squares in a row, as the grid shows');
+});
+
+test('Final follow-ups 2: "#N of M" counts the leaderboard\'s own pool (a ranked builder off the leaderboard is not in M)', db, async () => {
+  const a = await rankedBuilder('one', 'One', 'pool', 7104);
+  const b = await rankedBuilder('two', 'Two', 'pool', 7105);
+  await sql()`UPDATE builder_live SET score = 72 WHERE builder_id = ${a.id}`;
+  // b is still ranked from its last rescore, but its one project no longer counts as confirmed: not on the leaderboard.
+  await sql()`UPDATE builder_live SET score = 80 WHERE builder_id = ${b.id}`;
+  await sql()`UPDATE builder_profiles SET main_project_key = ${`elsewhere${RUN}/nope`} WHERE builder_id = ${b.id}`;
+  const only = [a.id, b.id];
+  const board = await benchRows({ chain: null, raising: false, weekly: false }, { only });
+  assert.deepEqual([board.count, board.rows.map((r) => r.handle)], [1, [`one${RUN}`.slice(0, 15)]]);
+  const s = await standingOf(a.id, { only });
+  assert.deepEqual([s.rank, s.total], [1, board.count], 'the profile and reply rank matches the leaderboard header');
+  assert.equal((await rankLines(a.id, { only })).bench, '#1 of 1 builder this week');
 });
 
 // ---- R10: one status line, one next step, never a rank beside "not counted" ----------------------

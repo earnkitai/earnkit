@@ -3,7 +3,7 @@ import { ScoreDeadline } from './campaigns';
 import { isConfirmedProof } from './confirmed';
 import { sql, type Db } from './db';
 import { discoverPerson } from './discovery';
-import { REPO_KEY, mainProjectOf, pickMainProject } from './main-project';
+import { REPO_KEY, benchConfirmedSql, mainProjectOf, pickMainProject } from './main-project';
 import { noteEvent } from './events';
 import { REPOS_MAX, readAppRepos, readGithubRepos, type PersonRepo } from './person-github';
 import { BENCH_CHAINS, type BenchChain, type Standing } from './rank';
@@ -47,7 +47,7 @@ export type ProjectRow = {
   key: string; name: string; what: string | null; link: string | null; kind: 'app' | 'package' | 'contract' | 'coin' | 'code';
   confirmed: boolean; shipped: boolean; tracked: boolean;
   has_coin: boolean; sends_tx: boolean; last_active_at: Date | null;
-  /** v2.13: the Bench chains it is on, its streak, weeks shipping in the last 52, and those weeks (plan B7). */
+  /** v2.13: the Bench chains it is on, its streak (commit weeks in a row), weeks shipping in the last 52, and those weeks (plan B7). */
   chains: BenchChain[]; streak: number; weeks_shipping: number; ship_weeks: string[];
   /** R18 fix 1: the weeks with counted commits on its repo (the profile grid; never deploys or sites). */
   commit_weeks: string[];
@@ -342,7 +342,8 @@ export async function personInputsV2(
       chains: chainList,
       ship_weeks: [...ship].filter((w) => last53.has(w)).sort(),
       commit_weeks: [...commits].filter((w) => last53.has(w)).sort(),
-      streak: streakOf(ship, now),
+      // Final follow-ups 1: the streak is commit weeks in a row (the grid's weeks, same anti-backdating rule).
+      streak: streakOf(commits, now),
       weeks_shipping: weeksShipping(ship, now),
     });
   }
@@ -493,13 +494,26 @@ export function listedRanked(db: Db, only?: number[]) {
 }
 
 /**
- * Where the person stands: their public live score and rank among the listed ranked people
- * (listedRanked: 1 + those with a higher score; ties share a number). A ranked person outside that
- * population (not claimed yet, or held) is counted in as well, so their reply still has a place.
+ * v2.13 spec "Chains (R14)", final fix M1: the Bench, the listed ranked people (listedRanked) whose one
+ * project counts as confirmed now (benchConfirmedSql, not only at the last rescore). The one pool behind
+ * the leaderboard, its header count and every "#N of M" (standingOf), so they always agree.
+ */
+export const benchPool = (only?: number[]) => {
+  const db = sql();
+  return db`(SELECT l.builder_id, l.score, b.chains FROM ${listedRanked(db, only)} l
+    JOIN builder_profiles p ON p.builder_id = l.builder_id
+    JOIN builder_projects b ON b.builder_id = l.builder_id AND lower(b.project_key) = lower(p.main_project_key) AND ${benchConfirmedSql(db)})`;
+};
+
+/**
+ * Where the person stands: their public live score and rank on the Bench (benchPool, the leaderboard's
+ * own pool: 1 + those with a higher score; ties share a number; the total is the leaderboard's "M builders
+ * this week"). A ranked person outside that pool (not claimed yet, or held) is counted in as well, so their
+ * reply still has a place.
  */
 export async function standingOf(id: number, o: { only?: number[] } = {}): Promise<Standing & { score: number; shipped: number; people: number; claimed: boolean; handle: string | null }> {
   const db = sql();
-  const listed = listedRanked(db, o.only);
+  const listed = benchPool(o.only);
   const [row] = await db<{ score: number; ranked: boolean; shipped: number; people: number; claimed: boolean; handle: string | null; total: number; rank: number }[]>`
     SELECT l.score, l.ranked AND l.calibration = ${LIVE_CALIBRATION_V2} AS ranked, l.shipped, l.people, p.x_user_id IS NOT NULL AS claimed, p.x_handle AS handle,
       (SELECT count(*)::int FROM ${listed} x)

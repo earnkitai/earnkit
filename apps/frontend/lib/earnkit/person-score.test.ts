@@ -149,6 +149,12 @@ test('4.3 rank counts every listed ranked person with a higher score; ties share
   const only = [T + 2, T + 3, T + 4, T + 5];
   // v2.12.1 T11 fix round 1: the population is the listed one (claimed with X, shown, not held).
   await sql()`UPDATE builder_profiles SET x_user_id = 'x' || builder_id, x_handle = 'h' || builder_id, hidden = false, held = false WHERE builder_id IN ${sql()(only)}`;
+  // Final follow-ups 2: the leaderboard's pool (benchPool): the one project counts as confirmed (a hosted slug here).
+  for (const id of only) {
+    await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped) VALUES (${id}, ${`ps${id}-app`}, 'App', 'app', true, true)
+      ON CONFLICT DO NOTHING`;
+    await sql()`UPDATE builder_profiles SET main_project_key = ${`ps${id}-app`} WHERE builder_id = ${id}`;
+  }
   const s = await standingOf(T + 3, { only });
   assert.deepEqual([s.rank, s.total, s.ranked], [2, 3, true]);
   // A held person leaves the population; asking, they are counted in again (a place for their own reply).
@@ -160,7 +166,12 @@ test('4.3 rank counts every listed ranked person with a higher score; ties share
   await sql()`UPDATE builder_profiles SET x_user_id = NULL WHERE builder_id = ${T + 2}`;
   assert.deepEqual(await standingOf(T + 3, { only }).then((x) => [x.rank, x.total]), [1, 2]);
   assert.deepEqual(await standingOf(T + 2, { only }).then((x) => [x.rank, x.total]), [1, 3]);
-  await sql()`UPDATE builder_profiles SET x_user_id = NULL, x_handle = NULL WHERE builder_id IN ${sql()(only)}`;
+  // Ranked but the one project no longer counts as confirmed: off the leaderboard, so out of everyone else's M.
+  await sql()`UPDATE builder_profiles SET x_user_id = 'x' || builder_id WHERE builder_id = ${T + 2}`;
+  await sql()`UPDATE builder_projects SET confirmed = false WHERE builder_id = ${T + 4}`;
+  assert.deepEqual(await standingOf(T + 3, { only }).then((x) => [x.rank, x.total]), [2, 2]);
+  await sql()`UPDATE builder_profiles SET x_user_id = NULL, x_handle = NULL, main_project_key = NULL WHERE builder_id IN ${sql()(only)}`;
+  await sql()`DELETE FROM builder_projects WHERE builder_id IN ${sql()(only)}`;
 });
 
 test('4.4 at most 25 tracked projects, most recently active first; a tracked one quiet 90 days frees its place', () => {

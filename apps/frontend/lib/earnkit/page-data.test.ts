@@ -65,6 +65,11 @@ async function seededTraction() {
   await project(id, { key: 'https://tipjar.example.com', name: 'TipJar', link: 'https://tipjar.example.com', confirmed: true, people: 4, daysAgo: 60 });
   await project(id, { key: 'https://recipes.example.com', name: 'Recipes', confirmed: false, daysAgo: 2 });
   await project(id, { key: 'https://budget.example.com', name: 'Budget', confirmed: false, daysAgo: 50 });
+  // Final follow-ups 2: the rank pool is the leaderboard's (benchPool): each one project counts as confirmed.
+  for (const x of ids) {
+    if (x !== id) await project(x, { key: `https://main-${x}.example.com`, name: 'Main', confirmed: true, daysAgo: 5 });
+    await sql()`UPDATE builder_profiles SET main_project_key = ${x === id ? 'https://tokens.fun' : `https://main-${x}.example.com`} WHERE builder_id = ${x}`;
+  }
   return { id, ids };
 }
 
