@@ -221,16 +221,20 @@ test('4.9b appSetup refuses a nonce that skipped the OAuth hop or isn\'t an App 
   });
 });
 
-test('4.9c on a shared client the App page shows the one-time code (G9); appTokenFor reads only the caller\'s own proof', db, async () => {
+test('4.9c on a shared client the App page shows no paste code (v2.14 final fix); appTokenFor reads only the caller\'s own proof', db, async () => {
   await withEnv(APP, async () => {
     const f = await fixture('shared', { shared: true });
-    // Preflight S7: a shared client gets no App link now; one made before v2.14 still finishes with the code.
+    // Preflight S7: a shared client gets no App link now; one made before v2.14 finishes with no paste code (T6-2).
     await assert.rejects(createVerifyLink({ installationId: f.inst, projectId: null, repoKey: f.repoKey, purpose: 'app' }), /handle/);
     const nonce = await rawNonce(f.inst, f.repoKey, 'app');
     await completeVerify('code', nonce, oauth('alice'));
     const fetch = fakeGitHub(appApi({ account: 'alice', repos: [f.repoKey] }));
     const res = await appSetup(setupAt(`installation_id=77&state=${encodeURIComponent(nonce)}`, `${csrfCookieName(nonce)}=K1`), { ...limit, fetch });
-    assert.match(await res.text(), /Paste this code to your agent: [A-Z2-7]{4}-[A-Z2-7]{4}-[A-Z2-7]{2}/);
+    const page = await res.text();
+    assert.match(page, /Done\. Go back to your agent and say go\./);
+    assert.doesNotMatch(page, /Paste this code/);
+    const [v] = await sql()<{ code_hash: string | null }[]>`SELECT code_hash FROM github_verifications WHERE installation_id = ${f.inst} AND via = 'app'`;
+    assert.equal(v.code_hash, null);
     const calls: Call[] = [];
     // v2.13.3 review M4: the installation is looked up by repo before the mint.
     const tokenFetch = fakeGitHub({ ...appApi({ account: 'alice', repos: [f.repoKey] }), [`GET /repos/${f.repoKey}/installation`]: json({ id: 77 }) }, calls);
