@@ -6246,3 +6246,8 @@ ranking higher.
   real-matcher fit (transactions, a live link and commits on Base and Arc give good-odds fits; a low-odds repo none).
   `reply-states`, `bench-reply`, `coin-moments`, `raising`, `v213-*`, `v2131-*`, `v2133-owner-test` and `v214-*` tests
   were updated for R8, R12 and R16a.
+
+### Scoring and clarity: page shells and lint (R14, R15)
+
+- Every sign-in and verify response is `brand-page.ts brandShell` (dark page, slim top bar): the GitHub verify and App setup pages (their 404 is `notFoundPage`), `signinPage` (X sign-in, the `/x/callback` 404), the OAuth authorize 429 and 400 (status and Retry-After kept), and the wallet 405 (frame-ancestors CSP kept). Redirects and the wallet POST JSON are unchanged. `page-shells.test.ts` asserts text/html plus the top bar for each.
+- `pnpm lint` runs `eslint .` in `apps/frontend` (flat config, `eslint-config-next` 16.1.5; `.next/` and other build output ignored; `_`-prefixed unused names allowed). It exits 0.
