@@ -1,3 +1,4 @@
+import { ScoreDeadline } from './campaigns';
 import { CONFIRMED_PROOFS } from './confirmed';
 import { sql, type Db } from './db';
 import { appTokenFor, githubAppEnabled, installationToken, repoInstallation, type AppDeps } from './github-app';
@@ -187,13 +188,28 @@ export async function proveByApp(a: { builderId: number; repoKey: string; github
     const { defaultReaderDeps } = await import('./source-readers');
     const deadline = Date.now() + scoring.REFRESH_BUDGET_MS;
     const reader = defaultReaderDeps(now, deadline);
-    await scoring.readPersonLive(a.builderId, now, { deadline, reader: deps.fetch ? { ...reader, ghFetch: deps.fetch } : reader, only: [row.id], soft: true });
+    const ghFetch = budgetedFetch(deps.fetch ?? reader.ghFetch ?? fetch, deadline);
+    await scoring.readPersonLive(a.builderId, now, { deadline, reader: { ...reader, ghFetch }, only: [row.id], soft: true });
   } catch (err) {
     console.error('[repo-proof] read', err instanceof Error ? err.name : 'error');
   }
   await scoring.rescorePerson(a.builderId, now).catch((err: unknown) => console.error('[repo-proof] rescore', err instanceof Error ? err.name : 'error'));
   profileChanged();
   return out;
+}
+
+/**
+ * Fix round 1 (R5): `f` with the read's budget on every call, not only between calls: each request is aborted
+ * once `deadline` (ms since the epoch) passes, and one started after it never goes out (ScoreDeadline, which
+ * readPersonLive treats as the deadline). The request's own signal still applies.
+ */
+export function budgetedFetch(f: typeof fetch, deadline: number): typeof fetch {
+  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const left = deadline - Date.now();
+    if (left <= 0) throw new ScoreDeadline();
+    const cap = AbortSignal.timeout(left);
+    return f(input, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, cap]) : cap });
+  }) as typeof fetch;
 }
 
 /** What GitHub says about a person's App proof now (appProofLive). */

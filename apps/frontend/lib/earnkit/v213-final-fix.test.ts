@@ -77,7 +77,7 @@ async function listed(o: { name?: string; public?: boolean; chains?: string[]; r
   const id = await installation();
   const key = `fx${RUN}/repo${id}`;
   await sql()`INSERT INTO builder_profiles (builder_id, slug, main_project_key, x_user_id, x_handle, x_name) VALUES (${id}, ${`v213fx-${id}`}, ${key}, ${`fxx${id}`}, ${`fx${RUN}${id}`}, 'Maya')`;
-  await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at) VALUES (${id}, ${o.score ?? 50}, '{}'::jsonb, true, 1, 0, 'v2', 'v2-launch', now())`;
+  await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at) VALUES (${id}, ${o.score ?? 50}, '{}'::jsonb, true, 1, 0, 'v2', 'v2-shipping', now())`;
   await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, chains) VALUES (${id}, ${key}, ${o.name ?? `repo${id}`}, 'app', true, true, ${o.chains ?? []})`;
   const [{ sid }] = await sql()<{ sid: number }[]>`
     INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES (${id}, 'repo', ${key}, ${key}, 'verified', 'proof_line', 'agent') RETURNING id::int AS sid`;

@@ -219,7 +219,7 @@ export async function standBase(id: number, o: { fresh?: TipSwitches; own?: numb
  * card offer, the card's moment (card_moments.latest), and one news_shown event.
  */
 export async function takeNews(id: number, seen: Seen, base: StandBase, now: Date, ask: boolean): Promise<string | null> {
-  const record = async (card: 'people' | 'rank' | null) => {
+  const record = async (card: 'rank' | null) => {
     const next: Seen = {
       ...(base.standing.ranked && { rank: base.standing.rank }),
       people: Object.fromEntries(base.projects.map((p) => [p.key, p.people])),

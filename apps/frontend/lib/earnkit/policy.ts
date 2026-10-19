@@ -111,7 +111,7 @@ export const PROFILES_ANCHOR = 'builder-profiles';
 export const PROFILES_POINTS: readonly string[] = [
   'Your EarnKit page is made when you sign in with X, as you install EarnKit or from the one-time link your agent gives you. It is public from then on. Until you sign in, what EarnKit finds shows only in your own agent.',
   'Every agent you sign in with the same X account uses that same page. It is added with no question, and nothing from another page is merged in.',
-  'It shows your X name and picture, what you shipped, how many people use it, money it earned when EarnKit can see it, programs you entered or won, and your rank and score once something you shipped is confirmed.',
+  'It shows your X name and picture, your project, your Shipping score and rank once the project is confirmed, the weeks you shipped code, your ship log, and programs you entered or won.',
   'A repo counts when you install the read-only EarnKit GitHub App on it. That is the only proof for new repos. A repo EarnKit confirmed before the App still counts on the Bench, but needs the App before a coin, a deploy or hosting.',
   'EarnKit reads the repos you install the App on, private ones too, with short-lived tokens from GitHub. It never stores those tokens. It also reads public data it can check cheaply: GitHub, live sites, package downloads, public transactions and what you did through EarnKit. It never adds anything to your site.',
   'Each week you ship code, EarnKit stores up to three commit and pull request titles from your Bench project, if you installed the App on it. A private repo shows facts only, and its titles are read only after you turn titles on. If you turn titles off, stored titles stay stored but are hidden.',

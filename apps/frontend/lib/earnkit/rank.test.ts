@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CHAIN_CHIP_MIN, RANK_PERCENT_FROM, benchPercent, percentText, rankLine, scoreLine } from './rank';
+import { RANK_PERCENT_FROM, benchPercent, percentText, rankLine, scoreLine } from './rank';
 
 test('7.1 P = 100 * rank / total: whole numbers rounded up from 1, one decimal rounded up under 1, never below 0.1 (review focus 1)', () => {
   assert.equal(benchPercent(10, 1000), 1, 'exactly 1');
@@ -18,7 +18,6 @@ test('7.1 P = 100 * rank / total: whole numbers rounded up from 1, one decimal r
   assert.equal(percentText(0.3), '0.3');
   assert.equal(percentText(4), '4');
   assert.equal(RANK_PERCENT_FROM, 20);
-  assert.equal(CHAIN_CHIP_MIN, 10);
 });
 
 test('7.2 under 20 ranked: "#N of M builders this week" for everyone; from 20: "Top P% of builders this week" in the top half, "#N of M" for the rest', () => {
@@ -30,7 +29,8 @@ test('7.2 under 20 ranked: "#N of M builders this week" for everyone; from 20: "
   assert.equal(rankLine(s(3, 1000)), 'Top 0.3% of builders this week');
   assert.equal(rankLine(s(10, 20)), 'Top 50% of builders this week', 'P exactly 50 is the top half');
   assert.equal(rankLine(s(11, 20)), '#11 of 20 builders this week');
-  assert.equal(rankLine(s(500_001, 1_000_000)), '#500001 of 1000000 builders this week');
+  assert.equal(rankLine(s(500_001, 1_000_000)), '#500,001 of 1,000,000 builders this week', 'thousands separators');
+  assert.equal(rankLine(s(2004, 3500)), '#2,004 of 3,500 builders this week');
   for (const bad of [{ ranked: false, rank: 1, total: 30 }, s(0, 30), s(31, 30), s(Number.NaN, 30)]) assert.equal(rankLine(bad), null);
 });
 

@@ -101,7 +101,7 @@ test('9.9 (v2.12.1 T12) odds read the person\'s live confirmed project: its peop
   assert.equal(await verifiedProject(id, `lee${T}/other`), null);
   assert.equal(await verifiedProject(T + 16, `lee${T}/app`), null, 'no profile: v2.10 traction');
   await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, pending, computed_at)
-    VALUES (${id}, 10, '{}', true, 1, 60, 'v2', 'v2-launch', ${sql().json({ score: 90 } as never)}, now())`;
+    VALUES (${id}, 10, '{}', true, 1, 60, 'v2', 'v2-shipping', ${sql().json({ score: 90 } as never)}, now())`;
   assert.equal(await verifiedProject(id, `lee${T}/app`), null, 'held for review: v2.10 traction');
   await sql()`DELETE FROM builder_live WHERE builder_id = ${id}`;
   await sql()`UPDATE builder_profiles SET held = true WHERE builder_id = ${id}`;

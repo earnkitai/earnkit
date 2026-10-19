@@ -34,7 +34,7 @@ async function listed(score: number, weeks: { monday: string; text: string | nul
   const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`v213-feed-${randomBytes(8).toString('hex')}`}) RETURNING id`;
   const key = `f${RUN}/p${id}`;
   await sql()`INSERT INTO builder_profiles (builder_id, slug, main_project_key, x_user_id, x_handle, x_name) VALUES (${id}, ${`v213f-${id}`}, ${key}, ${`fx${id}`}, ${`f${RUN}${id}`}, 'Maya')`;
-  await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at) VALUES (${id}, ${score}, '{}'::jsonb, true, 1, 0, 'v2', 'v2-launch', now())`;
+  await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at) VALUES (${id}, ${score}, '{}'::jsonb, true, 1, 0, 'v2', 'v2-shipping', now())`;
   await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped) VALUES (${id}, ${key}, 'Recipe planner', 'app', true, true)`;
   // Final fix M1: the feed reads the Bench gate (the repo's own proof) now.
   await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES (${id}, 'repo', ${key}, ${key}, 'verified', 'proof_line', 'agent')`;

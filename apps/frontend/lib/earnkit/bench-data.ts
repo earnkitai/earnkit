@@ -10,7 +10,7 @@ import { COIN_PROGRAM } from './policy-constants';
 import { byPrize, type Card } from './present';
 import { listPrograms } from './programs';
 import { pillOf, raisingCoin } from './raising';
-import { BENCH_CHAINS, CHAIN_CHIP_MIN, rankLine, type BenchChain } from './rank';
+import { BENCH_CHAINS, rankLine, type BenchChain } from './rank';
 import { scoreWhy, storedShipping } from './score-v2';
 import { earnPrize, earnWhen, showable } from './stand-view';
 import { titlesShown } from './ship-titles';
@@ -89,7 +89,8 @@ export async function benchRows(f: BenchFilter, o: { limit?: number; only?: numb
   const pill = (r: (typeof rows)[number]) => (raisingOn && r.raising && r.symbol && r.url ? { symbol: r.symbol, url: r.url } : null);
   return {
     count: total,
-    chips: BENCH_CHAINS.filter((c) => pools[c] >= CHAIN_CHIP_MIN),
+    // R16e: a chain's chip from one ranked project on it.
+    chips: BENCH_CHAINS.filter((c) => pools[c] > 0),
     rows: rows.map((r) => ({
       rank: r.rank,
       line: rankLine({ ranked: true, rank: r.rank, total }),

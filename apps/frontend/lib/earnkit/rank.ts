@@ -11,12 +11,12 @@ export const CHAIN_LABEL: Record<BenchChain, string> = { base: 'Base', robinhood
  * this week" ("#1 of 1 builder this week"). From then, "Top P% of builders this week" in the top half
  * (P <= 50) and "#N of M builders this week" for the rest. Every ranked builder sees a rank. A
  * chain's pool uses the same rule and names the chain ("#2 of 12 builders on Arc this week"), from
- * one ranked project on it (R16e). CHAIN_CHIP_MIN only gates the leaderboard's chain filter chips. P of 1 or more is rounded up to a whole
+ * one ranked project on it (R16e; the leaderboard's chain chips too). Numbers carry thousands separators
+ * ("#1,204 of 3,500 builders this week"). P of 1 or more is rounded up to a whole
  * number, under 1 rounded up to one decimal and never below 0.1. Pure.
  */
 export const RANK_PERCENT_FROM = 20;
 export const TOP_PERCENT_MAX = 50;
-export const CHAIN_CHIP_MIN = 10;
 export function benchPercent(rank: number, total: number): number {
   const whole = Math.ceil((100 * rank) / total);
   if (whole > 1 || (100 * rank) / total === 1) return whole;
@@ -27,7 +27,8 @@ export function rankLine(s: Standing, o: { chain?: BenchChain } = {}): string | 
   if (!s.ranked || !Number.isFinite(s.rank) || !Number.isFinite(s.total) || s.rank < 1 || s.total < 1 || s.rank > s.total) return null;
   const where = o.chain ? ` on ${CHAIN_LABEL[o.chain]}` : '';
   if (s.total >= RANK_PERCENT_FROM && (100 * s.rank) / s.total <= TOP_PERCENT_MAX) return `Top ${percentText(benchPercent(s.rank, s.total))}% of builders${where} this week`;
-  return `#${s.rank} of ${s.total} ${s.total === 1 ? 'builder' : 'builders'}${where} this week`;
+  const n = (x: number) => x.toLocaleString('en-US');
+  return `#${n(s.rank)} of ${n(s.total)} ${s.total === 1 ? 'builder' : 'builders'}${where} this week`;
 }
 /**
  * R16c: the one score line, everywhere it appears (profile header, MCP replies, the card and share

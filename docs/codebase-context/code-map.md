@@ -1475,7 +1475,7 @@ apps/frontend/
                                sentence), countUse (people and money for builder_projects, not scored; fade, STAR_FORK_CAP)
     rank.ts(+test)             scoring and clarity: rankLine (the one rank phrase: "#N of M builders this week", from 20
                                "Top P% of builders this week" in the top half; chains named), scoreLine ("Shipping 72 ·
-                               <rank line>"), benchPercent, CHAIN_CHIP_MIN (leaderboard chips only), BENCH_CHAINS
+                               <rank line>"; thousands separators), benchPercent, BENCH_CHAINS
     person-github.ts(+test)    v2.12.1 T3: PERSON_GITHUB_QUERY (one GraphQL query a person), reposQuery
                                (aliased by name, REPOS_MAX 25), readPersonGithub, readGithubRepos
                                v2.13.3: readAppRepos (a repo EarnKit's token can't read, through the App, keyed by source id).

@@ -8,7 +8,8 @@ import { connectInstallation, saveInstallation } from './installations';
 import { mcpCall } from './fixtures/mcp-call';
 import { fakeGitHub } from './fixtures/fake-github';
 import { appEnv, installApp } from './fixtures/app-install';
-import { APP_REMOVED, appCheckStep, installLink, proveByApp, repoProof } from './repo-proof';
+import { APP_REMOVED, appCheckStep, budgetedFetch, installLink, proveByApp, repoProof } from './repo-proof';
+import { ScoreDeadline } from './campaigns';
 import { attachToX } from './x-install';
 import { readSources } from './sources';
 import { defaultReaderDeps } from './source-readers';
@@ -116,6 +117,24 @@ test('6.2c R5 fail soft: a reading that fails at connect leaves the proof standi
   const rows = await sql()<{ ok: boolean; read_at: Date }[]>`SELECT l.ok, l.read_at FROM source_live l JOIN builder_sources s ON s.id = l.source_id WHERE s.builder_id = ${p.id} AND s.kind = 'repo'`;
   assert.ok(rows.every((x) => x.ok === false && x.read_at.getTime() < Date.now() - 1), JSON.stringify(rows));
   assert.equal(gh.calls.filter((c) => c.path === '/graphql').length, 0, 'the 502 went through the wrapper');
+});
+
+test('6.2d fix round 1: the connect read\'s budget holds on every call: a hung request is aborted at the deadline, none starts after it', async () => {
+  let seen: AbortSignal | undefined;
+  const hang = ((_input: RequestInfo | URL, init?: RequestInit) => new Promise((_, reject) => {
+    seen = init?.signal ?? undefined;
+    init?.signal?.addEventListener('abort', () => reject(init.signal!.reason));
+  })) as typeof fetch;
+  const t0 = Date.now();
+  await assert.rejects(budgetedFetch(hang, Date.now() + 60)('https://api.github.com/graphql', { method: 'POST' }));
+  assert.ok(Date.now() - t0 < 2_000, 'aborted near the deadline, not left hanging');
+  assert.equal(seen?.aborted, true);
+  await assert.rejects(budgetedFetch(hang, Date.now() - 1)('https://api.github.com/graphql'), (e) => e instanceof ScoreDeadline);
+  // The request's own signal still applies.
+  const own = new AbortController();
+  const p = budgetedFetch(hang, Date.now() + 60_000)('https://api.github.com/x', { signal: own.signal });
+  own.abort(new Error('own'));
+  await assert.rejects(p, /own/);
 });
 
 test('6.3 the App on a fork is a copy: refused, not verified', db, async () => {

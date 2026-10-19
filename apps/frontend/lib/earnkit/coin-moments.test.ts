@@ -128,7 +128,7 @@ async function person(projects: { key: string; name: string; people: number }[],
     x_user_id = ${`x${id}`}, x_handle = ${`cm${id}`} WHERE builder_id = ${id}`;
   await sql()`
     INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at, read_at)
-    VALUES (${id}, 0, '{}'::jsonb, false, ${projects.length}, 0, 'v2', 'v2-launch', now(), now())`;
+    VALUES (${id}, 0, '{}'::jsonb, false, ${projects.length}, 0, 'v2', 'v2-shipping', now(), now())`;
   for (const p of projects) await usedProject(id, p.key, p.name, p.people);
   return id;
 }

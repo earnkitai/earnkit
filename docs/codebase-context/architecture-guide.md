@@ -5894,19 +5894,24 @@ Spec: `docs/design-docs-and-implementation-plans/scoring-and-clarity.md` (R1 to 
   distinct live ships.
 - **People and money are not scored.** `countUse` (the old Used and Earned counting, ring and anti-farming
   included) still fills `builder_projects.people` and `money_usd`; nothing destructive. The review hold keeps the
-  30-point jump only, against history of the live calibration `v2-shipping` (`score-calibration.ts`), so the first
-  Shipping day is never a jump from a four-part score; the one-source rule no longer applies.
+  30-point jump only, against a ranked history row (`builder_scores.ranked`, written by the cron) of the live
+  calibration `v2-shipping` (`score-calibration.ts`), so the first Shipping day is never a jump from a four-part
+  score or from a day the builder was unranked; the first rescore after the builder becomes ranked (the live row
+  unranked, or of an older calibration) is never held. The one-source rule no longer applies.
+- **Deploy catch-up** (fix round 1): `listedRanked` and `standingOf` count only `builder_live` rows of the live
+  calibration, so a four-part row is unranked (and shows no Shipping number) until rescored; `scorePeopleV2` takes
+  every live row of an older calibration first, even when today already has a history row, within its deadline.
 - **Ranked (R4)** (`rescorePerson`): the one project is confirmed (`bench_confirmed`) and a confirmed repo of it has
   at least one good reading (`ProjectRow.repo_read`, daily or live). No commits ranks at 0. The ring no longer gates
   the rank. A package-only project has no repo reading, so it is unranked.
 - **Scored at connect (R5)** (`repo-proof.ts proveByApp`): after the verify, `readPersonLive(..., { only: [the
-  source], soft: true })` reads the proved repo once with the installation token (the refresh's reader, which writes
+  source], soft: true })` (each fetch aborted at the 8 s budget by `budgetedFetch`) reads the proved repo once with the installation token (the refresh's reader, which writes
   `commit_weeks` and `commit_counts`), then rescores. `only` reads even inside the 10-minute guard; `soft` writes
   nothing on a failure, so the proof stands, an earlier good reading still counts and the next refresh reads it.
 - **Rank line (R6, R16d)** (`rank.ts rankLine`, the only rank phrase helper): under 20 ranked, "#N of M builders this
   week" ("#1 of 1 builder this week"); from 20, "Top P% of builders this week" in the top half and "#N of M builders
   this week" for the rest. A chain names itself ("#2 of 12 builders on Arc this week") and shows from one ranked
-  project (R16e; `CHAIN_CHIP_MIN` only gates the leaderboard's chain chips). `rankWords` and `benchRank` are gone;
+  project (R16e; the leaderboard's chain chips too, `CHAIN_CHIP_MIN` is gone). Numbers carry thousands separators. `rankWords` and `benchRank` are gone;
   `stand-text.ts standingNews` says "You moved up to <rank line>." and no longer reports new people.
 - **Score line (R16c)** (`rank.ts scoreLine`): "Shipping 72 · #3 of 40 builders this week". `bench-rank.ts rankLines`
   returns `{ bench (the rank line), line (the score line), chains }`. Used by the profile header (screen reader line),
@@ -5914,7 +5919,8 @@ Spec: `docs/design-docs-and-implementation-plans/scoring-and-clarity.md` (R1 to 
   text (`benchCardFacts.bench`) and the page meta (`handle-view.tsx`).
 - **Why sentence (R7)** (`score-v2.ts scoreWhy`, pure): "Code in 7 of the last 12 weeks, 3 of the last 4. Ship code
   this week to add up to 14 points." The points are what an active week adds by the formula: this week while it has
-  none, else next week over next week without code. Shown under the profile's rank and under the ranked stand line
+  none, else next week over next week without code. `raw.monday` dates the mask, and `scoreWhy(parts, now)` shifts it
+  by the weeks since, so an older row never calls last week "this week". Shown under the profile's rank and under the ranked stand line
   in find and score (`BenchView.why`, one statement, never a question).
 - **Profile** (`app/[handle]/BenchProfileView.tsx`, on PR #46's look): one hero ring (`ScoreRing`, caption
   "Shipping", label "Shipping N of 100") beside the rank, its words and the why; no per-part rings (`ScoreParts.tsx`

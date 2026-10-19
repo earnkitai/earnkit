@@ -6,8 +6,8 @@ import { BENCH_CHAINS, CHAIN_LABEL, rankLine, scoreLine, type BenchChain } from 
 /**
  * v2.13 spec "Chains (R14)": a ranked project is on a chain when builder_projects.chains (T4) names
  * it. The pool of a chain is the listed ranked people whose one project is on it (and, final fix
- * M1, counts as confirmed now: benchConfirmedSql, not only at the last rescore). A chain's line shows from one ranked project (R16e); its chip on the leaderboard
- * only from CHAIN_CHIP_MIN ranked projects in its pool.
+ * M1, counts as confirmed now: benchConfirmedSql, not only at the last rescore). A chain's line and its chip on the leaderboard show from one ranked
+ * project in its pool (R16e).
  */
 export const benchPool = (only?: number[]) => {
   const db = sql();

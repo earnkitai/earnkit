@@ -59,7 +59,7 @@ async function listed(score: number, o: { chains?: string[]; raising?: boolean; 
   made.push(id);
   const key = `bn${RUN}/p${id}`;
   await sql()`INSERT INTO builder_profiles (builder_id, slug, main_project_key, x_user_id, x_handle, x_name) VALUES (${id}, ${`v213bn-${id}`}, ${key}, ${`bnx${id}`}, ${`bn${RUN}${id}`}, 'Maya')`;
-  await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at) VALUES (${id}, ${score}, '{}'::jsonb, true, 1, 0, 'v2', 'v2-launch', now())`;
+  await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at) VALUES (${id}, ${score}, '{}'::jsonb, true, 1, 0, 'v2', 'v2-shipping', now())`;
   await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, chains, streak) VALUES (${id}, ${key}, 'Recipe planner', 'app', true, true, ${o.chains ?? []}, ${o.streak ?? 0})`;
   await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES (${id}, 'repo', ${key}, ${key}, 'verified', 'proof_line', 'agent')`;
   if (o.raising)
@@ -68,13 +68,13 @@ async function listed(score: number, o: { chains?: string[]; raising?: boolean; 
   return id;
 }
 
-test('10.3 chain, raising and weekly filter the rows; ranks are the whole Bench\'s; chips only from 10 on a chain (acceptance 4)', dbTest, async () => {
+test('10.3 chain, raising and weekly filter the rows; ranks are the whole Bench\'s; chips from one ranked project on a chain (R16e)', dbTest, async () => {
   const ids: number[] = [];
   for (let i = 0; i < 10; i++) ids.push(await listed(60 + i, { chains: ['base'], raising: i === 9, streak: i >= 8 ? 5 : 1 }));
   ids.push(await listed(99, { chains: ['arc'] }));
   const all = await benchRows({ chain: null, raising: false, weekly: false }, { only: ids });
   assert.equal(all.count, 11);
-  assert.deepEqual(all.chips, ['base'], 'arc has 1: no chip');
+  assert.deepEqual(all.chips, ['base', 'arc'], 'arc has 1: its chip shows (R16e)');
   assert.deepEqual(all.rows.map((r) => r.rank), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
   assert.equal(all.rows[0].line, '#1 of 11 builders this week');
   assert.equal(all.rows[10].line, '#11 of 11 builders this week', 'every ranked builder sees a rank');

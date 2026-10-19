@@ -96,7 +96,7 @@ test('8.8 a project without the App gets no titles (facts only, as before)', db,
 /** On the feed: ranked and listed, the week's row given points (rankFeed's job, daily). */
 async function onFeed(id: number) {
   await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at)
-    VALUES (${id}, 50, '{}'::jsonb, true, 1, 0, 'v2', 'v2-launch', now()) ON CONFLICT (builder_id) DO UPDATE SET ranked = true`;
+    VALUES (${id}, 50, '{}'::jsonb, true, 1, 0, 'v2', 'v2-shipping', now()) ON CONFLICT (builder_id) DO UPDATE SET ranked = true`;
   await sql()`UPDATE project_updates SET points = 10 WHERE builder_id = ${id} AND week = ${WEEK}`;
 }
 const feedTitles = async (id: number) => (await feedWeeks(MONDAY_RUN, { only: [id] })).flatMap((w) => w.cards).find((c) => c.week === WEEK)?.titles;
