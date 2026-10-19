@@ -1,3 +1,4 @@
+import { ScoreDeadline } from './campaigns';
 import { CONFIRMED_PROOFS } from './confirmed';
 import { sql, type Db } from './db';
 import { appTokenFor, githubAppEnabled, installationToken, repoInstallation, type AppDeps } from './github-app';
@@ -143,6 +144,7 @@ export async function proveByApp(a: { builderId: number; repoKey: string; github
   if ((await repoInstallation(key, deps).catch(() => null)) !== a.githubInstallationId) return { ok: false, why: 'none' };
   const isPrivate = meta.private !== false;
   const replaced: number[] = [];
+  let firstProof = false;
   const out = await sql().begin(async (tx): Promise<RepoProof> => {
     await tx`SELECT pg_advisory_xact_lock(hashtext(${`repo_hold:${key}`}))`;
     // The person's lock before the source lock (the global order, identity.ts lockPerson).
@@ -165,6 +167,9 @@ export async function proveByApp(a: { builderId: number; repoKey: string; github
       await tx`UPDATE builder_sources SET state = 'proposed', reject_reason = ${REPLACED_BY_APP} WHERE id = ${o.id} AND state = 'verified'`;
       replaced.push(o.builder_id);
     }
+    // R13: the first App proof of this repo for this builder (a re-prove after a removal keeps proof github_app).
+    const [prior] = await tx<{ proof: string | null }[]>`SELECT proof FROM builder_sources WHERE id = ${row.id}`;
+    firstProof = prior?.proof !== APP_PROOF;
     // The App is the strongest proof: it verifies a proposed, rejected or stale row alike.
     await tx`
       UPDATE builder_sources SET state = 'verified', proof = ${APP_PROOF}, verified_at = ${now}, reject_reason = NULL, app_checked_at = ${now},
@@ -178,9 +183,44 @@ export async function proveByApp(a: { builderId: number; repoKey: string; github
   await (await import('./events')).noteEvent('source_verified', () => ({
     type: 'source_verified', dedupe_key: `source_verified:${row.id}:${now.toISOString()}`, installation_id: a.builderId, detail: { source_id: row.id, kind: 'repo', proof: APP_PROOF },
   }));
-  await (await import('./person-score')).rescorePerson(a.builderId, now).catch((err: unknown) => console.error('[repo-proof] rescore', err instanceof Error ? err.name : 'error'));
+  // R5: scored at connect. The proved repo is read once now (the App's installation token, the refresh's
+  // reader, which writes commit_weeks and commit_counts), so the rescore below has its commit weeks.
+  // Fail soft: a failed read writes nothing (an earlier good reading still counts) and leaves the proof standing;
+  // the next refresh or daily read reads it.
+  const scoring = await import('./person-score');
+  const deadline = Date.now() + scoring.REFRESH_BUDGET_MS;
+  let ghFetch: typeof fetch | undefined;
+  try {
+    const { defaultReaderDeps } = await import('./source-readers');
+    const reader = defaultReaderDeps(now, deadline);
+    ghFetch = budgetedFetch(deps.fetch ?? reader.ghFetch ?? fetch, deadline);
+    await scoring.readPersonLive(a.builderId, now, { deadline, reader: { ...reader, ghFetch }, only: [row.id], soft: true });
+  } catch (err) {
+    console.error('[repo-proof] read', err instanceof Error ? err.name : 'error');
+  }
+  await scoring.rescorePerson(a.builderId, now).catch((err: unknown) => console.error('[repo-proof] rescore', err instanceof Error ? err.name : 'error'));
+  // R13: on the first proof, the ship log's last 3 finished weeks from the reading just taken, within what is left
+  // of the connect budget (titles only while it lasts, each call aborted at the deadline). The hourly catch-up
+  // (week-facts.ts backfillStep) finishes whatever this leaves.
+  if (firstProof)
+    await (await import('./week-facts')).backfillOnConnect(a.builderId, key, now, { deadline, ghFetch })
+      .catch((err: unknown) => console.error('[repo-proof] backfill', err instanceof Error ? err.name : 'error'));
   profileChanged();
   return out;
+}
+
+/**
+ * Fix round 1 (R5): `f` with the read's budget on every call, not only between calls: each request is aborted
+ * once `deadline` (ms since the epoch) passes, and one started after it never goes out (ScoreDeadline, which
+ * readPersonLive treats as the deadline). The request's own signal still applies.
+ */
+export function budgetedFetch(f: typeof fetch, deadline: number): typeof fetch {
+  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const left = deadline - Date.now();
+    if (left <= 0) throw new ScoreDeadline();
+    const cap = AbortSignal.timeout(left);
+    return f(input, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, cap]) : cap });
+  }) as typeof fetch;
 }
 
 /** What GitHub says about a person's App proof now (appProofLive). */
@@ -270,18 +310,22 @@ export async function installLink(builderId: number, repoKey: string, now: Date)
   return createVerifyLink({ installationId: builderId, projectId: null, repoKey: repoKey.toLowerCase(), purpose: 'app' }, now).catch(() => null);
 }
 
-/** One installation token for one repo of this person, and a GET with it (null on any failure). Never stored or logged. */
-export async function appClient(builderId: number, repoKey: string, f: typeof fetch): Promise<(<T>(path: string) => Promise<T | null>) | null> {
+/**
+ * One installation token for one repo of this person, and a GET with it (null on any failure). Never stored or logged.
+ * `on404` (scoring and clarity R3): what a 404 answers instead of null, so a caller can tell "not there" from a failure.
+ */
+export type AppGet = <T>(path: string, o?: { on404?: T }) => Promise<T | null>;
+export async function appClient(builderId: number, repoKey: string, f: typeof fetch): Promise<AppGet | null> {
   const token = await appTokenFor({ installationId: builderId, repoKey: repoKey.toLowerCase() }, { fetch: f });
   if (!token) return null;
-  return async <T,>(path: string): Promise<T | null> => {
+  return async <T,>(path: string, o?: { on404?: T }): Promise<T | null> => {
     const res = await f(`https://api.github.com${path}`, {
       headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}`, 'User-Agent': 'earnkit', 'X-GitHub-Api-Version': '2022-11-28' },
       redirect: 'error', signal: AbortSignal.timeout(10_000),
     }).catch(() => null);
     if (!res?.ok) {
       await res?.body?.cancel().catch(() => {});
-      return null;
+      return res?.status === 404 && o && 'on404' in o ? (o.on404 as T) : null;
     }
     return (await res.json().catch(() => null)) as T | null;
   };

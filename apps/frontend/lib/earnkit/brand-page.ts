@@ -8,8 +8,8 @@ import { THEME as T } from './theme';
  * v2.12.1 T11 fix round 2: the look of the claim, done and wallet pages (route handlers that answer
  * HTML with no script of ours but the wallet page's nonce one). The profile's navy design system in
  * one inline <style>. v4 (premium deep blue, the shared THEME of theme.ts, same as the profile and feed): a deep navy page with a soft blue glow, a slim top
- * bar (wordmark plus quiet links), one centered dark gradient card, Funnel Display for the headline (embedded as
- * data: fonts; the wallet page's CSP allows font-src data: for them), one white primary button, a thin blue to cyan accent. Nothing external is
+ * bar (wordmark plus quiet links, the React header's width), one centered dark gradient card, Funnel Display for the headline (embedded as
+ * data: fonts; the wallet page's CSP allows font-src data: for them), one brand-blue primary button (R18: as on every page). Nothing external is
  * loaded, so no CSP changes.
  */
 
@@ -39,15 +39,15 @@ const CSS = `
 *{box-sizing:border-box}
 html,body{margin:0}
 body{min-height:100vh;min-height:100dvh;background:${T.page};background-image:radial-gradient(48rem 24rem at 50% -4rem,${T.glow},transparent 70%),linear-gradient(180deg,${T.pageTop},${T.page} 36rem);background-repeat:no-repeat;color:${T.text};font:400 1rem/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;align-items:center}
-.ek-top{position:sticky;top:0;z-index:1;width:100%;height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;background:${T.glass};border-bottom:1px solid ${T.hairline}}
+.ek-top{position:sticky;top:0;z-index:1;width:100%;background:${T.glass};border-bottom:1px solid ${T.border}}
+.ek-bar{max-width:72rem;height:56px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;padding:0 16px}
 .ek-home{display:inline-flex;align-items:center;min-height:44px;color:${T.text}}
 .ek-home svg{height:18px;width:auto}
 .ek-nav{display:flex;gap:4px}
-.ek-nav a{display:inline-flex;align-items:center;min-height:44px;padding:0 10px;color:${T.muted};font-size:.875rem;text-decoration:none;border-radius:8px}
+.ek-nav a{display:inline-flex;align-items:center;min-height:44px;padding:0 8px;color:${T.muted};font-size:.875rem;font-weight:500;text-decoration:none;border-radius:8px}
 .ek-nav a:hover{color:${T.text}}
 .ek-wrap{width:100%;display:flex;justify-content:center;padding:32px 16px 56px}
 .ek-panel{position:relative;overflow:hidden;width:100%;max-width:30rem;border:1px solid ${T.border};border-radius:24px;padding:32px 24px 28px;background:linear-gradient(180deg,${T.surfaceTop},${T.surface});box-shadow:inset 0 1px 0 rgba(163,197,254,.05),0 24px 64px -32px rgba(2,6,20,.85)}
-.ek-accent{display:block;width:40px;height:3px;border-radius:3px;background:linear-gradient(90deg,#3B82F6,#22D3EE);margin-bottom:24px}
 .ek-mark{display:flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:14px;margin-bottom:20px;background:${T.raised};border:1px solid ${T.borderStrong};color:${T.text}}
 .ek-mark svg{width:24px;height:24px}
 h1{font-family:"Funnel Display",ui-sans-serif,system-ui,sans-serif;font-weight:700;font-size:1.75rem;line-height:1.15;letter-spacing:-.02em;margin:0;text-wrap:balance}
@@ -65,8 +65,8 @@ h1{font-family:"Funnel Display",ui-sans-serif,system-ui,sans-serif;font-weight:7
 .ek-note strong{color:${T.text};font-weight:600}
 .ek-actions{margin-top:24px;display:flex;flex-direction:column;gap:12px}
 form{margin:0}
-.ek-btn{display:flex;width:100%;min-height:52px;align-items:center;justify-content:center;gap:10px;border:0;border-radius:999px;background:${T.text};color:${T.page};font:600 1rem/1 ui-sans-serif,system-ui,sans-serif;text-decoration:none;cursor:pointer;transition:background-color .15s}
-.ek-btn:hover{background:#FFFFFF}
+.ek-btn{display:flex;width:100%;min-height:48px;align-items:center;justify-content:center;gap:10px;border:0;border-radius:999px;background:${T.brand};color:${T.page};font:500 1rem/1 ui-sans-serif,system-ui,sans-serif;text-decoration:none;cursor:pointer;transition:background-color .15s}
+.ek-btn:hover{background:${T.accent}}
 .ek-btn:focus-visible,.ek-link:focus-visible,.ek-nav a:focus-visible,.ek-home:focus-visible{outline:2px solid ${T.accent};outline-offset:3px}
 .ek-btn svg{width:20px;height:20px}
 .ek-links{margin:24px 0 0;padding:16px 0 0;border-top:1px solid ${T.hairline};list-style:none;display:flex;flex-direction:column;gap:4px}
@@ -75,7 +75,7 @@ form{margin:0}
 .ek-status{margin:16px 0 0;min-height:1.5em;font-size:.9375rem;color:${T.body}}
 .ek-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 
-@media (min-width:640px){.ek-row{flex-direction:row;align-items:center;gap:12px}.ek-top{height:56px;padding:0 32px}.ek-wrap{padding-top:72px}.ek-panel{padding:40px 40px 36px}h1{font-size:2rem}}
+@media (min-width:640px){.ek-row{flex-direction:row;align-items:center;gap:12px}.ek-bar{padding:0 32px}.ek-wrap{padding-top:72px}.ek-panel{padding:40px 40px 36px}h1{font-size:2rem}}
 @media (prefers-reduced-motion:reduce){.ek-btn{transition:none}}
 `;
 
@@ -96,8 +96,8 @@ export function brandShell(inner: string, o: { fonts?: boolean } = {}): string {
     '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     `<meta name="theme-color" content="${T.page}"><meta name="robots" content="noindex"><title>EarnKit</title>` +
     `<style>${o.fonts === false ? '' : fontFaces()}${CSS}</style></head><body>` +
-    `<header class="ek-top"><a class="ek-home" href="/"><svg viewBox="0 0 124 23" role="img" aria-label="EarnKit" fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="${WORDMARK_D}" fill="currentColor"/></svg></a>` +
-    `<nav class="ek-nav" aria-label="Site"><a href="/bench">Bench</a><a href="/feed">Feed</a><a href="${DOCS}">Docs</a></nav></header>` +
-    `<div class="ek-wrap"><main class="ek-panel"><span class="ek-accent" aria-hidden="true"></span>${inner}</main></div></body></html>`
+    `<header class="ek-top"><div class="ek-bar"><a class="ek-home" href="/"><svg viewBox="0 0 124 23" role="img" aria-label="EarnKit" fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="${WORDMARK_D}" fill="currentColor"/></svg></a>` +
+    `<nav class="ek-nav" aria-label="Site"><a href="/leaderboard">Leaderboard</a><a href="/feed">Feed</a><a href="${DOCS}">Docs</a></nav></div></header>` +
+    `<div class="ek-wrap"><main class="ek-panel">${inner}</main></div></body></html>`
   );
 }

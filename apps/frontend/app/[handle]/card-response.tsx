@@ -97,7 +97,7 @@ function CardPhoto({ avatar, handle }: { avatar: string | null; handle: string }
 }
 
 /**
- * v2.13 spec "Card (OG image)": the photo, the name, "Top 4% on the Bench" (else nothing), the
+ * v2.13 spec "Card (OG image)": the photo, the name, the score line ("Shipping 62 · Top 4% of builders this week", else nothing), the
  * project's name and the streak, and "Community round $X" while the pill shows. Pure.
  */
 export function benchCard(f: BenchCardFacts, avatar: string | null, font: boolean) {

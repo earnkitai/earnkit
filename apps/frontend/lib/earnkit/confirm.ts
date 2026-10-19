@@ -31,7 +31,7 @@ export type OfferInput = {
   again?: boolean;
   /**
    * v2.12 spec 7 (R22), v2.12.1 T10: no token line here: the token is not pitched for this entry
-   * (coin-moments.ts coinPitchAllowed: with the flag on, only the build path's and the coin's own).
+   * (coin-moments.ts coinPitchAllowed: only the coin program's own entry).
    */
   belowScore?: boolean;
 };

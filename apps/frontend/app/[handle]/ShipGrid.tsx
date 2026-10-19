@@ -10,12 +10,12 @@ export const shippedWords = (n: number, of = 52): string =>
   `Code in ${n} of the last ${of} weeks`;
 
 /**
- * profile-whoop v2: a filled week in Consistency's hue, its intensity rising toward the newest week
- * (older weeks fade, as the score fades them). Pure.
+ * profile-whoop v2: a filled week in the weeks hue, its intensity rising toward the newest week
+ * (recent weeks weigh more in Shipping). Pure.
  */
 const onStyle = (i: number, n: number) => {
   const t = n > 1 ? i / (n - 1) : 1;
-  const c = PART_COLORS.Consistency;
+  const c = PART_COLORS.weeks;
   return {
     backgroundImage: `linear-gradient(180deg, ${c.to}, ${c.from})`,
     opacity: 0.4 + 0.6 * t,
@@ -24,7 +24,7 @@ const onStyle = (i: number, n: number) => {
 
 /**
  * v2.13 spec "Shipping grid": 52 squares, one per ISO week, oldest first; filled for a week that
- * shipped, in Consistency's hue (profile-whoop v2: brighter toward the newest week). 13 by 4 on a phone, 26 by 2 from md. Each square's tooltip is its week ("Week of Oct 12":
+ * shipped, in the weeks hue (profile-whoop v2: brighter toward the newest week). 13 by 4 on a phone, 26 by 2 from md. Each square's tooltip is its week ("Week of Oct 12":
  * the key goes through mondayOfWeek first, F21). Pure.
  */
 export default function ShipGrid({ grid }: { grid: ProfileData['grid'] }) {
@@ -44,7 +44,7 @@ export default function ShipGrid({ grid }: { grid: ProfileData['grid'] }) {
               data-week={g.week}
               data-on={g.on}
               title={monday ? weekLabel(monday) : undefined}
-              className={`block aspect-square rounded-[3px] ${g.on ? '' : 'bg-[var(--ek-p-chip)]'}`}
+              className={`block aspect-square rounded-[3px] ${g.on ? '' : 'bg-ek-chip'}`}
               style={g.on ? onStyle(i, grid.length) : undefined}
             />
           );

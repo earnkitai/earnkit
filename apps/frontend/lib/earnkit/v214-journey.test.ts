@@ -94,8 +94,10 @@ function rule(r: McpResult): string {
   const [bare] = bareLinks(s);
   if (bare) assert.ok(!links(s)[0]!.includes(bare), `the page is not linked twice: ${s}`);
   assert.match(s, /Ways to get funded/);
-  assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, 1, s);
-  assert.ok(s.trimEnd().endsWith('?'), s);
+  // R8: a ranked reply ends on the one statement "Ship this week to climb." (no question); every other on one question.
+  const ranked = s.trimEnd().endsWith('How to move up\nShip this week to climb.');
+  assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, ranked ? 0 : 1, s);
+  assert.ok(ranked || s.trimEnd().endsWith('?'), s);
   assert.doesNotMatch(s, /raise|fundrais/i, s);
   assert.equal(r.reply?.schedule_weekly_update, undefined, 'nobody is asked to schedule anything');
   return s;
@@ -130,7 +132,7 @@ test('12.1 acceptance 1: the install signs in with X; the first reply names the 
   first = await addEarnKit('http://127.0.0.1:41234/callback', 'Claude Code', ME);
   const s = rule(await mcpCall(first.ctx, 'find', {}));
   assert.equal(s.split('\n')[0], `Signed in as @${ME.username}.`, s);
-  assert.match(s, /You're not on the Bench yet\./);
+  assert.match(s, /You're not on the leaderboard yet\./);
   assert.ok(s.includes(`Your page: https://earnkit.com/${ME.username}`), s);
   assert.ok(s.endsWith("What's your GitHub, or a link to something you've made?"), s);
 });
@@ -164,7 +166,7 @@ test('12.4 acceptance 3: the App installed on the org repo; the next reply says 
     headers: { cookie: `${csrfCookieName(nonce)}=x` } }), { fetch: gh, ...noLimit });
   assert.equal(res.status, 200);
   const s = rule(await mcpCall(first.ctx, 'find', {}));
-  assert.match(s, /EarnKit is on the Bench: (#\d+ of \d+ builders?|top \d+(\.\d)?% of builders)\./, s);
+  assert.match(s, /EarnKit: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders) this week\./, s);
   assert.ok(s.includes(`earnkit.com/${ME.username}`), s);
 });
 
@@ -208,7 +210,7 @@ test('12.6 the fallback client: signed out, the link page, the paste code throug
   await saveInstallation(token, undefined, false, 'Cursor');
   const ctx = ctxOf((await connectInstallation(token))!);
   const out = rule(await mcpCall(ctx, 'find', {}));
-  assert.match(out, /You're not on the Bench yet\./);
+  assert.match(out, /You're not on the leaderboard yet\./);
   const link = links(out)[0]!;
   assert.match(link, /^https:\/\/earnkit\.com\/signin\/[A-Za-z0-9_-]{22}$/);
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'sign_in', project_key: null, answer: 'yes' } });

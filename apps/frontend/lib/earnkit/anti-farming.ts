@@ -142,13 +142,22 @@ export function ringWeights(edges: Array<[counter: number, counted: number]>, pe
   // The connected component of `person` in the mutual graph.
   const comp = new Set<number>([person]);
   const queue = [person];
-  while (queue.length) for (const n of mutual.get(queue.shift()!) ?? []) if (!comp.has(n)) (comp.add(n), queue.push(n));
+  while (queue.length) {
+    for (const n of mutual.get(queue.shift()!) ?? []) {
+      if (comp.has(n)) continue;
+      comp.add(n);
+      queue.push(n);
+    }
+  }
   const ring = new Map<string, number>();
   const ringOwner = new Map<string, number>();
   const clusterActors = new Set<string>();
   for (const [actor, who] of owner) {
     const id = actor.toLowerCase();
-    if (partners.has(who)) (ring.set(id, RULES.ringWeight), ringOwner.set(id, who));
+    if (partners.has(who)) {
+      ring.set(id, RULES.ringWeight);
+      ringOwner.set(id, who);
+    }
     if (who !== person && comp.has(who)) clusterActors.add(id);
   }
   return { ring, ringOwner, ...(comp.size >= RULES.clusterMin && { clusterCap: { actors: clusterActors, cap: RULES.clusterCap } }) };

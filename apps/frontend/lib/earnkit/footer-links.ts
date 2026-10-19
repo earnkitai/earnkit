@@ -37,9 +37,16 @@ export const BENCH_FOOTER_TAGLINE = 'Ship every week. Get funded.';
  */
 export const EXTERNAL_ALLOW = [DOCS, FOR_SPONSORS, JENIL_X, CONTACT_EMAIL];
 
-/** Ruling 22 (plan): the footer's four columns, in order. */
+/** Ruling 22 (plan): the footer's links, in order (R18: shown as one row; the titles group them in code only). */
 export const FOOTER_COLUMNS: FooterColumn[] = [
-  { title: 'Product', links: [{ label: 'Programs', href: '/programs' }] },
+  {
+    title: 'Product',
+    links: [
+      { label: 'Leaderboard', href: '/leaderboard' },
+      { label: 'Feed', href: '/feed' },
+      { label: 'Programs', href: '/programs' },
+    ],
+  },
   {
     title: 'Resources',
     links: [

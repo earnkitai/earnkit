@@ -117,7 +117,7 @@ const linePage = (line: string, status: number) =>
 
 /** Any method but GET and POST on /claim/wallet: 405. */
 export function walletOtherMethod(): Response {
-  return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET, POST', 'Cache-Control': 'no-store', ...WALLET_FRAME_CSP } });
+  return new Response(shell(`<p class="ek-line ek-first">${escapeHtml('This page only opens from your link.')}</p>`), { status: 405, headers: { ...PAGE_HEADERS, Allow: 'GET, POST' } });
 }
 
 /**

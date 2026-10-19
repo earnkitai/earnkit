@@ -56,6 +56,10 @@ test('decideToken: edits are uppercased and cleaned; every ticker must pass tick
   // A stored or proposed ticker that isn't valid never reaches tokens.fun.
   assert.equal(decideToken({ ...base, proposal: { name: 'Chain Kits', symbol: 'TOOLONGTICKER' } }).action, 'refuse');
   assert.equal(decideToken({ ...base, choice: { symbol: 'K-1' } }).action, 'refuse');
+  // Task 4 fix round 1: only a verified ownEarnkit launches $EARNKIT (EarnKit); otherwise it is refused.
+  const own = { ...base, proposal: { name: 'EarnKit', symbol: 'EARNKIT' } };
+  assert.deepEqual(decideToken({ ...own, ownEarnkit: true }), { action: 'launch', name: 'EarnKit', symbol: 'EARNKIT' });
+  assert.equal(decideToken(own).action, 'refuse');
   assert.equal(decideToken({ ...base, proposal: null, choice: { name: 'Kit One' } }).action, 'refuse');
   // An existing token is refused (a pending claim is answered before decideToken, pendingOutcome).
   assert.equal(decideToken({ ...base, existingTokenUrl: 'https://tokens.fun/coin/0x1' }).action, 'refuse');

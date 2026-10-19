@@ -26,12 +26,15 @@ const RUN = String(process.pid % 100000);
 const NO_MATCH = (async () => ({ checked: 1, scored: 0, fits: [] })) as never;
 const links = (s: string) => s.match(/https?:\/\/\S+/g) ?? [];
 /** D12: the rank phrase as 12.3 reads it: "#N of M builders" or a top percent. */
-const RANK = '(: (#\\d+ of \\d+ builders?|[Tt]op \\d+(\\.\\d)?% of builders))?';
+/** Scoring and clarity (R16c): the ranked stand line is the score line. */
+const RANK = ': Shipping \\d+ · (#\\d+ of \\d+ builders?|Top \\d+(\\.\\d)?% of builders) this week';
 function rule(reply: Record<string, unknown> | null) {
   const s = String(reply?.show_to_builder ?? '');
   assert.equal(links(s).length, 1, s);
-  assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, 1, s);
-  assert.ok(s.trimEnd().endsWith('?'), s);
+  // R8: a ranked reply ends on the one statement "Ship this week to climb." (no question); every other on one question.
+  const ranked = s.trimEnd().endsWith('How to move up\nShip this week to climb.');
+  assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, ranked ? 0 : 1, s);
+  assert.ok(ranked || s.trimEnd().endsWith('?'), s);
   assert.match(s, /Ways to get funded/);
   return s;
 }
@@ -48,7 +51,7 @@ async function agent(o: { x?: string } = {}) {
 test('9.8 state 1, not signed in: the sign-in link and its question', db, async () => {
   const a = await agent();
   const s = rule((await mcpCall(a.ctx, 'find', {})).reply);
-  assert.match(s, /You're not on the Bench yet\./);
+  assert.match(s, /You're not on the leaderboard yet\./);
   assert.match(s, /https:\/\/earnkit\.com\/signin\/[A-Za-z0-9_-]{22}/);
   const yes = await mcpCall(a.ctx, 'tell', { move_up: { kind: 'sign_in', project_key: null, answer: 'yes' } });
   assert.match(String(yes.reply?.agent_note), /sign_in_code/);
@@ -70,10 +73,10 @@ test('9.10 state 3, a project without the App: the install link; then state 4 on
   assert.match(s, /Want me to count it once that's done\?$/);
   await installApp({ builderId: a.id, repoKey: key, login: `bo${RUN}`, gh: fakeGitHub({ [key]: { id: 5001, owner: `bo${RUN}`, installation: 501 } }) });
   const four = rule((await mcpCall(a.ctx, 'find', {})).reply);
-  assert.match(four, new RegExp(`Kit is on the Bench${RANK}\\.`));
+  assert.match(four, new RegExp(`Kit${RANK}\\.`));
 });
 
-test('9.11 state 5, shipping weekly: the streak in the stand line', db, async () => {
+test('9.11 R16a: shipping weekly is the ranked state; the streak lives in the score (the reply carries it, the stand line does not)', db, async () => {
   const a = await agent({ x: 'cy' });
   const key = `cy${RUN}/app`;
   await mcpCall(a.ctx, 'find', { identity: { project: { name: 'App', repo: `https://github.com/${key}` } } });
@@ -82,8 +85,11 @@ test('9.11 state 5, shipping weekly: the streak in the stand line', db, async ()
   // The streak and the weeks it counts, so a rescore during the call keeps it.
   const weeks = [14, 7, 0].map((d) => isoWeekOf(new Date(Date.now() - d * 86_400_000)));
   await sql()`UPDATE builder_projects SET streak = 3, ship_weeks = ${weeks}::text[] WHERE builder_id = ${a.id} AND lower(project_key) = ${key}`;
-  const s = rule((await mcpCall(a.ctx, 'score', {})).reply);
-  assert.match(s, new RegExp(`App is on the Bench${RANK}\\. 3 weeks in a row\\.`));
+  const reply = (await mcpCall(a.ctx, 'score', {})).reply;
+  const s = rule(reply);
+  assert.match(s, new RegExp(`App${RANK}\\.\n`));
+  assert.doesNotMatch(s, /weeks in a row/);
+  assert.equal(reply?.streak, 3);
 });
 
 const noLimit = { limit: async () => {} };
@@ -117,7 +123,7 @@ test('9.12 D5: X off: a new install is answered as signed in with no page: money
 test('9.13 D14: the link score shows is minted for the calling installation; its code binds through find; that reply names the account first', db, async () => {
   const a = await agent();
   const s = rule((await mcpCall(a.ctx, 'score', {})).reply);
-  assert.match(s, /You're not on the Bench yet\./);
+  assert.match(s, /You're not on the leaderboard yet\./);
   const link = links(s)[0]!;
   assert.match(link, /^https:\/\/earnkit\.com\/signin\/[A-Za-z0-9_-]{22}$/);
   const [row] = await sql()<{ installation_id: number }[]>`SELECT installation_id FROM x_signin_links WHERE link_hash = encode(sha256(${link.split('/').pop()!}::bytea), 'hex')`;
@@ -154,7 +160,7 @@ test('9.15 fix round 1: signed out with a results question due: the sign-in ques
   const s = rule(out.reply);
   assert.equal(links(s).length, 1);
   assert.match(links(s)[0]!, /\/signin\//);
-  assert.ok(s.endsWith("Want me to put your work on the Bench once you're in?"), s);
+  assert.ok(s.endsWith("Want me to put your work on the leaderboard once you're in?"), s);
   assert.equal(out.reply?.ask_outcome, undefined);
   const [row] = await sql()<{ at: Date | null }[]>`SELECT outcome_asked_at AS at FROM projects WHERE id = ${pid}`;
   assert.equal(row.at, null, 'not used up while signed out');
@@ -178,7 +184,7 @@ test('9.16 fix round 1 (minor 2): a sign-in link that fails to mint is still sig
   try {
     const r = await mcpCall(a.ctx, 'find', {});
     const s = String(r.reply?.show_to_builder);
-    assert.match(s, /You're not on the Bench yet\./);
+    assert.match(s, /You're not on the leaderboard yet\./);
     assert.equal(links(s).length, 0, s);
     assert.match(s, /Ways to get funded/);
     assert.ok(s.endsWith("I couldn't make your sign-in link just now. Want me to try again?"), s);

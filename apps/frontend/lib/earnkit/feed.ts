@@ -12,16 +12,17 @@ export const FEED_WEEK_MAX = 20;
 export const FEED_OLDER_WEEKS = 3;
 export const CAROUSEL_MAX = 12;
 const DAY = 86_400_000;
-const log2 = (x: number) => Math.log(x) / Math.LN2;
 const ymd = (t: number) => new Date(t).toISOString().slice(0, 10);
 
-/** The progress points of one week's facts (a start is not progress). Pure. */
+/**
+ * The progress points of one week's facts (a start is not progress). R16b: shipping facts only (went live,
+ * a win, commits, the streak); an old row's people and money count nothing. Ties go to the builder's
+ * Shipping score (feedRows). Pure.
+ */
 export function pointsOf(f: WeekFacts): number {
   let p = 0;
   if (f.went_live) p += 40;
   if ((f.won?.length ?? 0) > 0) p += 40;
-  if (f.users_up && f.users_up.n > 0) p += Math.min(30, 6 * log2(1 + f.users_up.n));
-  if (f.earned && f.earned.usd > 0) p += Math.min(20, 5 * log2(1 + f.earned.usd / 10));
   if (f.shipped_code && f.shipped_code.n > 0) p += 10;
   if (f.streak && f.streak.w > 0) p += Math.min(10, f.streak.w);
   return Math.round(p);

@@ -3,7 +3,7 @@ import { json, readParams } from './http';
 import { installationExists, saveInstallation, setInstallationToken } from './installations';
 import { OAuthError, checkAuthorize, clientLimitKey, exchangeCode, hostedRedirectHost, issueCode, publicOrigin, registerClient } from './oauth';
 import { LIMITS, REGISTER_HOST_WARN, RateLimitError, clientIp, enforce } from './rate-limit';
-import { attachToX, startInstallSignIn } from './x-install';
+import { attachToX, signinPage, startInstallSignIn } from './x-install';
 
 // The OAuth register, token and authorize endpoints; app/oauth/{register,token,authorize}/route.ts re-export them.
 const TOO_MANY = 'Too many new EarnKit connections from this address.';
@@ -104,9 +104,9 @@ export async function authorizeGet(request: Request, deps: AuthorizeDeps = {}) {
     return await startInstallSignIn(checked);
   } catch (err) {
     if (err instanceof RateLimitError)
-      return new Response(`EarnKit sign-in: ${err.message}`, { status: 429, headers: { 'Retry-After': String(err.retryAfter) } });
+      return signinPage(err.message, 429, { 'Retry-After': String(err.retryAfter) });
     // Unknown client or redirect URI: show the error here, never redirect to an unverified URI.
-    if (err instanceof OAuthError) return new Response(`EarnKit sign-in failed: ${err.message}`, { status: 400 });
+    if (err instanceof OAuthError) return signinPage(`Sign-in failed. ${err.message}`, 400);
     throw err;
   }
 }

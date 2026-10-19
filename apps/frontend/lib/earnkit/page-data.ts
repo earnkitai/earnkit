@@ -3,7 +3,7 @@ import { cache } from 'react';
 import { sql } from './db';
 import { standingOf } from './person-score';
 import { COIN_PROGRAM } from './policy-constants';
-import { rankWords } from './rank';
+import { rankLine } from './rank';
 import { pagePath } from './reserved-routes';
 
 /**
@@ -23,7 +23,6 @@ export function money(n: number): string {
 export const NOTHING_YET = 'Projects show here once they are live.';
 export const topLine = (name: string, n: number, noun: string) => `${name} has shipped ${n} ${noun} with AI.`;
 export const buildingLine = (name: string) => `${name} is building with AI.`;
-export const peopleLine = (k: number) => (k === 0 ? null : `${k} of them ${k === 1 ? 'has people using it' : 'have people using them'}.`);
 export const peopleUse = (n: number) => `${n.toLocaleString('en-US')} ${n === 1 ? 'person uses' : 'people use'}`;
 
 /** v2.13: the X intent with the post's whole text (benchShareText) and the page. Pure. */
@@ -43,7 +42,7 @@ export function avatarUrl(raw: string | null | undefined): string | null {
   return u.toString();
 }
 
-export type PageHead = { handle: string; name: string; avatar: string | null; topLine: string; rank: string | null; peopleLine: string | null; score: number | null };
+export type PageHead = { handle: string; name: string; avatar: string | null; topLine: string; rank: string | null; score: number | null };
 
 export const PRIVATE_NAME = 'Private project';
 const WALLET = /\b0x[0-9a-f]{40}\b/i;
@@ -57,7 +56,7 @@ export function displayName(xName: string | null, handle: string): string {
   return n && !WALLET.test(n) ? n : `@${handle}`;
 }
 
-export type PersonFacts = { name: string; handle: string; avatar: string | null; shipped: number; noun: string; rank: string | null; people: number; score: number; moment: 'shipped' | 'people' | 'rank' | null };
+export type PersonFacts = { name: string; handle: string; avatar: string | null; shipped: number; noun: string; rank: string | null; people: number; score: number; moment: 'shipped' | 'rank' | null };
 
 /** What the header and the card need about one claimed person. Null when there is no claimed profile. */
 export async function personFacts(builderId: number, o: { only?: number[] } = {}): Promise<PersonFacts | null> {
@@ -70,8 +69,8 @@ export async function personFacts(builderId: number, o: { only?: number[] } = {}
   const n = kinds.length;
   const apps = n > 0 && kinds.every((k) => k.kind === 'app');
   const noun = apps ? (n === 1 ? 'app' : 'apps') : n === 1 ? 'project' : 'projects';
-  const rank = rankWords(s)?.short ?? null;
-  const moment = p.moment === 'people' || p.moment === 'rank' ? p.moment : 'shipped';
+  const rank = rankLine(s);
+  const moment = p.moment === 'rank' ? p.moment : 'shipped';
   return { name: displayName(p.x_name, p.x_handle), handle: p.x_handle, avatar: avatarUrl(p.x_avatar_url), shipped: n, noun, rank, people: s.people, score: s.score, moment };
 }
 
@@ -85,8 +84,7 @@ export const pageHead = cache(async (builderId: number, o: { only?: number[] } =
     avatar: f.avatar,
     topLine: f.shipped > 0 ? topLine(f.name, f.shipped, f.noun) : buildingLine(f.name),
     rank: f.rank,
-    // The ring and the people line sit only beside a rank that reads well (never "0/100").
-    peopleLine: f.rank ? peopleLine(f.people) : null,
+    // The ring sits only beside a rank (never a bare "0/100").
     score: f.rank ? f.score : null,
   };
 });

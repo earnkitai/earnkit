@@ -1221,6 +1221,9 @@ ALTER TABLE programs ADD COLUMN IF NOT EXISTS agent_completable boolean NOT NULL
 -- written at scoring time so the public profile shows the scorer's own numbers without re-reading
 -- the whole system. Additive; NULL on rows scored before it.
 ALTER TABLE builder_scores ADD COLUMN IF NOT EXISTS projects jsonb;
+-- Scoring and clarity (fix round 1): whether the day's score was ranked, so the review hold never measures a
+-- jump from a day the builder was unranked (no confirmed project with a repo reading). Additive; NULL on older rows.
+ALTER TABLE builder_scores ADD COLUMN IF NOT EXISTS ranked boolean;
 
 -- v2.12 spec 9: sponsor campaigns archived (archive/sponsor-campaigns/). Kept, never dropped; no writes
 -- while EARNKIT_SPONSOR_CAMPAIGNS is off.
@@ -1446,6 +1449,8 @@ ALTER TABLE builder_projects ADD COLUMN IF NOT EXISTS chains text[] NOT NULL DEF
 ALTER TABLE builder_projects ADD COLUMN IF NOT EXISTS streak integer NOT NULL DEFAULT 0;
 ALTER TABLE builder_projects ADD COLUMN IF NOT EXISTS weeks_shipping integer NOT NULL DEFAULT 0;
 ALTER TABLE builder_projects ADD COLUMN IF NOT EXISTS ship_weeks text[] NOT NULL DEFAULT '{}';
+-- Scoring and clarity R18 fix 1: the profile grid's weeks, commit weeks only (ship_weeks also counts deploys and sites).
+ALTER TABLE builder_projects ADD COLUMN IF NOT EXISTS commit_weeks text[] NOT NULL DEFAULT '{}';
 -- Raising (R8): set on the yes, cleared on "stop raising"; the coin's launch tx and chain (tokens.fun's txHash, chainId).
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS raising_at timestamptz;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS coin_tx text;
@@ -1646,3 +1651,25 @@ FROM builder_profiles p
 WHERE p.builder_id = COALESCE(i.builder_id, i.id) AND p.x_user_id IS NOT NULL AND p.x_handle IS NOT NULL
   AND i.x_user_id IS NULL AND NOT i.shared_client;
 -- v2.14 bind:end
+-- Scoring and clarity (Task 2, R3): Originality, a separate 0 to 100 value per main project (originality.ts). The
+-- project's text is never stored: only its hash, its vector (384 numbers, all-MiniLM-L6-v2), the score and the
+-- nearest list (other projects by key only, ideas by their public text). Additive; a rerun is a no-op.
+CREATE TABLE IF NOT EXISTS project_embeddings (
+  project_key text PRIMARY KEY,
+  builder_id  integer NOT NULL,
+  text_hash   text,
+  desc_hash   text,
+  embedding   real[],
+  originality smallint CHECK (originality BETWEEN 0 AND 100),
+  nearest     jsonb NOT NULL DEFAULT '[]'::jsonb,
+  computed_at timestamptz,
+  checked_at  timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS project_embeddings_builder ON project_embeddings (builder_id);
+-- The known public ideas' vectors (programs/ideas/known-ideas.json), embedded once, keyed by the idea's text hash.
+CREATE TABLE IF NOT EXISTS known_idea_embeddings (
+  text_hash   text PRIMARY KEY,
+  idea        text NOT NULL,
+  embedding   real[] NOT NULL,
+  computed_at timestamptz NOT NULL DEFAULT now()
+);

@@ -14,7 +14,7 @@ import { sql } from './db';
  */
 (globalThis as { React?: typeof React }).React = React;
 
-test('10.5 (profile-whoop v2) each score keeps one hue family; every text color is 4.5:1 or more on the page and the card surface; reduced motion is honored', () => {
+test('10.5 (profile-whoop v2) each score keeps one hue family (the profile\'s accent palette, kept on purpose in R18); every text color is 4.5:1 or more on the page and the card surface; reduced motion is honored', () => {
   const lum = (hex: string) => {
     const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
     return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
@@ -42,11 +42,15 @@ test('10.5 (profile-whoop v2) each score keeps one hue family; every text color 
   assert.match(ring, /role="img"/);
   const css = readFileSync(join(import.meta.dirname, '../../app/globals.css'), 'utf8');
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\s*\.ek-arc \{\s*animation: none;/);
-  // The site header gives way to the profile's slim top bar only on a page that carries data-ek-premium.
-  assert.match(css, /body:has\(\[data-ek-premium\]\) \[data-ek-header\] \{\s*display: none;/);
+  // R18: one design system. Every page has the deep navy page (body), one header (the layout's), and
+  // Tailwind reads the page tokens (ek-page, ek-surface, ek-text...) from the same --ek-p-* variables.
+  assert.match(css, /body \{[^}]*background-color: var\(--ek-p-page\)/);
+  assert.doesNotMatch(css, /data-ek-premium|\.ek-premium/);
+  const tw = readFileSync(join(import.meta.dirname, '../../tailwind.config.ts'), 'utf8');
+  for (const [k, v] of [['ek-page', 'page'], ['ek-surface', 'surface'], ['ek-text', 'text'], ['ek-body', 'body'], ['ek-muted', 'muted'], ['ek-line', 'border']])
+    assert.match(tw, new RegExp(`'${k}': 'var\\(--ek-p-${v}\\)'`), k);
   const view = readFileSync(join(import.meta.dirname, '../../app/[handle]/handle-view.tsx'), 'utf8');
-  assert.match(view, /data-ek-premium/);
-  assert.match(view, /<SlimTopBar \/>/);
+  assert.doesNotMatch(view, /SlimTopBar|data-ek-premium/);
 });
 
 test('10.8 (v2.12.1 T6) the pages read live: /<handle> and /b/<name> are dynamic; hide and show expire the cache', () => {

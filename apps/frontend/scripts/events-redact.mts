@@ -139,9 +139,11 @@ const NAMED_COLUMNS: [string, string][] = [
   ['builder_profiles', 'main_project_key'],
   ['project_updates', 'project_key'],
   ['project_updates', 'text'],
+  // Scoring and clarity R3: Originality's rows, keyed by the main project (its nearest lists name other projects by key).
+  ['project_embeddings', 'project_key'],
 ];
 /** v2.12.1: a person's page data, keyed by builder_id (the profile's group root). Cleared with --apply. */
-const BUILDER_TABLES = ['claim_codes', 'person_wallets', 'builder_projects', 'x_oauth_states', 'coin_moments', 'project_updates'] as const;
+const BUILDER_TABLES = ['claim_codes', 'person_wallets', 'builder_projects', 'x_oauth_states', 'coin_moments', 'project_updates', 'project_embeddings'] as const;
 const NAMED_ARRAYS: [string, string][] = [['installations', 'repos']];
 
 const { values } = (() => {
@@ -249,6 +251,10 @@ try {
           counts.push(`${t}: ${d.length}`);
         }
         page = counts;
+        // Other projects' Originality nearest lists that name the login's repos lose them (the next change recomputes).
+        await tx`
+          UPDATE project_embeddings SET nearest = '[]'::jsonb
+          WHERE EXISTS (SELECT 1 FROM jsonb_array_elements(nearest) x WHERE x->>'kind' = 'project' AND x->>'key' ~ ${named!})`;
       }
       // v2.12.1: stored ring weights (builder_profiles.ring) naming the wallet are cleared; the next cron recomputes them.
       if (wallet) await tx`UPDATE builder_profiles SET ring = '{}'::jsonb WHERE position(${`"wallet:${wallet}"`} in ring::text) > 0`;

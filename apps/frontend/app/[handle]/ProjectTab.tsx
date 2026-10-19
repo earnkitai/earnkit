@@ -1,14 +1,13 @@
-import type { ReactNode } from 'react';
 import ChainLogo from '../components/ui/ChainLogo';
 import type { ProjectTabData } from '../../lib/earnkit/bench-data';
-import { NOTHING_YET, peopleUse } from '../../lib/earnkit/page-data';
+import { NOTHING_YET } from '../../lib/earnkit/page-data';
 
 export const FUNDS_TITLE = 'Ways to get funded';
 export const LIVE_LINK = 'Live site';
 export const CODE_LINK = 'Code';
 
 const LINK =
-  'group inline-flex h-10 items-center gap-1.5 rounded-full border border-ek-blue-soft/30 px-4 font-funnel-sans text-sm font-medium text-ek-blue-light transition-colors hover:border-ek-blue-soft hover:text-ek-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ek-blue-soft';
+  'group inline-flex h-10 items-center gap-1.5 rounded-full border border-ek-line-strong px-4 font-funnel-sans text-sm font-medium text-ek-body transition-colors hover:bg-ek-chip hover:text-ek-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ek-blue-soft';
 
 function Arrow() {
   return (
@@ -30,28 +29,9 @@ function Arrow() {
   );
 }
 
-/** A number that matters, in a soft tile. */
-function Stat({
-  children,
-  accent = false,
-}: {
-  children: ReactNode;
-  accent?: boolean;
-}) {
-  return (
-    <li className="min-w-0 rounded-[24px] bg-ek-navy px-5 py-4">
-      <p
-        className={`break-words font-funnel-display text-xl font-medium leading-snug md:text-2xl ${accent ? 'text-ek-score-orange' : 'text-ek-white'}`}
-      >
-        {children}
-      </p>
-    </li>
-  );
-}
-
 /**
  * v2.13 spec "Project tab": the name, what it is, the live link and the code, its chain logos,
- * people using it and money, the coin with its tokens.fun link, programs entered and won, then
+ * the coin with its tokens.fun link, programs entered and won, then
  * "Ways to get funded". v2.13.1 O3: until the project is confirmed, its name and what it is, plainly.
  * Pure.
  */
@@ -62,7 +42,7 @@ export default function ProjectTab({
 }) {
   if (!project)
     return (
-      <p className="font-funnel-sans text-base font-light text-ek-blue-light">
+      <p className="font-funnel-sans text-base font-light text-ek-body">
         {NOTHING_YET}
       </p>
     );
@@ -72,21 +52,20 @@ export default function ProjectTab({
   if (!p.confirmed)
     return (
       <div>
-        <h2 className="min-w-0 break-words font-funnel-display text-2xl font-medium leading-tight text-ek-white md:text-[2rem]">
+        <h2 className="min-w-0 break-words font-funnel-display text-2xl font-medium leading-tight text-ek-text md:text-[2rem]">
           {p.name}
         </h2>
         {p.what ? (
-          <p className="mt-2 max-w-2xl break-words font-funnel-sans text-base font-light leading-relaxed text-ek-blue-light md:text-lg">
+          <p className="mt-2 max-w-2xl break-words font-funnel-sans text-base font-light leading-relaxed text-ek-body md:text-lg">
             {p.what}
           </p>
         ) : null}
       </div>
     );
-  const stats = p.people !== null || p.money !== null || p.coin !== null;
   return (
     <div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <h2 className="min-w-0 break-words font-funnel-display text-2xl font-medium leading-tight text-ek-white md:text-[2rem]">
+        <h2 className="min-w-0 break-words font-funnel-display text-2xl font-medium leading-tight text-ek-text md:text-[2rem]">
           {p.name}
         </h2>
         {p.chains.length > 0 ? (
@@ -98,7 +77,7 @@ export default function ProjectTab({
         ) : null}
       </div>
       {p.what ? (
-        <p className="mt-2 max-w-2xl break-words font-funnel-sans text-base font-light leading-relaxed text-ek-blue-light md:text-lg">
+        <p className="mt-2 max-w-2xl break-words font-funnel-sans text-base font-light leading-relaxed text-ek-body md:text-lg">
           {p.what}
         </p>
       ) : null}
@@ -129,23 +108,10 @@ export default function ProjectTab({
         </div>
       ) : null}
 
-      {stats ? (
-        <ul className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {p.people !== null ? (
-            <Stat>{`${peopleUse(p.people)} it`}</Stat>
-          ) : null}
-          {p.money !== null ? <Stat>{`${p.money} earned`}</Stat> : null}
-          {p.coin ? (
-            <Stat accent>
-              <a
-                href={p.coin.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline-offset-4 hover:underline"
-              >{`$${p.coin.symbol} on tokens.fun`}</a>
-            </Stat>
-          ) : null}
-        </ul>
+      {p.coin ? (
+        <p className="mt-6 font-funnel-sans text-base font-medium text-ek-score-orange">
+          <a href={p.coin.url} target="_blank" rel="noopener noreferrer" className="underline-offset-4 hover:underline">{`$${p.coin.symbol} on tokens.fun`}</a>
+        </p>
       ) : null}
 
       {p.programs.length > 0 ? (
@@ -153,7 +119,7 @@ export default function ProjectTab({
           {p.programs.map((g) => (
             <li
               key={g.title}
-              className={`break-words ${g.won ? 'font-medium text-ek-score-orange' : 'text-ek-blue-light'}`}
+              className={`break-words ${g.won ? 'font-medium text-ek-score-orange' : 'text-ek-body'}`}
             >
               {`${g.won ? 'Won' : 'Entered'} ${g.title}`}
             </li>
@@ -162,15 +128,15 @@ export default function ProjectTab({
       ) : null}
 
       {p.funds.length > 0 ? (
-        <div className="mt-10">
-          <h3 className="font-funnel-display text-xl font-medium text-ek-white md:text-2xl">
+        <div className="mt-8">
+          <h3 className="font-funnel-display text-xl font-medium text-ek-text md:text-2xl">
             {FUNDS_TITLE}
           </h3>
-          <ul className="mt-4 space-y-3">
+          <ul className="mt-3">
             {p.funds.map((f) => (
               <li
                 key={f}
-                className="rounded-[24px] bg-ek-navy px-5 py-4 font-funnel-sans text-base text-ek-blue-light"
+                className="border-t border-ek-line py-3 font-funnel-sans text-base text-ek-body first:border-t-0"
               >
                 {f}
               </li>

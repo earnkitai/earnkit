@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { COLUMN, H1, H2, SURFACE } from '../../components/common/Panel';
 import { notFound } from 'next/navigation';
 import { getCampaignBoard } from '@/lib/earnkit/leaderboard';
 import { entryStatus, payoutBy, prizeText, prizeUsdEach, usd } from '@/lib/earnkit/campaigns';
@@ -41,7 +42,7 @@ const Ext = ({ href, label }: { href: string; label: string }) =>
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="ml-2 text-xs text-ek-blue-soft underline underline-offset-4 hover:text-ek-white"
+      className="ml-2 text-xs text-ek-muted underline underline-offset-4 hover:text-ek-text"
     >
       {label}
     </a>
@@ -64,25 +65,23 @@ export default async function CampaignPage({
   const disclosure = c.kind === 'sponsor' ? sponsorDisclosureParts(c.sponsor.name, identity, c.criteria) : null;
 
   return (
-    <div className="w-full pt-4">
-      <section className="rounded-[40px] bg-ek-navy-deep px-6 py-12 md:rounded-[56px] md:px-16 md:py-16">
-        <p className="font-funnel-sans text-xs font-medium uppercase tracking-[0.3em] text-ek-blue-soft">
+    <div className={`${COLUMN} pt-8 md:pt-12`}>
+      <section className={`${SURFACE} px-5 py-10 md:px-10 md:py-12`}>
+        <h1 className={H1}>{program.title}</h1>
+        <p className="mt-2 font-funnel-sans text-sm text-ek-muted">
           {campaignEyebrow(c.kind === 'sponsor', sponsorLabel(identity))}
         </p>
-        <h1 className="mt-4 font-funnel-display text-3xl font-medium text-ek-white md:text-5xl">
-          {program.title}
-        </h1>
-        <p className="mt-4 max-w-2xl font-funnel-sans text-base font-light text-ek-blue-light md:text-lg">
+        <p className="mt-4 max-w-2xl font-funnel-sans text-base font-light text-ek-body md:text-lg">
           {c.kind === 'sponsor'
             ? (c.what_to_build ?? program.description)
             : program.description}
         </p>
-        <p className="mt-6 font-funnel-sans text-base text-ek-white">
+        <p className="mt-6 font-funnel-sans text-base text-ek-text">
           {prizeText(c)} ·{' '}
           {closesText(ended, formatDeadline(program.ends_at))}
         </p>
         {c.kind === 'sponsor' ? (
-          <p className="mt-2 font-funnel-sans text-sm font-light text-ek-blue-soft">
+          <p className="mt-2 font-funnel-sans text-sm font-light text-ek-muted">
             {disclosure!.prefix}
             <a
               href={escrowLink(c.prize.chain_id, c.escrow)}
@@ -96,16 +95,16 @@ export default async function CampaignPage({
           </p>
         ) : null}
         {c.kind === 'sponsor' && sponsor ? (
-          <p className="mt-2 font-funnel-sans text-sm font-light text-ek-blue-soft">
+          <p className="mt-2 font-funnel-sans text-sm font-light text-ek-muted">
             {trackRecordText(sponsor.trackRecord)}
           </p>
         ) : null}
         {c.kind === 'sponsor' ? null : (
           <>
-            <p className="mt-2 font-funnel-sans text-sm font-light text-ek-blue-soft">
+            <p className="mt-2 font-funnel-sans text-sm font-light text-ek-muted">
               {earnkitCampaignBlurb(usd(prizeUsdEach(c)), c.winners, formatDeadline(payoutBy(program.ends_at)), c.min_score)}
             </p>
-            <p className="mt-2 break-all font-funnel-sans text-sm font-light text-ek-blue-soft">
+            <p className="mt-2 break-all font-funnel-sans text-sm font-light text-ek-muted">
               {funds ? (
                 <>
                   {PRIZE_WALLET_PREFIX}
@@ -128,18 +127,18 @@ export default async function CampaignPage({
         )}
       </section>
 
-      <section className="mt-4 rounded-[40px] bg-ek-navy-deep px-6 py-10 md:rounded-[56px] md:px-16 md:py-14">
-        <h2 className="font-funnel-display text-2xl font-medium text-ek-white">
+      <section className={`${SURFACE} mt-4 px-5 py-10 md:px-10 md:py-12`}>
+        <h2 className={H2}>
           {ranked ? LEADERBOARD_HEADING : ENTRIES_HEADING}
         </h2>
         {rows.length === 0 ? (
-          <p className="mt-6 font-funnel-sans text-base font-light text-ek-blue-soft">
+          <p className="mt-6 font-funnel-sans text-base font-light text-ek-muted">
             {NO_ENTRIES_TEXT}
           </p>
         ) : (
           <table className="mt-6 w-full table-fixed font-funnel-sans text-sm md:text-base">
             <thead>
-              <tr className="text-left text-ek-blue-soft">
+              <tr className="text-left text-ek-muted">
                 {ranked ? (
                   <th scope="col" className="w-12 pb-3 font-medium">
                     #
@@ -165,7 +164,7 @@ export default async function CampaignPage({
               {rows.map((r) => (
                 <tr
                   key={r.id}
-                  className="border-t border-ek-navy text-ek-blue-light"
+                  className="border-t border-ek-line text-ek-body"
                 >
                   {ranked ? (
                     <td className="py-3 tabular-nums">{r.rank ?? '–'}</td>
@@ -173,7 +172,7 @@ export default async function CampaignPage({
                   <td className="truncate py-3 pr-4">
                     <Link
                       href={`/p/${r.id}`}
-                      className="text-ek-white underline-offset-4 hover:underline"
+                      className="text-ek-text underline-offset-4 hover:underline"
                     >
                       {r.name}
                     </Link>
@@ -200,8 +199,8 @@ export default async function CampaignPage({
           </table>
         )}
         {offPlan?.some((o) => o.entry_id === null) ? (
-          <div className="mt-6 rounded-2xl border border-ek-blue-strong p-4 font-funnel-sans text-sm text-ek-blue-light">
-            <p className="text-ek-white">
+          <div className="mt-6 rounded-2xl border border-ek-line-strong p-4 font-funnel-sans text-sm text-ek-body">
+            <p className="text-ek-text">
               {OFF_PLAN_HEADING}
             </p>
             <ul className="mt-2 space-y-1">
@@ -218,23 +217,23 @@ export default async function CampaignPage({
       </section>
 
       {review && run ? (
-        <section className="mt-4 rounded-[40px] bg-ek-navy-deep px-6 py-10 md:rounded-[56px] md:px-16 md:py-14">
-          <h2 className="font-funnel-display text-2xl font-medium text-ek-white">
+        <section className={`${SURFACE} mt-4 px-5 py-10 md:px-10 md:py-12`}>
+          <h2 className={H2}>
             {run.state === 'review' ? REVIEW_HEADING_REVIEW : run.state === 'paid' ? REVIEW_HEADING_PAID : REVIEW_HEADING_PAYING}
           </h2>
           {run.state === 'review' && run.review_until ? (
-            <p className="mt-2 font-funnel-sans text-sm font-light text-ek-blue-soft">
+            <p className="mt-2 font-funnel-sans text-sm font-light text-ek-muted">
               {reviewUntilText(formatDeadline(run.review_until))}
             </p>
           ) : null}
           {review.picks.length === 0 ? (
-            <p className="mt-6 font-funnel-sans text-base font-light text-ek-blue-soft">
+            <p className="mt-6 font-funnel-sans text-base font-light text-ek-muted">
               {NO_MINIMUM_TEXT}
             </p>
           ) : (
             <table className="mt-6 w-full table-fixed font-funnel-sans text-sm">
               <thead>
-                <tr className="text-left text-ek-blue-soft">
+                <tr className="text-left text-ek-muted">
                   <th scope="col" className="w-12 pb-3 font-medium">#</th>
                   <th scope="col" className="pb-3 font-medium">Project</th>
                   <th scope="col" className="w-28 pb-3 text-right font-medium">Users</th>
@@ -244,10 +243,10 @@ export default async function CampaignPage({
               </thead>
               <tbody>
                 {review.picks.map((r) => (
-                  <tr key={r.id} className="border-t border-ek-navy text-ek-blue-light">
+                  <tr key={r.id} className="border-t border-ek-line text-ek-body">
                     <td className="py-3 tabular-nums">{r.rank}</td>
                     <td className="truncate py-3 pr-4">
-                      <Link href={`/p/${r.id}`} className="text-ek-white underline-offset-4 hover:underline">
+                      <Link href={`/p/${r.id}`} className="text-ek-text underline-offset-4 hover:underline">
                         {r.name}
                       </Link>
                       {r.prize_tx ? (
@@ -255,7 +254,7 @@ export default async function CampaignPage({
                           href={`https://basescan.org/tx/${r.prize_tx}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="ml-2 text-xs text-ek-blue-soft underline"
+                          className="ml-2 text-xs text-ek-muted underline"
                         >
                           paid
                         </a>
@@ -263,7 +262,7 @@ export default async function CampaignPage({
                     </td>
                     <td className="py-3 text-right tabular-nums">
                       {r.counted} ({r.smart} smart)
-                      {r.score_partial ? <span className="block text-xs text-ek-blue-soft">capped read</span> : null}
+                      {r.score_partial ? <span className="block text-xs text-ek-muted">capped read</span> : null}
                     </td>
                     <td className="hidden py-3 text-right tabular-nums sm:table-cell">{r.shared}</td>
                     <td className="hidden py-3 text-right tabular-nums sm:table-cell">
@@ -274,12 +273,12 @@ export default async function CampaignPage({
               </tbody>
             </table>
           )}
-          <p className="mt-4 font-funnel-sans text-xs font-light text-ek-blue-soft">
+          <p className="mt-4 font-funnel-sans text-xs font-light text-ek-muted">
             {REVIEW_FOOTNOTE}
             {review.picks.some((r) => r.score_partial) ? CAPPED_READ_SUFFIX : ''}
           </p>
           {review.ranked.some((r) => r.vetoed_at) ? (
-            <ul className="mt-4 space-y-1 font-funnel-sans text-sm text-ek-blue-soft">
+            <ul className="mt-4 space-y-1 font-funnel-sans text-sm text-ek-muted">
               {review.ranked
                 .filter((r) => r.vetoed_at)
                 .map((r) => (

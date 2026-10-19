@@ -1,6 +1,7 @@
 /**
  * v2.14: a fake GitHub for the App and the readings: installations, tokens (ghs_fake_<installation>), repos
- * (a private one answers 404 without an installation token), commits and pulls (T8). Records every call
+ * (a private one answers 404 without an installation token), commits and pulls (T8), and the repo reading's
+ * GraphQL query (commit dates as the default branch's history). Records every call
  * with its Authorization header, so a test can see which token read what.
  */
 export type FakeCommit = { sha: string; message: string; date: string; login?: string; type?: 'User' | 'Bot'; parents?: number };
@@ -8,6 +9,13 @@ export type FakePull = { number: number; title: string; merged_at: string | null
 export type FakeRepo = {
   id: number; owner: string; ownerType?: 'User' | 'Organization'; private?: boolean; fork?: boolean; template?: boolean;
   installation?: number | null; admins?: string[]; commits?: FakeCommit[]; pulls?: FakePull[];
+  /**
+   * Fix rounds 2 and 4: the landings GitHub's /activity lists (default: one push at each commit's date), a time
+   * (a push) or a time with its activity type; null answers 500.
+   */
+  pushes?: (string | { at: string; type: string })[] | null; created?: string;
+  /** Scoring and clarity R3: the README's markdown (GET /repos/{key}/readme, base64 in JSON); none answers 404, null 500. */
+  readme?: string | null;
 };
 /** `routed`: false when no fake route answered (a 404 'fake: not routed'): a test can assert every call was one it fakes (T12 D3). */
 export type FakeGitHub = typeof fetch & { calls: { method: string; path: string; auth: string | null; routed: boolean }[]; repos: Record<string, FakeRepo> };
@@ -24,6 +32,22 @@ export function fakeGitHub(repos: Record<string, FakeRepo>): FakeGitHub {
     const p = url.pathname;
     const inst = Number(/ghs_fake_(\d+)/.exec(auth ?? '')?.[1] ?? NaN);
     let m: RegExpExecArray | null;
+    // Scoring and clarity: the repo reading's GraphQL query (person-github.ts reposQuery), one repository per
+    // alias r<k> named by variables o<k>/n<k>; a private repo answers null without its installation token.
+    if (p === '/graphql' && method === 'POST') {
+      const vars = (JSON.parse(String(init?.body ?? '{}')) as { variables?: Record<string, string> }).variables ?? {};
+      const data: Record<string, unknown> = {};
+      for (let k = 0; `o${k}` in vars; k++) {
+        const key = `${vars[`o${k}`]}/${vars[`n${k}`]}`.toLowerCase();
+        const r = repos[key];
+        data[`r${k}`] = !r || (r.private && r.installation !== inst) ? null : {
+          nameWithOwner: key, owner: { __typename: r.ownerType ?? 'User' }, isPrivate: Boolean(r.private), isFork: Boolean(r.fork), isTemplate: Boolean(r.template),
+          createdAt: r.created ?? '2025-01-01T00:00:00Z', pushedAt: r.commits?.at(-1)?.date ?? null, stargazerCount: 0, forkCount: 0, stargazers: { edges: [] }, forks: { nodes: [] },
+          defaultBranchRef: { target: { history: { nodes: (r.commits ?? []).map((c) => ({ committedDate: c.date })) } } },
+        };
+      }
+      return json(200, { data });
+    }
     if ((m = /^\/repos\/([^/]+\/[^/]+)\/installation$/.exec(p))) {
       const r = repos[m[1].toLowerCase()];
       return r?.installation ? json(200, { id: r.installation }) : json(404, {});
@@ -48,6 +72,30 @@ export function fakeGitHub(repos: Record<string, FakeRepo>): FakeGitHub {
         sha: c.sha, commit: { message: c.message, author: { name: c.login ?? 'someone', date: c.date } },
         author: c.login ? { login: c.login, type: c.type ?? 'User' } : null, parents: Array.from({ length: c.parents ?? 1 }, (_, i) => ({ sha: `p${i}` })),
       })));
+    }
+    // An organization repo's reading asks for its contributors (the owner's admins stand in for them).
+    if ((m = /^\/repos\/([^/]+\/[^/]+)\/contributors$/.exec(p))) {
+      const r = repos[m[1].toLowerCase()];
+      if (!r || (r.private && r.installation !== inst)) return json(404, {});
+      return json(200, (r.admins ?? [r.owner]).map((login) => ({ login })));
+    }
+    if ((m = /^\/repos\/([^/]+\/[^/]+)\/activity$/.exec(p))) {
+      const r = repos[m[1].toLowerCase()];
+      if (!r || (r.private && r.installation !== inst)) return json(404, {});
+      if (r.pushes === null) return json(500, {});
+      // Newest first; direction=asc oldest first. Cursor paging (Link header) is not faked: EarnKit reads one page.
+      const all = (r.pushes ?? (r.commits ?? []).map((c) => c.date))
+        .map((x) => (typeof x === 'string' ? { at: x, type: 'push' } : x))
+        .sort((a, b) => b.at.localeCompare(a.at));
+      if (url.searchParams.get('direction') === 'asc') all.reverse();
+      const per = Number(url.searchParams.get('per_page') ?? 30);
+      return json(200, all.slice(0, per).map((x, i) => ({ id: i, timestamp: x.at, activity_type: x.type, ref: 'refs/heads/main' })));
+    }
+    if ((m = /^\/repos\/([^/]+\/[^/]+)\/readme$/.exec(p))) {
+      const r = repos[m[1].toLowerCase()];
+      if (!r || (r.private && r.installation !== inst) || r.readme === undefined) return json(404, {});
+      if (r.readme === null) return json(500, {});
+      return json(200, { name: 'README.md', encoding: 'base64', content: Buffer.from(r.readme, 'utf8').toString('base64') });
     }
     if ((m = /^\/repos\/([^/]+\/[^/]+)\/pulls$/.exec(p))) {
       const r = repos[m[1].toLowerCase()];

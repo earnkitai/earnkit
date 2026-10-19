@@ -26,7 +26,7 @@ export default async function ScoresReviewPage({ searchParams }: { searchParams:
     if (!(err instanceof RateLimitError)) throw err;
     return (
       <div className="w-full pt-4">
-        <p className="rounded-[40px] bg-ek-navy-deep px-6 py-12 font-funnel-sans text-ek-blue-light md:px-16">{VETO_ERRORS['rate-limited']}</p>
+        <p className="rounded-[24px] border border-ek-line bg-ek-surface px-6 py-12 font-funnel-sans text-ek-body md:px-16">{VETO_ERRORS['rate-limited']}</p>
       </div>
     );
   }
@@ -40,21 +40,21 @@ export default async function ScoresReviewPage({ searchParams }: { searchParams:
   const cleared = await ownerClears();
   return (
     <div className="w-full pt-4">
-      <section className="rounded-[40px] bg-ek-navy-deep px-6 py-12 font-funnel-sans text-ek-blue-light md:px-16">
-        <h1 className="font-funnel-display text-3xl text-ek-white">Held scores</h1>
+      <section className="rounded-[24px] border border-ek-line bg-ek-surface px-6 py-12 font-funnel-sans text-ek-body md:px-16">
+        <h1 className="font-funnel-display text-3xl text-ek-text">Held scores</h1>
         <p className="mt-2 text-sm">
           A score that rose 30+ points in a day, or stands 60+ on one source, waits here. The public sees the last unheld score until you release it.
         </p>
-        {held.length === 0 ? <p className="mt-6 text-sm text-ek-white">Nothing is held.</p> : null}
+        {held.length === 0 ? <p className="mt-6 text-sm text-ek-text">Nothing is held.</p> : null}
         <table className="mt-6 w-full text-sm">
           <thead>
-            <tr className="text-left text-ek-blue-soft">
+            <tr className="text-left text-ek-muted">
               <th>Person</th><th>Held</th><th>Public</th><th>Parts</th><th>Top outcome</th><th />
             </tr>
           </thead>
           <tbody>
             {held.map((h) => (
-              <tr key={`${h.formula}:${h.builder_id}`} className="border-t border-ek-navy align-top">
+              <tr key={`${h.formula}:${h.builder_id}`} className="border-t border-ek-line align-top">
                 <td className="py-2">{h.slug} (#{h.builder_id})</td>
                 <td className="py-2">{h.score} on {h.day}</td>
                 <td className="py-2">{h.shown ? `${h.shown.score} on ${h.shown.day}` : 'none yet'}</td>
@@ -79,14 +79,14 @@ export default async function ScoresReviewPage({ searchParams }: { searchParams:
             ))}
           </tbody>
         </table>
-        <h2 className="mt-10 font-funnel-display text-2xl text-ek-white">X handle conflicts</h2>
+        <h2 className="mt-10 font-funnel-display text-2xl text-ek-text">X handle conflicts</h2>
         <p className="mt-2 text-sm">
           Another person&apos;s GitHub profile lists the same X handle. Clearing it takes the handle off the holder&apos;s profile; their old link still redirects to them.
         </p>
-        {conflicts.length === 0 ? <p className="mt-6 text-sm text-ek-white">No conflicts.</p> : null}
+        {conflicts.length === 0 ? <p className="mt-6 text-sm text-ek-text">No conflicts.</p> : null}
         <ul className="mt-6 text-sm">
           {conflicts.map((c) => (
-            <li key={`${c.handle}:${c.holder}:${c.claimant}`} className="flex gap-4 border-t border-ek-navy py-2">
+            <li key={`${c.handle}:${c.holder}:${c.claimant}`} className="flex gap-4 border-t border-ek-line py-2">
               <span>{c.line}</span>
               <form method="post" action="/api/admin/scores">
                 <input type="hidden" name="key" value={key} />
@@ -97,14 +97,14 @@ export default async function ScoresReviewPage({ searchParams }: { searchParams:
             </li>
           ))}
         </ul>
-        <h2 className="mt-10 font-funnel-display text-2xl text-ek-white">X handles you cleared</h2>
+        <h2 className="mt-10 font-funnel-display text-2xl text-ek-text">X handles you cleared</h2>
         <p className="mt-2 text-sm">
           The X account of a page you cleared can&apos;t claim a page again until you release it here.
         </p>
-        {cleared.length === 0 ? <p className="mt-6 text-sm text-ek-white">None.</p> : null}
+        {cleared.length === 0 ? <p className="mt-6 text-sm text-ek-text">None.</p> : null}
         <ul className="mt-6 text-sm">
           {cleared.map((c) => (
-            <li key={c.builder_id} className="flex gap-4 border-t border-ek-navy py-2">
+            <li key={c.builder_id} className="flex gap-4 border-t border-ek-line py-2">
               <span>{c.line}</span>
               <form method="post" action="/api/admin/scores">
                 <input type="hidden" name="key" value={key} />

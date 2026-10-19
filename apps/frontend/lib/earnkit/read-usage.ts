@@ -65,13 +65,8 @@ export function countingDeps(d: ReaderDeps): { deps: ReaderDeps; counts: Map<Pro
       probe: wrap('site', d.probe),
       fetchText: wrap('site', d.fetchText),
       json: wrap((u: string) => providerOfUrl(u), d.json) as ReaderDeps['json'],
-      baseTxs: wrap('blockscout', d.baseTxs),
-      tokenTransfers: wrap('blockscout', d.tokenTransfers),
       contractOrigin: wrap('blockscout', d.contractOrigin),
       walletCreations: wrap('blockscout', d.walletCreations),
-      arcLogs: wrap('arc_rpc', d.arcLogs),
-      arcHead: wrap('arc_rpc', d.arcHead),
-      arcSender: wrap('arc_rpc', d.arcSender),
     },
   };
 }

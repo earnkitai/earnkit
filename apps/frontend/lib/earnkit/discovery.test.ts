@@ -96,8 +96,8 @@ function fakeReader(): ReaderDeps {
     throw new Error('unexpected read');
   };
   return {
-    gh: no, ghGraphql: no, probe: no, fetchText: no, json: no, baseTxs: no, tokenTransfers: no, contractOrigin: no,
-    arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, walletCreations: no, now: NOW,
+    gh: no, ghGraphql: no, probe: no, fetchText: no, json: no, contractOrigin: no,
+    walletCreations: no, now: NOW,
   };
 }
 const randomAddress = () => '0x' + randomBytes(20).toString('hex');

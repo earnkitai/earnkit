@@ -5,31 +5,26 @@ import RaisingPill from '../components/ui/RaisingPill';
 import UpdateCard from '../components/ui/UpdateCard';
 import { streakWords, type ProfileData } from '../../lib/earnkit/bench-data';
 import type { PageHead } from '../../lib/earnkit/page-data';
+import { rankSplit } from '../../lib/earnkit/rank';
 import { pagePath } from '../../lib/earnkit/reserved-routes';
 import Avatar from './Avatar';
 import ProjectTab from './ProjectTab';
-import ScoreParts, { SURFACE } from './ScoreParts';
 import ScoreRing from './ScoreRing';
+import { COLUMN, SURFACE } from '../components/common/Panel';
 import ShipGrid, { shippedWords } from './ShipGrid';
 
 export const TAB_LOG = 'Ship log';
 export const TAB_PROJECT = 'Project';
-export const BENCH_SOURCES_LINE =
-  'Facts come from public data EarnKit checks: GitHub, the live site, packages and public transactions.';
+export const BENCH_SOURCES_LINE = 'Every fact is checked from public data: GitHub, the live site, packages and transactions.';
 export const LOG_EMPTY = 'Updates show here every week.';
 /**
  * v2.13.1 O3: the one calm card while the one project is Confirming. Pages are public and the owner
  * can't be told from a visitor, so one neutral line for everyone.
  */
 export const confirmingCardLine = (name: string, project: string) =>
-  `${name} is getting ${project} on the Bench.`;
+  `${name} is getting ${project} on the leaderboard.`;
 export { streakWords };
 
-/** profile-whoop v2: a small uppercase label with letter-spacing, muted grey. */
-const EYEBROW =
-  'font-funnel-sans text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ek-p-muted)]';
-/** The page column: content starts close to the slim top bar. */
-const COLUMN = 'mx-auto w-full max-w-6xl px-4 md:px-8';
 
 /** The photo, plain: a hairline ring, nothing else. */
 function Photo({ src, handle }: { src: string | null; handle: string }) {
@@ -37,7 +32,7 @@ function Photo({ src, handle }: { src: string | null; handle: string }) {
     <Avatar
       src={src}
       handle={handle}
-      className="h-11 w-11 text-base !bg-[var(--ek-p-raised)] !text-[var(--ek-p-body)] !ring-[var(--ek-p-border-strong)] md:h-12 md:w-12 md:text-lg"
+      className="h-11 w-11 text-base md:h-12 md:w-12 md:text-lg"
     />
   );
 }
@@ -46,11 +41,11 @@ function Photo({ src, handle }: { src: string | null; handle: string }) {
 function Who({ name, handle }: { name: string; handle: string }) {
   return (
     <div className="min-w-0 flex-1">
-      <h1 className="truncate font-funnel-display text-xl font-medium leading-tight tracking-tight text-[var(--ek-p-text)] md:text-2xl">
+      <h1 className="break-words font-funnel-display text-xl font-medium leading-tight tracking-tight text-ek-text md:text-2xl">
         {name}
       </h1>
       {name !== `@${handle}` ? (
-        <p className="mt-0.5 truncate font-funnel-sans text-sm text-[var(--ek-p-muted)] md:text-base">
+        <p className="mt-0.5 break-words font-funnel-sans text-sm text-ek-muted md:text-base">
           @{handle}
         </p>
       ) : null}
@@ -58,45 +53,48 @@ function Who({ name, handle }: { name: string; handle: string }) {
   );
 }
 
-/** "Top 4% on the Bench" as its number and its words; any other line whole. Pure. */
-export const rankSplit = (
-  line: string,
-): { lead: string; rest: string | null } => {
-  const m = /^(Top [\d.]+%|#\d+ of \d+) (on .+)$/.exec(line);
-  return m ? { lead: m[1], rest: m[2] } : { lead: line, rest: null };
-};
+export { rankSplit };
 
-/** The rank, large: the percentile (or "#3 of 12") as the number, then each chain's line. */
+/**
+ * The rank, large: the percentile (or "#3") as the number, then its words, the why sentence and each
+ * chain's line. Screen readers get the one score line (R16c) and the why.
+ */
 function Rank({
   line,
+  scoreLine,
+  why,
   chains,
 }: {
   line: string;
+  scoreLine: string | null;
+  why: string | null;
   chains: ProfileData['chainLines'];
 }) {
   const { lead, rest } = rankSplit(line);
   return (
     <div className="min-w-0">
-      <p aria-hidden="true" className={EYEBROW}>
-        Rank
-      </p>
-      <p className="sr-only">{line}</p>
+      <p className="sr-only">{scoreLine ?? line}</p>
       <p
         aria-hidden="true"
-        className="mt-3 whitespace-nowrap font-funnel-display text-[2.25rem] font-medium leading-none tracking-[-0.04em] text-[var(--ek-p-text)] tabular-nums md:text-[5.5rem]"
+        className="whitespace-nowrap font-funnel-display text-[2.25rem] font-medium leading-none tracking-[-0.04em] text-ek-text tabular-nums md:text-[5.5rem]"
       >
         {lead}
       </p>
       {rest ? (
         <p
           aria-hidden="true"
-          className="mt-2 font-funnel-sans text-sm text-[var(--ek-p-muted)] md:mt-3 md:text-base"
+          className="mt-2 font-funnel-sans text-sm text-ek-muted md:mt-3 md:text-base"
         >
           {rest}
         </p>
       ) : null}
+      {why ? (
+        <p className="mt-4 max-w-md font-funnel-sans text-sm leading-relaxed text-ek-body md:mt-5 md:text-base">
+          {why}
+        </p>
+      ) : null}
       {chains.length > 0 ? (
-        <ul className="mt-4 flex flex-wrap gap-x-5 gap-y-2 font-funnel-sans text-sm text-[var(--ek-p-body)] md:mt-6">
+        <ul className="mt-4 flex flex-wrap gap-x-5 gap-y-2 font-funnel-sans text-sm text-ek-body md:mt-6">
           {chains.map((c) => (
             <li key={c.chain} className="inline-flex items-center gap-2">
               <ChainLogo chain={c.chain} size={18} />
@@ -109,6 +107,15 @@ function Rank({
   );
 }
 
+/** Scoring and clarity R3: Originality, one small line under the Shipping ring (never a second ring, never ranked). */
+function Originality({ value }: { value: number }) {
+  return (
+    <p className="whitespace-nowrap font-funnel-sans text-sm text-ek-muted md:text-base">
+      Originality <span className="font-medium tabular-nums text-ek-text">{value}</span>
+    </p>
+  );
+}
+
 /** While the page's sources refresh: the photo, name and @handle at once, the rest as quiet shapes. */
 export function BenchProfileSkeleton({
   head,
@@ -116,7 +123,7 @@ export function BenchProfileSkeleton({
   head: Pick<PageHead, 'name' | 'handle' | 'avatar'>;
 }) {
   const bar =
-    'block rounded-full bg-[var(--ek-p-chip)] animate-pulse motion-reduce:animate-none';
+    'block rounded-full bg-ek-chip animate-pulse motion-reduce:animate-none';
   return (
     <div className={`${COLUMN} pt-5 md:pt-8`} aria-busy="true">
       <section aria-label="Profile">
@@ -153,9 +160,9 @@ function ConfirmingCard({ line }: { line: string }) {
         className="relative mt-2 flex h-2.5 w-2.5 shrink-0 md:mt-0"
       >
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white/40 motion-reduce:animate-none" />
-        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[var(--ek-p-text)]" />
+        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-ek-text" />
       </span>
-      <p className="min-w-0 break-words font-funnel-display text-lg font-medium leading-snug text-[var(--ek-p-text)] md:text-2xl">
+      <p className="min-w-0 break-words font-funnel-display text-lg font-medium leading-snug text-ek-text md:text-2xl">
         {line}
       </p>
     </div>
@@ -163,15 +170,15 @@ function ConfirmingCard({ line }: { line: string }) {
 }
 
 const TAB =
-  'inline-flex h-9 items-center rounded-full px-4 font-funnel-sans text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40';
-const TAB_ON = 'bg-[var(--ek-p-chip-hover)] text-[var(--ek-p-text)]';
-const TAB_OFF = 'text-[var(--ek-p-muted)] hover:bg-[var(--ek-p-chip)] hover:text-[var(--ek-p-text)]';
+  'inline-flex h-11 items-center rounded-full px-4 font-funnel-sans text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ek-blue-soft md:h-9';
+const TAB_ON = 'bg-ek-chip-hover text-ek-text';
+const TAB_OFF = 'text-ek-muted hover:bg-ek-chip hover:text-ek-text';
 
 /**
  * v2.13 spec "Profile" (R10, R11, R12), profile-whoop v2 layout on the near-black page: the header
- * (photo, name, @handle, the Raising pill); the hero card, the total ring beside the rank (the
- * percentile large, then each chain's line with its logo); the four parts as gradient rings on their
- * own cards, each in its hue family (score-colors.ts); the 52-week shipping grid with the streak;
+ * (photo, name, @handle, the Raising pill); the hero card, the one Shipping ring (0 to 100) beside
+ * the rank (the percentile or "#N" large, its words, the why sentence, then each chain's line with
+ * its logo; scoring and clarity: no per-part rings, one score); the 52-week shipping grid with the streak;
  * then two tabs as plain links: the Ship log (default; long cards, newest first, the Started card
  * last) and the Project. A quiet sources line at the end.
  * v2.13.1 O3: while the one project is Confirming, one calm card in place of the score and the grid,
@@ -190,6 +197,7 @@ export default function BenchProfileView({
   const confirming = d.project !== null && !d.project.confirmed;
   const codeIn = shippedWords(d.grid.filter((g) => g.on).length, d.grid.length);
   return (
+    <>
     <div className={`${COLUMN} pt-5 md:pt-8`}>
       <section aria-label="Profile">
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-3">
@@ -203,16 +211,8 @@ export default function BenchProfileView({
         </div>
 
         {confirming ? (
-          <>
-            {d.bench ? (
-              <div className={`mt-5 p-6 md:mt-6 md:p-10 ${SURFACE}`}>
-                <Rank line={d.bench} chains={d.chainLines} />
-              </div>
-            ) : null}
-            <ConfirmingCard
-              line={confirmingCardLine(d.name, d.project!.name)}
-            />
-          </>
+          // R10: never a rank while the project isn't counted yet (rankLines is empty then too).
+          <ConfirmingCard line={confirmingCardLine(d.name, d.project!.name)} />
         ) : (
           <>
             {d.bench || d.score !== null ? (
@@ -220,32 +220,29 @@ export default function BenchProfileView({
                 className={`mt-5 flex items-center gap-6 p-6 md:mt-6 md:gap-14 md:p-10 ${SURFACE}`}
               >
                 {d.score !== null ? (
-                  <ScoreRing
-                    score={d.score}
-                    stroke={10}
-                    track={4}
-                    className="h-32 w-32 md:h-56 md:w-56"
-                    numberClassName="text-[2.75rem] md:text-[5rem]"
-                  />
+                  <div className="flex shrink-0 flex-col items-center gap-3 md:gap-4">
+                    <ScoreRing
+                      score={d.score}
+                      label={`Shipping ${d.score} of 100`}
+                      caption="Shipping"
+                      stroke={10}
+                      track={4}
+                      className="h-32 w-32 md:h-56 md:w-56"
+                      numberClassName="text-[2.75rem] md:text-[5rem]"
+                    />
+                    {d.originality !== null ? <Originality value={d.originality} /> : null}
+                  </div>
                 ) : null}
-                {d.bench ? <Rank line={d.bench} chains={d.chainLines} /> : null}
-              </div>
-            ) : null}
-            {d.score !== null ? (
-              <div className="mt-3 md:mt-4">
-                <ScoreParts parts={d.parts} />
+                {d.bench ? <Rank line={d.bench} scoreLine={d.line} why={d.why} chains={d.chainLines} /> : null}
               </div>
             ) : null}
             <div className={`mt-3 p-6 md:mt-4 md:p-8 ${SURFACE}`}>
-              <p aria-hidden="true" className={EYEBROW}>
-                Shipping
-              </p>
-              <div className="mb-5 mt-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                <p className="font-funnel-display text-2xl font-medium tracking-[-0.02em] text-[var(--ek-p-text)] md:text-3xl">
+              <div className="mb-5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                <p className="font-funnel-display text-2xl font-medium tracking-[-0.02em] text-ek-text md:text-3xl">
                   {streak ?? codeIn}
                 </p>
                 {streak ? (
-                  <p className="font-funnel-sans text-sm text-[var(--ek-p-muted)]">
+                  <p className="font-funnel-sans text-sm text-ek-muted">
                     {codeIn}
                   </p>
                 ) : null}
@@ -260,7 +257,7 @@ export default function BenchProfileView({
 
       <section
         aria-label={tab === 'project' ? TAB_PROJECT : TAB_LOG}
-        className={`mt-3 p-5 md:mt-4 md:p-8 ${SURFACE}`}
+        className="mt-8 md:mt-10"
       >
         <nav aria-label="Tabs" className="-mx-1 flex gap-1">
           <Link
@@ -278,11 +275,13 @@ export default function BenchProfileView({
             {TAB_PROJECT}
           </Link>
         </nav>
-        <div className="mt-5 md:mt-6">
+        <div className="mt-4">
           {tab === 'project' ? (
-            <ProjectTab project={d.project} />
+            <div className={`p-5 md:p-8 ${SURFACE}`}>
+              <ProjectTab project={d.project} />
+            </div>
           ) : confirming || d.log.length === 0 ? (
-            <p className="font-funnel-sans text-base font-light text-[var(--ek-p-body)]">
+            <p className={`p-5 font-funnel-sans text-base text-ek-body md:p-8 ${SURFACE}`}>
               {LOG_EMPTY}
             </p>
           ) : (
@@ -295,11 +294,12 @@ export default function BenchProfileView({
             </ol>
           )}
         </div>
-        <p className="mt-6 max-w-3xl font-funnel-sans text-xs leading-relaxed text-[var(--ek-p-muted)] md:mt-8 md:text-sm">
+        <p className="mt-4 max-w-3xl font-funnel-sans text-xs leading-relaxed text-ek-muted md:text-sm">
           {BENCH_SOURCES_LINE}
         </p>
       </section>
-      <Footer />
     </div>
+    <Footer />
+    </>
   );
 }

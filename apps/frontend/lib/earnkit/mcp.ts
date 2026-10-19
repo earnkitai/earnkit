@@ -123,7 +123,7 @@ const BENCH_IDENTITY_WORDS =
 const prepareDescription = (campaignOpen: boolean, buildOn: boolean) =>
   'On a program pick, pass program_id, project, answers you drafted from the repo (by requirement key) and agent: { browser, can_push }. ' +
   'When it asks questions, pass the answers with coach_asked: true. Call again until ready is true; ' +
-  'then it ends with the confirm line (token and wallet). ' +
+  'then it ends with the confirm line (no token unless the builder asked for a coin). ' +
   'host: true hosts a static build with no live link (show host.show_to_builder, never upload_url). ' +
   // v2.11 T8: the build path starts from find's build_offer; named only with the build field (review M2).
   (buildOn ? 'build: a build_offer yes. ' : '') +
@@ -148,19 +148,20 @@ export const TELL_DESCRIPTION_BENCH =
   "What the builder told you; call it only with what they said. submitted: { program_id, external_submission_url? } once they say they submitted on the program's site; a shared agent adds project_id. " +
   'update: { text } adds one plain line to this week\'s log; { hide: "YYYY-MM-DD" } hides that week. ' +
   'updates: { titles: true } when they want their commit titles on a private repo\'s log (false to hide them). ' +
-  'coin: their coin answer, or { raising } when they open a community round or close it. ' +
+  'coin: their coin answer, or { raising } to open or close a community round. ' +
+  "token: 'ask' only when they ask about a token. " +
   'move_up: their answer to the last line, with its kind and project_key. profile (hide or show), card (yes or skip): their answers. ' +
   'program_status: applied, not_interested, won, placed or lost. repo_facts and weekly_email: what they said. Results they report stay private.';
 
 /** Final fix (controller ruling): EARNKIT_RAISING off: coin takes no { raising }. */
 export const TELL_DESCRIPTION_BENCH_NO_RAISING = TELL_DESCRIPTION_BENCH.replace(
-  'coin: their coin answer, or { raising } when they open a community round or close it. ',
+  'coin: their coin answer, or { raising } to open or close a community round. ',
   'coin: their coin answer. ',
 );
 
 /** v2.12.1 T8: score's description. */
 export const SCORE_DESCRIPTION =
-  "Where the builder stands: what they shipped, their rank when it reads well, their page, and the one step up. Call it when they ask how they're doing. " +
+  "Where the builder stands: their Shipping score, their rank (every ranked builder sees one), their page, and the one step up. Call it when they ask how they're doing. " +
   'Show show_to_builder as written; a yes or no to its last line goes to tell move_up (with move_up.kind and project_key). ' +
   SAFETY_TEXT;
 
@@ -485,6 +486,8 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
                 .strict()
                 .optional()
                 .describe('Their answer to a coin offer'),
+          // Scoring and clarity R8: a token or community round only when the builder asks about one.
+          token: z.literal('ask').optional().describe("'ask' only when the builder asks about a token or coin; EarnKit never offers one otherwise"),
           // v2.13: the ship log.
           update: z
             .object({

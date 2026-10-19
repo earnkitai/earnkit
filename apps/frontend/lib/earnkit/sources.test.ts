@@ -9,7 +9,7 @@ function fakeReader(): ReaderDeps {
   const no = async (): Promise<never> => {
     throw new Error('unexpected read');
   };
-  return { gh: no, ghGraphql: no, probe: no, fetchText: no, json: no, baseTxs: no, tokenTransfers: no, contractOrigin: no, arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, walletCreations: no, now: new Date('2026-10-14T10:00:00Z') };
+  return { gh: no, ghGraphql: no, probe: no, fetchText: no, json: no, contractOrigin: no, walletCreations: no, now: new Date('2026-10-14T10:00:00Z') };
 }
 
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
@@ -105,7 +105,7 @@ const readingOf = async (id: number) => {
 const setLogin = async (login: string | null) => sql()`INSERT INTO builder_profiles (builder_id, slug, github_login) VALUES (${ID}, ${`b-t${ID}`}, ${login})
     ON CONFLICT (builder_id) DO UPDATE SET github_login = EXCLUDED.github_login, reported_github = NULL`;
 
-test('3.16 an org repo is read by name plus one contributors call; no login means no person query', dbTest, async () => {
+test('3.16 an org repo is read by name (R16b: no contributors call; on a first reading, one activity call a repo); no login means no person query', dbTest, async () => {
   await setLogin(null);
   const org = await addRepo(`acme-${process.pid}/tool`);
   const own = await addRepo(`someone-${process.pid}/app`);
@@ -126,8 +126,12 @@ test('3.16 an org repo is read by name plus one contributors call; no login mean
   assert.deepEqual(out, { read: 2, failed: 0 });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].login, undefined, 'no person query without a login');
-  assert.deepEqual(rest, [`/repos/acme-${process.pid}/tool/contributors?per_page=100`]);
-  assert.deepEqual(((await readingOf(org)).signals.contributors as { id: string }[]).map((c) => c.id), ['gh:lee', 'gh:ann']);
+  // Fix round 2 (anti-backdating rule 4): each repo's first reading also reads its push activity, once.
+  assert.deepEqual(rest, [
+    `/repos/acme-${process.pid}/tool/activity?per_page=100`,
+    `/repos/someone-${process.pid}/app/activity?per_page=100`,
+  ]);
+  assert.deepEqual((await readingOf(org)).signals.contributors, []);
   assert.deepEqual((await readingOf(own)).signals.contributors, []);
 });
 

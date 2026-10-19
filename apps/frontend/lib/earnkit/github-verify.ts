@@ -36,6 +36,7 @@ export const VERIFY_PAGE = {
   notYours: "This GitHub account can't push to that repo. Sign in with the account that owns it.",
   failed: "Sign-in didn't finish. Ask your agent for a new link.",
   busy: 'Too many sign-ins from here. Try again in an hour.',
+  notFound: 'This page is not available.',
   /** v2.12.1 T7: after the claim page's GitHub sign-in. */
   claimDone: 'Done. Your agent will show the new numbers next time you ask.',
   /** Spec B9: GitHub shows no permissions (an org repo a scopeless sign-in can't see): the proof line is the way. */
@@ -580,7 +581,8 @@ export async function limited(request: Request, deps: RouteDeps): Promise<Respon
   }
 }
 
-const notFound = () => new Response('Not found', { status: 404 });
+export const notFoundPage = () => verifyPage(VERIFY_PAGE.notFound, 404);
+const notFound = notFoundPage;
 
 /**
  * GET /github/verify?n=: never straight to GitHub (Ruling G8). Checks the nonce (without using it)

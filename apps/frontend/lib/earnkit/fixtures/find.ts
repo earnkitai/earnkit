@@ -57,7 +57,8 @@ export async function person(o: { projects: Seed[]; score?: number; ranked?: boo
     VALUES (${id}, ${`v2121f-${id}`}, ${sql().json((o.seen ?? {}) as never)}, ${o.main ?? null}, ${o.claimed ? `x${id}` : null}, ${o.claimed ?? null})`;
   await sql()`
     INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at, read_at)
-    VALUES (${id}, ${o.score ?? 0}, '{}'::jsonb, ${o.ranked ?? false}, ${o.projects.filter((p) => p.shipped !== false).length}, 0, 'v2', 'v2-launch', now(), now())`;
+    VALUES (${id}, ${o.score ?? 0}, ${sql().json({ shipping: { points: o.score ?? 0, raw: { mask: 0, live_ships: 0 } } } as never)}, ${o.ranked ?? false},
+      ${o.projects.filter((p) => p.shipped !== false).length}, 0, 'v2', 'v2-shipping', now(), now())`;
   for (const [i, p] of o.projects.entries()) {
     await sql()`
       INSERT INTO builder_projects (builder_id, project_key, name, what, link, kind, confirmed, shipped, people, sends_tx, untracked_contract, last_active_at, weeks_shipping, streak)

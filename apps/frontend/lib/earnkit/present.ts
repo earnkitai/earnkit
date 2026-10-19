@@ -356,6 +356,15 @@ export const byPrize = (a: Pick<Card, 'max_award_usd' | 'ends_at'>, b: Pick<Card
   (a.ends_at?.getTime() ?? 8.64e15) - (b.ends_at?.getTime() ?? 8.64e15);
 
 /**
+ * Scoring and clarity R12 (Task 4 fix round 1): the one order of the fits find and score name: the soonest
+ * deadline first, rolling programs last, then the bigger known per-winner award, then the id (stable). Pure.
+ */
+export const byDeadline = (a: Pick<Card, 'id' | 'max_award_usd' | 'ends_at'>, b: Pick<Card, 'id' | 'max_award_usd' | 'ends_at'>) => {
+  const at = (c: Pick<Card, 'ends_at'>) => (c.ends_at ? new Date(c.ends_at).getTime() : 8.64e15);
+  return at(a) - at(b) || (b.max_award_usd ?? -1) - (a.max_award_usd ?? -1) || a.id.localeCompare(b.id);
+};
+
+/**
  * v2.8 Ruling C4: Easy programs first (the lazy builder wants the easiest money), for the agent's
  * tables only; the landing carousel keeps byPool. Pure.
  */

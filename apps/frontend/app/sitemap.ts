@@ -12,8 +12,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${SITE}/terms`, changeFrequency: 'monthly', priority: 0.5 },
     { url: `${SITE}/programs`, changeFrequency: 'daily', priority: 0.8 },
   ];
-  // v2.13: the Bench and its feed.
-  pages.push({ url: `${SITE}/bench`, changeFrequency: 'daily', priority: 0.8 }, { url: `${SITE}/feed`, changeFrequency: 'daily', priority: 0.6 });
+  // The leaderboard and its feed.
+  pages.push({ url: `${SITE}/leaderboard`, changeFrequency: 'daily', priority: 0.8 }, { url: `${SITE}/feed`, changeFrequency: 'daily', priority: 0.6 });
   try {
     // v2.7 §2: each open curated program's guide (never an EarnKit or sponsor campaign).
     const programs = await sql()<{ id: string }[]>`

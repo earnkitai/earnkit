@@ -1,4 +1,5 @@
 import './fixtures/no-network-checks';
+import { isoWeekOf } from './weeks';
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
@@ -40,7 +41,7 @@ import type { DeployDeps } from './deploy';
 import type { FreshOn } from './present';
 import BenchProfileView from '../../app/[handle]/BenchProfileView';
 import type { ProfileTab } from '../../app/[handle]/handle-view';
-import BenchView from '../../app/bench/BenchView';
+import BenchView from '../../app/leaderboard/BenchView';
 import HomeView from '../../app/HomeView';
 import TermsPage from '../../app/terms/page';
 import { GET as llms } from '../../app/llms.txt/route';
@@ -266,7 +267,6 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 const graphqlSent: string[] = [];
 /** maya's tracked contract on Base, and its callers (none until 16.5 gives five). */
 const CONTRACT = `0x${randomBytes(20).toString('hex')}`;
-let callers: { timestamp: string; status: string; from: { hash: string }; value: string }[] = [];
 
 const ghJson = async <T,>(path: string): Promise<T> => {
   const res = github(new URL(`https://api.github.com${path}`));
@@ -296,18 +296,10 @@ const FAKE_READER: ReaderDeps = {
   fetchText: async () => {
     throw new Error('not found');
   },
-  baseTxs: async () => ({ items: callers, next_page_params: null }),
   contractOrigin: async () => ({ deployer: MAYA_WALLET, created_at: iso(NOW.getTime() - 30 * DAY) }),
-  tokenTransfers: async () => ({ items: [], next_page_params: null }),
   json: async () => {
     throw new Error('v213-journey: npm/pypi not served');
   },
-  arcLogs: async () => [],
-  arcHead: async () => 0n,
-  arcSender: async () => {
-    throw new Error('v213-journey: Arc sender not served');
-  },
-  usdPerNative: async () => 3000,
   walletCreations: async () => [],
 };
 
@@ -442,7 +434,6 @@ function nextMonday15(now: Date): Date {
 
 /** Five people call maya's tracked contract, then her refresh reads them (the first_five moment). */
 async function giveFivePeople(id: number) {
-  callers = Array.from({ length: 5 }, (_, i) => ({ timestamp: iso(Date.now() - (1 + i) * DAY), status: 'ok', from: { hash: `0x${randomBytes(20).toString('hex')}` }, value: '0' }));
   await sql()`INSERT INTO person_wallets (wallet, builder_id) VALUES (${MAYA_WALLET.toLowerCase()}, ${id}) ON CONFLICT DO NOTHING`;
   await sql()`
     INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by, verified_at)
@@ -468,6 +459,10 @@ async function seedBaseBuilders(n: number): Promise<string> {
     await sql()`
       INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by, verified_at)
       VALUES (${id}, 'repo', ${key}, ${key}, 'verified', 'proof_line', 'server', now())`;
+    // R4: ranked once the repo has a reading (its commits this week and the i weeks before).
+    const weeks = Array.from({ length: i + 1 }, (_, w) => isoWeekOf(new Date(Date.now() - w * 7 * 86_400_000)));
+    await sql()`INSERT INTO source_live (source_id, signals, ok, read_at)
+      SELECT id, ${sql().json({ owner: `base${i}`, owner_type: 'User', commit_weeks: weeks } as never)}, true, now() FROM builder_sources WHERE builder_id = ${id} AND kind = 'repo'`;
     await sql()`
       INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, address, status, owner_ok, cost_micro_usd, created_at)
       VALUES (${id}, ${`base${i}`}, ${key}, 'base', ${`0x${randomBytes(32).toString('hex')}`}, ${`0x${randomBytes(20).toString('hex')}`}, 'deployed', true, 1000,
@@ -541,11 +536,15 @@ test('16.1 acceptance 1, with a project: the first reply names it (v2.14 T7: no 
   // v2.13.3 review (I1): the community round needs the repo read public (the cheap read's public_at).
   await sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${id} AND kind = 'repo'`;
   const r2 = await call('find', {}, ctx(id));
-  assert.match(r2.show_to_builder, /^Recipe planner is on the Bench(: .+?)?\.( \d+ weeks in a row\.)?$/m, r2.show_to_builder);
-  // v2.13.3 owner ruling A: nothing fits, so the confirmed project is offered a community round (once).
-  assert.match(r2.show_to_builder, /I'll launch \$\w+ on tokens\.fun and you get 40% of its trading fees\. Want to open a community round for Recipe planner\?$/, r2.show_to_builder);
-  assert.equal(r2.move_up?.kind, 'coin');
-  MAYA.offer = r2.show_to_builder;
+  assert.match(r2.show_to_builder, /^Recipe planner: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders) this week\.( \d+ weeks in a row\.)?$/m, r2.show_to_builder);
+  // R8 (supersedes owner ruling A): find never offers a community round; the step is to ship.
+  assert.ok(r2.show_to_builder.endsWith('How to move up\nShip this week to climb.'), r2.show_to_builder);
+  assert.doesNotMatch(r2.show_to_builder, /community round|coin|token/i);
+  assert.equal(r2.move_up?.kind, 'ship');
+  // Only when the builder asks about a token (tell token, through the MCP schema) is the community round offered.
+  const asked = await call('tell', { token: 'ask' }, ctx(id));
+  assert.match(asked.show_to_builder, /^I'll launch \$\w+ on tokens\.fun and you get 40% of its trading fees\. Want to open a community round for Recipe planner\?$/, asked.show_to_builder);
+  MAYA.offer = asked.show_to_builder;
   assert.equal(r2.claim, undefined, 'no claim link');
   const page = await renderProfile('maya_makes', 'log');
   assert.match(page, /src="https:\/\/pbs\.twimg\.com\/profile_images\/1\/m_400x400\.jpg"/);
@@ -576,7 +575,7 @@ test('16.2 acceptance 2, without a project: ways to get funded and no build offe
   xUser = { id: 'x-maya2', username: 'maya2_builds', name: 'Maya Two', avatar: null };
   await signInX(id);
   const r = await call('find', { agent_can_build: true, github_user: 'maya2' }, ctx(id));
-  assert.match(r.show_to_builder, /^You're not on the Bench yet\./m, r.show_to_builder);
+  assert.match(r.show_to_builder, /^You're not on the leaderboard yet\./m, r.show_to_builder);
   assert.match(r.show_to_builder, /^Ways to get funded\n/m, r.show_to_builder);
   // v2.14 A18: find offers no build; prepare { build } stays for a program guide that names a starter.
   assert.equal((r as { build_offer?: unknown }).build_offer, undefined);
@@ -618,13 +617,13 @@ test('16.4 acceptance 4, Bench filters: /bench?chain=base lists only Base projec
   assert.ok(!base.rows.some((r) => r.handle === 'maya_makes'), 'maya is not on Base yet');
   assert.ok(base.chips.includes('base'));
   assert.match(html(React.createElement(BenchView, { ...base, filter, raising: true })), /alt="Base"/);
-  assert.match(await renderProfile(BASE_HANDLE, 'log'), /#\d+ of \d+ on Base|Top \d+(\.\d)?% on Base/);
+  assert.match(await renderProfile(BASE_HANDLE, 'log'), /(#\d+ of \d+ builders?|Top \d+(\.\d)?% of builders) on Base this week/);
 });
 
 test('16.5 acceptance 5, a community round (v2.13.3 ruling B): the yes launches the coin, the pill shows on the profile, the Bench row and the card; closing it removes it', db, async () => {
   const id = MAYA.id;
   await giveFivePeople(id);
-  // The offer came once, right after confirmation (16.1, ruling A); the builder says yes to it now.
+  // The offer came when the builder asked about a token (16.1, R8); the builder says yes to it now.
   assert.match(MAYA.offer, /Want to open a community round for Recipe planner\?/);
   // Review focus 3: the Confirming claimant is never offered a community round.
   await advanceRefreshGuard(EVE, 11 * 60_000);
@@ -649,7 +648,7 @@ test('16.5 acceptance 5, a community round (v2.13.3 ruling B): the yes launches 
 test('16.6 acceptance 6, the landing page: the hero, the Bench top 10 and the square cards', db, async () => {
   const landing = await readLanding(nextMonday15(NOW));
   const page = html(React.createElement(HomeView, { landing }));
-  assert.ok(page.includes('Ship every week. Get funded.') && page.includes('The Bench') && page.includes('This week on the Bench'));
+  assert.ok(page.includes('Ship every week. Get funded.') && page.includes('Leaderboard') && page.includes('Shipped this week'));
   assert.ok((landing.bench?.rows.length ?? 0) <= 10);
   assert.match(page, /data-shape="square"/);
   assert.ok(landing.bench?.cards.some((c) => c.handle === 'maya_makes'));

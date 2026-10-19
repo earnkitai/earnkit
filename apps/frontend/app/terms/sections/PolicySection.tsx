@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Eyebrow, Panel } from '../../components/common/Panel';
+import { Panel } from '../../components/common/Panel';
 import { X } from '../../lib/links';
 import {
   CLANKER_CUT_PCT,
@@ -23,15 +23,15 @@ import {
   feeTable,
 } from '../../../lib/earnkit/policy';
 
-const link = 'text-ek-white underline underline-offset-4 transition-colors hover:text-ek-blue-soft';
+const link = 'text-ek-text underline underline-offset-4 transition-colors hover:text-ek-text';
 
 /** `aside` sits beside the heading. */
 function Section({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
-  const heading = <h2 className="font-funnel-display text-2xl font-medium text-ek-white md:text-3xl">{title}</h2>;
+  const heading = <h2 className="font-funnel-display text-2xl font-medium text-ek-text md:text-3xl">{title}</h2>;
   return (
     <div
       id={title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}
-      className="scroll-mt-32 grid gap-4 border-t border-ek-navy py-10 first:border-t-0 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] md:gap-12 md:py-14">
+      className="scroll-mt-32 grid gap-4 border-t border-ek-line py-10 first:border-t-0 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] md:gap-12 md:py-14">
       {aside ? (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3 self-start">
           {heading}
@@ -40,7 +40,7 @@ function Section({ title, aside, children }: { title: string; aside?: ReactNode;
       ) : (
         heading
       )}
-      <div className="max-w-2xl space-y-4 font-funnel-sans text-base font-light leading-relaxed text-ek-blue-light md:text-lg">
+      <div className="max-w-2xl space-y-4 font-funnel-sans text-base font-light leading-relaxed text-ek-body md:text-lg">
         {children}
       </div>
     </div>
@@ -48,7 +48,7 @@ function Section({ title, aside, children }: { title: string; aside?: ReactNode;
 }
 
 const List = ({ items }: { items: ReactNode[] }) => (
-  <ul className="list-disc space-y-2 pl-5 marker:text-ek-blue-bright">
+  <ul className="list-disc space-y-2 pl-5 marker:text-ek-muted">
     {items.map((x, i) => (
       <li key={i}>{x}</li>
     ))}
@@ -59,16 +59,16 @@ function Table({ head, rows }: { head: [string, string]; rows: [string, string |
   return (
     <table className="w-full font-funnel-sans text-sm md:text-base">
       <thead>
-        <tr className="text-left text-ek-blue-soft">
+        <tr className="text-left text-ek-muted">
           <th scope="col" className="pb-3 font-medium">{head[0]}</th>
           <th scope="col" className="w-20 pb-3 text-right font-medium">{head[1]}</th>
         </tr>
       </thead>
       <tbody>
         {rows.map(([a, b]) => (
-          <tr key={a} className="border-t border-ek-navy text-ek-blue-light">
+          <tr key={a} className="border-t border-ek-line text-ek-body">
             <td className="py-3 pr-4">{a}</td>
-            <td className="py-3 text-right tabular-nums text-ek-white">{b}</td>
+            <td className="py-3 text-right tabular-nums text-ek-text">{b}</td>
           </tr>
         ))}
       </tbody>
@@ -84,17 +84,16 @@ function Table({ head, rows }: { head: [string, string]; rows: [string, string |
 export default function PolicySection() {
   return (
     <>
-      <Panel className="mt-4 py-12 md:py-16" label="Policy">
-        <Eyebrow>Policy</Eyebrow>
-        <h2 id="policy" className="mt-4 scroll-mt-32 font-funnel-display text-3xl font-medium text-ek-white md:text-5xl">
+      <Panel className="py-12 md:py-16" label="Policy">
+        <h2 id="policy" className="scroll-mt-32 font-funnel-display text-2xl font-medium text-ek-text md:text-4xl">
           How EarnKit works
         </h2>
-        <p className="mt-4 max-w-2xl font-funnel-sans text-base font-light text-ek-blue-light md:text-lg">
+        <p className="mt-4 max-w-2xl font-funnel-sans text-base font-light text-ek-body md:text-lg">
           Plain answers on matching and token fees.
         </p>
       </Panel>
 
-      <Panel className="mt-4 py-2 md:py-4">
+      <Panel className="py-2 md:py-4">
         <Section title="How matching works">
           <p>
             EarnKit keeps a list of open builder programs: grants, hackathons and bounties. Their facts come from

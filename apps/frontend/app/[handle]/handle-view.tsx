@@ -13,7 +13,6 @@ import { pagePath } from '../../lib/earnkit/reserved-routes';
 import { profileData } from '../../lib/earnkit/bench-data';
 import { rankLines } from '../../lib/earnkit/bench-rank';
 import BenchProfileView, { BenchProfileSkeleton } from './BenchProfileView';
-import SlimTopBar from '../components/common/SlimTopBar';
 
 export type ProfileTab = 'log' | 'project';
 /** `?tab=project`, else the Ship log (the default, the plain URL). Pure. */
@@ -23,9 +22,10 @@ export const tabOf = (
 
 /** v2.13: the whole Bench profile, after a fresh read of the person's sources when the last is over a day old (pageViewRefresh, under the hourly caps). */
 async function BenchPage({ id, tab }: { id: number; tab: ProfileTab }) {
+  const now = new Date();
   await pageViewRefresh(id, {
-    now: new Date(),
-    deadline: Date.now() + REFRESH_BUDGET_MS,
+    now,
+    deadline: now.getTime() + REFRESH_BUDGET_MS,
     ip: clientIp(await headers()),
   });
   const data = await profileData(id, new Date());
@@ -53,16 +53,10 @@ export async function HandleView({
   if ('redirect' in r) permanentRedirect(r.redirect);
   // A reserved handle reached at the root (/Terms) lives at /b/Terms.
   if (pagePath(r.handle) !== path) permanentRedirect(pagePath(r.handle));
-  // profile-whoop v2: the near-black page with its own slim top bar (data-ek-premium: globals.css).
   return (
-    <div data-ek-premium="" className="ek-premium">
-      <SlimTopBar />
-      <Suspense
-        fallback={<BenchProfileSkeleton head={await pageHead(r.builderId)} />}
-      >
-        <BenchPage id={r.builderId} tab={tab} />
-      </Suspense>
-    </div>
+    <Suspense fallback={<BenchProfileSkeleton head={await pageHead(r.builderId)} />}>
+      <BenchPage id={r.builderId} tab={tab} />
+    </Suspense>
   );
 }
 
@@ -73,8 +67,8 @@ export async function handleMetadata(handle: string): Promise<Metadata> {
   const h = await pageHead(r.builderId);
   const card = `${pagePath(r.handle)}/card.png`;
   const title = `${h.name} on EarnKit`;
-  // v2.13: the Bench line ("Top 4% on the Bench") describes the page; without one, the v2.12.1 top line.
-  const description = (await rankLines(r.builderId)).bench ?? h.topLine;
+  // The score line ("Shipping 62 · Top 4% of builders this week") describes the page; without one, the v2.12.1 top line.
+  const description = (await rankLines(r.builderId)).line ?? h.topLine;
   return {
     title,
     description,

@@ -54,6 +54,7 @@ test('13.4 flag off: a sponsor program is absent from listPrograms and getProgra
   const f = committedProgram('arc-microgrants');
   f.id = 't13-sponsor-row';
   f.ends_at = null; // open whatever today's date (the committed file's deadline passes)
+  f.status = 'active'; // R12 closed the committed file
   await upsertProgram(ProgramFile.parse(f));
   try {
     assert.ok((await listPrograms()).some((p) => p.id === 't13-sponsor-row'), 'a curated row lists');

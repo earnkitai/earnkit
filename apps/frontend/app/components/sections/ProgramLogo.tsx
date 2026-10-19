@@ -25,14 +25,14 @@ export default function ProgramLogo({ logo, title, size = 48 }: { logo: string |
         alt={title}
         width={size}
         height={size}
-        className="flex-shrink-0 rounded-full bg-ek-white/90 object-contain p-1.5"
+        className="flex-shrink-0 rounded-full bg-ek-text/90 object-contain p-1.5"
         style={{ width: size, height: size }}
       />
     );
   return (
     <span
       aria-hidden="true"
-      className="flex flex-shrink-0 items-center justify-center rounded-full border border-ek-blue-soft/25 bg-ek-navy font-funnel-display font-medium text-ek-blue-soft"
+      className="flex flex-shrink-0 items-center justify-center rounded-full border border-ek-line-strong bg-ek-raised font-funnel-display font-medium text-ek-muted"
       style={{ width: size, height: size, fontSize: Math.round(size * 0.36) }}
     >
       {monogram(title)}

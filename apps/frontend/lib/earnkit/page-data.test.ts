@@ -2,7 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
 import {
-  avatarUrl, pageHead, peopleLine, shareIntentText, topLine,
+  avatarUrl, pageHead, shareIntentText, topLine,
 } from './page-data';
 
 /** v2.12.1 T11: the page's words and data (page-data.ts). */
@@ -34,7 +34,7 @@ async function person(id: number, o: { name?: string | null; claimed?: boolean; 
 }
 const live = (id: number, score: number, o: { people?: number; shipped?: number; ranked?: boolean; pending?: boolean } = {}) =>
   sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, pending, computed_at)
-    VALUES (${id}, ${score}, '{}'::jsonb, ${o.ranked ?? true}, ${o.shipped ?? 1}, ${o.people ?? 0}, 'v2', 'v2', ${o.pending ? sql().json({ score: 99 } as never) : null}, now())`;
+    VALUES (${id}, ${score}, '{}'::jsonb, ${o.ranked ?? true}, ${o.shipped ?? 1}, ${o.people ?? 0}, 'v2', 'v2-shipping', ${o.pending ? sql().json({ score: 99 } as never) : null}, now())`;
 type P = { key: string; name: string; what?: string | null; link?: string | null; kind?: string; confirmed: boolean; shipped?: boolean; tracked?: boolean; people?: number; money?: number; daysAgo: number };
 const project = (id: number, p: P) =>
   sql()`INSERT INTO builder_projects (builder_id, project_key, name, what, link, kind, confirmed, shipped, tracked, people, money_usd, last_active_at)
@@ -65,15 +65,17 @@ async function seededTraction() {
   await project(id, { key: 'https://tipjar.example.com', name: 'TipJar', link: 'https://tipjar.example.com', confirmed: true, people: 4, daysAgo: 60 });
   await project(id, { key: 'https://recipes.example.com', name: 'Recipes', confirmed: false, daysAgo: 2 });
   await project(id, { key: 'https://budget.example.com', name: 'Budget', confirmed: false, daysAgo: 50 });
+  // Final follow-ups 2: the rank pool is the leaderboard's (benchPool): each one project counts as confirmed.
+  for (const x of ids) {
+    if (x !== id) await project(x, { key: `https://main-${x}.example.com`, name: 'Main', confirmed: true, daysAgo: 5 });
+    await sql()`UPDATE builder_profiles SET main_project_key = ${x === id ? 'https://tokens.fun' : `https://main-${x}.example.com`} WHERE builder_id = ${x}`;
+  }
   return { id, ids };
 }
 
 
-test('11.0 the words: top line, people line, one place for every public sentence', () => {
+test('11.0 the words: top line, one place for every public sentence', () => {
   assert.equal(topLine('Lee', 3, 'apps'), 'Lee has shipped 3 apps with AI.');
-  assert.equal(peopleLine(0), null);
-  assert.equal(peopleLine(1), '1 of them has people using it.');
-  assert.equal(peopleLine(2), '2 of them have people using them.');
   // Only X's own image host, over https, at the larger size; anything else draws the letter.
   assert.equal(avatarUrl('https://pbs.twimg.com/profile_images/1/a_normal.jpg'), 'https://pbs.twimg.com/profile_images/1/a_400x400.jpg');
   for (const bad of [null, '', 'http://pbs.twimg.com/a.jpg', 'https://evil.example/a.jpg', 'javascript:alert(1)', 'https://pbs.twimg.com.evil.com/a.jpg'])
@@ -93,17 +95,15 @@ test('11.1 the top line is what they made; rank and ring only when the rank read
   assert.equal(h.topLine, 'Lee has shipped 3 apps with AI.');
   assert.equal(h.rank, null);
   assert.equal(h.score, null);
-  assert.equal(h.peopleLine, null);
   assert.equal(h.handle, handleOf(a));
   const b = await seededTraction(); // { id, ids }: ranked #3 of its own 40, 2 projects used
   const t = await pageHead(b.id, { only: b.ids }); // the shared DB ranks other files' people too
-  assert.equal(t.rank, '#3 of 40 builders on EarnKit');
-  assert.equal(t.peopleLine, '2 of them have people using them.');
+  assert.equal(t.rank, 'Top 8% of builders this week', 'from 20 ranked, the top half reads as Top P%');
   assert.ok(t.score !== null);
   assert.equal(t.topLine, 'Lee has shipped 4 apps with AI.');
-  // Low in its list (#30 of 40): no rank line, no ring.
+  // Low in its list (#30 of 40): every ranked builder sees their rank.
   const low = await pageHead(b.ids[29], { only: b.ids });
-  assert.deepEqual([low.rank, low.score, low.peopleLine], [null, null, null]);
+  assert.equal(low.rank, '#30 of 40 builders this week');
 });
 
 test('11.1b the name and the noun: X name, else @handle, never a wallet; nothing shipped reads as building', dbTest, async () => {

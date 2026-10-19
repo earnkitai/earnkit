@@ -1,9 +1,9 @@
 import { sql } from './db';
 import { noteEvent } from './events';
 import { benchConfirmedSql } from './main-project';
-import { money } from './page-data';
-import { personInputsV2 } from './person-score';
+import { weekCounts } from './person-score';
 import { COIN_PROGRAM } from './policy-constants';
+import { hit, windowStart } from './rate-limit';
 import { APP_PROOF, appClient } from './repo-proof';
 import { repoReadPublic } from './repo-public';
 import { readWeekTitles, shipTitles } from './ship-titles';
@@ -14,24 +14,28 @@ import { lastFinishedMonday, streakOf, weekOfMonday } from './weeks';
  * that week's project_updates row (plan B6). The update's text never sets them.
  */
 export type WeekFacts = {
-  shipped_code?: { n: number }; went_live?: true; users_up?: { n: number }; earned?: { usd: number };
-  won?: { title: string }[]; streak?: { w: number }; started?: { live: boolean; weeks: number; people: number }; checked?: true;
+  shipped_code?: { n: number }; went_live?: true;
+  /** Old rows only: R16b stopped counting people and money, so no new row has users_up or earned. */
+  users_up?: { n: number }; earned?: { usd: number };
+  won?: { title: string }[]; streak?: { w: number }; started?: { live: boolean; weeks: number; people?: number }; checked?: true;
+  /** R13: the week's titles read completed (the backfill and its catch-up; never read again). */
+  titles_read?: true;
 };
 export const WEEKLY_HOUR_UTC = 15;
 export const WEEKLY_PER_RUN = 200;
 const DAY = 86_400_000;
 const plural = (n: number, one: string, many: string) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
 
-/** The week's chips, in the order the card shows them. Pure. */
-export function factChips(f: WeekFacts, o: { raising?: string | null } = {}): string[] {
+/**
+ * The week's chips, in the order the card shows them. Scoring and clarity: shipping facts only (people,
+ * money and a community round are stored but never a chip). Pure.
+ */
+export function factChips(f: WeekFacts): string[] {
   const out: string[] = [];
   if (f.went_live) out.push('Went live');
   for (const w of f.won ?? []) out.push(`Won ${w.title}`);
-  if (f.users_up && f.users_up.n > 0) out.push(`+${plural(f.users_up.n, 'person', 'people')}`);
-  if (f.earned && f.earned.usd >= 1) out.push(`${money(f.earned.usd)} earned`);
   if (f.shipped_code && f.shipped_code.n > 0) out.push(plural(f.shipped_code.n, 'commit', 'commits'));
   if (f.streak && f.streak.w >= 2) out.push(`${f.streak.w} weeks in a row`);
-  if (o.raising) out.push(`Community round $${o.raising}`);
   return out;
 }
 export const startedLine = (name: string) => `Started tracking ${name}.`;
@@ -39,12 +43,10 @@ export function startedChips(s: NonNullable<WeekFacts['started']>): string[] {
   return [
     ...(s.live ? ['Live'] : []),
     ...(s.weeks > 0 ? [plural(s.weeks, 'week shipping', 'weeks shipping')] : []),
-    ...(s.people > 0 ? [plural(s.people, 'person uses it', 'people use it')] : []),
   ];
 }
-/** A fact is shipped code, going live, new people, money or a win; a streak, the start or the check alone is not. Pure. */
-export const hasFacts = (f: WeekFacts): boolean =>
-  Boolean((f.shipped_code?.n ?? 0) > 0 || f.went_live || (f.users_up?.n ?? 0) > 0 || (f.earned?.usd ?? 0) >= 1 || (f.won?.length ?? 0) > 0);
+/** A fact is shipped code, going live or a win; a streak, people, money, the start or the check alone is not. Pure. */
+export const hasFacts = (f: WeekFacts): boolean => Boolean((f.shipped_code?.n ?? 0) > 0 || f.went_live || (f.won?.length ?? 0) > 0);
 
 /** The facts of the person's one project for the ISO week starting `monday`; {} unless that project is confirmed. */
 export async function weekFactsFor(builderId: number, monday: string, now: Date): Promise<WeekFacts> {
@@ -58,15 +60,17 @@ export async function weekFactsFor(builderId: number, monday: string, now: Date)
   const start = new Date(`${monday}T00:00:00Z`);
   const end = new Date(start.getTime() + 7 * DAY);
   const f: WeekFacts = {};
-  // shipped_code: the main repo's newest good reading (live or daily), its count for the week.
-  const [repo] = await db<{ counts: Record<string, number> | null }[]>`
-    SELECT x.signals->'commit_counts' AS counts FROM builder_sources s
+  // shipped_code: the main repo's newest good reading (live or daily), its count for the week. R13 fix round 1: only a
+  // week the reading counts by the anti-backdating floor (person-score.ts weekCounts), for the weekly job and the
+  // backfill alike; from commit_counts, never commit_weeks (GitHub's stats endpoint lags: 202 gives []).
+  const [repo] = await db<{ counts: Record<string, number> | null; created_at: unknown; pushes_checked: unknown }[]>`
+    SELECT x.signals->'commit_counts' AS counts, x.signals->'created_at' AS created_at, x.signals->'pushes_checked' AS pushes_checked FROM builder_sources s
     JOIN LATERAL ((SELECT l.signals, l.read_at AS at FROM source_live l WHERE l.source_id = s.id AND l.ok)
       UNION ALL (SELECT r.signals, r.day::timestamptz AS at FROM source_readings r WHERE r.source_id = s.id AND r.ok ORDER BY r.day DESC LIMIT 1)
       ORDER BY at DESC LIMIT 1) x ON true
     WHERE s.builder_id = ${builderId} AND s.kind = 'repo' AND s.state = 'verified' AND lower(s.project_key) = lower(${p.key})`;
   const n = Number(repo?.counts?.[week] ?? 0);
-  if (n > 0) f.shipped_code = { n };
+  if (n > 0 && weekCounts(repo!, week, now)) f.shipped_code = { n };
   // went_live: the first live moment ever falls in this week, and no week was said to before.
   const [live] = await db<{ first: Date | null; said: boolean }[]>`
     SELECT LEAST(
@@ -77,24 +81,12 @@ export async function weekFactsFor(builderId: number, monday: string, now: Date)
     ) AS first,
     EXISTS (SELECT 1 FROM builder_events e WHERE e.type = 'went_live' AND lower(e.repo_key) = lower(${p.key})) AS said`;
   if (live?.first && !live.said && live.first >= start && live.first < end) f.went_live = true;
-  // users_up: counted people whose first touch fell in the week (the one project's inputs).
-  const { newPeople } = await personInputsV2(builderId, now, undefined, db, { scope: p.key });
-  const up = newPeople.get(p.key)?.[week] ?? 0;
-  if (up > 0) f.users_up = { n: up };
-  // earned: creator fee claims in the week, priced at the wallet's own USD per WETH; prizes captured in the week.
-  const [fees] = await db<{ usd: string | null }[]>`
-    SELECT sum(c.weth / 1e18 * (t.usd / NULLIF(t.weth::numeric / 1e18, 0)))::text AS usd
-    FROM fee_claims c JOIN token_fees t ON lower(t.wallet) = lower(c.owner)
-    WHERE c.role = 'creator' AND c.at >= ${start} AND c.at < ${end} AND lower(c.owner) IN (
-      SELECT lower(x.creator_wallet) FROM projects x JOIN installations i ON i.id = x.installation_id
-      WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND x.token_status = 'launched' AND lower(COALESCE(x.token_repo_key, x.repo_key)) = lower(${p.key}))`;
-  const outcomes = await db<{ title: string; usd: string | null; result: string }[]>`
-    SELECT g.title, o.prize_usd::text AS usd, o.result FROM entry_outcomes o JOIN projects x ON x.id = o.project_id JOIN programs g ON g.id = o.program_id
+  // R16b: no users_up or earned facts (people and money are no longer counted); a program win stays a fact.
+  const outcomes = await db<{ title: string; result: string }[]>`
+    SELECT g.title, o.result FROM entry_outcomes o JOIN projects x ON x.id = o.project_id JOIN programs g ON g.id = o.program_id
     JOIN installations i ON i.id = x.installation_id
     WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND o.basis = 'announcement' AND o.captured_at >= ${start} AND o.captured_at < ${end}
       AND x.program_id <> ${COIN_PROGRAM} AND lower(COALESCE(x.repo_key, x.token_repo_key)) = lower(${p.key}) ORDER BY o.captured_at`;
-  const usd = Number(fees?.usd ?? 0) + outcomes.filter((x) => ['won', 'placed', 'finalist'].includes(x.result)).reduce((a, x) => a + Number(x.usd ?? 0), 0);
-  if (usd >= 1) f.earned = { usd: Math.round(usd) };
   const won = outcomes.filter((x) => x.result === 'won' || x.result === 'placed').map((x) => ({ title: x.title }));
   if (won.length > 0) f.won = won;
   // streak: this week shipped, and the run ending here is 2 or more.
@@ -124,7 +116,7 @@ export async function upsertWeekFacts(builderId: number, projectKey: string, mon
  * token (repo-proof.ts appClient); [] for any other repo. A repo that doesn't read public (repo-public.ts) is read
  * only once the builder turned titles on; fix round 1: else one GET /repos/{key} through the same client checks it,
  * and a public answer stamps builder_sources.public_at. At most 3 GitHub calls (plus the token). Only called for a
- * week with shipped code (weeklyFactsStep).
+ * week with shipped code (writeWeek).
  */
 export async function weekTitles(id: number, key: string, monday: string, now: Date, ghFetch: typeof fetch): Promise<string[]> {
   const db = sql();
@@ -146,15 +138,72 @@ export async function weekTitles(id: number, key: string, monday: string, now: D
 }
 
 /**
+ * R13: one finished week of the person's one project, as the weekly job writes it: the week's facts
+ * (weekFactsFor), its titles when it shipped code (weekTitles), the row (upsertWeekFacts, facts.checked), then one
+ * dated event per fact (dedupe key `<type>:<project_key>:<week>`). Shared by the weekly job and the backfill.
+ The anti-backdating floor is weekFactsFor's (one rule for both). The backfill's options (the weekly job passes none):
+ * - `deadline`: titles are fetched only before it (the caller's ghFetch carries the per-call abort).
+ * - `mark`: a week with shipped code whose titles read completed is stamped facts.titles_read, so the catch-up never
+ *   reads it again. Completed: a titles call on the repo answered ok (GET /repos/{key} for the private check, or its
+ *   commits and pulls) and no call failed (an answer other than ok or 404, or a throw). A token or client that came
+ *   back null without such a call, or a failed or skipped read, leaves it for the catch-up.
+ * `wrote`: false when another builder's row holds the week (nothing written, no events).
+ */
+export async function writeWeek(
+  p: { id: number; key: string }, monday: string, now: Date,
+  d: { ghFetch?: typeof fetch; deadline?: number; mark?: boolean } = {},
+): Promise<{ wrote: boolean; facts: WeekFacts; titled: boolean }> {
+  const { id, key } = p;
+  const week = weekOfMonday(monday)!;
+  const f = await weekFactsFor(id, monday, now);
+  // v2.14 spec 3 (A11): the week's titles (weekTitles). Fix round 1: a failure there never stops the facts.
+  let titles: string[] = [];
+  let titled = !f.shipped_code;
+  if (f.shipped_code && d.ghFetch && (d.deadline === undefined || Date.now() < d.deadline)) {
+    const base = d.ghFetch;
+    let failed = false;
+    let read = false;
+    const k = key.toLowerCase();
+    const repoPaths = new Set([`/repos/${k}`, `/repos/${k}/commits`, `/repos/${k}/pulls`]);
+    const tracked = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      try {
+        const res = await base(input, init);
+        if (!res.ok && res.status !== 404) failed = true;
+        if (res.ok && repoPaths.has(new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url).pathname.toLowerCase())) read = true;
+        return res;
+      } catch (err) {
+        failed = true;
+        throw err;
+      }
+    }) as typeof fetch;
+    titles = await weekTitles(id, key, monday, now, tracked).catch((err: unknown) => {
+      console.error('[weekly] titles', err instanceof Error ? err.name : 'error');
+      failed = true;
+      return [];
+    });
+    titled = read && !failed;
+  }
+  const facts: WeekFacts = { ...f, checked: true, ...(d.mark && f.shipped_code && titled && { titles_read: true as const }) };
+  if (!(await upsertWeekFacts(id, key, monday, facts, titles))) return { wrote: false, facts, titled };
+  const at = new Date(`${monday}T12:00:00Z`);
+  // R16b: weekFactsFor never sets users_up (people aren't counted), so no users_up event is written.
+  const ev = (type: 'shipped_code' | 'went_live', detail: Record<string, unknown>) =>
+    noteEvent(type, () => ({ type, dedupe_key: `${type}:${key.toLowerCase()}:${week}`, installation_id: id, repo_key: key.toLowerCase(), at, detail }));
+  if (f.shipped_code) await ev('shipped_code', { n: f.shipped_code.n, week });
+  if (f.went_live) await ev('went_live', { week });
+  return { wrote: true, facts, titled };
+}
+
+/**
  * spec "Cost": Mondays, after the digest (from 15:00 UTC), the finished week's facts for every
  * confirmed one project not done yet (facts.checked), WEEKLY_PER_RUN a run while `deadline` allows;
  * then one dated event per fact and project and week (dedupe key `<type>:<project_key>:<week>`).
  * Shared clients never. F2: an unconfirmed one project (perhaps someone else's repo) writes nothing.
+ * R13: the per-week body is writeWeek (also the backfill's).
  */
 export async function weeklyFactsStep(now: Date, o: { deadline: number; only?: number[]; ghFetch?: typeof fetch }): Promise<{ step: 'skipped' } | { people: number; rows: number }> {
   if (now.getUTCDay() !== 1 || now.getUTCHours() < WEEKLY_HOUR_UTC) return { step: 'skipped' };
   const monday = lastFinishedMonday(now);
-  const week = weekOfMonday(monday)!;
   const db = sql();
   const due = await db<{ id: number; key: string }[]>`
     SELECT p.builder_id AS id, b.project_key AS key FROM builder_profiles p
@@ -170,26 +219,125 @@ export async function weeklyFactsStep(now: Date, o: { deadline: number; only?: n
     ORDER BY p.builder_id LIMIT ${WEEKLY_PER_RUN}`;
   let people = 0;
   let rows = 0;
-  for (const { id, key } of due) {
+  for (const p of due) {
     if (Date.now() >= o.deadline) break;
-    const f = await weekFactsFor(id, monday, now);
     people++;
-    // v2.14 spec 3 (A11): the week's titles (weekTitles). Fix round 1: a failure there never stops the facts.
-    let titles: string[] = [];
-    if (f.shipped_code && o.ghFetch)
-      titles = await weekTitles(id, key, monday, now, o.ghFetch).catch((err: unknown) => {
-        console.error('[weekly] titles', err instanceof Error ? err.name : 'error');
-        return [];
-      });
-    // Another builder's row for the key and week: nothing written, no events.
-    if (!(await upsertWeekFacts(id, key, monday, { ...f, checked: true }, titles))) continue;
-    rows++;
-    const at = new Date(`${monday}T12:00:00Z`);
-    const ev = (type: 'shipped_code' | 'went_live' | 'users_up', detail: Record<string, unknown>) =>
-      noteEvent(type, () => ({ type, dedupe_key: `${type}:${key.toLowerCase()}:${week}`, installation_id: id, repo_key: key.toLowerCase(), at, detail }));
-    if (f.shipped_code) await ev('shipped_code', { n: f.shipped_code.n, week });
-    if (f.went_live) await ev('went_live', { week });
-    if (f.users_up) await ev('users_up', { n: f.users_up.n, week });
+    if ((await writeWeek(p, monday, now, { ghFetch: o.ghFetch })).wrote) rows++;
+  }
+  return { people, rows };
+}
+
+/** R13: the backfill covers this many finished weeks (lastFinishedMonday and the ones before it). */
+export const BACKFILL_WEEKS = 3;
+/** R13: the hourly catch-up's bound: projects a run, and tries a project a UTC day (rate_windows). */
+export const BACKFILL_PER_RUN = 20;
+export const BACKFILL_TRIES_A_DAY = 3;
+
+/** The backfill's Mondays, newest first. Pure. */
+export function backfillMondays(now: Date): string[] {
+  const last = Date.parse(`${lastFinishedMonday(now)}T00:00:00Z`);
+  return Array.from({ length: BACKFILL_WEEKS }, (_, i) => new Date(last - i * 7 * DAY).toISOString().slice(0, 10));
+}
+
+/**
+ * The repo reading the ship log's facts come from (weekFactsFor's: the newest good one, live or daily) of the
+ * person's verified repo source filed under `key`; null when there is none.
+ */
+async function readingOf(builderId: number, key: string): Promise<Record<string, unknown> | null> {
+  const [r] = await sql()<{ signals: Record<string, unknown> }[]>`
+    SELECT x.signals FROM builder_sources s
+    JOIN LATERAL ((SELECT l.signals, l.read_at AS at FROM source_live l WHERE l.source_id = s.id AND l.ok)
+      UNION ALL (SELECT r.signals, r.day::timestamptz AS at FROM source_readings r WHERE r.source_id = s.id AND r.ok ORDER BY r.day DESC LIMIT 1)
+      ORDER BY at DESC LIMIT 1) x ON true
+    WHERE s.builder_id = ${builderId} AND s.kind = 'repo' AND s.state = 'verified' AND lower(s.project_key) = lower(${key})
+    LIMIT 1`;
+  return r?.signals ?? null;
+}
+
+/**
+ * R13: the ship log's last BACKFILL_WEEKS finished weeks for the person's confirmed one project `key`, newest
+ * first, each through writeWeek, while `deadline` allows. A week is skipped when its row is done (checked, and
+ * titled, or no shipped code, or its titles read completed) or another builder's row holds it. Nothing is written
+ * until the repo has a good reading whose push check passed (anti-backdating: an unverified reading waits; the
+ * catch-up picks it up once a read verifies it). `done`: every week is complete (nothing left for the catch-up).
+ */
+export async function backfillWeeks(
+  p: { id: number; key: string }, now: Date, o: { deadline: number; ghFetch?: typeof fetch; mondays?: string[] },
+): Promise<{ rows: number; done: boolean }> {
+  const reading = await readingOf(p.id, p.key);
+  if (!reading || reading.pushes_checked === false) return { rows: 0, done: false };
+  const mondays = o.mondays ?? backfillMondays(now);
+  const have = await sql()<{ week: string; builder_id: number; done: boolean }[]>`
+    SELECT week::text AS week, builder_id::int AS builder_id,
+      (facts ? 'checked' AND (NOT (facts ? 'shipped_code') OR cardinality(titles) > 0 OR facts ? 'titles_read')) AS done
+    FROM project_updates WHERE lower(project_key) = lower(${p.key}) AND week IN ${sql()(mondays)}`;
+  let rows = 0;
+  let done = true;
+  for (const monday of mondays) {
+    const row = have.find((h) => h.week === monday);
+    if (row && (row.builder_id !== p.id || row.done)) continue;
+    if (Date.now() >= o.deadline) {
+      done = false;
+      break;
+    }
+    const w = await writeWeek(p, monday, now, { ghFetch: o.ghFetch, deadline: o.deadline, mark: true });
+    if (w.wrote) rows++;
+    if (w.wrote && w.facts.shipped_code && !w.titled) done = false;
+  }
+  return { rows, done };
+}
+
+/**
+ * R13: the backfill at the first App connect (repo-proof.ts proveByApp, after its read and rescore): only when the
+ * proved repo is the person's confirmed one project (shared clients never), within the connect's `deadline`.
+ */
+export async function backfillOnConnect(builderId: number, repoKey: string, now: Date, o: { deadline: number; ghFetch?: typeof fetch }): Promise<{ rows: number; done: boolean }> {
+  const db = sql();
+  const [p] = await db<{ key: string }[]>`
+    SELECT b.project_key AS key FROM builder_profiles p
+    JOIN builder_projects b ON b.builder_id = p.builder_id AND lower(b.project_key) = lower(p.main_project_key) AND ${benchConfirmedSql(db)}
+    WHERE p.builder_id = ${builderId} AND lower(b.project_key) = ${repoKey.toLowerCase()}
+      AND NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND i.shared_client)`;
+  if (!p) return { rows: 0, done: false };
+  return backfillWeeks({ id: builderId, key: p.key }, now, o);
+}
+
+/**
+ * R13: the hourly catch-up for the backfill: App-proven confirmed one projects (shared clients never) missing
+ * any of their backfill weeks' rows, or with a checked row that shipped code but has no titles and no completed
+ * titles read, whose repo reading is good and verified. BACKFILL_PER_RUN a run, each tried at most
+ * BACKFILL_TRIES_A_DAY times a UTC day (so a repo whose titles keep failing never takes every run's slots), while
+ * `deadline` allows. The newest finished week waits for the weekly job until its Monday slot (WEEKLY_HOUR_UTC).
+ */
+export async function backfillStep(now: Date, o: { deadline: number; only?: number[]; ghFetch?: typeof fetch }): Promise<{ people: number; rows: number }> {
+  const all = backfillMondays(now);
+  const mondays = now.getUTCDay() === 1 && now.getUTCHours() < WEEKLY_HOUR_UTC ? all.slice(1) : all;
+  const db = sql();
+  const day = windowStart(now, DAY);
+  const due = await db<{ id: number; key: string }[]>`
+    SELECT p.builder_id AS id, b.project_key AS key FROM builder_profiles p
+    JOIN builder_projects b ON b.builder_id = p.builder_id AND lower(b.project_key) = lower(p.main_project_key) AND ${benchConfirmedSql(db)}
+    WHERE NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND i.shared_client)
+      -- App-proven, with a good reading (readingOf's) whose push check passed.
+      AND EXISTS (SELECT 1 FROM builder_sources s
+        JOIN LATERAL ((SELECT l.signals, l.read_at AS at FROM source_live l WHERE l.source_id = s.id AND l.ok)
+          UNION ALL (SELECT r.signals, r.day::timestamptz AS at FROM source_readings r WHERE r.source_id = s.id AND r.ok ORDER BY r.day DESC LIMIT 1)
+          ORDER BY at DESC LIMIT 1) x ON true
+        WHERE s.builder_id = p.builder_id AND s.kind = 'repo' AND s.state = 'verified' AND s.proof = ${APP_PROOF}
+          AND lower(s.project_key) = lower(b.project_key) AND x.signals->'pushes_checked' IS DISTINCT FROM 'false'::jsonb)
+      AND EXISTS (SELECT 1 FROM unnest(${mondays}::date[]) m(week) WHERE NOT EXISTS (
+        SELECT 1 FROM project_updates u WHERE lower(u.project_key) = lower(b.project_key) AND u.week = m.week
+          AND (u.builder_id <> p.builder_id OR (u.facts ? 'checked' AND (NOT (u.facts ? 'shipped_code') OR cardinality(u.titles) > 0 OR u.facts ? 'titles_read')))))
+      AND NOT EXISTS (SELECT 1 FROM rate_windows w WHERE w.key = 'backfill:' || p.builder_id AND w.window_start = ${day} AND w.count >= ${BACKFILL_TRIES_A_DAY})
+      ${o.only ? db`AND p.builder_id IN ${db(o.only.length ? o.only : [-1])}` : db``}
+    ORDER BY p.builder_id LIMIT ${BACKFILL_PER_RUN}`;
+  let people = 0;
+  let rows = 0;
+  for (const p of due) {
+    if (Date.now() >= o.deadline) break;
+    await hit(`backfill:${p.id}`, BACKFILL_TRIES_A_DAY, DAY / 1000, now);
+    people++;
+    rows += (await backfillWeeks(p, now, { deadline: o.deadline, ghFetch: o.ghFetch, mondays })).rows;
   }
   return { people, rows };
 }

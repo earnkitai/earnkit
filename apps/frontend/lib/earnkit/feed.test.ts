@@ -14,19 +14,17 @@ after(async () => { if (process.env.DATABASE_URL) await sql().end(); });
 const RUN = randomBytes(3).toString('hex');
 const NOW = new Date('2026-10-21T12:00:00Z'); // a Wednesday; the last finished week is 2026-10-12
 
-test('6.1 the points table, exactly', () => {
+test('6.1 the points table, exactly (R16b: shipping facts only)', () => {
   assert.equal(pointsOf({ went_live: true }), 40);
   assert.equal(pointsOf({ won: [{ title: 'A' }, { title: 'B' }] }), 40, 'a win is 40, however many');
-  assert.equal(pointsOf({ users_up: { n: 1 } }), 6);
-  assert.equal(pointsOf({ users_up: { n: 31 } }), 30, 'min(30, 6 * log2(32)) = 30');
-  assert.equal(pointsOf({ users_up: { n: 7 } }), 18);
-  assert.equal(pointsOf({ earned: { usd: 10 } }), 5);
-  assert.equal(pointsOf({ earned: { usd: 150 } }), 20, 'min(20, 5 * log2(16))');
+  // R16b: an old row's people and money count nothing.
+  assert.equal(pointsOf({ users_up: { n: 31 } }), 0);
+  assert.equal(pointsOf({ earned: { usd: 150 } }), 0);
   assert.equal(pointsOf({ shipped_code: { n: 12 } }), 10);
   assert.equal(pointsOf({ streak: { w: 6 } }), 6);
   assert.equal(pointsOf({ streak: { w: 14 } }), 10);
   assert.equal(pointsOf({ started: { live: true, weeks: 6, people: 31 } }), 0, 'the start is not progress');
-  assert.equal(pointsOf({ went_live: true, users_up: { n: 31 }, shipped_code: { n: 1 }, streak: { w: 3 } }), 83);
+  assert.equal(pointsOf({ went_live: true, users_up: { n: 31 }, shipped_code: { n: 1 }, streak: { w: 3 } }), 53);
 });
 
 /** A listed person (claimed, ranked, shown) with one confirmed main project and rows by week. */
@@ -34,7 +32,7 @@ async function listed(score: number, weeks: { monday: string; text: string | nul
   const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`v213-feed-${randomBytes(8).toString('hex')}`}) RETURNING id`;
   const key = `f${RUN}/p${id}`;
   await sql()`INSERT INTO builder_profiles (builder_id, slug, main_project_key, x_user_id, x_handle, x_name) VALUES (${id}, ${`v213f-${id}`}, ${key}, ${`fx${id}`}, ${`f${RUN}${id}`}, 'Maya')`;
-  await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at) VALUES (${id}, ${score}, '{}'::jsonb, true, 1, 0, 'v2', 'v2-launch', now())`;
+  await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at) VALUES (${id}, ${score}, '{}'::jsonb, true, 1, 0, 'v2', 'v2-shipping', now())`;
   await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped) VALUES (${id}, ${key}, 'Recipe planner', 'app', true, true)`;
   // Final fix M1: the feed reads the Bench gate (the repo's own proof) now.
   await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES (${id}, 'repo', ${key}, ${key}, 'verified', 'proof_line', 'agent')`;

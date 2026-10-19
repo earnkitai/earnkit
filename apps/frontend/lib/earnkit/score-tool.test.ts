@@ -1,10 +1,11 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { SCORE_SHARED, scoreReply } from './score-tool';
 import { listPrograms, upsertProgram } from './programs';
 import { ProgramFile } from './program-file';
 import { committedProgram } from './fixtures/program-file';
-import { siteShowsUse, verifiedProject } from './builder-score';
+import { siteShowsUse } from './builder-score';
 import { discover } from './discovery';
 import type { ReaderDeps } from './source-readers';
 import { profileCode } from './discovery-clues';
@@ -50,9 +51,6 @@ const profile = (id: number, o: { held?: boolean } = {}) =>
   sql()`INSERT INTO builder_profiles (builder_id, slug, held) VALUES (${id}, ${`s${id}`}, ${o.held ?? false})`;
 const source = (id: number, kind: string, ref: string, state: string, proof: string | null = null, project_key = ref) =>
   sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES (${id}, ${kind}, ${ref}, ${project_key}, ${state}, ${proof}, 'server')`;
-const project = (id: number, key: string, confirmed: boolean, people: number, money: number) =>
-  sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, people, money_usd)
-    VALUES (${id}, ${key}, 'app', 'app', ${confirmed}, true, ${people}, ${money})`;
 
 test('8.12 (v2.12.1 S9) discovery no longer reads earnkit.txt: a repo-linked site keeps its repo_link proof', dbTest, async () => {
   const id = T + 5;
@@ -65,7 +63,7 @@ test('8.12 (v2.12.1 S9) discovery no longer reads earnkit.txt: a repo-linked sit
     throw new Error('unexpected');
   };
   const reader: ReaderDeps = {
-    gh: no, ghGraphql: no, tokenTransfers: no, probe: no, json: no, baseTxs: no, contractOrigin: no, arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, walletCreations: no, now: NOW,
+    gh: no, ghGraphql: no, probe: no, json: no, contractOrigin: no, walletCreations: no, now: NOW,
     fetchText: async (url) => {
       read.push(url);
       if (url === 'https://app.lee.dev/earnkit.txt') return `profile: ${profileCode(id, 'https://app.lee.dev', SECRET)}\n`;
@@ -91,19 +89,9 @@ test('9.8 listPrograms carries agent_completable, so the score tool never names 
   await sql()`UPDATE programs SET status = 'closed' WHERE id IN (${hard.id}, ${easy.id})`;
 });
 
-test('9.9 (v2.12.1 T12) odds read the person\'s live confirmed project: its people and money, for that repo only, never while a rescore is held', dbTest, async () => {
-  const id = T + 15;
-  await profile(id);
-  await project(id, `Lee${T}/App`, true, 60, 600);
-  await project(id, `lee${T}/draft`, false, 900, 9000);
-  assert.deepEqual(await verifiedProject(id, `lee${T}/app`), { users: 60, money_usd: 600 });
-  assert.equal(await verifiedProject(id, `lee${T}/draft`), null, 'not confirmed: nothing counts');
-  assert.equal(await verifiedProject(id, `lee${T}/other`), null);
-  assert.equal(await verifiedProject(T + 16, `lee${T}/app`), null, 'no profile: v2.10 traction');
-  await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, pending, computed_at)
-    VALUES (${id}, 10, '{}', true, 1, 60, 'v2', 'v2-launch', ${sql().json({ score: 90 } as never)}, now())`;
-  assert.equal(await verifiedProject(id, `lee${T}/app`), null, 'held for review: v2.10 traction');
-  await sql()`DELETE FROM builder_live WHERE builder_id = ${id}`;
-  await sql()`UPDATE builder_profiles SET held = true WHERE builder_id = ${id}`;
-  assert.equal(await verifiedProject(id, `lee${T}/app`), null);
+test('9.9 (R16b) odds no longer read counted people and money: the matching wiring is gone', async () => {
+  const mod = await import('./builder-score');
+  assert.equal('verifiedProject' in mod, false);
+  const tools = readFileSync(new URL('./tools.ts', import.meta.url), 'utf8');
+  assert.doesNotMatch(tools, /verified: \(k: string\)/);
 });

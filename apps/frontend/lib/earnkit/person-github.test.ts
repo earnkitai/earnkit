@@ -20,8 +20,8 @@ test('3.1 one query reads every public repo of a person into v2.12 repo signals'
   assert.equal(g.twitter, 'lee_builds');
   const r = g.repos.get('lee/tipjar')!;
   assert.equal(r.homepage, 'https://tip.example.com');
-  assert.deepEqual(r.stargazers, [{ id: 'gh:ann', at: '2026-09-01T00:00:00Z', created_at: '2020-01-01T00:00:00Z' }]);
-  assert.deepEqual(r.forkers.map((f) => f.id), ['gh:bob']);
+  // R16b: stars and forks are no longer read.
+  assert.deepEqual([r.stargazers, r.forkers, r.partial], [[], [], false]);
   assert.deepEqual(r.commit_weeks, ['2026-W40']);
   assert.equal(r.derived, false);
 });

@@ -1,16 +1,13 @@
-import { isoWeek, type ReaderDeps, type RepoSignals, type Who } from './source-readers';
+import { isoWeek, type ReaderDeps, type RepoSignals } from './source-readers';
 
 /**
- * The fields read for every repo, in the person query and the by-name query: its homepage, the
- * newest 10 stargazers and forks (account ages included, for the fresh-account rule) and commit days
- * of the last 52 weeks (the newest 100 commits; sources.ts keeps earlier weeks from the previous
- * reading).
+ * The fields read for every repo, in the person query and the by-name query: its homepage and commit days
+ * of the last 52 weeks (the newest 100 commits; sources.ts keeps earlier weeks from the previous reading).
+ * Scoring and clarity R16b: no stargazers or forks (no score uses them).
  */
-const REPO_FIELDS = `nameWithOwner description homepageUrl primaryLanguage { name } isFork isTemplate isPrivate createdAt pushedAt stargazerCount forkCount
+const REPO_FIELDS = `nameWithOwner description homepageUrl primaryLanguage { name } isFork isTemplate isPrivate createdAt pushedAt
         owner { __typename login }
         parent { nameWithOwner } templateRepository { nameWithOwner }
-        stargazers(last: 10, orderBy: {field: STARRED_AT, direction: ASC}) { edges { starredAt node { login createdAt } } }
-        forks(first: 10, orderBy: {field: CREATED_AT, direction: DESC}) { nodes { createdAt owner { login ... on User { createdAt } } } }
         defaultBranchRef { target { ... on Commit { history(first: 100, since: $since) { nodes { committedDate } } } } }`;
 
 /**
@@ -65,14 +62,13 @@ export type PersonRepo = RepoSignals & {
   name?: string | null;
   /** v2.12.2: a sign it is a website (a homepage, or mostly web code): only then is putting it online offered. */
   web?: boolean;
-  key: string; description: string | null; homepage: string | null; pushed_at: string | null; derived: boolean; stars: number; forks: number;
+  key: string; description: string | null; homepage: string | null; pushed_at: string | null; derived: boolean;
 };
 export type PersonGithub = { login: string; twitter: string | null; website: string | null; repos: Map<string, PersonRepo> };
 
 const LOGIN = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}$/i;
 const REPO = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}\/(?!\.\.?$)[a-z0-9._-]{1,100}$/i;
 const str = (x: unknown) => (typeof x === 'string' && x.length > 0 ? x : null);
-const num = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) && x > 0 ? x : 0);
 const arr = (x: unknown): unknown[] => (Array.isArray(x) ? x : []);
 type O = Record<string, unknown>;
 const obj = (x: unknown): O => (x && typeof x === 'object' && !Array.isArray(x) ? (x as O) : {});
@@ -86,18 +82,6 @@ function repoFrom(raw: unknown, now: Date): PersonRepo | null {
   const r = obj(raw);
   const key = str(r.nameWithOwner)?.toLowerCase();
   if (!key || !REPO.test(key)) return null;
-  const stargazers: Who[] = arr(obj(r.stargazers).edges).flatMap((e) => {
-    const n = obj(obj(e).node);
-    const l = str(n.login);
-    const at = str(obj(e).starredAt);
-    return l && at ? [{ id: `gh:${l.toLowerCase()}`, at, created_at: str(n.createdAt) }] : [];
-  });
-  const forkers: Who[] = arr(obj(r.forks).nodes).flatMap((f) => {
-    const o = obj(obj(f).owner);
-    const l = str(o.login);
-    const at = str(obj(f).createdAt);
-    return l && at ? [{ id: `gh:${l.toLowerCase()}`, at, created_at: str(o.createdAt) }] : [];
-  });
   const commits = arr(obj(obj(obj(obj(r.defaultBranchRef).target).history)).nodes)
     .map((c) => Date.parse(str(obj(c).committedDate) ?? ''))
     .filter((t) => Number.isFinite(t) && t <= now.getTime());
@@ -111,16 +95,15 @@ function repoFrom(raw: unknown, now: Date): PersonRepo | null {
   return {
     key, owner: key.split('/')[0], owner_type: obj(r.owner).__typename === 'Organization' ? 'Organization' : 'User', private: r.isPrivate === true,
     created_at: str(r.createdAt), fork, template,
-    stargazers, forkers, issue_authors: [], contributors: [],
+    stargazers: [], forkers: [], issue_authors: [], contributors: [],
     commit_weeks: [...new Set(commits.map((t) => isoWeek(new Date(t))))].sort(),
     commit_counts: counts,
-    partial: num(r.stargazerCount) > stargazers.length || num(r.forkCount) > forkers.length,
+    partial: false,
     description: str(r.description)?.slice(0, 200) ?? null,
     name: str(r.nameWithOwner)?.split('/')[1] ?? null,
     web: str(r.homepageUrl) !== null || WEB_LANGS.has(str(obj(r.primaryLanguage).name)?.toLowerCase() ?? ''),
     homepage: str(r.homepageUrl), pushed_at: str(r.pushedAt),
     derived: fork || template || obj(r.parent).nameWithOwner !== undefined || obj(r.templateRepository).nameWithOwner !== undefined,
-    stars: num(r.stargazerCount), forks: num(r.forkCount),
   };
 }
 
@@ -173,8 +156,7 @@ export async function readGithubUser(login: string, d: ReaderDeps): Promise<Pers
  * v2.13.3 (5): the repos EarnKit's own token can't read (private, or an org's it can't see), each read
  * with the read-only GitHub App's installation token for exactly that repo, minted per call for the
  * person whose source it is (github-app.ts appTokenFor: only their own App proof of that repo). Never
- * stored or logged. One GraphQL call each (reposQuery), and an organization's contributors (one REST
- * call, for the top-contributor rule) with the same token. Keyed by source id, so one person's
+ * stored or logged. One GraphQL call each (reposQuery). Keyed by source id, so one person's
  * installation never reads into another's source. Only under the Bench, with the App on and a fetch;
  * a repo without a token is absent. A failed read throws (the caller writes a failed reading).
  */
@@ -204,22 +186,7 @@ export async function readAppRepos(items: { id: number; builder_id: number; ref:
     if (!graphqlUsable(body)) throw new Error('GitHub GraphQL answered errors');
     const r = repoFrom(obj(obj(body).data).r0, d.now);
     if (!r || r.key !== key) continue;
-    let contributors = r.contributors;
-    if (r.owner_type === 'Organization') {
-      const c = await f(`https://api.github.com/repos/${key}/contributors?per_page=100`, {
-        redirect: 'manual', signal: AbortSignal.timeout(15_000),
-        headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'earnkit', 'X-GitHub-Api-Version': '2022-11-28', Authorization: `Bearer ${token}` },
-      });
-      if (!c.ok) {
-        await c.body?.cancel().catch(() => {});
-        throw new Error(`GitHub contributors returned ${c.status}`);
-      }
-      contributors = arr(await c.json()).flatMap((x) => {
-        const l = str(obj(x).login);
-        return l ? [{ id: `gh:${l.toLowerCase()}`, at: d.now.toISOString() }] : [];
-      });
-    }
-    out.set(s.id, { ...r, key, contributors });
+    out.set(s.id, { ...r, key });
   }
   return out;
 }

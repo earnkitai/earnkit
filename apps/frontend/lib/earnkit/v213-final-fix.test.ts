@@ -9,12 +9,13 @@ import { benchRows, benchCardFacts, parseBenchFilter, profileData } from './benc
 import { chainPools } from './bench-rank';
 import { carouselCards, feedWeeks, rankFeed } from './feed';
 import { mainProjectOf, pickMainProject, setMainProject } from './main-project';
-import { RAISE_LINES, pillOf, raiseAsk, setRaising } from './raising';
+import { RAISE_LINES, pillOf, setRaising, showRaisingLine } from './raising';
+import { tokenAsk } from './bench-find';
 import { coinLine, raiseLine } from './coin-moments';
 import { UPDATE_LIMIT_NOTE, UPDATE_POSTS_PER_DAY, postUpdate } from './updates';
 import { raisingEnabled } from './builder-score-flag';
 import { TELL_DESCRIPTION_BENCH, TELL_DESCRIPTION_BENCH_NO_RAISING, toolDescriptions } from './mcp';
-import BenchView, { FILTER_RAISING } from '../../app/bench/BenchView';
+import BenchView, { FILTER_RAISING } from '../../app/leaderboard/BenchView';
 import BenchTop from '../../app/components/sections/BenchTop';
 import { GET as llms } from '../../app/llms.txt/route';
 
@@ -77,7 +78,7 @@ async function listed(o: { name?: string; public?: boolean; chains?: string[]; r
   const id = await installation();
   const key = `fx${RUN}/repo${id}`;
   await sql()`INSERT INTO builder_profiles (builder_id, slug, main_project_key, x_user_id, x_handle, x_name) VALUES (${id}, ${`v213fx-${id}`}, ${key}, ${`fxx${id}`}, ${`fx${RUN}${id}`}, 'Maya')`;
-  await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at) VALUES (${id}, ${o.score ?? 50}, '{}'::jsonb, true, 1, 0, 'v2', 'v2-launch', now())`;
+  await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at) VALUES (${id}, ${o.score ?? 50}, '{}'::jsonb, true, 1, 0, 'v2', 'v2-shipping', now())`;
   await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, chains) VALUES (${id}, ${key}, ${o.name ?? `repo${id}`}, 'app', true, true, ${o.chains ?? []})`;
   const [{ sid }] = await sql()<{ sid: number }[]>`
     INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES (${id}, 'repo', ${key}, ${key}, 'verified', 'proof_line', 'agent') RETURNING id::int AS sid`;
@@ -198,7 +199,8 @@ test('F10 raising off: no raise ask, no raise line (the coin moment is v2.12.1\'
     VALUES ('earnkit-coin', 'Recipe planner', ${`https://github.com/${p.key}`}, ${`github.com/${p.key}`}, ${p.id}, 'RECIPE', 'launched', ${`https://tokens.fun/c/${p.id}`})`;
   const coin = { name: 'Recipe planner', symbol: 'RECIPE' };
   await withRaising(false, async () => {
-    assert.equal(await raiseAsk(p.id, p.key, {}), null);
+    // R8: asked about a token, a launched coin is just live (no community-round line while EARNKIT_RAISING is off).
+    assert.equal((await tokenAsk(p.id)).show_to_builder, 'Your coin is already live.');
     // v2.13.3 review: under the Bench the question is last.
     assert.equal(coinLine('has_people', 'Recipe planner', null, coin), 'Recipe planner has people using it. A coin pays you 40% of its trading fees. Want to launch a coin, $RECIPE (Recipe planner), for it?');
     assert.deepEqual(await setRaising(p.id, true), { show_to_builder: 'Okay.' });
@@ -206,21 +208,21 @@ test('F10 raising off: no raise ask, no raise line (the coin moment is v2.12.1\'
     assert.equal(row.raising, false);
   });
   await withRaising(true, async () => {
-    assert.ok(await raiseAsk(p.id, p.key, {}));
+    assert.equal((await tokenAsk(p.id)).show_to_builder, showRaisingLine('RECIPE'));
     assert.equal(coinLine('has_people', 'Recipe planner', null, coin), raiseLine('Recipe planner', 'RECIPE', null));
     assert.deepEqual(await setRaising(p.id, true), { show_to_builder: RAISE_LINES.on('RECIPE') });
   });
 });
 
 test('F11 raising off: the Bench, the landing top 10, tell\'s description and llms.txt name no raising', async () => {
-  const row = { rank: 1, line: '#1 of 2', handle: 'maya', name: 'Maya', avatar: null, raising: null, chains: [], project: 'Recipe planner', best: 'Live' };
+  const row = { rank: 1, line: '#1 of 2', points: 62, handle: 'maya', name: 'Maya', avatar: null, raising: null, chains: [], project: 'Recipe planner', best: 'Live' };
   const filter = { chain: null, raising: false, weekly: false };
   const off = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 2, chips: [], filter, raising: false }));
   assert.ok(!off.includes(FILTER_RAISING) && !off.includes('raising=1'));
   const on = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 2, chips: [], filter, raising: true }));
   assert.ok(on.includes(FILTER_RAISING) && on.includes('raising=1'));
-  assert.ok(!renderToStaticMarkup(React.createElement(BenchTop, { rows: [row], chips: [], raising: false })).includes(FILTER_RAISING));
-  assert.ok(renderToStaticMarkup(React.createElement(BenchTop, { rows: [row], chips: [], raising: true })).includes(FILTER_RAISING));
+  // R18: the landing's top 10 has no filter chips at all (they live on /leaderboard).
+  assert.ok(!renderToStaticMarkup(React.createElement(BenchTop, { rows: [row], count: 1 })).includes(FILTER_RAISING));
   await withRaising(false, async () => {
     assert.equal(toolDescriptions(false).tell, TELL_DESCRIPTION_BENCH_NO_RAISING);
     assert.ok(!TELL_DESCRIPTION_BENCH_NO_RAISING.includes('raising'));

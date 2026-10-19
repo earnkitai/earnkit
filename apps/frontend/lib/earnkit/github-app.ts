@@ -7,6 +7,7 @@ import {
   cookieValue,
   csrfCookieName,
   githubVerifyEnabled,
+  notFoundPage,
   limited,
   saveVerification,
   takeNonce,
@@ -219,7 +220,7 @@ export const APP_PAGE = {
  * client never gets an App link, Ruling T6-2). Never logs the nonce, a token or the key.
  */
 export async function appSetup(request: Request, deps: AppDeps & RouteDeps = {}): Promise<Response> {
-  if (!githubAppEnabled()) return new Response('Not found', { status: 404 });
+  if (!githubAppEnabled()) return notFoundPage();
   const busy = await limited(request, deps);
   if (busy) return busy;
   const q = new URL(request.url).searchParams;

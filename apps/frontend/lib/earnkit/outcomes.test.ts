@@ -354,3 +354,36 @@ test('3.x an announcement writes won and lost events with the results link and b
     }
   }),
 );
+
+test('Task 4 fix round 1: a closed program keeps its results tracking: the results question is still asked and an announcement still labels its entries', dbTest, async () => {
+  const { outcomeToAsk } = await import('./outcomes');
+  const tag = `outcomes-closed-${process.pid}-${Date.now()}`;
+  const db = sql();
+  const [{ id: inst }] = await db<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${tag}) RETURNING id`;
+  // As arc-microgrants: closed past its deadline, results expected after it.
+  await db`
+    INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work, ends_at, results)
+    VALUES (${tag}, 'o', ${tag}, 'd', 'https://x', 'https://x', 'r', 's', 'closed', 'allowed', '2026-10-15T03:59:00Z',
+      ${db.json({ url: 'https://x.example/results', expected: '2026-10-21' } as never)})`;
+  try {
+    const [{ id: entry }] = await db<{ id: number }[]>`
+      INSERT INTO projects (program_id, name, installation_id, repo_url, submitted_at)
+      VALUES (${tag}, 'TipJar', ${inst}, 'https://github.com/a/tipjar', '2026-10-10T00:00:00Z') RETURNING id`;
+    // Before results are due: nothing; after: the one question, once.
+    assert.equal(await outcomeToAsk(inst, new Date('2026-10-20T12:00:00Z')), null);
+    assert.equal((await outcomeToAsk(inst, new Date('2026-10-22T12:00:00Z')))?.project_id, entry);
+    assert.equal(await outcomeToAsk(inst, new Date('2026-10-22T12:00:00Z')), null, 'asked once');
+    // The announcement labels the closed program's entry.
+    const synced = await syncOutcomeFile({
+      program_id: tag, round_label: 'R1', source_url: 'https://x.example/results', captured_at: '2026-10-22', complete: true,
+      entries_from: '2026-10-01', entries_until: '2026-10-15', results: [{ repo: 'github.com/a/tipjar', result: 'won' as const }],
+    });
+    assert.equal(synced.matched, 1);
+    const [o] = await db<{ result: string }[]>`SELECT result FROM entry_outcomes WHERE project_id = ${entry} AND basis = 'announcement'`;
+    assert.equal(o?.result, 'won');
+  } finally {
+    await db`DELETE FROM entry_outcomes WHERE program_id = ${tag}`;
+    await db`DELETE FROM projects WHERE program_id = ${tag}`;
+    await db`DELETE FROM programs WHERE id = ${tag}`;
+  }
+});

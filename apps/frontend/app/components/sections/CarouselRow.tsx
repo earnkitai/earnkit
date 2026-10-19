@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { arrowState, scrollStep } from './carousel';
 
 const ARROW =
-  'flex h-11 w-11 items-center justify-center rounded-full border-2 border-ek-blue-soft/50 text-ek-blue-light transition-colors hover:border-ek-blue-light hover:text-white disabled:cursor-default disabled:border-ek-blue-soft/15 disabled:text-ek-blue-soft/30';
+  'flex h-11 w-11 items-center justify-center rounded-full border border-ek-line-strong text-ek-text transition-colors hover:bg-ek-chip disabled:cursor-default disabled:border-ek-line disabled:text-ek-muted/40 disabled:hover:bg-transparent';
 
 function Chevron({ dir }: { dir: 1 | -1 }) {
   return (
@@ -70,7 +70,7 @@ export default function CarouselRow({
 
   return (
     <>
-      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
         {head}
         <div className="hidden gap-3 md:flex">
           <button type="button" aria-label={`Previous ${noun}`} disabled={!arrows.prev} onClick={() => step(-1)} className={ARROW}>
@@ -82,13 +82,13 @@ export default function CarouselRow({
         </div>
       </div>
 
-      {/* Mobile: the row runs to the panel's edges so the next card peeks; the padding keeps focus rings unclipped. */}
+      {/* Mobile: the row runs to the screen's edges so the next card peeks; the padding keeps focus rings unclipped. */}
       <ul
         ref={scroller}
         tabIndex={0}
         aria-label={label}
         onScroll={update}
-        className="-mx-6 mt-8 flex snap-x snap-mandatory gap-4 overflow-x-auto scroll-px-6 px-6 py-2 [scrollbar-width:none] md:-mx-2 md:mt-10 md:scroll-px-2 md:px-2 [&::-webkit-scrollbar]:hidden"
+        className="-mx-4 mt-6 flex snap-x snap-mandatory gap-4 overflow-x-auto scroll-px-4 px-4 py-2 [scrollbar-width:none] md:-mx-2 md:mt-8 md:scroll-px-2 md:px-2 [&::-webkit-scrollbar]:hidden"
       >
         {children}
       </ul>
